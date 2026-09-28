@@ -70,7 +70,7 @@ export class MultiEndpointRealtimeClient {
   }
 
   async reconnect(reason = "reconnect"): Promise<void> {
-    await Promise.allSettled([...this.clients.values()].map((client) => client.reconnect(reason)));
+    await Promise.allSettled([...this.clients.values()].filter(client => client.diagnostics().requiresManualReconnect || ["disconnected", "paused"].includes(client.diagnostics().streamStatus)).map((client) => client.reconnect(reason)));
     this.updateMergedState();
   }
 

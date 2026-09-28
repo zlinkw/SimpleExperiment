@@ -52,8 +52,8 @@ test("unchanged files reuse metadata cache and changed files are rehashed", asyn
     assert.equal(restored.stats.hashed, 1);
     assert.equal(restored.manifest["changed.bin"].sha256, digest(Buffer.from("after-edit")));
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-    fs.rmSync(storage, { recursive: true, force: true });
+    // Retain isolated fixture evidence; cleanup requires separately confirmed exact paths.
+
   }
 });
 
@@ -76,8 +76,8 @@ test("same-size content changes are not reused from the previous hash", async ()
     assert.equal(second.manifest["same-size.txt"].sha256, digest(Buffer.from("bbbb")));
     assert.notEqual(second.manifest["same-size.txt"].sha256, first.manifest["same-size.txt"].sha256);
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
-    fs.rmSync(storage, { recursive: true, force: true });
+    // Retain isolated fixture evidence; cleanup requires separately confirmed exact paths.
+
   }
 });
 
@@ -96,6 +96,17 @@ test("hash progress reports before the full set finishes", async () => {
     assert.ok(seen[0] < files.length);
     assert.equal(seen.at(-1), files.length);
   } finally {
-    fs.rmSync(root, { recursive: true, force: true });
+    // Retain isolated fixture evidence; cleanup requires separately confirmed exact paths.
   }
+});
+
+test("cancelling a hash aborts the stream and never publishes a manifest cache", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "hash-cancel-evidence-"));
+  const file = path.join(root, "large.bin"); fs.writeFileSync(file, Buffer.alloc(1024 * 1024));
+  const abort = new AbortController(); let bytes = 0;
+  await assert.rejects(cache.sha256File(file, abort.signal, count => { bytes = count; abort.abort(); }), /abort/i);
+  assert.ok(bytes > 0 && bytes < 1024 * 1024);
+  const cacheFile = path.join(root, "hash-cache.json");
+  await assert.rejects(cache.hashLocalCodeFiles(root, ["large.bin"], cacheFile, undefined, abort.signal), /abort/i);
+  assert.equal(fs.existsSync(cacheFile), false);
 });

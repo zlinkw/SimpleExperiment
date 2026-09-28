@@ -36,6 +36,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.localCodeManifestCachePath = localCodeManifestCachePath;
 exports.sha256File = sha256File;
 exports.hashLocalCodeFiles = hashLocalCodeFiles;
+const ProgressInactivity_1 = require("../core/ProgressInactivity");
+const HostOperationLease_1 = require("../core/HostOperationLease");
 const crypto = __importStar(require("crypto"));
 const fs = __importStar(require("fs/promises"));
 const fsNode = __importStar(require("fs"));
@@ -89,75 +91,102 @@ async function readCache(file) {
     return { schemaVersion: CACHE_SCHEMA_VERSION, files: {} };
 }
 async function writeCache(file, document) {
+    const root = path.dirname(path.resolve(file));
+    return new HostOperationLease_1.HostOperationLeaseManager().run({ pluginId: "simple-local.simple-experiment", workspaceUri: root, hostProjectPath: root,
+        actionType: "hash-cache-write", waitForConflict: true, resources: [{ server: "local", project: root, target: path.resolve(file) }] }, () => writeCacheOwned(file, document));
+}
+async function writeCacheOwned(file, document) {
     await fs.mkdir(path.dirname(file), { recursive: true });
-    const temp = `${file}.${process.pid}.tmp`;
+    const temp = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
     await fs.writeFile(temp, JSON.stringify(document), "utf8");
     await fs.rename(temp, file);
 }
-async function sha256File(file) {
+async function sha256File(file, signal, onBytes) {
     return new Promise((resolve, reject) => {
         const hash = crypto.createHash("sha256");
-        const input = fsNode.createReadStream(file);
-        input.on("data", (chunk) => hash.update(chunk));
+        const input = fsNode.createReadStream(file, { signal });
+        let bytes = 0;
+        input.on("data", (chunk) => { hash.update(chunk); bytes += Buffer.byteLength(chunk); onBytes?.(bytes); });
         input.on("error", reject);
         input.on("end", () => resolve(hash.digest("hex")));
     });
 }
-async function hashLocalCodeFiles(root, files, cacheFile, onProgress) {
-    const cache = cacheFile ? await readCache(cacheFile) : { schemaVersion: CACHE_SCHEMA_VERSION, files: {} };
-    const manifest = {};
-    const nextFiles = {};
-    const stats = { listed: files.length, reused: 0, hashed: 0, pruned: 0 };
-    const concurrency = 12;
-    let nextIndex = 0;
-    let completed = 0;
-    const progressEvery = Math.max(25, Math.ceil(files.length / 20));
-    async function worker() {
-        while (true) {
-            const index = nextIndex++;
-            if (index >= files.length)
-                break;
-            const relative = files[index].replace(/\\/g, "/");
-            const full = path.join(root, relative);
-            const stat = await fs.stat(full);
-            const identity = identityFromStat(stat);
-            const cached = cache.files[relative];
-            if (sameIdentity(cached, identity)) {
-                manifest[relative] = { size: stat.size, sha256: cached.sha256.toLowerCase() };
-                nextFiles[relative] = cached;
-                stats.reused++;
+async function hashLocalCodeFiles(root, files, cacheFile, onProgress, signal) {
+    const abort = new AbortController();
+    const onAbort = () => abort.abort(signal?.reason);
+    if (signal?.aborted)
+        onAbort();
+    else
+        signal?.addEventListener("abort", onAbort, { once: true });
+    const idle = new ProgressInactivity_1.ProgressInactivity(120_000, () => abort.abort(new Error("本地哈希 120 秒无真实进展。请检查文件是否可读，再重试。")));
+    try {
+        abort.signal.throwIfAborted();
+        const cache = cacheFile ? await readCache(cacheFile) : { schemaVersion: CACHE_SCHEMA_VERSION, files: {} };
+        const manifest = {};
+        const nextFiles = {};
+        const stats = { listed: files.length, reused: 0, hashed: 0, pruned: 0 };
+        const concurrency = 12;
+        let nextIndex = 0;
+        let completed = 0;
+        const progressEvery = Math.max(25, Math.ceil(files.length / 20));
+        async function worker() {
+            while (true) {
+                abort.signal.throwIfAborted();
+                const index = nextIndex++;
+                if (index >= files.length)
+                    break;
+                const relative = files[index].replace(/\\/g, "/");
+                const full = path.join(root, relative);
+                const stat = await fs.stat(full);
+                const identity = identityFromStat(stat);
+                const cached = cache.files[relative];
+                if (sameIdentity(cached, identity)) {
+                    manifest[relative] = { size: stat.size, sha256: cached.sha256.toLowerCase() };
+                    nextFiles[relative] = cached;
+                    stats.reused++;
+                }
+                else {
+                    const before = identityFromStat(await fs.stat(full));
+                    const sha256 = (await sha256File(full, abort.signal, bytes => idle.update({ phase: "hashing", scope: relative, processedBytes: bytes }))).toLowerCase();
+                    const after = identityFromStat(await fs.stat(full));
+                    if (!before || !after || !sameIdentity({ ...before, sha256: "0".repeat(64) }, after) || before.size !== stat.size) {
+                        throw new Error(`本地文件在哈希期间发生变化：${relative}`);
+                    }
+                    manifest[relative] = { size: after.size, sha256 };
+                    nextFiles[relative] = { ...after, sha256 };
+                    stats.hashed++;
+                }
+                abort.signal.throwIfAborted();
+                completed++;
+                idle.update({ phase: "hashing", processedFiles: completed });
+                if (onProgress && (completed === files.length || completed % progressEvery === 0))
+                    onProgress({ ...stats });
+            }
+        }
+        const workers = await Promise.allSettled(Array.from({ length: Math.min(concurrency, Math.max(1, files.length)) }, () => worker().catch(error => { abort.abort(error); throw error; })));
+        const failed = workers.find(row => row.status === "rejected");
+        if (failed)
+            throw failed.reason;
+        abort.signal.throwIfAborted();
+        if (cacheFile) {
+            stats.pruned = Object.keys(cache.files).filter((file) => !Object.prototype.hasOwnProperty.call(nextFiles, file)).length;
+            const unchanged = stats.hashed === 0 && stats.pruned === 0 && Object.keys(nextFiles).length === Object.keys(cache.files).length;
+            if (unchanged) {
+                stats.cacheWriteSkipped = 1;
             }
             else {
-                const before = identityFromStat(await fs.stat(full));
-                const sha256 = (await sha256File(full)).toLowerCase();
-                const after = identityFromStat(await fs.stat(full));
-                if (!before || !after || !sameIdentity({ ...before, sha256: "0".repeat(64) }, after) || before.size !== stat.size) {
-                    throw new Error(`本地文件在哈希期间发生变化：${relative}`);
+                try {
+                    await writeCache(cacheFile, { schemaVersion: CACHE_SCHEMA_VERSION, files: nextFiles });
                 }
-                manifest[relative] = { size: after.size, sha256 };
-                nextFiles[relative] = { ...after, sha256 };
-                stats.hashed++;
+                catch (error) {
+                    console.warn(`[SimpleExperiment] local code manifest cache write failed: ${error instanceof Error ? error.message : String(error)}`);
+                }
             }
-            completed++;
-            if (onProgress && (completed === files.length || completed % progressEvery === 0))
-                onProgress({ ...stats });
         }
+        return { manifest, stats };
     }
-    await Promise.all(Array.from({ length: Math.min(concurrency, Math.max(1, files.length)) }, () => worker()));
-    if (cacheFile) {
-        stats.pruned = Object.keys(cache.files).filter((file) => !Object.prototype.hasOwnProperty.call(nextFiles, file)).length;
-        const unchanged = stats.hashed === 0 && stats.pruned === 0 && Object.keys(nextFiles).length === Object.keys(cache.files).length;
-        if (unchanged) {
-            stats.cacheWriteSkipped = 1;
-        }
-        else {
-            try {
-                await writeCache(cacheFile, { schemaVersion: CACHE_SCHEMA_VERSION, files: nextFiles });
-            }
-            catch (error) {
-                console.warn(`[SimpleExperiment] local code manifest cache write failed: ${error instanceof Error ? error.message : String(error)}`);
-            }
-        }
+    finally {
+        idle.dispose();
+        signal?.removeEventListener("abort", onAbort);
     }
-    return { manifest, stats };
 }

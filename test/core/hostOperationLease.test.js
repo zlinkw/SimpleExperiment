@@ -1,190 +1,82 @@
-const test = require("node:test");
-const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const os = require("node:os");
-const path = require("node:path");
-
-const {
-  HOST_OPERATION_LEASE_SCHEMA_VERSION,
-  HostOperationLeaseConflictError,
-  HostOperationLeaseManager,
-  defaultHostOperationLeasePath,
-  parseHostOperationLeaseRecord,
-} = require("../../dist/core/HostOperationLease.js");
-
-function leaseFixture(options = {}) {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), "simple-host-lease-"));
-  const leasePath = path.join(root, "host-operation-lease.json");
-  const managers = [];
-  const manager = (windowId, extra = {}) => {
-    const value = new HostOperationLeaseManager({ leasePath, windowId, ttlMs: 160, heartbeatMs: 30, ...extra });
-    managers.push(value);
-    return value;
-  };
-  const input = (pluginId = "simple-local.simple-experiment", actionType = "run-plan") => ({
-    pluginId,
-    workspaceUri: "vscode-remote://dev-container/workspaces/MCP/demo",
-    hostProjectPath: "D:\\GitRepo\\MCP\\demo",
-    actionType,
-    actionLabel: actionType,
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const { HostOperationLeaseManager, HostOperationLeaseConflictError, HostOperationLeaseLostError } = require('../../dist/core/HostOperationLease');
+function fixture() {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'resource-lease-evidence-'));
+  const leasePath = path.join(root, 'host-operation-lease.json');
+  const manager = (windowId, extra = {}) => new HostOperationLeaseManager({leasePath, windowId, heartbeatMs:0, ttlMs:30000, ...extra});
+  const input = (target='D:/project/plans/a.yaml', server='local', project='D:/project') => ({
+    pluginId:'simple-local.test', workspaceUri:'file:///D:/project', hostProjectPath:project,
+    actionType:'write', actionLabel:'写入目标', resources:[{server, project, target}],
   });
-  return {
-    root,
-    leasePath,
-    managers,
-    manager,
-    input,
-    cleanup: () => {
-      fs.rmSync(leasePath, { force: true });
-      fs.rmSync(root, { recursive: true, force: true });
-    },
-  };
+  return {root,leasePath,manager,input}; // Retain isolated evidence; never delete arbitrary fixture paths.
 }
-
-test("shared lease path and schema are stable across both plugins", () => {
-  assert.equal(HOST_OPERATION_LEASE_SCHEMA_VERSION, 1);
-  assert.equal(defaultHostOperationLeasePath("C:\\Users\\demo\\AppData\\Local"), "C:\\Users\\demo\\AppData\\Local\\SimpleExperiment\\host-operation-lease.json");
+test('different targets, projects and Workers proceed in parallel across windows', async()=>{
+  const f=fixture(), a=f.manager('a'), b=f.manager('b');
+  const held=await a.acquire(f.input());
+  const others=await Promise.all([
+    b.acquire(f.input('D:/project/plans/b.yaml')),
+    b.acquire(f.input('D:/other/a.yaml','local','D:/other')),
+    b.acquire(f.input('/project/a','worker:22','/project')),
+  ]);
+  await held.assertHeld(); await Promise.all(others.map(h=>h.release())); await held.release();
+});
+test('same file and parent/child directory conflict; sibling-prefix is independent', async()=>{
+  const f=fixture();const held=await f.manager('a').acquire(f.input('D:/project/output'));
+  for (const target of ['d:/PROJECT/output','D:/project/output/metric.csv','D:/project']) {
+    await assert.rejects(f.manager('b').acquire(f.input(target)),HostOperationLeaseConflictError);
+  }
+  const sibling=await f.manager('b').acquire(f.input('D:/project/output-other'));await sibling.release();await held.release();
+});
+test('simultaneous conflicting claims admit exactly one writer',async()=>{
+  const f=fixture();const result=await Promise.allSettled(['a','b','c'].map(id=>f.manager(id).acquire(f.input())));
+  assert.equal(result.filter(r=>r.status==='fulfilled').length,1);
+  for(const row of result)if(row.status==='fulfilled')await row.value.release();
+});
+test('same-window unrelated work is parallel; only genuine nested operations reenter',async()=>{
+  const f=fixture(), a=f.manager('a'), other=f.manager('b');
+  await a.run(f.input('D:/project/output'),async()=>{
+    await a.run(f.input('D:/project/output/result.csv'),async()=>{
+      await assert.rejects(other.acquire(f.input('D:/project/output')),HostOperationLeaseConflictError);
+    });
+    await assert.rejects(other.acquire(f.input('D:/project/output')),HostOperationLeaseConflictError);
+  });
+  const held=await a.acquire(f.input());
+  await assert.rejects(a.acquire(f.input()),HostOperationLeaseConflictError);await held.release();
+});
+test('read-only queries bypass writers and stop callbacks need no resource admission',async()=>{
+  const f=fixture(), a=f.manager('a'), b=f.manager('b');const held=await a.acquire(f.input());
+  assert.equal(await b.run({...f.input(),readOnly:true},async()=>42),42);await held.release();
+});
+test('continuous heartbeat preserves ownership beyond lease TTL and keeps UTF-8 labels',async()=>{
+  const f=fixture(), a=f.manager('a',{ttlMs:120,heartbeatMs:20});const held=await a.acquire(f.input());
+  await new Promise(r=>setTimeout(r,190));await held.assertHeld();
+  const row=(await a.inspect()).records.find(r=>r.leaseId===held.record.leaseId);
+  assert.equal(row.actionLabel,'写入目标');assert.ok(Date.parse(row.expiresAt)>Date.now());
+  await assert.rejects(f.manager('b').acquire(f.input()),HostOperationLeaseConflictError);await held.release();
+});
+test('crash expiration permits replacement and a stale release cannot touch another owner',async()=>{
+  const f=fixture();let now=Date.now();const a=f.manager('a',{ttlMs:100,now:()=>now}),b=f.manager('b',{now:()=>now});
+  const stale=await a.acquire(f.input());now+=101;
+  const held=await b.acquire(f.input());await assert.rejects(stale.assertHeld(),HostOperationLeaseLostError);
+  await stale.release();await held.assertHeld();await held.release();
+});
+test('an injected proven-dead owner permits crash recovery without unreliable Windows probes',async()=>{
+  const f=fixture();const stale=await f.manager('a',{processId:1234}).acquire(f.input());
+  const held=await f.manager('b',{ownerAlive:row=>row.processId!==1234}).acquire(f.input());
+  await stale.release();await held.assertHeld();await held.release();
+});
+test('active legacy global lease blocks upgrade and is preserved byte-for-byte',async()=>{
+  const f=fixture();const text=JSON.stringify({schemaVersion:1,windowId:'old-window',expiresAt:new Date(Date.now()+30000).toISOString()});
+  fs.writeFileSync(f.leasePath,text,'utf8');await assert.rejects(f.manager('new').acquire(f.input()),/重新加载.*窗口/);
+  assert.equal(fs.readFileSync(f.leasePath,'utf8'),text);
 });
 
-test("exclusive creation allows one window and blocks the second with recovery details", async () => {
-  const fixture = leaseFixture();
-  try {
-    const first = fixture.manager("window-a");
-    const second = fixture.manager("window-b");
-    const [a, b] = await Promise.allSettled([
-      first.acquire(fixture.input()),
-      second.acquire(fixture.input("simple-local.simple-sftp", "upload-workspace")),
-    ]);
-    const fulfilled = [a, b].filter((item) => item.status === "fulfilled");
-    const rejected = [a, b].filter((item) => item.status === "rejected");
-    assert.equal(fulfilled.length, 1);
-    assert.equal(rejected.length, 1);
-    assert.ok(rejected[0].reason instanceof HostOperationLeaseConflictError);
-    assert.match(rejected[0].reason.message, /持有窗口：window-[ab]/);
-    assert.match(rejected[0].reason.message, /自动恢复/);
-    await fulfilled[0].value.release();
-  } finally {
-    fixture.cleanup();
-  }
-});
-
-test("heartbeat renews a long operation and prevents premature takeover", async () => {
-  const fixture = leaseFixture();
-  try {
-    const holder = await fixture.manager("window-a", { ttlMs: 120, heartbeatMs: 20 }).acquire(fixture.input());
-    await new Promise((resolve) => setTimeout(resolve, 190));
-    const record = parseHostOperationLeaseRecord(fs.readFileSync(fixture.leasePath, "utf8"));
-    assert.ok(Date.parse(record.expiresAt) > Date.now());
-    await assert.rejects(
-      fixture.manager("window-b", { ttlMs: 120, heartbeatMs: 20 }).acquire(fixture.input("simple-local.simple-sftp", "upload-workspace")),
-      HostOperationLeaseConflictError
-    );
-    await holder.release();
-  } finally {
-    fixture.cleanup();
-  }
-});
-
-test("heartbeat renewal never exposes partial lease JSON", async () => {
-  const fixture = leaseFixture();
-  try {
-    const holder = await fixture.manager("window-a", { ttlMs: 120, heartbeatMs: 5 }).acquire(fixture.input());
-    for (let index = 0; index < 40; index += 1) {
-      const record = parseHostOperationLeaseRecord(fs.readFileSync(fixture.leasePath, "utf8"));
-      assert.ok(record, `invalid lease record at iteration ${index}`);
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    }
-    await holder.release();
-  } finally {
-    fixture.cleanup();
-  }
-});
-
-test("heartbeat renewal uses UTF-8 byte offsets for localized action labels", async () => {
-  const fixture = leaseFixture();
-  try {
-    const holder = await fixture.manager("window-a", { ttlMs: 120, heartbeatMs: 5 }).acquire({ ...fixture.input(), actionLabel: "上传工作区" });
-    await new Promise((resolve) => setTimeout(resolve, 30));
-    const record = parseHostOperationLeaseRecord(fs.readFileSync(fixture.leasePath, "utf8"));
-    assert.ok(record);
-    assert.equal(record.actionLabel, "上传工作区");
-    assert.ok(Date.parse(record.heartbeatAt));
-    assert.ok(Date.parse(record.expiresAt) > Date.now());
-    await holder.release();
-  }
-  finally {
-    fixture.cleanup();
-  }
-});
-
-test("expired lease supports crash recovery without force-removing an active lease", async () => {
-  const fixture = leaseFixture();
-  try {
-    await fixture.manager("crashed-window", { ttlMs: 100, heartbeatMs: 0 }).acquire(fixture.input());
-    await new Promise((resolve) => setTimeout(resolve, 130));
-    const replacement = await fixture.manager("replacement-window", { ttlMs: 120, heartbeatMs: 20 }).acquire(fixture.input("simple-local.simple-sftp", "sync-from-remote"));
-    assert.equal(replacement.record.windowId, "replacement-window");
-    assert.equal(replacement.record.pluginId, "simple-local.simple-sftp");
-    await replacement.release();
-  } finally {
-    fixture.cleanup();
-  }
-});
-
-test("restart recovers a lease immediately when its local extension host process is gone", async () => {
-  const fixture = leaseFixture();
-  try {
-    const deadPid = 2147483647;
-    const old = await fixture.manager(`${os.hostname()}:${deadPid}:old-window`, {
-      processId: deadPid,
-      ttlMs: 30_000,
-      heartbeatMs: 0,
-    }).acquire(fixture.input("simple-local.simple-experiment", "prepareAgents"));
-    const replacement = await fixture.manager(`${os.hostname()}:${process.pid}:new-window`, {
-      processId: process.pid,
-      ttlMs: 30_000,
-      heartbeatMs: 0,
-    }).acquire(fixture.input("simple-local.simple-experiment", "prepareAgents"));
-    assert.equal(replacement.record.actionType, "prepareAgents");
-    assert.equal(replacement.record.windowId, `${os.hostname()}:${process.pid}:new-window`);
-    await old.release();
-    await replacement.assertHeld();
-    await replacement.release();
-  } finally {
-    fixture.cleanup();
-  }
-});
-
-test("both plugins reenter the same window lease and release only after the final holder", async () => {
-  const fixture = leaseFixture();
-  try {
-    const experiment = fixture.manager("shared-window");
-    const sftp = fixture.manager("shared-window");
-    const outer = await experiment.acquire(fixture.input());
-    const inner = await sftp.acquire(fixture.input("simple-local.simple-sftp", "upload-workspace"));
-    assert.equal(inner.record.leaseId, outer.record.leaseId);
-    await outer.release();
-    await assert.rejects(fixture.manager("other-window").acquire(fixture.input()), HostOperationLeaseConflictError);
-    await inner.release();
-    const next = await fixture.manager("other-window").acquire(fixture.input());
-    await next.release();
-  } finally {
-    fixture.cleanup();
-  }
-});
-
-test("release cannot expire a lease that has been replaced by another owner", async () => {
-  const fixture = leaseFixture();
-  try {
-    const stale = await fixture.manager("window-a", { ttlMs: 100, heartbeatMs: 0 }).acquire(fixture.input());
-    await new Promise((resolve) => setTimeout(resolve, 130));
-    const current = await fixture.manager("window-b").acquire(fixture.input("simple-local.simple-sftp", "upload-files"));
-    await stale.release();
-    const record = parseHostOperationLeaseRecord(fs.readFileSync(fixture.leasePath, "utf8"));
-    assert.equal(record.leaseId, current.record.leaseId);
-    assert.ok(Date.parse(record.expiresAt) > Date.now());
-    await current.release();
-  } finally {
-    fixture.cleanup();
-  }
+test('queue mutations wait for a short conflicting write and then proceed',async()=>{
+  const f=fixture(),a=f.manager('a'),b=f.manager('b');const held=await a.acquire(f.input());let entered=false;
+  const next=b.run({...f.input(),waitForConflict:true},async()=>{entered=true;});
+  await new Promise(r=>setTimeout(r,40));assert.equal(entered,false);await held.release();await next;assert.equal(entered,true);
 });

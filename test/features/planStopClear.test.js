@@ -1537,6 +1537,7 @@ test("concurrent submissions append to the latest queue and reject the old sched
   const snapshots = [];
   let releaseFirst;
   const host = {
+    withQueueWriteResource: async (_root, work) => work(),
     distributedQueueGeneration: 0,
     distributedQueueWritePromise: Promise.resolve(),
     distributedQueueRoot: "D:/project",

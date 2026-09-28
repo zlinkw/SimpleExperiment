@@ -35,6 +35,8 @@ export interface TunnelEndpointConfig {
   localPort: number;
   token?: string;
   timeoutMs?: number;
+  resourceServer?: string;
+  resourceProjectRoot?: string;
   capabilities?: unknown;
   // 批量能力协商字段（T2）：用于多端聚合批量
   batchCapabilities?: { gpuHistoryBatch?: boolean; diagnosticsBatch?: boolean };

@@ -48,3 +48,11 @@ test('an unaffected worker continues after another loses connection', async () =
   assert.equal(b.diagnostics().streamStatus,'polling');
   await Promise.all([a.disconnect(),b.disconnect()]);
 });
+
+test('manual recovery leaves already connected Workers attached',async()=>{
+  const {MultiEndpointRealtimeClient}=require('../../dist/tunnel/MultiEndpointRealtimeClient');
+  const host=Object.create(MultiEndpointRealtimeClient.prototype);let healthy=0,failed=0;
+  host.clients=new Map([['healthy',{diagnostics:()=>({streamStatus:'sse'}),reconnect:async()=>healthy++}],
+    ['failed',{diagnostics:()=>({streamStatus:'disconnected',requiresManualReconnect:true}),reconnect:async()=>failed++}]]);
+  host.updateMergedState=()=>undefined;await host.reconnect();assert.equal(healthy,0);assert.equal(failed,1);
+});

@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.FileTransferClient = void 0;
+const HostOperationLease_1 = require("../core/HostOperationLease");
 const fs = __importStar(require("fs/promises"));
 const path = __importStar(require("path"));
 const ProgressInactivity_1 = require("../core/ProgressInactivity");
@@ -45,6 +46,7 @@ class FileTransferClient {
     budget;
     onProgress;
     transfers = new Map();
+    resourceLease = new HostOperationLease_1.HostOperationLeaseManager();
     constructor(config, budget, onProgress = () => undefined) {
         this.config = config;
         this.budget = budget;
@@ -158,6 +160,7 @@ class FileTransferClient {
             } })())) {
                 throw new Error("TRANSFER_CANCELLED");
             }
+            record.lease = await this.acquireFileLease(record);
             const transferred = await this.writeDownloadWithProgress(response, tmpPath, task.transferId, contentLength, start > 0);
             task.transferredBytes = start + transferred;
             task.size = contentLength ? start + contentLength : undefined;
@@ -167,19 +170,23 @@ class FileTransferClient {
                 throw new Error("SHA256_MISMATCH");
             await fs.mkdir(path.dirname(task.localPath || "."), { recursive: true });
             record.abort.signal.throwIfAborted();
+            await record.lease?.assertHeld();
             await fs.rename(tmpPath, task.localPath || tmpPath);
             record.abort.signal.throwIfAborted();
             task.status = "completed";
             record.inactivity?.dispose();
+            await record.lease?.release();
+            record.lease = undefined;
             task.finishedAt = new Date().toISOString();
             return task;
         }
         catch (error) {
             record.inactivity?.dispose();
+            await record.lease?.release();
+            record.lease = undefined;
             task.status = record.abort.signal.aborted ? "cancelled" : "failed";
             task.error = error instanceof Error ? error.message : String(error);
-            if (!options.resume)
-                await fs.rm(tmpPath, { force: true }).catch(() => undefined);
+            task.error += `；临时文件保留在 ${tmpPath}，可确认路径后手动清理。`;
             throw error;
         }
     }
@@ -192,6 +199,7 @@ class FileTransferClient {
             task.size = stat.size;
             const expectedSha256 = options.sha256 || await (0, FileTransferVerifier_1.sha256File)(task.localPath || "", { signal: record.abort.signal, onBytes: (bytes) => record.inactivity?.update({ phase: "hashing", processedBytes: bytes }) });
             record.expectedSha256 = expectedSha256;
+            record.lease = await this.acquireFileLease(record);
             const init = await this.requestJson("/api/files/upload-init", "POST", {
                 schemaVersion: 1,
                 remotePath: task.remotePath,
@@ -212,6 +220,7 @@ class FileTransferClient {
             const startedAt = task.startedAt;
             try {
                 while (offset < stat.size) {
+                    await record.lease?.assertHeld();
                     if (record.abort.signal.aborted)
                         throw new Error("TRANSFER_CANCELLED");
                     const size = Math.min(chunkSize, stat.size - offset);
@@ -229,6 +238,7 @@ class FileTransferClient {
             finally {
                 await file.close();
             }
+            await record.lease?.assertHeld();
             const complete = await this.requestJson("/api/files/upload-complete", "POST", { schemaVersion: 1, transferId, sha256: expectedSha256 }, record.abort.signal);
             record.actualSha256 = complete.sha256;
             if (complete.sha256 && complete.sha256.toLowerCase() !== expectedSha256.toLowerCase())
@@ -236,16 +246,29 @@ class FileTransferClient {
             record.abort.signal.throwIfAborted();
             task.status = "completed";
             record.inactivity?.dispose();
+            await record.lease?.release();
+            record.lease = undefined;
             task.transferredBytes = stat.size;
             task.finishedAt = new Date().toISOString();
             return task;
         }
         catch (error) {
             record.inactivity?.dispose();
+            await record.lease?.release();
+            record.lease = undefined;
             task.status = record.abort.signal.aborted ? "cancelled" : "failed";
             task.error = error instanceof Error ? error.message : String(error);
             throw error;
         }
+    }
+    async acquireFileLease(record) {
+        const task = record.task;
+        const local = task.direction === "download";
+        const project = local ? path.dirname(path.resolve(task.localPath)) : this.config.resourceProjectRoot || "/";
+        const target = local ? path.resolve(task.localPath) : path.posix.resolve(project, task.remotePath);
+        const server = local ? "local" : this.config.resourceServer || "transport:" + (0, TunnelGateway_1.localBaseUrl)(this.config);
+        return this.resourceLease.acquire({ pluginId: "simple-local.simple-experiment", workspaceUri: project, hostProjectPath: project,
+            actionType: task.direction, actionLabel: task.direction, signal: record.abort.signal, resources: [{ server, project, target }] });
     }
     async requestJson(apiPath, method, body, signal, contentType = "application/json") {
         return this.budget.run("file_transfer", async () => {

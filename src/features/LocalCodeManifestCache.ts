@@ -1,3 +1,5 @@
+import { ProgressInactivity } from "../core/ProgressInactivity";
+import { HostOperationLeaseManager } from "../core/HostOperationLease";
 import * as crypto from "crypto";
 import * as fs from "fs/promises";
 import * as fsNode from "fs";
@@ -64,17 +66,23 @@ async function readCache(file: string): Promise<CacheDocument> {
 }
 
 async function writeCache(file: string, document: CacheDocument): Promise<void> {
+  const root = path.dirname(path.resolve(file));
+  return new HostOperationLeaseManager().run({ pluginId: "simple-local.simple-experiment", workspaceUri: root, hostProjectPath: root,
+    actionType: "hash-cache-write", waitForConflict: true, resources: [{ server: "local", project: root, target: path.resolve(file) }] }, () => writeCacheOwned(file, document));
+}
+async function writeCacheOwned(file: string, document: CacheDocument): Promise<void> {
   await fs.mkdir(path.dirname(file), { recursive: true });
-  const temp = `${file}.${process.pid}.tmp`;
+  const temp = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
   await fs.writeFile(temp, JSON.stringify(document), "utf8");
   await fs.rename(temp, file);
 }
 
-export async function sha256File(file: string): Promise<string> {
+export async function sha256File(file: string, signal?: AbortSignal, onBytes?: (bytes: number) => void): Promise<string> {
   return new Promise((resolve, reject) => {
     const hash = crypto.createHash("sha256");
-    const input = fsNode.createReadStream(file);
-    input.on("data", (chunk) => hash.update(chunk));
+    const input = fsNode.createReadStream(file, { signal });
+    let bytes = 0;
+    input.on("data", (chunk) => { hash.update(chunk); bytes += Buffer.byteLength(chunk); onBytes?.(bytes); });
     input.on("error", reject);
     input.on("end", () => resolve(hash.digest("hex")));
   });
@@ -85,7 +93,14 @@ export async function hashLocalCodeFiles(
   files: string[],
   cacheFile?: string,
   onProgress?: (stats: LocalCodeManifestStats) => void,
+  signal?: AbortSignal,
 ): Promise<{ manifest: LocalCodeManifest; stats: LocalCodeManifestStats }> {
+  const abort = new AbortController();
+  const onAbort = () => abort.abort(signal?.reason);
+  if (signal?.aborted) onAbort(); else signal?.addEventListener("abort", onAbort, { once: true });
+  const idle = new ProgressInactivity(120_000, () => abort.abort(new Error("本地哈希 120 秒无真实进展。请检查文件是否可读，再重试。")));
+  try {
+  abort.signal.throwIfAborted();
   const cache: CacheDocument = cacheFile ? await readCache(cacheFile) : { schemaVersion: CACHE_SCHEMA_VERSION, files: {} };
   const manifest: LocalCodeManifest = {};
   const nextFiles: Record<string, CacheRow> = {};
@@ -96,6 +111,7 @@ export async function hashLocalCodeFiles(
   const progressEvery = Math.max(25, Math.ceil(files.length / 20));
   async function worker() {
     while (true) {
+      abort.signal.throwIfAborted();
       const index = nextIndex++;
       if (index >= files.length) break;
       const relative = files[index].replace(/\\/g, "/");
@@ -110,7 +126,7 @@ export async function hashLocalCodeFiles(
       }
       else {
         const before = identityFromStat(await fs.stat(full));
-        const sha256 = (await sha256File(full)).toLowerCase();
+        const sha256 = (await sha256File(full, abort.signal, bytes => idle.update({ phase: "hashing", scope: relative, processedBytes: bytes }))).toLowerCase();
         const after = identityFromStat(await fs.stat(full));
         if (!before || !after || !sameIdentity({ ...before, sha256: "0".repeat(64) }, after) || before.size !== stat.size) {
           throw new Error(`本地文件在哈希期间发生变化：${relative}`);
@@ -119,11 +135,16 @@ export async function hashLocalCodeFiles(
         nextFiles[relative] = { ...after, sha256 };
         stats.hashed++;
       }
+      abort.signal.throwIfAborted();
       completed++;
+      idle.update({ phase: "hashing", processedFiles: completed });
       if (onProgress && (completed === files.length || completed % progressEvery === 0)) onProgress({ ...stats });
     }
   }
-  await Promise.all(Array.from({ length: Math.min(concurrency, Math.max(1, files.length)) }, () => worker()));
+  const workers = await Promise.allSettled(Array.from({ length: Math.min(concurrency, Math.max(1, files.length)) }, () => worker().catch(error => { abort.abort(error); throw error; })));
+  const failed = workers.find(row => row.status === "rejected") as PromiseRejectedResult | undefined;
+  if (failed) throw failed.reason;
+  abort.signal.throwIfAborted();
   if (cacheFile) {
     stats.pruned = Object.keys(cache.files).filter((file) => !Object.prototype.hasOwnProperty.call(nextFiles, file)).length;
     const unchanged = stats.hashed === 0 && stats.pruned === 0 && Object.keys(nextFiles).length === Object.keys(cache.files).length;
@@ -140,4 +161,5 @@ export async function hashLocalCodeFiles(
     }
   }
   return { manifest, stats };
+  } finally { idle.dispose(); signal?.removeEventListener("abort", onAbort); }
 }

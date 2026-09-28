@@ -35,7 +35,9 @@ test("file transfer uploads chunks over local HTTP API", async () => {
     assert.equal(seen[0].url, "/api/files/upload-init");
     assert.equal(seen.at(-1).url, "/api/files/upload-complete");
   } finally {
-    server.close();
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+    await new Promise(resolve => setTimeout(resolve, 20));
   }
 });
 

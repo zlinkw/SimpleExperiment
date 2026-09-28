@@ -1,3 +1,4 @@
+import { HostOperationLeaseManager } from "../core/HostOperationLease";
 import * as fs from "fs/promises";
 import * as path from "path";
 import { ProgressInactivity } from "../core/ProgressInactivity";
@@ -21,6 +22,8 @@ export interface FileTransferClientConfig {
   localPort: number;
   token?: string;
   chunkSizeBytes?: number;
+  resourceServer?: string;
+  resourceProjectRoot?: string;
 }
 
 type TransferRecord = {
@@ -30,10 +33,12 @@ type TransferRecord = {
   actualSha256?: string;
   retry?: () => Promise<FileTransferTask>;
   inactivity?: ProgressInactivity;
+  lease?: any;
 };
 
 export class FileTransferClient {
   private readonly transfers = new Map<string, TransferRecord>();
+  private readonly resourceLease = new HostOperationLeaseManager();
 
   constructor(
     private readonly config: FileTransferClientConfig,
@@ -148,6 +153,7 @@ export class FileTransferClient {
       if (contentLength && options.confirmLargeFile && !(await (async () => { record.inactivity?.pause(); try { return await options.confirmLargeFile!(contentLength); } finally { record.inactivity?.resume(); } })())) {
         throw new Error("TRANSFER_CANCELLED");
       }
+      record.lease = await this.acquireFileLease(record);
       const transferred = await this.writeDownloadWithProgress(response, tmpPath, task.transferId, contentLength, start > 0);
       task.transferredBytes = start + transferred;
       task.size = contentLength ? start + contentLength : undefined;
@@ -156,17 +162,20 @@ export class FileTransferClient {
       if (!verify.ok) throw new Error("SHA256_MISMATCH");
       await fs.mkdir(path.dirname(task.localPath || "."), { recursive: true });
       record.abort.signal.throwIfAborted();
+      await record.lease?.assertHeld();
       await fs.rename(tmpPath, task.localPath || tmpPath);
       record.abort.signal.throwIfAborted();
       task.status = "completed";
       record.inactivity?.dispose();
+      await record.lease?.release(); record.lease = undefined;
       task.finishedAt = new Date().toISOString();
       return task;
     } catch (error) {
       record.inactivity?.dispose();
+      await record.lease?.release(); record.lease = undefined;
       task.status = record.abort.signal.aborted ? "cancelled" : "failed";
       task.error = error instanceof Error ? error.message : String(error);
-      if (!options.resume) await fs.rm(tmpPath, { force: true }).catch(() => undefined);
+      task.error += `；临时文件保留在 ${tmpPath}，可确认路径后手动清理。`;
       throw error;
     }
   }
@@ -180,6 +189,7 @@ export class FileTransferClient {
       task.size = stat.size;
       const expectedSha256 = options.sha256 || await sha256File(task.localPath || "", { signal: record.abort.signal, onBytes: (bytes) => record.inactivity?.update({ phase: "hashing", processedBytes: bytes }) });
       record.expectedSha256 = expectedSha256;
+      record.lease = await this.acquireFileLease(record);
       const init = await this.requestJson<{ transferId: string; chunkSize?: number; accepted?: boolean; resumeFromByte?: number }>(
         "/api/files/upload-init",
         "POST",
@@ -204,6 +214,7 @@ export class FileTransferClient {
       const startedAt = task.startedAt;
       try {
         while (offset < stat.size) {
+          await record.lease?.assertHeld();
           if (record.abort.signal.aborted) throw new Error("TRANSFER_CANCELLED");
           const size = Math.min(chunkSize, stat.size - offset);
           const buffer = Buffer.allocUnsafe(size);
@@ -225,6 +236,7 @@ export class FileTransferClient {
       } finally {
         await file.close();
       }
+      await record.lease?.assertHeld();
       const complete = await this.requestJson<{ status?: string; sha256?: string }>(
         "/api/files/upload-complete",
         "POST",
@@ -236,15 +248,27 @@ export class FileTransferClient {
       record.abort.signal.throwIfAborted();
       task.status = "completed";
       record.inactivity?.dispose();
+      await record.lease?.release(); record.lease = undefined;
       task.transferredBytes = stat.size;
       task.finishedAt = new Date().toISOString();
       return task;
     } catch (error) {
       record.inactivity?.dispose();
+      await record.lease?.release(); record.lease = undefined;
       task.status = record.abort.signal.aborted ? "cancelled" : "failed";
       task.error = error instanceof Error ? error.message : String(error);
       throw error;
     }
+  }
+
+  private async acquireFileLease(record: TransferRecord): Promise<any> {
+    const task = record.task;
+    const local = task.direction === "download";
+    const project = local ? path.dirname(path.resolve(task.localPath!)) : this.config.resourceProjectRoot || "/";
+    const target = local ? path.resolve(task.localPath!) : path.posix.resolve(project, task.remotePath);
+    const server = local ? "local" : this.config.resourceServer || "transport:" + localBaseUrl(this.config);
+    return this.resourceLease.acquire({ pluginId: "simple-local.simple-experiment", workspaceUri: project, hostProjectPath: project,
+      actionType: task.direction, actionLabel: task.direction, signal: record.abort.signal, resources: [{ server, project, target }] });
   }
 
   private async requestJson<T>(

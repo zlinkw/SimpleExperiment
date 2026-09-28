@@ -3277,7 +3277,13 @@ class RealtimeTunnelPanelProvider {
         this.view = undefined;
     }
     async withHostOperationLease(actionType, actionLabel, operation, options = {}) {
+        // Preflight, reads, transfer orchestration and cancellation use their target-level guards.
+        if (/^(runPlan|reproducePlan|runAllPlans|validatePlan|dryRunPlan|parseResults|stop|abort|cancel|kill|clearTmux|sync|upload|download|distribute|prepareAgents|deploy|refresh|fetch|get|check|plot|startPpt)/i.test(actionType))
+            return operation();
         const leaseContext = currentHostOperationLeaseContext();
+        if (options.planFile)
+            options.resources = [{ server: "local", project: leaseContext.hostProjectPath,
+                    target: path.resolve(leaseContext.hostProjectPath, options.planFile) }];
         console.log("[diag] withHostOperationLease acquire", { actionType, actionLabel });
         try {
             const result = await this.hostOperationLease.run({
@@ -3286,6 +3292,7 @@ class RealtimeTunnelPanelProvider {
                 hostProjectPath: leaseContext.hostProjectPath,
                 actionType,
                 actionLabel,
+                resources: options.resources,
             }, operation);
             console.log("[diag] withHostOperationLease acquired", { actionType, actionLabel });
             return result;
@@ -4521,14 +4528,14 @@ class RealtimeTunnelPanelProvider {
         if (clientActionId && commandNeedsUiStatus(command)) {
             const leaseAction = hostOperationLeaseActionForUiCommand(command);
             const work = leaseAction
-                ? () => this.withHostOperationLease(leaseAction, hostOperationLeaseActionLabel(command), () => this.handleMessageCore(message, command))
+                ? () => this.withHostOperationLease(leaseAction, hostOperationLeaseActionLabel(command), () => this.handleMessageCore(message, command), { planFile: message.planFile || message.path })
                 : () => this.handleMessageCore(message, command);
             await this.withUiCommandStatus(clientActionId, command, message, work);
             return;
         }
         const leaseAction = hostOperationLeaseActionForUiCommand(command);
         if (leaseAction) {
-            await this.withHostOperationLease(leaseAction, hostOperationLeaseActionLabel(command), () => this.handleMessageCore(message, command));
+            await this.withHostOperationLease(leaseAction, hostOperationLeaseActionLabel(command), () => this.handleMessageCore(message, command), { planFile: message.planFile || message.path });
             return;
         }
         await this.handleMessageCore(message, command);
@@ -5095,9 +5102,8 @@ class RealtimeTunnelPanelProvider {
         return await this.runActionCommandLeased(command, message);
     }
     async runActionCommandLeased(command, message, options = {}) {
-        if (actionCommandMap[command]) {
-            return this.withHostOperationLease(command, hostOperationLeaseActionLabel(command), () => this.runActionCommandCore(command, message), options);
-        }
+        if (actionCommandMap[command])
+            return this.runActionCommandCore(command, message);
         return this.runActionCommandCore(command, message);
     }
     async runActionCommandCore(command, message) {
@@ -5488,7 +5494,7 @@ class RealtimeTunnelPanelProvider {
         const choice = body?.overwriteExisting === true ? "重跑全部并保留历史" : (Array.isArray(body?.distributedSkipJobIndices) && body.distributedSkipJobIndices.length ? `跳过已有 job ${body.distributedSkipJobIndices.join(",")}` : "无历史产物需确认");
         return `${planFile} 已完成校验和历史产物确认（${choice}）。前序：${ahead}。`;
     }
-    async distributedCodeVersionHold(body) {
+    async distributedCodeVersionHold(body, signal) {
         const root = workspaceRoot();
         if (!root)
             return undefined;
@@ -5496,7 +5502,7 @@ class RealtimeTunnelPanelProvider {
         const occupied = queue.plans.filter((item) => item.jobs.some((job) => ["pending", "dispatching", "running", "unknown"].includes(job.status)));
         if (!occupied.length && !this.distributedPostprocessPromise)
             return undefined;
-        const fingerprint = await this.localDistributedCodeFingerprint(root);
+        const fingerprint = await this.localDistributedCodeFingerprint(root, signal);
         const workerFingerprints = Object.values(this.lastCodeSyncState?.workerVersions || {})
             .map((row) => String(row?.fingerprint || "")).filter(Boolean);
         const held = occupied.some((item) => item.codeFingerprint !== fingerprint
@@ -8572,10 +8578,10 @@ class RealtimeTunnelPanelProvider {
     distributedProjectContract() {
         return (0, DistributedProjectContract_1.normalizeDistributedProjectContract)(this.localPlanMetadata.detectedProject?.adapterRules?.distributed || {});
     }
-    async localDistributedCodeFingerprint(root) {
+    async localDistributedCodeFingerprint(root, signal) {
         const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
         const holds = await (0, SyncResolution_1.loadSyncHolds)(this.context.globalStorageUri.fsPath, root);
-        const manifest = (0, SyncResolution_1.filterHeldFiles)(await buildLocalCodeManifest(root, config.get("codeSync.includePaths", []), config.get("codeSync.scopePaths"), { cacheFile: this.localCodeManifestCacheFile(root) }), holds);
+        const manifest = (0, SyncResolution_1.filterHeldFiles)(await buildLocalCodeManifest(root, config.get("codeSync.includePaths", []), config.get("codeSync.scopePaths"), { cacheFile: this.localCodeManifestCacheFile(root), signal }), holds);
         return fingerprintFromManifest(manifest);
     }
     async finishDistributedPlanSubmission(command, message, plan, body) {
@@ -8584,12 +8590,12 @@ class RealtimeTunnelPanelProvider {
         const submissionRoot = workspaceRoot();
         if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot))
             return;
-        const versionHold = await this.waitForPlanSubmission(message, () => this.distributedCodeVersionHold(body));
+        const versionHold = await this.waitForPlanSubmission(message, () => this.distributedCodeVersionHold(body, this.distributedSubmissionAborts?.get(operationId)?.signal));
         if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot))
             return;
         const root = versionHold?.root || submissionRoot;
         const continueDeferredId = stringField(message, "deferredPlanId") || stringField(body, "deferredPlanId");
-        const submissionFingerprint = versionHold?.fingerprint || await this.waitForPlanSubmission(message, () => this.localDistributedCodeFingerprint(root));
+        const submissionFingerprint = versionHold?.fingerprint || await this.waitForPlanSubmission(message, () => this.localDistributedCodeFingerprint(root, this.distributedSubmissionAborts?.get(operationId)?.signal));
         if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot))
             return;
         if (continueDeferredId) {
@@ -8751,19 +8757,52 @@ class RealtimeTunnelPanelProvider {
         this.distributedQueueRoot = root;
         return queue;
     }
+    async withQueueWriteResource(root, work) {
+        if (!this.hostOperationLease)
+            return work();
+        const file = DistributedPlanQueue.distributedQueuePath(this.context.globalStorageUri.fsPath, root);
+        return this.hostOperationLease.run({ pluginId: "simple-local.simple-experiment", workspaceUri: String(root),
+            hostProjectPath: path.dirname(file), actionType: "queue-write", actionLabel: "写入调度队列", waitForConflict: true,
+            resources: [{ server: "local", project: path.dirname(file), target: file }] }, work);
+    }
     async saveDistributedQueue(root, queue, options = {}) {
-        const work = this.distributedQueueWritePromise.catch(() => undefined).then(async () => {
+        const work = this.distributedQueueWritePromise.catch(() => undefined).then(async () => this.withQueueWriteResource(root, async () => {
             if (!options.appendPlanId && options.queueGeneration !== undefined && options.queueGeneration !== this.distributedQueueGeneration) {
                 throw new Error("过期调度轮次，已拒绝写入队列");
             }
             if (options.submissionOperationId && ((this.distributedSubmissionEpochs?.get(options.submissionOperationId) || 0) !== options.submissionEpoch || workspaceRoot() !== root)) {
                 throw new Error("提交已取消，已拒绝写入队列");
             }
-            const current = this.distributedQueueRoot === root ? this.distributedQueueCache : undefined;
+            let current = this.distributedQueueRoot === root ? this.distributedQueueCache : undefined;
+            if (this.hostOperationLease) {
+                const file = DistributedPlanQueue.distributedQueuePath(this.context.globalStorageUri.fsPath, root);
+                let disk;
+                try {
+                    disk = JSON.parse(await fs.readFile(file, "utf8"));
+                }
+                catch (error) {
+                    if (error.code !== "ENOENT")
+                        throw error;
+                }
+                if (disk && options.appendPlanId)
+                    current = disk;
+                else if (disk && current && JSON.stringify(disk) !== JSON.stringify(current)) {
+                    if (!options.appendPlanId) {
+                        this.distributedQueueRoot = undefined;
+                        this.distributedQueueCache = undefined;
+                        throw new Error("另一窗口已更新该项目队列，本次旧快照未写入。请点击刷新运行状态后重试。");
+                    }
+                    current = disk;
+                }
+            }
             if (options.appendPlanId && current) {
                 const appended = queue.plans.find((plan) => plan.id === options.appendPlanId);
                 if (!appended)
                     throw new Error("提交缺少待入队 Plan，未写入队列");
+                if (current.plans.some(plan => plan.id !== appended.id && plan.planFile === appended.planFile &&
+                    plan.jobs.some(job => !["completed", "failed", "cancelled"].includes(job.status)))) {
+                    throw new UiCommandRemotePending("该 Plan 已由其他提交入队，已阻止重复提交。请点击刷新运行状态核对；需要重跑时先终止并清理对应 Plan。");
+                }
                 queue = { ...current, plans: [...current.plans.filter((plan) => plan.id !== appended.id), appended],
                     deferred: (current.deferred || []).map((row) => row.id === options.supersededDeferredId
                         ? { ...row, status: "superseded", error: "已被继续提交接续，不再自动派发。", supersededBy: appended.id } : row) };
@@ -8803,7 +8842,7 @@ class RealtimeTunnelPanelProvider {
                 this.distributedTickAbort?.abort();
                 this.detachStaleDistributedTick(this.distributedQueueTickPromise);
             }
-        });
+        }));
         this.distributedQueueWritePromise = work;
         await work;
     }
@@ -8973,7 +9012,7 @@ class RealtimeTunnelPanelProvider {
         const target = this.workerActionTargets().find((item) => item.id === workerId);
         if (!target)
             throw new Error(`Worker ${workerId} 配置已失效`);
-        return await this.client.postWorkerAction(workerId, "start-worker-task", {
+        const request = {
             schemaVersion: 1, opId: commandId, operationId: commandId,
             planFile: plan.planFile, experimentIndex: job.index, gpuId,
             case: job.case, seed: job.seed, outputDir: job.outputDir, mode: "train_test",
@@ -8983,7 +9022,8 @@ class RealtimeTunnelPanelProvider {
             options: { workerId, distributedResults: true, condaEnv: target.condaEnv,
                 overwriteExisting: plan.overwriteExisting === true,
                 workerActionMinIntervalMs: this.schedulerSettings().workerActionMinIntervalMs },
-        });
+        };
+        return this.withRemoteActionResource(workerId, "start-worker-task", request, () => this.client.postWorkerAction(workerId, "start-worker-task", request));
     }
     async tickDistributedQueueCore(generation = this.distributedQueueGeneration, signal) {
         const root = workspaceRoot();
@@ -10111,6 +10151,21 @@ class RealtimeTunnelPanelProvider {
     async startAgentEndpointFromUi(message) {
         await this.startTunnelEndpointFromUi(message);
     }
+    async withRemoteActionResource(workerId, action, body, work) {
+        if (/^(validate-plan|dry-run-plan|stop-|cancel-|health|check-)/.test(action))
+            return work();
+        const setup = workerId ? this.setupConfig.workerTunnels.find(row => row.id === workerId) : this.setupConfig;
+        const project = workerId ? this.expectedWorkerAgentProjectRoot(workerId) : this.agentRuntimeDirs(setup.agentProjectDir).workDir;
+        const server = String(setup.workerHost || setup.hubHost || setup.host || workerId || "hub").toLowerCase() + ":" + Number(setup.workerSshPort || setup.hubSshPort || setup.port || 22);
+        const plan = operationResultPlanFile(body);
+        const paths = [plan, body.outputDir, body.relativePath, body.artifactPath, body.targetPath, ...(Array.isArray(body.paths) ? body.paths : [])].filter(value => typeof value === "string" && value);
+        const resources = (paths.length ? paths : [project]).map(value => ({ server, project,
+            target: path.posix.resolve(project, value.replace(/\\/g, "/")) }));
+        if (!this.hostOperationLease)
+            return work();
+        return this.hostOperationLease.run({ pluginId: "simple-local.simple-experiment", workspaceUri: String(workspaceRoot() || project),
+            hostProjectPath: project, actionType: action, actionLabel: action, resources }, work);
+    }
     async postTunnelAction(action, body, options = {}) {
         this.assertActionAuthorityCurrent(options);
         const topology = this.projectTopologyAssessment();
@@ -10163,7 +10218,7 @@ class RealtimeTunnelPanelProvider {
         this.scheduleOperationWatchdog(request.opId, action);
         this.postState();
         try {
-            const result = await client.postAction(action, request);
+            const result = await this.withRemoteActionResource(undefined, action, request, () => client.postAction(action, request));
             const status = resultStatus(result) || "accepted";
             const actionResult = normalizeActionSubmissionResult(result, request.opId, status);
             if (generation !== this.projectContextGeneration || client !== this.client)
@@ -10296,7 +10351,7 @@ class RealtimeTunnelPanelProvider {
         this.scheduleOperationWatchdog(request.opId, action, workerId);
         this.postState();
         try {
-            const result = await client.postWorkerAction(workerId, action, request);
+            const result = await this.withRemoteActionResource(workerId, action, request, () => client.postWorkerAction(workerId, action, request));
             const status = resultStatus(result) || "accepted";
             const actionResult = normalizeActionSubmissionResult(result, request.opId, status);
             if (generation !== this.projectContextGeneration || client !== this.client)
@@ -17579,7 +17634,9 @@ class RealtimeTunnelPanelProvider {
             localHost: "127.0.0.1",
             localPort: endpoint.tunnel.localPort,
             token: this.tunnelConfig.token,
-            timeoutMs: 8_000,
+            timeoutMs: 30_000,
+            resourceServer: endpoint.ssh.host.toLowerCase() + ":" + endpoint.ssh.port,
+            resourceProjectRoot: endpoint.role === "hub_control" ? this.agentRuntimeDirs(this.setupConfig.agentProjectDir).workDir : this.expectedWorkerAgentProjectRoot(endpoint.id),
             capabilities: endpointCapabilitiesFromProbe(endpoint.lastProbe),
         }));
     }
@@ -21868,7 +21925,7 @@ function hostOperationLeaseActionForUiCommand(command) {
     if (!command)
         return "";
     if (actionCommandMap[command])
-        return command;
+        return "";
     return hostOperationUiCommands.has(command) ? command : "";
 }
 const HOST_OPERATION_LEASE_ACTION_LABELS = Object.freeze({
@@ -28218,7 +28275,7 @@ function samePath(a, b) {
 }
 async function buildLocalCodeManifest(root, includePaths = [], scopePaths, options = {}) {
     const files = await listLocalCodePaths(root, includePaths, scopePaths);
-    const { manifest, stats } = await (0, LocalCodeManifestCache_1.hashLocalCodeFiles)(root, files, options.cacheFile, options.onProgress);
+    const { manifest, stats } = await (0, LocalCodeManifestCache_1.hashLocalCodeFiles)(root, files, options.cacheFile, options.onProgress, options.signal);
     console.log(`[SimpleExperiment] local code manifest: listed=${stats.listed} reused=${stats.reused} hashed=${stats.hashed} pruned=${stats.pruned} cacheWriteSkipped=${stats.cacheWriteSkipped ? 1 : 0}`);
     Object.defineProperty(manifest, "stats", { value: stats, enumerable: false });
     return manifest;
@@ -28566,7 +28623,7 @@ function currentHostOperationLeaseContext() {
         throw new Error("检测到多个工作区文件夹，已阻止宿主副作用操作。请在独立窗口中只打开一个目标项目。");
     const folder = folders[0];
     if (!folder?.uri) {
-        return { workspaceUri: "untitled://simple-experiment/no-workspace", hostProjectPath: "(未打开工作区)" };
+        return { workspaceUri: "untitled://simple-experiment/no-workspace", hostProjectPath: path.join(process.env.APPDATA || os.homedir(), "Code", "User") };
     }
     const location = workspaceLocationForFolder(folder);
     if (!location?.hostPath)

@@ -1,3 +1,4 @@
+import { ResourceOperationLeaseManager, ResourceTarget } from "./ResourceOperationLease";
 import * as crypto from "crypto";
 import * as fs from "fs/promises";
 import * as os from "os";
@@ -34,6 +35,10 @@ export type HostOperationLeaseInput = {
     hostProjectPath: string;
     actionType: string;
     actionLabel?: string;
+    resources?: ResourceTarget[];
+    readOnly?: boolean;
+    waitForConflict?: boolean;
+    signal?: AbortSignal;
 };
 
 export type HostOperationLeaseManagerOptions = {
@@ -43,6 +48,7 @@ export type HostOperationLeaseManagerOptions = {
     windowId?: string;
     processId?: number;
     now?: () => number;
+    ownerAlive?: (record: HostOperationLeaseRecord) => boolean;
 };
 
 type LeaseInspection = {
@@ -85,7 +91,7 @@ export class HostOperationLeaseLostError extends Error {
     }
 }
 
-export class HostOperationLeaseManager {
+export class LegacyHostOperationLeaseManager {
     readonly leasePath: string;
     readonly ttlMs: number;
     readonly heartbeatMs: number;
@@ -352,14 +358,14 @@ export function parseHostOperationLeaseRecord(text: string): HostOperationLeaseR
 
 export function formatHostOperationLeaseConflict(current: HostOperationLeaseRecord): string {
     return [
-        "宿主副作用操作已被另一 VS Code 窗口阻止。",
+        "目标资源正在由另一个操作修改。",
         `持有插件：${current.pluginId}`,
         `持有窗口：${current.windowId}（PID ${current.processId}）`,
         `工作区：${current.workspaceUri}`,
         `宿主项目：${current.hostProjectPath}`,
         `当前动作：${current.actionLabel || current.actionType}`,
         `最近心跳：${current.heartbeatAt}`,
-        `自动恢复：等待当前操作完成；若窗口已崩溃，请在 ${current.expiresAt} 后重试。不得删除活动租约文件。`,
+        `下一步：等待持有操作完成后重试；若持有窗口已崩溃，请重新加载该窗口。不要删除活动锁记录。`,
     ].join("\n");
 }
 
@@ -441,4 +447,13 @@ function hasErrorCode(error: unknown, code: string): boolean {
 
 function shortDelay(): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, 10));
+}
+
+export class HostOperationLeaseManager extends ResourceOperationLeaseManager {
+    constructor(options: HostOperationLeaseManagerOptions = {}) {
+        super({ ...options, leasePath: options.leasePath || defaultHostOperationLeasePath(),
+            windowId: options.windowId || sharedWindowId(),
+            conflictError: (row: HostOperationLeaseRecord) => new HostOperationLeaseConflictError(row),
+            lostError: () => new HostOperationLeaseLostError() });
+    }
 }

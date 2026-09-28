@@ -33,10 +33,11 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.HostOperationLeaseManager = exports.HostOperationLeaseLostError = exports.HostOperationLeaseConflictError = exports.HOST_OPERATION_LEASE_HEARTBEAT_MS = exports.HOST_OPERATION_LEASE_TTL_MS = exports.HOST_OPERATION_LEASE_FILENAME = exports.HOST_OPERATION_LEASE_DIRECTORY = exports.HOST_OPERATION_LEASE_SCHEMA_VERSION = void 0;
+exports.HostOperationLeaseManager = exports.LegacyHostOperationLeaseManager = exports.HostOperationLeaseLostError = exports.HostOperationLeaseConflictError = exports.HOST_OPERATION_LEASE_HEARTBEAT_MS = exports.HOST_OPERATION_LEASE_TTL_MS = exports.HOST_OPERATION_LEASE_FILENAME = exports.HOST_OPERATION_LEASE_DIRECTORY = exports.HOST_OPERATION_LEASE_SCHEMA_VERSION = void 0;
 exports.defaultHostOperationLeasePath = defaultHostOperationLeasePath;
 exports.parseHostOperationLeaseRecord = parseHostOperationLeaseRecord;
 exports.formatHostOperationLeaseConflict = formatHostOperationLeaseConflict;
+const ResourceOperationLease_1 = require("./ResourceOperationLease");
 const crypto = __importStar(require("crypto"));
 const fs = __importStar(require("fs/promises"));
 const os = __importStar(require("os"));
@@ -64,7 +65,7 @@ class HostOperationLeaseLostError extends Error {
     }
 }
 exports.HostOperationLeaseLostError = HostOperationLeaseLostError;
-class HostOperationLeaseManager {
+class LegacyHostOperationLeaseManager {
     leasePath;
     ttlMs;
     heartbeatMs;
@@ -286,7 +287,7 @@ class HostOperationLeaseManager {
         }
     }
 }
-exports.HostOperationLeaseManager = HostOperationLeaseManager;
+exports.LegacyHostOperationLeaseManager = LegacyHostOperationLeaseManager;
 async function writeLeaseTimestamp(handle, text, field, value) {
     const match = new RegExp(`"${field}"\\s*:\\s*"([^"]+)"`).exec(text);
     const valueOffset = match ? match.index + match[0].indexOf(match[1]) : -1;
@@ -319,14 +320,14 @@ function parseHostOperationLeaseRecord(text) {
 }
 function formatHostOperationLeaseConflict(current) {
     return [
-        "宿主副作用操作已被另一 VS Code 窗口阻止。",
+        "目标资源正在由另一个操作修改。",
         `持有插件：${current.pluginId}`,
         `持有窗口：${current.windowId}（PID ${current.processId}）`,
         `工作区：${current.workspaceUri}`,
         `宿主项目：${current.hostProjectPath}`,
         `当前动作：${current.actionLabel || current.actionType}`,
         `最近心跳：${current.heartbeatAt}`,
-        `自动恢复：等待当前操作完成；若窗口已崩溃，请在 ${current.expiresAt} 后重试。不得删除活动租约文件。`,
+        `下一步：等待持有操作完成后重试；若持有窗口已崩溃，请重新加载该窗口。不要删除活动锁记录。`,
     ].join("\n");
 }
 async function createExclusiveLeaseFile(leasePath, record) {
@@ -399,3 +400,12 @@ function hasErrorCode(error, code) {
 function shortDelay() {
     return new Promise((resolve) => setTimeout(resolve, 10));
 }
+class HostOperationLeaseManager extends ResourceOperationLease_1.ResourceOperationLeaseManager {
+    constructor(options = {}) {
+        super({ ...options, leasePath: options.leasePath || defaultHostOperationLeasePath(),
+            windowId: options.windowId || sharedWindowId(),
+            conflictError: (row) => new HostOperationLeaseConflictError(row),
+            lostError: () => new HostOperationLeaseLostError() });
+    }
+}
+exports.HostOperationLeaseManager = HostOperationLeaseManager;
