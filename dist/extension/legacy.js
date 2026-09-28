@@ -48,6 +48,8 @@ const fsNode = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const crypto = __importStar(require("crypto"));
 const os = __importStar(require("os"));
+const ProgressInactivity_1 = require("../core/ProgressInactivity");
+const SimpleSftpProgressWait_1 = require("../core/SimpleSftpProgressWait");
 const CacheCleanupPanel_1 = require("./CacheCleanupPanel");
 const RequestBudget_1 = require("../tunnel/RequestBudget");
 const TunnelGateway_1 = require("../tunnel/TunnelGateway");
@@ -4939,8 +4941,6 @@ class RealtimeTunnelPanelProvider {
     }
     async withUiCommandStatus(clientActionId, command, message, work) {
         this.postUiCommandStatus(clientActionId, "running", command, "正在执行...（按钮已转圈）");
-        let timer;
-        const watchdogMs = this.uiCommandWatchdogMs(command);
         const isLocalTrigger = localCommandReleasesAfterTrigger(command);
         const guardedWork = work()
             .then(async (value) => {
@@ -4963,14 +4963,7 @@ class RealtimeTunnelPanelProvider {
                 return { status: "cancelled", message: errorMessage(error) };
             return { status: "failed", message: errorMessage(error) };
         });
-        const result = watchdogMs > 0
-            ? await Promise.race([guardedWork, new Promise((resolve) => {
-                    timer = setTimeout(() => resolve({ status: "stalled", message: `本地命令 ${Math.round(watchdogMs / 1000)}s 内未结束，按钮已恢复；后台操作可能仍在继续。`, watchdog: true }), watchdogMs);
-                    timer.unref?.();
-                })])
-            : await guardedWork;
-        if (timer)
-            clearTimeout(timer);
+        const result = await guardedWork;
         if (result.status === "cancelled") {
             this.finishPlanSubmissionProgress(message, "cancelled", result.message || "已取消，未提交运行。");
             try {
@@ -4998,63 +4991,10 @@ class RealtimeTunnelPanelProvider {
             this.postState();
         }
         this.postUiCommandStatus(clientActionId, result.status, command, result.message, result.planStopClear ? { planFile: result.planStopClear.planFile, planStopClear: result.planStopClear } : undefined);
-        if (result.status === "stalled" && result.watchdog && !result.remotePending) {
-            try {
-                this.recordActionError({ command, message: result.message, suggestion: `${actionErrorSuggestion(result.message)} 可在“操作进度 / 诊断错误”查看后台真实终态。` });
-            }
-            catch { }
-            try {
-                this.postState();
-            }
-            catch { }
-            try {
-                void vscode.window.showWarningMessage(`${command} 已卡住：${result.message} 查看详情：操作进度 / 诊断错误`, "查看操作进度").then((pick) => {
-                    if (pick === "查看操作进度" && this.view) {
-                        try {
-                            void this.view.webview.postMessage({ type: "navigate", section: "execution", anchor: "execution-operations" });
-                        }
-                        catch { }
-                    }
-                });
-            }
-            catch { }
-            void guardedWork.then((lateResult) => {
-                const message = `后台真实终态：${lateResult.message}`;
-                if (lateResult.status === "failed") {
-                    this.recordActionError({ command, message: lateResult.message, suggestion: actionErrorSuggestion(lateResult.message) });
-                    this.postState();
-                    try {
-                        void vscode.window.showWarningMessage(`${command} 后台失败：${lateResult.message} 查看详情：操作进度 / 诊断错误`, "查看操作进度").then((pick) => {
-                            if (pick === "查看操作进度" && this.view) {
-                                try {
-                                    void this.view.webview.postMessage({ type: "navigate", section: "execution", anchor: "execution-operations" });
-                                }
-                                catch { }
-                            }
-                        });
-                    }
-                    catch { }
-                }
-                this.postUiCommandStatus(clientActionId, lateResult.status, command, message);
-            });
-        }
     }
     uiCommandWatchdogMs(command) {
-        // Agent 准备含 SFTP 部署、Xshell 启动和就绪检测，进度通知及各阶段自身超时负责终态。
-        if (command === "prepareAgents")
-            return 0;
-        if (command === "killTmuxWindow" || command === "clearTmuxTaskTabs" || command === "stopAndClearPlan")
-            return 0;
-        if (command === "fetchTmuxList" || command === "fetchTmuxCapture")
-            return 8000;
-        if (command === "runAllPlans") {
-            const planCount = Math.max(1, Number(this.localPlanMetadata.plans?.length || 0));
-            return Math.min(60 * 60_000, Math.max(180_000, planCount * 130_000 + 60_000));
-        }
-        // Plan 校验、预演和提交由阶段上报与真实终态解除按钮；短 watchdog 会先发 stalled 并清掉仍在执行的请求。
-        if (PLAN_SUBMISSION_COMMANDS.has(command) || PLAN_PREFLIGHT_COMMANDS.has(command))
-            return 0;
-        return 45_000;
+        // Each underlying request owns inactivity and cancellation. No total UI deadline.
+        return 0;
     }
     postUiCommandStatus(clientActionId, status, command, message, extra = undefined) {
         if (!this.view || !clientActionId)
@@ -9509,10 +9449,11 @@ class RealtimeTunnelPanelProvider {
         let sourceWorkerId = alreadyBuilt ? reusableSource : available;
         if (!alreadyBuilt) {
             const target = targets.get(available);
-            const response = await this.client.postWorkerAction(available, "rebuild-distributed-results", {
+            const submitted = await this.client.postWorkerAction(available, "rebuild-distributed-results", {
                 opId: `distributed-merge-${signature.slice(0, 24)}`, operationId: `distributed-merge-${signature.slice(0, 24)}`,
                 condaEnv: target.condaEnv, manifest, publish, mergeModule: contract.mergeModule
             });
+            const response = remoteActionPendingStatus(resultStatus(submitted)) ? await this.waitForOperationTerminalResult("rebuild-distributed-results", submitted, "结果重建", 0, available) : submitted;
             if (response?.status !== "completed")
                 throw new Error(String(response?.message || "分布式结果重建失败"));
             paths = Array.isArray(response.outputPaths) ? response.outputPaths : [];
@@ -10254,7 +10195,9 @@ class RealtimeTunnelPanelProvider {
             const cancelled = isUiCommandCancelled(error);
             this.localOperations[request.opId] = {
                 ...this.localOperations[request.opId],
-                status: cancelled ? "cancelled" : "failed",
+                status: cancelled ? "cancelled" : communicationOutcomeUnknown(error) ? "outcome_pending" : "failed",
+                outcomePending: !cancelled && communicationOutcomeUnknown(error),
+                message: communicationOutcomeUnknown(error) ? "执行结果待确认。请点击重新连接，再刷新运行状态核对；请勿重复提交。" : message,
                 error: message,
                 updatedAt: new Date().toISOString(),
             };
@@ -10382,7 +10325,9 @@ class RealtimeTunnelPanelProvider {
             const cancelled = isUiCommandCancelled(error);
             this.localOperations[request.opId] = {
                 ...this.localOperations[request.opId],
-                status: cancelled ? "cancelled" : "failed",
+                status: cancelled ? "cancelled" : communicationOutcomeUnknown(error) ? "outcome_pending" : "failed",
+                outcomePending: !cancelled && communicationOutcomeUnknown(error),
+                message: communicationOutcomeUnknown(error) ? "执行结果待确认。请点击重新连接，再刷新运行状态核对；请勿重复提交。" : message,
                 error: message,
                 updatedAt: new Date().toISOString(),
             };
@@ -10505,8 +10450,12 @@ class RealtimeTunnelPanelProvider {
     }
     scheduleOperationStatusProbe(opId, action, workerId, attempt = 1) {
         this.clearOperationStatusProbe(opId);
+        if (this.view && !this.view.visible)
+            return;
         const authorityClient = this.client;
         const timer = setTimeout(() => {
+            if (this.view && !this.view.visible)
+                return;
             if (this.operationProbeTimers.get(opId) === timer)
                 this.operationProbeTimers.delete(opId);
             void this.refreshOperationStatus(opId, action, workerId, attempt, authorityClient);
@@ -10529,24 +10478,45 @@ class RealtimeTunnelPanelProvider {
         const opId = stringFromRecord(record, ["operationId", "opId", "id"]);
         if (!opId)
             return result;
-        const started = Date.now();
+        let stalled = false;
+        const progress = new ProgressInactivity_1.ProgressInactivity(/file|sync|archive|results|parse/.test(action) ? 120_000 : 30_000, () => {
+            stalled = true;
+            const pending = this.localOperations[opId] || record;
+            const planFile = operationResultPlanFile(pending);
+            const request = { opId: makeOpId("cancel-operation"), targetOperationId: opId, planFile };
+            if (workerId && planFile)
+                void (authority.authorityClient || this.client).postWorkerAction(workerId, "stop-scheduler-operation", request).catch(() => undefined);
+            else if (!workerId)
+                void (authority.authorityClient || this.client).postAction("cancel-operation", request).catch(() => undefined);
+        });
+        progress.update({ phase: "accepted" });
         let attempt = 1;
-        while (Date.now() - started < timeoutMs) {
-            const delayMs = Math.min(this.operationManualWaitDelayMs(attempt), Math.max(0, timeoutMs - (Date.now() - started)));
-            if (delayMs > 0)
-                await sleep(delayMs);
-            this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，等待 Agent 操作终态已取消。");
-            await this.refreshOperationStatus(opId, action, workerId, attempt, authority.authorityClient || this.client).catch(() => false);
-            this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，等待 Agent 操作终态已取消。");
-            const current = this.localOperations[opId];
-            if (operationTerminal(current)) {
-                const terminalStatus = resultStatus(current) || stringFromRecord(current || {}, ["status", "state"]);
-                this.throwIfTerminalActionFailure(title, action, terminalStatus, current);
-                return current;
+        try {
+            while (!stalled) {
+                const delayMs = this.operationManualWaitDelayMs(attempt);
+                if (delayMs > 0)
+                    await sleep(delayMs);
+                this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，等待 Agent 操作终态已取消。");
+                await this.refreshOperationStatus(opId, action, workerId, attempt, authority.authorityClient || this.client).catch(() => false);
+                this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，等待 Agent 操作终态已取消。");
+                const current = this.localOperations[opId];
+                const evidence = current?.payload || current?.latestEvent?.payload || current || {};
+                progress.update({ phase: evidence.phase || evidence.stage, scope: evidence.progressScope, processedBytes: evidence.processedBytes, processedFiles: evidence.processedFiles, status: current?.status });
+                if (operationLongRunningAction(action) && operationSubmissionAccepted(current))
+                    return current;
+                if (operationTerminal(current)) {
+                    const terminalStatus = resultStatus(current) || stringFromRecord(current || {}, ["status", "state"]);
+                    this.throwIfTerminalActionFailure(title, action, terminalStatus, current);
+                    return current;
+                }
+                attempt += 1;
             }
-            attempt += 1;
         }
-        throw new UiCommandRemotePending(`${title || action} 已提交到 Agent，等待 operation 终态 operationId=${opId}；按钮已恢复，可在“操作进度”查看。`);
+        finally {
+            progress.dispose();
+        }
+        this.localOperations[opId] = { ...this.localOperations[opId], status: "outcome_pending", outcomePending: true, message: "执行结果待确认。请点击重新连接，再刷新运行状态核对；请勿重复提交。" };
+        throw new UiCommandRemotePending(`${title || action} 执行结果待确认 operationId=${opId}。请点击“重新连接”，再刷新运行状态核对；请勿重复提交。`);
     }
     async finishOperationWatchdog(opId, action, workerId, authorityClient = this.client) {
         const generation = this.projectContextGeneration;
@@ -10598,6 +10568,7 @@ class RealtimeTunnelPanelProvider {
                 operationId: opId,
                 type: action,
                 status: status || stringFromRecord(result || {}, ["status", "state"]) || "running",
+                outcomePending: false,
                 updatedAt: new Date().toISOString(),
             };
             this.markLocalOperationsDirty();
@@ -10677,11 +10648,12 @@ class RealtimeTunnelPanelProvider {
                             //  - 探测预算耗尽且进程仍“活”（tmux/python）但无真实活动（假存活）
                             //  - 探测预算耗尽且证据采集是网络错误（无法确认存活，超时应收口，不可无限 running）
                             // 定案：取消 stale 终态。强制收口不再标记 terminal stale，改为非终态 running + 提示用户自行判断、手动中止/清理。
-                            const forceStale = reconciled.dead || (probeAttempt >= this.operationStatusProbeMaxAttempts && (evProcessAlive && !evHasActivity || networkError));
+                            const forceStale = reconciled.dead || networkError;
                             if (forceStale) {
                                 this.localOperations[opId] = {
                                     ...rec,
                                     status: "running",
+                                    outcomePending: networkError,
                                     message: rec.message || (networkError ? "调度状态探测持续失败（网络错误），未自动终结；请用户自行判断，必要时手动中止/清理，或刷新运行状态、查看 Agent 日志。" : "调度进程已退出/无活动证据，未自动终结；请用户自行判断，必要时手动中止/清理，或刷新运行状态、查看 Agent 日志。"),
                                     updatedAt: new Date().toISOString(),
                                 };
@@ -10727,7 +10699,7 @@ class RealtimeTunnelPanelProvider {
         const feedback = this.publishPlanStopClear(planFile, input);
         return (0, PlanStopClear_1.planStopClearUiResult)(feedback);
     }
-    planStopClearWaitMs(fallback = 8000) {
+    planStopClearWaitMs(fallback = 30000) {
         const override = Number(this.planStopClearTimeoutMs);
         return Number.isFinite(override) && override > 0 ? override : fallback;
     }
@@ -13988,7 +13960,7 @@ class RealtimeTunnelPanelProvider {
                         planFile: target.planFile,
                         workerId,
                         manualStopType: "scheduler_aborted",
-                    }), this.planStopClearWaitMs(), new Error(`停止 ${target.operationId} 超过 8 秒，晚到回执不会当作已清除。下一步：核对 Worker ${workerId || "未知"} 隧道后重试这一条。`));
+                    }), this.planStopClearWaitMs(), new Error(`停止 ${target.operationId} 30 秒无有效响应，晚到回执不会当作已清除。下一步：核对 Worker ${workerId || "未知"} 隧道后重试这一条。`));
                     if (!clearStillHere())
                         break;
                     stopped.add(target.operationId);
@@ -14022,7 +13994,7 @@ class RealtimeTunnelPanelProvider {
                     return false;
                 }
                 try {
-                    await this.boundedPromise(() => this.performKillTmuxWindow(workerId, tmuxTarget), this.planStopClearWaitMs(), new Error(`关闭 tmux ${tmuxTarget} 超过 8 秒，未确认关闭，进度保留。下一步：到 Worker ${workerId} 核对这个标签后再重试。`));
+                    await this.boundedPromise(() => this.performKillTmuxWindow(workerId, tmuxTarget), this.planStopClearWaitMs(), new Error(`关闭 tmux ${tmuxTarget} 30 秒无有效响应，未确认关闭，进度保留。下一步：到 Worker ${workerId} 核对这个标签后再重试。`));
                     return clearStillHere();
                 }
                 catch (error) {
@@ -14090,7 +14062,7 @@ class RealtimeTunnelPanelProvider {
                     break;
                 let snapshot;
                 try {
-                    snapshot = remoteIdentity ? await this.boundedPromise(() => this.client.getWorkerTasks(job.workerId), this.planStopClearWaitMs(), new Error(`查询 Worker ${job.workerId} 超过 8 秒，job ${row.jobIndex} 保留。下一步：恢复该 Worker 后重试；晚到快照不会当作已清除。`)) : { tasks: [] };
+                    snapshot = remoteIdentity ? await this.boundedPromise(() => this.client.getWorkerTasks(job.workerId), this.planStopClearWaitMs(), new Error(`查询 Worker ${job.workerId} 30 秒无有效响应，job ${row.jobIndex} 保留。下一步：恢复该 Worker 后重试；晚到快照不会当作已清除。`)) : { tasks: [] };
                 }
                 catch (error) {
                     if (!clearStillHere())
@@ -14122,7 +14094,7 @@ class RealtimeTunnelPanelProvider {
                 if (!clearStillHere())
                     break;
                 try {
-                    await this.boundedPromise(() => this.stopDistributedJobForClear(plan, job), this.planStopClearWaitMs(), new Error(`停止 Worker ${job.workerId} job ${row.jobIndex} 超过 8 秒，队列保留。下一步：核对精确 pane 回执后再重试；晚到回执不会当作已清除。`));
+                    await this.boundedPromise(() => this.stopDistributedJobForClear(plan, job), this.planStopClearWaitMs(), new Error(`停止 Worker ${job.workerId} job ${row.jobIndex} 30 秒无有效响应，队列保留。下一步：核对精确 pane 回执后再重试；晚到回执不会当作已清除。`));
                 }
                 catch (error) {
                     if (!clearStillHere())
@@ -15228,7 +15200,7 @@ class RealtimeTunnelPanelProvider {
         if (endpoint.protocol !== "http:" || !["127.0.0.1", "localhost", "::1"].includes(endpoint.hostname))
             throw new Error("SimpleSFTP 本地 API 地址不安全。");
         const headers = { Authorization: `Bearer ${String(discovery.token || "")}` };
-        const capabilityResponse = await fetch(new URL("/api/v1/capabilities", endpoint), { headers, ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}) });
+        const capabilityResponse = await fetch(new URL("/api/v1/capabilities", endpoint), { headers, signal: AbortSignal.timeout(30_000) });
         if (!capabilityResponse.ok)
             throw new Error(`SimpleSFTP capability 查询失败：HTTP ${capabilityResponse.status}`);
         const capabilities = await capabilityResponse.json();
@@ -15237,31 +15209,7 @@ class RealtimeTunnelPanelProvider {
         return { endpoint, headers };
     }
     async simpleSftpApiCall(method, params, timeoutMs = 0) {
-        const readOnly = method === "sync.projectTree" || method === "sync.projectInventory";
-        for (let attempt = 0;; attempt++) {
-            try {
-                const { endpoint, headers } = await this.simpleSftpCapability(method, timeoutMs);
-                const response = await fetch(new URL("/api/v1/rpc", endpoint), {
-                    method: "POST", headers: { ...headers, "Content-Type": "application/json" },
-                    body: JSON.stringify({ jsonrpc: "2.0", id: Date.now(), method, params }),
-                    ...(timeoutMs ? { signal: AbortSignal.timeout(timeoutMs) } : {}),
-                });
-                if (!response.ok)
-                    throw new Error(`SimpleSFTP ${method} 失败：HTTP ${response.status}`);
-                const payload = await response.json();
-                if (payload.error)
-                    throw new Error(`SimpleSFTP ${method}：${String(payload.error.message || "未知错误")}`);
-                if (payload.result?.ok === false)
-                    throw new Error(`SimpleSFTP ${method}：${String(payload.result.error || payload.result.message || "传输失败")}`);
-                return payload.result;
-            }
-            catch (error) {
-                const transient = error instanceof TypeError || (error instanceof Error && ["AbortError", "TimeoutError"].includes(error.name));
-                if (!readOnly || !transient || attempt >= 1)
-                    throw transient ? new Error(`SimpleSFTP 本地 API 请求失败：${errorMessage(error)}；请检查 SimpleSFTP 扩展状态`) : error;
-                await new Promise((resolve) => setTimeout(resolve, 300));
-            }
-        }
+        return (0, SimpleSftpProgressWait_1.callSftpWithProgress)(method, params || {}, (name) => this.simpleSftpCapability(name));
     }
     async syncPendingPlanArtifacts(onlyKey = "", knownSummary) {
         if (this.syncScopeMutationInFlight)
@@ -28935,3 +28883,4 @@ function localMetadataFingerprint(paths, includeDirectories = false) {
     paths.filter(Boolean).forEach(inspect);
     return JSON.stringify(records.sort((a, b) => String(a[0]).localeCompare(String(b[0]))));
 }
+function communicationOutcomeUnknown(error) { return error instanceof TypeError || ["AbortError", "TimeoutError"].includes(error?.name) || /fetch failed|ECONN|ENOTFOUND|连接已断开|无有效响应|执行结果待确认|aborted/i.test(errorMessage(error)); }

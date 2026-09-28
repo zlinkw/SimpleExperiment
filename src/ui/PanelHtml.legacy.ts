@@ -14118,6 +14118,7 @@ export function renderPanelHtml(): string {
     }
 
     function operationStatusLabel(status) {
+      if (String(status || "").toLowerCase() === "outcome_pending") return "执行结果待确认";
       const text = String(status || "").toLowerCase();
       if (text === "accepted" || text === "submitted") return "已提交";
       if (text.includes("running") || text.includes("progress") || text.includes("started") || text.includes("in_progress")) return "执行中";
@@ -14777,6 +14778,7 @@ export function renderPanelHtml(): string {
       const summaryMatchesPlan = !planFile || Boolean(summaryPlanFile && samePlanSelection(summaryPlanFile, planFile));
       const summaryMatchesVersion = resultSummaryMatchesPlanVersion(item, planRevision, planUpdatedAt);
       const rows = planVersionOperationRows(data, planFile, planRevision, planUpdatedAt);
+      if (rows.some((row) => row.outcomePending)) return cachePlanExecutionStage(cacheKey, { phase: "monitor", status: "执行结果待确认；请点击重新连接，再刷新运行状态核对", label: "重新连接", command: "resumeStream" });
       const artifacts = latestResultAnalysisArtifactPaths(rows, planFile, planRevision, planUpdatedAt);
       const value = {
         plottingContractPath: (summaryMatchesPlan && summaryMatchesVersion ? meaningfulValue(pick(item, ["plottingContractPath", "plotting_contract_path"], "")) : "") || artifacts.plottingContractPath,

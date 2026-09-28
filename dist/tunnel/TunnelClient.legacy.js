@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.HttpTunnelClient = exports.tunnelActions = void 0;
 const RequestBudget_1 = require("./RequestBudget");
 const TunnelGateway_1 = require("./TunnelGateway");
+const ProgressInactivity_1 = require("../core/ProgressInactivity");
 exports.tunnelActions = [
     "run-plan", "stop-experiment", "retry-experiment", "reproduce-plan", "validate-plan", "dry-run-plan",
     "stop-scheduler-operation",
@@ -219,8 +220,7 @@ class HttpTunnelClient {
         const base = (0, TunnelGateway_1.localBaseUrl)(this.endpoint);
         return this.budget.run(purpose, async () => {
             const controller = new AbortController();
-            const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? this.endpoint.timeoutMs ?? 8_000);
-            timeout.unref?.();
+            const inactivity = new ProgressInactivity_1.ProgressInactivity(30_000, () => controller.abort(new Error("30 秒无有效响应，执行结果待确认。请点击重新连接并核对状态，勿重复执行。")));
             const onCallerAbort = () => controller.abort();
             if (options.signal) {
                 if (options.signal.aborted)
@@ -235,7 +235,20 @@ class HttpTunnelClient {
                     headers: this.headers(body !== undefined),
                     body: body === undefined ? undefined : JSON.stringify(body),
                 });
-                const text = await response.text();
+                const chunks = [];
+                let received = 0;
+                if (response.body) {
+                    const reader = response.body.getReader();
+                    for (;;) {
+                        const chunk = await reader.read();
+                        if (chunk.done)
+                            break;
+                        chunks.push(chunk.value);
+                        received += chunk.value.byteLength;
+                        inactivity.update({ processedBytes: received });
+                    }
+                }
+                const text = Buffer.concat(chunks).toString("utf8");
                 if (!response.ok)
                     throw new Error(`Hub Agent HTTP ${response.status}: ${text.slice(0, 200)}`);
                 if (!text.trim())
@@ -243,7 +256,7 @@ class HttpTunnelClient {
                 return JSON.parse(text);
             }
             finally {
-                clearTimeout(timeout);
+                inactivity.dispose();
                 options.signal?.removeEventListener("abort", onCallerAbort);
             }
         }, { userInitiated: options.userInitiated });

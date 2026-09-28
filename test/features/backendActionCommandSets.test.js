@@ -32,8 +32,8 @@ test("backend action routing reuses composed confirmation and scheduler sets", (
   for (const constant of ["NO_HUB_RESULT_CONFIRM_COMMANDS", "PLAN_PREFLIGHT_COMMANDS", "PLAN_SUBMISSION_COMMANDS", "PLAN_SCHEDULER_COMMANDS", "TUNNEL_ACTION_CONFIRM_COMMANDS"]) {
     assert.match(body, new RegExp(`${constant}\\.has\\(command\\)`), constant);
   }
-  const watchdog = methodBody("uiCommandWatchdogMs(command)", "private postUiCommandStatus(clientActionId, status, command, message)");
-  assert.match(watchdog, /PLAN_SUBMISSION_COMMANDS\.has\(command\) \|\| PLAN_PREFLIGHT_COMMANDS\.has\(command\)/);
+  const watchdog = methodBody("uiCommandWatchdogMs(command)", "private postUiCommandStatus(clientActionId, status, command, message,");
+  assert.doesNotMatch(watchdog, /return [1-9][0-9_]*;/);
   assert.match(watchdog, /return 0;/);
   assert.doesNotMatch(body, /\["archiveArtifacts", "excludeResults", "syncArtifacts", "completeThreeWay"\]\.includes\(command\)/);
   assert.doesNotMatch(body, /\["validatePlan", "dryRunPlan", "runPlan", "reproducePlan"\]\.includes\(command\)/);

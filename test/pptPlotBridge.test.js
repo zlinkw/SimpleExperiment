@@ -167,7 +167,9 @@ test("PptPlotBridge posts to online automation server and writes audit files", a
     assert.equal(fs.existsSync(result.responsePath), true);
     assert.equal(JSON.parse(fs.readFileSync(result.responsePath, "utf8")).ok, true);
   } finally {
+    server.server.closeAllConnections();
     await new Promise((resolve) => server.server.close(resolve));
+    await new Promise(resolve => setTimeout(resolve, 20));
   }
 });
 

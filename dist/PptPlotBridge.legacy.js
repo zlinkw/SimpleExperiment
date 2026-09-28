@@ -44,6 +44,7 @@ const path = __importStar(require("path"));
 const os = __importStar(require("os"));
 const child_process_1 = __importStar(require("child_process"));
 const PlottingContract_1 = __importStar(require("./features/PlottingContract"));
+const ProgressInactivity_1 = require("./core/ProgressInactivity");
 const activePlotRequests = new Set();
 let powerPointLaunchInFlight;
 const PPT_SOURCE_FILE_MAX_BYTES = 2 * 1024 * 1024;
@@ -77,8 +78,8 @@ class PptPlotBridge {
         this.launchPowerPoint = deps.launchPowerPoint || launchPowerPoint;
         this.sleepImpl = deps.sleep || sleep;
         this.healthTimeoutMs = deps.healthTimeoutMs ?? 30_000;
-        this.healthPollMs = deps.healthPollMs ?? 750;
-        this.requestTimeoutMs = deps.requestTimeoutMs ?? 5_000;
+        this.healthPollMs = deps.healthPollMs ?? 500;
+        this.requestTimeoutMs = deps.requestTimeoutMs ?? 30_000;
         this.postTimeoutMs = deps.postTimeoutMs ?? 30_000;
     }
     async plot(input) {
@@ -231,11 +232,27 @@ class PptPlotBridge {
     }
     async fetchTextWithTimeout(url, init, timeoutMs, label) {
         const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), Math.max(1, timeoutMs));
-        timer.unref?.();
+        const inactivity = new ProgressInactivity_1.ProgressInactivity(timeoutMs, () => controller.abort());
         try {
             const response = await this.fetchImpl(url, { ...init, signal: controller.signal });
-            return { ok: response.ok, status: response.status, text: await response.text() };
+            let text;
+            if (response.body) {
+                const reader = response.body.getReader();
+                const chunks = [];
+                let bytes = 0;
+                for (;;) {
+                    const chunk = await reader.read();
+                    if (chunk.done)
+                        break;
+                    chunks.push(chunk.value);
+                    bytes += chunk.value.byteLength;
+                    inactivity.update({ processedBytes: bytes });
+                }
+                text = Buffer.concat(chunks).toString("utf8");
+            }
+            else
+                text = await response.text();
+            return { ok: response.ok, status: response.status, text };
         }
         catch (error) {
             if (isAbortError(error))
@@ -243,7 +260,7 @@ class PptPlotBridge {
             throw error;
         }
         finally {
-            clearTimeout(timer);
+            inactivity.dispose();
         }
     }
 }

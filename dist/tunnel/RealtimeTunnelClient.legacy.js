@@ -61,7 +61,7 @@ class RealtimeTunnelClient {
     async connect(sinceSeq = this.state.lastSeq, options = {}) {
         if (this.requiresManualReconnect && !options.manual)
             return;
-        if (["websocket", "sse", "polling", "connecting"].includes(this.status) && !options.manual)
+        if (["websocket", "sse", "polling", "connecting"].includes(this.status))
             return;
         this.requiresManualReconnect = false;
         if (this.budget.isPaused())
@@ -91,6 +91,8 @@ class RealtimeTunnelClient {
         if (this.shouldUseSse()) {
             try {
                 await this.connectSse(sinceSeq);
+                if (options.manual)
+                    await this.getSnapshot();
                 return;
             }
             catch (error) {

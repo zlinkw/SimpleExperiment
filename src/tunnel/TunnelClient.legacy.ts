@@ -1,6 +1,7 @@
 import { RequestBudget, RequestBudgetDeniedError, TunnelRequestPurpose } from "./RequestBudget";
 import { assertLocalhost, localBaseUrl } from "./TunnelGateway";
 import { TunnelHealth } from "./TunnelHealth";
+import { ProgressInactivity } from "../core/ProgressInactivity";
 
 export const tunnelActions = [
   "run-plan", "stop-experiment", "retry-experiment", "reproduce-plan", "validate-plan", "dry-run-plan",
@@ -315,8 +316,7 @@ export class HttpTunnelClient implements TunnelClient {
         purpose,
         async () => {
           const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? this.endpoint.timeoutMs ?? 8_000);
-          timeout.unref?.();
+          const inactivity = new ProgressInactivity(30_000, () => controller.abort(new Error("30 秒无有效响应，执行结果待确认。请点击重新连接并核对状态，勿重复执行。")));
           const onCallerAbort = () => controller.abort();
           if (options.signal) {
             if (options.signal.aborted) controller.abort();
@@ -329,12 +329,23 @@ export class HttpTunnelClient implements TunnelClient {
               headers: this.headers(body !== undefined),
               body: body === undefined ? undefined : JSON.stringify(body),
             });
-            const text = await response.text();
+            const chunks: Uint8Array[] = [];
+            let received = 0;
+            if (response.body) {
+              const reader = response.body.getReader();
+              for (;;) {
+                const chunk = await reader.read();
+                if (chunk.done) break;
+                chunks.push(chunk.value); received += chunk.value.byteLength;
+                inactivity.update({ processedBytes: received });
+              }
+            }
+            const text = Buffer.concat(chunks).toString("utf8");
             if (!response.ok) throw new Error(`Hub Agent HTTP ${response.status}: ${text.slice(0, 200)}`);
             if (!text.trim()) return {} as T;
             return JSON.parse(text) as T;
           } finally {
-            clearTimeout(timeout);
+            inactivity.dispose();
             options.signal?.removeEventListener("abort", onCallerAbort);
           }
         },

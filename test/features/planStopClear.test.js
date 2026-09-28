@@ -479,7 +479,7 @@ test("a hung worker stop returns a bounded plan failure and a late receipt canno
   assert.ok(Date.now() - started < 1000);
   assert.equal(result.status, "failed");
   assert.match(result.message, /w-hang/);
-  assert.match(result.message, /8 秒/);
+  assert.match(result.message, /30 秒无有效响应/);
   assert.match(result.planStopClear.failures.join("\n"), /重试/);
   assert.equal(saved.plans[0].jobs.length, 1);
   assert.equal(host.provider.planStopClearByFile["plans/hang.yaml"].outcome, "failed");
@@ -1218,7 +1218,7 @@ test("a preview failure before confirmation stays on the plan card", async () =>
 test("only stopAndClearPlan consumes a structured command result", async () => {
   const dist = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
   const start = dist.indexOf("const guardedWork = work()");
-  const end = dist.indexOf("const result = watchdogMs", start);
+  const end = dist.indexOf("const result = await guardedWork", start);
   const body = dist.slice(start, end);
   assert.match(body, /command === "stopAndClearPlan"/);
   const structured = { status: "failed", message: "未完成清除", planStopClear: { planFile: "plans/a.yaml" } };
@@ -1289,7 +1289,7 @@ test("mixed clear drops the pending job and keeps the running job when the worke
   const result = await host.provider.stopAndClearPlanFromUi({ planFile: "plans/mix.yaml" });
   assert.ok(Date.now() - started < 1000);
   assert.equal(result.status, "failed");
-  assert.match(result.message, /job 1 保留|超过 8 秒/);
+  assert.match(result.message, /job 1 保留|30 秒无有效响应/);
   const mix = saved.plans.find((plan) => plan.id === "plan-mix");
   assert.equal(mix.jobs.length, 1);
   assert.equal(mix.jobs[0].commandId, remote.commandId);

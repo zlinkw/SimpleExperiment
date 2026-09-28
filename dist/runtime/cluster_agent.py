@@ -7,9 +7,9 @@ from urllib.parse import urlparse, parse_qs, unquote
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.174"
-RUNTIME_VERSION = "0.5.174"
-PLUGIN_VERSION = "0.5.174"
+AGENT_VERSION = "0.5.175"
+RUNTIME_VERSION = "0.5.175"
+PLUGIN_VERSION = "0.5.175"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -9229,20 +9229,149 @@ def create_debug_bundle_action(root, include_results=False, plan=None):
         "includeResults": bool(include_results),
     }
 
+INACTIVITY_ACTIONS = {}
+INACTIVITY_ACTIONS_LOCK = threading.Lock()
+INACTIVITY_ACTION_CONTEXT = threading.local()
+
+def cancel_inactivity_action(root, wanted, plan=""):
+    with INACTIVITY_ACTIONS_LOCK:
+        entry = INACTIVITY_ACTIONS.get((os.path.abspath(root), str(wanted)))
+        if not entry or (plan and action_plan_file(entry["payload"]) != plan):
+            return False
+        entry["cancel"].set()
+        processes = list(entry["processes"])
+    for process in processes:
+        try:
+            if hasattr(os, "killpg"):
+                os.killpg(process.pid, signal.SIGTERM)
+            else:
+                process.terminate()
+        except (OSError, ProcessLookupError):
+            pass
+    return True
+
+def subprocess_inactivity_run(command, cwd=None, env=None, input=None, file_step=False):
+    entry = getattr(INACTIVITY_ACTION_CONTEXT, "entry", None)
+    if entry and entry["cancel"].is_set():
+        raise RuntimeError("操作已取消")
+    process = subprocess.Popen(command, cwd=cwd, env=env, stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+    if entry:
+        with INACTIVITY_ACTIONS_LOCK:
+            entry["processes"].add(process)
+    last_progress = [time.monotonic()]
+    progress_lock = threading.Lock()
+    counters = {}
+    streams = {"stdout": [], "stderr": []}
+    def consume(name, stream):
+        for line in stream:
+            streams[name].append(line)
+            if not line.startswith("SIMPLE_PROGRESS "):
+                continue
+            try:
+                item = json.loads(line[len("SIMPLE_PROGRESS "):])
+                phase = str(item.get("phase") or "")
+                with progress_lock:
+                    previous = counters.get(phase, (0, 0))
+                    current = (max(previous[0], int(item.get("processedBytes") or 0)), max(previous[1], int(item.get("processedFiles") or 0)))
+                    changed = phase not in counters or current != previous
+                    counters[phase] = current
+                    if changed:
+                        last_progress[0] = time.monotonic()
+                if changed and entry:
+                    progress_action(entry["root"], entry["action"], entry["operationId"], entry["opId"], "running", "处理进展", {
+                        "phase": phase, "processedBytes": current[0], "processedFiles": current[1], "lastProgressAt": now_iso()}, request=entry["payload"])
+            except (ValueError, TypeError):
+                pass
+    readers = [threading.Thread(target=consume, args=(name, stream), daemon=True) for name, stream in (("stdout", process.stdout), ("stderr", process.stderr))]
+    for reader in readers:
+        reader.start()
+    if input is not None:
+        def send_input():
+            try:
+                process.stdin.write(input); process.stdin.close()
+            except (OSError, BrokenPipeError):
+                pass
+        threading.Thread(target=send_input, daemon=True).start()
+    try:
+        while process.poll() is None:
+            cancelled = bool(entry and entry["cancel"].is_set())
+            with progress_lock:
+                stalled = time.monotonic() - last_progress[0] >= (120 if file_step else 30)
+            if cancelled or stalled:
+                try:
+                    if hasattr(os, "killpg"):
+                        os.killpg(process.pid, signal.SIGTERM)
+                    else:
+                        process.terminate()
+                    process.wait(timeout=2)
+                except (OSError, subprocess.TimeoutExpired):
+                    try:
+                        if hasattr(os, "killpg"):
+                            os.killpg(process.pid, signal.SIGKILL)
+                        else:
+                            process.kill()
+                    except OSError:
+                        pass
+                raise RuntimeError("操作已取消" if cancelled else "无真实进展，已停止子进程；请检查日志后重试")
+            time.sleep(0.05)
+        for reader in readers:
+            reader.join(timeout=1)
+        if entry and entry["cancel"].is_set():
+            raise RuntimeError("操作已取消")
+        return subprocess.CompletedProcess(command, process.returncode, "".join(streams["stdout"]), "".join(streams["stderr"]))
+    finally:
+        if entry:
+            with INACTIVITY_ACTIONS_LOCK:
+                entry["processes"].discard(process)
+
+def start_inactivity_action(root, action, payload, operation_id, op_id, worker_id=""):
+    key = (os.path.abspath(root), str(operation_id))
+    with INACTIVITY_ACTIONS_LOCK:
+        existing = INACTIVITY_ACTIONS.get(key)
+        if existing:
+            return existing.get("result") or {"operationId": operation_id, "opId": op_id, "status": "accepted"}
+        entry = {"root": root, "action": action, "payload": payload, "operationId": operation_id, "opId": op_id,
+                 "cancel": threading.Event(), "processes": set()}
+        INACTIVITY_ACTIONS[key] = entry
+    def execute():
+        release = None
+        INACTIVITY_ACTION_CONTEXT.entry = entry
+        try:
+            if entry["cancel"].is_set():
+                raise RuntimeError("操作已取消")
+            if worker_id:
+                release = acquire_worker_action_slot(root, worker_id, payload)
+            progress_action(root, action, operation_id, op_id, "running", "开始处理", {"phase": action}, request=payload)
+            entry["result"] = handle_action(root, action, payload, operation_id, op_id)
+        except Exception as exc:
+            entry["result"] = terminal_action(root, action, operation_id, op_id, "failed", str(exc), request=payload)
+        finally:
+            if release:
+                release()
+            INACTIVITY_ACTION_CONTEXT.entry = None
+            with INACTIVITY_ACTIONS_LOCK:
+                completed = [record_key for record_key, value in INACTIVITY_ACTIONS.items() if value.get("result")]
+                for record_key in completed[:-200]:
+                    INACTIVITY_ACTIONS.pop(record_key, None)
+    append_event(root, {"type": "operation_started", "operationId": operation_id, "payload": {"action": action, "opId": op_id, **action_operation_fields(payload)}})
+    threading.Thread(target=execute, name="simple-action-" + str(operation_id), daemon=True).start()
+    return {"schemaVersion": SCHEMA_VERSION, "operationId": operation_id, "opId": op_id, "status": "accepted", "action": action}
+
 def scheduler_capture(root, scheduler, scheduler_args, timeout=60, env=None):
     runtime_env = simple_runtime_env(os.environ.copy() if env is None else env)
     command = [simple_runtime_python(runtime_env), scheduler, *scheduler_args]
     # health check does not need conda activate - use direct python to avoid CommandNotFoundError in non-interactive shell
     if "--check-dependencies-json" in scheduler_args:
         try:
-            return subprocess.run(command, cwd=root, text=True, capture_output=True, timeout=timeout, env=runtime_env)
+            return subprocess_inactivity_run(command, cwd=root, env=runtime_env)
         except Exception:
             pass
-    result = subprocess.run(simple_conda_wrapped_args(command, runtime_env), cwd=root, text=True, capture_output=True, timeout=timeout, env=runtime_env)
+    result = subprocess_inactivity_run(simple_conda_wrapped_args(command, runtime_env), cwd=root, env=runtime_env)
     # fallback on Broken pipe / CommandNotFoundError (non-interactive shell without conda init)
     if result.returncode != 0 and ("CommandNotFoundError" in (result.stderr or "") or "Broken pipe" in (result.stderr or "") or "Broken pipe" in (result.stdout or "")):
         try:
-            return subprocess.run(command, cwd=root, text=True, capture_output=True, timeout=timeout, env=runtime_env)
+            return subprocess_inactivity_run(command, cwd=root, env=runtime_env)
         except Exception:
             pass
     return result
@@ -9429,7 +9558,10 @@ def action_event_fields(extra=None, request=None):
     return fields
 
 def terminal_action(root, action, operation_id, op_id, status, message, extra=None, request=None):
-    event_type = "operation_completed" if status == "completed" else "operation_failed"
+    entry = getattr(INACTIVITY_ACTION_CONTEXT, "entry", None)
+    if entry and entry["cancel"].is_set():
+        status, message = "cancelled", "操作已取消；晚到完成回执已忽略"
+    event_type = "operation_cancelled" if status == "cancelled" else "operation_completed" if status == "completed" else "operation_failed"
     body = {"action": action, "opId": op_id, "status": status, "message": message}
     details = action_event_fields(extra, request)
     body.update(details)
@@ -9437,6 +9569,9 @@ def terminal_action(root, action, operation_id, op_id, status, message, extra=No
     return {"schemaVersion": SCHEMA_VERSION, "opId": op_id, "operationId": operation_id, "action": action, "status": status, "message": message, **details}
 
 def progress_action(root, action, operation_id, op_id, status, message, extra=None, request=None):
+    entry = getattr(INACTIVITY_ACTION_CONTEXT, "entry", None)
+    if entry and entry["cancel"].is_set():
+        return {"operationId": operation_id, "opId": op_id, "status": "cancelled", "message": "操作已取消"}
     body = {"action": action, "opId": op_id, "status": status, "message": message}
     details = action_event_fields(extra, request)
     body.update(details)
@@ -10306,8 +10441,7 @@ def handle_action(root, action, payload, operation_id, op_id):
                        "--manifest", "-", "--project-root", root]
             if payload.get("publish") is True:
                 command.append("--publish")
-            result = subprocess.run(command, input=encoded, text=True, capture_output=True,
-                                    cwd=root, env=env, timeout=300)
+            result = subprocess_inactivity_run(command, input=encoded, cwd=root, env=env, file_step=True)
             if result.returncode != 0:
                 raise RuntimeError((result.stderr or result.stdout or "结果重建失败")[-2000:])
             details = json.loads(result.stdout.strip().splitlines()[-1])
@@ -11009,6 +11143,7 @@ def handle_action(root, action, payload, operation_id, op_id):
     if action == "install-rich":
         return install_rich_action(root, payload, operation_id, op_id)
     if action == "cancel-operation":
+        cancel_inactivity_action(root, str(payload.get("targetOperationId") or payload.get("remoteOperationId") or ""), action_plan_file(payload))
         return terminal_action(root, action, operation_id, op_id, "cancelled", "操作已取消")
     if action in ("deploy-runtime", "restart-agent"):
         return terminal_action(root, action, operation_id, op_id, "failed", f"{action} 必须由 VS Code 本地插件通过 Xshell 会话或 SimpleSFTP 执行，Hub Agent 不直接自修改")
@@ -12107,6 +12242,8 @@ def api_runtime_operation_evidence(root, operation_id, plan_file="", pid=None, t
 def stop_scheduler_operation(root, payload):
     wanted = str(payload.get("targetOperationId") or payload.get("remoteOperationId") or payload.get("operationId") or payload.get("opId") or "").strip()
     plan = action_plan_file(payload)
+    if wanted and plan and cancel_inactivity_action(root, wanted, plan):
+        return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or ""), str(payload.get("opId") or ""), "completed", "已取消处理中操作", {"matchedOperations": [wanted], "planFile": plan}, request=payload)
     if not wanted or not plan:
         return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or ""), str(payload.get("opId") or ""), "failed", "缺少明确的调度记录或 Plan，未执行停止。", {"matchedOperations": [], "planFile": plan}, request=payload)
     events = read_operation_events(root, wanted, 100) if wanted else []
@@ -13113,6 +13250,9 @@ def serve_http(args):
                 current_worker = str(getattr(args, "worker_id", "") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip()
                 if topology_mode not in ("single_worker", "worker_pool") or not owner or owner != current_worker or options.get("automaticBackup") is not False:
                     return self.send_json({"error": "worker result ownership mismatch"}, status=403)
+            if action in ("validate-plan", "dry-run-plan", "rebuild-distributed-results"):
+                worker = (selected_worker_id(payload) or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker") if mode == "worker_telemetry" and action in ("validate-plan", "dry-run-plan") else ""
+                return self.send_json(start_inactivity_action(root, action, payload, operation_id, op_id, worker), status=202)
             if action not in ("preview-cache-cleanup", "delete-cache-candidates"):
                 append_event(root, {"type": "operation_started", "operationId": operation_id, "payload": {"action": action, "opId": op_id, **action_operation_fields(payload)}})
             release_worker_action = None

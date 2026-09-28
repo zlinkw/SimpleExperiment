@@ -36,6 +36,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.FileTransferClient = void 0;
 const fs = __importStar(require("fs/promises"));
 const path = __importStar(require("path"));
+const ProgressInactivity_1 = require("../core/ProgressInactivity");
 const TunnelGateway_1 = require("./TunnelGateway");
 const FileTransferTypes_1 = require("./FileTransferTypes");
 const FileTransferVerifier_1 = require("./FileTransferVerifier");
@@ -119,6 +120,7 @@ class FileTransferClient {
     async runDownload(record, options, rangeStart = 0, rangeEnd) {
         const task = record.task;
         task.status = "running";
+        record.inactivity = new ProgressInactivity_1.ProgressInactivity(120_000, () => record.abort.abort(new Error("文件步骤 120 秒无真实进展，已取消。")));
         const tmpPath = `${task.localPath}.tmp.${task.transferId}`;
         let start = rangeStart;
         if (options.resume && rangeStart === 0) {
@@ -148,23 +150,32 @@ class FileTransferClient {
             }
             const expected = options.expectedSha256 || response.headers.get("x-simple-file-sha256") || undefined;
             record.expectedSha256 = expected;
-            if (contentLength && options.confirmLargeFile && !(await options.confirmLargeFile(contentLength))) {
+            if (contentLength && options.confirmLargeFile && !(await (async () => { record.inactivity?.pause(); try {
+                return await options.confirmLargeFile(contentLength);
+            }
+            finally {
+                record.inactivity?.resume();
+            } })())) {
                 throw new Error("TRANSFER_CANCELLED");
             }
             const transferred = await this.writeDownloadWithProgress(response, tmpPath, task.transferId, contentLength, start > 0);
             task.transferredBytes = start + transferred;
             task.size = contentLength ? start + contentLength : undefined;
-            const verify = await (0, FileTransferVerifier_1.verifyLocalFileSha256)(task.transferId, tmpPath, expected);
+            const verify = await (0, FileTransferVerifier_1.verifyLocalFileSha256)(task.transferId, tmpPath, expected, { signal: record.abort.signal, onBytes: (bytes) => record.inactivity?.update({ phase: "verifying", processedBytes: bytes }) });
             record.actualSha256 = verify.actualSha256;
             if (!verify.ok)
                 throw new Error("SHA256_MISMATCH");
             await fs.mkdir(path.dirname(task.localPath || "."), { recursive: true });
+            record.abort.signal.throwIfAborted();
             await fs.rename(tmpPath, task.localPath || tmpPath);
+            record.abort.signal.throwIfAborted();
             task.status = "completed";
+            record.inactivity?.dispose();
             task.finishedAt = new Date().toISOString();
             return task;
         }
         catch (error) {
+            record.inactivity?.dispose();
             task.status = record.abort.signal.aborted ? "cancelled" : "failed";
             task.error = error instanceof Error ? error.message : String(error);
             if (!options.resume)
@@ -175,10 +186,11 @@ class FileTransferClient {
     async runUpload(record, options) {
         const task = record.task;
         task.status = "running";
+        record.inactivity = new ProgressInactivity_1.ProgressInactivity(120_000, () => record.abort.abort(new Error("文件步骤 120 秒无真实进展，已取消。")));
         try {
             const stat = await fs.stat(task.localPath || "");
             task.size = stat.size;
-            const expectedSha256 = options.sha256 || await (0, FileTransferVerifier_1.sha256File)(task.localPath || "");
+            const expectedSha256 = options.sha256 || await (0, FileTransferVerifier_1.sha256File)(task.localPath || "", { signal: record.abort.signal, onBytes: (bytes) => record.inactivity?.update({ phase: "hashing", processedBytes: bytes }) });
             record.expectedSha256 = expectedSha256;
             const init = await this.requestJson("/api/files/upload-init", "POST", {
                 schemaVersion: 1,
@@ -210,6 +222,7 @@ class FileTransferClient {
                     const result = await this.requestJson(`/api/files/upload-chunk?${query.toString()}`, "POST", body, record.abort.signal, "application/octet-stream");
                     offset = Number(result.nextOffset ?? (offset + body.byteLength));
                     task.transferredBytes = offset;
+                    record.inactivity?.update({ phase: "transferring", processedBytes: offset });
                     this.onProgress(this.progress(transferId, offset, stat.size, startedAt));
                 }
             }
@@ -220,12 +233,15 @@ class FileTransferClient {
             record.actualSha256 = complete.sha256;
             if (complete.sha256 && complete.sha256.toLowerCase() !== expectedSha256.toLowerCase())
                 throw new Error("SHA256_MISMATCH");
+            record.abort.signal.throwIfAborted();
             task.status = "completed";
+            record.inactivity?.dispose();
             task.transferredBytes = stat.size;
             task.finishedAt = new Date().toISOString();
             return task;
         }
         catch (error) {
+            record.inactivity?.dispose();
             task.status = record.abort.signal.aborted ? "cancelled" : "failed";
             task.error = error instanceof Error ? error.message : String(error);
             throw error;
@@ -237,7 +253,7 @@ class FileTransferClient {
                 method,
                 headers: this.headers(body !== undefined, contentType),
                 body: body === undefined ? undefined : (contentType === "application/json" ? JSON.stringify(body) : body),
-                signal,
+                signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
             });
             const text = await response.text();
             if (!response.ok)
@@ -276,6 +292,7 @@ class FileTransferClient {
                     continue;
                 await file.write(chunk.value);
                 transferredBytes += chunk.value.byteLength;
+                this.transfers.get(transferId)?.inactivity?.update({ phase: "transferring", processedBytes: transferredBytes });
                 this.onProgress(this.progress(transferId, transferredBytes, totalBytes, startedAt));
             }
             return transferredBytes;
