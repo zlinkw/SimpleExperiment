@@ -31,6 +31,8 @@ test("results render signature derives contract and analysis paths from operatio
   assert.doesNotMatch(resultsModel, /plans: compactPlansForSignature/);
   assert.doesNotMatch(resultsModel, /capabilities: compactCapabilitiesForSignature/);
   assert.match(panel, /resultEvidenceWorkbenchCacheKeyFor\(summary, traceStats, outputContractCheck, analysisArtifacts, autoParseReadiness\)/);
+  assert.match(resultsModel, /resultSyncReport: data\.resultSyncReport/);
+  assert.match(panel, /stableSectionSignature\(\(state \|\| \{\}\)\.resultSyncReport \|\| \{\}\)/);
 });
 
 test("results signature ignores task-only selection fields", () => {

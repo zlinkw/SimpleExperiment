@@ -6,6 +6,7 @@ const plan = "experiments/plans/comparison/demo.yaml";
 function record(workerId, method, caseName, seed, endpoint, metric, value, rate = "0.3") {
   return {
     workerId,
+    planRevision: "rev1",
     method,
     dimensions: { method, case: caseName, seed, dataset: "bus", train_rate: rate, eval_protocol: endpoint },
     sourceFiles: [{ path: "experiments/results/demo.csv" }],
@@ -153,4 +154,40 @@ test("global final includes multiple Plans and keeps a method named final in its
   assert.deepEqual(Object.keys(output).sort(), ["_method_final", "demo", "final"]);
   assert.equal(output.final.rows.length, 2);
   assert.equal(output._method_final.rows.length, 1);
+});
+
+test("completed run selection follows the explicit run and keeps complementary metrics", () => {
+  const selected = tables.selectLatestCompletedRun([
+    { planFile: plan, workerId: "w1", case: "Alpha", seed: "1", method: "demo", dataset: "bus", rate: "30", endpoint: "clean", metrics: { AUC: 0.8 }, runId: "run-a", attempt: "1", revision: "r1" },
+    { planFile: plan, workerId: "w1", case: "Alpha", seed: "1", method: "demo", dataset: "bus", rate: "30", endpoint: "clean", metrics: { F1: 0.7 }, runId: "run-a", attempt: "2", revision: "r1" },
+    { planFile: plan, workerId: "w1", case: "alpha", seed: "1", method: "demo", dataset: "bus", rate: "30", endpoint: "clean", metrics: { AUC: 0.1 }, runId: "run-a", attempt: "1", revision: "r1" },
+  ], "run-a");
+  assert.equal(selected.length, 2);
+  assert.equal(selected.find((row) => row.case === "Alpha" && row.attempt === "2").metrics.F1, 0.7);
+  assert.equal(selected.find((row) => row.case === "Alpha" && row.attempt === "2").metrics.AUC, undefined);
+  const chosen = tables.selectLatestCompletedRun([
+    { planFile: plan, workerId: "w1", case: "Alpha", seed: "1", method: "demo", dataset: "bus", rate: "30", endpoint: "clean", metrics: { AUC: 0.8 }, runId: "run-b", attempt: "1", revision: "r1" },
+    { planFile: plan, workerId: "w1", case: "Alpha", seed: "1", method: "demo", dataset: "bus", rate: "30", endpoint: "clean", metrics: { AUC: 0.1 }, runId: "run-a", attempt: "1", revision: "r1" },
+  ], "run-a");
+  assert.equal(chosen.length, 1);
+  assert.equal(chosen[0].metrics.AUC, 0.1);
+  const retried = tables.selectLatestCompletedRun([
+    { planFile: plan, workerId: "w1", case: "Alpha", seed: "1", method: "demo", dataset: "bus", rate: "30", endpoint: "clean", metrics: { AUC: 0.2, F1: 0.4 }, runId: "run-a", attempt: "1", revision: "r1" },
+    { planFile: plan, workerId: "w1", case: "Alpha", seed: "1", method: "demo", dataset: "bus", rate: "30", endpoint: "clean", metrics: { AUC: 0.9 }, runId: "run-a", attempt: "2", revision: "r1" },
+  ], "run-a");
+  assert.deepEqual(retried[0].metrics, { AUC: 0.9 });
+  const previous = tables.updateRegistry(tables.emptyTableRegistry(), summary([record("w1", "demo", "bus_p30", 2, "clean", "acc", 0.2)]), plan, 2);
+  previous.plans[plan].revision = "old";
+  const incoming = summary([record("w1", "demo", "bus_p30", 1, "clean", "acc", 0.8)]);
+  incoming.planRevision = "new";
+  const merged = tables.mergeAvailableWorkerResults(previous, incoming, plan, 2);
+  assert.deepEqual(merged.plans[plan].records.map((item) => item.seed), ["1"]);
+  assert.throws(() => tables.selectLatestCompletedRun([
+    { planFile: plan, workerId: "w1", case: "Alpha", seed: "1", method: "demo", dataset: "bus", rate: "30", endpoint: "clean", metrics: { AUC: 0.8 }, runId: "run-z", attempt: "9", revision: "r1" },
+    { planFile: plan, workerId: "w1", case: "Alpha", seed: "1", method: "demo", dataset: "bus", rate: "30", endpoint: "clean", metrics: { AUC: 0.1 }, runId: "run-a", attempt: "1", revision: "r1" },
+  ]), /多个完成 run/);
+  assert.throws(() => tables.selectLatestCompletedRun([
+    { planFile: plan, workerId: "w1", case: "Alpha", seed: "1", method: "demo", dataset: "bus", rate: "30", endpoint: "clean", metrics: { AUC: 0.8 }, runId: "run-a", attempt: "job-left", revision: "r1" },
+    { planFile: plan, workerId: "w1", case: "Alpha", seed: "1", method: "demo", dataset: "bus", rate: "30", endpoint: "clean", metrics: { AUC: 0.9 }, runId: "run-a", attempt: "job-right", revision: "r1" },
+  ], "run-a"), /无法比较的 attempt/);
 });

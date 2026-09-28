@@ -4015,6 +4015,7 @@ export function renderPanelHtml(): string {
           selectedPlan: compactSelectedResultPlanForSignature(data),
           resultsSummary: compactResultsSummaryForSignature(data.resultsSummary),
           resultTables: data.resultOutputConfig?.tables || [],
+          resultSyncReport: data.resultSyncReport || null,
           autoParseReadiness: resultAutoParseReadinessForState(data, data.resultsSummary || {}),
           outputContractCheck: compactOutputContractCheckForSignature(currentResultOutputContractCheck(data)),
           analysisArtifacts: resultAnalysisArtifactsForState(data, data.resultsSummary || {}),
@@ -14313,6 +14314,10 @@ export function renderPanelHtml(): string {
       const fields = selected?.header || [];
       const valueChoices = choices.map((value) => '<label data-result-split-value-row="' + escAttr(value) + '"' + (resultSplitSearchQuery && !value.toLowerCase().includes(resultSplitSearchQuery.trim().toLowerCase()) ? ' style="display:none"' : '') + '><input type="checkbox" data-result-split-value value="' + escAttr(value) + '"' + (resultSplitSelectedValues === null || resultSplitSelectedValues.includes(value) ? ' checked' : '') + '> ' + esc(value || "（空值）") + '</label>').join("");
       const columns = fields.map((name) => '<label><input type="checkbox" data-result-split-column value="' + escAttr(name) + '"' + (resultSplitSelectedColumns === null || resultSplitSelectedColumns.includes(name) ? ' checked' : '') + '> ' + esc(name) + '</label>').join("");
+      const syncReport = (state || {}).resultSyncReport;
+      const reportCount = syncReport ? "发现 " + Number(syncReport.discovered || 0) + "，收录 " + asArray(syncReport.included).length + "，缺指标 " + asArray(syncReport.missing).length + "，跳过/失败 " + asArray(syncReport.skipped).length : "";
+      const reportDetails = syncReport ? asArray(syncReport.included).concat(asArray(syncReport.missing), asArray(syncReport.skipped)).map((line) => esc(String(line))).join("<br>") : "";
+      const reportHtml = reportCount ? '<div>' + esc(reportCount) + '</div>' + (reportDetails ? '<details><summary>查看 Plan 与 Worker 明细</summary><div>' + reportDetails + '</div></details>' : '') : "";
       const tableCards = tables.slice().sort((a, b) => Number(b.name === "final") - Number(a.name === "final")).map((row) => {
         const name = row.name === "final" ? "全项目总表" : row.name;
         const path = "experiments/results/" + row.name + "/" + row.name;
@@ -14322,9 +14327,10 @@ export function renderPanelHtml(): string {
           '<button type="button" class="secondary" data-command="openLocalResultTable" data-table-name="' + escAttr(row.name) + '" data-format="md" title="打开 ' + escAttr(path) + '.md，按均值 ± 标准差阅读相同结果。">阅读版</button></div></article>';
       }).join("");
       return '<div class="resultFinalCard resultTableBrowser"><div class="resultFinalHeader"><div><h3>结果总表</h3><p>全项目 final 与各方法结果分开保存。表格已在本机项目目录。</p></div>' +
-        '<div><button type="button" data-command="rebuildProjectResultTables" title="扫描全部 Plan 和已启用 Worker，按可信 case、seed 与端点重算均值和样本标准差，再更新本机 final 与各方法表。不会重新训练或改写远端原始表。">刷新所有结果</button>' +
-        '<button type="button" class="secondary" data-command="syncPendingPlanArtifacts" title="按最新版合并全部已知 Plan 在各 Worker 上的结果范围，成功后只下载所需 CSV/JSON/MD 指标。不扫描权重或整个项目。待处理产物计数属于自动的权重和日志同步，此按钮不会把它标成已完成。">合并最新结果并拉取指标</button></div></div>' +
-        (tables.length ? '<div class="resultTableCards">' + tableCards + '</div>' : '<div class="muted">尚无总表。点击“刷新所有结果”从 Plan 与 Worker 生成。</div>') +
+        '<div><button type="button" data-command="syncPendingPlanArtifacts" title="先按最新版合并各 Worker 上当前项目的结果范围，再按每个来源一次打包下载 CSV/JSON/MD 指标，并更新全项目总表与方法表。会查询服务器。不重新训练，不下载权重。待处理产物计数属于自动的权重和日志同步，此按钮不会把它标成已完成。">同步服务器结果并更新总表</button>' +
+        '<button type="button" class="secondary" data-command="rebuildProjectResultTables" title="读取服务器结果摘要和本机已有指标文件，只重算均值、样本标准差和总表。不下载文件，不合并 Worker 目录，也不重新训练。">重新汇总指标（不下载文件）</button></div></div>' +
+        (reportHtml ? '<div class="muted">' + reportHtml + '</div>' : '') +
+        (tables.length ? '<div class="resultTableCards">' + tableCards + '</div>' : '<div class="muted">尚无总表。点击“同步服务器结果并更新总表”合并 Worker 结果、下载指标并生成总表。</div>') +
         '<details class="resultArtifactGroup" data-details-key="result-split-tables"' + detailsOpenAttr("result-split-tables", false) + '><summary>按列和值拆成子表</summary>' +
         '<div class="resultTableRow"><label>来源表 <select id="resultSplitTable">' + tableOptions + '</select></label><label>按此列拆表 <select id="resultSplitField">' + options(fields, field) + '</select></label><input type="search" id="resultSplitSearch" value="' + escAttr(resultSplitSearchQuery) + '" placeholder="搜索词条"></div>' +
         '<div class="muted">勾选需要的词条，每个词条生成一张 CSV。可批量全选或取消当前搜索结果；输出放在所选表的 by_列名 子目录。</div>' +
@@ -14340,7 +14346,7 @@ export function renderPanelHtml(): string {
       const autoParseReadiness = resultAutoParseReadinessForState(state, summary);
       const outputContractCheck = currentResultOutputContractCheck(state);
       const analysisArtifacts = resultAnalysisArtifactsForState(state, summary);
-      const cacheKey = resultEvidenceWorkbenchCacheKeyFor(summary, traceStats, outputContractCheck, analysisArtifacts, autoParseReadiness) + stableSectionSignature((((state || {}).resultOutputConfig || {}).adapterRules) || {}) + stableSectionSignature((((state || {}).resultOutputConfig || {}).tables) || []) + resultSplitTableName + resultSplitFieldName;
+      const cacheKey = resultEvidenceWorkbenchCacheKeyFor(summary, traceStats, outputContractCheck, analysisArtifacts, autoParseReadiness) + stableSectionSignature((((state || {}).resultOutputConfig || {}).adapterRules) || {}) + stableSectionSignature((((state || {}).resultOutputConfig || {}).tables) || []) + stableSectionSignature((state || {}).resultSyncReport || {}) + resultSplitTableName + resultSplitFieldName;
       if (cacheKey === resultEvidenceWorkbenchCacheKey && resultEvidenceWorkbenchCacheHtml) return resultEvidenceWorkbenchCacheHtml;
       const parseFailed = pick(summary, ["parseFailed", "parse_failed"], "-");
       const qualityWarnings = pick(summary, ["qualityWarnings", "quality_warnings"], "-");

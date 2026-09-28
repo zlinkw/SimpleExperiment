@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 
-export type SeedRecord = { planFile: string; workerId: string; case: string; seed: string; method: string; dataset: string; rate: string; endpoint: string; metrics: Record<string, number> };
+export type SeedRecord = { planFile: string; workerId: string; case: string; seed: string; method: string; dataset: string; rate: string; endpoint: string; metrics: Record<string, number>; runId?: string; attempt?: string; revision?: string };
 export type DerivedMetric = { metric: string; leftEndpoint: string; rightEndpoint: string; outputName: string; scale: number };
 export type TableRegistry = { schemaVersion: 1; plans: Record<string, { revision: string; expectedSeeds: number; records: SeedRecord[] }>; derivedMetric?: DerivedMetric };
 export const emptyTableRegistry = (): TableRegistry => ({ schemaVersion: 1, plans: {} });
@@ -39,9 +39,79 @@ function ratePercent(dims: any): string {
   return Number.isFinite(n) ? String(Number((n * (Math.abs(n) <= 1 ? 100 : 1)).toPrecision(12))) : String(dims.train_rate).trim();
 }
 
+function recordRunId(row: any, summary: any): string {
+  const own = String(row?.runId || row?.run_id || row?.provenance?.runId || "").trim();
+  if (own) return own;
+  const selected = String(summary?.completedRunId || summary?.runId || "").trim();
+  const contradictory = (Array.isArray(summary?.results) ? summary.results : []).some((item: any) => {
+    const runId = String(item?.runId || item?.run_id || item?.provenance?.runId || "").trim();
+    return runId && selected && runId !== selected;
+  });
+  return selected && !contradictory ? selected : "";
+}
+function recordAttempt(row: any, summary: any): string {
+  return String(row?.attempt || row?.attemptId || row?.provenance?.attempt || summary?.attempt || "").trim();
+}
+function attemptOrder(value: string): { rank: number; at: number } | undefined {
+  const text = String(value || "").trim();
+  if (/^\d+$/.test(text)) return { rank: Number(text), at: 0 };
+  const parsed = Date.parse(text);
+  if (Number.isFinite(parsed)) return { rank: 0, at: parsed };
+  return undefined;
+}
+function seedIdentity(record: SeedRecord): string {
+  return [record.workerId, record.method, record.dataset, record.rate, record.endpoint, record.case, record.seed].join("\0");
+}
+export function selectLatestCompletedRun(records: SeedRecord[], selectedRunId = ""): SeedRecord[] {
+  const identified = records.filter((record) => record.runId);
+  const anonymous = records.filter((record) => !record.runId);
+  const requested = String(selectedRunId || "").trim();
+  let chosen = "";
+  if (requested) {
+    chosen = requested;
+  } else {
+    const runs = [...new Set(identified.map((record) => record.runId as string))];
+    if (runs.length > 1)
+      throw new Error("结果包含多个完成 run（" + runs.join("、") + "），没有明确的完成运行选择，保留旧表。下一步：由 ledger 或摘要标明要展示的完成 run。");
+    chosen = runs[0] || "";
+  }
+  const selected = chosen ? identified.filter((record) => record.runId === chosen) : anonymous;
+  if (chosen && !selected.length && anonymous.length)
+    throw new Error("完成运行 " + chosen + " 没有带 run 身份的指标，不能把未知记录当成该次运行。下一步：重新同步该完成运行的指标。");
+  const revisions = [...new Set(selected.map((record) => record.revision || "").filter(Boolean))];
+  if (revisions.length > 1)
+    throw new Error("同一次完成运行包含多个 revision，已保留旧表。下一步：核对该 Plan 的完成 run。");
+  const bySeed = new Map<string, SeedRecord>();
+  for (const record of selected) {
+    const key = seedIdentity(record);
+    const previous = bySeed.get(key);
+    if (!previous) { bySeed.set(key, record); continue; }
+    const left = attemptOrder(previous.attempt || "");
+    const right = attemptOrder(record.attempt || "");
+    let winner = record;
+    let loser = previous;
+    if (previous.attempt === record.attempt) {
+      const metrics = { ...previous.metrics };
+      for (const [name, value] of Object.entries(record.metrics)) {
+        if (metrics[name] !== undefined && metrics[name] !== value)
+          throw new Error("同一完成运行的 seed 指标冲突：" + record.case + "/" + record.seed + "/" + name + "。已保留旧表。");
+        metrics[name] = value;
+      }
+      bySeed.set(key, { ...record, metrics });
+      continue;
+    }
+    if (left && right && (left.rank !== right.rank || left.at !== right.at)) {
+      const rightNewer = right.rank > left.rank || right.at > left.at;
+      bySeed.set(key, rightNewer ? record : previous);
+      continue;
+    }
+    throw new Error("同一完成运行的 seed 有无法比较的 attempt：" + record.case + "/" + record.seed + "。下一步：为该 seed 保留唯一可排序的 attempt。");
+  }
+  return [...bySeed.values()];
+}
 export function recordsForSummary(summary: any, planFile: string): SeedRecord[] {
   if (!summary || String(summary.planFile || "").replace(/\\/g, "/") !== planFile.replace(/\\/g, "/")) throw new Error("结果摘要与所选 Plan 不匹配。");
-  if (summary.incompleteAggregate || (Array.isArray(summary.unavailableWorkerIds) && summary.unavailableWorkerIds.length)) throw new Error("部分 Worker 离线，暂不覆盖总表。");
+  if ((summary.incompleteAggregate && summary.verifiedPartial !== true) || (Array.isArray(summary.unavailableWorkerIds) && summary.unavailableWorkerIds.length && summary.verifiedPartial !== true)) throw new Error("部分 Worker 离线，暂不覆盖总表。");
   const tables = Array.isArray(summary.workerResultTables) ? summary.workerResultTables : [];
   if (tables.some((row: any) => row.aggregateStatus && row.aggregateStatus !== "ready")) throw new Error("部分 Worker 的当前 Plan 汇总未就绪。");
   const sources = new Map<string, string>();
@@ -63,10 +133,15 @@ export function recordsForSummary(summary: any, planFile: string): SeedRecord[] 
       if (Number.isFinite(value)) metrics[name] = value;
     }
     if (!Object.keys(metrics).length) continue;
-    records.push({ planFile, workerId, case: caseName, seed, method: String(dims.method || row.method || "").trim() || path.posix.basename(planFile, path.posix.extname(planFile)), dataset: String(dims.dataset || "").trim(), rate: ratePercent(dims), endpoint: String(dims.eval_protocol || dims.split || "").trim(), metrics });
+    const runId = recordRunId(row, summary);
+    const attempt = recordAttempt(row, summary);
+    const revision = String(row?.planRevision || row?.provenance?.planRevision || summary.planRevision || "").trim();
+    records.push({ planFile, workerId, case: caseName, seed, method: String(dims.method || row.method || "").trim() || path.posix.basename(planFile, path.posix.extname(planFile)), dataset: String(dims.dataset || "").trim(), rate: ratePercent(dims), endpoint: String(dims.eval_protocol || dims.split || "").trim(), metrics, runId, attempt, revision });
   }
   if (!records.length) throw new Error("当前 Plan 没有可核对的逐 seed 原始记录。");
-  return records;
+  const selected = selectLatestCompletedRun(records, String(summary.completedRunId || summary.selectedRunId || ""));
+  if (!selected.length) throw new Error("当前 Plan 没有可核对的逐 seed 原始记录。");
+  return selected;
 }
 
 export function updateRegistry(registry: TableRegistry, summary: any, planFile: string, expectedSeeds = 0): TableRegistry {
@@ -89,16 +164,19 @@ export function mergeAvailableWorkerResults(registry: TableRegistry, summary: an
   const rows = (Array.isArray(summary?.results) ? summary.results : []).filter((row: any) => owners.has(String(row?.workerId || row?.resultOwnerWorkerId || "").toLowerCase()));
   if (!rows.length) return registry;
   const partial = { ...summary, workerResultTables: ready, results: rows, unavailableWorkerIds: [], incompleteAggregate: false };
-  const incoming = recordsForSummary(partial, planFile);
-  const replaced = new Set(incoming.map((record) => record.workerId.toLowerCase()));
+  const incoming = recordsForSummary({ ...partial, completedRunId: summary.completedRunId || summary.selectedRunId || "", stampCompletedRunId: summary.stampCompletedRunId === true }, planFile);
+  const incomingRun = String(summary.completedRunId || summary.selectedRunId || incoming.find((record) => record.runId)?.runId || "");
   const previous = registry.plans?.[planFile];
-  const revision = String(summary.planRevision || "");
+  const revision = String(incoming.find((record) => record.revision)?.revision || summary.planRevision || "");
   const sameRevision = !previous?.revision || !revision || previous.revision === revision;
-  const retained = sameRevision ? (previous?.records || []).filter((record) => !replaced.has(record.workerId.toLowerCase())) : [];
+  const covered = (record: SeedRecord) => incoming.some((item) => seedIdentity(item) === seedIdentity(record));
+  const kept = sameRevision
+    ? (previous?.records || []).filter((record) => !covered(record) && record.revision === revision && (!incomingRun || !record.runId || record.runId === incomingRun) && (!record.runId || !incomingRun || record.runId === incomingRun))
+    : [];
   return { schemaVersion: 1, plans: { ...(registry?.plans || {}), [planFile]: {
     revision: revision || previous?.revision || "",
     expectedSeeds: Math.max(0, Math.floor(expectedSeeds || previous?.expectedSeeds || 0)),
-    records: [...retained, ...incoming],
+    records: selectLatestCompletedRun([...kept, ...incoming], incomingRun),
   } } };
 }
 
@@ -135,7 +213,7 @@ export function buildTables(registry: TableRegistry): Record<string, ResultTable
   type Group = { record: SeedRecord; expected: number; seeds: Map<string, Record<string, number>>; derived?: number[] };
   const grouped = new Map<string, Group>();
   for (const plan of Object.values(registry.plans || {})) for (const record of plan.records) {
-    const identity = JSON.stringify([record.method, record.dataset, record.rate, record.endpoint, record.case]);
+    const identity = JSON.stringify([record.planFile, record.method, record.dataset, record.rate, record.endpoint, record.case]);
     const group = grouped.get(identity) || { record, expected: 0, seeds: new Map() };
     group.expected = Math.max(group.expected, plan.expectedSeeds);
     const values = group.seeds.get(record.seed) || {};
@@ -152,7 +230,7 @@ export function buildTables(registry: TableRegistry): Record<string, ResultTable
     if (![1, 100].includes(Number(derived.scale)) || !/^[A-Za-z][A-Za-z0-9_]*$/.test(derived.outputName)) throw new Error("派生指标配置无效。");
     for (const group of groups) {
       const base = group.record;
-      const key = (endpoint: string) => JSON.stringify([base.method, base.dataset, base.rate, endpoint, base.case]);
+      const key = (endpoint: string) => JSON.stringify([base.planFile, base.method, base.dataset, base.rate, endpoint, base.case]);
       const left = grouped.get(key(derived.leftEndpoint));
       const right = grouped.get(key(derived.rightEndpoint));
       if (!left || !right) continue;

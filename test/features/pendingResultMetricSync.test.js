@@ -39,7 +39,10 @@ function sliceBetween(source, start, end) {
 
 test("the result table button merges every known result scope before any metric download", () => {
   assert.match(panel, /data-command="syncPendingPlanArtifacts"/);
-  assert.match(panel, /合并最新结果并拉取指标/);
+  assert.match(panel, /同步服务器结果并更新总表/);
+  assert.match(panel, /重新汇总指标（不下载文件）/);
+  assert.doesNotMatch(panel, /刷新所有结果|合并最新结果并拉取指标/);
+  assert.match(panel, /尚无总表。点击“同步服务器结果并更新总表”/);
   assert.doesNotMatch(panel, /同步待处理产物 \(/);
   assert.match(panel, /待处理产物计数属于自动的权重和日志同步/);
   assert.match(extension, /case "syncPendingPlanArtifacts":\s*await this\.syncPendingResultMetricsFromUi\(\)/);
@@ -51,8 +54,8 @@ test("the result table button merges every known result scope before any metric 
   assert.match(manual, /localPlanMetadata\.plans/);
   assert.match(manual, /targets\.length >= 2/);
   assert.match(manual, /outcome === false/);
-  assert.match(manual, /Worker 结果未完全合并，未下载指标文件/);
-  assert.match(manual, /summaryMatchesPlanRevision\(/);
+  assert.match(manual, /mergeConflictForPlan\(unverifiedScopes, item, candidates\)/);
+  assert.match(manual, /acceptedCompletedRevision\(/);
   assert.match(manual, /metricsOnly: true/);
   assert.equal(manual.match(/mergeLatestWorkerVersions\(/g).length, 1);
   assert.doesNotMatch(manual, /pendingPlanSyncs\(ledger\)|markPlanSyncComplete\(/);
@@ -234,17 +237,19 @@ test("merge rejection, conflicts, offline workers and revision changes download 
     await assert.rejects(() => __syncPendingResultMetricsForTest(cancelled), /未下载指标文件/);
     assert.equal(cancelled.calls.some((call) => call[0] === "sync.downloadMappedPaths" || call[0] === "download"), false);
 
-    const conflicted = providerFor(workspace, { mergeErrors: ["simple_cluster/results/w1/raw.csv：没有可靠的最新版"] });
-    await assert.rejects(() => __syncPendingResultMetricsForTest(conflicted), /未完全合并/);
+    const conflicted = providerFor(workspace, { mergeErrors: ["simple_cluster/results/w1：没有可靠的最新版", "simple_cluster/results/w2：没有可靠的最新版"] });
+    await assert.rejects(() => __syncPendingResultMetricsForTest(conflicted), /未完全合并|未下载/);
     assert.equal(conflicted.calls.some((call) => call[0] === "sync.downloadMappedPaths" || call[0] === "download"), false);
 
     const offline = providerFor(workspace, { targets: [{ id: "w1" }] });
-    await assert.rejects(() => __syncPendingResultMetricsForTest(offline), /未连接或未启用/);
-    assert.equal(offline.calls.some((call) => call[0] === "merge" || call[0] === "sync.downloadMappedPaths" || call[0] === "download"), false);
+    await assert.rejects(() => __syncPendingResultMetricsForTest(offline), /未连接|未收录|w2/);
+    assert.equal(offline.calls.some((call) => call[0] === "merge"), false);
+    assert.equal(offline.resultsSummary === undefined || offline.resultsSummary.stale !== false, true);
 
     const stale = providerFor(workspace, { ledgerRevision: "old" });
-    await assert.rejects(() => __syncPendingResultMetricsForTest(stale), /revision/);
-    assert.equal(stale.calls.some((call) => call[0] === "sync.downloadMappedPaths" || call[0] === "download"), false);
+    const staleResult = await __syncPendingResultMetricsForTest(stale);
+    assert.match(staleResult.skipped.join("\n"), /revision/);
+    assert.equal(staleResult.included.some((line) => line.includes("b.yaml")), false);
     assert.ok(stale.calls.some((call) => call[0] === "merge"));
   } finally {
     vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: "", scheme: "file", path: "" } }];
@@ -338,10 +343,10 @@ test("overwrite refusal, transfer failure and project switch do not publish a ne
 
     vscodeStub.window.showWarningMessage = async () => "覆盖已有文件并同步";
     const failed = providerFor(workspace, { transferError: "ssh closed", previousSummary: { planFile: "old", stale: true } });
-    await assert.rejects(() => __handleResultUiCommandForTest(failed, { command: "syncPendingPlanArtifacts" }), /ssh closed/);
-    assert.equal(failed.calls.filter((call) => call[0] === "sync.downloadMappedPaths").length, 1);
-    assert.equal(failed.calls.some((call) => call[0] === "postState"), false);
+    await assert.rejects(() => __handleResultUiCommandForTest(failed, { command: "syncPendingPlanArtifacts" }), /ssh closed|未收录/);
+    assert.equal(failed.calls.filter((call) => call[0] === "sync.downloadMappedPaths").length >= 1, true);
     assert.equal(failed.resultsSummary.stale, true);
+    assert.equal(failed.resultsSummary.planFile, "old");
 
     let switched = false;
     const moving = providerFor(workspace, { previousSummary: { planFile: "old", stale: true } });

@@ -2664,6 +2664,7 @@ export class RealtimeTunnelPanelProvider {
     }
     resetProjectContextInMemory() {
         this.projectContextGeneration += 1;
+        this.resultSyncReport = null;
         this.disposeSelectedPlanFileWatchers();
         if (this.planLocalChangeParseTimer)
             clearTimeout(this.planLocalChangeParseTimer);
@@ -13819,82 +13820,198 @@ export class RealtimeTunnelPanelProvider {
         if (!isCurrent())
             return { merged: false, downloaded: false, reason: "revision-changed" };
         const ledger = await this.loadPlanSyncLedger(root);
-        const plans = (this.localPlanMetadata.plans || []).map((item) => String(item.planFile || item.file || "")).filter(Boolean);
+        const plans = await completedResultPlanFiles(this, ledger, root);
         if (!plans.length) {
             void vscode.window.showInformationMessage("当前项目没有已知 Plan，未下载指标文件。");
-            return { merged: true, downloaded: false, reason: "none", plans: [] };
+            return { merged: true, downloaded: false, reason: "none", plans: [], discovered: 0, included: 0, missing: 0, skipped: [] };
         }
         const known = plans.map((planFile) => {
             const metadata = (this.localPlanMetadata.plans || []).find((item) => samePlanSelection(item.planFile || item.file, planFile));
             const authority = PlanArtifactSync.latestPlanSyncEntry(ledger, planFile);
-            return { planFile, metadata, authority };
+            const scopeHints = resultScopeHintsForPlan(ledger, planFile, authority);
+            return { planFile, metadata, authority, scopeHints };
         });
         const targets = this.workerCodeSyncTargets();
         const configured = this.setupConfig.workerTunnels.map((worker) => worker.id).filter(Boolean);
-        const owners = [...new Set(known.map((item) => String(item.authority?.sourceWorkerId || "")).filter(Boolean))];
-        if (configured.some((id) => !targets.some((target) => target.id === id)) || owners.some((id) => !targets.some((target) => target.id === id)))
+        const unreachable = configured.filter((id) => !targets.some((target) => target.id === id));
+        if (unreachable.length && !targets.length)
             throw new Error("有 Worker 未连接或未启用；请恢复连接后再合并最新版。未下载指标文件。");
-        const scopePaths = [...new Set(known.flatMap((item) => resultMetricMergeScopePaths(item.metadata, item.planFile, [
-            ...(item.authority?.artifactPaths || []), ...(item.authority?.directoryPaths || []),
-        ])))].sort();
+        const scopePaths = [...new Set(known.flatMap((item) => resultMetricMergeScopePaths(item.metadata, item.planFile, item.scopeHints)))].sort();
+        let merged = targets.length < 2;
+        const unverifiedScopes = new Set();
         if (targets.length >= 2) {
             if (!isCurrent())
                 return { merged: false, downloaded: false, reason: "revision-changed" };
             const outcome = await this.mergeLatestWorkerVersions(root, targets, scopePaths, ".", (stage) => {
-                void vscode.window.setStatusBarMessage(`结果指标合并：${stage}`, 4000);
+                void vscode.window.setStatusBarMessage(`同步服务器结果：${stage}`, 4000);
             });
             if (outcome === false)
                 throw new UiCommandCancelled("已取消按最新版合并，未下载指标文件。");
             const blocking = (Array.isArray(outcome?.errors) ? outcome.errors : []).filter((item) => item && !/没有需要同步的 Worker 文件|：代码以本机为准/.test(String(item)));
-            if (blocking.length)
-                throw new Error(`Worker 结果未完全合并，未下载指标文件：${blocking.slice(0, 5).join("；")}`);
+            for (const item of blocking)
+                unverifiedScopes.add(String(item));
+            merged = true;
         }
         if (!isCurrent())
             return { merged: false, downloaded: false, reason: "revision-changed" };
         const ready = [];
-        for (const item of known) {
-            const summary = await this.summaryForMetricDownload(client, item.planFile);
+        const issues = [];
+        let summaryCancelled = false;
+        if (unreachable.length)
+            issues.push("Worker 未连接：" + unreachable.join("、") + "。下一步：恢复这些 Worker 后再同步其结果。");
+        await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "同步服务器结果并更新总表", cancellable: true }, async (progress, token) => {
+        for (const [index, item] of known.entries()) {
+            if (token.isCancellationRequested || !isCurrent()) { summaryCancelled = true; return; }
+            progress.report({ message: (index + 1) + "/" + known.length + " " + item.planFile });
+            let summary;
+            try {
+                summary = await this.summaryForMetricDownloadWithBudget(client, item.planFile, index, known.length, isCurrent, token, progress);
+            }
+            catch (error) {
+                if (error instanceof UiCommandCancelled) { summaryCancelled = true; return; }
+                issues.push(item.planFile + "：摘要失败（" + errorMessage(error) + "）。下一步：核对该 Plan 的 Worker 健康检查后重试。");
+                continue;
+            }
             if (!isCurrent())
-                return { merged: true, downloaded: false, reason: "revision-changed" };
-            const revision = item.authority?.revision || item.metadata?.revision || "";
-            if (!ProjectResultTables.summaryMatchesPlanRevision(summary, { revision }))
-                throw new Error(`结果摘要与 Plan ${item.planFile} revision ${revision || "当前"} 不一致，未下载指标文件。`);
-            ready.push({ ...item, summary, candidates: resultMetricDownloadCandidates(summary, item.planFile) });
+                return { merged: true, downloaded: false, reason: "revision-changed", plans, issues };
+            const acceptance = acceptedCompletedRevision(item, summary);
+            if (!acceptance.ok) {
+                issues.push(item.planFile + "：" + acceptance.reason);
+                continue;
+            }
+            item.acceptedRevision = acceptance.revision;
+            item.unavailableWorkerIds = Array.isArray(summary?.unavailableWorkerIds) ? summary.unavailableWorkerIds.slice() : [];
+            item.acceptedRunId = acceptance.runId;
+            item.revisionNote = acceptance.note;
+            const candidates = resultMetricDownloadCandidates(summary, item.planFile);
+            const conflict = mergeConflictForPlan(unverifiedScopes, item, candidates);
+            if (conflict) {
+                issues.push(item.planFile + "：" + conflict);
+                continue;
+            }
+            if (!trustedCompletedResultSummary(summary) && !candidates.length) {
+                issues.push(item.planFile + "：服务器摘要没有可信完成指标。下一步：确认该 Plan 是否已在 Worker 上跑完并写出 CSV。");
+                continue;
+            }
+            ready.push({ ...item, summary, candidates });
         }
+        });
+        if (summaryCancelled || !isCurrent())
+            return { merged: true, downloaded: false, reason: "cancelled", plans, issues };
         const downloads = [];
-        const batches = this.collectMappedResultDownloadBatches(projectContext, ready, { metricsOnly: true });
-        if (!isCurrent())
-            return { merged: true, downloaded: false, reason: "revision-changed", plans };
-        const confirmed = await this.confirmMappedResultDownloads(projectContext, client, batches, "同步结果指标文件", { metricsOnly: true });
-        if (!confirmed || confirmed.cancelled) {
-            if (confirmed?.cancelled && !confirmed.rejected)
-                return { merged: true, downloaded: false, reason: "cancelled", plans, downloads: [confirmed] };
-            return { merged: true, downloaded: false, plans, downloads: confirmed ? [confirmed] : [] };
-        }
-        for (const batch of confirmed.batches) {
+        let confirmed = { cancelled: false, overwrite: true, batches: [], skippedExisting: 0 };
+        if (ready.some((item) => item.candidates.length)) {
+            const batches = [];
+            for (const item of ready.filter((entry) => entry.candidates.length)) {
+                try {
+                    batches.push(...this.collectMappedResultDownloadBatches(projectContext, [item], { metricsOnly: true }));
+                }
+                catch (error) {
+                    issues.push(item.planFile + "：下载清单无法安全生成（" + errorMessage(error) + "），该 Plan 未下载。下一步：核对该 Plan 的 Worker 归属后重试。");
+                    item.downloadFailed = true;
+                    item.candidates = [];
+                }
+            }
+            let mergedBatches = [];
+            try {
+                mergedBatches = collapseMappedDownloadBatches(batches);
+            }
+            catch (error) {
+                const blockedPlans = new Set((String(errorMessage(error)).match(/experiments\/plans\/\S+?\.ya?ml/gi) || []).map((plan) => plan.replace(/[，。].*$/, "")));
+                for (const item of ready) {
+                    if (blockedPlans.has(item.planFile)) {
+                        item.downloadFailed = true;
+                        item.candidates = [];
+                        issues.push(item.planFile + "：" + errorMessage(error) + " 下一步：分开这些 Plan 的结果目录。");
+                    }
+                }
+                const remaining = batches.filter((batch) => (batch.entries || []).every((entry) => !blockedPlans.has(entry.planFile)));
+                mergedBatches = collapseMappedDownloadBatches(remaining);
+            }
             if (!isCurrent())
-                return { merged: true, downloaded: false, reason: "revision-changed", plans, downloads };
-            const download = await this.downloadMappedResultBatch(projectContext, client, batch, "同步结果指标文件", { metricsOnly: true, overwrite: confirmed.overwrite });
-            downloads.push(download);
-            if (!isCurrent())
-                return { merged: true, downloaded: false, reason: "revision-changed", plans, downloads };
-            if (download?.failures?.length)
-                throw new Error(`指标文件下载失败，已停止后续来源：${download.failures.slice(0, 3).join("；")}`);
-            if (download?.cancelled)
-                break;
+                return { merged: true, downloaded: false, reason: "revision-changed", plans, issues };
+            confirmed = await this.confirmMappedResultDownloads(projectContext, client, mergedBatches, "同步服务器结果并更新总表", { metricsOnly: true });
+            if (!confirmed || (confirmed.cancelled && !confirmed.rejected))
+                return { merged: true, downloaded: false, reason: "cancelled", plans, issues, downloads: confirmed ? [confirmed] : [] };
+            for (const batch of confirmed.batches || []) {
+                if (!isCurrent())
+                    return { merged: true, downloaded: false, reason: "revision-changed", plans, downloads, issues };
+                const download = await this.downloadMappedResultBatch(projectContext, client, batch, "同步服务器结果并更新总表", { metricsOnly: true, overwrite: confirmed.overwrite });
+                downloads.push(download);
+                if (!isCurrent())
+                    return { merged: true, downloaded: false, reason: "revision-changed", plans, downloads, issues };
+                if (download?.failures?.length)
+                    issues.push("来源 " + (download.sourceId || "unknown") + " 指标下载失败：" + download.failures.slice(0, 3).join("；") + "。下一步：核对该来源 SSH 后只重试失败 Plan。");
+                if (download?.cancelled)
+                    return { merged: true, downloaded: false, reason: "cancelled", plans, downloads, issues };
+            }
         }
-        const downloaded = downloads.some((item) => item && !item.cancelled && !item.failures?.length && item.completed > 0);
-        if (downloaded && isCurrent())
-            await this.publishDownloadedResultMetrics(projectContext, client, ready, downloads);
-        return { merged: true, downloaded, plans, downloads };
+        const published = isCurrent()
+            ? await this.publishDownloadedResultMetrics(projectContext, client, ready.filter((item) => !item.downloadFailed), downloads)
+            : { included: [], missing: [], skipped: [] };
+        const report = {
+            merged,
+            downloaded: downloads.some((item) => item && item.completed > 0),
+            plans,
+            downloads,
+            discovered: plans.length,
+            included: published?.included || [],
+            missing: published?.missing || [],
+            skipped: [...issues, ...(published?.skipped || [])],
+            reason: downloads.some((item) => item?.cancelled) ? "partial" : undefined,
+        };
+        this.resultSyncReport = report;
+        if (isCurrent())
+            this.postState();
+        const text = formatResultSyncReport(report, "同步服务器结果并更新总表");
+        if (report.skipped.length || report.missing.length)
+            void vscode.window.showWarningMessage(text);
+        else
+            void vscode.window.showInformationMessage(text);
+        if (!report.included.length && report.skipped.length)
+            throw new Error(text);
+        return report;
     }
     async summaryForMetricDownload(client, planFile) {
-        if (typeof client?.getResultsSummary === "function") {
-            const summary = await client.getResultsSummary(planFile, { userInitiated: true });
-            return this.filterResultsSummaryForPlan(summary, planFile);
+        const summary = typeof client?.getResultsSummary === "function"
+            ? await client.getResultsSummary(planFile, { userInitiated: true })
+            : await this.refreshResultsSummary(planFile).then(() => this.resultsSummary);
+        return filterCompletedResultSummaryForPlan(summary, planFile);
+    }
+    async summaryForMetricDownloadWithBudget(client, planFile, index, total, isCurrent, token, progress) {
+        let summary;
+        for (let attempt = 0; attempt < 4; attempt++) {
+            try { summary = await this.summaryForMetricDownload(client, planFile); }
+            catch (error) {
+                const decision = (error as any)?.decision;
+                const reason = String(decision?.reason || "");
+                if (reason === "paused" || reason === "offline" || reason === "hidden") throw error;
+                if (attempt === 3 || !["cooldown", "rate_limited"].includes(reason)) throw error;
+                const delay = Math.min(61000, Math.max(0, Number(decision.retryAfterMs || 1000)));
+                const label = (index + 1) + "/" + total + " " + planFile;
+                progress?.report({ message: label + "：" + (reason === "cooldown" ? "本地请求间隔" : "本地请求预算繁忙") + "，正在等待 " + Math.ceil(delay / 1000) + " 秒" });
+                await this.waitForResultSummaryBudget(delay, label, isCurrent, token);
+                continue;
+            }
+            const missing = budgetLimitedWorkers(client, summary);
+            if (!missing.length || attempt === 3)
+                return summary;
+            const label = (index + 1) + "/" + total + " " + planFile;
+            progress?.report({ message: label + "：Worker " + missing.map((item) => item.workerId).join("、") + " 请求预算受限，正在等待 " + Math.ceil(missing[0].delay / 1000) + " 秒后重查" });
+            await this.waitForResultSummaryBudget(missing[0].delay, label, isCurrent, token);
         }
-        await this.refreshResultsSummary(planFile);
-        return this.filterResultsSummaryForPlan(this.resultsSummary, planFile);
+        return summary;
+    }
+    async waitForResultSummaryBudget(delay, label, isCurrent, token) {
+        if (typeof this.resultSummaryBudgetWait === "function")
+            return this.resultSummaryBudgetWait(delay, label, isCurrent, token);
+        const deadline = Date.now() + delay;
+        while (Date.now() < deadline) {
+            if (token?.isCancellationRequested || !isCurrent())
+                throw new UiCommandCancelled("同步服务器结果已取消，未发布总表。");
+            void vscode.window.setStatusBarMessage("同步服务器结果：第 " + label + "，正在等待 " + Math.ceil((deadline - Date.now()) / 1000) + " 秒", 2000);
+            await sleep(Math.min(1000, deadline - Date.now()));
+        }
     }
     collectMappedResultDownloadBatches(projectContext, planItems, options: { metricsOnly?: boolean } = {}) {
         const root = projectContext.root;
@@ -14049,9 +14166,10 @@ export class RealtimeTunnelPanelProvider {
                     const written = Number(result?.fileCount ?? result?.completedFiles ?? 0);
                     if (written !== chunk.length)
                         throw new Error(`映射下载返回 ${written} 个文件，期望 ${chunk.length} 个。`);
-                    if (!isCurrent()) { cancelled = true; break; }
+                    if (!isCurrent() || token.isCancellationRequested) { cancelled = true; break; }
                     const delivered = await distributeMappedDownloads(root, entries, chunk, overwrite);
                     completed += delivered;
+                    chunk.forEach((entry) => { entry.delivered = true; });
                 }
                 catch (error) {
                     failures.push(`${batch.sourceId}：${errorMessage(error)}`);
@@ -14059,14 +14177,15 @@ export class RealtimeTunnelPanelProvider {
                 }
             }
         });
+        const deliveredEntries = transfers.filter((entry) => entry.delivered).map((entry) => ({ remotePath: entry.remotePath, localRelativePath: entry.localRelativePath }));
         if (!isCurrent())
-            return { completed, selected: entries.length, failures, cancelled: true, sourceId: batch.sourceId };
+            return { completed, selected: entries.length, failures, cancelled: true, sourceId: batch.sourceId, deliveredEntries };
         const summaryText = `${metricsOnly ? "指标文件下载" : "结果同步"} ${batch.sourceId}：成功 ${completed}/${entries.length}，失败 ${failures.length}${cancelled ? "，已取消后续批次" : ""}。本机目录：${DEFAULT_RESULT_CSV_DIR}`;
         if (failures.length || cancelled)
             void vscode.window.showWarningMessage(`${summaryText}\n${failures.slice(0, 5).join("\n")}`);
         else
             void vscode.window.showInformationMessage(summaryText);
-        return { completed, selected: entries.length, failures, cancelled, sourceId: batch.sourceId };
+        return { completed, selected: entries.length, failures, cancelled, sourceId: batch.sourceId, deliveredEntries };
     }
     async downloadResultArtifactCandidates(projectContext, client, planFile, summary, candidates, title, options = {}) {
         const isCurrent = () => this.projectContextIsCurrent(projectContext) && client === this.client;
@@ -14100,41 +14219,82 @@ export class RealtimeTunnelPanelProvider {
         };
     }
     async publishDownloadedResultMetrics(projectContext, client, ready, downloads) {
+        const included = [];
+        const missing = [];
+        const skipped = [];
         if (!this.projectContextIsCurrent(projectContext) || client !== this.client)
-            return;
+            return { included, missing, skipped };
         const failed = new Set((downloads || []).filter((item) => item?.failures?.length || item?.cancelled).map((item) => String(item.sourceId || "")));
-        if ((downloads || []).some((item) => item?.failures?.length || item?.cancelled) && !failed.size)
-            return;
+        const verifiedDownloads = new Set((downloads || []).filter((item) => verifiedDownload(item)).map((item) => String(item.sourceId || "")));
         const root = projectContext.root;
         let registry = await this.loadProjectTableRegistry(root);
-        const ledger = await this.loadPlanSyncLedger(root);
         let changed = false;
         const summaries = [];
         for (const item of ready) {
             if (!this.projectContextIsCurrent(projectContext) || client !== this.client)
-                return;
-            const localSummary = await this.summaryFromLocalMetricFiles(root, item.planFile, item.summary, { authoritativeLocal: true });
-            if (!localSummary)
+                return { included, missing, skipped };
+            if (item.downloadFailed) {
+                skipped.push(item.planFile + "：下载清单失败，未用服务器摘要覆盖。下一步：核对该 Plan 的 Worker 归属后重试。");
                 continue;
-            const owners = new Set((item.candidates || []).map((candidate) => String(candidate.workerId || item.summary?.resultOwnerWorkerId || "hub")));
-            if ([...owners].some((owner) => failed.has(owner) || failed.has("hub") && !owner))
+            }
+            const owners = [...new Set((item.candidates || []).map((candidate) => String(candidate.workerId || item.summary?.resultOwnerWorkerId || "hub").trim()).filter(Boolean))];
+            const blockedOwners = owners.filter((owner) => failed.has(owner));
+            const verifiedOwners = owners.filter((owner) => !failed.has(owner));
+            if (owners.length && !verifiedOwners.length && !(Array.isArray(item.summary?.results) && item.summary.results.some((row) => !failed.has(String(row.workerId || row.resultOwnerWorkerId || ""))))) {
+                skipped.push(item.planFile + "：来源 " + blockedOwners.join("、") + " 下载失败，未收录。下一步：恢复该来源后再次同步。");
                 continue;
-            if (!ProjectResultTables.summaryMatchesPlanRevision(localSummary, { revision: item.authority?.revision || item.metadata?.revision || "" }))
+            }
+            let localSummary;
+            try {
+                localSummary = await this.summaryFromLocalMetricFiles(root, item.planFile, item.summary, { downloadedSources: verifiedDownloads, completedRunId: item.acceptedRunId || "" });
+            }
+            catch (error) {
+                skipped.push(item.planFile + "：本地指标无法解析（" + errorMessage(error) + "），保留旧表。下一步：修复该 CSV 后重新同步。");
                 continue;
-            summaries.push(localSummary);
-            const latest = PlanArtifactSync.latestPlanSyncEntry(ledger, item.planFile);
-            const chosen = latest?.runId && latest.runId !== "historic" ? ProjectResultTables.summaryForWorker(localSummary, latest.sourceWorkerId) : undefined;
+            }
+            const summary = summaryWithoutSources(preferServerMetricSummary(item.summary, localSummary, { downloadedSources: verifiedDownloads }), failed);
+            if (!summary || !trustedCompletedResultSummary(summary)) {
+                missing.push(item.planFile + "：已发现完成记录，但本机没有可解析的指标。下一步：重新执行“同步服务器结果并更新总表”。");
+                continue;
+            }
+            if (item.acceptedRevision)
+                summary.planRevision = item.acceptedRevision;
+            if (item.acceptedRunId && !reportedCompletedRunIds(item.summary).length)
+                item.revisionNote = "同步记录有完成运行 " + item.acceptedRunId + "，服务器摘要没有 run 身份，按 revision 收录，不标记为该次运行。";
+            else if (item.acceptedRunId)
+                summary.completedRunId = item.acceptedRunId;
             const expected = Array.isArray(item.metadata?.seeds) ? item.metadata.seeds.length : 0;
-            const next = latest?.runId && latest.runId !== "historic"
-                ? (chosen ? ProjectResultTables.updateRegistry(registry, chosen, item.planFile, expected) : registry)
-                : ProjectResultTables.mergeAvailableWorkerResults(registry, localSummary, item.planFile, expected);
-            if (next !== registry) {
+            try {
+                const next = ProjectResultTables.mergeAvailableWorkerResults(registry, summary, item.planFile, expected);
+                ProjectResultTables.buildTables(next);
+                const records = next.plans?.[item.planFile]?.records || [];
+                const incomingWorkers = new Set((summary.results || []).map((row) => String(row.workerId || row.resultOwnerWorkerId || "")));
+                if (incomingWorkers.size && [...incomingWorkers].every((worker) => failed.has(worker))) {
+                    skipped.push(item.planFile + "：新指标只来自失败来源，保留旧表。下一步：恢复该来源后再次同步。");
+                    continue;
+                }
+                if (!records.length) {
+                    missing.push(item.planFile + "：摘要没有可核对的逐 seed 记录。下一步：检查列映射和 CSV。");
+                    continue;
+                }
                 registry = next;
                 changed = true;
+                summaries.push(summary);
+                const workers = [...new Set(records.map((row) => row.workerId).filter(Boolean))];
+                const seeds = new Set(records.map((row) => row.case + "\0" + row.seed));
+                included.push(item.planFile + "：" + seeds.size + " 个不同 seed，" + records.length + " 条指标记录，Worker " + (workers.join("、") || "hub") + (item.revisionNote ? "。" + item.revisionNote : ""));
+                const missingWorkers = (item.unavailableWorkerIds || []).filter((worker) => !workers.includes(worker));
+                if (missingWorkers.length)
+                    skipped.push(item.planFile + "：已收录已验证 Worker，缺少 " + missingWorkers.join("、") + "。下一步：恢复缺少的 Worker 后再次同步。");
+                if (blockedOwners.length)
+                    skipped.push(item.planFile + "：来源 " + blockedOwners.join("、") + " 未收录，已保留同一次完成运行的旧记录。下一步：恢复失败来源后再次同步。");
+            }
+            catch (error) {
+                skipped.push(item.planFile + "：" + errorMessage(error) + "。下一步：保留该 Plan 旧表，修复后再同步。");
             }
         }
         if (!this.projectContextIsCurrent(projectContext) || client !== this.client)
-            return;
+            return { included, missing, skipped };
         if (changed) {
             registry.derivedMetric = pluginProjectAdapterRules(root).derivedMetric || undefined;
             await this.writeProjectTableRegistry(root, registry);
@@ -14144,8 +14304,9 @@ export class RealtimeTunnelPanelProvider {
         if (visible)
             this.resultsSummary = visible;
         this.postState();
+        return { included, missing, skipped };
     }
-    async summaryFromLocalMetricFiles(root, planFile, summary, options: { authoritativeLocal?: boolean } = {}) {
+    async summaryFromLocalMetricFiles(root, planFile, summary, options: { authoritativeLocal?: boolean, downloadedSources?: Set<string>, completedRunId?: string } = {}) {
         const tables = Array.isArray(summary?.workerResultTables) ? summary.workerResultTables : [];
         const results = [];
         const nextTables = [];
@@ -14160,16 +14321,21 @@ export class RealtimeTunnelPanelProvider {
             const text = localStat?.isFile() ? await fs.readFile(localPath, "utf8").catch(() => "") : "";
             if (!text)
                 continue;
-            const onlineParsedAt = Date.parse(String(summary?.lastParsedAt || ""));
-            const downloadedNow = options.authoritativeLocal === true;
-            const onlineHasRows = Array.isArray(summary?.results) && summary.results.length > 0;
-            if (!downloadedNow && onlineHasRows && (!Number.isFinite(onlineParsedAt) || localStat.mtimeMs + 1000 < onlineParsedAt))
+            const onlineParsedAt = Date.parse(String(table.lastParsedAt || summary?.lastParsedAt || ""));
+            const sourceKey = workerId || "hub";
+            const downloadedNow = options.authoritativeLocal === true || options.downloadedSources?.has(sourceKey);
+            const selectedRun = String(options.completedRunId || summary?.completedRunId || "");
+            const workerOnlineRows = (Array.isArray(summary?.results) ? summary.results : []).filter((row) => String(row?.workerId || row?.resultOwnerWorkerId || summary?.resultOwnerWorkerId || "") === workerId);
+            if (!downloadedNow && selectedRun && !Number.isFinite(onlineParsedAt))
+                continue;
+            if (!downloadedNow && workerOnlineRows.length && Number.isFinite(onlineParsedAt) && localStat.mtimeMs + 1000 < onlineParsedAt)
                 continue;
             const parsed = parseDownloadedMetricCsv(text, pluginProjectAdapterRules(root).csvColumnMapping || {});
             for (const row of parsed) {
                 results.push({
                     workerId: workerId || summary?.resultOwnerWorkerId || "",
                     resultOwnerWorkerId: workerId || summary?.resultOwnerWorkerId || "",
+                    ...(downloadedNow && options.completedRunId ? { runId: options.completedRunId, planRevision: summary?.planRevision || "" } : {}),
                     dimensions: row.dimensions,
                     metrics: row.metrics,
                     sourceFiles: [{ path: remotePath }],
@@ -14182,6 +14348,7 @@ export class RealtimeTunnelPanelProvider {
         return {
             ...summary,
             planFile,
+            ...(options.completedRunId && options.downloadedSources?.size ? { stampCompletedRunId: true, completedRunId: options.completedRunId } : {}),
             results,
             workerResultTables: nextTables.length ? nextTables : summary.workerResultTables,
             incompleteAggregate: false,
@@ -14553,18 +14720,20 @@ export class RealtimeTunnelPanelProvider {
         const root = context.root;
         const client = this.client;
         if (!root) throw new Error("请先打开当前实验项目。");
-        if (this.effectiveConnectionMode() === "offline_import") throw new Error("离线模式无法跨 Worker 重建总表。");
+        if (this.effectiveConnectionMode() === "offline_import") throw new Error("离线模式无法跨 Worker 重新汇总指标。");
         await this.refreshLocalPlanMetadataForAction(this.actionBody({}), { allPlans: true });
         if (!this.projectContextIsCurrent(context) || client !== this.client) return;
-        const plans = (this.localPlanMetadata.plans || []).filter((item) => item.planFile).slice(0, 500);
-        let registry = await this.loadProjectTableRegistry(root);
         const syncLedger = await this.loadPlanSyncLedger(root);
+        const planFiles = (await completedResultPlanFiles(this, syncLedger, root)).slice(0, 500);
+        const plans = planFiles.map((planFile) => (this.localPlanMetadata.plans || []).find((item) => samePlanSelection(item.planFile || item.file, planFile)) || { planFile });
+        let registry = await this.loadProjectTableRegistry(root);
+        const originalPlans = JSON.stringify(registry.plans || {});
         let included = 0;
         const issues = [];
         const refreshedSummaries = [];
-        await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "重建全项目最终结果表", cancellable: true }, async (progress, token) => {
+        await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "重新汇总指标（不下载文件）", cancellable: true }, async (progress, token) => {
             for (const [index, plan] of plans.entries()) {
-                if (token.isCancellationRequested || !this.projectContextIsCurrent(context) || client !== this.client) throw new UiCommandCancelled("全项目结果重建已取消，未覆盖现有表格。");
+                if (token.isCancellationRequested || !this.projectContextIsCurrent(context) || client !== this.client) throw new UiCommandCancelled("重新汇总指标已取消，未覆盖现有表格。");
                 const planFile = String(plan.planFile);
                 progress.report({ message: (index + 1) + "/" + plans.length + " " + planFile });
                 let summary;
@@ -14578,32 +14747,40 @@ export class RealtimeTunnelPanelProvider {
                             progress.report({ message: (decision.reason === "cooldown" ? "本地请求间隔" : "本地请求预算繁忙") + "，等待 " + Math.ceil(delay / 1000) + " 秒：" + planFile });
                             const deadline = Date.now() + delay;
                             while (Date.now() < deadline) {
-                                if (token.isCancellationRequested || !this.projectContextIsCurrent(context) || client !== this.client) throw new UiCommandCancelled("全项目结果重建已取消，未覆盖现有表格。");
+                                if (token.isCancellationRequested || !this.projectContextIsCurrent(context) || client !== this.client) throw new UiCommandCancelled("重新汇总指标已取消，未覆盖现有表格。");
                                 await sleep(Math.min(1000, deadline - Date.now()));
                             }
                         }
                     }
-                } catch (error) { issues.push(planFile + "：" + errorMessage(error)); continue; }
-                const localSummary = await this.summaryFromLocalMetricFiles(root, planFile, summary);
-                if (localSummary)
-                    summary = localSummary;
-                if (summary?.mixedPlanRevision || !ProjectResultTables.summaryMatchesPlanRevision(summary, plan)) {
-                    issues.push(planFile + "：Agent 返回旧 Plan revision，请先重新运行或刷新该 Plan 的结果。");
+                } catch (error) { issues.push(planFile + "：服务器摘要失败（" + errorMessage(error) + "），保留旧表。下一步：恢复该 Worker 后重试。"); continue; }
+                const serverSummary = summaryWithoutSources(summary, new Set(summary?.unavailableWorkerIds || []));
+                let localSummary;
+                try { localSummary = await this.summaryFromLocalMetricFiles(root, planFile, serverSummary); }
+                catch (error) { issues.push(planFile + "：本地指标无法解析（" + errorMessage(error) + "），保留旧表。"); continue; }
+                const acceptance = acceptedCompletedRevision({ metadata: plan, authority: PlanArtifactSync.latestPlanSyncEntry(syncLedger, planFile) }, serverSummary);
+                if (!acceptance.ok) { issues.push(planFile + "：" + acceptance.reason); continue; }
+                summary = summaryWithoutSources(preferServerMetricSummary(serverSummary, localSummary, { downloadedSources: new Set() }) || serverSummary, new Set());
+                summary = { ...summary, planRevision: acceptance.revision };
+                if (acceptance.runId && reportedCompletedRunIds(summary).length)
+                    summary.completedRunId = acceptance.runId;
+                else if (acceptance.runId)
+                    issues.push(planFile + "：同步记录有完成运行 " + acceptance.runId + "，服务器摘要没有 run 身份，按 revision " + acceptance.revision + " 收录，不标记为该次运行。");
+                if (acceptance.note) issues.push(planFile + "：" + acceptance.note);
+                if (!trustedCompletedResultSummary(summary)) {
+                    issues.push(planFile + "：没有可信完成指标，未收录。下一步：先执行“同步服务器结果并更新总表”下载 CSV，或确认该 Plan 已完成。");
                     continue;
                 }
-                refreshedSummaries.push(summary);
                 try {
-                    const latest = PlanArtifactSync.latestPlanSyncEntry(syncLedger, planFile);
-                    const chosen = latest?.runId && latest.runId !== "historic" ? ProjectResultTables.summaryForWorker(summary, latest.sourceWorkerId) : undefined;
-                    const next = latest?.runId && latest.runId !== "historic"
-                        ? chosen ? ProjectResultTables.updateRegistry(registry, chosen, planFile, Array.isArray(plan.seeds) ? plan.seeds.length : 0) : registry
-                        : ProjectResultTables.mergeAvailableWorkerResults(registry, summary, planFile, Array.isArray(plan.seeds) ? plan.seeds.length : 0);
+                    const next = ProjectResultTables.mergeAvailableWorkerResults(registry, summary, planFile, Array.isArray(plan.seeds) ? plan.seeds.length : 0);
+                    ProjectResultTables.buildTables(next);
                     if (next !== registry) {
-                        ProjectResultTables.buildTables(next);
                         registry = next;
                         included++;
                     }
-                } catch (error) { issues.push(planFile + "：" + errorMessage(error)); }
+                    refreshedSummaries.push(summary);
+                    if (summary.unavailableWorkerIds?.length)
+                        issues.push(planFile + "：已收录已验证 Worker，缺少 " + summary.unavailableWorkerIds.join("、") + "。下一步：恢复缺少的 Worker 后再次汇总。");
+                } catch (error) { issues.push(planFile + "：" + errorMessage(error) + "，保留旧表。下一步：核对该 Plan 的 seed 身份后重试。"); }
             }
         });
         if (!this.projectContextIsCurrent(context) || client !== this.client) return;
@@ -14613,12 +14790,23 @@ export class RealtimeTunnelPanelProvider {
             this.resultsSummary = visible;
         const retained = Object.keys(registry.plans || {}).length;
         if (!retained) throw new Error("没有可用的逐 seed 结果；" + (issues.length ? issues.slice(0, 3).join("；") : "请检查各 Worker 的结果 CSV 与列映射。"));
-        registry.derivedMetric = pluginProjectAdapterRules(root).derivedMetric || undefined;
-        await this.writeProjectTableRegistry(root, registry);
-        await this.queueHistoricalPlanArtifactSyncs(root, registry);
+        if (JSON.stringify(registry.plans || {}) !== originalPlans) {
+            registry.derivedMetric = pluginProjectAdapterRules(root).derivedMetric || undefined;
+            await this.writeProjectTableRegistry(root, registry);
+            await this.queueHistoricalPlanArtifactSyncs(root, registry);
+        }
+        const report = {
+            discovered: plans.length,
+            included: registry.plans ? Object.keys(registry.plans).filter((planFile) => refreshedSummaries.some((summary) => samePlanSelection(summary.planFile, planFile))).map((planFile) => planFile + "：已按服务器摘要与本地指标重算") : [],
+            missing: [],
+            skipped: issues,
+        };
+        if (!report.included.length)
+            report.included = Array.from({ length: included }, (_, index) => "已重算 " + (index + 1));
+        this.resultSyncReport = report;
         this.postState();
-        const message = "已合并 " + included + " 个 Plan 的在线 Worker 结果，本机总计 " + retained + " 个 Plan：experiments/results/final/final.csv";
-        if (issues.length) void vscode.window.showWarningMessage(message + "；跳过 " + issues.length + " 个异常 Plan：" + issues.slice(0, 3).join("；"));
+        const message = formatResultSyncReport(report, "重新汇总指标（不下载文件）");
+        if (issues.length) void vscode.window.showWarningMessage(message);
         else void vscode.window.showInformationMessage(message);
     }
     async openLocalResultTableFromUi(message) {
@@ -17083,6 +17271,7 @@ export class RealtimeTunnelPanelProvider {
             planFileInput: this.planFileInput,
             recentPlans: this.recentPlans,
             resultsSummary: compactResultsSummaryForPlanForWebview(this.resultsSummary, selectedResultsPlanFile, selectedResultsPlanVersion.revision, selectedResultsPlanVersion.updatedAt),
+            resultSyncReport: this.resultSyncReport || null,
             auditTail: this.auditTail,
             debugBundlePath: webviewDebugBundlePath,
             actionErrors: this.actionErrors,
@@ -26175,6 +26364,228 @@ function isResultMetricFile(value) {
     if (!normalized || isBlockedResultScope(normalized)) return false;
     if (/\.(pt|pth|ckpt|bin|safetensors|onnx|log|out|txt)$/i.test(normalized)) return false;
     return /\.(csv|json|md)$/i.test(normalized);
+}
+function canonicalResultPlanFile(value) {
+    const planFile = String(value || "").trim().replace(/\\/g, "/").replace(/^\.\//, "");
+    if (!planFile || planFile.startsWith("/") || /^[A-Za-z]:/.test(planFile) || planFile.includes(":"))
+        return "";
+    const parts = planFile.split("/");
+    if (parts.some((part) => !part || part === "." || part === ".."))
+        return "";
+    if (!/^experiments\/plans\/(?:[^/]+\/)+[^/]+\.(ya?ml)$/i.test(planFile) && !/^experiments\/plans\/[^/]+\.(ya?ml)$/i.test(planFile))
+        return "";
+    return planFile;
+}
+async function completedResultPlanFiles(provider, ledger, root) {
+    const files = new Set();
+    const add = (value) => {
+        const planFile = canonicalResultPlanFile(value);
+        if (planFile)
+            files.add(planFile);
+    };
+    for (const item of provider.localPlanMetadata?.plans || [])
+        add(item?.planFile || item?.file);
+    for (const entry of Object.values(ledger?.entries || {}))
+        add(entry?.planFile);
+    let registry = { plans: {} };
+    if (root && typeof provider.loadProjectTableRegistry === "function")
+        registry = await provider.loadProjectTableRegistry(root).catch(() => ({ plans: {} }));
+    for (const planFile of Object.keys(registry?.plans || {}))
+        add(planFile);
+    const queuePlans = provider.distributedQueueCache?.plans || provider.distributedQueue?.plans || [];
+    for (const plan of queuePlans) {
+        const completed = (plan?.jobs || []).some((job) => ["completed", "succeeded", "success"].includes(String(job?.status || "").toLowerCase()));
+        if (completed)
+            add(plan?.planFile || plan?.file);
+    }
+    return [...files];
+}
+function budgetLimitedWorkers(client, summary) {
+    const missing = Array.isArray(summary?.unavailableWorkerIds) ? summary.unavailableWorkerIds.map(String) : [];
+    const snapshots = typeof client?.budgetSnapshots === "function" ? client.budgetSnapshots() : {};
+    const limited = [];
+    for (const workerId of missing) {
+        const snapshot = snapshots[workerId] || {};
+        const reason = String(snapshot.lastDeniedReason || "");
+        if (!["cooldown", "rate_limited"].includes(reason))
+            continue;
+        const lastAllowed = Date.parse(String(snapshot.lastAllowedAt || ""));
+        const elapsed = Number.isFinite(lastAllowed) ? Math.max(0, Date.now() - lastAllowed) : 0;
+        const delay = Math.min(61000, Math.max(1000, reason === "rate_limited" ? 60000 - elapsed : 1000 - elapsed));
+        limited.push({ workerId, delay });
+    }
+    return limited.sort((left, right) => right.delay - left.delay);
+}
+function reportedCompletedRunIds(summary) {
+    const ids = new Set();
+    const add = (value) => {
+        const runId = String(value || "").trim();
+        if (runId)
+            ids.add(runId);
+    };
+    add(summary?.completedRunId);
+    add(summary?.runId);
+    for (const row of Array.isArray(summary?.results) ? summary.results : [])
+        add(row?.runId || row?.run_id || row?.provenance?.runId);
+    return [...ids];
+}
+function acceptedCompletedRevision(item, summary) {
+    const yamlRevision = String(item?.metadata?.revision || "").trim();
+    const ledgerRevision = String(item?.authority?.revision || "").trim();
+    const ledgerRun = String(item?.authority?.runId || "").trim();
+    const reported = String(summary?.planRevision || summary?.plan_revision || "").trim();
+    const reportedRuns = reportedCompletedRunIds(summary);
+    const trustedRun = Boolean(ledgerRun && ledgerRun !== "historic" && ledgerRevision);
+    if (summary?.mixedPlanRevision)
+        return { ok: false, reason: "服务器摘要混合了多个 Plan revision，保留旧表。下一步：分别核对这些 Worker 的完成运行。" };
+    if (trustedRun && reportedRuns.some((runId) => runId !== ledgerRun))
+        return { ok: false, reason: "服务器摘要 run " + reportedRuns.join("、") + " 与完成运行 " + ledgerRun + " 矛盾，保留旧表。下一步：核对这次完成运行的来源。" };
+    if (trustedRun && reported && reported !== ledgerRevision)
+        return { ok: false, reason: "服务器摘要 revision " + reported + " 与完成运行 " + ledgerRun + " 的 revision " + ledgerRevision + " 矛盾，保留旧表。" };
+    if (!trustedRun && yamlRevision && reported && reported !== yamlRevision)
+        return { ok: false, reason: "没有可信完成运行可对照，摘要 revision " + reported + " 与当前 YAML " + yamlRevision + " 不一致，保留旧表。" };
+    const revision = (trustedRun ? ledgerRevision : "") || reported || yamlRevision;
+    const note = trustedRun && yamlRevision && yamlRevision !== ledgerRevision
+        ? "当前 YAML revision " + yamlRevision + " 与最新已完成运行 " + ledgerRun + " 的 revision " + ledgerRevision + " 不同，总表展示该完成运行。"
+        : "";
+    return { ok: true, revision, runId: trustedRun ? ledgerRun : reportedRuns.length === 1 ? reportedRuns[0] : "", note };
+}
+function filterCompletedResultSummaryForPlan(summary, planFile) {
+    if (!summary || typeof summary !== "object" || Array.isArray(summary))
+        return summary;
+    const summaryPlan = String(summary.planFile || summary.plan_file || "").replace(/\\/g, "/");
+    if (summaryPlan && !samePlanSelection(summaryPlan, planFile))
+        return { ...summary, planFile, results: [], workerResultTables: [], filteredFromPlanFile: summaryPlan };
+    const rows = (Array.isArray(summary.results) ? summary.results : []).filter((row) => {
+        const rowPlan = String(row?.planFile || row?.plan_file || "").replace(/\\/g, "/");
+        return !rowPlan || samePlanSelection(rowPlan, planFile);
+    });
+    return { ...summary, planFile, results: rows };
+}
+function summaryWithoutSources(summary, blocked) {
+    if (!summary)
+        return summary;
+    const blockedIds = new Set([...blocked, ...(Array.isArray(summary.unavailableWorkerIds) ? summary.unavailableWorkerIds : [])].map((item) => String(item || "").toLowerCase()).filter(Boolean));
+    if (!blockedIds.size)
+        return summary;
+    const ownerOf = (row) => String(row?.workerId || row?.resultOwnerWorkerId || "hub").toLowerCase();
+    const rows = (Array.isArray(summary.results) ? summary.results : []).filter((row) => !blockedIds.has(ownerOf(row)));
+    const tables = (Array.isArray(summary.workerResultTables) ? summary.workerResultTables : []).filter((row) => !blockedIds.has(String(row?.workerId || "hub").toLowerCase())).map((row) => ({ ...row, aggregateStatus: row.aggregateStatus === "complete" ? "ready" : row.aggregateStatus || "ready" }));
+    return { ...summary, results: rows, workerResultTables: tables, unavailableWorkerIds: [...blockedIds], incompleteAggregate: blockedIds.size > 0, verifiedPartial: true, aggregateCoverage: rows.length ? "verified-partial" : summary.aggregateCoverage };
+}
+function verifiedDownload(download) {
+    if (!download || download.cancelled)
+        return false;
+    const delivered = Array.isArray(download.deliveredEntries) ? download.deliveredEntries : [];
+    return delivered.length > 0 && Number(download.completed || 0) >= delivered.length;
+}
+function scopeOverlaps(left, right) {
+    const a = String(left || "").replace(/\\/g, "/");
+    const b = String(right || "").replace(/\\/g, "/");
+    return Boolean(a && b && (a === b || a.startsWith(b + "/") || b.startsWith(a + "/")));
+}
+function mergeConflictForPlan(errors, item, candidates) {
+    const messages = [...(errors || [])].map(String).filter(Boolean);
+    if (!messages.length)
+        return "";
+    const related = [];
+    const paths = [...(item.scopeHints || []), ...(candidates || []).map((candidate) => candidate.remotePath)];
+    for (const message of messages) {
+        const scope = message.split("：")[0];
+        if (!scope || scope === message || !paths.length)
+            return "Worker 合并出现无法对应到具体范围的错误（" + message + "），已停止下载。下一步：核对 Worker 文件版本后重试。";
+        if (paths.some((hint) => scopeOverlaps(hint, scope)))
+            related.push(scope);
+    }
+    return related.length ? "合并范围无法验证（" + related.join("、") + "），未下载。下一步：核对该范围的 Worker 版本冲突。" : "";
+}
+function collapseMappedDownloadBatches(batches) {
+    const grouped = new Map();
+    const destinations = new Map();
+    for (const batch of batches || []) {
+        const sourceId = String(batch?.sourceId || "");
+        if (!sourceId)
+            continue;
+        if (!grouped.has(sourceId))
+            grouped.set(sourceId, { ...batch, transfers: new Map(), entries: [] });
+        const target = grouped.get(sourceId);
+        for (const [key, value] of batch.transfers || []) {
+            if (!target.transfers.has(key))
+                target.transfers.set(key, value);
+        }
+        for (const entry of batch.entries || []) {
+            const localKey = String(entry.localRelative || "").toLowerCase();
+            const previous = destinations.get(localKey);
+            if (previous && (previous.remotePath !== entry.remotePath || previous.sourceId !== sourceId))
+                throw new Error("多个指标文件对应同一本地路径：" + entry.localRelative + "，Plan " + previous.planFile + " 与 " + entry.planFile + " 冲突，已阻止覆盖。下一步：分开这些 Plan 的结果目录。");
+            destinations.set(localKey, { remotePath: entry.remotePath, sourceId, planFile: entry.planFile });
+            const key = String(entry.planFile || "") + "|" + String(entry.remotePath || "").toLowerCase() + "|" + localKey;
+            if (!target.entries.some((item) => String(item.planFile || "") + "|" + String(item.remotePath || "").toLowerCase() + "|" + String(item.localRelative || "").toLowerCase() === key))
+                target.entries.push(entry);
+        }
+    }
+    return [...grouped.values()];
+}
+function resultScopeHintsForPlan(ledger, planFile, authority) {
+    const hints = [...(authority?.artifactPaths || []), ...(authority?.directoryPaths || [])];
+    for (const entry of Object.values(ledger?.entries || {})) {
+        if (!samePlanSelection(entry?.planFile, planFile))
+            continue;
+        hints.push(...(entry.artifactPaths || []), ...(entry.directoryPaths || []));
+    }
+    return hints;
+}
+function trustedCompletedResultSummary(summary) {
+    if (!summary || (summary.incompleteAggregate && summary.verifiedPartial !== true))
+        return false;
+    if (Array.isArray(summary.unavailableWorkerIds) && summary.unavailableWorkerIds.length && !(Array.isArray(summary.results) && summary.results.length))
+        return false;
+    const tables = Array.isArray(summary.workerResultTables) ? summary.workerResultTables : [];
+    const ready = tables.some((row) => row && (row.aggregateStatus === "ready" || row.aggregateStatus === "complete" || row.completed === true) && String(row.rawResultCsvPath || row.aggregateCsvPath || "").trim());
+    return ready || (Array.isArray(summary.results) && summary.results.length > 0 && String(summary.rawResultCsvPath || "").trim());
+}
+function preferServerMetricSummary(serverSummary, localSummary, options: { downloadedSources?: Set<string> } = {}) {
+    if (!localSummary)
+        return serverSummary;
+    if (!serverSummary)
+        return localSummary;
+    const downloaded = options.downloadedSources || new Set();
+    const ownerKey = (row) => String(row?.workerId || row?.resultOwnerWorkerId || "hub");
+    const owners = new Set([
+        ...(Array.isArray(serverSummary.workerResultTables) ? serverSummary.workerResultTables : []).map(ownerKey),
+        ...(Array.isArray(localSummary.workerResultTables) ? localSummary.workerResultTables : []).map(ownerKey),
+        ...(serverSummary.results || []).map(ownerKey),
+        ...(localSummary.results || []).map(ownerKey),
+    ]);
+    const rows = [];
+    const tables = [];
+    for (const owner of owners) {
+        const serverRows = (serverSummary.results || []).filter((row) => ownerKey(row) === owner);
+        const localRows = (localSummary.results || []).filter((row) => ownerKey(row) === owner);
+        const localTable = (localSummary.workerResultTables || []).find((row) => String(row.workerId || "") === owner);
+        const serverTable = (serverSummary.workerResultTables || []).find((row) => String(row.workerId || "") === owner);
+        const useLocal = downloaded.has(owner) ? localRows.length >= serverRows.length : serverRows.length === 0 && localRows.length > 0;
+        rows.push(...(useLocal ? localRows : serverRows));
+        const table = useLocal ? localTable || serverTable : serverTable || localTable;
+        if (table)
+            tables.push(table);
+    }
+    if (!rows.length)
+        return serverSummary;
+    return { ...serverSummary, results: rows, workerResultTables: tables.length ? tables : serverSummary.workerResultTables, verifiedPartial: Boolean(serverSummary.unavailableWorkerIds?.length), aggregateCoverage: serverSummary.aggregateCoverage };
+}
+function formatResultSyncReport(report, title) {
+    const discovered = Number(report?.discovered || (report?.plans || []).length || 0);
+    const included = Array.isArray(report?.included) ? report.included : [];
+    const missing = Array.isArray(report?.missing) ? report.missing : [];
+    const skipped = Array.isArray(report?.skipped) ? report.skipped : [];
+    return [
+        title,
+        "发现 Plan " + discovered + " 个，成功收录 " + included.length + " 个，缺指标 " + missing.length + " 个，跳过/失败 " + skipped.length + " 个。",
+        included.length ? "收录：" + included.slice(0, 8).join("；") : "",
+        missing.length ? "缺指标：" + missing.slice(0, 6).join("；") : "",
+        skipped.length ? "未收录：" + skipped.slice(0, 6).join("；") : "",
+    ].filter(Boolean).join("\n");
 }
 function resultMetricMergeScopePaths(plan, planFile, extras = []) {
     const paths = new Set(PlanArtifactSync.planArtifactDirectories(plan).filter((item) => !isBlockedResultScope(item) && (isResultMetricFile(item) || !/\.[a-z0-9]+$/i.test(item))));
