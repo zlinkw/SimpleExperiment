@@ -32,12 +32,15 @@ test("snapshot fallback keeps lastKnownGood", async () => {
   }
 });
 
-test("snapshot fallback uses a half-second non-overlapping timeout", () => {
+test("snapshot fallback respects a bounded configured interval and does not overlap", () => {
   const source = readSource("src/tunnel/RealtimeTunnelClient.ts");
   assert.doesNotMatch(source, /setInterval\(\(\) => void this\.refreshSnapshot/);
   assert.match(source, /scheduleSnapshotFallbackPoll\(\)/);
   assert.match(source, /snapshotFallbackDelayMs\(\)/);
-  assert.match(source, /return 500;/);
+  const c = new RealtimeTunnelClient({ localHost: "localhost", localPort: 1 }, new RequestBudget(), { ...defaultRealtimeRefreshPolicy, snapshotFallbackIntervalSeconds: 0.5 });
+  assert.equal(c.snapshotFallbackDelayMs(), 5000);
+  c.policy.snapshotFallbackIntervalSeconds = 15;
+  assert.equal(c.snapshotFallbackDelayMs(), 15000);
   assert.match(source, /if \(this.snapshotInFlight\) return this.snapshotInFlight/);
 });
 

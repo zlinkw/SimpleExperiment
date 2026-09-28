@@ -3,10 +3,12 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const ts = require("typescript");
 
 const root = path.resolve(__dirname, "..", "..");
 const extension = fs.readFileSync(path.join(root, "src/extension/legacy.ts"), "utf8");
 const panel = fs.readFileSync(path.join(root, "src/ui/PanelHtml.legacy.ts"), "utf8");
+const renderedPanel = require("../../dist/ui/PanelHtml.legacy.js").renderPanelHtml();
 const DistributedPlanQueue = require("../../dist/features/DistributedPlanQueue.js");
 const drf = "experiments/plans/comparison/drf.yaml";
 
@@ -17,7 +19,11 @@ function method(name) {
   let depth = 0;
   for (let index = start; index < lines.length; index += 1) {
     depth += (lines[index].match(/\{/g) || []).length - (lines[index].match(/\}/g) || []).length;
-    if (index > start && depth <= 0) return lines.slice(start, index + 1).join("\n").replace(/: any/g, "").replace(/ as const/g, "");
+    if (index > start && depth <= 0) {
+      const member = lines.slice(start, index + 1).join("\n");
+      const emitted = ts.transpileModule("const methods = { " + member + " };", { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+      return emitted.slice(emitted.indexOf("{") + 1, emitted.lastIndexOf("}")).trim();
+    }
   }
   throw new Error(`unclosed ${name}`);
 }
@@ -46,8 +52,12 @@ const production = new Function("DistributedPlanQueue", "fs", "path", "workspace
   function resultStatus(result) { return result && (result.status || result.state) || ""; }
   function remoteActionSucceeded(value) { return ["completed", "succeeded", "done"].includes(operationStatusToken(value)); }
   ${functionSource("planCheckAccepted")}
+  ${functionSource("usableSelectionKey")}
+  ${functionSource("normalizePlanSelectionKey")}
   return {
     beginPlanSubmissionProgress: ${method("beginPlanSubmissionProgress").replace("beginPlanSubmissionProgress", "function")},
+    submissionStillCurrent: ${method("submissionStillCurrent").replace("submissionStillCurrent", "function")},
+    waitForPlanSubmission: ${method("waitForPlanSubmission").replace("waitForPlanSubmission", "function")},
     planSubmissionOperationId: ${method("planSubmissionOperationId").replace("planSubmissionOperationId", "function")},
     planSubmissionPlanFile: ${method("planSubmissionPlanFile").replace("planSubmissionPlanFile", "function")},
     finishPlanSubmissionProgress: ${method("finishPlanSubmissionProgress").replace("finishPlanSubmissionProgress", "function")},
@@ -65,6 +75,8 @@ const production = new Function("DistributedPlanQueue", "fs", "path", "workspace
 function provider() {
   const host = Object.create(production);
   host.localOperations = {};
+  host.distributedSubmissionEpochs = new Map();
+  host.distributedSubmissionAborts = new Map();
   host.planRunStageStartedAt = Date.now();
   host.distributedQueueCache = { schemaVersion: 1, plans: [], deferred: [] };
   host.distributedQueueRoot = root;
@@ -207,7 +219,8 @@ test("distributed submission holds an old fingerprint before sync and renders th
   const tasks = renderTask(webviewState(host));
   assert.doesNotMatch(tasks.taskSummary, /继续提交|代码版本排队|data-deferred-plan-id/);
   const hidden = renderExecution({ ...webviewState(host), deferredPlans: [{ id: "old-deferred", planFile: drf, status: "pending", reason: "等待旧代码版本", waitingForPlanFile: "old.yaml" }] });
-  assert.doesNotMatch(hidden.executionPlanList, /old-deferred|继续提交/);
+  assert.doesNotMatch(hidden.executionPlanList, /old-deferred|data-deferred-plan-id/);
+  assert.match(hidden.executionPlanList, /data-command="runPlan" data-plan-file="experiments\/plans\/comparison\/drf.yaml"[^>]*>继续提交/);
   assert.match(hidden.executionPlanList, /排队 · 待调度/);
   const detailAt = hidden.executionPlanList.indexOf("详情与日志");
   assert.equal(hidden.executionPlanList.slice(0, detailAt).includes("等待旧代码版本"), false);
@@ -407,10 +420,15 @@ test("runPlan submission reuses only a matching active deferred row and still re
 
 test("direct distributed submission confirms once and enqueues once", async () => {
   const host = commandHost();
+  host.localOperations.old = { operationId: "old", localSubmissionProgress: true, planFile: drf, status: "queued" };
+  host.localOperations.other = { operationId: "other", localSubmissionProgress: true, planFile: "experiments/plans/other.yaml", status: "queued" };
   host.beginPlanSubmissionProgress(message(), { planFile: drf, planRevision: "rev-drf" });
   await host.finishDistributedPlanSubmission("runPlan", message(), { planFile: drf }, host.actionBody(message()));
   assert.deepEqual(host.calls, ["sync", "preflight", "confirm", "enqueue:[0]"]);
   assert.equal(host.localOperations["plan-submit-click-drf"].status, "succeeded");
+  assert.equal(host.localOperations.old.status, "cancelled");
+  assert.match(host.localOperations.old.message, /已由新的手动提交接续/);
+  assert.equal(host.localOperations.other.status, "queued");
 });
 
 test("direct submission confirms once and enqueues once", async () => {
@@ -522,9 +540,9 @@ function datasetFromHtml(html, label) {
 }
 
 function buttonDatasetActionPayload(button) {
-  const start = panel.indexOf("function buttonDatasetActionPayload");
-  const end = panel.indexOf("function showStatusCardContextMenu", start);
-  return vm.runInNewContext(`${panel.slice(start, end)}\nbuttonDatasetActionPayload(button)`, { button });
+  const start = renderedPanel.indexOf("function buttonDatasetActionPayload");
+  const end = renderedPanel.indexOf("function showStatusCardContextMenu", start);
+  return vm.runInNewContext(`${renderedPanel.slice(start, end)}\nbuttonDatasetActionPayload(button)`, { button });
 }
 
 function progressState(host) {
@@ -602,8 +620,8 @@ function renderPanel(names, state, ids) {
 }
 
 function extract(name) {
-  const start = panel.indexOf(`function ${name}(`);
+  const start = renderedPanel.indexOf(`function ${name}(`);
   assert.ok(start >= 0, name);
-  const next = panel.indexOf("\n    function ", start + 1);
-  return panel.slice(start, next);
+  const next = renderedPanel.indexOf("\n    function ", start + 1);
+  return renderedPanel.slice(start, next);
 }

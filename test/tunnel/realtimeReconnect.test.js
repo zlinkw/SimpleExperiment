@@ -26,6 +26,6 @@ test("reconnect jitter is positive and never shortens retry delay", () => {
   assert.equal(reconnect.nextDelayMs(), 16000);
 });
 
-test("snapshot fallback minimum default is one minute", () => {
-  assert.equal(defaultRealtimeRefreshPolicy.snapshotFallbackIntervalSeconds, 60);
+test("snapshot fallback defaults to the bounded five-second interval", () => {
+  assert.equal(defaultRealtimeRefreshPolicy.snapshotFallbackIntervalSeconds, 5);
 });

@@ -256,7 +256,16 @@ test("each execution plan row can stop and clear its own plan file", () => {
   assert.doesNotMatch(html, /data-plan-file="plans\/editing.yaml"/);
   assert.equal((html.match(/终止并清理/g) || []).length, 2);
   const head = html.slice(0, html.indexOf("详情与日志"));
-  assert.doesNotMatch(head, /stopAndClearPlan|clearOperations|选中 Plan/);
+  assert.match(head, /stopAndClearPlan/);
+  assert.doesNotMatch(head, /clearOperations|选中 Plan/);
+  sandbox.operationRowsForState = (state) => Object.values(state.operations || {});
+  sandbox.operationIsActive = (status) => status === "queued";
+  sandbox.loadingPrefix = (active) => active ? "[spinner]" : "";
+  sandbox.render({ operations: { wait: { operationId: "plan-submit-wait", type: "run-plan", planFile: "plans/wait.yaml", status: "queued", localSubmissionProgress: true, reconcileEvidenceActive: false, startedAt: "2026-09-27T01:00:00Z" } } });
+  assert.match(html, /等待继续提交/);
+  assert.match(html, /data-command="runPlan" data-plan-file="plans\/wait.yaml"[^>]*>继续提交/);
+  assert.match(html.slice(0, html.indexOf("详情与日志")), /stopAndClearPlan/);
+  assert.doesNotMatch(html.slice(0, html.indexOf("详情与日志")), /\[spinner\]/);
   const controlsStart = script.indexOf("function renderOperationSection(state)");
   const controlsEnd = script.indexOf("function renderFileTransferProgress(", controlsStart);
   const controls = script.slice(controlsStart, controlsEnd);

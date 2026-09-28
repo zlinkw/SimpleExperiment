@@ -35,7 +35,7 @@ export const defaultRealtimeRefreshPolicy: RealtimeRefreshPolicy = {
   fallbackToSse: true,
   fallbackToPolling: true,
   heartbeatIntervalSeconds: 5,
-  snapshotFallbackIntervalSeconds: 0.5,
+  snapshotFallbackIntervalSeconds: 5,
   gpuEventCoalesceMs: 500,
   uiBatchMs: 100,
   logTailEnabledByDefault: false,
@@ -78,6 +78,7 @@ export class RealtimeTunnelClient {
   private snapshotInFlight?: Promise<ClusterSnapshot>;
   private requiresManualReconnect = false;
   private connectionGeneration = 0;
+  private disposed = false;
 
   constructor(
     private readonly endpoint: TunnelEndpointConfig,
@@ -91,11 +92,14 @@ export class RealtimeTunnelClient {
   }
 
   async connect(sinceSeq = this.state.lastSeq, options: { manual?: boolean } = {}): Promise<void> {
+    if (this.disposed) return;
     if (this.requiresManualReconnect && !options.manual) return;
     if (["websocket", "sse", "polling", "connecting"].includes(this.status)) return;
-    this.requiresManualReconnect = false;
     if (this.budget.isPaused()) throw new RequestBudgetDeniedError("events", { allowed: false, reason: "paused" });
+    this.requiresManualReconnect = false;
+    const generation = this.connectionGeneration + 1;
     await this.disconnect("reconnect");
+    if (!this.isCurrentConnection(generation)) return;
     if (this.policy.mode === "manual_only") {
       this.status = "polling";
       await this.refreshSnapshot();
@@ -109,31 +113,49 @@ export class RealtimeTunnelClient {
         }, { userInitiated: true });
         return;
       } catch (error) {
+        if (!this.isCurrentConnection(generation)) return;
         if (error instanceof RequestBudgetDeniedError) {
           this.status = "disconnected";
           throw error;
         }
         this.lastError = message(error);
+        if (isHardConnectionError(error)) {
+          this.connectionLost(this.lastError);
+          return;
+        }
       }
     }
     if (this.shouldUseSse()) {
       try {
         await this.connectSse(sinceSeq);
+        if (!this.isCurrentConnection(generation)) return;
         if (options.manual) await this.getSnapshot();
         return;
       } catch (error) {
+        if (!this.isCurrentConnection(generation)) return;
         this.lastError = message(error);
+        if (isHardConnectionError(error)) {
+          this.connectionLost(this.lastError);
+          return;
+        }
       }
     }
     if (this.policy.fallbackToPolling) {
-      try { await this.startPolling(); } catch (error) { this.connectionLost(message(error)); }
+      try { await this.startPolling(); } catch (error) {
+        if (this.isCurrentConnection(generation)) this.connectionLost(message(error));
+      }
       return;
     }
-    this.connectionLost(this.lastError || "Connection failed");
+    if (this.isCurrentConnection(generation)) this.connectionLost(this.lastError || "Connection failed");
+  }
+
+  private isCurrentConnection(generation: number): boolean {
+    return generation === this.connectionGeneration && !this.disposed && this.status !== "paused" && !this.budget.isPaused();
   }
 
   async disconnect(reason = "manual"): Promise<void> {
     this.connectionGeneration += 1;
+    if (reason === "deactivate" || reason === "dispose") this.disposed = true;
     const websocket = this.websocket;
     this.websocket = undefined;
     websocket?.close();
@@ -156,10 +178,36 @@ export class RealtimeTunnelClient {
   private connectionLost(reason: string): void {
     if (this.pollTimer) clearTimeout(this.pollTimer);
     this.pollTimer = undefined;
+    if (this.disposed || this.status === "paused" || this.budget.isPaused()) return;
+    const websocket = this.websocket;
+    this.websocket = undefined;
+    websocket?.close();
+    const abort = this.abort;
+    this.abort = undefined;
+    abort?.abort();
     this.status = "disconnected";
-    this.requiresManualReconnect = true;
-    this.lastError = reason + "；连接已断开，请点击重新连接。服务器任务可能仍在运行。";
+    this.requiresManualReconnect = isHardConnectionError(reason);
+    this.lastError = this.requiresManualReconnect
+      ? reason + "；连接配置或认证失败，请检查配置后手动重新连接。"
+      : reason + (this.policy.mode === "manual_only" ? "；连接暂时中断，请手动刷新或重新连接。服务器任务可能仍在运行。" : "；连接暂时中断，插件将按退避间隔自动恢复。服务器任务可能仍在运行。");
     this.onState(this.state);
+    if (!this.requiresManualReconnect) this.scheduleAutomaticReconnect();
+  }
+
+  private scheduleAutomaticReconnect(): void {
+    if (this.reconnectTimer || this.disposed || this.hidden || this.policy.mode === "manual_only" || this.status !== "disconnected" || this.budget.isPaused()) return;
+    const generation = this.connectionGeneration;
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = undefined;
+      if (this.disposed || this.hidden || this.status !== "disconnected" || this.budget.isPaused() || generation !== this.connectionGeneration) return;
+      void this.connect(this.state.lastSeq).catch((error) => this.connectionLost(message(error)));
+    }, this.reconnectPolicy.nextDelayMs());
+    this.reconnectTimer.unref?.();
+  }
+
+  private reportHardRequestError(error: unknown, generation: number): void {
+    if (generation !== this.connectionGeneration || this.disposed || this.status === "paused" || this.budget.isPaused()) return;
+    if (isHardConnectionError(error)) this.connectionLost(message(error));
   }
 
   getHealth(): Promise<TunnelHealth> {
@@ -168,8 +216,9 @@ export class RealtimeTunnelClient {
 
   requestJson(apiPath: string, purpose: any, body: unknown, options: any): Promise<any> {
     if (this.requiresManualReconnect) return Promise.reject(new Error(this.lastError));
+    const generation = this.connectionGeneration;
     return (this.http as any).requestJson(apiPath, purpose, body, options).catch((error: unknown) => {
-      if (options.method === "GET" && !(error instanceof RequestBudgetDeniedError)) this.connectionLost(message(error));
+      this.reportHardRequestError(error, generation);
       throw error;
     });
   }
@@ -205,8 +254,9 @@ export class RealtimeTunnelClient {
   }
 
   private watchRead<T>(request: Promise<T>): Promise<T> {
+    const generation = this.connectionGeneration;
     return request.catch((error) => {
-      if (!(error instanceof RequestBudgetDeniedError)) this.connectionLost(message(error));
+      if (!(error instanceof RequestBudgetDeniedError)) this.reportHardRequestError(error, generation);
       throw error;
     });
   }
@@ -272,6 +322,7 @@ export class RealtimeTunnelClient {
     this.hidden = hidden;
     this.budget.setHidden(hidden);
     if (hidden && this.pollTimer) { clearTimeout(this.pollTimer); this.pollTimer = undefined; }
+    if (hidden && this.reconnectTimer) { clearTimeout(this.reconnectTimer); this.reconnectTimer = undefined; }
     if (hidden && this.policy.pauseWhenWebviewHidden && !this.policy.keepAgentStreamWhenHidden && this.status !== "paused" && this.status !== "disconnected") {
       void this.disconnect("paused");
       return;
@@ -280,6 +331,7 @@ export class RealtimeTunnelClient {
       void this.connect(this.state.lastSeq).catch((error) => { this.lastError = message(error); });
     }
     if (!hidden && this.status === "polling") this.scheduleSnapshotFallbackPoll();
+    if (!hidden && this.status === "disconnected" && !this.requiresManualReconnect && !this.budget.isPaused()) this.scheduleAutomaticReconnect();
   }
 
   diagnostics(): RealtimeClientDiagnostics {
@@ -289,6 +341,7 @@ export class RealtimeTunnelClient {
       && cached.lastSeq === this.state.lastSeq
       && cached.lastHeartbeatAt === this.state.lastHeartbeatAt
       && cached.reconnectCount === this.reconnectCount
+      && cached.requiresManualReconnect === this.requiresManualReconnect
       && cached.lastError === this.lastError) {
       return cached;
     }
@@ -340,6 +393,7 @@ export class RealtimeTunnelClient {
       headers: this.headers(),
       signal: abort.signal,
     }));
+    if (this.abort !== abort || abort.signal.aborted || this.disposed) return;
     if (!response.ok || !response.body) throw new Error(`SSE failed: ${response.status}`);
     this.status = "sse";
     this.reconnectPolicy.reset();
@@ -363,11 +417,12 @@ export class RealtimeTunnelClient {
           if (data) this.acceptEvent(data);
         }
       }
+      if (this.abort !== abort || abort.signal.aborted || this.disposed) return;
       buffer += decoder.decode();
       const data = buffer.split(/\r?\n/).filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("\n");
       if (data) this.acceptEvent(data);
     } catch (error) {
-      this.lastError = message(error);
+      if (this.abort === abort && !abort.signal.aborted && !this.disposed) this.lastError = message(error);
     }
     if (this.abort === abort && !abort.signal.aborted && this.status === "sse") this.connectionLost("SSE ended");
   }
@@ -381,17 +436,19 @@ export class RealtimeTunnelClient {
   private scheduleSnapshotFallbackPoll(): void {
     if (this.status !== "polling" || this.hidden) return;
     if (this.pollTimer) clearTimeout(this.pollTimer);
+    const generation = this.connectionGeneration;
     this.pollTimer = setTimeout(() => {
+      if (!this.isCurrentConnection(generation) || this.status !== "polling" || this.hidden) return;
       this.pollTimer = undefined;
       void this.refreshSnapshot()
-        .catch((error) => { this.connectionLost(message(error)); })
-        .finally(() => this.scheduleSnapshotFallbackPoll());
+        .catch((error) => { if (this.isCurrentConnection(generation)) this.connectionLost(message(error)); })
+        .finally(() => { if (this.isCurrentConnection(generation)) this.scheduleSnapshotFallbackPoll(); });
     }, this.snapshotFallbackDelayMs());
     this.pollTimer.unref?.();
   }
 
   private snapshotFallbackDelayMs(): number {
-    return 500;
+    return Math.max(5, Number(this.policy.snapshotFallbackIntervalSeconds) || 5) * 1000;
   }
 
   private async refreshSnapshot(): Promise<void> {
@@ -403,8 +460,19 @@ export class RealtimeTunnelClient {
     if (this.snapshotInFlight) return this.snapshotInFlight;
     const task = (async () => {
       const generation = this.connectionGeneration;
-      const snapshot = await this.http.getSnapshot({ manual });
+      let snapshot: ClusterSnapshot;
+      try {
+        snapshot = await this.http.getSnapshot({ manual });
+      } catch (error) {
+        if (generation === this.connectionGeneration && !(error instanceof RequestBudgetDeniedError)) this.connectionLost(message(error));
+        throw error;
+      }
       if (generation !== this.connectionGeneration) return snapshot;
+      this.reconnectPolicy.reset();
+      if (this.policy.mode === "manual_only" && this.status === "disconnected") {
+        this.status = "polling";
+        this.lastError = undefined;
+      }
       this.state = applySnapshot(this.state, snapshot, { protectedLogKeys: this.protectedLogKeys });
       this.onState(this.state);
       return snapshot;
@@ -452,6 +520,12 @@ export class RealtimeTunnelClient {
 
 function normalizeProtectedLogKeys(keys: string[]): string[] {
   return [...new Set((Array.isArray(keys) ? keys : []).map((key) => String(key || "").trim()).filter(Boolean))];
+}
+
+function isHardConnectionError(error: unknown): boolean {
+  const text = message(error);
+  const status = text.match(/(?:HTTP|SSE failed:?\s*)\s*(401|403|426)\b/i)?.[1];
+  return Boolean(status || /(?:version mismatch|版本不兼容|认证失败|unauthorized|forbidden|invalid token)/i.test(text));
 }
 
 function capabilityEndpoints(capabilities: unknown): Record<string, unknown> | undefined {

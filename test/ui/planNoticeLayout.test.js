@@ -95,3 +95,41 @@ test("renderCommandPhaseLine writes plan commands only into the plan status", ()
   assert.equal(hosts.commandPhaseLine.textContent, "");
   assert.equal(hosts.planCommandPhaseLine.classList.busy, undefined);
 });
+
+test("automatic tmux refresh stays out of command progress and releases a lost reply", async () => {
+  const html = renderPanelHtml();
+  const from = html.indexOf("async function refreshTmuxList()");
+  const to = html.indexOf("function tmuxResolveCaptureTarget", from);
+  const sent = [];
+  const timers = new Map();
+  let timerId = 0;
+  const sandbox = {
+    document: { hidden: false }, tmuxListBusy: false, tmuxListTimeout: 0,
+    tmuxSelectedWorkerId: "configured-worker", pendingActionsById: {}, pendingActionTimeouts: {},
+    el: () => ({ textContent: "" }), createClientActionId: () => "poll-action",
+    vscode: { postMessage: (payload) => sent.push(payload) },
+    setTimeout: (callback) => { timers.set(++timerId, callback); return timerId; },
+    clearTimeout: (id) => timers.delete(id),
+  };
+  vm.runInNewContext(html.slice(from, to), sandbox);
+  await sandbox.refreshTmuxList();
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].background, true);
+  assert.equal(sent[0].clientActionId, undefined);
+  assert.equal(Object.keys(sandbox.pendingActionsById).length, 0);
+  assert.equal(timers.size, 1);
+  await sandbox.refreshTmuxList();
+  assert.equal(sent.length, 1, "overlapping polls must coalesce");
+  [...timers.values()][0]();
+  assert.equal(sandbox.tmuxListBusy, false, "a lost reply must not freeze subsequent polls");
+});
+
+test("a persisted local wait is labelled as waiting rather than submitting", () => {
+  const html = renderPanelHtml();
+  const from = html.indexOf("function executionSubmissionLabel");
+  const to = html.indexOf("function executionNewerSubmission", from);
+  const sandbox = {};
+  vm.runInNewContext(html.slice(from, to), sandbox);
+  assert.equal(sandbox.executionSubmissionLabel({ type: "run-plan", status: "queued", localSubmissionProgress: true }), "等待继续提交");
+  assert.equal(sandbox.executionSubmissionLabel({ type: "run-plan", status: "running", localSubmissionProgress: true }), "提交中");
+});

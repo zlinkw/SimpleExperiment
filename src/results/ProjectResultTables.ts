@@ -6,6 +6,25 @@ export type DerivedMetric = { metric: string; leftEndpoint: string; rightEndpoin
 export type TableRegistry = { schemaVersion: 1; plans: Record<string, { revision: string; expectedSeeds: number; records: SeedRecord[] }>; derivedMetric?: DerivedMetric };
 export const emptyTableRegistry = (): TableRegistry => ({ schemaVersion: 1, plans: {} });
 
+export function registeredPlanSummary(registry: TableRegistry, planFile: string): any | undefined {
+  const plan = registry.plans?.[planFile];
+  if (!plan?.records?.length || !plan.revision) return undefined;
+  const records = plan.records;
+  if (records.some((row) => row.planFile !== planFile || !row.workerId || !row.case || !String(row.seed ?? "").trim()
+    || !Object.values(row.metrics || {}).some((value) => typeof value === "number" && Number.isFinite(value)))) return undefined;
+  const source = "simple_cluster/results/project_table_registry.json";
+  return {
+    planFile, planRevision: plan.revision, source: "registered-local-seeds",
+    rawResultCsvPath: source,
+    workerResultTables: [...new Set(records.map((row) => row.workerId))].map((workerId) => ({ workerId, aggregateStatus: "ready", rawResultCsvPath: source })),
+    results: records.map((row) => ({
+      workerId: row.workerId, runId: row.runId || "", attempt: row.attempt || "", planRevision: row.revision || plan.revision,
+      dimensions: { case: row.case, seed: row.seed, method: row.method, dataset: row.dataset, rate_percent: row.rate, eval_protocol: row.endpoint },
+      metrics: row.metrics, sourceFiles: [{ path: source }],
+    })),
+  };
+}
+
 export function summaryMatchesPlanRevision(summary: any, plan: any): boolean {
   const current = String(plan?.revision || "").trim();
   const reported = String(summary?.planRevision || "").trim();

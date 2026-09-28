@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.emptyTableRegistry = void 0;
+exports.registeredPlanSummary = registeredPlanSummary;
 exports.summaryMatchesPlanRevision = summaryMatchesPlanRevision;
 exports.safeTableName = safeTableName;
 exports.methodTableName = methodTableName;
@@ -52,6 +53,26 @@ const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const emptyTableRegistry = () => ({ schemaVersion: 1, plans: {} });
 exports.emptyTableRegistry = emptyTableRegistry;
+function registeredPlanSummary(registry, planFile) {
+    const plan = registry.plans?.[planFile];
+    if (!plan?.records?.length || !plan.revision)
+        return undefined;
+    const records = plan.records;
+    if (records.some((row) => row.planFile !== planFile || !row.workerId || !row.case || !String(row.seed ?? "").trim()
+        || !Object.values(row.metrics || {}).some((value) => typeof value === "number" && Number.isFinite(value))))
+        return undefined;
+    const source = "simple_cluster/results/project_table_registry.json";
+    return {
+        planFile, planRevision: plan.revision, source: "registered-local-seeds",
+        rawResultCsvPath: source,
+        workerResultTables: [...new Set(records.map((row) => row.workerId))].map((workerId) => ({ workerId, aggregateStatus: "ready", rawResultCsvPath: source })),
+        results: records.map((row) => ({
+            workerId: row.workerId, runId: row.runId || "", attempt: row.attempt || "", planRevision: row.revision || plan.revision,
+            dimensions: { case: row.case, seed: row.seed, method: row.method, dataset: row.dataset, rate_percent: row.rate, eval_protocol: row.endpoint },
+            metrics: row.metrics, sourceFiles: [{ path: source }],
+        })),
+    };
+}
 function summaryMatchesPlanRevision(summary, plan) {
     const current = String(plan?.revision || "").trim();
     const reported = String(summary?.planRevision || "").trim();

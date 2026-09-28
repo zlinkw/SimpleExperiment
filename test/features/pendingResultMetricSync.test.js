@@ -675,3 +675,51 @@ test("refresh keeps a newer online summary when the local file has no trustworth
     vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: "", scheme: "file", path: "" } }];
   }
 });
+
+test("rebuild reuses accepted seed records and reports unparsed Plans as awaiting metrics", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-rebuild-registered-"));
+  vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: workspace, scheme: "file", path: workspace } }];
+  try {
+    const planFile = "experiments/plans/a.yaml";
+    const provider = providerFor(workspace, { workers: [{ id: "w1" }] });
+    provider.queueHistoricalPlanArtifactSyncs = async () => assert.fail("metric-only rebuild must not queue artifact transfers");
+    let report;
+    const post = provider.postState;
+    provider.postState = function () { report = this.resultSyncReport; return post.call(this); };
+    provider.loadProjectTableRegistry = async () => ({ schemaVersion: 1, plans: {
+      [planFile]: { revision: "r1", expectedSeeds: 1, records: [{ planFile, workerId: "w1", case: "alpha", seed: "1", method: "a", dataset: "set", rate: "100", endpoint: "clean", metrics: { AUC: 0.77 } }] },
+    } });
+    provider.loadPlanSyncLedger = async () => ({ schemaVersion: 2, entries: {} });
+    provider.client.getResultsSummary = async (requested) => ({ planFile: requested, planRevision: requested === planFile ? "r1" : "r2", results: [], workerResultTables: [{ workerId: "w1", rawResultCsvPath: "", aggregateStatus: "no_declared_csv" }] });
+    const { __handleResultUiCommandForTest } = require("../../dist/extension/legacy.js");
+    await __handleResultUiCommandForTest(provider, { command: "rebuildProjectResultTables" });
+    assert.equal(report.included.length, 1);
+    assert.equal(report.pending.length, 1);
+    assert.equal(report.skipped.length, 0);
+    assert.match(report.included[0], /已收录|本机/);
+    assert.match(fs.readFileSync(path.join(workspace, "experiments/results/final/final.csv"), "utf8"), /0\.77/);
+    assert.equal(provider.calls.some(([name]) => name === "download.mappedBatch" || name === "download"), false);
+  } finally { vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: "", scheme: "file", path: "" } }]; }
+});
+
+test("rebuild never replaces a contradictory server revision with old registered metrics", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-rebuild-revision-"));
+  vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: workspace, scheme: "file", path: workspace } }];
+  try {
+    const planFile = "experiments/plans/a.yaml";
+    const provider = providerFor(workspace, { onlyFirst: true });
+    let report;
+    const post = provider.postState;
+    provider.postState = function () { report = this.resultSyncReport; return post.call(this); };
+    provider.loadProjectTableRegistry = async () => ({ schemaVersion: 1, plans: {
+      [planFile]: { revision: "r1", expectedSeeds: 1, records: [{ planFile, workerId: "w1", case: "alpha", seed: "1", method: "a", dataset: "set", rate: "100", endpoint: "clean", metrics: { AUC: 0.77 } }] },
+    } });
+    provider.loadPlanSyncLedger = async () => ({ schemaVersion: 2, entries: {} });
+    provider.client.getResultsSummary = async () => ({ planFile, planRevision: "different", results: [], workerResultTables: [] });
+    const { __handleResultUiCommandForTest } = require("../../dist/extension/legacy.js");
+    await __handleResultUiCommandForTest(provider, { command: "rebuildProjectResultTables" });
+    assert.equal(report.included.length, 0);
+    assert.match(report.skipped.join("\n"), /revision|不一致/);
+    assert.equal(fs.existsSync(path.join(workspace, "experiments/results/final/final.csv")), false);
+  } finally { vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: "", scheme: "file", path: "" } }]; }
+});

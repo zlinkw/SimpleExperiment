@@ -1668,8 +1668,9 @@ export function renderPanelHtml(): string {
     window.addEventListener("unhandledrejection", (event) => reportBootstrapError(event.reason));
     const el = (id) => document.getElementById(id);
     let tmuxPollTimer = 0;
-    const TMUX_POLL_MS = 500;
+    const TMUX_POLL_MS = 5000;
     let tmuxListBusy = false;
+    let tmuxListTimeout = 0;
     const tmuxCaptureBusy = new Set();
     let tmuxListCache = { sessions: [], gpuIds: [], workerId: "", fetchedAt: "" };
     const tmuxListsByWorker = Object.create(null);
@@ -1974,13 +1975,16 @@ export function renderPanelHtml(): string {
       const meta = el("tmuxListMeta");
       if (meta) meta.textContent = "列举 tmux sessions ...";
       try {
-        const clientActionId = createClientActionId("fetchTmuxList", "tmuxList");
-        const pendingKey = "fetchTmuxList:tmuxList";
-        const payload = { command: "fetchTmuxList", workerId: tmuxSelectedWorkerId, allWorkers: true, clientActionId };
-        pendingActionsById[clientActionId] = { command: "fetchTmuxList", pendingKey, clientActionId, startedAt: Date.now(), label: "fetchTmuxList", status: "running" };
-        if (pendingActionTimeouts[clientActionId]) clearTimeout(pendingActionTimeouts[clientActionId]);
-        vscode.postMessage(payload);
+        clearTimeout(tmuxListTimeout);
+        tmuxListTimeout = setTimeout(function () {
+          tmuxListBusy = false;
+          tmuxListTimeout = 0;
+          if (meta) meta.textContent = "会话刷新暂未收到响应，下次自动重试";
+        }, 20000);
+        vscode.postMessage({ command: "fetchTmuxList", workerId: tmuxSelectedWorkerId, allWorkers: true, background: true });
       } catch (e) {
+        clearTimeout(tmuxListTimeout);
+        tmuxListTimeout = 0;
         tmuxListBusy = false;
         if (meta) meta.textContent = "列举失败 " + String(e).slice(0,60);
       }
@@ -2109,8 +2113,13 @@ export function renderPanelHtml(): string {
     }
     function scheduleTmuxPoll() {
       clearInterval(tmuxPollTimer);
-      let polls = 0;
-      tmuxPollTimer = setInterval(function(){ polls++; refreshTmuxList(); refreshTmuxCapture(); }, TMUX_POLL_MS);
+      tmuxPollTimer = setInterval(function(){
+        const overview = el("tmuxOverview");
+        if (document.hidden || !overview || !overview.getClientRects().length) return;
+        const bounds = overview.getBoundingClientRect();
+        if (bounds.top > window.innerHeight || bounds.bottom < 0) return;
+        refreshTmuxList(); refreshTmuxCapture();
+      }, TMUX_POLL_MS);
     }
     const DIAGNOSTIC_JSON_PREVIEW_LIMIT = 16000;
     const DIAGNOSTIC_JSON_MAX_DEPTH = 4;
@@ -2317,7 +2326,7 @@ export function renderPanelHtml(): string {
     let gpuHistoryMeta = {};
     let gpuHistoryLastStateStatus = "idle";
     let expandedGpuHistoryKeys = new Set();
-    const GPU_HISTORY_REQUEST_COOLDOWN_MS = 0;
+    const GPU_HISTORY_REQUEST_COOLDOWN_MS = 5000;
     const GPU_HISTORY_SERVER_STYLE_LIMIT = 128;
     const GPU_HISTORY_OKLAB_CACHE_LIMIT = 256;
     const gpuHistoryRequestLastAt = new Map();
@@ -3306,7 +3315,7 @@ export function renderPanelHtml(): string {
         if (scope === "overview") {
           const wasOpen = gpuHistoryOverviewOpen;
           gpuHistoryOverviewOpen = historyDetails.open;
-          if (historyDetails.open && !wasOpen) requestGpuHistory({ maxPoints: 96 });
+          if (historyDetails.open && !wasOpen) requestGpuHistory({ maxPoints: 96 }, true);
         } else if (scope === "gpu") {
           const serverId = historyDetails.dataset.serverId || "";
           const gpuId = historyDetails.dataset.gpuId || "";
@@ -3315,7 +3324,7 @@ export function renderPanelHtml(): string {
           if (historyDetails.open) {
             expandedGpuHistoryKeys.add(key);
             while (expandedGpuHistoryKeys.size > GPU_HISTORY_SERIES_CACHE_LIMIT) expandedGpuHistoryKeys.delete(expandedGpuHistoryKeys.values().next().value);
-            if (!wasOpen) requestGpuHistory({ serverId, gpuId, maxPoints: 288 });
+            if (!wasOpen) requestGpuHistory({ serverId, gpuId, maxPoints: 288 }, true);
           } else {
             expandedGpuHistoryKeys.delete(key);
           }
@@ -3491,6 +3500,10 @@ export function renderPanelHtml(): string {
 
     function handleIncomingWebviewMessage(message) {
       if (!message) return;
+      if (message.type === "panelHeartbeat") {
+        vscode.postMessage({ command: "webviewHeartbeatAck", heartbeatId: message.heartbeatId });
+        return;
+      }
       const messages = flattenIncomingWebviewMessages(message);
       let latestStateMessage = null;
       let latestNavigationMessage = null;
@@ -3507,6 +3520,8 @@ export function renderPanelHtml(): string {
           continue;
         }
         if (item.type === "tmuxList") {
+          clearTimeout(tmuxListTimeout);
+          tmuxListTimeout = 0;
           const listedWorkers = Array.isArray(item.workers) ? item.workers : [];
           if (listedWorkers.length) tmuxConfiguredWorkers = listedWorkers;
           if (item.workerId) tmuxListsByWorker[item.workerId] = { sessions: item.sessions || [], gpuIds: item.gpuIds || [], workerId: item.workerId, fetchedAt: item.fetchedAt || new Date().toLocaleTimeString(), ok: item.ok !== false, error: item.error || "" };
@@ -9925,7 +9940,7 @@ export function renderPanelHtml(): string {
               var tr = btn.closest("tr");
               var srv = tr ? tr.getAttribute("data-server-id") : "";
               var gid = tr ? tr.getAttribute("data-gpu-id") : "";
-              if(srv && gid) requestGpuHistory({ serverId: srv, gpuId: gid, maxPoints: 288 });
+              if(srv && gid) requestGpuHistory({ serverId: srv, gpuId: gid, maxPoints: 288 }, true);
             }
             renderGpuSection(lastState || state);
             setTimeout(function(){ scheduleGpuHistoryDraw(); }, 60);
@@ -9941,7 +9956,7 @@ export function renderPanelHtml(): string {
             else {
               gpuDenseState.expandedKey=k;
               var srv=tr.getAttribute("data-server-id"); var gid=tr.getAttribute("data-gpu-id");
-              if(srv && gid) requestGpuHistory({ serverId: srv, gpuId: gid, maxPoints: 288 });
+              if(srv && gid) requestGpuHistory({ serverId: srv, gpuId: gid, maxPoints: 288 }, true);
             }
             renderGpuSection(lastState || state);
             setTimeout(function(){ scheduleGpuHistoryDraw(); }, 60);
@@ -10000,11 +10015,12 @@ export function renderPanelHtml(): string {
       if(grid) grid.style.display="none";
       scheduleGpuHistoryDraw();
     }
-    function requestGpuHistory(query) {
+    function requestGpuHistory(query, force) {
       const payload = query && typeof query === "object" ? query : {};
       const key = gpuHistorySeriesKey(payload.serverId || "overview", payload.gpuId || "overview");
       const now = Date.now();
       const lastAt = Number(gpuHistoryRequestLastAt?.get(key) || 0);
+      if (!force && now - lastAt < GPU_HISTORY_REQUEST_COOLDOWN_MS) return false;
       // The host coalesces identical reads while in flight.
       gpuHistoryRequestLastAt.set(key, now);
       while (gpuHistoryRequestLastAt.size > GPU_HISTORY_SERIES_CACHE_LIMIT) gpuHistoryRequestLastAt.delete(gpuHistoryRequestLastAt.keys().next().value);
@@ -13075,6 +13091,7 @@ export function renderPanelHtml(): string {
     }
 
     function executionSubmissionLabel(row) {
+      if (row && row.localSubmissionProgress === true && String(row.status || "").toLowerCase() === "queued") return "等待继续提交";
       const action = String((row && (row.type || row.action)) || "").toLowerCase();
       if (action.indexOf("validate") >= 0 || action.indexOf("dry-run") >= 0 || action.indexOf("dryrun") >= 0) return "校验中";
       if (action.indexOf("run-plan") >= 0 || action.indexOf("reproduce") >= 0 || action.indexOf("workflow") >= 0) return "提交中";
@@ -13174,7 +13191,8 @@ export function renderPanelHtml(): string {
         const running = currentJobs.length ? currentJobs.filter((job) => ["running", "dispatching"].includes(String(job.status || ""))).length
           : submission ? 1 : group.tasks.filter((row) => TASK_LIVE_STATUS_TOKENS?.has(taskStatusToken(row.status))).length;
         const deferredView = deferredCurrent ? executionDeferredView(group.deferredStatus) : null;
-        const tone = submission ? "running" : deferredView ? deferredView.tone : running ? "running" : queued ? "queued" : failed ? "failed" : blockedOnly ? "blocked" : active ? "running" : "completed";
+        const waitingSubmission = submission && submission.localSubmissionProgress === true && String(submission.status || "").toLowerCase() === "queued";
+        const tone = submission ? (waitingSubmission ? "blocked" : "running") : deferredView ? deferredView.tone : running ? "running" : queued ? "queued" : failed ? "failed" : blockedOnly ? "blocked" : active ? "running" : "completed";
         const completed = currentJobs.length ? currentJobs.filter((job) => String(job.status || "") === "completed").length
           : submission || deferredCurrent ? 0
           : group.tasks.filter((row) => TASK_TERMINAL_STATUSES?.has(taskStatusToken(row.status)) && !taskFailureLikeStatus(row.status)).length;
@@ -13187,7 +13205,7 @@ export function renderPanelHtml(): string {
           ? ("成功 " + completed + "/" + totalJobs + " · " + successRate + "%" + (running ? " · 运行 " + running : "") + (queued ? " · 排队 " + queued : "") + (blockedCount ? " · 阻塞 " + blockedCount : "") + (failedJobs ? " · 失败 " + failedJobs : ""))
           : ("操作 " + group.operations.length);
         const stamp = [...group.operations, ...group.tasks, ...currentJobs].reduce((latest, row) => Math.max(latest, Date.parse(row.updatedAt || row.startedAt || row.finishedAt || row.enqueuedAt || "") || 0), 0);
-        return { ...group, currentJobs, tone, active, distributedActive, blockedOnly, blockedCount, queued, completed, running, submitting: !!submission, deferredCurrent, statusText, countText, failedJobs, label, stamp };
+        return { ...group, currentJobs, tone, active, distributedActive, blockedOnly, blockedCount, queued, completed, running, submitting: !!submission, waitingSubmission, deferredCurrent, statusText, countText, failedJobs, label, stamp };
       });
       const toneOrder = { running: 0, queued: 1, blocked: 2, failed: 3, completed: 4 };
       items.sort((a, b) => (toneOrder[a.tone] ?? 5) - (toneOrder[b.tone] ?? 5) || b.stamp - a.stamp || a.label.localeCompare(b.label));
@@ -13221,7 +13239,7 @@ export function renderPanelHtml(): string {
         const stopClearDetail = stopClear && Array.isArray(stopClear.failures) && stopClear.failures.length ? '<div class="executionDistributedJobError">' + stopClear.failures.map((item) => esc(item)).join("<br>") + '</div>' : '';
         const foldButton = '<button type="button" class="mini secondary" data-execution-plan-fold="' + escAttr(group.key) + '" title="只收起这张卡片，不停止调度、不清除历史">折叠此 Plan</button>';
         const selectButton = group.planFile ? '<button type="button" class="mini executionPlanSelect' + (isSelected ? ' is-active' : '') + '" data-execution-plan-select="' + escAttr(group.planFile) + '" aria-pressed="' + (isSelected ? 'true' : 'false') + '" title="选中整个 Plan，供上方按 Plan 清理历史">' + (isSelected ? '已选中' : '选中 Plan') + '</button>' : '';
-        const dangerActions = group.planFile ? '<div class="executionPlanActions"><button class="mini danger" data-command="stopAndClearPlan" data-plan-file="' + escAttr(group.planFile) + '" data-confirm="true"' + (stopClearBusy ? ' disabled' : '') + ' title="终止并清除这一张 Plan：停止它的调度和分布式 job，关闭对应 tmux 标签，并清除本机队列记录。只作用于 ' + escAttr(group.planFile) + '，不影响其他 Plan。停止前会列出目标并要求两次确认。">终止并清理</button><button class="mini history-clear" data-command="clearOperations" data-plan-file="' + escAttr(group.planFile) + '" title="仅清除这个 Plan 在本机的已结束运行历史；保留远端审计、日志和产物">清除历史</button></div>' : '';
+        const dangerActions = group.planFile ? '<div class="executionPlanActions"><button class="mini history-clear" data-command="clearOperations" data-plan-file="' + escAttr(group.planFile) + '" title="仅清除这个 Plan 在本机的已结束运行历史；保留远端审计、日志和产物">清除历史</button></div>' : '';
         const statusBadge = '<b class="' + (group.tone === "blocked" || group.tone === "queued" ? "status-warning" : statusClass(group.tone)) + '">' + esc(statusText) + '</b>';
         const runLogNote = distributedRows.length ? '<div class="muted">训练日志记录每轮验证结果；终端日志记录 Worker 命令输出。校验日志只记录提交前校验，放在高级记录区。</div>' : '';
         const distributedHtml = distributedRows.length ? '<h3>' + loadingPrefix(group.distributedActive) + '当前 job · 成功 ' + group.completed + '/' + distributedRows.length + '</h3>'
@@ -13259,10 +13277,14 @@ export function renderPanelHtml(): string {
           : group.deferredCurrent
             ? '<div class="muted">' + esc(group.countText) + '。折叠只隐藏卡片，不改变调度。</div>' + (group.deferredNote ? '<div class="muted">' + esc(group.deferredNote) + '</div>' : '')
             : "";
-        const actions = '<div class="executionPlanActions">' + foldButton + '</div>';
+        const resumeButton = (group.waitingSubmission || group.deferredCurrent) && group.planFile
+          ? '<button type="button" class="mini" data-command="runPlan" data-plan-file="' + escAttr(group.planFile) + '" title="重新检查前序运行、当前代码、Plan 校验和已有产物，再提交。不会自动跳过阻塞检查。">继续提交</button>' : '';
+        const stopButton = group.planFile
+          ? '<button type="button" class="mini danger" data-command="stopAndClearPlan" data-plan-file="' + escAttr(group.planFile) + '" data-confirm="true"' + (stopClearBusy ? ' disabled' : '') + ' title="只中止这一张 Plan，远端停止须核对精确回执，并要求两次确认。">终止并清理</button>' : '';
+        const actions = '<div class="executionPlanActions">' + resumeButton + stopButton + foldButton + '</div>';
         const detailsBody = stopClearDetail + phaseNote + dangerActions + selectButton + distributedHtml + opHtml + taskHtml + more;
         return '<article class="executionPlanCard executionPlanRow ' + group.tone + (isSelected ? ' is-selected' : '') + '" data-execution-plan-key="' + escAttr(group.key) + '">' +
-          '<div class="executionPlanHead" title="' + escAttr(group.planFile || group.label) + '"><span class="executionPlanName">' + loadingPrefix(group.active || group.distributedActive) + esc(group.label) + '</span>' + statusBadge + '</div>' +
+          '<div class="executionPlanHead" title="' + escAttr(group.planFile || group.label) + '"><span class="executionPlanName">' + loadingPrefix((group.active && !group.waitingSubmission && !group.deferredCurrent) || group.distributedActive) + esc(group.label) + '</span>' + statusBadge + '</div>' +
           '<div class="executionPlanMeta"><span class="executionPlanCount">' + esc(count) + '</span><span title="' + escAttr(group.planFile || group.label) + '">' + esc(group.planFile || "未关联 Plan") + '</span></div>' +
           stopClearSummary +
           actions +

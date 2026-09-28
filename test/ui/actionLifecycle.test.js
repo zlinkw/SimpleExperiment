@@ -99,14 +99,32 @@ test("local operation persistence is dirty-gated, single-flight, and project-sco
   assert.match(queue, /!failed \|\| !this\.projectContextIsCurrent\(projectContext\)/);
 });
 
-test("local toolbar commands wait for extension terminal status", () => {
+test("local toolbar commands wait for extension terminal status", async () => {
   const root = path.resolve(__dirname, "..", "..");
   const source = readSource("src/extension.ts");
   assert.match(source, /function localCommandReleasesAfterTrigger/);
   assert.match(source, /const LOCAL_COMMAND_RELEASES_AFTER_TRIGGER = new Set\(\["startAllConnections", "testAll", "snapshot"\]\)/);
   assert.match(source, /return LOCAL_COMMAND_RELEASES_AFTER_TRIGGER\.has/);
   assert.match(source, /已触发本地 VS Code 操作/);
-  assert.match(source, /Promise\.race\(\[guardedWork, new Promise\(/);
+  const start = source.indexOf("    private async withUiCommandStatus(");
+  const end = source.indexOf("    uiCommandWatchdogMs(", start);
+  assert.ok(start >= 0 && end > start);
+  const emitted = require("typescript").transpileModule(
+    "(" + source.slice(start, end).replace("private async withUiCommandStatus", "async function") + ");",
+    { compilerOptions: { target: require("typescript").ScriptTarget.ES2022 } },
+  ).outputText;
+  const context = vm.createContext({});
+  vm.runInContext(extractConst(source, "LOCAL_COMMAND_RELEASES_AFTER_TRIGGER") + "\n" + extractFunction(source, "localCommandReleasesAfterTrigger"), context);
+  const run = vm.runInContext(emitted, context);
+  const statuses = [];
+  const host = { postUiCommandStatus: (_id, status) => statuses.push(status) };
+  let finish;
+  const pending = run.call(host, "tmux-click", "fetchTmuxList", {}, () => new Promise((resolve) => { finish = resolve; }));
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(statuses, ["running"]);
+  finish({});
+  await pending;
+  assert.deepEqual(statuses, ["running", "completed"]);
 });
 
 test("webview repeated render does not preserve disabled state for loading buttons", () => {

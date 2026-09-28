@@ -71,6 +71,7 @@ import { planStaticConfigReferences, planRuntimeConfigReferences, pythonCliParam
 import ProjectAdapterTemplates_1 = require("../templates/ProjectAdapterTemplates");
 import PptPlotBridge_1 = require("../PptPlotBridge");
 import GpuHistoryState_1 = require("../features/GpuHistoryState");
+import { compactOperationsForWebview } from "../ui/OperationPayload";
 import TopologyMode_1 = require("../features/TopologyMode");
 import ApiWorkflow_1 = require("../features/ApiWorkflow");
 import RuntimeManifest_1 = require("../runtime/RuntimeManifest");
@@ -422,7 +423,7 @@ const uiActionCommands = new Set<WebviewActionCommand>([
 const SAFE_WEBVIEW_COMMANDS = new Set([
     "stopAllPlans",
     "stopAndClearPlan",
-    "webviewReady", "webviewBootstrapError", "webviewRenderError", "reloadPanel", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
+    "webviewReady", "webviewHeartbeatAck", "webviewBootstrapError", "webviewRenderError", "reloadPanel", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
     "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "reassignWorkerTask", "openSetupGuide", "openAdvancedCommandsSetting",
     "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
     "selectPlan", "selectExperiment",
@@ -431,7 +432,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "startTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList", "killTmuxWindow", "clearTmuxTaskTabs",
 ]);
 const API_INTERNAL_COMMANDS = new Set([
-    "webviewReady", "webviewBootstrapError", "webviewRenderError", "reloadPanel",
+    "webviewReady", "webviewHeartbeatAck", "webviewBootstrapError", "webviewRenderError", "reloadPanel",
 ]);
 const API_EXECUTABLE_COMMANDS = new Set([
     ...uiActionCommands,
@@ -793,6 +794,17 @@ export class RealtimeTunnelPanelProvider {
     private readonly statePostBatchMs = 100;
     private readonly statePostRetryMax = 3;
     private readonly statePostRetryBaseMs = 500;
+    private panelHeartbeatTimer?: ReturnType<typeof setTimeout>;
+    private panelHeartbeatTimeout?: ReturnType<typeof setTimeout>;
+    private panelHeartbeatId = 0;
+    private viewGeneration = 0;
+    private viewLifetimeDisposables: Array<{ dispose(): unknown }> = [];
+    private lastPanelHeartbeatRecoveryAt = 0;
+    private panelDocumentGeneration = 0;
+    private readonly panelHeartbeatIntervalMs = 30_000;
+    private readonly panelHeartbeatAckTimeoutMs = 12_000;
+    private readonly panelHeartbeatRecoveryWindowMs = 5 * 60_000;
+    private panelDisposed = false;
     webviewReady = false;
     panelReadyWatchdogTimer;
     pendingPanelNavigation;
@@ -3225,26 +3237,36 @@ export class RealtimeTunnelPanelProvider {
     }
     resolveWebviewView(webviewView) {
         console.log("[legacy] resolveWebviewView", webviewView?.viewType, new Date().toISOString());
+        if (this.view) this.disposeResolvedWebviewView(this.view, this.viewGeneration);
+        const viewGeneration = ++this.viewGeneration;
+        this.panelDisposed = false;
         this.view = webviewView;
         webviewView.webview.options = { enableScripts: true };
-        webviewView.webview.onDidReceiveMessage((message) => {
+        this.viewLifetimeDisposables = [];
+        this.viewLifetimeDisposables.push(webviewView.webview.onDidReceiveMessage((message) => {
+            if (this.view !== webviewView || this.viewGeneration !== viewGeneration) return;
             void this.handleMessage(message).catch((e) => {
+                if (this.view !== webviewView || this.viewGeneration !== viewGeneration) return;
                 console.error("[legacy] handleMessage unhandled", e);
                 try { this.recordActionError(String(e?.message || e)); } catch {}
                 try { this.postState(); } catch {}
                 try { const vscode = require("vscode"); vscode.window.showErrorMessage(String(e?.message || e)); } catch {}
             });
-        });
+        }));
         void this.ensureRemoteAgentVersionConsistent().catch(() => undefined);
         this.loadPanelHtml();
-        webviewView.onDidChangeVisibility(() => {
+        this.viewLifetimeDisposables.push(webviewView.onDidChangeVisibility(() => {
+            if (this.view !== webviewView || this.viewGeneration !== viewGeneration) return;
             this.budget.setHidden(!webviewView.visible);
             this.client.setHidden(!webviewView.visible);
+            if (webviewView.visible) this.schedulePanelHeartbeat();
+            else this.clearPanelHeartbeat();
             if (webviewView.visible)
                 this.retryPendingResultsSummaryOnVisible();
             if (webviewView.visible) { this.scheduleRunOperationReconcilePoll(); this.scheduleEvidenceAutoPoll(); this.postState(true); }
             else this.postState();
-        });
+        }));
+        this.viewLifetimeDisposables.push(webviewView.onDidDispose(() => this.disposeResolvedWebviewView(webviewView, viewGeneration)));
         void Promise.all([
             this.loadProjectPlanSelectionState().catch(() => undefined),
             this.loadProjectTaskSelectionState().catch(() => undefined),
@@ -3273,7 +3295,29 @@ export class RealtimeTunnelPanelProvider {
             void this.ensureRealtimeConnected("webview resolved");
         }
     }
+    private disposeResolvedWebviewView(webviewView, generation): void {
+        if (this.view !== webviewView || this.viewGeneration !== generation) return;
+        this.clearPanelHeartbeat();
+        this.clearPanelReadyWatchdog();
+        if (this.statePostTimer) clearTimeout(this.statePostTimer);
+        if (this.statePostRetryTimer) clearTimeout(this.statePostRetryTimer);
+        this.statePostTimer = undefined;
+        this.statePostRetryTimer = undefined;
+        this.statePostPending = false;
+        this.statePostInFlight = false;
+        this.statePostRetryCount = 0;
+        this.webviewReady = false;
+        this.pendingPanelNavigation = undefined;
+        for (const disposable of this.viewLifetimeDisposables.splice(0)) {
+            try { disposable.dispose(); } catch {}
+        }
+        this.view = undefined;
+        this.viewGeneration += 1;
+    }
     async dispose() {
+        this.panelDisposed = true;
+        if (this.view) this.disposeResolvedWebviewView(this.view, this.viewGeneration);
+        this.clearPanelHeartbeat();
         this.clearPanelReadyWatchdog();
         this.disposeSelectedPlanFileWatchers();
         for (const retry of this.planSyncSummaryRetries.values()) clearTimeout(retry.timer);
@@ -4587,8 +4631,16 @@ export class RealtimeTunnelPanelProvider {
                     clearTimeout(this.statePostRetryTimer);
                 this.statePostRetryTimer = undefined;
                 this.clearPanelReadyWatchdog();
+                this.schedulePanelHeartbeat();
                 this.postState(true);
                 void this.refreshPptAutomationReadiness(false).catch(() => undefined);
+                break;
+            case "webviewHeartbeatAck":
+                if (Number(message?.heartbeatId) === this.panelHeartbeatId) {
+                    if (this.panelHeartbeatTimeout) clearTimeout(this.panelHeartbeatTimeout);
+                    this.panelHeartbeatTimeout = undefined;
+                    this.schedulePanelHeartbeat();
+                }
                 break;
             case "webviewBootstrapError":
                 this.lastError = String(message?.error || "Webview 脚本启动失败").slice(0, 480);
@@ -5466,6 +5518,13 @@ export class RealtimeTunnelPanelProvider {
             finishedAt: status === "queued" ? "" : now,
             reconcileEvidenceActive: false,
         };
+        if (status === "succeeded") {
+            for (const [id, previous] of Object.entries(this.localOperations)) {
+                if (id === operationId || previous.localSubmissionProgress !== true || previous.status !== "queued") continue;
+                if (normalizePlanSelectionKey(previous.planFile || "").toLowerCase() !== normalizePlanSelectionKey(current.planFile || "").toLowerCase()) continue;
+                this.localOperations[id] = { ...previous, status: "cancelled", message: "已由新的手动提交接续。", finishedAt: now, updatedAt: now, reconcileEvidenceActive: false };
+            }
+        }
         this.markLocalOperationsDirty();
         this.postState();
     }
@@ -13748,7 +13807,7 @@ export class RealtimeTunnelPanelProvider {
             ? "未确认的 job、deferred 和运行进度仍留在这一张 Plan 卡片上。先按失败原因处理 Worker、tmux 或身份，再重新点“终止并清理”。"
             : "本 Plan 已确认的队列条目已清除。其他 Plan 未改。";
         if (failures.length) void vscode.window.showWarningMessage(`${summary} 未完成：${failures.join("；")}`);
-        else void vscode.window.showInformationMessage(`${summary} 仍在运行且停止失败的条目保持可见。`);
+        else void vscode.window.showInformationMessage(`${summary}${retained ? " 仍未确认的条目保持可见。" : " 该 Plan 已无待停止或待提交条目。"}`);
         return this.finishPlanStopClear(planFile, {
             phase: outcome === "completed" ? "cleared" : "partial-clear",
             outcome, message: summary, nextStep, failures,
@@ -14913,6 +14972,9 @@ export class RealtimeTunnelPanelProvider {
         const originalPlans = JSON.stringify(registry.plans || {});
         let included = 0;
         const issues = [];
+        const pending = [];
+        const missing = [];
+        const registeredPlans = new Set<string>();
         const refreshedSummaries = [];
         await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "重新汇总指标（不下载文件）", cancellable: true }, async (progress, token) => {
             for (const [index, plan] of plans.entries()) {
@@ -14940,9 +15002,24 @@ export class RealtimeTunnelPanelProvider {
                 let localSummary;
                 try { localSummary = await this.summaryFromLocalMetricFiles(root, planFile, serverSummary); }
                 catch (error) { issues.push(planFile + "：本地指标无法解析（" + errorMessage(error) + "），保留旧表。"); continue; }
-                const acceptance = acceptedCompletedRevision({ metadata: plan, authority: PlanArtifactSync.latestPlanSyncEntry(syncLedger, planFile) }, serverSummary);
-                if (!acceptance.ok) { issues.push(planFile + "：" + acceptance.reason); continue; }
                 summary = summaryWithoutSources(preferServerMetricSummary(serverSummary, localSummary, { downloadedSources: new Set() }) || serverSummary, new Set());
+                const authority = PlanArtifactSync.latestPlanSyncEntry(syncLedger, planFile);
+                let useRegistered = false;
+                if (!trustedCompletedResultSummary(summary) && !(serverSummary?.results?.length)) {
+                    const registered = ProjectResultTables.registeredPlanSummary(registry, planFile);
+                    if (registered) {
+                        const reportedRevision = String(serverSummary?.planRevision || "");
+                        const reportedRuns = reportedCompletedRunIds(serverSummary);
+                        const registeredRuns = reportedCompletedRunIds(registered);
+                        const conflict = serverSummary?.mixedPlanRevision || (reportedRevision && reportedRevision !== registered.planRevision)
+                            || reportedRuns.some((runId) => !registeredRuns.includes(runId));
+                        if (conflict) { issues.push(planFile + "：服务器 revision 或 run 身份与本机已收录记录不一致，保留旧表。"); continue; }
+                        summary = registered;
+                        useRegistered = true;
+                    }
+                }
+                const acceptance = acceptedCompletedRevision({ metadata: useRegistered ? { ...plan, revision: summary.planRevision } : plan, authority }, useRegistered ? summary : serverSummary);
+                if (!acceptance.ok) { issues.push(planFile + "：" + acceptance.reason); continue; }
                 summary = { ...summary, planRevision: acceptance.revision };
                 if (acceptance.runId && reportedCompletedRunIds(summary).length)
                     summary.completedRunId = acceptance.runId;
@@ -14950,7 +15027,9 @@ export class RealtimeTunnelPanelProvider {
                     issues.push(planFile + "：同步记录有完成运行 " + acceptance.runId + "，服务器摘要没有 run 身份，按 revision " + acceptance.revision + " 收录，不标记为该次运行。");
                 if (acceptance.note) issues.push(planFile + "：" + acceptance.note);
                 if (!trustedCompletedResultSummary(summary)) {
-                    issues.push(planFile + "：没有可信完成指标，未收录。下一步：先执行“同步服务器结果并更新总表”下载 CSV，或确认该 Plan 已完成。");
+                    const detail = planFile + "：尚无可收录的逐 seed 指标。" + (serverSummary?.workerResultTables?.some((table) => table.aggregateStatus === "no_declared_csv") ? "服务器 Plan 未声明原始 CSV，请核对结果路径配置。" : "确认运行完成并同步结果后再重算。");
+                    if (authority?.runId && authority.runId !== "historic") missing.push(detail);
+                    else pending.push(detail);
                     continue;
                 }
                 try {
@@ -14961,6 +15040,7 @@ export class RealtimeTunnelPanelProvider {
                         included++;
                     }
                     refreshedSummaries.push(summary);
+                    if (useRegistered) registeredPlans.add(planFile);
                     if (summary.unavailableWorkerIds?.length)
                         issues.push(planFile + "：已收录已验证 Worker，缺少 " + summary.unavailableWorkerIds.join("、") + "。下一步：恢复缺少的 Worker 后再次汇总。");
                 } catch (error) { issues.push(planFile + "：" + errorMessage(error) + "，保留旧表。下一步：核对该 Plan 的 seed 身份后重试。"); }
@@ -14973,15 +15053,15 @@ export class RealtimeTunnelPanelProvider {
             this.resultsSummary = visible;
         const retained = Object.keys(registry.plans || {}).length;
         if (!retained) throw new Error("没有可用的逐 seed 结果；" + (issues.length ? issues.slice(0, 3).join("；") : "请检查各 Worker 的结果 CSV 与列映射。"));
-        if (JSON.stringify(registry.plans || {}) !== originalPlans) {
+        if (refreshedSummaries.length || JSON.stringify(registry.plans || {}) !== originalPlans) {
             registry.derivedMetric = pluginProjectAdapterRules(root).derivedMetric || undefined;
             await this.writeProjectTableRegistry(root, registry);
-            await this.queueHistoricalPlanArtifactSyncs(root, registry);
         }
         const report = {
             discovered: plans.length,
-            included: registry.plans ? Object.keys(registry.plans).filter((planFile) => refreshedSummaries.some((summary) => samePlanSelection(summary.planFile, planFile))).map((planFile) => planFile + "：已按服务器摘要与本地指标重算") : [],
-            missing: [],
+            included: registry.plans ? Object.keys(registry.plans).filter((planFile) => refreshedSummaries.some((summary) => samePlanSelection(summary.planFile, planFile))).map((planFile) => planFile + (registeredPlans.has(planFile) ? "：已按已收录的本机逐 seed 记录重算" : "：已按服务器摘要与本地指标重算")) : [],
+            missing,
+            pending,
             skipped: issues,
         };
         if (!report.included.length)
@@ -14989,7 +15069,7 @@ export class RealtimeTunnelPanelProvider {
         this.resultSyncReport = report;
         this.postState();
         const message = formatResultSyncReport(report, "重新汇总指标（不下载文件）");
-        if (issues.length) void vscode.window.showWarningMessage(message);
+        if (issues.length || missing.length) void vscode.window.showWarningMessage(message);
         else void vscode.window.showInformationMessage(message);
     }
     async openLocalResultTableFromUi(message) {
@@ -16918,7 +16998,7 @@ export class RealtimeTunnelPanelProvider {
             preferWebSocket: streaming,
             fallbackToSse: streaming,
             fallbackToPolling: this.tunnelConfig.refreshProfile !== "manual_only",
-            snapshotFallbackIntervalSeconds: 0.5,
+            snapshotFallbackIntervalSeconds: 5,
             pauseWhenWebviewHidden: hiddenPause,
             keepAgentStreamWhenHidden: true,
         };
@@ -17429,7 +17509,7 @@ export class RealtimeTunnelPanelProvider {
                     waitingForFingerprint: item.waitingForFingerprint || "" })) : [],
             experimentTraces,
             logs,
-            operations,
+            operations: compactOperationsForWebview(operations),
             executionHistoryCutoffs: this.context.workspaceState.get(keys.executionHistoryCutoffs, {}),
             executionHistoryHiddenOperationIds: this.context.workspaceState.get(keys.executionHistoryHiddenOperationIds, []),
             fileTransfers,
@@ -17612,9 +17692,11 @@ export class RealtimeTunnelPanelProvider {
     }
     private startPanelReadyWatchdog(): void {
         this.clearPanelReadyWatchdog();
+        const view = this.view;
+        const generation = this.viewGeneration;
         this.panelReadyWatchdogTimer = setTimeout(() => {
             this.panelReadyWatchdogTimer = undefined;
-            if (this.view && !this.webviewReady)
+            if (view && this.view === view && this.viewGeneration === generation && !this.webviewReady)
                 this.showPanelRecovery("面板在规定时间内没有完成启动握手。请重新加载面板。");
         }, 10_000);
         this.panelReadyWatchdogTimer.unref?.();
@@ -17633,9 +17715,10 @@ export class RealtimeTunnelPanelProvider {
     private loadPanelHtml(): void {
         if (!this.view)
             return;
+        this.clearPanelHeartbeat();
         this.webviewReady = false;
         const document = renderPanelBootstrapDocument(renderPanelHtml, renderPanelRecoveryHtml);
-        this.view.webview.html = document.html;
+        this.view.webview.html = document.html + "\n<!-- panel-document-" + (++this.panelDocumentGeneration) + " -->";
         if (document.recovered) {
             this.clearPanelReadyWatchdog();
             this.lastError = document.error;
@@ -17647,6 +17730,38 @@ export class RealtimeTunnelPanelProvider {
     }
     private reloadPanelHtml(): void {
         this.loadPanelHtml();
+    }
+    private clearPanelHeartbeat(): void {
+        if (this.panelHeartbeatTimer) clearTimeout(this.panelHeartbeatTimer);
+        if (this.panelHeartbeatTimeout) clearTimeout(this.panelHeartbeatTimeout);
+        this.panelHeartbeatTimer = undefined;
+        this.panelHeartbeatTimeout = undefined;
+    }
+    private schedulePanelHeartbeat(): void {
+        this.clearPanelHeartbeat();
+        if (this.panelDisposed || !this.view?.visible || !this.webviewReady) return;
+        const view = this.view;
+        const generation = this.viewGeneration;
+        this.panelHeartbeatTimer = setTimeout(() => {
+            this.panelHeartbeatTimer = undefined;
+            if (this.panelDisposed || this.view !== view || this.viewGeneration !== generation || !view.visible || !this.webviewReady) return;
+            const heartbeatId = ++this.panelHeartbeatId;
+            this.panelHeartbeatTimeout = setTimeout(() => {
+                this.panelHeartbeatTimeout = undefined;
+                if (this.panelDisposed || this.view !== view || this.viewGeneration !== generation || !view.visible || !this.webviewReady || heartbeatId !== this.panelHeartbeatId) return;
+                const now = Date.now();
+                this.webviewReady = false;
+                if (now - this.lastPanelHeartbeatRecoveryAt >= this.panelHeartbeatRecoveryWindowMs) {
+                    this.lastPanelHeartbeatRecoveryAt = now;
+                    this.loadPanelHtml();
+                } else {
+                    this.showPanelRecovery("面板暂时没有响应。请点击重新加载面板；若仍失败，请执行 Developer: Reload Window。");
+                }
+            }, this.panelHeartbeatAckTimeoutMs);
+            this.panelHeartbeatTimeout.unref?.();
+            void Promise.resolve(view.webview.postMessage({ type: "panelHeartbeat", heartbeatId })).catch(() => undefined);
+        }, this.panelHeartbeatIntervalMs);
+        this.panelHeartbeatTimer.unref?.();
     }
     private buildPanelFallbackState(message: string): WebviewClusterState {
         let workspace = {
@@ -17775,7 +17890,10 @@ export class RealtimeTunnelPanelProvider {
         state.contextActionSignature = contextActionStatePostSignature(state);
         const signature = webviewStatePostSignature(state);
         if (!force && signature === this.lastPostedStateSignature) return;
+        const targetView = this.view;
+        const targetGeneration = this.viewGeneration;
         const reportPostError = (error) => {
+            if (this.view !== targetView || this.viewGeneration !== targetGeneration) return;
             this.statePostInFlight = false;
             this.statePostPending = true;
             const message = `面板状态发送失败：${errorMessage(error)}`;
@@ -17786,6 +17904,7 @@ export class RealtimeTunnelPanelProvider {
             this.scheduleStatePostRetry();
         };
         const completePost = (delivered) => {
+            if (this.view !== targetView || this.viewGeneration !== targetGeneration) return;
             if (!delivered) {
                 reportPostError(new Error("Webview 未接收状态消息"));
                 return;
@@ -17802,7 +17921,7 @@ export class RealtimeTunnelPanelProvider {
         };
         try {
             this.statePostInFlight = true;
-            const posted = this.view.webview.postMessage({ type: "state", state });
+            const posted = targetView.webview.postMessage({ type: "state", state });
             void Promise.resolve(posted).then(completePost, reportPostError);
         }
         catch (error) {
@@ -26764,12 +26883,14 @@ function formatResultSyncReport(report, title) {
     const included = Array.isArray(report?.included) ? report.included : [];
     const missing = Array.isArray(report?.missing) ? report.missing : [];
     const skipped = Array.isArray(report?.skipped) ? report.skipped : [];
+    const pending = Array.isArray(report?.pending) ? report.pending : [];
     return [
         title,
-        "发现 Plan " + discovered + " 个，成功收录 " + included.length + " 个，缺指标 " + missing.length + " 个，跳过/失败 " + skipped.length + " 个。",
+        "发现 Plan " + discovered + " 个，成功收录 " + included.length + " 个，缺指标 " + missing.length + " 个，跳过/失败 " + skipped.length + " 个" + (pending.length ? "，待指标 " + pending.length + " 个" : "") + "。",
         included.length ? "收录：" + included.slice(0, 8).join("；") : "",
         missing.length ? "缺指标：" + missing.slice(0, 6).join("；") : "",
         skipped.length ? "未收录：" + skipped.slice(0, 6).join("；") : "",
+        pending.length ? "待指标：" + pending.slice(0, 6).join("；") : "",
     ].filter(Boolean).join("\n");
 }
 function resultMetricMergeScopePaths(plan, planFile, extras = []) {

@@ -69,7 +69,12 @@ test("panel registers the message listener before HTML can emit the ready handsh
 
 test("panel reports post-bootstrap render failures without hiding the recovery path", () => {
   assert.match(extension, /case "webviewRenderError":[\s\S]{0,260}recordActionError/);
-  assert.match(extension, /"webviewReady", "webviewBootstrapError", "webviewRenderError", "reloadPanel"/);
+  for (const name of ["SAFE_WEBVIEW_COMMANDS", "API_INTERNAL_COMMANDS"]) {
+    const declaration = extension.match(new RegExp("const " + name + " = new Set\\(\\[[\\s\\S]*?\\]\\);"))?.[0];
+    assert.ok(declaration, name);
+    const commands = new Function(declaration + " return " + name + ";")();
+    for (const command of ["webviewReady", "webviewHeartbeatAck", "webviewBootstrapError", "webviewRenderError", "reloadPanel"]) assert.ok(commands.has(command), name + ": " + command);
+  }
   assert.match(panel, /let lastRenderErrorMessage = ""/);
   assert.match(panel, /vscode\.postMessage\(\{ command: "webviewRenderError", error: .*\.slice\(0, \d+\) \}\)/);
 });
