@@ -10,6 +10,7 @@ const delta = require("../../dist/features/CodeSyncDelta.js");
 const { MultiEndpointRealtimeClient } = require("../../dist/tunnel/MultiEndpointRealtimeClient.legacy.js");
 const extension = fs.readFileSync(path.join(root, "src/extension/legacy.ts"), "utf8");
 const panel = fs.readFileSync(path.join(root, "src/ui/PanelHtml.legacy.ts"), "utf8");
+const renderedPanel = require("../../dist/ui/PanelHtml.legacy.js").renderPanelHtml();
 
 test("completed jobs from a prior distributed run are identified by Plan and job identity", () => {
   const stored = { schemaVersion: 1, plans: [
@@ -99,10 +100,10 @@ test("rerun code sync also compares hashes before uploading", () => {
 });
 
 test("running distributed job renders Worker log path, content, and loading indicator", () => {
-  const start = panel.indexOf("function executionPlanGroupKey(");
-  const end = panel.indexOf("function renderOperationSection(state)", start);
+  const start = renderedPanel.indexOf("function executionPlanGroupKey(");
+  const end = renderedPanel.indexOf("function renderOperationSection(state)", start);
   assert.ok(start >= 0 && end > start);
-  const source = panel.slice(start, end);
+  const source = renderedPanel.slice(start, end);
   let html = "";
   const sandbox = {
     selectedExecutionPlanFile: "",

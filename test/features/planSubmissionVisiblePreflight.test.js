@@ -51,6 +51,7 @@ const production = new Function("DistributedPlanQueue", "fs", "path", "workspace
   function operationStatusToken(value) { return String(value || "").toLowerCase(); }
   function resultStatus(result) { return result && (result.status || result.state) || ""; }
   function remoteActionSucceeded(value) { return ["completed", "succeeded", "done"].includes(operationStatusToken(value)); }
+  ${functionSource("planValidationFromResult")}
   ${functionSource("planCheckAccepted")}
   ${functionSource("usableSelectionKey")}
   ${functionSource("normalizePlanSelectionKey")}
@@ -482,7 +483,7 @@ test("deferred replay keeps the saved skip choice and blocks a changed fingerpri
 });
 
 test("plan check acceptance follows the real validate payload", () => {
-  const accepted = new Function(`${functionSource("planCheckAccepted")}; return planCheckAccepted;`.replace("function planCheckAccepted", "function planCheckAccepted"))();
+  const accepted = new Function(`${functionSource("planValidationFromResult")}\n${functionSource("planCheckAccepted")}; return planCheckAccepted;`)();
   global.operationStatusToken = (value) => String(value || "").toLowerCase();
   global.resultStatus = (result) => result && (result.status || result.state) || "";
   global.remoteActionSucceeded = (value) => ["completed", "succeeded", "done"].includes(String(value));
@@ -508,6 +509,7 @@ test("persisted deferred rows are superseded for audit instead of auto dispatche
 
 test("skipping every existing job closes the continued row without a new run", async () => {
   const enqueue = new Function("workspaceRoot", "operationResultPlanFile", "makeOpId", "DistributedPlanQueue", "vscode", "errorMessage", `
+    ${functionSource("planValidationFromResult")}
     return ${method("enqueueDistributedPlan").replace("async enqueueDistributedPlan", "async function").replace(/ as const/g, "")};
   `)(() => root, (body) => body.planFile, () => "new-plan", DistributedPlanQueue,
     { window: { showInformationMessage: () => Promise.resolve() } }, (error) => String(error));

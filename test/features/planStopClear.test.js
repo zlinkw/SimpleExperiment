@@ -353,7 +353,8 @@ function installStopClearHost(sandbox) {
   const tickWrapperStart = loadExtensionHandler("async tickDistributedQueue() {", "refreshSelectedDistributedLog(queue");
   const enqueue = loadExtensionHandler("async enqueueDistributedPlan(body", "detachStaleDistributedTick(task)");
   const finish = loadExtensionHandler("async finishDistributedPlanSubmission(command", "async activeDeferredForSubmission(");
-  vm.runInContext(`class Host { ${submission}\n${helpers}\n${recover}\n${clear}\n${tickWrapperStart}\n${enqueue}\n${finish} }\nthis.Host = Host;`, context);
+  const validation = loadExtensionHandler("function planValidationFromResult(", "function planCheckAccepted(");
+  vm.runInContext(`${validation}\nclass Host { ${submission}\n${helpers}\n${recover}\n${clear}\n${tickWrapperStart}\n${enqueue}\n${finish} }\nthis.Host = Host;`, context);
   const provider = new context.Host();
   const sourceTick = provider.tickDistributedQueue;
   const sourceDetach = provider.detachStaleDistributedTick;

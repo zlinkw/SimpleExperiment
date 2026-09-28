@@ -5651,7 +5651,7 @@ class RealtimeTunnelPanelProvider {
             if (this.distributedPlanEligible(planKey)) {
                 check = "本机逐 job 预演";
                 reportStage("校验已返回，正在做本机逐 job 预演…");
-                const validation = validated?.validation || validated?.result?.validation;
+                const validation = planValidationFromResult(validated);
                 if (!Array.isArray(validation?.jobs) || !validation.jobs.length)
                     throw new Error("Agent 校验未返回逐 job 清单");
                 const root = workspaceRoot();
@@ -5712,7 +5712,7 @@ class RealtimeTunnelPanelProvider {
         }
     }
     async confirmDistributedPlanExistingOutputs(plan, body, validated) {
-        const validation = validated?.validation || validated?.result?.validation;
+        const validation = planValidationFromResult(validated);
         if (!validation || !Array.isArray(validation.jobs) || !Array.isArray(validation.existing))
             throw new Error("Agent 未返回当前 Plan 的逐 job 与历史产物清单；未提交运行。");
         const root = workspaceRoot();
@@ -5737,7 +5737,7 @@ class RealtimeTunnelPanelProvider {
             body.distributedSkipJobIndices = [...existingByIndex.keys()];
     }
     async confirmPlanExistingOutputs(plan, body, validated, versionedAttempts = false) {
-        const validation = validated?.validation || validated?.result?.validation;
+        const validation = planValidationFromResult(validated);
         if (!validation || !Array.isArray(validation.existing))
             throw new Error("Agent 未返回当前 Plan 的历史产物清单；请部署最新版 Agent 后重新校验。未提交运行。");
         const existing = validation.existing;
@@ -8991,7 +8991,7 @@ class RealtimeTunnelPanelProvider {
         };
         if (!submissionCurrent())
             return { enqueued: false, cancelled: true };
-        const validation = validated?.validation || validated?.result?.validation;
+        const validation = planValidationFromResult(validated);
         if (!Array.isArray(validation?.jobs) || !validation.jobs.length)
             throw new Error("Agent 校验未返回逐 job 清单，无法分布式派发。");
         const planFile = operationResultPlanFile(body);
@@ -19527,24 +19527,42 @@ function remoteActionSucceeded(value) {
     const text = operationStatusToken(value);
     return text === "completed" || text === "operation_completed" || text === "succeeded" || text === "done";
 }
+function planValidationFromResult(result) {
+    if (!result || typeof result !== "object" || Array.isArray(result))
+        return undefined;
+    // Operation polling/realtime snapshots wrap the action result; prefer the latest evidence.
+    for (const row of [result.latestEvent?.payload, result.payload, result.result, result]) {
+        if (!row || typeof row !== "object" || Array.isArray(row))
+            continue;
+        for (const value of [row, row.result]) {
+            if (!value || typeof value !== "object" || Array.isArray(value))
+                continue;
+            if (Object.prototype.hasOwnProperty.call(value, "validation")) {
+                const validation = value.validation;
+                return validation && typeof validation === "object" && !Array.isArray(validation) ? validation : undefined;
+            }
+        }
+    }
+    return undefined;
+}
 function planCheckAccepted(result) {
     if (!result || typeof result !== "object")
         return false;
     const item = result;
     const nested = item.result && typeof item.result === "object" ? item.result : {};
-    const validation = item.validation && typeof item.validation === "object" ? item.validation
-        : nested.validation && typeof nested.validation === "object" ? nested.validation : {};
-    const status = operationStatusToken(resultStatus(item) || resultStatus(nested));
-    if (["failed", "operation_failed", "error", "cancelled", "canceled", "stalled", "unsupported"].includes(status))
+    const payload = item.payload && typeof item.payload === "object" ? item.payload : {};
+    const latestPayload = item.latestEvent?.payload && typeof item.latestEvent.payload === "object" ? item.latestEvent.payload : {};
+    const evidence = [item, nested, payload, payload.result, latestPayload, latestPayload.result].filter((row) => row && typeof row === "object");
+    const validation = planValidationFromResult(item) || {};
+    const status = operationStatusToken(resultStatus(item) || resultStatus(latestPayload) || resultStatus(payload) || resultStatus(nested));
+    if (evidence.some((row) => ["completed_with_errors", "failed", "operation_failed", "error", "cancelled", "canceled", "stalled", "unsupported"].includes(operationStatusToken(resultStatus(row)))))
         return false;
-    if (item.ok === false || nested.ok === false || validation.ok === false)
-        return false;
-    if (String(item.error || nested.error || "").trim())
+    if (validation.ok === false || evidence.some((row) => row.ok === false || String(row.error || "").trim()))
         return false;
     if (remoteActionSucceeded(status))
         return true;
     const jobs = Array.isArray(validation.jobs) ? validation.jobs : Array.isArray(item.jobs) ? item.jobs : Array.isArray(nested.jobs) ? nested.jobs : [];
-    const markedOk = item.ok === true || nested.ok === true || validation.ok === true;
+    const markedOk = evidence.some((row) => row.ok === true) || validation.ok === true;
     return markedOk && jobs.length > 0 && jobs.every((job) => job && Number.isInteger(Number(job.index)) && String(job.case || job.name || "").trim() && job.output_dir);
 }
 function operationLongRunningAction(action) {

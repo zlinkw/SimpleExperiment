@@ -195,7 +195,7 @@ test("validate and dry-run publish their own stages and a failed result stays fa
   const api = apiFactory({}, {}, () => "", manifestApi.buildLocalCodeManifest, { window: { setStatusBarMessage() {} } }, {});
   const calls = [];
   const host = {
-    localOperations: {}, stages: [], localPlanMetadata: { detectedProject: {} },
+    localOperations: {}, distributedSubmissionEpochs: new Map(), stages: [], localPlanMetadata: { detectedProject: {} },
     actionBody: (item) => ({ planFile: item.planFile, options: {} }),
     refreshLocalPlanMetadataForAction: async () => {},
     stampPlanRevision: () => {},
@@ -234,7 +234,7 @@ test("a submitted validate stays queued with its operation id until the real ter
   const api = apiFactory({}, {}, () => "", manifestApi.buildLocalCodeManifest, { window: { setStatusBarMessage() {} } }, {});
   class RemotePending extends Error { constructor(message) { super(message); this.remotePending = true; } }
   const host = {
-    localOperations: {}, stages: [], localPlanMetadata: { detectedProject: {} },
+    localOperations: {}, distributedSubmissionEpochs: new Map(), stages: [], localPlanMetadata: { detectedProject: {} },
     actionBody: (item) => ({ planFile: item.planFile, options: {} }),
     refreshLocalPlanMetadataForAction: async () => {},
     stampPlanRevision: () => {},

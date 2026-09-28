@@ -6,6 +6,7 @@ const vm = require("node:vm");
 const { readSource } = require("../_helpers/sourceReader");
 
 const panel = readSource("src/ui/PanelHtml.ts");
+const renderedPanel = require("../../dist/ui/PanelHtml.js").renderPanelHtml();
 
 function extractFunction(source, name) {
   const start = source.indexOf(`function ${name}(`);
@@ -21,7 +22,7 @@ function extractFunction(source, name) {
 }
 
 function loadPlanExecutionStage() {
-  const names = ["normalizePlanSelectionKey", "planExecutionStage", "planExecutionStageCacheKey", "cachePlanExecutionStage", "taskMatchesPlanVersion", "terminalPlanTaskExecutionStage", "debugRunRecord", "ensurePlanVersionRowsCache", "planVersionRowsCacheKey", "cachePlanVersionRows", "planVersionOperationRows", "planVersionTaskRows", "operationMatchesPlanVersion", "operationAtOrAfter", "operationSucceeded", "operationPending", "operationIsActive", "operationIsFailureLike", "operationIsCompleted", "operationIsCancelled", "taskStatusToken", "taskFailureLikeStatus", "taskTerminalStatus"];
+  const names = ["normalizePlanSelectionKey", "selectedPlanDistributedRun", "planExecutionStage", "planExecutionStageCacheKey", "cachePlanExecutionStage", "taskMatchesPlanVersion", "terminalPlanTaskExecutionStage", "debugRunRecord", "ensurePlanVersionRowsCache", "planVersionRowsCacheKey", "cachePlanVersionRows", "planVersionOperationRows", "planVersionTaskRows", "operationMatchesPlanVersion", "operationAtOrAfter", "operationSucceeded", "operationPending", "operationIsActive", "operationIsFailureLike", "operationIsCompleted", "operationIsCancelled", "taskStatusToken", "taskFailureLikeStatus", "taskTerminalStatus"];
   const sandbox = {
     OPERATION_ACTIVE_MATCH_TOKENS: Object.freeze(["accepted", "submitted", "pending", "queued", "running", "in_progress", "started", "progress"]),
     OPERATION_FAILURE_MATCH_TOKENS: Object.freeze(["failed", "failure", "stalled", "timeout", "unsupported", "error"]),
@@ -41,7 +42,7 @@ function loadPlanExecutionStage() {
     samePlanSelection: (left, right) => String(left || "") === String(right || ""),
   };
   vm.createContext(sandbox);
-  vm.runInContext(names.map((name) => extractFunction(panel, name)).join("\n") + "\nthis.result = planExecutionStage;", sandbox);
+  vm.runInContext(names.map((name) => extractFunction(renderedPanel, name)).join("\n") + "\nthis.result = planExecutionStage;", sandbox);
   const stage = sandbox.result;
   stage.cacheState = () => ({ state: sandbox.planExecutionStageCacheState, cache: sandbox.planExecutionStageCache });
   return stage;
@@ -51,8 +52,8 @@ test("project next action follows the real preflight order", () => {
   const extension = readSource("src/extension.ts");
   assert.match(panel, /function projectEndpointReadiness\(state\)/);
   assert.match(panel, /function projectCodeSyncReadiness\(state\)/);
-  assert.match(extension, /await this\.ensureHubCodeReadyForPlanCheck\(body\)/);
-  assert.match(extension, /await this\.ensureCodeReadyForRun\(undefined, \[body\]\)/);
+  assert.match(extension, /await this\.ensureHubCodeReadyForPlanCheck\(body(?:, \(text\) => this\.reportPlanStage\(message, text\))?\)/);
+  assert.match(extension, /await this\.ensureCodeReadyForRun\(undefined, \[body\](?:, \(text\) => this\.reportPlanStage\(message, text\))?\)/);
   const preflightStart = extension.indexOf("async runPlanPreflight(body, label, authority = {})");
   const preflightEnd = extension.indexOf("async openSetupGuide()", preflightStart);
   assert.ok(preflightStart >= 0 && preflightEnd > preflightStart);
@@ -61,7 +62,7 @@ test("project next action follows the real preflight order", () => {
   assert.match(preflight, /waitForOperationTerminalResult\("validate-plan"/);
   assert.match(preflight, /waitForOperationTerminalResult\("dry-run-plan"/);
   // LENIENT_RUN 软门禁：校验/预演失败从硬 return 改为可配置 warn+继续
-  assert.match(extension, /runPlanPreflight\(body, "当前计划"\)/);
+  assert.match(extension, /runPlanPreflight\(body, "当前计划"(?:, \{ reportStage: \(text\) => this\.reportPlanStage\(message, text\) \})?\)/);
   {
     const hasHardReturn = /if \(!await this\.runPlanPreflight\(body, "当前计划"\)\)\s*return;/.test(extension);
     const hasLenient = /LENIENT_RUN[\s\S]*runPlanPreflight\(body, "当前计划"\)/.test(extension) || /preflightOk/.test(extension);
