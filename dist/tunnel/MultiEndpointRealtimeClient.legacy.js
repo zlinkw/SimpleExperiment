@@ -35,8 +35,8 @@ class MultiEndpointRealtimeClient {
             }));
         }
     }
-    async connect(_sinceSeq) {
-        await Promise.allSettled([...this.clients.values()].map((client) => client.connect(client.currentState().lastSeq)));
+    async connect(_sinceSeq, options = {}) {
+        await Promise.allSettled([...this.clients.values()].map((client) => client.connect(client.currentState().lastSeq, options)));
         this.updateMergedState();
     }
     async disconnect(reason = "manual") {

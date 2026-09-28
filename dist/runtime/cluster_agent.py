@@ -7,9 +7,9 @@ from urllib.parse import urlparse, parse_qs, unquote
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.173"
-RUNTIME_VERSION = "0.5.173"
-PLUGIN_VERSION = "0.5.173"
+AGENT_VERSION = "0.5.174"
+RUNTIME_VERSION = "0.5.174"
+PLUGIN_VERSION = "0.5.174"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -4098,9 +4098,9 @@ def start_worker_hub_uplink(root, hub_uplink_url="", worker_id="", availability_
     if not url:
         return
     worker_id = str(worker_id or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
-    availability_base = max(60.0, float(availability_seconds or 60))
-    jitter = max(0.0, float(jitter_seconds or 0))
-    event_delay = max(0.1, float(event_delay_ms or 1000) / 1000.0)
+    availability_base = 0.5
+    jitter = 0.0
+    event_delay = 0.5
     def loop():
         last_seq = read_seq(root)
         last_command_seq = 0
@@ -4209,7 +4209,6 @@ def write_worker_gpu_snapshot(root):
     return payload
 
 def sampler_interval_seconds(value, default_seconds=1.0):
-    # 5秒平均利用率<5%判空：下限由60s改为1s，确保每秒采样
     return max(1.0, float(value or default_seconds))
 
 def sampler_sleep_seconds(interval, jitter_seconds=30.0):
@@ -4217,24 +4216,10 @@ def sampler_sleep_seconds(interval, jitter_seconds=30.0):
     return interval + (random.random() * jitter if jitter else 0.0)
 
 def worker_gpu_sample_delay(interval, jitter_seconds, has_plan):
-    active_interval = min(interval, 5.0) if has_plan else max(interval, 30.0)
-    active_jitter = min(max(0.0, float(jitter_seconds or 0.0)), 1.0) if has_plan else jitter_seconds
-    return sampler_sleep_seconds(active_interval, active_jitter)
+    return 0.5
 
 def wait_for_worker_gpu_sample(root, interval, jitter_seconds, has_plan):
-    delay = worker_gpu_sample_delay(interval, jitter_seconds, has_plan)
-    if has_plan:
-        time.sleep(delay)
-        return
-    # 空闲期仍按原间隔采样，但每 5 秒检查是否有新 Plan，避免启动后等待整轮 60 秒。
-    deadline = time.monotonic() + delay
-    while True:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            return
-        time.sleep(min(5.0, remaining))
-        if has_running_plan(root):
-            return
+    time.sleep(worker_gpu_sample_delay(interval, jitter_seconds, has_plan))
 
 def has_running_plan(root):
     # 计划未接入时返回 False，调用方应 30s 休眠且不探活；有运行中任务/调度态时返回 True
@@ -4283,8 +4268,7 @@ def payload_cache_changed(cache, key, payload):
     return True
 
 def start_worker_telemetry_sampler(root, poll_seconds=1, jitter_seconds=30):
-    # 运行中最多 5 秒采一次。serve 的通用默认值是 60 秒，不能用于空卡调度。
-    interval = sampler_interval_seconds(poll_seconds, 1.0)
+    interval = 0.5
     heartbeat_interval = max(60.0, interval)
     worker_id_local = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
     def loop():
@@ -4323,7 +4307,7 @@ def start_worker_telemetry_sampler(root, poll_seconds=1, jitter_seconds=30):
     return thread
 
 def start_hub_control_sampler(root, poll_seconds=60, jitter_seconds=30):
-    interval = sampler_interval_seconds(poll_seconds, 60.0)
+    interval = 0.5
     heartbeat_interval = max(60.0, interval)
     def loop():
         last_payloads = {}
@@ -4353,7 +4337,7 @@ def start_hub_control_sampler(root, poll_seconds=60, jitter_seconds=30):
                     append_event(root, {"type": "diagnostics_updated", "payload": {"status": "degraded", "lastError": str(exc), "generatedAt": now_iso()}})
                 except Exception:
                     pass
-            time.sleep(sampler_sleep_seconds(interval, jitter_seconds))
+            time.sleep(interval)
     thread = threading.Thread(target=loop, name="simple-hub-control-sampler", daemon=True)
     thread.start()
     return thread

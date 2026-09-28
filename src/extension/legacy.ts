@@ -832,6 +832,7 @@ export class RealtimeTunnelPanelProvider {
     availabilityPushTimer;
     private availabilityPushLoopGeneration = 0;
     lastAvailabilityPushAt = 0;
+    availabilityPushInFlight = false;
     lastCodeSyncState = {};
     lastCodeSyncStats = { hashed: 0, hashReused: 0, cacheWriteSkipped: 0, inventoryCalls: 0, uploads: 0 };
     distributedTerminalSeen = new Set<string>();
@@ -873,6 +874,8 @@ export class RealtimeTunnelPanelProvider {
     xshellLibraryRefreshMinIntervalMs = 15_000;
     sshConfigServers = [];
     sshConfigLoadedAt = 0;
+    sshConfigFingerprint = "";
+    xshellLibraryFingerprint = "";
     sshConfigLoadPromise;
     enabledWorkerConfigsCacheSource;
     enabledWorkerConfigsCacheValue = [];
@@ -913,7 +916,7 @@ export class RealtimeTunnelPanelProvider {
         this.topologyRuntimeMode = this.projectTopologyAssessment().mode;
         this.budget = new RequestBudget_1.RequestBudget((0, TunnelGateway_1.requestBudgetConfigFromTunnel)(this.tunnelConfig));
         this.client = this.createClient();
-        const queueTimer = setInterval(() => { void this.tickDistributedQueue().catch((error) => this.recordActionError({ command: "distributedPlanQueue", message: errorMessage(error) })); }, 5_000);
+        const queueTimer = setInterval(() => { void this.tickDistributedQueue().catch((error) => this.recordActionError({ command: "distributedPlanQueue", message: errorMessage(error) })); }, 500);
         queueTimer.unref?.();
         this.context.subscriptions.push({ dispose: () => clearInterval(queueTimer) });
     }
@@ -3237,7 +3240,7 @@ export class RealtimeTunnelPanelProvider {
             this.client.setHidden(!webviewView.visible);
             if (webviewView.visible)
                 this.retryPendingResultsSummaryOnVisible();
-            if (webviewView.visible) this.postState(true);
+            if (webviewView.visible) { this.scheduleRunOperationReconcilePoll(); this.scheduleEvidenceAutoPoll(); this.postState(true); }
             else this.postState();
         });
         void Promise.all([
@@ -3343,7 +3346,7 @@ export class RealtimeTunnelPanelProvider {
         if (this.budget.isPaused())
             return;
         try {
-            await client.connect();
+            await client.connect(undefined, { manual: ["resume stream", "resume network", "xshell launched", "xshell launched all", "xshell sessions launched"].includes(_reason) });
             if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             void this.projectBootstrapPromise.then(async () => {
@@ -8780,7 +8783,7 @@ export class RealtimeTunnelPanelProvider {
                     if (job.status !== "unknown") queue = DistributedPlanQueue.setJobState(queue, plan.id, job.index, "unknown", job.commandId);
                     const currentJob = queue.plans.find((row) => row.id === plan.id)?.jobs.find((row) => row.index === job.index);
                     if (currentJob && (currentJob.reconciliationAttempts || 0) < 3
-                        && (!currentJob.lastReconciliationAt || Date.now() - Date.parse(currentJob.lastReconciliationAt) >= 10_000)) {
+                        && (!currentJob.lastReconciliationAt || Date.now() - Date.parse(currentJob.lastReconciliationAt) >= 500)) {
                         currentJob.lastReconciliationAt = new Date().toISOString();
                         if (!queueWriteCurrent()) {
                             this.postState();
@@ -9620,7 +9623,7 @@ export class RealtimeTunnelPanelProvider {
         const config = vscode.workspace.getConfiguration("simpleExperiment");
         const settings = this.schedulerSettings();
         const updates = [
-            config.update("scheduler.pollSeconds", numberRangePatch(patch, "pollSeconds", settings.pollSeconds, 60, 3600), vscode.ConfigurationTarget.Global),
+            config.update("scheduler.pollSeconds", numberRangePatch(patch, "pollSeconds", settings.pollSeconds, 0.5, 3600), vscode.ConfigurationTarget.Global),
             config.update("scheduler.jitterSeconds", numberRangePatch(patch, "jitterSeconds", settings.jitterSeconds, 0, 1800), vscode.ConfigurationTarget.Global),
             config.update("scheduler.workerStatusTtlSeconds", numberRangePatch(patch, "workerStatusTtlSeconds", settings.workerStatusTtlSeconds, 60, 7200), vscode.ConfigurationTarget.Global),
             config.update("scheduler.localAvailabilityPushSeconds", numberRangePatch(patch, "localAvailabilityPushSeconds", settings.localAvailabilityPushSeconds, 60, 3600), vscode.ConfigurationTarget.Global),
@@ -10092,18 +10095,10 @@ export class RealtimeTunnelPanelProvider {
         this.operationProbeTimers.set(opId, timer);
     }
     operationStatusProbeDelayMs(attempt = 1) {
-        const settings = this.schedulerSettings();
-        const baseMs = Math.max(1000, settings.operationEventMaxDelayMs);
-        const backoffMs = baseMs * Math.max(1, Math.min(attempt, this.operationStatusProbeMaxAttempts));
-        const jitterMs = Math.max(0, Math.min(settings.jitterSeconds * 1000, 30000));
-        return Math.round(backoffMs + Math.random() * jitterMs);
+        return 500;
     }
     operationManualWaitDelayMs(attempt = 1) {
-        const settings = this.schedulerSettings();
-        const baseMs = Math.max(1000, settings.operationEventMaxDelayMs);
-        const backoffMs = Math.min(10_000, baseMs * Math.max(1, Math.min(attempt, 5)));
-        const jitterMs = Math.min(2_000, Math.max(0, settings.jitterSeconds * 1000));
-        return Math.round(backoffMs + Math.random() * jitterMs);
+        return 500;
     }
     async waitForOperationTerminalResult(action, result, title, timeoutMs, workerId, authority = {}) {
         this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，等待 Agent 操作终态已取消。");
@@ -10564,13 +10559,13 @@ export class RealtimeTunnelPanelProvider {
         }
         if (!this.isRealtimeMode())
             return;
-        if (this.longRunningPlanRunOperations().length === 0)
+        if (this.longRunningPlanRunOperations().length === 0 || this.view?.visible === false)
             return;
         const timer = setTimeout(() => {
             if (this.runOperationReconcilePollTimer === timer)
                 this.runOperationReconcilePollTimer = undefined;
             void this.reconcileStalePlanRunOperations({ reason: String(reason || "auto-poll").slice(0, 80) });
-        }, 30_000);
+        }, 500);
         timer.unref?.();
         this.runOperationReconcilePollTimer = timer;
         // 同时确保 5s 证据轮询已启动
@@ -10583,15 +10578,16 @@ export class RealtimeTunnelPanelProvider {
         }
         if (!this.isRealtimeMode()) return;
         if (this.longRunningPlanRunOperations().length === 0) return;
-        if (this.evidenceAutoPollInFlight) return;
+        if (this.evidenceAutoPollInFlight || this.view?.visible === false) return;
         const timer = setTimeout(() => {
             if (this.evidenceAutoPollTimer === timer) this.evidenceAutoPollTimer = undefined;
             void this.pollRunningEvidenceAndMerge();
-        }, 5_000);
+        }, 500);
         timer.unref?.();
         this.evidenceAutoPollTimer = timer;
     }
     async pollRunningEvidenceAndMerge() {
+        if (this.view?.visible === false) return;
         if (this.evidenceAutoPollInFlight) {
             this.scheduleEvidenceAutoPoll();
             return;
@@ -11029,7 +11025,7 @@ export class RealtimeTunnelPanelProvider {
             return;
         }
         const key = `${root}::${dir}`;
-        const recent = this.localPlanMetadataUpdatedAt && Date.now() - this.localPlanMetadataUpdatedAt < this.localPlanMetadataRefreshMinIntervalMs;
+        const recent = Boolean(this.localPlanMetadataUpdatedAt);
         if (!force && recent && this.localPlanMetadataFullRefresh && this.localPlanMetadataKey === key) {
             if (post)
                 this.postState();
@@ -11086,7 +11082,7 @@ export class RealtimeTunnelPanelProvider {
         const key = `${root}::${dir}`;
         const planFile = usableSelectionKey(String(body?.options?.planFile || body?.selectedPlanId || ""));
         const actionRecent = this.localPlanMetadataActionUpdatedAt &&
-            Date.now() - this.localPlanMetadataActionUpdatedAt < this.localPlanMetadataActionRefreshMaxAgeMs &&
+            this.localPlanMetadataFullRefresh &&
             this.localPlanMetadataKey === key &&
             !this.localPlanMetadata.error;
         const [plans, selectedPlan, detectedProject] = await Promise.all([
@@ -11144,7 +11140,7 @@ export class RealtimeTunnelPanelProvider {
         }
         if (!force && this.draftPlansRefreshPromise)
             await this.draftPlansRefreshPromise;
-        if (!force && this.draftPlansUpdatedAt && Date.now() - this.draftPlansUpdatedAt < this.draftPlansRefreshMinIntervalMs)
+        if (!force && this.draftPlansUpdatedAt)
             return;
         const generation = this.projectContextGeneration;
         const refresh = (async () => {
@@ -13098,6 +13094,7 @@ export class RealtimeTunnelPanelProvider {
             return;
         if (isArchivedPlanFile(root, planDir, fullPath))
             return;
+        this.draftPlansUpdatedAt = 0;
         // Revision metadata must refresh before deciding whether old outputs may be parsed.
         try {
             await this.refreshLocalPlanMetadata({ post: true, force: true });
@@ -15608,7 +15605,7 @@ export class RealtimeTunnelPanelProvider {
             let result: any = null;
             const tryClient = (this.client as any)?.clients?.get(workerId);
             if (tryClient && typeof tryClient.requestJson === "function") {
-                try { result = await tryClient.requestJson(`/api/tmux/capture?window=${encodeURIComponent(win)}&lines=all`, "manual_refresh", undefined, { method: "GET", userInitiated: true }); } catch {}
+                result = await tryClient.requestJson(`/api/tmux/capture?window=${encodeURIComponent(win)}&lines=all`, "manual_refresh", undefined, { method: "GET", userInitiated: true });
             }
             if (!result) {
                 const endpoint = this.tmuxEndpoint(workerId);
@@ -15676,7 +15673,7 @@ export class RealtimeTunnelPanelProvider {
             let result: any = null;
             const tryClient = (this.client as any)?.clients?.get(workerId);
             if (tryClient && typeof tryClient.requestJson === "function") {
-                try { result = await tryClient.requestJson(`/api/tmux/list`, "manual_refresh", undefined, { method: "GET", userInitiated: true }); } catch {}
+                result = await tryClient.requestJson(`/api/tmux/list`, "manual_refresh", undefined, { method: "GET", userInitiated: true });
             }
             if (!result) {
                 const endpoint = this.tmuxEndpoint(workerId);
@@ -15994,7 +15991,7 @@ export class RealtimeTunnelPanelProvider {
         }
         if (this.resultsSummaryRefreshInFlight) {
             this.pendingResultsSummaryDirtyKey = this.pendingResultsSummaryDirtyKey || `manual:${Date.now()}`;
-            this.scheduleResultsSummaryTimer("manual_refresh_inflight", this.pendingResultsSummaryDirtyKey, 500 + Math.floor(Math.random() * 500));
+            this.scheduleResultsSummaryTimer("manual_refresh_inflight", this.pendingResultsSummaryDirtyKey, 500);
             return;
         }
         const generation = this.projectContextGeneration;
@@ -16070,7 +16067,7 @@ export class RealtimeTunnelPanelProvider {
         // summary refresh path feeds that event back into another parse indefinitely.
         // The Worker completion pipeline owns automatic parsing; this path only reads
         // its updated summary.
-        this.scheduleResultsSummaryTimer(state.resultSummaryDirtyType || "realtime", dirtyKey, 500);
+        this.scheduleResultsSummaryTimer(state.resultSummaryDirtyType || "realtime", dirtyKey, 0);
     }
     async refreshResultsSummaryFromRealtime(reason, dirtyKey = this.pendingResultsSummaryDirtyKey) {
         if (this.effectiveConnectionMode() === "offline_import") {
@@ -16089,7 +16086,7 @@ export class RealtimeTunnelPanelProvider {
         if (this.resultsSummaryRefreshInFlight) {
             if (dirtyKey && dirtyKey !== this.lastResultsSummaryRefreshedDirtyKey)
                 this.pendingResultsSummaryDirtyKey = dirtyKey;
-            this.scheduleResultsSummaryTimer("realtime_inflight", dirtyKey, 500 + Math.floor(Math.random() * 500));
+            this.scheduleResultsSummaryTimer("realtime_inflight", dirtyKey, 500);
             return;
         }
         const generation = this.projectContextGeneration;
@@ -16137,9 +16134,7 @@ export class RealtimeTunnelPanelProvider {
             return;
         if (blockReason !== "cooldown" && blockReason !== "rate_limited")
             return;
-        const baseDelay = Math.max(1_000, Math.min(60_000, Number(error.decision.retryAfterMs) || 60_000));
-        const jitter = Math.floor(Math.random() * 1_000);
-        this.scheduleResultsSummaryTimer(reason, dirtyKey, baseDelay + jitter);
+        this.scheduleResultsSummaryTimer(reason, dirtyKey, 500);
     }
     retryPendingResultsSummaryOnVisible() {
         const dirtyKey = this.pendingResultsSummaryDirtyKey;
@@ -16156,12 +16151,7 @@ export class RealtimeTunnelPanelProvider {
         this.scheduleResultsSummaryTimer("visible", dirtyKey, 0);
     }
     scheduleResultsSummaryFailureRetryFromRealtime(reason, dirtyKey) {
-        if (!dirtyKey || dirtyKey !== this.pendingResultsSummaryDirtyKey || dirtyKey === this.lastResultsSummaryRefreshedDirtyKey)
-            return;
-        this.resultsSummaryRefreshRetryCount = Math.min(this.resultsSummaryRefreshRetryCount + 1, 6);
-        const baseDelay = Math.min(60_000, 5_000 * 2 ** Math.max(0, this.resultsSummaryRefreshRetryCount - 1));
-        const jitter = Math.floor(Math.random() * 1_000);
-        this.scheduleResultsSummaryTimer(reason, dirtyKey, baseDelay + jitter);
+        // Keep pending dirty state. Manual connection recovery triggers the next read.
     }
     scheduleResultsSummaryTimer(reason, dirtyKey, delayMs) {
         if (!dirtyKey || dirtyKey === this.lastResultsSummaryRefreshedDirtyKey)
@@ -16185,7 +16175,7 @@ export class RealtimeTunnelPanelProvider {
             if (timerGeneration !== this.resultsSummaryRefreshTimerGeneration || generation !== this.projectContextGeneration || client !== this.client)
                 return;
             if (this.resultsSummaryRefreshInFlight) {
-                this.scheduleResultsSummaryTimer("inflight", dirtyKey, 500 + Math.floor(Math.random() * 500));
+                this.scheduleResultsSummaryTimer("inflight", dirtyKey, 500);
                 return;
             }
             void this.refreshResultsSummaryFromRealtime(reason, dirtyKey);
@@ -16397,7 +16387,8 @@ export class RealtimeTunnelPanelProvider {
         await this.context.globalState.update(keys.setupConfig, persistedXshellSetupConfig(this.setupConfig));
     }
     async refreshLocalSshConfig(force = false) {
-        const recent = this.sshConfigLoadedAt && Date.now() - this.sshConfigLoadedAt < 60_000;
+        const fingerprint = localMetadataFingerprint([LocalSshConfig_1.defaultSshConfigPath()]);
+        const recent = this.sshConfigLoadedAt && fingerprint === this.sshConfigFingerprint;
         if (!force && recent && this.sshConfigServers.length)
             return;
         if (this.sshConfigLoadPromise)
@@ -16409,6 +16400,7 @@ export class RealtimeTunnelPanelProvider {
         const load = (async () => {
             this.sshConfigServers = await LocalSshConfig_1.readLocalSshServers();
             this.sshConfigLoadedAt = Date.now();
+            this.sshConfigFingerprint = fingerprint;
         })();
         this.sshConfigLoadPromise = load;
         try {
@@ -16424,7 +16416,8 @@ export class RealtimeTunnelPanelProvider {
         const configuredPaths = this.configuredXshellSessionPaths();
         const requestKey = this.xshellLibraryRequestKey(dirs, configuredPaths);
         const generation = this.projectContextGeneration;
-        const recent = this.xshellLibraryUpdatedAt && Date.now() - this.xshellLibraryUpdatedAt < this.xshellLibraryRefreshMinIntervalMs;
+        const fingerprint = localMetadataFingerprint([...dirs, ...configuredPaths, ...this.xshellLibrary.sessions.map((session) => session.filePath)], true);
+        const recent = this.xshellLibraryUpdatedAt && fingerprint === this.xshellLibraryFingerprint;
         if (!options.force && recent && requestKey === this.xshellLibraryDirsKey) {
             if (options.postState !== false)
                 this.postState();
@@ -16456,6 +16449,7 @@ export class RealtimeTunnelPanelProvider {
                 this.xshellLibrary = { ...library, sessions: sessions.sort((a, b) => a.name.localeCompare(b.name, "zh-Hans-CN")) };
                 this.xshellLibraryError = library.warning;
                 this.xshellLibraryUpdatedAt = Date.now();
+                this.xshellLibraryFingerprint = localMetadataFingerprint([...dirs, ...configuredPaths, ...sessions.map((session) => session.filePath)], true);
                 this.xshellLibraryDirsKey = requestKey;
             }
             catch (error) {
@@ -16610,14 +16604,14 @@ export class RealtimeTunnelPanelProvider {
     schedulerSettings() {
         const config = vscode.workspace.getConfiguration("simpleExperiment");
         return {
-            pollSeconds: Math.max(5, Number(config.get("scheduler.pollSeconds", 10)) || 10),
+            pollSeconds: Math.max(0.5, Number(config.get("scheduler.pollSeconds", 10)) || 10),
             jitterSeconds: Math.max(0, Number(config.get("scheduler.jitterSeconds", 5)) || 0),
             gpuIdleUtilThreshold: Math.max(0, Math.min(100, Number(config.get("scheduler.gpuIdleUtilThreshold", 5)) || 5)),
             gpuIdleMemThresholdMb: Math.max(0, Math.min(8192, Number(config.get("scheduler.gpuIdleMemThresholdMb", 200)) || 200)),
-            sessionCheckMinSeconds: Math.max(1, Math.min(60, Number(config.get("scheduler.sessionCheckMinSeconds", 5)) || 5)),
+            sessionCheckMinSeconds: 0.5,
             workerStatusTtlSeconds: Math.max(10, Number(config.get("scheduler.workerStatusTtlSeconds", 180)) || 180),
-            localAvailabilityPushSeconds: Math.max(5, Number(config.get("scheduler.localAvailabilityPushSeconds", 10)) || 10),
-            workerAvailabilityPushSeconds: Math.max(5, Number(config.get("scheduler.workerAvailabilityPushSeconds", 10)) || 10),
+            localAvailabilityPushSeconds: 0.5,
+            workerAvailabilityPushSeconds: 0.5,
             operationEventMaxDelayMs: Math.max(100, Number(config.get("scheduler.operationEventMaxDelayMs", 200)) || 200),
             workerActionMinIntervalMs: Math.max(200, Number(config.get("scheduler.workerActionMinIntervalMs", 500)) || 500),
             workerActionMaxConcurrent: Math.max(1, Number(config.get("scheduler.workerActionMaxConcurrent", 1)) || 1),
@@ -16642,7 +16636,7 @@ export class RealtimeTunnelPanelProvider {
             if (loopGeneration !== this.availabilityPushLoopGeneration)
                 return;
             const settings = this.schedulerSettings();
-            const delayMs = (settings.localAvailabilityPushSeconds + Math.random() * settings.jitterSeconds) * 1000;
+            const delayMs = 500;
             const timer = setTimeout(() => {
                 if (this.availabilityPushTimer === timer)
                     this.availabilityPushTimer = undefined;
@@ -16659,12 +16653,13 @@ export class RealtimeTunnelPanelProvider {
         scheduleNext();
     }
     availabilityPushMinIntervalMs(settings = this.schedulerSettings()) {
-        return settings.localAvailabilityPushSeconds * 1000;
+        return 0;
     }
     availabilityPushTtlSeconds(settings = this.schedulerSettings()) {
         return settings.workerStatusTtlSeconds;
     }
     private async pushLocalWorkerAvailability(force) {
+        if (this.availabilityPushInFlight) return;
         if (!this.isRealtimeMode() || !this.projectTopologyAssessment().hubAllowed)
             return;
         if (!force && this.longRunningPlanRunOperations().length === 0)
@@ -16679,6 +16674,7 @@ export class RealtimeTunnelPanelProvider {
         if (!workers.length)
             return;
         this.lastAvailabilityPushAt = nowMs;
+        this.availabilityPushInFlight = true;
         try {
             await client.postAvailabilityBatch({
                 schemaVersion: 1,
@@ -16692,6 +16688,7 @@ export class RealtimeTunnelPanelProvider {
             if (generation === this.projectContextGeneration && client === this.client)
                 this.lastError = errorMessage(error);
         }
+        finally { this.availabilityPushInFlight = false; }
     }
     private localWorkerAvailabilityRows(ttlSeconds, gpuSnapshot = this.lastRealtimeState?.gpu || {}) {
         const gpu = gpuSnapshot || {};
@@ -16934,9 +16931,9 @@ export class RealtimeTunnelPanelProvider {
             preferWebSocket: streaming,
             fallbackToSse: streaming,
             fallbackToPolling: this.tunnelConfig.refreshProfile !== "manual_only",
-            snapshotFallbackIntervalSeconds: Math.max(60, Number(this.tunnelConfig.snapshotPollIntervalSeconds) || 60),
+            snapshotFallbackIntervalSeconds: 0.5,
             pauseWhenWebviewHidden: hiddenPause,
-            keepAgentStreamWhenHidden: !hiddenPause,
+            keepAgentStreamWhenHidden: true,
         };
     }
     realtimeEndpoints() {
@@ -17621,7 +17618,7 @@ export class RealtimeTunnelPanelProvider {
         this.statePostPending = true;
         if (!this.view.visible) return;
         if (this.statePostTimer) return;
-        this.statePostTimer = setTimeout(() => this.flushStatePost(false), this.statePostBatchMs);
+        this.statePostTimer = setTimeout(() => this.flushStatePost(false), 0);
         this.statePostTimer.unref?.();
     }
     private startPanelReadyWatchdog(): void {
@@ -28112,3 +28109,24 @@ export async function __distributeMappedDownloadsForTest(root, entries, transfer
     return distributeMappedDownloads(root, entries, transfers, overwrite, hooks);
 }
 try { (exports as any).RealtimeTunnelPanelProvider = RealtimeTunnelPanelProvider; } catch {}
+
+function localMetadataFingerprint(paths, includeDirectories = false) {
+    const records = [];
+    const seen = new Set();
+    const inspect = (filePath) => {
+        const key = path.resolve(filePath);
+        if (seen.has(key)) return;
+        seen.add(key);
+        try {
+            const stat = fsNode.lstatSync(key);
+            records.push([key, stat.size, stat.mtimeMs, stat.ctimeMs]);
+            if (includeDirectories && stat.isDirectory() && !stat.isSymbolicLink()) {
+                for (const entry of fsNode.readdirSync(key, { withFileTypes: true })) {
+                    if (entry.isDirectory() && !entry.isSymbolicLink()) inspect(path.join(key, entry.name));
+                }
+            }
+        } catch { records.push([key, "missing"]); }
+    };
+    paths.filter(Boolean).forEach(inspect);
+    return JSON.stringify(records.sort((a, b) => String(a[0]).localeCompare(String(b[0]))));
+}

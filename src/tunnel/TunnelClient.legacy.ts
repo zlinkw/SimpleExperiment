@@ -145,6 +145,7 @@ const actionPurpose: Partial<Record<TunnelAction, TunnelRequestPurpose>> = {
 
 export class HttpTunnelClient implements TunnelClient {
   private snapshotPromise?: Promise<ClusterSnapshot>;
+  private readonly reads = new Map<string, Promise<unknown>>();
 
   constructor(
     private readonly endpoint: TunnelEndpointConfig,
@@ -292,6 +293,20 @@ export class HttpTunnelClient implements TunnelClient {
     apiPath: string,
     purpose: TunnelRequestPurpose,
     body: unknown,
+    options: { method: "GET" | "POST"; userInitiated?: boolean; timeoutMs?: number; signal?: AbortSignal },
+  ): Promise<T> {
+    if (options.method === "GET" && !options.signal) {
+      const existing = this.reads.get(apiPath);
+      if (existing) return existing as Promise<T>;
+      const request = this.executeRequestJson<T>(apiPath, purpose, body, options);
+      this.reads.set(apiPath, request);
+      try { return await request; } finally { if (this.reads.get(apiPath) === request) this.reads.delete(apiPath); }
+    }
+    return this.executeRequestJson<T>(apiPath, purpose, body, options);
+  }
+
+  private async executeRequestJson<T>(
+    apiPath: string, purpose: TunnelRequestPurpose, body: unknown,
     options: { method: "GET" | "POST"; userInitiated?: boolean; timeoutMs?: number; signal?: AbortSignal },
   ): Promise<T> {
     if (!apiPath.startsWith("/api/")) throw new Error("Only Hub Agent API paths are allowed.");

@@ -2,7 +2,7 @@
   "name": "simple-experiment",
   "displayName": "SimpleExperiment",
   "description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
-  "version": "0.5.173",
+  "version": "0.5.174",
   "publisher": "simple-local",
   "extensionKind": [
     "ui"
@@ -621,9 +621,9 @@
         "simpleExperiment.scheduler.pollSeconds": {
           "type": "number",
           "default": 60,
-          "minimum": 5,
+          "minimum": 0.5,
           "scope": "application",
-          "description": "轮询基准：调度器检查排队任务的基准间隔，默认60秒，叠加随机抖动后执行下一次轮询。"
+          "description": "调度轮询基准，默认60秒；支持0.5秒以上的小数秒。任务结束事件立即触发检查。"
         },
         "simpleExperiment.scheduler.jitterSeconds": {
           "type": "number",

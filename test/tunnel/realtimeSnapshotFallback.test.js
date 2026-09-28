@@ -32,13 +32,13 @@ test("snapshot fallback keeps lastKnownGood", async () => {
   }
 });
 
-test("snapshot fallback uses recursive timeout with positive jitter", () => {
+test("snapshot fallback uses a half-second non-overlapping timeout", () => {
   const source = readSource("src/tunnel/RealtimeTunnelClient.ts");
   assert.doesNotMatch(source, /setInterval\(\(\) => void this\.refreshSnapshot/);
   assert.match(source, /scheduleSnapshotFallbackPoll\(\)/);
   assert.match(source, /snapshotFallbackDelayMs\(\)/);
-  assert.match(source, /Math\.max\(60,\s*Number\(this\.policy\.snapshotFallbackIntervalSeconds\)/);
-  assert.match(source, /Math\.random\(\) \* Math\.min\(30_000/);
+  assert.match(source, /return 500;/);
+  assert.match(source, /if \(this.snapshotInFlight\) return this.snapshotInFlight/);
 });
 
 function listen(server) { return new Promise((resolve) => server.listen(0, "127.0.0.1", resolve)); }

@@ -61,6 +61,7 @@ class HttpTunnelClient {
     endpoint;
     budget;
     snapshotPromise;
+    reads = new Map();
     constructor(endpoint, budget) {
         this.endpoint = endpoint;
         this.budget = budget;
@@ -196,6 +197,23 @@ class HttpTunnelClient {
         return this.requestJson(path, purpose, undefined, { method: "GET" });
     }
     async requestJson(apiPath, purpose, body, options) {
+        if (options.method === "GET" && !options.signal) {
+            const existing = this.reads.get(apiPath);
+            if (existing)
+                return existing;
+            const request = this.executeRequestJson(apiPath, purpose, body, options);
+            this.reads.set(apiPath, request);
+            try {
+                return await request;
+            }
+            finally {
+                if (this.reads.get(apiPath) === request)
+                    this.reads.delete(apiPath);
+            }
+        }
+        return this.executeRequestJson(apiPath, purpose, body, options);
+    }
+    async executeRequestJson(apiPath, purpose, body, options) {
         if (!apiPath.startsWith("/api/"))
             throw new Error("Only Hub Agent API paths are allowed.");
         const base = (0, TunnelGateway_1.localBaseUrl)(this.endpoint);

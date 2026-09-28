@@ -47,11 +47,10 @@ ARCHIVE_STATE_PATH = Path("simple_cluster/archive_state.json")
 MAX_AGENT_STATE_DIR_CACHE_RECORDS = 8
 AGENT_STATE_DIR_CACHE: dict[tuple[str, str], Path] = {}
 
-# === 调度信号化改造：信号类型 / 去抖 / 错误早停 ===
+# === 调度信号化改造：信号类型 / 错误早停 ===
 SCHEDULER_SIGNAL_FIRST_RUN = "first_run"
 SCHEDULER_SIGNAL_TASK_END = "task_end"
 SCHEDULER_SIGNAL_POLL_TICK = "poll_tick"
-SCHEDULER_SIGNAL_DEBOUNCE_SECONDS = 5.0
 SCHEDULER_ERROR_LOG_PATTERNS = [
     re.compile(r"Traceback \(most recent call last\)", re.I),
     re.compile(r"ModuleNotFoundError", re.I),
@@ -74,6 +73,14 @@ def scheduler_signal_from_control(control: dict[str, Any]) -> str:
     if raw:
         return raw
     return ""
+
+
+def scheduler_min_poll_interval(value: Any) -> float:
+    return max(0.5, float(600 if value is None else value))
+
+
+def scheduler_signal_requires_refresh(signal_type: str) -> bool:
+    return signal_type in (SCHEDULER_SIGNAL_FIRST_RUN, SCHEDULER_SIGNAL_TASK_END)
 
 
 def plan_queue_predecessors_pending(registry_path: str, predecessor_ids: list[str], project_dir: str | Path = ".") -> list[str]:
@@ -3250,7 +3257,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="SimpleExperiment Hub-side scheduler runtime.")
     parser.add_argument("--plan", default="")
     parser.add_argument("--workers-json", default="")
-    parser.add_argument("--poll-seconds", type=int, default=600)
+    parser.add_argument("--poll-seconds", type=float, default=600)
     parser.add_argument("--scheduler-session", default="")
     parser.add_argument("--scheduler-log", default="")
     parser.add_argument("--sync-state", action="store_true")
@@ -3272,7 +3279,7 @@ def main() -> None:
     parser.add_argument("--availability-path", default="")
     parser.add_argument("--worker-status-ttl-seconds", type=int, default=180)
     parser.add_argument("--poll-jitter-seconds", type=int, default=30)
-    parser.add_argument("--session-check-min-seconds", type=int, default=60)
+    parser.add_argument("--session-check-min-seconds", type=float, default=60)
     parser.add_argument("--gpu-idle-util-threshold", type=int, default=5)
     parser.add_argument("--gpu-idle-mem-threshold", type=int, default=200)
     parser.add_argument("--gpu-history-bucket", type=int, default=60)
@@ -3366,13 +3373,12 @@ def main() -> None:
     if not args.workers_json:
         raise SystemExit("缺少 --workers-json。")
 
-    # poll 下限保持 60：校园网封禁风险，配合首跑/任务结束主动探活，无需短轮询
-    poll_seconds = max(60, int(args.poll_seconds or 600))
-    poll_jitter_seconds = max(0, int(args.poll_jitter_seconds or 0))
+    poll_seconds = scheduler_min_poll_interval(args.poll_seconds)
+    poll_jitter_seconds = 0
     workers = json.loads(Path(args.workers_json).read_text(encoding="utf-8"))
     wait_for_plan_queue(args)
     worker_status_ttl_seconds = max(60, int(args.worker_status_ttl_seconds or 180))
-    session_check_min_seconds = max(1, int(args.session_check_min_seconds or 60))
+    session_check_min_seconds = max(0.5, float(args.session_check_min_seconds))
     passive_interrupt_max_retries = max(0, int(args.passive_interrupt_max_retries or 0))
     passive_interrupt_base_backoff = max(60, int(args.passive_interrupt_backoff_seconds or poll_seconds))
     read_availability_cache(args.availability_path, workers, worker_status_ttl_seconds)
@@ -3842,13 +3848,8 @@ def main() -> None:
             read_availability_cache(args.availability_path, workers, worker_status_ttl_seconds)
         except Exception:
             pass
-    _scheduler_signal_debounce_seconds = SCHEDULER_SIGNAL_DEBOUNCE_SECONDS
-    _last_poll_monotonic = 0.0
-    _last_signal_monotonic = time.monotonic()
-    _last_signal_type = SCHEDULER_SIGNAL_FIRST_RUN
     # 首轮已强制刷新内存，首轮 dispatch 走信号路径避免被 read_availability_cache 覆盖为过期文件内容
     _pending_signal_type = SCHEDULER_SIGNAL_FIRST_RUN
-    _signal_storm_count = 0
     no_dispatch_error_cycles = 0
     _scheduler_abort = {"sig": None}
     def _handle_scheduler_signal(signum, _frame):
@@ -3873,7 +3874,6 @@ def main() -> None:
             if reap_finished_items():
                 write_current_state()
                 _pending_signal_type = SCHEDULER_SIGNAL_TASK_END
-                _last_signal_monotonic = time.monotonic()
             if not fail_stop_reason and scheduler_should_fail_fast(failed, active, testing):
                 fail_stop_reason = str(failed[-1].get("error") or "任务明确失败，已停止派发新任务")[:200]
                 not_dispatched.extend(queue)
@@ -3883,7 +3883,7 @@ def main() -> None:
             if fail_stop_reason and not active and not testing:
                 break
             # 信号类型枚举与直连 vs 缓存分流：信号路径尽可能不利用缓存发信号（B路径 stale才直连 + C piggyback）
-            _is_signal_dispatch = _pending_signal_type in (SCHEDULER_SIGNAL_FIRST_RUN, SCHEDULER_SIGNAL_TASK_END) and (time.monotonic() - _last_signal_monotonic) < (_scheduler_signal_debounce_seconds + 2.0)
+            _is_signal_dispatch = scheduler_signal_requires_refresh(_pending_signal_type)
             if _is_signal_dispatch:
                 try:
                     _force_refresh = _pending_signal_type in (SCHEDULER_SIGNAL_FIRST_RUN, SCHEDULER_SIGNAL_TASK_END)
@@ -3896,8 +3896,6 @@ def main() -> None:
             else:
                 read_availability_cache(args.availability_path, workers, worker_status_ttl_seconds)
                 refresh_missing_worker_availability(workers, args.availability_path)
-            # 去抖记录：本轮 dispatch 视为一次 poll，更新 last_poll
-            _last_poll_monotonic = time.monotonic()
             _pending_signal_type = SCHEDULER_SIGNAL_POLL_TICK
             for worker in ordered_workers_for_dispatch(workers):
                 if failed:
@@ -4049,59 +4047,33 @@ def main() -> None:
                     _append_scheduler_log( f"[{now()}] wait pending={len(queue)} running={len(active)} poll_seconds={poll_seconds} jitter_seconds={poll_jitter_seconds} sleep_seconds={sleep_target:.1f}")
                 if not queue and not active and not testing:
                     break
-                slept = 0
+                slept = 0.0
                 while slept < sleep_target:
-                    # 信号优先分支：收到信号立即 break 并 reap+dispatch（5s粒度，最坏唤醒5s，配合主动探活无需0.5s高频）
+                    # 每次读取一个控制信号，后续到达的信号留给下一轮处理。
                     _ctrl = read_control(control_path)
                     _sig = scheduler_signal_from_control(_ctrl)
                     if _sig or _ctrl.get("action"):
-                        _now_mono = time.monotonic()
-                        _is_dup_poll = _sig == SCHEDULER_SIGNAL_POLL_TICK and (_now_mono - _last_signal_monotonic) < _scheduler_signal_debounce_seconds
-                        _is_dup_signal = _sig in (SCHEDULER_SIGNAL_FIRST_RUN, SCHEDULER_SIGNAL_TASK_END) and _sig == _last_signal_type and (_now_mono - _last_signal_monotonic) < _scheduler_signal_debounce_seconds
-                        if _is_dup_signal:
-                            # 风暴合并：同类信号在去抖窗口内合并，丢弃后者
-                            _signal_storm_count += 1
-                            _append_scheduler_log( f"[{now()}] signal_coalesced type={_sig} storm={_signal_storm_count} debounce={_scheduler_signal_debounce_seconds}s")
+                        _handled_signal = _sig or str(_ctrl.get("action") or "unknown")
+                        try:
+                            atomic_write_json(control_path, {"action": "", "signal": "", "handled_at": now(), "previous_signal": _handled_signal})
+                        except Exception:
+                            pass
+                        if scheduler_signal_requires_refresh(_sig):
+                            _pending_signal_type = _sig
+                            _append_scheduler_log( f"[{now()}] signal_wake type={_sig} slept={slept:.1f}/{sleep_target:.1f} prioritize_signal")
+                            # 首跑和任务结束都直连刷新，避免刚释放的 GPU 被旧快照遮住。
                             try:
-                                atomic_write_json(control_path, {"action": "", "signal": "", "handled_at": now(), "previous_signal": _sig, "coalesced": True})
+                                refresh_worker_availability_for_signal(workers, args.availability_path, force=True)
                             except Exception:
-                                pass
-                        elif _is_dup_poll:
-                            # 去抖：轮询与信号间隔<5s丢弃后者（优先信号）
-                            _append_scheduler_log( f"[{now()}] dropped_duplicate_poll signal={_last_signal_type} poll_interval={_now_mono - _last_signal_monotonic:.1f}s prioritize_signal")
-                            try:
-                                atomic_write_json(control_path, {"action": "", "signal": "", "handled_at": now(), "previous_signal": _sig, "dropped": "poll"})
-                            except Exception:
-                                pass
+                                try:
+                                    read_availability_cache(args.availability_path, workers, worker_status_ttl_seconds)
+                                except Exception:
+                                    pass
                         else:
-                            if _sig in (SCHEDULER_SIGNAL_FIRST_RUN, SCHEDULER_SIGNAL_TASK_END):
-                                _last_signal_monotonic = _now_mono
-                                _last_signal_type = _sig
-                                _pending_signal_type = _sig
-                                _signal_storm_count = 0
-                                _append_scheduler_log( f"[{now()}] signal_wake type={_sig} slept={slept:.1f}/{sleep_target:.1f} prioritize_signal")
-                                # 首跑和任务结束都直连刷新，避免刚释放的 GPU 被旧快照遮住。
-                                try:
-                                    _force_wake = _sig in (SCHEDULER_SIGNAL_FIRST_RUN, SCHEDULER_SIGNAL_TASK_END)
-                                    refresh_worker_availability_for_signal(workers, args.availability_path, force=_force_wake)
-                                except Exception:
-                                    try:
-                                        read_availability_cache(args.availability_path, workers, worker_status_ttl_seconds)
-                                    except Exception:
-                                        pass
-                                try:
-                                    atomic_write_json(control_path, {"action": "", "signal": "", "handled_at": now(), "previous_signal": _sig})
-                                except Exception:
-                                    pass
-                            else:
-                                # 通用 action 信号也优先唤醒
-                                _pending_signal_type = _sig or str(_ctrl.get("action") or "unknown")
-                                _append_scheduler_log( f"[{now()}] control_wake action={_pending_signal_type} slept={slept:.1f}")
-                                try:
-                                    atomic_write_json(control_path, {"action": "", "signal": "", "handled_at": now(), "previous_signal": _pending_signal_type})
-                                except Exception:
-                                    pass
-                            break
+                            # 通用 action 信号也优先唤醒
+                            _pending_signal_type = _sig or str(_ctrl.get("action") or "unknown")
+                            _append_scheduler_log( f"[{now()}] control_wake action={_pending_signal_type} slept={slept:.1f}")
+                        break
                     if _scheduler_abort["sig"] is not None:
                         break
                     if reap_finished_items():
@@ -4112,8 +4084,6 @@ def main() -> None:
                             break
                         # 风暴合并：多个 finish 在去抖窗口内合并为一次 dispatch
                         _pending_signal_type = SCHEDULER_SIGNAL_TASK_END
-                        _last_signal_monotonic = time.monotonic()
-                        _last_signal_type = SCHEDULER_SIGNAL_TASK_END
                         if not queue and not active and not testing:
                             break
                         # 收到 reap 信号立即 break 去 dispatch，无需等待剩余 sleep_target
@@ -4136,12 +4106,13 @@ def main() -> None:
                                 break
                         except Exception:
                             pass
-                    # 休息时 5s 粒度轮询，最坏唤醒 5s（配合首跑/任务结束主动探活，避免0.5s高频与校园网封禁）
+                    # 信号检查使用短切片，总休眠仍遵循配置的 poll interval。
                     try:
-                        time.sleep(5)
+                        sleep_slice = min(0.5, sleep_target - slept)
+                        time.sleep(sleep_slice)
                     except InterruptedError:
                         break
-                    slept += 5
+                    slept += sleep_slice
     except Exception as exc:
         _append_scheduler_log( f"[{now()}] scheduler_error {exc}")
         write_current_state(str(exc))

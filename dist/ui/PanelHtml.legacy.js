@@ -1331,6 +1331,7 @@ function renderPanelHtml() {
         <div class="toolbar" data-anchor="sync-actions">
           <button type="button" data-command="prepareAgents" title="第 1 步 · 先部署&#10;上传最新版 Agent 到全部服务器并启动&#10;无需隧道在线">部署Agent</button>
           <span class="toolbarSep" aria-hidden="true">→</span>
+          <button type="button" data-command="resumeStream" class="secondary" title="手动恢复 Agent 事件连接并读取最新状态">重新连接</button>
           <button type="button" data-command="startAll" class="secondary" title="第 1 步 · 连隧道&#10;启动全部 Xshell 隧道，建立本机到服务器的端口转发">启动全部隧道</button>
           <span class="toolbarSep" aria-hidden="true">→</span>
           <button type="button" data-command="publishGithub" data-confirm="true" title="第 2 步 · 传代码&#10;先提交推送到 GitHub（未配置会引导登录）&#10;再通过 SimpleSFTP 上传到所有 Worker；无 Hub 模式会跳过 Hub 上传">发布到git并上传worker</button>
@@ -1676,7 +1677,9 @@ function renderPanelHtml() {
     window.addEventListener("unhandledrejection", (event) => reportBootstrapError(event.reason));
     const el = (id) => document.getElementById(id);
     let tmuxPollTimer = 0;
-    const TMUX_POLL_MS = 5000;
+    const TMUX_POLL_MS = 500;
+    let tmuxListBusy = false;
+    const tmuxCaptureBusy = new Set();
     let tmuxListCache = { sessions: [], gpuIds: [], workerId: "", fetchedAt: "" };
     const tmuxListsByWorker = Object.create(null);
     let tmuxConfiguredWorkers = [];
@@ -1975,6 +1978,8 @@ function renderPanelHtml() {
       refreshTmuxList();
     }
     async function refreshTmuxList() {
+      if (document.hidden || tmuxListBusy) return;
+      tmuxListBusy = true;
       const meta = el("tmuxListMeta");
       if (meta) meta.textContent = "列举 tmux sessions ...";
       try {
@@ -1983,15 +1988,9 @@ function renderPanelHtml() {
         const payload = { command: "fetchTmuxList", workerId: tmuxSelectedWorkerId, allWorkers: true, clientActionId };
         pendingActionsById[clientActionId] = { command: "fetchTmuxList", pendingKey, clientActionId, startedAt: Date.now(), label: "fetchTmuxList", status: "running" };
         if (pendingActionTimeouts[clientActionId]) clearTimeout(pendingActionTimeouts[clientActionId]);
-        pendingActionTimeouts[clientActionId] = setTimeout(function(){
-          const it = pendingActionsById[clientActionId];
-          if (it && it.status === "running") {
-            it.status = "stalled";
-            if (meta) meta.textContent = "列举超时（stalled），按钮已恢复，后台可能仍在继续";
-          }
-        }, 8000);
         vscode.postMessage(payload);
       } catch (e) {
+        tmuxListBusy = false;
         if (meta) meta.textContent = "列举失败 " + String(e).slice(0,60);
       }
     }
@@ -2104,20 +2103,23 @@ function renderPanelHtml() {
       if (!pre || !meta) return;
       if (!win || !tmuxSelectedWorkerId) return;
       const now = Date.now();
-      if (tmuxLastCaptureTarget === win && pre.dataset.lastFetch && (now - Number(pre.dataset.lastFetch)) < 800) return;
+      const captureKey = tmuxSelectedWorkerId + ":" + win;
+      if (document.hidden || tmuxCaptureBusy.has(captureKey)) return;
+      tmuxCaptureBusy.add(captureKey);
       tmuxLastCaptureTarget = win;
       pre.dataset.lastFetch = String(now);
       meta.textContent = "同步中 " + win + " ...";
       try {
         vscode.postMessage({ command: "fetchTmuxCapture", workerId: tmuxSelectedWorkerId, window: win });
       } catch (e) {
+        tmuxCaptureBusy.delete(captureKey);
         meta.textContent = "同步失败 " + String(e).slice(0,60);
       }
     }
     function scheduleTmuxPoll() {
       clearInterval(tmuxPollTimer);
       let polls = 0;
-      tmuxPollTimer = setInterval(function(){ polls++; if (polls % 3 === 0) refreshTmuxList(); refreshTmuxCapture(); }, TMUX_POLL_MS);
+      tmuxPollTimer = setInterval(function(){ polls++; refreshTmuxList(); refreshTmuxCapture(); }, TMUX_POLL_MS);
     }
     const DIAGNOSTIC_JSON_PREVIEW_LIMIT = 16000;
     const DIAGNOSTIC_JSON_MAX_DEPTH = 4;
@@ -2324,7 +2326,7 @@ function renderPanelHtml() {
     let gpuHistoryMeta = {};
     let gpuHistoryLastStateStatus = "idle";
     let expandedGpuHistoryKeys = new Set();
-    const GPU_HISTORY_REQUEST_COOLDOWN_MS = 60_000;
+    const GPU_HISTORY_REQUEST_COOLDOWN_MS = 0;
     const GPU_HISTORY_SERVER_STYLE_LIMIT = 128;
     const GPU_HISTORY_OKLAB_CACHE_LIMIT = 256;
     const gpuHistoryRequestLastAt = new Map();
@@ -2545,7 +2547,7 @@ function renderPanelHtml() {
     const CONFIG_PORT_BOUNDS = Object.freeze({ min: 1024, max: 65535, step: 1 });
     const CONFIG_GPU_CONCURRENCY_BOUNDS = Object.freeze({ min: 1, max: 16, step: 1 });
     const CONFIG_SCHEDULER_BOUNDS = Object.freeze({
-      pollSeconds: Object.freeze({ min: 5, max: 3600, step: 1 }),
+      pollSeconds: Object.freeze({ min: 0.5, max: 3600, step: 0.5 }),
       jitterSeconds: Object.freeze({ min: 0, max: 1800, step: 1 }),
       gpuIdleUtilThreshold: Object.freeze({ min: 0, max: 100, step: 1 }),
       gpuIdleMemThresholdMb: Object.freeze({ min: 0, max: 8192, step: 1 }),
@@ -3509,6 +3511,7 @@ function renderPanelHtml() {
             lastState.planStopClearByFile = Object.assign({}, lastState.planStopClearByFile || {}, { [stopKey]: item.planStopClear });
             try { renderSectionIfVisible(lastState, "execution", { force: true }); } catch (e) {}
           }
+          if (item.command === "fetchTmuxList" && item.status !== "running") tmuxListBusy = false;
           handleUiCommandStatus(item);
           continue;
         }
@@ -3537,6 +3540,7 @@ function renderPanelHtml() {
           continue;
         }
         if (item.type === "tmuxCapture") {
+          tmuxCaptureBusy.delete(String(item.workerId || "") + ":" + String(item.window || ""));
           if (tmuxSelectedWorkerId && item.workerId !== tmuxSelectedWorkerId) continue;
           if (String(item.window || "") !== tmuxResolveCaptureTarget()) continue;
           const pre = el("tmuxCapturePre");
@@ -3572,7 +3576,7 @@ function renderPanelHtml() {
         rememberGpuHistoryState(lastState.gpuHistory);
         invalidateSelectedTaskPayload();
         clearCompletedPendingButtons(lastState);
-        render(lastState);
+        scheduleStateRender();
         try {
           if (Date.now() - Number(lastSnapshotRequestAt || 0) < 15000) { var __snapSection = String(lastSnapshotSection || ""); lastSnapshotRequestAt = 0; lastSnapshotSection = ""; if (__snapSection === "gpu") refreshGpuHistoryAfterSnapshot(); }
         } catch (e) {}
@@ -3628,6 +3632,16 @@ function renderPanelHtml() {
         }
         try { console.error("[SimpleExperiment] renderPanel failed", error); } catch (_) {}
       }
+    }
+
+    let stateRenderScheduled = false;
+    function scheduleStateRender() {
+      if (stateRenderScheduled) return;
+      stateRenderScheduled = true;
+      requestAnimationFrame(() => {
+        stateRenderScheduled = false;
+        render(lastState);
+      });
     }
 
     function renderProjectOnboardingNotice(state) {
@@ -10000,7 +10014,7 @@ function renderPanelHtml() {
       const key = gpuHistorySeriesKey(payload.serverId || "overview", payload.gpuId || "overview");
       const now = Date.now();
       const lastAt = Number(gpuHistoryRequestLastAt?.get(key) || 0);
-      if (now - lastAt < GPU_HISTORY_REQUEST_COOLDOWN_MS) return false;
+      // The host coalesces identical reads while in flight.
       gpuHistoryRequestLastAt.set(key, now);
       while (gpuHistoryRequestLastAt.size > GPU_HISTORY_SERIES_CACHE_LIMIT) gpuHistoryRequestLastAt.delete(gpuHistoryRequestLastAt.keys().next().value);
       vscode.postMessage(Object.assign({ command: "loadGpuHistory" }, payload));

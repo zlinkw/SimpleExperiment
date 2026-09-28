@@ -14,7 +14,7 @@ exports.defaultRealtimeRefreshPolicy = {
     fallbackToSse: true,
     fallbackToPolling: true,
     heartbeatIntervalSeconds: 5,
-    snapshotFallbackIntervalSeconds: 60,
+    snapshotFallbackIntervalSeconds: 0.5,
     gpuEventCoalesceMs: 500,
     uiBatchMs: 100,
     logTailEnabledByDefault: false,
@@ -46,6 +46,9 @@ class RealtimeTunnelClient {
     hidden = false;
     protectedLogKeys = [];
     diagnosticsCache;
+    snapshotInFlight;
+    requiresManualReconnect = false;
+    connectionGeneration = 0;
     constructor(endpoint, budget, policy = exports.defaultRealtimeRefreshPolicy, onState = () => undefined) {
         this.endpoint = endpoint;
         this.budget = budget;
@@ -55,7 +58,12 @@ class RealtimeTunnelClient {
         this.files = new FileTransferClient_1.FileTransferClient(endpoint, budget);
         this.reconnectPolicy = new RealtimeReconnect_1.RealtimeReconnect(policy);
     }
-    async connect(sinceSeq = this.state.lastSeq) {
+    async connect(sinceSeq = this.state.lastSeq, options = {}) {
+        if (this.requiresManualReconnect && !options.manual)
+            return;
+        if (["websocket", "sse", "polling", "connecting"].includes(this.status) && !options.manual)
+            return;
+        this.requiresManualReconnect = false;
         if (this.budget.isPaused())
             throw new RequestBudget_1.RequestBudgetDeniedError("events", { allowed: false, reason: "paused" });
         await this.disconnect("reconnect");
@@ -90,12 +98,18 @@ class RealtimeTunnelClient {
             }
         }
         if (this.policy.fallbackToPolling) {
-            await this.startPolling();
+            try {
+                await this.startPolling();
+            }
+            catch (error) {
+                this.connectionLost(message(error));
+            }
             return;
         }
-        this.status = "disconnected";
+        this.connectionLost(this.lastError || "Connection failed");
     }
     async disconnect(reason = "manual") {
+        this.connectionGeneration += 1;
         const websocket = this.websocket;
         this.websocket = undefined;
         websocket?.close();
@@ -111,65 +125,113 @@ class RealtimeTunnelClient {
     }
     async reconnect(reason = "reconnect") {
         await this.disconnect(reason);
-        const delay = this.reconnectPolicy.nextDelayMs();
         this.reconnectCount += 1;
-        this.reconnectTimer = setTimeout(() => void this.connect(this.state.lastSeq), delay);
-        this.reconnectTimer.unref?.();
+        await this.connect(this.state.lastSeq, { manual: true });
+        if (this.status !== "disconnected" && this.status !== "paused")
+            await this.getSnapshot();
+    }
+    connectionLost(reason) {
+        if (this.pollTimer)
+            clearTimeout(this.pollTimer);
+        this.pollTimer = undefined;
+        this.status = "disconnected";
+        this.requiresManualReconnect = true;
+        this.lastError = reason + "；连接已断开，请点击重新连接。服务器任务可能仍在运行。";
+        this.onState(this.state);
     }
     getHealth() {
         return this.http.getHealth({ userInitiated: true });
     }
+    requestJson(apiPath, purpose, body, options) {
+        if (this.requiresManualReconnect)
+            return Promise.reject(new Error(this.lastError));
+        return this.http.requestJson(apiPath, purpose, body, options).catch((error) => {
+            if (options.method === "GET" && !(error instanceof RequestBudget_1.RequestBudgetDeniedError))
+                this.connectionLost(message(error));
+            throw error;
+        });
+    }
     async getSnapshot() {
-        const snapshot = await this.http.getSnapshot({ manual: true });
-        this.state = (0, RealtimeEventReducer_1.applySnapshot)(this.state, snapshot);
-        this.onState(this.state);
-        return snapshot;
+        return this.readSnapshot(true);
     }
     getGpu(options = {}) {
-        return this.http.getGpu(options);
+        if (this.requiresManualReconnect)
+            return Promise.reject(new Error(this.lastError));
+        return this.watchRead(this.http.getGpu(options));
     }
     getGpuHistory(query = {}) {
+        if (this.requiresManualReconnect)
+            return Promise.reject(new Error(this.lastError));
         // T2: 批量能力协商字段透传至 HttpTunnelClient，聚合由 MultiEndpointRealtimeClient 完成
-        return this.http.getGpuHistory(query);
+        return this.watchRead(this.http.getGpuHistory(query));
     }
     getScheduler() {
-        return this.http.getScheduler();
+        if (this.requiresManualReconnect)
+            return Promise.reject(new Error(this.lastError));
+        return this.watchRead(this.http.getScheduler());
     }
     getTraces() {
-        return this.http.getTraces();
+        if (this.requiresManualReconnect)
+            return Promise.reject(new Error(this.lastError));
+        return this.watchRead(this.http.getTraces());
     }
     getLiveOutput(runKey, since = 0, options = {}) {
-        return this.http.getLiveOutput(runKey, since, options);
+        if (this.requiresManualReconnect)
+            return Promise.reject(new Error(this.lastError));
+        return this.watchRead(this.http.getLiveOutput(runKey, since, options));
+    }
+    watchRead(request) {
+        return request.catch((error) => {
+            if (!(error instanceof RequestBudget_1.RequestBudgetDeniedError))
+                this.connectionLost(message(error));
+            throw error;
+        });
     }
     setProtectedLogKeys(keys) {
         this.protectedLogKeys = normalizeProtectedLogKeys(keys);
         this.state = (0, RealtimeEventReducer_1.compactRealtimeState)(this.state, { protectedLogKeys: this.protectedLogKeys });
     }
     getResultsSummary(planFile = "", options = {}) {
-        return this.http.getResultsSummary(planFile, options);
+        if (this.requiresManualReconnect)
+            return Promise.reject(new Error(this.lastError));
+        return this.watchRead(this.http.getResultsSummary(planFile, options));
     }
     getDiagnostics() {
-        return this.http.getDiagnostics();
+        if (this.requiresManualReconnect)
+            return Promise.reject(new Error(this.lastError));
+        return this.watchRead(this.http.getDiagnostics());
     }
     getAuditTail() {
-        return this.http.getAuditTail();
+        if (this.requiresManualReconnect)
+            return Promise.reject(new Error(this.lastError));
+        return this.watchRead(this.http.getAuditTail());
     }
     getOperation(operationId) {
-        return this.http.getOperation(operationId);
+        if (this.requiresManualReconnect)
+            return Promise.reject(new Error(this.lastError));
+        return this.watchRead(this.http.getOperation(operationId));
     }
     getWorkerTasks(options = {}) {
-        return this.http.getWorkerTasks(options);
+        if (this.requiresManualReconnect)
+            return Promise.reject(new Error(this.lastError));
+        return this.watchRead(this.http.getWorkerTasks(options));
     }
     getRunEvidence(params) {
+        if (this.requiresManualReconnect)
+            return Promise.reject(new Error(this.lastError));
         return this.http.getRunEvidence?.(params) ?? Promise.reject(new Error("Agent runtime does not expose run evidence."));
     }
     listRemoteFiles(remotePath) {
         return this.files.list(remotePath);
     }
     postAction(action, body) {
+        if (this.requiresManualReconnect)
+            return Promise.reject(new Error(this.lastError));
         return this.http.postAction(action, body);
     }
     postAvailabilityBatch(body) {
+        if (this.requiresManualReconnect)
+            return Promise.reject(new Error(this.lastError));
         return this.http.postAvailabilityBatch(body);
     }
     downloadFile(remotePath, localPath, options = {}) {
@@ -181,6 +243,10 @@ class RealtimeTunnelClient {
     setHidden(hidden) {
         this.hidden = hidden;
         this.budget.setHidden(hidden);
+        if (hidden && this.pollTimer) {
+            clearTimeout(this.pollTimer);
+            this.pollTimer = undefined;
+        }
         if (hidden && this.policy.pauseWhenWebviewHidden && !this.policy.keepAgentStreamWhenHidden && this.status !== "paused" && this.status !== "disconnected") {
             void this.disconnect("paused");
             return;
@@ -188,6 +254,8 @@ class RealtimeTunnelClient {
         if (!hidden && this.status === "paused" && this.policy.pauseWhenWebviewHidden && !this.budget.isPaused()) {
             void this.connect(this.state.lastSeq).catch((error) => { this.lastError = message(error); });
         }
+        if (!hidden && this.status === "polling")
+            this.scheduleSnapshotFallbackPoll();
     }
     diagnostics() {
         const cached = this.diagnosticsCache;
@@ -205,6 +273,7 @@ class RealtimeTunnelClient {
             lastHeartbeatAt: this.state.lastHeartbeatAt,
             reconnectCount: this.reconnectCount,
             lastError: this.lastError,
+            requiresManualReconnect: this.requiresManualReconnect,
         };
         this.diagnosticsCache = diagnostics;
         return diagnostics;
@@ -238,39 +307,31 @@ class RealtimeTunnelClient {
             this.websocket = undefined;
             if (this.status === "paused")
                 return;
-            if (this.shouldUseSse()) {
-                void this.connectSse(this.state.lastSeq).catch(() => this.reconnect("websocket closed"));
-            }
-            else if (this.policy.fallbackToPolling) {
-                void this.startPolling().catch((error) => {
-                    this.lastError = message(error);
-                    void this.reconnect("websocket closed");
-                });
-            }
-            else {
-                void this.reconnect("websocket closed");
-            }
+            this.connectionLost("WebSocket closed");
         };
     }
     async connectSse(sinceSeq) {
-        this.abort = new AbortController();
+        const abort = new AbortController();
+        this.abort = abort;
         const response = await this.budget.run("events", () => fetch(`${(0, TunnelGateway_1.localBaseUrl)(this.endpoint)}/api/events/sse?since=${encodeURIComponent(String(sinceSeq))}`, {
             headers: this.headers(),
-            signal: this.abort?.signal,
+            signal: abort.signal,
         }));
         if (!response.ok || !response.body)
             throw new Error(`SSE failed: ${response.status}`);
         this.status = "sse";
         this.reconnectPolicy.reset();
-        void this.readSse(response.body);
+        void this.readSse(response.body, abort);
     }
-    async readSse(body) {
+    async readSse(body, abort) {
         const reader = body.getReader();
         const decoder = new TextDecoder();
         let buffer = "";
         try {
             while (true) {
                 const chunk = await reader.read();
+                if (this.abort !== abort || abort.signal.aborted)
+                    break;
                 if (chunk.done)
                     break;
                 buffer += decoder.decode(chunk.value, { stream: true });
@@ -290,8 +351,8 @@ class RealtimeTunnelClient {
         catch (error) {
             this.lastError = message(error);
         }
-        if (this.status === "sse")
-            void this.reconnect("sse ended");
+        if (this.abort === abort && !abort.signal.aborted && this.status === "sse")
+            this.connectionLost("SSE ended");
     }
     async startPolling() {
         this.status = "polling";
@@ -299,27 +360,46 @@ class RealtimeTunnelClient {
         this.scheduleSnapshotFallbackPoll();
     }
     scheduleSnapshotFallbackPoll() {
-        if (this.status !== "polling")
+        if (this.status !== "polling" || this.hidden)
             return;
         if (this.pollTimer)
             clearTimeout(this.pollTimer);
         this.pollTimer = setTimeout(() => {
             this.pollTimer = undefined;
             void this.refreshSnapshot()
-                .catch((error) => { this.lastError = message(error); })
+                .catch((error) => { this.connectionLost(message(error)); })
                 .finally(() => this.scheduleSnapshotFallbackPoll());
         }, this.snapshotFallbackDelayMs());
         this.pollTimer.unref?.();
     }
     snapshotFallbackDelayMs() {
-        const baseMs = Math.max(60, Number(this.policy.snapshotFallbackIntervalSeconds) || 60) * 1000;
-        const jitterMs = Math.floor(Math.random() * Math.min(30_000, Math.max(1_000, Math.floor(baseMs / 2))));
-        return baseMs + jitterMs;
+        return 500;
     }
     async refreshSnapshot() {
-        const snapshot = await this.http.getSnapshot();
-        this.state = (0, RealtimeEventReducer_1.applySnapshot)(this.state, snapshot, { protectedLogKeys: this.protectedLogKeys });
-        this.onState(this.state);
+        await this.readSnapshot(false);
+    }
+    async readSnapshot(manual) {
+        if (this.requiresManualReconnect)
+            throw new Error(this.lastError);
+        if (this.snapshotInFlight)
+            return this.snapshotInFlight;
+        const task = (async () => {
+            const generation = this.connectionGeneration;
+            const snapshot = await this.http.getSnapshot({ manual });
+            if (generation !== this.connectionGeneration)
+                return snapshot;
+            this.state = (0, RealtimeEventReducer_1.applySnapshot)(this.state, snapshot, { protectedLogKeys: this.protectedLogKeys });
+            this.onState(this.state);
+            return snapshot;
+        })();
+        this.snapshotInFlight = task;
+        try {
+            return await task;
+        }
+        finally {
+            if (this.snapshotInFlight === task)
+                this.snapshotInFlight = undefined;
+        }
     }
     acceptEvent(raw) {
         const event = typeof raw === "string" ? safeJson(raw) : raw;
@@ -336,8 +416,7 @@ class RealtimeTunnelClient {
             void this.getSnapshot()
                 .catch((error) => { this.lastError = message(error); })
                 .finally(() => {
-                if (this.status !== "paused" && this.status !== "disconnected")
-                    void this.reconnect("journal gap");
+                // The stream remains connected; a snapshot repairs the replay gap.
             });
         }
     }

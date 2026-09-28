@@ -59,8 +59,8 @@ export class MultiEndpointRealtimeClient {
     }
   }
 
-  async connect(_sinceSeq?: number): Promise<void> {
-    await Promise.allSettled([...this.clients.values()].map((client) => client.connect(client.currentState().lastSeq)));
+  async connect(_sinceSeq?: number, options: { manual?: boolean } = {}): Promise<void> {
+    await Promise.allSettled([...this.clients.values()].map((client) => client.connect(client.currentState().lastSeq, options)));
     this.updateMergedState();
   }
 

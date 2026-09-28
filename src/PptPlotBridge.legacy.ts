@@ -6,7 +6,6 @@ import * as child_process_1 from "child_process";
 import * as PlottingContract_1 from "./features/PlottingContract";
 const activePlotRequests = new Set();
 let powerPointLaunchInFlight;
-let lastPowerPointLaunchAt = 0;
 const PPT_SOURCE_FILE_MAX_BYTES = 2 * 1024 * 1024;
 const PPT_LIGHTWEIGHT_SOURCE_EXTENSIONS = new Set([".json", ".csv", ".md", ".tex"]);
 const PPT_FINAL_STATISTICS_PATH = "simple_cluster/results/statistics.json";
@@ -31,7 +30,6 @@ export class PptPlotBridge {
     healthPollMs;
     requestTimeoutMs;
     postTimeoutMs;
-    launchCooldownMs;
     constructor(deps = {}) {
         this.fetchImpl = deps.fetch || fetch;
         this.localAppData = deps.localAppData || process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local");
@@ -42,7 +40,6 @@ export class PptPlotBridge {
         this.healthPollMs = deps.healthPollMs ?? 750;
         this.requestTimeoutMs = deps.requestTimeoutMs ?? 5_000;
         this.postTimeoutMs = deps.postTimeoutMs ?? 30_000;
-        this.launchCooldownMs = deps.launchCooldownMs ?? 10_000;
     }
     async plot(input) {
         const request = await buildPptPlotRequest(input, this.requestIdFactory());
@@ -101,14 +98,10 @@ export class PptPlotBridge {
         throw pptAutomationError("not_running", `PPT automation 未就绪：${lastReadiness.message} 请确认 PPT 插件已安装并重新打开 PowerPoint。`);
     }
     async launchPowerPointOnce(presentationPath) {
-        const now = Date.now();
         if (powerPointLaunchInFlight) {
             await powerPointLaunchInFlight;
             return;
         }
-        if (now - lastPowerPointLaunchAt < this.launchCooldownMs)
-            return;
-        lastPowerPointLaunchAt = now;
         powerPointLaunchInFlight = Promise.resolve(this.launchPowerPoint(presentationPath)).finally(() => {
             powerPointLaunchInFlight = undefined;
         });

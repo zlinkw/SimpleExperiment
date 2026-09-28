@@ -30,7 +30,9 @@ test("SSE fallback receives realtime event", async () => {
     assert.equal(states.at(-1).schedulerStates[0].runKey, "r1");
   } finally {
     await client.disconnect();
-    server.close();
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+    await delay(20);
     global.WebSocket = previous;
   }
 });
@@ -73,7 +75,9 @@ test("capability false skips websocket and connects directly to SSE", async () =
   } finally {
     await client.disconnect();
     sseResponse?.end();
-    server.close();
+    server.closeAllConnections();
+    await new Promise(resolve => server.close(resolve));
+    await delay(20);
     global.WebSocket = previous;
   }
 });
