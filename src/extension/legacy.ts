@@ -808,6 +808,9 @@ export class RealtimeTunnelPanelProvider {
     private readonly panelHeartbeatIntervalMs = 30_000;
     private readonly panelHeartbeatAckTimeoutMs = 12_000;
     private readonly panelHeartbeatRecoveryWindowMs = 5 * 60_000;
+    private panelUnknownHealthSince = 0;
+    private panelUnknownHealthGeneration = 0;
+    private readonly panelUnknownHealthGraceMs = 90_000;
     private panelDisposed = false;
     webviewReady = false;
     panelReadyWatchdogTimer;
@@ -18272,11 +18275,33 @@ export class RealtimeTunnelPanelProvider {
             this.recoverPanelHeartbeatFailure(String(health.reason || "面板报告渲染异常"));
             return;
         }
+        if (hasGeneration && status === "unknown") {
+            const reason = String(health.reason || "");
+            if (["bootstrap", "document-hidden", "awaiting-first-render", "state-render-pending"].includes(reason)) {
+                this.panelUnknownHealthSince = 0;
+                this.panelUnknownHealthGeneration = 0;
+            } else {
+                const generation = Number(message.documentGeneration);
+                const now = Date.now();
+                if (this.panelUnknownHealthGeneration !== generation || this.panelUnknownHealthSince <= 0) {
+                    this.panelUnknownHealthGeneration = generation;
+                    this.panelUnknownHealthSince = now;
+                } else if (now - this.panelUnknownHealthSince >= this.panelUnknownHealthGraceMs) {
+                    this.recoverPanelHeartbeatFailure(`面板渲染状态持续未知${reason ? `：${reason}` : ""}`);
+                    return;
+                }
+            }
+        } else {
+            this.panelUnknownHealthSince = 0;
+            this.panelUnknownHealthGeneration = 0;
+        }
         this.schedulePanelHeartbeat();
     }
     private recoverPanelHeartbeatFailure(reason: string): void {
         if (this.panelDisposed || !this.view?.visible)
             return;
+        this.panelUnknownHealthSince = 0;
+        this.panelUnknownHealthGeneration = 0;
         this.clearPanelHeartbeat();
         this.webviewReady = false;
         const now = Date.now();

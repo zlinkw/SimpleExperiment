@@ -530,6 +530,18 @@ export function renderPanelHtml(): string {
     .tree-inspector-fact b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; }
     .tree-inspector-action { display: none; margin-top: 4px; padding: 7px 8px; border: 1px solid var(--border); border-radius: 6px; background: color-mix(in srgb, var(--vscode-focusBorder) 8%, var(--vscode-input-background) 92%); color: var(--muted); font-size: 11px; line-height: 1.4; }
     .planQuickGrid { display: grid; grid-template-columns: minmax(0, 1fr) auto auto auto; gap: 8px; align-items: end; }
+    .planSelectorControls { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(160px, 1.6fr) minmax(130px, 1fr) minmax(130px, 1fr); gap: 8px; align-items: end; min-width: 0; }
+    .planSelectorStatus { display: flex; align-items: center; gap: 8px; min-height: 24px; margin-top: 4px; padding: 2px 7px; border-left: 4px solid var(--task-status-color, #64748B); color: var(--vscode-descriptionForeground); font-size: 11px; }
+    .planSelectorStatus.is-not-started { --task-status-color: #64748B; }
+    .planSelectorStatus.is-partial { --task-status-color: #D97706; }
+    .planSelectorStatus.is-running { --task-status-color: #2563EB; }
+    .planSelectorStatus.is-completed { --task-status-color: #16A34A; }
+    .planSelectorStatus.is-failed { --task-status-color: #DC2626; }
+    #planFileInput option.planOption.is-not-started { color: #64748B; }
+    #planFileInput option.planOption.is-partial { color: #D97706; }
+    #planFileInput option.planOption.is-running { color: #2563EB; }
+    #planFileInput option.planOption.is-completed { color: #16A34A; }
+    #planFileInput option.planOption.is-failed { color: #DC2626; }
     #planCommandPhaseLine { width: 100%; max-width: 100%; min-width: 0; }
     .planQuickActions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
     .planQuickActions > button { justify-self: start; width: auto; flex: 0 0 auto; }
@@ -1211,6 +1223,7 @@ export function renderPanelHtml(): string {
       .gpu-row { grid-template-columns: 1fr; }
       .gpu-metrics { justify-content: start; }
       .planQuickGrid { grid-template-columns: 1fr; }
+      .planSelectorControls { grid-template-columns: 1fr; }
       .toolbar, .workflowActions, .actionGrid, .publishActionDeck, .serverBadges { grid-template-columns: 1fr; justify-content: stretch; }
       .toolbar > *, .workflowActions > *, .actionGrid > *, .publishActionDeck > *, .serverBadges > * { width: 100%; }
       .toolbar[data-anchor="sync-actions"] { flex-wrap: nowrap; overflow-x: auto; }
@@ -1345,9 +1358,15 @@ export function renderPanelHtml(): string {
         </div>
         <div id="planDetectedProject" data-anchor="plans-detected"></div>
         <div id="planQuickGrid" class="planQuickGrid" data-anchor="plans-actions">
+          <div class="planSelectorControls" aria-label="计划筛选与排序">
+            <div class="field"><label for="planSelectorQuery">搜索计划</label><input id="planSelectorQuery" type="search" placeholder="筛选文件名或路径" autocomplete="off"></div>
+            <div class="field"><label for="planSelectorStatusFilter">状态</label><select id="planSelectorStatusFilter"><option value="all">全部状态</option><option value="remaining">未完成</option><option value="not-started">未开始</option><option value="partial">部分完成</option><option value="running">运行中</option><option value="completed">已完成</option><option value="failed">失败</option></select></div>
+            <div class="field"><label for="planSelectorSortOrder">排序</label><select id="planSelectorSortOrder"><option value="scan">扫描顺序</option><option value="progress-desc">进度从高到低</option><option value="progress-asc">进度从低到高</option><option value="name">名称</option></select></div>
+          </div>
           <div class="field wide">
             <label>计划文件</label>
             <select id="planFileInput" class="wide" title="从已识别的实验计划中选择；列表来自工作区扫描结果"></select>
+            <div id="planSelectorStatus" class="planSelectorStatus is-not-started" role="status" aria-live="polite"><span>未开始</span></div>
           </div>
           <div class="planQuickActions">
           <button data-command="validatePlan" title="校验实验计划，不会运行任务&#10;检查契约、输出接口与配置完整性&#10;未通过时列出缺失项与修复建议">校验</button>
@@ -3201,6 +3220,10 @@ export function renderPanelHtml(): string {
       refreshContextualActionButtons(lastState || {}, el("pinnedActionsHost"));
     });
     el("planFileInput").addEventListener("change", dispatchPlanSelection);
+    const refreshPlanSelectorView = () => refreshPlanFileOptions(lastState || {});
+    el("planSelectorQuery").addEventListener("input", refreshPlanSelectorView);
+    el("planSelectorStatusFilter").addEventListener("change", refreshPlanSelectorView);
+    el("planSelectorSortOrder").addEventListener("change", refreshPlanSelectorView);
     el("layoutEditToggle").addEventListener("click", () => {
       if (!layoutEdit && currentMainView === "settings") switchMainView("workspace");
       layoutEdit = !layoutEdit;
@@ -9131,27 +9154,155 @@ export function renderPanelHtml(): string {
       }
       return "";
     }
+    const PLAN_SELECTOR_STATUS_LABELS = Object.freeze({ "not-started": "未开始", partial: "部分完成", running: "运行中", completed: "已完成", failed: "失败" });
+    let planSelectorStatusIndexState = null;
+    let planSelectorStatusIndexValue = null;
+    function planSelectorStatusIndex(state) {
+      const data = state || {};
+      if (planSelectorStatusIndexState === data && planSelectorStatusIndexValue) return planSelectorStatusIndexValue;
+      const files = collectPlanFileDefaultOrder(data);
+      const entries = files.map((file, index) => {
+        const plan = planFromContext(data, { planFile: file }) || {};
+        return { file, index, plan, revision: String(plan.revision || ""), updatedAt: Date.parse(String(plan.updatedAt || "")), tasks: [], operations: [], distributedPlans: [] };
+      });
+      const byFile = new Map(entries.map((entry) => [entry.file, entry]));
+      const byAlias = new Map();
+      entries.forEach((entry) => planFileEquivalenceKeys(entry.file).forEach((key) => {
+        let candidates = byAlias.get(key);
+        if (!candidates) { candidates = []; byAlias.set(key, candidates); }
+        candidates.push(entry);
+      }));
+      const candidatesFor = (file) => {
+        const found = new Set();
+        planFileEquivalenceKeys(file).forEach((key) => (byAlias.get(key) || []).forEach((entry) => found.add(entry)));
+        return found;
+      };
+      const addVersionedRows = (rows, field, versionMatches) => asArray(rows).forEach((row) => {
+        const file = String((row || {}).planFile || (row || {}).plan_file || (row || {}).plan || "");
+        candidatesFor(file).forEach((entry) => {
+          if (samePlanSelection(file, entry.file) && versionMatches(row, entry.revision, entry.updatedAt)) entry[field].push(row);
+        });
+      });
+      addVersionedRows(schedulerRowsForState(data), "tasks", taskMatchesPlanVersion);
+      addVersionedRows(operationRowsForState(data), "operations", operationMatchesPlanVersion);
+      asArray(data.distributedPlans).forEach((distributedPlan) => {
+        const file = String((distributedPlan || {}).planFile || (distributedPlan || {}).plan_file || "");
+        candidatesFor(file).forEach((entry) => {
+          if (samePlanSelection(file, entry.file) && taskMatchesPlanVersion(distributedPlan, entry.revision, entry.updatedAt)) entry.distributedPlans.push(distributedPlan);
+        });
+      });
+      const value = { entries, byFile };
+      planSelectorStatusIndexState = data;
+      planSelectorStatusIndexValue = value;
+      return value;
+    }
+    function planSelectorRunSummary(state, planFile, statusIndex) {
+      const data = state || {};
+      const index = statusIndex || planSelectorStatusIndex(data);
+      const entry = index.byFile.get(planFile);
+      const plan = entry ? entry.plan : (planFromContext(data, { planFile }) || {});
+      const revision = entry ? entry.revision : String(plan.revision || "");
+      const planUpdatedAt = entry ? entry.updatedAt : Date.parse(String(plan.updatedAt || ""));
+      const tasks = entry ? entry.tasks : planVersionTaskRows(data, planFile, revision, planUpdatedAt);
+      const operations = entry ? entry.operations : planVersionOperationRows(data, planFile, revision, planUpdatedAt);
+      const distributedPlans = entry ? entry.distributedPlans : [];
+      const distributedJobs = distributedPlans.flatMap((row) => asArray((row || {}).jobs).map((job) => Object.assign({ planFile, planRevision: (row || {}).planRevision || (row || {}).revision }, job || {})));
+      const countRows = tasks.length ? tasks : distributedJobs;
+      const taskStatuses = tasks.map((row) => taskStatusToken((row || {}).status));
+      const completedCount = taskStatuses.filter((status) => ["completed", "done", "archived"].includes(status)).length;
+      const failedCount = taskStatuses.filter((status) => taskFailureLikeStatus(status)).length;
+      const activeCount = taskStatuses.filter((status) => ["running", "testing", "progress", "in_progress", "operation_started", "started"].includes(status)).length;
+      const queuedCount = taskStatuses.filter((status) => ["accepted", "submitted", "queued", "pending"].includes(status)).length;
+      const distributedStatuses = distributedJobs.map((row) => taskStatusToken((row || {}).status));
+      const distributedCompleted = distributedStatuses.filter((status) => ["completed", "done", "archived"].includes(status)).length;
+      const distributedFailed = distributedStatuses.filter((status) => taskFailureLikeStatus(status)).length;
+      const distributedActive = distributedStatuses.filter((status) => ["running", "testing", "progress", "in_progress", "operation_started", "started"].includes(status)).length;
+      const distributedQueued = distributedStatuses.filter((status) => ["accepted", "submitted", "queued", "pending"].includes(status)).length;
+      const caseCount = Array.isArray(plan.cases) ? plan.cases.length : Number(plan.caseCount || plan.case_count || 0);
+      const seedCount = Array.isArray(plan.seeds) ? plan.seeds.length : Number(plan.seedCount || plan.seed_count || 0);
+      const configuredJobs = Number(plan.jobCount || plan.job_count || 0);
+      const expandedJobs = caseCount > 0 && seedCount > 0 ? caseCount * seedCount : 0;
+      const expectedCount = Math.max(0, Math.trunc(expandedJobs || configuredJobs || 0));
+      const totalCount = countRows.length ? Math.max(countRows.length, expectedCount) : expectedCount;
+      const runOperations = operations.filter((row) => PLAN_RUN_OPERATION_TYPES.has(String((row || {}).type || "").toLowerCase()));
+      const pendingOperation = operations.some((row) => operationPending(row));
+      const latestOperation = operations.reduce((latest, row) => !latest || operationAtOrAfter(row, latest) ? row : latest, null);
+      const failedOperation = operationIsFailureLike((latestOperation || {}).status || (latestOperation || {}).state);
+      const latestRun = runOperations.reduce((latest, row) => !latest || operationAtOrAfter(row, latest) ? row : latest, null);
+      const latestRunSucceeded = operationSucceeded(latestRun);
+      const latestRunFailed = operationIsFailureLike((latestRun || {}).status || (latestRun || {}).state);
+      const shownCompletedCount = tasks.length ? completedCount : distributedCompleted;
+      const shownFailedCount = tasks.length ? failedCount : distributedFailed;
+      const shownActiveCount = tasks.length ? activeCount : distributedActive;
+      const shownQueuedCount = tasks.length ? queuedCount : distributedQueued;
+      const allTasksCompleted = countRows.length > 0 && totalCount > 0 && shownCompletedCount >= totalCount;
+      let status = "not-started";
+      if (shownFailedCount || failedOperation || latestRunFailed) status = "failed";
+      else if (shownActiveCount || pendingOperation || shownQueuedCount && !shownCompletedCount || latestRun && !latestRunSucceeded && !latestRunFailed) status = "running";
+      else if (allTasksCompleted) status = "completed";
+      else if (countRows.length || runOperations.length) status = "partial";
+      const shownCompleted = status === "completed" && !shownCompletedCount && totalCount ? totalCount : shownCompletedCount;
+      return { status, statusLabel: PLAN_SELECTOR_STATUS_LABELS[status], completedCount: shownCompleted, totalCount, taskCount: countRows.length, revision };
+    }
+    function planSelectorMatchesFilter(summary, filter) {
+      if (filter === "all") return true;
+      if (filter === "remaining") return summary.status !== "completed";
+      return summary.status === filter;
+    }
+    function planSelectorProgress(summary) {
+      return summary.totalCount > 0 ? summary.completedCount / summary.totalCount : -1;
+    }
+    function planSelectorSortEntries(entries, sortOrder) {
+      const rows = entries.slice();
+      if (sortOrder === "name") return rows.sort((left, right) => naturalCompare(left.file, right.file));
+      if (sortOrder === "progress-desc" || sortOrder === "progress-asc") {
+        const direction = sortOrder === "progress-desc" ? -1 : 1;
+        return rows.sort((left, right) => direction * (planSelectorProgress(left.summary) - planSelectorProgress(right.summary)) || naturalCompare(left.file, right.file));
+      }
+      return rows.sort((left, right) => left.index - right.index);
+    }
+    function planSelectorOptionLabel(file, summary, pinned) {
+      const count = summary.totalCount > 0 ? " · " + summary.completedCount + "/" + summary.totalCount + " 已完成" : "";
+      return "● " + summary.statusLabel + count + " · " + file + (pinned ? "（当前；不符合筛选）" : "");
+    }
     function refreshPlanFileOptions(state) {
       var sel = el("planFileInput");
       if (!sel) return;
       var defaultOrder = collectPlanFileDefaultOrder(state);
       var current = resolvePlanFileCurrent(sel, state);
       var matched = matchPlanFileInOrder(current, defaultOrder);
-      var ordered = [];
       var selectedValue = matched || current || "";
-      if (selectedValue) ordered.push(selectedValue);
-      for (var k = 0; k < defaultOrder.length; k++) {
-        if (defaultOrder[k] !== selectedValue) ordered.push(defaultOrder[k]);
+      const queryControl = el("planSelectorQuery");
+      const statusControl = el("planSelectorStatusFilter");
+      const sortControl = el("planSelectorSortOrder");
+      const query = String((queryControl && queryControl.value) || "").trim().toLowerCase();
+      const statusFilter = String((statusControl && statusControl.value) || "all");
+      const sortOrder = String((sortControl && sortControl.value) || "scan");
+      const statusIndex = planSelectorStatusIndex(state);
+      const entries = defaultOrder.map((file, index) => ({ file, index, summary: planSelectorRunSummary(state, file, statusIndex) }));
+      const filtered = entries.filter((entry) => (!query || entry.file.toLowerCase().includes(query)) && planSelectorMatchesFilter(entry.summary, statusFilter));
+      let ordered = planSelectorSortEntries(filtered, sortOrder);
+      const selectedEntry = selectedValue ? entries.find((entry) => entry.file === selectedValue) : null;
+      if (selectedValue) {
+        const visibleIndex = ordered.findIndex((entry) => entry.file === selectedValue);
+        if (visibleIndex >= 0) ordered.splice(visibleIndex, 1);
+        ordered.unshift(selectedEntry || { file: selectedValue, index: -1, summary: planSelectorRunSummary(state, selectedValue, statusIndex), pinned: true });
       }
       var html = "";
-      if (!selectedValue) html = '<option value="">（请选择计划文件）</option>';
+      if (!ordered.length) html = '<option value="">（没有匹配的计划）</option>';
       for (var j = 0; j < ordered.length; j++) {
-        var label = ordered[j];
-        if (selectedValue && !matched && label === selectedValue) label = selectedValue + "（当前）";
-        html += '<option value="' + escAttr(ordered[j]) + '">' + esc(label) + "</option>";
+        const entry = ordered[j];
+        const pinned = Boolean(entry.pinned || (selectedValue === entry.file && !filtered.some((row) => row.file === entry.file)));
+        html += '<option class="planOption is-' + escAttr(entry.summary.status) + '" data-plan-status="' + escAttr(entry.summary.status) + '" value="' + escAttr(entry.file) + '">' + esc(planSelectorOptionLabel(entry.file, entry.summary, pinned)) + "</option>";
       }
       if (sel.innerHTML !== html) sel.innerHTML = html;
       sel.value = selectedValue;
+      const currentStatus = planSelectorRunSummary(state, selectedValue, statusIndex);
+      const statusHost = el("planSelectorStatus");
+      if (statusHost) {
+        statusHost.className = "planSelectorStatus is-" + currentStatus.status;
+        statusHost.innerHTML = "<span>" + esc(currentStatus.statusLabel) + "</span>" + (currentStatus.totalCount > 0 ? "<span>" + esc(currentStatus.completedCount + "/" + currentStatus.totalCount + " 已完成") + "</span>" : "<span>进度待确认</span>") + (currentStatus.revision ? "<span>版本 " + esc(currentStatus.revision) + "</span>" : "");
+      }
     }
     function renderPlanSection(state) {
       if (document.activeElement !== el("planFileInput")) {

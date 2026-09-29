@@ -737,6 +737,9 @@ class RealtimeTunnelPanelProvider {
     panelHeartbeatIntervalMs = 30_000;
     panelHeartbeatAckTimeoutMs = 12_000;
     panelHeartbeatRecoveryWindowMs = 5 * 60_000;
+    panelUnknownHealthSince = 0;
+    panelUnknownHealthGeneration = 0;
+    panelUnknownHealthGraceMs = 90_000;
     panelDisposed = false;
     webviewReady = false;
     panelReadyWatchdogTimer;
@@ -19113,11 +19116,36 @@ class RealtimeTunnelPanelProvider {
             this.recoverPanelHeartbeatFailure(String(health.reason || "面板报告渲染异常"));
             return;
         }
+        if (hasGeneration && status === "unknown") {
+            const reason = String(health.reason || "");
+            if (["bootstrap", "document-hidden", "awaiting-first-render", "state-render-pending"].includes(reason)) {
+                this.panelUnknownHealthSince = 0;
+                this.panelUnknownHealthGeneration = 0;
+            }
+            else {
+                const generation = Number(message.documentGeneration);
+                const now = Date.now();
+                if (this.panelUnknownHealthGeneration !== generation || this.panelUnknownHealthSince <= 0) {
+                    this.panelUnknownHealthGeneration = generation;
+                    this.panelUnknownHealthSince = now;
+                }
+                else if (now - this.panelUnknownHealthSince >= this.panelUnknownHealthGraceMs) {
+                    this.recoverPanelHeartbeatFailure(`面板渲染状态持续未知${reason ? `：${reason}` : ""}`);
+                    return;
+                }
+            }
+        }
+        else {
+            this.panelUnknownHealthSince = 0;
+            this.panelUnknownHealthGeneration = 0;
+        }
         this.schedulePanelHeartbeat();
     }
     recoverPanelHeartbeatFailure(reason) {
         if (this.panelDisposed || !this.view?.visible)
             return;
+        this.panelUnknownHealthSince = 0;
+        this.panelUnknownHealthGeneration = 0;
         this.clearPanelHeartbeat();
         this.webviewReady = false;
         const now = Date.now();
