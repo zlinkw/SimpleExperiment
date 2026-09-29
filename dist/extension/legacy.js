@@ -1114,6 +1114,38 @@ class RealtimeTunnelPanelProvider {
         this.workerTaskRequests.set(cacheKey, request);
         return request;
     }
+    async readWorkerTaskSnapshotBatch(workerIds, options = {}) {
+        const ids = [...new Set(workerIds.map((workerId) => String(workerId || "")).filter(Boolean))];
+        const pending = new Map(ids.map((workerId) => [workerId, Promise.resolve()
+                .then(() => this.readWorkerTaskSnapshot(workerId, { signal: options.signal, fresh: true }))
+                .then((snapshot) => ({ workerId, snapshot }), (error) => ({ workerId, snapshot: {
+                    workerId, schemaVersion: 1, tasks: [], error: errorMessage(error),
+                } }))]));
+        const snapshots = new Map();
+        if (!pending.size)
+            return [];
+        let timer;
+        const grace = Number.isFinite(options.graceMs) ? Math.max(0, Number(options.graceMs)) : 350;
+        const deadline = new Promise((resolve) => { timer = setTimeout(() => resolve(undefined), grace); });
+        try {
+            while (pending.size) {
+                const completed = await Promise.race([...pending.values(), deadline]);
+                if (!completed)
+                    break;
+                pending.delete(completed.workerId);
+                snapshots.set(completed.workerId, completed.snapshot);
+            }
+        }
+        finally {
+            if (timer)
+                clearTimeout(timer);
+        }
+        for (const workerId of pending.keys())
+            snapshots.set(workerId, {
+                workerId, schemaVersion: 1, tasks: [], pending: true, error: "Worker task snapshot still pending",
+            });
+        return ids.map((workerId) => snapshots.get(workerId));
+    }
     serverPlanProgress() {
         const root = workspaceRoot();
         if (!root || this.distributedQueueRoot !== root || !this.distributedQueueCache)
@@ -9255,7 +9287,7 @@ class RealtimeTunnelPanelProvider {
         }
         const probeTask = this.distributedQueueTickPromise;
         let probeWatch;
-        const probes = mapLimited(snapshotWorkerIds, 3, async (workerId) => this.readWorkerTaskSnapshot(workerId, { signal, fresh: true }));
+        const probes = this.readWorkerTaskSnapshotBatch(snapshotWorkerIds, { signal });
         const taskSnapshots = await new Promise((resolve) => {
             const finish = (value) => { if (probeWatch)
                 clearInterval(probeWatch); resolve(value); };
@@ -9287,6 +9319,8 @@ class RealtimeTunnelPanelProvider {
             const workerId = snapshotWorkerIds[snapshotIndex];
             const snapshot = taskSnapshots[snapshotIndex];
             const freshSnapshot = !snapshot.error;
+            if (snapshot.pending)
+                continue;
             if (snapshot.error) {
                 for (const { plan, job } of assigned.filter((row) => row.job.workerId === workerId && row.job.status !== "unknown"))
                     queue = DistributedPlanQueue.setJobState(queue, plan.id, job.index, "unknown", job.commandId);
@@ -10137,9 +10171,10 @@ class RealtimeTunnelPanelProvider {
         this.detachStaleDistributedTick(this.distributedQueueTickPromise);
         await this.saveDistributedQueue(root, next, { queueGeneration: generation });
         this.postState();
-        for (const job of nextPlan.jobs.filter((row) => row.recallRequested === true
-            && (!singleJob || row.index === jobIndex))) {
-            await this.processDistributedRecall(root, planId, job.index, generation);
+        if (singleJob) {
+            const job = nextPlan.jobs.find((row) => row.index === jobIndex);
+            if (job?.recallRequested === true)
+                await this.processDistributedRecall(root, planId, job.index, generation);
         }
         await this.tickDistributedQueue();
         if (!requestedCount && !singleJob)
@@ -10161,6 +10196,12 @@ class RealtimeTunnelPanelProvider {
             const snapshot = suppliedSnapshot || await this.readWorkerTaskSnapshot(job.workerId, { fresh: true });
             if (workspaceRoot() !== root || generation !== this.distributedQueueGeneration)
                 return;
+            if (snapshot?.pending === true) {
+                job.blockReason = `Worker ${job.workerId} 的新快照仍在读取；持久召回意图和原 Worker 保持不变，收到结果前不会释放任务。`;
+                await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
+                this.postState();
+                return;
+            }
             if (!DistributedPlanQueue.hasFreshDurableSnapshot(snapshot) || snapshot.capabilities?.queuedJobRecall !== true) {
                 job.blockReason = !snapshot?.error && snapshot.capabilities?.queuedJobRecall !== true
                     ? `Worker ${job.workerId} 尚未报告 queuedJobRecall 安全能力。请更新并重启 Agent；任务仍由原 Worker 保留。`
