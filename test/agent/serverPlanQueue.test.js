@@ -25,7 +25,11 @@ function makeFixtureScript(root) {
     "durable_plan_identity",
     "durable_plan_public_task",
     "durable_plan_same_identity",
+    "_durable_gpu_busy_reason",
     "accept_durable_plan_job",
+    "worker_recall_tombstones_path",
+    "read_worker_recall_tombstones",
+    "recalled_worker_command",
     "cancel_durable_plan_job",
     "worker_task_matches_stop_identity",
     "durable_plan_task_status",
@@ -44,10 +48,12 @@ function makeFixtureScript(root) {
   const legacyIdentity = source.match(/^LEGACY_WORKER_STOP_IDENTITY_FIELDS\s*=.*$/m);
   assert.ok(legacyIdentity, "missing production legacy stop identity fields");
   return String.raw`
-import json, os, threading, time
+import json, os, threading, time, math
 
 ROOT = ${JSON.stringify(root.replace(/\\/g, "/"))}
 SCHEMA_VERSION = 1
+GPU_IDLE_UTIL_THRESHOLD = 5
+GPU_IDLE_MEM_THRESHOLD_MB = 200
 WORKER_TASK_SNAPSHOT_LOCK = threading.RLock()
 DISTRIBUTED_GPU_RESERVATIONS = {}
 EVENTS = []
@@ -110,8 +116,11 @@ def simple_tmux_name(value):
 def gpu_row_id(gpu):
     return str(gpu.get("gpuId") or gpu.get("id") or "")
 
-def gpu_row_busy(gpu):
+def gpu_row_busy(gpu, **kwargs):
     return bool(gpu.get("busy"))
+
+def idle_gpu(gpu_id):
+    return {"gpuId": gpu_id, "utilizationPercent": 1, "memoryUsedMb": 10, "processes": []}
 
 ${identity[0]}
 ${legacyIdentity[0]}
@@ -170,7 +179,7 @@ except ValueError:
 
 snapshot = api_worker_tasks(ROOT)
 row = next(item for item in snapshot["tasks"] if item["commandId"] == first["commandId"])
-assert snapshot["capabilities"] == {"durablePlanQueue": True, "schemaVersion": 1}
+assert snapshot["capabilities"]["durablePlanQueue"] is True and snapshot["capabilities"]["schemaVersion"] == 1
 assert row["status"] == "queued" and row["planJobCount"] == 4
 assert row["enqueuedAt"] and row["projectId"] == make_job(0)["projectId"]
 
@@ -193,11 +202,11 @@ with open(os.path.join(guard_root, "train.py"), "w", encoding="utf-8") as handle
 guard_job = {**make_job(0), "commandId": "code-guard", "runKey": "code-guard", "codeManifest": manifest, "codeFingerprint": fingerprint}
 accept_durable_plan_job(guard_root, guard_job, "worker-a")
 guard_calls = []
-assert not drain_durable_plan_queue_once(guard_root, "worker-a", gpu_probe=lambda: ([{"gpuId": "9"}], ""),
+assert not drain_durable_plan_queue_once(guard_root, "worker-a", gpu_probe=lambda: ([idle_gpu("9")], ""),
     execute=lambda *args: guard_calls.append(True))
 assert not guard_calls and read_durable_plan_queue(guard_root)["jobs"][0]["status"] == "queued"
 with open(os.path.join(guard_root, "train.py"), "w", encoding="utf-8") as handle: handle.write("version-one")
-guard_dispatch = drain_durable_plan_queue_once(guard_root, "worker-a", gpu_probe=lambda: ([{"gpuId": "9"}], ""),
+guard_dispatch = drain_durable_plan_queue_once(guard_root, "worker-a", gpu_probe=lambda: ([idle_gpu("9")], ""),
     execute=lambda *args: {"status": "completed"})
 assert len(guard_dispatch) == 1 and guard_dispatch[0]["status"] == "completed"
 ledger_path = durable_plan_queue_path(guard_root)
@@ -213,7 +222,7 @@ waiting = drain_durable_plan_queue_once(
 assert waiting == [] and calls == []
 assert all(row.get("gpuId") == "" for row in read_durable_plan_queue(ROOT)["jobs"])
 dispatched = drain_durable_plan_queue_once(
-    ROOT, "worker-a", gpu_probe=lambda: ([{"gpuId": "0"}, {"gpuId": "1"}, {"gpuId": "2"}], ""), execute=execute)
+    ROOT, "worker-a", gpu_probe=lambda: ([idle_gpu("0"), idle_gpu("1"), idle_gpu("2")], ""), execute=execute)
 assert calls == [("command-0", "1"), ("command-1", "2")]
 assert [item["status"] for item in dispatched] == ["running", "running"]
 ledger = read_durable_plan_queue(ROOT)["jobs"]
@@ -226,7 +235,7 @@ persist_task(terminal, "completed", terminal["gpuId"])
 sync_durable_plan_task_rows(ROOT)
 assert next(item for item in read_durable_plan_queue(ROOT)["jobs"] if item["commandId"] == "command-0")["status"] == "completed"
 drain_durable_plan_queue_once(
-    ROOT, "worker-a", gpu_probe=lambda: ([{"gpuId": "0", "processes": [{}]}, {"gpuId": "1"}, {"gpuId": "2", "processes": [{}]}], ""), execute=execute)
+    ROOT, "worker-a", gpu_probe=lambda: ([{"gpuId": "0", "processes": [{}]}, idle_gpu("1"), {"gpuId": "2", "processes": [{}]}], ""), execute=execute)
 assert calls == [("command-0", "1"), ("command-1", "2"), ("command-2", "1")]
 assert next(item for item in read_durable_plan_queue(ROOT)["jobs"] if item["commandId"] == "command-2")["status"] == "running"
 
@@ -238,7 +247,7 @@ except ValueError:
     pass
 cancelled = cancel_durable_plan_job(ROOT, {**cancel_job, "targetCommandId": cancel_job["commandId"], "commandId": "stop-2"})
 assert cancelled["status"] == "cancelled" and cancelled["gpuId"] == ""
-assert not drain_durable_plan_queue_once(ROOT, "worker-a", gpu_probe=lambda: ([{"gpuId": "1"}], ""), execute=execute)
+assert not drain_durable_plan_queue_once(ROOT, "worker-a", gpu_probe=lambda: ([idle_gpu("1")], ""), execute=execute)
 assert all(command_id != "command-3" for command_id, _ in calls)
 
 dispatching_job = accept_durable_plan_job(ROOT, {**make_job(2), "commandId": "crash-job", "runKey": "crash-job"}, "worker-a")
@@ -246,7 +255,7 @@ queue = read_durable_plan_queue(ROOT)
 queue["jobs"][-1].update({"status": "dispatching", "gpuId": "1"})
 write_durable_plan_queue(ROOT, queue)
 probe_calls = []
-assert not drain_durable_plan_queue_once(ROOT, "worker-a", gpu_probe=lambda: (probe_calls.append(True) or [{"gpuId": "1"}], ""), execute=execute)
+assert not drain_durable_plan_queue_once(ROOT, "worker-a", gpu_probe=lambda: (probe_calls.append(True) or [idle_gpu("1")], ""), execute=execute)
 assert not probe_calls, "dispatching jobs must stay fenced from automatic replay"
 real_thread = threading.Thread
 threads = []

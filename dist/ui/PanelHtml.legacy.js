@@ -2740,7 +2740,7 @@ function renderPanelHtml() {
     const webviewHandledCommands = new Set([
       "stopAllPlans",
       "stopAndClearPlan",
-      "quickSetup", "openSetupGuide", "openAdvancedCommandsSetting", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "reassignWorkerTask", "prepareAgents",
+      "quickSetup", "openSetupGuide", "openAdvancedCommandsSetting", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "reassignWorkerTask", "recallPlanToLocalQueue", "prepareAgents",
       "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections",
       "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot",
       "selectLogRunKey", "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "checkPluginUpdates", "installPluginUpdates", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
@@ -13278,6 +13278,8 @@ function renderPanelHtml() {
         group.distributedEnqueuedAt = incoming || previous;
         group.distributedRecovery = recovery;
         group.schedulingMode = plan.schedulingMode || "local_idle";
+        group.localDispatchOverride = plan.localDispatchOverride === true;
+        group.distributedPlanId = String(plan.id || "");
         group.remoteAcceptedJobCount = Number(plan.remoteAcceptedJobCount || 0);
         jobs.forEach((job) => group.distributedJobs.push({ ...job, enqueuedAt: plan.enqueuedAt, planId: plan.id }));
       });
@@ -13405,12 +13407,16 @@ function renderPanelHtml() {
           const logText = selectedLogPath ? logPayloadText((state.logs || {})[selectedLogPath]) : "";
           const logPreview = logText ? '<pre class="taskLogPre">' + esc(compactTaskLogText(logText)) + '</pre>' : "";
           const errorText = String(job.artifactError || job.error || "").trim();
+          const recallButton = status === "queued" || job.recallRequested === true
+            ? '<button type="button" class="mini secondary" data-command="recallPlanToLocalQueue" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-plan-file="' + escAttr(group.planFile || "") + '" data-job-index="' + escAttr(String(job.index)) + '" title="只召回此排队 job；运行中、已结束或状态不明的任务保持原 Worker。">' + (job.recallRequested ? "重试召回" : "召回到本机") + '</button>' : "";
+          const recallNote = job.recallRequested ? "召回待确认，仍固定在原 Worker" : "";
           const blockText = blocked ? String(job.blockReason || "") : "";
           const blockAdvice = blocked ? (blockText.indexOf("等待当前代码版本") === 0 ? "下一步：这个已提交 job 仍在排队，等当前代码版本结束后才会派发。先点上方“刷新状态”核实，不要把它当成未提交的 Plan。" : "下一步：空闲 GPU 不能运行这份旧代码。到实验准备的 Plan 列表手动选中，再点“校验并提交运行”；或恢复提交前的代码并重新同步 Worker。") : "";
           const jobNext = errorText
             ? '<div class="muted">下一步：先点本行“终端日志”或“训练日志”看原因。这是已提交 job 的失败，不会自动清理。确认需要停止后，再点本 Plan 的“终止并清除该 Plan”（两次确认）。</div><span class="errorRowLinks" style="display:flex;gap:6px;flex-wrap:wrap;"><button type="button" class="mini secondary" data-section-target="execution" data-anchor-target="execution-operations" title="跳到运行进度，查看本 Plan 的状态">运行进度</button><button type="button" class="mini secondary" data-command="snapshot" title="重新拉取调度状态与操作记录">刷新状态</button></span>'
             : "";
-          return '<div class="executionDistributedJob' + (blocked ? " is-blocked" : "") + '" title="' + escAttr(job.outputDir || "") + '"><span>' + loadingPrefix(jobActive) + esc(job.case || "job " + job.index) + ' seed ' + esc(String(job.seed)) + '</span><span class="' + (blocked ? "status-warning" : statusClass(status)) + '">' + esc(statusLabel) + '</span><span>' + esc(blocked ? "阻塞" : placement) + '</span>' + trainLogButton + logButton
+          return '<div class="executionDistributedJob' + (blocked ? " is-blocked" : "") + '" title="' + escAttr(job.outputDir || "") + '"><span>' + loadingPrefix(jobActive) + esc(job.case || "job " + job.index) + ' seed ' + esc(String(job.seed)) + '</span><span class="' + (blocked ? "status-warning" : statusClass(status)) + '">' + esc(statusLabel) + '</span><span>' + esc(blocked ? "阻塞" : placement) + '</span>' + recallButton + trainLogButton + logButton
+            + (recallNote ? '<div class="muted">' + esc(recallNote) + '</div>' : '')
             + (blockText ? '<div class="executionDistributedJobError">' + esc(blockText) + (blockAdvice ? '<div>下一步：' + esc(blockAdvice.replace(/^下一步：/, "")) + '</div>' : '') + '</div>' : '')
             + (errorText ? '<div class="executionDistributedJobError">' + esc(errorText) + jobNext + '</div>' : '') + logPreview + '</div>';
         }).join("") + '</div>' : '';
@@ -13426,7 +13432,10 @@ function renderPanelHtml() {
           ? '<button type="button" class="mini" data-command="runPlan" data-plan-file="' + escAttr(group.planFile) + '" title="重新检查前序运行、当前代码、Plan 校验和已有产物，再提交。不会自动跳过阻塞检查。">继续提交</button>' : '';
         const stopButton = group.planFile
           ? '<button type="button" class="mini danger" data-command="stopAndClearPlan" data-plan-file="' + escAttr(group.planFile) + '" data-confirm="true"' + (stopClearBusy ? ' disabled' : '') + ' title="只中止这一张 Plan，远端停止须核对精确回执，并要求两次确认。">终止并清理</button>' : '';
-        const actions = '<div class="executionPlanActions">' + resumeButton + stopButton + foldButton + '</div>';
+        const recallPlanIds = Array.from(new Set(currentJobs.map((job) => String(job.planId || "")).filter(Boolean)));
+        const recallPlanButton = recallPlanIds.length === 1 && currentJobs.some((job) => String(job.status || "") === "queued" || job.recallRequested === true)
+          ? '<button type="button" class="mini secondary" data-command="recallPlanToLocalQueue" data-plan-id="' + escAttr(recallPlanIds[0]) + '" data-plan-file="' + escAttr(group.planFile || "") + '" title="召回此 Plan 当前所有服务器排队任务到本机空闲 GPU；运行中和已结束任务保持原状态。">召回 Plan 到本机</button>' : '';
+        const actions = '<div class="executionPlanActions">' + resumeButton + recallPlanButton + stopButton + foldButton + '</div>';
         const detailsBody = stopClearDetail + phaseNote + dangerActions + selectButton + distributedHtml + opHtml + taskHtml + more;
         return '<article class="executionPlanCard executionPlanRow ' + group.tone + (isSelected ? ' is-selected' : '') + '" data-execution-plan-key="' + escAttr(group.key) + '">' +
           '<div class="executionPlanHead" title="' + escAttr(group.planFile || group.label) + '"><span class="executionPlanName">' + loadingPrefix((group.active && !group.waitingSubmission && !group.deferredCurrent) || group.distributedActive) + esc(group.label) + '</span>' + statusBadge + '</div>' +
@@ -15973,6 +15982,7 @@ function renderPanelHtml() {
       else if (planCommand && el("planFileInput")) payload.planFile = el("planFileInput").value;
       if (!payload.planFile && command === "archivePlan" && el("planFileInput")) payload.planFile = el("planFileInput").value;
       if (button.dataset.planId) payload.planId = button.dataset.planId;
+      if (button.dataset.jobIndex !== undefined) payload.jobIndex = Number(button.dataset.jobIndex);
       if (button.dataset.file) {
         payload.file = button.dataset.file;
         payload.planFile = payload.planFile || button.dataset.file;

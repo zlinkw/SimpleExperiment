@@ -1291,6 +1291,8 @@ def prune_agent_state(root, force=False):
         "seq.txt",
         "stop",
         "distributed_plan_queue.json",
+        "worker_recall_tombstones.json",
+        "worker_start_claims.json",
     }
     try:
         os.makedirs(state_root, exist_ok=True)
@@ -2433,6 +2435,10 @@ def durable_plan_public_task(row):
     for key in ("finishedAt", "cancelledAt", "stopReason", "error", "exitCode", "identityConflict", "lastDispatchResult"):
         if row.get(key) is not None:
             public[key] = row.get(key)
+    if (public["status"] == "cancelled" and row.get("stopReason") == "requeue"
+            and row.get("neverStarted") is True):
+        public.update({"targetCommandId": public["commandId"], "durableReleased": True,
+                       "neverStarted": True, "neverStartedEvidence": row.get("neverStartedEvidence")})
     return public
 
 def durable_plan_same_identity(left, right):
@@ -2561,6 +2567,13 @@ def accept_durable_plan_job(root, command, worker_id):
     with WORKER_TASK_SNAPSHOT_LOCK:
         data = read_durable_plan_queue(root)
         old = next((row for row in data["jobs"] if isinstance(row, dict) and str(row.get("commandId") or "") == identity["commandId"]), None)
+        tombstone = recalled_worker_command(root, identity)
+        if tombstone:
+            if not _legacy_recall_identity_matches(identity, tombstone):
+                raise ValueError("commandId 已被 recall tombstone 绑定到不同的任务身份")
+            return {**identity, "planJobCount": count, "gpuId": tombstone.get("gpuId") or "",
+                    "status": "cancelled", "durableAccepted": True, "durableReleased": True,
+                    "neverStarted": True, "neverStartedEvidence": tombstone.get("neverStartedEvidence")}
         if old:
             if not durable_plan_same_identity(old, identity) or int(old.get("planJobCount") or 0) != count:
                 raise ValueError("commandId 已绑定到不同的 Plan job 身份")
@@ -2649,27 +2662,36 @@ def requeue_durable_plan_job(root, command):
     target = str(command.get("targetCommandId") or command.get("commandIdTarget") or "").strip()
     if not target:
         return None
+    stop_id = str(command.get("commandId") or command.get("operationId") or "").strip()
+    if not stop_id or stop_id == target:
+        raise ValueError("recall operationId must be present and distinct from targetCommandId")
     requested = dict(command)
     requested["commandId"] = target
     identity = durable_plan_identity(requested)
     count = durable_plan_value(command, "planJobCount")
-    missing = [key for key in DURABLE_PLAN_IDENTITY_FIELDS if identity.get(key) in (None, "")]
-    if count in (None, ""):
-        missing.append("planJobCount")
-    if missing:
-        raise ValueError("待重新排队任务缺少完整身份：" + ",".join(missing))
     with WORKER_TASK_SNAPSHOT_LOCK:
         data = read_durable_plan_queue(root)
         row = next((item for item in data["jobs"] if isinstance(item, dict) and str(item.get("commandId") or "") == target), None)
         if row:
+            missing = [key for key in DURABLE_PLAN_IDENTITY_FIELDS if identity.get(key) in (None, "")]
+            if count in (None, ""):
+                missing.append("planJobCount")
+            if missing:
+                raise ValueError("待重新排队任务缺少完整身份：" + ",".join(missing))
             if (not durable_plan_same_identity(row, identity) or int(row.get("planJobCount") or 0) != count
                     or str(row.get("gpuId") or "") != str(command.get("gpuId") or "")):
                 raise ValueError("重新排队请求身份与持久队列 job 不匹配")
             status = str(row.get("status") or "unknown").lower()
             if status == "cancelled" and str(row.get("stopReason") or "") == "requeue":
-                return {**durable_plan_identity(row), "planJobCount": row.get("planJobCount"),
-                        "gpuId": row.get("gpuId") or "", "status": "cancelled", "stopReason": "requeue",
-                        "durableAccepted": True, "durableReleased": True}
+                tombstone = recalled_worker_command(root, {"commandId": target})
+                if tombstone:
+                    return {**tombstone, "durableAccepted": True, "durableReleased": True}
+                receipt = {**durable_plan_identity(row), "planJobCount": row.get("planJobCount"),
+                           "gpuId": row.get("gpuId") or "", "targetCommandId": target,
+                           "status": "cancelled", "stopReason": "requeue", "durableAccepted": True,
+                           "durableReleased": True, "neverStarted": True,
+                           "neverStartedEvidence": "durable_queued_row", "stopCommandId": stop_id}
+                return write_worker_recall_tombstone(root, receipt)
             if status != "queued":
                 return {**durable_plan_identity(row), "planJobCount": row.get("planJobCount"),
                         "gpuId": row.get("gpuId") or "", "status": status,
@@ -2691,32 +2713,234 @@ def requeue_durable_plan_job(root, command):
                 return {**durable_plan_identity(row), "planJobCount": row.get("planJobCount"),
                         "gpuId": row.get("gpuId") or "", "status": str(started.get("status") or "unknown").lower(),
                         "durableAccepted": True, "durableReleased": False}
+            if started and _legacy_recall_has_execution_marker(started):
+                return {**durable_plan_identity(row), "planJobCount": row.get("planJobCount"),
+                        "gpuId": row.get("gpuId") or "", "status": "unknown",
+                        "durableAccepted": True, "durableReleased": False, "identityConflict": True}
             at = now_iso()
-            row.update({"status": "cancelled", "cancelledAt": at, "finishedAt": at, "stopReason": "requeue",
-                        "cancelCommandId": str(command.get("commandId") or command.get("operationId") or "")})
-            release_distributed_gpu_reservation(str(row.get("gpuId") or ""), target)
-            write_durable_plan_queue(root, data)
             receipt = {**durable_plan_identity(row), "planJobCount": row.get("planJobCount"),
                        "enqueuedAt": row.get("enqueuedAt"), "gpuId": row.get("gpuId") or "",
-                       "status": "cancelled", "stopReason": "requeue", "durableAccepted": True,
-                       "durableReleased": True, "finishedAt": at}
+                       "targetCommandId": target, "status": "cancelled", "stopReason": "requeue",
+                       "durableAccepted": True, "durableReleased": True,
+                       "neverStarted": True, "neverStartedEvidence": "durable_queued_row",
+                       "stopCommandId": stop_id, "finishedAt": at}
+            write_worker_recall_tombstone(root, receipt)
+            row.update({"status": "cancelled", "cancelledAt": at, "finishedAt": at, "stopReason": "requeue",
+                        "cancelCommandId": stop_id, "neverStarted": True, "neverStartedEvidence": "durable_queued_row"})
+            release_distributed_gpu_reservation(str(row.get("gpuId") or ""), target)
+            write_durable_plan_queue(root, data)
+            append_worker_task(root, {**receipt, "schemaVersion": SCHEMA_VERSION})
         else:
+            claim = worker_start_claim(root, target)
+            if claim:
+                return {**_legacy_recall_identity(command), "commandId": target,
+                        "targetCommandId": target, "status": "unknown", "durableAccepted": False,
+                        "durableReleased": False, "legacyReleased": False,
+                        "message": "worker start was already claimed; ownership retained"}
             snapshot = read_json(path_for(root, "worker_task_snapshot.json"), {})
             tasks = snapshot.get("tasks") if isinstance(snapshot, dict) and isinstance(snapshot.get("tasks"), list) else []
             actual = next((item for item in tasks if isinstance(item, dict)
                            and str(item.get("commandId") or item.get("operationId") or "") == target), None)
-            if actual and (not durable_plan_same_identity(actual, identity)
-                           or str(actual.get("gpuId") or "") != str(command.get("gpuId") or "")):
-                raise ValueError("重新排队请求身份与当前 Worker task 不匹配")
-            return {**identity, "planJobCount": count, "gpuId": (actual or {}).get("gpuId") or "",
-                    "status": str((actual or {}).get("status") or "unknown").lower(),
-                    "durableAccepted": bool(actual), "durableReleased": False}
-    append_worker_task(root, {**receipt, "schemaVersion": SCHEMA_VERSION})
+            existing = recalled_worker_command(root, {"commandId": target})
+            if existing:
+                if not _legacy_recall_identity_matches(command, existing):
+                    raise ValueError("commandId 已绑定到不同的 recall tombstone 身份")
+                return {**existing, "durableAccepted": bool(existing.get("durableAccepted")),
+                        "durableReleased": True, "legacyReleased": True}
+            if actual:
+                if not _legacy_recall_identity_matches(command, actual):
+                    raise ValueError("重新排队请求身份与当前 Worker task 不匹配或历史身份不完整")
+                status = str(actual.get("status") or "unknown").lower()
+                if status not in ("queued", "pending"):
+                    return {**_legacy_recall_identity(actual), "commandId": target,
+                            "targetCommandId": target, "status": status, "durableAccepted": False,
+                            "durableReleased": False, "legacyReleased": False}
+                if _legacy_recall_has_execution_marker(actual):
+                    return {**_legacy_recall_identity(actual), "commandId": target,
+                            "targetCommandId": target, "status": "unknown", "durableAccepted": False,
+                            "durableReleased": False, "legacyReleased": False,
+                            "message": "historical task has execution markers; ownership retained"}
+                evidence = "worker_task_queued" if status == "queued" else "worker_task_pending"
+                receipt = {**_legacy_recall_identity(actual), "commandId": target,
+                           "targetCommandId": target, "status": "cancelled", "stopReason": "requeue",
+                           "durableAccepted": False, "durableReleased": True, "legacyReleased": True,
+                           "neverStarted": True, "neverStartedEvidence": evidence,
+                           "stopCommandId": stop_id, "finishedAt": now_iso(),
+                           **({"planId": actual.get("planId")} if actual.get("planId") else {})}
+            else:
+                # Command-only history is releasable only when it carries an explicit queued state.
+                worker_id = str(_legacy_recall_value(command, "workerId") or "").strip()
+                command_path = worker_command_path(root, worker_id) if worker_id else ""
+                queued_command = None
+                queued_sequence = 0
+                if command_path and os.path.isfile(command_path):
+                    try:
+                        with open(command_path, "r", encoding="utf-8") as handle:
+                            for sequence, line in enumerate(handle, 1):
+                                try:
+                                    candidate = json.loads(line)
+                                except Exception:
+                                    continue
+                                if isinstance(candidate, dict) and str(candidate.get("commandId") or candidate.get("operationId") or "") == target:
+                                    queued_command = candidate
+                                    queued_sequence = sequence
+                    except OSError:
+                        queued_command = None
+                if not queued_command:
+                    return {**_legacy_recall_identity(command), "commandId": target,
+                            "targetCommandId": target, "status": "unknown", "durableAccepted": False,
+                            "durableReleased": False, "legacyReleased": False,
+                            "message": "missing historical command evidence; ownership retained"}
+                if not _legacy_recall_identity_matches(command, queued_command):
+                    raise ValueError("重新排队请求身份与历史 Worker command 不匹配或不完整")
+                command_status = str(queued_command.get("status") or "").lower()
+                if (command_status not in ("queued", "pending") or _legacy_recall_has_execution_marker(queued_command)
+                        or not historical_command_is_unprocessed(root, worker_id, queued_sequence)):
+                    return {**_legacy_recall_identity(queued_command), "commandId": target,
+                            "targetCommandId": target, "status": command_status or "unknown",
+                            "durableAccepted": False, "durableReleased": False, "legacyReleased": False,
+                            "message": "historical command lacks never-started evidence; ownership retained"}
+                receipt = {**_legacy_recall_identity(queued_command), "commandId": target,
+                           "targetCommandId": target, "status": "cancelled", "stopReason": "requeue",
+                           "durableAccepted": False, "durableReleased": True, "legacyReleased": True,
+                           "neverStarted": True, "neverStartedEvidence": "worker_command_queued",
+                           "stopCommandId": stop_id, "finishedAt": now_iso()}
+            write_worker_recall_tombstone(root, receipt)
+            append_worker_task(root, {**receipt, "schemaVersion": SCHEMA_VERSION})
+    receipt["durableReleased"] = True
+    receipt.setdefault("stoppedPids", [])
+    receipt.setdefault("stoppedTasks", [])
     append_event(root, {"type": "distributed_plan_job_released", "workerId": receipt["workerId"],
                         "operationId": target, "payload": receipt})
     return receipt
 
 LEGACY_WORKER_STOP_IDENTITY_FIELDS = ("workflowId", "planRevision", "planFile", "case", "seed", "attempt", "outputDir", "workerId", "gpuId")
+
+def worker_recall_tombstones_path(root):
+    return path_for(root, "worker_recall_tombstones.json")
+
+def read_worker_recall_tombstones(root):
+    data = read_json(worker_recall_tombstones_path(root), {})
+    rows = data.get("rows") if isinstance(data, dict) and isinstance(data.get("rows"), list) else []
+    return [row for row in rows if isinstance(row, dict)]
+
+def worker_start_claims_path(root):
+    return path_for(root, "worker_start_claims.json")
+
+def read_worker_start_claims(root):
+    data = read_json(worker_start_claims_path(root), {})
+    rows = data.get("rows") if isinstance(data, dict) and isinstance(data.get("rows"), list) else []
+    return [row for row in rows if isinstance(row, dict)]
+
+def worker_start_claim(root, command_id):
+    return next((row for row in read_worker_start_claims(root)
+                 if str(row.get("commandId") or "") == str(command_id or "")), None)
+
+def write_worker_start_claim(root, command):
+    command_id = str(command.get("commandId") or command.get("operationId") or "").strip()
+    if not command_id:
+        raise ValueError("worker start claim requires commandId")
+    data = read_json(worker_start_claims_path(root), {})
+    rows = data.get("rows") if isinstance(data, dict) and isinstance(data.get("rows"), list) else []
+    if any(isinstance(row, dict) and str(row.get("commandId") or "") == command_id for row in rows):
+        return False
+    rows.append({"commandId": command_id, "workerId": str(command.get("workerId") or ""),
+                 "action": str(command.get("action") or ""), "status": "claimed",
+                 "claimedAt": now_iso()})
+    atomic_write(worker_start_claims_path(root), {"schemaVersion": SCHEMA_VERSION, "rows": rows})
+    return True
+
+def recalled_worker_command(root, command):
+    target = str(command.get("commandId") or command.get("operationId") or "").strip()
+    if not target:
+        return None
+    return next((row for row in read_worker_recall_tombstones(root)
+                 if str(row.get("commandId") or "") == target), None)
+
+def write_worker_recall_tombstone(root, receipt):
+    path = worker_recall_tombstones_path(root)
+    data = read_json(path, {})
+    rows = data.get("rows") if isinstance(data, dict) and isinstance(data.get("rows"), list) else []
+    target = str(receipt.get("commandId") or "")
+    old = next((row for row in rows if isinstance(row, dict) and str(row.get("commandId") or "") == target), None)
+    if old:
+        if any(str(old.get(key) or "") != str(receipt.get(key) or "")
+               for key in LEGACY_WORKER_STOP_IDENTITY_FIELDS):
+            raise ValueError("commandId 已被绑定到不同的 recall tombstone 身份")
+        return old
+    rows.append(dict(receipt))
+    atomic_write(path, {"schemaVersion": SCHEMA_VERSION, "rows": rows, "updatedAt": now_iso()})
+    return receipt
+
+def _legacy_recall_value(row, field):
+    options = row.get("options") if isinstance(row.get("options"), dict) else {}
+    aliases = {
+        "workflowId": ("workflowId", "workflow_id", "parentId"),
+        "planRevision": ("planRevision", "plan_revision"),
+        "planFile": ("planFile", "plan_file", "plan"),
+        "case": ("case", "caseName", "experimentCase", "experiment_case"),
+        "seed": ("seed",), "attempt": ("attempt",),
+        "outputDir": ("outputDir", "output_dir"),
+        "workerId": ("workerId", "worker_id"), "gpuId": ("gpuId", "gpu_id"),
+    }
+    for key in aliases.get(field, (field,)):
+        value = row.get(key)
+        if value in (None, ""):
+            value = options.get(key)
+        if value not in (None, ""):
+            return value
+    return ""
+
+def _legacy_recall_identity(row):
+    return {field: _legacy_recall_value(row, field) for field in LEGACY_WORKER_STOP_IDENTITY_FIELDS}
+
+def _legacy_recall_identity_matches(expected, actual):
+    left, right = _legacy_recall_identity(expected), _legacy_recall_identity(actual)
+    if any(value in (None, "") for value in left.values()) or any(value in (None, "") for value in right.values()):
+        return False
+    for field in LEGACY_WORKER_STOP_IDENTITY_FIELDS:
+        if field in ("seed", "attempt"):
+            try:
+                if int(left[field]) != int(right[field]):
+                    return False
+            except (TypeError, ValueError):
+                return False
+        elif str(left[field]).strip() != str(right[field]).strip():
+            return False
+    return True
+
+def _legacy_recall_has_execution_marker(task):
+    for key in ("pid", "processPid"):
+        value = task.get(key)
+        if value not in (None, "", 0, "0", False):
+            return True
+    return any(str(task.get(key) or "").strip() for key in (
+        "startedAt", "started_at", "tmuxSession", "tmuxPane", "exitCodePath"))
+
+def historical_command_is_unprocessed(root, worker_id, sequence):
+    # A stale queued payload in the append-only log is not a live queue receipt.
+    # Require a checkpoint bound to this file, in addition to its explicit queued state.
+    checkpoint = read_json(worker_command_checkpoint_path(root, worker_id), {})
+    try:
+        if not isinstance(checkpoint, dict) or checkpoint.get("schemaVersion") != SCHEMA_VERSION:
+            return False
+        if any(type(checkpoint.get(key)) is not int or checkpoint[key] < 0
+               for key in ("queueSeq", "size", "device", "inode", "prefixLength")):
+            return False
+        identity = worker_command_queue_identity(worker_command_path(root, worker_id))
+        saved_size = checkpoint["size"]
+        prefix_length = checkpoint["prefixLength"]
+        cursor = checkpoint["queueSeq"]
+        if (saved_size <= 0 or prefix_length != min(512, saved_size) or sequence <= cursor
+                or int(checkpoint["device"]) != identity["device"] or int(checkpoint["inode"]) != identity["inode"]
+                or identity["size"] < int(checkpoint["size"])):
+            return False
+        with open(worker_command_path(root, worker_id), "rb") as handle:
+            saved = handle.read(saved_size)
+        return (saved.endswith(bytes([10])) and cursor <= saved.count(bytes([10]))
+                and hashlib.sha256(saved[:prefix_length]).hexdigest() == checkpoint["prefixSha256"])
+    except (OSError, KeyError, TypeError, ValueError):
+        return False
 
 def worker_task_matches_stop_identity(command, task):
     target_command = str(command.get("targetCommandId") or command.get("commandIdTarget") or "").strip()
@@ -4265,7 +4489,7 @@ def reconcile_worker_tasks_after_restart(root, eligible_ids=None):
         append_event(root, {"type": event_type, "workerId": task.get("workerId") or "", "operationId": task.get("commandId") or "", "payload": task})
     return {"changed": exit_result["changed"] + len(events)}
 
-def execute_worker_command(root, command, worker_id):
+def _execute_worker_command_unfenced(root, command, worker_id):
     action = str(command.get("action") or "").strip()
     command_id = str(command.get("commandId") or command.get("operationId") or f"cmd-{int(time.time() * 1000)}")
     append_event(root, {"type": "worker_command_started", "workerId": worker_id, "operationId": command_id, "payload": command})
@@ -4664,6 +4888,47 @@ def execute_worker_command(root, command, worker_id):
             append_event(root, {"type": "worker_task_failed", "workerId": worker_id, "operationId": command_id, "payload": failed})
     threading.Thread(target=wait_task, daemon=True, name=f"worker-task-{command_id}").start()
     return result
+
+def execute_worker_command(root, command, worker_id):
+    action = str(command.get("action") or "").strip()
+    if action in ("start-worker-task", "retry-worker-task"):
+        # Durable admission rechecks the tombstone while holding its queue lock.
+        if command.get("durablePlanQueue") is True:
+            with WORKER_TASK_SNAPSHOT_LOCK:
+                tombstone = recalled_worker_command(root, command)
+                if tombstone:
+                    return {"commandId": str(command.get("commandId") or command.get("operationId") or ""),
+                            "status": "cancelled", "durableAccepted": True, "durableReleased": True,
+                            "recalled": True, "stopReason": "requeue",
+                            "message": "durable worker command was recalled before admission"}
+            return _execute_worker_command_unfenced(root, command, worker_id)
+        # Persist a short claim under the snapshot lock, then do dependency and launch
+        # work outside it. Recall serializes against this claim without delaying readers.
+        with WORKER_TASK_SNAPSHOT_LOCK:
+            tombstone = recalled_worker_command(root, command)
+            if tombstone:
+                return {"commandId": str(command.get("commandId") or command.get("operationId") or ""),
+                        "status": "cancelled", "durableAccepted": False, "durableReleased": False,
+                        "legacyReleased": True, "recalled": True, "stopReason": "requeue",
+                        "message": "worker command was recalled before start"}
+            command_id = str(command.get("commandId") or command.get("operationId") or "").strip()
+            existing = worker_start_claim(root, command_id)
+            if existing:
+                snapshot = read_json(path_for(root, "worker_task_snapshot.json"), {})
+                tasks = snapshot.get("tasks") if isinstance(snapshot, dict) and isinstance(snapshot.get("tasks"), list) else []
+                task = next((item for item in tasks if isinstance(item, dict)
+                             and str(item.get("commandId") or item.get("operationId") or "") == command_id), None)
+                return {"commandId": command_id, "status": str((task or {}).get("status") or "unknown").lower(),
+                        "durableAccepted": False, "durableReleased": False,
+                        "message": "worker start is already claimed; duplicate launch refused"}
+            write_worker_start_claim(root, command)
+        try:
+            result = _execute_worker_command_unfenced(root, command, worker_id)
+        except Exception:
+            # Keep the claim as an unknown fence: launch outcome may be ambiguous.
+            raise
+        return result
+    return _execute_worker_command_unfenced(root, command, worker_id)
 
 def worker_command_plan_mode(project_dir, plan, explicit=""):
     raw = str(explicit or "").strip()
@@ -5218,6 +5483,7 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
                 "workerTasks": True,
                 "durablePlanQueue": True,
                 "idleGpuAdmission": True,
+                "queuedJobRecall": True,
                 "liveOutput": True,
                 "diagnostics": True,
                 "resultsSummary": True,
@@ -12017,7 +12283,7 @@ def api_worker_tasks(root):
                     enriched[index] = entry
         _out["tasks"] = enriched
         _out["generatedAt"] = now_iso()
-        _out["capabilities"] = {"durablePlanQueue": True, "idleGpuAdmission": True, "schemaVersion": 1}
+        _out["capabilities"] = {"durablePlanQueue": True, "idleGpuAdmission": True, "queuedJobRecall": True, "schemaVersion": 1}
         return _out
     tasks = []
     for row in read_durable_plan_queue(root).get("jobs", []):
@@ -12027,7 +12293,7 @@ def api_worker_tasks(root):
         if status in ("queued", "dispatching", "running", "unknown", "completed", "failed", "cancelled"):
             tasks.append(durable_plan_public_task(row))
     return {"schemaVersion": SCHEMA_VERSION, "tasks": tasks,
-            "capabilities": {"durablePlanQueue": True, "idleGpuAdmission": True, "schemaVersion": 1}, "generatedAt": now_iso()}
+            "capabilities": {"durablePlanQueue": True, "idleGpuAdmission": True, "queuedJobRecall": True, "schemaVersion": 1}, "generatedAt": now_iso()}
 
 def api_openapi(root, token_required=False, mode="hub_control"):
     if mode == "worker_telemetry":

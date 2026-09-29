@@ -48,15 +48,24 @@ exports.queueOccupiesCodeVersion = queueOccupiesCodeVersion;
 exports.completedJobOutputs = completedJobOutputs;
 exports.distributedQueuePath = distributedQueuePath;
 exports.enqueuePlan = enqueuePlan;
+exports.pinnedRetryPlanAllowed = pinnedRetryPlanAllowed;
+exports.hostedRetryCandidates = hostedRetryCandidates;
 exports.allocateAvailable = allocateAvailable;
 exports.previewAvailable = previewAvailable;
 exports.setJobState = setJobState;
 exports.remoteTaskMatchesJob = remoteTaskMatchesJob;
+exports.hasLegacyOwnership = hasLegacyOwnership;
 exports.resetUnsentDispatch = resetUnsentDispatch;
 exports.resetBusyRejectedDispatch = resetBusyRejectedDispatch;
 exports.retryPinnedDispatch = retryPinnedDispatch;
 exports.releaseQueuedForReassignment = releaseQueuedForReassignment;
+exports.isExactQueuedReleaseProof = isExactQueuedReleaseProof;
+exports.recallResponseMatchesJob = recallResponseMatchesJob;
+exports.historicalRecallIdentityMatchesJob = historicalRecallIdentityMatchesJob;
+exports.historicalRecallTaskMatchesJob = historicalRecallTaskMatchesJob;
+exports.nextAttemptOutputDir = nextAttemptOutputDir;
 exports.sameDeferredPlanFile = sameDeferredPlanFile;
+exports.sameDistributedPlanFile = sameDistributedPlanFile;
 exports.matchingActiveDeferred = matchingActiveDeferred;
 exports.jobClearableWithoutRemoteReceipt = jobClearableWithoutRemoteReceipt;
 exports.distributedStopTargets = distributedStopTargets;
@@ -158,7 +167,20 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
             acceptedRows.push({ workerId: snapshot.workerId, task, status });
         }
     }
+    const legacyReceipt = (plan, job) => job.legacyOwnership === true
+        ? snapshots.filter((snapshot) => snapshot.workerId === job.workerId && hasFreshDurableSnapshot(snapshot, now, maxAgeMs))
+            .flatMap((snapshot) => (snapshot.tasks || []).map((task) => ({ ...task, workerId: task.workerId || snapshot.workerId })))
+            .find((task) => historicalRecallTaskMatchesJob(plan, job, task)) : undefined;
     const plans = queue.plans.map((plan) => plan.projectId !== projectId ? plan : { ...plan, jobs: plan.jobs.map((job) => {
+            const legacy = legacyReceipt(plan, job);
+            const legacyStatus = legacy && durableStatus(legacy.status);
+            if (legacyStatus) {
+                const terminal = job.trustedTerminalStatus || (["completed", "failed", "cancelled"].includes(job.status) ? job.status : undefined);
+                if (terminal && terminal !== legacyStatus)
+                    return { ...job, status: "unknown", recoveryConflict: true,
+                        blockReason: "Fresh historical server state contradicts a trusted terminal receipt." };
+                return { ...job, status: legacyStatus, blockReason: undefined };
+            }
             if (!job.workerId || !job.commandId || !UNFINISHED_JOB.includes(job.status)
                 || acceptedRows.some((row) => remoteTaskMatchesJob(plan, job, row.task)))
                 return job;
@@ -186,7 +208,7 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
             codeFingerprint: String(first.codeFingerprint), enqueuedAt: String(first.enqueuedAt || ""), planJobCount: jobCount, jobs: [],
         };
         plan.projectId = projectId;
-        if (first.schedulingMode === "server_prequeue" || first.schedulingMode === "local_idle")
+        if (!plan.localDispatchOverride && (first.schedulingMode === "server_prequeue" || first.schedulingMode === "local_idle"))
             plan.schedulingMode = first.schedulingMode;
         plan.planJobCount = jobCount;
         if (countConflict)
@@ -273,7 +295,9 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
                     ? local.status : undefined);
                 const terminalConflict = Boolean(terminal && merged.status !== terminal);
                 plan.jobs[existing] = (localIdentity === remoteIdentity || unassignedLocalIntent && sameJob) && !conflict && !terminalConflict ? {
-                    ...local, ...merged, recoveryConflict: undefined, blockReason: undefined,
+                    ...local, ...merged, localQueueOnly: local.localQueueOnly, recallRequested: local.recallRequested,
+                    recallOperationId: local.recallOperationId, reassignmentPending: local.reassignmentPending,
+                    recoveryConflict: undefined, blockReason: undefined,
                     ...(terminal ? { trustedTerminalStatus: terminal } : {}),
                 } : {
                     ...local, status: "unknown", recoveryConflict: true,
@@ -288,6 +312,9 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
         plan.planJobCount = jobCount;
         const currentAcceptedIndices = new Set(rows.filter((row) => Number(row.task.attempt) === latestAttempts.get(Number(row.task.experimentIndex)))
             .map((row) => Number(row.task.experimentIndex)));
+        for (const job of plan.jobs)
+            if (legacyReceipt(plan, job))
+                currentAcceptedIndices.add(job.index);
         plan.remoteAcceptedJobCount = currentAcceptedIndices.size;
         const knownLocalPending = plan.jobs.filter((job) => job.status === "pending" && !job.workerId && !job.commandId
             && !currentAcceptedIndices.has(job.index)).length;
@@ -402,6 +429,16 @@ function enqueuePlan(queue, plan, id, enqueuedAt = new Date().toISOString()) {
 function usableSlots(row) {
     return row.online && [...new Set(row.idleGpuIds)].slice(0, Math.max(0, row.capacity ?? row.idleGpuIds.length)).length > 0;
 }
+function pinnedRetryPlanAllowed(plan) {
+    return plan.schedulingMode !== "server_prequeue" || plan.localDispatchOverride === true
+        || plan.jobs.some((job) => job.localQueueOnly === true && ["dispatching", "unknown"].includes(job.status));
+}
+function hostedRetryCandidates(plan) {
+    if (plan.schedulingMode !== "server_prequeue" || plan.localDispatchOverride === true || plan.recoveryConflict)
+        return [];
+    return plan.jobs.filter((job) => job.localQueueOnly !== true && job.recallRequested !== true
+        && Boolean(job.workerId && job.commandId) && ["dispatching", "unknown"].includes(job.status));
+}
 function noteFingerprintMismatch(plans, workers, activeFingerprint) {
     if (!workers.some((row) => row.codeFingerprint))
         return;
@@ -427,18 +464,23 @@ function allocateAvailable(queue, workers, options = {}) {
     const plans = queue.plans.map((plan) => ({ ...plan, jobs: plan.jobs.map((job) => ({ ...job })) }));
     const dispatches = [];
     const activeFingerprint = plans.find((plan) => plan.jobs.some((job) => ["dispatching", "queued", "running", "unknown"].includes(job.status)))?.codeFingerprint;
-    const runnableFingerprint = activeFingerprint || plans.find((plan) => (!options.localIdleOnly || plan.schedulingMode !== "server_prequeue") && plan.jobs.some((job) => job.status === "pending")
+    const runnableFingerprint = activeFingerprint || plans.find((plan) => (!options.localIdleOnly || plan.schedulingMode !== "server_prequeue" || plan.localDispatchOverride === true
+        || plan.jobs.some((job) => job.status === "pending" && job.localQueueOnly === true && !job.recallRequested))
+        && plan.jobs.some((job) => job.status === "pending" && !job.recallRequested
+            && (!options.localIdleOnly || plan.schedulingMode !== "server_prequeue" || plan.localDispatchOverride === true || job.localQueueOnly === true))
         && (!versioned || workers.some((row) => usableSlots(row)
             && (!options.requireIdleGpuAdmission || row.idleGpuAdmission === true) && row.codeFingerprint === plan.codeFingerprint)))?.codeFingerprint;
     const slots = new Map(workers.filter((row) => row.online && (!options.requireIdleGpuAdmission || row.idleGpuAdmission === true)
         && (!versioned || !runnableFingerprint || row.codeFingerprint === runnableFingerprint))
         .map((row) => [row.workerId, [...new Set(row.idleGpuIds)].slice(0, Math.max(0, row.capacity ?? row.idleGpuIds.length))]));
     for (const plan of plans) {
-        if (options.localIdleOnly && plan.schedulingMode === "server_prequeue")
+        if (options.localIdleOnly && plan.schedulingMode === "server_prequeue" && plan.localDispatchOverride !== true
+            && !plan.jobs.some((job) => job.status === "pending" && job.localQueueOnly === true && !job.recallRequested))
             continue;
         if (!runnableFingerprint || plan.codeFingerprint !== runnableFingerprint)
             continue;
-        const pending = plan.jobs.filter((job) => job.status === "pending");
+        const pending = plan.jobs.filter((job) => job.status === "pending" && !job.recallRequested
+            && (!options.localIdleOnly || plan.schedulingMode !== "server_prequeue" || plan.localDispatchOverride === true || job.localQueueOnly === true));
         if (!pending.length)
             continue;
         const ranked = () => [...slots].filter(([, gpuIds]) => gpuIds.length).sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
@@ -508,6 +550,9 @@ function remoteTaskMatchesJob(plan, job, task) {
         && String(task.outputDir || "") === job.outputDir
         && String(task.workerId || "") === job.workerId);
 }
+function hasLegacyOwnership(job) {
+    return job.legacyOwnership === true && Boolean(job.workerId && job.commandId);
+}
 function resetUnsentDispatch(queue, planId, jobIndex, commandId) {
     return { ...queue, plans: queue.plans.map((plan) => plan.id !== planId ? plan : { ...plan,
             jobs: plan.jobs.map((job) => job.index !== jobIndex || job.commandId !== commandId || job.status !== "dispatching"
@@ -531,7 +576,7 @@ function resetBusyRejectedDispatch(queue, dispatch, receipt) {
 function retryPinnedDispatch(queue, planId, jobIndex, snapshot, idleGpuIds, now = Date.now()) {
     const plan = queue.plans.find((row) => row.id === planId);
     const job = plan?.jobs.find((row) => row.index === jobIndex);
-    if (!plan || !job || plan.recoveryConflict || job.recoveryConflict || !["dispatching", "unknown"].includes(job.status)
+    if (!plan || !job || plan.recoveryConflict || job.recoveryConflict || job.recallRequested === true || !["dispatching", "unknown"].includes(job.status)
         || !job.workerId || !job.commandId || !String(job.gpuId || "").trim()
         || !snapshotAllowsPinnedRetry(snapshot, job, now))
         return undefined;
@@ -552,26 +597,123 @@ function snapshotAllowsPinnedRetry(snapshot, job, now) {
 function releaseQueuedForReassignment(queue, planId, jobIndex, receipt, nextRunId) {
     const plan = queue.plans.find((row) => row.id === planId);
     const job = plan?.jobs.find((row) => row.index === jobIndex);
-    if (!plan || !job || !["queued", "cancelled"].includes(job.status) || job.reassignmentPending !== true
-        || receipt?.durableReleased !== true || receipt?.durableAccepted !== true
+    if (!plan || !job || !["queued", "cancelled", "unknown"].includes(job.status) || job.reassignmentPending !== true
+        || !isExactQueuedReleaseProof(plan, job, receipt)
         || String(receipt?.status || "").toLowerCase() !== "cancelled" || String(receipt?.stopReason || "") !== "requeue"
-        || Number(receipt?.planJobCount) !== Number(plan.planJobCount || plan.jobs.length)
-        || !stopIdentityMatchesJob(plan, job, receipt) || !/^[a-zA-Z0-9-]{8,80}$/.test(nextRunId))
+        || !/^[a-zA-Z0-9-]{8,80}$/.test(nextRunId))
         throw new Error("Queued job release proof does not match the exact persisted job identity.");
-    const prefix = job.outputDir.replace(/\\/g, "/");
-    const marker = prefix.lastIndexOf("/attempts/");
-    if (marker < 0)
-        throw new Error("Job attempt directory is invalid.");
-    const outputDir = prefix.slice(0, marker + "/attempts/".length) + nextRunId;
+    const outputDir = nextAttemptOutputDir(job.outputDir, nextRunId);
     return { ...queue, plans: queue.plans.map((row) => row.id !== planId ? row : { ...row,
             jobs: row.jobs.map((item) => item.index !== jobIndex ? item : {
                 index: item.index, case: item.case, seed: item.seed, outputDir, attempt: item.attempt + 1,
-                status: "pending", projectId: item.projectId, history: [...(item.history || []), { attempt: item.attempt,
+                status: "pending", projectId: item.projectId, localQueueOnly: true, recallRequested: undefined,
+                recallOperationId: undefined, reassignmentPending: undefined,
+                history: [...(item.history || []), { attempt: item.attempt,
                         status: "cancelled", workerId: item.workerId, commandId: item.commandId, outputDir: item.outputDir,
                         finishedAt: typeof receipt.finishedAt === "string" ? receipt.finishedAt : item.finishedAt, stopReason: "requeue" }],
             }) }) };
 }
+function isExactQueuedReleaseProof(plan, job, proof) {
+    if (proof.durableReleased !== true || proof.neverStarted !== true || !recognizedNeverStartedEvidence(proof.neverStartedEvidence))
+        return false;
+    if (proof.legacyReleased === true)
+        return historicalRecallIdentityMatchesJob(plan, job, proof);
+    return proof.durableAccepted === true && recallResponseMatchesJob(plan, job, proof)
+        && Number(proof.planJobCount) === Number(plan.planJobCount || plan.jobs.length);
+}
+function recallResponseMatchesJob(plan, job, identity) {
+    const targetCommandId = String(identity.targetCommandId || "");
+    if (!targetCommandId || targetCommandId !== job.commandId)
+        return false;
+    const normalized = { ...identity, commandId: targetCommandId };
+    return identityAliasesMatchJob(plan, job, identity) && (stopIdentityMatchesJob(plan, job, normalized)
+        || historicalRecallTaskMatchesJob(plan, job, normalized));
+}
+function identityAliasesMatchJob(plan, job, identity) {
+    const equalsAll = (keys, expected, normalize = (value) => String(value ?? "")) => keys.every((key) => identity[key] === undefined || identity[key] === null || normalize(identity[key]) === normalize(expected));
+    return equalsAll(["workflowId", "planId"], plan.id)
+        && ["planFile", "plan"].every((key) => identity[key] === undefined || identity[key] === null
+            || samePlanFile(String(identity[key]), plan.planFile))
+        && equalsAll(["projectId"], plan.projectId)
+        && equalsAll(["planRevision"], plan.revision)
+        && equalsAll(["codeFingerprint"], plan.codeFingerprint)
+        && equalsAll(["experimentIndex", "jobIndex"], job.index)
+        && equalsAll(["case", "caseName"], job.case)
+        && equalsAll(["seed"], job.seed)
+        && equalsAll(["attempt"], job.attempt)
+        && equalsAll(["outputDir"], job.outputDir)
+        && equalsAll(["workerId"], job.workerId)
+        && equalsAll(["runKey"], job.runKey || job.commandId)
+        && (job.gpuId !== undefined ? equalsAll(["gpuId"], job.gpuId) : equalsAll(["gpuId"], ""));
+}
+function historicalRecallIdentityMatchesJob(plan, job, identity) {
+    const commandId = String(identity.targetCommandId || "");
+    const workerId = String(identity.workerId || "");
+    if (!job.commandId || commandId !== job.commandId || !job.workerId || workerId !== job.workerId)
+        return false;
+    const planId = String(identity.workflowId || identity.planId || "");
+    const planFile = String(identity.planFile || identity.plan || "");
+    if (!identityAliasesMatchJob(plan, job, identity))
+        return false;
+    if (!planId && !planFile || !planId || !planFile)
+        return false;
+    const required = [identity.planRevision, identity.case ?? identity.caseName, identity.seed, identity.attempt, identity.outputDir];
+    if (required.some((value) => value === undefined || value === null || value === ""))
+        return false;
+    if (String(identity.planRevision || "") !== String(plan.revision || "")
+        || String(identity.case ?? identity.caseName) !== job.case
+        || Number(identity.seed) !== job.seed || Number(identity.attempt) !== job.attempt
+        || String(identity.outputDir) !== job.outputDir
+        || identity.planJobCount !== undefined && Number(identity.planJobCount) !== Number(plan.planJobCount || plan.jobs.length))
+        return false;
+    if (job.gpuId !== undefined && String(identity.gpuId ?? "") !== String(job.gpuId))
+        return false;
+    if (job.gpuId === undefined && identity.gpuId !== undefined && identity.gpuId !== null && String(identity.gpuId) !== "")
+        return false;
+    return true;
+}
+function historicalRecallTaskMatchesJob(plan, job, task) {
+    const commandId = String(task.commandId || task.operationId || task.opId || "");
+    const workerId = String(task.workerId || "");
+    if (!job.commandId || commandId !== job.commandId || !job.workerId || workerId !== job.workerId)
+        return false;
+    const planId = String(task.workflowId || task.planId || "");
+    const planFile = String(task.planFile || task.plan || "");
+    if (planId && planId !== plan.id || planFile && !samePlanFile(planFile, plan.planFile))
+        return false;
+    if (!planId && !planFile)
+        return false;
+    if (!identityAliasesMatchJob(plan, job, task))
+        return false;
+    const checks = [
+        [task.projectId, plan.projectId], [task.codeFingerprint, plan.codeFingerprint], [task.planRevision, plan.revision],
+        [task.experimentIndex ?? task.jobIndex, job.index], [task.runKey, job.runKey || job.commandId],
+        [task.case ?? task.caseName, job.case], [task.seed, job.seed], [task.attempt, job.attempt],
+        [task.outputDir, job.outputDir], [task.gpuId, job.gpuId],
+    ];
+    return checks.every(([observed, expected]) => observed === undefined || observed === null
+        || String(observed) === String(expected ?? ""));
+}
+function recognizedNeverStartedEvidence(value) {
+    return ["durable_queued_row", "worker_task_queued", "worker_task_pending", "worker_command_queued"].includes(String(value || ""));
+}
+function nextAttemptOutputDir(outputDir, runId) {
+    if (!/^[a-zA-Z0-9-]{8,80}$/.test(runId))
+        throw new Error("Job attempt id is invalid.");
+    const prefix = String(outputDir || "").replace(/\\/g, "/").replace(/^\.\//, "").replace(/\/+$/, "");
+    const parts = prefix.split("/");
+    if (!prefix || prefix.startsWith("/") || /^[a-zA-Z]:/.test(prefix)
+        || parts.some((part) => part === ".." || part === "." || !part || part.includes(":")))
+        throw new Error("Job output directory is invalid.");
+    const marker = prefix.lastIndexOf("/attempts/");
+    const relativeMarker = prefix.startsWith("attempts/") ? 0 : -1;
+    const base = marker >= 0 ? prefix.slice(0, marker) : relativeMarker === 0 ? "" : prefix;
+    return `${base ? `${base}/` : ""}attempts/${runId}`;
+}
 function sameDeferredPlanFile(left, right) {
+    return samePlanFile(left, right);
+}
+function sameDistributedPlanFile(left, right) {
     return samePlanFile(left, right);
 }
 function matchingActiveDeferred(queue, identity) {

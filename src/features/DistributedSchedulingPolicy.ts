@@ -45,7 +45,7 @@ export function allocateServerPrequeue(queue: DistributedQueue, workers: readonl
   let activeFingerprint = next.plans.find((plan) => plan.jobs.some((job) =>
     ["dispatching", "queued", "running", "unknown"].includes(job.status)))?.codeFingerprint;
   for (const plan of next.plans) {
-    if (schedulingMode(plan.schedulingMode) !== "server_prequeue" || plan.recoveryConflict
+    if (schedulingMode(plan.schedulingMode) !== "server_prequeue" || plan.localDispatchOverride === true || plan.recoveryConflict
       || activeFingerprint && plan.codeFingerprint !== activeFingerprint) continue;
     const eligible = workers.filter((worker) => worker.online && worker.weight > 0
       && worker.codeFingerprint === plan.codeFingerprint);
@@ -55,7 +55,8 @@ export function allocateServerPrequeue(queue: DistributedQueue, workers: readonl
     const loads = new Map<string, number>();
     for (const job of plan.jobs) if (job.workerId)
       loads.set(job.workerId, (loads.get(job.workerId) || 0) + 1);
-    for (const job of plan.jobs.filter((job) => job.status === "pending" && !job.workerId && !job.commandId)) {
+    for (const job of plan.jobs.filter((job) => job.status === "pending" && !job.workerId && !job.commandId
+      && job.localQueueOnly !== true && job.recallRequested !== true)) {
       const target = eligible.filter((worker) => Number(weights[worker.workerId]) > 0).sort((a, b) =>
         ((loads.get(a.workerId) || 0) + 1) / weights[a.workerId]
           - ((loads.get(b.workerId) || 0) + 1) / weights[b.workerId] || a.workerId.localeCompare(b.workerId))[0];

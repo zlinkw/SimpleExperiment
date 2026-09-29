@@ -97,6 +97,6 @@ test('G4 automatic postprocess stays inert and package/lock/runtime versions mat
   p.syncDistributedJobArtifacts=()=>calls++;p.rebuildDistributedResults=()=>calls++;
   p.scheduleDistributedPostprocess(root,true);assert.equal(calls,0,'G4 no automatic result transfer');
   const version=JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8')).version;
-  assert.equal(version,'0.5.182');assert.equal(JSON.parse(fs.readFileSync(path.join(root,'package-lock.json'),'utf8')).version,version);
+  assert.match(version,/^\d+\.\d+\.\d+$/);assert.equal(JSON.parse(fs.readFileSync(path.join(root,'package-lock.json'),'utf8')).version,version);
   assert.match(fs.readFileSync(path.join(root,'src/runtime/RuntimeManifest.ts'),'utf8'),new RegExp(`CURRENT_RUNTIME_VERSION = "${version.replaceAll('.','\\.')}"`));
 });

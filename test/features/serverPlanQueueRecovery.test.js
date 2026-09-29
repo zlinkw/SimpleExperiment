@@ -20,7 +20,7 @@ test("fresh durable snapshots reconstruct a cold empty local queue across config
 });
 
 test("new admission carries project identity and expected count, and requires a durable receipt", () => {
-  assert.match(extension, /durablePlanQueue: true, schedulingMode: DistributedSchedulingPolicy\.schedulingMode\(plan\.schedulingMode\)/);
+  assert.match(extension, /durablePlanQueue: true, schedulingMode: DistributedSchedulingPolicy\.schedulingMode\(\s*job\.localQueueOnly === true \|\| plan\.localDispatchOverride === true \? "local_idle" : plan\.schedulingMode\)/);
   assert.match(extension, /requireIdleGpu: gpuId !== undefined, codeManifest, projectId: plan\.projectId/);
   assert.match(extension, /planJobCount: Number\(plan\.planJobCount/);
   assert.match(extension, /receipt\?\.durableAccepted !== true/);

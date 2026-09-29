@@ -23,7 +23,10 @@ function fixture(root) {
     "durable_plan_same_identity", "gpu_row_busy", "_durable_gpu_busy_reason", "accept_durable_plan_job",
     "requeue_durable_plan_job", "release_distributed_gpu_reservation",
     "durable_plan_public_task", "fence_queued_idle_gpu_admission", "drain_durable_plan_queue_once",
-    "execute_worker_command", "action_event_fields", "handle_action", "api_worker_tasks",
+    "worker_recall_tombstones_path", "read_worker_recall_tombstones", "recalled_worker_command", "write_worker_recall_tombstone",
+    "worker_start_claims_path", "read_worker_start_claims", "worker_start_claim", "write_worker_start_claim",
+    "_legacy_recall_value", "_legacy_recall_identity", "_legacy_recall_identity_matches", "_legacy_recall_has_execution_marker",
+    "_execute_worker_command_unfenced", "execute_worker_command", "action_event_fields", "handle_action", "api_worker_tasks",
   ].map(pythonDefinition);
   const identity = source.match(/^DURABLE_PLAN_IDENTITY_FIELDS\s*=\s*\([\s\S]*?^\)/m);
   assert.ok(identity, "missing durable identity contract");
@@ -77,6 +80,7 @@ def terminal_action(root, action, operation_id, op_id, status, message, extra=No
 GPU_ROWS = [{"gpuId": "0", "utilizationPercent": 1, "memoryUsedMb": 10, "processes": []}]
 GPU_ERROR = ""
 ${identity[0]}
+LEGACY_WORKER_STOP_IDENTITY_FIELDS = ("workflowId", "planRevision", "planFile", "case", "seed", "attempt", "outputDir", "workerId", "gpuId")
 ${definitions.join("\n\n")}
 REAL_EXECUTE_WORKER_COMMAND = execute_worker_command
 def execute_worker_command(root, command, worker_id):
