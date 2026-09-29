@@ -1466,7 +1466,6 @@ function renderPanelHtml() {
       <details class="executionFullRecords" data-details-key="execution-full-records">
         <summary>高级：完整操作与任务记录</summary>
         <div id="operationList"></div>
-        <div id="taskSummary" data-anchor="execution-tasks"></div>
         <div id="taskBatchActions" class="actionGrid"></div>
         <div id="taskProgressCards" data-anchor="tasks-progress"></div>
         <div class="taskWorkbench">
@@ -1712,6 +1711,8 @@ function renderPanelHtml() {
     const TMUX_POLL_MS = 5000;
     let tmuxListBusy = false;
     let tmuxListTimeout = 0;
+    let tmuxInitialRetryTimer = 0;
+    let tmuxInitialRetryCount = 0;
     let tmuxListRequestId = 0;
     const tmuxListPendingWorkers = new Set();
     const tmuxCaptureBusy = new Set();
@@ -2026,6 +2027,7 @@ function renderPanelHtml() {
           tmuxListTimeout = 0;
           tmuxListPendingWorkers.clear();
           if (meta) meta.textContent = "会话刷新暂未收到响应，下次自动重试";
+          scheduleTmuxInitialRetry();
         }, 20000);
         vscode.postMessage({ command: "fetchTmuxList", workerId: tmuxSelectedWorkerId, allWorkers: true, background: true, requestId: tmuxListRequestId });
       } catch (e) {
@@ -2034,7 +2036,17 @@ function renderPanelHtml() {
         tmuxListBusy = false;
         tmuxListPendingWorkers.clear();
         if (meta) meta.textContent = "列举失败 " + String(e).slice(0,60);
+        scheduleTmuxInitialRetry();
       }
+    }
+    function scheduleTmuxInitialRetry() {
+      if (document.hidden || tmuxInitialRetryTimer) return;
+      const delay = Math.min(30000, 2500 * Math.pow(2, Math.min(tmuxInitialRetryCount, 4)));
+      tmuxInitialRetryCount += 1;
+      tmuxInitialRetryTimer = setTimeout(function() {
+        tmuxInitialRetryTimer = 0;
+        refreshTmuxList();
+      }, delay);
     }
     function finishTmuxListRequest(item) {
       if (!tmuxListBusy || Number(item.requestId) !== tmuxListRequestId) return;
@@ -2048,6 +2060,12 @@ function renderPanelHtml() {
       clearTimeout(tmuxListTimeout);
       tmuxListTimeout = 0;
       tmuxListBusy = false;
+      if (tmuxConfiguredWorkers.some(function(worker) { return tmuxListsByWorker[worker.id]?.ok === false; })) scheduleTmuxInitialRetry();
+      else {
+        tmuxInitialRetryCount = 0;
+        clearTimeout(tmuxInitialRetryTimer);
+        tmuxInitialRetryTimer = 0;
+      }
     }
     function tmuxResolveCaptureTarget() {
       const activeFilter = normalizeTmuxWindowFilter(tmuxWindowFilter);
@@ -2214,6 +2232,7 @@ function renderPanelHtml() {
     let serverConfigEditLockUntil = 0;
     let planPreviewEditLockUntil = 0;
     let detailsOpenState = restoredTransientPanelState.detailsOpenState || {};
+    detailsOpenState["execution-full-records"] = false;
     let workbenchInspectorInteractionLockUntil = 0;
     let workbenchInspectorLastHtml = "";
     let workbenchInspectorLastRenderAt = 0;
@@ -3511,7 +3530,10 @@ function renderPanelHtml() {
       panelHealthProbeFrameId = 0;
       panelHealthProbeScheduledAt = 0;
       panelHealthProbeLastSuccessAt = 0;
-      if (!document.hidden) schedulePanelHealthProbe();
+      if (!document.hidden) {
+        schedulePanelHealthProbe();
+        refreshTmuxList();
+      }
     });
     setupResourceTreeObserver();
     el("initialStateRetry").addEventListener("click", requestInitialPanelState);
@@ -3660,10 +3682,11 @@ function renderPanelHtml() {
           continue;
         }
         if (item.type === "tmuxList") {
-          finishTmuxListRequest(item);
+          if (item.requestId !== undefined && Number(item.requestId) !== tmuxListRequestId) continue;
           const listedWorkers = Array.isArray(item.workers) ? item.workers : [];
           if (listedWorkers.length) tmuxConfiguredWorkers = listedWorkers;
           if (item.workerId) tmuxListsByWorker[item.workerId] = { sessions: item.sessions || [], gpuIds: item.gpuIds || [], workerId: item.workerId, fetchedAt: item.fetchedAt || new Date().toLocaleTimeString(), ok: item.ok !== false, error: item.error || "" };
+          finishTmuxListRequest(item);
           if (!tmuxSelectedWorkerId || (listedWorkers.length && !listedWorkers.some(function(worker){ return worker.id === tmuxSelectedWorkerId; }))) tmuxSelectedWorkerId = item.workerId || tmuxSelectedWorkerId;
           persistWebviewState({ tmuxSelectedWorkerId: tmuxSelectedWorkerId });
           const workerSel = el("tmuxWorkerSelect");
@@ -7122,7 +7145,6 @@ function renderPanelHtml() {
 
     function taskTreeObjects() {
       return [
-        treeObjectItem("execution", "任务摘要", "入口", "", "任务运行状态汇总。", "execution-tasks", "", "任务 运行 排队 失败"),
         treeObjectItem("execution", "操作进度", "入口", "", "查看调度操作状态和 loading 终态。", "execution-operations", "", "操作 进度 已提交 执行中 失败 卡住 已完成 accepted running failed stalled completed 按钮 loading 终态"),
         treeObjectItem("execution", "任务列表", "入口", "", "查看运行中、排队、失败、停止、取消和已完成任务。", "tasks-list", "", "running testing queued pending failed stalled stopped cancelled completed"),
         treeObjectItem("execution", "任务日志", "入口", "", "展开任务行查看最新日志摘要，完整日志按任务详情入口查看。", "tasks-logs", "", "日志 tail openLog")
@@ -7132,7 +7154,6 @@ function renderPanelHtml() {
       return [
         treeObjectItem("execution", "操作列表", "入口", "", "查看已提交、执行中、已完成和异常操作。", "execution-operations", "", "已提交 执行中 已完成 异常 accepted running completed failed stalled"),
         treeObjectItem("execution", "异常操作", "入口", "", "失败或卡住的操作需要查看错误和残留。", "execution-failed", "", "失败 卡住 failed stalled"),
-        treeObjectItem("execution", "任务摘要", "入口", "", "任务运行状态汇总。", "execution-tasks", "", "任务 运行 排队 失败"),
         treeObjectItem("execution", "任务列表", "入口", "", "查看运行中、排队、失败、停止、取消和已完成任务。", "tasks-list", "", "running testing queued pending failed stalled stopped cancelled completed"),
         treeObjectItem("execution", "按钮终态", "入口", "", "确认耗时按钮在完成、失败、取消或超时后恢复可点击。", "execution-terminal", "", "按钮 加载 终态 loading terminal uiCommandStatus completed failed cancelled stalled")
       ];
@@ -13756,45 +13777,6 @@ function renderPanelHtml() {
       const scope = view.scope;
       const rows = view.rows;
       const taskView = view.taskView;
-      const counts = taskView.counts;
-      const versionCount = scope.selectedCount;
-      const scopeBar = scope.selectedPlanFile
-        ? '<div class="taskScopeBar"><span class="muted">任务范围</span><div class="taskScopeSwitch" role="group" aria-label="任务范围">' +
-            '<button type="button" data-task-plan-scope="selected" title="只显示当前版本的运行任务" class="' + (scope.scoped ? "is-active" : "") + '" aria-pressed="' + (scope.scoped ? "true" : "false") + '">当前版本 ' + versionCount + '</button>' +
-            '<button type="button" data-task-plan-scope="all" title="显示全部运行任务（含其他 Plan）" class="' + (!scope.scoped ? "is-active" : "") + '" aria-pressed="' + (!scope.scoped ? "true" : "false") + '">全部任务 ' + scope.totalCount + '</button>' +
-          '</div><span class="muted" title="' + escAttr(scope.selectedPlanFile + (scope.selectedPlanRevision ? " · " + scope.selectedPlanRevision : "")) + '">' + esc(compactPath(scope.selectedPlanFile)) + (scope.selectedPlanRevision ? ' · ' + esc(compactIdentifier(scope.selectedPlanRevision)) : '') + '</span></div>'
-        : '<div class="taskScopeBar"><span class="muted">未选择 Plan，显示全部任务。</span></div>';
-      const distributedPlans = (Array.isArray(state.distributedPlans) ? state.distributedPlans : []).filter((plan) => {
-        const active = distributedPlanRecoveryView(plan).unresolved || (Array.isArray(plan.jobs) ? plan.jobs : []).some((job) => ["pending", "dispatching", "queued", "running", "unknown"].includes(String(job.status || "").toLowerCase()));
-        return !state.executionHistoryCutoffs || executionHistoryRowVisible(state, { startedAt: plan.enqueuedAt }, plan.planFile, active);
-      });
-      const currentPlanKey = normalizePlanSelectionKey(scope.selectedPlanFile || "");
-      const currentDistributed = distributedPlans.filter((plan) => currentPlanKey && samePlanSelection(plan.planFile || "", scope.selectedPlanFile));
-      const otherDistributed = distributedPlans.filter((plan) => !currentDistributed.includes(plan));
-      const renderDistributedGroup = (plans, heading, explanation) => plans.length
-        ? '<section class="taskRecordGroup"><h3>' + esc(heading) + '</h3><p class="muted">' + esc(explanation) + '</p><div class="summaryLine">' + plans.map((plan) => {
-            const jobs = Array.isArray(plan.jobs) ? plan.jobs : [];
-            const counts = {};
-            jobs.forEach((job) => { const key = String(job.status || "unknown"); counts[key] = (counts[key] || 0) + 1; });
-            const detail = Object.keys(counts).map((key) => key + ' ' + counts[key]).join(' · ');
-            const mismatched = jobs.filter((job) => String(job.blockReason || '').indexOf('代码指纹不匹配') === 0);
-            const waiting = jobs.filter((job) => String(job.blockReason || '').indexOf('等待当前代码版本') === 0);
-            const blockNote = (mismatched.length ? ' · 代码指纹不匹配 ' + mismatched.length : '') + (waiting.length ? ' · 等待当前版本 ' + waiting.length : '');
-            return '<div class="taskRecordRow"><span class="pill" title="' + escAttr(jobs.map((job) => job.case + ' seed ' + job.seed + ' · ' + job.status + ' · ' + (job.workerId || '待分配') + (job.blockReason ? ' · ' + job.blockReason : '') + (job.artifactError ? ' · ' + job.artifactError : '')).join(String.fromCharCode(10))) + '">'
-              + esc(compactPath(plan.planFile)) + ' · 版本 ' + esc(compactIdentifier(plan.revision || "-")) + ' · ' + esc(detail) + esc(blockNote) + '</span>'
-              + (mismatched.length ? '<span class="muted">代码指纹不匹配：Worker 已是其他代码版本，该 Plan 仍保留为排队。请用当前代码重新提交，或恢复提交前的代码并重新同步 Worker 后再继续。不会自动失败、取消或重发。</span>' : '')
-              + (waiting.length ? '<span class="muted">等待当前代码版本的任务结束后再派发；Worker 仍有该 Plan 的代码版本，任务保留为排队。</span>' : '')
-              + '<div class="taskRecoveryActions">' + jobs.filter((job) => job.status === 'failed' || job.status === 'unknown').map((job) =>
-                '<button type="button" data-distributed-retry="' + escAttr(plan.id) + '" data-job-index="' + Number(job.index) + '" title="这是失败或待核实 job 的恢复入口，不是新的提交。核实原任务停止、保存已有产物后建立新 attempt">恢复 ' + esc(job.case) + ' seed ' + Number(job.seed) + '</button>').join('') + '</div></div>';
-          }).join('') + '</div></section>' : '';
-      const currentDistributedHtml = renderDistributedGroup(currentDistributed, "当前 Plan 的调度记录", "这些 job 属于正在查看的 Plan。数量为 0 只表示还没有调度回传，不代表没有提交。");
-      const historyDistributedHtml = renderDistributedGroup(otherDistributed, "其他 Plan 的历史与待处理记录", "这些行来自其他 Plan 或旧运行，不是当前 Plan 的 job。失败行上的“恢复”只重试那一个历史 job。");
-      const currentEmptyNote = !rows.length && currentDistributed.length
-        ? '<div class="notice">当前版本调度 job 数为 0。请到运行进度查看这次是否未提交，或查看其他 Plan 的历史记录。这些记录不是当前 Plan 的运行 job。</div>' : '';
-      let taskSummaryHtml = scopeBar + currentDistributedHtml + historyDistributedHtml + currentEmptyNote + renderTaskPlanCompletionNext(state, scope) + (rows.length
-        ? '<div class="summaryLine">' + Object.keys(counts).map((key) => '<span class="pill ' + statusClass(key) + '" title="' + escAttr("原始状态：" + key) + '">' + esc(taskStatusLabel(key)) + ' ' + counts[key] + '</span>').join("") + '</div>'
-        : '<div class="muted">' + (scope.scoped ? "当前 Plan 暂无调度回传的 job。若刚才被旧版本挡住，运行进度会显示“未提交”。到实验准备的 Plan 列表手动选中后，再点“校验并提交运行”。" : "暂无任务数据。") + '</div>');
-      setHtmlIfChanged("taskSummary", taskSummaryHtml);
       const selectedRows = taskView.selectedRows;
       renderTaskBatchActions(state, rows, selectedRows);
       setHtmlIfChanged("taskProgressCards", "");

@@ -40,7 +40,10 @@ test("panel html has primary realtime sections", () => {
   for (const text of ["GPU 状态", "任务运行状态", "实验记录", "操作进度", "实时日志", "能力状态", "诊断"]) {
     assert.match(html, new RegExp(text));
   }
-  for (const id of ["gpuSummary", "gpuGrid", "taskSummary", "taskTable", "operationList"]) {
+  for (const id of ["gpuSummary", "gpuGrid", "taskTable", "operationList"]) {
     assert.match(html, new RegExp(`id="${id}"`), id);
   }
+  assert.doesNotMatch(html, /id="taskSummary"|当前 Plan 的调度记录|其他 Plan 的历史与待处理记录/);
+  assert.match(html, /detailsOpenState\["execution-full-records"\] = false/);
+  assert.match(html, /<details class="executionFullRecords" data-details-key="execution-full-records">/);
 });

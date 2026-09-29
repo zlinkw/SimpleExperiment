@@ -9172,15 +9172,25 @@ export class RealtimeTunnelPanelProvider {
             const dispatches = [...allocation.dispatches, ...hosted.dispatches, ...hostedRetries.filter((retry) =>
                 !hosted.dispatches.some((item) => item.commandId === retry.commandId))];
             if (dispatches.length) await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
-            for (const dispatch of dispatches) {
-                if (!queueWriteCurrent()) return;
+            const responses = await Promise.all(dispatches.map(async (dispatch) => {
                 const plan = queue.plans.find((item) => item.id === dispatch.planId);
                 const job = plan?.jobs.find((item) => item.index === dispatch.jobIndex && item.attempt === dispatch.attempt);
+                if (!plan || !job) return { dispatch, plan, job };
+                const gpuId = "gpuId" in dispatch ? dispatch.gpuId as string : undefined;
+                try {
+                    const receipt: any = await this.sendDistributedJob(plan, job, dispatch.workerId, gpuId, dispatch.commandId);
+                    return { dispatch, plan, job, gpuId, receipt };
+                } catch (error) {
+                    return { dispatch, plan, job, gpuId, error };
+                }
+            }));
+            if (!queueWriteCurrent()) return;
+            for (const response of responses) {
+                const { dispatch, plan, job, gpuId } = response;
                 if (!plan || !job) continue;
                 try {
-                    const gpuId = "gpuId" in dispatch ? dispatch.gpuId as string : undefined;
-                    const receipt: any = await this.sendDistributedJob(plan, job, dispatch.workerId, gpuId, dispatch.commandId);
-                    if (!queueWriteCurrent()) return;
+                    if ("error" in response) throw response.error;
+                    const receipt: any = response.receipt;
                     const status = String(receipt?.status || "").toLowerCase();
                     const rejectedBusy = receipt?.durableAccepted === false && receipt?.admissionRejected === true
                         && status === "pending" && String(receipt?.reason || "") === "gpu_busy"
@@ -9203,12 +9213,10 @@ export class RealtimeTunnelPanelProvider {
                         if (["completed", "failed"].includes(job.status)) newTerminal = true;
                     }
                 } catch (error) {
-                    if (!queueWriteCurrent()) return;
                     job.status = "unknown";
                     job.blockReason = `持久队列接收回执未确认，保留原 Worker、GPU 和 commandId：${errorMessage(error)}`;
                     this.recordActionError({ command: "distributedPlanQueue", message: `${plan.planFile} job ${job.index}：${job.blockReason}` });
                 }
-                await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
             }
             if (queueWriteCurrent()) await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
             if (newTerminal || Date.now() >= this.distributedNextPostprocessAt) {
@@ -9286,28 +9294,40 @@ export class RealtimeTunnelPanelProvider {
             this.postState();
             return;
         }
-        for (const dispatch of allocation.dispatches) {
+        const launches = await Promise.all(allocation.dispatches.map(async (dispatch) => {
             const plan = queue.plans.find((item) => item.id === dispatch.planId);
             const job = plan?.jobs.find((item) => item.index === dispatch.jobIndex);
-            if (!plan || !job || !queueWriteCurrent()) continue;
+            if (!plan || !job || !queueWriteCurrent()) return { dispatch, plan, job };
             const launchKey = `${plan.id}\0${job.index}\0${job.attempt}`;
             this.distributedLaunchInFlight.add(launchKey);
             try {
                 const started: any = await this.sendDistributedJob(plan, job, dispatch.workerId, dispatch.gpuId, dispatch.commandId);
-                if (!queueWriteCurrent()) continue;
+                return { dispatch, plan, job, started };
+            } catch (error) {
+                return { dispatch, plan, job, error };
+            } finally {
+                this.distributedLaunchInFlight.delete(launchKey);
+            }
+        }));
+        if (!queueWriteCurrent()) {
+            this.postState();
+            return;
+        }
+        for (const launch of launches) {
+            const { dispatch, plan, job } = launch;
+            if (!plan || !job) continue;
+            try {
+                if ("error" in launch) throw launch.error;
+                const started: any = launch.started;
                 if (started?.status !== "completed") throw new Error(String(started?.message || "Worker 未确认启动"));
                 queue = DistributedPlanQueue.setJobState(queue, plan.id, job.index, "running", dispatch.commandId);
             } catch (error) {
-                if (!queueWriteCurrent()) continue;
                 if (error instanceof RequestBudget_1.RequestBudgetDeniedError) {
                     queue = DistributedPlanQueue.resetUnsentDispatch(queue, plan.id, job.index, dispatch.commandId);
                 } else {
                     queue = DistributedPlanQueue.setJobState(queue, plan.id, job.index, "unknown", dispatch.commandId);
                     this.recordActionError({ command: "distributedPlanQueue", message: `${plan.planFile} job ${job.index}：${errorMessage(error)}；状态待核实，禁止自动重派。` });
                 }
-            }
-            finally {
-                this.distributedLaunchInFlight.delete(launchKey);
             }
             if (!queueWriteCurrent()) {
                 this.postState();

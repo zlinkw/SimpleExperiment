@@ -29,15 +29,24 @@ test("tmux overview requests and retains all Worker session lists", () => {
 
 test("tmux refresh releases only after every Worker replies and ignores stale replies", () => {
   const html = renderPanelHtml();
-  const start = html.indexOf("function finishTmuxListRequest(item)");
+  const start = html.indexOf("function scheduleTmuxInitialRetry()");
   const end = html.indexOf("function tmuxResolveCaptureTarget", start);
   assert.ok(start >= 0 && end > start);
   const cleared = [];
+  const refreshes = [];
+  let retry;
   const sandbox = {
     tmuxListBusy: true,
     tmuxListRequestId: 2,
     tmuxListPendingWorkers: new Set(),
     tmuxListTimeout: 12,
+    tmuxInitialRetryCount: 0,
+    tmuxInitialRetryTimer: 0,
+    tmuxConfiguredWorkers: [{ id: "nwpu2" }, { id: "nwpu3" }],
+    tmuxListsByWorker: { nwpu2: { ok: false }, nwpu3: { ok: false } },
+    document: { hidden: false },
+    setTimeout: (callback) => { retry = callback; return 13; },
+    refreshTmuxList: () => refreshes.push("retry"),
     clearTimeout: (id) => cleared.push(id),
   };
   vm.runInNewContext(html.slice(start, end), sandbox);
@@ -50,6 +59,9 @@ test("tmux refresh releases only after every Worker replies and ignores stale re
   sandbox.finishTmuxListRequest({ requestId: 2, workerId: "nwpu3", workers, ok: false });
   assert.equal(sandbox.tmuxListBusy, false);
   assert.deepEqual(cleared, [12]);
+  assert.equal(sandbox.tmuxInitialRetryCount, 1, "initial failures retry without a Worker click");
+  retry();
+  assert.deepEqual(refreshes, ["retry"]);
 });
 
 test("Worker switch immediately replaces stale pane and capture state", () => {

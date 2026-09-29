@@ -36,6 +36,7 @@ test('G1 actual host tick only dispatches idle NWPU3, persists identity before R
   p.recordActionError=()=>{};p.postState=()=>{};p.scheduleDistributedPostprocess=()=>{};
   p.readWorkerTaskSnapshot=async workerId=>({workerId,generatedAt:new Date().toISOString(),fetchedAt:new Date().toISOString(),
     capabilities:{durablePlanQueue:true,idleGpuAdmission:true,schemaVersion:1},tasks:[]});
+  p.readWorkerTaskSnapshotBatch=async workerIds=>Promise.all(workerIds.map(p.readWorkerTaskSnapshot));
   p.client={getGpu:async()=>({nwpu3:[{index:'0',utilizationPercent:0,memoryUsedMb:7,processes:[]}],
     nwpu5:[{index:'0',utilizationPercent:99,memoryUsedMb:5000,processes:[{username:'alice'}]}]})};
   let stored;let calls=[];
@@ -54,7 +55,21 @@ test('G1 actual host tick only dispatches idle NWPU3, persists identity before R
   stored=make('local_idle');await p.tickDistributedQueueCore();
   assert.equal(calls.length,1,'G1 busy NWPU5 must receive no default dispatch');assert.equal(calls[0].workerId,'nwpu3');assert.equal(calls[0].gpuId,'0');
   assert.equal(stored.plans[0].jobs[1].workerId,undefined);
-  stored=make('server_prequeue');calls=[];await p.tickDistributedQueueCore();
+  stored=make('server_prequeue');calls=[];
+  const send = p.sendDistributedJob;
+  let releaseFirst;
+  const firstReceipt = new Promise(resolve => { releaseFirst = resolve; });
+  p.sendDistributedJob = async (...args) => {
+    const receipt = await send(...args);
+    if (args[1].index === 0) await firstReceipt;
+    return receipt;
+  };
+  const dispatching = p.tickDistributedQueueCore();
+  try {
+    for (let attempt = 0; attempt < 10 && calls.length < 2; attempt++) await new Promise(setImmediate);
+    assert.equal(calls.length, 2, 'a slow first receipt must not block the second dispatch');
+  } finally { releaseFirst(); }
+  await dispatching;
   assert.equal(calls.length,2);assert.deepEqual(calls.map(row=>row.workerId).sort(),['nwpu3','nwpu5']);
   assert.ok(calls.every(row=>row.gpuId===undefined));assert.ok(stored.plans[0].jobs.every(row=>row.status==='queued'));
 });

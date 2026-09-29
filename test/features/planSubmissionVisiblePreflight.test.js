@@ -113,6 +113,7 @@ function provider() {
     if (supersededDeferredId) {
       host.distributedQueueCache.deferred = (host.distributedQueueCache.deferred || []).map((row) => row.id === supersededDeferredId ? { ...row, status: "superseded" } : row);
     }
+    return { enqueued: true, localQueued: true, pendingCount: 0 };
   };
   host.assertExecutionCondaEnvReady = () => {};
   host.workerActionTargets = () => [];
@@ -197,9 +198,8 @@ test("old fingerprint holds before sync and does not claim output confirmation",
   assert.match(host.localOperations["plan-submit-click-drf"].message, /校验并提交运行/);
   assert.doesNotMatch(host.localOperations["plan-submit-click-drf"].message, /继续提交/);
   const html = renderTask({ planFileInput: drf, distributedPlans: [], deferredPlans: [], schedulerStates: [] });
-  assert.match(html.taskSummary, /未提交/);
-  assert.match(html.taskSummary, /校验并提交运行/);
-  assert.doesNotMatch(html.taskSummary, /继续提交|代码版本排队/);
+  assert.equal(html.taskSummary, undefined);
+  assert.match(html.taskTable, /当前 Plan 尚无可显示任务/);
 });
 
 test("distributed submission holds an old fingerprint before sync and renders that queue row", async () => {
@@ -218,7 +218,7 @@ test("distributed submission holds an old fingerprint before sync and renders th
   assert.match(progress.executionPlanList, /drf/);
   assert.match(progress.executionPlanList, /未提交|cancelled/);
   const tasks = renderTask(webviewState(host));
-  assert.doesNotMatch(tasks.taskSummary, /继续提交|代码版本排队|data-deferred-plan-id/);
+  assert.equal(tasks.taskSummary, undefined);
   const hidden = renderExecution({ ...webviewState(host), deferredPlans: [{ id: "old-deferred", planFile: drf, status: "pending", reason: "等待旧代码版本", waitingForPlanFile: "old.yaml" }] });
   assert.doesNotMatch(hidden.executionPlanList, /old-deferred|data-deferred-plan-id/);
   assert.match(hidden.executionPlanList, /data-command="runPlan" data-plan-file="experiments\/plans\/comparison\/drf.yaml"[^>]*>继续提交/);
@@ -476,10 +476,8 @@ test("deferred replay keeps the saved skip choice and blocks a changed fingerpri
   host.distributedQueueCache.deferred = [{ ...deferred, status: "superseded", supersededBy: "manual-rerun-policy", error: "跨代码版本自动接续已废止" }];
   const html = renderTask({ planFileInput: drf, distributedPlans: [{ id: "old", planFile: "experiments/plans/old.yaml", revision: "r0", jobs: [{ index: 1, case: "pad", seed: 7, status: "failed" }] }],
     deferredPlans: host.distributedQueueCache.deferred, schedulerStates: [] });
-  assert.doesNotMatch(html.taskSummary, /继续提交|代码版本排队/);
-  assert.match(html.taskSummary, /其他 Plan 的历史与待处理记录/);
-  assert.match(html.taskSummary, /恢复 pad seed 7/);
-  assert.doesNotMatch(html.taskSummary.split("其他 Plan 的历史与待处理记录")[0], /恢复 pad seed 7/);
+  assert.equal(html.taskSummary, undefined);
+  assert.doesNotMatch(html.taskTable, /其他 Plan 的历史与待处理记录|恢复 pad seed 7/);
 });
 
 test("plan check acceptance follows the real validate payload", () => {
@@ -552,11 +550,11 @@ function progressState(host) {
 }
 
 function renderExecution(state) {
-  return renderPanel(["executionPlanGroupKey", "executionCurrentDistributedJobs", "executionSubmissionLabel", "executionNewerSubmission", "executionDeferredView", "operationIsActive", "operationIsFailureLike", "operationHasDeadEvidence", "renderExecutionPlanList"], state, ["executionPlanList"]);
+  return renderPanel(["distributedPlanRecoveryView", "executionPlanGroupKey", "executionCurrentDistributedJobs", "executionSubmissionLabel", "executionNewerSubmission", "executionDeferredView", "operationIsActive", "operationIsFailureLike", "operationHasDeadEvidence", "renderExecutionPlanList"], state, ["executionPlanList"]);
 }
 
 function renderTask(state) {
-  return renderPanel(["taskSectionViewModelForState", "renderTaskSection"], state, ["taskSummary"]);
+  return renderPanel(["taskSectionViewModelForState", "renderTaskSection"], state, ["taskTable"]);
 }
 
 function renderPanel(names, state, ids) {
