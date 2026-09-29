@@ -74,6 +74,110 @@ test("a request blocked locally returns to the queue without losing its job", ()
   assert.equal(queue.allocateAvailable(reset, [{ workerId: "nwpu3", idleGpuIds: ["1"], online: true }]).dispatches.length, 1);
 });
 
+test("an explicit idle GPU admission rejection releases only the matching reservation", () => {
+  const input = queue.enqueuePlan(queue.emptyDistributedQueue(), { ...plan("busy"), jobs: [
+    { index: 0, case: "bus", seed: 42, outputDir: "work_dirs/busy/bus/attempts/run-a" },
+  ] }, "run-busy");
+  const allocation = queue.allocateAvailable(input, [{ workerId: "nwpu5", idleGpuIds: ["2"], online: true }]);
+  const dispatch = allocation.dispatches[0];
+  const planRow = allocation.queue.plans[0];
+  const job = planRow.jobs[0];
+  const rejected = { durableAccepted: false, admissionRejected: true, status: "pending", reason: "gpu_busy",
+    commandId: dispatch.commandId, workerId: dispatch.workerId, gpuId: dispatch.gpuId, workflowId: planRow.id,
+    planFile: planRow.planFile, planRevision: planRow.revision, case: job.case, seed: job.seed,
+    attempt: job.attempt, outputDir: job.outputDir };
+  const reset = queue.resetBusyRejectedDispatch(allocation.queue, dispatch, rejected);
+  assert.equal(reset.plans[0].jobs[0].status, "pending");
+  assert.equal(reset.plans[0].jobs[0].workerId, undefined);
+  assert.equal(reset.plans[0].jobs[0].commandId, undefined);
+  assert.deepEqual(queue.resetBusyRejectedDispatch(allocation.queue, dispatch, { ...rejected, durableAccepted: true }), allocation.queue);
+  assert.deepEqual(queue.resetBusyRejectedDispatch(allocation.queue, dispatch, { ...rejected, gpuId: "0" }), allocation.queue);
+});
+
+test("queued reassignment requires an exact atomic release proof and advances the attempt", () => {
+  const input = queue.enqueuePlan(queue.emptyDistributedQueue(), { ...plan("release"), jobs: [
+    { index: 0, case: "bus", seed: 42, outputDir: "work_dirs/release/bus/attempts/run-old" },
+  ] }, "run-release");
+  const allocation = queue.allocateAvailable(input, [{ workerId: "nwpu5", idleGpuIds: ["2"], online: true }]);
+  const dispatch = allocation.dispatches[0];
+  let accepted = queue.setJobState(allocation.queue, "run-release", 0, "queued", dispatch.commandId);
+  accepted.plans[0].jobs[0].reassignmentPending = true;
+  const planRow = accepted.plans[0];
+  const job = planRow.jobs[0];
+  const release = { durableReleased: true, durableAccepted: true, status: "cancelled", stopReason: "requeue",
+    commandId: job.commandId, targetCommandId: job.commandId, workerId: job.workerId, gpuId: job.gpuId,
+    workflowId: planRow.id, projectId: planRow.projectId, planRevision: planRow.revision, codeFingerprint: planRow.codeFingerprint,
+    planJobCount: planRow.planJobCount, planFile: planRow.planFile, experimentIndex: job.index, case: job.case,
+    seed: job.seed, attempt: job.attempt, outputDir: job.outputDir, runKey: job.runKey, finishedAt: "2026-09-29T12:00:00.000Z" };
+  const migrated = queue.releaseQueuedForReassignment(accepted, planRow.id, job.index, release, "run-next");
+  const next = migrated.plans[0].jobs[0];
+  assert.equal(next.status, "pending");
+  assert.equal(next.attempt, 2);
+  assert.equal(next.workerId, undefined);
+  assert.equal(next.commandId, undefined);
+  assert.equal(next.outputDir, "work_dirs/release/bus/attempts/run-next");
+  assert.equal(next.history[0].status, "cancelled");
+  assert.equal(next.history[0].stopReason, "requeue");
+  assert.equal(next.history[0].finishedAt, release.finishedAt);
+  assert.equal(next.history[0].commandId, job.commandId);
+  for (const invalid of [{ ...release, durableReleased: false }, { ...release, stopReason: "scheduler_aborted" }, { ...release, attempt: 2 }]) {
+    assert.throws(() => queue.releaseQueuedForReassignment(accepted, planRow.id, job.index, invalid, "run-next"));
+  }
+  assert.throws(() => queue.releaseQueuedForReassignment(accepted, planRow.id, job.index, { ...release, planJobCount: 99 }, "run-next"));
+  assert.throws(() => queue.releaseQueuedForReassignment(allocation.queue, planRow.id, job.index, release, "run-next"));
+});
+
+test("idle GPU evidence fails closed for missing process, memory, utilization, or server rows", () => {
+  const valid = { index: "0", utilizationPercent: 1, memoryUsedMb: 50, processCount: 0 };
+  const complete = queue.freshIdleGpuEvidence({ nwpu3: [valid], nwpu5: [valid] }, ["nwpu3", "nwpu5"], 5, 200);
+  assert.equal(complete.complete, true);
+  assert.deepEqual(complete.idleGpuIdsByWorker.get("nwpu3"), ["0"]);
+  assert.equal(queue.freshIdleGpuEvidence({ nwpu3: [valid] }, ["nwpu3", "nwpu5"], 5, 200).complete, false);
+  assert.equal(queue.freshIdleGpuEvidence({ nwpu3: [{ ...valid, processCount: 1 }] }, ["nwpu3"], 5, 200)
+    .idleGpuIdsByWorker.get("nwpu3").length, 0);
+  assert.equal(queue.freshIdleGpuEvidence({ nwpu3: [{ ...valid, processes: [{ pid: 99 }] }] }, ["nwpu3"], 5, 200)
+    .idleGpuIdsByWorker.get("nwpu3").length, 0);
+  assert.equal(queue.freshIdleGpuEvidence({ nwpu3: [{ index: "0", utilizationPercent: 1, memoryUsedMb: 50 }] }, ["nwpu3"], 5, 200).complete, false);
+  assert.equal(queue.freshIdleGpuEvidence({ nwpu3: [{ ...valid, utilizationPercent: "" }] }, ["nwpu3"], 5, 200).complete, false);
+  assert.equal(queue.freshIdleGpuEvidence({ nwpu3: [{ ...valid, processCount: -1 }] }, ["nwpu3"], 5, 200).complete, false);
+});
+
+test("crash before send retries the same pinned command only after fresh owner evidence", () => {
+  const input = queue.enqueuePlan(queue.emptyDistributedQueue(), { ...plan("crash"), jobs: [
+    { index: 0, case: "bus", seed: 42, outputDir: "work_dirs/crash/bus/attempts/run-a" },
+  ] }, "run-crash");
+  const allocated = queue.allocateAvailable(input, [{ workerId: "nwpu3", idleGpuIds: ["0"], online: true }]);
+  const dispatch = allocated.dispatches[0];
+  const now = Date.now();
+  const snapshot = { workerId: dispatch.workerId, capabilities: { durablePlanQueue: true, idleGpuAdmission: true, schemaVersion: 1 },
+    generatedAt: new Date(now).toISOString(), fetchedAt: new Date(now).toISOString(), tasks: [] };
+  assert.deepEqual(queue.retryPinnedDispatch(allocated.queue, dispatch.planId, dispatch.jobIndex, snapshot, [dispatch.gpuId], now), dispatch);
+  assert.equal(queue.retryPinnedDispatch(allocated.queue, dispatch.planId, dispatch.jobIndex, snapshot, [], now), undefined);
+  const job = allocated.queue.plans[0].jobs[0];
+  const acceptedTask = { ...job, workflowId: allocated.queue.plans[0].id, planFile: allocated.queue.plans[0].planFile,
+    planRevision: allocated.queue.plans[0].revision, codeFingerprint: allocated.queue.plans[0].codeFingerprint,
+    projectId: allocated.queue.plans[0].projectId, planJobCount: allocated.queue.plans[0].planJobCount,
+    experimentIndex: job.index, workerId: job.workerId, runKey: job.runKey, status: "queued" };
+  assert.equal(queue.retryPinnedDispatch(allocated.queue, dispatch.planId, dispatch.jobIndex,
+    { ...snapshot, tasks: [acceptedTask] }, [dispatch.gpuId], now), undefined);
+  assert.equal(queue.retryPinnedDispatch(allocated.queue, dispatch.planId, dispatch.jobIndex,
+    { ...snapshot, fetchedAt: new Date(now - 181_000).toISOString() }, [dispatch.gpuId], now), undefined);
+});
+
+test("fresh idle GPU slots skip a saturated earlier Worker and never reserve busy cards", () => {
+  const input = queue.enqueuePlan(queue.emptyDistributedQueue(), { ...plan("late-bind"), jobs: [
+    { index: 0, case: "bus", seed: 42, outputDir: "work_dirs/late-bind/bus/attempts/run-a" },
+    { index: 1, case: "bus", seed: 43, outputDir: "work_dirs/late-bind/bus/attempts/run-b" },
+  ] }, "run-late-bind");
+  const result = queue.allocateAvailable(input, [
+    { workerId: "nwpu5", idleGpuIds: [], online: true, capacity: 8, codeFingerprint: "code-a" },
+    { workerId: "nwpu3", idleGpuIds: ["0", "2"], online: true, capacity: 1, codeFingerprint: "code-a" },
+  ]);
+  assert.deepEqual(result.dispatches.map(({ workerId, gpuId }) => [workerId, gpuId]), [["nwpu3", "0"]]);
+  assert.equal(result.queue.plans[0].jobs[1].status, "pending");
+  assert.equal(result.queue.plans[0].jobs[1].workerId, undefined);
+});
+
 test("local preflight previews the same slots without modifying the persisted queue", () => {
   const input = queue.enqueuePlan(queue.emptyDistributedQueue(), plan("a"), "run-a");
   const workers = [{ workerId: "nwpu2", idleGpuIds: ["0", "1", "2", "3", "4", "5", "6"], online: true }];
@@ -222,6 +326,48 @@ test("cold recovery ignores old agents, stale snapshots, and another project", (
     { ...base, capabilities: { durablePlanQueue: true, schemaVersion: 1 }, tasks: [{ ...task, projectId: `${projectId}-other` }] },
   ], projectId, now);
   assert.deepEqual(recovered.plans, []);
+});
+
+test("cold recovery keeps a released older attempt as provenance without replacing the newer pending attempt", () => {
+  const now = Date.now();
+  const projectId = queue.canonicalProjectId("C:/research/project");
+  const input = queue.enqueuePlan(queue.emptyDistributedQueue(), { projectId, planJobCount: 1,
+    planFile: "experiments/plans/a.yaml", revision: "rev-a", codeFingerprint: "code-a", jobs: [
+      { index: 0, case: "case-a", seed: 7, outputDir: "runs/a/attempts/run-new" },
+    ] }, "workflow-a");
+  input.plans[0].jobs[0].attempt = 2;
+  const old = { projectId, workflowId: "workflow-a", planFile: "experiments/plans/a.yaml", planRevision: "rev-a",
+    codeFingerprint: "code-a", planJobCount: 1, enqueuedAt: new Date(now).toISOString(), experimentIndex: 0,
+    case: "case-a", seed: 7, attempt: 1, outputDir: "runs/a/attempts/run-old", runKey: "command-old",
+    commandId: "command-old", workerId: "worker-a", status: "cancelled", stopReason: "requeue", finishedAt: new Date(now).toISOString() };
+  const recovered = queue.mergeDurableWorkerSnapshots(input, [{ workerId: "worker-a",
+    capabilities: { durablePlanQueue: true, schemaVersion: 1 }, generatedAt: new Date(now).toISOString(),
+    fetchedAt: new Date(now).toISOString(), tasks: [old] }], projectId, now);
+  const job = recovered.plans[0].jobs.find((row) => row.attempt === 2);
+  assert.equal(job.status, "pending");
+  assert.equal(job.workerId, undefined);
+  assert.equal(job.history[0].status, "cancelled");
+  assert.equal(job.history[0].stopReason, "requeue");
+});
+
+test("a delayed old queued row contradicting release fences the plan", () => {
+  const now = Date.now();
+  const projectId = queue.canonicalProjectId("C:/research/project");
+  const input = queue.enqueuePlan(queue.emptyDistributedQueue(), { projectId, planJobCount: 1,
+    planFile: "experiments/plans/a.yaml", revision: "rev-a", codeFingerprint: "code-a", jobs: [
+      { index: 0, case: "case-a", seed: 7, outputDir: "runs/a/attempts/run-new" },
+    ] }, "workflow-a");
+  input.plans[0].jobs[0].attempt = 2;
+  input.plans[0].jobs[0].history = [{ attempt: 1, status: "cancelled", workerId: "worker-a", commandId: "command-old",
+    outputDir: "runs/a/attempts/run-old", stopReason: "requeue" }];
+  const old = { projectId, workflowId: "workflow-a", planFile: "experiments/plans/a.yaml", planRevision: "rev-a",
+    codeFingerprint: "code-a", planJobCount: 1, enqueuedAt: new Date(now).toISOString(), experimentIndex: 0,
+    case: "case-a", seed: 7, attempt: 1, outputDir: "runs/a/attempts/run-old", runKey: "command-old",
+    commandId: "command-old", workerId: "worker-a", status: "queued" };
+  const recovered = queue.mergeDurableWorkerSnapshots(input, [{ workerId: "worker-a",
+    capabilities: { durablePlanQueue: true, schemaVersion: 1 }, generatedAt: new Date(now).toISOString(),
+    fetchedAt: new Date(now).toISOString(), tasks: [old] }], projectId, now);
+  assert.match(recovered.plans[0].recoveryConflict, /overlapping or contradictory/);
 });
 
 test("contradictory fresh server copies make the job unknown instead of selecting a winner", () => {
