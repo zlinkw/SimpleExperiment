@@ -101,15 +101,15 @@ test("result buttons sync to project results directory with stable Plan and Work
     projectFinalCsvPath: "simple_cluster/results/project_final.csv",
     projectFinalMarkdownPath: "simple_cluster/results/project_final.md",
   };
-  assert.equal(target(summary.rawResultCsvPath, plan, summary), "experiments/results/concatenation/raw/concatenation_seed.csv");
-  assert.equal(target(summary.aggregateCsvPath, plan, summary), "experiments/results/concatenation/detail/concatenation_seed_mean_std.csv");
-  assert.equal(target(summary.projectAggregateCsvPath, plan, summary), "experiments/results/concatenation/detail/worker_project_seed_mean_std.csv");
-  assert.equal(target(summary.finalCsvPath, plan, summary), "experiments/results/concatenation/trace/concatenation_final.csv");
-  assert.equal(target(summary.finalMarkdownPath, plan, summary), "experiments/results/concatenation/trace/concatenation_final.md");
-  assert.equal(target(summary.projectFinalCsvPath, plan, summary), "experiments/results/concatenation/trace/worker_project_final.csv");
-  assert.equal(target(summary.projectFinalMarkdownPath, plan, summary), "experiments/results/concatenation/trace/worker_project_final.md");
-  assert.equal(target(summary.aggregateCsvPath, plan, { workerResultTables: [{ workerId: "nwpu3", aggregateCsvPath: summary.aggregateCsvPath }] }, "experiments/results", "nwpu3"), "experiments/results/concatenation/detail/nwpu3/concatenation_seed_mean_std.csv");
-  assert.match(target("simple_cluster/results/effective.csv", plan, summary), /^experiments\/results\/concatenation\/trace\/concatenation_effective_[a-f0-9]{8}\.csv$/);
+  for (const [field, kind] of [["rawResultCsvPath", "raw"], ["aggregateCsvPath", "detail"], ["projectAggregateCsvPath", "detail"], ["finalCsvPath", "trace"], ["finalMarkdownPath", "trace"], ["projectFinalCsvPath", "trace"], ["projectFinalMarkdownPath", "trace"]]) {
+    assert.match(target(summary[field], plan, summary), new RegExp("^experiments/results/_unassigned/plans/concatenation__[a-f0-9]{8}/" + kind + "/"));
+  }
+  assert.match(target(summary.aggregateCsvPath, plan, { workerResultTables: [{ workerId: "nwpu3", aggregateCsvPath: summary.aggregateCsvPath }] }, "artifacts/results", "nwpu3"), /^artifacts\/results\/_unassigned\/plans\/concatenation__[a-f0-9]{8}\/detail\/nwpu3__[a-f0-9]{8}\//);
+  const source = dataset => ({...summary, results: [{dimensions: {dataset}, sourceFiles: [{path: summary.rawResultCsvPath}]}]});
+  assert.notEqual(target(summary.rawResultCsvPath, plan, source("BUS")), target(summary.rawResultCsvPath, plan, source("PAD")));
+  assert.notEqual(target(summary.rawResultCsvPath, plan, source("BUS")), target(summary.rawResultCsvPath, "experiments/plans/other/concatenation.yaml", source("BUS")));
+  assert.match(target(summary.rawResultCsvPath, plan, {...summary, datasetResultTables: ["BUS", "PAD"].map(dataset => ({dataset, rawResultCsvPath: summary.rawResultCsvPath}))}), /^experiments\/results\/_shared\/plans\//);
+
 });
 
 test("bulk sync keeps current Plan scope and separates identical paths from different Workers", () => {
@@ -243,7 +243,7 @@ test("preview and effective CSV buttons open result artifacts without changing P
   assert.match(handler, /"【结果文件位置确认】"/);
   assert.match(handler, /`远端来源：\$\{artifactPath\}`/);
   assert.match(handler, /`本机结果位置：\$\{localCopyPath\}`/);
-  assert.match(handler, /methodResultArtifactLocalRelativePath\(artifactPath, planFile, summary, DEFAULT_RESULT_CSV_DIR/);
+  assert.match(handler, /methodResultArtifactLocalRelativePath\(artifactPath, planFile, summary, this\.resultCsvDirectory \|\| DEFAULT_RESULT_CSV_DIR/);
   assert.match(handler, /owned\.finalCsvPath, owned\.finalMarkdownPath/);
   assert.doesNotMatch(handler, /experiments\/simple_project\.yaml/);
   assert.match(handler, /maxFileBytes: RESULT_ARTIFACT_MAX_BYTES/);
@@ -262,7 +262,7 @@ test("preview and effective CSV buttons open result artifacts without changing P
 });
 
 test("Plan concise table is the primary result entry with scoped explanations", () => {
-  assert.match(panel, /全项目 final 与各方法结果分开保存/);
+  assert.match(panel, /按数据集组织结果/);
   assert.match(panel, /data-command="openLocalResultTable"/);
   assert.doesNotMatch(panel, /resultFileButton\("查看简洁汇总 CSV"/);
   assert.match(panel, /同步当前 Plan 原始与详细表/);
@@ -278,7 +278,7 @@ test("bulk sync uses one action, one overwrite decision and one mapped transfer 
   assert.match(panel, /data-command="syncAllResultArtifacts" data-plan-file=/);
   assert.match(handler, /resultSummarySyncCandidates\(summary, planFile\)/);
   assert.match(handler, /methodResultArtifactLocalRelativePath\(remotePath, planFile, summary/);
-  assert.match(handler, /if \(existingCount\) \{/);
+  assert.match(handler, /if \(existingCount && !options\.missingOnly\) \{/);
   assert.match(handler, /sync\.downloadMappedPaths/);
   assert.doesNotMatch(handler, /client\.downloadWorkerFile\(|client\.downloadFile\(/);
   assert.doesNotMatch(handler, /selectPlanFromUi|this\.selectedPlanId\s*=/);
@@ -327,3 +327,14 @@ test("file transfer sends maxBytes to the Hub file API", async () => {
     global.fetch = previousFetch;
   }
 });
+
+ test("dataset tables remain eligible metric downloads with Worker ownership", () => {
+  const helpers = loadHelpers();
+  const planFile = "experiments/plans/comparison/demo.yaml";
+  const summary = {planFile, datasetResultTables: [{dataset: "BUS", aggregateCsvPath: "simple_cluster/results/by_plan/demo/datasets/BUS/seed_mean_std.csv"}], projectDatasetTables: [{dataset: "PAD", finalCsvPath: "simple_cluster/results/by_dataset/PAD/project_final.csv"}], paperDatasetTables: [{dataset: "BUS", paperTableCsvPath: "paper/tables/BUS/simple_results_table__demo.csv"}], workerResultTables: [{workerId: "w1", datasetResultTables: [{dataset: "BUS", aggregateCsvPath: "simple_cluster/results/by_plan/demo/datasets/BUS/seed_mean_std.csv"}], projectDatasetTables: [{dataset: "PAD", finalCsvPath: "simple_cluster/results/by_dataset/PAD/project_final.csv"}], paperDatasetTables: [{dataset: "BUS", paperTableCsvPath: "paper/tables/BUS/simple_results_table__demo.csv"}]}]};
+  const inspection = helpers.resultSummaryInspectionCandidates(summary, planFile);
+  const sync = helpers.resultSummarySyncCandidates(summary, planFile);
+  assert.equal(inspection.length >= 3, true);
+  assert.equal(sync.length >= 3, true);
+  assert.equal(sync.every(row => row.workerId === "w1"), true);
+ });

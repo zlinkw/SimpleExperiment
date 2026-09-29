@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.emptyTableRegistry = void 0;
+exports.emptyTableRegistry = exports.planArtifactPath = exports.planDirectoryKey = exports.datasetPathKey = exports.datasetPartitions = void 0;
 exports.registeredPlanSummary = registeredPlanSummary;
 exports.summaryMatchesPlanRevision = summaryMatchesPlanRevision;
 exports.safeTableName = safeTableName;
@@ -48,9 +48,16 @@ exports.writeCsv = writeCsv;
 exports.readCsv = readCsv;
 exports.buildTables = buildTables;
 exports.splitCsvByValues = splitCsvByValues;
+exports.resultCatalog = resultCatalog;
 exports.tableCatalog = tableCatalog;
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
+const ResultLayout_1 = require("./ResultLayout");
+var ResultLayout_2 = require("./ResultLayout");
+Object.defineProperty(exports, "datasetPartitions", { enumerable: true, get: function () { return ResultLayout_2.datasetPartitions; } });
+Object.defineProperty(exports, "datasetPathKey", { enumerable: true, get: function () { return ResultLayout_2.datasetPathKey; } });
+Object.defineProperty(exports, "planDirectoryKey", { enumerable: true, get: function () { return ResultLayout_2.planDirectoryKey; } });
+Object.defineProperty(exports, "planArtifactPath", { enumerable: true, get: function () { return ResultLayout_2.planArtifactPath; } });
 const emptyTableRegistry = () => ({ schemaVersion: 1, plans: {} });
 exports.emptyTableRegistry = emptyTableRegistry;
 function registeredPlanSummary(registry, planFile) {
@@ -184,6 +191,9 @@ function selectLatestCompletedRun(records, selectedRunId = "") {
     }
     return [...bySeed.values()];
 }
+function rawSources(table) {
+    return [table?.rawResultCsvPath, ...(table?.rawResultCsvPaths || []), ...(table?.datasetResultTables || []).map((row) => row.rawResultCsvPath)].filter(Boolean).map(String);
+}
 function recordsForSummary(summary, planFile) {
     if (!summary || String(summary.planFile || "").replace(/\\/g, "/") !== planFile.replace(/\\/g, "/"))
         throw new Error("结果摘要与所选 Plan 不匹配。");
@@ -197,12 +207,12 @@ function recordsForSummary(summary, planFile) {
         const worker = String(row.workerId || "").toLowerCase();
         if (!sources.has(worker))
             sources.set(worker, new Set());
-        sources.get(worker).add(String(row.rawResultCsvPath || ""));
+        rawSources(row).forEach(source => sources.get(worker).add(source));
     }
     const records = [];
     for (const row of Array.isArray(summary.results) ? summary.results : []) {
         const workerId = String(row?.workerId || row?.resultOwnerWorkerId || summary.resultOwnerWorkerId || "").trim();
-        const declared = sources.get(workerId.toLowerCase()) || new Set([String(summary.rawResultCsvPath || "")]);
+        const declared = sources.get(workerId.toLowerCase()) || new Set(rawSources(summary));
         const source = String(row?.sourceFiles?.[0]?.path || "");
         if (!source || !declared.has(source))
             continue;
@@ -240,7 +250,7 @@ function updateRegistry(registry, summary, planFile, expectedSeeds = 0) {
 }
 function summaryForWorker(summary, workerId) {
     const id = String(workerId || "").toLowerCase();
-    const tables = (Array.isArray(summary?.workerResultTables) ? summary.workerResultTables : []).filter((row) => String(row?.workerId || "").toLowerCase() === id && row?.aggregateStatus === "ready" && String(row?.rawResultCsvPath || "").trim());
+    const tables = (Array.isArray(summary?.workerResultTables) ? summary.workerResultTables : []).filter((row) => String(row?.workerId || "").toLowerCase() === id && row?.aggregateStatus === "ready" && rawSources(row).length > 0);
     const results = (Array.isArray(summary?.results) ? summary.results : []).filter((row) => String(row?.workerId || row?.resultOwnerWorkerId || "").toLowerCase() === id);
     if (!tables.length || !results.length)
         return undefined;
@@ -248,7 +258,7 @@ function summaryForWorker(summary, workerId) {
 }
 function mergeAvailableWorkerResults(registry, summary, planFile, expectedSeeds = 0) {
     const tables = Array.isArray(summary?.workerResultTables) ? summary.workerResultTables : [];
-    const ready = tables.filter((table) => table?.aggregateStatus === "ready" && String(table.rawResultCsvPath || "").trim());
+    const ready = tables.filter((table) => table?.aggregateStatus === "ready" && rawSources(table).length > 0);
     const owners = new Set(ready.map((table) => String(table.workerId || "").toLowerCase()));
     const rows = (Array.isArray(summary?.results) ? summary.results : []).filter((row) => owners.has(String(row?.workerId || row?.resultOwnerWorkerId || "").toLowerCase()));
     if (!rows.length)
@@ -349,7 +359,7 @@ function canonicalMetricValues(metrics) {
     }
     return values;
 }
-function buildTables(registry) {
+function buildDatasetTables(registry) {
     const grouped = new Map();
     for (const plan of Object.values(registry.plans || {}))
         for (const record of plan.records) {
@@ -390,10 +400,10 @@ function buildTables(registry) {
     const methodNames = new Map();
     for (const group of groups) {
         const token = methodTableName(group.record.method);
-        const previous = methodNames.get(token);
+        const previous = methodNames.get(token.toLowerCase());
         if (previous && previous !== group.record.method)
             throw new Error("不同方法映射到同一文件夹：" + previous + "、" + group.record.method);
-        methodNames.set(token, group.record.method);
+        methodNames.set(token.toLowerCase(), group.record.method);
     }
     const shortKeys = groups.map((group) => JSON.stringify([group.record.method, group.record.dataset, group.record.rate, group.record.endpoint]));
     const showCase = new Set(shortKeys).size !== shortKeys.length;
@@ -409,7 +419,7 @@ function buildTables(registry) {
         const derivedName = derived?.outputName ? label(derived.outputName) : "";
         if (derivedName && labels.includes(derivedName))
             throw new Error("派生指标输出列名与原始指标冲突。");
-        const showPlan = new Set(chosen.map((group) => group.record.planFile)).size > 1;
+        const showPlan = true;
         const header = ["result_family", ...(showPlan ? ["plan_file"] : []), "dataset", "rate_percent", "eval_protocol", ...(showCase ? ["case"] : []), "jobs", ...labels.flatMap((name) => [name + "_mean", name + "_sd"]), ...(derivedName ? [derivedName + "_mean", derivedName + "_sd"] : [])];
         const ordered = [...chosen].sort((a, b) => a.record.method.localeCompare(b.record.method) || a.record.dataset.localeCompare(b.record.dataset) || Number(a.record.rate) - Number(b.record.rate) || a.record.endpoint.localeCompare(b.record.endpoint) || a.record.case.localeCompare(b.record.case));
         const rows = ordered.map((group) => {
@@ -454,6 +464,19 @@ function buildTables(registry) {
         out[method] = make(groups.filter((group) => methodTableName(group.record.method) === method));
     return out;
 }
+function buildTables(registry) {
+    const datasets = (0, ResultLayout_1.datasetPartitions)(Object.values(registry.plans || {}).flatMap(plan => plan.records.map(row => row.dataset)));
+    const output = {};
+    for (const { dataset, datasetKey } of datasets) {
+        const plans = Object.fromEntries(Object.entries(registry.plans || {}).map(([file, plan]) => [file, { ...plan, records: plan.records.filter(row => String(row.dataset || "").trim() === dataset).map(row => ({ ...row, dataset })) }]));
+        for (const [name, table] of Object.entries(buildDatasetTables({ ...registry, plans }))) {
+            const kind = name === "final" ? "final" : "method";
+            const artifact = { ...table, dataset, datasetKey, name, kind, ...(0, ResultLayout_1.tablePaths)(datasetKey, name, kind) };
+            output[artifact.tableKey] = artifact;
+        }
+    }
+    return output;
+}
 function splitCsvByValues(csv, field, values, columns) {
     const { header, rows } = readCsv(csv);
     const index = header.indexOf(field);
@@ -476,34 +499,118 @@ function splitCsvByValues(csv, field, values, columns) {
         throw new Error("所选词条没有对应数据行。");
     return output;
 }
-const catalogCache = new Map();
-function tableCatalog(root, resultDir) {
-    const directory = path.join(root, ...resultDir.split("/"));
-    if (!fs.existsSync(directory))
+const LIMIT = 500;
+function controlledRoot(root, resultDir) {
+    if (!resultDir || path.isAbsolute(resultDir) || resultDir.replace(/\\/g, "/").split("/").some(item => !item || item === "." || item === ".."))
+        throw new Error("结果根目录无效。");
+    const directory = path.resolve(root, resultDir);
+    let current = path.resolve(root);
+    for (const part of resultDir.replace(/\\/g, "/").split("/")) {
+        current = path.join(current, part);
+        if (fs.existsSync(current) && fs.lstatSync(current).isSymbolicLink())
+            throw new Error("结果目录不能经过链接。");
+    }
+    return directory;
+}
+function childDirs(directory, limit = LIMIT) {
+    if (!fs.existsSync(directory) || !fs.lstatSync(directory).isDirectory() || fs.lstatSync(directory).isSymbolicLink())
         return [];
-    const files = fs.readdirSync(directory, { withFileTypes: true }).filter((item) => item.isDirectory()).map((item) => item.name).sort().map((name) => ({ name, file: path.join(directory, name, name + ".csv") })).filter((item) => fs.existsSync(item.file) && fs.lstatSync(item.file).isFile());
-    const signature = files.map((item) => {
-        const stat = fs.statSync(item.file);
-        return item.name + ":" + stat.size + ":" + stat.mtimeMs + ":" + stat.ctimeMs;
-    }).join("|");
-    const cached = catalogCache.get(directory);
-    if (cached?.signature === signature)
-        return cached.rows;
-    const rows = files.flatMap(({ name, file }) => {
+    return fs.readdirSync(directory, { withFileTypes: true }).filter(item => item.isDirectory() && !item.isSymbolicLink()).map(item => item.name).sort().slice(0, limit);
+}
+function smallFile(file) {
+    if (!fs.existsSync(file))
+        return false;
+    const stat = fs.lstatSync(file);
+    return stat.isFile() && !stat.isSymbolicLink() && stat.size <= 32 * 1024 * 1024;
+}
+function resultCatalog(root, resultDir) {
+    const directory = controlledRoot(root, resultDir);
+    const registryFile = path.join(controlledRoot(root, "simple_cluster/results"), "project_table_registry.json");
+    let registry = (0, exports.emptyTableRegistry)();
+    if (smallFile(registryFile)) {
         try {
-            const stat = fs.statSync(file);
-            if (!stat.isFile() || stat.size > 32 * 1024 * 1024)
-                return [];
+            registry = JSON.parse(fs.readFileSync(registryFile, "utf8"));
+        }
+        catch { }
+    }
+    const knownDatasets = new Map((0, ResultLayout_1.datasetPartitions)(Object.values(registry.plans || {}).flatMap(plan => plan.records.map(row => row.dataset))).map(row => [row.datasetKey, row.dataset]));
+    const knownWorkers = new Map(Object.values(registry.plans || {}).flatMap(plan => plan.records.map(row => [(0, ResultLayout_1.workerDirectoryKey)(row.workerId), row.workerId])));
+    const knownPlans = new Map(Object.keys(registry.plans || {}).map(file => [(0, ResultLayout_1.planDirectoryKey)(file), file]));
+    const datasets = [], legacyTables = [];
+    let artifactCount = 0;
+    for (const datasetKey of childDirs(directory)) {
+        if (artifactCount >= 2000)
+            break;
+        const datasetRoot = path.join(directory, datasetKey);
+        const tables = [];
+        let dataset = knownDatasets.get(datasetKey) ?? (datasetKey === "_unassigned" ? "" : datasetKey);
+        const metaFile = path.join(datasetRoot, ".dataset.json");
+        if (smallFile(metaFile)) {
+            const meta = JSON.parse(fs.readFileSync(metaFile, "utf8"));
+            if ((0, ResultLayout_1.datasetPathKey)(meta.dataset) !== datasetKey)
+                throw new Error("数据集目录索引冲突：" + datasetKey);
+            dataset = String(meta.dataset || "");
+        }
+        const candidates = [{ name: "final", kind: "final" }, ...childDirs(path.join(datasetRoot, "methods"), 200).map(name => ({ name, kind: "method" }))];
+        for (const candidate of candidates) {
+            const paths = (0, ResultLayout_1.tablePaths)(datasetKey, candidate.name, candidate.kind);
+            const file = path.join(directory, paths.relativePath);
+            if (!smallFile(file))
+                continue;
+            const parent = path.dirname(file);
+            if (fs.lstatSync(parent).isSymbolicLink())
+                continue;
             const parsed = readCsv(fs.readFileSync(file, "utf8"));
+            const datasetIndex = parsed.header.indexOf("dataset");
+            if (datasetIndex < 0)
+                continue;
+            const names = [...new Set(parsed.rows.map(row => String(row[datasetIndex] || "").trim()))];
+            if (names.length > 1 || (names.length && (0, ResultLayout_1.datasetPathKey)(names[0]) !== datasetKey))
+                throw new Error("结果表数据集与目录不一致：" + paths.relativePath);
+            if (names.length)
+                dataset = names[0];
             const values = {};
             for (const [i, field] of parsed.header.entries())
-                values[field] = [...new Set(parsed.rows.map((row) => row[i]))].slice(0, 200);
-            return [{ name, path: resultDir + "/" + name + "/" + name + ".csv", header: parsed.header, values, rowCount: parsed.rows.length }];
+                values[field] = [...new Set(parsed.rows.map(row => row[i]))].slice(0, 200);
+            tables.push({ tableKey: paths.tableKey, dataset, datasetKey, ...candidate, path: path.posix.join(resultDir, paths.relativePath), markdownPath: path.posix.join(resultDir, paths.markdownPath), header: parsed.header, values, rowCount: parsed.rows.length });
         }
-        catch {
-            return [];
+        const plans = [];
+        for (const planKey of childDirs(path.join(datasetRoot, "plans"))) {
+            if (artifactCount >= 2000)
+                break;
+            const artifacts = [];
+            for (const kind of ["raw", "detail", "trace"]) {
+                const base = path.join(datasetRoot, "plans", planKey, kind);
+                const collect = (folder, workerId = "") => {
+                    if (!fs.existsSync(folder) || !fs.lstatSync(folder).isDirectory() || fs.lstatSync(folder).isSymbolicLink())
+                        return;
+                    for (const entry of fs.readdirSync(folder, { withFileTypes: true }).slice(0, 200)) {
+                        if (artifactCount >= 2000)
+                            break;
+                        const file = path.join(folder, entry.name);
+                        if (!entry.isFile() || !/\.(csv|json|md)$/i.test(entry.name) || !smallFile(file))
+                            continue;
+                        const relative = path.relative(root, file).replace(/\\/g, "/");
+                        artifacts.push({ artifactKey: relative, kind, workerId: knownWorkers.get(workerId) || workerId, path: relative, format: path.extname(file).slice(1) });
+                        artifactCount++;
+                    }
+                };
+                collect(base);
+                for (const worker of childDirs(base, 100))
+                    collect(path.join(base, worker), worker);
+            }
+            if (artifacts.length)
+                plans.push({ planKey, planFile: knownPlans.get(planKey) || "", label: knownPlans.get(planKey) || planKey, artifacts });
         }
-    });
-    catalogCache.set(directory, { signature, rows });
-    return rows;
+        if (tables.length || plans.length)
+            datasets.push({ dataset, datasetKey, root: path.posix.join(resultDir, datasetKey), tables, plans });
+        const oldFile = path.join(datasetRoot, datasetKey + ".csv");
+        if (smallFile(oldFile))
+            legacyTables.push({ name: datasetKey, path: path.posix.join(resultDir, datasetKey, datasetKey + ".csv") });
+    }
+    (0, ResultLayout_1.datasetPartitions)(datasets.filter(item => item.datasetKey !== "_shared").map(item => item.dataset));
+    return { datasets, legacyTables: datasets.length ? [] : legacyTables };
+}
+function tableCatalog(root, resultDir) {
+    return resultCatalog(root, resultDir).datasets.flatMap(dataset => dataset.tables);
 }

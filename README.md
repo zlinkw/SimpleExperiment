@@ -244,13 +244,15 @@ paper:
 
 ## 结果文件
 
-任务完成后，插件按 Plan 声明的路径解析结果，生成本机 `final` 总表与各方法表。结果文件区首先显示这些表；需要核对逐 seed 数据时，展开“原始数据与详细追溯”或使用“同步当前 Plan 原始与详细表”。PPT 绘图配置位于结果区底部的可选折叠项。
+任务完成后，插件按 Plan 声明的路径解析结果，生成每个数据集的本机 `final` 总表与方法表。结果文件区首先显示这些表；需要核对逐 seed 数据时，展开“原始数据与详细追溯”或使用“同步当前 Plan 原始与详细表”。PPT 绘图配置位于结果区底部的可选折叠项。
 
-结果区的“结果总表”是主入口。插件通过每个 Plan 的可信 case、seed、方法和端点，跨已启用 Worker 去重后重新计算均值与样本标准差；Plan 的原始表不会被改写。全项目 CSV 与 Markdown 分别位于 experiments/results/final/final.csv、final.md。每个方法也有 experiments/results/<方法>/<方法>.csv、.md。行按方法、数据集、训练比例和评估端点显示，重名时增加 case；缺 seed 时 jobs 显示实际/计划数。同一 seed 的指标若在不同 Worker 或 Plan 间冲突，会阻止覆盖总表并提示核查。当前 Plan 自动刷新结果时会更新本机表，亦可点击“刷新所有结果”逐个查询所有 Plan。
+结果区的“结果总表”按实际目录识别数据集。插件按可信 Plan、case、seed、方法与端点，跨 Worker 去重后计算均值和样本标准差；每个数据集的总表位于 `<resultRoot>/<dataset>/final/final.csv` 与 `final.md`，方法表位于 `<resultRoot>/<dataset>/methods/<method>/<method>.csv/.md`。`resultRoot` 来自 `simpleExperiment.resultCsvDir`，默认 `experiments/results`。同一数据集可汇总多个 Plan，并保留 `plan_file` 来源；不同数据集独立保存。同 seed 指标或名称映射冲突会阻止整批覆盖，缺 seed 保留实际/计划数量。
 
 结果区的“编辑列映射”会就地展开表单。优先选择 case、seed、指标名称、指标值；数据集、方法、训练比例和评估端点在“其他字段”。每个下拉项显示原始 CSV 列名和样例值，留在“自动识别”即可沿用当前识别结果。长表使用“指标名称＋指标值”两列，宽表将两项留空并自动识别数值列。需要 BA drop 等跨端点指标时，在“同 seed 配对派生指标”中明确填写指标、左右端点、倍率与输出列名；默认不计算。设置中还可配置候选结果文件、日志和指标别名。规则保存在当前工作区的 `simpleExperiment.projectAdapterRules` 设置中，并通过现有 Agent 隧道写入各 Agent 自有状态目录，供本机关闭后的自动解析使用。保存后点击“重建汇总”。缺少可信 case 或 seed 的行不会被猜测归入 Plan。
 
-结果区的原始表和详细表按钮会先确认远端来源与本机目标，再经现有 Agent 隧道下载。当前 Plan 的原始逐 seed 表进入 experiments/results/<方法>/raw/，详细聚合进入 detail/；多 Worker 的同名文件再按 Worker 分目录。点击“同步当前 Plan 原始与详细表”可一次同步这两类文件，已有文件统一询问覆盖或只补缺失。简洁 CSV 与 Markdown 由插件直接生成在 final 和各方法文件夹，不再同步重复的 Worker 计算副本到 trace。远端训练程序原有输出目录不变；旧版已存在的平铺文件和 trace 副本保留，不自动删除。
+Plan 原始、详细与追溯产物进入 `<resultRoot>/<dataset>/plans/<plan-key>/{raw,detail,trace}/[<worker-key>/]`。Plan key 包含完整相对路径的稳定摘要，Worker key 也带身份摘要，防止同名覆盖。多数据集原始证据进入 `_shared`，缺数据集进入 `_unassigned` 并提示列映射；原始文件内容不改写。面板按“数据集 → 总表/方法表/Plans → 产物”展示，打开与拆表使用 catalog key 验证，拆表存入源表的 `by_<field>` 子目录。旧平铺结果保留，不自动迁移或删除；只有旧结构时显示只读兼容区。
+
+Agent 的 Plan seed/final 表位于 `simple_cluster/results/by_plan/<plan-key>/datasets/<dataset-key>/`，项目表位于 `simple_cluster/results/by_dataset/<dataset-key>/`，论文表位于 `paper/tables/<dataset-key>/simple_results_table__<plan-key>.csv/.md`。summary 使用 `datasetResultTables`、`projectDatasetTables`、`paperDatasetTables` 并保留 Worker 所有权；旧 scalar 仅用于唯一数据集。统计 JSON 与 registry 可保留多数据集；PPT 必须选择一个数据集的表格。
 
 “按列和值拆成子表”可选择 final 或任一方法表，选择拆表列，用搜索、逐项勾选、全选或取消批量选择词条，并可选择子表保留列。每个所选词条生成一张 CSV，放在所属表的 by_<列名> 子目录；例如按 rate_percent 选择 0、30、70、100 会得到四张子表。源表不改动。
 

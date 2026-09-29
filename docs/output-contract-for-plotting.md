@@ -44,9 +44,9 @@
 
 ### Paper Table
 
-路径：`paper/tables/simple_results_table.csv`
+路径列表：`paper/tables/<dataset-key>/simple_results_table__<plan-key>.csv`。契约 `files.paperTable.paths` 保存按数据集分区后的路径；只有一个数据集时 `path` 指向该文件。
 
-用途：论文表格 CSV，可直接生成表格图或柱状图。
+用途：选择一个数据集的论文表格 CSV 生成表格图或柱状图。不得将不同数据集合并绘图。旧平铺表只读保留，新产物不再写入顶层混表。
 
 稳定字段：`method`、`dataset`、`split`、`metric`、`mean`、`std`。
 
@@ -81,7 +81,7 @@
 | `statistics.json: suite/group/metric` | string | 否 | Scheduler 归档聚合写入 |
 | `statistics.json: mean/std/ci/pValue/adjustedPValue` | number | `ci/pValue/adjustedPValue` 可空 | `mean/std` 聚合必填有限数值 |
 | `statistics.json: significant` | boolean\|可解析文本 | 可空 | `true/false/1/0/yes/no` 均接受 |
-| `simple_results_table.csv: method/dataset/split/metric` | string | 否 | 由归档大表生成，`mean/std:number` 必填 |
+| `paper/tables/<dataset-key>/*.csv: method/dataset/split/metric` | string | 否 | 由归档大表生成，`mean/std:number` 必填 |
 | `case_level_index.json: case_id/patient_id/method/dataset/split/metric/value/subgroup/error_type` | string/number（value 有限数值） | `patient_id/subgroup/error_type` 可空 | 与 per-job `metrics_case.csv` 同源（`experiment_id,case_id,dataset,split,method` 必填列展开），Scheduler 归档时建索引 |
 | `profile.json: dataset/split/class/case_id/patient_id/classDistribution/splitDistribution` | string/object | 分布对象可空 | 轻量画像，不含原始数据 |
 | 通用 | `timestamp:ISO8601, epoch/step:int` | 可空 | 缺失不阻断绘图 |

@@ -373,7 +373,7 @@ async function finalAnalysisPlotSources(projectRoot, sourcePaths, planFile = "")
         if (isStatisticsPlotSource(rel) && !await archivedStatisticsSource(projectRoot, rel)) {
             throw new Error(`统计文件不是有效的已归档结果统计：${rel}。请重新运行“统计”。`);
         }
-        if (!isRawSingleRunPlotSource(rel)) {
+        if (!isRawSingleRunPlotSource(rel) || await isAggregateCsvPlotSource(projectRoot, rel)) {
             out.push(rel);
             continue;
         }
@@ -383,7 +383,43 @@ async function finalAnalysisPlotSources(projectRoot, sourcePaths, planFile = "")
         }
         out.push(finalSource);
     }
-    return Array.from(new Set(out));
+    const unique = Array.from(new Set(out));
+    await assertSingleDatasetPlotSources(projectRoot, unique);
+    return unique;
+}
+async function isAggregateCsvPlotSource(projectRoot, rel) {
+    if (!/\.csv$/i.test(rel))
+        return false;
+    const full = safeProjectPath(projectRoot, rel);
+    await assertPptLightweightSource(full, rel);
+    const { header } = require("./results/ProjectResultTables").readCsv(await fs.readFile(full, "utf8"));
+    return header.includes("dataset") && header.some(name => name === "mean" || name.endsWith("_mean")) && header.some(name => name === "std" || name.endsWith("_std") || name.endsWith("_sd"));
+}
+async function assertSingleDatasetPlotSources(projectRoot, sources) {
+    const datasets = new Set();
+    for (const rel of sources) {
+        const full = safeProjectPath(projectRoot, rel);
+        await assertPptLightweightSource(full, rel);
+        if (/\.csv$/i.test(rel)) {
+            const parsed = require("./results/ProjectResultTables").readCsv(await fs.readFile(full, "utf8"));
+            const index = parsed.header.indexOf("dataset");
+            if (index >= 0)
+                parsed.rows.forEach(row => datasets.add(String(row[index] || "").trim()));
+        }
+        else if (isStatisticsPlotSource(rel)) {
+            const report = JSON.parse(await fs.readFile(full, "utf8"));
+            (report.rows || []).forEach(row => datasets.add(String(row.dataset || row.dimensions?.dataset || "").trim()));
+        }
+        else if (/^paper\/tables\/[^/]+\//.test(rel)) {
+            datasets.add(rel.split("/")[2]);
+        }
+        else if (/\.md$/i.test(rel) && rel.includes("/plans/")) {
+            const parts = rel.split("/");
+            datasets.add(parts[parts.indexOf("plans") - 1]);
+        }
+    }
+    if (datasets.size > 1)
+        throw new Error("绘图来源包含多个数据集，请选择一个数据集的论文表格。");
 }
 async function resolvePptSourcePaths(projectRoot, sourcePaths) {
     const out = [];
@@ -449,7 +485,7 @@ function isRawSingleRunPlotSource(rel) {
         return false;
     if (text.startsWith("simple_cluster/results/by_plan/") && /(statistics\.json|plotting_contract\.json|case_level_index\.json|result_registry\.json|output_contract_for_plotting\.md)$/.test(text))
         return false;
-    if (/^paper\/tables\/simple_results_table__.+\.csv$/.test(text))
+    if (/^paper\/tables\/(?:[^/]+\/)?simple_results_table__.+\.(csv|md)$/.test(text))
         return false;
     if (text.startsWith("simple_cluster/results/anomaly/") || text.startsWith("simple_cluster/results/by_plan/") && text.includes("/anomaly/") || text.startsWith("simple_cluster/plans/recovered/"))
         return false;

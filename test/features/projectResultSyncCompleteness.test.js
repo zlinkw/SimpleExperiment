@@ -176,7 +176,7 @@ test("sync includes every completed plan and both workers before one mapped down
   assert.match(result.skipped.join("\n"), /empty\.yaml/);
   assert.equal(result.discovered, 4);
   assert.match(JSON.stringify(host.postedReport), /发现|empty\.yaml|收录/);
-  assert.equal(fs.existsSync(path.join(workspace, "experiments", "results", "final", "final.csv")), true);
+  assert.equal(fs.existsSync(path.join(workspace, "experiments", "results", "set", "final", "final.csv")), true);
 });
 
 test("rebuild downloads metrics from both workers before recomputing and does not merge directories", async () => {

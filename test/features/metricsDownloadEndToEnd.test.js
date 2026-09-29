@@ -6,6 +6,7 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const test = require("node:test");
 const ts = require("typescript");
+Module._extensions[".ts"] = (mod, file) => mod._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText, file);
 
 const repo = path.join(__dirname, "..", "..");
 const tablesPath = path.join(repo, "src", "results", "ProjectResultTables.ts");
@@ -46,7 +47,7 @@ else delete Module._extensions[".ts"];
 
 const planFile = "experiments/plans/demo.yaml";
 const remoteCsv = "simple_cluster/results/worker-a/seed_metrics.csv";
-const localCsvPattern = path.join("experiments", "results", "demo", "raw");
+const localCsvPattern = path.join("experiments", "results", "_unassigned", "plans", tablesModule.exports.planDirectoryKey(planFile), "raw");
 const csvFor = (rows) => "case,seed,method,dataset,metric,value\n" + rows.map((row) =>
   `alpha,${row.seed},demo,set,${row.metric},${row.value}`).join("\n") + "\n";
 
@@ -131,7 +132,7 @@ test("production metrics-only SFTP mapping produces raw provenance, alias-normal
     visit(workspace);
     assert.equal(localMetricFiles.length, 1);
     assert.equal(fs.readFileSync(localMetricFiles[0], "utf8").split("\n").length, 8);
-    const outputRoot = path.join(workspace, "experiments", "results", "final");
+    const outputRoot = path.join(workspace, "experiments", "results", "set", "final");
     const csv = fs.readFileSync(path.join(outputRoot, "final.csv"), "utf8");
     const markdown = fs.readFileSync(path.join(outputRoot, "final.md"), "utf8");
     const table = tablesModule.exports.readCsv(csv);
@@ -144,7 +145,7 @@ test("production metrics-only SFTP mapping produces raw provenance, alias-normal
     const registry = JSON.parse(fs.readFileSync(path.join(workspace, "simple_cluster", "results", "project_table_registry.json"), "utf8"));
     assert.deepEqual(Object.keys(registry.plans[planFile].records[0].metrics).sort(), ["AUC", "ECE", "ece", "roc_auc"].sort());
     assert.equal(registry.plans[planFile].records[0].runId, "run-complete");
-    assert.ok(localMetricFiles[0].toLowerCase().includes(path.join("experiments", "results", "demo", "raw").toLowerCase()));
+    assert.ok(localMetricFiles[0].toLowerCase().includes(path.join("experiments", "results", "_unassigned", "plans", tablesModule.exports.planDirectoryKey(planFile), "raw").toLowerCase()));
   } finally {
     vscode.workspace.workspaceFolders = [];
   }
@@ -154,8 +155,8 @@ test("conflicting raw aliases retain the previous published CSV and Markdown", a
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "p6-metrics-conflict-"));
   try {
     const oldRegistry = seedRegistry();
-    const prior = tablesModule.exports.buildTables(oldRegistry).final;
-    const outputRoot = path.join(workspace, "experiments", "results", "final");
+    const prior = tablesModule.exports.buildTables(oldRegistry)["set/final"];
+    const outputRoot = path.join(workspace, "experiments", "results", "set", "final");
     fs.mkdirSync(outputRoot, { recursive: true });
     fs.writeFileSync(path.join(outputRoot, "final.csv"), tablesModule.exports.writeCsv(prior.header, prior.rows), "utf8");
     fs.writeFileSync(path.join(outputRoot, "final.md"), prior.markdown, "utf8");
@@ -220,8 +221,8 @@ test("completed plans stay untouched until manual metrics sync downloads and pub
     assert.deepEqual(params.entries.map((entry) => entry.remotePath), [remoteCsv]);
     assert.equal(queue.localMetricsSignature?.length > 0, true, "successful publication records the completion signature");
     assert.equal(uiNotices.filter(([kind]) => kind === "warning").length, warningCount, "new metric files do not require overwrite confirmation");
-    assert.ok(fs.existsSync(path.join(workspace, "experiments", "results", "final", "final.csv")));
-    assert.ok(fs.existsSync(path.join(workspace, "experiments", "results", "final", "final.md")));
+    assert.ok(fs.existsSync(path.join(workspace, "experiments", "results", "set", "final", "final.csv")));
+    assert.ok(fs.existsSync(path.join(workspace, "experiments", "results", "set", "final", "final.md")));
 
     host.scheduleDistributedPostprocess(workspace, true);
     await Promise.resolve();

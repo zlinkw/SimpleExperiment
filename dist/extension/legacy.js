@@ -435,7 +435,7 @@ const UI_BUTTON_PAYLOAD_KEYS = new Set([
     "endpointId", "planFile", "planId", "file", "runKey", "taskUiKey", "experimentId",
     "archiveKey", "experimentIndex", "gpuId", "workerId", "remotePath", "savePlan", "batchSelected",
     "sourcePath", "sourceLabel", "presentationPath", "chartType", "styleMode",
-    "conflictMode",
+    "conflictMode", "tableKey", "artifactKey", "format", "splitField", "splitValues", "keepColumns",
 ]);
 const normalizeUiButtonActionsCache = new WeakMap();
 const UI_BUTTON_ACTION_NORMALIZATION_VARIANT_LIMIT = 4;
@@ -13979,6 +13979,18 @@ class RealtimeTunnelPanelProvider {
             sourcePaths.push(...validFinalSources);
         if (!sourcePaths.length)
             throw new Error("没有可用的最终结果。请先选择并归档有效记录，再运行统计或导出论文表格。");
+        for (let index = 0; index < sourcePaths.length; index++) {
+            const source = sourcePaths[index];
+            if (await fs.stat(safeWorkspaceChildPath(root, source)).then(stat => stat.isFile()).catch(() => false))
+                continue;
+            const owned = (summary.paperDatasetTables || []).filter(table => [table.paperTableCsvPath, table.paperTablePath].includes(source));
+            const selectedWorker = stringField(message, "workerId");
+            const owners = uniqueStrings(owned.map(table => table.workerId).filter(Boolean));
+            if (owners.length > 1 && !selectedWorker)
+                throw new Error("请选择该数据集的 Worker 论文表格。");
+            const worker = (summary.workerResultTables || []).length > 1 ? (selectedWorker || owners[0] || "") : "";
+            sourcePaths[index] = methodResultArtifactLocalRelativePath(source, planFile, summary, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, worker);
+        }
         const preferredContract = stringFromRecord(summary, ["plottingContractPath", "plotting_contract_path"]);
         const contractPath = preferredContract || await (0, PptPlotBridge_1.ensureLocalPlottingContract)(root, planFile);
         if (generation !== this.projectContextGeneration || root !== workspaceRoot())
@@ -15098,14 +15110,14 @@ class RealtimeTunnelPanelProvider {
             throw new Error("多 Worker 结果文件必须指定所属 Worker。");
         if (requestedWorkerId) {
             const owned = workerTables.find((item) => String(item?.workerId || "").toLowerCase() === requestedWorkerId.toLowerCase());
-            if (!owned || ![owned.rawResultCsvPath, owned.aggregateCsvPath, owned.projectAggregateCsvPath, owned.finalCsvPath, owned.finalMarkdownPath, owned.projectFinalCsvPath, owned.projectFinalMarkdownPath].includes(artifactPath))
+            if (!owned || ![owned.rawResultCsvPath, owned.aggregateCsvPath, owned.projectAggregateCsvPath, owned.finalCsvPath, owned.finalMarkdownPath, owned.projectFinalCsvPath, owned.projectFinalMarkdownPath, ...[...(owned.datasetResultTables || []), ...(owned.projectDatasetTables || []), ...(owned.paperDatasetTables || [])].flatMap(table => [table.rawResultCsvPath, table.aggregateCsvPath, table.finalCsvPath, table.finalMarkdownPath, table.paperTablePath, table.paperTableCsvPath])].includes(artifactPath))
                 throw new Error("文件与指定 Worker 的当前 Plan 不匹配。");
         }
         const availableWorkers = this.enabledWorkerConfigs().map((worker) => String(worker.id || "")).filter(Boolean);
         const owner = String(requestedWorkerId || summary?.resultOwnerWorkerId || summary?.workerId || "").trim();
         const workerId = availableWorkers.find((id) => id.toLowerCase() === owner.toLowerCase()) || (availableWorkers.length === 1 ? availableWorkers[0] : "");
         const useWorker = Boolean(workerId && typeof client.downloadWorkerFile === "function");
-        const localRelative = methodResultArtifactLocalRelativePath(artifactPath, planFile, summary, DEFAULT_RESULT_CSV_DIR, workerTables.length > 1 ? workerId : "");
+        const localRelative = methodResultArtifactLocalRelativePath(artifactPath, planFile, summary, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, workerTables.length > 1 ? workerId : "");
         const localArtifactPath = safeWorkspaceChildPath(root, localRelative);
         const localStat = await fs.stat(localArtifactPath).catch(() => undefined);
         if (!isCurrent())
@@ -15606,7 +15618,7 @@ class RealtimeTunnelPanelProvider {
                 if (!workerId && !(this.projectTopologyAssessment?.().hubAllowed && typeof this.hubCodeSyncTarget === "function"))
                     throw new Error("Hub 来源没有可打包的 SFTP 目标。下一步：在服务器设置中填写 Hub 主机和项目目录后重试。");
                 const sourceId = workerId || "hub";
-                const localRelative = methodResultArtifactLocalRelativePath(remotePath, planFile, summary, DEFAULT_RESULT_CSV_DIR, workerTables.length > 1 ? workerId : "");
+                const localRelative = methodResultArtifactLocalRelativePath(remotePath, planFile, summary, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, workerTables.length > 1 ? workerId : "");
                 const localPath = safeWorkspaceChildPath(root, localRelative);
                 const destinationKey = localRelative.toLowerCase();
                 const previous = destinations.get(destinationKey);
@@ -15651,7 +15663,7 @@ class RealtimeTunnelPanelProvider {
                 `Plan：${plans.join("、")}`,
                 `来源：${batches.map((batch) => `${batch.sourceId} ${batch.entries.length} 个`).join("；")}`,
                 `${metricsOnly ? "指标" : "结果"}文件：${entries.length} 个，已有本地副本：${existingCount} 个`,
-                `本机目录：${safeWorkspaceChildPath(root, DEFAULT_RESULT_CSV_DIR)}`,
+                `本机目录：${safeWorkspaceChildPath(root, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR)}`,
                 "每个文件最多 128 MB。同一来源的文件会先聚合，再一次打包传输并按映射写入各 Plan 路径。",
             ].join("\n"), { modal: true }, "覆盖已有文件并同步", "只同步缺失文件");
             if (!isCurrent())
@@ -15754,7 +15766,7 @@ class RealtimeTunnelPanelProvider {
         const deliveredEntries = transfers.filter((entry) => entry.delivered).map((entry) => ({ remotePath: entry.remotePath, localRelativePath: entry.localRelativePath }));
         if (!isCurrent())
             return { completed, selected: entries.length, failures, cancelled: true, sourceId: batch.sourceId, deliveredEntries };
-        const summaryText = `${metricsOnly ? "指标文件下载" : "结果同步"} ${batch.sourceId}：成功 ${completed}/${entries.length}，失败 ${failures.length}${cancelled ? "，已取消后续批次" : ""}。本机目录：${DEFAULT_RESULT_CSV_DIR}`;
+        const summaryText = `${metricsOnly ? "指标文件下载" : "结果同步"} ${batch.sourceId}：成功 ${completed}/${entries.length}，失败 ${failures.length}${cancelled ? "，已取消后续批次" : ""}。本机目录：${this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR}`;
         if (failures.length || cancelled)
             void vscode.window.showWarningMessage(`${summaryText}\n${failures.slice(0, 5).join("\n")}`);
         else
@@ -15890,7 +15902,7 @@ class RealtimeTunnelPanelProvider {
             if (!isResultMetricFile(remotePath) || !remotePath.toLowerCase().endsWith(".csv"))
                 continue;
             const workerId = String(table.workerId || "");
-            const localRelative = methodResultArtifactLocalRelativePath(remotePath, planFile, summary, DEFAULT_RESULT_CSV_DIR, tables.length > 1 ? workerId : "");
+            const localRelative = methodResultArtifactLocalRelativePath(remotePath, planFile, summary, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, tables.length > 1 ? workerId : "");
             const localPath = safeWorkspaceChildPath(root, localRelative);
             const localStat = await fs.lstat(localPath).catch(() => undefined);
             const text = localStat?.isFile() ? await fs.readFile(localPath, "utf8").catch(() => "") : "";
@@ -15949,24 +15961,35 @@ class RealtimeTunnelPanelProvider {
             throw new Error("全项目结果注册表格式不支持，请检查 simple_cluster/results/project_table_registry.json。");
         return parsed;
     }
-    async writeProjectTableRegistry(root, registry) {
+    async writeProjectTableRegistry(root, registry, resultDir = this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR) {
         const tables = ProjectResultTables.buildTables(registry);
-        if (!tables.final)
+        if (!Object.keys(tables).length)
             throw new Error("尚无可写入的逐 seed 结果。");
+        const catalog = ProjectResultTables.resultCatalog(root, resultDir);
         const outputs = [];
-        for (const [name, table] of Object.entries(tables)) {
-            const folder = ProjectResultTables.safeTableName(name);
-            outputs.push([path.posix.join(DEFAULT_RESULT_CSV_DIR, folder, folder + ".csv"), ProjectResultTables.writeCsv(table.header, table.rows)]);
-            outputs.push([path.posix.join(DEFAULT_RESULT_CSV_DIR, folder, folder + ".md"), table.markdown]);
+        const datasets = new Map();
+        for (const table of Object.values(tables)) {
+            const previous = catalog.datasets.find((item) => item.datasetKey.toLowerCase() === table.datasetKey.toLowerCase());
+            if (previous && previous.dataset !== table.dataset)
+                throw new Error("数据集目录冲突，已保留旧结果：" + table.dataset);
+            datasets.set(table.datasetKey, table.dataset);
+            outputs.push([path.posix.join(resultDir, table.relativePath), ProjectResultTables.writeCsv(table.header, table.rows)]);
+            outputs.push([path.posix.join(resultDir, table.markdownPath), table.markdown]);
         }
+        for (const [datasetKey, dataset] of datasets)
+            outputs.push([path.posix.join(resultDir, datasetKey, ".dataset.json"), JSON.stringify({ dataset, datasetKey }) + "\n"]);
         outputs.push(["simple_cluster/results/project_table_registry.json", JSON.stringify(registry, null, 2) + "\n"]);
-        for (const [relative, content] of outputs) {
-            const target = await safeResultOutputPath(root, relative);
+        const targets = await Promise.all(outputs.map(([relative]) => safeResultOutputPath(root, relative)));
+        const staged = [];
+        for (const [index, [, content]] of outputs.entries()) {
+            const target = targets[index];
             await fs.mkdir(path.dirname(target), { recursive: true });
             const temporary = target + ".tmp-" + process.pid + "-" + crypto.randomBytes(4).toString("hex");
             await fs.writeFile(temporary, content, "utf8");
-            await fs.rename(temporary, target);
+            staged.push([temporary, target]);
         }
+        for (const [temporary, target] of staged)
+            await fs.rename(temporary, target);
         return tables;
     }
     async loadPlanSyncLedger(root) {
@@ -16413,21 +16436,29 @@ class RealtimeTunnelPanelProvider {
         const context = this.captureProjectContext();
         if (!context.root)
             throw new Error("请先打开当前实验项目。");
-        const name = String(message?.tableName || "");
+        const catalog = ProjectResultTables.resultCatalog(context.root, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR);
+        if (message?.artifactKey) {
+            const artifact = catalog.datasets.flatMap(item => item.plans.flatMap(plan => plan.artifacts)).find(row => row.artifactKey === String(message.artifactKey));
+            if (!artifact)
+                throw new Error("结果产物不在当前目录索引中。");
+            await this.openWorkspaceFileForProjectContext(artifact.path, context, this.client);
+            return;
+        }
+        const key = String(message?.tableKey || "");
         const format = String(message?.format || "csv").toLowerCase();
         if (!["csv", "md"].includes(format))
             throw new Error("不支持的表格格式。");
-        const catalog = ProjectResultTables.tableCatalog(context.root, DEFAULT_RESULT_CSV_DIR);
-        if (!catalog.some((row) => row.name === name))
-            throw new Error("结果表不存在，请先重建全项目总表。");
-        await this.openWorkspaceFileForProjectContext(path.posix.join(DEFAULT_RESULT_CSV_DIR, name, name + "." + format), context, this.client);
+        const table = catalog.datasets.flatMap(item => item.tables).find(row => row.tableKey === key);
+        if (!table)
+            throw new Error("结果表不存在，请先按数据集重新汇总。");
+        await this.openWorkspaceFileForProjectContext(format === "md" ? table.markdownPath : table.path, context, this.client);
     }
     async splitProjectResultTableFromUi(message) {
         const context = this.captureProjectContext();
         if (!context.root)
             throw new Error("请先打开当前实验项目。");
-        const name = String(message?.tableName || "");
-        const table = ProjectResultTables.tableCatalog(context.root, DEFAULT_RESULT_CSV_DIR).find((row) => row.name === name);
+        const key = String(message?.tableKey || "");
+        const table = ProjectResultTables.tableCatalog(context.root, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR).find((row) => row.tableKey === key);
         if (!table)
             throw new Error("请先选择已生成的总表或方法表。");
         const field = String(message?.splitField || "");
@@ -16438,13 +16469,13 @@ class RealtimeTunnelPanelProvider {
         const source = await fs.readFile(safeWorkspaceChildPath(context.root, table.path), "utf8");
         const outputs = ProjectResultTables.splitCsvByValues(source, field, values, columns);
         const folder = ProjectResultTables.safeTableName(field);
-        const paths = Object.keys(outputs).map((value) => path.posix.join(DEFAULT_RESULT_CSV_DIR, name, "by_" + folder, ProjectResultTables.safeTableName(value || "empty") + ".csv"));
+        const paths = Object.keys(outputs).map((value) => path.posix.join(path.posix.dirname(table.path), "by_" + folder, ProjectResultTables.safeTableName(value || "empty") + ".csv"));
         if (new Set(paths.map((item) => item.toLowerCase())).size !== paths.length)
             throw new Error("拆表词条对应同名文件，请调整选择。");
         const targets = await Promise.all(paths.map((relative) => safeResultOutputPath(context.root, relative)));
         const existing = (await Promise.all(targets.map((target) => fs.stat(target).then(() => true).catch(() => false)))).filter(Boolean).length;
         if (existing) {
-            const answer = await vscode.window.showWarningMessage("将生成 " + targets.length + " 张子表，其中 " + existing + " 张已有同名文件。目标目录：" + path.posix.join(DEFAULT_RESULT_CSV_DIR, name, "by_" + folder), { modal: true }, "覆盖已有子表");
+            const answer = await vscode.window.showWarningMessage("将生成 " + targets.length + " 张子表，其中 " + existing + " 张已有同名文件。目标目录：" + path.posix.join(path.posix.dirname(table.path), "by_" + folder), { modal: true }, "覆盖已有子表");
             if (answer !== "覆盖已有子表")
                 throw new UiCommandCancelled("拆表已取消，文件未改变。");
         }
@@ -16457,7 +16488,7 @@ class RealtimeTunnelPanelProvider {
             await fs.writeFile(temporary, outputs[value], "utf8");
             await fs.rename(temporary, target);
         }
-        void vscode.window.showInformationMessage("已生成 " + paths.length + " 张子表，目录：" + path.posix.join(DEFAULT_RESULT_CSV_DIR, name, "by_" + folder));
+        void vscode.window.showInformationMessage("已生成 " + paths.length + " 张子表，目录：" + path.posix.join(path.posix.dirname(table.path), "by_" + folder));
     }
     async editResultColumnMappingFromUi() {
         const context = this.captureProjectContext();
@@ -17538,7 +17569,7 @@ class RealtimeTunnelPanelProvider {
                 return;
             this.resultsSummary = summary;
             if (planFile && summary?.workerResultTables?.some?.((row) => row.aggregateStatus === "ready"))
-                await this.updateProjectResultTablesFromSummary(summary, planFile).catch((error) => this.recordActionError({ command: "refreshResults", message: "全项目总表未更新：" + errorMessage(error), suggestion: "请核对原始结果的 case、seed 与 Worker 完整性。" }));
+                await this.updateProjectResultTablesFromSummary(summary, planFile).catch((error) => this.recordActionError({ command: "refreshResults", message: "数据集总表未更新：" + errorMessage(error), suggestion: "请核对原始结果的 case、seed 与 Worker 完整性。" }));
             this.lastError = undefined;
             this.lastResultsSummaryRealtimeErrorKey = "";
             this.lastResultsSummaryCapabilityWarningKey = "";
@@ -18817,8 +18848,14 @@ class RealtimeTunnelPanelProvider {
                 defaultDirectory: DEFAULT_RESULT_CSV_DIR,
                 columnMapping: pluginProjectAdapterRules(workspaceRoot() || "").csvColumnMapping || {},
                 adapterRules: pluginProjectAdapterRules(workspaceRoot() || ""),
+                catalog: (() => { try {
+                    return workspaceRoot() ? ProjectResultTables.resultCatalog(workspaceRoot(), this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR) : { datasets: [], legacyTables: [] };
+                }
+                catch (error) {
+                    return { datasets: [], legacyTables: [], error: errorMessage(error) };
+                } })(),
                 tables: (() => { try {
-                    return workspaceRoot() ? ProjectResultTables.tableCatalog(workspaceRoot(), DEFAULT_RESULT_CSV_DIR) : [];
+                    return workspaceRoot() ? ProjectResultTables.tableCatalog(workspaceRoot(), this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR) : [];
                 }
                 catch {
                     return [];
@@ -23952,8 +23989,15 @@ function finalPlotSourcesFromSummary(summary) {
         out.push(statisticsPath);
     const paperTablePath = stringFromRecord(item, ["paperTableCsvPath", "paper_table_csv_path", "paperTablePath", "paper_table_path", "exportPath"]);
     const paperTableCount = numberFromRecord(item, ["paperTableResultCount", "paper_table_result_count"]);
-    if (paperTablePath && paperTableCount === archivedCount)
-        out.push(paperTablePath);
+    if (paperTableCount === archivedCount) {
+        if (paperTablePath)
+            out.push(paperTablePath);
+        for (const table of item.paperDatasetTables || []) {
+            const source = table.paperTableCsvPath || table.paperTablePath;
+            if (source)
+                out.push(source);
+        }
+    }
     return uniqueStrings(out);
 }
 function serverSetupMissingItems(setup, hubRequired = true) {
@@ -27883,35 +27927,21 @@ function methodResultArtifactLocalRelativePath(remotePath, planFile, summary, re
     if (!normalized)
         throw new Error("不支持的结果文件路径。");
     const base = normalizeResultCsvDir(resultDir);
-    const method = ProjectResultTables.methodForSummary(summary, planFile);
-    const plan = safePlanToken(path.posix.basename(planFile, path.posix.extname(planFile)));
-    const worker = workerId ? safePlanToken(workerId) : "";
-    const folder = path.posix.join(base, method);
-    const target = (kind, file) => path.posix.join(folder, kind, ...(worker ? [worker] : []), file);
     const tables = Array.isArray(summary?.workerResultTables) ? summary.workerResultTables : [];
-    const ownedTables = !workerId && tables.length === 1 ? tables : tables.filter((row) => String(row?.workerId || "").toLowerCase() === String(workerId || "").toLowerCase());
-    const owned = ownedTables.find((row) => [row.rawResultCsvPath, row.aggregateCsvPath, ...(row.metricPaths || [])].includes(normalized)) || ownedTables[0] || {};
-    const matches = (key) => normalized === owned[key] || normalized === summary?.[key];
-    if (matches("rawResultCsvPath")) {
-        const job = owned.completedJob;
-        const suffix = job ? "_" + safePlanToken(job.index + "_" + job.case + "_seed" + job.seed) + "_" + crypto.createHash("sha256").update(normalized).digest("hex").slice(0, 8) : "_seed";
-        return target("raw", plan + suffix + path.posix.extname(normalized));
-    }
-    if (matches("aggregateCsvPath"))
-        return target("detail", plan + "_seed_mean_std.csv");
-    if (matches("finalCsvPath"))
-        return target("trace", plan + "_final.csv");
-    if (matches("finalMarkdownPath"))
-        return target("trace", plan + "_final.md");
-    if (matches("projectAggregateCsvPath"))
-        return target("detail", "worker_project_seed_mean_std.csv");
-    if (matches("projectFinalCsvPath"))
-        return target("trace", "worker_project_final.csv");
-    if (matches("projectFinalMarkdownPath"))
-        return target("trace", "worker_project_final.md");
+    const ownedTables = !workerId && tables.length === 1 ? tables : tables.filter(row => String(row.workerId || "").toLowerCase() === String(workerId || "").toLowerCase());
+    const datasetTables = [...(summary?.datasetResultTables || []), ...(summary?.projectDatasetTables || []), ...(summary?.paperDatasetTables || []), ...ownedTables.flatMap(row => [...(row.datasetResultTables || []), ...(row.projectDatasetTables || []), ...(row.paperDatasetTables || [])])];
+    const datasetTable = datasetTables.find(row => [row.aggregateCsvPath, row.finalCsvPath, row.finalMarkdownPath, row.paperTablePath, row.paperTableCsvPath].includes(normalized));
+    const records = (summary?.results || []).filter(row => !workerId || String(row.workerId || row.resultOwnerWorkerId || summary.resultOwnerWorkerId || "").toLowerCase() === String(workerId).toLowerCase());
+    const sourceRecords = records.filter(row => (row.sourceFiles || []).some(file => file.path === normalized));
+    const rawDatasetTables = datasetTables.filter(row => row.rawResultCsvPath === normalized);
+    const datasets = ProjectResultTables.datasetPartitions(sourceRecords.length ? sourceRecords.map(row => row.dimensions?.dataset) : rawDatasetTables.length ? rawDatasetTables.map(row => row.dataset) : records.map(row => row.dimensions?.dataset));
+    const datasetKey = datasetTable ? ProjectResultTables.datasetPathKey(datasetTable.dataset) : datasets.length === 1 ? datasets[0].datasetKey : datasets.length > 1 ? "_shared" : "_unassigned";
+    const owned = ownedTables.find(row => [row.rawResultCsvPath, row.aggregateCsvPath, ...(row.metricPaths || [])].includes(normalized)) || ownedTables[0] || {};
+    const matches = key => normalized === owned[key] || normalized === summary?.[key] || normalized === datasetTable?.[key];
+    const kind = matches("rawResultCsvPath") || sourceRecords.length || datasetTables.some(row => row.rawResultCsvPath === normalized) ? "raw" : matches("aggregateCsvPath") || matches("projectAggregateCsvPath") ? "detail" : "trace";
     const extension = path.posix.extname(normalized);
-    const digest = crypto.createHash("sha256").update(normalized).digest("hex").slice(0, 8);
-    return target("trace", plan + "_" + safePlanToken(path.posix.basename(normalized, extension)) + "_" + digest + extension);
+    const filename = safePlanToken(path.posix.basename(normalized, extension)) + "__" + crypto.createHash("sha256").update(normalized).digest("hex").slice(0, 8) + extension;
+    return path.posix.join(base, ProjectResultTables.planArtifactPath(datasetKey, planFile, kind, filename, workerId));
 }
 function remoteResultInspectionCandidates(operationGroups, planFile, planRevision = "", planUpdatedAt = "") {
     const selectedPlan = normalizePlanSelectionKey(planFile);
@@ -27976,6 +28006,7 @@ function resultSummaryInspectionCandidates(summary, planFile) {
         return [];
     const claimEvidence = item.claimEvidence && typeof item.claimEvidence === "object" ? item.claimEvidence : item.claim_evidence && typeof item.claim_evidence === "object" ? item.claim_evidence : {};
     return uniqueStrings([
+        ...[item, ...(item.workerResultTables || [])].flatMap(owner => [...(owner.datasetResultTables || []), ...(owner.projectDatasetTables || []), ...(owner.paperDatasetTables || [])].flatMap(row => [row.rawResultCsvPath, row.aggregateCsvPath, row.finalCsvPath, row.finalMarkdownPath, row.paperTablePath, row.paperTableCsvPath])),
         item.previewCsvPath,
         item.rawResultCsvPath,
         item.aggregateCsvPath,
@@ -28439,8 +28470,10 @@ function resultMetricDownloadCandidates(summary, planFile) {
 function resultSummarySyncCandidates(summary, planFile) {
     const inspected = new Set(resultSummaryInspectionCandidates(summary, planFile));
     const tables = Array.isArray(summary?.workerResultTables) ? summary.workerResultTables : [];
-    const fields = ["rawResultCsvPath", "aggregateCsvPath", "finalCsvPath", "finalMarkdownPath", "projectFinalCsvPath", "projectFinalMarkdownPath"];
+    const fields = ["rawResultCsvPath", "aggregateCsvPath", "projectAggregateCsvPath", "finalCsvPath", "finalMarkdownPath", "projectFinalCsvPath", "projectFinalMarkdownPath"];
+    const expanded = owner => [...(owner?.datasetResultTables || []), ...(owner?.projectDatasetTables || []), ...(owner?.paperDatasetTables || [])].flatMap(row => [row.rawResultCsvPath, row.aggregateCsvPath, row.finalCsvPath, row.finalMarkdownPath, row.paperTablePath, row.paperTableCsvPath]).filter(Boolean);
     const paths = uniqueStrings([
+        ...expanded(summary), ...tables.flatMap(expanded),
         ...fields.map((field) => summary?.[field]),
         ...tables.flatMap((table) => [...fields.map((field) => table?.[field]), ...(table.metricPaths || [])]),
     ].filter((item) => inspected.has(item)));
@@ -28455,7 +28488,7 @@ function resultSummarySyncCandidates(summary, planFile) {
         }
     };
     for (const remotePath of paths) {
-        const matchingTables = tables.filter((table) => [...fields.map((field) => table?.[field]), ...(table.metricPaths || [])].includes(remotePath));
+        const matchingTables = tables.filter((table) => [...expanded(table), ...fields.map((field) => table?.[field]), ...(table.metricPaths || [])].includes(remotePath));
         if (matchingTables.length) {
             for (const table of matchingTables)
                 add(remotePath, table.workerId);

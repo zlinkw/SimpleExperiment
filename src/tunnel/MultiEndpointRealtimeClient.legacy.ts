@@ -711,6 +711,9 @@ export function mergeWorkerResultsSummaries(
   const workerResultTables = accepted.map(({ workerId, summary }) => ({
     workerId,
     rawResultCsvPath: String(summary.rawResultCsvPath || ""),
+    datasetResultTables: (Array.isArray(summary.datasetResultTables) ? summary.datasetResultTables : []).map((row: any) => ({ ...row, workerId })),
+    projectDatasetTables: (Array.isArray(summary.projectDatasetTables) ? summary.projectDatasetTables : []).map((row: any) => ({ ...row, workerId })),
+    paperDatasetTables: (Array.isArray(summary.paperDatasetTables) ? summary.paperDatasetTables : []).map((row: any) => ({ ...row, workerId })),
     aggregateCsvPath: String(summary.aggregateCsvPath || ""),
     projectAggregateCsvPath: String(summary.projectAggregateCsvPath || ""),
     finalCsvPath: String(summary.finalCsvPath || ""),
@@ -732,6 +735,10 @@ export function mergeWorkerResultsSummaries(
     topologyMode: expectedWorkers.length > 1 ? "worker_pool" : "single_worker",
     workerIds,
     workerResultTables,
+    paperTableResultCount: accepted.reduce((total, entry) => total + Number(entry.summary.paperTableResultCount || 0), 0),
+    datasetResultTables: workerResultTables.flatMap(row => row.datasetResultTables),
+    projectDatasetTables: workerResultTables.flatMap(row => row.projectDatasetTables),
+    paperDatasetTables: workerResultTables.flatMap(row => row.paperDatasetTables),
     ...(singleTables ? {
       rawResultCsvPath: singleTables.rawResultCsvPath,
       aggregateCsvPath: singleTables.aggregateCsvPath,

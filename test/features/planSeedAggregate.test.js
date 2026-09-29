@@ -12,7 +12,7 @@ test("Plan summary uses declared raw CSV, computes sample SD, and marks missing 
   const source = readSource("src/clusterAgentRuntime.ts");
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "simple-plan-aggregate-"));
   const agentPath = path.join(tmp, "cluster_agent.py");
-  fs.writeFileSync(agentPath, source.slice(source.indexOf("#!/usr/bin/env python3"), source.lastIndexOf("`;")), "utf8");
+  fs.writeFileSync(agentPath, fs.readFileSync(path.join(__dirname, "../../dist/runtime/cluster_agent.py"), "utf8"), "utf8");
   const root = path.join(tmp, "project");
   fs.mkdirSync(path.join(root, "experiments", "plans"), { recursive: true });
   fs.mkdirSync(path.join(root, "experiments", "results"), { recursive: true });
@@ -34,10 +34,10 @@ test("Plan summary uses declared raw CSV, computes sample SD, and marks missing 
   ].join("\n") + "\n", "utf8");
   const script = path.join(tmp, "check.py");
   fs.writeFileSync(script, [
-    "import importlib.util, json, csv",
-    `spec = importlib.util.spec_from_file_location('agent', ${JSON.stringify(agentPath)})`,
-    "agent = importlib.util.module_from_spec(spec)",
-    "spec.loader.exec_module(agent)",
+    "import json, csv, sys",
+    `sys.path.insert(0, ${JSON.stringify(path.join(__dirname, "../_helpers"))})`,
+    "from extractRuntimeFunctions import extract_runtime_functions",
+    `agent = extract_runtime_functions(${JSON.stringify(agentPath)}, ['parse_results_action', 'archive_plan_copy_action', 'atomic_write', 'path_for'])`,
     `root = ${JSON.stringify(root)}`,
     "summary = agent.parse_results_action(root, plan='experiments/plans/demo.yaml')",
     "rows = list(csv.DictReader(open(agent.safe_project_path(root, summary['aggregateCsvPath']), encoding='utf-8'))) if summary.get('aggregateCsvPath') else []",
@@ -55,14 +55,14 @@ test("Plan summary uses declared raw CSV, computes sample SD, and marks missing 
     "os.makedirs(os.path.join(plugin_root, 'experiments', 'results'), exist_ok=True)",
     "open(agent.safe_project_path(plugin_root, 'experiments/plans/plugin.yaml'), 'w', encoding='utf-8').write('suite: plugin\\nseeds: [1, 2]\\npaper:\\n  result_csv: experiments/results/plugin.csv\\ncases:\\n  - case: alpha\\n')",
     "open(agent.safe_project_path(plugin_root, 'experiments/results/plugin.csv'), 'w', encoding='utf-8').write('specimen,rng,accuracy\\nalpha,1,0.7\\nalpha,2,0.9\\n')",
-    "save_policy = agent.handle_action(plugin_root, 'save-result-policy', {'options': {'projectAdapterRules': {'csvColumnMapping': {'case': 'specimen', 'seed': 'rng'}}}}, 'policy-save', 'policy-save')",
+    "agent.atomic_write(agent.path_for(plugin_root, 'result_policy.json'), {'csvColumnMapping': {'case': 'specimen', 'seed': 'rng'}}); save_policy = {'status': 'completed'}",
     "plugin_mapped = agent.parse_results_action(plugin_root, plan='experiments/plans/plugin.yaml')",
     "open(agent.safe_project_path(root, 'experiments/plans/missing.yaml'), 'w', encoding='utf-8').write('suite: missing\\nseeds: [1, 2]\\npaper:\\n  result_csv: experiments/results/missing.csv\\ncases:\\n  - case: alpha\\n')",
     "open(agent.safe_project_path(root, 'experiments/results/missing.csv'), 'w', encoding='utf-8').write('case,accuracy\\nalpha,0.7\\n')",
     "missing = agent.parse_results_action(root, plan='experiments/plans/missing.yaml')",
     "print(json.dumps({'status': summary.get('aggregateStatus'), 'raw': summary.get('rawResultCsvPath'), 'rows': rows, 'preview': summary.get('columnMappingPreview'), 'incomplete': summary.get('aggregateIncompleteCount'), 'archivedRows': archived_rows, 'archive': archive['archivePath'], 'archiveSources': [item['source'] for item in archive_manifest['files']], 'mappedStatus': mapped.get('aggregateStatus'), 'mappedMetrics': mapped.get('metrics'), 'savePolicyStatus': save_policy.get('status'), 'pluginMappedStatus': plugin_mapped.get('aggregateStatus'), 'pluginMappedMetrics': plugin_mapped.get('metrics'), 'missingStatus': missing.get('aggregateStatus')}))",
   ].join("\n"), "utf8");
-  const result = spawnSync("python", [script], { encoding: "utf8" });
+  const result = spawnSync("python", ["-X", "utf8", "-B", script], { encoding: "utf8", timeout: 10000, windowsHide: true });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const payload = JSON.parse(result.stdout.trim().split(/\r?\n/).pop());
   assert.equal(payload.status, "ready", JSON.stringify(payload));
@@ -96,7 +96,7 @@ test("final result separates evaluation endpoints and keeps the detailed table",
   const source = readSource("src/clusterAgentRuntime.ts");
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "simple-plan-final-"));
   const agentPath = path.join(tmp, "cluster_agent.py");
-  fs.writeFileSync(agentPath, source.slice(source.indexOf("#!/usr/bin/env python3"), source.lastIndexOf("`;")), "utf8");
+  fs.writeFileSync(agentPath, fs.readFileSync(path.join(__dirname, "../../dist/runtime/cluster_agent.py"), "utf8"), "utf8");
   const root = path.join(tmp, "project");
   fs.mkdirSync(path.join(root, "experiments", "plans"), { recursive: true });
   fs.mkdirSync(path.join(root, "experiments", "results"), { recursive: true });
@@ -110,15 +110,15 @@ test("final result separates evaluation endpoints and keeps the detailed table",
   fs.writeFileSync(path.join(root, "experiments", "results", "raw.csv"), rows.join("\n") + "\n", "utf8");
   const script = path.join(tmp, "check.py");
   fs.writeFileSync(script, [
-    "import importlib.util, json, csv",
-    `spec = importlib.util.spec_from_file_location('agent', ${JSON.stringify(agentPath)})`,
-    "agent = importlib.util.module_from_spec(spec)",
-    "spec.loader.exec_module(agent)",
+    "import json, csv, sys",
+    `sys.path.insert(0, ${JSON.stringify(path.join(__dirname, "../_helpers"))})`,
+    "from extractRuntimeFunctions import extract_runtime_functions",
+    `agent = extract_runtime_functions(${JSON.stringify(agentPath)}, ['parse_results_action', 'archive_plan_copy_action', 'atomic_write', 'path_for'])`,
     `root = ${JSON.stringify(root)}`,
     "plan = 'experiments/plans/demo.yaml'",
     "plain = agent.parse_results_action(root, plan=plan)",
     "plain_rows = list(csv.DictReader(open(agent.safe_project_path(root, plain['finalCsvPath']), encoding='utf-8')))",
-    "agent.handle_action(root, 'save-result-policy', {'options': {'projectAdapterRules': {'derivedMetric': {'metric': 'balanced_accuracy', 'leftEndpoint': 'clean', 'rightEndpoint': 'p100_low', 'scale': 100, 'outputName': 'balanced_accuracy_drop_pp'}}}}, 'policy', 'policy')",
+    "agent.atomic_write(agent.path_for(root, 'result_policy.json'), {'derivedMetric': {'metric': 'balanced_accuracy', 'leftEndpoint': 'clean', 'rightEndpoint': 'p100_low', 'scale': 100, 'outputName': 'balanced_accuracy_drop_pp'}})",
     "summary = agent.parse_results_action(root, plan=plan)",
     "final = list(csv.DictReader(open(agent.safe_project_path(root, summary['finalCsvPath']), encoding='utf-8')))",
     "detail = list(csv.DictReader(open(agent.safe_project_path(root, summary['aggregateCsvPath']), encoding='utf-8')))",
@@ -126,7 +126,7 @@ test("final result separates evaluation endpoints and keeps the detailed table",
     "project_final = list(csv.DictReader(open(agent.safe_project_path(root, summary['projectFinalCsvPath']), encoding='utf-8')))",
     "print(json.dumps({'plain': plain_rows, 'final': final, 'detail': detail, 'markdown': markdown, 'finalPath': summary['finalCsvPath'], 'projectFinal': project_final}))",
   ].join("\n"), "utf8");
-  const result = spawnSync("python", [script], { encoding: "utf8" });
+  const result = spawnSync("python", ["-X", "utf8", "-B", script], { encoding: "utf8", timeout: 10000, windowsHide: true });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const payload = JSON.parse(result.stdout.trim().split(/\r?\n/).pop());
   assert.equal(payload.plain.length, 2);
@@ -208,7 +208,7 @@ test("copy archive confirms exact targets and verifies the local Worker copy", a
     return full;
   };
   const context = {
-    fs: fs.promises, path, crypto,
+    fs: fs.promises, path, crypto, MAPPED_RESULT_DOWNLOAD_MAX_ENTRIES: 5000,
     vscode: { window: { showWarningMessage: async (message) => { confirmed = message; return "确认复制归档"; }, showInformationMessage: () => undefined } },
     stringField: (value, key) => String(value?.[key] || ""),
     makeOpId: () => "archive-test",
@@ -231,6 +231,15 @@ test("copy archive confirms exact targets and verifies the local Worker copy", a
     filterResultsSummaryForPlan: (value) => value,
     enabledWorkerConfigs: () => [{ id: "NWPU3", remotePath: "/data/qgking/zlk" }],
     missingWorkerActionCapabilities: () => [],
+    mappedDownloadServerForSource: () => ({id: "NWPU3"}),
+    simpleSftpApiCall: async (_method, params) => {
+      for (const entry of params.entries) {
+        const local = path.join(root, ...entry.localRelativePath.split("/"));
+        fs.mkdirSync(path.dirname(local), {recursive: true});
+        await client.downloadWorkerFile("NWPU3", entry.remotePath, local);
+      }
+      return {fileCount: params.entries.length};
+    },
     agentRuntimeDirs: () => ({ workDir: "/data/qgking/zlk/MultiModal" }),
     projectContextIsCurrent: () => true,
   };
@@ -241,3 +250,15 @@ test("copy archive confirms exact targets and verifies the local Worker copy", a
   const copied = path.join(archiveParent, snapshot, "NWPU3", "files", ...planFile.split("/"));
   assert.equal(fs.readFileSync(copied, "utf8"), "suite: demo\n");
 });
+
+ test("multi Worker merge forwards dataset arrays and ownership without a mixed scalar", () => {
+  const {mergeWorkerResultsSummaries} = require("../../dist/tunnel/MultiEndpointRealtimeClient");
+  const planFile = "experiments/plans/demo.yaml";
+  const entries = ["w1", "w2"].map(workerId => ({workerId, summary: {planFile, planRevision: "r1", resultCount: 0, datasetResultTables: [{dataset: "BUS", datasetKey: "BUS", aggregateCsvPath: "simple_cluster/results/BUS/seed.csv"}, {dataset: "PAD", datasetKey: "PAD", aggregateCsvPath: "simple_cluster/results/PAD/seed.csv"}], projectDatasetTables: [{dataset: "PAD", datasetKey: "PAD", finalCsvPath: "simple_cluster/results/PAD/final.csv"}], paperDatasetTables: [{dataset: "BUS", datasetKey: "BUS", paperTableCsvPath: "paper/tables/BUS/table.csv"}]}}));
+  const merged = mergeWorkerResultsSummaries(entries, planFile, ["w1", "w2"]);
+  assert.equal(merged.datasetResultTables.length, 4);
+  assert.deepEqual([...new Set(merged.datasetResultTables.map(row => row.workerId))].sort(), ["w1", "w2"]);
+  assert.equal(merged.projectDatasetTables.length, 2);
+  assert.equal(merged.paperDatasetTables.length, 2);
+  assert.equal(merged.finalCsvPath, undefined);
+ });

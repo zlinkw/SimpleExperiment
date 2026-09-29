@@ -81,6 +81,11 @@ function planEntry(planFile, owner, revision) {
   };
 }
 
+function rawLocation(workspace, plan = "a", dataset = "_unassigned", remote = "simple_cluster/results/w1/raw.csv") {
+  const key = require("../../dist/results/ProjectResultTables").planDirectoryKey("experiments/plans/" + plan + ".yaml");
+  const hash = require("node:crypto").createHash("sha256").update(remote).digest("hex").slice(0, 8);
+  return path.join(workspace, "experiments", "results", dataset, "plans", key, "raw", path.basename(remote, ".csv") + "__" + hash + ".csv");
+}
 function summaryFor(planFile, owner) {
   return {
     planFile,
@@ -335,7 +340,7 @@ test("overwrite refusal, transfer failure and project switch do not publish a ne
     vscodeStub.window.showWarningMessage = async () => undefined;
     const { __syncPendingResultMetricsForTest } = require("../../dist/extension/legacy.js");
     const refused = providerFor(workspace, { previousSummary: { planFile: "old", stale: true } });
-    const raw = path.join(workspace, "experiments", "results", "a", "raw", "a_seed.csv");
+    const raw = rawLocation(workspace);
     fs.mkdirSync(path.dirname(raw), { recursive: true });
     fs.writeFileSync(raw, "old");
     await assert.rejects(() => __handleResultUiCommandForTest(refused, { command: "syncPendingPlanArtifacts" }), /已取消/);
@@ -374,10 +379,10 @@ test("refresh all results redraws tables from local metric files for empty and s
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-result-metrics-refresh-"));
   vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: workspace, scheme: "file", path: workspace } }];
   try {
-    const csvDir = path.join(workspace, "experiments", "results", "a", "raw");
+    const csvDir = path.dirname(rawLocation(workspace));
     fs.mkdirSync(csvDir, { recursive: true });
-    fs.writeFileSync(path.join(csvDir, "a_seed.csv"), "case,seed,method,dataset,metric,value\nalpha,1,w1,set,AUC,0.8\n");
-    const staleDir = path.join(workspace, "experiments", "results", "final");
+    fs.writeFileSync(rawLocation(workspace), "case,seed,method,dataset,metric,value\nalpha,1,w1,set,AUC,0.8\n");
+    const staleDir = path.join(workspace, "experiments", "results", "set", "final");
     fs.mkdirSync(staleDir, { recursive: true });
     fs.writeFileSync(path.join(staleDir, "final.csv"), "result_family,dataset,rate_percent,eval_protocol,jobs,auc_mean,auc_sd\r\nold,set,, ,1,0.1000,\r\n");
     const provider = providerFor(workspace, { onlyFirst: true, workers: [{ id: "w1" }], targets: [sftpTarget("w1", "/projects/w1")], previousSummary: { planFile: "experiments/plans/a.yaml", planRevision: "stale", results: [] } });
@@ -436,8 +441,8 @@ test("two plans sharing one remote CSV use one mapped RPC and land in both plan 
       "simple_cluster/results/shared/detail.csv",
       "simple_cluster/results/shared/raw.csv",
     ]);
-    assert.equal(fs.existsSync(path.join(workspace, "experiments", "results", "a", "raw", "a_seed.csv")), true);
-    assert.equal(fs.existsSync(path.join(workspace, "experiments", "results", "b", "raw", "b_seed.csv")), true);
+    assert.equal(fs.existsSync(rawLocation(workspace, "a", "_unassigned", "simple_cluster/results/shared/raw.csv")), true);
+    assert.equal(fs.existsSync(rawLocation(workspace, "b", "_unassigned", "simple_cluster/results/shared/raw.csv")), true);
   } finally {
     vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: "", scheme: "file", path: "" } }];
   }
@@ -449,9 +454,9 @@ test("quoted mapped columns refresh the visible table and a stale local file doe
   vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: workspace, scheme: "file", path: workspace } }];
   adapterRulesByRoot.set(workspace, { csvColumnMapping: { case: "specimen", seed: "rng", rate_percent: "rate", eval_protocol: "protocol" } });
   try {
-    const csvDir = path.join(workspace, "experiments", "results", "a", "raw");
+    const csvDir = path.dirname(rawLocation(workspace));
     fs.mkdirSync(csvDir, { recursive: true });
-    fs.writeFileSync(path.join(csvDir, "a_seed.csv"), 'specimen,rng,method,dataset,rate,protocol,AUC\n"alpha,set",1,w1,set,10,holdout,0.77\n');
+    fs.writeFileSync(rawLocation(workspace), 'specimen,rng,method,dataset,rate,protocol,AUC\n"alpha,set",1,w1,set,10,holdout,0.77\n');
     const provider = providerFor(workspace, { onlyFirst: true, workers: [{ id: "w1" }], targets: [sftpTarget("w1", "/projects/w1")] });
     provider.planFileInput = "experiments/plans/a.yaml";
     provider.client.getResultsSummary = async () => ({
@@ -543,7 +548,7 @@ test("missing-only confirmation transfers exactly the absent source", async () =
   const previous = vscodeStub.window.showWarningMessage;
   vscodeStub.window.showWarningMessage = async () => "只同步缺失文件";
   try {
-    const existing = path.join(workspace, "experiments", "results", "a", "raw", "a_seed.csv");
+    const existing = rawLocation(workspace);
     fs.mkdirSync(path.dirname(existing), { recursive: true });
     fs.writeFileSync(existing, "old");
     const provider = providerFor(workspace, { workers: [{ id: "w1" }], targets: [sftpTarget("w1", "/projects/w1")], onlyFirst: true });
@@ -563,7 +568,7 @@ test("distribution rejects symlink destinations and preserves content when repla
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), "simple-result-metrics-outside-"));
   try {
     const stage = path.join(workspace, "simple_cluster", "downloads", "mapped_stage", "source.csv");
-    const destination = path.join(workspace, "experiments", "results", "a", "raw", "a_seed.csv");
+    const destination = rawLocation(workspace);
     fs.mkdirSync(path.dirname(stage), { recursive: true });
     fs.mkdirSync(path.dirname(destination), { recursive: true });
     fs.writeFileSync(stage, "new");
@@ -627,9 +632,9 @@ test("local train_rate 0.5 becomes 50 in the project table while rate_percent st
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-result-metrics-rate-"));
   vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: workspace, scheme: "file", path: workspace } }];
   try {
-    const csvDir = path.join(workspace, "experiments", "results", "a", "raw");
+    const csvDir = path.dirname(rawLocation(workspace));
     fs.mkdirSync(csvDir, { recursive: true });
-    fs.writeFileSync(path.join(csvDir, "a_seed.csv"), "case,seed,method,dataset,train_rate,rate_percent,eval_protocol,AUC\nlow,1,w1,set,0.5,,holdout,0.7\nhigh,1,w1,set,,50,holdout,0.8\n");
+    fs.writeFileSync(rawLocation(workspace), "case,seed,method,dataset,train_rate,rate_percent,eval_protocol,AUC\nlow,1,w1,set,0.5,,holdout,0.7\nhigh,1,w1,set,,50,holdout,0.8\n");
     const provider = providerFor(workspace, { onlyFirst: true, workers: [{ id: "w1" }], targets: [sftpTarget("w1", "/projects/w1")] });
     provider.planFileInput = "experiments/plans/a.yaml";
     provider.client.getResultsSummary = async () => ({
@@ -645,9 +650,9 @@ test("local train_rate 0.5 becomes 50 in the project table while rate_percent st
     const posted = provider.calls.filter((call) => call[0] === "postState").at(-1)[1];
     assert.equal(posted.results.find((row) => row.dimensions.case === "low").dimensions.train_rate, "0.5");
     assert.equal(posted.results.find((row) => row.dimensions.case === "high").dimensions.rate_percent, "50");
-    const finalCsv = fs.readFileSync(path.join(workspace, "experiments", "results", "final", "final.csv"), "utf8");
-    const rateColumn = finalCsv.split(/\r?\n/).filter(Boolean).map((line) => line.split(",")[2]);
-    assert.deepEqual(rateColumn.slice(1).sort(), ["50", "50"]);
+    const finalCsv = fs.readFileSync(path.join(workspace, "experiments", "results", "set", "final", "final.csv"), "utf8");
+    const parsed = require("../../dist/results/ProjectResultTables").readCsv(finalCsv);
+    assert.deepEqual(parsed.rows.map(row => row[parsed.header.indexOf("rate_percent")]).sort(), ["50", "50"]);
   } finally {
     vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: "", scheme: "file", path: "" } }];
   }
@@ -658,9 +663,9 @@ test("refresh keeps a newer online summary when the local file has no trustworth
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-result-metrics-online-"));
   vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: workspace, scheme: "file", path: workspace } }];
   try {
-    const csvDir = path.join(workspace, "experiments", "results", "w1", "raw");
+    const csvDir = path.dirname(rawLocation(workspace, "a", "set"));
     fs.mkdirSync(csvDir, { recursive: true });
-    fs.writeFileSync(path.join(csvDir, "a_seed.csv"), "case,seed,method,dataset,metric,value\nalpha,1,w1,set,AUC,0.1\n");
+    fs.writeFileSync(rawLocation(workspace, "a", "set"), "case,seed,method,dataset,metric,value\nalpha,1,w1,set,AUC,0.1\n");
     const provider = providerFor(workspace, { onlyFirst: true, workers: [{ id: "w1" }], targets: [sftpTarget("w1", "/projects/w1")] });
     provider.planFileInput = "experiments/plans/a.yaml";
     provider.client.getResultsSummary = async () => ({
@@ -703,7 +708,7 @@ test("rebuild reuses accepted seed records and reports unparsed Plans as awaitin
     assert.equal(report.pending.length, 1);
     assert.equal(report.skipped.length, 0);
     assert.match(report.included[0], /已收录|本机/);
-    assert.match(fs.readFileSync(path.join(workspace, "experiments/results/final/final.csv"), "utf8"), /0\.77/);
+    assert.match(fs.readFileSync(path.join(workspace, "experiments/results/set/final/final.csv"), "utf8"), /0\.77/);
     assert.equal(provider.calls.some(([name]) => name === "download.mappedBatch" || name === "download"), false);
   } finally { vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: "", scheme: "file", path: "" } }]; }
 });
@@ -726,7 +731,7 @@ test("rebuild never replaces a contradictory server revision with old registered
     await __handleResultUiCommandForTest(provider, { command: "rebuildProjectResultTables" });
     assert.equal(report.included.length, 0);
     assert.match(report.skipped.join("\n"), /revision|不一致/);
-    assert.equal(fs.existsSync(path.join(workspace, "experiments/results/final/final.csv")), false);
+    assert.equal(fs.existsSync(path.join(workspace, "experiments/results/set/final/final.csv")), false);
   } finally { vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: "", scheme: "file", path: "" } }]; }
 });
 
@@ -745,7 +750,7 @@ test("rebuild downloads raw and final metric files before recomputing without me
   ]);
   assert.equal(transfers[0][1].metricsOnly, true);
   assert.equal(provider.calls.some(([name]) => name === "merge" || name === "download"), false);
-  assert.match(fs.readFileSync(path.join(workspace, "experiments/results/final/final.csv"), "utf8"), /0\.91/);
+  assert.match(fs.readFileSync(path.join(workspace, "experiments/results/set/final/final.csv"), "utf8"), /0\.91/);
 });
 
 for (const fault of ["", "wrong-seed", "wrong-hash"]) {

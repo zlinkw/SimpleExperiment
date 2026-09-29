@@ -5,11 +5,42 @@ from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
 
+
+def dataset_path_key(value):
+    raw = str(value if value is not None else "").strip()
+    if not raw:
+        return "_unassigned"
+    if ".." in raw or any(char in raw for char in ("/", chr(92), ":")) or raw.lower() in ("_unassigned", "_shared"):
+        raise ValueError("Unsafe or reserved dataset name: " + raw)
+    key = re.sub("[^A-Za-z0-9._-]+", "_", raw).strip(".")[:80]
+    if not key or re.search("^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:[.]|$)", key, re.I):
+        raise ValueError("Unsafe dataset directory: " + raw)
+    return key
+
+def dataset_partitions(values):
+    keys = {}
+    for value in values:
+        dataset = str(value if value is not None else "").strip()
+        key = dataset_path_key(dataset)
+        if key.lower() in keys and keys[key.lower()] != dataset:
+            raise ValueError("Dataset directory collision: " + keys[key.lower()] + ", " + dataset)
+        keys[key.lower()] = dataset
+    return [{"dataset": value, "datasetKey": dataset_path_key(value)} for value in keys.values()]
+
+def result_plan_directory_key(plan_file):
+    import posixpath
+    normalized = posixpath.normpath(str(plan_file or "").strip().replace(chr(92), "/"))
+    if not normalized or normalized == "." or normalized.startswith("/") or ".." in normalized.split("/") or re.match(r"^[A-Za-z]:", normalized):
+        raise ValueError("Invalid Plan path")
+    stem = re.sub("[^A-Za-z0-9._-]+", "_", posixpath.splitext(posixpath.basename(normalized))[0]).strip("._")[:60] or "plan"
+    return stem + "__" + hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:8]
+
+
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.187"
-RUNTIME_VERSION = "0.5.187"
-PLUGIN_VERSION = "0.5.187"
+AGENT_VERSION = "0.5.188"
+RUNTIME_VERSION = "0.5.188"
+PLUGIN_VERSION = "0.5.188"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -6744,28 +6775,91 @@ def result_column_mapping_preview(root, source, policy):
         sample_values[header] = values
     return {"source": source, "headers": headers[:120], "mapping": mapping, "metricColumns": metrics[:120], "configured": configured, "sampleValues": sample_values}
 
-def write_project_seed_aggregate(root, current_summary=None):
+def project_dataset_table_outputs(root, current_summary, kind):
     parent = safe_project_path(root, "simple_cluster/results/by_plan")
-    headers, rows = [], []
+    saved_by_plan = {}
     if os.path.isdir(parent):
         for slug in sorted(os.listdir(parent))[:500]:
-            source = os.path.join(parent, slug, "seed_mean_std.csv")
-            saved = current_summary if plan_summary_slug((current_summary or {}).get("planFile")) == slug else read_json(os.path.join(parent, slug, "summary.json"), {})
-            if not isinstance(saved, dict) or saved.get("aggregateStatus") != "ready" or saved.get("aggregateCsvPath") != f"simple_cluster/results/by_plan/{slug}/seed_mean_std.csv":
+            directory = os.path.join(parent, slug)
+            if not os.path.isdir(directory) or os.path.islink(directory):
                 continue
+            for name in ("summary.json", "dataset-index.json"):
+                saved_path = os.path.join(directory, name)
+                if os.path.islink(saved_path) or not safe_small_file(saved_path):
+                    continue
+                saved = read_json(saved_path, {})
+                if isinstance(saved, dict) and saved.get("planFile"):
+                    plan = saved["planFile"]
+                    if name == "dataset-index.json" or plan not in saved_by_plan:
+                        saved_by_plan[plan] = saved
+    if current_summary and current_summary.get("planFile"):
+        saved_by_plan[current_summary["planFile"]] = current_summary
+    groups = {}
+    source_field = "aggregateCsvPath" if kind == "seed" else "finalCsvPath"
+    total = 0
+    for plan, saved in saved_by_plan.items():
+        if saved.get("aggregateStatus") != "ready":
+            continue
+        sources = saved.get("datasetResultTables") or [saved]
+        for table in sources:
+            relative = table.get(source_field) or ""
+            if not relative.startswith("simple_cluster/results/by_plan/"):
+                continue
+            if "datasetKey" in table:
+                expected_path = dataset_plan_artifact_path(plan, table.get("dataset", ""), "seed_mean_std.csv" if kind == "seed" else "final.csv")
+                if relative != expected_path:
+                    raise ValueError("Dataset table path does not match Plan ownership")
+            source = safe_project_path(root, relative)
             if not os.path.isfile(source) or os.path.islink(source) or not safe_small_file(source):
                 continue
             with open(source, "r", encoding="utf-8", newline="") as stream:
                 reader = csv.DictReader(stream)
-                for header in reader.fieldnames or []:
-                    if header not in headers:
-                        headers.append(header)
-                rows.extend(dict(row) for row in reader if len(rows) < 50000)
-    output = "simple_cluster/results/project_seed_mean_std.csv"
-    if not headers:
-        headers = ["plan_file", "case", "expected_seed_count", "available_seeds", "complete"]
-    write_atomic_csv(safe_project_path(root, output), headers, [[row.get(header, "") for header in headers] for row in rows])
-    return output
+                for row in reader:
+                    if total >= 50000:
+                        raise ValueError("Project aggregate row budget exceeded")
+                    dataset = str(row.get("dataset") or "").strip()
+                    if "datasetKey" in table and (dataset != table.get("dataset", "") or dataset_path_key(dataset) != table["datasetKey"]):
+                        raise ValueError("Dataset table does not match its directory metadata")
+                    group = groups.setdefault(dataset, {"headers": ["plan_file", "dataset"], "rows": []})
+                    for header in reader.fieldnames or []:
+                        if header not in group["headers"]:
+                            group["headers"].append(header)
+                    group["rows"].append({**row, "plan_file": plan, "dataset": dataset})
+                    total += 1
+    partitions = dataset_partitions(list(groups))
+    outputs, tables = [], []
+    for partition in partitions:
+        group = groups[partition["dataset"]]
+        headers, rows = group["headers"], group["rows"]
+        base = f"simple_cluster/results/by_dataset/{partition['datasetKey']}"
+        csv_rel = base + ("/project_seed_mean_std.csv" if kind == "seed" else "/project_final.csv")
+        outputs.append(("csv", csv_rel, headers, [[row.get(header, "") for header in headers] for row in rows]))
+        table = {**partition, source_field: csv_rel, "rowCount": len(rows)}
+        if kind == "final":
+            md_rel = base + "/project_final.md"
+            markdown_headers = [header[:-5] if header.endswith("_mean") and header[:-5] + "_sd" in headers else header for header in headers if not header.endswith("_sd")]
+            markdown_rows = []
+            for row in rows:
+                cells = []
+                for header in headers:
+                    if header.endswith("_sd"):
+                        continue
+                    value = row.get(header, "")
+                    if header.endswith("_mean") and header[:-5] + "_sd" in headers:
+                        try:
+                            value = f"{float(value):.4f} ± {float(row[header[:-5] + '_sd']):.4f}" if row.get(header[:-5] + "_sd") else f"{float(value):.4f}"
+                        except (TypeError, ValueError):
+                            value = "—" if not value else str(value)
+                    cells.append(value)
+                markdown_rows.append(cells)
+            outputs.append(("text", md_rel, result_markdown_table(markdown_headers, markdown_rows, (partition["dataset"] or "Unassigned") + " project results")))
+            table["finalMarkdownPath"] = md_rel
+        tables.append(table)
+    publish_dataset_outputs(root, outputs)
+    return tables
+
+def write_project_seed_aggregate(root, current_summary=None):
+    return project_dataset_table_outputs(root, current_summary, "seed")
 
 def final_rate_percent(dimensions):
     raw = str(dimensions.get("rate_percent") or dimensions.get("train_rate") or "").strip().rstrip("%")
@@ -6801,7 +6895,7 @@ def result_markdown_table(headers, rows, title, notes=None):
         lines.append("| " + " | ".join(escape(value) for value in row) + " |")
     return "\n".join(lines) + "\n"
 
-def write_plan_final_summary(root, summary, policy, group_keys, groups, metric_names, expected_seeds):
+def write_plan_final_summary(root, summary, policy, group_keys, groups, metric_names, expected_seeds, dataset, outputs):
     plan = normalize_result_candidate(summary.get("planFile") or "")
     derived = policy.get("derivedMetric") if isinstance(policy.get("derivedMetric"), dict) else {}
     derived_metric = metric_name(derived.get("metric"), policy.get("metricAliases") or {}) if derived else ""
@@ -6843,7 +6937,7 @@ def write_plan_final_summary(root, summary, policy, group_keys, groups, metric_n
             rate_order = (1, rate)
         return (str(dims.get("result_family") or dims.get("method") or ""), str(dims.get("dataset") or ""), rate_order, str(dims.get("eval_protocol") or ""), str(dims.get("case") or ""))
     entries.sort(key=entry_order)
-    display_fields = ["result_family"] + [name for name in ("dataset", "rate_percent", "eval_protocol") if any((entry["dims"].get(name) if name != "rate_percent" else final_rate_percent(entry["dims"])) for entry in entries)]
+    display_fields = ["result_family", "dataset"] + [name for name in ("rate_percent", "eval_protocol") if any((entry["dims"].get(name) if name != "rate_percent" else final_rate_percent(entry["dims"])) for entry in entries)]
     def display_value(entry, name):
         dims = entry["dims"]
         if name == "result_family":
@@ -6892,61 +6986,83 @@ def write_plan_final_summary(root, summary, policy, group_keys, groups, metric_n
             md_row.append((f"{mean:.4f} ± {sd:.4f}" if sd != "" else f"{mean:.4f}" if mean != "" else "—"))
         rows.append(row)
         markdown_rows.append(md_row)
-    csv_rel = plan_results_artifact_relpath(plan, "final.csv")
-    md_rel = plan_results_artifact_relpath(plan, "final.md")
-    write_atomic_csv(safe_project_path(root, csv_rel), header, rows)
+    csv_rel = dataset_plan_artifact_path(plan, dataset, "final.csv")
+    md_rel = dataset_plan_artifact_path(plan, dataset, "final.md")
+    outputs.append(("csv", csv_rel, header, rows))
     md_headers = [*display_fields, "jobs", *(metric_labels[metric] for metric in metric_names), *([derived_name] if derived_metric else [])]
     notes = [f"Plan: {plan}. Rows: {len(rows)}. CSV keeps full precision; this table shows four decimals.", "", "Incomplete jobs values use available/expected seeds. Per-metric counts remain in seed_mean_std.csv."]
     if derived_metric:
         notes.extend(["", f"Derived {derived_name}: same-seed {left} minus {right} for {derived_metric}, multiplied by {scale:g}."])
-    write_atomic_text(safe_project_path(root, md_rel), result_markdown_table(md_headers, markdown_rows, f"{os.path.splitext(os.path.basename(plan))[0]} final results", notes))
+    outputs.append(("text", md_rel, result_markdown_table(md_headers, markdown_rows, f"{dataset or 'Unassigned'} final results", notes)))
     summary["finalCsvPath"] = csv_rel
     summary["finalMarkdownPath"] = md_rel
     summary["finalRowCount"] = len(rows)
 
 def write_project_final_summary(root, current_summary=None):
-    parent = safe_project_path(root, "simple_cluster/results/by_plan")
-    headers, rows = ["plan_file"], []
-    if os.path.isdir(parent):
-        for slug in sorted(os.listdir(parent))[:500]:
-            source_rel = f"simple_cluster/results/by_plan/{slug}/final.csv"
-            source = safe_project_path(root, source_rel)
-            saved = current_summary if plan_summary_slug((current_summary or {}).get("planFile")) == slug else read_json(os.path.join(parent, slug, "summary.json"), {})
-            if not isinstance(saved, dict) or saved.get("aggregateStatus") != "ready" or saved.get("finalCsvPath") != source_rel:
-                continue
-            if not os.path.isfile(source) or os.path.islink(source) or not safe_small_file(source):
-                continue
-            with open(source, "r", encoding="utf-8", newline="") as stream:
-                reader = csv.DictReader(stream)
-                for header in reader.fieldnames or []:
-                    if header not in headers and header != "plan_file":
-                        headers.append(header)
-                for row in reader:
-                    if len(rows) >= 50000:
-                        break
-                    rows.append({"plan_file": saved.get("planFile") or "", **row})
-    csv_rel = "simple_cluster/results/project_final.csv"
-    md_rel = "simple_cluster/results/project_final.md"
-    write_atomic_csv(safe_project_path(root, csv_rel), headers, [[row.get(header, "") for header in headers] for row in rows])
-    markdown_headers = [header[:-5] if header.endswith("_mean") and header[:-5] + "_sd" in headers else header for header in headers if not header.endswith("_sd")]
-    markdown_rows = []
-    for row in rows:
-        cells = []
-        for header in headers:
-            if header.endswith("_sd"):
-                continue
-            value = row.get(header, "")
-            if header.endswith("_mean") and header[:-5] + "_sd" in headers:
-                try:
-                    value = f"{float(value):.4f} ± {float(row[header[:-5] + '_sd']):.4f}" if row.get(header[:-5] + "_sd") else f"{float(value):.4f}"
-                except (TypeError, ValueError):
-                    value = "—" if not value else str(value)
-            cells.append(value)
-        markdown_rows.append(cells)
-    write_atomic_text(safe_project_path(root, md_rel), result_markdown_table(markdown_headers, markdown_rows, "Project final results", ["CSV keeps full precision; this table shows four decimals."]))
-    return csv_rel, md_rel
+    return project_dataset_table_outputs(root, current_summary, "final")
+
+def dataset_plan_artifact_path(plan, dataset, filename):
+    return f"simple_cluster/results/by_plan/{result_plan_directory_key(plan)}/datasets/{dataset_path_key(dataset)}/{filename}"
+
+def publish_dataset_outputs(root, outputs):
+    prepared = []
+    for output in outputs:
+        target = safe_project_path(root, output[1])
+        cursor = os.path.abspath(root)
+        for part in os.path.relpath(target, root).split(os.sep):
+            cursor = os.path.join(cursor, part)
+            if os.path.islink(cursor):
+                raise ValueError("Dataset output cannot pass through a link")
+        if output[0] == "csv":
+            buffer = io.StringIO(newline="")
+            csv.writer(buffer).writerows([output[2], *output[3]])
+            content = buffer.getvalue()
+        else:
+            content = output[2]
+        prepared.append((target, content))
+    for target, content in prepared:
+        write_atomic_text(target, content)
 
 def write_plan_seed_aggregate(root, summary, policy):
+    plan = normalize_result_candidate(summary.get("planFile") or "")
+    if not plan:
+        return
+    records = [row for row in (summary.get("results") or []) if isinstance(row, dict)]
+    partitions = dataset_partitions([(row.get("dimensions") or {}).get("dataset") for row in records])
+    outputs, tables = [], []
+    for partition in partitions:
+        dataset = partition["dataset"]
+        child = {**summary, "results": [{**row, "dimensions": {**(row.get("dimensions") or {}), "dataset": dataset}} for row in records if str((row.get("dimensions") or {}).get("dataset") or "").strip() == dataset]}
+        for field in ("aggregateCsvPath", "finalCsvPath", "finalMarkdownPath", "finalRowCount", "aggregateStatus"):
+            child.pop(field, None)
+        _write_dataset_seed_aggregate(root, child, policy, dataset, outputs)
+        if child.get("columnMappingPreview"):
+            summary["columnMappingPreview"] = child["columnMappingPreview"]
+        tables.append({**partition, **{field: child.get(field, "") for field in ("rawResultCsvPath", "aggregateCsvPath", "finalCsvPath", "finalMarkdownPath", "finalRowCount", "aggregateStatus", "aggregateMessage", "aggregateIncompleteCount")}})
+    for field in ("aggregateCsvPath", "finalCsvPath", "finalMarkdownPath", "finalRowCount", "rawResultCsvPath"):
+        summary.pop(field, None)
+    summary["datasetResultTables"] = tables
+    ready = bool(tables) and all(table.get("aggregateStatus") == "ready" for table in tables)
+    summary["aggregateStatus"] = "ready" if ready else next((table.get("aggregateStatus") for table in tables if table.get("aggregateStatus") != "ready"), "no_matching_rows")
+    summary["aggregateMessage"] = "; ".join(str(table.get("aggregateMessage") or "") for table in tables)
+    raw_paths = list(dict.fromkeys(table["rawResultCsvPath"] for table in tables if table.get("rawResultCsvPath")))
+    summary["rawResultCsvPaths"] = raw_paths
+    if len(raw_paths) == 1:
+        summary["rawResultCsvPath"] = raw_paths[0]
+    if not ready:
+        for table in tables:
+            if table.get("aggregateStatus") == "ready":
+                table["aggregateStatus"] = "batch_blocked"
+        return
+    publish_dataset_outputs(root, outputs)
+    if len(tables) == 1:
+        for field in ("aggregateCsvPath", "finalCsvPath", "finalMarkdownPath", "finalRowCount"):
+            summary[field] = tables[0][field]
+    summary["aggregateIncompleteCount"] = sum(int(table.get("aggregateIncompleteCount") or 0) for table in tables)
+    index_rel = f"simple_cluster/results/by_plan/{result_plan_directory_key(plan)}/dataset-index.json"
+    atomic_write(safe_project_path(root, index_rel), {"planFile": plan, "aggregateStatus": "ready", "datasetResultTables": tables})
+
+def _write_dataset_seed_aggregate(root, summary, policy, dataset, outputs):
     plan = normalize_result_candidate(summary.get("planFile") or "")
     if not plan:
         return
@@ -7020,14 +7136,14 @@ def write_plan_seed_aggregate(root, summary, policy):
                 row[header.index("complete")] = "incomplete"
             row.extend((statistics.mean(values) if count else "", statistics.stdev(values) if count > 1 else "", count, f"{count}/{expected}"))
         rows.append(row)
-    output = plan_results_artifact_relpath(plan, "seed_mean_std.csv")
-    write_atomic_csv(safe_project_path(root, output), header, rows)
+    output = dataset_plan_artifact_path(plan, dataset, "seed_mean_std.csv")
+    outputs.append(("csv", output, header, rows))
     summary["aggregateCsvPath"] = output
     summary["aggregateStatus"] = "ready"
     summary["aggregateRowCount"] = len(rows)
     summary["aggregateIncompleteCount"] = sum(row[header.index("complete")] == "incomplete" for row in rows)
     summary["aggregateMessage"] = f"已生成 {len(rows)} 行；不完整 {summary['aggregateIncompleteCount']} 行。"
-    write_plan_final_summary(root, summary, policy, group_keys, groups, metric_names, expected_seeds)
+    write_plan_final_summary(root, summary, policy, group_keys, groups, metric_names, expected_seeds, dataset, outputs)
 
 def archive_plan_copy_action(root, plan, snapshot_name=""):
     plan = normalize_result_candidate(plan)
@@ -7099,9 +7215,15 @@ def archive_plan_copy_action(root, plan, snapshot_name=""):
             add(config)
     if os.path.isfile(os.path.join(root, "experiments", "simple_project.yaml")):
         add("experiments/simple_project.yaml")
-    add(summary.get("aggregateCsvPath"), required=True)
-    add(summary.get("finalCsvPath"))
-    add(summary.get("finalMarkdownPath"))
+    if summary.get("datasetResultTables"):
+        for table in summary["datasetResultTables"]:
+            add(table.get("aggregateCsvPath"), required=True)
+            add(table.get("finalCsvPath"))
+            add(table.get("finalMarkdownPath"))
+    else:
+        add(summary.get("aggregateCsvPath"), required=True)
+        add(summary.get("finalCsvPath"))
+        add(summary.get("finalMarkdownPath"))
     for field in ("summaryPath", "previewCsvPath"):
         add(summary.get(field))
     if raw_source:
@@ -7184,9 +7306,19 @@ def write_results_summary_v2(root, summary):
             summary["planFile"] = plan
         write_result_csv_views(root, summary, plan)
         if plan:
-            summary["projectAggregateCsvPath"] = write_project_seed_aggregate(root, summary)
-            if summary.get("aggregateStatus") == "ready" and summary.get("finalCsvPath"):
-                summary["projectFinalCsvPath"], summary["projectFinalMarkdownPath"] = write_project_final_summary(root, summary)
+            seeds = write_project_seed_aggregate(root, summary)
+            finals = write_project_final_summary(root, summary)
+            merged = {table["datasetKey"]: dict(table) for table in seeds}
+            for table in finals:
+                merged.setdefault(table["datasetKey"], {}).update(table)
+            summary["projectDatasetTables"] = list(merged.values())
+            for field in ("projectAggregateCsvPath", "projectFinalCsvPath", "projectFinalMarkdownPath"):
+                summary.pop(field, None)
+            if len(merged) == 1:
+                table = next(iter(merged.values()))
+                summary["projectAggregateCsvPath"] = table.get("aggregateCsvPath", "")
+                summary["projectFinalCsvPath"] = table.get("finalCsvPath", "")
+                summary["projectFinalMarkdownPath"] = table.get("finalMarkdownPath", "")
     target = safe_project_path(root, summary_rel)
     os.makedirs(os.path.dirname(target), exist_ok=True)
     atomic_write(target, summary)
@@ -8889,9 +9021,7 @@ def format_metric_cell(stat):
         return f"{mean:.4g} ± {std:.3g}"
     return str(mean if mean is not None else "-")
 
-def export_paper_table_action(root, plan=None, plan_revision=""):
-    stats = compute_statistics_action(root, plan, plan_revision)
-    policy = read_project_metric_policy(root)
+def paper_dataset_output(root, stats, policy, dataset, plan):
     metrics = []
     for row in stats.get("rows") or []:
         for metric in (row.get("metrics") or {}).keys():
@@ -8928,34 +9058,43 @@ def export_paper_table_action(root, plan=None, plan_revision=""):
                 "",
             ])
     plan_norm = normalize_result_candidate(plan) if plan else ""
-    slug = plan_summary_slug(plan_norm)
+    slug = result_plan_directory_key(plan_norm) if plan_norm else "project"
     md = "# SimpleExperiment results\n\n" + "\n".join(lines) + "\n"
-    out_dir = safe_project_path(root, "paper/tables")
-    os.makedirs(out_dir, exist_ok=True)
+    out_dir = safe_project_path(root, "paper/tables/" + dataset_path_key(dataset))
     md_name = f"simple_results_table__{slug}.md" if slug else "simple_results_table.md"
     csv_name = f"simple_results_table__{slug}.csv" if slug else "simple_results_table.csv"
     md_path = os.path.join(out_dir, md_name)
     csv_path = os.path.join(out_dir, csv_name)
-    open(md_path, "w", encoding="utf-8").write(md)
-    with open(csv_path, "w", encoding="utf-8", newline="") as f:
-        csv.writer(f).writerows(csv_rows)
-    latest_md = os.path.join(out_dir, "simple_results_table.md")
-    latest_csv = os.path.join(out_dir, "simple_results_table.csv")
-    if os.path.abspath(md_path) != os.path.abspath(latest_md):
-        open(latest_md, "w", encoding="utf-8").write(md)
-    if os.path.abspath(csv_path) != os.path.abspath(latest_csv):
-        with open(latest_csv, "w", encoding="utf-8", newline="") as f:
-            csv.writer(f).writerows(csv_rows)
+    csv_buffer = io.StringIO(newline="")
+    csv.writer(csv_buffer).writerows(csv_rows)
+    return {"dataset": dataset, "datasetKey": dataset_path_key(dataset), "paperTablePath": relpath(root, md_path), "paperTableCsvPath": relpath(root, csv_path), "rowCount": len(csv_rows) - 1}, [("text", relpath(root, md_path), md), ("text", relpath(root, csv_path), csv_buffer.getvalue())]
+
+def export_paper_table_action(root, plan=None, plan_revision=""):
+    stats = compute_statistics_action(root, plan, plan_revision)
+    policy = read_project_metric_policy(root)
+    partitions = dataset_partitions([(row.get("dimensions") or {}).get("dataset") for row in stats.get("rows") or []])
+    tables, outputs = [], []
+    for partition in partitions:
+        dataset = partition["dataset"]
+        child = {**stats, "rows": [row for row in stats.get("rows") or [] if str((row.get("dimensions") or {}).get("dataset") or "").strip() == dataset]}
+        table, files = paper_dataset_output(root, child, policy, dataset, plan)
+        tables.append(table)
+        outputs.extend(files)
+    publish_dataset_outputs(root, outputs)
     summary = read_current_results_summary(root, plan, plan_revision)
-    summary["paperTablePath"] = relpath(root, md_path)
-    summary["exportPath"] = relpath(root, md_path)
-    summary["paperTableCsvPath"] = relpath(root, csv_path)
+    summary["paperDatasetTables"] = tables
+    for field in ("paperTablePath", "paperTableCsvPath", "exportPath"):
+        summary.pop(field, None)
+    if len(tables) == 1:
+        summary["paperTablePath"] = tables[0]["paperTablePath"]
+        summary["paperTableCsvPath"] = tables[0]["paperTableCsvPath"]
+        summary["exportPath"] = tables[0]["paperTablePath"]
     summary["paperTableResultCount"] = stats.get("resultCount", 0)
     claim_report = evaluate_claim_evidence(root, summary)
     apply_claim_evidence_summary(summary, claim_report)
     write_results_summary_v2(root, summary)
-    append_event(root, {"type": "paper_table_updated", "payload": {"path": relpath(root, md_path), "csvPath": relpath(root, csv_path), "planFile": plan_norm or stats.get("planFile") or summary.get("planFile") or ""}})
-    return {"schemaVersion": 1, "path": relpath(root, md_path), "csvPath": relpath(root, csv_path), "metrics": metrics, "rows": max(0, len(csv_rows) - 1), "resultCount": stats.get("resultCount", 0), "claimEvidence": summary.get("claimEvidence")}
+    append_event(root, {"type": "paper_table_updated", "payload": {"datasetTables": tables, "planFile": plan or ""}})
+    return {"schemaVersion": 1, "path": summary.get("paperTablePath", ""), "csvPath": summary.get("paperTableCsvPath", ""), "paperDatasetTables": tables, "rows": sum(table["rowCount"] for table in tables), "resultCount": stats.get("resultCount", 0), "claimEvidence": summary.get("claimEvidence")}
 
 def case_like_csv_path(path):
     lower = str(path or "").replace("\\", "/").lower()
@@ -9457,13 +9596,13 @@ def inspect_dataset_action(root, payload=None):
 
 PLOTTING_REQUIRED_FIELDS = ["method", "dataset", "split", "fold", "seed", "metric", "value", "mean", "std", "ci", "pValue", "adjustedPValue", "significant", "case_id", "patient_id", "subgroup", "error_type"]
 
-def plotting_contract_payload(plan=None):
+def plotting_contract_payload(plan=None, tables=None):
     plan_norm = normalize_result_candidate(plan) if plan else ""
     registry_path = plan_results_registry_relpath(plan_norm) if plan_norm else "simple_cluster/results/result_registry.json"
     statistics_path = plan_results_artifact_relpath(plan_norm, "statistics.json") if plan_norm else "simple_cluster/results/statistics.json"
     case_path = plan_results_artifact_relpath(plan_norm, "case_level_index.json") if plan_norm else "simple_cluster/results/case_level_index.json"
-    paper_slug = plan_summary_slug(plan_norm)
-    paper_path = f"paper/tables/simple_results_table__{paper_slug}.csv" if paper_slug else "paper/tables/simple_results_table.csv"
+    paper_paths = [table["paperTableCsvPath"] for table in (tables or []) if table.get("paperTableCsvPath")]
+    paper_path = paper_paths[0] if len(paper_paths) == 1 else ""
     return {
         "schemaVersion": 1,
         "generatedAt": now_iso(),
@@ -9473,7 +9612,7 @@ def plotting_contract_payload(plan=None):
         "files": {
             "resultRegistry": {"path": registry_path, "fields": ["resultId", "experimentId", "suite", "method", "dataset", "split", "fold", "seed", "metrics", "dimensions", "sourceFiles"]},
             "statistics": {"path": statistics_path, "fields": ["suite", "group", "method", "dataset", "split", "metric", "value", "mean", "std", "ci", "n", "pValue", "adjustedPValue", "significant", "aggregationPolicy"]},
-            "paperTable": {"path": paper_path, "fields": ["method", "dataset", "split", "suite", "group", "metric", "mean", "std", "ci", "n", "direction", "pValue", "adjustedPValue", "significant"]},
+            "paperTable": {"path": paper_path, "paths": paper_paths, "fields": ["method", "dataset", "split", "suite", "group", "metric", "mean", "std", "ci", "n", "direction", "pValue", "adjustedPValue", "significant"]},
             "caseLevel": {"path": case_path, "fields": ["case_id", "patient_id", "method", "dataset", "split", "metric", "value", "subgroup", "error_type"]},
             "datasetProfile": {"path": plan_datasets_artifact_relpath(plan_norm, "profile.json") if plan_norm else "simple_cluster/datasets/profile.json", "fields": ["dataset", "split", "class", "case_id", "patient_id", "classDistribution", "splitDistribution"]},
         },
@@ -9491,7 +9630,8 @@ def plotting_contract_payload(plan=None):
 
 def export_plotting_contract_action(root, plan=None):
     plan_norm = normalize_result_candidate(plan) if plan else ""
-    payload = plotting_contract_payload(plan_norm or None)
+    current_summary = read_results_summary(root, plan_norm or None) or {}
+    payload = plotting_contract_payload(plan_norm or None, current_summary.get("paperDatasetTables", []))
     rel = plan_results_artifact_relpath(plan_norm, "plotting_contract.json") if plan_norm else "simple_cluster/results/plotting_contract.json"
     target = safe_project_path(root, rel)
     atomic_write(target, payload)
@@ -9510,7 +9650,7 @@ def export_plotting_contract_action(root, plan=None):
     doc.extend([f"- {field}" for field in PLOTTING_REQUIRED_FIELDS])
     doc.extend(["", "## 文件契约"])
     for key, item in payload["files"].items():
-        doc.extend(["", f"### {key}", "", f"路径：{item['path']}", "", "字段："])
+        doc.extend(["", f"### {key}", "", f"路径：{', '.join(item.get('paths') or [item['path']])}", "", "字段："])
         doc.extend([f"- {field}" for field in item["fields"]])
     doc.extend(["", "## 兼容说明", ""])
     doc.extend([f"- {note}" for note in payload.get("notes") or []])

@@ -4,6 +4,7 @@ const Module = require("node:module");
 const path = require("node:path");
 const test = require("node:test");
 const ts = require("typescript");
+Module._extensions[".ts"] = (mod, file) => mod._compile(ts.transpileModule(fs.readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true } }).outputText, file);
 const sourcePath = path.join(__dirname, "..", "..", "src", "results", "ProjectResultTables.ts");
 const sourceModule = new Module(sourcePath, module);
 sourceModule.filename = sourcePath;
@@ -53,16 +54,16 @@ test("global and method tables recompute seed means across Workers, deduplicate 
   ]);
   const registry = tables.updateRegistry(tables.emptyTableRegistry(), s, plan, 5);
   const output = tables.buildTables(registry);
-  assert.deepEqual(Object.keys(output).sort(), ["demo", "final"]);
-  assert.equal(output.final.rows.length, 1);
-  const row = output.final.rows[0];
-  assert.equal(row[output.final.header.indexOf("jobs")], "2/5");
-  assert.equal(row[output.final.header.indexOf("rate_percent")], "30");
-  assert.equal(row[output.final.header.indexOf("accuracy_mean")], "");
-  assert.equal(row[output.final.header.indexOf("accuracy_sd")], "");
-  assert.equal(output.demo.rows.length, 1);
-  assert.match(output.final.markdown, /2\/5/);
-  assert.match(output.final.markdown, /—/);
+  assert.deepEqual(Object.keys(output).sort(), ["bus/final", "bus/method/demo"]);
+  assert.equal(output["bus/final"].rows.length, 1);
+  const row = output["bus/final"].rows[0];
+  assert.equal(row[output["bus/final"].header.indexOf("jobs")], "2/5");
+  assert.equal(row[output["bus/final"].header.indexOf("rate_percent")], "30");
+  assert.equal(row[output["bus/final"].header.indexOf("accuracy_mean")], "");
+  assert.equal(row[output["bus/final"].header.indexOf("accuracy_sd")], "");
+  assert.equal(output["bus/method/demo"].rows.length, 1);
+  assert.match(output["bus/final"].markdown, /2\/5/);
+  assert.match(output["bus/final"].markdown, /—/);
 });
 
 test("a metric missing from one of five seeds cannot be published as a five-seed mean", () => {
@@ -71,7 +72,7 @@ test("a metric missing from one of five seeds cannot be published as a five-seed
     ...(seed === 44 ? [] : [record("w1", "corim", "corim_pad_p100", seed, "clean", "precision_macro", 0.6)]),
   ]);
   const registry = tables.updateRegistry(tables.emptyTableRegistry(), summary(rows), plan, 5);
-  const output = tables.buildTables(registry).final;
+  const output = tables.buildTables(registry)["bus/final"];
   const row = output.rows[0];
   assert.equal(row[output.header.indexOf("jobs")], "4/5");
   assert.equal(row[output.header.indexOf("roc_auc_mean")], 0.8);
@@ -94,7 +95,7 @@ test("equivalent metric aliases deduplicate per seed while raw registry keys sta
   ];
   const registry = tables.updateRegistry(tables.emptyTableRegistry(), summary(rows), plan, 2);
   assert.deepEqual(Object.keys(registry.plans[plan].records[0].metrics).sort(), ["AUC", "ECE", "ece", "f1_macro", "macro_f1", "roc_auc"].sort());
-  const output = tables.buildTables(registry).final;
+  const output = tables.buildTables(registry)["bus/final"];
   assert.equal(output.header.filter((name) => name === "roc_auc_mean").length, 1);
   assert.equal(output.header.filter((name) => name === "ece_mean").length, 1);
   assert.equal(output.header.filter((name) => name === "macro_f1_mean").length, 1);
@@ -119,7 +120,7 @@ test("all declared metric families use stable canonical columns and unknown metr
   const registry = tables.updateRegistry(tables.emptyTableRegistry(), summary([
     { ...record("w1", "demo", "bus_p30", 42, "clean", "unused", 0), metrics },
   ]), plan, 1);
-  const output = tables.buildTables(registry).final;
+  const output = tables.buildTables(registry)["bus/final"];
   for (const name of ["roc_auc", "auprc", "accuracy", "brier_score", "f1_score", "macro_f1", "micro_f1", "weighted_f1", "recall", "ece", "custom_a", "custom_b"])
     assert.ok(output.header.includes(name + "_mean"), name);
   assert.equal(output.header.filter((name) => name.endsWith("_mean")).length, Object.keys(families).length + 2);
@@ -153,7 +154,7 @@ test("local rebuild merges ready Workers and retains earlier Worker records", ()
   partial.incompleteAggregate = true;
   const merged = tables.mergeAvailableWorkerResults(previous, partial, plan, 2);
   assert.deepEqual(merged.plans[plan].records.map((row) => row.workerId).sort(), ["w1", "w2"]);
-  assert.equal(tables.buildTables(merged).final.rows.length, 1);
+  assert.equal(tables.buildTables(merged)["bus/final"].rows.length, 1);
   assert.strictEqual(tables.mergeAvailableWorkerResults(previous, { ...partial, results: [] }, plan, 2), previous);
 });
 
@@ -167,7 +168,7 @@ test("completed cross-Worker rerun replaces older Worker results for the same Pl
   ]), "w2");
   const updated = tables.updateRegistry(older, incoming, plan, 1);
   assert.deepEqual(updated.plans[plan].records.map((row) => row.workerId), ["w2"]);
-  assert.equal(tables.buildTables(updated).final.rows[0][tables.buildTables(updated).final.header.indexOf("accuracy_mean")], 0.7);
+  assert.equal(tables.buildTables(updated)["bus/final"].rows[0][tables.buildTables(updated)["bus/final"].header.indexOf("accuracy_mean")], 0.7);
 });
 
 test("CSV splitting supports manual value and column selection with quoted cells", () => {
@@ -192,7 +193,7 @@ test("optional endpoint difference uses paired seeds and a separate output colum
     record("w2", "demo", "bus_p30", 43, "p100_low", "AUC", 0.6),
   ]), plan, 2);
   registry.derivedMetric = { metric: "AUC", leftEndpoint: "clean", rightEndpoint: "p100_low", outputName: "ba_drop_pp", scale: 100 };
-  const result = tables.buildTables(registry).final;
+  const result = tables.buildTables(registry)["bus/final"];
   assert.equal(result.rows.length, 2);
   assert.ok(result.header.includes("roc_auc_mean"));
   assert.ok(result.header.includes("ba_drop_pp_mean"));
@@ -207,12 +208,12 @@ test("global final includes multiple Plans and keeps a method named final in its
   const other = { ...summary([record("w1", "final", "bus_p70", 42, "clean", "acc", 0.9, "0.7")]), planFile: secondPlan };
   const registry = tables.updateRegistry(first, other, secondPlan, 1);
   const output = tables.buildTables(registry);
-  assert.deepEqual(Object.keys(output).sort(), ["_method_final", "demo", "final"]);
-  assert.equal(output.final.rows.length, 2);
-  assert.ok(output.final.header.includes("plan_file"));
-  assert.deepEqual(output.final.rows.map((row) => row[output.final.header.indexOf("plan_file")]).sort(), [plan, secondPlan].sort());
-  assert.deepEqual(output.final.rows.map((row) => row[output.final.header.indexOf("jobs")]).sort(), ["1", "1"]);
-  assert.equal(output._method_final.rows.length, 1);
+  assert.deepEqual(Object.keys(output).sort(), ["bus/final", "bus/method/_method_final", "bus/method/demo"]);
+  assert.equal(output["bus/final"].rows.length, 2);
+  assert.ok(output["bus/final"].header.includes("plan_file"));
+  assert.deepEqual(output["bus/final"].rows.map((row) => row[output["bus/final"].header.indexOf("plan_file")]).sort(), [plan, secondPlan].sort());
+  assert.deepEqual(output["bus/final"].rows.map((row) => row[output["bus/final"].header.indexOf("jobs")]).sort(), ["1", "1"]);
+  assert.equal(output["bus/method/_method_final"].rows.length, 1);
 });
 
 test("completed run selection follows the explicit run and keeps complementary metrics", () => {
@@ -250,3 +251,25 @@ test("completed run selection follows the explicit run and keeps complementary m
     { planFile: plan, workerId: "w1", case: "Alpha", seed: "1", method: "demo", dataset: "bus", rate: "30", endpoint: "clean", metrics: { AUC: 0.9 }, runId: "run-a", attempt: "job-right", revision: "r1" },
   ], "run-a"), /无法比较的 attempt/);
 });
+
+ test("dataset is a storage and pairing boundary, with missing and colliding names explicit", () => {
+  const registry = tables.emptyTableRegistry();
+  const make = (dataset, endpoint, seed = 1) => ({...record("w1", "demo", "same", seed, endpoint, "accuracy", .8), dimensions: {method: "demo", case: "same", seed, dataset, eval_protocol: endpoint}});
+  for (const [file, dataset, endpoint] of [[plan, "BUS", "clean"], ["experiments/plans/other/demo.yaml", "PAD", "noise"], ["experiments/plans/third/demo.yaml", "BUS", "clean"]]) {
+    const updated = tables.updateRegistry(registry, {...summary([make(dataset, endpoint)]), planFile: file}, file, 1);
+    registry.plans = updated.plans;
+  }
+  const built = tables.buildTables(registry);
+  assert.deepEqual(Object.keys(built).sort(), ["BUS/final", "BUS/method/demo", "PAD/final", "PAD/method/demo"]);
+  for (const table of Object.values(built)) {
+    assert.deepEqual([...new Set(table.rows.map(row => row[table.header.indexOf("dataset")]))], [table.dataset]);
+    assert.ok(table.header.includes("plan_file"));
+    assert.match(table.relativePath, new RegExp("^" + table.dataset + "/"));
+  }
+  assert.equal(built["BUS/final"].rows.length, 2);
+  assert.notEqual(tables.planDirectoryKey(plan), tables.planDirectoryKey("experiments/plans/other/demo.yaml"));
+  assert.equal(tables.datasetPathKey(""), "_unassigned");
+  for (const name of ["../escape", "a/b", "C:drive", "CON", "_shared"]) assert.throws(() => tables.datasetPathKey(name));
+  assert.throws(() => tables.datasetPartitions(["A B", "A?B"]), /同一目录/);
+  assert.throws(() => tables.datasetPartitions(["BUS", "bus"]), /同一目录/);
+ });

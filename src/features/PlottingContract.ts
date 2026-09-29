@@ -1,3 +1,4 @@
+import { datasetPartitions, datasetPathKey, planDirectoryKey } from "../results/ResultLayout";
 export const PLOTTING_CONTRACT_DOC_PATH = "docs/output-contract-for-plotting.md";
 export const PLOTTING_CONTRACT_JSON_PATH = "simple_cluster/results/plotting_contract.json";
 export const plottingContractRequiredFields: string[] = [
@@ -56,9 +57,8 @@ export function caseLevelIndexJsonPath(planFile: string): string {
     return planResultsArtifactRelPath(planFile, "case_level_index.json");
 }
 
-export function paperTableCsvPath(planFile: string): string {
-    const slug = planSlugFromPlanFile(planFile);
-    return slug ? `paper/tables/simple_results_table__${slug}.csv` : "paper/tables/simple_results_table.csv";
+export function paperTableCsvPath(planFile: string, dataset: string = ""): string {
+    return `paper/tables/${datasetPathKey(dataset)}/simple_results_table__${planFile ? planDirectoryKey(planFile) : "project"}.csv`;
 }
 
 export function datasetProfileJsonPath(planFile: string): string {
@@ -69,6 +69,7 @@ export function datasetProfileJsonPath(planFile: string): string {
 
 export interface PlottingFileContract {
     path: string;
+    paths?: string[];
     description: string;
     fields: string[];
 }
@@ -83,8 +84,9 @@ export interface PlottingOutputContract {
     notes: string[];
 }
 
-export function buildPlottingOutputContract(generatedAt: string = new Date().toISOString(), planFile: string = ""): PlottingOutputContract {
+export function buildPlottingOutputContract(generatedAt: string = new Date().toISOString(), planFile: string = "", datasets: string[] = []): PlottingOutputContract {
     const plan = String(planFile || "").trim();
+    const paperPaths = datasetPartitions(datasets).map(({dataset}) => paperTableCsvPath(plan, dataset));
     return {
         schemaVersion: 1,
         generatedAt,
@@ -103,8 +105,9 @@ export function buildPlottingOutputContract(generatedAt: string = new Date().toI
                 fields: ["suite", "group", "method", "dataset", "split", "metric", "value", "mean", "std", "ci", "n", "pValue", "adjustedPValue", "significant", "aggregationPolicy"],
             },
             paperTable: {
-                path: paperTableCsvPath(plan),
-                description: "论文表格 CSV，聚合后可直接按 mean/std 绘制柱状图、箱线图等。",
+                path: paperPaths.length === 1 ? paperPaths[0] : "",
+                paths: paperPaths,
+                description: "按数据集选择独立论文表格 CSV，聚合后可直接按 mean/std 绘制柱状图、箱线图等。",
                 fields: ["method", "dataset", "split", "suite", "group", "metric", "mean", "std", "ci", "n", "direction", "pValue", "adjustedPValue", "significant"],
             },
             caseLevel: {
@@ -148,7 +151,7 @@ export function plottingContractMarkdown(contract: PlottingOutputContract = buil
         "",
     ];
     for (const [key, file] of Object.entries(contract.files) as Array<[string, PlottingFileContract]>) {
-        lines.push(`### ${key}`, "", `路径：\`${file.path}\``, "", file.description, "", "字段：", ...file.fields.map((field: string) => `- \`${field}\``), "");
+        lines.push(`### ${key}`, "", `路径：\`${file.paths?.join("、") || file.path}\``, "", file.description, "", "字段：", ...file.fields.map((field: string) => `- \`${field}\``), "");
     }
     lines.push("## 补充说明", "", ...contract.notes.map((note: string) => `- ${note}`), "");
     return lines.join("\n");
