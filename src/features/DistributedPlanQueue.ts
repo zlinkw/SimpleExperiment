@@ -197,7 +197,7 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
       codeFingerprint: String(first.codeFingerprint), enqueuedAt: String(first.enqueuedAt || ""), planJobCount: jobCount, jobs: [],
     };
     plan.projectId = projectId;
-    if (!plan.localDispatchOverride && (first.schedulingMode === "server_prequeue" || first.schedulingMode === "local_idle"))
+    if (!plan.schedulingMode && !plan.localDispatchOverride && (first.schedulingMode === "server_prequeue" || first.schedulingMode === "local_idle"))
       plan.schedulingMode = first.schedulingMode;
     plan.planJobCount = jobCount;
     if (countConflict) plan.recoveryConflict = `Server summaries disagree on expected Plan job count: ${declaredCounts.join(", ")}.`;
@@ -588,7 +588,12 @@ export function isExactQueuedReleaseProof(plan: QueuedPlan, job: QueuedJob, proo
   if (proof.durableReleased !== true || proof.neverStarted !== true || !recognizedNeverStartedEvidence(proof.neverStartedEvidence)) return false;
   if (proof.legacyReleased === true)
     return historicalRecallIdentityMatchesJob(plan, job, proof);
+  const modernIdentity = [proof.projectId, proof.codeFingerprint, proof.workflowId, proof.planRevision,
+    proof.planFile, proof.experimentIndex, proof.runKey, proof.case, proof.seed, proof.attempt,
+    proof.outputDir, proof.workerId, proof.targetCommandId, proof.planJobCount];
+  if (modernIdentity.some((value) => value === undefined || value === null || value === "")) return false;
   return proof.durableAccepted === true && recallResponseMatchesJob(plan, job, proof)
+    && stopIdentityMatchesJob(plan, job, { ...proof, commandId: proof.targetCommandId })
     && Number(proof.planJobCount) === Number(plan.planJobCount || plan.jobs.length);
 }
 

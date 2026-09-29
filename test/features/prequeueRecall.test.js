@@ -43,6 +43,12 @@ test('a recalled hosted job stays out of server assignment and can enter local i
     { requireIdleGpuAdmission: true, localIdleOnly: true });
   assert.deepEqual(local.dispatches.map((row) => row.jobIndex), [0]);
   assert.equal(local.queue.plans[0].jobs[1].status, 'pending');
+  const localPlan = local.queue.plans[0];
+  const merged = queueApi.mergeDurableWorkerSnapshots(local.queue, [{ workerId: 'worker-local',
+    generatedAt: stamp, fetchedAt: stamp, capabilities: { durablePlanQueue: true, schemaVersion: 1 },
+    tasks: [exact(localPlan, localPlan.jobs[0], { status: 'queued', schedulingMode: 'local_idle' })] }], 'project', now);
+  assert.equal(merged.plans[0].schedulingMode, 'server_prequeue',
+    'one recalled local job must not overwrite the unrelated hosted Plan policy');
 });
 
 test('hosted retries ignore recalls and local-only jobs while pinned local attempts keep their idle-GPU retry path', () => {
@@ -86,6 +92,10 @@ test('only an exact release proof creates a fresh attempt and historical output 
   const job = plan.jobs[0];
   Object.assign(job, { status: 'unknown', localQueueOnly: true, recallRequested: true, reassignmentPending: true });
   const proof = exact(plan, job);
+  for (const key of ['projectId', 'codeFingerprint', 'experimentIndex', 'runKey']) {
+    assert.equal(queueApi.isExactQueuedReleaseProof(plan, job, { ...proof, [key]: undefined }), false,
+      'modern durable proof must carry its complete identity: ' + key);
+  }
   assert.throws(() => queueApi.releaseQueuedForReassignment(queue, plan.id, job.index,
     { ...proof, workerId: 'other-worker' }, 'attempt-next-1234'));
   const released = queueApi.releaseQueuedForReassignment(queue, plan.id, job.index, proof, 'attempt-next-1234');
