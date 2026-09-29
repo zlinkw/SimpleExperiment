@@ -3,10 +3,10 @@ const assert = require("node:assert/strict");
 
 const { renderPanelHtml } = require("../../dist/ui/PanelHtml.js");
 
-test("GPU history chart connects explicitly zero-filled buckets and exposes accessible legends", () => {
+test("GPU history chart leaves missing buckets disconnected and exposes accessible legends", () => {
   const html = renderPanelHtml();
   assert.match(html, /GPU_HISTORY_GAP_FACTOR/);
-  assert.match(html, /缺失补零仅用于连接曲线，不代表真实负载/);
+  assert.match(html, /缺失数据不连接，也不补零/);
   assert.match(html, /GPU_HISTORY_SERIES_CACHE_LIMIT = 128/);
   assert.match(html, /point\.imputed === true/);
   assert.match(html, /gpuHistorySeriesStats/);
@@ -24,6 +24,10 @@ test("GPU history chart connects explicitly zero-filled buckets and exposes acce
   assert.match(html, /GPU_HISTORY_LINE_STYLES/);
   assert.match(html, /GPU_HISTORY_MARKERS/);
   assert.match(html, /const timeRange = gpuHistoryTimeRange\(series\)/);
+  assert.match(html, /GPU 利用率 \(%\)/);
+  assert.match(html, /显存已用 \(MB\)/);
+  assert.match(html, /最近 24 小时，线性时间/);
+  assert.doesNotMatch(html, /近 3 小时占 52%|近 3 小时放大/);
   assert.match(html, /const pointIndex = gpuHistoryPointIndex\(item\.points \|\| \[\]\)/);
   assert.doesNotMatch(html, /asArray\(series\)\.flatMap\(\(item\) => asArray\(item\.points\)\)/);
 });

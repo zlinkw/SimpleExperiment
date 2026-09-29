@@ -3726,7 +3726,6 @@ export function renderPanelHtml(): string {
         try { renderTmuxOverview(tmuxListCache.sessions || []); } catch (e) {}
         applyLayoutColumns();
         schedulePostRenderMaintenance();
-        try { maybeAutoAdvanceFromSync(state); } catch (e) {}
         restoreTransientPanelState();
         lastRenderErrorMessage = "";
         updatePanelRenderHealth("ok", "render-completed");
@@ -5092,13 +5091,6 @@ export function renderPanelHtml(): string {
           setTracePlanScope("selected");
           navigateToResourceTarget(submittedTarget.section, submittedTarget.anchor, { force: true });
         }
-        try {
-          const doneCmd = String(data.command || "");
-          const doneStatus = String(data.status || "").toLowerCase();
-          if (doneStatus === "completed" && (doneCmd === "testAll" || doneCmd === "deployLatestAgent" || doneCmd === "prepareAgents" || doneCmd === "startAll" || doneCmd === "startAllConnections")) {
-            maybeAutoAdvanceFromSync(lastState || {});
-          }
-        } catch (e) {}
       }
     }
 
@@ -5566,6 +5558,49 @@ export function renderPanelHtml(): string {
       if (target.dataset.htmlSig === sig) return false;
       target.dataset.htmlSig = sig;
       target.innerHTML = next;
+      markPostRenderDomChanged(next);
+      return true;
+    }
+
+    function gpuHistoryCanvasKey(canvas) {
+      if (!canvas) return "";
+      const chart = canvas.closest(".gpuHistoryChart");
+      const dense = canvas.closest(".gpuDenseChartHost");
+      const details = canvas.closest('details[data-gpu-history-scope="gpu"]');
+      const owner = chart && chart.id ? chart.id : dense && dense.id ? dense.id
+        : details ? String(details.dataset.serverId || "") + ":" + String(details.dataset.gpuId || "") : "";
+      return [canvas.dataset.chartKind || "overview", owner, canvas.dataset.serverId || "", canvas.dataset.gpuId || ""].join("|");
+    }
+
+    function setHtmlPreservingGpuCanvases(targetOrId, html) {
+      const target = typeof targetOrId === "string" ? el(targetOrId) : targetOrId;
+      if (!target) return false;
+      const next = String(html || "");
+      const sig = htmlSignature(next);
+      if (target.dataset.htmlSig === sig) return false;
+      const existing = new Map();
+      target.querySelectorAll("canvas.gpuHistoryCanvas").forEach((canvas) => {
+        const key = gpuHistoryCanvasKey(canvas);
+        if (key) existing.set(key, canvas);
+      });
+      const staging = document.createElement(String(target.tagName || "div").toLowerCase());
+      staging.innerHTML = next;
+      staging.querySelectorAll("canvas.gpuHistoryCanvas").forEach((placeholder) => {
+        const canvas = existing.get(gpuHistoryCanvasKey(placeholder));
+        if (!canvas) return;
+        existing.delete(gpuHistoryCanvasKey(placeholder));
+        const focusedSeries = canvas.dataset.focusSeries || "";
+        Array.from(canvas.attributes).forEach((attribute) => {
+          if (attribute.name !== "width" && attribute.name !== "height" && attribute.name !== "data-focus-series" && attribute.name !== "data-draw-signature") canvas.removeAttribute(attribute.name);
+        });
+        Array.from(placeholder.attributes).forEach((attribute) => {
+          if (attribute.name !== "width" && attribute.name !== "height" && attribute.name !== "data-focus-series") canvas.setAttribute(attribute.name, attribute.value);
+        });
+        canvas.dataset.focusSeries = placeholder.dataset.focusSeries || focusedSeries;
+        placeholder.replaceWith(canvas);
+      });
+      target.dataset.htmlSig = sig;
+      target.replaceChildren(...Array.from(staging.childNodes));
       markPostRenderDomChanged(next);
       return true;
     }
@@ -7372,15 +7407,6 @@ export function renderPanelHtml(): string {
       }
     }
 
-    let lastSyncChainGreen = false;
-    function isSyncChainGreen(state) {
-      try {
-        const setup = serverSetupReadiness(state);
-        const sync = projectCodeSyncReadiness(state);
-        const agent = publishAgentReadiness(state);
-        return Boolean(setup && setup.ready && sync && sync.ready && agent && agent.ready);
-      } catch (e) { return false; }
-    }
     function scrollMainColumnToSection(next) {
       const section = String(next || "plans");
       try { expandResourceSection(section); } catch (e) {}
@@ -7407,13 +7433,6 @@ export function renderPanelHtml(): string {
       if (typeof requestAnimationFrame === "function") requestAnimationFrame(run);
       else setTimeout(run, 0);
     }
-    function maybeAutoAdvanceFromSync(state) {
-      const green = isSyncChainGreen(state);
-      const was = lastSyncChainGreen;
-      lastSyncChainGreen = green;
-      if (green && !was) scrollMainColumnToSection("plans");
-    }
-
     function resolveResourceScrollTarget(section, anchor) {
       const main = el("mainColumn");
       if (!main) return null;
@@ -9871,7 +9890,7 @@ export function renderPanelHtml(): string {
       var summaryHtml = servers.length
         ? '<div class="summaryLine"><span class="pill">服务器 ' + servers.length + '</span><span class="pill">GPU ' + gpuCount + '</span><span class="pill status-completed">空闲 ' + freeCount + '</span><span class="pill status-warning">占用 ' + busyCount + '</span><span class="gpuServerMineBadge">我的 ' + mineCount + '</span>' + omittedHint + '</div>'
         : '<div class="muted">暂无 GPU 数据。请确认 Xshell 隧道与 Hub Agent 可用。</div>';
-      setHtmlIfChanged("gpuHistoryOverview", renderGpuHistoryOverview(state, servers));
+       setHtmlPreservingGpuCanvases("gpuHistoryOverview", renderGpuHistoryOverview(state, servers));
       setHtmlIfChanged("gpuSummary", summaryHtml);
       renderGpuTensorboardControls(state);
       (function renderDense(){
@@ -10012,7 +10031,7 @@ export function renderPanelHtml(): string {
           if(isExpanded){
             var colspan = visibleCols.length + 1;
             var chartId = "gpuDenseChart-" + row.key.replace(/[^a-zA-Z0-9_-]+/g, "_");
-            bodyHtml += '<tr class="expandRow expandChartRow" data-expand-for="' + escAttr(row.key) + '"><td colspan="' + colspan + '" style="background:' + bg + '; padding:10px;"><div class="expandChartWrap"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;"><b>1 天曲线（显存+利用率同图，最近 3h 放大 52%）</b><span class="muted">服务器 ' + esc(row.serverId) + ' GPU ' + esc(String(row.gpu.index)) + '</span></div><div id="' + escAttr(chartId) + '" class="gpuDenseChartHost" data-server-id="' + escAttr(row.serverId) + '" data-gpu-id="' + escAttr(String(row.gpu.index)) + '"><canvas class="gpuHistoryCanvas" data-chart-kind="gpu" tabindex="0"></canvas><div class="gpuHistoryTooltip" hidden></div></div><div class="muted">显存与利用率同图，最近 3 小时占 52% 宽度放大（复用 gpuHistory 时间变换）</div></div></td></tr>';
+             bodyHtml += '<tr class="expandRow expandChartRow" data-expand-for="' + escAttr(row.key) + '"><td colspan="' + colspan + '" style="background:' + bg + '; padding:10px;"><div class="expandChartWrap"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;"><b>最近 24 小时（线性时间）</b><span class="muted">服务器 ' + esc(row.serverId) + ' GPU ' + esc(String(row.gpu.index)) + '</span></div><div id="' + escAttr(chartId) + '" class="gpuDenseChartHost" data-server-id="' + escAttr(row.serverId) + '" data-gpu-id="' + escAttr(String(row.gpu.index)) + '"><canvas class="gpuHistoryCanvas" data-chart-kind="gpu" tabindex="0"></canvas><div class="gpuHistoryTooltip" hidden></div></div><div class="muted">GPU 利用率 (%) · 显存已用 (MB)</div></div></td></tr>';
             var procs = row.gpu.processes || [];
             var procRows = procs.length ? procs.map(function(p){
               return '<tr><td>' + esc(p.pid||"-") + '</td><td>' + esc(p.user||"-") + '</td><td>' + esc(String(p.memoryMb||"-")) + '</td><td>' + esc(row.gpu.runKey||"-") + '</td><td class="cmd" style="white-space:pre-wrap; word-break:break-all;">' + esc(p.command||p.name||"-") + '</td></tr>';
@@ -10023,7 +10042,7 @@ export function renderPanelHtml(): string {
         if(!flat.length){
           bodyHtml = '<tr><td colspan="' + (visibleCols.length+1) + '" class="muted">暂无 GPU 行</td></tr>';
         }
-        bodyEl.innerHTML = bodyHtml;
+         setHtmlPreservingGpuCanvases(bodyEl, bodyHtml);
         headEl.querySelectorAll("th[data-col-key]").forEach(function(th){
           th.addEventListener("click", function(e){
             if(e.target && e.target.classList && e.target.classList.contains("colResizer")) return;
@@ -10210,7 +10229,7 @@ export function renderPanelHtml(): string {
       const series = gpuHistoryOverviewSeries(state, servers);
       const status = gpuHistoryStatusText("overview");
       const body = series.length
-        ? renderGpuHistoryChart("服务器 GPU 峰值", "overview", series, "最近 1 天 · 近 3 小时占 52% 宽度放大，单桶峰值")
+        ? renderGpuHistoryChart("服务器 GPU 峰值", "overview", series, "最近 24 小时 · 线性时间 · 单桶峰值")
         : '<div class="gpuHistoryStatus">展开后加载最近 1 天历史。当前实时状态不会自动携带三天原始数据。</div>';
       return '<details class="gpuHistoryPanel" data-gpu-history-scope="overview"' + (gpuHistoryOverviewOpen ? ' open' : '') + '>' +
         '<summary>历史状态曲线（最近 1 天）</summary>' +
@@ -10225,7 +10244,7 @@ export function renderPanelHtml(): string {
       const series = gpuHistorySeriesFor(serverId, gpuId);
       const status = gpuHistoryStatusText("gpu");
       if (!series) return '<div class="gpuHistoryStatus ' + escAttr(gpuHistoryStatusClass()) + '">' + esc(status) + '</div>';
-      return renderGpuHistoryChart("GPU " + gpuId + (gpuName && gpuName !== "-" ? " · " + gpuName : ""), "gpu", [series], "最近 1 天 · 近 3 小时占 52% 宽度放大，百分比坐标") +
+      return renderGpuHistoryChart("GPU " + gpuId + (gpuName && gpuName !== "-" ? " · " + gpuName : ""), "gpu", [series], "最近 24 小时 · 线性时间 · 利用率 (%) / 显存已用 (MB)") +
         '<div class="gpuHistoryStatus ' + escAttr(gpuHistoryStatusClass()) + '">' + esc(status) + '</div>';
     }
 
@@ -10306,7 +10325,7 @@ export function renderPanelHtml(): string {
       const chartId = "gpu-history-" + kind + "-" + gpuHistoryChartId(series);
       const chartSeries = asArray(series);
       const legend = kind === "gpu"
-        ? '<button type="button" class="gpuLegendItem" data-gpu-history-focus="util"><span class="gpuLegendSwatch" style="background:#2563EB"></span>GPU 利用率</button><button type="button" class="gpuLegendItem" data-gpu-history-focus="memory"><span class="gpuLegendSwatch" style="background:#D97706"></span>显存利用率</button>'
+        ? '<button type="button" class="gpuLegendItem" data-gpu-history-focus="util"><span class="gpuLegendSwatch" style="background:#2563EB"></span>GPU 利用率 (%)</button><button type="button" class="gpuLegendItem" data-gpu-history-focus="memory"><span class="gpuLegendSwatch" style="background:#D97706"></span>显存已用 (MB)</button>'
         : chartSeries.map((item) => { const style = gpuHistoryServerStyle(item.serverId); return '<button type="button" class="gpuLegendItem" data-gpu-history-focus="' + escAttr(item.serverId) + '"><span class="gpuLegendSwatch" style="background:' + escAttr(style.color) + '"></span>' + esc(item.label || item.serverId) + '</button>'; }).join("");
       const summary = gpuHistoryTextSummary(chartSeries, kind);
       return '<div class="gpuHistoryChart" id="' + escAttr(chartId) + '" data-history-kind="' + escAttr(kind) + '">' +
@@ -10324,23 +10343,27 @@ export function renderPanelHtml(): string {
     function gpuHistoryTextSummary(series, kind) {
       const stats = gpuHistorySeriesStats(series);
       if (!stats.pointCount) return "暂无历史点。";
-      const prefix = kind === "overview" ? "服务器峰值" : "GPU 利用率 / 显存利用率";
-      return prefix + "（最近 1 天，近 3 小时放大）：" + stats.pointCount + " 个点，范围 " + new Date(stats.min * 1000).toLocaleString() + " 至 " + new Date(stats.max * 1000).toLocaleString() + "；" + stats.imputedCount + " 个缺失点按 0 补齐" + (stats.gapCount ? "，仍有 " + stats.gapCount + " 个异常缺口。" : "。 缺失补零仅用于连接曲线，不代表真实负载。");
+      const prefix = kind === "overview" ? "服务器峰值" : "GPU 利用率 (%) / 显存已用 (MB)";
+      return prefix + "（最近 24 小时，线性时间）：" + stats.pointCount + " 个采样点，范围 " + new Date(stats.min * 1000).toLocaleString() + " 至 " + new Date(stats.max * 1000).toLocaleString() + "；" + stats.imputedCount + " 个补齐点未绘制" + (stats.gapCount ? "，保留 " + stats.gapCount + " 个数据缺口。" : "。缺失数据不连接，也不补零。");
     }
 
     function gpuHistorySeriesStats(series) {
       const stats = { pointCount: 0, imputedCount: 0, gapCount: 0, min: Number.POSITIVE_INFINITY, max: Number.NEGATIVE_INFINITY };
-      asArray(series).forEach((item) => {
-        const index = gpuHistoryPointIndex(item && item.points);
-        if (!index.times.length) return;
-        stats.pointCount += index.rows.length;
+      const indexed = asArray(series).map((item) => gpuHistoryPointIndex(item && item.points));
+      const latest = indexed.reduce((max, index) => Math.max(max, index.times.length ? index.times[index.times.length - 1] : Number.NEGATIVE_INFINITY), Number.NEGATIVE_INFINITY);
+      const windowStart = Number.isFinite(latest) ? latest - 24 * 3600 : Number.NEGATIVE_INFINITY;
+      indexed.forEach((index) => {
+        const rows = index.rows.filter((point) => Number(point.bucketEpoch) >= windowStart);
         const expectedStep = Number(index.expectedStep || gpuHistoryMeta.bucketSeconds || 300);
-        index.rows.forEach((point, rowIndex) => {
+        stats.pointCount += rows.length;
+        rows.forEach((point, rowIndex) => {
           if (point.imputed === true) stats.imputedCount += 1;
-          if (rowIndex && historyPointStartsGap(point, index.rows[rowIndex - 1], expectedStep)) stats.gapCount += 1;
+          if (rowIndex && historyPointStartsGap(point, rows[rowIndex - 1], expectedStep)) stats.gapCount += 1;
         });
-        stats.min = Math.min(stats.min, index.times[0]);
-        stats.max = Math.max(stats.max, index.times[index.times.length - 1]);
+        if (rows.length) {
+          stats.min = Math.min(stats.min, Number(rows[0].bucketEpoch));
+          stats.max = Math.max(stats.max, Number(rows[rows.length - 1].bucketEpoch));
+        }
       });
       return stats;
     }
@@ -10422,13 +10445,14 @@ export function renderPanelHtml(): string {
       if (!Number.isFinite(nearestTime)) return;
       const kind = canvas.dataset.chartKind || "overview";
       const rows = series.flatMap((item) => {
-        const point = nearestHistoryPoint(item.points || [], nearestTime);
+        const points = (item.points || []).filter((row) => row.imputed !== true && Number(row.bucketEpoch) >= timeRange.min && Number(row.bucketEpoch) <= timeRange.max);
+        const point = nearestHistoryPoint(points, nearestTime);
         if (!point) return [];
         const label = esc(item.label || item.serverId || "GPU");
         if (kind === "overview") {
-          return ['<span><b>' + label + '</b> ' + esc(historyPercentText(point.gpuUtilPercent)) + ' · 峰值 GPU ' + esc(point.gpuId || "-") + ' · ' + esc(String(item.gpuCount || 0)) + ' 张卡' + (point.imputed === true ? ' · 缺失补零' : '') + '</span>'];
+          return ['<span><b>' + label + '</b> ' + esc(historyPercentText(point.gpuUtilPercent)) + ' · 峰值 GPU ' + esc(point.gpuId || "-") + ' · ' + esc(String(item.gpuCount || 0)) + ' 张卡</span>'];
         }
-        return ['<span><b>' + label + ' / GPU ' + esc(item.gpuId || "-") + '</b> 利用率 ' + esc(historyPercentText(point.gpuUtilPercent)) + ' · 显存 ' + esc(historyPercentText(point.memoryUtilPercent)) + '（' + esc(historyMemoryText(point)) + '）' + (point.imputed === true ? ' · 缺失补零' : '') + '</span>'];
+        return ['<span><b>' + label + ' / GPU ' + esc(item.gpuId || "-") + '</b> 利用率 ' + esc(historyPercentText(point.gpuUtilPercent)) + ' · 显存 ' + esc(historyMemoryText(point)) + '</span>'];
       });
       if (!rows.length) return;
       tooltip.innerHTML = '<b>' + esc(new Date(nearestTime * 1000).toLocaleString()) + '</b><br>' + rows.join("<br>");
@@ -10498,13 +10522,18 @@ export function renderPanelHtml(): string {
         min = Math.min(min, times[0]);
         max = Math.max(max, times[times.length - 1]);
       });
-      return Number.isFinite(min) && Number.isFinite(max) ? { min, max } : null;
+      if (!Number.isFinite(min) || !Number.isFinite(max)) return null;
+      min = Math.max(min, max - 24 * 3600);
+      return { min, max };
     }
 
     function gpuHistoryNearestTimestamp(series, target) {
       let nearest = null;
+      const range = gpuHistoryTimeRange(series);
+      if (!range) return null;
       asArray(series).forEach((item) => {
-        const point = nearestHistoryPointFromIndex(gpuHistoryPointIndex(item && item.points), target);
+        const rows = gpuHistoryPointIndex(item && item.points).rows.filter((row) => row.imputed !== true && Number(row.bucketEpoch) >= range.min && Number(row.bucketEpoch) <= range.max);
+        const point = nearestHistoryPointFromIndex(gpuHistoryPointIndex(rows), target);
         const time = Number(point && point.bucketEpoch);
         if (!Number.isFinite(time)) return;
         if (nearest === null || Math.abs(time - target) < Math.abs(nearest - target)) nearest = time;
@@ -10524,32 +10553,12 @@ export function renderPanelHtml(): string {
     }
 
     function gpuHistoryTimeTransform(time, minTime, maxTime, plotWidth) {
-      const RECENT_WINDOW = 3 * 3600;
-      const RECENT_RATIO = 0.52;
       const totalSpan = Math.max(1, maxTime - minTime);
-      if (totalSpan <= RECENT_WINDOW) return (time - minTime) / totalSpan * plotWidth;
-      const split = maxTime - RECENT_WINDOW;
-      const earlySpan = Math.max(1, split - minTime);
-      const recentSpan = RECENT_WINDOW;
-      if (time < split) {
-        const earlyRatio = (1 - RECENT_RATIO);
-        return (time - minTime) / earlySpan * plotWidth * earlyRatio;
-      }
-      const earlyWidth = plotWidth * (1 - RECENT_RATIO);
-      return earlyWidth + (time - split) / recentSpan * plotWidth * RECENT_RATIO;
+      return (time - minTime) / totalSpan * plotWidth;
     }
     function gpuHistoryTimeInverseTransform(x, minTime, maxTime, plotWidth) {
-      const RECENT_WINDOW = 3 * 3600;
-      const RECENT_RATIO = 0.52;
       const totalSpan = Math.max(1, maxTime - minTime);
-      if (totalSpan <= RECENT_WINDOW) return minTime + x / Math.max(1, plotWidth) * totalSpan;
-      const split = maxTime - RECENT_WINDOW;
-      const earlyWidth = plotWidth * (1 - RECENT_RATIO);
-      if (x < earlyWidth) {
-        const earlySpan = Math.max(1, split - minTime);
-        return minTime + x / Math.max(1, earlyWidth) * earlySpan;
-      }
-      return split + (x - earlyWidth) / Math.max(1, plotWidth - earlyWidth) * RECENT_WINDOW;
+      return minTime + x / Math.max(1, plotWidth) * totalSpan;
     }
     function drawGpuHistoryCanvas(canvas) {
       if (!canvas) return;
@@ -10564,12 +10573,17 @@ export function renderPanelHtml(): string {
       const width = Math.max(320, Math.round(measured || 640));
       const height = Math.max(150, Math.round(rect.height || 190));
       const dpr = Math.max(1, Math.min(2, Number(window.devicePixelRatio || 1)));
+      const dataSignature = JSON.stringify(asArray(series).map((item) => [item.serverId, item.gpuId, gpuHistoryServerStyle(item.serverId), asArray(item.points).map((point) => [point.bucketEpoch, point.gpuUtilPercent, point.memoryUtilPercent, point.memoryUsedMb, point.memoryTotalMb, point.gapBefore, point.imputed])]));
+      const drawSignature = [kind, width, height, dpr, canvas.dataset.focusSeries || "", htmlSignature(dataSignature)].join("|");
+      if (canvas.dataset.drawSignature === drawSignature
+        && canvas.width === Math.round(width * dpr) && canvas.height === Math.round(height * dpr)) return;
       if (canvas.width !== Math.round(width * dpr) || canvas.height !== Math.round(height * dpr)) {
         canvas.width = Math.round(width * dpr);
         canvas.height = Math.round(height * dpr);
       }
       const context = canvas.getContext("2d");
       if (!context) return;
+      canvas.dataset.drawSignature = drawSignature;
       context.setTransform(dpr, 0, 0, dpr, 0, 0);
       context.clearRect(0, 0, width, height);
        const padding = { left: 36, right: 46, top: 12, bottom: 24 };
@@ -10583,7 +10597,7 @@ export function renderPanelHtml(): string {
          const value = tick * 25;
          const y = padding.top + plotHeight - plotHeight * value / 100;
          context.beginPath(); context.moveTo(padding.left, y); context.lineTo(width - padding.right, y); context.stroke();
-         context.fillText(String(value), 4, y + 3);
+          context.fillText(value + "%", 4, y + 3);
        }
       const timeRange = gpuHistoryTimeRange(series);
       if (!timeRange) {
@@ -10593,15 +10607,11 @@ export function renderPanelHtml(): string {
       }
       const minTime = timeRange.min;
       const maxTime = timeRange.max;
-      const RECENT_WINDOW = 3 * 3600;
-      const RECENT_RATIO = 0.52;
-      const needsFisheye = (maxTime - minTime) > RECENT_WINDOW;
-      const focused = canvas.dataset.focusSeries || "";
-      // 1天窗口过滤：仅绘制最近 24h
-       const windowStart = maxTime - 24 * 3600;
-       const filteredSeries = series.map((item) => {
-         const filteredPoints = (item.points || []).filter((p) => Number(p.bucketEpoch) >= windowStart);
-         return Object.assign({}, item, { points: filteredPoints.length ? filteredPoints : item.points });
+       const focused = canvas.dataset.focusSeries || "";
+        const windowStart = minTime;
+        const filteredSeries = series.map((item) => {
+          const filteredPoints = (item.points || []).filter((p) => Number(p.bucketEpoch) >= windowStart);
+          return Object.assign({}, item, { points: filteredPoints });
        });
        let maxMem = 1;
        asArray(filteredSeries).forEach((item) => {
@@ -10628,7 +10638,7 @@ export function renderPanelHtml(): string {
          const serverStyle = gpuHistoryServerStyle(item.serverId);
          const pointIndex = gpuHistoryPointIndex(item.points || []);
          const filteredRows = pointIndex.rows.filter((p) => Number(p.bucketEpoch) >= windowStart);
-         const rows = filteredRows.length ? filteredRows : pointIndex.rows;
+          const rows = filteredRows;
          const lines = kind === "gpu"
            ? [{ field: "gpuUtilPercent", color: "#2563EB", dash: [], focus: "util" }, { field: "memoryUtilPercent", color: "#D97706", dash: [6, 3], focus: "memory" }]
            : [{ field: "gpuUtilPercent", color: serverStyle.color, dash: serverStyle.dash, focus: item.serverId }, { field: "memoryUtilPercent", color: "#D97706", dash: [6, 3], focus: item.serverId }];
@@ -10637,32 +10647,20 @@ export function renderPanelHtml(): string {
            drawHistoryLine(context, rows, line, minTime, maxTime, padding, plotWidth, plotHeight, focused, pointIndex.expectedStep, maxMem, yScale);
          });
        });
-      if (needsFisheye) {
-        const splitX = padding.left + plotWidth * (1 - RECENT_RATIO);
-        context.save();
-        context.strokeStyle = "rgba(37, 99, 235, 0.35)";
-        context.setLineDash([4, 4]);
-        context.beginPath(); context.moveTo(splitX, padding.top); context.lineTo(splitX, padding.top + plotHeight); context.stroke();
-        context.setLineDash([]);
-        context.fillStyle = "rgba(37, 99, 235, 0.10)";
-        context.fillRect(splitX, padding.top, plotWidth * RECENT_RATIO, plotHeight);
-        context.fillStyle = "#2563EB";
-        context.font = "10px sans-serif";
-        context.fillText("近 3 小时放大", splitX + 4, padding.top + 10);
-        context.restore();
-      }
-      context.fillStyle = getComputedStyle(canvas).getPropertyValue("--vscode-descriptionForeground") || "#64748B";
-      const startLabel = new Date((needsFisheye ? windowStart : minTime) * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      context.fillText(startLabel, padding.left, height - 7);
-      const midLabel = needsFisheye ? new Date((maxTime - RECENT_WINDOW) * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "";
-      if (midLabel) {
-        const midX = padding.left + plotWidth * (1 - RECENT_RATIO);
-        const w = context.measureText(midLabel).width;
-        context.fillText(midLabel, midX - w / 2, height - 7);
-      }
-      const endLabel = new Date(maxTime * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
-      const endWidth = context.measureText(endLabel).width;
-      context.fillText(endLabel, width - padding.right - endWidth, height - 7);
+       context.fillStyle = getComputedStyle(canvas).getPropertyValue("--vscode-descriptionForeground") || "#64748B";
+       context.fillText("GPU 利用率 (%)", padding.left, 10);
+       const startLabel = new Date(minTime * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+       context.fillText(startLabel, padding.left, height - 7);
+       const midLabel = new Date((minTime + maxTime) / 2 * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+       const midX = padding.left + plotWidth / 2;
+       const midWidth = context.measureText(midLabel).width;
+       context.fillText(midLabel, midX - midWidth / 2, height - 7);
+       const endLabel = new Date(maxTime * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+       const endWidth = context.measureText(endLabel).width;
+       context.fillText(endLabel, width - padding.right - endWidth, height - 7);
+       context.textAlign = "right";
+       context.fillText("显存已用 (MB)", width - 2, 10);
+       context.textAlign = "left";
     }
 
      function drawHistoryLine(context, points, line, minTime, maxTime, padding, plotWidth, plotHeight, focused, expectedStep, maxMem, yScale) {
@@ -10677,8 +10675,9 @@ export function renderPanelHtml(): string {
        context.lineJoin = "round";
        context.lineCap = "round";
        context.setLineDash(line.dash || []);
-       let segment = [];
-       const flushSegment = () => {
+        let segment = [];
+        let previousPoint = null;
+        const flushSegment = () => {
          if (!segment.length) return;
          if (segment.length === 1) {
            context.beginPath();
@@ -10690,28 +10689,22 @@ export function renderPanelHtml(): string {
            context.moveTo(segment[0].x, segment[0].y);
            context.lineTo(segment[1].x, segment[1].y);
            context.stroke();
-         } else {
-           context.beginPath();
-           context.moveTo(segment[0].x, segment[0].y);
-           for (let i = 0; i < segment.length - 1; i++) {
-             const p0 = i > 0 ? segment[i - 1] : segment[0];
-             const p1 = segment[i];
-             const p2 = segment[i + 1];
-             const p3 = i + 2 < segment.length ? segment[i + 2] : p2;
-             const cp1x = p1.x + (p2.x - p0.x) / 6;
-             const cp1y = p1.y + (p2.y - p0.y) / 6;
-             const cp2x = p2.x - (p3.x - p1.x) / 6;
-             const cp2y = p2.y - (p3.y - p1.y) / 6;
-             context.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p2.x, p2.y);
-           }
-           context.stroke();
+          } else {
+            context.beginPath();
+            context.moveTo(segment[0].x, segment[0].y);
+            for (let i = 1; i < segment.length; i++) context.lineTo(segment[i].x, segment[i].y);
+            context.stroke();
          }
          segment = [];
-       };
-       points.forEach((point) => {
-         const time = Number(point.bucketEpoch);
-         if (!Number.isFinite(time)) { flushSegment(); return; }
-         let y;
+        };
+        points.forEach((point) => {
+          const time = Number(point.bucketEpoch);
+          if (!Number.isFinite(time) || point.imputed === true || (previousPoint && historyPointStartsGap(point, previousPoint, expectedStep))) {
+            flushSegment();
+            previousPoint = point;
+            if (!Number.isFinite(time) || point.imputed === true) return;
+          }
+          let y;
          if (scale === "mem") {
            let memVal = Number(point.memoryUsedMb);
            if (!Number.isFinite(memVal)) {
@@ -10719,17 +10712,18 @@ export function renderPanelHtml(): string {
              const total = Number(point.memoryTotalMb);
              if (pct !== null && Number.isFinite(total) && total > 0) memVal = pct / 100 * total;
              else if (pct !== null) memVal = pct / 100 * effectiveMaxMem;
-             else { flushSegment(); return; }
+              else { flushSegment(); previousPoint = point; return; }
            }
            const ratio = Math.max(0, Math.min(1, memVal / effectiveMaxMem));
            y = padding.top + plotHeight - ratio * plotHeight;
          } else {
            const value = finiteHistoryPercent(point[line.field]);
-           if (value === null) { flushSegment(); return; }
+            if (value === null) { flushSegment(); previousPoint = point; return; }
            y = padding.top + plotHeight - value / 100 * plotHeight;
          }
-         const x = padding.left + gpuHistoryTimeTransform(time, minTime, maxTime, plotWidth);
-         segment.push({ x, y });
+          const x = padding.left + gpuHistoryTimeTransform(time, minTime, maxTime, plotWidth);
+          segment.push({ x, y });
+          previousPoint = point;
        });
        flushSegment();
        context.restore();
@@ -13438,6 +13432,8 @@ export function renderPanelHtml(): string {
       };
       const folded = items.filter((item) => collapsedExecutionPlanKeys.has(item.key));
       const openItems = items.filter((item) => !collapsedExecutionPlanKeys.has(item.key));
+      const completedHistory = openItems.filter((item) => item.tone === "completed");
+      const currentItems = openItems.filter((item) => item.tone !== "completed");
       const foldRow = (group) => {
         const totalJobs = (group.currentJobs || []).length;
         const statusText = group.statusText;
@@ -13451,8 +13447,11 @@ export function renderPanelHtml(): string {
       const foldHtml = folded.length
         ? '<details class="executionPlanFold" data-details-key="execution-plan-fold" open><summary>已折叠 Plan ' + folded.length + '</summary>' + folded.map(foldRow).join("") + '</details>'
         : "";
+      const completedHistoryHtml = completedHistory.length
+        ? '<details class="executionPlanHistory"><summary>已完成 Plan 历史 ' + completedHistory.length + '</summary>' + completedHistory.map(renderPlan).join("") + '</details>'
+        : "";
       setHtmlIfChanged("executionPlanList", items.length
-        ? '<div class="executionPlanList">' + openItems.map(renderPlan).join("") + '</div>' + foldHtml
+        ? '<div class="executionPlanList">' + currentItems.map(renderPlan).join("") + '</div>' + completedHistoryHtml + foldHtml
         : '<div class="muted">暂无 Plan 运行记录。</div>');
     }
 
