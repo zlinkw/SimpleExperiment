@@ -1657,6 +1657,19 @@ function renderPanelHtml() {
     const PLUGIN_VERSION = "${PLUGIN_VERSION}";
     const vscode = acquireVsCodeApi();
     console.log("[webview] acquireVsCodeApi", !!vscode, typeof vscode?.postMessage);
+    const panelDocumentGeneration = String(document.documentElement?.getAttribute("data-panel-document-generation") || "");
+    const PANEL_RENDER_FRAME_STALL_MS = 15000;
+    const restoredTransientPanelState = restoredPanelStateFromApi(vscode);
+    let panelRenderHealthStatus = "unknown";
+    let panelRenderHealthReason = "awaiting-first-render";
+    let panelLastSuccessfulRenderAt = 0;
+    let panelStateRenderScheduledAt = 0;
+    let panelHealthProbeScheduledAt = 0;
+    let panelHealthProbeLastSuccessAt = 0;
+    let panelHealthProbeGeneration = 0;
+    let panelHealthProbeFrameId = 0;
+    let transientPanelStateNeedsRestore = true;
+    let transientPlanSelectionDirty = Boolean(restoredTransientPanelState.planSelectionDirty);
     const LENIENT_RUN = true;
     const isLenientRun = LENIENT_RUN;
     const PROJECT_TMP_DIRNAME = "tmp";
@@ -2143,7 +2156,7 @@ function renderPanelHtml() {
     let initialStateTimer = 0;
     let lastRenderErrorMessage = "";
     let lastGpuServersById = {};
-    let expandedTaskLogs = {};
+    let expandedTaskLogs = restoredTransientPanelState.expandedTaskLogs || {};
     let pendingButtonKeys = new Set();
     let pendingActions = {};
     let pendingActionsById = {};
@@ -2159,10 +2172,10 @@ function renderPanelHtml() {
     let selectedTaskStateRowsCache = [];
     let selectedTaskStatePayloadCacheKey = "";
     let selectedTaskStatePayloadCache = null;
-    let configDrafts = {};
+    let configDrafts = restoredTransientPanelState.configDrafts || {};
     let serverConfigEditLockUntil = 0;
     let planPreviewEditLockUntil = 0;
-    let detailsOpenState = {};
+    let detailsOpenState = restoredTransientPanelState.detailsOpenState || {};
     let workbenchInspectorInteractionLockUntil = 0;
     let workbenchInspectorLastHtml = "";
     let workbenchInspectorLastRenderAt = 0;
@@ -3165,7 +3178,8 @@ function renderPanelHtml() {
       hidePinContextMenu();
       return;
     });
-    window.addEventListener("blur", () => { hidePinContextMenu(); });
+    window.addEventListener("blur", () => { hidePinContextMenu(); persistTransientPanelState(); });
+    window.addEventListener("pagehide", persistTransientPanelState);
     window.addEventListener("resize", () => { scheduleGpuHistoryDraw(); });
     window.addEventListener("scroll", () => { hidePinContextMenu(); }, true);
     document.addEventListener("pointermove", (event) => {
@@ -3175,10 +3189,12 @@ function renderPanelHtml() {
     let lastDispatchedPlanFile = "";
     const dispatchPlanSelection = (event) => {
       const value = event.target.value || "";
+      transientPlanSelectionDirty = true;
       if (value !== lastDispatchedPlanFile) {
         lastDispatchedPlanFile = value;
         vscode.postMessage({ command: "selectPlan", planFile: value });
       }
+      persistTransientPanelState();
     };
     el("planFileInput").addEventListener("input", (event) => {
       const value = event.target.value || "";
@@ -3309,11 +3325,13 @@ function renderPanelHtml() {
       if (details) {
         if (details.open) expandedTaskLogs[details.dataset.taskLogKey] = true;
         else delete expandedTaskLogs[details.dataset.taskLogKey];
+        persistTransientPanelState();
       }
       const keyed = event.target.closest && event.target.closest("details[data-details-key]");
       if (keyed && keyed === event.target) {
         const key = keyed.dataset.detailsKey;
         detailsOpenState[key] = keyed.open;
+        persistTransientPanelState();
         if (key === "project-rule-editor") {
           renderSectionIfVisible(lastState || {}, "plans", { force: true });
         }
@@ -3347,7 +3365,7 @@ function renderPanelHtml() {
         updateConfigDraft(input);
         serverConfigEditLockUntil = Date.now() + 30000;
       }
-      if (isPlanPreviewEditor(input)) planPreviewEditLockUntil = Date.now() + 45000;
+      if (isPlanPreviewEditor(input)) { planPreviewEditLockUntil = Date.now() + 45000; persistTransientPanelState(); }
     });
     document.addEventListener("paste", (event) => {
       const input = event.target;
@@ -3382,6 +3400,7 @@ function renderPanelHtml() {
         resourceTreeFilter = String(input.value || "").trim().toLowerCase();
         renderResourceTree(lastState || {});
       }
+      if (isPlanPreviewEditor(input)) persistTransientPanelState();
     });
     document.addEventListener("change", (event) => {
       if (event.target?.id === "resultSplitTable") {
@@ -3423,6 +3442,7 @@ function renderPanelHtml() {
       if (input && input.matches && input.matches('input[type="checkbox"][data-command="selectExperiment"]')) {
         event.stopPropagation();
         handleTaskSelectionChange(input);
+        persistTransientPanelState();
         return;
       }
       if (input && input.dataset && input.dataset.configInput) {
@@ -3442,6 +3462,14 @@ function renderPanelHtml() {
     });
     window.addEventListener("message", (event) => {
       handleIncomingWebviewMessage(event.data);
+    });
+    document.addEventListener("visibilitychange", () => {
+      panelHealthProbeGeneration += 1;
+      if (panelHealthProbeFrameId && typeof cancelAnimationFrame === "function") cancelAnimationFrame(panelHealthProbeFrameId);
+      panelHealthProbeFrameId = 0;
+      panelHealthProbeScheduledAt = 0;
+      panelHealthProbeLastSuccessAt = 0;
+      if (!document.hidden) schedulePanelHealthProbe();
     });
     setupResourceTreeObserver();
     el("initialStateRetry").addEventListener("click", requestInitialPanelState);
@@ -3499,6 +3527,65 @@ function renderPanelHtml() {
       }, 8000);
     }
 
+    function updatePanelRenderHealth(status, reason) {
+      panelRenderHealthStatus = status;
+      panelRenderHealthReason = String(reason || "").slice(0, 120);
+      if (status === "ok") panelLastSuccessfulRenderAt = Date.now();
+    }
+
+    function currentPanelRenderHealth() {
+      if (document.hidden) return { status: "unknown", reason: "document-hidden" };
+      const root = document.documentElement;
+      if (!root) return { status: "unhealthy", reason: "document-root-missing" };
+      const main = el("mainColumn");
+      const resources = el("resourceTree");
+      if (!main || !resources || main.isConnected === false || resources.isConnected === false) {
+        return { status: "unhealthy", reason: "required-render-root-missing" };
+      }
+      if (typeof main.childElementCount === "number" && main.childElementCount === 0) {
+        return { status: "unhealthy", reason: "main-render-root-empty" };
+      }
+      if (typeof main.getClientRects === "function" && main.getClientRects().length === 0) {
+        return { status: "unhealthy", reason: "main-render-root-not-laid-out" };
+      }
+      if (panelStateRenderScheduledAt) {
+        if (Date.now() - panelStateRenderScheduledAt >= PANEL_RENDER_FRAME_STALL_MS) {
+          return { status: "unhealthy", reason: "state-render-frame-stalled" };
+        }
+        return { status: "unknown", reason: "state-render-pending" };
+      }
+      const renderError = el("renderError");
+      if (panelRenderHealthStatus === "unhealthy" || (renderError && String(renderError.textContent || "").trim())) {
+        return { status: "unhealthy", reason: panelRenderHealthReason || "render-failed" };
+      }
+      schedulePanelHealthProbe();
+      if (panelHealthProbeScheduledAt && Date.now() - panelHealthProbeScheduledAt >= PANEL_RENDER_FRAME_STALL_MS) {
+        return { status: "unhealthy", reason: "animation-frame-probe-stalled" };
+      }
+      if (!panelHealthProbeLastSuccessAt) return { status: "unknown", reason: "render-health-probe-pending" };
+      if (Date.now() - panelHealthProbeLastSuccessAt >= PANEL_RENDER_FRAME_STALL_MS) {
+        return { status: "unknown", reason: "render-health-probe-pending" };
+      }
+      if (!panelLastSuccessfulRenderAt) return { status: "unknown", reason: panelRenderHealthReason || "awaiting-first-render" };
+      return { status: "ok", reason: "render-completed" };
+    }
+
+    function schedulePanelHealthProbe() {
+      if (document.hidden || panelHealthProbeScheduledAt) return;
+      if (typeof requestAnimationFrame !== "function") {
+        updatePanelRenderHealth("unhealthy", "render-health-probe-unavailable");
+        return;
+      }
+      const generation = ++panelHealthProbeGeneration;
+      panelHealthProbeScheduledAt = Date.now();
+      panelHealthProbeFrameId = requestAnimationFrame(() => {
+        if (generation !== panelHealthProbeGeneration || document.hidden) return;
+        panelHealthProbeFrameId = 0;
+        panelHealthProbeScheduledAt = 0;
+        panelHealthProbeLastSuccessAt = Date.now();
+      });
+    }
+
     function completeInitialPanelState() {
       if (initialStateTimer) clearTimeout(initialStateTimer);
       initialStateTimer = 0;
@@ -3510,7 +3597,9 @@ function renderPanelHtml() {
     function handleIncomingWebviewMessage(message) {
       if (!message) return;
       if (message.type === "panelHeartbeat") {
-        vscode.postMessage({ command: "webviewHeartbeatAck", heartbeatId: message.heartbeatId });
+        const renderHealth = currentPanelRenderHealth();
+        vscode.postMessage({ command: "webviewHeartbeatAck", heartbeatId: message.heartbeatId,
+          documentGeneration: panelDocumentGeneration || undefined, renderHealth });
         return;
       }
       const messages = flattenIncomingWebviewMessages(message);
@@ -3587,7 +3676,17 @@ function renderPanelHtml() {
       }
       if (latestStateMessage) {
         completeInitialPanelState();
-        lastState = latestStateMessage.state || {};
+        const incomingState = latestStateMessage.state || {};
+        if (transientPanelStateNeedsRestore && transientPlanSelectionDirty) {
+          const selectedPlanFile = restoredTransientPanelState.selectedPlanFile;
+          lastState = Object.assign({}, incomingState, {
+            planFileInput: selectedPlanFile,
+            selection: Object.assign({}, incomingState.selection || {}, { selectedPlanId: selectedPlanFile })
+          });
+          if (selectedPlanFile !== String(incomingState.planFileInput || ((incomingState.selection || {}).selectedPlanId) || "")) {
+            vscode.postMessage({ command: "selectPlan", planFile: selectedPlanFile });
+          }
+        } else lastState = incomingState;
         rememberGpuHistoryState(lastState.gpuHistory);
         invalidateSelectedTaskPayload();
         clearCompletedPendingButtons(lastState);
@@ -3623,7 +3722,9 @@ function renderPanelHtml() {
           renderResourceTree(state);
           updateResourceTreeActiveSection(activeResourceSection, activeResourceAnchor);
           applyPendingButtonStates();
+          restoreTransientPanelState();
           lastRenderErrorMessage = "";
+          updatePanelRenderHealth("ok", "render-completed");
           return;
         }
         applyUiLayout(state);
@@ -3635,11 +3736,14 @@ function renderPanelHtml() {
         applyLayoutColumns();
         schedulePostRenderMaintenance();
         try { maybeAutoAdvanceFromSync(state); } catch (e) {}
+        restoreTransientPanelState();
         lastRenderErrorMessage = "";
+        updatePanelRenderHealth("ok", "render-completed");
       } catch (error) {
         const message = error && error.message ? String(error.message) : String(error);
         const stack = error && error.stack ? String(error.stack).slice(0, 900) : "";
         const full = stack ? message + String.fromCharCode(10) + stack : message;
+        updatePanelRenderHealth("unhealthy", "render-failed: " + message);
         el("renderError").textContent = "UI 渲染失败：" + message + (stack ? " | " + stack.slice(0, 380) : "");
         if (message !== lastRenderErrorMessage) {
           lastRenderErrorMessage = message;
@@ -3653,10 +3757,14 @@ function renderPanelHtml() {
     function scheduleStateRender() {
       if (stateRenderScheduled) return;
       stateRenderScheduled = true;
-      requestAnimationFrame(() => {
+      panelStateRenderScheduledAt = Date.now();
+      const renderFrame = () => {
         stateRenderScheduled = false;
+        panelStateRenderScheduledAt = 0;
         render(lastState);
-      });
+      };
+      if (typeof requestAnimationFrame === "function") requestAnimationFrame(renderFrame);
+      else setTimeout(renderFrame, 0);
     }
 
     function renderProjectOnboardingNotice(state) {
@@ -8439,6 +8547,7 @@ function renderPanelHtml() {
       if (!scope || !key) return;
       if (!configDrafts[scope]) configDrafts[scope] = {};
       configDrafts[scope][key] = configInputValue(input);
+      persistTransientPanelState();
     }
 
     function configDraftValue(scope, key, fallback) {
@@ -8501,6 +8610,7 @@ function renderPanelHtml() {
       if (scope) {
         delete configDrafts[scope];
         if (!hasConfigDrafts()) serverConfigEditLockUntil = 0;
+        persistTransientPanelState();
         return;
       }
       if (value === "saveHubConfig") delete configDrafts.hub;
@@ -8511,6 +8621,7 @@ function renderPanelHtml() {
       if (value === "savePptPlotConfig" || value === "choosePptPath" || value === "chooseNewPptPath") delete configDrafts.ppt;
       if (value === "saveWorkerConfig" && endpointId) delete configDrafts["worker:" + endpointId];
       if (!hasConfigDrafts()) serverConfigEditLockUntil = 0;
+      persistTransientPanelState();
     }
 
     function hasConfigDrafts() {
@@ -13566,6 +13677,122 @@ function renderPanelHtml() {
       return true;
     }
 
+    function restoredPanelStateFromApi(api) {
+      try {
+        const state = api && typeof api.getState === "function" ? api.getState() || {} : {};
+        const saved = state.transientPanelState || {};
+        return {
+          configDrafts: normalizeStoredPanelMap(saved.configDrafts, true),
+          detailsOpenState: normalizeStoredPanelMap(saved.detailsOpenState),
+          expandedTaskLogs: normalizeStoredPanelMap(saved.expandedTaskLogs),
+          selectedPlanFile: String(saved.selectedPlanFile || ""),
+          planSelectionDirty: saved.planSelectionDirty === true,
+          planPreview: saved.planPreview && typeof saved.planPreview.value === "string" ? saved.planPreview : null,
+          selectedTaskTargets: Array.isArray(saved.selectedTaskTargets) ? saved.selectedTaskTargets.filter((item) => item && typeof item === "object").map((item) => Object.assign({}, item)) : [],
+          activeInput: saved.activeInput && typeof saved.activeInput === "object" ? Object.assign({}, saved.activeInput) : null,
+          mainColumnScrollTop: Number(saved.mainColumnScrollTop || 0)
+        };
+      } catch (e) { return { configDrafts: {}, detailsOpenState: {}, expandedTaskLogs: {}, selectedTaskTargets: [] }; }
+    }
+
+    function normalizeStoredPanelMap(value, nested) {
+      const output = {};
+      if (!value || typeof value !== "object" || Array.isArray(value)) return output;
+      Object.entries(value).forEach(([key, entry]) => {
+        if (!key || key.length > 160) return;
+        if (nested) {
+          if (!entry || typeof entry !== "object" || Array.isArray(entry)) return;
+          const fields = {};
+          Object.entries(entry).forEach(([field, item]) => {
+            if (field && field.length <= 160 && (typeof item === "string" || typeof item === "number" || typeof item === "boolean")) fields[field] = item;
+          });
+          if (Object.keys(fields).length) output[key] = fields;
+        } else if (typeof entry === "boolean") output[key] = entry;
+      });
+      return output;
+    }
+
+    function persistTransientPanelState() {
+      const preview = document.querySelector('textarea[data-plan-preview="true"]');
+      const active = document.activeElement;
+      let activeInput = null;
+      if (active && active.dataset && (active.dataset.configInput || active.dataset.planPreview)) {
+        activeInput = {
+          scope: String(active.dataset.configInput || ""), key: String(active.dataset.key || ""),
+          planPreview: String(active.dataset.planPreview || ""),
+          selectionStart: Number.isFinite(active.selectionStart) ? active.selectionStart : undefined,
+          selectionEnd: Number.isFinite(active.selectionEnd) ? active.selectionEnd : undefined
+        };
+      }
+      let taskTargets = [];
+      try { taskTargets = selectedTaskBoxFields(document.querySelectorAll('input[type="checkbox"][data-command="selectExperiment"]')).targets; } catch (e) {}
+      const main = el("mainColumn");
+      const transientPanelState = {
+        configDrafts: normalizeStoredPanelMap(configDrafts, true),
+        detailsOpenState: normalizeStoredPanelMap(detailsOpenState),
+        expandedTaskLogs: normalizeStoredPanelMap(expandedTaskLogs),
+        selectedPlanFile: String((el("planFileInput") || {}).value || ""),
+        planSelectionDirty: transientPlanSelectionDirty,
+        planPreview: preview ? { planFile: String(preview.dataset.planFile || ""), value: String(preview.value || ""), selectionStart: Number.isFinite(preview.selectionStart) ? preview.selectionStart : undefined, selectionEnd: Number.isFinite(preview.selectionEnd) ? preview.selectionEnd : undefined } : restoredTransientPanelState.planPreview,
+        selectedTaskTargets: taskTargets,
+        activeInput,
+        mainColumnScrollTop: Number((main || {}).scrollTop || 0)
+      };
+      persistWebviewState({ transientPanelState });
+    }
+
+    function restoreTransientPanelState() {
+      if (!transientPanelStateNeedsRestore) return;
+      const saved = restoredTransientPanelState;
+      if (transientPlanSelectionDirty && el("planFileInput")) el("planFileInput").value = saved.selectedPlanFile;
+      document.querySelectorAll("[data-config-input][data-key]").forEach((input) => {
+        const scope = String((input.dataset || {}).configInput || "");
+        const key = String((input.dataset || {}).key || "");
+        const draft = configDrafts[scope];
+        if (draft && Object.prototype.hasOwnProperty.call(draft, key)) {
+          if (input.type === "checkbox") input.checked = Boolean(draft[key]);
+          else input.value = String(draft[key]);
+        }
+      });
+      if (saved.planPreview) {
+        const preview = document.querySelector('textarea[data-plan-preview="true"]');
+        const selectedPlanFile = String((lastState || {}).planFileInput || ((lastState || {}).selection || {}).selectedPlanId || "");
+        if (preview && (!saved.planPreview.planFile || saved.planPreview.planFile === selectedPlanFile)) preview.value = saved.planPreview.value;
+      }
+      if (saved.selectedTaskTargets.length) {
+        const targetKey = (value) => [value.workerId, value.taskUiKey, value.runKey, value.experimentId, value.archiveKey, value.planFile, value.planRevision].map((item) => String(item || "")).join(String.fromCharCode(31));
+        const selected = new Set(saved.selectedTaskTargets.map(targetKey));
+        document.querySelectorAll('input[type="checkbox"][data-command="selectExperiment"]').forEach((box) => {
+          const data = box.dataset || {};
+          box.checked = selected.has(targetKey({ workerId: data.workerId, taskUiKey: data.taskUiKey, runKey: data.actionKey || data.runKey, experimentId: data.experimentId, archiveKey: data.archiveKey, planFile: data.planFile, planRevision: data.planRevision }));
+        });
+        invalidateSelectedTaskPayload();
+      }
+      document.querySelectorAll("details[data-details-key]").forEach((details) => {
+        const key = String((details.dataset || {}).detailsKey || "");
+        if (Object.prototype.hasOwnProperty.call(detailsOpenState, key)) details.open = Boolean(detailsOpenState[key]);
+      });
+      document.querySelectorAll("details[data-task-log-key]").forEach((details) => {
+        if (expandedTaskLogs[String((details.dataset || {}).taskLogKey || "")]) details.open = true;
+      });
+      const main = el("mainColumn");
+      if (main && saved.mainColumnScrollTop > 0) main.scrollTop = saved.mainColumnScrollTop;
+      const focus = saved.activeInput;
+      if (focus) {
+        const candidates = focus.planPreview ? document.querySelectorAll('textarea[data-plan-preview="true"]') : document.querySelectorAll("[data-config-input][data-key]");
+        const target = [...candidates].find((input) => String((input.dataset || {}).configInput || "") === focus.scope
+          && String((input.dataset || {}).key || "") === focus.key
+          && (!focus.planPreview || String((input.dataset || {}).planPreview || "") === focus.planPreview));
+        if (target) {
+          target.focus();
+          if (typeof target.setSelectionRange === "function" && Number.isFinite(focus.selectionStart) && Number.isFinite(focus.selectionEnd)) {
+            try { target.setSelectionRange(focus.selectionStart, focus.selectionEnd); } catch (e) {}
+          }
+        }
+      }
+      transientPanelStateNeedsRestore = false;
+    }
+
     function persistWebviewState(patch) {
       if (typeof vscode.setState !== "function") return;
       const current = typeof vscode.getState === "function" ? (vscode.getState() || {}) : {};
@@ -14383,7 +14610,7 @@ function renderPanelHtml() {
           '<button type="button" class="secondary" data-command="openLocalResultTable" data-table-name="' + escAttr(row.name) + '" data-format="md" title="打开 ' + escAttr(path) + '.md，按均值 ± 标准差阅读相同结果。">阅读版</button></div></article>';
       }).join("");
       return '<div class="resultFinalCard resultTableBrowser"><div class="resultFinalHeader"><div><h3>结果总表</h3><p>全项目 final 与各方法结果分开保存。表格已在本机项目目录。</p></div>' +
-        '<div><button type="button" data-command="syncPendingPlanArtifacts" title="先按最新版合并各 Worker 上当前项目的结果范围，再按每个来源一次打包下载 CSV/JSON/MD 指标，并更新全项目总表与方法表。会查询服务器。不重新训练，不下载权重。待处理产物计数属于自动的权重和日志同步，此按钮不会把它标成已完成。">同步服务器结果并更新总表</button>' +
+        '<div><button type="button" data-command="syncPendingPlanArtifacts" title="手动查询并合并各 Worker 上当前项目的结果范围，按来源打包下载 CSV/JSON/MD 最终指标并更新总表与方法表。不会重新训练或下载权重、日志；权重和日志须在下载文件中明确选择范围后手动下载。">同步服务器结果并更新总表</button>' +
         '<button type="button" class="secondary" data-command="rebuildProjectResultTables" title="下载已完成运行的逐 seed CSV 和最终指标 CSV、Markdown，重算均值、样本标准差和总表。权重、检查点和日志保留在服务器。">下载指标并重新汇总</button></div></div>' +
         (reportHtml ? '<div class="muted">' + reportHtml + '</div>' : '') +
         (tables.length ? '<div class="resultTableCards">' + tableCards + '</div>' : '<div class="muted">尚无总表。点击“同步服务器结果并更新总表”合并 Worker 结果、下载指标并生成总表。</div>') +
@@ -16311,6 +16538,7 @@ function projectSectionNextAction(status, label, section, anchor, options) {
 
     function configInputValue(input) {
       if (!input) return "";
+      if (input.type === "checkbox") return Boolean(input.checked);
       if (input.tagName === "SELECT" || input.tagName === "TEXTAREA") return input.value;
       if (input.type === "number") {
         const raw = String(input.value || "").trim();

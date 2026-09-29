@@ -174,7 +174,7 @@ test("conflicting raw aliases retain the previous published CSV and Markdown", a
   }
 });
 
-test("completed postprocess downloads and publishes metrics once through the production hook", async () => {
+test("completed plans stay untouched until manual metrics sync downloads and publishes their results", async () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "p6-postprocess-chain-"));
   try {
     vscode.workspace.workspaceFolders = [{ uri: { scheme: "file", path: workspace.replace(/\\/g, "/"),
@@ -206,26 +206,26 @@ test("completed postprocess downloads and publishes metrics once through the pro
     };
     const warningCount = uiNotices.filter(([kind]) => kind === "warning").length;
     host.scheduleDistributedPostprocess(workspace, true);
-    assert.ok(host.distributedPostprocessPromise);
-    await host.distributedPostprocessPromise;
     await Promise.resolve();
+    assert.deepEqual(stages, [], "completion must not trigger result postprocessing");
+    assert.equal(provider.calls.length, 0, "completion must not download metric files");
+    await host.syncPendingResultMetricsFromUi();
 
-    assert.deepEqual(stages, ["fragments", "preview-rebuild", "bulk", "final-rebuild"]);
-    assert.equal(provider.calls.length, 1, "completion hook reaches mapped SFTP transport once");
+    assert.deepEqual(stages, ["fragments", "preview-rebuild"]);
+    assert.equal(provider.calls.length, 1, "manual sync reaches mapped SFTP transport once");
     const [method, params] = provider.calls[0];
     assert.equal(method, "sync.downloadMappedPaths");
     assert.equal(params.metricsOnly, true);
-    assert.equal(confirmations[0]?.missingOnly, true, "background completion downloads only missing mapped raw files");
+    assert.equal(confirmations[0]?.metricsOnly, true, "manual result sync keeps the metrics-only download scope");
     assert.deepEqual(params.entries.map((entry) => entry.remotePath), [remoteCsv]);
     assert.equal(queue.localMetricsSignature?.length > 0, true, "successful publication records the completion signature");
-    assert.equal(uiNotices.filter(([kind]) => kind === "warning").length, warningCount, "background flow requires no modal warning");
+    assert.equal(uiNotices.filter(([kind]) => kind === "warning").length, warningCount, "new metric files do not require overwrite confirmation");
     assert.ok(fs.existsSync(path.join(workspace, "experiments", "results", "final", "final.csv")));
     assert.ok(fs.existsSync(path.join(workspace, "experiments", "results", "final", "final.md")));
 
     host.scheduleDistributedPostprocess(workspace, true);
-    await host.distributedPostprocessPromise;
     await Promise.resolve();
-    assert.equal(provider.calls.length, 1, "the same completion signature does not download twice");
+    assert.equal(provider.calls.length, 1, "later queue ticks do not repeat the manual download");
   } finally {
     vscode.workspace.workspaceFolders = [];
   }

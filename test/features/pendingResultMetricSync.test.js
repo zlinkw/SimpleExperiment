@@ -45,7 +45,7 @@ test("the result table button merges every known result scope before any metric 
   assert.doesNotMatch(panel, /刷新所有结果|合并最新结果并拉取指标/);
   assert.match(panel, /尚无总表。点击“同步服务器结果并更新总表”/);
   assert.doesNotMatch(panel, /同步待处理产物 \(/);
-  assert.match(panel, /待处理产物计数属于自动的权重和日志同步/);
+  assert.doesNotMatch(panel, /待处理产物计数属于自动的权重和日志同步/);
   assert.match(extension, /case "syncPendingPlanArtifacts":\s*await this\.syncPendingResultMetricsFromUi\(\)/);
   const manual = sliceBetween(extension, "async syncPendingResultMetricsFromUi(", "async summaryForMetricDownload(");
   const mergeAt = manual.indexOf("await this.mergeLatestWorkerVersions(");
@@ -65,7 +65,7 @@ test("the result table button merges every known result scope before any metric 
   const background = sliceBetween(extension, "async syncPendingPlanArtifacts(onlyKey = \"\", knownSummary?)", "async reconcileProjectFilesAcrossWorkers");
   assert.doesNotMatch(background, /mergeLatestWorkerVersions\(/);
   const auto = extension.slice(extension.indexOf("async refreshResultsSummary"), extension.indexOf("scheduleResultsSummaryRefreshFromRealtime"));
-  assert.match(auto, /syncPendingPlanArtifacts\(pending\.key, summary\)/);
+  assert.doesNotMatch(auto, /syncPendingPlanArtifacts\(pending\.key, summary\)/);
   assert.doesNotMatch(auto, /syncPendingResultMetricsFromUi|mergeLatestWorkerVersions/);
 });
 

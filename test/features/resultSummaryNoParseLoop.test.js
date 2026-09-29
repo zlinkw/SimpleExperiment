@@ -3,7 +3,7 @@ const test = require("node:test");
 const vm = require("node:vm");
 const { readSource } = require("../_helpers/sourceReader");
 
-test("result_parsed refreshes the summary without launching another parse", () => {
+test("result_parsed telemetry does not fetch or auto-refresh the result summary", () => {
   const source = readSource("src/extension/legacy.ts");
   const start = source.indexOf("scheduleResultsSummaryRefreshFromRealtime(state) {");
   const end = source.indexOf("async refreshResultsSummaryFromRealtime(", start);
@@ -25,6 +25,6 @@ test("result_parsed refreshes the summary without launching another parse", () =
     resultSummaryDirtyType: "result_parsed",
     resultSummaryDirtyPlanFile: "experiments/plans/preexperiment/bus_p100.yaml",
   });
-  assert.equal(refreshes, 1);
+  assert.equal(refreshes, 0);
   assert.equal(parses, 0);
 });

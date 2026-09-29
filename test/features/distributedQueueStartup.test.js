@@ -208,10 +208,10 @@ test("successful artifact pass clears an old disconnected warning", async () => 
   assert.ok(patched.some((row) => Object.hasOwn(row, "artifactError") && row.artifactError === undefined));
 });
 
-test("a failed preview rebuild does not prevent completed job artifacts from mirroring", async () => {
+test("automatic completion does not rebuild previews or mirror completed job artifacts", async () => {
   const compiled = compiledSource;
   const first = compiled.indexOf("scheduleDistributedPostprocess(root, rerunIfBusy = false) {");
-  const last = compiled.indexOf("async enqueueDistributedPlan(", first);
+  const last = compiled.indexOf("async postprocessDistributedResultsForManual(", first);
   assert.ok(first >= 0 && last > first);
   const context = { workspaceRoot: () => "C:/project", errorMessage: String };
   vm.createContext(context);
@@ -232,7 +232,7 @@ test("a failed preview rebuild does not prevent completed job artifacts from mir
   };
   context.schedule.call(provider, "C:/project");
   await provider.distributedPostprocessPromise;
-  assert.deepEqual(calls, ["fragments", "preview", "distributedPreviewRebuild", "bulk", "final", "state"]);
+  assert.deepEqual(calls, []);
 });
 
 test("every newly completed job rechecks all recorded job mirrors and repairs drift", async () => {

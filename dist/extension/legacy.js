@@ -4615,12 +4615,7 @@ class RealtimeTunnelPanelProvider {
                 void this.refreshPptAutomationReadiness(false).catch(() => undefined);
                 break;
             case "webviewHeartbeatAck":
-                if (Number(message?.heartbeatId) === this.panelHeartbeatId) {
-                    if (this.panelHeartbeatTimeout)
-                        clearTimeout(this.panelHeartbeatTimeout);
-                    this.panelHeartbeatTimeout = undefined;
-                    this.schedulePanelHeartbeat();
-                }
+                this.handlePanelHeartbeatAck(message);
                 break;
             case "webviewBootstrapError":
                 this.lastError = String(message?.error || "Webview 脚本启动失败").slice(0, 480);
@@ -8955,58 +8950,52 @@ class RealtimeTunnelPanelProvider {
         await this.saveDistributedQueue(root, { ...latest, ...fields }, { publicationMutation: true });
     }
     scheduleDistributedPostprocess(root, rerunIfBusy = false) {
-        if (this.distributedPostprocessPromise) {
-            if (rerunIfBusy)
-                this.distributedPostprocessRerun = true;
-            return;
-        }
+        // Result files and summaries are user pulled. Keep this hook inert for legacy tick callers.
+        void root;
+        void rerunIfBusy;
+    }
+    async postprocessDistributedResultsForManual(root, scope = "metrics") {
+        if (this.distributedPostprocessPromise)
+            return this.distributedPostprocessPromise;
         const work = (async () => {
             const queue = await this.loadDistributedQueue(root);
-            if (!queue.plans.length)
+            if (!queue.plans.length || workspaceRoot() !== root)
                 return;
-            await this.syncDistributedJobArtifacts(root, queue, "fragments", rerunIfBusy);
+            try {
+                await this.syncDistributedJobArtifacts(root, queue, "fragments", false);
+            }
+            catch (error) {
+                if (scope === "full")
+                    throw error;
+                this.recordActionError({ command: "distributedFragmentSync", message: errorMessage(error) });
+            }
             if (workspaceRoot() !== root)
                 return;
             try {
-                await this.rebuildDistributedResults(root, await this.loadDistributedQueue(root), true, rerunIfBusy);
+                await this.rebuildDistributedResults(root, await this.loadDistributedQueue(root), true, false);
             }
             catch (error) {
+                if (scope === "full")
+                    throw error;
                 this.recordActionError({ command: "distributedPreviewRebuild", message: errorMessage(error) });
             }
-            await this.syncDistributedJobArtifacts(root, await this.loadDistributedQueue(root), "bulk", rerunIfBusy);
+            if (scope === "metrics")
+                return;
+            await this.syncDistributedJobArtifacts(root, await this.loadDistributedQueue(root), "bulk", false);
             if (workspaceRoot() !== root)
                 return;
-            await this.rebuildDistributedResults(root, await this.loadDistributedQueue(root), false, rerunIfBusy);
-            if (workspaceRoot() !== root)
-                return;
-            const latest = await this.loadDistributedQueue(root);
-            const completed = [...new Map(latest.plans.map((plan) => [plan.planFile, plan])).values()].filter((plan) => !plan.recoveryConflict && !plan.recoveryMissingCount
-                && Number(plan.planJobCount || plan.jobs.length) === plan.jobs.length
-                && plan.jobs.length && plan.jobs.every((job) => job.status === "completed"));
-            const completedPlans = completed.map((plan) => plan.planFile);
-            const signature = latest.publishedSignature || latest.previewSignature ? crypto.createHash("sha256")
-                .update(JSON.stringify([latest.publishedSignature, latest.previewSignature,
-                completed.map((plan) => [plan.id, plan.revision, plan.jobs.map((job) => [job.index, job.attempt, job.commandId])])])).digest("hex") : "";
-            if (signature && signature !== latest.localMetricsSignature && completedPlans.length) {
-                const report = await this.syncPendingResultMetricsFromUi({ background: true, planFiles: completedPlans });
-                if (workspaceRoot() !== root)
-                    return;
-                if (report.included?.length === completedPlans.length && !report.skipped?.length && !report.missing?.length)
-                    await this.patchDistributedPublication(root, { localMetricsSignature: signature });
-            }
-            this.postState();
+            await this.rebuildDistributedResults(root, await this.loadDistributedQueue(root), false, false);
+            if (workspaceRoot() === root)
+                this.postState();
         })();
         this.distributedPostprocessPromise = work;
-        void work.catch((error) => this.recordActionError({ command: "distributedPostprocess", message: errorMessage(error) }))
-            .finally(() => {
-            if (this.distributedPostprocessPromise !== work)
-                return;
-            this.distributedPostprocessPromise = undefined;
-            if (this.distributedPostprocessRerun) {
-                this.distributedPostprocessRerun = false;
-                this.scheduleDistributedPostprocess(root, true);
-            }
-        });
+        try {
+            await work;
+        }
+        finally {
+            if (this.distributedPostprocessPromise === work)
+                this.distributedPostprocessPromise = undefined;
+        }
     }
     async enqueueDistributedPlan(body, validated, skipTick = false, supersededDeferredId = "", submissionEpoch = 0, submissionOperationId = "") {
         const root = workspaceRoot();
@@ -10867,14 +10856,6 @@ class RealtimeTunnelPanelProvider {
             if (operationTerminal(this.localOperations[opId])) {
                 this.clearOperationStatusProbe(opId);
                 this.clearOperationWatchdog(opId);
-                if (actionAffectsResultsSummary(action)) {
-                    const planHint = operationResultPlanFile(this.localOperations[opId]);
-                    if (actionRequiresResultReparse(action))
-                        this.queueSelectedPlanResultParse("operation 完成", planHint);
-                    await this.refreshResultsSummary(planHint);
-                }
-                if (["run-plan", "reproduce-plan"].includes(action) && String(this.localOperations[opId]?.status || "").toLowerCase() === "completed")
-                    void this.queueCompletedPlanArtifactSync(this.localOperations[opId]).catch((error) => this.recordActionError({ command: "syncPlanArtifacts", message: errorMessage(error) }));
             }
             else if (this.shouldRetryOperationStatusProbe(opId, probeAttempt) || probeAttempt >= this.operationStatusProbeMaxAttempts) {
                 // Evidence-based reconciliation: if the scheduler process is dead
@@ -13659,27 +13640,9 @@ class RealtimeTunnelPanelProvider {
         }
     }
     queuePlanScopedResultParse(reason, planFile, planId) {
-        const nextPlanFile = usableSelectionKey(planFile || "") || undefined;
-        const nextPlanId = usableSelectionKey(planId || "") || nextPlanFile;
-        if (!nextPlanFile && !nextPlanId)
-            return;
-        if (!this.automaticResultParseReady())
-            return;
-        if (!this.automaticResultParsePlanReady(nextPlanFile || nextPlanId || ""))
-            return;
-        void this.runActionCommand("parseResults", {
-            planFile: nextPlanFile || nextPlanId,
-            planId: nextPlanId || nextPlanFile,
-            selectedPlanId: nextPlanId || nextPlanFile,
-            selectedPlanFiles: [nextPlanFile || nextPlanId].filter(Boolean),
-        }).catch((error) => {
-            this.recordActionError({
-                command: "parseResults",
-                message: errorMessage(error),
-                suggestion: actionErrorSuggestion(errorMessage(error)) || `${reason}后自动解析失败，可手动点击“解析结果”。`,
-            });
-            this.postState();
-        });
+        void reason;
+        void planFile;
+        void planId;
     }
     automaticResultParseReady() {
         const topology = this.projectTopologyAssessment();
@@ -14719,6 +14682,9 @@ class RealtimeTunnelPanelProvider {
             throw new Error("请先打开当前实验项目。");
         if (this.effectiveConnectionMode() === "offline_import")
             throw new Error("离线模式无法同步远端结果文件。");
+        await this.postprocessDistributedResultsForManual(root, "full");
+        if (!isCurrent())
+            return;
         const planFile = this.resolveSelectedPlanFile(stringField(message, "planFile") || this.planFileInput || this.selectedPlanId || "");
         if (!planFile)
             throw new Error("无法确认结果文件所属 Plan，已阻止同步。");
@@ -14744,6 +14710,8 @@ class RealtimeTunnelPanelProvider {
         return download;
     }
     async syncPendingResultMetricsFromUi(options = {}) {
+        if (options.background)
+            return { merged: false, downloaded: false, reason: "manual-only", plans: [], discovered: 0, included: 0, missing: 0, skipped: [] };
         const projectContext = this.captureProjectContext();
         const root = projectContext.root;
         const client = this.client;
@@ -14752,6 +14720,9 @@ class RealtimeTunnelPanelProvider {
             throw new Error("请先打开当前实验项目。");
         if (this.effectiveConnectionMode() === "offline_import")
             throw new Error("离线模式无法合并 Worker 结果或下载指标文件。");
+        await this.postprocessDistributedResultsForManual(root);
+        if (!isCurrent())
+            return { merged: false, downloaded: false, reason: "revision-changed" };
         await this.refreshLocalPlanMetadataForAction({ options: {}, suppressGlobalTaskSelection: true }, { allPlans: true });
         if (!isCurrent())
             return { merged: false, downloaded: false, reason: "revision-changed" };
@@ -14916,6 +14887,17 @@ class RealtimeTunnelPanelProvider {
             skipped: [...issues, ...(published?.skipped || [])],
             reason: downloads.some((item) => item?.cancelled) ? "partial" : undefined,
         };
+        if (isCurrent() && report.included.length && report.included.length === plans.length && !report.skipped.length && !report.missing.length) {
+            const latest = await this.loadDistributedQueue(root);
+            const completed = [...new Map(latest.plans.map((plan) => [plan.planFile, plan])).values()].filter((plan) => !plan.recoveryConflict && !plan.recoveryMissingCount
+                && Number(plan.planJobCount || plan.jobs.length) === plan.jobs.length
+                && plan.jobs.length && plan.jobs.every((job) => job.status === "completed"));
+            const signature = latest.publishedSignature || latest.previewSignature ? crypto.createHash("sha256")
+                .update(JSON.stringify([latest.publishedSignature, latest.previewSignature,
+                completed.map((plan) => [plan.id, plan.revision, plan.jobs.map((job) => [job.index, job.attempt, job.commandId])])])).digest("hex") : "";
+            if (signature && completed.length === report.included.length && isCurrent())
+                await this.patchDistributedPublication(root, { localMetricsSignature: signature });
+        }
         this.resultSyncReport = report;
         if (isCurrent())
             this.postState();
@@ -15556,73 +15538,8 @@ class RealtimeTunnelPanelProvider {
         });
     }
     async queueCompletedPlanArtifactSync(operation) {
-        if (this.projectTopologyAssessment().hubAllowed)
-            return;
-        const root = workspaceRoot();
-        const planFile = operationResultPlanFile(operation);
-        const sourceWorkerId = String(operation.schedulerOwnerWorkerId || operation.resultOwnerWorkerId || operation.workerId || "").trim();
-        if (!root || !planFile || !sourceWorkerId)
-            return;
-        const plan = (this.localPlanMetadata.plans || []).find((row) => samePlanSelection(row.planFile || row.file, planFile));
-        const ownDirectories = PlanArtifactSync.planArtifactDirectories(plan);
-        for (const other of this.localPlanMetadata.plans || []) {
-            if (samePlanSelection(other.planFile || other.file, planFile))
-                continue;
-            for (const own of ownDirectories)
-                for (const shared of PlanArtifactSync.planArtifactDirectories(other)) {
-                    if (own === shared || own.startsWith(shared + "/") || shared.startsWith(own + "/"))
-                        throw new Error(`Plan ${planFile} 与 ${other.planFile || other.file} 的产物目录重叠（${own} / ${shared}），为防止 rsync 清理其他 Plan 文件，已停止自动同步。`);
-                }
-        }
-        const summary = await this.client.getResultsSummary(planFile, { userInitiated: true }).catch(() => undefined);
-        const revision = String(operation.planRevision || plan?.revision || "");
-        const runId = String(operation.operationId || operation.id || "").trim();
-        if (!runId)
-            throw new Error(`Plan ${planFile} 缺少 operation ID，无法安全标记本次同步。`);
-        const syncKey = PlanArtifactSync.planSyncKey(planFile, revision, sourceWorkerId, runId);
-        const artifactPaths = PlanArtifactSync.planArtifactPaths(plan, summary, sourceWorkerId);
-        const choices = await (0, SyncResolution_1.loadSyncHolds)(this.context.globalStorageUri.fsPath, root);
-        let choicesChanged = false;
-        for (const [chosen, row] of Object.entries(choices))
-            if (row.status === "resolved" && [...artifactPaths, ...ownDirectories].some((scope) => chosen === scope || chosen.startsWith(`${scope}/`) || row.directory && scope.startsWith(`${chosen}/`))) {
-                delete choices[chosen];
-                choicesChanged = true;
-            }
-        if (choicesChanged)
-            await (0, SyncResolution_1.saveSyncHolds)(this.context.globalStorageUri.fsPath, root, choices);
-        await this.updatePlanSyncLedger(root, (ledger) => PlanArtifactSync.queuePlanSync(ledger, planFile, revision, sourceWorkerId, artifactPaths, this.setupConfig.workerTunnels.map((worker) => worker.id).filter(Boolean), ownDirectories, runId));
-        const sourceRow = this.workerCodeSyncTargets().find((target) => target.id === sourceWorkerId);
-        const statePath = PlanArtifactSync.safePlanArtifactPath(operation.statePath || operation.state_path || operation.payload?.statePath);
-        let logPaths = [];
-        try {
-            if (!sourceRow || !statePath)
-                throw new Error(`Plan ${planFile} 缺少来源 Worker 或状态文件路径，无法完整同步任务日志。`);
-            const logInventory = await this.simpleSftpApiCall("sync.planLogPaths", {
-                source: this.sftpServerOptions(sourceRow), statePath, planFile,
-            });
-            logPaths = Array.isArray(logInventory?.paths) ? logInventory.paths.map(PlanArtifactSync.safePlanArtifactPath) : [];
-            if (!logPaths.length || logPaths.some((value) => !value))
-                throw new Error(`Plan ${planFile} 的日志清单为空或包含不安全路径。`);
-        }
-        catch (error) {
-            this.schedulePlanSyncRetry(root, syncKey, operation);
-            this.recordActionError({ command: "syncPlanArtifacts", message: errorMessage(error) });
-            return;
-        }
-        if (!operation.planSyncSummaryRetryAttempt)
-            this.queuePlanScopedResultParse("Plan 运行完成", planFile, planFile);
-        await this.updatePlanSyncLedger(root, (ledger) => PlanArtifactSync.queuePlanSync(ledger, planFile, revision, sourceWorkerId, [...new Set([...artifactPaths, ...logPaths])], this.setupConfig.workerTunnels.map((worker) => worker.id).filter(Boolean), ownDirectories, runId));
-        if (!ProjectResultTables.summaryForWorker(summary, sourceWorkerId)) {
-            this.schedulePlanSyncRetry(root, syncKey, operation);
-            return;
-        }
-        const retry = this.planSyncSummaryRetries.get(syncKey);
-        if (retry) {
-            clearTimeout(retry.timer);
-            this.planSyncSummaryRetries.delete(syncKey);
-        }
-        await this.updateProjectResultTablesFromSummary(summary, planFile);
-        await this.syncPendingPlanArtifacts(syncKey, summary);
+        void operation;
+        return;
     }
     schedulePlanSyncRetry(root, syncKey, operation) {
         if (this.planSyncSummaryRetries.has(syncKey) || this.planSyncSummaryRetries.size >= 64)
@@ -17092,7 +17009,9 @@ class RealtimeTunnelPanelProvider {
             capabilityMissing: missing,
         });
     }
-    async refreshResultsSummary(planHint = "") {
+    async refreshResultsSummary(planHint = "", manualRetry = false) {
+        if (!manualRetry)
+            this.resultsSummaryRefreshRetryCount = 0;
         const requestedPlan = usableSelectionKey(String(planHint || "").trim().replace(/\\/g, "/"));
         if (requestedPlan && !this.shouldRefreshResultsSummaryForDirtyPlan(requestedPlan))
             return;
@@ -17110,7 +17029,8 @@ class RealtimeTunnelPanelProvider {
             return;
         }
         if (this.resultsSummaryRefreshInFlight) {
-            this.pendingResultsSummaryDirtyKey = this.pendingResultsSummaryDirtyKey || `manual:${Date.now()}`;
+            this.pendingResultsSummaryDirtyKey = `manual:${Date.now()}`;
+            this.pendingResultsSummaryDirtyPlanFile = requestedPlan || this.planFileInput || this.selectedPlanId || "";
             this.scheduleResultsSummaryTimer("manual_refresh_inflight", this.pendingResultsSummaryDirtyKey, 500);
             return;
         }
@@ -17119,22 +17039,12 @@ class RealtimeTunnelPanelProvider {
         try {
             this.resultsSummaryRefreshInFlight = true;
             const planFile = this.resolveSelectedPlanFile(requestedPlan || this.planFileInput || this.selectedPlanId || "");
-            const summary = await client.getResultsSummary(planFile);
+            const summary = await client.getResultsSummary(planFile, { userInitiated: true });
             if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             this.resultsSummary = summary;
             if (planFile && summary?.workerResultTables?.some?.((row) => row.aggregateStatus === "ready"))
                 await this.updateProjectResultTablesFromSummary(summary, planFile).catch((error) => this.recordActionError({ command: "refreshResults", message: "全项目总表未更新：" + errorMessage(error), suggestion: "请核对原始结果的 case、seed 与 Worker 完整性。" }));
-            if (planFile) {
-                const root = workspaceRoot();
-                const ledger = root ? await this.loadPlanSyncLedger(root) : PlanArtifactSync.emptyPlanSyncLedger();
-                const latest = PlanArtifactSync.latestPlanSyncEntry(ledger, planFile);
-                if (latest && ProjectResultTables.summaryForWorker(summary, latest.sourceWorkerId)) {
-                    const pending = PlanArtifactSync.pendingPlanSyncs(ledger).find((item) => item.entry === latest);
-                    if (pending)
-                        void this.syncPendingPlanArtifacts(pending.key, summary).catch((error) => this.recordActionError({ command: "syncPlanArtifacts", message: errorMessage(error) }));
-                }
-            }
             this.lastError = undefined;
             this.lastResultsSummaryRealtimeErrorKey = "";
             this.lastResultsSummaryCapabilityWarningKey = "";
@@ -17152,102 +17062,11 @@ class RealtimeTunnelPanelProvider {
         this.postState();
     }
     scheduleResultsSummaryRefreshFromRealtime(state) {
-        const dirtyKey = stringValue(state.resultSummaryDirtyKey) || [
-            state.resultSummaryDirtyType,
-            state.resultSummaryDirtyAt,
-            state.resultSummaryDirtySeq,
-            state.resultSummaryDirtyPlanFile,
-        ].filter((item) => item !== undefined && item !== "").join(":");
-        if (!dirtyKey || dirtyKey === this.lastResultsSummaryRefreshedDirtyKey)
-            return;
-        if (!this.shouldRefreshResultsSummaryForDirtyPlan(state.resultSummaryDirtyPlanFile))
-            return;
-        if (!this.hasResultsSummaryEndpointCapability()) {
-            const alreadySkipped = dirtyKey === this.lastResultsSummaryCapabilitySkippedDirtyKey;
-            this.pendingResultsSummaryDirtyKey = dirtyKey;
-            this.pendingResultsSummaryDirtyPlanFile = stringValue(state.resultSummaryDirtyPlanFile) || this.pendingResultsSummaryDirtyPlanFile || "";
-            this.lastResultsSummaryCapabilitySkippedDirtyKey = dirtyKey;
-            this.recordResultsSummaryCapabilitySkip("refreshResults", state.resultSummaryDirtyType || "自动结果摘要刷新");
-            if (!alreadySkipped)
-                this.postState();
-            return;
-        }
-        this.lastResultsSummaryCapabilitySkippedDirtyKey = "";
-        const samePending = dirtyKey === this.pendingResultsSummaryDirtyKey;
-        if (!samePending) {
-            this.pendingResultsSummaryDirtyKey = dirtyKey;
-            this.pendingResultsSummaryDirtyPlanFile = stringValue(state.resultSummaryDirtyPlanFile) || "";
-            this.resultsSummaryRefreshRetryCount = 0;
-        }
-        else if (!this.pendingResultsSummaryDirtyPlanFile && state.resultSummaryDirtyPlanFile) {
-            this.pendingResultsSummaryDirtyPlanFile = stringValue(state.resultSummaryDirtyPlanFile) || "";
-        }
-        if (samePending && this.resultsSummaryRefreshTimer)
-            return;
-        // A result_parsed event is emitted by parseResults itself. Re-parsing from the
-        // summary refresh path feeds that event back into another parse indefinitely.
-        // The Worker completion pipeline owns automatic parsing; this path only reads
-        // its updated summary.
-        this.scheduleResultsSummaryTimer(state.resultSummaryDirtyType || "realtime", dirtyKey, 0);
+        void state;
     }
     async refreshResultsSummaryFromRealtime(reason, dirtyKey = this.pendingResultsSummaryDirtyKey) {
-        if (this.effectiveConnectionMode() === "offline_import") {
-            this.markResultsSummaryDirtyKeyRefreshed(dirtyKey);
-            return;
-        }
-        if (!this.hasResultsSummaryEndpointCapability()) {
-            const alreadySkipped = dirtyKey && dirtyKey === this.lastResultsSummaryCapabilitySkippedDirtyKey;
-            if (dirtyKey)
-                this.lastResultsSummaryCapabilitySkippedDirtyKey = dirtyKey;
-            this.recordResultsSummaryCapabilitySkip("refreshResults", reason || "自动结果摘要刷新");
-            if (!alreadySkipped)
-                this.postState();
-            return;
-        }
-        if (this.resultsSummaryRefreshInFlight) {
-            if (dirtyKey && dirtyKey !== this.lastResultsSummaryRefreshedDirtyKey)
-                this.pendingResultsSummaryDirtyKey = dirtyKey;
-            this.scheduleResultsSummaryTimer("realtime_inflight", dirtyKey, 500);
-            return;
-        }
-        const generation = this.projectContextGeneration;
-        const client = this.client;
-        try {
-            this.resultsSummaryRefreshInFlight = true;
-            // Fetch scope follows the currently selected plan only.
-            // Dirty planFile only decides whether a refresh is relevant, never narrows an unselected multi-plan view.
-            const selectedPlan = this.resolveSelectedPlanFile(this.planFileInput || this.selectedPlanId || "");
-            const planFile = selectedPlan || "";
-            const summary = await client.getResultsSummary(planFile);
-            if (generation !== this.projectContextGeneration || client !== this.client)
-                return;
-            this.resultsSummary = summary;
-            this.lastError = undefined;
-            this.lastResultsSummaryRealtimeErrorKey = "";
-            this.lastResultsSummaryCapabilityWarningKey = "";
-            this.lastResultsSummaryCapabilitySkippedDirtyKey = "";
-            this.markResultsSummaryDirtyKeyRefreshed(dirtyKey);
-        }
-        catch (error) {
-            if (generation !== this.projectContextGeneration || client !== this.client)
-                return;
-            if (error instanceof RequestBudget_1.RequestBudgetDeniedError) {
-                this.scheduleResultsSummaryBudgetRetryFromRealtime(error, reason, dirtyKey);
-                return;
-            }
-            const message = errorMessage(error);
-            const errorKey = [dirtyKey, String(reason || "realtime"), message].join("::");
-            if (errorKey !== this.lastResultsSummaryRealtimeErrorKey) {
-                this.lastResultsSummaryRealtimeErrorKey = errorKey;
-                this.recordActionError({ command: "refreshResults", message, suggestion: `结果事件 ${String(reason || "realtime")} 后自动刷新摘要失败；后续同一错误会合并显示，可手动点击刷新结果。` });
-            }
-            this.scheduleResultsSummaryFailureRetryFromRealtime(reason, dirtyKey);
-        }
-        finally {
-            if (generation === this.projectContextGeneration && client === this.client)
-                this.resultsSummaryRefreshInFlight = false;
-        }
-        this.postState();
+        void reason;
+        void dirtyKey;
     }
     scheduleResultsSummaryBudgetRetryFromRealtime(error, reason, dirtyKey) {
         const blockReason = error.decision.reason;
@@ -17258,33 +17077,19 @@ class RealtimeTunnelPanelProvider {
         this.scheduleResultsSummaryTimer(reason, dirtyKey, 500);
     }
     retryPendingResultsSummaryOnVisible() {
-        const dirtyKey = this.pendingResultsSummaryDirtyKey;
-        if (!dirtyKey || dirtyKey === this.lastResultsSummaryRefreshedDirtyKey || this.resultsSummaryRefreshTimer)
-            return;
-        if (!this.hasResultsSummaryEndpointCapability()) {
-            const alreadySkipped = dirtyKey === this.lastResultsSummaryCapabilitySkippedDirtyKey;
-            this.lastResultsSummaryCapabilitySkippedDirtyKey = dirtyKey;
-            this.recordResultsSummaryCapabilitySkip("refreshResults", "面板恢复可见后的结果摘要刷新");
-            if (!alreadySkipped)
-                this.postState();
-            return;
-        }
-        this.scheduleResultsSummaryTimer("visible", dirtyKey, 0);
+        return;
     }
     scheduleResultsSummaryFailureRetryFromRealtime(reason, dirtyKey) {
         // Keep pending dirty state. Manual connection recovery triggers the next read.
     }
     scheduleResultsSummaryTimer(reason, dirtyKey, delayMs) {
+        if (!String(reason || "").startsWith("manual"))
+            return;
         if (!dirtyKey || dirtyKey === this.lastResultsSummaryRefreshedDirtyKey)
             return;
-        if (!this.hasResultsSummaryEndpointCapability()) {
-            const alreadySkipped = dirtyKey === this.lastResultsSummaryCapabilitySkippedDirtyKey;
-            this.lastResultsSummaryCapabilitySkippedDirtyKey = dirtyKey;
-            this.recordResultsSummaryCapabilitySkip("refreshResults", reason || "自动结果摘要刷新");
-            if (!alreadySkipped)
-                this.postState();
+        if (this.resultsSummaryRefreshRetryCount >= 3)
             return;
-        }
+        this.resultsSummaryRefreshRetryCount += 1;
         if (this.resultsSummaryRefreshTimer)
             clearTimeout(this.resultsSummaryRefreshTimer);
         const timerGeneration = ++this.resultsSummaryRefreshTimerGeneration;
@@ -17296,10 +17101,10 @@ class RealtimeTunnelPanelProvider {
             if (timerGeneration !== this.resultsSummaryRefreshTimerGeneration || generation !== this.projectContextGeneration || client !== this.client)
                 return;
             if (this.resultsSummaryRefreshInFlight) {
-                this.scheduleResultsSummaryTimer("inflight", dirtyKey, 500);
+                this.scheduleResultsSummaryTimer("manual_refresh_inflight", dirtyKey, 500);
                 return;
             }
-            void this.refreshResultsSummaryFromRealtime(reason, dirtyKey);
+            void this.refreshResultsSummary(this.pendingResultsSummaryDirtyPlanFile, true);
         }, delayMs);
         this.resultsSummaryRefreshTimer = timer;
         timer.unref?.();
@@ -17935,7 +17740,6 @@ class RealtimeTunnelPanelProvider {
                 }
             }
             void this.notifyPlanFailureOnce(state).catch(() => undefined);
-            this.scheduleResultsSummaryRefreshFromRealtime(state);
             const uiRefs = this.realtimeUiStateRefsFor(state);
             if (this.shouldPushLocalAvailabilityFromRealtime(uiRefs.gpu))
                 void this.pushLocalWorkerAvailability(false);
@@ -18779,7 +18583,8 @@ class RealtimeTunnelPanelProvider {
         if (!this.view || this.webviewReady)
             return;
         this.clearPanelReadyWatchdog();
-        this.view.webview.html = renderPanelRecoveryHtml(message);
+        const generation = ++this.panelDocumentGeneration;
+        this.view.webview.html = this.stampPanelDocument(renderPanelRecoveryHtml(message), generation);
     }
     loadPanelHtml() {
         if (!this.view)
@@ -18787,7 +18592,8 @@ class RealtimeTunnelPanelProvider {
         this.clearPanelHeartbeat();
         this.webviewReady = false;
         const document = renderPanelBootstrapDocument(renderPanelHtml, renderPanelRecoveryHtml);
-        this.view.webview.html = document.html + "\n<!-- panel-document-" + (++this.panelDocumentGeneration) + " -->";
+        const generation = ++this.panelDocumentGeneration;
+        this.view.webview.html = this.stampPanelDocument(document.html, generation);
         if (document.recovered) {
             this.clearPanelReadyWatchdog();
             this.lastError = document.error;
@@ -18808,6 +18614,42 @@ class RealtimeTunnelPanelProvider {
         this.panelHeartbeatTimer = undefined;
         this.panelHeartbeatTimeout = undefined;
     }
+    stampPanelDocument(html, generation) {
+        const stamped = String(html || "").replace(/<html\b/i, (openingTag) => `${openingTag} data-panel-document-generation="${generation}"`);
+        return `${stamped}\n<!-- panel-document-${generation} -->`;
+    }
+    handlePanelHeartbeatAck(message) {
+        if (this.panelDisposed || !this.view?.visible || Number(message?.heartbeatId) !== this.panelHeartbeatId)
+            return;
+        const hasGeneration = message?.documentGeneration !== undefined && message?.documentGeneration !== null;
+        if (hasGeneration && Number(message.documentGeneration) !== this.panelDocumentGeneration)
+            return;
+        if (this.panelHeartbeatTimeout)
+            clearTimeout(this.panelHeartbeatTimeout);
+        this.panelHeartbeatTimeout = undefined;
+        const health = message?.renderHealth;
+        const status = health && ["ok", "unhealthy", "unknown"].includes(String(health.status)) ? String(health.status) : "";
+        if (hasGeneration && status === "unhealthy") {
+            this.recoverPanelHeartbeatFailure(String(health.reason || "面板报告渲染异常"));
+            return;
+        }
+        this.schedulePanelHeartbeat();
+    }
+    recoverPanelHeartbeatFailure(reason) {
+        if (this.panelDisposed || !this.view?.visible)
+            return;
+        this.clearPanelHeartbeat();
+        this.webviewReady = false;
+        const now = Date.now();
+        const detail = compactSensitiveText(reason, 180) || "面板没有报告可用的渲染状态。";
+        if (now - this.lastPanelHeartbeatRecoveryAt >= this.panelHeartbeatRecoveryWindowMs) {
+            this.lastPanelHeartbeatRecoveryAt = now;
+            this.loadPanelHtml();
+        }
+        else {
+            this.showPanelRecovery(`面板渲染状态异常：${detail}。请点击重新加载面板；若仍失败，请执行 Developer: Reload Window。`);
+        }
+    }
     schedulePanelHeartbeat() {
         this.clearPanelHeartbeat();
         if (this.panelDisposed || !this.view?.visible || !this.webviewReady)
@@ -18823,18 +18665,10 @@ class RealtimeTunnelPanelProvider {
                 this.panelHeartbeatTimeout = undefined;
                 if (this.panelDisposed || this.view !== view || this.viewGeneration !== generation || !view.visible || !this.webviewReady || heartbeatId !== this.panelHeartbeatId)
                     return;
-                const now = Date.now();
-                this.webviewReady = false;
-                if (now - this.lastPanelHeartbeatRecoveryAt >= this.panelHeartbeatRecoveryWindowMs) {
-                    this.lastPanelHeartbeatRecoveryAt = now;
-                    this.loadPanelHtml();
-                }
-                else {
-                    this.showPanelRecovery("面板暂时没有响应。请点击重新加载面板；若仍失败，请执行 Developer: Reload Window。");
-                }
+                this.recoverPanelHeartbeatFailure("面板暂时没有响应");
             }, this.panelHeartbeatAckTimeoutMs);
             this.panelHeartbeatTimeout.unref?.();
-            void Promise.resolve(view.webview.postMessage({ type: "panelHeartbeat", heartbeatId })).catch(() => undefined);
+            void Promise.resolve(view.webview.postMessage({ type: "panelHeartbeat", heartbeatId, documentGeneration: this.panelDocumentGeneration })).catch(() => undefined);
         }, this.panelHeartbeatIntervalMs);
         this.panelHeartbeatTimer.unref?.();
     }

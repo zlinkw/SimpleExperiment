@@ -29,20 +29,89 @@ function host(timer) {
   const source = fs.readFileSync(path.join(root, "src/extension/legacy.ts"), "utf8");
   const ast = ts.createSourceFile("provider.ts", source, ts.ScriptTarget.Latest, true);
   const provider = ast.statements.find((node) => ts.isClassDeclaration(node) && node.name.text === "RealtimeTunnelPanelProvider");
-  const methods = new Set(["schedulePanelHeartbeat", "clearPanelHeartbeat", "clearPanelReadyWatchdog", "disposeResolvedWebviewView"]);
-  const fields = /^(panelHeartbeat.*|panelDisposed|viewGeneration|viewLifetimeDisposables|lastPanelHeartbeatRecoveryAt|webviewReady)$/;
+  const methods = new Set(["schedulePanelHeartbeat", "clearPanelHeartbeat", "clearPanelReadyWatchdog", "disposeResolvedWebviewView", "handlePanelHeartbeatAck", "recoverPanelHeartbeatFailure", "stampPanelDocument"]);
+  const fields = /^(panelHeartbeat.*|panelRenderedHealth.*|panelDisposed|panelDocumentGeneration|viewGeneration|viewLifetimeDisposables|lastPanelHeartbeatRecoveryAt|webviewReady)$/;
   const members = provider.members.filter((node) => node.name && (methods.has(node.name.getText(ast)) || (ts.isPropertyDeclaration(node) && fields.test(node.name.getText(ast)))));
   const code = ts.transpileModule("class Subject {\n" + members.map((node) => node.getText(ast)).join("\n") + "\n}", { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-  const sandbox = { ...timer };
+  const sandbox = { ...timer, compactSensitiveText: (value) => String(value || "").slice(0, 180) };
   vm.runInNewContext(code + "\nthis.Subject = Subject;", sandbox);
   const result = new sandbox.Subject();
   result.view = { visible: true, webview: { postMessage: (message) => { result.messages.push(message); return Promise.resolve(true); } } };
   result.messages = []; result.webviewReady = true;
   result.reloaded = 0; result.recoveryCards = 0;
-  result.loadPanelHtml = () => { result.reloaded++; result.webviewReady = true; result.schedulePanelHeartbeat(); };
-  result.showPanelRecovery = () => { result.recoveryCards++; };
+  result.panelDocumentGeneration = 7;
+  result.loadPanelHtml = () => { result.reloaded++; result.panelDocumentGeneration++; result.webviewReady = true; result.schedulePanelHeartbeat(); };
+  result.showPanelRecovery = () => { result.recoveryCards++; result.panelDocumentGeneration++; result.webviewReady = false; };
   return result;
 }
+
+test("a live heartbeat cannot hide an unhealthy render after a one hour panel session", () => {
+  const timer = clock(), provider = host(timer);
+  provider.userDraft = "unsaved text";
+  provider.selection = { plan: "experiments/plans/a.yaml", row: 4 };
+  provider.schedulePanelHeartbeat();
+  assert.equal(typeof provider.handlePanelHeartbeatAck, "function", "host must inspect rendered health in heartbeat ACKs");
+  for (let elapsed = 0; elapsed < 60 * 60_000; elapsed += 30_000) {
+    timer.advance(30_000);
+    const request = provider.messages.at(-1);
+    if (!request) break;
+    provider.handlePanelHeartbeatAck({ heartbeatId: request.heartbeatId, documentGeneration: request.documentGeneration,
+      renderHealth: { status: "unhealthy", reason: "render-stalled" } });
+  }
+  assert.equal(provider.reloaded, 1, "a bounded recovery must run despite live JavaScript ACKs");
+  assert.ok(provider.recoveryCards <= 1, "repeated failures must not create a reload or recovery-card storm");
+  assert.equal(provider.userDraft, "unsaved text");
+  assert.deepEqual(provider.selection, { plan: "experiments/plans/a.yaml", row: 4 });
+  assert.ok(timer.timers.size <= 1, "a long session must keep timer count bounded");
+});
+
+test("old-document heartbeat ACKs leave the current timeout fenced", () => {
+  const timer = clock(), provider = host(timer);
+  provider.schedulePanelHeartbeat();
+  timer.advance(30_000);
+  const request = provider.messages.at(-1);
+  const timeout = provider.panelHeartbeatTimeout;
+  provider.handlePanelHeartbeatAck({ heartbeatId: request.heartbeatId, documentGeneration: provider.panelDocumentGeneration - 1,
+    renderHealth: { status: "ok", reason: "visible" } });
+  assert.equal(provider.panelHeartbeatTimeout, timeout);
+  timer.advance(12_000);
+  assert.equal(provider.reloaded, 1);
+});
+
+test("legacy ACKs remain accepted and bootstrap unknown health is non-fatal", () => {
+  const timer = clock(), provider = host(timer);
+  provider.schedulePanelHeartbeat();
+  timer.advance(30_000);
+  let request = provider.messages.at(-1);
+  provider.handlePanelHeartbeatAck({ heartbeatId: request.heartbeatId });
+  assert.equal(provider.panelHeartbeatTimeout, undefined);
+  timer.advance(30_000);
+  request = provider.messages.at(-1);
+  provider.handlePanelHeartbeatAck({ heartbeatId: request.heartbeatId, documentGeneration: provider.panelDocumentGeneration,
+    renderHealth: { status: "unknown", reason: "bootstrap" } });
+  assert.equal(provider.reloaded, 0);
+});
+
+test("host stamps each generated document with an immutable view generation", () => {
+  const provider = host(clock());
+  const html = provider.stampPanelDocument("<!doctype html><html lang=\"zh-CN\"><body></body></html>", 42);
+  assert.match(html, /<html(?=[^>]*lang="zh-CN")(?=[^>]*data-panel-document-generation="42")[^>]*>/);
+  assert.match(html, /<!-- panel-document-42 -->/);
+});
+
+test("unknown render states for bootstrap, hidden documents, and pending state do not force recovery", () => {
+  const timer = clock(), provider = host(timer);
+  provider.schedulePanelHeartbeat();
+  for (const reason of ["bootstrap", "document-hidden", "awaiting-first-render", "state-render-pending"]) {
+    timer.advance(30_000);
+    const request = provider.messages.at(-1);
+    provider.handlePanelHeartbeatAck({ heartbeatId: request.heartbeatId, documentGeneration: provider.panelDocumentGeneration,
+      renderHealth: { status: "unknown", reason } });
+  }
+  assert.equal(provider.reloaded, 0);
+  assert.equal(provider.recoveryCards, 0);
+  assert.equal(timer.timers.size, 1);
+});
 
 test("a retained renderer that stops replying gets bounded recovery instead of a reload loop", () => {
   const timer = clock(), provider = host(timer);
