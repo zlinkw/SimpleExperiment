@@ -8374,8 +8374,9 @@ export class RealtimeTunnelPanelProvider {
             this.reportPlanStage(message, "预演通过，正在开启调度…");
             const submission = await this.enqueueDistributedPlan(body, preflightOk, false, "", submissionEpoch, operationId);
             if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot) || submission?.cancelled) return;
-            if (submission?.durableAccepted !== true && submission?.enqueued !== false) {
-                this.finishPlanSubmissionProgress(message, "failed", `本机保留了提交意图，但 Agent 尚未逐 job 确认持久队列接收：${submission?.dispatchError || "状态未知"}。刷新状态后可按原 commandId 安全核对。`);
+            const submissionProgress = DistributedPlanQueue.distributedSubmissionProgress(submission);
+            if (submissionProgress.status === "failed") {
+                this.finishPlanSubmissionProgress(message, submissionProgress.status, submissionProgress.message);
                 await this.openPanelAt("tasks", "tasks-list");
                 return;
             }
@@ -8384,8 +8385,8 @@ export class RealtimeTunnelPanelProvider {
                 await this.openPanelAt("tasks", "tasks-list");
                 return;
             }
-            if (submission?.dispatchError) {
-                this.finishPlanSubmissionProgress(message, "succeeded", `调度队列已接收，首次派发暂未完成：${submission.dispatchError}。队列会继续重试。`);
+            if (submissionProgress.waiting) {
+                this.finishPlanSubmissionProgress(message, submissionProgress.status, submissionProgress.message);
                 await this.openPanelAt("tasks", "tasks-list");
                 return;
             }
@@ -8686,13 +8687,8 @@ export class RealtimeTunnelPanelProvider {
         if (!submissionCurrent()) return { enqueued: true, cancelled: true };
         const latest = await this.loadDistributedQueue(root);
         const submittedPlan = latest.plans.find((item) => item.id === id);
-        const acceptedStatuses = new Set(["queued", "running", "completed", "failed", "cancelled"]);
-        const durableAccepted = Boolean(submittedPlan && !submittedPlan.recoveryConflict
-            && submittedPlan.jobs.length === Number(submittedPlan.planJobCount || selectedJobs.length)
-            && submittedPlan.jobs.every((job) => acceptedStatuses.has(job.status)));
-        if (!durableAccepted && !dispatchError) dispatchError = submittedPlan?.jobs.find((job) => !acceptedStatuses.has(job.status))?.blockReason
-            || "未收到所有 Plan job 的持久接收回执";
-        return { enqueued: true, durableAccepted, dispatchError };
+        const result = DistributedPlanQueue.distributedSubmissionResult(submittedPlan, dispatchError);
+        return { enqueued: true, ...result };
     }
     detachStaleDistributedTick(task) {
         if (!task || this.distributedQueueTickPromise !== task) return;
@@ -8733,6 +8729,11 @@ export class RealtimeTunnelPanelProvider {
         const client = this.client;
         const generation = this.distributedQueueGeneration;
         const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
+        const workerConfig = this.enabledWorkerConfigs().find((worker) => worker.id === workerId);
+        const schedulerSettings = this.schedulerSettings() as any;
+        const rawMaxConcurrentGpus = workerConfig?.maxConcurrentGpus;
+        const maxConcurrentGpus = rawMaxConcurrentGpus === undefined || rawMaxConcurrentGpus === null || rawMaxConcurrentGpus === "auto"
+            ? 0 : Number(rawMaxConcurrentGpus);
         const holds = await loadSyncHolds(this.context.globalStorageUri.fsPath, root);
         const codeManifest = filterHeldFiles(await buildLocalCodeManifest(root,
             config.get<string[]>("codeSync.includePaths", []), config.get<string[]>("codeSync.scopePaths"),
@@ -8743,14 +8744,17 @@ export class RealtimeTunnelPanelProvider {
             throw new Error("提交已取消或项目已切换，未向 Worker 发送任务。");
         const request = {
             schemaVersion: 1, opId: commandId, operationId: commandId, runKey: commandId,
-            durablePlanQueue: true, codeManifest, projectId: plan.projectId || DistributedPlanQueue.canonicalProjectId(root),
+            durablePlanQueue: true, requireIdleGpu: gpuId !== undefined, codeManifest, projectId: plan.projectId || DistributedPlanQueue.canonicalProjectId(root),
             planJobCount: Number(plan.planJobCount || plan.jobs.length), enqueuedAt: plan.enqueuedAt,
             planFile: plan.planFile, experimentIndex: job.index, ...(gpuId !== undefined ? { gpuId } : {}),
             case: job.case, seed: job.seed, outputDir: job.outputDir, mode: "train_test",
             planRevision: plan.revision, codeFingerprint: plan.codeFingerprint, attempt: job.attempt,
             condaEnv: target.condaEnv, workflowId: plan.id,
             overwriteExisting: plan.overwriteExisting === true,
-            options: { workerId, distributedResults: true, durablePlanQueue: true,
+            options: { workerId, distributedResults: true, durablePlanQueue: true, requireIdleGpu: gpuId !== undefined,
+                gpuIdleUtilThreshold: Number(workerConfig?.gpuIdleUtilThreshold ?? schedulerSettings.gpuIdleUtilThreshold ?? 5),
+                gpuIdleMemThresholdMb: Number(workerConfig?.gpuIdleMemThresholdMb ?? schedulerSettings.gpuIdleMemThresholdMb ?? 200),
+                maxConcurrentGpus,
                 projectId: plan.projectId || DistributedPlanQueue.canonicalProjectId(workspaceRoot()),
                 planJobCount: Number(plan.planJobCount || plan.jobs.length), enqueuedAt: plan.enqueuedAt,
                 condaEnv: target.condaEnv,
@@ -8885,97 +8889,210 @@ export class RealtimeTunnelPanelProvider {
                 this.recordActionError({ command: "distributedPlanQueueRecovery", message: `${plan.planFile}：${message}；已暂停派发和正式结果发布。` });
             }
             for (const job of plan.jobs) if (["completed", "failed", "cancelled"].includes(job.status)
+                && job.stopReason !== "requeue"
                 && !previouslyTerminal.has(`${plan.id}\0${job.index}\0${job.attempt}`)) newTerminal = true;
         }
+        let dispatchGpuSnapshot;
+        try { dispatchGpuSnapshot = await this.client.getGpu({ dispatch: true }); }
+        catch { dispatchGpuSnapshot = undefined; }
+        if (!queueWriteCurrent()) return;
         const durableQueue = queue.plans.some((plan) => plan.projectId === projectId);
         if (durableQueue) {
             const targets = this.workerActionTargets().slice().sort((a, b) => String(a.id).localeCompare(String(b.id)));
             const snapshotsByWorker = new Map(taskSnapshots.map((snapshot, index) => [snapshot.workerId || snapshotWorkerIds[index], snapshot]));
-            if (queueWriteCurrent()) await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
+            const scheduler = this.schedulerSettings() as any;
+            const defaultUtil = Number(scheduler.gpuIdleUtilThreshold ?? 5);
+            const defaultMem = Number(scheduler.gpuIdleMemThresholdMb ?? 200);
+            const idleByWorker = new Map<string, string[]>();
+            for (const target of targets) {
+                const config = this.enabledWorkerConfigs().find((worker) => worker.id === target.id);
+                const evidence = DistributedPlanQueue.freshIdleGpuEvidence(dispatchGpuSnapshot || {}, [target.id],
+                    Number(config?.gpuIdleUtilThreshold ?? defaultUtil), Number(config?.gpuIdleMemThresholdMb ?? defaultMem));
+                if (evidence.complete) idleByWorker.set(target.id, evidence.idleGpuIdsByWorker.get(target.id) || []);
+            }
+            const activeByWorker = new Map<string, number>();
+            const occupiedGpuIds = new Set<string>();
+            for (const plan of queue.plans) for (const job of plan.jobs) {
+                if (!job.workerId || !["dispatching", "queued", "running", "unknown"].includes(job.status)) continue;
+                activeByWorker.set(job.workerId, (activeByWorker.get(job.workerId) || 0) + 1);
+                if (job.gpuId !== undefined) occupiedGpuIds.add(`${job.workerId}:${job.gpuId}`);
+            }
+            const migrationReserved = new Map<string, number>();
+            const canReceive = (target: any, plan: any) => {
+                const snapshot = snapshotsByWorker.get(target.id);
+                const workerConfig = this.enabledWorkerConfigs().find((worker) => worker.id === target.id);
+                const configuredCapacity = Number(workerConfig?.maxConcurrentGpus);
+                const freeGpuIds = (idleByWorker.get(target.id) || []).filter((gpuId) => !occupiedGpuIds.has(`${target.id}:${gpuId}`));
+                const remainingGpuCount = freeGpuIds.length - (migrationReserved.get(target.id) || 0);
+                const capacityRemaining = Number.isInteger(configuredCapacity) && configuredCapacity > 0
+                    ? configuredCapacity - (activeByWorker.get(target.id) || 0) - (migrationReserved.get(target.id) || 0)
+                    : remainingGpuCount;
+                return target.id && target.id !== plan?.workerId && remainingGpuCount > 0 && capacityRemaining > 0
+                    && DistributedPlanQueue.hasFreshDurableSnapshot(snapshot)
+                    && snapshot.capabilities?.idleGpuAdmission === true
+                    && this.lastWorkerProbes[target.id]?.status === "ok"
+                    && String(this.lastCodeSyncState?.workerVersions?.[target.id]?.fingerprint || "") === plan?.codeFingerprint;
+            };
             for (const plan of queue.plans) {
                 if (plan.projectId !== projectId || plan.recoveryConflict) continue;
-                const candidates = targets.filter((target) => {
-                    const snapshot = snapshotsByWorker.get(target.id);
-                    const generatedAt = Date.parse(String(snapshot?.generatedAt || ""));
-                    const fetchedAt = Date.parse(String(snapshot?.fetchedAt || ""));
-                    const workerFingerprint = String(this.lastCodeSyncState?.workerVersions?.[target.id]?.fingerprint || "");
-                    return snapshot && !snapshot.error && snapshot.capabilities?.durablePlanQueue === true
-                        && Number(snapshot.capabilities?.schemaVersion) === 1
-                        && Number.isFinite(generatedAt) && Date.now() - generatedAt <= 180_000
-                        && Number.isFinite(fetchedAt) && Date.now() - fetchedAt <= 180_000
-                        && workerFingerprint === plan.codeFingerprint;
-                });
                 for (const job of plan.jobs) {
                     if (!queueWriteCurrent()) return;
-                    if (job.recoveryConflict || ["completed", "failed", "cancelled", "queued", "running"].includes(job.status)) continue;
-                    if (!job.workerId) {
-                        if (!candidates.length) {
-                            job.blockReason = targets.length
-                                ? "需要升级 Worker Agent 并同步到该 Plan 代码版本后，才能确认持久队列接收。"
-                                : "没有已配置的 Worker 可接收持久队列任务。";
-                            continue;
-                        }
-                        const owner = candidates[job.index % candidates.length];
-                        job.workerId = owner.id;
-                        job.commandId = DistributedPlanQueue.durableCommandId(plan, job, owner.id);
-                        job.runKey = job.commandId;
-                        job.projectId = projectId;
-                        job.status = "dispatching";
-                        job.blockReason = undefined;
-                    }
-                    const snapshot = snapshotsByWorker.get(job.workerId);
-                    if (!snapshot || snapshot.error || snapshot.capabilities?.durablePlanQueue !== true
-                        || Number(snapshot.capabilities?.schemaVersion) !== 1
-                        || !Number.isFinite(Date.parse(String(snapshot.generatedAt || "")))
-                        || Date.now() - Date.parse(String(snapshot.generatedAt || "")) > 180_000
-                        || !Number.isFinite(Date.parse(String(snapshot.fetchedAt || "")))
-                        || Date.now() - Date.parse(String(snapshot.fetchedAt || "")) > 180_000) {
-                        job.status = "unknown";
-                        job.blockReason = "持久队列接收状态未知：Worker 快照不可用或 Agent 需要升级；原命令身份已保留。";
-                        continue;
-                    }
-                    const workerFingerprint = String(this.lastCodeSyncState?.workerVersions?.[job.workerId]?.fingerprint || "");
-                    if (workerFingerprint !== plan.codeFingerprint) {
-                        job.status = "pending";
-                        job.blockReason = "Worker 当前代码指纹与该 Plan 不一致，任务保持未确认，不会自动换服务器重发。";
-                        continue;
-                    }
-                    const remote = (snapshot.tasks || []).find((task) => String(task.commandId || "") === job.commandId);
-                    if (remote && DistributedPlanQueue.remoteTaskMatchesJob(plan, job, remote)) continue;
-                    if (remote) {
-                        job.status = "unknown";
-                        job.recoveryConflict = true;
-                        job.blockReason = "Worker 返回的任务与完整 Plan/job 身份冲突，已暂停重发。";
-                        continue;
-                    }
-                    if (!job.commandId) {
-                        job.status = "unknown";
-                        job.blockReason = "缺少已持久化 commandId，无法安全提交。";
-                        continue;
-                    }
+                    const snapshot = snapshotsByWorker.get(job.workerId || "");
+                    const retry = DistributedPlanQueue.retryPinnedDispatch(queue, plan.id, job.index,
+                        snapshot, idleByWorker.get(job.workerId || "") || []);
+                    if (!retry) continue;
+                    const launchKey = `${plan.id}\0${job.index}\0${job.attempt}`;
+                    if (this.distributedLaunchInFlight.has(launchKey)) continue;
+                    this.distributedLaunchInFlight.add(launchKey);
                     job.status = "dispatching";
                     await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
                     try {
-                        const receipt: any = await this.sendDistributedJob(plan, job, job.workerId, undefined, job.commandId);
+                        const receipt: any = await this.sendDistributedJob(plan, job, retry.workerId, retry.gpuId, retry.commandId);
                         if (!queueWriteCurrent()) return;
                         const status = String(receipt?.status || "").toLowerCase();
-                        if (receipt?.durableAccepted !== true || String(receipt.commandId || "") !== job.commandId
-                            || !["queued", "running", "completed", "failed", "cancelled"].includes(status)) {
-                            throw new Error(String(receipt?.message || "Worker 未返回 durableAccepted 及匹配 commandId 的状态回执"));
+                        const rejectedBusy = receipt?.durableAccepted === false && receipt?.admissionRejected === true
+                            && status === "pending" && String(receipt?.reason || "") === "gpu_busy"
+                            && String(receipt?.commandId || "") === retry.commandId
+                            && String(receipt?.workerId || "") === retry.workerId
+                            && String(receipt?.gpuId || "") === retry.gpuId
+                            && DistributedPlanQueue.remoteTaskMatchesJob(plan, job, receipt);
+                        if (rejectedBusy) {
+                            const released = DistributedPlanQueue.resetBusyRejectedDispatch(queue, retry, receipt);
+                            if (released === queue) throw new Error("Worker busy receipt did not match the complete persisted job identity");
+                            queue = released;
+                        } else {
+                            if (receipt?.durableAccepted !== true || String(receipt.commandId || "") !== retry.commandId
+                                || String(receipt.gpuId || "") !== retry.gpuId
+                                || !["queued", "running", "completed", "failed", "cancelled"].includes(status)
+                                || !DistributedPlanQueue.remoteTaskMatchesJob(plan, job, receipt))
+                                throw new Error(String(receipt?.message || "Worker 未返回原 commandId 的完整持久接收回执"));
+                            job.status = status as any;
+                            job.blockReason = undefined;
                         }
-                        job.status = status === "cancelled" ? "cancelled" : status as any;
-                        if (receipt.gpuId !== undefined && receipt.gpuId !== null) job.gpuId = String(receipt.gpuId);
-                        job.blockReason = undefined;
-                        if (["completed", "failed"].includes(job.status)) newTerminal = true;
                     } catch (error) {
                         if (!queueWriteCurrent()) return;
                         job.status = "unknown";
-                        job.blockReason = `持久队列接收回执未确认，保留原 Worker 和 commandId：${errorMessage(error)}`;
-                        this.recordActionError({ command: "distributedPlanQueue", message: `${plan.planFile} job ${job.index}：${job.blockReason}` });
+                        job.blockReason = `原 Worker、GPU 与 commandId 的重试回执未确认：${errorMessage(error)}`;
+                        this.recordActionError({ command: "distributedPlanQueueRetry", message: `${plan.planFile} job ${job.index}：${job.blockReason}` });
+                    } finally {
+                        this.distributedLaunchInFlight.delete(launchKey);
                     }
-                    if (!queueWriteCurrent()) return;
                     await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
                 }
+            }
+            if (queueWriteCurrent()) await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
+            for (const plan of queue.plans) {
+                if (plan.projectId !== projectId || plan.recoveryConflict) continue;
+                for (const job of plan.jobs) {
+                    if (!queueWriteCurrent()) return;
+                    if (job.recoveryConflict || !job.workerId || !job.commandId
+                        || !(job.status === "queued" || job.status === "cancelled" && job.reassignmentPending)) continue;
+                    const snapshot = snapshotsByWorker.get(job.workerId);
+                    if (!DistributedPlanQueue.hasFreshDurableSnapshot(snapshot)) continue;
+                    const remote = (snapshot?.tasks || []).find((task) => String(task.commandId || "") === job.commandId);
+                    if (!remote || !DistributedPlanQueue.remoteTaskMatchesJob(plan, job, remote)) continue;
+                    if (job.status === "cancelled" && String(remote.stopReason || "") === "requeue") {
+                        const recoveredProof = { ...remote, durableReleased: true, durableAccepted: true };
+                        queue = DistributedPlanQueue.releaseQueuedForReassignment(queue, plan.id, job.index,
+                            recoveredProof, makeOpId("distributed-attempt"));
+                        continue;
+                    }
+                    if (job.status !== "queued" || String(remote.status || "").toLowerCase() !== "queued"
+                        || !targets.some((target) => canReceive(target, { workerId: job.workerId, codeFingerprint: plan.codeFingerprint }))) continue;
+                    job.reassignmentPending = true;
+                    await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
+                    const stopOperationId = makeOpId("distributed-requeue");
+                    const request = { schemaVersion: 1, opId: stopOperationId, operationId: stopOperationId,
+                        commandId: stopOperationId, targetCommandId: job.commandId, runKey: job.runKey || job.commandId,
+                        requeueRequested: true, workflowId: plan.id, planId: plan.id, projectId,
+                        planRevision: plan.revision, codeFingerprint: plan.codeFingerprint,
+                        planJobCount: Number(plan.planJobCount || plan.jobs.length), planFile: plan.planFile,
+                        experimentIndex: job.index, case: job.case, seed: job.seed, attempt: job.attempt,
+                        outputDir: job.outputDir, workerId: job.workerId, gpuId: job.gpuId };
+                    try {
+                        const result: any = await this.withRemoteActionResource(job.workerId, "stop-worker-task", request,
+                            () => this.client.postWorkerAction(job.workerId, "stop-worker-task", request));
+                        if (!queueWriteCurrent()) return;
+                        const proof = result?.receipt || result?.releasedTask || result;
+                        if (proof?.durableReleased === true && proof?.durableAccepted === true
+                            && String(proof?.status || "").toLowerCase() === "cancelled" && String(proof?.stopReason || "") === "requeue"
+                            && DistributedPlanQueue.stopIdentityMatchesJob(plan, job, proof)) {
+                            const destination = targets.find((target) => canReceive(target, { workerId: job.workerId, codeFingerprint: plan.codeFingerprint }));
+                            if (destination) migrationReserved.set(destination.id, (migrationReserved.get(destination.id) || 0) + 1);
+                            queue = DistributedPlanQueue.releaseQueuedForReassignment(queue, plan.id, job.index,
+                                proof, makeOpId("distributed-attempt"));
+                        } else if (proof?.durableReleased === false
+                            && DistributedPlanQueue.stopIdentityMatchesJob(plan, job, proof)) {
+                            job.reassignmentPending = false;
+                            const actualStatus = String(proof?.status || "").toLowerCase();
+                            if (["running", "starting"].includes(actualStatus)) job.status = "running";
+                            job.blockReason = `Worker 未释放排队任务（${actualStatus || "状态未知"}）；保留原 Worker 和 commandId。`;
+                        } else {
+                            job.status = "unknown";
+                            job.blockReason = "排队任务释放回执未知或身份不完整；保留原 Worker 和 commandId，禁止重新派发。";
+                        }
+                    } catch (error) {
+                        if (!queueWriteCurrent()) return;
+                        job.status = "unknown";
+                        job.blockReason = `排队任务释放回执未确认，保留原 Worker 和 commandId：${errorMessage(error)}`;
+                        this.recordActionError({ command: "distributedPlanQueueRequeue", message: `${plan.planFile} job ${job.index}：${job.blockReason}` });
+                    }
+                    await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
+                }
+            }
+            const workers = targets.map((target) => {
+                const snapshot = snapshotsByWorker.get(target.id);
+                const workerFingerprint = String(this.lastCodeSyncState?.workerVersions?.[target.id]?.fingerprint || "");
+                const live = Boolean(workerFingerprint && idleByWorker.has(target.id) && DistributedPlanQueue.hasFreshDurableSnapshot(snapshot)
+                    && snapshot?.capabilities?.idleGpuAdmission === true
+                    && this.lastWorkerProbes[target.id]?.status === "ok");
+                const workerConfig = this.enabledWorkerConfigs().find((worker) => worker.id === target.id);
+                const configuredCapacity = Number(workerConfig?.maxConcurrentGpus);
+                return { workerId: target.id, online: live, idleGpuAdmission: snapshot?.capabilities?.idleGpuAdmission === true,
+                    codeFingerprint: workerFingerprint,
+                    idleGpuIds: (idleByWorker.get(target.id) || []).filter((gpuId) => !occupiedGpuIds.has(`${target.id}:${gpuId}`)),
+                    capacity: Number.isInteger(configuredCapacity) && configuredCapacity > 0
+                        ? Math.max(0, configuredCapacity - (activeByWorker.get(target.id) || 0)) : undefined };
+            });
+            const allocation = DistributedPlanQueue.allocateAvailable(queue, workers, { requireIdleGpuAdmission: true });
+            queue = allocation.queue;
+            if (allocation.dispatches.length) await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
+            for (const dispatch of allocation.dispatches) {
+                if (!queueWriteCurrent()) return;
+                const plan = queue.plans.find((item) => item.id === dispatch.planId);
+                const job = plan?.jobs.find((item) => item.index === dispatch.jobIndex && item.attempt === dispatch.attempt);
+                if (!plan || !job) continue;
+                try {
+                    const receipt: any = await this.sendDistributedJob(plan, job, dispatch.workerId, dispatch.gpuId, dispatch.commandId);
+                    if (!queueWriteCurrent()) return;
+                    const status = String(receipt?.status || "").toLowerCase();
+                    const rejectedBusy = receipt?.durableAccepted === false && receipt?.admissionRejected === true
+                        && status === "pending" && String(receipt?.reason || "") === "gpu_busy"
+                        && String(receipt?.commandId || "") === dispatch.commandId
+                        && String(receipt?.workerId || "") === dispatch.workerId
+                        && String(receipt?.gpuId || "") === dispatch.gpuId
+                        && DistributedPlanQueue.remoteTaskMatchesJob(plan, job, receipt);
+                    if (rejectedBusy) {
+                        const released = DistributedPlanQueue.resetBusyRejectedDispatch(queue, dispatch, receipt);
+                        if (released === queue) throw new Error("Worker busy receipt did not match the complete requested job identity");
+                        queue = released;
+                    } else {
+                        if (receipt?.durableAccepted !== true || String(receipt.commandId || "") !== job.commandId
+                            || String(receipt.gpuId || "") !== dispatch.gpuId
+                            || !["queued", "running", "completed", "failed", "cancelled"].includes(status)
+                            || !DistributedPlanQueue.remoteTaskMatchesJob(plan, job, receipt))
+                            throw new Error(String(receipt?.message || "Worker 未返回 durableAccepted 及匹配完整身份的状态回执"));
+                        job.status = status as any;
+                        job.blockReason = undefined;
+                        if (["completed", "failed"].includes(job.status)) newTerminal = true;
+                    }
+                } catch (error) {
+                    if (!queueWriteCurrent()) return;
+                    job.status = "unknown";
+                    job.blockReason = `持久队列接收回执未确认，保留原 Worker、GPU 和 commandId：${errorMessage(error)}`;
+                    this.recordActionError({ command: "distributedPlanQueue", message: `${plan.planFile} job ${job.index}：${job.blockReason}` });
+                }
+                await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
             }
             if (queueWriteCurrent()) await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
             if (newTerminal || Date.now() >= this.distributedNextPostprocessAt) {
@@ -9013,9 +9130,8 @@ export class RealtimeTunnelPanelProvider {
                 });
             }
         }
-        let snapshot;
-        try { snapshot = await this.client.getGpu({ dispatch: true }); }
-        catch {
+        const snapshot = dispatchGpuSnapshot;
+        if (!snapshot) {
             if (!queueWriteCurrent()) {
                 this.postState();
                 return;
@@ -16856,16 +16972,19 @@ export class RealtimeTunnelPanelProvider {
                 const gpuId = String(item.index ?? item.gpu_id ?? item.gpuId ?? item.id ?? "").trim();
                 if (!gpuId)
                     continue;
-                const util = Number(item.utilizationPercent ?? item.utilization ?? item.gpu_util ?? NaN);
-                const mem = Number(item.memoryUsedMb ?? item.memory_used_mb ?? item.memoryUsed ?? NaN);
-                let busy: boolean;
-                if (Number.isFinite(util) && Number.isFinite(mem))
-                    busy = !(util < thrU && mem < thrM);
-                else {
-                    const processes = Array.isArray(item.processes) ? item.processes : Array.isArray(item.procs) ? item.procs : [];
-                    const processCount = Number(item.processCount ?? item.process_count ?? processes.length);
-                    busy = processCount > 0;
-                }
+                const utilRaw = item.utilizationPercent ?? item.utilization ?? item.gpu_util;
+                const memRaw = item.memoryUsedMb ?? item.memory_used_mb ?? item.memoryUsed;
+                const util = Number(utilRaw);
+                const mem = Number(memRaw);
+                const processes = Array.isArray(item.processes) ? item.processes : Array.isArray(item.procs) ? item.procs : undefined;
+                const processCountRaw = item.processCount ?? item.process_count ?? processes?.length;
+                const processCount = Number(processCountRaw);
+                const busy = utilRaw == null || memRaw == null || processCountRaw == null
+                    || typeof utilRaw === "string" && !utilRaw.trim() || typeof memRaw === "string" && !memRaw.trim()
+                    || typeof processCountRaw === "string" && !processCountRaw.trim()
+                    || !Number.isFinite(util) || util < 0 || !Number.isFinite(mem) || mem < 0
+                    || !Number.isInteger(processCount) || processCount < 0 || Boolean(processes?.length)
+                    || processCount !== 0 || util >= thrU || mem >= thrM;
                 if (busy)
                     busyGpuIds.push(gpuId);
                 else

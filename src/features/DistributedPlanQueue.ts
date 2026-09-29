@@ -16,6 +16,7 @@ export type QueuedJob = {
   workerId?: string;
   gpuId?: string;
   commandId?: string;
+  reassignmentPending?: boolean;
   logPath?: string;
   error?: string;
   finishedAt?: string;
@@ -27,7 +28,8 @@ export type QueuedJob = {
   reconciliationAttempts?: number;
   lastReconciliationAt?: string;
   blockReason?: string;
-  history?: Array<{ attempt: number; status: JobState; workerId?: string; commandId?: string; outputDir: string; finishedAt?: string }>;
+  stopReason?: string;
+  history?: Array<{ attempt: number; status: JobState; workerId?: string; commandId?: string; outputDir: string; finishedAt?: string; stopReason?: string }>;
 };
 export type QueuedPlan = {
   id: string;
@@ -51,15 +53,24 @@ export type DistributedQueue = { schemaVersion: 1; plans: QueuedPlan[]; deferred
   localMetricsSignature?: string;
   publishedWorkerId?: string; publishedWorkerIds?: string[]; publishedPaths?: string[];
   previewWorkerId?: string; previewWorkerIds?: string[]; previewPaths?: string[] };
-export type WorkerSlots = { workerId: string; idleGpuIds: string[]; online: boolean; capacity?: number; codeFingerprint?: string };
+export type WorkerSlots = { workerId: string; idleGpuIds: string[]; online: boolean; capacity?: number; codeFingerprint?: string; idleGpuAdmission?: boolean };
 export type DurableWorkerSnapshot = {
   workerId: string;
-  capabilities?: { durablePlanQueue?: boolean; schemaVersion?: number };
+  capabilities?: { durablePlanQueue?: boolean; idleGpuAdmission?: boolean; schemaVersion?: number };
   generatedAt?: string;
   fetchedAt?: string;
   error?: string;
   tasks?: Array<Record<string, unknown>>;
 };
+
+export function hasFreshDurableSnapshot(snapshot: DurableWorkerSnapshot | undefined, now = Date.now(), maxAgeMs = 180_000): boolean {
+  const generatedAt = Date.parse(String(snapshot?.generatedAt || ""));
+  const fetchedAt = Date.parse(String(snapshot?.fetchedAt || ""));
+  return Boolean(snapshot && !snapshot.error && snapshot.capabilities?.durablePlanQueue === true
+    && snapshot.capabilities.schemaVersion === 1 && Number.isFinite(generatedAt) && Number.isFinite(fetchedAt)
+    && now - generatedAt <= maxAgeMs && now - fetchedAt <= maxAgeMs
+    && generatedAt <= now + 30_000 && fetchedAt <= now + 30_000);
+}
 export const CODE_FINGERPRINT_MISMATCH = "代码指纹不匹配：Worker 当前代码版本与该 Plan 不一致。任务仍保留为排队，不会自动失败或重发。请用当前代码重新提交该 Plan，或恢复提交前的代码版本并重新同步 Worker 后再继续。";
 export const CODE_FINGERPRINT_WAITING = "等待当前代码版本的任务结束：已有其他代码版本占用 Worker，本 Plan 暂不派发。任务仍保留为排队。";
 const UNFINISHED_JOB: readonly JobState[] = ["pending", "dispatching", "queued", "running", "unknown"];
@@ -70,9 +81,40 @@ export function canonicalProjectId(projectRoot: string): string {
 }
 
 export function durableCommandId(plan: Pick<QueuedPlan, "id" | "projectId" | "planFile" | "revision" | "codeFingerprint">,
-  job: Pick<QueuedJob, "index" | "case" | "seed" | "attempt" | "outputDir">, workerId: string): string {
+  job: Pick<QueuedJob, "index" | "case" | "seed" | "attempt" | "outputDir">, workerId: string, gpuId?: string): string {
   return createHash("sha256").update([plan.projectId || "", plan.id, plan.planFile,
-    plan.revision, plan.codeFingerprint, job.index, job.case, job.seed, job.attempt, job.outputDir, workerId].join("\0")).digest("hex").slice(0, 32);
+    plan.revision, plan.codeFingerprint, job.index, job.case, job.seed, job.attempt, job.outputDir, workerId, gpuId || ""].join("\0")).digest("hex").slice(0, 32);
+}
+
+export function freshIdleGpuEvidence(gpuSnapshot: Record<string, unknown>, workerIds: readonly string[],
+  idleUtilThreshold: number, idleMemThresholdMb: number): { complete: boolean; idleGpuIdsByWorker: Map<string, string[]> } {
+  const idleGpuIdsByWorker = new Map<string, string[]>();
+  for (const workerId of workerIds) {
+    const rows = gpuSnapshot?.[workerId];
+    if (!Array.isArray(rows) || rows.length === 0) return { complete: false, idleGpuIdsByWorker };
+    const idle: string[] = [];
+    for (const raw of rows) {
+      if (!raw || typeof raw !== "object") return { complete: false, idleGpuIdsByWorker };
+      const item = raw as Record<string, unknown>;
+      const gpuId = String(item.index ?? item.gpu_id ?? item.gpuId ?? item.id ?? "").trim();
+      const utilRaw = item.utilizationPercent ?? item.utilization ?? item.gpu_util;
+      const memRaw = item.memoryUsedMb ?? item.memory_used_mb ?? item.memoryUsed;
+      const util = Number(utilRaw);
+      const mem = Number(memRaw);
+      const processes = Array.isArray(item.processes) ? item.processes : Array.isArray(item.procs) ? item.procs : undefined;
+      const processCountRaw = item.processCount ?? item.process_count ?? processes?.length;
+      const processCount = Number(processCountRaw);
+      if (!gpuId || utilRaw == null || memRaw == null || processCountRaw == null
+        || typeof utilRaw === "string" && !utilRaw.trim() || typeof memRaw === "string" && !memRaw.trim()
+        || typeof processCountRaw === "string" && !processCountRaw.trim()
+        || !Number.isFinite(util) || util < 0 || !Number.isFinite(mem) || mem < 0
+        || !Number.isInteger(processCount) || processCount < 0)
+        return { complete: false, idleGpuIdsByWorker };
+      if (!(processes?.length) && processCount === 0 && util < idleUtilThreshold && mem < idleMemThresholdMb) idle.push(gpuId);
+    }
+    idleGpuIdsByWorker.set(workerId, [...new Set(idle)]);
+  }
+  return { complete: workerIds.length > 0, idleGpuIdsByWorker };
 }
 
 function durableStatus(value: unknown): JobState | undefined {
@@ -162,7 +204,8 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
       const history = historicalRows.filter((row) => Number(row.task.experimentIndex) === job.index);
       if (!history.length) return job;
       const entries = [...(job.history || []), ...history.map((row) => ({ attempt: Number(row.task.attempt), status: row.status,
-        workerId: row.workerId, commandId: String(row.task.commandId), outputDir: String(row.task.outputDir) }))];
+        workerId: row.workerId, commandId: String(row.task.commandId), outputDir: String(row.task.outputDir),
+        ...(typeof row.task.stopReason === "string" ? { stopReason: String(row.task.stopReason) } : {}) }))];
       return { ...job, history: entries.filter((entry, index) => entries.findIndex((other) => other.commandId === entry.commandId
         && other.workerId === entry.workerId && other.attempt === entry.attempt) === index) };
     });
@@ -190,11 +233,13 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
         ...(typeof task.logPath === "string" ? { logPath: task.logPath } : {}),
         ...(typeof task.finishedAt === "string" ? { finishedAt: task.finishedAt } : {}),
         ...(typeof task.error === "string" ? { error: task.error } : {}),
+        ...(typeof task.stopReason === "string" ? { stopReason: task.stopReason } : {}),
         ...(!conflict && terminalStates.has(source.status) ? { trustedTerminalStatus: source.status as "completed" | "failed" | "cancelled" } : {}),
         ...(historicalRows.some((row) => Number(row.task.experimentIndex) === index) ? {
           history: historicalRows.filter((row) => Number(row.task.experimentIndex) === index).map((row) => ({
             attempt: Number(row.task.attempt), status: row.status, workerId: row.workerId,
             commandId: String(row.task.commandId), outputDir: String(row.task.outputDir),
+            ...(typeof row.task.stopReason === "string" ? { stopReason: String(row.task.stopReason) } : {}),
             ...(typeof row.task.finishedAt === "string" ? { finishedAt: row.task.finishedAt } : {}),
           })),
         } : {}),
@@ -235,6 +280,39 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
 
 export function unfinishedJobs(plan: QueuedPlan, states: readonly JobState[] = UNFINISHED_JOB): boolean {
   return plan.jobs.some((job) => states.includes(job.status));
+}
+
+/** Local persistence retains unassigned jobs offline for later realtime scheduling; durableAccepted means server acceptance only. */
+export function distributedSubmissionDisposition(plan: QueuedPlan | undefined) {
+  const acceptedStatuses = new Set<JobState>(["queued", "running", "completed", "failed", "cancelled"]);
+  return { localQueued: Boolean(plan), durableAccepted: Boolean(plan && plan.jobs.length > 0
+      && plan.jobs.length === Number(plan.planJobCount || plan.jobs.length) && !plan.recoveryConflict
+      && plan.jobs.every((job) => acceptedStatuses.has(job.status))),
+    pendingCount: plan?.jobs.filter((job) => job.status === "pending" && !job.workerId && !job.commandId).length || 0 };
+}
+
+export function distributedSubmissionResult(plan: QueuedPlan | undefined, dispatchError = "") {
+  const disposition = distributedSubmissionDisposition(plan);
+  const unresolved = plan?.jobs.find((job) => !["queued", "running", "completed", "failed", "cancelled"].includes(job.status)
+    && !(job.status === "pending" && !job.workerId && !job.commandId && !job.blockReason));
+  return { ...disposition, dispatchError: dispatchError || (!disposition.durableAccepted && unresolved
+    ? unresolved.blockReason || "持久接收状态仍待核对" : "") };
+}
+
+export function distributedSubmissionProgress(submission: { enqueued?: boolean; localQueued?: boolean; pendingCount?: number; dispatchError?: string } | undefined) {
+  if (!submission) return { status: "failed" as const, waiting: false, message: "本机未能确认保存调度意图：未返回提交记录。" };
+  if (submission.enqueued === false) return { status: "succeeded" as const, waiting: false,
+    message: "已有产物覆盖本次全部任务；按所选“跳过已有”处理，未创建新调度任务。" };
+  if (submission.localQueued !== true) return { status: "failed" as const, waiting: false,
+    message: `本机未能确认保存调度意图：${submission.dispatchError || "状态未知"}。` };
+  if (Number(submission.pendingCount || 0) > 0 || Boolean(submission.dispatchError)) {
+    const pending = Number(submission.pendingCount || 0) > 0 ? ` ${submission.pendingCount} 个 job 保持未绑定，等待新鲜空闲 GPU。` : "";
+    const detail = submission.dispatchError ? ` 状态核对仍有待处理项：${submission.dispatchError}。` : "";
+    return { status: "succeeded" as const, waiting: true,
+      message: `本机调度队列已保存。${pending}${detail}实时连接恢复后继续派发；刷新状态可查看进度。` };
+  }
+  return { status: "succeeded" as const, waiting: false,
+    message: "调度队列已接收；面板继续显示 Worker 回传的任务状态。" };
 }
 
 export function fingerprintStillMounted(queue: DistributedQueue, fingerprint: string, workerFingerprints: readonly string[]): boolean {
@@ -315,14 +393,16 @@ function noteFingerprintMismatch(plans: QueuedPlan[], workers: readonly WorkerSl
   }
 }
 
-export function allocateAvailable(queue: DistributedQueue, workers: readonly WorkerSlots[]): { queue: DistributedQueue; dispatches: Dispatch[] } {
+export function allocateAvailable(queue: DistributedQueue, workers: readonly WorkerSlots[], options: { requireIdleGpuAdmission?: boolean } = {}): { queue: DistributedQueue; dispatches: Dispatch[] } {
   const versioned = workers.some((row) => row.codeFingerprint);
   const plans = queue.plans.map((plan) => ({ ...plan, jobs: plan.jobs.map((job) => ({ ...job })) }));
   const dispatches: Dispatch[] = [];
   const activeFingerprint = plans.find((plan) => plan.jobs.some((job) => ["dispatching", "queued", "running", "unknown"].includes(job.status)))?.codeFingerprint;
   const runnableFingerprint = activeFingerprint || plans.find((plan) => plan.jobs.some((job) => job.status === "pending")
-    && (!versioned || workers.some((row) => usableSlots(row) && row.codeFingerprint === plan.codeFingerprint)))?.codeFingerprint;
-  const slots = new Map(workers.filter((row) => row.online && (!versioned || !runnableFingerprint || row.codeFingerprint === runnableFingerprint))
+    && (!versioned || workers.some((row) => usableSlots(row)
+      && (!options.requireIdleGpuAdmission || row.idleGpuAdmission === true) && row.codeFingerprint === plan.codeFingerprint)))?.codeFingerprint;
+  const slots = new Map(workers.filter((row) => row.online && (!options.requireIdleGpuAdmission || row.idleGpuAdmission === true)
+    && (!versioned || !runnableFingerprint || row.codeFingerprint === runnableFingerprint))
     .map((row) => [row.workerId, [...new Set(row.idleGpuIds)].slice(0, Math.max(0, row.capacity ?? row.idleGpuIds.length))]));
   for (const plan of plans) {
     if (!runnableFingerprint || plan.codeFingerprint !== runnableFingerprint) continue;
@@ -343,7 +423,7 @@ export function allocateAvailable(queue: DistributedQueue, workers: readonly Wor
         if (!chosen) break;
         const gpuId = slots.get(chosen)?.shift();
         if (gpuId === undefined) break;
-        const commandId = createHash("sha256").update([plan.id, job.index, job.attempt].join("\0")).digest("hex").slice(0, 24);
+        const commandId = durableCommandId(plan, job, chosen, gpuId);
         Object.assign(job, { status: "dispatching", workerId: chosen, gpuId, commandId, blockReason: undefined });
         dispatches.push({ planId: plan.id, jobIndex: job.index, workerId: chosen, gpuId, attempt: job.attempt, commandId });
       }
@@ -397,6 +477,65 @@ export function resetUnsentDispatch(queue: DistributedQueue, planId: string, job
   return { ...queue, plans: queue.plans.map((plan) => plan.id !== planId ? plan : { ...plan,
     jobs: plan.jobs.map((job) => job.index !== jobIndex || job.commandId !== commandId || job.status !== "dispatching"
       ? job : { ...job, status: "pending" as const, workerId: undefined, gpuId: undefined, commandId: undefined }) }) };
+}
+
+export function resetBusyRejectedDispatch(queue: DistributedQueue, dispatch: Dispatch, receipt: Record<string, unknown>): DistributedQueue {
+  if (receipt?.durableAccepted !== false || receipt?.admissionRejected !== true || String(receipt?.status || "") !== "pending"
+    || String(receipt?.reason || "") !== "gpu_busy" || String(receipt?.commandId || "") !== dispatch.commandId
+    || String(receipt?.workerId || "") !== dispatch.workerId || String(receipt?.gpuId || "") !== dispatch.gpuId) return queue;
+  const plan = queue.plans.find((row) => row.id === dispatch.planId);
+  const job = plan?.jobs.find((row) => row.index === dispatch.jobIndex && row.attempt === dispatch.attempt);
+  if (!plan || !job || !remoteTaskMatchesJob(plan, job, receipt)) return queue;
+  return { ...queue, plans: queue.plans.map((plan) => plan.id !== dispatch.planId ? plan : { ...plan,
+    jobs: plan.jobs.map((job) => job.index !== dispatch.jobIndex || job.attempt !== dispatch.attempt
+      || job.commandId !== dispatch.commandId || job.workerId !== dispatch.workerId || job.gpuId !== dispatch.gpuId
+      || job.status !== "dispatching" ? job : { ...job, status: "pending" as const, workerId: undefined,
+        gpuId: undefined, commandId: undefined, runKey: undefined, blockReason: "Worker confirmed the requested GPU was busy; awaiting fresh availability." }) }) };
+}
+
+export function retryPinnedDispatch(queue: DistributedQueue, planId: string, jobIndex: number,
+  snapshot: DurableWorkerSnapshot | undefined, idleGpuIds: readonly string[], now = Date.now()): Dispatch | undefined {
+  const plan = queue.plans.find((row) => row.id === planId);
+  const job = plan?.jobs.find((row) => row.index === jobIndex);
+  if (!plan || !job || plan.recoveryConflict || job.recoveryConflict || !["dispatching", "unknown"].includes(job.status)
+    || !job.workerId || !job.commandId || !String(job.gpuId || "").trim()
+    || !snapshotAllowsPinnedRetry(snapshot, job, now)) return undefined;
+  const occupiedByOther = queue.plans.some((candidatePlan) => candidatePlan.jobs.some((candidate) =>
+    !(candidatePlan.id === planId && candidate.index === jobIndex && candidate.attempt === job.attempt)
+    && candidate.workerId === job.workerId && String(candidate.gpuId ?? "") === String(job.gpuId)
+    && ["dispatching", "queued", "running", "unknown"].includes(candidate.status)));
+  if (occupiedByOther || !idleGpuIds.some((id) => String(id) === String(job.gpuId))) return undefined;
+  return { planId, jobIndex, workerId: job.workerId, gpuId: job.gpuId, attempt: job.attempt, commandId: job.commandId };
+}
+
+function snapshotAllowsPinnedRetry(snapshot: DurableWorkerSnapshot | undefined, job: QueuedJob, now: number): boolean {
+  if (!hasFreshDurableSnapshot(snapshot, now) || snapshot?.workerId !== job.workerId
+    || snapshot.capabilities?.idleGpuAdmission !== true) return false;
+  const sameCommand = (snapshot.tasks || []).find((task) => String(task.commandId || "") === job.commandId);
+  return !sameCommand;
+}
+
+export function releaseQueuedForReassignment(queue: DistributedQueue, planId: string, jobIndex: number,
+  receipt: Record<string, unknown>, nextRunId: string): DistributedQueue {
+  const plan = queue.plans.find((row) => row.id === planId);
+  const job = plan?.jobs.find((row) => row.index === jobIndex);
+  if (!plan || !job || !["queued", "cancelled"].includes(job.status) || job.reassignmentPending !== true
+    || receipt?.durableReleased !== true || receipt?.durableAccepted !== true
+    || String(receipt?.status || "").toLowerCase() !== "cancelled" || String(receipt?.stopReason || "") !== "requeue"
+    || Number(receipt?.planJobCount) !== Number(plan.planJobCount || plan.jobs.length)
+    || !stopIdentityMatchesJob(plan, job, receipt) || !/^[a-zA-Z0-9-]{8,80}$/.test(nextRunId))
+    throw new Error("Queued job release proof does not match the exact persisted job identity.");
+  const prefix = job.outputDir.replace(/\\/g, "/");
+  const marker = prefix.lastIndexOf("/attempts/");
+  if (marker < 0) throw new Error("Job attempt directory is invalid.");
+  const outputDir = prefix.slice(0, marker + "/attempts/".length) + nextRunId;
+  return { ...queue, plans: queue.plans.map((row) => row.id !== planId ? row : { ...row,
+    jobs: row.jobs.map((item) => item.index !== jobIndex ? item : {
+      index: item.index, case: item.case, seed: item.seed, outputDir, attempt: item.attempt + 1,
+      status: "pending" as const, projectId: item.projectId, history: [...(item.history || []), { attempt: item.attempt,
+        status: "cancelled" as const, workerId: item.workerId, commandId: item.commandId, outputDir: item.outputDir,
+        finishedAt: typeof receipt.finishedAt === "string" ? receipt.finishedAt : item.finishedAt, stopReason: "requeue" }],
+    }) }) };
 }
 
 export function sameDeferredPlanFile(left: string, right: string): boolean {
