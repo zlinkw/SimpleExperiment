@@ -151,8 +151,9 @@ test("GPU history gap detection distinguishes explicit gaps from regular downsam
 test("GPU history summary stats reuse per-series indexes across servers", () => {
   const context = chartContext(["historyExpectedStepFromSortedTimes", "gpuHistoryPointIndex", "historyPointStartsGap", "historyGapCountFromIndex", "gpuHistorySeriesStats"]);
   const source = inlineFunction("gpuHistorySeriesStats");
-  assert.doesNotMatch(source, /\.reduce\(|historyGapCountFromIndex\(index\)/);
-  assert.match(source, /index\.rows\.forEach/);
+  assert.doesNotMatch(source, /historyGapCountFromIndex\(index\)/);
+  assert.match(source, /indexed\.forEach/);
+  assert.match(source, /index\.rows\.filter/);
   const first = [{ bucketEpoch: 600, imputed: true }, { bucketEpoch: 300, imputed: false }];
   const second = [{ bucketEpoch: 900, imputed: false }, { bucketEpoch: 1200, imputed: true, gapBefore: true }];
   const stats = context.gpuHistorySeriesStats([{ points: first }, { points: second }]);
@@ -223,7 +224,13 @@ test("GPU history point index caches sorted points and uses gap-aware binary loo
   assert.equal(context.gpuHistoryNearestTimestamp([{ points }], 260), 300);
 });
 
-test("GPU history drawing batches the smoothed curve into one stroke", () => {
+test("GPU history time maps every hour to the same width across a 24 hour chart", () => {
+  const context = chartContext(["gpuHistoryTimeTransform", "gpuHistoryTimeInverseTransform"]);
+  assert.equal(context.gpuHistoryTimeTransform(6 * 3600, 0, 24 * 3600, 960), 240);
+  assert.equal(context.gpuHistoryTimeInverseTransform(240, 0, 24 * 3600, 960), 6 * 3600);
+});
+
+test("GPU history drawing uses straight gap-safe segments", () => {
   const context = chartContext(["finiteHistoryPercent", "historyPointStartsGap", "gpuHistoryTimeTransform", "drawHistoryMarker", "drawHistoryLine"]);
   const calls = { beginPath: 0, moveTo: 0, lineTo: 0, bezierCurveTo: 0, stroke: 0, fill: 0 };
   const canvas = {
@@ -240,8 +247,26 @@ test("GPU history drawing batches the smoothed curve into one stroke", () => {
     gapBefore: index === 50,
   }));
   context.drawHistoryLine(canvas, points, { field: "gpuUtilPercent", color: "#2563EB", dash: [], marker: "circle", focus: "util" }, 0, 99 * 300, { left: 0, top: 0 }, 990, 100, "", 300);
-  assert.equal(calls.stroke, 1);
-  assert.equal(calls.moveTo, 1);
-  assert.equal(calls.bezierCurveTo, 99);
+  assert.equal(calls.stroke, 2);
+  assert.equal(calls.moveTo, 2);
+  assert.equal(calls.lineTo, 98);
+  assert.equal(calls.bezierCurveTo, 0);
   assert.equal(calls.fill, 0);
+});
+
+test("GPU history drawing skips imputed samples instead of inventing connecting values", () => {
+  const context = chartContext(["finiteHistoryPercent", "historyPointStartsGap", "gpuHistoryTimeTransform", "drawHistoryLine"]);
+  const calls = { lineTo: [], moveTo: [], stroke: 0 };
+  const canvas = {
+    save() {}, restore() {}, setLineDash() {},
+    beginPath() {}, moveTo(x, y) { calls.moveTo.push([x, y]); }, lineTo(x, y) { calls.lineTo.push([x, y]); }, stroke() { calls.stroke += 1; },
+  };
+  const points = [
+    { bucketEpoch: 0, gpuUtilPercent: 10 },
+    { bucketEpoch: 300, gpuUtilPercent: 0, imputed: true },
+    { bucketEpoch: 600, gpuUtilPercent: 80 },
+  ];
+  context.drawHistoryLine(canvas, points, { field: "gpuUtilPercent", color: "#2563EB", dash: [], focus: "util" }, 0, 600, { left: 0, top: 0 }, 600, 100, "", 300);
+  assert.equal(calls.stroke, 2);
+  assert.deepEqual(calls.lineTo, calls.moveTo);
 });
