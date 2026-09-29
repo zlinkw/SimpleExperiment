@@ -133,6 +133,34 @@ test("a finished submission does not mark missing configured jobs complete", () 
   assert.equal(summary.totalCount, 3);
 });
 
+test("latest successful retry supersedes an older failure for the same job", () => {
+  const sandbox = selectorSandbox();
+  const state = {
+    plans: [{ file: "plans/retry.yaml", revision: "r1", jobCount: 1 }],
+    tasks: [
+      { planFile: "plans/retry.yaml", planRevision: "r1", experimentIndex: 0, attempt: 1, status: "failed" },
+      { planFile: "plans/retry.yaml", planRevision: "r1", experimentIndex: 0, attempt: 2, status: "completed" },
+    ],
+  };
+  const summary = sandbox.selector.summary(state, "plans/retry.yaml");
+  assert.equal(summary.status, "completed");
+  assert.equal(summary.completedCount, 1);
+  assert.equal(summary.totalCount, 1);
+});
+
+test("current distributed jobs outrank stale scheduler history", () => {
+  const sandbox = selectorSandbox();
+  const state = {
+    plans: [{ file: "plans/retry.yaml", revision: "r1", jobCount: 1 }],
+    tasks: [{ planFile: "plans/retry.yaml", planRevision: "r1", experimentIndex: 0, attempt: 1, status: "failed" }],
+    distributedPlans: [{ planFile: "plans/retry.yaml", planRevision: "r1", jobs: [{ index: 0, attempt: 2, status: "completed" }] }],
+  };
+  const summary = sandbox.selector.summary(state, "plans/retry.yaml");
+  assert.equal(summary.status, "completed");
+  assert.equal(summary.completedCount, 1);
+  assert.equal(summary.totalCount, 1);
+});
+
 test("search and status filters keep the selected Plan available", () => {
   const sandbox = selectorSandbox();
   const state = {

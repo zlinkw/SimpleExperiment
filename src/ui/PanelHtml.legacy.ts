@@ -9196,6 +9196,27 @@ export function renderPanelHtml(): string {
       planSelectorStatusIndexValue = value;
       return value;
     }
+    function planSelectorLatestJobRows(rows) {
+      const latestByIndex = new Map();
+      const withoutIndex = [];
+      asArray(rows).forEach((row, order) => {
+        const rawIndex = (row || {}).experimentIndex ?? (row || {}).jobIndex ?? (row || {}).index;
+        const index = Number(rawIndex);
+        if (rawIndex === undefined || rawIndex === null || String(rawIndex).trim() === "" || !Number.isInteger(index) || index < 0) {
+          withoutIndex.push(row);
+          return;
+        }
+        const previous = latestByIndex.get(index);
+        const attempt = Number((row || {}).attempt);
+        const time = Date.parse(String((row || {}).updatedAt || (row || {}).startedAt || ""));
+        const rank = { row, order, attempt: Number.isFinite(attempt) ? attempt : -1, time: Number.isFinite(time) ? time : -1 };
+        if (!previous || rank.attempt > previous.attempt
+          || rank.attempt === previous.attempt && (rank.time > previous.time || rank.time === previous.time && order > previous.order)) {
+          latestByIndex.set(index, rank);
+        }
+      });
+      return [...latestByIndex.values()].sort((left, right) => left.order - right.order).map((item) => item.row).concat(withoutIndex);
+    }
     function planSelectorRunSummary(state, planFile, statusIndex) {
       const data = state || {};
       const index = statusIndex || planSelectorStatusIndex(data);
@@ -9203,11 +9224,11 @@ export function renderPanelHtml(): string {
       const plan = entry ? entry.plan : (planFromContext(data, { planFile }) || {});
       const revision = entry ? entry.revision : String(plan.revision || "");
       const planUpdatedAt = entry ? entry.updatedAt : Date.parse(String(plan.updatedAt || ""));
-      const tasks = entry ? entry.tasks : planVersionTaskRows(data, planFile, revision, planUpdatedAt);
+      const tasks = planSelectorLatestJobRows(entry ? entry.tasks : planVersionTaskRows(data, planFile, revision, planUpdatedAt));
       const operations = entry ? entry.operations : planVersionOperationRows(data, planFile, revision, planUpdatedAt);
       const distributedPlans = entry ? entry.distributedPlans : [];
-      const distributedJobs = distributedPlans.flatMap((row) => asArray((row || {}).jobs).map((job) => Object.assign({ planFile, planRevision: (row || {}).planRevision || (row || {}).revision }, job || {})));
-      const countRows = tasks.length ? tasks : distributedJobs;
+      const distributedJobs = planSelectorLatestJobRows(distributedPlans.flatMap((row) => asArray((row || {}).jobs).map((job) => Object.assign({ planFile, planRevision: (row || {}).planRevision || (row || {}).revision }, job || {}))));
+      const countRows = distributedJobs.length ? distributedJobs : tasks;
       const taskStatuses = tasks.map((row) => taskStatusToken((row || {}).status));
       const completedCount = taskStatuses.filter((status) => ["completed", "done", "archived"].includes(status)).length;
       const failedCount = taskStatuses.filter((status) => taskFailureLikeStatus(status)).length;
@@ -9231,10 +9252,10 @@ export function renderPanelHtml(): string {
       const latestRun = runOperations.reduce((latest, row) => !latest || operationAtOrAfter(row, latest) ? row : latest, null);
       const latestRunSucceeded = operationSucceeded(latestRun);
       const latestRunFailed = operationIsFailureLike((latestRun || {}).status || (latestRun || {}).state);
-      const shownCompletedCount = tasks.length ? completedCount : distributedCompleted;
-      const shownFailedCount = tasks.length ? failedCount : distributedFailed;
-      const shownActiveCount = tasks.length ? activeCount : distributedActive;
-      const shownQueuedCount = tasks.length ? queuedCount : distributedQueued;
+      const shownCompletedCount = distributedJobs.length ? distributedCompleted : completedCount;
+      const shownFailedCount = distributedJobs.length ? distributedFailed : failedCount;
+      const shownActiveCount = distributedJobs.length ? distributedActive : activeCount;
+      const shownQueuedCount = distributedJobs.length ? distributedQueued : queuedCount;
       const allTasksCompleted = countRows.length > 0 && totalCount > 0 && shownCompletedCount >= totalCount;
       let status = "not-started";
       if (shownFailedCount || failedOperation || latestRunFailed) status = "failed";
@@ -13583,8 +13604,13 @@ export function renderPanelHtml(): string {
       };
       const folded = items.filter((item) => collapsedExecutionPlanKeys.has(item.key));
       const openItems = items.filter((item) => !collapsedExecutionPlanKeys.has(item.key));
-      const completedHistory = openItems.filter((item) => item.tone === "completed");
-      const currentItems = openItems.filter((item) => item.tone !== "completed");
+      const quietCompleted = (item) => {
+        const stopClear = stopClearForPlan(item.planFile);
+        return item.tone === "completed" && (!stopClear || stopClearNewerThan(item, stopClear)
+          || String(stopClear.outcome || "") === "completed");
+      };
+      const completedHistory = openItems.filter(quietCompleted);
+      const currentItems = openItems.filter((item) => !quietCompleted(item));
       const foldRow = (group) => {
         const totalJobs = (group.currentJobs || []).length;
         const statusText = group.statusText;
@@ -17146,6 +17172,7 @@ function projectSectionNextAction(status, label, section, anchor, options) {
         runKey: pick(row, ["runKey", "run_key", "runId", "run_id", "jobId", "job_id", "taskId", "task_id", "id", "experimentId", "experiment_id", "global_job_id", "session"], "-"),
         experimentId,
         experimentIndex,
+        attempt: pick(row, ["attempt", "attemptIndex", "attempt_index"], ""),
         archiveKey,
         actionArchiveKey: firstPathLike(artifactPath, resultPath, archiveKey) || firstText(archiveKey, experimentId),
         artifactPath,
