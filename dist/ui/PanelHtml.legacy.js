@@ -8148,6 +8148,8 @@ function renderPanelHtml() {
             '<span class="pill">TTL ' + esc(configDefault(scheduler.workerStatusTtlSeconds, 180)) + 's</span>' +
           '</div></div>' +
           '<div class="configGrid">' +
+            configSelect("scheduler", "dispatchMode", "Plan 调度模式", scheduler.dispatchMode || "local_idle", [["local_idle", "本机按空卡派发（默认）"], ["server_prequeue", "预派发到服务器队列（可关机）"]]) +
+            '<div class="muted">模式仅影响新提交的 Plan。预派发按空卡与本人占用卡计算比例；关机前确认所有任务已进入服务器队列。重连后读取所有服务器状态；指标文件仍需手动同步。</div>' +
             configInput("scheduler", "pollSeconds", "调度轮询基准(秒)", configDefault(scheduler.pollSeconds, 60), "number") +
             configInput("scheduler", "jitterSeconds", "正向随机抖动(秒)", configDefault(scheduler.jitterSeconds, 30), "number") +
             configInput("scheduler", "workerStatusTtlSeconds", "可用性缓存 TTL(秒)", configDefault(scheduler.workerStatusTtlSeconds, 180), "number") +
@@ -13275,6 +13277,8 @@ function renderPanelHtml() {
         if (previous && incoming > previous) group.distributedJobs = [];
         group.distributedEnqueuedAt = incoming || previous;
         group.distributedRecovery = recovery;
+        group.schedulingMode = plan.schedulingMode || "local_idle";
+        group.remoteAcceptedJobCount = Number(plan.remoteAcceptedJobCount || 0);
         jobs.forEach((job) => group.distributedJobs.push({ ...job, enqueuedAt: plan.enqueuedAt, planId: plan.id }));
       });
       (Array.isArray(state && state.deferredPlans) ? state.deferredPlans : []).forEach((plan) => {
@@ -13319,22 +13323,32 @@ function renderPanelHtml() {
         const blockedCount = currentJobs.filter((job) => String(job.status || "") === "pending" && fingerprintBlocked(job)).length;
         const blockedOnly = currentJobs.length > 0 && blockedCount === currentJobs.filter((job) => String(job.status || "") === "pending" || ["dispatching", "queued", "running", "unknown"].includes(String(job.status || ""))).length && blockedCount > 0 && !currentJobs.some((job) => ["dispatching", "queued", "running", "unknown", "failed"].includes(String(job.status || "")));
         const queued = currentJobs.filter((job) => ["pending", "queued"].includes(String(job.status || "")) && !fingerprintBlocked(job)).length;
-        const running = currentJobs.length ? currentJobs.filter((job) => ["running", "dispatching"].includes(String(job.status || ""))).length
+        const unknown = currentJobs.filter((job) => String(job.status || "") === "unknown").length;
+        const dispatching = currentJobs.filter((job) => String(job.status || "") === "dispatching").length;
+        const running = currentJobs.length ? currentJobs.filter((job) => String(job.status || "") === "running").length
           : submission ? 1 : group.tasks.filter((row) => TASK_LIVE_STATUS_TOKENS?.has(taskStatusToken(row.status))).length;
         const deferredView = deferredCurrent ? executionDeferredView(group.deferredStatus) : null;
         const waitingSubmission = submission && submission.localSubmissionProgress === true && String(submission.status || "").toLowerCase() === "queued";
-        const tone = submission ? (waitingSubmission ? "blocked" : "running") : deferredView ? deferredView.tone : running ? "running" : queued ? "queued" : failed ? "failed" : blockedOnly || recovery.unresolved ? "blocked" : active ? "running" : "completed";
+        const tone = submission ? (waitingSubmission ? "blocked" : "running") : deferredView ? deferredView.tone : unknown || recovery.unresolved ? "blocked" : running || dispatching ? "running" : queued ? "queued" : failed ? "failed" : blockedOnly ? "blocked" : active ? "blocked" : "completed";
         const completed = currentJobs.length ? currentJobs.filter((job) => String(job.status || "") === "completed").length
           : submission || deferredCurrent ? 0
           : group.tasks.filter((row) => TASK_TERMINAL_STATUSES?.has(taskStatusToken(row.status)) && !taskFailureLikeStatus(row.status)).length;
         const label = group.planFile ? planBaseName(group.planFile) : "未关联 Plan 的操作";
         const totalJobs = Math.max(currentJobs.length, !submission && !deferredCurrent ? recovery.expectedJobCount : 0) || (!submission && !deferredCurrent ? group.tasks.length : 0);
         const failedJobs = currentJobs.filter((job) => String(job.status || "") === "failed").length;
+        const cancelledJobs = currentJobs.filter((job) => String(job.status || "") === "cancelled").length;
         const successRate = totalJobs ? Math.round(completed * 100 / totalJobs) : 0;
-        const statusText = submission ? executionSubmissionLabel(submission) : deferredView ? deferredView.statusText : recovery.unresolved ? "待核实" : tone === "blocked" ? "阻塞" : tone === "queued" ? "排队" : tone === "running" ? "运行中" : tone === "failed" ? "失败" : currentJobs.length ? "已完成" : "已结束";
-        const countText = submission ? (statusText + " · 待生成 job") : deferredView ? deferredView.countText : totalJobs
+        const statusText = submission ? executionSubmissionLabel(submission) : deferredView ? deferredView.statusText : unknown || recovery.unresolved ? "待核实" : tone === "blocked" ? "阻塞" : tone === "queued" ? "排队" : running ? "运行中" : dispatching ? "派发中" : tone === "failed" ? "失败" : cancelledJobs === totalJobs && totalJobs ? "已中止" : cancelledJobs ? "已结束" : currentJobs.length ? "已完成" : "已结束";
+        let countText = submission ? (statusText + " · 待生成 job") : deferredView ? deferredView.countText : totalJobs
           ? ("成功 " + completed + "/" + totalJobs + " · " + successRate + "%" + (running ? " · 运行 " + running : "") + (queued ? " · 排队 " + queued : "") + (blockedCount ? " · 阻塞 " + blockedCount : "") + (failedJobs ? " · 失败 " + failedJobs : "") + (recovery.missingCount ? " · 待核实 " + recovery.missingCount : "") + (recovery.conflict ? " · 服务器状态冲突" : ""))
           : ("操作 " + group.operations.length);
+        if (group.schedulingMode === "server_prequeue" && currentJobs.length) {
+          countText += " · 服务器接收 " + group.remoteAcceptedJobCount + "/" + totalJobs;
+          countText += !unknown && !recovery.unresolved && group.remoteAcceptedJobCount === totalJobs
+            ? " · 已托管，可关机" : " · 尚未完整确认托管";
+        }
+        if (dispatching) countText += " · 派发 " + dispatching;
+        if (unknown > recovery.missingCount) countText += " · 待核实 " + unknown;
         const stamp = [...group.operations, ...group.tasks, ...currentJobs].reduce((latest, row) => Math.max(latest, Date.parse(row.updatedAt || row.startedAt || row.finishedAt || row.enqueuedAt || "") || 0), 0);
         return { ...group, currentJobs, tone, active, distributedActive, blockedOnly, blockedCount, queued, completed, running, submitting: !!submission, waitingSubmission, deferredCurrent, statusText, countText, failedJobs, label, stamp };
       });
@@ -13380,8 +13394,8 @@ function renderPanelHtml() {
           const status = String(job.status || "unknown");
           const blocked = status === "pending" && fingerprintBlocked(job);
           const jobActive = ["pending", "dispatching", "queued", "running", "unknown"].includes(status) && !blocked;
-          const statusLabel = blocked ? (String(job.blockReason || "").indexOf("等待当前代码版本") === 0 ? "等待代码版本" : "代码版本不匹配") : ({ pending: "排队", dispatching: "派发中", running: "运行中", completed: "已完成", failed: "失败", unknown: "待核实" }[status] || status);
-          const placement = job.workerId ? job.workerId + (job.gpuId === undefined ? "" : " · GPU " + job.gpuId) : "待分配";
+          const statusLabel = blocked ? (String(job.blockReason || "").indexOf("等待当前代码版本") === 0 ? "等待代码版本" : "代码版本不匹配") : ({ pending: "本机等待空卡", queued: "服务器排队", dispatching: "派发中", running: "运行中", completed: "已完成", failed: "失败", cancelled: "已中止", unknown: "待核实" }[status] || status);
+          const placement = job.workerId ? job.workerId + (job.gpuId == null || job.gpuId === "" ? "" : " · GPU " + job.gpuId) : "未派发";
           const logPath = String(job.logPath || "");
           const outputDir = String(job.outputDir || "");
           const trainLogPath = outputDir.endsWith("/") ? outputDir + "train.log" : outputDir + "/train.log";

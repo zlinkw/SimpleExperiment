@@ -314,9 +314,27 @@ test("queue-only deferred Plan, current success counts, and manual fold survive 
   assert.match(restored.html, /queued.yaml/);
   const cardHead = sandbox.html.slice(sandbox.html.indexOf("executionPlanCard"), sandbox.html.indexOf("详情与日志"));
   assert.match(cardHead, /折叠此 Plan/);
-  assert.doesNotMatch(cardHead, /stopAndClearPlan|clearOperations|选中 Plan/);
+  assert.match(cardHead, /stopAndClearPlan/);
+  assert.doesNotMatch(cardHead, /clearOperations|选中 Plan/);
   assert.match(sandbox.html, /data-command="stopAndClearPlan"/);
   assert.match(sandbox.html, /data-command="clearOperations"/);
+});
+
+test("server unknown never renders running, hosted readiness requires all confirmed jobs, cancellation remains cancellation", () => {
+  const sandbox = clickSandbox();
+  const plan = { id: "server-plan", planFile: "plans/authority.yaml", schedulingMode: "server_prequeue",
+    enqueuedAt: "2026-09-29T12:00:00Z", planJobCount: 2, remoteAcceptedJobCount: 2,
+    jobs: [{ index: 0, case: "bus", seed: 42, status: "completed", workerId: "nwpu3" },
+      { index: 1, case: "pad", seed: 42, status: "unknown", workerId: "nwpu5" }] };
+  sandbox.render({ distributedPlans: [plan] });
+  assert.match(sandbox.html, />待核实</); assert.match(sandbox.html, /尚未完整确认托管/);
+  assert.doesNotMatch(sandbox.html, />运行中<|已托管，可关机/);
+  plan.jobs[1].status = "queued";
+  sandbox.render({ distributedPlans: [plan] });
+  assert.match(sandbox.html, /服务器排队/); assert.match(sandbox.html, /已托管，可关机/);
+  plan.jobs.forEach((job) => { job.status = "cancelled"; });
+  sandbox.render({ distributedPlans: [plan] });
+  assert.match(sandbox.html, />已中止</); assert.doesNotMatch(sandbox.html, />已完成</);
 });
 
 test("newer active preflight replaces an older completed run until the new run exists", () => {

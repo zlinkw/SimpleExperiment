@@ -309,16 +309,16 @@ test("a new completion also repairs a stale shared preview on every Worker", asy
   assert.deepEqual(Array.from(queue.previewWorkerIds), ["w3", "w2"]);
 });
 
-test("durable admission requires a fresh capable ledger and leaves GPU selection to the Worker", () => {
+test("durable local admission requires a fresh capable ledger and an explicit idle GPU", () => {
   const start = source.indexOf("const durableQueue = queue.plans.some");
   const end = source.indexOf("const retiredDeferred =", start);
   assert.ok(start >= 0 && end > start);
   const admission = source.slice(start, end);
-  assert.match(admission, /snapshot\.capabilities\?\.durablePlanQueue === true/);
-  assert.match(admission, /Number\(snapshot\.capabilities\?\.schemaVersion\) === 1/);
-  assert.match(admission, /workerFingerprint !== plan\.codeFingerprint/);
-  assert.match(admission, /sendDistributedJob\(plan, job, job\.workerId, undefined, job\.commandId\)/);
-  assert.doesNotMatch(admission, /allocateAvailable/);
+  assert.match(admission, /DistributedPlanQueue\.hasFreshDurableSnapshot\(snapshot\)/);
+  assert.match(admission, /snapshot\?\.capabilities\?\.idleGpuAdmission === true/);
+  assert.match(admission, /codeFingerprint: workerFingerprint/);
+  assert.match(admission, /sendDistributedJob\(plan, job, dispatch\.workerId, gpuId, dispatch\.commandId\)/);
+  assert.match(admission, /allocateAvailable\(queue, workers, \{ requireIdleGpuAdmission: true, localIdleOnly: true \}\)/);
   assert.doesNotMatch(source.slice(source.indexOf("async tickDistributedQueueCore("), source.indexOf("async syncDistributedJobArtifacts(")),
     /catch\s*\{\s*snapshot\s*=\s*this\.lastRealtimeState\?\.gpu/);
 });
@@ -448,6 +448,7 @@ function loadTickQueue() {
   assert.ok(start >= 0 && end > start);
   const context = {
     workspaceRoot: () => "C:/project", DistributedPlanQueue: loadSourceModule("src/features/DistributedPlanQueue.ts"),
+    DistributedSchedulingPolicy: require("../../dist/features/DistributedSchedulingPolicy.js"),
     mapLimited: async (items, _limit, fn) => Promise.all(items.map(fn)),
     Object, Set, Map, Date, JSON, setInterval, clearInterval, errorMessage: String,
     actionErrorSuggestion: (message) => String(message || ""),
@@ -478,6 +479,7 @@ test("mixed durable and legacy queues reconcile old completion and fence missing
     lastCodeSyncState: { workerVersions: { "worker-a": { fingerprint: "code" } } },
     isRealtimeMode: () => true, projectTopologyAssessment: () => ({ mode: "worker_pool" }),
     workerCodeSyncTargets: () => [], workerActionTargets: () => [{ id: "worker-a" }],
+    enabledWorkerConfigs: () => [], schedulerSettings: () => ({}), gpuOwnerConfig: () => ({}),
     loadDistributedQueue: async () => queue, saveDistributedQueue: async (_root, next) => { queue = next; },
     readWorkerTaskSnapshot: async () => ({ workerId: "worker-a", capabilities: { durablePlanQueue: true, schemaVersion: 1 },
       generatedAt: new Date().toISOString(), fetchedAt: new Date().toISOString(), tasks: [

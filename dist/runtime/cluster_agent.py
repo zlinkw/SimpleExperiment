@@ -7,9 +7,9 @@ from urllib.parse import urlparse, parse_qs, unquote
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.181"
-RUNTIME_VERSION = "0.5.181"
-PLUGIN_VERSION = "0.5.181"
+AGENT_VERSION = "0.5.182"
+RUNTIME_VERSION = "0.5.182"
+PLUGIN_VERSION = "0.5.182"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -2425,7 +2425,8 @@ def durable_plan_identity(command):
 def durable_plan_public_task(row):
     public = {**durable_plan_identity(row), "planJobCount": row.get("planJobCount"),
               "enqueuedAt": row.get("enqueuedAt"), "status": str(row.get("status") or "unknown").lower(),
-              "durableAccepted": True, "acceptedAt": row.get("acceptedAt"), "gpuId": row.get("gpuId") or ""}
+              "durableAccepted": True, "acceptedAt": row.get("acceptedAt"), "gpuId": row.get("gpuId") or "",
+              "schedulingMode": row.get("schedulingMode") or "local_idle"}
     for key in ("finishedAt", "cancelledAt", "stopReason", "error", "exitCode", "identityConflict", "lastDispatchResult"):
         if row.get(key) is not None:
             public[key] = row.get(key)
@@ -2433,6 +2434,90 @@ def durable_plan_public_task(row):
 
 def durable_plan_same_identity(left, right):
     return durable_plan_identity(left) == durable_plan_identity(right)
+
+def _durable_gpu_busy_reason(root, gpu_id, command_id, gpus=None, util_threshold=None, mem_threshold=None,
+                             max_concurrent_gpus=None):
+    gpu_id = str(gpu_id or "").strip()
+    if not gpu_id:
+        return "gpu_busy"
+    try:
+        util_threshold = float(GPU_IDLE_UTIL_THRESHOLD if util_threshold is None else util_threshold)
+        mem_threshold = float(GPU_IDLE_MEM_THRESHOLD_MB if mem_threshold is None else mem_threshold)
+        if not math.isfinite(util_threshold) or not math.isfinite(mem_threshold) or util_threshold < 0 or mem_threshold < 0:
+            raise ValueError("invalid GPU idle threshold")
+    except (TypeError, ValueError):
+        raise ValueError("GPU idle thresholds must be finite nonnegative numbers")
+    if gpus is None:
+        gpus, error = collect_local_gpu()
+        if error:
+            return "gpu_busy"
+    if DISTRIBUTED_GPU_RESERVATIONS.get(gpu_id) not in (None, command_id):
+        return "gpu_busy"
+    tasks = read_json(path_for(root, "worker_task_snapshot.json"), {})
+    task_rows = tasks.get("tasks") if isinstance(tasks, dict) and isinstance(tasks.get("tasks"), list) else []
+    if any(isinstance(item, dict) and str(item.get("gpuId") or "") == gpu_id
+           and str(item.get("commandId") or "") != command_id
+           and str(item.get("status") or "").lower() in ("running", "dispatching", "unknown") for item in task_rows):
+        return "gpu_busy"
+    queue = read_durable_plan_queue(root)
+    occupied_gpu_ids = {str(key) for key, owner in DISTRIBUTED_GPU_RESERVATIONS.items()
+                        if str(key) and str(owner) != command_id}
+    occupied_gpu_ids.update(str(item.get("gpuId")) for item in task_rows if isinstance(item, dict)
+                            and item.get("gpuId") not in (None, "")
+                            and str(item.get("status") or "").lower() in ("running", "dispatching", "unknown")
+                            and str(item.get("commandId") or "") != command_id)
+    occupied_gpu_ids.update(str(item.get("gpuId")) for item in queue.get("jobs", []) if isinstance(item, dict)
+                            and item.get("gpuId") not in (None, "")
+                            and (str(item.get("status") or "").lower() in ("dispatching", "running", "unknown")
+                                 or str(item.get("status") or "").lower() == "queued" and item.get("requireIdleGpu") is True)
+                            and str(item.get("commandId") or "") != command_id)
+    try:
+        cap_text = str(max_concurrent_gpus or "").strip().lower()
+        cap = 0 if cap_text in ("", "auto") else int(max_concurrent_gpus)
+    except (TypeError, ValueError):
+        raise ValueError("maxConcurrentGpus must be a nonnegative integer or auto")
+    if cap < 0:
+        raise ValueError("maxConcurrentGpus must be a nonnegative integer or auto")
+    if cap > 0 and len(occupied_gpu_ids) >= cap:
+        return "gpu_busy"
+    if any(isinstance(item, dict) and str(item.get("gpuId") or "") == gpu_id
+           and str(item.get("commandId") or "") != command_id
+           and (str(item.get("status") or "").lower() in ("dispatching", "running", "unknown")
+                or str(item.get("status") or "").lower() == "queued" and item.get("requireIdleGpu") is True)
+           for item in queue.get("jobs", [])):
+        return "gpu_busy"
+    gpu = next((item for item in gpus if gpu_row_id(item) == gpu_id), None)
+    if gpu is None:
+        return "gpu_busy"
+    process_list = gpu.get("processes") if "processes" in gpu else gpu.get("procs") if "procs" in gpu else None
+    if gpu.get("processes") or gpu.get("procs"):
+        return "gpu_busy"
+    process_count = gpu.get("processCount") if "processCount" in gpu else gpu.get("process_count")
+    trusted_processes = isinstance(process_list, list) or process_count is not None
+    util_keys = ("utilizationPercent", "utilization", "gpu_util", "utilizationGpu", "utilization_gpu", "gpuUtilPercent", "gpu_util_percent", "gpuUtil", "util")
+    mem_keys = ("memoryUsedMb", "memory_used_mb", "memoryUsed", "memory_used", "used", "usedMemoryMb", "used_memory_mb", "memUsedMb", "usedMb", "mem_used_mb")
+    def has_finite_metric(keys):
+        for key in keys:
+            try:
+                value = float(gpu.get(key))
+                if gpu.get(key) is not None and math.isfinite(value) and value >= 0:
+                    return True
+            except (TypeError, ValueError):
+                pass
+        return False
+    has_metrics = has_finite_metric(util_keys) and has_finite_metric(mem_keys)
+    if not has_metrics or not trusted_processes:
+        return "gpu_busy"
+    try:
+        if process_count is not None and int(process_count) < 0:
+            return "gpu_busy"
+        if process_count is not None and int(process_count) > 0:
+            return "gpu_busy"
+    except (TypeError, ValueError):
+        return "gpu_busy"
+    if gpu_row_busy(gpu, util_threshold=util_threshold, mem_threshold=mem_threshold):
+        return "gpu_busy"
+    return ""
 
 def accept_durable_plan_job(root, command, worker_id):
     identity = durable_plan_identity(command)
@@ -2465,6 +2550,10 @@ def accept_durable_plan_job(root, command, worker_id):
     identity["planFile"] = plan_file
     identity["outputDir"] = output_dir
     options = command.get("options") if isinstance(command.get("options"), dict) else {}
+    require_idle_gpu = command.get("requireIdleGpu") is True or options.get("requireIdleGpu") is True
+    requested_gpu = str(command.get("gpuId") or options.get("gpuId") or "").strip()
+    if require_idle_gpu and not requested_gpu:
+        raise ValueError("requireIdleGpu admission requires an explicit gpuId")
     enqueued_at = str(command.get("enqueuedAt") or options.get("enqueuedAt") or now_iso())
     with WORKER_TASK_SNAPSHOT_LOCK:
         data = read_durable_plan_queue(root)
@@ -2474,17 +2563,56 @@ def accept_durable_plan_job(root, command, worker_id):
                 raise ValueError("commandId 已绑定到不同的 Plan job 身份")
             status = str(old.get("status") or "unknown")
             return {**durable_plan_identity(old), "planJobCount": old.get("planJobCount"), "enqueuedAt": old.get("enqueuedAt"),
-                    "status": status, "durableAccepted": True, "message": "Agent 已持久接收该 job"}
+                    "gpuId": old.get("gpuId") or "", "status": status, "durableAccepted": True,
+                    "message": "Agent 已持久接收该 job"}
+        if require_idle_gpu:
+            try:
+                gpus, gpu_error = collect_local_gpu()
+            except Exception:
+                gpus, gpu_error = [], "unavailable"
+            util_threshold = command.get("gpuIdleUtilThreshold", options.get("gpuIdleUtilThreshold", options.get("gpu_idle_util_threshold")))
+            mem_threshold = command.get("gpuIdleMemThresholdMb", options.get("gpuIdleMemThresholdMb", options.get("gpu_idle_mem_threshold")))
+            max_concurrent_gpus = command.get("maxConcurrentGpus", options.get("maxConcurrentGpus"))
+            reason = gpu_error or _durable_gpu_busy_reason(root, requested_gpu, identity["commandId"], gpus,
+                                                          util_threshold=util_threshold, mem_threshold=mem_threshold,
+                                                          max_concurrent_gpus=max_concurrent_gpus)
+            if reason:
+                return {**identity, "planJobCount": count, "gpuId": requested_gpu, "status": "pending",
+                        "durableAccepted": False, "admissionRejected": True, "reason": "gpu_busy",
+                        "message": "指定 GPU 当前繁忙，任务未持久接收"}
         row = dict(command)
         row.update(identity)
         row.update({"schemaVersion": 1, "planJobCount": count, "enqueuedAt": enqueued_at,
-                    "workerId": str(worker_id), "status": "queued", "acceptedAt": now_iso(), "gpuId": ""})
+                    "workerId": str(worker_id), "status": "queued", "acceptedAt": now_iso(),
+                    "requireIdleGpu": require_idle_gpu, "gpuId": requested_gpu if require_idle_gpu else ""})
         data["schemaVersion"] = 1
         data["jobs"].append(row)
         write_durable_plan_queue(root, data)
+        if require_idle_gpu:
+            DISTRIBUTED_GPU_RESERVATIONS[requested_gpu] = identity["commandId"]
     append_event(root, {"type": "distributed_plan_job_accepted", "workerId": worker_id,
                         "operationId": identity["commandId"], "payload": {**identity, "planJobCount": count, "enqueuedAt": enqueued_at}})
-    return {**identity, "planJobCount": count, "enqueuedAt": enqueued_at, "status": "queued",
+    if require_idle_gpu:
+        try:
+            drain_durable_plan_queue_once(root, worker_id, target_command_id=identity["commandId"])
+        except Exception:
+            pass
+        latest = read_durable_plan_queue(root)
+        current = next((item for item in latest["jobs"] if isinstance(item, dict)
+                        and str(item.get("commandId") or "") == identity["commandId"]), None)
+        if current and str(current.get("status") or "queued").lower() == "queued":
+            fence_queued_idle_gpu_admission(root, current,
+                "Immediate idle-GPU dispatch did not claim the accepted job; reconciliation required")
+            latest = read_durable_plan_queue(root)
+            current = next((item for item in latest["jobs"] if isinstance(item, dict)
+                            and str(item.get("commandId") or "") == identity["commandId"]), None)
+        if current and str(current.get("status") or "queued").lower() != "queued":
+            return {**durable_plan_identity(current), "planJobCount": current.get("planJobCount"),
+                    "enqueuedAt": current.get("enqueuedAt"), "gpuId": current.get("gpuId") or requested_gpu,
+                    "status": str(current.get("status") or "unknown").lower(), "durableAccepted": True,
+                    "message": "Agent 已持久接收该 job，当前状态：" + str(current.get("status") or "unknown").lower()}
+    return {**identity, "planJobCount": count, "enqueuedAt": enqueued_at,
+            "gpuId": requested_gpu if require_idle_gpu else "", "status": "queued",
             "durableAccepted": True, "message": "Agent 已持久接收该 job"}
 
 def cancel_durable_plan_job(root, command):
@@ -2511,6 +2639,77 @@ def cancel_durable_plan_job(root, command):
                    "status": "cancelled", "finishedAt": cancelled_at, "stopReason": "user_cancel", "gpuId": ""}
     append_worker_task(root, {**receipt, "schemaVersion": SCHEMA_VERSION})
     append_event(root, {"type": "distributed_plan_job_cancelled", "workerId": receipt["workerId"],
+                        "operationId": target, "payload": receipt})
+    return receipt
+
+def requeue_durable_plan_job(root, command):
+    target = str(command.get("targetCommandId") or command.get("commandIdTarget") or "").strip()
+    if not target:
+        return None
+    requested = dict(command)
+    requested["commandId"] = target
+    identity = durable_plan_identity(requested)
+    count = durable_plan_value(command, "planJobCount")
+    missing = [key for key in DURABLE_PLAN_IDENTITY_FIELDS if identity.get(key) in (None, "")]
+    if count in (None, ""):
+        missing.append("planJobCount")
+    if missing:
+        raise ValueError("待重新排队任务缺少完整身份：" + ",".join(missing))
+    with WORKER_TASK_SNAPSHOT_LOCK:
+        data = read_durable_plan_queue(root)
+        row = next((item for item in data["jobs"] if isinstance(item, dict) and str(item.get("commandId") or "") == target), None)
+        if row:
+            if (not durable_plan_same_identity(row, identity) or int(row.get("planJobCount") or 0) != count
+                    or str(row.get("gpuId") or "") != str(command.get("gpuId") or "")):
+                raise ValueError("重新排队请求身份与持久队列 job 不匹配")
+            status = str(row.get("status") or "unknown").lower()
+            if status == "cancelled" and str(row.get("stopReason") or "") == "requeue":
+                return {**durable_plan_identity(row), "planJobCount": row.get("planJobCount"),
+                        "gpuId": row.get("gpuId") or "", "status": "cancelled", "stopReason": "requeue",
+                        "durableAccepted": True, "durableReleased": True}
+            if status != "queued":
+                return {**durable_plan_identity(row), "planJobCount": row.get("planJobCount"),
+                        "gpuId": row.get("gpuId") or "", "status": status,
+                        "durableAccepted": True, "durableReleased": False}
+            snapshot = read_json(path_for(root, "worker_task_snapshot.json"), {})
+            tasks = snapshot.get("tasks") if isinstance(snapshot, dict) and isinstance(snapshot.get("tasks"), list) else []
+            started = next((item for item in tasks if isinstance(item, dict)
+                            and str(item.get("commandId") or item.get("operationId") or "") == target), None)
+            if started and (not durable_plan_same_identity(row, started)
+                            or str(row.get("gpuId") or "") != str(started.get("gpuId") or "")):
+                return {**durable_plan_identity(row), "planJobCount": row.get("planJobCount"),
+                        "gpuId": row.get("gpuId") or "", "status": "unknown",
+                        "durableAccepted": True, "durableReleased": False, "identityConflict": True}
+            if started and durable_plan_value(started, "planJobCount") != count:
+                return {**durable_plan_identity(row), "planJobCount": row.get("planJobCount"),
+                        "gpuId": row.get("gpuId") or "", "status": "unknown",
+                        "durableAccepted": True, "durableReleased": False, "identityConflict": True}
+            if started and str(started.get("status") or "").lower() != "queued":
+                return {**durable_plan_identity(row), "planJobCount": row.get("planJobCount"),
+                        "gpuId": row.get("gpuId") or "", "status": str(started.get("status") or "unknown").lower(),
+                        "durableAccepted": True, "durableReleased": False}
+            at = now_iso()
+            row.update({"status": "cancelled", "cancelledAt": at, "finishedAt": at, "stopReason": "requeue",
+                        "cancelCommandId": str(command.get("commandId") or command.get("operationId") or "")})
+            release_distributed_gpu_reservation(str(row.get("gpuId") or ""), target)
+            write_durable_plan_queue(root, data)
+            receipt = {**durable_plan_identity(row), "planJobCount": row.get("planJobCount"),
+                       "enqueuedAt": row.get("enqueuedAt"), "gpuId": row.get("gpuId") or "",
+                       "status": "cancelled", "stopReason": "requeue", "durableAccepted": True,
+                       "durableReleased": True, "finishedAt": at}
+        else:
+            snapshot = read_json(path_for(root, "worker_task_snapshot.json"), {})
+            tasks = snapshot.get("tasks") if isinstance(snapshot, dict) and isinstance(snapshot.get("tasks"), list) else []
+            actual = next((item for item in tasks if isinstance(item, dict)
+                           and str(item.get("commandId") or item.get("operationId") or "") == target), None)
+            if actual and (not durable_plan_same_identity(actual, identity)
+                           or str(actual.get("gpuId") or "") != str(command.get("gpuId") or "")):
+                raise ValueError("重新排队请求身份与当前 Worker task 不匹配")
+            return {**identity, "planJobCount": count, "gpuId": (actual or {}).get("gpuId") or "",
+                    "status": str((actual or {}).get("status") or "unknown").lower(),
+                    "durableAccepted": bool(actual), "durableReleased": False}
+    append_worker_task(root, {**receipt, "schemaVersion": SCHEMA_VERSION})
+    append_event(root, {"type": "distributed_plan_job_released", "workerId": receipt["workerId"],
                         "operationId": target, "payload": receipt})
     return receipt
 
@@ -2587,12 +2786,32 @@ def sync_durable_plan_task_rows(root):
             mapped = durable_plan_task_status(task)
             if mapped and mapped != old_status:
                 row.update({"status": mapped, "updatedAt": now_iso()})
+                for key in ("finishedAt", "exitCode", "error", "logPath", "cancelledAt", "stopReason"):
+                    if task.get(key) is not None:
+                        row[key] = task[key]
                 changed = True
         if changed:
             write_durable_plan_queue(root, data)
     return data
 
-def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None):
+def fence_queued_idle_gpu_admission(root, row, reason):
+    command_id = str(row.get("commandId") or "")
+    changed = False
+    with WORKER_TASK_SNAPSHOT_LOCK:
+        latest = read_durable_plan_queue(root)
+        current = next((item for item in latest["jobs"] if isinstance(item, dict)
+                        and str(item.get("commandId") or "") == command_id), None)
+        if current and current.get("status") == "queued" and current.get("requireIdleGpu") is True:
+            current.update({"status": "unknown", "updatedAt": now_iso(),
+                            "error": str(reason or "GPU admission changed before dispatch; operator reconciliation required")})
+            write_durable_plan_queue(root, latest)
+            changed = True
+    if changed:
+        append_event(root, {"type": "distributed_plan_job_dispatch_unknown", "workerId": str(row.get("workerId") or ""),
+                            "operationId": command_id, "payload": {"message": str(reason or "GPU admission changed before dispatch")}})
+    return changed
+
+def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None, target_command_id=None):
     worker_id = str(worker_id or "worker").strip() or "worker"
     gpu_probe = gpu_probe or collect_local_gpu
     execute = execute or execute_worker_command
@@ -2600,7 +2819,11 @@ def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None)
     data = sync_durable_plan_task_rows(root)
     dispatched = []
     for row in data["jobs"]:
-        if not isinstance(row, dict) or str(row.get("status") or "").lower() != "queued" or str(row.get("workerId") or "") != worker_id:
+        if not isinstance(row, dict):
+            continue
+        if target_command_id and str(row.get("commandId") or "") != str(target_command_id):
+            continue
+        if str(row.get("status") or "").lower() != "queued" or str(row.get("workerId") or "") != worker_id:
             continue
         manifest = row.get("codeManifest")
         if manifest is not None:
@@ -2639,6 +2862,8 @@ def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None)
                 continue
         gpus, error = gpu_probe()
         if error:
+            if row.get("requireIdleGpu") is True:
+                fence_queued_idle_gpu_admission(root, row, "GPU telemetry unavailable after durable acceptance: " + str(error))
             break
         snapshot = read_json(path_for(root, "worker_task_snapshot.json"), {})
         tasks = snapshot.get("tasks") if isinstance(snapshot, dict) and isinstance(snapshot.get("tasks"), list) else []
@@ -2646,18 +2871,31 @@ def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None)
         occupied = {str(item.get("gpuId")) for item in tasks if isinstance(item, dict)
                     and str(item.get("status") or "").lower() in ("running", "dispatching")}
         occupied.update(str(item.get("gpuId")) for item in latest.get("jobs", []) if isinstance(item, dict)
-                        and str(item.get("status") or "").lower() in ("dispatching", "running", "unknown") and item.get("gpuId"))
-        occupied.update(DISTRIBUTED_GPU_RESERVATIONS.keys())
-        free = next((gpu_row_id(gpu) for gpu in gpus if gpu_row_id(gpu) not in occupied
-                     and not gpu.get("processes") and not gpu_row_busy(gpu)), None)
+                        and item.get("gpuId")
+                        and (str(item.get("status") or "").lower() in ("dispatching", "running", "unknown")
+                             or str(item.get("status") or "").lower() == "queued" and item.get("requireIdleGpu") is True)
+                        and str(item.get("commandId") or "") != str(row.get("commandId") or ""))
+        command_id = str(row.get("commandId") or "")
+        occupied.update(gpu_id for gpu_id, owner in DISTRIBUTED_GPU_RESERVATIONS.items() if owner != command_id)
+        row_options = row.get("options") if isinstance(row.get("options"), dict) else {}
+        util_threshold = row.get("gpuIdleUtilThreshold", row_options.get("gpuIdleUtilThreshold", row_options.get("gpu_idle_util_threshold")))
+        mem_threshold = row.get("gpuIdleMemThresholdMb", row_options.get("gpuIdleMemThresholdMb", row_options.get("gpu_idle_mem_threshold")))
+        max_concurrent_gpus = row.get("maxConcurrentGpus", row_options.get("maxConcurrentGpus"))
+        pinned_gpu = str(row.get("gpuId") or "") if row.get("requireIdleGpu") is True else ""
+        candidates = [gpu for gpu in gpus if not pinned_gpu or gpu_row_id(gpu) == pinned_gpu]
+        free = next((gpu_row_id(gpu) for gpu in candidates if gpu_row_id(gpu) not in occupied
+                     and not _durable_gpu_busy_reason(root, gpu_row_id(gpu), command_id, gpus,
+                                                      util_threshold, mem_threshold, max_concurrent_gpus)), None)
         if free is None:
+            if row.get("requireIdleGpu") is True:
+                fence_queued_idle_gpu_admission(root, row, "Requested GPU became busy before dispatch; reconciliation required")
             break
         claimed = False
         with WORKER_TASK_SNAPSHOT_LOCK:
             latest = read_durable_plan_queue(root)
             current = next((item for item in latest["jobs"] if isinstance(item, dict)
                             and item.get("commandId") == row.get("commandId")), None)
-            if current and current.get("status") == "queued" and str(free) not in DISTRIBUTED_GPU_RESERVATIONS:
+            if current and current.get("status") == "queued" and DISTRIBUTED_GPU_RESERVATIONS.get(str(free)) in (None, str(current.get("commandId") or "")):
                 if current.pop("codeBlocked", False):
                     current.pop("error", None)
                 current.update({"status": "dispatching", "gpuId": str(free), "dispatchingAt": now_iso()})
@@ -2682,7 +2920,7 @@ def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None)
             waiting = any(marker in message for marker in (
                 "已被待启动任务占用", "已有插件任务运行", "当前非空闲", "GPU 实时检测失败", "GPU 不存在或尚无实时状态"))
             result = {"status": "queued" if waiting else "unknown", "message": message}
-            new_status = "queued" if waiting else "unknown"
+            new_status = "unknown" if row.get("requireIdleGpu") is True and waiting else "queued" if waiting else "unknown"
         with WORKER_TASK_SNAPSHOT_LOCK:
             latest = read_durable_plan_queue(root)
             current = next((item for item in latest["jobs"] if isinstance(item, dict)
@@ -2729,7 +2967,8 @@ def start_durable_plan_queue_processor(root, worker_id, poll_seconds=5):
             time.sleep(max(1.0, float(poll_seconds or 5)))
     threading.Thread(target=loop, daemon=True, name="durable-plan-queue-processor").start()
 
-def reserve_distributed_gpu(root, gpu_id, command_id):
+def reserve_distributed_gpu(root, gpu_id, command_id, util_threshold=None, mem_threshold=None,
+                            require_idle_gpu=False, max_concurrent_gpus=None):
     """Reserve one physical GPU before starting a distributed job; never infer ownership from username."""
     with WORKER_TASK_SNAPSHOT_LOCK:
         data = read_json(path_for(root, "worker_task_snapshot.json"), {})
@@ -2749,7 +2988,14 @@ def reserve_distributed_gpu(root, gpu_id, command_id):
         row = next((item for item in gpus if gpu_row_id(item) == str(gpu_id)), None)
         if row is None:
             raise RuntimeError(f"GPU {gpu_id} 不存在或尚无实时状态")
-        if row.get("processes") or gpu_row_busy(row):
+        process_list = row.get("processes") if "processes" in row else row.get("procs") if "procs" in row else None
+        if require_idle_gpu or max_concurrent_gpus not in (None, "", 0, "0", "auto"):
+            busy = bool(_durable_gpu_busy_reason(root, gpu_id, command_id, gpus, util_threshold,
+                                                 mem_threshold, max_concurrent_gpus))
+        else:
+            busy = bool(row.get("processes")) or gpu_row_busy(
+                row, util_threshold=util_threshold, mem_threshold=mem_threshold)
+        if busy:
             raise RuntimeError(f"GPU {gpu_id} 当前非空闲，已停止派发")
         DISTRIBUTED_GPU_RESERVATIONS[str(gpu_id)] = command_id
         return None
@@ -4020,6 +4266,20 @@ def execute_worker_command(root, command, worker_id):
     action = str(command.get("action") or "").strip()
     command_id = str(command.get("commandId") or command.get("operationId") or f"cmd-{int(time.time() * 1000)}")
     append_event(root, {"type": "worker_command_started", "workerId": worker_id, "operationId": command_id, "payload": command})
+    if action == "stop-worker-task" and command.get("requeueRequested") is True:
+        try:
+            result = requeue_durable_plan_job(root, command)
+        except Exception as exc:
+            result = {"commandId": command_id, "status": "failed", "durableReleased": False,
+                      "message": str(exc), "stoppedPids": [], "stoppedTasks": []}
+        if result is None:
+            result = {"commandId": command_id, "status": "failed", "durableReleased": False,
+                      "message": "requeue request requires targetCommandId", "stoppedPids": [], "stoppedTasks": []}
+        result["stopCommandId"] = command_id
+        result.setdefault("stoppedPids", [])
+        result.setdefault("stoppedTasks", [])
+        append_event(root, {"type": "worker_task_stopped", "workerId": worker_id, "operationId": command_id, "payload": result})
+        return result
     if action == "stop-worker-task":
         session = str(command.get("session") or command.get("runKey") or command.get("experimentId") or "").strip()
         target_command = str(command.get("targetCommandId") or command.get("commandIdTarget") or "").strip()
@@ -4264,7 +4524,11 @@ def execute_worker_command(root, command, worker_id):
     pid = 0
     reserved_gpu = False
     if distributed_results:
-        existing_task = reserve_distributed_gpu(root, gpu_id, command_id)
+        gpu_util_threshold = command.get("gpuIdleUtilThreshold", options.get("gpuIdleUtilThreshold", options.get("gpu_idle_util_threshold")))
+        gpu_mem_threshold = command.get("gpuIdleMemThresholdMb", options.get("gpuIdleMemThresholdMb", options.get("gpu_idle_mem_threshold")))
+        max_concurrent_gpus = command.get("maxConcurrentGpus", options.get("maxConcurrentGpus"))
+        existing_task = reserve_distributed_gpu(root, gpu_id, command_id, gpu_util_threshold, gpu_mem_threshold,
+                                                command.get("requireIdleGpu") is True, max_concurrent_gpus)
         if existing_task:
             return {"commandId": command_id, "status": str(existing_task.get("status") or "unknown"),
                     "message": "相同 job 指令已存在，未重复启动", "gpuId": gpu_id}
@@ -4950,6 +5214,7 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
                 "workerHubUplink": True,
                 "workerTasks": True,
                 "durablePlanQueue": True,
+                "idleGpuAdmission": True,
                 "liveOutput": True,
                 "diagnostics": True,
                 "resultsSummary": True,
@@ -10861,6 +11126,17 @@ def handle_action(root, action, payload, operation_id, op_id):
         command["action"] = action
         command["commandId"] = op_id
         result = execute_worker_command(root, command, str((payload.get("options") or {}).get("workerId") or payload.get("workerId") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker"))
+        if action == "stop-worker-task" and payload.get("requeueRequested") is True:
+            return {"schemaVersion": SCHEMA_VERSION, "opId": op_id, "operationId": operation_id,
+                    "action": action, **result}
+        if action == "start-worker-task" and result.get("admissionRejected") is True:
+            details = action_event_fields(result, payload)
+            append_event(root, {"type": "operation_progress", "operationId": operation_id,
+                                "payload": {"action": action, "opId": op_id, "status": "pending",
+                                            "message": str(result.get("message") or "GPU is busy"),
+                                            "reason": "gpu_busy", **details}})
+            return {"schemaVersion": SCHEMA_VERSION, "opId": op_id, "operationId": operation_id,
+                    "action": action, **result}
         if action == "start-worker-task" and result.get("durableAccepted") is True:
             accepted_status = str(result.get("status") or "queued")
             accepted_message = str(result.get("message") or "Agent 已持久接收该 job")
@@ -11682,6 +11958,7 @@ def worker_task_failure_message(root, task):
 def api_worker_tasks(root):
     try:
         reconcile_worker_task_exit_codes(root)
+        sync_durable_plan_task_rows(root)
     except Exception:
         pass
     data = read_runtime_json_cached(path_for(root, "worker_task_snapshot.json"), None)
@@ -11737,7 +12014,7 @@ def api_worker_tasks(root):
                     enriched[index] = entry
         _out["tasks"] = enriched
         _out["generatedAt"] = now_iso()
-        _out["capabilities"] = {"durablePlanQueue": True, "schemaVersion": 1}
+        _out["capabilities"] = {"durablePlanQueue": True, "idleGpuAdmission": True, "schemaVersion": 1}
         return _out
     tasks = []
     for row in read_durable_plan_queue(root).get("jobs", []):
@@ -11747,7 +12024,7 @@ def api_worker_tasks(root):
         if status in ("queued", "dispatching", "running", "unknown", "completed", "failed", "cancelled"):
             tasks.append(durable_plan_public_task(row))
     return {"schemaVersion": SCHEMA_VERSION, "tasks": tasks,
-            "capabilities": {"durablePlanQueue": True, "schemaVersion": 1}, "generatedAt": now_iso()}
+            "capabilities": {"durablePlanQueue": True, "idleGpuAdmission": True, "schemaVersion": 1}, "generatedAt": now_iso()}
 
 def api_openapi(root, token_required=False, mode="hub_control"):
     if mode == "worker_telemetry":

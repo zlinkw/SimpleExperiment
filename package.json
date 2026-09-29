@@ -618,6 +618,13 @@
           },
           "description": "用于本地实时聚合的 Worker Xshell 隧道端点。"
         },
+        "simpleExperiment.scheduler.dispatchMode": {
+          "type": "string",
+          "enum": ["local_idle", "server_prequeue"],
+          "default": "local_idle",
+          "enumDescriptions": ["本机检测空卡后派发，断联时未派发任务等待本机重连。", "按空卡及本人占用卡比例预派发至服务器持久队列，可在全部接收后关机。"],
+          "description": "新提交 Plan 的调度模式；已提交 Plan 保留原模式。"
+        },
         "simpleExperiment.scheduler.pollSeconds": {
           "type": "number",
           "default": 60,

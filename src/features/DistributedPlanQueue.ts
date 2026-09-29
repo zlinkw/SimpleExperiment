@@ -33,6 +33,8 @@ export type QueuedJob = {
 };
 export type QueuedPlan = {
   id: string;
+  schedulingMode?: "local_idle" | "server_prequeue";
+  prequeueWeights?: Record<string, number>;
   projectId?: string;
   planJobCount?: number;
   remoteAcceptedJobCount?: number;
@@ -178,6 +180,8 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
       codeFingerprint: String(first.codeFingerprint), enqueuedAt: String(first.enqueuedAt || ""), planJobCount: jobCount, jobs: [],
     };
     plan.projectId = projectId;
+    if (first.schedulingMode === "server_prequeue" || first.schedulingMode === "local_idle")
+      plan.schedulingMode = first.schedulingMode;
     plan.planJobCount = jobCount;
     if (countConflict) plan.recoveryConflict = `Server summaries disagree on expected Plan job count: ${declaredCounts.join(", ")}.`;
     const terminalStates = new Set<JobState>(["completed", "failed", "cancelled"]);
@@ -271,7 +275,9 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
     const currentAcceptedIndices = new Set(rows.filter((row) => Number(row.task.attempt) === latestAttempts.get(Number(row.task.experimentIndex)))
       .map((row) => Number(row.task.experimentIndex)));
     plan.remoteAcceptedJobCount = currentAcceptedIndices.size;
-    plan.recoveryMissingCount = Math.max(0, jobCount - currentAcceptedIndices.size);
+    const knownLocalPending = plan.jobs.filter((job) => job.status === "pending" && !job.workerId && !job.commandId
+      && !currentAcceptedIndices.has(job.index)).length;
+    plan.recoveryMissingCount = Math.max(0, jobCount - currentAcceptedIndices.size - knownLocalPending);
     if (!countConflict && plan.recoveryConflict?.startsWith("Server summaries disagree on expected Plan job count")) delete plan.recoveryConflict;
     if (planIndex < 0) plans.push(plan); else plans[planIndex] = plan;
   }
@@ -393,18 +399,19 @@ function noteFingerprintMismatch(plans: QueuedPlan[], workers: readonly WorkerSl
   }
 }
 
-export function allocateAvailable(queue: DistributedQueue, workers: readonly WorkerSlots[], options: { requireIdleGpuAdmission?: boolean } = {}): { queue: DistributedQueue; dispatches: Dispatch[] } {
+export function allocateAvailable(queue: DistributedQueue, workers: readonly WorkerSlots[], options: { requireIdleGpuAdmission?: boolean; localIdleOnly?: boolean } = {}): { queue: DistributedQueue; dispatches: Dispatch[] } {
   const versioned = workers.some((row) => row.codeFingerprint);
   const plans = queue.plans.map((plan) => ({ ...plan, jobs: plan.jobs.map((job) => ({ ...job })) }));
   const dispatches: Dispatch[] = [];
   const activeFingerprint = plans.find((plan) => plan.jobs.some((job) => ["dispatching", "queued", "running", "unknown"].includes(job.status)))?.codeFingerprint;
-  const runnableFingerprint = activeFingerprint || plans.find((plan) => plan.jobs.some((job) => job.status === "pending")
+  const runnableFingerprint = activeFingerprint || plans.find((plan) => (!options.localIdleOnly || plan.schedulingMode !== "server_prequeue") && plan.jobs.some((job) => job.status === "pending")
     && (!versioned || workers.some((row) => usableSlots(row)
       && (!options.requireIdleGpuAdmission || row.idleGpuAdmission === true) && row.codeFingerprint === plan.codeFingerprint)))?.codeFingerprint;
   const slots = new Map(workers.filter((row) => row.online && (!options.requireIdleGpuAdmission || row.idleGpuAdmission === true)
     && (!versioned || !runnableFingerprint || row.codeFingerprint === runnableFingerprint))
     .map((row) => [row.workerId, [...new Set(row.idleGpuIds)].slice(0, Math.max(0, row.capacity ?? row.idleGpuIds.length))]));
   for (const plan of plans) {
+    if (options.localIdleOnly && plan.schedulingMode === "server_prequeue") continue;
     if (!runnableFingerprint || plan.codeFingerprint !== runnableFingerprint) continue;
     const pending = plan.jobs.filter((job) => job.status === "pending");
     if (!pending.length) continue;
@@ -455,7 +462,8 @@ export function setJobState(queue: DistributedQueue, planId: string, jobIndex: n
 }
 
 export function remoteTaskMatchesJob(plan: QueuedPlan, job: QueuedJob, task: Record<string, unknown>): boolean {
-  const gpuMatches = job.gpuId === undefined || String(task.gpuId ?? "") === String(job.gpuId);
+  const gpuMatches = job.gpuId === undefined || plan.schedulingMode === "server_prequeue" && job.gpuId === ""
+    || String(task.gpuId ?? "") === String(job.gpuId);
   return Boolean(job.commandId && job.workerId && gpuMatches
     && String(task.commandId || "") === job.commandId
     && String(task.workflowId || "") === plan.id
@@ -505,11 +513,11 @@ export function retryPinnedDispatch(queue: DistributedQueue, planId: string, job
     && candidate.workerId === job.workerId && String(candidate.gpuId ?? "") === String(job.gpuId)
     && ["dispatching", "queued", "running", "unknown"].includes(candidate.status)));
   if (occupiedByOther || !idleGpuIds.some((id) => String(id) === String(job.gpuId))) return undefined;
-  return { planId, jobIndex, workerId: job.workerId, gpuId: job.gpuId, attempt: job.attempt, commandId: job.commandId };
+  return { planId, jobIndex, workerId: job.workerId, gpuId: job.gpuId!, attempt: job.attempt, commandId: job.commandId };
 }
 
 function snapshotAllowsPinnedRetry(snapshot: DurableWorkerSnapshot | undefined, job: QueuedJob, now: number): boolean {
-  if (!hasFreshDurableSnapshot(snapshot, now) || snapshot?.workerId !== job.workerId
+  if (!snapshot || !hasFreshDurableSnapshot(snapshot, now) || snapshot.workerId !== job.workerId
     || snapshot.capabilities?.idleGpuAdmission !== true) return false;
   const sameCommand = (snapshot.tasks || []).find((task) => String(task.commandId || "") === job.commandId);
   return !sameCommand;

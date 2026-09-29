@@ -38,6 +38,7 @@ import * as ProjectResultTables from "../results/ProjectResultTables";
 import { resolvePlanWorkerAffinity } from "../features/PlanWorkerAffinity";
 import * as PlanArtifactSync from "../features/PlanArtifactSync";
 import * as DistributedPlanQueue from "../features/DistributedPlanQueue";
+import * as DistributedSchedulingPolicy from "../features/DistributedSchedulingPolicy";
 import { changedManifestFiles, inventoryFilesByPath } from "../features/CodeSyncDelta";
 import { hashLocalCodeFiles, localCodeManifestCachePath } from "../features/LocalCodeManifestCache";
 import { distributedQueueOnlyClearable, mergeTrustedPlanOperations, planCleanupTargets, planRecoveryConflicts, planStopClearFeedback, planStopClearPreview, planStopClearUiResult, planStopIdentityConflictMessage, planStopMissingEvidenceMessage, trustedRemotePlanOperations } from "../features/PlanStopClear";
@@ -739,6 +740,8 @@ export class RealtimeTunnelPanelProvider {
     distributedPlanStopEpoch = 0;
     distributedQueueGeneration = 0;
     private distributedTickAbort?: AbortController;
+    private progressRefreshPromise?: Promise<void>;
+    private progressRefreshAbort?: AbortController;
     planStopClearByFile: Record<string, any> = {};
     distributedNextProbeAt = 0;
     distributedNextFailureDetailAt = 0;
@@ -933,6 +936,13 @@ export class RealtimeTunnelPanelProvider {
         const queueTimer = setInterval(() => { void this.tickDistributedQueue().catch((error) => this.recordActionError({ command: "distributedPlanQueue", message: errorMessage(error) })); }, 500);
         queueTimer.unref?.();
         this.context.subscriptions.push({ dispose: () => clearInterval(queueTimer) });
+        const progressTimer = setInterval(() => {
+            if (!this.distributedQueueCache?.plans.length || this.distributedQueueRoot !== workspaceRoot()) return;
+            this.postState();
+            void this.refreshServerPlanProgress();
+        }, 2000);
+        progressTimer.unref?.();
+        this.context.subscriptions.push({ dispose: () => { clearInterval(progressTimer); this.progressRefreshAbort?.abort(); } });
     }
     refreshStoredPluginUpdateStatus(plan) {
         if (!plan || typeof plan !== "object" || !["update_available", "reload_required"].includes(String(plan.status)))
@@ -1148,31 +1158,62 @@ export class RealtimeTunnelPanelProvider {
     async readWorkerTaskSnapshot(workerId, options: { signal?: AbortSignal; fresh?: boolean } = {}) {
         const root = workspaceRoot();
         const cacheKey = `${root || ""}\u0000${workerId}`;
-        if (!options.fresh) {
-            const pending = this.workerTaskRequests.get(cacheKey);
-            if (pending) return pending;
-        }
-        const request = this.refreshWorkerTaskSnapshot(workerId, root, cacheKey, options).finally(() => {
+        const pending = this.workerTaskRequests.get(cacheKey);
+        if (pending) return pending;
+        const abort = new AbortController();
+        const cancel = () => abort.abort();
+        options.signal?.addEventListener("abort", cancel, { once: true });
+        if (options.signal?.aborted) abort.abort();
+        const timeout = setTimeout(cancel, 4000);
+        timeout.unref?.();
+        const request = this.refreshWorkerTaskSnapshot(workerId, root, cacheKey, { signal: abort.signal }).finally(() => {
+            clearTimeout(timeout);
+            options.signal?.removeEventListener("abort", cancel);
             if (this.workerTaskRequests.get(cacheKey) === request) this.workerTaskRequests.delete(cacheKey);
         });
-        if (!options.fresh) this.workerTaskRequests.set(cacheKey, request);
+        this.workerTaskRequests.set(cacheKey, request);
+        return request;
+    }
+    serverPlanProgress() {
+        const root = workspaceRoot();
+        if (!root || this.distributedQueueRoot !== root || !this.distributedQueueCache) return [];
+        const snapshots = this.workerActionTargets().map((target) => this.cachedWorkerTaskSnapshot(target.id, root, `${root}\u0000${target.id}`))
+            .filter(Boolean).map(workerTaskSnapshotPayload);
+        return DistributedSchedulingPolicy.serverAuthoritativeProgress(this.distributedQueueCache, snapshots,
+            DistributedPlanQueue.canonicalProjectId(root));
+    }
+    async refreshServerPlanProgress() {
+        if (this.progressRefreshPromise) return this.progressRefreshPromise;
+        const root = workspaceRoot();
+        if (!root || this.distributedQueueRoot !== root || !this.distributedQueueCache?.plans.length || !this.isRealtimeMode()
+            || this.lastHealth?.state === "paused" || this.lastHealth?.status === "paused") return;
+        const abort = new AbortController();
+        this.progressRefreshAbort = abort;
+        const request = mapLimited(this.workerActionTargets().map((target) => target.id), 3,
+            (workerId) => this.readWorkerTaskSnapshot(workerId, { fresh: true, signal: abort.signal }))
+            .then(() => { if (workspaceRoot() === root) this.postState(); })
+            .catch(() => {})
+            .finally(() => { if (this.progressRefreshPromise === request) this.progressRefreshPromise = undefined; });
+        this.progressRefreshPromise = request;
         return request;
     }
     async refreshWorkerTaskSnapshot(workerId, root, cacheKey, options: { signal?: AbortSignal } = {}) {
         const cached = this.cachedWorkerTaskSnapshot(workerId, root, cacheKey);
+        const client = this.client;
         try {
             const value = await this.client.getWorkerTasks(workerId, { signal: options.signal });
-            if (workspaceRoot() !== root) return { workerId, schemaVersion: 1, tasks: [], error: "Workspace changed during Worker task snapshot" };
+            if (workspaceRoot() !== root || this.client !== client) return { workerId, schemaVersion: 1, tasks: [], error: "Workspace changed during Worker task snapshot" };
             const record = value && typeof value === "object" ? value : {};
             const snapshot = {
                 workerId,
                 schemaVersion: Number(record.schemaVersion || 1),
-                generatedAt: String(record.generatedAt || new Date().toISOString()),
+                generatedAt: String(record.generatedAt || ""),
                 capabilities: record.capabilities && typeof record.capabilities === "object" ? record.capabilities : undefined,
                 tasks: Array.isArray(record.tasks) ? record.tasks : [],
                 fetchedAt: new Date().toISOString(),
             };
             this.lastWorkerTaskSnapshots.set(cacheKey, snapshot);
+            this.postState();
             try {
                 this.writeWorkerTaskSnapshot(workerId, root, snapshot);
             }
@@ -1184,6 +1225,10 @@ export class RealtimeTunnelPanelProvider {
         catch (error) {
             const denied = error instanceof RequestBudget_1.RequestBudgetDeniedError ? error.decision.reason : "";
             const failure = denied ? `Worker task snapshot ${denied}` : "Worker task snapshot unavailable";
+            if (workspaceRoot() === root && this.client === client) {
+                this.lastWorkerTaskSnapshots.set(cacheKey, { ...cached, workerId, tasks: cached?.tasks || [], error: failure });
+                this.postState();
+            }
             if (!cached) return { workerId, schemaVersion: 1, tasks: [], error: failure };
             const age = Date.now() - Date.parse(cached.fetchedAt);
             const stale = cached.tasks.some((task) => workerTaskLooksRunning(task)) && age > 180_000;
@@ -8662,6 +8707,7 @@ export class RealtimeTunnelPanelProvider {
             return { enqueued: false };
         }
         const enqueued = DistributedPlanQueue.enqueuePlan(current, { projectId: DistributedPlanQueue.canonicalProjectId(root),
+            schedulingMode: DistributedSchedulingPolicy.schedulingMode(body.schedulingMode ?? this.schedulerSettings().dispatchMode),
             planJobCount: selectedJobs.length, planFile, revision, codeFingerprint, overwriteExisting, jobs: selectedJobs.map((job) => ({
             index: Number(job.index), case: String(job.case), seed: Number(job.seed),
             outputDir: String(job.output_dir || "").replace(/\\/g, "/").replace(/\/$/, "") + "/attempts/" + id,
@@ -8744,7 +8790,8 @@ export class RealtimeTunnelPanelProvider {
             throw new Error("提交已取消或项目已切换，未向 Worker 发送任务。");
         const request = {
             schemaVersion: 1, opId: commandId, operationId: commandId, runKey: commandId,
-            durablePlanQueue: true, requireIdleGpu: gpuId !== undefined, codeManifest, projectId: plan.projectId || DistributedPlanQueue.canonicalProjectId(root),
+            durablePlanQueue: true, schedulingMode: DistributedSchedulingPolicy.schedulingMode(plan.schedulingMode),
+            requireIdleGpu: gpuId !== undefined, codeManifest, projectId: plan.projectId || DistributedPlanQueue.canonicalProjectId(root),
             planJobCount: Number(plan.planJobCount || plan.jobs.length), enqueuedAt: plan.enqueuedAt,
             planFile: plan.planFile, experimentIndex: job.index, ...(gpuId !== undefined ? { gpuId } : {}),
             case: job.case, seed: job.seed, outputDir: job.outputDir, mode: "train_test",
@@ -8934,7 +8981,7 @@ export class RealtimeTunnelPanelProvider {
                     && String(this.lastCodeSyncState?.workerVersions?.[target.id]?.fingerprint || "") === plan?.codeFingerprint;
             };
             for (const plan of queue.plans) {
-                if (plan.projectId !== projectId || plan.recoveryConflict) continue;
+                if (plan.projectId !== projectId || plan.recoveryConflict || plan.schedulingMode === "server_prequeue") continue;
                 for (const job of plan.jobs) {
                     if (!queueWriteCurrent()) return;
                     const snapshot = snapshotsByWorker.get(job.workerId || "");
@@ -8982,7 +9029,7 @@ export class RealtimeTunnelPanelProvider {
             }
             if (queueWriteCurrent()) await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
             for (const plan of queue.plans) {
-                if (plan.projectId !== projectId || plan.recoveryConflict) continue;
+                if (plan.projectId !== projectId || plan.recoveryConflict || plan.schedulingMode === "server_prequeue") continue;
                 for (const job of plan.jobs) {
                     if (!queueWriteCurrent()) return;
                     if (job.recoveryConflict || !job.workerId || !job.commandId
@@ -9054,31 +9101,47 @@ export class RealtimeTunnelPanelProvider {
                     capacity: Number.isInteger(configuredCapacity) && configuredCapacity > 0
                         ? Math.max(0, configuredCapacity - (activeByWorker.get(target.id) || 0)) : undefined };
             });
-            const allocation = DistributedPlanQueue.allocateAvailable(queue, workers, { requireIdleGpuAdmission: true });
+            const hosted = DistributedSchedulingPolicy.allocateServerPrequeue(queue, workers.map((worker) => {
+                const config = this.enabledWorkerConfigs().find((item) => item.id === worker.workerId);
+                return { ...worker, weight: DistributedSchedulingPolicy.prequeueGpuWeight(dispatchGpuSnapshot?.[worker.workerId],
+                    Number(config?.gpuIdleUtilThreshold ?? defaultUtil), Number(config?.gpuIdleMemThresholdMb ?? defaultMem),
+                    this.gpuOwnerConfig(), String(config?.workerUser || ""), Number(config?.maxConcurrentGpus)) };
+            }));
+            queue = hosted.queue;
+            const allocation = DistributedPlanQueue.allocateAvailable(queue, workers, { requireIdleGpuAdmission: true, localIdleOnly: true });
             queue = allocation.queue;
-            if (allocation.dispatches.length) await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
-            for (const dispatch of allocation.dispatches) {
+            const hostedRetries = queue.plans.filter((plan) => plan.schedulingMode === "server_prequeue" && !plan.recoveryConflict)
+                .flatMap((plan) => plan.jobs.filter((job) => job.workerId && job.commandId && ["dispatching", "unknown"].includes(job.status)
+                    && DistributedPlanQueue.hasFreshDurableSnapshot(snapshotsByWorker.get(job.workerId))
+                    && String(this.lastCodeSyncState?.workerVersions?.[job.workerId]?.fingerprint || "") === plan.codeFingerprint
+                    && !snapshotsByWorker.get(job.workerId)?.tasks?.some((row) => String(row.commandId || "") === job.commandId))
+                    .map((job) => ({ planId: plan.id, jobIndex: job.index, workerId: job.workerId!, commandId: job.commandId!, attempt: job.attempt })));
+            const dispatches = [...allocation.dispatches, ...hosted.dispatches, ...hostedRetries.filter((retry) =>
+                !hosted.dispatches.some((item) => item.commandId === retry.commandId))];
+            if (dispatches.length) await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
+            for (const dispatch of dispatches) {
                 if (!queueWriteCurrent()) return;
                 const plan = queue.plans.find((item) => item.id === dispatch.planId);
                 const job = plan?.jobs.find((item) => item.index === dispatch.jobIndex && item.attempt === dispatch.attempt);
                 if (!plan || !job) continue;
                 try {
-                    const receipt: any = await this.sendDistributedJob(plan, job, dispatch.workerId, dispatch.gpuId, dispatch.commandId);
+                    const gpuId = "gpuId" in dispatch ? dispatch.gpuId as string : undefined;
+                    const receipt: any = await this.sendDistributedJob(plan, job, dispatch.workerId, gpuId, dispatch.commandId);
                     if (!queueWriteCurrent()) return;
                     const status = String(receipt?.status || "").toLowerCase();
                     const rejectedBusy = receipt?.durableAccepted === false && receipt?.admissionRejected === true
                         && status === "pending" && String(receipt?.reason || "") === "gpu_busy"
                         && String(receipt?.commandId || "") === dispatch.commandId
                         && String(receipt?.workerId || "") === dispatch.workerId
-                        && String(receipt?.gpuId || "") === dispatch.gpuId
+                        && String(receipt?.gpuId || "") === gpuId
                         && DistributedPlanQueue.remoteTaskMatchesJob(plan, job, receipt);
                     if (rejectedBusy) {
-                        const released = DistributedPlanQueue.resetBusyRejectedDispatch(queue, dispatch, receipt);
+                        const released = DistributedPlanQueue.resetBusyRejectedDispatch(queue, { ...dispatch, gpuId: gpuId! }, receipt);
                         if (released === queue) throw new Error("Worker busy receipt did not match the complete requested job identity");
                         queue = released;
                     } else {
                         if (receipt?.durableAccepted !== true || String(receipt.commandId || "") !== job.commandId
-                            || String(receipt.gpuId || "") !== dispatch.gpuId
+                            || gpuId !== undefined && String(receipt.gpuId || "") !== gpuId
                             || !["queued", "running", "completed", "failed", "cancelled"].includes(status)
                             || !DistributedPlanQueue.remoteTaskMatchesJob(plan, job, receipt))
                             throw new Error(String(receipt?.message || "Worker 未返回 durableAccepted 及匹配完整身份的状态回执"));
@@ -9903,6 +9966,7 @@ export class RealtimeTunnelPanelProvider {
         const config = vscode.workspace.getConfiguration("simpleExperiment");
         const settings = this.schedulerSettings();
         const updates = [
+            config.update("scheduler.dispatchMode", DistributedSchedulingPolicy.schedulingMode(patch.dispatchMode ?? settings.dispatchMode), vscode.ConfigurationTarget.Global),
             config.update("scheduler.pollSeconds", numberRangePatch(patch, "pollSeconds", settings.pollSeconds, 0.5, 3600), vscode.ConfigurationTarget.Global),
             config.update("scheduler.jitterSeconds", numberRangePatch(patch, "jitterSeconds", settings.jitterSeconds, 0, 1800), vscode.ConfigurationTarget.Global),
             config.update("scheduler.workerStatusTtlSeconds", numberRangePatch(patch, "workerStatusTtlSeconds", settings.workerStatusTtlSeconds, 60, 7200), vscode.ConfigurationTarget.Global),
@@ -16870,10 +16934,11 @@ export class RealtimeTunnelPanelProvider {
     schedulerSettings() {
         const config = vscode.workspace.getConfiguration("simpleExperiment");
         return {
+            dispatchMode: DistributedSchedulingPolicy.schedulingMode(config.get("scheduler.dispatchMode", "local_idle")),
             pollSeconds: Math.max(0.5, Number(config.get("scheduler.pollSeconds", 10)) || 10),
             jitterSeconds: Math.max(0, Number(config.get("scheduler.jitterSeconds", 5)) || 0),
-            gpuIdleUtilThreshold: Math.max(0, Math.min(100, Number(config.get("scheduler.gpuIdleUtilThreshold", 5)) || 5)),
-            gpuIdleMemThresholdMb: Math.max(0, Math.min(8192, Number(config.get("scheduler.gpuIdleMemThresholdMb", 200)) || 200)),
+            gpuIdleUtilThreshold: Math.max(0, Math.min(100, Number(config.get("scheduler.gpuIdleUtilThreshold", 5)))),
+            gpuIdleMemThresholdMb: Math.max(0, Math.min(8192, Number(config.get("scheduler.gpuIdleMemThresholdMb", 200)))),
             sessionCheckMinSeconds: 0.5,
             workerStatusTtlSeconds: Math.max(10, Number(config.get("scheduler.workerStatusTtlSeconds", 180)) || 180),
             localAvailabilityPushSeconds: 0.5,
@@ -17692,8 +17757,8 @@ export class RealtimeTunnelPanelProvider {
             gpuHistory: this.gpuHistoryState.snapshot(),
             schedulerStates,
             distributedPlans: this.distributedQueueRoot === workspaceRoot()
-                ? (this.distributedQueueCache?.plans || []).map((plan) => ({ id: plan.id, projectId: plan.projectId,
-                    planJobCount: plan.planJobCount, recoveryMissingCount: plan.recoveryMissingCount,
+                ? this.serverPlanProgress().map((plan) => ({ id: plan.id, projectId: plan.projectId, schedulingMode: plan.schedulingMode,
+                    planJobCount: plan.planJobCount, recoveryMissingCount: plan.recoveryMissingCount, remoteAcceptedJobCount: plan.remoteAcceptedJobCount,
                     recoveryConflict: plan.recoveryConflict, planFile: plan.planFile,
                     revision: plan.revision, codeFingerprint: plan.codeFingerprint, enqueuedAt: plan.enqueuedAt,
                     jobs: plan.jobs.map((job) => ({ index: job.index, case: job.case, seed: job.seed,

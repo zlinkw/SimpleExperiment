@@ -20,11 +20,12 @@ test("fresh durable snapshots reconstruct a cold empty local queue across config
 });
 
 test("new admission carries project identity and expected count, and requires a durable receipt", () => {
-  assert.match(extension, /durablePlanQueue: true, codeManifest, projectId: plan\.projectId/);
+  assert.match(extension, /durablePlanQueue: true, schedulingMode: DistributedSchedulingPolicy\.schedulingMode\(plan\.schedulingMode\)/);
+  assert.match(extension, /requireIdleGpu: gpuId !== undefined, codeManifest, projectId: plan\.projectId/);
   assert.match(extension, /planJobCount: Number\(plan\.planJobCount/);
   assert.match(extension, /receipt\?\.durableAccepted !== true/);
   assert.match(extension, /receipt\.commandId \|\| ""\) !== job\.commandId/);
-  assert.match(extension, /持久队列接收回执未确认，保留原 Worker 和 commandId/);
+  assert.match(extension, /持久队列接收回执未确认，保留原 Worker、GPU 和 commandId/);
   assert.match(queue, /export function durableCommandId/);
   assert.match(queue, /export function mergeDurableWorkerSnapshots/);
 });
@@ -32,6 +33,6 @@ test("new admission carries project identity and expected count, and requires a 
 test("cold recovery cannot infer a complete Plan from the returned task subset", () => {
   assert.match(queue, /planJobCount\?: number/);
   assert.match(queue, /remoteAcceptedJobCount = currentAcceptedIndices\.size/);
-  assert.match(queue, /recoveryMissingCount = Math\.max\(0, jobCount - currentAcceptedIndices\.size\)/);
+  assert.match(queue, /recoveryMissingCount = Math\.max\(0, jobCount - currentAcceptedIndices\.size - knownLocalPending\)/);
   assert.match(extension, /!plan\.recoveryMissingCount/);
 });

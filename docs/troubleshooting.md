@@ -165,3 +165,13 @@ code --install-extension "D:\GitRepo\MCP\zlk-cluster-orchestrator\simple-experim
 - **热加载（P7）**：`reload_worker_runtime_config()` 重读阈值/TTL；`control.json` 写入 `{"action":"config_updated"}` 触发调度器不中断重载。
 - **面板**：Worker 表单无“允许 GPU”输入；`并发占卡上限(auto=全部)` 为文本框（`auto`/空/0=全部，min 0）；GPU 状态四态着色（可用 ok / 目前无空卡 warn / 暂无显卡数据 warn / GPU查询失败 error）；P0 禁止裸斜杠（`\\s` 等双写）。
 - **门禁**：`npm run build` + `node -c dist/extension.js && node -c dist/ui/PanelHtml.js` + `vm.Script` 零异常。
+# Plan 调度与重连状态（0.5.182）
+
+全局配置中的 Plan 调度模式只影响新提交的 Plan；已提交的 Plan 保存自己的模式。
+
+- **本机按空卡派发（默认）**：未发现可用空卡时，job 留在本机队列，不提前绑定服务器。派发前 Agent 再次检查指定 GPU；明确拒收后可选择其他空卡。断联时未派发任务等待本机重连，已接收任务继续由服务器执行。
+- **预派发到服务器队列**：按每台服务器的空卡数和本人占用的 GPU 数计算比例，每张 GPU 只计一次，其他用户及混合占用不增加份额。任务进入各 Agent 的持久队列，按服务器本地 GPU 策略等待运行。关机前确认卡片显示“已托管，可关机”；未确认的回执仍保留原 commandId，不盲目重复提交。
+
+运行进度独立于派发与产物操作，每 2 秒读取各服务器任务快照。超过 5 秒没有可信快照或读取失败时，活动任务显示“待核实”，保留所有者及身份；恢复连接后合并所有服务器的最新状态。GPU 没有进程不等于任务成功，最终状态以 Agent 的任务记录为准。网络中断无法保证即时更新，但不会把旧的运行状态当成新证据。
+
+此状态刷新不下载指标、权重或产物；结果下载及汇总仍由用户手动触发。服务器需更新到配套 Agent，支持持久队列及空卡接收校验。
