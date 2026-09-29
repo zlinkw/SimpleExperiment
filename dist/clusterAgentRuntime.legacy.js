@@ -1290,6 +1290,7 @@ def prune_agent_state(root, force=False):
         "agent.session.json",
         "seq.txt",
         "stop",
+        "distributed_plan_queue.json",
     }
     try:
         os.makedirs(state_root, exist_ok=True)
@@ -2359,6 +2360,377 @@ def append_worker_task(root, task):
         else:
             kept.insert(min(old_index, len(kept)), task)
         atomic_write(path_for(root, "worker_task_snapshot.json"), {"schemaVersion": SCHEMA_VERSION, "tasks": retain_worker_task_snapshot(kept), "generatedAt": now_iso()})
+    if isinstance(task, dict) and task.get("planJobCount") is not None:
+        record_durable_plan_task_terminal(root, task)
+
+def durable_plan_queue_path(root):
+    return path_for(root, "distributed_plan_queue.json")
+
+def read_durable_plan_queue(root):
+    path = durable_plan_queue_path(root)
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except FileNotFoundError:
+        return {"schemaVersion": 1, "jobs": []}
+    if not isinstance(data, dict) or data.get("schemaVersion") != 1 or not isinstance(data.get("jobs"), list):
+        raise ValueError("持久 Plan 队列格式损坏；禁止覆盖或自动重发")
+    return data
+
+def write_durable_plan_queue(root, data):
+    path = durable_plan_queue_path(root)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = f"{path}.tmp.{os.getpid()}.{threading.get_ident()}.{time.time_ns()}"
+    with open(tmp, "w", encoding="utf-8") as handle:
+        json.dump(data, handle, ensure_ascii=False, indent=2)
+        handle.write("\n")
+        handle.flush()
+        os.fsync(handle.fileno())
+    replace_with_retry(tmp, path)
+    try:
+        directory_fd = os.open(os.path.dirname(path), os.O_RDONLY)
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    except OSError:
+        pass
+    invalidate_runtime_json_cache(path)
+
+DURABLE_PLAN_IDENTITY_FIELDS = (
+    "projectId", "workflowId", "planFile", "planRevision", "codeFingerprint",
+    "experimentIndex", "case", "seed", "attempt", "outputDir", "runKey",
+    "commandId", "workerId",
+)
+
+def durable_plan_value(command, key):
+    value = command.get(key)
+    if value in (None, ""):
+        options = command.get("options") if isinstance(command.get("options"), dict) else {}
+        value = options.get(key)
+    aliases = {"planFile": ("plan",), "case": ("experimentCase",), "commandId": ("operationId",)}
+    if value in (None, ""):
+        options = command.get("options") if isinstance(command.get("options"), dict) else {}
+        for alias in aliases.get(key, ()):
+            value = command.get(alias) or options.get(alias)
+            if value not in (None, ""):
+                break
+    if key in ("experimentIndex", "seed", "attempt", "planJobCount") and value not in (None, ""):
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return value
+    return str(value).strip() if value is not None else ""
+
+def durable_plan_identity(command):
+    return {key: durable_plan_value(command, key) for key in DURABLE_PLAN_IDENTITY_FIELDS}
+
+def durable_plan_public_task(row):
+    public = {**durable_plan_identity(row), "planJobCount": row.get("planJobCount"),
+              "enqueuedAt": row.get("enqueuedAt"), "status": str(row.get("status") or "unknown").lower(),
+              "durableAccepted": True, "acceptedAt": row.get("acceptedAt"), "gpuId": row.get("gpuId") or ""}
+    for key in ("finishedAt", "cancelledAt", "stopReason", "error", "exitCode", "identityConflict", "lastDispatchResult"):
+        if row.get(key) is not None:
+            public[key] = row.get(key)
+    return public
+
+def durable_plan_same_identity(left, right):
+    return durable_plan_identity(left) == durable_plan_identity(right)
+
+def accept_durable_plan_job(root, command, worker_id):
+    identity = durable_plan_identity(command)
+    missing = [key for key in DURABLE_PLAN_IDENTITY_FIELDS if identity.get(key) in (None, "")]
+    count = durable_plan_value(command, "planJobCount")
+    if count in (None, ""):
+        missing.append("planJobCount")
+    if missing:
+        raise ValueError("持久 Plan 队列缺少完整身份：" + ",".join(missing))
+    if identity["workerId"] != str(worker_id):
+        raise ValueError("持久 Plan job 的 Worker owner 不匹配")
+    if identity["runKey"] != identity["commandId"]:
+        raise ValueError("runKey 必须匹配 commandId")
+    if not isinstance(identity["experimentIndex"], int) or identity["experimentIndex"] < 0:
+        raise ValueError("experimentIndex 无效")
+    if not isinstance(identity["seed"], int):
+        raise ValueError("seed 无效")
+    if not isinstance(identity["attempt"], int) or identity["attempt"] < 1:
+        raise ValueError("attempt 必须为正整数")
+    if not isinstance(count, int) or count < 1:
+        raise ValueError("planJobCount 必须为正整数；experimentIndex 保留原计划索引")
+    plan_file = str(identity["planFile"]).replace("\\", "/")
+    if plan_file.startswith("/") or any(part in ("", ".", "..") for part in plan_file.split("/")):
+        raise ValueError("planFile 必须是项目内规范相对路径")
+    output_dir = str(identity["outputDir"]).replace("\\", "/")
+    if output_dir.startswith("/") or any(part in ("", ".", "..") for part in output_dir.split("/")):
+        raise ValueError("outputDir 必须是项目内规范相对路径")
+    if "/attempts/" not in output_dir:
+        raise ValueError("outputDir 必须位于 attempts 路径下")
+    identity["planFile"] = plan_file
+    identity["outputDir"] = output_dir
+    options = command.get("options") if isinstance(command.get("options"), dict) else {}
+    enqueued_at = str(command.get("enqueuedAt") or options.get("enqueuedAt") or now_iso())
+    with WORKER_TASK_SNAPSHOT_LOCK:
+        data = read_durable_plan_queue(root)
+        old = next((row for row in data["jobs"] if isinstance(row, dict) and str(row.get("commandId") or "") == identity["commandId"]), None)
+        if old:
+            if not durable_plan_same_identity(old, identity) or int(old.get("planJobCount") or 0) != count:
+                raise ValueError("commandId 已绑定到不同的 Plan job 身份")
+            status = str(old.get("status") or "unknown")
+            return {**durable_plan_identity(old), "planJobCount": old.get("planJobCount"), "enqueuedAt": old.get("enqueuedAt"),
+                    "status": status, "durableAccepted": True, "message": "Agent 已持久接收该 job"}
+        row = dict(command)
+        row.update(identity)
+        row.update({"schemaVersion": 1, "planJobCount": count, "enqueuedAt": enqueued_at,
+                    "workerId": str(worker_id), "status": "queued", "acceptedAt": now_iso(), "gpuId": ""})
+        data["schemaVersion"] = 1
+        data["jobs"].append(row)
+        write_durable_plan_queue(root, data)
+    append_event(root, {"type": "distributed_plan_job_accepted", "workerId": worker_id,
+                        "operationId": identity["commandId"], "payload": {**identity, "planJobCount": count, "enqueuedAt": enqueued_at}})
+    return {**identity, "planJobCount": count, "enqueuedAt": enqueued_at, "status": "queued",
+            "durableAccepted": True, "message": "Agent 已持久接收该 job"}
+
+def cancel_durable_plan_job(root, command):
+    target = str(command.get("targetCommandId") or command.get("commandIdTarget") or "").strip()
+    if not target:
+        return None
+    with WORKER_TASK_SNAPSHOT_LOCK:
+        data = read_durable_plan_queue(root)
+        row = next((item for item in data["jobs"] if isinstance(item, dict) and str(item.get("commandId") or "") == target), None)
+        if not row or str(row.get("status") or "").lower() != "queued":
+            return None
+        required = tuple(key for key in DURABLE_PLAN_IDENTITY_FIELDS if key != "commandId")
+        supplied = {key: durable_plan_value(command, key) for key in required}
+        missing = [key for key, value in supplied.items() if value in (None, "")]
+        if missing:
+            raise ValueError("待启动任务取消缺少完整身份：" + ",".join(missing))
+        if any(str(row.get(key) if row.get(key) is not None else "") != str(value) for key, value in supplied.items()):
+            raise ValueError("取消请求身份与持久队列 job 不匹配")
+        cancelled_at = now_iso()
+        row.update({"status": "cancelled", "cancelledAt": cancelled_at,
+                    "cancelCommandId": str(command.get("commandId") or command.get("operationId") or "")})
+        write_durable_plan_queue(root, data)
+        receipt = {**durable_plan_identity(row), "planJobCount": row.get("planJobCount"), "enqueuedAt": row.get("enqueuedAt"),
+                   "status": "cancelled", "finishedAt": cancelled_at, "stopReason": "user_cancel", "gpuId": ""}
+    append_worker_task(root, {**receipt, "schemaVersion": SCHEMA_VERSION})
+    append_event(root, {"type": "distributed_plan_job_cancelled", "workerId": receipt["workerId"],
+                        "operationId": target, "payload": receipt})
+    return receipt
+
+LEGACY_WORKER_STOP_IDENTITY_FIELDS = ("workflowId", "planRevision", "planFile", "case", "seed", "attempt", "outputDir", "workerId", "gpuId")
+
+def worker_task_matches_stop_identity(command, task):
+    target_command = str(command.get("targetCommandId") or command.get("commandIdTarget") or "").strip()
+    task_command = str(task.get("commandId") or task.get("operationId") or "").strip()
+    if not target_command or task_command != target_command:
+        return False
+    for field in LEGACY_WORKER_STOP_IDENTITY_FIELDS:
+        expected = command.get(field)
+        actual = task.get("plan") if field == "planFile" and task.get("planFile") in (None, "") else task.get(field)
+        if field in ("seed", "attempt"):
+            try:
+                if int(actual) != int(expected):
+                    return False
+            except (TypeError, ValueError):
+                return False
+        elif str(actual if actual is not None else "") != str(expected):
+            return False
+    return True
+def durable_plan_task_status(task):
+    status = str(task.get("status") or "").lower()
+    return {"running": "running", "completed": "completed", "failed": "failed",
+            "stopped": "cancelled", "cancelled": "cancelled", "canceled": "cancelled"}.get(status)
+
+def record_durable_plan_task_terminal(root, task):
+    status = durable_plan_task_status(task)
+    if status not in ("completed", "failed", "cancelled"):
+        return False
+    with WORKER_TASK_SNAPSHOT_LOCK:
+        data = read_durable_plan_queue(root)
+        row = next((item for item in data["jobs"] if isinstance(item, dict)
+                    and str(item.get("commandId") or "") == str(task.get("commandId") or "")), None)
+        if not row or str(row.get("status") or "").lower() in ("completed", "failed", "cancelled"):
+            return False
+        if not durable_plan_same_identity(row, task):
+            row.update({"status": "unknown", "identityConflict": True,
+                        "error": "terminal worker task identity conflicts with durable Plan queue"})
+        else:
+            row.update({"status": status, "finishedAt": task.get("finishedAt") or now_iso(),
+                        "updatedAt": now_iso()})
+            if task.get("exitCode") is not None:
+                row["exitCode"] = task.get("exitCode")
+            if task.get("error"):
+                row["error"] = str(task.get("error"))
+            if status == "cancelled":
+                row["stopReason"] = task.get("stopReason") or "user_cancel"
+        write_durable_plan_queue(root, data)
+        return True
+
+def sync_durable_plan_task_rows(root):
+    snapshot = read_json(path_for(root, "worker_task_snapshot.json"), {})
+    tasks = snapshot.get("tasks") if isinstance(snapshot, dict) and isinstance(snapshot.get("tasks"), list) else []
+    task_by_id = {str(item.get("commandId") or ""): item for item in tasks if isinstance(item, dict) and item.get("commandId")}
+    with WORKER_TASK_SNAPSHOT_LOCK:
+        data = read_durable_plan_queue(root)
+        changed = False
+        for row in data["jobs"]:
+            if not isinstance(row, dict):
+                continue
+            old_status = str(row.get("status") or "unknown").lower()
+            if old_status in ("completed", "failed", "cancelled"):
+                continue
+            task = task_by_id.get(str(row.get("commandId") or ""))
+            if not task:
+                continue
+            if not durable_plan_same_identity(row, task):
+                row.update({"status": "unknown", "identityConflict": True,
+                            "error": "worker task snapshot identity conflicts with durable Plan queue"})
+                changed = True
+                continue
+            mapped = durable_plan_task_status(task)
+            if mapped and mapped != old_status:
+                row.update({"status": mapped, "updatedAt": now_iso()})
+                changed = True
+        if changed:
+            write_durable_plan_queue(root, data)
+    return data
+
+def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None):
+    worker_id = str(worker_id or "worker").strip() or "worker"
+    gpu_probe = gpu_probe or collect_local_gpu
+    execute = execute or execute_worker_command
+    reconcile_worker_task_exit_codes(root)
+    data = sync_durable_plan_task_rows(root)
+    dispatched = []
+    for row in data["jobs"]:
+        if not isinstance(row, dict) or str(row.get("status") or "").lower() != "queued" or str(row.get("workerId") or "") != worker_id:
+            continue
+        manifest = row.get("codeManifest")
+        if manifest is not None:
+            try:
+                import hashlib
+                if not isinstance(manifest, dict) or not manifest:
+                    raise ValueError("missing code manifest")
+                stable = [[key, manifest[key]] for key in sorted(manifest, key=lambda value: value.encode("utf-16-be"))]
+                digest = hashlib.sha256(json.dumps(stable, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).hexdigest()
+                if digest != str(row.get("codeFingerprint") or ""):
+                    raise ValueError("manifest fingerprint mismatch")
+                for relative, expected in manifest.items():
+                    parts = str(relative).replace("\\", "/").split("/")
+                    if os.path.isabs(relative) or any(part in ("", ".", "..") for part in parts):
+                        raise ValueError("unsafe code manifest path")
+                    full = os.path.realpath(os.path.join(root, *parts))
+                    if os.path.commonpath([os.path.realpath(root), full]) != os.path.realpath(root):
+                        raise ValueError("code manifest escapes project")
+                    with open(full, "rb") as handle:
+                        file_hash = hashlib.sha256()
+                        for chunk in iter(lambda: handle.read(1 << 20), b""):
+                            file_hash.update(chunk)
+                        actual = file_hash.hexdigest()
+                    if not isinstance(expected, dict) or actual != expected.get("sha256"):
+                        raise ValueError("mounted code changed: " + relative)
+            except Exception as exc:
+                message = str(exc)
+                with WORKER_TASK_SNAPSHOT_LOCK:
+                    latest = read_durable_plan_queue(root)
+                    current = next((item for item in latest["jobs"] if item.get("commandId") == row.get("commandId")), None)
+                    if current and current.get("status") == "queued" and current.get("error") != message:
+                        current.update({"codeBlocked": True, "error": message})
+                        write_durable_plan_queue(root, latest)
+                        append_event(root, {"type": "distributed_plan_code_wait", "workerId": worker_id,
+                                            "operationId": row.get("commandId"), "payload": {"error": message}})
+                continue
+        gpus, error = gpu_probe()
+        if error:
+            break
+        snapshot = read_json(path_for(root, "worker_task_snapshot.json"), {})
+        tasks = snapshot.get("tasks") if isinstance(snapshot, dict) and isinstance(snapshot.get("tasks"), list) else []
+        latest = read_durable_plan_queue(root)
+        occupied = {str(item.get("gpuId")) for item in tasks if isinstance(item, dict)
+                    and str(item.get("status") or "").lower() in ("running", "dispatching")}
+        occupied.update(str(item.get("gpuId")) for item in latest.get("jobs", []) if isinstance(item, dict)
+                        and str(item.get("status") or "").lower() in ("dispatching", "running", "unknown") and item.get("gpuId"))
+        occupied.update(DISTRIBUTED_GPU_RESERVATIONS.keys())
+        free = next((gpu_row_id(gpu) for gpu in gpus if gpu_row_id(gpu) not in occupied
+                     and not gpu.get("processes") and not gpu_row_busy(gpu)), None)
+        if free is None:
+            break
+        claimed = False
+        with WORKER_TASK_SNAPSHOT_LOCK:
+            latest = read_durable_plan_queue(root)
+            current = next((item for item in latest["jobs"] if isinstance(item, dict)
+                            and item.get("commandId") == row.get("commandId")), None)
+            if current and current.get("status") == "queued" and str(free) not in DISTRIBUTED_GPU_RESERVATIONS:
+                if current.pop("codeBlocked", False):
+                    current.pop("error", None)
+                current.update({"status": "dispatching", "gpuId": str(free), "dispatchingAt": now_iso()})
+                DISTRIBUTED_GPU_RESERVATIONS[str(free)] = str(current.get("commandId") or "")
+                write_durable_plan_queue(root, latest)
+                row = current
+                claimed = True
+        if not claimed:
+            continue
+        command = dict(row)
+        command.pop("durablePlanQueue", None)
+        command["gpuId"] = str(free)
+        try:
+            result = execute(root, command, worker_id)
+            result_status = str(result.get("status") or "unknown").lower()
+            if result_status in ("running", "completed", "failed", "cancelled", "stopped"):
+                new_status = "cancelled" if result_status in ("cancelled", "stopped") else result_status
+            else:
+                new_status = "unknown"
+        except Exception as exc:
+            message = str(exc)
+            waiting = any(marker in message for marker in (
+                "已被待启动任务占用", "已有插件任务运行", "当前非空闲", "GPU 实时检测失败", "GPU 不存在或尚无实时状态"))
+            result = {"status": "queued" if waiting else "unknown", "message": message}
+            new_status = "queued" if waiting else "unknown"
+        with WORKER_TASK_SNAPSHOT_LOCK:
+            latest = read_durable_plan_queue(root)
+            current = next((item for item in latest["jobs"] if isinstance(item, dict)
+                            and item.get("commandId") == row.get("commandId")), None)
+            if current and current.get("status") == "dispatching":
+                current["status"] = new_status
+                current["lastDispatchResult"] = result
+                current["updatedAt"] = now_iso()
+                if new_status == "queued":
+                    current["gpuId"] = ""
+                    release_distributed_gpu_reservation(free, str(current.get("commandId") or ""))
+                elif new_status in ("running", "completed", "failed", "cancelled"):
+                    release_distributed_gpu_reservation(free, str(current.get("commandId") or ""))
+                write_durable_plan_queue(root, latest)
+        if new_status in ("unknown", "failed"):
+            append_event(root, {"type": "distributed_plan_job_dispatch_" + new_status,
+                                "workerId": worker_id, "operationId": row.get("commandId"),
+                                "payload": {"message": result.get("message") or "dispatch outcome is unknown"}})
+        dispatched.append({"commandId": row.get("commandId"), "status": new_status, "gpuId": str(free)})
+        data = sync_durable_plan_task_rows(root)
+    return dispatched
+
+def start_durable_plan_queue_processor(root, worker_id, poll_seconds=5):
+    worker_id = str(worker_id or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
+    try:
+        with WORKER_TASK_SNAPSHOT_LOCK:
+            data = read_durable_plan_queue(root)
+            changed = False
+            for row in data["jobs"]:
+                if isinstance(row, dict) and str(row.get("status") or "").lower() == "dispatching":
+                    row.update({"status": "unknown", "recoveredAt": now_iso(),
+                                "error": "Agent restarted during dispatch; automatic replay is fenced."})
+                    changed = True
+            if changed:
+                write_durable_plan_queue(root, data)
+    except Exception as exc:
+        append_event(root, {"type": "distributed_plan_queue_recovery_error", "workerId": worker_id, "payload": {"error": str(exc)}})
+    def loop():
+        while True:
+            try:
+                drain_durable_plan_queue_once(root, worker_id)
+            except Exception as exc:
+                append_event(root, {"type": "distributed_plan_queue_error", "workerId": worker_id, "payload": {"error": str(exc)}})
+            time.sleep(max(1.0, float(poll_seconds or 5)))
+    threading.Thread(target=loop, daemon=True, name="durable-plan-queue-processor").start()
 
 def reserve_distributed_gpu(root, gpu_id, command_id):
     """Reserve one physical GPU before starting a distributed job; never infer ownership from username."""
@@ -2368,7 +2740,8 @@ def reserve_distributed_gpu(root, gpu_id, command_id):
         existing = next((row for row in tasks if isinstance(row, dict) and str(row.get("commandId") or "") == command_id), None)
         if existing:
             return existing
-        if str(gpu_id) in DISTRIBUTED_GPU_RESERVATIONS:
+        reservation_owner = DISTRIBUTED_GPU_RESERVATIONS.get(str(gpu_id))
+        if reservation_owner and reservation_owner != command_id:
             raise RuntimeError(f"GPU {gpu_id} 已被待启动任务占用")
         if any(isinstance(row, dict) and str(row.get("gpuId") or "") == str(gpu_id)
                and str(row.get("status") or "").lower() in ("running", "dispatching") for row in tasks):
@@ -3658,9 +4031,9 @@ def execute_worker_command(root, command, worker_id):
             result = {"commandId": command_id, "status": "failed", "message": "停止操作 ID 不能与目标 job ID 相同", "stoppedPids": [], "stoppedTasks": []}
             append_event(root, {"type": "worker_command_failed", "workerId": worker_id, "operationId": command_id, "payload": result})
             return result
-        identity_fields = ("workflowId", "planRevision", "planFile", "case", "seed", "attempt", "outputDir", "workerId", "gpuId")
+        identity_fields = LEGACY_WORKER_STOP_IDENTITY_FIELDS
         if target_command:
-            missing_identity = [field for field in identity_fields if command.get(field) in (None, "")]
+            missing_identity = [field for field in identity_fields if command.get(field) in (None, "") and field != "gpuId"]
             if missing_identity:
                 result = {"commandId": command_id, "status": "failed", "message": "精确停止缺少完整身份：" + ",".join(missing_identity), "stoppedPids": [], "stoppedTasks": []}
                 append_event(root, {"type": "worker_command_failed", "workerId": worker_id, "operationId": command_id, "payload": result})
@@ -3673,6 +4046,17 @@ def execute_worker_command(root, command, worker_id):
         stop_source = str(command.get("stopSource") or command.get("source") or "user").strip()
         data = read_json(path_for(root, "worker_task_snapshot.json"), {})
         tasks = data.get("tasks") if isinstance(data, dict) and isinstance(data.get("tasks"), list) else []
+        try:
+            cancelled = cancel_durable_plan_job(root, command) if target_command else None
+        except ValueError as exc:
+            result = {"commandId": command_id, "status": "failed", "message": str(exc), "stoppedPids": [], "stoppedTasks": []}
+            append_event(root, {"type": "worker_command_failed", "workerId": worker_id, "operationId": command_id, "payload": result})
+            return result
+        if cancelled:
+            result = {"commandId": command_id, "status": "completed", "message": "已确认取消尚未启动的 Agent 队列 job", "stoppedPids": [],
+                      "stoppedTasks": [{key: cancelled.get(key) for key in (*DURABLE_PLAN_IDENTITY_FIELDS, "planJobCount", "enqueuedAt", "gpuId")} | {"paneClosed": True}]}
+            append_event(root, {"type": "worker_task_stopped", "workerId": worker_id, "operationId": command_id, "payload": result})
+            return result
         matched = []
         stopped = []
         stopped_tasks = []
@@ -3683,22 +4067,7 @@ def execute_worker_command(root, command, worker_id):
             task_command = str(task.get("commandId") or task.get("operationId") or "").strip()
             task_key = str(task.get("session") or task.get("runKey") or task_command or "").strip()
             if target_command:
-                if task_command != target_command:
-                    continue
-                same = True
-                for field in identity_fields:
-                    expected = command.get(field)
-                    actual = task.get("plan") if field == "planFile" and task.get("planFile") in (None, "") else task.get(field)
-                    if field in ("seed", "attempt"):
-                        try:
-                            same = int(actual) == int(expected)
-                        except (TypeError, ValueError):
-                            same = False
-                    else:
-                        same = str(actual if actual is not None else "") == str(expected)
-                    if not same:
-                        break
-                if not same:
+                if not worker_task_matches_stop_identity(command, task):
                     continue
             elif session not in (task_key, task_command, str(task.get("runKey") or "")):
                 continue
@@ -3768,6 +4137,11 @@ def execute_worker_command(root, command, worker_id):
         result = {"commandId": command_id, "status": "failed", "message": f"不支持的 Worker 命令：{action}"}
         append_event(root, {"type": "worker_command_failed", "workerId": worker_id, "operationId": command_id, "payload": result})
         return result
+    if action == "start-worker-task" and command.get("durablePlanQueue") is True:
+        try:
+            return accept_durable_plan_job(root, command, worker_id)
+        except Exception as exc:
+            return {"commandId": command_id, "status": "failed", "durableAccepted": False, "message": str(exc)}
     options = command.get("options") if isinstance(command.get("options"), dict) else {}
     project_dir = str(command.get("projectDir") or options.get("projectDir") or root).strip()
     scheduler_path = str(command.get("schedulerPath") or options.get("schedulerPath") or os.path.join(agent_install_dir(root), "simple_cluster", "runtime", "cluster_scheduler.py"))
@@ -3928,6 +4302,8 @@ def execute_worker_command(root, command, worker_id):
         "commandId": command_id,
         "operationId": command_id,
         "runKey": command.get("runKey") or command_id,
+        **({key: command.get(key) for key in DURABLE_PLAN_IDENTITY_FIELDS if command.get(key) not in (None, "")} if command.get("planJobCount") is not None else {}),
+        **({"planJobCount": command.get("planJobCount"), "enqueuedAt": command.get("enqueuedAt")} if command.get("planJobCount") is not None and command.get("enqueuedAt") else {}),
         "workerId": worker_id,
         "resultOwnerWorkerId": worker_id,
         "status": "running",
@@ -4576,6 +4952,7 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
                 "workerAvailability": True,
                 "workerHubUplink": True,
                 "workerTasks": True,
+                "durablePlanQueue": True,
                 "liveOutput": True,
                 "diagnostics": True,
                 "resultsSummary": True,
@@ -10487,6 +10864,15 @@ def handle_action(root, action, payload, operation_id, op_id):
         command["action"] = action
         command["commandId"] = op_id
         result = execute_worker_command(root, command, str((payload.get("options") or {}).get("workerId") or payload.get("workerId") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker"))
+        if action == "start-worker-task" and result.get("durableAccepted") is True:
+            accepted_status = str(result.get("status") or "queued")
+            accepted_message = str(result.get("message") or "Agent 已持久接收该 job")
+            details = action_event_fields(result, payload)
+            append_event(root, {"type": "operation_progress", "operationId": operation_id,
+                                "payload": {"action": action, "opId": op_id, "status": accepted_status,
+                                            "message": accepted_message, **details}})
+            return {"schemaVersion": SCHEMA_VERSION, "opId": op_id, "operationId": operation_id,
+                    "action": action, "status": accepted_status, "message": accepted_message, **details}
         status = "completed" if result.get("status") in ("running", "completed") else "failed"
         return terminal_action(root, action, operation_id, op_id, status, str(result.get("message") or result.get("status") or ""), result)
     if action == "self-check":
@@ -11333,9 +11719,38 @@ def api_worker_tasks(root):
                 _row.setdefault("window", _target)
             enriched.append(_row)
         _out = dict(data)
+        positions = {str(item.get("commandId") or ""): index for index, item in enumerate(enriched) if isinstance(item, dict) and item.get("commandId")}
+        for row in read_durable_plan_queue(root).get("jobs", []):
+            if not isinstance(row, dict):
+                continue
+            status = str(row.get("status") or "unknown").lower()
+            if status in ("queued", "dispatching", "running", "unknown", "completed", "failed", "cancelled"):
+                entry = durable_plan_public_task(row)
+                index = positions.get(str(row.get("commandId") or ""))
+                if index is None:
+                    positions[str(row.get("commandId") or "")] = len(enriched)
+                    enriched.append(entry)
+                elif durable_plan_same_identity(row, enriched[index]):
+                    enriched[index] = {**enriched[index], **entry}
+                else:
+                    entry["identityConflict"] = True
+                    entry["error"] = "worker task snapshot identity conflicts with durable Plan queue"
+                    if status not in ("completed", "failed", "cancelled"):
+                        entry["status"] = "unknown"
+                    enriched[index] = entry
         _out["tasks"] = enriched
+        _out["generatedAt"] = now_iso()
+        _out["capabilities"] = {"durablePlanQueue": True, "schemaVersion": 1}
         return _out
-    return {"schemaVersion": SCHEMA_VERSION, "tasks": [], "generatedAt": now_iso()}
+    tasks = []
+    for row in read_durable_plan_queue(root).get("jobs", []):
+        if not isinstance(row, dict):
+            continue
+        status = str(row.get("status") or "unknown").lower()
+        if status in ("queued", "dispatching", "running", "unknown", "completed", "failed", "cancelled"):
+            tasks.append(durable_plan_public_task(row))
+    return {"schemaVersion": SCHEMA_VERSION, "tasks": tasks,
+            "capabilities": {"durablePlanQueue": True, "schemaVersion": 1}, "generatedAt": now_iso()}
 
 def api_openapi(root, token_required=False, mode="hub_control"):
     if mode == "worker_telemetry":
@@ -12584,6 +12999,11 @@ def serve_http(args):
                 getattr(args, "worker_command_poll_seconds", 5),
                 getattr(args, "jitter_seconds", 2),
             )
+        start_durable_plan_queue_processor(
+            root,
+            getattr(args, "worker_id", "") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID", ""),
+            getattr(args, "worker_command_poll_seconds", 5),
+        )
     elif mode == "hub_control":
         start_hub_control_sampler(root, getattr(args, "poll_seconds", 60), getattr(args, "jitter_seconds", 30))
         try:

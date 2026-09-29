@@ -1105,8 +1105,9 @@ class RealtimeTunnelPanelProvider {
             const record = value && typeof value === "object" ? value : {};
             const snapshot = {
                 workerId,
-                schemaVersion: 1,
+                schemaVersion: Number(record.schemaVersion || 1),
                 generatedAt: String(record.generatedAt || new Date().toISOString()),
+                capabilities: record.capabilities && typeof record.capabilities === "object" ? record.capabilities : undefined,
                 tasks: Array.isArray(record.tasks) ? record.tasks : [],
                 fetchedAt: new Date().toISOString(),
             };
@@ -5574,7 +5575,7 @@ class RealtimeTunnelPanelProvider {
         if (!root)
             return undefined;
         const queue = await this.loadDistributedQueue(root);
-        const occupied = queue.plans.filter((item) => item.jobs.some((job) => ["pending", "dispatching", "running", "unknown"].includes(job.status)));
+        const occupied = queue.plans.filter((item) => item.jobs.some((job) => ["pending", "dispatching", "queued", "running", "unknown"].includes(job.status)));
         if (!occupied.length && !this.distributedPostprocessPromise)
             return undefined;
         const fingerprint = await this.localDistributedCodeFingerprint(root, signal);
@@ -5667,7 +5668,7 @@ class RealtimeTunnelPanelProvider {
                 }
                 const rows = gpu ? this.localWorkerAvailabilityRows(this.availabilityPushTtlSeconds(this.schedulerSettings()), gpu) : [];
                 const fingerprint = String(this.lastCodeSyncState?.fingerprint || "");
-                const occupied = new Set(queue.plans.flatMap((plan) => plan.jobs.filter((job) => ["dispatching", "running", "unknown"].includes(job.status))
+                const occupied = new Set(queue.plans.flatMap((plan) => plan.jobs.filter((job) => ["dispatching", "queued", "running", "unknown"].includes(job.status))
                     .map((job) => `${job.workerId}:${job.gpuId}`)));
                 const workers = rows.map((row) => ({ workerId: row.workerId,
                     online: this.lastWorkerProbes[row.workerId]?.status === "ok"
@@ -8706,6 +8707,11 @@ class RealtimeTunnelPanelProvider {
             const submission = await this.enqueueDistributedPlan(body, preflightOk, false, "", submissionEpoch, operationId);
             if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot) || submission?.cancelled)
                 return;
+            if (submission?.durableAccepted !== true && submission?.enqueued !== false) {
+                this.finishPlanSubmissionProgress(message, "failed", `本机保留了提交意图，但 Agent 尚未逐 job 确认持久队列接收：${submission?.dispatchError || "状态未知"}。刷新状态后可按原 commandId 安全核对。`);
+                await this.openPanelAt("tasks", "tasks-list");
+                return;
+            }
             if (submission?.enqueued === false) {
                 this.finishPlanSubmissionProgress(message, "succeeded", "已有产物覆盖本次全部任务；按所选“跳过已有”处理，未创建新调度任务。");
                 await this.openPanelAt("tasks", "tasks-list");
@@ -8754,8 +8760,16 @@ class RealtimeTunnelPanelProvider {
         if (!root || !this.isRealtimeMode() || this.projectTopologyAssessment().mode !== "worker_pool")
             return;
         const queue = await this.loadDistributedQueue(root);
-        const hasOutstandingJobs = queue.plans.some((plan) => plan.jobs.some((job) => ["pending", "dispatching", "running", "unknown"].includes(job.status)));
+        const hasOutstandingJobs = queue.plans.some((plan) => plan.jobs.some((job) => ["pending", "dispatching", "queued", "running", "unknown"].includes(job.status)));
         const hasLegacyDeferred = (queue.deferred || []).some((row) => ["pending", "processing", "blocked"].includes(String(row.status || "")));
+        if (!queue.plans.length && !hasLegacyDeferred && this.workerActionTargets().length) {
+            await this.tickDistributedQueue();
+            if (Object.values(this.lastWorkerProbes).some((probe) => probe?.status === "ok")) {
+                this.startAvailabilityPushLoop();
+                await this.ensureRealtimeConnected("distributed queue cold recovery");
+            }
+            return;
+        }
         if (!hasOutstandingJobs) {
             if (hasLegacyDeferred) {
                 await this.tickDistributedQueue();
@@ -8963,6 +8977,23 @@ class RealtimeTunnelPanelProvider {
             if (workspaceRoot() !== root)
                 return;
             await this.rebuildDistributedResults(root, await this.loadDistributedQueue(root), false, rerunIfBusy);
+            if (workspaceRoot() !== root)
+                return;
+            const latest = await this.loadDistributedQueue(root);
+            const completed = [...new Map(latest.plans.map((plan) => [plan.planFile, plan])).values()].filter((plan) => !plan.recoveryConflict && !plan.recoveryMissingCount
+                && Number(plan.planJobCount || plan.jobs.length) === plan.jobs.length
+                && plan.jobs.length && plan.jobs.every((job) => job.status === "completed"));
+            const completedPlans = completed.map((plan) => plan.planFile);
+            const signature = latest.publishedSignature || latest.previewSignature ? crypto.createHash("sha256")
+                .update(JSON.stringify([latest.publishedSignature, latest.previewSignature,
+                completed.map((plan) => [plan.id, plan.revision, plan.jobs.map((job) => [job.index, job.attempt, job.commandId])])])).digest("hex") : "";
+            if (signature && signature !== latest.localMetricsSignature && completedPlans.length) {
+                const report = await this.syncPendingResultMetricsFromUi({ background: true, planFiles: completedPlans });
+                if (workspaceRoot() !== root)
+                    return;
+                if (report.included?.length === completedPlans.length && !report.skipped?.length && !report.missing?.length)
+                    await this.patchDistributedPublication(root, { localMetricsSignature: signature });
+            }
             this.postState();
         })();
         this.distributedPostprocessPromise = work;
@@ -9015,7 +9046,8 @@ class RealtimeTunnelPanelProvider {
             }
             return { enqueued: false };
         }
-        const enqueued = DistributedPlanQueue.enqueuePlan(current, { planFile, revision, codeFingerprint, overwriteExisting, jobs: selectedJobs.map((job) => ({
+        const enqueued = DistributedPlanQueue.enqueuePlan(current, { projectId: DistributedPlanQueue.canonicalProjectId(root),
+            planJobCount: selectedJobs.length, planFile, revision, codeFingerprint, overwriteExisting, jobs: selectedJobs.map((job) => ({
                 index: Number(job.index), case: String(job.case), seed: Number(job.seed),
                 outputDir: String(job.output_dir || "").replace(/\\/g, "/").replace(/\/$/, "") + "/attempts/" + id,
             })) }, id);
@@ -9030,16 +9062,30 @@ class RealtimeTunnelPanelProvider {
         if (!submissionCurrent())
             return { enqueued: true, cancelled: true };
         this.postState();
+        let dispatchError = "";
         if (!skipTick) {
-            void this.tickDistributedQueue().catch((error) => {
+            try {
+                await this.tickDistributedQueue();
+            }
+            catch (error) {
                 if (!submissionCurrent())
-                    return;
-                const dispatchError = errorMessage(error);
+                    return { enqueued: true, cancelled: true };
+                dispatchError = errorMessage(error);
                 this.recordActionError({ command: "distributedPlanDispatch", message: `${planFile}：${dispatchError}` });
-                this.postState();
-            });
+            }
         }
-        return { enqueued: true };
+        if (!submissionCurrent())
+            return { enqueued: true, cancelled: true };
+        const latest = await this.loadDistributedQueue(root);
+        const submittedPlan = latest.plans.find((item) => item.id === id);
+        const acceptedStatuses = new Set(["queued", "running", "completed", "failed", "cancelled"]);
+        const durableAccepted = Boolean(submittedPlan && !submittedPlan.recoveryConflict
+            && submittedPlan.jobs.length === Number(submittedPlan.planJobCount || selectedJobs.length)
+            && submittedPlan.jobs.every((job) => acceptedStatuses.has(job.status)));
+        if (!durableAccepted && !dispatchError)
+            dispatchError = submittedPlan?.jobs.find((job) => !acceptedStatuses.has(job.status))?.blockReason
+                || "未收到所有 Plan job 的持久接收回执";
+        return { enqueued: true, durableAccepted, dispatchError };
     }
     detachStaleDistributedTick(task) {
         if (!task || this.distributedQueueTickPromise !== task)
@@ -9072,7 +9118,7 @@ class RealtimeTunnelPanelProvider {
             return;
         const selected = queue.plans.flatMap((plan) => plan.jobs)
             .find((job) => (job.logPath === this.selectedLogRunKey || `${String(job.outputDir || "").replace(/\/+$/, "")}/train.log` === this.selectedLogRunKey) && job.workerId
-            && (["dispatching", "running", "unknown"].includes(job.status)
+            && (["dispatching", "queued", "running", "unknown"].includes(job.status)
                 || newTerminal && ["completed", "failed"].includes(job.status)));
         if (!selected)
             return;
@@ -9087,18 +9133,37 @@ class RealtimeTunnelPanelProvider {
         const target = this.workerActionTargets().find((item) => item.id === workerId);
         if (!target)
             throw new Error(`Worker ${workerId} 配置已失效`);
+        const root = workspaceRoot();
+        const client = this.client;
+        const generation = this.distributedQueueGeneration;
+        const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
+        const holds = await (0, SyncResolution_1.loadSyncHolds)(this.context.globalStorageUri.fsPath, root);
+        const codeManifest = (0, SyncResolution_1.filterHeldFiles)(await buildLocalCodeManifest(root, config.get("codeSync.includePaths", []), config.get("codeSync.scopePaths"), { cacheFile: this.localCodeManifestCacheFile(root) }), holds);
+        if (fingerprintFromManifest(codeManifest) !== plan.codeFingerprint)
+            throw new Error("本机代码已偏离 Plan 的代码指纹，持久队列提交已暂停；请恢复该版本或重新提交计划。");
+        if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
+            throw new Error("提交已取消或项目已切换，未向 Worker 发送任务。");
         const request = {
-            schemaVersion: 1, opId: commandId, operationId: commandId,
-            planFile: plan.planFile, experimentIndex: job.index, gpuId,
+            schemaVersion: 1, opId: commandId, operationId: commandId, runKey: commandId,
+            durablePlanQueue: true, codeManifest, projectId: plan.projectId || DistributedPlanQueue.canonicalProjectId(root),
+            planJobCount: Number(plan.planJobCount || plan.jobs.length), enqueuedAt: plan.enqueuedAt,
+            planFile: plan.planFile, experimentIndex: job.index, ...(gpuId !== undefined ? { gpuId } : {}),
             case: job.case, seed: job.seed, outputDir: job.outputDir, mode: "train_test",
             planRevision: plan.revision, codeFingerprint: plan.codeFingerprint, attempt: job.attempt,
             condaEnv: target.condaEnv, workflowId: plan.id,
             overwriteExisting: plan.overwriteExisting === true,
-            options: { workerId, distributedResults: true, condaEnv: target.condaEnv,
+            options: { workerId, distributedResults: true, durablePlanQueue: true,
+                projectId: plan.projectId || DistributedPlanQueue.canonicalProjectId(workspaceRoot()),
+                planJobCount: Number(plan.planJobCount || plan.jobs.length), enqueuedAt: plan.enqueuedAt,
+                condaEnv: target.condaEnv,
                 overwriteExisting: plan.overwriteExisting === true,
                 workerActionMinIntervalMs: this.schedulerSettings().workerActionMinIntervalMs },
         };
-        return this.withRemoteActionResource(workerId, "start-worker-task", request, () => this.client.postWorkerAction(workerId, "start-worker-task", request));
+        return this.withRemoteActionResource(workerId, "start-worker-task", request, () => {
+            if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
+                throw new Error("提交已取消或项目已切换，未向 Worker 发送任务。");
+            return client.postWorkerAction(workerId, "start-worker-task", request);
+        });
     }
     async tickDistributedQueueCore(generation = this.distributedQueueGeneration, signal) {
         const root = workspaceRoot();
@@ -9113,7 +9178,7 @@ class RealtimeTunnelPanelProvider {
             return;
         let queue = await this.loadDistributedQueue(root);
         let newTerminal = false;
-        if (!queue.plans.length && !(queue.deferred || []).length)
+        if (!queue.plans.length && !(queue.deferred || []).length && !this.workerActionTargets().length)
             return;
         const targetsNeedingMirror = this.workerCodeSyncTargets().filter((target) => queue.plans.some((plan) => plan.jobs.some((job) => job.status === "completed" && !job.mirroredWorkerIds?.includes(target.id))));
         const disconnectedMirror = targetsNeedingMirror.some((target) => this.lastWorkerProbes[target.id]?.status !== "ok");
@@ -9128,13 +9193,12 @@ class RealtimeTunnelPanelProvider {
             if (!Object.values(this.lastWorkerProbes).some((probe) => probe?.status === "ok"))
                 return;
         }
-        const probeAssigned = queue.plans.flatMap((plan) => plan.jobs.filter((job) => job.workerId && job.commandId && ["dispatching", "running", "unknown"].includes(job.status))
+        const probeAssigned = queue.plans.flatMap((plan) => plan.jobs.filter((job) => job.workerId && job.commandId && ["dispatching", "queued", "running", "unknown"].includes(job.status))
             .map((job) => ({ plan, job })));
         const probeFailed = Date.now() >= this.distributedNextFailureDetailAt
             ? queue.plans.flatMap((plan) => plan.jobs.filter((job) => job.status === "failed" && job.workerId && job.commandId && !job.error)
                 .map((job) => ({ plan, job }))) : [];
-        const hasPendingJobs = queue.plans.some((plan) => plan.jobs.some((job) => job.status === "pending"));
-        const candidateWorkerIds = hasPendingJobs ? this.workerActionTargets().map((worker) => worker.id) : [];
+        const candidateWorkerIds = this.workerActionTargets().map((worker) => worker.id);
         const snapshotWorkerIds = [...new Set([...probeAssigned.map(({ job }) => job.workerId),
                 ...probeFailed.map(({ job }) => job.workerId), ...candidateWorkerIds])];
         const verifiedWorkerIds = new Set();
@@ -9164,27 +9228,18 @@ class RealtimeTunnelPanelProvider {
             return;
         }
         queue = await this.loadDistributedQueue(root);
-        const assigned = queue.plans.flatMap((plan) => plan.jobs.filter((job) => job.workerId && job.commandId && ["dispatching", "running", "unknown"].includes(job.status))
-            .map((job) => ({ plan, job })));
+        const assigned = queue.plans.flatMap((plan) => plan.jobs.filter((job) => job.workerId && job.commandId && ["dispatching", "queued", "running", "unknown"].includes(job.status))
+            .map((job) => ({ plan, job }))).filter(({ plan }) => !plan.projectId);
         const failedForDetails = Date.now() >= this.distributedNextFailureDetailAt
             ? queue.plans.flatMap((plan) => plan.jobs.filter((job) => job.status === "failed" && job.workerId && job.commandId && !job.error)
-                .map((job) => ({ plan, job }))) : [];
+                .map((job) => ({ plan, job }))).filter(({ plan }) => !plan.projectId) : [];
         if (failedForDetails.length)
             this.distributedNextFailureDetailAt = Date.now() + 60_000;
+        // Older cached jobs still need exact read-only reconciliation alongside durable Plans.
         for (let snapshotIndex = 0; snapshotIndex < snapshotWorkerIds.length; snapshotIndex++) {
             const workerId = snapshotWorkerIds[snapshotIndex];
             const snapshot = taskSnapshots[snapshotIndex];
             const freshSnapshot = !snapshot.error;
-            const realtimeTasks = Array.isArray(this.lastRealtimeState?.workerTasks?.[workerId])
-                ? this.lastRealtimeState.workerTasks[workerId] : [];
-            if (snapshot.error) {
-                if (/rate_limited|cooldown/i.test(snapshot.error) && !realtimeTasks.length)
-                    continue;
-                if (/rate_limited|cooldown/i.test(snapshot.error) && realtimeTasks.length) {
-                    snapshot.tasks = realtimeTasks;
-                    snapshot.error = undefined;
-                }
-            }
             if (snapshot.error) {
                 for (const { plan, job } of assigned.filter((row) => row.job.workerId === workerId && row.job.status !== "unknown"))
                     queue = DistributedPlanQueue.setJobState(queue, plan.id, job.index, "unknown", job.commandId);
@@ -9204,34 +9259,8 @@ class RealtimeTunnelPanelProvider {
                     if (job.status !== "unknown")
                         queue = DistributedPlanQueue.setJobState(queue, plan.id, job.index, "unknown", job.commandId);
                     const currentJob = queue.plans.find((row) => row.id === plan.id)?.jobs.find((row) => row.index === job.index);
-                    if (currentJob && (currentJob.reconciliationAttempts || 0) < 3
-                        && (!currentJob.lastReconciliationAt || Date.now() - Date.parse(currentJob.lastReconciliationAt) >= 500)) {
-                        currentJob.lastReconciliationAt = new Date().toISOString();
-                        if (!queueWriteCurrent()) {
-                            this.postState();
-                            return;
-                        }
-                        const launchKey = `${plan.id}\0${currentJob.index}\0${currentJob.attempt}`;
-                        this.distributedLaunchInFlight.add(launchKey);
-                        try {
-                            const retried = await this.sendDistributedJob(plan, currentJob, workerId, currentJob.gpuId, currentJob.commandId);
-                            if (!queueWriteCurrent())
-                                continue;
-                            if (retried?.status === "completed")
-                                queue = DistributedPlanQueue.setJobState(queue, plan.id, job.index, "running", job.commandId);
-                            else
-                                currentJob.reconciliationAttempts = (currentJob.reconciliationAttempts || 0) + 1;
-                        }
-                        catch (error) {
-                            if (!queueWriteCurrent())
-                                continue;
-                            if (!(error instanceof RequestBudget_1.RequestBudgetDeniedError))
-                                currentJob.reconciliationAttempts = (currentJob.reconciliationAttempts || 0) + 1;
-                        }
-                        finally {
-                            this.distributedLaunchInFlight.delete(launchKey);
-                        }
-                    }
+                    if (currentJob)
+                        currentJob.blockReason = "旧版 job 的服务器回执缺失，保留原 Worker 和 commandId 等待核实；不会自动补发任务。";
                     continue;
                 }
                 if (!DistributedPlanQueue.remoteTaskMatchesJob(plan, job, task)) {
@@ -9259,6 +9288,135 @@ class RealtimeTunnelPanelProvider {
                     queue = DistributedPlanQueue.setJobState(queue, plan.id, job.index, nextStatus, job.commandId);
                 }
             }
+        }
+        const projectId = DistributedPlanQueue.canonicalProjectId(root);
+        const previouslyTerminal = new Set(queue.plans.flatMap((plan) => plan.jobs
+            .filter((job) => ["completed", "failed", "cancelled"].includes(job.status))
+            .map((job) => `${plan.id}\0${job.index}\0${job.attempt}`)));
+        queue = DistributedPlanQueue.mergeDurableWorkerSnapshots(queue, taskSnapshots.map((snapshot, index) => ({
+            ...snapshot, workerId: snapshot.workerId || snapshotWorkerIds[index],
+        })), projectId);
+        for (const plan of queue.plans) {
+            if (plan.recoveryConflict) {
+                const message = `持久队列身份冲突：${plan.recoveryConflict}`;
+                plan.jobs = plan.jobs.map((job) => ({ ...job, status: "unknown", recoveryConflict: true,
+                    blockReason: job.blockReason || message }));
+                this.recordActionError({ command: "distributedPlanQueueRecovery", message: `${plan.planFile}：${message}；已暂停派发和正式结果发布。` });
+            }
+            for (const job of plan.jobs)
+                if (["completed", "failed", "cancelled"].includes(job.status)
+                    && !previouslyTerminal.has(`${plan.id}\0${job.index}\0${job.attempt}`))
+                    newTerminal = true;
+        }
+        const durableQueue = queue.plans.some((plan) => plan.projectId === projectId);
+        if (durableQueue) {
+            const targets = this.workerActionTargets().slice().sort((a, b) => String(a.id).localeCompare(String(b.id)));
+            const snapshotsByWorker = new Map(taskSnapshots.map((snapshot, index) => [snapshot.workerId || snapshotWorkerIds[index], snapshot]));
+            if (queueWriteCurrent())
+                await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
+            for (const plan of queue.plans) {
+                if (plan.projectId !== projectId || plan.recoveryConflict)
+                    continue;
+                const candidates = targets.filter((target) => {
+                    const snapshot = snapshotsByWorker.get(target.id);
+                    const generatedAt = Date.parse(String(snapshot?.generatedAt || ""));
+                    const fetchedAt = Date.parse(String(snapshot?.fetchedAt || ""));
+                    const workerFingerprint = String(this.lastCodeSyncState?.workerVersions?.[target.id]?.fingerprint || "");
+                    return snapshot && !snapshot.error && snapshot.capabilities?.durablePlanQueue === true
+                        && Number(snapshot.capabilities?.schemaVersion) === 1
+                        && Number.isFinite(generatedAt) && Date.now() - generatedAt <= 180_000
+                        && Number.isFinite(fetchedAt) && Date.now() - fetchedAt <= 180_000
+                        && workerFingerprint === plan.codeFingerprint;
+                });
+                for (const job of plan.jobs) {
+                    if (!queueWriteCurrent())
+                        return;
+                    if (job.recoveryConflict || ["completed", "failed", "cancelled", "queued", "running"].includes(job.status))
+                        continue;
+                    if (!job.workerId) {
+                        if (!candidates.length) {
+                            job.blockReason = targets.length
+                                ? "需要升级 Worker Agent 并同步到该 Plan 代码版本后，才能确认持久队列接收。"
+                                : "没有已配置的 Worker 可接收持久队列任务。";
+                            continue;
+                        }
+                        const owner = candidates[job.index % candidates.length];
+                        job.workerId = owner.id;
+                        job.commandId = DistributedPlanQueue.durableCommandId(plan, job, owner.id);
+                        job.runKey = job.commandId;
+                        job.projectId = projectId;
+                        job.status = "dispatching";
+                        job.blockReason = undefined;
+                    }
+                    const snapshot = snapshotsByWorker.get(job.workerId);
+                    if (!snapshot || snapshot.error || snapshot.capabilities?.durablePlanQueue !== true
+                        || Number(snapshot.capabilities?.schemaVersion) !== 1
+                        || !Number.isFinite(Date.parse(String(snapshot.generatedAt || "")))
+                        || Date.now() - Date.parse(String(snapshot.generatedAt || "")) > 180_000
+                        || !Number.isFinite(Date.parse(String(snapshot.fetchedAt || "")))
+                        || Date.now() - Date.parse(String(snapshot.fetchedAt || "")) > 180_000) {
+                        job.status = "unknown";
+                        job.blockReason = "持久队列接收状态未知：Worker 快照不可用或 Agent 需要升级；原命令身份已保留。";
+                        continue;
+                    }
+                    const workerFingerprint = String(this.lastCodeSyncState?.workerVersions?.[job.workerId]?.fingerprint || "");
+                    if (workerFingerprint !== plan.codeFingerprint) {
+                        job.status = "pending";
+                        job.blockReason = "Worker 当前代码指纹与该 Plan 不一致，任务保持未确认，不会自动换服务器重发。";
+                        continue;
+                    }
+                    const remote = (snapshot.tasks || []).find((task) => String(task.commandId || "") === job.commandId);
+                    if (remote && DistributedPlanQueue.remoteTaskMatchesJob(plan, job, remote))
+                        continue;
+                    if (remote) {
+                        job.status = "unknown";
+                        job.recoveryConflict = true;
+                        job.blockReason = "Worker 返回的任务与完整 Plan/job 身份冲突，已暂停重发。";
+                        continue;
+                    }
+                    if (!job.commandId) {
+                        job.status = "unknown";
+                        job.blockReason = "缺少已持久化 commandId，无法安全提交。";
+                        continue;
+                    }
+                    job.status = "dispatching";
+                    await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
+                    try {
+                        const receipt = await this.sendDistributedJob(plan, job, job.workerId, undefined, job.commandId);
+                        if (!queueWriteCurrent())
+                            return;
+                        const status = String(receipt?.status || "").toLowerCase();
+                        if (receipt?.durableAccepted !== true || String(receipt.commandId || "") !== job.commandId
+                            || !["queued", "running", "completed", "failed", "cancelled"].includes(status)) {
+                            throw new Error(String(receipt?.message || "Worker 未返回 durableAccepted 及匹配 commandId 的状态回执"));
+                        }
+                        job.status = status === "cancelled" ? "cancelled" : status;
+                        if (receipt.gpuId !== undefined && receipt.gpuId !== null)
+                            job.gpuId = String(receipt.gpuId);
+                        job.blockReason = undefined;
+                        if (["completed", "failed"].includes(job.status))
+                            newTerminal = true;
+                    }
+                    catch (error) {
+                        if (!queueWriteCurrent())
+                            return;
+                        job.status = "unknown";
+                        job.blockReason = `持久队列接收回执未确认，保留原 Worker 和 commandId：${errorMessage(error)}`;
+                        this.recordActionError({ command: "distributedPlanQueue", message: `${plan.planFile} job ${job.index}：${job.blockReason}` });
+                    }
+                    if (!queueWriteCurrent())
+                        return;
+                    await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
+                }
+            }
+            if (queueWriteCurrent())
+                await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
+            if (newTerminal || Date.now() >= this.distributedNextPostprocessAt) {
+                this.distributedNextPostprocessAt = Date.now() + 60_000;
+                this.scheduleDistributedPostprocess(root, newTerminal);
+            }
+            this.postState();
+            return;
         }
         if (!queueWriteCurrent()) {
             this.postState();
@@ -9536,6 +9694,8 @@ class RealtimeTunnelPanelProvider {
         if (!available)
             return;
         const manifest = { schemaVersion: 1, plans: selected.map((plan) => ({ planFile: plan.planFile, revision: plan.revision,
+                projectId: plan.projectId, codeFingerprint: plan.codeFingerprint,
+                expectedJobCount: Number(plan.planJobCount || plan.jobs.length), recoveryMissingCount: Number(plan.recoveryMissingCount || 0),
                 expectedJobs: plan.jobs.map((job) => ({ case: job.case, seed: job.seed })),
                 jobStates: plan.jobs.map((job) => ({ case: job.case, seed: job.seed, attempt: job.attempt,
                     status: job.status, workerId: job.workerId, finishedAt: job.finishedAt })),
@@ -9552,7 +9712,8 @@ class RealtimeTunnelPanelProvider {
                     fourStateSha256: job.artifacts[`${job.outputDir}/${contract.fourStatePath}`],
                 })) })) };
         const signature = crypto.createHash("sha256").update(JSON.stringify(manifest)).digest("hex");
-        const publish = !previewOnly && selected.every((plan) => plan.jobs.every((job) => job.status === "completed"
+        const publish = !previewOnly && selected.every((plan) => !plan.recoveryConflict && !plan.recoveryMissingCount
+            && Number(plan.planJobCount || plan.jobs.length) === plan.jobs.length && plan.jobs.every((job) => job.status === "completed"
             && contract.requiredPaths.every((name) => Boolean(job.artifacts?.[`${job.outputDir}/${name}`])) && Boolean(job.mirroredWorkerIds?.length)));
         const mirroredSources = publish ? queue.publishedWorkerIds : queue.previewWorkerIds;
         const reusableSource = mirroredSources?.find((id) => online.includes(id))
@@ -9669,7 +9830,8 @@ class RealtimeTunnelPanelProvider {
             throw new Error("目标 job 当前不能恢复");
         const fresh = await this.client.getWorkerTasks(job.workerId);
         const task = (fresh?.tasks || []).find((row) => String(row.commandId || "") === job.commandId);
-        if (!task || !["failed", "stopped", "cancelled"].includes(String(task.status || "").toLowerCase())
+        if (!task || !DistributedPlanQueue.remoteTaskMatchesJob(plan, job, task)
+            || !["failed", "stopped", "cancelled", "canceled"].includes(String(task.status || "").toLowerCase())
             || !(task.finishedAt || task.exitCode !== undefined))
             throw new Error("原 Worker 尚未确认任务停止；当前禁止换机恢复");
         const sourceRow = this.workerCodeSyncTargets().find((row) => row.id === job.workerId);
@@ -13846,9 +14008,9 @@ class RealtimeTunnelPanelProvider {
         return probe?.status === "ok" && probe?.capabilities?.actionEndpoints?.["stop-worker-task-exact-pane"] === true;
     }
     async stopDistributedJobForClear(plan, job) {
-        if (!job.workerId || !job.commandId || job.gpuId === undefined)
-            throw new Error("活动 job 缺少 Worker、commandId 或 GPU，未发送停止");
-        const exactPane = await this.refreshExactPaneStopCapability(job.workerId);
+        if (!job.workerId || !job.commandId)
+            throw new Error("活动 job 缺少 Worker 或 commandId，未发送停止");
+        const exactPane = job.gpuId === undefined ? true : await this.refreshExactPaneStopCapability(job.workerId);
         if (exactPane !== true)
             throw new Error(`Worker ${job.workerId} 的实时能力没有 stop-worker-task-exact-pane。请先更新并重启该 Worker Agent，再重试；未发送停止命令。`);
         const stopOperationId = makeOpId("stop-distributed-job");
@@ -13857,16 +14019,21 @@ class RealtimeTunnelPanelProvider {
             opId: stopOperationId,
             operationId: stopOperationId,
             targetCommandId: job.commandId,
+            runKey: job.runKey || job.commandId,
             workflowId: plan.id,
             planId: plan.id,
+            projectId: plan.projectId || DistributedPlanQueue.canonicalProjectId(workspaceRoot()),
             planRevision: plan.revision,
+            codeFingerprint: plan.codeFingerprint,
+            planJobCount: Number(plan.planJobCount || plan.jobs.length),
             planFile: plan.planFile,
+            experimentIndex: job.index,
             case: job.case,
             seed: job.seed,
             attempt: job.attempt,
             outputDir: job.outputDir,
             workerId: job.workerId,
-            gpuId: String(job.gpuId),
+            ...(job.gpuId !== undefined ? { gpuId: String(job.gpuId) } : {}),
             manualStopType: "scheduler_aborted",
             stopReason: "scheduler_aborted",
             stopSource: "user",
@@ -13875,7 +14042,7 @@ class RealtimeTunnelPanelProvider {
         const receipt = stopped.find((row) => DistributedPlanQueue.stopIdentityMatchesJob(plan, job, row));
         if (String(result?.status || "").toLowerCase() !== "completed" || !receipt)
             throw new Error(String(result?.message || "Worker 回执身份与目标 job 不一致，队列保留"));
-        if (receipt.paneClosed !== true)
+        if (job.gpuId !== undefined && receipt.paneClosed !== true)
             throw new Error(String(receipt.paneCloseError || "该 job 的 tmux 标签未确认关闭，队列保留"));
         const fresh = await this.client.getWorkerTasks(job.workerId);
         const tasks = Array.isArray(fresh?.tasks) ? fresh.tasks : null;
@@ -14178,8 +14345,8 @@ class RealtimeTunnelPanelProvider {
                     failures.push(`${row.planFile} ${row.planId} job ${row.jobIndex}: 正在向 Worker 发起启动，远端身份尚未回写，不能按未派发清除。下一步：等这一次启动回执落地后再点“终止并清理”。`);
                     continue;
                 }
-                const remoteIdentity = Boolean(job.workerId && job.commandId && job.gpuId !== undefined);
-                const needsRemoteStop = ["dispatching", "running", "unknown"].includes(job.status) || remoteIdentity;
+                const remoteIdentity = Boolean(job.workerId && job.commandId);
+                const needsRemoteStop = ["dispatching", "queued", "running", "unknown"].includes(job.status) || remoteIdentity;
                 if (!needsRemoteStop) {
                     if (DistributedPlanQueue.jobClearableWithoutRemoteReceipt(job)) {
                         confirmedJobs.add(`${row.planId}\0${row.jobIndex}\0${row.attempt}`);
@@ -14206,7 +14373,7 @@ class RealtimeTunnelPanelProvider {
                 const task = tasks?.find((item) => DistributedPlanQueue.remoteTaskMatchesJob(plan, job, item) || DistributedPlanQueue.stopIdentityMatchesJob(plan, job, item));
                 const pane = String(task?.tmuxPane || "").trim();
                 const session = String(task?.tmuxSession || "").trim();
-                const terminal = ["completed", "failed", "stopped", "cancelled"].includes(String(task?.status || "").toLowerCase());
+                const terminal = ["completed", "failed", "stopped", "cancelled", "canceled"].includes(String(task?.status || "").toLowerCase());
                 if (!tasks || !task || !terminal) {
                     if (["completed", "failed"].includes(job.status)) {
                         failures.push(`${row.planFile} ${row.planId} job ${row.jobIndex}: 快照缺少与该 job 全身份匹配的终态记录，无法确认 tmux 标签已关闭，队列保留`);
@@ -14576,7 +14743,7 @@ class RealtimeTunnelPanelProvider {
             await this.publishDownloadedResultMetrics(projectContext, client, [{ planFile, summary, candidates }], [download]);
         return download;
     }
-    async syncPendingResultMetricsFromUi() {
+    async syncPendingResultMetricsFromUi(options = {}) {
         const projectContext = this.captureProjectContext();
         const root = projectContext.root;
         const client = this.client;
@@ -14589,7 +14756,8 @@ class RealtimeTunnelPanelProvider {
         if (!isCurrent())
             return { merged: false, downloaded: false, reason: "revision-changed" };
         const ledger = await this.loadPlanSyncLedger(root);
-        const plans = await completedResultPlanFiles(this, ledger, root);
+        const plans = (await completedResultPlanFiles(this, ledger, root)).filter((planFile) => !options.planFiles
+            || options.planFiles.some((selected) => samePlanSelection(selected, planFile)));
         if (!plans.length) {
             void vscode.window.showInformationMessage("当前项目没有已知 Plan，未下载指标文件。");
             return { merged: true, downloaded: false, reason: "none", plans: [], discovered: 0, included: 0, missing: 0, skipped: [] };
@@ -14608,7 +14776,7 @@ class RealtimeTunnelPanelProvider {
         const scopePaths = [...new Set(known.flatMap((item) => resultMetricMergeScopePaths(item.metadata, item.planFile, item.scopeHints)))].sort();
         let merged = targets.length < 2;
         const unverifiedScopes = new Set();
-        if (targets.length >= 2) {
+        if (targets.length >= 2 && !options.background) {
             if (!isCurrent())
                 return { merged: false, downloaded: false, reason: "revision-changed" };
             const outcome = await this.mergeLatestWorkerVersions(root, targets, scopePaths, ".", (stage) => {
@@ -14718,7 +14886,7 @@ class RealtimeTunnelPanelProvider {
             }
             if (!isCurrent())
                 return { merged: true, downloaded: false, reason: "revision-changed", plans, issues };
-            confirmed = await this.confirmMappedResultDownloads(projectContext, client, mergedBatches, "同步服务器结果并更新总表", { metricsOnly: true });
+            confirmed = await this.confirmMappedResultDownloads(projectContext, client, mergedBatches, "同步服务器结果并更新总表", { metricsOnly: true, missingOnly: options.background });
             if (!confirmed || (confirmed.cancelled && !confirmed.rejected))
                 return { merged: true, downloaded: false, reason: "cancelled", plans, issues, downloads: confirmed ? [confirmed] : [] };
             for (const batch of confirmed.batches || []) {
@@ -14752,9 +14920,9 @@ class RealtimeTunnelPanelProvider {
         if (isCurrent())
             this.postState();
         const text = formatResultSyncReport(report, "同步服务器结果并更新总表");
-        if (report.skipped.length || report.missing.length)
+        if (!options.background && (report.skipped.length || report.missing.length))
             void vscode.window.showWarningMessage(text);
-        else
+        else if (!options.background)
             void vscode.window.showInformationMessage(text);
         if (!report.included.length && report.skipped.length)
             throw new Error(text);
@@ -14999,8 +15167,8 @@ class RealtimeTunnelPanelProvider {
         if (!isCurrent())
             return { cancelled: true, rejected: false, overwrite: false, batches: [], skippedExisting: 0 };
         const existingCount = entries.filter((entry) => entry.exists).length;
-        let overwrite = true;
-        if (existingCount) {
+        let overwrite = options.missingOnly !== true;
+        if (existingCount && !options.missingOnly) {
             const plans = [...new Set(entries.map((entry) => entry.planFile))];
             const answer = await vscode.window.showWarningMessage([
                 metricsOnly ? "【同步结果指标确认】" : "【批量同步结果确认】",
@@ -18387,8 +18555,10 @@ class RealtimeTunnelPanelProvider {
             gpuHistory: this.gpuHistoryState.snapshot(),
             schedulerStates,
             distributedPlans: this.distributedQueueRoot === workspaceRoot()
-                ? (this.distributedQueueCache?.plans || []).map((plan) => ({ id: plan.id, planFile: plan.planFile,
-                    revision: plan.revision, enqueuedAt: plan.enqueuedAt,
+                ? (this.distributedQueueCache?.plans || []).map((plan) => ({ id: plan.id, projectId: plan.projectId,
+                    planJobCount: plan.planJobCount, recoveryMissingCount: plan.recoveryMissingCount,
+                    recoveryConflict: plan.recoveryConflict, planFile: plan.planFile,
+                    revision: plan.revision, codeFingerprint: plan.codeFingerprint, enqueuedAt: plan.enqueuedAt,
                     jobs: plan.jobs.map((job) => ({ index: job.index, case: job.case, seed: job.seed,
                         status: job.status, workerId: job.workerId, gpuId: job.gpuId, outputDir: job.outputDir,
                         commandId: job.commandId, logPath: job.logPath, finishedAt: job.finishedAt,
@@ -22548,6 +22718,8 @@ function workerTaskSnapshotPayload(snapshot) {
         workerId: snapshot.workerId,
         schemaVersion: snapshot.schemaVersion,
         generatedAt: snapshot.generatedAt,
+        fetchedAt: snapshot.fetchedAt,
+        capabilities: snapshot.capabilities,
         tasks: snapshot.tasks,
         ...(snapshot.error ? { error: snapshot.error } : {}),
     };

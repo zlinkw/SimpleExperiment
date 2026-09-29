@@ -34,6 +34,9 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.emptyDistributedQueue = exports.CODE_FINGERPRINT_WAITING = exports.CODE_FINGERPRINT_MISMATCH = void 0;
+exports.canonicalProjectId = canonicalProjectId;
+exports.durableCommandId = durableCommandId;
+exports.mergeDurableWorkerSnapshots = mergeDurableWorkerSnapshots;
 exports.unfinishedJobs = unfinishedJobs;
 exports.fingerprintStillMounted = fingerprintStillMounted;
 exports.queueOccupiesCodeVersion = queueOccupiesCodeVersion;
@@ -56,7 +59,193 @@ const node_crypto_1 = require("node:crypto");
 const path = __importStar(require("node:path"));
 exports.CODE_FINGERPRINT_MISMATCH = "代码指纹不匹配：Worker 当前代码版本与该 Plan 不一致。任务仍保留为排队，不会自动失败或重发。请用当前代码重新提交该 Plan，或恢复提交前的代码版本并重新同步 Worker 后再继续。";
 exports.CODE_FINGERPRINT_WAITING = "等待当前代码版本的任务结束：已有其他代码版本占用 Worker，本 Plan 暂不派发。任务仍保留为排队。";
-const UNFINISHED_JOB = ["pending", "dispatching", "running", "unknown"];
+const UNFINISHED_JOB = ["pending", "dispatching", "queued", "running", "unknown"];
+function canonicalProjectId(projectRoot) {
+    const resolved = path.resolve(String(projectRoot || "")).replace(/\\/g, "/").replace(/\/$/, "");
+    return process.platform === "win32" ? resolved.toLowerCase() : resolved;
+}
+function durableCommandId(plan, job, workerId) {
+    return (0, node_crypto_1.createHash)("sha256").update([plan.projectId || "", plan.id, plan.planFile,
+        plan.revision, plan.codeFingerprint, job.index, job.case, job.seed, job.attempt, job.outputDir, workerId].join("\0")).digest("hex").slice(0, 32);
+}
+function durableStatus(value) {
+    const status = String(value || "").toLowerCase();
+    if (status === "queued" || status === "pending")
+        return "queued";
+    if (status === "running" || status === "starting")
+        return "running";
+    if (status === "completed")
+        return "completed";
+    if (status === "failed" || status === "stopped")
+        return "failed";
+    if (status === "cancelled" || status === "canceled")
+        return "cancelled";
+    if (status === "unknown" || status === "dispatching")
+        return "unknown";
+    return undefined;
+}
+/** Merge only fresh, capability-bearing server snapshots for this exact project. */
+function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now(), maxAgeMs = 180_000) {
+    const acceptedRows = [];
+    for (const snapshot of snapshots) {
+        if (snapshot.error || snapshot.capabilities?.durablePlanQueue !== true || snapshot.capabilities.schemaVersion !== 1)
+            continue;
+        const generatedAt = Date.parse(String(snapshot.generatedAt || ""));
+        const fetchedAt = Date.parse(String(snapshot.fetchedAt || ""));
+        if (!Number.isFinite(generatedAt) || !Number.isFinite(fetchedAt) || now - generatedAt > maxAgeMs || now - fetchedAt > maxAgeMs
+            || generatedAt > now + 30_000 || fetchedAt > now + 30_000)
+            continue;
+        for (const task of snapshot.tasks || []) {
+            const status = durableStatus(task.status);
+            if (!status || String(task.projectId || "") !== projectId || String(task.workerId || snapshot.workerId) !== snapshot.workerId)
+                continue;
+            if (!String(task.workflowId || "") || !String(task.planFile || "") || !String(task.planRevision || "")
+                || !String(task.codeFingerprint || "") || !String(task.commandId || "") || !String(task.outputDir || "")
+                || String(task.runKey || "") !== String(task.commandId || "") || !String(task.enqueuedAt || "")
+                || !String(task.case || "") || task.seed == null || !Number.isInteger(Number(task.seed))
+                || task.experimentIndex == null || !Number.isInteger(Number(task.experimentIndex)) || Number(task.experimentIndex) < 0
+                || task.attempt == null || !Number.isInteger(Number(task.attempt)) || Number(task.attempt) < 1
+                || !Number.isInteger(Number(task.planJobCount)) || Number(task.planJobCount) < 1)
+                continue;
+            acceptedRows.push({ workerId: snapshot.workerId, task, status });
+        }
+    }
+    const plans = queue.plans.map((plan) => plan.projectId !== projectId ? plan : { ...plan, jobs: plan.jobs.map((job) => {
+            if (!job.workerId || !job.commandId || !UNFINISHED_JOB.includes(job.status)
+                || acceptedRows.some((row) => remoteTaskMatchesJob(plan, job, row.task)))
+                return job;
+            return { ...job, status: "unknown",
+                blockReason: "Current server receipt is unavailable; the original owner and command identity are retained." };
+        }) });
+    const grouped = new Map();
+    for (const row of acceptedRows) {
+        const task = row.task;
+        const key = [projectId, task.workflowId, task.planFile, task.planRevision, task.codeFingerprint].join("\0");
+        grouped.set(key, [...(grouped.get(key) || []), row]);
+    }
+    for (const [key, rows] of grouped) {
+        const first = rows[0].task;
+        const planIndex = plans.findIndex((plan) => (!plan.projectId || plan.projectId === projectId) && plan.id === String(first.workflowId)
+            && plan.planFile === String(first.planFile) && plan.revision === String(first.planRevision)
+            && plan.codeFingerprint === String(first.codeFingerprint));
+        const declaredCounts = [...new Set([...rows.map((row) => Number(row.task.planJobCount)),
+                ...(planIndex >= 0 && plans[planIndex].planJobCount ? [Number(plans[planIndex].planJobCount)] : [])])];
+        const acceptedIndices = new Set(rows.map((row) => Number(row.task.experimentIndex)));
+        const countConflict = declaredCounts.length !== 1 || acceptedIndices.size > Math.max(...declaredCounts);
+        const jobCount = Math.max(...declaredCounts);
+        const plan = planIndex >= 0 ? { ...plans[planIndex], jobs: [...plans[planIndex].jobs] } : {
+            id: String(first.workflowId), projectId, planFile: String(first.planFile), revision: String(first.planRevision),
+            codeFingerprint: String(first.codeFingerprint), enqueuedAt: String(first.enqueuedAt || ""), planJobCount: jobCount, jobs: [],
+        };
+        plan.projectId = projectId;
+        plan.planJobCount = jobCount;
+        if (countConflict)
+            plan.recoveryConflict = `Server summaries disagree on expected Plan job count: ${declaredCounts.join(", ")}.`;
+        const terminalStates = new Set(["completed", "failed", "cancelled"]);
+        const latestAttempts = new Map();
+        for (const job of plan.jobs)
+            latestAttempts.set(job.index, Math.max(latestAttempts.get(job.index) || 0, job.attempt));
+        for (const row of rows) {
+            const index = Number(row.task.experimentIndex);
+            latestAttempts.set(index, Math.max(latestAttempts.get(index) || 0, Number(row.task.attempt)));
+        }
+        const olderRows = rows.filter((row) => Number(row.task.attempt) < latestAttempts.get(Number(row.task.experimentIndex)));
+        const contradictoryHistory = olderRows.some((row) => plan.jobs.some((job) => {
+            const terminal = job.trustedTerminalStatus || (terminalStates.has(job.status) ? job.status : undefined);
+            return terminal && remoteTaskMatchesJob(plan, job, row.task) && terminal !== row.status;
+        }));
+        const changedSeedIdentity = rows.some((row) => rows.some((other) => Number(other.task.experimentIndex) === Number(row.task.experimentIndex)
+            && (String(other.task.case) !== String(row.task.case) || Number(other.task.seed) !== Number(row.task.seed))));
+        const overlappingAttempts = olderRows.some((row) => !terminalStates.has(row.status)) || contradictoryHistory || changedSeedIdentity;
+        if (!countConflict && overlappingAttempts)
+            plan.recoveryConflict = "Server summaries show overlapping or contradictory job attempts.";
+        if (!overlappingAttempts && plan.recoveryConflict === "Server summaries show overlapping or contradictory job attempts.")
+            delete plan.recoveryConflict;
+        const historicalRows = overlappingAttempts ? [] : olderRows;
+        // A verified older terminal attempt remains provenance, rather than another current job.
+        plan.jobs = plan.jobs.filter((job) => !historicalRows.some((row) => remoteTaskMatchesJob(plan, job, row.task)));
+        plan.jobs = plan.jobs.map((job) => {
+            const history = historicalRows.filter((row) => Number(row.task.experimentIndex) === job.index);
+            if (!history.length)
+                return job;
+            const entries = [...(job.history || []), ...history.map((row) => ({ attempt: Number(row.task.attempt), status: row.status,
+                    workerId: row.workerId, commandId: String(row.task.commandId), outputDir: String(row.task.outputDir) }))];
+            return { ...job, history: entries.filter((entry, index) => entries.findIndex((other) => other.commandId === entry.commandId
+                    && other.workerId === entry.workerId && other.attempt === entry.attempt) === index) };
+        });
+        const byJob = new Map();
+        for (const row of rows) {
+            if (historicalRows.includes(row))
+                continue;
+            const task = row.task;
+            const key = `${Number(task.experimentIndex)}\0${Number(task.attempt)}`;
+            byJob.set(key, [...(byJob.get(key) || []), row]);
+        }
+        for (const [jobKey, jobRows] of byJob) {
+            const task = jobRows[0].task;
+            const index = Number(task.experimentIndex);
+            const attempt = Number(task.attempt);
+            const existing = plan.jobs.findIndex((job) => job.index === index && job.attempt === attempt);
+            const identities = new Set(jobRows.map(({ workerId, task: item }) => [workerId, item.commandId, item.case, item.seed, item.outputDir].join("\0")));
+            const statuses = new Set(jobRows.map((row) => row.status));
+            const conflict = countConflict || overlappingAttempts || identities.size !== 1 || statuses.size > 1;
+            const source = jobRows.sort((a, b) => a.workerId.localeCompare(b.workerId))[0];
+            const merged = {
+                index, case: String(task.case || ""), seed: Number(task.seed), attempt, outputDir: String(task.outputDir),
+                status: conflict ? "unknown" : source.status, workerId: source.workerId,
+                commandId: String(task.commandId), runKey: String(task.runKey), projectId,
+                ...(task.gpuId !== undefined && task.gpuId !== null ? { gpuId: String(task.gpuId) } : {}),
+                ...(typeof task.logPath === "string" ? { logPath: task.logPath } : {}),
+                ...(typeof task.finishedAt === "string" ? { finishedAt: task.finishedAt } : {}),
+                ...(typeof task.error === "string" ? { error: task.error } : {}),
+                ...(!conflict && terminalStates.has(source.status) ? { trustedTerminalStatus: source.status } : {}),
+                ...(historicalRows.some((row) => Number(row.task.experimentIndex) === index) ? {
+                    history: historicalRows.filter((row) => Number(row.task.experimentIndex) === index).map((row) => ({
+                        attempt: Number(row.task.attempt), status: row.status, workerId: row.workerId,
+                        commandId: String(row.task.commandId), outputDir: String(row.task.outputDir),
+                        ...(typeof row.task.finishedAt === "string" ? { finishedAt: row.task.finishedAt } : {}),
+                    })),
+                } : {}),
+                ...(conflict ? { recoveryConflict: true } : {}),
+                ...(conflict ? { blockReason: "Conflicting fresh server summaries for the same durable job identity." } : {}),
+            };
+            if (existing >= 0) {
+                const local = plan.jobs[existing];
+                const localIdentity = [local.workerId, local.commandId, local.case, local.seed, local.outputDir].join("\0");
+                const remoteIdentity = [merged.workerId, merged.commandId, merged.case, merged.seed, merged.outputDir].join("\0");
+                const sameJob = local.index === merged.index && local.attempt === merged.attempt && local.case === merged.case
+                    && local.seed === merged.seed && local.outputDir === merged.outputDir;
+                const unassignedLocalIntent = !local.workerId && !local.commandId && ["pending", "dispatching"].includes(local.status);
+                const terminal = local.trustedTerminalStatus || (["completed", "failed", "cancelled"].includes(local.status)
+                    ? local.status : undefined);
+                const terminalConflict = Boolean(terminal && merged.status !== terminal);
+                plan.jobs[existing] = (localIdentity === remoteIdentity || unassignedLocalIntent && sameJob) && !conflict && !terminalConflict ? {
+                    ...local, ...merged, recoveryConflict: undefined, blockReason: undefined,
+                    ...(terminal ? { trustedTerminalStatus: terminal } : {}),
+                } : {
+                    ...local, status: "unknown", recoveryConflict: true,
+                    ...(terminal ? { trustedTerminalStatus: terminal } : {}),
+                    blockReason: terminalConflict ? "Fresh server state contradicts a trusted terminal receipt; redispatch is blocked."
+                        : "Server and local durable job identities conflict.",
+                };
+            }
+            else
+                plan.jobs.push(merged);
+        }
+        plan.planJobCount = jobCount;
+        const currentAcceptedIndices = new Set(rows.filter((row) => Number(row.task.attempt) === latestAttempts.get(Number(row.task.experimentIndex)))
+            .map((row) => Number(row.task.experimentIndex)));
+        plan.remoteAcceptedJobCount = currentAcceptedIndices.size;
+        plan.recoveryMissingCount = Math.max(0, jobCount - currentAcceptedIndices.size);
+        if (!countConflict && plan.recoveryConflict?.startsWith("Server summaries disagree on expected Plan job count"))
+            delete plan.recoveryConflict;
+        if (planIndex < 0)
+            plans.push(plan);
+        else
+            plans[planIndex] = plan;
+    }
+    return { ...queue, plans };
+}
 function unfinishedJobs(plan, states = UNFINISHED_JOB) {
     return plan.jobs.some((job) => states.includes(job.status));
 }
@@ -75,7 +264,7 @@ function queueOccupiesCodeVersion(queue, verifiedWorkerFingerprints) {
         : Object.values(verifiedWorkerFingerprints || {});
     const known = verified.filter(Boolean);
     return queue.plans.some((plan) => plan.jobs.some((job) => {
-        if (["dispatching", "running", "unknown"].includes(job.status))
+        if (["dispatching", "queued", "running", "unknown"].includes(job.status))
             return true;
         if (job.status !== "pending")
             return false;
@@ -117,7 +306,10 @@ function enqueuePlan(queue, plan, id, enqueuedAt = new Date().toISOString()) {
     });
     if (!jobs.length)
         throw new Error("Plan has no jobs.");
-    return { ...queue, plans: [...queue.plans, { ...plan, id, enqueuedAt, jobs }] };
+    const planJobCount = Number(plan.planJobCount || plan.jobs.length);
+    if (!Number.isInteger(planJobCount) || planJobCount < jobs.length)
+        throw new Error("Plan expected job count is invalid.");
+    return { ...queue, plans: [...queue.plans, { ...plan, planJobCount, id, enqueuedAt, jobs }] };
 }
 function usableSlots(row) {
     return row.online && [...new Set(row.idleGpuIds)].slice(0, Math.max(0, row.capacity ?? row.idleGpuIds.length)).length > 0;
@@ -131,7 +323,7 @@ function noteFingerprintMismatch(plans, workers, activeFingerprint) {
             if (job.status !== "pending")
                 continue;
             const matched = workers.some((row) => row.online && row.codeFingerprint === plan.codeFingerprint);
-            const held = plan.jobs.some((item) => ["dispatching", "running", "unknown"].includes(item.status));
+            const held = plan.jobs.some((item) => ["dispatching", "queued", "running", "unknown"].includes(item.status));
             const waiting = Boolean(activeFingerprint && plan.codeFingerprint !== activeFingerprint && matched);
             if (waiting)
                 job.blockReason = exports.CODE_FINGERPRINT_WAITING;
@@ -146,7 +338,7 @@ function allocateAvailable(queue, workers) {
     const versioned = workers.some((row) => row.codeFingerprint);
     const plans = queue.plans.map((plan) => ({ ...plan, jobs: plan.jobs.map((job) => ({ ...job })) }));
     const dispatches = [];
-    const activeFingerprint = plans.find((plan) => plan.jobs.some((job) => ["dispatching", "running", "unknown"].includes(job.status)))?.codeFingerprint;
+    const activeFingerprint = plans.find((plan) => plan.jobs.some((job) => ["dispatching", "queued", "running", "unknown"].includes(job.status)))?.codeFingerprint;
     const runnableFingerprint = activeFingerprint || plans.find((plan) => plan.jobs.some((job) => job.status === "pending")
         && (!versioned || workers.some((row) => usableSlots(row) && row.codeFingerprint === plan.codeFingerprint)))?.codeFingerprint;
     const slots = new Map(workers.filter((row) => row.online && (!versioned || !runnableFingerprint || row.codeFingerprint === runnableFingerprint))
@@ -206,16 +398,22 @@ function setJobState(queue, planId, jobIndex, status, commandId) {
     return { ...queue, plans };
 }
 function remoteTaskMatchesJob(plan, job, task) {
-    return Boolean(job.commandId && job.workerId && job.gpuId !== undefined
+    const gpuMatches = job.gpuId === undefined || String(task.gpuId ?? "") === String(job.gpuId);
+    return Boolean(job.commandId && job.workerId && gpuMatches
         && String(task.commandId || "") === job.commandId
         && String(task.workflowId || "") === plan.id
+        && (!plan.projectId || String(task.projectId || "") === plan.projectId)
+        && (!plan.projectId || String(task.planFile || "") === plan.planFile)
         && String(task.planRevision || "") === plan.revision
+        && (!plan.projectId || String(task.codeFingerprint || "") === plan.codeFingerprint)
+        && (!plan.projectId || Number(task.planJobCount) === Number(plan.planJobCount))
+        && (!plan.projectId || Number(task.experimentIndex) === job.index)
+        && (!plan.projectId || String(task.runKey || "") === String(job.runKey || job.commandId))
         && String(task.case || "") === job.case
         && Number(task.seed) === job.seed
         && Number(task.attempt) === job.attempt
         && String(task.outputDir || "") === job.outputDir
-        && String(task.workerId || "") === job.workerId
-        && String(task.gpuId ?? "") === job.gpuId);
+        && String(task.workerId || "") === job.workerId);
 }
 function resetUnsentDispatch(queue, planId, jobIndex, commandId) {
     return { ...queue, plans: queue.plans.map((plan) => plan.id !== planId ? plan : { ...plan,
@@ -256,7 +454,7 @@ function samePlanFile(left, right) {
     const absolute = (value) => /^(?:[a-z]:\/|\/)/i.test(value);
     return absolute(a) !== absolute(b) && (absolute(a) ? a.endsWith("/" + b) : b.endsWith("/" + a));
 }
-const ACTIVE_JOB = ["dispatching", "running", "unknown"];
+const ACTIVE_JOB = ["dispatching", "queued", "running", "unknown"];
 const LOCAL_CLEAR_JOB = new Set(["pending", "blocked"]);
 /** A job can leave the queue without a Worker receipt only while it has never been assigned. */
 function jobClearableWithoutRemoteReceipt(job) {
@@ -310,17 +508,21 @@ function removeConfirmedDistributedPlan(queue, planFile, confirmed) {
     return { ...queue, plans, deferred };
 }
 function stopIdentityMatchesJob(plan, job, identity) {
-    return Boolean(job.commandId && job.workerId && job.gpuId !== undefined
+    const gpuMatches = job.gpuId === undefined || String(identity.gpuId ?? "") === String(job.gpuId);
+    return Boolean(job.commandId && job.workerId && gpuMatches
         && String(identity.commandId || identity.targetCommandId || "") === job.commandId
         && String(identity.workflowId || identity.planId || "") === plan.id
+        && (!plan.projectId || String(identity.projectId || "") === plan.projectId)
+        && (!plan.projectId || String(identity.codeFingerprint || "") === plan.codeFingerprint)
+        && (!plan.projectId || Number(identity.experimentIndex) === job.index)
+        && (!plan.projectId || String(identity.runKey || "") === String(job.runKey || job.commandId))
         && String(identity.planRevision || "") === plan.revision
         && String(identity.planFile || identity.plan || "") === plan.planFile
         && String(identity.case || identity.caseName || "") === job.case
         && Number(identity.seed) === job.seed
         && Number(identity.attempt) === job.attempt
         && String(identity.outputDir || "") === job.outputDir
-        && String(identity.workerId || "") === job.workerId
-        && String(identity.gpuId ?? "") === String(job.gpuId));
+        && String(identity.workerId || "") === job.workerId);
 }
 function retryVerifiedJob(queue, planId, jobIndex, runId) {
     const plan = queue.plans.find((row) => row.id === planId);

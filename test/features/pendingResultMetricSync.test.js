@@ -47,7 +47,7 @@ test("the result table button merges every known result scope before any metric 
   assert.doesNotMatch(panel, /同步待处理产物 \(/);
   assert.match(panel, /待处理产物计数属于自动的权重和日志同步/);
   assert.match(extension, /case "syncPendingPlanArtifacts":\s*await this\.syncPendingResultMetricsFromUi\(\)/);
-  const manual = sliceBetween(extension, "async syncPendingResultMetricsFromUi()", "async summaryForMetricDownload(");
+  const manual = sliceBetween(extension, "async syncPendingResultMetricsFromUi(", "async summaryForMetricDownload(");
   const mergeAt = manual.indexOf("await this.mergeLatestWorkerVersions(");
   const downloadAt = manual.indexOf("downloadMappedResultBatch(");
   assert.ok(mergeAt > 0 && downloadAt > mergeAt);

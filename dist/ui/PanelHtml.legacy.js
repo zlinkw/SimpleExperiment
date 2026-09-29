@@ -13090,6 +13090,14 @@ function renderPanelHtml() {
       return normalizePlanSelectionKey(String(path || "").trim()).toLowerCase() || "unassigned";
     }
 
+    function distributedPlanRecoveryView(plan) {
+      const jobs = Array.isArray(plan && plan.jobs) ? plan.jobs : [];
+      const expectedJobCount = Math.max(jobs.length, Number(plan && plan.planJobCount) || 0);
+      const missingCount = Math.max(0, Number(plan && plan.recoveryMissingCount) || 0, expectedJobCount - jobs.length);
+      const conflict = !!(plan && plan.recoveryConflict);
+      return { expectedJobCount, missingCount, conflict, unresolved: missingCount > 0 || conflict };
+    }
+
     function executionCurrentDistributedJobs(group) {
       const jobs = group.distributedJobs || [];
       if (!jobs.length) return jobs;
@@ -13146,7 +13154,8 @@ function renderPanelHtml() {
       (Array.isArray(state && state.distributedPlans) ? state.distributedPlans : []).forEach((plan) => {
         if (!plan.planFile) return;
         const jobs = Array.isArray(plan.jobs) ? plan.jobs : [];
-        const active = jobs.some((job) => ["pending", "dispatching", "running", "unknown"].includes(String(job.status || "").toLowerCase()));
+        const recovery = distributedPlanRecoveryView(plan);
+        const active = recovery.unresolved || jobs.some((job) => ["pending", "dispatching", "queued", "running", "unknown"].includes(String(job.status || "").toLowerCase()));
         if (state?.executionHistoryCutoffs && !executionHistoryRowVisible(state, { startedAt: plan.enqueuedAt }, plan.planFile, active)) return;
         const group = getGroup(plan.planFile);
         const incoming = String(plan.enqueuedAt || "");
@@ -13154,6 +13163,7 @@ function renderPanelHtml() {
         if (previous && incoming < previous) return;
         if (previous && incoming > previous) group.distributedJobs = [];
         group.distributedEnqueuedAt = incoming || previous;
+        group.distributedRecovery = recovery;
         jobs.forEach((job) => group.distributedJobs.push({ ...job, enqueuedAt: plan.enqueuedAt, planId: plan.id }));
       });
       (Array.isArray(state && state.deferredPlans) ? state.deferredPlans : []).forEach((plan) => {
@@ -13188,30 +13198,31 @@ function renderPanelHtml() {
         const submission = executionNewerSubmission(group);
         const deferredCurrent = !submission && !!group.deferredStatus;
         const currentJobs = submission || deferredCurrent ? [] : executionCurrentDistributedJobs(group);
-        const schedulable = (job) => ["pending", "dispatching", "running", "unknown"].includes(String(job.status || "").toLowerCase()) && !(String(job.status || "").toLowerCase() === "pending" && fingerprintBlocked(job));
-        const distributedActive = currentJobs.some(schedulable);
+        const schedulable = (job) => ["pending", "dispatching", "queued", "running", "unknown"].includes(String(job.status || "").toLowerCase()) && !(String(job.status || "").toLowerCase() === "pending" && fingerprintBlocked(job));
+        const recovery = group.distributedRecovery || { expectedJobCount: 0, missingCount: 0, conflict: false, unresolved: false };
+        const distributedActive = recovery.unresolved || currentJobs.some(schedulable);
         const active = submission || deferredCurrent ? true : currentJobs.length ? distributedActive
           : group.tasks.some((row) => TASK_LIVE_STATUS_TOKENS?.has(taskStatusToken(row.status)) || TASK_QUEUED_STATUSES?.has(taskStatusToken(row.status))) || group.operations.some((row) => operationIsActive(row.status));
         const failed = currentJobs.length ? currentJobs.some((job) => String(job.status || "") === "failed")
           : group.tasks.some((row) => taskFailureLikeStatus(row.status)) || (!submission && !deferredCurrent && group.operations.some((row) => operationIsFailureLike(row.status) || operationHasDeadEvidence(row)));
         const blockedCount = currentJobs.filter((job) => String(job.status || "") === "pending" && fingerprintBlocked(job)).length;
-        const blockedOnly = currentJobs.length > 0 && blockedCount === currentJobs.filter((job) => String(job.status || "") === "pending" || ["dispatching", "running", "unknown"].includes(String(job.status || ""))).length && blockedCount > 0 && !currentJobs.some((job) => ["dispatching", "running", "unknown", "failed"].includes(String(job.status || "")));
-        const queued = currentJobs.filter((job) => String(job.status || "") === "pending" && !fingerprintBlocked(job)).length;
+        const blockedOnly = currentJobs.length > 0 && blockedCount === currentJobs.filter((job) => String(job.status || "") === "pending" || ["dispatching", "queued", "running", "unknown"].includes(String(job.status || ""))).length && blockedCount > 0 && !currentJobs.some((job) => ["dispatching", "queued", "running", "unknown", "failed"].includes(String(job.status || "")));
+        const queued = currentJobs.filter((job) => ["pending", "queued"].includes(String(job.status || "")) && !fingerprintBlocked(job)).length;
         const running = currentJobs.length ? currentJobs.filter((job) => ["running", "dispatching"].includes(String(job.status || ""))).length
           : submission ? 1 : group.tasks.filter((row) => TASK_LIVE_STATUS_TOKENS?.has(taskStatusToken(row.status))).length;
         const deferredView = deferredCurrent ? executionDeferredView(group.deferredStatus) : null;
         const waitingSubmission = submission && submission.localSubmissionProgress === true && String(submission.status || "").toLowerCase() === "queued";
-        const tone = submission ? (waitingSubmission ? "blocked" : "running") : deferredView ? deferredView.tone : running ? "running" : queued ? "queued" : failed ? "failed" : blockedOnly ? "blocked" : active ? "running" : "completed";
+        const tone = submission ? (waitingSubmission ? "blocked" : "running") : deferredView ? deferredView.tone : running ? "running" : queued ? "queued" : failed ? "failed" : blockedOnly || recovery.unresolved ? "blocked" : active ? "running" : "completed";
         const completed = currentJobs.length ? currentJobs.filter((job) => String(job.status || "") === "completed").length
           : submission || deferredCurrent ? 0
           : group.tasks.filter((row) => TASK_TERMINAL_STATUSES?.has(taskStatusToken(row.status)) && !taskFailureLikeStatus(row.status)).length;
         const label = group.planFile ? planBaseName(group.planFile) : "未关联 Plan 的操作";
-        const totalJobs = currentJobs.length || (!submission && !deferredCurrent ? group.tasks.length : 0);
+        const totalJobs = Math.max(currentJobs.length, !submission && !deferredCurrent ? recovery.expectedJobCount : 0) || (!submission && !deferredCurrent ? group.tasks.length : 0);
         const failedJobs = currentJobs.filter((job) => String(job.status || "") === "failed").length;
         const successRate = totalJobs ? Math.round(completed * 100 / totalJobs) : 0;
-        const statusText = submission ? executionSubmissionLabel(submission) : deferredView ? deferredView.statusText : tone === "blocked" ? "阻塞" : tone === "queued" ? "排队" : tone === "running" ? "运行中" : tone === "failed" ? "失败" : currentJobs.length ? "已完成" : "已结束";
+        const statusText = submission ? executionSubmissionLabel(submission) : deferredView ? deferredView.statusText : recovery.unresolved ? "待核实" : tone === "blocked" ? "阻塞" : tone === "queued" ? "排队" : tone === "running" ? "运行中" : tone === "failed" ? "失败" : currentJobs.length ? "已完成" : "已结束";
         const countText = submission ? (statusText + " · 待生成 job") : deferredView ? deferredView.countText : totalJobs
-          ? ("成功 " + completed + "/" + totalJobs + " · " + successRate + "%" + (running ? " · 运行 " + running : "") + (queued ? " · 排队 " + queued : "") + (blockedCount ? " · 阻塞 " + blockedCount : "") + (failedJobs ? " · 失败 " + failedJobs : ""))
+          ? ("成功 " + completed + "/" + totalJobs + " · " + successRate + "%" + (running ? " · 运行 " + running : "") + (queued ? " · 排队 " + queued : "") + (blockedCount ? " · 阻塞 " + blockedCount : "") + (failedJobs ? " · 失败 " + failedJobs : "") + (recovery.missingCount ? " · 待核实 " + recovery.missingCount : "") + (recovery.conflict ? " · 服务器状态冲突" : ""))
           : ("操作 " + group.operations.length);
         const stamp = [...group.operations, ...group.tasks, ...currentJobs].reduce((latest, row) => Math.max(latest, Date.parse(row.updatedAt || row.startedAt || row.finishedAt || row.enqueuedAt || "") || 0), 0);
         return { ...group, currentJobs, tone, active, distributedActive, blockedOnly, blockedCount, queued, completed, running, submitting: !!submission, waitingSubmission, deferredCurrent, statusText, countText, failedJobs, label, stamp };
@@ -13257,7 +13268,7 @@ function renderPanelHtml() {
           + '<div class="executionDistributedJobs">' + distributedRows.map((job) => {
           const status = String(job.status || "unknown");
           const blocked = status === "pending" && fingerprintBlocked(job);
-          const jobActive = ["pending", "dispatching", "running", "unknown"].includes(status) && !blocked;
+          const jobActive = ["pending", "dispatching", "queued", "running", "unknown"].includes(status) && !blocked;
           const statusLabel = blocked ? (String(job.blockReason || "").indexOf("等待当前代码版本") === 0 ? "等待代码版本" : "代码版本不匹配") : ({ pending: "排队", dispatching: "派发中", running: "运行中", completed: "已完成", failed: "失败", unknown: "待核实" }[status] || status);
           const placement = job.workerId ? job.workerId + (job.gpuId === undefined ? "" : " · GPU " + job.gpuId) : "待分配";
           const logPath = String(job.logPath || "");
@@ -13349,7 +13360,7 @@ function renderPanelHtml() {
       });
       const distributedPlanPaths = (Array.isArray(state && state.distributedPlans) ? state.distributedPlans : []).filter((plan) => {
         const jobs = Array.isArray(plan.jobs) ? plan.jobs : [];
-        return jobs.some((job) => ["pending", "dispatching", "running", "unknown"].includes(String(job.status || "").toLowerCase()));
+        return distributedPlanRecoveryView(plan).unresolved || jobs.some((job) => ["pending", "dispatching", "queued", "running", "unknown"].includes(String(job.status || "").toLowerCase()));
       }).map((plan) => String(plan.planFile || "").replaceAll(String.fromCharCode(92), "/").replace("./", "")).filter(Boolean);
       const deferredPlanPaths = (Array.isArray(state && state.deferredPlans) ? state.deferredPlans : []).map((plan) => String(plan.planFile || "").replaceAll(String.fromCharCode(92), "/").replace("./", "")).filter(Boolean);
       const selectedDistributedPlan = selectedExecutionPlanFile && (distributedPlanPaths.some((planPath) => planPath === selectedExecutionPlanFile || planPath.endsWith("/" + selectedExecutionPlanFile)) || deferredPlanPaths.some((planPath) => planPath === selectedExecutionPlanFile || planPath.endsWith("/" + selectedExecutionPlanFile)));
@@ -13423,7 +13434,7 @@ function renderPanelHtml() {
           '</div><span class="muted" title="' + escAttr(scope.selectedPlanFile + (scope.selectedPlanRevision ? " · " + scope.selectedPlanRevision : "")) + '">' + esc(compactPath(scope.selectedPlanFile)) + (scope.selectedPlanRevision ? ' · ' + esc(compactIdentifier(scope.selectedPlanRevision)) : '') + '</span></div>'
         : '<div class="taskScopeBar"><span class="muted">未选择 Plan，显示全部任务。</span></div>';
       const distributedPlans = (Array.isArray(state.distributedPlans) ? state.distributedPlans : []).filter((plan) => {
-        const active = (Array.isArray(plan.jobs) ? plan.jobs : []).some((job) => ["pending", "dispatching", "running", "unknown"].includes(String(job.status || "").toLowerCase()));
+        const active = distributedPlanRecoveryView(plan).unresolved || (Array.isArray(plan.jobs) ? plan.jobs : []).some((job) => ["pending", "dispatching", "queued", "running", "unknown"].includes(String(job.status || "").toLowerCase()));
         return !state.executionHistoryCutoffs || executionHistoryRowVisible(state, { startedAt: plan.enqueuedAt }, plan.planFile, active);
       });
       const currentPlanKey = normalizePlanSelectionKey(scope.selectedPlanFile || "");
@@ -15858,9 +15869,10 @@ function renderPanelHtml() {
 
     function selectedPlanDistributedRun(state, planFile) {
       const plans = Array.isArray(state && state.distributedPlans) ? state.distributedPlans : [];
-      const jobs = plans.filter((plan) => samePlanSelection(plan.planFile || "", planFile)).flatMap((plan) => Array.isArray(plan.jobs) ? plan.jobs : []);
-      const activeJobs = jobs.filter((job) => ["pending", "dispatching", "running", "unknown"].includes(String(job.status || "").toLowerCase()));
-      return { active: activeJobs.length > 0, jobs, activeJobs };
+      const selected = plans.filter((plan) => samePlanSelection(plan.planFile || "", planFile));
+      const jobs = selected.flatMap((plan) => Array.isArray(plan.jobs) ? plan.jobs : []);
+      const activeJobs = jobs.filter((job) => ["pending", "dispatching", "queued", "running", "unknown"].includes(String(job.status || "").toLowerCase()));
+      return { active: activeJobs.length > 0 || selected.some((plan) => distributedPlanRecoveryView(plan).unresolved), jobs, activeJobs };
     }
 
     function planExecutionStage(state, planFile) {

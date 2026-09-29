@@ -1,6 +1,18 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
-const queue = require("../../dist/features/DistributedPlanQueue.js");
+const fs = require("node:fs");
+const Module = require("node:module");
+const path = require("node:path");
+const ts = require("typescript");
+const queueSourcePath = path.join(__dirname, "../../src/features/DistributedPlanQueue.ts");
+const compiledQueue = ts.transpileModule(fs.readFileSync(queueSourcePath, "utf8"), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022, esModuleInterop: true },
+}).outputText;
+const queueModule = new Module(queueSourcePath, module);
+queueModule.filename = queueSourcePath;
+queueModule.paths = Module._nodeModulePaths(path.dirname(queueSourcePath));
+queueModule._compile(compiledQueue, queueSourcePath);
+const queue = queueModule.exports;
 
 function plan(name, fingerprint = "code-a") {
   return { planFile: `experiments/plans/comparison/${name}.yaml`, revision: `rev-${name}`, codeFingerprint: fingerprint,
@@ -174,4 +186,55 @@ test("reconnection accepts only the exact persisted Plan, job, attempt and Worke
     ["planRevision", "old"], ["outputDir", "other"]]) {
     assert.equal(queue.remoteTaskMatchesJob(current, job, { ...remote, [field]: value }), false, field);
   }
+});
+
+test("cold recovery uses fresh full-identity server rows and preserves the expected job count", () => {
+  const now = Date.now();
+  const projectId = queue.canonicalProjectId("C:/research/project");
+  const snapshot = { workerId: "worker-a", capabilities: { durablePlanQueue: true, schemaVersion: 1 },
+    generatedAt: new Date(now).toISOString(), fetchedAt: new Date(now).toISOString(), tasks: [
+      { projectId, workflowId: "workflow-a", planFile: "experiments/plans/a.yaml", planRevision: "rev-a",
+        codeFingerprint: "code-a", planJobCount: 3, enqueuedAt: new Date(now).toISOString(), experimentIndex: 0,
+        case: "case-a", seed: 7, attempt: 1, outputDir: "runs/a/0", runKey: "command-a",
+        commandId: "command-a", workerId: "worker-a", status: "queued" },
+    ] };
+  const recovered = queue.mergeDurableWorkerSnapshots(queue.emptyDistributedQueue(), [snapshot], projectId, now);
+  assert.equal(recovered.plans.length, 1);
+  assert.equal(recovered.plans[0].planJobCount, 3);
+  assert.equal(recovered.plans[0].remoteAcceptedJobCount, 1);
+  assert.equal(recovered.plans[0].recoveryMissingCount, 2);
+  assert.equal(recovered.plans[0].jobs.length, 1);
+  assert.equal(recovered.plans[0].jobs[0].status, "queued");
+  assert.equal(recovered.plans[0].jobs[0].gpuId, undefined);
+  assert.equal(queue.remoteTaskMatchesJob(recovered.plans[0], recovered.plans[0].jobs[0], snapshot.tasks[0]), true);
+});
+
+test("cold recovery ignores old agents, stale snapshots, and another project", () => {
+  const now = Date.now();
+  const projectId = queue.canonicalProjectId("C:/research/project");
+  const task = { projectId, workflowId: "workflow-a", planFile: "a.yaml", planRevision: "rev-a", codeFingerprint: "code-a",
+    planJobCount: 1, enqueuedAt: new Date(now).toISOString(), experimentIndex: 0, case: "case-a", seed: 7,
+    attempt: 1, outputDir: "runs/a", runKey: "command-a", commandId: "command-a", workerId: "worker-a", status: "queued" };
+  const base = { workerId: "worker-a", generatedAt: new Date(now).toISOString(), fetchedAt: new Date(now).toISOString(), tasks: [task] };
+  const recovered = queue.mergeDurableWorkerSnapshots(queue.emptyDistributedQueue(), [
+    { ...base, capabilities: undefined },
+    { ...base, capabilities: { durablePlanQueue: true, schemaVersion: 1 }, generatedAt: new Date(now - 181_000).toISOString() },
+    { ...base, capabilities: { durablePlanQueue: true, schemaVersion: 1 }, tasks: [{ ...task, projectId: `${projectId}-other` }] },
+  ], projectId, now);
+  assert.deepEqual(recovered.plans, []);
+});
+
+test("contradictory fresh server copies make the job unknown instead of selecting a winner", () => {
+  const now = Date.now();
+  const projectId = queue.canonicalProjectId("C:/research/project");
+  const task = { projectId, workflowId: "workflow-a", planFile: "a.yaml", planRevision: "rev-a", codeFingerprint: "code-a",
+    planJobCount: 1, enqueuedAt: new Date(now).toISOString(), experimentIndex: 0, case: "case-a", seed: 7,
+    attempt: 1, outputDir: "runs/a", runKey: "command-a", commandId: "command-a", status: "queued" };
+  const snapshot = (workerId, status) => ({ workerId, capabilities: { durablePlanQueue: true, schemaVersion: 1 },
+    generatedAt: new Date(now).toISOString(), fetchedAt: new Date(now).toISOString(),
+    tasks: [{ ...task, workerId, status }] });
+  const recovered = queue.mergeDurableWorkerSnapshots(queue.emptyDistributedQueue(), [snapshot("worker-a", "queued"), snapshot("worker-b", "running")], projectId, now);
+  assert.equal(recovered.plans[0].jobs[0].status, "unknown");
+  assert.equal(recovered.plans[0].jobs[0].recoveryConflict, true);
+  assert.ok(recovered.plans[0].jobs[0].blockReason);
 });

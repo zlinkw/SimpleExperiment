@@ -320,6 +320,35 @@ function readCsv(text) {
         throw new Error("CSV 表头或列数无效。");
     return { header, rows: data };
 }
+const METRIC_EQUIVALENCE_GROUPS = {
+    AUC: ["auc", "auroc", "roc_auc"],
+    AUPRC: ["ap", "average_precision", "auprc", "pr_auc"],
+    accuracy: ["acc", "accuracy"],
+    brier: ["brier", "brier_score"],
+    ECE: ["ece"],
+    F1: ["f1", "f1_score"],
+    macro_f1: ["f1_macro", "macro_f1"],
+    micro_f1: ["f1_micro", "micro_f1"],
+    weighted_f1: ["f1_score_weighted", "f1_weighted", "weighted_f1"],
+    recall: ["recall", "sensitivity"],
+};
+const METRIC_EQUIVALENCE = new Map(Object.entries(METRIC_EQUIVALENCE_GROUPS).flatMap(([canonical, aliases]) => aliases.map((alias) => [alias, canonical])));
+function canonicalMetricName(value) {
+    const name = String(value || "").trim();
+    return METRIC_EQUIVALENCE.get(name.toLowerCase()) || name;
+}
+function canonicalMetricValues(metrics) {
+    const values = {};
+    const sources = new Map();
+    for (const [source, value] of Object.entries(metrics || {})) {
+        const name = canonicalMetricName(source);
+        if (values[name] !== undefined && values[name] !== value)
+            throw new Error("同一完成运行的等价指标值冲突：" + sources.get(name) + " / " + source + "。已保留旧表。");
+        values[name] = value;
+        sources.set(name, source);
+    }
+    return values;
+}
 function buildTables(registry) {
     const grouped = new Map();
     for (const plan of Object.values(registry.plans || {}))
@@ -328,7 +357,7 @@ function buildTables(registry) {
             const group = grouped.get(identity) || { record, expected: 0, seeds: new Map() };
             group.expected = Math.max(group.expected, plan.expectedSeeds);
             const values = group.seeds.get(record.seed) || {};
-            for (const [name, value] of Object.entries(record.metrics)) {
+            for (const [name, value] of Object.entries(canonicalMetricValues(record.metrics))) {
                 if (values[name] !== undefined && values[name] !== value)
                     throw new Error("重复 seed 的指标冲突：" + record.method + "/" + record.case + "/" + record.seed + "/" + name);
                 values[name] = value;
@@ -351,8 +380,9 @@ function buildTables(registry) {
             const values = [];
             for (const [seed, metrics] of left.seeds) {
                 const other = right.seeds.get(seed);
-                if (other && Number.isFinite(metrics[derived.metric]) && Number.isFinite(other[derived.metric]))
-                    values.push((metrics[derived.metric] - other[derived.metric]) * Number(derived.scale));
+                const metric = canonicalMetricName(derived.metric);
+                if (other && Number.isFinite(metrics[metric]) && Number.isFinite(other[metric]))
+                    values.push((metrics[metric] - other[metric]) * Number(derived.scale));
             }
             group.derived = values;
         }
@@ -370,7 +400,7 @@ function buildTables(registry) {
     const make = (chosen) => {
         const metrics = [...new Set(chosen.flatMap((group) => [...group.seeds.values()].flatMap((seed) => Object.keys(seed))))].sort();
         const label = (name) => {
-            const preferred = { AUC: "roc_auc", AUPRC: "auprc", F1: "f1_score", ECE: "ece", brier: "brier_score" };
+            const preferred = { AUC: "roc_auc", AUPRC: "auprc", accuracy: "accuracy", F1: "f1_score", macro_f1: "macro_f1", micro_f1: "micro_f1", weighted_f1: "weighted_f1", ECE: "ece", brier: "brier_score", recall: "recall" };
             return (preferred[name] || name).replace(/[^A-Za-z0-9_]+/g, "_").replace(/^_+|_+$/g, "").toLowerCase() || "metric";
         };
         const labels = metrics.map(label);
@@ -379,14 +409,15 @@ function buildTables(registry) {
         const derivedName = derived?.outputName ? label(derived.outputName) : "";
         if (derivedName && labels.includes(derivedName))
             throw new Error("派生指标输出列名与原始指标冲突。");
-        const header = ["result_family", "dataset", "rate_percent", "eval_protocol", ...(showCase ? ["case"] : []), "jobs", ...labels.flatMap((name) => [name + "_mean", name + "_sd"]), ...(derivedName ? [derivedName + "_mean", derivedName + "_sd"] : [])];
+        const showPlan = new Set(chosen.map((group) => group.record.planFile)).size > 1;
+        const header = ["result_family", ...(showPlan ? ["plan_file"] : []), "dataset", "rate_percent", "eval_protocol", ...(showCase ? ["case"] : []), "jobs", ...labels.flatMap((name) => [name + "_mean", name + "_sd"]), ...(derivedName ? [derivedName + "_mean", derivedName + "_sd"] : [])];
         const ordered = [...chosen].sort((a, b) => a.record.method.localeCompare(b.record.method) || a.record.dataset.localeCompare(b.record.dataset) || Number(a.record.rate) - Number(b.record.rate) || a.record.endpoint.localeCompare(b.record.endpoint) || a.record.case.localeCompare(b.record.case));
         const rows = ordered.map((group) => {
             const seeds = [...group.seeds.values()];
             const expected = group.expected || seeds.length;
             const counts = metrics.map((name) => seeds.filter((seed) => name in seed).length).filter(Boolean);
             const jobs = counts.length ? Math.min(...counts) : seeds.length;
-            const row = [group.record.method, group.record.dataset, group.record.rate, group.record.endpoint, ...(showCase ? [group.record.case] : []), jobs === expected ? String(jobs) : String(jobs) + "/" + expected];
+            const row = [group.record.method, ...(showPlan ? [group.record.planFile] : []), group.record.dataset, group.record.rate, group.record.endpoint, ...(showCase ? [group.record.case] : []), jobs === expected ? String(jobs) : String(jobs) + "/" + expected];
             for (const name of metrics) {
                 const values = seeds.map((seed) => seed[name]).filter(Number.isFinite);
                 const complete = values.length === expected;

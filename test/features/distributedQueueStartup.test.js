@@ -3,9 +3,25 @@ const test = require("node:test");
 const vm = require("node:vm");
 const fs = require("node:fs");
 const path = require("node:path");
+const Module = require("node:module");
+const ts = require("typescript");
 const { readSource } = require("../_helpers/sourceReader");
 
 const source = readSource("src/extension.ts");
+const compiledSource = ts.transpileModule(source, { compilerOptions: {
+  module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022,
+} }).outputText;
+function loadSourceModule(relativePath) {
+  const filename = path.resolve(__dirname, "../..", relativePath);
+  const output = ts.transpileModule(fs.readFileSync(filename, "utf8"), { compilerOptions: {
+    module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022,
+  } }).outputText;
+  const loaded = new Module(filename, module);
+  loaded.filename = filename;
+  loaded.paths = Module._nodeModulePaths(path.dirname(filename));
+  loaded._compile(output, filename);
+  return loaded.exports;
+}
 const start = source.indexOf("async resumePersistedDistributedQueue() {");
 const end = source.indexOf("async deferDistributedPlan(", start);
 assert.ok(start >= 0 && end > start);
@@ -17,6 +33,7 @@ vm.runInContext(method + "\nthis.resume = resumePersistedDistributedQueue;", san
 test("activation reconnects and ticks a persisted Plan queue without opening the panel", async () => {
   const events = [];
   const provider = {
+    distributedLaunchInFlight: new Set(),
     lastWorkerProbes: {},
     isRealtimeMode: () => true,
     projectTopologyAssessment: () => ({ mode: "worker_pool" }),
@@ -35,6 +52,7 @@ test("activation reconnects and ticks a persisted Plan queue without opening the
 test("activation retires a queue that only has legacy deferred rows", async () => {
   const events = [];
   const provider = {
+    distributedLaunchInFlight: new Set(),
     lastWorkerProbes: {},
     isRealtimeMode: () => true,
     projectTopologyAssessment: () => ({ mode: "worker_pool" }),
@@ -53,6 +71,7 @@ test("activation retires a queue that only has legacy deferred rows", async () =
 
 test("activation does not start Worker communication for a fully mirrored completed queue", async () => {
   const provider = {
+    distributedLaunchInFlight: new Set(),
     lastWorkerProbes: {},
     isRealtimeMode: () => true,
     projectTopologyAssessment: () => ({ mode: "worker_pool" }),
@@ -66,6 +85,7 @@ test("activation does not start Worker communication for a fully mirrored comple
 test("activation retries completed jobs whose mirrors were not verified", async () => {
   let ticks = 0;
   const provider = {
+    distributedLaunchInFlight: new Set(),
     lastWorkerProbes: {}, isRealtimeMode: () => true,
     projectTopologyAssessment: () => ({ mode: "worker_pool" }),
     workerCodeSyncTargets: () => [{ id: "worker-a" }, { id: "worker-b" }],
@@ -77,22 +97,27 @@ test("activation retries completed jobs whose mirrors were not verified", async 
 });
 
 test("an outstanding queue retries an unavailable tunnel probe without a panel", async () => {
-  const tickStart = source.indexOf("async tickDistributedQueueCore() {");
-  const tickEnd = source.indexOf("const assigned = queue.plans.flatMap", tickStart);
+  const tickStart = compiledSource.indexOf("async tickDistributedQueueCore(");
+  const tickEnd = compiledSource.indexOf("const assigned = queue.plans.flatMap", tickStart);
   assert.ok(tickStart >= 0 && tickEnd > tickStart);
-  const prefix = source.slice(tickStart, tickEnd).replace("async tickDistributedQueueCore()", "async function probeQueue()");
+  const prefix = compiledSource.slice(tickStart, tickEnd).replace(/async tickDistributedQueueCore\(([^)]*)\) \{/, "async function probeQueue($1) {");
   const clock = { now: 100_000 };
-  const probeSandbox = { workspaceRoot: () => "C:/project", Object, Date: { now: () => clock.now } };
+  const probeSandbox = { workspaceRoot: () => "C:/project", Object, Date: { now: () => clock.now },
+    mapLimited: async (items, _limit, fn) => Promise.all(items.map((item) => fn(item))), setInterval, clearInterval };
   vm.createContext(probeSandbox);
   vm.runInContext(prefix + "return true; }\nthis.probeQueue = probeQueue;", probeSandbox);
   let probes = 0;
   const provider = {
+    distributedLaunchInFlight: new Set(),
     lastWorkerProbes: {}, distributedNextProbeAt: 0,
     isRealtimeMode: () => true,
     projectTopologyAssessment: () => ({ mode: "worker_pool" }),
-    workerCodeSyncTargets: () => [],
+    workerCodeSyncTargets: () => [], workerActionTargets: () => [],
+    distributedQueueGeneration: 0, distributedQueueTickPromise: undefined, distributedPlanStopEpoch: 0,
+    detachStaleDistributedTick: () => undefined,
     loadDistributedQueue: async () => ({ plans: [{ jobs: [{ status: "pending" }] }] }),
     testTunnel: async () => { probes += 1; if (probes === 2) provider.lastWorkerProbes = { workerA: { status: "ok" } }; },
+    readWorkerTaskSnapshot: async () => ({ tasks: [] }),
   };
   assert.equal(await probeSandbox.probeQueue.call(provider), undefined);
   assert.equal(await probeSandbox.probeQueue.call(provider), undefined);
@@ -103,27 +128,32 @@ test("an outstanding queue retries an unavailable tunnel probe without a panel",
 });
 
 test("completed job retries a stale source probe even while another Worker is online", async () => {
-  const tickStart = source.indexOf("async tickDistributedQueueCore() {");
-  const tickEnd = source.indexOf("const assigned = queue.plans.flatMap", tickStart);
-  const prefix = source.slice(tickStart, tickEnd).replace("async tickDistributedQueueCore()", "async function probeQueue()");
-  const probeSandbox = { workspaceRoot: () => "C:/project", Object, Date: { now: () => 100_000 } };
+  const tickStart = compiledSource.indexOf("async tickDistributedQueueCore(");
+  const tickEnd = compiledSource.indexOf("const assigned = queue.plans.flatMap", tickStart);
+  const prefix = compiledSource.slice(tickStart, tickEnd).replace(/async tickDistributedQueueCore\(([^)]*)\) \{/, "async function probeQueue($1) {");
+  const probeSandbox = { workspaceRoot: () => "C:/project", Object, Date: { now: () => 100_000 },
+    mapLimited: async (items, _limit, fn) => Promise.all(items.map((item) => fn(item))), setInterval, clearInterval };
   vm.createContext(probeSandbox);
   vm.runInContext(prefix + "return true; }\nthis.probeQueue = probeQueue;", probeSandbox);
   let probes = 0;
   const provider = {
+    distributedLaunchInFlight: new Set(),
     lastWorkerProbes: { "worker-a": { status: "ok" }, "worker-b": { status: "timeout" } },
     distributedNextProbeAt: 0, isRealtimeMode: () => true,
     projectTopologyAssessment: () => ({ mode: "worker_pool" }),
-    workerCodeSyncTargets: () => [{ id: "worker-a" }],
+    workerCodeSyncTargets: () => [{ id: "worker-a" }], workerActionTargets: () => [{ id: "worker-a" }, { id: "worker-b" }],
+    distributedQueueGeneration: 0, distributedQueueTickPromise: undefined, distributedPlanStopEpoch: 0,
+    detachStaleDistributedTick: () => undefined,
     loadDistributedQueue: async () => ({ plans: [{ jobs: [{ status: "completed", workerId: "worker-b", artifactError: "source offline", mirroredWorkerIds: [] }] }] }),
     testTunnel: async () => { probes += 1; provider.lastWorkerProbes["worker-b"] = { status: "ok" }; },
+    readWorkerTaskSnapshot: async () => ({ tasks: [] }),
   };
   assert.equal(await probeSandbox.probeQueue.call(provider), true);
   assert.equal(probes, 1);
 });
 
 test("manual refresh re-probes Workers and retries artifact sync without waiting for backoff", async () => {
-  const compiled = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
+  const compiled = compiledSource;
   const first = compiled.indexOf("async manualSnapshot() {");
   const last = compiled.indexOf("async manualGpuSnapshot() {", first);
   assert.ok(first >= 0 && last > first);
@@ -136,6 +166,7 @@ test("manual refresh re-probes Workers and retries artifact sync without waiting
   const client = { getSnapshot: async () => { events.push("snapshot"); return {}; },
     getGpu: async () => ({}), getScheduler: async () => [], getTraces: async () => [] };
   const provider = {
+    distributedLaunchInFlight: new Set(),
     projectContextGeneration: 0, client: {}, localPlanMetadata: {},
     refreshLocalPlanMetadata: async () => undefined,
     effectiveConnectionMode: () => "realtime",
@@ -153,7 +184,7 @@ test("manual refresh re-probes Workers and retries artifact sync without waiting
 });
 
 test("successful artifact pass clears an old disconnected warning", async () => {
-  const compiled = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
+  const compiled = compiledSource;
   const first = compiled.indexOf("async syncDistributedJobArtifacts(");
   const last = compiled.indexOf("async distributedOutputHashes(", first);
   assert.ok(first >= 0 && last > first);
@@ -165,6 +196,7 @@ test("successful artifact pass clears an old disconnected warning", async () => 
     artifacts: {}, fragmentWorkerIds: ["worker-a"], mirroredWorkerIds: ["worker-a"], artifactError: "old disconnect" };
   const patched = [];
   const provider = {
+    distributedLaunchInFlight: new Set(),
     distributedProjectContract: () => ({ fragmentPaths: [], requiredPaths: [] }),
     workerCodeSyncTargets: () => [{ id: "worker-a" }],
     lastWorkerProbes: { "worker-a": { status: "ok" } },
@@ -177,7 +209,7 @@ test("successful artifact pass clears an old disconnected warning", async () => 
 });
 
 test("a failed preview rebuild does not prevent completed job artifacts from mirroring", async () => {
-  const compiled = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
+  const compiled = compiledSource;
   const first = compiled.indexOf("scheduleDistributedPostprocess(root, rerunIfBusy = false) {");
   const last = compiled.indexOf("async enqueueDistributedPlan(", first);
   assert.ok(first >= 0 && last > first);
@@ -188,7 +220,8 @@ test("a failed preview rebuild does not prevent completed job artifacts from mir
     + "\nthis.schedule = scheduleDistributedPostprocess;", context);
   const calls = [];
   const provider = {
-    loadDistributedQueue: async () => ({ plans: [{}] }),
+    distributedLaunchInFlight: new Set(),
+    loadDistributedQueue: async () => ({ plans: [{ planFile: "plans/p.yaml", jobs: [] }] }),
     syncDistributedJobArtifacts: async (_root, _queue, phase) => calls.push(phase),
     rebuildDistributedResults: async (_root, _queue, preview) => {
       calls.push(preview ? "preview" : "final");
@@ -203,7 +236,7 @@ test("a failed preview rebuild does not prevent completed job artifacts from mir
 });
 
 test("every newly completed job rechecks all recorded job mirrors and repairs drift", async () => {
-  const compiled = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
+  const compiled = compiledSource;
   const first = compiled.indexOf("async syncDistributedJobArtifacts(");
   const last = compiled.indexOf("async distributedOutputHashes(", first);
   const context = { workspaceRoot: () => "C:/project", Date, Set, Map, Object, errorMessage: String,
@@ -220,6 +253,7 @@ test("every newly completed job rechecks all recorded job mirrors and repairs dr
   let copied = false;
   const patches = [];
   const provider = {
+    distributedLaunchInFlight: new Set(),
     distributedProjectContract: () => ({ fragmentPaths: [], requiredPaths: [] }),
     workerCodeSyncTargets: () => [{ id: "w2" }, { id: "w3" }],
     lastWorkerProbes: { w2: { status: "ok" }, w3: { status: "ok" } },
@@ -237,7 +271,7 @@ test("every newly completed job rechecks all recorded job mirrors and repairs dr
 });
 
 test("a new completion also repairs a stale shared preview on every Worker", async () => {
-  const compiled = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
+  const compiled = compiledSource;
   const first = compiled.indexOf("async rebuildDistributedResults(");
   const last = compiled.indexOf("async retryDistributedJobFromUi(", first);
   const context = {
@@ -257,6 +291,7 @@ test("a new completion also repairs a stale shared preview on every Worker", asy
   let copied = false;
   const patches = [];
   const provider = {
+    distributedLaunchInFlight: new Set(),
     distributedProjectContract: () => ({ fragmentPaths: [], requiredPaths: [], configPath: "cfg", checkpointPath: "chk",
       resultRowsPath: "rows", fourStatePath: "four" }),
     workerCodeSyncTargets: () => [{ id: "w3" }, { id: "w2" }],
@@ -274,38 +309,31 @@ test("a new completion also repairs a stale shared preview on every Worker", asy
   assert.deepEqual(Array.from(queue.previewWorkerIds), ["w3", "w2"]);
 });
 
-test("pending jobs cannot use GPU slots until that Worker's task ledger is verified", () => {
-  const start = source.indexOf("const rows = snapshot ? this.localWorkerAvailabilityRows", source.indexOf("async tickDistributedQueueCore()"));
-  const end = source.indexOf("const allocation = DistributedPlanQueue.allocateAvailable", start);
+test("durable admission requires a fresh capable ledger and leaves GPU selection to the Worker", () => {
+  const start = source.indexOf("const durableQueue = queue.plans.some");
+  const end = source.indexOf("const retiredDeferred =", start);
   assert.ok(start >= 0 && end > start);
-  const selectWorkers = new Function("snapshot", "verifiedWorkerIds", "occupied", "dispatchFingerprint",
-    source.slice(start, end) + "return workers;");
-  const provider = {
-    lastWorkerProbes: { workerA: { status: "ok" } },
-    lastCodeSyncState: { workerVersions: { workerA: { fingerprint: "code-a" } } },
-    availabilityPushTtlSeconds: () => 45,
-    schedulerSettings: () => ({}),
-    localWorkerAvailabilityRows: () => [{ workerId: "workerA", availableGpuIds: ["0"] }],
-  };
-  const args = [{ workerA: [] }, new Set(), new Set(), "code-a"];
-  assert.equal(selectWorkers.call(provider, ...args)[0].online, false);
-  args[1].add("workerA");
-  assert.equal(selectWorkers.call(provider, ...args)[0].online, true);
-  assert.doesNotMatch(source.slice(source.indexOf("async tickDistributedQueueCore()"), source.indexOf("async syncDistributedJobArtifacts(")),
+  const admission = source.slice(start, end);
+  assert.match(admission, /snapshot\.capabilities\?\.durablePlanQueue === true/);
+  assert.match(admission, /Number\(snapshot\.capabilities\?\.schemaVersion\) === 1/);
+  assert.match(admission, /workerFingerprint !== plan\.codeFingerprint/);
+  assert.match(admission, /sendDistributedJob\(plan, job, job\.workerId, undefined, job\.commandId\)/);
+  assert.doesNotMatch(admission, /allocateAvailable/);
+  assert.doesNotMatch(source.slice(source.indexOf("async tickDistributedQueueCore("), source.indexOf("async syncDistributedJobArtifacts(")),
     /catch\s*\{\s*snapshot\s*=\s*this\.lastRealtimeState\?\.gpu/);
 });
 
-test("restart resends an unacknowledged dispatch with its original command ID", async () => {
-  const compiled = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
-  const start = compiled.indexOf("async tickDistributedQueueCore() {");
+test("restart fences an unacknowledged legacy dispatch with its original command identity", async () => {
+  const compiled = compiledSource;
+  const start = compiled.indexOf("async tickDistributedQueueCore(");
   const end = compiled.indexOf("async syncDistributedJobArtifacts(", start);
   assert.ok(start >= 0 && end > start);
-  const queueMethod = compiled.slice(start, end).replace("async tickDistributedQueueCore()", "async function tickQueue()");
-  const DistributedPlanQueue = require("../../dist/features/DistributedPlanQueue");
+  const queueMethod = compiled.slice(start, end).replace(/async tickDistributedQueueCore\(([^)]*)\) \{/, "async function tickQueue($1) {");
+  const DistributedPlanQueue = loadSourceModule("src/features/DistributedPlanQueue.ts");
   const context = {
     workspaceRoot: () => "C:/project", DistributedPlanQueue,
     mapLimited: async (items, _limit, fn) => Promise.all(items.map(fn)),
-    Object, Set, Date, errorMessage: String,
+    Object, Set, Date, setInterval, clearInterval, errorMessage: String,
   };
   vm.createContext(context);
   vm.runInContext(queueMethod + "\nthis.tickQueue = tickQueue;", context);
@@ -316,6 +344,7 @@ test("restart resends an unacknowledged dispatch with its original command ID", 
   }], deferred: [] };
   const sent = [];
   const provider = {
+    distributedLaunchInFlight: new Set(),
     lastWorkerProbes: { "worker-a": { status: "ok" } }, lastCodeSyncState: { workerVersions: {} },
     workerCodeSyncTargets: () => [],
     isRealtimeMode: () => true, projectTopologyAssessment: () => ({ mode: "worker_pool" }),
@@ -333,20 +362,22 @@ test("restart resends an unacknowledged dispatch with its original command ID", 
     postState: () => undefined, refreshSelectedDistributedLog: () => undefined,
   };
   await context.tickQueue.call(provider);
-  assert.deepEqual(sent, [{ workerId: "worker-a", gpuId: "0", commandId: "command-1" }]);
-  assert.equal(queue.plans[0].jobs[0].status, "running");
+  assert.deepEqual(sent, [], "a missing legacy receipt cannot authorize replay after restart");
+  assert.equal(queue.plans[0].jobs[0].status, "unknown");
   assert.equal(queue.plans[0].jobs[0].commandId, "command-1");
+  assert.equal(queue.plans[0].jobs[0].workerId, "worker-a");
+  assert.match(queue.plans[0].jobs[0].blockReason, /不会自动补发任务/);
 });
 
 test("a failed job retains its Agent error in the durable Plan queue", async () => {
-  const compiled = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
-  const start = compiled.indexOf("async tickDistributedQueueCore() {");
+  const compiled = compiledSource;
+  const start = compiled.indexOf("async tickDistributedQueueCore(");
   const end = compiled.indexOf("async syncDistributedJobArtifacts(", start);
-  const queueMethod = compiled.slice(start, end).replace("async tickDistributedQueueCore()", "async function tickQueue()");
-  const DistributedPlanQueue = require("../../dist/features/DistributedPlanQueue");
+  const queueMethod = compiled.slice(start, end).replace(/async tickDistributedQueueCore\(([^)]*)\) \{/, "async function tickQueue($1) {");
+  const DistributedPlanQueue = loadSourceModule("src/features/DistributedPlanQueue.ts");
   const context = { workspaceRoot: () => "C:/project", DistributedPlanQueue,
     mapLimited: async (items, _limit, fn) => Promise.all(items.map(fn)),
-    compactSensitiveText: String, Object, Set, Date };
+    compactSensitiveText: String, Object, Set, Date, setInterval, clearInterval };
   vm.createContext(context);
   vm.runInContext(queueMethod + "\nthis.tickQueue = tickQueue;", context);
   let queue = { schemaVersion: 1, plans: [{ id: "plan-1", planFile: "plans/p.yaml", revision: "rev-1", codeFingerprint: "code-1",
@@ -356,6 +387,7 @@ test("a failed job retains its Agent error in the durable Plan queue", async () 
     seed: 1, attempt: 1, outputDir: "runs/a", workerId: "worker-a", gpuId: "0", status: "failed",
     error: "FileNotFoundError: missing label_schema.json" };
   const provider = {
+    distributedLaunchInFlight: new Set(),
     lastWorkerProbes: { "worker-a": { status: "ok" } }, distributedNextFailureDetailAt: 0,
     workerCodeSyncTargets: () => [],
     lastCodeSyncState: { workerVersions: {} },
@@ -373,13 +405,13 @@ test("a failed job retains its Agent error in the durable Plan queue", async () 
 });
 
 test("idle queue recovery checks are spaced while a newly completed job still checks immediately", async () => {
-  const compiled = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
-  const start = compiled.indexOf("async tickDistributedQueueCore() {");
+  const compiled = compiledSource;
+  const start = compiled.indexOf("async tickDistributedQueueCore(");
   const end = compiled.indexOf("async syncDistributedJobArtifacts(", start);
-  const context = { workspaceRoot: () => "C:/project", DistributedPlanQueue: require("../../dist/features/DistributedPlanQueue"),
-    mapLimited: async (items, _limit, fn) => Promise.all(items.map(fn)), Object, Set, Date };
+  const context = { workspaceRoot: () => "C:/project", DistributedPlanQueue: loadSourceModule("src/features/DistributedPlanQueue.ts"),
+    mapLimited: async (items, _limit, fn) => Promise.all(items.map(fn)), Object, Set, Date, setInterval, clearInterval };
   vm.createContext(context);
-  vm.runInContext(compiled.slice(start, end).replace("async tickDistributedQueueCore()", "async function tickQueue()")
+  vm.runInContext(compiled.slice(start, end).replace(/async tickDistributedQueueCore\(([^)]*)\) \{/, "async function tickQueue($1) {")
     + "\nthis.tickQueue = tickQueue;", context);
   let queue = { schemaVersion: 1, plans: [{ id: "plan-1", planFile: "plans/p.yaml", revision: "rev-1",
     jobs: [{ index: 0, case: "case-a", seed: 1, attempt: 1, status: "completed", workerId: "worker-a", gpuId: "0",
@@ -387,6 +419,7 @@ test("idle queue recovery checks are spaced while a newly completed job still ch
   let remoteStatus = "completed";
   const scheduled = [];
   const provider = {
+    distributedLaunchInFlight: new Set(),
     distributedNextPostprocessAt: 0, lastWorkerProbes: { "worker-a": { status: "ok" } },
     workerCodeSyncTargets: () => [], isRealtimeMode: () => true,
     projectTopologyAssessment: () => ({ mode: "worker_pool" }),
@@ -409,21 +442,64 @@ test("idle queue recovery checks are spaced while a newly completed job still ch
 });
 
 function loadTickQueue() {
-  const compiled = fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
-  const start = compiled.indexOf("async tickDistributedQueueCore() {");
+  const compiled = compiledSource;
+  const start = compiled.indexOf("async tickDistributedQueueCore(");
   const end = compiled.indexOf("async syncDistributedJobArtifacts(", start);
   assert.ok(start >= 0 && end > start);
   const context = {
-    workspaceRoot: () => "C:/project", DistributedPlanQueue: require("../../dist/features/DistributedPlanQueue"),
+    workspaceRoot: () => "C:/project", DistributedPlanQueue: loadSourceModule("src/features/DistributedPlanQueue.ts"),
     mapLimited: async (items, _limit, fn) => Promise.all(items.map(fn)),
-    Object, Set, Map, Date, JSON, errorMessage: String,
+    Object, Set, Map, Date, JSON, setInterval, clearInterval, errorMessage: String,
     actionErrorSuggestion: (message) => String(message || ""),
   };
   vm.createContext(context);
-  vm.runInContext(compiled.slice(start, end).replace("async tickDistributedQueueCore()", "async function tickQueue()")
+  vm.runInContext(compiled.slice(start, end).replace(/async tickDistributedQueueCore\(([^)]*)\) \{/, "async function tickQueue($1) {")
     + "\nthis.tickQueue = tickQueue;", context);
   return context;
 }
+
+test("mixed durable and legacy queues reconcile old completion and fence missing receipts without replay", async () => {
+  const context = loadTickQueue();
+  const projectId = context.DistributedPlanQueue.canonicalProjectId("C:/project");
+  const legacyJob = { index: 0, case: "alpha", seed: 42, attempt: 1, outputDir: "runs/old/attempts/one",
+    status: "running", workerId: "worker-a", gpuId: "0", commandId: "old-command" };
+  const durableJob = { index: 0, case: "alpha", seed: 43, attempt: 1, outputDir: "runs/new/attempts/one",
+    status: "queued", workerId: "worker-a", commandId: "new-command", runKey: "new-command", projectId };
+  let queue = { schemaVersion: 1, plans: [
+    { id: "old-plan", planFile: "plans/old.yaml", revision: "old-rev", codeFingerprint: "code", jobs: [{ ...legacyJob }] },
+    { id: "new-plan", projectId, planFile: "plans/new.yaml", revision: "new-rev", codeFingerprint: "code",
+      planJobCount: 1, enqueuedAt: new Date().toISOString(), jobs: [{ ...durableJob }] },
+  ] };
+  let legacyVisible = true;
+  let sends = 0;
+  const provider = {
+    distributedQueueGeneration: 0, distributedPlanStopEpoch: 0, distributedLaunchInFlight: new Set(),
+    lastWorkerProbes: { "worker-a": { status: "ok" } },
+    lastCodeSyncState: { workerVersions: { "worker-a": { fingerprint: "code" } } },
+    isRealtimeMode: () => true, projectTopologyAssessment: () => ({ mode: "worker_pool" }),
+    workerCodeSyncTargets: () => [], workerActionTargets: () => [{ id: "worker-a" }],
+    loadDistributedQueue: async () => queue, saveDistributedQueue: async (_root, next) => { queue = next; },
+    readWorkerTaskSnapshot: async () => ({ workerId: "worker-a", capabilities: { durablePlanQueue: true, schemaVersion: 1 },
+      generatedAt: new Date().toISOString(), fetchedAt: new Date().toISOString(), tasks: [
+        ...(legacyVisible ? [{ ...legacyJob, workflowId: "old-plan", planRevision: "old-rev", status: "completed" }] : []),
+        { ...durableJob, experimentIndex: 0, workflowId: "new-plan", planFile: "plans/new.yaml",
+          planRevision: "new-rev", codeFingerprint: "code", planJobCount: 1, enqueuedAt: queue.plans[1].enqueuedAt },
+      ] }),
+    sendDistributedJob: async () => { sends += 1; throw new Error("reconciliation must not submit a new job"); },
+    scheduleDistributedPostprocess: () => undefined, recordActionError: () => undefined, postState: () => undefined,
+  };
+  await context.tickQueue.call(provider);
+  assert.equal(queue.plans[0].jobs[0].status, "completed", "a durable Plan must not suppress an older exact completion receipt");
+  assert.equal(queue.plans[1].jobs[0].status, "queued");
+  queue.plans[0].jobs[0] = { ...legacyJob };
+  legacyVisible = false;
+  await context.tickQueue.call(provider);
+  assert.equal(queue.plans[0].jobs[0].status, "unknown");
+  assert.equal(queue.plans[0].jobs[0].commandId, "old-command");
+  assert.equal(queue.plans[0].jobs[0].workerId, "worker-a");
+  assert.match(queue.plans[0].jobs[0].blockReason, /不会自动补发任务/);
+  assert.equal(sends, 0, "missing legacy receipts cannot authorize replay or duplicate work");
+});
 
 test("verified idle Workers on the new fingerprint dispatch edrl and block stale ebmc pending", async () => {
   const context = loadTickQueue();
@@ -437,6 +513,7 @@ test("verified idle Workers on the new fingerprint dispatch edrl and block stale
   ], deferred: [] };
   const sent = [];
   const provider = {
+    distributedLaunchInFlight: new Set(),
     lastWorkerProbes: { nwpu3: { status: "ok" }, nwpu5: { status: "ok" } },
     lastCodeSyncState: { workerVersions: { nwpu3: { fingerprint: newFingerprint }, nwpu5: { fingerprint: newFingerprint } } },
     workerCodeSyncTargets: () => [], isRealtimeMode: () => true,
@@ -479,6 +556,7 @@ test("a persisted deferred Plan is retired while an already submitted job still 
   const sent = [];
   const errors = [];
   const provider = {
+    distributedLaunchInFlight: new Set(),
     lastWorkerProbes: { nwpu3: { status: "ok" } },
     lastCodeSyncState: { fingerprint: "ec594411", workerVersions: { nwpu3: { fingerprint: "ec594411" } } },
     workerCodeSyncTargets: () => [], isRealtimeMode: () => true,
@@ -518,6 +596,7 @@ test("running work and missing Worker version evidence still hold a deferred Pla
     body: {}, status: "pending" }] };
   let queue = JSON.parse(JSON.stringify(running));
   const provider = {
+    distributedLaunchInFlight: new Set(),
     lastWorkerProbes: { nwpu3: { status: "ok" } },
     lastCodeSyncState: { workerVersions: { nwpu3: { fingerprint: "code-later" } } },
     workerCodeSyncTargets: () => [], isRealtimeMode: () => true,

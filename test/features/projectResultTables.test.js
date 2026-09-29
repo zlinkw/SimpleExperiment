@@ -1,6 +1,17 @@
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const Module = require("node:module");
+const path = require("node:path");
 const test = require("node:test");
-const tables = require("../../dist/results/ProjectResultTables.js");
+const ts = require("typescript");
+const sourcePath = path.join(__dirname, "..", "..", "src", "results", "ProjectResultTables.ts");
+const sourceModule = new Module(sourcePath, module);
+sourceModule.filename = sourcePath;
+sourceModule.paths = Module._nodeModulePaths(path.dirname(sourcePath));
+sourceModule._compile(ts.transpileModule(fs.readFileSync(sourcePath, "utf8"), {
+  compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, esModuleInterop: true },
+}).outputText, sourcePath);
+const tables = sourceModule.exports;
 
 const plan = "experiments/plans/comparison/demo.yaml";
 function record(workerId, method, caseName, seed, endpoint, metric, value, rate = "0.3") {
@@ -47,8 +58,8 @@ test("global and method tables recompute seed means across Workers, deduplicate 
   const row = output.final.rows[0];
   assert.equal(row[output.final.header.indexOf("jobs")], "2/5");
   assert.equal(row[output.final.header.indexOf("rate_percent")], "30");
-  assert.equal(row[output.final.header.indexOf("acc_mean")], "");
-  assert.equal(row[output.final.header.indexOf("acc_sd")], "");
+  assert.equal(row[output.final.header.indexOf("accuracy_mean")], "");
+  assert.equal(row[output.final.header.indexOf("accuracy_sd")], "");
   assert.equal(output.demo.rows.length, 1);
   assert.match(output.final.markdown, /2\/5/);
   assert.match(output.final.markdown, /—/);
@@ -74,6 +85,51 @@ test("same seed conflicting values block publication", () => {
     record("w2", "demo", "bus_p30", 42, "clean", "acc", 0.4),
   ]), plan, 1);
   assert.throws(() => tables.buildTables(registry), /指标冲突/);
+});
+
+test("equivalent metric aliases deduplicate per seed while raw registry keys stay intact", () => {
+  const rows = [
+    { ...record("w1", "demo", "bus_p30", 42, "clean", "AUC", 0.8), metrics: { AUC: { value: 0.8 }, roc_auc: { value: 0.8 }, ECE: { value: 0.1 }, ece: { value: 0.1 }, f1_macro: { value: 0.7 }, macro_f1: { value: 0.7 } } },
+    { ...record("w1", "demo", "bus_p30", 43, "clean", "AUC", 0.6), metrics: { auc: { value: 0.6 }, ECE: { value: 0.3 }, macro_f1: { value: 0.5 } } },
+  ];
+  const registry = tables.updateRegistry(tables.emptyTableRegistry(), summary(rows), plan, 2);
+  assert.deepEqual(Object.keys(registry.plans[plan].records[0].metrics).sort(), ["AUC", "ECE", "ece", "f1_macro", "macro_f1", "roc_auc"].sort());
+  const output = tables.buildTables(registry).final;
+  assert.equal(output.header.filter((name) => name === "roc_auc_mean").length, 1);
+  assert.equal(output.header.filter((name) => name === "ece_mean").length, 1);
+  assert.equal(output.header.filter((name) => name === "macro_f1_mean").length, 1);
+  assert.equal(output.rows[0][output.header.indexOf("roc_auc_mean")], 0.7);
+  assert.ok(Math.abs(output.rows[0][output.header.indexOf("roc_auc_sd")] - Math.sqrt(0.02)) < 1e-12);
+  assert.equal(output.rows[0][output.header.indexOf("ece_mean")], 0.2);
+  assert.ok(Math.abs(output.rows[0][output.header.indexOf("ece_sd")] - Math.sqrt(0.02)) < 1e-12);
+  assert.equal(output.rows[0][output.header.indexOf("macro_f1_mean")], 0.6);
+  assert.match(output.markdown, /0\.7000 ± 0\.1414/);
+});
+
+test("all declared metric families use stable canonical columns and unknown metrics remain distinct", () => {
+  const families = {
+    AUC: ["auc", "auroc", "roc_auc"], AUPRC: ["AP", "average_precision", "auprc", "pr_auc"],
+    accuracy: ["ACC", "acc", "accuracy"], brier: ["brier", "brier_score"], F1: ["F1", "f1", "f1_score"],
+    macro_f1: ["f1_macro", "macro_f1"], micro_f1: ["f1_micro", "micro_f1"],
+    weighted_f1: ["f1_score_weighted", "f1_weighted", "weighted_f1"], recall: ["recall", "sensitivity"], ECE: ["ECE", "ece"],
+  };
+  const metrics = Object.fromEntries(Object.values(families).flatMap((aliases) => aliases.map((name) => [name, { value: 0.5 }])));
+  metrics.custom_A = { value: 1 };
+  metrics.custom_B = { value: 1 };
+  const registry = tables.updateRegistry(tables.emptyTableRegistry(), summary([
+    { ...record("w1", "demo", "bus_p30", 42, "clean", "unused", 0), metrics },
+  ]), plan, 1);
+  const output = tables.buildTables(registry).final;
+  for (const name of ["roc_auc", "auprc", "accuracy", "brier_score", "f1_score", "macro_f1", "micro_f1", "weighted_f1", "recall", "ece", "custom_a", "custom_b"])
+    assert.ok(output.header.includes(name + "_mean"), name);
+  assert.equal(output.header.filter((name) => name.endsWith("_mean")).length, Object.keys(families).length + 2);
+});
+
+test("conflicting aliases fail before the caller can replace its prior table", () => {
+  const registry = tables.updateRegistry(tables.emptyTableRegistry(), summary([
+    { ...record("w1", "demo", "bus_p30", 42, "clean", "AUC", 0.8), metrics: { AUC: { value: 0.8 }, roc_auc: { value: 0.7 } } },
+  ]), plan, 1);
+  assert.throws(() => tables.buildTables(registry), /等价指标值冲突/);
 });
 
 test("offline Worker and untrusted identity do not overwrite registry", () => {
@@ -111,7 +167,7 @@ test("completed cross-Worker rerun replaces older Worker results for the same Pl
   ]), "w2");
   const updated = tables.updateRegistry(older, incoming, plan, 1);
   assert.deepEqual(updated.plans[plan].records.map((row) => row.workerId), ["w2"]);
-  assert.equal(tables.buildTables(updated).final.rows[0][tables.buildTables(updated).final.header.indexOf("acc_mean")], 0.7);
+  assert.equal(tables.buildTables(updated).final.rows[0][tables.buildTables(updated).final.header.indexOf("accuracy_mean")], 0.7);
 });
 
 test("CSV splitting supports manual value and column selection with quoted cells", () => {
@@ -153,6 +209,9 @@ test("global final includes multiple Plans and keeps a method named final in its
   const output = tables.buildTables(registry);
   assert.deepEqual(Object.keys(output).sort(), ["_method_final", "demo", "final"]);
   assert.equal(output.final.rows.length, 2);
+  assert.ok(output.final.header.includes("plan_file"));
+  assert.deepEqual(output.final.rows.map((row) => row[output.final.header.indexOf("plan_file")]).sort(), [plan, secondPlan].sort());
+  assert.deepEqual(output.final.rows.map((row) => row[output.final.header.indexOf("jobs")]).sort(), ["1", "1"]);
   assert.equal(output._method_final.rows.length, 1);
 });
 
