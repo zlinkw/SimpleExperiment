@@ -169,16 +169,16 @@ test("confirmed inactive operation does not block the selected Plan", () => {
 test("selected Plan stays first in dropdown after switching", () => {
   const names = ["planFileOf", "collectPlanFileDefaultOrder", "resolvePlanFileCurrent", "matchPlanFileInOrder", "refreshPlanFileOptions"];
   const select = { innerHTML: "", value: "" };
-  const sandbox = { el: () => select, esc: (value) => value, escAttr: (value) => value, samePlanSelection };
+  const sandbox = { planSelectorStatusIndex: () => ({}), planSelectorRunSummary: () => ({ status: "unknown", statusLabel: "待确认", totalCount: 0 }), planSelectorMatchesFilter: () => true, planSelectorSortEntries: rows => rows.slice(), planSelectorOptionLabel: file => file, el: id => id === "planFileInput" ? select : null, esc: (value) => value, escAttr: (value) => value, samePlanSelection };
   vm.createContext(sandbox);
   vm.runInContext(names.map((name) => extractFunction(panel, name)).join("\n") + "\nthis.refresh = refreshPlanFileOptions;", sandbox);
   const plans = [{ file: "experiments/plans/baseline.yaml" }, { file: "experiments/plans/comparison/concatenation.yaml" }];
   sandbox.refresh({ plans, planFileInput: "experiments/plans/comparison/concatenation.yaml" });
-  assert.match(select.innerHTML, /^<option value="experiments\/plans\/comparison\/concatenation\.yaml">/);
+  assert.match(select.innerHTML, /^<option[^>]* value="experiments\/plans\/comparison\/concatenation\.yaml">/);
   assert.equal(select.value, "experiments/plans/comparison/concatenation.yaml");
   select.value = "experiments/plans/baseline.yaml";
   sandbox.refresh({ plans });
-  assert.match(select.innerHTML, /^<option value="experiments\/plans\/baseline\.yaml">/);
+  assert.match(select.innerHTML, /^<option[^>]* value="experiments\/plans\/baseline\.yaml">/);
   assert.equal(select.value, "experiments/plans/baseline.yaml");
   assert.match(panel, /reconcileEvidenceActive: pick\(row,/);
 });
@@ -254,7 +254,7 @@ test("webview disables duplicate submission using the same Plan-scoped activity 
   assert.match(extension, /assertPlanNotAlreadyActive[\s\S]{0,2600}已阻止重复提交/);
 });
 
-test("webview explains old revision activity and opens all tasks", () => {
+test("webview explains old revision activity and opens Plan runtime progress", () => {
   const guard = loadPanelGuard();
   const planFile = "experiments/plans/smoke.yaml";
   const plan = { revision: "rev2", updatedAt: "2026-07-20T01:00:00.000Z" };
@@ -263,8 +263,9 @@ test("webview explains old revision activity and opens all tasks", () => {
   assert.equal(activity.historicalOnly, true);
   assert.equal(activity.currentTaskCount, 0);
   assert.match(panel, /旧 revision 的/);
-  assert.match(panel, /查看全部任务/);
-  assert.match(panel, /taskPlanScope === "all"/);
+  assert.match(panel, /查看运行进度/);
+  assert.doesNotMatch(panel, /taskPlanScope|data-task-plan-scope/);
+  assert.match(panel, /const anchor = "execution-operations"/);
   assert.match(extension, /旧 Plan revision 仍有/);
-  assert.match(extension, /next === "查看全部任务"/);
+  assert.match(extension, /next === "查看运行进度"/);
 });

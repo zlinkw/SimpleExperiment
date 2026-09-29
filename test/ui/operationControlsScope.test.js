@@ -14,6 +14,7 @@ function extract(startName, endName) {
 test("global stop targets only the active operation for the selected Plan", () => {
   const html = {};
   const sandbox = {
+    renderFileTransferProgress: () => "",
     operationViewModelForState: () => ({ rows: [] }),
     setHtmlIfChanged: (id, value) => { html[id] = value; },
     escAttr: String,
@@ -23,7 +24,7 @@ test("global stop targets only the active operation for the selected Plan", () =
     selectedOperationHistoryIds: new Set(),
   };
   vm.createContext(sandbox);
-  vm.runInContext(extract("renderOperationSection", "renderTaskSection").replaceAll("\\\\", "\\") + "\nthis.render = renderOperationSection;", sandbox);
+  vm.runInContext(extract("renderOperationSection", "renderFileTransferProgress").replaceAll("\\\\", "\\") + "\nthis.render = renderOperationSection;", sandbox);
   sandbox.render({
     planFileInput: "experiments/plans/comparison/concatenation.yaml",
     operations: {

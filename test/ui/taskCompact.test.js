@@ -25,7 +25,7 @@ test("task section drops progress cards and dense meta grid", () => {
   assert.doesNotMatch(panelSource, /勾选任务后可批量停止、重试、解析、归档或删除/);
   assert.doesNotMatch(panelSource, /已隐藏 ' \+ hiddenLegacyTaskUiKeys\.size \+ ' 条旧任务残留/);
   assert.doesNotMatch(panelSource, /taskMetaGrid/);
-  assert.match(panelSource, /setHtmlIfChanged\("taskProgressCards", ""\)/);
+  assert.doesNotMatch(panelSource, /taskProgressCards/);
   assert.match(panelSource, /titleBits/);
 });
 
@@ -50,10 +50,10 @@ test("task workbench derives counts selections and render priority in one view m
   assert.deepEqual(Array.from(model.visibleRows.slice(0, 3), (row) => row.uiKey), ["selected", "running", "failed"]);
   assert.deepEqual(Array.from(model.selectedRows, (row) => row.uiKey), ["selected"]);
   assert.deepEqual(Array.from(model.activeRows, (row) => row.uiKey), ["running"]);
-  assert.equal(model.detailRow.uiKey, "selected");
+  assert.equal(model.detailRow, undefined);
   assert.deepEqual(JSON.parse(JSON.stringify(model.counts)), { queued: 7, running: 1, testing: 0, completed: 91, failed: 1, stopped: 0 });
   assert.doesNotMatch(extractFunction("taskRowsViewModel"), /allRows\.filter\(/);
-  assert.ok([...panelSource.matchAll(/taskRowsViewModel\(rows, selected\)/g)].length >= 2);
+  assert.match(extractFunction("taskSectionViewModelForState"), /taskRowsViewModel\(allRows, selected\)/);
 });
 
 test("task rendering reuses fixed live queued and active status sets", () => {
@@ -154,12 +154,10 @@ test("task key derivations reuse row cache and preserve operation key order", ()
   assert.deepEqual([...fallback.selectableKeys], [fallback.targetKey]);
 });
 
-test("task signature and render reuse one scoped view model", () => {
+test("task signature and render reuse one scope-independent view model", () => {
   let schedulerCalls = 0;
   const sandbox = {
-    taskPlanScope: "selected",
     taskSectionViewCacheState: null,
-    taskSectionViewCacheScope: "",
     taskSectionViewCacheValue: null,
     taskSelectionSetsForState: () => ({ hiddenLegacyTaskUiKeys: new Set() }),
     schedulerRowsForState: () => {
@@ -167,7 +165,6 @@ test("task signature and render reuse one scoped view model", () => {
       return [{ uiKey: "task-1", planFile: "plan.yaml" }];
     },
     planFromContext: () => ({ revision: "r1" }),
-    taskRowsForPlanScope: (rows, selectedPlanFile, scopeMode) => ({ rows, selectedPlanFile, selectedCount: rows.length, totalCount: rows.length, scopeMode }),
     taskRowsViewModel: (rows) => ({ visibleRows: rows, selectedRows: [], activeRows: [], counts: {}, detailRow: rows[0] }),
     taskStatusToken: (status) => String(status || ""),
     TASK_LIVE_STATUS_TOKENS: new Set(["running", "testing"]),
@@ -182,10 +179,9 @@ test("task signature and render reuse one scoped view model", () => {
   assert.equal(sandbox.viewForState(state), first);
   assert.equal(schedulerCalls, 1);
 
-  sandbox.taskPlanScope = "all";
-  assert.notEqual(sandbox.viewForState(state), first);
+  assert.notEqual(sandbox.viewForState({ ...state }), first);
   assert.equal(schedulerCalls, 2);
   assert.match(extractFunction("compactSchedulerForSignature"), /taskSectionViewModelForState\(state\)/);
-  assert.match(extractFunction("renderTaskSection"), /taskSectionViewModelForState\(state\)/);
-  assert.match(extractFunction("sectionLocalSignature"), /taskPlanScope/);
+  assert.match(extractFunction("renderExecutionSection"), /taskSectionViewModelForState\(state\)/);
+  assert.doesNotMatch(extractFunction("sectionLocalSignature"), /taskPlanScope/);
 });

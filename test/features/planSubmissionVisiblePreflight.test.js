@@ -197,9 +197,6 @@ test("old fingerprint holds before sync and does not claim output confirmation",
   assert.match(host.localOperations["plan-submit-click-drf"].message, /未提交/);
   assert.match(host.localOperations["plan-submit-click-drf"].message, /校验并提交运行/);
   assert.doesNotMatch(host.localOperations["plan-submit-click-drf"].message, /继续提交/);
-  const html = renderTask({ planFileInput: drf, distributedPlans: [], deferredPlans: [], schedulerStates: [] });
-  assert.equal(html.taskSummary, undefined);
-  assert.match(html.taskTable, /当前 Plan 尚无可显示任务/);
 });
 
 test("distributed submission holds an old fingerprint before sync and renders that queue row", async () => {
@@ -217,8 +214,6 @@ test("distributed submission holds an old fingerprint before sync and renders th
   const progress = renderExecution(webviewState(host));
   assert.match(progress.executionPlanList, /drf/);
   assert.match(progress.executionPlanList, /未提交|cancelled/);
-  const tasks = renderTask(webviewState(host));
-  assert.equal(tasks.taskSummary, undefined);
   const hidden = renderExecution({ ...webviewState(host), deferredPlans: [{ id: "old-deferred", planFile: drf, status: "pending", reason: "等待旧代码版本", waitingForPlanFile: "old.yaml" }] });
   assert.doesNotMatch(hidden.executionPlanList, /old-deferred|data-deferred-plan-id/);
   assert.match(hidden.executionPlanList, /data-command="runPlan" data-plan-file="experiments\/plans\/comparison\/drf.yaml"[^>]*>继续提交/);
@@ -474,10 +469,6 @@ test("deferred replay keeps the saved skip choice and blocks a changed fingerpri
   const changed = await host.localDistributedCodeFingerprint(root);
   assert.notEqual(changed, deferred.codeFingerprint);
   host.distributedQueueCache.deferred = [{ ...deferred, status: "superseded", supersededBy: "manual-rerun-policy", error: "跨代码版本自动接续已废止" }];
-  const html = renderTask({ planFileInput: drf, distributedPlans: [{ id: "old", planFile: "experiments/plans/old.yaml", revision: "r0", jobs: [{ index: 1, case: "pad", seed: 7, status: "failed" }] }],
-    deferredPlans: host.distributedQueueCache.deferred, schedulerStates: [] });
-  assert.equal(html.taskSummary, undefined);
-  assert.doesNotMatch(html.taskTable, /其他 Plan 的历史与待处理记录|恢复 pad seed 7/);
 });
 
 test("plan check acceptance follows the real validate payload", () => {
@@ -550,12 +541,20 @@ function progressState(host) {
 }
 
 function renderExecution(state) {
-  return renderPanel(["distributedPlanRecoveryView", "executionPlanGroupKey", "executionCurrentDistributedJobs", "executionSubmissionLabel", "executionNewerSubmission", "executionDeferredView", "operationIsActive", "operationIsFailureLike", "operationHasDeadEvidence", "renderExecutionPlanList"], state, ["executionPlanList"]);
+  return renderPanel(["distributedPlanRecoveryView", "executionPlanGroupKey", "executionCurrentDistributedJobs", "executionSubmissionLabel", "executionNewerSubmission", "executionDeferredView", "operationIsActive", "operationIsFailureLike", "operationHasDeadEvidence", "renderPlanTaskCards", "renderTaskCards", "renderExecutionPlanList"], state, ["executionPlanList"]);
 }
 
-function renderTask(state) {
-  return renderPanel(["taskSectionViewModelForState", "renderTaskSection"], state, ["taskTable"]);
-}
+
+test("Plan progress keeps tasks beyond twenty reachable without a global workbench", () => {
+  const rows = Array.from({ length: 25 }, (_, index) => ({ uiKey: "task-" + (index + 1), planFile: drf, status: "running", updatedAt: "2026-09-30T01:00:00Z" }));
+  const html = renderExecution({ planFileInput: drf, schedulerStates: rows, operations: {} }).executionPlanList;
+  assert.match(html, /任务与日志/);
+  assert.match(html, /executionPlanMoreTasks/);
+  assert.match(html, /显示其余 5 个任务/);
+  assert.match(html, /task-25/);
+  assert.equal((html.match(/class="task-card"/g) || []).length, 25);
+  assert.doesNotMatch(html, /taskTable|taskDetailPane/);
+});
 
 function renderPanel(names, state, ids) {
   const html = {};
@@ -563,9 +562,7 @@ function renderPanel(names, state, ids) {
     executionHistoryRowsCacheState: null,
     executionHistoryRowsCacheValue: null,
     taskSectionViewCacheState: null,
-    taskSectionViewCacheScope: "",
     taskSectionViewCacheValue: null,
-    taskPlanScope: "selected",
     setHtmlIfChanged: (id, value) => { html[id] = value; return true; },
     esc: (value) => String(value ?? ""),
     escAttr: (value) => String(value ?? ""),
@@ -575,8 +572,7 @@ function renderPanel(names, state, ids) {
     taskStatusLabel: (value) => String(value),
     renderTaskPlanCompletionNext: () => "",
     renderTaskBatchActions: () => {},
-    renderTaskCards: () => "",
-    renderTaskDetailPane: () => {},
+    renderTaskCard: (_state, row) => '<div class="task-card">' + row.uiKey + '</div>',
     invalidateSelectedTaskPayload: () => {},
     executionHistoryRowVisible: () => true,
     normalizePlanSelectionKey: (value) => String(value || "").replace(/\\/g, "/").replace(/^\.\//, ""),
@@ -586,19 +582,20 @@ function renderPanel(names, state, ids) {
     operationRowsForInput: (input) => Object.values(input || {}),
     taskSelectionSetsForState: () => ({ hiddenLegacyTaskUiKeys: new Set() }),
     schedulerRowsForState: () => [],
-    taskRowsForPlanScope: () => ({ rows: [], scoped: true, selectedPlanFile: state.planFileInput || "", selectedPlanRevision: "", selectedCount: 0, totalCount: 0 }),
     planFromContext: () => ({}),
-    taskPlanFile: () => "",
-    taskStatusToken: () => "",
-    TASK_LIVE_STATUS_TOKENS: new Set(),
-    TASK_QUEUED_STATUSES: new Set(),
+    taskPlanFile: row => row.planFile || "",
+    taskStatusToken: value => String(value || ""),
+    taskFailureLikeStatus: status => ["failed", "error", "stalled", "stopped", "cancelled"].includes(status),
+    TASK_LIVE_STATUS_TOKENS: new Set(["running", "testing"]),
+    TASK_QUEUED_STATUSES: new Set(["queued", "pending"]),
+    TASK_TERMINAL_STATUSES: new Set(["completed", "done", "archived", "deleted"]),
     taskRowsViewModel: () => ({ counts: {}, selectedRows: [], visibleRows: [], detailRow: undefined }),
     OPERATION_ACTIVE_MATCH_TOKENS: ["running", "queued", "pending"],
     OPERATION_FAILURE_MATCH_TOKENS: ["failed"],
     operationIsActive: (status) => ["running", "queued", "pending"].includes(String(status)),
     operationIsFailureLike: (status) => String(status) === "failed",
     operationHasDeadEvidence: () => false,
-    taskSectionViewModelForState: () => ({ selected: new Set(), allRows: [], scope: { selectedPlanFile: state.planFileInput, selectedCount: 0, scoped: true, totalCount: 0, selectedPlanRevision: "" }, rows: [], taskView: { counts: {}, selectedRows: [], visibleRows: [], detailRow: undefined } }),
+    taskSectionViewModelForState: () => ({ selected: new Set(), allRows: state.schedulerStates || [], scope: { selectedPlanFile: state.planFileInput, selectedCount: 0, scoped: true, totalCount: 0, selectedPlanRevision: "" }, rows: [], taskView: { counts: {}, selectedRows: [], visibleRows: [], detailRow: undefined } }),
     loadingPrefix: () => "",
     planBaseName: (value) => String(value).split("/").pop(),
     detailsOpenAttr: () => "",

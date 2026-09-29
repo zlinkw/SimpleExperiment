@@ -23,16 +23,10 @@ class ExecutionSection {
       </div>
       <div id="executionControls" class="executionControls"></div>
       <div id="executionPlanList" data-anchor="execution-operations"></div>
+      <div id="taskBatchActions" class="actionGrid"></div>
       <details class="executionFullRecords" data-details-key="execution-full-records">
-        <summary>完整操作与任务记录</summary>
+        <summary>高级：完整操作记录</summary>
         <div id="operationList"></div>
-        <div id="taskSummary" data-anchor="execution-tasks"></div>
-        <div id="taskBatchActions" class="actionGrid"></div>
-        <div id="taskProgressCards" data-anchor="tasks-progress"></div>
-        <div class="taskWorkbench">
-          <div id="taskTable" data-anchor="tasks-list"></div>
-          <aside id="taskDetailPane" class="taskDetailPane" aria-live="polite"></aside>
-        </div>
       </details>
       <div hidden data-anchor="tasks"></div>
       <div hidden data-anchor="operations"></div>
@@ -42,9 +36,7 @@ class ExecutionSection {
     }
     renderCss() {
         return `
-    .taskWorkbench { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 10px; }
-    .taskDetailPane { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 8px; background: var(--vscode-editor-background); min-height: 100px; }
-    .taskProgressCards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px; margin: 8px 0; }
+    #taskBatchActions:empty { display: none; }
 `;
     }
     renderScript() {

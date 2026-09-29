@@ -37,13 +37,24 @@ test("webview state sends compact lastKnownGood instead of duplicating bulk real
 test("panel html has primary realtime sections", () => {
   const { renderPanelHtml } = require("../../dist/ui/PanelHtml.js");
   const html = renderPanelHtml();
-  for (const text of ["GPU 状态", "任务运行状态", "实验记录", "操作进度", "实时日志", "能力状态", "诊断"]) {
+  for (const text of ["GPU 状态", "运行进度", "结果文件", "实验记录", "诊断"]) {
     assert.match(html, new RegExp(text));
   }
-  for (const id of ["gpuSummary", "gpuGrid", "taskTable", "operationList"]) {
+  assert.doesNotMatch(html, /id="taskTable"|id="taskDetailPane"|当前 Plan 尚无可显示任务|可切换至全部任务查看历史记录/);
+  for (const id of ["gpuSummary", "gpuGrid", "executionPlanList", "operationList"]) {
     assert.match(html, new RegExp(`id="${id}"`), id);
   }
   assert.doesNotMatch(html, /id="taskSummary"|当前 Plan 的调度记录|其他 Plan 的历史与待处理记录/);
   assert.match(html, /detailsOpenState\["execution-full-records"\] = false/);
   assert.match(html, /<details class="executionFullRecords" data-details-key="execution-full-records">/);
+});
+
+test("factory execution section contains only Plan progress, batch actions and operation history", () => {
+  const { ExecutionSection } = require("../../dist/ui/sections/ExecutionSection.js");
+  const section = new ExecutionSection();
+  const html = section.renderHtml();
+  assert.doesNotMatch(html + section.renderCss(), /taskTable|taskDetailPane|taskWorkbench|taskProgressCards|taskSummary/);
+  for (const id of ["executionPlanList", "taskBatchActions", "operationList"]) assert.ok(html.includes('id="' + id + '"'));
+  assert.ok(html.indexOf('id="taskBatchActions"') < html.indexOf('class="executionFullRecords"'));
+  assert.match(html, /高级：完整操作记录/);
 });

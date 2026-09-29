@@ -38,32 +38,6 @@ function extractFrozenObject(name) {
   return panel.slice(start, end + 3);
 }
 
-function loadScope() {
-  const normalize = (value) => String(value || "").replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
-  const sandbox = {
-    asArray: (value) => Array.isArray(value) ? value : [],
-    normalizePlanSelectionKey: normalize,
-    taskPlanFile: (row) => String((row || {}).planFile || (row || {}).plan || ""),
-    samePlanSelection(left, right) {
-      const a = normalize(left);
-      const b = normalize(right);
-      return Boolean(a && b && (a === b || a.split("/").pop() === b.split("/").pop()));
-    },
-    taskMatchesPlanVersion(row, planRevision, planUpdatedAt) {
-      const revision = String((row || {}).planRevision || "");
-      if (planRevision && revision) return revision === planRevision;
-      if (Number.isFinite(planUpdatedAt)) {
-        const taskAt = Date.parse(String((row || {}).updatedAt || (row || {}).startedAt || ""));
-        return Number.isFinite(taskAt) && taskAt >= planUpdatedAt;
-      }
-      return !planRevision;
-    },
-  };
-  vm.createContext(sandbox);
-  vm.runInContext(`${extractFunction("taskRowsForPlanScope")}\nthis.scope = taskRowsForPlanScope;`, sandbox);
-  return sandbox.scope;
-}
-
 function loadCompletion() {
   const normalize = (value) => String(value || "").replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
   const sandbox = {
@@ -130,51 +104,50 @@ this.target = taskDebugLogTarget;`, sandbox);
   };
 }
 
-test("task monitoring defaults to the selected Plan revision without deleting access to other tasks", () => {
-  const scope = loadScope();
-  const rows = [
-    { id: "a", planFile: "experiments/plans/a.yaml", planRevision: "rev2" },
-    { id: "b", planFile: "experiments/plans/b.yaml" },
-    { id: "a2", planFile: "plans/a.yaml", planRevision: "rev2" },
-    { id: "old", planFile: "experiments/plans/a.yaml", planRevision: "rev1" },
-  ];
-  const selected = JSON.parse(JSON.stringify(scope(rows, "experiments/plans/a.yaml", "selected", { revision: "rev2" })));
-  assert.equal(selected.scoped, true);
-  assert.deepEqual(selected.rows.map((row) => row.id), ["a", "a2"]);
-  assert.equal(selected.selectedCount, 2);
-  assert.equal(selected.selectedPlanRevision, "rev2");
-  assert.equal(selected.totalCount, 4);
-  const all = JSON.parse(JSON.stringify(scope(rows, "experiments/plans/a.yaml", "all", { revision: "rev2" })));
-  assert.equal(all.scoped, false);
-  assert.equal(all.rows.length, 4);
-  const unselected = JSON.parse(JSON.stringify(scope(rows, "", "selected")));
-  assert.equal(unselected.scoped, false);
-  assert.equal(unselected.rows.length, 4);
-  const planUpdatedAt = "2026-07-20T01:00:00.000Z";
-  const legacyRows = [
-    { id: "before", planFile: "experiments/plans/a.yaml", updatedAt: "2026-07-20T00:59:59.000Z" },
-    { id: "after", planFile: "experiments/plans/a.yaml", updatedAt: "2026-07-20T01:00:01.000Z" },
-  ];
-  assert.deepEqual(Array.from(scope(legacyRows, "experiments/plans/a.yaml", "selected", { revision: "rev3", updatedAt: planUpdatedAt }).rows, (row) => row.id), ["after"]);
+test("Plan monitoring groups all visible scheduler tasks and preserves trace scope and actions", () => {
+  assert.doesNotMatch(panel, /taskPlanScope|data-task-plan-scope|renderTaskSection|taskDetailPane|id="taskTable"/);
+  assert.match(panel, /taskSectionViewModelForState\(state\)\.allRows\.forEach/);
+  assert.match(panel, /handleTaskSelectionChange\(input\)/);
+  assert.match(panel, /data-trace-plan-scope/);
+  assert.match(panel, /persistWebviewState\(\{ tracePlanScope \}\)/);
+  for (const command of ["stopExperiment", "retryExperiment", "reassignWorkerTask", "parseResults", "selectLogRunKey"]) {
+    assert.ok(extractFunction("renderTaskCard").includes(command));
+  }
 });
 
-test("task UI exposes an explicit current-Plan/all-task switch and resets scope after submission", () => {
-  assert.match(panel, /let taskPlanScope = normalizePlanViewScope\(restoredWebviewState\.taskPlanScope\)/);
-  assert.match(panel, /persistWebviewState\(\{ taskPlanScope \}\)/);
-  assert.match(panel, /data-task-plan-scope="selected"[\s\S]{0,240}当前版本/);
-  assert.match(panel, /data-task-plan-scope="all"[\s\S]{0,240}全部任务/);
-  assert.match(panel, /当前 Plan 暂无任务，等待提交或调度状态回传/);
-  assert.match(panel, /setTaskPlanScope\(String\(data\.command \|\| ""\) === "runAllPlans" \? "all" : "selected"\)/);
-  assert.match(panel, /stableSectionJson\(\{ expandedTaskLogs, taskPlanScope \}\)/);
-  assert.match(panel, /event\.target\.closest\("button\[data-task-plan-scope\]"\)/);
-  assert.match(panel, /handleTaskPlanScopeClick\(taskPlanScopeTarget\)/);
-  assert.match(panel, /input\.matches\('input\[type="checkbox"\]\[data-command="selectExperiment"\]'\)/);
-  assert.match(panel, /handleTaskSelectionChange\(input\)/);
-  assert.doesNotMatch(panel, /boundSelectExperiment|bindTaskSelectionControls|bindTaskPlanScopeControls/);
-  assert.match(panel, /const parentPlanRevision = row\.planRevision \|\| row\.plan_revision/);
-  assert.match(panel, /status: childRecord\.status \|\| childRecord\.state \|\| bucketStatus\(key\)/);
-  assert.match(panel, /planRevision: pick\(row, \["planRevision", "plan_revision"\]/);
-  assert.match(panel, /taskRowsForPlanScope\(allRows, selectedPlanFile, taskPlanScope, selectedPlan\)/);
+test("task model retains other Plans and revisions while filtering hidden and excluded history", () => {
+  const rows = [{ uiKey: "current", plan: "a", planRevision: "r2" }, { uiKey: "old", plan: "a", planRevision: "r1" }, { uiKey: "other", plan: "b" }, { uiKey: "hidden" }, { uiKey: "excluded" }];
+  const selected = { hiddenLegacyTaskUiKeys: new Set(["hidden"]) };
+  const sandbox = {
+    taskSectionViewCacheState: null, taskSectionViewCacheValue: null,
+    taskSelectionSetsForState: () => selected, schedulerRowsForState: () => rows,
+    taskStatusToken: String, TASK_LIVE_STATUS_TOKENS: new Set(), TASK_QUEUED_STATUSES: new Set(),
+    executionHistoryRowVisible: (_state, row) => row.uiKey !== "excluded", taskPlanFile: row => row.plan,
+    taskRowsViewModel: rows => ({ selectedRows: [rows[0]] })
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(extractFunction("taskSectionViewModelForState") + ";this.view = taskSectionViewModelForState;", sandbox);
+  const result = sandbox.view({ planFileInput: "a" });
+  assert.deepEqual(Array.from(result.allRows, row => row.uiKey), ["current", "old", "other"]);
+  assert.equal(result.selected, selected);
+  assert.equal(result.taskView.selectedRows[0].uiKey, "current");
+});
+
+test("a Plan with more than twenty tasks exposes remaining tasks inside its own details", () => {
+  const batches = [];
+  const sandbox = {
+    escAttr: String, detailsOpenAttr: () => "",
+    renderTaskCards: (_state, rows) => { batches.push(rows); return rows.map(row => '<div class="task-card">' + row.uiKey + '</div>').join(""); }
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(extractFunction("renderPlanTaskCards") + ";this.render = renderPlanTaskCards;", sandbox);
+  const rows = Array.from({ length: 25 }, (_, i) => ({ uiKey: "task-" + (i + 1) }));
+  const html = sandbox.render({}, rows, {}, "plan-a");
+  assert.deepEqual(batches.map(rows => rows.length), [20, 5]);
+  assert.match(html, /<details class="executionPlanMoreTasks"[^>]*><summary>显示其余 5 个任务<\/summary>[\s\S]*task-25/);
+  assert.doesNotMatch(html, /taskTable|taskDetailPane/);
+  assert.match(extractFunction("renderExecutionPlanList"), /renderPlanTaskCards\(state, sortedTasks, selected, group\.key\)/);
+  assert.doesNotMatch(sandbox.render({}, [], {}, "empty"), /task-card|details/);
 });
 
 test("current Plan terminal tasks lead to results or explicit failure recovery", () => {
@@ -264,7 +237,7 @@ test("task UI treats all scheduler failure terminals as visible retryable failur
   assert.equal(status.taskCardClass("cancelled"), "is-stopped");
   assert.equal(status.taskCardClass("canceled"), "is-stopped");
   assert.equal(status.taskCardClass("stalled"), "is-failed");
-  assert.ok([...panel.matchAll(/\["重试", "retryExperiment", taskFailureLikeStatus\(row\.status\), true\]/g)].length >= 3);
+  assert.match(extractFunction("renderTaskCard"), /\["重试", "retryExperiment", taskFailureLikeStatus\(row\.status\), true\]/);
   assert.doesNotMatch(panel, /\["归档", "archiveArtifacts", taskArchivableStatus\(row\.status\), true\]/);
   assert.doesNotMatch(panel, /\["删除", "deleteArtifacts", true, false, true\]/);
   assert.match(panel, /function taskStatusLabel\(status\)/);
@@ -272,4 +245,18 @@ test("task UI treats all scheduler failure terminals as visible retryable failur
   assert.match(extractFunction("taskStatusLabel"), /TASK_STATUS_LABELS\[taskStatusToken\(raw\)\] \|\| raw/);
   assert.doesNotMatch(extractFunction("taskStatusLabel"), /const labels =/);
   assert.match(panel, /原始状态：/);
+});
+
+test("scheduler signature refreshes Plan tasks beyond the old global render budget", () => {
+  const sandbox = {
+    TASK_RENDER_LIMIT: 80,
+    taskSectionViewModelForState: state => ({ selected: { hiddenLegacyTaskUiKeys: new Set() }, allRows: state.rows, taskView: { counts: {}, selectedRows: [], visibleRows: state.rows.slice(0, 80), activeRows: [] } }),
+    compactRowsForSignature: (rows, limit, keys) => rows.slice(0, limit).map(row => Object.fromEntries(keys.map(key => [key, row[key]])))
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(extractFunction("compactTaskRowsForSignature") + "\n" + extractFunction("compactSchedulerForSignature") + ";this.signature = compactSchedulerForSignature;", sandbox);
+  const rows = Array.from({ length: 90 }, (_, i) => ({ uiKey: "task-" + i, status: "running" }));
+  const before = JSON.stringify(sandbox.signature({ rows }));
+  rows[89] = { ...rows[89], status: "failed", finalLog: "failure evidence" };
+  assert.notEqual(JSON.stringify(sandbox.signature({ rows })), before);
 });

@@ -76,7 +76,9 @@ test("task selection mutations invalidate the shared derivation and buildState r
   for (const name of ["resetProjectContextInMemory", "loadProjectTaskSelectionState", "selectExperimentFromUi", "clearLegacyTasksFromUi"]) {
     assert.match(extractMethod(name), /this\.markTaskSelectionChanged\(\)/, name);
   }
-  assert.match(extractMethod("handleMessageCore"), /case "selectLogRunKey":[\s\S]{0,180}this\.markTaskSelectionChanged\(\)/);
+  const logSelectionCase = extractMethod("handleMessageCore").match(/case "selectLogRunKey":([\s\S]*?)break;/);
+  assert.ok(logSelectionCase, "log selection case exists");
+  assert.match(logSelectionCase[1], /this\.markTaskSelectionChanged\(\)/);
 
   const buildState = extractMethod("buildState");
   assert.match(buildState, /const taskSelection = this\.taskSelectionDerivedState\(\)/);

@@ -390,7 +390,6 @@ function renderPanelHtml() {
     .dragHandle { display: none; cursor: grab; user-select: none; color: var(--muted); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 3px 7px; background: var(--subtle-bg); }
     body.layout-edit .dragHandle { display: inline-flex; }
     .collapseBtn { color: var(--vscode-button-secondaryForeground); background: transparent; border-color: var(--border); min-width: 28px; padding: 3px 7px; }
-    .taskProgressCards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 8px; margin: 8px 0; }
     .taskProgressCard { border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 10px; background: var(--subtle-bg); display: grid; gap: 6px; }
     .operationTimeline { display: grid; gap: 6px; }
     .executionControls { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 7px 0; }
@@ -582,16 +581,11 @@ function renderPanelHtml() {
     .section-desc { font-size: 12px; color: var(--muted); }
     .table { width: 100%; border-collapse: collapse; font-size: 12px; }
     .table th, .table td { border-bottom: 1px solid var(--vscode-panel-border); padding: 4px 6px; text-align: left; vertical-align: top; }
-    .taskWorkbench { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 12px; align-items: start; }
-    #taskTable { overflow-x: auto; padding-bottom: 4px; }
-    #taskTable .table { min-width: 1120px; }
-    #taskTable .table th:last-child, #taskTable .table td:last-child { min-width: 230px; }
+    #taskBatchActions:empty { display: none; }
     .taskScopeBar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-bottom: 6px; }
     .taskScopeSwitch { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 6px; background: var(--subtle-bg); }
     .taskScopeSwitch button { min-height: 24px; padding: 3px 8px; border-color: transparent; background: transparent; color: var(--muted); }
     .taskScopeSwitch button.is-active { background: var(--vscode-button-background); color: var(--vscode-button-foreground); }
-    .taskDetailPane { position: static; align-self: start; min-width: 0; display: grid; gap: 10px; padding: 12px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--vscode-editor-background); }
-    .taskDetailPane h3 { margin: 0; font-size: 13px; }
     .detailHeader { display: flex; justify-content: space-between; gap: 10px; align-items: flex-start; min-width: 0; padding-bottom: 8px; border-bottom: 1px solid var(--border); }
     .detailHeaderText { display: grid; gap: 3px; min-width: 0; }
     .detailHeaderText h3 { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 850; }
@@ -605,27 +599,10 @@ function renderPanelHtml() {
     .detailTab { display: grid; gap: 2px; padding: 7px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--subtle-bg); }
     .detailTab b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; color: var(--text); }
     .detailTab span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); font-size: 10px; }
-    .detailLogLabel { display: flex; justify-content: space-between; gap: 8px; align-items: center; color: var(--muted); font-size: 11px; font-weight: 700; }
     .taskDetailMeta { display: grid; gap: 6px; }
     .taskDetailLine { display: grid; grid-template-columns: 76px minmax(0, 1fr); gap: 6px; font-size: 12px; }
     .taskDetailLine span:first-child { color: var(--muted); }
     .taskDetailLine span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .taskDetailLog { max-height: 260px; margin: 0; font-size: 11px; }
-    .taskReadinessGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
-    .taskReadinessItem { display: grid; gap: 1px; min-width: 0; padding: 5px 7px; border: 1px solid var(--border); border-left: 3px solid #94A3B8; border-radius: 6px; background: var(--subtle-bg); }
-    .taskReadinessItem.good { border-left-color: #16A34A; }
-    .taskReadinessItem.warn { border-left-color: #D97706; background: #FFFBEB; }
-    .taskReadinessItem.error { border-left-color: #DC2626; background: #FEF2F2; }
-    .taskReadinessItem span { color: var(--muted); font-size: 11px; }
-    .taskReadinessItem b { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vscode-foreground); font-size: 12px; }
-    .taskTimeline { display: grid; gap: 5px; padding: 6px 0 0; border-top: 1px solid var(--border); }
-    .taskTimelineItem { position: relative; display: grid; gap: 1px; padding-left: 14px; font-size: 12px; }
-    .taskTimelineItem::before { content: ""; position: absolute; left: 2px; top: 5px; width: 7px; height: 7px; border-radius: 999px; background: #94A3B8; }
-    .taskTimelineItem.good::before { background: #16A34A; }
-    .taskTimelineItem.warn::before { background: #D97706; }
-    .taskTimelineItem.error::before { background: #DC2626; }
-    .taskTimelineItem b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--vscode-foreground); }
-    .taskTimelineItem span { color: var(--muted); line-height: 1.35; }
     .resultWorkbench { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 12px; align-items: start; }
     .traceList { display: grid; gap: 10px; }
     .traceCard { position: relative; overflow: hidden; display: grid; gap: 8px; padding: 10px 12px 10px 16px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--vscode-editor-background); }
@@ -1166,7 +1143,6 @@ function renderPanelHtml() {
     .serverObjectCard.ok, .serverObjectCard.warn, .serverObjectCard.error,
     .endpointStatusCard.ok, .endpointStatusCard.warn, .endpointStatusCard.error,
     .operationStatusCard.failed, .operationStatusCard.accepted,
-    .taskReadinessItem.warn, .taskReadinessItem.error,
     .traceReadinessItem.warn, .traceReadinessItem.error,
     .claimEvidenceRow.unsupported, .claimEvidenceRow.needs,
     .featureReadinessRow.good, .featureReadinessRow.warn, .featureReadinessRow.error,
@@ -1177,7 +1153,7 @@ function renderPanelHtml() {
     .workflowStage { min-height: 56px; padding: 8px; }
     .objectStrip { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px; }
     .endpointCardGrid, .serverObjectGrid { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 8px; }
-    .endpointMiniGrid, .serverObjectStats, .traceReadinessGrid, .taskReadinessGrid { grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); }
+    .endpointMiniGrid, .serverObjectStats, .traceReadinessGrid { grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); }
     .pinnedActions { position: relative; z-index: 1; flex: 0 0 auto; display: grid; gap: 7px; max-height: 126px; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 9px; border: 1px solid #E2E8F0; border-left: 4px solid #7C3AED; border-radius: 10px; background: rgba(255,255,255,.92); }
     .pinnedActions .workflowActions { margin: 0; }
     .pinnedActions.inspectorCustomGroup { max-height: none; overflow: visible; }
@@ -1214,7 +1190,7 @@ function renderPanelHtml() {
     .publishActionButtons .publishActionAnchor { display: grid; min-width: 0; }
     .actionGrid.statusOnly { color: #64748B; font-size: 12px; line-height: 1.45; }
     .ops-flow.is-hidden { display: none; }
-    @media (max-width: 1320px) { #cardDeck { --tree-col: 250px; --inspector-col: 330px; --main-min: 360px; } .taskWorkbench, .resultWorkbench { grid-template-columns: 1fr; } .taskDetailPane, .traceDetailPane { position: static; } }
+    @media (max-width: 1320px) { #cardDeck { --tree-col: 250px; --inspector-col: 330px; --main-min: 360px; } .resultWorkbench { grid-template-columns: 1fr; } .traceDetailPane { position: static; } }
     @media (max-width: 1040px) { #cardDeck { --tree-col: 240px; --inspector-col: 320px; --main-min: 0px; } .mainColumn { grid-column: 3; } .resourceTree { grid-column: 1; width: var(--tree-col); transform: translateX(calc(-1 * (var(--tree-col) - var(--tree-peek)))); } .resourceTree::after { display: grid; } .workbenchInspector { grid-column: 5; grid-row: 1; position: relative; width: var(--inspector-col); overflow: hidden; transform: translateX(calc(var(--inspector-col) - var(--inspector-peek))); } .workbenchInspector::before { display: grid; } .inspectorBody { overflow: auto; } .topbar-actions, .toolbar { justify-content: flex-start; margin-left: 0; } }
     @media (max-width: 760px) {
       .app-shell { padding: 16px 14px 24px; }
@@ -1226,9 +1202,8 @@ function renderPanelHtml() {
       #cardDeck > [data-section], .mainColumn { grid-column: 3; }
       .resourceTree { grid-column: 1; position: relative; width: var(--tree-col); max-height: none; overflow: hidden; transform: translateX(calc(-1 * (var(--tree-col) - var(--tree-peek)))); }
       .workbenchInspector { grid-column: 5; position: relative; width: var(--inspector-col); max-height: none; overflow: hidden; transform: translateX(calc(var(--inspector-col) - var(--inspector-peek))); }
-      .taskWorkbench { grid-template-columns: 1fr; }
       .resultWorkbench { grid-template-columns: 1fr; }
-      .taskDetailPane, .traceDetailPane { position: static; }
+      .traceDetailPane { position: static; }
       .gpu-row { grid-template-columns: 1fr; }
       .gpu-metrics { justify-content: start; }
       .planQuickGrid { grid-template-columns: 1fr; }
@@ -1463,15 +1438,10 @@ function renderPanelHtml() {
       <div id="executionControls" class="executionControls"></div>
       <div id="commandPhaseLine" class="commandPhaseLine muted" role="status" aria-live="polite"></div>
       <div id="executionPlanList" data-anchor="execution-operations"></div>
+      <div id="taskBatchActions" class="actionGrid"></div>
       <details class="executionFullRecords" data-details-key="execution-full-records">
-        <summary>高级：完整操作与任务记录</summary>
+        <summary>高级：完整操作记录</summary>
         <div id="operationList"></div>
-        <div id="taskBatchActions" class="actionGrid"></div>
-        <div id="taskProgressCards" data-anchor="tasks-progress"></div>
-        <div class="taskWorkbench">
-          <div id="taskTable" data-anchor="tasks-list"></div>
-          <aside id="taskDetailPane" class="taskDetailPane" aria-live="polite"></aside>
-        </div>
       </details>
       <div hidden data-anchor="tasks"></div>
       <div hidden data-anchor="operations"></div>
@@ -2308,7 +2278,6 @@ function renderPanelHtml() {
     let taskSelectionSetsCacheSources = null;
     let taskSelectionSetsCacheValue = null;
     let taskSectionViewCacheState = null;
-    let taskSectionViewCacheScope = "";
     let taskSectionViewCacheValue = null;
     let planExecutionStageCacheState = null;
     let planExecutionStageCache = new Map();
@@ -2441,7 +2410,6 @@ function renderPanelHtml() {
     let configInspectorIndexCacheValue = null;
     let configParamFilterTimer = 0;
     let configParamFilterGeneration = 0;
-    let taskPlanScope = normalizePlanViewScope(restoredWebviewState.taskPlanScope);
     let selectedExecutionPlanFile = String(restoredWebviewState.selectedExecutionPlanFile || "");
     let collapsedExecutionPlanKeys = new Set(Array.isArray(restoredWebviewState.collapsedExecutionPlanKeys) ? restoredWebviewState.collapsedExecutionPlanKeys.map((key) => String(key || "")).filter(Boolean) : []);
     const selectedOperationHistoryIds = new Set();
@@ -2975,16 +2943,9 @@ function renderPanelHtml() {
       if (treeTarget) {
         hidePinContextMenu();
         event.preventDefault();
-        if (PLAN_VIEW_SCOPE_VALUES.includes(treeTarget.dataset.taskPlanScope)) setTaskPlanScope(treeTarget.dataset.taskPlanScope);
         navigateToResourceTarget(treeTarget.dataset.sectionTarget, treeTarget.dataset.anchorTarget);
         renderResourceTreeInspector(activeResourceSection, activeResourceAnchor);
         renderWorkbenchInspector(lastState || {});
-        return;
-      }
-      const taskPlanScopeTarget = event.target.closest("button[data-task-plan-scope]");
-      if (taskPlanScopeTarget) {
-        event.preventDefault();
-        handleTaskPlanScopeClick(taskPlanScopeTarget);
         return;
       }
       const distributedRetry = event.target.closest("button[data-distributed-retry]");
@@ -3760,7 +3721,6 @@ function renderPanelHtml() {
         } catch (e) {}
       }
       if (latestNavigationMessage) {
-        if (PLAN_VIEW_SCOPE_VALUES.includes(latestNavigationMessage.taskPlanScope)) setTaskPlanScope(latestNavigationMessage.taskPlanScope);
         navigateToResourceTarget(latestNavigationMessage.section, latestNavigationMessage.anchor, { force: true });
         if (latestNavigationMessage.openResultMapping) openResultColumnMappingEditor();
       }
@@ -4024,7 +3984,7 @@ function renderPanelHtml() {
     function sectionLocalPreKey(section) {
       if (section === "plans") return stableSectionJson({ detailsOpenState });
       if (section === "settings") return shouldKeepServerConfigDraft() ? "draft" : "stable";
-      if (section === "execution" || section === "tasks" || section === "operations") return stableSectionJson({ expandedTaskLogs, taskPlanScope });
+      if (section === "execution" || section === "tasks" || section === "operations") return stableSectionJson({ expandedTaskLogs });
       if (section === "results") return stableSectionJson({ pptDraft: shouldKeepConfigDraftScope("ppt"), tracePlanScope, resultSplitTableName, resultSplitFieldName });
       if (section === "diagnostics") return diagnosticDetailsOpen() ? "details-open" : "details-closed";
       return "";
@@ -4143,7 +4103,7 @@ function renderPanelHtml() {
         });
       }
       if (section === "settings") return shouldKeepServerConfigDraft() ? "draft" : "stable";
-      if (section === "execution" || section === "tasks" || section === "operations") return stableSectionJson({ expandedTaskLogs: pruneExpandedTaskLogs(state || {}), taskPlanScope });
+      if (section === "execution" || section === "tasks" || section === "operations") return stableSectionJson({ expandedTaskLogs: pruneExpandedTaskLogs(state || {}) });
       if (section === "results") return stableSectionJson({ pptDraft: shouldKeepConfigDraftScope("ppt"), tracePlanScope, resultSplitTableName, resultSplitFieldName });
       if (section === "diagnostics") return diagnosticDetailsOpen() ? "details-open" : "details-closed";
       return "";
@@ -4710,23 +4670,21 @@ function renderPanelHtml() {
       const view = taskSectionViewModelForState(state);
       const selected = view.selected;
       const hiddenLegacyTaskUiKeys = selected.hiddenLegacyTaskUiKeys;
-      const rows = view.rows;
+      const rows = view.allRows;
       const taskView = view.taskView;
       return {
         count: rows.length,
-        totalCount: view.scope.totalCount,
-        selectedPlanCount: view.scope.selectedCount,
+        allRows: compactTaskRowsForSignature(rows, rows.length),
         hiddenLegacyCount: hiddenLegacyTaskUiKeys.size,
         counts: taskView.counts,
         selectedCount: taskView.selectedRows.length,
         visibleRows: compactTaskRowsForSignature(taskView.visibleRows),
-        activeRows: compactTaskRowsForSignature(taskView.activeRows),
-        detailRow: taskView.detailRow ? compactTaskRowsForSignature([taskView.detailRow]).rows[0] : null
+        activeRows: compactTaskRowsForSignature(taskView.activeRows)
       };
     }
 
-    function compactTaskRowsForSignature(rows) {
-      return compactRowsForSignature(rows, TASK_RENDER_LIMIT, ["uiKey", "status", "plan", "experimentName", "runKey", "experimentId", "experimentIndex", "archiveKey", "actionArchiveKey", "artifactPath", "resultPath", "logPath", "serverId", "gpuIds", "startedAt", "updatedAt", "duration", "progress", "primaryMetric", "workerLiveStatus", "workerTelemetryWarning", "logTail", "consoleTail", "liveOutput", "finalLog", "finalOutput", "stdout", "stderr"]);
+    function compactTaskRowsForSignature(rows, limit = TASK_RENDER_LIMIT) {
+      return compactRowsForSignature(rows, limit, ["uiKey", "status", "plan", "experimentName", "runKey", "experimentId", "experimentIndex", "archiveKey", "actionArchiveKey", "artifactPath", "resultPath", "logPath", "serverId", "gpuIds", "startedAt", "updatedAt", "duration", "progress", "primaryMetric", "workerLiveStatus", "workerTelemetryWarning", "logTail", "consoleTail", "liveOutput", "finalLog", "finalOutput", "stdout", "stderr"]);
     }
 
     function compactTracesForSignature(state) {
@@ -5160,7 +5118,6 @@ function renderPanelHtml() {
         } else applyPendingButtonStates();
         const submittedTarget = submittedCommandTarget(data.command, data.status);
         if (submittedTarget) {
-          setTaskPlanScope(String(data.command || "") === "runAllPlans" ? "all" : "selected");
           setTracePlanScope("selected");
           navigateToResourceTarget(submittedTarget.section, submittedTarget.anchor, { force: true });
         }
@@ -7146,7 +7103,7 @@ function renderPanelHtml() {
     function taskTreeObjects() {
       return [
         treeObjectItem("execution", "操作进度", "入口", "", "查看调度操作状态和 loading 终态。", "execution-operations", "", "操作 进度 已提交 执行中 失败 卡住 已完成 accepted running failed stalled completed 按钮 loading 终态"),
-        treeObjectItem("execution", "任务列表", "入口", "", "查看运行中、排队、失败、停止、取消和已完成任务。", "tasks-list", "", "running testing queued pending failed stalled stopped cancelled completed"),
+        treeObjectItem("execution", "运行进度", "入口", "", "查看运行中、排队、失败、停止、取消和已完成任务。", "execution-operations", "", "running testing queued pending failed stalled stopped cancelled completed"),
         treeObjectItem("execution", "任务日志", "入口", "", "展开任务行查看最新日志摘要，完整日志按任务详情入口查看。", "tasks-logs", "", "日志 tail openLog")
       ];
     }
@@ -7154,7 +7111,7 @@ function renderPanelHtml() {
       return [
         treeObjectItem("execution", "操作列表", "入口", "", "查看已提交、执行中、已完成和异常操作。", "execution-operations", "", "已提交 执行中 已完成 异常 accepted running completed failed stalled"),
         treeObjectItem("execution", "异常操作", "入口", "", "失败或卡住的操作需要查看错误和残留。", "execution-failed", "", "失败 卡住 failed stalled"),
-        treeObjectItem("execution", "任务列表", "入口", "", "查看运行中、排队、失败、停止、取消和已完成任务。", "tasks-list", "", "running testing queued pending failed stalled stopped cancelled completed"),
+        treeObjectItem("execution", "运行进度", "入口", "", "查看运行中、排队、失败、停止、取消和已完成任务。", "execution-operations", "", "running testing queued pending failed stalled stopped cancelled completed"),
         treeObjectItem("execution", "按钮终态", "入口", "", "确认耗时按钮在完成、失败、取消或超时后恢复可点击。", "execution-terminal", "", "按钮 加载 终态 loading terminal uiCommandStatus completed failed cancelled stalled")
       ];
     }
@@ -9733,13 +9690,12 @@ function renderPanelHtml() {
       if (activity.active) {
         const historicalOnly = activity.historicalOnly === true;
         const target = "execution";
-        const anchor = "execution";
-        const label = historicalOnly ? (activity.taskCount ? "查看全部任务" : "查看提交进度") : activity.taskCount ? "查看任务" : "查看提交进度";
+        const anchor = "execution-operations";
+        const label = "查看运行进度";
         const summary = activity.taskCount
           ? (historicalOnly ? "旧 revision 的 " : "") + activity.taskCount + " 个任务仍在排队或运行"
           : (historicalOnly ? "旧 revision 的 " : "") + activity.operationCount + " 个运行提交仍未结束";
-        const scopeAttr = historicalOnly && activity.taskCount ? ' data-task-plan-scope="all"' : "";
-        return '<div class="planRunActions"><button class="mini" type="button" data-section-target="' + target + '" data-anchor-target="' + anchor + '"' + scopeAttr + ' title="跳转到运行进度，查看重复提交的运行" aria-label="跳转到运行进度，查看重复提交的运行">' + label + '</button><span class="muted">' + esc(summary) + (historicalOnly ? "；为保护旧任务，当前版本暂不能提交。" : "，已阻止重复提交。") + '</span></div>';
+        return '<div class="planRunActions"><button class="mini" type="button" data-section-target="' + target + '" data-anchor-target="' + anchor + '" title="跳转到运行进度，查看重复提交的运行" aria-label="跳转到运行进度，查看重复提交的运行">' + label + '</button><span class="muted">' + esc(summary) + (historicalOnly ? "；为保护旧任务，当前版本暂不能提交。" : "，已阻止重复提交。") + '</span></div>';
       }
       return '<div class="planRunActions"><button class="mini" data-command="runPlan" data-plan-file="' + escAttr(selectedPlan) + '" data-confirm="true" title="同步代码、校验并预演，全部通过后提交调度">校验并提交运行</button><button class="mini secondary" data-command="validatePlan" data-plan-file="' + escAttr(selectedPlan) + '" title="校验实验计划，不会运行任务&#10;检查契约、输出接口与配置完整性&#10;未通过时列出缺失项与修复建议">单独校验</button><button class="mini secondary" data-command="dryRunPlan" data-plan-file="' + escAttr(selectedPlan) + '" title="预演运行，不提交任务&#10;展开「用例 × 随机种子」的任务数、远端路径、Worker 与并发上限">单独预演</button><label class="muted" style="display:flex;align-items:center;gap:4px;margin-left:8px;font-size:12px;" title="勾选后提交时带 --overwrite 覆盖已有产物（metrics_summary.csv / checkpoint / train.log 等），不勾选则自动跳过已完成任务；GPU 调度不受历史产物影响"><input type="checkbox" id="overwriteExistingToggle" data-overwrite-toggle="true" /> 覆盖已有产物</label><span class="muted" style="font-size:11px;margin-left:6px;" title="调度前会检测输出目录已有产物并弹窗确认覆盖/跳过">调度前检测已有产物时弹窗确认</span></div>';
     }
@@ -11617,26 +11573,6 @@ function renderPanelHtml() {
       return String(a || "").localeCompare(String(b || ""), undefined, { numeric: true, sensitivity: "base" });
     }
 
-    function taskRowsForPlanScope(rows, selectedPlanFile, scope, selectedPlan) {
-      const allRows = asArray(rows || []);
-      const planFile = normalizePlanSelectionKey(selectedPlanFile);
-      const plan = selectedPlan && typeof selectedPlan === "object" ? selectedPlan : {};
-      const planRevision = String(plan.revision || "").trim();
-      const planUpdatedAt = Date.parse(String(plan.updatedAt || ""));
-      const selectedRows = planFile
-        ? allRows.filter((row) => samePlanSelection(taskPlanFile(row), planFile)
-          && taskMatchesPlanVersion(row, planRevision, planUpdatedAt))
-        : [];
-      const scoped = scope !== "all" && Boolean(planFile);
-      return {
-        rows: scoped ? selectedRows : allRows,
-        scoped,
-        selectedPlanFile: planFile,
-        selectedPlanRevision: planRevision,
-        selectedCount: selectedRows.length,
-        totalCount: allRows.length
-      };
-    }
 
     function taskPlanResultCount(state, planFile) {
       const summary = (state || {}).resultsSummary || {};
@@ -11737,7 +11673,7 @@ function renderPanelHtml() {
 
     function taskSectionViewModelForState(state) {
       const data = state || {};
-      if (taskSectionViewCacheState === data && taskSectionViewCacheScope === taskPlanScope && taskSectionViewCacheValue) return taskSectionViewCacheValue;
+      if (taskSectionViewCacheState === data && taskSectionViewCacheValue) return taskSectionViewCacheValue;
       const selection = data.selection || {};
       const selected = taskSelectionSetsForState(data);
       const hiddenLegacyTaskUiKeys = selected.hiddenLegacyTaskUiKeys;
@@ -11747,19 +11683,12 @@ function renderPanelHtml() {
         const active = TASK_LIVE_STATUS_TOKENS?.has(status) || TASK_QUEUED_STATUSES?.has(status);
         return executionHistoryRowVisible(data, row, taskPlanFile(row), active);
       });
-      const selectedPlanFile = data.planFileInput || selection.selectedPlanId || "";
-      const selectedPlan = selectedPlanFile ? planFromContext(data, { planFile: selectedPlanFile }) || {} : {};
-      const scope = taskRowsForPlanScope(allRows, selectedPlanFile, taskPlanScope, selectedPlan);
-      const rows = scope.rows;
       taskSectionViewCacheState = data;
-      taskSectionViewCacheScope = taskPlanScope;
       taskSectionViewCacheValue = {
         selection,
         selected,
         allRows,
-        scope,
-        rows,
-        taskView: taskRowsViewModel(rows, selected)
+        taskView: taskRowsViewModel(allRows, selected)
       };
       return taskSectionViewCacheValue;
     }
@@ -12794,8 +12723,7 @@ function renderPanelHtml() {
         counts,
         selectedRows,
         activeRows,
-        visibleRows,
-        detailRow: selectedRows[0] || activeRows[0] || allRows[0]
+        visibleRows
       };
     }
 
@@ -12830,55 +12758,7 @@ function renderPanelHtml() {
       return configInspectorIndexCacheValue;
     }
 
-    function taskVisibleRows(rows, selected) {
-      return taskRowsViewModel(rows, selected).visibleRows;
-    }
 
-    function renderTaskDetailPane(state, rows, selectedRows, preferredRow) {
-      const pane = el("taskDetailPane");
-      if (!pane) return;
-      const row = preferredRow || selectedRows[0] || rows[0];
-      if (!row) {
-        setHtmlIfChanged(pane, '<h3>任务详情</h3><div class="muted">暂无任务。</div>');
-        return;
-      }
-      const key = taskTargetKey(row);
-      const log = compactText(taskLogText(state, row, key) || "暂无日志。", 420);
-      const actions = [
-        ["停止", "stopExperiment", TASK_LIVE_STATUS_TOKENS?.has(row.status), true],
-        ["重试", "retryExperiment", taskFailureLikeStatus(row.status), true],
-        ["转移", "reassignWorkerTask", manualReassignSurfaceVisible(row), true],
-        ["解析", "parseResults", true, false],
-        ["日志", "selectLogRunKey", Boolean(key), false],
-        ["隐藏残留", "clearLegacyTasks", !usableTaskKey(taskActionKey(row)), false]
-      ].map((item) => rowActionButton(item[0], item[1], row, item[2], item[3], item[4])).join("");
-      const detailTone = row.status === "completed" || row.status === "done" ? "good" : (taskFailureLikeStatus(row.status) ? "error" : (TASK_QUEUED_STATUSES?.has(row.status) ? "warn" : "good"));
-      const taskTime = taskTimestampView(row);
-      setHtmlIfChanged(pane,
-        '<div class="detailHeader" title="任务详情">' +
-          '<div class="detailHeaderText"><h3>任务详情</h3><span>' + esc(compactText(row.experimentName, 72)) + '</span></div>' +
-          '<span class="detailBadge ' + escAttr(detailTone) + '" title="' + escAttr("原始状态：" + (row.status || "-")) + '">' + esc(taskStatusLabel(row.status)) + '</span>' +
-        '</div>' +
-        '<div class="detailTabs" title="详情分区">' +
-          detailTab("检查", usableTaskKey(taskActionKey(row)) ? "可定位" : "缺 key") +
-          detailTab("事件", "状态/Worker/操作") +
-          detailTab("日志", taskLogText(state, row, key) ? "已有片段" : "暂无") +
-        '</div>' +
-        '<div class="taskDetailMeta">' +
-          taskDetailLine("状态", '<span class="' + statusClass(row.status) + '" title="' + escAttr("原始状态：" + row.status) + '">' + esc(taskStatusLabel(row.status)) + '</span>') +
-          taskDetailLine("实验", esc(compactText(row.experimentName, 90))) +
-          taskDetailLine("Worker", esc(workerName(row.serverId))) +
-          taskDetailLine("GPU", esc(arrayText(row.gpuIds))) +
-          taskDetailLine("runKey", '<span title="' + escAttr(row.runKey) + '">' + esc(compactIdentifier(row.runKey)) + '</span>') +
-          taskDetailLine("进度", esc(row.progress || "-")) +
-          taskDetailLine(taskTime.label, '<span title="' + escAttr(taskTime.label + "时间：" + taskTime.raw) + '">' + esc(taskTime.relative) + '</span>') +
-        '</div>' +
-        '<div class="taskActions">' + actions + '</div>' +
-        renderTaskReadiness(state, row) +
-        renderTaskTimeline(state, row, key) +
-        '<div class="detailLogLabel"><span>日志摘要</span><span>完整日志</span></div>' +
-        '<pre class="taskDetailLog" title="' + escAttr(taskLogText(state, row, key) || "") + '">' + esc(log) + '</pre>');
-    }
 
     function detailTab(label, value) {
       return '<div class="detailTab" title="' + escAttr(label + "：" + value) + '"><b>' + esc(label) + '</b><span>' + esc(value || "-") + '</span></div>';
@@ -12888,52 +12768,16 @@ function renderPanelHtml() {
       return '<div class="taskDetailLine"><span>' + esc(label) + '</span><span>' + valueHtml + '</span></div>';
     }
 
-    function renderTaskReadiness(state, row) {
-      const key = taskActionKey(row);
-      const workerId = resolveWorkerId(row.serverId);
-      const stopReason = rowActionDisableReason(state, "stopExperiment", { runKey: key, experimentId: row.experimentId, archiveKey: row.archiveKey, workerId, experimentIndex: row.experimentIndex, rowAction: true });
-      const items = [
-        ["可操作标识", usableTaskKey(key) ? "已定位" : "缺失", usableTaskKey(key), key || "-"],
-        ["Worker 直达", workerId && workerId !== "-" ? workerName(workerId) : "缺失", Boolean(workerId && workerId !== "-"), workerId || "-"],
-        ["停止/重试", stopReason ? "不可用" : "可用", !stopReason, stopReason || "可用"]
-      ];
-      return '<div class="taskReadinessGrid" title="任务检查">' + items.map((item) => {
-        const ok = Boolean(item[2]);
-        const tone = ok ? "good" : (String(item[1]).includes("缺失") || String(item[1]).includes("不可用") ? "error" : "warn");
-        return '<div class="taskReadinessItem ' + tone + '" title="' + escAttr(item[0] + "：" + item[3]) + '"><span>' + esc(item[0]) + '</span><b>' + esc(item[1]) + '</b></div>';
-      }).join("") + '</div>';
-    }
 
-    function renderTaskTimeline(state, row, key) {
-      const log = taskLogText(state, row, key);
-      const rawWorkerLiveStatus = row.workerLiveStatus && row.workerLiveStatus !== "-" ? String(row.workerLiveStatus) : "";
-      const workerLiveStatus = rawWorkerLiveStatus ? labelStatus(rawWorkerLiveStatus) : "等待推送";
-      const workerLiveDetail = row.workerTelemetryWarning || (rawWorkerLiveStatus ? "Agent 原始状态：" + rawWorkerLiveStatus : "尚未收到 Worker 推送");
-      const rawTaskStatus = row.status || "-";
-      const events = [
-        ["任务状态", taskStatusLabel(rawTaskStatus), "原始状态：" + rawTaskStatus + "；" + taskTimelineDetail(row), taskCardClass(row.status)],
-        ["Worker 观测", workerLiveStatus, workerLiveDetail, row.workerTelemetryWarning ? "warn" : "info"],
-        ["日志", log ? "已有日志片段" : "暂无日志", log ? compactText(log, 140) : "-", log ? "good" : "warn"],
-        ["操作终态", "看操作进度", row.clientActionId || row.operationId || "-", "info"]
-      ];
-      return '<div class="taskTimeline" title="任务事件">' +
-        events.map((event) => taskTimelineItem(event[0], event[1], event[2], event[3])).join("") +
-      '</div>';
-    }
 
-    function taskTimelineItem(title, status, detail, tone) {
-      const cls = tone === "is-completed" || tone === "good" ? "good" : (tone === "is-failed" || tone === "is-stopped" || tone === "error" ? "error" : (tone === "is-queued" || tone === "warn" ? "warn" : ""));
-      return '<div class="taskTimelineItem ' + cls + '" title="' + escAttr(compactText(detail || status || "", 72)) + '"><b>' + esc(title) + ' · ' + esc(status || "-") + '</b><span>' + esc(compactText(detail || "-", 72)) + '</span></div>';
-    }
 
-    function taskTimelineDetail(row) {
-      const taskTime = taskTimestampView(row);
-      const parts = [
-        row.progress && row.progress !== "-" ? "进度 " + row.progress : "",
-        row.duration && row.duration !== "-" ? "耗时 " + row.duration : "",
-        taskTime.raw !== "-" ? taskTime.label + " " + taskTime.relative : ""
-      ].filter(Boolean);
-      return parts.join("；") || "-";
+
+    function renderPlanTaskCards(state, rows, selected, planKey) {
+      const initialRows = rows.slice(0, 20);
+      const remainingRows = rows.slice(20);
+      const detailKey = "execution-plan-more-tasks:" + planKey;
+      return renderTaskCards(state, initialRows, selected, initialRows.length) + (remainingRows.length
+        ? '<details class="executionPlanMoreTasks" data-details-key="' + escAttr(detailKey) + '"' + detailsOpenAttr(detailKey, false) + '><summary>显示其余 ' + remainingRows.length + ' 个任务</summary>' + renderTaskCards(state, remainingRows, selected, remainingRows.length) + '</details>' : "");
     }
 
     function renderTaskCard(state, row, selected) {
@@ -12987,38 +12831,7 @@ function renderPanelHtml() {
       return pills.map((pill) => '<span class="pill taskLivePill" title="' + escAttr(pill[1]) + '">' + pill[0] + '</span>').join("");
     }
 
-    function renderTaskTable(state, rows, selected) {
-      const headers = ["选", "状态", "计划", "实验", "runKey", "Worker", "GPU", "耗时", "进度", "操作"];
-      return '<table class="table"><thead><tr>' + headers.map((h) => '<th>' + esc(h) + '</th>').join("") + '</tr></thead><tbody>' +
-        rows.map((row) => renderTaskMainRow(row, selected) + renderTaskLogDetails(state, row, headers.length)).join("") +
-        '</tbody></table>';
-    }
 
-    function renderTaskMainRow(row, selected) {
-      const key = taskTargetKey(row);
-      const checked = isTaskRowSelected(row, selected);
-      const actions = [
-        ["停止", "stopExperiment", TASK_LIVE_STATUS_TOKENS?.has(row.status), true],
-        ["重试", "retryExperiment", taskFailureLikeStatus(row.status), true],
-        ["转移", "reassignWorkerTask", manualReassignSurfaceVisible(row), true],
-        ["解析", "parseResults", true, false],
-        ["打开日志", "selectLogRunKey", Boolean(key), false],
-        ["隐藏残留", "clearLegacyTasks", !usableTaskKey(taskActionKey(row)), false]
-      ].map((item) => rowActionButton(item[0], item[1], row, item[2], item[3], item[4])).join("");
-      const cells = [
-        '<input class="taskSelectBox" type="checkbox" data-command="selectExperiment" data-task-ui-key="' + escAttr(row.uiKey) + '" data-run-key="' + escAttr(taskActionKey(row)) + '" data-action-key="' + escAttr(taskActionKey(row)) + '" data-experiment-id="' + escAttr(row.experimentId) + '" data-archive-key="' + escAttr(taskArchiveActionKey(row)) + '" data-worker-id="' + escAttr(resolveWorkerId(row.serverId)) + '" data-plan-file="' + escAttr(taskPlanFile(row)) + '" data-artifact-path="' + escAttr(row.artifactPath) + '" data-result-path="' + escAttr(row.resultPath) + '" data-log-path="' + escAttr(row.logPath) + '"' + (checked ? " checked" : "") + '>',
-        '<span class="' + statusClass(row.status) + '" title="' + escAttr("原始状态：" + row.status) + '">' + esc(taskStatusLabel(row.status)) + '</span>',
-        clippedCell(row.plan, "wide", compactPath(row.plan)),
-        clippedCell(row.experimentName, "wide", compactText(row.experimentName, 36)),
-        clippedCell(row.runKey, "wide", compactIdentifier(row.runKey)),
-        clippedCell(row.serverId, "narrow", workerName(row.serverId)),
-        clippedCell(arrayText(row.gpuIds), "narrow"),
-        esc(row.duration),
-        clippedCell(row.progress, "narrow"),
-        '<div class="taskActions">' + actions + '</div>'
-      ];
-      return '<tr' + (checked ? ' class="selectedRow"' : "") + '>' + cells.map((cell) => '<td>' + cell + '</td>').join("") + '</tr>';
-    }
 
     function renderTaskBatchActions(state, rows, selectedRows) {
       const count = selectedRows.length;
@@ -13629,8 +13442,8 @@ function renderPanelHtml() {
             + (errorText ? '<div class="executionDistributedJobError">' + esc(errorText) + jobNext + '</div>' : '') + logPreview + '</div>';
         }).join("") + '</div>' : '';
         const opHtml = opRows.length ? '<h3>最近操作</h3><div class="operationTimeline">' + opRows.map(renderOperationItem).join("") + '</div>' : "";
-        const taskHtml = taskRows.length ? '<h3>任务与日志</h3>' + renderTaskCards(state, taskRows, selected, sortedTasks.length) : "";
-        const more = sortedOps.length > opRows.length || sortedTasks.length > taskRows.length ? '<div class="muted">其余记录在下方“高级：完整操作与任务记录”。</div>' : "";
+        const taskHtml = taskRows.length ? '<h3>任务与日志</h3>' + renderPlanTaskCards(state, sortedTasks, selected, group.key) : "";
+        const more = sortedOps.length > opRows.length ? '<div class="muted">其余操作在下方“高级：完整操作记录”。</div>' : "";
         const phaseNote = group.submitting
           ? '<div class="muted">' + esc(group.statusText) + '，当前还没有新 job。旧运行的成功数不计入这一阶段。</div>'
           : group.deferredCurrent
@@ -13771,32 +13584,13 @@ function renderPanelHtml() {
       button.textContent = '清理选中记录' + (selectedOperationHistoryIds.size ? ' (' + selectedOperationHistoryIds.size + ')' : '');
     }
 
-    function renderTaskSection(state) {
-      const view = taskSectionViewModelForState(state);
-      const selected = view.selected;
-      const scope = view.scope;
-      const rows = view.rows;
-      const taskView = view.taskView;
-      const selectedRows = taskView.selectedRows;
-      renderTaskBatchActions(state, rows, selectedRows);
-      setHtmlIfChanged("taskProgressCards", "");
-      const visibleRows = taskView.visibleRows;
-      const taskTableChanged = setHtmlIfChanged("taskTable", rows.length
-        ? renderTaskCards(state, visibleRows, selected, rows.length)
-        : '<div class="muted">' + (scope.scoped ? "当前 Plan 尚无可显示任务；可切换至全部任务查看历史记录。" : "暂无任务数据。") + '</div>');
-      renderTaskDetailPane(state, rows, selectedRows, taskView.detailRow);
-      if (taskTableChanged) invalidateSelectedTaskPayload();
-    }
 
     function renderExecutionSection(state) {
       renderExecutionPlanList(state);
       renderOperationSection(state);
-      renderTaskSection(state);
-    }
-    function handleTaskPlanScopeClick(button) {
-      const next = button.dataset.taskPlanScope === "all" ? "all" : "selected";
-      if (!setTaskPlanScope(next)) return;
-      renderExecutionSection(lastState || {});
+      const view = taskSectionViewModelForState(state);
+      renderTaskBatchActions(state, view.allRows, view.taskView.selectedRows);
+      invalidateSelectedTaskPayload();
     }
 
     function handleTaskSelectionChange(box) {
@@ -13863,13 +13657,6 @@ function renderPanelHtml() {
       return true;
     }
 
-    function setTaskPlanScope(value) {
-      const next = normalizePlanViewScope(value);
-      if (next === taskPlanScope) return false;
-      taskPlanScope = next;
-      persistWebviewState({ taskPlanScope });
-      return true;
-    }
 
     function setTracePlanScope(value) {
       const next = normalizePlanViewScope(value);
@@ -16673,9 +16460,8 @@ function renderPanelHtml() {
       return missing.length ? "缺少：" + missing.join("、") : "已满足运行前置条件";
     }
 
-function projectSectionNextAction(status, label, section, anchor, options) {
-  const taskScope = options && options.taskPlanScope === "all" ? ' data-task-plan-scope="all"' : options && options.taskPlanScope === "selected" ? ' data-task-plan-scope="selected"' : "";
-  return '<div class="projectQuickNext"><span>下一步</span><b>' + esc(status) + '</b><button class="mini" type="button" data-section-target="' + escAttr(section) + '" data-anchor-target="' + escAttr(anchor) + '" title="跳转到对应区块，处理「' + escAttr(label) + '」" aria-label="跳转到对应区块，处理「' + escAttr(label) + '」"' + taskScope + '>' + esc(label) + '</button></div>';
+function projectSectionNextAction(status, label, section, anchor) {
+  return '<div class="projectQuickNext"><span>下一步</span><b>' + esc(status) + '</b><button class="mini" type="button" data-section-target="' + escAttr(section) + '" data-anchor-target="' + escAttr(anchor) + '" title="跳转到对应区块，处理「' + escAttr(label) + '」" aria-label="跳转到对应区块，处理「' + escAttr(label) + '」"' + '>' + esc(label) + '</button></div>';
 }
 
     function projectNextAction(status, label, command, payload) {

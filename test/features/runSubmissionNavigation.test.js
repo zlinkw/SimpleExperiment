@@ -6,7 +6,7 @@ const { readSource } = require("../_helpers/sourceReader");
 
 const extension = readSource("src/extension.ts");
 
-test("all accepted Plan submissions open the current task monitor", () => {
+test("all accepted Plan submissions open the Plan runtime monitor", () => {
   const start = extension.indexOf("async runActionCommandCore(command, message)");
   const end = extension.indexOf("async runPlanPreflight(body, label, authority = {})", start);
   assert.ok(start >= 0 && end > start);
@@ -18,7 +18,7 @@ test("all accepted Plan submissions open the current task monitor", () => {
   assert.ok(post >= 0);
   assert.ok(navigate > post);
   assert.ok(throwPending > navigate);
-  assert.match(source.slice(navigate, throwPending), /await this\.openPanelAt\("tasks", "tasks-list"\)/);
+  assert.match(source.slice(navigate, throwPending), /await this\.openPanelAt\("execution", "execution-operations"\)/);
 });
 
 test("submission navigation does not replace preflight blocking", () => {

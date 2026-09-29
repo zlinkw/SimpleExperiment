@@ -136,7 +136,7 @@ test("quick project onboarding completes safe Plan and output setup in one flow"
   assert.match(extension, /next === "恢复在线连接"[\s\S]{0,180}clearOfflineImport\(\)[\s\S]{0,180}ensureRealtimeConnected\("resume from project onboarding"\)/);
   assert.match(extension, /next === "打开当前 Plan" && context\.planFile\)[\s\S]{0,120}openWorkspaceFileForProjectContext\(context\.planFile, projectContext\)/);
   assert.match(extension, /next === "打开接入配置" && context\.adapterConfig\)[\s\S]{0,120}openWorkspaceFileForProjectContext\(context\.adapterConfig, projectContext\)/);
-  assert.match(extension, /next === "查看任务"[\s\S]{0,100}openPanelAt\("tasks", "tasks-list"\)/);
+  assert.match(extension, /next === "查看运行进度"[\s\S]{0,100}openPanelAt\("execution", "execution-operations"\)/);
   assert.match(extension, /next === "查看提交进度"[\s\S]{0,120}openPanelAt\("operations", "operations-list"\)/);
   assert.match(extension, /next === "校验并提交运行"[\s\S]{0,180}this\.runActionCommand\("runPlan"/);
   assert.match(extension, /const currentCompletion = \(\) => \{/);
@@ -216,13 +216,13 @@ test("quick project onboarding reports only the next action proven by current re
   assert.match(missingAgent.message, /Worker A Agent 未通过当前项目检测/);
   const activeTasks = bootstrapCompletion({ realtimeMode: true, setupComplete: true, hubStatus: "local_port_closed", workers: [{ label: "Worker A", status: "unknown" }], activeRun: { active: true, taskCount: 2, operationCount: 1 } });
   assert.equal(activeTasks.state, "active_run");
-  assert.equal(activeTasks.action, "查看任务");
+  assert.equal(activeTasks.action, "查看运行进度");
   assert.match(activeTasks.message, /2 个任务、1 个提交操作/);
   const activeSubmission = bootstrapCompletion({ realtimeMode: true, setupComplete: true, workers: [{ status: "unknown" }], activeRun: { active: true, taskCount: 0, operationCount: 1 } });
   assert.equal(activeSubmission.action, "查看提交进度");
   const activeRunWins = bootstrapCompletion({ outputGateReason: "缺少结果路径", setupComplete: false, realtimeMode: false, activeRun: { active: true, taskCount: 1, operationCount: 1 } });
   assert.equal(activeRunWins.state, "active_run");
-  assert.equal(activeRunWins.action, "查看任务");
+  assert.equal(activeRunWins.action, "查看运行进度");
   const completionStart = extension.indexOf("function projectBootstrapCompletion(options)");
   const completionEnd = extension.indexOf("function automaticResultParseReady", completionStart);
   const completionSource = extension.slice(completionStart, completionEnd);

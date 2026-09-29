@@ -5459,7 +5459,7 @@ class RealtimeTunnelPanelProvider {
             ? await this.waitForOperationTerminalResult(action, result, command, 45_000)
             : result;
         if (PLAN_SUBMISSION_COMMANDS.has(command))
-            await this.openPanelAt("tasks", "tasks-list");
+            await this.openPanelAt("execution", "execution-operations");
         if (PLAN_PREFLIGHT_COMMANDS.has(command)) {
             const label = command === "dryRunPlan" ? "预演" : "校验";
             if (remoteActionPendingStatus(resultStatus(finalResult))) {
@@ -6093,7 +6093,6 @@ class RealtimeTunnelPanelProvider {
         const target = {
             section: String(section || "overview").trim() || "overview",
             anchor: String(anchor || section || "overview").trim() || "overview",
-            ...(String(options.taskPlanScope || "") === "all" ? { taskPlanScope: "all" } : {}),
         };
         this.pendingPanelNavigation = target;
         await this.openPanel();
@@ -8793,17 +8792,17 @@ class RealtimeTunnelPanelProvider {
             const submissionProgress = DistributedPlanQueue.distributedSubmissionProgress(submission);
             if (submissionProgress.status === "failed") {
                 this.finishPlanSubmissionProgress(message, submissionProgress.status, submissionProgress.message);
-                await this.openPanelAt("tasks", "tasks-list");
+                await this.openPanelAt("execution", "execution-operations");
                 return;
             }
             if (submission?.enqueued === false) {
                 this.finishPlanSubmissionProgress(message, "succeeded", "已有产物覆盖本次全部任务；按所选“跳过已有”处理，未创建新调度任务。");
-                await this.openPanelAt("tasks", "tasks-list");
+                await this.openPanelAt("execution", "execution-operations");
                 return;
             }
             if (submissionProgress.waiting) {
                 this.finishPlanSubmissionProgress(message, submissionProgress.status, submissionProgress.message);
-                await this.openPanelAt("tasks", "tasks-list");
+                await this.openPanelAt("execution", "execution-operations");
                 return;
             }
         }
@@ -8816,7 +8815,7 @@ class RealtimeTunnelPanelProvider {
         if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot))
             return;
         this.finishPlanSubmissionProgress(message, "succeeded", "调度队列已接收；面板继续显示 Worker 回传的任务状态。");
-        await this.openPanelAt("tasks", "tasks-list");
+        await this.openPanelAt("execution", "execution-operations");
     }
     async activeDeferredForSubmission(root, body, fingerprint, deferredPlanId) {
         if (!root)
@@ -13660,12 +13659,8 @@ class RealtimeTunnelPanelProvider {
             await this.openWorkspaceFileForProjectContext(context.adapterConfig, projectContext);
             return false;
         }
-        if (next === "查看任务") {
-            await this.openPanelAt("tasks", "tasks-list");
-            return false;
-        }
-        if (next === "查看全部任务") {
-            await this.openPanelAt("tasks", "tasks-list", { taskPlanScope: "all" });
+        if (next === "查看运行进度") {
+            await this.openPanelAt("execution", "execution-operations");
             return false;
         }
         if (next === "查看结果") {
@@ -24283,17 +24278,17 @@ function projectBootstrapFinishedRunOutcome(state, plan) {
         return {
             state: "finished_debug_review",
             message: failed
-                ? "当前 Debug 运行已结束且存在失败、停止或取消任务。Debug 产物不进入正式结果链；下一步：查看任务和日志。"
-                : "当前 Debug 运行已结束。Debug 产物不进入正式结果链；下一步：查看任务和日志，确认后再切换正式运行。",
-            action: "查看任务",
+                ? "当前 Debug 运行已结束且存在失败、停止或取消任务。Debug 产物不进入正式结果链；下一步：查看运行进度和日志。"
+                : "当前 Debug 运行已结束。Debug 产物不进入正式结果链；下一步：查看运行进度和日志，确认后再切换正式运行。",
+            action: "查看运行进度",
             secondaryAction: failed ? undefined : "正式运行",
         };
     }
     if (failed) {
         return {
             state: "finished_run_review",
-            message: "当前版本 Plan 的调度已结束且存在失败、停止或取消任务。下一步：查看任务和日志，按需重试。",
-            action: "查看任务",
+            message: "当前版本 Plan 的调度已结束且存在失败、停止或取消任务。下一步：查看运行进度和日志，按需重试。",
+            action: "查看运行进度",
         };
     }
     return {
@@ -24366,17 +24361,17 @@ function projectBootstrapFinishedTaskOutcome(state, planFile, planRevision, plan
         return {
             state: "finished_debug_review",
             message: failed
-                ? "当前 Debug 任务已结束且存在失败、停止或取消记录。Debug 产物不进入正式结果链；下一步：查看任务和日志。"
-                : "当前 Debug 任务已结束。Debug 产物不进入正式结果链；下一步：查看任务和日志，确认后再切换正式运行。",
-            action: "查看任务",
+                ? "当前 Debug 任务已结束且存在失败、停止或取消记录。Debug 产物不进入正式结果链；下一步：查看运行进度和日志。"
+                : "当前 Debug 任务已结束。Debug 产物不进入正式结果链；下一步：查看运行进度和日志，确认后再切换正式运行。",
+            action: "查看运行进度",
             secondaryAction: failed ? undefined : "正式运行",
         };
     }
     if (failed) {
         return {
             state: "finished_run_review",
-            message: "当前版本 Plan 的调度任务均已结束且存在失败、停止或取消记录。下一步：查看任务和日志，按需重试。",
-            action: "查看任务",
+            message: "当前版本 Plan 的调度任务均已结束且存在失败、停止或取消记录。下一步：查看运行进度和日志，按需重试。",
+            action: "查看运行进度",
         };
     }
     return {
@@ -24395,9 +24390,9 @@ function projectBootstrapCompletion(options) {
         return {
             state: historicalOnly ? "historical_active_run" : "active_run",
             message: historicalOnly
-                ? `同一路径的旧 Plan revision 仍有 ${taskCount} 个任务、${operationCount} 个提交操作未结束。为保护旧任务，当前版本暂不提交；下一步：${taskCount > 0 ? "查看全部任务" : "查看提交进度"}。`
+                ? `同一路径的旧 Plan revision 仍有 ${taskCount} 个任务、${operationCount} 个提交操作未结束。为保护旧任务，当前版本暂不提交；下一步：${taskCount > 0 ? "查看运行进度" : "查看提交进度"}。`
                 : `当前 Plan 已有未结束运行：${taskCount} 个任务、${operationCount} 个提交操作。下一步：查看现有进度，避免重复提交。`,
-            action: historicalOnly && taskCount > 0 ? "查看全部任务" : taskCount > 0 ? "查看任务" : "查看提交进度",
+            action: taskCount > 0 ? "查看运行进度" : "查看提交进度",
         };
     }
     const finishedRun = options.finishedRun && typeof options.finishedRun === "object" ? options.finishedRun : undefined;
