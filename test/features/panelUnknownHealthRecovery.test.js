@@ -73,7 +73,7 @@ test("bootstrap, hidden, and pending unknown states retain grace and draft", () 
   const host = createHost(clock);
   host.userDraft = "unsaved plan text";
   host.schedulePanelHeartbeat();
-  for (const reason of ["bootstrap", "document-hidden", "awaiting-first-render", "state-render-pending", "bootstrap"]) {
+  for (const reason of ["bootstrap", "document-hidden", "awaiting-first-render", "state-render-pending", "render-health-probe-pending", "render-health-probe-pending"]) {
     ackNext(clock, host, { status: "unknown", reason });
   }
   assert.equal(host.reloaded, 0);

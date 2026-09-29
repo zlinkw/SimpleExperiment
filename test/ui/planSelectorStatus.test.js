@@ -161,6 +161,21 @@ test("current distributed jobs outrank stale scheduler history", () => {
   assert.equal(summary.totalCount, 1);
 });
 
+test("selector accepts distributed queue revision without planRevision or timestamps", () => {
+  const sandbox = selectorSandbox();
+  const state = {
+    plans: [{ file: "plans/complete.yaml", revision: "r1", updatedAt: "2026-09-01T00:00:00Z", jobCount: 2 }],
+    distributedPlans: [{ planFile: "plans/complete.yaml", revision: "r1", jobs: [
+      { index: 0, status: "completed" },
+      { index: 1, status: "completed" },
+    ] }],
+  };
+  const summary = sandbox.selector.summary(state, "plans/complete.yaml");
+  assert.equal(summary.status, "completed");
+  assert.equal(summary.completedCount, 2);
+  assert.equal(summary.totalCount, 2);
+});
+
 test("search and status filters keep the selected Plan available", () => {
   const sandbox = selectorSandbox();
   const state = {

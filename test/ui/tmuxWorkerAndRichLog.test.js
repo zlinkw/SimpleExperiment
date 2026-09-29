@@ -24,7 +24,32 @@ test("tmux overview requests and retains all Worker session lists", () => {
   assert.match(panel, /allWorkers: true/);
   assert.match(panel, /tmuxListsByWorker\[item\.workerId\]/);
   assert.match(panel, /data-tmux-worker/);
-  assert.match(host, /Promise\.all\(workerIds\.map\(\(workerId\) => this\.fetchOneTmuxListFromUi\(workerId\)\)\)/);
+  assert.match(host, /Promise\.all\(workerIds\.map\(\(workerId\) => this\.fetchOneTmuxListFromUi\(workerId, _message\?\.requestId\)\)\)/);
+});
+
+test("tmux refresh releases only after every Worker replies and ignores stale replies", () => {
+  const html = renderPanelHtml();
+  const start = html.indexOf("function finishTmuxListRequest(item)");
+  const end = html.indexOf("function tmuxResolveCaptureTarget", start);
+  assert.ok(start >= 0 && end > start);
+  const cleared = [];
+  const sandbox = {
+    tmuxListBusy: true,
+    tmuxListRequestId: 2,
+    tmuxListPendingWorkers: new Set(),
+    tmuxListTimeout: 12,
+    clearTimeout: (id) => cleared.push(id),
+  };
+  vm.runInNewContext(html.slice(start, end), sandbox);
+  const workers = [{ id: "nwpu2" }, { id: "nwpu3" }];
+  sandbox.finishTmuxListRequest({ requestId: 1, workerId: "nwpu2", workers });
+  assert.equal(sandbox.tmuxListBusy, true);
+  sandbox.finishTmuxListRequest({ requestId: 2, workerId: "nwpu2", workers, ok: false });
+  assert.equal(sandbox.tmuxListBusy, true);
+  assert.deepEqual(cleared, []);
+  sandbox.finishTmuxListRequest({ requestId: 2, workerId: "nwpu3", workers, ok: false });
+  assert.equal(sandbox.tmuxListBusy, false);
+  assert.deepEqual(cleared, [12]);
 });
 
 test("Worker switch immediately replaces stale pane and capture state", () => {

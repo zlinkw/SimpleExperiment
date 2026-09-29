@@ -1712,6 +1712,8 @@ function renderPanelHtml() {
     const TMUX_POLL_MS = 5000;
     let tmuxListBusy = false;
     let tmuxListTimeout = 0;
+    let tmuxListRequestId = 0;
+    const tmuxListPendingWorkers = new Set();
     const tmuxCaptureBusy = new Set();
     let tmuxListCache = { sessions: [], gpuIds: [], workerId: "", fetchedAt: "" };
     const tmuxListsByWorker = Object.create(null);
@@ -2013,6 +2015,8 @@ function renderPanelHtml() {
     async function refreshTmuxList() {
       if (document.hidden || tmuxListBusy) return;
       tmuxListBusy = true;
+      tmuxListRequestId += 1;
+      tmuxListPendingWorkers.clear();
       const meta = el("tmuxListMeta");
       if (meta) meta.textContent = "列举 tmux sessions ...";
       try {
@@ -2020,15 +2024,30 @@ function renderPanelHtml() {
         tmuxListTimeout = setTimeout(function () {
           tmuxListBusy = false;
           tmuxListTimeout = 0;
+          tmuxListPendingWorkers.clear();
           if (meta) meta.textContent = "会话刷新暂未收到响应，下次自动重试";
         }, 20000);
-        vscode.postMessage({ command: "fetchTmuxList", workerId: tmuxSelectedWorkerId, allWorkers: true, background: true });
+        vscode.postMessage({ command: "fetchTmuxList", workerId: tmuxSelectedWorkerId, allWorkers: true, background: true, requestId: tmuxListRequestId });
       } catch (e) {
         clearTimeout(tmuxListTimeout);
         tmuxListTimeout = 0;
         tmuxListBusy = false;
+        tmuxListPendingWorkers.clear();
         if (meta) meta.textContent = "列举失败 " + String(e).slice(0,60);
       }
+    }
+    function finishTmuxListRequest(item) {
+      if (!tmuxListBusy || Number(item.requestId) !== tmuxListRequestId) return;
+      if (!tmuxListPendingWorkers.size) {
+        (Array.isArray(item.workers) ? item.workers : []).forEach(function(worker) {
+          if (worker && worker.id) tmuxListPendingWorkers.add(worker.id);
+        });
+      }
+      tmuxListPendingWorkers.delete(item.workerId);
+      if (tmuxListPendingWorkers.size) return;
+      clearTimeout(tmuxListTimeout);
+      tmuxListTimeout = 0;
+      tmuxListBusy = false;
     }
     function tmuxResolveCaptureTarget() {
       const activeFilter = normalizeTmuxWindowFilter(tmuxWindowFilter);
@@ -3641,8 +3660,7 @@ function renderPanelHtml() {
           continue;
         }
         if (item.type === "tmuxList") {
-          clearTimeout(tmuxListTimeout);
-          tmuxListTimeout = 0;
+          finishTmuxListRequest(item);
           const listedWorkers = Array.isArray(item.workers) ? item.workers : [];
           if (listedWorkers.length) tmuxConfiguredWorkers = listedWorkers;
           if (item.workerId) tmuxListsByWorker[item.workerId] = { sessions: item.sessions || [], gpuIds: item.gpuIds || [], workerId: item.workerId, fetchedAt: item.fetchedAt || new Date().toLocaleTimeString(), ok: item.ok !== false, error: item.error || "" };
@@ -9196,8 +9214,11 @@ function renderPanelHtml() {
       addVersionedRows(operationRowsForState(data), "operations", operationMatchesPlanVersion);
       asArray(data.distributedPlans).forEach((distributedPlan) => {
         const file = String((distributedPlan || {}).planFile || (distributedPlan || {}).plan_file || "");
+        const versionedPlan = Object.assign({}, distributedPlan || {}, {
+          planRevision: (distributedPlan || {}).planRevision || (distributedPlan || {}).plan_revision || (distributedPlan || {}).revision || ""
+        });
         candidatesFor(file).forEach((entry) => {
-          if (samePlanSelection(file, entry.file) && taskMatchesPlanVersion(distributedPlan, entry.revision, entry.updatedAt)) entry.distributedPlans.push(distributedPlan);
+          if (samePlanSelection(file, entry.file) && taskMatchesPlanVersion(versionedPlan, entry.revision, entry.updatedAt)) entry.distributedPlans.push(distributedPlan);
         });
       });
       const value = { entries, byFile };

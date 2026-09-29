@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const ts = require("typescript");
 
 const source = fs.readFileSync(path.join(__dirname, "..", "..", "src", "extension", "legacy.ts"), "utf8");
 
@@ -20,7 +21,10 @@ test("one Hub Worker is stamped as the Plan target before submission", async () 
     'async selectPlanSubmissionWorker(body, label = "当前 Plan") {',
     "        let gpuSnapshot: any =",
   );
-  const select = new Function("body", "label", `return (async function(body, label) {${preamble}}).call(this, body, label)`);
+  const compiled = ts.transpileModule(`class Subject { async selectPlanSubmissionWorker(body, label) {${preamble}} }`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const select = new Function(`${compiled}; return Subject.prototype.selectPlanSubmissionWorker;`)();
   const provider = {
     assertPlanTopologyReady: () => ({ mode: "hub_worker" }),
     enabledWorkerConfigs: () => [worker],
@@ -45,7 +49,7 @@ test("tmux responses stay scoped to the selected Worker and show failures", () =
   const panel = fs.readFileSync(path.join(__dirname, "..", "..", "src", "ui", "PanelHtml.legacy.ts"), "utf8");
   assert.match(source, /this\.tmuxWorkerId\(_message, true\)/);
   assert.match(source, /this\.realtimeEndpoints\(\)\.find\(\(item\) => item\.id === workerId && item\.role === "worker"\)/);
-  assert.match(panel, /item\.workerId !== tmuxSelectedWorkerId && listedWorkers\.some/);
+  assert.match(panel, /if \(item\.workerId !== tmuxSelectedWorkerId\) continue;/);
   assert.match(panel, /item\.ok === false \|\| item\.error/);
   assert.doesNotMatch(panel, /zlk-worker-agent \(fallback\)/);
 });

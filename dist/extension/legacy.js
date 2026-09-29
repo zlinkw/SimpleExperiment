@@ -17120,10 +17120,10 @@ class RealtimeTunnelPanelProvider {
     async fetchTmuxListFromUi(_message) {
         const workers = this.enabledWorkerConfigs();
         const workerIds = _message?.allWorkers === true ? workers.map((worker) => worker.id) : [this.tmuxWorkerId(_message, true)];
-        await Promise.all(workerIds.map((workerId) => this.fetchOneTmuxListFromUi(workerId)));
+        await Promise.all(workerIds.map((workerId) => this.fetchOneTmuxListFromUi(workerId, _message?.requestId)));
     }
-    publishTmuxList(workerId, result) {
-        const payload = { type: "tmuxList", ok: result?.ok !== false, available: result?.available !== false, workerId, workers: this.enabledWorkerConfigs().map((worker) => ({ id: worker.id, name: worker.displayName || worker.id })), gpuIds: result?.gpuIds || [], sessions: result?.sessions || [], error: result?.error || result?.message || "", fetchedAt: new Date().toISOString() };
+    publishTmuxList(workerId, result, requestId) {
+        const payload = { type: "tmuxList", ok: result?.ok !== false, available: result?.available !== false, workerId, requestId, workers: this.enabledWorkerConfigs().map((worker) => ({ id: worker.id, name: worker.displayName || worker.id })), gpuIds: result?.gpuIds || [], sessions: result?.sessions || [], error: result?.error || result?.message || "", fetchedAt: new Date().toISOString() };
         this.view?.webview.postMessage(payload);
         return payload;
     }
@@ -17135,7 +17135,7 @@ class RealtimeTunnelPanelProvider {
         }
         return this.fetchOneTmuxListFromUi(workerId);
     }
-    async fetchOneTmuxListFromUi(workerId) {
+    async fetchOneTmuxListFromUi(workerId, requestId) {
         try {
             let result = null;
             const tryClient = this.client?.clients?.get(workerId);
@@ -17164,11 +17164,11 @@ class RealtimeTunnelPanelProvider {
                     req.end();
                 });
             }
-            return this.publishTmuxList(workerId, result);
+            return this.publishTmuxList(workerId, result, requestId);
         }
         catch (exc) {
             const msg = String(exc?.message || exc || "fetch failed").slice(0, 500);
-            const payload = { type: "tmuxList", ok: false, available: false, workerId, workers: this.enabledWorkerConfigs().map((worker) => ({ id: worker.id, name: worker.displayName || worker.id })), sessions: [], error: msg, fetchedAt: new Date().toISOString() };
+            const payload = { type: "tmuxList", ok: false, available: false, workerId, requestId, workers: this.enabledWorkerConfigs().map((worker) => ({ id: worker.id, name: worker.displayName || worker.id })), sessions: [], error: msg, fetchedAt: new Date().toISOString() };
             this.view?.webview.postMessage(payload);
             return payload;
         }
@@ -19118,7 +19118,7 @@ class RealtimeTunnelPanelProvider {
         }
         if (hasGeneration && status === "unknown") {
             const reason = String(health.reason || "");
-            if (["bootstrap", "document-hidden", "awaiting-first-render", "state-render-pending"].includes(reason)) {
+            if (["bootstrap", "document-hidden", "awaiting-first-render", "state-render-pending", "render-health-probe-pending"].includes(reason)) {
                 this.panelUnknownHealthSince = 0;
                 this.panelUnknownHealthGeneration = 0;
             }
