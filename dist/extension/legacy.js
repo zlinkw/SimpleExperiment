@@ -15433,7 +15433,8 @@ class RealtimeTunnelPanelProvider {
                 await this.patchDistributedPublication(root, { localMetricsSignature: signature });
         }
         this.resultSyncReport = report;
-        if (options.rebuildDirectory && !report.skipped.length && !report.missing.length && report.included.length === plans.length && isCurrent()) {
+        if (options.rebuildDirectory && !report.skipped.length && !report.missing.length && report.included.length === plans.length && isCurrent()
+            && await this.resultDirectoryNeedsRebuild(root, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR)) {
             report.directoryRebuild = await this.rebuildSyncedResultDirectory(projectContext, ready, isCurrent);
         }
         if (isCurrent())
@@ -15468,6 +15469,8 @@ class RealtimeTunnelPanelProvider {
                 progress.report({ message: `已暂存 ${index + 1}/${files.length} 个指标文件` });
             }
             await this.writeProjectTableRegistry(root, registry, stageDir);
+            const marker = await safeResultOutputPath(root, path.posix.join(stageDir, ".dataset-layout.json"));
+            await fs.writeFile(marker, JSON.stringify({ schemaVersion: 1, resultDir }) + "\n", { encoding: "utf8", flag: "wx" });
         });
         const status = require("node:child_process").spawnSync("git", ["-C", root, "status", "--porcelain", "--", resultDir], {
             encoding: "utf8", timeout: 5000, windowsHide: true, maxBuffer: 2 * 1024 * 1024,
@@ -15481,6 +15484,26 @@ class RealtimeTunnelPanelProvider {
             progress.report({ message: `当前目录：${source}；旧结果备份：${backup}；已有备份保留至：${historical}` });
             return (0, ResultDirectoryRebuild_1.replaceResultDirectory)({ root, resultDir, stagedDir: stageDir, batchId, gitStatus: status.stdout || "", allowSuperseded: true, allowDirtyResults: true, isCurrent });
         });
+    }
+    async resultDirectoryNeedsRebuild(root, resultDir) {
+        const marker = safeWorkspaceChildPath(root, path.posix.join(resultDir, ".dataset-layout.json"));
+        const content = await fs.readFile(marker, "utf8").catch(error => {
+            if (error?.code === "ENOENT")
+                return "";
+            throw error;
+        });
+        if (!content)
+            return true;
+        let parsed;
+        try {
+            parsed = JSON.parse(content);
+        }
+        catch {
+            throw new Error("结果目录布局标记损坏，保留现有目录：" + marker);
+        }
+        if (parsed?.schemaVersion !== 1 || parsed?.resultDir !== resultDir)
+            throw new Error("结果目录布局标记与当前配置不匹配，保留现有目录：" + marker);
+        return false;
     }
     async summaryForMetricDownload(client, planFile) {
         const summary = typeof client?.getResultsSummary === "function"

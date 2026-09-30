@@ -226,7 +226,7 @@ test("unindexed summaries never invoke the full directory merge fallback", async
   assert.equal(provider.calls.some(call => call[0] === "sync.downloadMappedPaths"), false);
 });
 
-test("the manual button replaces legacy layout and rotates backups on a second sync", async () => {
+test("the manual button rebuilds a legacy layout once and reuses it on later syncs", async () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-result-recreate-sync-"));
   const legacy = path.join(workspace, "experiments/results/final/final.csv");
   fs.mkdirSync(path.dirname(legacy), { recursive: true });
@@ -242,8 +242,9 @@ test("the manual button replaces legacy layout and rotates backups on a second s
   await run();
   assert.ok(fs.existsSync(path.join(backup, "set/final/final.csv")));
   const history = path.join(workspace, "clean_dir/_superseded");
-  const batch = fs.readdirSync(history)[0];
-  assert.equal(fs.readFileSync(path.join(history, batch, "experiments/results/final/final.csv"), "utf8"), "legacy mixed results");
+  assert.equal(fs.existsSync(history), false);
+  assert.equal(fs.readFileSync(path.join(backup, "final/final.csv"), "utf8"), "legacy mixed results");
+  assert.deepEqual(fs.readdirSync(path.join(workspace, "experiments/results")).filter(name => name !== "_unassigned").sort(), [".dataset-layout.json", "set"]);
 });
 
 test("two pending plans merge on all workers before either metric download when no plan is selected", async () => {
