@@ -226,6 +226,37 @@ test("unindexed summaries never invoke the full directory merge fallback", async
   assert.equal(provider.calls.some(call => call[0] === "sync.downloadMappedPaths"), false);
 });
 
+test("legacy project-wide aggregates do not block or enter dataset-first metric sync", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-result-legacy-project-aggregate-"));
+  try {
+    const provider = providerFor(workspace, { onlyFirst: true });
+    const legacyAggregate = "simple_cluster/results/project_seed_mean_std.csv";
+    const raw = "simple_cluster/results/by_plan/a__stable/raw.csv";
+    provider.client.getResultsSummary = async planFile => ({
+      ...summaryFor(planFile, "w1"),
+      projectAggregateCsvPath: legacyAggregate,
+      workerResultTables: [{ workerId: "w1", rawResultCsvPath: raw, projectAggregateCsvPath: legacyAggregate, aggregateStatus: "ready" }],
+      datasetResultTables: [{ dataset: "BUS", datasetKey: "BUS", aggregateCsvPath: "simple_cluster/results/by_plan/a__stable/datasets/BUS/seed.csv" }],
+    });
+    provider.mergeLatestWorkerVersions = async (_root, _targets, selectedPaths) => {
+      provider.calls.push(["merge", selectedPaths]);
+      return selectedPaths.includes(legacyAggregate)
+        ? { completed: [], errors: [legacyAggregate + "：没有可靠的最新版"] }
+        : { completed: [], errors: [] };
+    };
+
+    const result = await require("../../dist/extension/legacy.js").__syncPendingResultMetricsForTest(provider);
+    assert.equal(result.included.length, 1);
+    assert.deepEqual(result.skipped, []);
+    const mergePaths = provider.calls.find(call => call[0] === "merge")[1];
+    assert.equal(mergePaths.includes(legacyAggregate), false);
+    const downloaded = provider.calls.filter(call => call[0] === "sync.downloadMappedPaths").flatMap(call => call[1].entries || []);
+    assert.equal(downloaded.some(entry => entry.remotePath === legacyAggregate), false);
+  } finally {
+    vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: "", scheme: "file", path: "" } }];
+  }
+});
+
 test("the manual button rebuilds a legacy layout once and reuses it on later syncs", async () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-result-recreate-sync-"));
   const legacy = path.join(workspace, "experiments/results/final/final.csv");

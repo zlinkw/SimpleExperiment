@@ -2,6 +2,8 @@
 
 范围：手动“同步服务器结果并更新总表”成功后，替换配置的结果根目录。实际目标由当前项目和 resultCsvDir 决定，不硬编码 MultiModal 路径。
 
+同步输入会忽略旧版项目级汇总别名 `simple_cluster/results/project_seed_mean_std.csv`、`project_final.csv` 和 `project_final.md`。这些全项目派生表在 Worker 之间可能互相覆盖；新的数据集结果来自按 Plan 或数据集分层的指标文件。
+
 - [x] 读取插件约束、清理技能、MultiModal 的 AGENTS.md 与结果/Git 状态。
 - [x] 新结果先准备，完整成功后备份旧目录并填入新结构；原始服务器结果不变。
 - [x] 安全路径、失败保留、备份轮换、下载和聚合回归。

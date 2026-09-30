@@ -28554,7 +28554,16 @@ function resultMetricMergeScopePaths(plan, planFile, extras = []) {
     return [...paths].filter((item) => item && item !== "." && !isBlockedResultScope(item)).sort();
 }
 function resultMetricDownloadCandidates(summary, planFile) {
-    return resultSummarySyncCandidates(summary, planFile).filter((item) => isResultMetricFile(item.remotePath));
+    return resultSummarySyncCandidates(summary, planFile).filter((item) => isResultMetricFile(item.remotePath) && !isLegacyProjectAggregateMetric(item.remotePath));
+}
+const LEGACY_PROJECT_AGGREGATE_METRICS = new Set([
+    "simple_cluster/results/project_seed_mean_std.csv",
+    "simple_cluster/results/project_final.csv",
+    "simple_cluster/results/project_final.md",
+]);
+function isLegacyProjectAggregateMetric(value) {
+    const normalized = normalizeRemoteResultInspectionPath(value).toLowerCase();
+    return LEGACY_PROJECT_AGGREGATE_METRICS.has(normalized);
 }
 function resultSummarySyncCandidates(summary, planFile) {
     const inspected = new Set(resultSummaryInspectionCandidates(summary, planFile));
