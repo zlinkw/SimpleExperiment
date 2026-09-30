@@ -45,6 +45,17 @@ test("distributed submit confirms prior outputs before enqueue and skips only ch
   assert.match(send, /overwriteExisting: plan\.overwriteExisting === true/);
 });
 
+test("runPlan uses one history-choice modal and no overwrite bypass checkbox", () => {
+  const submitStart = extension.indexOf("if (PLAN_SUBMISSION_COMMANDS.has(command)) {");
+  const submitEnd = extension.indexOf("const danger = command === \"deleteArtifacts\"", submitStart);
+  const submit = extension.slice(submitStart, submitEnd);
+  assert.match(submit, /if \(command !== "runPlan"\)\s+await this\.confirmPlanRunSubmission/);
+  assert.ok(submit.indexOf("await this.assertPlanNotAlreadyActive") < submit.indexOf("await this.confirmPlanRunSubmission"));
+  assert.match(submit, /await this\.confirmPlanExistingOutputs\(plan, body, preflightOk\)/);
+  assert.doesNotMatch(panel, /data-command="runPlan"[^>]*data-confirm="true"/);
+  assert.doesNotMatch(panel, /overwriteExistingToggle|data-overwrite-toggle/);
+});
+
 test("publish reports each pre-upload stage and transfers only changed files", () => {
   const publish = extension.slice(extension.indexOf("async publishToGitHub("), extension.indexOf("async overwriteFromGitHub("));
   assert.match(publish, /GitHub 已完成，正在准备 Worker 上传…/);

@@ -21,6 +21,19 @@ function extractFunction(source, name) {
   throw new Error(`unterminated function ${name}`);
 }
 
+function extractMethod(source, name) {
+  const start = source.indexOf(`async ${name}(`);
+  assert.ok(start >= 0, `missing method ${name}`);
+  const body = source.indexOf("{", start);
+  let depth = 0;
+  for (let index = body; index < source.length; index += 1) {
+    if (source[index] === "{") depth += 1;
+    if (source[index] === "}") depth -= 1;
+    if (depth === 0) return source.slice(start, index + 1);
+  }
+  throw new Error(`unterminated method ${name}`);
+}
+
 function samePlanSelection(left, right) {
   const key = (value) => String(value || "").replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
   const a = key(left);
@@ -82,6 +95,20 @@ function loadPanelGuard() {
   return sandbox.guard;
 }
 
+function loadPlanRunActions() {
+  const sandbox = {
+    escAttr: (value) => String(value || ""),
+    planFromContext: () => ({ status: "completed" }),
+    planActiveRunEvidence: () => ({ active: false }),
+    planExecutionStage: () => ({ phase: "results", status: "已完成" }),
+    projectNextAction: () => "",
+    renderRuntimeContractRecoveryActions: () => "",
+  };
+  vm.createContext(sandbox);
+  vm.runInContext(`${extractFunction(panel, "renderPlanRunActions")}\nthis.render = renderPlanRunActions;`, sandbox);
+  return sandbox.render;
+}
+
 function loadPlanRuntimeEvidenceCache() {
   const sandbox = {};
   vm.createContext(sandbox);
@@ -135,7 +162,10 @@ test("backend reuses Plan runtime evidence merge only for identical sources", ()
 
 test("backend blocks duplicate run operations and active scheduler tasks for the same Plan", () => {
   assert.match(extension, /private buildPlanRuntimeEvidenceState\(\)/);
-  assert.match(extension, /private buildState\(\): WebviewClusterState \{[\s\S]{0,240}this\.buildPlanRuntimeEvidenceState\(\)/);
+  const buildStateStart = extension.indexOf("private buildState(): WebviewClusterState {");
+  const buildStateEnd = extension.indexOf("\n    private ", buildStateStart + 10);
+  assert.ok(buildStateStart >= 0 && buildStateEnd > buildStateStart);
+  assert.match(extension.slice(buildStateStart, buildStateEnd), /this\.buildPlanRuntimeEvidenceState\(\)/);
   assert.doesNotMatch(extension, /activePlanRunEvidence\(this\.buildState\(\)/);
   assert.doesNotMatch(extension, /currentPlanRevisionHasRunEvidence\(this\.buildState\(\)/);
   const guard = loadExtensionGuard();
@@ -164,6 +194,45 @@ test("confirmed inactive operation does not block the selected Plan", () => {
   assert.equal(loadExtensionGuard()({ operations: { stale }, schedulerStates: [] }, planFile).active, false);
   assert.equal(loadPanelGuard()({ operations: [stale], schedulerStates: [] }, planFile).active, false);
   assert.equal(loadPanelGuard()({ operations: [{ ...stale, reconcileEvidenceActive: true }] }, planFile).active, true);
+});
+
+test("completed Plan outputs stay rerunnable while true active evidence keeps the hard guard", () => {
+  const planFile = "experiments/plans/comparison/concatenation.yaml";
+  const render = loadPlanRunActions();
+  const html = render({ operations: [], schedulerStates: [] }, planFile, true, undefined, undefined);
+  assert.match(html, /data-command="runPlan"/);
+  assert.doesNotMatch(html, /data-command="runPlan"[^>]*disabled/);
+  assert.doesNotMatch(html, /overwriteExistingToggle|data-overwrite-toggle/);
+
+  const guardSource = extractMethod(extension, "assertPlanNotAlreadyActive");
+  assert.ok(guardSource.indexOf("await this.reconcileStalePlanRunOperations") < guardSource.indexOf("activePlanRunEvidence"));
+  assert.doesNotMatch(guardSource, /force\s*=|force\s*\)/);
+  const guard = loadExtensionGuard();
+  const outputs = Array.from({ length: 6 }, (_, index) => ({ index, completed: true }));
+  assert.equal(outputs.length, 6);
+  assert.equal(guard({ operations: {}, schedulerStates: [] }, planFile).active, false);
+  assert.equal(guard({ operations: { active: { type: "run-plan", status: "running", planFile } } }, planFile).active, true);
+  assert.equal(guard({ operations: { stale: { type: "run-plan", status: "running", planFile, reconcileEvidenceActive: false } }, schedulerStates: [] }, planFile).active, false);
+});
+
+test("complete outputs cannot bypass a live guard, but reconciled inactive operations can proceed", async () => {
+  const planFile = "experiments/plans/comparison/concatenation.yaml";
+  const completeOutputs = Array.from({ length: 6 }, (_, index) => ({ index, completed: true }));
+  const guard = new Function("activePlanRunEvidence", "LocalApiError", "samePlanSelection", "operationResultPlanFile", "uniqueStrings", `
+    return ({ ${extractMethod(extension, "assertPlanNotAlreadyActive")} }).assertPlanNotAlreadyActive;
+  `)(loadExtensionGuard(), class LocalApiError extends Error { constructor(_code, message) { super(message); } }, samePlanSelection,
+    (row) => String((row || {}).planFile || row.plan || ""), (values) => [...new Set(values)]);
+  let state = { operations: { live: { type: "run-plan", status: "running", planFile } }, schedulerStates: [] };
+  const host = {
+    localPlanMetadata: { plans: [] },
+    async reconcileStalePlanRunOperations() {},
+    buildPlanRuntimeEvidenceState: () => state,
+    longRunningPlanRunOperations: () => Object.values(state.operations),
+  };
+  await assert.rejects(() => guard.call(host, planFile, { existingOutputs: completeOutputs }), /未结束的运行/);
+  state = { ...state, operations: { live: { ...state.operations.live, reconcileEvidenceActive: false } } };
+  host.reconcileStalePlanRunOperations = async () => {};
+  await assert.doesNotReject(() => guard.call(host, planFile, { existingOutputs: completeOutputs }));
 });
 
 test("selected Plan stays first in dropdown after switching", () => {

@@ -5520,7 +5520,8 @@ class RealtimeTunnelPanelProvider {
             this.reportPlanStage(message, "正在确认 SimpleSFTP 与提交信息…");
             if (!await this.ensureSimpleSftpReadyForSetup(command === "reproducePlan" ? "复现实验" : "运行计划"))
                 return;
-            await this.confirmPlanRunSubmission(command, plan, false, body);
+            if (command !== "runPlan")
+                await this.confirmPlanRunSubmission(command, plan, false, body);
             const planFileForProvenance = operationResultPlanFile(body) || plan?.planFile || plan?.file || "";
             body.gitProvenance = await this.recordRunGitProvenance(planFileForProvenance, String(body.planRevision || plan?.revision || ""), makeOpId(command));
             body.options = { ...(body.options || {}), gitProvenance: body.gitProvenance };
@@ -5961,23 +5962,40 @@ class RealtimeTunnelPanelProvider {
         if (!existing.length)
             return;
         const planFile = operationResultPlanFile(body) || plan?.planFile || plan?.file || "当前 Plan";
+        const jobs = Array.isArray(validation.jobs) ? validation.jobs : [];
+        const totalJobs = Math.max(0, Math.trunc(Number(validation.job_count) || jobs.length || existing.length));
+        const existingCount = Math.min(totalJobs || existing.length, new Set(existing.map((entry) => Number(entry.index)).filter(Number.isInteger)).size || existing.length);
+        const missingJobs = Math.max(0, totalJobs - existingCount);
+        const allJobsExist = totalJobs > 0 && existingCount >= totalJobs;
         const jobPaths = existing.map((entry) => String(entry.output_dir || "").trim()).filter(Boolean);
         if (jobPaths.length !== existing.length)
             throw new Error("当前 Plan 的历史产物路径不完整；未提交运行。");
-        const resultPaths = uniqueStrings((validation.jobs || []).map((entry) => String(entry.result_csv || "").trim()).filter(Boolean));
+        const resultPaths = uniqueStrings(jobs.map((entry) => String(entry.result_csv || "").trim()).filter(Boolean));
+        const rerunLabel = `重跑全部（${totalJobs}）`;
+        const keepLabel = allJobsExist ? "保留现有结果，不运行" : "取消";
+        const skipLabel = `仅补跑缺失任务（${missingJobs}）`;
         const detail = [
             `Plan：${planFile}`,
-            `已有产物的任务：${existing.length}/${validation.job_count || validation.jobs?.length || "?"}`,
-            "覆盖范围仅为以下当前 Plan 的任务输出目录：",
+            `总 job 数：${totalJobs}`,
+            `已有产物：${existingCount}`,
+            `缺失 job：${missingJobs}`,
+            `本次影响范围仅限当前 Plan：${planFile}。`,
+            ...(allJobsExist ? [`已有产物 ${existingCount}/${totalJobs}，当前 Plan 已完整完成。`] : []),
+            "涉及的当前 Plan 任务输出目录：",
             ...jobPaths.map((value) => `- ${value}`),
             `结果表：${resultPaths.join("、") || "按 Plan 配置"}（只由本 Plan 任务写入对应结果行）`,
-            versionedAttempts ? "重新运行将创建新的 attempt 目录并保留历史产物；跳过已有只派发缺失任务。" : "覆盖将重训当前 Plan 的所有任务；其他 Plan 的任务目录不在范围内。",
+            versionedAttempts
+                ? `重跑全部将创建新的 attempt 目录并保留历史产物；仅补跑缺失任务只派发 ${missingJobs} 个缺失 job。`
+                : `仅补跑缺失任务将按 scheduler 默认语义跳过已有输出；重跑全部将按 scheduler 现有 overwriteExisting/--overwrite 语义重训当前 Plan 的全部任务并覆盖当前输出。`,
         ].join("\n");
-        const rerunLabel = versionedAttempts ? "重跑全部并保留历史" : "覆盖并重训当前 Plan";
-        const pick = await vscode.window.showWarningMessage(detail, { modal: true }, rerunLabel, "跳过已有", "取消");
-        if (!pick || pick === "取消")
+        const pick = allJobsExist
+            ? await vscode.window.showWarningMessage(detail, { modal: true }, `强制${rerunLabel}`, keepLabel)
+            : await vscode.window.showWarningMessage(detail, { modal: true }, skipLabel, rerunLabel, keepLabel);
+        if (!pick || pick === "取消" || pick === keepLabel)
             throw new UiCommandCancelled("已取消：未选择当前 Plan 历史产物处理方式。");
-        const overwrite = pick === rerunLabel;
+        const overwrite = pick === rerunLabel || pick === `强制${rerunLabel}`;
+        if (!overwrite && pick !== skipLabel)
+            throw new UiCommandCancelled("已取消：未选择当前 Plan 历史产物处理方式。");
         body.options = { ...(body.options || {}), overwriteExisting: overwrite, overwrite };
         body.overwriteExisting = overwrite;
         body.overwrite = overwrite;

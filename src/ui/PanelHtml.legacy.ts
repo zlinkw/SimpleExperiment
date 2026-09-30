@@ -1387,7 +1387,7 @@ export function renderPanelHtml(): string {
           <div class="planQuickActions">
           <button data-command="validatePlan" title="校验实验计划，不会运行任务&#10;检查契约、输出接口与配置完整性&#10;未通过时列出缺失项与修复建议">校验</button>
           <button data-command="dryRunPlan" class="secondary" title="预演运行，不提交任务&#10;展开「用例 × 随机种子」的任务数、远端路径、Worker 与并发上限">预演</button>
-          <button data-command="runPlan" data-confirm="true" title="校验并提交运行&#10;先同步代码到参与服务器，再校验与预演，通过后提交后台调度&#10;提交前会弹出确认窗口核对远端路径、任务数、模式与 Worker">校验并提交运行</button>
+          <button data-command="runPlan" title="同步代码、校验并预演；存在历史产物时选择补跑缺失任务、重跑全部或取消">校验并提交运行</button>
           <button data-command="runAllPlans" data-confirm="true" class="secondary" title="按顺序提交当前实验计划目录下的全部计划&#10;每个计划仍会走完整的校验与预演门禁">运行全部计划</button>
           </div>
         </div>
@@ -7478,7 +7478,7 @@ export function renderPanelHtml(): string {
         servers: [["保存策略", "saveSchedulerConfig", { configScope: "scheduler" }], ["部署Agent", "prepareAgents"], ["启动全部隧道", "startAll"], ["检测全部", "testAll"]],
         settings: [["保存策略", "saveSchedulerConfig", { configScope: "scheduler" }], ["部署Agent", "prepareAgents"], ["启动全部隧道", "startAll"], ["检测全部", "testAll"]],
         gpu: [["刷新", "snapshot"], ["检测全部", "testAll"]],
-        plans: [["单独校验", "validatePlan"], ["单独预演", "dryRunPlan"], ["校验并提交运行", "runPlan", { confirm: true }], ["运行全部计划", "runAllPlans", { confirm: true }], ["归档计划", "archivePlan", { confirm: true }], ["生成接入模板", "generateOutputAdapter"]],
+        plans: [["单独校验", "validatePlan"], ["单独预演", "dryRunPlan"], ["校验并提交运行", "runPlan"], ["运行全部计划", "runAllPlans", { confirm: true }], ["归档计划", "archivePlan", { confirm: true }], ["生成接入模板", "generateOutputAdapter"]],
         execution: [["重试", "retryExperiment", { confirm: true, batch: true }], ["运行自检", "selfCheck"], ["调试包", "createDebugBundle"], ["清空历史", "clearOperations"], ["刷新运行状态", "snapshot"]],
         results: [["解析结果", "parseResults"], ["刷新结果", "refreshResults"], ["检查输出契约", "checkOutputContract"], ["反推配置", "inferConfigFromRun"], ["恢复 Plan", "recoverPlanFromRun"], ["异常诊断", "diagnoseResultAnomaly"], ["对比最优配置", "compareWithBestConfig"], ["数据集画像", "inspectDataset"], ["检查点清理预案", "planCheckpointRetention"], ["样本级解析", "parseCaseLevel"], ["泄漏检查", "runLeakageCheck"], ["子组分析", "runSubgroupAnalysis"], ["导出样本级分析", "exportCaseAnalysis"], ["运行质量门禁", "runQualityGate"], ["运行统计", "runStatistics"], ["检查论文证据", "checkClaimEvidence"], ["导出论文表格", "exportPaperTable"], ["PPT 绘图契约", "exportPlottingContract"], ["绘图到 PPT", "plotResultsToPpt"]],
         sync: [["保存策略", "saveSchedulerConfig", { configScope: "scheduler" }], ["部署Agent", "prepareAgents"], ["启动全部隧道", "startAll"], ["发布到git并上传worker", "publishGithub", { confirm: true }], ["检测全部", "testAll"], ["同步到 GitHub", "syncGithub", { confirm: true }], ["从 GitHub 覆盖本机", "overwriteGithub", { danger: true }], ["首次上传到 Hub", "uploadProjectToHub", { confirm: true }], ["首次上传到 Worker", "uploadProjectToWorkers", { confirm: true }], ["分发代码到所有 Worker", "distributeCodeToWorkers", { confirm: true }], ["部署最新版 Agent 到全部服务器", "deployLatestAgent", { confirm: true }], ["项目同步范围与状态", "configureCodeSyncIncludes"]],
@@ -9792,14 +9792,14 @@ export function renderPanelHtml(): string {
           : (historicalOnly ? "旧 revision 的 " : "") + activity.operationCount + " 个运行提交仍未结束";
         return '<div class="planRunActions"><button class="mini" type="button" data-section-target="' + target + '" data-anchor-target="' + anchor + '" title="跳转到运行进度，查看重复提交的运行" aria-label="跳转到运行进度，查看重复提交的运行">' + label + '</button><span class="muted">' + esc(summary) + (historicalOnly ? "；为保护旧任务，当前版本暂不能提交。" : "，已阻止重复提交。") + '</span></div>';
       }
-      return '<div class="planRunActions"><button class="mini" data-command="runPlan" data-plan-file="' + escAttr(selectedPlan) + '" data-confirm="true" title="同步代码、校验并预演，全部通过后提交调度">校验并提交运行</button><button class="mini secondary" data-command="validatePlan" data-plan-file="' + escAttr(selectedPlan) + '" title="校验实验计划，不会运行任务&#10;检查契约、输出接口与配置完整性&#10;未通过时列出缺失项与修复建议">单独校验</button><button class="mini secondary" data-command="dryRunPlan" data-plan-file="' + escAttr(selectedPlan) + '" title="预演运行，不提交任务&#10;展开「用例 × 随机种子」的任务数、远端路径、Worker 与并发上限">单独预演</button><label class="muted" style="display:flex;align-items:center;gap:4px;margin-left:8px;font-size:12px;" title="勾选后提交时带 --overwrite 覆盖已有产物（metrics_summary.csv / checkpoint / train.log 等），不勾选则自动跳过已完成任务；GPU 调度不受历史产物影响"><input type="checkbox" id="overwriteExistingToggle" data-overwrite-toggle="true" /> 覆盖已有产物</label><span class="muted" style="font-size:11px;margin-left:6px;" title="调度前会检测输出目录已有产物并弹窗确认覆盖/跳过">调度前检测已有产物时弹窗确认</span></div>';
+      return '<div class="planRunActions"><button class="mini" data-command="runPlan" data-plan-file="' + escAttr(selectedPlan) + '" title="同步代码、校验并预演；存在历史产物时必须在模态框选择处理方式">校验并提交运行</button><button class="mini secondary" data-command="validatePlan" data-plan-file="' + escAttr(selectedPlan) + '" title="校验实验计划，不会运行任务&#10;检查契约、输出接口与配置完整性&#10;未通过时列出缺失项与修复建议">单独校验</button><button class="mini secondary" data-command="dryRunPlan" data-plan-file="' + escAttr(selectedPlan) + '" title="预演运行，不提交任务&#10;展开「用例 × 随机种子」的任务数、远端路径、Worker 与并发上限">单独预演</button><span class="muted" style="font-size:11px;margin-left:6px;" title="调度前会检测输出目录已有产物并由模态框确认补跑或重跑">检测到已有产物时先确认处理方式</span></div>';
     }
 
     function renderProjectFirstRunActions(show, planFile) {
       if (!show || !planFile) return "";
       const planAttr = ' data-plan-file="' + escAttr(planFile) + '"';
       return '<div class="projectQuickNext firstRunActions"><span>首次运行</span><b>当前 Plan revision 尚无运行证据</b><div class="projectQuickActions">' +
-        '<button class="mini" data-command="runPlan" data-confirm="true"' + planAttr + ' title="同步、校验并预演后提交完整实验计划">校验并提交运行</button>' +
+        '<button class="mini" data-command="runPlan"' + planAttr + ' title="同步、校验并预演；已有产物时通过模态框选择处理方式">校验并提交运行</button>' +
       '</div></div>';
     }
 
@@ -16205,16 +16205,6 @@ export function renderPanelHtml(): string {
       if (button.dataset.session) payload.session = button.dataset.session;
       if (button.dataset.window) payload.window = button.dataset.window;
       if (command === "selectLogRunKey") payload.runKey = button.dataset.runKey;
-      if (command === "runPlan" || command === "reproducePlan" || command === "runAllPlans") {
-        const toggle = document.getElementById("overwriteExistingToggle") || document.querySelector('[data-overwrite-toggle="true"]');
-        if (toggle && toggle.checked) {
-          payload.overwriteExisting = true;
-          payload.overwrite = true;
-          payload.options = payload.options || {};
-          payload.options.overwriteExisting = true;
-          payload.options.overwrite = true;
-        }
-      }
       return payload;
     }
 

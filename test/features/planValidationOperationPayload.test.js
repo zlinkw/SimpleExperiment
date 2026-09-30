@@ -38,10 +38,11 @@ function completedOperation(shape = "payload", validationOverrides = {}) {
   return { ...operation, payload, latestEvent: { type: "operation_completed", payload } };
 }
 
-function hostFor(operation, accepted = true) {
+function hostFor(operation, accepted = true, outputChoice) {
   const notices = [];
+  const dialogs = [];
   const context = {
-    DistributedPlanQueue, ProgressInactivity, Date, Set, Map,
+    DistributedPlanQueue, DistributedSchedulingPolicy: { schedulingMode: (value) => value || "all" }, ProgressInactivity, Date, Set, Map,
     OPERATION_TERMINAL_STATUSES: new Set(["completed", "operation_completed", "completed_with_errors", "failed", "operation_failed", "cancelled", "canceled", "stalled", "unsupported", "error"]),
     REMOTE_ACTION_PENDING_STATUSES: new Set(["accepted", "submitted", "queued", "pending", "running", "progress", "in_progress", "operation_started"]),
     LONG_RUNNING_OPERATION_ACTIONS: new Set(["run-plan", "reproduce-plan"]),
@@ -50,11 +51,12 @@ function hostFor(operation, accepted = true) {
     sleep: async () => {},
     actionErrorSuggestion: (message) => message,
     errorMessage: (error) => String(error.message || error),
+    UiCommandCancelled: class UiCommandCancelled extends Error { constructor(message) { super(message); this.name = "UiCommandCancelled"; } },
     isUiCommandCancelled: (error) => error.name === "UiCommandCancelled",
     isUiCommandRemotePending: () => false,
     actionAffectsResultsSummary: () => false,
     vscode: { window: {
-      showWarningMessage: async (message, _options, ...choices) => { notices.push(message); return choices.includes("跳过已有") ? "跳过已有" : undefined; },
+      showWarningMessage: async (message, _options, ...choices) => { notices.push(message); dialogs.push(choices); return choices.includes(outputChoice) ? outputChoice : choices[0]; },
       showInformationMessage: async (message) => { notices.push(message); },
     } },
     uniqueStrings: (values) => [...new Set(values)],
@@ -92,7 +94,7 @@ function hostFor(operation, accepted = true) {
     localWorkerAvailabilityRows: () => [{ workerId: "nwpu3", availableGpuIds: [0, 1, 2, 3, 4, 5], capacityLimit: 6 }],
     recordActionError: (error) => host.errors.push(error),
   });
-  return { host, notices, accepted: context.accepted };
+  return { host, notices, dialogs, accepted: context.accepted };
 }
 
 for (const shape of ["payload", "latestEvent", "direct", "result"]) {
@@ -125,6 +127,77 @@ test("a synchronous wrapped completion is also usable without polling", async ()
   const checked = await host.runPlanPreflight({ planFile, planRevision: revision }, "当前计划");
   assert.equal(checked.distributedPreview.totalJobs, 6);
   assert.equal(host.reads.length, 0);
+});
+
+test("partial historical outputs let the user enqueue only missing jobs", async () => {
+  const existing = jobs.slice(0, 4).map(({ index, output_dir }) => ({ index, output_dir }));
+  const { host, notices, dialogs } = hostFor(completedOperation("latestEvent", { existing }), true, "仅补跑缺失任务（2）");
+  const body = { planFile, planRevision: revision, options: {} };
+  const checked = await host.runPlanPreflight(body, "当前计划");
+  await host.confirmDistributedPlanExistingOutputs({}, body, checked);
+  assert.deepEqual(Array.from(body.distributedSkipJobIndices), [0, 1, 2, 3]);
+  assert.equal(body.overwriteExisting, false);
+  assert.match(notices[0], /总 job 数：6/);
+  assert.match(notices[0], /已有产物：4/);
+  assert.match(notices[0], /缺失 job：2/);
+  assert.deepEqual(Array.from(dialogs[0]), ["仅补跑缺失任务（2）", "重跑全部（6）", "取消"]);
+  await host.enqueueDistributedPlan(body, checked, true);
+  assert.deepEqual(Array.from(host.queue.plans[0].jobs, (job) => job.index), [4, 5]);
+  assert.ok(host.queue.plans[0].jobs.every((job) => job.outputDir.endsWith("/attempts/distributed-plan-fixture")));
+});
+
+test("partial historical outputs let the user force all jobs into new attempts", async () => {
+  const existing = jobs.slice(0, 4).map(({ index, output_dir }) => ({ index, output_dir }));
+  const { host } = hostFor(completedOperation("latestEvent", { existing }), true, "重跑全部（6）");
+  const body = { planFile, planRevision: revision, options: {} };
+  const checked = await host.runPlanPreflight(body, "当前计划");
+  await host.confirmDistributedPlanExistingOutputs({}, body, checked);
+  assert.equal(body.overwriteExisting, true);
+  assert.deepEqual(Array.from(body.distributedSkipJobIndices), []);
+  await host.enqueueDistributedPlan(body, checked, true);
+  assert.deepEqual(Array.from(host.queue.plans[0].jobs, (job) => job.index), [0, 1, 2, 3, 4, 5]);
+  assert.equal(host.queue.plans[0].overwriteExisting, true);
+  assert.ok(host.queue.plans[0].jobs.every((job) => job.outputDir.endsWith("/attempts/distributed-plan-fixture")));
+});
+
+test("complete historical outputs still offer explicit rerun and preserve history", async () => {
+  const existing = jobs.map(({ index, output_dir }) => ({ index, output_dir }));
+  const prior = { id: "prior", planFile, revision, codeFingerprint: "old", enqueuedAt: "2026-01-01", jobs: jobs.map((job) => ({
+    index: job.index, case: job.case, seed: job.seed, outputDir: `${job.output_dir}/attempts/prior`, attempt: 1, status: "completed",
+  })) };
+  const { host, notices, dialogs } = hostFor(completedOperation("latestEvent", { existing }), true, "重跑全部（6）");
+  host.queue.plans.push(prior);
+  const body = { planFile, planRevision: revision, options: {} };
+  const checked = await host.runPlanPreflight(body, "当前计划");
+  await host.confirmDistributedPlanExistingOutputs({}, body, checked);
+  assert.match(notices[0], /已有产物 6\/6，当前 Plan 已完整完成/);
+  assert.deepEqual(Array.from(dialogs[0]), ["强制重跑全部（6）", "保留现有结果，不运行"]);
+  assert.equal(body.overwriteExisting, true);
+  assert.deepEqual(Array.from(body.distributedSkipJobIndices), []);
+  await host.enqueueDistributedPlan(body, checked, true);
+  assert.equal(host.queue.plans.length, 2);
+  assert.equal(host.queue.plans[0].id, "prior");
+  assert.deepEqual(Array.from(host.queue.plans[1].jobs, (job) => job.index), [0, 1, 2, 3, 4, 5]);
+  assert.ok(host.queue.plans[1].jobs.every((job) => /\/attempts\/distributed-plan-fixture$/.test(job.outputDir)));
+});
+
+test("complete historical outputs can be retained without submitting jobs", async () => {
+  const existing = jobs.map(({ index, output_dir }) => ({ index, output_dir }));
+  const { host, dialogs } = hostFor(completedOperation("latestEvent", { existing }), true, "保留现有结果，不运行");
+  const body = { planFile, planRevision: revision, options: {} };
+  const checked = await host.runPlanPreflight(body, "当前计划");
+  await assert.rejects(() => host.confirmDistributedPlanExistingOutputs({}, body, checked), /未选择当前 Plan 历史产物处理方式/);
+  assert.deepEqual(Array.from(dialogs[0]), ["强制重跑全部（6）", "保留现有结果，不运行"]);
+  assert.equal(host.queue.plans.length, 0);
+});
+
+test("single-worker partial and complete outputs use the same explicit choice model", async () => {
+  const partial = jobs.slice(0, 4).map(({ index, output_dir }) => ({ index, output_dir }));
+  const { host, dialogs } = hostFor(completedOperation("payload", { existing: partial }), true, "重跑全部（6）");
+  const body = { planFile, options: {} };
+  await host.confirmPlanExistingOutputs({}, body, completedOperation("payload", { existing: partial }));
+  assert.equal(body.overwriteExisting, true);
+  assert.deepEqual(Array.from(dialogs[0]), ["仅补跑缺失任务（2）", "重跑全部（6）", "取消"]);
 });
 
 test("wrapped historical outputs preserve the user's skip choice through enqueue", async () => {
