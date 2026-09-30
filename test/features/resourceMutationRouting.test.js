@@ -20,7 +20,7 @@ test('cross-window queue writes merge fresh disk state and reject duplicate Plan
   assert.equal(JSON.parse(await fs.readFile(file,'utf8')).plans.length,2);
   await assert.rejects(a.saveDistributedQueue('D:/project',a.distributedQueueCache),/另一窗口已更新/);
 });
-test('preflight and stop bypass locks; actual launch names its Worker, Plan and output directory',async()=>{
+test('preflight bypasses locks; start and stop lock only their output directory',async()=>{
   const context={path,workspaceRoot:()=> 'D:/project',operationResultPlanFile:body=>body.planFile};vm.createContext(context);
   vm.runInContext('this.operations={'+methods('async withRemoteActionResource(workerId, action, body, work)','async postTunnelAction(')+'};',context);
   let calls=0,record;
@@ -30,5 +30,19 @@ test('preflight and stop bypass locks; actual launch names its Worker, Plan and 
   assert.equal(calls,0);
   await host.withRemoteActionResource('worker','start-worker-task',{planFile:'plans/a.yaml',outputDir:'work/a'},async()=>42);
   assert.equal(record.resources[0].server,'example.com:2222');
-  assert.equal(record.resources[0].target,'/remote/project/plans/a.yaml');assert.equal(record.resources[1].target,'/remote/project/work/a');
+  assert.equal(record.resources.length,1);assert.equal(record.resources[0].target,'/remote/project/work/a');
+  const leaseRoot=await fs.mkdtemp(path.join(os.tmpdir(),'launch-resource-lease-'));
+  const manager=id=>new HostOperationLeaseManager({leasePath:path.join(leaseRoot,'lease.json'),windowId:id,heartbeatMs:0});
+  const left=manager('left'),right=manager('right');
+  const resourceHost=manager=>({...host,hostOperationLease:manager});
+  let release;
+  const held=new Promise(resolve=>{release=resolve;});
+  let entered=0;
+  const first=resourceHost(left).withRemoteActionResource('worker','start-worker-task',{planFile:'plans/a.yaml',outputDir:'work/a'},async()=>{entered++;await held;});
+  await new Promise(setImmediate);
+  const second=resourceHost(right).withRemoteActionResource('worker','start-worker-task',{planFile:'plans/a.yaml',outputDir:'work/b'},async()=>{entered++;});
+  await second;assert.equal(entered,2,'same Plan with distinct outputs must start concurrently');
+  await assert.rejects(resourceHost(right).withRemoteActionResource('worker','start-worker-task',{planFile:'plans/a.yaml',outputDir:'work/a'},async()=>{}),/正在由另一个操作修改/);
+  await assert.rejects(resourceHost(right).withRemoteActionResource('worker','stop-worker-task',{planFile:'plans/a.yaml',outputDir:'work/a'},async()=>{}),/正在由另一个操作修改/);
+  release();await first;
 });

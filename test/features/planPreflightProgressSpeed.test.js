@@ -70,6 +70,10 @@ function syncHost(remote) {
     localCodeManifestMemo: undefined,
     lastCodeSyncState: {},
     lastCodeSyncStats: {},
+    codeSyncWarmProofs: new Map(),
+    pendingPlanSubmissionManifest: undefined,
+    lastWorkerProbes: { "worker-a": { status: "ok", agentVersion: "agent-1" } },
+    lastFullEndpointProbeAt: Date.now(),
     context: { globalStorageUri: { fsPath: fs.mkdtempSync(path.join(os.tmpdir(), "plan-sync-holds-")) } },
     stages: [],
     inventories: [],
@@ -88,6 +92,9 @@ function syncHost(remote) {
   host.postState = () => {};
   host.markProjectOnboardingComplete = async () => {};
   host.sftpServerOptions = (target) => ({ id: target.id, host: target.host, user: target.user, port: target.port, remotePath: target.remotePath });
+  host.codeSyncWarmProofKey = (target, root, fingerprint, includePaths, scopePaths) => JSON.stringify({ target: target.id, root, remotePath: target.remotePath, fingerprint, includePaths, scopePaths });
+  host.planSubmissionManifestKey = (root, includePaths, scopePaths, holds) => JSON.stringify({ root, includePaths, scopePaths, holds });
+  host.rememberCodeSyncWarmProof = (key) => host.codeSyncWarmProofs.set(key, Date.now() + 300000);
   host.verifiedSftpProjectInventory = async (request) => {
     host.inventories.push(request);
     return typeof remote === "function" ? remote(request, host.inventories.length) : remote;
@@ -112,7 +119,7 @@ function syncHost(remote) {
   return host;
 }
 
-test("warm unchanged reuses stat hashes, skips the cache rewrite, and still reads the remote inventory", async () => {
+test("warm unchanged reuses stat hashes and Extension Host proof skips repeat remote inventory", async () => {
   const host = syncHost({
     files: { "src/train.py": { size: 4, sha256: crypto.createHash("sha256").update("same").digest("hex") } },
   });
@@ -123,14 +130,29 @@ test("warm unchanged reuses stat hashes, skips the cache rewrite, and still read
   assert.equal(host.inventories.length, 1);
   host.stages.length = 0;
   await host.syncCodeTargets([host.target], "plan-check", { projectContext: { root: host.project }, hashCompare: true, progressReport: (text) => host.stages.push(text) });
-  assert.equal(host.inventories.length, 2);
-  assert.equal(host.inventories[1].knownGeneration, undefined);
+  assert.equal(host.inventories.length, 1);
   assert.equal(host.lastCodeSyncStats.hashed, 0);
   assert.ok(host.lastCodeSyncStats.hashReused >= 1);
   assert.equal(host.lastCodeSyncStats.cacheWriteSkipped, 1);
   assert.equal(host.uploads.length, 0);
   assert.match(host.stages.join("\n"), /缓存未改写/);
-  assert.match(host.stages.join("\n"), /远端清单请求 1 次/);
+  assert.match(host.stages.join("\n"), /跳过递归清单/);
+  await host.syncCodeTargets([{ ...host.target, remotePath: "/work/other" }], "plan-check", { projectContext: { root: host.project }, hashCompare: true });
+  assert.equal(host.inventories.length, 2, "remote path changes invalidate the warm proof");
+  host.lastFullEndpointProbeAt = 0;
+  await host.syncCodeTargets([host.target], "plan-check", { projectContext: { root: host.project }, hashCompare: true });
+  assert.equal(host.inventories.length, 3, "stale Worker probe cannot authorize a warm skip");
+});
+
+test("run code sync consumes the current Plan submission manifest once", async () => {
+  const digest = crypto.createHash("sha256").update("same").digest("hex");
+  const host = syncHost({ files: { "src/train.py": { size: 4, sha256: digest } } });
+  const manifest = { "src/train.py": { size: 4, sha256: digest } };
+  host.pendingPlanSubmissionManifest = { key: host.planSubmissionManifestKey(host.project, ["src"], undefined, {}),
+    manifest, stats: { hashed: 0, reused: 1, cacheWriteSkipped: 1 }, fingerprint: "submission-fingerprint", expiresAt: Date.now() + 5000 };
+  await host.syncCodeTargets([host.target], "run", { projectContext: { root: host.project }, hashCompare: true });
+  assert.equal(host.pendingPlanSubmissionManifest, undefined, "a matching one-run manifest is consumed");
+  assert.equal(host.lastCodeSyncStats.hashReused, 1);
 });
 
 test("a changed file is hashed and uploaded, and a new file is not hidden by the previous listing", async () => {
@@ -157,6 +179,7 @@ test("a remote inventory failure does not upload and the next check reads invent
   const digest = crypto.createHash("sha256").update("same").digest("hex");
   const host = syncHost({ files: { "src/train.py": { size: 4, sha256: digest } } });
   await host.syncCodeTargets([host.target], "plan-check", { projectContext: { root: host.project }, hashCompare: true });
+  host.codeSyncWarmProofs.clear();
   host.verifiedSftpProjectInventory = async () => { throw new Error("inventory down"); };
   await assert.rejects(() => host.syncCodeTargets([host.target], "plan-check", { projectContext: { root: host.project }, hashCompare: true }), /inventory down/);
   assert.equal(host.uploads.length, 0);

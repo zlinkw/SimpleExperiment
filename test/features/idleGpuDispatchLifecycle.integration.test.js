@@ -34,11 +34,13 @@ test('G1 actual host tick only dispatches idle NWPU3, persists identity before R
   p.enabledWorkerConfigs=()=>[{id:'nwpu3',workerUser:'alice'},{id:'nwpu5',workerUser:'alice'}];
   p.schedulerSettings=()=>({gpuIdleUtilThreshold:5,gpuIdleMemThresholdMb:200});p.gpuOwnerConfig=()=>({currentUser:'alice'});
   p.recordActionError=()=>{};p.postState=()=>{};p.scheduleDistributedPostprocess=()=>{};
+  let manifestBuilds=0;p.buildDistributedJobCodeManifest=async()=>{manifestBuilds++;return {};};
   p.readWorkerTaskSnapshot=async workerId=>({workerId,generatedAt:new Date().toISOString(),fetchedAt:new Date().toISOString(),
     capabilities:{durablePlanQueue:true,idleGpuAdmission:true,schemaVersion:1},tasks:[]});
-  p.readWorkerTaskSnapshotBatch=async workerIds=>Promise.all(workerIds.map(p.readWorkerTaskSnapshot));
-  p.client={getGpu:async()=>({nwpu3:[{index:'0',utilizationPercent:0,memoryUsedMb:7,processes:[]}],
-    nwpu5:[{index:'0',utilizationPercent:99,memoryUsedMb:5000,processes:[{username:'alice'}]}]})};
+  let releaseSnapshots;const snapshotGate=new Promise(resolve=>{releaseSnapshots=resolve;});let gpuReadStarted=false;
+  p.readWorkerTaskSnapshotBatch=async workerIds=>{await snapshotGate;return Promise.all(workerIds.map(p.readWorkerTaskSnapshot));};
+  p.client={getGpu:async()=>{gpuReadStarted=true;return {nwpu3:[{index:'0',utilizationPercent:0,memoryUsedMb:7,processes:[]}],
+    nwpu5:[{index:'0',utilizationPercent:99,memoryUsedMb:5000,processes:[{username:'alice'}]}]};}};
   let stored;let calls=[];
   p.loadDistributedQueue=async()=>JSON.parse(JSON.stringify(stored));
   p.saveDistributedQueue=async(_root,value)=>{stored=JSON.parse(JSON.stringify(value));};
@@ -52,8 +54,12 @@ test('G1 actual host tick only dispatches idle NWPU3, persists identity before R
   const make=mode=>DistributedPlanQueue.enqueuePlan(DistributedPlanQueue.emptyDistributedQueue(),{
     projectId:DistributedPlanQueue.canonicalProjectId(root),schedulingMode:mode,planFile:'p.yaml',revision:'r',codeFingerprint:'f',
     jobs:[0,1].map(index=>({index,case:'bus',seed:index,outputDir:`runs/${index}`}))},'p');
-  stored=make('local_idle');await p.tickDistributedQueueCore();
-  assert.equal(calls.length,1,'G1 busy NWPU5 must receive no default dispatch');assert.equal(calls[0].workerId,'nwpu3');assert.equal(calls[0].gpuId,'0');
+  stored=make('local_idle');const initialTick=p.tickDistributedQueueCore();
+  for(let attempt=0;attempt<10&&!gpuReadStarted;attempt++)await new Promise(setImmediate);
+  assert.equal(gpuReadStarted,true,'GPU and task snapshots must start in the same initial dispatch window');
+  releaseSnapshots();await initialTick;
+  assert.equal(manifestBuilds,1,'all jobs in one Plan dispatch share a single local manifest build');
+  assert.equal(calls.length,1,`G1 busy NWPU5 must receive no default dispatch; queue=${JSON.stringify(stored)}`);assert.equal(calls[0].workerId,'nwpu3');assert.equal(calls[0].gpuId,'0');
   assert.equal(stored.plans[0].jobs[1].workerId,undefined);
   stored=make('server_prequeue');calls=[];
   const send = p.sendDistributedJob;
@@ -71,10 +77,11 @@ test('G1 actual host tick only dispatches idle NWPU3, persists identity before R
   } finally { releaseFirst(); }
   await dispatching;
   assert.equal(calls.length,2);assert.deepEqual(calls.map(row=>row.workerId).sort(),['nwpu3','nwpu5']);
+  assert.equal(manifestBuilds,2,'the second Plan tick also builds only one shared manifest');
   assert.ok(calls.every(row=>row.gpuId===undefined));assert.ok(stored.plans[0].jobs.every(row=>row.status==='queued'));
 });
 test('G1 actual RPC envelope distinguishes local GPU admission from durable hosted prequeue', async () => {
-  const Provider=provider(['sendDistributedJob'], {vscode:{workspace:{getConfiguration:()=>({get:(_key,value)=>value})},Uri:{file:value=>value}},
+  const Provider=provider(['buildDistributedJobCodeManifest','sendDistributedJob'], {vscode:{workspace:{getConfiguration:()=>({get:(_key,value)=>value})},Uri:{file:value=>value}},
     loadSyncHolds:async()=>[],buildLocalCodeManifest:async()=>({}),filterHeldFiles:manifest=>manifest,fingerprintFromManifest:()=> 'f'});
   const p=new Provider();p.distributedQueueGeneration=0;p.distributedPlanStopEpoch=0;
   p.context={globalStorageUri:{fsPath:'cache'}};p.localCodeManifestCacheFile=()=> 'cache';

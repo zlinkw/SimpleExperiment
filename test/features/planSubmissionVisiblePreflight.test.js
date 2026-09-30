@@ -4,6 +4,7 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 const ts = require("typescript");
+const crypto = require("node:crypto");
 
 const root = path.resolve(__dirname, "..", "..");
 const extension = fs.readFileSync(path.join(root, "src/extension/legacy.ts"), "utf8");
@@ -43,7 +44,7 @@ function functionSource(name) {
   throw new Error(`unclosed ${name}`);
 }
 
-const production = new Function("DistributedPlanQueue", "fs", "path", "workspaceRoot", "actionErrorSuggestion", "UiCommandCancelled", `
+const production = new Function("DistributedPlanQueue", "fs", "path", "crypto", "workspaceRoot", "pluginProjectAdapterRules", "actionErrorSuggestion", "UiCommandCancelled", `
   function stringField(message, key) { return String((message && message[key]) || ""); }
   function operationResultPlanFile(body) { return String((body && (body.planFile || body.selectedPlanId || (body.options && body.options.planFile))) || ""); }
   let opSeq = 0;
@@ -67,9 +68,12 @@ const production = new Function("DistributedPlanQueue", "fs", "path", "workspace
     deferDistributedPlan: ${method("deferDistributedPlan").replace("async deferDistributedPlan", "async function")},
     supersedeDeferredPlan: ${method("supersedeDeferredPlan").replace("async supersedeDeferredPlan", "async function")},
     finishDistributedPlanSubmission: ${method("finishDistributedPlanSubmission").replace("async finishDistributedPlanSubmission", "async function")},
+    planValidationCacheKey: ${method("planValidationCacheKey").replace("planValidationCacheKey", "function")},
+    cachedPlanValidation: ${method("cachedPlanValidation").replace("cachedPlanValidation", "function")},
+    rememberPlanValidation: ${method("rememberPlanValidation").replace("rememberPlanValidation", "function")},
     activeDeferredForSubmission: ${method("activeDeferredForSubmission").replace("async activeDeferredForSubmission", "async function")},
   };
-`)(DistributedPlanQueue, fs, path, () => root, (message) => String(message || ""), class UiCommandCancelled extends Error {
+`)(DistributedPlanQueue, fs, path, crypto, () => root, () => ({ planDatasetMapping: {}, csvColumnMapping: {} }), (message) => String(message || ""), class UiCommandCancelled extends Error {
   constructor(message) { super(message); this.name = "UiCommandCancelled"; }
 });
 
@@ -82,6 +86,11 @@ function provider() {
   host.distributedQueueCache = { schemaVersion: 1, plans: [], deferred: [] };
   host.distributedQueueRoot = root;
   host.lastCodeSyncState = { fingerprint: "new-code", workerVersions: { w1: { fingerprint: "old-code" } } };
+  host.lastWorkerProbes = { w1: { status: "ok", agentVersion: "agent-1" } };
+  host.planValidationCache = new Map();
+  host.planValidationCacheTtlMs = 120000;
+  host.planValidationCacheMaxEntries = 32;
+  host.projectTopologyAssessment = () => ({ mode: "worker_pool", hubAllowed: false });
   host.distributedPostprocessPromise = undefined;
   host.posts = [];
   host.stages = [];
@@ -436,6 +445,26 @@ test("direct submission confirms once and enqueues once", async () => {
   await host.confirmDistributedPlanExistingOutputs({}, body, checked);
   await host.enqueueDistributedPlan(body, checked);
   assert.deepEqual(host.calls, ["sync", "preflight", "confirm", "enqueue:[0]"]);
+});
+
+test("successful Plan validation cache is bounded, cloned, and keyed by all execution identities", () => {
+  const host = provider();
+  const body = { planFile: drf, planRevision: "rev-drf", options: {} };
+  const key = host.planValidationCacheKey(body, "w1");
+  assert.ok(key);
+  const result = { ok: true, status: "completed", validation: { jobs: [{ index: 0 }], existing: [], extra: "kept" } };
+  host.rememberPlanValidation(key, result);
+  const hit = host.cachedPlanValidation(key);
+  assert.deepEqual(hit.validation.jobs, [{ index: 0 }]);
+  assert.equal(hit.validation.extra, "kept");
+  hit.validation.jobs.push({ index: 1 });
+  assert.equal(host.cachedPlanValidation(key).validation.jobs.length, 1, "callers cannot mutate the cached payload");
+  assert.notEqual(host.planValidationCacheKey({ ...body, planRevision: "rev-next" }, "w1"), key);
+  host.lastCodeSyncState.fingerprint = "other-code";
+  assert.notEqual(host.planValidationCacheKey(body, "w1"), key);
+  host.planValidationCacheMaxEntries = 1;
+  host.rememberPlanValidation("second", { ok: true });
+  assert.equal(host.planValidationCache.has(key), false);
 });
 
 test("cancel and failed preflight become terminal progress states", () => {

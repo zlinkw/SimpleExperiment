@@ -826,6 +826,12 @@ class RealtimeTunnelPanelProvider {
     availabilityPushInFlight = false;
     lastCodeSyncState = {};
     lastCodeSyncStats = { hashed: 0, hashReused: 0, cacheWriteSkipped: 0, inventoryCalls: 0, uploads: 0 };
+    codeSyncWarmProofs = new Map();
+    planValidationCache = new Map();
+    planValidationCacheTtlMs = 120_000;
+    planValidationCacheMaxEntries = 32;
+    distributedSubmissionTimings = new Map();
+    pendingPlanSubmissionManifest;
     distributedTerminalSeen = new Set();
     distributedLaunchInFlight = new Set();
     distributedSubmissionEpochs = new Map();
@@ -5492,10 +5498,12 @@ class RealtimeTunnelPanelProvider {
                 }
             }
             this.reportPlanStage(message, "正在选择调度 Worker…");
+            const selectWorkerStarted = Date.now();
             if (distributedPlan)
                 await this.selectDistributedPlanPrimary(body);
             else
                 await this.selectPlanSubmissionWorker(body, operationResultPlanFile(body) || plan?.planFile || command);
+            this.recordPlanSubmissionTiming?.(message, "selectWorkerMs", Date.now() - selectWorkerStarted);
             if (LENIENT_RUN) {
                 try {
                     this.assertExecutionWorkersReady(body.options?.workers);
@@ -5636,7 +5644,11 @@ class RealtimeTunnelPanelProvider {
     reportPlanStage(message, text) {
         const started = Number(this.planRunStageStartedAt || Date.now());
         const elapsed = Math.max(0, Date.now() - started);
-        const line = `${text}（已用 ${elapsed} ms）`;
+        const operationId = this.planSubmissionOperationId(message);
+        const timings = this.localOperations?.[operationId]?.timings || {};
+        const measured = Object.entries(timings).filter(([, value]) => Number(value) > 0)
+            .map(([key, value]) => `${key}=${Math.round(Number(value))}ms`).slice(-3).join(" · ");
+        const line = `${text}（已用 ${elapsed} ms${measured ? `；${measured}` : ""}）`;
         const clientActionId = stringField(message, "clientActionId");
         if (clientActionId)
             this.postUiCommandStatus(clientActionId, "running", stringField(message, "command") || "runPlan", line);
@@ -5672,9 +5684,24 @@ class RealtimeTunnelPanelProvider {
             startedAt: now,
             updatedAt: now,
             reconcileEvidenceActive: false,
+            startedAtMs: Date.now(),
+            timings: { selectWorkerMs: 0, localFingerprintMs: 0, codeSyncMs: 0, validateMs: 0, historyChoiceMs: 0,
+                enqueueMs: 0, workerSnapshotMs: 0, gpuSnapshotMs: 0, dispatchMs: 0,
+                clickToEnqueueMs: 0, clickToFirstAcceptedJobMs: 0 },
         };
         this.markLocalOperationsDirty();
         this.postState();
+    }
+    recordPlanSubmissionTiming(message, key, ms) {
+        return this.recordPlanSubmissionTimingByOperation(this.planSubmissionOperationId(message), key, ms);
+    }
+    recordPlanSubmissionTimingByOperation(operationId, key, ms) {
+        const current = operationId ? this.localOperations?.[operationId] : undefined;
+        if (!current || !Object.prototype.hasOwnProperty.call(current.timings || {}, key))
+            return;
+        this.localOperations[operationId] = { ...current,
+            timings: { ...current.timings, [key]: Math.max(0, Math.round(Number(ms) || 0)) }, updatedAt: new Date().toISOString() };
+        this.markLocalOperationsDirty();
     }
     submissionStillCurrent(message, epoch, root) {
         const operationId = this.planSubmissionOperationId(message);
@@ -5810,12 +5837,54 @@ class RealtimeTunnelPanelProvider {
         const blocker = occupied.find((item) => item.codeFingerprint !== fingerprint) || occupied[0];
         return { root, queue, fingerprint, blocker };
     }
+    planValidationCacheKey(body, workerId) {
+        const root = workspaceRoot();
+        const probe = this.lastWorkerProbes?.[workerId] || {};
+        const runtimeVersion = String(probe.agentVersion || probe.apiVersion || probe.runtimeVersion || probe.version || "");
+        if (!root || !runtimeVersion)
+            return "";
+        const topology = this.projectTopologyAssessment();
+        const payload = {
+            planFile: normalizePlanSelectionKey(String(body?.planFile || body?.plan || body?.selectedPlanId || body?.options?.planFile || body?.options?.plan || "")).toLowerCase(),
+            planRevision: String(body?.planRevision || body?.options?.planRevision || ""),
+            codeFingerprint: String(this.lastCodeSyncState?.fingerprint || ""),
+            adapterRules: pluginProjectAdapterRules(root), topology: { mode: topology.mode, hubAllowed: topology.hubAllowed },
+            schedulerOwner: workerId, runtimeVersion,
+        };
+        if (!payload.planFile || !payload.planRevision || !payload.codeFingerprint)
+            return "";
+        return crypto.createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+    }
+    cachedPlanValidation(key) {
+        if (!key || !this.planValidationCache)
+            return undefined;
+        const row = this.planValidationCache.get(key);
+        if (!row)
+            return undefined;
+        if (row.expiresAt <= Date.now()) {
+            this.planValidationCache.delete(key);
+            return undefined;
+        }
+        this.planValidationCache.delete(key);
+        this.planValidationCache.set(key, row);
+        return JSON.parse(JSON.stringify(row.value));
+    }
+    rememberPlanValidation(key, value) {
+        if (!key || !value || !this.planValidationCache)
+            return;
+        this.planValidationCache.delete(key);
+        this.planValidationCache.set(key, { expiresAt: Date.now() + this.planValidationCacheTtlMs, value: JSON.parse(JSON.stringify(value)) });
+        while (this.planValidationCache.size > this.planValidationCacheMaxEntries)
+            this.planValidationCache.delete(this.planValidationCache.keys().next().value);
+    }
     async runPlanPreflight(body, label, authority = {}) {
         const reportStage = typeof authority.reportStage === "function" ? authority.reportStage : (_text) => { };
         this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，Plan 校验与预演已取消。");
         const prefix = String(label || "当前计划").trim() || "当前计划";
         const workerId = this.planSchedulerWorkerId(body);
         const worker = workerId ? this.enabledWorkerConfigs().find((item) => item.id === workerId) : undefined;
+        const validationCacheKey = this.distributedPlanEligible(String(body?.planFile || body?.plan || body?.selectedPlanId || body?.options?.planFile || body?.options?.plan || ""))
+            ? this.planValidationCacheKey(body, workerId) : "";
         const serverLabel = worker ? (worker.displayName || worker.id) : (workerId || "默认调度");
         const planKey = String(body?.planFile || body?.plan || body?.selectedPlanId || body?.options?.planFile || body?.options?.plan || body?.options?.selectedPlanId || "").trim() || "-";
         const clipOutput = (value) => {
@@ -5850,16 +5919,21 @@ class RealtimeTunnelPanelProvider {
         let check = "校验(validate-plan)";
         try {
             const validateStarted = Date.now();
-            reportStage("正在校验计划…");
-            const validate = await this.postPlanSchedulerAction("validate-plan", body, {
-                title: `${prefix}：校验`,
-                requiresCapability: ["endpoints.actions", "actions.validate-plan"],
-                ...authority,
-            });
-            this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，Plan 校验与预演已取消。");
-            const validated = remoteActionPendingStatus(resultStatus(validate))
-                ? await this.waitForOperationTerminalResult("validate-plan", validate, `${prefix}：校验`, 45_000, workerId, authority)
-                : validate;
+            let validated = this.cachedPlanValidation(validationCacheKey);
+            if (validated)
+                reportStage("复用近期成功的 Agent Plan 校验…");
+            else {
+                reportStage("正在校验计划…");
+                const validate = await this.postPlanSchedulerAction("validate-plan", body, {
+                    title: `${prefix}：校验`,
+                    requiresCapability: ["endpoints.actions", "actions.validate-plan"],
+                    ...authority,
+                });
+                this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，Plan 校验与预演已取消。");
+                validated = remoteActionPendingStatus(resultStatus(validate))
+                    ? await this.waitForOperationTerminalResult("validate-plan", validate, `${prefix}：校验`, 45_000, workerId, authority)
+                    : validate;
+            }
             this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，Plan 校验与预演已取消。");
             if (!validated) {
                 failPreflight(check, "校验未返回终态", "-");
@@ -5876,6 +5950,8 @@ class RealtimeTunnelPanelProvider {
                 const validation = planValidationFromResult(validated);
                 if (!Array.isArray(validation?.jobs) || !validation.jobs.length)
                     throw new Error("Agent 校验未返回逐 job 清单");
+                if (validationCacheKey && !this.planValidationCache?.has(validationCacheKey))
+                    this.rememberPlanValidation(validationCacheKey, validated);
                 const root = workspaceRoot();
                 if (!root)
                     throw new Error("没有当前项目目录");
@@ -7584,6 +7660,7 @@ class RealtimeTunnelPanelProvider {
         const configured = this.setupConfig.workerTunnels.map((worker) => worker.id).filter(Boolean);
         if (configured.some((id) => !targets.some((target) => target.id === id)))
             throw new Error("有 Worker 未连接或未启用；请恢复连接后再合并最新版。");
+        this.codeSyncWarmProofs?.clear();
         this.syncScopeMutationInFlight = true;
         try {
             report(`正在校验 ${targets.length} 台 Worker 的 ${selectedPaths.length} 条结果或目录路径`);
@@ -7648,6 +7725,7 @@ class RealtimeTunnelPanelProvider {
     async runSyncScopeTreeBatch(root, targets, localOnly, action, selected, excluded, report = (_stage) => { }, knownEntries = []) {
         if (this.syncScopeMutationInFlight || this.planSyncInFlight || this.codeSyncInFlight)
             throw new Error("同步或文件树操作进行中，请完成后重试。");
+        this.codeSyncWarmProofs?.clear();
         this.syncScopeMutationInFlight = true;
         try {
             const entries = await (0, SyncScopeBatch_1.expandSyncScopeBatchSelection)(selected, excluded, (parent) => {
@@ -7948,8 +8026,10 @@ class RealtimeTunnelPanelProvider {
             throw new Error("机器状态路径不可删除。");
         if ((!batchApproved && this.syncScopeMutationInFlight) || this.planSyncInFlight || this.codeSyncInFlight)
             throw new Error("同步或文件树操作进行中，请完成后重试删除。");
-        if (!batchApproved)
+        if (!batchApproved) {
+            this.codeSyncWarmProofs?.clear();
             this.syncScopeMutationInFlight = true;
+        }
         try {
             report("正在核对删除目标");
             const target = endpointId === "local" ? undefined : targets.find((row) => row.id === endpointId);
@@ -8001,6 +8081,7 @@ class RealtimeTunnelPanelProvider {
             throw new Error("机器状态路径不可删除。");
         if (this.syncScopeMutationInFlight || this.planSyncInFlight || this.codeSyncInFlight)
             throw new Error("同步或文件树操作进行中，请完成后重试删除。");
+        this.codeSyncWarmProofs?.clear();
         this.syncScopeMutationInFlight = true;
         try {
             report(`正在核对 ${targets.length} 台 Worker 的路径`);
@@ -8057,8 +8138,10 @@ class RealtimeTunnelPanelProvider {
             throw new Error("机器状态路径不可选为保留版本。");
         if ((!batchApproved && this.syncScopeMutationInFlight) || this.planSyncInFlight || this.codeSyncInFlight)
             throw new Error("同步或文件树操作进行中，请完成后重试选定版本。");
-        if (!batchApproved)
+        if (!batchApproved) {
+            this.codeSyncWarmProofs?.clear();
             this.syncScopeMutationInFlight = true;
+        }
         try {
             report("正在校验来源版本");
             const holds = await (0, SyncResolution_1.loadSyncHolds)(this.context.globalStorageUri.fsPath, root);
@@ -8249,6 +8332,11 @@ class RealtimeTunnelPanelProvider {
         if (!this.projectContextIsCurrent(projectContext))
             throw new UiCommandCancelled("工作区已切换，运行前代码同步已取消。");
     }
+    planSubmissionManifestKey(root, includePaths, scopePaths, holds) {
+        const inputs = JSON.stringify({ root: path.resolve(root).toLowerCase(), includePaths: [...(includePaths || [])].map(String).sort(),
+            scopePaths: [...(scopePaths || [])].map(String).sort(), holds });
+        return crypto.createHash("sha256").update(inputs).digest("hex");
+    }
     async ensureHubCodeReadyForPlanCheck(body, reportStage = (_text) => { }) {
         reportStage("正在准备校验所需代码…");
         await this.prepareSftpTargets("ensureHubCodeReadyForPlanCheck", "simpleSftp.uploadWorkspace");
@@ -8286,14 +8374,21 @@ class RealtimeTunnelPanelProvider {
             if (progressReport)
                 progressReport("正在建立本地代码清单并核对文件哈希…");
             const localStarted = Date.now();
-            const built = await buildLocalCodeManifest(root, includePaths, scopePaths, {
-                cacheFile: this.localCodeManifestCacheFile(root),
-                onProgress: (stats) => {
-                    if (progressReport)
-                        progressReport(`本地清单 ${stats.listed} 个文件：缓存命中 ${stats.reused}，重新哈希 ${stats.hashed}${stats.cacheWriteSkipped ? "，缓存未改写" : ""}`);
-                },
-            });
-            const manifest = (0, SyncResolution_1.filterHeldFiles)(built, holds);
+            const submissionManifest = scope === "run" ? this.pendingPlanSubmissionManifest : undefined;
+            const submissionManifestKey = this.planSubmissionManifestKey(root, includePaths, scopePaths, holds);
+            const reuseSubmissionManifest = Boolean(submissionManifest && submissionManifest.expiresAt > Date.now()
+                && submissionManifest.key === submissionManifestKey);
+            const built = reuseSubmissionManifest ? { manifest: submissionManifest.manifest, stats: submissionManifest.stats }
+                : await buildLocalCodeManifest(root, includePaths, scopePaths, {
+                    cacheFile: this.localCodeManifestCacheFile(root),
+                    onProgress: (stats) => {
+                        if (progressReport)
+                            progressReport(`本地清单 ${stats.listed} 个文件：缓存命中 ${stats.reused}，重新哈希 ${stats.hashed}${stats.cacheWriteSkipped ? "，缓存未改写" : ""}`);
+                    },
+                });
+            if (reuseSubmissionManifest)
+                this.pendingPlanSubmissionManifest = undefined;
+            const manifest = reuseSubmissionManifest ? built.manifest : (0, SyncResolution_1.filterHeldFiles)(built, holds);
             if (progressReport)
                 progressReport(`本地清单完成：${Object.keys(manifest).length} 个文件，哈希沿用 ${built.stats?.reused || 0}，重算 ${built.stats?.hashed || 0}（本段 ${Date.now() - localStarted} ms）`);
             const inventoryScopePaths = [...new Set(Object.keys(manifest).map((file) => file.split("/")[0]))].sort();
@@ -8329,7 +8424,16 @@ class RealtimeTunnelPanelProvider {
                 try {
                     let uploadManifest = manifest;
                     let remoteFiles;
+                    const warmProofKey = this.codeSyncWarmProofKey(target, root, fingerprint, includePaths, scopePaths);
+                    const probeFresh = this.lastWorkerProbes?.[target.id]?.status === "ok"
+                        && this.lastFullEndpointProbeAt > 0 && Date.now() - this.lastFullEndpointProbeAt <= 60_000;
                     if (hashCompare) {
+                        if (target.role === "worker" && probeFresh && this.codeSyncWarmProofs?.get(warmProofKey) > Date.now()) {
+                            workerVersions[target.id] = { fingerprint, files: Object.keys(manifest).sort(), syncedAt: new Date().toISOString() };
+                            if (progressReport)
+                                progressReport(`${target.label || target.id}：Extension Host 内近期远端核对凭据有效，跳过递归清单`);
+                            return;
+                        }
                         if (progressReport)
                             progressReport(`正在比对 ${target.label || target.id} 的远端哈希…`);
                         syncStats.inventoryCalls += 1;
@@ -8350,6 +8454,8 @@ class RealtimeTunnelPanelProvider {
                                 progressReport(`${target.label || target.id} 内容未变化，未重传`, progressStep);
                             if (target.role === "worker") {
                                 workerVersions[target.id] = { fingerprint, files: Object.keys(manifest).sort(), syncedAt: new Date().toISOString() };
+                                if (probeFresh)
+                                    this.rememberCodeSyncWarmProof(warmProofKey);
                                 void this.persistProjectCodeSyncState().catch(() => undefined);
                             }
                             return;
@@ -8389,6 +8495,8 @@ class RealtimeTunnelPanelProvider {
                     }
                     if (target.role === "worker") {
                         workerVersions[target.id] = { fingerprint, files: Object.keys(manifest).sort(), syncedAt: new Date().toISOString() };
+                        if (hashCompare && probeFresh)
+                            this.rememberCodeSyncWarmProof(warmProofKey);
                         void this.persistProjectCodeSyncState().catch(() => undefined);
                     }
                     if (progressReport && progressStep > 0)
@@ -8434,6 +8542,24 @@ class RealtimeTunnelPanelProvider {
         finally {
             this.codeSyncInFlight--;
         }
+    }
+    codeSyncWarmProofKey(target, root, fingerprint, includePaths, scopePaths) {
+        const diagnostics = this.client?.diagnostics?.();
+        const endpoint = diagnostics?.endpoints?.find((row) => row.id === target.id);
+        const probe = this.lastWorkerProbes?.[target.id] || {};
+        return JSON.stringify({ workspace: path.resolve(root).toLowerCase(), target: target.id, role: target.role,
+            remotePath: String(target.remotePath || "").replace(/\\/g, "/").replace(/\/+$/, ""),
+            serverSignature: crypto.createHash("sha256").update(JSON.stringify(this.sftpServerOptions(target))).digest("hex"), fingerprint,
+            includePaths: [...(includePaths || [])].map(String).sort(), scopePaths: [...(scopePaths || [])].map(String).sort(),
+            expectedRoot: this.expectedWorkerAgentProjectRoot(target.id), agentVersion: probe.agentVersion || probe.apiVersion || probe.runtimeVersion || "",
+            reconnectCount: Number(endpoint?.reconnectCount || 0) });
+    }
+    rememberCodeSyncWarmProof(key) {
+        if (!this.codeSyncWarmProofs)
+            return;
+        this.codeSyncWarmProofs.set(key, Date.now() + 5 * 60_000);
+        while (this.codeSyncWarmProofs.size > 128)
+            this.codeSyncWarmProofs.delete(this.codeSyncWarmProofs.keys().next().value);
     }
     async inspectCodeSyncTarget(target, paths) {
         const base = this.resolveAgentBase(target);
@@ -8930,8 +9056,14 @@ class RealtimeTunnelPanelProvider {
     async localDistributedCodeFingerprint(root, signal) {
         const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
         const holds = await (0, SyncResolution_1.loadSyncHolds)(this.context.globalStorageUri.fsPath, root);
-        const manifest = (0, SyncResolution_1.filterHeldFiles)(await buildLocalCodeManifest(root, config.get("codeSync.includePaths", []), config.get("codeSync.scopePaths"), { cacheFile: this.localCodeManifestCacheFile(root), signal }), holds);
-        return fingerprintFromManifest(manifest);
+        const includePaths = config.get("codeSync.includePaths", []);
+        const scopePaths = config.get("codeSync.scopePaths");
+        const built = await buildLocalCodeManifest(root, includePaths, scopePaths, { cacheFile: this.localCodeManifestCacheFile(root), signal });
+        const manifest = (0, SyncResolution_1.filterHeldFiles)(built, holds);
+        const fingerprint = fingerprintFromManifest(manifest);
+        this.pendingPlanSubmissionManifest = { key: this.planSubmissionManifestKey(root, includePaths, scopePaths, holds),
+            manifest, stats: built.stats || {}, fingerprint, expiresAt: Date.now() + 10_000 };
+        return fingerprint;
     }
     async finishDistributedPlanSubmission(command, message, plan, body) {
         const operationId = this.planSubmissionOperationId(message);
@@ -8939,12 +9071,16 @@ class RealtimeTunnelPanelProvider {
         const submissionRoot = workspaceRoot();
         if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot))
             return;
+        const fingerprintStarted = Date.now();
         const versionHold = await this.waitForPlanSubmission(message, () => this.distributedCodeVersionHold(body, this.distributedSubmissionAborts?.get(operationId)?.signal));
         if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot))
             return;
         const root = versionHold?.root || submissionRoot;
         const continueDeferredId = stringField(message, "deferredPlanId") || stringField(body, "deferredPlanId");
-        const submissionFingerprint = versionHold?.fingerprint || await this.waitForPlanSubmission(message, () => this.localDistributedCodeFingerprint(root, this.distributedSubmissionAborts?.get(operationId)?.signal));
+        const submissionFingerprint = versionHold?.fingerprint || (continueDeferredId
+            ? await this.waitForPlanSubmission(message, () => this.localDistributedCodeFingerprint(root, this.distributedSubmissionAborts?.get(operationId)?.signal))
+            : "");
+        this.recordPlanSubmissionTiming?.(message, "localFingerprintMs", Date.now() - fingerprintStarted);
         if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot))
             return;
         if (continueDeferredId) {
@@ -8961,10 +9097,14 @@ class RealtimeTunnelPanelProvider {
             throw new UiCommandCancelled(detail);
         }
         try {
+            const codeSyncStarted = Date.now();
             await this.waitForPlanSubmission(message, () => this.ensureCodeReadyForRun(undefined, [body], (text) => this.reportPlanStage(message, text)));
+            this.recordPlanSubmissionTiming?.(message, "codeSyncMs", Date.now() - codeSyncStarted);
             if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot))
                 return;
+            const validateStarted = Date.now();
             const preflightOk = await this.waitForPlanSubmission(message, () => this.runPlanPreflight(body, "当前计划", { reportStage: (text) => this.reportPlanStage(message, text) }));
+            this.recordPlanSubmissionTiming?.(message, "validateMs", Date.now() - validateStarted);
             if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot))
                 return;
             if (!preflightOk) {
@@ -8972,7 +9112,9 @@ class RealtimeTunnelPanelProvider {
                 return;
             }
             this.reportPlanStage(message, "正在确认历史产物处理方式…");
+            const historyChoiceStarted = Date.now();
             await this.waitForPlanSubmission(message, () => this.confirmDistributedPlanExistingOutputs(plan, body, preflightOk));
+            this.recordPlanSubmissionTiming?.(message, "historyChoiceMs", Date.now() - historyChoiceStarted);
             if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot))
                 return;
             if (body.existingOutputChoice === "keep_existing") {
@@ -9346,10 +9488,19 @@ class RealtimeTunnelPanelProvider {
         if (!submissionCurrent())
             return { enqueued: false, cancelled: true };
         const queueGeneration = this.distributedQueueGeneration;
+        const enqueueStartedAt = Date.now();
         await this.saveDistributedQueue(root, next, { queueGeneration, submissionOperationId, submissionEpoch,
             appendPlanId: id, supersededDeferredId: supersededId });
+        this.recordPlanSubmissionTimingByOperation?.(submissionOperationId, "enqueueMs", Date.now() - enqueueStartedAt);
         if (!submissionCurrent())
             return { enqueued: true, cancelled: true };
+        if (submissionOperationId) {
+            const clickStartedAt = Number(this.localOperations?.[submissionOperationId]?.startedAtMs) || Date.now();
+            this.distributedSubmissionTimings.set(id, { operationId: submissionOperationId, clickStartedAt });
+            while (this.distributedSubmissionTimings.size > 64)
+                this.distributedSubmissionTimings.delete(this.distributedSubmissionTimings.keys().next().value);
+            this.recordPlanSubmissionTimingByOperation?.(submissionOperationId, "clickToEnqueueMs", Date.now() - clickStartedAt);
+        }
         this.postState();
         let dispatchError = "";
         if (!skipTick) {
@@ -9412,21 +9563,24 @@ class RealtimeTunnelPanelProvider {
                 this.selectedDistributedLogRefreshPromise = undefined;
         });
     }
-    async sendDistributedJob(plan, job, workerId, gpuId, commandId) {
+    async buildDistributedJobCodeManifest(root) {
+        const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
+        const holds = await (0, SyncResolution_1.loadSyncHolds)(this.context.globalStorageUri.fsPath, root);
+        return (0, SyncResolution_1.filterHeldFiles)(await buildLocalCodeManifest(root, config.get("codeSync.includePaths", []), config.get("codeSync.scopePaths"), { cacheFile: this.localCodeManifestCacheFile(root) }), holds);
+    }
+    async sendDistributedJob(plan, job, workerId, gpuId, commandId, sharedCodeManifest) {
         const target = this.workerActionTargets().find((item) => item.id === workerId);
         if (!target)
             throw new Error(`Worker ${workerId} 配置已失效`);
         const root = workspaceRoot();
         const client = this.client;
         const generation = this.distributedQueueGeneration;
-        const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
         const workerConfig = this.enabledWorkerConfigs().find((worker) => worker.id === workerId);
         const schedulerSettings = this.schedulerSettings();
         const rawMaxConcurrentGpus = workerConfig?.maxConcurrentGpus;
         const maxConcurrentGpus = rawMaxConcurrentGpus === undefined || rawMaxConcurrentGpus === null || rawMaxConcurrentGpus === "auto"
             ? 0 : Number(rawMaxConcurrentGpus);
-        const holds = await (0, SyncResolution_1.loadSyncHolds)(this.context.globalStorageUri.fsPath, root);
-        const codeManifest = (0, SyncResolution_1.filterHeldFiles)(await buildLocalCodeManifest(root, config.get("codeSync.includePaths", []), config.get("codeSync.scopePaths"), { cacheFile: this.localCodeManifestCacheFile(root) }), holds);
+        const codeManifest = sharedCodeManifest || await this.buildDistributedJobCodeManifest(root);
         if (fingerprintFromManifest(codeManifest) !== plan.codeFingerprint)
             throw new Error("本机代码已偏离 Plan 的代码指纹，持久队列提交已暂停；请恢复该版本或重新提交计划。");
         if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
@@ -9500,7 +9654,11 @@ class RealtimeTunnelPanelProvider {
         }
         const probeTask = this.distributedQueueTickPromise;
         let probeWatch;
+        const snapshotsStartedAt = Date.now();
         const probes = this.readWorkerTaskSnapshotBatch(snapshotWorkerIds, { signal });
+        const submissionPlansForTiming = () => [...(this.distributedSubmissionTimings?.entries?.() || [])]
+            .filter(([planId]) => queue.plans.some((plan) => plan.id === planId));
+        const gpuSnapshotPromise = Promise.resolve().then(() => this.client.getGpu({ dispatch: true })).then((value) => ({ value, completedAt: Date.now() }), () => ({ value: undefined, completedAt: Date.now() }));
         const taskSnapshots = await new Promise((resolve) => {
             const finish = (value) => { if (probeWatch)
                 clearInterval(probeWatch); resolve(value); };
@@ -9515,6 +9673,8 @@ class RealtimeTunnelPanelProvider {
         });
         if (!taskSnapshots || abandonHungProbe())
             return;
+        for (const [, timing] of submissionPlansForTiming())
+            this.recordPlanSubmissionTimingByOperation?.(timing.operationId, "workerSnapshotMs", Date.now() - snapshotsStartedAt);
         if (!queueWriteCurrent()) {
             this.postState();
             return;
@@ -9607,13 +9767,10 @@ class RealtimeTunnelPanelProvider {
                     && !previouslyTerminal.has(`${plan.id}\0${job.index}\0${job.attempt}`))
                     newTerminal = true;
         }
-        let dispatchGpuSnapshot;
-        try {
-            dispatchGpuSnapshot = await this.client.getGpu({ dispatch: true });
-        }
-        catch {
-            dispatchGpuSnapshot = undefined;
-        }
+        const gpuSnapshotResult = await gpuSnapshotPromise;
+        const dispatchGpuSnapshot = gpuSnapshotResult.value;
+        for (const [, timing] of submissionPlansForTiming())
+            this.recordPlanSubmissionTimingByOperation?.(timing.operationId, "gpuSnapshotMs", gpuSnapshotResult.completedAt - snapshotsStartedAt);
         if (!queueWriteCurrent())
             return;
         const durableQueue = queue.plans.some((plan) => plan.projectId === projectId
@@ -9828,6 +9985,20 @@ class RealtimeTunnelPanelProvider {
             const dispatches = [...allocation.dispatches, ...hosted.dispatches, ...hostedRetries.filter((retry) => !hosted.dispatches.some((item) => item.commandId === retry.commandId))];
             if (dispatches.length)
                 await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
+            const dispatchPlans = [...new Map(dispatches.map((dispatch) => {
+                    const plan = queue.plans.find((item) => item.id === dispatch.planId);
+                    return plan ? [plan.id, plan] : ["", undefined];
+                }).filter(([id, plan]) => id && plan)).values()];
+            const sharedManifests = new Map();
+            await Promise.all(dispatchPlans.map(async (plan) => {
+                try {
+                    sharedManifests.set(plan.id, await this.buildDistributedJobCodeManifest(root));
+                }
+                catch (error) {
+                    sharedManifests.set(plan.id, error);
+                }
+            }));
+            const dispatchStartedAt = Date.now();
             const responses = await Promise.all(dispatches.map(async (dispatch) => {
                 const plan = queue.plans.find((item) => item.id === dispatch.planId);
                 const job = plan?.jobs.find((item) => item.index === dispatch.jobIndex && item.attempt === dispatch.attempt);
@@ -9835,13 +10006,21 @@ class RealtimeTunnelPanelProvider {
                     return { dispatch, plan, job };
                 const gpuId = "gpuId" in dispatch ? dispatch.gpuId : undefined;
                 try {
-                    const receipt = await this.sendDistributedJob(plan, job, dispatch.workerId, gpuId, dispatch.commandId);
+                    const sharedManifest = sharedManifests.get(plan.id);
+                    if (sharedManifest instanceof Error)
+                        throw sharedManifest;
+                    const receipt = await this.sendDistributedJob(plan, job, dispatch.workerId, gpuId, dispatch.commandId, sharedManifest);
                     return { dispatch, plan, job, gpuId, receipt };
                 }
                 catch (error) {
                     return { dispatch, plan, job, gpuId, error };
                 }
             }));
+            for (const plan of dispatchPlans) {
+                const timing = this.distributedSubmissionTimings?.get(plan.id);
+                if (timing)
+                    this.recordPlanSubmissionTimingByOperation?.(timing.operationId, "dispatchMs", Date.now() - dispatchStartedAt);
+            }
             if (!queueWriteCurrent())
                 return;
             for (const response of responses) {
@@ -9873,6 +10052,11 @@ class RealtimeTunnelPanelProvider {
                             throw new Error(String(receipt?.message || "Worker 未返回 durableAccepted 及匹配完整身份的状态回执"));
                         job.status = status;
                         job.blockReason = undefined;
+                        const timing = this.distributedSubmissionTimings?.get(plan.id);
+                        if (timing && this.localOperations?.[timing.operationId]?.timings?.clickToFirstAcceptedJobMs === 0) {
+                            this.recordPlanSubmissionTimingByOperation?.(timing.operationId, "clickToFirstAcceptedJobMs", Date.now() - timing.clickStartedAt);
+                            this.distributedSubmissionTimings.delete(plan.id);
+                        }
                         if (["completed", "failed"].includes(job.status))
                             newTerminal = true;
                     }
@@ -11087,13 +11271,18 @@ class RealtimeTunnelPanelProvider {
         await this.startTunnelEndpointFromUi(message);
     }
     async withRemoteActionResource(workerId, action, body, work) {
-        if (/^(validate-plan|dry-run-plan|stop-|cancel-|health|check-)/.test(action))
+        if (/^(validate-plan|dry-run-plan|cancel-|health|check-)/.test(action)
+            || action.startsWith("stop-") && action !== "stop-worker-task")
             return work();
         const setup = workerId ? this.setupConfig.workerTunnels.find(row => row.id === workerId) : this.setupConfig;
         const project = workerId ? this.expectedWorkerAgentProjectRoot(workerId) : this.agentRuntimeDirs(setup.agentProjectDir).workDir;
         const server = String(setup.workerHost || setup.hubHost || setup.host || workerId || "hub").toLowerCase() + ":" + Number(setup.workerSshPort || setup.hubSshPort || setup.port || 22);
         const plan = operationResultPlanFile(body);
-        const paths = [plan, body.outputDir, body.relativePath, body.artifactPath, body.targetPath, ...(Array.isArray(body.paths) ? body.paths : [])].filter(value => typeof value === "string" && value);
+        const paths = action === "start-worker-task" || action === "stop-worker-task"
+            ? [body?.outputDir].filter(value => typeof value === "string" && value)
+            : [plan, body.outputDir, body.relativePath, body.artifactPath, body.targetPath, ...(Array.isArray(body.paths) ? body.paths : [])].filter(value => typeof value === "string" && value);
+        if ((action === "start-worker-task" || action === "stop-worker-task") && !paths.length)
+            throw new Error(`${action} 必须提供 outputDir 才能取得资源锁。`);
         const resources = (paths.length ? paths : [project]).map(value => ({ server, project,
             target: path.posix.resolve(project, value.replace(/\\/g, "/")) }));
         if (!this.hostOperationLease)
@@ -14749,7 +14938,7 @@ class RealtimeTunnelPanelProvider {
         if (exactPane !== true)
             throw new Error(`Worker ${job.workerId} 的实时能力没有 stop-worker-task-exact-pane。请先更新并重启该 Worker Agent，再重试；未发送停止命令。`);
         const stopOperationId = makeOpId("stop-distributed-job");
-        const result = await this.client.postWorkerAction(job.workerId, "stop-worker-task", {
+        const request = {
             schemaVersion: 1,
             opId: stopOperationId,
             operationId: stopOperationId,
@@ -14772,7 +14961,8 @@ class RealtimeTunnelPanelProvider {
             manualStopType: "scheduler_aborted",
             stopReason: "scheduler_aborted",
             stopSource: "user",
-        });
+        };
+        const result = await this.withRemoteActionResource(job.workerId, "stop-worker-task", request, () => this.client.postWorkerAction(job.workerId, "stop-worker-task", request));
         const stopped = Array.isArray(result?.stoppedTasks) ? result.stoppedTasks : [];
         const receipt = stopped.find((row) => DistributedPlanQueue.stopIdentityMatchesJob(plan, job, row));
         if (String(result?.status || "").toLowerCase() !== "completed" || !receipt)
@@ -18715,6 +18905,10 @@ class RealtimeTunnelPanelProvider {
         });
     }
     resetClient() {
+        this.codeSyncWarmProofs?.clear();
+        this.planValidationCache?.clear();
+        this.distributedSubmissionTimings?.clear();
+        this.pendingPlanSubmissionManifest = undefined;
         const previous = this.client;
         this.cancelPostLaunchAutoTest();
         this.resultsSummaryRefreshTimerGeneration += 1;
@@ -18745,6 +18939,7 @@ class RealtimeTunnelPanelProvider {
         return true;
     }
     invalidateTopologyRuntimeCaches() {
+        this.codeSyncWarmProofs?.clear();
         this.resultsSummaryRefreshTimerGeneration += 1;
         if (this.resultsSummaryRefreshTimer)
             clearTimeout(this.resultsSummaryRefreshTimer);
