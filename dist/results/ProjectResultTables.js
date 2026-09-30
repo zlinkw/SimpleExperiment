@@ -34,6 +34,9 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.emptyTableRegistry = exports.planArtifactPath = exports.planDirectoryKey = exports.datasetPathKey = exports.datasetPartitions = void 0;
+exports.normalizePlanDatasetKey = normalizePlanDatasetKey;
+exports.resolvePlanDatasetAssignment = resolvePlanDatasetAssignment;
+exports.applyPlanDatasetOverrides = applyPlanDatasetOverrides;
 exports.registeredPlanSummary = registeredPlanSummary;
 exports.summaryMatchesPlanRevision = summaryMatchesPlanRevision;
 exports.safeTableName = safeTableName;
@@ -60,6 +63,48 @@ Object.defineProperty(exports, "planDirectoryKey", { enumerable: true, get: func
 Object.defineProperty(exports, "planArtifactPath", { enumerable: true, get: function () { return ResultLayout_2.planArtifactPath; } });
 const emptyTableRegistry = () => ({ schemaVersion: 1, plans: {} });
 exports.emptyTableRegistry = emptyTableRegistry;
+function normalizePlanDatasetKey(value) {
+    return path.posix.normalize(String(value || "").trim().replace(/\\/g, "/")).replace(/^\.\//, "").toLowerCase();
+}
+function resolvePlanDatasetAssignment(input) {
+    const datasetsOf = (records) => [...new Set(records.map(row => String(row?.dataset || "").trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, undefined, { sensitivity: "base" }));
+    const current = datasetsOf(input.resultRecords || []);
+    if (current.length) {
+        const mapped = datasetsOf((Array.isArray(input.manualMapping?.datasets) ? input.manualMapping.datasets : []).map((dataset) => ({ dataset })));
+        return { kind: current.length === 1 ? "single" : "multiple", datasets: current, source: "result-record", ...(mapped.some(item => !current.includes(item)) ? { conflict: { actual: current, mapped } } : {}) };
+    }
+    const table = datasetsOf(input.datasetTables || []);
+    if (table.length)
+        return { kind: table.length === 1 ? "single" : "multiple", datasets: table, source: "dataset-table" };
+    const declared = String(input.planDeclaration || "").trim();
+    if (declared)
+        return { kind: "single", datasets: [declared], source: "plan-declaration" };
+    const historical = datasetsOf(input.historicalRecords || []);
+    if (historical.length) {
+        const mapped = datasetsOf((Array.isArray(input.manualMapping?.datasets) ? input.manualMapping.datasets : []).map((dataset) => ({ dataset })));
+        return { kind: historical.length === 1 ? "single" : "multiple", datasets: historical, source: "historical-registry", ...(mapped.some(item => !historical.includes(item)) ? { conflict: { actual: historical, mapped } } : {}) };
+    }
+    const mapped = datasetsOf((Array.isArray(input.manualMapping?.datasets) ? input.manualMapping.datasets : []).map((dataset) => ({ dataset })));
+    if (mapped.length)
+        return { kind: mapped.length === 1 ? "single" : "multiple", datasets: mapped, source: "manual-override" };
+    return { kind: "unassigned", datasets: [], source: "none" };
+}
+function applyPlanDatasetOverrides(registry, mappings) {
+    const normalized = new Map(Object.entries(mappings || {}).map(([plan, value]) => [normalizePlanDatasetKey(plan), value]));
+    const plans = {};
+    for (const [planFile, plan] of Object.entries(registry.plans || {})) {
+        const mapping = normalized.get(normalizePlanDatasetKey(planFile));
+        const mapped = Array.isArray(mapping?.datasets) && mapping.datasets.length === 1 ? String(mapping.datasets[0] || "").trim() : "";
+        if (!mapped) {
+            plans[planFile] = plan;
+            continue;
+        }
+        (0, ResultLayout_1.datasetPathKey)(mapped);
+        const records = plan.records.map(record => String(record.dataset || "").trim() ? record : { ...record, dataset: mapped, datasetSource: "manual-plan-mapping" });
+        plans[planFile] = { ...plan, records };
+    }
+    return { ...registry, plans };
+}
 function registeredPlanSummary(registry, planFile) {
     const plan = registry.plans?.[planFile];
     if (!plan?.records?.length || !plan.revision)
@@ -75,6 +120,7 @@ function registeredPlanSummary(registry, planFile) {
         workerResultTables: [...new Set(records.map((row) => row.workerId))].map((workerId) => ({ workerId, aggregateStatus: "ready", rawResultCsvPath: source })),
         results: records.map((row) => ({
             workerId: row.workerId, runId: row.runId || "", attempt: row.attempt || "", planRevision: row.revision || plan.revision,
+            ...(row.datasetSource ? { datasetSource: row.datasetSource } : {}),
             dimensions: { case: row.case, seed: row.seed, method: row.method, dataset: row.dataset, rate_percent: row.rate, eval_protocol: row.endpoint },
             metrics: row.metrics, sourceFiles: [{ path: source }],
         })),
@@ -194,7 +240,7 @@ function selectLatestCompletedRun(records, selectedRunId = "") {
 function rawSources(table) {
     return [table?.rawResultCsvPath, ...(table?.rawResultCsvPaths || []), ...(table?.datasetResultTables || []).map((row) => row.rawResultCsvPath)].filter(Boolean).map(String);
 }
-function recordsForSummary(summary, planFile) {
+function recordsForSummary(summary, planFile, manualMappings = {}) {
     if (!summary || String(summary.planFile || "").replace(/\\/g, "/") !== planFile.replace(/\\/g, "/"))
         throw new Error("结果摘要与所选 Plan 不匹配。");
     if ((summary.incompleteAggregate && summary.verifiedPartial !== true) || (Array.isArray(summary.unavailableWorkerIds) && summary.unavailableWorkerIds.length && summary.verifiedPartial !== true))
@@ -210,7 +256,9 @@ function recordsForSummary(summary, planFile) {
         rawSources(row).forEach(source => sources.get(worker).add(source));
     }
     const records = [];
-    for (const row of Array.isArray(summary.results) ? summary.results : []) {
+    const summaryRows = Array.isArray(summary.results) ? summary.results : [];
+    const summaryDatasets = [...new Set(summaryRows.map((row) => String(row?.dimensions?.dataset || "").trim()).filter(Boolean))];
+    for (const row of summaryRows) {
         const workerId = String(row?.workerId || row?.resultOwnerWorkerId || summary.resultOwnerWorkerId || "").trim();
         const declared = sources.get(workerId.toLowerCase()) || new Set(rawSources(summary));
         const source = String(row?.sourceFiles?.[0]?.path || "");
@@ -235,7 +283,12 @@ function recordsForSummary(summary, planFile) {
         const runId = recordRunId(row, summary);
         const attempt = recordAttempt(row, summary);
         const revision = String(row?.planRevision || row?.provenance?.planRevision || summary.planRevision || "").trim();
-        records.push({ planFile, workerId, case: caseName, seed, method: String(dims.method || row.method || "").trim() || path.posix.basename(planFile, path.posix.extname(planFile)), dataset: String(dims.dataset || "").trim(), rate: ratePercent(dims), endpoint: String(dims.eval_protocol || dims.split || "").trim(), metrics, runId, attempt, revision });
+        const declaredDataset = String(dims.dataset || "").trim();
+        const mapping = Object.entries(manualMappings || {}).find(([file]) => normalizePlanDatasetKey(file) === normalizePlanDatasetKey(planFile))?.[1];
+        const mappedDataset = summaryDatasets.length === 1 ? summaryDatasets[0] : summaryDatasets.length ? "" : Array.isArray(mapping?.datasets) && mapping.datasets.length === 1 ? String(mapping.datasets[0] || "").trim() : "";
+        const dataset = declaredDataset || mappedDataset;
+        const isManual = row?.datasetSource === "manual-plan-mapping" || (!declaredDataset && summaryDatasets.length === 0 && Boolean(mappedDataset));
+        records.push({ planFile, workerId, case: caseName, seed, method: String(dims.method || row.method || "").trim() || path.posix.basename(planFile, path.posix.extname(planFile)), dataset, ...(isManual ? { datasetSource: "manual-plan-mapping" } : {}), rate: ratePercent(dims), endpoint: String(dims.eval_protocol || dims.split || "").trim(), metrics, runId, attempt, revision });
     }
     if (!records.length)
         throw new Error("当前 Plan 没有可核对的逐 seed 原始记录。");
@@ -244,8 +297,8 @@ function recordsForSummary(summary, planFile) {
         throw new Error("当前 Plan 没有可核对的逐 seed 原始记录。");
     return selected;
 }
-function updateRegistry(registry, summary, planFile, expectedSeeds = 0) {
-    const records = recordsForSummary(summary, planFile);
+function updateRegistry(registry, summary, planFile, expectedSeeds = 0, manualMappings = {}) {
+    const records = recordsForSummary(summary, planFile, manualMappings);
     return { schemaVersion: 1, plans: { ...(registry?.plans || {}), [planFile]: { revision: String(summary.planRevision || ""), expectedSeeds: Math.max(0, Math.floor(expectedSeeds)), records } } };
 }
 function summaryForWorker(summary, workerId) {
@@ -256,7 +309,7 @@ function summaryForWorker(summary, workerId) {
         return undefined;
     return { ...summary, workerResultTables: tables, results, availableWorkerIds: [workerId], unavailableWorkerIds: [], incompleteAggregate: false, resultOwnerWorkerId: workerId };
 }
-function mergeAvailableWorkerResults(registry, summary, planFile, expectedSeeds = 0) {
+function mergeAvailableWorkerResults(registry, summary, planFile, expectedSeeds = 0, manualMappings = {}) {
     const tables = Array.isArray(summary?.workerResultTables) ? summary.workerResultTables : [];
     const ready = tables.filter((table) => table?.aggregateStatus === "ready" && rawSources(table).length > 0);
     const owners = new Set(ready.map((table) => String(table.workerId || "").toLowerCase()));
@@ -264,14 +317,16 @@ function mergeAvailableWorkerResults(registry, summary, planFile, expectedSeeds 
     if (!rows.length)
         return registry;
     const partial = { ...summary, workerResultTables: ready, results: rows, unavailableWorkerIds: [], incompleteAggregate: false };
-    const incoming = recordsForSummary({ ...partial, completedRunId: summary.completedRunId || summary.selectedRunId || "", stampCompletedRunId: summary.stampCompletedRunId === true }, planFile);
+    const incoming = recordsForSummary({ ...partial, completedRunId: summary.completedRunId || summary.selectedRunId || "", stampCompletedRunId: summary.stampCompletedRunId === true }, planFile, manualMappings);
     const incomingRun = String(summary.completedRunId || summary.selectedRunId || incoming.find((record) => record.runId)?.runId || "");
     const previous = registry.plans?.[planFile];
     const revision = String(incoming.find((record) => record.revision)?.revision || summary.planRevision || "");
     const sameRevision = !previous?.revision || !revision || previous.revision === revision;
     const covered = (record) => incoming.some((item) => seedIdentity(item) === seedIdentity(record));
+    const realIncoming = incoming.filter(record => record.dataset && record.datasetSource !== "manual-plan-mapping");
+    const sameSeedWithoutDataset = (left, right) => [left.workerId, left.method, left.rate, left.endpoint, left.case, left.seed].join("\0") === [right.workerId, right.method, right.rate, right.endpoint, right.case, right.seed].join("\0");
     const kept = sameRevision
-        ? (previous?.records || []).filter((record) => !covered(record) && record.revision === revision && (!incomingRun || !record.runId || record.runId === incomingRun) && (!record.runId || !incomingRun || record.runId === incomingRun))
+        ? (previous?.records || []).filter((record) => !covered(record) && !(record.datasetSource === "manual-plan-mapping" && realIncoming.some(item => sameSeedWithoutDataset(record, item))) && record.revision === revision && (!incomingRun || !record.runId || record.runId === incomingRun) && (!record.runId || !incomingRun || record.runId === incomingRun))
         : [];
     return { schemaVersion: 1, plans: { ...(registry?.plans || {}), [planFile]: {
                 revision: revision || previous?.revision || "",
@@ -523,7 +578,7 @@ function smallFile(file) {
     const stat = fs.lstatSync(file);
     return stat.isFile() && !stat.isSymbolicLink() && stat.size <= 32 * 1024 * 1024;
 }
-function resultCatalog(root, resultDir) {
+function resultCatalog(root, resultDir, manualMappings = {}) {
     const directory = controlledRoot(root, resultDir);
     const registryFile = path.join(controlledRoot(root, "simple_cluster/results"), "project_table_registry.json");
     let registry = (0, exports.emptyTableRegistry)();
@@ -599,8 +654,29 @@ function resultCatalog(root, resultDir) {
                 for (const worker of childDirs(base, 100))
                     collect(path.join(base, worker), worker);
             }
-            if (artifacts.length)
-                plans.push({ planKey, planFile: knownPlans.get(planKey) || "", label: knownPlans.get(planKey) || planKey, artifacts });
+            if (artifacts.length) {
+                let metadataPlanFiles = [];
+                let metadataDatasets = [];
+                if (!knownPlans.has(planKey)) {
+                    for (const artifact of artifacts.slice(0, 12)) {
+                        if (artifact.format !== "csv")
+                            continue;
+                        try {
+                            const parsed = readCsv(fs.readFileSync(path.join(root, artifact.path), "utf8"));
+                            const planIndex = parsed.header.indexOf("plan_file");
+                            const datasetIndex = parsed.header.indexOf("dataset");
+                            if (planIndex >= 0)
+                                metadataPlanFiles.push(...parsed.rows.map(row => String(row[planIndex] || "").trim()).filter(Boolean));
+                            if (datasetIndex >= 0)
+                                metadataDatasets.push(...parsed.rows.map(row => String(row[datasetIndex] || "").trim()).filter(Boolean));
+                        }
+                        catch { }
+                    }
+                }
+                const planFiles = [...new Set(metadataPlanFiles.map(normalizePlanDatasetKey))];
+                const planFile = knownPlans.get(planKey) || (planFiles.length === 1 ? metadataPlanFiles.find(value => normalizePlanDatasetKey(value) === planFiles[0]) || "" : "");
+                plans.push({ planKey, planFile, label: planFile || planKey, sourceDatasetKey: datasetKey, artifacts, artifactMetadataDatasets: [...new Set(metadataDatasets)] });
+            }
         }
         if (tables.length || plans.length)
             datasets.push({ dataset, datasetKey, root: path.posix.join(resultDir, datasetKey), tables, plans });
@@ -608,8 +684,41 @@ function resultCatalog(root, resultDir) {
         if (smallFile(oldFile))
             legacyTables.push({ name: datasetKey, path: path.posix.join(resultDir, datasetKey, datasetKey + ".csv") });
     }
-    (0, ResultLayout_1.datasetPartitions)(datasets.filter(item => item.datasetKey !== "_shared").map(item => item.dataset));
-    return { datasets, legacyTables: datasets.length ? [] : legacyTables };
+    const plansByDestination = new Map();
+    for (const group of datasets)
+        for (const plan of group.plans) {
+            const planFile = normalizePlanDatasetKey(plan.planFile);
+            const registryPlan = Object.entries(registry.plans || {}).find(([file]) => normalizePlanDatasetKey(file) === planFile)?.[1];
+            const historicalRecords = (registryPlan?.records || []).filter(row => row.dataset && row.datasetSource !== "manual-plan-mapping");
+            const artifactRecords = plan.artifactMetadataDatasets?.map((dataset) => ({ dataset })) || [];
+            const assignment = resolvePlanDatasetAssignment({ resultRecords: historicalRecords.length ? [] : artifactRecords, historicalRecords, manualMapping: Object.entries(manualMappings || {}).find(([file]) => normalizePlanDatasetKey(file) === planFile)?.[1] });
+            const destinationKeys = assignment.kind === "single" ? [(0, ResultLayout_1.datasetPathKey)(assignment.datasets[0])] : assignment.kind === "multiple" ? ["_shared"] : ["_unassigned"];
+            for (const destinationKey of destinationKeys) {
+                let byPlan = plansByDestination.get(destinationKey);
+                if (!byPlan)
+                    plansByDestination.set(destinationKey, byPlan = new Map());
+                const identity = normalizePlanDatasetKey(plan.planFile) || String(plan.planKey);
+                const existing = byPlan.get(identity);
+                byPlan.set(identity, existing ? { ...existing, artifacts: [...existing.artifacts, ...plan.artifacts], artifactMetadataDatasets: [...new Set([...(existing.artifactMetadataDatasets || []), ...(plan.artifactMetadataDatasets || [])])], assignment } : { ...plan, dataset: assignment.datasets[0] || "", datasets: assignment.datasets, assignment });
+            }
+        }
+    for (const group of datasets)
+        group.plans = [];
+    for (const [key, plans] of plansByDestination) {
+        let group = datasets.find(item => item.datasetKey === key);
+        if (!group) {
+            group = { dataset: key === "_shared" ? "跨数据集" : "", datasetKey: key, root: path.posix.join(resultDir, key), tables: [], plans: [] };
+            datasets.push(group);
+        }
+        group.plans = [...plans.values()];
+    }
+    const allPlans = [...plansByDestination.values()].flatMap(group => [...group.values()]);
+    const unassignedPlans = allPlans.filter(plan => plan.assignment?.kind === "unassigned" && Boolean(plan.planFile));
+    const multiDatasetPlans = allPlans.filter(plan => plan.assignment?.kind === "multiple");
+    const mappingConflicts = allPlans.filter(plan => plan.assignment?.conflict).map(plan => ({ planFile: plan.planFile, ...plan.assignment.conflict }));
+    const autoRecoverableCount = new Set([...plansByDestination.values()].flatMap(group => [...group.values()]).filter(plan => plan.sourceDatasetKey === "_unassigned" && plan.assignment?.kind !== "unassigned").map(plan => plan.planFile || plan.planKey)).size;
+    (0, ResultLayout_1.datasetPartitions)(datasets.filter(item => !["_shared", "_unassigned"].includes(item.datasetKey)).map(item => item.dataset));
+    return { datasets, legacyTables: datasets.length ? [] : legacyTables, unassignedPlans, multiDatasetPlans, mappingConflicts, autoRecoverableCount };
 }
 function tableCatalog(root, resultDir) {
     return resultCatalog(root, resultDir).datasets.flatMap(dataset => dataset.tables);

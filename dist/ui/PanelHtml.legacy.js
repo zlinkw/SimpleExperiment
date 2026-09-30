@@ -1037,9 +1037,18 @@ function renderPanelHtml() {
     .resultDatasetList { display: grid; gap: 7px; }
     .resultDatasetGroup { min-width: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--vscode-editor-background); }
     .resultDatasetGroup > summary { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; padding: 9px 11px; cursor: pointer; }
+    .resultTableBrowser details > summary { list-style: none; cursor: pointer; }
+    .resultTableBrowser details > summary::-webkit-details-marker { display: none; }
+    .resultTableBrowser details > summary::before { content: ""; display: inline-block; vertical-align: middle; flex: 0 0 auto; width: 0; height: 0; margin: 0 2px 0 0; border-top: 3px solid transparent; border-bottom: 3px solid transparent; border-left: 4px solid var(--muted); transform: rotate(0deg); transition: transform .12s ease; }
+    .resultTableBrowser details[open] > summary::before { transform: rotate(90deg); }
+    .resultTableBrowser details > summary:hover { color: var(--vscode-textLink-foreground); }
     .resultDatasetName { min-width: 0; font-size: 14px; font-weight: 750; overflow-wrap: anywhere; }
     .resultDatasetStats { color: var(--muted); font-size: 11px; white-space: nowrap; }
     .resultDatasetContent { display: grid; gap: 8px; padding: 0 10px 10px; }
+    .resultPlanMapList { display: grid; gap: 5px; margin-top: 8px; }
+    .resultPlanMapRow { display: grid; grid-template-columns: auto minmax(0, 1fr) minmax(130px, 220px); gap: 8px; align-items: center; padding: 5px 7px; border-bottom: 1px solid var(--border); }
+    .resultPlanMapRow span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .resultPlanMapRow small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .resultDatasetSectionTitle { margin: 2px 0 0; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .02em; }
     .resultTableRowCompact { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px; min-width: 0; padding: 6px 8px; border-bottom: 1px solid var(--border); }
     .resultDatasetFinal { border: 1px solid color-mix(in srgb, var(--info) 45%, var(--border)); border-left: 3px solid var(--info); border-radius: 6px; background: color-mix(in srgb, var(--vscode-editor-background) 96%, var(--info) 4%); }
@@ -2799,7 +2808,7 @@ function renderPanelHtml() {
       "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections",
       "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot",
       "selectLogRunKey", "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "checkPluginUpdates", "installPluginUpdates", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
-      "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope", "resetRemotePathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail",
+      "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope", "resetRemotePathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail", "applyPlanDatasetMapping", "autoMatchPlanDatasets",
       "selectPlan", "selectExperiment",
       "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxList", "fetchTmuxCapture", "killTmuxWindow", "clearTmuxTaskTabs",
       ...Object.keys(uiCapabilityMap)
@@ -3156,6 +3165,15 @@ function renderPanelHtml() {
           payload.tableKey = String(button.dataset.tableKey || "");
           payload.format = String(button.dataset.format || "csv");
           payload.artifactKey = String(button.dataset.artifactKey || "");
+        }
+        if (command === "applyPlanDatasetMapping") {
+          payload.mappings = {};
+          document.querySelectorAll(".resultPlanMapRow input[data-plan-map-check]:checked").forEach(input => {
+            const row = input.closest(".resultPlanMapRow");
+            const dataset = String(row?.querySelector("select[data-plan-map-dataset]")?.value || "");
+            if (input.value && dataset) payload.mappings[input.value] = dataset;
+          });
+          if (!Object.keys(payload.mappings).length) { if (typeof showToast === "function") showToast("请选择 Plan 和目标数据集", "warning"); return; }
         }
         const pendingKey = pendingKeyForButton(button, command, payload);
         if (!pendingButtonKeys?.has(pendingKey)) {
@@ -14644,9 +14662,11 @@ function renderPanelHtml() {
         const artifacts = [...artifactsByKey.values()];
         return { groups, plans, artifacts, count: countArtifacts ? artifacts.length || new Set(plans.map(planKey)).size : new Set(plans.map(planKey)).size };
       };
-      const unassigned = collectSpecial(unassignedGroups);
+      const collectedUnassigned = collectSpecial(unassignedGroups);
+      const unassignedPlans = Array.isArray(catalog?.unassignedPlans) ? sortPlans(catalog.unassignedPlans) : collectedUnassigned.plans;
+      const unassigned = { ...collectedUnassigned, plans: unassignedPlans, count: new Set(unassignedPlans.map(planKey)).size };
       const shared = collectSpecial(sharedGroups, true);
-      return { datasets, defaultDatasetKey: selectedDataset?.datasetKey || datasets[0]?.datasetKey || "", unassigned, shared };
+      return { datasets, defaultDatasetKey: selectedDataset?.datasetKey || datasets[0]?.datasetKey || "", unassigned, shared, mappingConflicts: asArray(catalog?.mappingConflicts), autoRecoverableCount: Number(catalog?.autoRecoverableCount || 0) };
     }
     function resultCatalogBasename(value) {
       const parts = String(value || "").split("/");
@@ -14689,7 +14709,8 @@ function renderPanelHtml() {
           const label = { raw: "原始数据", detail: "详细聚合", trace: "追溯文件" }[kind];
           return '<details><summary>' + label + '（' + artifacts.length + '）</summary><div class="resultPlanFiles">' + artifacts.map(file => '<div class="resultPlanFileRow"><span class="muted">' + esc(file.workerId || "") + '</span><button type="button" class="secondary mini resultTableName" data-command="openLocalResultTable" data-artifact-key="' + escAttr(file.artifactKey) + '" title="' + escAttr(file.path || "") + '">' + esc(resultCatalogBasename(file.path)) + '</button></div>').join("") + '</div></details>';
         }).join("");
-        return '<details class="resultPlanRow" data-details-key="' + escAttr(detailKey) + '"' + detailsOpenAttr(detailKey, false) + '><summary title="' + escAttr(plan.planFile || plan.label || "") + '">' + esc(planName) + '</summary><div class="resultPlanFiles">' + files + '</div></details>';
+        const assignmentLabel = plan.assignment?.kind === "multiple" ? '<span class="muted">跨数据集 · ' + esc(asArray(plan.assignment.datasets).join("、")) + '</span>' : "";
+        return '<details class="resultPlanRow" data-details-key="' + escAttr(detailKey) + '"' + detailsOpenAttr(detailKey, false) + '><summary title="' + escAttr(plan.planFile || plan.label || "") + '">' + esc(planName) + assignmentLabel + '</summary><div class="resultPlanFiles">' + files + '</div></details>';
       }).join("");
       const datasetsHtml = view.datasets.map(dataset => {
         const key = String(dataset.datasetKey || "");
@@ -14701,7 +14722,9 @@ function renderPanelHtml() {
         return '<details class="resultDatasetGroup" data-details-key="' + escAttr(detailKey) + '"' + detailsOpenAttr(detailKey, key === view.defaultDatasetKey) + '>' + summary + '<div class="resultDatasetContent">' + finalHtml + methodsHtml + plansHtml + '</div></details>';
       }).join("");
       const specialHtml = (special, key, title) => special.plans.length ? '<details class="resultSpecialGroup ' + (key === "unassigned" ? 'resultUnassigned' : 'resultAdvancedSources') + '" data-details-key="result-' + key + '"' + detailsOpenAttr("result-" + key, false) + '><summary>' + title + '（' + special.count + '）</summary><div class="resultSpecialBody">' + planRows(special.plans, key) + '</div></details>' : "";
-      const unassignedHtml = view.unassigned.count ? '<section class="resultSpecialSection"><h4 class="resultDatasetSectionTitle">待处理</h4><div class="resultSpecialGroup resultUnassigned"><div class="resultUnassignedLead">⚠ ' + view.unassigned.count + ' 个 Plan 尚未识别数据集</div><div class="muted">请设置结果列映射后重新汇总。</div><div class="resultTopActions"><button type="button" class="secondary mini" data-open-result-mapping>设置结果列映射</button><details data-details-key="result-unassigned"' + detailsOpenAttr("result-unassigned", false) + '><summary>查看 ' + view.unassigned.count + ' 个 Plan</summary><div class="resultPlanList">' + planRows(view.unassigned.plans, "unassigned") + '</div></details></div></div></section>' : "";
+      const datasetOptions = view.datasets.map(row => '<option value="' + escAttr(row.dataset) + '">' + esc(row.dataset) + '</option>').join("");
+      const unassignedRows = view.unassigned.plans.map(plan => '<label class="resultPlanMapRow"><input type="checkbox" data-plan-map-check value="' + escAttr(plan.planFile || "") + '"><span title="' + escAttr(plan.planFile || "") + '">' + esc(resultCatalogBasename(plan.planFile || plan.label)) + '<small class="muted">' + esc(plan.planFile || "") + '</small></span><select data-plan-map-dataset aria-label="映射 ' + escAttr(plan.planFile || "") + '"><option value="">请选择数据集</option>' + datasetOptions + '</select></label>').join("");
+      const unassignedHtml = view.unassigned.count ? '<section class="resultSpecialSection"><h4 class="resultDatasetSectionTitle">待处理</h4><div class="resultSpecialGroup resultUnassigned"><div class="resultUnassignedLead">⚠ ' + view.unassigned.count + ' 个 Plan 尚未识别数据集</div><div class="muted">这些现有结果缺少数据集元数据；应用映射只重新整理本地已有结果，不会重新训练。</div><div class="resultTopActions"><button type="button" class="secondary mini" data-command="autoMatchPlanDatasets">自动匹配可确定项（已恢复 ' + view.autoRecoverableCount + '）</button><button type="button" class="secondary mini" data-open-result-mapping>设置结果列映射</button><details data-details-key="result-unassigned"' + detailsOpenAttr("result-unassigned", false) + '><summary>尚未识别 Plan（' + view.unassigned.count + '）</summary><div class="resultPlanMapList">' + unassignedRows + '<button type="button" data-command="applyPlanDatasetMapping">应用映射并重新整理已有结果</button><div class="muted">从本地已有逐 seed 结果重新汇总；原始 CSV 保持不变。</div></div></details></div></div></section>' : "";
       const sharedHtml = specialHtml(view.shared, "shared-sources", "跨数据集原始来源");
       const legacyTables = asArray(catalog.legacyTables);
       const legacyHtml = legacyTables.length ? '<details class="resultSpecialGroup" data-details-key="result-legacy-tables"' + detailsOpenAttr("result-legacy-tables", false) + '><summary>旧版结果结构（' + legacyTables.length + '）</summary><div class="resultSpecialBody"><div class="muted">旧结构只读保留；重新汇总后会生成按数据集组织的结果。</div>' + legacyTables.map(row => '<div class="resultTableName" title="' + escAttr(row.path || "") + '">' + esc(resultCatalogBasename(row.path)) + '</div>').join("") + '</div></details>' : "";
@@ -14710,7 +14733,7 @@ function renderPanelHtml() {
       return '<div class="resultFinalCard resultTableBrowser"><div class="resultFinalHeader"><div><h3>结果总表</h3><p>按数据集组织结果。</p></div><div class="resultTopActions"><button type="button" data-command="syncPendingPlanArtifacts" title="手动同步各 Worker 的指标并更新结果总表，不会重新训练或下载权重、日志。">同步服务器结果并更新总表</button><button type="button" class="secondary" data-command="rebuildProjectResultTables" title="下载已完成运行的指标并重新汇总；权重、检查点和日志保留在服务器。">下载指标并重新汇总</button></div></div>' +
         reportHtml +
         (catalog.error ? '<div class="muted">结果目录需要检查：' + esc(catalog.error) + '</div>' : view.datasets.length ? '<section class="resultDatasetList"><h4 class="resultDatasetSectionTitle">数据集结果</h4>' + datasetsHtml + '</section>' : '<div class="muted">尚无总表。点击“同步服务器结果并更新总表”合并 Worker 结果、下载指标并生成总表。</div>') +
-        unassignedHtml + advancedHtml +
+        unassignedHtml + (view.mappingConflicts.length ? '<div class="muted">' + view.mappingConflicts.map(item => esc('Plan ' + item.planFile + ' 的实际结果数据集 ' + item.actual.join('、') + ' 与历史人工映射 ' + item.mapped.join('、') + ' 不一致，已采用实际结果；请检查映射。')).join('<br>') + '</div>' : '') + advancedHtml +
         '<details class="resultArtifactGroup" id="resultSplitTables" data-details-key="result-split-tables"' + detailsOpenAttr("result-split-tables", false) + '><summary>按列和值拆成子表</summary>' +
         '<div class="muted" id="resultSplitSourceName">来源：' + esc((selected?.dataset || "未识别数据集") + " / " + (selected?.name || "无")) + '</div>' +
         '<div class="resultTableRow"><label>来源表 <select id="resultSplitTable">' + tableOptions + '</select></label><label>按此列拆表 <select id="resultSplitField">' + optionsHtml(fields, field) + '</select></label><input type="search" id="resultSplitSearch" value="' + escAttr(resultSplitSearchQuery) + '" placeholder="搜索词条"></div>' +

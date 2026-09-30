@@ -6,9 +6,10 @@ const path = require('node:path');
 const Module = require('node:module');
 const vm = require('node:vm');
 const tables = require('../../dist/results/ProjectResultTables');
+let savedRules = {};
 const originalLoad = Module._load;
 Module._load = function(request, parent, main) {
-  if (request === 'vscode') return {window: {showInformationMessage() {}, showWarningMessage: async () => '覆盖已有子表'}, workspace: {workspaceFolders: []}};
+  if (request === 'vscode') return {Uri: {file: value => ({fsPath: value})}, ConfigurationTarget: {WorkspaceFolder: 2}, window: {showInformationMessage() {}, showWarningMessage: async () => '覆盖已有子表'}, workspace: {workspaceFolders: [], getConfiguration: () => ({get: () => savedRules, update: async (_key, value) => { savedRules = value; }})}};
   return originalLoad.call(this, request, parent, main);
 };
 const {RealtimeTunnelPanelProvider} = require('../../dist/extension/legacy');
@@ -37,10 +38,12 @@ test('production writer, catalog, open and split obey dataset keys and configure
   fs.mkdirSync(path.dirname(path.join(root, artifact)), {recursive: true});
   fs.writeFileSync(path.join(root, artifact), 'dataset,value\nBUS,.8\n', 'utf8');
   const catalog = tables.resultCatalog(root, host.resultCsvDirectory);
-  assert.equal(catalog.datasets.length, 3);
+  assert.equal(catalog.datasets.length, 4);
   const all = catalog.datasets.flatMap(row => row.tables);
   assert.equal(new Set(all.map(row => row.tableKey)).size, 6);
-  assert.equal(catalog.datasets.find(row => row.dataset === 'BUS').plans[0].planFile, 'experiments/plans/demo.yaml');
+  assert.equal(catalog.datasets.find(row => row.datasetKey === '_shared').plans[0].planFile, 'experiments/plans/demo.yaml');
+  assert.equal(catalog.unassignedPlans.length, 0);
+  assert.equal(catalog.multiDatasetPlans.length, 1);
   await host.openLocalResultTableFromUi({tableKey: 'PAD/final', format: 'csv', file: '../untrusted'});
   assert.equal(host.opened, 'artifacts/results/PAD/final/final.csv');
   await host.openLocalResultTableFromUi({artifactKey: artifact});
@@ -65,8 +68,12 @@ test('production writer, catalog, open and split obey dataset keys and configure
   const html = render({resultOutputConfig: {tables: all, catalog}});
   assert.match(html, /data-details-key="result-dataset-BUS"/);
   assert.match(html, /data-details-key="result-dataset-PAD"/);
-  assert.match(html, /方法 1 · Plan 1/);
-  assert.match(html, /Plan 产物（1）/);
+  assert.match(html, /data-details-key="result-dataset-BUS" open/);
+  assert.doesNotMatch(html, /data-details-key="result-dataset-PAD" open/);
+  assert.match(html, /resultDatasetGroup/);
+  assert.match(html, /方法 1 · Plan 0/);
+  assert.match(html, /跨数据集原始来源/);
+  assert.match(html, /跨数据集 · BUS、PAD/);
   assert.match(html, /data-table-key="PAD\/final"/);
   assert.match(html, /未识别数据集/);
   assert.match(html, /title="artifacts\/results\/PAD\/final\/final.csv"/);
@@ -74,6 +81,56 @@ test('production writer, catalog, open and split obey dataset keys and configure
   assert.match(html, /data-format="csv"/);
   assert.match(html, /data-format="md"/);
   assert.doesNotMatch(html, /全项目总表|experiments\/results/);
+  assert.match(source, /\.resultTableBrowser details > summary::before/);
+  assert.match(source, /\.resultTableBrowser details\[open\] > summary::before/);
+  assert.match(source, /::-webkit-details-marker \{ display: none; \}/);
+});
+
+test('manual Plan mapping persists per workspace, rebuilds existing seeds locally, and keeps raw artifacts unchanged', async () => {
+  savedRules = {};
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dataset-manual-map-'));
+  const planFile = 'experiments/plans/comparison/old.yaml';
+  const registry = tables.emptyTableRegistry();
+  registry.plans[planFile] = {revision: 'r1', expectedSeeds: 1, records: [{planFile, workerId: 'w1', case: 'same', seed: '1', method: 'old', dataset: '', rate: '', endpoint: 'clean', metrics: {accuracy: .8}}]};
+  const host = Object.assign(Object.create(RealtimeTunnelPanelProvider.prototype), {
+    resultCsvDirectory: 'experiments/results', captureProjectContext: () => ({root}), projectContextIsCurrent: () => true, postState() { this.refreshed = true; },
+    loadProjectTableRegistry: async () => JSON.parse(fs.readFileSync(path.join(root, 'simple_cluster/results/project_table_registry.json'), 'utf8')),
+  });
+  await host.writeProjectTableRegistry(root, registry);
+  const artifact = path.join(root, 'experiments/results/_unassigned/plans', tables.planDirectoryKey(planFile), 'raw/w1/metrics.csv');
+  fs.mkdirSync(path.dirname(artifact), {recursive: true});
+  fs.writeFileSync(artifact, 'metric,value\naccuracy,0.8\n', 'utf8');
+  const before = fs.readFileSync(artifact, 'utf8');
+  await host.applyPlanDatasetMappingFromUi({mappings: {[planFile]: 'PAD'}});
+  assert.equal(savedRules.planDatasetMapping[planFile].datasets[0], 'PAD');
+  assert.equal(host.refreshed, true);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(root, 'simple_cluster/results/project_table_registry.json'), 'utf8')).plans[planFile].records[0].dataset, 'PAD');
+  assert.ok(fs.existsSync(path.join(root, 'experiments/results/PAD/final/final.csv')));
+  assert.equal(fs.readFileSync(artifact, 'utf8'), before);
+  await assert.rejects(host.applyPlanDatasetMappingFromUi({mappings: {[planFile]: 'BUS'}}), /不能通过人工映射覆盖/);
+  assert.equal(savedRules.planDatasetMapping[planFile].datasets[0], 'PAD');
+  const catalog = tables.resultCatalog(root, 'experiments/results', savedRules.planDatasetMapping);
+  assert.equal(catalog.unassignedPlans.length, 0);
+  assert.equal(catalog.datasets.find(row => row.datasetKey === 'PAD').plans[0].planFile, planFile);
+});
+
+test('legacy artifact CSV metadata repairs an unmatched Plan key and keeps multi-dataset Plans out of unresolved', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dataset-artifact-metadata-'));
+  const planFile = 'experiments/plans/comparison/corim.yaml';
+  const registry = tables.emptyTableRegistry();
+  registry.plans[planFile] = {revision: 'r1', expectedSeeds: 1, records: ['BUS', 'PAD'].map(dataset => ({planFile, workerId: 'w1', case: 'same', seed: '1', method: 'corim', dataset, rate: '', endpoint: 'clean', metrics: {accuracy: .8}}))};
+  fs.mkdirSync(path.join(root, 'simple_cluster/results'), {recursive: true});
+  fs.writeFileSync(path.join(root, 'simple_cluster/results/project_table_registry.json'), JSON.stringify(registry), 'utf8');
+  const oldFile = path.join(root, 'experiments/results/_shared/plans/old-plan-hash/detail/w1/project_seed_mean_std.csv');
+  fs.mkdirSync(path.dirname(oldFile), {recursive: true});
+  fs.writeFileSync(oldFile, 'plan_file,dataset\n' + planFile + ',BUS\n' + planFile + ',PAD\n', 'utf8');
+  const catalog = tables.resultCatalog(root, 'experiments/results');
+  assert.equal(catalog.unassignedPlans.length, 0);
+  assert.equal(catalog.multiDatasetPlans.length, 1);
+  const shared = catalog.datasets.find(row => row.datasetKey === '_shared');
+  assert.equal(shared.plans[0].planFile, planFile);
+  assert.deepEqual(shared.plans[0].datasets, ['BUS', 'PAD']);
+  assert.equal(shared.plans[0].artifacts.length, 1);
 });
 
 test('legacy flat tables remain read-only and separate from new datasets', () => {

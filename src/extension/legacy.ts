@@ -426,7 +426,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "stopAllPlans",
     "stopAndClearPlan",
     "webviewReady", "webviewHeartbeatAck", "webviewBootstrapError", "webviewRenderError", "reloadPanel", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
-    "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "reassignWorkerTask", "openSetupGuide", "openAdvancedCommandsSetting",
+    "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "reassignWorkerTask", "openSetupGuide", "openAdvancedCommandsSetting", "applyPlanDatasetMapping", "autoMatchPlanDatasets",
     "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
     "selectPlan", "selectExperiment",
     "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail",
@@ -4922,6 +4922,12 @@ export class RealtimeTunnelPanelProvider {
                 break;
             case "saveResultColumnMapping":
                 await this.saveResultColumnMappingFromUi(message);
+                break;
+            case "applyPlanDatasetMapping":
+                await this.applyPlanDatasetMappingFromUi(message);
+                break;
+            case "autoMatchPlanDatasets":
+                await this.autoMatchPlanDatasetsFromUi();
                 break;
             case "saveResultCsvDir":
                 await this.saveResultCsvDirFromUi(message);
@@ -13527,6 +13533,7 @@ export class RealtimeTunnelPanelProvider {
         const existingRules = pluginProjectAdapterRules(root);
         patch.csvColumnMapping = existingRules.csvColumnMapping || {};
         patch.derivedMetric = existingRules.derivedMetric || {};
+        patch.planDatasetMapping = existingRules.planDatasetMapping || {};
         const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
         await config.update("projectAdapterRules", patch, vscode.ConfigurationTarget.WorkspaceFolder);
         if (!this.projectContextIsCurrent(projectContext))
@@ -13540,6 +13547,48 @@ export class RealtimeTunnelPanelProvider {
             ? `接入规则已保存到插件工作区设置；以下 Agent 待同步：${syncErrors.join("；")}`
             : "接入规则已保存到插件工作区设置，并同步到 Agent。正常使用无需项目 YAML。");
         this.queueResultParseAfterProjectChange("保存接入规则", this.planFileInput || this.selectedPlanId, this.selectedPlanId || this.planFileInput);
+    }
+    async autoMatchPlanDatasetsFromUi() {
+        const context = this.captureProjectContext();
+        if (!context.root) throw new Error("请先打开当前实验项目。");
+        const catalog = ProjectResultTables.resultCatalog(context.root, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, pluginProjectAdapterRules(context.root).planDatasetMapping || {});
+        if (!this.projectContextIsCurrent(context)) return;
+        this.postState();
+        void vscode.window.showInformationMessage("已按现有可信 registry 元数据自动恢复 " + catalog.autoRecoverableCount + " 个 Plan；仍有 " + catalog.unassignedPlans.length + " 个需要手工映射。跨数据集 Plan：" + catalog.multiDatasetPlans.length + " 个。");
+    }
+    async applyPlanDatasetMappingFromUi(message) {
+        const context = this.captureProjectContext();
+        if (!context.root) throw new Error("请先打开当前实验项目。");
+        const requested = recordField(message, "mappings");
+        if (!requested || typeof requested !== "object" || Array.isArray(requested) || !Object.keys(requested).length) throw new Error("请选择至少一个 Plan 和数据集。");
+        const root = context.root;
+        const rules = pluginProjectAdapterRules(root);
+        const mappings = { ...(rules.planDatasetMapping || {}) };
+        const catalog = ProjectResultTables.resultCatalog(root, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, mappings);
+        const unresolved = new Map(catalog.unassignedPlans.map(plan => [ProjectResultTables.normalizePlanDatasetKey(plan.planFile), plan]));
+        const registry = await this.loadProjectTableRegistry(root);
+        for (const [rawPlan, rawDataset] of Object.entries(requested)) {
+            const planFile = ProjectResultTables.normalizePlanDatasetKey(rawPlan);
+            const plan = unresolved.get(planFile);
+            if (!plan?.planFile) throw new Error("该 Plan 已有可信数据集或跨数据集结果，不能通过人工映射覆盖：" + rawPlan);
+            const dataset = String(rawDataset || "").trim();
+            if (!dataset) throw new Error("请为每个选中的 Plan 选择数据集。");
+            ProjectResultTables.datasetPathKey(dataset);
+            const records = Object.entries(registry.plans || {}).find(([file]) => ProjectResultTables.normalizePlanDatasetKey(file) === planFile)?.[1]?.records || [];
+            const existing = ProjectResultTables.resolvePlanDatasetAssignment({ historicalRecords: records.filter(row => row.dataset && row.datasetSource !== "manual-plan-mapping") });
+            if (existing.kind !== "unassigned") throw new Error("该 Plan 已有可信结果数据集 " + existing.datasets.join("、") + "，不能用人工映射覆盖。");
+            mappings[plan.planFile] = { datasets: [dataset], source: "manual", updatedAt: new Date().toISOString() };
+        }
+        await vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root)).update("projectAdapterRules", { ...rules, planDatasetMapping: mappings }, vscode.ConfigurationTarget.WorkspaceFolder);
+        const normalized = ProjectResultTables.applyPlanDatasetOverrides(registry, mappings);
+        const changed = JSON.stringify(registry.plans || {}) !== JSON.stringify(normalized.plans || {});
+        if (changed) await this.writeProjectTableRegistry(root, normalized);
+        if (!this.projectContextIsCurrent(context)) return;
+        this.postState();
+        const count = Object.keys(requested).length;
+        void vscode.window.showInformationMessage(changed
+            ? "已保存 " + count + " 个 Plan 的数据集映射，并从本地逐 seed 结果重新整理总表；不会重新训练。"
+            : "已保存 " + count + " 个 Plan 的数据集映射；当前没有可重新汇总的本地结果记录。后续同一 Plan 的无 dataset 结果会沿用映射。");
     }
     async saveResultColumnMappingFromUi(message) {
         const context = this.captureProjectContext();
@@ -15287,7 +15336,7 @@ export class RealtimeTunnelPanelProvider {
                 summary.completedRunId = item.acceptedRunId;
             const expected = Array.isArray(item.metadata?.seeds) ? item.metadata.seeds.length : 0;
             try {
-                const next = ProjectResultTables.mergeAvailableWorkerResults(registry, summary, item.planFile, expected);
+                const next = ProjectResultTables.mergeAvailableWorkerResults(registry, summary, item.planFile, expected, pluginProjectAdapterRules(root).planDatasetMapping || {});
                 ProjectResultTables.buildTables(next);
                 const records = next.plans?.[item.planFile]?.records || [];
                 const incomingWorkers = new Set((summary.results || []).map((row) => String(row.workerId || row.resultOwnerWorkerId || "")));
@@ -15668,7 +15717,7 @@ export class RealtimeTunnelPanelProvider {
         const latest = PlanArtifactSync.latestPlanSyncEntry(await this.loadPlanSyncLedger(root), planFile);
         const chosen = latest?.runId && latest.runId !== "historic" ? ProjectResultTables.summaryForWorker(summary, latest.sourceWorkerId) : summary;
         if (!chosen) return;
-        const next = ProjectResultTables.updateRegistry(registry, chosen, planFile, expected);
+        const next = ProjectResultTables.updateRegistry(registry, chosen, planFile, expected, pluginProjectAdapterRules(context.root).planDatasetMapping || {});
         next.derivedMetric = pluginProjectAdapterRules(root).derivedMetric || undefined;
         if (JSON.stringify(next.plans[planFile]) === JSON.stringify(registry.plans[planFile]) && JSON.stringify(next.derivedMetric) === JSON.stringify(registry.derivedMetric)) return;
         await this.writeProjectTableRegistry(root, next);
@@ -15762,7 +15811,7 @@ export class RealtimeTunnelPanelProvider {
                 }
                 if (serverSummary.completedMetricFilesMissing?.length) missing.push(planFile + "：部分已完成 job 缺少可验证的指标文件：" + serverSummary.completedMetricFilesMissing.slice(0, 3).join("；"));
                 try {
-                    const next = ProjectResultTables.mergeAvailableWorkerResults(registry, summary, planFile, Array.isArray(plan.seeds) ? plan.seeds.length : 0);
+                    const next = ProjectResultTables.mergeAvailableWorkerResults(registry, summary, planFile, Array.isArray(plan.seeds) ? plan.seeds.length : 0, pluginProjectAdapterRules(root).planDatasetMapping || {});
                     ProjectResultTables.buildTables(next);
                     if (next !== registry) {
                         registry = next;
@@ -15804,7 +15853,7 @@ export class RealtimeTunnelPanelProvider {
     async openLocalResultTableFromUi(message) {
         const context = this.captureProjectContext();
         if (!context.root) throw new Error("请先打开当前实验项目。");
-        const catalog = ProjectResultTables.resultCatalog(context.root, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR);
+        const catalog = ProjectResultTables.resultCatalog(context.root, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, pluginProjectAdapterRules(context.root).planDatasetMapping || {});
         if (message?.artifactKey) {
             const artifact = catalog.datasets.flatMap(item => item.plans.flatMap(plan => plan.artifacts)).find(row => row.artifactKey === String(message.artifactKey));
             if (!artifact) throw new Error("结果产物不在当前目录索引中。");
@@ -18086,7 +18135,7 @@ export class RealtimeTunnelPanelProvider {
                 defaultDirectory: DEFAULT_RESULT_CSV_DIR,
                 columnMapping: pluginProjectAdapterRules(workspaceRoot() || "").csvColumnMapping || {},
                 adapterRules: pluginProjectAdapterRules(workspaceRoot() || ""),
-                catalog: (() => { try { return workspaceRoot() ? ProjectResultTables.resultCatalog(workspaceRoot()!, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR) : { datasets: [], legacyTables: [] }; } catch (error) { return { datasets: [], legacyTables: [], error: errorMessage(error) }; } })(),
+                catalog: (() => { try { const root = workspaceRoot(); return root ? ProjectResultTables.resultCatalog(root, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, pluginProjectAdapterRules(root).planDatasetMapping || {}) : { datasets: [], legacyTables: [], unassignedPlans: [], multiDatasetPlans: [], mappingConflicts: [], autoRecoverableCount: 0 }; } catch (error) { return { datasets: [], legacyTables: [], unassignedPlans: [], multiDatasetPlans: [], mappingConflicts: [], autoRecoverableCount: 0, error: errorMessage(error) }; } })(),
                 tables: (() => { try { return workspaceRoot() ? ProjectResultTables.tableCatalog(workspaceRoot()!, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR) : []; } catch { return []; } })(),
                 pendingPlanSyncCount: (() => {
                     const root = workspaceRoot();

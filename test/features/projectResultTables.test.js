@@ -273,3 +273,28 @@ test("completed run selection follows the explicit run and keeps complementary m
   assert.throws(() => tables.datasetPartitions(["A B", "A?B"]), /同一目录/);
   assert.throws(() => tables.datasetPartitions(["BUS", "bus"]), /同一目录/);
  });
+
+test("plan dataset assignment prefers trusted multi-dataset records and persists normalized manual fallbacks", () => {
+  const assignment = tables.resolvePlanDatasetAssignment({historicalRecords: [{dataset: "BUS"}, {dataset: "PAD"}], manualMapping: {datasets: ["CPSC"]}});
+  assert.deepEqual(assignment, {kind: "multiple", datasets: ["BUS", "PAD"], source: "historical-registry", conflict: {actual: ["BUS", "PAD"], mapped: ["CPSC"]}});
+  assert.equal(tables.resolvePlanDatasetAssignment({historicalRecords: []}).kind, "unassigned");
+  assert.equal(tables.normalizePlanDatasetKey(".\\experiments\\plans\\a\\demo.yaml"), "experiments/plans/a/demo.yaml");
+  assert.notEqual(tables.normalizePlanDatasetKey("experiments/plans/a/demo.yaml"), tables.normalizePlanDatasetKey("experiments/plans/b/demo.yaml"));
+  const registry = {schemaVersion: 1, plans: {[plan]: {revision: "rev1", expectedSeeds: 1, records: [{planFile: plan, workerId: "w1", case: "c", seed: "1", method: "demo", dataset: "", rate: "", endpoint: "clean", metrics: {accuracy: .8}}]}}};
+  const mapping = {".\\experiments\\plans\\comparison\\demo.yaml": {datasets: ["PAD"], source: "manual"}};
+  const applied = tables.applyPlanDatasetOverrides(registry, mapping);
+  assert.equal(applied.plans[plan].records[0].dataset, "PAD");
+  assert.equal(applied.plans[plan].records[0].datasetSource, "manual-plan-mapping");
+  assert.equal(registry.plans[plan].records[0].dataset, "");
+  assert.equal(tables.registeredPlanSummary(applied, plan).results[0].datasetSource, "manual-plan-mapping");
+  const actualSummary = summary([record("w1", "demo", "same", "1", "clean", "accuracy", .9)]);
+  actualSummary.results[0].dimensions.dataset = "BUS";
+  const actual = tables.recordsForSummary(actualSummary, plan, mapping);
+  assert.equal(actual[0].dataset, "BUS");
+  assert.equal(actual[0].datasetSource, undefined);
+  const missingDatasetSummary = summary([record("w1", "demo", "same", "1", "clean", "accuracy", .9)]);
+  missingDatasetSummary.results[0].dimensions.dataset = "";
+  const inherited = tables.recordsForSummary(missingDatasetSummary, plan, mapping);
+  assert.equal(inherited[0].dataset, "PAD");
+  assert.equal(inherited[0].datasetSource, "manual-plan-mapping");
+});
