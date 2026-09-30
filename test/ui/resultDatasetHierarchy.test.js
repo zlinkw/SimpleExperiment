@@ -118,13 +118,28 @@ test("renderer puts compact dataset tables first and collapses plans, unassigned
   assert.match(source, /\.resultDatasetStats \{[^}]*grid-column: 2 \/ -1;/);
   assert.match(source, /data-command="syncAllResultArtifacts"/);
   assert.match(source, /data-command="parseResults"/);
-  assert.match(source, /原始数据与详细追溯/);
+  assert.doesNotMatch(source, /原始数据与详细追溯/);
+  assert.doesNotMatch(source, /data-details-key="result-trace-files"/);
+  assert.doesNotMatch(source, /\.resultArtifactGroup\[data-details-key="result-trace-files"\]/);
   const rendererSource = source.slice(start, end);
   assert.doesNotMatch(rendererSource, /experiments\/results/);
   const reportHtml = renderer.renderProjectResultTables({ resultSyncReport: { discovered: 20, included: ["Plan A"], missing: ["Plan B"], skipped: ["Plan C"] }, resultOutputConfig: { catalog, tables: catalog.datasets.flatMap(group => group.tables) } });
   assert.match(reportHtml, /发现 20 · 收录 1 · 缺指标 1 · 跳过\/失败 1/);
   assert.match(reportHtml, /<details data-details-key="result-sync-report"><summary>查看 Plan 与 Worker 明细/);
   assert.match(readSource("src/ui/sections/ResultsSection.ts"), /按数据集浏览总表、方法结果与原始文件/);
+});
+
+test("multi-dataset summaries without scalar paths have no legacy trace details", () => {
+  const summary = {
+    datasetResultTables: [{ dataset: "BUS" }, { dataset: "PAD" }],
+    rawResultCsvPath: undefined,
+    aggregateCsvPath: undefined,
+  };
+  assert.equal(summary.datasetResultTables.length, 2);
+  assert.equal(summary.rawResultCsvPath, undefined);
+  assert.equal(summary.aggregateCsvPath, undefined);
+  assert.doesNotMatch(source, /data-details-key="result-trace-files"/);
+  assert.doesNotMatch(source, /原始数据与详细追溯/);
 });
 
 test("split action selects the clicked table and opens the existing split tool", () => {
@@ -176,11 +191,15 @@ test("multi-dataset plans are logical references for each dataset and shared art
   assert.equal((html.match(/涉及 Plan 17/g) || []).length, 2);
   assert.doesNotMatch(html, /Plan 0/);
   assert.match(html, /跨数据集 Plan 与共享产物（17 个 Plan · 218 个文件）/);
+  assert.match(html, /原始数据（/);
+  assert.match(html, /详细聚合（/);
+  assert.match(html, /追溯文件（/);
   assert.doesNotMatch(html, /跨数据集原始来源/);
   assert.doesNotMatch(html, /待处理|尚未识别 Plan/);
   assert.equal((html.match(/data-open-result-shared-plan/g) || []).length, 34);
   assert.equal((html.match(/artifacts\/results\/_shared\/artifact-/g) || []).length, 218);
   assert.match(html, /跨数据集 · bus_cot_lesion、pad_ufes_20/);
+  assert.match(html, /查看共享产物/);
   assert.match(source, /\.resultDatasetGroup > summary \{ display: grid; grid-template-columns: auto minmax\(0, 1fr\) auto; align-items: center; justify-content: initial;/);
   assert.match(source, /\.resultDatasetStats \{ grid-column: 3;/);
   assert.match(source, /@container main-workflow \(max-width: 520px\)[\s\S]*?\.resultDatasetStats \{ grid-column: 2 \/ -1;/);

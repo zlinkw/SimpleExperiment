@@ -1089,7 +1089,6 @@ function renderPanelHtml() {
     .resultFinalCard .pptPlotActions { margin: 0; }
     .resultArtifactGroup { margin: 0; padding: 10px 12px; border: 1px solid var(--border); border-left: 4px solid #94A3B8; border-radius: 8px; background: var(--vscode-editor-background); }
     .resultArtifactGroup[data-details-key="result-split-tables"] { border-left-color: var(--info); }
-    .resultArtifactGroup[data-details-key="result-trace-files"] { border-left-color: var(--warning); }
     .resultArtifactGroup[data-details-key="results-ppt-plot"] { border-left-color: #7C3AED; margin-top: 10px; }
     .resultArtifactGroup summary { cursor: pointer; font-size: 13px; font-weight: 700; line-height: 1.35; }
     .resultArtifactGroup[open] > summary { margin-bottom: 9px; }
@@ -14833,8 +14832,6 @@ function renderPanelHtml() {
       const qualityWarnings = pick(summary, ["qualityWarnings", "quality_warnings"], "-");
       const qualityGatePath = pick(summary, ["qualityGatePath", "quality_gate_path"], "-");
       const previewCsvPath = pick(summary, ["previewCsvPath", "preview_csv_path"], "-");
-      const rawResultCsvPath = pick(summary, ["rawResultCsvPath"], "");
-      const aggregateCsvPath = pick(summary, ["aggregateCsvPath"], "");
       const projectAggregateCsvPath = pick(summary, ["projectAggregateCsvPath"], "");
       const finalCsvPath = pick(summary, ["finalCsvPath"], "");
       const finalMarkdownPath = pick(summary, ["finalMarkdownPath"], "");
@@ -14969,12 +14966,8 @@ function renderPanelHtml() {
         pptPlotButton("异常原因", analysisArtifacts.anomalyPath, "root cause/storyline", { unavailableReason: "请先运行异常诊断" })
       ].filter(Boolean).join("");
       const tableRows = rows.join("");
-      const traceButtons = multiWorkerTables ? workerResultTables.map((row) => '<span class="muted">' + esc(row.workerId || "Worker") + '</span>' + resultFileButton("原始 seed 数据 CSV", row.rawResultCsvPath, resultPlanFile, row.workerId, "项目训练或评估写出的逐 seed 原始数据。插件只下载本机副本，不改写服务器原表。") + resultFileButton("详细聚合与覆盖率 CSV", row.aggregateCsvPath, resultPlanFile, row.workerId, "按 Plan case 和其他身份列逐项聚合，保留每项指标的参与 seed 数与完整性，供检查简洁表的计算来源。") ).join("") :
-        resultFileButton("原始 seed 数据 CSV", rawResultCsvPath, resultPlanFile, "", "项目训练或评估写出的逐 seed 原始数据。插件只下载本机副本，不改写服务器原表。") +
-        resultFileButton("详细聚合与覆盖率 CSV", aggregateCsvPath, resultPlanFile, "", "当前 Plan 的详细计算依据，包含 case、端点、每项指标的均值、标准差、参与 seed 数及完整性。");
       const html = '<div class="resultEvidenceWorkbench" title="结果证据">' +
         renderProjectResultTables(state) +
-        '<details class="resultArtifactGroup" data-details-key="result-trace-files"' + detailsOpenAttr("result-trace-files", false) + '><summary>原始数据与详细追溯</summary><div class="muted">原始 seed 表保持不变；详细表用于核对每项指标的参与数。</div><div class="pptPlotActions">' + traceButtons + '</div></details>' +
         '<section class="resultPlanActions"><div class="resultPlanActionsTitle"><strong>当前 Plan</strong><small>' + esc(resultPlanFile ? compactPath(resultPlanFile) : "尚未选择 Plan") + '</small></div><div class="resultPlanActionButtons">' +
           '<button class="taskActionButton secondary" data-command="syncAllResultArtifacts" data-plan-file="' + escAttr(resultPlanFile) + '" title="仅同步当前 Plan 的原始 seed 表和详细聚合表到该数据集的 Plan 原始与详细目录；每个数据集独立生成总表与方法表。已有本地文件时统一询问覆盖或仅补缺失；不改远端文件。">同步当前 Plan 原始与详细表</button>' +
           '<button class="taskActionButton secondary" data-command="parseResults" data-plan-file="' + escAttr(resultPlanFile) + '" title="重新读取当前 Plan 声明的原始结果表，计算简洁 CSV、可读 Markdown 和详细汇总；不会重新训练，也不会改写原始 seed 表。">重建当前 Plan 汇总</button>' +

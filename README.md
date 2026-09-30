@@ -246,7 +246,7 @@ paper:
 
 ## 结果文件
 
-任务完成后，插件按 Plan 声明的路径解析结果，生成每个数据集的本机 `final` 总表与方法表。结果文件区首先显示这些表；需要核对逐 seed 数据时，展开“原始数据与详细追溯”或使用“同步当前 Plan 原始与详细表”。PPT 绘图配置位于结果区底部的可选折叠项。
+任务完成后，插件按 Plan 声明的路径解析结果，生成每个数据集的本机 `final` 总表与方法表。结果文件区首先显示这些表；需要核对逐 seed 或追溯文件时，可从数据集的“关联 Plan”打开“查看共享产物”，再到“高级来源”浏览该 Plan 的原始、详细和追溯文件。需要补充服务器文件时，使用“同步当前 Plan 原始与详细表”。PPT 绘图配置位于结果区底部的可选折叠项。
 
 结果区的“结果总表”按实际目录识别数据集。插件按可信 Plan、case、seed、方法与端点，跨 Worker 去重后计算均值和样本标准差；每个数据集的总表位于 `<resultRoot>/<dataset>/final/final.csv` 与 `final.md`，方法表位于 `<resultRoot>/<dataset>/methods/<method>/<method>.csv/.md`。`resultRoot` 来自 `simpleExperiment.resultCsvDir`，默认 `experiments/results`。同一数据集可汇总多个 Plan，并保留 `plan_file` 来源；不同数据集独立保存。同 seed 指标或名称映射冲突会阻止整批覆盖，缺 seed 保留实际/计划数量。
 
