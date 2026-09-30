@@ -101,8 +101,12 @@ const { renderPanelHtml } = PanelHtml_1;
 const PanelRecoveryHtml_1 = require("../ui/PanelRecoveryHtml");
 const { renderPanelRecoveryHtml } = PanelRecoveryHtml_1;
 const { renderPanelReloadRequiredHtml } = PanelRecoveryHtml_1;
+const { renderPanelMaintenanceHtml } = PanelRecoveryHtml_1;
 const PanelBootstrap_1 = require("../ui/PanelBootstrap");
 const { renderPanelBootstrapDocument } = PanelBootstrap_1;
+const PanelLifecycle_1 = require("../features/PanelLifecycle");
+const PanelStateDelivery_1 = require("../features/PanelStateDelivery");
+const PanelStateProgress_1 = require("../features/PanelStateProgress");
 const TunnelPortAllocator_1 = require("../tunnel/TunnelPortAllocator");
 const TunnelEndpointRegistry_1 = require("../tunnel/TunnelEndpointRegistry");
 const TunnelPortConflict_1 = require("../tunnel/TunnelPortConflict");
@@ -129,6 +133,7 @@ const LocalApiServer_1 = require("../api/LocalApiServer");
 const { LocalApiError, LocalApiServer: LocalApiServerClass, confirmationRequired } = LocalApiServer_1;
 const RenamedExtensionStateMigration_1 = require("../config/RenamedExtensionStateMigration");
 const RemoteRootPolicyPrefill_1 = require("../config/RemoteRootPolicyPrefill");
+const PanelBuildIdentity_1 = require("../features/PanelBuildIdentity");
 // Update commands are intentionally local-only and do not enter the remote action map.
 const viewId = "simpleExperiment.panel";
 // 输出门禁/拓扑失败默认硬阻断：仅显式开关（环境变量 SIMPLE_EXPERIMENT_LENIENT_RUN=1）才软通过，
@@ -723,6 +728,25 @@ class RealtimeTunnelPanelProvider {
     statePostPending = false;
     statePostInFlight = false;
     statePostRetryCount = 0;
+    stateSequence = 0;
+    lastPostedStateSeq = 0;
+    lastReceivedStateSeq = 0;
+    lastRenderedStateSeq = 0;
+    stateRenderStalledAcks = 0;
+    statePostAttemptId = 0;
+    panelLifecycleState = "detached";
+    panelSectionFailures = new Set();
+    panelLifecycleGeneration = 0;
+    lastStatePayloadBytes = 0;
+    lastStateBuildDurationMs = 0;
+    statePostDeliveryTimeoutMs = 7000;
+    statePayloadSoftLimitBytes = 4 * 1024 * 1024;
+    statePayloadHardLimitBytes = 8 * 1024 * 1024;
+    resultCatalogCache;
+    resultCatalogDirtyGeneration = 0;
+    resultCatalogTtlMs = 5000;
+    resultCatalogBuildDurationMs = 0;
+    runtimeEvidenceBuildDurationMs = 0;
     lastPostedStateSignature = "";
     lastStateBuildErrorSignature = "";
     lastStatePostErrorSignature = "";
@@ -736,10 +760,16 @@ class RealtimeTunnelPanelProvider {
     viewLifetimeDisposables = [];
     lastPanelHeartbeatRecoveryAt = 0;
     panelDocumentGeneration = 0;
+    panelDocumentBuildId = "";
     panelHeartbeatIntervalMs = 30_000;
     panelHeartbeatAckTimeoutMs = 12_000;
     panelHeartbeatRecoveryWindowMs = 5 * 60_000;
     forceReloadRequired = false;
+    reloadRequiredReason = null;
+    runningBuildIdentity;
+    diskBuildIdentity;
+    extensionMissingConfirmed = false;
+    extensionIdentityProbePromise;
     lastPanelLifecycleDiagnosticKey = "";
     panelUnknownHealthSince = 0;
     panelUnknownHealthGeneration = 0;
@@ -859,7 +889,12 @@ class RealtimeTunnelPanelProvider {
     topologyRuntimeMode = "";
     constructor(context) {
         this.context = context;
+        const extensionPath = String(context?.extension?.extensionPath || "");
+        const runningVersion = String(context?.extension?.packageJSON?.version || "");
+        this.runningBuildIdentity = PanelBuildIdentity_1.freezePanelBuildIdentity(PanelBuildIdentity_1.readPanelBuildIdentity(extensionPath, undefined, runningVersion));
+        this.diskBuildIdentity = this.runningBuildIdentity;
         this.context.subscriptions.push(vscode.extensions.onDidChange(() => this.handleExtensionRegistryChange()));
+        void this.stableExtensionIdentityProbe();
         this.pluginUpdateStatus = this.refreshStoredPluginUpdateStatus(this.context.globalState.get(keys.pluginUpdateStatus));
         this.tunnelConfig = this.loadTunnelConfig();
         this.projectBootstrapPromise = this.bootstrapProjectLocalUiState()
@@ -2710,6 +2745,7 @@ class RealtimeTunnelPanelProvider {
     }
     async reloadProjectContextAfterWorkspaceChange() {
         this.resetProjectContextInMemory();
+        this.invalidateResultCatalogCache("workspaceChange");
         this.topologyRuntimeMode = this.projectTopologyAssessment().mode;
         this.resetClient();
         await this.bootstrapProjectLocalUiState();
@@ -2723,6 +2759,7 @@ class RealtimeTunnelPanelProvider {
     }
     resetProjectContextInMemory() {
         this.projectContextGeneration += 1;
+        this.invalidateResultCatalogCache("workspaceChange");
         this.resultSyncReport = null;
         this.disposeSelectedPlanFileWatchers();
         if (this.planLocalChangeParseTimer)
@@ -3271,6 +3308,7 @@ class RealtimeTunnelPanelProvider {
         if (this.view)
             this.disposeResolvedWebviewView(this.view, this.viewGeneration);
         const viewGeneration = ++this.viewGeneration;
+        this.transitionPanelLifecycle("booting", "resolveWebviewView");
         this.panelDisposed = false;
         this.view = webviewView;
         webviewView.webview.options = { enableScripts: true };
@@ -3305,7 +3343,7 @@ class RealtimeTunnelPanelProvider {
             this.budget.setHidden(!webviewView.visible);
             this.client.setHidden(!webviewView.visible);
             if (webviewView.visible)
-                this.schedulePanelHeartbeat();
+                void this.probePanelNow("visibility");
             else
                 this.clearPanelHeartbeat();
             if (webviewView.visible)
@@ -3313,7 +3351,6 @@ class RealtimeTunnelPanelProvider {
             if (webviewView.visible) {
                 this.scheduleRunOperationReconcilePoll();
                 this.scheduleEvidenceAutoPoll();
-                this.postState(true);
             }
             else
                 this.postState();
@@ -3350,6 +3387,7 @@ class RealtimeTunnelPanelProvider {
     disposeResolvedWebviewView(webviewView, generation) {
         if (this.view !== webviewView || this.viewGeneration !== generation)
             return;
+        this.transitionPanelLifecycle("detached", "viewDisposed");
         this.clearPanelHeartbeat();
         this.clearPanelReadyWatchdog();
         if (this.statePostTimer)
@@ -3372,7 +3410,35 @@ class RealtimeTunnelPanelProvider {
         this.view = undefined;
         this.viewGeneration += 1;
     }
+    transitionPanelLifecycle(next, reason) {
+        const transition = PanelLifecycle_1.transitionPanelLifecycle(this.panelLifecycleState, next);
+        if (!transition.allowed)
+            return false;
+        if (!transition.changed)
+            return true;
+        this.panelLifecycleState = transition.state;
+        this.panelLifecycleGeneration += 1;
+        if (["maintenance", "reload_required", "disposed", "detached"].includes(next)) {
+            this.clearPanelHeartbeat();
+            if (this.statePostTimer)
+                clearTimeout(this.statePostTimer);
+            if (this.statePostRetryTimer)
+                clearTimeout(this.statePostRetryTimer);
+            this.statePostTimer = undefined;
+            this.statePostRetryTimer = undefined;
+            this.statePostPending = false;
+            this.statePostInFlight = false;
+            this.statePostAttemptId += 1;
+        }
+        if (next === "disposed")
+            this.panelDisposed = true;
+        if (next === "reload_required")
+            this.forceReloadRequired = true;
+        this.recordPanelLifecycleDiagnostic(`lifecycle:${reason}:${next}`);
+        return true;
+    }
     async dispose() {
+        this.transitionPanelLifecycle("disposed", "providerDispose");
         this.panelDisposed = true;
         if (this.view)
             this.disposeResolvedWebviewView(this.view, this.viewGeneration);
@@ -4689,15 +4755,24 @@ class RealtimeTunnelPanelProvider {
         await this.handleMessageCore(message, command);
     }
     async handleMessageCore(message, command = getSafeCommand(message)) {
+        if (["webviewReady", "webviewBootstrapError", "webviewRenderError", "webviewHeartbeatAck"].includes(command)
+            && !this.isCurrentPanelDocumentMessage(message, command))
+            return;
         if (this.extensionRuntimeVersionState().reloadRequired && command !== "reloadWindow") {
             this.showPanelReloadRequired();
             return;
         }
+        if (["maintenance", "reload_required", "disposed"].includes(this.panelLifecycleState)
+            && !["reloadWindow", "webviewReady"].includes(command))
+            return;
         if (booleanField(message, "debugMode") && debugModeBlockedUiCommand(command))
             throw new Error("Debug 模式仅用于隔离运行和实时日志，禁止归档、删除、结果、统计、论文或 PPT 操作。请切回正式运行后再执行。");
         switch (command) {
             case "webviewReady":
+                if (this.panelLifecycleState === "maintenance" || this.panelLifecycleState === "reload_required")
+                    return;
                 this.webviewReady = true;
+                this.transitionPanelLifecycle("ready", "webviewReady");
                 await this.flushPendingPanelNavigation();
                 this.statePostRetryCount = 0;
                 if (this.statePostRetryTimer)
@@ -4718,8 +4793,22 @@ class RealtimeTunnelPanelProvider {
                     this.showPanelRecovery(this.lastError);
                 break;
             case "webviewRenderError":
+                if (message?.performanceWarning === true) {
+                    this.recordPanelLifecycleDiagnostic(`sectionSlow:${String(message.section || "unknown").slice(0, 40)}`);
+                    break;
+                }
+                if (message?.sectionRecovered === true) {
+                    this.panelSectionFailures.delete(String(message.section || "").slice(0, 40));
+                    if (!this.panelSectionFailures.size && this.panelLifecycleState === "degraded")
+                        this.transitionPanelLifecycle("ready", "sectionRecovered");
+                    break;
+                }
                 this.lastError = String(message?.error || "Webview 状态渲染失败").slice(0, 480);
                 this.recordActionError({ command, message: this.lastError, suggestion: "请重新加载面板；若仍失败，请执行 Developer: Reload Window。" });
+                if (message?.section) {
+                    this.panelSectionFailures.add(String(message.section).slice(0, 40));
+                    this.transitionPanelLifecycle("degraded", `section:${String(message.section).slice(0, 40)}`);
+                }
                 break;
             case "reloadPanel":
                 this.reloadPanelHtml();
@@ -6390,16 +6479,23 @@ class RealtimeTunnelPanelProvider {
         const answer = await vscode.window.showWarningMessage(`安装并重载窗口以应用配套插件更新？\n\n${detail}`, { modal: true }, "安装并重载", "取消");
         if (answer !== "安装并重载")
             return plan;
-        await this.setPluginUpdateStatus({ status: "installing", message: "正在下载并按依赖顺序安装更新。" });
-        const token = await this.githubUpdateToken(false);
-        const directory = path.join(this.context.globalStorageUri.fsPath, "updates", `${Date.now()}`);
-        await fs.mkdir(directory, { recursive: true });
+        this.transitionPanelLifecycle("maintenance", "self_update");
+        this.clearPanelHeartbeat();
+        this.clearPanelReadyWatchdog();
+        if (this.view) {
+            const generation = ++this.panelDocumentGeneration;
+            this.view.webview.html = this.stampPanelDocument(renderPanelMaintenanceHtml("正在安装更新，完成后将重载窗口。"), generation);
+        }
         const downloads = [
             { label: "SimpleSFTP", component: plan.sftp },
             { label: "SimpleExperiment", component: plan.experiment },
         ];
         const installed = [];
         try {
+            await this.setPluginUpdateStatus({ status: "installing", message: "正在下载并按依赖顺序安装更新。" });
+            const token = await this.githubUpdateToken(false);
+            const directory = path.join(this.context.globalStorageUri.fsPath, "updates", `${Date.now()}`);
+            await fs.mkdir(directory, { recursive: true });
             for (const item of downloads) {
                 const file = await this.downloadUpdateAsset(item.component.vsix, directory, token, item.component.checksum);
                 await vscode.commands.executeCommand("workbench.extensions.installExtension", vscode.Uri.file(file));
@@ -6411,13 +6507,19 @@ class RealtimeTunnelPanelProvider {
                 installedAt: new Date().toISOString(),
             };
             await this.setPluginUpdateStatus(complete);
+            this.reloadRequiredReason = "self_update";
             this.forceReloadRequired = true;
+            this.transitionPanelLifecycle("reload_required", "self_update_complete");
             this.showPanelReloadRequired();
             await vscode.commands.executeCommand("workbench.action.reloadWindow");
             return { ...this.pluginUpdateStatus };
         }
         catch (error) {
             await this.setPluginUpdateStatus({ status: "error", message: `更新失败（已完成 ${installed.join("、") || "无"}）：${errorMessage(error)}` });
+            this.transitionPanelLifecycle("ready", "self_update_failed");
+            this.webviewReady = false;
+            this.loadPanelHtml();
+            this.postState(true);
             throw error;
         }
     }
@@ -13784,6 +13886,7 @@ class RealtimeTunnelPanelProvider {
         if (!this.projectContextIsCurrent(projectContext))
             return;
         this.resultCsvDirectory = resultCsvDir;
+        this.invalidateResultCatalogCache("resultDirectoryConfig");
         this.postState(true);
         void vscode.window.showInformationMessage(`实验结果 CSV 默认目录已保存：${resultCsvDir}`);
     }
@@ -13835,6 +13938,7 @@ class RealtimeTunnelPanelProvider {
         if (!this.projectContextIsCurrent(projectContext))
             return;
         this.resultCsvDirectory = resultCsvDir;
+        this.invalidateResultCatalogCache("resultDirectoryConfig");
         this.postState(true);
         void vscode.window.showInformationMessage(`实验结果 CSV 默认目录已保存：${resultCsvDir}`);
     }
@@ -14105,6 +14209,7 @@ class RealtimeTunnelPanelProvider {
         const catalog = ProjectResultTables.resultCatalog(context.root, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, pluginProjectAdapterRules(context.root).planDatasetMapping || {});
         if (!this.projectContextIsCurrent(context))
             return;
+        this.invalidateResultCatalogCache("planDatasetMapping");
         this.postState();
         void vscode.window.showInformationMessage("已按现有可信 registry 元数据自动恢复 " + catalog.autoRecoverableCount + " 个 Plan；仍有 " + catalog.unassignedPlans.length + " 个需要手工映射。跨数据集 Plan：" + catalog.multiDatasetPlans.length + " 个。");
     }
@@ -16148,6 +16253,7 @@ class RealtimeTunnelPanelProvider {
         }
         for (const [temporary, target] of staged)
             await fs.rename(temporary, target);
+        this.invalidateResultCatalogCache("resultRegistryWrite");
         return tables;
     }
     async loadPlanSyncLedger(root) {
@@ -16321,6 +16427,7 @@ class RealtimeTunnelPanelProvider {
         }
         finally {
             this.planSyncInFlight = false;
+            this.invalidateResultCatalogCache("syncPendingPlanArtifacts");
             if (this.planSyncRescanRequested) {
                 this.planSyncRescanRequested = false;
                 void this.syncPendingPlanArtifacts().catch((error) => this.recordActionError({ command: "syncPlanArtifacts", message: errorMessage(error) }));
@@ -16646,6 +16753,7 @@ class RealtimeTunnelPanelProvider {
             await fs.writeFile(temporary, outputs[value], "utf8");
             await fs.rename(temporary, target);
         }
+        this.invalidateResultCatalogCache("splitProjectResultTable");
         void vscode.window.showInformationMessage("已生成 " + paths.length + " 张子表，目录：" + path.posix.join(path.posix.dirname(table.path), "by_" + folder));
     }
     async editResultColumnMappingFromUi() {
@@ -17850,12 +17958,67 @@ class RealtimeTunnelPanelProvider {
         void this.persistProjectActionErrorsState().catch(() => undefined);
     }
     extensionRuntimeVersionState() {
-        const runningVersion = String(this.context?.extension?.packageJSON?.version || "");
-        const installedVersion = String(vscode.extensions.getExtension("simple-local.simple-experiment")?.packageJSON?.version || "");
-        return { runningVersion, installedVersion, reloadRequired: this.forceReloadRequired || runningVersion !== installedVersion };
+        const extension = vscode.extensions.getExtension("simple-local.simple-experiment");
+        if (extension)
+            this.extensionMissingConfirmed = false;
+        const disk = this.readInstalledBuildIdentity();
+        const state = PanelBuildIdentity_1.classifyPanelBuildIdentity({
+            running: this.runningBuildIdentity,
+            disk,
+            installedVersion: String(extension?.packageJSON?.version || ""),
+            registryAvailable: Boolean(extension),
+            missingConfirmed: this.extensionMissingConfirmed,
+        });
+        if (state.registryState === "version_mismatch" || state.registryState === "content_mismatch" || state.registryState === "extension_missing") {
+            if (!this.reloadRequiredReason) {
+                this.reloadRequiredReason = state.registryState === "extension_missing" ? "extension_removed" : state.registryState;
+                this.forceReloadRequired = true;
+                this.transitionPanelLifecycle("reload_required", this.reloadRequiredReason);
+            }
+        }
+        const reloadRequired = Boolean(this.reloadRequiredReason || this.forceReloadRequired);
+        return {
+            ...state,
+            installedVersion: String(extension?.packageJSON?.version || disk.version || ""),
+            reloadRequired,
+            reason: this.reloadRequiredReason || (this.forceReloadRequired ? "self_update" : null),
+        };
+    }
+    readInstalledBuildIdentity() {
+        const extensionPath = String(this.context?.extension?.extensionPath || "");
+        this.diskBuildIdentity = PanelBuildIdentity_1.readPanelBuildIdentity(extensionPath, this.diskBuildIdentity);
+        return this.diskBuildIdentity;
+    }
+    stableExtensionIdentityProbe() {
+        if (this.extensionIdentityProbePromise)
+            return this.extensionIdentityProbePromise;
+        const pending = PanelBuildIdentity_1.stablePanelExtensionProbe({
+            getExtension: () => vscode.extensions.getExtension("simple-local.simple-experiment"),
+            delay: (milliseconds) => new Promise((resolve) => setTimeout(resolve, milliseconds)),
+            readDiskIdentity: () => this.readInstalledBuildIdentity(),
+            debounceMs: 350,
+        }).then((probe) => {
+            this.extensionMissingConfirmed = probe.missingConfirmed;
+            if (probe.extension)
+                this.extensionMissingConfirmed = false;
+            const state = this.extensionRuntimeVersionState();
+            if (state.reloadRequired) {
+                this.recordPanelLifecycleDiagnostic("extensionRegistryChanged");
+                this.showPanelReloadRequired();
+            }
+        }).finally(() => {
+            if (this.extensionIdentityProbePromise === pending)
+                this.extensionIdentityProbePromise = undefined;
+        });
+        this.extensionIdentityProbePromise = pending;
+        return pending;
     }
     handleExtensionRegistryChange() {
         const versions = this.extensionRuntimeVersionState();
+        if (versions.registryState === "unknown" && !versions.reloadRequired) {
+            void this.stableExtensionIdentityProbe();
+            return;
+        }
         if (!versions.reloadRequired)
             return;
         this.recordPanelLifecycleDiagnostic("extensionRegistryChanged");
@@ -17869,15 +18032,24 @@ class RealtimeTunnelPanelProvider {
             details: {
                 runningVersion: versions.runningVersion,
                 installedVersion: versions.installedVersion,
+                registryState: versions.registryState,
+                runningFingerprint: String(versions.runningFingerprint || "").slice(0, 12),
+                diskFingerprint: String(versions.diskFingerprint || "").slice(0, 12),
                 documentGeneration: Number(this.panelDocumentGeneration || 0),
                 viewGeneration: Number(this.viewGeneration || 0),
                 webviewReady: this.webviewReady === true,
                 viewVisible: this.view?.visible === true,
                 reason: String(reason || "unknown").slice(0, 80),
                 reloadRequired: versions.reloadRequired,
+                lifecycle: this.panelLifecycleState,
+                postedStateSeq: this.lastPostedStateSeq,
+                receivedStateSeq: this.lastReceivedStateSeq,
+                renderedStateSeq: this.lastRenderedStateSeq,
+                statePayloadBytes: this.lastStatePayloadBytes,
+                stateBuildDurationMs: this.lastStateBuildDurationMs,
             },
         };
-        const key = JSON.stringify({ reason, runningVersion: versions.runningVersion, installedVersion: versions.installedVersion });
+        const key = JSON.stringify({ reason, lifecycle: this.panelLifecycleState, documentGeneration: this.panelDocumentGeneration, runningVersion: versions.runningVersion, installedVersion: versions.installedVersion, runningFingerprint: versions.runningFingerprint, diskFingerprint: versions.diskFingerprint });
         if (key === this.lastPanelLifecycleDiagnosticKey)
             return;
         this.lastPanelLifecycleDiagnosticKey = key;
@@ -17889,13 +18061,32 @@ class RealtimeTunnelPanelProvider {
         const versions = this.extensionRuntimeVersionState();
         this.clearPanelHeartbeat();
         this.clearPanelReadyWatchdog();
+        this.transitionPanelLifecycle("reload_required", this.reloadRequiredReason || "confirmedBuildMismatch");
         this.webviewReady = false;
         this.statePostPending = false;
         if (this.statePostTimer)
             clearTimeout(this.statePostTimer);
         this.statePostTimer = undefined;
         const generation = ++this.panelDocumentGeneration;
-        this.view.webview.html = this.stampPanelDocument(renderPanelReloadRequiredHtml(versions), generation);
+        this.view.webview.html = this.stampPanelDocument(renderPanelReloadRequiredHtml({ ...versions, reason: versions.reason || this.reloadRequiredReason, runningFingerprint: versions.runningFingerprint, diskFingerprint: versions.diskFingerprint }), generation);
+    }
+    panelDiagnosticSummary() {
+        const identity = this.extensionRuntimeVersionState();
+        return {
+            reason: this.reloadRequiredReason || this.lastStatePostErrorSignature || this.lastStateBuildErrorSignature || "panel-recovery",
+            runningVersion: identity.runningVersion,
+            installedVersion: identity.installedVersion,
+            runningFingerprint: String(identity.runningFingerprint || "").slice(0, 12),
+            diskFingerprint: String(identity.diskFingerprint || "").slice(0, 12),
+            documentGeneration: this.panelDocumentGeneration,
+            viewGeneration: this.viewGeneration,
+            lifecycle: this.panelLifecycleState,
+            postedSeq: this.lastPostedStateSeq,
+            receivedSeq: this.lastReceivedStateSeq,
+            renderedSeq: this.lastRenderedStateSeq,
+            payloadBytes: this.lastStatePayloadBytes,
+            stateBuildDurationMs: this.lastStateBuildDurationMs,
+        };
     }
     captureActionResult(action, result) {
         const item = result && typeof result === "object" ? result : {};
@@ -18970,10 +19161,78 @@ class RealtimeTunnelPanelProvider {
         });
         return this.planRuntimeEvidenceCache.value;
     }
+    invalidateResultCatalogCache(reason) {
+        this.resultCatalogDirtyGeneration += 1;
+        this.resultCatalogCache = undefined;
+    }
+    cachedResultCatalog(root, mappings) {
+        const mappingSignature = JSON.stringify(mappings || {});
+        const resultRoot = path.resolve(root, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR);
+        let registryStat = "";
+        try {
+            const stat = fsNode.statSync(path.join(root, "simple_cluster", "results", "project_table_registry.json"));
+            registryStat = `${stat.size}:${stat.mtimeMs}`;
+        }
+        catch {
+            registryStat = "missing";
+        }
+        const key = [path.resolve(root), this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, mappingSignature, registryStat, this.resultCatalogDirtyGeneration].join("\n");
+        if (this.resultCatalogCache?.key === key && this.resultCatalogCache.expiresAt > Date.now())
+            return this.resultCatalogCache.catalog;
+        const startedAt = Date.now();
+        const catalog = ProjectResultTables.resultCatalog(root, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, mappings || {});
+        this.resultCatalogBuildDurationMs = Math.max(0, Date.now() - startedAt);
+        this.resultCatalogCache = { key, expiresAt: Date.now() + this.resultCatalogTtlMs, catalog };
+        return catalog;
+    }
+    compactResultTablesFromCatalog(catalog) {
+        const datasets = Array.isArray(catalog?.datasets) ? catalog.datasets : [];
+        const tables = datasets.flatMap((dataset) => (Array.isArray(dataset?.tables) ? dataset.tables : []).map((table) => ({
+            tableKey: table.tableKey, dataset: table.dataset || dataset.name, datasetKey: table.datasetKey || dataset.datasetKey,
+            name: table.name, kind: table.kind, header: table.header, values: table.values, path: table.path,
+            markdownPath: table.markdownPath, rowCount: table.rowCount,
+        })));
+        return tables;
+    }
+    buildPanelDegradedState(state, message) {
+        const source = state;
+        return {
+            ...source,
+            degraded: true,
+            degradedMessage: message,
+            resultOutputConfig: source.resultOutputConfig ? { ...source.resultOutputConfig, catalog: { datasets: [], legacyTables: [], unassignedPlans: [], multiDatasetPlans: [], mappingConflicts: [], autoRecoverableCount: 0 }, tables: [] } : undefined,
+            experimentTraces: [], logs: [], fileTransfers: {},
+            schedulerStates: Array.isArray(source.schedulerStates) ? source.schedulerStates.slice(0, 20) : [],
+            actionErrors: Array.isArray(source.actionErrors) ? source.actionErrors.slice(0, 8) : [],
+            diagnostics: { ...(source.diagnostics || {}), panelStateDegraded: true, statePayloadBytes: this.lastStatePayloadBytes, stateBuildDurationMs: this.lastStateBuildDurationMs },
+        };
+    }
+    buildMinimalPanelDegradedState(state, message) {
+        const source = state;
+        const workspace = source.workspace || {};
+        const operations = source.operations && typeof source.operations === "object"
+            ? Object.fromEntries(Object.entries(source.operations).slice(0, 8).map(([key, operation]) => [key, { id: operation?.id, status: operation?.status, phase: operation?.phase, message: operation?.message }]))
+            : {};
+        return {
+            extensionVersion: String(source.extensionVersion || ""),
+            sessionStartedAt: this.sessionStartedAt,
+            connectionMode: String(source.connectionMode || "unknown"),
+            workspace: { open: workspace.open === true, name: String(workspace.name || ""), root: "", hostPath: "", remote: workspace.remote === true },
+            health: source.health ? { state: source.health.state, status: source.health.status, message: source.health.message } : { state: "unknown", status: "unknown" },
+            selectedPlanId: String(source.selection?.selectedPlanId || source.selectedPlanId || ""),
+            selection: { selectedPlanId: String(source.selection?.selectedPlanId || source.selectedPlanId || ""), selectedExperimentIds: [] },
+            plans: [], schedulerStates: [], experimentTraces: [], logs: [], fileTransfers: {}, operations,
+            actionErrors: Array.isArray(source.actionErrors) ? source.actionErrors.slice(0, 4) : [],
+            diagnostics: { panelLifecycle: this.panelLifecycleState, statePayloadBytes: this.lastStatePayloadBytes, stateBuildDurationMs: this.lastStateBuildDurationMs, ...(source.diagnostics || {}) },
+            lastError: String(source.lastError || ""), degraded: true, degradedMessage: message,
+        };
+    }
     buildState() {
         const schedulerConfig = this.schedulerSettings();
         const realtime = this.client.diagnostics();
+        const runtimeEvidenceStartedAt = Date.now();
         const runtimeEvidence = this.buildPlanRuntimeEvidenceState();
+        this.runtimeEvidenceBuildDurationMs = Math.max(0, Date.now() - runtimeEvidenceStartedAt);
         const { connectionMode, realtimeState, snapshot, offlineSnapshot, schedulerStates, operations } = runtimeEvidence;
         const taskSelection = this.taskSelectionDerivedState();
         const gpu = compactMergedGpuForWebview(offlineSnapshot?.gpu, snapshot?.gpu, realtimeState?.gpu);
@@ -19030,6 +19289,17 @@ class RealtimeTunnelPanelProvider {
             completed: this.context.workspaceState.get(keys.projectOnboardingCompleted, false) === true
                 || projectOnboardingCompletedFromCodeSync(this.lastCodeSyncState, topology.hubAllowed),
         });
+        const resultRoot = workspaceRoot();
+        let resultCatalog = { datasets: [], legacyTables: [], unassignedPlans: [], multiDatasetPlans: [], mappingConflicts: [], autoRecoverableCount: 0 };
+        if (resultRoot) {
+            try {
+                resultCatalog = this.cachedResultCatalog(resultRoot, pluginProjectAdapterRules(resultRoot).planDatasetMapping || {});
+            }
+            catch (error) {
+                resultCatalog = { ...resultCatalog, error: errorMessage(error) };
+            }
+        }
+        const compactResultTables = this.compactResultTablesFromCatalog(resultCatalog);
         return {
             extensionVersion: String(this.context?.extension?.packageJSON?.version || ""),
             sessionStartedAt: this.sessionStartedAt,
@@ -19054,19 +19324,8 @@ class RealtimeTunnelPanelProvider {
                 defaultDirectory: DEFAULT_RESULT_CSV_DIR,
                 columnMapping: pluginProjectAdapterRules(workspaceRoot() || "").csvColumnMapping || {},
                 adapterRules: pluginProjectAdapterRules(workspaceRoot() || ""),
-                catalog: (() => { try {
-                    const root = workspaceRoot();
-                    return root ? ProjectResultTables.resultCatalog(root, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, pluginProjectAdapterRules(root).planDatasetMapping || {}) : { datasets: [], legacyTables: [], unassignedPlans: [], multiDatasetPlans: [], mappingConflicts: [], autoRecoverableCount: 0 };
-                }
-                catch (error) {
-                    return { datasets: [], legacyTables: [], unassignedPlans: [], multiDatasetPlans: [], mappingConflicts: [], autoRecoverableCount: 0, error: errorMessage(error) };
-                } })(),
-                tables: (() => { try {
-                    return workspaceRoot() ? ProjectResultTables.tableCatalog(workspaceRoot(), this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR) : [];
-                }
-                catch {
-                    return [];
-                } })(),
+                catalog: resultCatalog,
+                tables: compactResultTables,
                 pendingPlanSyncCount: (() => {
                     const root = workspaceRoot();
                     if (!root)
@@ -19216,6 +19475,14 @@ class RealtimeTunnelPanelProvider {
                 operations: Object.keys(operations).length,
                 operationSourcePremergeBudget: STATE_OPERATION_RECORD_LIMIT,
                 fileTransfers: Object.keys(fileTransfers).length,
+                panelLifecycle: this.panelLifecycleState,
+                statePostedSeq: this.lastPostedStateSeq,
+                stateReceivedSeq: this.lastReceivedStateSeq,
+                stateRenderedSeq: this.lastRenderedStateSeq,
+                statePayloadBytes: this.lastStatePayloadBytes,
+                stateBuildDurationMs: this.lastStateBuildDurationMs,
+                runtimeEvidenceBuildDurationMs: this.runtimeEvidenceBuildDurationMs,
+                resultCatalogBuildDurationMs: this.resultCatalogBuildDurationMs,
             }),
             lastError: webviewLastError,
             checkStaticReports: this.listCheckStaticReportsSync(),
@@ -19294,12 +19561,18 @@ class RealtimeTunnelPanelProvider {
         return this.taskSelectionDerivedState().logProtectedKeys;
     }
     postState(immediate = false) {
+        if (["disposed", "maintenance", "reload_required"].includes(this.panelLifecycleState))
+            return;
         if (this.extensionRuntimeVersionState().reloadRequired) {
             this.showPanelReloadRequired();
             return;
         }
         if (!this.view)
             return;
+        if (!this.webviewReady) {
+            this.statePostPending = true;
+            return;
+        }
         if (immediate) {
             this.flushStatePost(true);
             return;
@@ -19338,8 +19611,19 @@ class RealtimeTunnelPanelProvider {
             return;
         }
         this.clearPanelReadyWatchdog();
+        if (this.statePostTimer)
+            clearTimeout(this.statePostTimer);
+        if (this.statePostRetryTimer)
+            clearTimeout(this.statePostRetryTimer);
+        this.statePostTimer = undefined;
+        this.statePostRetryTimer = undefined;
+        this.statePostPending = false;
+        this.statePostInFlight = false;
+        this.statePostAttemptId += 1;
+        this.webviewReady = false;
+        this.transitionPanelLifecycle("recovering", "showPanelRecovery");
         const generation = ++this.panelDocumentGeneration;
-        this.view.webview.html = this.stampPanelDocument(renderPanelRecoveryHtml(message), generation);
+        this.view.webview.html = this.stampPanelDocument(renderPanelRecoveryHtml(message, JSON.stringify(this.panelDiagnosticSummary())), generation);
     }
     loadPanelHtml() {
         if (!this.view)
@@ -19349,6 +19633,8 @@ class RealtimeTunnelPanelProvider {
             return;
         }
         this.clearPanelHeartbeat();
+        if (["recovering", "degraded", "ready"].includes(this.panelLifecycleState))
+            this.transitionPanelLifecycle("booting", "loadPanelHtml");
         this.webviewReady = false;
         const document = renderPanelBootstrapDocument(renderPanelHtml, renderPanelRecoveryHtml);
         const generation = ++this.panelDocumentGeneration;
@@ -19365,6 +19651,14 @@ class RealtimeTunnelPanelProvider {
     reloadPanelHtml() {
         this.loadPanelHtml();
     }
+    isCurrentPanelDocumentMessage(message, command) {
+        if (!message || String(message.documentGeneration ?? "") !== String(this.panelDocumentGeneration))
+            return false;
+        if (command !== "webviewReady")
+            return true;
+        return String(message.extensionVersion || "") === String(this.runningBuildIdentity?.version || "")
+            && String(message.documentBuildId || "") === String(this.panelDocumentBuildId || "");
+    }
     clearPanelHeartbeat() {
         if (this.panelHeartbeatTimer)
             clearTimeout(this.panelHeartbeatTimer);
@@ -19374,8 +19668,13 @@ class RealtimeTunnelPanelProvider {
         this.panelHeartbeatTimeout = undefined;
     }
     stampPanelDocument(html, generation) {
-        const stamped = String(html || "").replace(/<html\b/i, (openingTag) => `${openingTag} data-panel-document-generation="${generation}"`);
-        return `${stamped}\n<!-- panel-document-${generation} -->`;
+        const runningVersion = String(this.runningBuildIdentity?.version || this.context?.extension?.packageJSON?.version || "");
+        const documentBuildId = crypto.createHash("sha256")
+            .update(String(this.viewGeneration) + ":" + String(generation) + ":" + String(Date.now()) + ":" + crypto.randomBytes(8).toString("hex"))
+            .digest("hex").slice(0, 20);
+        this.panelDocumentBuildId = documentBuildId;
+        const stamped = String(html || "").replace(/<html\b/i, (openingTag) => openingTag + ' data-panel-document-generation="' + generation + '" data-panel-running-version="' + runningVersion + '" data-panel-build-id="' + documentBuildId + '"');
+        return stamped + "\n<!-- panel-document-" + generation + " -->";
     }
     handlePanelHeartbeatAck(message) {
         if (this.panelDisposed || !this.view?.visible || Number(message?.heartbeatId) !== this.panelHeartbeatId)
@@ -19383,6 +19682,18 @@ class RealtimeTunnelPanelProvider {
         const hasGeneration = message?.documentGeneration !== undefined && message?.documentGeneration !== null;
         if (hasGeneration && Number(message.documentGeneration) !== this.panelDocumentGeneration)
             return;
+        const receivedSeq = Number(message?.lastReceivedStateSeq);
+        const renderedSeq = Number(message?.lastRenderedStateSeq);
+        if (Number.isFinite(receivedSeq))
+            this.lastReceivedStateSeq = Math.max(this.lastReceivedStateSeq, receivedSeq);
+        if (Number.isFinite(renderedSeq))
+            this.lastRenderedStateSeq = Math.max(this.lastRenderedStateSeq, renderedSeq);
+        const progress = PanelStateProgress_1.observeStateRenderProgress(this.lastPostedStateSeq, this.lastRenderedStateSeq, this.stateRenderStalledAcks, 3);
+        this.stateRenderStalledAcks = progress.consecutiveStalledAcks;
+        if (progress.unhealthy) {
+            this.recoverPanelHeartbeatFailure("state-render-sequence-stalled");
+            return;
+        }
         if (this.panelHeartbeatTimeout)
             clearTimeout(this.panelHeartbeatTimeout);
         this.panelHeartbeatTimeout = undefined;
@@ -19424,6 +19735,7 @@ class RealtimeTunnelPanelProvider {
         this.panelUnknownHealthGeneration = 0;
         this.clearPanelHeartbeat();
         this.webviewReady = false;
+        this.transitionPanelLifecycle("recovering", reason);
         this.recordPanelLifecycleDiagnostic(reason === "面板暂时没有响应" ? "heartbeatTimeout" : reason);
         if (this.extensionRuntimeVersionState().reloadRequired) {
             this.showPanelReloadRequired();
@@ -19472,6 +19784,40 @@ class RealtimeTunnelPanelProvider {
             });
         }, this.panelHeartbeatIntervalMs);
         this.panelHeartbeatTimer.unref?.();
+    }
+    async probePanelNow(reason) {
+        if (this.panelDisposed || !this.view?.visible || ["maintenance", "reload_required", "disposed"].includes(this.panelLifecycleState))
+            return;
+        const identity = this.extensionRuntimeVersionState();
+        if (identity.reloadRequired) {
+            this.showPanelReloadRequired();
+            return;
+        }
+        if (!this.webviewReady) {
+            this.startPanelReadyWatchdog();
+            return;
+        }
+        this.clearPanelHeartbeat();
+        const view = this.view;
+        const generation = this.viewGeneration;
+        const heartbeatId = ++this.panelHeartbeatId;
+        this.panelHeartbeatTimeout = setTimeout(() => {
+            this.panelHeartbeatTimeout = undefined;
+            if (this.view === view && this.viewGeneration === generation && this.panelHeartbeatId === heartbeatId)
+                this.recoverPanelHeartbeatFailure(`visibilityProbeTimeout:${reason}`);
+        }, this.panelHeartbeatAckTimeoutMs);
+        this.panelHeartbeatTimeout.unref?.();
+        try {
+            const accepted = await view.webview.postMessage({ type: "panelHeartbeat", heartbeatId, documentGeneration: this.panelDocumentGeneration });
+            if (accepted === false && this.view === view && this.viewGeneration === generation)
+                this.recoverPanelHeartbeatFailure("visibilityProbePostFalse");
+            else if (this.view === view && this.viewGeneration === generation)
+                this.postState(true);
+        }
+        catch {
+            if (this.view === view && this.viewGeneration === generation)
+                this.recoverPanelHeartbeatFailure("visibilityProbePostRejected");
+        }
     }
     buildPanelFallbackState(message) {
         let workspace = {
@@ -19580,7 +19926,7 @@ class RealtimeTunnelPanelProvider {
             this.showPanelReloadRequired();
             return;
         }
-        if (!this.view)
+        if (!this.view || ["disposed", "maintenance", "reload_required"].includes(this.panelLifecycleState))
             return;
         if (this.statePostInFlight) {
             this.statePostPending = true;
@@ -19592,6 +19938,7 @@ class RealtimeTunnelPanelProvider {
             return;
         this.statePostPending = false;
         let state;
+        const buildStartedAt = Date.now();
         try {
             state = this.buildState();
             this.lastStateBuildErrorSignature = "";
@@ -19605,13 +19952,39 @@ class RealtimeTunnelPanelProvider {
             }
             state = this.buildPanelFallbackState(this.lastError);
         }
+        this.lastStateBuildDurationMs = Math.max(0, Date.now() - buildStartedAt);
+        state.diagnostics = { ...(state.diagnostics || {}), panelLifecycle: this.panelLifecycleState, statePostSequences: { posted: this.lastPostedStateSeq, received: this.lastReceivedStateSeq, rendered: this.lastRenderedStateSeq }, statePayloadBytes: this.lastStatePayloadBytes, stateBuildDurationMs: this.lastStateBuildDurationMs };
         state.contextActionSignature = contextActionStatePostSignature(state);
+        let stateMessage = { type: "state", seq: ++this.stateSequence, state };
+        this.lastStatePayloadBytes = Buffer.byteLength(JSON.stringify(stateMessage), "utf8");
+        if (this.lastStatePayloadBytes > this.statePayloadSoftLimitBytes)
+            this.recordPanelLifecycleDiagnostic("statePayloadSoftLimit");
+        if (this.lastStatePayloadBytes > this.statePayloadHardLimitBytes) {
+            state = this.buildPanelDegradedState(state, "面板数据量过大，已进入精简模式。");
+            stateMessage = { type: "state", seq: this.stateSequence, state };
+            this.lastStatePayloadBytes = Buffer.byteLength(JSON.stringify(stateMessage), "utf8");
+            this.transitionPanelLifecycle("degraded", "statePayloadHardLimit");
+            if (this.lastStatePayloadBytes > this.statePayloadHardLimitBytes) {
+                state = this.buildMinimalPanelDegradedState(state, "面板数据量仍超过安全上限，当前仅保留恢复所需摘要。");
+                stateMessage = { type: "state", seq: this.stateSequence, state };
+                this.lastStatePayloadBytes = Buffer.byteLength(JSON.stringify(stateMessage), "utf8");
+            }
+            if (this.lastStatePayloadBytes > this.statePayloadHardLimitBytes) {
+                this.transitionPanelLifecycle("recovering", "statePayloadUnsendable");
+                this.showPanelRecovery("面板数据超过安全上限，已停止发送大型状态。请缩小结果历史范围后重试。");
+                return;
+            }
+        }
         const signature = webviewStatePostSignature(state);
         if (!force && signature === this.lastPostedStateSignature)
             return;
         const targetView = this.view;
         const targetGeneration = this.viewGeneration;
+        const attemptId = ++this.statePostAttemptId;
         const reportPostError = (error) => {
+            if (attemptId !== this.statePostAttemptId)
+                return;
+            this.statePostAttemptId += 1;
             if (this.view !== targetView || this.viewGeneration !== targetGeneration)
                 return;
             this.statePostInFlight = false;
@@ -19621,9 +19994,17 @@ class RealtimeTunnelPanelProvider {
                 this.lastStatePostErrorSignature = message;
                 this.recordActionError({ command: "panelStatePost", message, suggestion: "插件将有限次自动重试；仍失败时请重新加载面板。" });
             }
-            this.scheduleStatePostRetry();
+            this.transitionPanelLifecycle("recovering", "statePostFailure");
+            if (this.statePostRetryCount >= this.statePostRetryMax - 1) {
+                this.transitionPanelLifecycle("degraded", "statePostRetryLimit");
+                this.showPanelRecovery("面板状态连续发送失败。可重试或重载窗口。", true);
+            }
+            else
+                this.scheduleStatePostRetry();
         };
         const completePost = (delivered) => {
+            if (attemptId !== this.statePostAttemptId)
+                return;
             if (this.view !== targetView || this.viewGeneration !== targetGeneration)
                 return;
             if (!delivered) {
@@ -19634,6 +20015,8 @@ class RealtimeTunnelPanelProvider {
             this.lastPostedStateSignature = signature;
             this.lastStatePostErrorSignature = "";
             this.statePostRetryCount = 0;
+            if (this.panelLifecycleState === "recovering" && !this.panelSectionFailures.size)
+                this.transitionPanelLifecycle("ready", "statePostRecovered");
             if (this.statePostRetryTimer)
                 clearTimeout(this.statePostRetryTimer);
             this.statePostRetryTimer = undefined;
@@ -19642,8 +20025,9 @@ class RealtimeTunnelPanelProvider {
         };
         try {
             this.statePostInFlight = true;
-            const posted = targetView.webview.postMessage({ type: "state", state });
-            void Promise.resolve(posted).then(completePost, reportPostError);
+            this.lastPostedStateSeq = stateMessage.seq;
+            void PanelStateDelivery_1.postMessageWithTimeout(() => targetView.webview.postMessage(stateMessage), this.statePostDeliveryTimeoutMs)
+                .then(completePost, reportPostError);
         }
         catch (error) {
             reportPostError(error);

@@ -1,13 +1,22 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 const test = require("node:test");
+const installScript = require("../../scripts/install-latest");
 const { runInstallLatest, parseInstalledVersion, compareVersions } = require("../../scripts/install-latest-policy");
 
-test("same installed version skips without invoking the installer", async () => {
+function testLock(t) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-install-test-"));
+  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  return path.join(directory, "install.lock");
+}
+
+test("same installed version skips without invoking the installer", async (t) => {
   const calls = [];
   const outcome = await runInstallLatest({
     targetVersion: "0.5.194", extensionId: "simple-local.simple-experiment",
+    lockPath: testLock(t),
     listExtensions: async () => "simple-local.simple-experiment@0.5.194\n",
     install: async (...args) => calls.push(args),
   });
@@ -15,11 +24,12 @@ test("same installed version skips without invoking the installer", async () => 
   assert.equal(calls.length, 0);
 });
 
-test("older installed version installs once without force and verifies the result", async () => {
+test("older installed version installs once without force and verifies the result", async (t) => {
   const calls = [];
   let listed = 0;
   const outcome = await runInstallLatest({
     targetVersion: "0.5.194", extensionId: "simple-local.simple-experiment", vsixPath: "extension.vsix",
+    lockPath: testLock(t),
     listExtensions: async () => ++listed === 1 ? "simple-local.simple-experiment@0.5.193\n" : "simple-local.simple-experiment@0.5.194\n",
     install: async (...args) => calls.push(args),
   });
@@ -28,25 +38,27 @@ test("older installed version installs once without force and verifies the resul
   assert.equal(JSON.stringify(calls).includes("--force"), false);
 });
 
-test("higher installed version blocks downgrade", async () => {
+test("higher installed version blocks downgrade", async (t) => {
   let installs = 0;
   await assert.rejects(() => runInstallLatest({
     targetVersion: "0.5.193", extensionId: "simple-local.simple-experiment",
+    lockPath: testLock(t),
     listExtensions: async () => "simple-local.simple-experiment@0.5.194\n",
     install: async () => installs++,
   }), /downgrade/i);
   assert.equal(installs, 0);
 });
 
-test("repeating an install sees the installed target and skips", async () => {
+test("repeating an install sees the installed target and skips", async (t) => {
   let version = "0.5.193", installs = 0;
   const dependencies = {
     targetVersion: "0.5.194", extensionId: "simple-local.simple-experiment", vsixPath: "extension.vsix",
+    lockPath: testLock(t),
     listExtensions: async () => `simple-local.simple-experiment@${version}\n`,
     install: async () => { installs++; version = "0.5.194"; },
   };
   assert.equal((await runInstallLatest(dependencies)).status, "installed");
-  assert.equal((await runInstallLatest(dependencies)).status, "skip");
+  assert.equal((await runInstallLatest({ ...dependencies, lockPath: testLock(t) })).status, "skip");
   assert.equal(installs, 1);
 });
 
@@ -59,4 +71,47 @@ test("package lifecycle has no automatic install hook", () => {
 test("installed version parsing and comparison are semantic", () => {
   assert.equal(parseInstalledVersion("other.ext@1.2.3\nsimple-local.simple-experiment@0.5.194\n", "simple-local.simple-experiment"), "0.5.194");
   assert.equal(compareVersions("0.5.9", "0.5.10"), -1);
+});
+
+test("dry-run reports the decision without invoking the installer or creating a lock", async () => {
+  let installs = 0;
+  const outcome = await runInstallLatest({
+    targetVersion: "0.5.195", extensionId: "simple-local.simple-experiment", vsixPath: "fixture.vsix", dryRun: true,
+    listExtensions: async () => "simple-local.simple-experiment@0.5.194\n", install: async () => installs++,
+  });
+  assert.equal(outcome.status, "dry-run");
+  assert.equal(outcome.decision, "upgrade");
+  assert.equal(outcome.vsixPath, "fixture.vsix");
+  assert.equal(installs, 0);
+});
+
+test("concurrent install processes are serialized by an atomic lock", async (t) => {
+  const lockPath = testLock(t);
+  let version = "0.5.193", installs = 0, releaseInstall;
+  const pause = new Promise(resolve => { releaseInstall = resolve; });
+  const shared = { targetVersion: "0.5.194", extensionId: "simple-local.simple-experiment", vsixPath: "fixture.vsix", lockPath,
+    listExtensions: async () => `simple-local.simple-experiment@${version}\n`,
+    install: async () => { installs++; await pause; version = "0.5.194"; } };
+  const first = runInstallLatest(shared);
+  await new Promise(resolve => setImmediate(resolve));
+  await assert.rejects(() => runInstallLatest(shared), /holds the lock/);
+  releaseInstall();
+  assert.equal((await first).status, "installed");
+  assert.equal(installs, 1);
+});
+
+test("stale lock is reported and preserved for explicit inspection", async (t) => {
+  const lockPath = testLock(t);
+  fs.writeFileSync(lockPath, JSON.stringify({ pid: 992341, targetVersion: "0.5.194", startedAt: "fixture" }), "utf8");
+  await assert.rejects(() => runInstallLatest({ targetVersion: "0.5.194", extensionId: "simple-local.simple-experiment", lockPath,
+    isProcessAlive: () => false, listExtensions: async () => "", install: async () => assert.fail("must not install while stale lock exists") }), /stale install lock/);
+  assert.equal(fs.existsSync(lockPath), true);
+});
+
+test("requiring install-latest.js is inert and package does not run the installer", () => {
+  assert.equal(typeof installScript.main, "function");
+  assert.equal(require.main === installScript, false);
+  const packageJson = JSON.parse(fs.readFileSync(path.join(__dirname, "../../package.json"), "utf8"));
+  assert.doesNotMatch(packageJson.scripts.package, /install:latest/);
+  assert.match(packageJson.scripts["install:latest"], /install-latest\.js/);
 });

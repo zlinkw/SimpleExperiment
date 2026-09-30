@@ -4,16 +4,22 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 const ts = require("typescript");
+const identitySource = fs.readFileSync(path.join(__dirname, "../../src/features/PanelBuildIdentity.ts"), "utf8");
+const identityModule = { exports: {} };
+vm.runInNewContext(ts.transpileModule(identitySource, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: identityModule.exports, module: identityModule, require });
+const lifecycleSource = fs.readFileSync(path.join(__dirname, "../../src/features/PanelLifecycle.ts"), "utf8");
+const lifecycleModule = { exports: {} };
+vm.runInNewContext(ts.transpileModule(lifecycleSource, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: lifecycleModule.exports, module: lifecycleModule });
 const extensionSource = fs.readFileSync(path.join(__dirname, "../../src/extension/legacy.ts"), "utf8");
 const recoverySource = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelRecoveryHtml.ts"), "utf8");
 const recoveryModule = { exports: {} };
 vm.runInNewContext(ts.transpileModule(recoverySource, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: recoveryModule.exports, module: recoveryModule });
 const { renderPanelReloadRequiredHtml } = recoveryModule.exports;
 
-function createProvider(registryVersion) {
+function createProvider(registryVersion, identities = {}) {
   const ast = ts.createSourceFile("legacy.ts", extensionSource, ts.ScriptTarget.Latest, true);
   const providerNode = ast.statements.find((node) => ts.isClassDeclaration(node) && node.name.text === "RealtimeTunnelPanelProvider");
-  const methodNames = new Set(["extensionRuntimeVersionState", "handleExtensionRegistryChange", "showPanelReloadRequired", "loadPanelHtml", "stampPanelDocument", "clearPanelHeartbeat", "clearPanelReadyWatchdog"]);
+  const methodNames = new Set(["extensionRuntimeVersionState", "handleExtensionRegistryChange", "showPanelReloadRequired", "loadPanelHtml", "stampPanelDocument", "clearPanelHeartbeat", "clearPanelReadyWatchdog", "transitionPanelLifecycle"]);
   const methods = providerNode.members.filter((node) => node.name && methodNames.has(node.name.getText(ast)));
   const code = ts.transpileModule(`class Subject {\n${methods.map((node) => node.getText(ast)).join("\n")}\n}`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
   let installed = registryVersion;
@@ -24,12 +30,21 @@ function createProvider(registryVersion) {
     renderPanelHtml: () => { rendered.main++; return "NORMAL PANEL"; },
     renderPanelRecoveryHtml: () => "RECOVERY PANEL",
     renderPanelBootstrapDocument: (render) => ({ html: render(), recovered: false }),
+    PanelBuildIdentity_1: identityModule.exports,
+    PanelLifecycle_1: lifecycleModule.exports,
+    crypto: require("node:crypto"),
     clearTimeout,
   };
   vm.runInNewContext(`${code}\nthis.Subject = Subject;`, sandbox);
   const provider = new sandbox.Subject();
   provider.context = { extension: { packageJSON: { version: "0.5.194" } } };
+  provider.runningBuildIdentity = identities.running || { version: "0.5.194", fingerprint: "AAA", exists: true };
+  provider.diskBuildIdentity = identities.disk || provider.runningBuildIdentity;
+  provider.readInstalledBuildIdentity = () => provider.diskBuildIdentity;
   provider.forceReloadRequired = false;
+  provider.reloadRequiredReason = null;
+  provider.panelLifecycleState = "ready";
+  provider.panelLifecycleGeneration = 0;
   provider.webviewReady = true;
   provider.viewGeneration = 9;
   provider.panelDocumentGeneration = 0;
@@ -58,9 +73,9 @@ test("provider selects reload-required UI only for mixed extension versions", ()
   const source = fs.readFileSync(path.join(__dirname, "../../src/extension/legacy.ts"), "utf8");
   const loadPanel = source.slice(source.indexOf("private loadPanelHtml()"), source.indexOf("private reloadPanelHtml()"));
   const versionState = source.slice(source.indexOf("private extensionRuntimeVersionState()"), source.indexOf("private handleExtensionRegistryChange()"));
-  assert.match(versionState, /this\.context\?\.extension\?\.packageJSON\?\.version/);
+  assert.match(versionState, /PanelBuildIdentity_1\.classifyPanelBuildIdentity/);
   assert.match(versionState, /vscode\.extensions\.getExtension\("simple-local\.simple-experiment"\)/);
-  assert.match(versionState, /reloadRequired: this\.forceReloadRequired \|\| runningVersion !== installedVersion/);
+  assert.match(versionState, /content_mismatch/);
   assert.match(loadPanel, /if \(this\.extensionRuntimeVersionState\(\)\.reloadRequired\)\s*\{\s*this\.showPanelReloadRequired\(\);\s*return;/);
   assert.match(loadPanel, /renderPanelBootstrapDocument\(renderPanelHtml, renderPanelRecoveryHtml\)/);
   assert.match(source, /case "reloadWindow"[\s\S]{0,140}workbench\.action\.reloadWindow/);
@@ -96,4 +111,19 @@ test("matching versions still render the regular panel", () => {
   subject.provider.loadPanelHtml();
   assert.equal(subject.rendered.main, 1);
   assert.equal(subject.provider.view.webview.html.includes("NORMAL PANEL"), true);
+});
+
+test("same-version content replacement is sticky and blocks the main panel", () => {
+  const running = { version: "0.5.194", fingerprint: "AAA", files: {}, exists: true };
+  const disk = { version: "0.5.194", fingerprint: "BBB", files: {}, exists: true };
+  const subject = createProvider("0.5.194", { running, disk });
+  const state = subject.provider.extensionRuntimeVersionState();
+  assert.equal(state.registryState, "content_mismatch");
+  assert.equal(state.reloadRequired, true);
+  assert.equal(state.reason, "content_mismatch");
+  subject.provider.loadPanelHtml();
+  assert.equal(subject.rendered.main, 0);
+  assert.match(subject.provider.view.webview.html, /版本号均为/);
+  assert.match(subject.provider.view.webview.html, /AAA/);
+  assert.match(subject.provider.view.webview.html, /BBB/);
 });

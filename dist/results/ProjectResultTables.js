@@ -718,7 +718,34 @@ function resultCatalog(root, resultDir, manualMappings = {}) {
     const mappingConflicts = allPlans.filter(plan => plan.assignment?.conflict).map(plan => ({ planFile: plan.planFile, ...plan.assignment.conflict }));
     const autoRecoverableCount = new Set([...plansByDestination.values()].flatMap(group => [...group.values()]).filter(plan => plan.sourceDatasetKey === "_unassigned" && plan.assignment?.kind !== "unassigned").map(plan => plan.planFile || plan.planKey)).size;
     (0, ResultLayout_1.datasetPartitions)(datasets.filter(item => !["_shared", "_unassigned"].includes(item.datasetKey)).map(item => item.dataset));
-    return { datasets, legacyTables: datasets.length ? [] : legacyTables, unassignedPlans, multiDatasetPlans, mappingConflicts, autoRecoverableCount };
+    const datasetLimit = 32, tableLimit = 500, planLimit = 500, artifactLimit = 2000;
+    let remainingTables = tableLimit, remainingPlans = planLimit, remainingArtifacts = artifactLimit;
+    const boundedDatasets = datasets.slice(0, datasetLimit).map(dataset => {
+        const tables = (dataset.tables || []).slice(0, remainingTables);
+        remainingTables -= tables.length;
+        const plans = [];
+        for (const plan of (dataset.plans || [])) {
+            if (remainingPlans <= 0)
+                break;
+            const artifacts = (plan.artifacts || []).slice(0, remainingArtifacts);
+            if (!artifacts.length && (plan.artifacts || []).length)
+                break;
+            remainingArtifacts -= artifacts.length;
+            plans.push({ ...plan, artifacts });
+            remainingPlans -= 1;
+        }
+        return { ...dataset, tables, plans };
+    });
+    return {
+        datasets: boundedDatasets,
+        legacyTables: datasets.length ? [] : legacyTables.slice(0, tableLimit),
+        unassignedPlans: unassignedPlans.slice(0, planLimit),
+        multiDatasetPlans: multiDatasetPlans.slice(0, planLimit),
+        mappingConflicts: mappingConflicts.slice(0, planLimit),
+        autoRecoverableCount,
+        catalogLimits: { datasets: datasetLimit, tables: tableLimit, plans: planLimit, artifacts: artifactLimit },
+        omittedCounts: { datasets: Math.max(0, datasets.length - datasetLimit), tables: Math.max(0, Object.values(datasets).reduce((count, item) => count + (item.tables || []).length, 0) - tableLimit), plans: Math.max(0, allPlans.length - planLimit), artifacts: Math.max(0, artifactCount - artifactLimit) },
+    };
 }
 function tableCatalog(root, resultDir) {
     return resultCatalog(root, resultDir).datasets.flatMap(dataset => dataset.tables);

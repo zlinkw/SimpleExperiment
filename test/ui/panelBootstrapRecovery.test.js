@@ -2,11 +2,16 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const vm = require("node:vm");
+const ts = require("typescript");
 
 const { renderPanelBootstrapDocument } = require("../../dist/ui/PanelBootstrap.js");
 const { readSource } = require("../_helpers/sourceReader");
 const extension = readSource("src/extension.ts");
 const panel = readSource("src/ui/PanelHtml.ts");
+const recoverySource = readSource("src/ui/PanelRecoveryHtml.ts");
+const recoveryModule = { exports: {} };
+vm.runInNewContext(ts.transpileModule(recoverySource, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, { exports: recoveryModule.exports, module: recoveryModule });
 
 test("panel host rendering falls back to a recovery document", () => {
   const normal = renderPanelBootstrapDocument(() => "<main>ready</main>", () => "recovery");
@@ -25,6 +30,17 @@ test("panel host rendering falls back to a recovery document", () => {
   assert.match(empty.error, /渲染结果为空/);
 });
 
+test("recovery page exposes reload, window reload, and safe diagnostic copy", () => {
+  const html = recoveryModule.exports.renderPanelRecoveryHtml("recover", JSON.stringify({ lifecycle: "recovering", payloadBytes: 123 }));
+  assert.match(html, /重新加载面板/);
+  assert.match(html, /重载窗口/);
+  assert.match(html, /复制诊断摘要/);
+  assert.match(html, /navigator\.clipboard\.writeText/);
+  const script = html.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/)?.[1];
+  assert.ok(script);
+  new vm.Script(script);
+});
+
 test("panel ready watchdog is cleared on ready, recovery, reload, and dispose", () => {
   const resolveFlow = extension.slice(extension.indexOf("resolveWebviewView(webviewView)"), extension.indexOf("async dispose()"));
   const messageFlow = extension.slice(extension.indexOf('case "webviewReady"'), extension.indexOf('case "webviewBootstrapError"'));
@@ -34,7 +50,8 @@ test("panel ready watchdog is cleared on ready, recovery, reload, and dispose", 
   assert.match(resolveFlow, /this\.loadPanelHtml\(\)/);
   assert.match(messageFlow, /this\.clearPanelReadyWatchdog\(\)/);
   assert.match(watchdogFlow, /private showPanelRecovery\(message: string, force = false\): void/);
-  assert.match(watchdogFlow, /this\.clearPanelReadyWatchdog\(\)[\s\S]{0,180}renderPanelRecoveryHtml\(message\)/);
+  assert.match(watchdogFlow, /this\.clearPanelReadyWatchdog\(\)/);
+  assert.match(watchdogFlow, /renderPanelRecoveryHtml\(message, JSON\.stringify\(this\.panelDiagnosticSummary\(\)\)\)/);
   assert.match(watchdogFlow, /this\.extensionRuntimeVersionState\(\)\.reloadRequired[\s\S]{0,100}this\.showPanelReloadRequired\(\)/);
   assert.match(watchdogFlow, /renderPanelBootstrapDocument\(renderPanelHtml, renderPanelRecoveryHtml\)/);
   assert.match(watchdogFlow, /if \(document\.recovered\)/);
@@ -70,7 +87,7 @@ test("panel registers the message listener before HTML can emit the ready handsh
 });
 
 test("panel reports post-bootstrap render failures without hiding the recovery path", () => {
-  assert.match(extension, /case "webviewRenderError":[\s\S]{0,260}recordActionError/);
+  assert.match(extension, /case "webviewRenderError":[\s\S]{0,1200}recordActionError/);
   for (const name of ["SAFE_WEBVIEW_COMMANDS", "API_INTERNAL_COMMANDS"]) {
     const declaration = extension.match(new RegExp("const " + name + " = new Set\\(\\[[\\s\\S]*?\\]\\);"))?.[0];
     assert.ok(declaration, name);
@@ -78,7 +95,7 @@ test("panel reports post-bootstrap render failures without hiding the recovery p
     for (const command of ["webviewReady", "webviewHeartbeatAck", "webviewBootstrapError", "webviewRenderError", "reloadPanel", "reloadWindow"]) assert.ok(commands.has(command), name + ": " + command);
   }
   assert.match(panel, /let lastRenderErrorMessage = ""/);
-  assert.match(panel, /vscode\.postMessage\(\{ command: "webviewRenderError", error: .*\.slice\(0, \d+\) \}\)/);
+  assert.match(panel, /vscode\.postMessage\(\{ command: "webviewRenderError", documentGeneration: panelDocumentGeneration, error: .*\.slice\(0, \d+\) \}\)/);
 });
 
 test("heartbeat recovery records lifecycle context and uses reload page only for version mismatch", () => {

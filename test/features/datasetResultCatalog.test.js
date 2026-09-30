@@ -88,6 +88,31 @@ test('production writer, catalog, open and split obey dataset keys and configure
   assert.match(source, /::-webkit-details-marker \{ display: none; \}/);
 });
 
+test('result catalog stays within dataset, plan, table and artifact response limits at stress scale', (t) => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dataset-catalog-stress-'));
+  t.after(() => fs.rmSync(root, { recursive: true, force: true }));
+  const resultRoot = path.join(root, 'experiments/results/benchmark/plans');
+  const registryPlans = {};
+  for (let plan = 0; plan < 100; plan++) {
+    const planFile = `experiments/plans/benchmark/plan-${String(plan).padStart(3, '0')}.yaml`;
+    const raw = path.join(resultRoot, tables.planDirectoryKey(planFile), 'raw');
+    registryPlans[planFile] = { revision: 'fixture', expectedSeeds: 1, records: [] };
+    fs.mkdirSync(raw, { recursive: true });
+    for (let artifact = 0; artifact < 20; artifact++) fs.writeFileSync(path.join(raw, `metric-${String(artifact).padStart(2, '0')}.json`), '{"v":1}', 'utf8');
+  }
+  const registryPath = path.join(root, 'simple_cluster/results/project_table_registry.json');
+  fs.mkdirSync(path.dirname(registryPath), { recursive: true });
+  fs.writeFileSync(registryPath, JSON.stringify({ schemaVersion: 1, plans: registryPlans }), 'utf8');
+  const catalog = tables.resultCatalog(root, 'experiments/results');
+  const plans = catalog.datasets.flatMap(dataset => dataset.plans || []);
+  const artifacts = plans.flatMap(plan => plan.artifacts || []);
+  assert.ok(catalog.datasets.length <= catalog.catalogLimits.datasets);
+  assert.ok(plans.length <= catalog.catalogLimits.plans);
+  assert.ok(artifacts.length <= catalog.catalogLimits.artifacts);
+  assert.equal(plans.length, 100);
+  assert.equal(artifacts.length, 2000);
+});
+
 test('manual Plan mapping persists per workspace, rebuilds existing seeds locally, and keeps raw artifacts unchanged', async () => {
   savedRules = {};
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dataset-manual-map-'));

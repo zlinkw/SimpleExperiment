@@ -2,7 +2,7 @@
   "name": "simple-experiment",
   "displayName": "SimpleExperiment",
   "description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
-  "version": "0.5.196",
+  "version": "0.5.197",
   "publisher": "simple-local",
   "extensionKind": [
     "ui"
@@ -793,6 +793,7 @@
     "package": "npm run build && npm run compact:plan && npm run verify:package-runtime && npm exec -- @vscode/vsce package --no-dependencies --allow-missing-repository",
     "verify:package-runtime": "node scripts/verify-vsix-runtime.js",
     "install:latest": "node scripts/install-latest.js",
+    "install:latest:dry-run": "node scripts/install-latest.js --dry-run",
     "package:public": "powershell -ExecutionPolicy Bypass -File scripts/package-public.ps1",
     "preview:gpu-history": "npm run build && node scripts/render-gpu-history-preview.js",
     "smoke": "npm run build && npm run lint && node -c dist/extension.js && node -c dist/panel.js && node dist/cli.js status && npm run package",

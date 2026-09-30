@@ -1679,6 +1679,8 @@ export function renderPanelHtml(): string {
     const vscode = acquireVsCodeApi();
     console.log("[webview] acquireVsCodeApi", !!vscode, typeof vscode?.postMessage);
     const panelDocumentGeneration = String(document.documentElement?.getAttribute("data-panel-document-generation") || "");
+    const panelRunningVersion = String(document.documentElement?.getAttribute("data-panel-running-version") || "");
+    const panelDocumentBuildId = String(document.documentElement?.getAttribute("data-panel-build-id") || "");
     const PANEL_RENDER_FRAME_STALL_MS = 15000;
     const restoredTransientPanelState = restoredPanelStateFromApi(vscode);
     let panelRenderHealthStatus = "unknown";
@@ -1705,7 +1707,7 @@ export function renderPanelHtml(): string {
       if (bootstrapErrorReported) return;
       bootstrapErrorReported = true;
       const message = error && (error.message || error.reason || error.error) ? String(error.message || error.reason || error.error) : String(error || "Webview 启动失败");
-      vscode.postMessage({ command: "webviewBootstrapError", error: message.slice(0, 480) });
+      vscode.postMessage({ command: "webviewBootstrapError", documentGeneration: panelDocumentGeneration, error: message.slice(0, 480) });
     };
     window.addEventListener("error", (event) => reportBootstrapError(event.error || event.message));
     window.addEventListener("unhandledrejection", (event) => reportBootstrapError(event.reason));
@@ -2212,6 +2214,9 @@ export function renderPanelHtml(): string {
     const DIAGNOSTIC_PORT_CONFLICT_LIMIT = 8;
     const DIAGNOSTIC_AGENT_WORKER_CARD_LIMIT = 8;
     let lastState = {};
+    let lastReceivedStateSeq = 0;
+    let lastRenderedStateSeq = 0;
+    const failedPanelSections = new Set();
     let initialStateTimer = 0;
     let lastRenderErrorMessage = "";
     let lastGpuServersById = {};
@@ -3600,7 +3605,7 @@ export function renderPanelHtml(): string {
       if (retry) retry.hidden = true;
       el("initialStateMessage").textContent = "正在读取本地面板状态...";
       document.body.setAttribute("aria-busy", "true");
-      vscode.postMessage({ command: "webviewReady" });
+      vscode.postMessage({ command: "webviewReady", documentGeneration: panelDocumentGeneration, extensionVersion: panelRunningVersion, documentBuildId: panelDocumentBuildId });
       if (initialStateTimer) clearTimeout(initialStateTimer);
       initialStateTimer = window.setTimeout(() => {
         el("initialStateMessage").textContent = "尚未收到本地面板状态。";
@@ -3681,7 +3686,8 @@ export function renderPanelHtml(): string {
       if (message.type === "panelHeartbeat") {
         const renderHealth = currentPanelRenderHealth();
         vscode.postMessage({ command: "webviewHeartbeatAck", heartbeatId: message.heartbeatId,
-          documentGeneration: panelDocumentGeneration || undefined, renderHealth });
+          documentGeneration: panelDocumentGeneration || undefined, extensionVersion: panelRunningVersion, documentBuildId: panelDocumentBuildId, renderHealth,
+          lastReceivedStateSeq: lastReceivedStateSeq, lastRenderedStateSeq: lastRenderedStateSeq });
         return;
       }
       const messages = flattenIncomingWebviewMessages(message);
@@ -3757,6 +3763,8 @@ export function renderPanelHtml(): string {
         if (item.type === "navigate") latestNavigationMessage = item;
       }
       if (latestStateMessage) {
+        const incomingSeq = Number(latestStateMessage.seq);
+        if (Number.isFinite(incomingSeq) && incomingSeq > lastReceivedStateSeq) lastReceivedStateSeq = incomingSeq;
         completeInitialPanelState();
         const incomingState = latestStateMessage.state || {};
         if (transientPanelStateNeedsRestore && transientPlanSelectionDirty) {
@@ -3797,6 +3805,7 @@ export function renderPanelHtml(): string {
     function render(state) {
       try {
         el("renderError").textContent = "";
+        if (state && state.degradedMessage) el("renderError").textContent = String(state.degradedMessage);
         renderProjectOnboardingNotice(state);
         const fastConfigEdit = shouldFastPathConfigEdit();
         if (fastConfigEdit) {
@@ -3806,6 +3815,7 @@ export function renderPanelHtml(): string {
           restoreTransientPanelState();
           lastRenderErrorMessage = "";
           updatePanelRenderHealth("ok", "render-completed");
+          lastRenderedStateSeq = Math.max(lastRenderedStateSeq, lastReceivedStateSeq);
           return;
         }
         applyUiLayout(state);
@@ -3819,6 +3829,7 @@ export function renderPanelHtml(): string {
         restoreTransientPanelState();
         lastRenderErrorMessage = "";
         updatePanelRenderHealth("ok", "render-completed");
+        lastRenderedStateSeq = Math.max(lastRenderedStateSeq, lastReceivedStateSeq);
       } catch (error) {
         const message = error && error.message ? String(error.message) : String(error);
         const stack = error && error.stack ? String(error.stack).slice(0, 900) : "";
@@ -3827,7 +3838,7 @@ export function renderPanelHtml(): string {
         el("renderError").textContent = "UI 渲染失败：" + message + (stack ? " | " + stack.slice(0, 380) : "");
         if (message !== lastRenderErrorMessage) {
           lastRenderErrorMessage = message;
-          vscode.postMessage({ command: "webviewRenderError", error: full.slice(0, 980) });
+          vscode.postMessage({ command: "webviewRenderError", documentGeneration: panelDocumentGeneration, error: full.slice(0, 980) });
         }
         try { console.error("[SimpleExperiment] renderPanel failed", error); } catch (_) {}
       }
@@ -3997,6 +4008,8 @@ export function renderPanelHtml(): string {
         lastSectionPreRenderKeys[section] = preKey;
         return;
       }
+      const sectionStartedAt = typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
+      try {
       if (section === "servers") {
         // 两卡合一兼容空分支：旧 servers 骨架已 display:none 隐藏，总览由 sync 卡内 syncServerOverview 渲染，避免双份。
       } else if (section === "settings") {
@@ -4017,6 +4030,30 @@ export function renderPanelHtml(): string {
       applyResourceTreeChildLayout(section);
       lastRenderedSectionSignatures[section] = signature;
       lastSectionPreRenderKeys[section] = preKey;
+      if (failedPanelSections.delete(String(section))) {
+        try { vscode.postMessage({ command: "webviewRenderError", documentGeneration: panelDocumentGeneration, section: String(section), sectionRecovered: true }); } catch (_) {}
+      }
+      const durationMs = Math.max(0, (typeof performance !== "undefined" && performance.now ? performance.now() : Date.now()) - sectionStartedAt);
+      if (durationMs > 250) {
+        try { console.warn("[SimpleExperiment] slow panel section", section, Math.round(durationMs)); } catch (_) {}
+        try { vscode.postMessage({ command: "webviewRenderError", documentGeneration: panelDocumentGeneration, section: String(section), performanceWarning: true, durationMs: Math.round(durationMs) }); } catch (_) {}
+      }
+      } catch (error) {
+        failedPanelSections.add(String(section));
+        renderSectionFailure(section, error);
+        const detail = String(error && error.message || error).slice(0, 480);
+        try { vscode.postMessage({ command: "webviewRenderError", documentGeneration: panelDocumentGeneration, section: String(section), error: detail }); } catch (_) {}
+      }
+    }
+
+    function renderSectionFailure(section, error) {
+      const safeSection = String(section || "").replace(/[^a-z0-9_-]/gi, "");
+      const host = document.querySelector('[data-section="' + safeSection + '"]') || document.querySelector('[data-resource-section="' + safeSection + '"]');
+      if (!host) return;
+      const message = safeSection === "results" ? "结果文件渲染失败" : "此区域暂时无法渲染";
+      host.innerHTML = '<div class="panel-section-error"><span>' + esc(message) + '</span><button type="button" data-section-retry="' + escAttr(safeSection) + '">重试此区域</button><button type="button" data-command="reloadPanel">重新加载面板</button><small>' + esc(String(error && error.message || error).slice(0, 160)) + '</small></div>';
+      const retry = host.querySelector('[data-section-retry]');
+      if (retry) retry.addEventListener("click", () => renderSectionIfVisible(lastState || {}, safeSection, { force: true }));
     }
 
     function sectionPreRenderKey(state, section) {

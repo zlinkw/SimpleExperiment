@@ -76,6 +76,10 @@ function fakeBrowser(options = {}) {
       setSelectionRange(start, end) { this.selectionStart = start; this.selectionEnd = end; }, contains() { return false; },
       get options() { return []; }, get selectedOptions() { return []; },
     };
+    if (options.failResults && id === "resultSummary") {
+      let html = "";
+      Object.defineProperty(item, "innerHTML", { configurable: true, get: () => html, set: (value) => { throw new Error("results renderer fixture failure"); } });
+    }
     elements.set(id, item);
     return item;
   };
@@ -86,7 +90,7 @@ function fakeBrowser(options = {}) {
     activeElement: options.fastPath ? { dataset: { configInput: "hub" } } : null,
     getElementById: (id) => options.missingRoots?.has(id) ? null : element(id),
     createElement: (tag) => element("created-" + tag + "-" + (++nextTimerId)),
-    querySelector() { return null; }, querySelectorAll(selector) {
+    querySelector(selector) { return options.failResults && selector === '[data-section="results"]' ? element("results-section") : null; }, querySelectorAll(selector) {
       if (selector === "[data-config-input][data-key]" && options.selectConfigInputs) return [...elements.values()].filter((item) => item.dataset.configInput && item.dataset.key);
       if (selector === 'input[type="checkbox"][data-command="selectExperiment"]' && options.taskCheckboxes) return options.taskCheckboxes;
       return [];
@@ -150,10 +154,10 @@ test("a retained rendered script reports a stalled state frame during a one-hour
   const listenerCount = [...browser.documentListeners.values()].reduce((sum, entries) => sum + entries.size, 0)
     + [...browser.windowListeners.values()].reduce((sum, entries) => sum + entries.size, 0);
   const timerCount = browser.timers.size;
-  send({ type: "state", state: { generation: 1, plans: [], recentPlans: [] } });
+  send({ type: "state", seq: 1, state: { generation: 1, plans: [], recentPlans: [] } });
   send({ type: "panelHeartbeat", heartbeatId: 0 });
   for (let generation = 2; generation <= 121; generation++) {
-    send({ type: "state", state: { generation, plans: [], recentPlans: [] } });
+    send({ type: "state", seq: generation, state: { generation, plans: [], recentPlans: [] } });
     browser.advance(30_000);
     send({ type: "panelHeartbeat", heartbeatId: generation });
   }
@@ -162,6 +166,8 @@ test("a retained rendered script reports a stalled state frame during a one-hour
   const acknowledgements = browser.sent.filter((message) => message.command === "webviewHeartbeatAck");
   assert.equal(acknowledgements.length, 121);
   assert.equal(acknowledgements.at(-1).documentGeneration, "doc-17");
+  assert.equal(acknowledgements.at(-1).lastReceivedStateSeq, 121);
+  assert.equal(acknowledgements.at(-1).lastRenderedStateSeq, 0);
   assert.equal(acknowledgements[0].renderHealth.status, "unknown");
   assert.equal(acknowledgements[0].renderHealth.reason, "state-render-pending");
   assert.equal(acknowledgements.at(-1).renderHealth.status, "unhealthy");
@@ -182,7 +188,7 @@ test("a retained rendered script detects one hour of RAF starvation without new 
     + [...browser.windowListeners.values()].reduce((sum, entries) => sum + entries.size, 0);
   const timerCount = browser.timers.size;
 
-  onMessage({ data: { type: "state", state: { plans: [], recentPlans: [] } } });
+  onMessage({ data: { type: "state", seq: 1, state: { plans: [], recentPlans: [] } } });
   [...browser.frames.values()].at(-1)();
   onMessage({ data: { type: "panelHeartbeat", heartbeatId: 0 } });
   const firstProbe = [...browser.frames.keys()].at(-1);
@@ -190,6 +196,8 @@ test("a retained rendered script detects one hour of RAF starvation without new 
   onMessage({ data: { type: "panelHeartbeat", heartbeatId: 1 } });
   assert.equal(browser.sent.at(-1).renderHealth.status, "ok");
   assert.equal(browser.sent.at(-1).renderHealth.reason, "render-completed");
+  assert.equal(browser.sent.at(-1).lastReceivedStateSeq, 1);
+  assert.equal(browser.sent.at(-1).lastRenderedStateSeq, 1);
 
   for (let heartbeatId = 2; heartbeatId <= 121; heartbeatId++) {
     browser.advance(30_000);
