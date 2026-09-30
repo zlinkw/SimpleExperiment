@@ -71,8 +71,10 @@ test('production writer, catalog, open and split obey dataset keys and configure
   assert.match(html, /data-details-key="result-dataset-BUS" open/);
   assert.doesNotMatch(html, /data-details-key="result-dataset-PAD" open/);
   assert.match(html, /resultDatasetGroup/);
-  assert.match(html, /方法 1 · Plan 0/);
-  assert.match(html, /跨数据集原始来源/);
+  assert.match(html, /方法 1 · 涉及 Plan 1/);
+  assert.match(html, /关联 Plan（1）/);
+  assert.doesNotMatch(html, /Plan 0/);
+  assert.match(html, /跨数据集 Plan 与共享产物（1 个 Plan · 1 个文件）/);
   assert.match(html, /跨数据集 · BUS、PAD/);
   assert.match(html, /data-table-key="PAD\/final"/);
   assert.match(html, /未识别数据集/);

@@ -27,10 +27,12 @@ function createRenderer(options = {}) {
     resultSplitSelectedColumns: null,
     resultSplitSelectedValues: null,
     lastState: options.state || {},
+    requestAnimationFrame: callback => callback(),
+    document: { querySelectorAll: () => options.scrollTarget ? [options.scrollTarget] : [] },
     renderCount: 0,
     renderSectionIfVisible: () => { context.renderCount += 1; },
   };
-  vm.runInNewContext(source.slice(start, end) + "; this.resultCatalogViewModel = resultCatalogViewModel; this.renderProjectResultTables = renderProjectResultTables; this.openResultSplitToolForTable = openResultSplitToolForTable", context);
+  vm.runInNewContext(source.slice(start, end) + "; this.resultCatalogViewModel = resultCatalogViewModel; this.renderProjectResultTables = renderProjectResultTables; this.openResultSplitToolForTable = openResultSplitToolForTable; this.openSharedArtifactsForPlan = openSharedArtifactsForPlan", context);
   return context;
 }
 
@@ -66,8 +68,9 @@ test("view model separates datasets, unassigned plans, and shared sources; selec
   const view = renderer.resultCatalogViewModel(catalog, { planFileInput: "experiments/plans/comparison/corim.yaml" });
   assert.deepEqual(Array.from(view.datasets, item => item.dataset), ["pad_ufes_20", "bus_cot_lesion"]);
   assert.equal(view.defaultDatasetKey, "pad_ufes_20");
-  assert.equal(view.unassigned.count, 2);
-  assert.equal(view.shared.count, 1);
+  assert.equal(view.unassigned.planCount, 2);
+  assert.equal(view.shared.planCount, 1);
+  assert.equal(view.shared.artifactCount, 1);
   assert.equal(view.shared.artifacts.length, 1);
   assert.equal(view.datasets.some(item => item.datasetKey === "_shared" || item.datasetKey === "_unassigned"), false);
   const natural = renderer.resultCatalogViewModel(catalog, {});
@@ -83,21 +86,20 @@ test("renderer puts compact dataset tables first and collapses plans, unassigned
   });
   const datasetGroups = html.match(/class="resultDatasetGroup"[^>]* open/g) || [];
   assert.equal(datasetGroups.length, 1);
-  assert.match(html, /总表 34 行 · 方法 1 · Plan 1/);
-  assert.match(html, /总表 28 行 · 方法 1 · Plan 1/);
+  assert.match(html, /总表 34 行 · 方法 1 · 涉及 Plan 1/);
+  assert.match(html, /总表 28 行 · 方法 1 · 涉及 Plan 1/);
   assert.match(html, /该数据集总表/);
   assert.match(html, /方法结果/);
-  assert.match(html, /Plan 产物（1）/);
+  assert.match(html, /关联 Plan（1）/);
   assert.doesNotMatch(html, /class="resultDatasetGroup"[^>]*_shared/);
   assert.doesNotMatch(html, /class="resultDatasetGroup"[^>]*_unassigned/);
   assert.match(html, /⚠ 2 个 Plan 尚未识别数据集/);
-  assert.match(html, /查看 2 个 Plan/);
   assert.match(html, /result-unassigned"/);
   assert.match(html, /高级来源/);
-  assert.match(html, /跨数据集原始来源（1）/);
+  assert.match(html, /跨数据集 Plan 与共享产物（1 个 Plan · 1 个文件）/);
   assert.match(html, /data-details-key="result-dataset-plans-pad_ufes_20"(?! open)/);
-  assert.match(html, /data-details-key="result-plan-pad_ufes_20-corim"(?! open)/);
-  assert.match(html, /title="experiments\/plans\/comparison\/corim.yaml">corim.yaml/);
+  assert.doesNotMatch(html, /data-details-key="result-plan-pad_ufes_20-corim"/);
+  assert.match(html, /class="resultPlanReference" title="experiments\/plans\/comparison\/corim.yaml"><span class="resultPlanReferenceName">corim.yaml/);
   assert.match(html, /title="artifacts\/results\/pad_ufes_20\/final\/final.csv"/);
   assert.doesNotMatch(html, />artifacts\/results\/pad_ufes_20\/final\/final\.csv</);
   assert.match(html, /class="resultMethodList"/);
@@ -112,6 +114,8 @@ test("renderer puts compact dataset tables first and collapses plans, unassigned
   assert.match(html, /来源：pad_ufes_20 \/ corim/);
   assert.match(html, /id="resultSplitTables" data-details-key="result-split-tables"/);
   assert.match(source, /\.resultTableName \{ min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;/);
+  assert.match(source, /\.resultDatasetGroup > summary \{ display: grid; grid-template-columns: auto minmax\(0, 1fr\) auto;/);
+  assert.match(source, /\.resultDatasetStats \{[^}]*grid-column: 2 \/ -1;/);
   assert.match(source, /data-command="syncAllResultArtifacts"/);
   assert.match(source, /data-command="parseResults"/);
   assert.match(source, /原始数据与详细追溯/);
@@ -133,4 +137,69 @@ test("split action selects the clicked table and opens the existing split tool",
   assert.match(html, /data-details-key="result-split-tables" open/);
   assert.match(html, /来源：pad_ufes_20 \/ corim/);
   assert.match(source, /openResultSplitToolForTable\(splitSource\.dataset\.tableKey \|\| ""\)/);
+});
+
+test("multi-dataset plans are logical references for each dataset and shared artifacts stay single-copy", () => {
+  const crossPlans = Array.from({ length: 17 }, (_, index) => {
+    const key = "cross-plan-" + String(index + 1).padStart(2, "0");
+    const artifacts = Array.from({ length: index < 14 ? 13 : 12 }, (_, fileIndex) => {
+      const artifactKey = "artifact-" + key + "-" + fileIndex;
+      return { artifactKey, kind: ["raw", "detail", "trace"][fileIndex % 3], workerId: "worker-" + (fileIndex % 2), path: "artifacts/results/_shared/" + artifactKey + ".csv" };
+    });
+    return { planFile: "experiments/plans/comparison/" + key + ".yaml", planKey: key, assignment: { kind: "multiple", datasets: ["bus_cot_lesion", "pad_ufes_20"] }, artifacts };
+  });
+  const multiCatalog = {
+    datasets: [
+      { dataset: "pad_ufes_20", datasetKey: "pad_ufes_20", tables: [finalTable("pad_ufes_20", 34, "pad/final.csv"), ...Array.from({ length: 17 }, (_, index) => methodTable("pad_ufes_20", "method-" + index, "pad/method-" + index + ".csv"))], plans: [] },
+      { dataset: "bus_cot_lesion", datasetKey: "bus_cot_lesion", tables: [finalTable("bus_cot_lesion", 34, "bus/final.csv"), ...Array.from({ length: 17 }, (_, index) => methodTable("bus_cot_lesion", "method-" + index, "bus/method-" + index + ".csv"))], plans: [] },
+      { dataset: "_shared", datasetKey: "_shared", tables: [], plans: crossPlans },
+    ],
+    multiDatasetPlans: crossPlans,
+    unassignedPlans: [],
+    legacyTables: [],
+  };
+  const renderer = createRenderer({ state: { planFileInput: crossPlans[0].planFile } });
+  const view = renderer.resultCatalogViewModel(multiCatalog, { planFileInput: crossPlans[0].planFile });
+  assert.deepEqual(Array.from(view.datasets, item => item.datasetKey), ["bus_cot_lesion", "pad_ufes_20"]);
+  for (const dataset of view.datasets) {
+    assert.equal(dataset.physicalPlanCount, 0);
+    assert.equal(dataset.associatedPlanCount, 17);
+    assert.equal(dataset.associatedPlans.length, 17);
+  }
+  assert.equal(view.selectedPlanDatasetKey, "");
+  assert.equal(view.defaultDatasetKey, "bus_cot_lesion");
+  assert.equal(view.shared.planCount, 17);
+  assert.equal(view.shared.artifactCount, 218);
+  assert.equal(view.unassigned.planCount, 0);
+
+  const html = renderer.renderProjectResultTables({ resultOutputConfig: { catalog: multiCatalog, tables: multiCatalog.datasets.flatMap(group => group.tables) } });
+  assert.equal((html.match(/涉及 Plan 17/g) || []).length, 2);
+  assert.doesNotMatch(html, /Plan 0/);
+  assert.match(html, /跨数据集 Plan 与共享产物（17 个 Plan · 218 个文件）/);
+  assert.doesNotMatch(html, /跨数据集原始来源/);
+  assert.doesNotMatch(html, /待处理|尚未识别 Plan/);
+  assert.equal((html.match(/data-open-result-shared-plan/g) || []).length, 34);
+  assert.equal((html.match(/artifacts\/results\/_shared\/artifact-/g) || []).length, 218);
+  assert.match(html, /跨数据集 · bus_cot_lesion、pad_ufes_20/);
+  assert.match(source, /\.resultDatasetGroup > summary \{ display: grid; grid-template-columns: auto minmax\(0, 1fr\) auto; align-items: center; justify-content: initial;/);
+  assert.match(source, /\.resultDatasetStats \{ grid-column: 3;/);
+  assert.match(source, /@container main-workflow \(max-width: 520px\)[\s\S]*?\.resultDatasetStats \{ grid-column: 2 \/ -1;/);
+});
+
+test("shared Plan link opens and scrolls to its advanced artifact detail", () => {
+  let scrolled = false;
+  const key = "cross-plan-01";
+  const renderer = createRenderer({ scrollTarget: { dataset: { detailsKey: "result-plan-shared-sources-" + key }, scrollIntoView: () => { scrolled = true; } } });
+  renderer.openSharedArtifactsForPlan(key);
+  assert.equal(renderer.detailsOpenState["result-advanced-sources"], true);
+  assert.equal(renderer.detailsOpenState["result-shared-sources"], true);
+  assert.equal(renderer.detailsOpenState["result-plan-shared-sources-" + key], true);
+  assert.equal(renderer.renderCount, 1);
+  assert.equal(scrolled, true);
+  assert.match(source, /openSharedArtifactsForPlan\(sharedPlanSource\.dataset\.planKey \|\| ""\)/);
+});
+
+test("split tool is reset only at fresh document initialization", () => {
+  assert.match(source, /let detailsOpenState = restoredTransientPanelState\.detailsOpenState \|\| \{\};\s*detailsOpenState\["execution-full-records"\] = false;\s*detailsOpenState\["result-split-tables"\] = false;/);
+  assert.match(source, /\.resultDatasetGroup > summary \{ display: grid;/);
 });
