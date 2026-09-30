@@ -14,7 +14,7 @@ export class ResultsSection implements Section {
         <div class="section-head">
           <div class="section-title">
             <h2>结果文件</h2>
-            <div class="section-desc">查看总表、同步原始数据、按列拆表</div>
+            <div class="section-desc">按数据集浏览总表、方法结果与原始文件</div>
           </div>
         </div>
         <div class="resultMainPane">

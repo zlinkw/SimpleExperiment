@@ -13,7 +13,8 @@ test("functional entry points and drawer rails remain in baseline", () => {
   assert.match(panelSource, /id="pptPlotConfig"/);
   assert.match(panelSource, /<summary>绘图到 PPT（可选）<\/summary>/);
   assert.ok(panelSource.indexOf('id="pptPlotConfig"') > panelSource.indexOf('id="traceTable"'));
-  assert.match(panelSource, /class="resultTableCards"/);
+  assert.match(panelSource, /class="resultMethodList"/);
+  assert.doesNotMatch(panelSource, /class="resultTableCards"/);
   // 单链第二步：旧 renderActionSections 已删除，新链为 renderServerChainOverview
   assert.doesNotMatch(panelSource, /function renderActionSections/);
   assert.match(panelSource, /function renderServerChainOverview/);

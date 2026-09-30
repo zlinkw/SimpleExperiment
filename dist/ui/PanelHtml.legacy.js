@@ -1024,20 +1024,50 @@ function renderPanelHtml() {
     .settingsLayoutTools b { margin-right: auto; font-size: 12px; }
     .resultMappingEditor { margin: 0; padding: 10px 12px; border: 1px solid var(--border); border-left: 4px solid #7C3AED; border-radius: 8px; background: var(--vscode-editor-background); }
     .resultMainPane { min-width: 0; }
-    .resultFinalCard { display: grid; gap: 12px; margin: 0; padding: 14px; border: 1px solid var(--border); border-left: 4px solid var(--info); border-radius: 10px; background: var(--vscode-editor-background); }
-    .resultFinalHeader { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; }
-    .resultFinalHeader h3 { margin: 0 0 3px; font-size: 15px; line-height: 1.3; font-weight: 750; }
-    .resultFinalHeader p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.45; }
+    .resultFinalCard { display: grid; gap: 10px; margin: 0; padding: 12px; border: 1px solid var(--border); border-left: 4px solid var(--info); border-radius: 10px; background: var(--vscode-editor-background); }
+    .resultFinalHeader { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 14px; }
+    .resultFinalHeader h3 { margin: 0 0 2px; font-size: 15px; line-height: 1.3; font-weight: 750; }
+    .resultFinalHeader p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.4; }
     .resultFinalHeader button { white-space: nowrap; }
-    .resultTableCards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap: 8px; }
-    .resultTableCard { display: grid; gap: 7px; min-width: 0; padding: 10px 11px; border: 1px solid var(--border); border-left: 4px solid var(--success); border-radius: 8px; background: color-mix(in srgb, var(--vscode-editor-background) 93%, var(--success) 7%); }
-    .resultTableCard.primary { border-left-color: var(--info); background: color-mix(in srgb, var(--vscode-editor-background) 93%, var(--info) 7%); }
-    .resultTableCardHead { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
-    .resultTableCardHead strong { min-width: 0; overflow-wrap: anywhere; font-size: 13px; font-weight: 750; line-height: 1.3; }
-    .resultTableCardHead span { color: var(--muted); white-space: nowrap; font-size: 11px; font-variant-numeric: tabular-nums; }
-    .resultTableCardPath { overflow-wrap: anywhere; color: var(--muted); font-size: 11px; font-family: Consolas, monospace; }
-    .resultTableCardActions { display: flex; flex-wrap: wrap; gap: 6px; }
-    .resultTableCardActions button { flex: 1 1 105px; font-size: 12px; }
+    .resultTopActions { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+    .resultSyncStatus { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; color: var(--muted); font-size: 11px; }
+    .resultSyncStatus details { display: inline; }
+    .resultSyncStatus summary { display: inline; cursor: pointer; color: var(--vscode-textLink-foreground); }
+    .resultSyncDetails { margin-top: 5px; line-height: 1.5; overflow-wrap: anywhere; }
+    .resultDatasetList { display: grid; gap: 7px; }
+    .resultDatasetGroup { min-width: 0; border: 1px solid var(--border); border-radius: 8px; background: var(--vscode-editor-background); }
+    .resultDatasetGroup > summary { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; padding: 9px 11px; cursor: pointer; }
+    .resultDatasetName { min-width: 0; font-size: 14px; font-weight: 750; overflow-wrap: anywhere; }
+    .resultDatasetStats { color: var(--muted); font-size: 11px; white-space: nowrap; }
+    .resultDatasetContent { display: grid; gap: 8px; padding: 0 10px 10px; }
+    .resultDatasetSectionTitle { margin: 2px 0 0; color: var(--muted); font-size: 11px; font-weight: 700; letter-spacing: .02em; }
+    .resultTableRowCompact { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; align-items: center; gap: 8px; min-width: 0; padding: 6px 8px; border-bottom: 1px solid var(--border); }
+    .resultDatasetFinal { border: 1px solid color-mix(in srgb, var(--info) 45%, var(--border)); border-left: 3px solid var(--info); border-radius: 6px; background: color-mix(in srgb, var(--vscode-editor-background) 96%, var(--info) 4%); }
+    .resultTableName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 12px; font-weight: 650; }
+    .resultTableCount { color: var(--muted); white-space: nowrap; font-size: 11px; font-variant-numeric: tabular-nums; }
+    .resultTableActions { display: flex; flex-wrap: nowrap; align-items: center; gap: 4px; }
+    .resultTableActions button { min-height: 22px; padding: 3px 6px; font-size: 10px; white-space: nowrap; }
+    .resultMethodList { display: grid; }
+    .resultPlanList { display: grid; gap: 2px; }
+    .resultPlanRow { min-width: 0; border-bottom: 1px solid var(--border); }
+    .resultPlanRow > summary { overflow: hidden; padding: 5px 7px; cursor: pointer; text-overflow: ellipsis; white-space: nowrap; font-size: 11px; }
+    .resultPlanFiles { display: grid; gap: 2px; padding: 0 0 4px 15px; }
+    .resultPlanFileRow { display: grid; grid-template-columns: minmax(55px, auto) minmax(0, 1fr); align-items: center; gap: 6px; min-width: 0; }
+    .resultPlanFileRow .resultTableName { font-size: 11px; }
+    .resultSpecialGroup { margin: 0; padding: 8px 10px; border: 1px solid var(--border); border-radius: 7px; background: var(--vscode-editor-background); }
+    .resultSpecialGroup > summary { cursor: pointer; font-size: 12px; font-weight: 700; }
+    .resultUnassigned { border-color: color-mix(in srgb, var(--warning) 55%, var(--border)); border-left: 3px solid var(--warning); }
+    .resultUnassignedLead { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 10px; margin-top: 6px; color: var(--warning); font-size: 12px; font-weight: 650; }
+    .resultSpecialBody { display: grid; gap: 6px; margin-top: 7px; }
+    .resultAdvancedSources { border-left: 3px solid var(--border); }
+    .resultAdvancedSources .resultPlanRow { border-color: var(--border); }
+    .resultTableBrowser > .resultArtifactGroup { margin-top: 2px; }
+    @container main-workflow (max-width: 520px) {
+      .resultTableRowCompact { grid-template-columns: minmax(0, 1fr) auto; gap: 5px 7px; }
+      .resultTableRowCompact > .resultTableName { grid-column: 1 / -1; }
+      .resultDatasetGroup > summary { align-items: flex-start; }
+      .resultDatasetStats { white-space: normal; }
+    }
     .resultPlanActions { display: grid; gap: 9px; margin: 0; padding: 11px 12px; border: 1px solid var(--border); border-left: 4px solid var(--success); border-radius: 8px; background: color-mix(in srgb, var(--vscode-editor-background) 95%, var(--success) 5%); }
     .resultPlanActionsTitle { display: flex; flex-wrap: wrap; gap: 5px 10px; align-items: baseline; }
     .resultPlanActionsTitle strong { font-size: 13px; font-weight: 750; }
@@ -3081,6 +3111,13 @@ function renderPanelHtml() {
       if (event.target.closest("[data-open-result-mapping]")) {
         event.preventDefault();
         openResultColumnMappingEditor();
+        return;
+      }
+      const splitSource = event.target.closest("[data-open-result-split]");
+      if (splitSource) {
+        event.preventDefault();
+        openResultSplitToolForTable(splitSource.dataset.tableKey || "");
+        requestAnimationFrame(() => document.querySelector('[data-details-key="result-split-tables"]')?.scrollIntoView?.({ block: "nearest" }));
         return;
       }
       const splitToggle = event.target.closest("[data-result-split-toggle]");
@@ -14579,49 +14616,108 @@ function renderPanelHtml() {
       return { tone: "warn", label: "需重跑", detail: "产物覆盖 " + covered + " 条，已归档 " + archived + " 条；" + (archived - covered) + " 条未纳入" };
     }
 
+    function resultCatalogViewModel(catalog, state) {
+      const normal = [], unassignedGroups = [], sharedGroups = [];
+      for (const source of asArray(catalog?.datasets)) {
+        const group = { ...source, tables: asArray(source.tables), plans: asArray(source.plans) };
+        if (group.datasetKey === "_unassigned") unassignedGroups.push(group);
+        else if (group.datasetKey === "_shared") sharedGroups.push(group);
+        else normal.push(group);
+      }
+      const planKey = plan => String(plan.planFile || plan.planKey || plan.label || "");
+      const sortPlans = plans => plans.slice().sort((left, right) => String(left.planFile || left.label || "").localeCompare(String(right.planFile || right.label || ""), undefined, { numeric: true, sensitivity: "base" }));
+      const datasets = normal.map(group => {
+        const tables = group.tables.slice().sort((left, right) => left.kind === right.kind ? String(left.name).localeCompare(String(right.name), undefined, { numeric: true, sensitivity: "base" }) : left.kind === "final" ? -1 : 1);
+        const plans = sortPlans(group.plans);
+        const planCount = new Set(plans.map(planKey)).size;
+        const finalTable = tables.find(row => row.kind === "final");
+        const methodTables = tables.filter(row => row.kind === "method");
+        return { ...group, tables, plans, finalTable, methodTables, finalRowCount: Number(finalTable?.rowCount || 0), methodCount: methodTables.length, planCount };
+      }).sort((left, right) => String(left.dataset || left.datasetKey).localeCompare(String(right.dataset || right.datasetKey), undefined, { numeric: true, sensitivity: "base" }));
+      const selectedPlan = String(state?.planFileInput || state?.selection?.selectedPlanId || "");
+      const selectedDataset = selectedPlan ? datasets.find(dataset => dataset.plans.some(plan => plan.planFile === selectedPlan)) : undefined;
+      if (selectedDataset) datasets.unshift(datasets.splice(datasets.indexOf(selectedDataset), 1)[0]);
+      const collectSpecial = (groups, countArtifacts = false) => {
+        const plans = sortPlans(groups.flatMap(group => group.plans.map(plan => ({ ...plan, datasetKey: group.datasetKey }))));
+        const artifactsByKey = new Map();
+        for (const plan of plans) for (const artifact of asArray(plan.artifacts)) if (!artifactsByKey.has(artifact.artifactKey)) artifactsByKey.set(artifact.artifactKey, { ...artifact, planFile: plan.planFile || "", planLabel: plan.label || plan.planFile || "" });
+        const artifacts = [...artifactsByKey.values()];
+        return { groups, plans, artifacts, count: countArtifacts ? artifacts.length || new Set(plans.map(planKey)).size : new Set(plans.map(planKey)).size };
+      };
+      const unassigned = collectSpecial(unassignedGroups);
+      const shared = collectSpecial(sharedGroups, true);
+      return { datasets, defaultDatasetKey: selectedDataset?.datasetKey || datasets[0]?.datasetKey || "", unassigned, shared };
+    }
+    function resultCatalogBasename(value) {
+      const parts = String(value || "").split("/");
+      return parts[parts.length - 1] || String(value || "");
+    }
+    function openResultSplitToolForTable(tableKey) {
+      resultSplitTableKey = String(tableKey || "");
+      resultSplitFieldName = "";
+      resultSplitSelectedValues = null;
+      resultSplitSelectedColumns = null;
+      resultSplitSearchQuery = "";
+      detailsOpenState["result-split-tables"] = true;
+      renderSectionIfVisible(lastState || {}, "results", { force: true });
+    }
     function renderProjectResultTables(state) {
-      const tables = asArray(((state || {}).resultOutputConfig || {}).tables);
-      const selected = tables.find((row) => row.tableKey === resultSplitTableKey) || tables.find((row) => row.name === "final") || tables[0];
+      const resultConfig = (state || {}).resultOutputConfig || {};
+      const tables = asArray(resultConfig.tables);
+      const catalog = resultConfig.catalog || { datasets: [] };
+      const view = resultCatalogViewModel(catalog, state);
+      const selected = tables.find(row => row.tableKey === resultSplitTableKey) || tables.find(row => row.name === "final") || tables[0];
       const field = selected && selected.header.includes(resultSplitFieldName) ? resultSplitFieldName : selected && selected.header.includes("rate_percent") ? "rate_percent" : selected?.header?.[0] || "";
       const choices = selected ? asArray((selected.values || {})[field]).slice(0, 100) : [];
-      const options = (items, chosen) => items.map((item) => '<option value="' + escAttr(item) + '"' + (item === chosen ? ' selected' : '') + '>' + esc(item) + '</option>').join("");
+      const options = (items, chosen) => items.map(item => '<option value="' + escAttr(item) + '"' + (item === chosen ? ' selected' : '') + '>' + esc(item) + '</option>').join("");
       const tableOptions = tables.map(row => '<option value="' + escAttr(row.tableKey) + '"' + (row.tableKey === selected?.tableKey ? ' selected' : '') + '>' + esc((row.dataset || "未识别数据集") + " / " + row.name) + '</option>').join("");
       const fields = selected?.header || [];
-      const valueChoices = choices.map((value) => '<label data-result-split-value-row="' + escAttr(value) + '"' + (resultSplitSearchQuery && !value.toLowerCase().includes(resultSplitSearchQuery.trim().toLowerCase()) ? ' style="display:none"' : '') + '><input type="checkbox" data-result-split-value value="' + escAttr(value) + '"' + (resultSplitSelectedValues === null || resultSplitSelectedValues.includes(value) ? ' checked' : '') + '> ' + esc(value || "（空值）") + '</label>').join("");
-      const columns = fields.map((name) => '<label><input type="checkbox" data-result-split-column value="' + escAttr(name) + '"' + (resultSplitSelectedColumns === null || resultSplitSelectedColumns.includes(name) ? ' checked' : '') + '> ' + esc(name) + '</label>').join("");
+      const valueChoices = choices.map(value => '<label data-result-split-value-row="' + escAttr(value) + '"' + (resultSplitSearchQuery && !value.toLowerCase().includes(resultSplitSearchQuery.trim().toLowerCase()) ? ' style="display:none"' : '') + '><input type="checkbox" data-result-split-value value="' + escAttr(value) + '"' + (resultSplitSelectedValues === null || resultSplitSelectedValues.includes(value) ? ' checked' : '') + '> ' + esc(value || "（空值）") + '</label>').join("");
+      const columns = fields.map(name => '<label><input type="checkbox" data-result-split-column value="' + escAttr(name) + '"' + (resultSplitSelectedColumns === null || resultSplitSelectedColumns.includes(name) ? ' checked' : '') + '> ' + esc(name) + '</label>').join("");
       const syncReport = (state || {}).resultSyncReport;
-      const reportCount = syncReport ? "发现 " + Number(syncReport.discovered || 0) + "，收录 " + asArray(syncReport.included).length + "，缺指标 " + asArray(syncReport.missing).length + "，跳过/失败 " + asArray(syncReport.skipped).length : "";
-      const reportDetails = syncReport ? asArray(syncReport.included).concat(asArray(syncReport.missing), asArray(syncReport.skipped)).map((line) => esc(String(line))).join("<br>") : "";
-      const reportHtml = reportCount ? '<div>' + esc(reportCount) + '</div>' + (reportDetails ? '<details><summary>查看 Plan 与 Worker 明细</summary><div>' + reportDetails + '</div></details>' : '') : "";
-      const catalog = ((state || {}).resultOutputConfig || {}).catalog || { datasets: [] };
-      const tableCard = row => {
-        const name = row.kind === "final" ? "该数据集总表" : row.name;
-        return '<article class="resultTableCard' + (row.kind === "final" ? ' primary' : '') + '"><div class="resultTableCardHead"><strong>' + esc(name) + '</strong><span>' + Number(row.rowCount || 0) + ' 行</span></div><div class="resultTableCardPath">' + esc(row.path) + '</div><div class="resultTableCardActions"><button type="button" data-command="openLocalResultTable" data-table-key="' + escAttr(row.tableKey) + '" data-format="csv">查看 CSV</button><button type="button" class="secondary" data-command="openLocalResultTable" data-table-key="' + escAttr(row.tableKey) + '" data-format="md">阅读版</button></div></article>';
-      };
-      const tableCards = asArray(catalog.datasets).map(dataset => {
-        const label = dataset.datasetKey === "_unassigned" ? "未识别数据集" : dataset.datasetKey === "_shared" ? "跨数据集原始来源" : dataset.dataset;
-        const warning = dataset.datasetKey === "_unassigned" ? '<div class="muted">请设置结果列映射后重新汇总。</div>' : "";
-        const finals = asArray(dataset.tables).filter(row => row.kind === "final").map(tableCard).join("");
-        const methods = asArray(dataset.tables).filter(row => row.kind === "method").map(tableCard).join("");
-        const plans = asArray(dataset.plans).map(plan => '<details class="resultArtifactGroup"><summary>' + esc(plan.label) + '</summary>' + ["raw", "detail", "trace"].map(kind => {
-          const files = asArray(plan.artifacts).filter(row => row.kind === kind);
-          return files.length ? '<details><summary>' + esc({ raw: "原始数据", detail: "详细聚合", trace: "追溯文件" }[kind]) + '</summary>' + files.map(file => '<div class="resultTableRow"><span>' + esc(file.workerId || "") + '</span><button type="button" class="secondary" data-command="openLocalResultTable" data-artifact-key="' + escAttr(file.artifactKey) + '">' + esc(file.path) + '</button></div>').join("") + '</details>' : "";
-        }).join("") + '</details>').join("");
-        return '<details class="resultDatasetGroup" data-details-key="dataset-' + escAttr(dataset.datasetKey) + '" open><summary>' + esc(label) + '</summary>' + warning + finals + (methods ? '<details open><summary>方法表</summary><div class="resultTableCards">' + methods + '</div></details>' : '') + (plans ? '<details open><summary>Plan 产物</summary>' + plans + '</details>' : '') + '</details>';
+      const reportCount = syncReport ? "发现 " + Number(syncReport.discovered || 0) + " · 收录 " + asArray(syncReport.included).length + " · 缺指标 " + asArray(syncReport.missing).length + " · 跳过/失败 " + asArray(syncReport.skipped).length : "";
+      const reportDetails = syncReport ? asArray(syncReport.included).concat(asArray(syncReport.missing), asArray(syncReport.skipped)).map(line => esc(String(line))).join("<br>") : "";
+      const reportHtml = reportCount ? '<div class="resultSyncStatus"><span>' + esc(reportCount) + '</span>' + (reportDetails ? '<details data-details-key="result-sync-report"' + detailsOpenAttr("result-sync-report", false) + '><summary>查看 Plan 与 Worker 明细</summary><div class="resultSyncDetails">' + reportDetails + '</div></details>' : '') + '</div>' : "";
+      const tableRow = (row, kind) => '<div class="resultTableRowCompact' + (kind === "final" ? ' resultDatasetFinal' : '') + '" title="' + escAttr(row.path || "") + '"><span class="resultTableName" title="' + escAttr(row.path || "") + '">' + esc(kind === "final" ? "final.csv" : row.name) + '</span><span class="resultTableCount">' + Number(row.rowCount || 0) + ' 行</span><span class="resultTableActions"><button type="button" class="secondary mini" data-command="openLocalResultTable" data-table-key="' + escAttr(row.tableKey) + '" data-format="csv" title="' + escAttr(row.path || "") + '">CSV</button><button type="button" class="secondary mini" data-command="openLocalResultTable" data-table-key="' + escAttr(row.tableKey) + '" data-format="md" title="' + escAttr(row.markdownPath || "") + '">Markdown</button><button type="button" class="secondary mini" data-open-result-split data-table-key="' + escAttr(row.tableKey) + '">拆表</button></span></div>';
+      const planRows = (plans, ownerKey) => plans.map(plan => {
+        const planName = resultCatalogBasename(plan.planFile || plan.label || plan.planKey);
+        const stablePlanKey = String(plan.planKey || plan.planFile || planName);
+        const detailKey = "result-plan-" + ownerKey + "-" + stablePlanKey;
+        const files = ["raw", "detail", "trace"].map(kind => {
+          const artifacts = asArray(plan.artifacts).filter(file => file.kind === kind);
+          if (!artifacts.length) return "";
+          const label = { raw: "原始数据", detail: "详细聚合", trace: "追溯文件" }[kind];
+          return '<details><summary>' + label + '（' + artifacts.length + '）</summary><div class="resultPlanFiles">' + artifacts.map(file => '<div class="resultPlanFileRow"><span class="muted">' + esc(file.workerId || "") + '</span><button type="button" class="secondary mini resultTableName" data-command="openLocalResultTable" data-artifact-key="' + escAttr(file.artifactKey) + '" title="' + escAttr(file.path || "") + '">' + esc(resultCatalogBasename(file.path)) + '</button></div>').join("") + '</div></details>';
+        }).join("");
+        return '<details class="resultPlanRow" data-details-key="' + escAttr(detailKey) + '"' + detailsOpenAttr(detailKey, false) + '><summary title="' + escAttr(plan.planFile || plan.label || "") + '">' + esc(planName) + '</summary><div class="resultPlanFiles">' + files + '</div></details>';
       }).join("");
-      const legacy = asArray(catalog.legacyTables).length ? '<details><summary>旧版结果结构</summary><div class="muted">旧结构可能包含多个数据集，请重新汇总生成按数据集结果。旧文件保留，仅供只读查看。</div>' + asArray(catalog.legacyTables).map(row => '<div>' + esc(row.path) + '</div>').join("") + '</details>' : "";
-      return '<div class="resultFinalCard resultTableBrowser"><div class="resultFinalHeader"><div><h3>结果总表</h3><p>按数据集组织结果。每个数据集拥有独立总表、方法表与 Plan 产物。</p></div>' +
-        '<div><button type="button" data-command="syncPendingPlanArtifacts" title="手动查询并合并各 Worker 上当前项目的结果范围，按来源打包下载 CSV/JSON/MD 最终指标并更新总表与方法表。不会重新训练或下载权重、日志；权重和日志须在下载文件中明确选择范围后手动下载。">同步服务器结果并更新总表</button>' +
-        '<button type="button" class="secondary" data-command="rebuildProjectResultTables" title="下载已完成运行的逐 seed CSV 和最终指标 CSV、Markdown，重算均值、样本标准差和总表。权重、检查点和日志保留在服务器。">下载指标并重新汇总</button></div></div>' +
-        (reportHtml ? '<div class="muted">' + reportHtml + '</div>' : '') +
-        (catalog.error ? '<div class="muted">结果目录需要检查：' + esc(catalog.error) + '</div>' : tableCards ? tableCards : '<div class="muted">尚无总表。点击“同步服务器结果并更新总表”合并 Worker 结果、下载指标并生成总表。</div>') + legacy +
-        '<details class="resultArtifactGroup" data-details-key="result-split-tables"' + detailsOpenAttr("result-split-tables", false) + '><summary>按列和值拆成子表</summary>' +
-        '<div class="resultTableRow"><label>来源表 <select id="resultSplitTable">' + tableOptions + '</select></label><label>按此列拆表 <select id="resultSplitField">' + options(fields, field) + '</select></label><input type="search" id="resultSplitSearch" value="' + escAttr(resultSplitSearchQuery) + '" placeholder="搜索词条"></div>' +
-        '<div class="muted">勾选需要的词条，每个词条生成一张 CSV。可批量全选或取消当前搜索结果；输出放在所选表的 by_列名 子目录。</div>' +
-        '<div class="resultTableRow"><button type="button" class="secondary" data-result-split-toggle="all">全选当前词条</button><button type="button" class="secondary" data-result-split-toggle="none">取消当前词条</button></div>' +
-        '<div id="resultSplitValues" class="resultSplitChoices">' + valueChoices + '</div>' +
-        '<details><summary>选择子表保留的列（默认全部）</summary><div id="resultSplitColumns" class="resultSplitChoices">' + columns + '</div></details>' +
-        '<div class="pptPlotActions"><button type="button" data-command="splitProjectResultTable" title="按勾选词条分别写入 CSV。保留列可在上方展开选择；源表不变。">生成所选子表</button></div></details></div>';
+      const datasetsHtml = view.datasets.map(dataset => {
+        const key = String(dataset.datasetKey || "");
+        const detailKey = "result-dataset-" + key;
+        const summary = '<summary><span class="resultDatasetName">' + esc(dataset.dataset || key) + '</span><span class="resultDatasetStats">总表 ' + dataset.finalRowCount + ' 行 · 方法 ' + dataset.methodCount + ' · Plan ' + dataset.planCount + '</span></summary>';
+        const finalHtml = dataset.finalTable ? '<section><h4 class="resultDatasetSectionTitle">该数据集总表</h4>' + tableRow(dataset.finalTable, "final") + '</section>' : "";
+        const methodsHtml = dataset.methodTables.length ? '<section><h4 class="resultDatasetSectionTitle">方法结果</h4><div class="resultMethodList">' + dataset.methodTables.map(row => tableRow(row, "method")).join("") + '</div></section>' : "";
+        const plansHtml = dataset.plans.length ? '<details class="resultSpecialGroup" data-details-key="result-dataset-plans-' + escAttr(key) + '"' + detailsOpenAttr("result-dataset-plans-" + key, false) + '><summary>Plan 产物（' + dataset.planCount + '）</summary><div class="resultPlanList">' + planRows(dataset.plans, key) + '</div></details>' : "";
+        return '<details class="resultDatasetGroup" data-details-key="' + escAttr(detailKey) + '"' + detailsOpenAttr(detailKey, key === view.defaultDatasetKey) + '>' + summary + '<div class="resultDatasetContent">' + finalHtml + methodsHtml + plansHtml + '</div></details>';
+      }).join("");
+      const specialHtml = (special, key, title) => special.plans.length ? '<details class="resultSpecialGroup ' + (key === "unassigned" ? 'resultUnassigned' : 'resultAdvancedSources') + '" data-details-key="result-' + key + '"' + detailsOpenAttr("result-" + key, false) + '><summary>' + title + '（' + special.count + '）</summary><div class="resultSpecialBody">' + planRows(special.plans, key) + '</div></details>' : "";
+      const unassignedHtml = view.unassigned.count ? '<section class="resultSpecialSection"><h4 class="resultDatasetSectionTitle">待处理</h4><div class="resultSpecialGroup resultUnassigned"><div class="resultUnassignedLead">⚠ ' + view.unassigned.count + ' 个 Plan 尚未识别数据集</div><div class="muted">请设置结果列映射后重新汇总。</div><div class="resultTopActions"><button type="button" class="secondary mini" data-open-result-mapping>设置结果列映射</button><details data-details-key="result-unassigned"' + detailsOpenAttr("result-unassigned", false) + '><summary>查看 ' + view.unassigned.count + ' 个 Plan</summary><div class="resultPlanList">' + planRows(view.unassigned.plans, "unassigned") + '</div></details></div></div></section>' : "";
+      const sharedHtml = specialHtml(view.shared, "shared-sources", "跨数据集原始来源");
+      const legacyTables = asArray(catalog.legacyTables);
+      const legacyHtml = legacyTables.length ? '<details class="resultSpecialGroup" data-details-key="result-legacy-tables"' + detailsOpenAttr("result-legacy-tables", false) + '><summary>旧版结果结构（' + legacyTables.length + '）</summary><div class="resultSpecialBody"><div class="muted">旧结构只读保留；重新汇总后会生成按数据集组织的结果。</div>' + legacyTables.map(row => '<div class="resultTableName" title="' + escAttr(row.path || "") + '">' + esc(resultCatalogBasename(row.path)) + '</div>').join("") + '</div></details>' : "";
+      const advancedHtml = sharedHtml || legacyHtml ? '<details class="resultSpecialGroup resultAdvancedSources" data-details-key="result-advanced-sources"' + detailsOpenAttr("result-advanced-sources", false) + '><summary>高级来源</summary><div class="resultSpecialBody">' + sharedHtml + legacyHtml + '</div></details>' : "";
+      const optionsHtml = (items, chosen) => items.map(item => '<option value="' + escAttr(item) + '"' + (item === chosen ? ' selected' : '') + '>' + esc(item) + '</option>').join("");
+      return '<div class="resultFinalCard resultTableBrowser"><div class="resultFinalHeader"><div><h3>结果总表</h3><p>按数据集组织结果。</p></div><div class="resultTopActions"><button type="button" data-command="syncPendingPlanArtifacts" title="手动同步各 Worker 的指标并更新结果总表，不会重新训练或下载权重、日志。">同步服务器结果并更新总表</button><button type="button" class="secondary" data-command="rebuildProjectResultTables" title="下载已完成运行的指标并重新汇总；权重、检查点和日志保留在服务器。">下载指标并重新汇总</button></div></div>' +
+        reportHtml +
+        (catalog.error ? '<div class="muted">结果目录需要检查：' + esc(catalog.error) + '</div>' : view.datasets.length ? '<section class="resultDatasetList"><h4 class="resultDatasetSectionTitle">数据集结果</h4>' + datasetsHtml + '</section>' : '<div class="muted">尚无总表。点击“同步服务器结果并更新总表”合并 Worker 结果、下载指标并生成总表。</div>') +
+        unassignedHtml + advancedHtml +
+        '<details class="resultArtifactGroup" id="resultSplitTables" data-details-key="result-split-tables"' + detailsOpenAttr("result-split-tables", false) + '><summary>按列和值拆成子表</summary>' +
+        '<div class="muted" id="resultSplitSourceName">来源：' + esc((selected?.dataset || "未识别数据集") + " / " + (selected?.name || "无")) + '</div>' +
+        '<div class="resultTableRow"><label>来源表 <select id="resultSplitTable">' + tableOptions + '</select></label><label>按此列拆表 <select id="resultSplitField">' + optionsHtml(fields, field) + '</select></label><input type="search" id="resultSplitSearch" value="' + escAttr(resultSplitSearchQuery) + '" placeholder="搜索词条"></div>' +
+        '<div class="muted">勾选需要的词条，每个词条生成一张 CSV。输出放在所选表的 by_列名 子目录。</div>' +
+        '<div class="resultTableRow"><button type="button" class="secondary mini" data-result-split-toggle="all">全选当前词条</button><button type="button" class="secondary mini" data-result-split-toggle="none">取消当前词条</button></div>' +
+        '<div id="resultSplitValues" class="resultSplitChoices">' + valueChoices + '</div><details><summary>选择子表保留的列（默认全部）</summary><div id="resultSplitColumns" class="resultSplitChoices">' + columns + '</div></details>' +
+        '<div class="pptPlotActions"><button type="button" class="secondary" data-command="splitProjectResultTable" title="按勾选词条分别写入 CSV；源表不变。">生成所选子表</button></div></details></div>';
     }
     function renderResultEvidenceWorkbench(state, summary) {
       const traceScope = traceRowsForPlanScope(experimentTraceRowsForState(state), state, "selected");

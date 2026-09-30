@@ -56,16 +56,23 @@ test('production writer, catalog, open and split obey dataset keys and configure
   assert.equal(fs.readFileSync(path.join(root, 'artifacts/results/BUS/final/final.csv'), 'utf8'), before);
 
   const source = require('../_helpers/sourceReader').readSource('src/ui/PanelHtml.ts');
-  const start = source.indexOf('    function renderProjectResultTables(state)');
-  const end = source.indexOf('\n    function ', start + 20);
+  const start = source.indexOf('    function resultCatalogViewModel(catalog, state)');
+  const end = source.indexOf('\n    function renderResultEvidenceWorkbench', start + 20);
   const escape = value => String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/"/g, '&quot;');
-  const render = vm.runInNewContext(source.slice(start, end) + '; renderProjectResultTables', {detailsOpenAttr: () => "", asArray: value => Array.isArray(value) ? value : [], esc: escape, escAttr: escape, resultSplitTableKey: '', resultSplitFieldName: '', resultSplitSearchQuery: '', resultSplitSelectedColumns: null, resultSplitSelectedValues: null});
+  const context = {detailsOpenAttr: (_key, defaultOpen) => defaultOpen ? ' open' : '', asArray: value => Array.isArray(value) ? value : [], esc: escape, escAttr: escape, resultSplitTableKey: '', resultSplitFieldName: '', resultSplitSearchQuery: '', resultSplitSelectedColumns: null, resultSplitSelectedValues: null, detailsOpenState: {}, renderSectionIfVisible() {}};
+  vm.runInNewContext(source.slice(start, end) + '; this.renderProjectResultTables = renderProjectResultTables', context);
+  const render = context.renderProjectResultTables;
   const html = render({resultOutputConfig: {tables: all, catalog}});
-  assert.match(html, /data-details-key="dataset-BUS"/);
-  assert.match(html, /data-details-key="dataset-PAD"/);
+  assert.match(html, /data-details-key="result-dataset-BUS"/);
+  assert.match(html, /data-details-key="result-dataset-PAD"/);
+  assert.match(html, /方法 1 · Plan 1/);
+  assert.match(html, /Plan 产物（1）/);
   assert.match(html, /data-table-key="PAD\/final"/);
   assert.match(html, /未识别数据集/);
-  assert.match(html, /artifacts\/results\/PAD\/final\/final.csv/);
+  assert.match(html, /title="artifacts\/results\/PAD\/final\/final.csv"/);
+  assert.match(html, /class="resultMethodList"/);
+  assert.match(html, /data-format="csv"/);
+  assert.match(html, /data-format="md"/);
   assert.doesNotMatch(html, /全项目总表|experiments\/results/);
 });
 
