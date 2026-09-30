@@ -43,9 +43,10 @@ test("buildState catalog is scanned once, cached with explicit invalidation, and
   assert.match(buildState, /this\.cachedResultCatalog\(/);
   assert.match(buildState, /this\.compactResultTablesFromCatalog\(resultCatalog\)/);
   assert.doesNotMatch(buildState, /ProjectResultTables\.tableCatalog\(/);
-  for (const stage of ["runtimeEvidence", "resultCatalog", "plans", "traces", "diagnostics", "total"]) {
-    assert.match(buildState, new RegExp(`lastBuildStateStageDurations\\.${stage}\\s*=`));
-  }
-  assert.match(buildState, /stateBuildStageDurations: \{ \.\.\.this\.lastBuildStateStageDurations \}/);
-  assert.match(buildState, /stateBuildSlowStages: Object\.fromEntries/);
+  assert.match(buildState, /const timing: PanelBuildTiming/);
+  assert.match(buildState, /timing\.runtimeEvidenceMs\s*=/);
+  assert.match(buildState, /timing\.resultCatalog\s*=/);
+  assert.match(buildState, /this\.latestPanelBuildTiming = timing/);
+  assert.match(source, /resultCatalog: \{ \.\.\.this\.latestPanelBuildTiming\.resultCatalog \}/);
+  assert.match(source, /receivedRenderedSemantics: "latest_heartbeat_ack"/);
 });

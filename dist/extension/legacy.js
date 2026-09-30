@@ -324,6 +324,7 @@ const SCHEDULER_STATE_RECORD_LIMIT = 240;
 const SCHEDULER_ACTIVE_BUCKET_LIMIT = 160;
 const SCHEDULER_TERMINAL_BUCKET_LIMIT = 80;
 const UI_ACTION_ERROR_RECORD_LIMIT = 8;
+const PANEL_LIFECYCLE_DIAGNOSTIC_LIMIT = 24;
 const UI_ACTION_ERROR_MESSAGE_LIMIT = 480;
 const UI_ACTION_ERROR_SUGGESTION_LIMIT = 240;
 const UI_ACTION_ERROR_CAPABILITY_LIMIT = 8;
@@ -737,18 +738,18 @@ class RealtimeTunnelPanelProvider {
     panelLifecycleState = "detached";
     panelSectionFailures = new Set();
     panelLifecycleGeneration = 0;
-    lastStatePayloadBytes = 0;
-    lastStateBuildDurationMs = 0;
-    lastBuildStateStageDurations = { runtimeEvidence: 0, resultCatalog: 0, plans: 0, traces: 0, diagnostics: 0, total: 0 };
-    buildStateSlowStageThresholdMs = 250;
+    activePanelBuildTiming;
+    latestPanelBuildTiming = { runtimeEvidenceMs: 0, resultCatalog: { cacheHit: true, buildMs: 0 }, plansMs: 0, tracesMs: 0, diagnosticsMs: 0, totalMs: 0 };
+    latestPanelStateTelemetry;
+    panelTelemetrySampleSequence = 0;
+    panelLifecycleDiagnostics = [];
+    lastPanelRecoveryReason = "";
     statePostDeliveryTimeoutMs = 7000;
     statePayloadSoftLimitBytes = 4 * 1024 * 1024;
     statePayloadHardLimitBytes = 8 * 1024 * 1024;
     resultCatalogCache;
     resultCatalogDirtyGeneration = 0;
     resultCatalogTtlMs = 5000;
-    resultCatalogBuildDurationMs = 0;
-    runtimeEvidenceBuildDurationMs = 0;
     lastPostedStateSignature = "";
     lastStateBuildErrorSignature = "";
     lastStatePostErrorSignature = "";
@@ -770,6 +771,8 @@ class RealtimeTunnelPanelProvider {
     reloadRequiredReason = null;
     runningBuildIdentity;
     diskBuildIdentity;
+    diskBuildIdentityPath = "";
+    latestPanelBuildIdentityState;
     extensionMissingConfirmed = false;
     extensionIdentityProbePromise;
     lastPanelLifecycleDiagnosticKey = "";
@@ -993,6 +996,7 @@ class RealtimeTunnelPanelProvider {
                 timestamp: new Date().toISOString(),
             }),
             state: async () => this.buildState(),
+            "panel.diagnostics": async () => this.panelDiagnosticsApi(),
             "actions.list": async () => {
                 const rows = [...API_EXECUTABLE_COMMANDS].sort();
                 return {
@@ -2598,6 +2602,7 @@ class RealtimeTunnelPanelProvider {
             this.loadProjectTaskSelectionState().catch(() => undefined),
             this.loadProjectOfflineBundleState().catch(() => undefined),
             this.loadProjectActionErrorsState().catch(() => undefined),
+            this.loadProjectPanelLifecycleDiagnosticsState().catch(() => undefined),
             this.loadProjectPptPlotConfigState().catch(() => undefined),
             this.loadProjectUiLayoutState().catch(() => undefined),
             this.loadProjectDebugBundleState().catch(() => undefined),
@@ -2802,6 +2807,8 @@ class RealtimeTunnelPanelProvider {
         this.auditTail = undefined;
         this.debugBundlePath = undefined;
         this.actionErrors = [];
+        this.panelLifecycleDiagnostics = [];
+        this.lastPanelRecoveryReason = "";
         this.apiFlowState = ApiWorkflow_1.defaultFlowState();
         this.apiFlowStateDirty = false;
         this.projectPptPlotConfig = undefined;
@@ -3128,6 +3135,16 @@ class RealtimeTunnelPanelProvider {
     async persistProjectActionErrorsState() {
         await this.persistCoalescedProjectState(this.projectStatePersistenceQueue("actionErrors"), () => this.actionErrors, writeProjectActionErrorsState);
     }
+    async loadProjectPanelLifecycleDiagnosticsState() {
+        const loaded = await this.readCurrentProjectState(readProjectPanelLifecycleDiagnosticsState);
+        if (loaded.current && Array.isArray(loaded.value)) {
+            this.panelLifecycleDiagnostics = loaded.value.slice(0, PANEL_LIFECYCLE_DIAGNOSTIC_LIMIT);
+            this.lastPanelRecoveryReason = String(this.panelLifecycleDiagnostics[0]?.reason || "");
+        }
+    }
+    async persistProjectPanelLifecycleDiagnosticsState() {
+        await this.persistCoalescedProjectState(this.projectStatePersistenceQueue("panelLifecycleDiagnostics"), () => this.panelLifecycleDiagnostics, writeProjectPanelLifecycleDiagnosticsState);
+    }
     async loadProjectPptPlotConfigState() {
         const loaded = await this.readCurrentProjectState(readProjectPptPlotConfigState);
         const config = loaded.value;
@@ -3436,7 +3453,6 @@ class RealtimeTunnelPanelProvider {
             this.panelDisposed = true;
         if (next === "reload_required")
             this.forceReloadRequired = true;
-        this.recordPanelLifecycleDiagnostic(`lifecycle:${reason}:${next}`);
         return true;
     }
     async dispose() {
@@ -17963,7 +17979,7 @@ class RealtimeTunnelPanelProvider {
         const extension = vscode.extensions.getExtension("simple-local.simple-experiment");
         if (extension)
             this.extensionMissingConfirmed = false;
-        const disk = this.readInstalledBuildIdentity();
+        const disk = this.readInstalledBuildIdentity(String(extension?.extensionPath || ""), String(extension?.packageJSON?.version || ""));
         const state = PanelBuildIdentity_1.classifyPanelBuildIdentity({
             running: this.runningBuildIdentity,
             disk,
@@ -17976,19 +17992,27 @@ class RealtimeTunnelPanelProvider {
                 this.reloadRequiredReason = state.registryState === "extension_missing" ? "extension_removed" : state.registryState;
                 this.forceReloadRequired = true;
                 this.transitionPanelLifecycle("reload_required", this.reloadRequiredReason);
+                if (state.registryState !== "extension_missing")
+                    this.recordPanelLifecycleDiagnostic(state.registryState);
             }
         }
         const reloadRequired = Boolean(this.reloadRequiredReason || this.forceReloadRequired);
-        return {
+        this.latestPanelBuildIdentityState = {
             ...state,
             installedVersion: String(extension?.packageJSON?.version || disk.version || ""),
             reloadRequired,
             reason: this.reloadRequiredReason || (this.forceReloadRequired ? "self_update" : null),
         };
+        return this.latestPanelBuildIdentityState;
     }
-    readInstalledBuildIdentity() {
-        const extensionPath = String(this.context?.extension?.extensionPath || "");
-        this.diskBuildIdentity = PanelBuildIdentity_1.readPanelBuildIdentity(extensionPath, this.diskBuildIdentity);
+    readInstalledBuildIdentity(extensionPathHint = "", versionHint = "") {
+        const registered = vscode.extensions.getExtension("simple-local.simple-experiment");
+        const extensionPath = String(extensionPathHint || registered?.extensionPath || this.context?.extension?.extensionPath || "");
+        if (extensionPath !== this.diskBuildIdentityPath) {
+            this.diskBuildIdentity = undefined;
+            this.diskBuildIdentityPath = extensionPath;
+        }
+        this.diskBuildIdentity = PanelBuildIdentity_1.readPanelBuildIdentity(extensionPath, this.diskBuildIdentity, versionHint);
         return this.diskBuildIdentity;
     }
     stableExtensionIdentityProbe() {
@@ -18028,34 +18052,47 @@ class RealtimeTunnelPanelProvider {
     }
     recordPanelLifecycleDiagnostic(reason) {
         const versions = this.extensionRuntimeVersionState();
-        const entry = {
-            command: "panelLifecycle",
-            message: panelLifecycleDiagnosticMessage(reason),
-            details: {
-                runningVersion: versions.runningVersion,
-                installedVersion: versions.installedVersion,
-                registryState: versions.registryState,
-                runningFingerprint: String(versions.runningFingerprint || "").slice(0, 12),
-                diskFingerprint: String(versions.diskFingerprint || "").slice(0, 12),
-                documentGeneration: Number(this.panelDocumentGeneration || 0),
-                viewGeneration: Number(this.viewGeneration || 0),
-                webviewReady: this.webviewReady === true,
-                viewVisible: this.view?.visible === true,
-                reason: String(reason || "unknown").slice(0, 80),
-                reloadRequired: versions.reloadRequired,
-                lifecycle: this.panelLifecycleState,
-                postedStateSeq: this.lastPostedStateSeq,
-                receivedStateSeq: this.lastReceivedStateSeq,
-                renderedStateSeq: this.lastRenderedStateSeq,
-                statePayloadBytes: this.lastStatePayloadBytes,
-                stateBuildDurationMs: this.lastStateBuildDurationMs,
-            },
-        };
-        const key = JSON.stringify({ reason, lifecycle: this.panelLifecycleState, documentGeneration: this.panelDocumentGeneration, runningVersion: versions.runningVersion, installedVersion: versions.installedVersion, runningFingerprint: versions.runningFingerprint, diskFingerprint: versions.diskFingerprint });
+        const telemetry = this.latestPanelStateTelemetry;
+        const message = panelLifecycleDiagnosticMessage(reason);
+        const details = compactPanelLifecycleDetails({
+            runningVersion: versions.runningVersion,
+            installedVersion: versions.installedVersion,
+            registryState: versions.registryState,
+            runningBuildId: versions.runningBuildId,
+            diskBuildId: versions.diskBuildId,
+            runningFingerprint: String(versions.runningManifestHash || "").slice(0, 12),
+            diskFingerprint: String(versions.diskManifestHash || "").slice(0, 12),
+            documentGeneration: Number(this.panelDocumentGeneration || 0),
+            viewGeneration: Number(this.viewGeneration || 0),
+            webviewReady: this.webviewReady === true,
+            viewVisible: this.view?.visible === true,
+            reason: String(reason || "unknown").slice(0, 80),
+            reloadRequired: versions.reloadRequired,
+            lifecycle: this.panelLifecycleState,
+            postedStateSeq: telemetry?.postedSeq || 0,
+            receivedStateSeq: telemetry?.receivedSeq || 0,
+            renderedStateSeq: telemetry?.renderedSeq || 0,
+            statePayloadBytes: telemetry?.payloadBytes || 0,
+            stateBuildDurationMs: telemetry?.buildTotalMs || 0,
+            telemetrySampleId: telemetry?.sampleId || 0,
+        });
+        const key = JSON.stringify({ reason, lifecycle: this.panelLifecycleState, documentGeneration: this.panelDocumentGeneration, runningBuildId: versions.runningBuildId, diskBuildId: versions.diskBuildId });
         if (key === this.lastPanelLifecycleDiagnosticKey)
             return;
         this.lastPanelLifecycleDiagnosticKey = key;
-        this.recordActionError(entry);
+        this.lastPanelRecoveryReason = String(reason || "unknown").slice(0, 80);
+        const event = normalizePanelLifecycleDiagnosticRow({
+            timestamp: new Date().toISOString(), reason, message, lifecycle: this.panelLifecycleState,
+            runningVersion: versions.runningVersion, installedVersion: versions.installedVersion,
+            runningBuildId: versions.runningBuildId, diskBuildId: versions.diskBuildId,
+            documentGeneration: this.panelDocumentGeneration, viewGeneration: this.viewGeneration,
+            webviewReady: this.webviewReady === true, viewVisible: this.view?.visible === true,
+            postedSeq: telemetry?.postedSeq || 0, receivedSeq: telemetry?.receivedSeq || 0, renderedSeq: telemetry?.renderedSeq || 0,
+            payloadBytes: telemetry?.payloadBytes || 0, stateBuildDurationMs: telemetry?.buildTotalMs || 0,
+        });
+        this.panelLifecycleDiagnostics = [event, ...this.panelLifecycleDiagnostics].filter(Boolean).slice(0, PANEL_LIFECYCLE_DIAGNOSTIC_LIMIT);
+        void this.persistProjectPanelLifecycleDiagnosticsState().catch(() => undefined);
+        this.recordActionError({ command: "panelLifecycle", message, details });
     }
     showPanelReloadRequired() {
         if (!this.view)
@@ -18073,21 +18110,33 @@ class RealtimeTunnelPanelProvider {
         this.view.webview.html = this.stampPanelDocument(renderPanelReloadRequiredHtml({ ...versions, reason: versions.reason || this.reloadRequiredReason, runningFingerprint: versions.runningFingerprint, diskFingerprint: versions.diskFingerprint }), generation);
     }
     panelDiagnosticSummary() {
-        const identity = this.extensionRuntimeVersionState();
+        const identity = this.latestPanelBuildIdentityState || {};
         return {
-            reason: this.reloadRequiredReason || this.lastStatePostErrorSignature || this.lastStateBuildErrorSignature || "panel-recovery",
+            reason: this.lastPanelRecoveryReason || this.reloadRequiredReason || this.lastStatePostErrorSignature || this.lastStateBuildErrorSignature || "panel-recovery",
             runningVersion: identity.runningVersion,
             installedVersion: identity.installedVersion,
-            runningFingerprint: String(identity.runningFingerprint || "").slice(0, 12),
-            diskFingerprint: String(identity.diskFingerprint || "").slice(0, 12),
+            runningBuildId: String(identity.runningBuildId || "").slice(0, 12),
+            diskBuildId: String(identity.diskBuildId || "").slice(0, 12),
             documentGeneration: this.panelDocumentGeneration,
             viewGeneration: this.viewGeneration,
             lifecycle: this.panelLifecycleState,
-            postedSeq: this.lastPostedStateSeq,
-            receivedSeq: this.lastReceivedStateSeq,
-            renderedSeq: this.lastRenderedStateSeq,
-            payloadBytes: this.lastStatePayloadBytes,
-            stateBuildDurationMs: this.lastStateBuildDurationMs,
+            telemetry: this.latestPanelStateTelemetry || null,
+        };
+    }
+    panelDiagnosticsApi() {
+        const identity = this.latestPanelBuildIdentityState || {};
+        return {
+            lifecycle: this.panelLifecycleState,
+            runningVersion: String(identity.runningVersion || this.runningBuildIdentity?.version || ""),
+            installedVersion: String(identity.installedVersion || ""),
+            runningBuildId: String(identity.runningBuildId || this.runningBuildIdentity?.buildId || ""),
+            diskBuildId: String(identity.diskBuildId || this.diskBuildIdentity?.buildId || ""),
+            documentGeneration: this.panelDocumentGeneration,
+            viewGeneration: this.viewGeneration,
+            latestTelemetry: this.latestPanelStateTelemetry || null,
+            sectionFailures: [...this.panelSectionFailures].map((section) => String(section).slice(0, 40)).slice(0, 16),
+            lastRecoveryReason: this.lastPanelRecoveryReason,
+            lifecycleFailures: this.panelLifecycleDiagnostics.slice(0, PANEL_LIFECYCLE_DIAGNOSTIC_LIMIT),
         };
     }
     captureActionResult(action, result) {
@@ -19179,11 +19228,16 @@ class RealtimeTunnelPanelProvider {
             registryStat = "missing";
         }
         const key = [path.resolve(root), this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, mappingSignature, registryStat, this.resultCatalogDirtyGeneration].join("\n");
-        if (this.resultCatalogCache?.key === key && this.resultCatalogCache.expiresAt > Date.now())
+        if (this.resultCatalogCache?.key === key && this.resultCatalogCache.expiresAt > Date.now()) {
+            if (this.activePanelBuildTiming)
+                this.activePanelBuildTiming.resultCatalog = { cacheHit: true, buildMs: 0 };
             return this.resultCatalogCache.catalog;
+        }
         const startedAt = Date.now();
         const catalog = ProjectResultTables.resultCatalog(root, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, mappings || {});
-        this.resultCatalogBuildDurationMs = Math.max(0, Date.now() - startedAt);
+        const buildMs = Math.max(0, Date.now() - startedAt);
+        if (this.activePanelBuildTiming)
+            this.activePanelBuildTiming.resultCatalog = { cacheHit: false, buildMs };
         this.resultCatalogCache = { key, expiresAt: Date.now() + this.resultCatalogTtlMs, catalog };
         return catalog;
     }
@@ -19206,7 +19260,7 @@ class RealtimeTunnelPanelProvider {
             experimentTraces: [], logs: [], fileTransfers: {},
             schedulerStates: Array.isArray(source.schedulerStates) ? source.schedulerStates.slice(0, 20) : [],
             actionErrors: Array.isArray(source.actionErrors) ? source.actionErrors.slice(0, 8) : [],
-            diagnostics: { ...(source.diagnostics || {}), panelStateDegraded: true, statePayloadBytes: this.lastStatePayloadBytes, stateBuildDurationMs: this.lastStateBuildDurationMs },
+            diagnostics: { ...(source.diagnostics || {}), panelStateDegraded: true, panelStateTelemetryPreviousSample: this.latestPanelStateTelemetry || null },
         };
     }
     buildMinimalPanelDegradedState(state, message) {
@@ -19225,19 +19279,19 @@ class RealtimeTunnelPanelProvider {
             selection: { selectedPlanId: String(source.selection?.selectedPlanId || source.selectedPlanId || ""), selectedExperimentIds: [] },
             plans: [], schedulerStates: [], experimentTraces: [], logs: [], fileTransfers: {}, operations,
             actionErrors: Array.isArray(source.actionErrors) ? source.actionErrors.slice(0, 4) : [],
-            diagnostics: { panelLifecycle: this.panelLifecycleState, statePayloadBytes: this.lastStatePayloadBytes, stateBuildDurationMs: this.lastStateBuildDurationMs, ...(source.diagnostics || {}) },
+            diagnostics: { panelLifecycle: this.panelLifecycleState, panelStateTelemetryPreviousSample: this.latestPanelStateTelemetry || null, ...(source.diagnostics || {}) },
             lastError: String(source.lastError || ""), degraded: true, degradedMessage: message,
         };
     }
     buildState() {
         const totalStartedAt = Date.now();
-        this.lastBuildStateStageDurations = { runtimeEvidence: 0, resultCatalog: 0, plans: 0, traces: 0, diagnostics: 0, total: 0 };
+        const timing = { runtimeEvidenceMs: 0, resultCatalog: { cacheHit: true, buildMs: 0 }, plansMs: 0, tracesMs: 0, diagnosticsMs: 0, totalMs: 0 };
+        this.activePanelBuildTiming = timing;
         const schedulerConfig = this.schedulerSettings();
         const realtime = this.client.diagnostics();
         const runtimeEvidenceStartedAt = Date.now();
         const runtimeEvidence = this.buildPlanRuntimeEvidenceState();
-        this.runtimeEvidenceBuildDurationMs = Math.max(0, Date.now() - runtimeEvidenceStartedAt);
-        this.lastBuildStateStageDurations.runtimeEvidence = this.runtimeEvidenceBuildDurationMs;
+        timing.runtimeEvidenceMs = Math.max(0, Date.now() - runtimeEvidenceStartedAt);
         const { connectionMode, realtimeState, snapshot, offlineSnapshot, schedulerStates, operations } = runtimeEvidence;
         const taskSelection = this.taskSelectionDerivedState();
         const gpu = compactMergedGpuForWebview(offlineSnapshot?.gpu, snapshot?.gpu, realtimeState?.gpu);
@@ -19250,7 +19304,7 @@ class RealtimeTunnelPanelProvider {
         const selectedResultsPlanVersion = this.planVersionForFile(selectedResultsPlanFile);
         const traceProtectedKeys = this.traceProtectedKeys();
         const experimentTraces = compactExperimentTraces(mergeFallbackRows(compactFallbackRowSources([offlineSnapshot?.experimentTraces, snapshot?.experimentTraces, realtimeState?.experimentTraces], (rows) => compactExperimentTraces(rows, traceProtectedKeys, selectedTracePlan)), experimentTraceFallbackRowKey), traceProtectedKeys, selectedTracePlan);
-        this.lastBuildStateStageDurations.traces = Math.max(0, Date.now() - tracesStartedAt);
+        timing.tracesMs = Math.max(0, Date.now() - tracesStartedAt);
         const protectedLogKeys = this.logProtectedKeys();
         this.client.setProtectedLogKeys(protectedLogKeys);
         const logs = (0, RealtimeEventReducer_1.compactRealtimeLogs)(firstRecord(realtimeState?.logs), undefined, undefined, protectedLogKeys);
@@ -19285,7 +19339,7 @@ class RealtimeTunnelPanelProvider {
             ...compactedDetectedProject,
             missingOnboarding: projectOnboardingSuggestionsForSelection(this.localPlanMetadata.detectedProject, this.localPlanMetadata.plans, this.planFileInput, this.selectedPlanId),
         };
-        this.lastBuildStateStageDurations.plans = Math.max(0, Date.now() - plansStartedAt);
+        timing.plansMs = Math.max(0, Date.now() - plansStartedAt);
         const integrations = { simpleSftp: simpleSftpIntegrationReadiness() };
         const workspace = workspaceContextForWebview();
         const topology = this.projectTopologyAssessment();
@@ -19310,7 +19364,8 @@ class RealtimeTunnelPanelProvider {
             }
         }
         const compactResultTables = this.compactResultTablesFromCatalog(resultCatalog);
-        this.lastBuildStateStageDurations.resultCatalog = Math.max(0, Date.now() - resultCatalogStartedAt);
+        if (resultCatalog?.error)
+            timing.resultCatalog = { cacheHit: false, buildMs: Math.max(0, Date.now() - resultCatalogStartedAt) };
         const diagnosticsStartedAt = Date.now();
         const diagnostics = this.compactDiagnostics({
             connectionMode,
@@ -19357,12 +19412,9 @@ class RealtimeTunnelPanelProvider {
             statePostedSeq: this.lastPostedStateSeq,
             stateReceivedSeq: this.lastReceivedStateSeq,
             stateRenderedSeq: this.lastRenderedStateSeq,
-            statePayloadBytes: this.lastStatePayloadBytes,
-            stateBuildDurationMs: this.lastStateBuildDurationMs,
-            runtimeEvidenceBuildDurationMs: this.runtimeEvidenceBuildDurationMs,
-            resultCatalogBuildDurationMs: this.resultCatalogBuildDurationMs,
+            panelStateTelemetryPreviousSample: this.latestPanelStateTelemetry || null,
         });
-        this.lastBuildStateStageDurations.diagnostics = Math.max(0, Date.now() - diagnosticsStartedAt);
+        timing.diagnosticsMs = Math.max(0, Date.now() - diagnosticsStartedAt);
         const state = {
             extensionVersion: String(this.context?.extension?.packageJSON?.version || ""),
             sessionStartedAt: this.sessionStartedAt,
@@ -19501,11 +19553,13 @@ class RealtimeTunnelPanelProvider {
             lastError: webviewLastError,
             checkStaticReports: this.listCheckStaticReportsSync(),
         };
-        this.lastBuildStateStageDurations.total = Math.max(0, Date.now() - totalStartedAt);
+        timing.totalMs = Math.max(0, Date.now() - totalStartedAt);
+        this.latestPanelBuildTiming = timing;
+        this.activePanelBuildTiming = undefined;
         state.diagnostics = {
             ...state.diagnostics,
-            stateBuildStageDurations: { ...this.lastBuildStateStageDurations },
-            stateBuildSlowStages: Object.fromEntries(Object.entries(this.lastBuildStateStageDurations).filter(([, durationMs]) => durationMs > this.buildStateSlowStageThresholdMs)),
+            panelBuildTiming: { ...timing, resultCatalog: { ...timing.resultCatalog } },
+            panelStateTelemetryPreviousSample: this.latestPanelStateTelemetry || null,
         };
         return state;
     }
@@ -19972,26 +20026,48 @@ class RealtimeTunnelPanelProvider {
                 this.recordActionError({ command: "panelState", message: this.lastError, suggestion: "点击“重新加载面板”；若仍失败，请执行 Developer: Reload Window。" });
             }
             state = this.buildPanelFallbackState(this.lastError);
+            this.latestPanelBuildTiming = {
+                runtimeEvidenceMs: 0,
+                resultCatalog: { cacheHit: true, buildMs: 0 },
+                plansMs: 0,
+                tracesMs: 0,
+                diagnosticsMs: 0,
+                totalMs: Math.max(0, Date.now() - buildStartedAt),
+            };
+            this.activePanelBuildTiming = undefined;
         }
-        this.lastStateBuildDurationMs = Math.max(0, Date.now() - buildStartedAt);
-        state.diagnostics = { ...(state.diagnostics || {}), panelLifecycle: this.panelLifecycleState, statePostSequences: { posted: this.lastPostedStateSeq, received: this.lastReceivedStateSeq, rendered: this.lastRenderedStateSeq }, statePayloadBytes: this.lastStatePayloadBytes, stateBuildDurationMs: this.lastStateBuildDurationMs };
+        const buildFinishedAt = Date.now();
+        const buildTotalMs = Math.max(0, buildFinishedAt - buildStartedAt);
+        state.diagnostics = { ...(state.diagnostics || {}), panelLifecycle: this.panelLifecycleState, panelBuildTiming: this.latestPanelBuildTiming, panelStateTelemetryPreviousSample: this.latestPanelStateTelemetry || null };
         state.contextActionSignature = contextActionStatePostSignature(state);
         let stateMessage = { type: "state", seq: ++this.stateSequence, state };
-        this.lastStatePayloadBytes = Buffer.byteLength(JSON.stringify(stateMessage), "utf8");
-        if (this.lastStatePayloadBytes > this.statePayloadSoftLimitBytes)
+        let serializationMs = 0;
+        let serializeStartedAt = Date.now();
+        let serializedMessage = JSON.stringify(stateMessage);
+        serializationMs += Math.max(0, Date.now() - serializeStartedAt);
+        let payloadBytes = Buffer.byteLength(serializedMessage, "utf8");
+        if (payloadBytes > this.statePayloadSoftLimitBytes)
             this.recordPanelLifecycleDiagnostic("statePayloadSoftLimit");
-        if (this.lastStatePayloadBytes > this.statePayloadHardLimitBytes) {
+        if (payloadBytes > this.statePayloadHardLimitBytes) {
             state = this.buildPanelDegradedState(state, "面板数据量过大，已进入精简模式。");
             stateMessage = { type: "state", seq: this.stateSequence, state };
-            this.lastStatePayloadBytes = Buffer.byteLength(JSON.stringify(stateMessage), "utf8");
+            serializeStartedAt = Date.now();
+            serializedMessage = JSON.stringify(stateMessage);
+            serializationMs += Math.max(0, Date.now() - serializeStartedAt);
+            payloadBytes = Buffer.byteLength(serializedMessage, "utf8");
             this.transitionPanelLifecycle("degraded", "statePayloadHardLimit");
-            if (this.lastStatePayloadBytes > this.statePayloadHardLimitBytes) {
+            this.recordPanelLifecycleDiagnostic("statePayloadHardLimit");
+            if (payloadBytes > this.statePayloadHardLimitBytes) {
                 state = this.buildMinimalPanelDegradedState(state, "面板数据量仍超过安全上限，当前仅保留恢复所需摘要。");
                 stateMessage = { type: "state", seq: this.stateSequence, state };
-                this.lastStatePayloadBytes = Buffer.byteLength(JSON.stringify(stateMessage), "utf8");
+                serializeStartedAt = Date.now();
+                serializedMessage = JSON.stringify(stateMessage);
+                serializationMs += Math.max(0, Date.now() - serializeStartedAt);
+                payloadBytes = Buffer.byteLength(serializedMessage, "utf8");
             }
-            if (this.lastStatePayloadBytes > this.statePayloadHardLimitBytes) {
+            if (payloadBytes > this.statePayloadHardLimitBytes) {
                 this.transitionPanelLifecycle("recovering", "statePayloadUnsendable");
+                this.recordPanelLifecycleDiagnostic("statePayloadUnsendable");
                 this.showPanelRecovery("面板数据超过安全上限，已停止发送大型状态。请缩小结果历史范围后重试。");
                 return;
             }
@@ -19999,6 +20075,20 @@ class RealtimeTunnelPanelProvider {
         const signature = webviewStatePostSignature(state);
         if (!force && signature === this.lastPostedStateSignature)
             return;
+        this.latestPanelStateTelemetry = Object.freeze({
+            sampleId: ++this.panelTelemetrySampleSequence,
+            startedAt: new Date(buildStartedAt).toISOString(),
+            finishedAt: new Date().toISOString(),
+            buildTotalMs,
+            runtimeEvidenceMs: this.latestPanelBuildTiming.runtimeEvidenceMs,
+            resultCatalog: { ...this.latestPanelBuildTiming.resultCatalog },
+            serializationMs,
+            payloadBytes,
+            postedSeq: stateMessage.seq,
+            receivedSeq: this.lastReceivedStateSeq,
+            renderedSeq: this.lastRenderedStateSeq,
+            receivedRenderedSemantics: "latest_heartbeat_ack",
+        });
         const targetView = this.view;
         const targetGeneration = this.viewGeneration;
         const attemptId = ++this.statePostAttemptId;
@@ -20016,8 +20106,11 @@ class RealtimeTunnelPanelProvider {
                 this.recordActionError({ command: "panelStatePost", message, suggestion: "插件将有限次自动重试；仍失败时请重新加载面板。" });
             }
             this.transitionPanelLifecycle("recovering", "statePostFailure");
+            const lifecycleReason = /delivery timed out/i.test(message) ? "statePostDeliveryTimeout" : "statePostFailure";
+            this.recordPanelLifecycleDiagnostic(lifecycleReason);
             if (this.statePostRetryCount >= this.statePostRetryMax - 1) {
                 this.transitionPanelLifecycle("degraded", "statePostRetryLimit");
+                this.recordPanelLifecycleDiagnostic("statePostRetryLimit");
                 this.showPanelRecovery("面板状态连续发送失败。可重试或重载窗口。", true);
             }
             else
@@ -21196,6 +21289,56 @@ async function writeProjectActionErrorsState(root, errors) {
         errors: rows,
     };
     await fs.writeFile(fullPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
+}
+const PROJECT_PANEL_LIFECYCLE_PATH = "simple_cluster/ui/panel_lifecycle.json";
+function normalizePanelLifecycleDiagnosticRow(value) {
+    const row = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+    const reason = compactSensitiveText(String(row.reason || "").slice(0, 80), 80);
+    if (!reason)
+        return undefined;
+    const lifecycle = ["detached", "booting", "ready", "maintenance", "reload_required", "recovering", "degraded", "disposed"].includes(String(row.lifecycle)) ? String(row.lifecycle) : "unknown";
+    const buildId = (item) => /^[a-f0-9]{12,64}$/i.test(String(item || "")) ? String(item).slice(0, 12).toLowerCase() : "";
+    const count = (item) => Number.isSafeInteger(item) && item >= 0 ? item : 0;
+    return {
+        timestamp: String(row.timestamp || new Date().toISOString()).slice(0, 40),
+        reason,
+        message: compactSensitiveText(String(row.message || panelLifecycleDiagnosticMessage(reason)), 240),
+        lifecycle,
+        runningVersion: compactSensitiveText(String(row.runningVersion || "").slice(0, 40), 40),
+        installedVersion: compactSensitiveText(String(row.installedVersion || "").slice(0, 40), 40),
+        runningBuildId: buildId(row.runningBuildId),
+        diskBuildId: buildId(row.diskBuildId),
+        documentGeneration: count(row.documentGeneration),
+        viewGeneration: count(row.viewGeneration),
+        webviewReady: row.webviewReady === true,
+        viewVisible: row.viewVisible === true,
+        postedSeq: count(row.postedSeq),
+        receivedSeq: count(row.receivedSeq),
+        renderedSeq: count(row.renderedSeq),
+        payloadBytes: count(row.payloadBytes),
+        stateBuildDurationMs: count(row.stateBuildDurationMs),
+    };
+}
+async function readProjectPanelLifecycleDiagnosticsState(root) {
+    if (!root)
+        return [];
+    const fullPath = path.join(root, ...PROJECT_PANEL_LIFECYCLE_PATH.split("/"));
+    try {
+        const data = JSON.parse(await fs.readFile(fullPath, "utf8"));
+        const rows = Array.isArray(data) ? data : Array.isArray(data?.events) ? data.events : [];
+        return rows.map(normalizePanelLifecycleDiagnosticRow).filter(Boolean).slice(0, PANEL_LIFECYCLE_DIAGNOSTIC_LIMIT);
+    }
+    catch {
+        return [];
+    }
+}
+async function writeProjectPanelLifecycleDiagnosticsState(root, events) {
+    if (!root)
+        return;
+    const fullPath = path.join(root, ...PROJECT_PANEL_LIFECYCLE_PATH.split("/"));
+    const rows = (Array.isArray(events) ? events : []).map(normalizePanelLifecycleDiagnosticRow).filter(Boolean).slice(0, PANEL_LIFECYCLE_DIAGNOSTIC_LIMIT);
+    await fs.mkdir(path.dirname(fullPath), { recursive: true });
+    await fs.writeFile(fullPath, JSON.stringify({ schemaVersion: 1, updatedAt: new Date().toISOString(), events: rows }, null, 2) + "\n", "utf8");
 }
 const PROJECT_PPT_PLOT_CONFIG_PATH = "simple_cluster/ui/ppt_plot_config.json";
 function normalizePptPlotConfig(value) {
@@ -28529,10 +28672,13 @@ function compactPanelLifecycleDetails(details) {
     const safeCount = (value) => Number.isSafeInteger(value) && value >= 0 ? value : undefined;
     const registryState = safeEnum(details.registryState, ["match", "version_mismatch", "content_mismatch", "unknown", "extension_missing"]);
     const lifecycle = safeEnum(details.lifecycle, ["detached", "booting", "ready", "maintenance", "reload_required", "recovering", "degraded", "disposed"]);
+    const buildId = (value) => /^[a-f0-9]{12,64}$/i.test(String(value || "")) ? String(value).slice(0, 12).toLowerCase() : undefined;
     return {
         ...(typeof details.runningVersion === "string" ? { runningVersion: compactSensitiveText(details.runningVersion, 40) } : {}),
         ...(typeof details.installedVersion === "string" ? { installedVersion: compactSensitiveText(details.installedVersion, 40) } : {}),
         ...(registryState ? { registryState } : {}),
+        ...(buildId(details.runningBuildId) ? { runningBuildId: buildId(details.runningBuildId) } : {}),
+        ...(buildId(details.diskBuildId) ? { diskBuildId: buildId(details.diskBuildId) } : {}),
         ...(typeof details.runningFingerprint === "string" ? { runningFingerprint: details.runningFingerprint.slice(0, 12) } : {}),
         ...(typeof details.diskFingerprint === "string" ? { diskFingerprint: details.diskFingerprint.slice(0, 12) } : {}),
         ...(safeCount(details.documentGeneration) !== undefined ? { documentGeneration: details.documentGeneration } : {}),
@@ -28547,22 +28693,40 @@ function compactPanelLifecycleDetails(details) {
         ...(safeCount(details.renderedStateSeq) !== undefined ? { renderedStateSeq: details.renderedStateSeq } : {}),
         ...(safeCount(details.statePayloadBytes) !== undefined ? { statePayloadBytes: details.statePayloadBytes } : {}),
         ...(safeCount(details.stateBuildDurationMs) !== undefined ? { stateBuildDurationMs: details.stateBuildDurationMs } : {}),
+        ...(safeCount(details.telemetrySampleId) !== undefined ? { telemetrySampleId: details.telemetrySampleId } : {}),
     };
 }
 function panelLifecycleDiagnosticMessage(reason) {
-    if (reason === "heartbeatPostRejected")
-        return "Webview heartbeat postMessage rejected";
-    if (reason === "heartbeatPostFalse")
-        return "Webview heartbeat postMessage returned false";
-    if (reason === "extensionRegistryChanged")
-        return "Installed extension version differs from the running Extension Host";
-    if (reason === "heartbeatTimeout")
-        return "Webview heartbeat timeout";
-    if (reason === "state-render-sequence-stalled")
-        return "Webview state render stalled";
+    const messages = {
+        panelReadyWatchdogTimeout: "Webview ready handshake timed out",
+        heartbeatTimeout: "Webview heartbeat timeout",
+        heartbeatPostFalse: "Webview heartbeat postMessage returned false",
+        heartbeatPostRejected: "Webview heartbeat postMessage rejected",
+        "state-render-sequence-stalled": "Webview state render stalled",
+        statePostDeliveryTimeout: "Webview state delivery timed out",
+        statePostRetryLimit: "Webview state delivery retry limit reached",
+        statePayloadSoftLimit: "Webview state exceeded the soft payload warning threshold",
+        statePayloadHardLimit: "Webview state exceeded the hard payload limit",
+        statePayloadUnsendable: "Webview degraded state still exceeds the hard payload limit",
+        version_mismatch: "Installed extension version differs from the running Extension Host",
+        content_mismatch: "Installed extension build differs from the running Extension Host",
+        extensionRegistryChanged: "Installed extension registry changed",
+        statePostFailure: "Webview state delivery failed",
+        sectionSlow: "Webview section render exceeded the performance threshold",
+    };
+    if (messages[reason])
+        return messages[reason];
     if (String(reason || "").startsWith("visibilityProbeTimeout:"))
-        return "Webview visibility health probe timeout";
-    return "Webview panel recovery triggered";
+        return "Webview visibility health probe timed out";
+    if (String(reason || "").startsWith("visibilityProbePostFalse"))
+        return "Webview visibility health probe was rejected";
+    if (String(reason || "").startsWith("visibilityProbePostRejected"))
+        return "Webview visibility health probe failed";
+    if (String(reason || "").startsWith("section:"))
+        return "Webview section renderer failed: " + String(reason).slice(8, 48);
+    if (String(reason || "").startsWith("sectionSlow:"))
+        return "Webview section render was slow: " + String(reason).slice(11, 51);
+    return "Panel lifecycle anomaly: " + String(reason || "unknown").slice(0, 80);
 }
 function recentUiActionErrorMatches(previous, current, windowMs = 2000) {
     if (!previous || !current)

@@ -38,7 +38,7 @@ function createProvider(registryVersion, identities = {}) {
   vm.runInNewContext(`${code}\nthis.Subject = Subject;`, sandbox);
   const provider = new sandbox.Subject();
   provider.context = { extension: { packageJSON: { version: "0.5.194" } } };
-  provider.runningBuildIdentity = identities.running || { version: "0.5.194", fingerprint: "AAA", exists: true };
+  provider.runningBuildIdentity = identities.running || { version: "0.5.194", buildId: "a".repeat(64), manifestHash: "AAA", fingerprint: "AAA", exists: true };
   provider.diskBuildIdentity = identities.disk || provider.runningBuildIdentity;
   provider.readInstalledBuildIdentity = () => provider.diskBuildIdentity;
   provider.forceReloadRequired = false;
@@ -114,8 +114,8 @@ test("matching versions still render the regular panel", () => {
 });
 
 test("same-version content replacement is sticky and blocks the main panel", () => {
-  const running = { version: "0.5.194", fingerprint: "AAA", files: {}, exists: true };
-  const disk = { version: "0.5.194", fingerprint: "BBB", files: {}, exists: true };
+  const running = { version: "0.5.194", buildId: "a".repeat(64), manifestHash: "AAA", fingerprint: "AAA", files: {}, exists: true };
+  const disk = { version: "0.5.194", buildId: "b".repeat(64), manifestHash: "BBB", fingerprint: "BBB", files: {}, exists: true };
   const subject = createProvider("0.5.194", { running, disk });
   const state = subject.provider.extensionRuntimeVersionState();
   assert.equal(state.registryState, "content_mismatch");

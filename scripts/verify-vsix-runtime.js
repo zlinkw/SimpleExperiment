@@ -2,6 +2,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 const { npmCommand } = require("./npm-command");
+const { collectLocalRuntimeClosure } = require("./runtime-closure");
 
 const root = path.resolve(__dirname, "..");
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
@@ -30,7 +31,6 @@ const entrypoints = [packageJson.main, ...Object.values(packageJson.bin || {})]
   .filter(Boolean)
   .map((entry) => String(entry).replace(/^\.\//, "").replace(/\\/g, "/"));
 const missing = [];
-const visited = new Set();
 // spawn 候选（非 require 直连，经 child_process.spawnSync 运行时加载）：
 // src/extension/legacy.ts#runCheckStaticFromUi 双候选归一后命中 scripts/check-static.js，
 // 必须随包发布，否则用户侧报“check-static 脚本缺失”。此处断言磁盘存在即必须收录，
@@ -44,29 +44,24 @@ for (const candidate of spawnCandidates) {
     missing.push({ importer: "spawn:src/extension/legacy.ts#runCheckStaticFromUi", required: normalized, chain: ["spawn", normalized] });
   }
 }
-const queue = [...entrypoints.map((entry) => ({ file: entry, chain: [entry] })),
-  ...spawnCandidates
-    .filter((candidate) => fs.existsSync(path.join(root, candidate)))
-    .map((candidate) => ({ file: candidate, chain: ["spawn", candidate] }))];
-
-while (queue.length) {
-  const item = queue.shift();
-  const normalized = item.file.replace(/\\/g, "/");
-  if (visited.has(normalized)) continue;
-  visited.add(normalized);
+const closure = collectLocalRuntimeClosure(root, entrypoints, spawnCandidates.filter((candidate) => fs.existsSync(path.join(root, candidate))));
+for (const item of closure) {
+  const normalized = item.file;
   if (!packaged.has(normalized) && !packaged.has(`extension/${normalized}`)) {
     missing.push({ importer: item.chain.at(-2) || "package.json", required: normalized, chain: item.chain });
-    continue;
   }
-  const absolute = path.join(root, normalized);
-  if (!fs.existsSync(absolute) || path.extname(absolute) !== ".js") continue;
-  const source = fs.readFileSync(absolute, "utf8");
-  const requires = [...source.matchAll(/require\(\s*["'](\.[^"']+)["']\s*\)/g)].map((match) => match[1]);
-  for (const specifier of requires) {
-    const resolved = resolveLocalModule(path.dirname(absolute), specifier);
-    if (!resolved) continue;
-    const relative = path.relative(root, resolved).replace(/\\/g, "/");
-    queue.push({ file: relative, chain: [...item.chain, relative] });
+}
+
+const buildManifestPath = path.join(root, "dist", "panel-build-manifest.json");
+if (!fs.existsSync(buildManifestPath)) {
+  missing.push({ importer: "build", required: "dist/panel-build-manifest.json", chain: ["build", "dist/panel-build-manifest.json"] });
+} else {
+  const manifest = JSON.parse(fs.readFileSync(buildManifestPath, "utf8"));
+  for (const row of Array.isArray(manifest.files) ? manifest.files : []) {
+    const file = String(row.path || "").replace(/\\/g, "/");
+    if (file && !packaged.has(file) && !packaged.has(`extension/${file}`)) {
+      missing.push({ importer: "dist/panel-build-manifest.json", required: file, chain: ["dist/panel-build-manifest.json", file] });
+    }
   }
 }
 
@@ -76,10 +71,4 @@ if (missing.length) {
   process.exit(1);
 }
 
-process.stdout.write(`VSIX runtime closure verified: ${visited.size} local module(s), ${entrypoints.length} entrypoint(s).\n`);
-
-function resolveLocalModule(directory, specifier) {
-  const base = path.resolve(directory, specifier);
-  const candidates = [base, `${base}.js`, `${base}.json`, path.join(base, "index.js")];
-  return candidates.find((candidate) => fs.existsSync(candidate) && fs.statSync(candidate).isFile());
-}
+process.stdout.write(`VSIX runtime closure verified: ${closure.length} local module(s), ${entrypoints.length} entrypoint(s).\n`);
