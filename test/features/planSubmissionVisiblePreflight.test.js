@@ -496,7 +496,7 @@ test("persisted deferred rows are superseded for audit instead of auto dispatche
   assert.doesNotMatch(tick, /status: "retired"|selectDistributedPlanPrimary|runPlanPreflight|enqueueDistributedPlan|ensureCodeReadyForRun|confirmedOutputChoice !== true/);
 });
 
-test("skipping every existing job closes the continued row without a new run", async () => {
+test("missing explicit historical-output choice cannot skip every job or close a continued row", async () => {
   const enqueue = new Function("workspaceRoot", "operationResultPlanFile", "makeOpId", "DistributedPlanQueue", "vscode", "errorMessage", `
     ${functionSource("planValidationFromResult")}
     return ${method("enqueueDistributedPlan").replace("async enqueueDistributedPlan", "async function").replace(/ as const/g, "")};
@@ -511,12 +511,11 @@ test("skipping every existing job closes the continued row without a new run", a
     async saveDistributedQueue(_root, next) { this.queue = next; },
     postState() {},
   };
-  const result = await enqueue.call(host, { planFile: drf, planRevision: "rev-drf", distributedSkipJobIndices: [0], options: {} },
-    validation(), false, previous.id);
-  assert.equal(result.enqueued, false);
+  await assert.rejects(() => enqueue.call(host, { planFile: drf, planRevision: "rev-drf", existingOutputCount: 1, distributedSkipJobIndices: [0], options: {} },
+    validation(), false, previous.id), /历史产物处理方式未确认/);
   assert.equal(host.queue.plans.length, 0);
-  assert.equal(host.queue.deferred[0].status, "superseded");
-  assert.equal(host.queue.deferred[0].supersededBy, "skip-all");
+  assert.equal(host.queue.deferred[0].status, "blocked");
+  assert.equal(host.queue.deferred[0].supersededBy, undefined);
 });
 
 function datasetFromHtml(html, label) {

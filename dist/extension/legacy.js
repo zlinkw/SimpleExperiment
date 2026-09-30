@@ -5543,6 +5543,10 @@ class RealtimeTunnelPanelProvider {
             if (preflightOk) {
                 this.reportPlanStage(message, "正在确认历史产物处理方式…");
                 await this.confirmPlanExistingOutputs(plan, body, preflightOk);
+                if (body.existingOutputChoice === "keep_existing") {
+                    this.finishPlanSubmissionProgress(message, "succeeded", "用户选择保留现有完整结果，本次未创建新调度任务。");
+                    return;
+                }
             }
             try {
                 const pf = operationResultPlanFile(body) || (typeof plan !== 'undefined' ? (plan?.planFile || plan?.file || "") : "") || "";
@@ -5946,21 +5950,32 @@ class RealtimeTunnelPanelProvider {
                 && String(row.output_dir || "").trim())
                 existingByIndex.set(index, row);
         }
-        body.distributedSkipJobIndices = [];
+        body.distributedSkipJobIndices = undefined;
+        body.existingOutputChoice = undefined;
+        body.existingOutputCount = existingByIndex.size;
         if (!existingByIndex.size)
             return;
-        const checked = { ...validated, validation: { ...validation, existing: [...existingByIndex.values()] } };
-        await this.confirmPlanExistingOutputs(plan, body, checked, true);
-        if (body.overwriteExisting !== true)
+        await this.confirmPlanExistingOutputsFromValidation(plan, body, { ...validation, existing: [...existingByIndex.values()] }, true);
+        if (body.existingOutputChoice === "rerun_missing")
             body.distributedSkipJobIndices = [...existingByIndex.keys()];
+        else if (body.existingOutputChoice === "rerun_all")
+            body.distributedSkipJobIndices = [];
     }
     async confirmPlanExistingOutputs(plan, body, validated, versionedAttempts = false) {
         const validation = planValidationFromResult(validated);
         if (!validation || !Array.isArray(validation.existing))
             throw new Error("Agent 未返回当前 Plan 的历史产物清单；请部署最新版 Agent 后重新校验。未提交运行。");
+        return this.confirmPlanExistingOutputsFromValidation(plan, body, validation, versionedAttempts);
+    }
+    async confirmPlanExistingOutputsFromValidation(plan, body, validation, versionedAttempts = false) {
+        if (!validation || !Array.isArray(validation.existing))
+            throw new Error("当前 Plan 的历史产物清单无效；未提交运行。");
         const existing = validation.existing;
-        if (!existing.length)
+        if (!existing.length) {
+            body.existingOutputChoice = undefined;
             return;
+        }
+        body.existingOutputChoice = undefined;
         const planFile = operationResultPlanFile(body) || plan?.planFile || plan?.file || "当前 Plan";
         const jobs = Array.isArray(validation.jobs) ? validation.jobs : [];
         const totalJobs = Math.max(0, Math.trunc(Number(validation.job_count) || jobs.length || existing.length));
@@ -5991,11 +6006,16 @@ class RealtimeTunnelPanelProvider {
         const pick = allJobsExist
             ? await vscode.window.showWarningMessage(detail, { modal: true }, `强制${rerunLabel}`, keepLabel)
             : await vscode.window.showWarningMessage(detail, { modal: true }, skipLabel, rerunLabel, keepLabel);
-        if (!pick || pick === "取消" || pick === keepLabel)
+        if (pick === keepLabel && allJobsExist) {
+            body.existingOutputChoice = "keep_existing";
+            return;
+        }
+        if (!pick || pick === "取消")
             throw new UiCommandCancelled("已取消：未选择当前 Plan 历史产物处理方式。");
         const overwrite = pick === rerunLabel || pick === `强制${rerunLabel}`;
         if (!overwrite && pick !== skipLabel)
             throw new UiCommandCancelled("已取消：未选择当前 Plan 历史产物处理方式。");
+        body.existingOutputChoice = overwrite ? "rerun_all" : "rerun_missing";
         body.options = { ...(body.options || {}), overwriteExisting: overwrite, overwrite };
         body.overwriteExisting = overwrite;
         body.overwrite = overwrite;
@@ -8955,6 +8975,11 @@ class RealtimeTunnelPanelProvider {
             await this.waitForPlanSubmission(message, () => this.confirmDistributedPlanExistingOutputs(plan, body, preflightOk));
             if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot))
                 return;
+            if (body.existingOutputChoice === "keep_existing") {
+                this.finishPlanSubmissionProgress(message, "succeeded", "用户选择保留现有完整结果，本次未创建新调度任务。");
+                await this.openPanelAt("execution", "execution-operations");
+                return;
+            }
             this.assertExecutionCondaEnvReady(this.workerActionTargets());
             this.reportPlanStage(message, "预演通过，正在开启调度…");
             const submission = await this.enqueueDistributedPlan(body, preflightOk, false, "", submissionEpoch, operationId);
@@ -8967,7 +8992,11 @@ class RealtimeTunnelPanelProvider {
                 return;
             }
             if (submission?.enqueued === false) {
-                this.finishPlanSubmissionProgress(message, "succeeded", "已有产物覆盖本次全部任务；按所选“跳过已有”处理，未创建新调度任务。");
+                const choice = body.existingOutputChoice;
+                const detail = choice === "rerun_missing"
+                    ? "历史产物选择与待提交任务不一致，未创建新调度任务。"
+                    : "历史产物处理方式未确认，未创建新调度任务。";
+                this.finishPlanSubmissionProgress(message, "failed", detail);
                 await this.openPanelAt("execution", "execution-operations");
                 return;
             }
@@ -9273,6 +9302,17 @@ class RealtimeTunnelPanelProvider {
         const validation = planValidationFromResult(validated);
         if (!Array.isArray(validation?.jobs) || !validation.jobs.length)
             throw new Error("Agent 校验未返回逐 job 清单，无法分布式派发。");
+        if (Number(body.existingOutputCount || 0) > 0 && body.existingOutputChoice === undefined)
+            throw new Error("历史产物处理方式未确认；未提交运行。");
+        if (body.existingOutputChoice === undefined && Array.isArray(validation.existing) && validation.existing.length)
+            throw new Error("历史产物处理方式未确认；未提交运行。");
+        if (body.existingOutputChoice === "keep_existing")
+            return { enqueued: false, keptExisting: true };
+        if (body.existingOutputChoice !== undefined && !["rerun_all", "rerun_missing"].includes(body.existingOutputChoice))
+            throw new Error("历史产物处理方式无效；未提交运行。");
+        const skippedJobIndices = new Set((body.distributedSkipJobIndices || []).map(Number));
+        if (body.existingOutputChoice === "rerun_missing" && validation.jobs.every((job) => skippedJobIndices.has(Number(job.index))))
+            throw new Error("选择补跑缺失任务，但没有可补跑的任务；未提交运行。");
         const planFile = operationResultPlanFile(body);
         const revision = String(body.planRevision || body.options?.planRevision || "");
         const codeFingerprint = String(this.lastCodeSyncState?.fingerprint || "");
@@ -9280,8 +9320,8 @@ class RealtimeTunnelPanelProvider {
         const current = await this.loadDistributedQueue(root);
         if (!submissionCurrent())
             return { enqueued: false, cancelled: true };
-        const overwriteExisting = body.overwriteExisting === true;
-        const skipped = new Set(overwriteExisting ? [] : (Array.isArray(body.distributedSkipJobIndices) ? body.distributedSkipJobIndices.map(Number) : []));
+        const overwriteExisting = body.existingOutputChoice === "rerun_all" || body.overwriteExisting === true;
+        const skipped = new Set(overwriteExisting || body.existingOutputChoice === undefined ? [] : (Array.isArray(body.distributedSkipJobIndices) ? body.distributedSkipJobIndices.map(Number) : []));
         const selectedJobs = validation.jobs.filter((job) => !skipped.has(Number(job.index)));
         if (!selectedJobs.length) {
             void vscode.window.showInformationMessage("此 Plan 的任务均已有完成产物，本次选择跳过；未提交新任务。");

@@ -40,6 +40,12 @@ test("distributed submit confirms prior outputs before enqueue and skips only ch
   assert.match(enqueue, /distributedSkipJobIndices/);
   assert.match(enqueue, /selectedJobs = validation\.jobs\.filter/);
   assert.match(enqueue, /if \(!selectedJobs\.length\)/);
+  assert.match(enqueue, /existingOutputChoice === undefined/);
+  assert.match(enqueue, /历史产物处理方式未确认/);
+  assert.doesNotMatch(extension, /overwriteExisting !== true\) body\.distributedSkipJobIndices/);
+  const historyConfirm = extension.slice(extension.indexOf("async confirmDistributedPlanExistingOutputs("), extension.indexOf("async confirmPlanExistingOutputs("));
+  assert.match(historyConfirm, /confirmPlanExistingOutputsFromValidation\(plan, body/);
+  assert.doesNotMatch(historyConfirm, /const checked = \{ \.\.\.validated/);
   assert.match(enqueue, /this\.postState\(\)/);
   const send = extension.slice(extension.indexOf("async sendDistributedJob("), extension.indexOf("async tickDistributedQueueCore("));
   assert.match(send, /overwriteExisting: plan\.overwriteExisting === true/);

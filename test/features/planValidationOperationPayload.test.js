@@ -18,14 +18,14 @@ function collect(node) {
 }
 collect(parsed);
 
-const planFile = "experiments/plans/comparison/raml.yaml";
+const planFile = "experiments/plans/comparison/ebmc.yaml";
 const revision = "52e776e5f9f455939795596b803a86e33e71333b55355b793c4d64accd946580";
 const operationId = "validate-plan-1790619402512-cc0n8y";
 // The affected NWPU3 operation returned these six jobs inside payload.validation.
-const jobs = ["raml_bus_p100", "raml_pad_p100"].flatMap((caseName, caseIndex) =>
+const jobs = ["ebmc_bus_p100", "ebmc_pad_p100"].flatMap((caseName, caseIndex) =>
   [42, 43, 44].map((seed, seedIndex) => {
     const index = caseIndex * 3 + seedIndex;
-    return { index, case: caseName, seed, output_dir: `work_dirs/raml/${index}_${caseName}_seed${seed}` };
+    return { index, case: caseName, seed, output_dir: `work_dirs/ebmc/${index}_${caseName}_seed${seed}` };
   }));
 
 function completedOperation(shape = "payload", validationOverrides = {}) {
@@ -56,14 +56,14 @@ function hostFor(operation, accepted = true, outputChoice) {
     isUiCommandRemotePending: () => false,
     actionAffectsResultsSummary: () => false,
     vscode: { window: {
-      showWarningMessage: async (message, _options, ...choices) => { notices.push(message); dialogs.push(choices); return choices.includes(outputChoice) ? outputChoice : choices[0]; },
+      showWarningMessage: async (message, _options, ...choices) => { notices.push(message); dialogs.push(choices); return outputChoice === null ? undefined : choices.includes(outputChoice) ? outputChoice : choices[0]; },
       showInformationMessage: async (message) => { notices.push(message); },
     } },
     uniqueStrings: (values) => [...new Set(values)],
   };
   const helperNames = ["stringFromRecord", "resultStatus", "operationStatusToken", "remoteActionPendingStatus", "remoteActionSucceeded", "operationStatusOf", "operationTerminal", "operationTerminalStatus", "operationLongRunningAction", "operationSubmissionAccepted", "operationResultPlanFile", "usableSelectionKey", "planCheckAccepted"];
   if (functions.has("planValidationFromResult")) helperNames.push("planValidationFromResult");
-  const methodNames = ["runPlanPreflight", "waitForOperationTerminalResult", "refreshOperationStatus", "confirmPlanExistingOutputs", "confirmDistributedPlanExistingOutputs", "enqueueDistributedPlan"];
+  const methodNames = ["runPlanPreflight", "waitForOperationTerminalResult", "refreshOperationStatus", "confirmPlanExistingOutputs", "confirmPlanExistingOutputsFromValidation", "confirmDistributedPlanExistingOutputs", "enqueueDistributedPlan"];
   const emitted = ts.transpileModule(
     helperNames.map((name) => functions.get(name)).join("\n") + "\nthis.production = {\n" + methodNames.map((name) => methods.get(name)).join(",\n") + "\n}; this.accepted = planCheckAccepted;",
     { compilerOptions: { target: ts.ScriptTarget.ES2022 } },
@@ -161,34 +161,103 @@ test("partial historical outputs let the user force all jobs into new attempts",
 });
 
 test("complete historical outputs still offer explicit rerun and preserve history", async () => {
-  const existing = jobs.map(({ index, output_dir }) => ({ index, output_dir }));
-  const prior = { id: "prior", planFile, revision, codeFingerprint: "old", enqueuedAt: "2026-01-01", jobs: jobs.map((job) => ({
-    index: job.index, case: job.case, seed: job.seed, outputDir: `${job.output_dir}/attempts/prior`, attempt: 1, status: "completed",
-  })) };
-  const { host, notices, dialogs } = hostFor(completedOperation("latestEvent", { existing }), true, "重跑全部（6）");
-  host.queue.plans.push(prior);
+  const prior = (id, selectedJobs) => ({ id, planFile, revision: `old-${id}`, codeFingerprint: "old", enqueuedAt: "2026-01-01", jobs: selectedJobs.map((job) => ({
+    index: job.index, case: job.case, seed: job.seed, outputDir: `${job.output_dir}/attempts/${id}`, attempt: 1, status: "completed",
+  })) });
+  const { host, notices, dialogs } = hostFor(completedOperation("latestEvent", { existing: [] }), true, "强制重跑全部（6）");
+  host.queue.plans.push(prior("old-a", jobs.slice(0, 2)), prior("old-b", jobs.slice(2)));
   const body = { planFile, planRevision: revision, options: {} };
   const checked = await host.runPlanPreflight(body, "当前计划");
   await host.confirmDistributedPlanExistingOutputs({}, body, checked);
+  assert.equal(body.existingOutputCount, 6);
+  assert.equal(body.existingOutputChoice, "rerun_all");
   assert.match(notices[0], /已有产物 6\/6，当前 Plan 已完整完成/);
   assert.deepEqual(Array.from(dialogs[0]), ["强制重跑全部（6）", "保留现有结果，不运行"]);
   assert.equal(body.overwriteExisting, true);
   assert.deepEqual(Array.from(body.distributedSkipJobIndices), []);
+  assert.equal(dialogs.length, 1);
   await host.enqueueDistributedPlan(body, checked, true);
-  assert.equal(host.queue.plans.length, 2);
-  assert.equal(host.queue.plans[0].id, "prior");
-  assert.deepEqual(Array.from(host.queue.plans[1].jobs, (job) => job.index), [0, 1, 2, 3, 4, 5]);
-  assert.ok(host.queue.plans[1].jobs.every((job) => /\/attempts\/distributed-plan-fixture$/.test(job.outputDir)));
+  assert.equal(host.queue.plans.length, 3);
+  assert.deepEqual(host.queue.plans.slice(0, 2).map((item) => item.id), ["old-a", "old-b"]);
+  assert.deepEqual(Array.from(host.queue.plans[2].jobs, (job) => job.index), [0, 1, 2, 3, 4, 5]);
+  assert.ok(host.queue.plans[2].jobs.every((job) => /\/attempts\/distributed-plan-fixture$/.test(job.outputDir)));
+  assert.ok(host.queue.plans[2].jobs.every((job) => !["old-a", "old-b"].includes(job.outputDir.split("/attempts/")[1])));
 });
 
 test("complete historical outputs can be retained without submitting jobs", async () => {
-  const existing = jobs.map(({ index, output_dir }) => ({ index, output_dir }));
-  const { host, dialogs } = hostFor(completedOperation("latestEvent", { existing }), true, "保留现有结果，不运行");
+  const prior = { id: "prior", planFile, revision, codeFingerprint: "old", enqueuedAt: "2026-01-01", jobs: jobs.map((job) => ({
+    index: job.index, case: job.case, seed: job.seed, outputDir: `${job.output_dir}/attempts/prior`, attempt: 1, status: "completed",
+  })) };
+  const { host, dialogs } = hostFor(completedOperation("latestEvent", { existing: [] }), true, "保留现有结果，不运行");
+  host.queue.plans.push(prior);
+  const body = { planFile, planRevision: revision, options: {} };
+  const checked = await host.runPlanPreflight(body, "当前计划");
+  await host.confirmDistributedPlanExistingOutputs({}, body, checked);
+  assert.deepEqual(Array.from(dialogs[0]), ["强制重跑全部（6）", "保留现有结果，不运行"]);
+  assert.equal(body.existingOutputChoice, "keep_existing");
+  assert.equal(host.queue.plans.length, 1);
+  const retained = await host.enqueueDistributedPlan(body, checked, true);
+  assert.equal(retained.enqueued, false);
+  assert.equal(retained.keptExisting, true);
+  assert.equal(host.queue.plans.length, 1);
+});
+
+test("wrapped remote empty validation merges two completed queue plans before the modal", async () => {
+  const { host, notices, dialogs } = hostFor(completedOperation("latestEvent", { existing: [] }), true, "强制重跑全部（6）");
+  const historical = (id, selectedJobs) => ({ id, planFile, revision: `old-${id}`, codeFingerprint: "old", enqueuedAt: "2026-01-01", jobs: selectedJobs.map((job) => ({
+    index: job.index, case: job.case, seed: job.seed, outputDir: `${job.output_dir}/attempts/${id}`, attempt: 1, status: "completed",
+  })) });
+  host.queue.plans.push(historical("history-01", jobs.slice(0, 2)), historical("history-02", jobs.slice(2)));
+  const body = { planFile, planRevision: revision, options: {} };
+  const wrapped = completedOperation("latestEvent", { existing: [] });
+  wrapped.payload = wrapped.latestEvent.payload;
+  assert.deepEqual(wrapped.latestEvent.payload.validation.existing, []);
+  assert.deepEqual(wrapped.payload.validation.existing, []);
+  const checked = await host.runPlanPreflight(body, "当前计划");
+  await host.confirmDistributedPlanExistingOutputs({}, body, checked);
+  assert.equal(body.existingOutputCount, 6);
+  assert.equal(body.existingOutputChoice, "rerun_all");
+  assert.equal(notices.length, 1);
+  assert.deepEqual(Array.from(dialogs[0]), ["强制重跑全部（6）", "保留现有结果，不运行"]);
+  const submission = await host.enqueueDistributedPlan(body, checked, true);
+  assert.equal(submission.enqueued, true);
+  assert.equal(host.queue.plans.length, 3);
+  assert.equal(host.queue.plans[2].jobs.length, 6);
+});
+
+test("partial historical queue plus empty remote validation offers missing-only and enqueues two", async () => {
+  const { host, notices, dialogs } = hostFor(completedOperation("latestEvent", { existing: [] }), true, "仅补跑缺失任务（2）");
+  const prior = { id: "history-04", planFile, revision: "old", codeFingerprint: "old", enqueuedAt: "2026-01-01", jobs: jobs.slice(0, 4).map((job) => ({
+    index: job.index, case: job.case, seed: job.seed, outputDir: `${job.output_dir}/attempts/history-04`, attempt: 1, status: "completed",
+  })) };
+  host.queue.plans.push(prior);
+  const body = { planFile, planRevision: revision, options: {} };
+  const checked = await host.runPlanPreflight(body, "当前计划");
+  await host.confirmDistributedPlanExistingOutputs({}, body, checked);
+  assert.equal(body.existingOutputCount, 4);
+  assert.equal(body.existingOutputChoice, "rerun_missing");
+  assert.deepEqual(Array.from(body.distributedSkipJobIndices), [0, 1, 2, 3]);
+  assert.match(notices[0], /已有产物：4/);
+  assert.deepEqual(Array.from(dialogs[0]), ["仅补跑缺失任务（2）", "重跑全部（6）", "取消"]);
+  const submission = await host.enqueueDistributedPlan(body, checked, true);
+  assert.equal(submission.enqueued, true);
+  assert.deepEqual(Array.from(host.queue.plans[1].jobs, (job) => job.index), [4, 5]);
+});
+
+test("missing modal choice fails closed and never silently skips all historical jobs", async () => {
+  const { host, dialogs } = hostFor(completedOperation("latestEvent", { existing: [] }), true, null);
+  host.queue.plans.push({ id: "history-all", planFile, revision: "old", codeFingerprint: "old", enqueuedAt: "2026-01-01", jobs: jobs.map((job) => ({
+    index: job.index, case: job.case, seed: job.seed, outputDir: `${job.output_dir}/attempts/history-all`, attempt: 1, status: "completed",
+  })) });
   const body = { planFile, planRevision: revision, options: {} };
   const checked = await host.runPlanPreflight(body, "当前计划");
   await assert.rejects(() => host.confirmDistributedPlanExistingOutputs({}, body, checked), /未选择当前 Plan 历史产物处理方式/);
-  assert.deepEqual(Array.from(dialogs[0]), ["强制重跑全部（6）", "保留现有结果，不运行"]);
-  assert.equal(host.queue.plans.length, 0);
+  assert.equal(dialogs.length, 1);
+  assert.equal(body.existingOutputChoice, undefined);
+  assert.equal(body.distributedSkipJobIndices, undefined);
+  assert.equal(host.queue.plans.length, 1);
+  await assert.rejects(() => host.enqueueDistributedPlan(body, checked, true), /历史产物处理方式未确认/);
+  assert.equal(host.queue.plans.length, 1);
 });
 
 test("single-worker partial and complete outputs use the same explicit choice model", async () => {
