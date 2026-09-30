@@ -144,7 +144,7 @@ function providerFor(workspace) {
   };
   const prototype = require("../../dist/extension/legacy.js").RealtimeTunnelPanelProvider.prototype;
   provider.loadProjectTableRegistry = (root) => prototype.loadProjectTableRegistry.call(provider, root);
-  provider.writeProjectTableRegistry = (root, registry) => prototype.writeProjectTableRegistry.call(provider, root, registry);
+  provider.writeProjectTableRegistry = (root, registry, resultDir) => prototype.writeProjectTableRegistry.call(provider, root, registry, resultDir);
   return provider;
 }
 

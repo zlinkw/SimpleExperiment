@@ -46,7 +46,7 @@ test("the result table button merges every known result scope before any metric 
   assert.match(panel, /尚无总表。点击“同步服务器结果并更新总表”/);
   assert.doesNotMatch(panel, /同步待处理产物 \(/);
   assert.doesNotMatch(panel, /待处理产物计数属于自动的权重和日志同步/);
-  assert.match(extension, /case "syncPendingPlanArtifacts":\s*await this\.syncPendingResultMetricsFromUi\(\)/);
+  assert.match(extension, /case "syncPendingPlanArtifacts":\s*await this\.syncPendingResultMetricsFromUi\(\{ rebuildDirectory: true \}\)/);
   const manual = sliceBetween(extension, "async syncPendingResultMetricsFromUi(", "async summaryForMetricDownload(");
   const mergeAt = manual.indexOf("await this.mergeLatestWorkerVersions(");
   const downloadAt = manual.indexOf("downloadMappedResultBatch(");
@@ -224,6 +224,26 @@ test("unindexed summaries never invoke the full directory merge fallback", async
   await assert.rejects(require("../../dist/extension/legacy.js").__syncPendingResultMetricsForTest(provider), /服务器摘要尚未收录可解析的 CSV/);
   assert.equal(provider.calls.some(call => call[0] === "merge"), false);
   assert.equal(provider.calls.some(call => call[0] === "sync.downloadMappedPaths"), false);
+});
+
+test("the manual button replaces legacy layout and rotates backups on a second sync", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-result-recreate-sync-"));
+  const legacy = path.join(workspace, "experiments/results/final/final.csv");
+  fs.mkdirSync(path.dirname(legacy), { recursive: true });
+  fs.writeFileSync(legacy, "legacy mixed results", "utf8");
+  const provider = providerFor(workspace, { onlyFirst: true });
+  const run = () => require("../../dist/extension/legacy.js").__handleResultUiCommandForTest(provider, { command: "syncPendingPlanArtifacts" });
+  await run();
+  assert.equal(fs.existsSync(legacy), false);
+  assert.ok(fs.existsSync(path.join(workspace, "experiments/results/set/final/final.csv")));
+  assert.ok(fs.existsSync(rawLocation(workspace)));
+  const backup = path.join(workspace, "clean_dir/experiments/results");
+  assert.equal(fs.readFileSync(path.join(backup, "final/final.csv"), "utf8"), "legacy mixed results");
+  await run();
+  assert.ok(fs.existsSync(path.join(backup, "set/final/final.csv")));
+  const history = path.join(workspace, "clean_dir/_superseded");
+  const batch = fs.readdirSync(history)[0];
+  assert.equal(fs.readFileSync(path.join(history, batch, "experiments/results/final/final.csv"), "utf8"), "legacy mixed results");
 });
 
 test("two pending plans merge on all workers before either metric download when no plan is selected", async () => {

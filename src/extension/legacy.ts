@@ -35,6 +35,7 @@ import { normalizeDistributedProjectContract } from "../features/DistributedProj
 import { collectDistributedJobArtifacts } from "../features/DistributedJobArtifacts";
 import { aggregateSeedScalars } from "../tensorboard/ScalarAggregation";
 import * as ProjectResultTables from "../results/ProjectResultTables";
+import { replaceResultDirectory } from "../results/ResultDirectoryRebuild";
 import { resolvePlanWorkerAffinity } from "../features/PlanWorkerAffinity";
 import * as PlanArtifactSync from "../features/PlanArtifactSync";
 import * as DistributedPlanQueue from "../features/DistributedPlanQueue";
@@ -5034,7 +5035,7 @@ export class RealtimeTunnelPanelProvider {
                 await this.rebuildProjectResultTablesFromUi();
                 break;
             case "syncPendingPlanArtifacts":
-                await this.syncPendingResultMetricsFromUi();
+                await this.syncPendingResultMetricsFromUi({ rebuildDirectory: true });
                 break;
             case "splitProjectResultTable":
                 await this.splitProjectResultTableFromUi(message);
@@ -14641,7 +14642,7 @@ export class RealtimeTunnelPanelProvider {
             await this.publishDownloadedResultMetrics(projectContext, client, [{ planFile, summary, candidates }], [download]);
         return download;
     }
-    async syncPendingResultMetricsFromUi(options: { background?: boolean; planFiles?: string[] } = {}) {
+    async syncPendingResultMetricsFromUi(options: { background?: boolean; planFiles?: string[]; rebuildDirectory?: boolean } = {}) {
         if (options.background) return { merged: false, downloaded: false, reason: "manual-only", plans: [], discovered: 0, included: 0, missing: 0, skipped: [] };
         const projectContext = this.captureProjectContext();
         const root = projectContext.root;
@@ -14828,6 +14829,9 @@ export class RealtimeTunnelPanelProvider {
                 await this.patchDistributedPublication(root, { localMetricsSignature: signature });
         }
         this.resultSyncReport = report;
+        if (options.rebuildDirectory && !report.skipped.length && !report.missing.length && report.included.length === plans.length && isCurrent()) {
+            report.directoryRebuild = await this.rebuildSyncedResultDirectory(projectContext, ready, isCurrent);
+        }
         if (isCurrent())
             this.postState();
         const text = formatResultSyncReport(report, "同步服务器结果并更新总表");
@@ -14838,6 +14842,41 @@ export class RealtimeTunnelPanelProvider {
         if (!report.included.length && report.skipped.length)
             throw new Error(text);
         return report;
+    }
+    async rebuildSyncedResultDirectory(projectContext, ready, isCurrent) {
+        const root = projectContext.root;
+        const resultDir = this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR;
+        const batchId = "result-" + Date.now() + "-" + crypto.randomBytes(4).toString("hex");
+        const stageDir = path.posix.join("simple_cluster", "downloads", "result_rebuild", batchId);
+        const registry = await this.loadProjectTableRegistry(root);
+        const files = [...new Set(ready.flatMap(item => item.candidates.map(candidate => methodResultArtifactLocalRelativePath(
+            candidate.remotePath, item.planFile, item.summary, resultDir,
+            (item.summary?.workerResultTables || []).length > 1 ? candidate.workerId : ""))))];
+        await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "准备全新结果目录", cancellable: false }, async progress => {
+            for (const [index, relative] of files.entries()) {
+                if (!isCurrent()) throw new UiCommandCancelled("工作区已切换，旧结果目录保留。");
+                const info = await assertRealChildFile(root, relative, "required");
+                const suffix = relative.slice(resultDir.length + 1);
+                if (!relative.startsWith(resultDir + "/") || !suffix) throw new Error("指标文件不在配置结果根内，未重建目录。");
+                const target = await safeResultOutputPath(root, path.posix.join(stageDir, suffix));
+                await fs.mkdir(path.dirname(target), { recursive: true });
+                await fs.copyFile(info.full, target, fsNode.constants.COPYFILE_EXCL);
+                progress.report({ message: `已暂存 ${index + 1}/${files.length} 个指标文件` });
+            }
+            await this.writeProjectTableRegistry(root, registry, stageDir);
+        });
+        const status = require("node:child_process").spawnSync("git", ["-C", root, "status", "--porcelain", "--", resultDir], {
+            encoding: "utf8", timeout: 5000, windowsHide: true, maxBuffer: 2 * 1024 * 1024,
+        });
+        if (status.error || status.status !== 0 && !String(status.stderr).includes("not a git repository"))
+            throw new Error("无法核对结果目录 Git 状态，旧目录保留。");
+        const source = safeWorkspaceChildPath(root, resultDir);
+        const backup = safeWorkspaceChildPath(root, "clean_dir/" + resultDir);
+        const historical = safeWorkspaceChildPath(root, "clean_dir/_superseded/" + batchId + "/" + resultDir);
+        return await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "备份并替换结果目录", cancellable: false }, progress => {
+            progress.report({ message: `当前目录：${source}；旧结果备份：${backup}；已有备份保留至：${historical}` });
+            return replaceResultDirectory({ root, resultDir, stagedDir: stageDir, batchId, gitStatus: status.stdout || "", allowSuperseded: true, allowDirtyResults: true, isCurrent });
+        });
     }
     async summaryForMetricDownload(client, planFile) {
         const summary = typeof client?.getResultsSummary === "function"
