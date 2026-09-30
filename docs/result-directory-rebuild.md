@@ -6,7 +6,7 @@
 - [x] 新结果先准备，完整成功后备份旧目录并填入新结构；原始服务器结果不变。
 - [x] 安全路径、失败保留、备份轮换、下载和聚合回归。
 - [x] 补丁版本 0.5.190、构建、打包安装与入口核对。
-- [ ] 提交、推送及最终一致性验证。
+- [x] 提交、推送及最终一致性验证。
 
 备份标准路径为 `<项目>/clean_dir/<结果根相对路径>`。已有备份按原拓扑移入 `clean_dir/_superseded/<批次>/`，再备份当前结果。MultiModal 的项目约束明确允许结果产物有未提交改动及已有备份轮换，必须记录 Git 状态、大小、SHA256；不能删除或覆盖备份。当前用户已授权自动清理该结果范围，手动同步按钮在完整成功后自动备份并重建，进度通知展示完整来源和备份路径；不增加目录清理确认弹窗，不执行永久删除。
 
@@ -31,3 +31,5 @@
 build、vm.Script、git diff --check、VSIX runtime closure（159 模块）、package/postpackage 安装通过；已安装 simple-local.simple-experiment@0.5.190，simpleex --help 正常。安装目录的 extension/legacy.js、ResultDirectoryRebuild.js、RuntimeManifest.js 与工作区 SHA256 一致。
 
 两个原有 pyc 修改未写入、未暂存，SHA256 保持不变。测试目录保留。用户需重载 VS Code 后在 MultiModal 项目点击手动同步，实机流程尚未运行。
+
+代码提交 `1c36ec85` 已普通 fast-forward 推送 origin/master，fetch 后 HEAD 一致。本记录的完成状态单独提交，没有后续代码修改。
