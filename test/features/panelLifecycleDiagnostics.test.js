@@ -87,6 +87,7 @@ test("action error details and structured lifecycle telemetry survive write then
     details: {
       reason: "heartbeatTimeout", lifecycle: "recovering", documentGeneration: 12, viewGeneration: 3,
       postedStateSeq: 71, receivedStateSeq: 54, renderedStateSeq: 54, statePayloadBytes: 717609,
+      previousHeartbeatRenderedSeq: 53, stalledAckCount: 0,
       stateBuildDurationMs: 42, runningBuildId: "0123456789abcdef", diskBuildId: "0123456789abcdef",
       token: "secret-token", path: "C:/private/project",
     },
@@ -98,6 +99,8 @@ test("action error details and structured lifecycle telemetry survive write then
   assert.equal(errors[0].details.documentGeneration, 12);
   assert.equal(errors[0].details.postedStateSeq, 71);
   assert.equal(errors[0].details.renderedStateSeq, 54);
+  assert.equal(errors[0].details.previousHeartbeatRenderedSeq, 53);
+  assert.equal(errors[0].details.stalledAckCount, 0);
   assert.equal(errors[0].details.statePayloadBytes, 717609);
   assert.equal(errors[0].details.runningBuildId, "0123456789ab");
   assert.doesNotMatch(files.get("C:/project/simple_cluster/ui/action_errors.json"), /secret-token|private\/project/);
@@ -110,7 +113,7 @@ test("bounded lifecycle file keeps only sanitized failure samples across reload"
     reason: "state-render-sequence-stalled", message: "Webview state render stalled", lifecycle: "recovering",
     runningVersion: "0.5.200", installedVersion: "0.5.200", runningBuildId: "abcdef1234567890", diskBuildId: "abcdef1234567890",
     documentGeneration: index, viewGeneration: 2, webviewReady: true, viewVisible: true,
-    postedSeq: 71, receivedSeq: 54, renderedSeq: 54, payloadBytes: 717609, stateBuildDurationMs: 42,
+    postedSeq: 71, receivedSeq: 54, renderedSeq: 54, previousHeartbeatRenderedSeq: 54, stalledAckCount: 3, payloadBytes: 717609, stateBuildDurationMs: 42,
     serverToken: "secret-token", originalLog: "large log",
   }));
   await api.writeEvents("C:/project", events);
@@ -118,6 +121,8 @@ test("bounded lifecycle file keeps only sanitized failure samples across reload"
   assert.equal(loaded.length, 24);
   assert.equal(loaded[0].reason, "state-render-sequence-stalled");
   assert.equal(loaded[0].receivedSeq, 54);
+  assert.equal(loaded[0].previousHeartbeatRenderedSeq, 54);
+  assert.equal(loaded[0].stalledAckCount, 3);
   assert.equal(loaded[0].payloadBytes, 717609);
   assert.doesNotMatch(files.get("C:/project/simple_cluster/ui/panel_lifecycle.json"), /secret-token|large log/);
 });
@@ -150,6 +155,8 @@ test("a real heartbeat timeout creates one explicit structured failure", () => {
   Object.assign(subject, {
     panelLifecycleState: "recovering", panelDocumentGeneration: 5, viewGeneration: 2,
     webviewReady: true, view: { visible: true }, lastPanelLifecycleDiagnosticKey: "",
+    lastPostedStateSeq: 20, lastReceivedStateSeq: 18, lastRenderedStateSeq: 18, stateRenderStalledAcks: 3,
+    latestPanelHeartbeatProgress: { renderedSeq: 18, previousRenderedSeq: 18, stalledAckCount: 3 },
     latestPanelStateTelemetry: { sampleId: 9, postedSeq: 71, receivedSeq: 54, renderedSeq: 54, payloadBytes: 717609, buildTotalMs: 42 },
     panelLifecycleDiagnostics: [], extensionRuntimeVersionState: () => ({
       runningVersion: "0.5.200", installedVersion: "0.5.200", registryState: "match",
@@ -166,10 +173,18 @@ test("a real heartbeat timeout creates one explicit structured failure", () => {
   assert.equal(errors[0].details.reason, "heartbeatTimeout");
   assert.equal(events.length, 1);
   assert.equal(events[0].reason, "heartbeatTimeout");
-  assert.equal(events[0].postedSeq, 71);
-  assert.equal(events[0].receivedSeq, 54);
+  assert.equal(events[0].postedSeq, 20);
+  assert.equal(events[0].receivedSeq, 18);
+  assert.equal(events[0].renderedSeq, 18);
+  assert.equal(events[0].previousHeartbeatRenderedSeq, 18);
+  assert.equal(events[0].stalledAckCount, 3);
   assert.equal(events[0].payloadBytes, 717609);
   assert.equal(events[0].stateBuildDurationMs, 42);
+  assert.equal(errors[0].details.postedStateSeq, 20);
+  assert.equal(errors[0].details.receivedStateSeq, 18);
+  assert.equal(errors[0].details.renderedStateSeq, 18);
+  assert.equal(errors[0].details.previousHeartbeatRenderedSeq, 18);
+  assert.equal(errors[0].details.stalledAckCount, 3);
 });
 
 test("panel.diagnostics returns the saved sample without rebuilding state or probing disk", () => {
@@ -204,6 +219,34 @@ test("panel.diagnostics returns the saved sample without rebuilding state or pro
   assert.equal(result.latestTelemetry, telemetry);
   assert.deepEqual(Array.from(result.sectionFailures), ["results"]);
   assert.equal(result.lastRecoveryReason, "");
+});
+
+test("copied recovery summary retains the recovery cause and sequence stall evidence", () => {
+  const ast = ts.createSourceFile("legacy.ts", source, ts.ScriptTarget.Latest, true);
+  const provider = ast.statements.find((node) => ts.isClassDeclaration(node) && node.name?.text === "RealtimeTunnelPanelProvider");
+  const method = provider.members.find((node) => node.name?.getText(ast) === "panelDiagnosticSummary");
+  assert.ok(method);
+  const code = ts.transpileModule(`class Subject { ${method.getText(ast)} }`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  const sandbox = {};
+  vm.runInNewContext(`${code}\nthis.Subject = Subject;`, sandbox);
+  const subject = new sandbox.Subject();
+  Object.assign(subject, {
+    latestPanelBuildIdentityState: { runningVersion: "0.5.200", installedVersion: "0.5.200" },
+    lastPanelRecoveryReason: "state-render-sequence-stalled", panelDocumentGeneration: 4, viewGeneration: 1,
+    panelLifecycleState: "recovering", latestPanelStateTelemetry: { payloadBytes: 727520, buildTotalMs: 3 },
+    lastPostedStateSeq: 7962, lastReceivedStateSeq: 7961, lastRenderedStateSeq: 7961,
+    latestPanelHeartbeatProgress: { renderedSeq: 7961, previousRenderedSeq: 7961, stalledAckCount: 3 },
+    stateRenderStalledAcks: 3,
+  });
+  const summary = subject.panelDiagnosticSummary();
+  assert.equal(summary.reason, "state-render-sequence-stalled");
+  assert.equal(summary.postedSeq, 7962);
+  assert.equal(summary.receivedSeq, 7961);
+  assert.equal(summary.renderedSeq, 7961);
+  assert.equal(summary.previousHeartbeatRenderedSeq, 7961);
+  assert.equal(summary.stalledAckCount, 3);
+  assert.equal(summary.telemetry.payloadBytes, 727520);
+  assert.equal(summary.telemetry.buildTotalMs, 3);
 });
 
 test("state telemetry records one serialized sample and labels ACK sequence semantics", () => {

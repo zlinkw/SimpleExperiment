@@ -827,6 +827,8 @@ export class RealtimeTunnelPanelProvider {
     private lastReceivedStateSeq = 0;
     private lastRenderedStateSeq = 0;
     private stateRenderStalledAcks = 0;
+    private lastHeartbeatObservedRenderedStateSeq?: number;
+    private latestPanelHeartbeatProgress?: { renderedSeq: number; previousRenderedSeq?: number; stalledAckCount: number };
     private statePostAttemptId = 0;
     private panelLifecycleState = "detached";
     private panelSectionFailures = new Set<string>();
@@ -3497,7 +3499,13 @@ export class RealtimeTunnelPanelProvider {
         if (next === "reload_required") this.forceReloadRequired = true;
         return true;
     }
+    private resetPanelStateProgress(): void {
+        this.lastHeartbeatObservedRenderedStateSeq = undefined;
+        this.stateRenderStalledAcks = 0;
+        this.latestPanelHeartbeatProgress = undefined;
+    }
     async dispose() {
+        this.resetPanelStateProgress();
         this.transitionPanelLifecycle("disposed", "providerDispose");
         this.panelDisposed = true;
         if (this.view) this.disposeResolvedWebviewView(this.view, this.viewGeneration);
@@ -4836,7 +4844,7 @@ export class RealtimeTunnelPanelProvider {
                 this.lastError = String(message?.error || "Webview 脚本启动失败").slice(0, 480);
                 this.recordActionError({ command, message: this.lastError, suggestion: "点击“重新加载面板”；若仍失败，请执行 Developer: Reload Window。" });
                 if (!this.webviewReady)
-                    this.showPanelRecovery(this.lastError);
+                    this.showPanelRecovery(this.lastError, false, `render-failed: ${this.lastError}`);
                 break;
             case "webviewRenderError":
                 if (message?.performanceWarning === true) {
@@ -17216,9 +17224,11 @@ export class RealtimeTunnelPanelProvider {
             reason: String(reason || "unknown").slice(0, 80),
             reloadRequired: versions.reloadRequired,
             lifecycle: this.panelLifecycleState,
-            postedStateSeq: telemetry?.postedSeq || 0,
-            receivedStateSeq: telemetry?.receivedSeq || 0,
-            renderedStateSeq: telemetry?.renderedSeq || 0,
+            postedStateSeq: this.lastPostedStateSeq || telemetry?.postedSeq || 0,
+            receivedStateSeq: this.lastReceivedStateSeq || telemetry?.receivedSeq || 0,
+            renderedStateSeq: this.latestPanelHeartbeatProgress?.renderedSeq ?? this.lastRenderedStateSeq ?? telemetry?.renderedSeq ?? 0,
+            previousHeartbeatRenderedSeq: this.latestPanelHeartbeatProgress?.previousRenderedSeq,
+            stalledAckCount: this.latestPanelHeartbeatProgress?.stalledAckCount ?? this.stateRenderStalledAcks,
             statePayloadBytes: telemetry?.payloadBytes || 0,
             stateBuildDurationMs: telemetry?.buildTotalMs || 0,
             telemetrySampleId: telemetry?.sampleId || 0,
@@ -17233,7 +17243,11 @@ export class RealtimeTunnelPanelProvider {
             runningBuildId: versions.runningBuildId, diskBuildId: versions.diskBuildId,
             documentGeneration: this.panelDocumentGeneration, viewGeneration: this.viewGeneration,
             webviewReady: this.webviewReady === true, viewVisible: this.view?.visible === true,
-            postedSeq: telemetry?.postedSeq || 0, receivedSeq: telemetry?.receivedSeq || 0, renderedSeq: telemetry?.renderedSeq || 0,
+            postedSeq: this.lastPostedStateSeq || telemetry?.postedSeq || 0,
+            receivedSeq: this.lastReceivedStateSeq,
+            renderedSeq: this.latestPanelHeartbeatProgress?.renderedSeq ?? this.lastRenderedStateSeq,
+            previousHeartbeatRenderedSeq: this.latestPanelHeartbeatProgress?.previousRenderedSeq,
+            stalledAckCount: this.latestPanelHeartbeatProgress?.stalledAckCount ?? this.stateRenderStalledAcks,
             payloadBytes: telemetry?.payloadBytes || 0, stateBuildDurationMs: telemetry?.buildTotalMs || 0,
         });
         this.panelLifecycleDiagnostics = [event, ...this.panelLifecycleDiagnostics].filter(Boolean).slice(0, PANEL_LIFECYCLE_DIAGNOSTIC_LIMIT);
@@ -17265,6 +17279,11 @@ export class RealtimeTunnelPanelProvider {
             viewGeneration: this.viewGeneration,
             lifecycle: this.panelLifecycleState,
             telemetry: this.latestPanelStateTelemetry || null,
+            postedSeq: this.lastPostedStateSeq || this.latestPanelStateTelemetry?.postedSeq || 0,
+            receivedSeq: this.lastReceivedStateSeq,
+            renderedSeq: this.latestPanelHeartbeatProgress?.renderedSeq ?? this.lastRenderedStateSeq,
+            ...(this.latestPanelHeartbeatProgress?.previousRenderedSeq !== undefined ? { previousHeartbeatRenderedSeq: this.latestPanelHeartbeatProgress.previousRenderedSeq } : {}),
+            stalledAckCount: this.latestPanelHeartbeatProgress?.stalledAckCount ?? this.stateRenderStalledAcks,
         };
     }
     private panelDiagnosticsApi(): Record<string, unknown> {
@@ -18790,7 +18809,7 @@ export class RealtimeTunnelPanelProvider {
             this.panelReadyWatchdogTimer = undefined;
             if (view && this.view === view && this.viewGeneration === generation && !this.webviewReady) {
                 this.recordPanelLifecycleDiagnostic("panelReadyWatchdogTimeout");
-                this.showPanelRecovery("面板在规定时间内没有完成启动握手。请重新加载面板。");
+                this.showPanelRecovery("面板在规定时间内没有完成启动握手。请重新加载面板。", false, "panelReadyWatchdogTimeout");
             }
         }, 10_000);
         this.panelReadyWatchdogTimer.unref?.();
@@ -18800,7 +18819,7 @@ export class RealtimeTunnelPanelProvider {
             clearTimeout(this.panelReadyWatchdogTimer);
         this.panelReadyWatchdogTimer = undefined;
     }
-    private showPanelRecovery(message: string, force = false): void {
+    private showPanelRecovery(message: string, force = false, recoveryReason = "panel-recovery"): void {
         if (!this.view || (this.webviewReady && !force))
             return;
         if (this.extensionRuntimeVersionState().reloadRequired) {
@@ -18816,6 +18835,7 @@ export class RealtimeTunnelPanelProvider {
         this.statePostInFlight = false;
         this.statePostAttemptId += 1;
         this.webviewReady = false;
+        this.lastPanelRecoveryReason = compactSensitiveText(String(recoveryReason || "panel-recovery"), 120) || "panel-recovery";
         this.transitionPanelLifecycle("recovering", "showPanelRecovery");
         const generation = ++this.panelDocumentGeneration;
         this.view.webview.html = this.stampPanelDocument(renderPanelRecoveryHtml(message, JSON.stringify(this.panelDiagnosticSummary())), generation);
@@ -18858,6 +18878,7 @@ export class RealtimeTunnelPanelProvider {
         this.panelHeartbeatTimeout = undefined;
     }
     private stampPanelDocument(html: string, generation: number): string {
+        this.resetPanelStateProgress();
         const runningVersion = String(this.runningBuildIdentity?.version || this.context?.extension?.packageJSON?.version || "");
         const documentBuildId = crypto.createHash("sha256")
             .update(String(this.viewGeneration) + ":" + String(generation) + ":" + String(Date.now()) + ":" + crypto.randomBytes(8).toString("hex"))
@@ -18876,7 +18897,18 @@ export class RealtimeTunnelPanelProvider {
         const renderedSeq = Number(message?.lastRenderedStateSeq);
         if (Number.isFinite(receivedSeq)) this.lastReceivedStateSeq = Math.max(this.lastReceivedStateSeq, receivedSeq);
         if (Number.isFinite(renderedSeq)) this.lastRenderedStateSeq = Math.max(this.lastRenderedStateSeq, renderedSeq);
-        const progress = PanelStateProgress_1.observeStateRenderProgress(this.lastPostedStateSeq, this.lastRenderedStateSeq, this.stateRenderStalledAcks, 3);
+        const hasRenderedSequence = Number.isFinite(renderedSeq);
+        const observedRenderedSeq = hasRenderedSequence ? Math.max(0, Math.floor(renderedSeq)) : (this.lastHeartbeatObservedRenderedStateSeq ?? this.lastRenderedStateSeq);
+        const previousRenderedSeq = this.lastHeartbeatObservedRenderedStateSeq;
+        const progress = hasRenderedSequence
+            ? PanelStateProgress_1.observeStateRenderProgress(this.lastPostedStateSeq, observedRenderedSeq, previousRenderedSeq, this.stateRenderStalledAcks, 3)
+            : { previousObservedRenderedSeq: observedRenderedSeq, consecutiveStalledAcks: this.stateRenderStalledAcks, unhealthy: false };
+        this.latestPanelHeartbeatProgress = {
+            renderedSeq: observedRenderedSeq,
+            ...(Number.isFinite(previousRenderedSeq) ? { previousRenderedSeq } : {}),
+            stalledAckCount: progress.consecutiveStalledAcks,
+        };
+        if (hasRenderedSequence) this.lastHeartbeatObservedRenderedStateSeq = progress.previousObservedRenderedSeq;
         this.stateRenderStalledAcks = progress.consecutiveStalledAcks;
         if (progress.unhealthy) {
             this.recoverPanelHeartbeatFailure("state-render-sequence-stalled");
@@ -18917,10 +18949,11 @@ export class RealtimeTunnelPanelProvider {
             return;
         this.panelUnknownHealthSince = 0;
         this.panelUnknownHealthGeneration = 0;
+        const diagnosticReason = reason === "面板暂时没有响应" ? "heartbeatTimeout" : reason;
         this.clearPanelHeartbeat();
         this.webviewReady = false;
         this.transitionPanelLifecycle("recovering", reason);
-        this.recordPanelLifecycleDiagnostic(reason === "面板暂时没有响应" ? "heartbeatTimeout" : reason);
+        this.recordPanelLifecycleDiagnostic(diagnosticReason);
         if (this.extensionRuntimeVersionState().reloadRequired) {
             this.showPanelReloadRequired();
             return;
@@ -18931,7 +18964,7 @@ export class RealtimeTunnelPanelProvider {
             this.lastPanelHeartbeatRecoveryAt = now;
             this.loadPanelHtml();
         } else {
-            this.showPanelRecovery(`面板渲染状态异常：${detail}。请点击重新加载面板；若仍失败，请执行 Developer: Reload Window。`, true);
+            this.showPanelRecovery(`面板渲染状态异常：${detail}。请点击重新加载面板；若仍失败，请执行 Developer: Reload Window。`, true, diagnosticReason);
         }
     }
     private schedulePanelHeartbeat(): void {
@@ -19162,7 +19195,7 @@ export class RealtimeTunnelPanelProvider {
             if (payloadBytes > this.statePayloadHardLimitBytes) {
                 this.transitionPanelLifecycle("recovering", "statePayloadUnsendable");
                 this.recordPanelLifecycleDiagnostic("statePayloadUnsendable");
-                this.showPanelRecovery("面板数据超过安全上限，已停止发送大型状态。请缩小结果历史范围后重试。");
+                this.showPanelRecovery("面板数据超过安全上限，已停止发送大型状态。请缩小结果历史范围后重试。", false, "statePayloadUnsendable");
                 return;
             }
         }
@@ -19202,7 +19235,7 @@ export class RealtimeTunnelPanelProvider {
             if (this.statePostRetryCount >= this.statePostRetryMax - 1) {
                 this.transitionPanelLifecycle("degraded", "statePostRetryLimit");
                 this.recordPanelLifecycleDiagnostic("statePostRetryLimit");
-                this.showPanelRecovery("面板状态连续发送失败。可重试或重载窗口。", true);
+                this.showPanelRecovery("面板状态连续发送失败。可重试或重载窗口。", true, "statePostRetryLimit");
             } else this.scheduleStatePostRetry();
         };
         const completePost = (delivered) => {
@@ -20389,6 +20422,8 @@ function normalizePanelLifecycleDiagnosticRow(value) {
         postedSeq: count(row.postedSeq),
         receivedSeq: count(row.receivedSeq),
         renderedSeq: count(row.renderedSeq),
+        ...(Number.isSafeInteger(row.previousHeartbeatRenderedSeq) && row.previousHeartbeatRenderedSeq >= 0 ? { previousHeartbeatRenderedSeq: row.previousHeartbeatRenderedSeq } : {}),
+        stalledAckCount: count(row.stalledAckCount),
         payloadBytes: count(row.payloadBytes),
         stateBuildDurationMs: count(row.stateBuildDurationMs),
     };
@@ -27721,6 +27756,8 @@ function compactPanelLifecycleDetails(details) {
         ...(safeCount(details.postedStateSeq) !== undefined ? { postedStateSeq: details.postedStateSeq } : {}),
         ...(safeCount(details.receivedStateSeq) !== undefined ? { receivedStateSeq: details.receivedStateSeq } : {}),
         ...(safeCount(details.renderedStateSeq) !== undefined ? { renderedStateSeq: details.renderedStateSeq } : {}),
+        ...(safeCount(details.previousHeartbeatRenderedSeq) !== undefined ? { previousHeartbeatRenderedSeq: details.previousHeartbeatRenderedSeq } : {}),
+        ...(safeCount(details.stalledAckCount) !== undefined ? { stalledAckCount: details.stalledAckCount } : {}),
         ...(safeCount(details.statePayloadBytes) !== undefined ? { statePayloadBytes: details.statePayloadBytes } : {}),
         ...(safeCount(details.stateBuildDurationMs) !== undefined ? { stateBuildDurationMs: details.stateBuildDurationMs } : {}),
         ...(safeCount(details.telemetrySampleId) !== undefined ? { telemetrySampleId: details.telemetrySampleId } : {}),
@@ -27733,6 +27770,7 @@ function panelLifecycleDiagnosticMessage(reason) {
         heartbeatPostFalse: "Webview heartbeat postMessage returned false",
         heartbeatPostRejected: "Webview heartbeat postMessage rejected",
         "state-render-sequence-stalled": "Webview state render stalled",
+        "state-render-frame-stalled": "Webview render frame stalled",
         statePostDeliveryTimeout: "Webview state delivery timed out",
         statePostRetryLimit: "Webview state delivery retry limit reached",
         statePayloadSoftLimit: "Webview state exceeded the soft payload warning threshold",
@@ -27745,6 +27783,7 @@ function panelLifecycleDiagnosticMessage(reason) {
         sectionSlow: "Webview section render exceeded the performance threshold",
     };
     if (messages[reason]) return messages[reason];
+    if (String(reason || "").startsWith("render-failed:")) return "Webview render failed: " + String(reason).slice(14, 110);
     if (String(reason || "").startsWith("visibilityProbeTimeout:")) return "Webview visibility health probe timed out";
     if (String(reason || "").startsWith("visibilityProbePostFalse")) return "Webview visibility health probe was rejected";
     if (String(reason || "").startsWith("visibilityProbePostRejected")) return "Webview visibility health probe failed";

@@ -40,7 +40,7 @@ function createHost(clock) {
   const sandbox = {
     ...clock,
     compactSensitiveText: (value) => String(value || "").slice(0, 180),
-    PanelStateProgress_1: { observeStateRenderProgress: () => ({ consecutiveStalledAcks: 0, unhealthy: false }) },
+    PanelStateProgress_1: { observeStateRenderProgress: (_posted, rendered) => ({ previousObservedRenderedSeq: rendered, consecutiveStalledAcks: 0, unhealthy: false }) },
   };
   vm.runInNewContext(`${code}\nthis.Subject = Subject;`, sandbox);
   const host = new sandbox.Subject();

@@ -30,15 +30,15 @@ function host(timer) {
   const source = fs.readFileSync(path.join(root, "src/extension/legacy.ts"), "utf8");
   const ast = ts.createSourceFile("provider.ts", source, ts.ScriptTarget.Latest, true);
   const provider = ast.statements.find((node) => ts.isClassDeclaration(node) && node.name.text === "RealtimeTunnelPanelProvider");
-  const methods = new Set(["schedulePanelHeartbeat", "clearPanelHeartbeat", "clearPanelReadyWatchdog", "disposeResolvedWebviewView", "handlePanelHeartbeatAck", "recoverPanelHeartbeatFailure", "stampPanelDocument"]);
-  const fields = /^(panelHeartbeat.*|panelRenderedHealth.*|panelDisposed|panelDocumentGeneration|viewGeneration|viewLifetimeDisposables|lastPanelHeartbeatRecoveryAt|webviewReady)$/;
+  const methods = new Set(["schedulePanelHeartbeat", "clearPanelHeartbeat", "clearPanelReadyWatchdog", "disposeResolvedWebviewView", "handlePanelHeartbeatAck", "recoverPanelHeartbeatFailure", "resetPanelStateProgress", "stampPanelDocument"]);
+  const fields = /^(panelHeartbeat.*|panelRenderedHealth.*|panelDisposed|panelDocumentGeneration|viewGeneration|viewLifetimeDisposables|lastPanelHeartbeatRecoveryAt|lastHeartbeatObservedRenderedStateSeq|latestPanelHeartbeatProgress|stateRenderStalledAcks|webviewReady)$/;
   const members = provider.members.filter((node) => node.name && (methods.has(node.name.getText(ast)) || (ts.isPropertyDeclaration(node) && fields.test(node.name.getText(ast)))));
   const code = ts.transpileModule("class Subject {\n" + members.map((node) => node.getText(ast)).join("\n") + "\n}", { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
   const sandbox = {
     ...timer,
     crypto,
     compactSensitiveText: (value) => String(value || "").slice(0, 180),
-    PanelStateProgress_1: { observeStateRenderProgress: () => ({ consecutiveStalledAcks: 0, unhealthy: false }) },
+    PanelStateProgress_1: { observeStateRenderProgress: (_posted, rendered) => ({ previousObservedRenderedSeq: rendered, consecutiveStalledAcks: 0, unhealthy: false }) },
   };
   vm.runInNewContext(code + "\nthis.Subject = Subject;", sandbox);
   const result = new sandbox.Subject();

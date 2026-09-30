@@ -49,7 +49,7 @@ test("panel ready watchdog is cleared on ready, recovery, reload, and dispose", 
 
   assert.match(resolveFlow, /this\.loadPanelHtml\(\)/);
   assert.match(messageFlow, /this\.clearPanelReadyWatchdog\(\)/);
-  assert.match(watchdogFlow, /private showPanelRecovery\(message: string, force = false\): void/);
+  assert.match(watchdogFlow, /private showPanelRecovery\(message: string, force = false, recoveryReason = "panel-recovery"\): void/);
   assert.match(watchdogFlow, /this\.clearPanelReadyWatchdog\(\)/);
   assert.match(watchdogFlow, /renderPanelRecoveryHtml\(message, JSON\.stringify\(this\.panelDiagnosticSummary\(\)\)\)/);
   assert.match(watchdogFlow, /this\.extensionRuntimeVersionState\(\)\.reloadRequired[\s\S]{0,100}this\.showPanelReloadRequired\(\)/);
@@ -104,7 +104,7 @@ test("heartbeat recovery records lifecycle context and uses reload page only for
   assert.match(heartbeat, /this\.recordPanelLifecycleDiagnostic\(/);
   assert.match(heartbeat, /this\.extensionRuntimeVersionState\(\)\.reloadRequired[\s\S]{0,120}this\.showPanelReloadRequired\(\)/);
   assert.match(heartbeat, /this\.loadPanelHtml\(\)/);
-  assert.match(heartbeat, /this\.showPanelRecovery\([\s\S]{0,180}, true\)/);
+  assert.match(heartbeat, /this\.showPanelRecovery\([\s\S]{0,220}, true, diagnosticReason\)/);
   assert.match(lifecycle, /runningVersion/);
   assert.match(lifecycle, /installedVersion/);
   for (const field of ["documentGeneration", "viewGeneration", "webviewReady", "viewVisible", "reason", "reloadRequired"]) assert.match(lifecycle, new RegExp(field));
