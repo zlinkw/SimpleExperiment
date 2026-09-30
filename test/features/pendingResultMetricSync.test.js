@@ -55,7 +55,7 @@ test("the result table button merges every known result scope before any metric 
   assert.match(manual, /localPlanMetadata\.plans/);
   assert.match(manual, /targets\.length >= 2/);
   assert.match(manual, /outcome === false/);
-  assert.match(manual, /mergeConflictForPlan\(unverifiedScopes, item, candidates\)/);
+  assert.match(manual, /mergeConflictForPlan\(unverifiedScopes, item, item\.candidates\)/);
   assert.match(manual, /acceptedCompletedRevision\(/);
   assert.match(manual, /metricsOnly: true/);
   assert.equal(manual.match(/mergeLatestWorkerVersions\(/g).length, 1);
@@ -180,6 +180,52 @@ function providerFor(workspace, options = {}) {
   return provider;
 }
 
+test("dataset metadata overrides stale directory hints and preserves the old local table", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-result-layout-sync-"));
+  const legacy = path.join(workspace, "experiments/results/final/final.csv");
+  fs.mkdirSync(path.dirname(legacy), { recursive: true });
+  fs.writeFileSync(legacy, "old table retained", "utf8");
+  const provider = providerFor(workspace, { onlyFirst: true });
+  const newPath = "simple_cluster/results/by_plan/a__stable/datasets/set/final.csv";
+  provider.localPlanMetadata.plans[0].outputSignals = ["结果目录：old_layout/full_outputs"];
+  provider.client.getResultsSummary = async planFile => ({
+    ...summaryFor(planFile, "w1"),
+    datasetResultTables: [{ dataset: "set", datasetKey: "set", finalCsvPath: newPath }],
+  });
+  provider.loadDistributedQueue = async () => ({ plans: [] });
+  const originalSftp = provider.simpleSftpApiCall;
+  provider.simpleSftpApiCall = async (method, params) => {
+    if (method !== "sync.projectInventory") return originalSftp(method, params);
+    provider.calls.push([method, params]);
+    assert.equal(params.relativePath, ".");
+    assert.ok(params.scopePaths.includes(newPath));
+    assert.ok(params.scopePaths.every(file => /\.(csv|json|md)$/.test(file)));
+    return { files: Object.fromEntries(params.scopePaths.map(file => [file, { sha256: "a".repeat(64), size: 10 }])) };
+  };
+  provider.mergeLatestWorkerVersions = function (...args) {
+    this.calls.push(["merge", args[2]]);
+    return require("../../dist/extension/legacy.js").RealtimeTunnelPanelProvider.prototype.mergeLatestWorkerVersions.call(this, ...args);
+  };
+  const result = await require("../../dist/extension/legacy.js").__syncPendingResultMetricsForTest(provider);
+  assert.equal(result.downloaded, true);
+  const scopes = provider.calls.find(call => call[0] === "merge")[1];
+  assert.ok(scopes.includes(newPath));
+  assert.ok(scopes.every(file => /\.(csv|json|md)$/.test(file)));
+  assert.equal(scopes.some(file => file.startsWith("old_layout/")), false);
+  assert.equal(fs.readFileSync(legacy, "utf8"), "old table retained");
+  assert.ok(fs.existsSync(path.join(workspace, "experiments/results/set/final/final.csv")));
+  assert.equal(provider.calls.filter(call => call[0] === "sync.projectInventory").length, 2);
+});
+
+test("unindexed summaries never invoke the full directory merge fallback", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-result-empty-sync-"));
+  const provider = providerFor(workspace, { onlyFirst: true });
+  provider.client.getResultsSummary = async planFile => ({ planFile, planRevision: "r1", results: [] });
+  await assert.rejects(require("../../dist/extension/legacy.js").__syncPendingResultMetricsForTest(provider), /服务器摘要尚未收录可解析的 CSV/);
+  assert.equal(provider.calls.some(call => call[0] === "merge"), false);
+  assert.equal(provider.calls.some(call => call[0] === "sync.downloadMappedPaths"), false);
+});
+
 test("two pending plans merge on all workers before either metric download when no plan is selected", async () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-result-metrics-"));
   try {
@@ -192,7 +238,7 @@ test("two pending plans merge on all workers before either metric download when 
     const firstDownload = provider.calls.findIndex((call) => call[0] === "sync.downloadMappedPaths");
     const lastMerge = provider.calls.map((call) => call[0]).lastIndexOf("merge");
     assert.equal(merges.length, 1);
-    assert.deepEqual(merges[0][1], ["simple_cluster/results/w1", "simple_cluster/results/w2"]);
+    assert.deepEqual(merges[0][1], ["simple_cluster/results/w1/detail.csv", "simple_cluster/results/w1/raw.csv", "simple_cluster/results/w2/detail.csv", "simple_cluster/results/w2/raw.csv"]);
     assert.ok(lastMerge >= 0 && lastMerge < firstDownload);
     const mapped = provider.calls.filter((call) => call[0] === "sync.downloadMappedPaths");
     assert.equal(mapped.length, 2);

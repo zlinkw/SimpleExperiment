@@ -7144,7 +7144,7 @@ export class RealtimeTunnelPanelProvider {
         const holds = await loadSyncHolds(this.context.globalStorageUri.fsPath, root);
         return [...entries.values()].map((row) => ({ ...row, held: isSyncHeld(row.path, holds) })).sort((a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name));
     }
-    async refreshSyncScopeStatus(root, targets, mode, selectedPaths, relative = ".") {
+    async refreshSyncScopeStatus(root, targets, mode, selectedPaths, relative = ".", signal?: AbortSignal) {
         const unverified = {};
         const localUnverified = {};
         const local = mode === "local-server"
@@ -7157,8 +7157,10 @@ export class RealtimeTunnelPanelProvider {
         const inventoryScope = mode === "server-server" && selectedPaths.length && !selectedPaths.includes(".") ? selectedPaths : undefined;
         const results = await Promise.allSettled(targets.map((target) => this.simpleSftpApiCall("sync.projectInventory", {
             source: this.sftpServerOptions(target), relativePath: relative, recursive: true, timeoutMs: 120000,
+            ...(signal ? { signal } : {}),
             ...(mode === "local-server" || inventoryScope ? { scopePaths: inventoryScope || selectedPaths } : {}),
         })));
+        if (signal?.aborted) throw new UiCommandCancelled("同步服务器结果已取消，未下载指标文件。");
         const errors = [];
         for (let index = 0; index < targets.length; index++) {
             const target = targets[index];
@@ -7190,7 +7192,12 @@ export class RealtimeTunnelPanelProvider {
             : aggregate;
         return statuses;
     }
-    async mergeLatestWorkerVersions(root, targets, selectedPaths, relative, report = (_stage: string) => {}) {
+    async mergeLatestWorkerVersions(root, targets, selectedPaths, relative, report = (_stage: string) => {}, options: { metricsOnly?: boolean; signal?: AbortSignal } = {}) {
+        const checkCancelled = () => { if (options.signal?.aborted) throw new UiCommandCancelled("同步服务器结果已取消，未下载指标文件。"); };
+        checkCancelled();
+        if (options.metricsOnly && !selectedPaths.length) return { completed: [], errors: [] };
+        if (options.metricsOnly && selectedPaths.some((file) => !isResultMetricFile(file)))
+            throw new Error("结果版本校验必须限定到摘要中的具体指标文件。");
         if (this.syncScopeMutationInFlight || this.planSyncInFlight || this.codeSyncInFlight)
             throw new Error("同步或文件树操作进行中，请完成后重试。");
         if (targets.length < 2) throw new Error("至少需要两台已启用 Worker。");
@@ -7201,12 +7208,9 @@ export class RealtimeTunnelPanelProvider {
         if (configured.some((id) => !targets.some((target) => target.id === id))) throw new Error("有 Worker 未连接或未启用；请恢复连接后再合并最新版。");
         this.syncScopeMutationInFlight = true;
         try {
-            report("正在校验所选目录内各 Worker 的文件版本");
-            const statuses = {};
-            if (bounded) {
-                for (const scope of selectedPaths) Object.assign(statuses, await this.refreshSyncScopeStatus(root, targets, "server-server", [scope], scope));
-            }
-            else Object.assign(statuses, await this.refreshSyncScopeStatus(root, targets, "server-server", selectedPaths, relative));
+            report(`正在校验 ${targets.length} 台 Worker 的 ${selectedPaths.length} 条结果或目录路径`);
+            const statuses = await this.refreshSyncScopeStatus(root, targets, "server-server", selectedPaths, relative, options.signal);
+            checkCancelled();
             const failedInventory = [relative, ...(bounded ? selectedPaths : [])].map((scope) => statuses[scope]).find((row) => row?.detail?.includes("清单校验失败"));
             if (failedInventory) throw new Error(failedInventory.detail);
             const scoped = selectedPaths.includes(".")
@@ -7231,7 +7235,9 @@ export class RealtimeTunnelPanelProvider {
             ]);
             report(`等待核对 ${work.length} 个文件的来源和目标路径`);
             if (!await confirmSyncScopePaths("按最新版合并 Worker 文件", `逐文件采用 Plan 最新运行记录、手动选定版本或唯一最新时间候选；只同步内容不同的 Worker 副本。${skipped.length} 个文件将跳过。`, paths, "确认按最新版同步")) return false;
+            checkCancelled();
             const results = await runSyncScopeBatch(work, async (item) => {
+                checkCancelled();
                 await this.retainSyncScopeVersion(root, targets, item.path, item.sourceId, false,
                     (stage: string) => report(`${item.path}：${stage}`), true, item.destinationIds);
             }, (done, total) => report(`已完成 ${done}/${total}`), 2);
@@ -14668,22 +14674,8 @@ export class RealtimeTunnelPanelProvider {
         const unreachable = configured.filter((id) => !targets.some((target) => target.id === id));
         if (unreachable.length && !targets.length)
             throw new Error("有 Worker 未连接或未启用；请恢复连接后再合并最新版。未下载指标文件。");
-        const scopePaths = [...new Set(known.flatMap((item) => resultMetricMergeScopePaths(item.metadata, item.planFile, item.scopeHints)))].sort();
         let merged = targets.length < 2;
         const unverifiedScopes = new Set();
-        if (targets.length >= 2 && !options.background) {
-            if (!isCurrent())
-                return { merged: false, downloaded: false, reason: "revision-changed" };
-            const outcome = await this.mergeLatestWorkerVersions(root, targets, scopePaths, ".", (stage) => {
-                void vscode.window.setStatusBarMessage(`同步服务器结果：${stage}`, 4000);
-            });
-            if (outcome === false)
-                throw new UiCommandCancelled("已取消按最新版合并，未下载指标文件。");
-            const blocking = (Array.isArray(outcome?.errors) ? outcome.errors : []).filter((item) => item && !/没有需要同步的 Worker 文件|：代码以本机为准/.test(String(item)));
-            for (const item of blocking)
-                unverifiedScopes.add(String(item));
-            merged = true;
-        }
         if (!isCurrent())
             return { merged: false, downloaded: false, reason: "revision-changed" };
         const ready = [];
@@ -14716,13 +14708,37 @@ export class RealtimeTunnelPanelProvider {
             item.acceptedRunId = acceptance.runId;
             item.revisionNote = acceptance.note;
             const candidates = resultMetricDownloadCandidates(summary, item.planFile);
-            const conflict = mergeConflictForPlan(unverifiedScopes, item, candidates);
-            if (conflict) {
-                issues.push(item.planFile + "：" + conflict);
-                continue;
-            }
             ready.push({ ...item, summary, candidates });
         }
+        // The summary owns both legacy and dataset-first paths. Never recursively hash
+        // old output directories (or the entire project when those hints are empty).
+        const scopePaths = [...new Set(ready.flatMap((item) => item.candidates.map((candidate) => candidate.remotePath)))].sort();
+        if (targets.length >= 2 && scopePaths.length && !options.background) {
+            if (token.isCancellationRequested || !isCurrent()) { summaryCancelled = true; return; }
+            const abort = new AbortController();
+            const cancellation = token.onCancellationRequested?.(() => abort.abort());
+            let outcome;
+            try {
+                outcome = await this.mergeLatestWorkerVersions(root, targets, scopePaths, ".", (stage) => {
+                    progress.report({ message: stage });
+                    void vscode.window.setStatusBarMessage(`同步服务器结果：${stage}`, 4000);
+                }, { metricsOnly: true, signal: abort.signal });
+            } finally { cancellation?.dispose(); }
+            if (outcome === false)
+                throw new UiCommandCancelled("已取消按最新版合并，未下载指标文件。");
+            const blocking = (Array.isArray(outcome?.errors) ? outcome.errors : []).filter((item) => item && !/没有需要同步的 Worker 文件|：代码以本机为准/.test(String(item)));
+            for (const item of blocking) unverifiedScopes.add(String(item));
+        }
+        merged = true;
+        for (let index = ready.length - 1; index >= 0; index--) {
+            const item = ready[index];
+            const conflict = mergeConflictForPlan(unverifiedScopes, item, item.candidates);
+            if (conflict) {
+                issues.push(item.planFile + "：" + conflict);
+                ready.splice(index, 1);
+            }
+        }
+        if (token.isCancellationRequested || !isCurrent()) { summaryCancelled = true; return; }
         await this.recoverCompletedJobMetricFiles(projectContext, ready, isCurrent, token);
         for (const item of ready) {
             item.candidates = resultMetricDownloadCandidates(item.summary, item.planFile);
