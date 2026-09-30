@@ -3,6 +3,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const vm = require("node:vm");
+const crypto = require("node:crypto");
 const ts = require("typescript");
 const root = path.resolve(__dirname, "../..");
 
@@ -33,19 +34,31 @@ function host(timer) {
   const fields = /^(panelHeartbeat.*|panelRenderedHealth.*|panelDisposed|panelDocumentGeneration|viewGeneration|viewLifetimeDisposables|lastPanelHeartbeatRecoveryAt|webviewReady)$/;
   const members = provider.members.filter((node) => node.name && (methods.has(node.name.getText(ast)) || (ts.isPropertyDeclaration(node) && fields.test(node.name.getText(ast)))));
   const code = ts.transpileModule("class Subject {\n" + members.map((node) => node.getText(ast)).join("\n") + "\n}", { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-  const sandbox = { ...timer, compactSensitiveText: (value) => String(value || "").slice(0, 180) };
+  const sandbox = {
+    ...timer,
+    crypto,
+    compactSensitiveText: (value) => String(value || "").slice(0, 180),
+    PanelStateProgress_1: { observeStateRenderProgress: () => ({ consecutiveStalledAcks: 0, unhealthy: false }) },
+  };
   vm.runInNewContext(code + "\nthis.Subject = Subject;", sandbox);
   const result = new sandbox.Subject();
   result.view = { visible: true, webview: { postMessage: (message) => { result.messages.push(message); return Promise.resolve(true); } } };
   result.messages = []; result.webviewReady = true;
   result.reloaded = 0; result.recoveryCards = 0;
   result.panelDocumentGeneration = 7;
+  result.transitionPanelLifecycle = (state) => { result.panelLifecycleState = state; };
+  result.recordPanelLifecycleDiagnostic = (reason) => { (result.diagnostics ||= []).push(reason); };
+  result.extensionRuntimeVersionState = () => ({ reloadRequired: false });
   result.loadPanelHtml = () => { result.reloaded++; result.panelDocumentGeneration++; result.webviewReady = true; result.schedulePanelHeartbeat(); };
   result.showPanelRecovery = () => { result.recoveryCards++; result.panelDocumentGeneration++; result.webviewReady = false; };
   return result;
 }
 
-test("a live heartbeat cannot hide an unhealthy render after a one hour panel session", () => {
+async function flushMicrotasks() {
+  for (let i = 0; i < 5; i++) await Promise.resolve();
+}
+
+test("a live heartbeat cannot hide an unhealthy render after a one hour panel session", async () => {
   const timer = clock(), provider = host(timer);
   provider.userDraft = "unsaved text";
   provider.selection = { plan: "experiments/plans/a.yaml", row: 4 };
@@ -53,6 +66,7 @@ test("a live heartbeat cannot hide an unhealthy render after a one hour panel se
   assert.equal(typeof provider.handlePanelHeartbeatAck, "function", "host must inspect rendered health in heartbeat ACKs");
   for (let elapsed = 0; elapsed < 60 * 60_000; elapsed += 30_000) {
     timer.advance(30_000);
+    await flushMicrotasks();
     const request = provider.messages.at(-1);
     if (!request) break;
     provider.handlePanelHeartbeatAck({ heartbeatId: request.heartbeatId, documentGeneration: request.documentGeneration,
@@ -65,10 +79,11 @@ test("a live heartbeat cannot hide an unhealthy render after a one hour panel se
   assert.ok(timer.timers.size <= 1, "a long session must keep timer count bounded");
 });
 
-test("old-document heartbeat ACKs leave the current timeout fenced", () => {
+test("old-document heartbeat ACKs leave the current timeout fenced", async () => {
   const timer = clock(), provider = host(timer);
   provider.schedulePanelHeartbeat();
   timer.advance(30_000);
+  await flushMicrotasks();
   const request = provider.messages.at(-1);
   const timeout = provider.panelHeartbeatTimeout;
   provider.handlePanelHeartbeatAck({ heartbeatId: request.heartbeatId, documentGeneration: provider.panelDocumentGeneration - 1,
@@ -78,10 +93,11 @@ test("old-document heartbeat ACKs leave the current timeout fenced", () => {
   assert.equal(provider.reloaded, 1);
 });
 
-test("legacy ACKs remain accepted and bootstrap unknown health is non-fatal", () => {
+test("legacy ACKs remain accepted and bootstrap unknown health is non-fatal", async () => {
   const timer = clock(), provider = host(timer);
   provider.schedulePanelHeartbeat();
   timer.advance(30_000);
+  await flushMicrotasks();
   let request = provider.messages.at(-1);
   provider.handlePanelHeartbeatAck({ heartbeatId: request.heartbeatId });
   assert.equal(provider.panelHeartbeatTimeout, undefined);
@@ -99,11 +115,12 @@ test("host stamps each generated document with an immutable view generation", ()
   assert.match(html, /<!-- panel-document-42 -->/);
 });
 
-test("unknown render states for bootstrap, hidden documents, and pending state do not force recovery", () => {
+test("unknown render states for bootstrap, hidden documents, and pending state do not force recovery", async () => {
   const timer = clock(), provider = host(timer);
   provider.schedulePanelHeartbeat();
   for (const reason of ["bootstrap", "document-hidden", "awaiting-first-render", "state-render-pending"]) {
     timer.advance(30_000);
+    await flushMicrotasks();
     const request = provider.messages.at(-1);
     provider.handlePanelHeartbeatAck({ heartbeatId: request.heartbeatId, documentGeneration: provider.panelDocumentGeneration,
       renderHealth: { status: "unknown", reason } });
@@ -113,10 +130,11 @@ test("unknown render states for bootstrap, hidden documents, and pending state d
   assert.equal(timer.timers.size, 1);
 });
 
-test("a retained renderer that stops replying gets bounded recovery instead of a reload loop", () => {
+test("a retained renderer that stops replying gets bounded recovery instead of a reload loop", async () => {
   const timer = clock(), provider = host(timer);
   provider.schedulePanelHeartbeat();
   timer.advance(30_000);
+  await flushMicrotasks();
   assert.equal(provider.messages[0].type, "panelHeartbeat");
   timer.advance(12_000);
   assert.equal(provider.reloaded, 1);
@@ -128,10 +146,11 @@ test("a retained renderer that stops replying gets bounded recovery instead of a
   assert.equal(provider.reloaded, 1);
 });
 
-test("hidden and disposed views cannot trigger recovery or leave post timers behind", () => {
+test("hidden and disposed views cannot trigger recovery or leave post timers behind", async () => {
   const timer = clock(), provider = host(timer);
   provider.schedulePanelHeartbeat();
   timer.advance(30_000);
+  await flushMicrotasks();
   provider.view.visible = false;
   timer.advance(12_000);
   assert.equal(provider.reloaded, 0);

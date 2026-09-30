@@ -36,9 +36,16 @@ test("buildState catalog is scanned once, cached with explicit invalidation, and
   subject.cachedResultCatalog("C:/workspace", { a: "A" });
   assert.equal(scans, 2);
 
-  const buildState = source.slice(source.indexOf("private buildState()"), source.indexOf("currentUiLayoutState()", source.indexOf("private buildState()")));
+  const buildStateStart = source.indexOf("private buildState()");
+  const buildStateEnd = source.indexOf("\n    currentUiLayoutState()", buildStateStart);
+  const buildState = source.slice(buildStateStart, buildStateEnd);
   assert.equal((buildState.match(/ProjectResultTables\.resultCatalog\(/g) || []).length, 0);
   assert.match(buildState, /this\.cachedResultCatalog\(/);
   assert.match(buildState, /this\.compactResultTablesFromCatalog\(resultCatalog\)/);
   assert.doesNotMatch(buildState, /ProjectResultTables\.tableCatalog\(/);
+  for (const stage of ["runtimeEvidence", "resultCatalog", "plans", "traces", "diagnostics", "total"]) {
+    assert.match(buildState, new RegExp(`lastBuildStateStageDurations\\.${stage}\\s*=`));
+  }
+  assert.match(buildState, /stateBuildStageDurations: \{ \.\.\.this\.lastBuildStateStageDurations \}/);
+  assert.match(buildState, /stateBuildSlowStages: Object\.fromEntries/);
 });

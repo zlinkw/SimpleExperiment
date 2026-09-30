@@ -71,6 +71,7 @@ test("rendered diagnostic rows expose real navigation and keep the original mess
   vm.runInContext([
     extractFunction(panel, "actionErrorLinksFor"),
     extractFunction(panel, "actionErrorGuide"),
+    extractFunction(panel, "actionErrorDiagnosticSummary"),
     extractFunction(panel, "renderActionErrorRow"),
     "this.render = renderActionErrorRow;",
   ].join("\n"), sandbox);
@@ -94,6 +95,14 @@ test("rendered diagnostic rows expose real navigation and keep the original mess
   assert.match(unknown, /data-section-target="diagnostics"/);
   assert.match(unknown, /data-anchor-target="diagnostics-errors"/);
   assert.doesNotMatch(unknown, /data-command="stopAndClearPlan"/);
+  const heartbeat = sandbox.render({
+    command: "panelLifecycle",
+    message: "Webview heartbeat timeout",
+    details: { reason: "heartbeatTimeout", lifecycle: "recovering", postedStateSeq: 8, receivedStateSeq: 8, renderedStateSeq: 6, statePayloadBytes: 8192, stateBuildDurationMs: 47 },
+  });
+  assert.match(heartbeat, /诊断：原因 heartbeatTimeout/);
+  assert.match(heartbeat, /已发\/已收\/已渲染 8\/8\/6/);
+  assert.match(heartbeat, /载荷 8192 B/);
   const clicks = [];
   const document = {
     querySelector(selector) {
@@ -129,4 +138,48 @@ test("string and Error action records keep a visible message and next step", () 
   assert.equal(fromObject.command, "distributedPlanQueue");
   assert.equal(fromObject.message, "boom");
   assert.match(fromObject.suggestion, /原因还不明确/);
+});
+
+test("panel lifecycle diagnostics survive persistence with bounded, non-sensitive detail", () => {
+  const source = fs.readFileSync(path.join(root, "src/extension/legacy.ts"), "utf8");
+  const sandbox = {
+    Date,
+    UI_ACTION_ERROR_MESSAGE_LIMIT: 480,
+    UI_ACTION_ERROR_SUGGESTION_LIMIT: 240,
+    UI_ACTION_ERROR_CAPABILITY_LIMIT: 8,
+    actionErrorSuggestion: () => "retry",
+  };
+  vm.createContext(sandbox);
+  vm.runInContext([
+    extractFunction(source, "redactSensitiveText"),
+    extractFunction(source, "compactSensitiveText"),
+    extractFunction(source, "compactPanelLifecycleDetails"),
+    extractFunction(source, "panelLifecycleDiagnosticMessage"),
+    extractFunction(source, "normalizeUiActionError"),
+    extractFunction(source, "compactUiActionError"),
+    extractFunction(source, "normalizeActionErrorRow"),
+    "this.compact = compactUiActionError; this.normalize = normalizeActionErrorRow;",
+  ].join("\n"), sandbox);
+  const row = sandbox.compact({
+    command: "panelLifecycle",
+    message: "Webview heartbeat timeout",
+    details: {
+      reason: "heartbeatTimeout", registryState: "match", runningVersion: "0.5.198", installedVersion: "0.5.198",
+      runningFingerprint: "0123456789abcdef", diskFingerprint: "fedcba9876543210", lifecycle: "recovering",
+      documentGeneration: 4, viewGeneration: 2, postedStateSeq: 8, receivedStateSeq: 8, renderedStateSeq: 6,
+      statePayloadBytes: 8192, stateBuildDurationMs: 47, token: "must-not-survive", path: "C:/private/project",
+    },
+  });
+  assert.equal(sandbox.panelLifecycleDiagnosticMessage("heartbeatTimeout"), "Webview heartbeat timeout");
+  assert.equal(sandbox.panelLifecycleDiagnosticMessage("state-render-sequence-stalled"), "Webview state render stalled");
+  assert.equal(row.details.runningFingerprint, "0123456789ab");
+  assert.equal(row.details.diskFingerprint, "fedcba987654");
+  assert.equal(row.details.renderedStateSeq, 6);
+  const persisted = sandbox.normalize(JSON.parse(JSON.stringify(row)));
+  assert.deepEqual(JSON.parse(JSON.stringify(persisted.details)), JSON.parse(JSON.stringify(row.details)));
+  assert.doesNotMatch(JSON.stringify(persisted), /must-not-survive|private\/project/);
+  const ordinary = sandbox.normalize({ command: "snapshot", message: "ordinary", details: { token: "secret" } });
+  assert.equal(ordinary.command, "snapshot");
+  assert.equal(ordinary.message, "ordinary");
+  assert.equal(Object.hasOwn(ordinary, "details"), false);
 });

@@ -37,13 +37,20 @@ function createHost(clock) {
   const fields = /^(panelHeartbeat.*|panelUnknownHealth.*|panelDisposed|panelDocumentGeneration|viewGeneration|lastPanelHeartbeatRecoveryAt|webviewReady)$/;
   const members = provider.members.filter((node) => node.name && (methods.has(node.name.getText(ast)) || (ts.isPropertyDeclaration(node) && fields.test(node.name.getText(ast)))));
   const code = ts.transpileModule(`class Subject {\n${members.map((node) => node.getText(ast)).join("\n")}\n}`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-  const sandbox = { ...clock, compactSensitiveText: (value) => String(value || "").slice(0, 180) };
+  const sandbox = {
+    ...clock,
+    compactSensitiveText: (value) => String(value || "").slice(0, 180),
+    PanelStateProgress_1: { observeStateRenderProgress: () => ({ consecutiveStalledAcks: 0, unhealthy: false }) },
+  };
   vm.runInNewContext(`${code}\nthis.Subject = Subject;`, sandbox);
   const host = new sandbox.Subject();
   host.view = { visible: true, webview: { postMessage: (message) => { host.messages.push(message); return Promise.resolve(true); } } };
   host.messages = [];
   host.webviewReady = true;
   host.panelDocumentGeneration = 7;
+  host.transitionPanelLifecycle = (state) => { host.panelLifecycleState = state; };
+  host.recordPanelLifecycleDiagnostic = (reason) => { (host.diagnostics ||= []).push(reason); };
+  host.extensionRuntimeVersionState = () => ({ reloadRequired: false });
   host.reloaded = 0;
   host.recoveryCards = 0;
   host.loadPanelHtml = () => { host.reloaded++; host.panelDocumentGeneration++; host.webviewReady = true; host.schedulePanelHeartbeat(); };
@@ -51,43 +58,45 @@ function createHost(clock) {
   return host;
 }
 
-function ackNext(clock, host, renderHealth) {
+async function ackNext(clock, host, renderHealth) {
   clock.advance(30_000);
+  for (let i = 0; i < 5; i++) await Promise.resolve();
   const request = host.messages.at(-1);
   host.handlePanelHeartbeatAck({ heartbeatId: request.heartbeatId, documentGeneration: request.documentGeneration, renderHealth });
 }
 
-test("persistent current-generation unknown health triggers one bounded recovery after grace", () => {
+test("persistent current-generation unknown health triggers one bounded recovery after grace", async () => {
   const clock = makeClock();
   const host = createHost(clock);
   host.userDraft = "unsaved plan text";
   host.schedulePanelHeartbeat();
-  for (let i = 0; i < 4; i++) ackNext(clock, host, { status: "unknown", reason: "render-status-unavailable" });
+  for (let i = 0; i < 4; i++) await ackNext(clock, host, { status: "unknown", reason: "render-status-unavailable" });
   assert.equal(host.reloaded, 1);
   assert.equal(host.userDraft, "unsaved plan text");
   assert.ok(clock.timers.size <= 1);
 });
 
-test("bootstrap, hidden, and pending unknown states retain grace and draft", () => {
+test("bootstrap, hidden, and pending unknown states retain grace and draft", async () => {
   const clock = makeClock();
   const host = createHost(clock);
   host.userDraft = "unsaved plan text";
   host.schedulePanelHeartbeat();
   for (const reason of ["bootstrap", "document-hidden", "awaiting-first-render", "state-render-pending", "render-health-probe-pending", "render-health-probe-pending"]) {
-    ackNext(clock, host, { status: "unknown", reason });
+    await ackNext(clock, host, { status: "unknown", reason });
   }
   assert.equal(host.reloaded, 0);
   assert.equal(host.recoveryCards, 0);
   assert.equal(host.userDraft, "unsaved plan text");
 });
 
-test("stale-generation ACK cannot reset the current unknown-health grace", () => {
+test("stale-generation ACK cannot reset the current unknown-health grace", async () => {
   const clock = makeClock();
   const host = createHost(clock);
   host.schedulePanelHeartbeat();
-  ackNext(clock, host, { status: "unknown", reason: "render-status-unavailable" });
+  await ackNext(clock, host, { status: "unknown", reason: "render-status-unavailable" });
   const since = host.panelUnknownHealthSince;
   clock.advance(30_000);
+  for (let i = 0; i < 5; i++) await Promise.resolve();
   const request = host.messages.at(-1);
   host.handlePanelHeartbeatAck({ heartbeatId: request.heartbeatId, documentGeneration: request.documentGeneration - 1,
     renderHealth: { status: "ok", reason: "stale" } });
@@ -95,11 +104,11 @@ test("stale-generation ACK cannot reset the current unknown-health grace", () =>
   assert.ok(host.panelHeartbeatTimeout);
 });
 
-test("healthy current-generation ACK resets unknown-health age", () => {
+test("healthy current-generation ACK resets unknown-health age", async () => {
   const clock = makeClock();
   const host = createHost(clock);
   host.schedulePanelHeartbeat();
-  ackNext(clock, host, { status: "unknown", reason: "render-status-unavailable" });
-  ackNext(clock, host, { status: "ok", reason: "render-completed" });
+  await ackNext(clock, host, { status: "unknown", reason: "render-status-unavailable" });
+  await ackNext(clock, host, { status: "ok", reason: "render-completed" });
   assert.equal(host.panelUnknownHealthSince, 0);
 });

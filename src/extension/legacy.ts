@@ -810,6 +810,8 @@ export class RealtimeTunnelPanelProvider {
     private panelLifecycleGeneration = 0;
     private lastStatePayloadBytes = 0;
     private lastStateBuildDurationMs = 0;
+    private lastBuildStateStageDurations = { runtimeEvidence: 0, resultCatalog: 0, plans: 0, traces: 0, diagnostics: 0, total: 0 };
+    private readonly buildStateSlowStageThresholdMs = 250;
     private readonly statePostDeliveryTimeoutMs = 7000;
     private readonly statePayloadSoftLimitBytes = 4 * 1024 * 1024;
     private readonly statePayloadHardLimitBytes = 8 * 1024 * 1024;
@@ -17154,7 +17156,7 @@ export class RealtimeTunnelPanelProvider {
         const versions = this.extensionRuntimeVersionState();
         const entry = {
             command: "panelLifecycle",
-            message: reason === "heartbeatPostRejected" ? "Webview heartbeat postMessage rejected" : reason === "heartbeatPostFalse" ? "Webview heartbeat postMessage returned false" : reason === "extensionRegistryChanged" ? "Installed extension version differs from the running Extension Host" : "Webview heartbeat timeout",
+            message: panelLifecycleDiagnosticMessage(reason),
             details: {
                 runningVersion: versions.runningVersion,
                 installedVersion: versions.installedVersion,
@@ -18347,15 +18349,19 @@ export class RealtimeTunnelPanelProvider {
         } as WebviewClusterState;
     }
     private buildState(): WebviewClusterState {
+        const totalStartedAt = Date.now();
+        this.lastBuildStateStageDurations = { runtimeEvidence: 0, resultCatalog: 0, plans: 0, traces: 0, diagnostics: 0, total: 0 };
         const schedulerConfig = this.schedulerSettings();
         const realtime = this.client.diagnostics();
         const runtimeEvidenceStartedAt = Date.now();
         const runtimeEvidence = this.buildPlanRuntimeEvidenceState();
         this.runtimeEvidenceBuildDurationMs = Math.max(0, Date.now() - runtimeEvidenceStartedAt);
+        this.lastBuildStateStageDurations.runtimeEvidence = this.runtimeEvidenceBuildDurationMs;
         const { connectionMode, realtimeState, snapshot, offlineSnapshot, schedulerStates, operations } = runtimeEvidence;
         const taskSelection = this.taskSelectionDerivedState();
         const gpu = compactMergedGpuForWebview(offlineSnapshot?.gpu, snapshot?.gpu, realtimeState?.gpu);
         const selectedPlanKeys = uniqueStrings([this.planFileInput || "", this.selectedPlanId || ""]);
+        const tracesStartedAt = Date.now();
         const selectedTracePlanFile = this.resolveSelectedPlanFile(this.planFileInput || this.selectedPlanId || "") || this.planFileInput || this.selectedPlanId || "";
         const selectedTracePlanVersion = this.planVersionForFile(selectedTracePlanFile);
         const selectedTracePlan = { planFile: selectedTracePlanFile, planRevision: selectedTracePlanVersion.revision, planUpdatedAt: selectedTracePlanVersion.updatedAt };
@@ -18363,11 +18369,13 @@ export class RealtimeTunnelPanelProvider {
         const selectedResultsPlanVersion = this.planVersionForFile(selectedResultsPlanFile);
         const traceProtectedKeys = this.traceProtectedKeys();
         const experimentTraces = compactExperimentTraces(mergeFallbackRows(compactFallbackRowSources([offlineSnapshot?.experimentTraces, snapshot?.experimentTraces, realtimeState?.experimentTraces], (rows) => compactExperimentTraces(rows, traceProtectedKeys, selectedTracePlan)), experimentTraceFallbackRowKey), traceProtectedKeys, selectedTracePlan);
+        this.lastBuildStateStageDurations.traces = Math.max(0, Date.now() - tracesStartedAt);
         const protectedLogKeys = this.logProtectedKeys();
         this.client.setProtectedLogKeys(protectedLogKeys);
         const logs = (0, RealtimeEventReducer_1.compactRealtimeLogs)(firstRecord(realtimeState?.logs), undefined, undefined, protectedLogKeys);
         const fileTransfers = compactFileTransfersForWebview(realtimeState?.fileTransfers);
         const endpointRegistryState = this.endpointRegistryState();
+        const plansStartedAt = Date.now();
         this.recentPlans = mergeRecentPlans(this.recentPlans, this.localPlanMetadata.plans, extractPlans(snapshot), extractPlans(offlineSnapshot), extractPlans((snapshot?.diagnostics || offlineSnapshot?.diagnostics)));
         const previousDebugBundlePath = this.debugBundlePath || "";
         this.debugBundlePath ||= findDebugBundlePath(operations);
@@ -18396,6 +18404,7 @@ export class RealtimeTunnelPanelProvider {
             ...compactedDetectedProject,
             missingOnboarding: projectOnboardingSuggestionsForSelection(this.localPlanMetadata.detectedProject, this.localPlanMetadata.plans, this.planFileInput, this.selectedPlanId),
         };
+        this.lastBuildStateStageDurations.plans = Math.max(0, Date.now() - plansStartedAt);
         const integrations = { simpleSftp: simpleSftpIntegrationReadiness() };
         const workspace = workspaceContextForWebview();
         const topology = this.projectTopologyAssessment();
@@ -18409,13 +18418,67 @@ export class RealtimeTunnelPanelProvider {
                 || projectOnboardingCompletedFromCodeSync(this.lastCodeSyncState, topology.hubAllowed),
         });
         const resultRoot = workspaceRoot();
+        const resultCatalogStartedAt = Date.now();
         let resultCatalog = { datasets: [], legacyTables: [], unassignedPlans: [], multiDatasetPlans: [], mappingConflicts: [], autoRecoverableCount: 0 } as any;
         if (resultRoot) {
             try { resultCatalog = this.cachedResultCatalog(resultRoot, pluginProjectAdapterRules(resultRoot).planDatasetMapping || {}); }
             catch (error) { resultCatalog = { ...resultCatalog, error: errorMessage(error) }; }
         }
         const compactResultTables = this.compactResultTablesFromCatalog(resultCatalog);
-        return {
+        this.lastBuildStateStageDurations.resultCatalog = Math.max(0, Date.now() - resultCatalogStartedAt);
+        const diagnosticsStartedAt = Date.now();
+        const diagnostics = this.compactDiagnostics({
+                connectionMode,
+                localEndpoint: (0, TunnelGateway_1.localBaseUrl)(this.tunnelConfig),
+                directAccessDisabled: true,
+                requests: this.budget.snapshot(),
+                endpointRequests: this.client.budgetSnapshots(),
+                health: webviewHealth,
+                realtime: webviewRealtime,
+                probe: webviewProbe,
+                workerProbes: webviewWorkerProbes,
+                agentSessions,
+                endpointRegistry: webviewEndpointRegistry,
+                configurationSources,
+                tunnelPortAssignments: webviewTunnelPortAssignments,
+                tunnelPortConflicts: webviewTunnelPortConflicts,
+                realtimePolicy: webviewRealtimePolicy,
+                capabilities: webviewCapabilities,
+                fileCapabilities: webviewFileCapabilities,
+                integrationReport: webviewIntegrationReport,
+                integrations,
+                selection: {
+                    selectedPlanId: this.selectedPlanId,
+                    selectedExperimentIds: taskSelection.selectedExperimentIds,
+                    selectedRunKeys: taskSelection.selectedRunKeys,
+                    selectedRunKey: taskSelection.selectedRunKey,
+                    selectedArchiveKeys: taskSelection.selectedArchiveKeys,
+                },
+                actionErrors: this.actionErrors,
+                lastSnapshotAt: this.lastSnapshotAt,
+                lastError: webviewLastError,
+            }, {
+                gpuServers: Object.keys((this.lastRealtimeState?.gpu || this.lastSnapshot?.gpu || {})).length,
+                schedulerRows: (this.lastRealtimeState?.schedulerStates || this.lastSnapshot?.schedulerStates || []).length,
+                schedulerPayloadBudget: SCHEDULER_STATE_RECORD_LIMIT,
+                schedulerSourcePremergeBudget: SCHEDULER_STATE_RECORD_LIMIT,
+                experimentTraces: (this.lastRealtimeState?.experimentTraces || this.lastSnapshot?.experimentTraces || []).length,
+                experimentTracePayloadBudget: EXPERIMENT_TRACE_RECORD_LIMIT,
+                experimentTraceSourcePremergeBudget: EXPERIMENT_TRACE_RECORD_LIMIT,
+                operations: Object.keys(operations).length,
+                operationSourcePremergeBudget: STATE_OPERATION_RECORD_LIMIT,
+                fileTransfers: Object.keys(fileTransfers).length,
+                panelLifecycle: this.panelLifecycleState,
+                statePostedSeq: this.lastPostedStateSeq,
+                stateReceivedSeq: this.lastReceivedStateSeq,
+                stateRenderedSeq: this.lastRenderedStateSeq,
+                statePayloadBytes: this.lastStatePayloadBytes,
+                stateBuildDurationMs: this.lastStateBuildDurationMs,
+                runtimeEvidenceBuildDurationMs: this.runtimeEvidenceBuildDurationMs,
+                resultCatalogBuildDurationMs: this.resultCatalogBuildDurationMs,
+            });
+        this.lastBuildStateStageDurations.diagnostics = Math.max(0, Date.now() - diagnosticsStartedAt);
+        const state = {
             extensionVersion: String(this.context?.extension?.packageJSON?.version || ""),
             sessionStartedAt: this.sessionStartedAt,
             connectionMode,
@@ -18544,59 +18607,17 @@ export class RealtimeTunnelPanelProvider {
             lastSnapshotAt: this.lastSnapshotAt,
             lastKnownGood: this.compactLastKnownGood(realtimeState?.lastKnownGood || this.lastSnapshot || offlineSnapshot),
             offline: this.offlineBundle ? { lastImportedAt: this.offlineBundle.lastImportedAt, schemaVersion: this.offlineBundle.schemaVersion } : undefined,
-            diagnostics: this.compactDiagnostics({
-                connectionMode,
-                localEndpoint: (0, TunnelGateway_1.localBaseUrl)(this.tunnelConfig),
-                directAccessDisabled: true,
-                requests: this.budget.snapshot(),
-                endpointRequests: this.client.budgetSnapshots(),
-                health: webviewHealth,
-                realtime: webviewRealtime,
-                probe: webviewProbe,
-                workerProbes: webviewWorkerProbes,
-                agentSessions,
-                endpointRegistry: webviewEndpointRegistry,
-                configurationSources,
-                tunnelPortAssignments: webviewTunnelPortAssignments,
-                tunnelPortConflicts: webviewTunnelPortConflicts,
-                realtimePolicy: webviewRealtimePolicy,
-                capabilities: webviewCapabilities,
-                fileCapabilities: webviewFileCapabilities,
-                integrationReport: webviewIntegrationReport,
-                integrations,
-                selection: {
-                    selectedPlanId: this.selectedPlanId,
-                    selectedExperimentIds: taskSelection.selectedExperimentIds,
-                    selectedRunKeys: taskSelection.selectedRunKeys,
-                    selectedRunKey: taskSelection.selectedRunKey,
-                    selectedArchiveKeys: taskSelection.selectedArchiveKeys,
-                },
-                actionErrors: this.actionErrors,
-                lastSnapshotAt: this.lastSnapshotAt,
-                lastError: webviewLastError,
-            }, {
-                gpuServers: Object.keys((this.lastRealtimeState?.gpu || this.lastSnapshot?.gpu || {})).length,
-                schedulerRows: (this.lastRealtimeState?.schedulerStates || this.lastSnapshot?.schedulerStates || []).length,
-                schedulerPayloadBudget: SCHEDULER_STATE_RECORD_LIMIT,
-                schedulerSourcePremergeBudget: SCHEDULER_STATE_RECORD_LIMIT,
-                experimentTraces: (this.lastRealtimeState?.experimentTraces || this.lastSnapshot?.experimentTraces || []).length,
-                experimentTracePayloadBudget: EXPERIMENT_TRACE_RECORD_LIMIT,
-                experimentTraceSourcePremergeBudget: EXPERIMENT_TRACE_RECORD_LIMIT,
-                operations: Object.keys(operations).length,
-                operationSourcePremergeBudget: STATE_OPERATION_RECORD_LIMIT,
-                fileTransfers: Object.keys(fileTransfers).length,
-                panelLifecycle: this.panelLifecycleState,
-                statePostedSeq: this.lastPostedStateSeq,
-                stateReceivedSeq: this.lastReceivedStateSeq,
-                stateRenderedSeq: this.lastRenderedStateSeq,
-                statePayloadBytes: this.lastStatePayloadBytes,
-                stateBuildDurationMs: this.lastStateBuildDurationMs,
-                runtimeEvidenceBuildDurationMs: this.runtimeEvidenceBuildDurationMs,
-                resultCatalogBuildDurationMs: this.resultCatalogBuildDurationMs,
-            }),
+            diagnostics,
             lastError: webviewLastError,
             checkStaticReports: this.listCheckStaticReportsSync(),
         };
+        this.lastBuildStateStageDurations.total = Math.max(0, Date.now() - totalStartedAt);
+        state.diagnostics = {
+            ...state.diagnostics,
+            stateBuildStageDurations: { ...this.lastBuildStateStageDurations },
+            stateBuildSlowStages: Object.fromEntries(Object.entries(this.lastBuildStateStageDurations).filter(([, durationMs]) => durationMs > this.buildStateSlowStageThresholdMs)),
+        };
+        return state;
     }
     currentUiLayoutState() {
         const globalLayout = normalizeUiLayout(this.context.globalState.get(keys.uiLayout) || {});
@@ -20186,6 +20207,7 @@ function normalizeActionErrorRow(value) {
         message: message || "未知错误",
         ...(row.suggestion ? { suggestion: String(row.suggestion) } : {}),
         ...(capabilityMissing.length ? { capabilityMissing } : {}),
+        ...(command === "panelLifecycle" && row.details && typeof row.details === "object" ? { details: compactPanelLifecycleDetails(row.details) } : {}),
         timestamp: String(row.timestamp || new Date().toISOString()),
     };
 }
@@ -27507,16 +27529,7 @@ function compactUiActionError(error) {
     const normalized = normalizeUiActionError(error);
     const suggestion = String(normalized.suggestion || actionErrorSuggestion(normalized.message) || "");
     const details = normalized.details && typeof normalized.details === "object" ? normalized.details : undefined;
-    const safeDetails = details ? {
-        ...(typeof details.runningVersion === "string" ? { runningVersion: compactSensitiveText(details.runningVersion, 40) } : {}),
-        ...(typeof details.installedVersion === "string" ? { installedVersion: compactSensitiveText(details.installedVersion, 40) } : {}),
-        ...(Number.isFinite(details.documentGeneration) ? { documentGeneration: details.documentGeneration } : {}),
-        ...(Number.isFinite(details.viewGeneration) ? { viewGeneration: details.viewGeneration } : {}),
-        ...(typeof details.webviewReady === "boolean" ? { webviewReady: details.webviewReady } : {}),
-        ...(typeof details.viewVisible === "boolean" ? { viewVisible: details.viewVisible } : {}),
-        ...(typeof details.reason === "string" ? { reason: compactSensitiveText(details.reason, 80) } : {}),
-        ...(typeof details.reloadRequired === "boolean" ? { reloadRequired: details.reloadRequired } : {}),
-    } : undefined;
+    const safeDetails = details ? compactPanelLifecycleDetails(details) : undefined;
     return {
         command: compactSensitiveText(normalized.command, 160),
         ...(normalized.action ? { action: normalized.action } : {}),
@@ -27526,6 +27539,41 @@ function compactUiActionError(error) {
         ...(safeDetails ? { details: safeDetails } : {}),
         timestamp: new Date().toISOString(),
     };
+}
+function compactPanelLifecycleDetails(details) {
+    if (!details || typeof details !== "object") return undefined;
+    const safeEnum = (value, allowed) => allowed.includes(String(value)) ? String(value) : undefined;
+    const safeCount = (value) => Number.isSafeInteger(value) && value >= 0 ? value : undefined;
+    const registryState = safeEnum(details.registryState, ["match", "version_mismatch", "content_mismatch", "unknown", "extension_missing"]);
+    const lifecycle = safeEnum(details.lifecycle, ["detached", "booting", "ready", "maintenance", "reload_required", "recovering", "degraded", "disposed"]);
+    return {
+        ...(typeof details.runningVersion === "string" ? { runningVersion: compactSensitiveText(details.runningVersion, 40) } : {}),
+        ...(typeof details.installedVersion === "string" ? { installedVersion: compactSensitiveText(details.installedVersion, 40) } : {}),
+        ...(registryState ? { registryState } : {}),
+        ...(typeof details.runningFingerprint === "string" ? { runningFingerprint: details.runningFingerprint.slice(0, 12) } : {}),
+        ...(typeof details.diskFingerprint === "string" ? { diskFingerprint: details.diskFingerprint.slice(0, 12) } : {}),
+        ...(safeCount(details.documentGeneration) !== undefined ? { documentGeneration: details.documentGeneration } : {}),
+        ...(safeCount(details.viewGeneration) !== undefined ? { viewGeneration: details.viewGeneration } : {}),
+        ...(typeof details.webviewReady === "boolean" ? { webviewReady: details.webviewReady } : {}),
+        ...(typeof details.viewVisible === "boolean" ? { viewVisible: details.viewVisible } : {}),
+        ...(typeof details.reason === "string" ? { reason: compactSensitiveText(details.reason, 80) } : {}),
+        ...(typeof details.reloadRequired === "boolean" ? { reloadRequired: details.reloadRequired } : {}),
+        ...(lifecycle ? { lifecycle } : {}),
+        ...(safeCount(details.postedStateSeq) !== undefined ? { postedStateSeq: details.postedStateSeq } : {}),
+        ...(safeCount(details.receivedStateSeq) !== undefined ? { receivedStateSeq: details.receivedStateSeq } : {}),
+        ...(safeCount(details.renderedStateSeq) !== undefined ? { renderedStateSeq: details.renderedStateSeq } : {}),
+        ...(safeCount(details.statePayloadBytes) !== undefined ? { statePayloadBytes: details.statePayloadBytes } : {}),
+        ...(safeCount(details.stateBuildDurationMs) !== undefined ? { stateBuildDurationMs: details.stateBuildDurationMs } : {}),
+    };
+}
+function panelLifecycleDiagnosticMessage(reason) {
+    if (reason === "heartbeatPostRejected") return "Webview heartbeat postMessage rejected";
+    if (reason === "heartbeatPostFalse") return "Webview heartbeat postMessage returned false";
+    if (reason === "extensionRegistryChanged") return "Installed extension version differs from the running Extension Host";
+    if (reason === "heartbeatTimeout") return "Webview heartbeat timeout";
+    if (reason === "state-render-sequence-stalled") return "Webview state render stalled";
+    if (String(reason || "").startsWith("visibilityProbeTimeout:")) return "Webview visibility health probe timeout";
+    return "Webview panel recovery triggered";
 }
 function recentUiActionErrorMatches(previous, current, windowMs = 2000) {
     if (!previous || !current)

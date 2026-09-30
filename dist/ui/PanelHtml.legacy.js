@@ -15677,15 +15677,32 @@ function renderPanelHtml() {
       else links.push('<button type="button" class="mini secondary" data-section-target="diagnostics" data-anchor-target="diagnostics-errors" title="打开诊断错误">诊断错误</button>');
       return links.join("");
     }
+    function actionErrorDiagnosticSummary(row) {
+      const details = row && row.command === "panelLifecycle" && row.details && typeof row.details === "object" ? row.details : undefined;
+      if (!details) return "";
+      const parts = [];
+      if (details.reason) parts.push("原因 " + String(details.reason));
+      if (details.registryState) parts.push("构建状态 " + String(details.registryState));
+      if (details.runningVersion || details.installedVersion) parts.push("运行/磁盘版本 " + String(details.runningVersion || "?") + "/" + String(details.installedVersion || "?"));
+      if (details.runningFingerprint || details.diskFingerprint) parts.push("指纹 " + String(details.runningFingerprint || "?") + "/" + String(details.diskFingerprint || "?"));
+      if (details.lifecycle) parts.push("生命周期 " + String(details.lifecycle));
+      if (Number.isFinite(details.documentGeneration) || Number.isFinite(details.viewGeneration)) parts.push("文档/视图代次 " + String(details.documentGeneration ?? "?") + "/" + String(details.viewGeneration ?? "?"));
+      if ([details.postedStateSeq, details.receivedStateSeq, details.renderedStateSeq].some(Number.isFinite)) parts.push("状态序号 已发/已收/已渲染 " + [details.postedStateSeq, details.receivedStateSeq, details.renderedStateSeq].map((value) => Number.isFinite(value) ? value : "?").join("/"));
+      if (Number.isFinite(details.statePayloadBytes)) parts.push("载荷 " + String(details.statePayloadBytes) + " B");
+      if (Number.isFinite(details.stateBuildDurationMs)) parts.push("构建 " + String(details.stateBuildDurationMs) + " ms");
+      return parts.join(" · ");
+    }
     function renderActionErrorRow(row) {
       const rawCommand = row.command || "unknown";
       const commandLabel = featureCommandLabel(rawCommand);
       const guide = actionErrorGuide(row);
       const suggestion = guide.text;
+      const diagnosticSummary = actionErrorDiagnosticSummary(row);
       return '<div class="errorRow" title="' + escAttr(suggestion) + '">' +
         '<span class="errorRowCommand" title="原始命令：' + escAttr(rawCommand) + '">' + esc(commandLabel) + '</span>' +
         '<span class="errorRowTime status-failed">' + esc(row.timestamp || "-") + '</span>' +
         '<span class="errorRowMessage status-failed">' + esc(row.message || "未知错误") + '</span>' +
+        (diagnosticSummary ? '<span class="errorRowSuggestion">诊断：' + esc(compactText(diagnosticSummary, 320)) + '</span>' : '') +
         '<span class="errorRowSuggestion" title="' + escAttr(suggestion) + '">下一步：' + esc(compactText(suggestion, 220)) + '</span>' +
         '<span class="errorRowLinks" style="display:flex;gap:6px;flex-wrap:wrap;">' + guide.links + '</span>' +
       '</div>';
