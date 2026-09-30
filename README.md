@@ -48,11 +48,13 @@ python -m pip install PyYAML
 从 Release 页下载 `.vsix` 后安装：
 
 ```powershell
-code --install-extension .\simple-sftp-<version>.vsix --force
-code --install-extension .\simple-experiment-<version>.vsix --force
+code --install-extension .\simple-sftp-<version>.vsix
+code --install-extension .\simple-experiment-<version>.vsix
 ```
 
-新版面板的“设置”区域提供配套更新入口。它会同时检查两个插件的 GitHub Latest Release，按依赖顺序安装 SimpleSFTP 和 SimpleExperiment，并要求用户确认后才下载安装。
+插件开发发布分为两个显式阶段：先运行 `npm run package` 生成并验证 VSIX；所有修改结束后，再运行一次 `npm run install:latest`。`package` 不会自动安装扩展，同版本安装会跳过。安装后执行 **Developer: Reload Window**。不要在窗口继续使用插件时反复强制重装同一版本。
+
+新版面板的“设置”区域提供配套更新入口。它会检查两个插件的 GitHub Latest Release；选择“安装并重载”后，插件安装更新并重载窗口。
 
 ## 核心概念
 

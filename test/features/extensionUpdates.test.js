@@ -78,3 +78,10 @@ test("local API update commands return their plans directly", () => {
   assert.match(extensionSource, /if \(command === "checkPluginUpdates"\)\s*return await this\.checkPluginUpdates\(params\.manual === true\);/);
   assert.match(extensionSource, /if \(command === "installPluginUpdates"\)\s*return await this\.installPluginUpdates\(\);/);
 });
+
+test("paired plugin update requires installation and reload as one user choice", () => {
+  assert.match(extensionSource, /安装并重载窗口以应用配套插件更新/);
+  assert.match(extensionSource, /"安装并重载", "取消"/);
+  assert.match(extensionSource, /this\.forceReloadRequired = true;[\s\S]{0,160}this\.showPanelReloadRequired\(\);[\s\S]{0,140}workbench\.action\.reloadWindow/);
+  assert.match(panelSource, /title="安装 SimpleExperiment 和 SimpleSFTP 更新，并重载窗口以应用"\>安装并重载/);
+});

@@ -38,7 +38,7 @@ function Test-ExtensionInstalled([string[]]$Installed, [string]$ExtensionId) {
 }
 
 foreach ($extension in @($sftp, $experiment)) {
-    & $code.Source --install-extension $extension.FullName --force
+    & $code.Source --install-extension $extension.FullName
     if ($LASTEXITCODE -ne 0) {
         throw "Installation failed: $($extension.Name)"
     }

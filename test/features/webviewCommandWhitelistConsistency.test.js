@@ -92,3 +92,12 @@ test("webview command routing reuses module-level fixed sets", () => {
   assert.match(statusHelpers, /COMMANDS_WITHOUT_UI_STATUS\??\.has\(command\)/);
   assert.match(statusHelpers, /LOCAL_COMMAND_RELEASES_AFTER_TRIGGER\.has/);
 });
+
+test("reloadWindow is a declared local internal command, outside remote action routing", () => {
+  const apiInternal = new Set(quotedValues(block(extension, "const API_INTERNAL_COMMANDS = new Set([", "]);")));
+  const remoteActions = new Set(quotedValues(block(extension, "const uiActionCommands = new Set<WebviewActionCommand>([", "]);")));
+  assert.ok(webviewCommands().has("reloadWindow"));
+  assert.ok(safeCommands().has("reloadWindow"));
+  assert.ok(apiInternal.has("reloadWindow"));
+  assert.equal(remoteActions.has("reloadWindow"), false);
+});

@@ -65,7 +65,7 @@ const logPath = String((op.logPath || (op.payload && op.payload.logPath)) || "")
 
 相关代码：`src/ui/PanelHtml.ts:9501`。
 
-### 3. vsix 安装路径：相对路径装错目录 → ENOENT
+### 3. VSIX 安装路径与运行中版本不一致
 
 **现象**：在 `MultiModal` 目录执行 `code --install-extension simple-experiment-*.vsix` 报
 `ENOENT: no such file or directory`（找不到 vsix）。
@@ -73,17 +73,11 @@ const logPath = String((op.logPath || (op.payload && op.payload.logPath)) || "")
 **根因**：`code --install-extension <path>` 以**当前终端工作目录**解析相对路径；在 `MultiModal` 等错误目录
 执行时，该目录下不存在 `simple-experiment-*.vsix`，于是 file not found。
 
-**正确写法**（用绝对路径，或先切到 vsix 所在目录）：
+**正确做法**：开发发布先运行 `npm run package`，再单独运行 `npm run install:latest`。安装脚本从仓库根目录定位 VSIX；它会查询已安装版本，同版本输出“已安装，跳过重复安装”，旧版本只安装一次并验证结果，较新版本则拒绝降级。不要使用 `--force` 重装同一版本。
 
-```powershell
-code --install-extension "D:\GitRepo\MCP\zlk-cluster-orchestrator\simple-experiment-*.vsix" --force
-```
+VS Code 扩展安装会改写磁盘目录，而已运行的 Extension Host 仍保留旧代码。若运行版本与已安装版本不一致，面板显示“SimpleExperiment 已更新”和两个版本号，并提供 **重载窗口**。这是等待窗口重载的安全状态，不要继续操作旧面板。
 
-或 `cd D:\GitRepo\MCP\zlk-cluster-orchestrator` 后再执行。也可直接依赖 `npm run install:latest`：其内部
-`scripts/install-latest.js` 用 `path.join(__dirname, "..", ...)` 生成绝对路径，不受终端目录影响。
-
-相关代码：`package.json` 的 `postpackage` 脚本（`node scripts/install-latest.js`）；
-`scripts/install-latest.js:5`（绝对路径拼接）、`:12`（安装命令）。
+如果安装过程中 Webview 心跳失败，插件会写入有限的 `panelLifecycle` 诊断，记录运行/已安装版本、文档与视图代次、可见性及恢复原因；同版本普通 Webview 故障仍使用常规恢复页。
 
 ### 4. 外层模板剥离坑（P0）：26 处正则 `\` 被外层 ``return `...<script>...` `` 吞噬 → 握手超时 `Unexpected token const`
 

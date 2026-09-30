@@ -33,7 +33,9 @@ test("panel ready watchdog is cleared on ready, recovery, reload, and dispose", 
 
   assert.match(resolveFlow, /this\.loadPanelHtml\(\)/);
   assert.match(messageFlow, /this\.clearPanelReadyWatchdog\(\)/);
-  assert.match(watchdogFlow, /private showPanelRecovery[\s\S]{0,180}this\.clearPanelReadyWatchdog\(\)/);
+  assert.match(watchdogFlow, /private showPanelRecovery\(message: string, force = false\): void/);
+  assert.match(watchdogFlow, /this\.clearPanelReadyWatchdog\(\)[\s\S]{0,180}renderPanelRecoveryHtml\(message\)/);
+  assert.match(watchdogFlow, /this\.extensionRuntimeVersionState\(\)\.reloadRequired[\s\S]{0,100}this\.showPanelReloadRequired\(\)/);
   assert.match(watchdogFlow, /renderPanelBootstrapDocument\(renderPanelHtml, renderPanelRecoveryHtml\)/);
   assert.match(watchdogFlow, /if \(document\.recovered\)/);
   assert.match(watchdogFlow, /this\.startPanelReadyWatchdog\(\)/);
@@ -73,8 +75,25 @@ test("panel reports post-bootstrap render failures without hiding the recovery p
     const declaration = extension.match(new RegExp("const " + name + " = new Set\\(\\[[\\s\\S]*?\\]\\);"))?.[0];
     assert.ok(declaration, name);
     const commands = new Function(declaration + " return " + name + ";")();
-    for (const command of ["webviewReady", "webviewHeartbeatAck", "webviewBootstrapError", "webviewRenderError", "reloadPanel"]) assert.ok(commands.has(command), name + ": " + command);
+    for (const command of ["webviewReady", "webviewHeartbeatAck", "webviewBootstrapError", "webviewRenderError", "reloadPanel", "reloadWindow"]) assert.ok(commands.has(command), name + ": " + command);
   }
   assert.match(panel, /let lastRenderErrorMessage = ""/);
   assert.match(panel, /vscode\.postMessage\(\{ command: "webviewRenderError", error: .*\.slice\(0, \d+\) \}\)/);
+});
+
+test("heartbeat recovery records lifecycle context and uses reload page only for version mismatch", () => {
+  const heartbeat = extension.slice(extension.indexOf("private recoverPanelHeartbeatFailure"), extension.indexOf("private schedulePanelHeartbeat"));
+  const lifecycle = extension.slice(extension.indexOf("private recordPanelLifecycleDiagnostic"), extension.indexOf("private showPanelReloadRequired"));
+  assert.match(heartbeat, /this\.recordPanelLifecycleDiagnostic\(/);
+  assert.match(heartbeat, /this\.extensionRuntimeVersionState\(\)\.reloadRequired[\s\S]{0,120}this\.showPanelReloadRequired\(\)/);
+  assert.match(heartbeat, /this\.loadPanelHtml\(\)/);
+  assert.match(heartbeat, /this\.showPanelRecovery\([\s\S]{0,180}, true\)/);
+  assert.match(lifecycle, /runningVersion/);
+  assert.match(lifecycle, /installedVersion/);
+  for (const field of ["documentGeneration", "viewGeneration", "webviewReady", "viewVisible", "reason", "reloadRequired"]) assert.match(lifecycle, new RegExp(field));
+  const schedule = extension.slice(extension.indexOf("private schedulePanelHeartbeat"), extension.indexOf("private buildPanelFallbackState"));
+  assert.match(schedule, /\.then\(\(accepted\) => \{/);
+  assert.match(schedule, /accepted === false/);
+  assert.match(schedule, /\.catch\(\(\) => \{/);
+  assert.doesNotMatch(schedule, /catch\(\(\) => undefined\)/);
 });

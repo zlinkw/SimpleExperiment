@@ -100,6 +100,7 @@ const SyncResolution_1 = require("../features/SyncResolution");
 const { renderPanelHtml } = PanelHtml_1;
 const PanelRecoveryHtml_1 = require("../ui/PanelRecoveryHtml");
 const { renderPanelRecoveryHtml } = PanelRecoveryHtml_1;
+const { renderPanelReloadRequiredHtml } = PanelRecoveryHtml_1;
 const PanelBootstrap_1 = require("../ui/PanelBootstrap");
 const { renderPanelBootstrapDocument } = PanelBootstrap_1;
 const TunnelPortAllocator_1 = require("../tunnel/TunnelPortAllocator");
@@ -394,7 +395,7 @@ const uiActionCommands = new Set([
 const SAFE_WEBVIEW_COMMANDS = new Set([
     "stopAllPlans",
     "stopAndClearPlan",
-    "webviewReady", "webviewHeartbeatAck", "webviewBootstrapError", "webviewRenderError", "reloadPanel", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
+    "webviewReady", "webviewHeartbeatAck", "webviewBootstrapError", "webviewRenderError", "reloadPanel", "reloadWindow", "recallPlanToLocalQueue", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
     "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "reassignWorkerTask", "openSetupGuide", "openAdvancedCommandsSetting", "applyPlanDatasetMapping", "autoMatchPlanDatasets",
     "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
     "selectPlan", "selectExperiment",
@@ -403,7 +404,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "startTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList", "killTmuxWindow", "clearTmuxTaskTabs",
 ]);
 const API_INTERNAL_COMMANDS = new Set([
-    "webviewReady", "webviewHeartbeatAck", "webviewBootstrapError", "webviewRenderError", "reloadPanel",
+    "webviewReady", "webviewHeartbeatAck", "webviewBootstrapError", "webviewRenderError", "reloadPanel", "reloadWindow",
 ]);
 const API_EXECUTABLE_COMMANDS = new Set([
     ...uiActionCommands,
@@ -738,6 +739,8 @@ class RealtimeTunnelPanelProvider {
     panelHeartbeatIntervalMs = 30_000;
     panelHeartbeatAckTimeoutMs = 12_000;
     panelHeartbeatRecoveryWindowMs = 5 * 60_000;
+    forceReloadRequired = false;
+    lastPanelLifecycleDiagnosticKey = "";
     panelUnknownHealthSince = 0;
     panelUnknownHealthGeneration = 0;
     panelUnknownHealthGraceMs = 90_000;
@@ -856,6 +859,7 @@ class RealtimeTunnelPanelProvider {
     topologyRuntimeMode = "";
     constructor(context) {
         this.context = context;
+        this.context.subscriptions.push(vscode.extensions.onDidChange(() => this.handleExtensionRegistryChange()));
         this.pluginUpdateStatus = this.refreshStoredPluginUpdateStatus(this.context.globalState.get(keys.pluginUpdateStatus));
         this.tunnelConfig = this.loadTunnelConfig();
         this.projectBootstrapPromise = this.bootstrapProjectLocalUiState()
@@ -4685,6 +4689,10 @@ class RealtimeTunnelPanelProvider {
         await this.handleMessageCore(message, command);
     }
     async handleMessageCore(message, command = getSafeCommand(message)) {
+        if (this.extensionRuntimeVersionState().reloadRequired && command !== "reloadWindow") {
+            this.showPanelReloadRequired();
+            return;
+        }
         if (booleanField(message, "debugMode") && debugModeBlockedUiCommand(command))
             throw new Error("Debug 模式仅用于隔离运行和实时日志，禁止归档、删除、结果、统计、论文或 PPT 操作。请切回正式运行后再执行。");
         switch (command) {
@@ -4715,6 +4723,9 @@ class RealtimeTunnelPanelProvider {
                 break;
             case "reloadPanel":
                 this.reloadPanelHtml();
+                break;
+            case "reloadWindow":
+                await vscode.commands.executeCommand("workbench.action.reloadWindow");
                 break;
             case "configureSessions":
                 await this.configureXshellSavedSessions();
@@ -6376,8 +6387,8 @@ class RealtimeTunnelPanelProvider {
             `SimpleSFTP ${plan.sftp.currentVersion} -> ${plan.sftp.latestVersion}`,
             `来源：${ExtensionUpdates_1.EXPERIMENT_UPDATE_REPO} 与 ${ExtensionUpdates_1.SFTP_UPDATE_REPO} Latest Releases`,
         ].join("\n");
-        const answer = await vscode.window.showWarningMessage(`安装配套插件更新？\n\n${detail}`, { modal: true }, "下载并安装");
-        if (answer !== "下载并安装")
+        const answer = await vscode.window.showWarningMessage(`安装并重载窗口以应用配套插件更新？\n\n${detail}`, { modal: true }, "安装并重载", "取消");
+        if (answer !== "安装并重载")
             return plan;
         await this.setPluginUpdateStatus({ status: "installing", message: "正在下载并按依赖顺序安装更新。" });
         const token = await this.githubUpdateToken(false);
@@ -6396,13 +6407,13 @@ class RealtimeTunnelPanelProvider {
             }
             const complete = {
                 status: "reload_required",
-                message: "配套更新已安装；重载窗口后生效。",
+                message: "配套更新已安装，正在重载窗口以切换到一致版本。",
                 installedAt: new Date().toISOString(),
             };
             await this.setPluginUpdateStatus(complete);
-            const reload = await vscode.window.showInformationMessage("SimpleExperiment 和 SimpleSFTP 已更新。立即重载窗口？", "重载窗口");
-            if (reload === "重载窗口")
-                await vscode.commands.executeCommand("workbench.action.reloadWindow");
+            this.forceReloadRequired = true;
+            this.showPanelReloadRequired();
+            await vscode.commands.executeCommand("workbench.action.reloadWindow");
             return { ...this.pluginUpdateStatus };
         }
         catch (error) {
@@ -17838,6 +17849,54 @@ class RealtimeTunnelPanelProvider {
         this.actionErrors = [compact, ...this.actionErrors].slice(0, UI_ACTION_ERROR_RECORD_LIMIT);
         void this.persistProjectActionErrorsState().catch(() => undefined);
     }
+    extensionRuntimeVersionState() {
+        const runningVersion = String(this.context?.extension?.packageJSON?.version || "");
+        const installedVersion = String(vscode.extensions.getExtension("simple-local.simple-experiment")?.packageJSON?.version || "");
+        return { runningVersion, installedVersion, reloadRequired: this.forceReloadRequired || runningVersion !== installedVersion };
+    }
+    handleExtensionRegistryChange() {
+        const versions = this.extensionRuntimeVersionState();
+        if (!versions.reloadRequired)
+            return;
+        this.recordPanelLifecycleDiagnostic("extensionRegistryChanged");
+        this.showPanelReloadRequired();
+    }
+    recordPanelLifecycleDiagnostic(reason) {
+        const versions = this.extensionRuntimeVersionState();
+        const entry = {
+            command: "panelLifecycle",
+            message: reason === "heartbeatPostRejected" ? "Webview heartbeat postMessage rejected" : reason === "heartbeatPostFalse" ? "Webview heartbeat postMessage returned false" : reason === "extensionRegistryChanged" ? "Installed extension version differs from the running Extension Host" : "Webview heartbeat timeout",
+            details: {
+                runningVersion: versions.runningVersion,
+                installedVersion: versions.installedVersion,
+                documentGeneration: Number(this.panelDocumentGeneration || 0),
+                viewGeneration: Number(this.viewGeneration || 0),
+                webviewReady: this.webviewReady === true,
+                viewVisible: this.view?.visible === true,
+                reason: String(reason || "unknown").slice(0, 80),
+                reloadRequired: versions.reloadRequired,
+            },
+        };
+        const key = JSON.stringify({ reason, runningVersion: versions.runningVersion, installedVersion: versions.installedVersion });
+        if (key === this.lastPanelLifecycleDiagnosticKey)
+            return;
+        this.lastPanelLifecycleDiagnosticKey = key;
+        this.recordActionError(entry);
+    }
+    showPanelReloadRequired() {
+        if (!this.view)
+            return;
+        const versions = this.extensionRuntimeVersionState();
+        this.clearPanelHeartbeat();
+        this.clearPanelReadyWatchdog();
+        this.webviewReady = false;
+        this.statePostPending = false;
+        if (this.statePostTimer)
+            clearTimeout(this.statePostTimer);
+        this.statePostTimer = undefined;
+        const generation = ++this.panelDocumentGeneration;
+        this.view.webview.html = this.stampPanelDocument(renderPanelReloadRequiredHtml(versions), generation);
+    }
     captureActionResult(action, result) {
         const item = result && typeof result === "object" ? result : {};
         const bundlePath = stringFromRecord(item, ["bundlePath", "bundle_path", "path", "remotePath"]);
@@ -19235,6 +19294,10 @@ class RealtimeTunnelPanelProvider {
         return this.taskSelectionDerivedState().logProtectedKeys;
     }
     postState(immediate = false) {
+        if (this.extensionRuntimeVersionState().reloadRequired) {
+            this.showPanelReloadRequired();
+            return;
+        }
         if (!this.view)
             return;
         if (immediate) {
@@ -19255,8 +19318,10 @@ class RealtimeTunnelPanelProvider {
         const generation = this.viewGeneration;
         this.panelReadyWatchdogTimer = setTimeout(() => {
             this.panelReadyWatchdogTimer = undefined;
-            if (view && this.view === view && this.viewGeneration === generation && !this.webviewReady)
+            if (view && this.view === view && this.viewGeneration === generation && !this.webviewReady) {
+                this.recordPanelLifecycleDiagnostic("panelReadyWatchdogTimeout");
                 this.showPanelRecovery("面板在规定时间内没有完成启动握手。请重新加载面板。");
+            }
         }, 10_000);
         this.panelReadyWatchdogTimer.unref?.();
     }
@@ -19265,9 +19330,13 @@ class RealtimeTunnelPanelProvider {
             clearTimeout(this.panelReadyWatchdogTimer);
         this.panelReadyWatchdogTimer = undefined;
     }
-    showPanelRecovery(message) {
-        if (!this.view || this.webviewReady)
+    showPanelRecovery(message, force = false) {
+        if (!this.view || (this.webviewReady && !force))
             return;
+        if (this.extensionRuntimeVersionState().reloadRequired) {
+            this.showPanelReloadRequired();
+            return;
+        }
         this.clearPanelReadyWatchdog();
         const generation = ++this.panelDocumentGeneration;
         this.view.webview.html = this.stampPanelDocument(renderPanelRecoveryHtml(message), generation);
@@ -19275,6 +19344,10 @@ class RealtimeTunnelPanelProvider {
     loadPanelHtml() {
         if (!this.view)
             return;
+        if (this.extensionRuntimeVersionState().reloadRequired) {
+            this.showPanelReloadRequired();
+            return;
+        }
         this.clearPanelHeartbeat();
         this.webviewReady = false;
         const document = renderPanelBootstrapDocument(renderPanelHtml, renderPanelRecoveryHtml);
@@ -19351,6 +19424,11 @@ class RealtimeTunnelPanelProvider {
         this.panelUnknownHealthGeneration = 0;
         this.clearPanelHeartbeat();
         this.webviewReady = false;
+        this.recordPanelLifecycleDiagnostic(reason === "面板暂时没有响应" ? "heartbeatTimeout" : reason);
+        if (this.extensionRuntimeVersionState().reloadRequired) {
+            this.showPanelReloadRequired();
+            return;
+        }
         const now = Date.now();
         const detail = compactSensitiveText(reason, 180) || "面板没有报告可用的渲染状态。";
         if (now - this.lastPanelHeartbeatRecoveryAt >= this.panelHeartbeatRecoveryWindowMs) {
@@ -19358,7 +19436,7 @@ class RealtimeTunnelPanelProvider {
             this.loadPanelHtml();
         }
         else {
-            this.showPanelRecovery(`面板渲染状态异常：${detail}。请点击重新加载面板；若仍失败，请执行 Developer: Reload Window。`);
+            this.showPanelRecovery(`面板渲染状态异常：${detail}。请点击重新加载面板；若仍失败，请执行 Developer: Reload Window。`, true);
         }
     }
     schedulePanelHeartbeat() {
@@ -19379,7 +19457,19 @@ class RealtimeTunnelPanelProvider {
                 this.recoverPanelHeartbeatFailure("面板暂时没有响应");
             }, this.panelHeartbeatAckTimeoutMs);
             this.panelHeartbeatTimeout.unref?.();
-            void Promise.resolve(view.webview.postMessage({ type: "panelHeartbeat", heartbeatId, documentGeneration: this.panelDocumentGeneration })).catch(() => undefined);
+            void Promise.resolve().then(() => view.webview.postMessage({ type: "panelHeartbeat", heartbeatId, documentGeneration: this.panelDocumentGeneration }))
+                .then((accepted) => {
+                if (accepted === false && this.view === view && this.viewGeneration === generation && heartbeatId === this.panelHeartbeatId) {
+                    this.recordPanelLifecycleDiagnostic("heartbeatPostFalse");
+                    this.recoverPanelHeartbeatFailure("heartbeatPostFalse");
+                }
+            })
+                .catch(() => {
+                if (this.view === view && this.viewGeneration === generation && heartbeatId === this.panelHeartbeatId) {
+                    this.recordPanelLifecycleDiagnostic("heartbeatPostRejected");
+                    this.recoverPanelHeartbeatFailure("heartbeatPostRejected");
+                }
+            });
         }, this.panelHeartbeatIntervalMs);
         this.panelHeartbeatTimer.unref?.();
     }
@@ -19486,6 +19576,10 @@ class RealtimeTunnelPanelProvider {
         if (this.statePostTimer)
             clearTimeout(this.statePostTimer);
         this.statePostTimer = undefined;
+        if (this.extensionRuntimeVersionState().reloadRequired) {
+            this.showPanelReloadRequired();
+            return;
+        }
         if (!this.view)
             return;
         if (this.statePostInFlight) {
@@ -28010,12 +28104,24 @@ function normalizeUiActionError(error) {
 function compactUiActionError(error) {
     const normalized = normalizeUiActionError(error);
     const suggestion = String(normalized.suggestion || actionErrorSuggestion(normalized.message) || "");
+    const details = normalized.details && typeof normalized.details === "object" ? normalized.details : undefined;
+    const safeDetails = details ? {
+        ...(typeof details.runningVersion === "string" ? { runningVersion: compactSensitiveText(details.runningVersion, 40) } : {}),
+        ...(typeof details.installedVersion === "string" ? { installedVersion: compactSensitiveText(details.installedVersion, 40) } : {}),
+        ...(Number.isFinite(details.documentGeneration) ? { documentGeneration: details.documentGeneration } : {}),
+        ...(Number.isFinite(details.viewGeneration) ? { viewGeneration: details.viewGeneration } : {}),
+        ...(typeof details.webviewReady === "boolean" ? { webviewReady: details.webviewReady } : {}),
+        ...(typeof details.viewVisible === "boolean" ? { viewVisible: details.viewVisible } : {}),
+        ...(typeof details.reason === "string" ? { reason: compactSensitiveText(details.reason, 80) } : {}),
+        ...(typeof details.reloadRequired === "boolean" ? { reloadRequired: details.reloadRequired } : {}),
+    } : undefined;
     return {
         command: compactSensitiveText(normalized.command, 160),
         ...(normalized.action ? { action: normalized.action } : {}),
         message: compactSensitiveText(normalized.message, UI_ACTION_ERROR_MESSAGE_LIMIT),
         ...(suggestion ? { suggestion: compactSensitiveText(suggestion, UI_ACTION_ERROR_SUGGESTION_LIMIT) } : {}),
         ...(normalized.capabilityMissing?.length ? { capabilityMissing: normalized.capabilityMissing.slice(0, UI_ACTION_ERROR_CAPABILITY_LIMIT).map((item) => compactSensitiveText(item, 96)) } : {}),
+        ...(safeDetails ? { details: safeDetails } : {}),
         timestamp: new Date().toISOString(),
     };
 }

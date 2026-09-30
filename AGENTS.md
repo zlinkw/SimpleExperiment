@@ -69,5 +69,7 @@ D:\GitRepo\MCP\simple-experiment
 
 ## 版本与安装
 
-- 每次完成项目代码修改并通过验证后，递增一个补丁版本，同步 `package.json`、`package-lock.json` 与 runtime 版本，再运行 `npm run package` 打包并安装该版本。
-- 安装后核对 VS Code 已安装版本与 `simpleex` 入口；用户自行重载窗口并手工测试。
+- 阶段 1：修改完成并通过验证后递增一个补丁版本，同步 `package.json`、`package-lock.json` 与 runtime 版本，再运行 `npm run package`。该命令只构建和生成 VSIX，不得改变当前 VS Code 安装状态。
+- 阶段 2：全部修改与打包验证结束、准备交给用户重载时，显式运行一次 `npm run install:latest`。同版本必须跳过，禁止默认 `--force`、禁止降级；每个目标版本最多安装一次。
+- 安装后立即核对 VS Code 已安装版本与 `simpleex` 入口，并停止操作当前 SimpleExperiment 面板。用户执行 **Developer: Reload Window** 后再进行 UI 验收。
+- P0：禁止 `package` 生命周期自动 live install 正在运行的扩展；禁止对同一版本连续执行 `code --install-extension ... --force`。若磁盘版本与 Extension Host 运行版本不一致，预期显示“需要重载窗口”专页。

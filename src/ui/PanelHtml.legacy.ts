@@ -2794,7 +2794,7 @@ export function renderPanelHtml(): string {
     const explicitSavePlanCommands = new Set(["savePlan"]);
     const webviewHandledCommands = new Set([
       "stopAllPlans",
-      "stopAndClearPlan",
+      "stopAndClearPlan", "reloadWindow", "webviewHeartbeatAck",
       "quickSetup", "openSetupGuide", "openAdvancedCommandsSetting", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "reassignWorkerTask", "recallPlanToLocalQueue", "prepareAgents",
       "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections",
       "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot",
@@ -8548,7 +8548,7 @@ export function renderPanelHtml(): string {
             (Number.isFinite(checkedAt) ? '<span class="muted">检查时间：' + esc(new Date(checkedAt).toLocaleString()) + '</span>' : '') +
           '</div>' +
           '<button data-command="checkPluginUpdates" class="secondary" type="button" title="查询 SimpleExperiment 与 SimpleSFTP 的最新版本&#10;发现新版本时会提示是否安装"' + (busy ? ' disabled' : '') + '>检查更新</button>' +
-          (canInstall ? '<button data-command="installPluginUpdates" class="secondary" type="button" title="下载最新版并依次安装两个插件&#10;安装完成后需要重载窗口才会生效">安装更新</button>' : '') +
+          (canInstall ? '<button data-command="installPluginUpdates" class="secondary" type="button" title="安装 SimpleExperiment 和 SimpleSFTP 更新，并重载窗口以应用">安装并重载</button>' : '') +
         '</div>');
     }
 
