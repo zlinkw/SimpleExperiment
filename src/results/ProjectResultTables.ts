@@ -249,8 +249,9 @@ export function mergeAvailableWorkerResults(registry: TableRegistry, summary: an
   const covered = (record: SeedRecord) => incoming.some((item) => seedIdentity(item) === seedIdentity(record));
   const realIncoming = incoming.filter(record => record.dataset && record.datasetSource !== "manual-plan-mapping");
   const sameSeedWithoutDataset = (left: SeedRecord, right: SeedRecord) => [left.workerId, left.method, left.rate, left.endpoint, left.case, left.seed].join("\0") === [right.workerId, right.method, right.rate, right.endpoint, right.case, right.seed].join("\0");
+  const belongsToIncomingRun = (record: SeedRecord) => incomingRun ? record.runId === incomingRun : !record.runId;
   const kept = sameRevision
-    ? (previous?.records || []).filter((record) => !covered(record) && !(record.datasetSource === "manual-plan-mapping" && realIncoming.some(item => sameSeedWithoutDataset(record, item))) && record.revision === revision && (!incomingRun || !record.runId || record.runId === incomingRun) && (!record.runId || !incomingRun || record.runId === incomingRun))
+    ? (previous?.records || []).filter((record) => !covered(record) && !(record.datasetSource === "manual-plan-mapping" && realIncoming.some(item => sameSeedWithoutDataset(record, item))) && record.revision === revision && belongsToIncomingRun(record))
     : [];
   return { schemaVersion: 1, plans: { ...(registry?.plans || {}), [planFile]: {
     revision: revision || previous?.revision || "",
@@ -571,7 +572,8 @@ export function resultCatalog(root: string, resultDir: string, manualMappings: R
   for (const [key, plans] of plansByDestination) {
     let group = datasets.find(item => item.datasetKey === key);
     if (!group) {
-      group = { dataset: key === "_shared" ? "跨数据集" : "", datasetKey: key, root: path.posix.join(resultDir, key), tables: [], plans: [] };
+      const firstPlan = plans.values().next().value;
+      group = { dataset: key === "_shared" ? "跨数据集" : String(firstPlan?.assignment?.datasets?.[0] || ""), datasetKey: key, root: path.posix.join(resultDir, key), tables: [], plans: [] };
       datasets.push(group);
     }
     group.plans = [...plans.values()];

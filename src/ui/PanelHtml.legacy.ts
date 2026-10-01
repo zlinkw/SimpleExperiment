@@ -1353,7 +1353,6 @@ export function renderPanelHtml(): string {
         <div class="toolbar" data-anchor="sync-actions">
           <button type="button" data-command="prepareAgents" title="第 1 步 · 先部署&#10;上传最新版 Agent 到全部服务器并启动&#10;无需隧道在线">部署Agent</button>
           <span class="toolbarSep" aria-hidden="true">→</span>
-          <button type="button" data-command="resumeStream" class="secondary" title="手动恢复 Agent 事件连接并读取最新状态">重新连接</button>
           <button type="button" data-command="startAll" class="secondary" title="第 1 步 · 连隧道&#10;启动全部 Xshell 隧道，建立本机到服务器的端口转发">启动全部隧道</button>
           <span class="toolbarSep" aria-hidden="true">→</span>
           <button type="button" data-command="publishGithub" data-confirm="true" title="第 2 步 · 传代码&#10;先提交推送到 GitHub（未配置会引导登录）&#10;再通过 SimpleSFTP 上传到所有 Worker；无 Hub 模式会跳过 Hub 上传">发布到git并上传worker</button>
@@ -15705,7 +15704,7 @@ export function renderPanelHtml(): string {
       const summaryMatchesPlan = !planFile || Boolean(summaryPlanFile && samePlanSelection(summaryPlanFile, planFile));
       const summaryMatchesVersion = resultSummaryMatchesPlanVersion(item, planRevision, planUpdatedAt);
       const rows = planVersionOperationRows(data, planFile, planRevision, planUpdatedAt);
-      if (rows.some((row) => row.outcomePending)) return cachePlanExecutionStage(cacheKey, { phase: "monitor", status: "执行结果待确认；请点击重新连接，再刷新运行状态核对", label: "重新连接", command: "resumeStream" });
+      if (rows.some((row) => row.outcomePending)) return cachePlanExecutionStage(cacheKey, { phase: "monitor", status: "执行结果待确认；实时连接会自动重试，可刷新运行状态核对", label: "刷新运行状态", command: "snapshot" });
       const artifacts = latestResultAnalysisArtifactPaths(rows, planFile, planRevision, planUpdatedAt);
       const value = {
         plottingContractPath: (summaryMatchesPlan && summaryMatchesVersion ? meaningfulValue(pick(item, ["plottingContractPath", "plotting_contract_path"], "")) : "") || artifacts.plottingContractPath,

@@ -1,0 +1,155 @@
+export type AuthoritativeJobIdentity = {
+  index: number;
+  case: string;
+  seed: number;
+  attempt: number;
+  workerId: string;
+  outputDir: string;
+  commandId: string;
+  artifactHashes: Record<string, string>;
+};
+
+export type AuthoritativePlanRun = {
+  runId: string;
+  planFile: string;
+  revision: string;
+  enqueuedAt: string;
+  expectedJobCount: number;
+  jobs: AuthoritativeJobIdentity[];
+  plan: Record<string, any>;
+};
+
+function normalizedPlanFile(value: unknown): string {
+  return String(value || "").replace(/\\/g, "/").replace(/^\.\//, "").trim().toLowerCase();
+}
+
+function timestamp(value: unknown): number {
+  const parsed = Date.parse(String(value || ""));
+  return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY;
+}
+
+function authoritativeJob(plan: Record<string, any>, job: Record<string, any>): AuthoritativeJobIdentity | undefined {
+  const index = Number(job?.index);
+  const seed = Number(job?.seed);
+  const attempt = Number(job?.attempt);
+  const workerId = String(job?.workerId || "").trim();
+  const outputDir = String(job?.outputDir || "").replace(/\\/g, "/").trim();
+  if (!Number.isInteger(index) || index < 0 || !String(job?.case || "").trim() || !Number.isInteger(seed)
+    || !Number.isInteger(attempt) || attempt < 1 || !workerId || !outputDir
+    || outputDir.startsWith("/") || /^[A-Za-z]:/.test(outputDir)
+    || outputDir.split("/").some((part) => !part || part === "." || part === "..")) return undefined;
+  const artifactHashes: Record<string, string> = {};
+  for (const [file, hash] of Object.entries(job?.artifacts || {})) {
+    if (/^[a-f0-9]{64}$/i.test(String(hash || ""))) artifactHashes[String(file)] = String(hash).toLowerCase();
+  }
+  const commandId = String(job.commandId || "").trim();
+  if (!commandId || !Object.keys(artifactHashes).length) return undefined;
+  return {
+    index,
+    case: String(job.case).trim(),
+    seed,
+    attempt,
+    workerId,
+    outputDir,
+    commandId,
+    artifactHashes,
+  };
+}
+
+/** Select the newest complete distributed run for a Plan/revision, never a shared result CSV. */
+export function selectLatestCompletePlanRun(queue: unknown, planFile: string, expectedRevision = ""): AuthoritativePlanRun | undefined {
+  const rows: Record<string, any>[] = Array.isArray((queue as any)?.plans) ? (queue as any).plans : [];
+  const selectedPlan = normalizedPlanFile(planFile);
+  const revision = String(expectedRevision || "").trim();
+  const candidates = rows.map((plan: Record<string, any>, order: number) => ({ plan, order }))
+    .filter(({ plan }) => normalizedPlanFile(plan?.planFile || plan?.file) === selectedPlan
+      && Boolean(String(plan?.id || "").trim())
+      && Boolean(String(plan?.revision || "").trim())
+      && (!revision || String(plan.revision) === revision)
+      && !plan.recoveryConflict && Number(plan.recoveryMissingCount || 0) === 0)
+    .map(({ plan, order }) => {
+      const jobs = Array.isArray(plan.jobs) ? plan.jobs : [];
+      const expectedJobCount = Number(plan.planJobCount || jobs.length);
+      if (!Number.isInteger(expectedJobCount) || expectedJobCount <= 0 || jobs.length !== expectedJobCount) return undefined;
+      const normalized = jobs.map((job: Record<string, any>) => authoritativeJob(plan, job));
+      if (normalized.some((job: AuthoritativeJobIdentity | undefined) => !job)
+        || jobs.some((job: Record<string, any>) => !["completed", "succeeded", "success"].includes(String(job.status || "").toLowerCase()))) return undefined;
+      const typedJobs = normalized as AuthoritativeJobIdentity[];
+      if (new Set(typedJobs.map((job) => job.index)).size !== expectedJobCount
+        || new Set(typedJobs.map((job) => `${job.case}\0${job.seed}`)).size !== expectedJobCount) return undefined;
+      const latestFinishedAt = Math.max(...jobs.map((job: Record<string, any>) => timestamp(job.finishedAt)));
+      return {
+        runId: String(plan.id),
+        planFile: String(plan.planFile || plan.file),
+        revision: String(plan.revision),
+        enqueuedAt: String(plan.enqueuedAt || ""),
+        expectedJobCount,
+        jobs: typedJobs.sort((left, right) => left.index - right.index),
+        plan,
+        order,
+        queuedAt: timestamp(plan.enqueuedAt),
+        latestFinishedAt,
+      };
+    })
+    .filter(Boolean)
+    .sort((left: any, right: any) => right.queuedAt - left.queuedAt
+      || right.latestFinishedAt - left.latestFinishedAt || right.order - left.order);
+  const selected = candidates[0] as (AuthoritativePlanRun & { order: number; queuedAt: number; latestFinishedAt: number }) | undefined;
+  if (!selected) return undefined;
+  const { order: _order, queuedAt: _queuedAt, latestFinishedAt: _finished, ...selectedRun } = selected;
+  return selectedRun.runId ? selectedRun : undefined;
+}
+
+export function reportedRunIds(summary: unknown): string[] {
+  const value = summary && typeof summary === "object" ? summary as Record<string, any> : {};
+  const ids = new Set<string>();
+  const add = (entry: unknown) => {
+    const id = String(entry || "").trim();
+    if (id) ids.add(id);
+  };
+  add(value.completedRunId);
+  add(value.runId);
+  add(value.selectedRunId);
+  add(value.planRunId || value.plan_run_id);
+  for (const row of Array.isArray(value.results) ? value.results : [])
+    add(row?.runId || row?.run_id || row?.provenance?.runId);
+  for (const row of Array.isArray(value.workerResultTables) ? value.workerResultTables : [])
+    add(row?.runId || row?.run_id || row?.completedJob?.runId || row?.provenance?.runId);
+  return [...ids];
+}
+
+export function summaryProvesRun(summary: unknown, run: AuthoritativePlanRun): boolean {
+  const value = summary && typeof summary === "object" ? summary as Record<string, any> : {};
+  const ids = reportedRunIds(value);
+  const reportedRevision = String(value.planRevision || value.plan_revision || "").trim();
+  return ids.length === 1 && ids[0] === run.runId && (!reportedRevision || reportedRevision === run.revision);
+}
+
+const RESULT_PATH_FIELDS = [
+  "previewCsvPath", "rawResultCsvPath", "aggregateCsvPath", "projectAggregateCsvPath", "finalCsvPath", "finalMarkdownPath",
+  "projectFinalCsvPath", "projectFinalMarkdownPath", "preview_csv_path", "effectiveResultsCsvPath", "effective_results_csv_path",
+  "qualityGatePath", "quality_gate_path", "statisticsPath", "statistics_path", "paperTablePath", "paper_table_path",
+  "paperTableCsvPath", "paper_table_csv_path", "claimEvidencePath", "claim_evidence_path",
+];
+
+/** Drop all summary-owned result sources before recovering files from a different authoritative run. */
+export function summaryForRunRecovery(summary: unknown, planFile: string, run: AuthoritativePlanRun): Record<string, any> {
+  const value = summary && typeof summary === "object" && !Array.isArray(summary) ? summary as Record<string, any> : {};
+  const next = { ...value };
+  for (const field of RESULT_PATH_FIELDS) delete next[field];
+  for (const field of ["results", "workerResultTables", "datasetResultTables", "projectDatasetTables", "paperDatasetTables", "metricPaths", "outputCandidates", "resultCandidates"])
+    next[field] = [];
+  delete next.claimEvidence;
+  delete next.claim_evidence;
+  return {
+    ...next,
+    planFile,
+    planRevision: run.revision,
+    completedRunId: run.runId,
+    runId: run.runId,
+    selectedRunId: run.runId,
+    mixedPlanRevision: false,
+    results: [],
+    workerResultTables: [],
+  };
+}

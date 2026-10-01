@@ -22,6 +22,7 @@ export type QueuedJob = {
   recallOperationId?: string;
   legacyOwnership?: boolean;
   logPath?: string;
+  historyLogIdentity?: { commandId: string; outputDir: string; runId: string };
   error?: string;
   finishedAt?: string;
   artifacts?: Record<string, string>;
@@ -60,6 +61,23 @@ export type DistributedQueue = { schemaVersion: 1; plans: QueuedPlan[]; deferred
   localMetricsSignature?: string;
   publishedWorkerId?: string; publishedWorkerIds?: string[]; publishedPaths?: string[];
   previewWorkerId?: string; previewWorkerIds?: string[]; previewPaths?: string[] };
+
+export function terminalHistoryLogBinding(plan: Pick<QueuedPlan, "id">, job: Pick<QueuedJob, "status" | "outputDir" | "commandId">):
+  { logPath: string; historyLogIdentity: { commandId: string; outputDir: string; runId: string } } | undefined {
+  const status = String(job?.status || "").toLowerCase();
+  if (!["completed", "failed", "cancelled"].includes(status)) return undefined;
+  const outputDir = String(job?.outputDir || "").replace(/\\/g, "/").trim();
+  if (!outputDir || outputDir.startsWith("/") || /^[A-Za-z]:/.test(outputDir)
+    || outputDir.split("/").some((part) => !part || part === "." || part === "..")) return undefined;
+  const runId = String(plan?.id || "").trim();
+  const commandId = String(job?.commandId || "").trim();
+  if (!runId || !commandId) return undefined;
+  return {
+    logPath: `${outputDir}/${status === "completed" ? "stdout.log" : "stderr.log"}`,
+    historyLogIdentity: { commandId, outputDir, runId },
+  };
+}
+
 export type WorkerSlots = { workerId: string; idleGpuIds: string[]; online: boolean; capacity?: number; codeFingerprint?: string; idleGpuAdmission?: boolean };
 export type DurableWorkerSnapshot = {
   workerId: string;

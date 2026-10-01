@@ -224,7 +224,7 @@ class HttpTunnelClient {
             const configuredTimeoutMs = Number(options.timeoutMs ?? this.endpoint.timeoutMs ?? 30_000);
             const timeoutMs = Number.isFinite(configuredTimeoutMs) ? Math.max(1, configuredTimeoutMs) : 30_000;
             const timeoutText = timeoutMs % 1000 === 0 ? `${timeoutMs / 1000} 秒` : `${timeoutMs} 毫秒`;
-            const inactivity = new ProgressInactivity_1.ProgressInactivity(timeoutMs, () => controller.abort(new Error(`${timeoutText}无有效响应，执行结果待确认。请点击重新连接并核对状态，勿重复执行。`)));
+            const inactivity = new ProgressInactivity_1.ProgressInactivity(timeoutMs, () => controller.abort(new Error(`${timeoutText}无有效响应，执行结果待确认。实时连接会自动重试；请刷新运行状态核对，勿重复执行。`)));
             const onCallerAbort = () => controller.abort();
             if (options.signal) {
                 if (options.signal.aborted)

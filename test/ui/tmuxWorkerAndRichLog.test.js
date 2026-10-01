@@ -2,6 +2,7 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const vm = require("node:vm");
 const { renderPanelHtml } = require("../../dist/ui/PanelHtml.js");
+const { terminalHistoryLogBinding } = require("../../dist/features/DistributedPlanQueue.js");
 const { readSource } = require("../_helpers/sourceReader");
 
 test("Rich progress redraws replace old lines in the log view", () => {
@@ -16,6 +17,24 @@ test("Rich progress redraws replace old lines in the log view", () => {
   assert.match(result, /Train 1\/3 100%/);
   assert.match(result, /Val 1\/3 100%/);
   assert.doesNotMatch(result, /(?:^|\s)(?:0%|50%)|\x1b/);
+});
+
+test("terminal attempts on one GPU keep immutable run and command log identities", () => {
+  const first = terminalHistoryLogBinding({ id: "run-a" }, {
+    status: "completed", commandId: "command-a", gpuId: "gpu-0", outputDir: "simple_cluster/runs/ebmc/attempts/run-a/job-42",
+  });
+  const second = terminalHistoryLogBinding({ id: "run-b" }, {
+    status: "failed", commandId: "command-b", gpuId: "gpu-0", outputDir: "simple_cluster/runs/ebmc/attempts/run-b/job-42",
+  });
+  assert.equal(first.logPath, "simple_cluster/runs/ebmc/attempts/run-a/job-42/stdout.log");
+  assert.deepEqual(first.historyLogIdentity, {
+    commandId: "command-a", outputDir: "simple_cluster/runs/ebmc/attempts/run-a/job-42", runId: "run-a",
+  });
+  assert.equal(second.logPath, "simple_cluster/runs/ebmc/attempts/run-b/job-42/stderr.log");
+  assert.notEqual(first.logPath, second.logPath);
+  assert.equal(terminalHistoryLogBinding({ id: "run-a" }, {
+    status: "running", commandId: "command-live", outputDir: "simple_cluster/runs/live",
+  }), undefined);
 });
 
 test("tmux overview requests and retains all Worker session lists", () => {

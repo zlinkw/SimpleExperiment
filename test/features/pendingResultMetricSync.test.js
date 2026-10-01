@@ -15,6 +15,10 @@ const vscodeStub = {
     getConfiguration: (_section, scope) => ({ get: (key, fallback) => key === "projectAdapterRules" && scope?.fsPath && adapterRulesByRoot.get(scope.fsPath) || fallback }),
     workspaceFolders: [{ uri: { fsPath: "", scheme: "file", path: "" } }],
   },
+  extensions: {
+    getExtension: () => ({ extensionPath: root, packageJSON: require("../../package.json") }),
+    onDidChange: () => ({ dispose() {} }),
+  },
   window: {
     showSaveDialog: async () => undefined,
     showWarningMessage: async (_text, _options, first) => vscodeStub.window.downloadChoice || first,
@@ -46,7 +50,7 @@ test("the result table button merges every known result scope before any metric 
   assert.match(panel, /尚无总表。点击“同步服务器结果并更新总表”/);
   assert.doesNotMatch(panel, /同步待处理产物 \(/);
   assert.doesNotMatch(panel, /待处理产物计数属于自动的权重和日志同步/);
-  assert.match(extension, /case "syncPendingPlanArtifacts":\s*await this\.syncPendingResultMetricsFromUi\(\{ rebuildDirectory: true \}\)/);
+  assert.match(extension, /case "syncPendingPlanArtifacts":\s*await this\.syncPendingResultMetricsFromUi\(\)/);
   const manual = sliceBetween(extension, "async syncPendingResultMetricsFromUi(", "async summaryForMetricDownload(");
   const mergeAt = manual.indexOf("await this.mergeLatestWorkerVersions(");
   const downloadAt = manual.indexOf("downloadMappedResultBatch(");
@@ -57,7 +61,8 @@ test("the result table button merges every known result scope before any metric 
   assert.match(manual, /outcome === false/);
   assert.match(manual, /mergeConflictForPlan\(unverifiedScopes, item, item\.candidates\)/);
   assert.match(manual, /acceptedCompletedRevision\(/);
-  assert.match(manual, /metricsOnly: true/);
+  assert.match(manual, /postprocessDistributedResultsForManual\(root, "full"\)/);
+  assert.doesNotMatch(manual, /rebuildDirectory|rebuildSyncedResultDirectory/);
   assert.equal(manual.match(/mergeLatestWorkerVersions\(/g).length, 1);
   assert.doesNotMatch(manual, /pendingPlanSyncs\(ledger\)|markPlanSyncComplete\(/);
   assert.doesNotMatch(manual, /this\.planFileInput \|\| this\.selectedPlanId/);
@@ -124,6 +129,7 @@ function providerFor(workspace, options = {}) {
   };
   const provider = {
     calls,
+    runningBuildIdentity: require("../../dist/features/PanelBuildIdentity").readPanelBuildIdentity(root, undefined, require("../../package.json").version),
     planFileInput: options.selectedPlan || "",
     selectedPlanId: options.selectedPlan || "",
     selectedRunKeys: new Set(),
@@ -257,7 +263,7 @@ test("legacy project-wide aggregates do not block or enter dataset-first metric 
   }
 });
 
-test("the manual button rebuilds a legacy layout once and reuses it on later syncs", async () => {
+test("manual sync preserves legacy files while updating dataset result layout", async () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-result-recreate-sync-"));
   const legacy = path.join(workspace, "experiments/results/final/final.csv");
   fs.mkdirSync(path.dirname(legacy), { recursive: true });
@@ -265,17 +271,15 @@ test("the manual button rebuilds a legacy layout once and reuses it on later syn
   const provider = providerFor(workspace, { onlyFirst: true });
   const run = () => require("../../dist/extension/legacy.js").__handleResultUiCommandForTest(provider, { command: "syncPendingPlanArtifacts" });
   await run();
-  assert.equal(fs.existsSync(legacy), false);
+  assert.equal(fs.readFileSync(legacy, "utf8"), "legacy mixed results");
   assert.ok(fs.existsSync(path.join(workspace, "experiments/results/set/final/final.csv")));
   assert.ok(fs.existsSync(rawLocation(workspace)));
   const backup = path.join(workspace, "clean_dir/experiments/results");
-  assert.equal(fs.readFileSync(path.join(backup, "final/final.csv"), "utf8"), "legacy mixed results");
+  assert.equal(fs.existsSync(backup), false);
   await run();
-  assert.ok(fs.existsSync(path.join(backup, "set/final/final.csv")));
-  const history = path.join(workspace, "clean_dir/_superseded");
-  assert.equal(fs.existsSync(history), false);
-  assert.equal(fs.readFileSync(path.join(backup, "final/final.csv"), "utf8"), "legacy mixed results");
-  assert.deepEqual(fs.readdirSync(path.join(workspace, "experiments/results")).filter(name => name !== "_unassigned").sort(), [".dataset-layout.json", "set"]);
+  assert.equal(fs.readFileSync(legacy, "utf8"), "legacy mixed results");
+  assert.ok(fs.existsSync(path.join(workspace, "experiments/results/set/final/final.csv")));
+  assert.equal(fs.existsSync(backup), false);
 });
 
 test("two pending plans merge on all workers before either metric download when no plan is selected", async () => {
@@ -857,16 +861,19 @@ test("rebuild verifies completed job CSVs when the server summary has no indexed
   const provider = providerFor(workspace, { onlyFirst: true, workers: [{ id: "w1" }] });
   const planFile = "experiments/plans/a.yaml";
   const jobs = [1, 2].map((seed, index) => ({ index, case: "alpha", seed, attempt: 1, workerId: "w1",
-    status: "completed", outputDir: "work_dirs/a/" + index + "/attempts/run-a" }));
+    status: "completed", outputDir: "work_dirs/a/" + index + "/attempts/run-a", commandId: "command-run-a-" + seed }));
+  const files = Object.fromEntries(jobs.flatMap((job) => {
+    const csv = "case,seed,method,dataset,eval_protocol,metric,value,epoch\nalpha," + (fault === "wrong-seed" ? 99 : job.seed) + ",a,set,clean,AUC," + (0.7 + job.seed / 10) + ",99\n";
+    return [[job.outputDir + "/test_results/formal_result_rows.csv", csv], [job.outputDir + "/test_results/four_state_metrics.csv", csv]];
+  }));
+  for (const job of jobs) job.artifacts = Object.fromEntries(Object.entries(files)
+    .filter(([file]) => file.startsWith(job.outputDir + "/"))
+    .map(([file, text]) => [file, crypto.createHash("sha256").update(text).digest("hex")]));
   provider.loadDistributedQueue = async () => ({ schemaVersion: 1, plans: [{ id: "run-a", planFile,
     revision: "r1", enqueuedAt: "2026-09-27T00:00:00Z", jobs }] });
   provider.loadPlanSyncLedger = async () => ({ schemaVersion: 2, entries: {} });
   provider.client.getResultsSummary = async () => ({ planFile, planRevision: "r1", results: [],
     workerResultTables: [{ workerId: "w1", aggregateStatus: "no_declared_csv", rawResultCsvPath: "" }] });
-  const files = Object.fromEntries(jobs.flatMap((job) => {
-    const csv = "case,seed,method,dataset,eval_protocol,metric,value,epoch\nalpha," + (fault === "wrong-seed" ? 99 : job.seed) + ",a,set,clean,AUC," + (0.7 + job.seed / 10) + ",99\n";
-    return [[job.outputDir + "/test_results/formal_result_rows.csv", csv], [job.outputDir + "/test_results/four_state_metrics.csv", csv]];
-  }));
   provider.simpleSftpApiCall = async (method, params) => {
     provider.calls.push([method, params]);
     if (method === "sync.projectInventory") {

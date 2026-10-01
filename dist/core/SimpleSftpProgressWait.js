@@ -21,7 +21,7 @@ async function callSftpWithProgress(method, params, discover) {
         catch { /* Outcome remains unknown; never replay a modifying operation. */ }
     }
     const inactivity = new ProgressInactivity_1.ProgressInactivity(fileOperation ? 120_000 : 30_000, () => {
-        requestAbort.abort(new Error("无真实进展，执行结果待确认。请重新连接并检查目标状态，勿重复执行。"));
+        requestAbort.abort(new Error("无真实进展，执行结果待确认。连接中断时实时通道会自动重连；请刷新目标状态，勿重复执行。"));
         void cancelRemote();
     });
     const onCancel = () => { requestAbort.abort(params.signal?.reason); void cancelRemote(); };

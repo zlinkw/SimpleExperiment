@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.emptyDistributedQueue = exports.CODE_FINGERPRINT_WAITING = exports.CODE_FINGERPRINT_MISMATCH = void 0;
+exports.terminalHistoryLogBinding = terminalHistoryLogBinding;
 exports.hasFreshDurableSnapshot = hasFreshDurableSnapshot;
 exports.canonicalProjectId = canonicalProjectId;
 exports.durableCommandId = durableCommandId;
@@ -74,6 +75,23 @@ exports.stopIdentityMatchesJob = stopIdentityMatchesJob;
 exports.retryVerifiedJob = retryVerifiedJob;
 const node_crypto_1 = require("node:crypto");
 const path = __importStar(require("node:path"));
+function terminalHistoryLogBinding(plan, job) {
+    const status = String(job?.status || "").toLowerCase();
+    if (!["completed", "failed", "cancelled"].includes(status))
+        return undefined;
+    const outputDir = String(job?.outputDir || "").replace(/\\/g, "/").trim();
+    if (!outputDir || outputDir.startsWith("/") || /^[A-Za-z]:/.test(outputDir)
+        || outputDir.split("/").some((part) => !part || part === "." || part === ".."))
+        return undefined;
+    const runId = String(plan?.id || "").trim();
+    const commandId = String(job?.commandId || "").trim();
+    if (!runId || !commandId)
+        return undefined;
+    return {
+        logPath: `${outputDir}/${status === "completed" ? "stdout.log" : "stderr.log"}`,
+        historyLogIdentity: { commandId, outputDir, runId },
+    };
+}
 function hasFreshDurableSnapshot(snapshot, now = Date.now(), maxAgeMs = 180_000) {
     const generatedAt = Date.parse(String(snapshot?.generatedAt || ""));
     const fetchedAt = Date.parse(String(snapshot?.fetchedAt || ""));

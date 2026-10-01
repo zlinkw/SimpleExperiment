@@ -1,15 +1,21 @@
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const fs = require("node:fs");
 const Module = require("node:module");
 const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 
+const extensionRoot = path.join(__dirname, "..", "..");
 const vscodeStub = {
   commands: { executeCommand: async () => ({ ok: true }) },
   workspace: {
     getConfiguration: () => ({ get: (_key, fallback) => fallback }),
     workspaceFolders: [{ uri: { fsPath: "", scheme: "file", path: "" } }],
+  },
+  extensions: {
+    getExtension: () => ({ extensionPath: extensionRoot, packageJSON: require("../../package.json") }),
+    onDidChange: () => ({ dispose() {} }),
   },
   window: {
     showWarningMessage: async () => "覆盖已有文件并同步",
@@ -78,6 +84,7 @@ function providerFor(workspace) {
   const calls = [];
   const provider = {
     calls,
+    runningBuildIdentity: require("../../dist/features/PanelBuildIdentity").readPanelBuildIdentity(extensionRoot, undefined, require("../../package.json").version),
     planFileInput: "experiments/plans/b.yaml",
     selectedPlanId: "experiments/plans/b.yaml",
     selectedRunKeys: new Set(), selectedExperimentIds: new Set(), selectedArchiveKeys: new Set(), selectedTaskUiKeys: new Set(),
@@ -136,6 +143,7 @@ function providerFor(workspace) {
     filterResultsSummaryForPlan: (value) => value,
     loadProjectTableRegistry: undefined,
     writeProjectTableRegistry: undefined,
+    invalidateResultCatalogCache: () => {},
     queueHistoricalPlanArtifactSyncs: async () => { calls.push(["queue-historic"]); },
     mergeLatestWorkerVersions: async (_root, _targets, scopePaths) => {
       calls.push(["merge", scopePaths.slice()]);
@@ -241,6 +249,145 @@ test("downloaded csv rows fill plans when the server summary has no result rows"
   const seeds = registry.plans["experiments/plans/a.yaml"].records.map((item) => item.seed).sort();
   assert.deepEqual(seeds, ["1", "2", "3"]);
   assert.equal(host.postedReport.included.some((line) => line.includes("a.yaml")), true);
+});
+
+test("same-revision rerun recovery ignores anonymous shared CSV and publishes only latest attempt jobs", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-result-run-freshness-"));
+  vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: workspace, scheme: "file", path: workspace } }];
+  const planFile = "experiments/plans/comparison/ebmc.yaml";
+  const seeds = [42, 43, 44];
+  const expectedJobs = ["bus_p100", "pad_p100"].flatMap((caseName) => seeds.map((seed) => ({ case: caseName, seed })));
+  const sha = (text) => crypto.createHash("sha256").update(text, "utf8").digest("hex");
+  const fragments = new Map();
+  const makeRun = (id, enqueuedAt, metricBase) => ({
+    id, planFile, revision: "revision-ebmc", enqueuedAt, planJobCount: expectedJobs.length,
+    jobs: expectedJobs.map(({ case: caseName, seed }, index) => {
+      const outputDir = `simple_cluster/runs/ebmc/attempts/${id}/job-${caseName}-${seed}`;
+      const raw = `${outputDir}/test_results/formal_result_rows.csv`;
+      const fourState = `${outputDir}/test_results/four_state_metrics.csv`;
+      const value = (metricBase + index / 100).toFixed(2);
+      const dataset = caseName === "bus_p100" ? "BUS" : "PAD";
+      const rawText = `case,seed,method,dataset,eval_protocol,AUC,run_id,job_dir\n${caseName},${seed},ebmc,${dataset},p0 Full,${value},${id},${outputDir}\n`;
+      const fourText = `run_id,case,seed,job_dir\n${id},${caseName},${seed},${outputDir}\n`;
+      fragments.set(raw, rawText);
+      fragments.set(fourState, fourText);
+      const workerId = index % 2 ? "w2" : "w1";
+      return { index, case: caseName, seed, attempt: 1, status: "completed", workerId, outputDir,
+        commandId: `${id}-command-${seed}`, artifacts: { [raw]: sha(rawText), [fourState]: sha(fourText) } };
+    }),
+  });
+  const runA = makeRun("run-a", "2026-09-01T00:00:00.000Z", 0.1);
+  const runB = makeRun("run-b", "2026-09-02T00:00:00.000Z", 0.8);
+  const queue = { schemaVersion: 1, plans: [runA, runB] };
+  const provider = providerFor(workspace);
+  provider.planFileInput = planFile;
+  provider.selectedPlanId = planFile;
+  provider.localPlanMetadata.plans = [{ planFile, revision: "revision-ebmc", seeds }];
+  provider.distributedQueueCache = queue;
+  provider.distributedQueueRoot = workspace;
+  provider.loadPlanSyncLedger = async () => ({ schemaVersion: 2, entries: {} });
+  const oldSharedPath = "experiments/results/formal/ebmc.csv";
+  const staleRow = {
+    workerId: "w1", run_id: "run-a", planRevision: "revision-ebmc",
+    dimensions: { case: "bus_p100", seed: "42", method: "ebmc", dataset: "BUS", eval_protocol: "p0 Full" },
+    metrics: { AUC: { value: 0.11 } }, sourceFiles: [{ path: oldSharedPath }],
+  };
+  provider.client.getResultsSummary = async () => ({
+    planFile, planRevision: "revision-ebmc", completedRunId: null, runId: null,
+    projectFinalCsvPath: oldSharedPath,
+    workerResultTables: [{ workerId: "w1", aggregateStatus: "ready", rawResultCsvPath: oldSharedPath }],
+    results: [staleRow],
+  });
+  const staleSummary = {
+    planFile, planRevision: "revision-ebmc", completedRunId: "run-a", workerResultTables: [{
+      workerId: "w1", aggregateStatus: "ready", rawResultCsvPath: oldSharedPath,
+    }], results: [staleRow],
+  };
+  const resultTables = require("../../dist/results/ProjectResultTables.js");
+  const resultLayout = require("../../dist/results/ResultLayout.js");
+  const previousRegistry = resultTables.updateRegistry(resultTables.emptyTableRegistry(), staleSummary, planFile, seeds.length);
+  await provider.writeProjectTableRegistry(workspace, previousRegistry);
+  for (const caseName of ["bus_p100", "pad_p100"]) {
+    const dataset = caseName === "bus_p100" ? "BUS" : "PAD";
+    const oldRemote = `simple_cluster/runs/ebmc/attempts/run-a/job-${caseName}-42/test_results/formal_result_rows.csv`;
+    const oldLocal = path.join(workspace, "experiments", "results", ...resultTables.planArtifactPath(resultTables.datasetPathKey(dataset), planFile, "raw", `old-${caseName}.csv`).split("/"));
+    fs.mkdirSync(path.dirname(oldLocal), { recursive: true });
+    fs.writeFileSync(oldLocal, `case,seed,method,dataset,eval_protocol,AUC,run_id,job_dir\n${caseName},42,ebmc,${dataset},p0 Full,0.11,run-a,${oldRemote.replace(/\/test_results\/formal_result_rows\.csv$/, "")}\n`, "utf8");
+  }
+  provider.loadDistributedQueue = async () => queue;
+  provider.distributedProjectContract = () => ({ resultRowsPath: "test_results/formal_result_rows.csv", fourStatePath: "test_results/four_state_metrics.csv" });
+  provider.postprocessDistributedResultsForManual = async (_root, scope) => { provider.calls.push(["postprocess", scope]); };
+  provider.mappedDownloadServerForSource = (workerId) => target(workerId);
+  provider.confirmMappedResultDownloads = async (_context, _client, batches) => {
+    provider.selectedDownloadEntries = batches.flatMap((batch) => batch.entries || []);
+    return { cancelled: false, overwrite: true, batches, skippedExisting: 0 };
+  };
+  provider.simpleSftpApiCall = async (method, params) => {
+    provider.calls.push([method, params.server?.id, params.scopePaths || params.entries?.map((entry) => entry.remotePath) || []]);
+    if (method === "sync.projectInventory") {
+      const files = {};
+      for (const remote of params.scopePaths) {
+        const body = fragments.get(remote);
+        files[remote] = { size: Buffer.byteLength(body || "", "utf8"), sha256: body ? sha(body) : "" };
+      }
+      return { ok: true, files };
+    }
+    if (method === "sync.downloadMappedPaths") {
+      for (const entry of params.entries) {
+        const body = fragments.get(entry.remotePath);
+        assert.ok(body, `unexpected remote artifact ${entry.remotePath}`);
+        const full = path.join(workspace, ...entry.localRelativePath.split("/"));
+        fs.mkdirSync(path.dirname(full), { recursive: true });
+        fs.writeFileSync(full, body, "utf8");
+      }
+      return { ok: true, fileCount: params.entries.length, completedFiles: params.entries.length };
+    }
+    throw new Error("unexpected SimpleSFTP method " + method);
+  };
+  const { RealtimeTunnelPanelProvider } = require("../../dist/extension/legacy.js");
+  const host = Object.assign(Object.create(RealtimeTunnelPanelProvider.prototype), provider);
+  await RealtimeTunnelPanelProvider.prototype.handleMessageCore.call(host, { command: "syncPendingPlanArtifacts" }, "syncPendingPlanArtifacts");
+  await RealtimeTunnelPanelProvider.prototype.rebuildProjectResultTablesFromUi.call(host);
+  host.actionBody = (value) => value;
+  host.resolveSelectedPlanFile = (hint = "") => String(hint || planFile);
+  host.filterResultsSummaryForPlan = (value) => value;
+  host.refreshResultsSummary = async () => { host.resultsSummary = await provider.client.getResultsSummary(planFile); };
+  await RealtimeTunnelPanelProvider.prototype.syncAllResultArtifactsFromUi.call(host, { planFile });
+
+  const registry = JSON.parse(fs.readFileSync(path.join(workspace, "simple_cluster", "results", "project_table_registry.json"), "utf8"));
+  const records = registry.plans[planFile].records;
+  assert.deepEqual([...new Set(records.map((record) => record.runId))], ["run-b"]);
+  for (const dataset of ["BUS", "PAD"]) {
+    const datasetRecords = records.filter((record) => record.dataset === dataset);
+    assert.deepEqual([...new Set(datasetRecords.map((record) => record.seed))].sort(), ["42", "43", "44"]);
+    const methodPath = path.join(workspace, "experiments", "results", ...resultLayout.tablePaths(resultTables.datasetPathKey(dataset), "ebmc", "method").relativePath.split("/"));
+    const methodCsv = fs.readFileSync(methodPath, "utf8").trim().split("\n").map((line) => line.split(","));
+    const header = methodCsv[0];
+    const row = methodCsv[1];
+    assert.equal(row[header.indexOf("jobs")], "3");
+    assert.equal(Number(row[header.indexOf("roc_auc_mean")]), dataset === "BUS" ? 0.81 : 0.84);
+  }
+  assert.equal(records.every((record) => record.metrics.AUC >= 0.8), true);
+  assert.equal(host.calls.some((call) => call[0] === "postprocess" && call[1] === "full"), true);
+  assert.equal(host.calls.some((call) => call[0] === "merge" && call[1].includes(oldSharedPath)), false);
+  const downloadedRaw = host.calls.flatMap((call) => call[0] === "sync.downloadMappedPaths" ? call[2] : [])
+    .filter((remote) => remote.endsWith("/formal_result_rows.csv"));
+  assert.deepEqual([...new Set(downloadedRaw)].sort(), runB.jobs.map((job) => `${job.outputDir}/test_results/formal_result_rows.csv`).sort());
+  const localRaw = provider.selectedDownloadEntries.filter((entry) => entry.remotePath.endsWith("/formal_result_rows.csv"));
+  assert.equal(localRaw.length, runB.jobs.length);
+  for (const entry of localRaw) {
+    const text = fs.readFileSync(path.join(workspace, ...entry.localRelative.split("/")), "utf8");
+    const header = text.trim().split("\n")[0].split(",");
+    const fields = text.trim().split("\n")[1].split(",");
+    assert.equal(fields[header.indexOf("run_id")], "run-b");
+    assert.equal(fields[header.indexOf("job_dir")], entry.remotePath.replace(/\/test_results\/formal_result_rows\.csv$/, ""));
+  }
+  for (const caseName of ["bus_p100", "pad_p100"]) {
+    const dataset = caseName === "bus_p100" ? "BUS" : "PAD";
+    const oldLocal = path.join(workspace, "experiments", "results", ...resultTables.planArtifactPath(resultTables.datasetPathKey(dataset), planFile, "raw", `old-${caseName}.csv`).split("/"));
+    assert.match(fs.readFileSync(oldLocal, "utf8"), /,run-a,/);
+  }
+  assert.equal(records.every((record) => record.runId !== "run-a"), true);
 });
 
 test("yaml newer than the trusted completed run still publishes that completed run", async () => {

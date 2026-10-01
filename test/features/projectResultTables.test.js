@@ -171,6 +171,18 @@ test("completed cross-Worker rerun replaces older Worker results for the same Pl
   assert.equal(tables.buildTables(updated)["bus/final"].rows[0][tables.buildTables(updated)["bus/final"].header.indexOf("accuracy_mean")], 0.7);
 });
 
+test("authoritative rerun does not retain anonymous rows from the same revision", () => {
+  const previous = tables.updateRegistry(tables.emptyTableRegistry(), summary([
+    record("w1", "demo", "bus_p100", 42, "p0 Full", "AUROC", 0.11),
+  ]), plan, 1);
+  const current = summary([
+    { ...record("w1", "demo", "bus_p100", 42, "p0 Full", "AUROC", 0.91), runId: "run-b", attempt: "1" },
+  ]);
+  current.completedRunId = "run-b";
+  const merged = tables.mergeAvailableWorkerResults(previous, current, plan, 1);
+  assert.deepEqual(merged.plans[plan].records.map((item) => [item.runId, item.metrics.AUROC]), [["run-b", 0.91]]);
+});
+
 test("CSV splitting supports manual value and column selection with quoted cells", () => {
   const source = tables.writeCsv(["result_family", "rate_percent", "note", "acc_mean"], [
     ["demo", "0", "a,b", 0.1],
