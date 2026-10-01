@@ -66,6 +66,7 @@ import PanelStateDelivery_1 = require("../features/PanelStateDelivery");
 import PanelStateProgress_1 = require("../features/PanelStateProgress");
 import PanelStateFlowControl_1 = require("../features/PanelStateFlowControl");
 import PanelStateProjection_1 = require("../features/PanelStateProjection");
+import PanelPlanStatusSummary_1 = require("../features/PanelPlanStatusSummary");
 import PanelStatePayload_1 = require("../features/PanelStatePayload");
 import TunnelPortAllocator_1 = require("../tunnel/TunnelPortAllocator");
 import TunnelEndpointRegistry_1 = require("../tunnel/TunnelEndpointRegistry");
@@ -19109,6 +19110,36 @@ export class RealtimeTunnelPanelProvider {
             });
         timing.diagnosticsMs = Math.max(0, Date.now() - diagnosticsStartedAt);
         const gpuHistory = this.gpuHistoryState.snapshot();
+        const distributedPlans = this.distributedQueueRoot === workspaceRoot()
+            ? this.serverPlanProgress().map((plan) => ({ id: plan.id, projectId: plan.projectId, schedulingMode: plan.schedulingMode,
+                localDispatchOverride: plan.localDispatchOverride === true,
+                planJobCount: plan.planJobCount, recoveryMissingCount: plan.recoveryMissingCount, remoteAcceptedJobCount: plan.remoteAcceptedJobCount,
+                recoveryConflict: plan.recoveryConflict, planFile: plan.planFile,
+                revision: plan.revision, codeFingerprint: plan.codeFingerprint, enqueuedAt: plan.enqueuedAt,
+                jobs: plan.jobs.map((job) => ({ index: job.index, case: job.case, seed: job.seed,
+                    status: job.status, workerId: job.workerId, gpuId: job.gpuId, outputDir: job.outputDir,
+                    localQueueOnly: job.localQueueOnly === true, recallRequested: job.recallRequested === true,
+                    recallOperationId: job.recallOperationId || "",
+                    commandId: job.commandId, logPath: job.logPath, finishedAt: job.finishedAt,
+                    error: job.error, blockReason: job.blockReason,
+                    artifactError: job.artifactError, mirroredWorkerIds: job.mirroredWorkerIds || [] })) })) : [];
+        const executionHistoryCutoffs = this.context.workspaceState.get(keys.executionHistoryCutoffs, {});
+        const executionHistoryHiddenOperationIds = this.context.workspaceState.get(keys.executionHistoryHiddenOperationIds, []);
+        const planStatusSummaries = PanelPlanStatusSummary_1.summarizePlanStatuses({
+            plans: [
+                ...(Array.isArray(this.localPlanMetadata.plans) ? this.localPlanMetadata.plans : []),
+                ...(Array.isArray(this.recentPlans) ? this.recentPlans : []),
+                ...(Array.isArray(this.localPlanMetadata.detectedProject?.plans) ? this.localPlanMetadata.detectedProject.plans : []),
+            ],
+            schedulerStates,
+            topologyMode: topology.mode,
+            workerTasks: topology.mode === "single_worker" ? gpu?.worker : undefined,
+            operations,
+            distributedPlans,
+            executionHistoryCutoffs,
+            executionHistoryHiddenOperationIds,
+        });
+        const planStatusSummaryRevision = JSON.stringify(planStatusSummaries);
         const actionErrorRevision = (Array.isArray(this.actionErrors) ? this.actionErrors : []).slice(0, 8).map((item: any) => `${item?.timestamp || ""}:${item?.command || ""}:${item?.message || ""}`).join("|");
         const sectionRevisions = this.panelSectionRevisionTracker.update({
             settings: [this.setupConfig, schedulerConfigRevision, this.localPlanMetadata.detectedProject, this.localPlanMetadata.plans, this.resultCsvDirectory,
@@ -19116,7 +19147,7 @@ export class RealtimeTunnelPanelProvider {
             sync: [this.setupConfig, this.lastCodeSyncState, this.lastProbe, this.lastWorkerProbes, endpointRegistryState.registry, realtimeState?.health],
             plans: [this.localPlanMetadata.plans, this.localPlanMetadata.archivedPlans, recentPlansRevision, this.planFileInput, this.selectedPlanId, this.draftPlanState,
                 this.resultsSummary, planStopClearRevision, realtimeState?.operations, snapshot?.operations, offlineSnapshot?.operations,
-                realtimeState?.schedulerStates, snapshot?.schedulerStates, offlineSnapshot?.schedulerStates],
+                realtimeState?.schedulerStates, snapshot?.schedulerStates, offlineSnapshot?.schedulerStates, planStatusSummaryRevision],
             results: [this.resultCatalogDirtyGeneration, this.resultCatalogCache?.key, this.resultCatalogCache?.catalog, this.resultsSummary, this.resultSyncReport,
                 projectAdapterRulesRevision, pptPlotConfigRevision,
                 offlineSnapshot?.experimentTraces, snapshot?.experimentTraces, realtimeState?.experimentTraces, includePanelResults],
@@ -19174,25 +19205,14 @@ export class RealtimeTunnelPanelProvider {
             plansTotalCount: webviewPlans.totalCount,
             plansOmittedCount: webviewPlans.omittedCount,
             planArchive: { plans: webviewArchivedPlans.plans, totalCount: webviewArchivedPlans.totalCount, omittedCount: webviewArchivedPlans.omittedCount },
+            planStatusSummaries,
             planScanError: webviewPlanScanError,
             draftPlans: this.draftPlanState,
             gpu,
             ...(includePanelGpuHistory ? { gpuHistory } : {}),
             sectionRevisions,
             schedulerStates,
-            distributedPlans: this.distributedQueueRoot === workspaceRoot()
-                ? this.serverPlanProgress().map((plan) => ({ id: plan.id, projectId: plan.projectId, schedulingMode: plan.schedulingMode,
-                    localDispatchOverride: plan.localDispatchOverride === true,
-                    planJobCount: plan.planJobCount, recoveryMissingCount: plan.recoveryMissingCount, remoteAcceptedJobCount: plan.remoteAcceptedJobCount,
-                    recoveryConflict: plan.recoveryConflict, planFile: plan.planFile,
-                    revision: plan.revision, codeFingerprint: plan.codeFingerprint, enqueuedAt: plan.enqueuedAt,
-                    jobs: plan.jobs.map((job) => ({ index: job.index, case: job.case, seed: job.seed,
-                        status: job.status, workerId: job.workerId, gpuId: job.gpuId, outputDir: job.outputDir,
-                        localQueueOnly: job.localQueueOnly === true, recallRequested: job.recallRequested === true,
-                        recallOperationId: job.recallOperationId || "",
-                        commandId: job.commandId, logPath: job.logPath, finishedAt: job.finishedAt,
-                        error: job.error, blockReason: job.blockReason,
-                        artifactError: job.artifactError, mirroredWorkerIds: job.mirroredWorkerIds || [] })) })) : [],
+            distributedPlans,
             planStopClearByFile: this.planStopClearByFile,
             deferredPlans: this.distributedQueueRoot === workspaceRoot()
                 ? (this.distributedQueueCache?.deferred || []).map((item) => ({ id: item.id, planFile: item.planFile,
@@ -19205,8 +19225,8 @@ export class RealtimeTunnelPanelProvider {
             ...(includePanelResults ? { experimentTraces: experimentTraces || [] } : {}),
             logs,
             operations: compactOperationsForWebview(operations),
-            executionHistoryCutoffs: this.context.workspaceState.get(keys.executionHistoryCutoffs, {}),
-            executionHistoryHiddenOperationIds: this.context.workspaceState.get(keys.executionHistoryHiddenOperationIds, []),
+            executionHistoryCutoffs,
+            executionHistoryHiddenOperationIds,
             fileTransfers,
             codeSync: compactCodeSyncForWebview(this.lastCodeSyncState),
             remotePathConfirmations: {

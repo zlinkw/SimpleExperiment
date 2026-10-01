@@ -4301,7 +4301,7 @@ function renderPanelHtml() {
     function sectionDependencyKey(data, section) {
       if (section === "servers") return refListKey(data.topology, data.schedulerConfig, data.setup, data.agentSessions, data.xshellSessions, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetry, data.workerTelemetryStatus, data.capabilities, data.realtimeDiagnostics, data.remotePathConfirmations, data.pptPathConfirmations);
       if (section === "settings") return refListKey(data.topology, data.schedulerConfig, data.setup, data.agentSessions, data.xshellSessions, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetryStatus, data.remotePathConfirmations, data.pptPathConfirmations, data.resultOutputConfig, data.resultsSummary, data.detectedProject);
-      if (section === "plans") return refListKey(data.planFileInput, data.selection, data.selectedPlan, data.plans, data.localPlans, data.detectedProject, data.projectConfig, data.adapterRules, data.integrations, data.setup, data.agentSessions, data.health, data.probe, data.workerProbes, data.codeSync, data.operations, data.resultsSummary, data.schedulerStates, data.capabilities, data.extensionVersion);
+      if (section === "plans") return refListKey(data.planFileInput, data.selection, data.selectedPlan, data.plans, data.localPlans, data.detectedProject, data.planStatusSummaries, data.projectConfig, data.adapterRules, data.integrations, data.setup, data.agentSessions, data.health, data.probe, data.workerProbes, data.codeSync, data.operations, data.resultsSummary, data.schedulerStates, data.capabilities, data.extensionVersion);
       if (section === "results") return refListKey(data.planFileInput, data.plans, data.resultsSummary, data.operations, data.schedulerStates, data.experimentTraces, data.selection, data.planArchive, data.pptPlotConfig, data.pptAutomation, data.resultOutputConfig?.tables, data.resultOutputConfig?.catalog);
       if (section === "sync") return refListKey(data.topology, data.schedulerConfig, data.codeSync, data.capabilities, data.setup, data.agentSessions, data.xshellSessions, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetry, data.workerTelemetryStatus, data.realtimeDiagnostics);
       if (section === "gpu") return refListKey(data.gpu, data.gpuHistory, data.setup, data.gpuOwnerConfig);
@@ -9508,14 +9508,58 @@ function renderPanelHtml() {
     const PLAN_SELECTOR_STATUS_LABELS = Object.freeze({ "not-started": "未开始", partial: "部分完成", running: "运行中", completed: "已完成", failed: "失败" });
     let planSelectorStatusIndexState = null;
     let planSelectorStatusIndexValue = null;
+    function planSelectorTrustedSummary(state, planFile, plan) {
+      const revision = String((plan && plan.revision) || "");
+      const planUpdatedAt = Date.parse(String((plan && plan.updatedAt) || ""));
+      const normalizedFile = String(planFile || "").trim().split(String.fromCharCode(92)).join("/");
+      const normalizedKey = (value) => {
+        const text = String(value || "").trim().split(String.fromCharCode(92)).join("/");
+        return (text.startsWith("./") ? text.slice(2) : text).toLowerCase();
+      };
+      const summaries = asArray((state || {}).planStatusSummaries).filter((summary) => {
+        const row = summary || {};
+        const status = String(row.status || "");
+        return row.planFile && PLAN_SELECTOR_STATUS_LABELS[status]
+          && [row.completedCount, row.totalCount, row.taskCount, row.failedCount, row.activeCount, row.queuedCount]
+            .every((count) => typeof count === "number" && Number.isInteger(count) && count >= 0);
+      });
+      const exact = summaries.filter((summary) => normalizedKey(summary.planFile) === normalizedKey(normalizedFile));
+      const matches = exact.length ? exact : summaries.filter((summary) => samePlanSelection(normalizedFile, summary.planFile));
+      for (const summary of matches) {
+        const summaryRevision = String(summary.revision || "");
+        if (revision && summaryRevision !== revision) continue;
+        if (!revision && Number.isFinite(planUpdatedAt)
+          && Date.parse(String(summary.updatedAt || "")) !== planUpdatedAt) continue;
+        const status = String(summary.status || "not-started");
+        return {
+          status,
+          statusLabel: PLAN_SELECTOR_STATUS_LABELS[status],
+          completedCount: Number(summary.completedCount),
+          totalCount: Number(summary.totalCount),
+          taskCount: Number(summary.taskCount),
+          failedCount: Number(summary.failedCount),
+          activeCount: Number(summary.activeCount),
+          queuedCount: Number(summary.queuedCount),
+          revision: summaryRevision,
+        };
+      }
+      return null;
+    }
     function planSelectorStatusIndex(state) {
       const data = state || {};
       if (planSelectorStatusIndexState === data && planSelectorStatusIndexValue) return planSelectorStatusIndexValue;
       const files = collectPlanFileDefaultOrder(data);
       const entries = files.map((file, index) => {
         const plan = planFromContext(data, { planFile: file }) || {};
-        return { file, index, plan, revision: String(plan.revision || ""), updatedAt: Date.parse(String(plan.updatedAt || "")), tasks: [], operations: [], distributedPlans: [] };
+        return { file, index, plan, revision: String(plan.revision || ""), updatedAt: Date.parse(String(plan.updatedAt || "")),
+          summary: planSelectorTrustedSummary(data, file, plan), tasks: [], operations: [], distributedPlans: [] };
       });
+      if (entries.every((entry) => entry.summary)) {
+        const value = { entries, byFile: new Map(entries.map((entry) => [entry.file, entry])) };
+        planSelectorStatusIndexState = data;
+        planSelectorStatusIndexValue = value;
+        return value;
+      }
       const byFile = new Map(entries.map((entry) => [entry.file, entry]));
       const byAlias = new Map();
       entries.forEach((entry) => planFileEquivalenceKeys(entry.file).forEach((key) => {
@@ -9531,7 +9575,7 @@ function renderPanelHtml() {
       const addVersionedRows = (rows, field, versionMatches) => asArray(rows).forEach((row) => {
         const file = String((row || {}).planFile || (row || {}).plan_file || (row || {}).plan || "");
         candidatesFor(file).forEach((entry) => {
-          if (samePlanSelection(file, entry.file) && versionMatches(row, entry.revision, entry.updatedAt)) entry[field].push(row);
+          if (!entry.summary && samePlanSelection(file, entry.file) && versionMatches(row, entry.revision, entry.updatedAt)) entry[field].push(row);
         });
       });
       addVersionedRows(schedulerRowsForState(data), "tasks", taskMatchesPlanVersion);
@@ -9542,7 +9586,7 @@ function renderPanelHtml() {
           planRevision: (distributedPlan || {}).planRevision || (distributedPlan || {}).plan_revision || (distributedPlan || {}).revision || ""
         });
         candidatesFor(file).forEach((entry) => {
-          if (samePlanSelection(file, entry.file) && taskMatchesPlanVersion(versionedPlan, entry.revision, entry.updatedAt)) entry.distributedPlans.push(distributedPlan);
+          if (!entry.summary && samePlanSelection(file, entry.file) && taskMatchesPlanVersion(versionedPlan, entry.revision, entry.updatedAt)) entry.distributedPlans.push(distributedPlan);
         });
       });
       const value = { entries, byFile };
@@ -9576,6 +9620,8 @@ function renderPanelHtml() {
       const index = statusIndex || planSelectorStatusIndex(data);
       const entry = index.byFile.get(planFile);
       const plan = entry ? entry.plan : (planFromContext(data, { planFile }) || {});
+      const trustedSummary = entry && entry.summary || planSelectorTrustedSummary(data, planFile, plan);
+      if (trustedSummary) return trustedSummary;
       const revision = entry ? entry.revision : String(plan.revision || "");
       const planUpdatedAt = entry ? entry.updatedAt : Date.parse(String(plan.updatedAt || ""));
       const tasks = planSelectorLatestJobRows(entry ? entry.tasks : planVersionTaskRows(data, planFile, revision, planUpdatedAt));

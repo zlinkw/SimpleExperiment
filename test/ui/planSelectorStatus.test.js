@@ -28,14 +28,15 @@ function selectorSandbox(stateForSummary) {
     planSelectorSortOrder: { value: "scan" },
     planSelectorStatus: { className: "", innerHTML: "" },
   };
+  const readCounts = { tasks: 0, operations: 0 };
   const sandbox = {
     el: (id) => elements[id],
     samePlanSelection: (left, right) => String(left || "").replaceAll("\\", "/") === String(right || "").replaceAll("\\", "/"),
     planFromContext: (state, context) => (state.plans || []).find((plan) => plan.file === context.planFile) || {},
     planVersionTaskRows: (state, file, revision) => (state.tasks || []).filter((task) => task.planFile === file && task.planRevision === revision),
     planVersionOperationRows: (state, file, revision) => (state.operations || []).filter((row) => row.planFile === file && row.planRevision === revision),
-    operationRowsForState: (state) => state.operations || [],
-    schedulerRowsForState: (state) => state.tasks || [],
+    operationRowsForState: (state) => { readCounts.operations += 1; return state.operations || []; },
+    schedulerRowsForState: (state) => { readCounts.tasks += 1; return state.tasks || []; },
     operationMatchesPlanVersion: (row, revision) => !row.planRevision || row.planRevision === revision,
     taskMatchesPlanVersion: (row, revision) => !row.planRevision || row.planRevision === revision,
     planFileEquivalenceKeys: (file) => [String(file || "").replaceAll("\\", "/")],
@@ -54,8 +55,9 @@ function selectorSandbox(stateForSummary) {
     escAttr: (value) => String(value || ""),
   };
   vm.createContext(sandbox);
-  vm.runInContext(`${planSource}\nthis.selector = { summary: planSelectorRunSummary, matches: planSelectorMatchesFilter, progress: planSelectorProgress, sort: planSelectorSortEntries, refresh: refreshPlanFileOptions };`, sandbox);
+  vm.runInContext(`${planSource}\nthis.selector = { summary: planSelectorRunSummary, index: planSelectorStatusIndex, matches: planSelectorMatchesFilter, progress: planSelectorProgress, sort: planSelectorSortEntries, refresh: refreshPlanFileOptions };`, sandbox);
   sandbox.elements = elements;
+  sandbox.readCounts = readCounts;
   sandbox.summaryState = stateForSummary;
   return sandbox;
 }
@@ -174,6 +176,91 @@ test("selector accepts distributed queue revision without planRevision or timest
   assert.equal(summary.status, "completed");
   assert.equal(summary.completedCount, 2);
   assert.equal(summary.totalCount, 2);
+});
+
+test("trusted summaries keep all completed Plan options accurate after execution history is projected away", () => {
+  const sandbox = selectorSandbox();
+  const state = {
+    planFileInput: "experiments/plans/b.yaml",
+    plans: ["a", "b", "c"].map((name) => ({
+      file: `experiments/plans/${name}.yaml`,
+      revision: "r1",
+      jobCount: 6,
+    })),
+    planStatusSummaries: ["a", "b", "c"].map((name) => ({
+      planFile: `experiments/plans/${name}.yaml`,
+      revision: "r1",
+      status: "completed",
+      completedCount: 6,
+      totalCount: 6,
+      taskCount: 6,
+      failedCount: 0,
+      activeCount: 0,
+      queuedCount: 0,
+    })),
+    schedulerStates: [],
+    tasks: [],
+    operations: {},
+    distributedPlans: [],
+  };
+
+  sandbox.selector.refresh(state);
+  for (const name of ["a", "b", "c"]) {
+    assert.match(sandbox.elements.planFileInput.innerHTML, new RegExp(`value="experiments/plans/${name}\\.yaml"`));
+  }
+  assert.equal((sandbox.elements.planFileInput.innerHTML.match(/6\/6 已完成/g) || []).length, 3);
+  assert.equal(sandbox.readCounts.tasks, 0);
+  assert.equal(sandbox.readCounts.operations, 0);
+});
+
+test("selector rejects a trusted summary from an older Plan revision and falls back to evidence", () => {
+  const sandbox = selectorSandbox();
+  const state = {
+    plans: [{ file: "plans/edit.yaml", revision: "r2", jobCount: 1 }],
+    planStatusSummaries: [{
+      planFile: "plans/edit.yaml",
+      revision: "r1",
+      status: "completed",
+      completedCount: 1,
+      totalCount: 1,
+      taskCount: 1,
+      failedCount: 0,
+      activeCount: 0,
+      queuedCount: 0,
+    }],
+    tasks: [{ planFile: "plans/edit.yaml", planRevision: "r1", status: "completed" }],
+    operations: [{ planFile: "plans/edit.yaml", planRevision: "r1", type: "run-plan", status: "completed" }],
+  };
+
+  const summary = sandbox.selector.summary(state, "plans/edit.yaml");
+  assert.equal(summary.status, "not-started");
+  assert.equal(summary.completedCount, 0);
+  assert.ok(sandbox.readCounts.tasks > 0);
+  assert.ok(sandbox.readCounts.operations > 0);
+});
+
+test("selector checks Plan update time when revision metadata is unavailable", () => {
+  const sandbox = selectorSandbox();
+  const state = {
+    plans: [{ file: "plans/mtime.yaml", updatedAt: "2026-09-01T00:00:00Z", jobCount: 1 }],
+    planStatusSummaries: [{
+      planFile: "plans/mtime.yaml",
+      revision: "",
+      updatedAt: "2026-08-01T00:00:00Z",
+      status: "completed",
+      completedCount: 1,
+      totalCount: 1,
+      taskCount: 1,
+      failedCount: 0,
+      activeCount: 0,
+      queuedCount: 0,
+    }],
+    tasks: [],
+    operations: [],
+  };
+
+  assert.equal(sandbox.selector.summary(state, "plans/mtime.yaml").status, "not-started");
+  assert.ok(sandbox.readCounts.tasks > 0);
 });
 
 test("search and status filters keep the selected Plan available", () => {

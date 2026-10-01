@@ -44,3 +44,19 @@ Scope: measure serialized full-state cost; add generation-scoped section interes
 - [x] Record live `panel.diagnostics` as unverified because API discovery and a usable Extension Host are unavailable; make no runtime-data claims.
 
 Compatibility closeout validation: `panelLifecycleDiagnostics.test.js` 9/9, `panelMessageDispatch.test.js` 8/8, `panelStaleDocumentHandshake.test.js` 1/1, `panelStateProjection.test.js` 3/3, `panelProgressDom.test.js` 2/2, `panelRenderHealth.test.js` 12/12, `panelStateFlowControl.test.js` 10/10, `panelStateProgress.test.js` 13/13, and `panelLifetimeRecovery.test.js` 11/11 passed individually in sequence. `npm run build` and the required Webview `vm.Script` gate passed; package version stayed `0.5.209`. Live `panel.diagnostics` remains unverified because SimpleExperiment API discovery is unavailable.
+
+## 0.5.210 Plan Selector Summary Recovery
+
+- [x] Capture existing selector status rules and compute bounded per-Plan summaries from unprojected state before execution projection.
+- [x] Keep `planStatusSummaries` in every projected state without restoring historical execution rows.
+- [x] Prefer trusted summaries in selector status and preserve current revision/latest attempt/distributed/history precedence semantics.
+- [x] Add projection and selector regressions for completed, partial, failed, running, revision, retry, distributed priority, summary size, and payload delta.
+- [x] Run relevant tests serially, then build and run the Webview `vm.Script` gate.
+- [x] Bump package/runtime to `0.5.210` and package the extension once.
+- [x] Capture pre-release live `0.5.209` Plan discovery and retained diagnostics payload baseline; distinguish the hidden-page sample from execution status.
+- [ ] After the user reloads `0.5.210`, validate dropdown statuses and collect fresh visible-page payload bytes.
+- [x] Commit and push only this task; leave both dirty `.pyc` files unstaged.
+
+Implementation validation: selector 11/11; projection 5/5; Panel flow control 10/10; state progress 13/13; state-post timeout 2/2; render health 12/12; lifetime recovery 11/11; progress DOM 2/2; Webview script health 1/1. All ran one file at a time. `npm run typecheck`, `npm run build`, the required Webview `vm.Script` gate, and `npm run package` passed at `0.5.210`. Fixture payload stayed below 20 KB after projection from a state over 100 KB; summary added under 4 KB. These are synthetic bounds, not MultiModal live measurements.
+
+Pre-release live snapshot from the MultiModal workspace was still running `0.5.209`. Its most recent recorded full-state sample was `260,160` bytes at `2026-10-01T15:57:21.471Z`, with 14 ms latest ACK latency and 47 ms recent maximum; `fullStateBytesLastMinute` was 0 and the document was hidden, so this is a retained sample rather than a fresh visible-page measurement. Largest fields were `diagnostics` 56,274 bytes (21.6%), `detectedProject` 44,559 (17.1%), `plans` 41,889 (16.1%), `agentSessions` 32,870 (12.6%), and `operations` 26,380 (10.1%). `plans.list` confirmed `ebmc`, `corim`, `dpl`, `drf`, and `cpsc` exist, but their `ready` value is plan readiness, not execution status; the selector's actual status after this change remains unverified. The new `0.5.210` package must be installed and loaded with the user's **Developer: Reload Window** before checking those dropdown values and collecting a fresh visible-page `payloadBytes` sample.
