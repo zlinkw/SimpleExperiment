@@ -40,7 +40,7 @@ function productionWorkerTelemetryCapabilities() {
     throw new Error(`unterminated ${constant}`);
   };
   const quoted = (block, key) => [...block.matchAll(new RegExp(`"${key}":\\s*(True|False)`, "g"))].map((match) => [key, match[1] === "True"]);
-  const endpoints = Object.fromEntries(["health", "capabilities", "gpu", "workerTasks", "liveOutput", "diagnostics", "resultsSummary", "websocketEvents", "sseEvents", "actions", "fileList", "fileStat", "fileDownload", "fileRangeDownload", "fileUploadInit", "fileUploadChunk", "fileUploadComplete"].flatMap((key) => quoted(endpointsBlock, key)));
+  const endpoints = Object.fromEntries(["health", "capabilities", "gpu", "workerTasks", "codeSyncProof", "liveOutput", "diagnostics", "resultsSummary", "websocketEvents", "sseEvents", "actions", "fileList", "fileStat", "fileDownload", "fileRangeDownload", "fileUploadInit", "fileUploadChunk", "fileUploadComplete"].flatMap((key) => quoted(endpointsBlock, key)));
   const actionEndpoints = Object.fromEntries([...source.slice(actionsAt, actionsEnd).matchAll(/"([a-z0-9-]+)":\s*True/g)].map((match) => [match[1], true]));
   for (const name of [...names("WORKER_RESULT_ACTIONS"), ...names("WORKER_TENSORBOARD_ACTIONS"), ...names("WORKER_ENV_ACTIONS")]) actionEndpoints[name] = true;
   return { schemaVersion: 1, apiVersion: "1", agentVersion: "1", mode: "worker_telemetry", endpoints, actionEndpoints };
@@ -66,6 +66,7 @@ test("worker telemetry permits bounded worker controls plus local scheduler acti
   assert.ok(workerTelemetryRequiredEndpoints.includes("/api/results/summary"));
   assert.deepEqual([...workerTelemetryAllowedActions].sort(), [
     "POST /api/actions/start-worker-task",
+    "POST /api/actions/register-code-sync-proof",
     "POST /api/actions/rebuild-distributed-results",
     "POST /api/actions/retry-worker-task",
     "POST /api/actions/stop-worker-task",

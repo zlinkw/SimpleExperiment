@@ -25,6 +25,16 @@ function makeFixtureScript(root) {
     "durable_plan_identity",
     "durable_plan_public_task",
     "durable_plan_same_identity",
+    "durable_code_manifest_digest",
+    "code_sync_proof_runtime_generation",
+    "code_sync_proof_id",
+    "code_sync_proof_document",
+    "_code_sync_stat_record",
+    "verify_code_sync_proof_record",
+    "_store_code_sync_proof",
+    "register_code_sync_proof",
+    "_legacy_durable_code_sync_proof",
+    "resolve_durable_code_sync_proof",
     "_durable_gpu_busy_reason",
     "accept_durable_plan_job",
     "worker_recall_tombstones_path",
@@ -36,6 +46,9 @@ function makeFixtureScript(root) {
     "record_durable_plan_task_terminal",
     "sync_durable_plan_task_rows",
     "drain_durable_plan_queue_once",
+    "durable_plan_queue_processor_key",
+    "durable_plan_queue_wake_event",
+    "signal_durable_plan_queue_processor",
     "start_durable_plan_queue_processor",
     "release_distributed_gpu_reservation",
     "worker_task_snapshot_key",
@@ -48,15 +61,21 @@ function makeFixtureScript(root) {
   const legacyIdentity = source.match(/^LEGACY_WORKER_STOP_IDENTITY_FIELDS\s*=.*$/m);
   assert.ok(legacyIdentity, "missing production legacy stop identity fields");
   return String.raw`
-import json, os, threading, time, math
+import json, os, threading, time, math, hashlib, re
 
 ROOT = ${JSON.stringify(root.replace(/\\/g, "/"))}
 SCHEMA_VERSION = 1
 GPU_IDLE_UTIL_THRESHOLD = 5
 GPU_IDLE_MEM_THRESHOLD_MB = 200
 WORKER_TASK_SNAPSHOT_LOCK = threading.RLock()
+CODE_SYNC_PROOF_LOCK = threading.RLock()
+DURABLE_PLAN_QUEUE_PROCESSOR_LOCK = threading.Lock()
+DURABLE_PLAN_QUEUE_PROCESSORS = {}
 DISTRIBUTED_GPU_RESERVATIONS = {}
 EVENTS = []
+AGENT_VERSION = "agent-test"
+RUNTIME_VERSION = "runtime-test"
+PLUGIN_VERSION = "plugin-test"
 
 def path_for(root, name):
     state = os.path.join(root, ".agent")
@@ -127,6 +146,12 @@ ${legacyIdentity[0]}
 
 ${definitions.join("\n\n")}
 
+REAL_RESOLVE_DURABLE_CODE_SYNC_PROOF = resolve_durable_code_sync_proof
+def resolve_durable_code_sync_proof(root, row):
+    if row.get("codeSyncProofId") == "fixture-proof" and row.get("manifestDigest") == row.get("codeFingerprint"):
+        return {"proofId":"fixture-proof"}
+    return REAL_RESOLVE_DURABLE_CODE_SYNC_PROOF(root, row)
+
 def make_job(index, command_id=None):
     return {
         "projectId": r"D:\\workspace\\project",
@@ -145,6 +170,8 @@ def make_job(index, command_id=None):
         "planJobCount": 4,
         "action": "start-worker-task",
         "durablePlanQueue": True,
+        "codeSyncProofId": "fixture-proof",
+        "manifestDigest": "sha256-a",
         "distributedResults": True,
     }
 
@@ -199,7 +226,8 @@ fingerprint = hashlib.sha256(json.dumps([["train.py", manifest["train.py"]]], se
 guard_root = os.path.join(ROOT, "code-guard")
 os.makedirs(guard_root, exist_ok=True)
 with open(os.path.join(guard_root, "train.py"), "w", encoding="utf-8") as handle: handle.write("version-two")
-guard_job = {**make_job(0), "commandId": "code-guard", "runKey": "code-guard", "codeManifest": manifest, "codeFingerprint": fingerprint}
+guard_job = {key: value for key, value in {**make_job(0), "commandId": "code-guard", "runKey": "code-guard", "codeManifest": manifest, "codeFingerprint": fingerprint}.items()
+    if key not in ("codeSyncProofId", "manifestDigest")}
 accept_durable_plan_job(guard_root, guard_job, "worker-a")
 guard_calls = []
 assert not drain_durable_plan_queue_once(guard_root, "worker-a", gpu_probe=lambda: ([idle_gpu("9")], ""),
@@ -288,18 +316,22 @@ test("server Agent durably accepts, drains, cancels, and fences Plan jobs", () =
   const root = path.join(os.tmpdir(), `server-plan-queue-${process.pid}-${Date.now()}`);
   const scriptPath = path.join(os.tmpdir(), `server-plan-queue-${process.pid}-${Date.now()}.py`);
   fs.writeFileSync(scriptPath, makeFixtureScript(root), "utf8");
-  const run = spawnSync("python", [scriptPath], {
-    encoding: "utf8",
-    timeout: 10000,
-    windowsHide: true,
-  });
-  assert.equal(run.status, 0, run.stderr || run.error?.message);
-  const result = JSON.parse(run.stdout.trim());
-  assert.equal(result.accepted, true);
-  assert.deepEqual(result.fifo, [["command-0", "1"], ["command-1", "2"], ["command-2", "1"]]);
-  assert.equal(result.offlineDrained, true);
-  assert.equal(result.cancelled, "command-3");
-  assert.equal(result.conflict, true);
+  try {
+    const run = spawnSync("python", [scriptPath], {
+      encoding: "utf8",
+      timeout: 10000,
+      windowsHide: true,
+    });
+    assert.equal(run.status, 0, run.stderr || run.error?.message);
+    const result = JSON.parse(run.stdout.trim());
+    assert.equal(result.accepted, true);
+    assert.deepEqual(result.fifo, [["command-0", "1"], ["command-1", "2"], ["command-2", "1"]]);
+    assert.equal(result.offlineDrained, true);
+    assert.equal(result.cancelled, "command-3");
+    assert.equal(result.conflict, true);
+  } finally {
+    fs.unlinkSync(scriptPath);
+  }
 });
 
 test("durable Plan ledger is exempt from Agent state age and byte pruning", () => {

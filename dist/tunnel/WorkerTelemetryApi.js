@@ -25,6 +25,7 @@ exports.workerTelemetryRequiredEndpoints = [
 ];
 exports.workerTelemetryActionNames = [
     "start-worker-task",
+    "register-code-sync-proof",
     "rebuild-distributed-results",
     "retry-worker-task",
     "stop-worker-task",

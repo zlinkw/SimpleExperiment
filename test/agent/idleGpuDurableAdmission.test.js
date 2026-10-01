@@ -39,6 +39,8 @@ GPU_IDLE_UTIL_THRESHOLD = 5
 GPU_IDLE_MEM_THRESHOLD_MB = 200
 WORKER_TASK_SNAPSHOT_LOCK = threading.RLock()
 DISTRIBUTED_GPU_RESERVATIONS = {}
+DURABLE_PLAN_QUEUE_PROCESSOR_LOCK = threading.Lock()
+DURABLE_PLAN_QUEUE_PROCESSORS = {}
 EVENTS = []
 DRAIN_CALLS = []
 GPU_PROBES = []
@@ -77,6 +79,12 @@ def action_event_fields(extra=None, request=None):
     return fields
 def terminal_action(root, action, operation_id, op_id, status, message, extra=None, request=None):
     return {"schemaVersion": SCHEMA_VERSION, "opId": op_id, "operationId": operation_id, "action": action, "status": status, "message": message, **(extra or {})}
+def signal_durable_plan_queue_processor(root, worker_id): pass
+def resolve_durable_code_sync_proof(root, row):
+    if row.get("codeSyncProofId") == "proof-test" and row.get("manifestDigest") == row.get("codeFingerprint"):
+        return {"proofId":"proof-test"}
+    if isinstance(row.get("codeManifest"), dict): return {"proofId":"legacy-test"}
+    raise ValueError("code-sync proof missing; code is not dispatchable")
 GPU_ROWS = [{"gpuId": "0", "utilizationPercent": 1, "memoryUsedMb": 10, "processes": []}]
 GPU_ERROR = ""
 ${identity[0]}
@@ -94,6 +102,7 @@ def make_job(command_id, gpu_id="0"):
         "planRevision":"rev-a", "codeFingerprint":"sha-a", "experimentIndex":0, "case":"case-a",
         "seed":44, "attempt":1, "outputDir":"experiments/runs/a/attempts/1", "runKey":command_id,
         "commandId":command_id, "workerId":"worker-a", "planJobCount":1, "durablePlanQueue":True,
+        "codeSyncProofId":"proof-test", "manifestDigest":"sha-a",
         "requireIdleGpu":True, "gpuId":gpu_id, "action":"start-worker-task"}
 
 # Real handle_action -> execute_worker_command -> durable admission envelope.
@@ -123,7 +132,10 @@ assert read_durable_plan_queue(ROOT_TASK_UNKNOWN)["jobs"] == []
 # Explicit reservation serializes concurrent claims; a duplicate accepted ID remains idempotent.
 GPU_ROWS = [{"gpuId":"0", "utilizationPercent":1, "memoryUsedMb":10, "processes":[]}]
 accepted = accept_durable_plan_job(ROOT, make_job("accepted-1"), "worker-a")
-assert accepted["durableAccepted"] is True and accepted["status"] == "running"
+assert accepted["durableAccepted"] is True and accepted["status"] == "queued"
+assert not DISPATCH_CALLS, "HTTP acceptance must not wait for or invoke dispatch"
+assert len(drain_durable_plan_queue_once(ROOT, "worker-a")) == 1
+assert next(row for row in read_durable_plan_queue(ROOT)["jobs"] if row["commandId"] == "accepted-1")["status"] == "running"
 assert DISPATCH_CALLS == [("accepted-1", "0")], "accepted idle-GPU job must dispatch immediately"
 GPU_ROWS = [{"gpuId":"0", "utilizationPercent":1, "memoryUsedMb":10, "processes":[]}]
 duplicate = accept_durable_plan_job(ROOT, make_job("accepted-1"), "worker-a")
@@ -169,7 +181,8 @@ legacy_head["requireIdleGpu"] = False
 legacy_head["gpuId"] = ""
 accept_durable_plan_job(ROOT_FIFO, legacy_head, "worker-a")
 requested = accept_durable_plan_job(ROOT_FIFO, make_job("requested-1", "1"), "worker-a")
-assert requested["status"] == "running"
+assert requested["status"] == "queued"
+assert len(drain_durable_plan_queue_once(ROOT_FIFO, "worker-a")) == 1
 assert DISPATCH_CALLS[-1] == ("requested-1", "1")
 fifo_rows = read_durable_plan_queue(ROOT_FIFO)["jobs"]
 assert next(item for item in fifo_rows if item["commandId"] == "legacy-head")["status"] == "queued"
@@ -184,7 +197,11 @@ GPU_PROBES[:] = [
     ([{"gpuId":"1", "utilizationPercent":50, "memoryUsedMb":300, "processes":[{"pid":12}]}], ""),
 ]
 stale = accept_durable_plan_job(ROOT_RACE, make_job("stale-1", "1"), "worker-a")
-assert stale["durableAccepted"] is True and stale["status"] == "unknown"
+assert stale["durableAccepted"] is True and stale["status"] == "queued"
+assert not DISPATCH_CALLS or DISPATCH_CALLS[-1][0] != "stale-1"
+drain_durable_plan_queue_once(ROOT_RACE, "worker-a")
+stale = next(row for row in read_durable_plan_queue(ROOT_RACE)["jobs"] if row["commandId"] == "stale-1")
+assert stale["status"] == "unknown"
 assert read_durable_plan_queue(ROOT_RACE)["jobs"][0]["status"] == "unknown"
 assert DISTRIBUTED_GPU_RESERVATIONS["1"] == "stale-1"
 
@@ -193,15 +210,20 @@ ROOT_UNCLAIMED = os.path.join(ROOT, "unclaimed-dispatch")
 os.makedirs(ROOT_UNCLAIMED, exist_ok=True)
 DISTRIBUTED_GPU_RESERVATIONS.clear()
 unclaimed_job = make_job("unclaimed-1", "1")
+unclaimed_job.pop("codeSyncProofId", None)
+unclaimed_job.pop("manifestDigest", None)
 unclaimed_job["codeManifest"] = []
 GPU_ROWS = [{"gpuId":"1", "utilizationPercent":1, "memoryUsedMb":10, "processes":[]}]
 unclaimed = accept_durable_plan_job(ROOT_UNCLAIMED, unclaimed_job, "worker-a")
-assert unclaimed["durableAccepted"] is True and unclaimed["status"] == "unknown"
-assert read_durable_plan_queue(ROOT_UNCLAIMED)["jobs"][0]["status"] == "unknown"
+assert unclaimed["durableAccepted"] is True and unclaimed["status"] == "queued"
+drain_durable_plan_queue_once(ROOT_UNCLAIMED, "worker-a")
+assert read_durable_plan_queue(ROOT_UNCLAIMED)["jobs"][0]["status"] == "queued"
+assert read_durable_plan_queue(ROOT_UNCLAIMED)["jobs"][0]["codeBlocked"] is True
 assert DISTRIBUTED_GPU_RESERVATIONS["1"] == "unclaimed-1"
 
 snapshot = api_worker_tasks(ROOT)
 assert snapshot["capabilities"]["idleGpuAdmission"] is True
+assert snapshot["capabilities"]["codeSyncProof"] is True
 
 # Exact queued-only release, idempotent proof, and running/dispatching fences.
 job = make_job("queued-release")
@@ -260,11 +282,15 @@ test("Agent atomically admits explicit idle GPUs and proves queued-only release"
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "idle-gpu-admission-"));
   const scriptPath = path.join(os.tmpdir(), `idle-gpu-admission-${process.pid}-${Date.now()}.py`);
   fs.writeFileSync(scriptPath, fixture(root), "utf8");
-  const run = spawnSync(process.env.PYTHON || "python", ["-X", "utf8", scriptPath], {
-    encoding: "utf8",
-    timeout: 10000,
-    windowsHide: true,
-  });
-  assert.equal(run.status, 0, run.stderr || run.error?.message);
-  assert.deepEqual(JSON.parse(run.stdout.trim()), { admission: true, release: true, fences: true });
+  try {
+    const run = spawnSync(process.env.PYTHON || "python", ["-X", "utf8", scriptPath], {
+      encoding: "utf8",
+      timeout: 10000,
+      windowsHide: true,
+    });
+    assert.equal(run.status, 0, run.stderr || run.error?.message);
+    assert.deepEqual(JSON.parse(run.stdout.trim()), { admission: true, release: true, fences: true });
+  } finally {
+    fs.unlinkSync(scriptPath);
+  }
 });

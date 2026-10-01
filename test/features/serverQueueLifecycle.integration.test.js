@@ -183,7 +183,7 @@ test("an older terminal receipt remains retry history and cannot satisfy a local
   assert.equal(plan.jobs[0].status, "pending", "old terminal state cannot complete the pending retry");
   assert.ok(plan.jobs[0].history.some((row) => row.attempt === 1 && row.commandId === "cmd-first"));
   assert.equal(plan.remoteAcceptedJobCount, 0, "only a receipt for the latest attempt counts as remote acceptance");
-  assert.equal(plan.recoveryMissingCount, 3);
+  assert.equal(plan.recoveryMissingCount, 2, "one current retry job remains pending locally, so only two additional jobs are missing");
 });
 
 test("source Agent durably accepts idempotent sparse job identity and drains FIFO within GPU capacity", () => {
@@ -213,6 +213,8 @@ def path_for(root, name):
     os.makedirs(state, exist_ok=True)
     return os.path.join(state, name)
 def now_iso(): return "2026-09-29T00:00:00Z"
+def recalled_worker_command(root, identity): return None
+def _durable_gpu_busy_reason(root, gpu_id, command_id, gpus=None, util_threshold=None, mem_threshold=None, max_concurrent_gpus=None): return ""
 def read_json(path, fallback):
     try:
         with open(path, "r", encoding="utf-8") as handle: return json.load(handle)
@@ -220,6 +222,23 @@ def read_json(path, fallback):
 def replace_with_retry(source, target): os.replace(source, target)
 def invalidate_runtime_json_cache(path): pass
 def append_event(root, event): pass
+def signal_durable_plan_queue_processor(root, worker_id): pass
+def resolve_durable_code_sync_proof(root, row):
+    manifest = row.get("codeManifest")
+    if not isinstance(manifest, dict) or not manifest:
+        raise ValueError("code-sync proof missing; code is not dispatchable")
+    stable = [[key, manifest[key]] for key in sorted(manifest, key=lambda value: value.encode("utf-16-be"))]
+    digest = hashlib.sha256(json.dumps(stable, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).hexdigest()
+    if digest != str(row.get("codeFingerprint") or ""):
+        raise ValueError("legacy code manifest fingerprint mismatch")
+    for relative, expected in manifest.items():
+        full = os.path.abspath(os.path.join(root, *relative.split("/")))
+        if os.path.commonpath([os.path.realpath(root), os.path.realpath(full)]) != os.path.realpath(root):
+            raise ValueError("code manifest escapes project")
+        digest = hashlib.sha256(open(full, "rb").read()).hexdigest()
+        if digest != expected.get("sha256"):
+            raise ValueError("mounted code changed: " + relative)
+    return {"proofId": "legacy-test"}
 def append_worker_task(root, task):
     path = path_for(root, "worker_task_snapshot.json")
     data = read_json(path, {"tasks": []})
@@ -277,7 +296,8 @@ snapshot_path = path_for(ROOT, "worker_task_snapshot.json")
 with open(snapshot_path, "w", encoding="utf-8") as handle:
     json.dump({"generatedAt":"2000-01-01T00:00:00Z", "tasks":[]}, handle)
 api_tasks = api_worker_tasks(ROOT)
-assert api_tasks["capabilities"] == {"durablePlanQueue":True, "schemaVersion":1}
+assert api_tasks["capabilities"] == {"durablePlanQueue":True, "codeSyncProof":True,
+    "idleGpuAdmission":True, "queuedJobRecall":True, "schemaVersion":1}
 assert api_tasks["generatedAt"] == now_iso(), "fresh durable queue API snapshot must not reuse a stale task snapshot date"
 try:
     accept_durable_plan_job(ROOT, {**make_job(1, 3), "codeFingerprint":"different"}, "worker-a")
@@ -294,7 +314,11 @@ assert open(queue_file, "rb").read() == corrupt_before, "fail-closed admission m
 print(json.dumps({"accepted":True,"fifo":calls,"durable":True}))
 `;
   fs.writeFileSync(scriptPath, py, "utf8");
-  const result = spawnSync("python", [scriptPath], { encoding: "utf8", timeout: 10000, windowsHide: true });
-  assert.equal(result.status, 0, result.stderr || result.error?.message);
-  assert.deepEqual(JSON.parse(result.stdout.trim()), { accepted: true, fifo: [["cmd-0", "0"], ["cmd-1", "1"]], durable: true });
+  try {
+    const result = spawnSync("python", [scriptPath], { encoding: "utf8", timeout: 10000, windowsHide: true });
+    assert.equal(result.status, 0, result.stderr || result.error?.message);
+    assert.deepEqual(JSON.parse(result.stdout.trim()), { accepted: true, fifo: [["cmd-0", "0"], ["cmd-1", "1"]], durable: true });
+  } finally {
+    fs.unlinkSync(scriptPath);
+  }
 });

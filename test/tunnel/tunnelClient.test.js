@@ -58,6 +58,22 @@ test("distributed result rebuild may finish beyond the short telemetry timeout",
   }
 });
 
+test("configured request timeout aborts stalled tunnel actions", async () => {
+  const server = http.createServer((_req, res) => {
+    res.setHeader("Content-Type", "application/json");
+    setTimeout(() => res.end(JSON.stringify({ ok: true })), 80);
+  });
+  await listen(server);
+  const budget = new RequestBudget({ ...defaultRequestBudgetConfig, minIntervalByPurpose: {}, disabledPurposes: [] });
+  const client = new HttpTunnelClient({ localHost: "127.0.0.1", localPort: server.address().port, timeoutMs: 1000 }, budget);
+  try {
+    await assert.rejects(() => client.executeRequestJson("/api/actions/parse-results", "parse_results",
+      { opId: "stalled-parse" }, { method: "POST", userInitiated: true, timeoutMs: 10 }), /10 毫秒无有效响应/);
+  } finally {
+    server.close();
+  }
+});
+
 function listen(server) {
   return new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 }

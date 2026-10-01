@@ -12,7 +12,7 @@ exports.tunnelActions = [
     "check-claim-evidence", "deploy-runtime", "restart-agent", "create-debug-bundle", "create-offline-bundle", "cancel-operation",
     "check-output-contract", "parse-case-level", "run-leakage-check", "run-subgroup-analysis", "export-case-analysis", "plan-checkpoint-retention",
     "inspect-dataset", "export-plotting-contract", "infer-config-from-run", "recover-plan-from-run", "diagnose-result-anomaly", "compare-with-best-config",
-    "start-worker-task", "stop-worker-task", "retry-worker-task", "delete-worker-artifacts", "archive-worker-artifacts", "finalize-worker-operation",
+    "start-worker-task", "register-code-sync-proof", "stop-worker-task", "retry-worker-task", "delete-worker-artifacts", "archive-worker-artifacts", "finalize-worker-operation",
     "rebuild-distributed-results",
     "start-tensorboard", "stop-tensorboard", "get-tensorboard-status",
     "preview-cache-cleanup", "delete-cache-candidates",
@@ -34,6 +34,7 @@ const actionPurpose = {
     "dry-run-plan": "run_plan",
     "run-plan": "run_plan",
     "start-worker-task": "job_dispatch",
+    "register-code-sync-proof": "job_dispatch",
     "retry-worker-task": "run_plan",
     "rebuild-distributed-results": "parse_results",
     "stop-scheduler-operation": "stop",
@@ -220,7 +221,10 @@ class HttpTunnelClient {
         const base = (0, TunnelGateway_1.localBaseUrl)(this.endpoint);
         return this.budget.run(purpose, async () => {
             const controller = new AbortController();
-            const inactivity = new ProgressInactivity_1.ProgressInactivity(30_000, () => controller.abort(new Error("30 秒无有效响应，执行结果待确认。请点击重新连接并核对状态，勿重复执行。")));
+            const configuredTimeoutMs = Number(options.timeoutMs ?? this.endpoint.timeoutMs ?? 30_000);
+            const timeoutMs = Number.isFinite(configuredTimeoutMs) ? Math.max(1, configuredTimeoutMs) : 30_000;
+            const timeoutText = timeoutMs % 1000 === 0 ? `${timeoutMs / 1000} 秒` : `${timeoutMs} 毫秒`;
+            const inactivity = new ProgressInactivity_1.ProgressInactivity(timeoutMs, () => controller.abort(new Error(`${timeoutText}无有效响应，执行结果待确认。请点击重新连接并核对状态，勿重复执行。`)));
             const onCallerAbort = () => controller.abort();
             if (options.signal) {
                 if (options.signal.aborted)

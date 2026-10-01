@@ -71,8 +71,9 @@ function syncHost(remote) {
     lastCodeSyncState: {},
     lastCodeSyncStats: {},
     codeSyncWarmProofs: new Map(),
+    codeSyncAgentProofs: new Map(),
     pendingPlanSubmissionManifest: undefined,
-    lastWorkerProbes: { "worker-a": { status: "ok", agentVersion: "agent-1" } },
+    lastWorkerProbes: { "worker-a": { status: "ok", agentVersion: "agent-1", statusGeneration: 0 } },
     lastFullEndpointProbeAt: Date.now(),
     context: { globalStorageUri: { fsPath: fs.mkdtempSync(path.join(os.tmpdir(), "plan-sync-holds-")) } },
     stages: [],
@@ -92,9 +93,10 @@ function syncHost(remote) {
   host.postState = () => {};
   host.markProjectOnboardingComplete = async () => {};
   host.sftpServerOptions = (target) => ({ id: target.id, host: target.host, user: target.user, port: target.port, remotePath: target.remotePath });
-  host.codeSyncWarmProofKey = (target, root, fingerprint, includePaths, scopePaths) => JSON.stringify({ target: target.id, root, remotePath: target.remotePath, fingerprint, includePaths, scopePaths });
+  host.codeSyncWarmProofKey = (target, root, fingerprint, includePaths, scopePaths) => JSON.stringify({ target: target.id, root, remotePath: target.remotePath, fingerprint, includePaths, scopePaths, statusGeneration: host.lastWorkerProbes[target.id]?.statusGeneration || 0 });
   host.planSubmissionManifestKey = (root, includePaths, scopePaths, holds) => JSON.stringify({ root, includePaths, scopePaths, holds });
   host.rememberCodeSyncWarmProof = (key) => host.codeSyncWarmProofs.set(key, Date.now() + 300000);
+  host.ensureWorkerCodeSyncProof = async () => undefined;
   host.verifiedSftpProjectInventory = async (request) => {
     host.inventories.push(request);
     return typeof remote === "function" ? remote(request, host.inventories.length) : remote;
@@ -139,9 +141,12 @@ test("warm unchanged reuses stat hashes and Extension Host proof skips repeat re
   assert.match(host.stages.join("\n"), /跳过递归清单/);
   await host.syncCodeTargets([{ ...host.target, remotePath: "/work/other" }], "plan-check", { projectContext: { root: host.project }, hashCompare: true });
   assert.equal(host.inventories.length, 2, "remote path changes invalidate the warm proof");
-  host.lastFullEndpointProbeAt = 0;
+  host.lastFullEndpointProbeAt = Date.now() - 120_000;
   await host.syncCodeTargets([host.target], "plan-check", { projectContext: { root: host.project }, hashCompare: true });
-  assert.equal(host.inventories.length, 3, "stale Worker probe cannot authorize a warm skip");
+  assert.equal(host.inventories.length, 2, "global endpoint probe age alone cannot invalidate a five-minute per-Worker proof");
+  host.lastWorkerProbes["worker-a"].statusGeneration += 1;
+  await host.syncCodeTargets([host.target], "plan-check", { projectContext: { root: host.project }, hashCompare: true });
+  assert.equal(host.inventories.length, 3, "a Worker status generation change invalidates only that Worker's warm proof");
 });
 
 test("run code sync consumes the current Plan submission manifest once", async () => {
@@ -288,6 +293,43 @@ test("a submitted validate stays queued with its operation id until the real ter
   assert.notEqual(row.status, "failed");
   assert.notEqual(row.status, "succeeded");
   assert.match(host.stages.map((item) => item.message).join("\n"), /正在等待 Agent 校验终态/);
+});
+
+test("Plan preflight separates validate submit, terminal wait, and Agent runtime", async () => {
+  const durationSource = distSource.match(/^function remoteOperationDurationMs\([\s\S]*?^\}/m)?.[0];
+  assert.ok(durationSource, "missing production remote operation duration helper");
+  const remoteOperationDurationMs = new Function(`${durationSource}\nreturn remoteOperationDurationMs;`)();
+  const preflight = new Function("remoteActionPendingStatus", "resultStatus", "planCheckAccepted",
+    "planValidationFromResult", "DistributedPlanQueue", "workspaceRoot", "isUiCommandCancelled",
+    "isUiCommandRemotePending", "errorMessage", "actionErrorSuggestion", "vscode", "remoteOperationDurationMs",
+    `${compiled("runPlanPreflight")}\nreturn runPlanPreflight;`)(
+      (status) => ["submitted", "pending", "accepted", "queued", "running"].includes(String(status || "")),
+      (result) => result?.status || result?.state,
+      (result) => result?.ok === true && result?.status === "completed" && !result?.error,
+      () => ({}), {}, () => "C:/project", () => false, () => false, (error) => error.message, () => "check the Agent",
+      { window: { showWarningMessage: async () => undefined } }, remoteOperationDurationMs);
+  const timings = {};
+  const host = {
+    assertActionAuthorityCurrent() {},
+    planSchedulerWorkerId: () => "worker-a",
+    enabledWorkerConfigs: () => [],
+    distributedPlanEligible: () => false,
+    cachedPlanValidation: () => undefined,
+    postPlanSchedulerAction: async (action) => action === "validate-plan"
+      ? { status: "submitted", operationId: "validate-op" }
+      : { ok: true, status: "completed" },
+    waitForOperationTerminalResult: async () => {
+      await new Promise((resolve) => setTimeout(resolve, 8));
+      return { ok: true, status: "completed", startedAt: "2026-10-01T00:00:00.000Z", finishedAt: "2026-10-01T00:00:00.400Z" };
+    },
+  };
+  const result = await preflight.call(host, { planFile: "plans/a.yaml" }, "test", {
+    recordTiming: (key, ms) => { timings[key] = ms; },
+  });
+  assert.equal(result.status, "completed");
+  assert.ok(timings.validateSubmitMs >= 0);
+  assert.ok(timings.validateTerminalWaitMs >= 5);
+  assert.equal(timings.validateAgentDurationMs, 400);
 });
 
 test("warm local listing does not add a second stat and keeps the unchanged cache write skipped", async () => {

@@ -28,6 +28,7 @@ export const workerTelemetryRequiredEndpoints = [
 
 export const workerTelemetryActionNames = [
   "start-worker-task",
+  "register-code-sync-proof",
   "rebuild-distributed-results",
   "retry-worker-task",
   "stop-worker-task",
@@ -168,6 +169,7 @@ export interface WorkerTelemetryCapabilities {
     capabilities: boolean;
     gpu: boolean;
     workerTasks: boolean;
+    codeSyncProof?: boolean;
     liveOutput: boolean;
     diagnostics: boolean;
     resultsSummary?: boolean;

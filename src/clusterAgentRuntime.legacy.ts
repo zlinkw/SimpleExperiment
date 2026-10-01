@@ -159,6 +159,7 @@ ACTION_NAMES = [
     "diagnose-result-anomaly",
     "compare-with-best-config",
     "start-worker-task",
+    "register-code-sync-proof",
     "rebuild-distributed-results",
     "retry-worker-task",
     "stop-worker-task",
@@ -219,6 +220,7 @@ ACTION_PATHS = [
     "/api/actions/diagnose-result-anomaly",
     "/api/actions/compare-with-best-config",
     "/api/actions/start-worker-task",
+    "/api/actions/register-code-sync-proof",
     "/api/actions/rebuild-distributed-results",
     "/api/actions/retry-worker-task",
     "/api/actions/stop-worker-task",
@@ -243,6 +245,9 @@ EVENT_CURSOR_CACHE = {}
 EVENT_CURSOR_LOCK = threading.Lock()
 EVENT_APPEND_LOCK = threading.RLock()
 WORKER_TASK_SNAPSHOT_LOCK = threading.RLock()
+CODE_SYNC_PROOF_LOCK = threading.RLock()
+DURABLE_PLAN_QUEUE_PROCESSOR_LOCK = threading.Lock()
+DURABLE_PLAN_QUEUE_PROCESSORS = {}
 DISTRIBUTED_GPU_RESERVATIONS = {}
 OPERATION_JOURNAL_CACHE = {}
 OPERATION_JOURNAL_CACHE_LOCK = threading.Lock()
@@ -2444,6 +2449,214 @@ def durable_plan_public_task(row):
 def durable_plan_same_identity(left, right):
     return durable_plan_identity(left) == durable_plan_identity(right)
 
+def durable_code_manifest_digest(manifest):
+    if not isinstance(manifest, dict) or not manifest:
+        raise ValueError("missing code manifest")
+    stable = [[key, manifest[key]] for key in sorted(manifest, key=lambda value: str(value).encode("utf-16-be"))]
+    return hashlib.sha256(json.dumps(stable, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+def code_sync_proof_runtime_generation():
+    return "|".join((str(AGENT_VERSION), str(RUNTIME_VERSION), str(PLUGIN_VERSION)))
+
+def code_sync_proof_id(project_id, fingerprint, manifest_digest, scope_signature, runtime_generation=None):
+    generation = runtime_generation or code_sync_proof_runtime_generation()
+    identity = "\n".join((str(project_id), str(fingerprint), str(manifest_digest), str(scope_signature), str(generation)))
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest()
+
+def code_sync_proof_document(root):
+    data = read_json(path_for(root, "code_sync_proofs.json"), {})
+    if not isinstance(data, dict) or not isinstance(data.get("proofs"), dict):
+        return {"schemaVersion": 1, "proofs": {}}
+    return data
+
+def _code_sync_stat_record(root, relative, expected, verify_content=False):
+    relative = str(relative or "").replace("\\", "/")
+    parts = relative.split("/")
+    if (relative.startswith("/") or re.match(r"^[a-zA-Z]:", relative)
+            or any(part in ("", ".", "..") for part in parts)):
+        raise ValueError("unsafe code manifest path: " + relative)
+    full = os.path.abspath(os.path.join(root, *parts))
+    real_root = os.path.realpath(root)
+    real_full = os.path.realpath(full)
+    try:
+        if os.path.commonpath([real_root, real_full]) != real_root:
+            raise ValueError("code manifest escapes project: " + relative)
+    except ValueError:
+        raise ValueError("code manifest escapes project: " + relative)
+    current = os.path.abspath(root)
+    for part in parts:
+        current = os.path.join(current, part)
+        if os.path.islink(current):
+            raise ValueError("mounted code file traverses a symlink: " + relative)
+    if not os.path.isfile(full):
+        raise ValueError("mounted code file missing or not regular: " + relative)
+    if not isinstance(expected, dict):
+        raise ValueError("invalid code manifest entry: " + relative)
+    try:
+        expected_size = int(expected.get("size"))
+    except (TypeError, ValueError):
+        raise ValueError("invalid code manifest size: " + relative)
+    expected_sha = str(expected.get("sha256") or "").lower()
+    if expected_size < 0 or not re.fullmatch(r"[a-f0-9]{64}", expected_sha):
+        raise ValueError("invalid code manifest entry: " + relative)
+    before = os.stat(full, follow_symlinks=False)
+    if not os.path.isfile(full) or int(before.st_size) != expected_size:
+        raise ValueError("mounted code size mismatch: " + relative)
+    if verify_content:
+        file_hash = hashlib.sha256()
+        with open(full, "rb") as handle:
+            for chunk in iter(lambda: handle.read(1 << 20), b""):
+                file_hash.update(chunk)
+        if file_hash.hexdigest() != expected_sha:
+            raise ValueError("mounted code changed: " + relative)
+    after = os.stat(full, follow_symlinks=False)
+    before_mtime = int(getattr(before, "st_mtime_ns", before.st_mtime * 1_000_000_000))
+    after_mtime = int(getattr(after, "st_mtime_ns", after.st_mtime * 1_000_000_000))
+    if int(before.st_size) != int(after.st_size) or before_mtime != after_mtime:
+        raise ValueError("mounted code changed during proof verification: " + relative)
+    return {"path": relative, "size": int(after.st_size), "mtime_ns": after_mtime}
+
+def verify_code_sync_proof_record(root, proof, row):
+    if not isinstance(proof, dict):
+        raise ValueError("code-sync proof missing")
+    expected_project = str(row.get("projectId") or "")
+    expected_fingerprint = str(row.get("codeFingerprint") or "")
+    expected_digest = str(row.get("manifestDigest") or row.get("codeFingerprint") or "")
+    proof_id = str(row.get("codeSyncProofId") or row.get("proofId") or "")
+    scope_signature = str(proof.get("scopeSignature") or "")
+    runtime_generation = str(proof.get("runtimeGeneration") or "")
+    if (not proof_id or str(proof.get("proofId") or "") != proof_id
+            or str(proof.get("projectId") or "") != expected_project
+            or str(proof.get("codeFingerprint") or "") != expected_fingerprint
+            or str(proof.get("manifestDigest") or "") != expected_digest
+            or runtime_generation != code_sync_proof_runtime_generation()
+            or not re.fullmatch(r"[a-f0-9]{64}", scope_signature)
+            or proof_id != code_sync_proof_id(expected_project, expected_fingerprint, expected_digest,
+                                               scope_signature, runtime_generation)):
+        raise ValueError("code-sync proof identity mismatch or stale runtime generation")
+    files = proof.get("files") if isinstance(proof.get("files"), list) else []
+    if not files or int(proof.get("fileCount") or -1) != len(files):
+        raise ValueError("code-sync proof file inventory is invalid")
+    for item in files:
+        if not isinstance(item, dict):
+            raise ValueError("code-sync proof file inventory is invalid")
+        relative = str(item.get("path") or "").replace("\\", "/")
+        parts = relative.split("/")
+        if (relative.startswith("/") or re.match(r"^[a-zA-Z]:", relative)
+                or any(part in ("", ".", "..") for part in parts)):
+            raise ValueError("unsafe code-sync proof path: " + relative)
+        current = os.path.abspath(root)
+        for part in parts:
+            current = os.path.join(current, part)
+            if os.path.islink(current):
+                raise ValueError("code-sync proof path traverses a symlink: " + relative)
+        full = os.path.abspath(os.path.join(root, *parts))
+        real_root = os.path.realpath(root)
+        real_full = os.path.realpath(full)
+        try:
+            if os.path.commonpath([real_root, real_full]) != real_root:
+                raise ValueError("code-sync proof path escapes project: " + relative)
+        except ValueError:
+            raise ValueError("code-sync proof path escapes project: " + relative)
+        if not os.path.isfile(full):
+            raise ValueError("code-sync proof stale; file missing: " + relative)
+        stat = os.stat(full, follow_symlinks=False)
+        actual_mtime = int(getattr(stat, "st_mtime_ns", stat.st_mtime * 1_000_000_000))
+        if int(stat.st_size) != int(item.get("size", -1)) or actual_mtime != int(item.get("mtime_ns", -1)):
+            raise ValueError("code-sync proof stale; stat changed: " + relative)
+    return proof
+
+def _store_code_sync_proof(root, proof):
+    with CODE_SYNC_PROOF_LOCK:
+        data = code_sync_proof_document(root)
+        proofs = dict(data.get("proofs") or {})
+        proofs[str(proof["proofId"])] = proof
+        if len(proofs) > 32:
+            keep = sorted(proofs.items(), key=lambda item: str(item[1].get("verifiedAt") or ""), reverse=True)[:32]
+            proofs = dict(keep)
+        atomic_write(path_for(root, "code_sync_proofs.json"), {"schemaVersion": 1, "proofs": proofs}, compact=True)
+
+def register_code_sync_proof(root, payload, worker_id):
+    if not isinstance(payload, dict):
+        raise ValueError("invalid code-sync proof request")
+    project_id = str(payload.get("projectId") or "").strip()
+    fingerprint = str(payload.get("codeFingerprint") or "").strip()
+    manifest = payload.get("codeManifest")
+    manifest_digest = str(payload.get("manifestDigest") or "").strip()
+    scope_signature = str(payload.get("scopeSignature") or "").strip()
+    if not project_id or not fingerprint or not manifest_digest or not scope_signature:
+        raise ValueError("code-sync proof identity is incomplete")
+    if str(payload.get("workerId") or worker_id or "").strip() != str(worker_id or "").strip():
+        raise ValueError("code-sync proof Worker owner mismatch")
+    actual_digest = durable_code_manifest_digest(manifest)
+    if actual_digest != fingerprint or actual_digest != manifest_digest:
+        raise ValueError("code-sync proof manifest fingerprint mismatch")
+    if not re.fullmatch(r"[a-f0-9]{64}", scope_signature):
+        raise ValueError("code-sync proof scope signature is invalid")
+    runtime_generation = code_sync_proof_runtime_generation()
+    proof_id = code_sync_proof_id(project_id, fingerprint, manifest_digest, scope_signature, runtime_generation)
+    identity = {"projectId": project_id, "codeFingerprint": fingerprint, "manifestDigest": manifest_digest,
+                "codeSyncProofId": proof_id}
+    existing = code_sync_proof_document(root).get("proofs", {}).get(proof_id)
+    if isinstance(existing, dict):
+        try:
+            verify_code_sync_proof_record(root, existing, identity)
+            return {"ok": True, "proofId": proof_id, "manifestDigest": manifest_digest,
+                    "fileCount": int(existing.get("fileCount") or 0), "scopeSignature": scope_signature,
+                    "verifiedAt": existing.get("verifiedAt"), "runtimeGeneration": runtime_generation, "reused": True}
+        except Exception:
+            pass
+    files = []
+    for relative, expected in manifest.items():
+        files.append(_code_sync_stat_record(root, relative, expected, verify_content=False))
+    if not files:
+        raise ValueError("code-sync proof file inventory is empty")
+    proof = {"schemaVersion": 1, "proofId": proof_id, **identity, "scopeSignature": scope_signature,
+             "fileCount": len(files), "files": files, "verifiedAt": now_iso(),
+             "runtimeGeneration": runtime_generation}
+    _store_code_sync_proof(root, proof)
+    signal_durable_plan_queue_processor(root, worker_id)
+    return {"ok": True, "proofId": proof_id, "manifestDigest": manifest_digest,
+            "fileCount": len(files), "scopeSignature": scope_signature,
+            "verifiedAt": proof["verifiedAt"], "runtimeGeneration": runtime_generation, "reused": False}
+
+def _legacy_durable_code_sync_proof(root, row, manifest):
+    project_id = str(row.get("projectId") or "")
+    fingerprint = str(row.get("codeFingerprint") or "")
+    manifest_digest = durable_code_manifest_digest(manifest)
+    if not project_id or manifest_digest != fingerprint:
+        raise ValueError("legacy code manifest fingerprint mismatch")
+    scope_signature = str(row.get("scopeSignature") or hashlib.sha256(
+        json.dumps(sorted(manifest), ensure_ascii=False, separators=(",", ":")).encode("utf-8")).hexdigest())
+    runtime_generation = code_sync_proof_runtime_generation()
+    proof_id = code_sync_proof_id(project_id, fingerprint, manifest_digest, scope_signature, runtime_generation)
+    identity = {"projectId": project_id, "codeFingerprint": fingerprint, "manifestDigest": manifest_digest,
+                "codeSyncProofId": proof_id}
+    existing = code_sync_proof_document(root).get("proofs", {}).get(proof_id)
+    if isinstance(existing, dict):
+        try:
+            return verify_code_sync_proof_record(root, existing, identity)
+        except Exception:
+            pass
+    files = []
+    for relative, expected in manifest.items():
+        files.append(_code_sync_stat_record(root, relative, expected, verify_content=True))
+    proof = {"schemaVersion": 1, "proofId": proof_id, **identity, "scopeSignature": scope_signature,
+             "fileCount": len(files), "files": files, "verifiedAt": now_iso(),
+             "runtimeGeneration": runtime_generation}
+    _store_code_sync_proof(root, proof)
+    return proof
+
+def resolve_durable_code_sync_proof(root, row):
+    proof_id = str(row.get("codeSyncProofId") or "")
+    if proof_id:
+        proof = code_sync_proof_document(root).get("proofs", {}).get(proof_id)
+        return verify_code_sync_proof_record(root, proof, row)
+    manifest = row.get("codeManifest")
+    if isinstance(manifest, dict):
+        return _legacy_durable_code_sync_proof(root, row, manifest)
+    raise ValueError("code-sync proof missing; code is not dispatchable")
+
 def _durable_gpu_busy_reason(root, gpu_id, command_id, gpus=None, util_threshold=None, mem_threshold=None,
                              max_concurrent_gpus=None):
     gpu_id = str(gpu_id or "").strip()
@@ -2578,6 +2791,11 @@ def accept_durable_plan_job(root, command, worker_id):
             if not durable_plan_same_identity(old, identity) or int(old.get("planJobCount") or 0) != count:
                 raise ValueError("commandId 已绑定到不同的 Plan job 身份")
             status = str(old.get("status") or "unknown")
+            if status.lower() == "queued":
+                try:
+                    signal_durable_plan_queue_processor(root, worker_id)
+                except Exception:
+                    pass
             return {**durable_plan_identity(old), "planJobCount": old.get("planJobCount"), "enqueuedAt": old.get("enqueuedAt"),
                     "gpuId": old.get("gpuId") or "", "status": status, "durableAccepted": True,
                     "message": "Agent 已持久接收该 job"}
@@ -2606,27 +2824,15 @@ def accept_durable_plan_job(root, command, worker_id):
         write_durable_plan_queue(root, data)
         if require_idle_gpu:
             DISTRIBUTED_GPU_RESERVATIONS[requested_gpu] = identity["commandId"]
-    append_event(root, {"type": "distributed_plan_job_accepted", "workerId": worker_id,
-                        "operationId": identity["commandId"], "payload": {**identity, "planJobCount": count, "enqueuedAt": enqueued_at}})
-    if require_idle_gpu:
-        try:
-            drain_durable_plan_queue_once(root, worker_id, target_command_id=identity["commandId"])
-        except Exception:
-            pass
-        latest = read_durable_plan_queue(root)
-        current = next((item for item in latest["jobs"] if isinstance(item, dict)
-                        and str(item.get("commandId") or "") == identity["commandId"]), None)
-        if current and str(current.get("status") or "queued").lower() == "queued":
-            fence_queued_idle_gpu_admission(root, current,
-                "Immediate idle-GPU dispatch did not claim the accepted job; reconciliation required")
-            latest = read_durable_plan_queue(root)
-            current = next((item for item in latest["jobs"] if isinstance(item, dict)
-                            and str(item.get("commandId") or "") == identity["commandId"]), None)
-        if current and str(current.get("status") or "queued").lower() != "queued":
-            return {**durable_plan_identity(current), "planJobCount": current.get("planJobCount"),
-                    "enqueuedAt": current.get("enqueuedAt"), "gpuId": current.get("gpuId") or requested_gpu,
-                    "status": str(current.get("status") or "unknown").lower(), "durableAccepted": True,
-                    "message": "Agent 已持久接收该 job，当前状态：" + str(current.get("status") or "unknown").lower()}
+    try:
+        append_event(root, {"type": "distributed_plan_job_accepted", "workerId": worker_id,
+                            "operationId": identity["commandId"], "payload": {**identity, "planJobCount": count, "enqueuedAt": enqueued_at}})
+    except Exception:
+        pass
+    try:
+        signal_durable_plan_queue_processor(root, worker_id)
+    except Exception:
+        pass
     return {**identity, "planJobCount": count, "enqueuedAt": enqueued_at,
             "gpuId": requested_gpu if require_idle_gpu else "", "status": "queued",
             "durableAccepted": True, "message": "Agent 已持久接收该 job"}
@@ -3052,41 +3258,19 @@ def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None,
             continue
         if str(row.get("status") or "").lower() != "queued" or str(row.get("workerId") or "") != worker_id:
             continue
-        manifest = row.get("codeManifest")
-        if manifest is not None:
-            try:
-                import hashlib
-                if not isinstance(manifest, dict) or not manifest:
-                    raise ValueError("missing code manifest")
-                stable = [[key, manifest[key]] for key in sorted(manifest, key=lambda value: value.encode("utf-16-be"))]
-                digest = hashlib.sha256(json.dumps(stable, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).hexdigest()
-                if digest != str(row.get("codeFingerprint") or ""):
-                    raise ValueError("manifest fingerprint mismatch")
-                for relative, expected in manifest.items():
-                    parts = str(relative).replace("\\", "/").split("/")
-                    if os.path.isabs(relative) or any(part in ("", ".", "..") for part in parts):
-                        raise ValueError("unsafe code manifest path")
-                    full = os.path.realpath(os.path.join(root, *parts))
-                    if os.path.commonpath([os.path.realpath(root), full]) != os.path.realpath(root):
-                        raise ValueError("code manifest escapes project")
-                    with open(full, "rb") as handle:
-                        file_hash = hashlib.sha256()
-                        for chunk in iter(lambda: handle.read(1 << 20), b""):
-                            file_hash.update(chunk)
-                        actual = file_hash.hexdigest()
-                    if not isinstance(expected, dict) or actual != expected.get("sha256"):
-                        raise ValueError("mounted code changed: " + relative)
-            except Exception as exc:
-                message = str(exc)
-                with WORKER_TASK_SNAPSHOT_LOCK:
-                    latest = read_durable_plan_queue(root)
-                    current = next((item for item in latest["jobs"] if item.get("commandId") == row.get("commandId")), None)
-                    if current and current.get("status") == "queued" and current.get("error") != message:
-                        current.update({"codeBlocked": True, "error": message})
-                        write_durable_plan_queue(root, latest)
-                        append_event(root, {"type": "distributed_plan_code_wait", "workerId": worker_id,
-                                            "operationId": row.get("commandId"), "payload": {"error": message}})
-                continue
+        try:
+            resolve_durable_code_sync_proof(root, row)
+        except Exception as exc:
+            message = str(exc)
+            with WORKER_TASK_SNAPSHOT_LOCK:
+                latest = read_durable_plan_queue(root)
+                current = next((item for item in latest["jobs"] if item.get("commandId") == row.get("commandId")), None)
+                if current and current.get("status") == "queued" and (current.get("codeBlocked") is not True or current.get("error") != message):
+                    current.update({"codeBlocked": True, "error": message})
+                    write_durable_plan_queue(root, latest)
+                    append_event(root, {"type": "distributed_plan_code_wait", "workerId": worker_id,
+                                        "operationId": row.get("commandId"), "payload": {"error": message}})
+            continue
         gpus, error = gpu_probe()
         if error:
             if row.get("requireIdleGpu") is True:
@@ -3116,7 +3300,7 @@ def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None,
         if free is None:
             if row.get("requireIdleGpu") is True:
                 fence_queued_idle_gpu_admission(root, row, "Requested GPU became busy before dispatch; reconciliation required")
-            break
+            continue
         claimed = False
         with WORKER_TASK_SNAPSHOT_LOCK:
             latest = read_durable_plan_queue(root)
@@ -3134,6 +3318,10 @@ def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None,
             continue
         command = dict(row)
         command.pop("durablePlanQueue", None)
+        command.pop("codeManifest", None)
+        command.pop("codeSyncProofId", None)
+        command.pop("manifestDigest", None)
+        command.pop("scopeSignature", None)
         command["gpuId"] = str(free)
         try:
             result = execute(root, command, worker_id)
@@ -3170,8 +3358,31 @@ def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None,
         data = sync_durable_plan_task_rows(root)
     return dispatched
 
-def start_durable_plan_queue_processor(root, worker_id, poll_seconds=5):
+def durable_plan_queue_processor_key(root, worker_id):
+    return (os.path.realpath(root), str(worker_id or "worker").strip() or "worker")
+
+def durable_plan_queue_wake_event(root, worker_id):
+    key = durable_plan_queue_processor_key(root, worker_id)
+    with DURABLE_PLAN_QUEUE_PROCESSOR_LOCK:
+        record = DURABLE_PLAN_QUEUE_PROCESSORS.get(key)
+        if not isinstance(record, dict):
+            record = {"wake": threading.Event(), "thread": None}
+            DURABLE_PLAN_QUEUE_PROCESSORS[key] = record
+        return record["wake"]
+
+def signal_durable_plan_queue_processor(root, worker_id):
+    durable_plan_queue_wake_event(root, worker_id).set()
+
+def start_durable_plan_queue_processor(root, worker_id, poll_seconds=5, stop_event=None):
     worker_id = str(worker_id or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
+    key = durable_plan_queue_processor_key(root, worker_id)
+    with DURABLE_PLAN_QUEUE_PROCESSOR_LOCK:
+        record = DURABLE_PLAN_QUEUE_PROCESSORS.get(key)
+        if isinstance(record, dict) and record.get("thread") is not None:
+            existing = record.get("thread")
+            if not hasattr(existing, "is_alive") or existing.is_alive():
+                return existing
+    wake = durable_plan_queue_wake_event(root, worker_id)
     try:
         with WORKER_TASK_SNAPSHOT_LOCK:
             data = read_durable_plan_queue(root)
@@ -3186,13 +3397,27 @@ def start_durable_plan_queue_processor(root, worker_id, poll_seconds=5):
     except Exception as exc:
         append_event(root, {"type": "distributed_plan_queue_recovery_error", "workerId": worker_id, "payload": {"error": str(exc)}})
     def loop():
-        while True:
+        while stop_event is None or not stop_event.is_set():
+            wake.clear()
+            if stop_event is not None and stop_event.is_set():
+                break
             try:
                 drain_durable_plan_queue_once(root, worker_id)
             except Exception as exc:
                 append_event(root, {"type": "distributed_plan_queue_error", "workerId": worker_id, "payload": {"error": str(exc)}})
-            time.sleep(max(1.0, float(poll_seconds or 5)))
-    threading.Thread(target=loop, daemon=True, name="durable-plan-queue-processor").start()
+            wake.wait(timeout=max(1.0, float(poll_seconds or 5)))
+            if stop_event is not None and stop_event.is_set():
+                break
+    processor = threading.Thread(target=loop, daemon=True, name="durable-plan-queue-processor")
+    with DURABLE_PLAN_QUEUE_PROCESSOR_LOCK:
+        record = DURABLE_PLAN_QUEUE_PROCESSORS.get(key) or {"wake": wake, "thread": None}
+        existing = record.get("thread")
+        if existing is not None and (not hasattr(existing, "is_alive") or existing.is_alive()):
+            return existing
+        record["thread"] = processor
+        DURABLE_PLAN_QUEUE_PROCESSORS[key] = record
+        processor.start()
+    return processor
 
 def reserve_distributed_gpu(root, gpu_id, command_id, util_threshold=None, mem_threshold=None,
                             require_idle_gpu=False, max_concurrent_gpus=None):
@@ -5482,6 +5707,7 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
                 "workerHubUplink": True,
                 "workerTasks": True,
                 "durablePlanQueue": True,
+                "codeSyncProof": True,
                 "idleGpuAdmission": True,
                 "queuedJobRecall": True,
                 "liveOutput": True,
@@ -5496,6 +5722,7 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
             },
             "actionEndpoints": {
                 "start-worker-task": True,
+                "register-code-sync-proof": True,
                 "rebuild-distributed-results": True,
                 "retry-worker-task": True,
                 "stop-worker-task": True,
@@ -12392,7 +12619,7 @@ def api_worker_tasks(root):
                     enriched[index] = entry
         _out["tasks"] = enriched
         _out["generatedAt"] = now_iso()
-        _out["capabilities"] = {"durablePlanQueue": True, "idleGpuAdmission": True, "queuedJobRecall": True, "schemaVersion": 1}
+        _out["capabilities"] = {"durablePlanQueue": True, "codeSyncProof": True, "idleGpuAdmission": True, "queuedJobRecall": True, "schemaVersion": 1}
         return _out
     tasks = []
     for row in read_durable_plan_queue(root).get("jobs", []):
@@ -12402,7 +12629,7 @@ def api_worker_tasks(root):
         if status in ("queued", "dispatching", "running", "unknown", "completed", "failed", "cancelled"):
             tasks.append(durable_plan_public_task(row))
     return {"schemaVersion": SCHEMA_VERSION, "tasks": tasks,
-            "capabilities": {"durablePlanQueue": True, "idleGpuAdmission": True, "queuedJobRecall": True, "schemaVersion": 1}, "generatedAt": now_iso()}
+            "capabilities": {"durablePlanQueue": True, "codeSyncProof": True, "idleGpuAdmission": True, "queuedJobRecall": True, "schemaVersion": 1}, "generatedAt": now_iso()}
 
 def api_openapi(root, token_required=False, mode="hub_control"):
     if mode == "worker_telemetry":
@@ -12423,6 +12650,7 @@ def api_openapi(root, token_required=False, mode="hub_control"):
             "/api/events/sse",
             "/api/operations/{id}",
             "/api/actions/start-worker-task",
+            "/api/actions/register-code-sync-proof",
             "/api/actions/rebuild-distributed-results",
             "/api/actions/retry-worker-task",
             "/api/actions/stop-worker-task",
@@ -14158,7 +14386,7 @@ def serve_http(args):
             route = urlparse(self.path).path
             if mode == "worker_telemetry":
                 worker_action = route.rsplit("/", 1)[-1] if route.startswith("/api/actions/") else ""
-                if route not in ("/api/actions/save-result-policy", "/api/actions/start-worker-task", "/api/actions/rebuild-distributed-results", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan", "/api/actions/stop-scheduler-operation", "/api/actions/clear-cache", "/api/actions/clearCache", "/api/actions/preview-cache-cleanup", "/api/actions/delete-cache-candidates", "/api/tmux/kill-window", "/api/tensorboard/proxy", "/api/tensorboard/scalars/query") and not route.startswith(TENSORBOARD_BROWSER_PREFIX + "/") and route != TENSORBOARD_BROWSER_PREFIX and worker_action not in WORKER_RESULT_ACTIONS and worker_action not in WORKER_TENSORBOARD_ACTIONS and worker_action not in WORKER_ENV_ACTIONS:
+                if route not in ("/api/actions/save-result-policy", "/api/actions/start-worker-task", "/api/actions/register-code-sync-proof", "/api/actions/rebuild-distributed-results", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan", "/api/actions/stop-scheduler-operation", "/api/actions/clear-cache", "/api/actions/clearCache", "/api/actions/preview-cache-cleanup", "/api/actions/delete-cache-candidates", "/api/tmux/kill-window", "/api/tensorboard/proxy", "/api/tensorboard/scalars/query") and not route.startswith(TENSORBOARD_BROWSER_PREFIX + "/") and route != TENSORBOARD_BROWSER_PREFIX and worker_action not in WORKER_RESULT_ACTIONS and worker_action not in WORKER_TENSORBOARD_ACTIONS and worker_action not in WORKER_ENV_ACTIONS:
                     return self.send_json({"error": "worker telemetry only accepts local worker actions"}, status=404)
             if route == "/api/tensorboard/proxy" or route == TENSORBOARD_BROWSER_PREFIX or route.startswith(TENSORBOARD_BROWSER_PREFIX + "/"):
                 return self.proxy_tensorboard(urlparse(self.path))
@@ -14294,6 +14522,13 @@ def serve_http(args):
                     write_transfer_status(root, item)
                     prune_runtime_memory_state()
                     return self.send_json({"schemaVersion": SCHEMA_VERSION, "transferId": transfer_id, "status": "completed", "remotePath": item.get("remotePath"), "size": os.path.getsize(target), "sha256": actual})
+            if route == "/api/actions/register-code-sync-proof":
+                try:
+                    worker_id = str(getattr(args, "worker_id", "") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip()
+                    result = register_code_sync_proof(root, payload, worker_id)
+                    return self.send_json(result)
+                except Exception as exc:
+                    return self.send_json({"ok": False, "error": str(exc)}, status=409)
             if route == "/api/worker/availability/batch":
                 return self.send_json(write_availability_batch(root, payload))
             if route == "/api/workers/uplink/events":

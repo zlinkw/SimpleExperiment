@@ -920,6 +920,9 @@ export class RealtimeTunnelPanelProvider {
     lastCodeSyncState = {};
     lastCodeSyncStats = { hashed: 0, hashReused: 0, cacheWriteSkipped: 0, inventoryCalls: 0, uploads: 0 };
     private readonly codeSyncWarmProofs = new Map<string, number>();
+    private readonly codeSyncAgentProofs = new Map<string, { proofId: string; manifestDigest: string; scopeSignature: string; fileCount: number; runtimeGeneration: string }>();
+    private readonly workerProbeSignatures = new Map<string, string>();
+    private readonly workerProbeGenerations = new Map<string, number>();
     private readonly planValidationCache = new Map<string, { expiresAt: number; value: any }>();
     private readonly planValidationCacheTtlMs = 120_000;
     private readonly planValidationCacheMaxEntries = 32;
@@ -4386,7 +4389,7 @@ export class RealtimeTunnelPanelProvider {
                 const item = workerItems[index];
                 if (!item)
                     return;
-                nextWorkerProbes[item.id] = entry.status === "fulfilled"
+                const probe = entry.status === "fulfilled"
                     ? entry.value[1]
                     : {
                         status: "timeout",
@@ -4401,6 +4404,7 @@ export class RealtimeTunnelPanelProvider {
                         warnings: [errorMessage(entry.reason)],
                         message: errorMessage(entry.reason),
                     };
+                nextWorkerProbes[item.id] = this.stampWorkerProbeGeneration(item.id, probe);
             });
             this.lastProbe = probe;
             this.lastHealth = topology.hubAllowed ? this.healthFromProbe(probe) : noHubWorkerHealth(nextWorkerProbes);
@@ -4430,6 +4434,20 @@ export class RealtimeTunnelPanelProvider {
             this.postState();
             this.showTunnelTestToast();
         }
+    }
+    stampWorkerProbeGeneration(workerId, probe) {
+        const status = probe && typeof probe === "object" ? probe : { status: "unknown" };
+        const signature = JSON.stringify({ status: status.status || "unknown", agentVersion: status.agentVersion || "",
+            apiVersion: status.apiVersion || "", runtimeVersion: status.runtimeVersion || "",
+            codeSyncProof: status.capabilities?.actionEndpoints?.["register-code-sync-proof"] === true });
+        const previous = this.workerProbeSignatures.get(workerId);
+        let generation = this.workerProbeGenerations.get(workerId) || 0;
+        if (previous !== signature) {
+            generation += 1;
+            this.workerProbeSignatures.set(workerId, signature);
+            this.workerProbeGenerations.set(workerId, generation);
+        }
+        return { ...status, statusGeneration: generation };
     }
     private schedulePostLaunchAutoTest() {
         this.cancelPostLaunchAutoTest();
@@ -5676,7 +5694,8 @@ export class RealtimeTunnelPanelProvider {
             updatedAt: now,
             reconcileEvidenceActive: false,
             startedAtMs: Date.now(),
-            timings: { selectWorkerMs: 0, localFingerprintMs: 0, codeSyncMs: 0, validateMs: 0, historyChoiceMs: 0,
+            timings: { selectWorkerMs: 0, localFingerprintMs: 0, codeSyncMs: 0, validateMs: 0,
+                validateSubmitMs: 0, validateTerminalWaitMs: 0, validateAgentDurationMs: 0, historyChoiceMs: 0,
                 enqueueMs: 0, workerSnapshotMs: 0, gpuSnapshotMs: 0, dispatchMs: 0,
                 clickToEnqueueMs: 0, clickToFirstAcceptedJobMs: 0 },
         };
@@ -5838,6 +5857,7 @@ export class RealtimeTunnelPanelProvider {
     }
     async runPlanPreflight(body, label, authority = {}) {
         const reportStage = typeof authority.reportStage === "function" ? authority.reportStage : (_text: string) => {};
+        const recordTiming = typeof authority.recordTiming === "function" ? authority.recordTiming : (_key: string, _ms: number) => {};
         this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，Plan 校验与预演已取消。");
         const prefix = String(label || "当前计划").trim() || "当前计划";
         const workerId = this.planSchedulerWorkerId(body);
@@ -5877,27 +5897,49 @@ export class RealtimeTunnelPanelProvider {
         };
         let check = "校验(validate-plan)";
         try {
-            const validateStarted = Date.now();
             let validated = this.cachedPlanValidation(validationCacheKey);
-            if (validated) reportStage("复用近期成功的 Agent Plan 校验…");
+            if (validated) {
+                reportStage("复用近期成功的 Agent Plan 校验…");
+                recordTiming("validateSubmitMs", 0);
+                recordTiming("validateTerminalWaitMs", 0);
+            }
             else {
                 reportStage("正在校验计划…");
-                const validate = await this.postPlanSchedulerAction("validate-plan", body, {
-                    title: `${prefix}：校验`,
-                    requiresCapability: ["endpoints.actions", "actions.validate-plan"],
-                    ...authority,
-                });
+                const validateSubmitStarted = Date.now();
+                let validate;
+                try {
+                    validate = await this.postPlanSchedulerAction("validate-plan", body, {
+                        title: `${prefix}：校验`,
+                        requiresCapability: ["endpoints.actions", "actions.validate-plan"],
+                        ...authority,
+                    });
+                }
+                finally {
+                    recordTiming("validateSubmitMs", Date.now() - validateSubmitStarted);
+                }
                 this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，Plan 校验与预演已取消。");
-                validated = remoteActionPendingStatus(resultStatus(validate))
-                    ? await this.waitForOperationTerminalResult("validate-plan", validate, `${prefix}：校验`, 45_000, workerId, authority)
-                    : validate;
+                if (remoteActionPendingStatus(resultStatus(validate))) {
+                    const validateTerminalWaitStarted = Date.now();
+                    try {
+                        validated = await this.waitForOperationTerminalResult("validate-plan", validate, `${prefix}：校验`, 45_000, workerId, authority);
+                    }
+                    finally {
+                        recordTiming("validateTerminalWaitMs", Date.now() - validateTerminalWaitStarted);
+                    }
+                }
+                else {
+                    validated = validate;
+                    recordTiming("validateTerminalWaitMs", 0);
+                }
             }
             this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，Plan 校验与预演已取消。");
             if (!validated) {
                 failPreflight(check, "校验未返回终态", "-");
                 return false;
             }
-            reportStage(`Agent 校验已返回（本段 ${Date.now() - validateStarted} ms）`);
+            const agentDuration = remoteOperationDurationMs(validated);
+            if (agentDuration !== undefined) recordTiming("validateAgentDurationMs", agentDuration);
+            reportStage("Agent 校验已返回");
             if (!planCheckAccepted(validated)) {
                 failPreflight(check, String(validated?.error || validated?.message || resultStatus(validated) || "校验未通过"), validated?.output || validated?.message);
                 return false;
@@ -8119,11 +8161,20 @@ export class RealtimeTunnelPanelProvider {
                 let uploadManifest = manifest;
                 let remoteFiles;
                 const warmProofKey = this.codeSyncWarmProofKey(target, root, fingerprint, includePaths, scopePaths);
-                const probeFresh = this.lastWorkerProbes?.[target.id]?.status === "ok"
-                    && this.lastFullEndpointProbeAt > 0 && Date.now() - this.lastFullEndpointProbeAt <= 60_000;
+                const workerProbeOk = this.lastWorkerProbes?.[target.id]?.status === "ok";
+                const workerVersion = async (refreshProof = false) => {
+                    if (refreshProof) this.codeSyncAgentProofs.delete(warmProofKey);
+                    const proof = target.role === "worker" && hashCompare
+                        ? await this.ensureWorkerCodeSyncProof(target, root, fingerprint, manifest, includePaths, scopePaths, inventoryScopePaths, warmProofKey)
+                        : undefined;
+                    return { fingerprint, files: Object.keys(manifest).sort(), syncedAt: new Date().toISOString(),
+                        ...(proof ? { codeSyncProofId: proof.proofId, manifestDigest: proof.manifestDigest,
+                            codeSyncScopeSignature: proof.scopeSignature, codeSyncProofVerifiedAt: proof.verifiedAt,
+                            codeSyncProofRuntimeGeneration: proof.runtimeGeneration } : {}) };
+                };
                 if (hashCompare) {
-                    if (target.role === "worker" && probeFresh && this.codeSyncWarmProofs?.get(warmProofKey) > Date.now()) {
-                        workerVersions[target.id] = { fingerprint, files: Object.keys(manifest).sort(), syncedAt: new Date().toISOString() };
+                    if (target.role === "worker" && workerProbeOk && this.codeSyncWarmProofs?.get(warmProofKey) > Date.now()) {
+                        workerVersions[target.id] = await workerVersion();
                         if (progressReport) progressReport(`${target.label || target.id}：Extension Host 内近期远端核对凭据有效，跳过递归清单`);
                         return;
                     }
@@ -8142,8 +8193,8 @@ export class RealtimeTunnelPanelProvider {
                     if (!Object.keys(uploadManifest).length) {
                         if (progressReport && progressStep > 0) progressReport(`${target.label || target.id} 内容未变化，未重传`, progressStep);
                         if (target.role === "worker") {
-                            workerVersions[target.id] = { fingerprint, files: Object.keys(manifest).sort(), syncedAt: new Date().toISOString() };
-                            if (probeFresh) this.rememberCodeSyncWarmProof(warmProofKey);
+                            workerVersions[target.id] = await workerVersion(true);
+                            if (workerProbeOk) this.rememberCodeSyncWarmProof(warmProofKey);
                             void this.persistProjectCodeSyncState().catch(() => undefined);
                         }
                         return;
@@ -8180,8 +8231,8 @@ export class RealtimeTunnelPanelProvider {
                         throw new Error(`上传后源码校验失败：${mismatches.slice(0, 12).map((row) => `${row.path}${row.exists ? " 版本不一致" : " 缺失"}`).join("、")}${mismatches.length > 12 ? ` 等 ${mismatches.length} 项` : ""}`);
                 }
                 if (target.role === "worker") {
-                    workerVersions[target.id] = { fingerprint, files: Object.keys(manifest).sort(), syncedAt: new Date().toISOString() };
-                    if (hashCompare && probeFresh) this.rememberCodeSyncWarmProof(warmProofKey);
+                    workerVersions[target.id] = await workerVersion(true);
+                    if (hashCompare && workerProbeOk) this.rememberCodeSyncWarmProof(warmProofKey);
                     void this.persistProjectCodeSyncState().catch(() => undefined);
                 }
                 if (progressReport && progressStep > 0) progressReport(`已完成 ${target.label || target.id}（${index + 1}/${enabledTargets.length}）`, progressStep);
@@ -8232,7 +8283,35 @@ export class RealtimeTunnelPanelProvider {
             serverSignature: crypto.createHash("sha256").update(JSON.stringify(this.sftpServerOptions(target))).digest("hex"), fingerprint,
             includePaths: [...(includePaths || [])].map(String).sort(), scopePaths: [...(scopePaths || [])].map(String).sort(),
             expectedRoot: this.expectedWorkerAgentProjectRoot(target.id), agentVersion: probe.agentVersion || probe.apiVersion || probe.runtimeVersion || "",
-            reconnectCount: Number(endpoint?.reconnectCount || 0) });
+            reconnectCount: Number(endpoint?.reconnectCount || 0), statusGeneration: Number(probe.statusGeneration || 0),
+            probeStatus: String(probe.status || "unknown") });
+    }
+    async ensureWorkerCodeSyncProof(target, root, fingerprint, manifest, includePaths, scopePaths, inventoryScopePaths, warmProofKey) {
+        const probe = this.lastWorkerProbes?.[target.id] || {};
+        if (probe.capabilities?.actionEndpoints?.["register-code-sync-proof"] !== true) return undefined;
+        const cached = this.codeSyncAgentProofs.get(warmProofKey);
+        if (cached && cached.manifestDigest === fingerprint) return cached;
+        const projectId = DistributedPlanQueue.canonicalProjectId(root);
+        const scopeSignature = sha256Text(JSON.stringify({ includePaths: [...(includePaths || [])].map(String).sort(),
+            scopePaths: [...(scopePaths || [])].map(String).sort(), inventoryScopePaths: [...(inventoryScopePaths || [])].map(String).sort() }));
+        const client = this.client;
+        const result: any = await client.postWorkerAction(target.id, "register-code-sync-proof", {
+            schemaVersion: 1, opId: makeOpId("code-sync-proof"), projectId, workerId: target.id,
+            codeFingerprint: fingerprint, manifestDigest: fingerprint, scopeSignature, codeManifest: manifest,
+        });
+        if (workspaceRoot() !== root || this.client !== client) throw new UiCommandCancelled("工作区或连接已切换，Worker 代码 proof 注册已取消。");
+        const proofId = String(result?.proofId || "").trim();
+        const runtimeGeneration = String(result?.runtimeGeneration || "").trim();
+        const fileCount = Number(result?.fileCount);
+        if (result?.ok !== true || String(result?.manifestDigest || "") !== fingerprint
+            || String(result?.scopeSignature || "") !== scopeSignature || !/^[a-f0-9]{64}$/.test(proofId)
+            || !runtimeGeneration || fileCount !== Object.keys(manifest).length)
+            throw new Error(`Worker ${target.id} 未确认完整代码同步 proof：${String(result?.error || "回执身份不匹配")}`);
+        const proof = { proofId, manifestDigest: fingerprint, scopeSignature, fileCount,
+            runtimeGeneration, verifiedAt: String(result?.verifiedAt || "") };
+        this.codeSyncAgentProofs.set(warmProofKey, proof);
+        while (this.codeSyncAgentProofs.size > 128) this.codeSyncAgentProofs.delete(this.codeSyncAgentProofs.keys().next().value);
+        return proof;
     }
     rememberCodeSyncWarmProof(key) {
         if (!this.codeSyncWarmProofs) return;
@@ -8761,7 +8840,10 @@ export class RealtimeTunnelPanelProvider {
             this.recordPlanSubmissionTiming?.(message, "codeSyncMs", Date.now() - codeSyncStarted);
             if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot)) return;
             const validateStarted = Date.now();
-            const preflightOk = await this.waitForPlanSubmission(message, () => this.runPlanPreflight(body, "当前计划", { reportStage: (text) => this.reportPlanStage(message, text) }));
+            const preflightOk = await this.waitForPlanSubmission(message, () => this.runPlanPreflight(body, "当前计划", {
+                reportStage: (text) => this.reportPlanStage(message, text),
+                recordTiming: (key, ms) => this.recordPlanSubmissionTimingByOperation(operationId, key, ms),
+            }));
             this.recordPlanSubmissionTiming?.(message, "validateMs", Date.now() - validateStarted);
             if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot)) return;
             if (!preflightOk) {
@@ -9175,13 +9257,16 @@ export class RealtimeTunnelPanelProvider {
         const codeManifest = sharedCodeManifest || await this.buildDistributedJobCodeManifest(root);
         if (fingerprintFromManifest(codeManifest) !== plan.codeFingerprint)
             throw new Error("本机代码已偏离 Plan 的代码指纹，持久队列提交已暂停；请恢复该版本或重新提交计划。");
+        const supportsCodeSyncProof = this.lastWorkerProbes?.[workerId]?.capabilities?.actionEndpoints?.["register-code-sync-proof"] === true;
+        const workerVersion = this.lastCodeSyncState?.workerVersions?.[workerId] || {};
+        const codeProofFields = durableCodeProofRequestFields(supportsCodeSyncProof, workerVersion, plan.codeFingerprint, codeManifest, workerId);
         if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
             throw new Error("提交已取消或项目已切换，未向 Worker 发送任务。");
         const request = {
             schemaVersion: 1, opId: commandId, operationId: commandId, runKey: commandId,
             durablePlanQueue: true, schedulingMode: DistributedSchedulingPolicy.schedulingMode(
                 job.localQueueOnly === true || plan.localDispatchOverride === true ? "local_idle" : plan.schedulingMode),
-            requireIdleGpu: gpuId !== undefined, codeManifest, projectId: plan.projectId || DistributedPlanQueue.canonicalProjectId(root),
+            requireIdleGpu: gpuId !== undefined, ...codeProofFields, projectId: plan.projectId || DistributedPlanQueue.canonicalProjectId(root),
             planJobCount: Number(plan.planJobCount || plan.jobs.length), enqueuedAt: plan.enqueuedAt,
             planFile: plan.planFile, experimentIndex: job.index, ...(gpuId !== undefined ? { gpuId } : {}),
             case: job.case, seed: job.seed, outputDir: job.outputDir, mode: "train_test",
@@ -14365,7 +14450,8 @@ export class RealtimeTunnelPanelProvider {
     async refreshExactPaneStopCapability(workerId) {
         const item = this.tunnelLaunchItems().find((entry) => entry.id === workerId && entry.role === "worker");
         if (!item) return this.workerSupportsExactPaneStop(workerId);
-        const probe = await (0, XshellTunnelPortProbe_1.probeWorkerTelemetryTunnel)({ ...item.config, token: this.tunnelConfig.token }, { timeoutMs: 1500 });
+        const probe = this.stampWorkerProbeGeneration(workerId,
+            await (0, XshellTunnelPortProbe_1.probeWorkerTelemetryTunnel)({ ...item.config, token: this.tunnelConfig.token }, { timeoutMs: 1500 }));
         this.lastWorkerProbes = { ...(this.lastWorkerProbes || {}), [workerId]: probe };
         return probe?.status === "ok" && probe?.capabilities?.actionEndpoints?.["stop-worker-task-exact-pane"] === true;
     }
@@ -29435,6 +29521,26 @@ async function expandSelectedLocalScope(root: string, selected: string[], exclud
 function fingerprintFromManifest(manifest) {
     const stable = Object.keys(manifest).sort().map((key) => [key, manifest[key]]);
     return crypto.createHash("sha256").update(JSON.stringify(stable)).digest("hex");
+}
+function durableCodeProofRequestFields(supportsCodeSyncProof, workerVersion, fingerprint, codeManifest, workerId = "Worker") {
+    if (!supportsCodeSyncProof) return { codeManifest };
+    const proofId = String(workerVersion?.codeSyncProofId || "");
+    const manifestDigest = String(workerVersion?.manifestDigest || "");
+    if (!proofId || manifestDigest !== fingerprint || String(workerVersion?.fingerprint || "") !== fingerprint)
+        throw new Error(`${workerId} 缺少当前代码指纹的持久 proof；重新同步代码后再提交。`);
+    return { codeSyncProofId: proofId, manifestDigest };
+}
+function remoteOperationDurationMs(value) {
+    const rows = [value, value?.operation, value?.payload, value?.latestEvent?.payload].filter((row) => row && typeof row === "object");
+    const status = String(rows.map((row) => row.status || row.state || "").find(Boolean) || "").toLowerCase();
+    if (status && !["completed", "succeeded", "success", "ok", "passed"].includes(status)) return undefined;
+    for (const row of rows) {
+        const startedAt = Date.parse(String(row.startedAt || row.started_at || ""));
+        const finishedAt = Date.parse(String(row.finishedAt || row.finished_at || row.completedAt || row.updatedAt || ""));
+        if (Number.isFinite(startedAt) && Number.isFinite(finishedAt) && finishedAt >= startedAt && finishedAt - startedAt <= 24 * 60 * 60_000)
+            return Math.round(finishedAt - startedAt);
+    }
+    return undefined;
 }
 function sha256Text(text) {
     return crypto.createHash("sha256").update(text, "utf8").digest("hex");

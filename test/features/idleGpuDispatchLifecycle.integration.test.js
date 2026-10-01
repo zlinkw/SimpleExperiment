@@ -15,12 +15,15 @@ const DistributedPlanQueue = require('../../src/features/DistributedPlanQueue.ts
 const DistributedSchedulingPolicy = require('../../src/features/DistributedSchedulingPolicy.ts');
 require.extensions['.ts'] = original;
 const source = fs.readFileSync(path.join(root,'src/extension/legacy.ts'),'utf8');
+const proofHelperSource = source.match(/^function durableCodeProofRequestFields\([\s\S]*?^\}/m)?.[0];
+assert.ok(proofHelperSource, 'missing production durable code proof request helper');
+const durableCodeProofRequestFields = new Function(`${proofHelperSource}\nreturn durableCodeProofRequestFields;`)();
 function provider(names, extra={}) {
   const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true);
   const cls=ast.statements.find(node=>ts.isClassDeclaration(node)&&node.name?.text==='RealtimeTunnelPanelProvider');
   const code='class Provider {'+cls.members.filter(node=>names.includes(node.name?.getText(ast))).map(node=>node.getText(ast)).join('\n')+'}; Provider;';
   return vm.runInNewContext(ts.transpileModule(code,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,
-    {DistributedPlanQueue,DistributedSchedulingPolicy,workspaceRoot:()=>root,setInterval,clearInterval,
+    {DistributedPlanQueue,DistributedSchedulingPolicy,durableCodeProofRequestFields,workspaceRoot:()=>root,setInterval,clearInterval,
       mapLimited:async(rows,_limit,callback)=>Promise.all(rows.map(callback)),errorMessage:error=>error.message,...extra});
 }
 test('G1 actual host tick only dispatches idle NWPU3, persists identity before RPC, and explicitly hosts opt-in queue',async()=>{
@@ -100,10 +103,10 @@ test('G1 actual RPC envelope distinguishes local GPU admission from durable host
 const agentSource=fs.readFileSync(path.join(root,'src/clusterAgentRuntime.legacy.ts'),'utf8');
 function definition(name){const start=agentSource.indexOf(`\ndef ${name}(`)+1;assert.ok(start>0,name);
   const end=agentSource.indexOf('\ndef ',start+1);return agentSource.slice(start,end<0?undefined:end);}
-function python(script){const directory=fs.mkdtempSync(path.join(os.tmpdir(),'simpleex-lifecycle-'));
-  const file=path.join(directory,'assertions.py');fs.writeFileSync(file,script,'utf8');
-  const run=spawnSync(process.env.PYTHON||'python',['-X','utf8',file],{encoding:'utf8',timeout:10000,windowsHide:true});
-  assert.equal(run.status,0,run.stderr||run.error?.message);return JSON.parse(run.stdout.trim());}
+function python(script){const file=path.join(os.tmpdir(),`simpleex-lifecycle-${process.pid}-${Date.now()}.py`);fs.writeFileSync(file,script,'utf8');
+  try {const run=spawnSync(process.env.PYTHON||'python',['-X','utf8',file],{encoding:'utf8',timeout:10000,windowsHide:true});
+    assert.equal(run.status,0,run.stderr||run.error?.message);return JSON.parse(run.stdout.trim());}
+  finally {fs.unlinkSync(file);}}
 test('G2 real Agent idle admission guard rejects a competing process and untrusted telemetry',()=>{
   const result=python(`import json, math\nGPU_IDLE_UTIL_THRESHOLD=5\nGPU_IDLE_MEM_THRESHOLD_MB=200\nDISTRIBUTED_GPU_RESERVATIONS={}\ndef read_json(*args): return {}\ndef path_for(*args): return ''\ndef read_durable_plan_queue(*args): return {'jobs':[]}\ndef gpu_row_id(row): return str(row['gpuId'])\ndef gpu_row_busy(*args,**kwargs): return False\n${definition('_durable_gpu_busy_reason')}\nrow={'gpuId':'0','utilizationPercent':0,'memoryUsedMb':7,'processes':[{'pid':7}]}\nprint(json.dumps([_durable_gpu_busy_reason('', '0', 'c', [row]),_durable_gpu_busy_reason('', '0', 'c', [{'gpuId':'0'}])]))\n`);
   assert.deepEqual(result,['gpu_busy','gpu_busy'],'G2 admission must reject occupied or unknown GPU');
