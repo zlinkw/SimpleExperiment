@@ -97,6 +97,7 @@ function createHost(overrides = {}) {
     visibility: [],
     rendered: [],
     performance: [],
+    interests: [],
     lifecycleFailures: [],
   };
   const host = {
@@ -104,6 +105,9 @@ function createHost(overrides = {}) {
     webviewReady: false,
     panelDocumentGeneration: 4,
     panelLifecycleState: "ready",
+    panelSectionFailures: new Set(),
+    actionErrors: [],
+    lastError: "previous panel error",
     statePostRetryCount: 3,
     statePostRetryTimer: { id: "retry" },
     panelReadyWatchdogTimer: { id: "watchdog" },
@@ -128,7 +132,8 @@ function createHost(overrides = {}) {
     isCurrentPanelDocumentMessage(message, command) { return command === "webviewReady" || Number(message?.documentGeneration) === this.panelDocumentGeneration; },
     handlePanelWebviewVisibility(message) { calls.visibility.push(message); },
     handlePanelStateRenderedAck(message) { calls.rendered.push(message); },
-    recordPanelRenderPerformance(message) { calls.performance.push(message); },
+    handlePanelSectionInterest(message) { calls.interests.push(message); },
+    recordPanelSectionTelemetry(message) { calls.performance.push(message); },
     recordPanelLifecycleDiagnostic(reason) { calls.lifecycleFailures.push(reason); },
     refreshPptAutomationReadiness() { return Promise.resolve(); },
     recordActionError(error) { calls.errors.push(error); },
@@ -178,7 +183,7 @@ test("webviewVisibility without clientActionId reaches the generation-scoped hos
   assert.deepEqual(host.calls.statuses, []);
 });
 
-test("explicit render ACK is generation-scoped and sectionSlow stays performance telemetry", async () => {
+test("render ACK and section telemetry are generation-scoped and legacy sectionSlow stays telemetry", async () => {
   const stale = createHost();
   await api.handleMessage.call(stale, { command: "webviewStateRendered", documentGeneration: 3, seq: 8 });
   assert.deepEqual(stale.calls.rendered, []);
@@ -188,14 +193,36 @@ test("explicit render ACK is generation-scoped and sectionSlow stays performance
   assert.deepEqual(current.calls.rendered, [{ command: "webviewStateRendered", documentGeneration: 4, seq: 8, renderDurationMs: 42 }]);
   assert.deepEqual(current.calls.lease, []);
 
+  const sectionTelemetry = {
+    command: "webviewSectionTelemetry", documentGeneration: 4, stateSeq: 8,
+    samples: [{ section: "execution", signatureMs: 3, modelMs: 4, domMs: 5, totalMs: 12, skipped: false }],
+  };
+  await api.handleMessage.call(current, sectionTelemetry);
+  assert.deepEqual(current.calls.performance, [sectionTelemetry]);
+  await api.handleMessage.call(current, { ...sectionTelemetry, documentGeneration: 3, stateSeq: 999 });
+  assert.deepEqual(current.calls.performance, [sectionTelemetry], "stale section telemetry is rejected");
+  await api.handleMessage.call(current, { command: "webviewSectionInterest", documentGeneration: 3, interest: { mainSection: "results" } });
+  assert.deepEqual(current.calls.interests, [], "stale section interest cannot change the host projection");
+  assert.deepEqual(current.calls.states, [], "stale section interest cannot trigger a projection post");
+
   await api.handleMessage.call(current, {
     command: "webviewRenderError", documentGeneration: 4, performanceWarning: true,
     section: "execution", durationMs: 300, stateSeq: 8, operationCount: 12,
   });
-  assert.equal(current.calls.performance.length, 1);
-  assert.equal(current.calls.performance[0].section, "execution");
+  assert.equal(current.calls.performance.length, 2);
+  assert.equal(current.calls.performance[1].documentGeneration, 4);
+  assert.equal(current.calls.performance[1].stateSeq, 8);
+  assert.equal(current.calls.performance[1].samples[0].section, "execution");
+  assert.equal(current.calls.performance[1].samples[0].totalMs, 300);
+  assert.equal(current.calls.performance[1].samples[0].skipped, false);
   assert.deepEqual(current.calls.lifecycleFailures, []);
   assert.deepEqual(current.calls.errors, []);
+  assert.deepEqual(Array.from(current.panelSectionFailures), []);
+  assert.equal(current.panelLifecycleState, "ready");
+  assert.equal(current.lastError, "previous panel error");
+  assert.deepEqual(current.actionErrors, []);
+  assert.equal(current.degraded, undefined);
+  assert.deepEqual(current.calls.states, [], "legacy performance telemetry must not post state");
 });
 
 test("reloadPanel and webviewBootstrapError without clientActionId stay on the real handlers", async () => {

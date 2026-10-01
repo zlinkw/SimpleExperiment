@@ -13,16 +13,25 @@ const code = ts.transpileModule(`class Subject { ${method.getText(ast)} }`, { co
 const sandbox = {};
 vm.runInNewContext(`${code}; this.Subject = Subject;`, sandbox);
 
-test("stale document ready/errors/heartbeat acknowledgements cannot mutate the current document", () => {
+test("stale document ready/errors/heartbeat/section messages cannot mutate the current document", () => {
   const subject = new sandbox.Subject();
   subject.panelDocumentGeneration = 8;
   subject.panelDocumentBuildId = "build-8";
   subject.runningBuildIdentity = { version: "0.5.195" };
-  for (const command of ["webviewReady", "webviewRenderError", "webviewBootstrapError", "webviewHeartbeatAck", "webviewStateRendered", "webviewVisibility"]) {
+  const documentScopedCommands = [
+    "webviewReady", "webviewRenderError", "webviewBootstrapError", "webviewHeartbeatAck",
+    "webviewStateRendered", "webviewSectionInterest", "webviewSectionTelemetry", "webviewVisibility",
+  ];
+  for (const command of documentScopedCommands) {
     assert.equal(subject.isCurrentPanelDocumentMessage({ documentGeneration: 7 }, command), false, `${command} from generation 7`);
   }
   assert.equal(subject.isCurrentPanelDocumentMessage({ documentGeneration: 8, extensionVersion: "0.5.195", documentBuildId: "build-8" }, "webviewReady"), true);
   assert.equal(subject.isCurrentPanelDocumentMessage({ documentGeneration: 8, extensionVersion: "0.5.194", documentBuildId: "build-8" }, "webviewReady"), false);
   assert.equal(subject.isCurrentPanelDocumentMessage({ documentGeneration: 8, extensionVersion: "0.5.195", documentBuildId: "old-build" }, "webviewReady"), false);
-  assert.ok(/\["webviewReady", "webviewBootstrapError", "webviewRenderError", "webviewHeartbeatAck", "webviewStateRendered", "webviewVisibility"\][\s\S]{0,150}!this\.isCurrentPanelDocumentMessage/.test(source), "all document-scoped messages must use the generation guard");
+
+  const guardStart = source.indexOf('if (["webviewReady", "webviewBootstrapError", "webviewRenderError", "webviewHeartbeatAck", "webviewStateRendered"');
+  assert.ok(guardStart >= 0, "handleMessageCore must have the document generation guard");
+  const guardBlock = source.slice(guardStart, guardStart + 400);
+  assert.ok(guardBlock.includes('"webviewSectionInterest", "webviewSectionTelemetry", "webviewVisibility"'), "section interest and telemetry belong to the generation-guarded command list");
+  assert.ok(guardBlock.includes("!this.isCurrentPanelDocumentMessage(message, command)"), "the guarded command list must reject stale messages before dispatch");
 });

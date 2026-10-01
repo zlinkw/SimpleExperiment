@@ -261,9 +261,9 @@ test("historical lifecycle failures do not become current-session failures and s
   const ast = ts.createSourceFile("legacy.ts", source, ts.ScriptTarget.Latest, true);
   const provider = ast.statements.find((node) => ts.isClassDeclaration(node) && node.name?.text === "RealtimeTunnelPanelProvider");
   const loadMethod = provider.members.find((node) => node.name?.getText(ast) === "loadProjectPanelLifecycleDiagnosticsState");
-  const performanceMethod = provider.members.find((node) => node.name?.getText(ast) === "recordPanelRenderPerformance");
-  assert.ok(loadMethod && performanceMethod);
-  const code = ts.transpileModule(`class Subject { ${loadMethod.getText(ast)} ${performanceMethod.getText(ast)} }`, {
+  const telemetryMethod = provider.members.find((node) => node.name?.getText(ast) === "recordPanelSectionTelemetry");
+  assert.ok(loadMethod && telemetryMethod);
+  const code = ts.transpileModule(`class Subject { ${loadMethod.getText(ast)} ${telemetryMethod.getText(ast)} }`, {
     compilerOptions: { target: ts.ScriptTarget.ES2022 },
   }).outputText;
   const sandbox = { PANEL_LIFECYCLE_DIAGNOSTIC_LIMIT: 24, Date, readProjectPanelLifecycleDiagnosticsState() {} };
@@ -286,16 +286,35 @@ test("historical lifecycle failures do not become current-session failures and s
   subject.panelDocumentGeneration = 8;
   subject.panelRenderPerformance = [];
   for (let index = 0; index < 40; index += 1) {
-    subject.recordPanelRenderPerformance({
-      documentGeneration: 8, stateSeq: index + 1, section: "execution", durationMs: 300,
-      operationCount: 12, taskCount: 3, planCount: 2,
+    subject.recordPanelSectionTelemetry({
+      documentGeneration: 8, stateSeq: index + 1, samples: [{
+        section: "execution", signatureMs: index, modelMs: index + 1, domMs: index + 2,
+        totalMs: (index + 1) * 3, skipped: index % 2 === 0, skipReason: index % 2 === 0 ? "offscreen" : "",
+        operationCount: index, taskCount: 3, planCount: 2,
+      }],
     });
   }
-  subject.recordPanelRenderPerformance({ documentGeneration: 7, stateSeq: 999, section: "stale", durationMs: 999 });
+  subject.recordPanelSectionTelemetry({
+    documentGeneration: 7, stateSeq: 999,
+    samples: [{ section: "stale", signatureMs: 9, modelMs: 9, domMs: 9, totalMs: 27, skipped: false }],
+  });
   assert.equal(subject.panelRenderPerformance.length, 32);
   assert.equal(subject.panelRenderPerformance[0].stateSeq, 40);
-  assert.equal(subject.panelRenderPerformance[0].durationMs, 300);
+  assert.equal(subject.panelRenderPerformance[0].signatureMs, 39);
+  assert.equal(subject.panelRenderPerformance[0].modelMs, 40);
+  assert.equal(subject.panelRenderPerformance[0].domMs, 41);
+  assert.equal(subject.panelRenderPerformance[0].totalMs, 120);
+  assert.equal(subject.panelRenderPerformance[0].skipped, false);
+  assert.equal(subject.panelRenderPerformance[0].operationCount, 39);
+  assert.equal(subject.panelRenderPerformance[0].taskCount, 3);
+  assert.equal(subject.panelRenderPerformance[0].planCount, 2);
   assert.equal(subject.panelRenderPerformance.at(-1).stateSeq, 9);
+  assert.equal(subject.panelRenderPerformance.at(-1).signatureMs, 8);
+  assert.equal(subject.panelRenderPerformance.at(-1).modelMs, 9);
+  assert.equal(subject.panelRenderPerformance.at(-1).domMs, 10);
+  assert.equal(subject.panelRenderPerformance.at(-1).totalMs, 27);
+  assert.equal(subject.panelRenderPerformance.at(-1).skipped, true);
+  assert.equal(subject.panelRenderPerformance.at(-1).skipReason, "offscreen");
 });
 
 test("copied recovery summary retains the recovery cause and sequence stall evidence", () => {

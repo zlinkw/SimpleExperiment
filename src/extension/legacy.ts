@@ -4942,6 +4942,25 @@ export class RealtimeTunnelPanelProvider {
                     this.showPanelRecovery(this.lastError, false, `render-failed: ${this.lastError}`);
                 break;
             case "webviewRenderError":
+                if (message?.performanceWarning === true) {
+                    this.recordPanelSectionTelemetry({
+                        documentGeneration: message.documentGeneration,
+                        stateSeq: message.stateSeq,
+                        samples: [{
+                            section: message.section,
+                            signatureMs: message.signatureMs,
+                            modelMs: message.modelMs,
+                            domMs: message.domMs,
+                            totalMs: message.totalMs ?? message.durationMs,
+                            skipped: message.skipped === true,
+                            skipReason: message.skipReason,
+                            operationCount: message.operationCount,
+                            taskCount: message.taskCount,
+                            planCount: message.planCount,
+                        }],
+                    });
+                    break;
+                }
                 if (message?.sectionRecovered === true) {
                     this.panelSectionFailures.delete(String(message.section || "").slice(0, 40));
                     if (!this.panelSectionFailures.size && this.panelLifecycleState === "degraded") this.transitionPanelLifecycle("ready", "sectionRecovered");
@@ -17671,7 +17690,11 @@ export class RealtimeTunnelPanelProvider {
         if (String(message?.documentGeneration ?? "") !== String(this.panelDocumentGeneration) || !Array.isArray(message?.samples)) return;
         const rows = message.samples.slice(0, 7).map((sample) => {
             const duration = (value) => Math.max(0, Number.isFinite(Number(value)) ? Number(value) : 0);
+            const count = (value) => Number.isFinite(Number(value)) ? Math.max(0, Math.min(1_000_000, Math.floor(Number(value)))) : undefined;
             const totalMs = duration(sample?.totalMs);
+            const operationCount = count(sample?.operationCount);
+            const taskCount = count(sample?.taskCount);
+            const planCount = count(sample?.planCount);
             return {
                 timestamp: new Date().toISOString(),
                 documentGeneration: this.panelDocumentGeneration,
@@ -17684,6 +17707,9 @@ export class RealtimeTunnelPanelProvider {
                 durationMs: Math.round(totalMs),
                 skipped: sample?.skipped === true,
                 skipReason: String(sample?.skipReason || "").slice(0, 40),
+                ...(operationCount === undefined ? {} : { operationCount }),
+                ...(taskCount === undefined ? {} : { taskCount }),
+                ...(planCount === undefined ? {} : { planCount }),
             };
         });
         if (rows.length) this.panelRenderPerformance = [...rows.reverse(), ...this.panelRenderPerformance].slice(0, 32);

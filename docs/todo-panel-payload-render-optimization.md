@@ -32,3 +32,15 @@ Scope: measure serialized full-state cost; add generation-scoped section interes
 - `npm run package` passed at `0.5.209` (331 files, 2.02 MB); `npm run install:latest` installed `simple-local.simple-experiment@0.5.209`. `simpleex --help` resolved to the installed CLI. Panel operations stopped after installation, pending user window reload.
 - Code batch committed as `10512154` and pushed to `origin/master`; post-push `HEAD` matched `origin/master`. The two dirty `.pyc` files remained unstaged.
 - Live before/after payload and ACK measurements are still unavailable: SimpleExperiment/SimpleSFTP discovery files are absent, and the required post-install Webview sample must wait until the user reloads the window. No live improvement percentage is claimed.
+
+## 0.5.209 Compatibility Closeout
+
+- [x] Keep legacy `webviewRenderError` `performanceWarning` messages on bounded performance telemetry only; do not mutate failure, lifecycle, or action-error state.
+- [x] Align lifecycle diagnostics tests with `recordPanelSectionTelemetry` and verify historical `sectionSlow` filtering, generation fencing, ring bound, and per-stage fields.
+- [x] Align message dispatch mocks and verify rendered ACK, current/stale telemetry, stale section interest, and legacy performance-warning behavior.
+- [x] Extend stale-document guard coverage to section interest and telemetry messages.
+- [x] Run all requested tests serially, then build and run the Webview `vm.Script` gate without changing the 0.5.209 version.
+- [ ] Commit and push only the closeout files; leave both dirty `.pyc` files unstaged.
+- [x] Record live `panel.diagnostics` as unverified because API discovery and a usable Extension Host are unavailable; make no runtime-data claims.
+
+Compatibility closeout validation: `panelLifecycleDiagnostics.test.js` 9/9, `panelMessageDispatch.test.js` 8/8, `panelStaleDocumentHandshake.test.js` 1/1, `panelStateProjection.test.js` 3/3, `panelProgressDom.test.js` 2/2, `panelRenderHealth.test.js` 12/12, `panelStateFlowControl.test.js` 10/10, `panelStateProgress.test.js` 13/13, and `panelLifetimeRecovery.test.js` 11/11 passed individually in sequence. `npm run build` and the required Webview `vm.Script` gate passed; package version stayed `0.5.209`. Live `panel.diagnostics` remains unverified because SimpleExperiment API discovery is unavailable.
