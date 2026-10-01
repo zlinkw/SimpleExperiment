@@ -40,7 +40,7 @@ Scope: measure serialized full-state cost; add generation-scoped section interes
 - [x] Align message dispatch mocks and verify rendered ACK, current/stale telemetry, stale section interest, and legacy performance-warning behavior.
 - [x] Extend stale-document guard coverage to section interest and telemetry messages.
 - [x] Run all requested tests serially, then build and run the Webview `vm.Script` gate without changing the 0.5.209 version.
-- [ ] Commit and push only the closeout files; leave both dirty `.pyc` files unstaged.
+- [x] Commit and push only the closeout files; leave both dirty `.pyc` files unstaged (`e18eea79`, post-push `HEAD` matched `origin/master`).
 - [x] Record live `panel.diagnostics` as unverified because API discovery and a usable Extension Host are unavailable; make no runtime-data claims.
 
 Compatibility closeout validation: `panelLifecycleDiagnostics.test.js` 9/9, `panelMessageDispatch.test.js` 8/8, `panelStaleDocumentHandshake.test.js` 1/1, `panelStateProjection.test.js` 3/3, `panelProgressDom.test.js` 2/2, `panelRenderHealth.test.js` 12/12, `panelStateFlowControl.test.js` 10/10, `panelStateProgress.test.js` 13/13, and `panelLifetimeRecovery.test.js` 11/11 passed individually in sequence. `npm run build` and the required Webview `vm.Script` gate passed; package version stayed `0.5.209`. Live `panel.diagnostics` remains unverified because SimpleExperiment API discovery is unavailable.
