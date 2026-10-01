@@ -34,11 +34,16 @@ function createHost(clock) {
   const ast = ts.createSourceFile("legacy.ts", source, ts.ScriptTarget.Latest, true);
   const provider = ast.statements.find((node) => ts.isClassDeclaration(node) && node.name?.text === "RealtimeTunnelPanelProvider");
   const methods = new Set(["clearPanelHeartbeat", "handlePanelHeartbeatAck", "recoverPanelHeartbeatFailure", "schedulePanelHeartbeat", "capturePanelFailureEvidence", "updatePanelDocumentVisibility"]);
-  const fields = /^(panelHeartbeat.*|panelUnknownHealth.*|panelDisposed|panelDocumentGeneration|viewGeneration|lastPanelHeartbeatRecoveryAt|webviewReady|lastHeartbeatObservedRenderedStateSeq|latestPanelHeartbeatProgress|latestPanelHeartbeatEvidence|lastPanelFailureEvidence|panelDocumentHasRenderedState|webviewDocumentVisible|lastPostedStateSeq|lastReceivedStateSeq|lastRenderedStateSeq|stateRenderStalledAcks)$/;
+  const fields = /^(panelHeartbeat.*|panelUnknownHealth.*|panelDisposed|panelDocumentGeneration|viewGeneration|automaticRecoveryCount|lastAutomaticRecoveryAt|recoveryLoopPreventedCount|webviewReady|lastHeartbeatObservedRenderedStateSeq|latestPanelHeartbeatProgress|latestPanelHeartbeatEvidence|lastPanelFailureEvidence|panelDocumentHasRenderedState|webviewDocumentVisible|lastPostedStateSeq|lastDeliveredStateSeq|lastReceivedStateSeq|lastRenderedStateSeq|stateRenderStalledAcks)$/;
   const members = provider.members.filter((node) => node.name && (methods.has(node.name.getText(ast)) || (ts.isPropertyDeclaration(node) && fields.test(node.name.getText(ast)))));
   const code = ts.transpileModule(`class Subject {\n${members.map((node) => node.getText(ast)).join("\n")}\n}`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  const flowSource = fs.readFileSync(path.join(root, "src/features/PanelStateFlowControl.ts"), "utf8");
+  const flowCode = ts.transpileModule(flowSource, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+  const flowExports = {};
+  vm.runInNewContext(flowCode, { exports: flowExports, module: { exports: flowExports } });
   const sandbox = {
     ...clock,
+    PanelStateFlowControl_1: flowExports,
     compactSensitiveText: (value) => String(value || "").slice(0, 180),
     PanelStateProgress_1: { observeStateRenderProgress: (_posted, rendered) => ({ previousObservedRenderedSeq: rendered, consecutiveStalledAcks: 0, unhealthy: false }) },
   };
@@ -48,13 +53,17 @@ function createHost(clock) {
   host.messages = [];
   host.webviewReady = true;
   host.panelDocumentGeneration = 7;
+  host.panelStateFlow = flowExports.createPanelStateFlowControlState(7, true);
+  host.automaticRecoveryCount = 0; host.lastAutomaticRecoveryAt = null; host.recoveryLoopPreventedCount = 0;
   host.transitionPanelLifecycle = (state) => { host.panelLifecycleState = state; };
   host.recordPanelLifecycleDiagnostic = (reason) => { (host.diagnostics ||= []).push(reason); };
+  host.markCurrentSessionPanelFailure = (reason) => { host.currentSessionRecoveryReason = reason; };
   host.postState = () => {};
+  host.syncPanelStateFlowVisibility = () => { host.panelStateFlow = flowExports.setPanelStateFlowVisibility(host.panelStateFlow, host.view?.visible === true && host.webviewDocumentVisible === true); };
   host.extensionRuntimeVersionState = () => ({ reloadRequired: false });
   host.reloaded = 0;
   host.recoveryCards = 0;
-  host.loadPanelHtml = () => { host.reloaded++; host.panelDocumentGeneration++; host.webviewReady = true; host.schedulePanelHeartbeat(); };
+  host.loadPanelHtml = () => { host.reloaded++; host.panelDocumentGeneration++; host.panelStateFlow = flowExports.beginPanelStateDocument(host.panelStateFlow, host.panelDocumentGeneration, true); host.webviewReady = true; host.schedulePanelHeartbeat(); };
   host.showPanelRecovery = () => { host.recoveryCards++; host.webviewReady = false; };
   return host;
 }

@@ -176,7 +176,7 @@ test("a real heartbeat timeout creates one explicit structured failure", () => {
     },
     latestPanelHeartbeatProgress: { renderedSeq: 18, previousRenderedSeq: 18, stalledAckCount: 3 },
     latestPanelStateTelemetry: { sampleId: 9, postedSeq: 71, receivedSeq: 54, renderedSeq: 54, payloadBytes: 717609, buildTotalMs: 42 },
-    panelLifecycleDiagnostics: [], extensionRuntimeVersionState: () => ({
+    panelLifecycleDiagnostics: [], currentSessionPanelLifecycleDiagnostics: [], extensionRuntimeVersionState: () => ({
       runningVersion: "0.5.200", installedVersion: "0.5.200", registryState: "match",
       runningBuildId: "a".repeat(64), diskBuildId: "a".repeat(64), reloadRequired: false,
     }),
@@ -233,7 +233,10 @@ test("panel.diagnostics returns the saved sample without rebuilding state or pro
     runningBuildIdentity: {}, diskBuildIdentity: {}, panelDocumentGeneration: 4, viewGeneration: 2,
     latestPanelStateTelemetry: telemetry, panelSectionFailures: new Set(["results"]),
     panelStateTrafficSnapshot: () => ({ fullStatePosts: 12, coalescedStatePosts: 80, hiddenSuppressedStatePosts: 100, fullStatePostsLastMinute: 4 }),
-    lastPanelRecoveryReason: "", panelLifecycleDiagnostics: [],
+    panelStateDeliverySnapshot: () => ({ postedSeq: 71, deliveredSeq: 71, renderedSeq: 54, outstandingSeq: 71, pendingDirty: true, outstandingAgeMs: 27 }),
+    latestRenderDurationMs: 9, panelRenderPerformance: [], currentSessionRecoveryReason: "", currentSessionLastFailure: null,
+    currentSessionPanelLifecycleDiagnostics: [], automaticRecoveryCount: 0, lastAutomaticRecoveryAt: null,
+    recoveryLoopPreventedCount: 0, historicalLastFailure: null, panelLifecycleDiagnostics: [],
     buildState() { throw new Error("diagnostics must not rebuild state"); },
     readInstalledBuildIdentity() { throw new Error("diagnostics must not read disk"); },
   });
@@ -242,8 +245,57 @@ test("panel.diagnostics returns the saved sample without rebuilding state or pro
   assert.equal(result.runningBuildId, result.diskBuildId);
   assert.equal(result.latestTelemetry, telemetry);
   assert.deepEqual(result.statePostTraffic, { fullStatePosts: 12, coalescedStatePosts: 80, hiddenSuppressedStatePosts: 100, fullStatePostsLastMinute: 4 });
+  assert.deepEqual(result.stateDelivery, { postedSeq: 71, deliveredSeq: 71, renderedSeq: 54, outstandingSeq: 71, pendingDirty: true, outstandingAgeMs: 27 });
+  assert.equal(result.currentSession.lifecycle, "ready");
+  assert.equal(result.currentSession.lastFailure, null);
+  assert.equal(result.currentSession.lastRecoveryReason, null);
+  assert.equal(result.currentSession.automaticRecoveryCount, 0);
+  assert.equal(result.currentSession.lastAutomaticRecoveryAt, null);
+  assert.equal(result.currentSession.recoveryLoopPreventedCount, 0);
+  assert.equal(result.historicalLastFailure, null);
   assert.deepEqual(Array.from(result.sectionFailures), ["results"]);
-  assert.equal(result.lastRecoveryReason, "");
+  assert.equal(result.lastRecoveryReason, null);
+});
+
+test("historical lifecycle failures do not become current-session failures and sectionSlow stays out of the failure ring", async () => {
+  const ast = ts.createSourceFile("legacy.ts", source, ts.ScriptTarget.Latest, true);
+  const provider = ast.statements.find((node) => ts.isClassDeclaration(node) && node.name?.text === "RealtimeTunnelPanelProvider");
+  const loadMethod = provider.members.find((node) => node.name?.getText(ast) === "loadProjectPanelLifecycleDiagnosticsState");
+  const performanceMethod = provider.members.find((node) => node.name?.getText(ast) === "recordPanelRenderPerformance");
+  assert.ok(loadMethod && performanceMethod);
+  const code = ts.transpileModule(`class Subject { ${loadMethod.getText(ast)} ${performanceMethod.getText(ast)} }`, {
+    compilerOptions: { target: ts.ScriptTarget.ES2022 },
+  }).outputText;
+  const sandbox = { PANEL_LIFECYCLE_DIAGNOSTIC_LIMIT: 24, Date, readProjectPanelLifecycleDiagnosticsState() {} };
+  vm.runInNewContext(`${code}\nthis.Subject = Subject;`, sandbox);
+  const subject = new sandbox.Subject();
+  const historical = [
+    { timestamp: "2026-09-01T00:00:00Z", reason: "sectionSlow:execution" },
+    { timestamp: "2026-08-31T00:00:00Z", reason: "panelReadyWatchdogTimeout" },
+  ];
+  Object.assign(subject, {
+    currentSessionRecoveryReason: "", currentSessionLastFailure: null,
+    readCurrentProjectState: async () => ({ current: true, value: historical }),
+  });
+  await subject.loadProjectPanelLifecycleDiagnosticsState();
+  assert.equal(subject.currentSessionRecoveryReason, "");
+  assert.equal(subject.currentSessionLastFailure, null);
+  assert.deepEqual(Array.from(subject.panelLifecycleDiagnostics, (item) => item.reason), ["panelReadyWatchdogTimeout"]);
+  assert.equal(subject.historicalLastFailure.reason, "panelReadyWatchdogTimeout");
+
+  subject.panelDocumentGeneration = 8;
+  subject.panelRenderPerformance = [];
+  for (let index = 0; index < 40; index += 1) {
+    subject.recordPanelRenderPerformance({
+      documentGeneration: 8, stateSeq: index + 1, section: "execution", durationMs: 300,
+      operationCount: 12, taskCount: 3, planCount: 2,
+    });
+  }
+  subject.recordPanelRenderPerformance({ documentGeneration: 7, stateSeq: 999, section: "stale", durationMs: 999 });
+  assert.equal(subject.panelRenderPerformance.length, 32);
+  assert.equal(subject.panelRenderPerformance[0].stateSeq, 40);
+  assert.equal(subject.panelRenderPerformance[0].durationMs, 300);
+  assert.equal(subject.panelRenderPerformance.at(-1).stateSeq, 9);
 });
 
 test("copied recovery summary retains the recovery cause and sequence stall evidence", () => {
@@ -257,7 +309,7 @@ test("copied recovery summary retains the recovery cause and sequence stall evid
   const subject = new sandbox.Subject();
   Object.assign(subject, {
     latestPanelBuildIdentityState: { runningVersion: "0.5.200", installedVersion: "0.5.200" },
-    lastPanelRecoveryReason: "state-render-sequence-stalled", panelDocumentGeneration: 4, viewGeneration: 1,
+    currentSessionRecoveryReason: "state-render-sequence-stalled", panelDocumentGeneration: 4, viewGeneration: 1,
     lastPanelFailureEvidence: {
       reason: "state-render-sequence-stalled", failureDocumentGeneration: 3, currentDocumentGeneration: 3,
       renderHealthStatus: "ok", renderHealthReason: "render-completed", documentHidden: false,
@@ -285,15 +337,15 @@ test("copied recovery summary retains the recovery cause and sequence stall evid
 });
 
 test("state telemetry records one serialized sample and labels ACK sequence semantics", () => {
-  const flushStart = source.indexOf("private flushStatePost(force)");
+  const flushStart = source.indexOf("private flushStatePost(force, bootstrap = false)");
   const flushEnd = source.indexOf("\n    private ", flushStart + 1);
   const flush = source.slice(flushStart, flushEnd);
   assert.ok(flushStart >= 0 && flushEnd > flushStart);
   assert.ok(flush.indexOf("const signature = webviewStatePostSignature(state)") < flush.indexOf("this.latestPanelStateTelemetry = Object.freeze({"));
-  for (const field of ["sampleId", "startedAt", "finishedAt", "buildTotalMs", "runtimeEvidenceMs", "resultCatalog", "serializationMs", "payloadBytes", "postedSeq", "receivedSeq", "renderedSeq"]) {
+  for (const field of ["sampleId", "startedAt", "finishedAt", "buildTotalMs", "runtimeEvidenceMs", "resultCatalog", "serializationMs", "payloadBytes", "postedSeq", "deliveredSeq", "receivedSeq", "renderedSeq"]) {
     assert.match(flush, new RegExp(`${field}[:,]`));
   }
-  assert.match(flush, /receivedRenderedSemantics: "latest_heartbeat_ack"/);
+  assert.match(flush, /receivedRenderedSemantics: "explicit_render_ack_with_heartbeat_fallback"/);
   assert.match(flush, /resultCatalog: \{ \.\.\.this\.latestPanelBuildTiming\.resultCatalog \}/);
   assert.match(flush, /this\.latestPanelBuildTiming = \{[\s\S]*?runtimeEvidenceMs: 0,[\s\S]*?resultCatalog: \{ cacheHit: true, buildMs: 0 \}/);
 });

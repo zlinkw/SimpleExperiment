@@ -50,15 +50,24 @@ function fakeBrowser(options = {}) {
     if (elements.has(id)) return elements.get(id);
     const attributes = new Map();
     const classes = new Set();
+    let innerHTML = "";
+    let innerHTMLWrites = 0;
     let classToggleCalls = 0;
+    let classToggleCallbackUsed = false;
     const item = {
-      id, isConnected: true, hidden: false, textContent: "", innerHTML: "", value: "", checked: false,
-      dataset: {}, style: {}, children: [], classList: {
+      id, isConnected: true, hidden: false, textContent: "", value: "", checked: false,
+      get innerHTML() { return innerHTML; },
+      set innerHTML(value) { const next = String(value ?? ""); if (next !== innerHTML) innerHTMLWrites += 1; innerHTML = next; },
+      dataset: {}, style: { setProperty() {}, removeProperty() {}, getPropertyValue() { return ""; } }, children: [], classList: {
         add: (...names) => names.forEach((name) => classes.add(name)),
         remove: (...names) => names.forEach((name) => classes.delete(name)),
         contains: (name) => classes.has(name),
         toggle: (name, force) => {
           classToggleCalls += 1;
+          if (!classToggleCallbackUsed && typeof options.onClassToggle === "function") {
+            classToggleCallbackUsed = true;
+            options.onClassToggle(id);
+          }
           if (options.renderThrows && id === "projectOnboardingNotice") throw new Error("fake render failure");
           return force === undefined ? (classes.has(name) ? classes.delete(name) : classes.add(name)) : (force ? classes.add(name) : classes.delete(name));
         },
@@ -78,6 +87,7 @@ function fakeBrowser(options = {}) {
       setSelectionRange(start, end) { this.selectionStart = start; this.selectionEnd = end; }, contains() { return false; },
       get options() { return []; }, get selectedOptions() { return []; },
       get classToggleCalls() { return classToggleCalls; },
+      get innerHTMLWrites() { return innerHTMLWrites; },
     };
     if (options.failResults && id === "resultSummary") {
       let html = "";
@@ -240,7 +250,7 @@ test("missing roots and a caught render failure are reported by actual heartbeat
   const browser = fakeBrowser({ renderThrows: true });
   vm.runInNewContext(script, browser.context, { filename: "panel-render-health.js" });
   const onMessage = browser.windowListeners.get("message")?.values().next().value;
-  onMessage({ data: { type: "state", state: { plans: [], recentPlans: [] } } });
+  onMessage({ data: { type: "state", seq: 1, state: { plans: [], recentPlans: [] } } });
   const pendingFrame = [...browser.frames.values()].at(-1);
   assert.equal(typeof pendingFrame, "function");
   pendingFrame();
@@ -265,14 +275,20 @@ test("hidden state updates do not park RAF; visibility return renders only the l
 
   browser.setHidden(false);
   assert.equal(browser.sent.findLast((message) => message.command === "webviewVisibility")?.hidden, false);
+  assert.equal(browser.frames.size, 1, "visible return may queue its health probe, but not a stale state render");
+  [...browser.frames.values()].forEach((frame) => frame());
+  assert.equal(browser.element("projectOnboardingNotice").classToggleCalls, 0, "visibility health probe must not render stale hidden state");
+  assert.equal(browser.sent.filter((message) => message.command === "webviewStateRendered").length, 0);
+  onMessage({ data: { type: "state", seq: 101, state: { generation: 101, plans: [], recentPlans: [] } } });
   const frames = [...browser.frames.values()];
   assert.ok(frames.length >= 1, "visible transition schedules a render");
   frames.forEach((frame) => frame());
   assert.equal(browser.element("projectOnboardingNotice").classToggleCalls, 1, "one render consumes the latest state");
 
   onMessage({ data: { type: "panelHeartbeat", heartbeatId: 200 } });
-  assert.equal(browser.sent.at(-1).lastReceivedStateSeq, 100);
-  assert.equal(browser.sent.at(-1).lastRenderedStateSeq, 100);
+  assert.equal(browser.sent.at(-1).lastReceivedStateSeq, 101);
+  assert.equal(browser.sent.at(-1).lastRenderedStateSeq, 101);
+  assert.deepEqual(browser.sent.filter((message) => message.command === "webviewStateRendered").map((message) => message.seq), [101]);
 });
 
 test("a completed rendered update reports healthy DOM state", () => {
@@ -280,7 +296,7 @@ test("a completed rendered update reports healthy DOM state", () => {
   const script = extractScript(renderStampedPanelHtml());
   vm.runInNewContext(script, browser.context, { filename: "panel-render-health.js" });
   const onMessage = browser.windowListeners.get("message")?.values().next().value;
-  onMessage({ data: { type: "state", state: { plans: [], recentPlans: [] } } });
+  onMessage({ data: { type: "state", seq: 1, state: { plans: [], recentPlans: [] } } });
   [...browser.frames.values()].at(-1)();
   onMessage({ data: { type: "panelHeartbeat", heartbeatId: 3 } });
   const probe = [...browser.frames.keys()].at(-1);
@@ -288,6 +304,87 @@ test("a completed rendered update reports healthy DOM state", () => {
   onMessage({ data: { type: "panelHeartbeat", heartbeatId: 4 } });
   assert.equal(browser.sent.at(-1).renderHealth.status, "ok");
   assert.equal(browser.sent.at(-1).renderHealth.reason, "render-completed");
+});
+
+test("coalesced state messages render and explicitly ACK only the latest sequence", () => {
+  const browser = fakeBrowser({ fastPath: true });
+  const script = extractScript(renderStampedPanelHtml());
+  vm.runInNewContext(script, browser.context, { filename: "panel-render-health.js" });
+  const onMessage = browser.windowListeners.get("message")?.values().next().value;
+  for (const seq of [1, 2, 3]) onMessage({ data: { type: "state", seq, state: { plans: [], recentPlans: [], generation: seq } } });
+  assert.ok(browser.frames.size <= 2, "coalesced states retain a bounded frame queue");
+  [...browser.frames.values()].at(-1)();
+  const rendered = browser.sent.filter((message) => message.command === "webviewStateRendered");
+  assert.equal(rendered.length, 1);
+  assert.equal(rendered[0].documentGeneration, "doc-17");
+  assert.equal(rendered[0].seq, 3);
+  assert.equal(typeof rendered[0].renderDurationMs, "number");
+  assert.equal(rendered[0].documentHidden, false);
+  assert.equal(browser.element("projectOnboardingNotice").classToggleCalls, 1);
+});
+
+test("a state arriving during render is ACKed on the next frame, never by the current frame", () => {
+  let onMessage;
+  let injected = false;
+  const browser = fakeBrowser({ fastPath: true, onClassToggle() {
+    if (injected) return;
+    injected = true;
+    onMessage({ data: { type: "state", seq: 2, state: { plans: [], recentPlans: [], generation: 2 } } });
+  } });
+  const script = extractScript(renderStampedPanelHtml());
+  vm.runInNewContext(script, browser.context, { filename: "panel-render-health.js" });
+  onMessage = browser.windowListeners.get("message")?.values().next().value;
+  onMessage({ data: { type: "state", seq: 1, state: { plans: [], recentPlans: [], generation: 1 } } });
+
+  [...browser.frames.values()][0]();
+  let acks = browser.sent.filter((message) => message.command === "webviewStateRendered");
+  assert.deepEqual(acks.map((message) => message.seq), [1]);
+  assert.equal(browser.frames.size, 1, "the newer state is retained for a subsequent animation frame");
+
+  [...browser.frames.values()][0]();
+  acks = browser.sent.filter((message) => message.command === "webviewStateRendered");
+  assert.deepEqual(acks.map((message) => message.seq), [1, 2]);
+});
+
+test("a full-state render exception never emits a rendered ACK", () => {
+  const browser = fakeBrowser({ renderThrows: true });
+  const script = extractScript(renderStampedPanelHtml());
+  vm.runInNewContext(script, browser.context, { filename: "panel-render-health.js" });
+  const onMessage = browser.windowListeners.get("message")?.values().next().value;
+  onMessage({ data: { type: "state", seq: 1, state: { plans: [], recentPlans: [] } } });
+  [...browser.frames.values()].at(-1)();
+  assert.equal(browser.sent.filter((message) => message.command === "webviewStateRendered").length, 0);
+  assert.equal(browser.sent.filter((message) => message.command === "webviewRenderError").length, 1);
+});
+
+test("execution sub-render keys keep operation progress and GPU-only updates out of unrelated DOM", () => {
+  const browser = fakeBrowser();
+  const script = extractScript(renderStampedPanelHtml());
+  vm.runInNewContext(script, browser.context, { filename: "panel-render-health.js" });
+  const onMessage = browser.windowListeners.get("message")?.values().next().value;
+  const base = {
+    plans: [], recentPlans: [], schedulerStates: {}, distributedPlans: [], deferredPlans: [],
+    selection: { selectedPlanId: "experiments/plans/a.yaml", selectedTaskUiKeys: [] },
+    uiLayout: { collapsed: { gpu: true } },
+    capabilities: {}, workerTelemetry: {}, gpu: {},
+    operations: { a: { id: "a", type: "run-plan", planFile: "experiments/plans/a.yaml", status: "running", progress: 10, updatedAt: "2026-01-01T00:00:01Z" } },
+  };
+  onMessage({ data: { type: "state", seq: 1, state: base } });
+  [...browser.frames.values()].at(-1)();
+  const initial = ["executionPlanList", "operationList", "taskBatchActions"].map((id) => browser.element(id).innerHTMLWrites);
+
+  const operationProgress = { ...base, operations: { a: { ...base.operations.a, progress: 45, updatedAt: "2026-01-01T00:00:02Z" } } };
+  onMessage({ data: { type: "state", seq: 2, state: operationProgress } });
+  [...browser.frames.values()].at(-1)();
+  assert.equal(browser.element("executionPlanList").innerHTMLWrites, initial[0], "operation progress must not rebuild Plan cards");
+  assert.ok(browser.element("operationList").innerHTMLWrites > initial[1], "operation progress refreshes its own section");
+  assert.equal(browser.element("taskBatchActions").innerHTMLWrites, initial[2], "operation progress must not rebuild task controls");
+
+  const beforeGpu = ["executionPlanList", "operationList", "taskBatchActions"].map((id) => browser.element(id).innerHTMLWrites);
+  const gpuOnly = { ...operationProgress, gpu: { refreshedAt: "2026-01-01T00:00:03Z", workers: [1] }, workerTelemetry: { refreshedAt: "2026-01-01T00:00:03Z" } };
+  onMessage({ data: { type: "state", seq: 3, state: gpuOnly } });
+  [...browser.frames.values()].at(-1)();
+  assert.deepEqual(["executionPlanList", "operationList", "taskBatchActions"].map((id) => browser.element(id).innerHTMLWrites), beforeGpu);
 });
 
 test("transient config drafts survive a generated document replacement through VS Code webview state", () => {
@@ -329,7 +426,7 @@ test("transient config drafts survive a generated document replacement through V
   secondOptions.taskCheckboxes.push(restoredTask);
   vm.runInNewContext(script, second.context, { filename: "panel-render-health.js" });
   const onMessage = second.windowListeners.get("message")?.values().next().value;
-  onMessage({ data: { type: "state", state: { plans: [], recentPlans: [] } } });
+  onMessage({ data: { type: "state", seq: 1, state: { plans: [], recentPlans: [] } } });
   [...second.frames.values()].at(-1)();
   assert.equal(restored.value, "draft-host.example");
   assert.equal(restored.selectionStart, 5);

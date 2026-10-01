@@ -95,6 +95,9 @@ function createHost(overrides = {}) {
     actions: [],
     stopClear: [],
     visibility: [],
+    rendered: [],
+    performance: [],
+    lifecycleFailures: [],
   };
   const host = {
     view: { webview: { postMessage(payload) { calls.statuses.push(payload); return Promise.resolve(true); } } },
@@ -124,6 +127,9 @@ function createHost(overrides = {}) {
     extensionRuntimeVersionState() { return { reloadRequired: false }; },
     isCurrentPanelDocumentMessage(message, command) { return command === "webviewReady" || Number(message?.documentGeneration) === this.panelDocumentGeneration; },
     handlePanelWebviewVisibility(message) { calls.visibility.push(message); },
+    handlePanelStateRenderedAck(message) { calls.rendered.push(message); },
+    recordPanelRenderPerformance(message) { calls.performance.push(message); },
+    recordPanelLifecycleDiagnostic(reason) { calls.lifecycleFailures.push(reason); },
     refreshPptAutomationReadiness() { return Promise.resolve(); },
     recordActionError(error) { calls.errors.push(error); },
     showPanelRecovery(message) { calls.recovery = message; },
@@ -170,6 +176,26 @@ test("webviewVisibility without clientActionId reaches the generation-scoped hos
   assert.deepEqual(host.calls.visibility, [{ command: "webviewVisibility", documentGeneration: 4, hidden: true }]);
   assert.deepEqual(host.calls.lease, []);
   assert.deepEqual(host.calls.statuses, []);
+});
+
+test("explicit render ACK is generation-scoped and sectionSlow stays performance telemetry", async () => {
+  const stale = createHost();
+  await api.handleMessage.call(stale, { command: "webviewStateRendered", documentGeneration: 3, seq: 8 });
+  assert.deepEqual(stale.calls.rendered, []);
+
+  const current = createHost();
+  await api.handleMessage.call(current, { command: "webviewStateRendered", documentGeneration: 4, seq: 8, renderDurationMs: 42 });
+  assert.deepEqual(current.calls.rendered, [{ command: "webviewStateRendered", documentGeneration: 4, seq: 8, renderDurationMs: 42 }]);
+  assert.deepEqual(current.calls.lease, []);
+
+  await api.handleMessage.call(current, {
+    command: "webviewRenderError", documentGeneration: 4, performanceWarning: true,
+    section: "execution", durationMs: 300, stateSeq: 8, operationCount: 12,
+  });
+  assert.equal(current.calls.performance.length, 1);
+  assert.equal(current.calls.performance[0].section, "execution");
+  assert.deepEqual(current.calls.lifecycleFailures, []);
+  assert.deepEqual(current.calls.errors, []);
 });
 
 test("reloadPanel and webviewBootstrapError without clientActionId stay on the real handlers", async () => {

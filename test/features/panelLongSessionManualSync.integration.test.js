@@ -20,6 +20,7 @@ let RealtimeTunnelPanelProvider;
 try { ({ RealtimeTunnelPanelProvider } = require("../../dist/extension/legacy.js")); }
 finally { Module._load = originalLoad; }
 const { renderPanelHtml } = require("../../dist/ui/PanelHtml.js");
+const PanelStateFlowControl = require("../../dist/features/PanelStateFlowControl.js");
 
 // Reuse the browser harness without registering that file's independent tests.
 const harnessSource = fs.readFileSync(path.join(__dirname, "panelRenderHealth.test.js"), "utf8");
@@ -44,10 +45,15 @@ test("a live unhealthy renderer replaces the actual stamped host document and re
       get html() { return html; }, set html(value) { html = value; replacements++; },
     } },
     panelDisposed: false, panelDocumentGeneration: 17, panelHeartbeatId: 41,
-    webviewReady: true, lastPanelHeartbeatRecoveryAt: 0, panelHeartbeatRecoveryWindowMs: 300000,
+    webviewReady: true, webviewDocumentVisible: true, panelStateFlow: PanelStateFlowControl.createPanelStateFlowControlState(17, true),
+    lastDeliveredStateSeq: 0, automaticRecoveryCount: 0, lastAutomaticRecoveryAt: null, recoveryLoopPreventedCount: 0,
+    currentSessionRecoveryReason: "", currentSessionPanelLifecycleDiagnostics: [], panelLifecycleDiagnostics: [],
     panelHeartbeatIntervalMs: 30000, panelHeartbeatAckTimeoutMs: 12000,
     context: { extension: { packageJSON: { version: "0.5.181" } } },
     startPanelReadyWatchdog() {}, clearPanelReadyWatchdog() {},
+    transitionPanelLifecycle(state) { this.panelLifecycleState = state; },
+    extensionRuntimeVersionState() { return { reloadRequired: false, reason: "" }; },
+    recordPanelLifecycleDiagnostic() {}, markCurrentSessionPanelFailure(reason) { this.currentSessionRecoveryReason = reason; },
     recordActionError(entry) { assert.fail("unexpected bootstrap failure: " + entry.message); },
   });
   const first = fakeBrowser({ documentGeneration: "17", missingRoots: new Set(["mainColumn"]) });
@@ -69,7 +75,7 @@ test("a live unhealthy renderer replaces the actual stamped host document and re
   const restored = second.element("restored-host");
   restored.dataset = input.dataset;
   vm.runInNewContext(scriptFrom(html), second.context);
-  listener(second)({ data: { type: "state", state: { plans: [], recentPlans: [] } } });
+  listener(second)({ data: { type: "state", seq: 1, state: { plans: [], recentPlans: [] } } });
   [...second.frames.values()].at(-1)();
   assert.equal(restored.value, "unfinished.example", "document recovery preserves the unfinished configuration");
   const timeout = setTimeout(() => {}, 1000);
@@ -79,6 +85,7 @@ test("a live unhealthy renderer replaces the actual stamped host document and re
     host.handlePanelHeartbeatAck(oldAck);
     assert.equal(host.panelHeartbeatTimeout, timeout, "the old document cannot acknowledge the new document's request");
     assert.equal(replacements, 1);
+    host.webviewReady = true;
     listener(second)({ data: { type: "panelHeartbeat", heartbeatId: 41, documentGeneration: 18 } });
     const newAck = second.sent.findLast((message) => message.command === "webviewHeartbeatAck");
     assert.equal(newAck.documentGeneration, "18");

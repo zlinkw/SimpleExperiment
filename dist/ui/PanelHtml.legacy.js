@@ -2224,6 +2224,10 @@ function renderPanelHtml() {
     let lastState = {};
     let lastReceivedStateSeq = 0;
     let lastRenderedStateSeq = 0;
+    let lastRenderAckSentSeq = 0;
+    let pendingRenderSeq = 0;
+    let pendingRenderState = null;
+    let renderingStateSeq = 0;
     const failedPanelSections = new Set();
     let initialStateTimer = 0;
     let lastRenderErrorMessage = "";
@@ -2348,6 +2352,12 @@ function renderPanelHtml() {
     let operationSectionSignatureCacheRows = null;
     let operationSectionSignatureCacheMinute = -1;
     let operationSectionSignatureCacheValue = null;
+    let executionRenderKeysCacheState = null;
+    let executionRenderKeysCacheValue = null;
+    let executionRenderKeysCacheLocalSignature = "";
+    let lastExecutionPlanListKey = "";
+    let lastOperationSectionKey = "";
+    let lastTaskBatchActionsKey = "";
     let experimentTraceRowsCacheInput = null;
     let experimentTraceRowsCacheRows = [];
     let experimentTraceViewCacheRows = null;
@@ -2863,7 +2873,7 @@ function renderPanelHtml() {
           operationViewCacheValue = null;
           operationSectionSignatureCacheRows = null;
           operationSectionSignatureCacheValue = null;
-          renderOperationSection(lastState || {});
+          renderOperationSectionIfChanged(lastState || {});
         }
         return;
       }
@@ -3008,8 +3018,8 @@ function renderPanelHtml() {
         event.stopPropagation();
         selectedExecutionPlanFile = String(executionPlanTarget.dataset.executionPlanSelect || "");
         persistWebviewState({ selectedExecutionPlanFile });
-        renderExecutionPlanList(lastState || {});
-        renderOperationSection(lastState || {});
+        renderExecutionPlanListIfChanged(lastState || {});
+        renderOperationSectionIfChanged(lastState || {});
         return;
       }
       const executionPlanFold = event.target.closest("button[data-execution-plan-fold]");
@@ -3021,7 +3031,7 @@ function renderPanelHtml() {
           if (collapsedExecutionPlanKeys.has(foldKey)) collapsedExecutionPlanKeys.delete(foldKey);
           else collapsedExecutionPlanKeys.add(foldKey);
           persistWebviewState({ collapsedExecutionPlanKeys: Array.from(collapsedExecutionPlanKeys) });
-          renderExecutionPlanList(lastState || {});
+          renderExecutionPlanListIfChanged(lastState || {});
         }
         return;
       }
@@ -3568,6 +3578,7 @@ function renderPanelHtml() {
       panelHealthProbeScheduledAt = 0;
       panelHealthProbeLastSuccessAt = 0;
       if (document.hidden) {
+        awaitingVisibleStateRefresh = true;
         const hadPendingRender = stateRenderScheduled || stateRenderPendingWhileHidden || lastReceivedStateSeq > lastRenderedStateSeq;
         if (stateRenderFrameId) {
           if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(stateRenderFrameId);
@@ -3578,7 +3589,8 @@ function renderPanelHtml() {
         panelStateRenderScheduledAt = 0;
         stateRenderPendingWhileHidden = hadPendingRender;
       } else {
-        if (stateRenderPendingWhileHidden || lastReceivedStateSeq > lastRenderedStateSeq) scheduleStateRender();
+        // Host sends one latest-wins state after visibility returns; avoid rendering an older hidden frame first.
+        awaitingVisibleStateRefresh = true;
         schedulePanelHealthProbe();
         refreshTmuxList();
       }
@@ -3782,15 +3794,20 @@ function renderPanelHtml() {
         if (item.type === "tensorboardSwitchStatus") {
           gpuTensorboardStatus[String(item.endpointId || "")] = { running: !!item.running, error: String(item.error || "") };
           renderGpuTensorboardControls(lastState || {});
-          renderOperationSection(lastState || {});
+          renderOperationSectionIfChanged(lastState || {});
           continue;
         }
-        if (item.type === "state") latestStateMessage = item;
+        if (item.type === "state") {
+          const itemSeq = Number(item.seq);
+          const latestSeq = Number(latestStateMessage && latestStateMessage.seq);
+          if (!latestStateMessage || !Number.isFinite(latestSeq) || (Number.isFinite(itemSeq) && itemSeq >= latestSeq)) latestStateMessage = item;
+        }
         if (item.type === "navigate") latestNavigationMessage = item;
       }
       if (latestStateMessage) {
         const incomingSeq = Number(latestStateMessage.seq);
-        if (Number.isFinite(incomingSeq) && incomingSeq > lastReceivedStateSeq) lastReceivedStateSeq = incomingSeq;
+        if (!Number.isSafeInteger(incomingSeq) || incomingSeq <= lastReceivedStateSeq) return;
+        lastReceivedStateSeq = incomingSeq;
         completeInitialPanelState();
         const incomingState = latestStateMessage.state || {};
         if (transientPanelStateNeedsRestore && transientPlanSelectionDirty) {
@@ -3803,6 +3820,9 @@ function renderPanelHtml() {
             vscode.postMessage({ command: "selectPlan", planFile: selectedPlanFile });
           }
         } else lastState = incomingState;
+        pendingRenderSeq = incomingSeq;
+        pendingRenderState = lastState;
+        awaitingVisibleStateRefresh = false;
         rememberGpuHistoryState(lastState.gpuHistory);
         invalidateSelectedTaskPayload();
         clearCompletedPendingButtons(lastState);
@@ -3841,8 +3861,7 @@ function renderPanelHtml() {
           restoreTransientPanelState();
           lastRenderErrorMessage = "";
           updatePanelRenderHealth("ok", "render-completed");
-          lastRenderedStateSeq = Math.max(lastRenderedStateSeq, lastReceivedStateSeq);
-          return;
+          return true;
         }
         applyUiLayout(state);
         renderResourceTree(state);
@@ -3855,7 +3874,7 @@ function renderPanelHtml() {
         restoreTransientPanelState();
         lastRenderErrorMessage = "";
         updatePanelRenderHealth("ok", "render-completed");
-        lastRenderedStateSeq = Math.max(lastRenderedStateSeq, lastReceivedStateSeq);
+        return true;
       } catch (error) {
         const message = error && error.message ? String(error.message) : String(error);
         const stack = error && error.stack ? String(error.stack).slice(0, 900) : "";
@@ -3867,12 +3886,14 @@ function renderPanelHtml() {
           vscode.postMessage({ command: "webviewRenderError", documentGeneration: panelDocumentGeneration, error: full.slice(0, 980) });
         }
         try { console.error("[SimpleExperiment] renderPanel failed", error); } catch (_) {}
+        return false;
       }
     }
 
     let stateRenderScheduled = false;
     let stateRenderFrameId = 0;
     let stateRenderPendingWhileHidden = false;
+    let awaitingVisibleStateRefresh = false;
     function scheduleStateRender() {
       if (document.hidden) {
         const hadPendingRender = stateRenderScheduled || stateRenderPendingWhileHidden || lastReceivedStateSeq > lastRenderedStateSeq;
@@ -3886,6 +3907,7 @@ function renderPanelHtml() {
         stateRenderPendingWhileHidden = hadPendingRender;
         return;
       }
+      if (awaitingVisibleStateRefresh) return;
       if (stateRenderScheduled) return;
       stateRenderScheduled = true;
       stateRenderPendingWhileHidden = false;
@@ -3895,11 +3917,28 @@ function renderPanelHtml() {
         stateRenderScheduled = false;
         panelStateRenderScheduledAt = 0;
         if (document.hidden) {
-          stateRenderPendingWhileHidden = lastReceivedStateSeq > lastRenderedStateSeq;
+          stateRenderPendingWhileHidden = pendingRenderSeq > lastRenderedStateSeq || lastReceivedStateSeq > lastRenderedStateSeq;
           return;
         }
         stateRenderPendingWhileHidden = false;
-        render(lastState);
+        const renderSeq = Number(pendingRenderSeq || lastReceivedStateSeq);
+        const renderState = pendingRenderState || lastState;
+        pendingRenderSeq = 0;
+        pendingRenderState = null;
+        renderingStateSeq = renderSeq;
+        const renderStartedAt = Date.now();
+        const renderedSuccessfully = render(renderState);
+        const renderDurationMs = Math.max(0, Date.now() - renderStartedAt);
+        renderingStateSeq = 0;
+        if (renderedSuccessfully && Number.isSafeInteger(renderSeq) && renderSeq > lastRenderAckSentSeq) {
+          lastRenderedStateSeq = Math.max(lastRenderedStateSeq, renderSeq);
+          lastRenderAckSentSeq = renderSeq;
+          try {
+            vscode.postMessage({ command: "webviewStateRendered", documentGeneration: panelDocumentGeneration,
+              seq: renderSeq, renderDurationMs, documentHidden: document.hidden === true });
+          } catch (_) {}
+        }
+        if (pendingRenderSeq > lastRenderedStateSeq) scheduleStateRender();
       };
       if (typeof requestAnimationFrame === "function") stateRenderFrameId = requestAnimationFrame(renderFrame);
       else stateRenderFrameId = setTimeout(renderFrame, 0);
@@ -4070,7 +4109,7 @@ function renderPanelHtml() {
       } else if (section === "gpu") {
         renderGpuSection(state);
       } else if (section === "execution" || section === "tasks" || section === "operations") {
-        renderExecutionSection(state);
+        renderExecutionSection(state, force);
       } else if (section === "diagnostics") {
         renderDiagnosticSection(state);
       }
@@ -4083,7 +4122,14 @@ function renderPanelHtml() {
       const durationMs = Math.max(0, (typeof performance !== "undefined" && performance.now ? performance.now() : Date.now()) - sectionStartedAt);
       if (durationMs > 250) {
         try { console.warn("[SimpleExperiment] slow panel section", section, Math.round(durationMs)); } catch (_) {}
-        try { vscode.postMessage({ command: "webviewRenderError", documentGeneration: panelDocumentGeneration, section: String(section), performanceWarning: true, durationMs: Math.round(durationMs) }); } catch (_) {}
+        const currentState = lastState || {};
+        const scheduler = currentState.schedulerStates || {};
+        const countRows = (value) => Array.isArray(value) ? value.length : value && typeof value === "object" ? Object.keys(value).length : 0;
+        const taskSource = scheduler.tasks || scheduler.rows || scheduler.experiments || currentState.tasks || currentState.experiments;
+        const planSource = currentState.distributedPlans || currentState.plans || currentState.recentPlans;
+        try { vscode.postMessage({ command: "webviewRenderError", documentGeneration: panelDocumentGeneration, section: String(section), performanceWarning: true,
+          stateSeq: renderingStateSeq, durationMs: Math.round(durationMs), operationCount: countRows(currentState.operations),
+          taskCount: countRows(taskSource), planCount: countRows(planSource), documentHidden: document.hidden === true }); } catch (_) {}
       }
       } catch (error) {
         failedPanelSections.add(String(section));
@@ -4115,7 +4161,7 @@ function renderPanelHtml() {
       if (section === "results") return refListKey(data.planFileInput, data.plans, data.resultsSummary, data.operations, data.schedulerStates, data.experimentTraces, data.selection, data.planArchive, data.pptPlotConfig, data.pptAutomation, data.resultOutputConfig?.tables, data.resultOutputConfig?.catalog);
       if (section === "sync") return refListKey(data.topology, data.schedulerConfig, data.codeSync, data.capabilities, data.setup, data.agentSessions, data.xshellSessions, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetry, data.workerTelemetryStatus, data.realtimeDiagnostics);
       if (section === "gpu") return refListKey(data.gpu, data.gpuHistory, data.setup, data.gpuOwnerConfig);
-      if (section === "execution" || section === "tasks" || section === "operations") return refListKey(data.schedulerStates, data.distributedPlans, data.deferredPlans, data.planStopClearByFile, data.selection, data.selectedLogRunKey, data.capabilities, data.workerTelemetry, data.resultsSummary, data.operations);
+      if (section === "execution" || section === "tasks" || section === "operations") return refListKey(data.schedulerStates, data.distributedPlans, data.deferredPlans, data.planStopClearByFile, data.selection, data.selectedLogRunKey, data.capabilities, data.resultsSummary, data.operations);
       if (section === "tasks") return refListKey(data.schedulerStates, data.selection, data.selectedLogRunKey, data.capabilities, data.workerTelemetry, data.resultsSummary);
       if (section === "operations") return refListKey(data.operations);
       if (section === "diagnostics") return refListKey(data.diagnostics, data.capabilities, data.actionErrors, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.realtimeDiagnostics, data.health);
@@ -4347,14 +4393,9 @@ function renderPanelHtml() {
       }
       if (section === "execution" || section === "tasks" || section === "operations") {
         return {
-          minuteBucket: Math.floor(Date.now() / 60000),
-          scheduler: compactSchedulerForSignature(data),
-          selection: data.selection,
-          selectedLogRunKey: data.selectedLogRunKey,
-          planStopClearByFile: data.planStopClearByFile || {},
-          capabilities: compactCapabilitiesForSignature(data.capabilities),
-          workerTelemetry: compactWorkerTelemetryForSignature(data.workerTelemetry),
-          operations: compactOperationSectionForSignature(data)
+          planListKey: executionPlanListKey(data),
+          operationSectionKey: operationSectionKey(data),
+          taskBatchActionsKey: taskBatchActionsKey(data)
         };
       }
       if (section === "sync") {
@@ -13728,12 +13769,133 @@ function renderPanelHtml() {
     }
 
 
-    function renderExecutionSection(state) {
+    function executionRenderKeysForState(state) {
+      const data = state || {};
+      const localSignature = stableSectionSignature({
+        selectedExecutionPlanFile,
+        collapsedExecutionPlanKeys: Array.from(collapsedExecutionPlanKeys).sort(),
+        operationStatusFilter,
+        selectedOperationHistoryIds: Array.from(selectedOperationHistoryIds).sort(),
+        expandedTaskLogs,
+      });
+      if (executionRenderKeysCacheState === data && executionRenderKeysCacheValue && executionRenderKeysCacheLocalSignature === localSignature) return executionRenderKeysCacheValue;
+      const view = taskSectionViewModelForState(data);
+      const operationRows = operationRowsForState(data);
+      const planOperations = operationRows.map((row) => {
+        const active = operationIsActive(row.status || row.state);
+        return {
+          id: row.id || row.operationId || row.opId,
+          operationId: row.operationId,
+          type: row.type,
+          action: row.action,
+          planFile: row.planFile || row.plan,
+          status: row.status || row.state,
+          startedAt: row.startedAt,
+          finishedAt: row.finishedAt,
+          localSubmissionProgress: row.localSubmissionProgress,
+          error: row.error,
+          message: active ? "" : row.message,
+          reconcileEvidenceActive: row.reconcileEvidenceActive,
+        };
+      });
+      const planList = stableSectionSignature({
+        operations: planOperations,
+        tasks: compactTaskRowsForSignature(view.allRows, view.allRows.length),
+        distributedPlans: asArray(data.distributedPlans).map((plan) => ({
+          id: plan.id,
+          planFile: plan.planFile,
+          enqueuedAt: plan.enqueuedAt,
+          schedulingMode: plan.schedulingMode,
+          localDispatchOverride: plan.localDispatchOverride,
+          remoteAcceptedJobCount: plan.remoteAcceptedJobCount,
+          jobs: asArray(plan.jobs).map((job) => ({
+            jobIndex: job.jobIndex,
+            status: job.status,
+            workerId: job.workerId,
+            gpuId: job.gpuId,
+            blockReason: job.blockReason,
+            outputDir: job.outputDir,
+            logPath: job.logPath,
+            trainLogPath: job.trainLogPath,
+            error: job.error,
+            artifactError: job.artifactError,
+            recallRequested: job.recallRequested,
+          })),
+          recovery: distributedPlanRecoveryView(plan),
+        })),
+        deferredPlans: asArray(data.deferredPlans).map((plan) => ({
+          planFile: plan.planFile, status: plan.status, reason: plan.reason, error: plan.error,
+        })),
+        planStopClearByFile: data.planStopClearByFile || {},
+        executionHistoryCutoffs: data.executionHistoryCutoffs || {},
+        selection: {
+          selectedTaskUiKeys: (data.selection || {}).selectedTaskUiKeys || [],
+          selectedRunKeys: (data.selection || {}).selectedRunKeys || [],
+          selectedExperimentIds: (data.selection || {}).selectedExperimentIds || [],
+          selectedArchiveKeys: (data.selection || {}).selectedArchiveKeys || [],
+        },
+        selectedPlanFile: data.planFileInput || (data.selection || {}).selectedPlanId || "",
+        selectedLogRunKey: data.selectedLogRunKey || "",
+        selectedLog: data.selectedLogRunKey && data.logs ? data.logs[data.selectedLogRunKey] : null,
+        selectedExecutionPlanFile,
+        collapsedExecutionPlanKeys: Array.from(collapsedExecutionPlanKeys).sort(),
+        expandedTaskLogs,
+        capabilities: compactCapabilitiesForSignature(data.capabilities),
+      });
+      const operationSection = stableSectionSignature({
+        operations: compactOperationRowsForSignature(operationRows),
+        fileTransfers: normalizeFileTransferRows(data.fileTransfers),
+        currentPlan: data.planFileInput || (data.selection || {}).selectedPlanId || "",
+        selectedLogRunKey: data.selectedLogRunKey || "",
+        selectedExecutionPlanFile,
+        operationStatusFilter,
+        selectedOperationHistoryIds: Array.from(selectedOperationHistoryIds).sort(),
+      });
+      const legacyRows = view.allRows.filter((row) => !usableTaskKey(taskActionKey(row))).map((row) => String(row.uiKey || ""));
+      const taskBatchRows = view.taskView.selectedRows.map((row) => ({
+        uiKey: String(row.uiKey || ""),
+        actionKey: taskActionKey(row),
+        archiveActionKey: taskArchiveActionKey(row),
+        planFile: taskPlanFile(row),
+      }));
+      const taskBatchActions = stableSectionSignature({ legacyRows, selectedRows: taskBatchRows });
+      executionRenderKeysCacheState = data;
+      executionRenderKeysCacheValue = { planList, operationSection, taskBatchActions };
+      executionRenderKeysCacheLocalSignature = localSignature;
+      return executionRenderKeysCacheValue;
+    }
+
+    function executionPlanListKey(state) { return executionRenderKeysForState(state).planList; }
+    function operationSectionKey(state) { return executionRenderKeysForState(state).operationSection; }
+    function taskBatchActionsKey(state) { return executionRenderKeysForState(state).taskBatchActions; }
+
+    function renderExecutionPlanListIfChanged(state, force) {
+      const key = executionPlanListKey(state);
+      if (!force && key === lastExecutionPlanListKey) return;
       renderExecutionPlanList(state);
+      lastExecutionPlanListKey = key;
+    }
+
+    function renderOperationSectionIfChanged(state, force) {
+      const key = operationSectionKey(state);
+      if (!force && key === lastOperationSectionKey) return;
       renderOperationSection(state);
-      const view = taskSectionViewModelForState(state);
+      lastOperationSectionKey = key;
+    }
+
+    function renderTaskBatchActionsIfChanged(state, force) {
+      const key = taskBatchActionsKey(state);
+      if (!force && key === lastTaskBatchActionsKey) return;
+      const view = taskSectionViewModelForState(state || {});
       renderTaskBatchActions(state, view.allRows, view.taskView.selectedRows);
-      invalidateSelectedTaskPayload();
+      lastTaskBatchActionsKey = key;
+    }
+
+    function renderExecutionSection(state, force) {
+      if (force) executionRenderKeysCacheState = null;
+      renderExecutionPlanListIfChanged(state, force);
+      renderOperationSectionIfChanged(state, force);
+      renderTaskBatchActionsIfChanged(state, force);
     }
 
     function handleTaskSelectionChange(box) {

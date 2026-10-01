@@ -69,7 +69,7 @@ test("webviewReady without a client action id reaches the real ready handler", (
   const ready = extension.slice(extension.indexOf('case "webviewReady"'), extension.indexOf('case "webviewBootstrapError"'));
   assert.match(ready, /this\.webviewReady = true/);
   assert.match(ready, /this\.clearPanelReadyWatchdog\(\)/);
-  assert.match(ready, /this\.postState\(true\)/);
+  assert.match(ready, /this\.postState\(true, true\)/);
   assert.match(ready, /this\.flushPendingPanelNavigation\(\)/);
 });
 
@@ -92,7 +92,7 @@ test("panel reports post-bootstrap render failures without hiding the recovery p
     const declaration = extension.match(new RegExp("const " + name + " = new Set\\(\\[[\\s\\S]*?\\]\\);"))?.[0];
     assert.ok(declaration, name);
     const commands = new Function(declaration + " return " + name + ";")();
-    for (const command of ["webviewReady", "webviewHeartbeatAck", "webviewBootstrapError", "webviewRenderError", "webviewVisibility", "reloadPanel", "reloadWindow"]) assert.ok(commands.has(command), name + ": " + command);
+    for (const command of ["webviewReady", "webviewHeartbeatAck", "webviewStateRendered", "webviewBootstrapError", "webviewRenderError", "webviewVisibility", "reloadPanel", "reloadWindow"]) assert.ok(commands.has(command), name + ": " + command);
   }
   assert.match(panel, /let lastRenderErrorMessage = ""/);
   assert.match(panel, /vscode\.postMessage\(\{ command: "webviewRenderError", documentGeneration: panelDocumentGeneration, error: .*\.slice\(0, \d+\) \}\)/);

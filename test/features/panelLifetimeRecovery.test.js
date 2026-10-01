@@ -30,13 +30,18 @@ function host(timer) {
   const source = fs.readFileSync(path.join(root, "src/extension/legacy.ts"), "utf8");
   const ast = ts.createSourceFile("provider.ts", source, ts.ScriptTarget.Latest, true);
   const provider = ast.statements.find((node) => ts.isClassDeclaration(node) && node.name.text === "RealtimeTunnelPanelProvider");
-  const methods = new Set(["schedulePanelHeartbeat", "clearPanelHeartbeat", "clearPanelReadyWatchdog", "disposeResolvedWebviewView", "handlePanelHeartbeatAck", "recoverPanelHeartbeatFailure", "resetPanelStateProgress", "stampPanelDocument", "capturePanelFailureEvidence", "updatePanelDocumentVisibility"]);
-  const fields = /^(panelHeartbeat.*|panelRenderedHealth.*|panelDisposed|panelDocumentGeneration|viewGeneration|viewLifetimeDisposables|lastPanelHeartbeatRecoveryAt|lastHeartbeatObservedRenderedStateSeq|latestPanelHeartbeatProgress|latestPanelHeartbeatEvidence|lastPanelFailureEvidence|panelDocumentHasRenderedState|webviewDocumentVisible|lastPostedStateSeq|lastReceivedStateSeq|lastRenderedStateSeq|stateRenderStalledAcks|webviewReady)$/;
+  const methods = new Set(["schedulePanelHeartbeat", "clearPanelHeartbeat", "clearPanelReadyWatchdog", "disposeResolvedWebviewView", "handlePanelHeartbeatAck", "recoverPanelHeartbeatFailure", "resetPanelStateProgress", "stampPanelDocument", "capturePanelFailureEvidence", "updatePanelDocumentVisibility", "syncPanelStateFlowVisibility"]);
+  const fields = /^(panelHeartbeat.*|panelRenderedHealth.*|panelDisposed|panelDocumentGeneration|viewGeneration|viewLifetimeDisposables|automaticRecoveryCount|lastAutomaticRecoveryAt|recoveryLoopPreventedCount|lastHeartbeatObservedRenderedStateSeq|latestPanelHeartbeatProgress|latestPanelHeartbeatEvidence|lastPanelFailureEvidence|panelDocumentHasRenderedState|webviewDocumentVisible|lastPostedStateSeq|lastDeliveredStateSeq|lastReceivedStateSeq|lastRenderedStateSeq|stateRenderStalledAcks|webviewReady)$/;
   const members = provider.members.filter((node) => node.name && (methods.has(node.name.getText(ast)) || (ts.isPropertyDeclaration(node) && fields.test(node.name.getText(ast)))));
   const code = ts.transpileModule("class Subject {\n" + members.map((node) => node.getText(ast)).join("\n") + "\n}", { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  const flowSource = fs.readFileSync(path.join(root, "src/features/PanelStateFlowControl.ts"), "utf8");
+  const flowCode = ts.transpileModule(flowSource, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+  const flowExports = {};
+  vm.runInNewContext(flowCode, { exports: flowExports, module: { exports: flowExports } });
   const sandbox = {
     ...timer,
     crypto,
+    PanelStateFlowControl_1: flowExports,
     compactSensitiveText: (value) => String(value || "").slice(0, 180),
     PanelStateProgress_1: { observeStateRenderProgress: (_posted, rendered) => ({ previousObservedRenderedSeq: rendered, consecutiveStalledAcks: 0, unhealthy: false }) },
   };
@@ -46,8 +51,11 @@ function host(timer) {
   result.messages = []; result.webviewReady = true;
   result.reloaded = 0; result.recoveryCards = 0;
   result.panelDocumentGeneration = 7;
+  result.panelStateFlow = flowExports.createPanelStateFlowControlState(7, true);
+  result.automaticRecoveryCount = 0; result.lastAutomaticRecoveryAt = null; result.recoveryLoopPreventedCount = 0;
   result.transitionPanelLifecycle = (state) => { result.panelLifecycleState = state; };
   result.recordPanelLifecycleDiagnostic = (reason) => { (result.diagnostics ||= []).push(reason); };
+  result.markCurrentSessionPanelFailure = (reason) => { result.currentSessionRecoveryReason = reason; };
   result.postState = () => {};
   result.extensionRuntimeVersionState = () => ({ reloadRequired: false });
   result.loadPanelHtml = () => { result.reloaded++; result.panelDocumentGeneration++; result.webviewReady = true; result.schedulePanelHeartbeat(); };
@@ -143,8 +151,24 @@ test("a retained renderer that stops replying gets bounded recovery instead of a
   assert.equal(provider.reloaded, 1);
   assert.equal(provider.recoveryCards, 1);
   assert.equal(provider.webviewReady, false);
+  assert.equal(provider.automaticRecoveryCount, 1);
+  assert.equal(provider.recoveryLoopPreventedCount, 1);
   timer.advance(600_000);
   assert.equal(provider.reloaded, 1);
+});
+
+test("a second failure cannot trigger another automatic reload later in the same host session", () => {
+  const timer = clock(), provider = host(timer);
+  provider.recoverPanelHeartbeatFailure("state-render-frame-stalled");
+  assert.equal(provider.reloaded, 1);
+  provider.view.visible = false;
+  timer.advance(600_000);
+  provider.view.visible = true;
+  provider.recoverPanelHeartbeatFailure("heartbeatTimeout");
+  assert.equal(provider.reloaded, 1);
+  assert.equal(provider.recoveryCards, 1);
+  assert.equal(provider.automaticRecoveryCount, 1);
+  assert.equal(provider.recoveryLoopPreventedCount, 1);
 });
 
 test("hidden and disposed views cannot trigger recovery or leave post timers behind", async () => {

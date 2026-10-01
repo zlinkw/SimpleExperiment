@@ -10,6 +10,20 @@ const source = fs.readFileSync(path.join(__dirname, "../../src/features/PanelSta
 const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
 const loaded = { exports: {} };
 vm.runInNewContext(code, { exports: loaded.exports, module: loaded });
+const flowSource = fs.readFileSync(path.join(__dirname, "../../src/features/PanelStateFlowControl.ts"), "utf8");
+const flowCode = ts.transpileModule(flowSource, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
+const flowLoaded = { exports: {} };
+vm.runInNewContext(flowCode, { exports: flowLoaded.exports, module: flowLoaded });
+
+function flowWithOutstanding(documentGeneration, postedSeq, renderedSeq = 0) {
+  let state = flowLoaded.exports.createPanelStateFlowControlState(documentGeneration, true);
+  state = flowLoaded.exports.markPanelStateFlowPosted(state, postedSeq, 1_000);
+  state = flowLoaded.exports.markPanelStateFlowDelivered(state, postedSeq);
+  if (renderedSeq > 0) {
+    state = flowLoaded.exports.acknowledgePanelStateRendered(state, documentGeneration, renderedSeq, 2_000).state;
+  }
+  return state;
+}
 
 test("rendering progress clears backlog even when posted remains one state ahead", () => {
   const observations = [
@@ -74,38 +88,76 @@ function extractMethod(name) {
 test("heartbeat ACK integration does not recover while rendered sequence advances", () => {
   const { ast, method } = extractMethod("handlePanelHeartbeatAck");
   const code = ts.transpileModule(`class Subject { ${method.getText(ast)} }`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-  const sandbox = { PanelStateProgress_1: loaded.exports, Number, Date };
+  const sandbox = { PanelStateProgress_1: loaded.exports, PanelStateFlowControl_1: flowLoaded.exports, Number, Date };
   vm.runInNewContext(`${code}\nthis.Subject = Subject;`, sandbox);
   const subject = new sandbox.Subject();
   Object.assign(subject, {
     panelDisposed: false, view: { visible: true }, panelHeartbeatId: 1, panelDocumentGeneration: 2,
-    lastPostedStateSeq: 7900, lastReceivedStateSeq: 0, lastRenderedStateSeq: 0,
-    lastHeartbeatObservedRenderedStateSeq: 7890, stateRenderStalledAcks: 0,
+    panelStateFlow: flowWithOutstanding(2, 7962, 7890),
+    lastPostedStateSeq: 7962, lastDeliveredStateSeq: 7962, lastReceivedStateSeq: 7890, lastRenderedStateSeq: 7890,
+    lastHeartbeatObservedRenderedStateSeq: 7890, stateRenderStalledAcks: 0, webviewReady: true,
     panelHeartbeatTimeout: undefined, panelUnknownHealthSince: 0, panelUnknownHealthGeneration: 0,
     recoveries: [], schedulePanelHeartbeat() {}, recoverPanelHeartbeatFailure(reason) { this.recoveries.push(reason); },
   });
-  for (const [heartbeatId, posted, rendered] of [[1, 7900, 7899], [2, 7930, 7929], [3, 7962, 7961]]) {
-    subject.panelHeartbeatId = heartbeatId;
-    subject.lastPostedStateSeq = posted;
-    subject.handlePanelHeartbeatAck({ heartbeatId, documentGeneration: 2, lastReceivedStateSeq: rendered, lastRenderedStateSeq: rendered, renderHealth: { status: "ok" } });
-    assert.equal(subject.stateRenderStalledAcks, 0);
-    assert.equal(subject.lastHeartbeatObservedRenderedStateSeq, rendered);
-  }
+  subject.handlePanelHeartbeatAck({ heartbeatId: 1, documentGeneration: 2, lastReceivedStateSeq: 7962, lastRenderedStateSeq: 7961, renderHealth: { status: "ok" } });
+  assert.equal(subject.stateRenderStalledAcks, 0);
+  assert.equal(subject.lastHeartbeatObservedRenderedStateSeq, 7961);
   assert.deepEqual(Array.from(subject.recoveries), []);
+});
+
+test("explicit current-document render ACK clears one outstanding state without forging delivery", () => {
+  const { ast, method } = extractMethod("handlePanelStateRenderedAck");
+  const code = ts.transpileModule(`class Subject { ${method.getText(ast)} }`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  const FixedDate = class extends Date { static now() { return 124; } };
+  const sandbox = { PanelStateFlowControl_1: flowLoaded.exports, Number, Date: FixedDate };
+  vm.runInNewContext(`${code}\nthis.Subject = Subject;`, sandbox);
+  let panelStateFlow = flowLoaded.exports.createPanelStateFlowControlState(2, true);
+  panelStateFlow = flowLoaded.exports.markPanelStateFlowPosted(panelStateFlow, 1, 100);
+  panelStateFlow = flowLoaded.exports.markPanelStateFlowDelivered(panelStateFlow, 1);
+  panelStateFlow = flowLoaded.exports.acknowledgePanelStateRendered(panelStateFlow, 2, 1, 110).state;
+  panelStateFlow = flowLoaded.exports.markPanelStateFlowPosted(panelStateFlow, 2, 120);
+  panelStateFlow = flowLoaded.exports.requestPanelStateFlowPost(panelStateFlow).state;
+  const subject = new sandbox.Subject();
+  const flushed = [];
+  Object.assign(subject, {
+    panelDisposed: false, panelDocumentGeneration: 2, panelStateFlow,
+    lastDeliveredStateSeq: 1, lastReceivedStateSeq: 1, lastRenderedStateSeq: 1,
+    lastHeartbeatObservedRenderedStateSeq: 1, stateRenderStalledAcks: 2,
+    latestPanelHeartbeatProgress: { renderedSeq: 1, previousRenderedSeq: 1, stalledAckCount: 2 },
+    panelDocumentHasRenderedState: false, renderAckCount: 0, latestRenderDurationMs: null,
+    renderAckLatencyMsLatest: null, renderAckLatencySamples: [], postState(immediate) { flushed.push(immediate); },
+  });
+  subject.handlePanelStateRenderedAck({ documentGeneration: 2, seq: 2, renderDurationMs: 34 });
+  assert.equal(subject.panelStateFlow.renderedSeq, 2);
+  assert.equal(subject.panelStateFlow.outstandingRenderSeq, null);
+  assert.equal(subject.panelStateFlow.deliveredSeq, 1);
+  assert.equal(subject.lastDeliveredStateSeq, 1);
+  assert.equal(subject.lastRenderedStateSeq, 2);
+  assert.equal(subject.renderAckCount, 1);
+  assert.equal(subject.lastHeartbeatObservedRenderedStateSeq, 2);
+  assert.equal(subject.stateRenderStalledAcks, 0);
+  assert.equal(subject.latestPanelHeartbeatProgress.stalledAckCount, 0);
+  assert.equal(subject.renderAckLatencyMsLatest, 4);
+  assert.deepEqual(flushed, [false]);
+  const currentState = subject.panelStateFlow;
+  subject.handlePanelStateRenderedAck({ documentGeneration: 1, seq: 3, renderDurationMs: 1 });
+  assert.strictEqual(subject.panelStateFlow, currentState, "old document ACK cannot mutate the new document flow");
 });
 
 function createHeartbeatSubject() {
   const { ast, method } = extractMethod("handlePanelHeartbeatAck");
   const code = ts.transpileModule(`class Subject { ${method.getText(ast)} }`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-  const sandbox = { PanelStateProgress_1: loaded.exports, Number, Date, Math, clearTimeout() {} };
+  const sandbox = { PanelStateProgress_1: loaded.exports, PanelStateFlowControl_1: flowLoaded.exports, Number, Date, Math, clearTimeout() {} };
   vm.runInNewContext(`${code}\nthis.Subject = Subject;`, sandbox);
   const subject = new sandbox.Subject();
   Object.assign(subject, {
     panelDisposed: false, view: { visible: true }, panelHeartbeatId: 0, panelDocumentGeneration: 2,
+    panelStateFlow: flowWithOutstanding(2, 0),
+    lastDeliveredStateSeq: 0,
     lastPostedStateSeq: 0, lastReceivedStateSeq: 0, lastRenderedStateSeq: 0,
     lastHeartbeatObservedRenderedStateSeq: undefined, stateRenderStalledAcks: 0,
     panelHeartbeatTimeout: undefined, panelUnknownHealthSince: 0, panelUnknownHealthGeneration: 0,
-    webviewDocumentVisible: true, panelDocumentHasRenderedState: false,
+    webviewDocumentVisible: true, panelDocumentHasRenderedState: false, webviewReady: true,
     recoveries: [], schedulePanelHeartbeat() {},
     recoverPanelHeartbeatFailure(reason) { this.recoveries.push(reason); },
     updatePanelDocumentVisibility(visible) {
@@ -123,6 +175,7 @@ function createHeartbeatSubject() {
 test("hidden and not-yet-renderable documents never accumulate sequence stalls", () => {
   for (const reason of ["document-hidden", "bootstrap", "awaiting-first-render", "state-render-pending", "render-health-probe-pending"]) {
     const subject = createHeartbeatSubject();
+    subject.panelStateFlow = flowWithOutstanding(2, 1010, 100);
     for (let heartbeatId = 1; heartbeatId <= 10; heartbeatId += 1) {
       subject.panelHeartbeatId = heartbeatId;
       subject.lastPostedStateSeq = 1000 + heartbeatId;
@@ -139,13 +192,13 @@ test("hidden and not-yet-renderable documents never accumulate sequence stalls",
 
 test("visible healthy renderer still recovers after three heartbeats with no progress", () => {
   const subject = createHeartbeatSubject();
+  subject.panelStateFlow = flowWithOutstanding(2, 20, 18);
   subject.panelDocumentHasRenderedState = true;
-  subject.lastHeartbeatObservedRenderedStateSeq = 100;
+  subject.lastHeartbeatObservedRenderedStateSeq = 18;
   for (let heartbeatId = 1; heartbeatId <= 3; heartbeatId += 1) {
     subject.panelHeartbeatId = heartbeatId;
-    subject.lastPostedStateSeq = 1000 + heartbeatId;
     subject.handlePanelHeartbeatAck({ heartbeatId, documentGeneration: 2,
-      lastReceivedStateSeq: 1000 + heartbeatId, lastRenderedStateSeq: 100,
+      lastReceivedStateSeq: 20, lastRenderedStateSeq: 18,
       renderHealth: { status: "ok", reason: "render-completed" } });
   }
   assert.deepEqual(Array.from(subject.recoveries), ["state-render-sequence-stalled"]);
@@ -154,13 +207,13 @@ test("visible healthy renderer still recovers after three heartbeats with no pro
 
 test("explicit frame-stall health takes precedence over sequence-stall recovery", () => {
   const subject = createHeartbeatSubject();
+  subject.panelStateFlow = flowWithOutstanding(2, 20, 18);
   subject.panelDocumentHasRenderedState = true;
-  subject.lastPostedStateSeq = 1000;
-  subject.lastHeartbeatObservedRenderedStateSeq = 100;
+  subject.lastHeartbeatObservedRenderedStateSeq = 18;
   subject.stateRenderStalledAcks = 2;
   subject.panelHeartbeatId = 1;
   subject.handlePanelHeartbeatAck({ heartbeatId: 1, documentGeneration: 2,
-    lastReceivedStateSeq: 999, lastRenderedStateSeq: 100,
+    lastReceivedStateSeq: 20, lastRenderedStateSeq: 18,
     renderHealth: { status: "unhealthy", reason: "state-render-frame-stalled" } });
   assert.deepEqual(Array.from(subject.recoveries), ["state-render-frame-stalled"]);
 });
@@ -172,6 +225,7 @@ test("one hundred hidden state updates stay pending and flush once on visibility
   const timers = new Map();
   const calls = [];
   const sandbox = {
+    PanelStateFlowControl_1: flowLoaded.exports,
     Date,
     setTimeout(callback, delay) { const id = ++nextTimerId; timers.set(id, { callback, delay }); return id; },
     clearTimeout(id) { timers.delete(id); },
@@ -180,11 +234,15 @@ test("one hundred hidden state updates stay pending and flush once on visibility
   const subject = new sandbox.Subject();
   Object.assign(subject, {
     panelLifecycleState: "ready", view: { visible: true }, webviewReady: true,
+    panelStateFlow: flowLoaded.exports.createPanelStateFlowControlState(2, false),
     webviewDocumentVisible: false, statePostPending: false, statePostTimer: undefined,
     statePostInFlight: false, statePostImmediatePending: false,
     hiddenSuppressedStatePosts: 0, coalescedStatePosts: 0, lastFullStatePostAt: 0,
     statePostBatchMs: 100, statePostMinimumIntervalMs: 200,
     extensionRuntimeVersionState: () => ({ reloadRequired: false }),
+    syncPanelStateFlowVisibility() {
+      this.panelStateFlow = flowLoaded.exports.setPanelStateFlowVisibility(this.panelStateFlow, this.view.visible === true && this.webviewDocumentVisible === true);
+    },
     realtimeRefreshPolicy: () => ({ uiBatchMs: 100 }),
     showPanelReloadRequired() {},
     flushStatePost(force) { calls.push(force); this.statePostPending = false; this.statePostTimer = undefined; },
@@ -201,12 +259,14 @@ test("one hundred hidden state updates stay pending and flush once on visibility
 
 test("host visibility transition resets stall evidence and forces one latest state", () => {
   const { ast, method } = extractMethod("updatePanelDocumentVisibility");
-  const code = ts.transpileModule(`class Subject { ${method.getText(ast)} }`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-  const sandbox = { clearTimeout() {} };
+  const { ast: visibilityAst, method: visibilityMethod } = extractMethod("syncPanelStateFlowVisibility");
+  const code = ts.transpileModule(`class Subject { ${method.getText(ast)} ${visibilityMethod.getText(visibilityAst)} }`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  const sandbox = { PanelStateFlowControl_1: flowLoaded.exports, clearTimeout() {} };
   vm.runInNewContext(`${code}\nthis.Subject = Subject;`, sandbox);
   const subject = new sandbox.Subject();
   const posts = [];
   Object.assign(subject, {
+    view: { visible: true }, panelStateFlow: flowLoaded.exports.createPanelStateFlowControlState(2, false),
     webviewDocumentVisible: false, statePostPending: false, statePostTimer: undefined,
     lastHeartbeatObservedRenderedStateSeq: 100, stateRenderStalledAcks: 2,
     latestPanelHeartbeatProgress: { renderedSeq: 100, previousRenderedSeq: 100, stalledAckCount: 2 },
@@ -229,6 +289,7 @@ test("ordinary state updates coalesce at uiBatchMs with a 200 ms full-state floo
   const timers = new Map();
   const calls = [];
   const sandbox = {
+    PanelStateFlowControl_1: flowLoaded.exports,
     Date,
     setTimeout(callback, delay) { const id = ++nextTimerId; timers.set(id, { callback, delay }); return id; },
     clearTimeout(id) { timers.delete(id); },
@@ -237,11 +298,15 @@ test("ordinary state updates coalesce at uiBatchMs with a 200 ms full-state floo
   const subject = new sandbox.Subject();
   Object.assign(subject, {
     panelLifecycleState: "ready", view: { visible: true }, webviewReady: true,
+    panelStateFlow: flowLoaded.exports.createPanelStateFlowControlState(2, true),
     webviewDocumentVisible: true, statePostPending: false, statePostTimer: undefined,
     statePostInFlight: false, statePostImmediatePending: false,
     hiddenSuppressedStatePosts: 0, coalescedStatePosts: 0, lastFullStatePostAt: 0,
     statePostBatchMs: 100, statePostMinimumIntervalMs: 200,
     extensionRuntimeVersionState: () => ({ reloadRequired: false }),
+    syncPanelStateFlowVisibility() {
+      this.panelStateFlow = flowLoaded.exports.setPanelStateFlowVisibility(this.panelStateFlow, this.view.visible === true && this.webviewDocumentVisible === true);
+    },
     realtimeRefreshPolicy: () => ({ uiBatchMs: 100 }),
     showPanelReloadRequired() {},
     flushStatePost(force) { calls.push(force); this.statePostPending = false; this.statePostTimer = undefined; },
@@ -263,7 +328,8 @@ test("new document stamp and disposal reset the heartbeat render-progress tracke
 
   const { ast, method } = extractMethod("resetPanelStateProgress");
   const code = ts.transpileModule(`class Subject { ${method.getText(ast)} }`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-  const sandbox = {};
+  const canceledTimers = [];
+  const sandbox = { PanelStateFlowControl_1: flowLoaded.exports, clearTimeout(id) { canceledTimers.push(id); } };
   vm.runInNewContext(`${code}\nthis.Subject = Subject;`, sandbox);
   const subject = new sandbox.Subject();
   subject.lastHeartbeatObservedRenderedStateSeq = 19;
@@ -273,7 +339,20 @@ test("new document stamp and disposal reset the heartbeat render-progress tracke
   subject.stateSequence = 5593;
   subject.panelDocumentHasRenderedState = true;
   subject.latestPanelHeartbeatProgress = { renderedSeq: 19, previousRenderedSeq: 18, stalledAckCount: 2 };
+  Object.assign(subject, {
+    statePostAttemptId: 7, statePostInFlight: true, statePostPending: true,
+    statePostImmediatePending: true, statePostRetryCount: 2,
+    statePostTimer: 10, statePostRetryTimer: 11,
+  });
   subject.resetPanelStateProgress(true);
+  assert.equal(subject.statePostAttemptId, 8, "a new document invalidates completion callbacks from the old document");
+  assert.equal(subject.statePostInFlight, false);
+  assert.equal(subject.statePostPending, false);
+  assert.equal(subject.statePostImmediatePending, false);
+  assert.equal(subject.statePostRetryCount, 0);
+  assert.equal(subject.statePostTimer, undefined);
+  assert.equal(subject.statePostRetryTimer, undefined);
+  assert.deepEqual(canceledTimers, [10, 11]);
   assert.equal(subject.lastHeartbeatObservedRenderedStateSeq, undefined);
   assert.equal(subject.stateRenderStalledAcks, 0);
   assert.equal(subject.latestPanelHeartbeatProgress, undefined);
