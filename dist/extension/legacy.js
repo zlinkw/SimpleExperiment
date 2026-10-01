@@ -108,6 +108,8 @@ const PanelLifecycle_1 = require("../features/PanelLifecycle");
 const PanelStateDelivery_1 = require("../features/PanelStateDelivery");
 const PanelStateProgress_1 = require("../features/PanelStateProgress");
 const PanelStateFlowControl_1 = require("../features/PanelStateFlowControl");
+const PanelStateProjection_1 = require("../features/PanelStateProjection");
+const PanelStatePayload_1 = require("../features/PanelStatePayload");
 const TunnelPortAllocator_1 = require("../tunnel/TunnelPortAllocator");
 const TunnelEndpointRegistry_1 = require("../tunnel/TunnelEndpointRegistry");
 const TunnelPortConflict_1 = require("../tunnel/TunnelPortConflict");
@@ -402,7 +404,7 @@ const uiActionCommands = new Set([
 const SAFE_WEBVIEW_COMMANDS = new Set([
     "stopAllPlans",
     "stopAndClearPlan",
-    "webviewReady", "webviewHeartbeatAck", "webviewStateRendered", "webviewBootstrapError", "webviewRenderError", "webviewVisibility", "reloadPanel", "reloadWindow", "recallPlanToLocalQueue", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
+    "webviewReady", "webviewHeartbeatAck", "webviewStateRendered", "webviewSectionInterest", "webviewSectionTelemetry", "webviewBootstrapError", "webviewRenderError", "webviewVisibility", "reloadPanel", "reloadWindow", "recallPlanToLocalQueue", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
     "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "reassignWorkerTask", "openSetupGuide", "openAdvancedCommandsSetting", "applyPlanDatasetMapping", "autoMatchPlanDatasets",
     "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
     "selectPlan", "selectExperiment",
@@ -411,7 +413,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "startTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList", "killTmuxWindow", "clearTmuxTaskTabs",
 ]);
 const API_INTERNAL_COMMANDS = new Set([
-    "webviewReady", "webviewHeartbeatAck", "webviewStateRendered", "webviewBootstrapError", "webviewRenderError", "webviewVisibility", "reloadPanel", "reloadWindow",
+    "webviewReady", "webviewHeartbeatAck", "webviewStateRendered", "webviewSectionInterest", "webviewSectionTelemetry", "webviewBootstrapError", "webviewRenderError", "webviewVisibility", "reloadPanel", "reloadWindow",
 ]);
 const API_EXECUTABLE_COMMANDS = new Set([
     ...uiActionCommands,
@@ -770,6 +772,11 @@ class RealtimeTunnelPanelProvider {
     currentSessionLastFailure = null;
     currentSessionRecoveryReason = "";
     panelRenderPerformance = [];
+    panelSectionInterest = {
+        documentGeneration: "0", mainSection: "sync", visibleSections: [], expandedSections: [], pinnedInspectorSection: "",
+    };
+    panelSectionRevisionTracker = new PanelStateProjection_1.PanelSectionRevisionTracker();
+    latestPanelPayloadAttribution;
     statePostDeliveryTimeoutMs = 7000;
     statePayloadSoftLimitBytes = 4 * 1024 * 1024;
     statePayloadHardLimitBytes = 8 * 1024 * 1024;
@@ -4858,7 +4865,7 @@ class RealtimeTunnelPanelProvider {
         await this.handleMessageCore(message, command);
     }
     async handleMessageCore(message, command = getSafeCommand(message)) {
-        if (["webviewReady", "webviewBootstrapError", "webviewRenderError", "webviewHeartbeatAck", "webviewStateRendered", "webviewVisibility"].includes(command)
+        if (["webviewReady", "webviewBootstrapError", "webviewRenderError", "webviewHeartbeatAck", "webviewStateRendered", "webviewSectionInterest", "webviewSectionTelemetry", "webviewVisibility"].includes(command)
             && !this.isCurrentPanelDocumentMessage(message, command))
             return;
         if (this.extensionRuntimeVersionState().reloadRequired && command !== "reloadWindow") {
@@ -4892,6 +4899,12 @@ class RealtimeTunnelPanelProvider {
             case "webviewStateRendered":
                 this.handlePanelStateRenderedAck(message);
                 break;
+            case "webviewSectionInterest":
+                this.handlePanelSectionInterest(message);
+                break;
+            case "webviewSectionTelemetry":
+                this.recordPanelSectionTelemetry(message);
+                break;
             case "webviewVisibility":
                 this.handlePanelWebviewVisibility(message);
                 break;
@@ -4902,10 +4915,6 @@ class RealtimeTunnelPanelProvider {
                     this.showPanelRecovery(this.lastError, false, `render-failed: ${this.lastError}`);
                 break;
             case "webviewRenderError":
-                if (message?.performanceWarning === true) {
-                    this.recordPanelRenderPerformance(message);
-                    break;
-                }
                 if (message?.sectionRecovered === true) {
                     this.panelSectionFailures.delete(String(message.section || "").slice(0, 40));
                     if (!this.panelSectionFailures.size && this.panelLifecycleState === "degraded")
@@ -18533,22 +18542,35 @@ class RealtimeTunnelPanelProvider {
             viewGeneration: Number(this.viewGeneration || 0),
         };
     }
-    recordPanelRenderPerformance(message) {
-        const durationMs = Number(message?.durationMs);
-        const documentGeneration = Number(message?.documentGeneration);
-        if (!Number.isFinite(durationMs) || durationMs < 0 || documentGeneration !== this.panelDocumentGeneration)
+    handlePanelSectionInterest(message) {
+        const next = PanelStateProjection_1.normalizePanelSectionInterest(message, this.panelDocumentGeneration);
+        if (!next || PanelStateProjection_1.samePanelSectionInterest(this.panelSectionInterest, next))
             return;
-        const row = {
-            timestamp: new Date().toISOString(),
-            documentGeneration,
-            stateSeq: Number.isSafeInteger(Number(message?.stateSeq)) ? Number(message.stateSeq) : 0,
-            section: String(message?.section || "unknown").slice(0, 40),
-            durationMs: Math.round(durationMs),
-            operationCount: Math.max(0, Number(message?.operationCount) || 0),
-            taskCount: Math.max(0, Number(message?.taskCount) || 0),
-            planCount: Math.max(0, Number(message?.planCount) || 0),
-        };
-        this.panelRenderPerformance = [row, ...this.panelRenderPerformance].slice(0, 32);
+        this.panelSectionInterest = next;
+        this.postState(true);
+    }
+    recordPanelSectionTelemetry(message) {
+        if (String(message?.documentGeneration ?? "") !== String(this.panelDocumentGeneration) || !Array.isArray(message?.samples))
+            return;
+        const rows = message.samples.slice(0, 7).map((sample) => {
+            const duration = (value) => Math.max(0, Number.isFinite(Number(value)) ? Number(value) : 0);
+            const totalMs = duration(sample?.totalMs);
+            return {
+                timestamp: new Date().toISOString(),
+                documentGeneration: this.panelDocumentGeneration,
+                stateSeq: Number.isSafeInteger(Number(message?.stateSeq)) ? Number(message.stateSeq) : 0,
+                section: String(sample?.section || "unknown").slice(0, 40),
+                signatureMs: Math.round(duration(sample?.signatureMs) * 100) / 100,
+                modelMs: Math.round(duration(sample?.modelMs) * 100) / 100,
+                domMs: Math.round(duration(sample?.domMs) * 100) / 100,
+                totalMs: Math.round(totalMs * 100) / 100,
+                durationMs: Math.round(totalMs),
+                skipped: sample?.skipped === true,
+                skipReason: String(sample?.skipReason || "").slice(0, 40),
+            };
+        });
+        if (rows.length)
+            this.panelRenderPerformance = [...rows.reverse(), ...this.panelRenderPerformance].slice(0, 32);
     }
     showPanelReloadRequired() {
         if (!this.view)
@@ -18611,6 +18633,7 @@ class RealtimeTunnelPanelProvider {
             renderPerformance: {
                 latestRenderDurationMs: this.latestRenderDurationMs,
                 slowSections: this.panelRenderPerformance.slice(0, 32),
+                sectionSamples: this.panelRenderPerformance.slice(0, 32),
             },
             sectionFailures: [...this.panelSectionFailures].map((section) => String(section).slice(0, 40)).slice(0, 16),
             currentSession: {
@@ -18636,6 +18659,7 @@ class RealtimeTunnelPanelProvider {
             hiddenSuppressedStatePosts: this.hiddenSuppressedStatePosts,
             fullStatePostsLastMinute: this.fullStatePostSamples.length,
             fullStateBytesLastMinute: this.fullStatePostSamples.reduce((total, sample) => total + sample.bytes, 0),
+            latestPayloadAttribution: this.latestPanelPayloadAttribution || null,
             averageFullStateBytes: this.fullStatePosts ? Math.round(this.fullStateBytesTotal / this.fullStatePosts) : 0,
             renderAckCount: this.renderAckCount,
             renderAckLatencyMsLatest: this.renderAckLatencyMsLatest,
@@ -19804,10 +19828,18 @@ class RealtimeTunnelPanelProvider {
             lastError: String(source.lastError || ""), degraded: true, degradedMessage: message,
         };
     }
-    buildState() {
+    buildState(options = {}) {
         const totalStartedAt = Date.now();
         const timing = { runtimeEvidenceMs: 0, resultCatalog: { cacheHit: true, buildMs: 0 }, plansMs: 0, tracesMs: 0, diagnosticsMs: 0, totalMs: 0 };
         this.activePanelBuildTiming = timing;
+        const panelInterest = options.panelProjection === true
+            ? (PanelStateProjection_1.normalizePanelSectionInterest(this.panelSectionInterest, this.panelDocumentGeneration)
+                || { documentGeneration: String(this.panelDocumentGeneration), mainSection: "sync", visibleSections: [], expandedSections: [], pinnedInspectorSection: "" })
+            : undefined;
+        const interestedSections = panelInterest ? PanelStateProjection_1.panelInterestedSections(panelInterest) : undefined;
+        const includePanelResults = options.panelProjection !== true || interestedSections?.has("results") === true;
+        const includePanelGpuHistory = options.panelProjection !== true || interestedSections?.has("gpu") === true;
+        const includePanelExecutionHistory = options.panelProjection !== true || interestedSections?.has("execution") === true;
         const schedulerConfig = this.schedulerSettings();
         const realtime = this.client.diagnostics();
         const runtimeEvidenceStartedAt = Date.now();
@@ -19823,9 +19855,12 @@ class RealtimeTunnelPanelProvider {
         const selectedTracePlan = { planFile: selectedTracePlanFile, planRevision: selectedTracePlanVersion.revision, planUpdatedAt: selectedTracePlanVersion.updatedAt };
         const selectedResultsPlanFile = this.resolveSelectedPlanFile(this.selectedPlanId || this.planFileInput || "");
         const selectedResultsPlanVersion = this.planVersionForFile(selectedResultsPlanFile);
-        const traceProtectedKeys = this.traceProtectedKeys();
-        const experimentTraces = compactExperimentTraces(mergeFallbackRows(compactFallbackRowSources([offlineSnapshot?.experimentTraces, snapshot?.experimentTraces, realtimeState?.experimentTraces], (rows) => compactExperimentTraces(rows, traceProtectedKeys, selectedTracePlan)), experimentTraceFallbackRowKey), traceProtectedKeys, selectedTracePlan);
-        timing.tracesMs = Math.max(0, Date.now() - tracesStartedAt);
+        let experimentTraces;
+        if (includePanelResults) {
+            const traceProtectedKeys = this.traceProtectedKeys();
+            experimentTraces = compactExperimentTraces(mergeFallbackRows(compactFallbackRowSources([offlineSnapshot?.experimentTraces, snapshot?.experimentTraces, realtimeState?.experimentTraces], (rows) => compactExperimentTraces(rows, traceProtectedKeys, selectedTracePlan)), experimentTraceFallbackRowKey), traceProtectedKeys, selectedTracePlan);
+            timing.tracesMs = Math.max(0, Date.now() - tracesStartedAt);
+        }
         const protectedLogKeys = this.logProtectedKeys();
         this.client.setProtectedLogKeys(protectedLogKeys);
         const logs = (0, RealtimeEventReducer_1.compactRealtimeLogs)(firstRecord(realtimeState?.logs), undefined, undefined, protectedLogKeys);
@@ -19874,9 +19909,16 @@ class RealtimeTunnelPanelProvider {
                 || projectOnboardingCompletedFromCodeSync(this.lastCodeSyncState, topology.hubAllowed),
         });
         const resultRoot = workspaceRoot();
+        const projectAdapterRules = pluginProjectAdapterRules(resultRoot || "");
+        const projectAdapterRulesRevision = JSON.stringify(projectAdapterRules);
+        const pptPlotConfig = this.pptPlotConfig();
+        const pptPlotConfigRevision = JSON.stringify(pptPlotConfig);
+        const schedulerConfigRevision = JSON.stringify(schedulerConfig);
+        const recentPlansRevision = JSON.stringify(this.recentPlans);
+        const planStopClearRevision = JSON.stringify(this.planStopClearByFile || {});
         const resultCatalogStartedAt = Date.now();
         let resultCatalog = { datasets: [], legacyTables: [], unassignedPlans: [], multiDatasetPlans: [], mappingConflicts: [], autoRecoverableCount: 0 };
-        if (resultRoot) {
+        if (includePanelResults && resultRoot) {
             try {
                 resultCatalog = this.cachedResultCatalog(resultRoot, pluginProjectAdapterRules(resultRoot).planDatasetMapping || {});
             }
@@ -19884,7 +19926,7 @@ class RealtimeTunnelPanelProvider {
                 resultCatalog = { ...resultCatalog, error: errorMessage(error) };
             }
         }
-        const compactResultTables = this.compactResultTablesFromCatalog(resultCatalog);
+        const compactResultTables = includePanelResults ? this.compactResultTablesFromCatalog(resultCatalog) : undefined;
         if (resultCatalog?.error)
             timing.resultCatalog = { cacheHit: false, buildMs: Math.max(0, Date.now() - resultCatalogStartedAt) };
         const diagnosticsStartedAt = Date.now();
@@ -19936,6 +19978,24 @@ class RealtimeTunnelPanelProvider {
             panelStateTelemetryPreviousSample: this.latestPanelStateTelemetry || null,
         });
         timing.diagnosticsMs = Math.max(0, Date.now() - diagnosticsStartedAt);
+        const gpuHistory = this.gpuHistoryState.snapshot();
+        const actionErrorRevision = (Array.isArray(this.actionErrors) ? this.actionErrors : []).slice(0, 8).map((item) => `${item?.timestamp || ""}:${item?.command || ""}:${item?.message || ""}`).join("|");
+        const sectionRevisions = this.panelSectionRevisionTracker.update({
+            settings: [this.setupConfig, schedulerConfigRevision, this.localPlanMetadata.detectedProject, this.localPlanMetadata.plans, this.resultCsvDirectory,
+                projectAdapterRulesRevision, this.resultCatalogDirtyGeneration, pptPlotConfigRevision],
+            sync: [this.setupConfig, this.lastCodeSyncState, this.lastProbe, this.lastWorkerProbes, endpointRegistryState.registry, realtimeState?.health],
+            plans: [this.localPlanMetadata.plans, this.localPlanMetadata.archivedPlans, recentPlansRevision, this.planFileInput, this.selectedPlanId, this.draftPlanState,
+                this.resultsSummary, planStopClearRevision, realtimeState?.operations, snapshot?.operations, offlineSnapshot?.operations,
+                realtimeState?.schedulerStates, snapshot?.schedulerStates, offlineSnapshot?.schedulerStates],
+            results: [this.resultCatalogDirtyGeneration, this.resultCatalogCache?.key, this.resultCatalogCache?.catalog, this.resultsSummary, this.resultSyncReport,
+                projectAdapterRulesRevision, pptPlotConfigRevision,
+                offlineSnapshot?.experimentTraces, snapshot?.experimentTraces, realtimeState?.experimentTraces, includePanelResults],
+            gpu: [offlineSnapshot?.gpu, snapshot?.gpu, realtimeState?.gpu, gpuHistory, this.setupConfig, includePanelGpuHistory],
+            execution: [offlineSnapshot?.schedulerStates, snapshot?.schedulerStates, realtimeState?.schedulerStates, offlineSnapshot?.operations, snapshot?.operations,
+                realtimeState?.operations, this.distributedQueueCache, planStopClearRevision, this.lastRealtimeState?.fileTransfers, this.selectedPlanId, this.planFileInput, includePanelExecutionHistory],
+            diagnostics: [this.lastHealth, this.lastProbe, this.lastWorkerProbes, this.lastIntegrationReport, endpointRegistryState.registry,
+                this.tunnelConfig, this.actionErrors.length, actionErrorRevision, this.lastSnapshot?.diagnostics, this.lastRealtimeState?.diagnostics],
+        });
         const state = {
             extensionVersion: String(this.context?.extension?.packageJSON?.version || ""),
             sessionStartedAt: this.sessionStartedAt,
@@ -19947,7 +20007,7 @@ class RealtimeTunnelPanelProvider {
             schedulerConfig,
             remoteRootPolicy: remoteRootPolicyConfig(),
             pluginUpdate: this.pluginUpdateStatus || { status: "unknown", message: "尚未检查配套更新。", checkedAt: "" },
-            pptPlotConfig: this.pptPlotConfig(),
+            pptPlotConfig,
             pptAutomation: this.pptAutomationReadiness,
             integrations,
             projectOnboarding,
@@ -19958,10 +20018,9 @@ class RealtimeTunnelPanelProvider {
             resultOutputConfig: {
                 csvDirectory: this.resultCsvDirectory,
                 defaultDirectory: DEFAULT_RESULT_CSV_DIR,
-                columnMapping: pluginProjectAdapterRules(workspaceRoot() || "").csvColumnMapping || {},
-                adapterRules: pluginProjectAdapterRules(workspaceRoot() || ""),
-                catalog: resultCatalog,
-                tables: compactResultTables,
+                columnMapping: projectAdapterRules.csvColumnMapping || {},
+                adapterRules: projectAdapterRules,
+                ...(includePanelResults ? { catalog: resultCatalog, tables: compactResultTables } : {}),
                 pendingPlanSyncCount: (() => {
                     const root = workspaceRoot();
                     if (!root)
@@ -19993,7 +20052,8 @@ class RealtimeTunnelPanelProvider {
             planScanError: webviewPlanScanError,
             draftPlans: this.draftPlanState,
             gpu,
-            gpuHistory: this.gpuHistoryState.snapshot(),
+            ...(includePanelGpuHistory ? { gpuHistory } : {}),
+            sectionRevisions,
             schedulerStates,
             distributedPlans: this.distributedQueueRoot === workspaceRoot()
                 ? this.serverPlanProgress().map((plan) => ({ id: plan.id, projectId: plan.projectId, schedulingMode: plan.schedulingMode,
@@ -20017,7 +20077,7 @@ class RealtimeTunnelPanelProvider {
                     distributedSkipJobIndices: item.distributedSkipJobIndices || [],
                     waitingForPlanFile: item.waitingForPlanFile || "", waitingForRevision: item.waitingForRevision || "",
                     waitingForFingerprint: item.waitingForFingerprint || "" })) : [],
-            experimentTraces,
+            ...(includePanelResults ? { experimentTraces: experimentTraces || [] } : {}),
             logs,
             operations: (0, OperationPayload_1.compactOperationsForWebview)(operations),
             executionHistoryCutoffs: this.context.workspaceState.get(keys.executionHistoryCutoffs, {}),
@@ -20082,7 +20142,9 @@ class RealtimeTunnelPanelProvider {
             panelBuildTiming: { ...timing, resultCatalog: { ...timing.resultCatalog } },
             panelStateTelemetryPreviousSample: this.latestPanelStateTelemetry || null,
         };
-        return state;
+        return options.panelProjection === true && panelInterest
+            ? PanelStateProjection_1.projectWebviewPanelState(state, panelInterest)
+            : state;
     }
     currentUiLayoutState() {
         const globalLayout = normalizeUiLayout(this.context.globalState.get(keys.uiLayout) || {});
@@ -20298,6 +20360,10 @@ class RealtimeTunnelPanelProvider {
     }
     stampPanelDocument(html, generation) {
         this.resetPanelStateProgress(true);
+        this.panelSectionInterest = {
+            documentGeneration: String(generation), mainSection: "sync", visibleSections: [], expandedSections: [], pinnedInspectorSection: "",
+        };
+        this.panelSectionRevisionTracker.reset();
         this.webviewDocumentVisible = true;
         this.syncPanelStateFlowVisibility();
         const runningVersion = String(this.runningBuildIdentity?.version || this.context?.extension?.packageJSON?.version || "");
@@ -20728,7 +20794,7 @@ class RealtimeTunnelPanelProvider {
         let state;
         const buildStartedAt = Date.now();
         try {
-            state = this.buildState();
+            state = this.buildState({ panelProjection: true });
             this.lastStateBuildErrorSignature = "";
         }
         catch (error) {
@@ -20792,6 +20858,8 @@ class RealtimeTunnelPanelProvider {
             this.statePostImmediatePending = false;
             return;
         }
+        const payloadAttribution = PanelStatePayload_1.scanSerializedPanelState(serializedMessage, payloadBytes);
+        this.latestPanelPayloadAttribution = PanelStatePayload_1.summarizePanelPayloadAttribution(payloadAttribution);
         this.latestPanelStateTelemetry = Object.freeze({
             sampleId: ++this.panelTelemetrySampleSequence,
             startedAt: new Date(buildStartedAt).toISOString(),

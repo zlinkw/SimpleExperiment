@@ -57,6 +57,29 @@ test("one full state stays outstanding while one hundred mutations coalesce to l
   assert.equal(state.outstandingRenderSeq, 2);
 });
 
+test("five business state updates per second still retain at most one unrendered full state", () => {
+  let state = flow.createPanelStateFlowControlState(12, true);
+  state = post(state, 40, 0, true, true);
+  state = deliver(state, 40);
+  let posts = 1;
+  for (let update = 1; update <= 25; update += 1) {
+    const decision = flow.requestPanelStateFlowPost(state);
+    state = decision.state;
+    if (decision.shouldPost) posts += 1;
+    else assert.equal(decision.reason, "awaiting-render");
+    assert.equal(state.outstandingRenderSeq, 40);
+    assert.ok(posts <= 1);
+  }
+  assert.equal(state.pendingDirty, true);
+  const rendered = render(state, 12, 40, 5_000);
+  assert.equal(rendered.shouldFlushPending, true);
+  const latest = flow.requestPanelStateFlowPost(rendered.state);
+  assert.equal(latest.shouldPost, true);
+  state = flow.markPanelStateFlowPosted(latest.state, 41, 5_001);
+  assert.equal(state.outstandingRenderSeq, 41);
+  assert.equal(state.pendingDirty, false);
+});
+
 test("an older render ACK cannot clear a newer outstanding full state", () => {
   let state = flow.createPanelStateFlowControlState(4, true);
   state = post(state, 1, 10, true, true);

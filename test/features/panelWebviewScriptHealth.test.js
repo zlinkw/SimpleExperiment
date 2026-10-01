@@ -5,6 +5,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const Module = require("node:module");
 const ts = require("typescript");
+require("../_helpers/registerTsRequire");
 
 function loadSourceRenderer() {
   const sourcePath = path.resolve(__dirname, "../../src/ui/PanelHtml.legacy.ts");

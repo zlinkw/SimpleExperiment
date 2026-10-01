@@ -52,6 +52,7 @@ function host(timer) {
   result.reloaded = 0; result.recoveryCards = 0;
   result.panelDocumentGeneration = 7;
   result.panelStateFlow = flowExports.createPanelStateFlowControlState(7, true);
+  result.panelSectionRevisionTracker = { reset() {} };
   result.automaticRecoveryCount = 0; result.lastAutomaticRecoveryAt = null; result.recoveryLoopPreventedCount = 0;
   result.transitionPanelLifecycle = (state) => { result.panelLifecycleState = state; };
   result.recordPanelLifecycleDiagnostic = (reason) => { (result.diagnostics ||= []).push(reason); };

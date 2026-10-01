@@ -5,6 +5,7 @@ const path = require("node:path");
 const Module = require("node:module");
 const vm = require("node:vm");
 const ts = require("typescript");
+require("../_helpers/registerTsRequire");
 
 function loadSourceRenderer() {
   const sourcePath = path.resolve(__dirname, "../../src/ui/PanelHtml.legacy.ts");
@@ -357,7 +358,7 @@ test("a full-state render exception never emits a rendered ACK", () => {
   assert.equal(browser.sent.filter((message) => message.command === "webviewRenderError").length, 1);
 });
 
-test("execution sub-render keys keep operation progress and GPU-only updates out of unrelated DOM", () => {
+test("execution sub-render keys patch operation progress without rebuilding unrelated execution DOM", () => {
   const browser = fakeBrowser();
   const script = extractScript(renderStampedPanelHtml());
   vm.runInNewContext(script, browser.context, { filename: "panel-render-health.js" });
@@ -377,7 +378,7 @@ test("execution sub-render keys keep operation progress and GPU-only updates out
   onMessage({ data: { type: "state", seq: 2, state: operationProgress } });
   [...browser.frames.values()].at(-1)();
   assert.equal(browser.element("executionPlanList").innerHTMLWrites, initial[0], "operation progress must not rebuild Plan cards");
-  assert.ok(browser.element("operationList").innerHTMLWrites > initial[1], "operation progress refreshes its own section");
+  assert.equal(browser.element("operationList").innerHTMLWrites, initial[1], "operation progress uses row patches instead of replacing the list HTML");
   assert.equal(browser.element("taskBatchActions").innerHTMLWrites, initial[2], "operation progress must not rebuild task controls");
 
   const beforeGpu = ["executionPlanList", "operationList", "taskBatchActions"].map((id) => browser.element(id).innerHTMLWrites);
@@ -385,6 +386,146 @@ test("execution sub-render keys keep operation progress and GPU-only updates out
   onMessage({ data: { type: "state", seq: 3, state: gpuOnly } });
   [...browser.frames.values()].at(-1)();
   assert.deepEqual(["executionPlanList", "operationList", "taskBatchActions"].map((id) => browser.element(id).innerHTMLWrites), beforeGpu);
+});
+
+test("offscreen result sections stay dirty through five updates per second and render the latest state once", () => {
+  const browser = fakeBrowser();
+  const main = browser.element("mainColumn");
+  const resultsCard = browser.element("results-section-fixture");
+  let resultsTop = 1200;
+  main.getBoundingClientRect = () => ({ top: 0, bottom: 800, left: 0, right: 1000, width: 1000, height: 800 });
+  main.querySelector = (selector) => selector === '[data-section="results"]' ? resultsCard : null;
+  resultsCard.getBoundingClientRect = () => ({ top: resultsTop, bottom: resultsTop + 300, left: 0, right: 1000, width: 1000, height: 300 });
+  browser.document.querySelector = (selector) => selector === '[data-section="results"]' ? resultsCard : null;
+  const script = extractScript(renderStampedPanelHtml());
+  vm.runInNewContext(script, browser.context, { filename: "panel-render-health.js" });
+  const onMessage = browser.windowListeners.get("message")?.values().next().value;
+  const renderFrames = () => {
+    let iterations = 0;
+    while (browser.frames.size) {
+      assert.ok(++iterations < 20, "visible section rendering must stay frame-bounded");
+      [...browser.frames.values()].forEach((frame) => frame());
+    }
+  };
+  for (let seq = 1; seq <= 5; seq += 1) {
+    onMessage({ data: { type: "state", seq, state: {
+      plans: [], recentPlans: [],
+      sectionRevisions: { results: seq },
+      sectionPayloads: { results: { status: "loaded" } },
+      resultsSummary: { lastParsedAt: "LATEST_RESULT_UPDATE_" + seq },
+      resultOutputConfig: { catalog: { datasets: [{ datasetId: "dataset-" + seq, name: "LATEST_DATASET_" + seq }] }, tables: [] },
+      experimentTraces: [],
+    } } });
+    renderFrames();
+  }
+  assert.equal(browser.element("resultSummary").innerHTMLWrites, 0, "offscreen sections skip view-model and DOM work during state updates");
+  resultsTop = 100;
+  for (const listener of main.listeners?.get("scroll") || []) listener();
+  renderFrames();
+  const resultSummary = browser.element("resultSummary");
+  assert.equal(resultSummary.innerHTMLWrites, 1, "scroll entry renders only the latest dirty state once");
+  assert.match(resultSummary.innerHTML, /LATEST_RESULT_UPDATE_5/);
+  assert.ok(browser.sent.findLast((message) => message.command === "webviewSectionInterest")?.interest.visibleSections.includes("results"));
+});
+
+test("operation and task progress updates patch stable rows in place", () => {
+  const browser = fakeBrowser();
+  const main = browser.element("mainColumn");
+  const executionCard = browser.element("execution-section-fixture");
+  main.getBoundingClientRect = () => ({ top: 0, bottom: 800, left: 0, right: 1000, width: 1000, height: 800 });
+  main.querySelector = (selector) => selector === '[data-section="execution"]' ? executionCard : null;
+  executionCard.getBoundingClientRect = () => ({ top: 10, bottom: 700, left: 0, right: 1000, width: 1000, height: 690 });
+  browser.document.querySelector = (selector) => selector === '[data-section="execution"]' ? executionCard : null;
+  const leaf = (text, attributes = {}) => {
+    const attrs = new Map(Object.entries(attributes));
+    const classes = new Set();
+    return {
+      textContent: text || "", hidden: false, style: {},
+      getAttribute(name) { return attrs.get(name) || null; },
+      setAttribute(name, value) { attrs.set(name, String(value)); },
+      classList: {
+        add(name) { classes.add(name); }, remove(name) { classes.delete(name); }, contains(name) { return classes.has(name); },
+      },
+      hasClass(name) { return classes.has(name); },
+    };
+  };
+  const operationStatus = leaf("运行中");
+  operationStatus.classList.add("status-running");
+  const operationText = leaf("运行中");
+  const operationMessage = leaf("live 1");
+  const operationProgress = leaf("进度 epoch 1");
+  const operationTime = leaf("");
+  const operationCard = {
+    getAttribute(name) { return name === "data-operation-render-key" ? "operation-a" : null; },
+    querySelector(selector) {
+      return {
+        "[data-operation-message]": operationMessage,
+        "[data-operation-progress]": operationProgress,
+        "[data-operation-status-label]": operationStatus,
+        "[data-operation-status-text]": operationText,
+        "[data-operation-status-loading]": leaf(""),
+        "[data-operation-time]": operationTime,
+      }[selector] || null;
+    },
+  };
+  const taskStatus = leaf("运行中");
+  const taskProgress = leaf("epoch 1");
+  const taskProgressPill = leaf("");
+  const taskTime = leaf("");
+  const taskCard = {
+    getAttribute(name) { return name === "data-task-render-key" ? "task:run-a" : null; },
+    querySelector(selector) {
+      return {
+        "[data-task-status-label]": taskStatus,
+        "[data-task-time]": taskTime,
+        "[data-task-progress-value]": taskProgress,
+        "[data-task-progress]": taskProgressPill,
+      }[selector] || null;
+    },
+  };
+  let operationPatchVisits = 0;
+  let taskPatchVisits = 0;
+  browser.element("operationList").querySelectorAll = (selector) => { if (selector === "[data-operation-render-key]") operationPatchVisits += 1; return selector === "[data-operation-render-key]" ? [operationCard] : []; };
+  browser.element("executionPlanList").querySelectorAll = (selector) => { if (selector === "[data-task-render-key]") taskPatchVisits += 1; return selector === "[data-task-render-key]" ? [taskCard] : []; };
+  const script = extractScript(renderStampedPanelHtml());
+  vm.runInNewContext(script, browser.context, { filename: "panel-render-health.js" });
+  const onMessage = browser.windowListeners.get("message")?.values().next().value;
+  const renderFrames = () => [...browser.frames.values()].forEach((frame) => frame());
+  const base = {
+    plans: [], recentPlans: [], distributedPlans: [], deferredPlans: [],
+    sectionPayloads: { execution: { status: "loaded" } },
+    selection: { selectedPlanId: "experiments/plans/a.yaml", selectedTaskUiKeys: [] },
+    operations: { "operation-a": { id: "operation-a", type: "run-plan", planFile: "experiments/plans/a.yaml", status: "running", progress: "epoch 1", message: "live 1", startedAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:01Z" } },
+    schedulerStates: [{ id: "run-a", runKey: "run-a", experimentId: "exp-a", experimentName: "Task A", planFile: "experiments/plans/a.yaml", status: "running", progress: "epoch 1", startedAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:01Z" }],
+  };
+  onMessage({ data: { type: "state", seq: 1, state: base } });
+  renderFrames();
+  assert.ok(browser.sent.filter((message) => message.command === "webviewSectionTelemetry").some((message) => message.samples.some((sample) => sample.section === "execution" && !sample.skipped)), "visible execution section should render in the fixture");
+  const initialOperationWrites = browser.element("operationList").innerHTMLWrites;
+  const initialTaskWrites = browser.element("executionPlanList").innerHTMLWrites;
+  const latest = {
+    ...base,
+    operations: { "operation-a": { ...base.operations["operation-a"], progress: "epoch 3", message: "live 3", updatedAt: "2026-01-01T00:00:03Z" } },
+    schedulerStates: [{ ...base.schedulerStates[0], progress: "epoch 3", updatedAt: "2026-01-01T00:00:03Z" }],
+  };
+  onMessage({ data: { type: "state", seq: 2, state: latest } });
+  renderFrames();
+  assert.ok(operationPatchVisits >= 2, "stable operation rows were visited by the in-place patcher");
+  assert.ok(taskPatchVisits >= 2, "stable task rows were visited by the in-place patcher");
+  assert.equal(browser.element("operationList").innerHTMLWrites, initialOperationWrites);
+  assert.equal(browser.element("executionPlanList").innerHTMLWrites, initialTaskWrites);
+  assert.equal(operationProgress.textContent, "进度 epoch 3");
+  assert.equal(operationMessage.textContent, "live 3");
+  assert.equal(operationText.textContent, "执行中");
+  assert.equal(taskProgress.textContent, "epoch 3");
+
+  const statusTransition = { ...latest, operations: { "operation-a": { ...latest.operations["operation-a"], status: "queued" } } };
+  onMessage({ data: { type: "state", seq: 3, state: statusTransition } });
+  renderFrames();
+  assert.equal(browser.element("operationList").innerHTMLWrites, initialOperationWrites, "same live action topology keeps the operation row in place");
+  assert.equal(operationText.textContent, "排队");
+  assert.equal(operationStatus.hasClass("status-running"), false);
+  assert.equal(operationStatus.hasClass("status-queued"), true);
 });
 
 test("transient config drafts survive a generated document replacement through VS Code webview state", () => {

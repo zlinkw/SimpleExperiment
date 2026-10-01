@@ -1,7 +1,9 @@
 // @ts-nocheck
+import { patchPanelProgressDom } from "../features/PanelProgressDom";
 export function renderPanelHtml(): string {
     const nonce = String(Date.now());
     const PLUGIN_VERSION: string = (() => { try { const pkg = require("../../package.json"); return String((pkg && pkg.version) || "").trim() || "unknown"; } catch { return "unknown"; } })();
+    const panelProgressDomPatchSource = "(" + patchPanelProgressDom.toString() + ")";
     return `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -1586,6 +1588,7 @@ export function renderPanelHtml(): string {
   </div>
 
   <script nonce="${nonce}">
+    const patchPanelProgressDom = ${panelProgressDomPatchSource};
     // webview 原生 title 在长文本/含换行时渲染不稳定（只显示部分或完全不显示），
     // 且会把悬浮定位到元素附近导致表格行、卡片错位变形。
     // 正确策略：只对操作元素（button / a）做自定义黑框气泡；
@@ -2256,6 +2259,14 @@ export function renderPanelHtml(): string {
     let draggedResourceTreeChild = null;
     let activeResourceSection = "sync";
     let activeResourceAnchor = "sync";
+    const sectionRenderOrder = ["settings", "sync", "plans", "results", "gpu", "execution", "diagnostics"];
+    const dirtyPanelSections = new Set();
+    const explicitlyExpandedInterestSections = new Set();
+    let visiblePanelSections = [];
+    let sectionVisibilityListenerInstalled = false;
+    let sectionVisibilityFrame = 0;
+    let sentSectionInterestSignature = "";
+    let sectionTelemetrySamples = [];
     let currentMainView = "workspace";
     let runMode = "formal";
     let lastWorkspaceResource = { section: "sync", anchor: "sync" };
@@ -3099,6 +3110,10 @@ export function renderPanelHtml(): string {
         const next = !(card && card.classList.contains("is-collapsed"));
         currentUiLayout.collapsed = Object.assign({}, currentUiLayout.collapsed, { [section]: next });
         preserveScroll(() => applyUiLayout({ uiLayout: currentUiLayout }));
+        if (next) explicitlyExpandedInterestSections.delete(section);
+        else explicitlyExpandedInterestSections.add(section);
+        visiblePanelSections = collectVisiblePanelSections();
+        syncPanelSectionInterest();
         if (!next) renderSectionIfVisible(lastState || {}, section, { force: true });
         refreshCardDecorations();
         saveUiLayout({ preserveOrder: true });
@@ -4070,22 +4085,57 @@ export function renderPanelHtml(): string {
     }
 
     function renderVisibleSections(state) {
+      sectionTelemetrySamples = [];
+      ensureSectionVisibilityTracking();
+      visiblePanelSections = collectVisiblePanelSections();
+      syncPanelSectionInterest();
       preserveMainColumnAnchor(() => {
-        ["settings", "sync", "plans", "results", "gpu", "execution", "diagnostics"].forEach((section) => renderSectionIfVisible(state, section));
+        sectionRenderOrder.forEach((section) => renderSectionIfVisible(state, section));
       });
+      if (sectionTelemetrySamples.length) {
+        try { vscode.postMessage({ command: "webviewSectionTelemetry", documentGeneration: panelDocumentGeneration, stateSeq: renderingStateSeq, samples: sectionTelemetrySamples.slice(0, 7) }); } catch (_) {}
+      }
     }
 
     function renderSectionIfVisible(state, section, options) {
-      if (sectionIsCollapsed(section)) return;
       const force = Boolean(options && options.force);
-      const preKey = sectionPreRenderKey(state, section);
-      if (!force && lastSectionPreRenderKeys[section] === preKey && lastRenderedSectionSignatures[section]) return;
-      const signature = sectionRenderSignature(state, section);
-      if (!force && lastRenderedSectionSignatures[section] === signature) {
-        lastSectionPreRenderKeys[section] = preKey;
+      const startedAt = panelNow();
+      if (sectionIsCollapsed(section)) {
+        dirtyPanelSections.add(section);
+        recordPanelSectionSample(section, 0, 0, 0, startedAt, true, "collapsed");
         return;
       }
-      const sectionStartedAt = typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
+      if (!force && !panelSectionShouldRenderNow(section)) {
+        dirtyPanelSections.add(section);
+        recordPanelSectionSample(section, 0, 0, 0, startedAt, true, "offscreen");
+        return;
+      }
+      if (panelSectionPayloadNotLoaded(state, section)) {
+        dirtyPanelSections.add(section);
+        setPanelSectionLoadingStatus(section);
+        recordPanelSectionSample(section, 0, 0, 0, startedAt, true, "not-loaded");
+        return;
+      }
+      clearPanelSectionLoadingStatus(section);
+      const preKey = sectionPreRenderKey(state, section);
+      if (!force && lastSectionPreRenderKeys[section] === preKey && lastRenderedSectionSignatures[section]) {
+        recordPanelSectionSample(section, 0, 0, 0, startedAt, true, "revision-unchanged");
+        return;
+      }
+      const modelStartedAt = panelNow();
+      const model = sectionRenderModel(state, section);
+      const modelMs = panelNow() - modelStartedAt;
+      const signatureStartedAt = panelNow();
+      const signature = sectionRenderSignature(state, section, model);
+      const signatureMs = panelNow() - signatureStartedAt;
+      if (!force && lastRenderedSectionSignatures[section] === signature) {
+        if (section === "execution") renderExecutionSection(state, false);
+        lastSectionPreRenderKeys[section] = preKey;
+        dirtyPanelSections.delete(section);
+        recordPanelSectionSample(section, signatureMs, modelMs, 0, startedAt, true, "signature-unchanged");
+        return;
+      }
+      const sectionStartedAt = panelNow();
       try {
       if (section === "servers") {
         // 两卡合一兼容空分支：旧 servers 骨架已 display:none 隐藏，总览由 sync 卡内 syncServerOverview 渲染，避免双份。
@@ -4107,27 +4157,119 @@ export function renderPanelHtml(): string {
       applyResourceTreeChildLayout(section);
       lastRenderedSectionSignatures[section] = signature;
       lastSectionPreRenderKeys[section] = preKey;
+      dirtyPanelSections.delete(section);
       if (failedPanelSections.delete(String(section))) {
         try { vscode.postMessage({ command: "webviewRenderError", documentGeneration: panelDocumentGeneration, section: String(section), sectionRecovered: true }); } catch (_) {}
       }
-      const durationMs = Math.max(0, (typeof performance !== "undefined" && performance.now ? performance.now() : Date.now()) - sectionStartedAt);
-      if (durationMs > 250) {
-        try { console.warn("[SimpleExperiment] slow panel section", section, Math.round(durationMs)); } catch (_) {}
-        const currentState = lastState || {};
-        const scheduler = currentState.schedulerStates || {};
-        const countRows = (value) => Array.isArray(value) ? value.length : value && typeof value === "object" ? Object.keys(value).length : 0;
-        const taskSource = scheduler.tasks || scheduler.rows || scheduler.experiments || currentState.tasks || currentState.experiments;
-        const planSource = currentState.distributedPlans || currentState.plans || currentState.recentPlans;
-        try { vscode.postMessage({ command: "webviewRenderError", documentGeneration: panelDocumentGeneration, section: String(section), performanceWarning: true,
-          stateSeq: renderingStateSeq, durationMs: Math.round(durationMs), operationCount: countRows(currentState.operations),
-          taskCount: countRows(taskSource), planCount: countRows(planSource), documentHidden: document.hidden === true }); } catch (_) {}
-      }
+      const domMs = Math.max(0, panelNow() - sectionStartedAt);
+      recordPanelSectionSample(section, signatureMs, modelMs, domMs, startedAt, false, "");
       } catch (error) {
         failedPanelSections.add(String(section));
         renderSectionFailure(section, error);
         const detail = String(error && error.message || error).slice(0, 480);
+        recordPanelSectionSample(section, signatureMs, modelMs, Math.max(0, panelNow() - sectionStartedAt), startedAt, false, "render-failed");
         try { vscode.postMessage({ command: "webviewRenderError", documentGeneration: panelDocumentGeneration, section: String(section), error: detail }); } catch (_) {}
       }
+    }
+
+    function panelNow() {
+      return typeof performance !== "undefined" && performance.now ? performance.now() : Date.now();
+    }
+
+    function recordPanelSectionSample(section, signatureMs, modelMs, domMs, startedAt, skipped, skipReason) {
+      sectionTelemetrySamples.push({
+        section: String(section || "unknown"),
+        signatureMs: Math.max(0, Number(signatureMs) || 0),
+        modelMs: Math.max(0, Number(modelMs) || 0),
+        domMs: Math.max(0, Number(domMs) || 0),
+        totalMs: Math.max(0, panelNow() - startedAt),
+        skipped: skipped === true,
+        skipReason: String(skipReason || ""),
+      });
+    }
+
+    function panelSectionPayloadNotLoaded(state, section) {
+      const status = (((state || {}).sectionPayloads || {})[section] || {}).status;
+      return status === "notLoaded";
+    }
+
+    function setPanelSectionLoadingStatus(section) {
+      const card = document.querySelector('[data-section="' + cssEscape(section) + '"]');
+      if (!card || !card.querySelector || card.querySelector(".section-data-loading")) return;
+      const marker = document.createElement("div");
+      marker.className = "section-data-loading muted";
+      marker.textContent = "正在加载此区域的最新详细数据…";
+      card.appendChild(marker);
+    }
+
+    function clearPanelSectionLoadingStatus(section) {
+      const card = document.querySelector('[data-section="' + cssEscape(section) + '"]');
+      const marker = card && card.querySelector ? card.querySelector(".section-data-loading") : null;
+      if (marker && marker.remove) marker.remove();
+    }
+
+    function sectionInMainColumnViewport(section) {
+      const main = el("mainColumn");
+      const card = main && main.querySelector ? main.querySelector('[data-section="' + cssEscape(section) + '"]') : null;
+      if (!main || !card || !main.getBoundingClientRect || !card.getBoundingClientRect) return false;
+      const viewport = main.getBoundingClientRect();
+      const bounds = card.getBoundingClientRect();
+      if (!(viewport.bottom > viewport.top) || !(bounds.bottom > bounds.top)) return false;
+      return bounds.bottom > viewport.top && bounds.top < viewport.bottom;
+    }
+
+    function panelSectionShouldRenderNow(section) {
+      if (activeResourceSection === section) return true;
+      if (currentUiLayout && currentUiLayout.inspectorPinned && activeResourceSection === section) return true;
+      return visiblePanelSections.indexOf(section) >= 0 || sectionInMainColumnViewport(section);
+    }
+
+    function collectVisiblePanelSections() {
+      return sectionRenderOrder.filter((section) => !sectionIsCollapsed(section) && sectionInMainColumnViewport(section));
+    }
+
+    function ensureSectionVisibilityTracking() {
+      if (sectionVisibilityListenerInstalled) return;
+      const main = el("mainColumn");
+      if (!main || typeof main.addEventListener !== "function") return;
+      sectionVisibilityListenerInstalled = true;
+      main.addEventListener("scroll", scheduleVisibleDirtySectionRender, { passive: true });
+      if (typeof window !== "undefined" && typeof window.addEventListener === "function") window.addEventListener("resize", scheduleVisibleDirtySectionRender, { passive: true });
+    }
+
+    function scheduleVisibleDirtySectionRender() {
+      if (sectionVisibilityFrame) return;
+      const run = () => {
+        sectionVisibilityFrame = 0;
+        const latestState = lastState || {};
+        visiblePanelSections = collectVisiblePanelSections();
+        syncPanelSectionInterest();
+        const visibleDirty = [...dirtyPanelSections].filter((section) => visiblePanelSections.indexOf(section) >= 0 || activeResourceSection === section);
+        if (!visibleDirty.length) return;
+        sectionTelemetrySamples = [];
+        visibleDirty.forEach((section) => renderSectionIfVisible(latestState, section));
+        if (sectionTelemetrySamples.length) {
+          try { vscode.postMessage({ command: "webviewSectionTelemetry", documentGeneration: panelDocumentGeneration, stateSeq: lastReceivedStateSeq, samples: sectionTelemetrySamples.slice(0, 7) }); } catch (_) {}
+        }
+      };
+      if (typeof requestAnimationFrame === "function") sectionVisibilityFrame = requestAnimationFrame(run);
+      else sectionVisibilityFrame = setTimeout(run, 0);
+    }
+
+    function syncPanelSectionInterest() {
+      const visibleSections = visiblePanelSections.slice(0, sectionRenderOrder.length);
+      const expandedSections = sectionRenderOrder.filter((section) => explicitlyExpandedInterestSections.has(section));
+      const pinnedInspectorSection = currentUiLayout && currentUiLayout.inspectorPinned ? activeResourceSection : "";
+      const interest = {
+        mainSection: sectionRenderOrder.indexOf(activeResourceSection) >= 0 ? activeResourceSection : "sync",
+        visibleSections,
+        expandedSections,
+        pinnedInspectorSection,
+      };
+      const signature = JSON.stringify(interest);
+      if (signature === sentSectionInterestSignature) return;
+      sentSectionInterestSignature = signature;
+      try { vscode.postMessage({ command: "webviewSectionInterest", documentGeneration: panelDocumentGeneration, interest }); } catch (_) {}
     }
 
     function renderSectionFailure(section, error) {
@@ -4142,7 +4284,9 @@ export function renderPanelHtml(): string {
 
     function sectionPreRenderKey(state, section) {
       const data = state || {};
-      return [section, sectionLocalPreKey(section), sectionDependencyKey(data, section)].join("::");
+      const revisions = data.sectionRevisions || {};
+      const hostRevision = Number.isSafeInteger(Number(revisions[section])) ? "revision:" + Number(revisions[section]) : sectionDependencyKey(data, section);
+      return [section, sectionLocalPreKey(section), hostRevision].join("::");
     }
 
     function sectionDependencyKey(data, section) {
@@ -4180,8 +4324,9 @@ export function renderPanelHtml(): string {
       return "ref:" + objectReferenceIds?.get(value);
     }
 
-    function sectionRenderSignature(state, section) {
-      return htmlSignature(section + "::" + sectionDataSignature(state, section) + "::" + sectionLocalSignature(section, state));
+    function sectionRenderSignature(state, section, preparedModel) {
+      const modelSignature = arguments.length >= 3 ? stableSectionSignature(preparedModel) : sectionDataSignature(state, section);
+      return htmlSignature(section + "::" + modelSignature + "::" + sectionLocalSignature(section, state));
     }
 
     function sectionDataSignature(state, section) {
@@ -4861,6 +5006,10 @@ export function renderPanelHtml(): string {
       return compactRowsForSignature(rows, limit, ["uiKey", "status", "plan", "experimentName", "runKey", "experimentId", "experimentIndex", "archiveKey", "actionArchiveKey", "artifactPath", "resultPath", "logPath", "serverId", "gpuIds", "startedAt", "updatedAt", "duration", "progress", "primaryMetric", "workerLiveStatus", "workerTelemetryWarning", "logTail", "consoleTail", "liveOutput", "finalLog", "finalOutput", "stdout", "stderr"]);
     }
 
+    function compactTaskRowsForRenderStructureSignature(rows, limit = TASK_RENDER_LIMIT) {
+      return compactRowsForSignature(rows, limit, ["uiKey", "status", "plan", "experimentName", "runKey", "experimentId", "experimentIndex", "archiveKey", "actionArchiveKey", "artifactPath", "resultPath", "logPath", "serverId", "gpuIds", "workerTelemetryWarning", "logTail", "consoleTail", "liveOutput", "finalLog", "finalOutput", "stdout", "stderr"]);
+    }
+
     function compactTracesForSignature(state) {
       const traceModel = experimentTraceViewModelForState(state);
       const rows = traceModel.rows;
@@ -4977,10 +5126,7 @@ export function renderPanelHtml(): string {
         operationId: row.operationId,
         type: row.type,
         action: row.action,
-        status: row.status || row.state,
-        updatedAt: row.updatedAt || row.generatedAt || row.finishedAt,
-        message: row.message,
-        progress: row.progress,
+        status: operationRenderStructureStatus(row.status || row.state),
         error: row.error,
         targetCount: row.targetCount,
         fileCount: row.fileCount,
@@ -5000,6 +5146,16 @@ export function renderPanelHtml(): string {
         workerId: row.workerId,
         manifestPath: row.manifestPath
       }));
+    }
+
+    function operationRenderStructureStatus(status) {
+      const value = String(status || "").toLowerCase();
+      if (value === "accepted" || value === "submitted") return "accepted";
+      if (operationIsActive(value)) return "active";
+      if (operationIsFailureLike(value)) return "failed";
+      if (operationIsCancelled(value)) return "cancelled";
+      if (operationIsCompleted(value)) return "completed";
+      return value;
     }
 
     function compactActionErrorsForSignature(rows) {
@@ -6756,6 +6912,7 @@ export function renderPanelHtml(): string {
         setNativeTitle(button, (pinned ? "取消固定" : "固定") + label);
         button.setAttribute("aria-label", button.title);
       });
+      syncPanelSectionInterest();
     }
 
     function setNativeTitle(node, value) {
@@ -6773,6 +6930,10 @@ export function renderPanelHtml(): string {
       try { closeInspectorAddMenu(); } catch (e) {}
       document.querySelectorAll("#mainColumn > [data-section]").forEach((card) => card.classList.toggle("is-collapsed", collapsed));
       currentUiLayout.collapsed = collapseStateFromDom();
+      explicitlyExpandedInterestSections.clear();
+      if (!collapsed) sectionRenderOrder.forEach((section) => explicitlyExpandedInterestSections.add(section));
+      visiblePanelSections = collectVisiblePanelSections();
+      syncPanelSectionInterest();
       saveUiLayout({ preserveOrder: true });
       renderResourceTree(lastState || {});
     }
@@ -7337,6 +7498,7 @@ export function renderPanelHtml(): string {
       if (activeResourceNode && activeResourceNode !== nextNode) setResourceTreeNodeCurrent(activeResourceNode, false);
       if (nextNode) setResourceTreeNodeCurrent(nextNode, true);
       activeResourceNode = nextNode || null;
+      syncPanelSectionInterest();
     }
 
     function resourceTreeActiveSelector(section, anchor) {
@@ -12982,10 +13144,10 @@ export function renderPanelHtml(): string {
         row.duration && row.duration !== "-" ? "耗时 " + row.duration : "",
         row.progress && row.progress !== "-" ? "进度 " + row.progress : ""
       ].filter(Boolean).join(" · ");
-      return '<div class="task-card ' + taskCardClass(row.status) + (checked ? " selectedRow" : "") + (pendingDelete ? " delete-pending" : "") + '" data-anchor="' + escAttr(treeAnchorId("task", key || row.experimentId || row.experimentName)) + '" title="' + escAttr(titleBits) + '">' +
+      return '<div class="task-card ' + taskCardClass(row.status) + (checked ? " selectedRow" : "") + (pendingDelete ? " delete-pending" : "") + '" data-task-render-key="' + escAttr(String(row.uiKey || key || row.experimentId || row.experimentName)) + '" data-anchor="' + escAttr(treeAnchorId("task", key || row.experimentId || row.experimentName)) + '" title="' + escAttr(titleBits) + '">' +
         '<div class="taskCardHead">' +
           '<input class="taskSelectBox" type="checkbox" data-command="selectExperiment" data-task-ui-key="' + escAttr(row.uiKey) + '" data-run-key="' + escAttr(taskActionKey(row)) + '" data-action-key="' + escAttr(taskActionKey(row)) + '" data-experiment-id="' + escAttr(row.experimentId) + '" data-archive-key="' + escAttr(taskArchiveActionKey(row)) + '" data-worker-id="' + escAttr(resolveWorkerId(row.serverId)) + '" data-plan-file="' + escAttr(taskPlanFile(row)) + '" data-artifact-path="' + escAttr(row.artifactPath) + '" data-result-path="' + escAttr(row.resultPath) + '" data-log-path="' + escAttr(row.logPath) + '" data-debug-mode="' + (row.debugMode ? "true" : "false") + '"' + (checked ? " checked" : "") + '>' +
-          '<div class="taskTitle"><b title="' + escAttr(row.experimentName) + '">' + esc(compactText(row.experimentName, 52)) + '</b>' + planButton + '<span class="' + statusClass(row.status) + '" title="' + escAttr("原始状态：" + row.status) + '">' + esc(taskStatusLabel(row.status)) + '</span><span class="pill" title="' + escAttr(taskTime.label + "时间：" + taskTime.raw) + '">' + esc(taskTime.label + " " + taskTime.relative) + '</span>' + taskLivePills(row) + pendingBadge + '</div>' +
+          '<div class="taskTitle"><b title="' + escAttr(row.experimentName) + '">' + esc(compactText(row.experimentName, 52)) + '</b>' + planButton + '<span data-task-status-label="true" class="' + statusClass(row.status) + '" title="' + escAttr("原始状态：" + row.status) + '">' + esc(taskStatusLabel(row.status)) + '</span><span class="pill" data-task-time="true" title="' + escAttr(taskTime.label + "时间：" + taskTime.raw) + '">' + esc(taskTime.label + " " + taskTime.relative) + '</span>' + taskLivePills(row) + pendingBadge + '</div>' +
           '<div class="taskActions">' + actions + '</div>' +
         '</div>' +
         renderTaskLogDetails(state, row) +
@@ -13000,10 +13162,10 @@ export function renderPanelHtml(): string {
       const gpuIds = arrayText((row || {}).gpuIds);
       const worker = (row || {}).serverId && row.serverId !== "-" ? workerName(row.serverId) : "";
       const pills = [];
-      if (progress && progress !== "-") pills.push(['进度 ' + esc(progress), "进度：" + progress]);
+      if (progress && progress !== "-") pills.push(['进度 <span data-task-progress-value="true">' + esc(progress) + '</span>', "进度：" + progress, "progress"]);
       if (worker) pills.push([esc(compactText(worker, 18)), "Worker：" + worker + (gpuIds && gpuIds !== "-" ? "；GPU " + gpuIds : "")]);
       if (gpuIds && gpuIds !== "-") pills.push(['GPU ' + esc(compactText(gpuIds, 12)), "GPU：" + gpuIds]);
-      return pills.map((pill) => '<span class="pill taskLivePill" title="' + escAttr(pill[1]) + '">' + pill[0] + '</span>').join("");
+      return pills.map((pill) => '<span class="pill taskLivePill"' + (pill[2] === "progress" ? ' data-task-progress="true"' : "") + ' title="' + escAttr(pill[1]) + '">' + pill[0] + '</span>').join("");
     }
 
 
@@ -13791,7 +13953,7 @@ export function renderPanelHtml(): string {
       });
       const planList = stableSectionSignature({
         operations: planOperations,
-        tasks: compactTaskRowsForSignature(view.allRows, view.allRows.length),
+        tasks: compactTaskRowsForRenderStructureSignature(view.allRows, view.allRows.length),
         distributedPlans: asArray(data.distributedPlans).map((plan) => ({
           id: plan.id,
           planFile: plan.planFile,
@@ -13869,9 +14031,13 @@ export function renderPanelHtml(): string {
 
     function renderOperationSectionIfChanged(state, force) {
       const key = operationSectionKey(state);
-      if (!force && key === lastOperationSectionKey) return;
+      if (!force && key === lastOperationSectionKey) {
+        patchExecutionProgressDom(state);
+        return;
+      }
       renderOperationSection(state);
       lastOperationSectionKey = key;
+      patchExecutionProgressDom(state);
     }
 
     function renderTaskBatchActionsIfChanged(state, force) {
@@ -13887,6 +14053,67 @@ export function renderPanelHtml(): string {
       renderExecutionPlanListIfChanged(state, force);
       renderOperationSectionIfChanged(state, force);
       renderTaskBatchActionsIfChanged(state, force);
+    }
+
+    function patchExecutionProgressDom(state) {
+      const data = state || {};
+      const operationRoot = el("operationList");
+      if (operationRoot && typeof operationRoot.querySelectorAll === "function") {
+        const operations = operationViewModelForState(data).visibleRows || [];
+        const operationByKey = new Map(operations.map((row) => [String(row.operationId || row.id || row.opId || row.type || row.updatedAt || "unknown"), row]));
+        operationRoot.querySelectorAll("[data-operation-render-key]").forEach((node) => {
+          const row = operationByKey.get(String(node.getAttribute("data-operation-render-key") || ""));
+          if (!row) return;
+          const progress = meaningfulValue(row.progress) ? "进度 " + String(row.progress) : "";
+          const timestamp = operationTimestampView(row);
+          const message = typeof redactUiText === "function" ? redactUiText(operationDisplayMessage(row)) : operationDisplayMessage(row);
+          const status = String(row.status || row.state || "-");
+          const statusClasses = ["status-failed", "status-completed", "status-running", "status-testing", "status-queued", "status-warning"];
+          patchPanelProgressDom(node, {
+            text: {
+              "[data-operation-message]": message,
+              "[data-operation-progress]": progress,
+              "[data-operation-time]": timestamp.label + " " + timestamp.relative,
+              "[data-operation-status-text]": operationStatusLabel(status),
+            },
+            title: {
+              "[data-operation-time]": timestamp.label + "时间：" + timestamp.raw,
+              "[data-operation-status-label]": "原始状态：" + status,
+              "[data-operation-render-key]": operationTypeLabel(row.type || row.action || "operation") + "（原始：" + String(row.type || row.action || "operation") + "）：" + operationStatusLabel(status),
+            },
+            classes: [{ selector: "[data-operation-status-label]", remove: statusClasses, add: [statusClass(status)].filter(Boolean) }],
+            visibility: [
+              { selector: "[data-operation-progress]", hidden: !progress },
+              { selector: "[data-operation-status-loading]", hidden: !operationIsActive(status) },
+            ],
+          });
+        });
+      }
+      const taskRoot = el("executionPlanList");
+      if (taskRoot && typeof taskRoot.querySelectorAll === "function") {
+        const taskRows = taskSectionViewModelForState(data).allRows || [];
+        const taskByKey = new Map(taskRows.map((row) => [String(row.uiKey || taskTargetKey(row) || row.experimentId || row.experimentName || ""), row]));
+        taskRoot.querySelectorAll("[data-task-render-key]").forEach((node) => {
+          const row = taskByKey.get(String(node.getAttribute("data-task-render-key") || ""));
+          if (!row) return;
+          const progress = meaningfulValue(row.progress) ? String(row.progress) : "";
+          const taskTime = taskTimestampView(row);
+          const status = String(row.status || "");
+          patchPanelProgressDom(node, {
+            text: {
+              "[data-task-status-label]": taskStatusLabel(status),
+              "[data-task-time]": taskTime.label + " " + taskTime.relative,
+              "[data-task-progress-value]": progress,
+            },
+            title: {
+              "[data-task-status-label]": "原始状态：" + status,
+              "[data-task-time]": taskTime.label + "时间：" + taskTime.raw,
+              "[data-task-progress]": progress ? "进度：" + progress : "",
+            },
+            visibility: [{ selector: "[data-task-progress]", hidden: !progress }],
+          });
+        });
+      }
     }
 
     function handleTaskSelectionChange(box) {
@@ -14181,20 +14408,21 @@ export function renderPanelHtml(): string {
       const isLenient = rawLenient === true || String(rawLenient).toLowerCase() === "true" || modeStr.includes("lenient") || String(row.executionMode || "").toLowerCase() === "lenient_run";
       const lenientBadge = isLenient ? '<span class="pill" style="border-color:#FDE68A;background:#FFFBEB;color:#B45309;" title="软门禁：宽松模式运行（LENIENT_RUN），允许带警告提交">软门禁</span>' : '';
       // 隐藏所有 tmux 内部字样：不再渲染 tmux 会话 pill（已 redacted 字段优先，卡片内不暴露 tmux attach/capture 指令）
-      return '<div class="operationItem ' + cls + '" data-anchor="' + escAttr(treeAnchorId("operation", row.operationId || row.id || row.type || row.updatedAt)) + '" title="' + escAttr(itemTitle) + '">' +
+      const renderIdentity = String(row.operationId || row.id || row.opId || row.type || row.updatedAt || "unknown");
+      return '<div class="operationItem ' + cls + '" data-operation-render-key="' + escAttr(renderIdentity) + '" data-anchor="' + escAttr(treeAnchorId("operation", renderIdentity)) + '" title="' + escAttr(itemTitle) + '">' +
         '<span class="operationDot" aria-hidden="true"></span>' +
         '<div class="operationBody">' +
           '<div class="operationHead">' + historyCheckbox +
-            '<div class="operationTitle"><span title="' + escAttr("原始操作：" + rawType) + '">' + esc(operationTypeLabel(rawType)) + '</span><span class="' + statusClass(row.status) + '" title="' + escAttr("原始状态：" + (row.status || "-")) + '">' + loadingPrefix(operationIsActive(row.status)) + esc(operationStatusLabel(row.status)) + '</span>' + planButton + historyMarker + lenientBadge + '</div>' +
+            '<div class="operationTitle"><span title="' + escAttr("原始操作：" + rawType) + '">' + esc(operationTypeLabel(rawType)) + '</span><span data-operation-status-label="true" class="' + statusClass(row.status) + '" title="' + escAttr("原始状态：" + (row.status || "-")) + '"><span data-operation-status-loading="true"' + (operationIsActive(row.status) ? '' : ' hidden') + '>' + loadingPrefix(operationIsActive(row.status)) + '</span><span data-operation-status-text="true">' + esc(operationStatusLabel(row.status)) + '</span></span>' + planButton + historyMarker + lenientBadge + '</div>' +
             '<span class="operationId" title="' + escAttr(row.operationId) + '">' + esc(compactIdentifier(row.operationId)) + '</span>' +
           '</div>' +
-           '<div class="operationMessage">' + esc(typeof redactUiText === "function" ? redactUiText(String(message || "")) : String(message || "")) + '</div>' +
+           '<div class="operationMessage" data-operation-message="true">' + esc(typeof redactUiText === "function" ? redactUiText(String(message || "")) : String(message || "")) + '</div>' +
            errorLine +
            runningWarn +
            details +
           fileActions +
           logWindow +
-          '<div class="operationMeta">' + (meaningfulValue(row.progress) ? '<span class="pill">进度 ' + esc(row.progress) + '</span>' : '') + '<span class="pill" title="' + escAttr(timestamp.label + "时间：" + timestamp.raw) + '">' + esc(timestamp.label + " " + timestamp.relative) + '</span>' + (!errorLine && row.error && row.error !== "-" ? '<span class="pill status-failed" title="' + escAttr(redactUiText(String(row.error))) + '">错误</span>' : '') + '</div>' +
+          '<div class="operationMeta"><span class="pill" data-operation-progress="true"' + (meaningfulValue(row.progress) ? '' : ' hidden') + '>' + (meaningfulValue(row.progress) ? '进度 ' + esc(row.progress) : '') + '</span><span class="pill" data-operation-time="true" title="' + escAttr(timestamp.label + "时间：" + timestamp.raw) + '">' + esc(timestamp.label + " " + timestamp.relative) + '</span>' + (!errorLine && row.error && row.error !== "-" ? '<span class="pill status-failed" title="' + escAttr(redactUiText(String(row.error))) + '">错误</span>' : '') + '</div>' +
           (historyButton ? '<div class="operationActions">' + historyButton + '</div>' : '') + abortButton +
           tbLinkForRunning +
         '</div>' +

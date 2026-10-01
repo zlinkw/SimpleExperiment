@@ -1,0 +1,33 @@
+# Panel Payload and Render Optimization
+
+Scope: measure serialized full-state cost; add generation-scoped section interest and explicit not-loaded projections; defer offscreen work; use bounded section revisions; update stable execution rows in place; record bounded render timing. Preserve render ACK/backpressure, existing execution render keys, scheduler semantics, durable queue, and all result/history data.
+
+## TODO
+
+- [x] Add exact serialized top-level field attribution, latest top eight summary, and one-minute byte total to host-only diagnostics.
+- [x] Add generation-scoped Webview section interest and latest-state projections for result catalog/tables/traces, GPU history, and execution history; retain light summaries and active/current-Plan evidence.
+- [x] Defer offscreen section model/signature/DOM work, mark it dirty, and render only latest state on viewport entry or explicit navigation/interaction.
+- [x] Add bounded host section revisions and short-circuit unchanged sections before Webview model/signature work.
+- [x] Patch execution operation/task progress DOM for unchanged row identities; preserve existing bounded list rendering.
+- [x] Record the latest 32 section samples with signature/model/DOM/total time and skipped reason as telemetry only.
+- [x] Add focused projection, attribution, revision, offscreen/latest-only, and progress-patching regressions; rerun existing Panel flow/progress/render/lifetime tests serially.
+- [x] Build, run Webview `vm.Script`, package once after a single patch bump, install once, verify installed version/entry, then stop panel operations pending user reload (`0.5.209`; `simpleex --help` resolves).
+- [ ] Capture comparable live before/after payload bytes, top fields, bytes/min, section times, and render ACK latency; do not claim live improvement without both samples.
+- [ ] Inspect and push only this batch to `origin/master`; leave both user-dirty `.pyc` files untouched and unstaged.
+
+## Baseline from current source
+
+- `PanelStateFlowControl`, explicit `webviewStateRendered`, one-unrendered-state backpressure, and execution Plan/operation/task render keys already exist and are protected.
+- `buildState()` currently includes result catalog/tables, GPU history snapshot, scheduler rows, distributed job history, experiment traces, and operation history in full state.
+- `flushStatePost()` already records total serialized payload bytes and one-minute full-state bytes; it has no top-level attribution.
+- `renderVisibleSections()` visits every expanded resource section; `renderSectionIfVisible()` computes the section model/signature before any viewport check.
+- `sectionSlow` diagnostics are bounded to 32 slow-render rows; per-stage timings and skipped section samples are absent.
+- Live baseline unavailable at task start: SimpleExperiment/SimpleSFTP discovery files and listeners are absent, so live diagnostics cannot be queried until the extension host is reloaded. No fixture/simulation numbers will be presented as live measurements.
+
+## Validation record
+
+- Passed individually with the required Node timeout: `panelStateProjection.test.js` (3), `panelProgressDom.test.js` (2), `panelStateFlowControl.test.js` (10), `panelStateProgress.test.js` (13), `panelRenderHealth.test.js` (12), `panelLifetimeRecovery.test.js` (11), and `panelWebviewScriptHealth.test.js` (1).
+- Pre-release `npm run build` passed. The required `node -e "new (require('vm').Script)(require('fs').readFileSync('dist/ui/PanelHtml.js','utf8'))"` gate passed.
+- The 5 updates/second simulation retained one outstanding full state and coalesced the pending changes. The offscreen test withheld results rendering for five updates, then rendered the latest state once on viewport entry. Stable operation/task progress patches changed rows in place without changing their list HTML write count.
+- `npm run package` passed at `0.5.209` (331 files, 2.02 MB); `npm run install:latest` installed `simple-local.simple-experiment@0.5.209`. `simpleex --help` resolved to the installed CLI. Panel operations stopped after installation, pending user window reload.
+- Live before/after payload and ACK measurements are still unavailable: SimpleExperiment/SimpleSFTP discovery files are absent, and the required post-install Webview sample must wait until the user reloads the window. No live improvement percentage is claimed.
