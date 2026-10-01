@@ -86,6 +86,8 @@ test("action error details and structured lifecycle telemetry survive write then
     command: "panelLifecycle", message: api.panelLifecycleDiagnosticMessage("heartbeatTimeout"),
     details: {
       reason: "heartbeatTimeout", lifecycle: "recovering", documentGeneration: 12, viewGeneration: 3,
+      failureDocumentGeneration: 11, currentDocumentGeneration: 12,
+      renderHealthStatus: "unknown", renderHealthReason: "document-hidden", documentHidden: true,
       postedStateSeq: 71, receivedStateSeq: 54, renderedStateSeq: 54, statePayloadBytes: 717609,
       previousHeartbeatRenderedSeq: 53, stalledAckCount: 0,
       stateBuildDurationMs: 42, runningBuildId: "0123456789abcdef", diskBuildId: "0123456789abcdef",
@@ -97,6 +99,11 @@ test("action error details and structured lifecycle telemetry survive write then
   assert.equal(errors[0].details.reason, "heartbeatTimeout");
   assert.equal(errors[0].details.lifecycle, "recovering");
   assert.equal(errors[0].details.documentGeneration, 12);
+  assert.equal(errors[0].details.failureDocumentGeneration, 11);
+  assert.equal(errors[0].details.currentDocumentGeneration, 12);
+  assert.equal(errors[0].details.renderHealthStatus, "unknown");
+  assert.equal(errors[0].details.renderHealthReason, "document-hidden");
+  assert.equal(errors[0].details.documentHidden, true);
   assert.equal(errors[0].details.postedStateSeq, 71);
   assert.equal(errors[0].details.renderedStateSeq, 54);
   assert.equal(errors[0].details.previousHeartbeatRenderedSeq, 53);
@@ -112,7 +119,9 @@ test("bounded lifecycle file keeps only sanitized failure samples across reload"
     timestamp: `2026-10-01T00:00:${String(index).padStart(2, "0")}Z`,
     reason: "state-render-sequence-stalled", message: "Webview state render stalled", lifecycle: "recovering",
     runningVersion: "0.5.200", installedVersion: "0.5.200", runningBuildId: "abcdef1234567890", diskBuildId: "abcdef1234567890",
-    documentGeneration: index, viewGeneration: 2, webviewReady: true, viewVisible: true,
+    documentGeneration: index + 1, failureDocumentGeneration: index, currentDocumentGeneration: index + 1,
+    viewGeneration: 2, webviewReady: true, viewVisible: true,
+    renderHealthStatus: "ok", renderHealthReason: "render-completed", documentHidden: false,
     postedSeq: 71, receivedSeq: 54, renderedSeq: 54, previousHeartbeatRenderedSeq: 54, stalledAckCount: 3, payloadBytes: 717609, stateBuildDurationMs: 42,
     serverToken: "secret-token", originalLog: "large log",
   }));
@@ -120,6 +129,11 @@ test("bounded lifecycle file keeps only sanitized failure samples across reload"
   const loaded = await api.readEvents("C:/project");
   assert.equal(loaded.length, 24);
   assert.equal(loaded[0].reason, "state-render-sequence-stalled");
+  assert.equal(loaded[0].failureDocumentGeneration, 29);
+  assert.equal(loaded[0].currentDocumentGeneration, 30);
+  assert.equal(loaded[0].renderHealthStatus, "ok");
+  assert.equal(loaded[0].renderHealthReason, "render-completed");
+  assert.equal(loaded[0].documentHidden, false);
   assert.equal(loaded[0].receivedSeq, 54);
   assert.equal(loaded[0].previousHeartbeatRenderedSeq, 54);
   assert.equal(loaded[0].stalledAckCount, 3);
@@ -156,6 +170,10 @@ test("a real heartbeat timeout creates one explicit structured failure", () => {
     panelLifecycleState: "recovering", panelDocumentGeneration: 5, viewGeneration: 2,
     webviewReady: true, view: { visible: true }, lastPanelLifecycleDiagnosticKey: "",
     lastPostedStateSeq: 20, lastReceivedStateSeq: 18, lastRenderedStateSeq: 18, stateRenderStalledAcks: 3,
+    latestPanelHeartbeatEvidence: {
+      documentGeneration: 5, renderHealthStatus: "ok", renderHealthReason: "render-completed", documentHidden: false,
+      postedSeq: 20, receivedSeq: 18, renderedSeq: 18, previousRenderedSeq: 18, stalledAckCount: 3,
+    },
     latestPanelHeartbeatProgress: { renderedSeq: 18, previousRenderedSeq: 18, stalledAckCount: 3 },
     latestPanelStateTelemetry: { sampleId: 9, postedSeq: 71, receivedSeq: 54, renderedSeq: 54, payloadBytes: 717609, buildTotalMs: 42 },
     panelLifecycleDiagnostics: [], extensionRuntimeVersionState: () => ({
@@ -178,6 +196,11 @@ test("a real heartbeat timeout creates one explicit structured failure", () => {
   assert.equal(events[0].renderedSeq, 18);
   assert.equal(events[0].previousHeartbeatRenderedSeq, 18);
   assert.equal(events[0].stalledAckCount, 3);
+  assert.equal(events[0].failureDocumentGeneration, 5);
+  assert.equal(events[0].currentDocumentGeneration, 5);
+  assert.equal(events[0].renderHealthStatus, "ok");
+  assert.equal(events[0].renderHealthReason, "render-completed");
+  assert.equal(events[0].documentHidden, false);
   assert.equal(events[0].payloadBytes, 717609);
   assert.equal(events[0].stateBuildDurationMs, 42);
   assert.equal(errors[0].details.postedStateSeq, 20);
@@ -209,6 +232,7 @@ test("panel.diagnostics returns the saved sample without rebuilding state or pro
     },
     runningBuildIdentity: {}, diskBuildIdentity: {}, panelDocumentGeneration: 4, viewGeneration: 2,
     latestPanelStateTelemetry: telemetry, panelSectionFailures: new Set(["results"]),
+    panelStateTrafficSnapshot: () => ({ fullStatePosts: 12, coalescedStatePosts: 80, hiddenSuppressedStatePosts: 100, fullStatePostsLastMinute: 4 }),
     lastPanelRecoveryReason: "", panelLifecycleDiagnostics: [],
     buildState() { throw new Error("diagnostics must not rebuild state"); },
     readInstalledBuildIdentity() { throw new Error("diagnostics must not read disk"); },
@@ -217,6 +241,7 @@ test("panel.diagnostics returns the saved sample without rebuilding state or pro
   assert.equal(result.lifecycle, "ready");
   assert.equal(result.runningBuildId, result.diskBuildId);
   assert.equal(result.latestTelemetry, telemetry);
+  assert.deepEqual(result.statePostTraffic, { fullStatePosts: 12, coalescedStatePosts: 80, hiddenSuppressedStatePosts: 100, fullStatePostsLastMinute: 4 });
   assert.deepEqual(Array.from(result.sectionFailures), ["results"]);
   assert.equal(result.lastRecoveryReason, "");
 });
@@ -233,6 +258,11 @@ test("copied recovery summary retains the recovery cause and sequence stall evid
   Object.assign(subject, {
     latestPanelBuildIdentityState: { runningVersion: "0.5.200", installedVersion: "0.5.200" },
     lastPanelRecoveryReason: "state-render-sequence-stalled", panelDocumentGeneration: 4, viewGeneration: 1,
+    lastPanelFailureEvidence: {
+      reason: "state-render-sequence-stalled", failureDocumentGeneration: 3, currentDocumentGeneration: 3,
+      renderHealthStatus: "ok", renderHealthReason: "render-completed", documentHidden: false,
+      postedSeq: 7962, receivedSeq: 7961, renderedSeq: 7961, previousRenderedSeq: 7961, stalledAckCount: 3,
+    },
     panelLifecycleState: "recovering", latestPanelStateTelemetry: { payloadBytes: 727520, buildTotalMs: 3 },
     lastPostedStateSeq: 7962, lastReceivedStateSeq: 7961, lastRenderedStateSeq: 7961,
     latestPanelHeartbeatProgress: { renderedSeq: 7961, previousRenderedSeq: 7961, stalledAckCount: 3 },
@@ -240,6 +270,11 @@ test("copied recovery summary retains the recovery cause and sequence stall evid
   });
   const summary = subject.panelDiagnosticSummary();
   assert.equal(summary.reason, "state-render-sequence-stalled");
+  assert.equal(summary.failureDocumentGeneration, 3);
+  assert.equal(summary.currentDocumentGeneration, 4);
+  assert.equal(summary.renderHealthStatus, "ok");
+  assert.equal(summary.renderHealthReason, "render-completed");
+  assert.equal(summary.documentHidden, false);
   assert.equal(summary.postedSeq, 7962);
   assert.equal(summary.receivedSeq, 7961);
   assert.equal(summary.renderedSeq, 7961);

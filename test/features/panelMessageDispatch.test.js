@@ -94,10 +94,13 @@ function createHost(overrides = {}) {
     reloads: 0,
     actions: [],
     stopClear: [],
+    visibility: [],
   };
   const host = {
     view: { webview: { postMessage(payload) { calls.statuses.push(payload); return Promise.resolve(true); } } },
     webviewReady: false,
+    panelDocumentGeneration: 4,
+    panelLifecycleState: "ready",
     statePostRetryCount: 3,
     statePostRetryTimer: { id: "retry" },
     panelReadyWatchdogTimer: { id: "watchdog" },
@@ -115,7 +118,12 @@ function createHost(overrides = {}) {
       this.clearTimeout(this.panelReadyWatchdogTimer);
       this.panelReadyWatchdogTimer = undefined;
     },
+    transitionPanelLifecycle(next) { this.panelLifecycleState = next; return true; },
+    schedulePanelHeartbeat() { calls.heartbeats = (calls.heartbeats || 0) + 1; },
     postState(immediate = false) { calls.states.push(immediate); },
+    extensionRuntimeVersionState() { return { reloadRequired: false }; },
+    isCurrentPanelDocumentMessage(message, command) { return command === "webviewReady" || Number(message?.documentGeneration) === this.panelDocumentGeneration; },
+    handlePanelWebviewVisibility(message) { calls.visibility.push(message); },
     refreshPptAutomationReadiness() { return Promise.resolve(); },
     recordActionError(error) { calls.errors.push(error); },
     showPanelRecovery(message) { calls.recovery = message; },
@@ -144,7 +152,7 @@ function createHost(overrides = {}) {
 
 test("webviewReady without clientActionId completes the real handshake", async () => {
   const host = createHost();
-  await api.handleMessage.call(host, { command: "webviewReady" });
+  await api.handleMessage.call(host, { command: "webviewReady", documentGeneration: 4 });
   assert.equal(host.webviewReady, true);
   assert.equal(host.calls.flushes, 1);
   assert.equal(host.calls.watchdogs, 1);
@@ -152,6 +160,14 @@ test("webviewReady without clientActionId completes the real handshake", async (
   assert.equal(host.statePostRetryCount, 0);
   assert.equal(host.statePostRetryTimer, undefined);
   assert.deepEqual(host.calls.states, [true]);
+  assert.deepEqual(host.calls.lease, []);
+  assert.deepEqual(host.calls.statuses, []);
+});
+
+test("webviewVisibility without clientActionId reaches the generation-scoped host handler", async () => {
+  const host = createHost();
+  await api.handleMessage.call(host, { command: "webviewVisibility", documentGeneration: 4, hidden: true });
+  assert.deepEqual(host.calls.visibility, [{ command: "webviewVisibility", documentGeneration: 4, hidden: true }]);
   assert.deepEqual(host.calls.lease, []);
   assert.deepEqual(host.calls.statuses, []);
 });
@@ -164,7 +180,7 @@ test("reloadPanel and webviewBootstrapError without clientActionId stay on the r
   assert.deepEqual(reloadHost.calls.statuses, []);
 
   const errorHost = createHost();
-  await api.handleMessage.call(errorHost, { command: "webviewBootstrapError", error: "script broke" });
+  await api.handleMessage.call(errorHost, { command: "webviewBootstrapError", documentGeneration: 4, error: "script broke" });
   assert.equal(errorHost.lastError, "script broke");
   assert.equal(errorHost.calls.recovery, "script broke");
   assert.equal(errorHost.calls.errors[0].command, "webviewBootstrapError");

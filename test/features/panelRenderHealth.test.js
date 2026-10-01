@@ -50,6 +50,7 @@ function fakeBrowser(options = {}) {
     if (elements.has(id)) return elements.get(id);
     const attributes = new Map();
     const classes = new Set();
+    let classToggleCalls = 0;
     const item = {
       id, isConnected: true, hidden: false, textContent: "", innerHTML: "", value: "", checked: false,
       dataset: {}, style: {}, children: [], classList: {
@@ -57,6 +58,7 @@ function fakeBrowser(options = {}) {
         remove: (...names) => names.forEach((name) => classes.delete(name)),
         contains: (name) => classes.has(name),
         toggle: (name, force) => {
+          classToggleCalls += 1;
           if (options.renderThrows && id === "projectOnboardingNotice") throw new Error("fake render failure");
           return force === undefined ? (classes.has(name) ? classes.delete(name) : classes.add(name)) : (force ? classes.add(name) : classes.delete(name));
         },
@@ -75,6 +77,7 @@ function fakeBrowser(options = {}) {
       focus() {}, click() {}, scrollIntoView() {}, remove() {},
       setSelectionRange(start, end) { this.selectionStart = start; this.selectionEnd = end; }, contains() { return false; },
       get options() { return []; }, get selectedOptions() { return []; },
+      get classToggleCalls() { return classToggleCalls; },
     };
     if (options.failResults && id === "resultSummary") {
       let html = "";
@@ -138,7 +141,14 @@ function fakeBrowser(options = {}) {
       getState() { return webviewState; }, setState(value) { webviewState = value; },
     }),
   };
-  return { context, document, documentListeners, windowListeners, elements, element, frames, timers, sent, advance, get webviewState() { return webviewState; } };
+  return {
+    context, document, documentListeners, windowListeners, elements, element, frames, timers, sent, advance,
+    setHidden(hidden) {
+      document.hidden = Boolean(hidden);
+      for (const listener of documentListeners.get("visibilitychange") || []) listener();
+    },
+    get webviewState() { return webviewState; },
+  };
 }
 
 test("a retained rendered script reports a stalled state frame during a one-hour live heartbeat session", () => {
@@ -237,6 +247,32 @@ test("missing roots and a caught render failure are reported by actual heartbeat
   onMessage({ data: { type: "panelHeartbeat", heartbeatId: 2 } });
   assert.equal(browser.sent.at(-1).renderHealth.status, "unhealthy");
   assert.match(browser.sent.at(-1).renderHealth.reason, /^render-failed:/);
+});
+
+test("hidden state updates do not park RAF; visibility return renders only the latest sequence", () => {
+  const browser = fakeBrowser({ hidden: true, fastPath: true });
+  const script = extractScript(renderStampedPanelHtml());
+  vm.runInNewContext(script, browser.context, { filename: "panel-render-health.js" });
+  const onMessage = browser.windowListeners.get("message")?.values().next().value;
+  assert.equal(typeof onMessage, "function");
+
+  for (let seq = 1; seq <= 100; seq += 1)
+    onMessage({ data: { type: "state", seq, state: { generation: seq, plans: [], recentPlans: [] } } });
+
+  assert.equal(browser.frames.size, 0, "hidden document must not retain a render frame");
+  assert.equal(browser.element("projectOnboardingNotice").classToggleCalls, 0, "hidden updates must not render");
+  assert.equal(browser.sent.findLast((message) => message.command === "webviewVisibility")?.hidden, true);
+
+  browser.setHidden(false);
+  assert.equal(browser.sent.findLast((message) => message.command === "webviewVisibility")?.hidden, false);
+  const frames = [...browser.frames.values()];
+  assert.ok(frames.length >= 1, "visible transition schedules a render");
+  frames.forEach((frame) => frame());
+  assert.equal(browser.element("projectOnboardingNotice").classToggleCalls, 1, "one render consumes the latest state");
+
+  onMessage({ data: { type: "panelHeartbeat", heartbeatId: 200 } });
+  assert.equal(browser.sent.at(-1).lastReceivedStateSeq, 100);
+  assert.equal(browser.sent.at(-1).lastRenderedStateSeq, 100);
 });
 
 test("a completed rendered update reports healthy DOM state", () => {

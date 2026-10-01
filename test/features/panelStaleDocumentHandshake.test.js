@@ -18,11 +18,11 @@ test("stale document ready/errors/heartbeat acknowledgements cannot mutate the c
   subject.panelDocumentGeneration = 8;
   subject.panelDocumentBuildId = "build-8";
   subject.runningBuildIdentity = { version: "0.5.195" };
-  for (const command of ["webviewReady", "webviewRenderError", "webviewBootstrapError", "webviewHeartbeatAck"]) {
+  for (const command of ["webviewReady", "webviewRenderError", "webviewBootstrapError", "webviewHeartbeatAck", "webviewVisibility"]) {
     assert.equal(subject.isCurrentPanelDocumentMessage({ documentGeneration: 7 }, command), false, `${command} from generation 7`);
   }
   assert.equal(subject.isCurrentPanelDocumentMessage({ documentGeneration: 8, extensionVersion: "0.5.195", documentBuildId: "build-8" }, "webviewReady"), true);
   assert.equal(subject.isCurrentPanelDocumentMessage({ documentGeneration: 8, extensionVersion: "0.5.194", documentBuildId: "build-8" }, "webviewReady"), false);
   assert.equal(subject.isCurrentPanelDocumentMessage({ documentGeneration: 8, extensionVersion: "0.5.195", documentBuildId: "old-build" }, "webviewReady"), false);
-  assert.match(source, /\["webviewReady", "webviewBootstrapError", "webviewRenderError", "webviewHeartbeatAck"\][\s\S]{0,150}!this\.isCurrentPanelDocumentMessage/);
+  assert.ok(/\["webviewReady", "webviewBootstrapError", "webviewRenderError", "webviewHeartbeatAck", "webviewVisibility"\][\s\S]{0,150}!this\.isCurrentPanelDocumentMessage/.test(source), "all document-scoped messages must use the generation guard");
 });

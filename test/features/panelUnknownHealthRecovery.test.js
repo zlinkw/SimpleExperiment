@@ -33,8 +33,8 @@ function createHost(clock) {
   const source = fs.readFileSync(path.join(root, "src/extension/legacy.ts"), "utf8");
   const ast = ts.createSourceFile("legacy.ts", source, ts.ScriptTarget.Latest, true);
   const provider = ast.statements.find((node) => ts.isClassDeclaration(node) && node.name?.text === "RealtimeTunnelPanelProvider");
-  const methods = new Set(["clearPanelHeartbeat", "handlePanelHeartbeatAck", "recoverPanelHeartbeatFailure", "schedulePanelHeartbeat"]);
-  const fields = /^(panelHeartbeat.*|panelUnknownHealth.*|panelDisposed|panelDocumentGeneration|viewGeneration|lastPanelHeartbeatRecoveryAt|webviewReady)$/;
+  const methods = new Set(["clearPanelHeartbeat", "handlePanelHeartbeatAck", "recoverPanelHeartbeatFailure", "schedulePanelHeartbeat", "capturePanelFailureEvidence", "updatePanelDocumentVisibility"]);
+  const fields = /^(panelHeartbeat.*|panelUnknownHealth.*|panelDisposed|panelDocumentGeneration|viewGeneration|lastPanelHeartbeatRecoveryAt|webviewReady|lastHeartbeatObservedRenderedStateSeq|latestPanelHeartbeatProgress|latestPanelHeartbeatEvidence|lastPanelFailureEvidence|panelDocumentHasRenderedState|webviewDocumentVisible|lastPostedStateSeq|lastReceivedStateSeq|lastRenderedStateSeq|stateRenderStalledAcks)$/;
   const members = provider.members.filter((node) => node.name && (methods.has(node.name.getText(ast)) || (ts.isPropertyDeclaration(node) && fields.test(node.name.getText(ast)))));
   const code = ts.transpileModule(`class Subject {\n${members.map((node) => node.getText(ast)).join("\n")}\n}`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
   const sandbox = {
@@ -50,6 +50,7 @@ function createHost(clock) {
   host.panelDocumentGeneration = 7;
   host.transitionPanelLifecycle = (state) => { host.panelLifecycleState = state; };
   host.recordPanelLifecycleDiagnostic = (reason) => { (host.diagnostics ||= []).push(reason); };
+  host.postState = () => {};
   host.extensionRuntimeVersionState = () => ({ reloadRequired: false });
   host.reloaded = 0;
   host.recoveryCards = 0;

@@ -92,7 +92,7 @@ test("panel reports post-bootstrap render failures without hiding the recovery p
     const declaration = extension.match(new RegExp("const " + name + " = new Set\\(\\[[\\s\\S]*?\\]\\);"))?.[0];
     assert.ok(declaration, name);
     const commands = new Function(declaration + " return " + name + ";")();
-    for (const command of ["webviewReady", "webviewHeartbeatAck", "webviewBootstrapError", "webviewRenderError", "reloadPanel", "reloadWindow"]) assert.ok(commands.has(command), name + ": " + command);
+    for (const command of ["webviewReady", "webviewHeartbeatAck", "webviewBootstrapError", "webviewRenderError", "webviewVisibility", "reloadPanel", "reloadWindow"]) assert.ok(commands.has(command), name + ": " + command);
   }
   assert.match(panel, /let lastRenderErrorMessage = ""/);
   assert.match(panel, /vscode\.postMessage\(\{ command: "webviewRenderError", documentGeneration: panelDocumentGeneration, error: .*\.slice\(0, \d+\) \}\)/);

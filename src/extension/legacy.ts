@@ -454,7 +454,7 @@ const uiActionCommands = new Set<WebviewActionCommand>([
 const SAFE_WEBVIEW_COMMANDS = new Set([
     "stopAllPlans",
     "stopAndClearPlan",
-    "webviewReady", "webviewHeartbeatAck", "webviewBootstrapError", "webviewRenderError", "reloadPanel", "reloadWindow", "recallPlanToLocalQueue", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
+    "webviewReady", "webviewHeartbeatAck", "webviewBootstrapError", "webviewRenderError", "webviewVisibility", "reloadPanel", "reloadWindow", "recallPlanToLocalQueue", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
     "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "reassignWorkerTask", "openSetupGuide", "openAdvancedCommandsSetting", "applyPlanDatasetMapping", "autoMatchPlanDatasets",
     "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
     "selectPlan", "selectExperiment",
@@ -463,7 +463,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "startTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList", "killTmuxWindow", "clearTmuxTaskTabs",
 ]);
 const API_INTERNAL_COMMANDS = new Set([
-    "webviewReady", "webviewHeartbeatAck", "webviewBootstrapError", "webviewRenderError", "reloadPanel", "reloadWindow",
+    "webviewReady", "webviewHeartbeatAck", "webviewBootstrapError", "webviewRenderError", "webviewVisibility", "reloadPanel", "reloadWindow",
 ]);
 const API_EXECUTABLE_COMMANDS = new Set([
     ...uiActionCommands,
@@ -821,6 +821,7 @@ export class RealtimeTunnelPanelProvider {
     private statePostRetryTimer?: ReturnType<typeof setTimeout>;
     private statePostPending = false;
     private statePostInFlight = false;
+    private statePostImmediatePending = false;
     private statePostRetryCount = 0;
     private stateSequence = 0;
     private lastPostedStateSeq = 0;
@@ -829,6 +830,15 @@ export class RealtimeTunnelPanelProvider {
     private stateRenderStalledAcks = 0;
     private lastHeartbeatObservedRenderedStateSeq?: number;
     private latestPanelHeartbeatProgress?: { renderedSeq: number; previousRenderedSeq?: number; stalledAckCount: number };
+    private latestPanelHeartbeatEvidence?: Record<string, unknown>;
+    private lastPanelFailureEvidence?: Record<string, unknown>;
+    private panelDocumentHasRenderedState = false;
+    private webviewDocumentVisible = true;
+    private fullStatePosts = 0;
+    private coalescedStatePosts = 0;
+    private hiddenSuppressedStatePosts = 0;
+    private lastFullStatePostAt = 0;
+    private fullStatePostTimes: number[] = [];
     private statePostAttemptId = 0;
     private panelLifecycleState = "detached";
     private panelSectionFailures = new Set<string>();
@@ -849,6 +859,7 @@ export class RealtimeTunnelPanelProvider {
     private lastStateBuildErrorSignature = "";
     private lastStatePostErrorSignature = "";
     private readonly statePostBatchMs = 100;
+    private readonly statePostMinimumIntervalMs = 200;
     private readonly statePostRetryMax = 3;
     private readonly statePostRetryBaseMs = 500;
     private panelHeartbeatTimer?: ReturnType<typeof setTimeout>;
@@ -3471,6 +3482,7 @@ export class RealtimeTunnelPanelProvider {
     private disposeResolvedWebviewView(webviewView, generation): void {
         if (this.view !== webviewView || this.viewGeneration !== generation) return;
         this.transitionPanelLifecycle("detached", "viewDisposed");
+        this.resetPanelStateProgress(true);
         this.clearPanelHeartbeat();
         this.clearPanelReadyWatchdog();
         if (this.statePostTimer) clearTimeout(this.statePostTimer);
@@ -3479,6 +3491,7 @@ export class RealtimeTunnelPanelProvider {
         this.statePostRetryTimer = undefined;
         this.statePostPending = false;
         this.statePostInFlight = false;
+        this.statePostImmediatePending = false;
         this.statePostRetryCount = 0;
         this.webviewReady = false;
         this.pendingPanelNavigation = undefined;
@@ -3502,19 +3515,27 @@ export class RealtimeTunnelPanelProvider {
             this.statePostRetryTimer = undefined;
             this.statePostPending = false;
             this.statePostInFlight = false;
+            this.statePostImmediatePending = false;
             this.statePostAttemptId += 1;
         }
         if (next === "disposed") this.panelDisposed = true;
         if (next === "reload_required") this.forceReloadRequired = true;
         return true;
     }
-    private resetPanelStateProgress(): void {
+    private resetPanelStateProgress(resetDocumentProgress = false): void {
         this.lastHeartbeatObservedRenderedStateSeq = undefined;
         this.stateRenderStalledAcks = 0;
         this.latestPanelHeartbeatProgress = undefined;
+        this.latestPanelHeartbeatEvidence = undefined;
+        if (resetDocumentProgress) {
+            this.lastReceivedStateSeq = 0;
+            this.lastRenderedStateSeq = 0;
+            this.panelDocumentHasRenderedState = false;
+            this.statePostImmediatePending = false;
+        }
     }
     async dispose() {
-        this.resetPanelStateProgress();
+        this.resetPanelStateProgress(true);
         this.transitionPanelLifecycle("disposed", "providerDispose");
         this.panelDisposed = true;
         if (this.view) this.disposeResolvedWebviewView(this.view, this.viewGeneration);
@@ -4836,7 +4857,7 @@ export class RealtimeTunnelPanelProvider {
         await this.handleMessageCore(message, command);
     }
     async handleMessageCore(message, command = getSafeCommand(message)) {
-        if (["webviewReady", "webviewBootstrapError", "webviewRenderError", "webviewHeartbeatAck"].includes(command)
+        if (["webviewReady", "webviewBootstrapError", "webviewRenderError", "webviewHeartbeatAck", "webviewVisibility"].includes(command)
             && !this.isCurrentPanelDocumentMessage(message, command)) return;
         if (this.extensionRuntimeVersionState().reloadRequired && command !== "reloadWindow") {
             this.showPanelReloadRequired();
@@ -4863,6 +4884,9 @@ export class RealtimeTunnelPanelProvider {
                 break;
             case "webviewHeartbeatAck":
                 this.handlePanelHeartbeatAck(message);
+                break;
+            case "webviewVisibility":
+                this.handlePanelWebviewVisibility(message);
                 break;
             case "webviewBootstrapError":
                 this.lastError = String(message?.error || "Webview 脚本启动失败").slice(0, 480);
@@ -17520,6 +17544,12 @@ export class RealtimeTunnelPanelProvider {
     private recordPanelLifecycleDiagnostic(reason: string): void {
         const versions = this.extensionRuntimeVersionState();
         const telemetry = this.latestPanelStateTelemetry;
+        const heartbeat = this.lastPanelFailureEvidence?.reason === reason
+            ? this.lastPanelFailureEvidence
+            : this.latestPanelHeartbeatEvidence?.documentGeneration === this.panelDocumentGeneration
+                ? this.latestPanelHeartbeatEvidence
+                : undefined;
+        const failureDocumentGeneration = Number(heartbeat?.failureDocumentGeneration ?? heartbeat?.documentGeneration ?? this.panelDocumentGeneration ?? 0);
         const message = panelLifecycleDiagnosticMessage(reason);
         const details = compactPanelLifecycleDetails({
             runningVersion: versions.runningVersion,
@@ -17529,18 +17559,23 @@ export class RealtimeTunnelPanelProvider {
             diskBuildId: versions.diskBuildId,
             runningFingerprint: String(versions.runningManifestHash || "").slice(0, 12),
             diskFingerprint: String(versions.diskManifestHash || "").slice(0, 12),
-            documentGeneration: Number(this.panelDocumentGeneration || 0),
+            documentGeneration: failureDocumentGeneration,
+            failureDocumentGeneration,
+            currentDocumentGeneration: Number(this.panelDocumentGeneration || 0),
             viewGeneration: Number(this.viewGeneration || 0),
             webviewReady: this.webviewReady === true,
             viewVisible: this.view?.visible === true,
             reason: String(reason || "unknown").slice(0, 80),
             reloadRequired: versions.reloadRequired,
             lifecycle: this.panelLifecycleState,
-            postedStateSeq: this.lastPostedStateSeq || telemetry?.postedSeq || 0,
-            receivedStateSeq: this.lastReceivedStateSeq || telemetry?.receivedSeq || 0,
-            renderedStateSeq: this.latestPanelHeartbeatProgress?.renderedSeq ?? this.lastRenderedStateSeq ?? telemetry?.renderedSeq ?? 0,
-            previousHeartbeatRenderedSeq: this.latestPanelHeartbeatProgress?.previousRenderedSeq,
-            stalledAckCount: this.latestPanelHeartbeatProgress?.stalledAckCount ?? this.stateRenderStalledAcks,
+            renderHealthStatus: heartbeat?.renderHealthStatus,
+            renderHealthReason: heartbeat?.renderHealthReason,
+            documentHidden: heartbeat?.documentHidden,
+            postedStateSeq: heartbeat?.postedSeq ?? this.lastPostedStateSeq ?? telemetry?.postedSeq ?? 0,
+            receivedStateSeq: heartbeat?.receivedSeq ?? this.lastReceivedStateSeq ?? telemetry?.receivedSeq ?? 0,
+            renderedStateSeq: heartbeat?.renderedSeq ?? this.lastRenderedStateSeq ?? telemetry?.renderedSeq ?? 0,
+            previousHeartbeatRenderedSeq: heartbeat?.previousRenderedSeq ?? this.latestPanelHeartbeatProgress?.previousRenderedSeq,
+            stalledAckCount: heartbeat?.stalledAckCount ?? this.latestPanelHeartbeatProgress?.stalledAckCount ?? this.stateRenderStalledAcks,
             statePayloadBytes: telemetry?.payloadBytes || 0,
             stateBuildDurationMs: telemetry?.buildTotalMs || 0,
             telemetrySampleId: telemetry?.sampleId || 0,
@@ -17553,13 +17588,17 @@ export class RealtimeTunnelPanelProvider {
             timestamp: new Date().toISOString(), reason, message, lifecycle: this.panelLifecycleState,
             runningVersion: versions.runningVersion, installedVersion: versions.installedVersion,
             runningBuildId: versions.runningBuildId, diskBuildId: versions.diskBuildId,
-            documentGeneration: this.panelDocumentGeneration, viewGeneration: this.viewGeneration,
+            documentGeneration: failureDocumentGeneration, failureDocumentGeneration,
+            currentDocumentGeneration: this.panelDocumentGeneration, viewGeneration: this.viewGeneration,
             webviewReady: this.webviewReady === true, viewVisible: this.view?.visible === true,
-            postedSeq: this.lastPostedStateSeq || telemetry?.postedSeq || 0,
-            receivedSeq: this.lastReceivedStateSeq,
-            renderedSeq: this.latestPanelHeartbeatProgress?.renderedSeq ?? this.lastRenderedStateSeq,
-            previousHeartbeatRenderedSeq: this.latestPanelHeartbeatProgress?.previousRenderedSeq,
-            stalledAckCount: this.latestPanelHeartbeatProgress?.stalledAckCount ?? this.stateRenderStalledAcks,
+            renderHealthStatus: heartbeat?.renderHealthStatus,
+            renderHealthReason: heartbeat?.renderHealthReason,
+            documentHidden: heartbeat?.documentHidden,
+            postedSeq: heartbeat?.postedSeq ?? this.lastPostedStateSeq ?? telemetry?.postedSeq ?? 0,
+            receivedSeq: heartbeat?.receivedSeq ?? this.lastReceivedStateSeq,
+            renderedSeq: heartbeat?.renderedSeq ?? this.lastRenderedStateSeq,
+            previousHeartbeatRenderedSeq: heartbeat?.previousRenderedSeq ?? this.latestPanelHeartbeatProgress?.previousRenderedSeq,
+            stalledAckCount: heartbeat?.stalledAckCount ?? this.latestPanelHeartbeatProgress?.stalledAckCount ?? this.stateRenderStalledAcks,
             payloadBytes: telemetry?.payloadBytes || 0, stateBuildDurationMs: telemetry?.buildTotalMs || 0,
         });
         this.panelLifecycleDiagnostics = [event, ...this.panelLifecycleDiagnostics].filter(Boolean).slice(0, PANEL_LIFECYCLE_DIAGNOSTIC_LIMIT);
@@ -17574,6 +17613,7 @@ export class RealtimeTunnelPanelProvider {
         this.transitionPanelLifecycle("reload_required", this.reloadRequiredReason || "confirmedBuildMismatch");
         this.webviewReady = false;
         this.statePostPending = false;
+        this.statePostImmediatePending = false;
         if (this.statePostTimer) clearTimeout(this.statePostTimer);
         this.statePostTimer = undefined;
         const generation = ++this.panelDocumentGeneration;
@@ -17581,21 +17621,28 @@ export class RealtimeTunnelPanelProvider {
     }
     private panelDiagnosticSummary(): Record<string, unknown> {
         const identity = this.latestPanelBuildIdentityState || {};
+        const evidence = this.lastPanelFailureEvidence || this.latestPanelHeartbeatEvidence || {};
+        const failureDocumentGeneration = Number(evidence.failureDocumentGeneration ?? evidence.documentGeneration ?? this.panelDocumentGeneration ?? 0);
         return {
-            reason: this.lastPanelRecoveryReason || this.reloadRequiredReason || this.lastStatePostErrorSignature || this.lastStateBuildErrorSignature || "panel-recovery",
+            reason: this.lastPanelRecoveryReason || String(evidence.reason || "") || this.reloadRequiredReason || this.lastStatePostErrorSignature || this.lastStateBuildErrorSignature || "panel-recovery",
             runningVersion: identity.runningVersion,
             installedVersion: identity.installedVersion,
             runningBuildId: String(identity.runningBuildId || "").slice(0, 12),
             diskBuildId: String(identity.diskBuildId || "").slice(0, 12),
-            documentGeneration: this.panelDocumentGeneration,
+            documentGeneration: failureDocumentGeneration,
+            failureDocumentGeneration,
+            currentDocumentGeneration: this.panelDocumentGeneration,
             viewGeneration: this.viewGeneration,
             lifecycle: this.panelLifecycleState,
             telemetry: this.latestPanelStateTelemetry || null,
-            postedSeq: this.lastPostedStateSeq || this.latestPanelStateTelemetry?.postedSeq || 0,
-            receivedSeq: this.lastReceivedStateSeq,
-            renderedSeq: this.latestPanelHeartbeatProgress?.renderedSeq ?? this.lastRenderedStateSeq,
-            ...(this.latestPanelHeartbeatProgress?.previousRenderedSeq !== undefined ? { previousHeartbeatRenderedSeq: this.latestPanelHeartbeatProgress.previousRenderedSeq } : {}),
-            stalledAckCount: this.latestPanelHeartbeatProgress?.stalledAckCount ?? this.stateRenderStalledAcks,
+            renderHealthStatus: String(evidence.renderHealthStatus || "unknown"),
+            renderHealthReason: String(evidence.renderHealthReason || ""),
+            documentHidden: evidence.documentHidden === true,
+            postedSeq: Number(evidence.postedSeq ?? this.lastPostedStateSeq ?? this.latestPanelStateTelemetry?.postedSeq ?? 0),
+            receivedSeq: Number(evidence.receivedSeq ?? this.lastReceivedStateSeq),
+            renderedSeq: Number(evidence.renderedSeq ?? this.lastRenderedStateSeq),
+            ...(Number.isSafeInteger(evidence.previousRenderedSeq) ? { previousHeartbeatRenderedSeq: evidence.previousRenderedSeq } : {}),
+            stalledAckCount: Number(evidence.stalledAckCount ?? this.stateRenderStalledAcks),
         };
     }
     private panelDiagnosticsApi(): Record<string, unknown> {
@@ -17609,9 +17656,22 @@ export class RealtimeTunnelPanelProvider {
             documentGeneration: this.panelDocumentGeneration,
             viewGeneration: this.viewGeneration,
             latestTelemetry: this.latestPanelStateTelemetry || null,
+            statePostTraffic: this.panelStateTrafficSnapshot(),
+            latestHeartbeat: this.latestPanelHeartbeatEvidence || null,
+            lastFailure: this.lastPanelFailureEvidence || null,
             sectionFailures: [...this.panelSectionFailures].map((section) => String(section).slice(0, 40)).slice(0, 16),
             lastRecoveryReason: this.lastPanelRecoveryReason,
             lifecycleFailures: this.panelLifecycleDiagnostics.slice(0, PANEL_LIFECYCLE_DIAGNOSTIC_LIMIT),
+        };
+    }
+    private panelStateTrafficSnapshot(): Record<string, number> {
+        const cutoff = Date.now() - 60_000;
+        this.fullStatePostTimes = this.fullStatePostTimes.filter((timestamp) => timestamp >= cutoff);
+        return {
+            fullStatePosts: this.fullStatePosts,
+            coalescedStatePosts: this.coalescedStatePosts,
+            hiddenSuppressedStatePosts: this.hiddenSuppressedStatePosts,
+            fullStatePostsLastMinute: this.fullStatePostTimes.length,
         };
     }
     captureActionResult(action, result) {
@@ -19107,15 +19167,40 @@ export class RealtimeTunnelPanelProvider {
             return;
         }
         if (!this.view) return;
-        if (!this.webviewReady) { this.statePostPending = true; return; }
+        this.statePostPending = true;
+        if (!this.webviewDocumentVisible) {
+            this.hiddenSuppressedStatePosts += 1;
+            if (this.statePostTimer) clearTimeout(this.statePostTimer);
+            this.statePostTimer = undefined;
+            if (immediate) this.statePostImmediatePending = true;
+            return;
+        }
+        if (!this.view.visible) return;
+        if (!this.webviewReady) {
+            if (immediate) this.statePostImmediatePending = true;
+            return;
+        }
         if (immediate) {
+            this.statePostImmediatePending = true;
+            if (this.statePostTimer) clearTimeout(this.statePostTimer);
+            this.statePostTimer = undefined;
             this.flushStatePost(true);
             return;
         }
-        this.statePostPending = true;
-        if (!this.view.visible) return;
-        if (this.statePostTimer) return;
-        this.statePostTimer = setTimeout(() => this.flushStatePost(false), 0);
+        if (this.statePostInFlight) {
+            this.coalescedStatePosts += 1;
+            return;
+        }
+        if (this.statePostTimer) {
+            this.coalescedStatePosts += 1;
+            return;
+        }
+        const policyBatchMs = Number(this.realtimeRefreshPolicy()?.uiBatchMs);
+        const batchMs = Number.isFinite(policyBatchMs) && policyBatchMs >= 0 ? policyBatchMs : this.statePostBatchMs;
+        const elapsedSinceFullPost = this.lastFullStatePostAt > 0 ? Date.now() - this.lastFullStatePostAt : 0;
+        const minimumRemainingMs = Math.max(0, this.statePostMinimumIntervalMs - elapsedSinceFullPost);
+        const delayMs = Math.max(this.statePostBatchMs, batchMs, minimumRemainingMs);
+        this.statePostTimer = setTimeout(() => this.flushStatePost(false), delayMs);
         this.statePostTimer.unref?.();
     }
     private startPanelReadyWatchdog(): void {
@@ -19143,6 +19228,7 @@ export class RealtimeTunnelPanelProvider {
             this.showPanelReloadRequired();
             return;
         }
+        this.capturePanelFailureEvidence(recoveryReason);
         this.clearPanelReadyWatchdog();
         if (this.statePostTimer) clearTimeout(this.statePostTimer);
         if (this.statePostRetryTimer) clearTimeout(this.statePostRetryTimer);
@@ -19150,6 +19236,7 @@ export class RealtimeTunnelPanelProvider {
         this.statePostRetryTimer = undefined;
         this.statePostPending = false;
         this.statePostInFlight = false;
+        this.statePostImmediatePending = false;
         this.statePostAttemptId += 1;
         this.webviewReady = false;
         this.lastPanelRecoveryReason = compactSensitiveText(String(recoveryReason || "panel-recovery"), 120) || "panel-recovery";
@@ -19195,7 +19282,8 @@ export class RealtimeTunnelPanelProvider {
         this.panelHeartbeatTimeout = undefined;
     }
     private stampPanelDocument(html: string, generation: number): string {
-        this.resetPanelStateProgress();
+        this.resetPanelStateProgress(true);
+        this.webviewDocumentVisible = true;
         const runningVersion = String(this.runningBuildIdentity?.version || this.context?.extension?.packageJSON?.version || "");
         const documentBuildId = crypto.createHash("sha256")
             .update(String(this.viewGeneration) + ":" + String(generation) + ":" + String(Date.now()) + ":" + crypto.randomBytes(8).toString("hex"))
@@ -19204,43 +19292,91 @@ export class RealtimeTunnelPanelProvider {
         const stamped = String(html || "").replace(/<html\b/i, (openingTag) => openingTag + ' data-panel-document-generation="' + generation + '" data-panel-running-version="' + runningVersion + '" data-panel-build-id="' + documentBuildId + '"');
         return stamped + "\n<!-- panel-document-" + generation + " -->";
     }
+    private handlePanelWebviewVisibility(message): void {
+        this.updatePanelDocumentVisibility(message?.hidden !== true);
+    }
+    private updatePanelDocumentVisibility(visible): void {
+        const nextVisible = visible === true;
+        if (this.webviewDocumentVisible === nextVisible) return;
+        this.webviewDocumentVisible = nextVisible;
+        this.lastHeartbeatObservedRenderedStateSeq = undefined;
+        this.stateRenderStalledAcks = 0;
+        this.latestPanelHeartbeatProgress = undefined;
+        if (!nextVisible) {
+            this.statePostPending = true;
+            if (this.statePostTimer) clearTimeout(this.statePostTimer);
+            this.statePostTimer = undefined;
+            return;
+        }
+        this.statePostPending = true;
+        this.postState(true);
+    }
     private handlePanelHeartbeatAck(message): void {
         if (this.panelDisposed || !this.view?.visible || Number(message?.heartbeatId) !== this.panelHeartbeatId)
             return;
         const hasGeneration = message?.documentGeneration !== undefined && message?.documentGeneration !== null;
         if (hasGeneration && Number(message.documentGeneration) !== this.panelDocumentGeneration)
             return;
+        const health = message?.renderHealth;
+        const status = health && ["ok", "unhealthy", "unknown"].includes(String(health.status)) ? String(health.status) : "";
+        const healthReason = String(health?.reason || "").slice(0, 120);
         const receivedSeq = Number(message?.lastReceivedStateSeq);
         const renderedSeq = Number(message?.lastRenderedStateSeq);
-        if (Number.isFinite(receivedSeq)) this.lastReceivedStateSeq = Math.max(this.lastReceivedStateSeq, receivedSeq);
-        if (Number.isFinite(renderedSeq)) this.lastRenderedStateSeq = Math.max(this.lastRenderedStateSeq, renderedSeq);
+        const hasReceivedSequence = Number.isFinite(receivedSeq);
         const hasRenderedSequence = Number.isFinite(renderedSeq);
-        const observedRenderedSeq = hasRenderedSequence ? Math.max(0, Math.floor(renderedSeq)) : (this.lastHeartbeatObservedRenderedStateSeq ?? this.lastRenderedStateSeq);
+        const observedReceivedSeq = hasReceivedSequence ? Math.max(0, Math.floor(receivedSeq)) : this.lastReceivedStateSeq;
+        const observedRenderedSeq = hasRenderedSequence ? Math.max(0, Math.floor(renderedSeq)) : this.lastRenderedStateSeq;
+        if (hasGeneration && Number.isFinite(Number(message.documentGeneration))) {
+            if (hasReceivedSequence) this.lastReceivedStateSeq = observedReceivedSeq;
+            if (hasRenderedSequence) this.lastRenderedStateSeq = observedRenderedSeq;
+        }
+        if (this.panelHeartbeatTimeout) clearTimeout(this.panelHeartbeatTimeout);
+        this.panelHeartbeatTimeout = undefined;
+        if (hasGeneration && status === "unknown" && healthReason === "document-hidden")
+            this.updatePanelDocumentVisibility(false);
+        else if (hasGeneration && status === "ok" && this.webviewDocumentVisible === false)
+            this.updatePanelDocumentVisibility(true);
         const previousRenderedSeq = this.lastHeartbeatObservedRenderedStateSeq;
-        const progress = hasRenderedSequence
-            ? PanelStateProgress_1.observeStateRenderProgress(this.lastPostedStateSeq, observedRenderedSeq, previousRenderedSeq, this.stateRenderStalledAcks, 3)
-            : { previousObservedRenderedSeq: observedRenderedSeq, consecutiveStalledAcks: this.stateRenderStalledAcks, unhealthy: false };
+        let progress = { previousObservedRenderedSeq: undefined, consecutiveStalledAcks: status === "unhealthy" ? this.stateRenderStalledAcks : 0, unhealthy: false };
+        if (hasGeneration && status === "ok" && hasRenderedSequence && observedRenderedSeq > 0) {
+            if (!this.panelDocumentHasRenderedState) {
+                this.panelDocumentHasRenderedState = true;
+                this.lastHeartbeatObservedRenderedStateSeq = observedRenderedSeq;
+            } else {
+                progress = PanelStateProgress_1.observeStateRenderProgress(this.lastPostedStateSeq, observedRenderedSeq, previousRenderedSeq, this.stateRenderStalledAcks, 3);
+                this.lastHeartbeatObservedRenderedStateSeq = progress.previousObservedRenderedSeq;
+            }
+        } else {
+            this.lastHeartbeatObservedRenderedStateSeq = undefined;
+        }
+        this.stateRenderStalledAcks = progress.consecutiveStalledAcks;
         this.latestPanelHeartbeatProgress = {
             renderedSeq: observedRenderedSeq,
             ...(Number.isFinite(previousRenderedSeq) ? { previousRenderedSeq } : {}),
             stalledAckCount: progress.consecutiveStalledAcks,
         };
-        if (hasRenderedSequence) this.lastHeartbeatObservedRenderedStateSeq = progress.previousObservedRenderedSeq;
-        this.stateRenderStalledAcks = progress.consecutiveStalledAcks;
+        const failureReason = status === "unhealthy" ? (healthReason || "面板报告渲染异常") : progress.unhealthy ? "state-render-sequence-stalled" : "";
+        this.latestPanelHeartbeatEvidence = {
+            documentGeneration: hasGeneration ? Number(message.documentGeneration) : this.panelDocumentGeneration,
+            renderHealthStatus: status || "unknown",
+            renderHealthReason: healthReason,
+            documentHidden: healthReason === "document-hidden" || !this.webviewDocumentVisible,
+            postedSeq: this.lastPostedStateSeq,
+            receivedSeq: observedReceivedSeq,
+            renderedSeq: observedRenderedSeq,
+            ...(Number.isFinite(previousRenderedSeq) ? { previousRenderedSeq } : {}),
+            stalledAckCount: progress.consecutiveStalledAcks,
+        };
+        if (hasGeneration && status === "unhealthy") {
+            this.recoverPanelHeartbeatFailure(failureReason);
+            return;
+        }
         if (progress.unhealthy) {
             this.recoverPanelHeartbeatFailure("state-render-sequence-stalled");
             return;
         }
-        if (this.panelHeartbeatTimeout) clearTimeout(this.panelHeartbeatTimeout);
-        this.panelHeartbeatTimeout = undefined;
-        const health = message?.renderHealth;
-        const status = health && ["ok", "unhealthy", "unknown"].includes(String(health.status)) ? String(health.status) : "";
-        if (hasGeneration && status === "unhealthy") {
-            this.recoverPanelHeartbeatFailure(String(health.reason || "面板报告渲染异常"));
-            return;
-        }
         if (hasGeneration && status === "unknown") {
-            const reason = String(health.reason || "");
+            const reason = healthReason;
             if (["bootstrap", "document-hidden", "awaiting-first-render", "state-render-pending", "render-health-probe-pending"].includes(reason)) {
                 this.panelUnknownHealthSince = 0;
                 this.panelUnknownHealthGeneration = 0;
@@ -19261,12 +19397,37 @@ export class RealtimeTunnelPanelProvider {
         }
         this.schedulePanelHeartbeat();
     }
+    private capturePanelFailureEvidence(reason: string): void {
+        const normalizedReason = compactSensitiveText(String(reason || "panel-recovery"), 120) || "panel-recovery";
+        const currentGeneration = Number(this.panelDocumentGeneration || 0);
+        if (this.lastPanelFailureEvidence?.reason === normalizedReason
+            && Number(this.lastPanelFailureEvidence.failureDocumentGeneration) === currentGeneration) return;
+        const latest = this.latestPanelHeartbeatEvidence;
+        const source = latest && Number(latest.documentGeneration) === currentGeneration ? latest : undefined;
+        this.lastPanelFailureEvidence = {
+            ...(source || {}),
+            reason: normalizedReason,
+            failureDocumentGeneration: currentGeneration,
+            currentDocumentGeneration: currentGeneration,
+            documentGeneration: currentGeneration,
+            renderHealthStatus: String(source?.renderHealthStatus || "unknown"),
+            renderHealthReason: String(source?.renderHealthReason || ""),
+            documentHidden: source?.documentHidden === true || !this.webviewDocumentVisible,
+            postedSeq: Number(source?.postedSeq ?? this.lastPostedStateSeq ?? 0),
+            receivedSeq: Number(source?.receivedSeq ?? this.lastReceivedStateSeq ?? 0),
+            renderedSeq: Number(source?.renderedSeq ?? this.lastRenderedStateSeq ?? 0),
+            ...(Number.isSafeInteger(source?.previousRenderedSeq) ? { previousRenderedSeq: source.previousRenderedSeq } : Number.isSafeInteger(this.latestPanelHeartbeatProgress?.previousRenderedSeq) ? { previousRenderedSeq: this.latestPanelHeartbeatProgress.previousRenderedSeq } : {}),
+            stalledAckCount: Number(source?.stalledAckCount ?? this.stateRenderStalledAcks ?? 0),
+        };
+    }
     private recoverPanelHeartbeatFailure(reason: string): void {
         if (this.panelDisposed || !this.view?.visible)
             return;
         this.panelUnknownHealthSince = 0;
         this.panelUnknownHealthGeneration = 0;
         const diagnosticReason = reason === "面板暂时没有响应" ? "heartbeatTimeout" : reason;
+        this.capturePanelFailureEvidence(diagnosticReason);
+        this.lastPanelRecoveryReason = diagnosticReason;
         this.clearPanelHeartbeat();
         this.webviewReady = false;
         this.transitionPanelLifecycle("recovering", reason);
@@ -19449,13 +19610,24 @@ export class RealtimeTunnelPanelProvider {
             return;
         }
         if (!this.view || ["disposed", "maintenance", "reload_required"].includes(this.panelLifecycleState)) return;
-        if (this.statePostInFlight) {
+        force = force === true || this.statePostImmediatePending;
+        if (!this.webviewDocumentVisible) {
+            this.statePostPending = true;
+            this.hiddenSuppressedStatePosts += 1;
+            return;
+        }
+        if (!this.view.visible) {
             this.statePostPending = true;
             return;
         }
+        if (this.statePostInFlight) {
+            this.statePostPending = true;
+            if (force) this.statePostImmediatePending = true;
+            return;
+        }
         if (!force && !this.statePostPending) return;
-        if (!this.view.visible) return;
         this.statePostPending = false;
+        this.statePostImmediatePending = false;
         let state: WebviewClusterState;
         const buildStartedAt = Date.now();
         try {
@@ -19571,11 +19743,15 @@ export class RealtimeTunnelPanelProvider {
                 clearTimeout(this.statePostRetryTimer);
             this.statePostRetryTimer = undefined;
             if (this.statePostPending)
-                this.postState();
+                this.postState(this.statePostImmediatePending);
         };
         try {
             this.statePostInFlight = true;
             this.lastPostedStateSeq = stateMessage.seq;
+            this.lastFullStatePostAt = Date.now();
+            this.fullStatePosts += 1;
+            this.fullStatePostTimes.push(this.lastFullStatePostAt);
+            if (this.fullStatePostTimes.length > 512) this.fullStatePostTimes.splice(0, this.fullStatePostTimes.length - 512);
             void PanelStateDelivery_1.postMessageWithTimeout(() => targetView.webview.postMessage(stateMessage), this.statePostDeliveryTimeoutMs)
                 .then(completePost, reportPostError);
         }
@@ -20733,9 +20909,14 @@ function normalizePanelLifecycleDiagnosticRow(value) {
         runningBuildId: buildId(row.runningBuildId),
         diskBuildId: buildId(row.diskBuildId),
         documentGeneration: count(row.documentGeneration),
+        failureDocumentGeneration: count(row.failureDocumentGeneration ?? row.documentGeneration),
+        currentDocumentGeneration: count(row.currentDocumentGeneration ?? row.documentGeneration),
         viewGeneration: count(row.viewGeneration),
         webviewReady: row.webviewReady === true,
         viewVisible: row.viewVisible === true,
+        renderHealthStatus: ["ok", "unhealthy", "unknown"].includes(String(row.renderHealthStatus)) ? String(row.renderHealthStatus) : "unknown",
+        renderHealthReason: compactSensitiveText(String(row.renderHealthReason || "").slice(0, 120), 120),
+        documentHidden: row.documentHidden === true,
         postedSeq: count(row.postedSeq),
         receivedSeq: count(row.receivedSeq),
         renderedSeq: count(row.renderedSeq),
@@ -20757,7 +20938,9 @@ async function readProjectPanelLifecycleDiagnosticsState(root) {
 async function writeProjectPanelLifecycleDiagnosticsState(root, events) {
     if (!root) return;
     const fullPath = path.join(root, ...PROJECT_PANEL_LIFECYCLE_PATH.split("/"));
-    const rows = (Array.isArray(events) ? events : []).map(normalizePanelLifecycleDiagnosticRow).filter(Boolean).slice(0, PANEL_LIFECYCLE_DIAGNOSTIC_LIMIT);
+    const rows = (Array.isArray(events) ? events : []).map(normalizePanelLifecycleDiagnosticRow).filter(Boolean)
+        .sort((left, right) => String(right.timestamp || "").localeCompare(String(left.timestamp || "")))
+        .slice(0, PANEL_LIFECYCLE_DIAGNOSTIC_LIMIT);
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
     await fs.writeFile(fullPath, JSON.stringify({ schemaVersion: 1, updatedAt: new Date().toISOString(), events: rows }, null, 2) + "\n", "utf8");
 }
@@ -28064,9 +28247,14 @@ function compactPanelLifecycleDetails(details) {
         ...(typeof details.runningFingerprint === "string" ? { runningFingerprint: details.runningFingerprint.slice(0, 12) } : {}),
         ...(typeof details.diskFingerprint === "string" ? { diskFingerprint: details.diskFingerprint.slice(0, 12) } : {}),
         ...(safeCount(details.documentGeneration) !== undefined ? { documentGeneration: details.documentGeneration } : {}),
+        ...(safeCount(details.failureDocumentGeneration) !== undefined ? { failureDocumentGeneration: details.failureDocumentGeneration } : {}),
+        ...(safeCount(details.currentDocumentGeneration) !== undefined ? { currentDocumentGeneration: details.currentDocumentGeneration } : {}),
         ...(safeCount(details.viewGeneration) !== undefined ? { viewGeneration: details.viewGeneration } : {}),
         ...(typeof details.webviewReady === "boolean" ? { webviewReady: details.webviewReady } : {}),
         ...(typeof details.viewVisible === "boolean" ? { viewVisible: details.viewVisible } : {}),
+        ...(safeEnum(details.renderHealthStatus, ["ok", "unhealthy", "unknown"]) ? { renderHealthStatus: safeEnum(details.renderHealthStatus, ["ok", "unhealthy", "unknown"]) } : {}),
+        ...(typeof details.renderHealthReason === "string" ? { renderHealthReason: compactSensitiveText(details.renderHealthReason, 120) } : {}),
+        ...(typeof details.documentHidden === "boolean" ? { documentHidden: details.documentHidden } : {}),
         ...(typeof details.reason === "string" ? { reason: compactSensitiveText(details.reason, 80) } : {}),
         ...(typeof details.reloadRequired === "boolean" ? { reloadRequired: details.reloadRequired } : {}),
         ...(lifecycle ? { lifecycle } : {}),

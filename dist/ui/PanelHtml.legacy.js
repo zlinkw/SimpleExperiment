@@ -2811,7 +2811,7 @@ function renderPanelHtml() {
     const explicitSavePlanCommands = new Set(["savePlan"]);
     const webviewHandledCommands = new Set([
       "stopAllPlans",
-      "stopAndClearPlan", "reloadWindow", "webviewHeartbeatAck",
+      "stopAndClearPlan", "reloadWindow", "webviewHeartbeatAck", "webviewVisibility",
       "quickSetup", "openSetupGuide", "openAdvancedCommandsSetting", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "reassignWorkerTask", "recallPlanToLocalQueue", "prepareAgents",
       "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections",
       "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot",
@@ -3555,17 +3555,35 @@ function renderPanelHtml() {
     window.addEventListener("message", (event) => {
       handleIncomingWebviewMessage(event.data);
     });
+    function postWebviewVisibility() {
+      try {
+        vscode.postMessage({ command: "webviewVisibility", documentGeneration: panelDocumentGeneration, hidden: document.hidden === true });
+      } catch (_) {}
+    }
     document.addEventListener("visibilitychange", () => {
+      postWebviewVisibility();
       panelHealthProbeGeneration += 1;
       if (panelHealthProbeFrameId && typeof cancelAnimationFrame === "function") cancelAnimationFrame(panelHealthProbeFrameId);
       panelHealthProbeFrameId = 0;
       panelHealthProbeScheduledAt = 0;
       panelHealthProbeLastSuccessAt = 0;
-      if (!document.hidden) {
+      if (document.hidden) {
+        const hadPendingRender = stateRenderScheduled || stateRenderPendingWhileHidden || lastReceivedStateSeq > lastRenderedStateSeq;
+        if (stateRenderFrameId) {
+          if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(stateRenderFrameId);
+          else clearTimeout(stateRenderFrameId);
+        }
+        stateRenderFrameId = 0;
+        stateRenderScheduled = false;
+        panelStateRenderScheduledAt = 0;
+        stateRenderPendingWhileHidden = hadPendingRender;
+      } else {
+        if (stateRenderPendingWhileHidden || lastReceivedStateSeq > lastRenderedStateSeq) scheduleStateRender();
         schedulePanelHealthProbe();
         refreshTmuxList();
       }
     });
+    postWebviewVisibility();
     setupResourceTreeObserver();
     el("initialStateRetry").addEventListener("click", requestInitialPanelState);
     requestInitialPanelState();
@@ -3853,17 +3871,38 @@ function renderPanelHtml() {
     }
 
     let stateRenderScheduled = false;
+    let stateRenderFrameId = 0;
+    let stateRenderPendingWhileHidden = false;
     function scheduleStateRender() {
-      if (stateRenderScheduled) return;
-      stateRenderScheduled = true;
-      panelStateRenderScheduledAt = Date.now();
-      const renderFrame = () => {
+      if (document.hidden) {
+        const hadPendingRender = stateRenderScheduled || stateRenderPendingWhileHidden || lastReceivedStateSeq > lastRenderedStateSeq;
+        if (stateRenderFrameId) {
+          if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(stateRenderFrameId);
+          else clearTimeout(stateRenderFrameId);
+        }
+        stateRenderFrameId = 0;
         stateRenderScheduled = false;
         panelStateRenderScheduledAt = 0;
+        stateRenderPendingWhileHidden = hadPendingRender;
+        return;
+      }
+      if (stateRenderScheduled) return;
+      stateRenderScheduled = true;
+      stateRenderPendingWhileHidden = false;
+      panelStateRenderScheduledAt = Date.now();
+      const renderFrame = () => {
+        stateRenderFrameId = 0;
+        stateRenderScheduled = false;
+        panelStateRenderScheduledAt = 0;
+        if (document.hidden) {
+          stateRenderPendingWhileHidden = lastReceivedStateSeq > lastRenderedStateSeq;
+          return;
+        }
+        stateRenderPendingWhileHidden = false;
         render(lastState);
       };
-      if (typeof requestAnimationFrame === "function") requestAnimationFrame(renderFrame);
-      else setTimeout(renderFrame, 0);
+      if (typeof requestAnimationFrame === "function") stateRenderFrameId = requestAnimationFrame(renderFrame);
+      else stateRenderFrameId = setTimeout(renderFrame, 0);
     }
 
     function renderProjectOnboardingNotice(state) {
