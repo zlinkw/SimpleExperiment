@@ -13,7 +13,7 @@ Scope: measure serialized full-state cost; add generation-scoped section interes
 - [x] Add focused projection, attribution, revision, offscreen/latest-only, and progress-patching regressions; rerun existing Panel flow/progress/render/lifetime tests serially.
 - [x] Build, run Webview `vm.Script`, package once after a single patch bump, install once, verify installed version/entry, then stop panel operations pending user reload (`0.5.209`; `simpleex --help` resolves).
 - [ ] Capture comparable live before/after payload bytes, top fields, bytes/min, section times, and render ACK latency; do not claim live improvement without both samples.
-- [ ] Inspect and push only this batch to `origin/master`; leave both user-dirty `.pyc` files untouched and unstaged.
+- [x] Inspect and push only this batch to `origin/master`; exclude both user-dirty `.pyc` files and leave them as workspace changes.
 
 ## Baseline from current source
 
@@ -30,4 +30,5 @@ Scope: measure serialized full-state cost; add generation-scoped section interes
 - Pre-release `npm run build` passed. The required `node -e "new (require('vm').Script)(require('fs').readFileSync('dist/ui/PanelHtml.js','utf8'))"` gate passed.
 - The 5 updates/second simulation retained one outstanding full state and coalesced the pending changes. The offscreen test withheld results rendering for five updates, then rendered the latest state once on viewport entry. Stable operation/task progress patches changed rows in place without changing their list HTML write count.
 - `npm run package` passed at `0.5.209` (331 files, 2.02 MB); `npm run install:latest` installed `simple-local.simple-experiment@0.5.209`. `simpleex --help` resolved to the installed CLI. Panel operations stopped after installation, pending user window reload.
+- Code batch committed as `10512154` and pushed to `origin/master`; post-push `HEAD` matched `origin/master`. The two dirty `.pyc` files remained unstaged.
 - Live before/after payload and ACK measurements are still unavailable: SimpleExperiment/SimpleSFTP discovery files are absent, and the required post-install Webview sample must wait until the user reloads the window. No live improvement percentage is claimed.
