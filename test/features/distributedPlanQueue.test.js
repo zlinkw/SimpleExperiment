@@ -95,7 +95,7 @@ test("an explicit idle GPU admission rejection releases only the matching reserv
 });
 
 test("queued reassignment requires an exact atomic release proof and advances the attempt", () => {
-  const input = queue.enqueuePlan(queue.emptyDistributedQueue(), { ...plan("release"), jobs: [
+  const input = queue.enqueuePlan(queue.emptyDistributedQueue(), { ...plan("release"), projectId: "project-release", jobs: [
     { index: 0, case: "bus", seed: 42, outputDir: "work_dirs/release/bus/attempts/run-old" },
   ] }, "run-release");
   const allocation = queue.allocateAvailable(input, [{ workerId: "nwpu5", idleGpuIds: ["2"], online: true }]);
@@ -104,7 +104,9 @@ test("queued reassignment requires an exact atomic release proof and advances th
   accepted.plans[0].jobs[0].reassignmentPending = true;
   const planRow = accepted.plans[0];
   const job = planRow.jobs[0];
-  const release = { durableReleased: true, durableAccepted: true, status: "cancelled", stopReason: "requeue",
+  job.runKey = job.commandId;
+  const release = { durableReleased: true, durableAccepted: true, neverStarted: true, neverStartedEvidence: "durable_queued_row",
+    status: "cancelled", stopReason: "requeue",
     commandId: job.commandId, targetCommandId: job.commandId, workerId: job.workerId, gpuId: job.gpuId,
     workflowId: planRow.id, projectId: planRow.projectId, planRevision: planRow.revision, codeFingerprint: planRow.codeFingerprint,
     planJobCount: planRow.planJobCount, planFile: planRow.planFile, experimentIndex: job.index, case: job.case,
@@ -311,6 +313,26 @@ test("cold recovery uses fresh full-identity server rows and preserves the expec
   assert.equal(recovered.plans[0].jobs[0].status, "queued");
   assert.equal(recovered.plans[0].jobs[0].gpuId, undefined);
   assert.equal(queue.remoteTaskMatchesJob(recovered.plans[0], recovered.plans[0].jobs[0], snapshot.tasks[0]), true);
+});
+
+test("a terminal Worker snapshot cannot replace an attempt-bound log with a shared tmux log", () => {
+  const now = Date.now();
+  const projectId = queue.canonicalProjectId("C:/research/project");
+  const plan = { id: "run-a", projectId, planFile: "experiments/plans/a.yaml", revision: "rev-a", codeFingerprint: "code-a",
+    enqueuedAt: new Date(now).toISOString(), planJobCount: 1, jobs: [{ index: 0, case: "case-a", seed: 7, attempt: 1,
+      outputDir: "runs/a/attempts/run-a/job-0", status: "completed", workerId: "worker-a", commandId: "command-a",
+      logPath: "tmp/tmux_logs/gpu-0.log" }] };
+  const task = { projectId, workflowId: plan.id, planFile: plan.planFile, planRevision: plan.revision, codeFingerprint: plan.codeFingerprint,
+    planJobCount: 1, enqueuedAt: plan.enqueuedAt, experimentIndex: 0, case: "case-a", seed: 7, attempt: 1,
+    outputDir: plan.jobs[0].outputDir, runKey: "command-a", commandId: "command-a", workerId: "worker-a", status: "completed",
+    logPath: "tmp/tmux_logs/gpu-0.log" };
+  const snapshot = { workerId: "worker-a", capabilities: { durablePlanQueue: true, schemaVersion: 1 },
+    generatedAt: new Date(now).toISOString(), fetchedAt: new Date(now).toISOString(), tasks: [task] };
+  const result = queue.mergeDurableWorkerSnapshots({ schemaVersion: 1, plans: [plan], deferred: [] }, [snapshot], projectId, now);
+  assert.equal(result.plans[0].jobs[0].logPath, `${plan.jobs[0].outputDir}/stdout.log`);
+  assert.deepEqual(result.plans[0].jobs[0].historyLogIdentity, {
+    commandId: "command-a", outputDir: plan.jobs[0].outputDir, runId: "run-a",
+  });
 });
 
 test("cold recovery ignores old agents, stale snapshots, and another project", () => {

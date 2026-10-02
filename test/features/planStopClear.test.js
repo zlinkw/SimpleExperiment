@@ -1548,6 +1548,7 @@ test("concurrent submissions append to the latest queue and reject the old sched
   assert.ok(start >= 0 && end > start);
   const method = dist.slice(start, end).replace("async saveDistributedQueue(", "async function saveDistributedQueue(");
   const snapshots = [];
+  const files = new Map();
   let releaseFirst;
   const host = {
     withQueueWriteResource: async (_root, work) => work(),
@@ -1561,14 +1562,21 @@ test("concurrent submissions append to the latest queue and reject the old sched
   };
   vm.createContext(Object.assign(host, {
     DistributedPlanQueue: queueApi, workspaceRoot: () => "D:/project", path, process,
+    errorMessage: (error) => String(error?.message || error),
+    compactSensitiveText: (value) => String(value || "").slice(0, 240),
     crypto: { randomBytes: () => Buffer.from("fake") },
     fs: {
       mkdir: async () => undefined,
-      writeFile: async (_file, text) => {
+      readFile: async (file) => {
+        if (!files.has(file)) { const error = new Error("missing"); error.code = "ENOENT"; throw error; }
+        return files.get(file);
+      },
+      writeFile: async (file, text) => {
+        files.set(file, text);
         snapshots.push(JSON.parse(text));
         if (snapshots.length === 1) await new Promise((resolve) => { releaseFirst = resolve; });
       },
-      rename: async () => undefined,
+      rename: async (from, to) => { files.set(to, files.get(from)); files.delete(from); },
     },
   }));
   vm.runInContext(method + "\nthis.save = saveDistributedQueue;", host);

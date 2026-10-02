@@ -62,6 +62,28 @@ export type DistributedQueue = { schemaVersion: 1; plans: QueuedPlan[]; deferred
   publishedWorkerId?: string; publishedWorkerIds?: string[]; publishedPaths?: string[];
   previewWorkerId?: string; previewWorkerIds?: string[]; previewPaths?: string[] };
 
+const QUEUE_BASE_DISK_SIGNATURE = Symbol("distributedQueueBaseDiskSignature");
+
+export function distributedQueueDiskSignature(source: string): string {
+  return createHash("sha256").update(source, "utf8").digest("hex");
+}
+
+export function distributedQueueBaseSignature(queue: DistributedQueue): string | undefined {
+  const signature = (queue as any)?.[QUEUE_BASE_DISK_SIGNATURE];
+  return typeof signature === "string" ? signature : undefined;
+}
+
+export function setDistributedQueueBaseSignature<T extends DistributedQueue>(queue: T, signature: string): T {
+  Object.defineProperty(queue, QUEUE_BASE_DISK_SIGNATURE, { value: signature, enumerable: true, configurable: true, writable: true });
+  return queue;
+}
+
+export function cloneDistributedQueue(queue: DistributedQueue, baseSignature = distributedQueueBaseSignature(queue)): DistributedQueue {
+  const copy = JSON.parse(JSON.stringify(queue)) as DistributedQueue;
+  if (typeof baseSignature === "string") setDistributedQueueBaseSignature(copy, baseSignature);
+  return copy;
+}
+
 export function terminalHistoryLogBinding(plan: Pick<QueuedPlan, "id">, job: Pick<QueuedJob, "status" | "outputDir" | "commandId">):
   { logPath: string; historyLogIdentity: { commandId: string; outputDir: string; runId: string } } | undefined {
   const status = String(job?.status || "").toLowerCase();
@@ -76,6 +98,16 @@ export function terminalHistoryLogBinding(plan: Pick<QueuedPlan, "id">, job: Pic
     logPath: `${outputDir}/${status === "completed" ? "stdout.log" : "stderr.log"}`,
     historyLogIdentity: { commandId, outputDir, runId },
   };
+}
+
+export function workerTaskLogBinding(plan: Pick<QueuedPlan, "id">, job: Pick<QueuedJob, "status" | "outputDir" | "commandId">,
+  taskLogPath: unknown): { logPath: string; historyLogIdentity?: { commandId: string; outputDir: string; runId: string } } | undefined {
+  const status = String(job?.status || "").toLowerCase();
+  if (["completed", "failed", "cancelled"].includes(status)) return terminalHistoryLogBinding(plan, job) || { logPath: "" };
+  const logPath = typeof taskLogPath === "string" ? taskLogPath.replace(/\\/g, "/").trim() : "";
+  if (!logPath || logPath.startsWith("/") || /^[A-Za-z]:/.test(logPath)
+    || logPath.split("/").some((part) => !part || part === "." || part === "..")) return undefined;
+  return { logPath };
 }
 
 export type WorkerSlots = { workerId: string; idleGpuIds: string[]; online: boolean; capacity?: number; codeFingerprint?: string; idleGpuAdmission?: boolean };
@@ -264,16 +296,21 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
       const statuses = new Set(jobRows.map((row) => row.status));
       const conflict = countConflict || overlappingAttempts || identities.size !== 1 || statuses.size > 1;
       const source = jobRows.sort((a, b) => a.workerId.localeCompare(b.workerId))[0];
+      const terminalStatus = !conflict && terminalStates.has(source.status) ? source.status as "completed" | "failed" | "cancelled" : undefined;
+      const taskLogPath = typeof task.logPath === "string" ? task.logPath : undefined;
+      const logBinding = terminalStatus
+        ? terminalHistoryLogBinding(plan, { status: terminalStatus, outputDir: String(task.outputDir), commandId: String(task.commandId) })
+        : workerTaskLogBinding(plan, { status: "running", outputDir: String(task.outputDir), commandId: String(task.commandId) }, taskLogPath);
       const merged: QueuedJob = {
         index, case: String(task.case || ""), seed: Number(task.seed), attempt, outputDir: String(task.outputDir),
         status: conflict ? "unknown" : source.status, workerId: source.workerId,
         commandId: String(task.commandId), runKey: String(task.runKey), projectId,
         ...(task.gpuId !== undefined && task.gpuId !== null ? { gpuId: String(task.gpuId) } : {}),
-        ...(typeof task.logPath === "string" ? { logPath: task.logPath } : {}),
+        ...(logBinding || {}),
         ...(typeof task.finishedAt === "string" ? { finishedAt: task.finishedAt } : {}),
         ...(typeof task.error === "string" ? { error: task.error } : {}),
         ...(typeof task.stopReason === "string" ? { stopReason: task.stopReason } : {}),
-        ...(!conflict && terminalStates.has(source.status) ? { trustedTerminalStatus: source.status as "completed" | "failed" | "cancelled" } : {}),
+        ...(terminalStatus ? { trustedTerminalStatus: terminalStatus } : {}),
         ...(historicalRows.some((row) => Number(row.task.experimentIndex) === index) ? {
           history: historicalRows.filter((row) => Number(row.task.experimentIndex) === index).map((row) => ({
             attempt: Number(row.task.attempt), status: row.status, workerId: row.workerId,

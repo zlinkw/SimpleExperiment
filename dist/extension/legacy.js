@@ -677,6 +677,8 @@ class RealtimeTunnelPanelProvider {
     lastWorkerProbes = {};
     distributedQueueCache;
     distributedQueueRoot = "";
+    distributedQueueDiskSignature = "";
+    distributedQueueStorageDiagnostics = { status: "ready" };
     distributedQueueTickPromise;
     distributedPlanStopEpoch = 0;
     distributedQueueGeneration = 0;
@@ -9432,19 +9434,44 @@ class RealtimeTunnelPanelProvider {
         return ranked[0].workerId;
     }
     async loadDistributedQueue(root) {
-        if (this.distributedQueueCache && this.distributedQueueRoot === root)
-            return this.distributedQueueCache;
         const file = DistributedPlanQueue.distributedQueuePath(this.context.globalStorageUri.fsPath, root);
-        const source = await fs.readFile(file, "utf8").catch((error) => { if (error?.code === "ENOENT")
-            return ""; throw error; });
-        const queue = source ? JSON.parse(source) : DistributedPlanQueue.emptyDistributedQueue();
-        if (queue.schemaVersion !== 1 || !Array.isArray(queue.plans))
-            throw new Error("分布式 Plan 队列格式无效，已停止自动派发。");
-        if (Array.isArray(queue.deferred))
-            queue.deferred = queue.deferred.map((row) => row.status === "processing" ? { ...row, status: "pending" } : row);
-        this.distributedQueueCache = queue;
+        const hasSameRootSnapshot = this.distributedQueueRoot === root && this.distributedQueueCache;
+        let source;
+        try {
+            source = await fs.readFile(file, "utf8").catch((error) => { if (error?.code === "ENOENT")
+                return ""; throw error; });
+        }
+        catch (error) {
+            if (!hasSameRootSnapshot)
+                throw error;
+            this.distributedQueueStorageDiagnostics = { status: "stale", updatedAt: new Date().toISOString(),
+                reason: "queue-read-failed", message: compactSensitiveText(errorMessage(error), 240) };
+            return DistributedPlanQueue.cloneDistributedQueue(this.distributedQueueCache, this.distributedQueueDiskSignature);
+        }
+        const signature = DistributedPlanQueue.distributedQueueDiskSignature(source);
+        if (hasSameRootSnapshot && signature === this.distributedQueueDiskSignature)
+            return DistributedPlanQueue.cloneDistributedQueue(this.distributedQueueCache, signature);
+        let queue;
+        try {
+            queue = source ? JSON.parse(source) : DistributedPlanQueue.emptyDistributedQueue();
+            if (queue.schemaVersion !== 1 || !Array.isArray(queue.plans))
+                throw new Error("分布式 Plan 队列格式无效，已停止自动派发。");
+            if (Array.isArray(queue.deferred))
+                queue.deferred = queue.deferred.map((row) => row.status === "processing" ? { ...row, status: "pending" } : row);
+        }
+        catch (error) {
+            if (!hasSameRootSnapshot)
+                throw error;
+            this.distributedQueueStorageDiagnostics = { status: "stale", updatedAt: new Date().toISOString(),
+                reason: "queue-parse-failed", message: compactSensitiveText(errorMessage(error), 240) };
+            return DistributedPlanQueue.cloneDistributedQueue(this.distributedQueueCache, this.distributedQueueDiskSignature);
+        }
+        this.distributedQueueCache = JSON.parse(JSON.stringify(queue));
         this.distributedQueueRoot = root;
-        return queue;
+        this.distributedQueueDiskSignature = signature;
+        if (this.distributedQueueStorageDiagnostics?.status === "stale")
+            this.distributedQueueStorageDiagnostics = { status: "ready" };
+        return DistributedPlanQueue.cloneDistributedQueue(this.distributedQueueCache, signature);
     }
     async withQueueWriteResource(root, work) {
         if (!this.hostOperationLease)
@@ -9455,6 +9482,7 @@ class RealtimeTunnelPanelProvider {
             resources: [{ server: "local", project: path.dirname(file), target: file }] }, work);
     }
     async saveDistributedQueue(root, queue, options = {}) {
+        const workingQueue = queue;
         const work = this.distributedQueueWritePromise.catch(() => undefined).then(async () => this.withQueueWriteResource(root, async () => {
             if (!options.appendPlanId && options.queueGeneration !== undefined && options.queueGeneration !== this.distributedQueueGeneration) {
                 throw new Error("过期调度轮次，已拒绝写入队列");
@@ -9462,28 +9490,64 @@ class RealtimeTunnelPanelProvider {
             if (options.submissionOperationId && ((this.distributedSubmissionEpochs?.get(options.submissionOperationId) || 0) !== options.submissionEpoch || workspaceRoot() !== root)) {
                 throw new Error("提交已取消，已拒绝写入队列");
             }
-            let current = this.distributedQueueRoot === root ? this.distributedQueueCache : undefined;
-            if (this.hostOperationLease) {
-                const file = DistributedPlanQueue.distributedQueuePath(this.context.globalStorageUri.fsPath, root);
-                let disk;
+            const file = DistributedPlanQueue.distributedQueuePath(this.context.globalStorageUri.fsPath, root);
+            const readDisk = async () => fs.readFile(file, "utf8").catch((error) => { if (error?.code === "ENOENT")
+                return ""; throw error; });
+            const parseDisk = (source) => {
+                const disk = source ? JSON.parse(source) : DistributedPlanQueue.emptyDistributedQueue();
+                if (disk.schemaVersion !== 1 || !Array.isArray(disk.plans))
+                    throw new Error("分布式 Plan 队列格式无效，已停止自动派发。");
+                if (Array.isArray(disk.deferred))
+                    disk.deferred = disk.deferred.map((row) => row.status === "processing" ? { ...row, status: "pending" } : row);
+                return disk;
+            };
+            const publishDiskSnapshot = (source, signature, status, reason, error) => {
                 try {
-                    disk = JSON.parse(await fs.readFile(file, "utf8"));
+                    const disk = parseDisk(source);
+                    this.distributedQueueCache = JSON.parse(JSON.stringify(disk));
+                    this.distributedQueueRoot = root;
+                    this.distributedQueueDiskSignature = signature;
+                    this.distributedQueueStorageDiagnostics = { status, updatedAt: new Date().toISOString(), reason,
+                        ...(error ? { message: compactSensitiveText(errorMessage(error), 240) } : {}) };
+                    return true;
+                }
+                catch (reloadError) {
+                    this.distributedQueueStorageDiagnostics = { status: "stale", updatedAt: new Date().toISOString(), reason,
+                        message: compactSensitiveText(errorMessage(error || reloadError), 240) };
+                    return false;
+                }
+            };
+            const conflict = async (source, signature) => {
+                publishDiskSnapshot(source, signature, "conflict", "queue-disk-version-changed");
+                this.postState?.();
+                throw new Error("另一窗口已更新该项目队列，本次旧快照未写入。已保留并刷新最近可信队列状态，请重试。");
+            };
+            const readDiskForSave = async () => {
+                try {
+                    return await readDisk();
                 }
                 catch (error) {
-                    if (error.code !== "ENOENT")
-                        throw error;
+                    this.distributedQueueStorageDiagnostics = { status: "stale", updatedAt: new Date().toISOString(),
+                        reason: "queue-version-check-failed", message: compactSensitiveText(errorMessage(error), 240) };
+                    this.postState?.();
+                    throw error;
                 }
-                if (disk && options.appendPlanId)
-                    current = disk;
-                else if (disk && current && JSON.stringify(disk) !== JSON.stringify(current)) {
-                    if (!options.appendPlanId) {
-                        this.distributedQueueRoot = undefined;
-                        this.distributedQueueCache = undefined;
-                        throw new Error("另一窗口已更新该项目队列，本次旧快照未写入。请点击刷新运行状态后重试。");
-                    }
-                    current = disk;
-                }
+            };
+            let diskSource = await readDiskForSave();
+            let diskSignature = DistributedPlanQueue.distributedQueueDiskSignature(diskSource);
+            let current;
+            try {
+                current = parseDisk(diskSource);
             }
+            catch (error) {
+                publishDiskSnapshot(diskSource, diskSignature, "stale", "queue-disk-parse-failed", error);
+                this.postState?.();
+                throw error;
+            }
+            const baseSignature = DistributedPlanQueue.distributedQueueBaseSignature(queue)
+                || DistributedPlanQueue.distributedQueueDiskSignature("");
+            if (!options.appendPlanId && diskSignature !== baseSignature)
+                await conflict(diskSource, diskSignature);
             if (options.appendPlanId && current) {
                 const appended = queue.plans.find((plan) => plan.id === options.appendPlanId);
                 if (!appended)
@@ -9503,12 +9567,18 @@ class RealtimeTunnelPanelProvider {
                             const oldJobs = new Map((oldPlans.get(plan.id)?.jobs || []).map((job) => [job.index, job]));
                             return { ...plan, jobs: plan.jobs.map((job) => {
                                     const old = oldJobs.get(job.index);
-                                    return old && old.attempt === job.attempt ? { ...job, artifacts: old.artifacts, fragmentWorkerIds: old.fragmentWorkerIds,
+                                    if (!old || old.attempt !== job.attempt)
+                                        return job;
+                                    const terminal = ["completed", "failed", "cancelled"].includes(job.status);
+                                    const terminalLog = DistributedPlanQueue.terminalHistoryLogBinding(plan, job);
+                                    return { ...job, artifacts: old.artifacts, fragmentWorkerIds: old.fragmentWorkerIds,
                                         mirroredWorkerIds: old.mirroredWorkerIds,
                                         artifactError: old.artifactError, artifactRetryAfter: old.artifactRetryAfter,
                                         error: job.error || old.error,
-                                        logPath: job.logPath || old.logPath,
-                                        finishedAt: job.finishedAt || old.finishedAt } : job;
+                                        logPath: terminal ? (terminalLog?.logPath || "") : (job.logPath || old.logPath),
+                                        ...(terminalLog ? { historyLogIdentity: terminalLog.historyLogIdentity }
+                                            : terminal ? { historyLogIdentity: undefined } : old.historyLogIdentity ? { historyLogIdentity: old.historyLogIdentity } : {}),
+                                        finishedAt: job.finishedAt || old.finishedAt };
                                 }) };
                         }) };
                 }
@@ -9519,13 +9589,22 @@ class RealtimeTunnelPanelProvider {
                         previewWorkerId: current.previewWorkerId, previewWorkerIds: current.previewWorkerIds,
                         previewPaths: current.previewPaths };
             }
-            const file = DistributedPlanQueue.distributedQueuePath(this.context.globalStorageUri.fsPath, root);
             await fs.mkdir(path.dirname(file), { recursive: true });
             const temporary = file + ".tmp-" + process.pid + "-" + crypto.randomBytes(4).toString("hex");
-            await fs.writeFile(temporary, JSON.stringify(queue, null, 2) + "\n", "utf8");
+            const serialized = JSON.stringify(queue, null, 2) + "\n";
+            const latestSource = await readDiskForSave();
+            const latestSignature = DistributedPlanQueue.distributedQueueDiskSignature(latestSource);
+            if (latestSignature !== diskSignature)
+                await conflict(latestSource, latestSignature);
+            await fs.writeFile(temporary, serialized, "utf8");
             await fs.rename(temporary, file);
             this.distributedQueueRoot = root;
-            this.distributedQueueCache = queue;
+            this.distributedQueueCache = JSON.parse(JSON.stringify(queue));
+            this.distributedQueueDiskSignature = DistributedPlanQueue.distributedQueueDiskSignature(serialized);
+            DistributedPlanQueue.setDistributedQueueBaseSignature(queue, this.distributedQueueDiskSignature);
+            if (workingQueue !== queue)
+                DistributedPlanQueue.setDistributedQueueBaseSignature(workingQueue, this.distributedQueueDiskSignature);
+            this.distributedQueueStorageDiagnostics = { status: "ready" };
             if (options.appendPlanId) {
                 this.distributedQueueGeneration = (this.distributedQueueGeneration || 0) + 1;
                 this.distributedTickAbort?.abort();
@@ -9909,9 +9988,6 @@ class RealtimeTunnelPanelProvider {
                         currentJob.reconciliationAttempts = 3;
                     continue;
                 }
-                const relativeLog = typeof task.logPath === "string" ? task.logPath.replace(/\\/g, "/") : "";
-                if (relativeLog && !relativeLog.startsWith("/") && !relativeLog.split("/").includes(".."))
-                    job.logPath = relativeLog;
                 if (typeof task.finishedAt === "string" && task.finishedAt)
                     job.finishedAt = task.finishedAt;
                 if (typeof task.error === "string" && task.error.trim())
@@ -9923,6 +9999,10 @@ class RealtimeTunnelPanelProvider {
                         newTerminal = true;
                     queue = DistributedPlanQueue.setJobState(queue, plan.id, job.index, nextStatus, job.commandId);
                 }
+                const currentJob = queue.plans.find((row) => row.id === plan.id)?.jobs.find((row) => row.index === job.index && row.attempt === job.attempt);
+                const logBinding = currentJob && DistributedPlanQueue.workerTaskLogBinding(plan, currentJob, task.logPath);
+                if (currentJob && logBinding)
+                    Object.assign(currentJob, logBinding);
             }
         }
         const projectId = DistributedPlanQueue.canonicalProjectId(root);
@@ -9944,6 +10024,10 @@ class RealtimeTunnelPanelProvider {
                     const historyLog = DistributedPlanQueue.terminalHistoryLogBinding(plan, job);
                     if (historyLog)
                         Object.assign(job, historyLog);
+                    else {
+                        job.logPath = "";
+                        job.historyLogIdentity = undefined;
+                    }
                     if (job.stopReason !== "requeue" && !previouslyTerminal.has(`${plan.id}\0${job.index}\0${job.attempt}`))
                         newTerminal = true;
                 }
@@ -19993,6 +20077,7 @@ class RealtimeTunnelPanelProvider {
             stateRenderedSeq: this.lastRenderedStateSeq,
             panelStateTelemetryPreviousSample: this.latestPanelStateTelemetry || null,
         });
+        diagnostics.distributedQueueStorage = this.distributedQueueStorageDiagnostics || { status: "ready" };
         timing.diagnosticsMs = Math.max(0, Date.now() - diagnosticsStartedAt);
         const gpuHistory = this.gpuHistoryState.snapshot();
         const distributedPlans = this.distributedQueueRoot === workspaceRoot()

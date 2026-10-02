@@ -276,6 +276,11 @@ test("a new completion also repairs a stale shared preview on every Worker", asy
   const last = compiled.indexOf("async retryDistributedJobFromUi(", first);
   const context = {
     workspaceRoot: () => "C:/project", Map, Set, Object, errorMessage: String,
+    uniqueStrings: (values) => [...new Set(values)],
+    PlanRunFreshness: { selectLatestCompletePlanRun(queue, planFile) {
+      const plan = (queue.plans || []).find((row) => row.planFile === planFile && row.jobs.every((job) => job.status === "completed"));
+      return plan ? { plan } : undefined;
+    } },
     crypto: { createHash: () => ({ update: () => ({ digest: () => "signature" }) }) },
     PlanArtifactTransfer_1: { workerFpsyncTaskLabel: (input) => [input.action, input.sourceId, input.destinationId].filter(Boolean).join(" ") },
   };
@@ -317,7 +322,7 @@ test("durable local admission requires a fresh capable ledger and an explicit id
   assert.match(admission, /DistributedPlanQueue\.hasFreshDurableSnapshot\(snapshot\)/);
   assert.match(admission, /snapshot\?\.capabilities\?\.idleGpuAdmission === true/);
   assert.match(admission, /codeFingerprint: workerFingerprint/);
-  assert.match(admission, /sendDistributedJob\(plan, job, dispatch\.workerId, gpuId, dispatch\.commandId\)/);
+  assert.match(admission, /sendDistributedJob\(plan, job, dispatch\.workerId, gpuId, dispatch\.commandId, sharedManifest\)/);
   assert.match(admission, /allocateAvailable\(queue, workers, \{ requireIdleGpuAdmission: true, localIdleOnly: true \}\)/);
   assert.doesNotMatch(source.slice(source.indexOf("async tickDistributedQueueCore("), source.indexOf("async syncDistributedJobArtifacts(")),
     /catch\s*\{\s*snapshot\s*=\s*this\.lastRealtimeState\?\.gpu/);

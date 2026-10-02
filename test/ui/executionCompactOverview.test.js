@@ -13,8 +13,8 @@ function extract(startName, endName) {
 }
 
 function executionPlanSource() {
-  const helpers = panel.indexOf("function executionPlanGroupKey(");
-  const end = panel.indexOf("function renderOperationSection(", helpers);
+  const helpers = panel.indexOf("function renderPlanTaskCards(");
+  const end = panel.indexOf("function renderOperationSectionIfChanged(", helpers);
   assert.ok(helpers > 0 && end > helpers);
   return panel.slice(helpers, end).replaceAll("\\\\", "\\");
 }
@@ -230,11 +230,27 @@ function clickSandbox(extra) {
   const sandbox = {
     Map, Set,
     operationRowsForState: () => [],
-    taskSectionViewModelForState: () => ({ allRows: [] }),
+    taskSectionViewModelForState: () => ({ allRows: [], taskView: { selectedRows: [] } }),
     taskPlanFile: (row) => row.planFile,
     taskSelectionSetsForState: () => ({}),
     normalizePlanSelectionKey: (value) => String(value || ""),
     samePlanSelection: (left, right) => left === right,
+    stableSectionSignature: (value) => JSON.stringify(value),
+    asArray: (value) => Array.isArray(value) ? value : [],
+    compactTaskRowsForRenderStructureSignature: (rows) => rows,
+    distributedPlanRecoveryView: (plan) => plan.recovery || {},
+    compactCapabilitiesForSignature: (value) => value,
+    compactOperationRowsForSignature: (rows) => rows,
+    normalizeFileTransferRows: (rows) => rows,
+    taskActionKey: (row) => String(row.uiKey || ""),
+    taskArchiveActionKey: (row) => String(row.uiKey || ""),
+    operationStatusFilter: "all",
+    selectedOperationHistoryIds: new Set(),
+    expandedTaskLogs: new Set(),
+    executionRenderKeysCacheState: null,
+    executionRenderKeysCacheValue: undefined,
+    executionRenderKeysCacheLocalSignature: "",
+    lastExecutionPlanListKey: "",
     selectedExecutionPlanFile: "",
     collapsedExecutionPlanKeys: new Set(),
     persistWebviewState: (patch) => persisted.push(patch),
