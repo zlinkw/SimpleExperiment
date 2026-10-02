@@ -15,7 +15,7 @@
 - [x] 移除 UI 个人服务器示例及 Agent 日志过滤中的用户名/环境名假设；日志函数用独立 Python fixture 验证，不加载完整 Agent。
 - [x] 针对当前源码运行串行回归、build、vm.Script；两个 `.pyc` SHA256 与开始前完全相同。
 - [x] 0.5.215 打包，171 个模块的 VSIX runtime closure 验证通过；安装一次并核对 CLI 入口。报告实测范围和待重载验收项。
-- [ ] 提交并快进推送 origin/master，fetch 核对相等。
+- [x] 代码提交 `45fe3764` 已快进推送 origin/master，fetch 后核对 HEAD 相等；本记录另行补齐交付状态。
 
 ## 设计约束
 
