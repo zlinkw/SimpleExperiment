@@ -6,7 +6,7 @@ const { readSource } = require("../_helpers/sourceReader");
 
 const extension = readSource("src/extension.ts");
 
-test("all accepted Plan submissions open the Plan runtime monitor", () => {
+test("accepted Plan submissions preserve the page without an explicit navigation request", () => {
   const start = extension.indexOf("async runActionCommandCore(command, message)");
   const end = extension.indexOf("async runPlanPreflight(body, label, authority = {})", start);
   assert.ok(start >= 0 && end > start);
@@ -19,6 +19,9 @@ test("all accepted Plan submissions open the Plan runtime monitor", () => {
   assert.ok(navigate > post);
   assert.ok(throwPending > navigate);
   assert.match(source.slice(navigate, throwPending), /await this\.openPanelAt\("execution", "execution-operations"\)/);
+  assert.doesNotMatch(source.slice(navigate, throwPending), /userInitiated:\s*true/);
+  const open = extension.slice(extension.indexOf("async openPanelAt("), extension.indexOf("async openPanelAt(") + 800);
+  assert.match(open, /if \(options\.userInitiated !== true\) return false;/);
 });
 
 test("submission navigation does not replace preflight blocking", () => {

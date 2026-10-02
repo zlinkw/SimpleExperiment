@@ -113,7 +113,7 @@ test("local toolbar commands wait for extension terminal status", async () => {
     "(" + source.slice(start, end).replace("private async withUiCommandStatus", "async function") + ");",
     { compilerOptions: { target: require("typescript").ScriptTarget.ES2022 } },
   ).outputText;
-  const context = vm.createContext({});
+  const context = vm.createContext({ PLAN_SUBMISSION_COMMANDS: new Set(["runPlan", "runAllPlans", "reproducePlan"]) });
   vm.runInContext(extractConst(source, "LOCAL_COMMAND_RELEASES_AFTER_TRIGGER") + "\n" + extractFunction(source, "localCommandReleasesAfterTrigger"), context);
   const run = vm.runInContext(emitted, context);
   const statuses = [];
@@ -157,8 +157,8 @@ test("webview command lifecycle reuses fixed status and command sets", () => {
   assert.equal(sandbox.api.commandNeedsLoading("runPlan"), true);
   assert.equal(sandbox.api.isTerminalUiStatus("STALLED"), true);
   assert.equal(sandbox.api.isTerminalUiStatus("running"), false);
-  assert.equal(sandbox.api.submittedCommandTarget("runAllPlans", "submitted").section, "execution");
-  assert.equal(sandbox.api.submittedCommandTarget("restoreArchivedPlan", "completed").section, "plans");
+  assert.equal(sandbox.api.submittedCommandTarget("runAllPlans", "submitted"), null);
+  assert.equal(sandbox.api.submittedCommandTarget("restoreArchivedPlan", "completed"), null);
   assert.equal(sandbox.api.submittedCommandTarget("runPlan", "running"), null);
   assert.equal(sandbox.api.isConfigSaveCommand("saveSchedulerConfig"), true);
   assert.equal(sandbox.api.isConfigSaveCommand("runPlan"), false);
@@ -169,7 +169,7 @@ test("webview command lifecycle reuses fixed status and command sets", () => {
   assert.match(source, /const CONFIG_SAVE_COMMANDS = new Set\(/);
   assert.match(source, /COMMANDS_WITHOUT_LOADING\??\.has\(String\(command \|\| ""\)\)/);
   assert.match(source, /TERMINAL_UI_STATUSES\??\.has\(String\(status \|\| ""\)\.toLowerCase\(\)\)/);
-  assert.match(source, /SUBMITTED_RUN_COMMANDS\??\.has\(normalizedCommand\)/);
+  assert.doesNotMatch(source, /navigateToResourceTarget\(submittedTarget\./);
   assert.match(source, /CONFIG_SAVE_COMMANDS\??\.has\(String\(command \|\| ""\)\)/);
 });
 

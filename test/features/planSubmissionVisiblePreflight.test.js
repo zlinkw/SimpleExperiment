@@ -65,6 +65,7 @@ const production = new Function("DistributedPlanQueue", "fs", "path", "crypto", 
     finishPlanSubmissionProgress: ${method("finishPlanSubmissionProgress").replace("finishPlanSubmissionProgress", "function")},
     planSubmissionQueueDetail: ${method("planSubmissionQueueDetail").replace("planSubmissionQueueDetail", "function")},
     distributedCodeVersionHold: ${method("distributedCodeVersionHold").replace("async distributedCodeVersionHold", "async function")},
+    assertPlanSubmissionNotDuringResultSync: ${method("assertPlanSubmissionNotDuringResultSync").replace("assertPlanSubmissionNotDuringResultSync", "function")},
     deferDistributedPlan: ${method("deferDistributedPlan").replace("async deferDistributedPlan", "async function")},
     supersedeDeferredPlan: ${method("supersedeDeferredPlan").replace("async supersedeDeferredPlan", "async function")},
     finishDistributedPlanSubmission: ${method("finishDistributedPlanSubmission").replace("async finishDistributedPlanSubmission", "async function")},
@@ -215,7 +216,7 @@ test("distributed submission holds an old fingerprint before sync and renders th
   await assert.rejects(() => host.finishDistributedPlanSubmission("runPlan", message(), { planFile: drf }, host.actionBody(message())), /未提交/);
   assert.deepEqual(host.calls, []);
   assert.equal((host.distributedQueueCache.deferred || []).length, 0);
-  assert.equal(host.localOperations["plan-submit-click-drf"].status, "cancelled");
+  assert.equal(host.localOperations["plan-submit-click-drf"].status, "failed");
   assert.match(host.localOperations["plan-submit-click-drf"].message, /未提交/);
   assert.match(host.localOperations["plan-submit-click-drf"].message, /刷新状态/);
   assert.match(host.localOperations["plan-submit-click-drf"].message, /终止并清除该 Plan/);
@@ -259,14 +260,15 @@ test("version hold does not call validate or enqueue", async () => {
   mountOldPlan(host);
   await assert.rejects(() => submit(host, message()), /未提交/);
   assert.deepEqual(host.calls, []);
-  assert.equal(host.localOperations["plan-submit-click-drf"].status, "cancelled");
+  assert.equal(host.localOperations["plan-submit-click-drf"].status, "failed");
 });
 
-test("version hold stays cancelled through the UI command wrapper", async () => {
+test("version hold reports failure in a modal through the UI command wrapper", async () => {
+  const alerts = [];
   const start = extension.indexOf("    private async withUiCommandStatus(");
   const end = extension.indexOf("    uiCommandWatchdogMs(", start);
   assert.ok(start >= 0 && end > start);
-  const wrapper = new Function("isUiCommandCancelled", "isUiCommandRemotePending", "errorMessage", "actionErrorSuggestion", "localCommandReleasesAfterTrigger", "vscode", `
+  const wrapper = new Function("isUiCommandCancelled", "isUiCommandRemotePending", "errorMessage", "actionErrorSuggestion", "localCommandReleasesAfterTrigger", "vscode", "hostOperationLeaseActionLabel", "compactSensitiveText", `
     return ${extension.slice(start, end).replace("private async withUiCommandStatus", "async function").replace(/: any/g, "")};
   `)(
     (error) => error && error.name === "UiCommandCancelled",
@@ -274,7 +276,9 @@ test("version hold stays cancelled through the UI command wrapper", async () => 
     (error) => String(error && error.message || error),
     (text) => String(text || ""),
     () => false,
-    { window: { showInformationMessage() {}, showWarningMessage() { return Promise.resolve(); } } },
+    { window: { showInformationMessage() {}, showErrorMessage: async (...args) => alerts.push(args) } },
+    () => "运行计划",
+    (text) => text,
   );
   const host = commandHost();
   mountOldPlan(host);
@@ -291,13 +295,16 @@ test("version hold stays cancelled through the UI command wrapper", async () => 
   });
   assert.deepEqual(host.calls, []);
   assert.equal((host.distributedQueueCache.deferred || []).length, 0);
-  assert.equal(host.localOperations["plan-submit-click-drf"].status, "cancelled");
+  assert.equal(host.localOperations["plan-submit-click-drf"].status, "failed");
   assert.match(host.localOperations["plan-submit-click-drf"].message, /未提交/);
   assert.match(host.localOperations["plan-submit-click-drf"].message, /校验并提交运行/);
-  assert.equal(statuses.at(-1).status, "cancelled");
+  assert.equal(statuses.at(-1).status, "failed");
   assert.match(statuses.at(-1).message, /未提交/);
   assert.equal(statuses.some((row) => row.status === "completed"), false);
-  assert.equal(host.actionErrors.length, 0);
+  assert.equal(host.actionErrors.length, 1);
+  assert.equal(alerts.length, 1);
+  assert.equal(alerts[0][1].modal, true);
+  assert.match(alerts[0][1].detail, /未提交/);
 });
 
 async function submit(host, item) {

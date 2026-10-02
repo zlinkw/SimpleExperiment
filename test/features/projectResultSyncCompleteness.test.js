@@ -84,6 +84,7 @@ function providerFor(workspace) {
   const calls = [];
   const provider = {
     calls,
+    manualResultSyncCounts: new Map(),
     runningBuildIdentity: require("../../dist/features/PanelBuildIdentity").readPanelBuildIdentity(extensionRoot, undefined, require("../../package.json").version),
     planFileInput: "experiments/plans/b.yaml",
     selectedPlanId: "experiments/plans/b.yaml",

@@ -44,8 +44,9 @@ test("scheduler terminal parses completed, failed, and cancelled plans without c
   const script = path.join(root, "verify.py");
   write(script, [
     "import json, os, sys",
-    `sys.path.insert(0, ${pyString(path.dirname(runtime))})`,
-    "import cluster_agent as agent",
+    `sys.path.insert(0, ${pyString(path.join(__dirname, "../_helpers"))})`,
+    "from extractRuntimeFunctions import extract_runtime_functions",
+    `agent = extract_runtime_functions(${pyString(runtime)}, ['now_iso', 'maybe_auto_run_completion_pipeline', 'read_results_summary', 'read_auto_completion_state'])`,
     `root = ${pyString(root)}`,
     `plans = ${JSON.stringify(plans)}`,
     "rows = []",
@@ -59,7 +60,10 @@ test("scheduler terminal parses completed, failed, and cancelled plans without c
     "    rows.append({'name': name, 'result': result, 'duplicate': duplicate, 'planFile': summary.get('planFile'), 'sources': summary.get('sources') or [], 'resultCount': summary.get('resultCount'), 'statisticsPath': summary.get('statisticsPath') or '', 'statePlan': state.get('planFile'), 'processed': list((state.get('processedKeys') or {}).keys())})",
     "print(json.dumps(rows))",
   ].join("\n"));
-  const result = spawnSync("python", [script], { encoding: "utf8", timeout: 30000 });
+  const result = spawnSync("python", ["-X", "utf8", script], {
+    encoding: "utf8", timeout: 10000, windowsHide: true,
+    env: { ...process.env, PYTHONDONTWRITEBYTECODE: "1" },
+  });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const rows = JSON.parse((result.stdout || "").trim().split(/\r?\n/).pop());
   assert.equal(rows.length, 3);

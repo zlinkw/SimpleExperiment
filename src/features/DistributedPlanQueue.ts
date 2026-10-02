@@ -87,6 +87,17 @@ export function cloneDistributedQueue(queue: DistributedQueue, baseSignature = d
   return copy;
 }
 
+/** Only our recorded metadata-only commits can advance a business working copy's base. */
+export function queueMetadataAdvanceRecorded(writes: readonly { root: string; from: string; to: string }[],
+  root: string, from: string, to: string): boolean {
+  let signature = from;
+  for (const write of writes) {
+    if (write.root === root && write.from === signature) signature = write.to;
+    if (signature === to) return true;
+  }
+  return false;
+}
+
 export function terminalHistoryLogBinding(plan: Pick<QueuedPlan, "id">, job: Pick<QueuedJob, "status" | "outputDir" | "commandId">):
   { logPath: string; historyLogIdentity: { commandId: string; outputDir: string; runId: string } } | undefined {
   const status = String(job?.status || "").toLowerCase();

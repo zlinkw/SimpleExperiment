@@ -64,7 +64,7 @@ test("first activation offers the exact missing setup or SimpleSFTP action", () 
   assert.match(source, /const needsWorker = !needsSftp && serverSetupComplete && enabledWorkerCount < 1/);
   assert.match(source, /正式运行、复现和批量运行还缺少至少一个启用的执行 Worker/);
   assert.match(source, /needsWorker\s*\? await vscode\.window\.showInformationMessage\(message, "打开服务器设置", "打开配置说明", "不再提示"\)/);
-  assert.match(source, /choice === "打开服务器设置"\)\s*await this\.openPanelAt\("settings", "settings-servers"\)/);
+  assert.match(source, /choice === "打开服务器设置"\)\s*await this\.openPanelAt\("settings", "settings-servers", \{ userInitiated: true \}\)/);
   assert.match(source, /const afterWorkerCount = this\.enabledWorkerConfigs\(\)\.length/);
   assert.match(source, /workspaceRoot\(\) && initialServerSetupComplete\(this\.setupConfig, this\.projectTopologyAssessment\(\)\.hubAllowed\) && afterSftp\.ready && afterWorkerCount > 0/);
   assert.match(source, /choice === "不再提示"[\s\S]{0,140}globalState\.update/);

@@ -3836,7 +3836,7 @@ export function renderPanelHtml(): string {
           if (Date.now() - Number(lastSnapshotRequestAt || 0) < 15000) { var __snapSection = String(lastSnapshotSection || ""); lastSnapshotRequestAt = 0; lastSnapshotSection = ""; if (__snapSection === "gpu") refreshGpuHistoryAfterSnapshot(); }
         } catch (e) {}
       }
-      if (latestNavigationMessage) {
+      if (latestNavigationMessage && (latestNavigationMessage.userInitiated === true || latestNavigationMessage.openResultMapping)) {
         navigateToResourceTarget(latestNavigationMessage.section, latestNavigationMessage.anchor, { force: true });
         if (latestNavigationMessage.openResultMapping) openResultColumnMappingEditor();
       }
@@ -5446,23 +5446,11 @@ export function renderPanelHtml(): string {
         if (lastState && !isConfigSaveCommand(data.command)) {
           refreshTerminalUi(data.command);
         } else applyPendingButtonStates();
-        const submittedTarget = submittedCommandTarget(data.command, data.status);
-        if (submittedTarget) {
-          setTracePlanScope("selected");
-          navigateToResourceTarget(submittedTarget.section, submittedTarget.anchor, { force: true });
-        }
       }
     }
 
     function submittedCommandTarget(command, status) {
-      const normalizedCommand = String(command || "");
-      const normalizedStatus = String(status || "").toLowerCase();
-      if (normalizedStatus === "submitted" && SUBMITTED_RUN_COMMANDS?.has(normalizedCommand)) {
-        return { section: "execution", anchor: "execution" };
-      }
-      if (normalizedStatus === "completed" && normalizedCommand === "restoreArchivedPlan") {
-        return { section: "plans", anchor: "plans-list" };
-      }
+      // Compatibility entry: action completion never owns navigation.
       return null;
     }
 
@@ -15273,7 +15261,7 @@ export function renderPanelHtml(): string {
       const legacyHtml = legacyTables.length ? '<details class="resultSpecialGroup" data-details-key="result-legacy-tables"' + detailsOpenAttr("result-legacy-tables", false) + '><summary>旧版结果结构（' + legacyTables.length + '）</summary><div class="resultSpecialBody"><div class="muted">旧结构只读保留；重新汇总后会生成按数据集组织的结果。</div>' + legacyTables.map(row => '<div class="resultTableName" title="' + escAttr(row.path || "") + '">' + esc(resultCatalogBasename(row.path)) + '</div>').join("") + '</div></details>' : "";
       const advancedHtml = sharedHtml || legacyHtml ? '<details class="resultSpecialGroup resultAdvancedSources" id="result-advanced-sources" data-details-key="result-advanced-sources"' + detailsOpenAttr("result-advanced-sources", false) + '><summary>高级来源</summary><div class="resultSpecialBody">' + sharedHtml + legacyHtml + '</div></details>' : "";
       const optionsHtml = (items, chosen) => items.map(item => '<option value="' + escAttr(item) + '"' + (item === chosen ? ' selected' : '') + '>' + esc(item) + '</option>').join("");
-      return '<div class="resultFinalCard resultTableBrowser"><div class="resultFinalHeader"><div><h3>结果总表</h3><p>按数据集组织结果。</p></div><div class="resultTopActions"><button type="button" data-command="syncPendingPlanArtifacts" title="手动同步各 Worker 的指标并更新结果总表，不会重新训练或下载权重、日志。">同步服务器结果并更新总表</button><button type="button" class="secondary" data-command="rebuildProjectResultTables" title="下载已完成运行的指标并重新汇总；权重、检查点和日志保留在服务器。">下载指标并重新汇总</button></div></div>' +
+      return '<div class="resultFinalCard resultTableBrowser"><div class="resultFinalHeader"><div><h3>结果总表</h3><p>按数据集组织结果。</p></div><div class="resultTopActions"><button type="button" data-command="syncPendingPlanArtifacts" title="校验并压缩同步各 Worker 的最新版产物，再下载指标更新总表；不会重新训练，权重和日志保留在服务器。">同步服务器结果并更新总表</button><button type="button" class="secondary" data-command="rebuildProjectResultTables" title="下载已完成运行的指标并重新汇总；权重、检查点和日志保留在服务器。">下载指标并重新汇总</button></div></div>' +
         reportHtml +
         (catalog.error ? '<div class="muted">结果目录需要检查：' + esc(catalog.error) + '</div>' : view.datasets.length ? '<section class="resultDatasetList"><h4 class="resultDatasetSectionTitle">数据集结果</h4>' + datasetsHtml + '</section>' : '<div class="muted">尚无总表。点击“同步服务器结果并更新总表”合并 Worker 结果、下载指标并生成总表。</div>') +
         unassignedHtml + (view.mappingConflicts.length ? '<div class="muted">' + view.mappingConflicts.map(item => esc('Plan ' + item.planFile + ' 的实际结果数据集 ' + item.actual.join('、') + ' 与历史人工映射 ' + item.mapped.join('、') + ' 不一致，已采用实际结果；请检查映射。')).join('<br>') + '</div>' : '') + advancedHtml +

@@ -50,7 +50,7 @@ test("the result table button merges every known result scope before any metric 
   assert.match(panel, /尚无总表。点击“同步服务器结果并更新总表”/);
   assert.doesNotMatch(panel, /同步待处理产物 \(/);
   assert.doesNotMatch(panel, /待处理产物计数属于自动的权重和日志同步/);
-  assert.match(extension, /case "syncPendingPlanArtifacts":\s*await this\.syncPendingResultMetricsFromUi\(\)/);
+  assert.match(extension, /case "syncPendingPlanArtifacts":\s*return this\.withManualResultSync\(\(\) => this\.syncPendingResultMetricsFromUi\(\)\)/);
   const manual = sliceBetween(extension, "async syncPendingResultMetricsFromUi(", "async summaryForMetricDownload(");
   const mergeAt = manual.indexOf("await this.mergeLatestWorkerVersions(");
   const downloadAt = manual.indexOf("downloadMappedResultBatch(");
@@ -129,6 +129,7 @@ function providerFor(workspace, options = {}) {
   };
   const provider = {
     calls,
+    manualResultSyncCounts: new Map(),
     runningBuildIdentity: require("../../dist/features/PanelBuildIdentity").readPanelBuildIdentity(root, undefined, require("../../package.json").version),
     planFileInput: options.selectedPlan || "",
     selectedPlanId: options.selectedPlan || "",

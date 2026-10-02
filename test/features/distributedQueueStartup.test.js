@@ -213,7 +213,7 @@ test("successful artifact pass clears an old disconnected warning", async () => 
 test("automatic completion does not rebuild previews or mirror completed job artifacts", async () => {
   const compiled = compiledSource;
   const first = compiled.indexOf("scheduleDistributedPostprocess(root, rerunIfBusy = false) {");
-  const last = compiled.indexOf("async postprocessDistributedResultsForManual(", first);
+  const last = compiled.indexOf("async refreshDistributedResultSyncProbes(", first);
   assert.ok(first >= 0 && last > first);
   const context = { workspaceRoot: () => "C:/project", errorMessage: String };
   vm.createContext(context);
@@ -263,6 +263,7 @@ test("every newly completed job rechecks all recorded job mirrors and repairs dr
     lastWorkerProbes: { w2: { status: "ok" }, w3: { status: "ok" } },
     sftpServerOptions: (target) => ({ id: target.id }),
     verifiedSftpProjectInventory: async ({ source }) => ({ files: { [file]: { sha256: source.id === "w2" || copied ? "new" : "old" } } }),
+    distributedOutputHashes: async (source) => ({ [file]: source.id === "w2" || copied ? "new" : "old" }),
     assertSshTransportIdentities: async () => undefined,
     simpleSftpApiCall: async () => { copied = true; },
     patchDistributedJob: async (_root, _plan, _index, _attempt, fields) => patches.push(fields),

@@ -130,14 +130,14 @@ test("quick project onboarding completes safe Plan and output setup in one flow"
   assert.match(extension, /await this\.testTunnel\(false\)/);
   assert.match(extension, /handleProjectBootstrapAction\(next, \{/);
   assert.match(extension, /next === "准备 Agent 并启动"[\s\S]{0,100}this\.prepareAgentsForFirstRun\(false\)/);
-  assert.match(extension, /next === "打开服务器设置"[\s\S]{0,100}openPanelAt\("settings", "settings-servers"\)/);
+  assert.match(extension, /next === "打开服务器设置"[\s\S]{0,100}openPanelAt\("settings", "settings-servers", \{ userInitiated: true \}\)/);
   assert.doesNotMatch(extension, /next === "开始一键配置"/);
   assert.match(extension, /next === "打开连接设置"[\s\S]{0,140}workbench\.action\.openSettings/);
   assert.match(extension, /next === "恢复在线连接"[\s\S]{0,180}clearOfflineImport\(\)[\s\S]{0,180}ensureRealtimeConnected\("resume from project onboarding"\)/);
   assert.match(extension, /next === "打开当前 Plan" && context\.planFile\)[\s\S]{0,120}openWorkspaceFileForProjectContext\(context\.planFile, projectContext\)/);
   assert.match(extension, /next === "打开接入配置" && context\.adapterConfig\)[\s\S]{0,120}openWorkspaceFileForProjectContext\(context\.adapterConfig, projectContext\)/);
-  assert.match(extension, /next === "查看运行进度"[\s\S]{0,100}openPanelAt\("execution", "execution-operations"\)/);
-  assert.match(extension, /next === "查看提交进度"[\s\S]{0,120}openPanelAt\("operations", "operations-list"\)/);
+  assert.match(extension, /next === "查看运行进度"[\s\S]{0,100}openPanelAt\("execution", "execution-operations", \{ userInitiated: true \}\)/);
+  assert.match(extension, /next === "查看提交进度"[\s\S]{0,120}openPanelAt\("operations", "operations-list", \{ userInitiated: true \}\)/);
   assert.match(extension, /next === "校验并提交运行"[\s\S]{0,180}this\.runActionCommand\("runPlan"/);
   assert.match(extension, /const currentCompletion = \(\) => \{/);
   assert.match(extension, /const NEW_PROJECT_INFRASTRUCTURE_MAX_STEPS = 3/);
@@ -235,10 +235,12 @@ test("quick project onboarding reports only the next action proven by current re
 
 test("quick project onboarding opens the exact panel destination", () => {
   assert.match(extension, /webviewReady = false/);
-  assert.match(extension, /case "webviewReady":[\s\S]{0,160}flushPendingPanelNavigation\(\)/);
+  const ready = extension.slice(extension.indexOf('case "webviewReady":'), extension.indexOf('case "webviewHeartbeatAck":'));
+  assert.match(ready, /flushPendingPanelNavigation\(\)/);
+  assert.match(extension, /if \(options\.userInitiated !== true\) return false/);
   assert.match(extension, /async openPanelAt\(section, anchor = section, options = \{\}\)/);
   assert.match(extension, /postMessage\(\{ type: "navigate", \.\.\.target \}\)/);
-  assert.match(panel, /vscode\.postMessage\(\{ command: "webviewReady" \}\)/);
+  assert.match(panel, /vscode\.postMessage\(\{ command: "webviewReady", documentGeneration: panelDocumentGeneration/);
   assert.match(panel, /item\.type === "navigate"/);
   assert.match(panel, /navigateToResourceTarget\(latestNavigationMessage\.section, latestNavigationMessage\.anchor, \{ force: true \}\)/);
 });

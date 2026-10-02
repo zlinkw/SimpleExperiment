@@ -773,6 +773,8 @@ export class RealtimeTunnelPanelProvider {
     distributedQueueCache;
     distributedQueueRoot = "";
     distributedQueueDiskSignature = "";
+    distributedQueueMetadataWrites = [];
+    private readonly manualResultSyncCounts = new Map<string, number>();
     distributedQueueStorageDiagnostics = { status: "ready" };
     distributedQueueTickPromise;
     distributedPlanStopEpoch = 0;
@@ -972,6 +974,7 @@ export class RealtimeTunnelPanelProvider {
     private distributedSubmissionAborts = new Map<string, AbortController>();
     distributedQueueWritePromise = Promise.resolve();
     distributedPostprocessPromise;
+    distributedPostprocessScope;
     private readonly planSyncSummaryRetries = new Map<string, { timer: ReturnType<typeof setTimeout>; attempt: number }>();
     confirmedRemotePaths = [];
     confirmedPptPaths = [];
@@ -3752,7 +3755,7 @@ export class RealtimeTunnelPanelProvider {
         if (choice === "打开扩展管理")
             await vscode.commands.executeCommand("workbench.extensions.search", `@id:${SIMPLE_SFTP_EXTENSION_ID}`);
         if (choice === "打开服务器设置")
-            await this.openPanelAt("settings", "settings-servers");
+            await this.openPanelAt("settings", "settings-servers", { userInitiated: true });
         const afterSftp = simpleSftpIntegrationReadiness();
         const afterWorkerCount = this.enabledWorkerConfigs().length;
         if (workspaceRoot() && initialServerSetupComplete(this.setupConfig, this.projectTopologyAssessment().hubAllowed) && afterSftp.ready && afterWorkerCount > 0)
@@ -3834,7 +3837,7 @@ export class RealtimeTunnelPanelProvider {
         if (missingServerSetup.length) {
             const open = await vscode.window.showWarningMessage(`一键配置续接已停止：服务器配置缺少 ${missingServerSetup.join("、")}。尚未生成当前项目 SimpleSFTP 目标或准备 Agent。`, "打开服务器设置", "稍后");
             if (open === "打开服务器设置")
-                await this.openPanelAt("settings", "settings-servers");
+                await this.openPanelAt("settings", "settings-servers", { userInitiated: true });
             return false;
         }
         let enabledWorkers = this.enabledWorkerConfigs();
@@ -3854,7 +3857,7 @@ export class RealtimeTunnelPanelProvider {
         if (profileResult.targetCount < expectedTargets) {
             const open = await vscode.window.showWarningMessage(`服务器配置尚未形成完整的 SimpleSFTP 目标：需要 ${expectedTargets} 个，当前 ${profileResult.targetCount} 个。请检查 Hub/Worker 的 Xshell 主机、用户名和项目父目录。`, "打开服务器设置", "稍后");
             if (open === "打开服务器设置")
-                await this.openPanelAt("settings", "settings-servers");
+                await this.openPanelAt("settings", "settings-servers", { userInitiated: true });
             this.postState();
             return false;
         }
@@ -3862,7 +3865,7 @@ export class RealtimeTunnelPanelProvider {
         if (preparationBlockers.length) {
             const open = await vscode.window.showWarningMessage(`服务器配置已保存，但 Agent 准备尚未开始：${preparationBlockers.join("；")}`, "打开服务器设置", "稍后");
             if (open === "打开服务器设置")
-                await this.openPanelAt("settings", "settings-servers");
+                await this.openPanelAt("settings", "settings-servers", { userInitiated: true });
             this.postState();
             return false;
         }
@@ -5288,14 +5291,12 @@ export class RealtimeTunnelPanelProvider {
                 await this.openResultArtifactFromUi(message);
                 break;
             case "syncAllResultArtifacts":
-                await this.syncAllResultArtifactsFromUi(message);
+                await this.withManualResultSync(() => this.syncAllResultArtifactsFromUi(message));
                 break;
             case "rebuildProjectResultTables":
-                await this.rebuildProjectResultTablesFromUi();
-                break;
+                return this.withManualResultSync(() => this.rebuildProjectResultTablesFromUi());
             case "syncPendingPlanArtifacts":
-                await this.syncPendingResultMetricsFromUi();
-                break;
+                return this.withManualResultSync(() => this.syncPendingResultMetricsFromUi());
             case "splitProjectResultTable":
                 await this.splitProjectResultTableFromUi(message);
                 break;
@@ -5375,6 +5376,13 @@ export class RealtimeTunnelPanelProvider {
         const isLocalTrigger = localCommandReleasesAfterTrigger(command);
         const guardedWork = work()
             .then(async (value) => {
+            if (["syncPendingPlanArtifacts", "rebuildProjectResultTables"].includes(command)
+                && value && (value.skipped?.length || value.missing?.length)) {
+                return { status: "failed", message: formatResultSyncReport(value, "结果同步未完整完成") };
+            }
+            const submission = PLAN_SUBMISSION_COMMANDS.has(command)
+                ? this.localOperations?.[this.planSubmissionOperationId(message)] : undefined;
+            if (submission?.status === "failed") return { status: "failed", message: submission.message || "计划未提交。" };
             if (command === "stopAndClearPlan" && value && typeof value === "object" && (value.status === "completed" || value.status === "failed" || value.status === "cancelled" || value.status === "partial")) {
                 const outcome = value.status === "partial" ? "failed" : value.status;
                 return { status: outcome, message: String(value.message || outcome), planStopClear: value.planStopClear };
@@ -5408,6 +5416,8 @@ export class RealtimeTunnelPanelProvider {
             this.finishPlanSubmissionProgress(message, "failed", result.message || "提交失败。");
             this.recordActionError({ command, message: result.message, suggestion: result.planStopClear?.nextStep || actionErrorSuggestion(result.message) });
             this.postState();
+            try { await vscode.window.showErrorMessage(`${hostOperationLeaseActionLabel(command) || command}未完成`,
+                { modal: true, detail: compactSensitiveText(result.message || "操作失败，请检查连接与产物校验记录。", 4000) }, "知道了"); } catch {}
         }
         this.postUiCommandStatus(clientActionId, result.status, command, result.message, result.planStopClear ? { planFile: result.planStopClear.planFile, planStopClear: result.planStopClear } : undefined);
     }
@@ -5521,6 +5531,9 @@ export class RealtimeTunnelPanelProvider {
         const action = actionCommandMap[command];
         if (!action)
             return;
+        if (PLAN_SUBMISSION_COMMANDS.has(command)
+            && (this.distributedPostprocessPromise || this.manualResultSyncCounts?.get(workspaceRoot())))
+            this.assertPlanSubmissionNotDuringResultSync(message);
         assertSingleProjectWorkspace("远端实验操作");
         if (["runPlan", "reproducePlan", "parseResults"].includes(command)) {
             const root = workspaceRoot();
@@ -5903,13 +5916,12 @@ export class RealtimeTunnelPanelProvider {
         if (!root) return undefined;
         const queue = await this.loadDistributedQueue(root);
         const occupied = queue.plans.filter((item) => item.jobs.some((job) => ["pending", "dispatching", "queued", "running", "unknown"].includes(job.status)));
-        if (!occupied.length && !this.distributedPostprocessPromise) return undefined;
+        if (!occupied.length) return undefined;
         const fingerprint = await this.localDistributedCodeFingerprint(root, signal);
         const workerFingerprints = Object.values(this.lastCodeSyncState?.workerVersions || {})
             .map((row: any) => String(row?.fingerprint || "")).filter(Boolean);
         const held = occupied.some((item) => item.codeFingerprint !== fingerprint
-            && DistributedPlanQueue.fingerprintStillMounted(queue, item.codeFingerprint, workerFingerprints))
-            || Boolean(this.distributedPostprocessPromise && queue.plans.some((item) => item.codeFingerprint !== fingerprint));
+            && DistributedPlanQueue.fingerprintStillMounted(queue, item.codeFingerprint, workerFingerprints));
         if (!held) return undefined;
         const blocker = occupied.find((item) => item.codeFingerprint !== fingerprint) || occupied[0];
         return { root, queue, fingerprint, blocker };
@@ -5976,7 +5988,7 @@ export class RealtimeTunnelPanelProvider {
                 void vscode.window.showWarningMessage(`${message} 查看详情：操作进度 / 诊断错误`, "查看操作进度").then((pick) => {
                     if (pick === "查看操作进度" && this.view) {
                         try {
-                            void this.view.webview.postMessage({ type: "navigate", section: "execution", anchor: "execution-operations" });
+                            void this.view.webview.postMessage({ type: "navigate", userInitiated: true, section: "execution", anchor: "execution-operations" });
                         }
                         catch { }
                     }
@@ -6395,7 +6407,7 @@ export class RealtimeTunnelPanelProvider {
             seen.add(key);
             const choice = await vscode.window.showInformationMessage(next.message, next.action, "打开面板");
             if (choice === "打开服务器设置") {
-                await this.openPanelAt("settings", "settings-servers");
+                await this.openPanelAt("settings", "settings-servers", { userInitiated: true });
                 return;
             }
             if (choice === "打开扩展管理") {
@@ -6424,9 +6436,12 @@ export class RealtimeTunnelPanelProvider {
         await vscode.commands.executeCommand(`${viewId}.focus`);
     }
     async openPanelAt(section, anchor = section, options = {}) {
+        // Only a concrete navigation click may change the user's page or scroll position.
+        if (options.userInitiated !== true) return false;
         const target = {
             section: String(section || "overview").trim() || "overview",
             anchor: String(anchor || section || "overview").trim() || "overview",
+            userInitiated: true,
         };
         this.pendingPanelNavigation = target;
         await this.openPanel();
@@ -8896,11 +8911,30 @@ export class RealtimeTunnelPanelProvider {
             manifest, stats: built.stats || {}, fingerprint, expiresAt: Date.now() + 10_000 };
         return fingerprint;
     }
+    assertPlanSubmissionNotDuringResultSync(message) {
+        if (!this.distributedPostprocessPromise && !this.manualResultSyncCounts?.get(workspaceRoot())) return;
+        const detail = "服务器产物同步正在进行，当前 Plan 尚未提交。同步将继续，不会被本次运行请求中断。请待同步完成后再运行；无需终止或清除历史 Plan。";
+        this.finishPlanSubmissionProgress(message, "failed", detail);
+        throw new Error(detail);
+    }
+    async withManualResultSync(work) {
+        const root = workspaceRoot();
+        const counts = this.manualResultSyncCounts;
+        counts.set(root, (counts.get(root) || 0) + 1);
+        try { return await work(); }
+        finally {
+            const remaining = (counts.get(root) || 1) - 1;
+            if (remaining) counts.set(root, remaining);
+            else counts.delete(root);
+        }
+    }
     async finishDistributedPlanSubmission(command, message, plan, body) {
         const operationId = this.planSubmissionOperationId(message);
         const submissionEpoch = operationId ? (this.distributedSubmissionEpochs?.get(operationId) || 0) : 0;
         const submissionRoot = workspaceRoot();
         if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot)) return;
+        if (this.distributedPostprocessPromise || this.manualResultSyncCounts?.get(workspaceRoot()))
+            this.assertPlanSubmissionNotDuringResultSync(message);
         const fingerprintStarted = Date.now();
         const versionHold: any = await this.waitForPlanSubmission(message, () => this.distributedCodeVersionHold(body, this.distributedSubmissionAborts?.get(operationId)?.signal));
         if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot)) return;
@@ -8920,9 +8954,8 @@ export class RealtimeTunnelPanelProvider {
         if (versionHold) {
             const detail = this.planSubmissionQueueDetail(body, versionHold.blocker, false);
             this.reportPlanStage(message, "未提交：旧代码版本仍占用 Worker。");
-            this.finishPlanSubmissionProgress(message, "cancelled", detail);
-            await this.openPanelAt("execution", "execution-operations");
-            throw new UiCommandCancelled(detail);
+            this.finishPlanSubmissionProgress(message, "failed", detail);
+            throw new Error(detail);
         }
         try {
             const codeSyncStarted = Date.now();
@@ -9167,7 +9200,13 @@ export class RealtimeTunnelPanelProvider {
             }
             const baseSignature = DistributedPlanQueue.distributedQueueBaseSignature(queue)
                 || DistributedPlanQueue.distributedQueueDiskSignature("");
-            if (!options.appendPlanId && diskSignature !== baseSignature) await conflict(diskSource, diskSignature);
+            if (options.mutateLatest) {
+                // Delta patches read and mutate inside the same serialized/leased storage transaction.
+                queue = options.mutateLatest(DistributedPlanQueue.cloneDistributedQueue(current, diskSignature));
+            } else if (!options.appendPlanId && diskSignature !== baseSignature
+                && !DistributedPlanQueue.queueMetadataAdvanceRecorded(this.distributedQueueMetadataWrites || [], root, baseSignature, diskSignature)) {
+                await conflict(diskSource, diskSignature);
+            }
             if (options.appendPlanId && current) {
                 const appended = queue.plans.find((plan) => plan.id === options.appendPlanId);
                 if (!appended) throw new Error("提交缺少待入队 Plan，未写入队列");
@@ -9218,8 +9257,12 @@ export class RealtimeTunnelPanelProvider {
             this.distributedQueueRoot = root;
             this.distributedQueueCache = JSON.parse(JSON.stringify(queue));
             this.distributedQueueDiskSignature = DistributedPlanQueue.distributedQueueDiskSignature(serialized);
+            if (options.artifactMutation || options.publicationMutation) {
+                this.distributedQueueMetadataWrites = [...(this.distributedQueueMetadataWrites || []),
+                    { root, from: diskSignature, to: this.distributedQueueDiskSignature }].slice(-64);
+            }
             DistributedPlanQueue.setDistributedQueueBaseSignature(queue, this.distributedQueueDiskSignature);
-            if (workingQueue !== queue) DistributedPlanQueue.setDistributedQueueBaseSignature(workingQueue, this.distributedQueueDiskSignature);
+            if (workingQueue && workingQueue !== queue) DistributedPlanQueue.setDistributedQueueBaseSignature(workingQueue, this.distributedQueueDiskSignature);
             this.distributedQueueStorageDiagnostics = { status: "ready" };
             if (options.appendPlanId) {
                 this.distributedQueueGeneration = (this.distributedQueueGeneration || 0) + 1;
@@ -9231,56 +9274,86 @@ export class RealtimeTunnelPanelProvider {
         await work;
     }
     async patchDistributedJob(root, planId, index, attempt, fields) {
-        await this.distributedQueueWritePromise.catch(() => undefined);
-        const latest = await this.loadDistributedQueue(root);
         const { replaceMirroredWorkerIds, replaceFragmentWorkerIds, ...updates } = fields;
-        const next = { ...latest, plans: latest.plans.map((plan) => plan.id !== planId ? plan : { ...plan,
-            jobs: plan.jobs.map((job) => job.index !== index || job.attempt !== attempt ? job : { ...job, ...updates,
+        await this.saveDistributedQueue(root, undefined, { artifactMutation: true,
+            mutateLatest: (latest) => ({ ...latest, plans: latest.plans.map((plan) => plan.id !== planId ? plan : { ...plan,
+            jobs: plan.jobs.map((job) => job.index !== index || job.attempt !== attempt || job.outputRetiredAt ? job : { ...job, ...updates,
                 mirroredWorkerIds: fields.mirroredWorkerIds
                     ? replaceMirroredWorkerIds ? fields.mirroredWorkerIds : [...new Set([...(job.mirroredWorkerIds || []), ...fields.mirroredWorkerIds])]
                     : job.mirroredWorkerIds,
                 fragmentWorkerIds: fields.fragmentWorkerIds
                     ? replaceFragmentWorkerIds ? fields.fragmentWorkerIds : [...new Set([...(job.fragmentWorkerIds || []), ...fields.fragmentWorkerIds])]
-                    : job.fragmentWorkerIds }) }) };
-        await this.saveDistributedQueue(root, next, { artifactMutation: true });
+                    : job.fragmentWorkerIds }) }) }) });
     }
     async patchDistributedPublication(root, fields) {
-        await this.distributedQueueWritePromise.catch(() => undefined);
-        const latest = await this.loadDistributedQueue(root);
-        await this.saveDistributedQueue(root, { ...latest, ...fields }, { publicationMutation: true });
+        await this.saveDistributedQueue(root, undefined, { publicationMutation: true,
+            mutateLatest: (latest) => ({ ...latest, ...fields }) });
     }
     scheduleDistributedPostprocess(root, rerunIfBusy = false) {
         // Result files and summaries are user pulled. Keep this hook inert for legacy tick callers.
         void root;
         void rerunIfBusy;
     }
+    async refreshDistributedResultSyncProbes(root) {
+        const client = this.client;
+        const generation = this.projectContextGeneration;
+        const items = this.tunnelLaunchItems().filter((item) => item.role === "worker");
+        const probes = await Promise.allSettled(items.map(async (item) => ({ id: item.id,
+            probe: enforceExpectedAgentProjectRoot(await (0, XshellTunnelPortProbe_1.probeWorkerTelemetryTunnel)(
+                { ...item.config, token: this.tunnelConfig.token }, { timeoutMs: 1500 }), this.expectedWorkerAgentProjectRoot(item.id), item.label || item.id) })));
+        if (workspaceRoot() !== root || client !== this.client || generation !== this.projectContextGeneration) return;
+        const next = { ...this.lastWorkerProbes };
+        probes.forEach((result, index) => {
+            const id = items[index].id;
+            next[id] = this.stampWorkerProbeGeneration(id, result.status === "fulfilled" ? result.value.probe
+                : { status: "timeout", message: errorMessage(result.reason) });
+        });
+        this.lastWorkerProbes = next;
+    }
     async postprocessDistributedResultsForManual(root, scope: "metrics" | "full" = "metrics") {
-        if (this.distributedPostprocessPromise) return this.distributedPostprocessPromise;
-        const work = (async () => {
+        if (this.distributedPostprocessPromise) {
+            const previous = this.distributedPostprocessPromise;
+            const previousScope = this.distributedPostprocessScope;
+            await previous;
+            if (scope === "metrics" || previousScope === "full" || workspaceRoot() !== root) return;
+            // A metrics preview cannot satisfy a request for checkpoint mirroring/formal publication.
+            return this.postprocessDistributedResultsForManual(root, "full");
+        }
+        this.distributedPostprocessScope = scope;
+        const work = vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
+            title: "同步服务器最新 Plan 产物", cancellable: false }, async (progress) => {
             const queue = await this.loadDistributedQueue(root);
             if (!queue.plans.length || workspaceRoot() !== root) return;
+            progress.report({ message: "检测当前 Worker 连接" });
+            await this.refreshDistributedResultSyncProbes(root);
+            if (workspaceRoot() !== root) return;
+            if (!this.workerCodeSyncTargets().some((target) => this.lastWorkerProbes[target.id]?.status === "ok"))
+                throw new Error("没有可用 Worker，未同步服务器产物。请检查连接后重试。");
+            progress.report({ message: "校验并恢复最新版结果片段" });
             try {
-                await this.syncDistributedJobArtifacts(root, queue, "fragments", false);
+                await this.syncDistributedJobArtifacts(root, queue, "fragments", true);
             } catch (error) {
                 if (scope === "full") throw error;
                 this.recordActionError({ command: "distributedFragmentSync", message: errorMessage(error) });
             }
             if (workspaceRoot() !== root) return;
             try {
-                await this.rebuildDistributedResults(root, await this.loadDistributedQueue(root), true, false);
+                await this.rebuildDistributedResults(root, await this.loadDistributedQueue(root), true, true);
             } catch (error) {
                 if (scope === "full") throw error;
                 this.recordActionError({ command: "distributedPreviewRebuild", message: errorMessage(error) });
             }
             if (scope === "metrics") return;
-            await this.syncDistributedJobArtifacts(root, await this.loadDistributedQueue(root), "bulk", false);
+            progress.report({ message: "压缩打包同步最新版检查点与日志" });
+            await this.syncDistributedJobArtifacts(root, await this.loadDistributedQueue(root), "bulk", true);
             if (workspaceRoot() !== root) return;
-            await this.rebuildDistributedResults(root, await this.loadDistributedQueue(root), false, false);
+            progress.report({ message: "校验并发布正式结果" });
+            await this.rebuildDistributedResults(root, await this.loadDistributedQueue(root), false, true);
             if (workspaceRoot() === root) this.postState();
-        })();
+        });
         this.distributedPostprocessPromise = work;
         try { await work; }
-        finally { if (this.distributedPostprocessPromise === work) this.distributedPostprocessPromise = undefined; }
+        finally { if (this.distributedPostprocessPromise === work) { this.distributedPostprocessPromise = undefined; this.distributedPostprocessScope = undefined; } }
     }
     async enqueueDistributedPlan(body, validated, skipTick = false, supersededDeferredId = "", submissionEpoch = 0, submissionOperationId = "") {
         const root = workspaceRoot();
@@ -9981,60 +10054,78 @@ export class RealtimeTunnelPanelProvider {
         const selectedIds = new Set(PlanOutputRetention.plansForOutputSync(
             PlanOutputRetention.withValidatedPlanJobCounts(queue, this.localPlanMetadata?.plans || [])).map((plan) => plan.id));
         const plans = this.planOutputRetentionMode(root) === "keep-history" ? queue.plans : queue.plans.filter((plan) => selectedIds.has(plan.id));
+        const transfers = [];
+        const failures = [];
+        const verifiedJobs = new Map();
+        const failedJobs = new Set();
+        const jobKey = (plan, job) => `${plan.id}:${job.index}:${job.attempt}`;
+        const failJob = async (plan, job, error) => {
+            failedJobs.add(jobKey(plan, job));
+            job.artifactError = errorMessage(error);
+            job.artifactRetryAfter = new Date(Date.now() + 30_000).toISOString();
+            await this.patchDistributedJob(root, plan.id, job.index, job.attempt,
+                { artifactError: job.artifactError, artifactRetryAfter: job.artifactRetryAfter });
+            const message = `${plan.planFile} job ${job.index}：${job.artifactError}`;
+            failures.push(message);
+            this.recordActionError({ command: "distributedArtifactSync", message });
+        };
         for (const plan of plans) for (const job of plan.jobs) {
             if (workspaceRoot() !== root) return;
             if (job.status !== "completed" || !job.workerId || job.outputRetiredAt) continue;
-            if (job.artifactRetryAfter && Date.parse(job.artifactRetryAfter) > Date.now()) continue;
+            if (!verifyAll && job.artifactRetryAfter && Date.parse(job.artifactRetryAfter) > Date.now()) continue;
             try {
                 const sources = [...new Set([job.workerId, ...(job.mirroredWorkerIds || []), ...(phase === "fragments" ? job.fragmentWorkerIds || [] : [])])];
-                const sourceId = sources.find((id) => online.includes(id));
+                const fragmentPaths = contract.fragmentPaths.map((name) => `${job.outputDir}/${name}`);
+                const ownedPaths = () => Object.keys(job.artifacts || {}).filter((file) => file.startsWith(job.outputDir + "/"));
+                const needsInventory = !job.artifacts || fragmentPaths.some((file) => !job.artifacts[file])
+                    || phase === "bulk" && !contract.requiredPaths.every((name) => job.artifacts[`${job.outputDir}/${name}`]);
+                let sourceId, collected;
+                const invalidSources = [];
+                for (const id of sources.filter((id) => online.includes(id))) {
+                    if (!verifyAll && !needsInventory) { sourceId = id; break; }
+                    try {
+                        const source = this.sftpServerOptions(targets.get(id));
+                        const expected = phase === "fragments" ? fragmentPaths : ownedPaths();
+                        const known = expected.filter((file) => job.artifacts?.[file]);
+                        const hashes = known.length ? await this.distributedOutputHashes(source, known) : {};
+                        if (known.some((file) => hashes[file] !== job.artifacts[file])) throw new Error("已记录产物缺失或哈希不一致");
+                        if (needsInventory) {
+                            const inventory = (await this.verifiedSftpProjectInventory({ source, relativePath: job.outputDir,
+                                recursive: true, ...(phase === "fragments" ? { scopePaths: fragmentPaths } : {}) })).files;
+                            collected = phase === "fragments" ? Object.fromEntries(fragmentPaths.map((file) => [file, String(inventory[file]?.sha256 || "").toLowerCase()]))
+                                : collectDistributedJobArtifacts(job.outputDir, inventory);
+                            const required = phase === "fragments" ? fragmentPaths : contract.requiredPaths.map((name) => `${job.outputDir}/${name}`);
+                            if (required.some((file) => !/^[a-f0-9]{64}$/.test(collected[file] || ""))) throw new Error("缺少检查点或结果片段");
+                        }
+                        sourceId = id;
+                        break;
+                    } catch { invalidSources.push(id); }
+                }
                 if (!sourceId) {
-                    throw new Error(`来源 Worker 与已校验镜像均不可用：${sources.map((id) => `${id}=${targets.has(id) ? this.lastWorkerProbes[id]?.message || this.lastWorkerProbes[id]?.status || "尚未探测" : "未配置或已停用"}`).join("；")}`);
+                    throw new Error(`来源 Worker 与同一运行的镜像均缺失产物、校验失败或不可用：${sources.join("、")}；${job.outputDir}`);
                 }
                 const sourceRow = targets.get(sourceId);
                 const source = this.sftpServerOptions(sourceRow);
-                const fragmentPaths = contract.fragmentPaths
-                    .map((name) => `${job.outputDir}/${name}`);
-                if (!job.artifacts || fragmentPaths.some((file) => !job.artifacts[file]) || phase === "bulk" && !contract.requiredPaths.every((name) => job.artifacts[`${job.outputDir}/${name}`])) {
-                    const files: [string, any][] = [];
-                    if (phase === "fragments") {
-                        const fragmentEntries = await mapLimited(fragmentPaths, 3, async (file) => {
-                            const entry = (await this.verifiedSftpProjectInventory({ source, relativePath: file })).files[file];
-                            if (!entry?.sha256) throw new Error(`结果片段缺失：${file}`);
-                            return [file, entry] as [string, any];
-                        });
-                        files.push(...fragmentEntries);
-                    } else {
-                        const inventory = (await this.verifiedSftpProjectInventory({ source, relativePath: job.outputDir, recursive: true })).files;
-                        files.push(...Object.entries(collectDistributedJobArtifacts(job.outputDir, inventory))
-                            .map(([name, sha256]) => [name, { sha256 }] as [string, any]));
-                        const required = contract.requiredPaths.map((name) => `${job.outputDir}/${name}`);
-                        if (required.some((name) => !files.some(([file]) => file === name))) throw new Error("缺少检查点或双端点/四态结果片段");
-                    }
-                    job.artifacts = { ...(job.artifacts || {}), ...Object.fromEntries(files.map(([name, row]: [string, any]) => [name, String(row.sha256).toLowerCase()])) };
-                    job.fragmentWorkerIds = [...new Set([...(job.fragmentWorkerIds || []), sourceId])];
-                    if (phase === "bulk") job.mirroredWorkerIds = [...new Set([...(job.mirroredWorkerIds || []), sourceId])];
-                    job.artifactError = undefined;
-                    job.artifactRetryAfter = undefined;
-                    await this.patchDistributedJob(root, plan.id, job.index, job.attempt, { artifacts: job.artifacts,
-                        fragmentWorkerIds: job.fragmentWorkerIds, mirroredWorkerIds: job.mirroredWorkerIds,
-                        artifactError: undefined, artifactRetryAfter: undefined });
-                }
+                if (collected) job.artifacts = { ...(job.artifacts || {}), ...collected };
+                const mirrorField = phase === "fragments" ? "fragmentWorkerIds" : "mirroredWorkerIds";
+                job[mirrorField] = [...new Set([...(job[mirrorField] || []).filter((id) => !invalidSources.includes(id)), sourceId])];
+                await this.patchDistributedJob(root, plan.id, job.index, job.attempt, { artifacts: job.artifacts,
+                    [mirrorField]: job[mirrorField], [phase === "fragments" ? "replaceFragmentWorkerIds" : "replaceMirroredWorkerIds"]: true });
+                const paths = phase === "fragments" ? fragmentPaths : ownedPaths().sort();
                 for (const workerId of online) {
                     if (workspaceRoot() !== root) return;
                     const previouslyMirrored = phase === "fragments" ? job.fragmentWorkerIds?.includes(workerId) : job.mirroredWorkerIds?.includes(workerId);
                     if (previouslyMirrored && !verifyAll) continue;
                     const target = targets.get(workerId);
                     const destination = this.sftpServerOptions(target);
+                    if (workerId === sourceId) continue;
                     if (previouslyMirrored) {
                         let matches = false;
                         try {
-                            const checked = (await this.verifiedSftpProjectInventory({ source: destination, relativePath: job.outputDir, recursive: true })).files;
-                            const expected = phase === "fragments" ? fragmentPaths : Object.keys(job.artifacts).filter((file) => file.startsWith(job.outputDir + "/"));
-                            matches = expected.every((file) => String(checked[file]?.sha256 || "").toLowerCase() === job.artifacts[file]);
+                            const checked = await this.distributedOutputHashes(destination, paths);
+                            matches = paths.every((file) => checked[file] === job.artifacts[file]);
                         } catch { /* Recopy and verify below. */ }
                         if (matches) continue;
-                        if (workerId === sourceId) throw new Error(`${workerId} 已记录的 job 产物发生变化，不能从自身恢复镜像：${job.outputDir}`);
                         if (phase === "fragments") {
                             job.fragmentWorkerIds = (job.fragmentWorkerIds || []).filter((id) => id !== workerId);
                             await this.patchDistributedJob(root, plan.id, job.index, job.attempt,
@@ -10045,71 +10136,63 @@ export class RealtimeTunnelPanelProvider {
                                 { mirroredWorkerIds: job.mirroredWorkerIds, replaceMirroredWorkerIds: true });
                         }
                     }
-                    await this.assertSshTransportIdentities([sourceRow, target]);
-                    const paths = phase === "fragments" ? fragmentPaths
-                        : Object.keys(job.artifacts).filter((name) => !fragmentPaths.includes(name)).sort();
-                    const batchCount = Math.ceil(paths.length / 5000) || 1;
-                    for (let offset = 0; offset < paths.length; offset += 5000) {
-                        const relativePaths = paths.slice(offset, offset + 5000);
-                        const batch = offset / 5000 + 1;
-                        const jobLabel = [job.index !== undefined ? `job ${job.index}` : "", job.seed !== undefined && job.seed !== null && job.seed !== "" ? `seed ${job.seed}` : ""].filter(Boolean).join(" / ");
-                        await this.simpleSftpApiCall("sync.serverToServerFpsync", { source,
-                            destination: { ...destination, host: destination.networkHost || destination.host },
-                            relativePaths, confirm: true, pathConfirmed: true,
-                            taskLabel: workerFpsyncTaskLabel({
-                                action: "分布式 job 产物复制",
-                                planFile: plan.planFile, job: jobLabel,
-                                sourceId: sourceId, destinationId: workerId,
-                                detail: phase === "fragments" ? `结果片段 ${job.outputDir}` : `检查点与结果 ${job.outputDir}`,
-                                batch, batchCount,
-                            }) });
-                    }
-                    if (phase === "fragments") {
-                        await mapLimited(fragmentPaths, 3, async (file) => {
-                            const checked = (await this.verifiedSftpProjectInventory({ source: destination, relativePath: file })).files;
-                            if (String(checked[file]?.sha256 || "").toLowerCase() !== job.artifacts[file]) throw new Error(`${workerId} 结果片段校验失败：${file}`);
-                        });
-                        job.fragmentWorkerIds = [...new Set([...(job.fragmentWorkerIds || []), workerId])];
-                        await this.patchDistributedJob(root, plan.id, job.index, job.attempt, { fragmentWorkerIds: job.fragmentWorkerIds,
-                            artifactError: undefined, artifactRetryAfter: undefined });
-                        continue;
-                    }
-                    const checked = (await this.verifiedSftpProjectInventory({ source: destination, relativePath: job.outputDir, recursive: true })).files;
-                    if (Object.keys(job.artifacts).filter((file) => file.startsWith(job.outputDir + "/"))
-                        .some((file) => String(checked[file]?.sha256 || "").toLowerCase() !== job.artifacts[file])) throw new Error(`${workerId} 内容校验失败`);
-                    job.mirroredWorkerIds = [...new Set([...(job.mirroredWorkerIds || []), workerId])];
-                    job.artifactError = undefined;
-                    await this.patchDistributedJob(root, plan.id, job.index, job.attempt, { mirroredWorkerIds: job.mirroredWorkerIds,
-                        artifactError: undefined, artifactRetryAfter: undefined });
+                    transfers.push({ plan, job, sourceId, workerId, sourceRow, target, source, destination, paths });
                 }
-                if (job.artifactError || job.artifactRetryAfter) {
-                    job.artifactError = undefined;
-                    job.artifactRetryAfter = undefined;
-                    await this.patchDistributedJob(root, plan.id, job.index, job.attempt,
-                        { artifactError: undefined, artifactRetryAfter: undefined });
-                }
+                verifiedJobs.set(jobKey(plan, job), { plan, job });
             } catch (error) {
-                job.artifactError = errorMessage(error);
-                job.artifactRetryAfter = new Date(Date.now() + 30_000).toISOString();
-                await this.patchDistributedJob(root, plan.id, job.index, job.attempt,
-                    { artifactError: job.artifactError, artifactRetryAfter: job.artifactRetryAfter });
-                this.recordActionError({ command: "distributedArtifactSync", message: `${plan.planFile} job ${job.index}：${job.artifactError}` });
+                await failJob(plan, job, error);
             }
         }
+        // Plan ownership stays in each record; compatible files share one archive per Worker pair.
+        const groups = new Map<string, any[]>();
+        for (const item of transfers) {
+            const key = JSON.stringify([item.source, item.destination]);
+            if (!groups.has(key)) groups.set(key, []);
+            groups.get(key).push(item);
+        }
+        for (const items of groups.values()) {
+            if (workspaceRoot() !== root) return;
+            const first = items[0];
+            try {
+                await this.assertSshTransportIdentities([first.sourceRow, first.target]);
+                const paths = [...new Set<string>(items.flatMap((item) => item.paths))].sort();
+                for (let offset = 0; offset < paths.length; offset += 5000) {
+                    await this.simpleSftpApiCall("sync.serverToServerFpsync", { source: first.source,
+                        destination: { ...first.destination, host: first.destination.networkHost || first.destination.host },
+                        relativePaths: paths.slice(offset, offset + 5000), compression: "auto", singleStream: true,
+                        confirm: true, pathConfirmed: true,
+                        taskLabel: workerFpsyncTaskLabel({ action: "压缩同步最新版 Plan 产物",
+                            sourceId: first.sourceId, destinationId: first.workerId,
+                            detail: `${new Set(items.map((item) => item.plan.planFile)).size} 个 Plan / ${items.length} 个 job（${phase === "fragments" ? "结果片段" : "检查点、日志与结果"}）`,
+                            batch: offset / 5000 + 1, batchCount: Math.ceil(paths.length / 5000) }) });
+                }
+                const checked = await this.distributedOutputHashes(first.destination, paths);
+                for (const { plan, job, workerId, paths } of items) {
+                    if (paths.some((file) => checked[file] !== job.artifacts[file])) {
+                        await failJob(plan, job, new Error(`${workerId} 内容校验失败：${job.outputDir}`));
+                        continue;
+                    }
+                    const field = phase === "fragments" ? "fragmentWorkerIds" : "mirroredWorkerIds";
+                    job[field] = [...new Set([...(job[field] || []), workerId])];
+                    await this.patchDistributedJob(root, plan.id, job.index, job.attempt, { [field]: [workerId] });
+                }
+            } catch (error) {
+                for (const { plan, job } of items) await failJob(plan, job, error);
+            }
+        }
+        for (const [key, { plan, job }] of verifiedJobs) {
+            if (failedJobs.has(key) || !(job.artifactError || job.artifactRetryAfter)) continue;
+            await this.patchDistributedJob(root, plan.id, job.index, job.attempt,
+                { artifactError: undefined, artifactRetryAfter: undefined });
+            job.artifactError = undefined;
+            job.artifactRetryAfter = undefined;
+        }
+        if (verifyAll && failures.length) throw new Error(`服务器最新产物同步未完成（${failures.length} 项）：${failures.slice(0, 3).join("；")}`);
     }
     async distributedOutputHashes(source, paths) {
-        const groups = new Map();
-        for (const file of paths) {
-            const parent = path.posix.dirname(file);
-            if (!groups.has(parent)) groups.set(parent, []);
-            groups.get(parent).push(file);
-        }
-        const rows = await mapLimited([...groups], 3, async ([parent, files]) => {
-            const inventory = (await this.verifiedSftpProjectInventory({ source,
-                relativePath: files.length === 1 ? files[0] : parent, recursive: files.length > 1 })).files;
-            return files.map((file) => [file, String(inventory[file]?.sha256 || "").toLowerCase()]);
-        });
-        return Object.fromEntries(rows.flat());
+        if (!paths.length) return {};
+        const inventory = (await this.verifiedSftpProjectInventory({ source, relativePath: ".", scopePaths: paths, recursive: false })).files;
+        return Object.fromEntries(paths.map((file) => [file, String(inventory[file]?.sha256 || "").toLowerCase()]));
     }
     async rebuildDistributedResults(root, queue, previewOnly: boolean, verifyAll = false) {
         queue = PlanOutputRetention.withValidatedPlanJobCounts(queue, this.localPlanMetadata?.plans || []);
@@ -13627,7 +13710,7 @@ export class RealtimeTunnelPanelProvider {
             const pick = await vscode.window.showInformationMessage(`已识别到 ${plans.length} 个 Plan，将纳入管理并继续。`, "继续", "查看现有");
             if (!this.projectContextIsCurrent(projectContext)) return;
             if (pick === "查看现有") {
-                await this.openPanelAt("plans", "plans-detected");
+                await this.openPanelAt("plans", "plans-detected", { userInitiated: true });
                 return;
             }
             // 关闭通知或按 ESC：视为取消，不做任何改动
@@ -13667,7 +13750,7 @@ export class RealtimeTunnelPanelProvider {
             if (!this.projectContextIsCurrent(projectContext))
                 return;
             if (open === "打开服务器设置")
-                await this.openPanelAt("settings", "settings-servers");
+                await this.openPanelAt("settings", "settings-servers", { userInitiated: true });
             return;
         }
         if (Number(this.context.workspaceState.get(keys.projectSessionPrefixPrompt, 0)) < 1) {
@@ -13789,7 +13872,7 @@ export class RealtimeTunnelPanelProvider {
             if (!this.projectContextIsCurrent(projectContext))
                 return;
             if (open === "打开实验准备")
-                await this.openPanelAt("plans", "plans-detected");
+                await this.openPanelAt("plans", "plans-detected", { userInitiated: true });
         };
         for (let step = 0; step < PROJECT_BOOTSTRAP_MAX_STEPS; step += 1) {
             if (!this.projectContextIsCurrent(projectContext))
@@ -13831,7 +13914,7 @@ export class RealtimeTunnelPanelProvider {
         if (next === "准备 Agent 并启动")
             return this.prepareAgentsForFirstRun(false);
         if (next === "打开服务器设置") {
-            await this.openPanelAt("settings", "settings-servers");
+            await this.openPanelAt("settings", "settings-servers", { userInitiated: true });
             return false;
         }
         if (next === "添加 Worker")
@@ -13855,7 +13938,7 @@ export class RealtimeTunnelPanelProvider {
             return true;
         }
         if (next === "打开面板") {
-            await this.openPanelAt("overview", "overview");
+            await this.openPanelAt("overview", "overview", { userInitiated: true });
             return false;
         }
         if (next === "打开当前 Plan" && context.planFile) {
@@ -13867,19 +13950,19 @@ export class RealtimeTunnelPanelProvider {
             return false;
         }
         if (next === "查看运行进度") {
-            await this.openPanelAt("execution", "execution-operations");
+            await this.openPanelAt("execution", "execution-operations", { userInitiated: true });
             return false;
         }
         if (next === "查看结果") {
-            await this.openPanelAt("results", "results");
+            await this.openPanelAt("results", "results", { userInitiated: true });
             return false;
         }
         if (next === "查看提交进度") {
-            await this.openPanelAt("operations", "operations-list");
+            await this.openPanelAt("operations", "operations-list", { userInitiated: true });
             return false;
         }
         if (next === "查看依赖") {
-            await this.openPanelAt("settings", "settings-servers");
+            await this.openPanelAt("settings", "settings-servers", { userInitiated: true });
             return false;
         }
         if (next === "正式运行")
@@ -15405,12 +15488,12 @@ export class RealtimeTunnelPanelProvider {
             throw new Error("请先打开当前实验项目。");
         if (this.effectiveConnectionMode() === "offline_import")
             throw new Error("离线模式无法同步远端结果文件。");
-        await this.postprocessDistributedResultsForManual(root, "full");
-        if (!isCurrent()) return;
         const planFile = this.resolveSelectedPlanFile(stringField(message, "planFile") || this.planFileInput || this.selectedPlanId || "");
         if (!planFile)
             throw new Error("无法确认结果文件所属 Plan，已阻止同步。");
-        await this.refreshLocalPlanMetadataForAction(this.actionBody({ planFile }));
+        await this.refreshLocalPlanMetadataForAction(this.actionBody({ planFile }), { allPlans: true });
+        if (!isCurrent()) return;
+        await this.postprocessDistributedResultsForManual(root, "full");
         if (!isCurrent()) return;
         await this.refreshResultsSummary(planFile);
         if (!isCurrent()) return;
@@ -15457,9 +15540,9 @@ export class RealtimeTunnelPanelProvider {
             throw new Error("请先打开当前实验项目。");
         if (this.effectiveConnectionMode() === "offline_import")
             throw new Error("离线模式无法合并 Worker 结果或下载指标文件。");
-        await this.postprocessDistributedResultsForManual(root, "full");
-        if (!isCurrent()) return { merged: false, downloaded: false, reason: "revision-changed" };
         await this.refreshLocalPlanMetadataForAction({ options: {}, suppressGlobalTaskSelection: true }, { allPlans: true });
+        if (!isCurrent()) return { merged: false, downloaded: false, reason: "revision-changed" };
+        await this.postprocessDistributedResultsForManual(root, "full");
         if (!isCurrent())
             return { merged: false, downloaded: false, reason: "revision-changed" };
         const ledger = await this.loadPlanSyncLedger(root);
@@ -15926,7 +16009,7 @@ export class RealtimeTunnelPanelProvider {
             for (let index = 0; index < chunks.length; index++) {
                 if (token.isCancellationRequested || !isCurrent()) { cancelled = true; break; }
                 const chunk = chunks[index];
-                progress.report({ message: `${batch.sourceId}：打包 ${chunk.length} 个文件（${index + 1}/${chunks.length}）` });
+                progress.report({ message: `${batch.sourceId}：压缩打包 ${chunk.length} 个文件（${index + 1}/${chunks.length}）` });
                 try {
                     const server = batch.sourceId === "hub"
                         ? this.hubMappedDownloadServer()
@@ -15936,6 +16019,7 @@ export class RealtimeTunnelPanelProvider {
                         server,
                         entries: chunk.map((entry) => ({ remotePath: entry.remotePath, localRelativePath: entry.localRelativePath })),
                         maxFileBytes: RESULT_ARTIFACT_MAX_BYTES,
+                        compression: "auto",
                         overwrite: true,
                         confirm: true,
                         pathConfirmed: true,
@@ -18622,7 +18706,7 @@ export class RealtimeTunnelPanelProvider {
             const choice = await vscode.window.showErrorMessage(
                 `Plan ${plan} 的任务 ${task} 失败：${detail}。已停止派发新任务；已运行任务继续完成，失败 tmux 窗口保留。`,
                 { modal: true }, "查看运行进度");
-            if (choice === "查看运行进度") await this.openPanelAt("operations", "operations-list");
+            if (choice === "查看运行进度") await this.openPanelAt("operations", "operations-list", { userInitiated: true });
         }
     }
     private shouldPushLocalAvailabilityFromRealtime(signature) {

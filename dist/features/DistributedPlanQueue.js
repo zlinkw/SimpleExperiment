@@ -38,6 +38,7 @@ exports.distributedQueueDiskSignature = distributedQueueDiskSignature;
 exports.distributedQueueBaseSignature = distributedQueueBaseSignature;
 exports.setDistributedQueueBaseSignature = setDistributedQueueBaseSignature;
 exports.cloneDistributedQueue = cloneDistributedQueue;
+exports.queueMetadataAdvanceRecorded = queueMetadataAdvanceRecorded;
 exports.terminalHistoryLogBinding = terminalHistoryLogBinding;
 exports.workerTaskLogBinding = workerTaskLogBinding;
 exports.hasFreshDurableSnapshot = hasFreshDurableSnapshot;
@@ -97,6 +98,17 @@ function cloneDistributedQueue(queue, baseSignature = distributedQueueBaseSignat
     if (typeof baseSignature === "string")
         setDistributedQueueBaseSignature(copy, baseSignature);
     return copy;
+}
+/** Only our recorded metadata-only commits can advance a business working copy's base. */
+function queueMetadataAdvanceRecorded(writes, root, from, to) {
+    let signature = from;
+    for (const write of writes) {
+        if (write.root === root && write.from === signature)
+            signature = write.to;
+        if (signature === to)
+            return true;
+    }
+    return false;
 }
 function terminalHistoryLogBinding(plan, job) {
     const status = String(job?.status || "").toLowerCase();

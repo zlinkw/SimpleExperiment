@@ -33,7 +33,7 @@ const memoryFs = {
   },
 };
 
-const queueMethods = sourceBlock("async loadDistributedQueue(root) {", "async patchDistributedJob(root")
+const queueMethods = sourceBlock("async loadDistributedQueue(root) {", "scheduleDistributedPostprocess(root")
   .replace(/}\s+async /g, "}, async ").replace(/,\s*$/, "").trim();
 const progressMethod = sourceBlock("serverPlanProgress() {", "async refreshServerPlanProgress() {")
   .replace(/}\s+async /g, "}, async ").replace(/,\s*$/, "").trim();
@@ -113,6 +113,52 @@ test("20 tick-equivalent writes keep all 28 historical Plans visible and isolate
   }
   assert.equal(host.distributedQueueCache.plans.length, 28);
   assert.notEqual(firstWorking, host.distributedQueueCache);
+});
+
+test("concurrent artifact and publication patches read their base inside the serialized write", async () => {
+  memoryFiles.clear();
+  memoryFiles.set(file, JSON.stringify(makeQueue(28)));
+  const host = makeHost();
+  await host.loadDistributedQueue(root);
+  await Promise.all([
+    host.patchDistributedJob(root, "plan-0", 0, 1, { fragmentWorkerIds: ["worker-1"] }),
+    host.patchDistributedJob(root, "plan-1", 0, 1, { mirroredWorkerIds: ["worker-2"] }),
+    host.patchDistributedPublication(root, { publishedSignature: "latest" }),
+  ]);
+  const queue = JSON.parse(memoryFiles.get(file));
+  assert.deepEqual(queue.plans[0].jobs[0].fragmentWorkerIds, ["worker-1"]);
+  assert.deepEqual(queue.plans[1].jobs[0].mirroredWorkerIds, ["worker-2"]);
+  assert.equal(queue.publishedSignature, "latest");
+  assert.equal(host.serverPlanProgress().length, 28);
+});
+
+test("a tick preserves intervening same-Host metadata writes without false external conflicts", async () => {
+  memoryFiles.clear();
+  memoryFiles.set(file, JSON.stringify(makeQueue(28)));
+  const host = makeHost();
+  for (let index = 0; index < 20; index++) {
+    const working = await host.loadDistributedQueue(root);
+    working.plans[0].jobs[0].error = `tick-${index}`;
+    await host.patchDistributedJob(root, "plan-1", 0, 1, { fragmentWorkerIds: [`worker-${index}`] });
+    await host.saveDistributedQueue(root, working, { queueGeneration: 0 });
+    const queue = JSON.parse(memoryFiles.get(file));
+    assert.ok(queue.plans[1].jobs[0].fragmentWorkerIds.includes(`worker-${index}`));
+    assert.equal(queue.plans[0].jobs[0].error, `tick-${index}`);
+    assert.equal(host.serverPlanProgress().length, 28);
+    assert.equal(host.distributedQueueStorageDiagnostics.status, "ready");
+  }
+});
+
+test("an intervening business-state write cannot be rebased as artifact metadata", async () => {
+  memoryFiles.clear();
+  memoryFiles.set(file, JSON.stringify(makeQueue(28)));
+  const host = makeHost();
+  const stale = await host.loadDistributedQueue(root);
+  const fresh = await host.loadDistributedQueue(root);
+  fresh.plans[1].jobs[0].status = "failed";
+  await host.saveDistributedQueue(root, fresh);
+  await assert.rejects(host.saveDistributedQueue(root, stale), /另一窗口已更新/);
+  assert.equal(JSON.parse(memoryFiles.get(file)).plans[1].jobs[0].status, "failed");
 });
 
 test("terminal task logs remain bound to their attempt over ten repeated Worker snapshots", async () => {

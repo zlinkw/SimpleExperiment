@@ -45,7 +45,7 @@ test("setup guide offers the only next action supported by current readiness", (
   assert.match(handler, /const seen = new Set\(\)/);
   assert.match(handler, /seen\.has\(key\)[\s\S]{0,50}return/);
   assert.match(handler, /showInformationMessage\(next\.message, next\.action, "打开面板"\)/);
-  assert.match(handler, /choice === "打开服务器设置"[\s\S]{0,100}openPanelAt\("settings", "settings-servers"\)/);
+  assert.match(handler, /choice === "打开服务器设置"[\s\S]{0,100}openPanelAt\("settings", "settings-servers", \{ userInitiated: true \}\)/);
   assert.match(handler, /choice === "添加 Worker"[\s\S]{0,100}this\.addWorkerConfigFromUi\(false\)[\s\S]{0,40}continue/);
   assert.match(handler, /choice === "选择项目并继续"[\s\S]{0,140}openWorkspaceFolderForContinuation\("配置说明", "setupGuide"\)/);
   assert.match(handler, /choice === "识别工作区"[\s\S]{0,80}this\.bootstrapProjectFromUi\(\)/);

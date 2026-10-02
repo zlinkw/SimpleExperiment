@@ -102,12 +102,10 @@ test("Plan next action starts with one-click run and preserves manual recovery s
   assert.match(panel, /data\.codeSync, data\.operations, data\.resultsSummary, data\.schedulerStates, data\.capabilities/);
 });
 
-test("submitted Plan runs navigate directly to the task list", () => {
+test("submitted Plan runs preserve the user's page and explicit resource navigation stays available", () => {
   assert.match(panel, /function submittedCommandTarget\(command, status\)/);
-  assert.match(extractFunction(panel, "submittedCommandTarget"), /SUBMITTED_RUN_COMMANDS\??\.has\(normalizedCommand\)/);
-  assert.match(panel, /return \{ section: "execution", anchor: "execution" \}/);
-  assert.match(panel, /submittedTarget = submittedCommandTarget\(data\.command, data\.status\)/);
-  assert.match(panel, /navigateToResourceTarget\(submittedTarget\.section, submittedTarget\.anchor, \{ force: true \}\)/);
+  assert.match(extractFunction(panel, "submittedCommandTarget"), /return null/);
+  assert.doesNotMatch(panel, /navigateToResourceTarget\(submittedTarget\./);
   assert.match(panel, /navigateToResourceTarget\(treeTarget\.dataset\.sectionTarget, treeTarget\.dataset\.anchorTarget\)/);
 });
 

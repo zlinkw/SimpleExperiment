@@ -46,7 +46,7 @@ test("quick setup resolves Xshell and Worker blockers before Agent preparation",
   assert.match(flow, /插件不会在这里从零初始化服务器配置/);
   assert.match(flow, /插件不会在接入弹窗中初始化服务器/);
   assert.match(flow, /"打开服务器设置"/);
-  assert.match(flow, /this\.openPanelAt\("settings", "settings-servers"\)/);
+  assert.match(flow, /this\.openPanelAt\("settings", "settings-servers", \{ userInitiated: true \}\)/);
   assert.doesNotMatch(flow, /"打开面板"/);
   assert.match(source, /async addWorkerConfigFromUi\(showMessage = true\)/);
   assert.match(source, /if \(showMessage\)\s*void vscode\.window\.showInformationMessage\(`\$\{worker\.displayName \|\| worker\.id\} 已添加并全局保存。`\)/);
@@ -61,5 +61,8 @@ test("quick setup resolves Xshell and Worker blockers before Agent preparation",
   assert.match(source, /completeQuickSetupAfterWorkspace[\s\S]{0,220}ensureSimpleSftpReadyForSetup\("一键配置续接"\)/);
   assert.match(source, /一键配置续接已停止：服务器配置缺少/);
   assert.match(source, /尚未生成当前项目 SimpleSFTP 目标或准备 Agent/);
-  assert.match(flow, /const preparationBlockers = this\.currentAgentPreparationBlockers\(\)[\s\S]{0,360}return false;/);
+  const blockers = flow.slice(flow.indexOf("const preparationBlockers ="), flow.indexOf("const profileSummary ="));
+  assert.match(blockers, /if \(preparationBlockers\.length\)/);
+  assert.match(blockers, /return false;/);
+  assert.doesNotMatch(blockers, /prepareAgentsForFirstRun/);
 });
