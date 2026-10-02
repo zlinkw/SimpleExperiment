@@ -43,6 +43,7 @@ const fs = __importStar(require("fs/promises"));
 const fsNode = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const CACHE_SCHEMA_VERSION = 1;
+const cacheWrites = new Map();
 function bigintString(value) {
     if (typeof value === "bigint")
         return value.toString();
@@ -92,12 +93,31 @@ async function readCache(file) {
 }
 async function writeCache(file, document) {
     const root = path.dirname(path.resolve(file));
-    return new HostOperationLease_1.HostOperationLeaseManager().run({ pluginId: "simple-local.simple-experiment", workspaceUri: root, hostProjectPath: root,
-        actionType: "hash-cache-write", waitForConflict: true, resources: [{ server: "local", project: root, target: path.resolve(file) }] }, () => writeCacheOwned(file, document));
+    const key = process.platform === "win32" ? path.resolve(file).toLowerCase() : path.resolve(file);
+    // Also serialize nested callers that share a parent resource lease.
+    const pending = (cacheWrites.get(key) || Promise.resolve()).catch(() => undefined).then(() => new HostOperationLease_1.HostOperationLeaseManager().run({ pluginId: "simple-local.simple-experiment", workspaceUri: root, hostProjectPath: root,
+        actionType: "hash-cache-write", waitForConflict: true, resources: [{ server: "local", project: root, target: path.resolve(file) }] }, () => writeCacheOwned(file, document)));
+    cacheWrites.set(key, pending);
+    try {
+        await pending;
+    }
+    finally {
+        if (cacheWrites.get(key) === pending)
+            cacheWrites.delete(key);
+    }
 }
 async function writeCacheOwned(file, document) {
     await fs.mkdir(path.dirname(file), { recursive: true });
-    const temp = `${file}.${process.pid}.${crypto.randomUUID()}.tmp`;
+    // The target lease serializes writers. Reuse one staging slot after a failed
+    // rename instead of leaving a new UUID file on every retry; success consumes it.
+    const temp = `${file}.pending`;
+    const existing = await fs.lstat(temp).catch(error => {
+        if (error.code === "ENOENT")
+            return undefined;
+        throw error;
+    });
+    if (existing && (!existing.isFile() || existing.isSymbolicLink()))
+        throw new Error("Manifest staging path must be a regular file");
     await fs.writeFile(temp, JSON.stringify(document), "utf8");
     await fs.rename(temp, file);
 }

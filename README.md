@@ -202,6 +202,28 @@ my_project/
 
 最低可以只有可执行入口和一个 YAML Plan。结果目录默认是 `experiments/results/`。项目无需提供 `experiments/simple_project.yaml`；旧项目已有该文件时，插件仍兼容读取，但设置里的插件规则优先。插件不会在准备项目或校验 Plan 时自动创建该文件。
 
+普通项目不必复制示例目录或添加论文文件。保留自己的入口、配置格式和命令参数，在 Plan 中写实际命令即可；`train_test` 只用于确实有独立测试步骤的项目，只有训练步骤时选择 `mode: train`。先通过“识别工作区”和“检查项目配置”核对入口，再校验、预演、提交。静态检查异步执行，重复点击共享同一次检查，只更新 `simple_cluster/check_reports/check-static-latest.md`。
+
+现有 CSV/JSON 可在结果设置中指定候选文件、列映射和指标别名，不必为接入改写训练代码。高级跨 Worker 产物合并仍需项目自己的汇总模块；非模型训练项目可在工作区设置中明确取消 checkpoint 要求，例如：
+
+```json
+"simpleExperiment.projectAdapterRules": {
+  "distributedResults": true,
+  "distributed": {
+    "planPrefixes": ["experiments/plans/"],
+    "checkpointRequired": false,
+    "resultRowsPath": "metrics.csv",
+    "fragmentPaths": ["metrics.csv"],
+    "requiredPaths": ["metrics.csv"],
+    "mergeModule": "project_tools.merge"
+  }
+}
+```
+
+`project_tools.merge` 是需要替换的项目模块名。此设置只取消默认 `best_model.pth` 要求，指标文件完整性与哈希校验仍生效；不配置时保留原来的模型产物契约。已有 `simple_project.yaml` 的项目也可在 `distributed` 段填写相同字段。
+
+运行时状态尽量保存在内存中：已完成的历史 Plan 不再触发自动 Worker 进度请求；显式刷新仍核对所有 Worker。代码哈希缓存使用一个可复用暂存文件，成功发布后通过原子重命名消耗它，重试不会创建一串 UUID 临时文件。既有历史文件仍通过清理界面预览并两次确认后处理。
+
 Plan 放在 `experiments/plans/`，默认目录由 `simpleExperiment.planDir` 控制。基础示例：
 
 ```yaml

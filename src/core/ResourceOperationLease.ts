@@ -81,7 +81,14 @@ export class ResourceOperationLeaseManager {
   }
   private async write(): Promise<void> {
     await fs.mkdir(this.directory, { recursive: true });
-    const temporary = this.file + ".writing-" + crypto.randomUUID();
+    // All calls run inside exclusive(); one per-window staging slot is enough,
+    // including retries after a failed write or rename.
+    const temporary = this.file + ".writing";
+    const existing = await fs.lstat(temporary).catch(error => {
+      if (error.code === "ENOENT") return undefined;
+      throw error;
+    });
+    if (existing && (!existing.isFile() || existing.isSymbolicLink())) throw new Error("资源锁暂存路径必须是普通文件。");
     await fs.writeFile(temporary, JSON.stringify(this.state.registry), "utf8");
     // Windows readers or antivirus may briefly deny replacement. Keep the prior
     // atomic record intact and retry only sharing violations, never publish a

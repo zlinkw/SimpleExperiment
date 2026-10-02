@@ -48,6 +48,13 @@ const SyncResolution_1 = require("./SyncResolution");
 const SCOPE_HASH_SCHEMA_VERSION = 1;
 /** Process-local mirror. Persistence lives beside the code-manifest cache and is the restart source. */
 const localHashCache = new Map();
+const LOCAL_HASH_CACHE_LIMIT = 8192;
+function rememberLocalScopeHash(full, identity, file) {
+    localHashCache.delete(full);
+    localHashCache.set(full, { identity, file });
+    while (localHashCache.size > LOCAL_HASH_CACHE_LIMIT)
+        localHashCache.delete(localHashCache.keys().next().value);
+}
 function localScopeHashCachePath(storageRoot, projectRoot) {
     const resolved = path.resolve(projectRoot);
     const id = crypto.createHash("sha256").update(process.platform === "win32" ? resolved.toLowerCase() : resolved).digest("hex");
@@ -242,7 +249,7 @@ async function hashLocalScopeNames(root, names, onUnverified, cacheFile) {
                 if (reusable) {
                     files[relative] = reusable;
                     nextRows[relative] = { ...before, sha256: reusable.sha256, modifiedAtMs: reusable.modifiedAtMs };
-                    localHashCache.set(full, { identity, file: reusable });
+                    rememberLocalScopeHash(full, identity, reusable);
                     continue;
                 }
                 const hash = crypto.createHash("sha256");
@@ -264,14 +271,16 @@ async function hashLocalScopeNames(root, names, onUnverified, cacheFile) {
                 if (!afterStat.isFile() || afterStat.isSymbolicLink() || !after || !sameScopeHashIdentity({ ...before, sha256: "0".repeat(64) }, after))
                     throw new Error(`本机文件在校验时变更：${relative}`);
                 const file = { sha256: hash.digest("hex"), size: after.size, modifiedAtMs: afterStat.mtimeMs };
-                localHashCache.set(full, { identity, file });
+                rememberLocalScopeHash(full, identity, file);
                 nextRows[relative] = { ...after, sha256: file.sha256, modifiedAtMs: file.modifiedAtMs };
                 files[relative] = file;
             }
             catch (error) {
                 const missing = error?.code === "ENOENT";
-                if (missing)
+                if (missing) {
                     delete nextRows[relative];
+                    localHashCache.delete(full);
+                }
                 else
                     failed = true;
                 if (!onUnverified)

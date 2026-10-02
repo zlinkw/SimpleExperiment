@@ -3,6 +3,20 @@ import { DistributedQueue, QueuedPlan, DurableWorkerSnapshot, durableCommandId,
 
 export type SchedulingMode = "local_idle" | "server_prequeue";
 export const PROGRESS_FRESHNESS_MS = 5_000;
+/** Historical completion is stable; background telemetry only follows unresolved ownership. */
+export function progressRefreshWorkerIds(queue: DistributedQueue, configuredIds: string[]): string[] {
+  const needed = new Set<string>();
+  for (const plan of queue.plans) {
+    if (plan.recoveryMissingCount || plan.recoveryConflict) return [...new Set(configuredIds)];
+    for (const job of plan.jobs || []) {
+      if (["completed", "failed", "cancelled"].includes(job.status) && !job.recallRequested) continue;
+      if (job.workerId) needed.add(job.workerId);
+      else if (job.status !== "pending") return [...new Set(configuredIds)];
+    }
+  }
+  return [...new Set(configuredIds)].filter(id => needed.has(id));
+}
+
 export function schedulingMode(value: unknown): SchedulingMode {
   return value === "server_prequeue" ? "server_prequeue" : "local_idle";
 }

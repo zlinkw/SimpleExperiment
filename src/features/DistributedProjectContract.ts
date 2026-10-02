@@ -2,6 +2,7 @@ export type DistributedProjectContract = {
   planPrefixes: string[];
   configPath: string;
   checkpointPath: string;
+  checkpointRequired: boolean;
   resultRowsPath: string;
   fourStatePath: string;
   fragmentPaths: string[];
@@ -21,14 +22,17 @@ export function normalizeDistributedProjectContract(raw: Record<string, unknown>
     .map((value) => `${relative(value.replace(/\/+$/, ""), "")}/`);
   const configPath = relative(raw.configPath, "job_config.yaml");
   const checkpointPath = relative(raw.checkpointPath, "best_model.pth");
+  if (raw.checkpointRequired !== undefined && typeof raw.checkpointRequired !== "boolean")
+    throw new Error("checkpointRequired 必须是 true 或 false");
+  const checkpointRequired = raw.checkpointRequired !== false;
   const resultRowsPath = relative(raw.resultRowsPath, "test_results/formal_result_rows.csv");
   const fourStatePath = relative(raw.fourStatePath, "test_results/four_state_metrics.csv");
   const fragmentPaths = [...new Set((list(raw.fragmentPaths).length
     ? list(raw.fragmentPaths) : [configPath, resultRowsPath, fourStatePath]).map((value) => relative(value, "")))];
   const requiredPaths = [...new Set([...(list(raw.requiredPaths).length ? list(raw.requiredPaths) : fragmentPaths),
-    checkpointPath, ...fragmentPaths].map((value) => relative(value, "")))];
+    ...(checkpointRequired ? [checkpointPath] : []), ...fragmentPaths].map((value) => relative(value, "")))];
   const mergeModule = String(raw.mergeModule || "experiments.simple_adapter.distributed_results").trim();
   if (!/^[A-Za-z_]\w*(?:\.[A-Za-z_]\w*)+$/.test(mergeModule)) throw new Error("分布式汇总模块名无效");
-  return { planPrefixes, configPath, checkpointPath, resultRowsPath, fourStatePath,
+  return { planPrefixes, configPath, checkpointPath, checkpointRequired, resultRowsPath, fourStatePath,
     fragmentPaths, requiredPaths, mergeModule };
 }

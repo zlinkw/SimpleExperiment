@@ -4,6 +4,7 @@ exports.HttpTunnelClient = exports.tunnelActions = void 0;
 const RequestBudget_1 = require("./RequestBudget");
 const TunnelGateway_1 = require("./TunnelGateway");
 const ProgressInactivity_1 = require("../core/ProgressInactivity");
+const BoundedResponse_1 = require("./BoundedResponse");
 exports.tunnelActions = [
     "run-plan", "stop-experiment", "retry-experiment", "reproduce-plan", "validate-plan", "dry-run-plan",
     "stop-scheduler-operation",
@@ -76,10 +77,11 @@ class HttpTunnelClient {
         });
     }
     getSnapshot(options = {}) {
-        if (options.manual) {
-            return this.requestJson("/api/snapshot", "manual_refresh", undefined, {
+        if (options.manual || options.signal) {
+            return this.requestJson("/api/snapshot", options.manual ? "manual_refresh" : "snapshot", undefined, {
                 method: "GET",
-                userInitiated: true,
+                userInitiated: options.manual,
+                signal: options.signal,
             });
         }
         if (!this.snapshotPromise) {
@@ -239,20 +241,7 @@ class HttpTunnelClient {
                     headers: this.headers(body !== undefined),
                     body: body === undefined ? undefined : JSON.stringify(body),
                 });
-                const chunks = [];
-                let received = 0;
-                if (response.body) {
-                    const reader = response.body.getReader();
-                    for (;;) {
-                        const chunk = await reader.read();
-                        if (chunk.done)
-                            break;
-                        chunks.push(chunk.value);
-                        received += chunk.value.byteLength;
-                        inactivity.update({ processedBytes: received });
-                    }
-                }
-                const text = Buffer.concat(chunks).toString("utf8");
+                const text = await (0, BoundedResponse_1.readBoundedResponseText)(response, received => inactivity.update({ processedBytes: received }));
                 if (!response.ok)
                     throw new Error(`Hub Agent HTTP ${response.status}: ${text.slice(0, 200)}`);
                 if (!text.trim())

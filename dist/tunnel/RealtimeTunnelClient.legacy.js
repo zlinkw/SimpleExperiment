@@ -8,6 +8,7 @@ const RealtimeEventReducer_1 = require("./RealtimeEventReducer");
 const TunnelClient_1 = require("./TunnelClient");
 // T2: RealtimeTunnelClient 透传批量能力协商字段，聚合逻辑在 MultiEndpointRealtimeClient
 const TunnelGateway_1 = require("./TunnelGateway");
+const BoundedResponse_1 = require("./BoundedResponse");
 exports.defaultRealtimeRefreshPolicy = {
     mode: "realtime",
     preferWebSocket: true,
@@ -47,6 +48,7 @@ class RealtimeTunnelClient {
     protectedLogKeys = [];
     diagnosticsCache;
     snapshotInFlight;
+    snapshotAbort;
     requiresManualReconnect = false;
     connectionGeneration = 0;
     disposed = false;
@@ -137,6 +139,9 @@ class RealtimeTunnelClient {
     }
     async disconnect(reason = "manual") {
         this.connectionGeneration += 1;
+        this.snapshotAbort?.abort();
+        this.snapshotAbort = undefined;
+        this.snapshotInFlight = undefined;
         if (reason === "deactivate" || reason === "dispose")
             this.disposed = true;
         const websocket = this.websocket;
@@ -361,6 +366,10 @@ class RealtimeTunnelClient {
         ws.onmessage = (event) => {
             if (this.websocket !== ws)
                 return;
+            if (typeof event.data === "string" && Buffer.byteLength(event.data, "utf8") > BoundedResponse_1.MAX_CONTROL_RESPONSE_BYTES) {
+                this.connectionLost("Agent WebSocket frame exceeds control-plane byte limit");
+                return;
+            }
             this.acceptEvent(event.data);
         };
         ws.onerror = () => {
@@ -384,47 +393,50 @@ class RealtimeTunnelClient {
             headers: this.headers(),
             signal: abort.signal,
         }));
-        if (this.abort !== abort || abort.signal.aborted || this.disposed)
+        if (this.abort !== abort || abort.signal.aborted || this.disposed) {
+            await response.body?.cancel().catch(() => undefined);
             return;
-        if (!response.ok || !response.body)
+        }
+        if (!response.ok || !response.body) {
+            await response.body?.cancel().catch(() => undefined);
             throw new Error(`SSE failed: ${response.status}`);
+        }
         this.status = "sse";
         this.reconnectPolicy.reset();
         void this.readSse(response.body, abort);
     }
     async readSse(body, abort) {
         const reader = body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
+        const decoder = new BoundedResponse_1.BoundedSseDecoder();
+        let failure = "SSE ended";
+        let finished = false;
         try {
             while (true) {
                 const chunk = await reader.read();
                 if (this.abort !== abort || abort.signal.aborted)
                     break;
-                if (chunk.done)
+                if (chunk.done) {
+                    finished = true;
                     break;
-                buffer += decoder.decode(chunk.value, { stream: true });
-                const parts = buffer.split(/\r?\n\r?\n/);
-                buffer = parts.pop() || "";
-                for (const part of parts) {
-                    const data = part.split(/\r?\n/).filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("\n");
-                    if (data)
-                        this.acceptEvent(data);
                 }
+                for (const data of decoder.push(chunk.value))
+                    this.acceptEvent(data);
             }
             if (this.abort !== abort || abort.signal.aborted || this.disposed)
                 return;
-            buffer += decoder.decode();
-            const data = buffer.split(/\r?\n/).filter((line) => line.startsWith("data:")).map((line) => line.slice(5).trim()).join("\n");
-            if (data)
+            for (const data of decoder.push())
                 this.acceptEvent(data);
         }
         catch (error) {
-            if (this.abort === abort && !abort.signal.aborted && !this.disposed)
-                this.lastError = message(error);
+            failure = message(error);
+        }
+        finally {
+            if (!finished)
+                await reader.cancel().catch(() => undefined);
+            reader.releaseLock();
         }
         if (this.abort === abort && !abort.signal.aborted && this.status === "sse")
-            this.connectionLost("SSE ended");
+            this.connectionLost(failure);
     }
     async startPolling() {
         this.status = "polling";
@@ -460,11 +472,13 @@ class RealtimeTunnelClient {
             throw new Error(this.lastError);
         if (this.snapshotInFlight)
             return this.snapshotInFlight;
+        const abort = new AbortController();
+        this.snapshotAbort = abort;
         const task = (async () => {
             const generation = this.connectionGeneration;
             let snapshot;
             try {
-                snapshot = await this.http.getSnapshot({ manual });
+                snapshot = await this.http.getSnapshot({ manual, signal: abort.signal });
             }
             catch (error) {
                 if (generation === this.connectionGeneration && !(error instanceof RequestBudget_1.RequestBudgetDeniedError))
@@ -489,6 +503,8 @@ class RealtimeTunnelClient {
         finally {
             if (this.snapshotInFlight === task)
                 this.snapshotInFlight = undefined;
+            if (this.snapshotAbort === abort)
+                this.snapshotAbort = undefined;
         }
     }
     acceptEvent(raw) {

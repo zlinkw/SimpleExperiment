@@ -1711,7 +1711,7 @@ function renderPanelHtml() {
     const CONSOLE_LOGS_SUBDIR = "console_logs";
     const OPERATION_STATUS_FILTER_VALUES = ["all", "accepted", "running", "completed", "cancelled", "failed"];
     const PLAN_VIEW_SCOPE_VALUES = ["selected", "all"];
-    const restoredWebviewState = typeof vscode.getState === "function" ? (vscode.getState() || {}) : {};
+    const restoredWebviewState = readStoredWebviewState(vscode);
     let bootstrapErrorReported = false;
     const reportBootstrapError = (error) => {
       if (bootstrapErrorReported) return;
@@ -9050,7 +9050,7 @@ function renderPanelHtml() {
       const violation = condaViolation || boundsViolation;
       const hintHtml = hint ? '<span class="configBoundsHint" title="' + escAttr(hint) + '">' + esc(hint) + '</span>' : "";
       const violationHtml = violation ? '<span class="configBoundsError" title="' + escAttr(label + "：" + violation) + '">' + esc(violation) + '</span>' : "";
-      const placeholders = { condaEnv: "/path/to/conda_envs/<env_name>", hubHost: "例如 10.69.24.150", workerHost: "例如 10.69.24.150", agentProjectDir: "例如 /data/qgking/zlk" };
+      const placeholders = { condaEnv: "/path/to/conda_envs/<env_name>", hubHost: "例如 compute.example.org", workerHost: "例如 compute.example.org", agentProjectDir: "例如 /srv/projects" };
       const placeholder = placeholders[key] ? ' placeholder="' + escAttr(placeholders[key]) + '"' : "";
       return '<div class="field ' + escAttr(cls || "") + (violation ? " is-invalid" : "") + '"' + title + '><label' + title + '>' + esc(label) + helpBadge(help) + hintHtml + '</label><input' + title + configBoundsAttrs(bounds) + placeholder + ' data-config-input="' + escAttr(scope) + '" data-key="' + escAttr(key) + '" type="' + escAttr(type || "text") + '" value="' + escAttr(displayValue(value)) + '"' + (violation ? ' aria-invalid="true"' : "") + '>' + violationHtml + '</div>';
     }
@@ -9246,10 +9246,10 @@ function renderPanelHtml() {
       };
       const workerHelp = {
         displayName: "仅用于界面展示和识别该 Worker，不用于网络连接。",
-        workerHost: "填写该 Worker 的 IP 地址或可直接解析的域名，例如 10.69.24.150；SSH 登录和 SFTP 文件传输共用此地址。这里不是文件路径，也不读取其他 SSH 配置文件。",
+        workerHost: "填写该 Worker 的 IP 地址或可直接解析的域名，例如 compute.example.org；SSH 登录和 SFTP 文件传输共用此地址。这里不是文件路径，也不读取其他 SSH 配置文件。",
         workerUser: "登录该 Worker 的 SSH 用户名；SFTP 使用同一用户。",
         condaEnv: "必填完整路径，以 / 开头，如 /path/to/conda_envs/<env_name> 或 /usr/local/anaconda3/envs/<env_name>，可选以 /bin/python 结尾；留空使用系统 Python；仅环境名如 <env_name> 已废弃",
-        agentProjectDir: "填写服务器上的绝对父目录，例如 /data/qgking/zlk；插件自动追加当前本地项目名作为代码目录，并在该父目录下计算 Agent 路径。不要填写单个文件或再次追加项目名。",
+        agentProjectDir: "填写服务器上的绝对父目录，例如 /srv/projects；插件自动追加当前本地项目名作为代码目录，并在该父目录下计算 Agent 路径。不要填写单个文件或再次追加项目名。",
         savedSessionPath: "选择本机已有的 Xshell 会话文件，用于建立 Agent 端口转发；SSH/SFTP 连接地址仍取上面的服务器地址。",
         agentSessionPath: "Agent 会话",
         localForwardPort: "本机监听的隧道端口；插件经 127.0.0.1 和此端口访问 Worker Agent。不是 SSH 登录端口。",
@@ -9262,11 +9262,11 @@ function renderPanelHtml() {
       };
       const hubHelp = {
         hubDisplayName: "仅用于界面展示和识别 Hub，不用于网络连接。",
-        hubHost: "填写 Hub 的 IP 地址或可直接解析的域名，例如 10.69.24.150；SSH 登录和 SFTP 文件传输共用此地址。这里不是文件路径，也不读取其他 SSH 配置文件。",
+        hubHost: "填写 Hub 的 IP 地址或可直接解析的域名，例如 compute.example.org；SSH 登录和 SFTP 文件传输共用此地址。这里不是文件路径，也不读取其他 SSH 配置文件。",
         hubUser: "登录 Hub 的 SSH 用户名；SFTP 使用同一用户。",
         remoteTmuxSessionPrefix: "远端 tmux 会话名前缀；多用户共用服务器时建议用稳定用户名，旧 zlk 会话可填 zlk",
         condaEnv: "必填完整路径，以 / 开头，如 /path/to/conda_envs/<env_name> 或 /usr/local/anaconda3/envs/<env_name>，可选以 /bin/python 结尾；留空使用系统 Python；仅环境名如 <env_name> 已废弃",
-        agentProjectDir: "填写服务器上的绝对父目录，例如 /data/qgking/zlk；插件自动追加当前本地项目名作为代码目录，并在该父目录下计算 Agent 路径。不要填写单个文件或再次追加项目名。",
+        agentProjectDir: "填写服务器上的绝对父目录，例如 /srv/projects；插件自动追加当前本地项目名作为代码目录，并在该父目录下计算 Agent 路径。不要填写单个文件或再次追加项目名。",
         savedSessionPath: "选择本机已有的 Xshell 会话文件，用于建立 Agent 端口转发；SSH/SFTP 连接地址仍取上面的服务器地址。",
         agentSessionPath: "Agent 会话",
         localForwardPort: "本机监听的隧道端口；插件经 127.0.0.1 和此端口访问 Hub Agent。不是 SSH 登录端口。",
@@ -14253,13 +14253,14 @@ function renderPanelHtml() {
     function normalizeStoredPanelMap(value, nested) {
       const output = {};
       if (!value || typeof value !== "object" || Array.isArray(value)) return output;
-      Object.entries(value).forEach(([key, entry]) => {
-        if (!key || key.length > 160) return;
+      const entries = Object.entries(value);
+      (nested ? entries : entries.slice(-256)).forEach(([key, entry]) => {
+        if (!key || key.length > 160 || ["__proto__", "prototype", "constructor"].includes(key)) return;
         if (nested) {
           if (!entry || typeof entry !== "object" || Array.isArray(entry)) return;
           const fields = {};
           Object.entries(entry).forEach(([field, item]) => {
-            if (field && field.length <= 160 && (typeof item === "string" || typeof item === "number" || typeof item === "boolean")) fields[field] = item;
+            if (field && field.length <= 160 && !["__proto__", "prototype", "constructor"].includes(field) && (typeof item === "string" || typeof item === "number" || typeof item === "boolean")) fields[field] = item;
           });
           if (Object.keys(fields).length) output[key] = fields;
         } else if (typeof entry === "boolean") output[key] = entry;
@@ -14268,6 +14269,9 @@ function renderPanelHtml() {
     }
 
     function persistTransientPanelState() {
+      // Expansion preferences are disposable; unsaved drafts remain intact.
+      detailsOpenState = normalizeStoredPanelMap(detailsOpenState);
+      expandedTaskLogs = normalizeStoredPanelMap(expandedTaskLogs);
       const preview = document.querySelector('textarea[data-plan-preview="true"]');
       const active = document.activeElement;
       let activeInput = null;
@@ -14348,10 +14352,22 @@ function renderPanelHtml() {
       transientPanelStateNeedsRestore = false;
     }
 
+    function readStoredWebviewState(api) {
+      try {
+        const value = typeof api.getState === "function" ? api.getState() : null;
+        return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+      } catch (_) { return {}; }
+    }
+
     function persistWebviewState(patch) {
-      if (typeof vscode.setState !== "function") return;
-      const current = typeof vscode.getState === "function" ? (vscode.getState() || {}) : {};
-      vscode.setState(Object.assign({}, current, patch || {}));
+      if (typeof vscode.setState !== "function") return false;
+      try {
+        vscode.setState(Object.assign({}, readStoredWebviewState(vscode), patch || {}));
+        return true;
+      } catch (_) {
+        // Storage failure must not abort a render/ACK or destroy in-memory edits.
+        return false;
+      }
     }
 
     function operationRowsForRender(rows) {

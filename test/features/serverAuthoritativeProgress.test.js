@@ -84,6 +84,32 @@ test('actual provider read-only progress lane publishes a fast server while disp
   await Promise.resolve();assert.equal(fast,true);assert.equal(calls,2);
   release();await Promise.all([first,second]);assert.equal(provider.progressRefreshPromise,undefined);
 });
+
+test('automatic progress polling ignores terminal history and targets only live ownership', async () => {
+  const Provider=providerMethods(['refreshServerPlanProgress'], { DistributedSchedulingPolicy: policy });
+  const provider=new Provider();
+  provider.distributedQueueRoot='/project'; provider.isRealtimeMode=()=>true;
+  provider.workerActionTargets=()=>[{id:'a'},{id:'b'},{id:'c'}];
+  provider.postState=()=>{};
+  const calls=[]; provider.readWorkerTaskSnapshot=async id=>calls.push(id);
+  provider.distributedQueueCache={plans:Array.from({length:28},()=>({jobs:[{status:'completed',workerId:'a'}]}))};
+  for(let tick=0;tick<30;tick++) await provider.refreshServerPlanProgress({automatic:true});
+  assert.deepEqual(calls,[]);
+  provider.distributedQueueCache.plans.push({jobs:[{status:'queued',workerId:'b'},{status:'pending'}]});
+  await provider.refreshServerPlanProgress({automatic:true});
+  assert.deepEqual(calls,['b']);
+  calls.length=0;
+  await provider.refreshServerPlanProgress();
+  assert.deepEqual(calls,['a','b','c'], 'explicit refresh still reconciles all workers');
+});
+
+test('automatic progress still probes uncertain ownership and recall, but not retired history', () => {
+  const workers=['a','b'];
+  assert.deepEqual(policy.progressRefreshWorkerIds({plans:[{jobs:[{status:'unknown'}]}]}, workers),workers);
+  assert.deepEqual(policy.progressRefreshWorkerIds({plans:[{recoveryMissingCount:1,jobs:[]}]},workers),workers);
+  assert.deepEqual(policy.progressRefreshWorkerIds({plans:[{jobs:[{status:'failed',workerId:'b',recallRequested:true}]}]},workers),['b']);
+  assert.deepEqual(policy.progressRefreshWorkerIds({plans:[{jobs:[{status:'completed',workerId:'a',outputRetiredAt:iso}]}]},workers),[]);
+});
 test('actual snapshot reader deduplicates fresh reads, publishes immediately and invalidates cached running on failure', async () => {
   const Provider=providerMethods(['readWorkerTaskSnapshot','refreshWorkerTaskSnapshot'],{
     workerTaskSnapshotPayload:row=>row,workerTaskLooksRunning:row=>row.status==='running',RequestBudget_1:{RequestBudgetDeniedError:class extends Error{}},

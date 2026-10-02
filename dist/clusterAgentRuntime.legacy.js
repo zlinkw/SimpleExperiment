@@ -3747,9 +3747,9 @@ def _is_noise_line(line):
         # 保留关键错误行：Killed/OOM/signal/exit code 等强制非噪声（P0-1）
         if re.search(r"Killed|OOM|out of memory|signal|Segfault|CUDA|NCCL|exit code|exit_code|killed|took too long|timeout", _s, re.IGNORECASE):
             return False
-        if _s.startswith("(base)") or _s.startswith("(zlk)"):
-            if "$" in _s:
-                _s = _s.split("$", 1)[1].strip()
+        _prompt = re.match(r"^\([^)]+\)\s*[^$#]*[$#]\s*", _s)
+        if _prompt:
+            _s = _s[_prompt.end():].strip()
             if not _s:
                 return True
             if "Traceback" in _s or "Error" in _s or "Exception" in _s:
@@ -3785,9 +3785,7 @@ def _is_noise_line(line):
                 return True
         if "cd " in _s and "/data" in _s and "experiment" not in _s.lower():
             return True
-        if "qgking" in _s or "simple_agent" in _s:
-            return True
-        if _s.strip() in ["/", "e/projects", "a/qgking"]:
+        if _s == "/":
             return True
         return False
     except Exception:

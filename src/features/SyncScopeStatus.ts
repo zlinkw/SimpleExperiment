@@ -13,6 +13,12 @@ type ScopeHashDocument = { schemaVersion: 1; files: Record<string, ScopeHashRow>
 const SCOPE_HASH_SCHEMA_VERSION = 1;
 /** Process-local mirror. Persistence lives beside the code-manifest cache and is the restart source. */
 const localHashCache = new Map<string, { identity: string; file: File }>();
+const LOCAL_HASH_CACHE_LIMIT = 8192;
+function rememberLocalScopeHash(full: string, identity: string, file: File): void {
+  localHashCache.delete(full);
+  localHashCache.set(full, { identity, file });
+  while (localHashCache.size > LOCAL_HASH_CACHE_LIMIT) localHashCache.delete(localHashCache.keys().next().value!);
+}
 
 export function localScopeHashCachePath(storageRoot: string, projectRoot: string): string {
   const resolved = path.resolve(projectRoot);
@@ -200,7 +206,7 @@ export async function hashLocalScopeNames(
       if (reusable) {
         files[relative] = reusable;
         nextRows[relative] = { ...before, sha256: reusable.sha256, modifiedAtMs: reusable.modifiedAtMs };
-        localHashCache.set(full, { identity, file: reusable });
+        rememberLocalScopeHash(full, identity, reusable);
         continue;
       }
       const hash = crypto.createHash("sha256");
@@ -218,12 +224,12 @@ export async function hashLocalScopeNames(
       if (!afterStat.isFile() || afterStat.isSymbolicLink() || !after || !sameScopeHashIdentity({ ...before, sha256: "0".repeat(64) }, after))
         throw new Error(`本机文件在校验时变更：${relative}`);
       const file = { sha256: hash.digest("hex"), size: after.size, modifiedAtMs: afterStat.mtimeMs };
-      localHashCache.set(full, { identity, file });
+      rememberLocalScopeHash(full, identity, file);
       nextRows[relative] = { ...after, sha256: file.sha256, modifiedAtMs: file.modifiedAtMs };
       files[relative] = file;
       } catch (error) {
         const missing = (error as NodeJS.ErrnoException)?.code === "ENOENT";
-        if (missing) delete nextRows[relative];
+        if (missing) { delete nextRows[relative]; localHashCache.delete(full); }
         else failed = true;
         if (!onUnverified) throw error;
         onUnverified(relative, error instanceof Error ? error.message : String(error));

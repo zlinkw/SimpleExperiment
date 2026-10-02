@@ -35,7 +35,7 @@ const memoryFs = {
 
 const queueMethods = sourceBlock("async loadDistributedQueue(root) {", "scheduleDistributedPostprocess(root")
   .replace(/}\s+async /g, "}, async ").replace(/,\s*$/, "").trim();
-const progressMethod = sourceBlock("serverPlanProgress() {", "async refreshServerPlanProgress() {")
+const progressMethod = sourceBlock("serverPlanProgress() {", "async refreshServerPlanProgress(")
   .replace(/}\s+async /g, "}, async ").replace(/,\s*$/, "").trim();
 const methodSource = `${queueMethods},\n${progressMethod}`;
 const sandbox = {

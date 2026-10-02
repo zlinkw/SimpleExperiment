@@ -38,9 +38,9 @@ def result_plan_directory_key(plan_file):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.214"
-RUNTIME_VERSION = "0.5.214"
-PLUGIN_VERSION = "0.5.214"
+AGENT_VERSION = "0.5.215"
+RUNTIME_VERSION = "0.5.215"
+PLUGIN_VERSION = "0.5.215"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -3772,9 +3772,9 @@ def _is_noise_line(line):
         # 保留关键错误行：Killed/OOM/signal/exit code 等强制非噪声（P0-1）
         if re.search(r"Killed|OOM|out of memory|signal|Segfault|CUDA|NCCL|exit code|exit_code|killed|took too long|timeout", _s, re.IGNORECASE):
             return False
-        if _s.startswith("(base)") or _s.startswith("(zlk)"):
-            if "$" in _s:
-                _s = _s.split("$", 1)[1].strip()
+        _prompt = re.match(r"^\([^)]+\)\s*[^$#]*[$#]\s*", _s)
+        if _prompt:
+            _s = _s[_prompt.end():].strip()
             if not _s:
                 return True
             if "Traceback" in _s or "Error" in _s or "Exception" in _s:
@@ -3810,9 +3810,7 @@ def _is_noise_line(line):
                 return True
         if "cd " in _s and "/data" in _s and "experiment" not in _s.lower():
             return True
-        if "qgking" in _s or "simple_agent" in _s:
-            return True
-        if _s.strip() in ["/", "e/projects", "a/qgking"]:
+        if _s == "/":
             return True
         return False
     except Exception:

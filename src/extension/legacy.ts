@@ -6,6 +6,7 @@ import * as path from "path";
 import * as crypto from "crypto";
 import * as os from "os";
 import { ProgressInactivity } from "../core/ProgressInactivity";
+import { runProjectStaticCheck } from "../features/ProjectStaticCheck";
 import { callSftpWithProgress } from "../core/SimpleSftpProgressWait";
 import { openCacheCleanupPanel } from "./CacheCleanupPanel";
 import RequestBudget_1 = require("../tunnel/RequestBudget");
@@ -775,6 +776,8 @@ export class RealtimeTunnelPanelProvider {
     distributedQueueDiskSignature = "";
     distributedQueueMetadataWrites = [];
     private readonly manualResultSyncCounts = new Map<string, number>();
+    private projectStaticCheckPromise?: Promise<void>;
+    private projectStaticCheckAbort?: AbortController;
     distributedQueueStorageDiagnostics = { status: "ready" };
     distributedQueueTickPromise;
     distributedPlanStopEpoch = 0;
@@ -1061,8 +1064,7 @@ export class RealtimeTunnelPanelProvider {
         this.context.subscriptions.push({ dispose: () => clearInterval(queueTimer) });
         const progressTimer = setInterval(() => {
             if (!this.distributedQueueCache?.plans.length || this.distributedQueueRoot !== workspaceRoot()) return;
-            this.postState();
-            void this.refreshServerPlanProgress();
+            void this.refreshServerPlanProgress({ automatic: true });
         }, 2000);
         progressTimer.unref?.();
         this.context.subscriptions.push({ dispose: () => { clearInterval(progressTimer); this.progressRefreshAbort?.abort(); } });
@@ -1334,18 +1336,25 @@ export class RealtimeTunnelPanelProvider {
         return DistributedSchedulingPolicy.serverAuthoritativeProgress(this.distributedQueueCache, snapshots,
             DistributedPlanQueue.canonicalProjectId(root));
     }
-    async refreshServerPlanProgress() {
+    async refreshServerPlanProgress(options: { automatic?: boolean } = {}) {
         if (this.progressRefreshPromise) return this.progressRefreshPromise;
         const root = workspaceRoot();
         if (!root || this.distributedQueueRoot !== root || !this.distributedQueueCache?.plans.length || !this.isRealtimeMode()
             || this.lastHealth?.state === "paused" || this.lastHealth?.status === "paused") return;
+        const configuredIds = this.workerActionTargets().map((target) => target.id);
+        const workerIds = options.automatic
+            ? DistributedSchedulingPolicy.progressRefreshWorkerIds(this.distributedQueueCache, configuredIds) : configuredIds;
+        if (!workerIds.length) return;
         const abort = new AbortController();
         this.progressRefreshAbort = abort;
-        const request = mapLimited(this.workerActionTargets().map((target) => target.id), 3,
+        const request = mapLimited(workerIds, 3,
             (workerId) => this.readWorkerTaskSnapshot(workerId, { fresh: true, signal: abort.signal }))
             .then(() => { if (workspaceRoot() === root) this.postState(); })
             .catch(() => {})
-            .finally(() => { if (this.progressRefreshPromise === request) this.progressRefreshPromise = undefined; });
+            .finally(() => {
+                if (this.progressRefreshPromise === request) this.progressRefreshPromise = undefined;
+                if (this.progressRefreshAbort === abort) this.progressRefreshAbort = undefined;
+            });
         this.progressRefreshPromise = request;
         return request;
     }
@@ -2886,6 +2895,9 @@ export class RealtimeTunnelPanelProvider {
         this.postState(true);
     }
     resetProjectContextInMemory() {
+        this.projectStaticCheckAbort?.abort();
+        this.projectStaticCheckAbort = undefined;
+        this.projectStaticCheckPromise = undefined;
         this.projectContextGeneration += 1;
         this.invalidateResultCatalogCache("workspaceChange");
         this.resultSyncReport = null;
@@ -3580,6 +3592,7 @@ export class RealtimeTunnelPanelProvider {
         }
     }
     async dispose() {
+        this.projectStaticCheckAbort?.abort();
         this.resetPanelStateProgress(true);
         this.transitionPanelLifecycle("disposed", "providerDispose");
         this.panelDisposed = true;
@@ -3915,7 +3928,7 @@ export class RealtimeTunnelPanelProvider {
             return;
         const hubForward = hubPick?.forward;
         const defaultHubName = this.setupConfig.hubDisplayName || path.basename(hubSessionPath, path.extname(hubSessionPath)) || "Hub";
-        const hubDisplayName = await input("Hub 显示名称", defaultHubName, "例如 hub、nwpu213、调度节点");
+        const hubDisplayName = await input("Hub 显示名称", defaultHubName, "例如 hub、调度节点");
         if (hubDisplayName === undefined)
             return;
         const hubActualWorkDir = await inputActualWorkRoot("Hub 项目父目录", this.setupConfig.agentProjectDir || "", "Hub", this.setupConfig);
@@ -4176,7 +4189,7 @@ export class RealtimeTunnelPanelProvider {
         if (hubHost === undefined)
             return;
         await this.applySetupDraft({ hubHost });
-        const hubDisplayName = await input("Hub 显示名称", this.setupConfig.hubDisplayName || hubHost || "Hub", "例如 hub、nwpu213、调度节点");
+        const hubDisplayName = await input("Hub 显示名称", this.setupConfig.hubDisplayName || hubHost || "Hub", "例如 hub、调度节点");
         if (hubDisplayName === undefined)
             return;
         await this.applySetupDraft({ hubDisplayName: hubDisplayName.trim() || undefined });
@@ -17174,33 +17187,22 @@ export class RealtimeTunnelPanelProvider {
         await vscode.env.clipboard.writeText(text);
         void vscode.window.showInformationMessage(`已复制静态检查报告（${rel}，${text.length} 字符）`);
     }
-    // runCheckStatic：sync 工具栏“检查项目配置”入口。
-    // 先清空 simple_cluster/check_reports 内 check-static-*.md（仅该前缀，不碰其他报告），
-    // 再跑 check-static --write-md 写最新（failed 自动落盘，passed 靠 --write-md 落盘），
-    // 最后显示报告位置 + 打开/复制（复用 open/copy 三件套）。不做任何网络探测（P0 禁硬编码端口/IP）。
     async runCheckStaticFromUi() {
+        if (this.projectStaticCheckPromise) return this.projectStaticCheckPromise;
+        const abort = new AbortController();
+        this.projectStaticCheckAbort = abort;
+        const pending = this.runCheckStaticCore(abort.signal).finally(() => {
+            if (this.projectStaticCheckPromise === pending) this.projectStaticCheckPromise = undefined;
+            if (this.projectStaticCheckAbort === abort) this.projectStaticCheckAbort = undefined;
+        });
+        this.projectStaticCheckPromise = pending;
+        return pending;
+    }
+    async runCheckStaticCore(signal: AbortSignal) {
         const root = workspaceRoot();
         if (!root)
             throw new Error("需要先打开工作区。");
         const rel = CHECK_STATIC_REPORT_REL_PATH;
-        const dirRel = "simple_cluster/check_reports";
-        const dirFull = safeWorkspaceChildPath(root, dirRel);
-        await fs.mkdir(dirFull, { recursive: true }).catch(() => undefined);
-        let cleared = 0;
-        try {
-            const entries = await fs.readdir(dirFull).catch(() => []);
-            for (const name of entries || []) {
-                if (!/^check-static-.*\.md$/.test(name))
-                    continue;
-                const full = path.join(dirFull, name);
-                const inner = path.relative(dirFull, full);
-                if (!inner || inner.startsWith("..") || path.isAbsolute(inner))
-                    continue;
-                await fs.unlink(full).catch(() => undefined);
-                cleared += 1;
-            }
-        }
-        catch { }
         const candidates = [];
         try {
             if (this.context?.extensionPath)
@@ -17224,29 +17226,19 @@ export class RealtimeTunnelPanelProvider {
         }
         if (!script)
             throw new Error(`check-static 脚本缺失（候选：${candidates.join("；")}），请确认扩展安装完整。`);
-        let output = "";
-        let exitCode = 0;
-        try {
-            const cp = require("child_process");
-            const res = cp.spawnSync(process.execPath, [script, "--project", root, "--write-md"], { encoding: "utf8", timeout: 120000 });
-            output = String((res && res.stdout) || "") + String((res && res.stderr) || "");
-            exitCode = Number((res && res.status) ?? 0);
-            if (res && res.error)
-                output += String(res.error && res.error.message ? res.error.message : res.error);
-        }
-        catch (exc) {
-            throw new Error(`静态检查运行失败：${String(exc?.message || exc).slice(0, 500)}`);
-        }
+        const report = await runProjectStaticCheck(script, root, signal);
+        if (workspaceRoot() !== root || signal.aborted) return;
         const full = safeWorkspaceChildPath(root, rel);
         const stat = await fs.stat(full).catch(() => undefined);
         if (!stat || !stat.isFile())
-            throw new Error(`静态检查已运行（已清空${cleared}个旧报告，exit=${exitCode}）但未生成报告：${rel}。输出：${output.slice(0, 800)}`);
-        const overall = exitCode === 0 ? "passed" : "failed";
+            throw new Error(`静态检查未生成报告：${rel}。`);
+        const overall = report.overall;
         try {
             this.postState(true);
         }
         catch { }
-        const pick = await vscode.window.showInformationMessage(`静态检查完成（${overall}，已清空${cleared}个旧报告），报告：${rel}`, "打开报告", "复制报告");
+        const pick = await vscode.window.showInformationMessage(`静态检查完成（${overall}，${report.plans} 个 Plan），报告：${rel}`, "打开报告", "复制报告");
+        if (workspaceRoot() !== root || signal.aborted) return;
         if (pick === "打开报告")
             await this.openLastCheckStaticReportFromUi();
         else if (pick === "复制报告")
@@ -26451,6 +26443,8 @@ function parseProjectAdapterRules(text) {
         distributedResults: parseDistributedResultsFlag(scalar("distributedResults", 0)),
         distributed: { planPrefixes: distributedList("planPrefixes"), fragmentPaths: distributedList("fragmentPaths"),
             requiredPaths: distributedList("requiredPaths"), mergeModule: distributedScalar("mergeModule"),
+            checkpointRequired: distributedScalar("checkpointRequired")
+                ? distributedScalar("checkpointRequired").split("#", 1)[0].trim().toLowerCase() !== "false" : undefined,
             configPath: distributedScalar("configPath"), checkpointPath: distributedScalar("checkpointPath"),
             resultRowsPath: distributedScalar("resultRowsPath"), fourStatePath: distributedScalar("fourStatePath") },
         taskType: scalar("taskType", 0) || outputScalar("taskType") || undefined,
@@ -29671,7 +29665,7 @@ function renderHtml() {
 async function promptWorkerTunnel(current, index, base) {
     let seed = current;
     const suggestedPort = seed?.localForwardPort || await nextAvailableLocalPort(TunnelPortConflict_1.defaultTunnelPorts.workerLocalPortRange.start + index, new Set([base.localForwardPort, ...base.workerTunnels.map((worker) => worker.localForwardPort)]));
-    const displayName = await input("Worker 显示名称", seed?.displayName || seed?.id || `worker-${index + 1}`, "例如 nwpu5");
+    const displayName = await input("Worker 显示名称", seed?.displayName || seed?.id || `worker-${index + 1}`, "例如 gpu-worker");
     if (displayName === undefined)
         return undefined;
     const host = await input("Worker 地址", seed?.workerHost || seed?.hubHost || "", "IP 或域名，例如 10.0.0.5");
@@ -29724,7 +29718,7 @@ async function promptSavedSessionWorker(current, index, remoteTelemetryPortFallb
         return undefined;
     const forward = pickedSession?.forward;
     const defaultName = path.basename(sessionPath, path.extname(sessionPath)) || current?.displayName || current?.id || `worker-${index + 1}`;
-    const displayName = await input("Worker 名称", current?.displayName || defaultName, "例如 nwpu5");
+    const displayName = await input("Worker 名称", current?.displayName || defaultName, "例如 gpu-worker");
     if (displayName === undefined)
         return undefined;
     const localForwardPort = forward?.localPort || await inputPort("Worker 本地端口", current?.localForwardPort || Math.max(hubLocalPort + index + 1, TunnelPortConflict_1.defaultTunnelPorts.workerLocalPortRange.start + index), {
