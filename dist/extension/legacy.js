@@ -79,6 +79,7 @@ const DistributedJobArtifacts_1 = require("../features/DistributedJobArtifacts")
 const ScalarAggregation_1 = require("../tensorboard/ScalarAggregation");
 const ProjectResultTables = __importStar(require("../results/ProjectResultTables"));
 const PlanRunFreshness = __importStar(require("../results/PlanRunFreshness"));
+const PlanOutputRetention = __importStar(require("../features/PlanOutputRetention"));
 const PlanWorkerAffinity_1 = require("../features/PlanWorkerAffinity");
 const PlanArtifactSync = __importStar(require("../features/PlanArtifactSync"));
 const DistributedPlanQueue = __importStar(require("../features/DistributedPlanQueue"));
@@ -6208,7 +6209,7 @@ class RealtimeTunnelPanelProvider {
             ...jobPaths.map((value) => `- ${value}`),
             `结果表：${resultPaths.join("、") || "按 Plan 配置"}（只由本 Plan 任务写入对应结果行）`,
             versionedAttempts
-                ? `重跑全部将创建新的 attempt 目录并保留历史产物；仅补跑缺失任务只派发 ${missingJobs} 个缺失 job。`
+                ? `重跑全部将创建独立的新 attempt；上一版完整结果保留到新一轮完整完成且校验发布。默认只保留最新完整版本，同步正式结果后须核对旧 attempt 完整路径并两次确认永久删除；取消清理会暂时保留旧版。仅补跑缺失任务只派发 ${missingJobs} 个缺失 job，不替换上一版完整结果。`
                 : `仅补跑缺失任务将按 scheduler 默认语义跳过已有输出；重跑全部将按 scheduler 现有 overwriteExisting/--overwrite 语义重训当前 Plan 的全部任务并覆盖当前输出。`,
         ].join("\n");
         const pick = allJobsExist
@@ -9573,6 +9574,7 @@ class RealtimeTunnelPanelProvider {
                                     const terminalLog = DistributedPlanQueue.terminalHistoryLogBinding(plan, job);
                                     return { ...job, artifacts: old.artifacts, fragmentWorkerIds: old.fragmentWorkerIds,
                                         mirroredWorkerIds: old.mirroredWorkerIds,
+                                        outputRetiredAt: old.outputRetiredAt,
                                         artifactError: old.artifactError, artifactRetryAfter: old.artifactRetryAfter,
                                         error: job.error || old.error,
                                         logPath: terminal ? (terminalLog?.logPath || "") : (job.logPath || old.logPath),
@@ -9732,7 +9734,7 @@ class RealtimeTunnelPanelProvider {
         }
         const enqueued = DistributedPlanQueue.enqueuePlan(current, { projectId: DistributedPlanQueue.canonicalProjectId(root),
             schedulingMode: DistributedSchedulingPolicy.schedulingMode(body.schedulingMode ?? this.schedulerSettings().dispatchMode),
-            planJobCount: selectedJobs.length, planFile, revision, codeFingerprint, overwriteExisting, jobs: selectedJobs.map((job) => ({
+            planJobCount: selectedJobs.length, fullPlanJobCount: validation.jobs.length, planFile, revision, codeFingerprint, overwriteExisting, jobs: selectedJobs.map((job) => ({
                 index: Number(job.index), case: String(job.case), seed: Number(job.seed),
                 outputDir: String(job.output_dir || "").replace(/\\/g, "/").replace(/\/$/, "") + "/attempts/" + id,
             })) }, id);
@@ -9846,7 +9848,7 @@ class RealtimeTunnelPanelProvider {
             schemaVersion: 1, opId: commandId, operationId: commandId, runKey: commandId,
             durablePlanQueue: true, schedulingMode: DistributedSchedulingPolicy.schedulingMode(job.localQueueOnly === true || plan.localDispatchOverride === true ? "local_idle" : plan.schedulingMode),
             requireIdleGpu: gpuId !== undefined, ...codeProofFields, projectId: plan.projectId || DistributedPlanQueue.canonicalProjectId(root),
-            planJobCount: Number(plan.planJobCount || plan.jobs.length), enqueuedAt: plan.enqueuedAt,
+            planJobCount: Number(plan.planJobCount || plan.jobs.length), fullPlanJobCount: Number(plan.fullPlanJobCount || plan.planJobCount || plan.jobs.length), enqueuedAt: plan.enqueuedAt,
             planFile: plan.planFile, experimentIndex: job.index, ...(gpuId !== undefined ? { gpuId } : {}),
             case: job.case, seed: job.seed, outputDir: job.outputDir, mode: "train_test",
             planRevision: plan.revision, codeFingerprint: plan.codeFingerprint, attempt: job.attempt,
@@ -10470,11 +10472,13 @@ class RealtimeTunnelPanelProvider {
         const contract = this.distributedProjectContract();
         const targets = new Map(this.workerCodeSyncTargets().map((target) => [target.id, target]));
         const online = [...targets.keys()].filter((id) => this.lastWorkerProbes[id]?.status === "ok");
-        for (const plan of queue.plans)
+        const selectedIds = new Set(PlanOutputRetention.plansForOutputSync(PlanOutputRetention.withValidatedPlanJobCounts(queue, this.localPlanMetadata?.plans || [])).map((plan) => plan.id));
+        const plans = this.planOutputRetentionMode(root) === "keep-history" ? queue.plans : queue.plans.filter((plan) => selectedIds.has(plan.id));
+        for (const plan of plans)
             for (const job of plan.jobs) {
                 if (workspaceRoot() !== root)
                     return;
-                if (job.status !== "completed" || !job.workerId)
+                if (job.status !== "completed" || !job.workerId || job.outputRetiredAt)
                     continue;
                 if (job.artifactRetryAfter && Date.parse(job.artifactRetryAfter) > Date.now())
                     continue;
@@ -10615,6 +10619,7 @@ class RealtimeTunnelPanelProvider {
         return Object.fromEntries(rows.flat());
     }
     async rebuildDistributedResults(root, queue, previewOnly, verifyAll = false) {
+        queue = PlanOutputRetention.withValidatedPlanJobCounts(queue, this.localPlanMetadata?.plans || []);
         const contract = this.distributedProjectContract();
         const targets = new Map(this.workerCodeSyncTargets().map((target) => [target.id, target]));
         const online = [...targets.keys()].filter((id) => this.lastWorkerProbes[id]?.status === "ok");
@@ -10636,7 +10641,7 @@ class RealtimeTunnelPanelProvider {
             return;
         const manifest = { schemaVersion: 1, plans: selected.map((plan) => ({ runId: plan.id, planFile: plan.planFile, revision: plan.revision,
                 projectId: plan.projectId, codeFingerprint: plan.codeFingerprint,
-                expectedJobCount: Number(plan.planJobCount || plan.jobs.length), recoveryMissingCount: Number(plan.recoveryMissingCount || 0),
+                expectedJobCount: Number(plan.fullPlanJobCount || plan.planJobCount || plan.jobs.length), recoveryMissingCount: Number(plan.recoveryMissingCount || 0),
                 expectedJobs: plan.jobs.map((job) => ({ case: job.case, seed: job.seed })),
                 jobStates: plan.jobs.map((job) => ({ runId: plan.id, case: job.case, seed: job.seed, attempt: job.attempt,
                     status: job.status, workerId: job.workerId, finishedAt: job.finishedAt })),
@@ -10654,7 +10659,7 @@ class RealtimeTunnelPanelProvider {
                 })) })) };
         const signature = crypto.createHash("sha256").update(JSON.stringify(manifest)).digest("hex");
         const publish = !previewOnly && selected.every((plan) => !plan.recoveryConflict && !plan.recoveryMissingCount
-            && Number(plan.planJobCount || plan.jobs.length) === plan.jobs.length && plan.jobs.every((job) => job.status === "completed"
+            && Number(plan.fullPlanJobCount || plan.planJobCount || plan.jobs.length) === plan.jobs.length && plan.jobs.every((job) => job.status === "completed"
             && contract.requiredPaths.every((name) => Boolean(job.artifacts?.[`${job.outputDir}/${name}`])) && Boolean(job.mirroredWorkerIds?.length)));
         const mirroredSources = publish ? queue.publishedWorkerIds : queue.previewWorkerIds;
         const reusableSource = mirroredSources?.find((id) => online.includes(id))
@@ -10758,6 +10763,109 @@ class RealtimeTunnelPanelProvider {
             catch (error) {
                 this.recordActionError({ command: "distributedResultMirror", message: `${workerId} ${publish ? "正式结果" : "逐 job 状态"}：${errorMessage(error)}` });
             }
+        }
+        if (publish)
+            await this.retainLatestDistributedPlanOutputs(root, selected.map((plan) => plan.id));
+    }
+    planOutputRetentionMode(root) {
+        return vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root)).get("results.planOutputRetention", "latest-complete");
+    }
+    async loadPlanOutputRetentionQueue(root) {
+        return PlanOutputRetention.withValidatedPlanJobCounts(await this.loadDistributedQueue(root), this.localPlanMetadata?.plans || []);
+    }
+    async retainLatestDistributedPlanOutputs(root, publishedRunIds) {
+        if (this.planOutputRetentionMode(root) !== "latest-complete" || this.syncScopeMutationInFlight || this.codeSyncInFlight || this.planSyncInFlight)
+            return;
+        const client = this.client;
+        const contract = this.distributedProjectContract();
+        this.syncScopeMutationInFlight = true;
+        try {
+            const queue = await this.loadPlanOutputRetentionQueue(root);
+            const candidates = PlanOutputRetention.outputRetirementCandidates(queue, publishedRunIds, contract.requiredPaths);
+            if (!candidates.length)
+                return;
+            const targets = new Map(this.workerCodeSyncTargets().map((target) => [target.id, target]));
+            const identity = (server) => JSON.stringify([server.host, server.user, server.port, server.remotePath]);
+            const servers = new Map([...targets].map(([id, row]) => [id, this.sftpServerOptions(row)]));
+            const pending = new Map(candidates.map((candidate) => [candidate.outputDir, candidate]));
+            const assertCurrent = async () => {
+                if (workspaceRoot() !== root || this.client !== client || this.planOutputRetentionMode(root) !== "latest-complete")
+                    throw new Error("项目或保留策略已变化；停止旧 attempt 替换。");
+                const latest = await this.loadPlanOutputRetentionQueue(root);
+                if (this.distributedQueueStorageDiagnostics?.status === "stale")
+                    throw new Error("队列磁盘状态尚未核实；保留旧 attempt。");
+                const current = PlanOutputRetention.outputRetirementCandidates(latest, publishedRunIds, contract.requiredPaths);
+                for (const candidate of pending.values()) {
+                    const found = current.find((row) => row.outputDir === candidate.outputDir);
+                    if (!found || PlanOutputRetention.retirementIdentity([found]) !== PlanOutputRetention.retirementIdentity([candidate]))
+                        throw new Error("最新完整运行或旧 attempt 身份已变化；保留旧产物。");
+                }
+            };
+            const inspect = async (candidate, workerId) => {
+                const row = this.workerCodeSyncTargets().find((target) => target.id === workerId);
+                const server = row && this.sftpServerOptions(row);
+                if (!server || identity(server) !== identity(servers.get(workerId)) || this.lastWorkerProbes[workerId]?.status !== "ok")
+                    throw new Error(`${workerId} 配置已变化或不可用；旧 attempt 暂不清理。`);
+                const submitted = await client.postWorkerAction(workerId, "preview-cache-cleanup", { planOutputPaths: [candidate.outputDir] });
+                const response = remoteActionPendingStatus(resultStatus(submitted))
+                    ? await this.waitForOperationTerminalResult("preview-cache-cleanup", submitted, "旧 attempt 安全清单", 0, workerId) : submitted;
+                const proof = response?.planOutputs?.[0] || response?.payload?.planOutputs?.[0]
+                    || response?.result?.planOutputs?.[0] || response?.latestEvent?.payload?.planOutputs?.[0];
+                if (!remoteActionSucceeded(resultStatus(response)) || !proof)
+                    throw new Error(`${workerId} 无法安全核对旧 attempt：${response?.message || "请更新 Agent 后再同步"}`);
+                PlanOutputRetention.validateOutputInspection(candidate, proof, server.remotePath.replace(/\/$/, ""));
+                return proof;
+            };
+            const verifyReplacement = async () => {
+                await assertCurrent();
+                const latest = await this.loadPlanOutputRetentionQueue(root);
+                for (const id of new Set(candidates.map((candidate) => candidate.replacementRunId))) {
+                    const plan = latest.plans.find((row) => row.id === id);
+                    const sourceId = [...targets.keys()].find((workerId) => this.lastWorkerProbes[workerId]?.status === "ok"
+                        && plan.jobs.every((job) => job.mirroredWorkerIds?.includes(workerId)));
+                    if (!sourceId)
+                        throw new Error("最新完整版本没有已验证可用副本；保留旧 attempt。");
+                    const paths = plan.jobs.flatMap((job) => contract.requiredPaths.map((file) => `${job.outputDir}/${file}`));
+                    const hashes = await this.distributedOutputHashes(servers.get(sourceId), paths);
+                    if (plan.jobs.some((job) => contract.requiredPaths.some((file) => hashes[`${job.outputDir}/${file}`] !== job.artifacts?.[`${job.outputDir}/${file}`])))
+                        throw new Error("最新完整版本的检查点或结果已变化；保留旧 attempt。");
+                }
+            };
+            await verifyReplacement();
+            const result = await PlanOutputRetention.retirePlanOutputs(candidates, {
+                workerIds: [...targets.keys()], inspect, assertCurrent,
+                confirm: async (records) => {
+                    const bytes = records.reduce((sum, record) => sum + record.inspection.bytes, 0);
+                    const confirmed = await (0, SyncScopeConfirmation_1.confirmSyncScopePaths)("仅保留 Plan 最新完整版本", `新一轮全部 job 已完整完成，正式结果已发布且检查点/结果 hash 已核验。永久删除下方旧 attempt 目录，共 ${records.length} 个副本，${bytes} 字节。当前完整版本和仍在运行的新 attempt 不受影响；队列历史身份保留，旧版日志/检查点将无法再打开。取消会保留旧目录，下次同步可再次审核。`, records.map((record) => ({ label: `${record.workerId} (${servers.get(record.workerId).user}@${servers.get(record.workerId).host}:${servers.get(record.workerId).port}) / ${record.planFile} → ${record.replacementRunId}`, path: record.inspection.absolutePath })), "永久删除旧 attempt，保留最新完整版本");
+                    if (confirmed)
+                        await verifyReplacement();
+                    return confirmed;
+                },
+                hold: async (candidate) => this.updateSyncScopeHolds(root, (holds) => {
+                    holds[candidate.outputDir] = { endpointId: "allWorkers", deletedAt: new Date().toISOString(), directory: true, codeOwned: false };
+                }),
+                remove: async (record) => {
+                    await this.assertSshTransportIdentities([targets.get(record.workerId)]);
+                    await this.simpleSftpApiCall("sync.deletePath", { target: servers.get(record.workerId), relativePath: record.outputDir,
+                        confirmedAbsolutePath: record.inspection.absolutePath, confirm: true, pathConfirmed: true, secondConfirmation: true });
+                },
+                retired: async (candidate) => {
+                    const latest = await this.loadDistributedQueue(root);
+                    await this.saveDistributedQueue(root, PlanOutputRetention.markOutputsRetired(latest, candidate, new Date().toISOString()), { artifactMutation: true });
+                    pending.delete(candidate.outputDir);
+                },
+            });
+            this.lastPlanOutputRetention = { ...result, updatedAt: new Date().toISOString() };
+            if (result.retired)
+                void vscode.window.showInformationMessage(`已替换 ${result.retired} 个旧 attempt，回收 ${result.bytes} 字节；仅保留当前 Plan 最新完整产物和在建版本。`);
+        }
+        catch (error) {
+            this.lastPlanOutputRetention = { status: "blocked", message: compactSensitiveText(errorMessage(error), 240), updatedAt: new Date().toISOString() };
+            this.recordActionError({ command: "planOutputRetention", message: errorMessage(error) });
+        }
+        finally {
+            this.syncScopeMutationInFlight = false;
+            this.postState();
         }
     }
     async retryDistributedJobFromUi(message) {
@@ -20078,6 +20186,7 @@ class RealtimeTunnelPanelProvider {
             panelStateTelemetryPreviousSample: this.latestPanelStateTelemetry || null,
         });
         diagnostics.distributedQueueStorage = this.distributedQueueStorageDiagnostics || { status: "ready" };
+        diagnostics.planOutputRetention = this.lastPlanOutputRetention || { status: "idle" };
         timing.diagnosticsMs = Math.max(0, Date.now() - diagnosticsStartedAt);
         const gpuHistory = this.gpuHistoryState.snapshot();
         const distributedPlans = this.distributedQueueRoot === workspaceRoot()
@@ -20090,7 +20199,7 @@ class RealtimeTunnelPanelProvider {
                     status: job.status, workerId: job.workerId, gpuId: job.gpuId, outputDir: job.outputDir,
                     localQueueOnly: job.localQueueOnly === true, recallRequested: job.recallRequested === true,
                     recallOperationId: job.recallOperationId || "",
-                    commandId: job.commandId, logPath: job.logPath, finishedAt: job.finishedAt,
+                    commandId: job.commandId, logPath: job.logPath, finishedAt: job.finishedAt, outputRetiredAt: job.outputRetiredAt,
                     error: job.error, blockReason: job.blockReason,
                     artifactError: job.artifactError, mirroredWorkerIds: job.mirroredWorkerIds || [] })) })) : [];
         const executionHistoryCutoffs = this.context.workspaceState.get(keys.executionHistoryCutoffs, {});

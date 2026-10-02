@@ -13804,11 +13804,11 @@ export function renderPanelHtml(): string {
           const logPath = String(job.logPath || "");
           const outputDir = String(job.outputDir || "");
           const trainLogPath = outputDir.endsWith("/") ? outputDir + "train.log" : outputDir + "/train.log";
-          const trainLogButton = job.outputDir && job.workerId ? '<button class="mini secondary" data-command="selectLogRunKey" data-log-source="train" data-run-key="' + escAttr(trainLogPath) + '" data-worker-id="' + escAttr(job.workerId) + '" title="从 Worker ' + escAttr(job.workerId) + ' 读取每轮训练验证记录">训练日志</button>' : "";
-          const logButton = logPath && job.workerId ? '<button class="mini secondary" data-command="selectLogRunKey" data-log-source="run" data-run-key="' + escAttr(logPath) + '" data-worker-id="' + escAttr(job.workerId) + '" title="从 Worker ' + escAttr(job.workerId) + ' 读取终端输出">终端日志</button>' : '<span class="muted">终端日志路径待 Worker 回传</span>';
+          const trainLogButton = !job.outputRetiredAt && job.outputDir && job.workerId ? '<button class="mini secondary" data-command="selectLogRunKey" data-log-source="train" data-run-key="' + escAttr(trainLogPath) + '" data-worker-id="' + escAttr(job.workerId) + '" title="从 Worker ' + escAttr(job.workerId) + ' 读取每轮训练验证记录">训练日志</button>' : "";
+          const logButton = job.outputRetiredAt ? '<span class="muted">旧产物已替换</span>' : logPath && job.workerId ? '<button class="mini secondary" data-command="selectLogRunKey" data-log-source="run" data-run-key="' + escAttr(logPath) + '" data-worker-id="' + escAttr(job.workerId) + '" title="从 Worker ' + escAttr(job.workerId) + ' 读取终端输出">终端日志</button>' : '<span class="muted">终端日志路径待 Worker 回传</span>';
           const selectedLogPath = state.selectedLogRunKey === trainLogPath ? trainLogPath : logPath;
           const logText = selectedLogPath ? logPayloadText((state.logs || {})[selectedLogPath]) : "";
-          const logPreview = logText ? '<pre class="taskLogPre">' + esc(compactTaskLogText(logText)) + '</pre>' : "";
+          const logPreview = !job.outputRetiredAt && logText ? '<pre class="taskLogPre">' + esc(compactTaskLogText(logText)) + '</pre>' : "";
           const errorText = String(job.artifactError || job.error || "").trim();
           const recallButton = status === "queued" || job.recallRequested === true
             ? '<button type="button" class="mini secondary" data-command="recallPlanToLocalQueue" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-plan-file="' + escAttr(group.planFile || "") + '" data-job-index="' + escAttr(String(job.index)) + '" title="只召回此排队 job；运行中、已结束或状态不明的任务保持原 Worker。">' + (job.recallRequested ? "重试召回" : "召回到本机") + '</button>' : "";
@@ -14014,6 +14014,7 @@ export function renderPanelHtml(): string {
             blockReason: job.blockReason,
             outputDir: job.outputDir,
             logPath: job.logPath,
+            outputRetiredAt: job.outputRetiredAt,
             trainLogPath: job.trainLogPath,
             error: job.error,
             artifactError: job.artifactError,

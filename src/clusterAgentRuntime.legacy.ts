@@ -2422,7 +2422,7 @@ def durable_plan_value(command, key):
             value = command.get(alias) or options.get(alias)
             if value not in (None, ""):
                 break
-    if key in ("experimentIndex", "seed", "attempt", "planJobCount") and value not in (None, ""):
+    if key in ("experimentIndex", "seed", "attempt", "planJobCount", "fullPlanJobCount") and value not in (None, ""):
         try:
             return int(value)
         except (TypeError, ValueError):
@@ -2433,7 +2433,7 @@ def durable_plan_identity(command):
     return {key: durable_plan_value(command, key) for key in DURABLE_PLAN_IDENTITY_FIELDS}
 
 def durable_plan_public_task(row):
-    public = {**durable_plan_identity(row), "planJobCount": row.get("planJobCount"),
+    public = {**durable_plan_identity(row), "planJobCount": row.get("planJobCount"), "fullPlanJobCount": row.get("fullPlanJobCount"),
               "enqueuedAt": row.get("enqueuedAt"), "status": str(row.get("status") or "unknown").lower(),
               "durableAccepted": True, "acceptedAt": row.get("acceptedAt"), "gpuId": row.get("gpuId") or "",
               "schedulingMode": row.get("schedulingMode") or "local_idle"}
@@ -2761,6 +2761,11 @@ def accept_durable_plan_job(root, command, worker_id):
         raise ValueError("attempt 必须为正整数")
     if not isinstance(count, int) or count < 1:
         raise ValueError("planJobCount 必须为正整数；experimentIndex 保留原计划索引")
+    full_count = durable_plan_value(command, "fullPlanJobCount")
+    if full_count in (None, ""):
+        full_count = count
+    if not isinstance(full_count, int) or full_count < count:
+        raise ValueError("fullPlanJobCount 不能少于本次提交任务数")
     plan_file = str(identity["planFile"]).replace("\\", "/")
     if plan_file.startswith("/") or any(part in ("", ".", "..") for part in plan_file.split("/")):
         raise ValueError("planFile 必须是项目内规范相对路径")
@@ -2816,7 +2821,7 @@ def accept_durable_plan_job(root, command, worker_id):
                         "message": "指定 GPU 当前繁忙，任务未持久接收"}
         row = dict(command)
         row.update(identity)
-        row.update({"schemaVersion": 1, "planJobCount": count, "enqueuedAt": enqueued_at,
+        row.update({"schemaVersion": 1, "planJobCount": count, "fullPlanJobCount": full_count, "enqueuedAt": enqueued_at,
                     "workerId": str(worker_id), "status": "queued", "acceptedAt": now_iso(),
                     "requireIdleGpu": require_idle_gpu, "gpuId": requested_gpu if require_idle_gpu else ""})
         data["schemaVersion"] = 1
@@ -11592,6 +11597,79 @@ def deregister_active_run_plan(root, op_id):
         _write_run_plan_registry(root, entries)
 
 
+def inspect_plan_output_retirement(root, relative):
+    """Read-only proof for one exact attempt. Never follow links or mounted descendants."""
+    import stat
+    relative = str(relative or "")
+    parts = relative.split("/")
+    if len(parts) < 4 or parts[-2] != "attempts" or parts[0] not in ("work_dirs", "experiments") or (parts[0] == "experiments" and parts[1] != "runs"):
+        raise ValueError("only an exact attempt directory can be retired")
+    if any(part in ("", ".", "..", ".git", "clean_dir", "simple_cluster", ".runtime") or not re.fullmatch(r"[A-Za-z0-9_.-]+", part) for part in parts):
+        raise ValueError("unsafe attempt path")
+    root_abs = os.path.abspath(root)
+    root_real = os.path.realpath(root_abs)
+    if root_real != root_abs or root_real in (os.path.abspath(os.sep), os.path.expanduser("~")) or not os.path.isdir(root_real):
+        raise ValueError("unsafe project root")
+    target = os.path.join(root_real, *parts)
+    proof = {"relativePath": relative, "remoteRoot": root_real, "absolutePath": target, "parent": os.path.dirname(target),
+             "child": "./" + parts[-1], "type": "directory", "bytes": 0, "fileCount": 0, "safeForDeletion": True}
+    for i in range(1, len(parts) + 1):
+        current = os.path.join(root_real, *parts[:i])
+        if os.path.islink(current) or os.path.ismount(current):
+            raise ValueError("attempt path contains a link or mount")
+        if os.path.lexists(current) and not os.path.isdir(current):
+            raise ValueError("attempt path is not a directory")
+    if not os.path.lexists(target):
+        return {**proof, "exists": False, "fingerprint": hashlib.sha256((target + ":absent").encode("utf-8")).hexdigest()}
+    tasks = api_worker_tasks(root).get("tasks") or []
+    for task in tasks:
+        output = str(task.get("outputDir") or "").replace("\\", "/").rstrip("/")
+        if os.path.isabs(output):
+            output = os.path.relpath(os.path.realpath(output), root_real).replace("\\", "/")
+        if str(task.get("status") or "").lower() not in ("completed", "failed", "cancelled", "canceled", "stopped") and output and (output == relative or output.startswith(relative + "/") or relative.startswith(output + "/")):
+            raise ValueError("attempt is still active on this Worker")
+    def identity(info):
+        return (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+    rows = []
+    for current, directories, files in os.walk(target, followlinks=False):
+        info = os.lstat(current)
+        if not stat.S_ISDIR(info.st_mode) or os.path.ismount(current):
+            raise ValueError("unsafe attempt directory")
+        rows.append((os.path.relpath(current, root_real), "directory", identity(info)))
+        for name in directories:
+            child = os.path.join(current, name)
+            if os.path.islink(child) or os.path.ismount(child) or name in (".git", "clean_dir", ".runtime"):
+                raise ValueError("attempt contains a protected directory, link or mount")
+        for name in files:
+            child = os.path.join(current, name)
+            before = os.lstat(child)
+            if not stat.S_ISREG(before.st_mode) or os.path.ismount(child):
+                raise ValueError("attempt contains a link or special file")
+            descriptor = os.open(child, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+            with os.fdopen(descriptor, "rb") as stream:
+                if identity(os.fstat(stream.fileno())) != identity(before):
+                    raise ValueError("attempt file changed before inspection")
+                digest = hashlib.sha256()
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(chunk)
+                if identity(os.fstat(stream.fileno())) != identity(before):
+                    raise ValueError("attempt file changed during inspection")
+            if identity(os.lstat(child)) != identity(before):
+                raise ValueError("attempt file changed after inspection")
+            rows.append((os.path.relpath(child, root_real), "file", identity(before), digest.hexdigest()))
+            proof["bytes"] += before.st_size
+            proof["fileCount"] += 1
+        if len(rows) > 200000:
+            raise ValueError("attempt inventory exceeds review limit")
+        if identity(os.lstat(current)) != identity(info):
+            raise ValueError("attempt directory changed during inspection")
+    encoded = json.dumps(sorted(rows), ensure_ascii=False, separators=(",", ":"))
+    for row in rows:
+        if row[1] == "directory" and identity(os.lstat(os.path.join(root_real, row[0]))) != row[2]:
+            raise ValueError("attempt directory changed after inspection")
+    return {**proof, "exists": True, "fingerprint": hashlib.sha256(encoded.encode("utf-8")).hexdigest()}
+
+
 def cache_cleanup_candidates(root):
     """Only aged project temp files; never remove runtime state or experiment data."""
     root_real = os.path.realpath(root)
@@ -11697,6 +11775,12 @@ def handle_action(root, action, payload, operation_id, op_id):
             return terminal_action(root, action, operation_id, op_id, "failed", str(exc))
     if action == "preview-cache-cleanup":
         try:
+            if "planOutputPaths" in payload:
+                paths = payload["planOutputPaths"]
+                if not isinstance(paths, list) or not paths or len(paths) > 100:
+                    raise ValueError("invalid attempt inspection batch")
+                return {"schemaVersion": SCHEMA_VERSION, "opId": op_id, "status": "completed",
+                        "planOutputs": [inspect_plan_output_retirement(root, value) for value in paths]}
             return {"schemaVersion": SCHEMA_VERSION, "opId": op_id, "status": "completed", "candidates": cache_cleanup_candidates(root), "retentionDays": 7}
         except Exception as exc:
             return {"schemaVersion": SCHEMA_VERSION, "opId": op_id, "status": "failed", "message": str(exc)}
@@ -14560,7 +14644,7 @@ def serve_http(args):
                 current_worker = str(getattr(args, "worker_id", "") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip()
                 if topology_mode not in ("single_worker", "worker_pool") or not owner or owner != current_worker or options.get("automaticBackup") is not False:
                     return self.send_json({"error": "worker result ownership mismatch"}, status=403)
-            if action in ("validate-plan", "dry-run-plan", "rebuild-distributed-results"):
+            if action in ("validate-plan", "dry-run-plan", "rebuild-distributed-results") or (action == "preview-cache-cleanup" and "planOutputPaths" in payload):
                 worker = (selected_worker_id(payload) or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker") if mode == "worker_telemetry" and action in ("validate-plan", "dry-run-plan") else ""
                 return self.send_json(start_inactivity_action(root, action, payload, operation_id, op_id, worker), status=202)
             if action not in ("preview-cache-cleanup", "delete-cache-candidates"):

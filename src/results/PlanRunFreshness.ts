@@ -69,11 +69,11 @@ export function selectLatestCompletePlanRun(queue: unknown, planFile: string, ex
       && !plan.recoveryConflict && Number(plan.recoveryMissingCount || 0) === 0)
     .map(({ plan, order }) => {
       const jobs = Array.isArray(plan.jobs) ? plan.jobs : [];
-      const expectedJobCount = Number(plan.planJobCount || jobs.length);
+      const expectedJobCount = Number(plan.fullPlanJobCount || plan.planJobCount || jobs.length);
       if (!Number.isInteger(expectedJobCount) || expectedJobCount <= 0 || jobs.length !== expectedJobCount) return undefined;
       const normalized = jobs.map((job: Record<string, any>) => authoritativeJob(plan, job));
       if (normalized.some((job: AuthoritativeJobIdentity | undefined) => !job)
-        || jobs.some((job: Record<string, any>) => !["completed", "succeeded", "success"].includes(String(job.status || "").toLowerCase()))) return undefined;
+        || jobs.some((job: Record<string, any>) => job.outputRetiredAt || !["completed", "succeeded", "success"].includes(String(job.status || "").toLowerCase()))) return undefined;
       const typedJobs = normalized as AuthoritativeJobIdentity[];
       if (new Set(typedJobs.map((job) => job.index)).size !== expectedJobCount
         || new Set(typedJobs.map((job) => `${job.case}\0${job.seed}`)).size !== expectedJobCount) return undefined;

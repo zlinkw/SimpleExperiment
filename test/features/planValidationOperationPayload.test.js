@@ -63,6 +63,7 @@ function hostFor(operation, accepted = true, outputChoice) {
   };
   const helperNames = ["stringFromRecord", "resultStatus", "operationStatusToken", "remoteActionPendingStatus", "remoteActionSucceeded", "operationStatusOf", "operationTerminal", "operationTerminalStatus", "operationLongRunningAction", "operationSubmissionAccepted", "operationResultPlanFile", "usableSelectionKey", "planCheckAccepted"];
   if (functions.has("planValidationFromResult")) helperNames.push("planValidationFromResult");
+  helperNames.push("remoteOperationDurationMs");
   const methodNames = ["runPlanPreflight", "waitForOperationTerminalResult", "refreshOperationStatus", "confirmPlanExistingOutputs", "confirmPlanExistingOutputsFromValidation", "confirmDistributedPlanExistingOutputs", "enqueueDistributedPlan"];
   const emitted = ts.transpileModule(
     helperNames.map((name) => functions.get(name)).join("\n") + "\nthis.production = {\n" + methodNames.map((name) => methods.get(name)).join(",\n") + "\n}; this.accepted = planCheckAccepted;",
@@ -88,6 +89,9 @@ function hostFor(operation, accepted = true, outputChoice) {
     throwIfTerminalActionFailure: (_title, _action, status) => { if (["failed", "cancelled", "completed_with_errors"].includes(status)) throw new Error(status); },
     clearOperationStatusProbe: () => {}, clearOperationWatchdog: () => {}, markLocalOperationsDirty: () => {}, postState: () => {},
     distributedPlanEligible: () => true,
+    planValidationCacheKey: () => "",
+    cachedPlanValidation: () => undefined,
+    rememberPlanValidation: () => {},
     loadDistributedQueue: async () => host.queue,
     saveDistributedQueue: async (_root, queue) => { host.queue = queue; },
     availabilityPushTtlSeconds: () => 60, schedulerSettings: () => ({}),
@@ -143,6 +147,8 @@ test("partial historical outputs let the user enqueue only missing jobs", async 
   assert.deepEqual(Array.from(dialogs[0]), ["仅补跑缺失任务（2）", "重跑全部（6）", "取消"]);
   await host.enqueueDistributedPlan(body, checked, true);
   assert.deepEqual(Array.from(host.queue.plans[0].jobs, (job) => job.index), [4, 5]);
+  assert.equal(host.queue.plans[0].planJobCount, 2);
+  assert.equal(host.queue.plans[0].fullPlanJobCount, 6);
   assert.ok(host.queue.plans[0].jobs.every((job) => job.outputDir.endsWith("/attempts/distributed-plan-fixture")));
 });
 
@@ -157,6 +163,7 @@ test("partial historical outputs let the user force all jobs into new attempts",
   await host.enqueueDistributedPlan(body, checked, true);
   assert.deepEqual(Array.from(host.queue.plans[0].jobs, (job) => job.index), [0, 1, 2, 3, 4, 5]);
   assert.equal(host.queue.plans[0].overwriteExisting, true);
+  assert.equal(host.queue.plans[0].fullPlanJobCount, 6);
   assert.ok(host.queue.plans[0].jobs.every((job) => job.outputDir.endsWith("/attempts/distributed-plan-fixture")));
 });
 

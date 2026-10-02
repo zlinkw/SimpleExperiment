@@ -262,6 +262,14 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
         if (!plan.schedulingMode && !plan.localDispatchOverride && (first.schedulingMode === "server_prequeue" || first.schedulingMode === "local_idle"))
             plan.schedulingMode = first.schedulingMode;
         plan.planJobCount = jobCount;
+        const fullCounts = [...new Set([...rows.map((row) => Number(row.task.fullPlanJobCount)), Number(plan.fullPlanJobCount)]
+                .filter((count) => Number.isInteger(count) && count >= jobCount))];
+        if (fullCounts.length === 1)
+            plan.fullPlanJobCount = fullCounts[0];
+        if (fullCounts.length > 1)
+            plan.recoveryConflict = "Server summaries disagree on the full configured Plan job count.";
+        else if (plan.recoveryConflict === "Server summaries disagree on the full configured Plan job count.")
+            delete plan.recoveryConflict;
         if (countConflict)
             plan.recoveryConflict = `Server summaries disagree on expected Plan job count: ${declaredCounts.join(", ")}.`;
         const terminalStates = new Set(["completed", "failed", "cancelled"]);
@@ -452,7 +460,7 @@ function completedJobOutputs(queue, planFile, jobs) {
     return jobs.flatMap((job) => {
         const previous = matching.slice().reverse().flatMap((plan) => plan.jobs.slice().reverse())
             .find((item) => item.index === job.index && item.case === job.case && item.seed === job.seed
-            && item.status === "completed" && item.outputDir);
+            && item.status === "completed" && item.outputDir && !item.outputRetiredAt);
         return previous ? [{ index: job.index, case: job.case, seed: job.seed, output_dir: previous.outputDir }] : [];
     });
 }

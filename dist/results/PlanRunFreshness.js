@@ -54,12 +54,12 @@ function selectLatestCompletePlanRun(queue, planFile, expectedRevision = "") {
         && !plan.recoveryConflict && Number(plan.recoveryMissingCount || 0) === 0)
         .map(({ plan, order }) => {
         const jobs = Array.isArray(plan.jobs) ? plan.jobs : [];
-        const expectedJobCount = Number(plan.planJobCount || jobs.length);
+        const expectedJobCount = Number(plan.fullPlanJobCount || plan.planJobCount || jobs.length);
         if (!Number.isInteger(expectedJobCount) || expectedJobCount <= 0 || jobs.length !== expectedJobCount)
             return undefined;
         const normalized = jobs.map((job) => authoritativeJob(plan, job));
         if (normalized.some((job) => !job)
-            || jobs.some((job) => !["completed", "succeeded", "success"].includes(String(job.status || "").toLowerCase())))
+            || jobs.some((job) => job.outputRetiredAt || !["completed", "succeeded", "success"].includes(String(job.status || "").toLowerCase())))
             return undefined;
         const typedJobs = normalized;
         if (new Set(typedJobs.map((job) => job.index)).size !== expectedJobCount

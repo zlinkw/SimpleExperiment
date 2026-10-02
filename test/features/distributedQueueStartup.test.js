@@ -188,7 +188,8 @@ test("successful artifact pass clears an old disconnected warning", async () => 
   const first = compiled.indexOf("async syncDistributedJobArtifacts(");
   const last = compiled.indexOf("async distributedOutputHashes(", first);
   assert.ok(first >= 0 && last > first);
-  const context = { workspaceRoot: () => "C:/project", Date, Set, Map, Object, errorMessage: String };
+  const context = { workspaceRoot: () => "C:/project", Date, Set, Map, Object, errorMessage: String,
+    PlanOutputRetention: require("../../dist/features/PlanOutputRetention.js") };
   vm.createContext(context);
   vm.runInContext(compiled.slice(first, last).replace("async syncDistributedJobArtifacts(root, queue, phase, verifyAll = false)", "async function syncJobArtifacts(root, queue, phase, verifyAll = false)")
     + "\nthis.sync = syncJobArtifacts;", context);
@@ -198,6 +199,7 @@ test("successful artifact pass clears an old disconnected warning", async () => 
   const provider = {
     distributedLaunchInFlight: new Set(),
     distributedProjectContract: () => ({ fragmentPaths: [], requiredPaths: [] }),
+    planOutputRetentionMode: () => "latest-complete",
     workerCodeSyncTargets: () => [{ id: "worker-a" }],
     lastWorkerProbes: { "worker-a": { status: "ok" } },
     sftpServerOptions: () => ({}),
@@ -240,6 +242,7 @@ test("every newly completed job rechecks all recorded job mirrors and repairs dr
   const first = compiled.indexOf("async syncDistributedJobArtifacts(");
   const last = compiled.indexOf("async distributedOutputHashes(", first);
   const context = { workspaceRoot: () => "C:/project", Date, Set, Map, Object, errorMessage: String,
+    PlanOutputRetention: require("../../dist/features/PlanOutputRetention.js"),
     mapLimited: async (items, _limit, fn) => Promise.all(items.map((item) => fn(item))),
     DistributedJobArtifacts_1: { collectDistributedJobArtifacts: (_dir, inventory) => Object.fromEntries(Object.entries(inventory || {}).map(([name, row]) => [name, row.sha256])) },
     PlanArtifactTransfer_1: { workerFpsyncTaskLabel: (input) => [input.action, input.sourceId, input.destinationId].filter(Boolean).join(" ") } };
@@ -255,6 +258,7 @@ test("every newly completed job rechecks all recorded job mirrors and repairs dr
   const provider = {
     distributedLaunchInFlight: new Set(),
     distributedProjectContract: () => ({ fragmentPaths: [], requiredPaths: [] }),
+    planOutputRetentionMode: () => "latest-complete",
     workerCodeSyncTargets: () => [{ id: "w2" }, { id: "w3" }],
     lastWorkerProbes: { w2: { status: "ok" }, w3: { status: "ok" } },
     sftpServerOptions: (target) => ({ id: target.id }),
@@ -273,8 +277,9 @@ test("every newly completed job rechecks all recorded job mirrors and repairs dr
 test("a new completion also repairs a stale shared preview on every Worker", async () => {
   const compiled = compiledSource;
   const first = compiled.indexOf("async rebuildDistributedResults(");
-  const last = compiled.indexOf("async retryDistributedJobFromUi(", first);
+  const last = compiled.indexOf("planOutputRetentionMode(root)", first);
   const context = {
+    PlanOutputRetention: require("../../dist/features/PlanOutputRetention.js"),
     workspaceRoot: () => "C:/project", Map, Set, Object, errorMessage: String,
     uniqueStrings: (values) => [...new Set(values)],
     PlanRunFreshness: { selectLatestCompletePlanRun(queue, planFile) {

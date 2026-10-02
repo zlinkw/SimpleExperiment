@@ -162,7 +162,7 @@ test("backend reuses Plan runtime evidence merge only for identical sources", ()
 
 test("backend blocks duplicate run operations and active scheduler tasks for the same Plan", () => {
   assert.match(extension, /private buildPlanRuntimeEvidenceState\(\)/);
-  const buildStateStart = extension.indexOf("private buildState(): WebviewClusterState {");
+  const buildStateStart = extension.indexOf("private buildState(");
   const buildStateEnd = extension.indexOf("\n    private ", buildStateStart + 10);
   assert.ok(buildStateStart >= 0 && buildStateEnd > buildStateStart);
   assert.match(extension.slice(buildStateStart, buildStateEnd), /this\.buildPlanRuntimeEvidenceState\(\)/);
