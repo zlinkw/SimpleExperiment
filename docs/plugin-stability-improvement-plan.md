@@ -501,8 +501,8 @@ bootstrap 独占 `acquireVsCodeApi()`，通过明确接口供主程序使用；�
 |---|---|---|---|
 | 0 | deferred | `planStopClear.test.js` 32/33，单项约 20 秒超时；用户指示暂跳并继续，按 P0 不重跑 | 该项保持未验证；不阻断独立批次 |
 | 1 | passed | SimpleSFTP `b2e39f9` 已推送至 `origin/master`；SFTP 回执/流关闭测试通过；主仓安全重试测试、build、vm.Script 通过 | 两插件组合的真实传输/重试验收与最终版本打包安装 |
-| 2 | running | 2A/2B 源码回归与 build、vm.Script 通过：精确停止身份、遗留广域停止禁用、带 owner 的终态调度状态审核清理、原子 state 写入失败清理；主仓提交待执行 | 暂跳 `planStopClear.test.js`；待 scoped commit/push 与真实 Worker 路径验收 |
-| 3 | pending | 未执行 | 结果发布事务及故障恢复 |
+| 2 | passed | `9d15ef7` 已推送 `origin/master`；`schedulerAtomicWrite` 1/1、`schedulerStateCleanupOwnership` 2/2、`stopSchedulerIdentity` 2/2、`abortSchedulerStopRouting` 5/5、`tmuxCloseRuntime` 1/1、`cacheCleanupPanel` 1/1；build、vm.Script、生成 Agent/Scheduler AST 通过 | 真实 Worker 路径和双确认 UI 操作留待重载后的现场验收；`planStopClear.test.js` 保持 deferred |
+| 3 | running | 已开始核查结果 registry/table generation、multi-file staging 和 catalog cache 的权威读取边界 | 先补故障注入用例，再实现提交世代和可恢复切换 |
 | 4 | pending | 未执行 | 预算、背压、取消传播 |
 | 5 | pending | 未执行 | Panel 计算与生命周期 |
 | 5A | pending | 未执行 | 灰屏证据、bootstrap、原生恢复 |
