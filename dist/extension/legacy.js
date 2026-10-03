@@ -79,6 +79,7 @@ const DistributedProjectContract_1 = require("../features/DistributedProjectCont
 const DistributedJobArtifacts_1 = require("../features/DistributedJobArtifacts");
 const ScalarAggregation_1 = require("../tensorboard/ScalarAggregation");
 const ProjectResultTables = __importStar(require("../results/ProjectResultTables"));
+const ProjectResultPublication = __importStar(require("../results/ProjectResultPublication"));
 const PlanRunFreshness = __importStar(require("../results/PlanRunFreshness"));
 const PlanOutputRetention = __importStar(require("../features/PlanOutputRetention"));
 const PlanWorkerAffinity_1 = require("../features/PlanWorkerAffinity");
@@ -14978,7 +14979,7 @@ class RealtimeTunnelPanelProvider {
         const context = this.captureProjectContext();
         if (!context.root)
             throw new Error("请先打开当前实验项目。");
-        const catalog = ProjectResultTables.resultCatalog(context.root, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, pluginProjectAdapterRules(context.root).planDatasetMapping || {});
+        const catalog = await this.readProjectResultCatalog(context.root, pluginProjectAdapterRules(context.root).planDatasetMapping || {});
         if (!this.projectContextIsCurrent(context))
             return;
         this.invalidateResultCatalogCache("planDatasetMapping");
@@ -14995,7 +14996,7 @@ class RealtimeTunnelPanelProvider {
         const root = context.root;
         const rules = pluginProjectAdapterRules(root);
         const mappings = { ...(rules.planDatasetMapping || {}) };
-        const catalog = ProjectResultTables.resultCatalog(root, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, mappings);
+        const catalog = await this.readProjectResultCatalog(root, mappings);
         const unresolved = new Map(catalog.unassignedPlans.map(plan => [ProjectResultTables.normalizePlanDatasetKey(plan.planFile), plan]));
         const registry = await this.loadProjectTableRegistry(root);
         for (const [rawPlan, rawDataset] of Object.entries(requested)) {
@@ -16951,6 +16952,7 @@ class RealtimeTunnelPanelProvider {
         };
     }
     async loadProjectTableRegistry(root) {
+        await this.recoverProjectResultPublicationIfNeeded(root);
         const file = safeWorkspaceChildPath(root, "simple_cluster/results/project_table_registry.json");
         const source = await fs.readFile(file, "utf8").catch((error) => {
             if (error?.code === "ENOENT")
@@ -16964,37 +16966,70 @@ class RealtimeTunnelPanelProvider {
             throw new Error("全项目结果注册表格式不支持，请检查 simple_cluster/results/project_table_registry.json。");
         return parsed;
     }
+    async withProjectResultPublicationLease(root, resultDir, work) {
+        if (!this.hostOperationLease)
+            return work();
+        const resultTarget = path.resolve(root, resultDir);
+        const registryTarget = path.resolve(root, "simple_cluster/results/project_table_registry.json");
+        return this.hostOperationLease.run({ pluginId: "simple-local.simple-experiment", workspaceUri: String(root),
+            hostProjectPath: root, actionType: "result-table-publication", actionLabel: "发布全项目结果表", waitForConflict: true,
+            resources: [{ server: "local", project: root, target: resultTarget }, { server: "local", project: root, target: registryTarget }] }, work);
+    }
+    async recoverProjectResultPublicationIfNeeded(root, resultDir = this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR) {
+        const journal = ProjectResultPublication.projectResultPublicationJournalPath(root);
+        if (!fsNode.existsSync(journal))
+            return "clean";
+        return this.withProjectResultPublicationLease(root, resultDir, async () => {
+            const status = await ProjectResultPublication.recoverProjectResultPublication(root, resultDir);
+            if (status !== "clean")
+                this.invalidateResultCatalogCache("resultPublicationRecovery");
+            return status;
+        });
+    }
+    async readProjectResultCatalog(root, mappings = {}, resultDir = this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR) {
+        return this.withProjectResultPublicationLease(root, resultDir, async () => {
+            const status = await ProjectResultPublication.recoverProjectResultPublication(root, resultDir);
+            if (status !== "clean")
+                this.invalidateResultCatalogCache("resultPublicationRecovery");
+            return ProjectResultTables.resultCatalog(root, resultDir, mappings || {});
+        });
+    }
+    async readProjectResultTableCatalog(root, resultDir = this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR) {
+        return this.withProjectResultPublicationLease(root, resultDir, async () => {
+            const status = await ProjectResultPublication.recoverProjectResultPublication(root, resultDir);
+            if (status !== "clean")
+                this.invalidateResultCatalogCache("resultPublicationRecovery");
+            return ProjectResultTables.tableCatalog(root, resultDir);
+        });
+    }
     async writeProjectTableRegistry(root, registry, resultDir = this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR) {
-        const tables = ProjectResultTables.buildTables(registry);
-        if (!Object.keys(tables).length)
-            throw new Error("尚无可写入的逐 seed 结果。");
-        const catalog = ProjectResultTables.resultCatalog(root, resultDir);
-        const outputs = [];
-        const datasets = new Map();
-        for (const table of Object.values(tables)) {
-            const previous = catalog.datasets.find((item) => item.datasetKey.toLowerCase() === table.datasetKey.toLowerCase());
-            if (previous?.dataset && previous.dataset !== table.dataset)
-                throw new Error("数据集目录冲突，已保留旧结果：目录 " + table.datasetKey + " 的本地数据集为“" + previous.dataset + "”，新结果为“" + table.dataset + "”。");
-            datasets.set(table.datasetKey, table.dataset);
-            outputs.push([path.posix.join(resultDir, table.relativePath), ProjectResultTables.writeCsv(table.header, table.rows)]);
-            outputs.push([path.posix.join(resultDir, table.markdownPath), table.markdown]);
-        }
-        for (const [datasetKey, dataset] of datasets)
-            outputs.push([path.posix.join(resultDir, datasetKey, ".dataset.json"), JSON.stringify({ dataset, datasetKey }) + "\n"]);
-        outputs.push(["simple_cluster/results/project_table_registry.json", JSON.stringify(registry, null, 2) + "\n"]);
-        const targets = await Promise.all(outputs.map(([relative]) => safeResultOutputPath(root, relative)));
-        const staged = [];
-        for (const [index, [, content]] of outputs.entries()) {
-            const target = targets[index];
-            await fs.mkdir(path.dirname(target), { recursive: true });
-            const temporary = target + ".tmp-" + process.pid + "-" + crypto.randomBytes(4).toString("hex");
-            await fs.writeFile(temporary, content, "utf8");
-            staged.push([temporary, target]);
-        }
-        for (const [temporary, target] of staged)
-            await fs.rename(temporary, target);
-        this.invalidateResultCatalogCache("resultRegistryWrite");
-        return tables;
+        return this.withProjectResultPublicationLease(root, resultDir, async () => {
+            await ProjectResultPublication.recoverProjectResultPublication(root, resultDir);
+            await ProjectResultPublication.assertProjectResultPublicationBaseGeneration(root, registry?.publicationGeneration);
+            const tables = ProjectResultTables.buildTables(registry);
+            if (!Object.keys(tables).length)
+                throw new Error("尚无可写入的逐 seed 结果。");
+            const catalog = ProjectResultTables.resultCatalog(root, resultDir);
+            const outputs = [];
+            const datasets = new Map();
+            for (const table of Object.values(tables)) {
+                const previous = catalog.datasets.find((item) => item.datasetKey.toLowerCase() === table.datasetKey.toLowerCase());
+                if (previous?.dataset && previous.dataset !== table.dataset)
+                    throw new Error("数据集目录冲突，已保留旧结果：目录 " + table.datasetKey + " 的本地数据集为“" + previous.dataset + "”，新结果为“" + table.dataset + "”。");
+                datasets.set(table.datasetKey, table.dataset);
+                outputs.push({ relativePath: path.posix.join(resultDir, table.relativePath), contents: ProjectResultTables.writeCsv(table.header, table.rows) });
+                outputs.push({ relativePath: path.posix.join(resultDir, table.markdownPath), contents: table.markdown });
+            }
+            for (const [datasetKey, dataset] of datasets)
+                outputs.push({ relativePath: path.posix.join(resultDir, datasetKey, ".dataset.json"), contents: JSON.stringify({ dataset, datasetKey }) + "\n" });
+            const generationId = crypto.randomUUID();
+            const publishedRegistry = { ...registry, publicationGeneration: generationId };
+            outputs.push({ relativePath: "simple_cluster/results/project_table_registry.json", contents: JSON.stringify(publishedRegistry, null, 2) + "\n" });
+            await ProjectResultPublication.publishProjectResultFiles(root, resultDir, outputs, { generationId });
+            registry.publicationGeneration = generationId;
+            this.invalidateResultCatalogCache("resultRegistryWrite");
+            return tables;
+        });
     }
     async loadPlanSyncLedger(root) {
         const file = PlanArtifactSync.planSyncLedgerStoragePath(this.context.globalStorageUri.fsPath, root);
@@ -17454,7 +17489,7 @@ class RealtimeTunnelPanelProvider {
         const context = this.captureProjectContext();
         if (!context.root)
             throw new Error("请先打开当前实验项目。");
-        const catalog = ProjectResultTables.resultCatalog(context.root, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, pluginProjectAdapterRules(context.root).planDatasetMapping || {});
+        const catalog = await this.readProjectResultCatalog(context.root, pluginProjectAdapterRules(context.root).planDatasetMapping || {});
         if (message?.artifactKey) {
             const artifact = catalog.datasets.flatMap(item => item.plans.flatMap(plan => plan.artifacts)).find(row => row.artifactKey === String(message.artifactKey));
             if (!artifact)
@@ -17476,7 +17511,7 @@ class RealtimeTunnelPanelProvider {
         if (!context.root)
             throw new Error("请先打开当前实验项目。");
         const key = String(message?.tableKey || "");
-        const table = ProjectResultTables.tableCatalog(context.root, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR).find((row) => row.tableKey === key);
+        const table = (await this.readProjectResultTableCatalog(context.root)).find((row) => row.tableKey === key);
         if (!table)
             throw new Error("请先选择已生成的总表或方法表。");
         const field = String(message?.splitField || "");
@@ -20040,16 +20075,27 @@ class RealtimeTunnelPanelProvider {
         this.resultCatalogCache = undefined;
     }
     cachedResultCatalog(root, mappings) {
+        const publicationJournal = ProjectResultPublication.projectResultPublicationJournalPath(root);
+        const rootPrefix = path.resolve(root) + "\n";
+        const lastKnownCatalog = this.resultCatalogCache?.key.startsWith(rootPrefix) ? this.resultCatalogCache.catalog : undefined;
+        const pendingCatalog = () => lastKnownCatalog ? { ...lastKnownCatalog, publicationPending: true }
+            : { datasets: [], legacyTables: [], unassignedPlans: [], multiDatasetPlans: [], mappingConflicts: [], autoRecoverableCount: 0, publicationPending: true };
+        if (fsNode.existsSync(publicationJournal)) {
+            if (this.activePanelBuildTiming)
+                this.activePanelBuildTiming.resultCatalog = { cacheHit: Boolean(lastKnownCatalog), buildMs: 0 };
+            return pendingCatalog();
+        }
         const mappingSignature = JSON.stringify(mappings || {});
-        const resultRoot = path.resolve(root, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR);
-        let registryStat = "";
-        try {
-            const stat = fsNode.statSync(path.join(root, "simple_cluster", "results", "project_table_registry.json"));
-            registryStat = `${stat.size}:${stat.mtimeMs}`;
-        }
-        catch {
-            registryStat = "missing";
-        }
+        const readRegistryStat = () => {
+            try {
+                const stat = fsNode.statSync(path.join(root, "simple_cluster", "results", "project_table_registry.json"));
+                return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+            }
+            catch {
+                return "missing";
+            }
+        };
+        const registryStat = readRegistryStat();
         const key = [path.resolve(root), this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, mappingSignature, registryStat, this.resultCatalogDirtyGeneration].join("\n");
         if (this.resultCatalogCache?.key === key && this.resultCatalogCache.expiresAt > Date.now()) {
             if (this.activePanelBuildTiming)
@@ -20059,6 +20105,11 @@ class RealtimeTunnelPanelProvider {
         const startedAt = Date.now();
         const catalog = ProjectResultTables.resultCatalog(root, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, mappings || {});
         const buildMs = Math.max(0, Date.now() - startedAt);
+        if (fsNode.existsSync(publicationJournal) || readRegistryStat() !== registryStat) {
+            if (this.activePanelBuildTiming)
+                this.activePanelBuildTiming.resultCatalog = { cacheHit: Boolean(lastKnownCatalog), buildMs };
+            return pendingCatalog();
+        }
         if (this.activePanelBuildTiming)
             this.activePanelBuildTiming.resultCatalog = { cacheHit: false, buildMs };
         this.resultCatalogCache = { key, expiresAt: Date.now() + this.resultCatalogTtlMs, catalog };

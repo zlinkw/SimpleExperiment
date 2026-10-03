@@ -299,7 +299,7 @@ function recordsForSummary(summary, planFile, manualMappings = {}) {
 }
 function updateRegistry(registry, summary, planFile, expectedSeeds = 0, manualMappings = {}) {
     const records = recordsForSummary(summary, planFile, manualMappings);
-    return { schemaVersion: 1, plans: { ...(registry?.plans || {}), [planFile]: { revision: String(summary.planRevision || ""), expectedSeeds: Math.max(0, Math.floor(expectedSeeds)), records } } };
+    return { schemaVersion: 1, ...(registry?.publicationGeneration ? { publicationGeneration: registry.publicationGeneration } : {}), plans: { ...(registry?.plans || {}), [planFile]: { revision: String(summary.planRevision || ""), expectedSeeds: Math.max(0, Math.floor(expectedSeeds)), records } } };
 }
 function summaryForWorker(summary, workerId) {
     const id = String(workerId || "").toLowerCase();
@@ -329,7 +329,7 @@ function mergeAvailableWorkerResults(registry, summary, planFile, expectedSeeds 
     const kept = sameRevision
         ? (previous?.records || []).filter((record) => !covered(record) && !(record.datasetSource === "manual-plan-mapping" && realIncoming.some(item => sameSeedWithoutDataset(record, item))) && record.revision === revision && belongsToIncomingRun(record))
         : [];
-    return { schemaVersion: 1, plans: { ...(registry?.plans || {}), [planFile]: {
+    return { schemaVersion: 1, ...(registry?.publicationGeneration ? { publicationGeneration: registry.publicationGeneration } : {}), plans: { ...(registry?.plans || {}), [planFile]: {
                 revision: revision || previous?.revision || "",
                 expectedSeeds: Math.max(0, Math.floor(expectedSeeds || previous?.expectedSeeds || 0)),
                 records: selectLatestCompletedRun([...kept, ...incoming], incomingRun),

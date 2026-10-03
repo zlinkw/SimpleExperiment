@@ -144,6 +144,8 @@ function providerFor(workspace) {
     filterResultsSummaryForPlan: (value) => value,
     loadProjectTableRegistry: undefined,
     writeProjectTableRegistry: undefined,
+    withProjectResultPublicationLease: async (_root, _resultDir, work) => work(),
+    recoverProjectResultPublicationIfNeeded: async () => "clean",
     invalidateResultCatalogCache: () => {},
     queueHistoricalPlanArtifactSyncs: async () => { calls.push(["queue-historic"]); },
     mergeLatestWorkerVersions: async (_root, _targets, scopePaths) => {

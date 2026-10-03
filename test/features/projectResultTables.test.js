@@ -43,6 +43,18 @@ test("stale Agent result revision cannot replace a revised local Plan", () => {
   assert.equal(tables.summaryMatchesPlanRevision({}, { revision: "new" }), true);
 });
 
+test("registry mutations preserve the publication base generation for optimistic conflict checks", () => {
+  const previous = { ...tables.emptyTableRegistry(), publicationGeneration: "generation-7" };
+  const updated = tables.updateRegistry(previous, summary([record("w1", "demo", "c1", 0, "clean", "acc", 0.5)]), plan, 1);
+  assert.equal(updated.publicationGeneration, "generation-7");
+  const merged = tables.mergeAvailableWorkerResults(updated, {
+    ...summary([record("w2", "demo", "c1", 1, "clean", "acc", 0.6)]),
+    workerResultTables: [{ workerId: "w2", rawResultCsvPath: "experiments/results/demo.csv", aggregateStatus: "ready" }],
+  }, plan, 2);
+  assert.equal(merged.publicationGeneration, "generation-7");
+  assert.equal(tables.applyPlanDatasetOverrides(merged, {}).publicationGeneration, "generation-7");
+});
+
 test("global and method tables recompute seed means across Workers, deduplicate and mark incomplete", () => {
   const s = summary([
     record("w1", "demo", "bus_p30", 42, "clean", "acc", 0.2),

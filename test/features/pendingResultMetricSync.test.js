@@ -587,7 +587,7 @@ test("quoted mapped columns refresh the visible table and a stale local file doe
       workerResultTables: [{ workerId: "w1", rawResultCsvPath: "simple_cluster/results/w1/raw.csv", aggregateStatus: "ready" }],
       results: [{ workerId: "w1", dimensions: { case: "beta", seed: "2", method: "w1", dataset: "set" }, metrics: { AUC: { value: 0.99 } }, sourceFiles: [{ path: "simple_cluster/results/w1/raw.csv" }] }],
     });
-    newer.loadProjectTableRegistry = async () => ({ schemaVersion: 1, plans: {} });
+    newer.loadProjectTableRegistry = async () => JSON.parse(fs.readFileSync(path.join(workspace, "simple_cluster", "results", "project_table_registry.json"), "utf8"));
     newer.loadPlanSyncLedger = async () => ({ schemaVersion: 2, entries: {} });
     await __handleResultUiCommandForTest(newer, { command: "rebuildProjectResultTables" });
     const fresh = newer.calls.filter((call) => call[0] === "postState").at(-1)[1];

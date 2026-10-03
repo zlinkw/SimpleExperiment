@@ -5,7 +5,7 @@ export { datasetPartitions, datasetPathKey, planDirectoryKey, planArtifactPath }
 
 export type SeedRecord = { planFile: string; workerId: string; case: string; seed: string; method: string; dataset: string; datasetSource?: string; rate: string; endpoint: string; metrics: Record<string, number>; runId?: string; attempt?: string; revision?: string };
 export type DerivedMetric = { metric: string; leftEndpoint: string; rightEndpoint: string; outputName: string; scale: number };
-export type TableRegistry = { schemaVersion: 1; plans: Record<string, { revision: string; expectedSeeds: number; records: SeedRecord[] }>; derivedMetric?: DerivedMetric };
+export type TableRegistry = { schemaVersion: 1; plans: Record<string, { revision: string; expectedSeeds: number; records: SeedRecord[] }>; derivedMetric?: DerivedMetric; publicationGeneration?: string };
 export const emptyTableRegistry = (): TableRegistry => ({ schemaVersion: 1, plans: {} });
 
 export function normalizePlanDatasetKey(value: unknown): string {
@@ -223,7 +223,7 @@ export function recordsForSummary(summary: any, planFile: string, manualMappings
 
 export function updateRegistry(registry: TableRegistry, summary: any, planFile: string, expectedSeeds = 0, manualMappings: Record<string, any> = {}): TableRegistry {
   const records = recordsForSummary(summary, planFile, manualMappings);
-  return { schemaVersion: 1, plans: { ...(registry?.plans || {}), [planFile]: { revision: String(summary.planRevision || ""), expectedSeeds: Math.max(0, Math.floor(expectedSeeds)), records } } };
+  return { schemaVersion: 1, ...(registry?.publicationGeneration ? { publicationGeneration: registry.publicationGeneration } : {}), plans: { ...(registry?.plans || {}), [planFile]: { revision: String(summary.planRevision || ""), expectedSeeds: Math.max(0, Math.floor(expectedSeeds)), records } } };
 }
 
 export function summaryForWorker(summary: any, workerId: string): any | undefined {
@@ -253,7 +253,7 @@ export function mergeAvailableWorkerResults(registry: TableRegistry, summary: an
   const kept = sameRevision
     ? (previous?.records || []).filter((record) => !covered(record) && !(record.datasetSource === "manual-plan-mapping" && realIncoming.some(item => sameSeedWithoutDataset(record, item))) && record.revision === revision && belongsToIncomingRun(record))
     : [];
-  return { schemaVersion: 1, plans: { ...(registry?.plans || {}), [planFile]: {
+  return { schemaVersion: 1, ...(registry?.publicationGeneration ? { publicationGeneration: registry.publicationGeneration } : {}), plans: { ...(registry?.plans || {}), [planFile]: {
     revision: revision || previous?.revision || "",
     expectedSeeds: Math.max(0, Math.floor(expectedSeeds || previous?.expectedSeeds || 0)),
     records: selectLatestCompletedRun([...kept, ...incoming], incomingRun),
