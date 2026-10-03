@@ -488,7 +488,10 @@ export class LocalApiServer {
       response.removeListener("drain", onDrain);
       request.removeListener("aborted", onRequestAborted);
       response.removeListener("close", onResponseClosed);
-      if (endResponse && !response.writableEnded && !response.destroyed) response.end();
+      response.removeListener("error", onResponseError);
+      if (endResponse && !response.writableEnded && !response.destroyed) {
+        try { response.end(); } catch { /* peer may disappear between the state check and write */ }
+      }
     };
     const sendGap = () => {
       if (closed) return;
@@ -501,9 +504,16 @@ export class LocalApiServer {
       response.removeListener("drain", onDrain);
       request.removeListener("aborted", onRequestAborted);
       response.removeListener("close", onResponseClosed);
-      if (!response.writableEnded && !response.destroyed) response.end(gapFrame);
+      response.removeListener("error", onResponseError);
+      if (!response.writableEnded && !response.destroyed) {
+        try { response.end(gapFrame); } catch { /* the gap is best effort after peer failure */ }
+      }
     };
     const pendingBytes = () => Number(response.writableLength || 0) + queuedBytes;
+    const writeFrame = (frame: string): boolean => {
+      try { return response.write(frame); }
+      catch { close(false); return false; }
+    };
     const sendFrame = (frame: string, bytes: number) => {
       if (closed || sent >= this.maxEvents) return;
       if (pendingBytes() + bytes + gapBytes > this.maxSsePendingBytes) { sendGap(); return; }
@@ -511,7 +521,7 @@ export class LocalApiServer {
       if (backpressured || pending.length) {
         pending.push({ frame, bytes });
         queuedBytes += bytes;
-      } else if (!response.write(frame)) {
+      } else if (!writeFrame(frame)) {
         backpressured = true;
       }
       if (sent >= this.maxEvents) {
@@ -527,17 +537,19 @@ export class LocalApiServer {
         const item = pending.shift();
         if (!item) break;
         queuedBytes = Math.max(0, queuedBytes - item.bytes);
-        if (!response.write(item.frame)) backpressured = true;
+        if (!writeFrame(item.frame)) backpressured = true;
       }
       if (!closed && finishWhenDrained && !backpressured && !pending.length) close();
     };
     const onRequestAborted = () => close(false);
     const onResponseClosed = () => close(false);
+    const onResponseError = () => close(false);
     closeFromServer = () => close();
     const listener: EventListener = (item) => sendEvent(item);
     response.on("drain", onDrain);
     request.on("aborted", onRequestAborted);
     response.on("close", onResponseClosed);
+    response.on("error", onResponseError);
     this.listeners.add(listener);
     this.sseClosers.add(closeFromServer);
     const firstAvailableSeq = this.events[0]?.seq;

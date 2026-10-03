@@ -7,9 +7,10 @@ const { LocalApiServer } = require("../../dist/api/LocalApiServer.js");
 class FakeRequest extends EventEmitter {}
 
 class FakeResponse extends EventEmitter {
-  constructor({ backpressure = true } = {}) {
+  constructor({ backpressure = true, throwOnWrite = false } = {}) {
     super();
     this.backpressure = backpressure;
+    this.throwOnWrite = throwOnWrite;
     this.writableLength = 0;
     this.writableEnded = false;
     this.destroyed = false;
@@ -24,6 +25,7 @@ class FakeResponse extends EventEmitter {
   }
 
   write(frame) {
+    if (this.throwOnWrite) throw new Error("peer closed");
     const text = String(frame);
     this.frames.push(text);
     this.writableLength += Buffer.byteLength(text, "utf8");
@@ -89,6 +91,20 @@ test("SSE subscriber count and replay history are bounded", async () => {
     const replay = openStream(server, 0);
     assert.equal(replay.response.writableEnded, true);
     assert.ok(replay.response.frames.some((frame) => frame.includes('"code":"journal_gap"')));
+  } finally {
+    await server.dispose();
+  }
+});
+
+test("disconnected SSE peer cannot break event publication", async () => {
+  const server = new LocalApiServer({ name: "test", version: "1", token: "t", sseTimeoutMs: 5000 });
+  const request = new FakeRequest();
+  const response = new FakeResponse({ throwOnWrite: true });
+  server.streamEvents(request, response, new URL("http://127.0.0.1/api/v1/events"));
+  try {
+    assert.doesNotThrow(() => server.publish({ type: "progress", data: { value: 1 } }));
+    assert.equal(server.listeners.size, 0);
+    assert.equal(server.sseClosers.size, 0);
   } finally {
     await server.dispose();
   }
