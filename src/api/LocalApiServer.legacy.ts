@@ -16,7 +16,11 @@ const VIEWER_SESSION_SECONDS = 30 * 24 * 60 * 60;
 const VIEWER_RENEW_SECONDS = 7 * 24 * 60 * 60;
 
 export type ApiParams = Record<string, unknown>;
-export type ApiHandler = (params: ApiParams, server: LocalApiServer) => unknown | Promise<unknown>;
+// Read-only handlers may stop work on disconnect; mutation handlers should ignore it and keep publishing their operation receipt.
+export interface ApiHandlerContext {
+  signal: AbortSignal;
+}
+export type ApiHandler = (params: ApiParams, server: LocalApiServer, context: ApiHandlerContext) => unknown | Promise<unknown>;
 
 export class LocalApiError extends Error {
   apiCode: number;
@@ -374,13 +378,17 @@ export class LocalApiServer {
       return;
     }
     const id = payload.id;
+    const controller = new AbortController();
+    const onResponseClosed = () => { if (!response.writableEnded) controller.abort(); };
+    response.once("close", onResponseClosed);
     try {
       const handler = this.methods[payload.method];
       if (typeof handler !== "function") {
         sendJson(response, 200, rpcError(id, -32601, "Method not found"));
         return;
       }
-      const result = await handler(normalParams(payload.params), this);
+      const result = await handler(normalParams(payload.params), this, { signal: controller.signal });
+      if (controller.signal.aborted) return;
       if (id === undefined) {
         response.writeHead(204);
         response.end();
@@ -392,6 +400,7 @@ export class LocalApiServer {
         result: result === undefined ? null : result,
       });
     } catch (error) {
+      if (controller.signal.aborted) return;
       if (id === undefined) {
         response.writeHead(204);
         response.end();
@@ -403,6 +412,8 @@ export class LocalApiServer {
         ? error.apiData
         : { method: payload.method };
       sendJson(response, 200, rpcError(id, code, message, data));
+    } finally {
+      response.removeListener("close", onResponseClosed);
     }
   }
 
