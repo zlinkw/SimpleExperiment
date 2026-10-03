@@ -502,7 +502,7 @@ bootstrap 独占 `acquireVsCodeApi()`，通过明确接口供主程序使用；�
 | 0 | deferred | `planStopClear.test.js` 32/33，单项约 20 秒超时；用户指示暂跳并继续，按 P0 不重跑 | 该项保持未验证；不阻断独立批次 |
 | 1 | passed | SimpleSFTP `b2e39f9` 已推送至 `origin/master`；SFTP 回执/流关闭测试通过；主仓安全重试测试、build、vm.Script 通过 | 两插件组合的真实传输/重试验收与最终版本打包安装 |
 | 2 | passed | `9d15ef7` 已推送 `origin/master`；`schedulerAtomicWrite` 1/1、`schedulerStateCleanupOwnership` 2/2、`stopSchedulerIdentity` 2/2、`abortSchedulerStopRouting` 5/5、`tmuxCloseRuntime` 1/1、`cacheCleanupPanel` 1/1；build、vm.Script、生成 Agent/Scheduler AST 通过 | 真实 Worker 路径和双确认 UI 操作留待重载后的现场验收；`planStopClear.test.js` 保持 deferred |
-| 3 | passed | `ProjectResultPublication` 支持 SHA256 校验的多文件暂存、失败回滚/崩溃恢复、注册表最后提交及 generation 冲突拒绝；`projectResultPublication` 6/6、`projectResultTables` 18/18、`projectResultSyncCompleteness` 16/16、`pendingResultMetricSync` 26/26，build、Panel inline `vm.Script` 门禁通过 | 双窗口竞争与 Extension Host 崩溃恢复留待现场验证；批次 0 的 `planStopClear.test.js` 仍按用户指示 deferred |
+| 3 | passed | commit `22d12add`；`ProjectResultPublication` 支持 SHA256 校验的多文件暂存、失败回滚/崩溃恢复、注册表最后提交及 generation 冲突拒绝；`projectResultPublication` 6/6、`projectResultTables` 18/18、`projectResultSyncCompleteness` 16/16、`pendingResultMetricSync` 26/26、`runCompletionResultRefresh` 1/1，build、Panel inline `vm.Script` 门禁通过 | 双窗口竞争与 Extension Host 崩溃恢复留待现场验证；批次 0 的 `planStopClear.test.js` 仍按用户指示 deferred |
 | 4 | pending | 未执行 | 预算、背压、取消传播 |
 | 5 | pending | 未执行 | Panel 计算与生命周期 |
 | 5A | pending | 未执行 | 灰屏证据、bootstrap、原生恢复 |
