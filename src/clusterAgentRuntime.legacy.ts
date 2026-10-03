@@ -11467,6 +11467,30 @@ def _is_pid_alive(pid):
         return False
 
 
+def parse_linux_process_start_identity(stat_line):
+    # /proc/<pid>/stat field 2 is parenthesized and may contain spaces. Field 22
+    # (starttime) is index 19 after splitting fields starting at field 3.
+    text = str(stat_line or "")
+    end = text.rfind(")")
+    if end < 0:
+        return ""
+    fields = text[end + 1:].split()
+    if len(fields) <= 19 or not fields[19].isdigit():
+        return ""
+    return fields[19]
+
+
+def process_start_identity(pid):
+    try:
+        pid_value = int(pid or 0)
+        if pid_value <= 0:
+            return ""
+        with open(f"/proc/{pid_value}/stat", "r", encoding="utf-8") as stream:
+            return parse_linux_process_start_identity(stream.read())
+    except Exception:
+        return ""
+
+
 def _reap_zombie_scheduler_sessions(root, known_op_ids):
     # Kill run-plan tmux sessions whose process is gone and which are not in the live registry
     # (e.g. a crashed scheduler that left a detached 'sch-' session behind).
@@ -11575,6 +11599,7 @@ def register_active_run_plan(root, op_id, pid, tmux_session, worker_ids, owner, 
         entry = {
             "opId": str(op_id),
             "pid": int(pid or 0),
+            "pidStartIdentity": process_start_identity(pid),
             "tmuxSession": str(tmux_session or ""),
             "workerIds": [str(w) for w in (worker_ids or [])],
             "ownerWorkerId": str(owner or ""),
@@ -11668,6 +11693,43 @@ def inspect_plan_output_retirement(root, relative):
     return {**proof, "exists": True, "fingerprint": hashlib.sha256(encoded.encode("utf-8")).hexdigest()}
 
 
+def scheduler_state_cleanup_owner_matches(root, file_path, state):
+    try:
+        root_real = os.path.realpath(root)
+        state_dir = os.path.join(root_real, "simple_cluster", "tmp", "cluster_scheduler")
+        owner = state.get("cleanupOwner") if isinstance(state, dict) else None
+        if not isinstance(owner, dict) or owner.get("schemaVersion") != 1 or owner.get("purpose") != "scheduler-state":
+            return False
+        if not os.path.isdir(state_dir) or os.path.islink(state_dir) or os.path.realpath(state_dir) != state_dir:
+            return False
+        full_path = os.path.abspath(file_path)
+        if os.path.dirname(full_path) != state_dir or os.path.islink(full_path) or not os.path.isfile(full_path):
+            return False
+        if not re.fullmatch(r"[A-Za-z0-9._-]+_state\.json", os.path.basename(full_path)):
+            return False
+        if os.path.normcase(os.path.realpath(str(owner.get("projectRoot") or ""))) != os.path.normcase(root_real):
+            return False
+        recorded_path = os.path.normcase(os.path.realpath(str(owner.get("statePath") or "")))
+        if recorded_path != os.path.normcase(full_path):
+            return False
+        normalize_plan = lambda value: re.sub(r"^\./", "", str(value or "").replace("\\", "/")).strip()
+        plan_file = normalize_plan(state.get("plan"))
+        if not plan_file or normalize_plan(owner.get("planFile")) != plan_file:
+            return False
+        operation_id = str(owner.get("operationId") or "").strip()
+        run_id = str(owner.get("runId") or "").strip()
+        attempt_id = str(owner.get("attemptId") or "").strip()
+        if not operation_id or not run_id or not attempt_id or operation_id != run_id:
+            return False
+        if state.get("schedulerTerminal") is not True:
+            return False
+        if state.get("running_experiments") or state.get("testing_experiments"):
+            return False
+        return True
+    except Exception:
+        return False
+
+
 def cache_cleanup_candidates(root):
     """Only aged project temp files; never remove runtime state or experiment data."""
     root_real = os.path.realpath(root)
@@ -11697,17 +11759,30 @@ def cache_cleanup_candidates(root):
             for name in files:
                 path = os.path.join(parent, name)
                 dry_run_temp = bool(re.fullmatch(r"dry-run-workers-\d+-[0-9a-f]{12}\.json", name))
-                if os.path.islink(path) or any(marker in name.lower() for marker in protected_markers) or (os.path.splitext(name)[1].lower() not in allowed_extensions and not dry_run_temp):
+                relative_path = os.path.relpath(path, root_real).replace(os.sep, "/")
+                scheduler_state_temp = relative_path.startswith("simple_cluster/tmp/cluster_scheduler/") and relative_path.endswith("_state.json")
+                if os.path.islink(path) or any(marker in name.lower() for marker in protected_markers) or (os.path.splitext(name)[1].lower() not in allowed_extensions and not dry_run_temp and not scheduler_state_temp):
                     continue
                 try:
                     stat = os.stat(path, follow_symlinks=False)
                     if not os.path.isfile(path) or stat.st_dev != os.stat(root_real).st_dev or stat.st_mtime > cutoff:
                         continue
-                    rel = os.path.relpath(path, root_real).replace(os.sep, "/")
+                    if scheduler_state_temp and stat.st_size > 2 * 1024 * 1024:
+                        continue
+                    rel = relative_path
                     if os.path.commonpath((root_real, os.path.realpath(path))) != root_real:
                         continue
+                    if scheduler_state_temp:
+                        try:
+                            with open(path, "r", encoding="utf-8") as stream:
+                                state = json.load(stream)
+                        except Exception:
+                            continue
+                        if not scheduler_state_cleanup_owner_matches(root_real, path, state):
+                            continue
                     purpose = ("单个 Job 的训练或测试输出日志，旧内容用于历史排错" if "/cluster_scheduler/logs/" in rel else
                                "Plan 调度过程日志" if "/cluster_scheduler/" in rel and rel.endswith(".log") else
+                               "已终止 Plan 的专属调度状态，保留期已满 7 天" if scheduler_state_temp else
                                "Plan 预演的 Worker 分配快照" if dry_run_temp else
                                "tmux 会话输出副本" if "/tmux_logs/" in rel else "插件临时工作文件")
                     token = hashlib.sha256(f"{rel}|{stat.st_dev}|{stat.st_ino}|{stat.st_size}|{stat.st_mtime_ns}".encode("utf-8")).hexdigest()
@@ -11734,6 +11809,14 @@ def cache_delete_exact_file(root, relative_path, expected_token):
     current_token = hashlib.sha256(f"{relative_path}|{file_stat.st_dev}|{file_stat.st_ino}|{file_stat.st_size}|{file_stat.st_mtime_ns}".encode("utf-8")).hexdigest()
     if current_token != expected_token or file_stat.st_mtime > time.time() - 7 * 24 * 60 * 60:
         raise ValueError(f"候选已变化：{relative_path}")
+    if relative_path.startswith("simple_cluster/tmp/cluster_scheduler/") and relative_path.endswith("_state.json"):
+        try:
+            with open(full_path, "r", encoding="utf-8") as stream:
+                state = json.load(stream)
+        except Exception as exc:
+            raise ValueError(f"调度状态无法验证：{relative_path}: {exc}")
+        if not scheduler_state_cleanup_owner_matches(root_real, full_path, state):
+            raise ValueError(f"调度状态所有权已变化：{relative_path}")
     if os.name != "posix":
         raise ValueError("PARENT_CD_FAILED: 当前平台不支持安全的目录内删除")
     script = 'cd -- "$1" || exit 41; [ "$(pwd -P)" = "$1" ] || exit 42; [ -f "./$2" ] && [ ! -L "./$2" ] || exit 43; rm -- "./$2"'
@@ -13619,6 +13702,28 @@ def api_runtime_operation_evidence(root, operation_id, plan_file="", pid=None, t
     }
 
 
+def scheduler_stop_record_identity(wanted, requested_plan, event):
+    if not isinstance(event, dict):
+        raise ValueError("缺少可验证的调度事件")
+    event_operation_id = str(event.get("operationId") or "").strip()
+    if event_operation_id and event_operation_id != str(wanted or "").strip():
+        raise ValueError("调度事件 operationId 与停止目标不匹配")
+    recorded = event.get("payload") if isinstance(event.get("payload"), dict) else {}
+    payload_operation_id = str(recorded.get("operationId") or "").strip()
+    if payload_operation_id and payload_operation_id != str(wanted or "").strip():
+        raise ValueError("调度事件 payload operationId 与停止目标不匹配")
+    recorded_plan = re.sub(r"^\./", "", str(recorded.get("planFile") or recorded.get("plan") or "").replace("\\", "/")).strip()
+    expected_plan = re.sub(r"^\./", "", str(requested_plan or "").replace("\\", "/")).strip()
+    if not wanted or not recorded_plan or not expected_plan or recorded_plan != expected_plan:
+        raise ValueError("调度事件缺少匹配的 operationId/Plan 身份")
+    return {
+        "planFile": recorded_plan,
+        "pid": recorded.get("pid"),
+        "pidStartIdentity": str(recorded.get("pidStartIdentity") or "").strip(),
+        "tmuxSession": str(recorded.get("tmuxSession") or recorded.get("session") or "").strip(),
+    }
+
+
 def stop_scheduler_operation(root, payload):
     wanted = str(payload.get("targetOperationId") or payload.get("remoteOperationId") or payload.get("operationId") or payload.get("opId") or "").strip()
     plan = action_plan_file(payload)
@@ -13627,13 +13732,29 @@ def stop_scheduler_operation(root, payload):
     if not wanted or not plan:
         return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or ""), str(payload.get("opId") or ""), "failed", "缺少明确的调度记录或 Plan，未执行停止。", {"matchedOperations": [], "planFile": plan}, request=payload)
     events = read_operation_events(root, wanted, 100) if wanted else []
-    latest_payload = next((event.get("payload") for event in reversed(events) if isinstance(event.get("payload"), dict)), {})
-    recorded_plan = re.sub(r"^\./", "", str(latest_payload.get("planFile") or latest_payload.get("plan") or "").replace("\\", "/"))
+    latest_event = next((event for event in reversed(events) if isinstance(event.get("payload"), dict)), {})
+    latest_payload = latest_event.get("payload") if isinstance(latest_event.get("payload"), dict) else {}
     requested_plan = re.sub(r"^\./", "", str(plan).replace("\\", "/"))
-    if recorded_plan and recorded_plan != requested_plan:
-        return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or ""), str(payload.get("opId") or ""), "failed", "调度记录与 Plan 不匹配，未执行停止。", {"matchedOperations": [], "planFile": plan}, request=payload)
-    target_pid = payload.get("pid") or latest_payload.get("pid")
-    target_session = payload.get("tmuxSession") or latest_payload.get("tmuxSession") or latest_payload.get("session")
+    try:
+        stop_identity = scheduler_stop_record_identity(wanted, requested_plan, latest_event)
+    except ValueError as exc:
+        return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or ""), str(payload.get("opId") or ""), "failed", f"{exc}，未执行停止。", {"matchedOperations": [], "planFile": plan}, request=payload)
+    recorded_plan = stop_identity["planFile"]
+    target_pid = 0
+    registry_entry = next((entry for entry in _read_run_plan_registry(root) if isinstance(entry, dict) and str(entry.get("opId") or "") == wanted), None)
+    registry_pid = int(registry_entry.get("pid") or 0) if registry_entry else 0
+    event_pid = int(stop_identity.get("pid") or 0) if str(stop_identity.get("pid") or "").strip().lstrip("-").isdigit() else 0
+    pid_candidate = registry_pid if registry_pid > 0 and (not event_pid or event_pid == registry_pid) else 0
+    expected_pid_start = str((registry_entry or {}).get("pidStartIdentity") or stop_identity.get("pidStartIdentity") or "").strip()
+    actual_pid_start = process_start_identity(pid_candidate) if pid_candidate else ""
+    pid_identity_lost = False
+    if pid_candidate > 0 and expected_pid_start and actual_pid_start and expected_pid_start == actual_pid_start:
+        target_pid = pid_candidate
+    recorded_session = str(stop_identity.get("tmuxSession") or "").strip()
+    registry_session = str((registry_entry or {}).get("tmuxSession") or "").strip()
+    if recorded_session and registry_session and recorded_session != registry_session:
+        return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or ""), str(payload.get("opId") or ""), "failed", "调度事件与运行登记中的 tmux 身份不一致，未执行停止。", {"matchedOperations": [], "planFile": plan}, request=payload)
+    target_session = recorded_session or registry_session
     if not target_session and wanted:
         # The run-plan scheduler session is named deterministically from the op id; fall back to
         # deriving it so a stop still works even if the operation events lack the session field.
@@ -13650,25 +13771,40 @@ def stop_scheduler_operation(root, payload):
         else:
             errors.append((result.stderr or b"tmux kill failed").decode("utf-8", errors="replace").strip())
     if before["pidAlive"]:
-        try:
-            os.kill(int(before["checkedPid"]), signal.SIGTERM)
-            terminated_pids.append(before["checkedPid"])
-        except Exception as exc:
-            errors.append(str(exc))
+        if process_start_identity(before["checkedPid"]) != expected_pid_start:
+            pid_identity_lost = True
+        else:
+            try:
+                os.kill(int(before["checkedPid"]), signal.SIGTERM)
+                terminated_pids.append(before["checkedPid"])
+            except Exception as exc:
+                errors.append(str(exc))
     time.sleep(0.2)
     after = scheduler_process_evidence(root, target_pid, target_session)
     if after["pidAlive"] and before["pidAlive"] and int(before["checkedPid"]) == int(after["checkedPid"]):
-        try:
-            os.kill(int(after["checkedPid"]), signal.SIGKILL)
-            time.sleep(0.1)
-        except Exception:
-            pass
-        after = scheduler_process_evidence(root, target_pid, target_session)
+        if process_start_identity(after["checkedPid"]) != expected_pid_start:
+            pid_identity_lost = True
+        else:
+            try:
+                os.kill(int(after["checkedPid"]), signal.SIGKILL)
+                time.sleep(0.1)
+            except Exception:
+                pass
+            after = scheduler_process_evidence(root, target_pid, target_session)
     remaining_active = []
     if after["pidAlive"]: remaining_active.append({"kind": "pid", "value": after["checkedPid"]})
+    if pid_identity_lost:
+        remaining_active.append({"kind": "pidIdentityUnknown", "value": pid_candidate})
+    unverified_pids = {value for value in (event_pid, registry_pid) if value > 0 and value != target_pid and _is_pid_alive(value)}
+    for value in sorted(unverified_pids):
+        remaining_active.append({"kind": "pidIdentityUnknown", "value": value})
     # P1: 双活判定需同时检查 shellAlive，避免空壳（has-session 但无 python）被误判为已清理
     if after["tmuxSessionAlive"]: remaining_active.append({"kind": "tmuxSession", "value": after["checkedTmuxSession"]})
     elif after["tmuxShellAlive"]: remaining_active.append({"kind": "tmuxSession", "value": after["checkedTmuxSession"]})
+    if unverified_pids or pid_identity_lost:
+        return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or ""), str(payload.get("opId") or ""), "failed", "调度器 PID 启动身份无法验证，未终止该 PID、未删除运行登记，也未继续清理 Worker 任务。", {
+            "matchedOperations": [], "planFile": plan, "remainingActiveEvidence": remaining_active,
+        }, request=payload)
     matched_scheduler = bool(terminated_sessions or terminated_pids or before["pidAlive"] or before["tmuxSessionAlive"] or before["tmuxShellAlive"])
     # A previous stop can have removed the scheduler while leaving its Worker records behind.
     # Repair that Plan only when its journal identifies it and no newer scheduler is live.
@@ -14495,21 +14631,25 @@ def serve_http(args):
                     return self.send_json({"error": "localhost only"}, status=403)
                 body, status = kill_tmux_window_response(payload, mode)
                 return self.send_json(body, status=status)
-            # Admin kill-stale-runtime: used by extension killRemoteAgentAndTmux to clean old tmux/pids via tunnel
+            # Keep the legacy endpoint name, but require the same exact operation/Plan identity as the normal stop route.
             if route in ("/api/admin/kill-stale-runtime", "/api/admin/exec"):
                 if not self.localhost_only():
                     return self.send_json({"error": "localhost only"}, status=403)
                 if self.reject_if_needed():
                     return
+                if route == "/api/admin/exec":
+                    return self.send_json({"ok": False, "error": "arbitrary remote shell execution is disabled; use an exact operation stop action"}, status=403)
+                if str(payload.get("command") or payload.get("cmd") or "").strip():
+                    return self.send_json({"ok": False, "error": "command is not accepted; provide an exact targetOperationId and planFile"}, status=400)
+                target_operation_id = str(payload.get("targetOperationId") or payload.get("remoteOperationId") or payload.get("operationId") or payload.get("opId") or "").strip()
+                plan_file = action_plan_file(payload)
+                if not target_operation_id or not plan_file:
+                    return self.send_json({"ok": False, "error": "targetOperationId and planFile are required; broad runtime cleanup is disabled"}, status=400)
                 try:
-                    cmd = str(payload.get("command") or payload.get("cmd") or "").strip()
-                    if route == "/api/admin/kill-stale-runtime" or not cmd:
-                        kill_cmd = "for s in $(tmux ls 2>/dev/null | cut -d: -f1 | grep -E '^(simple-worker-.*-agent|zlk-worker-.*-agent)$' || true); do tmux kill-session -t \"$s\" 2>/dev/null || true; done; tmux kill-session -t simple-sch-run-plan 2>/dev/null || true; tmux kill-session -t zlk-sch-run-plan 2>/dev/null || true; for s in $(tmux ls 2>/dev/null | cut -d: -f1 | grep -E '^(simple-sch-|zlk-sch-|simple-gpu-|zlk-gpu-)' || true); do tmux kill-session -t \"$s\" 2>/dev/null || true; done; pkill -f cluster_agent 2>/dev/null || true; pkill -f cluster_scheduler 2>/dev/null || true; echo ok"
-                        out = subprocess.run(kill_cmd, shell=True, capture_output=True, text=True, timeout=10)
-                        return self.send_json({"schemaVersion": SCHEMA_VERSION, "ok": True, "output": (out.stdout or "")[:2000], "error": (out.stderr or "")[:2000]})
-                    else:
-                        out = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=15)
-                        return self.send_json({"schemaVersion": SCHEMA_VERSION, "ok": out.returncode == 0, "returncode": out.returncode, "output": (out.stdout or "")[:4000], "error": (out.stderr or "")[:4000]})
+                    scoped_payload = dict(payload)
+                    scoped_payload["targetOperationId"] = target_operation_id
+                    scoped_payload["planFile"] = plan_file
+                    return self.send_json(stop_scheduler_operation(root, scoped_payload))
                 except Exception as exc:
                     return self.send_json({"error": str(exc)}, status=500)
             allowed = ACTION_ROUTES.union({

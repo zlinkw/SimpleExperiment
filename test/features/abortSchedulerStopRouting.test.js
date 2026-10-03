@@ -33,15 +33,22 @@ test("abortSchedulerFromUi routes through stop-scheduler-operation (tmux kill + 
   assert.match(body, /result\.matchedOperations\.includes\(operationId\)/, "requires remote target confirmation");
   assert.match(body, /op\.status = "cancelled"/, "successful stop marks cancelled");
   assert.match(body, /op\.status = "failed"/, "lingering tmux marks failed");
-  assert.match(body, /tmux kill-session -t zlk-sch-/, "failed path instructs manual tmux kill");
+  assert.match(body, /remainingSummary/, "failed path reports the exact returned activity identity");
+  assert.doesNotMatch(body, /zlk-sch-/, "failed path does not invent a tmux prefix");
 });
 
-test("abortSchedulerFromUi clears scoped caches and tmp instead of wiping everything", () => {
+test("abortSchedulerFromUi clears scoped UI caches but preserves unowned temp files", () => {
   const start = extensionSource.indexOf("async abortSchedulerFromUi(message");
   const end = extensionSource.indexOf("private clearLocalOperationCachesForOp(", start);
   const body = extensionSource.slice(start, end);
   assert.match(body, /clearLocalOperationCachesForOp\(operationId\)/, "clears realtime/snapshot cache for op");
-  assert.match(body, /cleanupSchedulerTmpForOp\(operationId, planFile\)/, "scoped tmp cleanup");
+  assert.match(body, /cleanupSchedulerTmpForOp\(operationId, planFile\)/, "checks whether cleanup has a precise owner");
+  assert.match(body, /调度状态保留 7 天用于排错/);
+  const cleanupStart = extensionSource.indexOf("private cleanupSchedulerTmpForOp(opId: string, planFile: string)");
+  const cleanupEnd = extensionSource.indexOf("async openScalarViewerFromUi", cleanupStart);
+  const cleanup = extensionSource.slice(cleanupStart, cleanupEnd);
+  assert.match(cleanup, /新调度状态保留 7 天/);
+  assert.doesNotMatch(cleanup, /unlink|rmSync|rmdir|readdirSync/);
   // clearLocalOperationCachesForOp strips only the target op from lastRealtimeState/lastSnapshot
   const helper = agentSource.length && extensionSource.slice(extensionSource.indexOf("private clearLocalOperationCachesForOp(opId"), extensionSource.indexOf("private cleanupSchedulerTmpForOp(opId"));
   assert.match(helper, /delete ops\[opId\]/, "cache helper deletes only the target opId");

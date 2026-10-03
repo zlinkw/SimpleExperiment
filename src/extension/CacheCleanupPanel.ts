@@ -23,6 +23,31 @@ const candidateExtensions = new Set([".log", ".tmp", ".bak", ".part"]);
 const protectedMarkers = ["tensorboard", "tb_log", "checkpoint", "weight", "model_cache", "dataset"];
 const protectedName = (name: string) => protectedMarkers.some(marker => name.toLowerCase().includes(marker));
 
+function schedulerStateCleanupOwnerMatches(root: string, fullPath: string, state: any): boolean {
+  try {
+    const owner = state?.cleanupOwner;
+    if (owner?.schemaVersion !== 1 || owner.purpose !== "scheduler-state") return false;
+    const comparablePath = (value: string) => process.platform === "win32" ? path.normalize(value).toLowerCase() : path.normalize(value);
+    const normalizedRoot = comparablePath(root);
+    if (comparablePath(realPathSync(String(owner.projectRoot || ""))) !== normalizedRoot) return false;
+    const normalizedFile = comparablePath(fullPath);
+    if (comparablePath(realPathSync(String(owner.statePath || ""))) !== normalizedFile) return false;
+    const expectedDir = path.join(root, "simple_cluster", "tmp", "cluster_scheduler");
+    if (comparablePath(path.dirname(fullPath)) !== comparablePath(expectedDir) || !/^[A-Za-z0-9._-]+_state\.json$/.test(path.basename(fullPath))) return false;
+    const normalizePlan = (value: unknown) => String(value || "").replace(/\\/g, "/").replace(/^\.\//, "").trim();
+    const plan = normalizePlan(state?.plan);
+    if (!plan || normalizePlan(owner.planFile) !== plan) return false;
+    const operationId = String(owner.operationId || "").trim();
+    const runId = String(owner.runId || "").trim();
+    if (!operationId || !runId || operationId !== runId || !String(owner.attemptId || "").trim()) return false;
+    return state?.schedulerTerminal === true && !(state.running_experiments || []).length && !(state.testing_experiments || []).length;
+  } catch { return false; }
+}
+
+function realPathSync(value: string): string {
+  return require("node:fs").realpathSync(value);
+}
+
 async function localCandidates(root: string): Promise<Candidate[]> {
   const realRoot = await fs.realpath(root);
   const rootDevice = (await fs.stat(realRoot)).dev;
@@ -42,12 +67,18 @@ async function localCandidates(root: string): Promise<Candidate[]> {
         if (entry.isSymbolicLink()) continue;
         if (entry.isDirectory()) { if (!protectedName(entry.name)) queue.push(full); continue; }
         const dryRun = /^dry-run-workers-\d+-[0-9a-f]{12}\.json$/.test(entry.name);
-        if (!entry.isFile() || protectedName(entry.name) || (!candidateExtensions.has(path.extname(entry.name).toLowerCase()) && !dryRun)) continue;
-        const stat = await fs.lstat(full);
-        if (stat.dev !== rootDevice || stat.mtimeMs > cutoff) continue;
         const relative = path.relative(realRoot, full).split(path.sep).join("/");
+        const schedulerState = relative.startsWith("simple_cluster/tmp/cluster_scheduler/") && relative.endsWith("_state.json");
+        if (!entry.isFile() || protectedName(entry.name) || (!candidateExtensions.has(path.extname(entry.name).toLowerCase()) && !dryRun && !schedulerState)) continue;
+        const stat = await fs.lstat(full);
+        if (stat.dev !== rootDevice || stat.mtimeMs > cutoff || schedulerState && stat.size > 2 * 1024 * 1024) continue;
+        if (schedulerState) {
+          let state: any;
+          try { state = JSON.parse(await fs.readFile(full, "utf8")); } catch { continue; }
+          if (!schedulerStateCleanupOwnerMatches(realRoot, full, state)) continue;
+        }
         const token = crypto.createHash("sha256").update(`${relative}|${stat.dev}|${stat.ino}|${stat.size}|${stat.mtimeMs}`).digest("hex");
-        const purpose = relative.includes("/cluster_scheduler/logs/") ? "单个 Job 的训练或测试输出日志，旧内容用于历史排错" : relative.includes("/cluster_scheduler/") && relative.endsWith(".log") ? "Plan 调度过程日志" : dryRun ? "Plan 预演的 Worker 分配快照" : relative.includes("/tmux_logs/") ? "tmux 会话输出副本" : "插件临时工作文件";
+        const purpose = relative.includes("/cluster_scheduler/logs/") ? "单个 Job 的训练或测试输出日志，旧内容用于历史排错" : relative.includes("/cluster_scheduler/") && relative.endsWith(".log") ? "Plan 调度过程日志" : schedulerState ? "已终止 Plan 的专属调度状态，保留期已满 7 天" : dryRun ? "Plan 预演的 Worker 分配快照" : relative.includes("/tmux_logs/") ? "tmux 会话输出副本" : "插件临时工作文件";
         rows.push({ workerId: "local", path: relative, fullPath: full, type: "file", bytes: stat.size, modifiedAt: stat.mtimeMs / 1000, purpose, token });
         if (rows.length > 20000) throw new Error("本机候选文件过多，请缩小审核范围");
       }

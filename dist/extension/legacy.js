@@ -17600,20 +17600,21 @@ class RealtimeTunnelPanelProvider {
                 });
                 remaining = (retry && Array.isArray(retry.remainingActiveEvidence) ? retry.remainingActiveEvidence : []) || [];
             }
-            // 范围化清理本地 tmp（仅当前 opId/planFile 相关），并清除实时/快照缓存中对应 op 回灌。
-            this.cleanupSchedulerTmpForOp(operationId, planFile);
+            // 旧 tmp 文件只靠 Plan/operation 子串无法证明所有权；保留其文件，避免误删同名项目或新 run 状态。
+            const tempCleanup = this.cleanupSchedulerTmpForOp(operationId, planFile);
             this.clearLocalOperationCachesForOp(operationId);
             // 依据 stop 结果落本地终态：确认已清理才置 cancelled；否则 failed 并提示手动 tmux kill。
             const op = this.localOperations?.[operationId];
             const now = new Date().toISOString();
+            const remainingSummary = remaining.map((item) => `${String(item?.kind || "activity")}:${String(item?.value || "unknown")}`).join(", ");
             if (op) {
                 if (remaining.length) {
                     op.status = "failed";
-                    op.message = "已发送中止但检测到残留活动证据（" + JSON.stringify(remaining) + "），tmux 可能仍存活，请手动 tmux kill-session -t zlk-sch-" + operationId;
+                    op.message = "已发送中止但仍有未确认的活动证据（" + (remainingSummary || JSON.stringify(remaining)) + "）；请核对回执中的精确 Worker、PID 或 tmux 身份。";
                 }
                 else {
                     op.status = "cancelled";
-                    op.message = "已中止并清理 " + operationId + " / " + planFile + (op.pid ? " pid=" + op.pid : "");
+                    op.message = "已中止 " + operationId + " / " + planFile + (op.pid ? " pid=" + op.pid : "") + "；调度状态保留 7 天用于排错，到期后可在缓存回收审核中按完整路径清理。";
                 }
                 op.finishedAt = now;
                 op.reconciledAt = now;
@@ -17626,10 +17627,10 @@ class RealtimeTunnelPanelProvider {
             this.clearOperationStatusProbe(operationId);
             this.clearOperationWatchdog(operationId);
             if (remaining.length) {
-                void vscode.window.showWarningMessage("中止后仍有活动证据残留（tmux/pid 仍存活），请手动 tmux kill-session -t zlk-sch-" + operationId + " 或检查 Worker。");
+                void vscode.window.showWarningMessage("中止后仍有活动证据未确认（" + (remainingSummary || JSON.stringify(remaining)) + "）。请检查对应 Worker 的精确进程或 tmux 身份。");
             }
             else {
-                void vscode.window.showInformationMessage("已中止并清理 " + operationId + " / " + planFile + "（tmux/pid 已终止）。");
+                void vscode.window.showInformationMessage("已中止 " + operationId + " / " + planFile + "（tmux/pid 已确认终止）。" + (tempCleanup.message || ""));
             }
         }
         catch (e) {
@@ -17663,48 +17664,13 @@ class RealtimeTunnelPanelProvider {
         catch { }
     }
     cleanupSchedulerTmpForOp(opId, planFile) {
-        // 仅删除与当前 opId / planFile 相关的日志与状态文件，避免误删并发任务产物。
-        try {
-            const fs = require("fs");
-            const path = require("path");
-            const os = require("os");
-            const homedir = os.homedir();
-            const tmpDir = path.join(homedir, "simple_cluster", "tmp", "cluster_scheduler");
-            const planKey = String(planFile || "").replace(/[^a-z0-9]/gi, "_");
-            const patterns = [opId, planKey].filter(Boolean);
-            const match = (f) => patterns.some((p) => f.includes(p));
-            const reap = (dir) => {
-                if (!fs.existsSync(dir))
-                    return;
-                for (const f of fs.readdirSync(dir)) {
-                    if (!match(f))
-                        continue;
-                    if (f.endsWith("_state.json") || f.endsWith(".log") || f.endsWith(".json") || f.endsWith(".exit_code")) {
-                        try {
-                            fs.unlinkSync(path.join(dir, f));
-                        }
-                        catch { }
-                    }
-                }
-            };
-            reap(tmpDir);
-            reap(path.join(tmpDir, "logs"));
-            const projectsState = path.join(homedir, "state", "projects");
-            if (fs.existsSync(projectsState)) {
-                for (const proj of fs.readdirSync(projectsState)) {
-                    const actionsDir = path.join(projectsState, proj, "actions");
-                    if (fs.existsSync(actionsDir)) {
-                        for (const f of fs.readdirSync(actionsDir))
-                            if (f.includes(opId))
-                                try {
-                                    fs.unlinkSync(path.join(actionsDir, f));
-                                }
-                                catch { }
-                    }
-                }
-            }
-        }
-        catch { }
+        const operationId = String(opId || "").trim();
+        const plan = String(planFile || "").trim();
+        if (!operationId || !plan)
+            return { removedCount: 0, message: "未清理临时状态：缺少 operationId 或 Plan 身份。" };
+        // 历史文件没有 projectRoot/runId/attemptId 所有权记录，Plan 子串匹配会跨 run 误删；
+        // 新终态状态由缓存回收审核按完整路径展示，并在保留期后经双重确认清理。
+        return { removedCount: 0, message: "旧临时状态保留待审核；新调度状态保留 7 天，到期后可在缓存回收审核中按完整路径清理。" };
     }
     async openScalarViewerFromUi(message) {
         const endpointId = String(message?.endpointId || "").trim();

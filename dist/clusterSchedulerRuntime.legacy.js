@@ -18,6 +18,7 @@ import shlex
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 import urllib.request
 from collections import deque
@@ -323,9 +324,33 @@ def load_yaml_file(path: str | Path) -> dict[str, Any]:
 
 def atomic_write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp = path.with_name(f"{path.name}.tmp.{os.getpid()}.{int(time.time() * 1000)}")
-    tmp.write_text(text, encoding="utf-8")
-    os.replace(tmp, path)
+    tmp_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
+                                         prefix=f".{path.name}.", suffix=".tmp", delete=False) as stream:
+            tmp_path = Path(stream.name)
+            stream.write(text)
+            stream.flush()
+            os.fsync(stream.fileno())
+        os.replace(tmp_path, path)
+        tmp_path = None
+        try:
+            directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
+        except OSError:
+            # Some supported filesystems do not allow syncing directories. The
+            # atomic replace still protects readers from partial JSON.
+            pass
+    except BaseException:
+        if tmp_path is not None:
+            try:
+                tmp_path.unlink()
+            except FileNotFoundError:
+                pass
+        raise
 
 
 def atomic_write_json(path: Path, payload: Any) -> None:
@@ -3444,6 +3469,7 @@ def main() -> None:
     fail_stop_reason = ""
     dispatch_probe: list[dict[str, Any]] = []
     scheduler_wait_reason = ""
+    scheduler_terminal = False
     last_session_check: dict[str, float] = {}
     passive_retry_counts: dict[int, int] = {}
     passive_backoff_until = 0.0
@@ -3494,8 +3520,21 @@ def main() -> None:
             pass
 
     def state_payload(error: str = "") -> dict[str, Any]:
+        operation_id = str(getattr(args, "operation_id", "") or "").strip()
+        attempt_id = str(getattr(args, "op_id", "") or operation_id).strip()
         return {
             "plan": args.plan,
+            "cleanupOwner": {
+                "schemaVersion": 1,
+                "projectRoot": str(Path.cwd().resolve()),
+                "planFile": str(args.plan or "").replace("\\", "/"),
+                "operationId": operation_id,
+                "runId": operation_id,
+                "attemptId": attempt_id,
+                "purpose": "scheduler-state",
+                "statePath": str(state_path.resolve()).replace("\\", "/"),
+            },
+            "schedulerTerminal": bool(scheduler_terminal),
             "planRevision": str(getattr(args, "plan_revision", "") or ""),
             "workerSetRevision": str(args.worker_set_revision or ""),
             "schedulerOwnerWorkerId": str(args.scheduler_owner_worker_id or ""),
@@ -4114,6 +4153,7 @@ def main() -> None:
                         break
                     slept += sleep_slice
     except Exception as exc:
+        scheduler_terminal = True
         _append_scheduler_log( f"[{now()}] scheduler_error {exc}")
         write_current_state(str(exc))
         # Surface the failure: include a tail of the scheduler log and the
@@ -4148,6 +4188,7 @@ def main() -> None:
     final_error = scheduler_abort_message or fail_stop_reason
     if queue and not active and not testing and not completed and not failed and not stopped:
         final_error = "Hub 调度器仍有排队实验但没有任何派发。请检查 dispatch_probe、availability cache 和 Worker command queue 运行细节。"
+    scheduler_terminal = True
     write_current_state(final_error)
     failed_count = len(failed)
     stopped_count = len(stopped)
