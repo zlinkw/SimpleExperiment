@@ -30,9 +30,10 @@ test("journal gap triggers snapshot recovery", async () => {
   );
   try {
     await client.connect(0);
-    sockets[0].onmessage({ data: JSON.stringify({ schemaVersion: 1, seq: 10, type: "diagnostics_updated", generatedAt: new Date().toISOString(), source: "hub_agent", payload: { code: "journal_gap" } }) });
+    sockets[0].onmessage({ data: JSON.stringify({ payload: { code: "journal_gap", reason: "slow_consumer", snapshotRequired: true } }) });
     await delay(30);
     assert.equal(states.at(-1).lastKnownGood.schedulerStates[0].runKey, "snap");
+    assert.equal(states.at(-1).warnings.includes("bad event schema"), false);
   } finally {
     await client.disconnect();
     server.close();

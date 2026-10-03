@@ -513,18 +513,20 @@ class RealtimeTunnelClient {
         const beforeState = this.state;
         const before = this.state.lastSeq;
         const beforeDirtyKey = this.state.resultSummaryDirtyKey;
-        this.state = (0, RealtimeEventReducer_1.applyRealtimeEvent)(this.state, raw, { protectedLogKeys: this.protectedLogKeys });
-        if (journalGap)
-            this.state = (0, RealtimeEventReducer_1.compactRealtimeState)({ ...this.state, lastSeq: 0 }, { protectedLogKeys: this.protectedLogKeys });
-        if (this.state !== beforeState || this.state.lastSeq !== before || this.state.resultSummaryDirtyKey !== beforeDirtyKey)
-            this.onState(this.state);
         if (journalGap) {
+            this.state = (0, RealtimeEventReducer_1.compactRealtimeState)({ ...this.state, lastSeq: 0 }, { protectedLogKeys: this.protectedLogKeys });
+            if (this.state !== beforeState)
+                this.onState(this.state);
             void this.getSnapshot()
                 .catch((error) => { this.lastError = message(error); })
                 .finally(() => {
                 // The stream remains connected; a snapshot repairs the replay gap.
             });
+            return;
         }
+        this.state = (0, RealtimeEventReducer_1.applyRealtimeEvent)(this.state, raw, { protectedLogKeys: this.protectedLogKeys });
+        if (this.state !== beforeState || this.state.lastSeq !== before || this.state.resultSummaryDirtyKey !== beforeDirtyKey)
+            this.onState(this.state);
     }
     headers() {
         const headers = { Accept: "text/event-stream, application/json" };

@@ -44,7 +44,10 @@ const path = __importStar(require("path"));
 const LOOPBACK_REMOTE_ADDRESSES = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
 const DEFAULT_MAX_EVENTS = 64;
 const DEFAULT_EVENT_BUFFER_LIMIT = 128;
+const DEFAULT_EVENT_BUFFER_BYTES = 1024 * 1024;
 const DEFAULT_SSE_TIMEOUT_MS = 30_000;
+const DEFAULT_SSE_MAX_CLIENTS = 8;
+const DEFAULT_SSE_MAX_PENDING_BYTES = 1024 * 1024;
 const MAX_BODY_BYTES = 2 * 1024 * 1024;
 const MAX_PORT = 65535;
 const VIEWER_SESSION_SECONDS = 30 * 24 * 60 * 60;
@@ -108,6 +111,9 @@ function sendJson(response, status, value) {
     });
     response.end(`${JSON.stringify(value)}\n`);
 }
+function sseGapFrame(reason) {
+    return `event: gap\ndata: ${JSON.stringify({ payload: { code: "journal_gap", reason, snapshotRequired: true } })}\n\n`;
+}
 function rpcError(id, code, message, data) {
     const error = { code, message };
     if (data !== undefined)
@@ -137,8 +143,13 @@ class LocalApiServer {
     discoveryPath;
     sseTimeoutMs;
     maxEvents;
+    maxEventBufferBytes;
+    maxSseClients;
+    maxSsePendingBytes;
     events = [];
+    eventBufferBytes = 0;
     listeners = new Set();
+    sseClosers = new Set();
     eventSequence = 0;
     server;
     port = 0;
@@ -162,6 +173,9 @@ class LocalApiServer {
         this.discoveryPath = options.discoveryPath || "";
         this.sseTimeoutMs = positiveNumber(options.sseTimeoutMs, DEFAULT_SSE_TIMEOUT_MS);
         this.maxEvents = Math.max(1, Math.min(1024, positiveNumber(options.maxEvents, DEFAULT_MAX_EVENTS)));
+        this.maxEventBufferBytes = Math.max(1024, positiveNumber(options.maxEventBufferBytes, DEFAULT_EVENT_BUFFER_BYTES));
+        this.maxSseClients = Math.max(1, Math.min(64, positiveNumber(options.maxSseClients, DEFAULT_SSE_MAX_CLIENTS)));
+        this.maxSsePendingBytes = Math.max(512, positiveNumber(options.maxSsePendingBytes, DEFAULT_SSE_MAX_PENDING_BYTES));
         this.scalarViewer = options.scalarViewer;
         this.viewerSessionKey = /^[a-f0-9]{64}$/i.test(options.viewerSessionKey || "")
             ? Buffer.from(options.viewerSessionKey, "hex") : crypto.randomBytes(32);
@@ -406,22 +420,42 @@ class LocalApiServer {
         return expected.length === actual.length && crypto.timingSafeEqual(expected, actual);
     }
     publish(event) {
+        const data = event && event.data !== undefined ? event.data : null;
+        const serializedData = JSON.stringify(data);
+        const type = String((event && event.type) || "event").replace(/[\r\n]/g, "").slice(0, 128) || "event";
         const item = {
             seq: this.eventSequence + 1,
-            type: String((event && event.type) || "event"),
-            data: event && event.data !== undefined ? event.data : null,
+            type,
+            data,
             publishedAt: new Date().toISOString(),
+            frame: `id: ${this.eventSequence + 1}\nevent: ${type}\ndata: ${serializedData}\n\n`,
+            bytes: 0,
         };
+        item.bytes = Buffer.byteLength(item.frame, "utf8");
         this.eventSequence = item.seq;
         this.events.push(item);
-        if (this.events.length > DEFAULT_EVENT_BUFFER_LIMIT) {
-            this.events = this.events.slice(-DEFAULT_EVENT_BUFFER_LIMIT);
+        this.eventBufferBytes += item.bytes;
+        while (this.events.length > DEFAULT_EVENT_BUFFER_LIMIT || this.eventBufferBytes > this.maxEventBufferBytes) {
+            const removed = this.events.shift();
+            if (!removed)
+                break;
+            this.eventBufferBytes = Math.max(0, this.eventBufferBytes - removed.bytes);
         }
         for (const listener of [...this.listeners])
             listener(item);
         return item;
     }
     streamEvents(request, response, url) {
+        if (this.listeners.size >= this.maxSseClients) {
+            response.writeHead(200, {
+                "Content-Type": "text/event-stream",
+                "Cache-Control": "no-cache",
+                Connection: "keep-alive",
+                "X-Accel-Buffering": "no",
+            });
+            response.end(sseGapFrame("subscriber_limit"));
+            return;
+        }
         const since = positiveNumber(Number(url.searchParams.get("since") || 0), 0);
         response.writeHead(200, {
             "Content-Type": "text/event-stream",
@@ -431,27 +465,99 @@ class LocalApiServer {
         });
         let sent = 0;
         let closed = false;
+        let backpressured = false;
+        let finishWhenDrained = false;
+        let queuedBytes = 0;
+        const pending = [];
         let timer;
-        const close = () => {
+        let closeFromServer = () => undefined;
+        const gapFrame = sseGapFrame("slow_consumer");
+        const gapBytes = Buffer.byteLength(gapFrame, "utf8");
+        const close = (endResponse = true) => {
             if (closed)
                 return;
             closed = true;
             if (timer)
                 clearTimeout(timer);
             this.listeners.delete(listener);
-            response.end();
+            this.sseClosers.delete(closeFromServer);
+            response.removeListener("drain", onDrain);
+            request.removeListener("aborted", onRequestAborted);
+            response.removeListener("close", onResponseClosed);
+            if (endResponse && !response.writableEnded && !response.destroyed)
+                response.end();
         };
-        const sendEvent = (item) => {
+        const sendGap = () => {
+            if (closed)
+                return;
+            pending.length = 0;
+            queuedBytes = 0;
+            closed = true;
+            if (timer)
+                clearTimeout(timer);
+            this.listeners.delete(listener);
+            this.sseClosers.delete(closeFromServer);
+            response.removeListener("drain", onDrain);
+            request.removeListener("aborted", onRequestAborted);
+            response.removeListener("close", onResponseClosed);
+            if (!response.writableEnded && !response.destroyed)
+                response.end(gapFrame);
+        };
+        const pendingBytes = () => Number(response.writableLength || 0) + queuedBytes;
+        const sendFrame = (frame, bytes) => {
             if (closed || sent >= this.maxEvents)
                 return;
-            response.write(`id: ${item.seq}\nevent: ${item.type}\ndata: ${JSON.stringify(item.data)}\n\n`);
+            if (pendingBytes() + bytes + gapBytes > this.maxSsePendingBytes) {
+                sendGap();
+                return;
+            }
             sent += 1;
-            if (sent >= this.maxEvents)
+            if (backpressured || pending.length) {
+                pending.push({ frame, bytes });
+                queuedBytes += bytes;
+            }
+            else if (!response.write(frame)) {
+                backpressured = true;
+            }
+            if (sent >= this.maxEvents) {
+                finishWhenDrained = true;
+                if (!backpressured && !pending.length)
+                    close();
+            }
+        };
+        const sendEvent = (item) => sendFrame(item.frame, item.bytes);
+        const onDrain = () => {
+            if (closed)
+                return;
+            backpressured = false;
+            while (!backpressured && pending.length && !closed) {
+                const item = pending.shift();
+                if (!item)
+                    break;
+                queuedBytes = Math.max(0, queuedBytes - item.bytes);
+                if (!response.write(item.frame))
+                    backpressured = true;
+            }
+            if (!closed && finishWhenDrained && !backpressured && !pending.length)
                 close();
         };
+        const onRequestAborted = () => close(false);
+        const onResponseClosed = () => close(false);
+        closeFromServer = () => close();
         const listener = (item) => sendEvent(item);
+        response.on("drain", onDrain);
+        request.on("aborted", onRequestAborted);
+        response.on("close", onResponseClosed);
         this.listeners.add(listener);
-        request.on("close", close);
+        this.sseClosers.add(closeFromServer);
+        const firstAvailableSeq = this.events[0]?.seq;
+        const historyGap = firstAvailableSeq !== undefined
+            ? since < firstAvailableSeq - 1
+            : since < this.eventSequence;
+        if (historyGap) {
+            sendGap();
+            return;
+        }
         for (const item of this.events) {
             if (item.seq > since)
                 sendEvent(item);
@@ -562,9 +668,9 @@ class LocalApiServer {
         if (this.disposed)
             return;
         this.disposed = true;
-        for (const listener of [...this.listeners])
-            listener({ seq: 0, type: "done", data: null, publishedAt: new Date().toISOString() });
-        this.listeners.clear();
+        for (const closeStream of [...this.sseClosers])
+            closeStream();
+        this.sseClosers.clear();
         this.removeDiscovery();
         if (!this.server)
             return;
