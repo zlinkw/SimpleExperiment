@@ -1,5 +1,6 @@
 /** Control-plane JSON/events only. File transfers use their existing streaming path. */
 export const MAX_CONTROL_RESPONSE_BYTES = 32 * 1024 * 1024;
+export const MAX_SSE_EVENT_BYTES = 1024 * 1024;
 
 export async function readBoundedResponseText(response: Response, onBytes: (bytes: number) => void,
   limit = MAX_CONTROL_RESPONSE_BYTES): Promise<string> {
@@ -20,7 +21,8 @@ export async function readBoundedResponseText(response: Response, onBytes: (byte
     }
     return Buffer.concat(chunks, received).toString("utf8");
   } finally {
-    if (!finished) await reader.cancel().catch(() => undefined);
+    // Cancellation must not hold the request slot if an upstream stream ignores cancel().
+    if (!finished) void reader.cancel().catch(() => undefined);
     reader.releaseLock();
   }
 }
@@ -29,7 +31,7 @@ export async function readBoundedResponseText(response: Response, onBytes: (byte
 export class BoundedSseDecoder {
   private readonly decoder = new TextDecoder();
   private pending = "";
-  constructor(private readonly limit = MAX_CONTROL_RESPONSE_BYTES) {}
+  constructor(private readonly limit = MAX_SSE_EVENT_BYTES) {}
   push(chunk?: Uint8Array): string[] {
     const text = this.pending + this.decoder.decode(chunk, { stream: chunk !== undefined });
     this.pending = "";

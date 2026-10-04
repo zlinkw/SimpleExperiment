@@ -89,7 +89,9 @@ function providerFor(workspace) {
     planFileInput: "experiments/plans/b.yaml",
     selectedPlanId: "experiments/plans/b.yaml",
     selectedRunKeys: new Set(), selectedExperimentIds: new Set(), selectedArchiveKeys: new Set(), selectedTaskUiKeys: new Set(),
+    panelSectionInterest: { documentGeneration: "1", mainSection: "results", visibleSections: ["results"], expandedSections: ["results"], pinnedInspectorSection: "" },
     context: { globalStorageUri: { fsPath: workspace } },
+    hostOperationLease: { run: async (_request, operation) => operation() },
     localPlanMetadata: { plans: [
       { planFile: "experiments/plans/a.yaml", revision: "ra", seeds: [1, 2, 3], outputSignals: ["结果目录：simple_cluster/results/w1"] },
       { planFile: "experiments/plans/b.yaml", revision: "rb", seeds: [1] },
@@ -105,7 +107,9 @@ function providerFor(workspace) {
       },
     },
     simpleSftpApiCall: async (method, params) => {
-      calls.push([method, params.server.id, params.entries.map((entry) => entry.remotePath)]);
+      calls.push([method, (params.server || params.source)?.id, (params.entries || []).map((entry) => entry.remotePath)]);
+      if (method === "sync.projectInventory") return { ok: true, files: Object.fromEntries((params.scopePaths || []).map((remotePath) => [remotePath, { size: 10 }])) };
+      if (method === "sync.projectFileStats") return { files: Object.fromEntries((params.paths || []).map((remotePath) => [remotePath, { size: 10 }])) };
       for (const entry of params.entries) {
         const full = path.join(workspace, ...entry.localRelativePath.split("/"));
         fs.mkdirSync(path.dirname(full), { recursive: true });

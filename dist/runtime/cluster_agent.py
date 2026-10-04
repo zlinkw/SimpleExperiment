@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, base64, calendar, csv, fnmatch, glob, hashlib, http.client, importlib.util, io, json, math, os, pathlib, random, re, shutil, shlex, signal, statistics, struct, subprocess, sys, threading, time, traceback, urllib.request, zipfile
+import argparse, base64, calendar, csv, errno, fnmatch, glob, hashlib, http.client, importlib.util, io, ipaddress, json, math, os, pathlib, random, re, shutil, shlex, signal, socket, statistics, stat, struct, subprocess, sys, threading, time, traceback, urllib.request, uuid, zipfile
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
@@ -38,17 +38,24 @@ def result_plan_directory_key(plan_file):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.215"
-RUNTIME_VERSION = "0.5.215"
-PLUGIN_VERSION = "0.5.215"
+AGENT_VERSION = "0.5.216"
+RUNTIME_VERSION = "0.5.216"
+PLUGIN_VERSION = "0.5.216"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
 MAX_AGENT_STATE_BYTES = 128 * 1024 * 1024
 MAX_UPLOAD_RECORDS = 120
+MAX_ACTIVE_UPLOADS = 16
+MAX_UPLOAD_CANCELLED_INIT_RECORDS = 256
+UPLOAD_CANCELLED_INIT_TTL_SECONDS = 600
+MAX_AGENT_SSE_BATCH_BYTES = 1024 * 1024
+MAX_AGENT_SSE_EVENT_BYTES = 256 * 1024
+MAX_AGENT_EVENT_RECORD_BYTES = 192 * 1024
 MAX_WORKER_COMMAND_RESULT_RECORDS = 240
 MAX_WORKER_ACTION_KEY_RECORDS = 240
 MAX_WORKER_COMMAND_CURSOR_RECORDS = 64
+MAX_WORKER_COMMAND_RECORD_BYTES = 128 * 1024
 WORKER_COMMAND_CURSOR_TTL_SECONDS = 60 * 60
 MAX_EVENT_CURSOR_RECORDS = 64
 EVENT_CURSOR_TTL_SECONDS = 60 * 60
@@ -138,12 +145,19 @@ def _calc_gpu_5s_avg(gpu_id):
 LIVE_LOG_TAIL_MAX_BYTES = 256 * 1024
 AUDIT_TAIL_MAX_BYTES = 1024 * 1024
 ATOMIC_REPLACE_ATTEMPTS = 6
+ATOMIC_WRITE_SLOT_COUNT = 64
+ATOMIC_WRITE_LOCKS = [threading.Lock() for _ in range(ATOMIC_WRITE_SLOT_COUNT)]
 TRANSFER_STALL_SECONDS = 120
 STATE_RETENTION_SECONDS = 24 * 60 * 60
 TMP_RETENTION_SECONDS = 24 * 60 * 60
 LAST_STATE_PRUNE = 0.0
+AGENT_STATE_PRUNE_LOCK = threading.Lock()
+AGENT_STATE_PRUNE_DIAGNOSTICS = {"status": "unknown", "scannedFiles": 0, "totalBytes": 0, "candidateCount": 0, "candidateBytes": 0, "sample": []}
+MAX_AGENT_STATE_SCAN_ENTRIES = 10000
 UPLOADS = {}
 UPLOADS_LOCK = threading.Lock()
+UPLOAD_INIT_REQUESTS = {}
+UPLOAD_CANCELLED_INIT = {}
 AGENT_STATE_DIR = ""
 AUTO_COMPLETION_RUNNING = set()
 ACTION_NAMES = [
@@ -568,7 +582,7 @@ def transfer_status_path(root, transfer_id):
 def public_transfer_record(item):
     source = item if isinstance(item, dict) else {}
     out = {"schemaVersion": SCHEMA_VERSION}
-    for key in ("transferId", "status", "direction", "remotePath", "transferredBytes", "totalBytes", "size", "expectedSize", "receivedBytes", "sha256", "overwrite", "message", "error", "startedAt", "updatedAt", "finishedAt"):
+    for key in ("transferId", "clientTransferId", "status", "direction", "remotePath", "transferredBytes", "totalBytes", "size", "expectedSize", "receivedBytes", "sha256", "overwrite", "message", "error", "startedAt", "updatedAt", "finishedAt"):
         if key in source and source.get(key) is not None:
             out[key] = source.get(key)
     if str(out.get("status") or "").lower() == "running":
@@ -610,6 +624,8 @@ def transfer_int(value, fallback=0):
         return fallback
 
 def write_transfer_status(root, item):
+    if isinstance(item, dict):
+        item["updatedAt"] = now_iso()
     public = public_transfer_record(item)
     transfer_id = str(public.get("transferId") or "").strip()
     if not transfer_id:
@@ -621,12 +637,23 @@ def read_transfer_status(root, transfer_id):
     transfer_id = str(transfer_id or "").strip()
     if not transfer_id:
         return {"schemaVersion": SCHEMA_VERSION, "transferId": "", "status": "unknown", "transferredBytes": 0}
-    if transfer_id in UPLOADS:
-        return public_transfer_record(UPLOADS.get(transfer_id))
+    with UPLOADS_LOCK:
+        cached = UPLOADS.get(transfer_id)
+        snapshot = dict(cached) if isinstance(cached, dict) else None
+        if snapshot and isinstance(snapshot.get("targetSnapshot"), dict):
+            snapshot["targetSnapshot"] = dict(snapshot["targetSnapshot"])
+    if snapshot is not None:
+        return public_transfer_record(snapshot)
     record = read_json(transfer_status_path(root, transfer_id), None)
     if isinstance(record, dict):
         return public_transfer_record(record)
     return {"schemaVersion": SCHEMA_VERSION, "transferId": transfer_id, "status": "unknown", "transferredBytes": 0}
+
+def active_upload_count_unlocked(exclude_transfer_id=""):
+    return sum(1 for transfer_id, row in UPLOADS.items()
+               if transfer_id != exclude_transfer_id
+               and isinstance(row, dict)
+               and str(row.get("status") or "").lower() in ("running", "cancelling"))
 
 def upload_item_from_status(root, transfer_id):
     transfer_id = str(transfer_id or "").strip()
@@ -645,6 +672,7 @@ def upload_item_from_status(root, transfer_id):
     item = {
         "schemaVersion": SCHEMA_VERSION,
         "transferId": transfer_id,
+        "clientTransferId": public.get("clientTransferId") or "",
         "status": public.get("status") or "running",
         "remotePath": remote_path,
         "transferredBytes": int(public.get("transferredBytes") or 0),
@@ -656,16 +684,102 @@ def upload_item_from_status(root, transfer_id):
         "startedAt": public.get("startedAt") or now_iso(),
     }
     with UPLOADS_LOCK:
+        current = UPLOADS.get(transfer_id)
+        if isinstance(current, dict):
+            return current
         UPLOADS[transfer_id] = item
     return item
 
+def upload_init_key(transfer_id, client_transfer_id):
+    return str(transfer_id or "") + "\0" + str(client_transfer_id or "")
+
+def prune_upload_init_cancellations_locked(now=None):
+    current = time.time() if now is None else float(now)
+    for key, expires in list(UPLOAD_CANCELLED_INIT.items()):
+        if float(expires or 0) <= current:
+            UPLOAD_CANCELLED_INIT.pop(key, None)
+
+def begin_upload_init_request(transfer_id, client_transfer_id):
+    key = upload_init_key(transfer_id, client_transfer_id)
+    with UPLOADS_LOCK:
+        prune_upload_init_cancellations_locked()
+        if key in UPLOAD_CANCELLED_INIT:
+            return "cancelled"
+        if int(UPLOAD_INIT_REQUESTS.get(key) or 0) > 0:
+            return "pending"
+        UPLOAD_INIT_REQUESTS[key] = 1
+        return "started"
+
+def upload_init_cancelled_locked(transfer_id, client_transfer_id):
+    prune_upload_init_cancellations_locked()
+    return upload_init_key(transfer_id, client_transfer_id) in UPLOAD_CANCELLED_INIT
+
+def finish_upload_init_request(root, transfer_id, client_transfer_id):
+    key = upload_init_key(transfer_id, client_transfer_id)
+    with UPLOADS_LOCK:
+        remaining = max(0, int(UPLOAD_INIT_REQUESTS.get(key) or 0) - 1)
+        if remaining:
+            UPLOAD_INIT_REQUESTS[key] = remaining
+        else:
+            UPLOAD_INIT_REQUESTS.pop(key, None)
+        item = UPLOADS.get(str(transfer_id or ""))
+        if (not remaining and isinstance(item, dict)
+                and str(item.get("clientTransferId") or "") == str(client_transfer_id or "")
+                and item.get("_cancelRequested")
+                and str(item.get("status") or "").lower() in ("running", "cancelling")
+                and int(item.get("_activeRequests") or 0) <= 0):
+            item["_cancelRequested"] = True
+            item["status"] = "cancelled"
+            item["error"] = "upload cancelled by client"
+            item["finishedAt"] = now_iso()
+            write_transfer_status(root, item)
+
+def request_upload_init_cancellation(transfer_id, client_transfer_id):
+    key = upload_init_key(transfer_id, client_transfer_id)
+    with UPLOADS_LOCK:
+        now = time.time()
+        prune_upload_init_cancellations_locked(now)
+        if key not in UPLOAD_CANCELLED_INIT:
+            if len(UPLOAD_CANCELLED_INIT) >= MAX_UPLOAD_CANCELLED_INIT_RECORDS:
+                return False, int(UPLOAD_INIT_REQUESTS.get(key) or 0), "upload cancellation registry is full"
+            UPLOAD_CANCELLED_INIT[key] = now + UPLOAD_CANCELLED_INIT_TTL_SECONDS
+        return True, int(UPLOAD_INIT_REQUESTS.get(key) or 0), ""
+
+def begin_upload_request(root, transfer_id, requested_owner):
+    item = upload_item_from_status(root, transfer_id)
+    if not item:
+        return None, {"error": "unknown transfer", "transferId": transfer_id, "status": "unknown"}
+    with UPLOADS_LOCK:
+        current = UPLOADS.get(transfer_id)
+        if not isinstance(current, dict):
+            return None, {"error": "unknown transfer", "transferId": transfer_id, "status": "unknown"}
+        expected_owner = str(current.get("clientTransferId") or "")
+        if expected_owner and requested_owner != expected_owner:
+            return None, {"error": "upload slot ownership changed", "transferId": transfer_id, "status": str(current.get("status") or "unknown")}
+        if str(current.get("status") or "").lower() != "running":
+            return None, {"error": "upload is not accepting data", "transferId": transfer_id, "status": str(current.get("status") or "unknown")}
+        current["_activeRequests"] = max(0, int(current.get("_activeRequests") or 0)) + 1
+        return current, None
+
+def finish_upload_request(root, item):
+    if not isinstance(item, dict):
+        return
+    with UPLOADS_LOCK:
+        item["_activeRequests"] = max(0, int(item.get("_activeRequests") or 0) - 1)
+        if (item["_activeRequests"] == 0
+                and item.get("_cancelRequested")
+                and str(item.get("status") or "").lower() == "cancelling"
+                and int(UPLOAD_INIT_REQUESTS.get(upload_init_key(item.get("transferId"), item.get("clientTransferId"))) or 0) <= 0):
+            item["status"] = "cancelled"
+            item["error"] = "upload cancelled by client"
+            item["finishedAt"] = now_iso()
+            write_transfer_status(root, item)
+
 def move_file_replace(src, dst):
-    try:
-        os.replace(src, dst)
-    except OSError:
-        if os.path.exists(dst):
-            os.remove(dst)
-        shutil.move(src, dst)
+    # Never delete the last complete target as a fallback. If Windows keeps the
+    # destination open beyond the bounded retry window, preserve both the old
+    # target and staged upload and report failure for an explicit retry.
+    replace_with_retry(src, dst)
     invalidate_runtime_json_cache(dst)
 
 # POSIX rename is atomic, but Windows raises a sharing violation when two writers replace the
@@ -681,27 +795,62 @@ def replace_with_retry(src, dst, attempts=ATOMIC_REPLACE_ATTEMPTS):
             time.sleep(0.005 * (index + 1))
     raise last_error
 
-def atomic_write(path, payload, compact=False):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    # The temp name must be unique per writer, not per process: ThreadingHTTPServer can drive two
-    # writes to the same target and a shared temp path makes them clobber each other's handle.
-    tmp = f"{path}.tmp.{os.getpid()}.{threading.get_ident()}"
-    try:
-        with open(tmp, "w", encoding="utf-8") as f:
-            # Indented output is worth it for hand-inspected state, but not for bulk time series
-            # that are rewritten every sampling cycle.
-            if compact:
-                json.dump(payload, f, ensure_ascii=False, separators=(",", ":"))
-            else:
-                json.dump(payload, f, ensure_ascii=False, indent=2)
-            f.write("\n")
-        replace_with_retry(tmp, path)
-    except Exception:
+def atomic_write_file(path, writer):
+    """Write through one reusable sibling slot, serialized with bounded striped locks."""
+    path = os.fspath(path)
+    parent = os.path.dirname(path) or "."
+    os.makedirs(parent, exist_ok=True)
+    normalized = os.path.normcase(os.path.abspath(path))
+    stripe = int.from_bytes(hashlib.sha256(normalized.encode("utf-8", errors="surrogatepass")).digest()[:4], "big") % ATOMIC_WRITE_SLOT_COUNT
+    temporary = path + ".writing"
+    with ATOMIC_WRITE_LOCKS[stripe]:
         try:
-            os.remove(tmp)
+            previous = os.lstat(temporary)
+            if not stat.S_ISREG(previous.st_mode):
+                raise OSError("atomic write staging slot is not a regular file: " + temporary)
+        except FileNotFoundError:
+            pass
+        flags = os.O_WRONLY | os.O_CREAT | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(temporary, flags, 0o600)
+        try:
+            opened = os.fstat(descriptor)
+            current = os.lstat(temporary)
+            if (not stat.S_ISREG(opened.st_mode) or not stat.S_ISREG(current.st_mode)
+                    or getattr(opened, "st_nlink", 1) > 1 or getattr(current, "st_nlink", 1) > 1
+                    or (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino)):
+                raise OSError("atomic write staging slot identity changed: " + temporary)
+            try:
+                os.fchmod(descriptor, 0o600)
+            except OSError:
+                pass
+            with os.fdopen(descriptor, "w", encoding="utf-8", newline="") as stream:
+                descriptor = -1
+                writer(stream)
+                stream.flush()
+                os.fsync(stream.fileno())
+        finally:
+            if descriptor >= 0:
+                os.close(descriptor)
+        replace_with_retry(temporary, path)
+        try:
+            directory_fd = os.open(parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
         except OSError:
             pass
-        raise
+
+def atomic_write(path, payload, compact=False):
+    def write(stream):
+        # Indented output is worth it for hand-inspected state, but not for bulk time series
+        # that are rewritten every sampling cycle.
+        if compact:
+            json.dump(payload, stream, ensure_ascii=False, separators=(",", ":"))
+        else:
+            json.dump(payload, stream, ensure_ascii=False, indent=2)
+        stream.write("\n")
+    atomic_write_file(path, write)
     invalidate_runtime_json_cache(path)
 
 def file_size(path):
@@ -1072,15 +1221,25 @@ def append_event(root, event):
     # compacting must be one critical section; duplicate seq values silently drop realtime
     # events for any client whose cursor already passed that number. RLock because the
     # completion pipeline below can re-enter append_event on this same thread.
+    original_event = event
     with EVENT_APPEND_LOCK:
         seq = read_seq(root) + 1
         event = {"schemaVersion": SCHEMA_VERSION, "seq": seq, "generatedAt": now_iso(), "source": "hub_agent", "hubId": event.get("hubId", "hub"), **event}
+        encoded = json.dumps(event, ensure_ascii=False, separators=(",", ":"))
+        encoded_bytes = len(encoded.encode("utf-8"))
+        if encoded_bytes > MAX_AGENT_EVENT_RECORD_BYTES:
+            event = {"schemaVersion": SCHEMA_VERSION, "seq": seq, "generatedAt": now_iso(), "source": "hub_agent", "hubId": event.get("hubId", "hub"),
+                     "type": "diagnostics_updated", "payload": {"code": "journal_gap", "reason": "event_record_exceeds_limit", "omittedType": str(event.get("type") or "event")[:96], "omittedBytes": encoded_bytes}}
+            operation_id = str(original_event.get("operationId") or "").strip()[:160] if isinstance(original_event, dict) else ""
+            if operation_id:
+                event["operationId"] = operation_id
+            encoded = json.dumps(event, ensure_ascii=False, separators=(",", ":"))
         with open(path_for(root, "events.jsonl"), "a", encoding="utf-8") as f:
-            f.write(json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n")
+            f.write(encoded + "\n")
         write_seq(root, seq)
         compact_journal(root)
     prune_agent_state(root)
-    maybe_auto_run_completion_pipeline(root, event)
+    maybe_auto_run_completion_pipeline(root, original_event)
     return event
 
 def worker_command_path(root, worker_id):
@@ -1155,6 +1314,9 @@ def enqueue_worker_command(root, worker_id, command):
         "createdAt": now_iso(),
         **command,
     }
+    command_bytes = len(json.dumps(item, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
+    if command_bytes > MAX_WORKER_COMMAND_RECORD_BYTES:
+        raise ValueError(f"Worker 命令超过 {MAX_WORKER_COMMAND_RECORD_BYTES} 字节传输上限")
     os.makedirs(agent_dir(root), exist_ok=True)
     with EVENT_APPEND_LOCK:
         with open(worker_command_path(root, worker_id), "a", encoding="utf-8") as f:
@@ -1298,95 +1460,180 @@ def compact_journal(root):
         if kept == lines:
             mark_journal_compacted(root, journal, len(kept))
             return
-        tmp = journal + f".tmp.{os.getpid()}"
-        with open(tmp, "w", encoding="utf-8") as f:
-            f.writelines(kept)
-        os.replace(tmp, journal)
+        atomic_write_file(journal, lambda stream: stream.writelines(kept))
         mark_journal_compacted(root, journal, len(kept))
     except Exception:
         pass
 
 def prune_agent_state(root, force=False):
-    global LAST_STATE_PRUNE
+    global LAST_STATE_PRUNE, AGENT_STATE_PRUNE_DIAGNOSTICS
     now = time.time()
-    if not force and now - LAST_STATE_PRUNE < 60:
-        return
-    LAST_STATE_PRUNE = now
-    prune_runtime_memory_state()
-    state_root = agent_dir(root)
-    protected = {
-        "agent.pid",
-        "agent.lock",
-        "agent.started_at",
-        "agent.version",
-        "agent.config.json",
-        "agent.session.json",
-        "seq.txt",
-        "stop",
-        "distributed_plan_queue.json",
-        "worker_recall_tombstones.json",
-        "worker_start_claims.json",
-    }
+    with AGENT_STATE_PRUNE_LOCK:
+        if not force and now - LAST_STATE_PRUNE < 60:
+            return
+        LAST_STATE_PRUNE = now
+        prune_runtime_memory_state()
+        state_root = os.path.abspath(agent_dir(root))
+        state_root_real = os.path.realpath(state_root)
+        protected = {
+            "agent.pid", "agent.lock", "agent.started_at", "agent.version", "agent.config.json",
+            "agent.session.json", "seq.txt", "stop", "distributed_plan_queue.json",
+            "worker_recall_tombstones.json", "worker_start_claims.json",
+        }
+        try:
+            os.makedirs(state_root, exist_ok=True)
+            cutoff = now - max(0, STATE_RETENTION_SECONDS)
+            tmp_cutoff = now - max(0, TMP_RETENTION_SECONDS)
+            entries = []
+            unsafe_entries = 0
+            truncated = False
+            scanned_entries = 0
+            scanned_directories = 0
+            directories = [state_root]
+            while directories:
+                current = directories.pop()
+                scanned_directories += 1
+                try:
+                    resolved_current = os.path.realpath(current)
+                    if os.path.commonpath([state_root_real, resolved_current]) != state_root_real:
+                        unsafe_entries += 1
+                        continue
+                    current_stat = os.lstat(current)
+                    if stat.S_ISLNK(current_stat.st_mode) or not stat.S_ISDIR(current_stat.st_mode):
+                        unsafe_entries += 1
+                        continue
+                except (OSError, ValueError):
+                    unsafe_entries += 1
+                    continue
+                try:
+                    with os.scandir(current) as iterator:
+                        for entry in iterator:
+                            scanned_entries += 1
+                            if scanned_entries > MAX_AGENT_STATE_SCAN_ENTRIES:
+                                truncated = True
+                                break
+                            try:
+                                if entry.is_symlink():
+                                    unsafe_entries += 1
+                                    continue
+                                if entry.is_dir(follow_symlinks=False):
+                                    directories.append(entry.path)
+                                    continue
+                                if not entry.is_file(follow_symlinks=False):
+                                    unsafe_entries += 1
+                                    continue
+                                st = entry.stat(follow_symlinks=False)
+                            except OSError:
+                                unsafe_entries += 1
+                                continue
+                            full = entry.path
+                            rel = os.path.relpath(full, state_root).replace("\\", "/")
+                            size = int(st.st_size or 0)
+                            mtime = float(st.st_mtime or now)
+                            base = entry.name
+                            protected_entry = base in protected or (base.startswith("worker_commands_") and base.endswith(".cursor.json"))
+                            reasons = []
+                            if not protected_entry:
+                                is_tmp = ".tmp." in base or base.endswith(".writing") or ".upload." in base or rel.startswith("uploads/")
+                                if (is_tmp and mtime < tmp_cutoff) or (STATE_RETENTION_SECONDS > 0 and mtime < cutoff):
+                                    reasons.append("retention")
+                            entries.append({"path": rel, "size": size, "mtime": mtime, "protected": protected_entry, "reasons": reasons})
+                        if truncated:
+                            break
+                except OSError:
+                    unsafe_entries += 1
+            scanned_directories = min(scanned_directories, MAX_AGENT_STATE_SCAN_ENTRIES)
+            total = sum(item["size"] for item in entries)
+            candidate_keys = {item["path"] for item in entries if item["reasons"]}
+            if MAX_AGENT_STATE_BYTES > 0 and total > MAX_AGENT_STATE_BYTES:
+                target = int(MAX_AGENT_STATE_BYTES * 0.85)
+                projected = total - sum(item["size"] for item in entries if item["path"] in candidate_keys)
+                for item in sorted(entries, key=lambda row: row["mtime"]):
+                    if projected <= target:
+                        break
+                    if item["protected"] or item["path"] in candidate_keys:
+                        continue
+                    item["reasons"].append("state_size")
+                    candidate_keys.add(item["path"])
+                    projected -= item["size"]
+            candidates = [item for item in entries if item["path"] in candidate_keys]
+            candidate_bytes = sum(item["size"] for item in candidates)
+            AGENT_STATE_PRUNE_DIAGNOSTICS = {
+                "status": "scan_truncated" if truncated else "confirmation_required" if candidates else "within_budget",
+                "scannedEntries": scanned_entries, "scannedDirectories": scanned_directories,
+                "scannedFiles": len(entries), "unsafeEntries": unsafe_entries,
+                "totalBytes": total, "maxBytes": int(MAX_AGENT_STATE_BYTES or 0),
+                "totalBytesComplete": not truncated,
+                "candidateCount": len(candidates), "candidateBytes": candidate_bytes,
+                "sample": [{"path": item["path"][:256], "size": item["size"],
+                    "modifiedAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(item["mtime"])),
+                    "reasons": item["reasons"]} for item in sorted(candidates, key=lambda row: row["mtime"])[:8]],
+                "updatedAt": now_iso(),
+                "automaticDeletion": False,
+            }
+        except Exception as exc:
+            AGENT_STATE_PRUNE_DIAGNOSTICS = {"status": "unavailable", "scannedEntries": 0, "scannedDirectories": 0, "scannedFiles": 0, "totalBytes": 0,
+                "totalBytesComplete": False,
+                "candidateCount": 0, "candidateBytes": 0, "sample": [], "error": str(exc)[:240],
+                "updatedAt": now_iso(), "automaticDeletion": False}
+
+def pid_is_alive(pid, kill_probe=os.kill):
     try:
-        os.makedirs(state_root, exist_ok=True)
-        cutoff = now - max(0, STATE_RETENTION_SECONDS)
-        tmp_cutoff = now - max(0, TMP_RETENTION_SECONDS)
-        entries = []
-        for current, _, files in os.walk(state_root):
-            for name in files:
-                path = os.path.join(current, name)
-                rel = os.path.relpath(path, state_root).replace("\\", "/")
-                try:
-                    st = os.stat(path)
-                except Exception:
-                    continue
-                base = os.path.basename(path)
-                size = int(st.st_size or 0)
-                mtime = float(st.st_mtime or now)
-                protected_entry = base in protected or (base.startswith("worker_commands_") and base.endswith(".cursor.json"))
-                if not protected_entry:
-                    is_tmp = ".tmp." in base or ".upload." in base or rel.startswith("uploads/")
-                    if (is_tmp and mtime < tmp_cutoff) or (STATE_RETENTION_SECONDS > 0 and mtime < cutoff):
-                        try:
-                            os.remove(path)
-                            continue
-                        except Exception:
-                            pass
-                entries.append((mtime, size, path, base, protected_entry))
-        total = sum(item[1] for item in entries)
-        if MAX_AGENT_STATE_BYTES > 0 and total > MAX_AGENT_STATE_BYTES:
-            target = int(MAX_AGENT_STATE_BYTES * 0.85)
-            for _, size, path, base, protected_entry in sorted(entries):
-                if total <= target:
-                    break
-                if protected_entry:
-                    continue
-                try:
-                    os.remove(path)
-                    total -= size
-                except Exception:
-                    pass
+        pid_value = int(pid)
+        if pid_value <= 0:
+            return False
+        kill_probe(pid_value, 0)
+        return True
+    except (ValueError, TypeError):
+        return False
+    except OSError as exc:
+        # Only ESRCH proves the process is gone. On Windows and under restricted
+        # permissions, probing a live PID may raise another error; keep the
+        # resource guarded until absence is certain.
+        return exc.errno != errno.ESRCH
     except Exception:
-        pass
+        return True
 
 def is_pid_running(pid):
-    try:
-        os.kill(int(pid), 0)
-        return True
-    except Exception:
-        return False
+    return pid_is_alive(pid)
 
-def acquire_pid(root):
+def acquire_pid(root, run_id=""):
     os.makedirs(agent_dir(root), exist_ok=True)
     pid_path = path_for(root, "agent.pid")
     old = read_json(pid_path, {})
     if old.get("pid") and is_pid_running(old.get("pid")):
         return False
-    atomic_write(pid_path, {"pid": os.getpid(), "startedAt": now_iso(), "agentVersion": AGENT_VERSION})
-    atomic_write(path_for(root, "agent.lock"), {"pid": os.getpid(), "lockedAt": now_iso(), "agentVersion": AGENT_VERSION})
+    identity = str(run_id or uuid.uuid4().hex)
+    atomic_write(pid_path, {"pid": os.getpid(), "runId": identity, "startedAt": now_iso(), "agentVersion": AGENT_VERSION})
+    atomic_write(path_for(root, "agent.lock"), {"pid": os.getpid(), "runId": identity, "lockedAt": now_iso(), "agentVersion": AGENT_VERSION})
     atomic_write(path_for(root, "agent.started_at"), {"startedAt": now_iso()})
     atomic_write(path_for(root, "agent.version"), {"agentVersion": AGENT_VERSION})
     return True
+
+def agent_stop_requested(stop_path, pid, run_id):
+    marker = read_json(stop_path, {})
+    if not isinstance(marker, dict):
+        return False
+    try:
+        marker_pid = int(marker.get("pid") or 0)
+    except (TypeError, ValueError):
+        return False
+    return marker_pid == int(pid or 0) and str(marker.get("runId") or "") == str(run_id or "")
+
+def request_agent_stop(root):
+    pid_info = read_json(path_for(root, "agent.pid"), {})
+    config = read_json(path_for(root, "agent.config.json"), {})
+    try:
+        pid = int(pid_info.get("pid") or 0)
+    except (TypeError, ValueError):
+        pid = 0
+    run_id = str(pid_info.get("runId") or "").strip()
+    if pid <= 0 or not run_id or str(config.get("runId") or "") != run_id or int(config.get("pid") or 0) != pid:
+        raise RuntimeError("当前 Agent 运行身份尚未就绪，未发送停止请求")
+    if not is_pid_running(pid):
+        raise RuntimeError("当前 Agent 已不在运行，未发送停止请求")
+    atomic_write(path_for(root, "stop"), {"pid": pid, "runId": run_id, "requestedAt": now_iso()})
+    return {"pid": pid, "runId": run_id}
 
 def inspect_agent(root):
     health = read_runtime_json_cached(path_for(root, "health_snapshot.json"), {})
@@ -2414,23 +2661,7 @@ def read_durable_plan_queue(root):
 
 def write_durable_plan_queue(root, data):
     path = durable_plan_queue_path(root)
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = f"{path}.tmp.{os.getpid()}.{threading.get_ident()}.{time.time_ns()}"
-    with open(tmp, "w", encoding="utf-8") as handle:
-        json.dump(data, handle, ensure_ascii=False, indent=2)
-        handle.write("\n")
-        handle.flush()
-        os.fsync(handle.fileno())
-    replace_with_retry(tmp, path)
-    try:
-        directory_fd = os.open(os.path.dirname(path), os.O_RDONLY)
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
-    except OSError:
-        pass
-    invalidate_runtime_json_cache(path)
+    atomic_write(path, data)
 
 DURABLE_PLAN_IDENTITY_FIELDS = (
     "projectId", "workflowId", "planFile", "planRevision", "codeFingerprint",
@@ -4230,13 +4461,10 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
         parent = os.path.dirname(str(log_path))
         if parent:
             os.makedirs(parent, exist_ok=True)
-    # 旧 exit_code 残留会导致后一任务误判完成，重建前清理
+    # A reusable pending marker makes stale completion state non-authoritative without
+    # accumulating one temporary file per launch or deleting prior evidence.
     if exit_code_path:
-        try:
-            if os.path.isfile(str(exit_code_path)):
-                os.remove(str(exit_code_path))
-        except Exception:
-            pass
+        write_atomic_text(str(exit_code_path), "pending\n")
     # 围栏：显式拒绝主 shell target 作为 session（仅针对调度类 session 名，建窗指令本身可在主 shell 执行）
     if _is_main_shell_target(session):
         raise RuntimeError(f"refusing to create tmux session on main shell target {session!r}; must be simple-sch-*/simple-gpu-*/simple-worker-*-agent; " + _build_tmux_error_context(session, None, "", "", cwd, 1, env))
@@ -4410,6 +4638,9 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
     return tmux_pane_pid(session, cwd, env) or 0
 
 def start_job_in_gpu_pane(gpu_window, args, cwd, env, log_path, exit_code_path):
+    # Mark the command identity pending before publishing a pane; readers only accept
+    # an integer exit code as completion, so a prior command's value cannot leak forward.
+    write_atomic_text(str(exit_code_path), "pending\n")
     if not tmux_session_alive(gpu_window, cwd, env):
         shell = os.environ.get("SHELL") or ("/bin/bash" if os.path.isfile("/bin/bash") else "/bin/sh")
         # 宽松建窗：不强制 bash -l，与 start_simple_tmux_command 一致
@@ -4632,11 +4863,13 @@ def read_task_exit_code(exit_code_path):
 
 
 def exit_code_ready(path):
-    # A task/scheduler command appends its rc via '; printf "%s" "$?" > exit_code_path'.
-    # The file only exists (and is non-empty) once the command has actually finished, so
-    # this is the reliable completion signal now that tmux sessions are left open for inspection.
+    # A task/scheduler command writes an integer rc when it finishes. In-progress markers,
+    # empty files and partial writes are not completion evidence.
     try:
-        return os.path.isfile(path) and os.path.getsize(path) > 0
+        if not os.path.isfile(path) or os.path.getsize(path) <= 0:
+            return False
+        value = pathlib.Path(path).read_text(encoding="utf-8").strip()
+        return bool(re.fullmatch(r"-?\d+", value))
     except Exception:
         return False
 
@@ -4996,8 +5229,9 @@ def _execute_worker_command_unfenced(root, command, worker_id):
     # tmux window can mirror stdout.log/stderr.log live (see start_simple_tmux_command split-pane).
     env["SIMPLE_EXPERIMENT_TMUX_SESSION"] = tmux_session
     env["SIMPLE_EXPERIMENT_TMUX_LOG_DIR"] = os.path.dirname(str(log_path))
-    # per-GPU复用：exit_code 按 commandId 区分，避免同GPU复用会话时旧文件误判
-    exit_code_path = safe_project_path(project_dir, f"simple_cluster/tmux_logs/{tmux_session}-{command_id}.exit_code")
+    # Exit evidence belongs to the command identity, independent of which launch path
+    # (GPU pane or fallback session) succeeds. This also reuses the same marker on fallback.
+    exit_code_path = safe_project_path(project_dir, f"simple_cluster/tmux_logs/{command_id}.exit_code")
     try:
         env["SIMPLE_EXPERIMENT_EXIT_CODE_PATH"] = str(exit_code_path)
     except Exception:
@@ -5025,12 +5259,6 @@ def _execute_worker_command_unfenced(root, command, worker_id):
                 _fallback_session = simple_tmux_name(session)
                 tmux_session = _fallback_session
                 env["SIMPLE_EXPERIMENT_TMUX_SESSION"] = tmux_session
-                _fallback_exit = safe_project_path(project_dir, f"simple_cluster/tmux_logs/{tmux_session}-{command_id}.exit_code")
-                try:
-                    env["SIMPLE_EXPERIMENT_EXIT_CODE_PATH"] = str(_fallback_exit)
-                    exit_code_path = _fallback_exit
-                except Exception:
-                    pass
                 pid = start_simple_tmux_command(tmux_session, args, project_dir, log_path, env, exit_code_path)
                 used_tmux = True
             except Exception as exc2:
@@ -5221,24 +5449,33 @@ def read_events_after_seq(root, since, limit=100, cursor_id=""):
     use_cursor = same_file and int(cached.get("seq") or 0) == requested_since and 0 <= cached_offset <= stat.st_size
     current_seq = requested_since if use_cursor else 0
     current_offset = cached_offset if use_cursor else 0
-    events = []
-    with open(journal, "r", encoding="utf-8") as f:
+    events = deque(maxlen=requested_limit)
+    omitted_oversized = False
+    with open(journal, "rb") as f:
         if current_offset:
             f.seek(current_offset)
         while True:
-            line = f.readline()
-            if not line:
+            raw = f.readline(MAX_AGENT_EVENT_RECORD_BYTES + 1)
+            if not raw:
                 break
             current_offset = f.tell()
-            item = parse_event_line(line)
+            if len(raw) > MAX_AGENT_EVENT_RECORD_BYTES:
+                omitted_oversized = True
+                while raw and not raw.endswith(b"\n"):
+                    raw = f.readline(MAX_AGENT_EVENT_RECORD_BYTES + 1)
+                current_offset = f.tell()
+                continue
+            item = parse_event_line(raw.decode("utf-8", errors="replace"))
             if not item:
                 continue
             seq = event_seq(item)
             current_seq = max(current_seq, seq)
             if seq > requested_since:
                 events.append(item)
-                if len(events) > requested_limit:
-                    events.pop(0)
+    if omitted_oversized:
+        if len(events) >= requested_limit:
+            events.popleft()
+        events.append({"schemaVersion": SCHEMA_VERSION, "seq": 0, "type": "diagnostics_updated", "generatedAt": now_iso(), "source": "hub_agent", "payload": {"code": "journal_gap", "reason": "oversized_journal_record", "resetSince": 0}})
     with EVENT_CURSOR_LOCK:
         EVENT_CURSOR_CACHE[cache_key] = {
             "seq": current_seq,
@@ -5380,10 +5617,24 @@ def sampler_sleep_seconds(interval, jitter_seconds=30.0):
     return interval + (random.random() * jitter if jitter else 0.0)
 
 def worker_gpu_sample_delay(interval, jitter_seconds, has_plan):
-    return 0.5
+    if has_plan:
+        return min(5.0, sampler_interval_seconds(interval, 5.0))
+    return sampler_sleep_seconds(interval, jitter_seconds)
 
 def wait_for_worker_gpu_sample(root, interval, jitter_seconds, has_plan):
-    time.sleep(worker_gpu_sample_delay(interval, jitter_seconds, has_plan))
+    delay = worker_gpu_sample_delay(interval, jitter_seconds, has_plan)
+    if has_plan:
+        time.sleep(delay)
+        return
+    # Check local task state every five seconds, but avoid GPU queries and snapshot writes
+    # while idle. A newly-started plan wakes the next loop immediately.
+    remaining = delay
+    while remaining > 0:
+        sleep_for = min(5.0, remaining)
+        time.sleep(sleep_for)
+        remaining -= sleep_for
+        if has_running_plan(root):
+            return
 
 def has_running_plan(root):
     # 计划未接入时返回 False，调用方应 30s 休眠且不探活；有运行中任务/调度态时返回 True
@@ -5432,7 +5683,7 @@ def payload_cache_changed(cache, key, payload):
     return True
 
 def start_worker_telemetry_sampler(root, poll_seconds=1, jitter_seconds=30):
-    interval = 0.5
+    interval = sampler_interval_seconds(poll_seconds, 60.0)
     heartbeat_interval = max(60.0, interval)
     worker_id_local = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
     def loop():
@@ -5471,7 +5722,7 @@ def start_worker_telemetry_sampler(root, poll_seconds=1, jitter_seconds=30):
     return thread
 
 def start_hub_control_sampler(root, poll_seconds=60, jitter_seconds=30):
-    interval = 0.5
+    interval = sampler_interval_seconds(poll_seconds, 60.0)
     heartbeat_interval = max(60.0, interval)
     def loop():
         last_payloads = {}
@@ -5545,20 +5796,17 @@ def write_snapshots(root, hub_id, workers, scheduler, traces, gpu, health, error
 def run_agent(args):
     global MAX_EVENTS
     MAX_EVENTS = max(100, int(getattr(args, "journal_max_events", MAX_EVENTS) or MAX_EVENTS))
-    if not acquire_pid(args.project_dir):
+    run_id = uuid.uuid4().hex
+    if not acquire_pid(args.project_dir, run_id):
         return 0
     stop_path = path_for(args.project_dir, "stop")
-    try:
-        os.remove(stop_path)
-    except FileNotFoundError:
-        pass
     workers = json.loads(args.workers_json or "[]")
     poll_seconds = max(60, int(args.poll_seconds or 60))
     ttl_seconds = max(60, int(args.ttl_seconds or 180))
-    atomic_write(path_for(args.project_dir, "agent.config.json"), {"hubId": args.hub_id, "workers": workers, "pollSeconds": poll_seconds, "ttlSeconds": ttl_seconds, "journalMaxEvents": MAX_EVENTS, "journalMaxBytes": MAX_JOURNAL_BYTES, "stateRetentionSeconds": STATE_RETENTION_SECONDS, "maxAgentStateBytes": MAX_AGENT_STATE_BYTES, "agentVersion": AGENT_VERSION})
+    atomic_write(path_for(args.project_dir, "agent.config.json"), {"hubId": args.hub_id, "workers": workers, "pollSeconds": poll_seconds, "ttlSeconds": ttl_seconds, "journalMaxEvents": MAX_EVENTS, "journalMaxBytes": MAX_JOURNAL_BYTES, "stateRetentionSeconds": STATE_RETENTION_SECONDS, "maxAgentStateBytes": MAX_AGENT_STATE_BYTES, "pid": os.getpid(), "runId": run_id, "agentVersion": AGENT_VERSION})
     error_counts = {}
     last_payloads = {}
-    while not os.path.exists(stop_path):
+    while not agent_stop_requested(stop_path, os.getpid(), run_id):
         errors, gpu, health = [], {}, {}
         scheduler = collect_scheduler(args.project_dir)
         traces = collect_traces(args.project_dir, scheduler)
@@ -5805,6 +6053,7 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
             "fileUploadInit": True,
             "fileUploadChunk": True,
             "fileUploadComplete": True,
+            "fileUploadCancel": True,
             "fileTransferStatus": True,
             "actions": True,
         },
@@ -5830,6 +6079,7 @@ def api_file_capabilities():
         "supportsDownload": True,
         "supportsRangeDownload": True,
         "supportsUploadChunk": True,
+        "supportsUploadCancel": True,
         "supportsSha256": True,
         "supportsResume": True,
         "maxUploadChunkBytes": 1024 * 1024,
@@ -6203,33 +6453,82 @@ def complete_three_way_report(root, keys, op_id, plan=None, ownership=None):
     append_event(root, {"type": "three_way_checked", "operationId": op_id, "payload": {"opId": op_id, "path": relpath(root, out), "status": report["status"], "targetCount": report["targetCount"], "missingCount": missing_count, "unarchivedCount": unarchived_count, "planFile": plan_norm or ""}})
     return report, relpath(root, out)
 
-def remove_project_targets(root, targets):
+def validate_exact_delete_tree(root_real, target_path, root_device):
+    if os.path.islink(target_path):
+        raise ValueError("拒绝删除符号链接")
+    if not os.path.lexists(target_path):
+        return
+    target_stat = os.stat(target_path, follow_symlinks=False)
+    if target_stat.st_dev != root_device:
+        raise ValueError("删除目标跨越文件系统边界")
+    if not os.path.isdir(target_path):
+        if not os.path.isfile(target_path):
+            raise ValueError("删除目标不是普通文件或目录")
+        return
+    inspected = 0
+    for current, dirs, files in os.walk(target_path, topdown=True, followlinks=False):
+        inspected += 1 + len(dirs) + len(files)
+        if inspected > 100000:
+            raise ValueError("删除目录包含过多条目，拒绝递归删除")
+        if os.path.realpath(current) != current or os.stat(current, follow_symlinks=False).st_dev != root_device:
+            raise ValueError("删除目录包含越界路径或挂载点")
+        for name in list(dirs) + list(files):
+            child = os.path.join(current, name)
+            child_stat = os.lstat(child)
+            if stat.S_ISLNK(child_stat.st_mode):
+                raise ValueError(f"删除目录包含符号链接：{os.path.relpath(child, root_real)}")
+            if child_stat.st_dev != root_device:
+                raise ValueError(f"删除目录包含跨文件系统条目：{os.path.relpath(child, root_real)}")
+
+def remove_project_targets(root, targets, confirmed=False, path_confirmed=False):
+    if confirmed is not True or path_confirmed is not True:
+        raise ValueError("CONFIRM_REQUIRED: 必须分别确认删除操作和完整路径")
     deleted, residues, skipped = [], [], []
+    root_real = os.path.realpath(root)
+    if not os.path.isdir(root_real) or root_real == os.path.dirname(root_real):
+        raise ValueError("PARENT_CD_FAILED: 项目安全根目录不可用")
+    root_device = os.stat(root_real, follow_symlinks=False).st_dev
     for target in targets:
+        raw = str(target or "").strip().replace("\\", "/")
+        if not raw or raw in (".", "..") or raw.startswith("-"):
+            skipped.append({"path": raw, "reason": "必须提供精确的完整路径"})
+            continue
         try:
-            paths = [safe_project_delete_path(root, target)]
-        except Exception as exc:
-            paths = legacy_delete_candidate_paths(root, target)
-            if not paths:
-                skipped.append({"path": target, "reason": f"{str(exc)}; legacy id has no matching artifact path"})
-                continue
-        target_deleted = False
-        for path in paths:
-            rel = relpath(root, path) if os.path.isabs(path) else str(path)
+            path = safe_project_delete_path(root_real, raw)
+            relative = os.path.relpath(path, root_real)
+            if relative in (".", "..") or relative.startswith(".." + os.sep):
+                raise ValueError("删除目标超出项目根目录")
+            parent = os.path.dirname(path)
+            if os.path.realpath(parent) != parent or os.path.commonpath((root_real, parent)) != root_real or parent == root_real:
+                raise ValueError("PARENT_CD_FAILED: 父目录不在项目安全根内")
+            parent_relative = os.path.relpath(parent, root_real)
+            cursor = root_real
+            if parent_relative != ".":
+                for part in parent_relative.split(os.sep):
+                    cursor = os.path.join(cursor, part)
+                    if os.path.islink(cursor) or os.path.realpath(cursor) != cursor:
+                        raise ValueError("PARENT_CD_FAILED: 父目录路径包含符号链接")
+                    if os.stat(cursor, follow_symlinks=False).st_dev != root_device:
+                        raise ValueError("PARENT_CD_FAILED: 父目录跨越文件系统边界")
             if not os.path.lexists(path):
-                skipped.append({"path": target, "resolvedPath": rel, "reason": "missing"})
+                skipped.append({"path": raw, "resolvedPath": relative.replace(os.sep, "/"), "reason": "missing"})
                 continue
-            try:
-                if os.path.isdir(path) and not os.path.islink(path):
-                    shutil.rmtree(path)
-                else:
-                    os.remove(path)
-                deleted.append(target if len(paths) == 1 else rel)
-                target_deleted = True
-            except Exception as exc:
-                residues.append({"path": target, "resolvedPath": rel, "error": str(exc)})
-        if len(paths) > 1 and target_deleted:
-            append_event(root, {"type": "legacy_delete_resolved", "payload": {"target": target, "resolvedPaths": [relpath(root, path) for path in paths]}})
+            validate_exact_delete_tree(root_real, path, root_device)
+            if os.name != "posix":
+                raise ValueError("PARENT_CD_FAILED: 当前平台不支持经过物理父目录校验的精确删除")
+            leaf = os.path.basename(path)
+            relative_target = "./" + leaf
+            script = 'cd -- "$1" || exit 41; [ "$(pwd -P)" = "$1" ] || exit 42; [ -e "$2" ] && [ ! -L "$2" ] || exit 43; if [ -d "$2" ]; then rm -r -- "$2"; else rm -- "$2"; fi'
+            completed = subprocess.run(["/bin/sh", "-c", script, "artifact-delete", parent, relative_target],
+                cwd=parent, capture_output=True, text=True, timeout=120)
+            if completed.returncode != 0:
+                reason = "PARENT_CD_FAILED" if completed.returncode in (41, 42) else (completed.stderr.strip()[:240] or "精确删除命令失败")
+                raise ValueError(reason)
+            if os.path.lexists(path):
+                raise ValueError("删除后目标仍存在")
+            deleted.append(relative.replace(os.sep, "/"))
+        except Exception as exc:
+            residues.append({"path": raw, "error": str(exc)[:320]})
     return deleted, residues, skipped
 
 METRIC_ALIASES = {
@@ -6946,13 +7245,11 @@ def plan_checkpoints_artifact_relpath(plan, filename):
     return f"simple_cluster/checkpoints/by_plan/{slug}/{name}"
 
 def write_atomic_csv(path, header, rows):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = f"{path}.tmp.{os.getpid()}"
-    with open(tmp, "w", encoding="utf-8", newline="") as f:
-        writer = csv.writer(f)
+    def write(stream):
+        writer = csv.writer(stream)
         writer.writerow(header)
         writer.writerows(rows)
-    os.replace(tmp, path)
+    atomic_write_file(path, write)
 
 def plan_result_identity(root, plan):
     try:
@@ -7112,11 +7409,9 @@ def final_metric_label(metric):
     return re.sub(r"(?u)[^\w]+", "_", raw).strip("_").lower() or "metric"
 
 def write_atomic_text(path, content):
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = f"{path}.tmp.{os.getpid()}"
-    with open(tmp, "w", encoding="utf-8", newline="\n") as stream:
+    def write(stream):
         stream.write(content)
-    os.replace(tmp, path)
+    atomic_write_file(path, write)
 
 def result_markdown_table(headers, rows, title, notes=None):
     escape = lambda value: str(value if value is not None else "").replace("|", chr(92) + "|").replace("\n", " ").replace("\r", " ")
@@ -7482,7 +7777,11 @@ def archive_plan_copy_action(root, plan, snapshot_name=""):
     manifest_rel = f"{archive_rel}/manifest.json"
     manifest = {"schemaVersion": 1, "planFile": plan, "createdAt": now_iso(), "scope": {"cases": expected_cases, "seeds": expected_seeds}, "files": files, "skipped": skipped, "totalBytes": total_bytes, "rawResultFiltered": True, "note": "仅复制轻量 Plan、配置、结果表和日志；不复制 checkpoint。"}
     atomic_write(safe_project_path(root, manifest_rel), manifest)
-    return {"archivePath": archive_rel, "manifestPath": manifest_rel, "files": [manifest_rel, *[item["path"] for item in files]], "fileCount": len(files), "skipped": skipped, "totalBytes": total_bytes}
+    file_sizes = {manifest_rel: os.path.getsize(safe_project_path(root, manifest_rel))}
+    file_sizes.update({item["path"]: int(item["bytes"]) for item in files})
+    file_hashes = {manifest_rel: sha256_file(safe_project_path(root, manifest_rel))}
+    file_hashes.update({item["path"]: item["sha256"] for item in files})
+    return {"archivePath": archive_rel, "manifestPath": manifest_rel, "files": [manifest_rel, *[item["path"] for item in files]], "fileSizes": file_sizes, "fileHashes": file_hashes, "fileCount": len(files), "skipped": skipped, "totalBytes": total_bytes}
 
 def result_csv_rows(records):
     rows = []
@@ -8380,6 +8679,47 @@ def plan_declared_result_candidates(root, plan=None, limit=240):
             break
     return unique_values(filter(None, (parseable_result_candidate(item) for item in out)))[:limit]
 
+def plan_declared_runner_outputs(root, text):
+    runner = yaml_section_text(text, "runner")
+    raw = [*yaml_list(runner, "outputs"), *yaml_flow_map_values(runner, ("outputs",)), *yaml_flow_map_values(text, ("outputs",))]
+    candidates = []
+    def add(value):
+        item = yaml_clean_value(value)
+        if not item:
+            return
+        if item.startswith("[") and item.endswith("]"):
+            for part in split_yaml_flow_items(item[1:-1]):
+                add(part)
+            return
+        if item.startswith("{") and item.endswith("}"):
+            paths = yaml_flow_map_values(item, ("path",))
+            if paths:
+                for part in paths:
+                    add(part)
+                return
+        if re.match(r"^path\s*:", item, re.I):
+            item = yaml_clean_value(yaml_scalar(item, "path", ""))
+        if item and item not in candidates:
+            candidates.append(item)
+    for item in raw:
+        add(item)
+    valid, invalid = [], []
+    for item in candidates[:32]:
+        normalized = item.replace("\\", "/").strip()
+        parts = [part for part in normalized.split("/") if part not in ("", ".")]
+        if not normalized or os.path.isabs(normalized) or normalized.startswith("/") or any(part == ".." for part in parts):
+            invalid.append(item)
+            continue
+        try:
+            safe_project_path(root, normalized)
+        except Exception:
+            invalid.append(item)
+            continue
+        valid.append("/".join(parts))
+    if len(candidates) > 32:
+        invalid.append("runner.outputs 超过 32 项限制")
+    return valid, invalid
+
 def plan_output_capture_evidence(root, plan):
     try:
         plan_path = safe_project_path(root, plan)
@@ -8388,6 +8728,9 @@ def plan_output_capture_evidence(root, plan):
         return {"ok": False, "missing": ["计划文件"], "signals": [], "message": str(exc)}
     cleaned = uncommented_yaml_text(text)
     signals = []
+    declared_outputs, invalid_outputs = plan_declared_runner_outputs(root, cleaned)
+    if declared_outputs:
+        signals.append("runner.outputs")
     expected = plan_expected_result_candidates(cleaned)
     command_candidates = plan_command_result_candidate_values(cleaned)
     declared_candidates = plan_declared_result_candidates(root, plan)
@@ -8413,13 +8756,15 @@ def plan_output_capture_evidence(root, plan):
     policy = read_project_metric_policy(root)
     if policy_explicit_result_candidates(policy):
         signals.append("plugin_or_project_adapter")
-    ok = bool(signals)
+    ok = bool(signals) and not invalid_outputs
     return {
         "ok": ok,
         "signals": unique_values(signals),
         "expectedResults": unique_values([*declared_candidates, *expected, *command_candidates])[:20],
-        "missing": [] if ok else ["接入配置", "计划输出", "候选结果规则"],
-        "message": "" if ok else "未识别到可用的结果捕获规则，已阻止运行实验。请在 Plan 中声明 paper.result_csv、执行命令的结果参数、expectedResults 或 stdout/stderr 捕获；也可在插件设置中配置输出接入规则。",
+        "declaredOutputs": declared_outputs,
+        "invalidDeclaredOutputs": invalid_outputs,
+        "missing": [] if ok else (["runner.outputs 路径无效：" + ", ".join(invalid_outputs[:8])] if invalid_outputs else ["接入配置", "计划输出", "候选结果规则"]),
+        "message": "" if ok else ("runner.outputs 声明包含越界或不安全路径，已阻止运行。" if invalid_outputs else "未识别到可用的结果捕获规则，已阻止运行实验。请在 Plan 中声明 runner.outputs，或为需要指标的任务配置 paper.result_csv、执行命令的结果参数、expectedResults 或 stdout/stderr 捕获。"),
     }
 
 def read_project_metric_policy(root):
@@ -9103,10 +9448,7 @@ def draft_config_reference_values(text):
 
 
 def atomic_write_draft_text(path, text):
-    tmp = f"{path}.tmp.{os.getpid()}.{threading.get_ident()}"
-    with open(tmp, "w", encoding="utf-8", newline="") as f:
-        f.write(text)
-    replace_with_retry(tmp, path)
+    atomic_write_file(path, lambda stream: stream.write(text))
 
 
 def materialize_draft_snapshot(root, plan):
@@ -10708,32 +11050,30 @@ def scheduler_validate_json(root, scheduler, plan, default_result_csv_dir="exper
     except Exception:
         return {"ok": True, "plan": plan, "jobs": [], "raw": result.stdout}
 
-def dry_run_preview_action(root, plan, workers, assigned_indices=None, default_result_csv_dir="experiments/results"):
+def dry_run_preview_action(root, plan, workers, assigned_indices=None, default_result_csv_dir="experiments/results", operation_id=""):
     scheduler = cluster_scheduler_path(root)
     if not scheduler:
         raise RuntimeError("Hub 上缺少 cluster_scheduler.py，请先部署最新版 Agent。")
     require_scheduler_dependencies(root, scheduler)
-    workers_path = state_child_path(root, "actions", f"dry-run-workers-{int(time.time() * 1000)}.json")
+    owner = str(operation_id or "").strip()
+    if not owner:
+        raise ValueError("Dry-run 缺少稳定 operationId，拒绝创建无归属暂存文件。")
+    owner_key = hashlib.sha256(owner.encode("utf-8")).hexdigest()[:24]
+    workers_path = state_child_path(root, "actions", f"dry-run-workers-{owner_key}.json")
     atomic_write(workers_path, workers if isinstance(workers, list) else [])
-    try:
-        scheduler_args = [
-            "--dry-run-plan",
-            "--plan", plan,
-            "--workers-json", workers_path,
-            "--availability-path", availability_cache_path(root),
-            "--worker-status-ttl-seconds", "180",
-            "--agent-state-dir", agent_dir(root),
-            "--default-result-csv-dir", default_result_csv_dir,
-        ]
-        indices = normalized_experiment_indices(assigned_indices)
-        if indices:
-            scheduler_args.extend(["--only-indices", ",".join(str(index) for index in indices)])
-        result = scheduler_capture(root, scheduler, scheduler_args)
-    finally:
-        try:
-            workers_path.unlink(missing_ok=True)
-        except Exception:
-            pass
+    scheduler_args = [
+        "--dry-run-plan",
+        "--plan", plan,
+        "--workers-json", workers_path,
+        "--availability-path", availability_cache_path(root),
+        "--worker-status-ttl-seconds", "180",
+        "--agent-state-dir", agent_dir(root),
+        "--default-result-csv-dir", default_result_csv_dir,
+    ]
+    indices = normalized_experiment_indices(assigned_indices)
+    if indices:
+        scheduler_args.extend(["--only-indices", ",".join(str(index) for index in indices)])
+    result = scheduler_capture(root, scheduler, scheduler_args)
     text = (result.stdout or result.stderr or "").strip()
     if result.returncode != 0:
         raise RuntimeError(text[-1200:] or "Dry-run 预演失败")
@@ -10787,6 +11127,24 @@ def acquire_worker_action_slot(root, worker_id, payload):
 
 def action_target_keys(payload):
     return action_values(payload, "selectedArchiveKeys", "selectedRunKeys", "selectedExperimentIds", "archiveKey", "runKey", "experimentId", "remotePath", "path")
+
+def action_delete_target_paths(payload):
+    body = payload if isinstance(payload, dict) else {}
+    options = action_options(body)
+    keys = ("confirmationPath", "confirmationPaths", "path", "artifactPath", "resultPath", "outputDir", "logPath")
+    out = action_values(body, *keys)
+    for source in (body, options):
+        targets = source.get("selectedTaskTargets") if isinstance(source, dict) else None
+        if not isinstance(targets, list):
+            continue
+        for target in targets:
+            if not isinstance(target, dict):
+                continue
+            for key in ("confirmationPath", "confirmation_path", "remotePath", "remote_path", "path", "artifactPath", "artifact_path", "resultPath", "result_path", "outputDir", "output_dir", "logPath", "log_path"):
+                value = str(target.get(key) or "").strip()
+                if value and value != "-":
+                    out.append(value)
+    return list(dict.fromkeys(out))
 
 def action_operation_fields(payload):
     body = payload if isinstance(payload, dict) else {}
@@ -11480,19 +11838,7 @@ def _write_run_plan_registry(root, entries):
 
 
 def _is_pid_alive(pid):
-    try:
-        pid = int(pid or 0)
-    except Exception:
-        return False
-    if pid <= 0:
-        return False
-    try:
-        os.kill(pid, 0)
-        return True
-    except OSError:
-        return False
-    except Exception:
-        return False
+    return pid_is_alive(pid)
 
 
 def parse_linux_process_start_identity(stat_line):
@@ -11519,34 +11865,29 @@ def process_start_identity(pid):
         return ""
 
 
-def _reap_zombie_scheduler_sessions(root, known_op_ids):
-    # Kill run-plan tmux sessions whose process is gone and which are not in the live registry
-    # (e.g. a crashed scheduler that left a detached 'sch-' session behind).
+def _reap_zombie_scheduler_sessions(root, known_op_ids, target_session=""):
+    # Reap only the exact scheduler session already validated for this stop request.
+    # Scanning every unregistered prefix session races a scheduler between tmux
+    # creation and registry publication, and can kill a different live operation.
     if not tmux_available():
         return []
-    known = set(str(o) for o in (known_op_ids or []))
-    prefix = _tmux_prefix()
-    reaped = []
+    name = str(target_session or "").strip()
+    prefix = _tmux_prefix() + "-sch-"
+    if not name.startswith(prefix):
+        return []
+    op = name[len(prefix):]
+    if not op or op in set(str(value) for value in (known_op_ids or [])):
+        return []
     try:
-        out = subprocess.run(["tmux", "ls"], text=True, capture_output=True, timeout=5).stdout or ""
-        for line in out.splitlines():
-            name = line.split(":", 1)[0]
-            if not name.startswith(prefix + "-sch-"):
-                continue
-            op = name[len(prefix + "-sch-"):]
-            if op in known:
-                continue
-            # A scheduler can start before its registry write. Never reap an unregistered live pane.
-            if _tmux_pane_python_running(name, None):
-                continue
-            try:
-                subprocess.run(["tmux", "kill-session", "-t", name], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
-                reaped.append(name)
-            except Exception:
-                pass
+        present = subprocess.run(["tmux", "has-session", "-t", name], stdout=subprocess.DEVNULL,
+                                 stderr=subprocess.DEVNULL, timeout=5, cwd=root)
+        if present.returncode != 0 or _tmux_pane_python_running(name, None):
+            return []
+        killed = subprocess.run(["tmux", "kill-session", "-t", name], stdout=subprocess.DEVNULL,
+                                stderr=subprocess.DEVNULL, timeout=5, cwd=root)
+        return [name] if killed.returncode == 0 else []
     except Exception:
-        pass
-    return reaped
+        return []
 
 def _reap_orphan_gpu_sessions(root, force_all=False):
     # GPU 窗口与调度窗口同生命周期：调度销毁时回收关联 GPU 窗口，避免孤儿 long-lived 会话
@@ -11786,7 +12127,7 @@ def cache_cleanup_candidates(root):
             dirs[:] = [name for name in dirs if not os.path.islink(os.path.join(parent, name)) and not any(marker in name.lower() for marker in protected_markers)]
             for name in files:
                 path = os.path.join(parent, name)
-                dry_run_temp = bool(re.fullmatch(r"dry-run-workers-\d+-[0-9a-f]{12}\.json", name))
+                dry_run_temp = bool(re.fullmatch(r"dry-run-workers-[0-9a-f]{24}\.json", name))
                 relative_path = os.path.relpath(path, root_real).replace(os.sep, "/")
                 scheduler_state_temp = relative_path.startswith("simple_cluster/tmp/cluster_scheduler/") and relative_path.endswith("_state.json")
                 if os.path.islink(path) or any(marker in name.lower() for marker in protected_markers) or (os.path.splitext(name)[1].lower() not in allowed_extensions and not dry_run_temp and not scheduler_state_temp):
@@ -12030,7 +12371,7 @@ def handle_action(root, action, payload, operation_id, op_id):
             return terminal_action(root, action, operation_id, op_id, "failed", str(exc), request=payload)
         try:
             temp_cleanup = cleanup_dry_run_worker_temp_files(root)
-            preview = dry_run_preview_action(root, plan, action_options(payload).get("workers") if isinstance(action_options(payload).get("workers"), list) else [], action_operation_fields(payload).get("assignedExperimentIndices") or [], default_result_csv_dir)
+            preview = dry_run_preview_action(root, plan, action_options(payload).get("workers") if isinstance(action_options(payload).get("workers"), list) else [], action_operation_fields(payload).get("assignedExperimentIndices") or [], default_result_csv_dir, operation_id)
             if preview.get("ok") is False:
                 interface = preview.get("outputInterface") or {}
                 return terminal_action(root, action, operation_id, op_id, "failed", str(interface.get("message") or "输出接口预检失败，已阻止 Dry-run。"), {"preview": preview, "outputInterface": interface, "tempCleanup": temp_cleanup}, request=payload)
@@ -12508,10 +12849,17 @@ def handle_action(root, action, payload, operation_id, op_id):
         message = f"归档准备完成：{len(resolved_keys)} 个目标，{manifest.get('fileCount', 0)} 个文件，缺失 {manifest.get('missingCount', 0)} 个目标"
         return terminal_action(root, action, operation_id, op_id, "completed", message, {"archiveKeys": resolved_keys, "requestedArchiveKeys": keys, "archiveManifest": manifest, "archiveManifestPath": manifest_path, "manifestPath": manifest_path, "planFile": action_plan_file(payload) or ""}, request=payload)
     if action in ("delete-artifacts", "reconcile-deletions", "delete-worker-artifacts"):
-        keys = action_target_keys(payload)
+        if payload.get("confirm") is not True or payload.get("pathConfirmed") is not True:
+            return terminal_action(root, action, operation_id, op_id, "failed", "CONFIRM_REQUIRED: 必须分别确认删除操作和完整路径。", request=payload)
+        keys = action_delete_target_paths(payload)
         if not keys:
-            return terminal_action(root, action, operation_id, op_id, "failed", "没有选择可删除目标。")
-        deleted, residues, skipped = remove_project_targets(root, keys)
+            return terminal_action(root, action, operation_id, op_id, "failed", "没有选择可删除的精确绝对路径；不支持按任务标识搜索删除。", request=payload)
+        invalid_paths = [value for value in keys if not os.path.isabs(str(value).replace("\\", os.sep))]
+        if invalid_paths:
+            return terminal_action(root, action, operation_id, op_id, "failed", "删除要求每个目标都是绝对路径；已拒绝不完整或相对路径。", {"invalidPathCount": len(invalid_paths)}, request=payload)
+        if len(keys) > 2000:
+            return terminal_action(root, action, operation_id, op_id, "failed", "单次删除目标超过 2000 个上限。", request=payload)
+        deleted, residues, skipped = remove_project_targets(root, keys, payload.get("confirm"), payload.get("pathConfirmed"))
         status = "failed" if residues or skipped else "completed"
         summary = {
             "targetCount": len(keys),
@@ -12897,6 +13245,7 @@ def api_openapi(root, token_required=False, mode="hub_control"):
             "/api/files/upload-init",
             "/api/files/upload-chunk",
             "/api/files/upload-complete",
+            "/api/files/upload-cancel",
             "/api/files/transfer-status",
             "/api/workers/uplink/events",
             "/api/tensorboard/proxy",
@@ -12919,6 +13268,7 @@ def api_diagnostics(root, include_token=False):
         "journalMaxEvents": MAX_EVENTS,
         "journalMaxBytes": MAX_JOURNAL_BYTES,
         "maxAgentStateBytes": MAX_AGENT_STATE_BYTES,
+        "agentStatePrune": dict(AGENT_STATE_PRUNE_DIAGNOSTICS),
         "tokenConfigured": bool((read_runtime_json_cached(path_for(root, "agent.session.json"), {}) or {}).get("tokenConfigured")),
         "schedulerDependencies": scheduler_dependency_health(root),
     }
@@ -13038,14 +13388,28 @@ def events_from_lines_after(lines, since):
             events.append(event)
     return events
 
-def full_scan_events_after(journal, since):
-    events = []
-    with open(journal, "r", encoding="utf-8") as f:
-        for line in f:
-            event = parse_event_line(line)
+def full_scan_events_after(journal, since, limit=200):
+    bounded_limit = max(1, int(limit or 200))
+    events = deque(maxlen=bounded_limit)
+    omitted_oversized = False
+    with open(journal, "rb") as f:
+        while True:
+            raw = f.readline(MAX_AGENT_EVENT_RECORD_BYTES + 1)
+            if not raw:
+                break
+            if len(raw) > MAX_AGENT_EVENT_RECORD_BYTES:
+                omitted_oversized = True
+                while raw and not raw.endswith(b"\n"):
+                    raw = f.readline(MAX_AGENT_EVENT_RECORD_BYTES + 1)
+                continue
+            event = parse_event_line(raw.decode("utf-8", errors="replace"))
             if event and event_seq(event) > since:
                 events.append(event)
-    return events
+    if omitted_oversized:
+        if len(events) >= bounded_limit:
+            events.popleft()
+        events.append({"schemaVersion": SCHEMA_VERSION, "seq": 0, "type": "diagnostics_updated", "generatedAt": now_iso(), "source": "hub_agent", "payload": {"code": "journal_gap", "reason": "oversized_journal_record", "resetSince": 0}})
+    return list(events)
 
 def read_events_since(root, since, limit=200, cursor_id=""):
     journal = path_for(root, "events.jsonl")
@@ -13069,17 +13433,17 @@ def read_events_since(root, since, limit=200, cursor_id=""):
         tail_events = events_from_lines_after(tail_lines, effective_since)
         if not tail_events:
             if last and effective_since < last:
-                return full_scan_events_after(journal, effective_since)[-limit:]
+                return full_scan_events_after(journal, effective_since, limit)
             return []
         tail_seqs = [event_seq(item) for item in tail_events if event_seq(item)]
         if not tail_seqs:
-            return full_scan_events_after(journal, effective_since)[-limit:]
+            return full_scan_events_after(journal, effective_since, limit)
         min_tail_seq = min(tail_seqs)
         if not since and first and min_tail_seq > first and len(tail_events) < limit:
             return full_scan_events_after(journal, effective_since)[-limit:]
         if not since or min_tail_seq <= effective_since + 1:
             return tail_events[-limit:]
-    return full_scan_events_after(journal, effective_since)[-limit:]
+    return full_scan_events_after(journal, effective_since, limit)
 
 def sse_idle_sleep_seconds(idle_rounds):
     # Long connection idle backoff: reduce empty journal scans without creating short reconnects.
@@ -13219,14 +13583,7 @@ def api_operation(root, operation_id):
 
 
 def process_alive(pid):
-    try:
-        pid_value = int(pid or 0)
-        if pid_value <= 0:
-            return False
-        os.kill(pid_value, 0)
-        return True
-    except (OSError, ValueError, TypeError):
-        return False
+    return pid_is_alive(pid)
 
 
 def scheduler_process_evidence(root, pid=None, tmux_session=None):
@@ -13849,7 +14206,7 @@ def stop_scheduler_operation(root, payload):
             deregister_active_run_plan(root, wanted)
         # also reap any leftover zombie sch-* sessions from this stop
         remaining = set(str(e.get("opId") or "") for e in _read_run_plan_registry(root) if isinstance(e, dict) and str(e.get("opId") or "").strip())
-        _reap_zombie_scheduler_sessions(root, remaining)
+        _reap_zombie_scheduler_sessions(root, remaining, target_session)
     except Exception:
         pass
     # A Worker task's pid can be a tmux pane id such as %97. Stop that exact pane;
@@ -13865,6 +14222,18 @@ def stop_scheduler_operation(root, payload):
                 continue
             task_plan = re.sub(r"^\./", "", str(task.get("planFile") or task.get("plan") or "").replace("\\", "/"))
             if task_plan != requested_plan:
+                continue
+            task_run_id = str(task.get("workflowId") or task.get("workflow_id") or task.get("runId") or task.get("run_id") or "").strip()
+            if task_run_id != wanted:
+                # A same-Plan task is not necessarily owned by this scheduler.
+                # Never stop it by Plan name alone. Missing identity remains an
+                # explicit unresolved outcome so callers cannot assume the whole
+                # requested run has settled.
+                if not task_run_id:
+                    remaining_active.append({"kind": "workerTaskIdentityUnknown",
+                                             "commandId": str(task.get("commandId") or task.get("operationId") or "")[:160],
+                                             "workerId": str(task.get("workerId") or "")[:120],
+                                             "planFile": requested_plan})
                 continue
             sess = str(task.get("tmuxSession") or "").strip()
             task_pid = str(task.get("pid") or "").strip()
@@ -14083,8 +14452,16 @@ def kill_tmux_window_response(payload, mode, mgmt_env=""):
         return {"error": str(exc)}, 500
 
 def serve_http(args):
-    if args.host != "127.0.0.1":
-        raise RuntimeError("Hub Agent serve only accepts --host 127.0.0.1")
+    bind_host = str(getattr(args, "host", "") or "127.0.0.1").strip()
+    if bind_host.startswith("[") and bind_host.endswith("]"):
+        bind_host = bind_host[1:-1]
+    if not bind_host or not re.fullmatch(r"[A-Za-z0-9._:%-]{1,253}", bind_host):
+        raise RuntimeError("Agent --host must be a hostname or IP address without a port or URL path")
+    if ":" in bind_host:
+        try:
+            ipaddress.ip_address(bind_host)
+        except ValueError as exc:
+            raise RuntimeError("Agent --host IPv6 address is invalid") from exc
     root = args.project_dir
     token = args.token or ""
     mode = args.mode or "hub_control"
@@ -14137,11 +14514,164 @@ def serve_http(args):
         except Exception:
             pass
 
+    class BoundedThreadingHTTPServer(ThreadingHTTPServer):
+        address_family = socket.AF_INET6 if ":" in bind_host else socket.AF_INET
+        daemon_threads = True
+        request_queue_size = 64
+        max_request_threads = 52
+        request_class_limits = {
+            "probe": 4,
+            "control": 8,
+            "read": 24,
+            "transfer": 2,
+            "sse": 8,
+            "proxy": 4,
+        }
+        request_class_timeouts = {
+            "probe": 10,
+            "control": 60,
+            "read": 60,
+            "transfer": 180,
+            "sse": 10,
+            "proxy": 60,
+        }
+
+        def __init__(self, server_address, request_handler_class):
+            self._request_slots = threading.BoundedSemaphore(self.max_request_threads)
+            self._class_slots = {name: threading.BoundedSemaphore(limit) for name, limit in self.request_class_limits.items()}
+            self._capacity_lock = threading.Lock()
+            self._active_requests = 0
+            self._active_by_class = {name: 0 for name in self.request_class_limits}
+            self._rejected_requests = 0
+            self._rejected_by_class = {name: 0 for name in self.request_class_limits}
+            super().__init__(server_address, request_handler_class)
+
+        def process_request(self, request, client_address):
+            if not self._request_slots.acquire(blocking=False):
+                with self._capacity_lock:
+                    self._rejected_requests += 1
+                try:
+                    request.settimeout(0.5)
+                    request.sendall(b"HTTP/1.1 503 Service Unavailable\r\nRetry-After: 2\r\nConnection: close\r\nContent-Length: 0\r\n\r\n")
+                except OSError:
+                    pass
+                self.shutdown_request(request)
+                return
+            with self._capacity_lock:
+                self._active_requests += 1
+            try:
+                # Bound slow request-line/header reads before Handler can classify the route.
+                request.settimeout(10)
+                super().process_request(request, client_address)
+            except Exception:
+                with self._capacity_lock:
+                    self._active_requests = max(0, self._active_requests - 1)
+                self._request_slots.release()
+                raise
+
+        def process_request_thread(self, request, client_address):
+            try:
+                super().process_request_thread(request, client_address)
+            finally:
+                with self._capacity_lock:
+                    self._active_requests = max(0, self._active_requests - 1)
+                self._request_slots.release()
+
+        def classify_request(self, method, route):
+            if method == "GET" and route in (
+                "/api/health", "/health", "/api/version", "/version",
+                "/api/capabilities", "/api/openapi.json",
+                "/api/worker/availability", "/api/availability",
+            ):
+                return "probe"
+            if method == "GET" and route in ("/api/events/sse", "/api/workers/uplink/commands/sse"):
+                return "sse"
+            if route.startswith("/api/tensorboard/") or route == TENSORBOARD_BROWSER_PREFIX or route.startswith(TENSORBOARD_BROWSER_PREFIX + "/"):
+                return "proxy"
+            if route == "/api/files/upload-cancel":
+                return "control"
+            if route.startswith("/api/files/download") or route in (
+                "/api/files/upload-init", "/api/files/upload-chunk", "/api/files/upload-complete", "/api/files/upload-cancel",
+            ):
+                return "transfer"
+            if method == "POST":
+                return "control"
+            return "read"
+
+        def acquire_request_class(self, request_class):
+            slot = self._class_slots.get(request_class)
+            if slot is None or not slot.acquire(blocking=False):
+                with self._capacity_lock:
+                    self._rejected_by_class[request_class] = self._rejected_by_class.get(request_class, 0) + 1
+                return False
+            with self._capacity_lock:
+                self._active_by_class[request_class] = self._active_by_class.get(request_class, 0) + 1
+            return True
+
+        def release_request_class(self, request_class):
+            if not request_class:
+                return
+            slot = self._class_slots.get(request_class)
+            if slot is None:
+                return
+            with self._capacity_lock:
+                self._active_by_class[request_class] = max(0, self._active_by_class.get(request_class, 0) - 1)
+            slot.release()
+
+        def request_timeout(self, request_class):
+            return self.request_class_timeouts.get(request_class, 60)
+
+        def capacity_snapshot(self):
+            with self._capacity_lock:
+                return {
+                    "schemaVersion": 1,
+                    "active": self._active_requests,
+                    "maxActive": self.max_request_threads,
+                    "rejected": self._rejected_requests + sum(self._rejected_by_class.values()),
+                    "classes": {
+                        name: {
+                            "active": self._active_by_class[name],
+                            "limit": self.request_class_limits[name],
+                            "rejected": self._rejected_by_class[name],
+                        }
+                        for name in self.request_class_limits
+                    },
+                }
+
     class Handler(BaseHTTPRequestHandler):
         server_version = "SimpleExperimentAgent/" + AGENT_VERSION
 
+        MAX_CONTROL_BODY_BYTES = 8 * 1024 * 1024
+        MAX_UPLOAD_CHUNK_BYTES = 2 * 1024 * 1024
+
         def log_message(self, fmt, *items):
             return
+
+        def parse_request(self):
+            self._admitted_request_class = None
+            if not super().parse_request():
+                return False
+            request_class = self.server.classify_request(self.command, urlparse(self.path).path)
+            if not self.server.acquire_request_class(request_class):
+                self.close_connection = True
+                self.send_response(503)
+                self.send_header("Retry-After", "2")
+                self.send_header("Cache-Control", "no-store")
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+                return False
+            self._admitted_request_class = request_class
+            self.connection.settimeout(self.server.request_timeout(request_class))
+            return True
+
+        def handle_one_request(self):
+            self._admitted_request_class = None
+            try:
+                return super().handle_one_request()
+            finally:
+                request_class = self._admitted_request_class
+                self._admitted_request_class = None
+                self.server.release_request_class(request_class)
 
         def localhost_only(self):
             host = self.client_address[0]
@@ -14164,6 +14694,43 @@ def serve_http(args):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+
+        def read_request_body(self, route):
+            transfer_encoding = str(self.headers.get("Transfer-Encoding") or "").strip().lower()
+            if transfer_encoding:
+                self.close_connection = True
+                self.send_json({"error": "Transfer-Encoding request bodies are not supported"}, status=400)
+                return None
+            raw_length = self.headers.get("Content-Length")
+            try:
+                length = int(raw_length or 0)
+            except (TypeError, ValueError):
+                self.close_connection = True
+                self.send_json({"error": "invalid Content-Length"}, status=400)
+                return None
+            if length < 0:
+                self.close_connection = True
+                self.send_json({"error": "invalid Content-Length"}, status=400)
+                return None
+            is_upload_chunk = route == "/api/files/upload-chunk"
+            limit = self.MAX_UPLOAD_CHUNK_BYTES if is_upload_chunk else self.MAX_CONTROL_BODY_BYTES
+            if length > limit:
+                self.close_connection = True
+                self.send_json({"error": "request body too large", "maxBytes": limit}, status=413)
+                return None
+            if not length:
+                return b""
+            try:
+                body = self.rfile.read(length)
+            except (OSError, TimeoutError):
+                self.close_connection = True
+                self.send_json({"error": "request body read failed"}, status=400)
+                return None
+            if len(body) != length:
+                self.close_connection = True
+                self.send_json({"error": "incomplete request body"}, status=400)
+                return None
+            return body
 
         def proxy_tensorboard(self, parsed):
             params = parse_qs(parsed.query)
@@ -14273,7 +14840,7 @@ def serve_http(args):
             try:
                 while True:
                     if route.endswith("/commands/sse"):
-                        commands = read_worker_commands(root, worker_id, command_since, 20)
+                        commands = read_worker_commands(root, worker_id, command_since, 6)
                         for command in commands:
                             command_since = max(command_since, int(command.get("queueSeq") or command_since))
                             event = {"schemaVersion": SCHEMA_VERSION, "seq": command_since, "type": "worker_command", "generatedAt": now_iso(), "workerId": worker_id, "payload": command}
@@ -14291,16 +14858,35 @@ def serve_http(args):
                             idle_rounds += 1
                         time.sleep(sse_idle_sleep_seconds(idle_rounds))
                         continue
-                    events = read_events_since(root, last, 200, f"sse-{threading.get_ident()}")
+                    events = read_events_since(root, last, 8, f"sse-{threading.get_ident()}")
+                    batch_bytes = 0
+                    gap_sent = False
                     for event in events:
                         payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
                         if payload.get("code") == "journal_gap":
-                            last = 0
+                            # The client repairs from a current snapshot. Advance the server-side
+                            # cursor so a persisted gap marker is not replayed forever.
+                            last = read_seq(root)
                         else:
                             last = max(last, int(event.get("seq") or last))
                         data = ("data: " + json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n\n").encode("utf-8")
+                        if len(data) > MAX_AGENT_SSE_EVENT_BYTES:
+                            if not gap_sent:
+                                gap = {"schemaVersion": SCHEMA_VERSION, "seq": last, "type": "journal_gap", "generatedAt": now_iso(), "source": "hub_agent", "payload": {"code": "journal_gap", "reason": "event_exceeds_sse_limit", "maxBytes": MAX_AGENT_SSE_EVENT_BYTES}}
+                                self.wfile.write(("data: " + json.dumps(gap, ensure_ascii=False, separators=(",", ":")) + "\n\n").encode("utf-8"))
+                                self.wfile.flush()
+                                gap_sent = True
+                            continue
+                        if batch_bytes + len(data) > MAX_AGENT_SSE_BATCH_BYTES:
+                            if not gap_sent:
+                                gap = {"schemaVersion": SCHEMA_VERSION, "seq": last, "type": "journal_gap", "generatedAt": now_iso(), "source": "hub_agent", "payload": {"code": "journal_gap", "reason": "sse_batch_limit", "maxBytes": MAX_AGENT_SSE_BATCH_BYTES}}
+                                self.wfile.write(("data: " + json.dumps(gap, ensure_ascii=False, separators=(",", ":")) + "\n\n").encode("utf-8"))
+                                self.wfile.flush()
+                            last = read_seq(root)
+                            break
                         self.wfile.write(data)
                         self.wfile.flush()
+                        batch_bytes += len(data)
                     if events:
                         idle_rounds = 0
                     elif time.time() - last_ping >= 15:
@@ -14413,7 +14999,10 @@ def serve_http(args):
                     (params.get("tmuxSession") or [""])[0],
                 ))
             if route == "/api/diagnostics":
-                return self.send_json(api_diagnostics(root))
+                diagnostics = api_diagnostics(root)
+                if isinstance(diagnostics, dict):
+                    diagnostics["httpCapacity"] = self.server.capacity_snapshot()
+                return self.send_json(diagnostics)
             if route == "/api/audit/tail":
                 return self.send_json({"schemaVersion": SCHEMA_VERSION, "tail": read_audit_tail(root)})
             if route == "/api/events":
@@ -14636,14 +15225,29 @@ def serve_http(args):
                     return self.send_json({"error": "worker telemetry only accepts local worker actions"}, status=404)
             if route == "/api/tensorboard/proxy" or route == TENSORBOARD_BROWSER_PREFIX or route.startswith(TENSORBOARD_BROWSER_PREFIX + "/"):
                 return self.proxy_tensorboard(urlparse(self.path))
-            length = int(self.headers.get("Content-Length") or 0)
-            raw_body = self.rfile.read(length)
+            allowed = ACTION_ROUTES.union({
+                "/api/worker/availability/batch",
+                "/api/workers/uplink/events",
+                "/api/files/upload-init",
+                "/api/files/upload-chunk",
+                "/api/files/upload-complete",
+                "/api/files/upload-cancel",
+                "/api/admin/kill-stale-runtime",
+                "/api/admin/exec",
+            })
+            if route not in allowed:
+                return self.send_json({"error": "not found"}, status=404)
+            raw_body = self.read_request_body(route)
+            if raw_body is None:
+                return
             payload = {}
             if route != "/api/files/upload-chunk" or "application/json" in (self.headers.get("Content-Type") or ""):
                 try:
                     payload = json.loads(raw_body.decode("utf-8") or "{}")
                 except Exception:
                     return self.send_json({"error": "invalid json"}, status=400)
+                if not isinstance(payload, dict):
+                    return self.send_json({"error": "request JSON must be an object"}, status=400)
             if route == "/api/tensorboard/scalars/query":
                 try:
                     if not isinstance(payload, dict):
@@ -14680,98 +15284,261 @@ def serve_http(args):
                     return self.send_json(stop_scheduler_operation(root, scoped_payload))
                 except Exception as exc:
                     return self.send_json({"error": str(exc)}, status=500)
-            allowed = ACTION_ROUTES.union({
-                "/api/worker/availability/batch",
-                "/api/workers/uplink/events",
-                "/api/files/upload-init",
-                "/api/files/upload-chunk",
-                "/api/files/upload-complete",
-            })
-            if route not in allowed:
-                return self.send_json({"error": "not found"}, status=404)
             if route.startswith("/api/files/"):
+                if route == "/api/files/upload-cancel":
+                    remote_path = str(payload.get("remotePath") or payload.get("path") or "")
+                    client_transfer_id = str(payload.get("clientTransferId") or "").strip()[:160]
+                    transfer_id = str(payload.get("transferId") or "").strip()[:160]
+                    try:
+                        if not transfer_id and remote_path:
+                            target = safe_project_path(root, remote_path)
+                            remote_path = os.path.relpath(target, os.path.abspath(root)).replace(os.sep, "/")
+                            transfer_id = "upload-" + hashlib.sha256(("upload:" + remote_path).encode("utf-8")).hexdigest()[:32]
+                        if not transfer_id:
+                            return self.send_json({"transferId": "", "status": "unknown", "settled": False}, status=400)
+                        item = upload_item_from_status(root, transfer_id)
+                        public = read_transfer_status(root, transfer_id)
+                        expected_owner = str(public.get("clientTransferId") or "")
+                        if expected_owner and client_transfer_id != expected_owner:
+                            return self.send_json({"error": "upload slot ownership changed", "transferId": transfer_id,
+                                "status": public.get("status") or "unknown", "settled": False}, status=409)
+                        status = str(public.get("status") or "unknown").lower()
+                        if status in ("completed", "failed", "cancelled"):
+                            with UPLOADS_LOCK:
+                                current = UPLOADS.get(transfer_id)
+                                result = public_transfer_record(current) if isinstance(current, dict) else public
+                                owner = str((current or {}).get("clientTransferId") or client_transfer_id)
+                                active_requests = int((current or {}).get("_activeRequests") or 0)
+                                active_inits = int(UPLOAD_INIT_REQUESTS.get(upload_init_key(transfer_id, owner)) or 0)
+                                result["settled"] = active_requests <= 0 and active_inits <= 0
+                            return self.send_json(result)
+                        if not item:
+                            registered, active_inits, cancel_error = request_upload_init_cancellation(transfer_id, client_transfer_id)
+                            if not registered:
+                                return self.send_json({"error": cancel_error, "schemaVersion": SCHEMA_VERSION,
+                                    "transferId": transfer_id, "status": "unknown", "settled": False}, status=429)
+                            status = "cancelling" if active_inits else "cancelled"
+                            return self.send_json({"schemaVersion": SCHEMA_VERSION, "transferId": transfer_id,
+                                "status": status, "settled": active_inits == 0})
+                        with UPLOADS_LOCK:
+                            current = UPLOADS.get(transfer_id)
+                            if not isinstance(current, dict):
+                                return self.send_json({"schemaVersion": SCHEMA_VERSION, "transferId": transfer_id,
+                                    "status": "unknown", "settled": False})
+                            expected_owner = str(current.get("clientTransferId") or "")
+                            if expected_owner and client_transfer_id != expected_owner:
+                                return self.send_json({"error": "upload slot ownership changed", "transferId": transfer_id,
+                                    "status": str(current.get("status") or "unknown"), "settled": False}, status=409)
+                            current_status = str(current.get("status") or "unknown").lower()
+                            if current_status in ("completed", "failed", "cancelled"):
+                                result = public_transfer_record(current)
+                                active_requests = int(current.get("_activeRequests") or 0)
+                                active_inits = int(UPLOAD_INIT_REQUESTS.get(upload_init_key(transfer_id, current.get("clientTransferId"))) or 0)
+                                result["settled"] = active_requests <= 0 and active_inits <= 0
+                                return self.send_json(result)
+                            current["_cancelRequested"] = True
+                            current["status"] = "cancelling"
+                            current["error"] = "upload cancellation requested"
+                            active_requests = int(current.get("_activeRequests") or 0)
+                            active_inits = int(UPLOAD_INIT_REQUESTS.get(upload_init_key(transfer_id, current.get("clientTransferId"))) or 0)
+                            if active_requests <= 0 and active_inits <= 0:
+                                current["status"] = "cancelled"
+                                current["error"] = "upload cancelled by client"
+                                current["finishedAt"] = now_iso()
+                            write_transfer_status(root, current)
+                            result = public_transfer_record(current)
+                            result["settled"] = str(current.get("status") or "").lower() in ("completed", "failed", "cancelled") and active_requests <= 0 and active_inits <= 0
+                        return self.send_json(result)
+                    except Exception as exc:
+                        return self.send_json({"error": str(exc), "transferId": transfer_id, "status": "unknown", "settled": False}, status=500)
                 if route == "/api/files/upload-init":
                     remote_path = str(payload.get("remotePath") or payload.get("path") or "")
+                    init_registered = False
                     try:
                         target = safe_project_path(root, remote_path)
+                        remote_path = os.path.relpath(target, os.path.abspath(root)).replace(os.sep, "/")
+                        if remote_path == ".." or remote_path.startswith("../"):
+                            raise ValueError("upload path outside project")
                         overwrite = normalize_overwrite_policy(payload.get("overwrite"))
                         incoming_size = int(payload.get("size") or 0)
                         incoming_sha = str(payload.get("sha256") or "")
+                        client_transfer_id = str(payload.get("clientTransferId") or "").strip()[:160]
+                        # New clients reuse one bounded resumable slot per destination while keeping
+                        # their operation identity separate. Legacy callers retain unique IDs.
+                        transfer_id = ("upload-" + hashlib.sha256(("upload:" + remote_path).encode("utf-8")).hexdigest()[:32]) if client_transfer_id else ("upload-" + uuid.uuid4().hex)
+                        init_state = begin_upload_init_request(transfer_id, client_transfer_id)
+                        init_registered = init_state == "started"
+                        if not init_registered:
+                            return self.send_json({"schemaVersion": SCHEMA_VERSION, "transferId": transfer_id,
+                                "accepted": False, "status": "cancelled" if init_state == "cancelled" else "running",
+                                "settled": init_state == "cancelled", "message": "upload initialization cancelled" if init_state == "cancelled" else "upload initialization is still active"}, status=409)
+                        existing_transfer = read_transfer_status(root, transfer_id)
+                        if (client_transfer_id
+                                and str(existing_transfer.get("clientTransferId") or "") == client_transfer_id
+                                and str(existing_transfer.get("status") or "").lower() == "completed"
+                                and str(existing_transfer.get("remotePath") or "") == remote_path
+                                and str(existing_transfer.get("sha256") or "").lower() == incoming_sha.lower()
+                                and int(existing_transfer.get("totalBytes") or 0) == incoming_size):
+                            completed_target = upload_target_snapshot(target)
+                            if (bool(completed_target.get("exists"))
+                                    and int(completed_target.get("size") or 0) == incoming_size
+                                    and str(completed_target.get("sha256") or "").lower() == incoming_sha.lower()):
+                                return self.send_json({"schemaVersion": SCHEMA_VERSION, "transferId": transfer_id, "accepted": True, "completed": True, "status": "completed", "size": incoming_size, "sha256": incoming_sha})
                         validate_upload_overwrite(target, overwrite, incoming_size, incoming_sha)
                         original_target = upload_target_snapshot(target)
-                        transfer_id = str(payload.get("transferId") or f"upload-{int(time.time() * 1000)}-{os.getpid()}").strip()
                         tmp = state_child_path(root, "uploads", f"{transfer_id}-{remote_path}")
-                        resume_from = os.path.getsize(tmp) if os.path.exists(tmp) else 0
-                        if resume_from == 0:
-                            open(tmp, "wb").close()
-                        item = {"schemaVersion": SCHEMA_VERSION, "transferId": transfer_id, "status": "running", "direction": "upload", "remotePath": remote_path, "transferredBytes": resume_from, "totalBytes": incoming_size, "tmp": tmp, "sha256": incoming_sha, "overwrite": overwrite, "targetSnapshot": original_target, "startedAt": now_iso()}
+                        tmp_parent = os.path.dirname(tmp)
+                        if os.path.realpath(tmp_parent) != os.path.abspath(tmp_parent):
+                            raise ValueError("upload staging parent crosses a symbolic link")
+                        conflict = None
+                        conflict_status = 409
+                        resume_from = 0
                         with UPLOADS_LOCK:
-                            UPLOADS[transfer_id] = item
-                        write_transfer_status(root, item)
+                            current_item = UPLOADS.get(transfer_id)
+                            if upload_init_cancelled_locked(transfer_id, client_transfer_id):
+                                conflict = {"error": "upload initialization was cancelled", "transferId": transfer_id, "status": "cancelled"}
+                            if not conflict and active_upload_count_unlocked(transfer_id) >= MAX_ACTIVE_UPLOADS:
+                                conflict_status = 429
+                                conflict = {"error": "too many active uploads", "maxActiveUploads": MAX_ACTIVE_UPLOADS}
+                            if not conflict:
+                                existing_transfer = public_transfer_record(current_item) if isinstance(current_item, dict) else existing_transfer
+                                existing_owner = str(existing_transfer.get("clientTransferId") or "")
+                                existing_status = str(existing_transfer.get("status") or "").lower()
+                                existing_running = existing_status == "running"
+                                existing_active_requests = int(current_item.get("_activeRequests") or 0) if isinstance(current_item, dict) else 0
+                                same_payload = (
+                                    str(existing_transfer.get("remotePath") or "") == remote_path
+                                    and str(existing_transfer.get("sha256") or "").lower() == incoming_sha.lower()
+                                    and int(existing_transfer.get("totalBytes") or 0) == incoming_size
+                                    and existing_running
+                                )
+                                owner_matches = bool(client_transfer_id and existing_owner == client_transfer_id)
+                                stale_recovery = bool(existing_transfer.get("stalled"))
+                                if existing_status == "cancelling":
+                                    conflict = {"error": "upload cancellation has not settled", "transferId": transfer_id, "status": "cancelling"}
+                                elif existing_running and existing_active_requests > 0:
+                                    conflict = {"error": "upload already has an active chunk or commit request", "transferId": transfer_id, "status": "running"}
+                                elif existing_status == "cancelled" and client_transfer_id and existing_owner == client_transfer_id:
+                                    conflict = {"error": "cancelled upload identity cannot be reused", "transferId": transfer_id, "status": "cancelled"}
+                                elif client_transfer_id and existing_running and existing_owner and not owner_matches and not stale_recovery:
+                                    conflict = {"error": "another upload operation owns this destination slot", "transferId": transfer_id, "status": "running"}
+                                else:
+                                    resume_allowed = same_payload and (not client_transfer_id or owner_matches or stale_recovery)
+                                    try:
+                                        tmp_stat = os.lstat(tmp)
+                                        if os.path.islink(tmp) or not os.path.isfile(tmp):
+                                            raise ValueError("upload staging target must be a regular file")
+                                        resume_from = int(tmp_stat.st_size) if resume_allowed and int(tmp_stat.st_size) <= incoming_size else 0
+                                    except FileNotFoundError:
+                                        resume_from = 0
+                                    if resume_from == 0:
+                                        flags = os.O_CREAT | os.O_WRONLY | os.O_TRUNC | getattr(os, "O_NOFOLLOW", 0)
+                                        descriptor = os.open(tmp, flags, 0o600)
+                                        os.close(descriptor)
+                                    item = {"schemaVersion": SCHEMA_VERSION, "transferId": transfer_id, "clientTransferId": client_transfer_id, "status": "running", "direction": "upload", "remotePath": remote_path, "transferredBytes": resume_from, "totalBytes": incoming_size, "tmp": tmp, "sha256": incoming_sha, "overwrite": overwrite, "targetSnapshot": original_target, "startedAt": now_iso()}
+                                    UPLOADS[transfer_id] = item
+                                    write_transfer_status(root, item)
+                        if conflict:
+                            return self.send_json(conflict, status=conflict_status)
                         prune_runtime_memory_state()
                         return self.send_json({"schemaVersion": SCHEMA_VERSION, "transferId": transfer_id, "chunkSize": 1024 * 1024, "accepted": True, "resumeFromByte": resume_from})
                     except Exception as exc:
                         return self.send_json({"error": str(exc)}, status=400)
+                    finally:
+                        if init_registered:
+                            finish_upload_init_request(root, transfer_id, client_transfer_id)
                 if route == "/api/files/upload-chunk":
                     params = parse_qs(urlparse(self.path).query)
                     transfer_id = str((params.get("transferId") or [payload.get("transferId") or ""])[0]).strip()
-                    item = upload_item_from_status(root, transfer_id)
-                    if not item:
-                        return self.send_json({"error": "unknown transfer"}, status=404)
-                    offset = int((params.get("offset") or [payload.get("offset") or item.get("transferredBytes") or 0])[0] or 0)
-                    if "application/json" in (self.headers.get("Content-Type") or ""):
-                        data = base64.b64decode(str(payload.get("data") or ""))
-                    else:
-                        data = raw_body
-                    with open(item["tmp"], "r+b") as f:
-                        f.seek(max(0, offset))
-                        f.write(data)
-                    item["transferredBytes"] = max(int(item.get("transferredBytes") or 0), offset + len(data))
-                    item["status"] = "running"
-                    write_transfer_status(root, item)
-                    return self.send_json({"schemaVersion": SCHEMA_VERSION, "transferId": transfer_id, "receivedBytes": len(data), "nextOffset": item["transferredBytes"]})
+                    requested_owner = str((params.get("clientTransferId") or [payload.get("clientTransferId") or ""])[0]).strip()
+                    item, error = begin_upload_request(root, transfer_id, requested_owner)
+                    if error:
+                        return self.send_json(error, status=404 if error.get("status") == "unknown" else 409)
+                    try:
+                        offset = int((params.get("offset") or [payload.get("offset") or item.get("transferredBytes") or 0])[0] or 0)
+                        if "application/json" in (self.headers.get("Content-Type") or ""):
+                            data = base64.b64decode(str(payload.get("data") or ""))
+                        else:
+                            data = raw_body
+                        total_bytes = int(item.get("totalBytes") or 0)
+                        if offset < 0 or total_bytes > 0 and offset + len(data) > total_bytes:
+                            return self.send_json({"error": "upload chunk is outside declared transfer bounds", "transferId": transfer_id}, status=400)
+                        flags = os.O_RDWR | getattr(os, "O_NOFOLLOW", 0)
+                        descriptor = os.open(item["tmp"], flags)
+                        try:
+                            opened = os.fstat(descriptor)
+                            current = os.lstat(item["tmp"])
+                            if (not stat.S_ISREG(opened.st_mode) or opened.st_nlink > 1
+                                    or stat.S_ISLNK(current.st_mode) or not stat.S_ISREG(current.st_mode)
+                                    or current.st_nlink > 1 or opened.st_dev != current.st_dev or opened.st_ino != current.st_ino):
+                                raise ValueError("upload staging target identity changed")
+                            with os.fdopen(descriptor, "r+b") as f:
+                                descriptor = None
+                                f.seek(offset)
+                                f.write(data)
+                                f.flush()
+                                os.fsync(f.fileno())
+                        finally:
+                            if descriptor is not None:
+                                os.close(descriptor)
+                        with UPLOADS_LOCK:
+                            item["transferredBytes"] = max(int(item.get("transferredBytes") or 0), offset + len(data))
+                            if str(item.get("status") or "").lower() == "running":
+                                write_transfer_status(root, item)
+                        return self.send_json({"schemaVersion": SCHEMA_VERSION, "transferId": transfer_id,
+                            "receivedBytes": len(data), "nextOffset": item["transferredBytes"]})
+                    finally:
+                        finish_upload_request(root, item)
                 if route == "/api/files/upload-complete":
                     transfer_id = str(payload.get("transferId") or "").strip()
                     if not transfer_id:
                         return self.send_json({"error": "transferId required"}, status=400)
-                    item = upload_item_from_status(root, transfer_id)
-                    if not item:
-                        return self.send_json({"error": "unknown transfer"}, status=404)
-                    target = safe_project_path(root, str(item.get("remotePath") or payload.get("remotePath") or payload.get("path") or ""))
-                    expected = str(payload.get("sha256") or item.get("sha256") or "")
-                    actual = sha256_file(item["tmp"])
-                    tmp_size = os.path.getsize(item["tmp"])
-                    total_bytes = int(item.get("totalBytes") or 0)
-                    transferred = int(item.get("transferredBytes") or 0)
-                    if total_bytes > 0 and (tmp_size != total_bytes or transferred < total_bytes):
-                        item["status"] = "failed"
-                        item["error"] = "upload size mismatch"
-                        item["finishedAt"] = now_iso()
-                        write_transfer_status(root, item)
-                        return self.send_json({"schemaVersion": SCHEMA_VERSION, "transferId": transfer_id, "status": "failed", "remotePath": item.get("remotePath"), "size": tmp_size, "expectedSize": total_bytes, "receivedBytes": transferred, "sha256": actual, "message": "upload size mismatch"}, status=409)
-                    if expected and actual.lower() != expected.lower():
-                        item["status"] = "failed"
-                        item["error"] = "sha256 mismatch"
-                        item["finishedAt"] = now_iso()
-                        write_transfer_status(root, item)
-                        return self.send_json({"schemaVersion": SCHEMA_VERSION, "transferId": transfer_id, "status": "failed", "remotePath": item.get("remotePath"), "size": tmp_size, "sha256": actual, "message": "sha256 mismatch"}, status=409)
+                    requested_owner = str(payload.get("clientTransferId") or "").strip()
+                    item, error = begin_upload_request(root, transfer_id, requested_owner)
+                    if error:
+                        return self.send_json(error, status=404 if error.get("status") == "unknown" else 409)
                     try:
-                        validate_upload_overwrite(target, normalize_overwrite_policy(item.get("overwrite")), tmp_size, actual, item.get("targetSnapshot"))
-                    except Exception as exc:
-                        item["status"] = "failed"
-                        item["error"] = str(exc)
-                        item["finishedAt"] = now_iso()
-                        write_transfer_status(root, item)
-                        return self.send_json({"schemaVersion": SCHEMA_VERSION, "transferId": transfer_id, "status": "failed", "remotePath": item.get("remotePath"), "size": tmp_size, "sha256": actual, "message": str(exc)}, status=409)
-                    os.makedirs(os.path.dirname(target), exist_ok=True)
-                    move_file_replace(item["tmp"], target)
-                    item["status"] = "completed"
-                    item["sha256"] = actual
-                    item["size"] = os.path.getsize(target)
-                    item["finishedAt"] = now_iso()
-                    write_transfer_status(root, item)
-                    prune_runtime_memory_state()
-                    return self.send_json({"schemaVersion": SCHEMA_VERSION, "transferId": transfer_id, "status": "completed", "remotePath": item.get("remotePath"), "size": os.path.getsize(target), "sha256": actual})
+                        target = safe_project_path(root, str(item.get("remotePath") or payload.get("remotePath") or payload.get("path") or ""))
+                        expected = str(payload.get("sha256") or item.get("sha256") or "")
+                        actual = sha256_file(item["tmp"])
+                        tmp_size = os.path.getsize(item["tmp"])
+                        total_bytes = int(item.get("totalBytes") or 0)
+                        transferred = int(item.get("transferredBytes") or 0)
+                        if total_bytes > 0 and (tmp_size != total_bytes or transferred < total_bytes):
+                            item["status"] = "failed"
+                            item["error"] = "upload size mismatch"
+                            item["finishedAt"] = now_iso()
+                            write_transfer_status(root, item)
+                            return self.send_json({"schemaVersion": SCHEMA_VERSION, "transferId": transfer_id, "status": "failed", "remotePath": item.get("remotePath"), "size": tmp_size, "expectedSize": total_bytes, "receivedBytes": transferred, "sha256": actual, "message": "upload size mismatch"}, status=409)
+                        if expected and actual.lower() != expected.lower():
+                            item["status"] = "failed"
+                            item["error"] = "sha256 mismatch"
+                            item["finishedAt"] = now_iso()
+                            write_transfer_status(root, item)
+                            return self.send_json({"schemaVersion": SCHEMA_VERSION, "transferId": transfer_id, "status": "failed", "remotePath": item.get("remotePath"), "size": tmp_size, "sha256": actual, "message": "sha256 mismatch"}, status=409)
+                        try:
+                            validate_upload_overwrite(target, normalize_overwrite_policy(item.get("overwrite")), tmp_size, actual, item.get("targetSnapshot"))
+                        except Exception as exc:
+                            item["status"] = "failed"
+                            item["error"] = str(exc)
+                            item["finishedAt"] = now_iso()
+                            write_transfer_status(root, item)
+                            return self.send_json({"schemaVersion": SCHEMA_VERSION, "transferId": transfer_id, "status": "failed", "remotePath": item.get("remotePath"), "size": tmp_size, "sha256": actual, "message": str(exc)}, status=409)
+                        os.makedirs(os.path.dirname(target), exist_ok=True)
+                        with UPLOADS_LOCK:
+                            if item.get("_cancelRequested") or str(item.get("status") or "").lower() != "running":
+                                return self.send_json({"schemaVersion": SCHEMA_VERSION, "transferId": transfer_id,
+                                    "status": str(item.get("status") or "cancelling"), "settled": False}, status=409)
+                            move_file_replace(item["tmp"], target)
+                            item["status"] = "completed"
+                            item["sha256"] = actual
+                            item["size"] = os.path.getsize(target)
+                            item["finishedAt"] = now_iso()
+                            write_transfer_status(root, item)
+                        prune_runtime_memory_state()
+                        return self.send_json({"schemaVersion": SCHEMA_VERSION, "transferId": transfer_id, "status": "completed", "remotePath": item.get("remotePath"), "size": os.path.getsize(target), "sha256": actual})
+                    finally:
+                        finish_upload_request(root, item)
             if route == "/api/actions/register-code-sync-proof":
                 try:
                     worker_id = str(getattr(args, "worker_id", "") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip()
@@ -14827,7 +15594,7 @@ def serve_http(args):
                 if release_worker_action:
                     release_worker_action()
 
-    server = ThreadingHTTPServer((args.host, int(args.port)), Handler)
+    server = BoundedThreadingHTTPServer((bind_host, int(args.port)), Handler)
     print(json.dumps({"agentVersion": AGENT_VERSION, "host": args.host, "port": args.port, "startedAt": now_iso()}, ensure_ascii=False), flush=True)
     server.serve_forever()
 
@@ -14883,8 +15650,12 @@ def main():
     if args.cmd == "serve":
         return serve_http(args)
     if args.cmd == "stop":
-        open(path_for(args.project_dir, "stop"), "w").close()
-        return 0
+        try:
+            request_agent_stop(args.project_dir)
+            return 0
+        except Exception as exc:
+            print(f"[error] {exc}", file=sys.stderr, flush=True)
+            return 1
     if args.cmd == "snapshot":
         print(json.dumps(read_json(path_for(args.project_dir, "cluster_snapshot.json"), {}), ensure_ascii=False))
         return 0

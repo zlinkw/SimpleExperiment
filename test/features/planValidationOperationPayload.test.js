@@ -311,7 +311,7 @@ test("terminal failure and wrapped validation rejection cannot be accepted", asy
   assert.equal(accepted(completedOperation("payload", { ok: false })), false);
   assert.equal(accepted(completedOperation("latestEvent", { ok: false })), false);
   const { host } = hostFor(completedOperation("payload", { ok: false }));
-  assert.equal(await host.runPlanPreflight({ planFile }, "当前计划"), false);
+  await assert.rejects(() => host.runPlanPreflight({ planFile }, "当前计划"), /计划校验.*失败|计划校验失败/);
   assert.equal(host.queue.plans.length, 0);
 });
 

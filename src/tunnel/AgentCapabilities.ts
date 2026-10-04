@@ -52,6 +52,8 @@ export interface FileCapabilitiesResponse {
   supportsDownload: boolean;
   supportsRangeDownload: boolean;
   supportsUploadChunk: boolean;
+  /** Present only on Agents that can cancel a chunked upload and prove it settled. */
+  supportsUploadCancel?: boolean;
   supportsSha256: boolean;
   supportsResume: boolean;
   maxUploadChunkBytes: number;

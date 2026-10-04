@@ -11,7 +11,8 @@ test("postTunnelAction wrapper generates opId checks capabilities and posts fixe
   assert.match(source, /async postTunnelAction\(action, body, options = \{\}\)/);
   assert.match(source, /makeOpId\(action\)/);
   assert.match(source, /missingCapabilities\(options\.requiresCapability \|\| capabilityForAction\(action\)\)/);
-  assert.match(source, /await client\.postAction\(action, request\)/);
+  assert.match(source, /client\.postAction\(action, request\)/);
+  assert.match(source, /this\.withRemoteActionResource\(undefined, action, request, \(\) => client\.postAction\(action, request\)\)/);
   assert.match(source, /schemaVersion: 1/);
   assert.match(source, /this\.localOperations\[request\.opId\] = \{/);
 });

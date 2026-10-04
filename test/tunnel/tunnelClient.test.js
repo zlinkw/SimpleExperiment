@@ -74,6 +74,43 @@ test("configured request timeout aborts stalled tunnel actions", async () => {
   }
 });
 
+test("coalesced reads survive one caller cancelling and cancel when last subscriber leaves", async () => {
+  let calls = 0;
+  let lastRequestClosed;
+  const closed = new Promise((resolve) => { lastRequestClosed = resolve; });
+  const server = http.createServer((req, res) => {
+    calls += 1;
+    req.on("close", () => { if (req.aborted) lastRequestClosed(); });
+    if (req.url !== "/api/snapshot") { res.statusCode = 404; return res.end("{}"); }
+    setTimeout(() => { if (!res.destroyed) res.end(JSON.stringify({ schemaVersion: 1, schedulerStates: [] })); }, 80);
+  });
+  await listen(server);
+  const budget = new RequestBudget({ ...defaultRequestBudgetConfig, minIntervalByPurpose: {}, disabledPurposes: [] });
+  const client = new HttpTunnelClient({ localHost: "127.0.0.1", localPort: server.address().port, timeoutMs: 1000 }, budget);
+  try {
+    const firstController = new AbortController();
+    const secondController = new AbortController();
+    const first = client.getSnapshot({ signal: firstController.signal });
+    const second = client.getSnapshot({ signal: secondController.signal });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    assert.equal(calls, 1);
+    firstController.abort();
+    await assert.rejects(first, (error) => error.name === "AbortError");
+    assert.equal((await second).schemaVersion, 1);
+    assert.equal(budget.snapshot().coalescedRequests, 1);
+
+    const finalController = new AbortController();
+    const finalRead = client.getSnapshot({ signal: finalController.signal });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    finalController.abort();
+    await assert.rejects(finalRead, (error) => error.name === "AbortError");
+    await Promise.race([closed, new Promise((_, reject) => setTimeout(() => reject(new Error("request was not cancelled")), 500))]);
+    assert.equal(calls, 2);
+  } finally {
+    server.close();
+  }
+});
+
 function listen(server) {
   return new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 }

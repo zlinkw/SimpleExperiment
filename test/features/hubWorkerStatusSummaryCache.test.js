@@ -28,6 +28,8 @@ function loadBuilders() {
   vm.createContext(sandbox);
   vm.runInContext([
     extractFunction("isWeakMapCacheKey"),
+    extractFunction("tunnelAuthorityHost"),
+    extractFunction("tunnelHttpEndpoint"),
     extractFunction("buildHubControlStatus"),
     extractFunction("buildWorkerTelemetryStatus"),
     "this.buildHub = buildHubControlStatus;",

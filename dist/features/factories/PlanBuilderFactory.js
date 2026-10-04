@@ -32,20 +32,19 @@ class DefaultPlanBuilderFactory {
             const gen = new mg.MatrixGenerator();
             return gen.generate(normalized, existingRunKeys);
         }
-        return { experiments: [], duplicateRunKeys: [], yaml: "", previewCsv: "" };
+        throw new Error("PlanBuilder 矩阵实现不可用，拒绝返回空构建结果。");
     }
     renderYaml(matrix, experiments) {
         const mod = tryRequire("../PlanBuilder");
         if (mod?.renderPlanYaml)
             return mod.renderPlanYaml(matrix, experiments);
-        const rec = matrix;
-        return `suite: ${String(rec["suite"] ?? this.opts.defaultSuite ?? "suite")}\nmode: train_test\nbase_config: ${String(rec["baseConfig"] ?? "")}\n`;
+        throw new Error("PlanBuilder YAML 渲染实现不可用。");
     }
     parseCases(yaml) {
         const mod = tryRequire("../PlanBuilder");
         if (mod?.parsePlanCases)
             return mod.parsePlanCases(yaml);
-        return [];
+        throw new Error("PlanBuilder case 解析实现不可用。");
     }
     validate(yaml) {
         const mod = tryRequire("../PlanBuilder");
@@ -54,7 +53,7 @@ class DefaultPlanBuilderFactory {
         const vmod = tryRequire("../PlanBuilder/PlanValidator");
         if (vmod?.validatePlan)
             return vmod.validatePlan(yaml);
-        return { ok: true, missing: [], issues: [], summary: {} };
+        throw new Error("Plan 校验实现不可用，拒绝把未校验 Plan 标记为通过。");
     }
     create(matrix) {
         const normalized = this.normalizeMatrix(matrix);

@@ -4,6 +4,8 @@ const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
 const transfer = require("../../dist/features/PlanArtifactTransfer.js");
+const retention = require("../../dist/features/PlanOutputRetention.js");
+const freshness = require("../../dist/results/PlanRunFreshness.js");
 
 function compiledLegacy() {
   return fs.readFileSync(path.join(__dirname, "../../dist/extension/legacy.js"), "utf8");
@@ -17,8 +19,12 @@ function loadMethod(startMarker, endMarker, signature, renamed) {
   const context = {
     workspaceRoot: () => "C:/project",
     Date, Set, Map, Object, Math, JSON, String,
+    uniqueStrings: (values) => [...new Set(values.filter(Boolean))],
+    samePlanSelection: (left, right) => String(left || "").replace(/\\/g, "/").toLowerCase() === String(right || "").replace(/\\/g, "/").toLowerCase(),
     errorMessage: (error) => String(error && error.message || error),
     PlanArtifactTransfer_1: transfer,
+    PlanOutputRetention: retention,
+    PlanRunFreshness: freshness,
   };
   vm.createContext(context);
   vm.runInContext(`${compiled.slice(first, last).replace(signature, renamed)}\nthis.call = ${renamed.match(/function (\w+)/)[1]};`, context);
@@ -42,8 +48,10 @@ test("job artifact copies name the plan, job, workers, artifact kind, and batch"
   const provider = {
     distributedProjectContract: () => ({ fragmentPaths: [], requiredPaths: [] }),
     workerCodeSyncTargets: () => [{ id: "nwpu2" }, { id: "nwpu3" }],
+    planOutputRetentionMode: () => "keep-history",
     lastWorkerProbes: { nwpu2: { status: "ok" }, nwpu3: { status: "ok" } },
     sftpServerOptions: (target) => ({ id: target.id }),
+    distributedOutputHashes: async () => Object.fromEntries(files.map((file) => [file, "abc"])),
     verifiedSftpProjectInventory: async () => ({ files: Object.fromEntries(files.map((file) => [file, { sha256: "abc" }])) }),
     assertSshTransportIdentities: async () => undefined,
     simpleSftpApiCall: async (method, params) => {
@@ -60,11 +68,9 @@ test("job artifact copies name the plan, job, workers, artifact kind, and batch"
   await context.call.call(provider, "C:/project", { plans: [{ id: "p", planFile: "plans/corim.yaml", jobs: [job] }] }, "bulk");
   assert.equal(labels.length, 2);
   for (const label of labels) {
-    assert.match(label, /分布式 job 产物复制/);
-    assert.match(label, /plans\/corim\.yaml/);
-    assert.match(label, /job 3/);
-    assert.match(label, /seed 7/);
-    assert.match(label, /检查点与结果 runs\/a/);
+    assert.match(label, /压缩同步最新版 Plan 产物/);
+    assert.match(label, /1 个 Plan \/ 1 个 job/);
+    assert.match(label, /检查点、日志与结果/);
     assert.match(label, /nwpu2 → nwpu3/);
   }
   assert.match(labels[0], /批次 1\/2/);
@@ -74,7 +80,7 @@ test("job artifact copies name the plan, job, workers, artifact kind, and batch"
 test("shared result publication names the stage, plan, workers, and batch", async () => {
   const context = loadMethod(
     "async rebuildDistributedResults(",
-    "async retryDistributedJobFromUi(",
+    "    planOutputRetentionMode(root) {",
     "async rebuildDistributedResults(root, queue, previewOnly, verifyAll = false)",
     "async function rebuildDistributedResults(root, queue, previewOnly, verifyAll = false)",
   );
@@ -94,6 +100,7 @@ test("shared result publication names the stage, plan, workers, and batch", asyn
     lastWorkerProbes: { nwpu2: { status: "ok" }, nwpu3: { status: "ok" } },
     sftpServerOptions: (row) => ({ id: row.id }),
     distributedOutputHashes: async () => Object.fromEntries(files.map((file) => [file, "good"])),
+    planOutputRetentionMode: () => "keep-history",
     patchDistributedPublication: async () => undefined,
     assertSshTransportIdentities: async () => undefined,
     simpleSftpApiCall: async (_method, params) => {
@@ -127,7 +134,7 @@ test("every Worker fpsync call in the orchestrator passes a concrete task label"
     count += 1;
     index += marker.length;
   }
-  assert.equal(count, 6);
+  assert.equal(count, 7);
   assert.match(compiled, /手动保留目录版本/);
   assert.match(compiled, /手动保留文件版本/);
   assert.match(compiled, /恢复手动保留目录/);

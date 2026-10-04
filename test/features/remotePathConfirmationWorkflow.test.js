@@ -31,6 +31,10 @@ function loadHelpers() {
     uniqueStrings(values) {
       return [...new Set(values.filter(Boolean))];
     },
+    writeAtomicPluginStateJson: async (file, value) => {
+      await fs.promises.mkdir(path.dirname(file), { recursive: true });
+      await fs.promises.writeFile(file, JSON.stringify(value, null, 2) + "\n", "utf8");
+    },
   };
   vm.createContext(sandbox);
   vm.runInContext(source.slice(start, end) + "\nthis.api = { PROJECT_REMOTE_PATH_CONFIRMATIONS_PATH, normalizeRemoteWriteTargets, mergeRemotePathConfirmations, remoteWriteTargetsConfirmed, remoteWriteConfirmationDetail, agentStartupWriteConfirmationDetail, codeSyncConfirmationLabel, readProjectRemotePathConfirmationsState, writeProjectRemotePathConfirmationsState };", sandbox);
@@ -76,7 +80,8 @@ test("remote path confirmation state is project-local and keyed by all expected 
   assert.equal(loaded[0].remotePath, "/srv/simple_agent/simple_cluster/runtime");
   assert.equal(loaded[0].relatedLocations[0].path, "/srv/projects/demo");
   await helpers.writeProjectRemotePathConfirmationsState(root, []);
-  assert.equal(fs.existsSync(file), false);
+  assert.equal(fs.existsSync(file), true);
+  assert.equal((await helpers.readProjectRemotePathConfirmationsState(root)).length, 0);
 });
 
 test("strong confirmation text shows expected directories and files", () => {
@@ -158,7 +163,7 @@ test("all SimpleExperiment SFTP write paths pass through the strong confirmation
   assert.match(confirm, /persistProjectRemotePathConfirmationsState\(\)/);
   assert.match(prepareSftp, /assertSingleProjectWorkspace\("SFTP 上传或目录配置"\)[\s\S]{0,180}ensureSimpleSftpReadyForSetup\("文件传输"\)/);
   assert.match(source, /loadProjectRemotePathConfirmationsState\(\)\.catch\(\(\) => undefined\)/);
-  assert.equal([...source.matchAll(/executeCommand\("simpleSftp\.(?:uploadWorkspace|uploadFiles)"/g)].length, 5);
+  assert.equal([...source.matchAll(/executeCommand\("simpleSftp\.(?:uploadWorkspace|uploadFiles)"/g)].length, 6);
   assert.equal([...source.matchAll(/executeCommand\("simpleSftp\.configureDownloadScope"/g)].length, 1);
   assert.match(legacyNotes, /所有由 SimpleExperiment 发起的项目代码和 Agent runtime SFTP 上传都会先经过强制路径确认窗口/);
   assert.match(legacyNotes, /simple_cluster\/ui\/remote_path_confirmations\.json/);

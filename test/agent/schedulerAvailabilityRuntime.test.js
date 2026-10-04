@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const { spawnSync } = require("node:child_process");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 
@@ -8,6 +9,21 @@ const { readSource } = require("../_helpers/sourceReader");
 
 const root = path.join(__dirname, "../..");
 const runtimePath = path.join(root, "dist/runtime/cluster_scheduler.py");
+
+function runPythonScript(script) {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "scheduler-availability-"));
+  const scriptPath = path.join(directory, "run.py");
+  fs.writeFileSync(scriptPath, script, "utf8");
+  try {
+    return spawnSync("python", [scriptPath], {
+      encoding: "utf8", cwd: root,
+      env: { ...process.env, PYTHONIOENCODING: "utf-8" },
+      timeout: 10000, windowsHide: true,
+    });
+  } finally {
+    fs.rmSync(directory, { recursive: true, force: true });
+  }
+}
 
 function runPython(expression) {
   const script = `
@@ -19,11 +35,7 @@ sys.modules[module_name] = module
 spec.loader.exec_module(module)
 ${expression}
 `;
-  const result = spawnSync("python", ["-c", script], {
-    encoding: "utf8",
-    cwd: root,
-    env: { ...process.env, PYTHONIOENCODING: "utf-8" },
-  });
+  const result = runPythonScript(script);
   assert.equal(result.status, 0, result.stderr || result.stdout);
   return JSON.parse(result.stdout);
 }
@@ -83,7 +95,7 @@ print(json.dumps({"before": before, "after": after}))
   assert.deepEqual(value.after, ["1"]);
   const source = readSource("src/clusterSchedulerRuntime.ts");
   assert.match(source, /_force_refresh = _pending_signal_type in \(SCHEDULER_SIGNAL_FIRST_RUN, SCHEDULER_SIGNAL_TASK_END\)/);
-  assert.match(source, /_force_wake = _sig in \(SCHEDULER_SIGNAL_FIRST_RUN, SCHEDULER_SIGNAL_TASK_END\)/);
+  assert.match(source, /_pending_signal_type = SCHEDULER_SIGNAL_TASK_END/);
   assert.match(source, /read_availability_cache\(args\.availability_path, workers, worker_status_ttl_seconds\)\s+_busy_for_probe/);
 });
 
@@ -99,7 +111,7 @@ print(json.dumps({
   assert.deepEqual(value, { finished: true, waiting: false, elapsed: true });
   const source = readSource("src/clusterSchedulerRuntime.ts");
   assert.equal((source.match(/should_check_finished_session\(sess, finished_events, last_session_check/g) || []).length, 2);
-  assert.match(source, /session_check_min_seconds = max\(1, int\(args\.session_check_min_seconds/);
+  assert.match(source, /session_check_min_seconds = max\(0\.5, float\(args\.session_check_min_seconds/);
 });
 
 test("worker telemetry samples GPU occupancy within six seconds during a plan", () => {
@@ -114,9 +126,7 @@ module.random.random = lambda: 1.0
 print(json.dumps({"running": module.worker_gpu_sample_delay(60, 30, True),
                   "idle": module.worker_gpu_sample_delay(60, 30, False)}))
 `;
-  const result = spawnSync("python", ["-c", script], {
-    encoding: "utf8", cwd: root, env: { ...process.env, PYTHONIOENCODING: "utf-8" },
-  });
+  const result = runPythonScript(script);
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const value = JSON.parse(result.stdout);
   assert.ok(value.running <= 6, JSON.stringify(value));
@@ -138,9 +148,7 @@ module.has_running_plan = lambda root: bool(slept)
 module.wait_for_worker_gpu_sample("/project", 60, 30, False)
 print(json.dumps(slept))
 `;
-  const result = spawnSync("python", ["-c", script], {
-    encoding: "utf8", cwd: root, env: { ...process.env, PYTHONIOENCODING: "utf-8" },
-  });
+  const result = runPythonScript(script);
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.deepEqual(JSON.parse(result.stdout), [5]);
 });
@@ -226,7 +234,7 @@ print(json.dumps({
 });
 
 test("scheduler rejects an unconfigured placeholder conda environment before launching", () => {
-  const result = spawnSync("python", ["-c", `
+  const result = runPythonScript(`
 import importlib.util
 import sys
 module_name = "scheduler_runtime_under_test"
@@ -240,11 +248,7 @@ except RuntimeError as error:
     print(error.message if hasattr(error, "message") else str(error))
 else:
     raise SystemExit("expected RuntimeError")
-`], {
-  encoding: "utf8",
-  cwd: root,
-  env: { ...process.env, PYTHONIOENCODING: "utf-8" },
-});
+`);
   assert.equal(result.status, 0, result.stderr || result.stdout);
   assert.match(result.stdout.trim(), /Worker nwpu3 未配置 condaEnv/);
 });

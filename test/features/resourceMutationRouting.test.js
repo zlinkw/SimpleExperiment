@@ -6,7 +6,7 @@ const source=syncFs.readFileSync(require.resolve('../../dist/extension/legacy.js
 function methods(from,to) { const a=source.indexOf(from),b=source.indexOf(to,a);assert.ok(a>=0&&b>a);return source.slice(a,b); }
 test('cross-window queue writes merge fresh disk state and reject duplicate Plans',async()=>{
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'queue-resource-evidence-'));
-  const context={DistributedPlanQueue:queueApi,fs,path,process,crypto,workspaceRoot:()=> 'D:/project',UiCommandRemotePending:class extends Error {}};
+  const context={DistributedPlanQueue:queueApi,fs,fsNode:syncFs,path,process,crypto,workspaceRoot:()=> 'D:/project',UiCommandRemotePending:class extends Error {}};
   vm.createContext(context);
   vm.runInContext('this.operations={'+methods('async withQueueWriteResource(root, work)','async patchDistributedJob(').replace(/}\s+async saveDistributedQueue/,'}, async saveDistributedQueue')+'};',context);
   const host=id=>({ ...context.operations,hostOperationLease:new HostOperationLeaseManager({leasePath:path.join(root,'legacy.json'),windowId:id}),

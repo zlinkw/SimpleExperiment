@@ -7,6 +7,8 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.DefaultTunnelClientPoolFactory = void 0;
 exports.createTunnelClientPool = createTunnelClientPool;
 exports.createTunnelClientPoolFactory = createTunnelClientPoolFactory;
+const RequestBudget_1 = require("../RequestBudget");
+const RealtimeTunnelClient_1 = require("../RealtimeTunnelClient");
 function tryRequire(id) {
     try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -26,28 +28,41 @@ class DefaultTunnelClientPool {
         const policy = opts.policy ?? this.resolveDefaultPolicy();
         const onState = opts.onState ?? (() => undefined);
         const mod = tryRequire("../MultiEndpointRealtimeClient");
-        if (mod?.MultiEndpointRealtimeClient) {
+        if (mod && typeof mod.MultiEndpointRealtimeClient === "function") {
             try {
                 this.multi = new mod.MultiEndpointRealtimeClient(endpoints, budgetFactory, policy, onState);
                 const internal = this.multi.clients;
-                if (internal)
-                    for (const [k, v] of internal.entries())
-                        this.pool.set(k, v);
+                if (!internal)
+                    throw new Error("MultiEndpointRealtimeClient did not expose its endpoint clients.");
+                for (const [k, v] of internal.entries())
+                    this.pool.set(k, v);
                 return;
             }
-            catch { /* fallback */ }
+            catch (error) {
+                throw new Error(`Multi-endpoint tunnel client initialization failed: ${String(error?.message || error).slice(0, 300)}`);
+            }
         }
+        const clientModule = tryRequire("../RealtimeTunnelClient");
+        if (typeof clientModule?.RealtimeTunnelClient !== "function")
+            throw new Error("RealtimeTunnelClient implementation is unavailable.");
         for (const ep of endpoints) {
             const rec = ep;
-            const key = String(rec["id"] ?? rec["localPort"] ?? "");
+            const key = String(rec["id"] ?? "").trim();
+            if (!key)
+                throw new Error("Tunnel endpoint is missing its stable id.");
+            if (this.pool.has(key))
+                throw new Error(`Duplicate tunnel endpoint id: ${key}`);
             try {
-                const cmod = tryRequire("../RealtimeTunnelClient");
                 const b = budgetFactory(ep);
-                const client = cmod?.RealtimeTunnelClient ? new cmod.RealtimeTunnelClient(ep, b, policy, onState) : { endpoint: ep, budget: b, connect: async () => undefined, disconnect: async () => undefined };
+                if (!b)
+                    throw new Error("RequestBudget factory returned no budget.");
+                const client = new clientModule.RealtimeTunnelClient(ep, b, policy, onState);
+                if (typeof client.connect !== "function" || typeof client.disconnect !== "function" || typeof client.reconnect !== "function")
+                    throw new Error("RealtimeTunnelClient is missing a lifecycle method.");
                 this.pool.set(key, client);
             }
-            catch {
-                this.pool.set(key, { endpoint: ep, connect: async () => undefined, disconnect: async () => undefined });
+            catch (error) {
+                throw new Error(`Tunnel endpoint ${key} initialization failed: ${String(error?.message || error).slice(0, 240)}`);
             }
         }
     }
@@ -57,32 +72,50 @@ class DefaultTunnelClientPool {
     async connect(sinceSeq) {
         if (this.multi)
             return this.multi.connect(sinceSeq);
-        await Promise.allSettled([...this.pool.values()].map((c) => c.connect?.(sinceSeq)));
+        await this.invokeAll("connect", sinceSeq);
     }
     async disconnect(reason = "manual") {
         if (this.multi)
             return this.multi.disconnect(reason);
-        await Promise.allSettled([...this.pool.values()].map((c) => c.disconnect?.(reason)));
+        await this.invokeAll("disconnect", reason);
     }
     async reconnect(reason = "reconnect") {
         if (this.multi)
             return this.multi.reconnect(reason);
-        await Promise.allSettled([...this.pool.values()].map((c) => c.reconnect?.(reason)));
+        await this.invokeAll("reconnect", reason);
     }
     async dispose() { await this.disconnect("dispose"); this.pool.clear(); }
+    async invokeAll(method, argument) {
+        const entries = [...this.pool.entries()];
+        const outcomes = await Promise.all(entries.map(async ([id, client]) => {
+            const fn = client[method];
+            if (typeof fn !== "function")
+                return `${id}: lifecycle method ${method} is unavailable`;
+            try {
+                await fn.call(client, argument);
+                return "";
+            }
+            catch (error) {
+                return `${id}: ${String(error?.message || error).slice(0, 240)}`;
+            }
+        }));
+        const failures = outcomes.filter(Boolean);
+        if (failures.length)
+            throw new Error(`${method} failed for ${failures.length}/${entries.length} tunnel endpoints: ${failures.slice(0, 8).join("; ")}`);
+    }
     defaultBudgetFactory(endpoint) {
         const mod = tryRequire("../RequestBudget");
         if (mod?.RequestBudget) {
-            const cfg = mod.defaultRequestBudgetConfig ?? { maxRequestsPerMinute: 120 };
+            const cfg = mod.defaultRequestBudgetConfig ?? RequestBudget_1.defaultRequestBudgetConfig;
             return new mod.RequestBudget(cfg);
         }
-        return { endpointId: endpoint["id"], consume: () => true, snapshot: () => ({}) };
+        throw new Error(`RequestBudget implementation is unavailable for endpoint ${String(endpoint?.["id"] || "unknown")}.`);
     }
     resolveDefaultPolicy() {
         const m = tryRequire("../RealtimeTunnelClient");
         if (m?.defaultRealtimeRefreshPolicy)
             return m.defaultRealtimeRefreshPolicy;
-        return { mode: "realtime", preferWebSocket: true, fallbackToSse: true, fallbackToPolling: true, heartbeatIntervalSeconds: 5, snapshotFallbackIntervalSeconds: 60 };
+        return RealtimeTunnelClient_1.defaultRealtimeRefreshPolicy;
     }
 }
 class DefaultTunnelClientPoolFactory {

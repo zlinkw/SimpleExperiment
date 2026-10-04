@@ -72,8 +72,7 @@ test("extension compacts operation payload without dropping active operations", 
   assert.match(source, /const LOCAL_OPERATION_RECORD_LIMIT = 120/);
   assert.match(source, /const STATE_OPERATION_RECORD_LIMIT = 120/);
   assert.match(source, /const TERMINAL_OPERATION_RECORD_LIMIT = 80/);
-  assert.match(runtimeEvidence, /this\.queueProjectLocalOperationsStatePersistence\(\)/);
-  assert.doesNotMatch(runtimeEvidence, /persistProjectLocalOperationsState\(/);
+  assert.doesNotMatch(runtimeEvidence, /queueProjectLocalOperationsStatePersistence\(|persistProjectLocalOperationsState\(/);
   assert.match(runtimeEvidence, /const operations = compactOperationRecords\(/);
   assert.match(compact, /entries\.length <= limit\)\s*return record && typeof record === "object" \? record : \{\}/);
   assert.match(compact, /if \(!operationTerminal\(entry\[1\]\)\)\s*active\.push\(entry\)/);
@@ -93,7 +92,7 @@ test("local operation persistence is dirty-gated, single-flight, and project-sco
   assert.match(queue, /this\.localOperationsPersistPromise \|\| !this\.localOperationsDirty/);
   assert.match(queue, /const projectContext = this\.captureProjectContext\(\)/);
   assert.match(queue, /while \(this\.localOperationsDirty && this\.projectContextIsCurrent\(projectContext\)\)/);
-  assert.match(queue, /this\.localOperationsDirty = false;\s*await writeProjectLocalOperationsState\(projectContext\.root, operations\)/);
+  assert.match(queue, /this\.localOperationsDirty = false;[\s\S]*?await this\.withPluginStateFileLease\(projectContext\.root, file, "project-state-local-operations", "保存本地操作记录", \(\) => writeProjectLocalOperationsState\(projectContext\.root, operations\)\)/);
   assert.match(queue, /if \(this\.projectContextIsCurrent\(projectContext\)\)\s*this\.localOperationsDirty = true/);
   assert.match(queue, /this\.localOperationsPersistPromise === persistence/);
   assert.match(queue, /!failed \|\| !this\.projectContextIsCurrent\(projectContext\)/);
@@ -113,7 +112,10 @@ test("local toolbar commands wait for extension terminal status", async () => {
     "(" + source.slice(start, end).replace("private async withUiCommandStatus", "async function") + ");",
     { compilerOptions: { target: require("typescript").ScriptTarget.ES2022 } },
   ).outputText;
-  const context = vm.createContext({ PLAN_SUBMISSION_COMMANDS: new Set(["runPlan", "runAllPlans", "reproducePlan"]) });
+  const context = vm.createContext({
+    PLAN_SUBMISSION_COMMANDS: new Set(["runPlan", "runAllPlans", "reproducePlan"]),
+    OperationOutcome_1: require("../../dist/core/OperationOutcome.js"),
+  });
   vm.runInContext(extractConst(source, "LOCAL_COMMAND_RELEASES_AFTER_TRIGGER") + "\n" + extractFunction(source, "localCommandReleasesAfterTrigger"), context);
   const run = vm.runInContext(emitted, context);
   const statuses = [];

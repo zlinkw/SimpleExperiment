@@ -5,11 +5,22 @@ const path=require('node:path');
 const vm=require('node:vm');
 const ts=require('typescript');
 
+function makeAtomicWriteText(io) {
+  return async (file, text) => {
+    await io.mkdir(path.dirname(file), { recursive: true });
+    const staging = file + ".writing";
+    const existing = await io.lstat(staging).catch((error) => error?.code === "ENOENT" ? undefined : Promise.reject(error));
+    if (existing && (!existing.isFile() || existing.isSymbolicLink())) throw new Error("staging path is not a regular file");
+    await io.writeFile(staging, text);
+    await io.rename(staging, file);
+  };
+}
+
 function cacheWriter(io) {
   const text=fs.readFileSync(require.resolve('../../src/features/LocalCodeManifestCache.ts'),'utf8');
   const ast=ts.createSourceFile('cache.ts',text,ts.ScriptTarget.Latest,true);
   const functions=ast.statements.filter(n=>ts.isFunctionDeclaration(n)&&['writeCache','writeCacheOwned'].includes(n.name?.text)).map(n=>n.getText(ast)).join('\n');
-  const c=vm.createContext({fs:io,path,process,HostOperationLeaseManager:class{run(_args,fn){return fn();}}});
+  const c=vm.createContext({fs:io,path,process,atomicWriteText:makeAtomicWriteText(io),HostOperationLeaseManager:class{run(_args,fn){return fn();}}});
   vm.runInContext(ts.transpileModule('const cacheWrites = new Map();'+functions,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText+';this.queues=cacheWrites;',c);
   return c;
 }
@@ -57,7 +68,7 @@ test('resource registry failures reuse one staging slot and keep prior ownership
   const files=new Map([['registry.json','trusted']]);let fail=true;
   const io={mkdir:async()=>{},lstat:async file=>files.has(file)?{isFile:()=>true,isSymbolicLink:()=>false}:Promise.reject({code:'ENOENT'}),
     writeFile:async(file,value)=>files.set(file,value),rename:async(from,to)=>{if(fail)throw Object.assign(new Error('disk failure'),{code:'EIO'});files.set(to,files.get(from));files.delete(from);}};
-  const Lease=vm.runInNewContext(ts.transpileModule(`class Lease {${method}};Lease`,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{fs:io});
+  const Lease=vm.runInNewContext(ts.transpileModule(`class Lease {${method}};Lease`,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{fs:io,atomicWriteText:makeAtomicWriteText(io)});
   const lease=new Lease();lease.directory='registry';lease.file='registry.json';lease.state={registry:{leases:[]}};
   for(let i=0;i<50;i++)await assert.rejects(lease.write(),/disk failure/);
   assert.equal(files.size,2);assert.equal(files.get('registry.json'),'trusted');

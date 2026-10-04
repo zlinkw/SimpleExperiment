@@ -18,6 +18,7 @@ function pythonDefinition(name) {
 
 function fixture(root) {
   const definitions = [
+    "atomic_write_file", "atomic_write",
     "durable_plan_queue_path", "read_durable_plan_queue", "write_durable_plan_queue",
     "durable_plan_value", "durable_plan_identity", "durable_plan_public_task",
     "durable_plan_same_identity", "accept_durable_plan_job", "cancel_durable_plan_job",
@@ -27,9 +28,11 @@ function fixture(root) {
   const identity = source.match(/^DURABLE_PLAN_IDENTITY_FIELDS\s*=\s*\([\s\S]*?^\)/m);
   assert.ok(identity, "missing durable identity contract");
   return String.raw`
-import json, os, threading, time
+import hashlib, json, os, stat, threading, time
 ROOT = ${JSON.stringify(root.replace(/\\/g, "/"))}
 SCHEMA_VERSION = 1
+ATOMIC_WRITE_SLOT_COUNT = 32
+ATOMIC_WRITE_LOCKS = [threading.RLock() for _ in range(ATOMIC_WRITE_SLOT_COUNT)]
 WORKER_TASK_SNAPSHOT_LOCK = threading.RLock()
 CODE_SYNC_PROOF_LOCK = threading.RLock()
 DURABLE_PLAN_QUEUE_PROCESSOR_LOCK = threading.Lock()

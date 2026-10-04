@@ -43,7 +43,7 @@ test("live task rows surface progress, worker and GPU without a meta grid", () =
   const pills = loadLivePills();
   const html = pills({ status: "running", progress: "epoch 12/50", serverId: "worker-a", gpuIds: [0, 1] });
 
-  assert.match(html, /进度 epoch 12\/50/);
+  assert.match(html, /data-task-progress-value="true">epoch 12\/50<\/span>/);
   assert.match(html, /worker-a/);
   assert.match(html, /GPU 0, 1/);
   assert.equal(html.split("taskLivePill").length - 1, 3);
@@ -67,7 +67,7 @@ test("live pills omit fields the scheduler did not report", () => {
 
   const progressOnly = pills({ status: "running", progress: "step 40", serverId: "-", gpuIds: "-" });
   assert.equal(progressOnly.split("taskLivePill").length - 1, 1);
-  assert.match(progressOnly, /进度 step 40/);
+  assert.match(progressOnly, /data-task-progress-value="true">step 40<\/span>/);
 
   const placementOnly = pills({ status: "testing", serverId: "worker-b", gpuIds: [2] });
   assert.equal(placementOnly.split("taskLivePill").length - 1, 2);

@@ -88,7 +88,7 @@ function extractMethod(name) {
 test("heartbeat ACK integration does not recover while rendered sequence advances", () => {
   const { ast, method } = extractMethod("handlePanelHeartbeatAck");
   const code = ts.transpileModule(`class Subject { ${method.getText(ast)} }`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-  const sandbox = { PanelStateProgress_1: loaded.exports, PanelStateFlowControl_1: flowLoaded.exports, Number, Date };
+  const sandbox = { PanelStateProgress_1: loaded.exports, PanelStateFlowControl_1: flowLoaded.exports, Number, Date, compactPanelRenderEvidence: (value) => value };
   vm.runInNewContext(`${code}\nthis.Subject = Subject;`, sandbox);
   const subject = new sandbox.Subject();
   Object.assign(subject, {
@@ -97,7 +97,7 @@ test("heartbeat ACK integration does not recover while rendered sequence advance
     lastPostedStateSeq: 7962, lastDeliveredStateSeq: 7962, lastReceivedStateSeq: 7890, lastRenderedStateSeq: 7890,
     lastHeartbeatObservedRenderedStateSeq: 7890, stateRenderStalledAcks: 0, webviewReady: true,
     panelHeartbeatTimeout: undefined, panelUnknownHealthSince: 0, panelUnknownHealthGeneration: 0,
-    recoveries: [], schedulePanelHeartbeat() {}, recoverPanelHeartbeatFailure(reason) { this.recoveries.push(reason); },
+    recoveries: [], schedulePanelHeartbeat() {}, recoverPanelHeartbeatFailure(reason) { this.recoveries.push(reason); }, recordPanelIncident() {},
   });
   subject.handlePanelHeartbeatAck({ heartbeatId: 1, documentGeneration: 2, lastReceivedStateSeq: 7962, lastRenderedStateSeq: 7961, renderHealth: { status: "ok" } });
   assert.equal(subject.stateRenderStalledAcks, 0);
@@ -126,6 +126,7 @@ test("explicit current-document render ACK clears one outstanding state without 
     latestPanelHeartbeatProgress: { renderedSeq: 1, previousRenderedSeq: 1, stalledAckCount: 2 },
     panelDocumentHasRenderedState: false, renderAckCount: 0, latestRenderDurationMs: null,
     renderAckLatencyMsLatest: null, renderAckLatencySamples: [], postState(immediate) { flushed.push(immediate); },
+    recordPanelIncident() {},
   });
   subject.handlePanelStateRenderedAck({ documentGeneration: 2, seq: 2, renderDurationMs: 34 });
   assert.equal(subject.panelStateFlow.renderedSeq, 2);
@@ -147,7 +148,7 @@ test("explicit current-document render ACK clears one outstanding state without 
 function createHeartbeatSubject() {
   const { ast, method } = extractMethod("handlePanelHeartbeatAck");
   const code = ts.transpileModule(`class Subject { ${method.getText(ast)} }`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-  const sandbox = { PanelStateProgress_1: loaded.exports, PanelStateFlowControl_1: flowLoaded.exports, Number, Date, Math, clearTimeout() {} };
+  const sandbox = { PanelStateProgress_1: loaded.exports, PanelStateFlowControl_1: flowLoaded.exports, Number, Date, Math, clearTimeout() {}, compactPanelRenderEvidence: (value) => value };
   vm.runInNewContext(`${code}\nthis.Subject = Subject;`, sandbox);
   const subject = new sandbox.Subject();
   Object.assign(subject, {
@@ -160,6 +161,7 @@ function createHeartbeatSubject() {
     webviewDocumentVisible: true, panelDocumentHasRenderedState: false, webviewReady: true,
     recoveries: [], schedulePanelHeartbeat() {},
     recoverPanelHeartbeatFailure(reason) { this.recoveries.push(reason); },
+    recordPanelIncident() {},
     updatePanelDocumentVisibility(visible) {
       if (this.webviewDocumentVisible !== visible) {
         this.webviewDocumentVisible = visible;
@@ -261,7 +263,7 @@ test("host visibility transition resets stall evidence and forces one latest sta
   const { ast, method } = extractMethod("updatePanelDocumentVisibility");
   const { ast: visibilityAst, method: visibilityMethod } = extractMethod("syncPanelStateFlowVisibility");
   const code = ts.transpileModule(`class Subject { ${method.getText(ast)} ${visibilityMethod.getText(visibilityAst)} }`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-  const sandbox = { PanelStateFlowControl_1: flowLoaded.exports, clearTimeout() {} };
+  const sandbox = { PanelStateFlowControl_1: flowLoaded.exports, clearTimeout() {}, compactPanelRenderEvidence: (value) => value };
   vm.runInNewContext(`${code}\nthis.Subject = Subject;`, sandbox);
   const subject = new sandbox.Subject();
   const posts = [];
@@ -271,6 +273,8 @@ test("host visibility transition resets stall evidence and forces one latest sta
     lastHeartbeatObservedRenderedStateSeq: 100, stateRenderStalledAcks: 2,
     latestPanelHeartbeatProgress: { renderedSeq: 100, previousRenderedSeq: 100, stalledAckCount: 2 },
     postState(immediate) { posts.push(immediate); },
+    refreshResultCatalogForCurrentInterest() {},
+    recordPanelIncident() {},
   });
   subject.updatePanelDocumentVisibility(true);
   subject.updatePanelDocumentVisibility(true);

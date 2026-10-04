@@ -10,6 +10,7 @@ test("archive sync delete operations use Hub Agent action API", async () => {
   const server = http.createServer((req, res) => {
     calls.push(req.url);
     res.setHeader("Content-Type", "application/json");
+    res.setHeader("Connection", "close");
     res.end(JSON.stringify({ schemaVersion: 1, opId: "op", accepted: true, operationId: "operation-op" }));
   });
   await listen(server);
@@ -26,10 +27,15 @@ test("archive sync delete operations use Hub Agent action API", async () => {
       "/api/actions/reconcile-deletions",
     ]);
   } finally {
-    server.close();
+    await closeServer(server);
   }
 });
 
 function listen(server) {
   return new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+}
+
+async function closeServer(server) {
+  await new Promise((resolve) => server.close(resolve));
+  await new Promise((resolve) => setTimeout(resolve, 100));
 }

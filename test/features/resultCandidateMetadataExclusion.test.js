@@ -7,7 +7,7 @@ const test = require("node:test");
 
 const PlanBuilder = require("../../dist/features/PlanBuilder.js");
 const Templates = require("../../dist/templates/ProjectAdapterTemplates.js");
-const { readSource } = require("../_helpers/sourceReader");
+const { readSource, readBuiltAgentRuntime } = require("../_helpers/sourceReader");
 
 function metadataPlan(extraResults = []) {
   return [
@@ -27,12 +27,7 @@ function metadataPlan(extraResults = []) {
   ].join("\n");
 }
 
-function extractAgent(source) {
-  const start = source.indexOf("#!/usr/bin/env python3");
-  const end = source.lastIndexOf("`;");
-  assert.ok(start >= 0 && end > start);
-  return source.slice(start, end);
-}
+function extractAgent() { return readBuiltAgentRuntime(); }
 
 test("Plan evidence rejects metadata-only outputs and keeps real result candidates", () => {
   const metadata = PlanBuilder.parsePlanOutputEvidence(metadataPlan());

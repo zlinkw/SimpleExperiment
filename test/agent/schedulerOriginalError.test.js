@@ -1,4 +1,6 @@
 const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
 const { spawnSync } = require("node:child_process");
 const path = require("node:path");
 const test = require("node:test");
@@ -47,6 +49,8 @@ test("handled child failure exits nonzero without re-raising CalledProcessError"
 });
 
 test("retraining the same output directory reports only the current failed attempt", () => {
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), "scheduler-original-error-"));
+  const scriptPath = path.join(tempRoot, "failure-report.py");
   const script = `
 import contextlib, importlib.util, io, pathlib, subprocess, sys, tempfile, types
 spec = importlib.util.spec_from_file_location("scheduler", pathlib.Path(${JSON.stringify(runtime)}))
@@ -61,7 +65,7 @@ with tempfile.TemporaryDirectory() as tmp:
     args = types.SimpleNamespace(resume=False, mode="train", gpu_ids="", worker_id="worker-a", overwrite=False, overwrite_existing=False, debug_mode=False)
     scheduler.render_command = lambda *unused: ["fake"]
     scheduler.wrap_command = lambda command, *unused: command
-    def fail_current(command, env):
+    def fail_current(command, env, cwd=None):
         with (base / "stderr.log").open("a", encoding="utf-8") as stream:
             stream.write("CURRENT invalid tensor shape\\n")
         raise subprocess.CalledProcessError(1, command)
@@ -75,7 +79,7 @@ with tempfile.TemporaryDirectory() as tmp:
     text = out.getvalue()
     assert "CURRENT invalid tensor shape" in text, text
     assert "OLD CUDA out of memory" not in text, text
-    def fail_without_new_stderr(command, env):
+    def fail_without_new_stderr(command, env, cwd=None):
         with (base / "stdout.log").open("a", encoding="utf-8") as stream:
             stream.write("CURRENT process failed before stderr opened\\n")
         raise subprocess.CalledProcessError(1, command)
@@ -93,8 +97,14 @@ with tempfile.TemporaryDirectory() as tmp:
     assert "OLD CUDA out of memory" in (base / "stderr.log").read_text(encoding="utf-8")
 print("ok")
 `;
-  const result = spawnSync("python", ["-X", "utf8", "-c", script], {
-    encoding: "utf8", cwd: root, env: { ...process.env, PYTHONIOENCODING: "utf-8" },
-  });
-  assert.equal(result.status, 0, result.stderr || result.stdout);
+  fs.writeFileSync(scriptPath, script, "utf8");
+  try {
+    const result = spawnSync("python", ["-X", "utf8", scriptPath], {
+      encoding: "utf8", cwd: root, timeout: 10000, windowsHide: true,
+      env: { ...process.env, PYTHONIOENCODING: "utf-8" },
+    });
+    assert.equal(result.status, 0, result.stderr || result.stdout || result.error?.message);
+  } finally {
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
 });

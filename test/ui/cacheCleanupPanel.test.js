@@ -30,7 +30,7 @@ test("cache review requires two path confirmations before sending a delete actio
   assert.match(owner, /owner\.planFile/);
   assert.match(owner, /schedulerTerminal === true/);
   assert.match(source, /schedulerStateCleanupOwnerMatches\(realRoot, full, state\)/);
-  assert.match(source, /stat\.size > 2 \* 1024 \* 1024/);
+  assert.match(source, /stat\.size > 2n \* 1024n \* 1024n/);
   const script = html.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/);
   assert.ok(script);
   assert.doesNotThrow(() => new vm.Script(script[1]));

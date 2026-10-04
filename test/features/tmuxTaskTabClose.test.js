@@ -19,6 +19,7 @@ function methodSource(name, nextName) {
     .replace(/([A-Za-z0-9_]+)\s*:\s*any\b/g, "$1")
     .replace(/([A-Za-z0-9_]+)\s*:\s*string\b/g, "$1")
     .replace(/([A-Za-z0-9_]+)\s*:\s*boolean\b/g, "$1")
+    .replace(/([A-Za-z0-9_]+)\?\s*:\s*number\b/g, "$1")
     .replace(/\)\s*:\s*[^{;\n]+\{/g, ") {")
     .replace(/ as (?:const|any|typeof import\("[^"]+"\)|\{[^{}]*\})/g, "")
     .replace(/^\s*(async\s+)?([A-Za-z0-9_]+\()/, (_full, asyncKeyword, signature) => `${asyncKeyword || ""}function ${signature}`);

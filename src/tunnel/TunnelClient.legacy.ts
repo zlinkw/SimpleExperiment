@@ -38,6 +38,7 @@ export interface TunnelEndpointConfig {
   timeoutMs?: number;
   resourceServer?: string;
   resourceProjectRoot?: string;
+  fileCapabilities?: { supportsUploadCancel?: boolean; [key: string]: unknown };
   capabilities?: unknown;
   // 批量能力协商字段（T2）：用于多端聚合批量
   batchCapabilities?: { gpuHistoryBatch?: boolean; diagnosticsBatch?: boolean };
@@ -92,8 +93,8 @@ export interface TunnelClient {
   getGpuHistory(query?: GpuHistoryQuery): Promise<GpuHistoryResponse>;
   getScheduler(): Promise<unknown>;
   getTraces(): Promise<unknown>;
-  getLiveOutput(runKey: string, since?: number, options?: { userInitiated?: boolean }): Promise<unknown>;
-  getResultsSummary(planFile?: string, options?: { userInitiated?: boolean }): Promise<unknown>;
+  getLiveOutput(runKey: string, since?: number, options?: { userInitiated?: boolean; signal?: AbortSignal }): Promise<unknown>;
+  getResultsSummary(planFile?: string, options?: { userInitiated?: boolean; signal?: AbortSignal }): Promise<unknown>;
   getDiagnostics(): Promise<unknown>;
   getAuditTail(): Promise<unknown>;
   getOperation(operationId: string): Promise<unknown>;
@@ -148,9 +149,16 @@ const actionPurpose: Partial<Record<TunnelAction, TunnelRequestPurpose>> = {
   "rescan-results": "manual_refresh",
 };
 
+function callerAbortError(signal?: AbortSignal): Error {
+  if (signal?.reason instanceof Error) return signal.reason;
+  const error = new Error("Request cancelled because no caller still needs the result.");
+  error.name = "AbortError";
+  return error;
+}
+
 export class HttpTunnelClient implements TunnelClient {
   private snapshotPromise?: Promise<ClusterSnapshot>;
-  private readonly reads = new Map<string, Promise<unknown>>();
+  private readonly reads = new Map<string, { promise: Promise<unknown>; controller: AbortController; subscribers: number; settled: boolean }>();
 
   constructor(
     private readonly endpoint: TunnelEndpointConfig,
@@ -214,19 +222,21 @@ export class HttpTunnelClient implements TunnelClient {
     return this.getPath("/api/traces");
   }
 
-  getLiveOutput(runKey: string, since = 0, options: { userInitiated?: boolean } = {}): Promise<unknown> {
+  getLiveOutput(runKey: string, since = 0, options: { userInitiated?: boolean; signal?: AbortSignal } = {}): Promise<unknown> {
     const params = new URLSearchParams({ runKey, since: String(Math.max(0, since)) });
     return this.requestJson(`/api/live-output?${params.toString()}`, "live_output", undefined, {
       method: "GET",
       userInitiated: options.userInitiated,
+      signal: options.signal,
     });
   }
 
-  getResultsSummary(planFile = "", options: { userInitiated?: boolean } = {}): Promise<unknown> {
+  getResultsSummary(planFile = "", options: { userInitiated?: boolean; signal?: AbortSignal } = {}): Promise<unknown> {
     const path = "/api/results/summary" + (planFile ? "?planFile=" + encodeURIComponent(planFile) : "");
     return this.requestJson(path, options.userInitiated ? "manual_refresh" : "snapshot", undefined, {
       method: "GET",
       userInitiated: options.userInitiated,
+      signal: options.signal,
     });
   }
 
@@ -301,14 +311,61 @@ export class HttpTunnelClient implements TunnelClient {
     body: unknown,
     options: { method: "GET" | "POST"; userInitiated?: boolean; timeoutMs?: number; signal?: AbortSignal },
   ): Promise<T> {
-    if (options.method === "GET" && !options.signal) {
-      const existing = this.reads.get(apiPath);
-      if (existing) return existing as Promise<T>;
-      const request = this.executeRequestJson<T>(apiPath, purpose, body, options);
-      this.reads.set(apiPath, request);
-      try { return await request; } finally { if (this.reads.get(apiPath) === request) this.reads.delete(apiPath); }
-    }
+    if (options.method === "GET") return this.subscribeRead<T>(apiPath, purpose, body, options);
     return this.executeRequestJson<T>(apiPath, purpose, body, options);
+  }
+
+  private subscribeRead<T>(
+    apiPath: string,
+    purpose: TunnelRequestPurpose,
+    body: unknown,
+    options: { method: "GET" | "POST"; userInitiated?: boolean; timeoutMs?: number; signal?: AbortSignal },
+  ): Promise<T> {
+    if (options.signal?.aborted) return Promise.reject(callerAbortError(options.signal));
+    const readKey = `${purpose}\0${options.userInitiated === true ? "user" : "background"}\0${apiPath}`;
+    let shared = this.reads.get(readKey);
+    if (shared) {
+      this.budget.noteCoalescedRequest();
+    } else {
+      const controller = new AbortController();
+      const created = { promise: Promise.resolve(undefined) as Promise<unknown>, controller, subscribers: 0, settled: false };
+      created.promise = Promise.resolve().then(() => this.executeRequestJson<T>(apiPath, purpose, body, {
+        ...options, signal: controller.signal,
+      })).finally(() => {
+        created.settled = true;
+        if (this.reads.get(readKey) === created) this.reads.delete(readKey);
+      });
+      shared = created;
+      this.reads.set(readKey, created);
+    }
+
+    shared.subscribers += 1;
+    return new Promise<T>((resolve, reject) => {
+      let finished = false;
+      const detach = () => {
+        options.signal?.removeEventListener("abort", onAbort);
+        shared!.subscribers = Math.max(0, shared!.subscribers - 1);
+        if (!shared!.settled && shared!.subscribers === 0) shared!.controller.abort(options.signal?.reason);
+      };
+      const onAbort = () => {
+        if (finished) return;
+        finished = true;
+        detach();
+        reject(callerAbortError(options.signal));
+      };
+      if (options.signal) options.signal.addEventListener("abort", onAbort, { once: true });
+      shared!.promise.then((value) => {
+        if (finished) return;
+        finished = true;
+        detach();
+        resolve(value as T);
+      }, (error) => {
+        if (finished) return;
+        finished = true;
+        detach();
+        reject(error);
+      });
+    });
   }
 
   private async executeRequestJson<T>(
@@ -325,10 +382,10 @@ export class HttpTunnelClient implements TunnelClient {
           const timeoutMs = Number.isFinite(configuredTimeoutMs) ? Math.max(1, configuredTimeoutMs) : 30_000;
           const timeoutText = timeoutMs % 1000 === 0 ? `${timeoutMs / 1000} 秒` : `${timeoutMs} 毫秒`;
           const inactivity = new ProgressInactivity(timeoutMs, () => controller.abort(new Error(`${timeoutText}无有效响应，执行结果待确认。实时连接会自动重试；请刷新运行状态核对，勿重复执行。`)));
-          const onCallerAbort = () => controller.abort();
+          const abortFromCaller = () => controller.abort(options.signal?.reason);
           if (options.signal) {
-            if (options.signal.aborted) controller.abort();
-            else options.signal.addEventListener("abort", onCallerAbort, { once: true });
+            if (options.signal.aborted) abortFromCaller();
+            else options.signal.addEventListener("abort", abortFromCaller, { once: true });
           }
           try {
             const response = await fetch(`${base}${apiPath}`, {
@@ -343,10 +400,10 @@ export class HttpTunnelClient implements TunnelClient {
             return JSON.parse(text) as T;
           } finally {
             inactivity.dispose();
-            options.signal?.removeEventListener("abort", onCallerAbort);
+            options.signal?.removeEventListener("abort", abortFromCaller);
           }
         },
-        { userInitiated: options.userInitiated },
+        { userInitiated: options.userInitiated, signal: options.signal },
       );
   }
 

@@ -10,7 +10,11 @@ const source = readSource("src/extension.ts");
 function extractMethod(name) {
   const match = new RegExp(`^\\s*(?:private\\s+)?(?:async\\s+)?${name}\\(`, "m").exec(source);
   assert.ok(match, `missing method ${name}`);
-  const body = source.indexOf("{", match.index);
+  const typedBuildStateMarker = "): WebviewClusterState {";
+  const body = name === "buildState"
+    ? source.indexOf(typedBuildStateMarker, match.index) + typedBuildStateMarker.length - 1
+    : source.indexOf("{", match.index);
+  assert.ok(body >= match.index, `missing method body ${name}`);
   let depth = 0;
   for (let index = body; index < source.length; index += 1) {
     if (source[index] === "{") depth += 1;

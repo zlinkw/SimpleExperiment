@@ -3,6 +3,8 @@
  * 封装 TunnelEndpointRegistry 的注册/发现/持久化，支持依赖注入与多端点拓扑
  */
 
+import { assertLocalhost, localBaseUrl } from "../TunnelGateway";
+
 function tryRequire<T>(id: string): T | undefined {
   try {
     // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -60,14 +62,25 @@ export interface EndpointRegistryFactory {
 class DefaultEndpointRegistry implements EndpointRegistry {
   private readonly map = new Map<string, EndpointDescriptor>();
   constructor(initial: EndpointDescriptor[] = []) {
+    if (!Array.isArray(initial)) throw new Error("Tunnel endpoint initial value must be an array.");
     for (const ep of initial) this.register(ep);
   }
   register(endpoint: EndpointDescriptor): void {
+    if (!endpoint || typeof endpoint !== "object" || Array.isArray(endpoint)) throw new Error("Tunnel endpoint must be an object.");
     const id = String(endpoint.id || "").trim();
     if (!id) throw new Error("Endpoint id is required");
-    const port = Number(endpoint.localPort);
-    const normalizedPort = Number.isInteger(port) && port >= 1024 && port <= 65535 ? port : endpoint.localPort;
-    this.map.set(id, { ...endpoint, id, localPort: normalizedPort as number, remoteHost: endpoint.remoteHost || "127.0.0.1", remotePort: endpoint.remotePort || 18765, enabled: endpoint.enabled !== false });
+    if (endpoint.role !== "hub" && endpoint.role !== "worker") throw new Error(`Endpoint ${id} has an unsupported role.`);
+    const localHost = String(endpoint.localHost || "").trim();
+    const localPort = Number(endpoint.localPort);
+    const remoteHost = String(endpoint.remoteHost || "").trim();
+    const remotePort = Number(endpoint.remotePort);
+    if (!localHost || !Number.isInteger(localPort) || localPort < 1024 || localPort > 65535
+      || !remoteHost || !Number.isInteger(remotePort) || remotePort < 1 || remotePort > 65535)
+      throw new Error(`Endpoint ${id} requires configured local and remote hosts and ports.`);
+    assertLocalhost(localHost);
+    assertLocalhost(remoteHost);
+    localBaseUrl({ localHost, localPort });
+    this.map.set(id, { ...endpoint, id, localHost, localPort, remoteHost, remotePort, enabled: endpoint.enabled !== false });
   }
   unregister(id: string): boolean { return this.map.delete(String(id)); }
   get(id: string): EndpointDescriptor | undefined { return this.map.get(String(id)); }
@@ -100,28 +113,38 @@ export class DefaultEndpointRegistryFactory implements EndpointRegistryFactory {
     const mod = tryRequire<TunnelEndpointRegistryMod>("../TunnelEndpointRegistry");
     if (mod?.TunnelEndpointRegistry) {
       const inst = new mod.TunnelEndpointRegistry(initial);
+      const register = inst.register ? (ep: EndpointDescriptor) => inst.register!(ep) : inst.set ? (ep: EndpointDescriptor) => inst.set!(ep.id, ep) : undefined;
+      const unregister = inst.unregister ? (id: string) => Boolean(inst.unregister!(id)) : inst.delete ? (id: string) => Boolean(inst.delete!(id)) : undefined;
+      const get = inst.get ? (id: string) => inst.get!(id) : inst.find ? (id: string) => inst.find!(id) : undefined;
+      const list = inst.list ? (role?: string) => inst.list!(role) : inst.values ? () => [...inst.values!()] : undefined;
+      if (!register || !unregister || !get || !list) throw new Error("TunnelEndpointRegistry implementation is missing required registry operations.");
       return {
-        register: (ep: EndpointDescriptor) => { if (inst.register) inst.register(ep); else inst.set?.(ep.id, ep); },
-        unregister: (id: string) => inst.unregister ? Boolean(inst.unregister(id)) : Boolean(inst.delete?.(id)),
-        get: (id: string) => inst.get?.(id) ?? inst.find?.(id),
-        list: (role?: "hub" | "worker") => inst.list ? inst.list(role) : [...(inst.values?.() ?? [])],
-        listEnabled: () => inst.listEnabled ? inst.listEnabled() : inst.list ? inst.list().filter((e: EndpointDescriptor) => e.enabled !== false) : [],
-        has: (id: string) => inst.has ? Boolean(inst.has(id)) : false,
-        clear: () => inst.clear?.(),
-        toNamedConfigs: () => inst.toNamedConfigs ? inst.toNamedConfigs() : [...(inst.values?.() ?? [])],
+        register,
+        unregister,
+        get,
+        list: (role?: "hub" | "worker") => list(role),
+        listEnabled: () => inst.listEnabled ? inst.listEnabled() : list().filter((e) => e.enabled !== false),
+        has: (id: string) => inst.has ? Boolean(inst.has(id)) : Boolean(get(id)),
+        clear: () => {
+          if (inst.clear) { inst.clear(); return; }
+          for (const endpoint of list()) unregister(endpoint.id);
+        },
+        toNamedConfigs: () => inst.toNamedConfigs ? inst.toNamedConfigs() : [...list()],
       } as EndpointRegistry;
     }
     return new DefaultEndpointRegistry(initial);
   }
   fromWorkspace(initial: EndpointDescriptor[] = []): EndpointRegistry {
+    if (!Array.isArray(initial)) throw new Error("Tunnel endpoint initial value must be an array.");
     let persisted: EndpointDescriptor[] = [...initial];
-    try {
-      const store = (this.deps["workspaceState"] as { get?: (k: string) => unknown } | undefined) ?? (this.deps["globalState"] as { get?: (k: string) => unknown } | undefined);
-      if (store && typeof store.get === "function") {
-        const saved = store.get("tunnelEndpoints");
-        if (Array.isArray(saved)) persisted = [...persisted, ...(saved as EndpointDescriptor[])];
-      }
-    } catch { /* ignore */ }
+    const store = (this.deps["workspaceState"] as { get?: (k: string) => unknown } | undefined) ?? (this.deps["globalState"] as { get?: (k: string) => unknown } | undefined);
+    if (store && typeof store.get === "function") {
+      let saved: unknown;
+      try { saved = store.get("tunnelEndpoints"); }
+      catch (error) { throw new Error(`Tunnel endpoint settings could not be read: ${String((error as Error)?.message || error).slice(0, 240)}`); }
+      if (saved !== undefined && !Array.isArray(saved)) throw new Error("Saved tunnel endpoint settings are malformed; refusing to use an empty registry.");
+      if (Array.isArray(saved)) persisted = [...persisted, ...(saved as EndpointDescriptor[])];
+    }
     return this.create(persisted);
   }
 }

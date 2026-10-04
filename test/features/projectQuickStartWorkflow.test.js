@@ -242,5 +242,6 @@ test("quick project onboarding opens the exact panel destination", () => {
   assert.match(extension, /postMessage\(\{ type: "navigate", \.\.\.target \}\)/);
   assert.match(panel, /vscode\.postMessage\(\{ command: "webviewReady", documentGeneration: panelDocumentGeneration/);
   assert.match(panel, /item\.type === "navigate"/);
-  assert.match(panel, /navigateToResourceTarget\(latestNavigationMessage\.section, latestNavigationMessage\.anchor, \{ force: true \}\)/);
+  assert.match(panel, /if \(item\.userInitiated === true \|\| item\.openResultMapping === true\) latestNavigationMessage = item/);
+  assert.match(panel, /navigateToResourceTarget\(navigation\.section, navigation\.anchor, \{ force: true \}\)/);
 });

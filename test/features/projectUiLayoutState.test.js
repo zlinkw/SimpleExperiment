@@ -4,6 +4,7 @@ const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const ts = require("typescript");
 const { readSource } = require("../_helpers/sourceReader");
 
 function loadHelpers() {
@@ -39,12 +40,14 @@ function loadHelpers() {
     },
     path,
     console,
+    writeAtomicPluginStateJson: async (file, value) => {
+      await fs.promises.mkdir(path.dirname(file), { recursive: true });
+      await fs.promises.writeFile(file, `${JSON.stringify(value, null, 2)}\n`, "utf8");
+    },
   };
   vm.createContext(sandbox);
-  vm.runInContext(
-    prelude + "\n" + helpers + "\nthis.exports = { PROJECT_UI_LAYOUT_PATH, readProjectUiLayoutState, writeProjectUiLayoutState, projectUiLayoutState, normalizeUiLayout, defaultUiLayout };",
-    sandbox
-  );
+  const selected = prelude + "\n" + helpers + "\nthis.exports = { PROJECT_UI_LAYOUT_PATH, readProjectUiLayoutState, writeProjectUiLayoutState, projectUiLayoutState, normalizeUiLayout, defaultUiLayout };";
+  vm.runInContext(ts.transpileModule(selected, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, sandbox);
   return sandbox.exports;
 }
 
@@ -65,7 +68,8 @@ test("project ui layout state persists under simple_cluster/ui", async () => {
   assert.ok(Array.isArray(loaded.order));
   assert.equal(loaded.order[0], "plans");
   await helpers.writeProjectUiLayoutState(root, undefined);
-  assert.equal(fs.existsSync(file), false);
+  assert.equal(fs.existsSync(file), true);
+  assert.equal(await helpers.readProjectUiLayoutState(root), undefined);
 });
 
 test("extension wires project ui layout helpers", () => {

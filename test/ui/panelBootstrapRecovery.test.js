@@ -35,7 +35,7 @@ test("recovery page exposes reload, window reload, and safe diagnostic copy", ()
   assert.match(html, /重新加载面板/);
   assert.match(html, /重载窗口/);
   assert.match(html, /复制诊断摘要/);
-  assert.match(html, /navigator\.clipboard\.writeText/);
+  assert.match(html, /command:"copyPanelDiagnostics"/);
   const script = html.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/)?.[1];
   assert.ok(script);
   new vm.Script(script);
@@ -56,7 +56,8 @@ test("panel ready watchdog is cleared on ready, recovery, reload, and dispose", 
   assert.match(watchdogFlow, /renderPanelBootstrapDocument\(renderPanelHtml, renderPanelRecoveryHtml\)/);
   assert.match(watchdogFlow, /if \(document\.recovered\)/);
   assert.match(watchdogFlow, /this\.startPanelReadyWatchdog\(\)/);
-  assert.match(watchdogFlow, /private reloadPanelHtml\(\): void \{\s*this\.loadPanelHtml\(\);/);
+  const reload = extension.slice(extension.indexOf("private reloadPanelHtml"), extension.indexOf("private reloadPanelLowEffects", extension.indexOf("private reloadPanelHtml")));
+  assert.match(reload, /this\.loadPanelHtml\(\)/);
   assert.match(disposeFlow, /this\.clearPanelReadyWatchdog\(\)/);
 });
 
@@ -87,7 +88,13 @@ test("panel registers the message listener before HTML can emit the ready handsh
 });
 
 test("panel reports post-bootstrap render failures without hiding the recovery path", () => {
-  assert.match(extension, /case "webviewRenderError":[\s\S]{0,1200}recordActionError/);
+  const renderError = extension.slice(extension.indexOf('case "webviewRenderError"'), extension.indexOf('case "reloadPanel"', extension.indexOf('case "webviewRenderError"')));
+  const performance = renderError.slice(renderError.indexOf('if (message?.performanceWarning === true)'), renderError.indexOf('if (message?.sectionRecovered === true)'));
+  assert.match(performance, /recordPanelSectionTelemetry\(/);
+  assert.match(performance, /break;/);
+  assert.doesNotMatch(performance, /recordActionError|panelSectionFailures\.add|transitionPanelLifecycle/);
+  assert.match(renderError, /this\.recordActionError/);
+  assert.match(renderError, /this\.panelSectionFailures\.add/);
   for (const name of ["SAFE_WEBVIEW_COMMANDS", "API_INTERNAL_COMMANDS"]) {
     const declaration = extension.match(new RegExp("const " + name + " = new Set\\(\\[[\\s\\S]*?\\]\\);"))?.[0];
     assert.ok(declaration, name);

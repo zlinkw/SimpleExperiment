@@ -7,8 +7,16 @@ const vm = require("node:vm");
 const { spawnSync } = require("node:child_process");
 
 const planner = require("../../dist/features/PlanStopClear.js");
+const OperationOutcome = require("../../dist/core/OperationOutcome.js");
 const extension = fs.readFileSync(path.join(__dirname, "../../src/extension/legacy.ts"), "utf8");
 const panel = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.legacy.ts"), "utf8");
+
+function panelScriptContaining(html, marker) {
+  const scripts = [...String(html).matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)].map((match) => match[1]);
+  const script = scripts.find((item) => item.includes(marker));
+  assert.ok(script, `panel script containing ${marker} missing`);
+  return script;
+}
 
 test("cleanup targets include failed and finished plan rows and keep unrelated plans", () => {
   const targets = planner.planCleanupTargets({
@@ -206,8 +214,7 @@ test("queued-only plan clears without a worker stop and a mixed failure keeps th
 test("each execution plan row can stop and clear its own plan file", () => {
   const { renderPanelHtml } = require("../../dist/ui/PanelHtml.js");
   const htmlSource = renderPanelHtml();
-  const scriptStart = htmlSource.indexOf("<script");
-  const script = htmlSource.slice(htmlSource.indexOf(">", scriptStart) + 1, htmlSource.indexOf("</script>", scriptStart));
+  const script = panelScriptContaining(htmlSource, "function executionPlanGroupKey(");
   const start = script.indexOf("function executionPlanGroupKey(");
   const end = script.indexOf("function renderOperationSection(state)", start);
   assert.ok(start >= 0 && end > start);
@@ -243,7 +250,7 @@ test("each execution plan row can stop and clear its own plan file", () => {
     setHtmlIfChanged: (_id, value) => { html = value; },
   };
   vm.createContext(sandbox);
-  vm.runInContext(source + "\nthis.render = renderExecutionPlanList;", sandbox);
+  vm.runInContext(script.slice(script.indexOf("function distributedPlanRecoveryView("), script.indexOf("function executionCurrentDistributedJobs(")) + source + "\nthis.render = renderExecutionPlanList;", sandbox);
   sandbox.render({
     planFileInput: "plans/editing.yaml",
     distributedPlans: [
@@ -271,6 +278,7 @@ test("each execution plan row can stop and clear its own plan file", () => {
   const controls = script.slice(controlsStart, controlsEnd);
   let controlsHtml = "";
   const controlSandbox = {
+    distributedPlanRecoveryView: sandbox.distributedPlanRecoveryView,
     operationViewModelForState: () => ({ rows: [], visibleRows: [], hiddenCount: 0, statusCounts: {} }),
     operationIsActive: () => false,
     operationIsFailureLike: () => false,
@@ -324,6 +332,7 @@ function installStopClearHost(sandbox) {
     planner: require("../../dist/features/PlanStopClear.js"),
     PlanStopClear_1: require("../../dist/features/PlanStopClear.js"),
     DistributedPlanQueue: require("../../dist/features/DistributedPlanQueue.js"),
+    DistributedSchedulingPolicy: require("../../dist/features/DistributedSchedulingPolicy.js"),
     vscode: { window: {
       showWarningMessage: async (text, _options, action) => { notices.push(text); return sandbox.answers.shift() ?? action; },
       showInformationMessage: (text) => { notices.push(text); },
@@ -359,6 +368,8 @@ function installStopClearHost(sandbox) {
   const sourceTick = provider.tickDistributedQueue;
   const sourceDetach = provider.detachStaleDistributedTick;
   Object.assign(provider, sandbox);
+  if (!provider.schedulerSettings) provider.schedulerSettings = () => ({ dispatchMode: "local_idle" });
+  if (!provider.distributedSubmissionTimings) provider.distributedSubmissionTimings = new Map();
   if (sandbox.tickDistributedQueue) provider.tickDistributedQueue = sourceTick;
   provider.detachStaleDistributedTick = sourceDetach;
   if (typeof provider.markLocalOperationsDirty !== "function") provider.markLocalOperationsDirty = () => undefined;
@@ -934,8 +945,7 @@ test("cancelling the second confirmation publishes a cancelled card state", asyn
 test("the plan card renders the persistent stop-clear reason beside the target plan", () => {
   const { renderPanelHtml } = require("../../dist/ui/PanelHtml.js");
   const htmlSource = renderPanelHtml();
-  const scriptStart = htmlSource.indexOf("<script");
-  const script = htmlSource.slice(htmlSource.indexOf(">", scriptStart) + 1, htmlSource.indexOf("</script>", scriptStart));
+  const script = panelScriptContaining(htmlSource, "function executionPlanGroupKey(");
   const start = script.indexOf("function executionPlanGroupKey(");
   const end = script.indexOf("function renderOperationSection(state)", start);
   const source = script.slice(start, end);
@@ -1015,8 +1025,7 @@ test("the plan card renders the persistent stop-clear reason beside the target p
 test("completed stop-clear feedback does not invent a plan card and a newer run hides stale failure text", () => {
   const { renderPanelHtml } = require("../../dist/ui/PanelHtml.js");
   const htmlSource = renderPanelHtml();
-  const scriptStart = htmlSource.indexOf("<script");
-  const script = htmlSource.slice(htmlSource.indexOf(">", scriptStart) + 1, htmlSource.indexOf("</script>", scriptStart));
+  const script = panelScriptContaining(htmlSource, "function executionPlanGroupKey(");
   const start = script.indexOf("function executionPlanGroupKey(");
   const end = script.indexOf("function renderOperationSection(state)", start);
   const source = script.slice(start, end);
@@ -1110,8 +1119,7 @@ test("a failed worker query keeps its plan progress while an exact receipt still
 test("execution section redraws when only the stop-clear feedback changes", () => {
   const { renderPanelHtml } = require("../../dist/ui/PanelHtml.js");
   const htmlSource = renderPanelHtml();
-  const scriptStart = htmlSource.indexOf("<script");
-  const script = htmlSource.slice(htmlSource.indexOf(">", scriptStart) + 1, htmlSource.indexOf("</script>", scriptStart));
+  const script = panelScriptContaining(htmlSource, "function sectionPreRenderKey(");
   const start = script.indexOf("function sectionPreRenderKey(");
   const end = script.indexOf("function sectionLocalPreKey(", start);
   assert.ok(start >= 0 && end > start);
@@ -1120,6 +1128,9 @@ test("execution section redraws when only the stop-clear feedback changes", () =
   const renders = [];
   const sandbox = {
     sectionIsCollapsed: () => false,
+    panelNow: () => 0, panelSectionShouldRenderNow: () => true, panelSectionPayloadNotLoaded: () => false,
+    clearPanelSectionLoadingStatus: () => {}, sectionRenderModel: () => undefined, recordPanelSectionSample: () => {},
+    dirtyPanelSections: new Set(), failedPanelSections: new Set(),
     lastSectionPreRenderKeys: {},
     lastRenderedSectionSignatures: {},
     sectionPreRenderKey: (state, section) => section + "::" + JSON.stringify((state || {}).planStopClearByFile || {}),
@@ -1128,7 +1139,7 @@ test("execution section redraws when only the stop-clear feedback changes", () =
     applyResourceTreeChildLayout: () => undefined,
   };
   vm.createContext(sandbox);
-  vm.runInContext(script.slice(script.indexOf("function renderSectionIfVisible("), script.indexOf("function sectionPreRenderKey(", script.indexOf("function renderSectionIfVisible("))) + "\nthis.render = renderSectionIfVisible;", sandbox);
+  vm.runInContext(script.slice(script.indexOf("function renderSectionIfVisible("), script.indexOf("function panelNow(", script.indexOf("function renderSectionIfVisible("))) + "\nthis.render = renderSectionIfVisible;", sandbox);
   const state = { planStopClearByFile: {} };
   sandbox.render(state, "execution");
   sandbox.render(state, "execution");
@@ -1158,6 +1169,7 @@ test("handleMessage posts the real stop-clear outcome for failed, cancelled, and
     completed: { status: "completed", message: "已清除 1 条运行进度", planStopClear: { planFile: "plans/a.yaml", outcome: "completed", phase: "cleared" } },
   };
   const context = {
+    OperationOutcome_1: OperationOutcome,
     getSafeCommand: (message) => message.command,
     stringField: (message, key) => String(message[key] || ""),
     booleanField: () => false,
@@ -1165,10 +1177,14 @@ test("handleMessage posts the real stop-clear outcome for failed, cancelled, and
     hostOperationLeaseActionForUiCommand: () => "stopAndClearPlan",
     hostOperationLeaseActionLabel: () => "终止并清理",
     commandNeedsUiStatus: () => true,
+    PLAN_SUBMISSION_COMMANDS: new Set(["runPlan", "reproducePlan"]),
+    withSafeTransferRetry: (_command, _message, work) => work(),
+    extensionRuntimeVersionState: () => ({ reloadRequired: false }),
     localCommandReleasesAfterTrigger: () => false,
     isUiCommandRemotePending: () => false,
     isUiCommandCancelled: () => false,
     errorMessage: (error) => String(error.message || error),
+    compactSensitiveText: (value, max = 240) => String(value || "").slice(0, max),
     uiCommandWatchdogMs: () => 0,
     finishPlanSubmissionProgress: () => undefined,
     recordActionError: () => undefined,
@@ -1179,14 +1195,14 @@ test("handleMessage posts the real stop-clear outcome for failed, cancelled, and
     hostOperationLease: { run: async (_meta, operation) => operation() },
     stopAndClearPlanFromUi: async (message) => outcomes[message.outcome],
     view: { webview: { postMessage: async (payload) => { posted.push(payload); } } },
-    vscode: { window: { showInformationMessage: () => undefined, showErrorMessage: () => undefined } },
+    vscode: { window: { showInformationMessage: () => Promise.resolve(undefined), showErrorMessage: () => Promise.resolve(undefined) } },
   };
   vm.createContext(context);
   vm.runInContext(`class Host { ${methods} }\nthis.provider = Object.assign(new Host(), this);`, context);
   for (const outcome of ["failed", "cancelled", "completed"]) {
     await context.provider.handleMessage({ command: "stopAndClearPlan", clientActionId: "act-" + outcome, outcome });
   }
-  assert.deepEqual(posted.map((item) => item.status), ["running", "failed", "running", "cancelled", "running", "completed"]);
+  assert.deepEqual(posted.map((item) => item.status), ["running", "failed", "running", "cancelled", "running", "completed"], JSON.stringify(posted));
   assert.equal(posted.filter((item) => item.status !== "running").every((item) => item.command === "stopAndClearPlan" && item.planStopClear.planFile === "plans/a.yaml"), true);
   assert.equal(posted.some((item) => item.status === "failed" && item.planStopClear.phase === "partial-clear"), true);
   assert.equal(posted.some((item) => item.status === "cancelled" && item.planStopClear.phase === "confirm-cancelled"), true);
@@ -1238,6 +1254,7 @@ test("only stopAndClearPlan consumes a structured command result", async () => {
   const run = async (command) => {
     const context = {
       command,
+      PLAN_SUBMISSION_COMMANDS: new Set(["runPlan", "reproducePlan"]),
       isLocalTrigger: false,
       work: async () => structured,
       localCommandReleasesAfterTrigger: () => false,
@@ -1519,6 +1536,8 @@ test("stopping during a hung fingerprint cancels that submission and a new one c
   assert.equal(cleared.status, "completed", cleared && cleared.message);
   assert.equal(host.provider.localOperations["plan-submit-hash-1"].status, "cancelled");
   assert.equal(host.provider.localOperations["plan-submit-other-1"].status, "running");
+  // The fixture's original scheduler tick intentionally never settles; exercise enqueue without awaiting that stale tick.
+  host.provider.tickDistributedQueue = async () => undefined;
   await Promise.race([target, new Promise((_, reject) => setTimeout(() => reject(new Error("cancelled submission kept its lease")), 300))]);
   hashReleases.get("plans/hash.yaml")();
   hashReleases.get("plans/other.yaml")();
@@ -1534,6 +1553,8 @@ test("stopping during a hung fingerprint cancels that submission and a new one c
   const cancelledConfirm = await again.provider.stopAndClearPlanFromUi({ planFile: "plans/hash.yaml" });
   assert.equal(cancelledConfirm.status, "cancelled", cancelledConfirm && cancelledConfirm.message);
   assert.equal(again.provider.localOperations["plan-submit-keep-1"].status, "running");
+  // This host also inherits the deliberately pending tick; completing the fingerprint should test queueing only.
+  again.provider.tickDistributedQueue = async () => undefined;
   hashReleases.get("plans/hash.yaml")();
   await kept;
   assert.equal(again.provider.localOperations["plan-submit-keep-1"].status, "succeeded");
@@ -1565,12 +1586,23 @@ test("concurrent submissions append to the latest queue and reject the old sched
     errorMessage: (error) => String(error?.message || error),
     compactSensitiveText: (value) => String(value || "").slice(0, 240),
     crypto: { randomBytes: () => Buffer.from("fake") },
+    fsNode: require("node:fs"),
     fs: {
       mkdir: async () => undefined,
+      lstat: async () => { const error = new Error("missing"); error.code = "ENOENT"; throw error; },
       readFile: async (file) => {
         if (!files.has(file)) { const error = new Error("missing"); error.code = "ENOENT"; throw error; }
         return files.get(file);
       },
+      open: async (file) => ({
+        writeFile: async (text) => {
+          files.set(file, text);
+          snapshots.push(JSON.parse(text));
+          if (snapshots.length === 1) await new Promise((resolve) => { releaseFirst = resolve; });
+        },
+        sync: async () => undefined,
+        close: async () => undefined,
+      }),
       writeFile: async (file, text) => {
         files.set(file, text);
         snapshots.push(JSON.parse(text));
@@ -1604,20 +1636,26 @@ test("caller cancellation reaches the actual Worker task HTTP request", async ()
   const { HttpTunnelClient } = require("../../dist/tunnel/TunnelClient.js");
   const originalFetch = global.fetch;
   let started;
+  let requestAbortReason;
   const ready = new Promise((resolve) => { started = resolve; });
   global.fetch = async (url, options) => {
     assert.match(url, /api\/worker\/tasks$/);
     started();
-    return new Promise((_, reject) => options.signal.addEventListener("abort", () => reject(new Error("caller aborted")), { once: true }));
+    return new Promise((_, reject) => options.signal.addEventListener("abort", () => {
+      requestAbortReason = options.signal.reason;
+      reject(options.signal.reason instanceof Error ? options.signal.reason : new Error("caller aborted"));
+    }, { once: true }));
   };
   try {
     const budget = new RequestBudget({ ...defaultRequestBudgetConfig, minIntervalByPurpose: {}, disabledPurposes: [] });
     const client = new HttpTunnelClient({ localHost: "localhost", localPort: 23456, timeoutMs: 1000 }, budget);
     const controller = new AbortController();
+    const abortReason = new Error("caller aborted");
     const failed = assert.rejects(client.getWorkerTasks({ signal: controller.signal }), /caller aborted/);
     await ready;
-    controller.abort();
+    controller.abort(abortReason);
     await failed;
+    assert.equal(requestAbortReason, abortReason, "the final subscriber's cancellation reason must reach fetch");
   } finally {
     global.fetch = originalFetch;
   }

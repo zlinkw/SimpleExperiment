@@ -106,6 +106,8 @@ test("automatic tmux refresh stays out of command progress and releases a lost r
   const sandbox = {
     document: { hidden: false }, tmuxListBusy: false, tmuxListTimeout: 0,
     tmuxListRequestId: 0, tmuxListPendingWorkers: new Set(),
+    tmuxInitialRetryTimer: 0,
+    tmuxInitialRetryCount: 0,
     tmuxSelectedWorkerId: "configured-worker", pendingActionsById: {}, pendingActionTimeouts: {},
     el: () => ({ textContent: "" }), createClientActionId: () => "poll-action",
     vscode: { postMessage: (payload) => sent.push(payload) },

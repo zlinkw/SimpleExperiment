@@ -382,8 +382,11 @@ const planResultPrefixPairs = new Set([
 const planResultExactPairs = new Set(["experiments/results.csv"]);
 function parsePlanOutputEvidence(yaml, commands = {}) {
     const clean = stripYamlComments(yaml);
+    const trainCommand = commands.trainCommand || firstPlanCommand(clean, ["train_command", "trainCommand", "command"]);
+    const testCommand = commands.testCommand || firstPlanCommand(clean, ["test_command", "testCommand"]);
     const declaredMode = commands.mode || firstTopLevelPlanScalar(clean, collectYamlScalarAnchors(clean), "mode");
-    const mode = normalizePlanMode(declaredMode);
+    const inferredMode = trainCommand && testCommand ? "train_test" : trainCommand ? "train" : testCommand ? "test" : "train_test";
+    const mode = normalizePlanMode(declaredMode || inferredMode);
     const commandKeys = mode === "train" ? ["command", "train_command", "trainCommand"] : mode === "test" ? ["test_command", "testCommand"] : ["command", "train_command", "trainCommand", "test_command", "testCommand"];
     const direct = directResultKeys.flatMap((key) => [
         ...extractYamlStringValues(clean, key),
@@ -397,6 +400,11 @@ function parsePlanOutputEvidence(yaml, commands = {}) {
         ...extractYamlResultListValues(clean, key),
         ...extractYamlFlowResultListValues(clean, key),
     ].map((value) => ({ key, value: normalizePlanCandidatePath(value) }))).filter((item) => isPlanParseableResultCandidate(item.value));
+    const declaredOutputs = uniquePlanStrings([
+        ...extractYamlResultListValues(clean, "outputs"),
+        ...extractYamlFlowResultListValues(clean, "outputs"),
+    ].map((value) => stripYamlScalar(value).replace(/\\/g, "/"))
+        .filter((value) => value && !/^(?:[A-Za-z]:|\/)/.test(value) && !value.split("/").includes("..")));
     const dirs = resultDirKeys.flatMap((key) => [
         ...extractYamlStringValues(clean, key),
         ...extractYamlFlowMapValues(clean, key),
@@ -420,6 +428,8 @@ function parsePlanOutputEvidence(yaml, commands = {}) {
         if (dir)
             signals.add(`结果目录: ${dir}`);
     }
+    if (declaredOutputs.length)
+        signals.add(`任务产物: runner.outputs (${declaredOutputs.length})`);
     const commandValues = uniquePlanStrings([
         ...(mode !== "test" ? [commands.trainCommand || ""] : []),
         ...(mode !== "train" ? [commands.testCommand || ""] : []),
@@ -450,15 +460,16 @@ function parsePlanOutputEvidence(yaml, commands = {}) {
     const evidenceCandidates = dedupOutputCandidates([...listed, ...direct, ...outputRules, ...commandCandidates].map((item) => item.value).filter(isPlanParseableResultCandidate));
     if (metricRegexValues.length && evidenceCandidates.length)
         signals.add("metricRegex: 自定义指标正则");
-    return { outputCandidates, outputSignals: [...signals].sort(), evidenceCandidates };
+    return { outputCandidates, outputSignals: [...signals].sort(), evidenceCandidates, declaredOutputs };
 }
 function parsePlanSummary(yaml) {
     const clean = stripYamlComments(yaml);
     const anchors = collectYamlScalarAnchors(clean);
     const modeRaw = firstTopLevelPlanScalar(clean, anchors, "mode");
-    const mode = normalizePlanMode(modeRaw);
     const trainCommand = firstPlanCommand(clean, ["train_command", "trainCommand", "command"]);
     const testCommand = firstPlanCommand(clean, ["test_command", "testCommand"]);
+    const inferredMode = trainCommand && testCommand ? "train_test" : trainCommand ? "train" : testCommand ? "test" : "train_test";
+    const mode = normalizePlanMode(modeRaw || inferredMode);
     const evidence = parsePlanOutputEvidence(clean, { mode, trainCommand, testCommand });
     const baseConfig = firstTopLevelPlanScalar(clean, anchors, "base_config", "config");
     const configSources = planConfigSources(clean);
@@ -479,6 +490,8 @@ function parsePlanSummary(yaml) {
         inlineConfig: configSources.topLevelInline,
         caseConfig: configSources.caseLevel,
         hasConfigSource: Boolean(baseConfig || configSources.topLevelInline || configSources.caseLevel),
+        declaredOutputs: evidence.declaredOutputs,
+        hasGenericRunnerContract: Boolean((trainCommand || testCommand) && evidence.declaredOutputs.length),
         configSource: baseConfig ? baseConfig : configSources.topLevelInline ? "Plan 内联配置" : configSources.caseLevel ? "case 级配置" : "",
         seeds: planStringList(clean, anchors, "seeds"),
         cases: parsePlanCases(clean),
@@ -632,16 +645,16 @@ function validateDeepLearningPlanContract(yaml) {
     const addIssue = (field, label, message, fix) => {
         issues.push({ field, label, message, fix });
     };
-    if (!summary.suite) {
+    if (!summary.suite && !summary.hasGenericRunnerContract) {
         addIssue("suite", "suite", "缺少实验套件名。", "在 plan 顶层补充 suite，例如 suite: cls_smoke。");
     }
-    if (!summary.hasConfigSource) {
-        addIssue("base_config", "base_config/config", "缺少基础配置文件。", "在 plan 顶层补充 base_config 或 config，指向本次运行使用的配置文件。");
+    if (!summary.hasConfigSource && !summary.hasGenericRunnerContract) {
+        addIssue("base_config", "base_config/config", "缺少基础配置文件或通用命令产物声明。", "配置型项目补充 base_config；通用命令项目至少声明 runner.outputs。");
     }
     if (!summary.modeValid) {
         addIssue("mode", "mode", `不支持运行模式 ${summary.modeRaw}。`, "mode 只能使用 train、test 或 train_test。");
     }
-    if (!summary.seeds.length) {
+    if (!summary.seeds.length && !summary.hasGenericRunnerContract) {
         addIssue("seeds", "seeds", "缺少随机种子列表。", "补充 seeds: [0, 1, 2]；即使只跑一次也写 seeds: [0]。");
     }
     if (!summary.cases.length) {
@@ -653,7 +666,7 @@ function validateDeepLearningPlanContract(yaml) {
     if (summary.mode !== "train" && !summary.testCommand) {
         addIssue("test_command", "测试命令", "缺少测试或评估入口命令。", "在 runner.test_command 或 testCommand 中写明测试命令，并输出 metrics_summary.csv、result_csv 或 --output-dir。");
     }
-    if (!evidence.evidenceCandidates.length && !summary.outputSignals.length) {
+    if (!evidence.evidenceCandidates.length && !summary.outputSignals.some((signal) => signal.startsWith("任务产物:"))) {
         addIssue("result_output", "结果输出", "未声明可解析结果输出。", "写 expectedResults、paper.result_csv、metrics_summary.csv、metrics_case.csv、JSON/TXT/LOG 输出，或在测试命令中显式传 --result-csv/--metrics-json/--output-dir。");
     }
     return {

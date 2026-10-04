@@ -66,6 +66,7 @@ test('lost release ACK retains durable intent and restart replays the same opera
   Object.assign(running, { status: 'running', workerId: 'worker-a', commandId: 'running-command-0002', runKey: 'running-command-0002', gpuId: '0' });
   const stored = { value: queue };
   const p = providerState(stored);
+  p.tickDistributedQueue = async () => p.processDistributedRecall(root, plan.id, queued.index, p.distributedQueueGeneration);
   let calls = [];
   p.readWorkerTaskSnapshot = async () => snapshot(plan, queued);
   p.client = { postWorkerAction: async (_worker, _action, request) => { calls.push(request); throw new Error('lost ACK'); } };

@@ -25,7 +25,7 @@ class DefaultResultsFactory {
         const pm = tryRequire("../Results/ResultParser");
         if (pm?.selectPreset)
             return pm.selectPreset(fileName, presets);
-        return { id: this.opts.defaultPresetId ?? "generic_metric_wide_csv", format: "wide_csv", filePatterns: ["*.csv"], columnMapping: {}, metricColumns: [] };
+        throw new Error("结果解析 preset 实现不可用。");
     }
     preview(text, sourceFile, preset, parserConfig = {}) {
         const effPreset = (preset ?? this.selectPreset(sourceFile));
@@ -35,13 +35,13 @@ class DefaultResultsFactory {
         const pm = tryRequire("../Results/ResultParser");
         if (pm?.previewParse)
             return pm.previewParse(text, sourceFile, effPreset, parserConfig);
-        return { presetId: effPreset["id"], format: effPreset["format"], rows: 0, records: 0, columns: [], missingRequiredColumns: [], warnings: [], sampleMetrics: {} };
+        throw new Error("结果解析预览实现不可用。");
     }
     previewTextMetrics(text, sourceFile, opts = {}) {
         const mod = tryRequire("../Results");
         if (mod?.previewTextMetricParse)
             return mod.previewTextMetricParse(text, sourceFile, opts);
-        return { ruleId: "console_regex", sourceFile, lines: text.split(/\r?\n/).length, records: 0, metrics: [], samples: [], warnings: [], parsedAt: new Date().toISOString() };
+        throw new Error("文本指标解析预览实现不可用。");
     }
     parse(text, sourceFile, preset, parserConfig = {}) {
         const mod = tryRequire("../Results");
@@ -50,19 +50,19 @@ class DefaultResultsFactory {
         const pm = tryRequire("../Results/ResultParser");
         if (pm?.parseFile)
             return pm.parseFile(text, sourceFile, preset, parserConfig);
-        return [];
+        throw new Error("结果文件解析实现不可用。");
     }
     validate(records, rules) {
         const mod = tryRequire("../Results");
         if (mod?.validateResultRecords)
             return mod.validateResultRecords(records, rules);
-        return [];
+        throw new Error("结果记录校验实现不可用。");
     }
     leaderboard(records, config, issues = []) {
         const mod = tryRequire("../Results");
         if (mod?.buildResultLeaderboard)
             return mod.buildResultLeaderboard(records, config, issues);
-        return [];
+        throw new Error("结果排行榜构建实现不可用。");
     }
     createParser(presetId) {
         const id = presetId ?? this.opts.defaultPresetId ?? "generic_metric_wide_csv";

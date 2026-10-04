@@ -9,17 +9,17 @@ function renderPanelHtmlFromSource(source) {
   return require("../../dist/ui/PanelHtml.js").renderPanelHtml();
 }
 
-function extractScript(html) {
-  const start = html.indexOf("<script");
-  const gt = html.indexOf(">", start);
-  const end = html.indexOf("</script>", gt);
-  assert.ok(start >= 0 && gt >= 0 && end > gt, "script tag missing");
-  return html.slice(gt + 1, end);
+function extractScripts(html) {
+  const scripts = [];
+  const pattern = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
+  for (const match of html.matchAll(pattern)) scripts.push(match[1]);
+  assert.ok(scripts.length > 0, "script tag missing");
+  return scripts;
 }
 
 function loadRenderedPanelScript() {
   const source = readSource("src/ui/PanelHtml.ts");
-  return extractScript(renderPanelHtmlFromSource(source));
+  return extractScripts(renderPanelHtmlFromSource(source)).find((script) => script.includes("function isParseableResultCandidate")) || "";
 }
 
 test("panel and extension output gates share nextStep and parseable candidate regex", () => {

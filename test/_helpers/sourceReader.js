@@ -84,4 +84,13 @@ function readSource(relPath) {
   return fs.readFileSync(path.join(ROOT, key), "utf8");
 }
 
-module.exports = { readSource, isFacade, IMPLEMENTATION_OF, ROOT };
+function readBuiltAgentRuntime() {
+  const runtimePath = path.join(ROOT, "dist", "runtime", "cluster_agent.py");
+  const content = fs.readFileSync(runtimePath, "utf8");
+  if (!content.startsWith("#!/usr/bin/env python3") || content.includes("${RESULT_LAYOUT_PYTHON}")) {
+    throw new Error("Built Agent runtime is missing or contains an unresolved source template; run npm run build first.");
+  }
+  return content;
+}
+
+module.exports = { readSource, readBuiltAgentRuntime, isFacade, IMPLEMENTATION_OF, ROOT };

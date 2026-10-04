@@ -28,9 +28,9 @@ export interface TunnelEndpointPortAssignment {
   displayName?: string;
   remoteHostLabel: string;
   sshConfigAlias?: string;
-  localForwardHost: "127.0.0.1";
+  localForwardHost: string;
   localForwardPort: number;
-  remoteBindHost: "127.0.0.1";
+  remoteBindHost: string;
   remoteServicePort: number;
   assignedAt: string;
   source: "manual" | "auto" | "imported";

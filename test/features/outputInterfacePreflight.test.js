@@ -8,6 +8,16 @@ const test = require("node:test");
 const root = path.join(__dirname, "../..");
 const schedulerRuntime = path.join(root, "dist/runtime/cluster_scheduler.py");
 
+function runPythonScript(script, options = {}) {
+  const scriptPath = path.join(os.tmpdir(), `output-interface-${process.pid}.py`);
+  fs.writeFileSync(scriptPath, script, "utf8");
+  try {
+    return spawnSync("python", [scriptPath], { encoding: "utf8", timeout: 10000, windowsHide: true, ...options });
+  } finally {
+    fs.rmSync(scriptPath, { force: true });
+  }
+}
+
 function write(relative, content) {
   return (project) => {
     const target = path.join(project, ...relative.split("/"));
@@ -49,6 +59,8 @@ test("scheduler accepts a configured run wrapper", () => {
   const result = spawnSync("python", [schedulerRuntime, "--validate-plan", "--plan", "experiments/plans/smoke.yaml"], {
     cwd: project,
     encoding: "utf8",
+    timeout: 10000,
+    windowsHide: true,
   });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const payload = JSON.parse(result.stdout);
@@ -68,6 +80,8 @@ test("scheduler accepts a direct AST-verified adapter call", () => {
   const result = spawnSync("python", [schedulerRuntime, "--validate-plan", "--plan", "experiments/plans/smoke.yaml"], {
     cwd: project,
     encoding: "utf8",
+    timeout: 10000,
+    windowsHide: true,
   });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const payload = JSON.parse(result.stdout);
@@ -92,11 +106,11 @@ test("dry-run worker temp cleanup only removes exact runtime-generated files", (
     "report = agent.cleanup_dry_run_worker_temp_files(root)",
     "print(json.dumps({'report': report, 'old': os.path.exists(old), 'new': os.path.exists(new), 'other': os.path.exists(other)}))",
   ].join("\n");
-  const result = spawnSync("python", ["-c", script], { encoding: "utf8" });
+  const result = runPythonScript(script);
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const payload = JSON.parse(result.stdout.trim().split(/\r?\n/).at(-1));
-  assert.equal(payload.report.removedCount, 1);
-  assert.equal(payload.old, false);
+  assert.equal(payload.report.removedCount, 0, "automatic cleanup must not delete without a path-specific confirmation");
+  assert.equal(payload.old, true);
   assert.equal(payload.new, true);
   assert.equal(payload.other, true);
 });
@@ -144,7 +158,7 @@ test("TensorBoard final scalars are converted to the standard result contract", 
     "csv_text = open('work_dirs/smoke/metrics_summary.csv', encoding='utf-8').read()",
     "print(json.dumps({'report': report, 'csv': csv_text, 'scalar_csv': open('work_dirs/smoke/tensorboard_scalars.csv', encoding='utf-8').read(), 'formal': open(formal, encoding='utf-8').read(), 'env': os.path.exists('work_dirs/smoke/env_snapshot.json'), 'config': os.path.exists('work_dirs/smoke/config_snapshot.yaml')}))",
   ].join("\n");
-  const result = spawnSync("python", ["-c", script], { cwd: project, encoding: "utf8", env: { ...process.env, PYTHONIOENCODING: "utf-8" } });
+  const result = runPythonScript(script, { cwd: project, env: { ...process.env, PYTHONIOENCODING: "utf-8" } });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const payload = JSON.parse(result.stdout.trim().split(/\r?\n/).at(-1));
   assert.equal(payload.report.ok, true);

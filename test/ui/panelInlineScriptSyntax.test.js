@@ -7,12 +7,9 @@ const { renderPanelRecoveryHtml } = require("../../dist/ui/PanelRecoveryHtml.js"
 
 test("panel inline script is valid JavaScript", () => {
   const html = renderPanelHtml();
-  const start = html.indexOf("<script");
-  assert.notEqual(start, -1);
-  const bodyStart = html.indexOf(">", start) + 1;
-  const end = html.indexOf("</script>", bodyStart);
-  assert.ok(end > bodyStart);
-  const script = html.slice(bodyStart, end);
+  const scripts = [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
+  const script = scripts.find((candidate) => candidate.includes("function renderGpuTensorboardControls(state)"));
+  assert.ok(script, "main panel script missing");
   assert.doesNotThrow(() => new vm.Script(script, { filename: "panel-inline.js" }));
   assert.match(html, /id="gpuTensorboardControls"/);
   assert.match(script, /function renderGpuTensorboardControls\(state\)/);

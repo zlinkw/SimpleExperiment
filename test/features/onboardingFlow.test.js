@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const ts = require("typescript");
 const { readSource } = require("../_helpers/sourceReader");
 
 const source = readSource("src/extension.ts");
@@ -26,10 +27,8 @@ function extractFunction(name) {
 function loadFlowHelpers() {
   const sandbox = {};
   vm.createContext(sandbox);
-  vm.runInContext(
-    `${extractFunction("runOnboardingSteps")}\n${extractFunction("createSingleFlightRunner")}\nthis.runSteps = runOnboardingSteps; this.createRunner = createSingleFlightRunner;`,
-    sandbox,
-  );
+  const selected = `${extractFunction("runOnboardingSteps")}\n${extractFunction("createSingleFlightRunner")}\nthis.runSteps = runOnboardingSteps; this.createRunner = createSingleFlightRunner;`;
+  vm.runInContext(ts.transpileModule(selected, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, sandbox);
   return sandbox;
 }
 

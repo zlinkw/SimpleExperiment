@@ -1,5 +1,6 @@
 import { ProgressInactivity } from "../core/ProgressInactivity";
 import { HostOperationLeaseManager } from "../core/HostOperationLease";
+import { atomicWriteText } from "../state/StateStore";
 import * as crypto from "crypto";
 import * as fs from "fs/promises";
 import * as fsNode from "fs";
@@ -77,17 +78,7 @@ async function writeCache(file: string, document: CacheDocument): Promise<void> 
   try { await pending; } finally { if (cacheWrites.get(key) === pending) cacheWrites.delete(key); }
 }
 async function writeCacheOwned(file: string, document: CacheDocument): Promise<void> {
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  // The target lease serializes writers. Reuse one staging slot after a failed
-  // rename instead of leaving a new UUID file on every retry; success consumes it.
-  const temp = `${file}.pending`;
-  const existing = await fs.lstat(temp).catch(error => {
-    if (error.code === "ENOENT") return undefined;
-    throw error;
-  });
-  if (existing && (!existing.isFile() || existing.isSymbolicLink())) throw new Error("Manifest staging path must be a regular file");
-  await fs.writeFile(temp, JSON.stringify(document), "utf8");
-  await fs.rename(temp, file);
+  await atomicWriteText(file, JSON.stringify(document));
 }
 
 export async function sha256File(file: string, signal?: AbortSignal, onBytes?: (bytes: number) => void): Promise<string> {

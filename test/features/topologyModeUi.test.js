@@ -41,13 +41,15 @@ test("stale result requests cannot repopulate caches after topology switch", () 
   const manualStart = extension.indexOf("async refreshResultsSummary(planHint");
   const realtimeStart = extension.indexOf("async refreshResultsSummaryFromRealtime");
   const manual = extension.slice(manualStart, extension.indexOf("scheduleResultsSummaryRefreshFromRealtime", manualStart));
-  const realtime = extension.slice(realtimeStart, extension.indexOf("async scheduleResultsSummaryBudgetRetryFromRealtime", realtimeStart));
-  for (const flow of [manual, realtime]) {
-    assert.match(flow, /const client = this\.client/);
-    assert.match(flow, /client\.getResultsSummary\(planFile\)/);
-    assert.match(flow, /client !== this\.client/);
-    assert.match(flow, /generation === this\.projectContextGeneration && client === this\.client/);
-  }
+  assert.match(manual, /const client = this\.client/);
+  assert.match(manual, /client\.getResultsSummary\(planFile,\s*\{\s*userInitiated:\s*true\s*\}\)/);
+  assert.match(manual, /client !== this\.client/);
+  assert.match(manual, /generation === this\.projectContextGeneration && client === this\.client/);
+
+  const realtime = extension.slice(realtimeStart, extension.indexOf("scheduleResultsSummaryBudgetRetryFromRealtime(", realtimeStart));
+  assert.match(realtime, /void reason/);
+  assert.match(realtime, /void dirtyKey/);
+  assert.doesNotMatch(realtime, /getResultsSummary\(|this\.resultsSummary\s*=/);
   const snapshotStart = extension.indexOf("async manualSnapshot()");
   const snapshot = extension.slice(snapshotStart, extension.indexOf("async manualGpuSnapshot()", snapshotStart));
   assert.match(snapshot, /const client = this\.client/);

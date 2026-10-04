@@ -15,13 +15,15 @@ export interface ProviderCommandDeps {
 
 export function resolveCommandHandlerMap(provider: Record<string, (...args: unknown[]) => unknown> | undefined): Record<string, (...args: unknown[]) => unknown> {
   if (!provider) return {};
-  // 映射与 extension.ts hostCommand 注册保持一致的子集（其余通过 CommandFactory 默认 handler 占位）
+  // 映射与 extension.ts hostCommand 注册保持一致；注册阶段会拒绝任何漏绑项。
   const map: Record<string, (...a: unknown[]) => unknown> = {};
   const bind = (cmdId: string, method: string) => {
     const fn = (provider as any)[method];
     if (typeof fn === "function") map[cmdId] = (...args: unknown[]) => (fn as any).apply(provider, args);
   };
   bind("simpleExperiment.openPanel", "openPanel");
+  bind("simpleExperiment.copyPanelDiagnostics", "copyPanelDiagnosticsFromUi");
+  bind("simpleExperiment.restorePanel", "restorePanelFromUi");
   bind("simpleExperiment.quickSetup", "quickSetup");
   bind("simpleExperiment.configureXshellSavedSessions", "configureXshellSavedSessions");
   bind("simpleExperiment.configureXshellAgentSessions", "configureXshellAgentSessions");
@@ -61,15 +63,8 @@ export function resolveCommandHandlerMap(provider: Record<string, (...args: unkn
 export function registerProviderCommands(deps: ProviderCommandDeps, vscodeContext: { subscriptions: { push(...args: unknown[]): unknown } } & Record<string, unknown>): unknown[] {
   // 委托给 CommandFactory.registerAll，保持编排与 extension.ts activate 中一致
   const handlerMap = resolveCommandHandlerMap(deps.provider);
-  // 将 handlerMap 注入到 factory 的 deps（CommandFactory 内部用 deps.handlerMap 覆盖默认 handler）
-  const factory = deps.commandFactory as unknown as Record<string, unknown>;
-  const originalDeps = (factory["deps"] as Record<string, unknown>) || {};
-  factory["deps"] = { ...originalDeps, handlerMap };
-  try {
-    return (factory["registerAll"] as (ctx: unknown, fc: unknown) => unknown[])(vscodeContext as unknown, deps.factoryContext);
-  } finally {
-    // 保持可重入
-  }
+  const factoryContext = { ...deps.factoryContext, handlerMap } as FactoryContext;
+  return (deps.commandFactory.registerAll as (ctx: unknown, fc: unknown) => unknown[])(vscodeContext as unknown, factoryContext);
 }
 
 export class ProviderCommands {

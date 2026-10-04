@@ -12,7 +12,8 @@ test("overwrite confirmation derives exact existing job directories from the sel
   assert.match(scheduler, /"existing": existing/);
   assert.match(extension, /await this\.confirmPlanExistingOutputs\(plan, body, preflightOk\)/);
   assert.match(extension, /validation\.existing/);
-  assert.match(extension, /覆盖范围仅为以下当前 Plan 的任务输出目录/);
+  assert.match(extension, /影响范围仅限当前 Plan/);
+  assert.match(extension, /scheduler 现有 overwriteExisting\/--overwrite 语义/);
   assert.doesNotMatch(extension, /const checkRoots = \["work_dirs"/);
 });
 

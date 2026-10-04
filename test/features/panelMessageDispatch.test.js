@@ -72,7 +72,8 @@ assert.match(handleMessageCore, /case "stopAndClearPlan"/);
 assert.match(handleMessageCore, /case "configureSessions"/);
 assert.ok(handleMessageCore.length > 8000, "handleMessageCore must stay complete");
 
-const factory = new Function(`
+const factory = new Function("OperationOutcome_1", `
+  function compactSensitiveText(value, max = 480) { return String(value || "").slice(0, max); }
   ${constants}
   ${helpers}
   const vscode = { window: { showInformationMessage() {}, showWarningMessage() { return Promise.resolve(); }, showErrorMessage() { return Promise.resolve(); } } };
@@ -81,7 +82,7 @@ const factory = new Function(`
   ${withUiCommandStatus}
   return { handleMessage, handleMessageCore, withUiCommandStatus, uiCommandWatchdogMs, postUiCommandStatus };
 `);
-const api = factory();
+const api = factory(require("../../dist/core/OperationOutcome.js"));
 
 function createHost(overrides = {}) {
   const calls = {
@@ -135,6 +136,7 @@ function createHost(overrides = {}) {
     handlePanelSectionInterest(message) { calls.interests.push(message); },
     recordPanelSectionTelemetry(message) { calls.performance.push(message); },
     recordPanelLifecycleDiagnostic(reason) { calls.lifecycleFailures.push(reason); },
+    recordPanelIncident() {},
     refreshPptAutomationReadiness() { return Promise.resolve(); },
     recordActionError(error) { calls.errors.push(error); },
     showPanelRecovery(message) { calls.recovery = message; },
@@ -144,6 +146,7 @@ function createHost(overrides = {}) {
       return operation();
     },
     finishPlanSubmissionProgress() {},
+    withSafeTransferRetry(_command, _message, work) { return work(); },
     runActionCommand(command) {
       calls.actions.push(command);
       return Promise.resolve();

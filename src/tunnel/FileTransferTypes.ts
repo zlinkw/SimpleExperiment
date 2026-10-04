@@ -1,5 +1,5 @@
 export type FileTransferDirection = "download" | "upload";
-export type FileTransferStatus = "queued" | "running" | "paused" | "completed" | "failed" | "cancelled";
+export type FileTransferStatus = "queued" | "running" | "cancelling" | "paused" | "completed" | "failed" | "cancelled" | "unknown";
 
 export interface FileTransferTask {
   transferId: string;
@@ -9,6 +9,7 @@ export interface FileTransferTask {
   size?: number;
   transferredBytes: number;
   status: FileTransferStatus;
+  remoteStatus?: string;
   startedAt?: string;
   finishedAt?: string;
   error?: string;

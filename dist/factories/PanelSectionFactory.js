@@ -19,28 +19,6 @@ function tryRequire(id) {
 function getSectionsMod() {
     return tryRequire("../ui/sections");
 }
-class BaseSection {
-    id;
-    order;
-    title;
-    icon;
-    clientEvents;
-    constructor(opts) {
-        this.id = opts.id;
-        this.order = opts.order;
-        this.title = opts.title;
-        this.icon = opts.icon;
-        this.clientEvents = opts.clientEvents;
-    }
-    renderHtml(_state) {
-        return `<section class="section-card" data-section="${this.id}" data-anchor="${this.id}"><div class="section-head"><div class="section-title"><h2>${this.title}</h2></div></div><div id="${this.id}Root" class="section-body"></div></section>`;
-    }
-    renderCss() { return ""; }
-    renderScript() {
-        return `function render${capitalize(this.id)}(state){ var el=document.querySelector('[data-section="${this.id}"]'); if(!el) return; }`;
-    }
-}
-function capitalize(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
 const SECTION_DEFS = [
     { id: "sync", order: 1, title: "运行环境准备", icon: "🔄" },
     { id: "plans", order: 2, title: "计划", icon: "📋" },
@@ -55,17 +33,32 @@ const SECTION_DEFS = [
     { id: "operations", order: 91, title: "操作", icon: "⚡" },
 ];
 function toPanelSection(s) {
+    if (!s || typeof s !== "object" || Array.isArray(s))
+        throw new Error("Panel section implementation is not an object.");
     const rec = s;
+    if (typeof rec.renderHtml !== "function" || typeof rec.renderCss !== "function" || typeof rec.renderScript !== "function")
+        throw new Error(`Panel section ${String(rec.id || "unknown")} is missing a required renderer.`);
+    if (typeof rec.id !== "string" || !SECTION_DEFS.some((item) => item.id === rec.id)
+        || !Number.isFinite(Number(rec.order)) || typeof rec.title !== "string")
+        throw new Error("Panel section metadata is invalid.");
     return {
         id: rec.id,
         order: rec.order,
         title: rec.title,
         icon: rec.icon || "",
         clientEvents: rec.clientEvents || undefined,
-        renderHtml: (state) => (typeof rec.renderHtml === "function" ? rec.renderHtml(state) : ""),
-        renderCss: () => (typeof rec.renderCss === "function" ? rec.renderCss() : ""),
-        renderScript: () => (typeof rec.renderScript === "function" ? rec.renderScript() : ""),
+        renderHtml: (state) => rec.renderHtml(state),
+        renderCss: () => rec.renderCss(),
+        renderScript: () => rec.renderScript(),
     };
+}
+function validateCustomSection(section, expectedId) {
+    if (!section || typeof section !== "object" || !SECTION_DEFS.some((item) => item.id === section.id)
+        || expectedId && section.id !== expectedId || !Number.isFinite(Number(section.order))
+        || typeof section.title !== "string" || typeof section.renderHtml !== "function"
+        || typeof section.renderCss !== "function" || typeof section.renderScript !== "function")
+        throw new Error(`Panel section ${expectedId || String(section?.id || "unknown")} is incomplete; refusing an empty renderer.`);
+    return section;
 }
 class DefaultPanelSectionFactory {
     escaper;
@@ -81,7 +74,7 @@ class DefaultPanelSectionFactory {
         // 1. 若 deps 中有定制 Section，优先使用
         const custom = this.deps["sections"]?.[id];
         if (custom)
-            return custom;
+            return validateCustomSection(custom, id);
         // 2. 尝试真实 Section（逐个导入/聚合导入）
         const sectionsMod = getSectionsMod();
         if (sectionsMod) {
@@ -97,31 +90,37 @@ class DefaultPanelSectionFactory {
                     return toPanelSection(found);
             }
         }
-        // 3. Fallback 到 BaseSection
-        return new BaseSection(def);
+        throw new Error(`Panel section ${id} implementation is unavailable; refusing to render an empty section.`);
     }
     createAll(_ctx) {
         // 优先尝试真实 Sections 聚合
         const sectionsMod = getSectionsMod();
         if (sectionsMod && typeof sectionsMod.createAllSections === "function") {
             const realSections = sectionsMod.createAllSections();
-            if (Array.isArray(realSections) && realSections.length >= 8) {
-                const mapped = realSections.map(toPanelSection);
-                // 合并 deps 定制覆盖（若有）
-                const customMap = this.deps["sections"] || {};
-                const merged = mapped.map((s) => customMap[s.id] || s);
-                // 若 customMap 中有额外 id，补充
-                for (const [k, v] of Object.entries(customMap)) {
-                    if (!merged.find((m) => m.id === k))
-                        merged.push(v);
-                }
-                return merged.sort((a, b) => a.order - b.order);
+            if (!Array.isArray(realSections))
+                throw new Error("Panel section bundle returned an invalid collection.");
+            const customMap = this.deps["sections"] || {};
+            const byId = new Map();
+            for (const item of realSections) {
+                const mapped = toPanelSection(item);
+                byId.set(mapped.id, mapped);
             }
+            for (const [id, section] of Object.entries(customMap))
+                byId.set(id, validateCustomSection(section, id));
+            const required = SECTION_DEFS.filter((item) => item.id !== "servers" && item.id !== "operations");
+            const missing = required.filter((item) => !byId.has(item.id)).map((item) => item.id);
+            if (missing.length)
+                throw new Error(`Panel section bundle missing implementations: ${missing.join(", ")}.`);
+            return [...byId.values()].sort((a, b) => a.order - b.order);
         }
-        // Fallback：BaseSection
         const customMap = this.deps["sections"] || {};
-        const sections = SECTION_DEFS.map((def) => customMap[def.id] || new BaseSection(def));
-        return sections.sort((a, b) => a.order - b.order);
+        for (const [id, section] of Object.entries(customMap))
+            validateCustomSection(section, id);
+        const required = SECTION_DEFS.filter((item) => item.id !== "servers" && item.id !== "operations");
+        const missing = required.filter((item) => !customMap[item.id]).map((item) => item.id);
+        if (missing.length)
+            throw new Error(`Panel section implementations unavailable: ${missing.join(", ")}.`);
+        return Object.values(customMap).sort((a, b) => a.order - b.order);
     }
     createByName(name, ctx) {
         const def = SECTION_DEFS.find((s) => s.id === name);

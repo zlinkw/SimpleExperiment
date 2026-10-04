@@ -1,9 +1,10 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.BoundedSseDecoder = exports.MAX_CONTROL_RESPONSE_BYTES = void 0;
+exports.BoundedSseDecoder = exports.MAX_SSE_EVENT_BYTES = exports.MAX_CONTROL_RESPONSE_BYTES = void 0;
 exports.readBoundedResponseText = readBoundedResponseText;
 /** Control-plane JSON/events only. File transfers use their existing streaming path. */
 exports.MAX_CONTROL_RESPONSE_BYTES = 32 * 1024 * 1024;
+exports.MAX_SSE_EVENT_BYTES = 1024 * 1024;
 async function readBoundedResponseText(response, onBytes, limit = exports.MAX_CONTROL_RESPONSE_BYTES) {
     const reader = response.body?.getReader();
     if (!reader)
@@ -29,8 +30,9 @@ async function readBoundedResponseText(response, onBytes, limit = exports.MAX_CO
         return Buffer.concat(chunks, received).toString("utf8");
     }
     finally {
+        // Cancellation must not hold the request slot if an upstream stream ignores cancel().
         if (!finished)
-            await reader.cancel().catch(() => undefined);
+            void reader.cancel().catch(() => undefined);
         reader.releaseLock();
     }
 }
@@ -39,7 +41,7 @@ class BoundedSseDecoder {
     limit;
     decoder = new TextDecoder();
     pending = "";
-    constructor(limit = exports.MAX_CONTROL_RESPONSE_BYTES) {
+    constructor(limit = exports.MAX_SSE_EVENT_BYTES) {
         this.limit = limit;
     }
     push(chunk) {

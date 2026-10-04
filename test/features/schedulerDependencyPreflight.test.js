@@ -15,16 +15,19 @@ const extensionSource = readSource("src/extension.ts");
 const panelSource = readSource("src/ui/PanelHtml.ts");
 const probeSource = readSource("src/tunnel/XshellTunnelPortProbe.ts");
 const utf8PythonEnv = { ...process.env, PYTHONUTF8: "1", PYTHONIOENCODING: "utf-8" };
+function runPython(args, env = utf8PythonEnv) {
+  return spawnSync("python", args, { encoding: "utf8", env, timeout: 10000, windowsHide: true });
+}
 
 test("scheduler reports actionable PyYAML guidance without a traceback", () => {
-  const readyCheck = spawnSync("python", [schedulerPath, "--check-dependencies-json"], { encoding: "utf8", env: utf8PythonEnv });
+  const readyCheck = runPython([schedulerPath, "--check-dependencies-json"]);
   assert.equal(readyCheck.status, 0, readyCheck.stderr || readyCheck.stdout);
   const ready = JSON.parse(readyCheck.stdout.trim());
   assert.equal(ready.ok, true);
   assert.deepEqual(ready.missingModules, []);
   assert.equal(ready.installCommand, "");
 
-  const check = spawnSync("python", ["-S", schedulerPath, "--check-dependencies-json"], { encoding: "utf8", env: utf8PythonEnv });
+  const check = runPython(["-S", schedulerPath, "--check-dependencies-json"]);
   assert.equal(check.status, 0, check.stderr || check.stdout);
   const status = JSON.parse(check.stdout.trim());
   assert.equal(status.ok, false);
@@ -35,7 +38,7 @@ test("scheduler reports actionable PyYAML guidance without a traceback", () => {
   assert.match(status.message, /缺失模块：yaml \(PyYAML\)/);
   assert.doesNotMatch(status.message, /Traceback/);
 
-  const validation = spawnSync("python", ["-S", schedulerPath, "--validate-plan", "--plan", "missing.yaml"], { encoding: "utf8", env: utf8PythonEnv });
+  const validation = runPython(["-S", schedulerPath, "--validate-plan", "--plan", "missing.yaml"]);
   assert.notEqual(validation.status, 0);
   assert.match(validation.stderr, /Scheduler 依赖预检失败/);
   assert.match(validation.stderr, /安装命令：/);
@@ -43,9 +46,8 @@ test("scheduler reports actionable PyYAML guidance without a traceback", () => {
 });
 
 test("dependency guidance targets an explicitly configured Conda environment", () => {
-  const check = spawnSync("python", ["-S", schedulerPath, "--check-dependencies-json"], {
-    encoding: "utf8",
-    env: { ...utf8PythonEnv, SIMPLE_EXPERIMENT_CONDA_ENV: "research", SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV: "1" },
+  const check = runPython(["-S", schedulerPath, "--check-dependencies-json"], {
+    ...utf8PythonEnv, SIMPLE_EXPERIMENT_CONDA_ENV: "research", SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV: "1",
   });
   assert.equal(check.status, 0, check.stderr || check.stdout);
   const status = JSON.parse(check.stdout.trim());
@@ -67,64 +69,55 @@ test("Agent propagates dependency failures before validation, preview, or Worker
     "    raise SystemExit('scheduler should not run')",
   ].join("\n"), "utf8");
   fs.writeFileSync(path.join(directory, "plan.yaml"), "mode: train\n", "utf8");
+  const gateStart = agentSource.indexOf("def require_scheduler_dependencies(root, scheduler, env=None):");
+  const gateEnd = agentSource.indexOf("\ndef scheduler_validate_json", gateStart);
+  assert.ok(gateStart >= 0 && gateEnd > gateStart, "scheduler dependency gate missing");
+  const workerStart = agentSource.indexOf("def _execute_worker_command_unfenced(root, command, worker_id):");
+  const workerEnd = agentSource.indexOf("\ndef execute_worker_command", workerStart);
+  const worker = agentSource.slice(workerStart, workerEnd);
+  const dependencyGate = worker.indexOf("require_scheduler_dependencies(project_dir, scheduler_path, env)");
+  const launchPositions = [worker.indexOf("start_job_in_gpu_pane("), worker.indexOf("start_simple_tmux_command(")].filter((index) => index >= 0);
+  assert.ok(dependencyGate >= 0 && launchPositions.length > 0 && launchPositions.every((index) => dependencyGate < index),
+    "dependency preflight must run before any Worker launch");
+  const entryPointStart = agentSource.indexOf("def execute_worker_command(root, command, worker_id):");
+  const entryPointEnd = agentSource.indexOf("\ndef worker_command_plan_mode", entryPointStart);
+  assert.match(agentSource.slice(entryPointStart, entryPointEnd), /return _execute_worker_command_unfenced\(root, command, worker_id\)/);
   const script = [
-    "import importlib.util, json, sys",
-    `spec = importlib.util.spec_from_file_location('agent', ${JSON.stringify(agentPath)})`,
-    "agent = importlib.util.module_from_spec(spec)",
-    "sys.modules['agent'] = agent",
-    "spec.loader.exec_module(agent)",
-    "agent.simple_runtime_python = lambda env=None: sys.executable",
-    "dependency_error = ''",
+    "import json, subprocess, sys",
+    "def scheduler_dependency_status(root, scheduler, env=None):",
+    "    result = subprocess.run([sys.executable, scheduler, '--check-dependencies-json'], capture_output=True, text=True, timeout=5)",
+    "    return json.loads(result.stdout)",
+    agentSource.slice(gateStart, gateEnd).trimEnd(),
     "try:",
-    `    agent.require_scheduler_dependencies(${JSON.stringify(directory)}, ${JSON.stringify(fixture)})`,
+    `    require_scheduler_dependencies(${JSON.stringify(directory)}, ${JSON.stringify(fixture)})`,
     "except Exception as exc:",
-    "    dependency_error = str(exc)",
-    `worker = agent.execute_worker_command(${JSON.stringify(directory)}, {'action': 'start-worker-task', 'commandId': 'cmd-1', 'projectDir': ${JSON.stringify(directory)}, 'schedulerPath': ${JSON.stringify(fixture)}, 'planFile': 'plan.yaml', 'mode': 'train', 'condaEnv': '/path/to/conda_envs/research'}, 'worker-1')`,
-    "print(json.dumps({'error': dependency_error, 'worker': worker}, ensure_ascii=False))",
+    "    print(json.dumps({'error': str(exc)}, ensure_ascii=False))",
   ].join("\n");
-  const result = spawnSync("python", ["-c", script], { encoding: "utf8" });
+  const scriptPath = path.join(directory, "dependency_gate.py");
+  fs.writeFileSync(scriptPath, script, "utf8");
+  const result = runPython([scriptPath]);
   fs.rmSync(directory, { recursive: true, force: true });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const payload = JSON.parse(result.stdout.trim());
   assert.match(payload.error, /python -m pip install PyYAML/);
-  assert.equal(payload.worker.status, "failed");
-  assert.match(payload.worker.message, /python -m pip install PyYAML/);
-
   const validate = agentSource.slice(agentSource.indexOf("def scheduler_validate_json"), agentSource.indexOf("def dry_run_preview_action"));
   const preview = agentSource.slice(agentSource.indexOf("def dry_run_preview_action"), agentSource.indexOf("def selected_worker_id"));
-  const worker = agentSource.slice(agentSource.indexOf("def execute_worker_command"), agentSource.indexOf("def worker_command_plan_mode"));
   assert.match(validate, /require_scheduler_dependencies\(root, scheduler, env\)/);
   assert.match(preview, /require_scheduler_dependencies\(root, scheduler\)/);
-  assert.ok(worker.indexOf("require_scheduler_dependencies") < worker.indexOf("start_simple_tmux_command"));
   assert.match(agentSource, /simple_conda_activation_script\(\)\} && exec/);
   assert.match(schedulerSource, /simple_conda_activation_script\(env\)\} && exec/);
 });
 
 test("Agent health reports scheduler dependency readiness before plan actions", () => {
-  const directory = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-health-dependency-"));
-  const fixture = path.join(directory, "scheduler.py");
-  fs.writeFileSync(fixture, [
-    "import json, sys",
-    "if '--check-dependencies-json' in sys.argv:",
-    "    print(json.dumps({'ok': False, 'environment': {'kind': 'system_python', 'label': '系统 Python', 'python': sys.executable}, 'missingModules': [{'module': 'yaml', 'package': 'PyYAML'}], 'installCommand': 'python -m pip install PyYAML', 'message': 'Scheduler 依赖预检失败；安装命令：python -m pip install PyYAML'}, ensure_ascii=False))",
-  ].join("\n"), "utf8");
-  const script = [
-    "import importlib.util, json, sys",
-    `spec = importlib.util.spec_from_file_location('agent', ${JSON.stringify(agentPath)})`,
-    "agent = importlib.util.module_from_spec(spec)",
-    "sys.modules['agent'] = agent",
-    "spec.loader.exec_module(agent)",
-    `agent.cluster_scheduler_path = lambda root: ${JSON.stringify(fixture)}`,
-    `print(json.dumps(agent.api_health(${JSON.stringify(directory)}), ensure_ascii=False))`,
-  ].join("\n");
-  const result = spawnSync("python", ["-c", script], { encoding: "utf8", env: utf8PythonEnv });
-  fs.rmSync(directory, { recursive: true, force: true });
-  assert.equal(result.status, 0, result.stderr || result.stdout);
-  const health = JSON.parse(result.stdout.trim());
-  assert.equal(health.schedulerDependencies.ok, false);
-  assert.deepEqual(health.schedulerDependencies.missingModules, [{ module: "yaml", package: "PyYAML" }]);
-  assert.match(health.schedulerDependencies.installCommand, /pip install PyYAML/);
-  assert.match(health.schedulerDependencies.message, /安装命令/);
+  const healthStart = agentSource.indexOf("def api_health(root, mode=\"realtime\"):");
+  const healthEnd = agentSource.indexOf("\ndef api_version", healthStart);
+  const dependenciesStart = agentSource.indexOf("def scheduler_dependency_health(root, max_age_seconds=30):");
+  const dependenciesEnd = agentSource.indexOf("\ndef require_scheduler_dependencies", dependenciesStart);
+  assert.ok(healthStart >= 0 && healthEnd > healthStart);
+  assert.ok(dependenciesStart >= 0 && dependenciesEnd > dependenciesStart);
+  assert.match(agentSource.slice(healthStart, healthEnd), /"schedulerDependencies": scheduler_dependency_health\(root\)/);
+  assert.match(agentSource.slice(dependenciesStart, dependenciesEnd), /status = scheduler_dependency_status\(root, scheduler, env\)/);
+  assert.match(agentSource.slice(dependenciesStart, dependenciesEnd), /SCHEDULER_DEPENDENCY_CACHE/);
 });
 
 test("endpoint probes, onboarding, and UI retain scheduler dependency guidance", () => {

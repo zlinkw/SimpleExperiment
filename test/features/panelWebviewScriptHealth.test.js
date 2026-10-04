@@ -20,18 +20,22 @@ function loadSourceRenderer() {
 
 const renderPanelHtml = loadSourceRenderer();
 
-function extractScript(html) {
-  const start = html.indexOf("<script");
-  const gt = html.indexOf(">", start);
-  const end = html.indexOf("</script>", gt);
-  assert.ok(start >= 0 && gt >= 0 && end > gt, "script tag missing");
-  return html.slice(gt + 1, end);
+function extractScripts(html) {
+  const scripts = [];
+  const expression = /<script\b[^>]*>([\s\S]*?)<\/script>/gi;
+  let match;
+  while ((match = expression.exec(html))) scripts.push(match[1]);
+  assert.ok(scripts.length, "script tag missing");
+  return scripts;
 }
 
 test("panel webview script parses and keeps config commands", () => {
   const html = renderPanelHtml();
-  const script = extractScript(html);
-  assert.doesNotThrow(() => new vm.Script(script, { filename: "panel-webview.js" }));
+  const scripts = extractScripts(html);
+  for (let index = 0; index < scripts.length; index += 1) {
+    assert.doesNotThrow(() => new vm.Script(scripts[index], { filename: `panel-webview-${index + 1}.js` }));
+  }
+  const script = scripts.join("\n");
   for (const command of [
     "configureSessions",
     "saveHubConfig",

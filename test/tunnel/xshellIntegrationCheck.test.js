@@ -13,6 +13,7 @@ test("xshell integration check produces layered report", async () => {
   await fs.writeFile(exe, "");
   const server = http.createServer((req, res) => {
     res.setHeader("Content-Type", "application/json");
+    res.setHeader("Connection", "close");
     if (req.url === "/api/health") return res.end(JSON.stringify({ schemaVersion: 1, agentVersion: "0.2.0", apiVersion: "1", mode: "realtime", startedAt: "x", serverTime: "x", uptimeSeconds: 1, projectRoot: "p", status: "ok" }));
     if (req.url === "/api/capabilities") return res.end(JSON.stringify({ schemaVersion: 1, apiVersion: "1", agentVersion: "0.2.0", endpoints: { health: true, snapshot: true, websocketEvents: false, sseEvents: true, logsTail: true, fileList: true, fileDownload: true, fileRangeDownload: true, fileUploadChunk: true, fileTransferStatus: true, actions: true }, limits: { maxUploadChunkBytes: 1024, maxConcurrentTransfers: 1 }, auth: { required: false, scheme: "none" } }));
     if (req.url === "/api/files/capabilities") return res.end(JSON.stringify({ schemaVersion: 1, rootPolicy: "project_root_only", supportsList: true, supportsStat: true, supportsDownload: true, supportsRangeDownload: true, supportsUploadChunk: true, supportsSha256: true, supportsResume: true, maxUploadChunkBytes: 1024, safeRoots: ["simple_cluster"] }));
@@ -44,8 +45,12 @@ test("xshell integration check produces layered report", async () => {
     assert.equal(result.report.overall, "ok");
     assert.equal(result.report.fileTransfer.downloadOk, true);
   } finally {
-    server.close();
+    await closeServer(server);
   }
 });
 
 function listen(server) { return new Promise((resolve) => server.listen(0, "127.0.0.1", resolve)); }
+async function closeServer(server) {
+  await new Promise((resolve) => server.close(resolve));
+  await new Promise((resolve) => setTimeout(resolve, 100));
+}

@@ -63,61 +63,99 @@ class DefaultRealtimeClientFactory {
         this.deps = deps;
     }
     createBudget(endpoint) {
+        if (!String(endpoint?.id || "").trim())
+            throw new Error("RequestBudget requires a configured endpoint id.");
         const mod = getRequestBudgetMod();
         if (mod?.RequestBudget) {
             const cfg = this.deps["requestBudgetConfig"] ?? mod.defaultRequestBudgetConfig;
             return new mod.RequestBudget(cfg);
         }
-        return { kind: "RequestBudget", endpointId: endpoint.id, consume: () => true, snapshot: () => ({}) };
+        throw new Error(`RequestBudget implementation unavailable for endpoint ${endpoint.id}; refusing an unbounded fallback.`);
     }
     createSingleClient(endpoint, budget, policy, onState) {
+        this.assertEndpoint(endpoint);
         const mod = getSingleClientMod();
         if (mod?.RealtimeTunnelClient) {
             return new mod.RealtimeTunnelClient(endpoint, budget, policy, onState);
         }
-        return { kind: "RealtimeTunnelClient", endpoint, budget, policy, onState, connect: async () => undefined, dispose() { } };
+        throw new Error(`RealtimeTunnelClient implementation unavailable for endpoint ${String(endpoint.id || "unknown")}.`);
     }
     createMultiClient(endpoints, budgetFactory, policy, onState) {
+        if (!Array.isArray(endpoints) || !endpoints.length)
+            throw new Error("MultiEndpointRealtimeClient requires at least one configured endpoint.");
+        for (const endpoint of endpoints)
+            this.assertEndpoint(endpoint);
         const mod = getMultiClientMod();
         if (mod?.MultiEndpointRealtimeClient) {
             const effPolicy = policy ?? resolvePolicyForProfile("realtime");
             const handler = onState ?? (() => undefined);
             return new mod.MultiEndpointRealtimeClient(endpoints, budgetFactory, effPolicy, handler);
         }
-        return {
-            kind: "MultiEndpointRealtimeClient",
-            endpoints,
-            policy: policy ?? resolvePolicyForProfile("realtime"),
-            connect: async () => undefined,
-            dispose() { },
-        };
+        throw new Error(`MultiEndpointRealtimeClient implementation unavailable for ${endpoints.length} configured endpoint(s).`);
     }
     policyForProfile(profile) {
         return resolvePolicyForProfile(profile);
     }
-    createAll(_ctx) {
-        const policy = this.policyForProfile("realtime");
-        const dummyEndpoint = { id: "hub", role: "hub", localHost: "127.0.0.1", localPort: 0 };
-        const budget = this.createBudget(dummyEndpoint);
-        return [
-            budget,
-            this.createSingleClient(dummyEndpoint, budget, policy, () => undefined),
-            this.createMultiClient([dummyEndpoint], () => budget, policy, () => undefined),
-        ];
+    createAll(ctx) {
+        const endpoints = this.configuredEndpoints(ctx);
+        const policy = this.policyForProfile(String(ctx["refreshProfile"] || this.deps["refreshProfile"] || "realtime"));
+        const onState = (ctx["onRealtimeState"] || this.deps["onState"] || (() => undefined));
+        return [this.createMultiClient(endpoints, (endpoint) => this.createBudget(endpoint), policy, onState)];
     }
-    createByName(name, _ctx) {
-        const policy = this.policyForProfile("realtime");
-        const dummyEndpoint = { id: "hub", role: "hub", localHost: "127.0.0.1", localPort: 0 };
+    createByName(name, ctx) {
+        const policy = this.policyForProfile(String(ctx["refreshProfile"] || this.deps["refreshProfile"] || "realtime"));
         const map = {
-            budget: () => this.createBudget(dummyEndpoint),
-            singleClient: () => this.createSingleClient(dummyEndpoint, this.createBudget(dummyEndpoint), policy, () => undefined),
-            multiClient: () => this.createMultiClient([dummyEndpoint], (e) => this.createBudget(e), policy, () => undefined),
+            budget: () => this.createBudget(this.configuredEndpoint(ctx)),
+            singleClient: () => {
+                const endpoint = this.configuredEndpoint(ctx);
+                return this.createSingleClient(endpoint, this.createBudget(endpoint), policy, this.stateHandler(ctx));
+            },
+            multiClient: () => this.createMultiClient(this.configuredEndpoints(ctx), (e) => this.createBudget(e), policy, this.stateHandler(ctx)),
             policyRealtime: () => this.policyForProfile("realtime"),
             policyBalanced: () => this.policyForProfile("balanced"),
             policyManual: () => this.policyForProfile("manual_only"),
         };
         const fn = map[name];
         return fn ? fn() : undefined;
+    }
+    configuredEndpoints(ctx) {
+        const candidate = this.deps["endpoints"] ?? ctx["realtimeEndpoints"] ?? ctx["endpoints"];
+        if (!Array.isArray(candidate) || !candidate.length)
+            throw new Error("RealtimeClientFactory needs endpoints resolved from the user's tunnel configuration.");
+        const endpoints = candidate.map((value) => this.assertEndpoint(value));
+        if (new Set(endpoints.map((endpoint) => endpoint.id)).size !== endpoints.length)
+            throw new Error("Realtime endpoint ids must be unique.");
+        return endpoints;
+    }
+    configuredEndpoint(ctx) {
+        const explicit = this.deps["endpoint"] ?? ctx["realtimeEndpoint"] ?? ctx["endpoint"];
+        if (explicit)
+            return this.assertEndpoint(explicit);
+        const endpoints = this.configuredEndpoints(ctx);
+        const id = String(ctx["endpointId"] ?? this.deps["endpointId"] ?? "");
+        const selected = id ? endpoints.find((row) => row.id === id) : endpoints.length === 1 ? endpoints[0] : undefined;
+        if (!selected)
+            throw new Error("A specific configured endpoint is required when creating a single tunnel client or budget.");
+        return selected;
+    }
+    stateHandler(ctx) {
+        const handler = ctx["onRealtimeState"] ?? this.deps["onState"];
+        return typeof handler === "function" ? handler : () => undefined;
+    }
+    assertEndpoint(value) {
+        if (!value || typeof value !== "object" || !String(value.id || "").trim() || !["hub", "worker"].includes(value.role))
+            throw new Error("Tunnel endpoint requires a stable id and supported role.");
+        const localHost = String(value.localHost || "").trim();
+        const localPort = Number(value.localPort);
+        const remoteHost = String(value.remoteHost || "").trim();
+        const remotePort = Number(value.remotePort);
+        if (!localHost || !Number.isInteger(localPort) || localPort < 1 || localPort > 65535
+            || !remoteHost || !Number.isInteger(remotePort) || remotePort < 1 || remotePort > 65535)
+            throw new Error(`Tunnel endpoint ${value.id} is missing its configured local/remote host or port.`);
+        const gateway = getTunnelGateway();
+        if (gateway?.localBaseUrl)
+            gateway.localBaseUrl({ localHost, localPort });
+        return { ...value, localHost, localPort, remoteHost, remotePort };
     }
 }
 exports.DefaultRealtimeClientFactory = DefaultRealtimeClientFactory;

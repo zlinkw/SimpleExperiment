@@ -12,11 +12,10 @@ function renderPanelHtmlFromSource(source) {
 }
 
 function extractScript(html) {
-  const start = html.indexOf("<script");
-  const gt = html.indexOf(">", start);
-  const end = html.indexOf("</script>", gt);
-  assert.ok(start >= 0 && gt >= 0 && end > gt, "script tag missing");
-  return html.slice(gt + 1, end);
+  const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
+  const script = scripts.find((value) => value.includes("function uniqueText") && value.includes("function planOutputCandidates"));
+  assert.ok(script, "panel implementation script missing");
+  return script;
 }
 
 const panelScript = extractScript(renderPanelHtmlFromSource(panel));

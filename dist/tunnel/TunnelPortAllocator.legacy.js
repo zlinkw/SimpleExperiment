@@ -23,6 +23,7 @@ async function allocateTunnelPorts(request, probe = () => "available", now = new
         autoStart: TunnelPortConflict_1.defaultTunnelPorts.hubLocalPort,
         source: request.hub.requestedLocalPort ? "manual" : existing.get("hub") ? "imported" : "auto",
         allowOutsideWorkerRange: true,
+        localForwardHost: request.hub.localForwardHost || existing.get("hub")?.localForwardHost || "127.0.0.1",
     });
     assignments.push({
         endpointId: "hub",
@@ -30,9 +31,9 @@ async function allocateTunnelPorts(request, probe = () => "available", now = new
         displayName: request.hub.displayName,
         remoteHostLabel: request.hub.host,
         sshConfigAlias: request.hub.sshConfigAlias,
-        localForwardHost: "127.0.0.1",
+        localForwardHost: request.hub.localForwardHost || existing.get("hub")?.localForwardHost || "127.0.0.1",
         localForwardPort: hubPort,
-        remoteBindHost: "127.0.0.1",
+        remoteBindHost: request.hub.remoteBindHost || existing.get("hub")?.remoteBindHost || "127.0.0.1",
         remoteServicePort: normalizeServicePort(request.hub.remoteAgentPort, TunnelPortConflict_1.defaultTunnelPorts.defaultHubAgentPort),
         assignedAt: existing.get("hub")?.assignedAt || now,
         source: request.hub.requestedLocalPort ? "manual" : existing.get("hub")?.source || "auto",
@@ -55,6 +56,7 @@ async function allocateTunnelPorts(request, probe = () => "available", now = new
             autoStart: nextWorkerPort,
             source: requested ? "manual" : previous ? "imported" : "auto",
             allowOutsideWorkerRange: false,
+            localForwardHost: worker.localForwardHost || previous?.localForwardHost || "127.0.0.1",
             enabled: worker.enabled,
         });
         if (assigned === TunnelPortConflict_1.defaultTunnelPorts.hubLocalPort && worker.enabled) {
@@ -66,9 +68,9 @@ async function allocateTunnelPorts(request, probe = () => "available", now = new
             displayName: worker.displayName,
             remoteHostLabel: worker.host,
             sshConfigAlias: worker.sshConfigAlias,
-            localForwardHost: "127.0.0.1",
+            localForwardHost: worker.localForwardHost || previous?.localForwardHost || "127.0.0.1",
             localForwardPort: assigned,
-            remoteBindHost: "127.0.0.1",
+            remoteBindHost: worker.remoteBindHost || previous?.remoteBindHost || "127.0.0.1",
             remoteServicePort: normalizeServicePort(worker.remoteTelemetryPort, TunnelPortConflict_1.defaultTunnelPorts.defaultWorkerTelemetryPort),
             assignedAt: previous?.assignedAt || now,
             source: requested ? "manual" : previous?.source || "auto",
@@ -96,6 +98,8 @@ function allocationRequestFromAssignments(assignments) {
             displayName: hub?.displayName,
             sshConfigAlias: hub?.sshConfigAlias,
             host: hub?.remoteHostLabel || "hub",
+            localForwardHost: hub?.localForwardHost,
+            remoteBindHost: hub?.remoteBindHost,
             requestedLocalPort: hub?.localForwardPort,
             remoteAgentPort: hub?.remoteServicePort || TunnelPortConflict_1.defaultTunnelPorts.defaultHubAgentPort,
         },
@@ -104,6 +108,8 @@ function allocationRequestFromAssignments(assignments) {
             displayName: worker.displayName,
             sshConfigAlias: worker.sshConfigAlias,
             host: worker.remoteHostLabel,
+            localForwardHost: worker.localForwardHost,
+            remoteBindHost: worker.remoteBindHost,
             requestedLocalPort: worker.localForwardPort,
             remoteTelemetryPort: worker.remoteServicePort,
             enabled: true,
@@ -170,10 +176,11 @@ async function reservePort(options) {
         selected += 1;
     }
     for (;;) {
-        const occupancy = enabled ? await options.probe(selected, options.endpointId) : "available";
+        const bindHost = String(options.localForwardHost || "127.0.0.1").trim() || "127.0.0.1";
+        const occupancy = enabled ? await options.probe(selected, options.endpointId, bindHost) : "available";
         if (occupancy === "available" || occupancy === "current_tunnel")
             break;
-        options.conflicts.push((0, TunnelPortConflict_1.makeTunnelPortConflict)(options.endpointId, selected, occupancy === "existing_tunnel" ? "occupied_by_existing_tunnel" : "occupied_by_unknown_process", occupancy === "existing_tunnel" ? "warning" : "error", `127.0.0.1:${selected} is occupied by ${occupancy === "existing_tunnel" ? "another tunnel" : "an unknown process"}.`, "Use Repair Port Conflicts or stop the process using that port."));
+        options.conflicts.push((0, TunnelPortConflict_1.makeTunnelPortConflict)(options.endpointId, selected, occupancy === "existing_tunnel" ? "occupied_by_existing_tunnel" : "occupied_by_unknown_process", occupancy === "existing_tunnel" ? "warning" : "error", `${bindHost}:${selected} is occupied by ${occupancy === "existing_tunnel" ? "another tunnel" : "an unknown process"}.`, "Use Repair Port Conflicts or stop the process using that port."));
         selected += 1;
         while (options.used.has(selected) || !isValidCandidate(selected, options.role, options.range, options.allowOutsideWorkerRange))
             selected += 1;

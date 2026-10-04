@@ -11,7 +11,7 @@ test("workflow completion does not auto-scroll and manual navigation stays avail
   assert.match(html, /function scrollMainColumnToSection\(next\)/);
   assert.doesNotMatch(html, /navigateToResourceTarget\(submittedTarget\./);
   assert.match(html, /navigateToResourceTarget\(treeTarget\.dataset\.sectionTarget, treeTarget\.dataset\.anchorTarget\)/);
-  assert.match(html, /latestNavigationMessage\.userInitiated === true/);
+  assert.match(html, /item\.userInitiated === true \|\| item\.openResultMapping === true/);
 });
 
 test("Host completion navigation does nothing; an explicit navigation click still opens the requested section", async () => {

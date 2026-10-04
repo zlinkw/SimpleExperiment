@@ -2,6 +2,8 @@ import * as crypto from "crypto";
 import * as fs from "fs";
 import * as http from "http";
 import * as path from "path";
+import { atomicWriteText } from "../state/StateStore";
+import { operationOutcomeFor } from "../core/OperationOutcome";
 
 const LOOPBACK_REMOTE_ADDRESSES = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
 const DEFAULT_MAX_EVENTS = 64;
@@ -55,8 +57,8 @@ interface LocalApiServerOptions {
   sseTimeoutMs?: number;
   scalarViewer?: {
     html: string;
-    query: (params: ApiParams, endpointId: string) => Promise<unknown>;
-    native: (method: string, route: string, body: Buffer | undefined, contentType: string, endpointId: string) => Promise<{ status: number; body: Buffer; contentType: string }>;
+    query: (params: ApiParams, endpointId: string, context: ApiHandlerContext) => Promise<unknown>;
+    native: (method: string, route: string, body: Buffer | undefined, contentType: string, endpointId: string, context: ApiHandlerContext) => Promise<{ status: number; body: Buffer; contentType: string }>;
   };
 }
 
@@ -85,28 +87,55 @@ function normalParams(value: unknown): ApiParams {
   return value && typeof value === "object" && !Array.isArray(value) ? value as ApiParams : {};
 }
 
-function readJsonBody(request: http.IncomingMessage): Promise<ApiParams> {
+function readJsonBody(request: http.IncomingMessage, signal?: AbortSignal): Promise<ApiParams> {
+  return readBoundedRequestBody(request, signal).then((bytes) => {
+    try {
+      const parsed = bytes.length ? JSON.parse(bytes.toString("utf8")) : {};
+      return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as ApiParams : {};
+    } catch (error) {
+      throw new LocalApiError(-32700, "Parse error", { detail: error instanceof Error ? error.message : String(error) });
+    }
+  });
+}
+
+function readBoundedRequestBody(request: http.IncomingMessage, signal?: AbortSignal): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let size = 0;
-    request.on("data", (chunk: Buffer) => {
+    let settled = false;
+    const cleanup = () => {
+      request.removeListener("data", onData);
+      request.removeListener("end", onEnd);
+      request.removeListener("error", onError);
+      request.removeListener("aborted", onAborted);
+      signal?.removeEventListener("abort", onSignalAbort);
+    };
+    const finish = (error?: unknown, value?: Buffer) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      if (error) reject(error);
+      else resolve(value || Buffer.alloc(0));
+    };
+    const onData = (chunk: Buffer) => {
       size += chunk.length;
       if (size > MAX_BODY_BYTES) {
-        reject(new LocalApiError(413, "PAYLOAD_TOO_LARGE"));
+        finish(new LocalApiError(413, "PAYLOAD_TOO_LARGE"));
         request.destroy();
         return;
       }
       chunks.push(chunk);
-    });
-    request.on("end", () => {
-      try {
-        const parsed = chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : {};
-        resolve(parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as ApiParams : {});
-      } catch (error) {
-        reject(new LocalApiError(-32700, "Parse error", { detail: error instanceof Error ? error.message : String(error) }));
-      }
-    });
-    request.on("error", reject);
+    };
+    const onEnd = () => finish(undefined, Buffer.concat(chunks, size));
+    const onError = (error: Error) => finish(error);
+    const onAborted = () => finish(new Error("Request body was disconnected before completion."));
+    const onSignalAbort = () => finish(signal?.reason instanceof Error ? signal.reason : new Error("Request cancelled."));
+    request.on("data", onData);
+    request.once("end", onEnd);
+    request.once("error", onError);
+    request.once("aborted", onAborted);
+    signal?.addEventListener("abort", onSignalAbort, { once: true });
+    if (signal?.aborted) onSignalAbort();
   });
 }
 
@@ -166,6 +195,7 @@ export class LocalApiServer {
   private server?: http.Server;
   private port = 0;
   private startedAt = "";
+  private stoppedAt = "";
   private disposed = false;
   private scalarViewer?: LocalApiServerOptions["scalarViewer"];
   private viewerTickets = new Map<string, { expires: number; endpointId: string }>();
@@ -345,27 +375,54 @@ export class LocalApiServer {
       return sendJson(response, 200, { ok: true, epoch: this.viewerEpoch, version: this.version });
     const origin = String(request.headers.origin || "");
     if (request.method === "POST" && origin !== `http://${this.host}:${this.port}`) return sendJson(response, 403, { error: "INVALID_ORIGIN" });
+    const beginRequestScope = () => {
+      const controller = new AbortController();
+      const onDisconnect = () => {
+        if (!response.writableEnded && !controller.signal.aborted)
+          controller.abort(new Error("TensorBoard viewer disconnected."));
+      };
+      request.once("aborted", onDisconnect);
+      response.once("close", onDisconnect);
+      return {
+        signal: controller.signal,
+        dispose: () => {
+          request.removeListener("aborted", onDisconnect);
+          response.removeListener("close", onDisconnect);
+        },
+      };
+    };
     if (pathname === "/tensorboard/api" && request.method === "POST") {
-      const params = normalParams(await readJsonBody(request));
+      const scope = beginRequestScope();
       try {
-        sendJson(response, 200, await this.scalarViewer.query(params, requestedEndpoint));
+        const params = normalParams(await readJsonBody(request, scope.signal));
+        if (scope.signal.aborted) return;
+        const result = await this.scalarViewer.query(params, requestedEndpoint, { signal: scope.signal });
+        if (!scope.signal.aborted && !response.destroyed) sendJson(response, 200, result);
       } catch (error) {
-        sendJson(response, 502, { error: error instanceof Error ? error.message : String(error), retryAfterMs: Number((error as any)?.decision?.retryAfterMs || 0) });
+        if (!scope.signal.aborted && !response.destroyed)
+          sendJson(response, 502, { error: error instanceof Error ? error.message : String(error), retryAfterMs: Number((error as any)?.decision?.retryAfterMs || 0) });
+      } finally {
+        scope.dispose();
       }
       return;
     }
     if (pathname.startsWith("/api/tensorboard/ui") && (request.method === "GET" || request.method === "POST")) {
-      const body = request.method === "POST" ? await new Promise<Buffer>((resolve, reject) => {
-        const chunks: Buffer[] = [];
-        let size = 0;
-        request.on("data", (chunk: Buffer) => { size += chunk.length; if (size > MAX_BODY_BYTES) reject(new Error("PAYLOAD_TOO_LARGE")); else chunks.push(chunk); });
-        request.on("end", () => resolve(Buffer.concat(chunks)));
-        request.on("error", reject);
-      }) : undefined;
-      url.searchParams.delete("server");
-      const result = await this.scalarViewer.native(request.method, url.pathname + url.search, body, String(request.headers["content-type"] || ""), requestedEndpoint);
-      response.writeHead(result.status, { "Content-Type": result.contentType, "Content-Length": result.body.length, "Cache-Control": "no-store" });
-      response.end(result.body);
+      const scope = beginRequestScope();
+      try {
+        const body = request.method === "POST" ? await readBoundedRequestBody(request, scope.signal) : undefined;
+        if (scope.signal.aborted) return;
+        url.searchParams.delete("server");
+        const result = await this.scalarViewer.native(request.method, url.pathname + url.search, body,
+          String(request.headers["content-type"] || ""), requestedEndpoint, { signal: scope.signal });
+        if (scope.signal.aborted || response.destroyed) return;
+        response.writeHead(result.status, { "Content-Type": result.contentType, "Content-Length": result.body.length, "Cache-Control": "no-store" });
+        response.end(result.body);
+      } catch (error) {
+        if (!scope.signal.aborted && !response.destroyed)
+          sendJson(response, 502, { error: error instanceof Error ? error.message : String(error) });
+      } finally {
+        scope.dispose();
+      }
       return;
     }
     sendJson(response, 404, { error: "NOT_FOUND" });
@@ -408,9 +465,12 @@ export class LocalApiServer {
       }
       const code = Number(error instanceof LocalApiError ? error.apiCode : (error as { apiCode?: unknown })?.apiCode) || -32000;
       const message = error instanceof Error ? error.message : String(error);
-      const data = error instanceof LocalApiError && error.apiData !== undefined
+      const originalData = error instanceof LocalApiError && error.apiData !== undefined
         ? error.apiData
-        : { method: payload.method };
+        : undefined;
+      const data = originalData && typeof originalData === "object" && !Array.isArray(originalData)
+        ? { ...(originalData as Record<string, unknown>), method: payload.method, operationOutcome: operationOutcomeFor(error) }
+        : { method: payload.method, ...(originalData !== undefined ? { detail: originalData } : {}), operationOutcome: operationOutcomeFor(error) };
       sendJson(response, 200, rpcError(id, code, message, data));
     } finally {
       response.removeListener("close", onResponseClosed);
@@ -646,35 +706,26 @@ export class LocalApiServer {
       token: this.token,
       pid: process.pid,
       startedAt: this.startedAt,
+      status: this.disposed ? "stopped" : "running",
+      ...(this.stoppedAt ? { stoppedAt: this.stoppedAt } : {}),
     };
   }
 
   private async writeDiscovery(): Promise<void> {
     if (!this.discoveryPath) return;
-    fs.mkdirSync(path.dirname(this.discoveryPath), { recursive: true });
-    const temp = `${this.discoveryPath}.${process.pid}.tmp`;
-    fs.writeFileSync(temp, `${JSON.stringify(this.discovery(), null, 2)}\n`, "utf8");
-    fs.renameSync(temp, this.discoveryPath);
-  }
-
-  private removeDiscovery(): void {
-    if (!this.discoveryPath) return;
-    try {
-      const current = JSON.parse(fs.readFileSync(this.discoveryPath, "utf8")) as { pid?: unknown };
-      if (Number(current.pid) === process.pid) fs.unlinkSync(this.discoveryPath);
-    } catch {
-      // The discovery file is best effort and may already be gone.
-    }
+    await atomicWriteText(this.discoveryPath, `${JSON.stringify(this.discovery(), null, 2)}\n`);
   }
 
   async dispose(): Promise<void> {
     if (this.disposed) return;
     this.disposed = true;
+    this.stoppedAt = new Date().toISOString();
     for (const closeStream of [...this.sseClosers]) closeStream();
     this.sseClosers.clear();
-    this.removeDiscovery();
-    if (!this.server) return;
-    await new Promise<void>((resolve) => this.server?.close(() => resolve()));
+    let discoveryError: unknown;
+    try { await this.writeDiscovery(); } catch (error) { discoveryError = error; }
+    if (this.server) await new Promise<void>((resolve) => this.server?.close(() => resolve()));
+    if (discoveryError) throw discoveryError;
   }
 }
 

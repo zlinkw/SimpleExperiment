@@ -1,7 +1,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { RequestBudget, RequestBudgetDeniedError, defaultRequestBudgetConfig } = require("../../dist/tunnel/RequestBudget.js");
+const { RequestBudget, RequestBudgetCoordinator, RequestBudgetDeniedError, defaultRequestBudgetConfig } = require("../../dist/tunnel/RequestBudget.js");
 const { defaultTunnelGatewayConfig, normalizeTunnelGatewayConfig, refreshProfiles, requestBudgetConfigFromTunnel } = require("../../dist/tunnel/TunnelGateway.js");
 
 test("legacy quotas and cooldowns no longer reject requests; explicit pause and hidden remain", async () => {
@@ -124,6 +124,105 @@ test("request budget avoids rescanning or shifting the rolling event window", ()
   assert.match(source, /private allowedEventCount = 0/);
   assert.match(source, /private deniedEventCount = 0/);
   assert.doesNotMatch(source, /this\.events\.shift\(\)|this\.events\.filter\(|\[\.\.\.this\.events\]\.reverse\(\)/);
+});
+
+test("request diagnostics keep only bounded event samples and time buckets", async () => {
+  const budget = new RequestBudget(defaultRequestBudgetConfig);
+  for (let index = 0; index < 1000; index += 1) await budget.run("health", async () => undefined);
+  assert.ok(budget.events.length - budget.eventStart <= 256);
+  assert.ok(budget.eventBuckets.length - budget.eventBucketStart <= 61);
+  assert.ok(budget.events.length <= 600);
+  assert.ok(budget.eventBuckets.length <= 100);
+  assert.equal(budget.snapshot().requestsLastMinute, 1000);
+});
+
+test("shared coordinator enforces per-worker and global request and transfer limits", async () => {
+  const coordinator = new RequestBudgetCoordinator({
+    maxConcurrentRequestsPerWorker: 2,
+    maxConcurrentRequestsGlobal: 3,
+    maxConcurrentTransfersPerWorker: 1,
+    maxConcurrentTransfersGlobal: 2,
+    maxConcurrentEmergencyRequests: 1,
+    maxQueuedRequests: 12,
+  });
+  const makeBudget = (scope) => {
+    const budget = new RequestBudget(defaultRequestBudgetConfig);
+    budget.attachCoordinator(coordinator, scope);
+    return budget;
+  };
+  const firstWorker = makeBudget("worker-a");
+  const secondWorker = makeBudget("worker-b");
+  const started = [];
+  const release = new Map();
+  const work = (name, budget, purpose = "snapshot") => budget.run(purpose, () => new Promise((resolve) => {
+    started.push(name);
+    release.set(name, resolve);
+  }));
+
+  const pending = [
+    work("a1", firstWorker), work("a2", firstWorker), work("b1", secondWorker), work("b2", secondWorker),
+  ];
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(started, ["a1", "a2", "b1"]);
+  assert.equal(firstWorker.snapshot().inFlight, 2);
+  assert.equal(secondWorker.snapshot().queued, 1);
+  assert.equal(coordinator.globalInFlight, 3);
+
+  release.get("a1")("a1");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(started, ["a1", "a2", "b1", "b2"]);
+  for (const finish of release.values()) finish("done");
+  await Promise.all(pending);
+
+  const transferA = work("ta1", firstWorker, "file_transfer");
+  const transferAQueued = work("ta2", firstWorker, "file_transfer");
+  const transferB = work("tb1", secondWorker, "file_transfer");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.deepEqual(started.slice(-2), ["ta1", "tb1"]);
+  assert.equal(firstWorker.snapshot().queued, 1);
+  assert.equal(firstWorker.snapshot().transferInFlight, 2);
+  release.get("ta1")("done");
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(started.at(-1), "ta2");
+  release.get("ta2")("done");
+  release.get("tb1")("done");
+  await Promise.all([transferA, transferAQueued, transferB]);
+});
+
+test("stop and reconciliation use reserved capacity; queued reads honor cancellation", async () => {
+  const coordinator = new RequestBudgetCoordinator({
+    maxConcurrentRequestsPerWorker: 1,
+    maxConcurrentRequestsGlobal: 1,
+    maxConcurrentTransfersPerWorker: 1,
+    maxConcurrentTransfersGlobal: 1,
+    maxConcurrentEmergencyRequests: 1,
+    maxQueuedRequests: 4,
+  });
+  const budget = new RequestBudget(defaultRequestBudgetConfig);
+  budget.attachCoordinator(coordinator, "worker");
+  let releaseNormal;
+  const normal = budget.run("snapshot", () => new Promise((resolve) => { releaseNormal = resolve; }));
+  await new Promise((resolve) => setImmediate(resolve));
+  const controller = new AbortController();
+  let staleReadStarted = false;
+  const staleRead = budget.run("snapshot", async () => { staleReadStarted = true; }, { signal: controller.signal });
+  await new Promise((resolve) => setImmediate(resolve));
+  assert.equal(budget.snapshot().queued, 1);
+  controller.abort();
+  await assert.rejects(staleRead, (error) => error.name === "AbortError");
+  assert.equal(budget.snapshot().queued, 0);
+  assert.equal(staleReadStarted, false);
+
+  const stop = budget.run("stop", async () => "stopped", { userInitiated: true });
+  assert.equal(await stop, "stopped");
+  assert.equal(budget.snapshot().emergencyInFlight, 0);
+  releaseNormal("done");
+  await normal;
+  assert.ok(budget.snapshot().queueWaitMsLast >= 0);
+  budget.noteCoalescedRequest();
+  budget.noteRetry();
+  assert.equal(budget.snapshot().coalescedRequests, 1);
+  assert.equal(budget.snapshot().retries, 1);
 });
 
 test("tunnel gateway defaults and realtime refresh policy match the current contract", () => {

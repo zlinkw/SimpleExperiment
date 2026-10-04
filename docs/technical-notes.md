@@ -843,7 +843,7 @@ Plan 工作台与项目入口读取同一个当前 Plan 运行时契约状态。
 
 `生成 Plan 模板` 采用插件调度主格式：`suite / base_config / mode / seeds / paper / runner / naming / cases`。存在多个训练或评估入口时必须先明确选择，不会静默使用扫描到的第一个脚本。生成建议前会静态读取入口中的 `argparse.add_argument`、`click.option` 与 `typer.Option` 声明，只加入脚本真实声明的 config、seed、output、result、case、suite 和 worker 参数；不会导入或执行项目代码，也不会再向所有脚本强行注入一组假定参数。未识别的位置参数、配置参数或结果参数会直接显示在命令确认提示中，必须由用户确认或补齐。若入口命令要求 `{config}` 但项目未发现配置，必须先创建并选择真实配置；命令完全不使用配置时，插件会生成一个真实的最小 YAML 以满足调度契约，不再写入不存在的占位路径。确认评估命令后还会单独确认该命令实际生成的最终结果文件；插件会从用户最终填写的结果参数、输出目录或重定向路径重新推断，不再沿用修改命令前的初始建议。写入前会显示最终确认摘要，包括 Plan 路径、1 case × 1 seed 的任务数、基础配置、训练/评估入口、完整命令、结果路径，以及从配置中静态读取的 epoch、step、iteration 和训练样本限制。文件名或参数没有明确小规模线索时会显示警告；该检查只用于防止误启动完整训练，不会把静态线索当作实验已经安全或成功的证据。确认的项目内相对结果路径会同时写入 `paper.result_csv` 和首个 case 的 `expectedResults`；case 还会显式写入与原调度默认值完全一致的 `outputDir`。因此提交确认、调度工作目录、输出契约检查和结果解析读取同一组路径，后续增加 case 或 seed 时也能直接看到每个任务的目录模板。绝对路径、越界路径和不支持的扩展名会被阻止。手写或外部导入的计划可以继续使用 `experiments`，但建议把每个实验迁移成 `cases` 条目，并把随机种子统一放入顶层 `seeds`。调度 runtime 会同时识别当前实验条目第一层的 `case`、`name`、`id`，即使这些字段不是列表项第一行也能作为 case 名登记；`expectedResults` 内部的 `id` 不会被误当成实验 case，YAML flow map 写法也可识别。没有真实 case 时，插件不会为了凑 case 去全文件扫描 `id/name`，因此结果对象里的 `id` 只会作为结果说明。调度 runtime 允许 case 级覆盖 `base_config`、`config`、`outputDir/output_dir` 和 `runner` 命令，也支持顶层或 case 级 `command` 简写。case 级 `command` 会覆盖顶层训练命令；同一 case 内显式 `train_command` 或 `runner.train_command` 优先于 `command`。case 级 `base_config/config` 字符串、输出目录和 runner 命令都可以使用 `{suite}`、`{case}`、`{seed}`、`{config}`、`{base_config_path}`、`{resultCsv}` 等模板变量。这样同一个计划中可以混合多个配置文件、多个输出目录和不同训练命令，不会把所有实验错误套用顶层配置。本地 Plan 门禁与 Scheduler 使用相同配置来源规则，顶层内联配置、case 级配置文件和 case 级内联配置不会再被误报为缺少 `base_config/config`；界面会明确显示“Plan 内联配置”或“case 级配置”，不会拿项目扫描到的其他配置冒充当前 Plan 配置。
 
-新建 Plan 时先选择“训练并评估”“仅训练”或“仅评估”。`train_test` 要求训练和评估命令，`train` 只要求训练命令，`test` 只要求评估命令；最终结果路径始终从实际最后执行的命令确认。Hub 校验、Dry-run、scheduler 和 Worker 会从 Plan 读取同一 `mode`，不会执行未选择阶段的入口。缺少 `mode` 的旧 Plan 继续按 `train_test` 处理。
+新建指标 Plan 时可选择“训练并评估”“仅训练”或“仅评估”。`train_test` 要求训练和评估命令，`train` 只要求训练命令，`test` 只要求评估命令。mode 省略时由 Hub、Dry-run、Scheduler 和 Worker 根据实际命令推断；两个阶段命令都存在时为 `train_test`。不会执行推断模式之外的入口。
 
 文件名中的 `smoke`、`debug`、`tiny` 只作为提示，不会单独解除规模警告；只有可静态确认的小 epoch、step、iteration 或样本限制才会降低警告级别。
 
@@ -851,12 +851,12 @@ Plan 工作台与项目入口读取同一个当前 Plan 运行时契约状态。
 
 入口命令使用 `{result_csv}` 但没有提供固定结果文件时，引导默认建议 `{output_dir}/metrics_summary.csv` 或对应 JSON/TXT/LOG 文件，而不是项目级共享 CSV。矩阵 Plan 生成器和预置项目模板也使用同一 per-job 路径。首个单任务行为不变；以后增加 case 或 seed 时，每个任务仍写入自己的 job 输出目录，避免并发覆盖和跨任务结果混合。命令已经明确固定文件时继续尊重原路径，并在最终确认窗口要求用户核对。
 
-运行实验前插件会执行两级“输出接口预检”。Extension 侧先检查输出闭环声明；代码同步后，Scheduler 在 validate-plan 和 dry-run-plan 中再次用 Python AST 检查真实入口命令。只有以下至少一种接口通过验证才允许运行：`experiments/simple_adapter/run_wrapper.py` 包裹命令、入口代码显式调用 `collect_outputs(...)` 或 `write_metrics_summary(...)`，或使用 TensorBoard `SummaryWriter` 且远端安装 `tensorboard`。单独声明 `result_csv` / `output_dir` / `expectedResults` 只能说明预期位置，不再被当作可执行捕获机制。这样可避免实验跑完后没有可解析结果、质量门禁和论文证据链。
+运行实验前，Extension 与 Scheduler 都检查 Plan 的输出契约。指标实验继续要求可解析的结果接口，可选择 `run_wrapper`、显式 adapter 调用或 TensorBoard。通用命令 Plan 可以省略配置文件和指标接口，但必须声明 `runner.outputs`；Scheduler 检查路径边界、输入存在性，并在命令成功后确认声明的产物已经生成。通用产物不会自动变成指标或论文证据。省略 `mode` 时按实际训练/评估命令推断；未声明 seeds 时使用一个 seed `42` 和 `baseline` case。
 
 运行门禁在 UI 和 Extension 中使用同一组中文检查项，避免按钮看似可用但后台被阻断：
 
-- `接入配置`：需要存在 `experiments/simple_project.yaml`、插件生成的接入配置，或当前 plan 中有明确可解析输出声明。
-- `计划输出`：需要在 plan 中声明 `paper.result_csv`、`runner.test_command` 的结果文件、`expectedResults`、标准结果文件或控制台捕获；单独 `output_dir` 不算通过。
+- `接入配置`：指标采集需要存在 `experiments/simple_project.yaml`、插件生成的接入配置，或当前 Plan 中的可解析输出声明；通用任务使用 `runner.outputs` 即可调度。
+- `计划输出`：指标 Plan 需要声明可解析候选；通用 Plan 需要声明 `runner.outputs`。单独 `output_dir` 不算产物声明。
 - `候选结果规则`：需要至少一种候选 CSV / JSON / 控制台日志 / 文本 summary / `metricRegex` 捕获规则。
 - `标准结果契约`：推荐使用 `metrics_summary.csv`、`metrics_case.csv` 或输出接入模板；`artifact_manifest.json`、`env_snapshot.json`、`config_snapshot.yaml` 只作为运行与环境证据，不能单独充当实验结果。
 - `解析预览`：只表示已有结果是否能解析出指标。首次运行尚无结果时，只要当前 Plan 或接入规则已经声明可解析结果位置，就不会因缺少预览而阻断。

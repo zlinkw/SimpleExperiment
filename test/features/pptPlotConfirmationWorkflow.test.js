@@ -24,6 +24,10 @@ function loadHelpers() {
     path,
     process,
     uniqueStrings(values) { return [...new Set(values.filter(Boolean))]; },
+    writeAtomicPluginStateJson: async (file, value) => {
+      await fs.promises.mkdir(path.dirname(file), { recursive: true });
+      await fs.promises.writeFile(file, JSON.stringify(value, null, 2) + "\n", "utf8");
+    },
   };
   vm.createContext(sandbox);
   vm.runInContext(source.slice(start, end) + "\nthis.api = { PROJECT_PPT_PATH_CONFIRMATIONS_PATH, PPT_PLOT_REQUEST_AUDIT_DIR, PPT_CHART_TYPE_LABELS, PPT_STYLE_MODE_LABELS, normalizePptPathConfirmationTarget, mergePptPathConfirmations, pptPathTargetConfirmed, pptPlotConfirmationDetail, pptPlotAuditRelativePath, readProjectPptPathConfirmationsState, writeProjectPptPathConfirmationsState };", sandbox);
@@ -50,7 +54,8 @@ test("PPT target confirmations are project-local, path-specific, and resettable"
   assert.equal(loaded.length, 1);
   assert.equal(loaded[0].key, first.key);
   await helpers.writeProjectPptPathConfirmationsState(root, []);
-  assert.equal(fs.existsSync(file), false);
+  assert.equal(fs.existsSync(file), true);
+  assert.equal((await helpers.readProjectPptPathConfirmationsState(root)).length, 0);
 });
 
 test("PPT confirmation shows plan revision, final sources, contract, and target", () => {
@@ -92,20 +97,20 @@ test("PPT success audit paths stay inside the current project", () => {
 });
 
 test("plotting confirmation precedes PPT automation and keeps Debug blocked", () => {
-  const handler = source.slice(source.indexOf("async confirmPptPlotTarget"), source.indexOf("async saveProjectAdapterRulesFromUi"));
-  assert.ok(handler.indexOf("confirmPptPlotTarget(input)") < handler.indexOf("new PptPlotBridge_1.PptPlotBridge().plot(input)"));
-  assert.match(handler, /if \(target\.presentationPath\)\s*input\.presentationPath = target\.presentationPath/);
+  const handler = source.slice(source.indexOf("async plotResultsToPptFromUi"), source.indexOf("async saveProjectAdapterRulesFromUi"));
+  assert.ok(handler.indexOf("confirmPptPlotTarget(input)") < handler.indexOf("new PptPlotBridge_1.PptPlotBridge().plot(input, signal)"));
   const confirmation = source.match(/async confirmPptPlotTarget\(input\)[\s\S]*?async plotResultsToPptFromUi/)?.[0] || "";
+  assert.match(confirmation, /if \(target\.presentationPath\)\s*input\.presentationPath = target\.presentationPath/);
   assert.match(confirmation, /const generation = this\.projectContextGeneration/);
   assert.ok([...confirmation.matchAll(/generation !== this\.projectContextGeneration \|\| root !== workspaceRoot\(\)/g)].length >= 2);
   assert.match(confirmation, /if \(generation === this\.projectContextGeneration && root === workspaceRoot\(\)\)\s*this\.postState\(true\)/);
-  assert.match(handler, /未调用 PPT 插件，也未写入绘图请求审计/);
+  assert.match(confirmation, /未调用 PPT 插件，也未写入绘图请求审计/);
   assert.match(handler, /打开请求审计/);
   assert.match(handler, /打开响应审计/);
   assert.match(handler, /pptPlotAuditRelativePath\(root, result\.requestPath\)/);
   assert.match(handler, /pptPlotAuditRelativePath\(root, result\.responsePath\)/);
   assert.match(handler, /openWorkspaceFile\(auditPath\)/);
-  assert.match(handler, /const generation = this\.projectContextGeneration/);
+  assert.match(handler, /const projectContext = this\.captureProjectContext\(\);[\s\S]*?const generation = projectContext\.generation/);
   assert.ok([...handler.matchAll(/generation !== this\.projectContextGeneration \|\| root !== workspaceRoot\(\)/g)].length >= 5);
   assert.match(handler, /\.then\(\(choice\) => \{\s*if \(generation !== this\.projectContextGeneration \|\| root !== workspaceRoot\(\)\)\s*return undefined/);
   assert.match(handler, /if \(generation === this\.projectContextGeneration && root === workspaceRoot\(\)\)\s*void vscode\.window\.showErrorMessage/);

@@ -5,8 +5,8 @@ const { renderPanelHtml } = require("../../dist/ui/PanelHtml.js");
 
 test("result mapping opens in the result area with column examples and optional fields", () => {
   const html = renderPanelHtml();
-  const scriptStart = html.indexOf(">", html.indexOf("<script")) + 1;
-  const script = html.slice(scriptStart, html.indexOf("</script>", scriptStart));
+  const script = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((match) => match[1])
+    .find((candidate) => candidate.includes("function renderResultColumnMappingEditor(")) || "";
   const start = script.indexOf("function renderResultColumnMappingEditor(");
   const end = script.indexOf("\n    function ", start + 1);
   assert.ok(start >= 0 && end > start);

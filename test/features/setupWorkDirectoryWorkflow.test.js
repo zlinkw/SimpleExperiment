@@ -25,7 +25,7 @@ test("quick setup writes current-project profiles to the public SimpleSFTP locat
   assert.match(source, /targets\.some\(\(target\) => target\.id === existingActiveServerId\)/);
   assert.match(source, /source: "simple-experiment"/);
   assert.match(source, /updatedBy: "simple-experiment"/);
-  assert.match(source, /await fs\.rename\(temp, file\)/);
+  assert.match(source, /await atomicWriteText\(file, payload\)/);
   assert.match(source, /const profileResult = await this\.writeSftpManagerServerProfiles\(\)/);
   assert.match(source, /已生成 \$\{profileResult\.targetCount\} 个当前项目 SimpleSFTP 目标/);
 });

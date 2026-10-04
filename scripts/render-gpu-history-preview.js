@@ -104,16 +104,17 @@ function buildPreviewState() {
 
 function renderPreviewHtml() {
   const stateJson = JSON.stringify(buildPreviewState()).replace(/</g, "\\u003c");
-  const vscodeStub = `const vscode = {
+  const vscodeStub = `api = {
       postMessage(message) { window.__simpleExperimentPreviewMessages.push(message); },
       getState() { return null; },
       setState() {}
     };`;
   let html = renderPanelHtml();
-  if (!html.includes("const vscode = acquireVsCodeApi();")) {
+  const apiBootstrap = "api = acquireVsCodeApi();\n        window.__simplePanelVsCodeApi = api;";
+  if (!html.includes(apiBootstrap)) {
     throw new Error("Panel HTML no longer contains the expected VS Code API bootstrap");
   }
-  html = html.replace("const vscode = acquireVsCodeApi();", vscodeStub);
+  html = html.replace(apiBootstrap, `${vscodeStub}\n        window.__simplePanelVsCodeApi = api;`);
   html = html.replace("</head>", `<style data-preview-theme>${PREVIEW_THEME}</style></head>`);
   html = html.replace("</body>", `<script data-preview-bootstrap>
     window.__simpleExperimentPreviewMessages = [];

@@ -32,8 +32,8 @@ test("stop never trusts caller PID and legacy admin routes cannot execute broad 
   assert.doesNotMatch(stop, /payload\.get\("pid"\)|payload\.get\("tmuxSession"\)/);
   assert.match(stop, /process_start_identity\(before\["checkedPid"\]\) != expected_pid_start/);
 
-  const routeStart = source.indexOf("# Keep the legacy endpoint name, but require the same exact operation/Plan identity");
-  const routeEnd = source.indexOf("allowed = ACTION_ROUTES", routeStart);
+  const routeStart = source.indexOf("if route in (\"/api/admin/kill-stale-runtime\", \"/api/admin/exec\"):");
+  const routeEnd = source.indexOf("if route.startswith(\"/api/files/\"):", routeStart);
   assert.ok(routeStart >= 0 && routeEnd > routeStart);
   const route = source.slice(routeStart, routeEnd);
   assert.match(route, /route == "\/api\/admin\/exec"/);

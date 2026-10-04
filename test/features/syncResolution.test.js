@@ -21,7 +21,7 @@ test("local deletion script enters exact parent before shortest literal child de
   const script = localDeleteScript("D:\\project", "results/a.bin");
   assert.match(script, /Set-Location -LiteralPath 'D:\\project\\results'/);
   assert.match(script, /PARENT_CD_FAILED/);
-  assert.match(script, /Remove-Item -LiteralPath '\.\\a\.bin'/);
+  assert.ok(script.includes("Remove-Item -LiteralPath './a.bin'"));
   assert.doesNotMatch(script, /Remove-Item -LiteralPath 'D:\\project/);
   assert.throws(() => safeSyncPath("../escape"), /不安全/);
 });

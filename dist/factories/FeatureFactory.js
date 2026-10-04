@@ -33,7 +33,7 @@ class GenericFeatureHandler {
     impl;
     constructor(kind, impl) {
         this.kind = kind;
-        this.impl = impl || (async (args) => ({ kind, args, ok: true }));
+        this.impl = impl;
     }
     async execute(args, ctx) {
         return this.impl(args, ctx);
@@ -124,12 +124,14 @@ class DefaultFeatureFactory {
                         || rec[`${kind}Handler`];
                     if (typeof fn === "function")
                         return fn(args, ctx);
-                    return { kind, args, delegatedTo: hint, ok: true };
+                    throw new Error(`Feature ${kind} module ${hint} has no executable handler.`);
                 });
             }
         }
         if (!handler)
-            handler = new GenericFeatureHandler(kind);
+            handler = new GenericFeatureHandler(kind, async () => {
+                throw new Error(`Feature ${kind} is unavailable; no implementation module was loaded.`);
+            });
         this.cache.set(kind, handler);
         return handler;
     }

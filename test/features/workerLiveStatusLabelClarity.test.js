@@ -7,9 +7,11 @@ const { readSource } = require("../_helpers/sourceReader");
 const panel = readSource("src/ui/PanelHtml.ts");
 
 test("task timeline labels Worker live status without changing task status logic", () => {
-  assert.match(panel, /const workerLiveStatus = rawWorkerLiveStatus \? labelStatus\(rawWorkerLiveStatus\) : "等待推送"/);
-  assert.match(panel, /\["Worker 观测", workerLiveStatus, workerLiveDetail, row\.workerTelemetryWarning \? "warn" : "info"\]/);
-  assert.match(panel, /Agent 原始状态：/);
+  const livePillsStart = panel.indexOf("function taskLivePills(row)");
+  const livePills = panel.slice(livePillsStart, panel.indexOf("function taskCardClass", livePillsStart));
+  assert.match(livePills, /TASK_LIVE_STATUS_TOKENS\?\.has\(taskStatusToken\(String\(\(row \|\| \{\}\)\.status \|\| ""\)\)\)/);
+  assert.match(livePills, /const worker = \(row \|\| \{\}\)\.serverId/);
+  assert.doesNotMatch(livePills, /workerLiveStatus/);
   assert.match(panel, /taskCardClass\(row\.status\)/);
 });
 

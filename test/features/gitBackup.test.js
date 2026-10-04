@@ -142,7 +142,8 @@ test("卸载纯插件 hook：文件被删除", () => {
 
   const result = uninstallBackupHook(repo);
   assert.equal(result.changed, true);
-  assert.equal(fs.existsSync(installed.hookPath), false, "无其他内容时应删除文件");
+  assert.equal(fs.existsSync(installed.hookPath), true, "保留 Git hook 文件以避免插件删除用户文件");
+  assert.equal(fs.readFileSync(installed.hookPath, "utf8"), "#!/bin/sh\n");
 });
 
 test("卸载未安装的 hook：changed=false", () => {

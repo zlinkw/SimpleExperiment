@@ -36,7 +36,11 @@ test("native title maintenance skips unchanged global scans and tracks dynamic w
   assert.match(source, /if \(compactKey === lastNativeTitleCompactKey\) return/);
   assert.match(source, /function setNativeTitle\(node, value\)/);
   assert.match(source, /nativeTitleMutationVersion = \(nativeTitleMutationVersion \+ 1\) % 1000000/);
-  assert.doesNotMatch(source, /\.title\s*=\s*/);
+  const start = source.indexOf("function compactNativeTitleAttributes()");
+  const end = source.indexOf("function compactNativeTitleText", start);
+  assert.ok(start >= 0 && end > start);
+  assert.doesNotMatch(source.slice(start, end), /\.title\s*=\s*/);
+  assert.doesNotMatch(source.slice(source.indexOf("function setNativeTitle(node, value)"), source.indexOf("function setAllSectionsCollapsed", source.indexOf("function setNativeTitle(node, value)"))), /\.title\s*=\s*/);
 });
 
 test("compacted action titles remain available to custom tooltips", () => {

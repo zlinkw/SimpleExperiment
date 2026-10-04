@@ -2,8 +2,8 @@
 
 > 保存日期：2026-10-03（Asia/Shanghai）。
 > 本文为用户确认的完整合并版：全插件源码对照计划 + 长期灰屏专项 + Luna 执行交接。
-> 文档最初仅保存计划；2026-10-03 用户授权开始执行。本轮承接工作区内尚未提交的安全重试批次。
-> 执行状态：批次 0 deferred（按用户指示暂跳过 `planStopClear.test.js`；不得重跑该超时进程）；批次 1 的本地测试通过，SimpleSFTP 子仓库提交已推送。现场传输验证与发布门禁保留。
+> 文档最初仅保存计划；2026-10-03 用户授权开始执行。本轮继续推进代码实现。
+> 执行状态：批次 1–8 的计划内源码实现已落地并完成静态回检，尚未完成统一回归验收。批次 0 此前出现的测试超时在本轮按用户最新要求重新检查后不再复现，`planStopClear.test.js` 现为 33/33；已修复测试切片和 mock 与当前实现脱节的问题，并补上底层请求取消原因传播。`tunnelClient.test.js` 5/5、build、内联脚本健康检查及 `vm.Script` 通过。SimpleSFTP 版本组合、现场验收和 8 小时 soak 仍待后续，不得据此宣称全部运行风险已经排除。
 
 **补充结论：目前不能确认长期灰屏已经解决。审查时 0.5.215 的通信和渲染 ACK 正常，但 ACK 不能证明最终画面已经正确显示。**
 
@@ -49,6 +49,7 @@
 - 文件记录必须携带项目、operation、run、attempt、用途和规范路径；禁止通过字符串包含关系推断归属。
 - 活跃任务、未确认停止任务、未发布事务和可恢复传输的文件始终受保护。
 - 停止接口只接受可验证的项目、commandId、PID 启动身份或精确 tmux 身份；空参数不得扩大停止范围。
+- 停止调度后 Worker task 还必须匹配目标 run 的 `workflowId/runId`；同 Plan 的其他 run 保留，缺少 run 身份的活动 task 作为未核实证据返回。孤儿 scheduler tmux 回收限定为本次已验证的 session，不再按整个 `-sch-` 前缀扫描。
 - 清理失败如实报告，不能返回成功。
 - 完整文件/目录清理统一经过现有路径安全门禁和确认流程；历史文件先预览，永久删除仍需完整路径两次确认。
 
@@ -416,7 +417,7 @@ bootstrap 独占 `acquireVsCodeApi()`，通过明确接口供主程序使用；�
 
 ## 7. 给 Luna 的执行交接与防误改说明
 
-本节补充执行细节，不替换或削减第 1–6 节要求。用户本次仅要求保存文档；收到后续实施指令后，才开始批次 0。不要因为读到本文件就自动安装插件、启动实验、停止现场任务或清理文件。
+本节补充执行细节，不替换或削减第 1–6 节要求。用户已授权按本文开始实现；测试/构建、安装、实验、停止现场任务和清理等各自门槛仍按本文及项目约束执行。
 
 ### 7.1 先确认实际工作树，避免把旧计划当作当前事实
 
@@ -436,9 +437,9 @@ bootstrap 独占 `acquireVsCodeApi()`，通过明确接口供主程序使用；�
 - `src/core/SimpleSftpProgressWait.ts`、`src/extension/legacy.ts`、`src/ui/PanelHtml.legacy.ts` 的修改。
 - 对应新增测试及若干旧 fixture 更新；部分 `dist` 已生成，但最新源码修改尚未完成最终门禁。
 
-历史验证记录为：安全重试相关独立用例、build 和 vm.Script 门禁通过；`test/features/planStopClear.test.js` 中 `stopping during a hung fingerprint cancels that submission and a new one can enqueue` 在约 20015ms 超时，其余 32 条通过。用户已指示暂时跳过该测试并继续；本轮不重跑，也不把批次 0 标记为通过。
+历史验证记录为：安全重试相关独立用例、build 和 vm.Script 门禁通过；`test/features/planStopClear.test.js` 中 `stopping during a hung fingerprint cancels that submission and a new one can enqueue` 曾在约 20015ms 超时，其余 32 条通过。2026-10-04 用户要求重新检查失败项后，该用例在 75ms 内通过；本轮进一步修复旧测试切片只读取 bootstrap 脚本、消息 mock 缺少当前依赖和队列写入 mock 未模拟固定 `.writing` 槽的问题，整文件现为 33/33。
 
-**不得假设只是 fixture 问题，也不得假设生产代码已正确。** 先静态追踪等待、取消和资源释放链，构造可控、局部的定位证据。遵守项目“超时停止、不重试”的规定；不要原样重复运行碰运气，不延长超时、不删除失败用例、不关闭并发保护来过关。用户允许本轮暂跳该测试，故批次 0 标记为 deferred；其余独立批次继续实施，最终明确列出该未验证项。
+**不得假设只是 fixture 问题，也不得假设生产代码已正确。** 先静态追踪等待、取消和资源释放链，构造可控、局部的定位证据。遵守项目“超时停止、不重试”的规定；不要为碰运气原样重复运行，不延长超时、不删除失败用例、不关闭并发保护来过关。本轮发现一个真实生产问题：共享 Worker task 请求的最后一个订阅者取消时，取消原因未传到实际 fetch signal；已修正并由 `planStopClear.test.js`、`tunnelClient.test.js` 验证。原超时用例经当前源码和隔离 fixture 复核后通过，批次 0 可从 deferred 更新为 passed；旧超时记录保留为历史。
 
 两个用户 dirty `.pyc` 必须保留。保存本计划前的 SHA256 为：
 
@@ -479,7 +480,7 @@ bootstrap 独占 `acquireVsCodeApi()`，通过明确接口供主程序使用；�
 ### 7.5 批次验证及外部依赖规则
 
 - 先 `rg --files test` 定位实际文件；下面名称用于导航，不保证未来路径不变。
-- 批次 0/1 优先：`safeRequestRetry`、`planSafeRetry`、`safeRetryFeedback`、`duplicatePlanSubmissionGuard`、`planSubmissionOwnerReconcile`、`planSubmissionVisiblePreflight`；`planStopClear` 按用户指示暂跳且不得重跑本次超时进程，保留未验证记录。
+- 批次 0/1 优先：`safeRequestRetry`、`planSafeRetry`、`safeRetryFeedback`、`duplicatePlanSubmissionGuard`、`planSubmissionOwnerReconcile`、`planSubmissionVisiblePreflight`、`planStopClear`。`planStopClear.test.js` 已在 2026-10-04 回检通过 33/33；其历史超时仅保留作记录。
 - 队列/结果优先：`distributedPlanQueue`、`distributedQueueStartup`、`distributedRerunAndWorkerDelta`、`pendingResultMetricSync`、`projectResultSyncCompleteness`、`projectResultTables`、`runCompletionResultRefresh`、日志身份相关用例。
 - Panel 优先：`panelLifecycleDiagnostics`、`panelMessageDispatch`、`panelStaleDocumentHandshake`、`panelStateProjection`、`planSelectorStatus`、`panelProgressDom`、`panelRenderHealth`、`panelStateFlowControl`、`panelStateProgress`、`panelLifetimeRecovery`、`panelUnknownHealthRecovery`、`panelWebviewScriptHealth`、`panelBootstrapRecovery`。
 - 逐文件使用 `node --test --test-force-exit --test-timeout 20000 <单个文件>`。禁止同时运行 Node/Python 测试，禁止一开始跑宽泛 `npm test`。
@@ -499,21 +500,57 @@ bootstrap 独占 `acquireVsCodeApi()`，通过明确接口供主程序使用；�
 
 | 批次 | 状态 | 最新证据 / commit | 剩余门槛 |
 |---|---|---|---|
-| 0 | deferred | `planStopClear.test.js` 32/33，单项约 20 秒超时；用户指示暂跳并继续，按 P0 不重跑 | 该项保持未验证；不阻断独立批次 |
-| 1 | passed | SimpleSFTP `b2e39f9` 已推送至 `origin/master`；SFTP 回执/流关闭测试通过；主仓安全重试测试、build、vm.Script 通过 | 两插件组合的真实传输/重试验收与最终版本打包安装 |
-| 2 | passed | `9d15ef7` 已推送 `origin/master`；`schedulerAtomicWrite` 1/1、`schedulerStateCleanupOwnership` 2/2、`stopSchedulerIdentity` 2/2、`abortSchedulerStopRouting` 5/5、`tmuxCloseRuntime` 1/1、`cacheCleanupPanel` 1/1；build、vm.Script、生成 Agent/Scheduler AST 通过 | 真实 Worker 路径和双确认 UI 操作留待重载后的现场验收；`planStopClear.test.js` 保持 deferred |
-| 3 | passed | commit `22d12add`；`ProjectResultPublication` 支持 SHA256 校验的多文件暂存、失败回滚/崩溃恢复、注册表最后提交及 generation 冲突拒绝；`projectResultPublication` 6/6、`projectResultTables` 18/18、`projectResultSyncCompleteness` 16/16、`pendingResultMetricSync` 26/26、`runCompletionResultRefresh` 1/1，build、Panel inline `vm.Script` 门禁通过 | 双窗口竞争与 Extension Host 崩溃恢复留待现场验证；批次 0 的 `planStopClear.test.js` 仍按用户指示 deferred |
-| 4 | running | SSE 子批次 `02d1a3db`、RPC 取消 `fac2dbe4`、SSE 异常清理 `f392be06` 已推送；`localApiSseBackpressure` 3/3、`journalGapSnapshot` 1/1、`localApiRequestCancellation` 1/1、`localApi` 28/28、build 与 Panel `vm.Script` 通过。请求预算实现及 `requestBudget` 11/11 已验证；`multiEndpointRealtimeClient.test.js` 集成用例超时，前置并发断言通过；清理循环已修正，因 P0 未重跑，修订版仍未验证 | 请求预算集成用例保持未验证；Agent HTTP/SSE 压力待处理；现场压力测试待 Extension Host 可用 |
-| 5 | pending | 未执行 | Panel 计算与生命周期 |
-| 5A | pending | 未执行 | 灰屏证据、bootstrap、原生恢复 |
-| 5B | pending | 未执行 | 隐藏释放与资源回收 |
-| 6 | pending | 未执行 | 压缩分批、断点恢复与发布 |
-| 7 | pending | 未执行 | 通知、更新与附属窗口 |
-| 8 | pending | 未执行 | 接入契约及架构边界 |
+| 0 | passed | 2026-10-04 `node --test --test-force-exit --test-timeout 20000 test/features/planStopClear.test.js` 33/33；之前超时的取消/重提用例约 75ms 完成；`test/tunnel/tunnelClient.test.js` 5/5 验证最后订阅者取消原因到达 Worker fetch | 不代表批次 1 的 SimpleSFTP 版本组合或远端未知结果已验收 |
+| 1 | running | SimpleSFTP `b2e39f9` 历史验证结果保留；主仓 `OperationQueue` 超时/取消改为 `cancelling`，只有底层 Promise settle 后才释放 exclusive key，避免 abort/timeout 早到时并发重启；Agent 上传增加按 clientTransferId/目标路径匹配的 upload-cancel settle 回执，逐块/提交请求结算后才允许替代上传；旧 Agent 未声明能力时安全阻止替代重试；Agent 与 Scheduler PID 探测只把 `ESRCH` 当作已退出，权限和未知探测错误保持活动保护；本轮发现并收紧 upload-init 与取消并发窗口，取消可在本地 HTTP 中止收尾的同时立即通知 Agent，未知远端上传保留在 bounded history 且不会被回收；Agent 对初始化请求进行 owner 级互斥，取消尚未落入 upload row 时会留下限额/TTL tombstone，防止迟到 init 越过 settled 回执继续写入；Agent stop marker 绑定 pid/runId，旧 marker 不再清理且不能停止新代进程；exit-code 以可复用 pending 标记开始，仅读取完整整数作为完成证据 | 当前 OperationQueue、安全重试和 Agent 旧/新版本组合尚未验证；SimpleSFTP 版本组合、未知远端结果和现场重试验收留后 |
+| 2 | running | 延续已推送的精确清理门禁；Git backup 卸载不再删除 hook 文件或吞掉写入失败，Agent 长期状态只生成限额清理候选，不后台删除；状态扫描限制为 10,000 个目录项、拒绝符号链接与越界目录；被动中断重试也不再自动下发删除 Worker 产物，而是记录带项目/Plan/run/attempt/Worker/outputDir 身份的候选；分布式队列改为固定 `.writing` 暂存槽、文件同步后原子替换，POSIX 尽力同步父目录，避免每次失败遗留随机临时文件；Agent 上传发布遇 Windows sharing violation 只进行有界 `os.replace` 重试，失败保留旧目标和暂存，不再删除旧文件后退化为非原子 move；产物删除 API 现在要求两项确认，只接受已展开的项目内绝对路径，移除按任务 ID 搜索删除回退，并在物理父目录内校验后执行；Plan 停止后的 Worker task 终止限定到同一 `workflowId/runId`，scheduler 孤儿回收限定到目标 tmux session；Plan sync ledger、sync holds、project mirror、代码同步状态及项目 UI 状态写入使用路径级资源锁；共享状态、PPT 审计、草稿和同步选择记录写入共用可复用固定 `.writing` 槽、同步后原子替换；资源锁注册槽按 Extension Host 进程稳定复用，过期恢复仅保留一个固定 `.expired` 槽，避免每次启动/回收新增永久文件；清空 UI 状态写入空记录/墓碑，不自动删除项目文件；启动任务时用 pending 内容替代清除旧 exit-code，完成读取要求合法整数，防止陈旧成功码误判；已拒绝/过期草稿清理改为经双阶段路径预览后移动到 clean_dir，核验普通文件、符号链接、硬链接、父目录与 hash，并追加有界 MANIFEST | 实现尚未验证；固定写入槽与 Windows 文件占用行为、跨窗口状态竞争及运行时清理策略留待代码回归；Agent 外部状态候选仍需完整路径双确认；task run-identity 与现场验收留后 |
+| 3 | running | 历史 commit `22d12add` 的事务行为曾通过相关测试和 build；publication journal 与每个索引的 `.new/.old` 暂存/备份改为单一 `current` 固定目录复用；成功发布与恢复不再删除事务文件，未完成事务保留 journal 并由后续恢复/发布复用；无旧目标的回滚以 rename 移回暂存槽，不删除目标文件 | 重新验证固定槽复用、失败回滚、旧版随机目录 journal 兼容、publication 原子性；双窗口竞争及 Extension Host 崩溃恢复留待现场验证 |
+| 4 | running | 既有 SSE 背压、journal gap、RPC 取消、请求预算实现保留；控制请求与压缩传输采用轮转仲裁，避免持续快照与长传输互相饿死；Agent `BoundedThreadingHTTPServer` 已有限制 SSE 连接/线程、事件/批次字节及 socket 等待时长；Local API 的任务/结果/日志/tmux 只读 RPC 已把断连取消传到隧道请求，并对共享 Worker task snapshot 按订阅者引用计数，最后一个调用方离开时才取消底层读取 | 集成测试按用户指示暂缓；慢消费者、并发、单订阅取消和断线压力验证留后 |
+| 5 | running | `buildState()` 增加日志投影缓存与耗时字段；distributed Plan 进度按队列、Worker 快照修订和目标集合缓存；非 execution 页面只映射当前/活动 Plan 明细；Agent 状态清理诊断增加有界目录扫描与完整性标记 | 相关回归与性能基线留后；源码计算热点复核和现场 payload 数据留后 |
+| 5A | running | Panel 静态启动遮罩、阶段诊断和恢复入口已加入；Host 接收 generation-scoped 事件；render geometry 增加有界遮挡 hit-test 证据；新增 100ms 粒度的 Host event-loop delay 有界采样与 Webview viewport/cardDeck/mainColumn/inspector 布局事件快照，诊断不随 full state 发送且不触发 postState | 主脚本解析、CSP/runtime 故障与原生通知验收留后 |
+| 5B | running | 隐藏时释放 Webview 已启用；瞬态 UI 状态恢复保留；title MutationObserver 暂停时清空待处理 DOM 引用并跳过脱离文档的子树；TensorBoard Scalar Dashboard 在切换 case、关闭曲线页、文档隐藏或 pagehide 时取消未完成 catalog/tag/series 读取，并通过 Local API request signal 传到 Agent fetch/body reader；自动刷新改为按用户间隔递归调度，连接健康检查在隐藏期间停表并中止当前探测 | 100 次隐藏/显示、焦点/草稿/滚动恢复验收留后 |
+| 6 | running | 多 Plan 映射下载使用压缩 tar、按字节/文件数分批、逐文件 SHA256 校验；缺少 hash/size 时先对精确路径做 bounded `projectInventory`，优先复用远端持久哈希缓存；校验通过的本地文件本身作为跨进程恢复检查点，避免另造长期 sidecar；Agent 上传取消使用有界 chunk/commit 活动计数和单一目标暂存槽，能力协商后向旧/新 Agent 安全降级 | 需核实 SimpleSFTP 旧/新版本组合下哈希回退、单批失败重试、upload-cancel 并发边界和暂存收尾；测试和现场恢复验收留后 |
+| 7 | running | 用户操作失败终态先回传，再弹 modal；自动导航要求 `userInitiated`；更新资产版本/目标校验已有实现；新增 bounded `OperationOutcome` 分类，将成功、用户取消、请求替代、配置错误、资源冲突和远端结果未知映射为稳定 code/retryability/certainty，并随 UI 终态和最近错误摘要传递；PPT discovery/health/plot 请求支持项目切换和扩展停用取消 | 分类覆盖率、通知去重、更新组合及附属窗口回归留后 |
+| 8 | running | 通用命令档位支持工作目录、输入/输出与可选指标采集；Scheduler 按合并后的每 case runner 命令推断单阶段模式；PlanBuilder、Results、Quality、TunnelClientPool 工厂缺失实现时不再返回空结果、通过状态或无操作客户端 | 仍需核实 Runner 输出契约、路径边界、工厂运行路径与兼容性；测试统一留后 |
 | 9 | pending | 仅有第 6.1 节短时只读采样 | 全插件回归、现场与 8 小时 soak |
+
+#### 本轮实现追加（尚未验证）
+
+- 批次 2/3：ProjectResultPublication journal、资源锁注册表、代码 manifest 缓存和同步范围哈希缓存统一复用 `atomicWriteText` 固定 `.writing` 槽；Agent 高频 JSON/CSV/text/Plan 队列及事件 journal 写入统一复用固定槽、64 路有界条带锁、文件同步和目录同步。Worker task snapshot 持有项目文件租约后原子替换。
+- 批次 2/6：代码上传清单与同步范围清单跳过 `.writing`、`.pending`、`.tmp.*` 和 `.upload.*` 暂存文件，避免把半成品当项目内容同步；Agent 清理诊断将固定 `.writing` 槽列为有界候选，不后台删除。
+- 批次 1/2/6：Agent 上传协议新增按明确 transferId/clientTransferId/remotePath 定位的 cancel-and-settle 回执；在途 chunk/commit/init 被计数，进入 `cancelling` 后不再接受新写入，最后一个在途请求结束才返回 settled；初始化尚未建 row 时用最多 256 条、10 分钟过期的内存 tombstone 阻止迟到 init；插件在本地请求退出期间并行发出远端取消，并对未知/旧 Agent 回执保留 `unknown` 且阻止同目标重试。上传覆盖在 Windows 原子替换失败时不再删除现有目标。
+- 批次 6：文件传输任务历史限制为最多 256 条、已确认终态最多 128 条，未知远端结果受保护不淘汰；取消先进入 `cancelling` 并等待本地请求与远端回执结算，停用扩展时中止并限时等待传输收尾；下载流改为全量写入、`fsync`、失败取消响应流，避免整文件 `arrayBuffer` 常驻内存；上传持有本地源文件与远端目标双资源租约，并在哈希/传输前后核验源文件身份；范围下载失败时安全回滚固定检查点，避免自动重试重复追加。
+- 批次 1/4：本地 API 触发与 Webview 共用安全传输请求替代；相同只读后台请求合并在途 Promise，settle 后立即释放；OperationQueue 对待处理数设上限，并让排队取消以取消结果结算。
+- 批次 2/3/7：结果发布暂存/备份固定复用 `simple_cluster/tmp/result_publication/current/<index>.new|old`，committed journal 作为当前已提交标记保留；发布失败时只回滚本次 `publishing` 阶段已触碰的目标，未发布的准备阶段不碰目标；锁回收将验证过期且 owner 已退出的旧记录留在唯一 `.expired` 恢复槽中供下一次原子替换，不再每次 unlink。
+- 批次 7/8：PowerPoint 启动及公开打包脚本统一调用 PowerShell 7 `pwsh.exe`，移除业务代码对 Windows PowerShell 5.1 `powershell.exe` 的依赖。
+- 批次 1/2：Agent stop 状态固定为带 `pid/runId/requestedAt` 的原子 JSON；run 在登记 pid 前生成 runId 并在 config/pid/lock 中使用同一身份，stop 命令只对仍存活且 config 与 pid 身份一致的代次写入停止请求。旧 stop 文件保留为有界复用槽，新进程会忽略不同代次的旧请求。任务 exit-code 先原子写入 `pending`，读取方只把完整有符号整数当作完成证据；GPU-pane 失败后 fallback 复用 commandId 对应的同一 exit-code 路径。
+- 批次 2/7/8：草稿 Plan 扫描改为有界目录项、拒绝链接/跨设备路径并对文件执行安全有界读取；损坏草稿元数据不再伪装为空，草稿元数据的同进程更新串行化并由项目状态文件租约跨窗口保护。同步本机删除在执行前后二次核验直接父目录和目标身份，PowerShell 只接收 `./<leaf>`，校验目标类型、时间戳、大小和重解析点后才删除。PPT discovery/token、绘图文件、请求与响应均增加有界读写；源文件读取使用 no-follow 与身份复核。
+- 批次 2/8：隧道 URL 对自定义 hostname、IPv4 和 IPv6 做统一校验及 IPv6 authority 格式化；Agent 启动命令按 Hub/Worker 各自配置绑定 remoteAgentHost。Agent 自动停止逻辑移除按端口杀进程的回退，只匹配本插件 Agent 的 host、port、mode 与 runtime，端口被其他服务占用时不再误杀。
+- 批次 2：Plan 归档不再复制后 unlink 源文件；Plan YAML、独占配置与本地 Plan 专属证据在预览的来源/目标路径约束内原子 rename 进归档包，失败时按身份逆序恢复；归档 staging 与失败副本保留为可检查恢复数据，不做递归 rm。草稿清理不再永久 unlink，默认移动到项目 `clean_dir` 并追加大小受限的 SHA256 manifest。
+- 批次 2/6：本机同步范围清单改为有界迭代扫描，限制 10,000 目录、100,000 目录项、50,000 文件；拒绝符号链接、跨设备路径和解析越界，目录身份在扫描前后复核。文件哈希用固定内存块且最多读取扫描前记录的文件大小，打开和读取后复核身份；同步哈希缓存限 50,000 项/16MiB，当前清单优先、历史项有界滚动。
+- 批次 8：ServiceFactory 拒绝空壳 API 方法表中的非函数处理器；CommandFactory 将缺失/非函数命令映射视作未绑定并在注册前整体拒绝；未绑定命令的错误不再序列化命令参数，避免循环引用/大对象令错误处理自身失败或泄漏参数内容。
+- 批次 4/5B：独立 Scalar Viewer 也取消 500ms 间隔轮询，改为递归单次定时器；页面隐藏、切换到原生 TensorBoard 或卸载时取消 catalog/tag/series 在途请求，返回后仅接受最新 series generation，避免辅助曲线窗口在长时间打开时持续空转并压住旧查询。
+- 批次 7：Plan 自动失败通知先尝试显示 modal，再持久化已通知键；显示失败时释放本 session 去重键供后续状态重试，避免先写“已通知”后 UI 未呈现导致错误永久静默。
+- 批次 7：配套插件安装前重新按当前 VS Code 已安装版本计算更新计划，只下载/安装 updateAvailable=true 的组件；配对状态已变为最新时跳过重复安装。
+- 批次 7/5A：Panel 将 navigate 消息作为一次性事件消费并立即清空待处理引用；导航不再受同一 batch 中旧 state 序号的 early-return 阻断，后续任意状态 batch 也不会重复播放旧的 userInitiated 导航，修复步骤完成后仍偶发自动跳转的问题。
+- 批次 7：硬配置/认证失败提示改为修复配置后重新检测隧道，瞬态断线仍按连接策略自动退避恢复；manual_only 的显式手动恢复提示保留。
+- 2026-10-04 回检：`planStopClear.test.js` 33/33、`tunnelClient.test.js` 5/5；`npm run build` 成功（含 TypeScript、产物语法门禁和 `panelWebviewScriptHealth.test.js` 1/1）；独立 Webview `vm.Script`、`git diff --check` 通过。两个既有 dirty `.pyc` SHA256 与文档中的保护基线一致。尚未执行 package、安装、远端版本兼容或人工现场/长时间运行验收；批次 1–8 保持 running，批次 9 pending。
 
 每批先审阅 diff，仅提交属于已验证批次的文件。用户 dirty `.pyc`、运行报告和其他未审阅修改不得混入。按当前仓库规则向已核实的 `origin/master` 普通推送，fetch 后核对；上游变化、冲突、凭据或 hook 阻塞按规则停止，不自动 rebase/merge/force push。若用户的新指令将范围限定为“只保存文档”，该轮到文档保存与检查为止，不启动上述代码批次。
 
 发布时重新确定版本，禁止盲目写死下一版本号。统一打包验证后仅安装目标版本一次，核对安装和 CLI，再等待用户重载；之后才进行新 Host 的现场验收。不能将未重载的旧 Host 数据作为新实现的验证。
 
 不要自行开新聊天、派生子代理或切换模型。用户会把本文交给 Luna；执行中需要交接时保留本表与证据，让下一位可以从真实状态继续。
+
+- 批次 1/6：相同项目、命令和目标的 Hub/Worker 代码上传、Agent 部署、远端结果查看也纳入安全请求替代；目标身份包含 Plan/远端文件或服务器与项目路径，避免不同文件/Worker 的请求互相取消。代码同步的循环边界现在检查替代信号，旧任务未结算或 SimpleSFTP 无法给出传输退出回执时不会启动新任务；停止确认使用一个总时限，多个旧传输不会各自叠加完整等待窗口。
+- 批次 5：Panel `buildState()` 不再压缩或写入日志投影缓存；实时状态事件与任务选择变更时更新有界日志投影，项目/拓扑状态切换释放旧投影引用。UI 构建只读取匹配当前项目、状态引用和选择 revision 的缓存，缓存未命中时使用实时客户端已限额日志快照。
+- 批次 5：execution section 与 Plan 状态摘要不再以每次替换的完整分布式队列对象引用作为变化依据，改用队列磁盘内容签名、队列代次与有界存储诊断摘要；相同队列快照不再触发历史列表重新计算。
+- 批次 5：结果目录加载状态由 interest/后台刷新流程维护，`buildState()` 仅读取当前缓存与状态；后台目录线程完成时预先映射表格摘要，避免每次 Panel full-state 都重新遍历 catalog。
+- 批次 5：切换项目时释放旧结果 catalog 与表格视图模型，清空旧项目加载错误；后台 catalog 失败状态按所属项目判断，避免旧项目缓存让新项目显示成 stale。
+- 批次 5：结果 trace 投影改为仅在进入 results interest、运行证据变化、Plan 选择/版本变化或 trace 保护选择变化时更新；Panel buildState() 只读取与项目、证据引用、保护键和 Plan revision 匹配的投影缓存，避免每份 full-state 同步排序/裁剪长 trace。
+- 批次 2/7：LENIENT 软通过审计由无限增长的同步追加日志改为最多 256 KiB 的有界尾部环；读取拒绝链接、硬链接及并发身份变化，并通过项目文件租约与固定原子写入槽串行提交，原有 action error 继续作为持久错误记录。
+- 批次 2/7：通用审计 JSONL 记录改为最多 256 KiB、单条最多 8 KiB 的有界最近记录环；逐条限制目标和文本字段，尾部读取拒绝链接、硬链接与身份变化，再通过固定原子写入槽替换，避免审计量随长期运行增长。
+- 批次 1：安全请求替代期间保持旧请求的替代锁直到新请求同步登记，避免旧请求 settle 与多个同时重试之间出现锁短暂释放窗口；停止回执仍未知时只解除替代中状态，保留旧请求记录供后续显式核验。
+- 批次 1/4：操作队列的同键 coalescing 改为登记原始 Promise，并对成功与失败分支显式清理，避免 `finally()` 产生无人观察的二级 rejected Promise。
+- 批次 1/6：FileTransferClient 自动重试遇到远端上传身份未知时立即停止，不在未取得远端 settle 回执时重复 init/chunk；公开 retry 只允许已结算失败/取消任务；上传完成及幂等完成回执必须携带与源文件匹配的 SHA256 和 completed 状态；扩展停用时对所有未结算上传并行发送 upload-cancel settle 核验，并在有界窗口内等待本地与远端收尾。
+- 批次 2/4：跨窗口资源锁的 admission 与资源冲突等待从每 10ms 全量重读/争锁改为 20–250ms 指数退避、轻量 jitter 和 AbortSignal 即时唤醒，降低争用时磁盘扫描/原子写入频率且保留 30 秒冲突边界与 ticket 顺序。
+- 批次 4/5B/7：TensorBoard Scalar Dashboard 的 catalog/tag/series 读取带 AbortController；换 case、失去可见性、切至原生 TensorBoard 页或关闭 dashboard 时取消不再需要的读取。Local API 将请求断开/响应关闭转成 generation-local AbortSignal，传播到排队的 RequestBudget、每 Worker Agent fetch 和限额响应读取；取消不再伪装成 Worker 故障或进入重试退避。自动曲线刷新从 500ms 周期检查改为按配置间隔的一次性调度，插件健康轮询在文档隐藏时暂停。

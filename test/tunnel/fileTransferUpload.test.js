@@ -1,5 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const fs = require("node:fs/promises");
 const http = require("node:http");
 const os = require("node:os");
@@ -19,6 +20,7 @@ test("file transfer uploads chunks over local HTTP API", async () => {
       res.setHeader("Content-Type", "application/json");
       if (req.url === "/api/files/upload-init") return res.end(JSON.stringify({ transferId: "u", chunkSize: 3, accepted: true, resumeFromByte: 0 }));
       if (req.url.startsWith("/api/files/upload-chunk")) return res.end(JSON.stringify({ nextOffset: seen.filter((item) => item.url.startsWith("/api/files/upload-chunk")).length * 3 }));
+      if (req.url === "/api/files/upload-complete") return res.end(JSON.stringify({ status: "completed", sha256: seen.at(-1).body.sha256 || crypto.createHash("sha256").update("abcdef").digest("hex") }));
       res.end(JSON.stringify({ ok: true }));
     });
   });

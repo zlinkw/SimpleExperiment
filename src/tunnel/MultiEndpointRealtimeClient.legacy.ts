@@ -1,4 +1,4 @@
-import { RequestBudget, RequestBudgetConfig, RequestBudgetSnapshot } from "./RequestBudget";
+import { RequestBudget, RequestBudgetConfig, RequestBudgetCoordinator, RequestBudgetSnapshot } from "./RequestBudget";
 import { ClusterSnapshot, GpuHistoryQuery, GpuHistoryResponse, TunnelAction, TunnelEndpointConfig } from "./TunnelClient";
 import { DownloadOptions, FileListResponse, FileTransferTask } from "./FileTransferTypes";
 import { defaultRealtimeRefreshPolicy, RealtimeClientDiagnostics, RealtimeRefreshPolicy, RealtimeTunnelClient, StreamStatus } from "./RealtimeTunnelClient";
@@ -36,6 +36,7 @@ export class MultiEndpointRealtimeClient {
   private readonly endpointById: ReadonlyMap<string, NamedTunnelEndpointConfig>;
   private readonly clients = new Map<string, RealtimeTunnelClient>();
   private readonly budgets = new Map<string, RequestBudget>();
+  private readonly requestBudgetCoordinator: RequestBudgetCoordinator;
   private mergedState: RealtimeState = createRealtimeState();
   private protectedLogKeys: string[] = [];
   private diagnosticsEndpointSources: Array<RealtimeClientDiagnostics | undefined> = [];
@@ -49,36 +50,41 @@ export class MultiEndpointRealtimeClient {
   ) {
     this.endpoints = endpoints.map((endpoint) => ({ ...endpoint }));
     this.endpointById = new Map(this.endpoints.map((endpoint) => [endpoint.id, endpoint]));
+    let sharedCoordinator: RequestBudgetCoordinator | undefined;
     for (const endpoint of this.endpoints) {
       const budget = budgetFactory(endpoint);
+      if (!sharedCoordinator) sharedCoordinator = budget.createCoordinator();
+      budget.attachCoordinator(sharedCoordinator, endpoint.id);
       this.budgets.set(endpoint.id, budget);
       this.clients.set(endpoint.id, new RealtimeTunnelClient(endpoint, budget, policy, (state) => {
         this.mergedState = mergeRealtimeStates(this.endpointStates(endpoint.id, state), this.endpoints, this.protectedLogKeys, this.endpointById);
         this.onState(this.mergedState);
       }));
     }
+    this.requestBudgetCoordinator = sharedCoordinator || new RequestBudgetCoordinator();
   }
 
   async connect(_sinceSeq?: number, options: { manual?: boolean } = {}): Promise<void> {
-    await Promise.allSettled([...this.clients.values()].map((client) => client.connect(client.currentState().lastSeq, options)));
+    await mapLimitAllSettled([...this.clients.values()], 8, (client) => client.connect(client.currentState().lastSeq, options));
     this.updateMergedState();
   }
 
   async disconnect(reason = "manual"): Promise<void> {
-    await Promise.allSettled([...this.clients.values()].map((client) => client.disconnect(reason)));
+    await mapLimitAllSettled([...this.clients.values()], 8, (client) => client.disconnect(reason));
     this.updateMergedState();
   }
 
   async reconnect(reason = "reconnect"): Promise<void> {
-    await Promise.allSettled([...this.clients.values()].filter(client => client.diagnostics().requiresManualReconnect || ["disconnected", "paused"].includes(client.diagnostics().streamStatus)).map((client) => client.reconnect(reason)));
+    const clients = [...this.clients.values()].filter(client => client.diagnostics().requiresManualReconnect || ["disconnected", "paused"].includes(client.diagnostics().streamStatus));
+    await mapLimitAllSettled(clients, 8, (client) => client.reconnect(reason));
     this.updateMergedState();
   }
 
   async getSnapshot(): Promise<ClusterSnapshot> {
-    const entries = await Promise.allSettled(this.endpoints.map(async (endpoint) => {
+    const entries = await mapLimitAllSettled(this.endpoints, 8, async (endpoint) => {
       const snapshot = await this.clients.get(endpoint.id)?.getSnapshot();
       return snapshot ? { endpoint, snapshot } : undefined;
-    }));
+    });
     const snapshots = entries
       .filter((entry): entry is PromiseFulfilledResult<{ endpoint: NamedTunnelEndpointConfig; snapshot: ClusterSnapshot } | undefined> => entry.status === "fulfilled")
       .map((entry) => entry.value)
@@ -218,7 +224,7 @@ export class MultiEndpointRealtimeClient {
     return experimentTraces;
   }
 
-  async getResultsSummary(planFile = "", options: { userInitiated?: boolean } = {}): Promise<unknown> {
+  async getResultsSummary(planFile = "", options: { userInitiated?: boolean; signal?: AbortSignal } = {}): Promise<unknown> {
     const hub = this.clients.get("hub");
     if (hub) return hub.getResultsSummary(planFile, options);
     const workerEndpoints = this.endpoints.filter((endpoint) => endpoint.role === "worker");
@@ -313,7 +319,7 @@ export class MultiEndpointRealtimeClient {
     return client.getRunEvidence?.(params) ?? Promise.reject(new Error("Agent runtime does not expose run evidence."));
   }
 
-  async getLiveOutput(runKey: string, since = 0, workerId?: string, options: { userInitiated?: boolean } = {}): Promise<unknown> {
+  async getLiveOutput(runKey: string, since = 0, workerId?: string, options: { userInitiated?: boolean; signal?: AbortSignal } = {}): Promise<unknown> {
     const client = workerId ? this.clients.get(workerId) : this.hubClient();
     const endpoint = workerId ? this.endpointById.get(workerId) : undefined;
     if (!client || (workerId && endpoint?.role !== "worker")) {
@@ -481,6 +487,10 @@ export class MultiEndpointRealtimeClient {
 
   budgetSnapshots(): Record<string, RequestBudgetSnapshot> {
     return Object.fromEntries([...this.budgets.entries()].map(([id, budget]) => [id, budget.snapshot()]));
+  }
+
+  noteRetry(endpointId: string): void {
+    this.budgets.get(String(endpointId || ""))?.noteRetry();
   }
 
   private endpointStates(changedEndpointId?: string, changedState?: RealtimeState): Array<{ endpoint: NamedTunnelEndpointConfig; state: RealtimeState }> {
@@ -803,4 +813,22 @@ function stampWorkerResultOwnership(value: unknown, workerId: string): Record<st
 
 function normalizePlanPath(value: unknown): string {
   return String(value || "").trim().replace(/\\/g, "/").replace(/^\.\//, "");
+}
+
+async function mapLimitAllSettled<T, R>(items: T[], limit: number, worker: (item: T, index: number) => Promise<R>): Promise<PromiseSettledResult<R>[]> {
+  const results = new Array<PromiseSettledResult<R>>(items.length);
+  let next = 0;
+  const concurrency = Math.max(1, Math.min(Math.floor(limit) || 1, items.length || 1));
+  await Promise.all(Array.from({ length: concurrency }, async () => {
+    for (;;) {
+      const index = next++;
+      if (index >= items.length) return;
+      try {
+        results[index] = { status: "fulfilled", value: await worker(items[index], index) };
+      } catch (reason) {
+        results[index] = { status: "rejected", reason };
+      }
+    }
+  }));
+  return results;
 }

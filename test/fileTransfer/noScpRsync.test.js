@@ -1,5 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const fs = require("node:fs/promises");
 const http = require("node:http");
 const os = require("node:os");
@@ -28,6 +29,7 @@ test("file transfer never invokes scp or rsync or ssh", async () => {
       }
       if (req.url === "/api/files/upload-init") return res.end(JSON.stringify({ transferId: "u", chunkSize: 10, accepted: true, resumeFromByte: 0 }));
       if (req.url.startsWith("/api/files/upload-chunk")) return res.end(JSON.stringify({ nextOffset: 3 }));
+      if (req.url === "/api/files/upload-complete") return res.end(JSON.stringify({ status: "completed", sha256: crypto.createHash("sha256").update("abc").digest("hex") }));
       res.end(JSON.stringify({ status: "completed" }));
     });
   });

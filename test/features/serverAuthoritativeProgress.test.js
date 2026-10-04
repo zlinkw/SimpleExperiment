@@ -111,10 +111,13 @@ test('automatic progress still probes uncertain ownership and recall, but not re
   assert.deepEqual(policy.progressRefreshWorkerIds({plans:[{jobs:[{status:'completed',workerId:'a',outputRetiredAt:iso}]}]},workers),[]);
 });
 test('actual snapshot reader deduplicates fresh reads, publishes immediately and invalidates cached running on failure', async () => {
-  const Provider=providerMethods(['readWorkerTaskSnapshot','refreshWorkerTaskSnapshot'],{
+  const Provider=providerMethods(['readWorkerTaskSnapshot','refreshWorkerTaskSnapshot','storeWorkerTaskSnapshot'],{
     workerTaskSnapshotPayload:row=>row,workerTaskLooksRunning:row=>row.status==='running',RequestBudget_1:{RequestBudgetDeniedError:class extends Error{}},
+    noteWorkerTaskPlanStatus() {},
   });
   const provider=new Provider();provider.workerTaskRequests=new Map();provider.lastWorkerTaskSnapshots=new Map();
+  provider.noteWorkerTaskPlanStatus=()=>{};
+  provider.workerTaskSnapshotDiskCache=new Map();provider.workerTaskPlanStatusSignatures=new Map();
   provider.cachedWorkerTaskSnapshot=(_worker,_root,key)=>provider.lastWorkerTaskSnapshots.get(key);
   provider.writeWorkerTaskSnapshot=()=>{};let posts=0;provider.postState=()=>posts++;
   let count=0;let release;const response=new Promise(resolve=>release=resolve);

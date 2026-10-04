@@ -16,9 +16,11 @@ function runPython(script) {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "tb-test-"));
   const file = path.join(tmp, "run.py");
   fs.writeFileSync(file, script, "utf8");
-  const result = spawnSync("python", [file], { encoding: "utf8", env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" } });
-  fs.rmSync(tmp, { recursive: true, force: true });
-  return result;
+  try {
+    return spawnSync("python", [file], { encoding: "utf8", timeout: 10000, windowsHide: true, env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1" } });
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
 }
 
 test("Worker task snapshot preserves output and config paths", () => {
@@ -367,7 +369,7 @@ test("openTensorBoardFromUi restarts <prefix>_tb, polls status, and opens the Ag
    assert.match(extensionSource, /await new Promise.*2000/);
   assert.match(extensionSource, /get-tensorboard-status/);
   assert.match(extensionSource, /status\.listening/);
-  assert.match(extensionSource, /const url = `http:\/\/\$\{browserHost\}:\$\{endpoint\.localPort\}\/api\/tensorboard\/ui\/`/);
+  assert.match(extensionSource, /tunnelHttpOrigin\(endpoint\.localHost, endpoint\.localPort\)/);
   assert.match(extensionSource, /fetch\(url, \{ signal: AbortSignal\.timeout\(5000\) \}\)/);
   assert.match(extensionSource, /TB 启动失败，请检查服务器 start_tb\.sh \/ 端口占用/);
   // body contains only non-absolute fields
@@ -382,7 +384,7 @@ test("local TensorBoard commands use the UI handler when invoked through the API
   for (const command of ["openTensorBoard", "startTensorBoard", "copyTensorBoardUrl", "openTensorBoardUrl"]) {
     assert.doesNotMatch(actionSet, new RegExp(`"${command}"`));
   }
-  assert.match(extensionSource, /if \(uiActionCommands\.has\(command\)\)\s*return await this\.runActionCommand\(command, message\);\s*return await this\.handleMessageCore\(message, command\);/);
+  assert.match(extensionSource, /return await this\.withSafeTransferRetry\(command, message, \(\) => this\.handleMessageCore\(message, command\)\);/);
   assert.match(extensionSource, /case "prepareAgents":\s*await this\.prepareAgentsForFirstRun\(message\.uiMode !== true\)/);
 });
 
@@ -453,6 +455,10 @@ with tempfile.TemporaryDirectory() as tmp:
             alive_sessions.discard(sess)
             class R: returncode=0
             return R()
+        if args[:3] == ["tmux", "has-session", "-t"]:
+            class R: pass
+            result = R(); result.returncode = 0 if args[3] in alive_sessions else 1
+            return result
         if args == ["tmux", "ls"]:
             class R:
                 stdout="\\n".join(list(alive_sessions)) + "\\n"
@@ -508,7 +514,7 @@ with tempfile.TemporaryDirectory() as tmp:
     reg_before = agent._read_run_plan_registry(root)
     known = [e["opId"] for e in reg_before]
     assert "zombie999" not in known
-    reaped = agent._reap_zombie_scheduler_sessions(root, known)
+    reaped = agent._reap_zombie_scheduler_sessions(root, known, zombie_sess)
     assert zombie_sess in reaped, f"zombie should be reaped, got {reaped}"
     assert zombie_sess not in alive_sessions
     assert live_unregistered in alive_sessions
@@ -529,7 +535,7 @@ print("fence ok")
 
 test("stop-scheduler-operation deregisters and reaps with remaining registry, not empty set", () => {
   assert.match(agentSource, /remaining = set\(str\(e\.get\("opId"\) or ""\) for e in _read_run_plan_registry\(root\)/);
-  assert.match(agentSource, /_reap_zombie_scheduler_sessions\(root, remaining\)/);
+  assert.match(agentSource, /_reap_zombie_scheduler_sessions\(root, remaining, target_session\)/);
 });
 
 test("stop-scheduler-operation leaves every GPU task intact when target scheduler is absent", () => {
@@ -568,7 +574,7 @@ with tempfile.TemporaryDirectory() as tmp:
     root = os.path.join(tmp, "project"); os.makedirs(root)
     snapshot = agent.path_for(root, "worker_task_snapshot.json")
     agent.atomic_write(snapshot, {"schemaVersion": 1, "tasks": [
-        {"status": "running", "planFile": "experiments/plans/current.yaml", "pid": 101, "tmuxSession": "zlk-gpu-0"},
+        {"status": "running", "planFile": "experiments/plans/current.yaml", "workflowId": "target", "workerId": "worker-a", "pid": 101, "tmuxSession": "zlk-gpu-0"},
         {"status": "running", "planFile": "experiments/plans/other.yaml", "pid": 202, "tmuxSession": "zlk-gpu-1"},
     ]})
     calls = []; probes = iter([True, False])
@@ -611,9 +617,9 @@ with tempfile.TemporaryDirectory() as tmp:
     snapshot = agent.path_for(root, "worker_task_snapshot.json")
     plan = "experiments/plans/current.yaml"
     agent.atomic_write(snapshot, {"schemaVersion": 1, "tasks": [
-        {"commandId": "run-a", "status": "running", "planFile": plan, "pid": "%97", "tmuxSession": "zlk-gpu-0"},
-        {"commandId": "run-b", "status": "running", "planFile": plan, "pid": "%99", "tmuxSession": "zlk-gpu-1"},
-        {"commandId": "run-other", "status": "running", "planFile": "experiments/plans/other.yaml", "pid": "%101", "tmuxSession": "zlk-gpu-2"},
+        {"commandId": "run-a", "workflowId": "target", "workerId": "worker-a", "status": "running", "planFile": plan, "pid": "%97", "tmuxSession": "zlk-gpu-0"},
+        {"commandId": "run-b", "workflowId": "target", "workerId": "worker-a", "status": "running", "planFile": plan, "pid": "%99", "tmuxSession": "zlk-gpu-1"},
+        {"commandId": "run-other", "workflowId": "other-run", "workerId": "worker-b", "status": "running", "planFile": "experiments/plans/other.yaml", "pid": "%101", "tmuxSession": "zlk-gpu-2"},
     ]})
     probes = iter([True, False])
     def evidence(*args):
@@ -655,8 +661,8 @@ with tempfile.TemporaryDirectory() as tmp:
     plan = "experiments/plans/current.yaml"
     snapshot = agent.path_for(root, "worker_task_snapshot.json")
     agent.atomic_write(snapshot, {"schemaVersion": 1, "tasks": [
-        {"commandId": "run-a", "status": "running", "planFile": plan, "pid": "%97", "tmuxSession": "zlk-gpu-0"},
-        {"commandId": "run-other", "status": "running", "planFile": "experiments/plans/other.yaml", "pid": "%99", "tmuxSession": "zlk-gpu-1"},
+        {"commandId": "run-a", "workflowId": "target", "workerId": "worker-a", "status": "running", "planFile": plan, "pid": "%97", "tmuxSession": "zlk-gpu-0"},
+        {"commandId": "run-other", "workflowId": "other-run", "workerId": "worker-b", "status": "running", "planFile": "experiments/plans/other.yaml", "pid": "%99", "tmuxSession": "zlk-gpu-1"},
     ]})
     agent.scheduler_process_evidence = lambda *args: {"pidAlive": False, "tmuxSessionAlive": False, "tmuxShellAlive": False, "checkedPid": 0, "checkedTmuxSession": "zlk-sch-target"}
     agent.read_operation_events = lambda *args: [{"payload": {"planFile": plan}}]

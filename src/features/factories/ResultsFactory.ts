@@ -51,7 +51,7 @@ class DefaultResultsFactory implements ResultsFactory {
     if (mod?.selectResultPreset) return mod.selectResultPreset(fileName, presets);
     const pm = tryRequire<ResultParserMod>("../Results/ResultParser");
     if (pm?.selectPreset) return pm.selectPreset(fileName, presets);
-    return { id: this.opts.defaultPresetId ?? "generic_metric_wide_csv", format: "wide_csv", filePatterns: ["*.csv"], columnMapping: {}, metricColumns: [] };
+    throw new Error("结果解析 preset 实现不可用。");
   }
 
   preview(text: string, sourceFile: string, preset?: unknown, parserConfig: unknown = {}): unknown {
@@ -60,13 +60,13 @@ class DefaultResultsFactory implements ResultsFactory {
     if (mod?.previewResultParse) return mod.previewResultParse(text, sourceFile, effPreset, parserConfig);
     const pm = tryRequire<ResultParserMod>("../Results/ResultParser");
     if (pm?.previewParse) return pm.previewParse(text, sourceFile, effPreset, parserConfig);
-    return { presetId: effPreset["id"], format: effPreset["format"], rows: 0, records: 0, columns: [], missingRequiredColumns: [], warnings: [], sampleMetrics: {} };
+    throw new Error("结果解析预览实现不可用。");
   }
 
   previewTextMetrics(text: string, sourceFile: string, opts: unknown = {}): unknown {
     const mod = tryRequire<ResultsMod>("../Results");
     if (mod?.previewTextMetricParse) return mod.previewTextMetricParse(text, sourceFile, opts);
-    return { ruleId: "console_regex", sourceFile, lines: text.split(/\r?\n/).length, records: 0, metrics: [], samples: [], warnings: [], parsedAt: new Date().toISOString() };
+    throw new Error("文本指标解析预览实现不可用。");
   }
 
   parse(text: string, sourceFile: unknown, preset: unknown, parserConfig: unknown = {}): unknown[] {
@@ -74,19 +74,19 @@ class DefaultResultsFactory implements ResultsFactory {
     if (mod?.parseResultFile) return mod.parseResultFile(text, sourceFile, preset, parserConfig);
     const pm = tryRequire<ResultParserMod>("../Results/ResultParser");
     if (pm?.parseFile) return pm.parseFile(text, sourceFile, preset, parserConfig);
-    return [];
+    throw new Error("结果文件解析实现不可用。");
   }
 
   validate(records: unknown[], rules?: unknown[]): unknown[] {
     const mod = tryRequire<ResultsMod>("../Results");
     if (mod?.validateResultRecords) return mod.validateResultRecords(records, rules);
-    return [];
+    throw new Error("结果记录校验实现不可用。");
   }
 
   leaderboard(records: unknown[], config: unknown, issues: unknown[] = []): unknown[] {
     const mod = tryRequire<ResultsMod>("../Results");
     if (mod?.buildResultLeaderboard) return mod.buildResultLeaderboard(records, config, issues);
-    return [];
+    throw new Error("结果排行榜构建实现不可用。");
   }
 
   createParser(presetId?: string): { presetId: string; parse: (text: string, sourceFile: unknown, cfg?: unknown) => unknown[]; preview: (text: string, sourceFile: string, cfg?: unknown) => unknown } {

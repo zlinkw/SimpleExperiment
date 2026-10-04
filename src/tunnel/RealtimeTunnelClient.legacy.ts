@@ -1,4 +1,5 @@
 import { RequestBudget, RequestBudgetDeniedError } from "./RequestBudget";
+import { SharedReadCoalescer } from "../core/SharedReadCoalescer";
 import { FileTransferClient } from "./FileTransferClient";
 import { DownloadOptions, FileTransferTask } from "./FileTransferTypes";
 import { RealtimeReconnect } from "./RealtimeReconnect";
@@ -7,7 +8,7 @@ import { ClusterSnapshot, GpuHistoryQuery, GpuHistoryResponse, HttpTunnelClient,
 // T2: RealtimeTunnelClient 透传批量能力协商字段，聚合逻辑在 MultiEndpointRealtimeClient
 import { localBaseUrl } from "./TunnelGateway";
 import { TunnelHealth } from "./TunnelHealth";
-import { BoundedSseDecoder, MAX_CONTROL_RESPONSE_BYTES } from "./BoundedResponse";
+import { BoundedSseDecoder, MAX_SSE_EVENT_BYTES } from "./BoundedResponse";
 
 export interface RealtimeRefreshPolicy {
   mode: "realtime" | "balanced" | "manual_only";
@@ -78,6 +79,7 @@ export class RealtimeTunnelClient {
   private diagnosticsCache?: RealtimeClientDiagnostics;
   private snapshotInFlight?: Promise<ClusterSnapshot>;
   private snapshotAbort?: AbortController;
+  private readonly sharedReads = new SharedReadCoalescer(64);
   private requiresManualReconnect = false;
   private connectionGeneration = 0;
   private disposed = false;
@@ -89,7 +91,7 @@ export class RealtimeTunnelClient {
     private readonly onState: (state: RealtimeState) => void = () => undefined,
   ) {
     this.http = new HttpTunnelClient(endpoint, budget);
-    this.files = new FileTransferClient(endpoint, budget);
+    this.files = new FileTransferClient({ ...endpoint, fileCapabilities: endpoint.fileCapabilities }, budget);
     this.reconnectPolicy = new RealtimeReconnect(policy);
   }
 
@@ -160,7 +162,8 @@ export class RealtimeTunnelClient {
     this.snapshotAbort?.abort();
     this.snapshotAbort = undefined;
     this.snapshotInFlight = undefined;
-    if (reason === "deactivate" || reason === "dispose") this.disposed = true;
+    const disposeTransfers = reason === "deactivate" || reason === "dispose";
+    if (disposeTransfers) this.disposed = true;
     const websocket = this.websocket;
     this.websocket = undefined;
     websocket?.close();
@@ -171,6 +174,7 @@ export class RealtimeTunnelClient {
     this.pollTimer = undefined;
     this.reconnectTimer = undefined;
     this.status = reason === "paused" ? "paused" : "disconnected";
+    if (disposeTransfers) await this.files.dispose();
   }
 
   async reconnect(reason = "reconnect"): Promise<void> {
@@ -193,7 +197,7 @@ export class RealtimeTunnelClient {
     this.status = "disconnected";
     this.requiresManualReconnect = isHardConnectionError(reason);
     this.lastError = this.requiresManualReconnect
-      ? reason + "；连接配置或认证失败，请检查配置后手动重新连接。"
+      ? reason + "；连接配置或认证失败，请修复配置后重新检测隧道。"
       : reason + (this.policy.mode === "manual_only" ? "；连接暂时中断，请手动刷新或重新连接。服务器任务可能仍在运行。" : "；连接暂时中断，插件将按退避间隔自动恢复。服务器任务可能仍在运行。");
     this.onState(this.state);
     if (!this.requiresManualReconnect) this.scheduleAutomaticReconnect();
@@ -234,28 +238,40 @@ export class RealtimeTunnelClient {
 
   getGpu(options: { dispatch?: boolean } = {}): Promise<unknown> {
     if (this.requiresManualReconnect) return Promise.reject(new Error(this.lastError));
-    return this.watchRead(this.http.getGpu(options));
+    return this.coalescedRead(`gpu:${options.dispatch === true ? "dispatch" : "snapshot"}`, undefined, () => this.http.getGpu(options));
   }
 
   getGpuHistory(query: GpuHistoryQuery = {}): Promise<GpuHistoryResponse> {
     if (this.requiresManualReconnect) return Promise.reject(new Error(this.lastError));
     // T2: 批量能力协商字段透传至 HttpTunnelClient，聚合由 MultiEndpointRealtimeClient 完成
-    return this.watchRead(this.http.getGpuHistory(query));
+    return this.coalescedRead(`gpu-history:${stableReadKey(query)}`, undefined, () => this.http.getGpuHistory(query));
   }
 
   getScheduler(): Promise<unknown> {
     if (this.requiresManualReconnect) return Promise.reject(new Error(this.lastError));
-    return this.watchRead(this.http.getScheduler());
+    return this.coalescedRead("scheduler", undefined, () => this.http.getScheduler());
   }
 
   getTraces(): Promise<unknown> {
     if (this.requiresManualReconnect) return Promise.reject(new Error(this.lastError));
-    return this.watchRead(this.http.getTraces());
+    return this.coalescedRead("traces", undefined, () => this.http.getTraces());
   }
 
-  getLiveOutput(runKey: string, since = 0, options: { userInitiated?: boolean } = {}): Promise<unknown> {
+  getLiveOutput(runKey: string, since = 0, options: { userInitiated?: boolean; signal?: AbortSignal } = {}): Promise<unknown> {
     if (this.requiresManualReconnect) return Promise.reject(new Error(this.lastError));
-    return this.watchRead(this.http.getLiveOutput(runKey, since, options));
+    return this.coalescedRead(`live-output:${String(runKey)}:${Math.max(0, Number(since) || 0)}`,
+      options, () => this.http.getLiveOutput(runKey, since, options));
+  }
+
+  private coalescedRead<T>(key: string, options: { userInitiated?: boolean; signal?: AbortSignal } | undefined,
+                           operation: () => Promise<T>): Promise<T> {
+    // An explicitly cancellable or user-triggered request keeps its own budget
+    // semantics. Background reads without per-caller cancellation may share a
+    // single in-flight RPC and never retain the completed value.
+    const independentlyScoped = Boolean(options?.signal || options?.userInitiated === true);
+    if (!independentlyScoped && this.sharedReads.has(key)) this.budget.noteCoalescedRequest();
+    const request = independentlyScoped ? Promise.resolve().then(operation) : this.sharedReads.run(key, operation);
+    return this.watchRead(request);
   }
 
   private watchRead<T>(request: Promise<T>): Promise<T> {
@@ -271,34 +287,36 @@ export class RealtimeTunnelClient {
     this.state = compactRealtimeState(this.state, { protectedLogKeys: this.protectedLogKeys });
   }
 
-  getResultsSummary(planFile = "", options: { userInitiated?: boolean } = {}): Promise<unknown> {
+  getResultsSummary(planFile = "", options: { userInitiated?: boolean; signal?: AbortSignal } = {}): Promise<unknown> {
     if (this.requiresManualReconnect) return Promise.reject(new Error(this.lastError));
-    return this.watchRead(this.http.getResultsSummary(planFile, options));
+    return this.coalescedRead(`results-summary:${String(planFile || "").replace(/\\/g, "/")}`,
+      options, () => this.http.getResultsSummary(planFile, options));
   }
 
   getDiagnostics(): Promise<unknown> {
     if (this.requiresManualReconnect) return Promise.reject(new Error(this.lastError));
-    return this.watchRead(this.http.getDiagnostics());
+    return this.coalescedRead("diagnostics", undefined, () => this.http.getDiagnostics());
   }
 
   getAuditTail(): Promise<unknown> {
     if (this.requiresManualReconnect) return Promise.reject(new Error(this.lastError));
-    return this.watchRead(this.http.getAuditTail());
+    return this.coalescedRead("audit-tail", undefined, () => this.http.getAuditTail());
   }
 
   getOperation(operationId: string): Promise<unknown> {
     if (this.requiresManualReconnect) return Promise.reject(new Error(this.lastError));
-    return this.watchRead(this.http.getOperation(operationId));
+    return this.coalescedRead(`operation:${String(operationId)}`, undefined, () => this.http.getOperation(operationId));
   }
 
   getWorkerTasks(options: { signal?: AbortSignal } = {}): Promise<unknown> {
     if (this.requiresManualReconnect) return Promise.reject(new Error(this.lastError));
-    return this.watchRead(this.http.getWorkerTasks(options));
+    return this.coalescedRead("worker-tasks", options, () => this.http.getWorkerTasks(options));
   }
 
   getRunEvidence(params: { operationId?: string; planFile?: string; pid?: number | string; tmuxSession?: string }): Promise<unknown> {
     if (this.requiresManualReconnect) return Promise.reject(new Error(this.lastError));
-    return this.http.getRunEvidence?.(params) ?? Promise.reject(new Error("Agent runtime does not expose run evidence."));
+    if (!this.http.getRunEvidence) return Promise.reject(new Error("Agent runtime does not expose run evidence."));
+    return this.coalescedRead(`run-evidence:${stableReadKey(params)}`, undefined, () => this.http.getRunEvidence!(params));
   }
 
   listRemoteFiles(remotePath: string) {
@@ -377,7 +395,7 @@ export class RealtimeTunnelClient {
     };
     ws.onmessage = (event) => {
       if (this.websocket !== ws) return;
-      if (typeof event.data === "string" && Buffer.byteLength(event.data, "utf8") > MAX_CONTROL_RESPONSE_BYTES) {
+      if (typeof event.data === "string" && Buffer.byteLength(event.data, "utf8") > MAX_SSE_EVENT_BYTES) {
         this.connectionLost("Agent WebSocket frame exceeds control-plane byte limit");
         return;
       }
@@ -553,6 +571,21 @@ function capabilityEndpoints(capabilities: unknown): Record<string, unknown> | u
 
 function objectRecord(value: unknown): Record<string, any> | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, any> : undefined;
+}
+
+function stableReadKey(value: unknown): string {
+  const normalize = (input: unknown, depth: number): unknown => {
+    if (depth > 5) return "[depth-limit]";
+    if (input === null || typeof input === "string" || typeof input === "boolean")
+      return typeof input === "string" ? input.slice(0, 512) : input;
+    if (typeof input === "number") return Number.isFinite(input) ? input : null;
+    if (Array.isArray(input)) return input.slice(0, 64).map((item) => normalize(item, depth + 1));
+    if (!input || typeof input !== "object") return String(input ?? "").slice(0, 128);
+    return Object.fromEntries(Object.keys(input as Record<string, unknown>).sort().slice(0, 64)
+      .map((key) => [key.slice(0, 128), normalize((input as Record<string, unknown>)[key], depth + 1)]));
+  };
+  try { return JSON.stringify(normalize(value, 0)).slice(0, 2048); }
+  catch { return "{}"; }
 }
 
 function safeJson(text: unknown): unknown {

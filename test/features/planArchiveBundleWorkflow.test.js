@@ -43,51 +43,29 @@ function loadPlanArchiveGate() {
 }
 
 test("plan archive creates a reusable bundle from archived-only effective results", () => {
-  assert.match(source, /async archivePlanFromUi\(message\)/);
-  assert.match(source, /await this\.refreshResultsSummary\(file\)/);
-  assert.match(source, /planArchiveGateFromResults\(resultSummary, file\)/);
-  assert.match(source, /path\.join\(stagingDir, "plan\.yaml"\)/);
-  assert.match(source, /copyPlanArchiveFiles\(root, stagingDir, "configs", configFiles\)/);
-  assert.match(source, /const environmentFiles = await detectEnvironmentFiles\(root\)/);
-  assert.match(source, /copyPlanArchiveFiles\(root, stagingDir, "environment", environmentFiles\)/);
-  assert.match(source, /const parameterSnapshot = await planArchiveParameterSnapshot\(root, planText\)/);
-  assert.match(source, /pythonLocalImportReferences\(source, file\)/);
-  assert.match(source, /static_recursive_local_source_scan_no_import_or_execution/);
-  assert.match(source, /sourceScanWarnings: parameterSnapshot\.sourceScanWarnings/);
-  assert.match(source, /`参数：\$\{parameterSnapshot\.entries\.length\} 个源码/);
-  assert.match(source, /copyPlanArchiveFiles\(root, stagingDir, path\.join\("parameters", "entries"\), parameterSnapshot\.entryScripts\)/);
-  assert.match(source, /"parameters", "cli_parameters\.json"/);
-  assert.match(source, /parameters: \{/);
-  assert.match(source, /const evidencePlan = planArchiveEvidencePlan\(resultSummary, file\)/);
-  assert.match(source, /this\.hubMappedDownloadServer\(\)/);
-  assert.doesNotMatch(source.slice(source.indexOf("const evidencePlan = planArchiveEvidencePlan"), source.indexOf("const evidenceMode")), /endpoints\.fileDownload/);
-  assert.match(source, /showWarningMessage\(\[\s*"【Plan 归档位置确认】"/);
-  assert.match(source, /`归档包位置：\$\{bundleRelative\}`/);
-  assert.match(source, /`结果证据来源：\$\{evidenceMode === "hub_download"/);
-  assert.match(source, /materializePlanArchiveEvidenceFiles\(client, root, stagingDir, evidenceFiles, evidenceMode\)/);
-  assert.match(source, /environment,/);
-  assert.match(source, /planArchiveConfigMigration\(root, planDir, source, configFiles\)/);
-  assert.match(source, /planArchiveMovableEvidenceFiles\(evidenceFiles\)/);
-  assert.match(source, /configArchive: \{ migrated: configMigration\.migrated, retainedShared: configMigration\.retainedShared \}/);
-  assert.match(source, /await removeArchivedWorkspaceFiles\(root, configMigration\.migrated\)/);
-  assert.match(source, /await removeArchivedWorkspaceFiles\(root, movableEvidence\)/);
-  assert.match(source, /const resultSelection = planArchiveResultSelection\(resultSummary, file\)/);
-  assert.match(source, /"evidence\/result_selection\.json"/);
-  assert.match(source, /schemaVersion: 5/);
-  assert.match(source, /excludedResultsTotalCount: resultSelection\.notIncludedCount/);
-  assert.match(source, /archiveResultSelectionFile:/);
-  assert.match(source, /evidenceSource: \{/);
-  assert.match(source, /remoteProjectRetained: evidenceMode === "hub_download"/);
-  assert.match(source, /finalEvidenceState.*=== "archived"/);
-  assert.match(source, /previewCsvPath[\s\S]*effectiveResultsCsvPath/);
-  assert.match(source, /async function nextAvailableDirectory\(parent, stem\)/);
-  assert.match(source, /archiveEnvironmentCount: Array\.isArray\(bundle\.environment\) \? bundle\.environment\.length : 0/);
-  assert.match(source, /archiveEvidenceSourceMode: String\(bundle\.evidenceSource\?\.mode \|\| bundle\.resultArchive\?\.sourceMode \|\| ""\)/);
-  assert.match(source, /archiveParameterCount: Number\(bundle\.parameters\?\.parameterCount \|\| 0\)/);
-  assert.match(source, /archiveParameterReviewCount: Number\(bundle\.parameters\?\.reviewCount \|\| 0\)/);
-  assert.match(source, /parserFeatureCount: parameterSnapshot\.parserFeatureCount/);
-  assert.match(source, /parserDeclarationCount: parameterSnapshot\.parserDeclarationCount/);
-  assert.match(source, /reviewCount: parameterReviewCount/);
+  const archive = source.slice(source.indexOf("async archivePlanFromUi"), source.indexOf("async restoreArchivedPlanFromUi"));
+  const confirmIndex = archive.indexOf("showWarningMessage");
+  const stageIndex = archive.indexOf("await fs.mkdir(stagingDir)");
+  const evidenceIndex = archive.indexOf("materializePlanArchiveEvidenceFiles");
+  const moveIndex = archive.indexOf("for (const entry of archiveMoveEntries)");
+  assert.ok(confirmIndex >= 0 && stageIndex > confirmIndex);
+  assert.ok(evidenceIndex > stageIndex && moveIndex > evidenceIndex);
+  assert.match(archive, /await this\.refreshResultsSummary\(file\)/);
+  assert.match(archive, /planArchiveGateFromResults\(resultSummary, file\)/);
+  assert.match(archive, /\{ source: file, target: "plan\.yaml" \}/);
+  assert.match(archive, /copyPlanArchiveFiles\(root, stagingDir, "configs", configMigration\.retainedShared\)/);
+  assert.match(archive, /const environmentFiles = await detectEnvironmentFiles\(root\)/);
+  assert.match(archive, /copyPlanArchiveFiles\(root, stagingDir, "environment", environmentFiles\)/);
+  assert.match(archive, /const parameterSnapshot = await planArchiveParameterSnapshot\(root, planText\)/);
+  assert.match(archive, /const evidencePlan = planArchiveEvidencePlan\(resultSummary, file\)/);
+  assert.match(archive, /showWarningMessage\(\[\s*"【Plan 归档位置确认】"/);
+  assert.match(archive, /"evidence\/result_selection\.json"/);
+  assert.match(archive, /schemaVersion: 5/);
+  assert.match(archive, /excludedResultsTotalCount: resultSelection\.notIncludedCount/);
+  assert.match(archive, /remoteProjectRetained: evidenceMode === "hub_download"/);
+  assert.match(archive, /await fs\.rename\(sourcePath, targetPath\)/);
+  assert.match(archive, /await fs\.rename\(stagingDir, bundleDir\)/);
+  assert.match(archive, /restoreMovedPlanArchiveFiles\(root, stagingDir, movedArchiveFiles\)/);
 });
 
 test("plan archive evidence plan is Plan-scoped and requires preview plus effective CSV", () => {
@@ -136,17 +114,17 @@ test("Plan archive synchronizes evidence only after modal confirmation and befor
   const archive = source.slice(source.indexOf("async archivePlanFromUi"), source.indexOf("async restoreArchivedPlanFromUi"));
   const confirmIndex = archive.indexOf("showWarningMessage");
   const materializeIndex = archive.indexOf("materializePlanArchiveEvidenceFiles");
-  const unlinkPlanIndex = archive.indexOf("await fs.unlink(source)");
+  const moveLoopIndex = archive.indexOf("for (const entry of archiveMoveEntries)");
+  const moveIndex = archive.indexOf("await fs.rename(sourcePath, targetPath)", moveLoopIndex);
   assert.ok(confirmIndex >= 0 && materializeIndex > confirmIndex);
-  assert.ok(unlinkPlanIndex > materializeIndex);
+  assert.ok(moveLoopIndex > materializeIndex && moveIndex > moveLoopIndex);
   assert.match(archive, /\{ modal: true \}, confirmLabel/);
   assert.match(archive, /Plan 归档已取消，未创建归档包或迁移文件/);
   assert.match(archive, /evidenceMode === "local" \? planArchiveMovableEvidenceFiles\(evidenceFiles\) : \[\]/);
   assert.match(archive, /let bundlePublished = false/);
-  assert.match(archive, /restorePlanArchiveWorkspaceFiles\(root, bundleDir, source, configMigration\.migrated, movableEvidence\)/);
-  assert.match(archive, /if \(workspaceRestored\) \{[\s\S]*fs\.rm\(bundleDir/);
-  assert.match(archive, /恢复失败，归档副本保留在/);
-  assert.match(archive, /Plan 归档失败，自动回滚不完整/);
+  assert.match(archive, /restoreMovedPlanArchiveFiles\(root, stagingDir, movedArchiveFiles\)/);
+  assert.match(archive, /源文件已恢复；未完成的副本保留在/);
+  assert.match(archive, /Plan 归档失败，源文件未能全部恢复/);
   assert.doesNotMatch(archive, /confirmUiCommand\("归档 Plan 包"/);
   assert.doesNotMatch(extractFunction("nextAvailableDirectory"), /fs\.mkdir/);
 });
@@ -163,6 +141,8 @@ test("Plan archive materializes local or Hub evidence inside the bundle", async 
       path,
       PLAN_ARCHIVE_EVIDENCE_MAX_BYTES: 4 * 1024 * 1024,
       MAPPED_RESULT_DOWNLOAD_MAX_ENTRIES: 256,
+      MAPPED_RESULT_DOWNLOAD_MAX_BATCH_BYTES: 128 * 1024 * 1024,
+      partitionMappedDownloadTransfers: new Function("return " + extractFunction("partitionMappedDownloadTransfers"))(),
       safeWorkspaceChildPath: (workspace, file) => path.resolve(workspace, file),
       safeArchiveBundleChildPath: (bundle, file) => path.resolve(bundle, file),
     };
@@ -189,10 +169,10 @@ test("Plan archive materializes local or Hub evidence inside the bundle", async 
       },
     };
     await sandbox.materialize(client, root, remoteBundle, [relative, "simple_cluster/results/by_plan/smoke/statistics.json"], "hub_download");
-    assert.equal(calls.length, 1);
-    assert.equal(calls[0].method, "sync.downloadMappedPaths");
-    assert.equal(calls[0].params.entries.length, 2);
-    assert.equal(calls[0].params.maxFileBytes, 4 * 1024 * 1024);
+    assert.equal(calls.length, 2, "unknown sizes are conservatively sent as one-file bounded batches");
+    assert.ok(calls.every((call) => call.method === "sync.downloadMappedPaths"));
+    assert.deepEqual(calls.map((call) => call.params.entries.length), [1, 1]);
+    assert.ok(calls.every((call) => call.params.maxFileBytes === 4 * 1024 * 1024));
     assert.equal(fs.readFileSync(path.join(remoteBundle, "evidence", ...relative.split("/")), "utf8"), "metric,value\nAUC,0.95\n");
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
@@ -208,6 +188,9 @@ test("Plan archive rollback restores migrated Plan, configs, and local evidence"
     const evidence = "simple_cluster/results/by_plan/smoke/results_effective_archived.csv";
     fs.mkdirSync(path.join(bundle, "configs", path.dirname(config)), { recursive: true });
     fs.mkdirSync(path.join(bundle, "evidence", path.dirname(evidence)), { recursive: true });
+    fs.mkdirSync(path.join(root, "experiments", "plans"), { recursive: true });
+    fs.mkdirSync(path.join(root, "configs"), { recursive: true });
+    fs.mkdirSync(path.join(root, "simple_cluster", "results", "by_plan", "smoke"), { recursive: true });
     fs.writeFileSync(path.join(bundle, "plan.yaml"), "suite: smoke\n", "utf8");
     fs.writeFileSync(path.join(bundle, "configs", config), "epochs: 3\n", "utf8");
     fs.writeFileSync(path.join(bundle, "evidence", evidence), "metric,value\nAUC,0.9\n", "utf8");
@@ -216,11 +199,17 @@ test("Plan archive rollback restores migrated Plan, configs, and local evidence"
       path,
       safeWorkspaceChildPath: (workspace, file) => path.resolve(workspace, file),
       safeArchiveBundleChildPath: (bundleRoot, file) => path.resolve(bundleRoot, file),
+      async existsAt(file) { try { await fs.promises.lstat(file); return true; } catch (error) { if (error?.code === "ENOENT") return false; throw error; } },
+      errorMessage: (error) => String(error?.message || error),
     };
     vm.createContext(sandbox);
-    const restoreSource = extractFunction("restorePlanArchiveWorkspaceFiles").replace(/^function /, "async function ");
-    vm.runInContext(restoreSource + "\nthis.restore = restorePlanArchiveWorkspaceFiles;", sandbox);
-    await sandbox.restore(root, bundle, plan, [config], [evidence]);
+    const restoreSource = extractFunction("restoreMovedPlanArchiveFiles").replace(/^function /, "async function ");
+    vm.runInContext(restoreSource + "\nthis.restore = restoreMovedPlanArchiveFiles;", sandbox);
+    await sandbox.restore(root, bundle, [
+      { source: "experiments/plans/smoke.yaml", target: "plan.yaml" },
+      { source: config, target: path.posix.join("configs", config) },
+      { source: evidence, target: path.posix.join("evidence", evidence) },
+    ]);
     assert.equal(fs.readFileSync(plan, "utf8"), "suite: smoke\n");
     assert.equal(fs.readFileSync(path.join(root, config), "utf8"), "epochs: 3\n");
     assert.equal(fs.readFileSync(path.join(root, evidence), "utf8"), "metric,value\nAUC,0.9\n");

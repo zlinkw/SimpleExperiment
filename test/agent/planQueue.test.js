@@ -14,7 +14,7 @@ import argparse, ast, json, os, pathlib, tempfile, time
 
 source = pathlib.Path(os.environ["TEST_SCHEDULER_PATH"]).read_text(encoding="utf-8")
 tree = ast.parse(source)
-wanted = {"plan_queue_predecessors_pending", "wait_for_plan_queue", "append_log", "now"}
+wanted = {"plan_queue_predecessors_pending", "wait_for_plan_queue", "scheduler_exit_code_ready", "scheduler_pid_is_alive", "append_log", "now"}
 body = [node for node in tree.body if isinstance(node, (ast.Import, ast.ImportFrom)) or getattr(node, "name", None) in wanted]
 module = ast.Module(body=body, type_ignores=[])
 ast.fix_missing_locations(module)

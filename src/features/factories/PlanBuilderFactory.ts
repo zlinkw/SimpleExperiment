@@ -58,20 +58,19 @@ class DefaultPlanBuilderFactory implements PlanBuilderFactory {
       const gen = new mg.MatrixGenerator();
       return gen.generate(normalized, existingRunKeys);
     }
-    return { experiments: [], duplicateRunKeys: [], yaml: "", previewCsv: "" };
+    throw new Error("PlanBuilder 矩阵实现不可用，拒绝返回空构建结果。");
   }
 
   renderYaml(matrix: unknown, experiments: unknown[]): string {
     const mod = tryRequire<PlanBuilderMod>("../PlanBuilder");
     if (mod?.renderPlanYaml) return mod.renderPlanYaml(matrix, experiments);
-    const rec = matrix as Record<string, unknown>;
-    return `suite: ${String(rec["suite"] ?? this.opts.defaultSuite ?? "suite")}\nmode: train_test\nbase_config: ${String(rec["baseConfig"] ?? "")}\n`;
+    throw new Error("PlanBuilder YAML 渲染实现不可用。");
   }
 
   parseCases(yaml: string): string[] {
     const mod = tryRequire<PlanBuilderMod>("../PlanBuilder");
     if (mod?.parsePlanCases) return mod.parsePlanCases(yaml);
-    return [];
+    throw new Error("PlanBuilder case 解析实现不可用。");
   }
 
   validate(yaml: string): unknown {
@@ -79,7 +78,7 @@ class DefaultPlanBuilderFactory implements PlanBuilderFactory {
     if (mod?.validateDeepLearningPlanContract) return mod.validateDeepLearningPlanContract(yaml);
     const vmod = tryRequire<PlanValidatorMod>("../PlanBuilder/PlanValidator");
     if (vmod?.validatePlan) return vmod.validatePlan(yaml);
-    return { ok: true, missing: [], issues: [], summary: {} };
+    throw new Error("Plan 校验实现不可用，拒绝把未校验 Plan 标记为通过。");
   }
 
   create(matrix: unknown): { matrix: unknown; build: (existingRunKeys?: string[]) => unknown } {

@@ -5,7 +5,7 @@ import threading
 
 source = pathlib.Path(os.environ["TEST_AGENT_PATH"]).read_text(encoding="utf-8")
 tree = ast.parse(source)
-wanted = {"execute_worker_command", "append_event", "read_json", "atomic_write", "path_for", "current_worker_task", "append_worker_task", "now_iso"}
+wanted = {"execute_worker_command", "_execute_worker_command_unfenced", "worker_task_matches_stop_identity", "append_event", "read_json", "atomic_write", "path_for", "current_worker_task", "append_worker_task", "now_iso"}
 body = [node for node in tree.body if isinstance(node, (ast.Import, ast.ImportFrom)) or getattr(node, "name", None) in wanted]
 module = ast.Module(body=body, type_ignores=[])
 ast.fix_missing_locations(module)
@@ -36,6 +36,8 @@ def fake_run(args, **kwargs):
 namespace["subprocess"].run = fake_run
 namespace["os"].kill = lambda *args: (_ for _ in ()).throw(AssertionError("numeric pid kill is not the pane close"))
 namespace["WORKER_TASK_SNAPSHOT_LOCK"] = threading.Lock()
+namespace["LEGACY_WORKER_STOP_IDENTITY_FIELDS"] = ("workflowId", "planRevision", "planFile", "case", "seed", "attempt", "outputDir", "workerId", "gpuId")
+namespace["cancel_durable_plan_job"] = lambda root, command: None
 namespace["agent_dir"] = lambda root: os.path.join(root, "state")
 namespace["append_event"] = lambda root, event: None
 store = {}

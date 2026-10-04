@@ -76,6 +76,8 @@ export type HostOperationLeaseHandle = {
 
 export class HostOperationLeaseConflictError extends Error {
     readonly current: HostOperationLeaseRecord;
+    readonly code = "RESOURCE_CONFLICT";
+    readonly sideEffectStarted = false;
 
     constructor(current: HostOperationLeaseRecord) {
         super(formatHostOperationLeaseConflict(current));
@@ -85,6 +87,8 @@ export class HostOperationLeaseConflictError extends Error {
 }
 
 export class HostOperationLeaseLostError extends Error {
+    readonly code = "RESOURCE_LEASE_LOST";
+    readonly outcomeUnknown = true;
     constructor(message = "宿主操作租约已失效，当前窗口不能继续提交副作用操作。") {
         super(message);
         this.name = "HostOperationLeaseLostError";
@@ -151,21 +155,30 @@ export class LegacyHostOperationLeaseManager {
                     }
                     // 已过期则走下面的过期回收逻辑，不抛冲突
                 } else if (inspection.expiresAtMs > this.now()) {
-                    // 同窗口但无本地 session 缓存：仍视为重入，直接复用现有租约而非抛冲突
-                    // 该 fallback 不拥有文件心跳，释放时仅清理本地映射，不触碰文件（由原持有者负责过期）
+                    // 同窗口但无本地 session 缓存：仅凭同窗口身份重入仍可复用，
+                    // 但必须续租并在每个 handle 的副作用前校验磁盘 lease 身份。
                     console.warn("[HostOperationLease] reentrant acquire from same window without local session, reusing", inspection.record.leaseId);
                     const fallbackSession: SharedLeaseSession = {
                         leasePath: this.leasePath,
                         leaseId: inspection.record.leaseId,
                         windowId: inspection.record.windowId,
                         refs: 1,
-                        renew: async () => {},
+                        renew: () => this.updateOwnedLease(inspection.record!.leaseId, false),
                         expire: async () => {
                             const k = sessionKey(this.leasePath);
                             if (sharedSessions().get(k) === fallbackSession)
                                 sharedSessions().delete(k);
                         },
                     };
+                    if (this.heartbeatMs > 0) {
+                        fallbackSession.heartbeatTimer = setInterval(() => {
+                            void fallbackSession.renew().catch((error) => {
+                                if (error instanceof HostOperationLeaseLostError)
+                                    fallbackSession.lostError = error;
+                            });
+                        }, this.heartbeatMs);
+                        fallbackSession.heartbeatTimer.unref?.();
+                    }
                     sharedSessions().set(sessionKey(this.leasePath), fallbackSession);
                     return this.createHandle(inspection.record, fallbackSession);
                 }
@@ -173,7 +186,14 @@ export class LegacyHostOperationLeaseManager {
             if (inspection.expiresAtMs > this.now() && !ownerProcessDefinitelyGone(inspection.record))
                 throw new HostOperationLeaseConflictError(inspection.record || malformedLeaseRecord(this.leasePath, inspection.expiresAtMs));
 
-            const movedPath = `${this.leasePath}.expired-${crypto.randomUUID()}`;
+            // This is a single, reusable recovery slot. A random filename here
+            // becomes permanent debris if the Extension Host exits between the
+            // rename and its finally block.
+            const movedPath = `${this.leasePath}.expired`;
+            if (!await clearExpiredLeaseRecoverySlot(movedPath, this.now(), this.ttlMs)) {
+                await shortDelay();
+                continue;
+            }
             try {
                 await fs.rename(this.leasePath, movedPath);
             }
@@ -191,9 +211,6 @@ export class LegacyHostOperationLeaseManager {
             catch (error) {
                 if (!hasErrorCode(error, "EEXIST"))
                     throw error;
-            }
-            finally {
-                await fs.unlink(movedPath).catch(() => undefined);
             }
             await shortDelay();
         }
@@ -439,6 +456,33 @@ function ownerProcessDefinitelyGone(record: HostOperationLeaseRecord | undefined
         // EPERM and unknown probe failures cannot prove that an owner is gone.
         return hasErrorCode(error, "ESRCH");
     }
+}
+
+async function clearExpiredLeaseRecoverySlot(file: string, now: number, ttlMs: number): Promise<boolean> {
+    let before: import("fs").Stats;
+    try { before = await fs.lstat(file); }
+    catch (error) { if (hasErrorCode(error, "ENOENT")) return true; throw error; }
+    if (!before.isFile() || before.isSymbolicLink())
+        throw new Error("宿主租约固定恢复槽不是普通文件，拒绝覆盖或删除。请检查插件全局状态目录。");
+    const parent = path.dirname(file);
+    const parentStat = await fs.lstat(parent);
+    if (!parentStat.isDirectory() || parentStat.isSymbolicLink())
+        throw new Error("宿主租约恢复槽父目录不安全，拒绝清理。");
+    const text = await fs.readFile(file, "utf8");
+    const record = parseHostOperationLeaseRecord(text);
+    const expiresAt = record ? parseTimestamp(record.expiresAt) : before.mtimeMs + ttlMs;
+    if (!record || !Number.isFinite(expiresAt) || expiresAt > now || !ownerProcessDefinitelyGone(record))
+        return false;
+    const current = await fs.lstat(file).catch((error) => hasErrorCode(error, "ENOENT") ? undefined : Promise.reject(error));
+    if (!current) return true;
+    if (!current.isFile() || current.isSymbolicLink()
+        || current.dev !== before.dev || current.ino !== before.ino || current.size !== before.size
+        || current.mtimeMs !== before.mtimeMs || current.ctimeMs !== before.ctimeMs)
+        return false;
+    // Keep this one fixed recovery slot. The next verified stale takeover may
+    // atomically replace it; unlinking on every recovery creates a delete race
+    // and makes Extension Host crashes leave random cleanup work behind.
+    return true;
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {

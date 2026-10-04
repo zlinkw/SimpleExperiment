@@ -33,15 +33,18 @@ test("clearTmuxTaskTabs status keeps the real success and partial-failure text",
     "const isUiCommandCancelled = (error) => error && error.name === 'UiCommandCancelled';",
     "const localCommandReleasesAfterTrigger = () => false;",
     "const actionErrorSuggestion = () => '';",
+    "const hostOperationLeaseActionLabel = () => '';",
+    "const compactSensitiveText = (value) => String(value || '');",
+    "const PLAN_SUBMISSION_COMMANDS = new Set();",
     "const booleanField = () => false;",
     "const debugModeBlockedUiCommand = () => false;",
     "class UiCommandCancelled extends Error { constructor(message) { super(message); this.name = 'UiCommandCancelled'; } }",
-    methodSource("handleMessageCore", "withUiCommandStatus"),
     methodSource("withUiCommandStatus", "uiCommandWatchdogMs"),
   ].join("\n");
   const statuses = [];
   const sandbox = {
     statuses,
+    OperationOutcome_1: require("../../dist/core/OperationOutcome.js"),
     tmuxClearTaskTabsInFlight: false,
     clearOutcome: "已关闭 2/2 个任务标签。",
     async clearTmuxTaskTabsFromUi() { return this.clearOutcome; },
@@ -53,14 +56,17 @@ test("clearTmuxTaskTabs status keeps the real success and partial-failure text",
     recordActionError() {},
     postState() {},
     view: null,
+    vscode: { window: {
+      showInformationMessage: () => Promise.resolve(),
+      showErrorMessage: () => Promise.resolve(),
+    } },
   };
   vm.createContext(sandbox);
-  vm.runInContext(`${source}\nthis.handle = handleMessageCore;\nthis.report = withUiCommandStatus;`, sandbox);
-  const handle = vm.runInContext("handle", sandbox);
+  vm.runInContext(`${source}\nthis.report = withUiCommandStatus;`, sandbox);
   const report = vm.runInContext("report", sandbox);
   const okMessage = { command: "clearTmuxTaskTabs", clientActionId: "clear-ok", workerId: "NWPU3", session: "zlk-gpu-0", targets: ["zlk-gpu-0:2", "zlk-gpu-0:3"] };
-  await report.call(sandbox, "clear-ok", "clearTmuxTaskTabs", okMessage, () => handle.call(sandbox, okMessage, "clearTmuxTaskTabs"));
-  assert.equal(statuses.at(-1).status, "completed");
+  await report.call(sandbox, "clear-ok", "clearTmuxTaskTabs", okMessage, () => sandbox.clearTmuxTaskTabsFromUi(okMessage));
+  assert.equal(statuses.at(-1).status, "completed", statuses.at(-1).message);
   assert.match(statuses.at(-1).message, /已关闭 2\/2/);
 
   sandbox.clearOutcome = null;
@@ -68,7 +74,7 @@ test("clearTmuxTaskTabs status keeps the real success and partial-failure text",
     throw new Error("已关闭 1/2 个任务标签。失败 1 个：zlk-gpu-0:3（busy）");
   };
   const failMessage = { ...okMessage, clientActionId: "clear-fail" };
-  await report.call(sandbox, "clear-fail", "clearTmuxTaskTabs", failMessage, () => handle.call(sandbox, failMessage, "clearTmuxTaskTabs"));
+  await report.call(sandbox, "clear-fail", "clearTmuxTaskTabs", failMessage, () => sandbox.clearTmuxTaskTabsFromUi(failMessage));
   assert.equal(statuses.at(-1).status, "failed");
   assert.match(statuses.at(-1).message, /已关闭 1\/2/);
   assert.match(statuses.at(-1).message, /zlk-gpu-0:3/);

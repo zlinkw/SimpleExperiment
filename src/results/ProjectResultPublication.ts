@@ -1,7 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
+import * as fsNode from "node:fs";
 import { createReadStream } from "node:fs";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { atomicWriteText } from "../state/StateStore";
 
 export type ProjectResultFile = { relativePath: string; contents: string };
 type JournalEntry = { target: string; staged: string; backup: string; hadPrevious: boolean; nextHash: string; previousHash?: string };
@@ -9,6 +11,7 @@ type Journal = { schemaVersion: 1; id: string; resultDirectory: string; status: 
 export type ProjectResultPublicationOptions = { rename?: typeof fs.rename; generationId?: string };
 const JOURNAL_RELATIVE = "simple_cluster/results/project_table_publication.json";
 const STAGING_PARENT = "simple_cluster/tmp/result_publication";
+const STAGING_DIRECTORY = `${STAGING_PARENT}/current`;
 const MAX_FILES = 4096;
 const publicationQueues = new Map<string, Promise<void>>();
 
@@ -28,6 +31,25 @@ export function projectResultPublicationJournalPath(root: string): string {
 
 function digest(value: string | Buffer): string {
   return createHash("sha256").update(value).digest("hex");
+}
+
+function retryableRenameError(error: any): boolean {
+  return ["EBUSY", "EACCES", "EPERM", "ENOTEMPTY"].includes(String(error?.code || "").toUpperCase());
+}
+
+async function renameWithRetry(rename: typeof fs.rename, source: string, target: string): Promise<void> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    try {
+      await rename(source, target);
+      return;
+    } catch (error) {
+      lastError = error;
+      if (process.platform !== "win32" || !retryableRenameError(error) || attempt === 4) throw error;
+      await new Promise(resolve => setTimeout(resolve, 20 * (attempt + 1)));
+    }
+  }
+  throw lastError;
 }
 
 function safeRelative(root: string, relative: string): string {
@@ -52,7 +74,7 @@ function assertAllowedTarget(relative: string, resultDirectory: string): void {
     throw new Error("结果发布事务包含目录外目标：" + relative);
 }
 
-async function verifyPath(root: string, relative: string, allowMissingLeaf = true): Promise<string> {
+async function verifyPath(root: string, relative: string, allowMissingLeaf = true, expectedLeaf: "file" | "directory" = "file"): Promise<string> {
   const full = safeRelative(root, relative);
   const parts = path.relative(root, full).split(path.sep);
   let current = root;
@@ -63,15 +85,32 @@ async function verifyPath(root: string, relative: string, allowMissingLeaf = tru
       if (index === parts.length - 1 && !allowMissingLeaf) throw new Error("结果发布文件缺失：" + relative);
       continue;
     }
-    if (stat.isSymbolicLink() || (index < parts.length - 1 && !stat.isDirectory()) || (index === parts.length - 1 && !stat.isFile()))
+    if (stat.isSymbolicLink() || (index < parts.length - 1 && !stat.isDirectory())
+      || (index === parts.length - 1 && (expectedLeaf === "directory" ? !stat.isDirectory() : !stat.isFile())))
       throw new Error("结果发布路径含符号链接或非预期文件类型：" + relative);
   }
   return full;
 }
 
 async function writeFileDurable(fullPath: string, contents: string): Promise<void> {
-  const handle = await fs.open(fullPath, "wx");
+  let existing: Awaited<ReturnType<typeof fs.lstat>> | undefined;
   try {
+    existing = await fs.lstat(fullPath);
+  } catch (error: any) {
+    if (error?.code !== "ENOENT") throw error;
+  }
+  if (existing && (!existing.isFile() || existing.isSymbolicLink() || existing.nlink > 1))
+    throw new Error(`结果发布固定暂存槽不是普通独占文件：${fullPath}`);
+  const flags = fsNode.constants.O_WRONLY | fsNode.constants.O_CREAT | (fsNode.constants.O_NOFOLLOW || 0);
+  const handle = await fs.open(fullPath, flags, 0o600);
+  try {
+    const opened = await handle.stat();
+    const current = await fs.lstat(fullPath);
+    if (!opened.isFile() || opened.nlink > 1 || current.isSymbolicLink() || !current.isFile() || current.nlink > 1
+      || Boolean(existing?.dev && existing.ino && opened.dev && opened.ino && (existing.dev !== opened.dev || existing.ino !== opened.ino))
+      || Boolean(current.dev && current.ino && opened.dev && opened.ino && (current.dev !== opened.dev || current.ino !== opened.ino)))
+      throw new Error(`结果发布固定暂存槽身份发生变化：${fullPath}`);
+    await handle.truncate(0);
     await handle.writeFile(contents, "utf8");
     await handle.sync();
   } finally { await handle.close(); }
@@ -93,17 +132,7 @@ async function syncDirectory(fullPath: string): Promise<void> {
 
 async function writeJournal(root: string, journal: Journal): Promise<void> {
   const target = await verifyPath(root, JOURNAL_RELATIVE);
-  await fs.mkdir(path.dirname(target), { recursive: true });
-  const temporaryRelative = JOURNAL_RELATIVE + ".tmp-" + randomUUID();
-  const temporary = await verifyPath(root, temporaryRelative);
-  try {
-    await writeFileDurable(temporary, JSON.stringify(journal));
-    await fs.rename(temporary, target);
-    await syncDirectory(path.dirname(target));
-  } catch (error) {
-    await fs.unlink(temporary).catch(() => undefined);
-    throw error;
-  }
+  await atomicWriteText(target, JSON.stringify(journal));
 }
 
 async function readJournal(root: string): Promise<Journal | undefined> {
@@ -118,7 +147,11 @@ async function readJournal(root: string): Promise<Journal | undefined> {
   for (const [index, entry] of value.entries.entries()) {
     if (!entry || typeof entry.target !== "string" || typeof entry.staged !== "string" || typeof entry.backup !== "string"
       || !/^[a-f0-9]{64}$/.test(String(entry.nextHash || "")) || typeof entry.hadPrevious !== "boolean") throw new Error("结果发布事务条目无效。");
-    if (entry.staged !== `${STAGING_PARENT}/${value.id}/${index}.new` || entry.backup !== `${STAGING_PARENT}/${value.id}/${index}.old`)
+    const legacyStaging = `${STAGING_PARENT}/${value.id}`;
+    const currentSlot = STAGING_DIRECTORY;
+    if (!([`${legacyStaging}/${index}.new`, `${currentSlot}/${index}.new`].includes(entry.staged))
+      || !([`${legacyStaging}/${index}.old`, `${currentSlot}/${index}.old`].includes(entry.backup))
+      || (entry.staged.startsWith(legacyStaging + "/") !== entry.backup.startsWith(legacyStaging + "/")))
       throw new Error("结果发布事务暂存路径不属于当前事务，拒绝清理。");
     safeRelative(root, entry.target);
     safeRelative(root, entry.staged);
@@ -126,6 +159,56 @@ async function readJournal(root: string): Promise<Journal | undefined> {
     if (entry.hadPrevious && !/^[a-f0-9]{64}$/.test(String(entry.previousHash || ""))) throw new Error("结果发布备份指纹无效。");
   }
   return value as Journal;
+}
+
+async function removeOwnedStagingFile(root: string, relative: string, expectedHash: string | undefined): Promise<void> {
+  const full = await verifyPath(root, relative);
+  const existing = await fs.lstat(full).catch(error => error?.code === "ENOENT" ? undefined : Promise.reject(error));
+  if (!existing) return;
+  if (!expectedHash || !existing.isFile() || existing.isSymbolicLink() || existing.nlink !== 1)
+    throw new Error("结果发布暂存文件身份无法验证，保留待恢复事务：" + relative);
+  if (await hashAt(root, relative) !== expectedHash)
+    throw new Error("结果发布暂存文件指纹不匹配，保留待恢复事务：" + relative);
+  const current = await fs.lstat(full).catch(error => error?.code === "ENOENT" ? undefined : Promise.reject(error));
+  if (!current) return;
+  if (!current.isFile() || current.isSymbolicLink() || current.nlink !== 1
+    || (existing.dev && existing.ino && current.dev && current.ino && (existing.dev !== current.dev || existing.ino !== current.ino)))
+    throw new Error("结果发布暂存文件在清理前发生变化，保留待恢复事务：" + relative);
+  await fs.unlink(full);
+}
+
+async function cleanupTransactionArtifacts(root: string, journal: Journal): Promise<boolean> {
+  try {
+    for (const entry of journal.entries) {
+      await removeOwnedStagingFile(root, entry.staged, entry.nextHash);
+      await removeOwnedStagingFile(root, entry.backup, entry.hadPrevious ? entry.previousHash : undefined);
+    }
+    const current = await readJournal(root);
+    if (current) {
+      if (current.id !== journal.id || JSON.stringify(current.entries) !== JSON.stringify(journal.entries))
+        throw new Error("结果发布事务在清理前已由其他进程更新，保留其文件。");
+      const journalPath = await verifyPath(root, JOURNAL_RELATIVE, false);
+      const journalStat = await fs.lstat(journalPath);
+      if (!journalStat.isFile() || journalStat.isSymbolicLink() || journalStat.nlink !== 1)
+        throw new Error("结果发布事务记录不是普通独占文件，保留其文件。");
+      await fs.unlink(journalPath);
+    }
+    for (const relative of [STAGING_DIRECTORY, STAGING_PARENT]) {
+      const directory = await verifyPath(root, relative, true, "directory");
+      const stat = await fs.lstat(directory).catch(error => error?.code === "ENOENT" ? undefined : Promise.reject(error));
+      if (!stat) continue;
+      if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error("结果发布暂存目录类型异常，保留其文件：" + relative);
+      try { await fs.rmdir(directory); }
+      catch (error: any) {
+        if (error?.code === "ENOENT") continue;
+        if (error?.code === "ENOTEMPTY" || error?.code === "EEXIST") return true;
+        throw error;
+      }
+    }
+    return false;
+  } catch {
+    return true;
+  }
 }
 
 async function hashAt(root: string, relative: string): Promise<string | undefined> {
@@ -145,23 +228,6 @@ async function hashAt(root: string, relative: string): Promise<string | undefine
   }
 }
 
-async function removeOwnedFile(root: string, relative: string): Promise<void> {
-  const full = await verifyPath(root, relative);
-  await fs.unlink(full).catch(error => { if (error?.code !== "ENOENT") throw error; });
-}
-
-async function cleanupTransaction(root: string, journal: Journal): Promise<void> {
-  for (const entry of journal.entries) {
-    await removeOwnedFile(root, entry.staged);
-    await removeOwnedFile(root, entry.backup);
-  }
-  const directory = safeRelative(root, `${STAGING_PARENT}/${journal.id}`);
-  await fs.rmdir(directory).catch(error => { if (error?.code !== "ENOENT") throw error; });
-  const parent = safeRelative(root, STAGING_PARENT);
-  await fs.rmdir(parent).catch(error => { if (!(["ENOENT", "ENOTEMPTY"].includes(error?.code))) throw error; });
-  await removeOwnedFile(root, JOURNAL_RELATIVE);
-}
-
 async function rollback(root: string, journal: Journal, rename: typeof fs.rename): Promise<void> {
   for (const entry of [...journal.entries].reverse()) {
     const targetHash = await hashAt(root, entry.target);
@@ -171,9 +237,11 @@ async function rollback(root: string, journal: Journal, rename: typeof fs.rename
       if (backupHash !== entry.previousHash) throw new Error("结果发布无法从备份恢复：" + entry.target);
       const target = await verifyPath(root, entry.target);
       const backup = await verifyPath(root, entry.backup, false);
-      await rename(backup, target);
+      await renameWithRetry(rename, backup, target);
     } else if (targetHash === entry.nextHash) {
-      await removeOwnedFile(root, entry.target);
+      const target = await verifyPath(root, entry.target, false);
+      const staged = await verifyPath(root, entry.staged);
+      await renameWithRetry(rename, target, staged);
     } else if (targetHash !== undefined) {
       throw new Error("结果发布目标在事务期间被其他操作修改：" + entry.target);
     }
@@ -203,11 +271,11 @@ async function recoverProjectResultPublicationUnlocked(root: string, resultDirec
       throw new Error("结果发布事务的注册表必须是最后提交的 generation 标记。");
   }
   if (journal.status === "committed") {
-    await cleanupTransaction(root, journal);
-    return "recovered";
+    await cleanupTransactionArtifacts(root, journal);
+    return "clean";
   }
   if (journal.status === "preparing") {
-    await cleanupTransaction(root, journal);
+    if (await cleanupTransactionArtifacts(root, journal)) throw new Error("结果发布已回滚，但暂存文件清理待重试。");
     return "rolled-back";
   }
   try {
@@ -218,16 +286,19 @@ async function recoverProjectResultPublicationUnlocked(root: string, resultDirec
       const target = await verifyPath(root, entry.target);
       const staged = await verifyPath(root, entry.staged, false);
       await fs.mkdir(path.dirname(target), { recursive: true });
-      await rename(staged, target);
+      await renameWithRetry(rename, staged, target);
+      await syncDirectory(path.dirname(target));
     }
     journal.status = "committed";
     await writeJournal(root, journal);
   } catch (publishError) {
     await rollback(root, journal, rename);
-    await cleanupTransaction(root, journal);
+    journal.status = "preparing";
+    await writeJournal(root, journal);
+    await cleanupTransactionArtifacts(root, journal);
     return "rolled-back";
   }
-  await cleanupTransaction(root, journal);
+  await cleanupTransactionArtifacts(root, journal);
   return "recovered";
 }
 
@@ -261,7 +332,7 @@ export function publishProjectResultFiles(root: string, resultDirectory: string,
   const recovered = await recoverProjectResultPublicationUnlocked(root, allowedDirectory, options);
   const id = String(options.generationId || randomUUID());
   if (!/^[a-f0-9-]{36}$/i.test(id)) throw new Error("结果发布 generationId 无效。");
-  const stagingDirectory = `${STAGING_PARENT}/${id}`;
+  const stagingDirectory = STAGING_DIRECTORY;
   const entries: JournalEntry[] = [];
   const seen = new Set<string>();
   for (const [index, file] of files.entries()) {
@@ -284,11 +355,9 @@ export function publishProjectResultFiles(root: string, resultDirectory: string,
       throw new Error("结果注册表 generation 与发布事务不一致。");
   }
   const journal: Journal = { schemaVersion: 1, id, resultDirectory: allowedDirectory, status: "preparing", entries };
-  const stagingPath = await verifyPath(root, stagingDirectory);
-  const existingStaging = await fs.lstat(stagingPath).catch(error => error?.code === "ENOENT" ? undefined : Promise.reject(error));
-  if (existingStaging) throw new Error("结果发布事务目录已存在，拒绝复用 generationId。");
+  const stagingPath = await verifyPath(root, stagingDirectory, true, "directory");
   await fs.mkdir(path.dirname(stagingPath), { recursive: true });
-  await fs.mkdir(stagingPath);
+  await fs.mkdir(stagingPath, { recursive: true });
   await writeJournal(root, journal);
   try {
     for (const [index, file] of files.entries()) {
@@ -311,18 +380,19 @@ export function publishProjectResultFiles(root: string, resultDirectory: string,
       if (await hashAt(root, entry.staged) !== entry.nextHash) throw new Error("结果发布暂存校验失败：" + entry.target);
       const target = await verifyPath(root, entry.target);
       const staged = await verifyPath(root, entry.staged, false);
-      await rename(staged, target);
+      await renameWithRetry(rename, staged, target);
+      await syncDirectory(path.dirname(target));
     }
     journal.status = "committed";
     await writeJournal(root, journal);
   } catch (error) {
-    await rollback(root, journal, rename);
-    await cleanupTransaction(root, journal);
+    if (journal.status === "publishing") await rollback(root, journal, rename);
+    journal.status = "preparing";
+    await writeJournal(root, journal);
+    await cleanupTransactionArtifacts(root, journal);
     throw error;
   }
-  let cleanupPending = false;
-  try { await cleanupTransaction(root, journal); }
-  catch { cleanupPending = true; }
+  const cleanupPending = await cleanupTransactionArtifacts(root, journal);
   return { generationId: id, recoveredPrevious: recovered !== "clean", cleanupPending };
   });
 }

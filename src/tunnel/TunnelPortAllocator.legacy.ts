@@ -15,6 +15,8 @@ export interface PortAllocationRequest {
     displayName?: string;
     sshConfigAlias?: string;
     host: string;
+    localForwardHost?: string;
+    remoteBindHost?: string;
     requestedLocalPort?: number;
     remoteAgentPort: number;
   };
@@ -23,6 +25,8 @@ export interface PortAllocationRequest {
     displayName?: string;
     sshConfigAlias?: string;
     host: string;
+    localForwardHost?: string;
+    remoteBindHost?: string;
     requestedLocalPort?: number;
     remoteTelemetryPort?: number;
     enabled: boolean;
@@ -38,7 +42,7 @@ export type PortOccupancy =
   | "existing_tunnel"
   | "unknown_process";
 
-export type TunnelPortProbe = (port: number, endpointId: string) => Promise<PortOccupancy> | PortOccupancy;
+export type TunnelPortProbe = (port: number, endpointId: string, localForwardHost?: string) => Promise<PortOccupancy> | PortOccupancy;
 
 export interface PortAllocationResult {
   ok: boolean;
@@ -71,6 +75,7 @@ export async function allocateTunnelPorts(
     autoStart: defaultTunnelPorts.hubLocalPort,
     source: request.hub.requestedLocalPort ? "manual" : existing.get("hub") ? "imported" : "auto",
     allowOutsideWorkerRange: true,
+    localForwardHost: request.hub.localForwardHost || existing.get("hub")?.localForwardHost || "127.0.0.1",
   });
   assignments.push({
     endpointId: "hub",
@@ -78,9 +83,9 @@ export async function allocateTunnelPorts(
     displayName: request.hub.displayName,
     remoteHostLabel: request.hub.host,
     sshConfigAlias: request.hub.sshConfigAlias,
-    localForwardHost: "127.0.0.1",
+    localForwardHost: request.hub.localForwardHost || existing.get("hub")?.localForwardHost || "127.0.0.1",
     localForwardPort: hubPort,
-    remoteBindHost: "127.0.0.1",
+    remoteBindHost: request.hub.remoteBindHost || existing.get("hub")?.remoteBindHost || "127.0.0.1",
     remoteServicePort: normalizeServicePort(request.hub.remoteAgentPort, defaultTunnelPorts.defaultHubAgentPort),
     assignedAt: existing.get("hub")?.assignedAt || now,
     source: request.hub.requestedLocalPort ? "manual" : existing.get("hub")?.source || "auto",
@@ -104,6 +109,7 @@ export async function allocateTunnelPorts(
       autoStart: nextWorkerPort,
       source: requested ? "manual" : previous ? "imported" : "auto",
       allowOutsideWorkerRange: false,
+      localForwardHost: worker.localForwardHost || previous?.localForwardHost || "127.0.0.1",
       enabled: worker.enabled,
     });
     if (assigned === defaultTunnelPorts.hubLocalPort && worker.enabled) {
@@ -122,9 +128,9 @@ export async function allocateTunnelPorts(
       displayName: worker.displayName,
       remoteHostLabel: worker.host,
       sshConfigAlias: worker.sshConfigAlias,
-      localForwardHost: "127.0.0.1",
+      localForwardHost: worker.localForwardHost || previous?.localForwardHost || "127.0.0.1",
       localForwardPort: assigned,
-      remoteBindHost: "127.0.0.1",
+      remoteBindHost: worker.remoteBindHost || previous?.remoteBindHost || "127.0.0.1",
       remoteServicePort: normalizeServicePort(worker.remoteTelemetryPort, defaultTunnelPorts.defaultWorkerTelemetryPort),
       assignedAt: previous?.assignedAt || now,
       source: requested ? "manual" : previous?.source || "auto",
@@ -154,6 +160,8 @@ export function allocationRequestFromAssignments(assignments: TunnelEndpointPort
       displayName: hub?.displayName,
       sshConfigAlias: hub?.sshConfigAlias,
       host: hub?.remoteHostLabel || "hub",
+      localForwardHost: hub?.localForwardHost,
+      remoteBindHost: hub?.remoteBindHost,
       requestedLocalPort: hub?.localForwardPort,
       remoteAgentPort: hub?.remoteServicePort || defaultTunnelPorts.defaultHubAgentPort,
     },
@@ -162,6 +170,8 @@ export function allocationRequestFromAssignments(assignments: TunnelEndpointPort
       displayName: worker.displayName,
       sshConfigAlias: worker.sshConfigAlias,
       host: worker.remoteHostLabel,
+      localForwardHost: worker.localForwardHost,
+      remoteBindHost: worker.remoteBindHost,
       requestedLocalPort: worker.localForwardPort,
       remoteTelemetryPort: worker.remoteServicePort,
       enabled: true,
@@ -245,6 +255,7 @@ async function reservePort(options: {
   source: TunnelEndpointPortAssignment["source"];
   allowOutsideWorkerRange: boolean;
   enabled?: boolean;
+  localForwardHost?: string;
 }): Promise<number> {
   const enabled = options.enabled !== false;
   let requested = Math.floor(Number(options.requestedPort));
@@ -302,14 +313,15 @@ async function reservePort(options: {
     selected += 1;
   }
   for (;;) {
-    const occupancy = enabled ? await options.probe(selected, options.endpointId) : "available";
+    const bindHost = String(options.localForwardHost || "127.0.0.1").trim() || "127.0.0.1";
+    const occupancy = enabled ? await options.probe(selected, options.endpointId, bindHost) : "available";
     if (occupancy === "available" || occupancy === "current_tunnel") break;
     options.conflicts.push(makeTunnelPortConflict(
       options.endpointId,
       selected,
       occupancy === "existing_tunnel" ? "occupied_by_existing_tunnel" : "occupied_by_unknown_process",
       occupancy === "existing_tunnel" ? "warning" : "error",
-      `127.0.0.1:${selected} is occupied by ${occupancy === "existing_tunnel" ? "another tunnel" : "an unknown process"}.`,
+      `${bindHost}:${selected} is occupied by ${occupancy === "existing_tunnel" ? "another tunnel" : "an unknown process"}.`,
       "Use Repair Port Conflicts or stop the process using that port.",
     ));
     selected += 1;

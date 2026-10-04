@@ -1,7 +1,7 @@
 import { normalizeSimpleError, SimpleError } from "./ErrorModel";
 
 export type OperationPriority = "user_blocking" | "manual" | "background" | "realtime";
-export type OperationStatus = "queued" | "running" | "succeeded" | "failed" | "cancelled" | "timeout" | "coalesced";
+export type OperationStatus = "queued" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled" | "timeout" | "coalesced";
 
 export interface OperationSpec {
   id: string;
@@ -14,6 +14,30 @@ export interface OperationSpec {
   timeoutMs?: number;
   coalesceKey?: string;
   run(signal: AbortSignal): Promise<void>;
+}
+
+export class OperationQueueCapacityError extends Error {
+  readonly code = "OPERATION_QUEUE_FULL";
+  constructor(maxPending: number) {
+    super(`operation queue is full (${maxPending} pending operations)`);
+    this.name = "OperationQueueCapacityError";
+  }
+}
+
+export class OperationAlreadyActiveError extends Error {
+  readonly code = "OPERATION_ALREADY_ACTIVE";
+  constructor(id: string) {
+    super(`operation is already queued or running: ${id}`);
+    this.name = "OperationAlreadyActiveError";
+  }
+}
+
+export class OperationCancelledError extends Error {
+  readonly code = "OPERATION_CANCELLED";
+  constructor(id: string) {
+    super(`operation cancelled before it started: ${id}`);
+    this.name = "OperationCancelledError";
+  }
 }
 
 export interface QueuedOperationRecord {
@@ -50,11 +74,15 @@ export class OperationQueue {
   private readonly latestRecordById = new Map<string, QueuedOperationRecord>();
   private readonly activeExclusiveKeyCounts = new Map<string, number>();
 
-  constructor(private readonly historyLimit = 500) {
+  constructor(private readonly historyLimit = 500, private readonly maxPending = 256) {
     this.historyLimit = Math.max(1, Math.floor(Number(historyLimit) || 500));
+    this.maxPending = Math.max(1, Math.floor(Number(maxPending) || 256));
   }
 
   enqueue(spec: OperationSpec): Promise<void> {
+    if (!spec || !String(spec.id || "").trim()) return Promise.reject(new Error("operation id is required"));
+    if (this.running.has(spec.id) || this.pending.some((item) => item.spec.id === spec.id))
+      return Promise.reject(new OperationAlreadyActiveError(spec.id));
     if (spec.coalesceKey) {
       const existing = this.coalesced.get(spec.coalesceKey);
       if (existing) {
@@ -62,6 +90,7 @@ export class OperationQueue {
         return existing;
       }
     }
+    if (this.pending.length >= this.maxPending) return Promise.reject(new OperationQueueCapacityError(this.maxPending));
     const promise = new Promise<void>((resolve, reject) => {
       this.pending.push({ spec, resolve, reject });
       this.record(spec, "queued");
@@ -69,7 +98,14 @@ export class OperationQueue {
     });
     const coalesceKey = spec.coalesceKey;
     if (coalesceKey) {
-      this.coalesced.set(coalesceKey, promise.finally(() => this.coalesced.delete(coalesceKey)));
+      this.coalesced.set(coalesceKey, promise);
+      const clear = () => {
+        if (this.coalesced.get(coalesceKey) === promise) this.coalesced.delete(coalesceKey);
+      };
+      // Handle both branches explicitly. A bare finally() creates a second
+      // rejected Promise that can become an unhandled rejection when no caller
+      // observes the coalescing registry value.
+      void promise.then(clear, clear);
     }
     return promise;
   }
@@ -79,14 +115,15 @@ export class OperationQueue {
     if (running && running.spec.cancellable) {
       running.cancelled = true;
       running.controller.abort();
-      this.update(id, "cancelled");
+      this.update(id, "cancelling");
       return true;
     }
     const index = this.pending.findIndex((item) => item.spec.id === id && item.spec.cancellable);
     if (index >= 0) {
       const [item] = this.pending.splice(index, 1);
-      item.resolve();
+      item.reject(new OperationCancelledError(id));
       this.update(id, "cancelled");
+      this.pump();
       return true;
     }
     return false;
@@ -124,19 +161,25 @@ export class OperationQueue {
     this.update(item.spec.id, "running", { startedAt: new Date().toISOString() });
     let timer: NodeJS.Timeout | undefined;
     try {
-      const timeout = item.spec.timeoutMs
-        ? new Promise<never>((_, reject) => {
-          timer = setTimeout(() => {
-            execution.timedOut = true;
-            controller.abort();
-            reject(new Error(`operation timeout: ${item.spec.id}`));
-          }, item.spec.timeoutMs);
-          timer.unref?.();
-        })
-        : undefined;
-      await (timeout ? Promise.race([item.spec.run(controller.signal), timeout]) : item.spec.run(controller.signal));
-      this.update(item.spec.id, execution.cancelled ? "cancelled" : "succeeded", { finishedAt: new Date().toISOString() });
-      item.resolve();
+      if (item.spec.timeoutMs) {
+        timer = setTimeout(() => {
+          execution.timedOut = true;
+          controller.abort();
+          this.update(item.spec.id, "cancelling", { error: normalizeSimpleError(new Error(`operation timed out; waiting for the underlying work to settle: ${item.spec.id}`)) });
+        }, item.spec.timeoutMs);
+        timer.unref?.();
+      }
+      const operation = item.spec.run(controller.signal);
+      await operation;
+      const finishedAt = new Date().toISOString();
+      if (execution.timedOut) {
+        const error = new Error(`operation timed out after the underlying work settled: ${item.spec.id}`);
+        this.update(item.spec.id, "timeout", { finishedAt, error: normalizeSimpleError(error) });
+        item.reject(error);
+      } else {
+        this.update(item.spec.id, execution.cancelled ? "cancelled" : "succeeded", { finishedAt });
+        item.resolve();
+      }
     } catch (error) {
       const status: OperationStatus = execution.timedOut ? "timeout" : execution.cancelled ? "cancelled" : "failed";
       const patch: Partial<QueuedOperationRecord> = { finishedAt: new Date().toISOString() };

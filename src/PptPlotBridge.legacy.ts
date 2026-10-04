@@ -5,9 +5,15 @@ import * as os from "os";
 import * as child_process_1 from "child_process";
 import * as PlottingContract_1 from "./features/PlottingContract";
 import { ProgressInactivity } from "./core/ProgressInactivity";
-const activePlotRequests = new Set();
+import { atomicWriteText } from "./state/StateStore";
+const activePlotProjects = new Set();
+const jsonWriteQueues = new Map();
 let powerPointLaunchInFlight;
 const PPT_SOURCE_FILE_MAX_BYTES = 2 * 1024 * 1024;
+const PPT_AUTOMATION_RESPONSE_MAX_BYTES = 4 * 1024 * 1024;
+const PPT_AUTOMATION_REQUEST_MAX_BYTES = 4 * 1024 * 1024;
+const PPT_DISCOVERY_MAX_BYTES = 64 * 1024;
+const PPT_TOKEN_MAX_BYTES = 4 * 1024;
 const PPT_LIGHTWEIGHT_SOURCE_EXTENSIONS = new Set([".json", ".csv", ".md", ".tex"]);
 const PPT_FINAL_STATISTICS_PATH = "simple_cluster/results/statistics.json";
 const PPT_FINAL_PAPER_TABLE_PATH = "paper/tables/simple_results_table.csv";
@@ -42,43 +48,49 @@ export class PptPlotBridge {
         this.requestTimeoutMs = deps.requestTimeoutMs ?? 30_000;
         this.postTimeoutMs = deps.postTimeoutMs ?? 30_000;
     }
-    async plot(input) {
+    async plot(input, signal) {
+        signal?.throwIfAborted();
         const request = await buildPptPlotRequest(input, this.requestIdFactory());
-        const requestDir = await ensureAuditDir(request.projectRoot);
-        const requestPath = path.join(requestDir, `${request.requestId}.json`);
-        const responsePath = path.join(requestDir, `${request.requestId}.response.json`);
-        await writeJson(requestPath, request);
-        const admissionKey = pptPlotAdmissionKey(request);
-        if (activePlotRequests.has(admissionKey)) {
-            const failure = { ok: false, error: "已有相同 PPT 绘图请求正在执行，请等待当前请求完成后再试。", requestId: request.requestId };
-            await writeJson(responsePath, failure);
-            throw pptAutomationError("busy", `${failure.error}；审计文件：${toProjectRelative(request.projectRoot, requestPath)}，响应：${toProjectRelative(request.projectRoot, responsePath)}`);
-        }
-        activePlotRequests.add(admissionKey);
+        const resolvedProject = path.resolve(request.projectRoot);
+        const projectKey = process.platform === "win32" ? resolvedProject.toLowerCase() : resolvedProject;
+        if (activePlotProjects.has(projectKey))
+            throw pptAutomationError("busy", "当前项目已有 PPT 绘图请求正在执行，请等待完成后重试。");
+        activePlotProjects.add(projectKey);
+        let requestPath = "";
+        let responsePath = "";
         try {
-            const automation = await this.ensureAutomationReady(request.target.presentationPath);
-            const response = await this.postPlotRequest(automation, request);
+            const requestDir = await ensureAuditDir(request.projectRoot);
+            requestPath = path.join(requestDir, "latest-request.json");
+            responsePath = path.join(requestDir, "latest-response.json");
+            await writeJson(requestPath, request);
+            const automation = await this.ensureAutomationReady(request.target.presentationPath, signal);
+            signal?.throwIfAborted();
+            const response = await this.postPlotRequest(automation, request, signal);
             await writeJson(responsePath, response);
             return { requestId: request.requestId, requestPath, responsePath, request, response };
         }
         catch (error) {
             const failure = { ok: false, error: errorMessage(error), requestId: request.requestId };
-            await writeJson(responsePath, failure);
-            throw pptAutomationError(pptAutomationErrorState(error), `${errorMessage(error)}；审计文件：${toProjectRelative(request.projectRoot, requestPath)}，响应：${toProjectRelative(request.projectRoot, responsePath)}`);
+            if (responsePath) await writeJson(responsePath, failure).catch(() => undefined);
+            const auditHint = requestPath && responsePath
+                ? `；最近一次审计：${toProjectRelative(request.projectRoot, requestPath)}；响应：${toProjectRelative(request.projectRoot, responsePath)}`
+                : "";
+            throw pptAutomationError(pptAutomationErrorState(error), `${errorMessage(error)}${auditHint}`);
         }
         finally {
-            activePlotRequests.delete(admissionKey);
+            activePlotProjects.delete(projectKey);
         }
     }
-    async inspectAutomation() {
-        return (await this.probeAutomation()).readiness;
+    async inspectAutomation(signal) {
+        return (await this.probeAutomation(undefined, signal)).readiness;
     }
-    async prepareAutomation(presentationPath) {
-        const config = await this.ensureAutomationReady(presentationPath);
+    async prepareAutomation(presentationPath, signal) {
+        const config = await this.ensureAutomationReady(presentationPath, signal);
         return pptAutomationReadiness("ready", "PPT automation schemaVersion=1 已就绪。", { schemaVersion: 1, endpoint: config.baseUrl });
     }
-    async ensureAutomationReady(presentationPath) {
-        const first = await this.probeAutomation();
+    async ensureAutomationReady(presentationPath, signal) {
+        signal?.throwIfAborted();
+        const first = await this.probeAutomation(undefined, signal);
         if (first.readiness.ready)
             return first.config;
         if (PPT_BLOCKING_READINESS_STATES.has(first.readiness.state))
@@ -88,13 +100,14 @@ export class PptPlotBridge {
         const started = Date.now();
         let lastReadiness = first.readiness;
         while (Date.now() - started <= this.healthTimeoutMs) {
-            const current = await this.probeAutomation();
+            signal?.throwIfAborted();
+            const current = await this.probeAutomation(undefined, signal);
             if (current.readiness.ready)
                 return current.config;
             lastReadiness = current.readiness;
             if (PPT_BLOCKING_READINESS_STATES.has(current.readiness.state))
                 throw pptAutomationError(current.readiness.state, current.readiness.message);
-            await this.sleepImpl(this.healthPollMs);
+            await this.sleepImpl(this.healthPollMs, signal);
         }
         throw pptAutomationError("not_running", `PPT automation 未就绪：${lastReadiness.message} 请确认 PPT 插件已安装并重新打开 PowerPoint。`);
     }
@@ -114,7 +127,7 @@ export class PptPlotBridge {
         const tokenPath = path.join(dir, "automation.token");
         let raw;
         try {
-            raw = JSON.parse(await fs.readFile(configPath, "utf8"));
+            raw = JSON.parse(await readBoundedUtf8(configPath, PPT_DISCOVERY_MAX_BYTES, "PPT automation discovery"));
         }
         catch (error) {
             if (error?.code === "ENOENT")
@@ -131,18 +144,23 @@ export class PptPlotBridge {
         catch (error) {
             throw pptAutomationError("incompatible", `PPT automation discovery 无效：${errorMessage(error)} 请更新或重新安装 PPT 插件。`);
         }
-        const token = String(await fs.readFile(tokenPath, "utf8").catch(() => "")).trim();
+        let tokenText = "";
+        try { tokenText = await readBoundedUtf8(tokenPath, PPT_TOKEN_MAX_BYTES, "PPT automation token"); }
+        catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+        const token = String(tokenText).trim();
         if (!token)
             throw pptAutomationError("token_missing", "PPT automation.token 缺失或为空。请完全退出并重新打开 PowerPoint；仍失败时更新 PPT 插件。");
         return { baseUrl, token, schemaVersion };
     }
-    async probeAutomation(knownConfig) {
+    async probeAutomation(knownConfig, signal) {
+        signal?.throwIfAborted();
         let config = knownConfig;
         if (!config) {
             try {
                 config = await this.readAutomationConfig();
             }
             catch (error) {
+                if (signal?.aborted) throw signal.reason || error;
                 const state = pptAutomationErrorState(error);
                 if (state !== "unknown")
                     return { readiness: pptAutomationReadinessFromError(error) };
@@ -153,7 +171,7 @@ export class PptPlotBridge {
             const response = await this.fetchTextWithTimeout(`${config.baseUrl}/health`, {
                 method: "GET",
                 headers: automationHeaders(config, false),
-            }, this.requestTimeoutMs, "PPT automation health");
+            }, this.requestTimeoutMs, "PPT automation health", signal);
             const payload = parseJsonObject(response.text);
             if (response.status === 401)
                 return { config, readiness: pptAutomationReadiness("token_invalid", "PPT automation 令牌已失效。请完全退出并重新打开 PowerPoint。") };
@@ -165,15 +183,19 @@ export class PptPlotBridge {
             return { config, readiness: pptAutomationReadiness("ready", "PPT automation schemaVersion=1 已就绪。", { schemaVersion, endpoint: config.baseUrl }) };
         }
         catch (error) {
+            if (signal?.aborted) throw signal.reason || error;
             return { config, readiness: pptAutomationReadiness("not_running", `PPT automation 未响应：${errorMessage(error)} 请打开或重新启动 PowerPoint。`) };
         }
     }
-    async postPlotRequest(config, request) {
+    async postPlotRequest(config, request, signal) {
+        const body = JSON.stringify(request);
+        if (Buffer.byteLength(body, "utf8") > PPT_AUTOMATION_REQUEST_MAX_BYTES)
+            throw pptAutomationError("unavailable", `PPT 绘图请求超过 ${PPT_AUTOMATION_REQUEST_MAX_BYTES} 字节上限。`);
         const response = await this.fetchTextWithTimeout(`${config.baseUrl}/api/simple-experiment/plot`, {
             method: "POST",
             headers: automationHeaders(config, true),
-            body: JSON.stringify(request),
-        }, this.postTimeoutMs, "PPT automation 绘图请求");
+            body,
+        }, this.postTimeoutMs, "PPT automation 绘图请求", signal);
         const text = response.text;
         const payload = parseJsonObject(text);
         if (!response.ok) {
@@ -190,25 +212,60 @@ export class PptPlotBridge {
             throw pptAutomationError("incompatible", "PPT automation 响应缺少 ok=true。请更新 PPT 插件。");
         return payload;
     }
-    async fetchTextWithTimeout(url, init, timeoutMs, label) {
+    async fetchTextWithTimeout(url, init, timeoutMs, label, parentSignal) {
+        parentSignal?.throwIfAborted();
         const controller = new AbortController();
+        const signal = parentSignal ? AbortSignal.any([parentSignal, controller.signal]) : controller.signal;
+        let timeoutKind = "inactivity";
         const inactivity = new ProgressInactivity(timeoutMs, () => controller.abort());
+        const totalTimer = setTimeout(() => {
+            timeoutKind = "total";
+            controller.abort();
+        }, timeoutMs);
+        totalTimer.unref?.();
         try {
-            const response = await this.fetchImpl(url, { ...init, signal: controller.signal });
+            const response = await this.fetchImpl(url, { ...init, signal });
             let text;
             if (response.body) {
-                const reader = response.body.getReader(); const chunks = []; let bytes = 0;
-                for (;;) { const chunk = await reader.read(); if (chunk.done) break; chunks.push(chunk.value); bytes += chunk.value.byteLength; inactivity.update({ processedBytes: bytes }); }
-                text = Buffer.concat(chunks).toString("utf8");
-            } else text = await response.text();
+                const declaredLength = Number(response.headers?.get?.("content-length"));
+                if (Number.isFinite(declaredLength) && declaredLength > PPT_AUTOMATION_RESPONSE_MAX_BYTES) {
+                    void response.body.cancel().catch(() => undefined);
+                    throw new Error(`${label} 响应超过 ${PPT_AUTOMATION_RESPONSE_MAX_BYTES} 字节上限。`);
+                }
+                const reader = response.body.getReader();
+                const chunks = [];
+                let bytes = 0;
+                try {
+                    for (;;) {
+                        const chunk = await reader.read();
+                        if (chunk.done) break;
+                        bytes += chunk.value.byteLength;
+                        if (bytes > PPT_AUTOMATION_RESPONSE_MAX_BYTES || chunks.length >= 4096) {
+                            void reader.cancel().catch(() => undefined);
+                            throw new Error(`${label} 响应超过大小或分块数上限。`);
+                        }
+                        chunks.push(Buffer.from(chunk.value));
+                        inactivity.update({ processedBytes: bytes });
+                    }
+                } finally {
+                    try { reader.releaseLock(); } catch { /* stream may already be cancelled */ }
+                }
+                text = Buffer.concat(chunks, bytes).toString("utf8");
+            } else {
+                const declaredLength = Number(response.headers?.get?.("content-length"));
+                if (response.status === 204 || response.status === 304 || declaredLength === 0) text = "";
+                else throw new Error(`${label} 响应没有可限额读取的流，已停止接收。`);
+            }
             return { ok: response.ok, status: response.status, text };
         }
         catch (error) {
+            if (parentSignal?.aborted) throw parentSignal.reason || error;
             if (isAbortError(error))
-                throw new Error(`${label} 超时（${timeoutMs}ms）。`);
+                throw new Error(`${label}${timeoutKind === "total" ? "总时长" : "无进展"}超时（${timeoutMs}ms）。`);
             throw error;
         }
         finally {
+            clearTimeout(totalTimer);
             inactivity.dispose();
         }
     }
@@ -281,7 +338,7 @@ export async function ensureLocalPlottingContract(projectRoot, planFile = "") {
     const mdPath = safeProjectPath(root, mdRel);
     if (!await pathExists(mdPath)) {
         await fs.mkdir(path.dirname(mdPath), { recursive: true });
-        await fs.writeFile(mdPath, (0, PlottingContract_1.plottingContractMarkdown)(contract), "utf8");
+        await atomicWriteText(mdPath, (0, PlottingContract_1.plottingContractMarkdown)(contract));
     }
     return toProjectRelative(root, preferredPath);
 }
@@ -339,7 +396,7 @@ async function isAggregateCsvPlotSource(projectRoot, rel) {
     if (!/\.csv$/i.test(rel)) return false;
     const full = safeProjectPath(projectRoot, rel);
     await assertPptLightweightSource(full, rel);
-    const {header} = require("./results/ProjectResultTables").readCsv(await fs.readFile(full, "utf8"));
+    const {header} = require("./results/ProjectResultTables").readCsv(await readBoundedUtf8(full, PPT_SOURCE_FILE_MAX_BYTES, `绘图源 ${rel}`));
     return header.includes("dataset") && header.some(name => name === "mean" || name.endsWith("_mean")) && header.some(name => name === "std" || name.endsWith("_std") || name.endsWith("_sd"));
 }
 async function assertSingleDatasetPlotSources(projectRoot, sources) {
@@ -348,11 +405,11 @@ async function assertSingleDatasetPlotSources(projectRoot, sources) {
         const full = safeProjectPath(projectRoot, rel);
         await assertPptLightweightSource(full, rel);
         if (/\.csv$/i.test(rel)) {
-            const parsed = require("./results/ProjectResultTables").readCsv(await fs.readFile(full, "utf8"));
+            const parsed = require("./results/ProjectResultTables").readCsv(await readBoundedUtf8(full, PPT_SOURCE_FILE_MAX_BYTES, `绘图源 ${rel}`));
             const index = parsed.header.indexOf("dataset");
             if (index >= 0) parsed.rows.forEach(row => datasets.add(String(row[index] || "").trim()));
         } else if (isStatisticsPlotSource(rel)) {
-            const report = JSON.parse(await fs.readFile(full, "utf8"));
+            const report = JSON.parse(await readBoundedUtf8(full, PPT_SOURCE_FILE_MAX_BYTES, `绘图源 ${rel}`));
             (report.rows || []).forEach(row => datasets.add(String(row.dataset || row.dimensions?.dataset || "").trim()));
         } else if (/^paper\/tables\/[^/]+\//.test(rel)) {
             datasets.add(rel.split("/")[2]);
@@ -380,7 +437,7 @@ async function resolvePptSourcePaths(projectRoot, sourcePaths) {
                 out.push(jsonRel);
             }
             else if (!markdownSummary) {
-                markdownSummary = { path: rel, text: (await fs.readFile(full, "utf8")).slice(0, 24_000) };
+                markdownSummary = { path: rel, text: (await readBoundedUtf8(full, PPT_SOURCE_FILE_MAX_BYTES, `绘图源 ${rel}`)).slice(0, 24_000) };
                 out.push(rel);
             }
             continue;
@@ -409,7 +466,7 @@ function isStatisticsPlotSource(rel) {
 async function archivedStatisticsSource(projectRoot, rel) {
     const full = safeProjectPath(projectRoot, rel);
     try {
-        const report = JSON.parse(await fs.readFile(full, "utf8"));
+        const report = JSON.parse(await readBoundedUtf8(full, PPT_SOURCE_FILE_MAX_BYTES, `绘图源 ${rel}`));
         const source = String(report?.aggregationPolicy?.source || report?.inclusionPolicy || "").toLowerCase();
         return Number(report?.resultCount || 0) > 0 && source === "archived_only";
     }
@@ -436,10 +493,10 @@ function isRawSingleRunPlotSource(rel) {
     return /^(experiments\/results|work_dirs|results|outputs|runs|custom_results|reports|artifacts|evals|evaluation)\//.test(text) && /\.(csv|json)$/i.test(text);
 }
 async function assertPptLightweightSource(fullPath, rel) {
-    const stat = await fs.stat(fullPath).catch(() => undefined);
+    const stat = await fs.lstat(fullPath).catch(() => undefined);
     if (!stat)
         throw new Error(`绘图源文件不存在：${rel}`);
-    if (!stat.isFile())
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink > 1)
         throw new Error(`绘图源必须是轻量结果文件，不能是目录：${rel}`);
     const ext = path.extname(rel).toLowerCase();
     if (!PPT_LIGHTWEIGHT_SOURCE_EXTENSIONS.has(ext)) {
@@ -448,6 +505,27 @@ async function assertPptLightweightSource(fullPath, rel) {
     if (stat.size > PPT_SOURCE_FILE_MAX_BYTES) {
         throw new Error(`PPT 绘图源文件过大：${rel}，请先生成 statistics、paper table、case-level 或 Markdown 摘要。`);
     }
+}
+async function readBoundedUtf8(file, maxBytes, label) {
+    const before = await fs.lstat(file);
+    if (!before.isFile() || before.isSymbolicLink() || before.nlink > 1) throw new Error(`${label} 不是可安全读取的独占普通文件。`);
+    if (before.size > maxBytes) throw new Error(`${label} 超过 ${maxBytes} 字节上限。`);
+    const noFollow = Number(require("node:fs").constants.O_NOFOLLOW || 0);
+    const handle = await fs.open(file, require("node:fs").constants.O_RDONLY | noFollow);
+    try {
+        const opened = await handle.stat();
+        if (!opened.isFile() || opened.nlink > 1 || opened.dev !== before.dev || opened.ino !== before.ino || opened.size !== before.size || opened.mtimeMs !== before.mtimeMs)
+            throw new Error(`${label} 在打开时发生变化。`);
+        const buffer = Buffer.alloc(maxBytes + 1);
+        const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
+        if (bytesRead > maxBytes) throw new Error(`${label} 超过 ${maxBytes} 字节上限。`);
+        const after = await fs.lstat(file);
+        const openedAfter = await handle.stat();
+        if (after.isSymbolicLink() || !after.isFile() || after.nlink > 1 || after.dev !== before.dev || after.ino !== before.ino
+            || after.size !== before.size || after.mtimeMs !== before.mtimeMs || openedAfter.dev !== before.dev || openedAfter.ino !== before.ino)
+            throw new Error(`${label} 在读取期间发生变化。`);
+        return buffer.subarray(0, bytesRead).toString("utf8");
+    } finally { await handle.close(); }
 }
 async function ensureAuditDir(projectRoot) {
     const dir = safeProjectPath(projectRoot, "simple_cluster/results/ppt_plot_requests");
@@ -482,22 +560,9 @@ function automationHeaders(config, hasBody) {
     }
     return headers;
 }
-function pptPlotAdmissionKey(request) {
-    return JSON.stringify({
-        projectRoot: path.resolve(request.projectRoot),
-        sourcePaths: request.sourcePaths,
-        plottingContractPath: request.plottingContractPath,
-        selectedResultId: request.selectedResultId || "",
-        runKey: request.runKey || "",
-        archiveKey: request.archiveKey || "",
-        chartType: request.chartType || "auto",
-        presentationPath: request.target.presentationPath || "",
-        styleMode: request.styleMode || "activePpt",
-    });
-}
 function launchPowerPoint(presentationPath) {
     const child = process.platform === "win32"
-        ? (0, child_process_1.spawn)("powershell.exe", [
+        ? (0, child_process_1.spawn)("pwsh.exe", [
             "-NoProfile",
             "-ExecutionPolicy",
             "Bypass",
@@ -509,8 +574,18 @@ function launchPowerPoint(presentationPath) {
     child.unref();
 }
 async function writeJson(file, payload) {
-    await fs.mkdir(path.dirname(file), { recursive: true });
-    await fs.writeFile(file, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+    const target = path.resolve(file);
+    const previous = jsonWriteQueues.get(target) || Promise.resolve();
+    const writing = previous.catch(() => undefined).then(async () => {
+        await atomicWriteText(target, `${JSON.stringify(payload, null, 2)}\n`);
+    });
+    jsonWriteQueues.set(target, writing);
+    try {
+        await writing;
+    }
+    finally {
+        if (jsonWriteQueues.get(target) === writing) jsonWriteQueues.delete(target);
+    }
 }
 function safeProjectPath(projectRoot, value) {
     const root = path.resolve(projectRoot);
@@ -539,10 +614,20 @@ function cleanOptional(value) {
 function defaultRequestId() {
     return `ppt-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
-function sleep(ms) {
-    return new Promise((resolve) => {
-        const timer = setTimeout(resolve, ms);
+function sleep(ms, signal) {
+    if (signal?.aborted) return Promise.reject(signal.reason || Object.assign(new Error("请求已取消。"), { name: "AbortError" }));
+    return new Promise((resolve, reject) => {
+        let timer;
+        const cleanup = () => {
+            if (timer) clearTimeout(timer);
+            signal?.removeEventListener("abort", abort);
+        };
+        const finish = () => { cleanup(); resolve(); };
+        const abort = () => { cleanup(); reject(signal.reason || Object.assign(new Error("请求已取消。"), { name: "AbortError" })); };
+        timer = setTimeout(finish, ms);
         timer.unref?.();
+        signal?.addEventListener("abort", abort, { once: true });
+        if (signal?.aborted) abort();
     });
 }
 function errorMessage(error) {

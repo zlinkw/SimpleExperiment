@@ -8,12 +8,14 @@ const root = path.resolve(__dirname, "..", "..");
 
 test("extension compacts experiment trace payload for all-day webview runs", () => {
   const source = readSource("src/extension.ts");
-  const buildState = source.match(/private buildState\(\): WebviewClusterState[\s\S]*?return \{/)?.[0] || "";
+  const buildStateStart = source.indexOf("private buildState(options:");
+  const buildState = source.slice(buildStateStart, source.indexOf("private buildPanelFallbackState", buildStateStart));
   const compact = source.match(/function compactExperimentTraces[\s\S]*?const schedulerBucketKeys/)?.[0] || "";
 
   assert.match(source, /const EXPERIMENT_TRACE_RECORD_LIMIT = 240/);
   assert.match(source, /const EXPERIMENT_TRACE_ATTENTION_LIMIT = 120/);
-  assert.match(buildState, /const experimentTraces = compactExperimentTraces\(/);
+  assert.match(buildState, /this\.compactExperimentTracesForPanel\(/);
+  assert.match(buildState, /this\.cachedExperimentTracesProjection\(/);
   assert.match(buildState, /this\.traceProtectedKeys\(\)/);
   assert.match(compact, /experimentTraceMatchesProtectedKey/);
   assert.match(compact, /experimentTraceNeedsAttention/);

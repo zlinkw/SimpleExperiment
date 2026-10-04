@@ -25,7 +25,8 @@ main{display:grid;grid-template-columns:var(--sidebar-width,310px) 6px minmax(0,
   const palette=['#3766df','#d97706','#0a9b71','#bb3ba8','#d23d48','#6355c8','#087eaa','#a06328','#5b8f25','#e56b9f','#137c6b','#b05b16','#7b4fc4','#ba7f12','#d8508b','#4c879e','#8f581c','#4f8b60','#bc6f64','#5762a0'];
   const maxComparisonCases=19;
   const interval=document.getElementById('interval'),columns=document.getElementById('columns'),auto=document.getElementById('autoRefresh'),band=document.getElementById('band'),raw=document.getElementById('raw');
-  let catalog=[],catalogReady=false,catalogLoading=false,active=null,comparison=new Map(),cards=new Map(),observer=null,generation=0,refreshing=false,pending=false,lastRequest=0,backoff=0,nativeStarted=false,nativeOpening=false,localEpoch=__SCALAR_VIEWER_EPOCH__,nextNativeAttempt=0;
+  let catalog=[],catalogReady=false,catalogLoading=false,active=null,comparison=new Map(),cards=new Map(),observer=null,generation=0,refreshing=false,pending=false,lastRequest=0,backoff=0,nativeStarted=false,nativeOpening=false,localEpoch=__SCALAR_VIEWER_EPOCH__,nextNativeAttempt=0,seriesRequestKey='',autoRefreshTimer=0,connectionTimer=0,connectionChecking=false,connectionController=null;
+  const readControllers=new Map();
   const planOpen=new Map();
   interval.value=String(Math.max(1,Number(localStorage.getItem('scalarInterval')||5)));auto.checked=localStorage.getItem('scalarAuto')!=='false';
   band.checked=localStorage.getItem('scalarBand')==='true';raw.checked=localStorage.getItem('scalarRaw')==='true';
@@ -37,7 +38,18 @@ main{display:grid;grid-template-columns:var(--sidebar-width,310px) 6px minmax(0,
   function fullRowKey(tag){return 'scalarFullRow:'+encodeURIComponent(key(active))+'|'+encodeURIComponent(tag)}
   function applyChartLayout(){const requested=Math.max(1,Math.min(6,Math.floor(Number(columns.value)||3)));const available=Math.max(1,Math.floor(groupRoot.clientWidth/300));groupRoot.style.setProperty('--chart-columns',String(Math.min(requested,available)));requestAnimationFrame(()=>cards.forEach(drawCard))}
   function message(value,isError){status.textContent=value;status.className=isError?'status error':'status'}
-  async function call(action,extra){const response=await fetch('/tensorboard/api?server='+encodeURIComponent(server),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({action},extra||{}))});const data=await response.json();if(!response.ok||data.error){const error=new Error(data.error||'HTTP '+response.status);error.retryAfterMs=data.retryAfterMs||1000;throw error}return data}
+  function cancelRead(action){const controller=readControllers.get(action);if(!controller)return;readControllers.delete(action);controller.abort()}
+  function cancelScalarReads(){['catalog','tags','series'].forEach(cancelRead)}
+  async function call(action,extra){
+    const controller=new AbortController();
+    cancelRead(action);readControllers.set(action,controller);
+    try{
+      const response=await fetch('/tensorboard/api?server='+encodeURIComponent(server),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(Object.assign({action},extra||{})),signal:controller.signal});
+      const data=await response.json();
+      if(!response.ok||data.error){const error=new Error(data.error||'HTTP '+response.status);error.retryAfterMs=data.retryAfterMs||1000;throw error}
+      return data;
+    }finally{if(readControllers.get(action)===controller)readControllers.delete(action)}
+  }
   function mergeCatalog(data){const plans=new Map();(data.plans||[]).forEach(plan=>{let existing=plans.get(plan.planFile);if(!existing){existing={planFile:plan.planFile,suite:plan.suite,cases:new Map()};plans.set(plan.planFile,existing)}(plan.cases||[]).forEach(item=>{let row=existing.cases.get(item.case);if(!row){row={planFile:plan.planFile,case:item.case,expectedSeeds:0};existing.cases.set(item.case,row)}row.expectedSeeds=Math.max(row.expectedSeeds,item.expectedSeeds||0)})});return [...plans.values()]}
   function renderTree(){
     const query=caseSearch.value.trim().toLowerCase(),only=selectedOnly.checked;
@@ -68,11 +80,11 @@ main{display:grid;grid-template-columns:var(--sidebar-width,310px) 6px minmax(0,
     selectionSummary.textContent=(active?'主图：'+active.case:'尚未选择主图')+' · 对比 '+comparison.size+'/'+maxComparisonCases;
     document.getElementById('clearComparisons').disabled=comparison.size===0;
   }
-  async function loadCatalog(){if(catalogLoading)return;catalogLoading=true;try{const result=await call('catalog');catalog=mergeCatalog(result);catalogReady=true;renderTree();message('目录已更新'+(result.offlineServers?.length?' · 离线 '+result.offlineServers.join(', '):''))}catch(error){catalogReady=false;message('目录读取失败，连接恢复后自动重试：'+error.message,true)}finally{catalogLoading=false}}
-  function stopObserving(){if(observer){observer.disconnect();observer=null}cards.clear();groupRoot.replaceChildren()}
+  async function loadCatalog(){if(catalogLoading)return;catalogLoading=true;try{const result=await call('catalog');catalog=mergeCatalog(result);catalogReady=true;renderTree();message('目录已更新'+(result.offlineServers?.length?' · 离线 '+result.offlineServers.join(', '):''))}catch(error){if(error.name!=='AbortError'){catalogReady=false;message('目录读取失败，连接恢复后自动重试：'+error.message,true)}}finally{catalogLoading=false}}
+  function stopObserving(){cancelRead('series');if(observer){observer.disconnect();observer=null}cards.clear();groupRoot.replaceChildren()}
   function visibleTags(){return [...cards].filter(([,card])=>card.details.open&&card.visible).map(([tag])=>tag).slice(0,32)}
   function queueRefresh(){pending=true;if(!refreshing)setTimeout(()=>{if(pending)void refreshVisible()},0)}
-  async function selectCase(item){active=item;comparison.delete(key(item));generation++;const current=generation;stopObserving();renderTree();document.getElementById('heading').textContent=item.case+' · 正在读取指标…';message('读取指标目录');try{const result=await call('tags',{planFile:item.planFile,case:item.case});if(current!==generation)return;const tags=result.tags||[];document.getElementById('heading').textContent=item.case+' · '+tags.length+' 个指标';renderCards(tags);message(tags.length?'已加载指标目录':'该 case 暂无标量指标');if(result.unsupportedFiles?.length)message('不支持的 event 文件：'+result.unsupportedFiles.join(', '),true)}catch(error){if(current===generation){document.getElementById('heading').textContent='指标读取失败：'+error.message;message(error.message,true)}}}
+  async function selectCase(item){active=item;comparison.delete(key(item));generation++;const current=generation;cancelRead('tags');stopObserving();renderTree();document.getElementById('heading').textContent=item.case+' · 正在读取指标…';message('读取指标目录');try{const result=await call('tags',{planFile:item.planFile,case:item.case});if(current!==generation)return;const tags=result.tags||[];document.getElementById('heading').textContent=item.case+' · '+tags.length+' 个指标';renderCards(tags);message(tags.length?'已加载指标目录':'该 case 暂无标量指标');if(result.unsupportedFiles?.length)message('不支持的 event 文件：'+result.unsupportedFiles.join(', '),true)}catch(error){if(current===generation&&error.name!=='AbortError'){document.getElementById('heading').textContent='指标读取失败：'+error.message;message(error.message,true)}}}
   function renderCards(tags){
     const sections=new Map();
     tags.forEach(tag=>{
@@ -101,7 +113,27 @@ main{display:grid;grid-template-columns:var(--sidebar-width,310px) 6px minmax(0,
     else{cards.forEach(card=>{card.visible=true});queueRefresh()}
   }
   function checkControl(parent,label,checked){const wrap=el('label'),input=el('input');input.type='checkbox';input.checked=checked;wrap.appendChild(input);wrap.appendChild(el('span','',label));parent.appendChild(wrap);return input}
-  async function refreshVisible(){if(refreshing){pending=true;return}if(!active||document.hidden||document.getElementById('scalarPage').hidden)return;const tags=visibleTags();if(!tags.length){pending=false;return}pending=false;refreshing=true;lastRequest=Date.now();const current=generation;const groups=[active,...[...comparison.values()].filter(item=>key(item)!==key(active))];try{const result=await call('series',{groups,tags});if(current!==generation)return;for(const tag of tags){const card=cards.get(tag);if(!card)continue;card.charts=(result.charts||[]).filter(row=>row.tag===tag);drawCard(card)}backoff=0;message('更新于 '+new Date().toLocaleTimeString()+(result.offlineServers?.length?' · 离线 '+result.offlineServers.join(', '):''));if(result.unsupportedFiles?.length)message('不支持的 event 文件：'+result.unsupportedFiles.join(', '),true)}catch(error){backoff=Math.min(60000,Math.max(1000,backoff?backoff*2:Number(error.retryAfterMs)||1000));message('刷新延后 '+Math.ceil(backoff/1000)+' 秒：'+error.message,true)}finally{refreshing=false;if(pending)setTimeout(()=>void refreshVisible(),Math.max(0,backoff))}}
+  async function refreshVisible(){
+    if(!active||document.hidden||scalarPage.hidden){pending=false;cancelRead('series');return}
+    const tags=visibleTags();
+    if(!tags.length){pending=false;cancelRead('series');return}
+    const groups=[active,...[...comparison.values()].filter(item=>key(item)!==key(active))];
+    const requestKey=JSON.stringify({groups:groups.map(key),tags});
+    if(refreshing){pending=true;if(requestKey!==seriesRequestKey)cancelRead('series');return}
+    pending=false;refreshing=true;seriesRequestKey=requestKey;lastRequest=Date.now();const current=generation;
+    try{
+      const result=await call('series',{groups,tags});
+      if(current!==generation)return;
+      for(const tag of tags){const card=cards.get(tag);if(!card)continue;card.charts=(result.charts||[]).filter(row=>row.tag===tag);drawCard(card)}
+      backoff=0;message('更新于 '+new Date().toLocaleTimeString()+(result.offlineServers?.length?' · 离线 '+result.offlineServers.join(', '):''));
+      if(result.unsupportedFiles?.length)message('不支持的 event 文件：'+result.unsupportedFiles.join(', '),true);
+    }catch(error){
+      if(error.name!=='AbortError'){backoff=Math.min(60000,Math.max(1000,backoff?backoff*2:Number(error.retryAfterMs)||1000));message('刷新延后 '+Math.ceil(backoff/1000)+' 秒：'+error.message,true)}
+    }finally{
+      refreshing=false;seriesRequestKey='';scheduleAutoRefresh();
+      if(pending){pending=false;setTimeout(()=>void refreshVisible(),Math.max(0,backoff))}
+    }
+  }
   function chartSeries(card){card.displaySeries=card.charts.map((row,index)=>{const mean=(row.points||[]).map(point=>({step:point.step,value:point.mean,source:point}));const means=smoothScalarValues(mean.map(point=>point.value),Number(card.smooth.value));return{row,index,color:palette[index%palette.length],mean,means}});return card.displaySeries}
   function limits(series,card){
     let x0=Infinity,x1=-Infinity,y0=Infinity,y1=-Infinity;
@@ -245,8 +277,19 @@ main{display:grid;grid-template-columns:var(--sidebar-width,310px) 6px minmax(0,
   function finishSidebarDrag(){if(!dragging)return;dragging=false;sidebarHandle.classList.remove('dragging');setSidebarWidth(Number.parseInt(scalarPage.style.getPropertyValue('--sidebar-width'),10),true);applyChartLayout()}
   sidebarHandle.onpointerup=finishSidebarDrag;sidebarHandle.onpointercancel=finishSidebarDrag;
   sidebarHandle.onkeydown=event=>{if(event.key!=='ArrowLeft'&&event.key!=='ArrowRight')return;event.preventDefault();const current=Number.parseInt(scalarPage.style.getPropertyValue('--sidebar-width'),10)||310;setSidebarWidth(current+(event.key==='ArrowRight'?20:-20),true);applyChartLayout()};
-  interval.onchange=()=>{interval.value=String(Math.max(1,Math.floor(Number(interval.value)||5)));localStorage.setItem('scalarInterval',interval.value)};columns.onchange=()=>{columns.value=String(Math.max(1,Math.min(6,Math.floor(Number(columns.value)||3))));localStorage.setItem('scalarColumns',columns.value);applyChartLayout()};auto.onchange=()=>localStorage.setItem('scalarAuto',String(auto.checked));band.onchange=()=>{localStorage.setItem('scalarBand',String(band.checked));cards.forEach(drawCard)};raw.onchange=()=>{localStorage.setItem('scalarRaw',String(raw.checked));cards.forEach(drawCard)};window.addEventListener('resize',()=>{setSidebarWidth(localStorage.getItem('scalarSidebarWidth'),false);applyChartLayout()});
-  document.getElementById('scalarTab').onclick=function(){document.getElementById('scalarPage').hidden=false;document.getElementById('nativePage').hidden=true;this.classList.add('active');document.getElementById('nativeTab').classList.remove('active');applyChartLayout();queueRefresh()};
+  function scheduleAutoRefresh(){
+    clearTimeout(autoRefreshTimer);autoRefreshTimer=0;
+    if(document.hidden||scalarPage.hidden||!auto.checked||!active)return;
+    const wait=Math.max(1000,Number(interval.value)*1000,backoff);
+    autoRefreshTimer=setTimeout(()=>{autoRefreshTimer=0;if(Date.now()-lastRequest>=wait)queueRefresh();scheduleAutoRefresh()},Math.max(250,wait-(Date.now()-lastRequest)));
+  }
+  function scheduleConnectionCheck(delay){
+    clearTimeout(connectionTimer);connectionTimer=0;
+    if(document.hidden)return;
+    connectionTimer=setTimeout(()=>{connectionTimer=0;void checkLocalConnection().finally(()=>scheduleConnectionCheck(2500))},Math.max(250,Number(delay)||2500));
+  }
+  interval.onchange=()=>{interval.value=String(Math.max(1,Math.floor(Number(interval.value)||5)));localStorage.setItem('scalarInterval',interval.value);scheduleAutoRefresh()};columns.onchange=()=>{columns.value=String(Math.max(1,Math.min(6,Math.floor(Number(columns.value)||3))));localStorage.setItem('scalarColumns',columns.value);applyChartLayout()};auto.onchange=()=>{localStorage.setItem('scalarAuto',String(auto.checked));scheduleAutoRefresh()};band.onchange=()=>{localStorage.setItem('scalarBand',String(band.checked));cards.forEach(drawCard)};raw.onchange=()=>{localStorage.setItem('scalarRaw',String(raw.checked));cards.forEach(drawCard)};window.addEventListener('resize',()=>{setSidebarWidth(localStorage.getItem('scalarSidebarWidth'),false);applyChartLayout()});
+  document.getElementById('scalarTab').onclick=function(){cancelRead('tags');cancelRead('series');document.getElementById('scalarPage').hidden=false;document.getElementById('nativePage').hidden=true;this.classList.add('active');document.getElementById('nativeTab').classList.remove('active');applyChartLayout();queueRefresh();scheduleAutoRefresh()};
   async function openNative(){
     if(nativeStarted||nativeOpening||Date.now()<nextNativeAttempt)return;
     nativeOpening=true;
@@ -254,11 +297,14 @@ main{display:grid;grid-template-columns:var(--sidebar-width,310px) 6px minmax(0,
     catch(error){nextNativeAttempt=Date.now()+Math.max(5000,Number(error.retryAfterMs)||0);message('原生内容等待连接：'+error.message,true)}
     finally{nativeOpening=false}
   }
-  document.getElementById('nativeTab').onclick=function(){this.classList.add('active');document.getElementById('scalarTab').classList.remove('active');document.getElementById('scalarPage').hidden=true;document.getElementById('nativePage').hidden=false;void openNative()};
+  document.getElementById('nativeTab').onclick=function(){cancelRead('tags');cancelRead('series');clearTimeout(autoRefreshTimer);autoRefreshTimer=0;this.classList.add('active');document.getElementById('scalarTab').classList.remove('active');document.getElementById('scalarPage').hidden=true;document.getElementById('nativePage').hidden=false;void openNative()};
   async function checkLocalConnection(){
-    if(document.hidden)return;
+    if(document.hidden||connectionChecking)return;
+    connectionChecking=true;
+    const controller=new AbortController();connectionController=controller;
+    const deadline=setTimeout(()=>controller.abort(),3000);
     try{
-      const response=await fetch('/tensorboard/health?server='+encodeURIComponent(server),{cache:'no-store'});
+      const response=await fetch('/tensorboard/health?server='+encodeURIComponent(server),{cache:'no-store',signal:controller.signal});
       if(!response.ok)throw new Error('HTTP '+response.status);
       const health=await response.json();
       if(!health.ok||!health.epoch)throw new Error('本机接口尚未就绪');
@@ -267,11 +313,16 @@ main{display:grid;grid-template-columns:var(--sidebar-width,310px) 6px minmax(0,
       if(restarted){message('插件已重连，正在恢复曲线数据');catalogReady=false;nativeStarted=false;nextNativeAttempt=0;if(active)queueRefresh()}
       if(!catalogReady)void loadCatalog();
       if(!document.getElementById('nativePage').hidden&&!nativeStarted)void openNative();
-    }catch(error){message('等待插件本机接口恢复：'+error.message,true)}
+    }catch(error){if(error.name!=='AbortError'&&!document.hidden)message('等待插件本机接口恢复：'+error.message,true)}
+    finally{clearTimeout(deadline);if(connectionController===controller)connectionController=null;connectionChecking=false}
   }
-  setInterval(()=>{if(document.hidden||document.getElementById('scalarPage').hidden||!auto.checked||!active)return;const wait=Math.max(1000,Number(interval.value)*1000,backoff);if(Date.now()-lastRequest>=wait)queueRefresh()},500);
-  setInterval(()=>void checkLocalConnection(),2500);
-  document.addEventListener('visibilitychange',()=>{if(!document.hidden)void checkLocalConnection()});
-  void checkLocalConnection();
+  document.addEventListener('visibilitychange',()=>{
+    if(document.hidden){clearTimeout(autoRefreshTimer);autoRefreshTimer=0;clearTimeout(connectionTimer);connectionTimer=0;if(connectionController)connectionController.abort();cancelScalarReads();pending=false;return}
+    void checkLocalConnection().finally(()=>scheduleConnectionCheck(250));
+    scheduleAutoRefresh();
+    if(active)queueRefresh();
+  });
+  window.addEventListener('pagehide',()=>{clearTimeout(autoRefreshTimer);clearTimeout(connectionTimer);autoRefreshTimer=0;connectionTimer=0;if(connectionController)connectionController.abort();cancelScalarReads()},{once:true});
+  void checkLocalConnection().finally(()=>scheduleConnectionCheck(2500));
 })();
 </script></body></html>`;

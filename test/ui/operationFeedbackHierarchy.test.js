@@ -42,7 +42,7 @@ function loadErrorLine() {
 
 function loadActionErrorRow() {
   const sandbox = sandboxWithHelpers({ featureCommandLabel: (command) => "命令:" + command });
-  vm.runInContext(`${extractFunction("actionErrorLinksFor")}\n${extractFunction("actionErrorGuide")}\n${extractFunction("renderActionErrorRow")}\nthis.row = renderActionErrorRow;`, sandbox);
+  vm.runInContext(`${extractFunction("actionErrorLinksFor")}\n${extractFunction("actionErrorGuide")}\n${extractFunction("actionErrorDiagnosticSummary")}\n${extractFunction("renderActionErrorRow")}\nthis.row = renderActionErrorRow;`, sandbox);
   return sandbox.row;
 }
 

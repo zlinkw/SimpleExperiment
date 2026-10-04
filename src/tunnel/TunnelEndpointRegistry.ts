@@ -17,9 +17,9 @@ export interface ClusterTunnelEndpoint {
     authMethod?: "password" | "key" | "auto";
   };
   tunnel: {
-    localHost: "127.0.0.1";
+    localHost: string;
     localPort: number;
-    remoteHost: "127.0.0.1";
+    remoteHost: string;
     remotePort: number;
   };
   api: {
@@ -56,9 +56,9 @@ export function buildTunnelEndpointRegistry(
       privateKeyPath: config.privateKeyPath,
     },
     tunnel: {
-      localHost: "127.0.0.1",
+      localHost: hubAssignment?.localForwardHost || config.localForwardHost,
       localPort: hubAssignment?.localForwardPort || config.localForwardPort || defaultTunnelPorts.hubLocalPort,
-      remoteHost: "127.0.0.1",
+      remoteHost: hubAssignment?.remoteBindHost || config.remoteAgentHost,
       remotePort: hubAssignment?.remoteServicePort || config.remoteAgentPort || defaultTunnelPorts.defaultHubAgentPort,
     },
     api: {
@@ -93,9 +93,9 @@ export function endpointAssignmentsFromConfig(config: XshellRealtimeTunnelConfig
       displayName: config.sshConfigAlias || config.hubHost || "Hub",
       remoteHostLabel: config.hubHost || config.sshConfigAlias || "hub",
       sshConfigAlias: config.sshConfigAlias,
-      localForwardHost: "127.0.0.1",
+      localForwardHost: config.localForwardHost,
       localForwardPort: config.localForwardPort || defaultTunnelPorts.hubLocalPort,
-      remoteBindHost: "127.0.0.1",
+      remoteBindHost: config.remoteAgentHost,
       remoteServicePort: config.remoteAgentPort || defaultTunnelPorts.defaultHubAgentPort,
       assignedAt,
       source: "imported",
@@ -106,9 +106,9 @@ export function endpointAssignmentsFromConfig(config: XshellRealtimeTunnelConfig
       displayName: worker.displayName,
       remoteHostLabel: worker.workerHost || worker.hubHost || worker.sshConfigAlias || worker.id,
       sshConfigAlias: worker.sshConfigAlias,
-      localForwardHost: "127.0.0.1" as const,
+      localForwardHost: worker.localForwardHost,
       localForwardPort: worker.localForwardPort,
-      remoteBindHost: "127.0.0.1" as const,
+      remoteBindHost: worker.remoteAgentHost,
       remoteServicePort: worker.remoteTelemetryPort || worker.remoteAgentPort || defaultTunnelPorts.defaultWorkerTelemetryPort,
       assignedAt,
       source: "imported" as const,
@@ -140,9 +140,9 @@ function workerEndpoint(worker: XshellWorkerTunnelConfig, assignment: TunnelEndp
       privateKeyPath: worker.privateKeyPath,
     },
     tunnel: {
-      localHost: "127.0.0.1",
+      localHost: assignment?.localForwardHost || worker.localForwardHost,
       localPort: assignment?.localForwardPort || worker.localForwardPort,
-      remoteHost: "127.0.0.1",
+      remoteHost: assignment?.remoteBindHost || worker.remoteAgentHost,
       remotePort: assignment?.remoteServicePort || worker.remoteTelemetryPort || worker.remoteAgentPort || defaultTunnelPorts.defaultWorkerTelemetryPort,
     },
     api: {

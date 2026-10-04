@@ -1,5 +1,8 @@
+import hashlib
 import os
 import sys
+import stat
+import threading
 import tempfile
 from pathlib import Path
 
@@ -7,7 +10,7 @@ source = sys.stdin.read()
 marker = "def atomic_write_text(path: Path, text: str) -> None:"
 start = source.index(marker)
 end = source.find("\ndef ", start + len(marker))
-namespace = {"Path": Path, "os": os, "tempfile": tempfile}
+namespace = {"Path": Path, "os": os, "hashlib": hashlib, "stat": stat, "threading": threading, "ATOMIC_WRITE_LOCKS": [threading.Lock() for _ in range(64)], "tempfile": tempfile}
 exec(source[start:end], namespace)
 atomic_write_text = namespace["atomic_write_text"]
 

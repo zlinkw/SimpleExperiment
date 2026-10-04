@@ -62,9 +62,8 @@ function loadFrontendSignalFilter() {
 }
 
 test("plan output evidence signals accept result dir and command param labels", () => {
-  const signalPattern = /result_csv\|results_csv\|metrics_csv\|summary_csv\|标准契约\|结果文件\|结果目录\|命令参数\|文本日志\|classification_report\|stdout\|stderr\|metricRegex/;
-  assert.match(extension, signalPattern);
-  assert.match(panel, signalPattern);
+  for (const label of ["结果文件", "结果目录", "命令参数", "文本日志", "任务产物", "标准契约", "metricRegex"])
+    assert.ok(extension.includes(label) && panel.includes(label), `missing output evidence label: ${label}`);
   assert.match(planBuilder, /signals\.add\(`结果目录: \$\{dir\}`\)/);
   assert.match(planBuilder, /signals\.add\("命令参数: result_csv"\)/);
 

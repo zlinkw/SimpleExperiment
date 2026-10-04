@@ -58,7 +58,7 @@ export interface ServiceFactory {
   readonly commands: CommandFactory;
   readonly panels: PanelSectionFactory;
   createPanelProvider(ctx: FactoryContext): unknown;
-  createLocalApiServer(ctx: FactoryContext): unknown;
+  createLocalApiServer(ctx: FactoryContext, options: Record<string, unknown>): unknown;
 }
 
 export class DefaultServiceFactory implements ServiceFactory {
@@ -90,35 +90,30 @@ export class DefaultServiceFactory implements ServiceFactory {
         return new Cls(ctx);
       }
     }
-    // 向后兼容：真实创建失败时回退到桩对象
-    throw new Error("[ServiceFactory] RealtimeTunnelPanelProvider not found - fallback to legacy");
+    throw new Error("[ServiceFactory] RealtimeTunnelPanelProvider implementation unavailable; caller must explicitly select its legacy activation path.");
   }
 
-  createLocalApiServer(ctx: FactoryContext): unknown {
+  createLocalApiServer(ctx: FactoryContext, options: Record<string, unknown>): unknown {
+    if (!options || typeof options !== "object" || Array.isArray(options)) throw new Error("LocalApiServer requires explicit runtime options.");
+    const name = String(options["name"] || "").trim();
+    const discoveryPath = String(options["discoveryPath"] || "").trim();
+    const methods = options["methods"];
+    const methodEntries = methods && typeof methods === "object" && !Array.isArray(methods) ? Object.entries(methods) : [];
+    if (!name || !discoveryPath || !methodEntries.length)
+      throw new Error("LocalApiServer requires a name, discovery path, and at least one registered API method.");
+    const invalidMethods = methodEntries.filter(([method, handler]) => !/^[A-Za-z][A-Za-z0-9._:-]{0,127}$/.test(method) || typeof handler !== "function").map(([method]) => method);
+    if (invalidMethods.length) throw new Error(`LocalApiServer methods must be callable and have valid names: ${invalidMethods.slice(0, 12).join(", ")}${invalidMethods.length > 12 ? "…" : ""}`);
     const mod = getLocalApiServerMod();
     if (mod) {
       const Cls =
         mod.LocalApiServer ?? mod.default?.LocalApiServer ?? mod.LocalApiServerClass ?? mod.default?.LocalApiServerClass;
       if (typeof Cls === "function") {
         const ctxRecord = ctx as unknown as Record<string, unknown>;
-        const version = String(ctxRecord["extensionVersion"] ?? ctxRecord["version"] ?? "");
-        // 尝试用 FactoryContext 中的信息启动真实 LocalApiServer，失败则回退
-        return new Cls({
-          name: "SimpleExperiment",
-          version,
-          preferredPort: 19765,
-          discoveryPath: "",
-          methods: {},
-        });
+        const version = String(options["version"] ?? ctxRecord["extensionVersion"] ?? ctxRecord["version"] ?? "");
+        return new Cls({ ...options, name, version, discoveryPath, methods });
       }
     }
-    return {
-      kind: "LocalApiServer",
-      ctx,
-      start: () => undefined,
-      stop: () => undefined,
-      dispose() {},
-    };
+    throw new Error("LocalApiServer implementation unavailable; refusing to create an unregistered or no-op API server.");
   }
 
   createAllFactories(): Record<string, unknown> {

@@ -32,10 +32,14 @@ test("realtime tunnel mode never invokes ssh/scp/rsync", async () => {
     assert.equal(commands.some((cmd) => ["ssh", "scp", "rsync"].includes(String(cmd).toLowerCase())), false);
   } finally {
     await client.disconnect();
-    server.close();
     childProcess.spawn = oldSpawn;
     childProcess.exec = oldExec;
+    await closeServer(server);
   }
 });
 
 function listen(server) { return new Promise((resolve) => server.listen(0, "127.0.0.1", resolve)); }
+async function closeServer(server) {
+  await new Promise((resolve) => server.close(resolve));
+  await new Promise((resolve) => setTimeout(resolve, 100));
+}

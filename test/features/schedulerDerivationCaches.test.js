@@ -24,7 +24,7 @@ function extractFunction(source, name) {
 function extractDeclaration(source, name) {
   const start = source.indexOf(`const ${name} =`);
   assert.ok(start >= 0, `missing declaration ${name}`);
-  const end = source.indexOf(";\n", start);
+  const end = source.indexOf(";", start);
   return source.slice(start, end + 1);
 }
 

@@ -175,7 +175,8 @@ export function normalizeXshellSetupConfig(input: Partial<XshellTunnelSetupConfi
     workerRealtimeMode: workerTelemetryMode === "hub_plus_worker_telemetry" ? "hub_plus_workers" : "hub_only",
     workerTelemetryMode,
     workerTunnels,
-    ports: normalizePortConfig(input.ports, workerTunnels, input.localForwardPort, input.remoteAgentPort, input.hubDisplayName),
+    ports: normalizePortConfig(input.ports, workerTunnels, input.localForwardPort, input.remoteAgentPort,
+      input.hubDisplayName, input.localForwardHost, input.remoteAgentHost),
     realtime: { ...defaultMultiWorkerRealtimePolicy, ...(input.realtime || {}) },
   };
 }
@@ -387,6 +388,8 @@ function normalizePortConfig(
   hubLocalPort: unknown,
   hubRemotePort: unknown,
   hubDisplayName: unknown,
+  hubLocalHost: unknown,
+  hubRemoteHost: unknown,
 ): XshellTunnelSetupConfig["ports"] {
   const range = normalizePortRange(input?.workerLocalPortRange, defaultTunnelPorts.workerLocalPortRange);
   const validIds = new Set(["hub", ...workers.map((worker) => worker.id)]);
@@ -400,9 +403,9 @@ function normalizePortConfig(
       role: "hub_control",
       displayName: String(hubDisplayName || "").trim() || "Hub",
       remoteHostLabel: "hub",
-      localForwardHost: "127.0.0.1",
+      localForwardHost: String(hubLocalHost || "127.0.0.1").trim() || "127.0.0.1",
       localForwardPort: normalizePort(hubLocalPort, defaultTunnelPorts.hubLocalPort),
-      remoteBindHost: "127.0.0.1",
+      remoteBindHost: String(hubRemoteHost || "127.0.0.1").trim() || "127.0.0.1",
       remoteServicePort: normalizePort(hubRemotePort, defaultTunnelPorts.defaultHubAgentPort),
       assignedAt,
       source: "imported",
@@ -416,9 +419,9 @@ function normalizePortConfig(
       displayName: worker.displayName,
       remoteHostLabel: worker.workerHost || worker.hubHost || worker.id,
       sshConfigAlias: worker.sshConfigAlias,
-      localForwardHost: "127.0.0.1",
+      localForwardHost: worker.localForwardHost,
       localForwardPort: worker.localForwardPort,
-      remoteBindHost: "127.0.0.1",
+      remoteBindHost: worker.remoteAgentHost,
       remoteServicePort: worker.remoteTelemetryPort || worker.remoteAgentPort || defaultTunnelPorts.defaultWorkerTelemetryPort,
       assignedAt,
       source: "imported",

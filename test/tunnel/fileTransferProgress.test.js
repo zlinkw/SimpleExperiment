@@ -1,5 +1,6 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const fs = require("node:fs/promises");
 const http = require("node:http");
 const os = require("node:os");
@@ -13,6 +14,9 @@ test("file upload reports progress", async () => {
     req.resume();
     req.on("end", () => {
       res.setHeader("Content-Type", "application/json");
+      if (req.url === "/api/files/upload-init") return res.end(JSON.stringify({ transferId: "progress", chunkSize: 2, accepted: true, resumeFromByte: 0 }));
+      if (req.url.startsWith("/api/files/upload-chunk")) return res.end(JSON.stringify({ nextOffset: Number(new URL(req.url, "http://localhost").searchParams.get("offset") || 0) + 2 }));
+      if (req.url === "/api/files/upload-complete") return res.end(JSON.stringify({ status: "completed", sha256: crypto.createHash("sha256").update("abcdef").digest("hex") }));
       res.end(JSON.stringify({ ok: true }));
     });
   });
@@ -26,7 +30,8 @@ test("file upload reports progress", async () => {
     await client.uploadFile(local, "paper/tables/in.txt");
     assert.deepEqual(progress.map((item) => item.transferredBytes), [2, 4, 6]);
   } finally {
-    server.close();
+    await client.dispose();
+    await new Promise((resolve) => server.close(resolve));
   }
 });
 

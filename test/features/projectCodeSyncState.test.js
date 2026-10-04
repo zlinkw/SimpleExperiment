@@ -22,6 +22,10 @@ function loadHelpers() {
     path,
     console,
     process,
+    writeAtomicPluginStateJson: async (file, value) => {
+      await fs.promises.mkdir(path.dirname(file), { recursive: true });
+      await fs.promises.writeFile(file, JSON.stringify(value, null, 2) + "\n", "utf8");
+    },
   };
   vm.createContext(sandbox);
   vm.runInContext(
@@ -67,7 +71,9 @@ test("project code sync state persists under simple_cluster/ui", async () => {
   assert.equal(loaded.workers, "已同步 2 台");
   assert.deepEqual(Array.from(loaded.workerVersions.nwpu2.files), ["configs/plan.yaml", "train.py"]);
   await helpers.writeProjectCodeSyncState(root, {});
-  assert.equal(fs.existsSync(file), false);
+  assert.equal(fs.existsSync(file), true);
+  assert.equal(JSON.parse(fs.readFileSync(file, "utf8")), null);
+  assert.equal(await helpers.readProjectCodeSyncState(root), undefined);
 });
 
 test("project code sync normalize keeps error and drops empty rows", () => {

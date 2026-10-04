@@ -10,7 +10,7 @@ exports.registerProviderCommands = registerProviderCommands;
 function resolveCommandHandlerMap(provider) {
     if (!provider)
         return {};
-    // 映射与 extension.ts hostCommand 注册保持一致的子集（其余通过 CommandFactory 默认 handler 占位）
+    // 映射与 extension.ts hostCommand 注册保持一致；注册阶段会拒绝任何漏绑项。
     const map = {};
     const bind = (cmdId, method) => {
         const fn = provider[method];
@@ -18,6 +18,8 @@ function resolveCommandHandlerMap(provider) {
             map[cmdId] = (...args) => fn.apply(provider, args);
     };
     bind("simpleExperiment.openPanel", "openPanel");
+    bind("simpleExperiment.copyPanelDiagnostics", "copyPanelDiagnosticsFromUi");
+    bind("simpleExperiment.restorePanel", "restorePanelFromUi");
     bind("simpleExperiment.quickSetup", "quickSetup");
     bind("simpleExperiment.configureXshellSavedSessions", "configureXshellSavedSessions");
     bind("simpleExperiment.configureXshellAgentSessions", "configureXshellAgentSessions");
@@ -56,16 +58,8 @@ function resolveCommandHandlerMap(provider) {
 function registerProviderCommands(deps, vscodeContext) {
     // 委托给 CommandFactory.registerAll，保持编排与 extension.ts activate 中一致
     const handlerMap = resolveCommandHandlerMap(deps.provider);
-    // 将 handlerMap 注入到 factory 的 deps（CommandFactory 内部用 deps.handlerMap 覆盖默认 handler）
-    const factory = deps.commandFactory;
-    const originalDeps = factory["deps"] || {};
-    factory["deps"] = { ...originalDeps, handlerMap };
-    try {
-        return factory["registerAll"](vscodeContext, deps.factoryContext);
-    }
-    finally {
-        // 保持可重入
-    }
+    const factoryContext = { ...deps.factoryContext, handlerMap };
+    return deps.commandFactory.registerAll(vscodeContext, factoryContext);
 }
 class ProviderCommands {
     deps;

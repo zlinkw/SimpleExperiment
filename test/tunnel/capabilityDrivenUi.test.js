@@ -15,6 +15,7 @@ test("capability-driven UI disables missing agent features before click", () => 
   assert.match(source, /"downloadDebugBundle", "downloadRemoteResult"/);
   assert.match(source, /const keys = uiCapabilityMap\[command\] \|\| \[\];\s*const missing = keys\.filter\(\(key\) => !hasCapability\(state, key\)\);/);
   assert.match(source, /return Boolean\(endpoints\.actions && actionEndpoints\[action\] === true\)/);
-  assert.match(source, /button\.disabled = Boolean\(reason \|\| pending\)/);
-  assert.match(source, /if \(!button \|\| button\.disabled\) return/);
+  assert.match(source, /button\.disabled = Boolean\(reason\)/);
+  assert.match(source, /function planButtonDisableReason\([\s\S]*?disableReason\(/);
+  assert.match(source, /if \(button && !button\.disabled\)/);
 });

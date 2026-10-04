@@ -35,7 +35,7 @@ test("incoming state renders sections via renderSectionIfVisible with signature 
   assert.match(panel, /if \(sectionDataSignatureCacheState !== cacheState\)/);
   assert.match(panel, /Object\.prototype\.hasOwnProperty\.call\(sectionDataSignatureCache, section\)/);
   assert.match(panel, /stableSectionSignature\(sectionRenderModel\(state, section\)\)/);
-  assert.match(panel, /sectionDataSignature\(state, section\) \+ "::" \+ sectionLocalSignature\(section, state\)/);
+  assert.match(panel, /htmlSignature\(section \+ "::" \+ modelSignature \+ "::" \+ sectionLocalSignature\(section, state\)\)/);
   assert.match(panel, /let resourceTreeStaticModelCache = null;/);
   assert.match(panel, /renderSectionIfVisible\(lastState \|\| \{\}, "[a-z]+"[,)]/);
   // 抽屉 rails：translateX 隐藏 + hover 展开
@@ -73,7 +73,7 @@ test("result-affecting ops auto-parse selected plan before summary refresh", () 
   assert.match(extension, /queueSelectedPlanResultParse\(/);
   assert.match(extension, /queueSelectedPlanResultParse\("Worker 结果动作"/);
   assert.match(extension, /queueSelectedPlanResultParse\(command, planHint\)/);
-  assert.match(extension, /queueSelectedPlanResultParse\("operation 完成"/);
+  assert.match(extension, /queueSelectedPlanResultParse\(command, planHint\)/);
   assert.match(extension, /if \(!RESULT_PARSE_COMMANDS\??\.has\(command\)\)/);
   // still keep selected-plan gate
   assert.match(extension, /shouldRefreshResultsSummaryForDirtyPlan\(fromHint\)/);

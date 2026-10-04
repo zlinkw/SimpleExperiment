@@ -11,15 +11,9 @@ test("accepted Plan submissions preserve the page without an explicit navigation
   const end = extension.indexOf("async runPlanPreflight(body, label, authority = {})", start);
   assert.ok(start >= 0 && end > start);
   const source = extension.slice(start, end);
-  const post = source.indexOf("const result = noHubResult !== undefined");
-  const navigate = source.indexOf("if (PLAN_SUBMISSION_COMMANDS.has(command))", post);
-  const throwPending = source.indexOf("this.throwIfRemoteActionPending(command, action, finalResult)");
-
-  assert.ok(post >= 0);
-  assert.ok(navigate > post);
-  assert.ok(throwPending > navigate);
-  assert.match(source.slice(navigate, throwPending), /await this\.openPanelAt\("execution", "execution-operations"\)/);
-  assert.doesNotMatch(source.slice(navigate, throwPending), /userInitiated:\s*true/);
+  assert.ok(source.indexOf("const result = noHubResult !== undefined") >= 0);
+  assert.ok(source.indexOf("this.throwIfRemoteActionPending(command, action, finalResult)") >= 0);
+  assert.doesNotMatch(source, /openPanelAt\(/, "run submission must not move the user's current page");
   const open = extension.slice(extension.indexOf("async openPanelAt("), extension.indexOf("async openPanelAt(") + 800);
   assert.match(open, /if \(options\.userInitiated !== true\) return false;/);
 });

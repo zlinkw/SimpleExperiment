@@ -123,7 +123,7 @@ test("string and Error action records keep a visible message and next step", () 
   const suggestionEnd = source.indexOf("function compactSensitiveText(", suggestionStart);
   const compactStart = source.indexOf("function compactSensitiveText(");
   const compactEnd = source.indexOf("function userFacingFileError(");
-  const sandbox = { Date, UI_ACTION_ERROR_MESSAGE_LIMIT: 400, UI_ACTION_ERROR_SUGGESTION_LIMIT: 400, UI_ACTION_ERROR_CAPABILITY_LIMIT: 8 };
+  const sandbox = { Date, OperationOutcome_1: require("../../dist/core/OperationOutcome.js"), UI_ACTION_ERROR_MESSAGE_LIMIT: 400, UI_ACTION_ERROR_SUGGESTION_LIMIT: 400, UI_ACTION_ERROR_CAPABILITY_LIMIT: 8 };
   vm.createContext(sandbox);
   vm.runInContext(`${source.slice(suggestionStart, suggestionEnd)}\n${source.slice(compactStart, compactEnd)}\nthis.compact = compactUiActionError;`, sandbox);
   const fromString = sandbox.compact("token=secret-value ECONNREFUSED");
@@ -144,6 +144,7 @@ test("panel lifecycle diagnostics survive persistence with bounded, non-sensitiv
   const source = fs.readFileSync(path.join(root, "src/extension/legacy.ts"), "utf8");
   const sandbox = {
     Date,
+    OperationOutcome_1: require("../../dist/core/OperationOutcome.js"),
     UI_ACTION_ERROR_MESSAGE_LIMIT: 480,
     UI_ACTION_ERROR_SUGGESTION_LIMIT: 240,
     UI_ACTION_ERROR_CAPABILITY_LIMIT: 8,
@@ -154,6 +155,7 @@ test("panel lifecycle diagnostics survive persistence with bounded, non-sensitiv
     extractFunction(source, "redactSensitiveText"),
     extractFunction(source, "compactSensitiveText"),
     extractFunction(source, "compactPanelLifecycleDetails"),
+    extractFunction(source, "compactPanelRenderEvidence"),
     extractFunction(source, "panelLifecycleDiagnosticMessage"),
     extractFunction(source, "normalizeUiActionError"),
     extractFunction(source, "compactUiActionError"),

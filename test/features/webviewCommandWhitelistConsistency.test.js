@@ -58,9 +58,12 @@ test("all declared webview commands pass the extension safety whitelist", () => 
 test("extension safety whitelist stays covered by webview declarations (reverse)", () => {
   const webview = webviewCommands();
   const safeOnly = new Set(quotedValues(block(extension, "const SAFE_WEBVIEW_COMMANDS = new Set([", "]);")));
-  // Extension-only: panel bootstrap handshake (never webview-originated).
+  // Host-handled protocol messages do not appear in the DOM click-command maps.
   const KNOWN_EXTENSION_ONLY = new Set([
     "webviewReady", "webviewBootstrapError", "webviewRenderError", "reloadPanel",
+    "copyPanelDiagnostics", "reloadPanelLowEffects", "webviewBootstrapPhase",
+    "webviewLayoutEvidence", "webviewRuntimeIncident", "webviewSectionInterest",
+    "webviewSectionTelemetry", "webviewStateRendered",
   ]);
   // Pre-existing gaps (follow-up, not this change): declared in SAFE whitelist and
   // sent by webview buttons, but missing from webviewHandledCommands. Any NEW gap fails.

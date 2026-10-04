@@ -2,26 +2,13 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
-const vm = require("node:vm");
 const { readSource } = require("../_helpers/sourceReader");
+const { normalizeXshellSetupConfig } = require("../../dist/tunnel/XshellTunnelSetup.js");
 
 const extension = readSource("src/extension.ts");
 const panel = readSource("src/ui/PanelHtml.ts");
 const readme = fs.readFileSync(path.join(__dirname, "../../README.md"), "utf8");
 const guide = fs.readFileSync(path.join(__dirname, "../../docs/simple-experiment-setup.md"), "utf8");
-
-function extractFunction(name) {
-  const start = extension.indexOf(`function ${name}(`);
-  assert.ok(start >= 0, `missing function ${name}`);
-  const body = extension.indexOf("{", start);
-  let depth = 0;
-  for (let index = body; index < extension.length; index += 1) {
-    if (extension[index] === "{") depth += 1;
-    if (extension[index] === "}") depth -= 1;
-    if (depth === 0) return extension.slice(start, index + 1);
-  }
-  throw new Error(`unterminated function ${name}`);
-}
 
 test("first-run Agent preparation confirms once and preserves operation order", () => {
   const start = extension.indexOf("async prepareAgentsForFirstRun(showMessage = true)");
@@ -71,24 +58,23 @@ test("first-run Agent preparation confirms once and preserves operation order", 
   assert.match(extension, /operation\}暂不能开始/);
 });
 
-test("Xshell forwarding accepts only local loopback hosts", () => {
-  const sandbox = {
-    XSHELL_LOOPBACK_HOSTS: new Set(["127.0.0.1", "localhost", "::1", "[::1]"]),
-  };
-  vm.createContext(sandbox);
-  vm.runInContext(`${extractFunction("xshellForwardHostIsLoopback")}\nthis.isLoopback = xshellForwardHostIsLoopback;`, sandbox);
-
-  for (const value of [undefined, "", "  ", "127.0.0.1", "LOCALHOST", "::1", "[::1]"]) {
-    assert.equal(sandbox.isLoopback(value), true, String(value));
-  }
-  for (const value of ["127.0.0.2", "0.0.0.0", "::", "192.168.1.8", "gpu.example.com"]) {
-    assert.equal(sandbox.isLoopback(value), false, value);
-  }
-
-  assert.match(extension, /const XSHELL_LOOPBACK_HOSTS = new Set\(\["127\.0\.0\.1", "localhost", "::1", "\[::1\]"\]\)/);
-  const source = extractFunction("xshellForwardHostIsLoopback");
-  assert.match(source, /XSHELL_LOOPBACK_HOSTS\??\.has\(text\)/);
-  assert.doesNotMatch(source, /text === "127\.0\.0\.1"/);
+test("Xshell forwarding preserves configured local and remote hosts", () => {
+  const setup = normalizeXshellSetupConfig({
+    localForwardHost: "192.168.1.8",
+    remoteAgentHost: "agent.internal.example",
+    workerRealtimeMode: "hub_plus_workers",
+    workerTunnels: [{
+      id: "worker-a",
+      localForwardHost: "10.20.0.8",
+      remoteAgentHost: "worker-agent.internal.example",
+      enabled: true,
+    }],
+  });
+  assert.equal(setup.localForwardHost, "192.168.1.8");
+  assert.equal(setup.remoteAgentHost, "agent.internal.example");
+  assert.equal(setup.workerTunnels[0].localForwardHost, "10.20.0.8");
+  assert.equal(setup.workerTunnels[0].remoteAgentHost, "worker-agent.internal.example");
+  assert.doesNotMatch(extension, /XSHELL_LOOPBACK_HOSTS|xshellForwardHostIsLoopback/);
 });
 
 test("quick setup and main UI expose preparation while connection keeps literal meaning", () => {
@@ -98,7 +84,8 @@ test("quick setup and main UI expose preparation while connection keeps literal 
   const readinessStart = extension.indexOf("async ensureSimpleSftpReadyForSetup(operation)");
   const readinessEnd = extension.indexOf("async quickSetup(showAgentCompletion = true)", readinessStart);
   const readiness = extension.slice(readinessStart, readinessEnd);
-  assert.ok(quickSetup.indexOf('ensureSimpleSftpReadyForSetup("一键配置")') < quickSetup.indexOf('openPanelAt("settings", "settings-servers")'));
+  assert.ok(quickSetup.indexOf('ensureSimpleSftpReadyForSetup("一键配置")') >= 0);
+  assert.ok(quickSetup.indexOf('ensureSimpleSftpReadyForSetup("一键配置")') < quickSetup.indexOf("const hubRequired"));
   assert.doesNotMatch(quickSetup, /showQuickPick/);
   assert.match(extension, /async ensureSimpleSftpReadyForSetup\(operation\)/);
   assert.match(extension, /\$\{operation\}暂不能开始/);
@@ -121,7 +108,7 @@ test("quick setup and main UI expose preparation while connection keeps literal 
   assert.match(schedule, /const timerGeneration = this\.postLaunchAutoTestGeneration/);
   assert.match(schedule, /generation !== this\.projectContextGeneration \|\| client !== this\.client/);
   assert.match(schedule, /this\.testTunnel\(true\)\.catch/);
-  assert.match(extension, /private resetClient\(\)[\s\S]{0,180}this\.cancelPostLaunchAutoTest\(\)/);
+  assert.match(extension, /private resetClient\(\)[\s\S]{0,300}this\.cancelPostLaunchAutoTest\(\)/);
   assert.match(extension, /case "prepareAgents":\s*await this\.prepareAgentsForFirstRun\(message\.uiMode !== true\)/);
   assert.match(panel, /data-command="prepareAgents"[^>]*>准备 Agent 并启动<\/button>/);
   assert.match(panel, /prepareAgents: "部署 Agent、写入受管自启动命令、启动会话并检测全部"/);

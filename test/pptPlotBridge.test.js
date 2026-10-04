@@ -129,8 +129,8 @@ test("PptPlotBridge reports Chinese error when automation server is offline", as
     /PPT automation 未就绪/,
   );
   assert.equal(launched, true);
-  assert.equal(fs.existsSync(path.join(project, "simple_cluster", "results", "ppt_plot_requests", "offline-1.json")), true);
-  assert.equal(fs.existsSync(path.join(project, "simple_cluster", "results", "ppt_plot_requests", "offline-1.response.json")), true);
+  assert.equal(fs.existsSync(path.join(project, "simple_cluster", "results", "ppt_plot_requests", "latest-request.json")), true);
+  assert.equal(fs.existsSync(path.join(project, "simple_cluster", "results", "ppt_plot_requests", "latest-response.json")), true);
 });
 
 test("PptPlotBridge posts to online automation server and writes audit files", async () => {

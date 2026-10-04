@@ -1,7 +1,8 @@
 "use strict";
 /**
  * GpuScore - GPU 密集表格评分模型
- * 方案一严格实现：0-100 跑得快=高分，同 plan 内 p5/p95 归一，仅成功 job 计入，卡分=均值，服务器分=卡均值，窗口仅7天且过期直接删盘
+ * 方案一严格实现：0-100 跑得快=高分，同 plan 内 p5/p95 归一，仅成功 job 计入，卡分=均值，服务器分=卡均值，评分窗口仅7天。
+ * 过期或损坏的文件只从当前评分视图排除；磁盘清理必须进入明确的路径审核流程。
  */
 var __createBinding = (this && this.__createBinding) || (Object.create ? (function(o, m, k, k2) {
     if (k2 === undefined) k2 = k;
@@ -37,7 +38,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.GPU_SCORE_MAX = exports.GPU_SCORE_MIN = exports.GPU_SCORE_WINDOW_MS = exports.GPU_SCORE_WINDOW_DAYS = void 0;
+exports.GPU_SCORE_MAX = exports.GPU_SCORE_MIN = exports.GPU_SCORE_WINDOW_MS = exports.GPU_SCORE_WINDOW_DAYS = exports.GPU_SCORE_MAX_SCAN_BYTES = exports.GPU_SCORE_MAX_FILE_BYTES = exports.GPU_SCORE_MAX_FILES = void 0;
 exports.percentile = percentile;
 exports.computeP5P95 = computeP5P95;
 exports.computeJobScore = computeJobScore;
@@ -46,11 +47,15 @@ exports.isSuccessfulJob = isSuccessfulJob;
 exports.computeCardScore = computeCardScore;
 exports.computeServerScore = computeServerScore;
 exports.filterWindow = filterWindow;
+exports.pruneExpired = pruneExpired;
 exports.pruneExpiredAndUnlink = pruneExpiredAndUnlink;
 exports.loadAndPruneScoreDir = loadAndPruneScoreDir;
 exports.buildScoreMaps = buildScoreMaps;
 const fs = __importStar(require("fs"));
 const path = __importStar(require("path"));
+exports.GPU_SCORE_MAX_FILES = 10_000;
+exports.GPU_SCORE_MAX_FILE_BYTES = 64 * 1024;
+exports.GPU_SCORE_MAX_SCAN_BYTES = 16 * 1024 * 1024;
 exports.GPU_SCORE_WINDOW_DAYS = 7;
 exports.GPU_SCORE_WINDOW_MS = exports.GPU_SCORE_WINDOW_DAYS * 24 * 3600 * 1000;
 exports.GPU_SCORE_MIN = 0;
@@ -132,52 +137,51 @@ function filterWindow(records, nowMs = Date.now()) {
     const cutoff = nowMs - exports.GPU_SCORE_WINDOW_MS;
     return records.filter((r) => Number.isFinite(r.finishedAt) && r.finishedAt >= cutoff);
 }
-// 过期直接删盘 + 内存删记录：返回保留的记录，并对过期记录尝试 unlink
-function pruneExpiredAndUnlink(records, nowMs = Date.now()) {
+// 评分窗口只影响内存视图。磁盘候选由统一的人工路径审核处理。
+function pruneExpired(records, nowMs = Date.now()) {
     const cutoff = nowMs - exports.GPU_SCORE_WINDOW_MS;
     const kept = [];
     const pruned = [];
     for (const r of records) {
         if (!Number.isFinite(r.finishedAt) || r.finishedAt < cutoff) {
             pruned.push(r);
-            if (r.filePath) {
-                try {
-                    const fp = path.resolve(String(r.filePath));
-                    if (fs.existsSync(fp))
-                        fs.unlinkSync(fp);
-                }
-                catch {
-                    // ignore unlink failure
-                }
-            }
         }
         else {
             kept.push(r);
         }
     }
-    // 内存删记录：调用方用 kept 替换原数组（in-place 也清理）
     return { kept, pruned };
 }
-// 磁盘扫描辅助：从目录加载所有 score json 并做 7天过滤 + unlink 过期文件
+/** @deprecated Kept as a source-compatible alias; this helper no longer deletes files. */
+function pruneExpiredAndUnlink(records, nowMs = Date.now()) {
+    return pruneExpired(records, nowMs);
+}
+// 有界磁盘扫描；损坏、过期和超限文件均保留在原位，只从评分视图排除。
 function loadAndPruneScoreDir(dir, nowMs = Date.now()) {
     let files = [];
     try {
-        files = fs.readdirSync(dir);
+        files = fs.readdirSync(dir, { withFileTypes: true }).slice(0, exports.GPU_SCORE_MAX_FILES);
     }
     catch {
         return [];
     }
     const records = [];
-    for (const f of files) {
-        if (!f.endsWith(".json"))
+    let scannedBytes = 0;
+    for (const entry of files) {
+        if (!entry.isFile() || entry.isSymbolicLink() || path.extname(entry.name).toLowerCase() !== ".json")
             continue;
-        const full = path.join(dir, f);
+        const full = path.join(dir, entry.name);
         try {
+            const stat = fs.lstatSync(full);
+            if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink > 1 || stat.size > exports.GPU_SCORE_MAX_FILE_BYTES
+                || scannedBytes + stat.size > exports.GPU_SCORE_MAX_SCAN_BYTES)
+                continue;
+            scannedBytes += stat.size;
             const raw = JSON.parse(fs.readFileSync(full, "utf8"));
             const rec = {
                 planFile: String(raw.planFile || raw.plan || ""),
                 planId: raw.planId ? String(raw.planId) : undefined,
-                jobId: String(raw.jobId || raw.id || f),
+                jobId: String(raw.jobId || raw.id || entry.name),
                 serverId: String(raw.serverId || raw.server || ""),
                 gpuId: String(raw.gpuId || raw.gpu_id || ""),
                 durationMs: Number(raw.durationMs ?? raw.duration ?? 0),
@@ -188,14 +192,10 @@ function loadAndPruneScoreDir(dir, nowMs = Date.now()) {
             records.push(rec);
         }
         catch {
-            // corrupted file -> treat as expired and unlink
-            try {
-                fs.unlinkSync(full);
-            }
-            catch { }
+            // Keep malformed records on disk for explicit inspection and cleanup.
         }
     }
-    const { kept } = pruneExpiredAndUnlink(records, nowMs);
+    const { kept } = pruneExpired(records, nowMs);
     return kept;
 }
 // 便捷：计算某次全量记录的卡/服务器分映射（供 UI 消费）

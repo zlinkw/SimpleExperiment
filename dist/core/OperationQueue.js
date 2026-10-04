@@ -1,7 +1,31 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.OperationQueue = void 0;
+exports.OperationQueue = exports.OperationCancelledError = exports.OperationAlreadyActiveError = exports.OperationQueueCapacityError = void 0;
 const ErrorModel_1 = require("./ErrorModel");
+class OperationQueueCapacityError extends Error {
+    code = "OPERATION_QUEUE_FULL";
+    constructor(maxPending) {
+        super(`operation queue is full (${maxPending} pending operations)`);
+        this.name = "OperationQueueCapacityError";
+    }
+}
+exports.OperationQueueCapacityError = OperationQueueCapacityError;
+class OperationAlreadyActiveError extends Error {
+    code = "OPERATION_ALREADY_ACTIVE";
+    constructor(id) {
+        super(`operation is already queued or running: ${id}`);
+        this.name = "OperationAlreadyActiveError";
+    }
+}
+exports.OperationAlreadyActiveError = OperationAlreadyActiveError;
+class OperationCancelledError extends Error {
+    code = "OPERATION_CANCELLED";
+    constructor(id) {
+        super(`operation cancelled before it started: ${id}`);
+        this.name = "OperationCancelledError";
+    }
+}
+exports.OperationCancelledError = OperationCancelledError;
 const priorityRank = {
     user_blocking: 0,
     manual: 1,
@@ -11,17 +35,24 @@ const priorityRank = {
 const terminalStatuses = new Set(["succeeded", "failed", "cancelled", "timeout", "coalesced"]);
 class OperationQueue {
     historyLimit;
+    maxPending;
     pending = [];
     running = new Map();
     coalesced = new Map();
     records = [];
     latestRecordById = new Map();
     activeExclusiveKeyCounts = new Map();
-    constructor(historyLimit = 500) {
+    constructor(historyLimit = 500, maxPending = 256) {
         this.historyLimit = historyLimit;
+        this.maxPending = maxPending;
         this.historyLimit = Math.max(1, Math.floor(Number(historyLimit) || 500));
+        this.maxPending = Math.max(1, Math.floor(Number(maxPending) || 256));
     }
     enqueue(spec) {
+        if (!spec || !String(spec.id || "").trim())
+            return Promise.reject(new Error("operation id is required"));
+        if (this.running.has(spec.id) || this.pending.some((item) => item.spec.id === spec.id))
+            return Promise.reject(new OperationAlreadyActiveError(spec.id));
         if (spec.coalesceKey) {
             const existing = this.coalesced.get(spec.coalesceKey);
             if (existing) {
@@ -29,6 +60,8 @@ class OperationQueue {
                 return existing;
             }
         }
+        if (this.pending.length >= this.maxPending)
+            return Promise.reject(new OperationQueueCapacityError(this.maxPending));
         const promise = new Promise((resolve, reject) => {
             this.pending.push({ spec, resolve, reject });
             this.record(spec, "queued");
@@ -36,7 +69,15 @@ class OperationQueue {
         });
         const coalesceKey = spec.coalesceKey;
         if (coalesceKey) {
-            this.coalesced.set(coalesceKey, promise.finally(() => this.coalesced.delete(coalesceKey)));
+            this.coalesced.set(coalesceKey, promise);
+            const clear = () => {
+                if (this.coalesced.get(coalesceKey) === promise)
+                    this.coalesced.delete(coalesceKey);
+            };
+            // Handle both branches explicitly. A bare finally() creates a second
+            // rejected Promise that can become an unhandled rejection when no caller
+            // observes the coalescing registry value.
+            void promise.then(clear, clear);
         }
         return promise;
     }
@@ -45,14 +86,15 @@ class OperationQueue {
         if (running && running.spec.cancellable) {
             running.cancelled = true;
             running.controller.abort();
-            this.update(id, "cancelled");
+            this.update(id, "cancelling");
             return true;
         }
         const index = this.pending.findIndex((item) => item.spec.id === id && item.spec.cancellable);
         if (index >= 0) {
             const [item] = this.pending.splice(index, 1);
-            item.resolve();
+            item.reject(new OperationCancelledError(id));
             this.update(id, "cancelled");
+            this.pump();
             return true;
         }
         return false;
@@ -87,19 +129,26 @@ class OperationQueue {
         this.update(item.spec.id, "running", { startedAt: new Date().toISOString() });
         let timer;
         try {
-            const timeout = item.spec.timeoutMs
-                ? new Promise((_, reject) => {
-                    timer = setTimeout(() => {
-                        execution.timedOut = true;
-                        controller.abort();
-                        reject(new Error(`operation timeout: ${item.spec.id}`));
-                    }, item.spec.timeoutMs);
-                    timer.unref?.();
-                })
-                : undefined;
-            await (timeout ? Promise.race([item.spec.run(controller.signal), timeout]) : item.spec.run(controller.signal));
-            this.update(item.spec.id, execution.cancelled ? "cancelled" : "succeeded", { finishedAt: new Date().toISOString() });
-            item.resolve();
+            if (item.spec.timeoutMs) {
+                timer = setTimeout(() => {
+                    execution.timedOut = true;
+                    controller.abort();
+                    this.update(item.spec.id, "cancelling", { error: (0, ErrorModel_1.normalizeSimpleError)(new Error(`operation timed out; waiting for the underlying work to settle: ${item.spec.id}`)) });
+                }, item.spec.timeoutMs);
+                timer.unref?.();
+            }
+            const operation = item.spec.run(controller.signal);
+            await operation;
+            const finishedAt = new Date().toISOString();
+            if (execution.timedOut) {
+                const error = new Error(`operation timed out after the underlying work settled: ${item.spec.id}`);
+                this.update(item.spec.id, "timeout", { finishedAt, error: (0, ErrorModel_1.normalizeSimpleError)(error) });
+                item.reject(error);
+            }
+            else {
+                this.update(item.spec.id, execution.cancelled ? "cancelled" : "succeeded", { finishedAt });
+                item.resolve();
+            }
         }
         catch (error) {
             const status = execution.timedOut ? "timeout" : execution.cancelled ? "cancelled" : "failed";

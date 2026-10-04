@@ -43,6 +43,8 @@ function host(timer) {
     crypto,
     PanelStateFlowControl_1: flowExports,
     compactSensitiveText: (value) => String(value || "").slice(0, 180),
+    compactPanelRenderEvidence: (value) => value,
+    compactPanelLayoutEvidence: (value) => value,
     PanelStateProgress_1: { observeStateRenderProgress: (_posted, rendered) => ({ previousObservedRenderedSeq: rendered, consecutiveStalledAcks: 0, unhealthy: false }) },
   };
   vm.runInNewContext(code + "\nthis.Subject = Subject;", sandbox);
@@ -56,6 +58,9 @@ function host(timer) {
   result.automaticRecoveryCount = 0; result.lastAutomaticRecoveryAt = null; result.recoveryLoopPreventedCount = 0;
   result.transitionPanelLifecycle = (state) => { result.panelLifecycleState = state; };
   result.recordPanelLifecycleDiagnostic = (reason) => { (result.diagnostics ||= []).push(reason); };
+  result.recordPanelIncident = () => {};
+  result.cancelResultCatalogRefresh = () => {};
+  result.refreshResultCatalogForCurrentInterest = () => {};
   result.markCurrentSessionPanelFailure = (reason) => { result.currentSessionRecoveryReason = reason; };
   result.postState = () => {};
   result.extensionRuntimeVersionState = () => ({ reloadRequired: false });

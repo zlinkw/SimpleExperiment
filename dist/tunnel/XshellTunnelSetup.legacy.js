@@ -85,7 +85,7 @@ function normalizeXshellSetupConfig(input = {}) {
         workerRealtimeMode: workerTelemetryMode === "hub_plus_worker_telemetry" ? "hub_plus_workers" : "hub_only",
         workerTelemetryMode,
         workerTunnels,
-        ports: normalizePortConfig(input.ports, workerTunnels, input.localForwardPort, input.remoteAgentPort, input.hubDisplayName),
+        ports: normalizePortConfig(input.ports, workerTunnels, input.localForwardPort, input.remoteAgentPort, input.hubDisplayName, input.localForwardHost, input.remoteAgentHost),
         realtime: { ...WorkerTelemetryApi_1.defaultMultiWorkerRealtimePolicy, ...(input.realtime || {}) },
     };
 }
@@ -286,7 +286,7 @@ function normalizeWorkerTtlSeconds(value) {
     const n = Number(value);
     return Number.isInteger(n) && n >= 10 && n <= 7200 ? n : undefined;
 }
-function normalizePortConfig(input, workers, hubLocalPort, hubRemotePort, hubDisplayName) {
+function normalizePortConfig(input, workers, hubLocalPort, hubRemotePort, hubDisplayName, hubLocalHost, hubRemoteHost) {
     const range = (0, TunnelPortConflict_1.normalizePortRange)(input?.workerLocalPortRange, TunnelPortConflict_1.defaultTunnelPorts.workerLocalPortRange);
     const validIds = new Set(["hub", ...workers.map((worker) => worker.id)]);
     const assignments = Array.isArray(input?.assignments)
@@ -299,9 +299,9 @@ function normalizePortConfig(input, workers, hubLocalPort, hubRemotePort, hubDis
             role: "hub_control",
             displayName: String(hubDisplayName || "").trim() || "Hub",
             remoteHostLabel: "hub",
-            localForwardHost: "127.0.0.1",
+            localForwardHost: String(hubLocalHost || "127.0.0.1").trim() || "127.0.0.1",
             localForwardPort: (0, TunnelGateway_1.normalizePort)(hubLocalPort, TunnelPortConflict_1.defaultTunnelPorts.hubLocalPort),
-            remoteBindHost: "127.0.0.1",
+            remoteBindHost: String(hubRemoteHost || "127.0.0.1").trim() || "127.0.0.1",
             remoteServicePort: (0, TunnelGateway_1.normalizePort)(hubRemotePort, TunnelPortConflict_1.defaultTunnelPorts.defaultHubAgentPort),
             assignedAt,
             source: "imported",
@@ -316,9 +316,9 @@ function normalizePortConfig(input, workers, hubLocalPort, hubRemotePort, hubDis
             displayName: worker.displayName,
             remoteHostLabel: worker.workerHost || worker.hubHost || worker.id,
             sshConfigAlias: worker.sshConfigAlias,
-            localForwardHost: "127.0.0.1",
+            localForwardHost: worker.localForwardHost,
             localForwardPort: worker.localForwardPort,
-            remoteBindHost: "127.0.0.1",
+            remoteBindHost: worker.remoteAgentHost,
             remoteServicePort: worker.remoteTelemetryPort || worker.remoteAgentPort || TunnelPortConflict_1.defaultTunnelPorts.defaultWorkerTelemetryPort,
             assignedAt,
             source: "imported",

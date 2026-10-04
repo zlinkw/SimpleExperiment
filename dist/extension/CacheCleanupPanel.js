@@ -51,7 +51,13 @@ document.getElementById('refresh').onclick=()=>{review.hidden=true;stage=0;statu
 </script></body></html>`;
 const candidateExtensions = new Set([".log", ".tmp", ".bak", ".part"]);
 const protectedMarkers = ["tensorboard", "tb_log", "checkpoint", "weight", "model_cache", "dataset"];
+const MAX_SCAN_DIRECTORIES = 10_000;
+const MAX_SCAN_ENTRIES = 100_000;
+const MAX_CLEANUP_CANDIDATES = 20_000;
 const protectedName = (name) => protectedMarkers.some(marker => name.toLowerCase().includes(marker));
+function candidateIdentity(relative, stat) {
+    return crypto.createHash("sha256").update(`${relative}|${stat.dev}|${stat.ino}|${stat.size}|${stat.mtimeNs}|${stat.nlink}`).digest("hex");
+}
 function schedulerStateCleanupOwnerMatches(root, fullPath, state) {
     try {
         const owner = state?.cleanupOwner;
@@ -85,6 +91,9 @@ function realPathSync(value) {
     return require("node:fs").realpathSync(value);
 }
 async function localCandidates(root) {
+    const rootInfo = await fs.lstat(root);
+    if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink())
+        throw new Error("本机项目根目录不是普通目录；已停止扫描。");
     const realRoot = await fs.realpath(root);
     const rootDevice = (await fs.stat(realRoot)).dev;
     const cutoff = Date.now() - 7 * 86400000;
@@ -95,76 +104,104 @@ async function localCandidates(root) {
         try {
             baseStat = await fs.lstat(base);
         }
-        catch {
-            continue;
+        catch (error) {
+            if (error?.code === "ENOENT")
+                continue;
+            throw error;
         }
         if (!baseStat.isDirectory() || baseStat.isSymbolicLink() || baseStat.dev !== rootDevice || await fs.realpath(base) !== base)
             continue;
         const queue = [base];
+        let scannedDirectories = 0;
+        let scannedEntries = 0;
         while (queue.length) {
             const parent = queue.shift();
+            scannedDirectories += 1;
+            if (scannedDirectories > MAX_SCAN_DIRECTORIES)
+                throw new Error(`本机临时目录超过 ${MAX_SCAN_DIRECTORIES} 个，已停止不完整扫描`);
             if ((await fs.stat(parent)).dev !== rootDevice || await fs.realpath(parent) !== parent)
                 continue;
-            for (const entry of await fs.readdir(parent, { withFileTypes: true })) {
-                const full = path.join(parent, entry.name);
-                if (entry.isSymbolicLink())
-                    continue;
-                if (entry.isDirectory()) {
-                    if (!protectedName(entry.name))
-                        queue.push(full);
-                    continue;
-                }
-                const dryRun = /^dry-run-workers-\d+-[0-9a-f]{12}\.json$/.test(entry.name);
-                const relative = path.relative(realRoot, full).split(path.sep).join("/");
-                const schedulerState = relative.startsWith("simple_cluster/tmp/cluster_scheduler/") && relative.endsWith("_state.json");
-                if (!entry.isFile() || protectedName(entry.name) || (!candidateExtensions.has(path.extname(entry.name).toLowerCase()) && !dryRun && !schedulerState))
-                    continue;
-                const stat = await fs.lstat(full);
-                if (stat.dev !== rootDevice || stat.mtimeMs > cutoff || schedulerState && stat.size > 2 * 1024 * 1024)
-                    continue;
-                if (schedulerState) {
-                    let state;
-                    try {
-                        state = JSON.parse(await fs.readFile(full, "utf8"));
-                    }
-                    catch {
+            const directory = await fs.opendir(parent);
+            try {
+                for await (const entry of directory) {
+                    scannedEntries += 1;
+                    if (scannedEntries > MAX_SCAN_ENTRIES)
+                        throw new Error(`本机临时目录超过 ${MAX_SCAN_ENTRIES} 个条目，已停止不完整扫描`);
+                    const full = path.join(parent, entry.name);
+                    if (entry.isSymbolicLink())
+                        continue;
+                    if (entry.isDirectory()) {
+                        if (!protectedName(entry.name))
+                            queue.push(full);
                         continue;
                     }
-                    if (!schedulerStateCleanupOwnerMatches(realRoot, full, state))
+                    const dryRun = /^dry-run-workers-\d+-[0-9a-f]{12}\.json$/.test(entry.name);
+                    const relative = path.relative(realRoot, full).split(path.sep).join("/");
+                    const schedulerState = relative.startsWith("simple_cluster/tmp/cluster_scheduler/") && relative.endsWith("_state.json");
+                    if (!entry.isFile() || protectedName(entry.name) || (!candidateExtensions.has(path.extname(entry.name).toLowerCase()) && !dryRun && !schedulerState))
                         continue;
+                    const stat = await fs.lstat(full, { bigint: true });
+                    if (stat.dev !== BigInt(rootDevice) || Number(stat.mtimeMs) > cutoff || schedulerState && stat.size > 2n * 1024n * 1024n || stat.nlink !== 1n)
+                        continue;
+                    if (schedulerState) {
+                        let state;
+                        try {
+                            state = JSON.parse(await fs.readFile(full, "utf8"));
+                        }
+                        catch {
+                            continue;
+                        }
+                        if (!schedulerStateCleanupOwnerMatches(realRoot, full, state))
+                            continue;
+                    }
+                    const token = candidateIdentity(relative, stat);
+                    const purpose = relative.includes("/cluster_scheduler/logs/") ? "单个 Job 的训练或测试输出日志，旧内容用于历史排错" : relative.includes("/cluster_scheduler/") && relative.endsWith(".log") ? "Plan 调度过程日志" : schedulerState ? "已终止 Plan 的专属调度状态，保留期已满 7 天" : dryRun ? "Plan 预演的 Worker 分配快照" : relative.includes("/tmux_logs/") ? "tmux 会话输出副本" : "插件临时工作文件";
+                    rows.push({ workerId: "local", path: relative, fullPath: full, type: "file", bytes: Number(stat.size), modifiedAt: Number(stat.mtimeMs) / 1000, purpose, token });
+                    if (rows.length > MAX_CLEANUP_CANDIDATES)
+                        throw new Error(`本机候选文件超过 ${MAX_CLEANUP_CANDIDATES} 个，请缩小审核范围`);
                 }
-                const token = crypto.createHash("sha256").update(`${relative}|${stat.dev}|${stat.ino}|${stat.size}|${stat.mtimeMs}`).digest("hex");
-                const purpose = relative.includes("/cluster_scheduler/logs/") ? "单个 Job 的训练或测试输出日志，旧内容用于历史排错" : relative.includes("/cluster_scheduler/") && relative.endsWith(".log") ? "Plan 调度过程日志" : schedulerState ? "已终止 Plan 的专属调度状态，保留期已满 7 天" : dryRun ? "Plan 预演的 Worker 分配快照" : relative.includes("/tmux_logs/") ? "tmux 会话输出副本" : "插件临时工作文件";
-                rows.push({ workerId: "local", path: relative, fullPath: full, type: "file", bytes: stat.size, modifiedAt: stat.mtimeMs / 1000, purpose, token });
-                if (rows.length > 20000)
-                    throw new Error("本机候选文件过多，请缩小审核范围");
+            }
+            finally {
+                await directory.close().catch(() => undefined);
             }
         }
     }
     return rows;
 }
 async function deleteLocalCandidate(root, row) {
-    const realRoot = await fs.realpath(root);
+    const rootInfo = await fs.lstat(root).catch((error) => { throw new Error(`PARENT_CD_FAILED：无法核验本机项目根目录：${error.message}`); });
+    if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink())
+        throw new Error("PARENT_CD_FAILED：本机项目根目录不是普通目录。");
+    const realRoot = await fs.realpath(root).catch((error) => { throw new Error(`PARENT_CD_FAILED：无法解析本机项目根目录：${error.message}`); });
     const parts = row.path.split("/");
     if (parts.some(part => !part || part === "." || part === "..") || !(parts[0] === "tmp" || parts[0] === "simple_cluster" && parts[1] === "tmp"))
         throw new Error("缓存路径超出允许范围");
     const full = path.join(realRoot, ...parts);
-    const stat = await fs.lstat(full);
-    const token = crypto.createHash("sha256").update(`${row.path}|${stat.dev}|${stat.ino}|${stat.size}|${stat.mtimeMs}`).digest("hex");
-    if (!stat.isFile() || stat.isSymbolicLink() || token !== row.token || stat.mtimeMs > Date.now() - 7 * 86400000)
+    const stat = await fs.lstat(full, { bigint: true });
+    if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink !== 1n || candidateIdentity(row.path, stat) !== row.token || Number(stat.mtimeMs) > Date.now() - 7 * 86400000)
         throw new Error(`本机候选已变化：${row.path}`);
     const parent = path.dirname(full);
     const leaf = path.basename(full);
-    if (!leaf || leaf === "." || leaf === ".." || leaf.includes("/") || leaf.includes("\\") || await fs.realpath(parent) !== parent || !parent.startsWith(realRoot + path.sep))
+    const parentInfo = await fs.lstat(parent).catch((error) => { throw new Error(`PARENT_CD_FAILED：无法核验目标父目录：${error.message}`); });
+    const parentReal = await fs.realpath(parent).catch((error) => { throw new Error(`PARENT_CD_FAILED：无法解析目标父目录：${error.message}`); });
+    const parentRelative = path.relative(realRoot, parentReal);
+    if (!leaf || leaf === "." || leaf === ".." || leaf.includes("/") || leaf.includes("\\")
+        || !parentInfo.isDirectory() || parentInfo.isSymbolicLink() || parentInfo.dev !== Number(stat.dev)
+        || parentReal !== parent || parentRelative === ".." || parentRelative.startsWith(`..${path.sep}`) || path.isAbsolute(parentRelative))
         throw new Error("PARENT_CD_FAILED");
+    const modifiedTicks = (621355968000000000n + stat.mtimeNs / 100n).toString();
     const base64 = (value) => Buffer.from(value, "utf8").toString("base64");
-    const script = `$ErrorActionPreference='Stop'; $p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${base64(parent)}')); $leaf=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${base64(leaf)}')); Set-Location -LiteralPath $p; if (-not [string]::Equals((Get-Location).ProviderPath,$p,[StringComparison]::OrdinalIgnoreCase)) { throw 'PARENT_CD_FAILED' }; Remove-Item -LiteralPath ('./'+$leaf) -Force -ErrorAction Stop`;
+    const script = `$ErrorActionPreference='Stop'; $p=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${base64(parent)}')); $leaf=[Text.Encoding]::UTF8.GetString([Convert]::FromBase64String('${base64(leaf)}')); try { Set-Location -LiteralPath $p; $cwd=[IO.Path]::GetFullPath((Get-Location).ProviderPath); if (-not [string]::Equals($cwd,$p,[StringComparison]::OrdinalIgnoreCase)) { throw 'PARENT_CD_FAILED' } } catch { [Console]::Error.WriteLine('PARENT_CD_FAILED'); exit 75 }; $target=Get-Item -LiteralPath ('./'+$leaf) -Force -ErrorAction Stop; if (($target.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0 -or $target -isnot [IO.FileInfo]) { throw 'TARGET_CHANGED' }; if ($target.Length -ne [long]'${stat.size}' -or $target.LastWriteTimeUtc.Ticks -ne [long]'${modifiedTicks}') { throw 'TARGET_CHANGED' }; Remove-Item -LiteralPath ('./'+$leaf) -Force -ErrorAction Stop`;
+    const immediatelyBeforeDelete = await fs.lstat(full, { bigint: true });
+    if (!immediatelyBeforeDelete.isFile() || immediatelyBeforeDelete.isSymbolicLink() || immediatelyBeforeDelete.nlink !== 1n
+        || candidateIdentity(row.path, immediatelyBeforeDelete) !== row.token)
+        throw new Error(`本机候选在删除前再次发生变化：${row.path}`);
     const encoded = Buffer.from(script, "utf16le").toString("base64");
     await new Promise((resolve, reject) => {
         const child = (0, node_child_process_1.spawn)("pwsh.exe", ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded], { cwd: parent, windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
         let error = "";
         child.stderr.on("data", data => { error = (error + String(data)).slice(-500); });
-        child.on("error", reject);
+        child.on("error", error => reject(new Error(`PARENT_CD_FAILED：无法在已核验父目录启动删除程序：${String(error)}`)));
         child.on("exit", code => code === 0 ? resolve() : reject(new Error(error || "PARENT_CD_FAILED")));
     });
     try {
@@ -199,7 +236,6 @@ function openCacheCleanupPanel(client, endpointProvider, localRoot) {
                 return { id: e.id, rows: result.candidates };
             }));
             const rows = [];
-            const errors = [];
             const scans = [];
             if (localRoot) {
                 try {
@@ -223,7 +259,7 @@ function openCacheCleanupPanel(client, endpointProvider, localRoot) {
                 }
             });
             current = new Map(rows.map(row => [`${row.workerId}|${row.path}`, row]));
-            panel.webview.postMessage({ type: "data", rows, scans, note: errors.join("\n") });
+            panel.webview.postMessage({ type: "data", rows, scans, note: "" });
         }
         catch (error) {
             panel.webview.postMessage({ type: "error", message: String(error) });
@@ -266,6 +302,7 @@ function openCacheCleanupPanel(client, endpointProvider, localRoot) {
         }
         busy = true;
         approvalStage = 0;
+        let deletionAttempted = false;
         try {
             const byWorker = new Map();
             for (const key of keys) {
@@ -279,10 +316,12 @@ function openCacheCleanupPanel(client, endpointProvider, localRoot) {
                 if (workerId === "local") {
                     if (!localRoot)
                         throw new Error("本机项目根目录已失效");
+                    deletionAttempted = true;
                     for (const row of rows)
                         await deleteLocalCandidate(localRoot, row);
                 }
                 else {
+                    deletionAttempted = true;
                     const result = await client.postWorkerAction(workerId, "delete-cache-candidates", { opId: `cache-delete-${Date.now()}-${workerId}`, candidates: rows.map(row => ({ path: row.path, token: row.token })), confirm: true, pathConfirmed: true });
                     if (result.status === "failed")
                         throw new Error(`${workerId}: ${String(result.message || "删除失败")}`);
@@ -292,7 +331,12 @@ function openCacheCleanupPanel(client, endpointProvider, localRoot) {
             await refresh();
         }
         catch (error) {
-            panel.webview.postMessage({ type: "error", message: String(error) });
+            const message = String(error);
+            if (deletionAttempted) {
+                busy = false;
+                await refresh();
+            }
+            panel.webview.postMessage({ type: "error", message });
         }
         finally {
             busy = false;

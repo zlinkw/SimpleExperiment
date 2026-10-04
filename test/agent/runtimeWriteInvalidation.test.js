@@ -49,7 +49,14 @@ print(json.dumps({
 `;
 
   try {
-    const run = spawnSync("python", ["-c", script], { encoding: "utf8" });
+    const scriptPath = path.join(os.tmpdir(), `simple-write-invalidation-${process.pid}.py`);
+    fs.writeFileSync(scriptPath, script, "utf8");
+    let run;
+    try {
+      run = spawnSync("python", [scriptPath], { encoding: "utf8", timeout: 10000, windowsHide: true });
+    } finally {
+      fs.rmSync(scriptPath, { force: true });
+    }
     assert.equal(run.status, 0, run.stderr);
     const result = JSON.parse(run.stdout.trim());
     assert.equal(result.cachedReused, true);
@@ -64,7 +71,7 @@ print(json.dumps({
 test("agent write helpers drop cached runtime JSON entries", () => {
   const source = readSource("src/clusterAgentRuntime.ts");
   assert.match(source, /def invalidate_runtime_json_cache\(path\)/);
-  assert.match(source, /replace_with_retry\(tmp, path\)/);
-  assert.match(source, / {8}raise\r?\n {4}invalidate_runtime_json_cache\(path\)/);
-  assert.match(source, /shutil\.move\(src, dst\)\r?\n {4}invalidate_runtime_json_cache\(dst\)/);
+  assert.match(source, /def atomic_write_file\(path, writer\)[\s\S]*?replace_with_retry\(temporary, path\)/);
+  assert.match(source, /atomic_write_file\(path, write\)\r?\n {4}invalidate_runtime_json_cache\(path\)/);
+  assert.match(source, /replace_with_retry\(src, dst\)\r?\n {4}invalidate_runtime_json_cache\(dst\)/);
 });

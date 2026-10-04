@@ -105,13 +105,13 @@ class DefaultTunnelFactory {
             if (typeof mod.allocateTunnelPorts === "function")
                 return { allocate: mod.allocateTunnelPorts, range };
         }
-        return { kind: "TunnelPortAllocator", range: range || null, allocate: async () => ({ ok: true, assignments: [], conflicts: [] }) };
+        throw new Error("TunnelPortAllocator implementation unavailable; no endpoints were allocated.");
     }
     createEndpointRegistry(setup, probes = {}) {
         const mod = getEndpointRegistry();
         if (mod && typeof mod.buildTunnelEndpointRegistry === "function")
             return mod.buildTunnelEndpointRegistry(setup, probes);
-        return { kind: "TunnelEndpointRegistry", setup, probes, endpoints: [] };
+        throw new Error("TunnelEndpointRegistry implementation unavailable; refusing an empty endpoint registry.");
     }
     detectPortConflicts(assignments, range) {
         const mod = getPortConflict();
@@ -132,7 +132,7 @@ class DefaultTunnelFactory {
                 return conflicts;
             }
         }
-        return [];
+        throw new Error("TunnelPortConflict implementation unavailable; refusing to report no conflicts without checking.");
     }
     createPortProbe() {
         const mod = getPortProbe();
@@ -141,20 +141,23 @@ class DefaultTunnelFactory {
                 return new mod.XshellTunnelPortProbe();
             if (typeof mod.createPortProbe === "function")
                 return mod.createPortProbe();
+            if (typeof mod.probeLocalTunnel === "function" && typeof mod.probeWorkerTelemetryTunnel === "function") {
+                return { probeLocalTunnel: mod.probeLocalTunnel, probeWorkerTelemetryTunnel: mod.probeWorkerTelemetryTunnel };
+            }
         }
-        return { kind: "PortProbe", probe: async (_port) => "available" };
+        throw new Error("XshellTunnelPortProbe implementation unavailable; port availability was not checked.");
     }
     createLauncher() {
         const mod = getLauncher();
         if (mod && mod.XshellSessionLauncher)
             return new mod.XshellSessionLauncher(this.injectedDeps);
-        return { kind: "XshellSessionLauncher", launch: async () => ({ ok: true }) };
+        throw new Error("XshellSessionLauncher implementation unavailable; no session was launched.");
     }
     createIntegration() {
         const mod = getIntegration();
         if (mod && mod.XshellTunnelIntegration)
             return new mod.XshellTunnelIntegration(this.injectedDeps);
-        return { kind: "XshellTunnelIntegration", check: async () => ({ ok: true }) };
+        throw new Error("XshellTunnelIntegration implementation unavailable; tunnel integration was not checked.");
     }
     resolveEndpointUrl(cfg) {
         // P0: 禁止工厂内出现字面量端口，全部经 TunnelGateway.localBaseUrl 动态解析
@@ -176,25 +179,42 @@ class DefaultTunnelFactory {
         const safePort = Number.isInteger(port) && port >= 1024 && port <= 65535 ? port : defPort;
         return `http://${host}:${safePort}`;
     }
-    createAll(_ctx) {
+    createAll(ctx) {
         return [
             this.createPortAllocator(),
-            this.createEndpointRegistry({ hubHost: "", localForwardPort: 0, remoteAgentPort: 0 }),
+            this.createEndpointRegistry(this.configuredSetup(ctx)),
             this.createPortProbe(),
             this.createLauncher(),
             this.createIntegration(),
         ];
     }
-    createByName(name, _ctx) {
+    createByName(name, ctx) {
         const map = {
             portAllocator: () => this.createPortAllocator(),
-            endpointRegistry: () => this.createEndpointRegistry({ hubHost: "", localForwardPort: 0, remoteAgentPort: 0 }),
+            endpointRegistry: () => this.createEndpointRegistry(this.configuredSetup(ctx)),
             portProbe: () => this.createPortProbe(),
             launcher: () => this.createLauncher(),
             integration: () => this.createIntegration(),
         };
         const fn = map[name];
         return fn ? fn() : undefined;
+    }
+    configuredSetup(ctx) {
+        const candidate = this.injectedDeps["setupConfig"] ?? ctx["setupConfig"] ?? ctx["tunnelSetupConfig"];
+        if (!candidate || typeof candidate !== "object" || Array.isArray(candidate))
+            throw new Error("Tunnel endpoint registry requires the user's configured setup; refusing to create an empty registry.");
+        const setup = this.normalizeSetupConfig(candidate);
+        const workers = Array.isArray(setup["workerTunnels"]) ? setup["workerTunnels"] : [];
+        const hasHub = Boolean(String(setup["hubHost"] || "").trim()
+            && Number.isInteger(Number(setup["localForwardPort"])) && Number(setup["localForwardPort"]) > 0
+            && Number.isInteger(Number(setup["remoteAgentPort"])) && Number(setup["remoteAgentPort"]) > 0);
+        const hasWorker = workers.some((worker) => worker.enabled !== false && String(worker.id || "").trim()
+            && String(worker.workerHost || worker.remoteAgentHost || "").trim()
+            && Number.isInteger(Number(worker.localForwardPort || worker.localPort)) && Number(worker.localForwardPort || worker.localPort) > 0
+            && Number.isInteger(Number(worker.remoteAgentPort || worker.remotePort)) && Number(worker.remoteAgentPort || worker.remotePort) > 0);
+        if (!hasHub && !hasWorker)
+            throw new Error("Tunnel endpoint registry requires at least one fully configured endpoint.");
+        return setup;
     }
 }
 exports.DefaultTunnelFactory = DefaultTunnelFactory;

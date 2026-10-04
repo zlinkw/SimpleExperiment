@@ -17,23 +17,6 @@ Object.defineProperty(exports, "__esModule", { value: true });
 /**
  * src/features/Results.ts - Facade
  * 原 1595 行已迁移至 Results.legacy.ts，按需委托 ResultsFactory
- * 瘦身门面：保持 API 兼容，通过 export * 透传
+ * 兼容门面只透传旧 API；新建逻辑由显式注入的工厂负责，不在模块加载时吞掉导入失败。
  */
 __exportStar(require("./Results.legacy"), exports);
-function tryRequire(id) {
-    try {
-        // eslint-disable-next-line @typescript-eslint/no-require-imports
-        return require(id);
-    }
-    catch {
-        return undefined;
-    }
-}
-// 工厂化增强：委托给 ResultParser / ResultsFactory（可选覆盖）
-try {
-    const factoryMod = tryRequire("./factories/ResultsFactory");
-    const parserMod = tryRequire("./Results/ResultParser");
-    void factoryMod;
-    void parserMod;
-}
-catch { }

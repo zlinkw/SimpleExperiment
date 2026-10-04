@@ -31,7 +31,8 @@ test("extension and multi endpoint clients compact logs before webview state", (
   const root = path.resolve(__dirname, "..", "..");
   const extension = readSource("src/extension.ts");
   const multi = readSource("src/tunnel/MultiEndpointRealtimeClient.ts");
-  assert.match(extension, /(?:compactRealtimeLogs|\(0,\s*RealtimeEventReducer_1\.compactRealtimeLogs\))\(firstRecord\(realtimeState\?\.logs\)/);
+  assert.match(extension, /updateCompactPanelLogsProjection\(firstRecord\(state\?\.logs\)\)/);
+  assert.match(extension, /compactRealtimeLogs\)\(source, undefined, undefined, this\.logProtectedKeys\(\)\)/);
   assert.match(multi, /compactRealtimeLogs\(\{/);
 });
 

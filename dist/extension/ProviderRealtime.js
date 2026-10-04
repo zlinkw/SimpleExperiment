@@ -1,88 +1,84 @@
 "use strict";
-/**
- * ProviderRealtime - 实时相关逻辑抽离 (Phase 2)
- * 搬运自 src/extension.ts 12000-12200 段：realtimeEndpoints / tunnelLaunchItems / agentLaunchItems 等
- * 保持原逻辑不变，依赖通过参数注入。
- */
+/** Assemble realtime endpoints from the resolved per-server tunnel configuration. */
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ProviderRealtime = void 0;
 exports.buildRealtimeEndpoints = buildRealtimeEndpoints;
 exports.buildTunnelLaunchItems = buildTunnelLaunchItems;
 exports.buildAgentLaunchItems = buildAgentLaunchItems;
 exports.buildRealtimeStateSnapshot = buildRealtimeStateSnapshot;
-function tryRequire(id) {
-    try {
-        return require(id);
-    }
-    catch {
-        return undefined;
-    }
-}
+const TunnelEndpointRegistry_1 = require("../tunnel/TunnelEndpointRegistry");
+const XshellTunnelSetup_1 = require("../tunnel/XshellTunnelSetup");
 function endpointCapabilitiesFromProbe(probe) {
-    try {
-        return probe?.["capabilities"] || [];
-    }
-    catch {
+    if (!probe || typeof probe !== "object")
         return [];
-    }
+    const capabilities = probe.capabilities;
+    return Array.isArray(capabilities) ? capabilities : capabilities && typeof capabilities === "object" ? capabilities : [];
 }
 function buildRealtimeEndpoints(deps) {
-    // 搬运自 RealtimeTunnelPanelProvider.realtimeEndpoints()
-    try {
-        const mod = tryRequire("../tunnel/TunnelEndpointRegistry");
-        if (!mod)
-            return [];
-        const { buildTunnelEndpointRegistry } = mod;
-        const { hubAllowed } = projectTopologyAssessmentStub(deps.setupConfig, deps.lastProbe, deps.lastWorkerProbes);
-        const registry = buildTunnelEndpointRegistry(deps.setupConfig, { hub: deps.lastProbe, ...deps.lastWorkerProbes });
-        return (registry.endpoints || [])
-            .filter((endpoint) => endpoint.enabled && (hubAllowed || endpoint.role !== "hub_control"))
-            .map((endpoint) => ({
+    const registry = (0, TunnelEndpointRegistry_1.buildTunnelEndpointRegistry)(deps.setupConfig, {
+        hub: deps.lastProbe,
+        ...(deps.lastWorkerProbes || {}),
+    });
+    const token = String(deps.tunnelConfig?.token || "");
+    return registry.endpoints
+        .filter((endpoint) => endpoint.enabled && (deps.topology.hubAllowed || endpoint.role !== "hub_control"))
+        .map((endpoint) => {
+        const localHost = String(endpoint.tunnel.localHost || "").trim();
+        const remoteHost = String(endpoint.tunnel.remoteHost || "").trim();
+        const localPort = Number(endpoint.tunnel.localPort);
+        const remotePort = Number(endpoint.tunnel.remotePort);
+        if (!endpoint.id || !localHost || !remoteHost || !Number.isInteger(localPort) || localPort <= 0
+            || !Number.isInteger(remotePort) || remotePort <= 0) {
+            throw new Error(`隧道端点 ${endpoint.id || "unknown"} 配置不完整，拒绝创建实时客户端。`);
+        }
+        return {
             id: endpoint.id,
             role: endpoint.role === "hub_control" ? "hub" : "worker",
             displayName: endpoint.displayName,
-            localHost: "127.0.0.1",
-            localPort: endpoint.tunnel.localPort,
-            token: deps.tunnelConfig?.["token"] ?? "",
+            localHost,
+            localPort,
+            remoteHost,
+            remotePort,
+            token,
             timeoutMs: 8000,
             capabilities: endpointCapabilitiesFromProbe(endpoint.lastProbe),
-        }));
-    }
-    catch {
-        return [];
-    }
+        };
+    });
 }
 function buildTunnelLaunchItems(deps) {
-    // 搬运自 RealtimeTunnelPanelProvider.tunnelLaunchItems()
-    try {
-        const mod = tryRequire("../tunnel/XshellTunnelSetup");
-        if (!mod)
-            return [];
-        const { normalizeXshellSetupConfig, workerTunnelToXshellSetupConfig } = mod;
-        const { hubAllowed } = projectTopologyAssessmentStub(deps.setupConfig, deps.lastProbe, deps.lastWorkerProbes);
-        const items = hubAllowed ? [
-            { id: "hub", role: "hub", config: normalizeXshellSetupConfig({ ...deps.setupConfig, workerRealtimeMode: "hub_only", workerTelemetryMode: "hub_only", workerTunnels: [] }) },
-        ] : [];
-        const workers = enabledWorkerConfigsStub(deps.setupConfig);
-        for (const worker of workers) {
-            const w = worker;
-            items.push({ id: String(w["id"]), role: "worker", config: workerTunnelToXshellSetupConfig(deps.setupConfig, worker) });
-        }
-        return items;
+    const base = (0, XshellTunnelSetup_1.normalizeXshellSetupConfig)(deps.setupConfig);
+    const items = [];
+    if (deps.topology.hubAllowed) {
+        items.push({
+            id: "hub",
+            role: "hub",
+            config: (0, XshellTunnelSetup_1.normalizeXshellSetupConfig)({
+                ...base,
+                workerRealtimeMode: "hub_only",
+                workerTelemetryMode: "hub_only",
+                workerTunnels: [],
+            }),
+        });
     }
-    catch {
-        return [];
+    for (const worker of base.workerTunnels) {
+        if (worker.enabled === false)
+            continue;
+        items.push({
+            id: worker.id,
+            role: "worker",
+            config: (0, XshellTunnelSetup_1.workerTunnelToXshellSetupConfig)(base, worker),
+        });
     }
+    return items;
 }
 function buildAgentLaunchItems(deps) {
-    // 搬运自 RealtimeTunnelPanelProvider.agentLaunchItems()
     return buildTunnelLaunchItems(deps)
-        .filter((item) => item.config?.["savedSessionPath"])
+        .filter((item) => Boolean(item.config.savedSessionPath))
         .map((item) => ({
         id: `${item.id}-agent`,
         role: item.role,
         displayName: `${item.id} Agent`,
-        sessionPath: String(item.config["savedSessionPath"] || ""),
+        sessionPath: String(item.config.savedSessionPath || ""),
     }));
 }
 function buildRealtimeStateSnapshot(deps) {
@@ -90,24 +86,9 @@ function buildRealtimeStateSnapshot(deps) {
         endpoints: buildRealtimeEndpoints(deps),
         launchItems: buildTunnelLaunchItems(deps),
         agentLaunchItems: buildAgentLaunchItems(deps),
-        hubAllowed: projectTopologyAssessmentStub(deps.setupConfig, deps.lastProbe, deps.lastWorkerProbes).hubAllowed,
-        timestamp: new Date().toISOString(),
+        hubAllowed: deps.topology.hubAllowed === true,
+        topologyMode: String(deps.topology.mode || ""),
     };
-}
-function enabledWorkerConfigsStub(setupConfig) {
-    try {
-        return (setupConfig?.["workerTunnels"] || []).filter((w) => w?.["enabled"] !== false);
-    }
-    catch {
-        return [];
-    }
-}
-function projectTopologyAssessmentStub(setupConfig, _lastProbe, _lastWorkerProbes) {
-    // 轻量搬运：hubAllowed 判定与 extension.ts 保持一致（topologyMode 判断），此处简化为 setupConfig 能力
-    const sc = setupConfig;
-    const mode = String(sc?.["topologyMode"] || sc?.["mode"] || "hub_plus_workers");
-    const hubAllowed = mode !== "worker_only" && mode !== "workers_only";
-    return { hubAllowed, mode };
 }
 class ProviderRealtime {
     deps;

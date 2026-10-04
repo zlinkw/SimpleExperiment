@@ -5,6 +5,7 @@ exports.normalizeRemoteTmuxSessionPrefix = normalizeRemoteTmuxSessionPrefix;
 exports.defaultAgentTmuxSessionName = defaultAgentTmuxSessionName;
 exports.isValidRemoteTmuxSessionName = isValidRemoteTmuxSessionName;
 exports.agentTmuxStartupCommand = agentTmuxStartupCommand;
+const TunnelGateway_1 = require("./TunnelGateway");
 // 仅当 settings 缺失时回退到 "simple"（与 tunnel.remoteTmuxSessionPrefix / XshellTunnelSetup 默认保持一致，动态解析优先）
 exports.simpleTmuxSessionPrefix = "simple";
 exports.simpleAgentTmuxCommandVersion = "SIMPLE_EXPERIMENT_AGENT_TMUX_V20=1";
@@ -32,14 +33,14 @@ function agentTmuxStartupCommand(options) {
     const role = options.role;
     const mode = role === "hub" ? "hub_control" : "worker_telemetry";
     const port = options.port || 18765;
+    const host = normalizeAgentBindHost(options.host);
     const sessionPrefix = normalizeRemoteTmuxSessionPrefix(options.sessionPrefix);
     const session = defaultAgentTmuxSessionName(role, options.endpointId, sessionPrefix);
     const condaEnv = normalizeCondaEnvName(options.condaEnv);
     const requireCondaEnv = condaEnv ? "1" : "0";
-    const command = agentRuntimeCommand({ session, mode, port, installDir: options.installDir, workDir: options.workDir, pythonCommand: options.pythonCommand, endpointId: options.endpointId, condaEnv, sessionPrefix });
-    const agentPids = `AGENT_PIDS=$(ps -eo pid=,comm=,args= | awk -v port="$PORT" -v mode="$MODE" '$2 ~ /python/ && index($0,"cluster_agent.py") && (index($0,"--port " port) || index($0,"--port=" port)) && (index($0,"--mode " mode) || index($0,"--mode=" mode)) { print $1 }')`;
-    const portPids = `PORT_PIDS=$({ ss -ltnp "sport = :$PORT" 2>/dev/null | awk -F'pid=' '/pid=/ { split($2,a,","); print a[1] }'; if command -v lsof >/dev/null 2>&1; then lsof -nP -iTCP:"$PORT" -sTCP:LISTEN -t 2>/dev/null; fi; } | sort -u)`;
-    const mergePids = `PIDS=$(printf "%s\\n%s\\n" "$AGENT_PIDS" "$PORT_PIDS" | tr ' ' '\\n' | awk -v self="$$" 'NF && $1 != self { print $1 }' | sort -u)`;
+    const command = agentRuntimeCommand({ session, mode, port, host, installDir: options.installDir, workDir: options.workDir, pythonCommand: options.pythonCommand, endpointId: options.endpointId, condaEnv, sessionPrefix });
+    const agentPids = `AGENT_PIDS=$(ps -eo pid=,comm=,args= | awk -v host="$HOST" -v port="$PORT" -v mode="$MODE" '$2 ~ /python/ && index($0,"cluster_agent.py") && index($0,"--host " host " ") && (index($0,"--port " port " ") || index($0,"--port=" port)) && (index($0,"--mode " mode " ") || index($0,"--mode=" mode)) { print $1 }')`;
+    const mergePids = `PIDS=$(printf "%s\\n" "$AGENT_PIDS" | awk -v self="$$" 'NF && $1 != self { print $1 }' | sort -u)`;
     const stopSession = `if tmux has-session -t "$SESSION" 2>/dev/null; then tmux kill-session -t "$SESSION" >/dev/null 2>&1 || true; sleep 1; fi`;
     const stopPids = `if [ -n "$PIDS" ]; then kill $PIDS >/dev/null 2>&1 || true; sleep 1; for pid in $PIDS; do kill -0 "$pid" 2>/dev/null && kill -9 "$pid" >/dev/null 2>&1 || true; done; fi`;
     const startTmux = `tmux new-session -d -s "$SESSION" "$CMD" >/dev/null 2>&1 || true`;
@@ -57,6 +58,7 @@ function agentTmuxStartupCommand(options) {
         "unset TMUX",
         `SESSION=${shellQuote(session)}`,
         `PORT=${shellQuote(String(port))}`,
+        `HOST=${shellQuote(host)}`,
         `MODE=${shellQuote(mode)}`,
         `SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX=${shellQuote(sessionPrefix)}`,
         `SIMPLE_EXPERIMENT_CONDA_ENV=${shellQuote(condaEnv)}`,
@@ -64,13 +66,13 @@ function agentTmuxStartupCommand(options) {
         `INSTALL_DIR=${shellQuote(options.installDir || "")}`,
         `WORK_DIR=${shellQuote((options.workDir || options.installDir || "").trim())}`,
         `CMD=${shellQuote(command)}`,
-        `${stopSession}; ${agentPids}; ${portPids}; ${mergePids}; ${stopPids}; ${startTmux}; ${openWorkShell}`,
+        `${stopSession}; ${agentPids}; ${mergePids}; ${stopPids}; ${startTmux}; ${openWorkShell}`,
     ].join("; ");
 }
 function agentRuntimeCommand(options) {
     const workerIdArg = options.mode === "worker_telemetry" && options.endpointId ? ` --worker-id ${shellQuote(options.endpointId)}` : "";
     if (options.pythonCommand)
-        return `${options.pythonCommand} --host 127.0.0.1 --port ${options.port} --mode ${options.mode}${workerIdArg}`;
+        return `${options.pythonCommand} --host ${shellQuote(options.host)} --port ${options.port} --mode ${options.mode}${workerIdArg}`;
     const installDir = options.installDir?.trim() || "";
     const workDir = options.workDir?.trim() || installDir;
     const condaEnv = normalizeCondaEnvName(options.condaEnv);
@@ -79,6 +81,7 @@ function agentRuntimeCommand(options) {
         `INSTALL_DIR=${shellQuote(installDir)}`,
         `WORK_DIR=${shellQuote(workDir)}`,
         `PORT=${shellQuote(String(options.port))}`,
+        `HOST=${shellQuote(options.host)}`,
         `MODE=${shellQuote(options.mode)}`,
         `if [ -z "$INSTALL_DIR" ]; then exit 127; fi`,
         `if [ -z "$WORK_DIR" ]; then exit 127; fi`,
@@ -101,8 +104,13 @@ function agentRuntimeCommand(options) {
         `export PYTHONPATH="$INSTALL_DIR\${PYTHONPATH:+:$PYTHONPATH}"`,
         `if command -v python3 >/dev/null 2>&1; then SIMPLE_EXPERIMENT_PY=python3; elif command -v python >/dev/null 2>&1; then SIMPLE_EXPERIMENT_PY=python; else echo "python3 or python is required."; exit 127; fi`,
         `echo "Runtime script: $AGENT_SCRIPT"`,
-        `exec "$SIMPLE_EXPERIMENT_PY" "$AGENT_SCRIPT" serve --project-dir "$WORK_DIR" --host 127.0.0.1 --port "$PORT" --mode "$MODE"${workerIdArg}`,
+        `exec "$SIMPLE_EXPERIMENT_PY" "$AGENT_SCRIPT" serve --project-dir "$WORK_DIR" --host "$HOST" --port "$PORT" --mode "$MODE"${workerIdArg}`,
     ].join("; ");
+}
+function normalizeAgentBindHost(value) {
+    const input = String(value || "127.0.0.1").trim() || "127.0.0.1";
+    (0, TunnelGateway_1.assertLocalhost)(input);
+    return input.startsWith("[") && input.endsWith("]") ? input.slice(1, -1) : input;
 }
 function shellQuote(value) {
     return `'${value.replace(/'/g, `'\\''`)}'`;

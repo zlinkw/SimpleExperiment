@@ -6,8 +6,8 @@ const { renderPanelHtml } = require("../../dist/ui/PanelHtml.js");
 
 function inlineFunction(name) {
   const html = renderPanelHtml();
-  const scriptStart = html.indexOf(">", html.indexOf("<script")) + 1;
-  const script = html.slice(scriptStart, html.indexOf("</script>", scriptStart));
+  const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
+  const script = scripts.find((candidate) => candidate.includes("function " + name + "(")) || "";
   const start = script.indexOf("function " + name + "(");
   assert.notEqual(start, -1, "missing inline function " + name);
   const bodyStart = script.indexOf("{", start);

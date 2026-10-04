@@ -13,6 +13,41 @@ const ExtensionContext_1 = require("./ExtensionContext");
 const ProviderCommands_1 = require("./ProviderCommands");
 const GitBackupSetup_1 = require("./GitBackupSetup");
 let _provider;
+let _activationDisposables = [];
+let _deactivationPromise;
+let _activationGeneration = 0;
+let _reportedActivationFailures = new Set();
+function ownTimeout(context, delayMs, callback) {
+    const generation = _activationGeneration;
+    let timer = setTimeout(() => {
+        timer = undefined;
+        if (generation !== _activationGeneration)
+            return;
+        void Promise.resolve().then(callback).catch((error) => {
+            reportActivationFailure("deferred startup task", error);
+        });
+    }, delayMs);
+    const disposable = { dispose: () => { if (timer)
+            clearTimeout(timer); timer = undefined; } };
+    _activationDisposables.push(disposable);
+    context.subscriptions.push(disposable);
+}
+function reportActivationFailure(stage, error) {
+    const message = String(error?.message || error || "未知错误").slice(0, 600);
+    const key = `${stage}:${message.slice(0, 180)}`;
+    if (_reportedActivationFailures.has(key))
+        return;
+    _reportedActivationFailures.add(key);
+    while (_reportedActivationFailures.size > 16) {
+        const oldest = _reportedActivationFailures.values().next().value;
+        if (oldest === undefined)
+            break;
+        _reportedActivationFailures.delete(oldest);
+    }
+    console.error(`[Activation] ${stage} failed`, error);
+    const vscode = tryRequire("vscode");
+    void Promise.resolve(vscode?.window?.showErrorMessage?.(`SimpleExperiment 启动失败（${stage}）：${message}`)).catch(() => undefined);
+}
 function tryRequire(id) {
     try {
         return require(id);
@@ -26,6 +61,10 @@ async function activate(context) {
     return activateExtension(context);
 }
 async function activateExtension(context) {
+    _activationGeneration += 1;
+    _activationDisposables = [];
+    _deactivationPromise = undefined;
+    _reportedActivationFailures = new Set();
     console.log("[Activation] enter", new Date().toISOString(), "process.env.FEATURE_FACTORY_PANEL", process.env.FEATURE_FACTORY_PANEL);
     const mod = tryRequire("../config/RenamedExtensionStateMigration");
     await mod?.migrateRenamedExtensionState(context).catch(() => undefined);
@@ -50,7 +89,8 @@ async function activateExtension(context) {
             const RealtimeTunnelPanelProvider = legacy?.RealtimeTunnelPanelProvider;
             provider = RealtimeTunnelPanelProvider ? new RealtimeTunnelPanelProvider(context) : undefined;
         }
-        catch {
+        catch (error) {
+            reportActivationFailure("legacy provider creation", error);
             provider = undefined;
         }
     }
@@ -61,10 +101,16 @@ async function activateExtension(context) {
             const vscode = tryRequire("vscode");
             if (vscode && vscode.window && typeof vscode.window.registerWebviewViewProvider === "function") {
                 console.log("[Activation] registerWebviewViewProvider", "simpleExperiment.panel");
-                context.subscriptions.push(vscode.window.registerWebviewViewProvider("simpleExperiment.panel", provider, { webviewOptions: { retainContextWhenHidden: true } }));
+                const retainContextWhenHidden = provider.retainPanelContextWhenHidden === true;
+                context.subscriptions.push(vscode.window.registerWebviewViewProvider("simpleExperiment.panel", provider, { webviewOptions: { retainContextWhenHidden } }));
+            }
+            else {
+                reportActivationFailure("webview registration", new Error("VS Code Webview API is unavailable."));
             }
         }
-        catch { }
+        catch (error) {
+            reportActivationFailure("webview registration", error);
+        }
     }
     else {
         // provider 无 resolveWebviewView，说明拿到桩，回退 legacy
@@ -74,59 +120,94 @@ async function activateExtension(context) {
                 return legacy.activate(context);
             }
         }
-        catch { }
+        catch (error) {
+            reportActivationFailure("legacy activation fallback", error);
+        }
+        reportActivationFailure("provider creation", new Error("No usable panel provider could be created."));
+        return;
     }
     // 注册命令（委托给 CommandFactory）
     try {
         (0, ProviderCommands_1.registerProviderCommands)({ factoryContext, commandFactory: services.commands, provider }, context);
     }
-    catch { }
+    catch (error) {
+        reportActivationFailure("command registration", error);
+    }
     // 注册 git 提交备份命令（独立注册，不耦合 legacy provider）
     try {
         (0, GitBackupSetup_1.registerGitBackupCommands)(context);
     }
-    catch { }
+    catch (error) {
+        reportActivationFailure("Git backup command registration", error);
+    }
     // 把既有的面板式 GitHub 同步方法补上命令面板入口（仅转发 provider 方法）
     try {
         (0, GitBackupSetup_1.registerGitHubSyncCommands)(context, provider);
     }
-    catch { }
+    catch (error) {
+        reportActivationFailure("GitHub command registration", error);
+    }
     // 复刻原 activate 的后置启动逻辑（简化版，保持可运行）
-    try {
-        provider?.startLocalApiServer?.();
-    }
-    catch { }
-    try {
-        void provider?.reconcileStalePlanRunOperations?.({ reason: "activation" });
-    }
-    catch { }
-    try {
-        void provider?.runActivationOnboarding?.();
-    }
-    catch { }
-    setTimeout(() => { try {
-        void provider?.checkRemoteAgentVersionAndNotify?.(false);
-    }
-    catch { } }, 8000);
+    void Promise.resolve().then(() => provider?.startLocalApiServer?.())
+        .catch((error) => reportActivationFailure("local API startup", error));
+    void Promise.resolve().then(() => provider?.reconcileStalePlanRunOperations?.({ reason: "activation" }))
+        .catch((error) => reportActivationFailure("stale operation reconciliation", error));
+    void Promise.resolve().then(() => provider?.runActivationOnboarding?.())
+        .catch((error) => reportActivationFailure("onboarding", error));
+    ownTimeout(context, 8000, () => provider?.checkRemoteAgentVersionAndNotify?.(false));
     // 自动配置 git 提交备份：条件不满足只提示、不写入 hook
-    setTimeout(() => {
-        void (0, GitBackupSetup_1.maybeAutoInstallGitBackup)(context).catch(() => undefined);
-    }, 3000);
+    ownTimeout(context, 3000, () => (0, GitBackupSetup_1.maybeAutoInstallGitBackup)(context));
     // 配置变更监听（与原逻辑一致）
     try {
         const vscode = tryRequire("vscode");
         if (vscode) {
-            context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => void provider?.handleConfigurationChanged?.(e)));
-            context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => void provider?.handleWorkspaceFoldersChanged?.()));
+            context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e) => {
+                void Promise.resolve().then(() => provider?.handleConfigurationChanged?.(e))
+                    .catch((error) => reportActivationFailure("configuration change", error));
+            }));
+            context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => {
+                void Promise.resolve().then(() => provider?.handleWorkspaceFoldersChanged?.())
+                    .catch((error) => reportActivationFailure("workspace change", error));
+            }));
         }
     }
-    catch { }
+    catch (error) {
+        reportActivationFailure("lifecycle listener registration", error);
+    }
 }
 function deactivate() {
-    try {
-        _provider?.dispose?.();
-    }
-    catch { }
+    if (_deactivationPromise)
+        return _deactivationPromise;
+    _activationGeneration += 1;
+    const provider = _provider;
     _provider = undefined;
+    for (const disposable of _activationDisposables.splice(0)) {
+        try {
+            disposable.dispose();
+        }
+        catch (error) {
+            console.error("[Activation] timer cleanup failed", error);
+        }
+    }
+    _deactivationPromise = (async () => {
+        if (!provider?.dispose)
+            return;
+        let timeout;
+        const disposal = Promise.resolve().then(() => provider.dispose?.()).then(() => undefined).catch((error) => {
+            console.error("[Activation] provider disposal failed", error);
+        });
+        await Promise.race([
+            disposal,
+            new Promise((resolve) => {
+                timeout = setTimeout(() => {
+                    console.error("[Activation] provider disposal exceeded 5 seconds; VS Code shutdown will continue.");
+                    resolve();
+                }, 5000);
+            }),
+        ]);
+        if (timeout)
+            clearTimeout(timeout);
+    })();
+    return _deactivationPromise;
 }
 function getProvider() { return _provider; }

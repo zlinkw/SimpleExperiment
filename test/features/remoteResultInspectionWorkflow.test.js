@@ -129,12 +129,12 @@ test("bulk sync keeps current Plan scope and separates identical paths from diff
     ],
   };
   assert.deepEqual(Array.from(resultSummarySyncCandidates(summary, plan), (item) => ({ ...item })), [
-    { remotePath: raw, workerId: "nwpu3" },
-    { remotePath: raw, workerId: "nwpu5" },
-    { remotePath: aggregate, workerId: "nwpu3" },
-    { remotePath: aggregate, workerId: "nwpu5" },
-    { remotePath: finalCsv, workerId: "nwpu3" },
-    { remotePath: finalCsv, workerId: "nwpu5" },
+    { remotePath: raw, workerId: "nwpu3", bytes: null, sha256: "" },
+    { remotePath: raw, workerId: "nwpu5", bytes: null, sha256: "" },
+    { remotePath: aggregate, workerId: "nwpu3", bytes: null, sha256: "" },
+    { remotePath: aggregate, workerId: "nwpu5", bytes: null, sha256: "" },
+    { remotePath: finalCsv, workerId: "nwpu3", bytes: null, sha256: "" },
+    { remotePath: finalCsv, workerId: "nwpu5", bytes: null, sha256: "" },
   ]);
   assert.deepEqual(Array.from(resultSummarySyncCandidates(summary, "experiments/plans/comparison/other.yaml")), []);
 });
@@ -276,7 +276,7 @@ test("Plan concise table is the primary result entry with scoped explanations", 
 
 test("bulk sync uses one action, one overwrite decision and one mapped transfer per source", () => {
   const handler = extension.slice(extension.indexOf("async syncAllResultArtifactsFromUi"), extension.indexOf("async editResultColumnMappingFromUi"));
-  assert.match(extension, /case "syncAllResultArtifacts":\s*await this\.syncAllResultArtifactsFromUi\(message\)/);
+  assert.match(extension, /case "syncAllResultArtifacts":\s*await this\.withManualResultSync\(\(\) => this\.syncAllResultArtifactsFromUi\(message\)\)/);
   assert.match(panel, /data-command="syncAllResultArtifacts" data-plan-file=/);
   assert.match(handler, /resultSummarySyncCandidates\(summary, planFile\)/);
   assert.match(handler, /methodResultArtifactLocalRelativePath\(remotePath, planFile, summary/);

@@ -39,8 +39,13 @@ function selectedMethods(names, globals = {}) {
   const sandbox = {
     workspaceRoot: () => "/project",
     errorMessage: (error) => String(error?.message || error),
+    assertRetryRequestCurrent: () => undefined,
+    retryRequestSignal: () => undefined,
     completedResultPlanFiles: async () => [],
-    vscode: { window: { showInformationMessage: async () => {} } },
+    vscode: { ProgressLocation: { Notification: 1 }, window: {
+      showInformationMessage: async () => {},
+      withProgress: async (_options, work) => work({ report() {} }, { isCancellationRequested: false }),
+    } },
     ...globals,
   };
   vm.runInNewContext(code + "\nthis.Subject = Subject;", sandbox);
@@ -67,6 +72,9 @@ function distributedHost() {
   provider.projectContextIsCurrent = () => true;
   provider.client = {};
   provider.effectiveConnectionMode = () => "tunnel";
+  provider.lastWorkerProbes = {};
+  provider.workerCodeSyncTargets = () => [{ id: "worker-a" }];
+  provider.refreshDistributedResultSyncProbes = async () => { provider.lastWorkerProbes = { "worker-a": { status: "ok" } }; };
   provider.refreshLocalPlanMetadataForAction = async () => {};
   provider.loadPlanSyncLedger = async () => ({ schemaVersion: 2, entries: {} });
   return provider;
@@ -85,15 +93,10 @@ test("background queue ticks, completion sync, and selection parsing do not star
   assert.deepEqual(calls, []);
 });
 
-test("manual metrics sync tolerates missing fragments and never requires checkpoint bulk transfer", async () => {
+test("manual result sync requires the full latest artifact transfer and publishes formal results", async () => {
   const provider = distributedHost();
-  const result = await provider.syncPendingResultMetricsFromUi();
-  assert.equal(result.reason, "none");
-  assert.deepEqual(provider.calls, [
-    "artifacts:fragments", "warning:distributedFragmentSync",
-    "rebuild:preview", "warning:distributedPreviewRebuild",
-  ]);
-  assert.equal(provider.calls.some((call) => call === "artifacts:bulk" || call === "rebuild:published"), false);
+  await assert.rejects(provider.syncPendingResultMetricsFromUi(), /historical Plan has no fragment inventory/);
+  assert.deepEqual(provider.calls, ["artifacts:fragments"]);
 });
 
 test("full artifact sync can explicitly run both artifact phases and both rebuilds", async () => {

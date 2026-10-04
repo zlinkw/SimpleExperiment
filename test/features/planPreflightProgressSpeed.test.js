@@ -33,7 +33,7 @@ const manifestEnd = distSource.indexOf("function isLocalCodeOwnedPath(", manifes
 const manifestFactory = new Function("fs", "fsNode", "path", "crypto", "LocalCodeManifestCache_1", distSource.slice(manifestStart, manifestEnd) + "\nreturn { buildLocalCodeManifest };");
 const manifestApi = manifestFactory(require("node:fs").promises, require("node:fs"), path, crypto, require("../../dist/features/LocalCodeManifestCache.js"));
 
-const apiFactory = new Function("SyncResolution_1", "CodeSyncDelta_1", "fingerprintFromManifest", "buildLocalCodeManifest", "vscode_1", "LocalCodeManifestCache_1", `
+const apiFactory = new Function("SyncResolution_1", "CodeSyncDelta_1", "fingerprintFromManifest", "buildLocalCodeManifest", "vscode_1", "LocalCodeManifestCache_1", "SafeRequestRetry_1", `
   function stringField(message, key) { return String((message && message[key]) || ""); }
   function operationResultPlanFile(body) { return String((body && (body.planFile || body.selectedPlanId || (body.options && body.options.planFile))) || ""); }
   function errorMessage(error) { return error && error.message ? error.message : String(error || ""); }
@@ -56,7 +56,8 @@ const apiFactory = new Function("SyncResolution_1", "CodeSyncDelta_1", "fingerpr
   ${compiled("beginPlanSubmissionProgress")}
   ${compiled("patchPlanSubmissionProgress")}
   ${compiled("finishPlanSubmissionProgress")}
-  return { syncCodeTargets, reportPlanStage, planSubmissionOperationId, planSubmissionPlanFile, beginPlanSubmissionProgress, patchPlanSubmissionProgress, finishPlanSubmissionProgress };
+  ${compiled("trimPlanSubmissionEpochs")}
+  return { syncCodeTargets, reportPlanStage, planSubmissionOperationId, planSubmissionPlanFile, beginPlanSubmissionProgress, patchPlanSubmissionProgress, finishPlanSubmissionProgress, trimPlanSubmissionEpochs };
 `);
 
 function sha(char) { return char.repeat(64); }
@@ -114,6 +115,7 @@ function syncHost(remote) {
     manifestApi.buildLocalCodeManifest,
     vscodeStub,
     require("../../dist/features/LocalCodeManifestCache.js"),
+    require("../../dist/core/SafeRequestRetry.js"),
   );
   Object.assign(host, api);
   host.localCodeManifestCacheFile = () => path.join(host.context.globalStorageUri.fsPath, "code-manifest.json");
@@ -220,7 +222,7 @@ function commandRunner() {
 
 test("validate and dry-run publish their own stages and a failed result stays failed", async () => {
   const run = commandRunner();
-  const api = apiFactory({}, {}, () => "", manifestApi.buildLocalCodeManifest, { window: { setStatusBarMessage() {} } }, {});
+  const api = apiFactory({}, {}, () => "", manifestApi.buildLocalCodeManifest, { window: { setStatusBarMessage() {} } }, {}, require("../../dist/core/SafeRequestRetry.js"));
   const calls = [];
   const host = {
     localOperations: {}, distributedSubmissionEpochs: new Map(), stages: [], localPlanMetadata: { detectedProject: {} },
@@ -259,7 +261,7 @@ test("validate and dry-run publish their own stages and a failed result stays fa
 
 test("a submitted validate stays queued with its operation id until the real terminal result", async () => {
   const run = commandRunner();
-  const api = apiFactory({}, {}, () => "", manifestApi.buildLocalCodeManifest, { window: { setStatusBarMessage() {} } }, {});
+  const api = apiFactory({}, {}, () => "", manifestApi.buildLocalCodeManifest, { window: { setStatusBarMessage() {} } }, {}, require("../../dist/core/SafeRequestRetry.js"));
   class RemotePending extends Error { constructor(message) { super(message); this.remotePending = true; } }
   const host = {
     localOperations: {}, distributedSubmissionEpochs: new Map(), stages: [], localPlanMetadata: { detectedProject: {} },
@@ -370,11 +372,11 @@ test("warm local listing does not add a second stat and keeps the unchanged cach
 test("plan command status stays pending past 45 and 150 seconds until the real result", async () => {
   const body = sliceMethod(distSource, "withUiCommandStatus").replace(/^\s{4}/gm, "").replace(/^async withUiCommandStatus\(/, "async function withUiCommandStatus(");
   const watchdog = sliceMethod(distSource, "uiCommandWatchdogMs").replace(/^\s{4}/gm, "").replace(/^uiCommandWatchdogMs\(/, "function uiCommandWatchdogMs(");
-  const runner = new Function("errorMessage", "localCommandReleasesAfterTrigger", "isUiCommandRemotePending", "isUiCommandCancelled", "PLAN_SUBMISSION_COMMANDS", "PLAN_PREFLIGHT_COMMANDS", `
+  const runner = new Function("errorMessage", "localCommandReleasesAfterTrigger", "isUiCommandRemotePending", "isUiCommandCancelled", "PLAN_SUBMISSION_COMMANDS", "PLAN_PREFLIGHT_COMMANDS", "OperationOutcome_1", `
     ${watchdog}
     ${body}
     return { withUiCommandStatus, uiCommandWatchdogMs };
-  `)((error) => error.message, () => false, () => false, () => false, new Set(["runPlan"]), new Set(["validatePlan", "dryRunPlan"]));
+  `)((error) => error.message, () => false, () => false, () => false, new Set(["runPlan"]), new Set(["validatePlan", "dryRunPlan"]), require("../../dist/core/OperationOutcome.js"));
   assert.equal(runner.uiCommandWatchdogMs("validatePlan"), 0);
   assert.equal(runner.uiCommandWatchdogMs("runPlan"), 0);
   const statuses = [];

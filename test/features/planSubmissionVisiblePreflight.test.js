@@ -15,13 +15,13 @@ const drf = "experiments/plans/comparison/drf.yaml";
 
 function method(name) {
   const lines = extension.split(/\r?\n/);
-  const start = lines.findIndex((line) => new RegExp(`^    (?:async )?${name}\\(`).test(line));
+  const start = lines.findIndex((line) => new RegExp(`^    (?:(?:private|public|protected) )?(?:async )?${name}\\(`).test(line));
   assert.ok(start >= 0, name);
   let depth = 0;
   for (let index = start; index < lines.length; index += 1) {
     depth += (lines[index].match(/\{/g) || []).length - (lines[index].match(/\}/g) || []).length;
     if (index > start && depth <= 0) {
-      const member = lines.slice(start, index + 1).join("\n");
+      const member = lines.slice(start, index + 1).join("\n").replace(/^    (?:private|public|protected) /m, "    ");
       const emitted = ts.transpileModule("const methods = { " + member + " };", { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
       return emitted.slice(emitted.indexOf("{") + 1, emitted.lastIndexOf("}")).trim();
     }
@@ -61,6 +61,7 @@ const production = new Function("DistributedPlanQueue", "fs", "path", "crypto", 
     submissionStillCurrent: ${method("submissionStillCurrent").replace("submissionStillCurrent", "function")},
     waitForPlanSubmission: ${method("waitForPlanSubmission").replace("waitForPlanSubmission", "function")},
     planSubmissionOperationId: ${method("planSubmissionOperationId").replace("planSubmissionOperationId", "function")},
+    trimPlanSubmissionEpochs: ${method("trimPlanSubmissionEpochs").replace("trimPlanSubmissionEpochs", "function")},
     planSubmissionPlanFile: ${method("planSubmissionPlanFile").replace("planSubmissionPlanFile", "function")},
     finishPlanSubmissionProgress: ${method("finishPlanSubmissionProgress").replace("finishPlanSubmissionProgress", "function")},
     planSubmissionQueueDetail: ${method("planSubmissionQueueDetail").replace("planSubmissionQueueDetail", "function")},
@@ -268,7 +269,7 @@ test("version hold reports failure in a modal through the UI command wrapper", a
   const start = extension.indexOf("    private async withUiCommandStatus(");
   const end = extension.indexOf("    uiCommandWatchdogMs(", start);
   assert.ok(start >= 0 && end > start);
-  const wrapper = new Function("isUiCommandCancelled", "isUiCommandRemotePending", "errorMessage", "actionErrorSuggestion", "localCommandReleasesAfterTrigger", "vscode", "hostOperationLeaseActionLabel", "compactSensitiveText", `
+  const wrapper = new Function("isUiCommandCancelled", "isUiCommandRemotePending", "errorMessage", "actionErrorSuggestion", "localCommandReleasesAfterTrigger", "vscode", "hostOperationLeaseActionLabel", "compactSensitiveText", "OperationOutcome_1", `
     return ${extension.slice(start, end).replace("private async withUiCommandStatus", "async function").replace(/: any/g, "")};
   `)(
     (error) => error && error.name === "UiCommandCancelled",
@@ -279,6 +280,7 @@ test("version hold reports failure in a modal through the UI command wrapper", a
     { window: { showInformationMessage() {}, showErrorMessage: async (...args) => alerts.push(args) } },
     () => "运行计划",
     (text) => text,
+    require("../../dist/core/OperationOutcome.js"),
   );
   const host = commandHost();
   mountOldPlan(host);
@@ -356,7 +358,7 @@ test("runPlan command reaches the real deferred lookup before preflight", async 
     .replace(/: any/g, "")
     .replace(/ as any/g, "")
     .replace(/\(this as any\)/g, "this");
-  const run = new Function("PLAN_SUBMISSION_COMMANDS", "PLAN_PREFLIGHT_COMMANDS", "LENIENT_RUN", "DistributedPlanQueue", "operationResultPlanFile", "projectOutputGateReason", "makeOpId", "actionCommandMap", "assertSingleProjectWorkspace", "pluginProjectAdapterRules", "workspaceRoot", "stringField", "stringArrayField", "uniqueStrings", "usableSelectionKey", "directWorkerActionMap", `
+  const run = new Function("PLAN_SUBMISSION_COMMANDS", "PLAN_PREFLIGHT_COMMANDS", "LENIENT_RUN", "DistributedPlanQueue", "operationResultPlanFile", "projectOutputGateReason", "makeOpId", "actionCommandMap", "assertSingleProjectWorkspace", "pluginProjectAdapterRules", "workspaceRoot", "stringField", "stringArrayField", "uniqueStrings", "usableSelectionKey", "directWorkerActionMap", "preparePlanSafeRetry", `
     return async function(command, message) {
       ${body}
     };
@@ -372,7 +374,7 @@ test("runPlan command reaches the real deferred lookup before preflight", async 
     () => [],
     (values) => [...new Set(values || [])],
     (value) => String(value || ""),
-    {});
+    {}, async () => {});
   const host = commandHost();
   host.calls = [];
   host.localPlanMetadata = { detectedProject: {} };

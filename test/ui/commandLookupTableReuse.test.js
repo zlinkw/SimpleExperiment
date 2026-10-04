@@ -9,7 +9,8 @@ const source = fs.readFileSync(path.join(__dirname, "../../src/ui/PanelHtml.lega
 function declaration(name) {
   const start = source.indexOf("const " + name + " =");
   assert.ok(start >= 0, "missing " + name);
-  const end = source.indexOf(";\n", start);
+  const end = source.indexOf(";", start);
+  assert.ok(end >= 0, "unterminated " + name);
   return source.slice(start, end + 1);
 }
 

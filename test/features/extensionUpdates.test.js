@@ -37,20 +37,20 @@ test("release versions use semantic comparison and ignore the optional v prefix"
 });
 
 test("paired update plan requires VSIX assets from both releases", () => {
-  const experiment = componentUpdate("simple-local.simple-experiment", "zlinkw/SimpleExperiment", "SimpleExperiment", "0.4.6", release("0.4.7"), "experiment");
-  const sftp = componentUpdate("simple-local.simple-sftp", "zlinkw/SimpleSFTP", "SimpleSFTP", "0.2.5", release("0.2.6"), "sftp");
+  const experiment = componentUpdate("simple-local.simple-experiment", "zlinkw/SimpleExperiment", "SimpleExperiment", "0.4.6", release("0.4.7", ["simple-experiment-0.4.7.vsix", "simple-experiment-0.4.7.vsix.sha256"]), "simple-experiment");
+  const sftp = componentUpdate("simple-local.simple-sftp", "zlinkw/SimpleSFTP", "SimpleSFTP", "0.2.5", release("0.2.6", ["simple-sftp-0.2.6.vsix", "simple-sftp-0.2.6.vsix.sha256"]), "simple-sftp");
   const plan = planPairedUpdates(experiment, sftp);
   assert.equal(plan.status, "update_available");
-  assert.equal(plan.experiment.vsix.name, "simple-0.4.7.vsix");
-  assert.equal(plan.sftp.checksum.name, "simple-0.2.6.vsix.sha256");
+  assert.equal(plan.experiment.vsix.name, "simple-experiment-0.4.7.vsix");
+  assert.equal(plan.sftp.checksum.name, "simple-sftp-0.2.6.vsix.sha256");
 
   const missingAsset = componentUpdate("id", "repo", "Broken", "1.0.0", { tagName: "v1.1.0", assets: [] }, "broken");
   assert.equal(planPairedUpdates(missingAsset, sftp).status, "error");
 });
 
 test("stored update plans are refreshed against installed versions", () => {
-  const experiment = componentUpdate("simple-local.simple-experiment", "zlinkw/SimpleExperiment", "SimpleExperiment", "0.4.9", release("0.4.10"), "simple-experiment");
-  const sftp = componentUpdate("simple-local.simple-sftp", "zlinkw/SimpleSFTP", "SimpleSFTP", "0.2.6", release("0.2.7"), "simple-sftp");
+  const experiment = componentUpdate("simple-local.simple-experiment", "zlinkw/SimpleExperiment", "SimpleExperiment", "0.4.9", release("0.4.10", ["simple-experiment-0.4.10.vsix", "simple-experiment-0.4.10.vsix.sha256"]), "simple-experiment");
+  const sftp = componentUpdate("simple-local.simple-sftp", "zlinkw/SimpleSFTP", "SimpleSFTP", "0.2.6", release("0.2.7", ["simple-sftp-0.2.7.vsix", "simple-sftp-0.2.7.vsix.sha256"]), "simple-sftp");
   const stored = planPairedUpdates(experiment, sftp);
   const refreshed = refreshStoredPluginUpdatePlan(stored, (id) => id.includes("experiment") ? "0.4.10" : "0.2.7");
 
@@ -59,7 +59,7 @@ test("stored update plans are refreshed against installed versions", () => {
   assert.equal(refreshed.sftp.updateAvailable, false);
   assert.equal(refreshed.checkedAt, stored.checkedAt);
 
-  const newerExperiment = componentUpdate("simple-local.simple-experiment", "zlinkw/SimpleExperiment", "SimpleExperiment", "0.4.10", release("0.4.11"), "simple-experiment");
+  const newerExperiment = componentUpdate("simple-local.simple-experiment", "zlinkw/SimpleExperiment", "SimpleExperiment", "0.4.10", release("0.4.11", ["simple-experiment-0.4.11.vsix", "simple-experiment-0.4.11.vsix.sha256"]), "simple-experiment");
   const partial = refreshStoredPluginUpdatePlan(planPairedUpdates(newerExperiment, sftp), (id) => id.includes("experiment") ? "0.4.10" : "0.2.7");
 
   assert.equal(partial.status, "update_available");

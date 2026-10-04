@@ -297,8 +297,9 @@ test("rejected/stale cleanup candidate判定 and promoted retained", async () =>
     // cleanupApprovedDrafts should enforce exact candidate
     const toDelete = ["tmp/plan/rej.yaml"];
     const result = await DraftPlans.cleanupApprovedDrafts(root, rec.drafts, toDelete);
-    assert.deepEqual(result.deleted, toDelete);
+    assert.deepEqual(result.moved, ["clean_dir/tmp/plan/rej.yaml"]);
     assert.ok(!fs.existsSync(path.join(root, "tmp/plan/rej.yaml")));
+    assert.ok(fs.existsSync(path.join(root, "clean_dir/tmp/plan/rej.yaml")));
   });
 });
 

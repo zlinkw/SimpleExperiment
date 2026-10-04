@@ -29,11 +29,10 @@ const browserFunction = harnessAst.statements.find((node) => ts.isFunctionDeclar
 assert.ok(browserFunction, "rendered browser harness exists");
 const fakeBrowser = vm.runInNewContext("(" + browserFunction.getText(harnessAst) + ")", { assert });
 function scriptFrom(html) {
-  const tag = html.indexOf("<script");
-  const start = html.indexOf(">", tag) + 1;
-  const end = html.indexOf("</script>", start);
-  assert.ok(tag >= 0 && end > start);
-  return html.slice(start, end);
+  const scripts = [...html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
+  const main = scripts.find((script) => script.includes("window.addEventListener(\"message\"") || script.includes("window.addEventListener('message'"));
+  assert.ok(main, "main panel message handler script exists");
+  return main;
 }
 function listener(browser) { return browser.windowListeners.get("message").values().next().value; }
 
@@ -45,6 +44,7 @@ test("a live unhealthy renderer replaces the actual stamped host document and re
       get html() { return html; }, set html(value) { html = value; replacements++; },
     } },
     panelDisposed: false, panelDocumentGeneration: 17, panelHeartbeatId: 41,
+    panelSectionRevisionTracker: { reset() {} },
     webviewReady: true, webviewDocumentVisible: true, panelStateFlow: PanelStateFlowControl.createPanelStateFlowControlState(17, true),
     lastDeliveredStateSeq: 0, automaticRecoveryCount: 0, lastAutomaticRecoveryAt: null, recoveryLoopPreventedCount: 0,
     currentSessionRecoveryReason: "", currentSessionPanelLifecycleDiagnostics: [], panelLifecycleDiagnostics: [],

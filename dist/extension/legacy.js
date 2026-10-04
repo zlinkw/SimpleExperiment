@@ -48,9 +48,15 @@ const fsNode = __importStar(require("fs"));
 const path = __importStar(require("path"));
 const crypto = __importStar(require("crypto"));
 const os = __importStar(require("os"));
+const perf_hooks_1 = require("perf_hooks");
+const worker_threads_1 = require("worker_threads");
 const ProgressInactivity_1 = require("../core/ProgressInactivity");
+const OperationOutcome_1 = __importStar(require("../core/OperationOutcome"));
+const StateStore_1 = require("../state/StateStore");
 const ProjectStaticCheck_1 = require("../features/ProjectStaticCheck");
 const SimpleSftpProgressWait_1 = require("../core/SimpleSftpProgressWait");
+const SafeRequestRetry_1 = require("../core/SafeRequestRetry");
+const PlanSafeRetry_1 = require("../features/PlanSafeRetry");
 const CacheCleanupPanel_1 = require("./CacheCleanupPanel");
 const RequestBudget_1 = require("../tunnel/RequestBudget");
 const TunnelGateway_1 = require("../tunnel/TunnelGateway");
@@ -100,6 +106,7 @@ const SyncLatestMerge_1 = require("../features/SyncLatestMerge");
 const SyncScopeLocalMirror_1 = require("../features/SyncScopeLocalMirror");
 const SyncScopeStatus_1 = require("../features/SyncScopeStatus");
 const SyncResolution_1 = require("../features/SyncResolution");
+const SyncResolution = __importStar(require("../features/SyncResolution"));
 const { renderPanelHtml } = PanelHtml_1;
 const PanelRecoveryHtml_1 = require("../ui/PanelRecoveryHtml");
 const { renderPanelRecoveryHtml } = PanelRecoveryHtml_1;
@@ -141,13 +148,30 @@ const { LocalApiError, LocalApiServer: LocalApiServerClass, confirmationRequired
 const RenamedExtensionStateMigration_1 = require("../config/RenamedExtensionStateMigration");
 const RemoteRootPolicyPrefill_1 = require("../config/RemoteRootPolicyPrefill");
 const PanelBuildIdentity_1 = require("../features/PanelBuildIdentity");
+const PROJECT_PERSISTENCE_PATHS = {
+    apiFlowState: "simple_cluster/ui/flow_state.json",
+    planSelection: "simple_cluster/ui/plan_selection.json",
+    taskSelection: "simple_cluster/ui/task_selection.json",
+    offlineBundle: "simple_cluster/ui/offline_bundle.json",
+    actionErrors: "simple_cluster/ui/action_errors.json",
+    panelLifecycleDiagnostics: "simple_cluster/ui/panel_lifecycle.json",
+    pptPlotConfig: "simple_cluster/ui/ppt_plot_config.json",
+    uiLayout: "simple_cluster/ui/ui_layout.json",
+    debugBundle: "simple_cluster/ui/debug_bundle.json",
+    codeSync: "simple_cluster/ui/code_sync.json",
+    remotePathConfirmations: "simple_cluster/ui/remote_path_confirmations.json",
+    pptPathConfirmations: "simple_cluster/ui/ppt_path_confirmations.json",
+    localPlanMetadata: "simple_cluster/ui/local_plan_metadata.json",
+};
 // Update commands are intentionally local-only and do not enter the remote action map.
 const viewId = "simpleExperiment.panel";
 // 输出门禁/拓扑失败默认硬阻断：仅显式开关（环境变量 SIMPLE_EXPERIMENT_LENIENT_RUN=1）才软通过，
 // 且软通过必须落盘原因（simple_cluster/tmp/lenient-soft-pass.log + recordActionError）。
 const LENIENT_RUN = typeof process !== "undefined" && (process.env.SIMPLE_EXPERIMENT_LENIENT_RUN === "1" || process.env.LENIENT_RUN === "1");
+const LENIENT_SOFT_PASS_LOG_MAX_BYTES = 256 * 1024;
+const lenientSoftPassLogQueues = new Map();
 function recordLenientSoftPass(host, scope, reason) {
-    const line = `[${new Date().toISOString()}] [LENIENT_RUN] ${scope} soft-pass: ${reason}`;
+    const line = `[${new Date().toISOString()}] [LENIENT_RUN] ${String(scope || "unknown").slice(0, 80)} soft-pass: ${String(reason || "unknown").slice(0, 2000)}`;
     try {
         console.warn(line);
     }
@@ -157,14 +181,78 @@ function recordLenientSoftPass(host, scope, reason) {
     }
     catch { /* ignore */ }
     try {
-        const root = host?.projectRoot || host?.workspaceRoot || process.cwd();
-        const file = fsNode ? path.join(String(root), "simple_cluster", "tmp", "lenient-soft-pass.log") : "";
-        if (file) {
-            fsNode.mkdirSync(path.dirname(file), { recursive: true });
-            fsNode.appendFileSync(file, line + "\n", "utf8");
-        }
+        const root = String(host?.projectRoot || host?.workspaceRoot || process.cwd());
+        const file = path.resolve(root, "simple_cluster", "tmp", "lenient-soft-pass.log");
+        const key = process.platform === "win32" ? file.toLowerCase() : file;
+        const previous = lenientSoftPassLogQueues.get(key) || Promise.resolve();
+        let current;
+        current = previous.catch(() => undefined).then(async () => {
+            const persist = async () => {
+                await fs.mkdir(path.dirname(file), { recursive: true });
+                let previousBytes = Buffer.alloc(0);
+                let statBefore;
+                try {
+                    statBefore = await fs.lstat(file);
+                    if (!statBefore.isFile() || statBefore.isSymbolicLink() || statBefore.nlink > 1)
+                        throw new Error("LENIENT 软通过审计文件不是独占普通文件，保留现状并停止写入。");
+                    const flags = fsNode.constants.O_RDONLY | (fsNode.constants.O_NOFOLLOW || 0);
+                    const handle = await fs.open(file, flags);
+                    try {
+                        const opened = await handle.stat();
+                        if (!opened.isFile() || opened.nlink > 1 || opened.dev !== statBefore.dev || opened.ino !== statBefore.ino
+                            || opened.size !== statBefore.size || opened.mtimeMs !== statBefore.mtimeMs)
+                            throw new Error("LENIENT 软通过审计文件身份在读取前发生变化。");
+                        const length = Math.min(opened.size, LENIENT_SOFT_PASS_LOG_MAX_BYTES);
+                        previousBytes = Buffer.alloc(length);
+                        let offset = 0;
+                        const position = opened.size - length;
+                        while (offset < length) {
+                            const result = await handle.read(previousBytes, offset, length - offset, position + offset);
+                            if (!result.bytesRead)
+                                throw new Error("LENIENT 软通过审计文件尾部未完整读取。");
+                            offset += result.bytesRead;
+                        }
+                        const after = await handle.stat();
+                        const currentPath = await fs.lstat(file);
+                        if (after.dev !== opened.dev || after.ino !== opened.ino || after.size !== opened.size || after.mtimeMs !== opened.mtimeMs
+                            || currentPath.isSymbolicLink() || !currentPath.isFile() || currentPath.nlink > 1
+                            || currentPath.dev !== opened.dev || currentPath.ino !== opened.ino || currentPath.size !== opened.size || currentPath.mtimeMs !== opened.mtimeMs)
+                            throw new Error("LENIENT 软通过审计文件在读取期间发生变化。");
+                        if (position > 0) {
+                            const firstLineEnd = previousBytes.indexOf(0x0a);
+                            previousBytes = firstLineEnd >= 0 ? previousBytes.subarray(firstLineEnd + 1) : Buffer.alloc(0);
+                        }
+                    }
+                    finally {
+                        await handle.close();
+                    }
+                }
+                catch (error) {
+                    if (error?.code !== "ENOENT")
+                        throw error;
+                }
+                const separator = previousBytes.length && previousBytes[previousBytes.length - 1] !== 0x0a ? Buffer.from("\n") : Buffer.alloc(0);
+                const appended = Buffer.from(line + "\n", "utf8");
+                let next = Buffer.concat([previousBytes, separator, appended]);
+                if (next.length > LENIENT_SOFT_PASS_LOG_MAX_BYTES) {
+                    const start = next.length - LENIENT_SOFT_PASS_LOG_MAX_BYTES;
+                    const firstLineEnd = next.indexOf(0x0a, start);
+                    next = firstLineEnd >= 0 ? next.subarray(firstLineEnd + 1) : next.subarray(start);
+                }
+                await (0, StateStore_1.atomicWriteText)(file, next.toString("utf8"));
+            };
+            if (typeof host?.withPluginStateFileLease === "function")
+                await host.withPluginStateFileLease(root, file, "lenient-soft-pass-audit", "写入有界软通过审计", persist);
+            else
+                await persist();
+        });
+        lenientSoftPassLogQueues.set(key, current);
+        void current.catch((error) => console.warn("[LENIENT_RUN] audit persistence failed", error)).finally(() => {
+            if (lenientSoftPassLogQueues.get(key) === current)
+                lenientSoftPassLogQueues.delete(key);
+        });
     }
-    catch { /* ignore */ }
+    catch { /* Best-effort bounded audit; the action error remains durable. */ }
 }
 const LOCAL_API_PREFERRED_PORT = 19765;
 const API_DISCOVERY_DIR = path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "SimpleExperiment");
@@ -332,6 +420,8 @@ const SCHEDULER_ACTIVE_BUCKET_LIMIT = 160;
 const SCHEDULER_TERMINAL_BUCKET_LIMIT = 80;
 const UI_ACTION_ERROR_RECORD_LIMIT = 8;
 const PANEL_LIFECYCLE_DIAGNOSTIC_LIMIT = 24;
+const PANEL_INCIDENT_STORAGE_KEY = "simpleExperiment.panelIncidentSlots.v1";
+const PANEL_INCIDENT_SLOT_MAX_BYTES = 256 * 1024;
 const UI_ACTION_ERROR_MESSAGE_LIMIT = 480;
 const UI_ACTION_ERROR_SUGGESTION_LIMIT = 240;
 const UI_ACTION_ERROR_CAPABILITY_LIMIT = 8;
@@ -343,12 +433,15 @@ class UiCommandCancelled extends Error {
     constructor(message = "用户取消操作。") {
         super(message);
         this.name = "UiCommandCancelled";
+        this.code = "USER_CANCELLED";
     }
 }
 class UiCommandRemotePending extends Error {
     constructor(message = "远端操作已提交，等待 Agent operation 终态。") {
         super(message);
         this.name = "UiCommandRemotePending";
+        this.code = "REMOTE_OUTCOME_UNKNOWN";
+        this.outcomeUnknown = true;
     }
 }
 const uiActionCommands = new Set([
@@ -408,7 +501,7 @@ const uiActionCommands = new Set([
 const SAFE_WEBVIEW_COMMANDS = new Set([
     "stopAllPlans",
     "stopAndClearPlan",
-    "webviewReady", "webviewHeartbeatAck", "webviewStateRendered", "webviewSectionInterest", "webviewSectionTelemetry", "webviewBootstrapError", "webviewRenderError", "webviewVisibility", "reloadPanel", "reloadWindow", "recallPlanToLocalQueue", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
+    "webviewReady", "webviewHeartbeatAck", "webviewStateRendered", "webviewSectionInterest", "webviewSectionTelemetry", "webviewLayoutEvidence", "webviewBootstrapPhase", "webviewBootstrapError", "webviewRuntimeIncident", "webviewRenderError", "webviewVisibility", "copyPanelDiagnostics", "reloadPanel", "reloadPanelLowEffects", "reloadWindow", "recallPlanToLocalQueue", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
     "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "reassignWorkerTask", "openSetupGuide", "openAdvancedCommandsSetting", "applyPlanDatasetMapping", "autoMatchPlanDatasets",
     "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
     "selectPlan", "selectExperiment",
@@ -417,7 +510,12 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "startTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxCapture", "fetchTmuxList", "killTmuxWindow", "clearTmuxTaskTabs",
 ]);
 const API_INTERNAL_COMMANDS = new Set([
-    "webviewReady", "webviewHeartbeatAck", "webviewStateRendered", "webviewSectionInterest", "webviewSectionTelemetry", "webviewBootstrapError", "webviewRenderError", "webviewVisibility", "reloadPanel", "reloadWindow",
+    "webviewReady", "webviewHeartbeatAck", "webviewStateRendered", "webviewSectionInterest", "webviewSectionTelemetry", "webviewLayoutEvidence", "webviewBootstrapPhase", "webviewBootstrapError", "webviewRuntimeIncident", "webviewRenderError", "webviewVisibility", "copyPanelDiagnostics", "reloadPanel", "reloadPanelLowEffects", "reloadWindow",
+]);
+const SAFE_TRANSFER_RETRY_COMMANDS = new Set([
+    "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts",
+    "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent",
+    "downloadRemoteResult",
 ]);
 const API_EXECUTABLE_COMMANDS = new Set([
     ...uiActionCommands,
@@ -507,7 +605,7 @@ const IMMEDIATE_RESULT_SUMMARY_REFRESH_COMMANDS = new Set([
     "runLeakageCheck", "runSubgroupAnalysis", "exportCaseAnalysis", "planCheckpointRetention", "inspectDataset",
     "exportPlottingContract", "inferConfigFromRun", "recoverPlanFromRun", "diagnoseResultAnomaly", "compareWithBestConfig", "excludeResults",
 ]);
-const TUNNEL_ACTION_CONFIRM_COMMANDS = new Set(["stopExperiment", "retryExperiment", ...NO_HUB_RESULT_CONFIRM_COMMANDS, "deleteArtifacts"]);
+const TUNNEL_ACTION_CONFIRM_COMMANDS = new Set(["stopExperiment", "retryExperiment", ...NO_HUB_RESULT_CONFIRM_COMMANDS, "deleteArtifacts", "reconcileDeletions"]);
 const API_PARAMETERIZED_CONNECTION_COMMANDS = new Set(["prepareAgents", "startAllConnections"]);
 const API_CONFIRM_COMMANDS = new Set([
     ...PLAN_SUBMISSION_COMMANDS,
@@ -567,8 +665,9 @@ function activate(context) {
 async function activateExtension(context) {
     await (0, RenamedExtensionStateMigration_1.migrateRenamedExtensionState)(context).catch(() => undefined);
     provider = new RealtimeTunnelPanelProvider(context);
+    const retainPanelContext = provider.retainPanelContextWhenHidden;
     const hostCommand = (commandId, actionType, actionLabel, operation) => vscode.commands.registerCommand(commandId, (...args) => provider?.withHostOperationLease(actionType, actionLabel, () => operation(...args)));
-    context.subscriptions.push(vscode.window.registerWebviewViewProvider(viewId, provider, { webviewOptions: { retainContextWhenHidden: true } }), vscode.commands.registerCommand("simpleExperiment.openPanel", () => vscode.commands.executeCommand(`${viewId}.focus`)), hostCommand("simpleExperiment.quickSetup", "quick-setup", "检查服务器配置", () => provider?.quickSetup()), hostCommand("simpleExperiment.configureXshellSavedSessions", "configure-xshell-sessions", "配置 Xshell 会话", () => provider?.configureXshellSavedSessions()), hostCommand("simpleExperiment.configureXshellAgentSessions", "configure-agent-sessions", "配置 Agent 会话", () => provider?.configureXshellAgentSessions()), hostCommand("simpleExperiment.writeXshellAgentStartupCommands", "write-agent-commands", "写入 Agent 启动命令", () => provider?.writeXshellAgentStartupCommands()), hostCommand("simpleExperiment.configureWorkerTunnels", "configure-worker-tunnels", "配置 Worker 隧道", () => provider?.configureWorkerTunnels()), hostCommand("simpleExperiment.configureTunnelPorts", "configure-tunnel-ports", "配置隧道端口", () => provider?.configureTunnelPorts()), hostCommand("simpleExperiment.configureXshellRealtimeTunnel", "configure-xshell-tunnel", "配置 Xshell 隧道", () => provider?.configureXshellRealtimeTunnel()), hostCommand("simpleExperiment.startHubTunnel", "start-hub-tunnel", "启动 Hub 隧道", () => provider?.startHubTunnel()), hostCommand("simpleExperiment.startWorkerTunnel", "start-worker-tunnel", "启动 Worker 隧道", () => provider?.startWorkerTunnel()), hostCommand("simpleExperiment.startXshellRealtimeTunnel", "start-xshell-tunnel", "启动 Xshell 隧道", () => provider?.startXshellRealtimeTunnel()), hostCommand("simpleExperiment.startAllXshellRealtimeTunnels", "start-all-tunnels", "启动全部 Xshell 隧道", () => provider?.startAllXshellRealtimeTunnels()), hostCommand("simpleExperiment.startAllXshellAgentSessions", "start-agent-sessions", "启动全部 Agent 会话", () => provider?.startAllXshellAgentSessions()), hostCommand("simpleExperiment.startAllXshellConnections", "start-all-connections", "启动全部 Xshell 连接", () => provider?.startAllXshellConnections()), vscode.commands.registerCommand("simpleExperiment.testAllTunnels", () => provider?.testTunnel(true)), vscode.commands.registerCommand("simpleExperiment.showTunnelEndpointRegistry", () => provider?.showTunnelEndpointRegistry()), vscode.commands.registerCommand("simpleExperiment.testXshellTunnel", () => provider?.testTunnel(true)), hostCommand("simpleExperiment.restartRealtimeStream", "restart-realtime-stream", "重启实时流", () => provider?.restartRealtimeStream()), hostCommand("simpleExperiment.pauseRealtimeStream", "pause-realtime-stream", "暂停实时流", () => provider?.pauseRealtimeStream()), hostCommand("simpleExperiment.resumeRealtimeStream", "resume-realtime-stream", "恢复实时流", () => provider?.resumeRealtimeStream()), hostCommand("simpleExperiment.pauseAllNetworkActivity", "pause-network", "暂停网络活动", () => provider?.pauseAllNetworkActivity()), hostCommand("simpleExperiment.generateXshellTunnelScript", "write-tunnel-script", "生成 Xshell 启动脚本", () => provider?.generateTunnelScript()), vscode.commands.registerCommand("simpleExperiment.openTunnelStatus", () => provider?.openTunnelStatus()), vscode.commands.registerCommand("simpleExperiment.runXshellRealIntegrationCheck", () => provider?.runXshellRealIntegrationCheck()), vscode.commands.registerCommand("simpleExperiment.manualRefresh", () => provider?.manualSnapshot()), hostCommand("simpleExperiment.importOfflineBundle", "import-offline-bundle", "导入离线包", () => provider?.importOffline()), vscode.commands.registerCommand("simpleExperiment.clearCache", () => provider?.clearCacheFromUi()), vscode.commands.registerCommand("simpleExperiment.openLastCheckStaticReport", () => provider?.openLastCheckStaticReportFromUi()), vscode.commands.registerCommand("simpleExperiment.copyLastCheckStaticReport", () => provider?.copyLastCheckStaticReportFromUi()), vscode.commands.registerCommand("simpleExperiment.runCheckStatic", () => provider?.runCheckStaticFromUi()));
+    context.subscriptions.push(vscode.window.registerWebviewViewProvider(viewId, provider, { webviewOptions: { retainContextWhenHidden: retainPanelContext } }), vscode.commands.registerCommand("simpleExperiment.openPanel", () => vscode.commands.executeCommand(`${viewId}.focus`)), vscode.commands.registerCommand("simpleExperiment.copyPanelDiagnostics", () => provider?.copyPanelDiagnosticsFromUi()), vscode.commands.registerCommand("simpleExperiment.restorePanel", () => provider?.restorePanelFromUi()), hostCommand("simpleExperiment.quickSetup", "quick-setup", "检查服务器配置", () => provider?.quickSetup()), hostCommand("simpleExperiment.configureXshellSavedSessions", "configure-xshell-sessions", "配置 Xshell 会话", () => provider?.configureXshellSavedSessions()), hostCommand("simpleExperiment.configureXshellAgentSessions", "configure-agent-sessions", "配置 Agent 会话", () => provider?.configureXshellAgentSessions()), hostCommand("simpleExperiment.writeXshellAgentStartupCommands", "write-agent-commands", "写入 Agent 启动命令", () => provider?.writeXshellAgentStartupCommands()), hostCommand("simpleExperiment.configureWorkerTunnels", "configure-worker-tunnels", "配置 Worker 隧道", () => provider?.configureWorkerTunnels()), hostCommand("simpleExperiment.configureTunnelPorts", "configure-tunnel-ports", "配置隧道端口", () => provider?.configureTunnelPorts()), hostCommand("simpleExperiment.configureXshellRealtimeTunnel", "configure-xshell-tunnel", "配置 Xshell 隧道", () => provider?.configureXshellRealtimeTunnel()), hostCommand("simpleExperiment.startHubTunnel", "start-hub-tunnel", "启动 Hub 隧道", () => provider?.startHubTunnel()), hostCommand("simpleExperiment.startWorkerTunnel", "start-worker-tunnel", "启动 Worker 隧道", () => provider?.startWorkerTunnel()), hostCommand("simpleExperiment.startXshellRealtimeTunnel", "start-xshell-tunnel", "启动 Xshell 隧道", () => provider?.startXshellRealtimeTunnel()), hostCommand("simpleExperiment.startAllXshellRealtimeTunnels", "start-all-tunnels", "启动全部 Xshell 隧道", () => provider?.startAllXshellRealtimeTunnels()), hostCommand("simpleExperiment.startAllXshellAgentSessions", "start-agent-sessions", "启动全部 Agent 会话", () => provider?.startAllXshellAgentSessions()), hostCommand("simpleExperiment.startAllXshellConnections", "start-all-connections", "启动全部 Xshell 连接", () => provider?.startAllXshellConnections()), vscode.commands.registerCommand("simpleExperiment.testAllTunnels", () => provider?.testTunnel(true)), vscode.commands.registerCommand("simpleExperiment.showTunnelEndpointRegistry", () => provider?.showTunnelEndpointRegistry()), vscode.commands.registerCommand("simpleExperiment.testXshellTunnel", () => provider?.testTunnel(true)), hostCommand("simpleExperiment.restartRealtimeStream", "restart-realtime-stream", "重启实时流", () => provider?.restartRealtimeStream()), hostCommand("simpleExperiment.pauseRealtimeStream", "pause-realtime-stream", "暂停实时流", () => provider?.pauseRealtimeStream()), hostCommand("simpleExperiment.resumeRealtimeStream", "resume-realtime-stream", "恢复实时流", () => provider?.resumeRealtimeStream()), hostCommand("simpleExperiment.pauseAllNetworkActivity", "pause-network", "暂停网络活动", () => provider?.pauseAllNetworkActivity()), hostCommand("simpleExperiment.generateXshellTunnelScript", "write-tunnel-script", "生成 Xshell 启动脚本", () => provider?.generateTunnelScript()), vscode.commands.registerCommand("simpleExperiment.openTunnelStatus", () => provider?.openTunnelStatus()), vscode.commands.registerCommand("simpleExperiment.runXshellRealIntegrationCheck", () => provider?.runXshellRealIntegrationCheck()), vscode.commands.registerCommand("simpleExperiment.manualRefresh", () => provider?.manualSnapshot()), hostCommand("simpleExperiment.importOfflineBundle", "import-offline-bundle", "导入离线包", () => provider?.importOffline()), vscode.commands.registerCommand("simpleExperiment.clearCache", () => provider?.clearCacheFromUi()), vscode.commands.registerCommand("simpleExperiment.openLastCheckStaticReport", () => provider?.openLastCheckStaticReportFromUi()), vscode.commands.registerCommand("simpleExperiment.copyLastCheckStaticReport", () => provider?.copyLastCheckStaticReportFromUi()), vscode.commands.registerCommand("simpleExperiment.runCheckStatic", () => provider?.runCheckStaticFromUi()));
     context.subscriptions.push(hostCommand("simpleExperiment.bootstrapProject", "bootstrap-project", "识别工作区", () => provider?.bootstrapProjectFromUi()), hostCommand("simpleExperiment.prepareAgents", "prepare-agents", "准备 Agent 并启动", () => provider?.prepareAgentsForFirstRun()), hostCommand("simpleExperiment.verifyAgentVersion", "verify-agent-version", "校验 Agent 版本", () => provider?.verifyAgentVersionManually()));
     context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((event) => void provider?.handleConfigurationChanged(event)));
     context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => void provider?.handleWorkspaceFoldersChanged()));
@@ -581,19 +680,28 @@ async function activateExtension(context) {
         await provider?.reconcileStalePlanRunOperations({ reason: "activation" });
     }).catch(() => undefined);
     void provider.runActivationOnboarding();
-    setTimeout(() => void provider?.checkRemoteAgentVersionAndNotify(false).catch(() => undefined), 8000);
+    const remoteVersionCheckTimer = setTimeout(() => {
+        void provider?.checkRemoteAgentVersionAndNotify(false).catch(() => undefined);
+    }, 8000);
+    remoteVersionCheckTimer.unref?.();
+    context.subscriptions.push({ dispose: () => clearTimeout(remoteVersionCheckTimer) });
     context.subscriptions.push(vscode.commands.registerCommand("simpleExperiment.openSetupGuide", () => provider?.openSetupGuide()));
 }
 function deactivate() {
-    void provider?.dispose();
+    const current = provider;
     provider = undefined;
+    return current?.dispose();
 }
-async function runOnboardingSteps(steps, onError = async () => undefined) {
+async function runOnboardingSteps(steps, onError = async () => undefined, signal) {
     for (const step of steps) {
+        if (signal?.aborted)
+            return;
         try {
             await step.run();
         }
         catch (error) {
+            if (signal?.aborted)
+                return;
             try {
                 await onError(step.name, error);
             }
@@ -683,6 +791,8 @@ class RealtimeTunnelPanelProvider {
     distributedQueueDiskSignature = "";
     distributedQueueMetadataWrites = [];
     manualResultSyncCounts = new Map();
+    safeTransferRetries = new SafeRequestRetry_1.SafeRequestRetry();
+    planRetryInFlight = new Set();
     projectStaticCheckPromise;
     projectStaticCheckAbort;
     distributedQueueStorageDiagnostics = { status: "ready" };
@@ -714,8 +824,10 @@ class RealtimeTunnelPanelProvider {
     hiddenLegacyTaskUiKeys = new Set();
     taskSelectionRevision = 0;
     taskSelectionDerivedCache;
-    planSelectionPersistenceQueue = { dirty: false };
-    taskSelectionPersistenceQueue = { dirty: false };
+    compactPanelLogsCache;
+    experimentTracesProjectionCache;
+    planSelectionPersistenceQueue = { key: "planSelection", relativePath: PROJECT_PERSISTENCE_PATHS.planSelection, dirty: false };
+    taskSelectionPersistenceQueue = { key: "taskSelection", relativePath: PROJECT_PERSISTENCE_PATHS.taskSelection, dirty: false };
     projectStatePersistenceQueues = new Map();
     planFileInput;
     planFileWatchers = [];
@@ -771,13 +883,24 @@ class RealtimeTunnelPanelProvider {
     panelLifecycleState = "detached";
     panelSectionFailures = new Set();
     panelLifecycleGeneration = 0;
-    activePanelBuildTiming;
     latestPanelBuildTiming = { runtimeEvidenceMs: 0, resultCatalog: { cacheHit: true, buildMs: 0 }, plansMs: 0, tracesMs: 0, diagnosticsMs: 0, totalMs: 0 };
     latestPanelStateTelemetry;
     latestRenderDurationMs = null;
     panelTelemetrySampleSequence = 0;
     panelLifecycleDiagnostics = [];
     currentSessionPanelLifecycleDiagnostics = [];
+    panelIncidentEvents = [];
+    panelLayoutEvents = [];
+    latestPanelLayoutEvidence = null;
+    panelHostEventLoopHistogram;
+    panelHostEventLoopTimer;
+    panelHostEventLoopSamples = [];
+    panelIncidentSlots = { latest: null, previous: null };
+    panelIncidentWrite = Promise.resolve();
+    panelIncidentNoticeKeys = new Set();
+    panelLowEffectsMode = false;
+    retainPanelContextWhenHidden;
+    viewWasVisible = false;
     historicalLastFailure = null;
     currentSessionLastFailure = null;
     currentSessionRecoveryReason = "";
@@ -791,6 +914,24 @@ class RealtimeTunnelPanelProvider {
     statePayloadSoftLimitBytes = 4 * 1024 * 1024;
     statePayloadHardLimitBytes = 8 * 1024 * 1024;
     resultCatalogCache;
+    resultCatalogRefreshWorker;
+    resultCatalogRefreshRequest;
+    resultCatalogRefreshQueued;
+    resultCatalogRefreshPreparingKey = "";
+    resultCatalogRefreshSequence = 0;
+    resultCatalogRefreshError = "";
+    resultCatalogRefreshFailedKey = "";
+    resultCatalogRefreshBackoffUntil = 0;
+    resultCatalogStatus = "notLoaded";
+    resultCatalogRefreshTimer;
+    panelPlanStatusSummaryCache;
+    distributedPlanProgressCache;
+    panelPlanStatusSummaryRevision = 0;
+    workerTaskSnapshotRevision = 0;
+    workerTaskSnapshotDiskCache = new Map();
+    workerTaskPlanStatusSignatures = new Map();
+    checkStaticReportsRoot = "";
+    checkStaticReportsCache = [];
     resultCatalogDirtyGeneration = 0;
     resultCatalogTtlMs = 5000;
     lastPostedStateSignature = "";
@@ -825,6 +966,8 @@ class RealtimeTunnelPanelProvider {
     panelUnknownHealthGeneration = 0;
     panelUnknownHealthGraceMs = 90_000;
     panelDisposed = false;
+    activationAbortController = new AbortController();
+    projectContextAbortController = new AbortController();
     webviewReady = false;
     panelReadyWatchdogTimer;
     pendingPanelNavigation;
@@ -842,12 +985,14 @@ class RealtimeTunnelPanelProvider {
     pptAutomationRefreshPromise;
     projectUiLayout;
     pluginUpdateStatus;
+    pluginUpdateInstalling = false;
     localOperations = {};
     resultParseInFlight = new Map();
     localOperationsDirty = false;
     localOperationsRevision = 0;
     planRuntimeEvidenceCache;
     localOperationsPersistPromise;
+    localOperationsPersistTimer;
     runOperationReconcilePromise;
     remotePlanRestorePromise;
     runOperationReconcilePollTimer;
@@ -949,6 +1094,16 @@ class RealtimeTunnelPanelProvider {
     topologyRuntimeMode = "";
     constructor(context) {
         this.context = context;
+        this.startPanelHostEventLoopMonitor();
+        this.retainPanelContextWhenHidden = vscode.workspace.getConfiguration("simpleExperiment").get("panel.retainContextWhenHidden", false) === true;
+        const incidentSlots = this.context.workspaceState.get(PANEL_INCIDENT_STORAGE_KEY);
+        if (incidentSlots && typeof incidentSlots === "object") {
+            this.panelIncidentSlots = {
+                latest: compactPanelIncidentSlot(incidentSlots.latest),
+                previous: compactPanelIncidentSlot(incidentSlots.previous),
+            };
+            this.historicalLastFailure = this.panelIncidentSlots.latest || this.panelIncidentSlots.previous;
+        }
         const extensionPath = String(context?.extension?.extensionPath || "");
         const runningVersion = String(context?.extension?.packageJSON?.version || "");
         this.runningBuildIdentity = PanelBuildIdentity_1.freezePanelBuildIdentity(PanelBuildIdentity_1.readPanelBuildIdentity(extensionPath, undefined, runningVersion));
@@ -1012,12 +1167,16 @@ class RealtimeTunnelPanelProvider {
                 viewerSessionScope: scope,
                 scalarViewer: {
                     html: ScalarDashboardHtml_1.scalarDashboardHtml,
-                    query: (params, endpointId) => this.scalarViewerQuery(params, endpointId),
-                    native: (method, route, body, contentType, endpointId) => this.scalarNativeProxy(method, route, body, contentType, endpointId),
+                    query: (params, endpointId, requestContext) => this.scalarViewerQuery(params, endpointId, requestContext?.signal),
+                    native: (method, route, body, contentType, endpointId, requestContext) => this.scalarNativeProxy(method, route, body, contentType, endpointId, requestContext?.signal),
                 },
             });
             try {
                 const discovery = await server.start();
+                if (this.panelDisposed) {
+                    await server.dispose().catch(() => undefined);
+                    throw new Error("扩展正在停用，已取消本地 API 启动。");
+                }
                 this.localApiServer = server;
                 this.context.subscriptions.push({ dispose: () => { void server.dispose().catch(() => undefined); } });
                 void this.context.workspaceState.update("simpleExperiment.localApiPort", discovery.port).then(undefined, () => undefined);
@@ -1071,11 +1230,12 @@ class RealtimeTunnelPanelProvider {
                 error: this.localPlanMetadata.error || "",
                 source: "local_metadata",
             }),
-            "results.list": async (params) => this.apiResultsList(params),
-            "tasks.list": async () => {
+            "results.list": async (params, _server, context) => this.apiResultsList(params, context.signal),
+            "tasks.list": async (_params, _server, context) => {
                 const state = this.buildState();
                 const workerIds = this.enabledWorkerConfigs().map((worker) => String(worker.id || "")).filter(Boolean);
-                const workerTasks = await Promise.all(workerIds.map((workerId) => this.readWorkerTaskSnapshot(workerId)));
+                const workerTasks = await Promise.all(workerIds.map((workerId) => this.readWorkerTaskSnapshot(workerId, { fresh: true, signal: context.signal })));
+                context.signal.throwIfAborted();
                 return {
                     schedulerStates: state.schedulerStates || [],
                     experimentTraces: state.experimentTraces || [],
@@ -1129,9 +1289,9 @@ class RealtimeTunnelPanelProvider {
                 };
             },
             "gpu.history": async () => this.gpuHistoryState.snapshot() || {},
-            "live.output": async (params) => this.apiLiveOutput(params),
-            "tmux.list": async (params) => this.fetchOneTmuxListFromUi(this.tmuxWorkerId(params)),
-            "tmux.capture": async (params) => this.fetchTmuxCaptureFromUi(params),
+            "live.output": async (params, _server, context) => this.apiLiveOutput(params, context.signal),
+            "tmux.list": async (params, _server, context) => this.fetchOneTmuxListFromUi(this.tmuxWorkerId(params), undefined, { signal: context.signal, publish: false }),
+            "tmux.capture": async (params, _server, context) => this.fetchTmuxCaptureFromUi(params, { signal: context.signal, publish: false }),
             "config.list": async () => this.apiConfigList(),
             "config.get": async (params) => this.apiConfigGet(params),
             "config.set": async (params) => this.apiConfigSet(params),
@@ -1165,8 +1325,6 @@ class RealtimeTunnelPanelProvider {
                 return { candidates: this.draftPlanState.cleanupCandidates };
             },
             "drafts.cleanup": async (params = {}) => {
-                if (params?.confirm !== true)
-                    throw confirmationRequired("清理将永久删除 rejected/stale 草稿文件。", params);
                 return await this.apiDraftCleanup(params);
             },
             "plan.validate": async (params) => this.apiPlanValidate(params),
@@ -1175,11 +1333,12 @@ class RealtimeTunnelPanelProvider {
             invoke: async (params) => this.invokeApi(params),
         };
     }
-    async apiResultsList(params = {}) {
+    async apiResultsList(params = {}, signal) {
         const selectedPlan = stringField(params, "planFile") || stringField(params, "planId") || this.planFileInput || this.selectedPlanId || "";
         const summary = selectedPlan
-            ? await this.client.getResultsSummary(selectedPlan, { userInitiated: true })
+            ? await this.client.getResultsSummary(selectedPlan, { userInitiated: true, signal })
             : this.resultsSummary;
+        signal?.throwIfAborted();
         const filtered = selectedPlan ? this.filterResultsSummaryForPlan(summary, selectedPlan) : compactResultsSummaryForWebview(summary);
         const rows = Array.isArray(filtered?.results)
             ? filtered.results
@@ -1198,24 +1357,64 @@ class RealtimeTunnelPanelProvider {
     async readWorkerTaskSnapshot(workerId, options = {}) {
         const root = workspaceRoot();
         const cacheKey = `${root || ""}\u0000${workerId}`;
-        const pending = this.workerTaskRequests.get(cacheKey);
-        if (pending)
-            return pending;
-        const abort = new AbortController();
-        const cancel = () => abort.abort();
-        options.signal?.addEventListener("abort", cancel, { once: true });
         if (options.signal?.aborted)
-            abort.abort();
-        const timeout = setTimeout(cancel, 4000);
-        timeout.unref?.();
-        const request = this.refreshWorkerTaskSnapshot(workerId, root, cacheKey, { signal: abort.signal }).finally(() => {
-            clearTimeout(timeout);
-            options.signal?.removeEventListener("abort", cancel);
-            if (this.workerTaskRequests.get(cacheKey) === request)
-                this.workerTaskRequests.delete(cacheKey);
+            throw options.signal.reason instanceof Error ? options.signal.reason : Object.assign(new Error("Worker task read cancelled."), { name: "AbortError" });
+        let shared = this.workerTaskRequests.get(cacheKey);
+        if (shared?.controller?.signal?.aborted) {
+            await shared.promise.catch(() => undefined);
+            if (options.signal?.aborted)
+                throw options.signal.reason instanceof Error ? options.signal.reason : Object.assign(new Error("Worker task read cancelled."), { name: "AbortError" });
+            return this.readWorkerTaskSnapshot(workerId, options);
+        }
+        if (!shared) {
+            const controller = new AbortController();
+            const request = { controller, subscribers: 0, settled: false, promise: Promise.resolve(undefined) };
+            const timeout = setTimeout(() => controller.abort(new Error("Worker task snapshot timed out.")), 4000);
+            timeout.unref?.();
+            request.promise = this.refreshWorkerTaskSnapshot(workerId, root, cacheKey, { signal: controller.signal }).finally(() => {
+                request.settled = true;
+                clearTimeout(timeout);
+                if (this.workerTaskRequests.get(cacheKey) === request)
+                    this.workerTaskRequests.delete(cacheKey);
+            });
+            shared = request;
+            this.workerTaskRequests.set(cacheKey, shared);
+        }
+        return new Promise((resolve, reject) => {
+            let finished = false;
+            shared.subscribers += 1;
+            const detach = () => {
+                options.signal?.removeEventListener("abort", onAbort);
+                shared.subscribers = Math.max(0, shared.subscribers - 1);
+                if (!shared.settled && shared.subscribers === 0)
+                    shared.controller.abort();
+            };
+            const onAbort = () => {
+                if (finished)
+                    return;
+                finished = true;
+                detach();
+                reject(options.signal?.reason instanceof Error ? options.signal.reason : Object.assign(new Error("Worker task read cancelled."), { name: "AbortError" }));
+            };
+            options.signal?.addEventListener("abort", onAbort, { once: true });
+            if (options.signal?.aborted) {
+                onAbort();
+                return;
+            }
+            shared.promise.then((value) => {
+                if (finished)
+                    return;
+                finished = true;
+                detach();
+                resolve(value);
+            }, (error) => {
+                if (finished)
+                    return;
+                finished = true;
+                detach();
+                reject(error);
+            });
         });
-        this.workerTaskRequests.set(cacheKey, request);
-        return request;
     }
     async readWorkerTaskSnapshotBatch(workerIds, options = {}) {
         const ids = [...new Set(workerIds.map((workerId) => String(workerId || "")).filter(Boolean))];
@@ -1253,9 +1452,17 @@ class RealtimeTunnelPanelProvider {
         const root = workspaceRoot();
         if (!root || this.distributedQueueRoot !== root || !this.distributedQueueCache)
             return [];
-        const snapshots = this.workerActionTargets().map((target) => this.cachedWorkerTaskSnapshot(target.id, root, `${root}\u0000${target.id}`))
+        const targets = this.workerActionTargets();
+        const targetsKey = targets.map((target) => String(target.id || "")).join("\n");
+        const cached = this.distributedPlanProgressCache;
+        if (cached && cached.root === root && cached.queue === this.distributedQueueCache
+            && cached.snapshotRevision === this.workerTaskSnapshotRevision && cached.targetsKey === targetsKey)
+            return cached.value;
+        const snapshots = targets.map((target) => this.cachedWorkerTaskSnapshot(target.id, root, `${root}\u0000${target.id}`))
             .filter(Boolean).map(workerTaskSnapshotPayload);
-        return DistributedSchedulingPolicy.serverAuthoritativeProgress(this.distributedQueueCache, snapshots, DistributedPlanQueue.canonicalProjectId(root));
+        const value = DistributedSchedulingPolicy.serverAuthoritativeProgress(this.distributedQueueCache, snapshots, DistributedPlanQueue.canonicalProjectId(root));
+        this.distributedPlanProgressCache = { root, queue: this.distributedQueueCache, snapshotRevision: this.workerTaskSnapshotRevision, targetsKey, value };
+        return value;
     }
     async refreshServerPlanProgress(options = {}) {
         if (this.progressRefreshPromise)
@@ -1289,6 +1496,7 @@ class RealtimeTunnelPanelProvider {
         const client = this.client;
         try {
             const value = await this.client.getWorkerTasks(workerId, { signal: options.signal });
+            options.signal?.throwIfAborted();
             if (workspaceRoot() !== root || this.client !== client)
                 return { workerId, schemaVersion: 1, tasks: [], error: "Workspace changed during Worker task snapshot" };
             const record = value && typeof value === "object" ? value : {};
@@ -1300,10 +1508,10 @@ class RealtimeTunnelPanelProvider {
                 tasks: Array.isArray(record.tasks) ? record.tasks : [],
                 fetchedAt: new Date().toISOString(),
             };
-            this.lastWorkerTaskSnapshots.set(cacheKey, snapshot);
+            this.storeWorkerTaskSnapshot(cacheKey, snapshot);
             this.postState();
             try {
-                this.writeWorkerTaskSnapshot(workerId, root, snapshot);
+                await this.writeWorkerTaskSnapshot(workerId, root, snapshot);
             }
             catch {
                 // A local cache write must not turn a successful Worker read into a failed snapshot.
@@ -1311,10 +1519,12 @@ class RealtimeTunnelPanelProvider {
             return workerTaskSnapshotPayload(snapshot);
         }
         catch (error) {
+            if (options.signal?.aborted)
+                throw error;
             const denied = error instanceof RequestBudget_1.RequestBudgetDeniedError ? error.decision.reason : "";
             const failure = denied ? `Worker task snapshot ${denied}` : "Worker task snapshot unavailable";
             if (workspaceRoot() === root && this.client === client) {
-                this.lastWorkerTaskSnapshots.set(cacheKey, { ...cached, workerId, tasks: cached?.tasks || [], error: failure });
+                this.storeWorkerTaskSnapshot(cacheKey, { ...cached, workerId, tasks: cached?.tasks || [], error: failure });
                 this.postState();
             }
             if (!cached)
@@ -1329,26 +1539,79 @@ class RealtimeTunnelPanelProvider {
         }
     }
     cachedWorkerTaskSnapshot(workerId, root, cacheKey) {
-        return this.lastWorkerTaskSnapshots.get(cacheKey) || readWorkerTaskSnapshotFile(root, workerId);
+        const inMemory = this.lastWorkerTaskSnapshots.get(cacheKey);
+        if (inMemory)
+            return inMemory;
+        const fullPath = workerTaskSnapshotPath(root, workerId);
+        let signature = "missing";
+        try {
+            const stat = fsNode.statSync(fullPath);
+            signature = `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+        }
+        catch { }
+        const cached = this.workerTaskSnapshotDiskCache.get(cacheKey);
+        if (cached && cached.signature === signature)
+            return cached.snapshot;
+        const snapshot = signature === "missing" ? undefined : readWorkerTaskSnapshotFile(root, workerId);
+        this.workerTaskSnapshotDiskCache.delete(cacheKey);
+        this.workerTaskSnapshotDiskCache.set(cacheKey, { signature, snapshot });
+        while (this.workerTaskSnapshotDiskCache.size > 64)
+            this.workerTaskSnapshotDiskCache.delete(this.workerTaskSnapshotDiskCache.keys().next().value);
+        if (snapshot)
+            this.noteWorkerTaskPlanStatus(cacheKey, snapshot);
+        return snapshot;
     }
-    writeWorkerTaskSnapshot(workerId, root, snapshot) {
+    storeWorkerTaskSnapshot(cacheKey, snapshot) {
+        this.workerTaskSnapshotDiskCache.delete(cacheKey);
+        this.lastWorkerTaskSnapshots.delete(cacheKey);
+        this.lastWorkerTaskSnapshots.set(cacheKey, snapshot);
+        while (this.lastWorkerTaskSnapshots.size > 64)
+            this.lastWorkerTaskSnapshots.delete(this.lastWorkerTaskSnapshots.keys().next().value);
+        this.noteWorkerTaskPlanStatus(cacheKey, snapshot);
+    }
+    noteWorkerTaskPlanStatus(cacheKey, snapshot) {
+        const signature = JSON.stringify((Array.isArray(snapshot?.tasks) ? snapshot.tasks : []).map((task) => [
+            task?.commandId || "", task?.operationId || "", task?.runKey || "", task?.planFile || task?.plan || "",
+            task?.case || task?.experimentCase || "", task?.seed ?? "", task?.status || task?.state || "",
+            task?.startedAt || "", task?.finishedAt || "",
+            task?.updatedAt || task?.updated_at || "", task?.planRevision || task?.plan_revision || "",
+            task?.experimentIndex ?? task?.experiment_index ?? task?.jobIndex ?? task?.job_index ?? task?.index ?? "",
+            task?.workerId || task?.worker_id || "", task?.gpuId || task?.gpu_id || task?.gpu || "",
+            String(task?.outputDir || task?.output_dir || "").slice(0, 512),
+            String(task?.logPath || task?.log_path || "").slice(0, 512),
+            String(task?.error || task?.blockReason || task?.block_reason || "").slice(0, 320),
+            task?.progress ?? task?.percent ?? task?.progressPercent ?? task?.progress_percent ?? "",
+            task?.epoch ?? task?.currentEpoch ?? task?.current_epoch ?? "", task?.loss ?? task?.latestLoss ?? task?.latest_loss ?? "",
+        ]));
+        if (this.workerTaskPlanStatusSignatures.get(cacheKey) === signature)
+            return;
+        this.workerTaskPlanStatusSignatures.delete(cacheKey);
+        this.workerTaskPlanStatusSignatures.set(cacheKey, signature);
+        while (this.workerTaskPlanStatusSignatures.size > 64)
+            this.workerTaskPlanStatusSignatures.delete(this.workerTaskPlanStatusSignatures.keys().next().value);
+        this.workerTaskSnapshotRevision += 1;
+    }
+    async writeWorkerTaskSnapshot(workerId, root, snapshot) {
         if (!root)
             return;
         const fullPath = workerTaskSnapshotPath(root, workerId);
-        fs.mkdirSync(path.dirname(fullPath), { recursive: true });
-        const tmp = `${fullPath}.${process.pid}.tmp`;
-        fs.writeFileSync(tmp, JSON.stringify({
+        const payload = JSON.stringify({
             ...snapshot,
             tasks: snapshot.tasks.map(compactWorkerTask),
-        }), "utf8");
-        fs.renameSync(tmp, fullPath);
+        });
+        await this.withPluginStateFileLease(root, fullPath, "worker-task-snapshot", "保存 Worker 任务快照", () => (0, StateStore_1.atomicWriteText)(fullPath, payload));
     }
-    async apiLiveOutput(params = {}) {
+    async apiLiveOutput(params = {}, signal) {
         const runKey = stringField(params, "runKey") || stringField(params, "run_key") || "";
         const workerId = stringField(params, "workerId") || stringField(params, "worker_id") || "";
         const direct = runKey
-            ? await this.fetchSelectedLiveOutput(runKey, workerId, { userInitiated: true }).catch(() => undefined)
+            ? await this.client.getLiveOutput(runKey, 0, this.resolveWorkerEndpointId(workerId) || workerId || undefined, { userInitiated: true, signal }).catch((error) => {
+                if (signal?.aborted)
+                    throw error;
+                return undefined;
+            })
             : undefined;
+        signal?.throwIfAborted();
         if (direct && typeof direct === "object") {
             const directText = [direct.text, direct.output, direct.tail].find((value) => typeof value === "string" && value.trim());
             if (directText) {
@@ -2615,21 +2878,33 @@ class RealtimeTunnelPanelProvider {
                 return await this.apiProjectPrepare(params);
             return await this.apiStartAllConnections(params);
         }
-        if (API_CONFIRM_COMMANDS.has(command) && params.confirm !== true)
-            throw confirmationRequired({
+        const deletionConfirmation = ["deleteArtifacts", "reconcileDeletions", "cleanupDrafts"].includes(command);
+        if (API_CONFIRM_COMMANDS.has(command) && (params.confirm !== true || deletionConfirmation && params.pathConfirmed !== true)) {
+            const preview = {
                 operation: command,
-                requires: ["confirm"],
+                requires: deletionConfirmation ? ["confirm", "pathConfirmed"] : ["confirm"],
                 command,
-                params: { ...params, confirm: undefined },
-            });
+                params: { ...params, confirm: undefined, ...(deletionConfirmation ? { pathConfirmed: undefined } : {}) },
+            };
+            if (command === "cleanupDrafts") {
+                await this.refreshDraftPlans(true);
+                const root = workspaceRoot();
+                if (!root)
+                    throw new Error("需要先打开工作区。");
+                const requested = stringArrayField(params, "paths");
+                const selected = requested.length ? requested : (this.draftPlanState.cleanupCandidates || []).map((item) => item.path);
+                preview.targets = await this.draftCleanupConfirmationTargets(root, selected);
+            }
+            throw confirmationRequired(preview);
+        }
         if (command === "checkPluginUpdates")
             return await this.checkPluginUpdates(params.manual === true);
         if (command === "installPluginUpdates")
             return await this.installPluginUpdates();
         const message = { command, ...params };
         if (uiActionCommands.has(command))
-            return await this.runActionCommand(command, message);
-        return await this.handleMessageCore(message, command);
+            return await this.withSafeTransferRetry(command, message, () => this.runActionCommand(command, message));
+        return await this.withSafeTransferRetry(command, message, () => this.handleMessageCore(message, command));
     }
     enabledWorkerConfigs() {
         const source = this.setupConfig.workerTunnels;
@@ -2646,7 +2921,7 @@ class RealtimeTunnelPanelProvider {
             { name: "projectStateBootstrap", run: () => this.projectBootstrapPromise },
             { name: "distributedQueueContinuation", run: () => this.resumePersistedDistributedQueue() },
             { name: "firstRunPrompt", run: () => this.showFirstRunSetupPromptOnce() },
-        ], (step, error) => this.recordOnboardingBackgroundError(step, error));
+        ], (step, error) => this.recordOnboardingBackgroundError(step, error), this.activationAbortController.signal);
     }
     async recordOnboardingBackgroundError(step, error) {
         const message = errorMessage(error);
@@ -2674,6 +2949,8 @@ class RealtimeTunnelPanelProvider {
             this.loadProjectPptPathConfirmationsState().catch(() => undefined),
             this.loadProjectLocalOperationsState().catch(() => undefined),
             this.loadProjectLocalPlanMetadataState().catch(() => undefined),
+            projectContext.root ? this.loadPlanSyncLedger(projectContext.root).catch(() => undefined) : Promise.resolve(undefined),
+            this.refreshCheckStaticReports(projectContext.root).catch(() => undefined),
             this.loadProjectFlowState().catch(() => undefined),
             this.refreshLocalSshConfig().catch(() => undefined),
         ]);
@@ -2682,7 +2959,7 @@ class RealtimeTunnelPanelProvider {
         await this.migrateLegacyProjectUiStateFromVsCode(projectContext).catch(() => undefined);
     }
     captureProjectContext() {
-        return { generation: this.projectContextGeneration, root: workspaceRoot() };
+        return { generation: this.projectContextGeneration, root: workspaceRoot(), signal: this.projectContextAbortController.signal };
     }
     projectContextIsCurrent(context) {
         return context?.generation === this.projectContextGeneration && context?.root === workspaceRoot();
@@ -2815,7 +3092,6 @@ class RealtimeTunnelPanelProvider {
     }
     async reloadProjectContextAfterWorkspaceChange() {
         this.resetProjectContextInMemory();
-        this.invalidateResultCatalogCache("workspaceChange");
         this.topologyRuntimeMode = this.projectTopologyAssessment().mode;
         this.resetClient();
         await this.bootstrapProjectLocalUiState();
@@ -2828,11 +3104,20 @@ class RealtimeTunnelPanelProvider {
         this.postState(true);
     }
     resetProjectContextInMemory() {
+        this.projectContextAbortController.abort(new UiCommandCancelled("工作区已切换，旧项目请求已取消。"));
+        this.projectContextAbortController = new AbortController();
         this.projectStaticCheckAbort?.abort();
         this.projectStaticCheckAbort = undefined;
         this.projectStaticCheckPromise = undefined;
         this.projectContextGeneration += 1;
+        this.cancelResultCatalogRefresh();
+        this.lastWorkerTaskSnapshots.clear();
+        this.workerTaskSnapshotDiskCache.clear();
+        this.workerTaskPlanStatusSignatures.clear();
+        this.workerTaskSnapshotRevision += 1;
         this.invalidateResultCatalogCache("workspaceChange");
+        this.checkStaticReportsRoot = "";
+        this.checkStaticReportsCache = [];
         this.resultSyncReport = null;
         this.disposeSelectedPlanFileWatchers();
         if (this.planLocalChangeParseTimer)
@@ -2866,6 +3151,13 @@ class RealtimeTunnelPanelProvider {
         this.taskSelectionPersistenceQueue.dirty = false;
         for (const queue of this.projectStatePersistenceQueues.values())
             queue.dirty = false;
+        this.projectStatePersistenceQueues.clear();
+        this.manualResultSyncCounts.clear();
+        this.distributedTerminalSeen.clear();
+        this.notifiedPlanFailures.clear();
+        if (this.localOperationsPersistTimer)
+            clearTimeout(this.localOperationsPersistTimer);
+        this.localOperationsPersistTimer = undefined;
         this.selectedLogRunKey = undefined;
         this.markTaskSelectionChanged();
         this.offlineBundle = undefined;
@@ -2903,6 +3195,8 @@ class RealtimeTunnelPanelProvider {
         this.lastResultsSummaryCapabilitySkippedDirtyKey = "";
         this.lastSnapshot = undefined;
         this.lastRealtimeState = undefined;
+        this.compactPanelLogsCache = undefined;
+        this.experimentTracesProjectionCache = undefined;
         this.gpuHistoryState.reset();
         this.lastHealth = undefined;
         this.lastProbe = undefined;
@@ -2972,6 +3266,11 @@ class RealtimeTunnelPanelProvider {
     async handleConfigurationChanged(event) {
         if (!event?.affectsConfiguration?.("simpleExperiment"))
             return;
+        if (event.affectsConfiguration("simpleExperiment.panel.retainContextWhenHidden")) {
+            const selected = vscode.workspace.getConfiguration("simpleExperiment").get("panel.retainContextWhenHidden", false) === true;
+            if (selected !== this.retainPanelContextWhenHidden)
+                void vscode.window.showInformationMessage("面板隐藏时的上下文保留策略将在 Reload Window 后生效。默认释放隐藏面板的 Webview 上下文以控制长期内存占用。");
+        }
         const previousMode = this.effectiveConnectionMode();
         const topologyChanged = event.affectsConfiguration("simpleExperiment.topologyMode");
         const resultCsvDirChanged = event.affectsConfiguration("simpleExperiment.resultCsvDir");
@@ -3008,6 +3307,7 @@ class RealtimeTunnelPanelProvider {
             return;
         this.offlineBundle = undefined;
         this.applyOfflineResultsSummaryFromBundle(undefined);
+        this.refreshExperimentTracesProjectionForCurrentInterest();
         await this.persistProjectOfflineBundleState().catch(() => undefined);
         await this.context.workspaceState.update(keys.offlineBundle, undefined);
     }
@@ -3022,6 +3322,7 @@ class RealtimeTunnelPanelProvider {
             this.planFileInput = state.planFileInput;
         if (Array.isArray(state.recentPlans) && state.recentPlans.length)
             this.recentPlans = mergeRecentPlans(state.recentPlans, this.recentPlans);
+        this.refreshExperimentTracesProjectionForCurrentInterest();
     }
     async persistProjectPlanSelectionState() {
         await this.persistCoalescedProjectState(this.planSelectionPersistenceQueue, () => ({
@@ -3052,6 +3353,7 @@ class RealtimeTunnelPanelProvider {
             const id = row.planId || row.planFile;
             return !id || keys.has(id) || list.some((plan) => plan.planFile === row.planFile || plan.file === row.planFile);
         });
+        this.refreshExperimentTracesProjectionForCurrentInterest();
     }
     async loadProjectTaskSelectionState() {
         const loaded = await this.readCurrentProjectState(readProjectTaskSelectionState);
@@ -3073,8 +3375,6 @@ class RealtimeTunnelPanelProvider {
         if (!this.selectedLogRunKey && state.selectedLogRunKey)
             this.selectedLogRunKey = state.selectedLogRunKey;
         this.markTaskSelectionChanged();
-        if (this.selectedRunKeys.size)
-            this.client.setProtectedLogKeys(this.logProtectedKeys());
     }
     async persistProjectTaskSelectionState() {
         await this.persistCoalescedProjectState(this.taskSelectionPersistenceQueue, () => ({
@@ -3101,7 +3401,7 @@ class RealtimeTunnelPanelProvider {
     projectStatePersistenceQueue(key) {
         let queue = this.projectStatePersistenceQueues.get(key);
         if (!queue) {
-            queue = { dirty: false };
+            queue = { key, relativePath: PROJECT_PERSISTENCE_PATHS[key], dirty: false };
             this.projectStatePersistenceQueues.set(key, queue);
         }
         return queue;
@@ -3116,7 +3416,13 @@ class RealtimeTunnelPanelProvider {
             while (queue.dirty && this.projectContextIsCurrent(projectContext)) {
                 const state = snapshot();
                 queue.dirty = false;
-                await write(projectContext.root, state);
+                if (projectContext.root && queue.relativePath) {
+                    const file = path.join(projectContext.root, ...queue.relativePath.split("/"));
+                    await this.withPluginStateFileLease(projectContext.root, file, `project-state-${queue.key || "unknown"}`, "保存项目状态", () => write(projectContext.root, state));
+                }
+                else {
+                    await write(projectContext.root, state);
+                }
             }
         })()
             .catch((error) => {
@@ -3140,6 +3446,7 @@ class RealtimeTunnelPanelProvider {
         if (loaded.current && bundle) {
             this.offlineBundle = bundle;
             this.applyOfflineResultsSummaryFromBundle(bundle);
+            this.refreshExperimentTracesProjectionForCurrentInterest();
         }
     }
     async persistProjectOfflineBundleState() {
@@ -3321,6 +3628,16 @@ class RealtimeTunnelPanelProvider {
     markLocalOperationsDirty() {
         this.localOperationsDirty = true;
         this.localOperationsRevision += 1;
+        if (!this.localOperationsPersistTimer && !this.panelDisposed) {
+            this.localOperationsPersistTimer = setTimeout(() => {
+                this.localOperationsPersistTimer = undefined;
+                void this.persistProjectLocalOperationsState().catch((error) => {
+                    if (!this.panelDisposed)
+                        console.warn(`[SimpleExperiment] local operation state persistence failed: ${errorMessage(error)}`);
+                });
+            }, 200);
+            this.localOperationsPersistTimer.unref?.();
+        }
     }
     queueProjectLocalOperationsStatePersistence() {
         if (this.localOperationsPersistPromise || !this.localOperationsDirty)
@@ -3333,7 +3650,10 @@ class RealtimeTunnelPanelProvider {
                 this.localOperations = compactOperationRecords(this.localOperations, LOCAL_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT);
                 const operations = this.localOperations;
                 this.localOperationsDirty = false;
-                await writeProjectLocalOperationsState(projectContext.root, operations);
+                if (projectContext.root) {
+                    const file = path.join(projectContext.root, ...PROJECT_LOCAL_OPERATIONS_PATH.split("/"));
+                    await this.withPluginStateFileLease(projectContext.root, file, "project-state-local-operations", "保存本地操作记录", () => writeProjectLocalOperationsState(projectContext.root, operations));
+                }
             }
         })()
             .catch((error) => {
@@ -3353,6 +3673,9 @@ class RealtimeTunnelPanelProvider {
         return true;
     }
     async persistProjectLocalOperationsState(force = false) {
+        if (this.localOperationsPersistTimer)
+            clearTimeout(this.localOperationsPersistTimer);
+        this.localOperationsPersistTimer = undefined;
         if (force)
             this.localOperationsDirty = true;
         const queued = this.queueProjectLocalOperationsStatePersistence();
@@ -3398,6 +3721,7 @@ class RealtimeTunnelPanelProvider {
         this.transitionPanelLifecycle("booting", "resolveWebviewView");
         this.panelDisposed = false;
         this.view = webviewView;
+        this.viewWasVisible = webviewView.visible === true;
         webviewView.webview.options = { enableScripts: true };
         this.viewLifetimeDisposables = [];
         this.viewLifetimeDisposables.push(webviewView.webview.onDidReceiveMessage((message) => {
@@ -3427,8 +3751,23 @@ class RealtimeTunnelPanelProvider {
         this.viewLifetimeDisposables.push(webviewView.onDidChangeVisibility(() => {
             if (this.view !== webviewView || this.viewGeneration !== viewGeneration)
                 return;
+            const becameVisible = webviewView.visible === true && !this.viewWasVisible;
+            const becameHidden = webviewView.visible !== true && this.viewWasVisible;
+            this.viewWasVisible = webviewView.visible === true;
             this.budget.setHidden(!webviewView.visible);
             this.client.setHidden(!webviewView.visible);
+            if (becameHidden) {
+                this.recordPanelIncident("visibility", "panel-hidden");
+                this.updatePanelDocumentVisibility(false);
+                if (!this.retainPanelContextWhenHidden) {
+                    this.webviewReady = false;
+                    this.clearPanelHeartbeat();
+                }
+            }
+            if (becameVisible && !this.retainPanelContextWhenHidden) {
+                this.recordPanelIncident("visibility", "panel-shown-reload");
+                this.loadPanelHtml();
+            }
             if (webviewView.visible)
                 void this.probePanelNow("visibility");
             else
@@ -3554,7 +3893,32 @@ class RealtimeTunnelPanelProvider {
         }
     }
     async dispose() {
+        if (this.panelHostEventLoopTimer)
+            clearInterval(this.panelHostEventLoopTimer);
+        this.panelHostEventLoopTimer = undefined;
+        this.panelHostEventLoopHistogram?.disable();
+        this.panelHostEventLoopHistogram = undefined;
         this.projectStaticCheckAbort?.abort();
+        this.activationAbortController.abort();
+        this.projectContextAbortController.abort(new UiCommandCancelled("扩展正在停用，项目请求已取消。"));
+        this.distributedTickAbort?.abort();
+        this.progressRefreshAbort?.abort();
+        if (this.localOperationsPersistTimer)
+            clearTimeout(this.localOperationsPersistTimer);
+        this.localOperationsPersistTimer = undefined;
+        if (this.localOperationsDirty) {
+            try {
+                await this.boundedPromise(() => this.persistProjectLocalOperationsState(), 1200, new Error("本地运行记录持久化超时，未阻塞扩展停用。"));
+            }
+            catch (error) {
+                console.warn(`[SimpleExperiment] local operation state flush did not settle during deactivation: ${errorMessage(error)}`);
+            }
+        }
+        for (const [operationId, controller] of this.distributedSubmissionAborts || []) {
+            this.distributedSubmissionEpochs.set(operationId, (this.distributedSubmissionEpochs.get(operationId) || 0) + 1);
+            controller.abort(new Error("Extension deactivated"));
+        }
+        this.cancelResultCatalogRefresh();
         this.resetPanelStateProgress(true);
         this.transitionPanelLifecycle("disposed", "providerDispose");
         this.panelDisposed = true;
@@ -3566,12 +3930,6 @@ class RealtimeTunnelPanelProvider {
         for (const retry of this.planSyncSummaryRetries.values())
             clearTimeout(retry.timer);
         this.planSyncSummaryRetries.clear();
-        if (this.localApiServerPromise)
-            await this.localApiServerPromise.catch(() => undefined);
-        if (this.localApiServer) {
-            await this.localApiServer.dispose().catch(() => undefined);
-            this.localApiServer = undefined;
-        }
         if (this.planLocalChangeParseTimer)
             clearTimeout(this.planLocalChangeParseTimer);
         this.planLocalChangeParseTimer = undefined;
@@ -3604,9 +3962,34 @@ class RealtimeTunnelPanelProvider {
         this.lastStateBuildErrorSignature = "";
         this.lastStatePostErrorSignature = "";
         this.webviewReady = false;
+        this.viewWasVisible = false;
         this.pendingPanelNavigation = undefined;
-        await this.client.disconnect("deactivate").catch(() => undefined);
         this.view = undefined;
+        const localApiServer = this.localApiServer;
+        const localApiStartup = this.localApiServerPromise;
+        this.localApiServer = undefined;
+        this.localApiServerPromise = undefined;
+        const settle = async (label, work, timeoutMs) => {
+            try {
+                await this.boundedPromise(work, timeoutMs, new Error(`${label} shutdown timed out`));
+            }
+            catch (error) {
+                console.warn(`[SimpleExperiment] ${label} shutdown did not settle: ${errorMessage(error)}`);
+            }
+        };
+        const shutdownTasks = [
+            settle("panel incident persistence", () => this.panelIncidentWrite, 1200),
+            settle("realtime client", () => this.client.disconnect("deactivate"), 2500),
+        ];
+        if (localApiServer)
+            shutdownTasks.push(settle("local API", () => localApiServer.dispose(), 2500));
+        if (localApiStartup)
+            shutdownTasks.push(settle("local API startup", async () => {
+                const startedServer = await localApiStartup.catch(() => undefined);
+                if (startedServer && startedServer !== localApiServer)
+                    await startedServer.dispose().catch(() => undefined);
+            }, 2500));
+        await Promise.all(shutdownTasks);
     }
     async withHostOperationLease(actionType, actionLabel, operation, options = {}) {
         // Preflight, reads, transfer orchestration and cancellation use their target-level guards.
@@ -3791,7 +4174,6 @@ class RealtimeTunnelPanelProvider {
         let missingServerSetup = serverSetupMissingItems(this.setupConfig, hubRequired);
         if (missingServerSetup.length) {
             void vscode.window.showWarningMessage(`请在“设置 > 服务器”手动补全后再继续：缺少 ${missingServerSetup.join("、")}。插件不会在这里从零初始化服务器配置。`);
-            await this.openPanelAt("settings", "settings-servers");
             if (missingServerSetup.length) {
                 this.postState();
                 return false;
@@ -3822,7 +4204,6 @@ class RealtimeTunnelPanelProvider {
         let enabledWorkers = this.enabledWorkerConfigs();
         if (!enabledWorkers.length) {
             void vscode.window.showWarningMessage("当前只配置了 Hub。请在“设置 > 服务器”手动添加并启用执行 Worker；插件不会在接入弹窗中初始化服务器。");
-            await this.openPanelAt("settings", "settings-servers");
             if (!enabledWorkers.length) {
                 const hubProfileResult = await this.writeSftpManagerServerProfiles();
                 this.postState();
@@ -4044,7 +4425,7 @@ class RealtimeTunnelPanelProvider {
         }
         const uniqueCount = new Set(launchItems.map((item) => localPathKey(item.sessionPath))).size;
         if (requireConfirm) {
-            const answer = await vscode.window.showWarningMessage(`启动连接将打开 ${uniqueCount} 个唯一 Xshell 隧道会话；同一个 .xsh 只打开一次，不会提交实验或自动修改 .xsh。若已点击“写入 Agent 自动启动命令”，Agent 会由 Xshell RemoteCommand 自动启动，并进入自动计算的当前项目代码目录。\n\n隧道会话 ${tunnelItems.length} 个：\n${tunnelItems.map((item) => `${item.id}: ${item.config.savedSessionPath || "未配置"}  127.0.0.1:${item.config.localForwardPort}`).join("\n") || "-"}\n\n插件不会直接执行 ${"s" + "sh"}/${"s" + "cp"}/${"r" + "sync"}。`, { modal: true }, "确认启动连接");
+            const answer = await vscode.window.showWarningMessage(`启动连接将打开 ${uniqueCount} 个唯一 Xshell 隧道会话；同一个 .xsh 只打开一次，不会提交实验或自动修改 .xsh。若已点击“写入 Agent 自动启动命令”，Agent 会由 Xshell RemoteCommand 自动启动，并进入自动计算的当前项目代码目录。\n\n隧道会话 ${tunnelItems.length} 个：\n${tunnelItems.map((item) => `${item.id}: ${item.config.savedSessionPath || "未配置"}  ${tunnelHttpEndpoint(item.config.localForwardHost, item.config.localForwardPort)}`).join("\n") || "-"}\n\n插件不会直接执行 ${"s" + "sh"}/${"s" + "cp"}/${"r" + "sync"}。`, { modal: true }, "确认启动连接");
             if (answer !== "确认启动连接")
                 return;
         }
@@ -4169,13 +4550,13 @@ class RealtimeTunnelPanelProvider {
         if (hubSshPort === undefined)
             return;
         await this.applySetupDraft({ hubSshPort });
-        let localForwardPort = await inputPort("本地隧道端口号（插件访问 127.0.0.1）", this.setupConfig.localForwardPort, { min: 1024, description: "本地隧道端口", prompt: "这是你电脑上的端口，插件只访问 127.0.0.1:这个端口。建议保持 18765。" });
+        let localForwardPort = await inputPort("本地隧道端口号（按已配置主机访问）", this.setupConfig.localForwardPort, { min: 1024, description: "本地隧道端口", prompt: `这是本机 ${this.setupConfig.localForwardHost || "127.0.0.1"} 上的监听端口，插件使用当前隧道主机配置访问。建议保持 ${this.setupConfig.localForwardPort || 18765}。` });
         if (localForwardPort === undefined)
             return;
         await this.applySetupDraft({ localForwardPort });
-        if (!(await (0, XshellTunnelLauncher_1.isLocalPortAvailable)(localForwardPort))) {
-            const recommended = await (0, XshellTunnelLauncher_1.recommendAvailableLocalPort)(localForwardPort + 1);
-            const answer = await vscode.window.showWarningMessage(`127.0.0.1:${localForwardPort} 已被占用。推荐可用端口：${recommended}。`, "使用推荐端口", "保留当前端口", "取消");
+        if (!(await (0, XshellTunnelLauncher_1.isLocalPortAvailable)(localForwardPort, this.setupConfig.localForwardHost || "127.0.0.1"))) {
+            const recommended = await (0, XshellTunnelLauncher_1.recommendAvailableLocalPort)(localForwardPort + 1, this.setupConfig.localForwardHost || "127.0.0.1");
+            const answer = await vscode.window.showWarningMessage(`${tunnelHttpEndpoint(this.setupConfig.localForwardHost, localForwardPort)} 已被占用。推荐可用端口：${recommended}。`, "使用推荐端口", "保留当前端口", "取消");
             if (answer === "取消")
                 return;
             if (answer === "使用推荐端口") {
@@ -4315,7 +4696,13 @@ class RealtimeTunnelPanelProvider {
             void vscode.window.showInformationMessage("未检测到隧道端口冲突。");
             return;
         }
-        const conflictSummary = conflicts.slice(0, 12).map((item) => `${item.endpointId}: 127.0.0.1:${item.requestedPort} - ${item.message}`).join("\n");
+        const assignmentById = new Map((this.setupConfig.ports?.assignments || []).map((item) => [item.endpointId, item]));
+        const conflictSummary = conflicts.slice(0, 12).map((item) => {
+            const worker = this.setupConfig.workerTunnels.find((row) => row.id === item.endpointId);
+            const assignment = assignmentById.get(item.endpointId);
+            const host = item.endpointId === "hub" ? this.setupConfig.localForwardHost : worker?.localForwardHost || assignment?.localForwardHost;
+            return `${item.endpointId}: ${tunnelHttpEndpoint(host, item.requestedPort)} - ${item.message}`;
+        }).join("\n");
         const answer = await vscode.window.showWarningMessage(`检测到 ${conflicts.length} 个隧道端口冲突：\n\n${conflictSummary}\n\n插件不会自动改写 Xshell 会话。调整端口范围后，请在 Xshell 中核对并保存对应的本地转发端口。`, { modal: true }, "配置端口范围");
         if (answer === "配置端口范围")
             await this.configureTunnelPorts();
@@ -4333,7 +4720,7 @@ class RealtimeTunnelPanelProvider {
             void vscode.window.showWarningMessage("没有已启用的 Worker 实时观测隧道。");
             return;
         }
-        const picked = await vscode.window.showQuickPick(workers.map((item) => ({ label: item.id, description: `127.0.0.1:${item.config.localForwardPort}`, item })), {
+        const picked = await vscode.window.showQuickPick(workers.map((item) => ({ label: item.id, description: tunnelHttpEndpoint(item.config.localForwardHost, item.config.localForwardPort), item })), {
             title: "启动 Worker 实时观测隧道",
             ignoreFocusOut: true,
         });
@@ -4364,7 +4751,7 @@ class RealtimeTunnelPanelProvider {
             return;
         }
         if (requireConfirm) {
-            const answer = await vscode.window.showWarningMessage(`即将启动 ${launchItems.length} 个 Xshell 会话。插件仍只访问 127.0.0.1，本地实时状态会从 Hub 和已配置 Worker 隧道聚合。\n\n${launchItems.map((item) => `${item.id}: 127.0.0.1:${item.config.localForwardPort} -> 127.0.0.1:${item.config.remoteAgentPort}`).join("\n")}`, { modal: true }, "启动全部隧道");
+            const answer = await vscode.window.showWarningMessage(`即将启动 ${launchItems.length} 个 Xshell 会话。插件将按每个端点的主机和端口配置连接，本地实时状态会从 Hub 和已配置 Worker 隧道聚合。\n\n${launchItems.map((item) => `${item.id}: ${tunnelHttpEndpoint(item.config.localForwardHost, item.config.localForwardPort)} -> ${tunnelHttpEndpoint(item.config.remoteAgentHost, item.config.remoteAgentPort)}`).join("\n")}`, { modal: true }, "启动全部隧道");
             if (answer !== "启动全部隧道")
                 return;
         }
@@ -4377,7 +4764,7 @@ class RealtimeTunnelPanelProvider {
             if (occupancy === "unknown_process" || occupancy === "existing_tunnel") {
                 continue;
             }
-            if (!(await (0, XshellTunnelLauncher_1.isLocalPortAvailable)(item.config.localForwardPort))) {
+            if (!(await (0, XshellTunnelLauncher_1.isLocalPortAvailable)(item.config.localForwardPort, item.config.localForwardHost || "127.0.0.1"))) {
                 continue;
             }
             await integration.launchTunnel(item.config);
@@ -4534,7 +4921,7 @@ class RealtimeTunnelPanelProvider {
         const authorityClient = this.client;
         const integration = this.integration();
         const preview = integration.buildTunnelCommand(this.setupConfig);
-        const answer = await vscode.window.showWarningMessage(`将通过 127.0.0.1:${this.setupConfig.localForwardPort} 运行真实对接检测。\n\n${preview.redactedShellCommand}`, { modal: true }, "检测已有隧道", "启动并检测");
+        const answer = await vscode.window.showWarningMessage(`将通过 ${tunnelHttpEndpoint(this.setupConfig.localForwardHost, this.setupConfig.localForwardPort)} 运行真实对接检测。\n\n${preview.redactedShellCommand}`, { modal: true }, "检测已有隧道", "启动并检测");
         if (!answer || generation !== this.projectContextGeneration || authorityClient !== this.client)
             return;
         if (answer === "启动并检测") {
@@ -4676,6 +5063,8 @@ class RealtimeTunnelPanelProvider {
                 }
                 catch { }
             }
+            this.refreshExperimentTracesProjectionForCurrentInterest();
+            this.mergeRecentPlansFromRuntime(this.lastSnapshot, this.offlineBundle?.snapshot);
             this.lastSnapshotAt = new Date().toISOString();
             this.lastError = undefined;
             await this.pushLocalWorkerAvailability(true);
@@ -4849,6 +5238,8 @@ class RealtimeTunnelPanelProvider {
         if (generation !== this.projectContextGeneration || root !== workspaceRoot())
             return;
         this.offlineBundle = result.bundle;
+        this.refreshExperimentTracesProjectionForCurrentInterest();
+        this.mergeRecentPlansFromRuntime(result.bundle?.snapshot);
         this.applyOfflineResultsSummaryFromBundle(result.bundle);
         await this.persistProjectOfflineBundleState().catch(() => undefined);
         if (generation !== this.projectContextGeneration || root !== workspaceRoot())
@@ -4877,7 +5268,7 @@ class RealtimeTunnelPanelProvider {
             const work = leaseAction
                 ? () => this.withHostOperationLease(leaseAction, hostOperationLeaseActionLabel(command), () => this.handleMessageCore(message, command), { planFile: message.planFile || message.path })
                 : () => this.handleMessageCore(message, command);
-            await this.withUiCommandStatus(clientActionId, command, message, work);
+            await this.withUiCommandStatus(clientActionId, command, message, () => this.withSafeTransferRetry(command, message, work));
             return;
         }
         const leaseAction = hostOperationLeaseActionForUiCommand(command);
@@ -4888,7 +5279,7 @@ class RealtimeTunnelPanelProvider {
         await this.handleMessageCore(message, command);
     }
     async handleMessageCore(message, command = getSafeCommand(message)) {
-        if (["webviewReady", "webviewBootstrapError", "webviewRenderError", "webviewHeartbeatAck", "webviewStateRendered", "webviewSectionInterest", "webviewSectionTelemetry", "webviewVisibility"].includes(command)
+        if (["webviewReady", "webviewBootstrapPhase", "webviewBootstrapError", "webviewRuntimeIncident", "webviewRenderError", "webviewHeartbeatAck", "webviewStateRendered", "webviewSectionInterest", "webviewSectionTelemetry", "webviewLayoutEvidence", "webviewVisibility"].includes(command)
             && !this.isCurrentPanelDocumentMessage(message, command))
             return;
         if (this.extensionRuntimeVersionState().reloadRequired && command !== "reloadWindow") {
@@ -4905,6 +5296,7 @@ class RealtimeTunnelPanelProvider {
                 if (this.panelLifecycleState === "maintenance" || this.panelLifecycleState === "reload_required")
                     return;
                 this.webviewReady = true;
+                this.recordPanelIncident("lifecycle", "webview-ready");
                 this.transitionPanelLifecycle("ready", "webviewReady");
                 await this.flushPendingPanelNavigation();
                 this.statePostRetryCount = 0;
@@ -4922,20 +5314,51 @@ class RealtimeTunnelPanelProvider {
             case "webviewStateRendered":
                 this.handlePanelStateRenderedAck(message);
                 break;
+            case "webviewBootstrapPhase": {
+                const phase = String(message?.phase || "").slice(0, 40);
+                if (["scriptStarted", "bridgeReady", "firstStateReceived", "firstRenderCompleted"].includes(phase)) {
+                    this.recordPanelIncident("bootstrap-phase", `${phase}${message?.detail ? ` ${String(message.detail).slice(0, 160)}` : ""}`);
+                }
+                break;
+            }
+            case "webviewRuntimeIncident": {
+                const detail = String(message?.error || "Webview 运行时异常").slice(0, 480);
+                const stage = String(message?.stage || "runtime").slice(0, 32);
+                const stack = String(message?.stack || "").slice(0, 1200);
+                this.recordPanelIncident(stage, `${String(message?.source || "").slice(0, 72)} ${detail.slice(0, 200)} stack=${stack.slice(0, 200)}`, true);
+                this.notifyPanelFailureOnce(`runtime:${this.panelDocumentGeneration}:${String(message?.signature || detail).slice(0, 100)}`, `SimpleExperiment 面板运行时出现异常：${detail}`);
+                break;
+            }
+            case "copyPanelDiagnostics":
+                await this.copyPanelDiagnosticsFromUi();
+                break;
             case "webviewSectionInterest":
                 this.handlePanelSectionInterest(message);
                 break;
             case "webviewSectionTelemetry":
                 this.recordPanelSectionTelemetry(message);
                 break;
+            case "webviewLayoutEvidence":
+                this.recordPanelLayoutEvidence(message);
+                break;
             case "webviewVisibility":
                 this.handlePanelWebviewVisibility(message);
                 break;
             case "webviewBootstrapError":
                 this.lastError = String(message?.error || "Webview 脚本启动失败").slice(0, 480);
+                if (Array.isArray(message?.incidents)) {
+                    for (const item of message.incidents.slice(0, 32)) {
+                        const stage = String(item?.stage || "bootstrap").slice(0, 32);
+                        const source = String(item?.source || "").slice(0, 72);
+                        const detail = String(item?.error || "Webview 启动异常").slice(0, 200);
+                        const stack = String(item?.stack || "").slice(0, 200);
+                        this.recordPanelIncident(`bootstrap-${stage}`, `${source} ${detail} stack=${stack}`.slice(0, 480));
+                    }
+                }
+                this.recordPanelIncident("bootstrap", `${String(message?.stage || "bootstrap").slice(0, 32)} ${String(message?.source || "").slice(0, 72)} ${this.lastError.slice(0, 180)} stack=${String(message?.stack || "").slice(0, 180)}`, true);
                 this.recordActionError({ command, message: this.lastError, suggestion: "点击“重新加载面板”；若仍失败，请执行 Developer: Reload Window。" });
-                if (!this.webviewReady)
-                    this.showPanelRecovery(this.lastError, false, `render-failed: ${this.lastError}`);
+                this.showPanelRecovery(this.lastError, false, `render-failed: ${this.lastError}`);
+                const failedGeneration = Number(message?.documentGeneration ?? this.panelDocumentGeneration);
                 break;
             case "webviewRenderError":
                 if (message?.performanceWarning === true) {
@@ -4972,6 +5395,9 @@ class RealtimeTunnelPanelProvider {
                 break;
             case "reloadPanel":
                 this.reloadPanelHtml();
+                break;
+            case "reloadPanelLowEffects":
+                this.reloadPanelLowEffects();
                 break;
             case "reloadWindow":
                 await vscode.commands.executeCommand("workbench.action.reloadWindow");
@@ -5103,7 +5529,6 @@ class RealtimeTunnelPanelProvider {
                 this.selectedLogRunKey = stringField(message, "runKey") || undefined;
                 this.selectedLogWorkerId = stringField(message, "workerId") || undefined;
                 this.markTaskSelectionChanged();
-                this.client.setProtectedLogKeys(this.logProtectedKeys());
                 await this.fetchSelectedLiveOutput(this.selectedLogRunKey, this.selectedLogWorkerId, { userInitiated: true });
                 this.postState();
                 break;
@@ -5370,6 +5795,11 @@ class RealtimeTunnelPanelProvider {
                 && value && (value.skipped?.length || value.missing?.length)) {
                 return { status: "failed", message: formatResultSyncReport(value, "结果同步未完整完成") };
             }
+            if (command === "syncAllResultArtifacts" && value && (value.failures?.length || value.cancelled)) {
+                const detail = Array.isArray(value.failures) ? value.failures.slice(0, 5).join("；") : "";
+                return { status: value.cancelled && !detail ? "cancelled" : "failed",
+                    message: `结果文件同步 ${value.cancelled ? "已取消后续批次" : "未完整完成"}：成功 ${Number(value.completed || 0)}/${Number(value.selected || 0)}，失败 ${Array.isArray(value.failures) ? value.failures.length : 0}${detail ? `。${detail}` : ""}` };
+            }
             const submission = PLAN_SUBMISSION_COMMANDS.has(command)
                 ? this.localOperations?.[this.planSubmissionOperationId(message)] : undefined;
             if (submission?.status === "failed")
@@ -5378,9 +5808,11 @@ class RealtimeTunnelPanelProvider {
                 const outcome = value.status === "partial" ? "failed" : value.status;
                 return { status: outcome, message: String(value.message || outcome), planStopClear: value.planStopClear };
             }
-            const completedMessage = command === "clearTmuxTaskTabs" && typeof value === "string" && value.trim()
-                ? value.trim()
-                : (isLocalTrigger ? "已触发本地 VS Code 操作" : "completed");
+            const completedMessage = command === "syncAllResultArtifacts" && value && typeof value === "object"
+                ? `结果文件同步完成：${Number(value.completed || 0)}/${Number(value.selected || 0)}，跳过已有 ${Number(value.skippedExisting || 0)} 个。`
+                : command === "clearTmuxTaskTabs" && typeof value === "string" && value.trim()
+                    ? value.trim()
+                    : (isLocalTrigger ? "已触发本地 VS Code 操作" : "completed");
             return {
                 status: "completed",
                 message: completedMessage,
@@ -5388,12 +5820,14 @@ class RealtimeTunnelPanelProvider {
         })
             .catch((error) => {
             if (isUiCommandRemotePending(error))
-                return { status: "submitted", message: errorMessage(error), remotePending: true };
+                return { status: "submitted", message: errorMessage(error), remotePending: true, error };
             if (isUiCommandCancelled(error))
-                return { status: "cancelled", message: errorMessage(error) };
-            return { status: "failed", message: errorMessage(error) };
+                return { status: "cancelled", message: errorMessage(error), error };
+            return { status: "failed", message: errorMessage(error), error };
         });
         const result = await guardedWork;
+        const operationOutcome = OperationOutcome_1.operationOutcomeFor(result.error, result.status);
+        let statusPosted = false;
         if (result.status === "cancelled") {
             this.finishPlanSubmissionProgress(message, "cancelled", result.message || "已取消，未提交运行。");
             try {
@@ -5403,7 +5837,7 @@ class RealtimeTunnelPanelProvider {
             const alreadyExplained = String(result.message || "").includes("未提交");
             if (!alreadyExplained) {
                 try {
-                    this.recordActionError({ command, message: result.message, suggestion: actionErrorSuggestion(result.message) });
+                    this.recordActionError({ command, message: result.message, suggestion: actionErrorSuggestion(result.message), operationOutcome });
                     this.postState();
                 }
                 catch { }
@@ -5417,14 +5851,14 @@ class RealtimeTunnelPanelProvider {
         }
         else if (result.status === "failed") {
             this.finishPlanSubmissionProgress(message, "failed", result.message || "提交失败。");
-            this.recordActionError({ command, message: result.message, suggestion: result.planStopClear?.nextStep || actionErrorSuggestion(result.message) });
+            this.recordActionError({ command, message: result.message, suggestion: result.planStopClear?.nextStep || actionErrorSuggestion(result.message), operationOutcome });
             this.postState();
-            try {
-                await vscode.window.showErrorMessage(`${hostOperationLeaseActionLabel(command) || command}未完成`, { modal: true, detail: compactSensitiveText(result.message || "操作失败，请检查连接与产物校验记录。", 4000) }, "知道了");
-            }
-            catch { }
+            this.postUiCommandStatus(clientActionId, result.status, command, result.message, { operationOutcome, ...(result.planStopClear ? { planFile: result.planStopClear.planFile, planStopClear: result.planStopClear } : {}) });
+            statusPosted = true;
+            void vscode.window.showErrorMessage(`${hostOperationLeaseActionLabel(command) || command}未完成`, { modal: true, detail: compactSensitiveText(result.message || "操作失败，请检查连接与产物校验记录。", 4000) }, "知道了").catch(() => undefined);
         }
-        this.postUiCommandStatus(clientActionId, result.status, command, result.message, result.planStopClear ? { planFile: result.planStopClear.planFile, planStopClear: result.planStopClear } : undefined);
+        if (!statusPosted)
+            this.postUiCommandStatus(clientActionId, result.status, command, result.message, { operationOutcome, ...(result.planStopClear ? { planFile: result.planStopClear.planFile, planStopClear: result.planStopClear } : {}) });
     }
     uiCommandWatchdogMs(command) {
         // Each underlying request owns inactivity and cancellation. No total UI deadline.
@@ -5526,7 +5960,18 @@ class RealtimeTunnelPanelProvider {
                     this.resultParseInFlight.delete(key);
             }
         }
-        return await this.runActionCommandLeased(command, message);
+        if (!PLAN_SUBMISSION_COMMANDS.has(command))
+            return await this.runActionCommandLeased(command, message);
+        const key = `${workspaceRoot()}\0${normalizePlanSelectionKey(operationResultPlanFile(this.actionBody(message))).toLowerCase()}`;
+        if (this.planRetryInFlight.has(key))
+            throw new UiCommandCancelled("同一 Plan 正在确认或提交，请等待当前请求。");
+        this.planRetryInFlight.add(key);
+        try {
+            return await this.runActionCommandLeased(command, message);
+        }
+        finally {
+            this.planRetryInFlight.delete(key);
+        }
     }
     async runActionCommandLeased(command, message, options = {}) {
         if (actionCommandMap[command])
@@ -5663,7 +6108,13 @@ class RealtimeTunnelPanelProvider {
                 this.assertExecutionWorkersReady(body.options?.workers);
                 this.assertExecutionAgentProjectsReady(body);
             }
-            await this.assertPlanNotAlreadyActive(operationResultPlanFile(body) || plan?.planFile || plan?.file || plan?.planId || "", plan);
+            const retryPlanFile = operationResultPlanFile(body) || plan?.planFile || plan?.file || plan?.planId || "";
+            const restarted = await (0, PlanSafeRetry_1.preparePlanSafeRetry)(this, retryPlanFile, async (detail) => await vscode.window.showWarningMessage("停止当前 Plan 并重新运行？", { modal: true, detail }, "停止并重新运行") === "停止并重新运行", () => new UiCommandCancelled("已取消重新运行，旧运行保持原状态。"));
+            if (restarted) {
+                delete message.deferredPlanId;
+                delete body.deferredPlanId;
+            }
+            await this.assertPlanNotAlreadyActive(retryPlanFile, plan);
             if (body.debugMode === true)
                 throw new Error("Debug 运行模式已移除，请使用正式 Plan 运行。");
             this.reportPlanStage(message, "正在确认 SimpleSFTP 与提交信息…");
@@ -5745,8 +6196,6 @@ class RealtimeTunnelPanelProvider {
         let finalResult = actionAffectsResultsSummary(action)
             ? await this.waitForOperationTerminalResult(action, result, command, 45_000)
             : result;
-        if (PLAN_SUBMISSION_COMMANDS.has(command))
-            await this.openPanelAt("execution", "execution-operations");
         if (PLAN_PREFLIGHT_COMMANDS.has(command)) {
             const label = command === "dryRunPlan" ? "预演" : "校验";
             if (remoteActionPendingStatus(resultStatus(finalResult))) {
@@ -5800,6 +6249,21 @@ class RealtimeTunnelPanelProvider {
         const clientActionId = stringField(message, "clientActionId");
         return clientActionId ? `plan-submit-${clientActionId}` : "";
     }
+    trimPlanSubmissionEpochs(maxEntries = 128) {
+        if (!this.distributedSubmissionEpochs)
+            this.distributedSubmissionEpochs = new Map();
+        if (!this.distributedSubmissionAborts)
+            this.distributedSubmissionAborts = new Map();
+        for (const operationId of this.distributedSubmissionEpochs.keys()) {
+            if (this.distributedSubmissionEpochs.size <= maxEntries)
+                break;
+            const status = String(this.localOperations?.[operationId]?.status || "").toLowerCase();
+            if (["succeeded", "failed", "cancelled", "canceled"].includes(status)) {
+                this.distributedSubmissionEpochs.delete(operationId);
+                this.distributedSubmissionAborts.delete(operationId);
+            }
+        }
+    }
     planSubmissionPlanFile(message, body) {
         return String(operationResultPlanFile(body) || body?.planFile || body?.selectedPlanId || body?.options?.planFile || stringField(message, "planFile") || "").trim();
     }
@@ -5807,6 +6271,9 @@ class RealtimeTunnelPanelProvider {
         const operationId = this.planSubmissionOperationId(message);
         if (!operationId || this.localOperations[operationId])
             return;
+        this.trimPlanSubmissionEpochs();
+        if (this.distributedSubmissionEpochs.size >= 256)
+            throw new Error("待核实的 Plan 提交过多；为限制长期资源占用，暂未创建新提交，请先刷新运行状态并等待旧请求收敛。");
         this.distributedSubmissionEpochs.set(operationId, (this.distributedSubmissionEpochs.get(operationId) || 0) + 1);
         if (!this.distributedSubmissionAborts)
             this.distributedSubmissionAborts = new Map();
@@ -5947,7 +6414,13 @@ class RealtimeTunnelPanelProvider {
                 if (normalizePlanSelectionKey(previous.planFile || "").toLowerCase() !== normalizePlanSelectionKey(current.planFile || "").toLowerCase())
                     continue;
                 this.localOperations[id] = { ...previous, status: "cancelled", message: "已由新的手动提交接续。", finishedAt: now, updatedAt: now, reconcileEvidenceActive: false };
+                this.distributedSubmissionAborts?.get(id)?.abort();
+                this.distributedSubmissionAborts?.delete(id);
             }
+        }
+        if (["succeeded", "failed", "cancelled", "canceled"].includes(String(status || "").toLowerCase())) {
+            this.distributedSubmissionAborts?.delete(operationId);
+            this.trimPlanSubmissionEpochs();
         }
         this.markLocalOperationsDirty();
         this.postState();
@@ -6045,18 +6518,9 @@ class RealtimeTunnelPanelProvider {
                 this.postState();
             }
             catch { }
-            try {
-                void vscode.window.showWarningMessage(`${message} 查看详情：操作进度 / 诊断错误`, "查看操作进度").then((pick) => {
-                    if (pick === "查看操作进度" && this.view) {
-                        try {
-                            void this.view.webview.postMessage({ type: "navigate", userInitiated: true, section: "execution", anchor: "execution-operations" });
-                        }
-                        catch { }
-                    }
-                });
-            }
-            catch { }
-            return message;
+            const failure = new Error(message);
+            failure.planPreflightReported = true;
+            return failure;
         };
         let check = "校验(validate-plan)";
         try {
@@ -6097,16 +6561,14 @@ class RealtimeTunnelPanelProvider {
             }
             this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，Plan 校验与预演已取消。");
             if (!validated) {
-                failPreflight(check, "校验未返回终态", "-");
-                return false;
+                throw failPreflight(check, "校验未返回终态", "-");
             }
             const agentDuration = remoteOperationDurationMs(validated);
             if (agentDuration !== undefined)
                 recordTiming("validateAgentDurationMs", agentDuration);
             reportStage("Agent 校验已返回");
             if (!planCheckAccepted(validated)) {
-                failPreflight(check, String(validated?.error || validated?.message || resultStatus(validated) || "校验未通过"), validated?.output || validated?.message);
-                return false;
+                throw failPreflight(check, String(validated?.error || validated?.message || resultStatus(validated) || "校验未通过"), validated?.output || validated?.message);
             }
             if (this.distributedPlanEligible(planKey)) {
                 check = "本机逐 job 预演";
@@ -6156,21 +6618,21 @@ class RealtimeTunnelPanelProvider {
                 : preview;
             this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，Plan 校验与预演已取消。");
             if (!previewed) {
-                failPreflight(check, "预演未返回终态", "-");
-                return false;
+                throw failPreflight(check, "预演未返回终态", "-");
             }
             reportStage(`Agent 预演已返回（本段 ${Date.now() - previewStarted} ms）`);
             if (!planCheckAccepted(previewed)) {
-                failPreflight(check, String(previewed?.error || previewed?.message || resultStatus(previewed) || "预演未通过"), previewed?.output || previewed?.message);
-                return false;
+                throw failPreflight(check, String(previewed?.error || previewed?.message || resultStatus(previewed) || "预演未通过"), previewed?.output || previewed?.message);
             }
             return previewed ? validated : false;
         }
         catch (error) {
             if (isUiCommandCancelled(error) || isUiCommandRemotePending(error))
                 throw error;
+            if (error?.planPreflightReported === true)
+                throw error;
             const raw = errorMessage(error);
-            throw new Error(failPreflight(check, raw, raw));
+            throw failPreflight(check, raw, raw);
         }
     }
     async confirmDistributedPlanExistingOutputs(plan, body, validated) {
@@ -6316,10 +6778,7 @@ class RealtimeTunnelPanelProvider {
         const shortCommit = String(provenance.localCommit || "").slice(0, 12) || "unknown";
         const relativeDir = `simple_cluster/runs/git_provenance/${new Date().toISOString().slice(0, 10)}`;
         const targetPath = path.join(root, relativeDir, `${Date.now()}-${shortCommit}.json`);
-        await fs.mkdir(path.dirname(targetPath), { recursive: true });
-        const tempPath = `${targetPath}.tmp-${process.pid}-${Math.random().toString(16).slice(2)}`;
-        await fs.writeFile(tempPath, `${JSON.stringify(provenance, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
-        await fs.rename(tempPath, targetPath);
+        await (0, StateStore_1.atomicWriteText)(targetPath, `${JSON.stringify(provenance, null, 2)}\n`);
         return {
             ...provenance,
             provenancePath: relativeDir + "/" + path.basename(targetPath),
@@ -6622,17 +7081,23 @@ class RealtimeTunnelPanelProvider {
         const ids = uniqueStrings(workerIds.map((id) => this.resolveWorkerEndpointId(id) || id).filter(Boolean));
         if (!ids.length)
             throw new Error("缺少可直连的 Worker 目标。");
+        let actionBody = body;
         if (options.confirm || options.danger) {
-            const label = options.danger ? "确认危险操作" : "确认执行";
-            const answer = await vscode.window.showWarningMessage(workerRemoteActionConfirmationDetail(options.title, action, body, ids), { modal: true }, label);
-            if (answer !== label)
-                throw new UiCommandCancelled(`${options.title} 已取消。`);
+            if (isArtifactDeletionAction(action)) {
+                actionBody = await confirmArtifactDeletionFromUi(options.title, action, body, workerRemoteActionConfirmationDetail(options.title, action, body, ids));
+            }
+            else {
+                const label = options.danger ? "确认危险操作" : "确认执行";
+                const answer = await vscode.window.showWarningMessage(workerRemoteActionConfirmationDetail(options.title, action, body, ids), { modal: true }, label);
+                if (answer !== label)
+                    throw new UiCommandCancelled(`${options.title} 已取消。`);
+            }
         }
         const failures = [];
         let pendingCount = 0;
         for (const workerId of ids) {
             try {
-                let scopedBody = this.workerScopedActionBody(body, workerId);
+                let scopedBody = this.workerScopedActionBody(actionBody, workerId);
                 if (!this.projectTopologyAssessment().hubAllowed && action === "archive-worker-artifacts")
                     scopedBody = this.stampNoHubResultOwnership(scopedBody, workerId);
                 const result = await this.postWorkerTunnelAction(workerId, action, {
@@ -6714,8 +7179,16 @@ class RealtimeTunnelPanelProvider {
                 "X-GitHub-Api-Version": "2022-11-28",
                 ...(token ? { Authorization: `Bearer ${token}` } : {}),
             },
+            signal: AbortSignal.timeout(15_000),
         });
-        const value = await response.json().catch(() => undefined);
+        const text = (await readBoundedWebResponse(response, 4 * 1024 * 1024, `${repo} Release`)).toString("utf8");
+        let value;
+        try {
+            value = JSON.parse(text);
+        }
+        catch {
+            value = undefined;
+        }
         if (!response.ok)
             throw new Error(`${repo} Release 查询失败：HTTP ${response.status}${value?.message ? ` ${value.message}` : ""}`);
         return value;
@@ -6729,8 +7202,9 @@ class RealtimeTunnelPanelProvider {
                 this.fetchLatestRelease(ExtensionUpdates_1.SFTP_UPDATE_REPO, token),
             ]);
             const currentVersion = (id) => String(vscode.extensions.getExtension(id)?.packageJSON?.version || "0");
-            const experiment = ExtensionUpdates_1.componentUpdate(ExtensionUpdates_1.EXPERIMENT_EXTENSION_ID, ExtensionUpdates_1.EXPERIMENT_UPDATE_REPO, "SimpleExperiment", currentVersion(ExtensionUpdates_1.EXPERIMENT_EXTENSION_ID), experimentRelease, "simple-experiment");
-            const sftp = ExtensionUpdates_1.componentUpdate(ExtensionUpdates_1.SFTP_EXTENSION_ID, ExtensionUpdates_1.SFTP_UPDATE_REPO, "SimpleSFTP", currentVersion(ExtensionUpdates_1.SFTP_EXTENSION_ID), sftpRelease, "simple-sftp");
+            const targetPlatform = ExtensionUpdates_1.currentTargetPlatform();
+            const experiment = ExtensionUpdates_1.componentUpdate(ExtensionUpdates_1.EXPERIMENT_EXTENSION_ID, ExtensionUpdates_1.EXPERIMENT_UPDATE_REPO, "SimpleExperiment", currentVersion(ExtensionUpdates_1.EXPERIMENT_EXTENSION_ID), experimentRelease, "simple-experiment", targetPlatform);
+            const sftp = ExtensionUpdates_1.componentUpdate(ExtensionUpdates_1.SFTP_EXTENSION_ID, ExtensionUpdates_1.SFTP_UPDATE_REPO, "SimpleSFTP", currentVersion(ExtensionUpdates_1.SFTP_EXTENSION_ID), sftpRelease, "simple-sftp", targetPlatform);
             const plan = ExtensionUpdates_1.planPairedUpdates(experiment, sftp);
             await this.setPluginUpdateStatus(plan);
             return plan;
@@ -6741,40 +7215,107 @@ class RealtimeTunnelPanelProvider {
             throw error;
         }
     }
-    async downloadUpdateAsset(asset, directory, token, checksumAsset) {
-        const response = await fetch(asset.url, {
-            headers: {
-                Accept: "application/octet-stream",
-                "User-Agent": "SimpleExperiment-VSCode",
-                ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
-        });
-        if (!response.ok)
-            throw new Error(`${asset.name} 下载失败：HTTP ${response.status}`);
-        const bytes = Buffer.from(await response.arrayBuffer());
-        const target = path.join(directory, asset.name);
-        const temp = `${target}.tmp-${process.pid}`;
-        await fs.writeFile(temp, bytes, { mode: 0o600 });
-        await fs.rename(temp, target);
-        if (asset.size && bytes.length !== asset.size)
-            throw new Error(`${asset.name} 大小校验失败：期望 ${asset.size}，实际 ${bytes.length}。`);
-        if (checksumAsset) {
-            const checksumResponse = await fetch(checksumAsset.url, {
-                headers: { "User-Agent": "SimpleExperiment-VSCode", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-            });
+    async downloadUpdateAsset(asset, directory, token, checksumAsset, expectedExtensionId, expectedVersion, expectedTargetPlatform) {
+        if (!asset || !/^[-A-Za-z0-9._]+\.vsix$/i.test(String(asset.name || "")))
+            throw new Error("更新资产文件名无效。");
+        const declaredSize = Number(asset.size) || 0;
+        if (declaredSize > 128 * 1024 * 1024)
+            throw new Error(`${asset.name} 超过 128 MiB 更新包上限。`);
+        let expected = /^sha256[:=]([a-f0-9]{64})$/i.exec(String(asset.digest || "").trim())?.[1] || "";
+        const headers = { "User-Agent": "SimpleExperiment-VSCode", ...(token ? { Authorization: `Bearer ${token}` } : {}) };
+        if (!expected && checksumAsset) {
+            const checksumResponse = await fetch(checksumAsset.url, { headers, signal: AbortSignal.timeout(15_000) });
             if (!checksumResponse.ok)
                 throw new Error(`${checksumAsset.name} 下载失败：HTTP ${checksumResponse.status}`);
-            const expected = /([a-f0-9]{64})/i.exec(String(await checksumResponse.text()))?.[1] || "";
-            const actual = crypto.createHash("sha256").update(bytes).digest("hex");
-            if (!expected || expected.toLowerCase() !== actual.toLowerCase())
-                throw new Error(`${asset.name} SHA-256 校验失败。`);
+            const checksumBytes = await readBoundedWebResponse(checksumResponse, 4096, checksumAsset.name);
+            expected = /([a-f0-9]{64})/i.exec(checksumBytes.toString("utf8"))?.[1] || "";
         }
-        return target;
+        if (!expected)
+            throw new Error(`${asset.name} 缺少可信 SHA-256，已阻止安装。`);
+        const version = ExtensionUpdates_1.normalizeReleaseVersion(expectedVersion);
+        if (!version)
+            throw new Error("更新版本号无效，已阻止安装。");
+        const target = path.join(directory, "update.vsix");
+        const staging = `${target}.writing`;
+        const existingStaging = await fs.lstat(staging).catch((error) => error?.code === "ENOENT" ? undefined : Promise.reject(error));
+        if (existingStaging && (!existingStaging.isFile() || existingStaging.isSymbolicLink() || existingStaging.nlink > 1))
+            throw new Error("更新临时暂存槽不是可信的普通文件，已阻止覆盖。");
+        let handle;
+        try {
+            const response = await fetch(asset.url, { headers: { ...headers, Accept: "application/octet-stream" }, signal: AbortSignal.timeout(120_000) });
+            if (!response.ok)
+                throw new Error(`${asset.name} 下载失败：HTTP ${response.status}`);
+            if (!response.body)
+                throw new Error(`${asset.name} 响应不支持流式下载。`);
+            const baseFlags = fsNode.constants.O_WRONLY | (fsNode.constants.O_NOFOLLOW || 0);
+            handle = await fs.open(staging, existingStaging ? baseFlags : baseFlags | fsNode.constants.O_CREAT | fsNode.constants.O_EXCL, 0o600);
+            const opened = await handle.stat();
+            const staged = await fs.lstat(staging);
+            if (!opened.isFile() || opened.nlink > 1 || !staged.isFile() || staged.isSymbolicLink() || staged.nlink > 1
+                || opened.dev && staged.dev && opened.dev !== staged.dev || opened.ino && staged.ino && opened.ino !== staged.ino
+                || existingStaging?.dev && opened.dev && existingStaging.dev !== opened.dev
+                || existingStaging?.ino && opened.ino && existingStaging.ino !== opened.ino)
+                throw new Error("更新临时暂存文件身份发生变化，已停止下载。");
+            await handle.truncate(0);
+            const digest = crypto.createHash("sha256");
+            let received = 0;
+            for await (const value of response.body) {
+                const chunk = Buffer.from(value);
+                received += chunk.length;
+                if (received > 128 * 1024 * 1024 || declaredSize && received > declaredSize)
+                    throw new Error(`${asset.name} 下载超过声明大小或 128 MiB 上限。`);
+                digest.update(chunk);
+                let offset = 0;
+                while (offset < chunk.length) {
+                    const result = await handle.write(chunk, offset, chunk.length - offset);
+                    if (!result.bytesWritten)
+                        throw new Error(`${asset.name} 本地暂存写入未前进。`);
+                    offset += result.bytesWritten;
+                }
+            }
+            await handle.sync();
+            await handle.close();
+            handle = undefined;
+            if (declaredSize && received !== declaredSize)
+                throw new Error(`${asset.name} 大小校验失败：期望 ${declaredSize}，实际 ${received}。`);
+            const actual = digest.digest("hex");
+            if (expected.toLowerCase() !== actual.toLowerCase())
+                throw new Error(`${asset.name} SHA-256 校验失败。`);
+            await ExtensionUpdates_1.verifyVsixManifestFile(staging, expectedExtensionId, version, expectedTargetPlatform);
+            for (let attempt = 0;; attempt += 1) {
+                try {
+                    await fs.rename(staging, target);
+                    break;
+                }
+                catch (error) {
+                    const code = String(error?.code || "");
+                    if (attempt >= 4 || !["EBUSY", "EACCES", "EPERM", "ENOTEMPTY"].includes(code))
+                        throw new Error(`更新包已验证，但发布到固定暂存路径失败；保留已验证包及临时文件供下次复用：${errorMessage(error)}`);
+                    await new Promise((resolve) => setTimeout(resolve, 20 * (attempt + 1)));
+                }
+            }
+            return target;
+        }
+        catch (error) {
+            if (handle)
+                await handle.close().catch(() => undefined);
+            throw error;
+        }
     }
     async installPluginUpdates() {
+        return this.withHostOperationLease("installPluginUpdates", "安装配套插件更新", () => this.installPluginUpdatesOwned());
+    }
+    async installPluginUpdatesOwned() {
+        if (this.pluginUpdateInstalling)
+            throw new Error("配套插件更新已经开始，请等待当前安装结束。");
         let plan = this.pluginUpdateStatus;
         if (!plan || ["unknown", "error"].includes(String(plan.status)))
             plan = await this.checkPluginUpdates(true);
+        else {
+            const currentVersion = (id) => String(vscode.extensions.getExtension(id)?.packageJSON?.version || "0");
+            plan = ExtensionUpdates_1.refreshStoredPluginUpdatePlan(plan, currentVersion);
+            await this.setPluginUpdateStatus(plan);
+        }
         if (plan.status !== "update_available") {
             void vscode.window.showInformationMessage(plan.message || "当前插件已是最新版本。");
             return plan;
@@ -6782,11 +7323,57 @@ class RealtimeTunnelPanelProvider {
         const detail = [
             `SimpleExperiment ${plan.experiment.currentVersion} -> ${plan.experiment.latestVersion}`,
             `SimpleSFTP ${plan.sftp.currentVersion} -> ${plan.sftp.latestVersion}`,
+            `目标平台：${plan.experiment.targetPlatform || "universal"}`,
             `来源：${ExtensionUpdates_1.EXPERIMENT_UPDATE_REPO} 与 ${ExtensionUpdates_1.SFTP_UPDATE_REPO} Latest Releases`,
         ].join("\n");
-        const answer = await vscode.window.showWarningMessage(`安装并重载窗口以应用配套插件更新？\n\n${detail}`, { modal: true }, "安装并重载", "取消");
-        if (answer !== "安装并重载")
+        this.pluginUpdateInstalling = true;
+        let answer;
+        try {
+            answer = await vscode.window.showWarningMessage(`安装并重载窗口以应用配套插件更新？\n\n${detail}`, { modal: true }, "安装并重载", "取消");
+        }
+        catch (error) {
+            this.pluginUpdateInstalling = false;
+            throw error;
+        }
+        if (answer !== "安装并重载") {
+            this.pluginUpdateInstalling = false;
             return plan;
+        }
+        const currentVersion = (id) => String(vscode.extensions.getExtension(id)?.packageJSON?.version || "0");
+        try {
+            plan = ExtensionUpdates_1.refreshStoredPluginUpdatePlan(plan, currentVersion);
+            await this.setPluginUpdateStatus(plan);
+        }
+        catch (error) {
+            this.pluginUpdateInstalling = false;
+            throw error;
+        }
+        if (plan.status === "error") {
+            this.pluginUpdateInstalling = false;
+            throw new Error(plan.message || "配套插件更新计划已失效。");
+        }
+        if (plan.status !== "update_available") {
+            this.pluginUpdateInstalling = false;
+            void vscode.window.showInformationMessage(plan.message || "两个插件均已是最新版本。");
+            return plan;
+        }
+        const downloads = [
+            { label: "SimpleSFTP", component: plan.sftp },
+            { label: "SimpleExperiment", component: plan.experiment },
+        ].filter((item) => item.component?.updateAvailable === true);
+        if (!downloads.length) {
+            this.pluginUpdateInstalling = false;
+            const current = {
+                status: "up_to_date",
+                message: "两个插件均已安装对应版本，无需重复安装。",
+                checkedAt: new Date().toISOString(),
+                experiment: plan.experiment,
+                sftp: plan.sftp,
+            };
+            await this.setPluginUpdateStatus(current);
+            void vscode.window.showInformationMessage(current.message);
+            return current;
+        }
         this.transitionPanelLifecycle("maintenance", "self_update");
         this.clearPanelHeartbeat();
         this.clearPanelReadyWatchdog();
@@ -6794,20 +7381,19 @@ class RealtimeTunnelPanelProvider {
             const generation = ++this.panelDocumentGeneration;
             this.view.webview.html = this.stampPanelDocument(renderPanelMaintenanceHtml("正在安装更新，完成后将重载窗口。"), generation);
         }
-        const downloads = [
-            { label: "SimpleSFTP", component: plan.sftp },
-            { label: "SimpleExperiment", component: plan.experiment },
-        ];
         const installed = [];
+        let installingLabel = "";
         try {
             await this.setPluginUpdateStatus({ status: "installing", message: "正在下载并按依赖顺序安装更新。" });
             const token = await this.githubUpdateToken(false);
-            const directory = path.join(this.context.globalStorageUri.fsPath, "updates", `${Date.now()}`);
+            const directory = path.join(this.context.globalStorageUri.fsPath, "updates", "staging");
             await fs.mkdir(directory, { recursive: true });
             for (const item of downloads) {
-                const file = await this.downloadUpdateAsset(item.component.vsix, directory, token, item.component.checksum);
+                installingLabel = item.label;
+                const file = await this.downloadUpdateAsset(item.component.vsix, directory, token, item.component.checksum, item.component.id, item.component.latestVersion, item.component.targetPlatform);
                 await vscode.commands.executeCommand("workbench.extensions.installExtension", vscode.Uri.file(file));
                 installed.push(item.label);
+                installingLabel = "";
             }
             const complete = {
                 status: "reload_required",
@@ -6823,12 +7409,26 @@ class RealtimeTunnelPanelProvider {
             return { ...this.pluginUpdateStatus };
         }
         catch (error) {
-            await this.setPluginUpdateStatus({ status: "error", message: `更新失败（已完成 ${installed.join("、") || "无"}）：${errorMessage(error)}` });
+            const componentByLabel = new Map(downloads.map((item) => [item.label, item.component]));
+            const installedTargets = installed.map((label) => {
+                const component = componentByLabel.get(label);
+                return `${label} ${component?.latestVersion || "版本未知"}`;
+            });
+            const pendingTargets = downloads.filter((item) => !installed.includes(item.label))
+                .map((item) => `${item.label} ${item.component.latestVersion || "版本未知"}`);
+            const partial = installed.length > 0;
+            const details = partial
+                ? `已完成安装请求：${installedTargets.join("、")}。尚未完成：${pendingTargets.join("、") || installingLabel || "未知组件"}。已安装组件需要重载窗口生效；重载后重新检查并安装未完成组件。`
+                : `没有组件完成安装。失败阶段：${installingLabel || "下载/准备"}。`;
+            await this.setPluginUpdateStatus({ status: "error", message: `配套更新未全部完成。${details}原因：${errorMessage(error)}` });
             this.transitionPanelLifecycle("ready", "self_update_failed");
             this.webviewReady = false;
             this.loadPanelHtml();
             this.postState(true);
             throw error;
+        }
+        finally {
+            this.pluginUpdateInstalling = false;
         }
     }
     async syncToGitHub(confirm = true, taskName) {
@@ -7038,7 +7638,7 @@ class RealtimeTunnelPanelProvider {
                 if (!port)
                     continue;
                 const host = String(t.localForwardHost || t.localHost || "127.0.0.1").trim() || "127.0.0.1";
-                const base = `http://${host}:${port}`;
+                const base = tunnelHttpOrigin(host, port);
                 const _runtimeDirHint = String(t.remotePath || "").replace(/\/+$/, "");
                 let _installDir = "";
                 let _runtimeDir = "";
@@ -7148,7 +7748,7 @@ class RealtimeTunnelPanelProvider {
                 continue;
             }
             const host = String(target.localForwardHost || target.localHost || "127.0.0.1").trim() || "127.0.0.1";
-            const base = `http://${host}:${port}`;
+            const base = tunnelHttpOrigin(host, port);
             const headers = token ? { "X-Simple-Agent-Token": String(token) } : undefined;
             const checks = [
                 ["cluster_agent.py", expectedFiles["cluster_agent.py"] || ""],
@@ -7331,7 +7931,7 @@ class RealtimeTunnelPanelProvider {
     }
     resolveAgentBase(target) {
         const host = String(target.localForwardHost || target.localHost || "127.0.0.1").trim() || "127.0.0.1";
-        return `http://${host}:${target.localForwardPort}`;
+        return tunnelHttpOrigin(host, target.localForwardPort);
     }
     async ensureRemoteAgentVersionConsistent() {
         let result;
@@ -7880,12 +8480,17 @@ class RealtimeTunnelPanelProvider {
         const previous = this.syncScopeHoldsWriteQueue || Promise.resolve();
         const current = previous.catch(() => undefined).then(async () => {
             const started = Date.now();
-            const holds = await (0, SyncResolution_1.loadSyncHolds)(this.context.globalStorageUri.fsPath, root);
-            mutate(holds);
-            await (0, SyncResolution_1.saveSyncHolds)(this.context.globalStorageUri.fsPath, root, holds);
+            let recordCount = 0;
+            const file = SyncResolution.syncHoldsStoragePath(this.context.globalStorageUri.fsPath, root);
+            await this.withPluginStateFileLease(root, file, "sync-holds", "更新同步版本选择记录", async () => {
+                const holds = await (0, SyncResolution_1.loadSyncHolds)(this.context.globalStorageUri.fsPath, root);
+                mutate(holds);
+                recordCount = Object.keys(holds).length;
+                await (0, SyncResolution_1.saveSyncHolds)(this.context.globalStorageUri.fsPath, root, holds);
+            });
             const elapsed = Date.now() - started;
             if (elapsed > 1000)
-                console.warn(`[SimpleExperiment] sync holds persistence took ${elapsed} ms for ${Object.keys(holds).length} records`);
+                console.warn(`[SimpleExperiment] sync holds persistence took ${elapsed} ms for ${recordCount} records`);
         });
         this.syncScopeHoldsWriteQueue = current;
         await current;
@@ -8057,6 +8662,25 @@ class RealtimeTunnelPanelProvider {
         const selectedFiles = Object.keys(plan.files);
         if (selectedFiles.some((file) => !work.some((item) => item.directory ? file.startsWith(`${item.path}/`) : file === item.path)))
             throw new Error("批量同步包含确认范围之外的文件。");
+        const reviewedLocalStaleHashes = new Map();
+        if (mirrorLocal && plan.directoryDeletes.length) {
+            for (const directory of plan.directoryDeletes) {
+                const localFiles = await (0, SyncScopeStatus_1.collectLocalScopeInventory)(root, directory, true, undefined, this.localScopeHashCacheFile(root));
+                for (const [file, info] of Object.entries(localFiles))
+                    if (!plan.files[file])
+                        reviewedLocalStaleHashes.set(file, String(info.sha256 || "").toLowerCase());
+            }
+            if (reviewedLocalStaleHashes.size > SYNC_SCOPE_REVIEWED_STALE_FILE_LIMIT)
+                throw new Error(`本机旧文件有 ${reviewedLocalStaleHashes.size} 个，超过逐路径审核上限 ${SYNC_SCOPE_REVIEWED_STALE_FILE_LIMIT}；请缩小同步目录范围。`);
+            const staleFiles = [...reviewedLocalStaleHashes.keys()].sort();
+            if (staleFiles.length) {
+                if (staleFiles.some((file) => !/^[a-f0-9]{64}$/i.test(reviewedLocalStaleHashes.get(file) || "")))
+                    throw new Error("本机部分旧文件缺少 SHA256，无法安全审核删除目标。");
+                const accepted = await (0, SyncScopeConfirmation_1.confirmSyncScopePaths)("清理本机同步目录旧文件", `以下 ${staleFiles.length} 个本机文件不在所选来源版本中，将在全部下载并校验后永久删除。逐项核对完整路径；取消会停止本次同步。`, staleFiles.map((file) => ({ label: "本机旧文件（将永久删除）", path: path.resolve(root, ...file.split("/")) })), `永久删除 ${staleFiles.length} 个本机旧文件`);
+                if (!accepted)
+                    throw new UiCommandCancelled("已取消本机旧文件清理，未继续同步。");
+            }
+        }
         const destinationRows = targets.filter((row) => destinationIds.includes(row.id) && row.id !== endpointId);
         const scopeBatches = (0, SyncScopeTransferBatch_1.batchSyncScopeInventoryPaths)(work.map((item) => item.path));
         for (const [index, row] of destinationRows.entries()) {
@@ -8110,10 +8734,20 @@ class RealtimeTunnelPanelProvider {
                 localPath: root, server: this.sftpServerOptions(sourceRow),
                 paths: [...plan.directoryDeletes, ...work.filter((item) => !item.directory).map((item) => item.path)],
                 confirm: true, pathConfirmed: true,
-            }), () => (0, SyncScopeStatus_1.hashLocalScopeNames)(root, selectedFiles, undefined, this.localScopeHashCacheFile(root)), (file) => (0, SyncResolution_1.deleteLocalSyncPath)(root, file), report, selectedFiles);
+            }), () => (0, SyncScopeStatus_1.hashLocalScopeNames)(root, selectedFiles, undefined, this.localScopeHashCacheFile(root)), (file) => (0, SyncResolution_1.deleteLocalSyncPath)(root, file), report, selectedFiles, async (files) => {
+                const accepted = await (0, SyncScopeConfirmation_1.confirmSyncScopePaths)("清理本机同步目录旧文件", `以下 ${files.length} 个本机文件不在所选来源版本中，将在下载并校验新版本后永久删除。逐项核对完整路径；取消会停止本次同步。`, files.map((file) => ({ label: "本机旧文件（将永久删除）", path: path.resolve(root, ...file.split("/")) })), `永久删除 ${files.length} 个本机旧文件`);
+                if (!accepted)
+                    throw new UiCommandCancelled("已取消本机旧文件清理，未继续同步。");
+            });
             for (const directory of plan.directoryDeletes) {
                 const actual = await (0, SyncScopeStatus_1.collectLocalScopeInventory)(root, directory, true, undefined, this.localScopeHashCacheFile(root));
                 const stale = Object.keys(actual).filter((file) => !plan.files[file]);
+                const unreviewed = stale.filter((file) => !reviewedLocalStaleHashes.has(file));
+                if (unreviewed.length)
+                    throw new Error(`同步期间出现未审核的本机旧文件；未删除：${unreviewed.slice(0, 20).join("、")}`);
+                const changed = stale.filter((file) => reviewedLocalStaleHashes.get(file) !== actual[file]?.sha256?.toLowerCase());
+                if (changed.length)
+                    throw new Error(`本机已审核旧文件在同步期间发生变化；未删除：${changed.slice(0, 20).join("、")}`);
                 for (const file of stale) {
                     if (!file.startsWith(`${directory}/`))
                         throw new Error(`本机旧文件超出所选目录：${file}`);
@@ -8393,7 +9027,11 @@ class RealtimeTunnelPanelProvider {
             }
             if (mirrorLocal) {
                 report("正在同步到本机对应路径");
-                await (0, SyncScopeLocalMirror_1.mirrorChosenWorkerVersionToLocal)(relative, directory, sourceInventory, () => this.simpleSftpApiCall("sync.downloadPaths", { localPath: root, server: this.sftpServerOptions(sourceRow), paths: [relative], confirm: true, pathConfirmed: true }), () => (0, SyncScopeStatus_1.collectLocalScopeInventory)(root, inventoryPath, directory, undefined, this.localScopeHashCacheFile(root)), (file) => (0, SyncResolution_1.deleteLocalSyncPath)(root, file), report);
+                await (0, SyncScopeLocalMirror_1.mirrorChosenWorkerVersionToLocal)(relative, directory, sourceInventory, () => this.simpleSftpApiCall("sync.downloadPaths", { localPath: root, server: this.sftpServerOptions(sourceRow), paths: [relative], confirm: true, pathConfirmed: true }), () => (0, SyncScopeStatus_1.collectLocalScopeInventory)(root, inventoryPath, directory, undefined, this.localScopeHashCacheFile(root)), (file) => (0, SyncResolution_1.deleteLocalSyncPath)(root, file), report, undefined, async (files) => {
+                    const accepted = await (0, SyncScopeConfirmation_1.confirmSyncScopePaths)("清理本机同步目录旧文件", `以下 ${files.length} 个本机文件不在所选来源版本中，将在下载并校验新版本后永久删除。逐项核对完整路径；取消会停止本次同步。`, files.map((file) => ({ label: "本机旧文件（将永久删除）", path: path.resolve(root, ...file.split("/")) })), `永久删除 ${files.length} 个本机旧文件`);
+                    if (!accepted)
+                        throw new UiCommandCancelled("已取消本机旧文件清理，未继续同步。");
+                });
                 report("本机文件内容校验通过");
             }
             report("正在保存版本选择记录");
@@ -8475,7 +9113,12 @@ class RealtimeTunnelPanelProvider {
             }
             if (choice.endpointId === "local" && hashes(sourceFiles) !== hashes(expected)) {
                 choice.fileHashes = Object.fromEntries(Object.entries(sourceFiles).map(([file, info]) => [file, info.sha256]));
-                await (0, SyncResolution_1.saveSyncHolds)(this.context.globalStorageUri.fsPath, root, holds);
+                await this.updateSyncScopeHolds(root, (latest) => {
+                    const current = latest[directory];
+                    if (current?.status !== "resolved" || current.endpointId !== "local" || !current.directory)
+                        return;
+                    current.fileHashes = Object.fromEntries(Object.entries(sourceFiles).map(([file, info]) => [file, info.sha256]));
+                });
             }
         }
     }
@@ -8522,6 +9165,7 @@ class RealtimeTunnelPanelProvider {
         try {
             const projectContext = options.projectContext;
             const assertCurrent = () => {
+                (0, SafeRequestRetry_1.assertRetryRequestCurrent)();
                 if (projectContext && !this.projectContextIsCurrent(projectContext))
                     throw new UiCommandCancelled("工作区已切换，代码同步已取消。");
             };
@@ -8787,7 +9431,7 @@ class RealtimeTunnelPanelProvider {
                 const response = await fetch(`${base}/api/code-sync/inspect?${query.toString()}`, { headers: token ? { "X-Simple-Agent-Token": token } : undefined, signal: controller.signal });
                 if (!response.ok)
                     throw new Error(`HTTP ${response.status}`);
-                const data = await response.json();
+                const data = JSON.parse((await readBoundedWebResponse(response, 4 * 1024 * 1024, "Worker code sync proof")).toString("utf8"));
                 if (data?.ok !== true || !Array.isArray(data.files) || data.files.length !== batch.length)
                     throw new Error(String(data?.error || "响应不完整"));
                 const rows = [];
@@ -8908,9 +9552,7 @@ class RealtimeTunnelPanelProvider {
             activeServerId,
             servers,
         }, null, 2)}\n`;
-        const temp = `${file}.tmp`;
-        await fs.writeFile(temp, payload, "utf8");
-        await fs.rename(temp, file);
+        await (0, StateStore_1.atomicWriteText)(file, payload);
         return { targetCount: targets.length, file };
     }
     sftpSharedTargets() {
@@ -9297,6 +9939,51 @@ class RealtimeTunnelPanelProvider {
                 counts.delete(root);
         }
     }
+    async withSafeTransferRetry(command, message, work) {
+        if (!SAFE_TRANSFER_RETRY_COMMANDS.has(command))
+            return work();
+        const projectContext = this.captureProjectContext();
+        const workspaceKey = process.platform === "win32" ? path.resolve(projectContext.root).toLowerCase() : path.resolve(projectContext.root);
+        const remotePathKey = (value) => String(value || "").replace(/\\/g, "/").replace(/^\.\/+/, "").replace(/\/+$/, "");
+        let target = "all-plans";
+        if (command === "syncAllResultArtifacts") {
+            target = this.resolveSelectedPlanFile(message.planFile || this.planFileInput || this.selectedPlanId || "");
+        }
+        else if (command === "downloadRemoteResult") {
+            target = [this.resolveSelectedPlanFile(message.planFile || this.planFileInput || this.selectedPlanId || ""), remotePathKey(message.remotePath)];
+        }
+        else if (command === "uploadProjectToHub") {
+            const hub = this.hubCodeSyncTarget();
+            target = hub ? [hub.id, hub.role, remotePathKey(hub.remotePath), hub.host, hub.user, hub.port] : "hub-unavailable";
+        }
+        else if (["uploadProjectToWorkers", "distributeCodeToWorkers"].includes(command)) {
+            target = this.workerCodeSyncTargets().map((worker) => [worker.id, worker.role, remotePathKey(worker.remotePath), worker.host, worker.user, worker.port])
+                .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+        }
+        else if (command === "deployLatestAgent") {
+            const requestedTargets = Array.isArray(message.serverIds) ? message.serverIds
+                : Array.isArray(message.workerIds) ? message.workerIds : this.workerCodeSyncTargets().map((worker) => worker.id);
+            const selectedIds = new Set(requestedTargets.map(String));
+            target = this.agentRuntimeUploadTargets().filter((endpoint) => selectedIds.has(String(endpoint.id)))
+                .map((endpoint) => [endpoint.id, endpoint.role, remotePathKey(endpoint.remotePath), endpoint.host, endpoint.user, endpoint.port])
+                .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
+        }
+        if (command === "syncAllResultArtifacts")
+            message.planFile = target;
+        const key = JSON.stringify([workspaceKey, command, target]);
+        try {
+            return await this.safeTransferRetries.run(key, () => {
+                if (!this.projectContextIsCurrent(projectContext))
+                    throw new UiCommandCancelled("项目已切换，未重新执行旧项目的同步请求。");
+                return work();
+            });
+        }
+        catch (error) {
+            if (error instanceof SafeRequestRetry_1.RequestReplacedError)
+                throw new UiCommandCancelled(error.message);
+            throw error;
+        }
+    }
     async finishDistributedPlanSubmission(command, message, plan, body) {
         const operationId = this.planSubmissionOperationId(message);
         const submissionEpoch = operationId ? (this.distributedSubmissionEpochs?.get(operationId) || 0) : 0;
@@ -9355,7 +10042,6 @@ class RealtimeTunnelPanelProvider {
                 return;
             if (body.existingOutputChoice === "keep_existing") {
                 this.finishPlanSubmissionProgress(message, "succeeded", "用户选择保留现有完整结果，本次未创建新调度任务。");
-                await this.openPanelAt("execution", "execution-operations");
                 return;
             }
             this.assertExecutionCondaEnvReady(this.workerActionTargets());
@@ -9366,7 +10052,6 @@ class RealtimeTunnelPanelProvider {
             const submissionProgress = DistributedPlanQueue.distributedSubmissionProgress(submission);
             if (submissionProgress.status === "failed") {
                 this.finishPlanSubmissionProgress(message, submissionProgress.status, submissionProgress.message);
-                await this.openPanelAt("execution", "execution-operations");
                 return;
             }
             if (submission?.enqueued === false) {
@@ -9375,12 +10060,10 @@ class RealtimeTunnelPanelProvider {
                     ? "历史产物选择与待提交任务不一致，未创建新调度任务。"
                     : "历史产物处理方式未确认，未创建新调度任务。";
                 this.finishPlanSubmissionProgress(message, "failed", detail);
-                await this.openPanelAt("execution", "execution-operations");
                 return;
             }
             if (submissionProgress.waiting) {
                 this.finishPlanSubmissionProgress(message, submissionProgress.status, submissionProgress.message);
-                await this.openPanelAt("execution", "execution-operations");
                 return;
             }
         }
@@ -9393,7 +10076,6 @@ class RealtimeTunnelPanelProvider {
         if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot))
             return;
         this.finishPlanSubmissionProgress(message, "succeeded", "调度队列已接收；面板继续显示 Worker 回传的任务状态。");
-        await this.openPanelAt("execution", "execution-operations");
     }
     async activeDeferredForSubmission(root, body, fingerprint, deferredPlanId) {
         if (!root)
@@ -9656,14 +10338,40 @@ class RealtimeTunnelPanelProvider {
                         previewPaths: current.previewPaths };
             }
             await fs.mkdir(path.dirname(file), { recursive: true });
-            const temporary = file + ".tmp-" + process.pid + "-" + crypto.randomBytes(4).toString("hex");
             const serialized = JSON.stringify(queue, null, 2) + "\n";
             const latestSource = await readDiskForSave();
             const latestSignature = DistributedPlanQueue.distributedQueueDiskSignature(latestSource);
             if (latestSignature !== diskSignature)
                 await conflict(latestSource, latestSignature);
-            await fs.writeFile(temporary, serialized, "utf8");
+            const temporary = file + ".writing";
+            const existingTemporary = await fs.lstat(temporary).catch((error) => error?.code === "ENOENT" ? undefined : Promise.reject(error));
+            if (existingTemporary && (!existingTemporary.isFile() || existingTemporary.isSymbolicLink()))
+                throw new Error("分布式队列固定暂存槽不是普通文件，已拒绝写入。");
+            const noFollow = Number(fsNode.constants.O_NOFOLLOW || 0);
+            const temporaryHandle = await fs.open(temporary, fsNode.constants.O_WRONLY | fsNode.constants.O_CREAT | fsNode.constants.O_TRUNC | noFollow, 0o600);
+            try {
+                await temporaryHandle.writeFile(serialized, "utf8");
+                await temporaryHandle.sync();
+            }
+            finally {
+                await temporaryHandle.close();
+            }
             await fs.rename(temporary, file);
+            let directorySyncWarning = "";
+            if (process.platform !== "win32") {
+                try {
+                    const directoryHandle = await fs.open(path.dirname(file), "r");
+                    try {
+                        await directoryHandle.sync();
+                    }
+                    finally {
+                        await directoryHandle.close();
+                    }
+                }
+                catch (error) {
+                    directorySyncWarning = compactSensitiveText(errorMessage(error), 180);
+                }
+            }
             this.distributedQueueRoot = root;
             this.distributedQueueCache = JSON.parse(JSON.stringify(queue));
             this.distributedQueueDiskSignature = DistributedPlanQueue.distributedQueueDiskSignature(serialized);
@@ -9674,7 +10382,7 @@ class RealtimeTunnelPanelProvider {
             DistributedPlanQueue.setDistributedQueueBaseSignature(queue, this.distributedQueueDiskSignature);
             if (workingQueue && workingQueue !== queue)
                 DistributedPlanQueue.setDistributedQueueBaseSignature(workingQueue, this.distributedQueueDiskSignature);
-            this.distributedQueueStorageDiagnostics = { status: "ready" };
+            this.distributedQueueStorageDiagnostics = { status: "ready", ...(directorySyncWarning ? { directorySyncWarning } : {}) };
             if (options.appendPlanId) {
                 this.distributedQueueGeneration = (this.distributedQueueGeneration || 0) + 1;
                 this.distributedTickAbort?.abort();
@@ -9722,6 +10430,7 @@ class RealtimeTunnelPanelProvider {
         this.lastWorkerProbes = next;
     }
     async postprocessDistributedResultsForManual(root, scope = "metrics") {
+        (0, SafeRequestRetry_1.assertRetryRequestCurrent)();
         if (this.distributedPostprocessPromise) {
             const previous = this.distributedPostprocessPromise;
             const previousScope = this.distributedPostprocessScope;
@@ -9739,6 +10448,7 @@ class RealtimeTunnelPanelProvider {
                 return;
             progress.report({ message: "检测当前 Worker 连接" });
             await this.refreshDistributedResultSyncProbes(root);
+            (0, SafeRequestRetry_1.assertRetryRequestCurrent)();
             if (workspaceRoot() !== root)
                 return;
             if (!this.workerCodeSyncTargets().some((target) => this.lastWorkerProbes[target.id]?.status === "ok"))
@@ -9746,6 +10456,7 @@ class RealtimeTunnelPanelProvider {
             progress.report({ message: "校验并恢复最新版结果片段" });
             try {
                 await this.syncDistributedJobArtifacts(root, queue, "fragments", true);
+                (0, SafeRequestRetry_1.assertRetryRequestCurrent)();
             }
             catch (error) {
                 if (scope === "full")
@@ -9756,6 +10467,7 @@ class RealtimeTunnelPanelProvider {
                 return;
             try {
                 await this.rebuildDistributedResults(root, await this.loadDistributedQueue(root), true, true);
+                (0, SafeRequestRetry_1.assertRetryRequestCurrent)();
             }
             catch (error) {
                 if (scope === "full")
@@ -9766,6 +10478,7 @@ class RealtimeTunnelPanelProvider {
                 return;
             progress.report({ message: "压缩打包同步最新版检查点与日志" });
             await this.syncDistributedJobArtifacts(root, await this.loadDistributedQueue(root), "bulk", true);
+            (0, SafeRequestRetry_1.assertRetryRequestCurrent)();
             if (workspaceRoot() !== root)
                 return;
             progress.report({ message: "校验并发布正式结果" });
@@ -11303,7 +12016,7 @@ class RealtimeTunnelPanelProvider {
             ...(body.options || {}),
             workers: [{
                     ...workerTarget,
-                    local_agent_url: `http://127.0.0.1:${remoteAgentPort}`,
+                    local_agent_url: tunnelHttpOrigin(worker.remoteAgentHost, remoteAgentPort),
                     topology_mode: "worker_pool",
                     scheduler_owner_worker_id: workerId,
                 }],
@@ -11325,7 +12038,7 @@ class RealtimeTunnelPanelProvider {
         const workers = topology.mode !== "hub_worker" && workerId
             ? this.workerActionTargets().filter((item) => item.id === workerId).map((item) => ({
                 ...item,
-                local_agent_url: `http://127.0.0.1:${remoteAgentPort}`,
+                local_agent_url: tunnelHttpOrigin(worker.remoteAgentHost, remoteAgentPort),
                 topology_mode: topology.mode,
                 scheduler_owner_worker_id: workerId,
             }))
@@ -11388,7 +12101,7 @@ class RealtimeTunnelPanelProvider {
                 ...(body.options || {}),
                 workers: [{
                         ...workerTarget,
-                        local_agent_url: `http://127.0.0.1:${remoteAgentPort}`,
+                        local_agent_url: tunnelHttpOrigin(worker.remoteAgentHost, remoteAgentPort),
                         topology_mode: "worker_pool",
                         scheduler_owner_worker_id: workerId,
                     }],
@@ -11813,18 +12526,24 @@ class RealtimeTunnelPanelProvider {
             this.postState();
             throw new Error(message);
         }
+        let actionBody = body;
         if (options.confirm || options.danger) {
-            const label = options.danger ? "确认危险操作" : action === "sync-artifacts" ? "确认检查清单" : "确认执行";
-            const answer = await vscode.window.showWarningMessage(remoteActionConfirmationDetail(command, action, body), { modal: true }, label);
-            if (answer !== label)
-                throw new UiCommandCancelled(`${command} 已取消。`);
+            if (isArtifactDeletionAction(action)) {
+                actionBody = await confirmArtifactDeletionFromUi(command, action, body, remoteActionConfirmationDetail(command, action, body));
+            }
+            else {
+                const label = options.danger ? "确认危险操作" : action === "sync-artifacts" ? "确认检查清单" : "确认执行";
+                const answer = await vscode.window.showWarningMessage(remoteActionConfirmationDetail(command, action, body), { modal: true }, label);
+                if (answer !== label)
+                    throw new UiCommandCancelled(`${command} 已取消。`);
+            }
             this.assertActionAuthorityCurrent(options);
         }
         const generation = options.projectContext?.generation ?? this.projectContextGeneration;
         const client = options.authorityClient || this.client;
         this.assertActionAuthorityCurrent(options);
         const request = {
-            ...body,
+            ...actionBody,
             schemaVersion: 1,
             opId: makeOpId(action),
         };
@@ -11928,17 +12647,33 @@ class RealtimeTunnelPanelProvider {
             throw new UiCommandCancelled("工作区或连接已切换，Worker 操作已取消。");
         }
         const workerActionKey = workerActionDedupKey(action, workerId, body);
-        const active = this.activeWorkerActionOperation(workerActionKey);
+        let active = this.activeWorkerActionOperation(workerActionKey);
+        if (active) {
+            // A missed terminal event must not make an old request a permanent lock.
+            const generation = this.projectContextGeneration, client = this.client;
+            await this.refreshOperationStatus(active.operationId, action, workerId, 0, this.client).catch(() => false);
+            if (generation !== this.projectContextGeneration || client !== this.client) {
+                releaseWorkerAction();
+                throw new UiCommandCancelled("项目或连接已切换，未重新提交旧请求。");
+            }
+            active = this.activeWorkerActionOperation(workerActionKey);
+        }
         if (active) {
             releaseWorkerAction();
             throw new UiCommandRemotePending(`${command} 已有未完成 Worker 操作 operationId=${active.operationId}，已阻止重复提交；请等待“操作进度”终态。`);
         }
+        let actionBody = body;
         if (options.confirm || options.danger) {
-            const label = options.danger ? "确认危险操作" : "确认执行";
-            const answer = await vscode.window.showWarningMessage(workerRemoteActionConfirmationDetail(command, action, body, [workerId]), { modal: true }, label);
-            if (answer !== label) {
-                releaseWorkerAction();
-                throw new UiCommandCancelled(`${command} 已取消。`);
+            if (isArtifactDeletionAction(action)) {
+                actionBody = await confirmArtifactDeletionFromUi(command, action, body, workerRemoteActionConfirmationDetail(command, action, body, [workerId]));
+            }
+            else {
+                const label = options.danger ? "确认危险操作" : "确认执行";
+                const answer = await vscode.window.showWarningMessage(workerRemoteActionConfirmationDetail(command, action, body, [workerId]), { modal: true }, label);
+                if (answer !== label) {
+                    releaseWorkerAction();
+                    throw new UiCommandCancelled(`${command} 已取消。`);
+                }
             }
             if (!this.actionAuthorityIsCurrent(options)) {
                 releaseWorkerAction();
@@ -11948,7 +12683,7 @@ class RealtimeTunnelPanelProvider {
         const generation = options.projectContext?.generation ?? this.projectContextGeneration;
         const client = options.authorityClient || this.client;
         const request = {
-            ...body,
+            ...actionBody,
             schemaVersion: 1,
             opId: makeOpId(action),
             selectedWorkerIds: [workerId],
@@ -13053,7 +13788,7 @@ class RealtimeTunnelPanelProvider {
         const resolved = this.resolveWorkerEndpointId(workerId) || workerId;
         const worker = this.setupConfig.workerTunnels.find((item) => item.id === resolved);
         const port = worker?.localForwardPort;
-        return port ? `http://127.0.0.1:${port}` : "";
+        return port ? tunnelHttpOrigin(worker?.localForwardHost, port) : "";
     }
     resolveWorkerEndpointId(value) {
         const key = workerAliasKey(value);
@@ -13236,7 +13971,7 @@ class RealtimeTunnelPanelProvider {
         const refresh = (async () => {
             try {
                 const activity = this.draftRunActivity();
-                const reconciled = await DraftPlans_1.reconcileDraftPlans(root, activity);
+                const reconciled = await this.withDraftMetadataLease(root, () => DraftPlans_1.reconcileDraftPlans(root, activity));
                 const candidates = await DraftPlans_1.listCleanupCandidates(root, reconciled.drafts);
                 if (generation !== this.projectContextGeneration || root !== workspaceRoot())
                     return;
@@ -13338,10 +14073,11 @@ class RealtimeTunnelPanelProvider {
         const mode = stringField(params, "conflictMode") || "cancel";
         if (!["rename", "replace", "cancel"].includes(mode))
             throw new Error(`冲突处理只允许 rename、replace 或 cancel：${mode}`);
-        const result = await DraftPlans_1.promoteDraft(root, preview, {
+        const promotionLedger = path.join(root, DraftPlans_1.PROMOTION_LEDGER_PATH);
+        const result = await this.withDraftMetadataLease(root, () => this.withPluginStateFileLease(root, promotionLedger, "draft-promotion", "转正草稿 Plan 和配置", () => DraftPlans_1.promoteDraft(root, preview, {
             conflictMode: mode,
             reviewedBy: stringField(params, "reviewedBy") || "local-user",
-        });
+        })));
         await this.refreshDraftPlans(true);
         return result;
     }
@@ -13350,7 +14086,7 @@ class RealtimeTunnelPanelProvider {
         const root = workspaceRoot();
         if (!root)
             throw new Error("需要先打开工作区。");
-        await DraftPlans_1.rejectDraft(root, record.draftPlanPath, stringField(params, "reviewedBy") || "local-user");
+        await this.withDraftMetadataLease(root, () => DraftPlans_1.rejectDraft(root, record.draftPlanPath, stringField(params, "reviewedBy") || "local-user"));
         await this.refreshDraftPlans(true);
         return { ok: true, status: "rejected", draftPlanPath: record.draftPlanPath };
     }
@@ -13359,7 +14095,7 @@ class RealtimeTunnelPanelProvider {
         const root = workspaceRoot();
         if (!root)
             throw new Error("需要先打开工作区。");
-        await DraftPlans_1.markDraftReviewed(root, record.draftPlanPath, stringField(params, "reviewedBy") || "local-user");
+        await this.withDraftMetadataLease(root, () => DraftPlans_1.markDraftReviewed(root, record.draftPlanPath, stringField(params, "reviewedBy") || "local-user"));
         await this.refreshDraftPlans(true);
         return { ok: true, status: "ready_for_review", draftPlanPath: record.draftPlanPath };
     }
@@ -13371,9 +14107,33 @@ class RealtimeTunnelPanelProvider {
         const requested = stringArrayField(params, "paths");
         if (!requested.length)
             throw new Error("清理必须提供精确文件路径列表。");
-        const result = await DraftPlans_1.cleanupApprovedDrafts(root, this.draftPlanState.drafts || [], requested);
+        const targets = await this.draftCleanupConfirmationTargets(root, requested);
+        const canonical = targets.map((item) => item.path).sort();
+        const confirmed = stringArrayField(params, "confirmedPaths").map((value) => path.resolve(root, value)).sort();
+        if (params.confirm !== true || params.pathConfirmed !== true || JSON.stringify(confirmed) !== JSON.stringify(canonical)) {
+            throw confirmationRequired({ operation: "drafts.cleanup", requires: ["confirm", "pathConfirmed", "confirmedPaths"], targets,
+                paths: requested, confirm: undefined, pathConfirmed: undefined, confirmedPaths: undefined });
+        }
+        const result = await this.withHostOperationLease("cleanupDrafts", "将草稿移入 clean_dir", () => DraftPlans_1.cleanupApprovedDrafts(root, this.draftPlanState.drafts || [], requested), {
+            resources: [{ server: "local", project: root, target: path.join(root, "clean_dir") }],
+        });
         await this.refreshDraftPlans(true);
-        return { ok: true, deleted: result.deleted };
+        return { ok: true, moved: result.moved, destinationRoot: path.join(root, "clean_dir") };
+    }
+    async draftCleanupConfirmationTargets(root, requested) {
+        const candidates = await DraftPlans_1.listCleanupCandidates(root, this.draftPlanState.drafts || []);
+        const normalizedRequested = requested.map((value) => String(value || "").replace(/\\/g, "/").replace(/^\.\//, ""));
+        const requestedSet = new Set(normalizedRequested);
+        if (requestedSet.size !== normalizedRequested.length)
+            throw new Error("草稿清理路径包含重复项。");
+        const selected = candidates.filter((item) => requestedSet.has(item.path));
+        if (!selected.length || selected.length !== requestedSet.size)
+            throw new Error("草稿清理路径已变化；请重新获取候选列表后再确认。");
+        return selected.map((item) => ({
+            label: `${item.path} · ${item.reason}`,
+            path: path.resolve(root, item.path),
+            destination: path.resolve(root, "clean_dir", ...item.path.split("/")),
+        }));
     }
     async syncDraftFilesForRun(body, record) {
         await this.prepareSftpTargets("runDraftDebug", "simpleSftp.uploadFiles");
@@ -13446,20 +14206,27 @@ class RealtimeTunnelPanelProvider {
         const root = workspaceRoot();
         if (!root)
             throw new Error("需要先打开工作区。");
-        const result = await DraftPlans_1.promoteDraft(root, preview, { conflictMode, reviewedBy: "local-user" });
+        const promotionLedger = path.join(root, DraftPlans_1.PROMOTION_LEDGER_PATH);
+        const result = await this.withDraftMetadataLease(root, () => this.withPluginStateFileLease(root, promotionLedger, "draft-promotion", "转正草稿 Plan 和配置", () => DraftPlans_1.promoteDraft(root, preview, { conflictMode, reviewedBy: "local-user" })));
         await this.refreshDraftPlans(true);
         void vscode.window.showInformationMessage(`草稿已转正：${result.planPath}; 配置 ${result.configPaths.length} 个；记录 ${result.ledgerPath}`);
     }
     async rejectDraftFromUi(message) {
         const planFile = stringField(message, "draftPlanPath") || stringField(message, "planFile");
         const record = await this.requireDraftRecord(planFile);
-        await DraftPlans_1.rejectDraft(workspaceRoot(), record.draftPlanPath);
+        const root = workspaceRoot();
+        if (!root)
+            throw new Error("需要先打开工作区。");
+        await this.withDraftMetadataLease(root, () => DraftPlans_1.rejectDraft(root, record.draftPlanPath));
         await this.refreshDraftPlans(true);
     }
     async reviewDraftFromUi(message) {
         const planFile = stringField(message, "draftPlanPath") || stringField(message, "planFile");
         const record = await this.requireDraftRecord(planFile);
-        await DraftPlans_1.markDraftReviewed(workspaceRoot(), record.draftPlanPath);
+        const root = workspaceRoot();
+        if (!root)
+            throw new Error("需要先打开工作区。");
+        await this.withDraftMetadataLease(root, () => DraftPlans_1.markDraftReviewed(root, record.draftPlanPath));
         await this.refreshDraftPlans(true);
     }
     async cleanupDraftsFromUi(message) {
@@ -13469,12 +14236,21 @@ class RealtimeTunnelPanelProvider {
         const selected = requested.length ? candidates.filter((item) => requested.includes(item.path)) : candidates;
         if (!selected.length)
             throw new Error("没有 rejected/stale 且未被引用的草稿清理候选。");
-        const answer = await vscode.window.showWarningMessage(`将永久删除以下普通文件：\n${selected.map((item) => `${item.path}（${item.reason}）`).join("\n")}`, { modal: true }, `删除 ${selected.length} 个文件`);
-        if (!answer)
+        const root = workspaceRoot();
+        if (!root)
+            throw new Error("需要先打开工作区。");
+        const paths = selected.map((item) => ({
+            label: `${item.path} · ${item.reason}`,
+            path: path.resolve(root, item.path),
+            destination: path.resolve(root, "clean_dir", ...item.path.split("/")),
+        }));
+        if (!await (0, SyncScopeConfirmation_1.confirmSyncScopePaths)("移入 clean_dir", "将把以下精确文件原子移动到项目 clean_dir，保留文件内容并记录 SHA256 清单；不会永久删除。", paths.map((item) => ({ label: `${item.label} → ${item.destination}`, path: item.path })), `移动 ${selected.length} 个文件`))
             throw new UiCommandCancelled("草稿清理已取消。");
-        const result = await DraftPlans_1.cleanupApprovedDrafts(workspaceRoot(), this.draftPlanState.drafts || [], selected.map((item) => item.path));
+        const result = await this.withHostOperationLease("cleanupDrafts", "将草稿移入 clean_dir", () => DraftPlans_1.cleanupApprovedDrafts(root, this.draftPlanState.drafts || [], selected.map((item) => item.path)), {
+            resources: [{ server: "local", project: root, target: path.join(root, "clean_dir") }],
+        });
         await this.refreshDraftPlans(true);
-        void vscode.window.showInformationMessage(`已清理 ${result.deleted.length} 个草稿文件。`);
+        void vscode.window.showInformationMessage(`已将 ${result.moved.length} 个草稿文件移入 clean_dir，并记录清单。`);
     }
     async savePlanFromUi(message) {
         const generation = this.projectContextGeneration;
@@ -13501,10 +14277,10 @@ class RealtimeTunnelPanelProvider {
         if (generation !== this.projectContextGeneration || root !== workspaceRoot())
             return;
         if (oldText)
-            await fs.writeFile(backup, oldText, "utf8");
+            await (0, StateStore_1.atomicWriteText)(backup, oldText);
         if (generation !== this.projectContextGeneration || root !== workspaceRoot())
             return;
-        await fs.writeFile(fullPath, ensurePlanPurposeHeader(text, path.basename(file)), "utf8");
+        await (0, StateStore_1.atomicWriteText)(fullPath, ensurePlanPurposeHeader(text, path.basename(file)));
         if (generation !== this.projectContextGeneration || root !== workspaceRoot())
             return;
         await this.refreshLocalPlanMetadata({ post: false, force: true });
@@ -13512,6 +14288,7 @@ class RealtimeTunnelPanelProvider {
             return;
         this.planFileInput = file;
         this.selectedPlanId = file;
+        this.refreshExperimentTracesProjectionForCurrentInterest();
         void this.persistProjectPlanSelectionState().catch(() => undefined);
         if (generation === this.projectContextGeneration && root === workspaceRoot())
             this.postState();
@@ -13589,22 +14366,27 @@ class RealtimeTunnelPanelProvider {
                 throw new Error(`${workerId} 返回的归档文件清单无效。`);
             const workerLocalRelative = path.posix.join(archiveRelative, safePlanToken(workerId));
             const workerLocal = safeWorkspaceChildPath(root, workerLocalRelative);
+            const fileSizes = result.fileSizes && typeof result.fileSizes === "object" ? result.fileSizes : {};
+            const fileHashes = result.fileHashes && typeof result.fileHashes === "object" ? result.fileHashes : {};
             const mapped = listed.map((remoteFile) => {
                 const inside = path.posix.relative(archiveRelative, remoteFile);
                 if (!inside || inside.startsWith("..") || inside.split("/").some((part) => !part || part === "." || part === ".."))
                     throw new Error(`${workerId} 归档清单包含越界路径。`);
-                return { remotePath: remoteFile, localRelativePath: path.posix.join(workerLocalRelative, inside) };
+                const size = Number(fileSizes[remoteFile]);
+                const sha256 = String(fileHashes[remoteFile] || "").trim().toLowerCase();
+                return { remotePath: remoteFile, localRelativePath: path.posix.join(workerLocalRelative, inside), bytes: Number.isSafeInteger(size) && size >= 0 ? size : null, sha256: /^[a-f0-9]{64}$/.test(sha256) ? sha256 : "" };
             });
             const server = this.mappedDownloadServerForSource(workerId);
             if (!server)
                 throw new Error(`${workerId} 没有可打包的 SFTP 目标，已停止轻量归档下载。请恢复该 Worker 的 SSH 配置后重试，不要逐文件下载。`);
-            for (let offset = 0; offset < mapped.length; offset += MAPPED_RESULT_DOWNLOAD_MAX_ENTRIES) {
-                const chunk = mapped.slice(offset, offset + MAPPED_RESULT_DOWNLOAD_MAX_ENTRIES);
+            const archiveChunks = partitionMappedDownloadTransfers(mapped, MAPPED_RESULT_DOWNLOAD_MAX_ENTRIES, MAPPED_RESULT_DOWNLOAD_MAX_BATCH_BYTES, 4 * 1024 * 1024);
+            for (const chunk of archiveChunks) {
                 const result = await this.simpleSftpApiCall("sync.downloadMappedPaths", {
                     localPath: root,
                     server,
                     entries: chunk,
                     maxFileBytes: 4 * 1024 * 1024,
+                    maxBatchBytes: MAPPED_RESULT_DOWNLOAD_MAX_BATCH_BYTES,
                     overwrite: true,
                     confirm: true,
                     pathConfirmed: true,
@@ -13696,6 +14478,11 @@ class RealtimeTunnelPanelProvider {
         }
         const evidenceFiles = evidencePlan.files;
         const movableEvidence = evidenceMode === "local" ? planArchiveMovableEvidenceFiles(evidenceFiles) : [];
+        const archiveMoveEntries = [
+            { source: file, target: "plan.yaml" },
+            ...configMigration.migrated.map((relative) => ({ source: relative, target: path.posix.join("configs", relative) })),
+            ...movableEvidence.map((relative) => ({ source: relative, target: path.posix.join("evidence", relative) })),
+        ];
         const parameterReviewCount = parameterSnapshot.unresolvedDeclarationCount + parameterSnapshot.dynamicDefaultCount + parameterSnapshot.parserFeatureCount + parameterSnapshot.missingEntries.length + parameterSnapshot.unresolvedCommands.length + parameterSnapshot.sourceScanWarnings.length;
         const relativeFromPlanDir = path.relative(planRoot, source).replace(/\\/g, "/");
         const parsed = path.parse(source);
@@ -13704,6 +14491,7 @@ class RealtimeTunnelPanelProvider {
         assertCurrent();
         const bundleRelative = path.relative(root, bundleDir).replace(/\\/g, "/");
         const evidenceLines = evidencePlan.entries.map((entry) => `- ${entry.label}：${entry.path}\n  -> ${path.posix.join(bundleRelative, "evidence", entry.path)}`);
+        const moveLines = archiveMoveEntries.map((entry) => `- ${safeWorkspaceChildPath(root, entry.source)}\n  -> ${safeArchiveBundleChildPath(bundleDir, entry.target)}`);
         const confirmLabel = "确认归档并同步证据";
         const answer = await vscode.window.showWarningMessage([
             "【Plan 归档位置确认】",
@@ -13715,6 +14503,8 @@ class RealtimeTunnelPanelProvider {
             `结果取舍清单：${path.posix.join(bundleRelative, resultSelectionFile)}`,
             `配置：迁移 ${configMigration.migrated.length} 个独占配置，保留 ${configMigration.retainedShared.length} 个共享配置`,
             `参数：${parameterSnapshot.entries.length} 个源码，${parameterSnapshot.parameterCount} 个 CLI 参数声明${parameterReviewCount ? `，${parameterReviewCount} 项待复核` : ""}`,
+            "以下本地文件会原子迁移到归档包，内容保留在归档中：",
+            ...moveLines,
             "",
             "预期证据文件位置：",
             ...evidenceLines,
@@ -13727,12 +14517,14 @@ class RealtimeTunnelPanelProvider {
             throw new UiCommandCancelled("Plan 归档已取消，未创建归档包或迁移文件。");
         const stagingDir = `${bundleDir}.staging`;
         let bundlePublished = false;
+        let stagingCreated = false;
+        const movedArchiveFiles = [];
         try {
-            await fs.mkdir(stagingDir, { recursive: true });
+            await fs.mkdir(stagingDir);
+            stagingCreated = true;
             assertCurrent();
-            await fs.writeFile(path.join(stagingDir, "plan.yaml"), planText, "utf8");
-            assertCurrent();
-            const configs = await copyPlanArchiveFiles(root, stagingDir, "configs", configFiles);
+            const configs = [...configFiles];
+            await copyPlanArchiveFiles(root, stagingDir, "configs", configMigration.retainedShared);
             assertCurrent();
             const environment = await copyPlanArchiveFiles(root, stagingDir, "environment", environmentFiles);
             assertCurrent();
@@ -13748,7 +14540,8 @@ class RealtimeTunnelPanelProvider {
             assertCurrent();
             await fs.writeFile(resultSelectionPath, JSON.stringify(resultSelection, null, 2) + "\n", "utf8");
             assertCurrent();
-            const evidence = await materializePlanArchiveEvidenceFiles(client, root, stagingDir, evidenceFiles, evidenceMode);
+            const evidenceCopies = await materializePlanArchiveEvidenceFiles(client, root, stagingDir, evidenceFiles.filter((relative) => !movableEvidence.includes(relative)), evidenceMode);
+            const evidence = [...new Set([...evidenceCopies, ...movableEvidence])];
             assertCurrent();
             const excludedResults = planArchiveExcludedResults(resultSelection);
             await fs.writeFile(path.join(stagingDir, "archive_manifest.json"), JSON.stringify({
@@ -13795,34 +14588,35 @@ class RealtimeTunnelPanelProvider {
                 note: "本包保存可复用 Plan、关联配置、项目依赖环境清单、入口脚本与 CLI 默认参数快照，以及小型结果证据。参数只做静态读取，不导入或执行项目代码。大体积运行产物仍由既有 Hub/Worker 归档保存，路径见证据文件。",
             }, null, 2) + "\n", "utf8");
             assertCurrent();
+            const currentPlanText = await fs.readFile(source, "utf8");
+            if (currentPlanText !== planText)
+                throw new Error("归档期间 Plan 文件内容发生变化；未迁移源文件。请刷新后重新归档。");
+            for (const entry of archiveMoveEntries) {
+                assertCurrent();
+                const sourcePath = await safeResultOutputPath(root, entry.source);
+                const targetPath = safeArchiveBundleChildPath(stagingDir, entry.target);
+                if (await existsAt(targetPath))
+                    throw new Error(`归档目标已存在，未覆盖：${entry.target}`);
+                await fs.mkdir(path.dirname(targetPath), { recursive: true });
+                await fs.rename(sourcePath, targetPath);
+                movedArchiveFiles.push({ source: entry.source, target: entry.target });
+            }
+            assertCurrent();
             await fs.rename(stagingDir, bundleDir);
             bundlePublished = true;
-            assertCurrent();
-            await fs.unlink(source);
-            assertCurrent();
-            await removeArchivedWorkspaceFiles(root, configMigration.migrated);
-            assertCurrent();
-            await removeArchivedWorkspaceFiles(root, movableEvidence);
-            assertCurrent();
         }
         catch (error) {
-            if (bundlePublished) {
-                const rollbackErrors = [];
-                let workspaceRestored = false;
-                await restorePlanArchiveWorkspaceFiles(root, bundleDir, source, configMigration.migrated, movableEvidence)
-                    .then(() => { workspaceRestored = true; })
-                    .catch((rollbackError) => rollbackErrors.push(errorMessage(rollbackError)));
-                if (workspaceRestored) {
-                    await fs.rm(bundleDir, { recursive: true, force: true }).catch((rollbackError) => rollbackErrors.push(errorMessage(rollbackError)));
+            if (!bundlePublished && stagingCreated && movedArchiveFiles.length) {
+                const rollbackErrors = await restoreMovedPlanArchiveFiles(root, stagingDir, movedArchiveFiles);
+                const recoveryPath = path.relative(root, stagingDir).replace(/\\/g, "/");
+                if (rollbackErrors.length) {
+                    throw new Error(`Plan 归档失败，源文件未能全部恢复：${rollbackErrors.join("；")}。可恢复归档副本保留在 ${recoveryPath}。原始错误：${errorMessage(error)}`);
                 }
-                else {
-                    rollbackErrors.push(`恢复失败，归档副本保留在 ${bundleRelative}`);
-                }
-                if (rollbackErrors.length)
-                    throw new Error(`Plan 归档失败，自动回滚不完整：${rollbackErrors.join("；")}。原始错误：${errorMessage(error)}`);
+                throw new Error(`Plan 归档失败，源文件已恢复；未完成的副本保留在 ${recoveryPath} 供检查。原始错误：${errorMessage(error)}`);
             }
-            else {
-                await fs.rm(stagingDir, { recursive: true, force: true }).catch(() => undefined);
+            if (!bundlePublished && stagingCreated) {
+                const recoveryPath = path.relative(root, stagingDir).replace(/\\/g, "/");
+                throw new Error(`Plan 归档失败；未完成的副本保留在 ${recoveryPath} 供检查。原始错误：${errorMessage(error)}`);
             }
             throw error;
         }
@@ -13833,6 +14627,7 @@ class RealtimeTunnelPanelProvider {
             this.planFileInput = undefined;
         if (this.selectedPlanId === file)
             this.selectedPlanId = undefined;
+        this.refreshExperimentTracesProjectionForCurrentInterest();
         await this.refreshLocalPlanMetadata({ post: false, force: true });
         if (!isCurrent())
             return;
@@ -13981,12 +14776,12 @@ class RealtimeTunnelPanelProvider {
         }
         await fs.mkdir(path.dirname(target), { recursive: true });
         assertCurrent();
-        await fs.writeFile(target, (0, PlanArchive_1.restorePlanText)(planText, { originalPlanFile, archivedPlanFile: file, restoredFile, planVersion, configPathMap, restoredEnvironmentDir, restoredParameterDir }), "utf8");
+        await (0, StateStore_1.atomicWriteText)(target, (0, PlanArchive_1.restorePlanText)(planText, { originalPlanFile, archivedPlanFile: file, restoredFile, planVersion, configPathMap, restoredEnvironmentDir, restoredParameterDir }));
         assertCurrent();
         const restoreRecordFile = safeWorkspaceChildPath(root, path.posix.join("simple_cluster", "plan_restores", `${safePlanToken(restoredFile)}.json`));
         await fs.mkdir(path.dirname(restoreRecordFile), { recursive: true });
         assertCurrent();
-        await fs.writeFile(restoreRecordFile, JSON.stringify({
+        await (0, StateStore_1.atomicWriteText)(restoreRecordFile, JSON.stringify({
             schemaVersion: 1,
             restoredAt: new Date().toISOString(),
             planVersion: `v${planVersion}`,
@@ -14003,10 +14798,11 @@ class RealtimeTunnelPanelProvider {
             restoredParameterDir,
             restoredParameterFiles,
             missingParameterFiles,
-        }, null, 2) + "\n", "utf8");
+        }, null, 2) + "\n");
         assertCurrent();
         this.planFileInput = restoredFile;
         this.selectedPlanId = restoredFile;
+        this.refreshExperimentTracesProjectionForCurrentInterest();
         await this.refreshLocalPlanMetadata({ post: false, force: true });
         assertCurrent();
         await this.persistProjectPlanSelectionState();
@@ -14214,7 +15010,7 @@ class RealtimeTunnelPanelProvider {
             "    overrides: {}",
             "",
         ].join("\n");
-        await fs.writeFile(fullPath, text, "utf8");
+        await (0, StateStore_1.atomicWriteText)(fullPath, text);
         if (!this.projectContextIsCurrent(projectContext))
             return;
         await this.refreshLocalPlanMetadata({ post: false, force: true });
@@ -14222,6 +15018,7 @@ class RealtimeTunnelPanelProvider {
             return;
         this.planFileInput = relative;
         this.selectedPlanId = relative;
+        this.refreshExperimentTracesProjectionForCurrentInterest();
         void this.persistProjectPlanSelectionState().catch(() => undefined);
         this.postState();
         this.queuePlanScopedResultParse("生成计划模板", relative, relative);
@@ -14397,6 +15194,7 @@ class RealtimeTunnelPanelProvider {
         if (planFile) {
             this.planFileInput = planFile;
             this.selectedPlanId = String(selected?.planId || planFile);
+            this.refreshExperimentTracesProjectionForCurrentInterest();
             await this.persistProjectPlanSelectionState();
             if (!this.projectContextIsCurrent(projectContext))
                 return;
@@ -14784,7 +15582,9 @@ class RealtimeTunnelPanelProvider {
         void vscode.window.showInformationMessage(`PPT 路径已更新到当前项目：${presentationPath}`);
     }
     async refreshPptAutomationReadiness(start) {
-        const generation = this.projectContextGeneration;
+        const projectContext = this.captureProjectContext();
+        const generation = projectContext.generation;
+        const signal = AbortSignal.any([projectContext.signal, this.activationAbortController.signal]);
         const presentationPath = this.pptPlotConfig().presentationPath;
         const previous = this.pptAutomationRefreshPromise || Promise.resolve();
         const current = previous.catch(() => undefined).then(async () => {
@@ -14793,8 +15593,8 @@ class RealtimeTunnelPanelProvider {
             const bridge = new PptPlotBridge_1.PptPlotBridge();
             try {
                 const readiness = start
-                    ? await bridge.prepareAutomation(presentationPath)
-                    : await bridge.inspectAutomation();
+                    ? await bridge.prepareAutomation(presentationPath, signal)
+                    : await bridge.inspectAutomation(signal);
                 if (generation !== this.projectContextGeneration)
                     return this.pptAutomationReadiness;
                 this.pptAutomationReadiness = readiness;
@@ -14859,10 +15659,12 @@ class RealtimeTunnelPanelProvider {
         }
     }
     async plotResultsToPptFromUi(message) {
-        const root = workspaceRoot();
+        const projectContext = this.captureProjectContext();
+        const root = projectContext.root;
         if (!root)
             throw new Error("需要先打开工作区，才能把结果绘图到 PPT。");
-        const generation = this.projectContextGeneration;
+        const generation = projectContext.generation;
+        const signal = AbortSignal.any([projectContext.signal, this.activationAbortController.signal]);
         const config = this.pptPlotConfig();
         const planTarget = this.actionPlanTarget(message);
         const planFile = this.resolveSelectedPlanFile(planTarget.planFile || this.planFileInput || this.selectedPlanId || "") || planTarget.planFile || this.planFileInput || this.selectedPlanId || "";
@@ -14915,7 +15717,7 @@ class RealtimeTunnelPanelProvider {
         if (generation !== this.projectContextGeneration || root !== workspaceRoot())
             return;
         try {
-            const result = await new PptPlotBridge_1.PptPlotBridge().plot(input);
+            const result = await new PptPlotBridge_1.PptPlotBridge().plot(input, signal);
             if (generation !== this.projectContextGeneration || root !== workspaceRoot())
                 return;
             this.pptAutomationReadiness = {
@@ -14929,7 +15731,7 @@ class RealtimeTunnelPanelProvider {
             this.postState(true);
             const requestAuditPath = pptPlotAuditRelativePath(root, result.requestPath);
             const responseAuditPath = pptPlotAuditRelativePath(root, result.responsePath);
-            void vscode.window.showInformationMessage(`绘图到 PPT 已提交：${result.requestId}。请求审计：${requestAuditPath}；响应审计：${responseAuditPath}`, "打开请求审计", "打开响应审计")
+            void vscode.window.showInformationMessage(`绘图到 PPT 已提交：${result.requestId}。最近一次请求审计：${requestAuditPath}；响应：${responseAuditPath}`, "打开请求审计", "打开响应审计")
                 .then((choice) => {
                 if (generation !== this.projectContextGeneration || root !== workspaceRoot())
                     return undefined;
@@ -15279,6 +16081,8 @@ class RealtimeTunnelPanelProvider {
         const changed = (this.selectedPlanId || "") !== (nextPlanId || "") || (this.planFileInput || "") !== (nextPlanFile || "");
         this.selectedPlanId = nextPlanId;
         this.planFileInput = nextPlanFile;
+        if (changed)
+            this.refreshExperimentTracesProjectionForCurrentInterest();
         void this.persistProjectPlanSelectionState().catch(() => undefined);
         this.ensureSelectedPlanFileWatchers(changed ? "切换计划" : "选择计划");
         this.postState();
@@ -15326,8 +16130,6 @@ class RealtimeTunnelPanelProvider {
                 this.selectedArchiveKeys.delete(archiveKey);
         }
         this.markTaskSelectionChanged();
-        if (runKey)
-            this.client.setProtectedLogKeys(this.logProtectedKeys());
         void this.persistProjectTaskSelectionState().catch(() => undefined);
         this.postState();
     }
@@ -15950,7 +16752,7 @@ class RealtimeTunnelPanelProvider {
             if (!bundleName || bundleName === "." || bundleName === "..")
                 throw new Error("调试包文件名不安全，已停止下载。");
             const server = this.hubMappedDownloadServer();
-            const stagingRelative = path.posix.join("simple_cluster", "downloads", "debug_bundle", bundleName);
+            const stagingRelative = path.posix.join("simple_cluster", "downloads", "debug_bundle", "latest.zip");
             const stagingPath = safeWorkspaceChildPath(root, stagingRelative);
             const existing = await fs.stat(stagingPath).catch(() => undefined);
             if (existing && !existing.isFile())
@@ -16139,7 +16941,7 @@ class RealtimeTunnelPanelProvider {
         const projectContext = this.captureProjectContext();
         const root = projectContext.root;
         const client = this.client;
-        const isCurrent = () => this.projectContextIsCurrent(projectContext) && client === this.client;
+        const isCurrent = () => !(0, SafeRequestRetry_1.retryRequestSignal)()?.aborted && this.projectContextIsCurrent(projectContext) && client === this.client;
         if (!root)
             throw new Error("请先打开当前实验项目。");
         if (this.effectiveConnectionMode() === "offline_import")
@@ -16198,7 +17000,7 @@ class RealtimeTunnelPanelProvider {
         const projectContext = this.captureProjectContext();
         const root = projectContext.root;
         const client = this.client;
-        const isCurrent = () => this.projectContextIsCurrent(projectContext) && client === this.client;
+        const isCurrent = () => !(0, SafeRequestRetry_1.retryRequestSignal)()?.aborted && this.projectContextIsCurrent(projectContext) && client === this.client;
         if (!root)
             throw new Error("请先打开当前实验项目。");
         if (this.effectiveConnectionMode() === "offline_import")
@@ -16370,7 +17172,7 @@ class RealtimeTunnelPanelProvider {
             for (const batch of confirmed.batches || []) {
                 if (!isCurrent())
                     return { merged: true, downloaded: false, reason: "revision-changed", plans, downloads, issues };
-                const download = await this.downloadMappedResultBatch(projectContext, client, batch, "同步服务器结果并更新总表", { metricsOnly: true, overwrite: confirmed.overwrite });
+                const download = await this.downloadMappedResultBatch(projectContext, client, batch, "同步服务器结果并更新总表", { metricsOnly: true, overwrite: confirmed.overwrite, notify: false });
                 downloads.push(download);
                 if (!isCurrent())
                     return { merged: true, downloaded: false, reason: "revision-changed", plans, downloads, issues };
@@ -16495,6 +17297,7 @@ class RealtimeTunnelPanelProvider {
                 }
                 tables.push({ workerId: job.workerId, rawResultCsvPath: raw, aggregateStatus: "pending",
                     metricPaths: verified, metricHashes: Object.fromEntries(verified.map((file) => [file, inventory.files[file].sha256])),
+                    metricSizes: Object.fromEntries(verified.map((file) => [file, inventory.files[file].size])),
                     completedJob: { index: job.index, case: job.case, seed: job.seed, attempt: job.attempt, commandId: job.commandId,
                         runId: run.runId, outputDir: job.outputDir, artifactHashes: job.artifacts } });
             }
@@ -16545,7 +17348,7 @@ class RealtimeTunnelPanelProvider {
         for (const batch of confirmed.batches) {
             if (!isCurrent() || token?.isCancellationRequested)
                 throw new UiCommandCancelled("指标下载已取消，保留现有表格。");
-            const download = await this.downloadMappedResultBatch(context, client, batch, title, { metricsOnly: true, overwrite: confirmed.overwrite });
+            const download = await this.downloadMappedResultBatch(context, client, batch, title, { metricsOnly: true, overwrite: confirmed.overwrite, notify: false });
             if (download?.cancelled)
                 throw new UiCommandCancelled("指标下载已取消，保留现有表格。");
             downloads.push(download);
@@ -16567,6 +17370,7 @@ class RealtimeTunnelPanelProvider {
                     throw error;
                 if (attempt === 3 || !["cooldown", "rate_limited"].includes(reason))
                     throw error;
+                client.noteRetry?.("hub");
                 const delay = Math.min(61000, Math.max(0, Number(decision.retryAfterMs || 1000)));
                 const label = (index + 1) + "/" + total + " " + planFile;
                 progress?.report({ message: label + "：" + (reason === "cooldown" ? "本地请求间隔" : "本地请求预算繁忙") + "，正在等待 " + Math.ceil(delay / 1000) + " 秒" });
@@ -16576,6 +17380,8 @@ class RealtimeTunnelPanelProvider {
             const missing = budgetLimitedWorkers(client, summary);
             if (!missing.length || attempt === 3)
                 return summary;
+            for (const item of missing)
+                client.noteRetry?.(String(item.workerId || ""));
             const label = (index + 1) + "/" + total + " " + planFile;
             progress?.report({ message: label + "：Worker " + missing.map((item) => item.workerId).join("、") + " 请求预算受限，正在等待 " + Math.ceil(missing[0].delay / 1000) + " 秒后重查" });
             await this.waitForResultSummaryBudget(missing[0].delay, label, isCurrent, token);
@@ -16634,10 +17440,29 @@ class RealtimeTunnelPanelProvider {
                     grouped.set(sourceId, { sourceId, workerId, transfers: new Map(), entries: [] });
                 const batch = grouped.get(sourceId);
                 const remoteKey = remotePath.toLowerCase();
+                const matchingTable = workerTables.find((table) => (!workerId || String(table.workerId || "").toLowerCase() === workerId.toLowerCase())
+                    && [table.rawResultCsvPath, table.aggregateCsvPath, table.projectAggregateCsvPath, table.finalCsvPath, table.finalMarkdownPath, ...(table.metricPaths || [])].includes(remotePath));
+                const hintedBytes = candidate.bytes ?? candidate.size ?? matchingTable?.metricSizes?.[remotePath] ?? summary?.metricSizes?.[remotePath];
+                const numericBytes = Number(hintedBytes);
+                const bytes = hintedBytes != null && Number.isSafeInteger(numericBytes) && numericBytes >= 0 ? numericBytes : null;
+                const hintedHash = String(candidate.sha256 ?? matchingTable?.metricHashes?.[remotePath] ?? matchingTable?.completedJob?.artifactHashes?.[remotePath] ?? summary?.metricHashes?.[remotePath] ?? "").trim().toLowerCase();
+                const sha256 = /^[a-f0-9]{64}$/.test(hintedHash) ? hintedHash : "";
                 if (!batch.transfers.has(remoteKey)) {
-                    batch.transfers.set(remoteKey, { remotePath, localRelativePath: mappedDownloadStageRelative(sourceId, remotePath) });
+                    batch.transfers.set(remoteKey, { remotePath, localRelativePath: localRelative, bytes, sha256 });
                 }
-                batch.entries.push({ planFile, remotePath, workerId, localRelative, localPath, stageRelative: batch.transfers.get(remoteKey).localRelativePath });
+                else {
+                    const previousTransfer = batch.transfers.get(remoteKey);
+                    if (previousTransfer.bytes == null && bytes != null)
+                        previousTransfer.bytes = bytes;
+                    else if (previousTransfer.bytes != null && bytes != null && previousTransfer.bytes !== bytes)
+                        throw new Error(`同一来源文件 ${remotePath} 的大小证据不一致，已阻止跨 Plan 混合下载。`);
+                    if (!previousTransfer.sha256 && sha256)
+                        previousTransfer.sha256 = sha256;
+                    else if (previousTransfer.sha256 && sha256 && previousTransfer.sha256 !== sha256)
+                        throw new Error(`同一来源文件 ${remotePath} 的版本 hash 不一致，已阻止跨 Plan 混合下载。`);
+                }
+                const transfer = batch.transfers.get(remoteKey);
+                batch.entries.push({ planFile, remotePath, workerId, localRelative, localPath, bytes: transfer.bytes, sha256: transfer.sha256 });
             }
         }
         return [...grouped.values()];
@@ -16678,9 +17503,7 @@ class RealtimeTunnelPanelProvider {
         const selectedBatches = batches.map((batch) => {
             const entries = batch.entries.filter((entry) => overwrite || !entry.exists);
             const selectedRemotes = new Set(entries.map((entry) => String(entry.remotePath || "").toLowerCase()));
-            const transfers = batch.transfers instanceof Map
-                ? new Map([...batch.transfers].filter(([key]) => selectedRemotes.has(key)))
-                : uniqueMappedTransfers(entries);
+            const transfers = uniqueMappedTransfers(entries.filter((entry) => selectedRemotes.has(String(entry.remotePath || "").toLowerCase())));
             return { ...batch, entries, transfers };
         }).filter((batch) => batch.entries.length);
         const selectedCount = selectedBatches.reduce((total, batch) => total + batch.entries.length, 0);
@@ -16717,14 +17540,120 @@ class RealtimeTunnelPanelProvider {
         const metricsOnly = options.metricsOnly === true;
         const overwrite = options.overwrite !== false;
         const entries = batch.entries || [];
-        const transfers = batch.transfers instanceof Map ? [...batch.transfers.values()] : uniqueMappedTransfers(entries);
+        const transfers = uniqueMappedTransfers(entries);
         const failures = [];
         let completed = 0;
         let cancelled = false;
-        const chunks = [];
-        for (let offset = 0; offset < transfers.length; offset += MAPPED_RESULT_DOWNLOAD_MAX_ENTRIES)
-            chunks.push(transfers.slice(offset, offset + MAPPED_RESULT_DOWNLOAD_MAX_ENTRIES));
         await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title, cancellable: true }, async (progress, token) => {
+            let statsServer;
+            try {
+                statsServer = batch.sourceId === "hub"
+                    ? this.hubMappedDownloadServer()
+                    : this.mappedDownloadServerForSource(batch.workerId || batch.sourceId);
+            }
+            catch { /* The transfer path below reports an actionable source configuration error. */ }
+            for (const transfer of transfers) {
+                if (!transfer.sha256)
+                    continue;
+                const destinations = entries.filter((entry) => String(entry.remotePath || "").toLowerCase() === String(transfer.remotePath || "").toLowerCase());
+                for (const entry of destinations) {
+                    if (!entry.exists && entry.localRelative !== transfer.localRelativePath)
+                        continue;
+                    try {
+                        const candidate = await assertRealChildFile(root, entry.localRelative, "file");
+                        if (await sha256File(candidate.full) === transfer.sha256) {
+                            transfer.localRelativePath = entry.localRelative;
+                            transfer.cached = true;
+                            break;
+                        }
+                    }
+                    catch { /* Missing, unsafe or stale local copies are fetched again through the verified stream. */ }
+                }
+            }
+            const cachedTransfers = transfers.filter((entry) => entry.cached);
+            if (cachedTransfers.length) {
+                if (!isCurrent() || token.isCancellationRequested) {
+                    cancelled = true;
+                    return;
+                }
+                try {
+                    const cachedPaths = new Set(cachedTransfers.map((entry) => String(entry.remotePath || "").toLowerCase()));
+                    const cachedEntries = entries.filter((entry) => cachedPaths.has(String(entry.remotePath || "").toLowerCase()));
+                    const delivered = await this.withHostOperationLease("publishMappedResult", `复用已校验的 ${batch.sourceId} 结果`, () => distributeMappedDownloads(root, cachedEntries, cachedTransfers, overwrite), {
+                        resources: [{ server: "local", project: root, target: root }],
+                    });
+                    completed += delivered;
+                    cachedTransfers.forEach((entry) => { entry.delivered = true; });
+                    cachedEntries.forEach((entry) => { entry.delivered = true; });
+                }
+                catch {
+                    for (const transfer of cachedTransfers)
+                        transfer.cached = false;
+                }
+            }
+            if (statsServer) {
+                const unresolved = transfers.filter((entry) => !entry.cached && (!entry.sha256 || entry.bytes == null));
+                for (let offset = 0; offset < unresolved.length; offset += 128) {
+                    if (token.isCancellationRequested || !isCurrent()) {
+                        cancelled = true;
+                        return;
+                    }
+                    const candidates = unresolved.slice(offset, offset + 128);
+                    progress.report({ message: `${batch.sourceId}：核验 ${candidates.length} 个文件的大小和内容指纹` });
+                    try {
+                        const inventory = await this.simpleSftpApiCall("sync.projectInventory", {
+                            source: statsServer,
+                            relativePath: ".",
+                            recursive: true,
+                            scopePaths: candidates.map((entry) => entry.remotePath),
+                            timeoutMs: 120_000,
+                        });
+                        if (!isCurrent() || token.isCancellationRequested) {
+                            cancelled = true;
+                            return;
+                        }
+                        const files = inventory?.files && typeof inventory.files === "object" ? inventory.files : {};
+                        const byPath = new Map(Object.entries(files).map(([name, value]) => [String(name).replace(/\\/g, "/").toLowerCase(), value]));
+                        for (const entry of candidates) {
+                            const evidence = byPath.get(String(entry.remotePath).toLowerCase());
+                            const size = Number(typeof evidence === "object" ? evidence?.size : NaN);
+                            const hash = String(typeof evidence === "string" ? evidence : evidence?.sha256 || "").trim().toLowerCase();
+                            if (Number.isSafeInteger(size) && size >= 0)
+                                entry.bytes = size;
+                            if (/^[a-f0-9]{64}$/.test(hash))
+                                entry.sha256 = hash;
+                        }
+                    }
+                    catch {
+                        // Older SimpleSFTP hosts can still transfer safely; unverified files simply cannot use hash-based reuse.
+                    }
+                }
+                const unknownSizes = transfers.filter((entry) => !entry.cached && entry.bytes == null);
+                for (let offset = 0; offset < unknownSizes.length; offset += 128) {
+                    if (token.isCancellationRequested || !isCurrent()) {
+                        cancelled = true;
+                        return;
+                    }
+                    const candidates = unknownSizes.slice(offset, offset + 128);
+                    progress.report({ message: `${batch.sourceId}：读取 ${candidates.length} 个文件的大小以控制打包批次` });
+                    try {
+                        const stats = await this.simpleSftpApiCall("sync.projectFileStats", { source: statsServer, paths: candidates.map((entry) => entry.remotePath) });
+                        for (const entry of candidates) {
+                            const size = Number(stats?.files?.[entry.remotePath]?.size);
+                            if (Number.isSafeInteger(size) && size >= 0)
+                                entry.bytes = size;
+                        }
+                    }
+                    catch {
+                        // Older SimpleSFTP hosts can still transfer safely; unknown-size files become one-file batches.
+                    }
+                }
+            }
+            if (!isCurrent() || token.isCancellationRequested) {
+                cancelled = true;
+                return;
+            }
+            const chunks = partitionMappedDownloadTransfers(transfers.filter((entry) => !entry.cached), MAPPED_RESULT_DOWNLOAD_MAX_ENTRIES, MAPPED_RESULT_DOWNLOAD_MAX_BATCH_BYTES, RESULT_ARTIFACT_MAX_BYTES);
             for (let index = 0; index < chunks.length; index++) {
                 if (token.isCancellationRequested || !isCurrent()) {
                     cancelled = true;
@@ -16733,16 +17662,17 @@ class RealtimeTunnelPanelProvider {
                 const chunk = chunks[index];
                 progress.report({ message: `${batch.sourceId}：压缩打包 ${chunk.length} 个文件（${index + 1}/${chunks.length}）` });
                 try {
-                    const server = batch.sourceId === "hub"
+                    const server = statsServer || (batch.sourceId === "hub"
                         ? this.hubMappedDownloadServer()
-                        : this.mappedDownloadServerForSource(batch.workerId || batch.sourceId);
+                        : this.mappedDownloadServerForSource(batch.workerId || batch.sourceId));
                     const result = await this.simpleSftpApiCall("sync.downloadMappedPaths", {
                         localPath: root,
                         server,
-                        entries: chunk.map((entry) => ({ remotePath: entry.remotePath, localRelativePath: entry.localRelativePath })),
+                        entries: chunk.map((entry) => ({ remotePath: entry.remotePath, localRelativePath: entry.localRelativePath, bytes: entry.bytes, sha256: entry.sha256 })),
                         maxFileBytes: RESULT_ARTIFACT_MAX_BYTES,
+                        maxBatchBytes: MAPPED_RESULT_DOWNLOAD_MAX_BATCH_BYTES,
                         compression: "auto",
-                        overwrite: true,
+                        overwrite,
                         confirm: true,
                         pathConfirmed: true,
                         ...(metricsOnly ? { metricsOnly: true } : {}),
@@ -16754,9 +17684,14 @@ class RealtimeTunnelPanelProvider {
                         cancelled = true;
                         break;
                     }
-                    const delivered = await distributeMappedDownloads(root, entries, chunk, overwrite);
+                    const chunkPaths = new Set(chunk.map((entry) => String(entry.remotePath || "").toLowerCase()));
+                    const chunkEntries = entries.filter((entry) => chunkPaths.has(String(entry.remotePath || "").toLowerCase()));
+                    const delivered = await this.withHostOperationLease("publishMappedResult", `发布 ${batch.sourceId} 的映射结果`, () => distributeMappedDownloads(root, chunkEntries, chunk, overwrite), {
+                        resources: [{ server: "local", project: root, target: root }],
+                    });
                     completed += delivered;
                     chunk.forEach((entry) => { entry.delivered = true; });
+                    chunkEntries.forEach((entry) => { entry.delivered = true; });
                 }
                 catch (error) {
                     failures.push(`${batch.sourceId}：${errorMessage(error)}`);
@@ -16771,10 +17706,12 @@ class RealtimeTunnelPanelProvider {
         if (!isCurrent())
             return { completed, selected: entries.length, failures, cancelled: true, sourceId: batch.sourceId, deliveredEntries };
         const summaryText = `${metricsOnly ? "指标文件下载" : "结果同步"} ${batch.sourceId}：成功 ${completed}/${entries.length}，失败 ${failures.length}${cancelled ? "，已取消后续批次" : ""}。本机目录：${this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR}`;
-        if (failures.length || cancelled)
-            void vscode.window.showWarningMessage(`${summaryText}\n${failures.slice(0, 5).join("\n")}`);
-        else
-            void vscode.window.showInformationMessage(summaryText);
+        if (options.notify !== false) {
+            if (failures.length || cancelled)
+                void vscode.window.showWarningMessage(`${summaryText}\n${failures.slice(0, 5).join("\n")}`);
+            else
+                void vscode.window.showInformationMessage(summaryText);
+        }
         return { completed, selected: entries.length, failures, cancelled, sourceId: batch.sourceId, deliveredEntries };
     }
     async downloadResultArtifactCandidates(projectContext, client, planFile, summary, candidates, title, options = {}) {
@@ -16794,12 +17731,12 @@ class RealtimeTunnelPanelProvider {
         for (const batch of confirmed.batches) {
             if (!isCurrent())
                 return { completed: downloads.reduce((total, item) => total + item.completed, 0), selected: confirmed.batches.reduce((total, item) => total + item.entries.length, 0), failures: [], cancelled: true };
-            const download = await this.downloadMappedResultBatch(projectContext, client, batch, title, { metricsOnly, overwrite: confirmed.overwrite });
+            const download = await this.downloadMappedResultBatch(projectContext, client, batch, title, { metricsOnly, overwrite: confirmed.overwrite, notify: false });
             downloads.push(download);
             if (download.cancelled)
                 break;
         }
-        return {
+        const report = {
             completed: downloads.reduce((total, item) => total + item.completed, 0),
             selected: downloads.reduce((total, item) => total + item.selected, 0),
             failures: downloads.flatMap((item) => item.failures),
@@ -16807,6 +17744,7 @@ class RealtimeTunnelPanelProvider {
             skippedExisting: confirmed.skippedExisting || 0,
             downloads,
         };
+        return report;
     }
     async publishDownloadedResultMetrics(projectContext, client, ready, downloads) {
         const included = [];
@@ -17033,46 +17971,72 @@ class RealtimeTunnelPanelProvider {
     }
     async loadPlanSyncLedger(root) {
         const file = PlanArtifactSync.planSyncLedgerStoragePath(this.context.globalStorageUri.fsPath, root);
-        let source = await fs.readFile(file, "utf8").catch((error) => {
-            if (error?.code === "ENOENT")
-                return "";
-            throw error;
-        });
-        const migrate = !source;
-        if (migrate) {
-            const legacy = safeWorkspaceChildPath(root, "simple_cluster/results/plan_sync_ledger.json");
-            source = await fs.readFile(legacy, "utf8").catch((error) => {
+        return this.withPlanSyncLedgerLease(root, async () => {
+            let source = await fs.readFile(file, "utf8").catch((error) => {
                 if (error?.code === "ENOENT")
                     return "";
                 throw error;
             });
-        }
-        const ledger = source ? PlanArtifactSync.migratePlanSyncLedger(JSON.parse(source)) : PlanArtifactSync.emptyPlanSyncLedger();
-        if (migrate && source)
-            await this.writePlanSyncLedger(root, ledger);
-        this.planSyncLedger = ledger;
-        this.planSyncLedgerRoot = root;
-        return ledger;
+            const migrate = !source;
+            if (migrate) {
+                const legacy = safeWorkspaceChildPath(root, "simple_cluster/results/plan_sync_ledger.json");
+                source = await fs.readFile(legacy, "utf8").catch((error) => {
+                    if (error?.code === "ENOENT")
+                        return "";
+                    throw error;
+                });
+            }
+            const ledger = source ? PlanArtifactSync.migratePlanSyncLedger(JSON.parse(source)) : PlanArtifactSync.emptyPlanSyncLedger();
+            if (migrate && source)
+                await writeAtomicPluginStateJson(file, ledger);
+            this.planSyncLedger = ledger;
+            this.planSyncLedgerRoot = root;
+            return ledger;
+        });
     }
     async writePlanSyncLedger(root, ledger) {
         const file = PlanArtifactSync.planSyncLedgerStoragePath(this.context.globalStorageUri.fsPath, root);
-        await fs.mkdir(path.dirname(file), { recursive: true });
-        const temporary = file + ".tmp-" + process.pid + "-" + crypto.randomBytes(4).toString("hex");
-        await fs.writeFile(temporary, JSON.stringify(ledger, null, 2) + "\n", "utf8");
-        await fs.rename(temporary, file);
-        this.planSyncLedger = ledger;
-        this.planSyncLedgerRoot = root;
+        return this.withPlanSyncLedgerLease(root, async () => {
+            await writeAtomicPluginStateJson(file, ledger);
+            this.planSyncLedger = ledger;
+            this.planSyncLedgerRoot = root;
+        });
     }
     async updatePlanSyncLedger(root, update) {
         const previous = this.planSyncLedgerMutation || Promise.resolve();
-        const task = previous.catch(() => undefined).then(async () => {
+        const task = previous.catch(() => undefined).then(() => this.withPlanSyncLedgerLease(root, async () => {
             const ledger = await this.loadPlanSyncLedger(root);
             const next = update(ledger);
-            await this.writePlanSyncLedger(root, next);
+            const file = PlanArtifactSync.planSyncLedgerStoragePath(this.context.globalStorageUri.fsPath, root);
+            await writeAtomicPluginStateJson(file, next);
+            this.planSyncLedger = next;
+            this.planSyncLedgerRoot = root;
             return next;
-        });
+        }));
         this.planSyncLedgerMutation = task;
         return task;
+    }
+    async withPlanSyncLedgerLease(root, work) {
+        const file = PlanArtifactSync.planSyncLedgerStoragePath(this.context.globalStorageUri.fsPath, root);
+        return this.withPluginStateFileLease(root, file, "plan-sync-ledger", "更新 Plan 产物同步记录", work);
+    }
+    async withPluginStateFileLease(root, file, actionType, actionLabel, work) {
+        if (!this.hostOperationLease)
+            return work();
+        const project = path.dirname(file);
+        return this.hostOperationLease.run({
+            pluginId: "simple-local.simple-experiment",
+            workspaceUri: String(root),
+            hostProjectPath: root,
+            actionType,
+            actionLabel,
+            waitForConflict: true,
+            resources: [{ server: "local", project, target: file }],
+        }, work);
+    }
+    async withDraftMetadataLease(root, work) {
+        const file = path.join(root, DraftPlans_1.DRAFT_METADATA_PATH);
+        return this.withPluginStateFileLease(root, file, "draft-metadata", "更新草稿状态", work);
     }
     async queueHistoricalPlanArtifactSyncs(root, registry) {
         const workerIds = this.setupConfig.workerTunnels.map((worker) => worker.id).filter(Boolean);
@@ -17125,9 +18089,15 @@ class RealtimeTunnelPanelProvider {
         const capabilities = await capabilityResponse.json();
         if (!Array.isArray(capabilities.methods) || !capabilities.methods.includes(method))
             throw new Error(`SimpleSFTP 不支持 ${method}。`);
-        return { endpoint, headers };
+        return {
+            endpoint,
+            headers,
+            instanceId: typeof capabilities.instanceId === "string" ? capabilities.instanceId : "",
+            features: capabilities.features && typeof capabilities.features === "object" ? capabilities.features : {},
+        };
     }
     async simpleSftpApiCall(method, params, timeoutMs = 0) {
+        (0, SafeRequestRetry_1.assertRetryRequestCurrent)();
         return (0, SimpleSftpProgressWait_1.callSftpWithProgress)(method, params || {}, (name) => this.simpleSftpCapability(name));
     }
     async syncPendingPlanArtifacts(onlyKey = "", knownSummary) {
@@ -17281,10 +18251,7 @@ class RealtimeTunnelPanelProvider {
             complete: !disabled.length && !pendingPlans.length && !verified.conflicts.length && !verified.copies.length && !verified.protectedDifferences.length && !Object.keys(holds).length,
         };
         const file = PlanArtifactSync.projectMirrorStateStoragePath(this.context.globalStorageUri.fsPath, root);
-        await fs.mkdir(path.dirname(file), { recursive: true });
-        const temporary = file + ".tmp-" + process.pid + "-" + crypto.randomBytes(4).toString("hex");
-        await fs.writeFile(temporary, JSON.stringify(state, null, 2) + "\n", "utf8");
-        await fs.rename(temporary, file);
+        await this.withPluginStateFileLease(root, file, "project-mirror-state", "保存项目同步检查结果", () => writeAtomicPluginStateJson(file, state));
         if (verified.conflicts.length || verified.copies.length || verified.protectedDifferences.length)
             throw new Error(`项目同步未完成：${verified.conflicts.length} 个内容冲突、${verified.copies.length} 个缺失文件、${verified.protectedDifferences.length} 个代码或 Plan 产物差异；详情见 ${file}。`);
     }
@@ -17341,7 +18308,7 @@ class RealtimeTunnelPanelProvider {
         const registeredPlans = new Set();
         const refreshedSummaries = [];
         await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "下载指标并重新汇总", cancellable: true }, async (progress, token) => {
-            const isCurrent = () => this.projectContextIsCurrent(context) && client === this.client;
+            const isCurrent = () => !(0, SafeRequestRetry_1.retryRequestSignal)()?.aborted && this.projectContextIsCurrent(context) && client === this.client;
             const ready = [];
             for (const [index, plan] of plans.entries()) {
                 if (token.isCancellationRequested || !this.projectContextIsCurrent(context) || client !== this.client)
@@ -17536,10 +18503,7 @@ class RealtimeTunnelPanelProvider {
             return;
         for (const [index, value] of Object.keys(outputs).entries()) {
             const target = targets[index];
-            await fs.mkdir(path.dirname(target), { recursive: true });
-            const temporary = target + ".tmp-" + process.pid + "-" + crypto.randomBytes(4).toString("hex");
-            await fs.writeFile(temporary, outputs[value], "utf8");
-            await fs.rename(temporary, target);
+            await (0, StateStore_1.atomicWriteText)(target, outputs[value]);
         }
         this.invalidateResultCatalogCache("splitProjectResultTable");
         void vscode.window.showInformationMessage("已生成 " + paths.length + " 张子表，目录：" + path.posix.join(path.posix.dirname(table.path), "by_" + folder));
@@ -17728,13 +18692,12 @@ class RealtimeTunnelPanelProvider {
         const entries = [...(this.client?.endpointById?.entries?.() || [])];
         return entries.filter(([, endpoint]) => endpoint?.localPort && endpoint?.role !== "hub");
     }
-    async scalarAgentFetch(endpointId, method, route, body, contentType = "application/json") {
+    async scalarAgentFetch(endpointId, method, route, body, contentType = "application/json", signal) {
         const endpoint = this.client?.endpointById?.get?.(endpointId);
         if (!endpoint)
             throw new Error(`未找到 ${endpointId} 的 Agent 隧道配置`);
         const host = String(endpoint.localHost || "127.0.0.1");
-        TunnelGateway_1.assertLocalhost(host);
-        const base = `http://${host.includes(":") ? `[${host}]` : host}:${Number(endpoint.localPort)}`;
+        const base = tunnelHttpOrigin(host, endpoint.localPort);
         const headers = {};
         if (endpoint.token)
             headers["X-Simple-Agent-Token"] = String(endpoint.token);
@@ -17742,17 +18705,41 @@ class RealtimeTunnelPanelProvider {
             headers["Content-Type"] = contentType;
         const response = await fetch(base + route, {
             method, headers, body: body === undefined ? undefined : Buffer.isBuffer(body) ? body : JSON.stringify(body),
-            signal: AbortSignal.timeout(20_000), redirect: route.startsWith("/api/tensorboard/ui") ? "follow" : "manual",
+            signal, redirect: route.startsWith("/api/tensorboard/ui") ? "follow" : "manual",
         });
         return response;
     }
-    async scalarJson(endpointId, method, route, body) {
-        const response = await this.scalarAgentFetch(endpointId, method, route, body);
-        if (!response.ok)
-            throw new Error(`${endpointId} 标量查询 HTTP ${response.status}: ${(await response.text()).slice(0, 200)}`);
-        return await response.json();
+    async withScalarRequestTimeout(signal, work) {
+        const controller = new AbortController();
+        const onAbort = () => controller.abort(signal?.reason || new Error("TensorBoard viewer request cancelled."));
+        if (signal?.aborted)
+            onAbort();
+        else
+            signal?.addEventListener("abort", onAbort, { once: true });
+        const timer = setTimeout(() => controller.abort(new Error("TensorBoard Agent request timed out.")), 20_000);
+        timer.unref?.();
+        try {
+            if (controller.signal.aborted)
+                throw controller.signal.reason;
+            return await work(controller.signal);
+        }
+        finally {
+            clearTimeout(timer);
+            signal?.removeEventListener("abort", onAbort);
+        }
     }
-    async scalarViewerQuery(params, selectedEndpointId = "") {
+    async scalarJson(endpointId, method, route, body, signal) {
+        return this.withScalarRequestTimeout(signal, async (requestSignal) => {
+            const response = await this.scalarAgentFetch(endpointId, method, route, body, "application/json", requestSignal);
+            const bytes = await readBoundedWebResponse(response, 16 * 1024 * 1024, `${endpointId} TensorBoard scalar`, requestSignal);
+            if (!response.ok)
+                throw new Error(`${endpointId} 标量查询 HTTP ${response.status}: ${bytes.toString("utf8").slice(0, 200)}`);
+            return JSON.parse(bytes.toString("utf8"));
+        });
+    }
+    async scalarViewerQuery(params, selectedEndpointId = "", signal) {
+        if (signal?.aborted)
+            throw signal.reason || new Error("TensorBoard viewer request cancelled.");
         const action = String(params?.action || "");
         if (action === "native.open") {
             const endpointId = selectedEndpointId || this.scalarEndpoints()[0]?.[0];
@@ -17774,18 +18761,27 @@ class RealtimeTunnelPanelProvider {
             throw new Error("缺少指标或实验");
         if (action === "tags" && (!payload.planFile || !payload.case))
             throw new Error("缺少 Plan 或实验");
-        const operation = async () => await Promise.allSettled(endpoints.map(async ([id]) => ({ id, data: await this.scalarJson(id, action === "catalog" ? "GET" : "POST", action === "catalog" ? `/api/tensorboard/scalars/catalog?logdir=${encodeURIComponent(logdir)}` : "/api/tensorboard/scalars/query", action === "catalog" ? undefined : payload) })));
+        const operation = async () => {
+            const results = await Promise.allSettled(endpoints.map(async ([id]) => ({ id, data: await this.scalarJson(id, action === "catalog" ? "GET" : "POST", action === "catalog" ? `/api/tensorboard/scalars/catalog?logdir=${encodeURIComponent(logdir)}` : "/api/tensorboard/scalars/query", action === "catalog" ? undefined : payload, signal) })));
+            if (signal?.aborted)
+                throw signal.reason || new Error("TensorBoard viewer request cancelled.");
+            return results;
+        };
         let settled;
         for (let attempt = 0; attempt < 3; attempt++) {
             try {
-                settled = await this.budget.run("tensorboard_scalar", operation, { visibleBypass: true });
+                settled = await this.budget.run("tensorboard_scalar", operation, { visibleBypass: true, signal });
                 break;
             }
             catch (error) {
+                if (signal?.aborted)
+                    throw signal.reason || error;
                 const retryAfter = Number(error?.decision?.retryAfterMs || 0);
                 if (!(error instanceof RequestBudget_1.RequestBudgetDeniedError) || attempt === 2 || retryAfter > 1500)
                     throw error;
-                await new Promise((resolve) => setTimeout(resolve, Math.max(100, retryAfter + 30)));
+                for (const [id] of endpoints)
+                    this.client.noteRetry?.(id);
+                await delayWithAbort(Math.max(100, retryAfter + 30), signal);
             }
         }
         const success = settled.filter((row) => row.status === "fulfilled").map((row) => row.value);
@@ -17811,15 +18807,15 @@ class RealtimeTunnelPanelProvider {
         }));
         return { charts, offlineServers, unsupportedFiles: success.flatMap((row) => (row.data.groups || []).flatMap((group) => group.unsupportedFiles || [])) };
     }
-    async scalarNativeProxy(method, route, body, contentType, selectedEndpointId = "") {
+    async scalarNativeProxy(method, route, body, contentType, selectedEndpointId = "", signal) {
         const endpointId = selectedEndpointId || this.scalarEndpoints()[0]?.[0];
         if (!endpointId)
             throw new Error("无可用 Worker");
-        const response = await this.scalarAgentFetch(endpointId, method, route, body, contentType);
-        const data = Buffer.from(await response.arrayBuffer());
-        if (data.length > 32 * 1024 * 1024)
-            throw new Error("TensorBoard 响应过大");
-        return { status: response.status, body: data, contentType: response.headers.get("content-type") || "application/octet-stream" };
+        return this.withScalarRequestTimeout(signal, async (requestSignal) => {
+            const response = await this.scalarAgentFetch(endpointId, method, route, body, contentType, requestSignal);
+            const data = await readBoundedWebResponse(response, 32 * 1024 * 1024, "TensorBoard", requestSignal);
+            return { status: response.status, body: data, contentType: response.headers.get("content-type") || "application/octet-stream" };
+        });
     }
     async openTensorBoardFromUi(message, openExternal = true) {
         const endpointId = String(message?.endpointId || message?.endpoint_id || "hub").trim() || "hub";
@@ -17846,10 +18842,7 @@ class RealtimeTunnelPanelProvider {
         // TB session name is derived from the configured prefix; never hardcoded to a server/user.
         // The actual launch command is discovered adaptively by the agent (no server path in settings).
         const tbSession = String(cfg.get("tensorboard.tmuxSession") || `${normPrefix}_tb`);
-        const localHost = String(endpoint.localHost || "127.0.0.1");
-        TunnelGateway_1.assertLocalhost(localHost);
-        const browserHost = localHost.includes(":") ? `[${localHost}]` : localHost;
-        const url = `http://${browserHost}:${endpoint.localPort}/api/tensorboard/ui/`;
+        const url = `${tunnelHttpOrigin(endpoint.localHost, endpoint.localPort)}/api/tensorboard/ui/`;
         const body = { sessionPrefix, port: remotePort, logdir, condaEnv, tmuxSession: tbSession, session: tbSession };
         try {
             // Always restart a fresh TB session so the panel shows the latest state (low cost).
@@ -17944,6 +18937,7 @@ class RealtimeTunnelPanelProvider {
                 const decision = error?.decision;
                 if (attempt === 3 || !["cooldown", "rate_limited"].includes(String(decision?.reason || "")))
                     throw error;
+                client.noteRetry?.(endpointId);
                 await new Promise((resolve) => setTimeout(resolve, Math.min(2000, Math.max(250, Number(decision?.retryAfterMs || 1000)) + 50)));
             }
         }
@@ -17954,10 +18948,7 @@ class RealtimeTunnelPanelProvider {
         const endpoint = this.client?.endpointById?.get?.(endpointId);
         if (!endpoint)
             throw new Error(`未找到 ${endpointId} 的 Agent 隧道配置`);
-        const localHost = String(endpoint.localHost || "127.0.0.1");
-        TunnelGateway_1.assertLocalhost(localHost);
-        const browserHost = localHost.includes(":") ? `[${localHost}]` : localHost;
-        const targetUrl = `http://${browserHost}:${endpoint.localPort}/api/tensorboard/ui/`;
+        const targetUrl = `${tunnelHttpOrigin(endpoint.localHost, endpoint.localPort)}/api/tensorboard/ui/`;
         await vscode.env.clipboard.writeText(targetUrl);
         void vscode.window.showInformationMessage(`已复制 TensorBoard 链接（${endpointId}）：${targetUrl}`);
     }
@@ -17974,18 +18965,15 @@ class RealtimeTunnelPanelProvider {
     // 仅经 safeWorkspaceChildPath 做 .. 逃逸拒绝后 readdir 过滤 check-static-*.md，供 sync 卡报告区 postState 下发。
     // 不做任何网络探测（P0 禁硬编码端口/IP）。
     listCheckStaticReportsSync() {
+        const root = workspaceRoot();
+        return root && this.checkStaticReportsRoot === root ? this.checkStaticReportsCache.slice() : [];
+    }
+    async refreshCheckStaticReports(root = workspaceRoot()) {
         try {
-            const root = workspaceRoot();
             if (!root)
                 return [];
             const dirFull = safeWorkspaceChildPath(root, CHECK_STATIC_REPORT_DIR_REL);
-            let entries = [];
-            try {
-                entries = fsNode.readdirSync(dirFull);
-            }
-            catch {
-                return [];
-            }
+            const entries = await fs.readdir(dirFull).catch((error) => error?.code === "ENOENT" ? [] : Promise.reject(error));
             const out = [];
             for (const name of entries || []) {
                 if (typeof name !== "string")
@@ -18002,7 +18990,15 @@ class RealtimeTunnelPanelProvider {
                 out.splice(latestIdx, 1);
                 out.unshift("check-static-latest.md");
             }
-            return out;
+            if (workspaceRoot() !== root)
+                return [];
+            const changed = this.checkStaticReportsRoot !== root || out.length !== this.checkStaticReportsCache.length
+                || out.some((value, index) => value !== this.checkStaticReportsCache[index]);
+            this.checkStaticReportsRoot = root;
+            this.checkStaticReportsCache = out;
+            if (changed && this.view)
+                this.postState();
+            return out.slice();
         }
         catch {
             return [];
@@ -18087,6 +19083,7 @@ class RealtimeTunnelPanelProvider {
         const report = await (0, ProjectStaticCheck_1.runProjectStaticCheck)(script, root, signal);
         if (workspaceRoot() !== root || signal.aborted)
             return;
+        await this.refreshCheckStaticReports(root);
         const full = safeWorkspaceChildPath(root, rel);
         const stat = await fs.stat(full).catch(() => undefined);
         if (!stat || !stat.isFile())
@@ -18104,52 +19101,38 @@ class RealtimeTunnelPanelProvider {
         else if (pick === "复制报告")
             await this.copyLastCheckStaticReportFromUi();
     }
-    async fetchTmuxCaptureFromUi(message) {
+    async fetchTmuxCaptureFromUi(message, options = {}) {
         const workerId = this.tmuxWorkerId(message);
         const _pfxRaw = this.setupConfig?.sessionPrefix || this.setupConfig?.remoteTmuxSessionPrefix || "simple";
         const _pfx = (0, AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix)(_pfxRaw);
         const _wid = workerId;
         const fallbackWin = _wid ? (0, AgentTmuxPolicy_1.defaultAgentTmuxSessionName)("worker", _wid, _pfx) : `${_pfx}-worker-agent`;
         const win = String(message?.window || message?.session || message?.name || "").trim() || fallbackWin;
+        options.signal?.throwIfAborted();
         try {
             // 优先走 tunnel client 的通用 request，若不可用则回退为直接本机端口探测
             let result = null;
             const tryClient = this.client?.clients?.get(workerId);
             if (tryClient && typeof tryClient.requestJson === "function") {
-                result = await tryClient.requestJson(`/api/tmux/capture?window=${encodeURIComponent(win)}&lines=all`, "manual_refresh", undefined, { method: "GET", userInitiated: true });
+                result = await tryClient.requestJson(`/api/tmux/capture?window=${encodeURIComponent(win)}&lines=all`, "manual_refresh", undefined, { method: "GET", userInitiated: true, signal: options.signal });
             }
             if (!result) {
-                const endpoint = this.tmuxEndpoint(workerId);
-                const host = endpoint.localHost;
-                const port = endpoint.localPort;
-                const token = String(endpoint.token || "");
-                const http = require("http");
-                result = await new Promise((resolve, reject) => {
-                    const req = http.request({ host, port, path: `/api/tmux/capture?window=${encodeURIComponent(win)}&lines=all`, method: "GET", headers: token ? { "X-Simple-Agent-Token": token, "Authorization": `Bearer ${token}` } : {}, timeout: 4000 }, (res) => {
-                        let data = "";
-                        res.on("data", (c) => data += c);
-                        res.on("end", () => { try {
-                            resolve(JSON.parse(data || "{}"));
-                        }
-                        catch {
-                            resolve({ text: data });
-                        } });
-                    });
-                    req.on("error", reject);
-                    req.on("timeout", () => { req.destroy(new Error("timeout")); });
-                    req.end();
-                });
+                result = await this.requestTmuxJson(workerId, `/api/tmux/capture?window=${encodeURIComponent(win)}&lines=all`, 4000, 2 * 1024 * 1024, options.signal);
             }
             const text = String(result?.text || result?.output || "");
             const ok = result?.ok !== false;
             const payload = { type: "tmuxCapture", workerId, window: win, text, ok, fetchedAt: new Date().toISOString(), error: result?.error || "" };
-            this.view?.webview.postMessage(payload);
+            if (options.publish !== false)
+                this.view?.webview.postMessage(payload);
             return payload;
         }
         catch (exc) {
+            if (options.signal?.aborted)
+                throw exc;
             const msg = String(exc?.message || exc || "fetch failed").slice(0, 500);
             const payload = { type: "tmuxCapture", workerId, window: win, text: "", ok: false, error: msg, fetchedAt: new Date().toISOString() };
-            this.view?.webview.postMessage(payload);
+            if (options.publish !== false)
+                this.view?.webview.postMessage(payload);
             return payload;
         }
     }
@@ -18175,9 +19158,10 @@ class RealtimeTunnelPanelProvider {
         const workerIds = _message?.allWorkers === true ? workers.map((worker) => worker.id) : [this.tmuxWorkerId(_message, true)];
         await Promise.all(workerIds.map((workerId) => this.fetchOneTmuxListFromUi(workerId, _message?.requestId)));
     }
-    publishTmuxList(workerId, result, requestId) {
+    publishTmuxList(workerId, result, requestId, publish = true) {
         const payload = { type: "tmuxList", ok: result?.ok !== false, available: result?.available !== false, workerId, requestId, workers: this.enabledWorkerConfigs().map((worker) => ({ id: worker.id, name: worker.displayName || worker.id })), gpuIds: result?.gpuIds || [], sessions: result?.sessions || [], error: result?.error || result?.message || "", fetchedAt: new Date().toISOString() };
-        this.view?.webview.postMessage(payload);
+        if (publish)
+            this.view?.webview.postMessage(payload);
         return payload;
     }
     async readTmuxListAfterKill(workerId) {
@@ -18188,43 +19172,81 @@ class RealtimeTunnelPanelProvider {
         }
         return this.fetchOneTmuxListFromUi(workerId);
     }
-    async fetchOneTmuxListFromUi(workerId, requestId) {
+    async fetchOneTmuxListFromUi(workerId, requestId, options = {}) {
+        options.signal?.throwIfAborted();
         try {
             let result = null;
             const tryClient = this.client?.clients?.get(workerId);
             if (tryClient && typeof tryClient.requestJson === "function") {
-                result = await tryClient.requestJson(`/api/tmux/list`, "manual_refresh", undefined, { method: "GET", userInitiated: true });
+                result = await tryClient.requestJson(`/api/tmux/list`, "manual_refresh", undefined, { method: "GET", userInitiated: true, signal: options.signal });
             }
             if (!result) {
-                const endpoint = this.tmuxEndpoint(workerId);
-                const host = endpoint.localHost;
-                const port = endpoint.localPort;
-                const token = String(endpoint.token || "");
-                const http = require("http");
-                result = await new Promise((resolve, reject) => {
-                    const req = http.request({ host, port, path: `/api/tmux/list`, method: "GET", headers: token ? { "X-Simple-Agent-Token": token, "Authorization": `Bearer ${token}` } : {}, timeout: 5000 }, (res) => {
-                        let data = "";
-                        res.on("data", (c) => data += c);
-                        res.on("end", () => { try {
-                            resolve(JSON.parse(data || "{}"));
-                        }
-                        catch {
-                            resolve({ sessions: [], error: data });
-                        } });
-                    });
-                    req.on("error", reject);
-                    req.on("timeout", () => { req.destroy(new Error("timeout")); });
-                    req.end();
-                });
+                result = await this.requestTmuxJson(workerId, `/api/tmux/list`, 5000, 512 * 1024, options.signal);
             }
-            return this.publishTmuxList(workerId, result, requestId);
+            return this.publishTmuxList(workerId, result, requestId, options.publish !== false);
         }
         catch (exc) {
+            if (options.signal?.aborted)
+                throw exc;
             const msg = String(exc?.message || exc || "fetch failed").slice(0, 500);
             const payload = { type: "tmuxList", ok: false, available: false, workerId, requestId, workers: this.enabledWorkerConfigs().map((worker) => ({ id: worker.id, name: worker.displayName || worker.id })), sessions: [], error: msg, fetchedAt: new Date().toISOString() };
-            this.view?.webview.postMessage(payload);
+            if (options.publish !== false)
+                this.view?.webview.postMessage(payload);
             return payload;
         }
+    }
+    requestTmuxJson(workerId, requestPath, timeoutMs, maxBytes, signal) {
+        const endpoint = this.tmuxEndpoint(workerId);
+        const http = require("http");
+        return new Promise((resolve, reject) => {
+            let settled = false;
+            let request;
+            const cleanup = () => signal?.removeEventListener("abort", onAbort);
+            const fail = (error) => {
+                if (settled)
+                    return;
+                settled = true;
+                cleanup();
+                reject(error);
+            };
+            const onAbort = () => request.destroy(signal?.reason instanceof Error ? signal.reason : Object.assign(new Error("Request cancelled because the caller disconnected."), { name: "AbortError" }));
+            const token = String(endpoint.token || "");
+            request = http.request({ host: endpoint.localHost, port: endpoint.localPort, path: requestPath, method: "GET",
+                headers: token ? { "X-Simple-Agent-Token": token, "Authorization": `Bearer ${token}` } : {}, timeout: timeoutMs }, (response) => {
+                const chunks = [];
+                let bytes = 0;
+                response.on("data", (chunk) => {
+                    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+                    bytes += buffer.length;
+                    if (bytes > maxBytes) {
+                        request.destroy(new Error(`tmux 响应超过 ${maxBytes} 字节上限。`));
+                        return;
+                    }
+                    chunks.push(buffer);
+                });
+                response.on("end", () => {
+                    if (settled)
+                        return;
+                    const body = Buffer.concat(chunks, bytes).toString("utf8");
+                    settled = true;
+                    cleanup();
+                    try {
+                        resolve(JSON.parse(body || "{}"));
+                    }
+                    catch {
+                        resolve({ text: body, sessions: [], error: body });
+                    }
+                });
+                response.on("error", fail);
+            });
+            request.on("error", fail);
+            request.on("timeout", () => request.destroy(new Error("timeout")));
+            signal?.addEventListener("abort", onAbort, { once: true });
+            if (signal?.aborted)
+                onAbort();
+            else
+                request.end();
+        });
     }
     async clearTmuxTaskTabsFromUi(message) {
         if (this.tmuxClearTaskTabsInFlight)
@@ -18780,6 +19802,7 @@ class RealtimeTunnelPanelProvider {
                 : undefined;
         const failureDocumentGeneration = Number(heartbeat?.failureDocumentGeneration ?? heartbeat?.documentGeneration ?? this.panelDocumentGeneration ?? 0);
         const message = panelLifecycleDiagnosticMessage(reason);
+        const renderEvidence = compactPanelRenderEvidence(heartbeat?.renderEvidence);
         const details = compactPanelLifecycleDetails({
             runningVersion: versions.runningVersion,
             installedVersion: versions.installedVersion,
@@ -18797,6 +19820,7 @@ class RealtimeTunnelPanelProvider {
             reason: String(reason || "unknown").slice(0, 80),
             reloadRequired: versions.reloadRequired,
             lifecycle: this.panelLifecycleState,
+            lowEffectsMode: this.panelLowEffectsMode,
             renderHealthStatus: heartbeat?.renderHealthStatus,
             renderHealthReason: heartbeat?.renderHealthReason,
             documentHidden: heartbeat?.documentHidden,
@@ -18808,6 +19832,7 @@ class RealtimeTunnelPanelProvider {
             statePayloadBytes: telemetry?.payloadBytes || 0,
             stateBuildDurationMs: telemetry?.buildTotalMs || 0,
             telemetrySampleId: telemetry?.sampleId || 0,
+            renderEvidence,
         });
         const key = JSON.stringify({ reason, lifecycle: this.panelLifecycleState, documentGeneration: this.panelDocumentGeneration, runningBuildId: versions.runningBuildId, diskBuildId: versions.diskBuildId });
         if (key === this.lastPanelLifecycleDiagnosticKey)
@@ -18820,6 +19845,7 @@ class RealtimeTunnelPanelProvider {
             documentGeneration: failureDocumentGeneration, failureDocumentGeneration,
             currentDocumentGeneration: this.panelDocumentGeneration, viewGeneration: this.viewGeneration,
             webviewReady: this.webviewReady === true, viewVisible: this.view?.visible === true,
+            visualMode: this.panelLowEffectsMode ? "low-effects" : "standard",
             renderHealthStatus: heartbeat?.renderHealthStatus,
             renderHealthReason: heartbeat?.renderHealthReason,
             documentHidden: heartbeat?.documentHidden,
@@ -18829,7 +19855,9 @@ class RealtimeTunnelPanelProvider {
             previousHeartbeatRenderedSeq: heartbeat?.previousRenderedSeq ?? this.latestPanelHeartbeatProgress?.previousRenderedSeq,
             stalledAckCount: heartbeat?.stalledAckCount ?? this.latestPanelHeartbeatProgress?.stalledAckCount ?? this.stateRenderStalledAcks,
             payloadBytes: telemetry?.payloadBytes || 0, stateBuildDurationMs: telemetry?.buildTotalMs || 0,
+            renderEvidence,
         });
+        this.recordPanelIncident("lifecycle-failure", reason, true);
         this.panelLifecycleDiagnostics = [event, ...this.panelLifecycleDiagnostics].filter(Boolean).slice(0, PANEL_LIFECYCLE_DIAGNOSTIC_LIMIT);
         this.currentSessionPanelLifecycleDiagnostics = [event, ...this.currentSessionPanelLifecycleDiagnostics].slice(0, PANEL_LIFECYCLE_DIAGNOSTIC_LIMIT);
         void this.persistProjectPanelLifecycleDiagnosticsState().catch(() => undefined);
@@ -18848,11 +19876,73 @@ class RealtimeTunnelPanelProvider {
             viewGeneration: Number(this.viewGeneration || 0),
         };
     }
+    startPanelHostEventLoopMonitor() {
+        try {
+            const histogram = (0, perf_hooks_1.monitorEventLoopDelay)({ resolution: 100 });
+            histogram.enable();
+            this.panelHostEventLoopHistogram = histogram;
+            this.panelHostEventLoopTimer = setInterval(() => {
+                const current = this.panelHostEventLoopHistogram;
+                if (!current)
+                    return;
+                const milliseconds = (value) => Number.isFinite(value) && value >= 0 ? Math.round(value / 1e6 * 10) / 10 : null;
+                const sample = {
+                    at: new Date().toISOString(),
+                    intervalMs: 10_000,
+                    resolutionMs: 100,
+                    maxDelayMs: milliseconds(current.max),
+                    p99DelayMs: milliseconds(current.percentile(99)),
+                    meanDelayMs: milliseconds(current.mean),
+                };
+                current.reset();
+                this.panelHostEventLoopSamples = [sample, ...this.panelHostEventLoopSamples].slice(0, 12);
+            }, 10_000);
+            this.panelHostEventLoopTimer.unref?.();
+        }
+        catch {
+            this.panelHostEventLoopHistogram = undefined;
+        }
+    }
+    recordPanelLayoutEvidence(message) {
+        const rect = (value) => {
+            const source = value && typeof value === "object" ? value : {};
+            const number = (key) => {
+                const value = Number(source[key]);
+                return Number.isFinite(value) ? Math.max(-10000, Math.min(10000, Math.round(value))) : 0;
+            };
+            return { x: number("x"), y: number("y"), width: number("width"), height: number("height") };
+        };
+        const evidence = {
+            at: new Date().toISOString(),
+            documentGeneration: Number(message?.documentGeneration || 0),
+            trigger: String(message?.trigger || "unknown").slice(0, 32),
+            documentHidden: message?.documentHidden === true,
+            viewport: rect(message?.viewport),
+            cardDeck: rect(message?.cardDeck),
+            mainColumn: rect(message?.mainColumn),
+            inspector: rect(message?.inspector),
+            devicePixelRatio: Math.max(0, Math.min(8, Number(message?.devicePixelRatio) || 0)),
+        };
+        const signature = JSON.stringify({ ...evidence, at: undefined, trigger: undefined });
+        const previous = this.latestPanelLayoutEvidence;
+        this.latestPanelLayoutEvidence = { ...evidence, signature };
+        if (previous?.signature === signature)
+            return;
+        this.panelLayoutEvents = [evidence, ...this.panelLayoutEvents].slice(0, 32);
+    }
     handlePanelSectionInterest(message) {
         const next = PanelStateProjection_1.normalizePanelSectionInterest(message, this.panelDocumentGeneration);
         if (!next || PanelStateProjection_1.samePanelSectionInterest(this.panelSectionInterest, next))
             return;
         this.panelSectionInterest = next;
+        if (PanelStateProjection_1.panelInterestedSections(next).has("results")) {
+            this.refreshExperimentTracesProjectionForCurrentInterest();
+            this.refreshResultCatalogForCurrentInterest();
+        }
+        else {
+            this.cancelResultCatalogRefresh();
+            this.experimentTracesProjectionCache = undefined;
+        }
         this.postState(true);
     }
     recordPanelSectionTelemetry(message) {
@@ -18908,6 +19998,7 @@ class RealtimeTunnelPanelProvider {
         const failureDocumentGeneration = Number(evidence.failureDocumentGeneration ?? evidence.documentGeneration ?? this.panelDocumentGeneration ?? 0);
         return {
             reason: this.currentSessionRecoveryReason || String(evidence.reason || "") || this.reloadRequiredReason || this.lastStatePostErrorSignature || this.lastStateBuildErrorSignature || "panel-recovery",
+            visualMode: this.panelLowEffectsMode ? "low-effects" : "standard",
             runningVersion: identity.runningVersion,
             installedVersion: identity.installedVersion,
             runningBuildId: String(identity.runningBuildId || "").slice(0, 12),
@@ -18926,12 +20017,19 @@ class RealtimeTunnelPanelProvider {
             renderedSeq: Number(evidence.renderedSeq ?? this.lastRenderedStateSeq),
             ...(Number.isSafeInteger(evidence.previousRenderedSeq) ? { previousHeartbeatRenderedSeq: evidence.previousRenderedSeq } : {}),
             stalledAckCount: Number(evidence.stalledAckCount ?? this.stateRenderStalledAcks),
+            renderEvidence: compactPanelRenderEvidence(evidence.renderEvidence),
+            hostEventLoopDelay: this.panelHostEventLoopSamples.slice(0, 3),
+            layoutEvidence: compactPanelLayoutEvidence(this.latestPanelLayoutEvidence),
+            recentLayoutEvents: this.panelLayoutEvents.slice(0, 8),
+            recentIncidents: this.panelIncidentEvents.slice(0, 16),
+            previousIncident: this.panelIncidentSlots.previous,
         };
     }
     panelDiagnosticsApi() {
         const identity = this.latestPanelBuildIdentityState || {};
         return {
             lifecycle: this.panelLifecycleState,
+            visualMode: this.panelLowEffectsMode ? "low-effects" : "standard",
             runningVersion: String(identity.runningVersion || this.runningBuildIdentity?.version || ""),
             installedVersion: String(identity.installedVersion || ""),
             runningBuildId: String(identity.runningBuildId || this.runningBuildIdentity?.buildId || ""),
@@ -18942,7 +20040,12 @@ class RealtimeTunnelPanelProvider {
             statePostTraffic: this.panelStateTrafficSnapshot(),
             latestHeartbeat: this.latestPanelHeartbeatEvidence || null,
             lastFailure: this.lastPanelFailureEvidence || null,
+            recentIncidents: this.panelIncidentEvents.slice(0, 64),
+            persistedIncidents: this.panelIncidentSlots,
             stateDelivery: this.panelStateDeliverySnapshot(),
+            hostEventLoopDelay: this.panelHostEventLoopSamples.slice(0, 12),
+            layoutEvidence: compactPanelLayoutEvidence(this.latestPanelLayoutEvidence),
+            recentLayoutEvents: this.panelLayoutEvents.slice(0, 32),
             renderPerformance: {
                 latestRenderDurationMs: this.latestRenderDurationMs,
                 slowSections: this.panelRenderPerformance.slice(0, 32),
@@ -18962,6 +20065,79 @@ class RealtimeTunnelPanelProvider {
             lastRecoveryReason: this.currentSessionRecoveryReason || null,
             lifecycleFailures: this.panelLifecycleDiagnostics.slice(0, PANEL_LIFECYCLE_DIAGNOSTIC_LIMIT),
         };
+    }
+    recordPanelIncident(stage, message, persist = false) {
+        const incident = {
+            at: new Date().toISOString(),
+            stage: String(stage || "unknown").slice(0, 32),
+            message: compactSensitiveText(String(message || "").replace(/[\r\n\t]+/g, " "), 480),
+            documentGeneration: Number(this.panelDocumentGeneration || 0),
+            viewGeneration: Number(this.viewGeneration || 0),
+            visible: this.view?.visible === true && this.webviewDocumentVisible,
+            lifecycle: String(this.panelLifecycleState || "unknown").slice(0, 24),
+            visualMode: this.panelLowEffectsMode ? "low-effects" : "standard",
+            postedSeq: Number(this.panelStateFlow?.postedSeq || 0),
+            deliveredSeq: Number(this.panelStateFlow?.deliveredSeq || 0),
+            receivedSeq: Number(this.lastReceivedStateSeq || 0),
+            renderedSeq: Number(this.lastRenderedStateSeq || 0),
+            heartbeatAt: String(this.latestPanelHeartbeatEvidence?.timestamp || "").slice(0, 40),
+            telemetrySampleId: Number(this.latestPanelStateTelemetry?.sampleId || 0),
+            latestRenderDurationMs: Number.isFinite(Number(this.latestRenderDurationMs)) ? Number(this.latestRenderDurationMs) : null,
+            renderHealth: String(this.latestPanelHeartbeatEvidence?.renderHealthReason || "").slice(0, 120),
+            renderEvidence: compactPanelRenderEvidence(this.latestPanelHeartbeatEvidence?.renderEvidence),
+            hostEventLoopDelay: this.panelHostEventLoopSamples[0] || null,
+            layoutEvidence: compactPanelLayoutEvidence(this.latestPanelLayoutEvidence),
+        };
+        this.panelIncidentEvents = [incident, ...this.panelIncidentEvents].slice(0, 64);
+        if (!persist)
+            return;
+        const incidentSlot = compactPanelIncidentSlot({ ...incident, recentEvents: this.panelIncidentEvents });
+        if (!incidentSlot)
+            return;
+        const next = { latest: incidentSlot, previous: this.panelIncidentSlots.latest };
+        while (Buffer.byteLength(JSON.stringify(next), "utf8") > PANEL_INCIDENT_SLOT_MAX_BYTES * 2) {
+            const events = Array.isArray(next.latest?.recentEvents) ? next.latest.recentEvents : [];
+            if (!events.length)
+                break;
+            next.latest = { ...next.latest, recentEvents: events.slice(0, -1) };
+        }
+        this.panelIncidentSlots = next;
+        const serialized = JSON.stringify(next);
+        this.panelIncidentWrite = this.panelIncidentWrite.then(async () => {
+            const latest = JSON.parse(serialized);
+            await this.context.workspaceState.update(PANEL_INCIDENT_STORAGE_KEY, latest);
+        }).catch(() => undefined);
+    }
+    notifyPanelFailureOnce(key, message) {
+        const incidentKey = String(key || "panel-failure").slice(0, 160);
+        if (this.panelIncidentNoticeKeys.has(incidentKey))
+            return;
+        this.panelIncidentNoticeKeys.add(incidentKey);
+        while (this.panelIncidentNoticeKeys.size > 32)
+            this.panelIncidentNoticeKeys.delete(this.panelIncidentNoticeKeys.values().next().value);
+        void vscode.window.showErrorMessage(message, "复制 Panel 诊断", "重新加载面板", "低效果模式重载面板", "重载窗口").then(async (choice) => {
+            if (choice === "复制 Panel 诊断")
+                await this.copyPanelDiagnosticsFromUi();
+            else if (choice === "重新加载面板")
+                this.reloadPanelHtml();
+            else if (choice === "低效果模式重载面板")
+                this.reloadPanelLowEffects();
+            else if (choice === "重载窗口")
+                await vscode.commands.executeCommand("workbench.action.reloadWindow");
+        }).catch(() => undefined);
+    }
+    async copyPanelDiagnosticsFromUi() {
+        const serialized = JSON.stringify(this.panelDiagnosticsApi(), null, 2);
+        await vscode.env.clipboard.writeText(serialized);
+        void vscode.window.showInformationMessage("Panel 诊断已复制到剪贴板。可能包含本机路径和版本信息，分享前请先检查。");
+    }
+    async restorePanelFromUi() {
+        if (!this.view) {
+            await vscode.commands.executeCommand(`${viewId}.focus`);
+            return;
+        }
+        this.reloadPanelHtml();
+        await vscode.commands.executeCommand(`${viewId}.focus`);
     }
     panelStateTrafficSnapshot() {
         const cutoff = Date.now() - 60_000;
@@ -19282,6 +20458,8 @@ class RealtimeTunnelPanelProvider {
                 workerSshPort,
                 sshConfigAlias: worker.sshConfigAlias || info?.name,
                 localForwardPort: forward?.localPort || worker.localForwardPort,
+                localForwardHost: forward?.localHost || worker.localForwardHost,
+                remoteAgentHost: forward?.remoteHost || worker.remoteAgentHost,
                 remoteAgentPort: remoteTelemetryPort,
                 remoteTelemetryPort,
                 savedSessionForwardIndex: forward?.index ?? worker.savedSessionForwardIndex,
@@ -19295,7 +20473,9 @@ class RealtimeTunnelPanelProvider {
             hubUser: config.hubUser || hubInfo?.userName || "",
             hubSshPort: config.hubSshPort || hubInfo?.port || 22,
             sshConfigAlias: config.sshConfigAlias || hubInfo?.name,
+            localForwardHost: hubForward?.localHost || config.localForwardHost,
             localForwardPort: hubForward?.localPort || config.localForwardPort,
+            remoteAgentHost: hubForward?.remoteHost || config.remoteAgentHost,
             remoteAgentPort: hubForward?.remotePort || config.remoteAgentPort,
             savedSessionForwardIndex: hubForward?.index ?? config.savedSessionForwardIndex,
             launchMode: "open_saved_session",
@@ -19316,9 +20496,9 @@ class RealtimeTunnelPanelProvider {
                 displayName: config.hubDisplayName || config.sshConfigAlias || config.hubHost || "Hub",
                 remoteHostLabel: config.hubHost || config.sshConfigAlias || "hub",
                 sshConfigAlias: config.sshConfigAlias,
-                localForwardHost: "127.0.0.1",
+                localForwardHost: config.localForwardHost || existing.get("hub")?.localForwardHost || "127.0.0.1",
                 localForwardPort: config.localForwardPort,
-                remoteBindHost: "127.0.0.1",
+                remoteBindHost: config.remoteAgentHost || existing.get("hub")?.remoteBindHost || "127.0.0.1",
                 remoteServicePort: config.remoteAgentPort,
                 assignedAt: makeBase("hub"),
                 source: existing.get("hub")?.source || "imported",
@@ -19329,9 +20509,9 @@ class RealtimeTunnelPanelProvider {
                 displayName: worker.displayName,
                 remoteHostLabel: worker.workerHost || worker.hubHost || worker.sshConfigAlias || worker.id,
                 sshConfigAlias: worker.sshConfigAlias,
-                localForwardHost: "127.0.0.1",
+                localForwardHost: worker.localForwardHost || existing.get(worker.id)?.localForwardHost || config.localForwardHost || "127.0.0.1",
                 localForwardPort: worker.localForwardPort,
-                remoteBindHost: "127.0.0.1",
+                remoteBindHost: worker.remoteAgentHost || existing.get(worker.id)?.remoteBindHost || config.remoteAgentHost || "127.0.0.1",
                 remoteServicePort: worker.remoteTelemetryPort || worker.remoteAgentPort || TunnelPortConflict_1.defaultTunnelPorts.defaultWorkerTelemetryPort,
                 assignedAt: makeBase(worker.id),
                 source: existing.get(worker.id)?.source || "imported",
@@ -19542,6 +20722,8 @@ class RealtimeTunnelPanelProvider {
             this.resultsSummary = undefined;
         this.lastSnapshot = undefined;
         this.lastRealtimeState = undefined;
+        this.compactPanelLogsCache = undefined;
+        this.experimentTracesProjectionCache = undefined;
         this.lastSnapshotAt = undefined;
         this.lastHealth = undefined;
         this.lastProbe = undefined;
@@ -19563,16 +20745,28 @@ class RealtimeTunnelPanelProvider {
             if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             this.lastRealtimeState = state;
+            this.updateCompactPanelLogsProjection(firstRecord(state?.logs));
+            this.mergeRecentPlansFromRuntime(state, this.lastSnapshot, this.offlineBundle?.snapshot);
+            this.refreshExperimentTracesProjectionForCurrentInterest();
+            this.observeDebugBundlePath(state?.operations);
             if (this.distributedQueueCache?.plans?.length) {
                 const tasks = Object.values(state?.workerTasks || {}).flatMap((rows) => Array.isArray(rows) ? rows : []);
                 const activeIds = new Set(this.distributedQueueCache.plans.flatMap((plan) => plan.jobs.filter((job) => ["running", "dispatching", "unknown"].includes(job.status)).map((job) => job.commandId)));
+                for (const id of this.distributedTerminalSeen)
+                    if (!activeIds.has(id))
+                        this.distributedTerminalSeen.delete(id);
                 for (const task of tasks) {
                     const id = String(task?.commandId || "");
                     if (id && activeIds.has(id) && ["completed", "failed", "stopped"].includes(String(task?.status || "").toLowerCase()) && !this.distributedTerminalSeen.has(id)) {
                         this.distributedTerminalSeen.add(id);
+                        while (this.distributedTerminalSeen.size > 4096)
+                            this.distributedTerminalSeen.delete(this.distributedTerminalSeen.values().next().value);
                         void this.tickDistributedQueue().catch((error) => this.recordActionError({ command: "distributedPlanQueue", message: errorMessage(error) }));
                     }
                 }
+            }
+            else {
+                this.distributedTerminalSeen.clear();
             }
             void this.notifyPlanFailureOnce(state).catch(() => undefined);
             const uiRefs = this.realtimeUiStateRefsFor(state);
@@ -19618,18 +20812,33 @@ class RealtimeTunnelPanelProvider {
             const operationId = String(row.operationId || row.opId || "").trim();
             notices.push({ key: [plan, operationId].join("|"), plan, task: String(failedCount) + " 个", detail: String(row.schedulerError || payload.schedulerError || latest.schedulerError || row.message || "任务失败").slice(0, 200) });
         }
-        for (const notice of notices) {
-            const { key, plan, task, detail } = notice;
-            if (!plan || !key || acknowledged.has(key) || this.notifiedPlanFailures.has(key))
-                continue;
-            this.notifiedPlanFailures.add(key);
-            const updated = [...acknowledged, key].slice(-200);
-            acknowledged.add(key);
-            await this.context.workspaceState.update(persistedKey, updated);
-            const choice = await vscode.window.showErrorMessage(`Plan ${plan} 的任务 ${task} 失败：${detail}。已停止派发新任务；已运行任务继续完成，失败 tmux 窗口保留。`, { modal: true }, "查看运行进度");
-            if (choice === "查看运行进度")
-                await this.openPanelAt("operations", "operations-list", { userInitiated: true });
+        const pending = notices.filter((notice) => notice.plan && notice.key
+            && !acknowledged.has(notice.key) && !this.notifiedPlanFailures.has(notice.key));
+        if (!pending.length)
+            return;
+        for (const notice of pending) {
+            this.notifiedPlanFailures.add(notice.key);
+            while (this.notifiedPlanFailures.size > 256)
+                this.notifiedPlanFailures.delete(this.notifiedPlanFailures.values().next().value);
+            acknowledged.add(notice.key);
         }
+        const details = pending.slice(0, 8).map(({ plan, task, detail }) => `• ${plan} · 任务 ${task}：${detail}`).join("\n");
+        const remaining = pending.length - Math.min(pending.length, 8);
+        const message = pending.length === 1
+            ? `Plan ${pending[0].plan} 的任务 ${pending[0].task} 失败：${pending[0].detail}`
+            : `${pending.length} 个 Plan 运行失败`;
+        let choice;
+        try {
+            choice = await vscode.window.showErrorMessage(`${message}。调度已停止派发新任务；已运行任务继续完成，失败 tmux 窗口保留。`, { modal: true, detail: `${details}${remaining ? `\n另有 ${remaining} 项失败，已在运行进度中保留。` : ""}` }, "查看运行进度", "知道了");
+        }
+        catch (error) {
+            for (const notice of pending)
+                this.notifiedPlanFailures.delete(notice.key);
+            throw error;
+        }
+        await this.context.workspaceState.update(persistedKey, [...acknowledged].slice(-200));
+        if (choice === "查看运行进度")
+            await this.openPanelAt("operations", "operations-list", { userInitiated: true });
     }
     shouldPushLocalAvailabilityFromRealtime(signature) {
         if (this.lastAvailabilityGpuSignature === signature)
@@ -19703,13 +20912,14 @@ class RealtimeTunnelPanelProvider {
             id: endpoint.id,
             role: endpoint.role === "hub_control" ? "hub" : "worker",
             displayName: endpoint.displayName,
-            localHost: "127.0.0.1",
+            localHost: endpoint.tunnel.localHost,
             localPort: endpoint.tunnel.localPort,
             token: this.tunnelConfig.token,
             timeoutMs: 30_000,
             resourceServer: endpoint.ssh.host.toLowerCase() + ":" + endpoint.ssh.port,
             resourceProjectRoot: endpoint.role === "hub_control" ? this.agentRuntimeDirs(this.setupConfig.agentProjectDir).workDir : this.expectedWorkerAgentProjectRoot(endpoint.id),
             capabilities: endpointCapabilitiesFromProbe(endpoint.lastProbe),
+            fileCapabilities: endpoint.role === "hub_control" ? this.lastProbe?.fileCapabilities : this.lastWorkerProbes[endpoint.id]?.fileCapabilities,
         }));
     }
     tunnelLaunchItems() {
@@ -19772,7 +20982,7 @@ class RealtimeTunnelPanelProvider {
                 id: "hub",
                 filePath: hubPath,
                 tmuxSessionName: (0, AgentTmuxPolicy_1.defaultAgentTmuxSessionName)("hub", undefined, this.setupConfig.sessionPrefix || this.setupConfig.sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix),
-                command: (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "hub", port: this.setupConfig.remoteAgentPort, installDir: dirs.installDir, workDir: dirs.workDir, condaEnv: this.setupConfig.condaEnv, sessionPrefix: this.setupConfig.sessionPrefix || this.setupConfig.sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix }),
+                command: (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "hub", host: this.setupConfig.remoteAgentHost, port: this.setupConfig.remoteAgentPort, installDir: dirs.installDir, workDir: dirs.workDir, condaEnv: this.setupConfig.condaEnv, sessionPrefix: this.setupConfig.sessionPrefix || this.setupConfig.sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix }),
             });
         }
         for (const worker of this.enabledWorkerConfigs()) {
@@ -19780,7 +20990,7 @@ class RealtimeTunnelPanelProvider {
             if (!filePath)
                 continue;
             const dirs = this.agentRuntimeDirs(worker.agentProjectDir, worker.agentInstallDir);
-            const workerCommand = (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "worker", endpointId: worker.id, port: worker.remoteTelemetryPort || worker.remoteAgentPort, installDir: dirs.installDir, workDir: dirs.workDir, condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv), sessionPrefix: this.setupConfig.sessionPrefix || this.setupConfig.sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix });
+            const workerCommand = (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "worker", endpointId: worker.id, host: worker.remoteAgentHost, port: worker.remoteTelemetryPort || worker.remoteAgentPort, installDir: dirs.installDir, workDir: dirs.workDir, condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv), sessionPrefix: this.setupConfig.sessionPrefix || this.setupConfig.sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix });
             targets.push({
                 id: worker.id,
                 filePath,
@@ -19836,7 +21046,7 @@ class RealtimeTunnelPanelProvider {
                 workDir: hubDirs.workDir,
                 projectName: hubDirs.projectName,
                 condaEnv: this.setupConfig.condaEnv,
-                startupCommand: (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "hub", port: this.setupConfig.remoteAgentPort, installDir: hubDirs.installDir, workDir: hubDirs.workDir, condaEnv: this.setupConfig.condaEnv, sessionPrefix: this.setupConfig.sessionPrefix || this.setupConfig.sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix }),
+                startupCommand: (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "hub", host: this.setupConfig.remoteAgentHost, port: this.setupConfig.remoteAgentPort, installDir: hubDirs.installDir, workDir: hubDirs.workDir, condaEnv: this.setupConfig.condaEnv, sessionPrefix: this.setupConfig.sessionPrefix || this.setupConfig.sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix }),
             },
             workers: this.setupConfig.workerTunnels.map((worker) => {
                 const dirs = this.agentRuntimeDirs(worker.agentProjectDir, worker.agentInstallDir);
@@ -19852,7 +21062,7 @@ class RealtimeTunnelPanelProvider {
                     workDir: dirs.workDir,
                     projectName: dirs.projectName,
                     condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv),
-                    startupCommand: (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "worker", endpointId: worker.id, port: worker.remoteTelemetryPort || worker.remoteAgentPort, installDir: dirs.installDir, workDir: dirs.workDir, condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv), sessionPrefix: this.setupConfig.sessionPrefix || this.setupConfig.sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix }),
+                    startupCommand: (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "worker", endpointId: worker.id, host: worker.remoteAgentHost, port: worker.remoteTelemetryPort || worker.remoteAgentPort, installDir: dirs.installDir, workDir: dirs.workDir, condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv), sessionPrefix: this.setupConfig.sessionPrefix || this.setupConfig.sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix }),
                 };
             }),
             note: "Agent 跟随 Xshell 隧道会话启动。插件只打开 .xsh 会话文件，不直接执行远端命令。",
@@ -19954,7 +21164,7 @@ class RealtimeTunnelPanelProvider {
             assignments,
             conflicts,
             policy,
-            note: `${hubAllowed ? "Hub 和 Worker" : "Worker"} 连接都由 Xshell 会话本地端口转发提供；插件只访问 127.0.0.1 端口。配置保存在 VS Code 全局扩展状态中。插件不内置 ${"S" + "SH"}，也不会执行 ${"s" + "sh"}/${"s" + "cp"}/${"r" + "sync"}。`,
+            note: `${hubAllowed ? "Hub 和 Worker" : "Worker"} 连接都由 Xshell 会话本地端口转发提供；插件按每个端点的配置主机和端口连接。配置保存在 VS Code 全局扩展状态中。插件不内置 ${"S" + "SH"}，也不会执行 ${"s" + "sh"}/${"s" + "cp"}/${"r" + "sync"}。`,
         };
         this.endpointRegistryStateCacheConfig = this.setupConfig;
         this.endpointRegistryStateCacheHubProbe = this.lastProbe;
@@ -20000,9 +21210,10 @@ class RealtimeTunnelPanelProvider {
         return value;
     }
     async detectPortOccupancy(port, endpointId) {
-        if (await (0, XshellTunnelLauncher_1.isLocalPortAvailable)(port))
-            return "available";
         const item = this.tunnelLaunchItems().find((entry) => entry.id === endpointId);
+        const host = item?.config.localForwardHost || this.setupConfig.localForwardHost || "127.0.0.1";
+        if (await (0, XshellTunnelLauncher_1.isLocalPortAvailable)(port, host))
+            return "available";
         try {
             if (item?.role === "worker") {
                 const probe = await (0, XshellTunnelPortProbe_1.probeWorkerTelemetryTunnel)({ ...item.config, token: this.tunnelConfig.token }, { timeoutMs: 1500 });
@@ -20042,7 +21253,7 @@ class RealtimeTunnelPanelProvider {
         const unsafe = unsafeXshellForwardMessages(info);
         if (!unsafe.length)
             return "";
-        return `Xshell 会话 ${info?.name || config.savedSessionPath || ""} 存在非本机回环 FwdReq：${unsafe.join("；")}。请把 Source 和 Host 都改为 127.0.0.1、localhost 或 ::1 后再启动。`;
+        return `Xshell 会话 ${info?.name || config.savedSessionPath || ""} 的 FwdReq 主机字段格式无效：${unsafe.join("；")}。请检查所选会话的 Source 和 Host。`;
     }
     buildPlanRuntimeEvidenceState() {
         const connectionMode = this.effectiveConnectionMode();
@@ -20052,7 +21263,6 @@ class RealtimeTunnelPanelProvider {
         const snapshot = this.lastSnapshot || realtimeState?.lastKnownGood;
         const offlineSnapshot = this.offlineBundle?.snapshot;
         const schedulerProtectedKeys = this.schedulerProtectedKeys();
-        this.queueProjectLocalOperationsStatePersistence();
         const cacheInput = {
             projectContextGeneration: this.projectContextGeneration,
             connectionMode,
@@ -20072,48 +21282,307 @@ class RealtimeTunnelPanelProvider {
     }
     invalidateResultCatalogCache(reason) {
         this.resultCatalogDirtyGeneration += 1;
-        this.resultCatalogCache = undefined;
+        if (reason === "workspaceChange") {
+            this.resultCatalogCache = undefined;
+            this.resultCatalogStatus = "notLoaded";
+            this.resultCatalogRefreshError = "";
+            this.resultCatalogRefreshFailedKey = "";
+            this.resultCatalogRefreshBackoffUntil = 0;
+            return;
+        }
+        this.resultCatalogStatus = this.hasResultCatalogForRoot(workspaceRoot() || "") ? "stale" : "notLoaded";
+        this.resultCatalogRefreshFailedKey = "";
+        this.resultCatalogRefreshBackoffUntil = 0;
+        this.refreshResultCatalogForCurrentInterest();
+    }
+    hasResultCatalogForRoot(root) {
+        return Boolean(root && this.resultCatalogCache?.key.startsWith(path.resolve(root) + "\n"));
+    }
+    resultCatalogKey(root, mappings) {
+        return [path.resolve(root), this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, JSON.stringify(mappings || {}), this.resultCatalogDirtyGeneration].join("\n");
     }
     cachedResultCatalog(root, mappings) {
-        const publicationJournal = ProjectResultPublication.projectResultPublicationJournalPath(root);
         const rootPrefix = path.resolve(root) + "\n";
         const lastKnownCatalog = this.resultCatalogCache?.key.startsWith(rootPrefix) ? this.resultCatalogCache.catalog : undefined;
-        const pendingCatalog = () => lastKnownCatalog ? { ...lastKnownCatalog, publicationPending: true }
-            : { datasets: [], legacyTables: [], unassignedPlans: [], multiDatasetPlans: [], mappingConflicts: [], autoRecoverableCount: 0, publicationPending: true };
-        if (fsNode.existsSync(publicationJournal)) {
-            if (this.activePanelBuildTiming)
-                this.activePanelBuildTiming.resultCatalog = { cacheHit: Boolean(lastKnownCatalog), buildMs: 0 };
-            return pendingCatalog();
-        }
-        const mappingSignature = JSON.stringify(mappings || {});
-        const readRegistryStat = () => {
-            try {
-                const stat = fsNode.statSync(path.join(root, "simple_cluster", "results", "project_table_registry.json"));
-                return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
-            }
-            catch {
-                return "missing";
-            }
-        };
-        const registryStat = readRegistryStat();
-        const key = [path.resolve(root), this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, mappingSignature, registryStat, this.resultCatalogDirtyGeneration].join("\n");
+        const emptyCatalog = () => ({ datasets: [], legacyTables: [], unassignedPlans: [], multiDatasetPlans: [], mappingConflicts: [], autoRecoverableCount: 0 });
+        const pendingCatalog = () => lastKnownCatalog || emptyCatalog();
+        const key = this.resultCatalogKey(root, mappings);
         if (this.resultCatalogCache?.key === key && this.resultCatalogCache.expiresAt > Date.now()) {
-            if (this.activePanelBuildTiming)
-                this.activePanelBuildTiming.resultCatalog = { cacheHit: true, buildMs: 0 };
             return this.resultCatalogCache.catalog;
         }
-        const startedAt = Date.now();
-        const catalog = ProjectResultTables.resultCatalog(root, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, mappings || {});
-        const buildMs = Math.max(0, Date.now() - startedAt);
-        if (fsNode.existsSync(publicationJournal) || readRegistryStat() !== registryStat) {
-            if (this.activePanelBuildTiming)
-                this.activePanelBuildTiming.resultCatalog = { cacheHit: Boolean(lastKnownCatalog), buildMs };
-            return pendingCatalog();
+        return pendingCatalog();
+    }
+    updateCompactPanelLogsProjection(source, root = workspaceRoot() || "") {
+        const cached = this.compactPanelLogsCache;
+        if (cached && cached.root === root && cached.source === source && cached.selectionRevision === this.taskSelectionRevision)
+            return;
+        const value = (0, RealtimeEventReducer_1.compactRealtimeLogs)(source, undefined, undefined, this.logProtectedKeys());
+        this.compactPanelLogsCache = { root, source, selectionRevision: this.taskSelectionRevision, value };
+    }
+    traceProjectionPlan() {
+        const planFile = this.resolveSelectedPlanFile(this.planFileInput || this.selectedPlanId || "") || this.planFileInput || this.selectedPlanId || "";
+        const version = this.planVersionForFile(planFile);
+        return { planFile, planRevision: version.revision, planUpdatedAt: version.updatedAt };
+    }
+    refreshExperimentTracesProjectionForCurrentInterest() {
+        const root = workspaceRoot() || "";
+        if (!root || !this.panelSectionInterest || !PanelStateProjection_1.panelInterestedSections(this.panelSectionInterest).has("results")) {
+            this.experimentTracesProjectionCache = undefined;
+            return;
         }
-        if (this.activePanelBuildTiming)
-            this.activePanelBuildTiming.resultCatalog = { cacheHit: false, buildMs };
-        this.resultCatalogCache = { key, expiresAt: Date.now() + this.resultCatalogTtlMs, catalog };
-        return catalog;
+        const plan = this.traceProjectionPlan();
+        this.compactExperimentTracesForPanel(root, this.offlineBundle?.snapshot?.experimentTraces, this.lastSnapshot?.experimentTraces, this.lastRealtimeState?.experimentTraces, this.traceProtectedKeys(), plan);
+    }
+    cachedExperimentTracesProjection(root, offlineRows, snapshotRows, realtimeRows, protectedKeys, plan) {
+        const cached = this.experimentTracesProjectionCache;
+        const protectedKeySignature = protectedKeys.join("\n");
+        const planSignature = [plan.planFile, plan.planRevision, plan.planUpdatedAt].join(String.fromCharCode(0));
+        if (!cached || cached.root !== root || cached.offlineRows !== offlineRows || cached.snapshotRows !== snapshotRows
+            || cached.realtimeRows !== realtimeRows || cached.protectedKeySignature !== protectedKeySignature
+            || cached.planSignature !== planSignature)
+            return undefined;
+        return cached.value;
+    }
+    compactExperimentTracesForPanel(root, offlineRows, snapshotRows, realtimeRows, protectedKeys, plan) {
+        const protectedKeySignature = protectedKeys.join("\n");
+        const planSignature = `${plan.planFile}\0${plan.planRevision}\0${plan.planUpdatedAt}`;
+        const cached = this.experimentTracesProjectionCache;
+        if (cached && cached.root === root && cached.offlineRows === offlineRows && cached.snapshotRows === snapshotRows
+            && cached.realtimeRows === realtimeRows && cached.protectedKeySignature === protectedKeySignature
+            && cached.planSignature === planSignature)
+            return cached.value;
+        const value = compactExperimentTraces(mergeFallbackRows(compactFallbackRowSources([offlineRows, snapshotRows, realtimeRows], (rows) => compactExperimentTraces(rows, protectedKeys, plan)), experimentTraceFallbackRowKey), protectedKeys, plan);
+        this.experimentTracesProjectionCache = { root, offlineRows, snapshotRows, realtimeRows, protectedKeySignature, planSignature, value };
+        return value;
+    }
+    refreshResultCatalogForCurrentInterest() {
+        const root = workspaceRoot();
+        if (!root || !PanelStateProjection_1.panelInterestedSections(this.panelSectionInterest).has("results"))
+            return;
+        const mappings = pluginProjectAdapterRules(root).planDatasetMapping || {};
+        const key = this.resultCatalogKey(root, mappings);
+        if (this.resultCatalogCache?.key === key && this.resultCatalogCache.expiresAt > Date.now()) {
+            this.resultCatalogStatus = "ready";
+            this.scheduleResultCatalogRefreshTimer(this.resultCatalogCache.expiresAt - Date.now());
+            return;
+        }
+        const hasLastKnownCatalog = this.hasResultCatalogForRoot(root);
+        const delay = Math.max(0, this.resultCatalogRefreshBackoffUntil - Date.now());
+        if (delay) {
+            this.resultCatalogStatus = hasLastKnownCatalog ? "stale" : "error";
+            this.scheduleResultCatalogRefreshTimer(delay);
+            return;
+        }
+        this.resultCatalogStatus = hasLastKnownCatalog ? "stale" : "loading";
+        this.scheduleResultCatalogRefresh({ root, mappings: { ...mappings }, key, registryStat: "" });
+    }
+    scheduleResultCatalogRefreshTimer(delayMs) {
+        if (this.resultCatalogRefreshTimer)
+            clearTimeout(this.resultCatalogRefreshTimer);
+        this.resultCatalogRefreshTimer = setTimeout(() => {
+            this.resultCatalogRefreshTimer = undefined;
+            this.refreshResultCatalogForCurrentInterest();
+        }, Math.max(1000, Math.min(60_000, Math.floor(Number(delayMs) || this.resultCatalogTtlMs))));
+        this.resultCatalogRefreshTimer.unref?.();
+    }
+    async inspectResultCatalogInputs(root) {
+        const signature = async (file) => {
+            try {
+                const stat = await fs.stat(file);
+                return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
+            }
+            catch (error) {
+                if (error?.code === "ENOENT")
+                    return "missing";
+                throw error;
+            }
+        };
+        const registryPath = path.join(root, "simple_cluster", "results", "project_table_registry.json");
+        const journalPath = ProjectResultPublication.projectResultPublicationJournalPath(root);
+        const [registryStat, journalStat] = await Promise.all([signature(registryPath), signature(journalPath)]);
+        return { registryStat, publicationPending: journalStat !== "missing", signature: `${registryStat}\n${journalStat}` };
+    }
+    scheduleResultCatalogRefresh(request) {
+        if (this.resultCatalogRefreshWorker) {
+            const active = this.resultCatalogRefreshRequest;
+            if (active?.key !== request.key)
+                this.resultCatalogRefreshQueued = request;
+            return;
+        }
+        if (this.resultCatalogRefreshPreparingKey) {
+            if (this.resultCatalogRefreshPreparingKey !== request.key)
+                this.resultCatalogRefreshQueued = request;
+            return;
+        }
+        if (this.resultCatalogRefreshFailedKey === request.key && Date.now() < this.resultCatalogRefreshBackoffUntil) {
+            this.scheduleResultCatalogRefreshTimer(this.resultCatalogRefreshBackoffUntil - Date.now());
+            return;
+        }
+        const id = ++this.resultCatalogRefreshSequence;
+        this.resultCatalogRefreshPreparingKey = request.key;
+        void this.inspectResultCatalogInputs(request.root).then((inputs) => {
+            if (id !== this.resultCatalogRefreshSequence || this.resultCatalogRefreshPreparingKey !== request.key)
+                return;
+            const currentRoot = workspaceRoot();
+            const currentMappings = currentRoot === request.root
+                ? pluginProjectAdapterRules(currentRoot).planDatasetMapping || {}
+                : {};
+            if (currentRoot !== request.root || this.resultCatalogKey(request.root, currentMappings) !== request.key
+                || !PanelStateProjection_1.panelInterestedSections(this.panelSectionInterest).has("results")) {
+                this.resultCatalogRefreshPreparingKey = "";
+                this.finishQueuedResultCatalogRefresh();
+                return;
+            }
+            if (inputs.publicationPending) {
+                this.resultCatalogRefreshPreparingKey = "";
+                this.resultCatalogStatus = this.hasResultCatalogForRoot(request.root) ? "stale" : "loading";
+                this.scheduleResultCatalogRefreshTimer(1000);
+                this.finishQueuedResultCatalogRefresh();
+                return;
+            }
+            if (this.resultCatalogCache?.key === request.key && this.resultCatalogCache.expiresAt > Date.now()) {
+                this.resultCatalogRefreshPreparingKey = "";
+                this.resultCatalogStatus = "ready";
+                this.scheduleResultCatalogRefreshTimer(this.resultCatalogCache.expiresAt - Date.now());
+                this.finishQueuedResultCatalogRefresh();
+                return;
+            }
+            this.resultCatalogRefreshPreparingKey = "";
+            this.startResultCatalogRefreshWorker({ ...request, registryStat: inputs.signature }, id);
+        }).catch((error) => {
+            if (id !== this.resultCatalogRefreshSequence || this.resultCatalogRefreshPreparingKey !== request.key)
+                return;
+            this.resultCatalogRefreshPreparingKey = "";
+            this.resultCatalogRefreshFailedKey = request.key;
+            this.resultCatalogRefreshBackoffUntil = Date.now() + 30_000;
+            this.resultCatalogRefreshError = errorMessage(error);
+            this.resultCatalogStatus = this.hasResultCatalogForRoot(request.root) ? "stale" : "error";
+            this.postState();
+            this.scheduleResultCatalogRefreshTimer(this.resultCatalogRefreshBackoffUntil - Date.now());
+            this.finishQueuedResultCatalogRefresh();
+        });
+    }
+    finishQueuedResultCatalogRefresh() {
+        const queued = this.resultCatalogRefreshQueued;
+        this.resultCatalogRefreshQueued = undefined;
+        if (queued && workspaceRoot() === queued.root) {
+            this.scheduleResultCatalogRefresh(queued);
+        }
+    }
+    startResultCatalogRefreshWorker(request, id) {
+        let worker;
+        try {
+            worker = new worker_threads_1.Worker(path.join(__dirname, "results", "ProjectResultCatalogWorker.js"));
+        }
+        catch (error) {
+            this.resultCatalogRefreshFailedKey = request.key;
+            this.resultCatalogRefreshBackoffUntil = Date.now() + 30_000;
+            this.resultCatalogRefreshError = errorMessage(error);
+            this.resultCatalogStatus = this.hasResultCatalogForRoot(request.root) ? "stale" : "error";
+            this.postState();
+            this.scheduleResultCatalogRefreshTimer(this.resultCatalogRefreshBackoffUntil - Date.now());
+            this.finishQueuedResultCatalogRefresh();
+            return;
+        }
+        this.resultCatalogRefreshWorker = worker;
+        this.resultCatalogRefreshRequest = { id, root: request.root, key: request.key, registryStat: request.registryStat };
+        let finishing = false;
+        const finish = (message, error) => {
+            if (this.resultCatalogRefreshWorker !== worker || finishing)
+                return;
+            finishing = true;
+            const active = this.resultCatalogRefreshRequest;
+            void (async () => {
+                try {
+                    await worker.terminate();
+                }
+                catch { /* worker may have exited */ }
+                if (this.resultCatalogRefreshWorker !== worker)
+                    return;
+                if (active && active.id === id && workspaceRoot() === active.root) {
+                    if (error || message?.error) {
+                        this.resultCatalogRefreshFailedKey = active.key;
+                        this.resultCatalogRefreshBackoffUntil = Date.now() + 30_000;
+                        this.resultCatalogRefreshError = errorMessage(error || message.error);
+                        this.resultCatalogStatus = this.hasResultCatalogForRoot(active.root) ? "stale" : "error";
+                        this.postState();
+                    }
+                    else if (message?.id === id) {
+                        try {
+                            const [inputs, currentMappings] = await Promise.all([
+                                this.inspectResultCatalogInputs(active.root),
+                                Promise.resolve(pluginProjectAdapterRules(active.root).planDatasetMapping || {}),
+                            ]);
+                            const isCurrent = workspaceRoot() === active.root
+                                && this.resultCatalogKey(active.root, currentMappings) === active.key
+                                && inputs.signature === active.registryStat
+                                && !inputs.publicationPending
+                                && PanelStateProjection_1.panelInterestedSections(this.panelSectionInterest).has("results");
+                            if (isCurrent) {
+                                const catalog = message.catalog || {};
+                                this.resultCatalogCache = { key: active.key, expiresAt: Date.now() + this.resultCatalogTtlMs,
+                                    catalog, tables: this.compactResultTablesFromCatalog(catalog) };
+                                this.resultCatalogRefreshError = "";
+                                this.resultCatalogRefreshFailedKey = "";
+                                this.resultCatalogRefreshBackoffUntil = 0;
+                                this.resultCatalogStatus = "ready";
+                                this.postState();
+                            }
+                            else {
+                                this.resultCatalogStatus = this.hasResultCatalogForRoot(active.root) ? "stale" : "loading";
+                                this.resultCatalogRefreshQueued = {
+                                    root: active.root,
+                                    mappings: { ...currentMappings },
+                                    key: this.resultCatalogKey(active.root, currentMappings),
+                                    registryStat: inputs.signature,
+                                };
+                            }
+                        }
+                        catch (verifyError) {
+                            this.resultCatalogRefreshFailedKey = active.key;
+                            this.resultCatalogRefreshBackoffUntil = Date.now() + 30_000;
+                            this.resultCatalogRefreshError = errorMessage(verifyError);
+                            this.resultCatalogStatus = this.hasResultCatalogForRoot(active.root) ? "stale" : "error";
+                            this.postState();
+                        }
+                    }
+                }
+                if (this.resultCatalogRefreshWorker !== worker)
+                    return;
+                this.resultCatalogRefreshWorker = undefined;
+                this.resultCatalogRefreshRequest = undefined;
+                this.finishQueuedResultCatalogRefresh();
+                if (!this.resultCatalogRefreshQueued && workspaceRoot() === request.root
+                    && PanelStateProjection_1.panelInterestedSections(this.panelSectionInterest).has("results")) {
+                    this.scheduleResultCatalogRefreshTimer(Math.max(this.resultCatalogTtlMs, this.resultCatalogRefreshBackoffUntil - Date.now()));
+                }
+            })();
+        };
+        worker.once("message", (message) => finish(message));
+        worker.once("error", (error) => finish(undefined, error));
+        worker.once("exit", (code) => {
+            if (this.resultCatalogRefreshWorker === worker)
+                finish(undefined, new Error(`结果目录后台读取线程提前退出（${code}）。`));
+        });
+        try {
+            worker.postMessage({ id, root: request.root, resultDir: this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, mappings: request.mappings });
+        }
+        catch (error) {
+            finish(undefined, error);
+        }
+    }
+    cancelResultCatalogRefresh() {
+        this.resultCatalogRefreshSequence += 1;
+        this.resultCatalogRefreshPreparingKey = "";
+        if (this.resultCatalogRefreshTimer)
+            clearTimeout(this.resultCatalogRefreshTimer);
+        this.resultCatalogRefreshTimer = undefined;
+        this.resultCatalogRefreshQueued = undefined;
+        const worker = this.resultCatalogRefreshWorker;
+        this.resultCatalogRefreshWorker = undefined;
+        this.resultCatalogRefreshRequest = undefined;
+        if (worker)
+            void worker.terminate().catch(() => undefined);
     }
     compactResultTablesFromCatalog(catalog) {
         const datasets = Array.isArray(catalog?.datasets) ? catalog.datasets : [];
@@ -20160,7 +21629,6 @@ class RealtimeTunnelPanelProvider {
     buildState(options = {}) {
         const totalStartedAt = Date.now();
         const timing = { runtimeEvidenceMs: 0, resultCatalog: { cacheHit: true, buildMs: 0 }, plansMs: 0, tracesMs: 0, diagnosticsMs: 0, totalMs: 0 };
-        this.activePanelBuildTiming = timing;
         const panelInterest = options.panelProjection === true
             ? (PanelStateProjection_1.normalizePanelSectionInterest(this.panelSectionInterest, this.panelDocumentGeneration)
                 || { documentGeneration: String(this.panelDocumentGeneration), mainSection: "sync", visibleSections: [], expandedSections: [], pinnedInspectorSection: "" })
@@ -20187,20 +21655,27 @@ class RealtimeTunnelPanelProvider {
         let experimentTraces;
         if (includePanelResults) {
             const traceProtectedKeys = this.traceProtectedKeys();
-            experimentTraces = compactExperimentTraces(mergeFallbackRows(compactFallbackRowSources([offlineSnapshot?.experimentTraces, snapshot?.experimentTraces, realtimeState?.experimentTraces], (rows) => compactExperimentTraces(rows, traceProtectedKeys, selectedTracePlan)), experimentTraceFallbackRowKey), traceProtectedKeys, selectedTracePlan);
+            const traceRoot = workspaceRoot() || "";
+            experimentTraces = options.panelProjection === true
+                ? this.cachedExperimentTracesProjection(traceRoot, offlineSnapshot?.experimentTraces, snapshot?.experimentTraces, realtimeState?.experimentTraces, traceProtectedKeys, selectedTracePlan)
+                : this.compactExperimentTracesForPanel(traceRoot, offlineSnapshot?.experimentTraces, snapshot?.experimentTraces, realtimeState?.experimentTraces, traceProtectedKeys, selectedTracePlan);
             timing.tracesMs = Math.max(0, Date.now() - tracesStartedAt);
         }
-        const protectedLogKeys = this.logProtectedKeys();
-        this.client.setProtectedLogKeys(protectedLogKeys);
-        const logs = (0, RealtimeEventReducer_1.compactRealtimeLogs)(firstRecord(realtimeState?.logs), undefined, undefined, protectedLogKeys);
+        const logsStartedAt = Date.now();
+        const logSource = firstRecord(realtimeState?.logs);
+        const compactedLogs = this.compactPanelLogsCache;
+        const logs = compactedLogs && compactedLogs.root === (workspaceRoot() || "")
+            && compactedLogs.source === logSource && compactedLogs.selectionRevision === this.taskSelectionRevision
+            ? compactedLogs.value
+            : logSource;
+        timing.logsMs = Math.max(0, Date.now() - logsStartedAt);
+        timing.logCacheHit = Boolean(compactedLogs && compactedLogs.root === (workspaceRoot() || "")
+            && compactedLogs.source === logSource && compactedLogs.selectionRevision === this.taskSelectionRevision);
         const fileTransfers = compactFileTransfersForWebview(realtimeState?.fileTransfers);
         const endpointRegistryState = this.endpointRegistryState();
         const plansStartedAt = Date.now();
-        this.recentPlans = mergeRecentPlans(this.recentPlans, this.localPlanMetadata.plans, extractPlans(snapshot), extractPlans(offlineSnapshot), extractPlans((snapshot?.diagnostics || offlineSnapshot?.diagnostics)));
-        const previousDebugBundlePath = this.debugBundlePath || "";
-        this.debugBundlePath ||= findDebugBundlePath(operations);
-        if ((this.debugBundlePath || "") && (this.debugBundlePath || "") !== previousDebugBundlePath)
-            void this.persistProjectDebugBundleState().catch(() => undefined);
+        const recentPlans = this.recentPlans;
+        const debugBundlePath = this.debugBundlePath || findDebugBundlePath(operations);
         const webviewProbe = compactProbeForWebview(this.lastProbe);
         const webviewWorkerProbes = compactWorkerProbesForWebview(this.lastWorkerProbes);
         const webviewCapabilities = compactCapabilitiesForWebview(this.lastProbe?.capabilities);
@@ -20215,7 +21690,7 @@ class RealtimeTunnelPanelProvider {
         const webviewRealtime = compactRealtimeDiagnosticsForWebview(realtime);
         const webviewHealth = compactHealthForWebview(this.lastHealth);
         const webviewPlanScanError = this.localPlanMetadata.error ? compactSensitiveText(this.localPlanMetadata.error, 360) : undefined;
-        const webviewDebugBundlePath = compactDebugBundlePathForWebview(this.debugBundlePath);
+        const webviewDebugBundlePath = compactDebugBundlePathForWebview(debugBundlePath);
         const webviewLastError = this.lastError ? compactSensitiveText(this.lastError, 600) : undefined;
         const webviewPlans = compactLocalPlansForWebview(this.localPlanMetadata.plans, selectedPlanKeys, WEBVIEW_LOCAL_PLAN_LIMIT);
         const webviewArchivedPlans = compactLocalPlansForWebview(this.localPlanMetadata.archivedPlans || [], [], WEBVIEW_ARCHIVED_PLAN_LIMIT);
@@ -20243,19 +21718,31 @@ class RealtimeTunnelPanelProvider {
         const pptPlotConfig = this.pptPlotConfig();
         const pptPlotConfigRevision = JSON.stringify(pptPlotConfig);
         const schedulerConfigRevision = JSON.stringify(schedulerConfig);
-        const recentPlansRevision = JSON.stringify(this.recentPlans);
+        const recentPlansRevision = JSON.stringify(recentPlans);
         const planStopClearRevision = JSON.stringify(this.planStopClearByFile || {});
         const resultCatalogStartedAt = Date.now();
         let resultCatalog = { datasets: [], legacyTables: [], unassignedPlans: [], multiDatasetPlans: [], mappingConflicts: [], autoRecoverableCount: 0 };
+        let resultCatalogKey = "";
         if (includePanelResults && resultRoot) {
             try {
-                resultCatalog = this.cachedResultCatalog(resultRoot, pluginProjectAdapterRules(resultRoot).planDatasetMapping || {});
+                const mappings = projectAdapterRules.planDatasetMapping || {};
+                resultCatalogKey = this.resultCatalogKey(resultRoot, mappings);
+                resultCatalog = this.cachedResultCatalog(resultRoot, mappings);
             }
             catch (error) {
                 resultCatalog = { ...resultCatalog, error: errorMessage(error) };
             }
         }
-        const compactResultTables = includePanelResults ? this.compactResultTablesFromCatalog(resultCatalog) : undefined;
+        timing.resultCatalog = {
+            cacheHit: Boolean(resultCatalogKey && this.resultCatalogCache?.key === resultCatalogKey
+                && this.resultCatalogCache.expiresAt > Date.now()),
+            buildMs: 0,
+        };
+        const compactResultTables = includePanelResults
+            ? this.resultCatalogCache?.catalog === resultCatalog
+                ? this.resultCatalogCache.tables
+                : this.compactResultTablesFromCatalog(resultCatalog)
+            : undefined;
         if (resultCatalog?.error)
             timing.resultCatalog = { cacheHit: false, buildMs: Math.max(0, Date.now() - resultCatalogStartedAt) };
         const diagnosticsStartedAt = Date.now();
@@ -20310,36 +21797,63 @@ class RealtimeTunnelPanelProvider {
         diagnostics.planOutputRetention = this.lastPlanOutputRetention || { status: "idle" };
         timing.diagnosticsMs = Math.max(0, Date.now() - diagnosticsStartedAt);
         const gpuHistory = this.gpuHistoryState.snapshot();
-        const distributedPlans = this.distributedQueueRoot === workspaceRoot()
-            ? this.serverPlanProgress().map((plan) => ({ id: plan.id, projectId: plan.projectId, schedulingMode: plan.schedulingMode,
-                localDispatchOverride: plan.localDispatchOverride === true,
-                planJobCount: plan.planJobCount, recoveryMissingCount: plan.recoveryMissingCount, remoteAcceptedJobCount: plan.remoteAcceptedJobCount,
-                recoveryConflict: plan.recoveryConflict, planFile: plan.planFile,
-                revision: plan.revision, codeFingerprint: plan.codeFingerprint, enqueuedAt: plan.enqueuedAt,
-                jobs: plan.jobs.map((job) => ({ index: job.index, case: job.case, seed: job.seed,
-                    status: job.status, workerId: job.workerId, gpuId: job.gpuId, outputDir: job.outputDir,
-                    localQueueOnly: job.localQueueOnly === true, recallRequested: job.recallRequested === true,
-                    recallOperationId: job.recallOperationId || "",
-                    commandId: job.commandId, logPath: job.logPath, finishedAt: job.finishedAt, outputRetiredAt: job.outputRetiredAt,
-                    error: job.error, blockReason: job.blockReason,
-                    artifactError: job.artifactError, mirroredWorkerIds: job.mirroredWorkerIds || [] })) })) : [];
         const executionHistoryCutoffs = this.context.workspaceState.get(keys.executionHistoryCutoffs, {});
         const executionHistoryHiddenOperationIds = this.context.workspaceState.get(keys.executionHistoryHiddenOperationIds, []);
-        const planStatusSummaries = PanelPlanStatusSummary_1.summarizePlanStatuses({
+        const distributedQueueStateRevision = [
+            this.distributedQueueDiskSignature || "",
+            this.distributedQueueStorageDiagnostics?.status || "",
+            this.distributedQueueStorageDiagnostics?.reason || "",
+            this.distributedQueueStorageDiagnostics?.message || "",
+        ].join("\0");
+        const planSummaryDependencies = [
+            this.localPlanMetadata.plans, recentPlans, this.localPlanMetadata.detectedProject?.plans,
+            schedulerStates, topology.mode, realtimeState?.gpu, snapshot?.gpu, offlineSnapshot?.gpu,
+            operations, distributedQueueStateRevision, this.distributedQueueGeneration, this.workerTaskSnapshotRevision,
+            JSON.stringify(executionHistoryCutoffs), JSON.stringify(executionHistoryHiddenOperationIds),
+        ];
+        const distributedPlanProgress = this.distributedQueueRoot === workspaceRoot()
+            ? this.serverPlanProgress() : [];
+        const selectedProgressPlan = this.resolveSelectedPlanFile(this.planFileInput || this.selectedPlanId || "");
+        const visibleDistributedPlanProgress = includePanelExecutionHistory ? distributedPlanProgress
+            : distributedPlanProgress.filter((plan) => {
+                if (selectedProgressPlan && samePlanSelection(plan.planFile, selectedProgressPlan))
+                    return true;
+                if (ACTIVE_PLAN_RUN_STATUSES.has(operationStatusToken(plan.status)) || ["unknown", "waiting_confirmation"].includes(operationStatusToken(plan.status)))
+                    return true;
+                return (Array.isArray(plan.jobs) ? plan.jobs : []).some((job) => {
+                    const status = operationStatusToken(job?.status || job?.state);
+                    return ACTIVE_PLAN_RUN_STATUSES.has(status) || ["unknown", "waiting_confirmation"].includes(status);
+                });
+            });
+        const distributedPlans = visibleDistributedPlanProgress.map((plan) => ({ id: plan.id, projectId: plan.projectId, schedulingMode: plan.schedulingMode,
+            localDispatchOverride: plan.localDispatchOverride === true,
+            planJobCount: plan.planJobCount, recoveryMissingCount: plan.recoveryMissingCount, remoteAcceptedJobCount: plan.remoteAcceptedJobCount,
+            recoveryConflict: plan.recoveryConflict, planFile: plan.planFile,
+            revision: plan.revision, codeFingerprint: plan.codeFingerprint, enqueuedAt: plan.enqueuedAt,
+            jobs: plan.jobs.map((job) => ({ index: job.index, case: job.case, seed: job.seed,
+                status: job.status, workerId: job.workerId, gpuId: job.gpuId, outputDir: job.outputDir,
+                localQueueOnly: job.localQueueOnly === true, recallRequested: job.recallRequested === true,
+                recallOperationId: job.recallOperationId || "",
+                commandId: job.commandId, logPath: job.logPath, finishedAt: job.finishedAt, outputRetiredAt: job.outputRetiredAt,
+                error: job.error, blockReason: job.blockReason,
+                artifactError: job.artifactError, mirroredWorkerIds: job.mirroredWorkerIds || [] })) }));
+        const summaryInputs = {
             plans: [
                 ...(Array.isArray(this.localPlanMetadata.plans) ? this.localPlanMetadata.plans : []),
-                ...(Array.isArray(this.recentPlans) ? this.recentPlans : []),
+                ...(Array.isArray(recentPlans) ? recentPlans : []),
                 ...(Array.isArray(this.localPlanMetadata.detectedProject?.plans) ? this.localPlanMetadata.detectedProject.plans : []),
             ],
             schedulerStates,
             topologyMode: topology.mode,
             workerTasks: topology.mode === "single_worker" ? gpu?.worker : undefined,
             operations,
-            distributedPlans,
+            distributedPlans: distributedPlanProgress,
             executionHistoryCutoffs,
             executionHistoryHiddenOperationIds,
-        });
-        const planStatusSummaryRevision = JSON.stringify(planStatusSummaries);
+        };
+        const cachedPlanSummaries = this.cachedPanelPlanStatusSummaries(summaryInputs, planSummaryDependencies);
+        const planStatusSummaries = cachedPlanSummaries.summaries;
+        const planStatusSummaryRevision = cachedPlanSummaries.revision;
         const actionErrorRevision = (Array.isArray(this.actionErrors) ? this.actionErrors : []).slice(0, 8).map((item) => `${item?.timestamp || ""}:${item?.command || ""}:${item?.message || ""}`).join("|");
         const sectionRevisions = this.panelSectionRevisionTracker.update({
             settings: [this.setupConfig, schedulerConfigRevision, this.localPlanMetadata.detectedProject, this.localPlanMetadata.plans, this.resultCsvDirectory,
@@ -20349,11 +21863,12 @@ class RealtimeTunnelPanelProvider {
                 this.resultsSummary, planStopClearRevision, realtimeState?.operations, snapshot?.operations, offlineSnapshot?.operations,
                 realtimeState?.schedulerStates, snapshot?.schedulerStates, offlineSnapshot?.schedulerStates, planStatusSummaryRevision],
             results: [this.resultCatalogDirtyGeneration, this.resultCatalogCache?.key, this.resultCatalogCache?.catalog, this.resultsSummary, this.resultSyncReport,
-                projectAdapterRulesRevision, pptPlotConfigRevision,
+                this.resultCatalogStatus, this.resultCatalogRefreshError, projectAdapterRulesRevision, pptPlotConfigRevision,
                 offlineSnapshot?.experimentTraces, snapshot?.experimentTraces, realtimeState?.experimentTraces, includePanelResults],
             gpu: [offlineSnapshot?.gpu, snapshot?.gpu, realtimeState?.gpu, gpuHistory, this.setupConfig, includePanelGpuHistory],
             execution: [offlineSnapshot?.schedulerStates, snapshot?.schedulerStates, realtimeState?.schedulerStates, offlineSnapshot?.operations, snapshot?.operations,
-                realtimeState?.operations, this.distributedQueueCache, planStopClearRevision, this.lastRealtimeState?.fileTransfers, this.selectedPlanId, this.planFileInput, includePanelExecutionHistory],
+                realtimeState?.operations, distributedQueueStateRevision, planStopClearRevision, this.lastRealtimeState?.fileTransfers,
+                this.selectedPlanId, this.planFileInput, includePanelExecutionHistory],
             diagnostics: [this.lastHealth, this.lastProbe, this.lastWorkerProbes, this.lastIntegrationReport, endpointRegistryState.registry,
                 this.tunnelConfig, this.actionErrors.length, actionErrorRevision, this.lastSnapshot?.diagnostics, this.lastRealtimeState?.diagnostics],
         });
@@ -20381,27 +21896,14 @@ class RealtimeTunnelPanelProvider {
                 defaultDirectory: DEFAULT_RESULT_CSV_DIR,
                 columnMapping: projectAdapterRules.csvColumnMapping || {},
                 adapterRules: projectAdapterRules,
+                ...(includePanelResults ? { catalogLoadStatus: this.resultCatalogStatus, catalogLoadError: this.resultCatalogRefreshError } : {}),
                 ...(includePanelResults ? { catalog: resultCatalog, tables: compactResultTables } : {}),
                 pendingPlanSyncCount: (() => {
                     const root = workspaceRoot();
                     if (!root)
                         return 0;
-                    if (this.planSyncLedgerRoot !== root) {
-                        try {
-                            const file = PlanArtifactSync.planSyncLedgerStoragePath(this.context.globalStorageUri.fsPath, root);
-                            this.planSyncLedger = PlanArtifactSync.migratePlanSyncLedger(JSON.parse(fsNode.readFileSync(file, "utf8")));
-                        }
-                        catch {
-                            try {
-                                const legacy = safeWorkspaceChildPath(root, "simple_cluster/results/plan_sync_ledger.json");
-                                this.planSyncLedger = PlanArtifactSync.migratePlanSyncLedger(JSON.parse(fsNode.readFileSync(legacy, "utf8")));
-                            }
-                            catch {
-                                this.planSyncLedger = PlanArtifactSync.emptyPlanSyncLedger();
-                            }
-                        }
-                        this.planSyncLedgerRoot = root;
-                    }
+                    if (this.planSyncLedgerRoot !== root)
+                        return 0;
                     return PlanArtifactSync.pendingPlanSyncs(this.planSyncLedger || PlanArtifactSync.emptyPlanSyncLedger()).length;
                 })(),
             },
@@ -20454,7 +21956,7 @@ class RealtimeTunnelPanelProvider {
                 selectedLogRunKey: taskSelection.selectedLogRunKey,
             },
             planFileInput: this.planFileInput,
-            recentPlans: this.recentPlans,
+            recentPlans,
             resultsSummary: compactResultsSummaryForPlanForWebview(this.resultsSummary, selectedResultsPlanFile, selectedResultsPlanVersion.revision, selectedResultsPlanVersion.updatedAt),
             resultSyncReport: this.resultSyncReport || null,
             auditTail: this.auditTail,
@@ -20486,7 +21988,6 @@ class RealtimeTunnelPanelProvider {
         };
         timing.totalMs = Math.max(0, Date.now() - totalStartedAt);
         this.latestPanelBuildTiming = timing;
-        this.activePanelBuildTiming = undefined;
         state.diagnostics = {
             ...state.diagnostics,
             panelBuildTiming: { ...timing, resultCatalog: { ...timing.resultCatalog } },
@@ -20527,9 +22028,47 @@ class RealtimeTunnelPanelProvider {
             bulkCounts,
         });
     }
+    cachedPanelPlanStatusSummaries(input, dependencies) {
+        const cached = this.panelPlanStatusSummaryCache;
+        if (cached && cached.dependencies.length === dependencies.length
+            && dependencies.every((value, index) => Object.is(value, cached.dependencies[index]))) {
+            return cached;
+        }
+        const summaries = PanelPlanStatusSummary_1.summarizePlanStatuses(input);
+        this.panelPlanStatusSummaryRevision = (this.panelPlanStatusSummaryRevision || 0) + 1;
+        const next = {
+            dependencies: dependencies.slice(),
+            revision: this.panelPlanStatusSummaryRevision,
+            summaries,
+        };
+        this.panelPlanStatusSummaryCache = next;
+        return next;
+    }
+    mergeRecentPlansFromRuntime(...snapshots) {
+        const groups = snapshots.flatMap((snapshot) => snapshot && typeof snapshot === "object"
+            ? [extractPlans(snapshot), extractPlans(snapshot.diagnostics)] : []);
+        const next = mergeRecentPlans(this.recentPlans, this.localPlanMetadata.plans || [], ...groups);
+        if (JSON.stringify(next) !== JSON.stringify(this.recentPlans || []))
+            this.recentPlans = next;
+    }
+    observeDebugBundlePath(operations) {
+        if (this.debugBundlePath)
+            return;
+        const found = findDebugBundlePath(operations);
+        if (!found)
+            return;
+        this.debugBundlePath = found;
+        void this.persistProjectDebugBundleState().catch(() => undefined);
+    }
     markTaskSelectionChanged() {
         this.taskSelectionRevision += 1;
         this.taskSelectionDerivedCache = undefined;
+        this.client?.setProtectedLogKeys(this.logProtectedKeys());
+        if (this.client) {
+            this.lastRealtimeState = this.client.currentState();
+            this.updateCompactPanelLogsProjection(firstRecord(this.lastRealtimeState?.logs));
+            this.refreshExperimentTracesProjectionForCurrentInterest();
+        }
     }
     taskSelectionDerivedState() {
         const cached = this.taskSelectionDerivedCache;
@@ -20648,7 +22187,10 @@ class RealtimeTunnelPanelProvider {
             this.showPanelReloadRequired();
             return;
         }
+        const failedGeneration = Number(this.panelDocumentGeneration || 0);
         this.capturePanelFailureEvidence(recoveryReason);
+        this.recordPanelIncident("recovery", recoveryReason, true);
+        this.notifyPanelFailureOnce(`recovery:${failedGeneration}:${recoveryReason}`, `SimpleExperiment 面板需要恢复：${String(message || "面板暂时没有响应").slice(0, 360)}`);
         this.clearPanelReadyWatchdog();
         if (this.statePostTimer)
             clearTimeout(this.statePostTimer);
@@ -20679,10 +22221,16 @@ class RealtimeTunnelPanelProvider {
         this.webviewReady = false;
         const document = renderPanelBootstrapDocument(renderPanelHtml, renderPanelRecoveryHtml);
         const generation = ++this.panelDocumentGeneration;
-        this.view.webview.html = this.stampPanelDocument(document.html, generation);
+        const html = this.panelLowEffectsMode && !document.recovered
+            ? document.html.replace("<body>", '<body class="panel-low-effects">')
+                .replace('<div class="topbar-actions">', '<div class="topbar-actions"><button data-command="reloadPanel" type="button" title="重新加载并恢复标准视觉效果">恢复标准视觉</button>')
+            : document.html;
+        this.view.webview.html = this.stampPanelDocument(html, generation);
         if (document.recovered) {
             this.clearPanelReadyWatchdog();
             this.lastError = document.error;
+            this.recordPanelIncident("bootstrap-render", document.error, true);
+            this.notifyPanelFailureOnce(`bootstrap-render:${generation}`, `SimpleExperiment 面板生成失败：${String(document.error).slice(0, 360)}`);
             this.recordActionError({ command: "panelBootstrap", message: document.error, suggestion: "点击“重新加载面板”；若仍失败，请执行 Developer: Reload Window。" });
             return;
         }
@@ -20690,6 +22238,11 @@ class RealtimeTunnelPanelProvider {
             this.startPanelReadyWatchdog();
     }
     reloadPanelHtml() {
+        this.panelLowEffectsMode = false;
+        this.loadPanelHtml();
+    }
+    reloadPanelLowEffects() {
+        this.panelLowEffectsMode = true;
         this.loadPanelHtml();
     }
     isCurrentPanelDocumentMessage(message, command) {
@@ -20742,6 +22295,7 @@ class RealtimeTunnelPanelProvider {
         this.stateRenderStalledAcks = 0;
         this.latestPanelHeartbeatProgress = undefined;
         if (!nextVisible) {
+            this.cancelResultCatalogRefresh();
             this.panelStateFlow = PanelStateFlowControl_1.requestPanelStateFlowPost(this.panelStateFlow).state;
             this.statePostPending = true;
             if (this.statePostTimer)
@@ -20749,6 +22303,7 @@ class RealtimeTunnelPanelProvider {
             this.statePostTimer = undefined;
             return;
         }
+        this.refreshResultCatalogForCurrentInterest();
         this.statePostPending = true;
         this.postState(true);
     }
@@ -20762,12 +22317,15 @@ class RealtimeTunnelPanelProvider {
         if (!decision.accepted)
             return;
         this.panelStateFlow = decision.state;
+        const firstRenderedState = !this.panelDocumentHasRenderedState;
         this.lastHeartbeatObservedRenderedStateSeq = seq;
         this.stateRenderStalledAcks = 0;
         this.latestPanelHeartbeatProgress = { renderedSeq: seq, stalledAckCount: 0 };
         this.lastReceivedStateSeq = Math.max(this.lastReceivedStateSeq, seq);
         this.lastRenderedStateSeq = this.panelStateFlow.renderedSeq;
         this.panelDocumentHasRenderedState = true;
+        if (firstRenderedState)
+            this.recordPanelIncident("render", "first-state-rendered");
         this.renderAckCount += 1;
         const renderDurationMs = Number(message?.renderDurationMs);
         this.latestRenderDurationMs = Number.isFinite(renderDurationMs) && renderDurationMs >= 0 ? Math.round(renderDurationMs) : null;
@@ -20839,7 +22397,9 @@ class RealtimeTunnelPanelProvider {
             stalledAckCount: progress.consecutiveStalledAcks,
         };
         const failureReason = status === "unhealthy" ? (healthReason || "面板报告渲染异常") : progress.unhealthy ? "state-render-sequence-stalled" : "";
+        const renderEvidence = compactPanelRenderEvidence(message?.renderEvidence);
         this.latestPanelHeartbeatEvidence = {
+            timestamp: new Date().toISOString(),
             documentGeneration: hasGeneration ? Number(message.documentGeneration) : this.panelDocumentGeneration,
             renderHealthStatus: status || "unknown",
             renderHealthReason: healthReason,
@@ -20850,6 +22410,7 @@ class RealtimeTunnelPanelProvider {
             renderedSeq: this.lastRenderedStateSeq,
             outstandingSeq: this.panelStateFlow.outstandingRenderSeq,
             pendingDirty: this.panelStateFlow.pendingDirty,
+            ...(renderEvidence ? { renderEvidence } : {}),
             ...(Number.isFinite(previousRenderedSeq) ? { previousRenderedSeq } : {}),
             stalledAckCount: progress.consecutiveStalledAcks,
         };
@@ -21163,7 +22724,6 @@ class RealtimeTunnelPanelProvider {
                 diagnosticsMs: 0,
                 totalMs: Math.max(0, Date.now() - buildStartedAt),
             };
-            this.activePanelBuildTiming = undefined;
         }
         const buildFinishedAt = Date.now();
         const buildTotalMs = Math.max(0, buildFinishedAt - buildStartedAt);
@@ -22265,7 +23825,7 @@ async function writeProjectPlanSelectionState(root, state) {
         recentPlans: mergeRecentPlans(state?.recentPlans || []),
         updatedAt: String(state?.updatedAt || new Date().toISOString()),
     };
-    await fs.writeFile(fullPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
+    await writeAtomicPluginStateJson(fullPath, payload);
 }
 const PROJECT_FLOW_STATE_PATH = "simple_cluster/ui/flow_state.json";
 async function readProjectFlowState(root) {
@@ -22287,7 +23847,7 @@ async function writeProjectFlowState(root, state) {
     const fullPath = path.join(root, ...PROJECT_FLOW_STATE_PATH.split("/"));
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
     const payload = ApiWorkflow_1.normalizeFlowState(state);
-    await fs.writeFile(fullPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
+    await writeAtomicPluginStateJson(fullPath, payload);
 }
 const PROJECT_TASK_SELECTION_PATH = "simple_cluster/ui/task_selection.json";
 function normalizeSelectionList(values, limit = 200) {
@@ -22335,7 +23895,7 @@ async function writeProjectTaskSelectionState(root, state) {
         selectedLogRunKey: usableSelectionKey(String(state?.selectedLogRunKey || "")),
         updatedAt: String(state?.updatedAt || new Date().toISOString()),
     };
-    await fs.writeFile(fullPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
+    await writeAtomicPluginStateJson(fullPath, payload);
 }
 const PROJECT_OFFLINE_BUNDLE_PATH = "simple_cluster/ui/offline_bundle.json";
 async function readProjectOfflineBundleState(root) {
@@ -22346,6 +23906,8 @@ async function readProjectOfflineBundleState(root) {
         const text = await fs.readFile(fullPath, "utf8");
         const data = JSON.parse(text);
         if (!data || typeof data !== "object")
+            return undefined;
+        if (data.cleared === true)
             return undefined;
         if (data.bundle && typeof data.bundle === "object")
             return data.bundle;
@@ -22362,12 +23924,7 @@ async function writeProjectOfflineBundleState(root, bundle) {
         return;
     const fullPath = path.join(root, ...PROJECT_OFFLINE_BUNDLE_PATH.split("/"));
     if (!bundle) {
-        try {
-            await fs.unlink(fullPath);
-        }
-        catch {
-            // ignore missing file
-        }
+        await writeAtomicPluginStateJson(fullPath, null);
         return;
     }
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
@@ -22376,7 +23933,7 @@ async function writeProjectOfflineBundleState(root, bundle) {
         updatedAt: new Date().toISOString(),
         bundle,
     };
-    await fs.writeFile(fullPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
+    await writeAtomicPluginStateJson(fullPath, payload);
 }
 const PROJECT_ACTION_ERRORS_PATH = "simple_cluster/ui/action_errors.json";
 function normalizeActionErrorRow(value) {
@@ -22393,6 +23950,7 @@ function normalizeActionErrorRow(value) {
         ...(row.action ? { action: String(row.action) } : {}),
         message: message || "未知错误",
         ...(row.suggestion ? { suggestion: String(row.suggestion) } : {}),
+        ...(OperationOutcome_1.normalizeOperationOutcome(row.operationOutcome) ? { operationOutcome: OperationOutcome_1.normalizeOperationOutcome(row.operationOutcome) } : {}),
         ...(capabilityMissing.length ? { capabilityMissing } : {}),
         ...(command === "panelLifecycle" && row.details && typeof row.details === "object" ? { details: compactPanelLifecycleDetails(row.details) } : {}),
         timestamp: String(row.timestamp || new Date().toISOString()),
@@ -22424,12 +23982,7 @@ async function writeProjectActionErrorsState(root, errors) {
     const fullPath = path.join(root, ...PROJECT_ACTION_ERRORS_PATH.split("/"));
     const rows = (Array.isArray(errors) ? errors : []).map(normalizeActionErrorRow).filter(Boolean).slice(0, UI_ACTION_ERROR_RECORD_LIMIT);
     if (!rows.length) {
-        try {
-            await fs.unlink(fullPath);
-        }
-        catch {
-            // ignore missing file
-        }
+        await writeAtomicPluginStateJson(fullPath, { schemaVersion: 1, updatedAt: new Date().toISOString(), errors: [] });
         return;
     }
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
@@ -22438,9 +23991,107 @@ async function writeProjectActionErrorsState(root, errors) {
         updatedAt: new Date().toISOString(),
         errors: rows,
     };
-    await fs.writeFile(fullPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
+    await writeAtomicPluginStateJson(fullPath, payload);
 }
 const PROJECT_PANEL_LIFECYCLE_PATH = "simple_cluster/ui/panel_lifecycle.json";
+function compactPanelRenderEvidence(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+        return undefined;
+    const dimension = (input) => Number.isFinite(Number(input)) ? Math.max(0, Math.min(10000, Math.floor(Number(input)))) : undefined;
+    const age = (input) => Number.isFinite(Number(input)) ? Math.max(0, Math.min(600000, Math.floor(Number(input)))) : undefined;
+    const display = ["none", "block", "flex", "grid", "inline", "inline-flex", "contents", "table", "flow-root"].includes(String(value.mainDisplay)) ? String(value.mainDisplay) : "unknown";
+    const visibility = ["visible", "hidden", "collapse"].includes(String(value.mainVisibility)) ? String(value.mainVisibility) : "unknown";
+    const opacityRaw = Number(value.mainOpacity);
+    const opacity = Number.isFinite(opacityRaw) ? String(Math.max(0, Math.min(1, opacityRaw))) : "unknown";
+    return {
+        documentHidden: value.documentHidden === true,
+        ...(dimension(value.viewportWidth) === undefined ? {} : { viewportWidth: dimension(value.viewportWidth) }),
+        ...(dimension(value.viewportHeight) === undefined ? {} : { viewportHeight: dimension(value.viewportHeight) }),
+        ...(dimension(value.mainWidth) === undefined ? {} : { mainWidth: dimension(value.mainWidth) }),
+        ...(dimension(value.mainHeight) === undefined ? {} : { mainHeight: dimension(value.mainHeight) }),
+        mainDisplay: display,
+        mainVisibility: visibility,
+        mainOpacity: opacity,
+        ...(dimension(value.mainChildCount) === undefined ? {} : { mainChildCount: dimension(value.mainChildCount) }),
+        hitTestOutsideMainCount: Number.isSafeInteger(Number(value.hitTestOutsideMainCount))
+            ? Math.max(0, Math.min(3, Number(value.hitTestOutsideMainCount))) : 0,
+        hitTestTargets: Array.isArray(value.hitTestTargets)
+            ? value.hitTestTargets.slice(0, 3).map((item) => compactSensitiveText(String(item || "").replace(/[\r\n\t]+/g, " "), 140)) : [],
+        ...(age(value.frameProbeAgeMs) === undefined ? {} : { frameProbeAgeMs: age(value.frameProbeAgeMs) }),
+        ...(age(value.lastRenderAgeMs) === undefined ? {} : { lastRenderAgeMs: age(value.lastRenderAgeMs) }),
+    };
+}
+function compactPanelLayoutEvidence(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+        return undefined;
+    const dimension = (input) => Number.isFinite(Number(input)) ? Math.max(-10000, Math.min(10000, Math.round(Number(input)))) : 0;
+    const rect = (input) => ({ x: dimension(input?.x), y: dimension(input?.y), width: dimension(input?.width), height: dimension(input?.height) });
+    return {
+        at: String(value.at || "").slice(0, 40),
+        documentGeneration: Number.isSafeInteger(Number(value.documentGeneration)) ? Math.max(0, Number(value.documentGeneration)) : 0,
+        trigger: compactSensitiveText(String(value.trigger || "unknown"), 32),
+        documentHidden: value.documentHidden === true,
+        viewport: rect(value.viewport),
+        cardDeck: rect(value.cardDeck),
+        mainColumn: rect(value.mainColumn),
+        inspector: rect(value.inspector),
+        devicePixelRatio: Number.isFinite(Number(value.devicePixelRatio)) ? Math.max(0, Math.min(8, Number(value.devicePixelRatio))) : 0,
+    };
+}
+function compactPanelIncidentSlot(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value))
+        return null;
+    const text = (input, max) => compactSensitiveText(String(input || "").replace(/[\r\n\t]+/g, " "), max);
+    const count = (input) => Number.isSafeInteger(Number(input)) && Number(input) >= 0 ? Number(input) : 0;
+    const events = Array.isArray(value.recentEvents) ? value.recentEvents.slice(0, 64).map((item) => ({
+        at: text(item?.at, 40),
+        stage: text(item?.stage, 32),
+        message: text(item?.message, 240),
+        documentGeneration: count(item?.documentGeneration),
+        viewGeneration: count(item?.viewGeneration),
+        visible: item?.visible === true,
+        lifecycle: text(item?.lifecycle, 24),
+        postedSeq: count(item?.postedSeq),
+        receivedSeq: count(item?.receivedSeq),
+        renderedSeq: count(item?.renderedSeq),
+    })) : [];
+    const loopDelay = value.hostEventLoopDelay && typeof value.hostEventLoopDelay === "object" ? {
+        at: text(value.hostEventLoopDelay.at, 40),
+        maxDelayMs: Number.isFinite(Number(value.hostEventLoopDelay.maxDelayMs)) ? Math.max(0, Number(value.hostEventLoopDelay.maxDelayMs)) : null,
+        p99DelayMs: Number.isFinite(Number(value.hostEventLoopDelay.p99DelayMs)) ? Math.max(0, Number(value.hostEventLoopDelay.p99DelayMs)) : null,
+    } : undefined;
+    const layout = compactPanelLayoutEvidence(value.layoutEvidence);
+    const slot = {
+        at: text(value.at || value.timestamp, 40),
+        stage: text(value.stage || "failure", 32),
+        message: text(value.message || value.reason, 480),
+        documentGeneration: count(value.documentGeneration),
+        viewGeneration: count(value.viewGeneration),
+        visible: value.visible === true,
+        lifecycle: text(value.lifecycle, 24),
+        ...(value.visualMode === "low-effects" || value.visualMode === "standard" ? { visualMode: value.visualMode } : {}),
+        postedSeq: count(value.postedSeq),
+        deliveredSeq: count(value.deliveredSeq),
+        receivedSeq: count(value.receivedSeq),
+        renderedSeq: count(value.renderedSeq),
+        telemetrySampleId: count(value.telemetrySampleId),
+        ...(loopDelay ? { hostEventLoopDelay: loopDelay } : {}),
+        ...(layout ? { layoutEvidence: layout } : {}),
+        ...(events.length ? { recentEvents: events } : {}),
+        ...(Number.isFinite(Number(value.latestRenderDurationMs)) ? { latestRenderDurationMs: Math.max(0, Number(value.latestRenderDurationMs)) } : {}),
+        ...(value.renderHealth ? { renderHealth: text(value.renderHealth, 120) } : {}),
+        ...(compactPanelRenderEvidence(value.renderEvidence) ? { renderEvidence: compactPanelRenderEvidence(value.renderEvidence) } : {}),
+    };
+    while (events.length && Buffer.byteLength(JSON.stringify(slot), "utf8") > PANEL_INCIDENT_SLOT_MAX_BYTES) {
+        events.pop();
+        slot.recentEvents = events;
+    }
+    if (Buffer.byteLength(JSON.stringify(slot), "utf8") > PANEL_INCIDENT_SLOT_MAX_BYTES) {
+        slot.message = slot.message.slice(0, 160);
+        delete slot.recentEvents;
+    }
+    return Buffer.byteLength(JSON.stringify(slot), "utf8") <= PANEL_INCIDENT_SLOT_MAX_BYTES ? slot : null;
+}
 function normalizePanelLifecycleDiagnosticRow(value) {
     const row = value && typeof value === "object" && !Array.isArray(value) ? value : {};
     const reason = compactSensitiveText(String(row.reason || "").slice(0, 80), 80);
@@ -22465,6 +24116,7 @@ function normalizePanelLifecycleDiagnosticRow(value) {
         webviewReady: row.webviewReady === true,
         viewVisible: row.viewVisible === true,
         renderHealthStatus: ["ok", "unhealthy", "unknown"].includes(String(row.renderHealthStatus)) ? String(row.renderHealthStatus) : "unknown",
+        ...(row.visualMode === "low-effects" || row.visualMode === "standard" ? { visualMode: row.visualMode } : {}),
         renderHealthReason: compactSensitiveText(String(row.renderHealthReason || "").slice(0, 120), 120),
         documentHidden: row.documentHidden === true,
         postedSeq: count(row.postedSeq),
@@ -22474,6 +24126,7 @@ function normalizePanelLifecycleDiagnosticRow(value) {
         stalledAckCount: count(row.stalledAckCount),
         payloadBytes: count(row.payloadBytes),
         stateBuildDurationMs: count(row.stateBuildDurationMs),
+        ...(compactPanelRenderEvidence(row.renderEvidence) ? { renderEvidence: compactPanelRenderEvidence(row.renderEvidence) } : {}),
     };
 }
 async function readProjectPanelLifecycleDiagnosticsState(root) {
@@ -22497,7 +24150,7 @@ async function writeProjectPanelLifecycleDiagnosticsState(root, events) {
         .sort((left, right) => String(right.timestamp || "").localeCompare(String(left.timestamp || "")))
         .slice(0, PANEL_LIFECYCLE_DIAGNOSTIC_LIMIT);
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
-    await fs.writeFile(fullPath, JSON.stringify({ schemaVersion: 1, updatedAt: new Date().toISOString(), events: rows }, null, 2) + "\n", "utf8");
+    await writeAtomicPluginStateJson(fullPath, { schemaVersion: 1, updatedAt: new Date().toISOString(), events: rows });
 }
 const PROJECT_PPT_PLOT_CONFIG_PATH = "simple_cluster/ui/ppt_plot_config.json";
 function normalizePptPlotConfig(value) {
@@ -22519,6 +24172,8 @@ async function readProjectPptPlotConfigState(root) {
         const data = JSON.parse(text);
         if (!data || typeof data !== "object")
             return undefined;
+        if (data.cleared === true)
+            return undefined;
         const raw = data.config && typeof data.config === "object" ? data.config : data;
         return normalizePptPlotConfig(raw);
     }
@@ -22531,12 +24186,7 @@ async function writeProjectPptPlotConfigState(root, config) {
         return;
     const fullPath = path.join(root, ...PROJECT_PPT_PLOT_CONFIG_PATH.split("/"));
     if (!config) {
-        try {
-            await fs.unlink(fullPath);
-        }
-        catch {
-            // ignore missing file
-        }
+        await writeAtomicPluginStateJson(fullPath, null);
         return;
     }
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
@@ -22545,7 +24195,7 @@ async function writeProjectPptPlotConfigState(root, config) {
         updatedAt: new Date().toISOString(),
         config: normalizePptPlotConfig(config),
     };
-    await fs.writeFile(fullPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
+    await writeAtomicPluginStateJson(fullPath, payload);
 }
 const PROJECT_PPT_PATH_CONFIRMATIONS_PATH = "simple_cluster/ui/ppt_path_confirmations.json";
 const PPT_PLOT_REQUEST_AUDIT_DIR = "simple_cluster/results/ppt_plot_requests";
@@ -22650,12 +24300,7 @@ async function writeProjectPptPathConfirmationsState(root, confirmations) {
     const fullPath = path.join(root, ...PROJECT_PPT_PATH_CONFIRMATIONS_PATH.split("/"));
     const normalized = mergePptPathConfirmations(confirmations);
     if (!normalized.length) {
-        try {
-            await fs.unlink(fullPath);
-        }
-        catch {
-            // ignore missing file
-        }
+        await writeAtomicPluginStateJson(fullPath, { schemaVersion: 1, updatedAt: new Date().toISOString(), confirmations: [] });
         return;
     }
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
@@ -22664,7 +24309,7 @@ async function writeProjectPptPathConfirmationsState(root, confirmations) {
         updatedAt: new Date().toISOString(),
         confirmations: normalized,
     };
-    await fs.writeFile(fullPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
+    await writeAtomicPluginStateJson(fullPath, payload);
 }
 const PROJECT_UI_LAYOUT_PATH = "simple_cluster/ui/ui_layout.json";
 async function readProjectUiLayoutState(root) {
@@ -22675,6 +24320,8 @@ async function readProjectUiLayoutState(root) {
         const text = await fs.readFile(fullPath, "utf8");
         const data = JSON.parse(text);
         if (!data || typeof data !== "object")
+            return undefined;
+        if (data.cleared === true)
             return undefined;
         const raw = data.layout && typeof data.layout === "object" ? data.layout : data;
         return normalizeUiProjectLayoutState(raw, defaultUiLayout);
@@ -22688,12 +24335,7 @@ async function writeProjectUiLayoutState(root, layout) {
         return;
     const fullPath = path.join(root, ...PROJECT_UI_LAYOUT_PATH.split("/"));
     if (!layout) {
-        try {
-            await fs.unlink(fullPath);
-        }
-        catch {
-            // ignore missing file
-        }
+        await writeAtomicPluginStateJson(fullPath, null);
         return;
     }
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
@@ -22702,7 +24344,7 @@ async function writeProjectUiLayoutState(root, layout) {
         updatedAt: new Date().toISOString(),
         layout: projectUiLayoutState(normalizeUiLayout({ ...defaultUiLayout, ...layout })),
     };
-    await fs.writeFile(fullPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
+    await writeAtomicPluginStateJson(fullPath, payload);
 }
 const PROJECT_DEBUG_BUNDLE_PATH = "simple_cluster/ui/debug_bundle.json";
 function normalizeDebugBundlePath(value) {
@@ -22732,12 +24374,7 @@ async function writeProjectDebugBundleState(root, debugBundlePath) {
     const fullPath = path.join(root, ...PROJECT_DEBUG_BUNDLE_PATH.split("/"));
     const normalized = normalizeDebugBundlePath(debugBundlePath);
     if (!normalized) {
-        try {
-            await fs.unlink(fullPath);
-        }
-        catch {
-            // ignore missing file
-        }
+        await writeAtomicPluginStateJson(fullPath, null);
         return;
     }
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
@@ -22746,7 +24383,7 @@ async function writeProjectDebugBundleState(root, debugBundlePath) {
         updatedAt: new Date().toISOString(),
         debugBundlePath: normalized,
     };
-    await fs.writeFile(fullPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
+    await writeAtomicPluginStateJson(fullPath, payload);
 }
 const PROJECT_CODE_SYNC_PATH = "simple_cluster/ui/code_sync.json";
 const PROJECT_REMOTE_PATH_CONFIRMATIONS_PATH = "simple_cluster/ui/remote_path_confirmations.json";
@@ -22917,12 +24554,7 @@ async function writeProjectRemotePathConfirmationsState(root, confirmations) {
     const fullPath = path.join(root, ...PROJECT_REMOTE_PATH_CONFIRMATIONS_PATH.split("/"));
     const normalized = mergeRemotePathConfirmations(confirmations);
     if (!normalized.length) {
-        try {
-            await fs.unlink(fullPath);
-        }
-        catch {
-            // ignore missing file
-        }
+        await writeAtomicPluginStateJson(fullPath, { schemaVersion: 1, updatedAt: new Date().toISOString(), confirmations: [] });
         return;
     }
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
@@ -22931,7 +24563,7 @@ async function writeProjectRemotePathConfirmationsState(root, confirmations) {
         updatedAt: new Date().toISOString(),
         confirmations: normalized,
     };
-    await fs.writeFile(fullPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
+    await writeAtomicPluginStateJson(fullPath, payload);
 }
 function normalizeCodeSyncState(value) {
     const row = value && typeof value === "object" && !Array.isArray(value) ? value : {};
@@ -22972,6 +24604,8 @@ async function readProjectCodeSyncState(root) {
         const data = JSON.parse(text);
         if (!data || typeof data !== "object")
             return undefined;
+        if (Object.prototype.hasOwnProperty.call(data, "codeSync") && (!data.codeSync || typeof data.codeSync !== "object" || Array.isArray(data.codeSync)))
+            return undefined;
         const raw = data.codeSync && typeof data.codeSync === "object" ? data.codeSync : data;
         return normalizeCodeSyncState(raw);
     }
@@ -22985,12 +24619,7 @@ async function writeProjectCodeSyncState(root, codeSync) {
     const fullPath = path.join(root, ...PROJECT_CODE_SYNC_PATH.split("/"));
     const normalized = normalizeCodeSyncState(codeSync);
     if (!normalized) {
-        try {
-            await fs.unlink(fullPath);
-        }
-        catch {
-            // ignore missing file
-        }
+        await writeAtomicPluginStateJson(fullPath, null);
         return;
     }
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
@@ -22999,25 +24628,7 @@ async function writeProjectCodeSyncState(root, codeSync) {
         updatedAt: new Date().toISOString(),
         codeSync: normalized,
     };
-    const text = JSON.stringify(payload, null, 2) + "\n";
-    const tmpPath = `${fullPath}.tmp.${process.pid}.${Date.now()}`;
-    await fs.writeFile(tmpPath, text, "utf8");
-    try {
-        await fs.rename(tmpPath, fullPath);
-    }
-    catch {
-        try {
-            await fs.writeFile(fullPath, text, "utf8");
-        }
-        finally {
-            try {
-                await fs.unlink(tmpPath);
-            }
-            catch {
-                // ignore
-            }
-        }
-    }
+    await writeAtomicPluginStateJson(fullPath, payload);
 }
 function normalizeLocalOperationsState(value) {
     if (!value || typeof value !== "object" || Array.isArray(value))
@@ -23061,12 +24672,7 @@ async function writeProjectLocalOperationsState(root, operations) {
     const fullPath = path.join(root, ...PROJECT_LOCAL_OPERATIONS_PATH.split("/"));
     const normalized = normalizeLocalOperationsState(operations);
     if (!normalized) {
-        try {
-            await fs.unlink(fullPath);
-        }
-        catch {
-            // ignore missing file
-        }
+        await writeAtomicPluginStateJson(fullPath, null);
         return;
     }
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
@@ -23075,7 +24681,7 @@ async function writeProjectLocalOperationsState(root, operations) {
         updatedAt: new Date().toISOString(),
         operations: normalized,
     };
-    await fs.writeFile(fullPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
+    await writeAtomicPluginStateJson(fullPath, payload);
 }
 function normalizeLocalPlanMetadataState(value) {
     if (!value || typeof value !== "object" || Array.isArray(value))
@@ -23126,12 +24732,7 @@ async function writeProjectLocalPlanMetadataState(root, metadata) {
     const fullPath = path.join(root, ...PROJECT_LOCAL_PLAN_METADATA_PATH.split("/"));
     const normalized = normalizeLocalPlanMetadataState(metadata);
     if (!normalized) {
-        try {
-            await fs.unlink(fullPath);
-        }
-        catch {
-            // ignore missing file
-        }
+        await writeAtomicPluginStateJson(fullPath, null);
         return;
     }
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
@@ -23140,7 +24741,7 @@ async function writeProjectLocalPlanMetadataState(root, metadata) {
         updatedAt: new Date().toISOString(),
         localPlanMetadata: normalized,
     };
-    await fs.writeFile(fullPath, JSON.stringify(payload, null, 2) + "\n", "utf8");
+    await writeAtomicPluginStateJson(fullPath, payload);
 }
 const localPlansForWebviewCache = new WeakMap();
 const localPlanForWebviewCache = new WeakMap();
@@ -24693,6 +26294,23 @@ function dropUndefined(record) {
     return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined));
 }
 const hubControlStatusCache = new WeakMap();
+function tunnelAuthorityHost(value) {
+    const host = String(value || "127.0.0.1").trim() || "127.0.0.1";
+    if (host.startsWith("[") && host.endsWith("]"))
+        return host;
+    return host.includes(":") ? `[${host}]` : host;
+}
+function tunnelHttpOrigin(hostValue, portValue) {
+    const host = String(hostValue || "127.0.0.1").trim() || "127.0.0.1";
+    TunnelGateway_1.assertLocalhost(host);
+    const port = Number(portValue);
+    if (!Number.isInteger(port) || port < 1 || port > 65535)
+        throw new Error("隧道端口无效。");
+    return `http://${tunnelAuthorityHost(host)}:${port}`;
+}
+function tunnelHttpEndpoint(hostValue, portValue) {
+    return `http://${tunnelAuthorityHost(hostValue)}:${portValue || "-"}`;
+}
 function buildHubControlStatus(registryState, probe) {
     const registry = registryState;
     const cacheable = isWeakMapCacheKey(registry);
@@ -24705,7 +26323,7 @@ function buildHubControlStatus(registryState, probe) {
     const endpoints = (capabilities.endpoints || {});
     const status = {
         endpointId: hub.id || "hub",
-        localEndpoint: `http://127.0.0.1:${tunnel.localPort || "-"}`,
+        localEndpoint: tunnelHttpEndpoint(tunnel.localHost, tunnel.localPort),
         health: probe?.status || "unknown",
         actionApi: Boolean(endpoints.actions),
         fileApi: Boolean(endpoints.fileList || endpoints.fileDownload || endpoints.fileUploadChunk),
@@ -24739,7 +26357,7 @@ function buildWorkerTelemetryStatus(registryState, probes, realtime) {
                     : probe?.status ? "conflict" : "unknown";
         return {
             workerId: worker.id,
-            localEndpoint: `http://127.0.0.1:${tunnel.localPort || "-"}`,
+            localEndpoint: tunnelHttpEndpoint(tunnel.localHost, tunnel.localPort),
             gpuTelemetry: Boolean(probe?.capabilities?.endpoints ? (probe?.capabilities).endpoints.gpu : true),
             workerTaskTelemetry: Boolean(probe?.capabilities?.endpoints ? (probe?.capabilities).endpoints.workerTasks : true),
             eventStream: stream?.streamStatus || "disconnected",
@@ -25010,6 +26628,117 @@ function normalizeUiButtonPayload(input) {
     }
     return out;
 }
+function delayWithAbort(milliseconds, signal) {
+    if (signal?.aborted)
+        return Promise.reject(signal.reason || new Error("Request cancelled."));
+    return new Promise((resolve, reject) => {
+        let settled = false;
+        const timer = setTimeout(() => finish(), milliseconds);
+        timer.unref?.();
+        const onAbort = () => finish(signal?.reason || new Error("Request cancelled."));
+        const finish = (error) => {
+            if (settled)
+                return;
+            settled = true;
+            clearTimeout(timer);
+            signal?.removeEventListener("abort", onAbort);
+            if (error)
+                reject(error);
+            else
+                resolve();
+        };
+        signal?.addEventListener("abort", onAbort, { once: true });
+        if (signal?.aborted)
+            onAbort();
+    });
+}
+async function readBoundedWebResponse(response, maxBytes, label, signal) {
+    const limit = Math.max(0, Number(maxBytes) || 0);
+    const assertNotAborted = () => {
+        if (signal?.aborted)
+            throw signal.reason || new Error("Request cancelled.");
+    };
+    assertNotAborted();
+    const declaredHeader = response?.headers?.get?.("content-length");
+    const declaredLength = declaredHeader === null || declaredHeader === undefined || String(declaredHeader).trim() === ""
+        ? Number.NaN
+        : Number(declaredHeader);
+    if (Number.isFinite(declaredLength) && declaredLength > limit) {
+        void response?.body?.cancel?.().catch(() => undefined);
+        throw new Error(`${label} response exceeded ${limit} bytes`);
+    }
+    const chunks = [];
+    let total = 0;
+    const appendChunk = (value) => {
+        const chunk = Buffer.isBuffer(value) ? value : Buffer.from(value);
+        total += chunk.length;
+        if (total > limit)
+            throw new Error(`${label} response exceeded ${limit} bytes`);
+        if (chunks.length >= 16384)
+            throw new Error(`${label} response exceeded the streaming chunk limit`);
+        chunks.push(chunk);
+    };
+    const body = response?.body;
+    if (!body)
+        return Buffer.alloc(0);
+    if (typeof body.getReader === "function") {
+        const reader = body.getReader();
+        const onAbort = () => { void reader.cancel(signal?.reason).catch(() => undefined); };
+        signal?.addEventListener("abort", onAbort, { once: true });
+        try {
+            while (true) {
+                assertNotAborted();
+                const { done, value } = await reader.read();
+                assertNotAborted();
+                if (done)
+                    break;
+                appendChunk(value);
+            }
+        }
+        catch (error) {
+            void reader.cancel().catch(() => undefined);
+            throw error;
+        }
+        finally {
+            signal?.removeEventListener("abort", onAbort);
+            try {
+                reader.releaseLock();
+            }
+            catch { /* stream may already be cancelled */ }
+        }
+    }
+    else if (typeof body[Symbol.asyncIterator] === "function") {
+        const iterator = body[Symbol.asyncIterator]();
+        try {
+            while (true) {
+                assertNotAborted();
+                const { done, value } = await iterator.next();
+                assertNotAborted();
+                if (done)
+                    break;
+                appendChunk(value);
+            }
+        }
+        catch (error) {
+            try {
+                await iterator.return?.();
+            }
+            catch { /* stream may already be closed */ }
+            try {
+                body.destroy?.();
+            }
+            catch { /* stream may already be closed */ }
+            throw error;
+        }
+    }
+    else {
+        const status = Number(response?.status);
+        if ([204, 304].includes(status) || declaredLength === 0)
+            return Buffer.alloc(0);
+        throw new Error(`${label} response has no bounded streaming reader`);
+    }
+    return Buffer.concat(chunks, total);
+}
 function clampUiNumber(input, min, max, fallback) {
     const value = typeof input === "number" ? input : Number(input);
     if (!Number.isFinite(value))
@@ -25195,10 +26924,11 @@ function projectOutputGateDiagnostics(project, plan) {
     const rules = nestedRecord(project || {}, "adapterRules");
     const contractReady = !plan || plan.planContractOk !== false;
     const configFile = String(plan?.baseConfig || plan?.base_config || "").trim();
-    const configReady = !configFile || /[{}$]/.test(configFile) || arrayFromRecord(project || {}, "configs").includes(configFile);
+    const declaredTaskOutputs = planOutputEvidenceSignals(plan).some((item) => /任务产物:/.test(item));
+    const configReady = !configFile || declaredTaskOutputs || /[{}$]/.test(configFile) || arrayFromRecord(project || {}, "configs").includes(configFile);
     const planSignals = contractReady ? planOutputEvidenceSignals(plan) : [];
     const planCandidates = contractReady ? planOutputEvidenceCandidates(plan) : [];
-    const planReady = planSignals.length > 0 && planCandidates.length > 0;
+    const planReady = planSignals.length > 0 && (planCandidates.length > 0 || declaredTaskOutputs);
     const ruleCandidateCount = actionableAdapterRuleSignals(rules) ? adapterRuleResultCandidates(rules).length : 0;
     const candidateCount = ruleCandidateCount + planCandidates.length;
     const projectContractCount = arrayFromRecord(project || {}, "outputContractFiles").length;
@@ -25508,7 +27238,7 @@ function planOutputEvidenceSignals(plan) {
         return cached;
     const value = uniqueStrings((source.outputSignals || [])
         .map((item) => String(item || "").trim())
-        .filter((item) => /result_csv|results_csv|metrics_csv|summary_csv|标准契约|结果文件|结果目录|命令参数|文本日志|classification_report|stdout|stderr|metricRegex/i.test(item)));
+        .filter((item) => /result_csv|results_csv|metrics_csv|summary_csv|标准契约|结果文件|结果目录|任务产物|命令参数|文本日志|classification_report|stdout|stderr|metricRegex/i.test(item)));
     planOutputEvidenceSignalsCache.set(source, value);
     return value;
 }
@@ -25778,28 +27508,21 @@ function workerActionDedupKey(action, workerId, body) {
 function chooseXshellForward(info, selectedIndex, currentLocalPort, currentRemotePort) {
     if (!info?.forwards.length)
         return undefined;
-    const safeForwards = info.forwards.filter(xshellForwardIsLoopback);
-    if (!safeForwards.length)
-        return undefined;
     if (selectedIndex !== undefined) {
-        const byIndex = safeForwards.find((forward) => forward.index === selectedIndex);
+        const byIndex = info.forwards.find((forward) => forward.index === selectedIndex);
         if (byIndex)
             return byIndex;
     }
-    const byPorts = safeForwards.find((forward) => forward.localPort === currentLocalPort && forward.remotePort === currentRemotePort);
-    return byPorts || (0, XshellSessionScanner_1.preferredSimpleForward)({ ...info, forwards: safeForwards });
+    const byPorts = info.forwards.find((forward) => forward.localPort === currentLocalPort && forward.remotePort === currentRemotePort);
+    return byPorts || (0, XshellSessionScanner_1.preferredSimpleForward)(info);
 }
-const XSHELL_LOOPBACK_HOSTS = new Set(["127.0.0.1", "localhost", "::1", "[::1]"]);
-function xshellForwardIsLoopback(forward) {
-    return xshellForwardHostIsLoopback(forward.localHost) && xshellForwardHostIsLoopback(forward.remoteHost);
-}
-function xshellForwardHostIsLoopback(value) {
-    const text = String(value || "").trim().toLowerCase();
-    return !text || XSHELL_LOOPBACK_HOSTS.has(text);
+function xshellForwardHostIsValid(value) {
+    const text = String(value || "").trim();
+    return !text || !(text.includes("/") || text.includes("\\") || text.includes("?") || text.includes("#") || text.includes("@") || /\s/.test(text));
 }
 function unsafeXshellForwardMessages(info) {
     return (info?.forwards || [])
-        .filter((forward) => !xshellForwardIsLoopback(forward))
+        .filter((forward) => !xshellForwardHostIsValid(forward.localHost) || !xshellForwardHostIsValid(forward.remoteHost))
         .map((forward) => `FwdReq_${forward.index} ${forward.localHost || "-"}:${forward.localPort} -> ${forward.remoteHost || "-"}:${forward.remotePort}`);
 }
 function capabilityForAction(action) {
@@ -26978,29 +28701,33 @@ async function materializePlanArchiveEvidenceFiles(client, root, bundleDir, file
         const server = client?.hubMappedDownloadServer ? client.hubMappedDownloadServer() : null;
         if (!server || typeof client.simpleSftpApiCall !== "function")
             throw new Error("Hub 归档证据没有可打包的 SFTP 目标。下一步：恢复 Hub SSH 配置后重试一次映射下载，不要逐文件拉取。");
-        const stagingRoot = path.posix.join("simple_cluster", "downloads", "plan_archive_evidence");
-        for (let offset = 0; offset < files.length; offset += MAPPED_RESULT_DOWNLOAD_MAX_ENTRIES) {
-            const chunk = files.slice(offset, offset + MAPPED_RESULT_DOWNLOAD_MAX_ENTRIES);
-            const entries = chunk.map((relative) => ({ remotePath: relative, localRelativePath: path.posix.join(stagingRoot, relative) }));
+        const transfers = files.map((relative) => {
+            const target = safeArchiveBundleChildPath(evidenceRoot, relative);
+            const localRelativePath = path.relative(root, target).replace(/\\/g, "/");
+            if (!localRelativePath || localRelativePath.startsWith("../") || path.posix.isAbsolute(localRelativePath))
+                throw new Error(`Plan 归档证据目标超出项目根目录：${relative}`);
+            return { remotePath: relative, localRelativePath, bytes: null };
+        });
+        const chunks = partitionMappedDownloadTransfers(transfers, MAPPED_RESULT_DOWNLOAD_MAX_ENTRIES, MAPPED_RESULT_DOWNLOAD_MAX_BATCH_BYTES, PLAN_ARCHIVE_EVIDENCE_MAX_BYTES);
+        for (const entries of chunks) {
             const result = await client.simpleSftpApiCall("sync.downloadMappedPaths", {
                 localPath: root,
                 server,
                 entries,
                 maxFileBytes: PLAN_ARCHIVE_EVIDENCE_MAX_BYTES,
+                maxBatchBytes: MAPPED_RESULT_DOWNLOAD_MAX_BATCH_BYTES,
                 overwrite: true,
                 confirm: true,
                 pathConfirmed: true,
             });
-            if (Number(result?.fileCount ?? result?.completedFiles ?? 0) !== chunk.length)
+            if (Number(result?.fileCount ?? result?.completedFiles ?? 0) !== entries.length)
                 throw new Error("Plan 归档证据映射下载数量与清单不一致。");
-            for (const relative of chunk) {
-                const staged = safeWorkspaceChildPath(root, path.posix.join(stagingRoot, relative));
-                const stat = await fs.stat(staged);
+            for (const entry of entries) {
+                const relative = entry.remotePath;
+                const target = safeArchiveBundleChildPath(evidenceRoot, relative);
+                const stat = await fs.stat(target);
                 if (!stat.isFile() || stat.size > PLAN_ARCHIVE_EVIDENCE_MAX_BYTES)
                     throw new Error(`Plan 归档证据不可用：${relative}`);
-                const target = safeArchiveBundleChildPath(evidenceRoot, relative);
-                await fs.mkdir(path.dirname(target), { recursive: true });
-                await fs.copyFile(staged, target);
                 copied.push(relative);
             }
         }
@@ -27018,27 +28745,52 @@ async function materializePlanArchiveEvidenceFiles(client, root, bundleDir, file
     }
     return copied;
 }
-async function removeArchivedWorkspaceFiles(root, files) {
-    for (const relative of files) {
-        const source = safeWorkspaceChildPath(root, relative);
-        await fs.unlink(source);
+async function restoreMovedPlanArchiveFiles(root, stagingDir, movedFiles) {
+    const failures = [];
+    const rootPath = path.resolve(root);
+    let rootReal;
+    try {
+        const rootStat = await fs.lstat(rootPath);
+        if (rootStat.isSymbolicLink() || !rootStat.isDirectory())
+            throw new Error("项目根目录不是普通目录");
+        rootReal = await fs.realpath(rootPath);
     }
-}
-async function restorePlanArchiveWorkspaceFiles(root, bundleDir, sourcePlan, configFiles, evidenceFiles) {
-    await fs.mkdir(path.dirname(sourcePlan), { recursive: true });
-    await fs.copyFile(path.join(bundleDir, "plan.yaml"), sourcePlan);
-    for (const relative of configFiles) {
-        const source = safeArchiveBundleChildPath(path.join(bundleDir, "configs"), relative);
-        const target = safeWorkspaceChildPath(root, relative);
-        await fs.mkdir(path.dirname(target), { recursive: true });
-        await fs.copyFile(source, target);
+    catch (error) {
+        return [`项目根目录不可验证：${errorMessage(error)}`];
     }
-    for (const relative of evidenceFiles) {
-        const source = safeArchiveBundleChildPath(path.join(bundleDir, "evidence"), relative);
-        const target = safeWorkspaceChildPath(root, relative);
-        await fs.mkdir(path.dirname(target), { recursive: true });
-        await fs.copyFile(source, target);
+    for (const entry of [...movedFiles].reverse()) {
+        try {
+            const source = safeWorkspaceChildPath(rootPath, entry.source);
+            const sourceParent = path.dirname(source);
+            const parentRelative = path.relative(rootPath, sourceParent);
+            if (parentRelative.startsWith("..") || path.isAbsolute(parentRelative))
+                throw new Error(`源文件父目录超出项目：${entry.source}`);
+            let current = rootPath;
+            if (parentRelative) {
+                for (const part of parentRelative.split(path.sep)) {
+                    current = path.join(current, part);
+                    const stat = await fs.lstat(current);
+                    if (stat.isSymbolicLink() || !stat.isDirectory())
+                        throw new Error(`源文件父目录不是安全目录：${entry.source}`);
+                }
+            }
+            const parentReal = await fs.realpath(sourceParent);
+            const parentFromRoot = path.relative(rootReal, parentReal);
+            if (parentFromRoot && (parentFromRoot.startsWith("..") || path.isAbsolute(parentFromRoot)))
+                throw new Error(`源文件父目录越过项目根：${entry.source}`);
+            if (await existsAt(source))
+                throw new Error(`源路径已被其他内容占用：${entry.source}`);
+            const archived = safeArchiveBundleChildPath(stagingDir, entry.target);
+            const archivedStat = await fs.lstat(archived);
+            if (archivedStat.isSymbolicLink() || !archivedStat.isFile())
+                throw new Error(`归档恢复源不是普通文件：${entry.target}`);
+            await fs.rename(archived, source);
+        }
+        catch (error) {
+            failures.push(`${entry.source}: ${errorMessage(error)}`);
+        }
     }
+    return failures;
 }
 async function copyPlanArchiveFiles(root, bundleDir, category, files) {
     const copied = [];
@@ -27307,7 +29059,7 @@ async function ensureSimpleProjectEntrypoints(root) {
     }
     if (!hasFile) {
         await fs.mkdir(path.dirname(full), { recursive: true });
-        await fs.writeFile(full, templateText, "utf-8");
+        await (0, StateStore_1.atomicWriteText)(full, templateText);
         return { ensured: true, trainExists, testExists, filled: ["trainCommandTemplate", "testCommandTemplate"] };
     }
     // patch existing file: ensure entrypoints section has defaults if missing/empty
@@ -27336,7 +29088,7 @@ async function ensureSimpleProjectEntrypoints(root) {
             filled.push("testCommandTemplate");
     }
     if (filled.length)
-        await fs.writeFile(full, text, "utf-8");
+        await (0, StateStore_1.atomicWriteText)(full, text);
     return { ensured: filled.length > 0, trainExists, testExists, filled };
 }
 async function probeEntrypointTemplate(root, template) {
@@ -28168,10 +29920,10 @@ function guidedPlanSummaryValue(value, limit = Number.MAX_SAFE_INTEGER) {
     const text = String(value || "未设置").replace(/\s+/g, " ").trim();
     return text.length > limit ? `${text.slice(0, limit - 3)}...` : text;
 }
-const REMOTE_ACTION_PATH_FIELDS = Object.freeze(["confirmationPath", "remotePath", "path", "artifactPath", "resultPath", "logPath"]);
+const REMOTE_ACTION_PATH_FIELDS = Object.freeze(["confirmationPath", "remotePath", "path", "artifactPath", "resultPath", "outputDir", "logPath"]);
 const REMOTE_ACTION_IDENTIFIER_FIELDS = Object.freeze(["archiveKey", "runKey", "experimentId"]);
 const REMOTE_ACTION_IDENTIFIER_LIST_FIELDS = Object.freeze(["selectedArchiveKeys", "selectedRunKeys", "selectedExperimentIds"]);
-const REMOTE_ACTION_TASK_TARGET_PATH_FIELDS = Object.freeze(["resultPath", "artifactPath", "remotePath", "path", "logPath"]);
+const REMOTE_ACTION_TASK_TARGET_PATH_FIELDS = Object.freeze(["resultPath", "artifactPath", "outputDir", "remotePath", "path", "logPath"]);
 function remoteActionTargetPreview(body, limit = 12) {
     const item = body && typeof body === "object" ? body : {};
     const options = item.options && typeof item.options === "object" ? item.options : {};
@@ -28224,6 +29976,37 @@ function remoteActionTargetPreview(body, limit = 12) {
         visibleIdentifiers: identifiers.slice(0, visibleLimit),
     };
 }
+function artifactDeletionTargetPaths(body) {
+    const item = body && typeof body === "object" ? body : {};
+    const options = item.options && typeof item.options === "object" ? item.options : {};
+    const values = [];
+    const seen = new Set();
+    const add = (value) => {
+        const text = String(value || "").trim();
+        if (!text || text === "-" || seen.has(text))
+            return;
+        seen.add(text);
+        values.push(text);
+    };
+    const directFields = ["confirmationPath", "artifactPath", "resultPath", "outputDir", "logPath", "path"];
+    for (const source of [item, options]) {
+        for (const key of directFields) {
+            const value = source[key];
+            if (Array.isArray(value))
+                value.forEach(add);
+            else
+                add(value);
+        }
+        (Array.isArray(source.confirmationPaths) ? source.confirmationPaths : []).forEach(add);
+        for (const target of Array.isArray(source.selectedTaskTargets) ? source.selectedTaskTargets : []) {
+            if (!target || typeof target !== "object")
+                continue;
+            for (const key of [...directFields, "remotePath", "remote_path", "artifact_path", "result_path", "output_dir", "log_path", "confirmation_path"])
+                add(target[key]);
+        }
+    }
+    return values;
+}
 const REMOTE_ACTION_DISPLAY_NAMES = Object.freeze({
     stopExperiment: "停止任务",
     retryExperiment: "重试任务",
@@ -28274,6 +30057,40 @@ function workerRemoteActionConfirmationDetail(command, action, body, workerIds) 
         route,
         "不会改写 Hub 全局 plan 控制文件。",
     ].join("\n");
+}
+function isArtifactDeletionAction(action) {
+    return ["delete-artifacts", "delete-worker-artifacts", "reconcile-deletions"].includes(String(action || "").trim().toLowerCase());
+}
+async function confirmArtifactDeletionFromUi(command, action, body, routeDetail = "") {
+    const paths = artifactDeletionTargetPaths(body);
+    if (!paths.length)
+        throw new Error("删除已阻止：必须先展开为精确的完整产物路径，不能只按任务标识删除。");
+    if (paths.some((value) => !(/^(?:\/|[a-z]:[\\/]|\\\\)/i.test(value))))
+        throw new Error("删除已阻止：确认内容必须是完整绝对路径，请刷新任务详情后重试。");
+    if (paths.length > 2000)
+        throw new Error("删除已阻止：单次最多确认 2000 个精确路径，请缩小选择范围。");
+    const pathText = paths.map((value) => `- ${value}`).join("\n");
+    if (pathText.length > 120_000)
+        throw new Error("删除已阻止：所选完整路径过多，无法在确认框中完整展示，请缩小选择范围。");
+    const route = String(routeDetail || "").split("\n").filter((line) => line.startsWith("执行通道：")).join("\n");
+    const firstLabel = "核对路径并继续";
+    const first = await vscode.window.showWarningMessage([
+        `【第一次确认】${remoteActionDisplayName(command, action)}，共 ${paths.length} 个精确目标。`,
+        route,
+        "请逐项核对以下完整路径。下一步仍会再次确认；当前不会执行删除。",
+        pathText,
+    ].filter(Boolean).join("\n\n"), { modal: true }, firstLabel);
+    if (first !== firstLabel)
+        throw new UiCommandCancelled(`${command} 已取消，未删除文件。`);
+    const secondLabel = "永久删除以上目标";
+    const second = await vscode.window.showWarningMessage([
+        `【第二次确认】永久删除以上 ${paths.length} 个完整路径。`,
+        "此操作不可撤销，只影响上面逐项列出的目标。",
+        pathText,
+    ].join("\n\n"), { modal: true }, secondLabel);
+    if (second !== secondLabel)
+        throw new UiCommandCancelled(`${command} 已取消，未删除文件。`);
+    return { ...(body && typeof body === "object" ? body : {}), confirm: true, pathConfirmed: true };
 }
 function guidedPlanModeLabel(mode) {
     const normalized = (0, PlanBuilder_1.normalizePlanMode)(mode);
@@ -28610,7 +30427,7 @@ async function ensureGuidedFallbackConfig(root, relative) {
     if (stat)
         throw new Error(`无法生成最小配置，目标不是文件：${relative}`);
     await fs.mkdir(path.dirname(fullPath), { recursive: true });
-    await fs.writeFile(fullPath, "# Generated by SimpleExperiment for a command without a config argument.\n{}\n", "utf8");
+    await (0, StateStore_1.atomicWriteText)(fullPath, "# Generated by SimpleExperiment for a command without a config argument.\n{}\n");
     return relative;
 }
 async function inputExistingWorkspaceConfig(root) {
@@ -29606,9 +31423,9 @@ async function writeWorkspaceTextWithBackup(fullPath, text) {
     let backupPath;
     if (previous !== undefined) {
         backupPath = await nextWorkspaceBackupPath(fullPath);
-        await fs.writeFile(backupPath, previous, "utf8");
+        await (0, StateStore_1.atomicWriteText)(backupPath, previous);
     }
-    await fs.writeFile(fullPath, text, "utf8");
+    await (0, StateStore_1.atomicWriteText)(fullPath, text);
     return { fullPath, relative, status: previous === undefined ? "created" : "updated", backupPath };
 }
 async function nextWorkspaceBackupPath(fullPath) {
@@ -29773,7 +31590,7 @@ async function nextAvailableDirectory(parent, stem) {
     for (let index = 0; index < 1000; index += 1) {
         const suffix = index ? `_${index + 1}` : "";
         const dir = path.join(parent, `${stem}${suffix}`);
-        if (!(await existsAt(dir)))
+        if (!(await existsAt(dir)) && !(await existsAt(`${dir}.staging`)))
             return dir;
     }
     throw new Error("无法生成唯一 Plan 归档目录。");
@@ -29816,11 +31633,13 @@ function compactUiActionError(error) {
     const suggestion = String(normalized.suggestion || actionErrorSuggestion(normalized.message) || "");
     const details = normalized.details && typeof normalized.details === "object" ? normalized.details : undefined;
     const safeDetails = details ? compactPanelLifecycleDetails(details) : undefined;
+    const operationOutcome = OperationOutcome_1.normalizeOperationOutcome(normalized.operationOutcome);
     return {
         command: compactSensitiveText(normalized.command, 160),
         ...(normalized.action ? { action: normalized.action } : {}),
         message: compactSensitiveText(normalized.message, UI_ACTION_ERROR_MESSAGE_LIMIT),
         ...(suggestion ? { suggestion: compactSensitiveText(suggestion, UI_ACTION_ERROR_SUGGESTION_LIMIT) } : {}),
+        ...(operationOutcome ? { operationOutcome } : {}),
         ...(normalized.capabilityMissing?.length ? { capabilityMissing: normalized.capabilityMissing.slice(0, UI_ACTION_ERROR_CAPABILITY_LIMIT).map((item) => compactSensitiveText(item, 96)) } : {}),
         ...(safeDetails ? { details: safeDetails } : {}),
         timestamp: new Date().toISOString(),
@@ -29854,6 +31673,7 @@ function compactPanelLifecycleDetails(details) {
         ...(typeof details.reason === "string" ? { reason: compactSensitiveText(details.reason, 80) } : {}),
         ...(typeof details.reloadRequired === "boolean" ? { reloadRequired: details.reloadRequired } : {}),
         ...(lifecycle ? { lifecycle } : {}),
+        ...(typeof details.lowEffectsMode === "boolean" ? { lowEffectsMode: details.lowEffectsMode } : {}),
         ...(safeCount(details.postedStateSeq) !== undefined ? { postedStateSeq: details.postedStateSeq } : {}),
         ...(safeCount(details.receivedStateSeq) !== undefined ? { receivedStateSeq: details.receivedStateSeq } : {}),
         ...(safeCount(details.renderedStateSeq) !== undefined ? { renderedStateSeq: details.renderedStateSeq } : {}),
@@ -29862,6 +31682,7 @@ function compactPanelLifecycleDetails(details) {
         ...(safeCount(details.statePayloadBytes) !== undefined ? { statePayloadBytes: details.statePayloadBytes } : {}),
         ...(safeCount(details.stateBuildDurationMs) !== undefined ? { stateBuildDurationMs: details.stateBuildDurationMs } : {}),
         ...(safeCount(details.telemetrySampleId) !== undefined ? { telemetrySampleId: details.telemetrySampleId } : {}),
+        ...(compactPanelRenderEvidence(details.renderEvidence) ? { renderEvidence: compactPanelRenderEvidence(details.renderEvidence) } : {}),
     };
 }
 function panelLifecycleDiagnosticMessage(reason) {
@@ -29934,6 +31755,34 @@ function userFacingFileError(error) {
 const REMOTE_RESULT_INSPECTION_MAX_BYTES = 5 * 1024 * 1024;
 const RESULT_ARTIFACT_MAX_BYTES = 128 * 1024 * 1024;
 const MAPPED_RESULT_DOWNLOAD_MAX_ENTRIES = 256;
+const MAPPED_RESULT_DOWNLOAD_MAX_BATCH_BYTES = 128 * 1024 * 1024;
+const SYNC_SCOPE_REVIEWED_STALE_FILE_LIMIT = 2_000;
+function partitionMappedDownloadTransfers(transfers, maxEntries, maxBatchBytes, unknownFileBytes) {
+    const chunks = [];
+    let current = [];
+    let currentBytes = 0;
+    const flush = () => {
+        if (current.length)
+            chunks.push(current);
+        current = [];
+        currentBytes = 0;
+    };
+    for (const transfer of transfers || []) {
+        const hinted = Number(transfer?.bytes);
+        const known = transfer?.bytes != null && Number.isSafeInteger(hinted) && hinted >= 0;
+        const bytes = known ? hinted : unknownFileBytes;
+        if (!Number.isSafeInteger(bytes) || bytes < 0 || bytes > maxBatchBytes)
+            throw new Error(`映射下载文件大小超过单批上限 ${maxBatchBytes} 字节：${transfer?.remotePath || "未知路径"}`);
+        if (current.length && (current.length >= maxEntries || currentBytes + bytes > maxBatchBytes))
+            flush();
+        current.push(transfer);
+        currentBytes += bytes;
+        if (!known || currentBytes >= maxBatchBytes)
+            flush();
+    }
+    flush();
+    return chunks;
+}
 function normalizeRemoteResultInspectionPath(value) {
     const normalized = String(value || "").trim().replace(/\\/g, "/").replace(/^\.\//, "");
     if (!(0, FileTransferTypes_1.isSafeRemotePath)(normalized))
@@ -30064,17 +31913,27 @@ function isBlockedResultScope(value) {
     const normalized = String(value || "").replace(/\\/g, "/").toLowerCase();
     return /(?:^|\/)(?:work_dirs|checkpoints?|weights?)(?:\/|$)/.test(normalized);
 }
-function mappedDownloadStageRelative(sourceId, remotePath) {
-    const extension = path.posix.extname(String(remotePath || "")).toLowerCase().replace(/[^.a-z0-9]/g, "").slice(0, 8);
-    const digest = crypto.createHash("sha256").update(`${sourceId}\n${remotePath}`).digest("hex").slice(0, 24);
-    return path.posix.join("simple_cluster", "downloads", "mapped_stage", `${digest}${extension}`);
-}
 function uniqueMappedTransfers(entries) {
     const seen = new Map();
     for (const entry of entries) {
         const key = String(entry.remotePath || "").toLowerCase();
-        if (!seen.has(key))
-            seen.set(key, { remotePath: entry.remotePath, localRelativePath: entry.stageRelative || entry.localRelative });
+        const bytes = Number(entry.bytes);
+        const hintedHash = String(entry.sha256 || "").trim().toLowerCase();
+        const sha256 = /^[a-f0-9]{64}$/.test(hintedHash) ? hintedHash : "";
+        if (!seen.has(key)) {
+            seen.set(key, { remotePath: entry.remotePath, localRelativePath: entry.localRelativePath || entry.localRelative, bytes: entry.bytes != null && Number.isSafeInteger(bytes) && bytes >= 0 ? bytes : null, sha256 });
+        }
+        else {
+            const previous = seen.get(key);
+            if (previous.bytes == null && entry.bytes != null && Number.isSafeInteger(bytes) && bytes >= 0)
+                previous.bytes = bytes;
+            else if (previous.bytes != null && entry.bytes != null && Number.isSafeInteger(bytes) && bytes !== previous.bytes)
+                throw new Error(`同一来源文件 ${entry.remotePath} 的大小证据不一致，已阻止跨 Plan 混合下载。`);
+            if (!previous.sha256 && sha256)
+                previous.sha256 = sha256;
+            else if (previous.sha256 && sha256 && previous.sha256 !== sha256)
+                throw new Error(`同一来源文件 ${entry.remotePath} 的版本 hash 不一致，已阻止跨 Plan 混合下载。`);
+        }
     }
     return [...seen.values()];
 }
@@ -30111,12 +31970,15 @@ async function assertRealChildFile(root, relative, leafMode) {
     }
     return { full: cursor, exists: true, identity: cursor };
 }
-async function streamCopyFile(source, destination, maxBytes) {
-    const input = await fs.open(source, "r");
-    const output = await fs.open(destination, "r+");
+async function streamCopyFile(source, destination, maxBytes, outputHandle) {
+    let input;
+    let output = outputHandle;
     let copied = 0;
     const buffer = Buffer.alloc(64 * 1024);
     try {
+        input = await fs.open(source, "r");
+        if (!output)
+            output = await fs.open(destination, "r+");
         for (;;) {
             const read = await input.read(buffer, 0, buffer.length, copied);
             if (!read.bytesRead)
@@ -30129,69 +31991,102 @@ async function streamCopyFile(source, destination, maxBytes) {
         await output.truncate(copied);
     }
     finally {
-        await input.close();
-        await output.close();
+        await input?.close().catch(() => undefined);
+        await output?.close().catch(() => undefined);
+    }
+}
+async function openReusableMappedTemp(root, relative) {
+    const checked = await assertRealChildFile(root, relative, "optional");
+    const before = checked.exists ? await fs.lstat(checked.full) : undefined;
+    if (before && (before.isSymbolicLink() || !before.isFile()))
+        throw new Error(`本机映射暂存位置不是普通文件：${relative}`);
+    let flags = fsNode.constants.O_CREAT | fsNode.constants.O_WRONLY | fsNode.constants.O_TRUNC | (fsNode.constants.O_NOFOLLOW || 0);
+    if (!before)
+        flags |= fsNode.constants.O_EXCL;
+    const handle = await fs.open(checked.full, flags, 0o600);
+    try {
+        const opened = await handle.stat();
+        const identityChanged = before && before.ino && opened.ino && (before.dev !== opened.dev || before.ino !== opened.ino);
+        if (!opened.isFile() || identityChanged)
+            throw new Error(`本机映射暂存文件身份在打开时变化：${relative}`);
+        return { full: checked.full, handle, identity: { dev: opened.dev, ino: opened.ino } };
+    }
+    catch (error) {
+        await handle.close().catch(() => undefined);
+        throw error;
     }
 }
 async function distributeMappedDownloads(root, entries, transfers, overwrite, hooks = {}) {
     let delivered = 0;
     const residues = [];
-    const transferred = new Set(transfers.map((item) => String(item.remotePath || "").toLowerCase()));
-    for (const entry of entries) {
-        if (!transferred.has(String(entry.remotePath || "").toLowerCase()))
+    const byRemote = new Map(transfers.map((item) => [String(item.remotePath || "").toLowerCase(), item]));
+    for (const [remoteKey, transfer] of byRemote) {
+        const matching = entries.filter((entry) => String(entry.remotePath || "").toLowerCase() === remoteKey);
+        if (!matching.length)
             continue;
-        const stageRelative = entry.stageRelative || entry.localRelative;
-        const staged = (await assertRealChildFile(root, stageRelative, "file")).full;
-        const destinationInfo = await assertRealChildFile(root, entry.localRelative, "optional");
-        const destination = destinationInfo.full;
-        const parentIdentity = path.dirname(destination);
-        if (path.resolve(staged) === path.resolve(destination)) {
+        const sourceRelative = String(transfer.localRelativePath || matching[0].localRelative || "");
+        const source = (await assertRealChildFile(root, sourceRelative, "file")).full;
+        for (const entry of matching) {
+            const destinationRelative = String(entry.localRelative || "");
+            const destinationInfo = await assertRealChildFile(root, destinationRelative, "optional");
+            const destination = destinationInfo.full;
+            if (path.resolve(source) === path.resolve(destination)) {
+                delivered++;
+                continue;
+            }
+            if (destinationInfo.exists && !overwrite)
+                continue;
+            const parent = path.dirname(destination);
+            await fs.mkdir(parent, { recursive: true });
+            const checkedParent = await fs.realpath(parent);
+            const rootReal = await fs.realpath(root);
+            const parentWithin = path.relative(rootReal, checkedParent);
+            if (parentWithin.startsWith("..") || path.isAbsolute(parentWithin))
+                throw new Error(`本机映射父目录解析后超出项目根目录：${destinationRelative}`);
+            const parentIdentity = checkedParent;
+            const tempToken = crypto.createHash("sha256").update(String(destinationRelative).toLowerCase()).digest("hex").slice(0, 24);
+            const temporaryRelative = path.posix.join(path.posix.dirname(destinationRelative), `.simple-mapped-${tempToken}.tmp`);
+            const temporaryState = await openReusableMappedTemp(root, temporaryRelative);
+            const temporary = temporaryState.full;
+            try {
+                await streamCopyFile(source, temporary, RESULT_ARTIFACT_MAX_BYTES, temporaryState.handle);
+            }
+            catch (error) {
+                residues.push(temporary);
+                throw new Error(`本机分发写入失败，暂存保留：${temporary}。${errorMessage(error)}`);
+            }
+            if (typeof hooks.beforeRename === "function")
+                await hooks.beforeRename({ root, destination, temporary, parentIdentity });
+            const currentParent = await assertRealChildFile(root, path.posix.dirname(destinationRelative), "directory");
+            if (!currentParent.identity || path.resolve(currentParent.identity) !== path.resolve(parentIdentity)) {
+                residues.push(temporary);
+                throw new Error(`本机映射父目录在写入后发生变化，暂存保留：${temporary}`);
+            }
+            const latestTemp = await fs.lstat(temporary).catch((error) => error?.code === "ENOENT" ? undefined : Promise.reject(error));
+            const latestTempReal = latestTemp ? await fs.realpath(temporary) : "";
+            const tempIdentityChanged = latestTemp && temporaryState.identity.ino && latestTemp.ino && (temporaryState.identity.dev !== latestTemp.dev || temporaryState.identity.ino !== latestTemp.ino);
+            if (!latestTemp?.isFile() || latestTemp.isSymbolicLink() || tempIdentityChanged || path.resolve(latestTempReal) !== path.resolve(checkedParent, path.basename(temporary))) {
+                residues.push(temporary);
+                throw new Error(`本机映射暂存文件身份在发布前变化，暂存保留：${temporary}`);
+            }
+            const latest = await fs.lstat(destination).catch((error) => error?.code === "ENOENT" ? undefined : Promise.reject(error));
+            if (latest?.isSymbolicLink()) {
+                residues.push(temporary);
+                throw new Error(`本机映射目标在写入前变为符号链接，暂存保留：${temporary}`);
+            }
+            if (latest && !overwrite) {
+                residues.push(temporary);
+                throw new Error(`本机文件已存在且未确认覆盖，暂存保留：${temporary}`);
+            }
+            try {
+                await fs.rename(temporary, destination);
+            }
+            catch (error) {
+                residues.push(temporary);
+                throw new Error(`本机分发替换失败，暂存保留：${temporary}。${errorMessage(error)}`);
+            }
             delivered++;
-            continue;
         }
-        if (destinationInfo.exists && !overwrite)
-            continue;
-        const parent = path.dirname(destination);
-        await fs.mkdir(parent, { recursive: true });
-        const checkedParent = await fs.realpath(parent);
-        const rootReal = await fs.realpath(root);
-        const parentWithin = path.relative(rootReal, checkedParent);
-        if (parentWithin.startsWith("..") || path.isAbsolute(parentWithin))
-            throw new Error(`本机映射父目录解析后超出项目根目录：${entry.localRelative}`);
-        const temporary = path.join(checkedParent, `.mapped-${process.pid}-${crypto.randomBytes(4).toString("hex")}.tmp`);
-        const handle = await fs.open(temporary, "wx");
-        await handle.close();
-        try {
-            await streamCopyFile(staged, temporary, RESULT_ARTIFACT_MAX_BYTES);
-        }
-        catch (error) {
-            residues.push(temporary);
-            throw new Error(`本机分发写入失败，暂存残留：${temporary}。${errorMessage(error)}`);
-        }
-        if (typeof hooks.beforeRename === "function")
-            await hooks.beforeRename({ root, destination, temporary, parentIdentity });
-        const currentParent = await assertRealChildFile(root, path.posix.dirname(entry.localRelative), "directory");
-        if (!currentParent.identity || path.resolve(currentParent.identity) !== path.resolve(parentIdentity)) {
-            residues.push(temporary);
-            throw new Error(`本机映射父目录在写入后发生变化，暂存残留：${temporary}`);
-        }
-        const latest = await fs.lstat(destination).catch((error) => error?.code === "ENOENT" ? undefined : Promise.reject(error));
-        if (latest?.isSymbolicLink()) {
-            residues.push(temporary);
-            throw new Error(`本机映射目标在写入前变为符号链接，暂存残留：${temporary}`);
-        }
-        if (latest && !overwrite) {
-            residues.push(temporary);
-            throw new Error(`本机文件已存在且未确认覆盖，暂存残留：${temporary}`);
-        }
-        try {
-            await fs.rename(temporary, destination);
-        }
-        catch (error) {
-            residues.push(temporary);
-            throw new Error(`本机分发替换失败，暂存残留：${temporary}。${errorMessage(error)}`);
-        }
-        delivered++;
     }
     if (residues.length)
         throw new Error(`映射下载已接收，但本机分发留下暂存文件：${residues.join("、")}`);
@@ -30397,6 +32292,8 @@ function collapseMappedDownloadBatches(batches) {
         for (const [key, value] of batch.transfers || []) {
             if (!target.transfers.has(key))
                 target.transfers.set(key, value);
+            else if (target.transfers.get(key).bytes == null && value?.bytes != null)
+                target.transfers.get(key).bytes = value.bytes;
         }
         for (const entry of batch.entries || []) {
             const localKey = String(entry.localRelative || "").toLowerCase();
@@ -30517,21 +32414,38 @@ function resultSummarySyncCandidates(summary, planFile) {
     const owner = String(summary?.resultOwnerWorkerId || summary?.workerId || "").trim();
     const entries = [];
     const seen = new Set();
-    const add = (remotePath, workerId) => {
+    const add = (remotePath, workerId, sizeHint, hashHint) => {
         const key = `${String(workerId || "").toLowerCase()}|${remotePath}`;
+        const numericSize = Number(sizeHint);
+        const bytes = sizeHint != null && Number.isSafeInteger(numericSize) && numericSize >= 0 ? numericSize : null;
+        const hash = String(hashHint || "").trim().toLowerCase();
+        const sha256 = /^[a-f0-9]{64}$/.test(hash) ? hash : "";
         if (!seen.has(key)) {
             seen.add(key);
-            entries.push({ remotePath, workerId: String(workerId || "") });
+            entries.push({ remotePath, workerId: String(workerId || ""), bytes, sha256 });
+        }
+        else {
+            const existing = entries.find((entry) => `${String(entry.workerId || "").toLowerCase()}|${entry.remotePath}` === key);
+            if (existing && existing.bytes == null)
+                existing.bytes = bytes;
+            else if (existing && bytes != null && existing.bytes !== bytes)
+                throw new Error(`同一来源文件 ${remotePath} 的大小证据不一致。`);
+            if (existing && !existing.sha256 && sha256)
+                existing.sha256 = sha256;
+            else if (existing?.sha256 && sha256 && existing.sha256 !== sha256)
+                throw new Error(`同一来源文件 ${remotePath} 的版本 hash 不一致。`);
         }
     };
+    const sizeFor = (ownerRow, remotePath) => ownerRow?.metricSizes?.[remotePath] ?? ownerRow?.fileSizes?.[remotePath] ?? ownerRow?.resultFileSizes?.[remotePath];
+    const hashFor = (ownerRow, remotePath) => ownerRow?.metricHashes?.[remotePath] ?? ownerRow?.fileHashes?.[remotePath] ?? ownerRow?.completedJob?.artifactHashes?.[remotePath] ?? ownerRow?.artifactHashes?.[remotePath];
     for (const remotePath of paths) {
         const matchingTables = tables.filter((table) => [...expanded(table), ...fields.map((field) => table?.[field]), ...(table.metricPaths || [])].includes(remotePath));
         if (matchingTables.length) {
             for (const table of matchingTables)
-                add(remotePath, table.workerId);
+                add(remotePath, table.workerId, sizeFor(table, remotePath), hashFor(table, remotePath));
         }
         else {
-            add(remotePath, owner || (tables.length === 1 ? tables[0].workerId : ""));
+            add(remotePath, owner || (tables.length === 1 ? tables[0].workerId : ""), sizeFor(summary, remotePath), hashFor(summary, remotePath));
         }
     }
     return entries;
@@ -30585,19 +32499,19 @@ function renderHtml() {
   </style>
 </head>
 <body>
-  <h2 title="Xshell 负责保持本地隧道；插件只访问你电脑上的 127.0.0.1 本地端口。">Xshell 本地隧道</h2>
+  <h2 title="Xshell 负责保持本地隧道；插件按每个端点保存的主机和端口连接。">Xshell 本地隧道</h2>
   <div id="summary"></div>
   <div class="toolbar">
     <button data-command="configureSessions" title="选择 Xshell .xsh 会话文件，并从会话内读取本地端口转发。">选择 Xshell 会话</button>
     <button data-command="configure" title="填写 Xshell 路径、服务器 IP/域名、用户名和端口。每一步都会保存。">配置</button>
     <button data-command="start" title="用 Xshell 打开本地端口转发。插件不会自己 SSH。">启动 Xshell</button>
     <button data-command="startAll" title="启动 Hub 和所有已启用 Worker 的 Xshell 本地隧道。">启动全部隧道</button>
-    <button data-command="test" title="检查 127.0.0.1 本地端口、Hub Agent 健康状态和文件 API。">检测隧道</button>
+    <button data-command="test" title="检查已配置的本地隧道端点、Hub Agent 健康状态和文件 API。">检测隧道</button>
     <button data-command="restart" title="重新连接实时事件通道，不会重启 Xshell。">重启实时流</button>
     <button data-command="pauseStream" class="secondary" title="暂停实时事件刷新，但不关闭 Xshell。">暂停实时流</button>
     <button data-command="resumeStream" class="secondary" title="恢复实时事件刷新。">恢复实时流</button>
     <button data-command="pauseAll" class="secondary" title="暂停插件所有本地隧道请求。">暂停全部网络</button>
-    <button data-command="resumeNetwork" class="secondary" title="恢复插件访问 127.0.0.1 本地隧道端口。">恢复网络</button>
+    <button data-command="resumeNetwork" class="secondary" title="恢复插件访问已配置的本地隧道端点。">恢复网络</button>
     <button data-command="snapshot" class="secondary" title="手动读取一次当前状态。">手动快照</button>
     <button data-command="script" class="secondary" title="生成可手动运行的 Xshell 隧道脚本。">生成脚本</button>
     <button data-command="realCheck" class="secondary" title="逐层检查 Xshell、端口、Hub Agent、实时通道和文件 API。">真实对接检测</button>
@@ -30611,7 +32525,7 @@ function renderHtml() {
   <h3 title="解释插件如何联网，以及哪些连接方式已被禁用。">连接策略</h3>
   <pre>插件当前通过 Xshell 本地端口转发连接 Hub Agent。
 插件不会直接 SSH 到 Hub 或 Worker。
-实时状态、日志、文件传输均只访问 127.0.0.1:&lt;port&gt;。
+实时状态、日志、文件传输按每台服务器保存的主机与端口访问。
 如果隧道不可用，请修复 Xshell 本地隧道，或改用 offline_import。</pre>
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
@@ -30623,8 +32537,8 @@ function renderHtml() {
       "服务器 IP/域名": "你平时登录服务器时用的地址，例如 10.10.10.8 或 login.example.edu。",
       "登录用户名": "你登录服务器时使用的用户名。插件不会保存 SSH 密码。",
       "SSH 端口号": "Xshell 会话登录服务器使用的端口，常见值是 22。它不是本地隧道端口。",
-      "Xshell 登录别名": "仅用于显示和目标标识。插件仍只打开 .xsh 会话或访问 127.0.0.1 本地隧道。",
-      "本地端点": "插件实际访问的本机地址，只应是 127.0.0.1:本地隧道端口。",
+      "Xshell 登录别名": "仅用于显示和目标标识。插件通过已选 .xsh 会话建立隧道，并使用该端点配置的主机和端口。",
+      "本地端点": "插件实际访问的本地转发主机和端口，以当前服务器配置为准。",
       "服务器 Agent 端口": "服务器上 Hub Agent 监听的端口，要和 python cluster_agent.py serve --port 一致。",
       "隧道健康": "检测 Xshell 本地隧道和 Hub Agent 是否可用。",
       "实时流": "Hub Agent 推送状态变化的通道，优先 WebSocket，其次 SSE，再退到快照。",
@@ -30737,7 +32651,7 @@ function renderHtml() {
 }
 async function promptWorkerTunnel(current, index, base) {
     let seed = current;
-    const suggestedPort = seed?.localForwardPort || await nextAvailableLocalPort(TunnelPortConflict_1.defaultTunnelPorts.workerLocalPortRange.start + index, new Set([base.localForwardPort, ...base.workerTunnels.map((worker) => worker.localForwardPort)]));
+    const suggestedPort = seed?.localForwardPort || await nextAvailableLocalPort(TunnelPortConflict_1.defaultTunnelPorts.workerLocalPortRange.start + index, new Set([base.localForwardPort, ...base.workerTunnels.map((worker) => worker.localForwardPort)]), seed?.localForwardHost || base.localForwardHost);
     const displayName = await input("Worker 显示名称", seed?.displayName || seed?.id || `worker-${index + 1}`, "例如 gpu-worker");
     if (displayName === undefined)
         return undefined;
@@ -30951,7 +32865,7 @@ async function pickXshellForward(title, session) {
         forward,
     })), {
         title,
-        placeHolder: "该 Xshell 会话包含多个隧道，请选择插件要使用的 127.0.0.1 本地转发。",
+        placeHolder: "该 Xshell 会话包含多个转发，请选择插件要使用的端点和端口对。",
         ignoreFocusOut: true,
     });
     return picked?.forward;
@@ -31054,13 +32968,13 @@ function authMethodLabel(value) {
         return "自动";
     return "密码";
 }
-async function nextAvailableLocalPort(start, usedPorts) {
+async function nextAvailableLocalPort(start, usedPorts, host = "127.0.0.1") {
     let candidate = Math.max(1024, Math.min(65535, start));
     while (usedPorts.has(candidate))
         candidate += 1;
-    let port = await (0, XshellTunnelLauncher_1.recommendAvailableLocalPort)(candidate);
+    let port = await (0, XshellTunnelLauncher_1.recommendAvailableLocalPort)(candidate, host);
     while (usedPorts.has(port))
-        port = await (0, XshellTunnelLauncher_1.recommendAvailableLocalPort)(port + 1);
+        port = await (0, XshellTunnelLauncher_1.recommendAvailableLocalPort)(port + 1, host);
     return port;
 }
 function sanitizeWorkerId(value) {
@@ -31228,6 +33142,9 @@ async function listLocalCodePaths(root, includePaths = [], scopePaths) {
 const blockedExplicitCodeDirs = new Set([".git", ".vscode", ".codex", ".agents", ".coding-tools", ".local-gpt", ".runtime", "clean_dir", "zlk_cluster", ".venv", "venv", "env", "node_modules", "__pycache__", ".cache", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox"]);
 function blockedExplicitCodePath(relative) {
     const parts = relative.toLowerCase().split("/");
+    const basename = parts.at(-1) || "";
+    if (basename.endsWith(".writing") || basename.endsWith(".pending") || /\.tmp(?:\.|$)/.test(basename) || basename.includes(".upload."))
+        return true;
     if (parts[0] === "tmp")
         return true;
     if (parts[0] === "experiments" && parts[1] === "results" && parts.at(-1)?.endsWith(".csv.lock"))
@@ -31457,6 +33374,9 @@ const protectedDataAssetDirs = new Set(["raw", "processed", "patients", "patient
 function isExcludedCodePath(relative, directory) {
     const value = relative.replace(/\\/g, "/");
     const lower = value.toLowerCase();
+    const basename = path.posix.basename(lower);
+    if (!directory && (basename.endsWith(".writing") || basename.endsWith(".pending") || /\.tmp(?:\.|$)/.test(basename) || basename.includes(".upload.")))
+        return true;
     const top = lower.split("/")[0];
     if (protectedCodeSyncTopLevelDirs.has(top))
         return true;
@@ -31903,3 +33823,6 @@ function localMetadataFingerprint(paths, includeDirectories = false) {
     return JSON.stringify(records.sort((a, b) => String(a[0]).localeCompare(String(b[0]))));
 }
 function communicationOutcomeUnknown(error) { return error instanceof TypeError || ["AbortError", "TimeoutError"].includes(error?.name) || /fetch failed|ECONN|ENOTFOUND|连接已断开|无有效响应|执行结果待确认|aborted/i.test(errorMessage(error)); }
+async function writeAtomicPluginStateJson(file, value) {
+    await (0, StateStore_1.atomicWriteText)(file, `${JSON.stringify(value, null, 2)}\n`);
+}

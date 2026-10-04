@@ -38,8 +38,8 @@ function normalizeHost(value, fallback) {
     const text = String(value || "").trim();
     if (!text)
         return fallback;
-    // 允许用户配置的任意 host（如自定义隧道地址），仅做基础校验
-    return text;
+    assertLocalhost(text);
+    return text.startsWith("[") && text.endsWith("]") ? text.slice(1, -1) : text;
 }
 function normalizeTunnelGatewayConfig(input = {}) {
     const localPort = normalizePort(input.localPort, exports.defaultTunnelGatewayConfig.localPort);
@@ -75,19 +75,32 @@ function requestBudgetConfigFromTunnel(config) {
 }
 function localBaseUrl(config) {
     const host = normalizeHost(config.localHost, "127.0.0.1");
-    // 兼容校验：允许用户配置的任意 localHost（如 per-server 隧道），不再硬编码限制
     assertLocalhost(host);
-    return `http://${host}:${normalizePort(config.localPort, exports.defaultTunnelGatewayConfig.localPort)}`;
+    const authorityHost = host.includes(":") ? `[${host}]` : host;
+    return `http://${authorityHost}:${normalizePort(config.localPort, exports.defaultTunnelGatewayConfig.localPort)}`;
 }
 function assertLocalhost(host) {
     const text = String(host || "").trim();
     if (!text)
         throw new Error("Local endpoint host is required.");
-    // P0 解锁：隧道 host 按每服务器用户配置动态解析，默认值 127.0.0.1 仅作兼容，不再 throw 限制
-    if (text !== "127.0.0.1" && text !== "localhost" && text !== "::1") {
-        // 允许非 127.0.0.1 的自定义隧道 host，仅告警兼容，详见 AGENTS.md P0
-        return;
+    if (/[\s/\\?#@]/.test(text))
+        throw new Error("Local endpoint host contains invalid URL characters.");
+    const bracketed = text.startsWith("[") || text.endsWith("]");
+    if (bracketed && !(text.startsWith("[") && text.endsWith("]")))
+        throw new Error("IPv6 endpoint host brackets are incomplete.");
+    const address = bracketed ? text.slice(1, -1) : text;
+    const probe = address.includes(":") ? `[${address}]` : address;
+    let parsed;
+    try {
+        parsed = new URL(`http://${probe}/`);
     }
+    catch {
+        throw new Error("Local endpoint host is not a valid hostname or IP address.");
+    }
+    if (!parsed.hostname || parsed.port || parsed.username || parsed.password || parsed.pathname !== "/" || parsed.search || parsed.hash)
+        throw new Error("Local endpoint host must contain only a hostname or IP address.");
+    if (bracketed && !address.includes(":"))
+        throw new Error("Bracketed endpoint host must be IPv6.");
 }
 function normalizePort(value, fallback) {
     const port = Number(value);

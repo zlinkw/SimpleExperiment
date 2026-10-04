@@ -6,14 +6,9 @@ const { spawnSync } = require("node:child_process");
 const test = require("node:test");
 
 const Results = require("../../dist/features/Results");
-const { readSource } = require("../_helpers/sourceReader");
+const { readSource, readBuiltAgentRuntime } = require("../_helpers/sourceReader");
 
-function extractAgent(source) {
-  const start = source.indexOf("#!/usr/bin/env python3");
-  const end = source.lastIndexOf("`;");
-  assert.ok(start >= 0 && end > start);
-  return source.slice(start, end);
-}
+function extractAgent() { return readBuiltAgentRuntime(); }
 
 function nestedResult() {
   return {

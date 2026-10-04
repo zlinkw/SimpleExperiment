@@ -31,8 +31,8 @@ function isAssignment(value) {
     return Boolean(item &&
         item.endpointId &&
         (item.role === "hub_control" || item.role === "worker_telemetry") &&
-        item.localForwardHost === "127.0.0.1" &&
+        typeof item.localForwardHost === "string" && Boolean(item.localForwardHost.trim()) &&
         Number.isInteger(item.localForwardPort) &&
-        item.remoteBindHost === "127.0.0.1" &&
+        typeof item.remoteBindHost === "string" && Boolean(item.remoteBindHost.trim()) &&
         Number.isInteger(item.remoteServicePort));
 }

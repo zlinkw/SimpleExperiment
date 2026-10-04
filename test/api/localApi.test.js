@@ -295,7 +295,7 @@ test("SimpleExperiment exposes the planned API methods and explicit confirmation
   assert.match(extensionSource, /LOCAL_API_PREFERRED_PORT = 19765/);
   assert.match(extensionSource, /API_DISCOVERY_PATH = path\.join\(API_DISCOVERY_DIR, "api\.json"\)/);
   assert.match(extensionSource, /const API_CONFIRM_COMMANDS = new Set\(/);
-  assert.match(extensionSource, /API_CONFIRM_COMMANDS\??\.has\(command\) && params\.confirm !== true/);
+  assert.match(extensionSource, /API_CONFIRM_COMMANDS\.has\(command\) && \(params\.confirm !== true \|\| deletionConfirmation && params\.pathConfirmed !== true\)/);
   assert.match(extensionSource, /throw confirmationRequired\(/);
   assert.match(extensionSource, /new LocalApiServerClass\(/);
   assert.match(extensionSource, /"config\.set": async \(params\) => this\.apiConfigSet\(params\)/);
@@ -306,11 +306,11 @@ test("SimpleExperiment exposes the planned API methods and explicit confirmation
 });
 
 test("live output Local API returns the direct Worker response before cached logs", () => {
-  const start = extensionSource.indexOf("async apiLiveOutput(params = {})");
+  const start = extensionSource.indexOf("async apiLiveOutput(");
   const end = extensionSource.indexOf("apiConfigSchema()", start);
   assert.ok(start >= 0 && end > start);
   const body = extensionSource.slice(start, end);
-  assert.match(body, /const direct = [\s\S]*?fetchSelectedLiveOutput/);
+  assert.match(body, /const direct = [\s\S]*?this\.client\.getLiveOutput/);
   assert.match(body, /direct\.(?:text|output|tail)/);
   assert.ok(body.indexOf("fetchSelectedLiveOutput") < body.indexOf("this.buildState().logs"));
   assert.ok(body.indexOf("direct.text") < body.indexOf("this.buildState().logs"));
@@ -535,7 +535,7 @@ test("SimpleExperiment records local and GitHub versions before run submission",
   assert.match(record, /localCommit/);
   assert.match(record, /githubCommit/);
   assert.match(record, /simple_cluster\/runs\/git_provenance/);
-  assert.match(record, /await fs\.rename\(tempPath, targetPath\)/);
+  assert.match(record, /await atomicWriteText\(targetPath, `\$\{JSON\.stringify\(provenance, null, 2\)\}\\n`\)/);
   assert.doesNotMatch(record, /child_process|execFile|spawn/);
 });
 

@@ -3,6 +3,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
 const vm = require("node:vm");
+const ts = require("typescript");
 const { readSource } = require("../_helpers/sourceReader");
 
 function loadLayoutHelpers() {
@@ -23,7 +24,8 @@ function loadLayoutHelpers() {
   ].join("\n");
   const sandbox = { console };
   vm.createContext(sandbox);
-  vm.runInContext(prelude + "\nthis.exports = { defaultUiLayout, defaultUiSectionOrder, normalizeUiLayout, normalizeUiButtonActions, normalizeUiButtonPayload };", sandbox);
+  const compiled = ts.transpileModule(prelude + "\nthis.exports = { defaultUiLayout, defaultUiSectionOrder, normalizeUiLayout, normalizeUiButtonActions, normalizeUiButtonPayload };", { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
+  vm.runInContext(compiled, sandbox);
   return sandbox.exports;
 }
 

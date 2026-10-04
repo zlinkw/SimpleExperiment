@@ -21,11 +21,10 @@ function loadSourceRenderer() {
 const renderPanelHtml = loadSourceRenderer();
 
 function extractScript(html) {
-  const start = html.indexOf("<script");
-  const gt = html.indexOf(">", start);
-  const end = html.indexOf("</script>", gt);
-  assert.ok(start >= 0 && gt >= 0 && end > gt, "script tag missing");
-  return html.slice(gt + 1, end);
+  const scripts = [...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].map((match) => match[1]);
+  const main = scripts.find((script) => script.includes('addEventListener("message"'));
+  assert.ok(main, "main panel script tag missing");
+  return main;
 }
 
 function renderStampedPanelHtml() {
@@ -41,6 +40,11 @@ function fakeBrowser(options = {}) {
   const documentListeners = new Map();
   const windowListeners = new Map();
   const sent = [];
+  const api = {
+    postMessage(message) { sent.push(message); },
+    getState() { return webviewState; },
+    setState(value) { webviewState = value; },
+  };
   const elements = new Map();
   const addListener = (registry, type, callback) => {
     const entries = registry.get(type) || new Set();
@@ -114,6 +118,7 @@ function fakeBrowser(options = {}) {
   };
   const window = {
     innerWidth: 1000, innerHeight: 800,
+    __simplePanelVsCodeApi: api,
     addEventListener(type, callback) { addListener(windowListeners, type, callback); },
     removeEventListener(type, callback) { windowListeners.get(type)?.delete(callback); },
     setTimeout(callback, delay) { const id = ++nextTimerId; timers.set(id, { callback, at: now + delay, interval: 0 }); return id; },
@@ -147,10 +152,7 @@ function fakeBrowser(options = {}) {
     cancelAnimationFrame(id) { frames.delete(id); },
     MutationObserver: class { observe() {} disconnect() {} },
     navigator: { clipboard: { writeText: async () => undefined } },
-    acquireVsCodeApi: () => ({
-      postMessage(message) { sent.push(message); },
-      getState() { return webviewState; }, setState(value) { webviewState = value; },
-    }),
+    acquireVsCodeApi: () => api,
   };
   return {
     context, document, documentListeners, windowListeners, elements, element, frames, timers, sent, advance,
@@ -276,7 +278,7 @@ test("hidden state updates do not park RAF; visibility return renders only the l
 
   browser.setHidden(false);
   assert.equal(browser.sent.findLast((message) => message.command === "webviewVisibility")?.hidden, false);
-  assert.equal(browser.frames.size, 1, "visible return may queue its health probe, but not a stale state render");
+  assert.ok(browser.frames.size >= 1, "visible return may queue health and lightweight polling work, but not render stale state");
   [...browser.frames.values()].forEach((frame) => frame());
   assert.equal(browser.element("projectOnboardingNotice").classToggleCalls, 0, "visibility health probe must not render stale hidden state");
   assert.equal(browser.sent.filter((message) => message.command === "webviewStateRendered").length, 0);

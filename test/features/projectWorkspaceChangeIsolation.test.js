@@ -70,7 +70,7 @@ test("project selection writes are coalesced and isolated across workspace chang
   assert.match(coalesced, /while \(queue\.promise\)/);
   assert.match(queue, /const projectContext = this\.captureProjectContext\(\)/);
   assert.match(queue, /while \(queue\.dirty && this\.projectContextIsCurrent\(projectContext\)\)/);
-  assert.match(queue, /queue\.dirty = false;\s*await write\(projectContext\.root, state\)/);
+  assert.match(queue, /const state = snapshot\(\);\s*queue\.dirty = false;[\s\S]{0,320}write\(projectContext\.root, state\)/);
   assert.match(queue, /if \(!this\.projectContextIsCurrent\(projectContext\)\)\s*return/);
   assert.match(queue, /queue\.promise === persistence/);
 });
@@ -102,7 +102,7 @@ test("workspace reset precedes project loaders and stale scans cannot win", () =
   assert.match(source, /generation !== this\.projectContextGeneration \|\| root !== workspaceRoot\(\)/);
   assert.match(source, /if \(this\.localPlanMetadataRefreshPromise === refresh\)/);
   assert.ok([...source.matchAll(/generation !== this\.projectContextGeneration/g)].length >= 6);
-  assert.match(source, /const client = this\.client;[\s\S]{0,260}const summary = await client\.getResultsSummary\(planFile\);\s*if \(generation !== this\.projectContextGeneration \|\| client !== this\.client\)\s*return;\s*this\.resultsSummary = summary/);
+  assert.match(source, /const client = this\.client;[\s\S]{0,340}const summary = await client\.getResultsSummary\(planFile, \{ userInitiated: true \}\);\s*if \(generation !== this\.projectContextGeneration \|\| client !== this\.client\)\s*return;\s*this\.resultsSummary = summary/);
   assert.match(source, /client\.postAction\(action, request\)[\s\S]{0,260}generation !== this\.projectContextGeneration \|\| client !== this\.client/);
   assert.match(source, /client\.postWorkerAction\(workerId, action, request\)[\s\S]{0,260}generation !== this\.projectContextGeneration \|\| client !== this\.client/);
   assert.match(legacyNotes, /切换工作区目录.*清空上一项目/);
@@ -175,7 +175,7 @@ test("plan save checks project context before and after each file operation", ()
   assert.ok([...save.matchAll(/generation !== this\.projectContextGeneration \|\| root !== workspaceRoot\(\)/g)].length >= 6);
   assert.match(save, /await fs\.mkdir\(path\.dirname\(fullPath\), \{ recursive: true \}\)/);
   assert.match(save, /await fs\.readFile\(fullPath, "utf8"\)/);
-  assert.match(save, /await fs\.writeFile\(fullPath, ensurePlanPurposeHeader/);
+  assert.match(save, /await atomicWriteText\(fullPath, ensurePlanPurposeHeader/);
   assert.match(save, /if \(generation === this\.projectContextGeneration && root === workspaceRoot\(\)\)\s*this\.postState\(\)/);
 });
 
@@ -187,7 +187,7 @@ test("Plan archive stays bound to its initiating project and client", () => {
   assert.match(archive, /throw new UiCommandCancelled\("工作区或连接已切换，Plan 归档已取消。"\)/);
   assert.ok([...archive.matchAll(/assertCurrent\(\)/g)].length >= 20);
   assert.match(archive, /planArchiveRunGate\(this\.lastRealtimeState \|\| this\.lastSnapshot \|\| client\.currentState\(\), file\)/);
-  assert.match(archive, /materializePlanArchiveEvidenceFiles\(client, root, stagingDir, evidenceFiles, evidenceMode\)/);
+  assert.match(archive, /materializePlanArchiveEvidenceFiles\(client, root, stagingDir,[\s\S]{0,180}evidenceMode\)/);
   assert.match(archive, /await this\.refreshLocalPlanMetadata\(\{ post: false, force: true \}\);\s*if \(!isCurrent\(\)\)\s*return/);
 });
 
@@ -198,7 +198,7 @@ test("archived Plan restore cannot continue in a replacement workspace", () => {
   assert.ok([...restore.matchAll(/assertCurrent\(\)/g)].length >= 20);
   assert.match(restore, /const bundle = await readPlanArchiveBundle\(source\);\s*assertCurrent\(\)/);
   assert.match(restore, /await fs\.copyFile\(configSource, configTarget\);\s*assertCurrent\(\)/);
-  assert.match(restore, /await fs\.writeFile\(target, restorePlanText[\s\S]{0,380}assertCurrent\(\)/);
+  assert.match(restore, /await atomicWriteText\(target, restorePlanText[\s\S]{0,380}assertCurrent\(\)/);
   assert.match(restore, /await this\.refreshLocalPlanMetadata\(\{ post: false, force: true \}\);\s*assertCurrent\(\);\s*await this\.persistProjectPlanSelectionState\(\);\s*assertCurrent\(\)/);
 });
 

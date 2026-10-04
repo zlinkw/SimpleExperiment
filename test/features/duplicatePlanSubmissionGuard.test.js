@@ -95,11 +95,12 @@ function loadPanelGuard() {
   return sandbox.guard;
 }
 
-function loadPlanRunActions() {
+function loadPlanRunActions(activity = { active: false }) {
   const sandbox = {
     escAttr: (value) => String(value || ""),
     planFromContext: () => ({ status: "completed" }),
-    planActiveRunEvidence: () => ({ active: false }),
+    planActiveRunEvidence: () => activity,
+    esc: value => String(value || ""),
     planExecutionStage: () => ({ phase: "results", status: "已完成" }),
     projectNextAction: () => "",
     renderRuntimeContractRecoveryActions: () => "",
@@ -305,7 +306,7 @@ test("backend reuses bounded current Plan activity evidence and invalidates sour
   assert.notStrictEqual(guard(state, "plans/0.yaml", { revision: "r0" }), oldest);
 });
 
-test("webview disables duplicate submission using the same Plan-scoped activity evidence", () => {
+test("webview routes active Plans to confirmed restart while the Host duplicate guard remains strict", () => {
   const guard = loadPanelGuard();
   const planFile = "experiments/plans/smoke.yaml";
   const state = { operations: [{ type: "reproduce-plan", status: "submitted", planFile }] };
@@ -319,7 +320,10 @@ test("webview disables duplicate submission using the same Plan-scoped activity 
   assert.match(planActivity, /for \(const row of operationRowsForState/);
   assert.match(planActivity, /for \(const row of schedulerRowsForState/);
   assert.doesNotMatch(planActivity, /\.filter\(/);
-  assert.match(panel, /当前 Plan 已有 [\s\S]{0,160}不能重复提交/);
+  const html = loadPlanRunActions(first)(state, planFile, true);
+  assert.match(html, /data-command="runPlan"/);
+  assert.match(html, /停止并重新运行/);
+  assert.match(html, /查看运行进度/);
   assert.match(extension, /assertPlanNotAlreadyActive[\s\S]{0,2600}已阻止重复提交/);
 });
 

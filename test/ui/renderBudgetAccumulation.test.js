@@ -108,7 +108,7 @@ test("task render budget keeps selected, critical and queued priority order", ()
   assert.equal(keys[0], "picked-1");
   assert.equal(keys[1], "running-1");
   assert.equal(keys[2], "queued-1");
-  assert.equal(model.detailRow.uiKey, "picked-1");
+  assert.equal(model.selectedRows[0].uiKey, "picked-1");
 });
 
 test("trace render budget stays bounded when every row needs attention", () => {

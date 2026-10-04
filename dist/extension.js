@@ -27,30 +27,39 @@ var legacy_1 = require("./extension/legacy");
 Object.defineProperty(exports, "RealtimeTunnelPanelProvider", { enumerable: true, get: function () { return legacy_1.RealtimeTunnelPanelProvider; } });
 // 覆盖 activate/deactivate 走工厂路径
 const activation = require("./extension/Activation");
-function activate(context) {
-    // 优先工厂化路径，失败回退 legacy
+async function activate(context) {
+    // 工厂激活是异步的；等待结果，避免 Promise rejection 越过同步 try/catch。
     try {
         if (activation && typeof activation.activate === "function") {
-            return activation.activate(context);
+            await activation.activate(context);
+            return;
         }
     }
     catch (e) {
-        console.error("[extension facade] factory activate failed, fallback to legacy", e);
+        console.error("[extension facade] factory activate failed", e);
+        // 若新路径已创建 Provider，避免再次注册整套命令与监听器。
+        if (typeof activation?.getProvider === "function" && activation.getProvider())
+            return;
     }
     const legacy = require("./extension/legacy");
-    return legacy.activate(context);
+    await legacy.activate(context);
 }
-function deactivate() {
+async function deactivate() {
     try {
         if (activation && typeof activation.deactivate === "function") {
-            return activation.deactivate();
+            await activation.deactivate();
+            return;
         }
     }
-    catch { }
+    catch (error) {
+        console.error("[extension facade] factory deactivate failed", error);
+    }
     try {
         const legacy = require("./extension/legacy");
         if (typeof legacy.deactivate === "function")
-            return legacy.deactivate();
+            await legacy.deactivate();
     }
-    catch { }
+    catch (error) {
+        console.error("[extension facade] legacy deactivate failed", error);
+    }
 }

@@ -58,10 +58,16 @@ function providerFor(workspace, csvText, oldRegistry) {
     workerResultTables: [{ workerId: "worker-a", rawResultCsvPath: remoteCsv, aggregateStatus: "ready" }], results: [] };
   const provider = {
     calls, context: { globalStorageUri: { fsPath: workspace } }, client: { getResultsSummary: async () => summary },
+    hostOperationLease: { run: async (_request, operation) => operation() },
+    workerProbeSignatures: new Map(), workerProbeGenerations: new Map(),
     setupConfig: { workerTunnels: [{ id: "worker-a" }] }, localPlanMetadata: { plans: [{ planFile, revision: "rev-1", seeds: [42, 43] }] },
     selectedRunKeys: new Set(), selectedExperimentIds: new Set(), selectedArchiveKeys: new Set(), selectedTaskUiKeys: new Set(),
+    panelSectionInterest: { documentGeneration: "1", mainSection: "results", visibleSections: ["results"], expandedSections: ["results"], pinnedInspectorSection: "" },
     planFileInput: "", selectedPlanId: "", selectedRunKey: "", resultsSummary: undefined,
     captureProjectContext: () => ({ root: workspace, generation: 1 }), projectContextIsCurrent: () => true,
+    lastWorkerProbes: {},
+    refreshResultCatalogForCurrentInterest: () => undefined,
+    refreshDistributedResultSyncProbes: async function () { this.lastWorkerProbes = { "worker-a": { status: "ok" } }; },
     effectiveConnectionMode: () => "tunnel", refreshLocalPlanMetadataForAction: async () => {},
     loadPlanSyncLedger: async () => ({ schemaVersion: 2, entries: { demo: { planFile, revision: "rev-1", runId: "run-complete",
       sourceWorkerId: "worker-a", artifactPaths: [remoteCsv], directoryPaths: ["simple_cluster/results/worker-a"], destinations: {} } } }),
@@ -75,6 +81,8 @@ function providerFor(workspace, csvText, oldRegistry) {
     loadProjectTableRegistry: async () => oldRegistry || tablesModule.exports.emptyTableRegistry(),
     simpleSftpApiCall: async (method, params) => {
       calls.push([method, params]);
+      if (method === "sync.projectInventory") return { files: { [remoteCsv]: { size: Buffer.byteLength(csvText), sha256: crypto.createHash("sha256").update(csvText).digest("hex") } } };
+      if (method === "sync.projectFileStats") return { files: { [remoteCsv]: { size: Buffer.byteLength(csvText) } } };
       assert.equal(method, "sync.downloadMappedPaths");
       for (const entry of params.entries) {
         const staged = path.join(workspace, ...entry.localRelativePath.split("/"));
@@ -109,7 +117,8 @@ test("production metrics-only SFTP mapping produces raw provenance, alias-normal
     const report = await __syncPendingResultMetricsForTest(provider);
     assert.equal(report.downloaded, true);
     assert.equal(report.included.length, 1);
-    const call = provider.calls[0];
+    const call = provider.calls.find(([method]) => method === "sync.downloadMappedPaths");
+    assert.ok(call);
     assert.equal(call[0], "sync.downloadMappedPaths");
     assert.equal(call[1].metricsOnly, true);
     assert.equal(call[1].confirm, true);
@@ -117,8 +126,8 @@ test("production metrics-only SFTP mapping produces raw provenance, alias-normal
     assert.equal(call[1].server.id, "worker-a");
     assert.equal(call[1].server.host, "worker-a.example", "the mapped transfer follows the configured Worker endpoint");
     assert.equal(call[1].server.remotePath, "/project");
-    assert.equal(provider.calls.every(([method]) => method === "sync.downloadMappedPaths"), true,
-      "the cross test uses only the mapped metrics transport seam");
+    assert.equal(provider.calls.filter(([method]) => method === "sync.downloadMappedPaths").length, 1,
+      "the cross test uses the mapped metrics transport seam once");
     assert.deepEqual(call[1].entries.map((entry) => entry.remotePath), [remoteCsv]);
     assert.ok(call[1].entries.every((entry) => !/weight|checkpoint|\.log$/i.test(entry.remotePath)));
     const localMetricFiles = [];
@@ -167,7 +176,7 @@ test("conflicting raw aliases retain the previous published CSV and Markdown", a
       { seed: 43, metric: "AUC", value: 0.6 },
     ]), oldRegistry);
     await assert.rejects(() => __syncPendingResultMetricsForTest(provider), /等价指标值冲突/);
-    assert.equal(provider.calls[0][1].metricsOnly, true);
+    assert.equal(provider.calls.find(([method]) => method === "sync.downloadMappedPaths")[1].metricsOnly, true);
     assert.equal(fs.readFileSync(path.join(outputRoot, "final.csv"), "utf8"), beforeCsv);
     assert.equal(fs.readFileSync(path.join(outputRoot, "final.md"), "utf8"), beforeMd);
   } finally {
@@ -192,7 +201,9 @@ test("completed plans stay untouched until manual metrics sync downloads and pub
       plans: [{ id: "demo", planFile, revision: "rev-1", planJobCount: 1, recoveryMissingCount: 0,
         jobs: [{ index: 0, attempt: 1, commandId: "command-1", status: "completed", workerId: "worker-a" }] }] };
     provider.loadDistributedQueue = async () => queue;
-    provider.saveDistributedQueue = async (_root, next) => { queue = next; };
+    provider.saveDistributedQueue = async (_root, next, options) => {
+      queue = options?.mutateLatest ? options.mutateLatest(queue) : next;
+    };
     provider.distributedQueueWritePromise = Promise.resolve();
     const stages = [];
     provider.syncDistributedJobArtifacts = async (_root, _queue, stage) => { stages.push(stage); };
@@ -212,9 +223,10 @@ test("completed plans stay untouched until manual metrics sync downloads and pub
     assert.equal(provider.calls.length, 0, "completion must not download metric files");
     await host.syncPendingResultMetricsFromUi();
 
-    assert.deepEqual(stages, ["fragments", "preview-rebuild"]);
-    assert.equal(provider.calls.length, 1, "manual sync reaches mapped SFTP transport once");
-    const [method, params] = provider.calls[0];
+    assert.deepEqual(stages, ["fragments", "preview-rebuild", "bulk", "final-rebuild"],
+      "manual sync first restores the authoritative Plan artifacts, then publishes the final tables");
+    assert.equal(provider.calls.filter(([method]) => method === "sync.downloadMappedPaths").length, 1, "manual sync reaches mapped SFTP transport once");
+    const [method, params] = provider.calls.find(([method]) => method === "sync.downloadMappedPaths");
     assert.equal(method, "sync.downloadMappedPaths");
     assert.equal(params.metricsOnly, true);
     assert.equal(confirmations[0]?.metricsOnly, true, "manual result sync keeps the metrics-only download scope");
@@ -226,7 +238,7 @@ test("completed plans stay untouched until manual metrics sync downloads and pub
 
     host.scheduleDistributedPostprocess(workspace, true);
     await Promise.resolve();
-    assert.equal(provider.calls.length, 1, "later queue ticks do not repeat the manual download");
+    assert.equal(provider.calls.filter(([method]) => method === "sync.downloadMappedPaths").length, 1, "later queue ticks do not repeat the manual download");
   } finally {
     vscode.workspace.workspaceFolders = [];
   }

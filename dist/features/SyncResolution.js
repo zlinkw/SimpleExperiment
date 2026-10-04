@@ -47,6 +47,7 @@ const fs = __importStar(require("node:fs/promises"));
 const path = __importStar(require("node:path"));
 const node_child_process_1 = require("node:child_process");
 const node_util_1 = require("node:util");
+const StateStore_1 = require("../state/StateStore");
 function safeSyncPath(relative) {
     const value = String(relative || "").replace(/\\/g, "/");
     if (!value || value.startsWith("/") || /^[a-z]:/i.test(value) || value.split("/").some((part) => !part || part === "." || part === ".."))
@@ -98,39 +99,69 @@ async function loadSyncHolds(storageRoot, projectRoot) {
 }
 async function saveSyncHolds(storageRoot, projectRoot, holds) {
     const file = syncHoldsStoragePath(storageRoot, projectRoot);
-    await fs.mkdir(path.dirname(file), { recursive: true });
-    const temporary = `${file}.tmp-${process.pid}-${crypto.randomBytes(4).toString("hex")}`;
-    await fs.writeFile(temporary, JSON.stringify(holds, null, 2) + "\n", "utf8");
-    await fs.rename(temporary, file);
+    await (0, StateStore_1.atomicWriteText)(file, JSON.stringify(holds, null, 2) + "\n");
 }
 function psLiteral(value) { return `'${value.replace(/'/g, "''")}'`; }
-function localDeleteScript(root, relative) {
+function localDeleteScript(root, relative, expected) {
     safeSyncPath(relative);
     const full = path.resolve(root, ...relative.split("/"));
     const parent = path.dirname(full);
-    const leaf = `.\\${path.basename(full)}`;
+    const leaf = `./${path.basename(full)}`;
     if (path.relative(root, full).startsWith("..") || full === path.resolve(root))
         throw new Error("删除目标超出项目根目录。");
-    return `$ErrorActionPreference = 'Stop'; try { Set-Location -LiteralPath ${psLiteral(parent)}; if ((Get-Location).ProviderPath -ne ${psLiteral(parent)}) { throw 'PARENT_CD_FAILED' } } catch { [Console]::Error.WriteLine('PARENT_CD_FAILED'); exit 75 }; Remove-Item -LiteralPath ${psLiteral(leaf)} -Recurse -Force -ErrorAction Stop`;
+    const identity = expected
+        ? `$item=Get-Item -LiteralPath ${psLiteral(leaf)} -Force -ErrorAction Stop; if (($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { throw 'TARGET_CHANGED' }; if (${expected.type === "directory" ? "$item -isnot [IO.DirectoryInfo]" : "$item -isnot [IO.FileInfo]"}) { throw 'TARGET_CHANGED' }; if ([string]$item.LastWriteTimeUtc.Ticks -ne ${psLiteral(expected.modifiedTicks)} -or ${expected.type === "file" ? `$item.Length -ne ${psLiteral(expected.size)}` : "$false"}) { throw 'TARGET_CHANGED' }; `
+        : "";
+    return `$ErrorActionPreference = 'Stop'; try { Set-Location -LiteralPath ${psLiteral(parent)}; $cwd=[IO.Path]::GetFullPath((Get-Location).ProviderPath).TrimEnd('\\'); if (-not [string]::Equals($cwd, ${psLiteral(parent)}, [StringComparison]::OrdinalIgnoreCase)) { throw 'PARENT_CD_FAILED' } } catch { [Console]::Error.WriteLine('PARENT_CD_FAILED'); exit 75 }; ${identity}Remove-Item -LiteralPath ${psLiteral(leaf)} -Recurse -Force -ErrorAction Stop`;
 }
 async function deleteLocalSyncPath(root, relative) {
     safeSyncPath(relative);
     const full = path.resolve(root, ...relative.split("/"));
+    const rootStat = await fs.lstat(root).catch((error) => { throw new Error(`PARENT_CD_FAILED：无法核验项目根目录：${error.message}`); });
+    if (!rootStat.isDirectory() || rootStat.isSymbolicLink())
+        throw new Error("PARENT_CD_FAILED：项目根目录不是普通目录；禁止删除。");
     const rootReal = await fs.realpath(root);
-    const parentReal = await fs.realpath(path.dirname(full)).catch(() => { throw new Error(`PARENT_CD_FAILED：无法进入父目录 ${path.dirname(full)}；禁止删除。`); });
+    const relativeParent = path.relative(root, path.dirname(full));
+    let checkedParent = rootReal;
+    for (const part of relativeParent.split(path.sep).filter(Boolean)) {
+        checkedParent = path.join(checkedParent, part);
+        const component = await fs.lstat(checkedParent).catch((error) => { throw new Error(`PARENT_CD_FAILED：无法核验父目录 ${checkedParent}：${error.message}`); });
+        if (!component.isDirectory() || component.isSymbolicLink() || component.dev !== rootStat.dev)
+            throw new Error(`PARENT_CD_FAILED：父目录不是项目内普通目录：${checkedParent}`);
+    }
+    const parentReal = await fs.realpath(path.dirname(full)).catch((error) => { throw new Error(`PARENT_CD_FAILED：无法进入父目录 ${path.dirname(full)}：${error.message}`); });
+    if (parentReal !== checkedParent)
+        throw new Error(`PARENT_CD_FAILED：物理父目录发生变化：${parentReal}`);
     const within = path.relative(rootReal, parentReal);
     if (within === ".." || within.startsWith(`..${path.sep}`) || path.isAbsolute(within))
         throw new Error("删除目标超出项目根目录。");
-    const target = await fs.lstat(full);
-    if (target.isSymbolicLink())
-        throw new Error("禁止删除符号链接。");
+    const target = await fs.lstat(full, { bigint: true });
+    const targetType = target.isDirectory() ? "directory" : target.isFile() ? "file" : undefined;
+    if (!targetType || target.isSymbolicLink() || (targetType === "file" && target.nlink > 1n))
+        throw new Error("删除目标不是独占普通文件/目录，或是符号链接；禁止删除。");
+    const modifiedTicks = (621355968000000000n + target.mtimeNs / 100n).toString();
+    const recheck = await fs.lstat(full, { bigint: true });
+    if (recheck.dev !== target.dev || recheck.ino !== target.ino || recheck.size !== target.size || recheck.mtimeMs !== target.mtimeMs
+        || recheck.mtimeNs !== target.mtimeNs || recheck.isSymbolicLink() || recheck.isDirectory() !== (targetType === "directory") || (targetType === "file" && recheck.nlink > 1n))
+        throw new Error("删除目标身份在执行前发生变化；禁止删除。");
     try {
-        await (0, node_util_1.promisify)(node_child_process_1.execFile)("pwsh.exe", ["-NoProfile", "-NonInteractive", "-Command", localDeleteScript(rootReal, relative)], { windowsHide: true, timeout: 30000 });
+        await (0, node_util_1.promisify)(node_child_process_1.execFile)("pwsh.exe", ["-NoProfile", "-NonInteractive", "-Command", localDeleteScript(rootReal, relative, { type: targetType, size: target.size.toString(), modifiedTicks })], { cwd: parentReal, windowsHide: true, timeout: 30000 });
     }
     catch (error) {
-        if (String(error).includes("PARENT_CD_FAILED"))
+        const detail = `${String(error)} ${String(error.stderr || "")}`;
+        if (detail.includes("PARENT_CD_FAILED"))
             throw new Error(`PARENT_CD_FAILED：无法进入父目录 ${parentReal}；禁止删除。`);
+        if (detail.includes("TARGET_CHANGED"))
+            throw new Error(`删除目标身份已变化，未执行删除：${relative}`);
         throw error;
     }
-    return full;
+    try {
+        await fs.lstat(full);
+    }
+    catch (error) {
+        if (error?.code === "ENOENT")
+            return full;
+        throw error;
+    }
+    throw new Error(`删除后目标仍存在：${relative}`);
 }

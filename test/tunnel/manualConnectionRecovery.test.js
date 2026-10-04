@@ -13,8 +13,8 @@ test('authentication failure requires manual recovery; recovery reads current st
   await c.connect();
   assert.equal(c.diagnostics().requiresManualReconnect,true);
   await c.connect();
-  await assert.rejects(c.getWorkerTasks(),/重新连接/);
-  await assert.rejects(c.getGpu(),/重新连接/);
+  await assert.rejects(c.getWorkerTasks(),/修复配置后重新检测隧道/);
+  await assert.rejects(c.getGpu(),/修复配置后重新检测隧道/);
   assert.equal(calls,1);
   c.http.getSnapshot = async () => { calls++; return {gpu:{recovered:[]}}; };
   await c.reconnect();

@@ -54,15 +54,35 @@ project/
 
 ## 实验配置
 
-- 每个正式 Plan 必须有真实的基础配置文件，推荐放在 `configs/`。
-- 配置必须可序列化为本次运行的快照；运行差异优先通过 Plan 的 `overrides` 表达。
-- 随机种子必须显式声明并进入结果记录。
+- 采用“指标实验”档位时，每个正式 Plan 使用真实基础配置文件，配置快照记录本次运行参数。
+- 采用“通用命令”档位时，基础配置和项目内部适配器均可省略，Plan 声明命令、工作目录、输入和输出即可。
+- 可复现的指标实验应显式声明随机种子；通用批处理 Plan 默认使用 seed `42`，单个任务仍会记录该值。
 - 依赖必须由 `requirements.txt`、`environment.yml`、`pyproject.toml` 或等价锁文件声明。
 - 远端 Python 环境必须能导入项目入口和输出接口所需依赖；TensorBoard 路线还必须能导入 `tensorboard`。
 
 ## Plan 契约
 
-Plan 只能放在 `experiments/plans/**/*.yaml`，归档版本不得与活动 Plan 混放。推荐骨架：
+Plan 只能放在 `experiments/plans/**/*.yaml`，归档版本不得与活动 Plan 混放。已有 MultiModal 项目继续使用下方“指标实验”骨架；不产出训练指标的普通命令项目可使用更短的“通用命令”骨架：
+
+```yaml
+mode: train
+runner:
+  working_directory: "."
+  train_command: "python tools/build_artifact.py --output {output_dir}/model.bin"
+  inputs:
+    - data/manifest.json
+  outputs:
+    - "{output_dir}/model.bin"
+  collect_metrics: false
+```
+
+通用命令档位从 Plan 文件名派生 suite，默认一个 `baseline` case 和 seed `42`；有多个 case、seed 或运行阶段时再显式声明。工作目录默认为项目根目录。输入和输出路径必须是项目内相对路径，禁止绝对路径、`..` 和符号链接逃逸。输入须在提交前存在；每个声明输出须在任务成功前生成。自定义工作目录下，Scheduler 会以该目录执行命令，并将 `{config}`、`{output_dir}`、`{result_csv}` 等文件变量解析为可用路径。显式 `seeds: []` 或 `cases: []` 仍是配置错误。
+
+省略 `mode` 时，Scheduler 按顶层和 case 合并后的命令推断阶段：所有 case 都有训练命令且没有测试命令时按 `train`，测试命令同理；每个 case 都同时有两类命令时按 `train_test`。case 间阶段不一致时保留双阶段校验，避免把某个 case 声明的命令静默跳过；建议这类 Plan 显式声明 `mode`，并为所选阶段提供每个任务都可用的命令或项目入口。
+
+`runner.outputs` 是任务产物契约，不自动等价为论文指标。没有配置指标采集时，任务仍可执行、跟踪和下载产物，但不会伪造指标表或四态指标。需要可比较指标时，可通过项目输出规则配置 CSV/JSON 字段映射，或启用现有 adapter/wrapper/TensorBoard 通道。
+
+### 指标实验骨架
 
 ```yaml
 suite: baseline
@@ -85,36 +105,40 @@ cases:
       dataset.split: public
 ```
 
-硬性要求：
+指标实验要求：
 
-- `suite` 在活动 Plan 中保持稳定且唯一。
-- `mode` 必须显式为 `train_test`、`train` 或 `test`。
-- `seeds` 不能为空；只跑一次也写 `seeds: [0]`。
+- 指标实验应让 `suite` 在活动 Plan 中保持稳定且唯一；通用命令可从 Plan 文件名派生。
+- `mode` 可省略：Scheduler 按训练/测试命令推断，两个命令都有时采用 `train_test`；也可显式指定 `train_test`、`train` 或 `test`。
+- 指标实验应显式写 `seeds`；通用命令省略时使用 seed `42`，只跑一次可写 `seeds: [0]`。
 - 所选模式需要的入口命令必须有值：`train_test` 需要 `runner.train_command` 和 `runner.test_command`，`train` 需要训练命令，`test` 需要测试命令。
 - 命令形态向 MultiModal 对齐：train 仅传 `--output-dir`（不直接写大表），test 双写 `--output-dir {output_dir} --result-csv {result_csv}`（per-job 双 csv + 追加最终大表 `experiments/results/<method>.csv`）。
 - 每 job 固定产出 `metrics_summary.csv` + `metrics_case.csv`（双 csv），外加 `stdout.log` + `stderr.log`（双 log）；最终大表为 `experiments/results/<method>.csv`（按实验类型命名，如 `baseline.csv`）。
 - 试探/调试输出先落 `tmp/` 试探区，确认后再进入上述标准路径；`tmp/` 不进入归档、统计与论文证据。
-- 结果路径必须是项目内相对路径，扩展名为 `.csv`、`.json`、`.txt`、`.log` 或 `.out`。
+- 指标候选路径必须是项目内相对路径，扩展名为 `.csv`、`.json`、`.txt`、`.log` 或 `.out`。`runner.inputs/outputs` 可指向任意项目内文件或目录，但不能是绝对路径、越界路径或逃逸符号链接。
 - 推荐 `paper.result_csv: "{output_dir}/metrics_summary.csv"`，并在 `expectedResults` 中声明同一文件。
 - 不同 case 和 seed 不得写同一个结果文件；共享 CSV 会破坏并发、归档和统计配对。
 - 注释里的路径不算输出证据。
-- 命令模板只能使用插件支持的变量，白名单（Plan `runner.*_command` 与 `simple_project.entrypoints.*Template` 通用，Scheduler 渲染，未列变量不渲染）：`{config}`、`{config_path}`、`{suite}`、`{case}`、`{seed}`、`{index}`、`{output_dir}`（别名 `{outputDir}`）、`{result_csv}`（别名 `{resultCsv}`）、`{worker_id}`、`{gpu_ids}`、`{plan_file}`、`{job_name}`、`{experiment_name}`、`{python}`（Python 解释器占位，由执行环境解析为 `python`/`conda run -n <env> python` 等）、`{checkpoint}`（test 从 checkpoint 评估时的权重路径占位）。
+- 命令模板只能使用插件支持的变量，白名单（Plan `runner.*_command` 与 `simple_project.entrypoints.*Template` 通用，Scheduler 渲染，未列变量不渲染）：`{config}`、`{config_path}`、`{suite}`、`{case}`、`{seed}`、`{index}`、`{output_dir}`（别名 `{outputDir}`）、`{result_csv}`（别名 `{resultCsv}`）、`{working_directory}`、`{workingDirectory}`、`{worker_id}`、`{gpu_ids}`、`{plan_file}`、`{job_name}`、`{experiment_name}`、`{python}`（Python 解释器占位，由执行环境解析为 `python`/`conda run -n <env> python` 等）、`{checkpoint}`（test 从 checkpoint 评估时的权重路径占位）。
 - 命令不得要求交互输入；长命令可用引号或多行书写，但必须可被 Scheduler 渲染。
 
 ### Plan 字段表（类型-必填-默认-示例）
 
 | 字段 | 类型 | 必填 | 默认 | 示例/说明 | 错误行为 |
 |---|---|---|---|---|---|
-| `suite` | string | 是 | 无（缺省按 Plan 文件名 slug） | `suite: baseline`；活动 Plan 内唯一稳定 | 缺省自动派生，不阻断但归档易混 |
-| `mode` | enum `train_test\|train\|test` | 是 | 无 | `mode: train_test` | 非三值阻断 |
-| `seeds` | int[] 非空 | 是 | 缺省 `[42]`（代码回退；文档仍要求显式写） | `seeds: [0, 1, 2]`；只跑一次写 `seeds: [0]` | 空数组阻断 |
-| `base_config` | string 项目内相对路径 | 是 | 无 | `base_config: configs/base.yaml` | 文件不存在阻断 |
+| `suite` | string | 指标实验建议；通用命令否 | 缺省按 Plan 文件名派生 | `suite: baseline`；活动 Plan 内唯一稳定 | 无法派生时阻断 |
+| `mode` | enum `train_test\|train\|test` | 建议 | 按命令推断；两个命令为 `train_test` | `mode: train` | 非三值阻断 |
+| `seeds` | int[] | 指标实验建议；通用命令否 | `[42]` | `seeds: [0, 1, 2]`；只跑一次写 `seeds: [0]` | 显式空数组阻断 |
+| `base_config` | string 项目内相对路径 | 指标实验按需；通用命令否 | 无 | `base_config: configs/base.yaml` | 声明后文件不存在则阻断 |
 | `naming.sweep_dir` | string 模板 | 否 | `work_dirs/multirun/{suite}` | `sweep_dir: work_dirs/baseline` | — |
 | `naming.job_name` | string 模板 | 否 | `{index}_{case}_seed{seed}` | `job_name: "{index}_{case}_seed{seed}"` | — |
 | `naming.output_dir` / `output_dir` | string 模板（优先级最高） | 否 | 缺省 `sweep_dir/job_name` 拼接 | `output_dir: "work_dirs/{case}/seed_{seed}"` | 优先级：`case.output_dir > plan.output_dir > sweep_dir/job_name` 拼接 |
 | `runner.train_command` | string 模板 | 按 mode（`train_test/train` 必填） | 无 | 见下“命令模板两种模式” | 所选模式缺命令阻断 |
 | `runner.test_command` | string 模板 | 按 mode（`train_test/test` 必填） | 无 | 见下“命令模板两种模式” | 所选模式缺命令阻断 |
-| `cases[].name` \| `cases[].case` | string（两种写法归一，`name` 优先） | 是 | 无 | `- name: smoke` 与 `- case: public` 等价 | 两者皆空阻断 |
+| `runner.working_directory` | string 模板 | 否 | `.`（项目根目录） | `working_directory: tools` | 不存在、绝对或越界路径阻断 |
+| `runner.inputs` | string[] / `{path}`[] | 通用命令建议 | `[]` | `inputs: [data/manifest.json]` | 缺失或越界输入阻断 |
+| `runner.outputs` | string[] / `{path}`[] | 通用命令必填 | `[]` | `outputs: ["{output_dir}/model.bin"]` | 越界阻断；任务完成时缺失则失败 |
+| `runner.collect_metrics` | bool | 否 | `true`（兼容旧计划） | 通用产物无需指标时设为 `false` | 非布尔值按默认启用 |
+| `cases[].name` \| `cases[].case` | string（两种写法归一，`name` 优先） | 指标实验建议；通用命令否 | `baseline` | `- name: smoke` 与 `- case: public` 等价 | 显式空列表阻断 |
 | `cases[].config` | string 相对路径 | 否 | 继承 `base_config` | `config: configs/smoke.yaml` | — |
 | `cases[].overrides` | map 点分键 | 否 | `{}` | `dataset.split: public`（点分写入配置快照） | 非 map 阻断 |
 | `paper.result_csv`（含 `case.paper.result_csv`） | string 模板 | 否 | 见“`result_csv` 五级回退链” | 推荐 per-job：`"{output_dir}/metrics_summary.csv"`；大表覆盖：`experiments/results/demo.csv` | 未配置时按回退链派生，不阻断 |
@@ -129,7 +153,14 @@ cases:
 
 ## 输出接口预检
 
-Scheduler 会在 validate-plan 和 dry-run-plan 阶段检查“代码真的会产出可解析结果”。至少满足以下一种通道：
+Scheduler 会在 validate-plan 和 dry-run-plan 阶段检查任务输出契约。指标通道会确认可解析结果接口；通用命令档位可声明任意文件或目录产物，不要求接入指标采集：
+
+### 通道 0：声明任务产物
+
+- `runner.outputs` 中的路径在任务开始前做项目根边界检查，完成时逐项确认存在；声明目录时，目录本身即为该任务的产物边界。
+- `runner.inputs` 会在预检时确认存在，供命令和调度记录追踪依赖；插件不会复制或改写输入。
+- `collect_metrics: false` 可关闭可选 TensorBoard 指标扫描。默认保持 `true` 以兼容现有 Plan。
+- 该通道只证明任务产生了声明的文件，不会把任意产物推断成论文指标或自动加入结果表。
 
 ### 通道 A：run_wrapper（推荐）
 
@@ -173,9 +204,9 @@ writer.close()
 
 - 通道 A 最小判定：实际命令经 wrapper 包裹后产出 `metrics_summary.csv + env_snapshot.json + config_snapshot.yaml`；旧项目也可通过可选 YAML 声明 wrapper。自定义 wrapper 必须在命令结束后生成这三件套。
 
-以下情况不能视为有效输出接口：
+指标采集仍须使用可解析结果接口；通用任务则必须通过 `runner.outputs` 声明产物。以下情况不能视为有效输出接口：
 
-- 只在 Plan 中声明 `result_csv`、`output_dir` 或 `expectedResults`。
+- 只在 Plan 中声明 `result_csv`、`output_dir` 或 `expectedResults`，且未配置指标采集或 `runner.outputs`。
 - 只有注释、README 说明或未执行的帮助函数。
 - 只生成状态 JSON、manifest、jobs.csv 或没有数值指标的文本。
 - 输出到项目外绝对路径，或多个任务覆盖同一个文件。
@@ -340,9 +371,9 @@ Hub 是否可用始终由用户配置决定；不可用时必须手动切换到 
 1. 已读本契约和项目内 `docs/project-constraints.md`。
 2. 已运行 `simpleex self-check` 和 `simple-sftp-api self-check`，并读取 discovery/capabilities。
 3. 项目只有一个根目录，核心代码和配置位于规定目录。
-4. 已有真实 `configs/*.yaml` 和 `experiments/plans/*.yaml`。
-5. 已选择 wrapper、显式 adapter 调用或 TensorBoard 三者之一，并在代码中落实。
-6. Plan 的 mode、seeds、cases、commands 和 per-job 结果路径完整。
+4. 指标实验准备真实 `configs/*.yaml` 和 `experiments/plans/*.yaml`；通用命令至少准备 Plan。
+5. 指标实验已选择 wrapper、显式 adapter 调用、TensorBoard 或字段映射；通用命令已声明 `runner.outputs`，无需伪造指标采集接口。
+6. Plan 的运行命令、工作目录、输入/输出和任务规模符合所选档位；指标实验另核对 seeds 与 per-job 指标路径。
 7. Plan 结果位置与插件输出接入设置符合实际代码；若保留旧 `experiments/simple_project.yaml`，其内容也应一致。
 8. 数据、权重、缓存和密钥不会进入 Git 或默认代码同步。
 9. `plan.validate` 和 dry-run 通过；所有结构化 `missing` 已修复。

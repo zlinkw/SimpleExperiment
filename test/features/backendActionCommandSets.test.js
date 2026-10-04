@@ -28,7 +28,7 @@ test("backend action routing reuses composed confirmation and scheduler sets", (
   assert.match(source, /const PLAN_PREFLIGHT_COMMANDS = new Set\(\["validatePlan", "dryRunPlan"\]\)/);
   assert.match(source, /const PLAN_SUBMISSION_COMMANDS = new Set\(\["runPlan", "reproducePlan"\]\)/);
   assert.match(source, /const PLAN_SCHEDULER_COMMANDS = new Set\(\[\.\.\.PLAN_PREFLIGHT_COMMANDS, \.\.\.PLAN_SUBMISSION_COMMANDS\]\)/);
-  assert.match(source, /const TUNNEL_ACTION_CONFIRM_COMMANDS = new Set\(\["stopExperiment", "retryExperiment", \.\.\.NO_HUB_RESULT_CONFIRM_COMMANDS, "deleteArtifacts"\]\)/);
+  assert.match(source, /const TUNNEL_ACTION_CONFIRM_COMMANDS = new Set\(\["stopExperiment", "retryExperiment", \.\.\.NO_HUB_RESULT_CONFIRM_COMMANDS, "deleteArtifacts", "reconcileDeletions"\]\)/);
   for (const constant of ["NO_HUB_RESULT_CONFIRM_COMMANDS", "PLAN_PREFLIGHT_COMMANDS", "PLAN_SUBMISSION_COMMANDS", "PLAN_SCHEDULER_COMMANDS", "TUNNEL_ACTION_CONFIRM_COMMANDS"]) {
     assert.match(body, new RegExp(`${constant}\\.has\\(command\\)`), constant);
   }

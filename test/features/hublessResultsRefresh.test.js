@@ -1,6 +1,7 @@
 const assert = require("node:assert/strict");
 const test = require("node:test");
 const vm = require("node:vm");
+const ts = require("typescript");
 const { readSource } = require("../_helpers/sourceReader");
 
 const source = readSource("src/extension/legacy.ts");
@@ -24,11 +25,12 @@ const sandbox = {
   hasCapability: (capabilities) => Boolean(capabilities?.includes("endpoints.resultsSummary")),
 };
 vm.createContext(sandbox);
-vm.runInContext(`class Subject {
+const selectedClass = `class Subject {
   ${method("apiResultsList")}
   ${method("hasResultsSummaryEndpointCapability")}
 }
-this.Subject = Subject;`, sandbox);
+this.Subject = Subject;`;
+vm.runInContext(ts.transpileModule(selectedClass, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText, sandbox);
 
 test("results.list fetches the requested Plan from all Workers even when another Plan is selected", async () => {
   const subject = new sandbox.Subject();

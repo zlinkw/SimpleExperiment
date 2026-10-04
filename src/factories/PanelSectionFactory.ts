@@ -57,30 +57,6 @@ export interface PanelSectionFactory {
   readonly escaper: PanelTemplateEscaper;
 }
 
-class BaseSection implements PanelSection {
-  public readonly id: SectionId;
-  public readonly order: number;
-  public readonly title: string;
-  public readonly icon: string;
-  public readonly clientEvents?: ReadonlyArray<{ event: string; handler: string }>;
-  constructor(opts: { id: SectionId; order: number; title: string; icon: string; clientEvents?: ReadonlyArray<{ event: string; handler: string }> }) {
-    this.id = opts.id;
-    this.order = opts.order;
-    this.title = opts.title;
-    this.icon = opts.icon;
-    this.clientEvents = opts.clientEvents;
-  }
-  renderHtml(_state: unknown): string {
-    return `<section class="section-card" data-section="${this.id}" data-anchor="${this.id}"><div class="section-head"><div class="section-title"><h2>${this.title}</h2></div></div><div id="${this.id}Root" class="section-body"></div></section>`;
-  }
-  renderCss(): string { return ""; }
-  renderScript(): string {
-    return `function render${capitalize(this.id)}(state){ var el=document.querySelector('[data-section="${this.id}"]'); if(!el) return; }`;
-  }
-}
-
-function capitalize(s: string): string { return s.charAt(0).toUpperCase() + s.slice(1); }
-
 const SECTION_DEFS: ReadonlyArray<{ id: SectionId; order: number; title: string; icon: string }> = [
   { id: "sync", order: 1, title: "运行环境准备", icon: "🔄" },
   { id: "plans", order: 2, title: "计划", icon: "📋" },
@@ -107,17 +83,32 @@ type SectionLike = {
 };
 
 function toPanelSection(s: unknown): PanelSection {
+  if (!s || typeof s !== "object" || Array.isArray(s)) throw new Error("Panel section implementation is not an object.");
   const rec = s as SectionLike;
+  if (typeof rec.renderHtml !== "function" || typeof rec.renderCss !== "function" || typeof rec.renderScript !== "function")
+    throw new Error(`Panel section ${String(rec.id || "unknown")} is missing a required renderer.`);
+  if (typeof rec.id !== "string" || !SECTION_DEFS.some((item) => item.id === rec.id)
+    || !Number.isFinite(Number(rec.order)) || typeof rec.title !== "string")
+    throw new Error("Panel section metadata is invalid.");
   return {
     id: rec.id as SectionId,
     order: rec.order as number,
     title: rec.title as string,
     icon: (rec.icon as string) || "",
     clientEvents: (rec.clientEvents as ReadonlyArray<{ event: string; handler: string }>) || undefined,
-    renderHtml: (state: unknown) => (typeof rec.renderHtml === "function" ? (rec.renderHtml as (st: unknown) => string)(state) : ""),
-    renderCss: () => (typeof rec.renderCss === "function" ? (rec.renderCss as () => string)() : ""),
-    renderScript: () => (typeof rec.renderScript === "function" ? (rec.renderScript as () => string)() : ""),
+    renderHtml: (state: unknown) => (rec.renderHtml as (st: unknown) => string)(state),
+    renderCss: () => (rec.renderCss as () => string)(),
+    renderScript: () => (rec.renderScript as () => string)(),
   } as PanelSection;
+}
+
+function validateCustomSection(section: PanelSection, expectedId?: SectionId): PanelSection {
+  if (!section || typeof section !== "object" || !SECTION_DEFS.some((item) => item.id === section.id)
+    || expectedId && section.id !== expectedId || !Number.isFinite(Number(section.order))
+    || typeof section.title !== "string" || typeof section.renderHtml !== "function"
+    || typeof section.renderCss !== "function" || typeof section.renderScript !== "function")
+    throw new Error(`Panel section ${expectedId || String((section as any)?.id || "unknown")} is incomplete; refusing an empty renderer.`);
+  return section;
 }
 
 export class DefaultPanelSectionFactory implements PanelSectionFactory {
@@ -133,7 +124,7 @@ export class DefaultPanelSectionFactory implements PanelSectionFactory {
     if (!def) throw new Error(`Unknown section: ${id}`);
     // 1. 若 deps 中有定制 Section，优先使用
     const custom = (this.deps["sections"] as Record<string, PanelSection> | undefined)?.[id];
-    if (custom) return custom;
+    if (custom) return validateCustomSection(custom, id);
     // 2. 尝试真实 Section（逐个导入/聚合导入）
     const sectionsMod = getSectionsMod();
     if (sectionsMod) {
@@ -147,8 +138,7 @@ export class DefaultPanelSectionFactory implements PanelSectionFactory {
         if (found) return toPanelSection(found);
       }
     }
-    // 3. Fallback 到 BaseSection
-    return new BaseSection(def);
+    throw new Error(`Panel section ${id} implementation is unavailable; refusing to render an empty section.`);
   }
 
   createAll(_ctx: FactoryContext): PanelSection[] {
@@ -156,22 +146,25 @@ export class DefaultPanelSectionFactory implements PanelSectionFactory {
     const sectionsMod = getSectionsMod();
     if (sectionsMod && typeof sectionsMod.createAllSections === "function") {
       const realSections = sectionsMod.createAllSections() as unknown[];
-      if (Array.isArray(realSections) && realSections.length >= 8) {
-        const mapped = realSections.map(toPanelSection);
-        // 合并 deps 定制覆盖（若有）
-        const customMap = (this.deps["sections"] as Record<string, PanelSection> | undefined) || {};
-        const merged = mapped.map((s) => customMap[s.id] || s);
-        // 若 customMap 中有额外 id，补充
-        for (const [k, v] of Object.entries(customMap)) {
-          if (!merged.find((m) => m.id === k)) merged.push(v as PanelSection);
-        }
-        return merged.sort((a, b) => a.order - b.order);
+      if (!Array.isArray(realSections)) throw new Error("Panel section bundle returned an invalid collection.");
+      const customMap = (this.deps["sections"] as Record<string, PanelSection> | undefined) || {};
+      const byId = new Map<string, PanelSection>();
+      for (const item of realSections) {
+        const mapped = toPanelSection(item);
+        byId.set(mapped.id, mapped);
       }
+      for (const [id, section] of Object.entries(customMap)) byId.set(id, validateCustomSection(section, id as SectionId));
+      const required = SECTION_DEFS.filter((item) => item.id !== "servers" && item.id !== "operations");
+      const missing = required.filter((item) => !byId.has(item.id)).map((item) => item.id);
+      if (missing.length) throw new Error(`Panel section bundle missing implementations: ${missing.join(", ")}.`);
+      return [...byId.values()].sort((a, b) => a.order - b.order);
     }
-    // Fallback：BaseSection
     const customMap = (this.deps["sections"] as Record<string, PanelSection> | undefined) || {};
-    const sections: PanelSection[] = SECTION_DEFS.map((def) => customMap[def.id] || new BaseSection(def));
-    return sections.sort((a, b) => a.order - b.order);
+    for (const [id, section] of Object.entries(customMap)) validateCustomSection(section, id as SectionId);
+    const required = SECTION_DEFS.filter((item) => item.id !== "servers" && item.id !== "operations");
+    const missing = required.filter((item) => !customMap[item.id]).map((item) => item.id);
+    if (missing.length) throw new Error(`Panel section implementations unavailable: ${missing.join(", ")}.`);
+    return Object.values(customMap).sort((a, b) => a.order - b.order);
   }
 
   createByName(name: string, ctx: FactoryContext): PanelSection | undefined {

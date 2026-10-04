@@ -28,10 +28,15 @@ function writeAutomation(root, options = {}) {
 }
 
 function response(status, payload) {
+  const bytes = new TextEncoder().encode(JSON.stringify(payload));
   return {
     ok: status >= 200 && status < 300,
     status,
     async text() { return JSON.stringify(payload); },
+    body: { getReader() {
+      let used = false;
+      return { async read() { if (used) return { done: true }; used = true; return { done: false, value: bytes }; }, async cancel() {} };
+    } },
   };
 }
 
@@ -111,10 +116,10 @@ test("result UI exposes PPT readiness without entering experiment gates", () => 
   assert.match(extension, /void this\.refreshPptAutomationReadiness\(false\)/);
   assert.match(extension, /pptAutomation: this\.pptAutomationReadiness/);
   const refresh = extension.match(/async refreshPptAutomationReadiness\(start\)[\s\S]*?async openPptAutomationGuide/)?.[0] || "";
-  assert.match(refresh, /const generation = this\.projectContextGeneration/);
+  assert.match(refresh, /const projectContext = this\.captureProjectContext\(\);\s*const generation = projectContext\.generation/);
   assert.match(refresh, /const presentationPath = this\.pptPlotConfig\(\)\.presentationPath/);
   assert.match(refresh, /if \(generation !== this\.projectContextGeneration\)\s*return this\.pptAutomationReadiness/);
-  assert.match(refresh, /bridge\.prepareAutomation\(presentationPath\)/);
+  assert.match(refresh, /bridge\.prepareAutomation\(presentationPath, signal\)/);
   assert.doesNotMatch(refresh, /bridge\.prepareAutomation\(this\.pptPlotConfig\(\)\.presentationPath\)/);
   assert.match(refresh, /if \(generation === this\.projectContextGeneration\)\s*this\.postState\(true\)/);
   assert.match(panel, /function pptAutomationReadinessForState\(state\)/);

@@ -29,9 +29,10 @@ test("stale document ready/errors/heartbeat/section messages cannot mutate the c
   assert.equal(subject.isCurrentPanelDocumentMessage({ documentGeneration: 8, extensionVersion: "0.5.194", documentBuildId: "build-8" }, "webviewReady"), false);
   assert.equal(subject.isCurrentPanelDocumentMessage({ documentGeneration: 8, extensionVersion: "0.5.195", documentBuildId: "old-build" }, "webviewReady"), false);
 
-  const guardStart = source.indexOf('if (["webviewReady", "webviewBootstrapError", "webviewRenderError", "webviewHeartbeatAck", "webviewStateRendered"');
+  const guardEnd = source.indexOf('&& !this.isCurrentPanelDocumentMessage(message, command)) return;');
+  const guardStart = source.lastIndexOf('"webviewReady"', guardEnd);
   assert.ok(guardStart >= 0, "handleMessageCore must have the document generation guard");
-  const guardBlock = source.slice(guardStart, guardStart + 400);
-  assert.ok(guardBlock.includes('"webviewSectionInterest", "webviewSectionTelemetry", "webviewVisibility"'), "section interest and telemetry belong to the generation-guarded command list");
+  const guardBlock = source.slice(guardStart, guardEnd + 80);
+  assert.ok(guardBlock.includes('"webviewSectionInterest"') && guardBlock.includes('"webviewSectionTelemetry"'), "section interest and telemetry belong to the generation-guarded command list");
   assert.ok(guardBlock.includes("!this.isCurrentPanelDocumentMessage(message, command)"), "the guarded command list must reject stale messages before dispatch");
 });

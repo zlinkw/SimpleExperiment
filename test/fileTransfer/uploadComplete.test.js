@@ -14,6 +14,7 @@ test("upload complete rejects sha256 mismatch", async () => {
     req.resume();
     req.on("end", () => {
       res.setHeader("Content-Type", "application/json");
+      res.setHeader("Connection", "close");
       if (req.url === "/api/files/upload-init") return res.end(JSON.stringify({ transferId: "bad", chunkSize: 10, accepted: true, resumeFromByte: 0 }));
       if (req.url.startsWith("/api/files/upload-chunk")) return res.end(JSON.stringify({ receivedBytes: 3, nextOffset: 3 }));
       res.end(JSON.stringify({ status: "completed", sha256: crypto.createHash("sha256").update("wrong").digest("hex") }));
@@ -23,11 +24,14 @@ test("upload complete rejects sha256 mismatch", async () => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), "simple-complete-"));
   const local = path.join(dir, "preset.json");
   await fs.writeFile(local, "abc");
+  let client;
   try {
-    const client = new FileTransferClient({ localHost: "127.0.0.1", localPort: server.address().port }, new RequestBudget({ ...defaultRequestBudgetConfig, minIntervalByPurpose: {} }));
+    client = new FileTransferClient({ localHost: "127.0.0.1", localPort: server.address().port }, new RequestBudget({ ...defaultRequestBudgetConfig, minIntervalByPurpose: {} }));
     await assert.rejects(client.upload(local, "experiments/presets/preset.json"), /SHA256/);
   } finally {
-    server.close();
+    await client?.dispose();
+    await new Promise((resolve) => server.close(resolve));
+    await new Promise((resolve) => setTimeout(resolve, 100));
   }
 });
 

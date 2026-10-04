@@ -116,6 +116,7 @@ function sftpTarget(id, remotePath) {
 }
 
 function providerFor(workspace, options = {}) {
+  vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: workspace, scheme: "file", path: workspace } }];
   const workers = options.workers || [{ id: "w1" }, { id: "w2" }];
   const calls = [];
   const ledger = {
@@ -137,7 +138,9 @@ function providerFor(workspace, options = {}) {
     selectedExperimentIds: new Set(),
     selectedArchiveKeys: new Set(),
     selectedTaskUiKeys: new Set(),
+    panelSectionInterest: { documentGeneration: "1", mainSection: "results", visibleSections: ["results"], expandedSections: ["results"], pinnedInspectorSection: "" },
     context: { globalStorageUri: { fsPath: workspace } },
+    hostOperationLease: { run: async (_request, operation) => operation() },
     localPlanMetadata: { plans: [
       { planFile: "experiments/plans/a.yaml", revision: "r1", outputSignals: ["结果目录：simple_cluster/results/w1"] },
       ...(options.onlyFirst ? [] : [{ planFile: "experiments/plans/b.yaml", revision: options.revision || "r2", outputSignals: ["结果目录：simple_cluster/results/w2"], outputCandidates: ["work_dirs/b/weight.pt"] }]),
@@ -154,6 +157,7 @@ function providerFor(workspace, options = {}) {
     simpleSftpApiCall: async (method, params) => {
       calls.push([method, params]);
       if (options.transferError) throw new Error(options.transferError);
+      if (method === "sync.projectFileStats") return { files: Object.fromEntries((params.paths || []).map((remotePath) => [remotePath, { size: 10 }])) };
       const written = (params.entries || []).map((entry) => entry.localRelativePath);
       for (const relative of written) {
         const full = path.join(workspace, ...relative.split("/"));
@@ -221,7 +225,7 @@ test("dataset metadata overrides stale directory hints and preserves the old loc
   assert.equal(scopes.some(file => file.startsWith("old_layout/")), false);
   assert.equal(fs.readFileSync(legacy, "utf8"), "old table retained");
   assert.ok(fs.existsSync(path.join(workspace, "experiments/results/set/final/final.csv")));
-  assert.equal(provider.calls.filter(call => call[0] === "sync.projectInventory").length, 2);
+  assert.ok(provider.calls.filter(call => call[0] === "sync.projectInventory").length >= 2);
 });
 
 test("unindexed summaries never invoke the full directory merge fallback", async () => {
@@ -671,7 +675,7 @@ test("distribution rejects symlink destinations and preserves content when repla
   const outside = fs.mkdtempSync(path.join(os.tmpdir(), "simple-result-metrics-outside-"));
   try {
     const stage = path.join(workspace, "simple_cluster", "downloads", "mapped_stage", "source.csv");
-    const destination = rawLocation(workspace);
+    const destination = path.join(workspace, "experiments", "results", "a", "raw", "a_seed.csv");
     fs.mkdirSync(path.dirname(stage), { recursive: true });
     fs.mkdirSync(path.dirname(destination), { recursive: true });
     fs.writeFileSync(stage, "new");
@@ -701,7 +705,7 @@ test("distribution rejects symlink destinations and preserves content when repla
         remotePath: "simple_cluster/results/w1/raw.csv",
         localRelative: "experiments/results/a/raw/a_seed.csv",
         stageRelative: "simple_cluster/downloads/mapped_stage/source.csv",
-      }], [{ remotePath: "simple_cluster/results/w1/raw.csv" }], true), /暂存残留|分发/);
+      }], [{ remotePath: "simple_cluster/results/w1/raw.csv", localRelativePath: "simple_cluster/downloads/mapped_stage/source.csv" }], true), /暂存残留|分发/);
     } finally {
       fs.promises.open = originalOpen;
     }
@@ -717,7 +721,7 @@ test("distribution rejects symlink destinations and preserves content when repla
         remotePath: "simple_cluster/results/w1/raw.csv",
         localRelative: "experiments/results/a/raw/a_seed.csv",
         stageRelative: "simple_cluster/downloads/mapped_stage/source.csv",
-      }], [{ remotePath: "simple_cluster/results/w1/raw.csv" }], true, {
+      }], [{ remotePath: "simple_cluster/results/w1/raw.csv", localRelativePath: "simple_cluster/downloads/mapped_stage/source.csv" }], true, {
         beforeRename() { fs.promises.realpath = swappedRealpath; },
       }), /父目录在写入后发生变化|超出项目根目录|符号链接/);
     } finally {

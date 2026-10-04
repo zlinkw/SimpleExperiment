@@ -11,6 +11,7 @@ test("worker telemetry endpoints receive only bounded worker actions and no file
   const hub = http.createServer((req, res) => {
     hubCalls.push(req.url);
     res.setHeader("Content-Type", "application/json");
+    res.setHeader("Connection", "close");
     if (req.url.startsWith("/api/actions/")) return res.end(JSON.stringify({ accepted: true }));
     if (req.url.startsWith("/api/files/list")) return res.end(JSON.stringify({ schemaVersion: 1, path: "simple_cluster", entries: [] }));
     res.end("{}");
@@ -18,6 +19,7 @@ test("worker telemetry endpoints receive only bounded worker actions and no file
   const worker = http.createServer((req, res) => {
     workerCalls.push(req.url);
     res.setHeader("Content-Type", "application/json");
+    res.setHeader("Connection", "close");
     res.end("{}");
   });
   await Promise.all([listen(hub), listen(worker)]);
@@ -38,11 +40,15 @@ test("worker telemetry endpoints receive only bounded worker actions and no file
     assert.equal(workerCalls.some((url) => url === "/api/actions/run-plan" || url.startsWith("/api/files/")), false);
     assert.equal(hubCalls.some((url) => url === "/api/actions/stop-worker-task"), false);
   } finally {
-    hub.close();
-    worker.close();
+    await Promise.all([closeServer(hub), closeServer(worker)]);
   }
 });
 
 function listen(server) {
   return new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+}
+
+async function closeServer(server) {
+  await new Promise((resolve) => server.close(resolve));
+  await new Promise((resolve) => setTimeout(resolve, 100));
 }

@@ -38,6 +38,7 @@ exports.sha256File = sha256File;
 exports.hashLocalCodeFiles = hashLocalCodeFiles;
 const ProgressInactivity_1 = require("../core/ProgressInactivity");
 const HostOperationLease_1 = require("../core/HostOperationLease");
+const StateStore_1 = require("../state/StateStore");
 const crypto = __importStar(require("crypto"));
 const fs = __importStar(require("fs/promises"));
 const fsNode = __importStar(require("fs"));
@@ -107,19 +108,7 @@ async function writeCache(file, document) {
     }
 }
 async function writeCacheOwned(file, document) {
-    await fs.mkdir(path.dirname(file), { recursive: true });
-    // The target lease serializes writers. Reuse one staging slot after a failed
-    // rename instead of leaving a new UUID file on every retry; success consumes it.
-    const temp = `${file}.pending`;
-    const existing = await fs.lstat(temp).catch(error => {
-        if (error.code === "ENOENT")
-            return undefined;
-        throw error;
-    });
-    if (existing && (!existing.isFile() || existing.isSymbolicLink()))
-        throw new Error("Manifest staging path must be a regular file");
-    await fs.writeFile(temp, JSON.stringify(document), "utf8");
-    await fs.rename(temp, file);
+    await (0, StateStore_1.atomicWriteText)(file, JSON.stringify(document));
 }
 async function sha256File(file, signal, onBytes) {
     return new Promise((resolve, reject) => {

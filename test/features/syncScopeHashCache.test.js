@@ -53,7 +53,11 @@ test("a fresh process reuses persisted hashes and keeps rows from another scope"
       }
       const reads = [];
       const original = fs.promises.open;
-      fs.promises.open = async (...args) => { reads.push(String(args[0])); return original.apply(fs.promises, args); };
+      const metricPath = path.join(root, "results", "metrics.csv");
+      fs.promises.open = async (...args) => {
+        if (path.resolve(String(args[0])) === path.resolve(metricPath)) reads.push(String(args[0]));
+        return original.apply(fs.promises, args);
+      };
       const second = await scope.hashLocalScopeNames(root, ["results/metrics.csv"], undefined, cacheFile);
       const openedBeforeChange = reads.length;
       const changed = path.join(root, "results", "summary.json");

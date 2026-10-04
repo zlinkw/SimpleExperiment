@@ -7,38 +7,38 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.DefaultCommandBusFactory = void 0;
 exports.createCommandBus = createCommandBus;
 exports.createCommandBusFactory = createCommandBusFactory;
+const CommandBus_1 = require("../CommandBus");
 let sharedBus = undefined;
-function resolveCommandBusClass() {
-    try {
-        const mod = require("../CommandBus");
-        if (mod && mod.CommandBus)
-            return mod.CommandBus;
-    }
-    catch { }
-    return null;
-}
 class DefaultCommandBusFactory {
     deps;
     constructor(deps = {}) { this.deps = deps; }
     create(opts = {}) {
-        const Cls = resolveCommandBusClass();
-        const bus = Cls ? new Cls() : this.createFallbackBus();
+        const bus = new CommandBus_1.CommandBus();
         const handlers = opts.handlers || this.deps.handlers || [];
-        for (const h of handlers) {
-            try {
-                bus.register(h.type, h.handler);
+        if (!Array.isArray(handlers))
+            throw new Error("CommandBus handlers must be an array.");
+        const unregister = [];
+        try {
+            for (const handler of handlers) {
+                if (!handler || typeof handler.type !== "string" || !handler.type.trim() || typeof handler.handler !== "function")
+                    throw new Error("CommandBus handler requires a non-empty type and callable handler.");
+                unregister.push(bus.register(handler.type, handler.handler));
             }
-            catch { }
+        }
+        catch (error) {
+            for (const dispose of unregister.reverse())
+                dispose();
+            throw error;
         }
         if (opts.singleton || this.deps.singleton)
             sharedBus = bus;
         return bus;
     }
     getShared() {
+        if (this.deps.commandBus)
+            return assertCommandBus(this.deps.commandBus);
         if (sharedBus)
             return sharedBus;
-        if (this.deps.commandBus)
-            return this.deps.commandBus;
         sharedBus = this.create({ singleton: true });
         return sharedBus;
     }
@@ -46,31 +46,6 @@ class DefaultCommandBusFactory {
         return this.create({ handlers });
     }
     resetShared() { sharedBus = undefined; }
-    createFallbackBus() {
-        const handlers = new Map();
-        return {
-            kind: "CommandBus",
-            register(type, handler) {
-                const list = handlers.get(type) || [];
-                list.push(handler);
-                handlers.set(type, list);
-                return () => {
-                    const next = (handlers.get(type) || []).filter((x) => x !== handler);
-                    if (next.length)
-                        handlers.set(type, next);
-                    else
-                        handlers.delete(type);
-                };
-            },
-            async dispatch(command) {
-                const list = handlers.get(command.type) || [];
-                if (!list.length)
-                    throw new Error(`No command handler registered: ${command.type}`);
-                for (const h of list)
-                    await h(command);
-            },
-        };
-    }
 }
 exports.DefaultCommandBusFactory = DefaultCommandBusFactory;
 function createCommandBus(opts) {
@@ -79,4 +54,9 @@ function createCommandBus(opts) {
 }
 function createCommandBusFactory(deps) {
     return new DefaultCommandBusFactory(deps);
+}
+function assertCommandBus(value) {
+    if (!value || typeof value !== "object" || typeof value.register !== "function" || typeof value.dispatch !== "function")
+        throw new Error("Injected CommandBus does not implement register/dispatch.");
+    return value;
 }

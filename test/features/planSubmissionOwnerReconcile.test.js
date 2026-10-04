@@ -10,7 +10,7 @@ const hostSchedulerRows = [];
 
 function extractBlock(name) {
   const lines = extensionSource.split(/\r?\n/);
-  const start = lines.findIndex((line) => new RegExp(`^(?:    (?:async )?|function |const )${name}\\b`).test(line));
+  const start = lines.findIndex((line) => new RegExp(`^(?:    (?:(?:private|public|protected) )?(?:async )?|function |const )${name}\\b`).test(line));
   assert.ok(start >= 0, name);
   let depth = 0;
   let seen = false;
@@ -18,7 +18,7 @@ function extractBlock(name) {
     depth += (lines[index].match(/\{/g) || []).length - (lines[index].match(/\}/g) || []).length;
     if ((lines[index].match(/\{/g) || []).length) seen = true;
     if (seen && depth <= 0) {
-      return lines.slice(start, index + 1).join("\n").replace(/: any/g, "").replace(/ as const/g, "").replace(/(\w|\)|\]|\}) as [A-Za-z_$][\w$]*/g, "$1");
+      return lines.slice(start, index + 1).join("\n").replace(/^[ \t]*(?:private|public|protected)[ \t]+/gm, "").replace(/: any/g, "").replace(/ as const/g, "").replace(/(\w|\)|\]|\}) as [A-Za-z_$][\w$]*/g, "$1");
     }
   }
   throw new Error(`unclosed ${name}`);
@@ -38,6 +38,7 @@ function createContext(extra = {}) {
     JSON,
     Math,
     Promise,
+    AbortController,
     uniqueStrings: (values) => [...new Set((values || []).filter(Boolean).map(String))],
     stringField: (record, key) => String(record?.[key] || ""),
     numberField: (record, key) => Number(record?.[key] || 0),
@@ -84,6 +85,7 @@ function loadHost() {
   const helpers = ["planSubmitProgress", "activePlanRunEvidence"].map(extractBlock).join("\n");
   const methods = [
     "beginPlanSubmissionProgress",
+    "trimPlanSubmissionEpochs",
     "planSubmissionOperationId",
     "planSubmissionPlanFile",
     "patchPlanSubmissionProgress",
@@ -99,6 +101,7 @@ function loadHost() {
   vm.runInContext(`${helpers}\nconst methods = { ${methods} };\nthis.api = methods;`, context);
   const host = {
     localOperations: {},
+    distributedSubmissionEpochs: new Map(),
     posts: 0,
     evidenceCalls: [],
     reconcilePolls: 0,

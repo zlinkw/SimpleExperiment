@@ -2,6 +2,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const vm = require("node:vm");
+const OperationOutcome_1 = require("../../dist/core/OperationOutcome.js");
 const source = fs.readFileSync(require.resolve("../../dist/extension/legacy.js"), "utf8");
 function method(first, next) {
   const start = source.indexOf(first), end = source.indexOf(next, start);
@@ -13,6 +14,7 @@ function fixture() {
   const alerts = [], statuses = [], progress = [];
   const sandbox = {
     workspaceRoot: () => "C:/project",
+    OperationOutcome_1,
     PLAN_SUBMISSION_COMMANDS: new Set(["runPlan"]),
     actionCommandMap: { runPlan: "plan/run" },
     localCommandReleasesAfterTrigger: () => false,

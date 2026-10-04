@@ -14,7 +14,7 @@ test("drawer UI keeps closed-loop helpers and inspector hub facts", () => {
 
 test("results summary refresh stays selected-plan scoped without dirty narrowing", () => {
   const source = readSource("src/extension.ts");
-  assert.match(source, /Dirty planFile only decides whether a refresh is relevant/);
-  assert.match(source, /const planFile = selectedPlan \|\| ""/);
+  assert.match(source, /if \(requestedPlan && !this\.shouldRefreshResultsSummaryForDirtyPlan\(requestedPlan\)\)/);
+  assert.match(source, /const planFile = this\.resolveSelectedPlanFile\(requestedPlan \|\| this\.planFileInput \|\| this\.selectedPlanId \|\| ""\)/);
   assert.doesNotMatch(source, /const planFile = selectedPlan \|\| dirtyPlan/);
 });

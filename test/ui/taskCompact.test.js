@@ -182,6 +182,6 @@ test("task signature and render reuse one scope-independent view model", () => {
   assert.notEqual(sandbox.viewForState({ ...state }), first);
   assert.equal(schedulerCalls, 2);
   assert.match(extractFunction("compactSchedulerForSignature"), /taskSectionViewModelForState\(state\)/);
-  assert.match(extractFunction("renderExecutionSection"), /taskSectionViewModelForState\(state\)/);
+  assert.match(extractFunction("renderExecutionSection"), /renderTaskBatchActionsIfChanged\(state, force\)/);
   assert.doesNotMatch(extractFunction("sectionLocalSignature"), /taskPlanScope/);
 });

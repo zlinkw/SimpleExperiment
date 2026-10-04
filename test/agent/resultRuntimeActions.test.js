@@ -9,7 +9,7 @@ const root = path.resolve(__dirname, "..", "..");
 
 test("hub agent runtime performs real result actions", (t) => {
   const python = process.env.PYTHON || "python";
-  const probe = spawnSync(python, ["--version"], { encoding: "utf8" });
+  const probe = spawnSync(python, ["--version"], { encoding: "utf8", timeout: 10000, windowsHide: true });
   if (probe.error || probe.status !== 0) {
     t.skip("python unavailable");
     return;
@@ -54,6 +54,8 @@ print(json.dumps(out, ensure_ascii=False))
     cwd: root,
     encoding: "utf8",
     env: { ...process.env, PYTHONIOENCODING: "utf-8" },
+    timeout: 10000,
+    windowsHide: true,
   });
   assert.equal(run.status, 0, run.stderr || run.stdout);
   const result = JSON.parse(run.stdout.trim());
@@ -66,12 +68,12 @@ print(json.dumps(out, ensure_ascii=False))
   assert.equal(result["archive-artifacts"].status, "completed");
   assert.equal(result["run-quality-gate"].qualityGate.status, "passed");
   assert.equal(result["run-statistics"].statistics.rows.length, 1);
-  assert.match(result["export-paper-table"].paperTablePath, /paper\/tables\/simple_results_table\.md/);
+  assert.match(result["export-paper-table"].paperTablePath, /paper\/tables\/VinDr\/simple_results_table__[^/]+\.md/);
   assert.match(result["create-debug-bundle"].debugBundlePath, /simple_cluster\/debug\/debug_bundle_/);
   assert.equal(fs.existsSync(path.join(project, "simple_cluster", "results", "summary.json")), true);
   assert.match(
     fs.readFileSync(path.join(project, "simple_cluster", "results", "results_effective_archived.csv"), "utf8"),
     /,archived,True/,
   );
-  assert.equal(fs.existsSync(path.join(project, "paper", "tables", "simple_results_table.md")), true);
+  assert.equal(fs.existsSync(path.join(project, "paper", "tables", "VinDr", path.basename(result["export-paper-table"].paperTablePath))), true);
 });

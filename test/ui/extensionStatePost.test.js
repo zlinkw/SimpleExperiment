@@ -15,36 +15,34 @@ function loadRealtimeUiSignatures(source) {
   return new Function(runnable + "; return { field: realtimeUiFieldSignature, topLevel: realtimeUiTopLevelSignature };")();
 }
 
-test("extension coalesces ordinary webview state posts and flushes on visibility", () => {
+test("extension coalesces webview state posts behind explicit render backpressure", () => {
   const source = readSource("src/extension.ts");
   const postStateBlock = source.match(/private postState[\s\S]*?private flushStatePost/)?.[0] || "";
   const flushBlock = source.match(/private flushStatePost[\s\S]*?private integration/)?.[0] || "";
 
   assert.match(source, /private statePostTimer\?: ReturnType<typeof setTimeout>/);
-  assert.match(source, /private statePostPending = false/);
+  assert.match(source, /private panelStateFlow = PanelStateFlowControl_1\.createPanelStateFlowControlState\(\)/);
   assert.match(source, /private lastPostedStateSignature = ""/);
-  assert.match(source, /private readonly statePostBatchMs = 100/);
-  assert.match(source, /if \(webviewView\.visible\) this\.postState\(true\);\s*else this\.postState\(\);/);
+  assert.match(source, /requestPanelStateFlowPost\(this\.panelStateFlow, immediate, bootstrap\)/);
+  assert.match(postStateBlock, /decision\.reason === "awaiting-render"/);
+  assert.match(postStateBlock, /decision\.reason === "hidden"/);
   assert.match(source, /resolveWebviewView\(webviewView\)[\s\S]{0,1400}this\.loadPanelHtml\(\)/);
   assert.match(source, /renderPanelBootstrapDocument\(renderPanelHtml, renderPanelRecoveryHtml\)/);
-  assert.match(source, /if \(this\.statePostTimer\) clearTimeout\(this\.statePostTimer\)/);
-  assert.match(postStateBlock, /if \(immediate\) \{\s*this\.flushStatePost\(true\);/);
-  assert.match(postStateBlock, /this\.statePostPending = true/);
-  assert.match(postStateBlock, /if \(!this\.view\.visible\) return/);
-  assert.match(postStateBlock, /setTimeout\(\(\) => this\.flushStatePost\(false\), this\.statePostBatchMs\)/);
-  assert.match(flushBlock, /if \(!force && !this\.statePostPending\) return/);
-  assert.match(flushBlock, /if \(!this\.view\.visible\) return/);
-  assert.match(flushBlock, /this\.statePostPending = false/);
-  assert.match(flushBlock, /try \{\s*state = this\.buildState\(\)/);
+  assert.match(postStateBlock, /if \(immediate\)[\s\S]{0,220}this\.flushStatePost\(true\)/);
+  assert.match(postStateBlock, /this\.statePostTimer = setTimeout\(\(\) => this\.flushStatePost\(false\), delayMs\)/);
+  assert.match(flushBlock, /this\.panelStateFlow\.outstandingRenderSeq !== null && this\.panelStateFlow\.renderedSeq < this\.panelStateFlow\.outstandingRenderSeq/);
+  assert.match(flushBlock, /if \(!this\.webviewDocumentVisible \|\| !this\.view\.visible\)/);
+  assert.match(flushBlock, /try \{\s*state = this\.buildState\(\{ panelProjection: true \}\)/);
   assert.match(flushBlock, /catch \(error\)[\s\S]{0,700}this\.buildPanelFallbackState\(this\.lastError\)/);
   assert.match(source, /private buildPanelFallbackState\(message: string\): WebviewClusterState/);
   assert.match(flushBlock, /state\.contextActionSignature = contextActionStatePostSignature\(state\)/);
   assert.match(flushBlock, /const signature = webviewStatePostSignature\(state\)/);
-  assert.match(flushBlock, /if \(!force && signature === this\.lastPostedStateSignature\) return/);
+  assert.match(flushBlock, /if \(!force && signature === this\.lastPostedStateSignature\)/);
   assert.match(flushBlock, /if \(!delivered\)[\s\S]{0,180}reportPostError/);
   assert.match(flushBlock, /this\.lastPostedStateSignature = signature/);
-  assert.match(flushBlock, /const posted = this\.view\.webview\.postMessage\(\{ type: "state", state \}\)/);
-  assert.match(flushBlock, /Promise\.resolve\(posted\)\.then\(completePost, reportPostError\)/);
+  assert.match(flushBlock, /postMessageWithTimeout\(\(\) => targetView\.webview\.postMessage\(stateMessage\), this\.statePostDeliveryTimeoutMs\)/);
+  assert.match(flushBlock, /markPanelStateFlowPosted\(this\.panelStateFlow, stateSeq, Date\.now\(\)\)/);
+  assert.match(flushBlock, /maxOutstandingFullStates = Math\.max\(this\.maxOutstandingFullStates[\s\S]{0,140}1\)/);
   assert.match(flushBlock, /catch \(error\) \{\s*reportPostError\(error\)/);
   assert.match(source, /function webviewStatePostSignature\(state: WebviewClusterState\): string/);
   assert.match(source, /return realtimeUiTopLevelSignature\(state\)/);
@@ -56,7 +54,8 @@ test("extension coalesces ordinary webview state posts and flushes on visibility
     assert.doesNotMatch(contextActionSignatureBlock, new RegExp(`state\\.${field}`));
   }
   assert.doesNotMatch(postStateBlock, /postMessage\(\{ type: "state"/);
-  assert.doesNotMatch(flushBlock, /JSON\.stringify/);
+  assert.match(flushBlock, /let serializedMessage = JSON\.stringify\(stateMessage\)/);
+  assert.match(flushBlock, /scanSerializedPanelState\(serializedMessage, payloadBytes\)/);
 });
 
 test("extension skips heartbeat-only realtime webview posts and keeps content changes", () => {
@@ -127,7 +126,8 @@ test("local availability push stays server-only and project-state-free", () => {
   assert.match(loopBlock, /if \(this\.availabilityPushTimer === timer\)\s*this\.availabilityPushTimer = undefined/);
   assert.match(loopBlock, /if \(loopGeneration === this\.availabilityPushLoopGeneration\)\s*scheduleNext\(\)/);
   assert.doesNotMatch(loopBlock, /finally\(scheduleNext\)/);
-  assert.match(source, /async dispose\(\)[\s\S]{0,900}this\.availabilityPushLoopGeneration \+= 1;[\s\S]{0,160}clearTimeout\(this\.availabilityPushTimer\)/);
+  const dispose = source.slice(source.indexOf("async dispose()"), source.indexOf("startAvailabilityPushLoop()", source.indexOf("async dispose()")));
+  assert.match(dispose, /this\.availabilityPushLoopGeneration \+= 1;[\s\S]{0,160}clearTimeout\(this\.availabilityPushTimer\)/);
   assert.match(pushBlock, /const generation = this\.projectContextGeneration/);
   assert.match(pushBlock, /const client = this\.client/);
   assert.match(pushBlock, /client\.postAvailabilityBatch/);
@@ -143,13 +143,11 @@ test("local availability push stays server-only and project-state-free", () => {
   }
 });
 
-test("stalled ui command status still observes late terminal result", () => {
+test("UI command wrapper has no total watchdog and posts the real terminal outcome", () => {
   const source = readSource("src/extension.ts");
   const block = source.match(/private async withUiCommandStatus[\s\S]*?private postUiCommandStatus/)?.[0] || "";
-  assert.match(block, /result\.status === "stalled"/);
-  assert.match(block, /guardedWork\.then\(\(lateResult\) =>/);
-  assert.match(block, /后台真实终态/);
-  assert.match(block, /lateResult\.status === "failed"/);
-  assert.match(block, /this\.recordActionError/);
-  assert.match(block, /this\.postUiCommandStatus\(clientActionId, lateResult\.status, command, message\)/);
+  const watchdog = source.slice(source.indexOf("uiCommandWatchdogMs(command)"), source.indexOf("private postUiCommandStatus", source.indexOf("uiCommandWatchdogMs(command)")));
+  assert.match(watchdog, /return 0/);
+  assert.match(block, /const result: any = await guardedWork/);
+  assert.match(block, /if \(!statusPosted\) this\.postUiCommandStatus\(clientActionId, result\.status, command, result\.message/);
 });

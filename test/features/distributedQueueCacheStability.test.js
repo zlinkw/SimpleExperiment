@@ -3,6 +3,7 @@ const test = require("node:test");
 const vm = require("node:vm");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const fsNode = require("node:fs");
 const queueApi = require("../../dist/features/DistributedPlanQueue.js");
 const schedulingPolicy = require("../../dist/features/DistributedSchedulingPolicy.js");
 const source = require("node:fs").readFileSync(require.resolve("../../dist/extension/legacy.js"), "utf8");
@@ -26,6 +27,21 @@ const memoryFs = {
   },
   async mkdir() {},
   async writeFile(file, value) { memoryFiles.set(file, String(value)); },
+  async lstat(file) {
+    if (!memoryFiles.has(file)) {
+      const error = new Error("missing");
+      error.code = "ENOENT";
+      throw error;
+    }
+    return { isFile: () => true, isSymbolicLink: () => false };
+  },
+  async open(file) {
+    return {
+      async writeFile(value) { memoryFiles.set(file, String(value)); },
+      async sync() {},
+      async close() {},
+    };
+  },
   async rename(from, to) {
     if (!memoryFiles.has(from)) throw new Error("temporary file missing");
     memoryFiles.set(to, memoryFiles.get(from));
@@ -44,6 +60,7 @@ const sandbox = {
   DistributedPlanQueue_1: queueApi,
   DistributedSchedulingPolicy_1: schedulingPolicy,
   fs: memoryFs,
+  fsNode,
   path,
   process,
   crypto,

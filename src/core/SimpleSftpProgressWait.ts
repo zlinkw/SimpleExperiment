@@ -1,21 +1,103 @@
+import { createHash } from "node:crypto";
 import { ProgressInactivity } from "./ProgressInactivity";
+import { assertRetryRequestCurrent, registerRetryStopCheck, retryRequestSignal } from "./SafeRequestRetry";
+
+const MAX_SFTP_EVENT_FRAME_BYTES = 1024 * 1024;
+
+export type SimpleSftpDiscovery = {
+  endpoint: URL;
+  headers: Record<string, string>;
+  instanceId?: string;
+  features?: Record<string, unknown>;
+};
+
+function identityOf(value: unknown): Record<string, unknown> | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const source = value as Record<string, unknown>;
+  const result: Record<string, unknown> = {};
+  for (const key of ["id", "name", "host", "hostname", "remotePath", "path", "port", "user", "username"])
+    if (source[key] !== undefined && source[key] !== null) result[key] = source[key];
+  return Object.keys(result).length ? result : undefined;
+}
+
+function sftpRequestKey(method: string, params: Record<string, any>): string {
+  const localPath = String(params.localPath || params.localBase || params.workspacePath || "").trim().replace(/[\\/]+/g, "/");
+  const identity = {
+    method,
+    localPath: process.platform === "win32" ? localPath.toLowerCase() : localPath,
+    remotePath: String(params.remotePath || "").trim(),
+    targetId: params.targetId || params.serverId || "",
+    host: params.host || "",
+    server: identityOf(params.server),
+    sftp: identityOf(params.sftp),
+    source: identityOf(params.source),
+    destination: identityOf(params.destination),
+    target: identityOf(params.target),
+  };
+  return createHash("sha256").update(JSON.stringify(identity)).digest("hex");
+}
+
+export async function confirmSftpOperationStopped(operationId: string, initial: SimpleSftpDiscovery): Promise<void> {
+  const expectedInstanceId = String(initial.instanceId || "");
+  if (!expectedInstanceId || initial.features?.transferSettlementReceipts !== true)
+    throw new Error("当前 SimpleSFTP 未提供持久化退出回执，未重新传输；请更新 SimpleSFTP 后重试。");
+  async function rpc(method: string, params: Record<string, unknown>) {
+    const response = await fetch(new URL("/api/v1/rpc", initial.endpoint), {
+      method: "POST", headers: { ...initial.headers, "Content-Type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: operationId, method, params }), signal: AbortSignal.timeout(10_000),
+    });
+    const payload = await response.json() as any;
+    if (!response.ok || payload.error || payload.result?.ok !== true) throw new Error("旧传输停止结果无法确认，未重新传输。");
+    return payload.result;
+  }
+  const receipt = await rpc("transfers.cancel", { operationId, reason: "用户重新执行相同请求" });
+  if (receipt.operationId !== operationId || receipt.operationInstanceId !== expectedInstanceId)
+    throw new Error("旧传输取消回执身份不匹配。");
+  if (receipt.status === "outcomeUnknown") throw new Error("旧传输结果未知，未重新传输；请核对目标后人工恢复。");
+  if (receipt.status === "identityMismatch") throw new Error("旧传输取消回执身份不匹配。");
+  if (receipt.cancelled !== true) throw new Error("SimpleSFTP 未接受旧传输取消，未重新传输。");
+  if (receipt.settled === true && receipt.status === "settled") return;
+  if (receipt.instanceId !== expectedInstanceId || receipt.status !== "cancelling")
+    throw new Error("SimpleSFTP 实例已变化或旧传输状态未知，未重新传输。");
+  const deadline = Date.now() + 20_000;
+  do {
+    const state = await rpc("transfers.list", {});
+    if (state.instanceId !== expectedInstanceId) throw new Error("SimpleSFTP 实例已变化，无法确认旧传输退出。");
+    if (!Array.isArray(state.transfers) || !Array.isArray(state.operations) || !Array.isArray(state.settledOperations))
+      throw new Error("SimpleSFTP 未提供完整退出证据，请升级并重试。");
+    const settled = state.settledOperations.find((row: any) => row?.operationId === operationId
+      && row?.operationInstanceId === expectedInstanceId && row?.status === "settled" && Boolean(row?.settledAt));
+    if (settled) return;
+    const unresolved = state.operations.find((row: any) => (row?.operationId || row?.id) === operationId);
+    if (unresolved?.status === "outcomeUnknown") throw new Error("旧传输结果未知，未重新传输；请核对目标后人工恢复。");
+    const active = [...state.transfers, ...state.operations].some(row => (row.operationId || row.id) === operationId);
+    if (!active) throw new Error("SimpleSFTP 缺少该传输的完成回执，未重新传输。");
+    await new Promise(resolve => setTimeout(resolve, 250));
+  } while (Date.now() < deadline);
+  throw new Error("旧传输取消尚未完成，未重新传输。");
+}
 
 export async function callSftpWithProgress(
   method: string, params: Record<string, any>,
-  discover: (method: string) => Promise<{ endpoint: URL; headers: Record<string, string> }>,
+  discover: (method: string) => Promise<SimpleSftpDiscovery>,
 ): Promise<any> {
-  const { endpoint, headers } = await discover(method);
+  assertRetryRequestCurrent();
+  const scopedSignal = retryRequestSignal();
+  if (scopedSignal) params = { ...params, signal: params.signal ? AbortSignal.any([params.signal, scopedSignal]) : scopedSignal };
+  const discovery = await discover(method);
+  const { endpoint, headers } = discovery;
+  assertRetryRequestCurrent();
   const operationId = `sftp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const fileOperation = /^(sync[.]|upload[.]|download[.]|remote[.])/.test(method);
   const requestAbort = new AbortController(), eventsAbort = new AbortController();
   let timer: NodeJS.Timeout | undefined, disposed = false;
   const knownIds = new Set<string>();
+  let forgetStopCheck = () => {};
   async function cancelRemote(): Promise<void> {
     try {
-      const current = await discover("transfers.cancel");
-      await fetch(new URL("/api/v1/rpc", current.endpoint), {
-        method: "POST", headers: { ...current.headers, "Content-Type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: operationId, method: "transfers.cancel", params: { operationId, reason: "调用方已取消或无真实进展" } }),
+      await fetch(new URL("/api/v1/rpc", endpoint), {
+        method: "POST", headers: { ...headers, "Content-Type": "application/json" },
+        body: JSON.stringify({ jsonrpc: "2.0", id: operationId, method: "transfers.cancel", params: { operationId, operationInstanceId: discovery.instanceId, reason: "调用方已取消或无真实进展" } }),
         signal: AbortSignal.timeout(30_000),
       });
     } catch { /* Outcome remains unknown; never replay a modifying operation. */ }
@@ -36,13 +118,13 @@ export async function callSftpWithProgress(
   async function poll(): Promise<void> {
     if (disposed || requestAbort.signal.aborted) return;
     try {
-      const current = await discover("transfers.list");
-      const response = await fetch(new URL("/api/v1/rpc", current.endpoint), {
-        method: "POST", headers: { ...current.headers, "Content-Type": "application/json" },
+      const response = await fetch(new URL("/api/v1/rpc", endpoint), {
+        method: "POST", headers: { ...headers, "Content-Type": "application/json" },
         body: JSON.stringify({ jsonrpc: "2.0", id: operationId, method: "transfers.list", params: {} }),
         signal: AbortSignal.any([eventsAbort.signal, AbortSignal.timeout(30_000)]),
       });
       const payload = await response.json() as any;
+      if (payload.result?.instanceId !== discovery.instanceId) throw new Error("SimpleSFTP 实例已变化");
       for (const item of payload.result?.transfers || []) accept(item);
       if (!disposed && !requestAbort.signal.aborted) { timer = setTimeout(() => void poll(), 500); timer.unref?.(); }
     } catch { /* Manual recovery only. Do not restart a failed event connection or query. */ }
@@ -56,6 +138,9 @@ export async function callSftpWithProgress(
         const chunk = await reader.read(); if (chunk.done) break;
         pending += decoder.decode(chunk.value, { stream: true });
         const frames = pending.split(/\r?\n\r?\n/); pending = frames.pop() || "";
+        if (frames.some(frame => Buffer.byteLength(frame, "utf8") > MAX_SFTP_EVENT_FRAME_BYTES)
+          || Buffer.byteLength(pending, "utf8") > MAX_SFTP_EVENT_FRAME_BYTES)
+          throw new Error("SimpleSFTP SSE event exceeded the 1 MiB frame limit.");
         for (const frame of frames) {
           const data = frame.split(/\r?\n/).filter(line => line.startsWith("data: ")).map(line => line.slice(6)).join("\n");
           if (data) { try { accept(JSON.parse(data)); } catch {} }
@@ -65,17 +150,45 @@ export async function callSftpWithProgress(
   }
   if (fileOperation) { void readEvents(); timer = setTimeout(() => void poll(), 500); }
   try {
-    const { signal: _signal, ...serializable } = params;
-    const response = await fetch(new URL("/api/v1/rpc", endpoint), {
-      method: "POST", headers: { ...headers, "Content-Type": "application/json" },
-      body: JSON.stringify({ jsonrpc: "2.0", id: operationId, method, params: { ...serializable, _operationId: operationId } }),
-      signal: requestAbort.signal,
-    });
-    if (!response.ok) throw new Error(`SimpleSFTP ${method} 失败：HTTP ${response.status}`);
-    const payload = await response.json() as any;
     requestAbort.signal.throwIfAborted();
-    if (payload.error) throw new Error(`SimpleSFTP ${method}：${payload.error.message || "未知错误"}`);
-    if (payload.result?.ok === false) throw new Error(`SimpleSFTP ${method}：${payload.result.error || payload.result.message || "传输失败"}`);
+    if (fileOperation) forgetStopCheck = registerRetryStopCheck(() => confirmSftpOperationStopped(operationId, discovery));
+    const { signal: _signal, ...serializable } = params;
+    const requestBody = JSON.stringify({ jsonrpc: "2.0", id: operationId, method, params: {
+        ...serializable, _operationId: operationId, _operationInstanceId: discovery.instanceId,
+        _requestKey: sftpRequestKey(method, serializable),
+      } });
+    const sendOperation = async () => {
+      try {
+        return await fetch(new URL("/api/v1/rpc", endpoint), {
+          method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: requestBody, signal: requestAbort.signal,
+        });
+      } catch (error) {
+        if (requestAbort.signal.aborted) throw error;
+        const detail = error instanceof Error ? error.message : String(error || "连接中断");
+        throw new Error(`SimpleSFTP ${method} 请求中断，旧传输结果未知，未重新传输；刷新目标状态并确认远端退出后再重试。${detail ? ` (${detail})` : ""}`);
+      }
+    };
+    let response = await sendOperation();
+    if (!response.ok) throw new Error(`SimpleSFTP ${method} 失败：HTTP ${response.status}`);
+    let payload = await response.json() as any;
+    requestAbort.signal.throwIfAborted();
+    const blocker = payload.error?.data;
+    if (fileOperation && blocker?.blockedOperationId && typeof blocker.operationInstanceId === "string") {
+      await confirmSftpOperationStopped(String(blocker.blockedOperationId), { ...discovery, instanceId: blocker.operationInstanceId });
+      response = await sendOperation();
+      if (!response.ok) throw new Error(`SimpleSFTP ${method} 失败：HTTP ${response.status}`);
+      payload = await response.json() as any;
+      requestAbort.signal.throwIfAborted();
+    }
+    if (payload.error || payload.result?.ok === false) {
+      // Keep the stop check attached to this request generation. A later
+      // explicit retry must reconcile this operation before starting another
+      // modifying transfer; the current error response alone may not prove
+      // that all remote writers have exited.
+      if (payload.error) throw new Error(`SimpleSFTP ${method}：${payload.error.message || "未知错误"}`);
+      throw new Error(`SimpleSFTP ${method}：${payload.result.error || payload.result.message || "传输失败"}`);
+    }
+    forgetStopCheck();
     return payload.result;
   } finally {
     disposed = true; inactivity.dispose(); clearTimeout(timer); eventsAbort.abort();

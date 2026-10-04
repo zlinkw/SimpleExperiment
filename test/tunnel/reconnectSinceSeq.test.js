@@ -19,6 +19,7 @@ test("reconnect uses last seq in events URL", async () => {
   try {
     await client.connect(0);
     sockets[0].onmessage({ data: JSON.stringify({ schemaVersion: 1, seq: 9, type: "agent_heartbeat", generatedAt: new Date().toISOString(), source: "hub_agent", payload: {} }) });
+    await client.disconnect("reconnect");
     await client.connect(client.currentState().lastSeq);
     assert.match(urls[1], /since=9/);
   } finally {

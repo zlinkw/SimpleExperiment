@@ -225,7 +225,7 @@ function installBackupHook(repoRoot, remoteName) {
         reason = "已追加（原有逻辑保留）";
     return { changed: true, reason, hookPath };
 }
-/** 移除插件写入的标记段；若文件因此为空则删除文件。 */
+/** 移除插件写入的标记段；保留 hook 文件，避免删除失败被误报为成功。 */
 function uninstallBackupHook(repoRoot) {
     const hookPath = resolveHookPath(repoRoot);
     const existing = readHookFile(hookPath);
@@ -234,15 +234,16 @@ function uninstallBackupHook(repoRoot) {
     }
     const stripped = stripHookBlock(existing);
     if (!stripped || stripped === "#!/bin/sh") {
-        try {
-            fs.unlinkSync(hookPath);
-        }
-        catch {
-            /* ignore */
-        }
-        return { changed: true, reason: "已移除（原文件为空，已删除）", hookPath };
+        fs.writeFileSync(hookPath, "#!/bin/sh\n", { encoding: "utf8", mode: 0o755 });
+        const persisted = readHookFile(hookPath);
+        if (persisted.includes(exports.HOOK_BLOCK_BEGIN))
+            throw new Error(`Git backup hook marker remained after removal: ${hookPath}`);
+        return { changed: true, reason: "已移除插件逻辑（保留空 hook 文件）", hookPath };
     }
     fs.writeFileSync(hookPath, `${stripped}\n`, { encoding: "utf8", mode: 0o755 });
+    const persisted = readHookFile(hookPath);
+    if (persisted.includes(exports.HOOK_BLOCK_BEGIN))
+        throw new Error(`Git backup hook marker remained after removal: ${hookPath}`);
     try {
         fs.chmodSync(hookPath, 0o755);
     }

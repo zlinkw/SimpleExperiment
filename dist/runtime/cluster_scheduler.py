@@ -5,6 +5,7 @@ import logging
 import ast
 import copy
 import csv
+import errno
 import hashlib
 import importlib.util
 import json
@@ -13,9 +14,10 @@ import random
 import re
 import shlex
 import shutil
+import stat
 import subprocess
 import sys
-import tempfile
+import threading
 import time
 import urllib.request
 from collections import deque
@@ -33,9 +35,9 @@ except ModuleNotFoundError as exc:
     yaml = None
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_scheduler.py 为准
-SCHEDULER_VERSION = "0.5.215"
-RUNTIME_VERSION = "0.5.215"
-PLUGIN_VERSION = "0.5.215"
+SCHEDULER_VERSION = "0.5.216"
+RUNTIME_VERSION = "0.5.216"
+PLUGIN_VERSION = "0.5.216"
 
 TAIL_BYTES = 16 * 1024
 WORKER_AVAILABILITY_REFRESH_TIMEOUT_SECONDS = 5.0
@@ -44,6 +46,7 @@ WORKER_AVAILABILITY_CLOCK_SKEW_SECONDS = 300
 ARCHIVE_STATE_PATH = Path("simple_cluster/archive_state.json")
 MAX_AGENT_STATE_DIR_CACHE_RECORDS = 8
 AGENT_STATE_DIR_CACHE: dict[tuple[str, str], Path] = {}
+ATOMIC_WRITE_LOCKS = [threading.Lock() for _ in range(64)]
 
 # === 调度信号化改造：信号类型 / 错误早停 ===
 SCHEDULER_SIGNAL_FIRST_RUN = "first_run"
@@ -81,7 +84,31 @@ def scheduler_signal_requires_refresh(signal_type: str) -> bool:
     return signal_type in (SCHEDULER_SIGNAL_FIRST_RUN, SCHEDULER_SIGNAL_TASK_END)
 
 
-def plan_queue_predecessors_pending(registry_path: str, predecessor_ids: list[str], project_dir: str | Path = ".") -> list[str]:
+def scheduler_pid_is_alive(pid: Any, kill_probe=os.kill) -> bool:
+    try:
+        pid_value = int(pid or 0)
+        if pid_value <= 0:
+            return False
+        kill_probe(pid_value, 0)
+        return True
+    except (ValueError, TypeError):
+        return False
+    except OSError as exc:
+        return exc.errno != errno.ESRCH
+    except Exception:
+        return True
+
+
+def scheduler_exit_code_ready(path: str | Path) -> bool:
+    """Only a complete integer exit code is completion evidence; pending markers are not."""
+    try:
+        value = Path(path).read_text(encoding="utf-8").strip()
+        return bool(re.fullmatch(r"-?\d+", value))
+    except (OSError, UnicodeError):
+        return False
+
+
+def plan_queue_predecessors_pending(registry_path: str, predecessor_ids: list[str], project_dir: str | Path = ".", kill_probe=os.kill) -> list[str]:
     """A prior Plan keeps its Worker until its scheduler exits, even when GPUs are idle."""
     entries = json.loads(Path(registry_path).read_text(encoding="utf-8"))
     if not isinstance(entries, list):
@@ -93,7 +120,7 @@ def plan_queue_predecessors_pending(registry_path: str, predecessor_ids: list[st
         if not entry:
             continue
         exit_path = Path(project_dir) / "simple_cluster" / "tmp" / "cluster_scheduler" / f"{op_id}.exit_code"
-        if exit_path.is_file():
+        if scheduler_exit_code_ready(exit_path):
             continue
         try:
             pid = int(entry.get("pid") or 0)
@@ -103,11 +130,8 @@ def plan_queue_predecessors_pending(registry_path: str, predecessor_ids: list[st
             if time.time() - float(entry.get("reservedAt") or 0) < 120:
                 pending.append(op_id)
             continue
-        try:
-            os.kill(pid, 0)
-        except OSError:
-            continue
-        pending.append(op_id)
+        if scheduler_pid_is_alive(pid, kill_probe):
+            pending.append(op_id)
     return pending
 
 
@@ -292,6 +316,10 @@ class Job:
     base_config_path: str
     template_values: dict[str, Any]
     result_aliases: dict[str, str]
+    working_directory: str = "."
+    inputs: tuple[str, ...] = ()
+    outputs: tuple[str, ...] = ()
+    collect_metrics: bool = True
 
 
 def now() -> str:
@@ -321,16 +349,49 @@ def load_yaml_file(path: str | Path) -> dict[str, Any]:
 
 def atomic_write_text(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    tmp_path: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent,
-                                         prefix=f".{path.name}.", suffix=".tmp", delete=False) as stream:
-            tmp_path = Path(stream.name)
-            stream.write(text)
-            stream.flush()
-            os.fsync(stream.fileno())
-        os.replace(tmp_path, path)
-        tmp_path = None
+    normalized = os.path.normcase(os.path.abspath(path))
+    stripe = hashlib.sha256(os.fsencode(normalized)).digest()[0] % len(ATOMIC_WRITE_LOCKS)
+    with ATOMIC_WRITE_LOCKS[stripe]:
+        tmp_path = path.with_name(path.name + ".writing")
+        try:
+            existing = os.lstat(tmp_path)
+        except FileNotFoundError:
+            existing = None
+        if existing is not None and (not stat.S_ISREG(existing.st_mode) or stat.S_ISLNK(existing.st_mode) or existing.st_nlink > 1):
+            raise OSError(f"atomic write slot is not a private regular file: {tmp_path}")
+        flags = os.O_WRONLY | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0)
+        descriptor = os.open(tmp_path, flags, 0o600)
+        temporary_identity = None
+        try:
+            try:
+                opened = os.fstat(descriptor)
+                current = os.lstat(tmp_path)
+                if (not stat.S_ISREG(opened.st_mode) or opened.st_nlink > 1
+                        or stat.S_ISLNK(current.st_mode) or not stat.S_ISREG(current.st_mode) or current.st_nlink > 1
+                        or existing is not None and (opened.st_dev, opened.st_ino) != (existing.st_dev, existing.st_ino)
+                        or (opened.st_dev, opened.st_ino) != (current.st_dev, current.st_ino)):
+                    raise OSError(f"atomic write slot identity changed: {tmp_path}")
+                temporary_identity = (opened.st_dev, opened.st_ino)
+                with os.fdopen(descriptor, "wb") as stream:
+                    descriptor = -1
+                    stream.truncate(0)
+                    stream.write(text.encode("utf-8"))
+                    stream.flush()
+                    os.fsync(stream.fileno())
+            finally:
+                if descriptor >= 0:
+                    os.close(descriptor)
+            os.replace(tmp_path, path)
+        except BaseException:
+            try:
+                current = os.lstat(tmp_path)
+                if (temporary_identity is not None and stat.S_ISREG(current.st_mode)
+                        and not stat.S_ISLNK(current.st_mode) and current.st_nlink == 1
+                        and (current.st_dev, current.st_ino) == temporary_identity):
+                    os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
         try:
             directory_fd = os.open(path.parent, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
             try:
@@ -341,13 +402,6 @@ def atomic_write_text(path: Path, text: str) -> None:
             # Some supported filesystems do not allow syncing directories. The
             # atomic replace still protects readers from partial JSON.
             pass
-    except BaseException:
-        if tmp_path is not None:
-            try:
-                tmp_path.unlink()
-            except FileNotFoundError:
-                pass
-        raise
 
 
 def atomic_write_json(path: Path, payload: Any) -> None:
@@ -418,7 +472,26 @@ def load_plan(path: str | Path) -> dict[str, Any]:
 
 
 def plan_execution_mode(plan: dict[str, Any], requested: str = "") -> str:
-    raw = re.sub(r"[\s-]+", "_", str(requested or plan.get("mode") or "train_test").strip().lower())
+    selected = str(requested or plan.get("mode") or "").strip()
+    if not selected:
+        runner = plan_runner(plan)
+        cases = normalize_case_items(plan)
+        case_runners = [case_runner(runner, item) for item in cases] or [runner]
+        train_flags = [bool(text_field(item, "train_command", "trainCommand", "command")) for item in case_runners]
+        test_flags = [bool(text_field(item, "test_command", "testCommand")) for item in case_runners]
+        all_train = all(train_flags)
+        all_test = all(test_flags)
+        if all_train and all_test:
+            selected = "train_test"
+        elif all_train:
+            selected = "train"
+        elif all_test:
+            selected = "test"
+        else:
+            # Mixed case runners need the full contract check; narrowing to one phase
+            # would silently skip a declared command on another case.
+            selected = "train_test"
+    raw = re.sub(r"[\s-]+", "_", selected.lower())
     aliases = {
         "training": "train",
         "train_only": "train",
@@ -723,6 +796,14 @@ def case_runner(plan_runner: dict[str, Any], case_item: dict[str, Any]) -> dict[
         runner["train_command"] = text_field(case_runner_config, "trainCommand")
     if text_field(case_runner_config, "testCommand") and not text_field(case_runner_config, "test_command"):
         runner["test_command"] = text_field(case_runner_config, "testCommand")
+    for key, aliases in {
+        "working_directory": ("working_directory", "workingDirectory", "cwd"),
+        "inputs": ("inputs", "input_files", "inputFiles"),
+        "outputs": ("outputs", "output_files", "outputFiles"),
+        "collect_metrics": ("collect_metrics", "collectMetrics"),
+    }.items():
+        if any(alias in case_item for alias in aliases):
+            runner[key] = next(case_item[alias] for alias in aliases if alias in case_item)
     return runner
 
 
@@ -741,7 +822,55 @@ def plan_runner(plan: dict[str, Any]) -> dict[str, Any]:
         runner["test_command"] = text_field(plan_runner_config, "testCommand")
     if text_field(plan, "command") and not runner.get("train_command"):
         runner["train_command"] = text_field(plan, "command")
+    for key, aliases in {
+        "working_directory": ("working_directory", "workingDirectory", "cwd"),
+        "inputs": ("inputs", "input_files", "inputFiles"),
+        "outputs": ("outputs", "output_files", "outputFiles"),
+        "collect_metrics": ("collect_metrics", "collectMetrics"),
+    }.items():
+        if any(alias in plan for alias in aliases):
+            runner[key] = next(plan[alias] for alias in aliases if alias in plan)
     return runner
+
+
+def declared_path_values(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if not isinstance(value, list):
+        return []
+    values: list[str] = []
+    for item in value:
+        if isinstance(item, str):
+            values.append(item)
+        elif isinstance(item, dict):
+            path = text_field(item, "path", "file", "directory", "dir")
+            if path:
+                values.append(path)
+    return values
+
+
+def safe_project_relative_path(root: Path, value: object, label: str, allow_root: bool = False,
+                               require_exists: bool = False, require_directory: bool = False) -> str:
+    text = str(value or "").strip().replace("\\", "/")
+    if not text or text.startswith("/") or re.match(r"^[A-Za-z]:", text):
+        raise SystemExit(f"{label} 必须是项目内相对路径：{text or '<empty>'}")
+    parts = [part for part in text.split("/") if part and part != "."]
+    if any(part == ".." for part in text.split("/")):
+        raise SystemExit(f"{label} 不允许包含 ..：{text}")
+    normalized = "/".join(parts) or "."
+    project_root = root.resolve()
+    candidate = (project_root / normalized).resolve()
+    try:
+        candidate.relative_to(project_root)
+    except ValueError:
+        raise SystemExit(f"{label} 不能越出项目目录：{text}") from None
+    if candidate == project_root and not allow_root:
+        raise SystemExit(f"{label} 不能指向项目根目录：{text}")
+    if require_exists and not candidate.exists():
+        raise SystemExit(f"{label} 不存在：{text}")
+    if require_directory and not candidate.is_dir():
+        raise SystemExit(f"{label} 必须是目录：{text}")
+    return normalized
 
 
 def runner_wrapper(runner: dict[str, Any]) -> tuple[str, bool]:
@@ -851,17 +980,23 @@ def output_interface_report(root: Path, jobs: list[Job]) -> dict[str, Any]:
             channels.append({"type": "adapter_call", "files": [path.relative_to(root).as_posix() for path in sources]})
         if tensorboard_ready:
             channels.append({"type": "tensorboard_scalars"})
+        declared_outputs = [str(item) for item in (job.outputs or ()) if str(item or "").strip()]
+        missing_inputs = [str(item) for item in (job.inputs or ()) if not (root / str(item)).exists()]
+        if declared_outputs:
+            channels.append({"type": "declared_outputs", "paths": declared_outputs})
         missing: list[str] = []
+        if missing_inputs:
+            missing.append("声明的输入不存在：" + ", ".join(missing_inputs[:8]))
         if not channels:
             if tensorboard_evidence and not tensorboard_ready_in_env:
                 missing.append("TensorBoard 标量转换依赖 tensorboard；请在远端环境安装 tensorboard")
             else:
-                missing.append("未验证的输出接口：请使用 simple_adapter/run_wrapper 包裹命令，或在入口代码调用 collect_outputs/write_metrics_summary，或使用 TensorBoard SummaryWriter 并安装 tensorboard")
+                missing.append("未声明任务输出，也未发现指标采集接口；请配置 runner.outputs，或选择 simple_adapter/run_wrapper、collect_outputs/write_metrics_summary、TensorBoard 指标采集")
         rows.append({
             "index": job.index,
             "case": job.case,
             "seed": job.seed,
-            "ok": bool(channels),
+            "ok": bool(channels) and not missing_inputs,
             "channels": channels,
             "missing": missing,
             "sourceFiles": [path.relative_to(root).as_posix() for path in sources],
@@ -1022,11 +1157,18 @@ def build_jobs(plan: dict[str, Any], default_result_csv_dir: str = "experiments/
         text_field(item, "base_config") or isinstance(item.get("config"), str) or isinstance(item.get("base_config"), dict) or isinstance(item.get("config"), dict)
         for item in cases
     )
-    if not base_config_path and not plan_config_patch and not has_case_config_source:
+    runner = plan_runner(plan)
+    has_runner_command = bool(text_field(runner, "train_command", "trainCommand", "test_command", "testCommand", "command"))
+    has_case_command = any(
+        bool(text_field(item, "command", "train_command", "trainCommand", "test_command", "testCommand"))
+        or bool(text_field(item.get("runner") if isinstance(item.get("runner"), dict) else {}, "train_command", "trainCommand", "test_command", "testCommand", "command"))
+        for item in cases
+    )
+    has_project_entrypoint = (Path.cwd() / "train.py").is_file() or (Path.cwd() / "test.py").is_file()
+    if not base_config_path and not plan_config_patch and not has_case_config_source and not (has_runner_command or has_case_command or has_project_entrypoint):
         raise SystemExit("计划缺少 base_config。")
     config_cache: dict[str, dict[str, Any]] = {}
     naming = plan.get("naming") or {}
-    runner = plan_runner(plan)
     plan_expected_results = expected_result_candidates(plan)
     sweep_dir_tpl = str(naming.get("sweep_dir") or "work_dirs/multirun/{suite}")
     job_name_tpl = str(naming.get("job_name") or "{index}_{case}_seed{seed}")
@@ -1081,6 +1223,20 @@ def build_jobs(plan: dict[str, Any], default_result_csv_dir: str = "experiments/
             values.update({"output_dir": output_dir, "outputDir": output_dir})
             for alias_key in OUTPUT_TEMPLATE_ALIAS_KEYS:
                 values[alias_key] = output_dir
+            working_dir_tpl = text_field(local_runner, "working_directory", "workingDirectory", "cwd") or "."
+            working_directory = safe_project_relative_path(
+                Path.cwd(), render_template(working_dir_tpl, values), "runner.working_directory",
+                allow_root=True, require_exists=True, require_directory=True,
+            )
+            values.update({"working_directory": working_directory, "workingDirectory": working_directory, "workdir": working_directory})
+            declared_inputs = tuple(dict.fromkeys(
+                safe_project_relative_path(Path.cwd(), render_template(item, values), "runner.inputs")
+                for item in declared_path_values(local_runner.get("inputs"))
+            ))
+            declared_outputs = tuple(dict.fromkeys(
+                safe_project_relative_path(Path.cwd(), render_template(item, values), "runner.outputs")
+                for item in declared_path_values(local_runner.get("outputs"))
+            ))
             case_paper = case_item.get("paper") if isinstance(case_item.get("paper"), dict) else {}
             result_alias_values = direct_result_alias_fields(case_item, case_paper, plan_paper, plan)
             runner_result_alias_values = runner_result_alias_fields(local_runner)
@@ -1116,6 +1272,8 @@ def build_jobs(plan: dict[str, Any], default_result_csv_dir: str = "experiments/
             for key, value in overrides.items():
                 set_dotted(cfg, str(key), value)
             cfg = render_config_templates(cfg, values)
+            if working_directory != ".":
+                set_dotted(cfg, "runtime.output_dir", str((Path.cwd() / output_dir).resolve()))
             jobs.append(Job(
                 index=index,
                 suite=suite,
@@ -1131,6 +1289,10 @@ def build_jobs(plan: dict[str, Any], default_result_csv_dir: str = "experiments/
                 base_config_path=case_base_config_path,
                 template_values=values,
                 result_aliases=result_aliases,
+                working_directory=working_directory,
+                inputs=declared_inputs,
+                outputs=declared_outputs,
+                collect_metrics=bool_field(local_runner.get("collect_metrics", local_runner.get("collectMetrics")), True),
             ))
             index += 1
     return plan, jobs
@@ -1515,9 +1677,25 @@ def runtime_python_command(env: dict[str, str] | None = None) -> str:
     return sys.executable
 
 
-def run_command(args: list[str], env: dict[str, str]) -> None:
+def run_command(args: list[str], env: dict[str, str], working_directory: str = ".") -> None:
     print("[simple-experiment-runtime]", " ".join(args), flush=True)
-    subprocess.run(simple_conda_wrapped_args(args, env), check=True, env=env)
+    root = Path.cwd().resolve()
+    cwd = (root / str(working_directory or ".")).resolve()
+    try:
+        cwd.relative_to(root)
+    except ValueError:
+        raise RuntimeError(f"工作目录越出项目目录：{working_directory}") from None
+    if not cwd.is_dir():
+        raise RuntimeError(f"工作目录不存在：{working_directory}")
+    subprocess.run(simple_conda_wrapped_args(args, env), check=True, env=env, cwd=str(cwd))
+
+
+def path_for_job_command(value: object, job: Job) -> str:
+    text = str(value or "")
+    if not text or job.working_directory in ("", "."):
+        return text
+    candidate = Path(text)
+    return str((candidate if candidate.is_absolute() else Path.cwd() / candidate).resolve())
 
 
 def normalize_command_text(command: str) -> str:
@@ -1553,19 +1731,21 @@ def render_command(template: str, job: Job, config_path: Path, args: argparse.Na
         "suite": job.suite,
         "case": job.case,
         "seed": job.seed,
-        "config": config_path.as_posix(),
-        "config_path": config_path.as_posix(),
-        "base_config": job.base_config_path,
-        "base_config_path": job.base_config_path,
-        "output_dir": job.output_dir,
-        "outputDir": job.output_dir,
-        "result_csv": job.result_csv,
-        "resultCsv": job.result_csv,
+        "config": path_for_job_command(config_path, job),
+        "config_path": path_for_job_command(config_path, job),
+        "base_config": path_for_job_command(job.base_config_path, job),
+        "base_config_path": path_for_job_command(job.base_config_path, job),
+        "output_dir": path_for_job_command(job.output_dir, job),
+        "outputDir": path_for_job_command(job.output_dir, job),
+        "result_csv": path_for_job_command(job.result_csv, job),
+        "resultCsv": path_for_job_command(job.result_csv, job),
+        "working_directory": job.working_directory,
+        "workingDirectory": job.working_directory,
         "worker_id": str(args.worker_id or "local"),
         "gpu_ids": str(args.gpu_ids or ""),
         "mode": str(args.mode or ""),
-        "plan": str(args.plan or ""),
-        "plan_file": str(args.plan or ""),
+        "plan": path_for_job_command(args.plan or "", job),
+        "plan_file": path_for_job_command(args.plan or "", job),
         "python": python_bin,
     })
     # 同时支持模板使用 {python} 占位；未使用占位时后续 _replace_bare_python_prefix 会固化首 token
@@ -1617,19 +1797,21 @@ def wrapper_context(job: Job, config_path: Path, args: argparse.Namespace, stage
         "split": job.template_values.get("split") or "test",
         "seed": job.seed,
         "config_text": config_text,
-        "config": config_path.as_posix(),
-        "config_path": config_path.as_posix(),
-        "base_config": job.base_config_path,
-        "base_config_path": job.base_config_path,
-        "output_dir": job.output_dir,
-        "outputDir": job.output_dir,
-        "result_csv": job.result_csv,
-        "resultCsv": job.result_csv,
+        "config": path_for_job_command(config_path, job),
+        "config_path": path_for_job_command(config_path, job),
+        "base_config": path_for_job_command(job.base_config_path, job),
+        "base_config_path": path_for_job_command(job.base_config_path, job),
+        "output_dir": path_for_job_command(job.output_dir, job),
+        "outputDir": path_for_job_command(job.output_dir, job),
+        "result_csv": path_for_job_command(job.result_csv, job),
+        "resultCsv": path_for_job_command(job.result_csv, job),
+        "working_directory": job.working_directory,
+        "workingDirectory": job.working_directory,
         "worker_id": str(args.worker_id or "local"),
         "gpu_ids": str(args.gpu_ids or ""),
         "mode": str(args.mode or ""),
-        "plan": str(args.plan or ""),
-        "plan_file": str(args.plan or ""),
+        "plan": path_for_job_command(args.plan or "", job),
+        "plan_file": path_for_job_command(args.plan or "", job),
     })
     return values
 
@@ -1641,8 +1823,9 @@ def wrap_command(command: list[str], job: Job, config_path: Path, args: argparse
     if not wrapper_path:
         print(f"[simple-experiment-runtime] adapter run wrapper missing, command runs without wrapper: {job.run_wrapper}", flush=True)
         return command
+    wrapper_path = str(Path(wrapper_path).resolve())
     context_json = json.dumps(wrapper_context(job, config_path, args, stage), ensure_ascii=False, separators=(",", ":"))
-    return [runtime_python_command(dict(os.environ)), wrapper_path, "--output-dir", job.output_dir, "--context-json", context_json, "--", *command]
+    return [runtime_python_command(dict(os.environ)), wrapper_path, "--output-dir", path_for_job_command(job.output_dir, job), "--context-json", context_json, "--", *command]
 
 
 def original_log_offsets(job: "Job") -> dict[str, int]:
@@ -1731,12 +1914,41 @@ def result_table_covers_job(job: Job) -> bool:
         return False
 
 
+def declared_outputs_complete(job: Job) -> bool:
+    if not job.outputs:
+        return False
+    root = Path.cwd().resolve()
+    for item in job.outputs:
+        try:
+            relative = safe_project_relative_path(root, item, "runner.outputs", require_exists=True)
+        except SystemExit:
+            return False
+        if not (root / relative).exists():
+            return False
+    return True
+
+
+def verify_declared_outputs(job: Job) -> None:
+    missing: list[str] = []
+    root = Path.cwd().resolve()
+    for item in job.outputs:
+        try:
+            relative = safe_project_relative_path(root, item, "runner.outputs", require_exists=True)
+        except SystemExit:
+            missing.append(str(item))
+            continue
+        if not (root / relative).exists():
+            missing.append(str(item))
+    if missing:
+        raise SystemExit("任务命令已退出，但声明的输出未生成：" + ", ".join(missing[:12]))
+
+
 def run_job(job: Job, args: argparse.Namespace) -> None:
     manifest = Path(job.output_dir) / "artifact_manifest.json"
     overwrite = bool(getattr(args, "overwrite", False) or getattr(args, "overwrite_existing", False))
     # 历史产物存在但正式结果未完整发布时必须重跑，避免恢复模式静默遗漏种子。
     if not overwrite and args.resume and manifest.exists() and args.mode != "test":
-        if result_table_covers_job(job):
+        if result_table_covers_job(job) or declared_outputs_complete(job):
             info = has_existing_artifacts(job.output_dir)
             print(f"[simple-experiment-runtime] skip existing job index={job.index} output={job.output_dir} markers={info.get('markers') or []} (use --overwrite to force rerun)", flush=True)
             return
@@ -1769,22 +1981,24 @@ def run_job(job: Job, args: argparse.Namespace) -> None:
         command = wrap_command(command, job, config_path, args, "train")
         log_offsets = original_log_offsets(job)
         try:
-            run_command(command, env)
+            run_command(command, env, job.working_directory)
         except subprocess.CalledProcessError as exc:
             surface_original_error(job, "train", log_offsets)
             raise SystemExit(_failed_process_exit_code(exc)) from None
-        if args.mode == "train":
+        if args.mode == "train" and job.collect_metrics:
             collect_tensorboard_metrics(job)
     if args.mode in {"test", "train_test"}:
         command = render_command(job.test_command, job, config_path, args) if job.test_command else [runtime_python_command(env), "test.py", "--config", str(config_path), "--output-dir", job.output_dir, "--case", job.case, "--seed", str(job.seed), "--suite", job.suite, "--result-csv", job.result_csv]
         command = wrap_command(command, job, config_path, args, "test")
         log_offsets = original_log_offsets(job)
         try:
-            run_command(command, env)
+            run_command(command, env, job.working_directory)
         except subprocess.CalledProcessError as exc:
             surface_original_error(job, "test", log_offsets)
             raise SystemExit(_failed_process_exit_code(exc)) from None
-        collect_tensorboard_metrics(job)
+        if job.collect_metrics:
+            collect_tensorboard_metrics(job)
+    verify_declared_outputs(job)
 
 
 def run_job_mode(args: argparse.Namespace) -> None:
@@ -1809,7 +2023,7 @@ def run_job_mode(args: argparse.Namespace) -> None:
         aliases.update({"result_csv": result_csv, "resultCsv": result_csv})
         config = rewrite_debug_config_paths(copy.deepcopy(original.config), output_override, result_csv,
                                             original.output_dir, original.result_aliases)
-        set_dotted(config, "runtime.output_dir", output_override)
+        set_dotted(config, "runtime.output_dir", str((Path.cwd() / output_override).resolve()) if original.working_directory != "." else output_override)
         values = dict(original.template_values or {})
         for key in OUTPUT_TEMPLATE_ALIAS_KEYS:
             values[key] = output_override
@@ -1818,8 +2032,14 @@ def run_job_mode(args: argparse.Namespace) -> None:
         values.update({"output_dir": output_override, "outputDir": output_override,
                        "result_csv": result_csv, "resultCsv": result_csv,
                        "formal_output_dir": output_override, "formal_result_csv": result_csv})
+        replaced_outputs = tuple(
+            output_override + item[len(original.output_dir):]
+            if item == original.output_dir or item.startswith(original.output_dir.rstrip("/") + "/")
+            else item
+            for item in original.outputs
+        )
         chosen = [replace(original, output_dir=output_override, result_csv=result_csv,
-                          result_aliases=aliases, config=config, template_values=values)]
+                          result_aliases=aliases, config=config, template_values=values, outputs=replaced_outputs)]
     jobs_csv = Path(str(args.debug_output_dir)) / "jobs.csv" if args.debug_mode else Path(normalize_default_result_csv_dir(args.default_result_csv_dir)) / "jobs.csv"
     if not os.environ.get("SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS"):
         append_jobs_csv(chosen, jobs_csv, plan_file=str(args.plan or ""))
@@ -3560,21 +3780,30 @@ def main() -> None:
     def write_current_state(error: str = "") -> None:
         write_state(state_path, state_payload(error))
 
-    def request_passive_cleanup(worker: dict[str, Any], item: dict[str, Any]) -> None:
+    def record_passive_cleanup_candidate(worker: dict[str, Any], item: dict[str, Any], reason: str) -> None:
         job = job_for(item, jobs_by_index)
         output_dir = str(getattr(job, "output_dir", "") if job else item.get("output_dir") or "").replace("\\", "/").strip().strip("/")
         if not output_dir:
             return
-        command_id = f"cleanup-passive-{slug(worker.get('id'), 'worker')}-{slug(item.get('experiment_index'), 'exp')}-{int(time.time() * 1000)}"
-        enqueue_worker_command(worker, {
-            "action": "delete-worker-artifacts",
-            "commandId": command_id,
-            "selectedArchiveKeys": [output_dir],
-            "reason": "passive_interrupted_retry_cleanup",
-            "passiveCleanup": True,
-        })
-        item["passive_cleanup_requested"] = output_dir
-        item["passive_cleanup_command_id"] = command_id
+        # An automatic retry is not authorization to delete the interrupted
+        # attempt. Keep its exact owner/path as a review candidate; cleanup is
+        # available only through the explicit two-confirmation workflow.
+        item.pop("passive_cleanup_requested", None)
+        item.pop("passive_cleanup_command_id", None)
+        item["passiveCleanupCandidate"] = {
+            "schemaVersion": 1,
+            "projectRoot": str(Path.cwd().resolve()),
+            "planFile": str(args.plan or "").replace("\\", "/"),
+            "runId": str(getattr(args, "op_id", "") or operation_id),
+            "attemptId": str(item.get("session") or item.get("command_id") or item.get("commandId") or ""),
+            "workerId": str(worker.get("id") or ""),
+            "experimentIndex": int(item.get("experiment_index", -1)),
+            "outputDir": output_dir,
+            "reason": str(reason or "passive_interruption")[:240],
+            "requiresExplicitConfirmation": True,
+            "recordedAt": now(),
+        }
+        _append_scheduler_log( f"[{now()}] passive_cleanup_candidate experiment={item.get('experiment_index')} worker={worker.get('id')} output_dir={output_dir} retained=true reason={reason}")
 
     def requeue_passive_interruption(kind: str, item: dict[str, Any], worker: dict[str, Any], reason: str) -> bool:
         nonlocal passive_backoff_until
@@ -3600,7 +3829,7 @@ def main() -> None:
         if index not in queue:
             queue.append(index)
         item["retryQueued"] = True
-        request_passive_cleanup(worker, item)
+        record_passive_cleanup_candidate(worker, item, reason)
         delay = min(900, passive_interrupt_base_backoff * attempts)
         passive_backoff_until = max(passive_backoff_until, time.time() + delay)
         stopped.append(item)

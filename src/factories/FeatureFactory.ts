@@ -59,9 +59,9 @@ export interface FeatureHandler<TArgs = unknown, TResult = unknown> {
 class GenericFeatureHandler implements FeatureHandler {
   public readonly kind: FeatureKind;
   private readonly impl: (args: unknown, ctx: FactoryContext) => Promise<unknown>;
-  constructor(kind: FeatureKind, impl?: (args: unknown, ctx: FactoryContext) => Promise<unknown>) {
+  constructor(kind: FeatureKind, impl: (args: unknown, ctx: FactoryContext) => Promise<unknown>) {
     this.kind = kind;
-    this.impl = impl || (async (args) => ({ kind, args, ok: true }) as unknown);
+    this.impl = impl;
   }
   async execute(args: unknown, ctx: FactoryContext & { signal?: AbortSignal }): Promise<unknown> {
     return this.impl(args, ctx);
@@ -162,11 +162,13 @@ export class DefaultFeatureFactory implements FeatureFactory {
             || (rec[kind] as ((a: unknown, c: FactoryContext) => Promise<unknown>) | undefined)
             || (rec[`${kind}Handler`] as ((a: unknown, c: FactoryContext) => Promise<unknown>) | undefined);
           if (typeof fn === "function") return fn(args, ctx);
-          return { kind, args, delegatedTo: hint, ok: true } as unknown;
+          throw new Error(`Feature ${kind} module ${hint} has no executable handler.`);
         });
       }
     }
-    if (!handler) handler = new GenericFeatureHandler(kind);
+    if (!handler) handler = new GenericFeatureHandler(kind, async () => {
+      throw new Error(`Feature ${kind} is unavailable; no implementation module was loaded.`);
+    });
     this.cache.set(kind, handler);
     return handler;
   }

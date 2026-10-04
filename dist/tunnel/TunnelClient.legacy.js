@@ -60,6 +60,13 @@ const actionPurpose = {
     "create-debug-bundle": "diagnostics",
     "rescan-results": "manual_refresh",
 };
+function callerAbortError(signal) {
+    if (signal?.reason instanceof Error)
+        return signal.reason;
+    const error = new Error("Request cancelled because no caller still needs the result.");
+    error.name = "AbortError";
+    return error;
+}
 class HttpTunnelClient {
     endpoint;
     budget;
@@ -132,6 +139,7 @@ class HttpTunnelClient {
         return this.requestJson(`/api/live-output?${params.toString()}`, "live_output", undefined, {
             method: "GET",
             userInitiated: options.userInitiated,
+            signal: options.signal,
         });
     }
     getResultsSummary(planFile = "", options = {}) {
@@ -139,6 +147,7 @@ class HttpTunnelClient {
         return this.requestJson(path, options.userInitiated ? "manual_refresh" : "snapshot", undefined, {
             method: "GET",
             userInitiated: options.userInitiated,
+            signal: options.signal,
         });
     }
     getDiagnostics() {
@@ -201,21 +210,63 @@ class HttpTunnelClient {
         return this.requestJson(path, purpose, undefined, { method: "GET" });
     }
     async requestJson(apiPath, purpose, body, options) {
-        if (options.method === "GET" && !options.signal) {
-            const existing = this.reads.get(apiPath);
-            if (existing)
-                return existing;
-            const request = this.executeRequestJson(apiPath, purpose, body, options);
-            this.reads.set(apiPath, request);
-            try {
-                return await request;
-            }
-            finally {
-                if (this.reads.get(apiPath) === request)
-                    this.reads.delete(apiPath);
-            }
-        }
+        if (options.method === "GET")
+            return this.subscribeRead(apiPath, purpose, body, options);
         return this.executeRequestJson(apiPath, purpose, body, options);
+    }
+    subscribeRead(apiPath, purpose, body, options) {
+        if (options.signal?.aborted)
+            return Promise.reject(callerAbortError(options.signal));
+        const readKey = `${purpose}\0${options.userInitiated === true ? "user" : "background"}\0${apiPath}`;
+        let shared = this.reads.get(readKey);
+        if (shared) {
+            this.budget.noteCoalescedRequest();
+        }
+        else {
+            const controller = new AbortController();
+            const created = { promise: Promise.resolve(undefined), controller, subscribers: 0, settled: false };
+            created.promise = Promise.resolve().then(() => this.executeRequestJson(apiPath, purpose, body, {
+                ...options, signal: controller.signal,
+            })).finally(() => {
+                created.settled = true;
+                if (this.reads.get(readKey) === created)
+                    this.reads.delete(readKey);
+            });
+            shared = created;
+            this.reads.set(readKey, created);
+        }
+        shared.subscribers += 1;
+        return new Promise((resolve, reject) => {
+            let finished = false;
+            const detach = () => {
+                options.signal?.removeEventListener("abort", onAbort);
+                shared.subscribers = Math.max(0, shared.subscribers - 1);
+                if (!shared.settled && shared.subscribers === 0)
+                    shared.controller.abort(options.signal?.reason);
+            };
+            const onAbort = () => {
+                if (finished)
+                    return;
+                finished = true;
+                detach();
+                reject(callerAbortError(options.signal));
+            };
+            if (options.signal)
+                options.signal.addEventListener("abort", onAbort, { once: true });
+            shared.promise.then((value) => {
+                if (finished)
+                    return;
+                finished = true;
+                detach();
+                resolve(value);
+            }, (error) => {
+                if (finished)
+                    return;
+                finished = true;
+                detach();
+                reject(error);
+            });
+        });
     }
     async executeRequestJson(apiPath, purpose, body, options) {
         if (!apiPath.startsWith("/api/"))
@@ -227,12 +278,12 @@ class HttpTunnelClient {
             const timeoutMs = Number.isFinite(configuredTimeoutMs) ? Math.max(1, configuredTimeoutMs) : 30_000;
             const timeoutText = timeoutMs % 1000 === 0 ? `${timeoutMs / 1000} 秒` : `${timeoutMs} 毫秒`;
             const inactivity = new ProgressInactivity_1.ProgressInactivity(timeoutMs, () => controller.abort(new Error(`${timeoutText}无有效响应，执行结果待确认。实时连接会自动重试；请刷新运行状态核对，勿重复执行。`)));
-            const onCallerAbort = () => controller.abort();
+            const abortFromCaller = () => controller.abort(options.signal?.reason);
             if (options.signal) {
                 if (options.signal.aborted)
-                    controller.abort();
+                    abortFromCaller();
                 else
-                    options.signal.addEventListener("abort", onCallerAbort, { once: true });
+                    options.signal.addEventListener("abort", abortFromCaller, { once: true });
             }
             try {
                 const response = await fetch(`${base}${apiPath}`, {
@@ -250,9 +301,9 @@ class HttpTunnelClient {
             }
             finally {
                 inactivity.dispose();
-                options.signal?.removeEventListener("abort", onCallerAbort);
+                options.signal?.removeEventListener("abort", abortFromCaller);
             }
-        }, { userInitiated: options.userInitiated });
+        }, { userInitiated: options.userInitiated, signal: options.signal });
     }
     headers(hasBody) {
         const headers = { Accept: "application/json" };

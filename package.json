@@ -2,7 +2,7 @@
   "name": "simple-experiment",
   "displayName": "SimpleExperiment",
   "description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
-  "version": "0.5.215",
+  "version": "0.5.216",
   "publisher": "simple-local",
   "extensionKind": [
     "ui"
@@ -25,6 +25,8 @@
     "onStartupFinished",
     "onView:simpleExperiment.panel",
     "onCommand:simpleExperiment.openPanel",
+    "onCommand:simpleExperiment.copyPanelDiagnostics",
+    "onCommand:simpleExperiment.restorePanel",
     "onCommand:simpleExperiment.quickSetup",
     "onCommand:simpleExperiment.bootstrapProject",
     "onCommand:simpleExperiment.prepareAgents",
@@ -95,6 +97,16 @@
         "command": "simpleExperiment.openPanel",
         "title": "SimpleExperiment：打开面板",
         "icon": "$(server-environment)"
+      },
+      {
+        "command": "simpleExperiment.copyPanelDiagnostics",
+        "title": "SimpleExperiment：复制 Panel 诊断",
+        "icon": "$(copy)"
+      },
+      {
+        "command": "simpleExperiment.restorePanel",
+        "title": "SimpleExperiment：恢复 Panel",
+        "icon": "$(refresh)"
       },
       {
         "command": "simpleExperiment.quickSetup",
@@ -346,6 +358,11 @@
     "configuration": {
       "title": "SimpleExperiment",
       "properties": {
+        "simpleExperiment.panel.retainContextWhenHidden": {
+          "type": "boolean",
+          "default": false,
+          "description": "隐藏 SimpleExperiment 面板时保留整个 Webview 上下文会增加长期内存占用。默认隐藏后释放上下文，并在重新显示时恢复轻量界面状态；仅在需要隐藏期间保持页面运行时启用。"
+        },
         "simpleExperiment.gitBackup.enabled": {
           "type": "boolean",
           "default": true,
@@ -405,7 +422,10 @@
         },
         "simpleExperiment.results.planOutputRetention": {
           "type": "string",
-          "enum": ["latest-complete", "keep-history"],
+          "enum": [
+            "latest-complete",
+            "keep-history"
+          ],
           "default": "latest-complete",
           "scope": "resource",
           "description": "分布式 Plan 产物保留方式。默认保留最新完整版本；新运行在独立 attempt 中完成并校验发布后，审核旧 attempt 完整路径并两次确认永久删除。取消审核、失败或仅补跑缺失任务时保留上一版完整结果。keep-history 保留全部历史产物。"
@@ -807,7 +827,7 @@
     "verify:package-runtime": "node scripts/verify-vsix-runtime.js",
     "install:latest": "node scripts/install-latest.js",
     "install:latest:dry-run": "node scripts/install-latest.js --dry-run",
-    "package:public": "powershell -ExecutionPolicy Bypass -File scripts/package-public.ps1",
+    "package:public": "pwsh.exe -NoProfile -ExecutionPolicy Bypass -File scripts/package-public.ps1",
     "preview:gpu-history": "npm run build && node scripts/render-gpu-history-preview.js",
     "smoke": "npm run build && npm run lint && node -c dist/extension.js && node -c dist/panel.js && node dist/cli.js status && npm run package",
     "acceptance": "node scripts/acceptance.js",

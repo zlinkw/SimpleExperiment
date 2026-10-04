@@ -38,6 +38,9 @@ function persistenceHarness() {
     UI_ACTION_ERROR_SUGGESTION_LIMIT: 240,
     UI_ACTION_ERROR_CAPABILITY_LIMIT: 8,
     PANEL_LIFECYCLE_DIAGNOSTIC_LIMIT: 24,
+    compactPanelRenderEvidence: (value) => value,
+    OperationOutcome_1: require("../../dist/core/OperationOutcome.js"),
+    async writeAtomicPluginStateJson(file, value) { files.set(normalize(file), JSON.stringify(value, null, 2) + "\n"); },
     actionErrorSuggestion: () => "retry after reload",
   };
   vm.createContext(sandbox);
@@ -153,7 +156,7 @@ test("a real heartbeat timeout creates one explicit structured failure", () => {
   const method = provider.members.find((node) => node.name?.getText(ast) === "recordPanelLifecycleDiagnostic");
   assert.ok(method);
   const code = ts.transpileModule(`class Subject { ${method.getText(ast)} }`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-  const sandbox = { PANEL_LIFECYCLE_DIAGNOSTIC_LIMIT: 24, Date };
+  const sandbox = { PANEL_LIFECYCLE_DIAGNOSTIC_LIMIT: 24, Date, compactPanelRenderEvidence: (value) => value, compactPanelLayoutEvidence: (value) => value };
   vm.runInNewContext([
     extractFunction("redactSensitiveText"),
     extractFunction("compactSensitiveText"),
@@ -182,6 +185,7 @@ test("a real heartbeat timeout creates one explicit structured failure", () => {
     }),
     persistProjectPanelLifecycleDiagnosticsState: async () => {},
     recordActionError: (error) => errors.push(error),
+    recordPanelIncident() {},
   });
   subject.persistProjectPanelLifecycleDiagnosticsState = () => { events.push(...subject.panelLifecycleDiagnostics); return Promise.resolve(); };
   subject.recordPanelLifecycleDiagnostic("heartbeatTimeout");
@@ -218,7 +222,7 @@ test("panel.diagnostics returns the saved sample without rebuilding state or pro
   const code = ts.transpileModule(`class Subject { ${method.getText(ast)} }`, {
     compilerOptions: { target: ts.ScriptTarget.ES2022 },
   }).outputText;
-  const sandbox = { PANEL_LIFECYCLE_DIAGNOSTIC_LIMIT: 24 };
+  const sandbox = { PANEL_LIFECYCLE_DIAGNOSTIC_LIMIT: 24, compactPanelRenderEvidence: (value) => value, compactPanelLayoutEvidence: (value) => value };
   vm.runInNewContext(`${code}\nthis.Subject = Subject;`, sandbox);
   const telemetry = {
     sampleId: 8, payloadBytes: 717609, buildTotalMs: 42, runtimeEvidenceMs: 3,
@@ -237,6 +241,7 @@ test("panel.diagnostics returns the saved sample without rebuilding state or pro
     latestRenderDurationMs: 9, panelRenderPerformance: [], currentSessionRecoveryReason: "", currentSessionLastFailure: null,
     currentSessionPanelLifecycleDiagnostics: [], automaticRecoveryCount: 0, lastAutomaticRecoveryAt: null,
     recoveryLoopPreventedCount: 0, historicalLastFailure: null, panelLifecycleDiagnostics: [],
+    panelHostEventLoopSamples: [], panelLayoutEvents: [], panelIncidentEvents: [], panelIncidentSlots: { previous: null },
     buildState() { throw new Error("diagnostics must not rebuild state"); },
     readInstalledBuildIdentity() { throw new Error("diagnostics must not read disk"); },
   });
@@ -323,7 +328,7 @@ test("copied recovery summary retains the recovery cause and sequence stall evid
   const method = provider.members.find((node) => node.name?.getText(ast) === "panelDiagnosticSummary");
   assert.ok(method);
   const code = ts.transpileModule(`class Subject { ${method.getText(ast)} }`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
-  const sandbox = {};
+  const sandbox = { compactPanelRenderEvidence: (value) => value, compactPanelLayoutEvidence: (value) => value };
   vm.runInNewContext(`${code}\nthis.Subject = Subject;`, sandbox);
   const subject = new sandbox.Subject();
   Object.assign(subject, {
@@ -338,6 +343,7 @@ test("copied recovery summary retains the recovery cause and sequence stall evid
     lastPostedStateSeq: 7962, lastReceivedStateSeq: 7961, lastRenderedStateSeq: 7961,
     latestPanelHeartbeatProgress: { renderedSeq: 7961, previousRenderedSeq: 7961, stalledAckCount: 3 },
     stateRenderStalledAcks: 3,
+    panelHostEventLoopSamples: [], panelLayoutEvents: [], panelIncidentEvents: [], panelIncidentSlots: { previous: null },
   });
   const summary = subject.panelDiagnosticSummary();
   assert.equal(summary.reason, "state-render-sequence-stalled");

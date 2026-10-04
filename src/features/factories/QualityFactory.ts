@@ -42,26 +42,26 @@ class DefaultQualityFactory implements QualityFactory {
     const effContract = contract ?? this.resolveDefaultContract();
     const mod = tryRequire<QualityMod>("../Quality");
     if (mod?.checkProjectOutputContract) return mod.checkProjectOutputContract(files, effContract, context);
-    return { schemaVersion: 1, contractId: (effContract as Record<string, unknown>)?.["id"] ?? this.opts.defaultContractId ?? "simple_standard_ai_output", status: "ok", checkedAt: new Date().toISOString(), files: [], columns: [], suggestions: [] };
+    throw new Error("项目输出契约检查实现不可用。");
   }
 
   runQualityGate(record: unknown, gate: unknown, contractReport?: unknown, caseRecords: unknown[] = []): unknown {
     const effGate = gate ?? this.resolveDefaultGate();
     const mod = tryRequire<QualityMod>("../Quality");
     if (mod?.runQualityGate) return mod.runQualityGate(record, effGate, contractReport, caseRecords);
-    return { experimentId: (record as Record<string, unknown>)?.["experimentId"] ?? "", gateId: (effGate as Record<string, unknown>)?.["id"] ?? this.opts.defaultGateId ?? "paper_ready", status: "passed", checkedAt: new Date().toISOString(), failedChecks: [] };
+    throw new Error("质量门禁实现不可用，拒绝把未执行检查标记为通过。");
   }
 
   runLeakageCheck(rows: unknown[], expectedCounts?: Record<string, number>): unknown {
     const mod = tryRequire<QualityMod>("../Quality");
     if (mod?.runDataLeakageCheck) return mod.runDataLeakageCheck(rows, expectedCounts);
-    return { status: "ok", issues: [] };
+    throw new Error("数据泄漏检查实现不可用。");
   }
 
   runStatisticalAnalysis(plan: unknown, rows: unknown[], methods: string[], comparisonId = "comparison"): unknown[] {
     const mod = tryRequire<QualityMod>("../Quality");
     if (mod?.runStatisticalAnalysis) return mod.runStatisticalAnalysis(plan, rows, methods, comparisonId);
-    return [];
+    throw new Error("统计分析实现不可用。");
   }
 
   createGateRunner(gateId?: string): { check: (record: unknown, gate?: unknown, report?: unknown, cases?: unknown[]) => unknown; filter: (records: unknown[], results: unknown[], policy?: unknown) => unknown[] } {
@@ -81,7 +81,7 @@ class DefaultQualityFactory implements QualityFactory {
       const found = mod.builtInOutputContracts.find((c) => c.id === this.opts.defaultContractId);
       return found ?? mod.builtInOutputContracts[0];
     }
-    return { id: this.opts.defaultContractId ?? "simple_standard_ai_output", requiredFiles: [], optionalFiles: [] };
+    throw new Error("默认项目输出契约不可用，请显式选择有效契约。");
   }
   private resolveDefaultGate(): unknown {
     const mod = tryRequire<QualityMod>("../Quality");
@@ -91,7 +91,7 @@ class DefaultQualityFactory implements QualityFactory {
       const found = gates.find((g) => g.id === this.opts.defaultGateId);
       return found ?? gates[0];
     }
-    return { id: this.opts.defaultGateId ?? "paper_ready", enabled: true, checks: [], actionOnFailure: "warn_only" };
+    throw new Error(`默认质量门禁不可用${contract["id"] ? `（契约 ${String(contract["id"])}）` : ""}，请显式选择有效门禁。`);
   }
 }
 

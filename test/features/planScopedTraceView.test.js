@@ -102,5 +102,6 @@ test("webview trace compaction retains the selected current Plan revision", () =
   const result = compact(rows, { planFile: "a.yaml", planRevision: "rev2" });
   assert.equal(result[0].id, "current");
   assert.ok(result.some((row) => row.id === "current"));
-  assert.match(extension, /compactExperimentTraces\(rows, traceProtectedKeys, selectedTracePlan\)/);
+  assert.match(extension, /cachedExperimentTracesProjection\(traceRoot, offlineSnapshot\?\.experimentTraces/);
+  assert.match(extension, /compactExperimentTracesForPanel\(traceRoot, offlineSnapshot\?\.experimentTraces/);
 });

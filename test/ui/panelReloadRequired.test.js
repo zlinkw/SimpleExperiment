@@ -48,6 +48,10 @@ function createProvider(registryVersion, identities = {}) {
   provider.webviewReady = true;
   provider.viewGeneration = 9;
   provider.panelDocumentGeneration = 0;
+  provider.panelSectionRevisionTracker = { reset() {} };
+  provider.markCurrentSessionPanelFailure = () => {};
+  provider.resetPanelStateProgress = () => {};
+  provider.syncPanelStateFlowVisibility = () => {};
   provider.statePostPending = true;
   provider.view = { visible: true, webview: { html: "", postMessage: () => Promise.resolve(true) } };
   provider.lastPanelLifecycleDiagnosticKey = "";

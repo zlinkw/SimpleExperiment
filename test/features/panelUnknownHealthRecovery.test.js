@@ -45,6 +45,8 @@ function createHost(clock) {
     ...clock,
     PanelStateFlowControl_1: flowExports,
     compactSensitiveText: (value) => String(value || "").slice(0, 180),
+    compactPanelRenderEvidence: (value) => value,
+    compactPanelLayoutEvidence: (value) => value,
     PanelStateProgress_1: { observeStateRenderProgress: (_posted, rendered) => ({ previousObservedRenderedSeq: rendered, consecutiveStalledAcks: 0, unhealthy: false }) },
   };
   vm.runInNewContext(`${code}\nthis.Subject = Subject;`, sandbox);
@@ -57,6 +59,9 @@ function createHost(clock) {
   host.automaticRecoveryCount = 0; host.lastAutomaticRecoveryAt = null; host.recoveryLoopPreventedCount = 0;
   host.transitionPanelLifecycle = (state) => { host.panelLifecycleState = state; };
   host.recordPanelLifecycleDiagnostic = (reason) => { (host.diagnostics ||= []).push(reason); };
+  host.recordPanelIncident = () => {};
+  host.cancelResultCatalogRefresh = () => {};
+  host.refreshResultCatalogForCurrentInterest = () => {};
   host.markCurrentSessionPanelFailure = (reason) => { host.currentSessionRecoveryReason = reason; };
   host.postState = () => {};
   host.syncPanelStateFlowVisibility = () => { host.panelStateFlow = flowExports.setPanelStateFlowVisibility(host.panelStateFlow, host.view?.visible === true && host.webviewDocumentVisible === true); };

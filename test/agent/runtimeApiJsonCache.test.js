@@ -1,5 +1,6 @@
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { spawnSync } = require("node:child_process");
@@ -63,11 +64,18 @@ print(json.dumps({
 }))
 `;
 
-  const run = spawnSync("python", ["-c", script], { encoding: "utf8" });
+  const scriptPath = path.join(os.tmpdir(), `agent-runtime-json-cache-${process.pid}.py`);
+  fs.writeFileSync(scriptPath, script, "utf8");
+  let run;
+  try {
+    run = spawnSync("python", [scriptPath], { encoding: "utf8", timeout: 10000, windowsHide: true });
+  } finally {
+    fs.rmSync(scriptPath, { force: true });
+  }
   assert.equal(run.status, 0, run.stderr);
   const result = JSON.parse(run.stdout.trim());
-  assert.equal(result.cachedReads, 5);
-  assert.equal(result.invalidatedReads, 6);
+  assert.equal(result.cachedReads, 7);
+  assert.equal(result.invalidatedReads, 8);
   assert.equal(result.writePathReads, 2);
   assert.equal(result.gpuReused, true);
   assert.equal(result.tasksEquivalent, true);

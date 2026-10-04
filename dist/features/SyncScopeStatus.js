@@ -42,10 +42,19 @@ exports.hashLocalScopeNames = hashLocalScopeNames;
 exports.buildScopeStatuses = buildScopeStatuses;
 const PlanArtifactSync_1 = require("./PlanArtifactSync");
 const fs = __importStar(require("node:fs/promises"));
+const node_fs_1 = require("node:fs");
 const path = __importStar(require("node:path"));
 const crypto = __importStar(require("node:crypto"));
 const SyncResolution_1 = require("./SyncResolution");
+const HostOperationLease_1 = require("../core/HostOperationLease");
+const StateStore_1 = require("../state/StateStore");
 const SCOPE_HASH_SCHEMA_VERSION = 1;
+const LOCAL_SCOPE_MAX_DIRECTORIES = 10_000;
+const LOCAL_SCOPE_MAX_ENTRIES = 100_000;
+const LOCAL_SCOPE_MAX_FILES = 50_000;
+const SCOPE_HASH_CACHE_MAX_FILES = 50_000;
+const SCOPE_HASH_CACHE_MAX_BYTES = 16 * 1024 * 1024;
+const LOCAL_SCOPE_MAX_RELATIVE_PATH_LENGTH = 4096;
 /** Process-local mirror. Persistence lives beside the code-manifest cache and is the restart source. */
 const localHashCache = new Map();
 const LOCAL_HASH_CACHE_LIMIT = 8192;
@@ -94,22 +103,76 @@ function sameScopeHashIdentity(row, identity) {
         && /^[a-f0-9]{64}$/i.test(String(row.sha256 || "")));
 }
 async function readScopeHashCache(file) {
+    let handle;
     try {
-        const parsed = JSON.parse(await fs.readFile(file, "utf8"));
+        const stat = await fs.lstat(file);
+        if (!stat.isFile() || stat.isSymbolicLink() || stat.size > SCOPE_HASH_CACHE_MAX_BYTES)
+            return { schemaVersion: SCOPE_HASH_SCHEMA_VERSION, files: {} };
+        const flags = node_fs_1.constants.O_RDONLY | (process.platform !== "win32" && typeof node_fs_1.constants.O_NOFOLLOW === "number" ? node_fs_1.constants.O_NOFOLLOW : 0);
+        handle = await fs.open(file, flags);
+        const opened = await handle.stat();
+        if (!opened.isFile() || bigintString(opened.dev) !== bigintString(stat.dev) || bigintString(opened.ino) !== bigintString(stat.ino)
+            || opened.size > SCOPE_HASH_CACHE_MAX_BYTES)
+            return { schemaVersion: SCOPE_HASH_SCHEMA_VERSION, files: {} };
+        const chunks = [];
+        let totalBytes = 0;
+        for (;;) {
+            const chunk = Buffer.allocUnsafe(Math.min(64 * 1024, SCOPE_HASH_CACHE_MAX_BYTES + 1 - totalBytes));
+            const { bytesRead } = await handle.read(chunk, 0, chunk.length, null);
+            if (!bytesRead)
+                break;
+            totalBytes += bytesRead;
+            if (totalBytes > SCOPE_HASH_CACHE_MAX_BYTES)
+                return { schemaVersion: SCOPE_HASH_SCHEMA_VERSION, files: {} };
+            chunks.push(chunk.subarray(0, bytesRead));
+        }
+        const parsed = JSON.parse(Buffer.concat(chunks, totalBytes).toString("utf8"));
         if (parsed?.schemaVersion === SCOPE_HASH_SCHEMA_VERSION && parsed.files && typeof parsed.files === "object" && !Array.isArray(parsed.files)) {
-            return { schemaVersion: SCOPE_HASH_SCHEMA_VERSION, files: parsed.files };
+            const files = {};
+            for (const [relative, raw] of Object.entries(parsed.files).slice(-SCOPE_HASH_CACHE_MAX_FILES)) {
+                try {
+                    if ((0, SyncResolution_1.safeSyncPath)(relative) !== relative || relative.length > LOCAL_SCOPE_MAX_RELATIVE_PATH_LENGTH)
+                        continue;
+                }
+                catch {
+                    continue;
+                }
+                const row = raw;
+                if (!row || typeof row !== "object" || !/^[a-f0-9]{64}$/i.test(String(row.sha256 || ""))
+                    || !/^\d+$/.test(String(row.dev || "")) || !/^\d+$/.test(String(row.ino || ""))
+                    || !Number.isSafeInteger(row.size) || row.size < 0
+                    || ![row.mtimeMs, row.ctimeMs, row.birthtimeMs].every((value) => typeof value === "number" && Number.isFinite(value)))
+                    continue;
+                files[relative] = { ...row, sha256: row.sha256.toLowerCase() };
+            }
+            return { schemaVersion: SCOPE_HASH_SCHEMA_VERSION, files };
         }
     }
     catch {
         // A missing or damaged cache only forces a rehash.
     }
+    finally {
+        await handle?.close().catch(() => undefined);
+    }
     return { schemaVersion: SCOPE_HASH_SCHEMA_VERSION, files: {} };
 }
 async function writeScopeHashCache(file, document) {
-    await fs.mkdir(path.dirname(file), { recursive: true });
-    const temp = `${file}.${process.pid}.tmp`;
-    await fs.writeFile(temp, JSON.stringify(document), "utf8");
-    await fs.rename(temp, file);
+    if (Object.keys(document.files).length > SCOPE_HASH_CACHE_MAX_FILES)
+        throw new Error("同步范围哈希缓存超过文件数上限。");
+    const serialized = JSON.stringify(document);
+    if (Buffer.byteLength(serialized, "utf8") > SCOPE_HASH_CACHE_MAX_BYTES)
+        throw new Error("同步范围哈希缓存超过字节上限。");
+    const fullPath = path.resolve(file);
+    const root = path.dirname(fullPath);
+    await new HostOperationLease_1.HostOperationLeaseManager().run({
+        pluginId: "simple-local.simple-experiment",
+        workspaceUri: root,
+        hostProjectPath: root,
+        actionType: "scope-hash-cache-write",
+        actionLabel: "保存同步清单哈希缓存",
+        waitForConflict: true,
+        resources: [{ server: "local", project: root, target: fullPath }],
+    }, () => (0, StateStore_1.atomicWriteText)(fullPath, serialized));
 }
 function requireCompleteScopeInventory(result, location = "") {
     const unverified = Object.entries(result.unverifiedFiles || {});
@@ -119,6 +182,9 @@ function requireCompleteScopeInventory(result, location = "") {
 }
 function scopeInventoryPathAllowed(relative, directory = false) {
     const parts = relative.toLowerCase().split("/");
+    const basename = parts.at(-1) || "";
+    if (!directory && (basename.endsWith(".writing") || basename.endsWith(".pending") || /\.tmp(?:\.|$)/.test(basename) || basename.includes(".upload.")))
+        return false;
     if (parts[0] === "tmp" || parts.some((part) => [".git", ".vscode", ".codex", ".agents", ".coding-tools", ".local-gpt", ".runtime", "clean_dir", "zlk_cluster", ".venv", "venv", "env", "node_modules", "__pycache__", ".cache", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox"].includes(part)))
         return false;
     if (parts[0] === "experiments" && parts[1] === "results" && parts.at(-1)?.endsWith(".csv.lock"))
@@ -142,99 +208,204 @@ function scopeInventoryPathAllowed(relative, directory = false) {
     return false;
 }
 async function collectLocalScopeInventory(root, relative = ".", recursive = true, onUnverified, cacheFile) {
-    if (relative !== "." && (relative.startsWith("/") || /^[a-z]:/i.test(relative) || relative.split("/").some((part) => !part || part === "." || part === "..")))
-        throw new Error(`本机清单路径不安全：${relative}`);
-    const names = [];
-    async function walk(current) {
-        const base = current ? path.join(root, ...current.split("/")) : root;
-        const stat = await fs.lstat(base).catch((error) => {
-            if (error.code === "ENOENT")
-                return undefined;
-            throw error;
-        });
-        if (!stat)
-            return;
-        if (stat.isSymbolicLink())
-            throw new Error(`本机清单路径不安全：${current}`);
-        if (stat.isFile() && current) {
-            if (scopeInventoryPathAllowed(current, false))
-                names.push(current);
-            return;
-        }
-        if (!stat.isDirectory())
-            throw new Error(`本机清单路径不安全：${current}`);
-        for (const entry of await fs.readdir(base, { withFileTypes: true })) {
-            const child = current ? `${current}/${entry.name}` : entry.name;
-            if (entry.isSymbolicLink() || !scopeInventoryPathAllowed(child, entry.isDirectory()))
-                continue;
-            if (entry.isDirectory() && recursive)
-                await walk(child);
-            else if (entry.isFile())
-                names.push(child);
-        }
-    }
-    await walk(relative === "." ? "" : relative);
+    const names = await listLocalScopeFileNames(root, relative, recursive, onUnverified);
     return hashLocalScopeNames(root, names, onUnverified, cacheFile);
 }
 /** One hash pool for every confirmed file and directory. Directory walks only list names. */
 async function collectSelectedLocalScopeFiles(root, items, cacheFile) {
-    const names = [];
+    const names = new Set();
+    const budget = { directories: 0, entries: 0, files: 0 };
     for (const item of items) {
         if (item.directory) {
-            const found = await listLocalScopeFileNames(root, item.path);
+            const found = await listLocalScopeFileNames(root, item.path, true, undefined, budget);
             if (!found.length)
                 throw new Error(`来源目录没有可同步文件：${item.path}`);
-            names.push(...found);
+            for (const relative of found) {
+                names.add(relative);
+                if (names.size > LOCAL_SCOPE_MAX_FILES)
+                    throw new Error(`本机选择超过文件上限 ${LOCAL_SCOPE_MAX_FILES}。`);
+            }
         }
-        else
-            names.push(item.path);
+        else {
+            names.add(normalizeLocalScopeRelative(item.path));
+            if (names.size > LOCAL_SCOPE_MAX_FILES)
+                throw new Error(`本机选择超过文件上限 ${LOCAL_SCOPE_MAX_FILES}。`);
+        }
     }
-    return hashLocalScopeNames(root, [...new Set(names)], undefined, cacheFile);
+    return hashLocalScopeNames(root, [...names], undefined, cacheFile);
 }
-async function listLocalScopeFileNames(root, relative) {
+function normalizeLocalScopeRelative(relative) {
+    if (relative === ".")
+        return "";
+    const safe = (0, SyncResolution_1.safeSyncPath)(relative);
+    if (safe.length > LOCAL_SCOPE_MAX_RELATIVE_PATH_LENGTH)
+        throw new Error("本机清单路径超过长度上限。");
+    return safe;
+}
+function sameLocalPath(left, right) {
+    const a = path.resolve(left);
+    const b = path.resolve(right);
+    return process.platform === "win32" ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+function isWithinLocalRoot(root, candidate) {
+    const relative = path.relative(root, candidate);
+    return relative === "" || (relative !== ".." && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+}
+async function resolveLocalScopeRoot(root) {
+    const rootPath = path.resolve(root);
+    const stat = await fs.lstat(rootPath).catch((error) => {
+        if (error.code === "ENOENT")
+            throw new Error(`本机同步根目录不存在：${rootPath}`);
+        throw error;
+    });
+    if (!stat.isDirectory() || stat.isSymbolicLink())
+        throw new Error(`本机同步根目录不是普通目录：${rootPath}`);
+    return { realPath: await fs.realpath(rootPath), device: bigintString(stat.dev) };
+}
+async function verifyLocalScopeEntry(root, relative, expected) {
+    const normalized = normalizeLocalScopeRelative(relative);
+    if (!normalized)
+        throw new Error("本机同步根目录不能作为文件或子目录目标。");
+    const parts = normalized.split("/");
+    let current = root.realPath;
+    let finalStat;
+    for (let index = 0; index < parts.length; index++) {
+        current = path.join(current, parts[index]);
+        const stat = await fs.lstat(current, { bigint: false });
+        if (stat.isSymbolicLink() || (root.device && bigintString(stat.dev) !== root.device))
+            throw new Error(`本机清单路径包含符号链接或跨设备目录：${normalized}`);
+        if (index < parts.length - 1 && !stat.isDirectory())
+            throw new Error(`本机清单父路径不是目录：${normalized}`);
+        const real = await fs.realpath(current);
+        if (!isWithinLocalRoot(root.realPath, real) || !sameLocalPath(real, current))
+            throw new Error(`本机清单路径越出所选根目录：${normalized}`);
+        finalStat = stat;
+    }
+    if (!finalStat || (expected === "file" ? !finalStat.isFile() : !finalStat.isDirectory()))
+        throw new Error(`本机清单目标类型发生变化：${normalized}`);
+    return { fullPath: current, stat: finalStat };
+}
+async function listLocalScopeFileNames(rootPath, relative, recursive = true, onUnverified, budget = { directories: 0, entries: 0, files: 0 }) {
+    const root = await resolveLocalScopeRoot(rootPath);
+    const start = normalizeLocalScopeRelative(relative);
     const names = [];
-    async function walk(current) {
-        const base = current ? path.join(root, ...current.split("/")) : root;
-        const stat = await fs.lstat(base);
-        if (stat.isSymbolicLink())
-            throw new Error(`本机清单路径不安全：${current || relative}`);
-        if (stat.isFile()) {
+    const pending = [start];
+    const unverified = (child, reason) => {
+        if (!onUnverified)
+            throw new Error(`本机清单无法完整验证（${child || "."}）：${reason}`);
+        onUnverified(child || ".", reason);
+    };
+    while (pending.length) {
+        const current = pending.pop();
+        const currentPath = current || ".";
+        const candidate = path.join(root.realPath, ...current.split("/").filter(Boolean));
+        const initial = await fs.lstat(candidate).catch((error) => {
+            if (error.code === "ENOENT" && current) {
+                unverified(current, "扫描期间目录已消失");
+                return undefined;
+            }
+            throw error;
+        });
+        if (!initial)
+            continue;
+        if (initial.isSymbolicLink() || (root.device && bigintString(initial.dev) !== root.device)) {
+            unverified(currentPath, "目录是符号链接或跨设备挂载");
+            continue;
+        }
+        if (initial.isFile()) {
             if (current && scopeInventoryPathAllowed(current, false))
                 names.push(current);
-            return;
+            continue;
         }
-        if (!stat.isDirectory())
-            throw new Error(`本机来源目录不存在或是符号链接。`);
-        for (const entry of await fs.readdir(base, { withFileTypes: true })) {
-            const child = current ? `${current}/${entry.name}` : entry.name;
-            if (entry.isSymbolicLink() || !scopeInventoryPathAllowed(child, entry.isDirectory()))
-                continue;
-            if (entry.isDirectory())
-                await walk(child);
-            else if (entry.isFile())
-                names.push(child);
+        if (!initial.isDirectory()) {
+            unverified(currentPath, "目标不是普通文件或目录");
+            continue;
         }
+        if (++budget.directories > LOCAL_SCOPE_MAX_DIRECTORIES)
+            throw new Error(`本机清单超过目录上限 ${LOCAL_SCOPE_MAX_DIRECTORIES}，拒绝生成不完整清单。`);
+        const real = await fs.realpath(candidate);
+        if (!isWithinLocalRoot(root.realPath, real) || !sameLocalPath(real, candidate)) {
+            unverified(currentPath, "目录解析后越出所选根目录");
+            continue;
+        }
+        const directory = await fs.opendir(candidate, { bufferSize: 32 });
+        try {
+            for await (const entry of directory) {
+                if (++budget.entries > LOCAL_SCOPE_MAX_ENTRIES)
+                    throw new Error(`本机清单超过目录项上限 ${LOCAL_SCOPE_MAX_ENTRIES}，拒绝生成不完整清单。`);
+                const child = current ? `${current}/${entry.name}` : entry.name;
+                let safeChild;
+                try {
+                    safeChild = normalizeLocalScopeRelative(child);
+                }
+                catch (error) {
+                    unverified(child, error instanceof Error ? error.message : String(error));
+                    continue;
+                }
+                if (!scopeInventoryPathAllowed(safeChild, entry.isDirectory()))
+                    continue;
+                const childPath = path.join(candidate, entry.name);
+                const childStat = await fs.lstat(childPath);
+                if (childStat.isSymbolicLink() || (root.device && bigintString(childStat.dev) !== root.device)) {
+                    unverified(safeChild, "路径是符号链接或跨设备挂载");
+                    continue;
+                }
+                const childReal = await fs.realpath(childPath);
+                if (!isWithinLocalRoot(root.realPath, childReal) || !sameLocalPath(childReal, childPath)) {
+                    unverified(safeChild, "路径解析后越出所选根目录");
+                    continue;
+                }
+                if (childStat.isDirectory()) {
+                    if (recursive)
+                        pending.push(safeChild);
+                }
+                else if (childStat.isFile()) {
+                    if (++budget.files > LOCAL_SCOPE_MAX_FILES)
+                        throw new Error(`本机清单超过文件上限 ${LOCAL_SCOPE_MAX_FILES}，拒绝生成不完整清单。`);
+                    names.push(safeChild);
+                }
+                else
+                    unverified(safeChild, "路径不是普通文件或目录");
+            }
+        }
+        finally {
+            await directory.close().catch(() => undefined);
+        }
+        const afterRead = await fs.lstat(candidate);
+        if (afterRead.isSymbolicLink() || !afterRead.isDirectory() || bigintString(afterRead.dev) !== bigintString(initial.dev)
+            || bigintString(afterRead.ino) !== bigintString(initial.ino) || afterRead.mtimeMs !== initial.mtimeMs
+            || (root.device && bigintString(afterRead.dev) !== root.device))
+            throw new Error(`本机目录在清单扫描期间发生变化：${currentPath}`);
     }
-    await walk(relative);
     return names;
 }
 async function hashLocalScopeNames(root, names, onUnverified, cacheFile) {
+    if (names.length > LOCAL_SCOPE_MAX_ENTRIES)
+        throw new Error(`本机哈希清单超过输入上限 ${LOCAL_SCOPE_MAX_ENTRIES}。`);
+    const normalizedNames = [...new Set(names.map(normalizeLocalScopeRelative))];
+    if (normalizedNames.length > LOCAL_SCOPE_MAX_FILES)
+        throw new Error(`本机哈希清单超过文件上限 ${LOCAL_SCOPE_MAX_FILES}。`);
+    const requestedNames = new Set(normalizedNames);
+    const rootInfo = await resolveLocalScopeRoot(root);
     const persisted = cacheFile ? await readScopeHashCache(cacheFile) : { schemaVersion: SCOPE_HASH_SCHEMA_VERSION, files: {} };
-    const nextRows = { ...persisted.files };
+    const activeRows = {};
     const files = {};
     let next = 0;
     let failed = false;
-    await Promise.all(Array.from({ length: Math.min(8, Math.max(1, names.length)) }, async () => {
+    let fatalError;
+    await Promise.all(Array.from({ length: Math.min(8, Math.max(1, normalizedNames.length)) }, async () => {
         for (;;) {
             const index = next++;
-            if (index >= names.length)
+            if (index >= normalizedNames.length || fatalError)
                 break;
-            const relative = names[index].replace(/\\/g, "/");
-            const full = path.join(root, ...relative.split("/"));
+            const relative = normalizedNames[index];
+            let full = path.join(rootInfo.realPath, ...relative.split("/"));
             try {
-                const beforeStat = await fs.lstat(full);
-                if (!beforeStat.isFile() || beforeStat.isSymbolicLink())
-                    throw new Error(`本机清单路径发生变化：${relative}`);
+                if (!scopeInventoryPathAllowed(relative, false))
+                    throw new Error(`本机清单路径属于排除项：${relative}`);
+                const verified = await verifyLocalScopeEntry(rootInfo, relative, "file");
+                full = verified.fullPath;
+                const beforeStat = verified.stat;
                 const before = scopeHashIdentity(beforeStat);
                 if (!before)
                     throw new Error(`本机文件身份不完整，无法复用哈希：${relative}`);
@@ -247,20 +418,29 @@ async function hashLocalScopeNames(root, names, onUnverified, cacheFile) {
                         ? { sha256: stored.sha256.toLowerCase(), size: stored.size, modifiedAtMs: Number.isFinite(stored.modifiedAtMs) ? stored.modifiedAtMs : before.mtimeMs }
                         : undefined;
                 if (reusable) {
+                    const confirmed = scopeHashIdentity(await fs.lstat(full));
+                    if (!confirmed || !sameScopeHashIdentity({ ...before, sha256: reusable.sha256 }, confirmed))
+                        throw new Error(`本机文件在复用哈希前发生变化：${relative}`);
                     files[relative] = reusable;
-                    nextRows[relative] = { ...before, sha256: reusable.sha256, modifiedAtMs: reusable.modifiedAtMs };
+                    activeRows[relative] = { ...confirmed, sha256: reusable.sha256, modifiedAtMs: reusable.modifiedAtMs };
                     rememberLocalScopeHash(full, identity, reusable);
                     continue;
                 }
                 const hash = crypto.createHash("sha256");
-                const handle = await fs.open(full, "r");
+                const openFlags = node_fs_1.constants.O_RDONLY | (process.platform !== "win32" && typeof node_fs_1.constants.O_NOFOLLOW === "number" ? node_fs_1.constants.O_NOFOLLOW : 0);
+                const handle = await fs.open(full, openFlags);
                 try {
+                    const opened = await handle.stat();
+                    if (!opened.isFile() || bigintString(opened.dev) !== bigintString(beforeStat.dev) || bigintString(opened.ino) !== bigintString(beforeStat.ino))
+                        throw new Error(`本机文件在打开时发生替换：${relative}`);
                     const buffer = Buffer.allocUnsafe(1024 * 1024);
-                    for (;;) {
-                        const { bytesRead } = await handle.read(buffer, 0, buffer.length, null);
+                    let remaining = beforeStat.size;
+                    while (remaining > 0) {
+                        const { bytesRead } = await handle.read(buffer, 0, Math.min(buffer.length, remaining), null);
                         if (!bytesRead)
-                            break;
+                            throw new Error(`本机文件在校验期间被截断：${relative}`);
                         hash.update(buffer.subarray(0, bytesRead));
+                        remaining -= bytesRead;
                     }
                 }
                 finally {
@@ -268,35 +448,63 @@ async function hashLocalScopeNames(root, names, onUnverified, cacheFile) {
                 }
                 const afterStat = await fs.lstat(full);
                 const after = scopeHashIdentity(afterStat);
-                if (!afterStat.isFile() || afterStat.isSymbolicLink() || !after || !sameScopeHashIdentity({ ...before, sha256: "0".repeat(64) }, after))
+                if (!afterStat.isFile() || afterStat.isSymbolicLink() || bigintString(afterStat.dev) !== rootInfo.device || !after || !sameScopeHashIdentity({ ...before, sha256: "0".repeat(64) }, after))
                     throw new Error(`本机文件在校验时变更：${relative}`);
                 const file = { sha256: hash.digest("hex"), size: after.size, modifiedAtMs: afterStat.mtimeMs };
                 rememberLocalScopeHash(full, identity, file);
-                nextRows[relative] = { ...after, sha256: file.sha256, modifiedAtMs: file.modifiedAtMs };
+                activeRows[relative] = { ...after, sha256: file.sha256, modifiedAtMs: file.modifiedAtMs };
                 files[relative] = file;
             }
             catch (error) {
                 const missing = error?.code === "ENOENT";
-                if (missing) {
-                    delete nextRows[relative];
+                if (missing)
                     localHashCache.delete(full);
-                }
                 else
                     failed = true;
-                if (!onUnverified)
-                    throw error;
-                onUnverified(relative, error instanceof Error ? error.message : String(error));
+                if (!onUnverified) {
+                    fatalError ??= error;
+                    continue;
+                }
+                try {
+                    onUnverified(relative, error instanceof Error ? error.message : String(error));
+                }
+                catch (callbackError) {
+                    fatalError ??= callbackError;
+                }
             }
         }
     }));
+    if (fatalError)
+        throw fatalError;
     if (cacheFile && !failed) {
         try {
-            await writeScopeHashCache(cacheFile, { schemaVersion: SCOPE_HASH_SCHEMA_VERSION, files: nextRows });
+            await writeScopeHashCache(cacheFile, { schemaVersion: SCOPE_HASH_SCHEMA_VERSION, files: boundedScopeHashRows(activeRows, persisted.files, requestedNames) });
         }
         catch (error) {
             console.warn(`[SimpleExperiment] local scope hash cache write failed: ${error instanceof Error ? error.message : String(error)}`);
         }
     }
+    return files;
+}
+function boundedScopeHashRows(active, previous, requested) {
+    const files = {};
+    let bytes = Buffer.byteLength(`{"schemaVersion":${SCOPE_HASH_SCHEMA_VERSION},"files":{}}`, "utf8");
+    let count = 0;
+    const add = (relative, row) => {
+        if (count >= SCOPE_HASH_CACHE_MAX_FILES || relative.length > LOCAL_SCOPE_MAX_RELATIVE_PATH_LENGTH)
+            return;
+        const entryBytes = Buffer.byteLength(`${JSON.stringify(relative)}:${JSON.stringify(row)}`, "utf8") + (count ? 1 : 0);
+        if (bytes + entryBytes > SCOPE_HASH_CACHE_MAX_BYTES)
+            return;
+        files[relative] = row;
+        bytes += entryBytes;
+        count++;
+    };
+    for (const [relative, row] of Object.entries(active))
+        add(relative, row);
+    for (const [relative, row] of Object.entries(previous).reverse())
+        if (!files[relative] && !requested.has(relative))
+            add(relative, row);
     return files;
 }
 function ownerForPath(path, ledger) {

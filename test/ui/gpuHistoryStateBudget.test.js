@@ -163,7 +163,8 @@ test("Extension exposes GPU history only through explicit on-demand state", () =
   assert.match(source, /case "loadGpuHistory"/);
   assert.match(source, /this\.gpuHistoryState\.load\(query/);
   assert.match(source, /endpoints\.gpuHistory !== true/);
-  assert.match(source, /gpuHistory: this\.gpuHistoryState\.snapshot\(\)/);
+  assert.match(source, /const includePanelGpuHistory = options\.panelProjection !== true \|\| interestedSections\?\.has\("gpu"\) === true/);
+  assert.match(source, /\.\.\.\(includePanelGpuHistory \? \{ gpuHistory \} : \{\}\)/);
   assert.doesNotMatch(source.match(/async manualSnapshot[\s\S]*?async manualGpuSnapshot/)?.[0] || "", /getGpuHistory/);
   assert.doesNotMatch(source.match(/private createClient[\s\S]*?private shouldPushLocalAvailabilityFromRealtime/)?.[0] || "", /getGpuHistory/);
 });

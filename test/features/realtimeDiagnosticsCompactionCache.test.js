@@ -8,6 +8,7 @@ const { readSource } = require("../_helpers/sourceReader");
 const extension = readSource("src/extension.ts");
 const { RealtimeTunnelClient } = require("../../dist/tunnel/RealtimeTunnelClient.js");
 const { MultiEndpointRealtimeClient } = require("../../dist/tunnel/MultiEndpointRealtimeClient.js");
+const { RequestBudget, defaultRequestBudgetConfig } = require("../../dist/tunnel/RequestBudget.js");
 
 function extractFunction(name) {
   const start = extension.indexOf(`function ${name}(`);
@@ -87,7 +88,7 @@ test("single endpoint diagnostics reuse unchanged scalar state", () => {
 });
 
 test("multi endpoint diagnostics reuse child snapshots and invalidate on one endpoint", () => {
-  const client = new MultiEndpointRealtimeClient([endpoint("hub"), endpoint("worker-a")], () => ({}));
+  const client = new MultiEndpointRealtimeClient([endpoint("hub"), endpoint("worker-a")], () => new RequestBudget(defaultRequestBudgetConfig));
   const first = client.diagnostics();
 
   assert.strictEqual(client.diagnostics(), first);

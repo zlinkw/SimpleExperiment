@@ -31,6 +31,7 @@ function fixture({ emptyOriginal = false, cold = false, allMissing = false, retr
   const inventory = { w1: emptyOriginal || allMissing ? {} : { ...files }, w2: {}, w3: allMissing ? {} : { ...files } };
   const transfers = [], errors = [], events = [];
   const sandbox = {
+    SafeRequestRetry_1: require("../../dist/core/SafeRequestRetry.js"),
     PlanOutputRetention: retention, PlanRunFreshness: require("../../dist/results/PlanRunFreshness.js"),
     workspaceRoot: () => root, errorMessage: value => value.message,
     collectDistributedJobArtifacts: require("../../dist/features/DistributedJobArtifacts.js").collectDistributedJobArtifacts,

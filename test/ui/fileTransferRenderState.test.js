@@ -4,9 +4,11 @@ const assert = require("node:assert/strict");
 const { normalizeFileTransferRows } = require("../../dist/ui/WebviewRenderState.js");
 const { renderPanelHtml } = require("../../dist/ui/PanelHtml.js");
 
-test("file transfer queue is not rendered in the panel", () => {
+test("active file transfer progress is rendered with a bounded row list", () => {
   const html = renderPanelHtml();
-  assert.doesNotMatch(html, /state\.fileTransfers/);
+  assert.match(html, /renderFileTransferProgress\(state && state\.fileTransfers\)/);
+  assert.match(html, /status === "running" \|\| status === "pending" \|\| status === "progress"/);
+  assert.match(html, /\.slice\(0, 20\)/);
   assert.doesNotMatch(html, /transferTable/);
   assert.doesNotMatch(html, /lastKnownGood\.fileTransfers/);
 });

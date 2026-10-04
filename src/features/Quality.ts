@@ -1,21 +1,6 @@
 /**
  * src/features/Quality.ts - Facade
  * 原 649 行已迁移至 Quality.legacy.ts，按需委托 QualityFactory
- * 瘦身门面：保持 API 兼容，通过 export * 透传
+ * 兼容门面只透传旧 API；新建逻辑由显式注入的工厂负责，不在模块加载时吞掉导入失败。
  */
 export * from "./Quality.legacy";
-
-function tryRequire<T>(id: string): T | undefined {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    return require(id) as T;
-  } catch {
-    return undefined;
-  }
-}
-
-// 工厂化增强：委托给 QualityFactory（可选覆盖）
-try {
-  const factoryMod = tryRequire<unknown>("./factories/QualityFactory");
-  void factoryMod;
-} catch {}

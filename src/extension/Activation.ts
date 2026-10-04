@@ -10,6 +10,39 @@ import { registerProviderCommands } from "./ProviderCommands";
 import { maybeAutoInstallGitBackup, registerGitBackupCommands, registerGitHubSyncCommands } from "./GitBackupSetup";
 
 let _provider: unknown | undefined;
+let _activationDisposables: Array<{ dispose(): unknown }> = [];
+let _deactivationPromise: Promise<void> | undefined;
+let _activationGeneration = 0;
+let _reportedActivationFailures = new Set<string>();
+
+function ownTimeout(context: { subscriptions: { push(...args: unknown[]): unknown } }, delayMs: number, callback: () => unknown): void {
+  const generation = _activationGeneration;
+  let timer: ReturnType<typeof setTimeout> | undefined = setTimeout(() => {
+    timer = undefined;
+    if (generation !== _activationGeneration) return;
+    void Promise.resolve().then(callback).catch((error) => {
+      reportActivationFailure("deferred startup task", error);
+    });
+  }, delayMs);
+  const disposable = { dispose: () => { if (timer) clearTimeout(timer); timer = undefined; } };
+  _activationDisposables.push(disposable);
+  context.subscriptions.push(disposable);
+}
+
+function reportActivationFailure(stage: string, error: unknown): void {
+  const message = String((error as any)?.message || error || "未知错误").slice(0, 600);
+  const key = `${stage}:${message.slice(0, 180)}`;
+  if (_reportedActivationFailures.has(key)) return;
+  _reportedActivationFailures.add(key);
+  while (_reportedActivationFailures.size > 16) {
+    const oldest = _reportedActivationFailures.values().next().value;
+    if (oldest === undefined) break;
+    _reportedActivationFailures.delete(oldest);
+  }
+  console.error(`[Activation] ${stage} failed`, error);
+  const vscode = tryRequire<any>("vscode");
+  void Promise.resolve(vscode?.window?.showErrorMessage?.(`SimpleExperiment 启动失败（${stage}）：${message}`)).catch(() => undefined);
+}
 
 function tryRequire<T>(id: string): T | undefined {
   try { return (require as unknown as (x: string) => T)(id); } catch { return undefined; }
@@ -21,6 +54,10 @@ export async function activate(context: unknown): Promise<void> {
 }
 
 export async function activateExtension(context: Record<string, unknown> & { subscriptions: { push(...args: unknown[]): unknown } }): Promise<void> {
+  _activationGeneration += 1;
+  _activationDisposables = [];
+  _deactivationPromise = undefined;
+  _reportedActivationFailures = new Set<string>();
   console.log("[Activation] enter", new Date().toISOString(), "process.env.FEATURE_FACTORY_PANEL", process.env.FEATURE_FACTORY_PANEL);
   const mod = tryRequire<{ migrateRenamedExtensionState: (c: unknown) => Promise<void> }>("../config/RenamedExtensionStateMigration");
   await mod?.migrateRenamedExtensionState(context).catch(() => undefined);
@@ -44,7 +81,8 @@ export async function activateExtension(context: Record<string, unknown> & { sub
       const legacy = tryRequire<{ RealtimeTunnelPanelProvider: new (c: unknown) => unknown }>("./legacy");
       const RealtimeTunnelPanelProvider = legacy?.RealtimeTunnelPanelProvider;
       provider = RealtimeTunnelPanelProvider ? new RealtimeTunnelPanelProvider(context) : undefined;
-    } catch {
+    } catch (error) {
+      reportActivationFailure("legacy provider creation", error);
       provider = undefined;
     }
   }
@@ -56,11 +94,14 @@ export async function activateExtension(context: Record<string, unknown> & { sub
       const vscode = tryRequire<any>("vscode");
       if (vscode && vscode.window && typeof vscode.window.registerWebviewViewProvider === "function") {
         console.log("[Activation] registerWebviewViewProvider", "simpleExperiment.panel");
+        const retainContextWhenHidden = (provider as any).retainPanelContextWhenHidden === true;
         context.subscriptions.push(
-          vscode.window.registerWebviewViewProvider("simpleExperiment.panel", provider as any, { webviewOptions: { retainContextWhenHidden: true } })
+          vscode.window.registerWebviewViewProvider("simpleExperiment.panel", provider as any, { webviewOptions: { retainContextWhenHidden } })
         );
+      } else {
+        reportActivationFailure("webview registration", new Error("VS Code Webview API is unavailable."));
       }
-    } catch {}
+    } catch (error) { reportActivationFailure("webview registration", error); }
   } else {
     // provider 无 resolveWebviewView，说明拿到桩，回退 legacy
     try {
@@ -68,17 +109,19 @@ export async function activateExtension(context: Record<string, unknown> & { sub
       if (legacy && typeof legacy.activate === "function") {
         return legacy.activate(context);
       }
-    } catch {}
+    } catch (error) { reportActivationFailure("legacy activation fallback", error); }
+    reportActivationFailure("provider creation", new Error("No usable panel provider could be created."));
+    return;
   }
   // 注册命令（委托给 CommandFactory）
   try {
     registerProviderCommands({ factoryContext, commandFactory: services.commands as any, provider }, context);
-  } catch {}
+  } catch (error) { reportActivationFailure("command registration", error); }
 
   // 注册 git 提交备份命令（独立注册，不耦合 legacy provider）
   try {
     registerGitBackupCommands(context as unknown as Parameters<typeof registerGitBackupCommands>[0]);
-  } catch {}
+  } catch (error) { reportActivationFailure("Git backup command registration", error); }
 
   // 把既有的面板式 GitHub 同步方法补上命令面板入口（仅转发 provider 方法）
   try {
@@ -86,32 +129,60 @@ export async function activateExtension(context: Record<string, unknown> & { sub
       context as unknown as Parameters<typeof registerGitHubSyncCommands>[0],
       provider as Record<string, unknown> | undefined
     );
-  } catch {}
+  } catch (error) { reportActivationFailure("GitHub command registration", error); }
 
   // 复刻原 activate 的后置启动逻辑（简化版，保持可运行）
-  try { provider?.startLocalApiServer?.(); } catch {}
-  try { void provider?.reconcileStalePlanRunOperations?.({ reason: "activation" }); } catch {}
-  try { void provider?.runActivationOnboarding?.(); } catch {}
-  setTimeout(() => { try { void provider?.checkRemoteAgentVersionAndNotify?.(false); } catch {} }, 8000);
+  void Promise.resolve().then(() => provider?.startLocalApiServer?.())
+    .catch((error) => reportActivationFailure("local API startup", error));
+  void Promise.resolve().then(() => provider?.reconcileStalePlanRunOperations?.({ reason: "activation" }))
+    .catch((error) => reportActivationFailure("stale operation reconciliation", error));
+  void Promise.resolve().then(() => provider?.runActivationOnboarding?.())
+    .catch((error) => reportActivationFailure("onboarding", error));
+  ownTimeout(context, 8000, () => provider?.checkRemoteAgentVersionAndNotify?.(false));
 
   // 自动配置 git 提交备份：条件不满足只提示、不写入 hook
-  setTimeout(() => {
-    void maybeAutoInstallGitBackup(context as unknown as Parameters<typeof maybeAutoInstallGitBackup>[0]).catch(() => undefined);
-  }, 3000);
+  ownTimeout(context, 3000, () => maybeAutoInstallGitBackup(context as unknown as Parameters<typeof maybeAutoInstallGitBackup>[0]));
 
   // 配置变更监听（与原逻辑一致）
   try {
     const vscode = tryRequire<typeof import("vscode")>("vscode");
     if (vscode) {
-      context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e: unknown) => void (provider as { handleConfigurationChanged?: (e: unknown) => unknown })?.handleConfigurationChanged?.(e)));
-      context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => void (provider as { handleWorkspaceFoldersChanged?: () => unknown })?.handleWorkspaceFoldersChanged?.()));
+      context.subscriptions.push(vscode.workspace.onDidChangeConfiguration((e: unknown) => {
+        void Promise.resolve().then(() => (provider as { handleConfigurationChanged?: (e: unknown) => unknown })?.handleConfigurationChanged?.(e))
+          .catch((error) => reportActivationFailure("configuration change", error));
+      }));
+      context.subscriptions.push(vscode.workspace.onDidChangeWorkspaceFolders(() => {
+        void Promise.resolve().then(() => (provider as { handleWorkspaceFoldersChanged?: () => unknown })?.handleWorkspaceFoldersChanged?.())
+          .catch((error) => reportActivationFailure("workspace change", error));
+      }));
     }
-  } catch {}
+  } catch (error) { reportActivationFailure("lifecycle listener registration", error); }
 }
 
-export function deactivate(): void {
-  try { (_provider as any)?.dispose?.(); } catch {}
+export function deactivate(): Promise<void> {
+  if (_deactivationPromise) return _deactivationPromise;
+  _activationGeneration += 1;
+  const provider = _provider as { dispose?: () => unknown } | undefined;
   _provider = undefined;
+  for (const disposable of _activationDisposables.splice(0)) {
+    try { disposable.dispose(); } catch (error) { console.error("[Activation] timer cleanup failed", error); }
+  }
+  _deactivationPromise = (async () => {
+    if (!provider?.dispose) return;
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    const disposal = Promise.resolve().then(() => provider.dispose?.()).then(() => undefined).catch((error) => {
+      console.error("[Activation] provider disposal failed", error);
+    });
+    await Promise.race([
+      disposal,
+      new Promise<void>((resolve) => { timeout = setTimeout(() => {
+        console.error("[Activation] provider disposal exceeded 5 seconds; VS Code shutdown will continue.");
+        resolve();
+      }, 5000); }),
+    ]);
+    if (timeout) clearTimeout(timeout);
+  })();
+  return _deactivationPromise;
 }
 
 export function getProvider(): unknown { return _provider; }

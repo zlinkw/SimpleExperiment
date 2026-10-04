@@ -223,6 +223,10 @@ def replace_with_retry(source, target): os.replace(source, target)
 def invalidate_runtime_json_cache(path): pass
 def append_event(root, event): pass
 def signal_durable_plan_queue_processor(root, worker_id): pass
+def atomic_write(path, payload, compact=False):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as handle:
+        json.dump(payload, handle, ensure_ascii=False, separators=(",", ":") if compact else None)
 def resolve_durable_code_sync_proof(root, row):
     manifest = row.get("codeManifest")
     if not isinstance(manifest, dict) or not manifest:

@@ -23,7 +23,7 @@ test("section renderers isolate exceptions and report their section and document
 test("results throw leaves a local retry placeholder and later sections still render", () => {
   const start = panel.indexOf("function renderSectionIfVisible(state, section, options)");
   const end = panel.indexOf("function sectionPreRenderKey", start);
-  const method = panel.slice(start, end).replace(/\s+$/, "");
+  const method = panel.slice(start, end).replace(/function recordPanelSectionSample\(/, "function unusedRecordPanelSectionSample(").replace(/\s+$/, "");
   const events = [], rendered = [], host = { innerHTML: "", querySelector: () => ({ addEventListener() {} }) };
   const context = {
     sectionIsCollapsed: () => false, sectionPreRenderKey: (_s, section) => section,
@@ -32,7 +32,10 @@ test("results throw leaves a local retry placeholder and later sections still re
     renderExecutionSection() { rendered.push("execution"); }, renderGpuSection() { rendered.push("gpu"); },
     applyResourceTreeChildLayout() {}, document: { querySelector: () => host },
     esc: value => String(value), escAttr: value => String(value), lastState: {}, panelDocumentGeneration: 8,
+    cssEscape: value => String(value).replace(/["\\]/g, "\\$&"),
+    sectionRenderModel: () => ({}),
     failedPanelSections: new Set(),
+    recordPanelSectionSample() {},
     vscode: { postMessage: event => events.push(event) }, console: { warn() {} }, Date,
     performance: { now: (() => { let value = 1; return () => ++value; })() },
   };

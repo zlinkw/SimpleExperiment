@@ -50,6 +50,12 @@ function renderPanelHtml() {
     * { box-sizing: border-box; }
     html, body { height: 100%; }
     body { margin: 0; padding: 0; overflow: hidden; font-family: var(--vscode-font-family); font-size: var(--simple-font-md); line-height: 1.45; color: var(--text); background: #EEF2F7; }
+    #panelBootstrapStatus { position: fixed; inset: 0; z-index: 2147483646; display: grid; place-items: center; padding: 20px; background: var(--vscode-sideBar-background, #EEF2F7); color: var(--vscode-foreground, #222); }
+    #panelBootstrapStatus[hidden] { display: none; }
+    .panelBootstrapCard { width: min(520px, 100%); padding: 18px; border: 1px solid var(--vscode-panel-border, #888); border-radius: 8px; background: var(--vscode-editor-background, #FFF); }
+    .panelBootstrapCard h2 { margin: 0 0 8px; }
+    .panelBootstrapCard p { margin: 0 0 12px; overflow-wrap: anywhere; }
+    .panelBootstrapActions { display: flex; flex-wrap: wrap; gap: 8px; }
     h2 { margin: 0 0 12px; font-size: var(--simple-font-section); font-weight: 650; }
     h3 { margin: 18px 0 8px; font-size: 13px; font-weight: 600; }
     input, select, textarea { min-height: 28px; color: var(--vscode-input-foreground); background: var(--vscode-input-background); border: 1px solid var(--vscode-input-border, var(--border)); border-radius: var(--radius-sm); padding: 4px 7px; }
@@ -1002,7 +1008,7 @@ function renderPanelHtml() {
 
     /* Final dashboard layout: macOS-like surfaces, restrained status color, draggable three columns. */
     .app-shell { width: min(100%, 1680px); height: 100vh; padding: 18px 20px 18px; gap: 10px; grid-template-rows: auto auto minmax(0, 1fr); overflow: hidden; }
-    .topbar { position: relative; z-index: 3; padding: 8px 10px; border: 1px solid rgba(148, 163, 184, .32); border-radius: 12px; background: rgba(248, 250, 252, .9); backdrop-filter: blur(16px); box-shadow: 0 10px 28px rgba(15, 23, 42, .07); max-height: 72px; overflow: auto; overscroll-behavior: contain; }
+    .topbar { position: relative; z-index: 3; padding: 8px 10px; border: 1px solid var(--border); border-radius: 12px; background: var(--vscode-editor-background); max-height: 72px; overflow: auto; overscroll-behavior: contain; }
     .statusLegend { position: relative; z-index: 3; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; min-width: 0; flex: 1 1 auto; padding: 0; border: 0; background: transparent; backdrop-filter: none; color: #475569; box-shadow: none; }
     .topbar-actions { align-items: center; }
     .legendItem { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 750; white-space: nowrap; }
@@ -1136,15 +1142,15 @@ function renderPanelHtml() {
     .remoteRootPolicyFooter { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 8px 12px; padding-top: 2px; }
     .remoteRootPolicyFooter > span { flex: 1 1 220px; min-width: 0; color: var(--vscode-descriptionForeground); font-size: 11px; line-height: 1.4; }
     .remoteRootPolicyFooter button { white-space: nowrap; }
-    .resourceTree { grid-column: 1; grid-row: 1; position: relative; width: var(--tree-col); max-height: none; min-height: 0; overflow: hidden; overscroll-behavior: contain; justify-self: start; padding: 10px; border-color: rgba(148, 163, 184, .30); border-radius: 12px; background: rgba(255, 255, 255, .84); backdrop-filter: blur(18px); box-shadow: 0 12px 30px rgba(15, 23, 42, .08); contain: layout paint; display: grid; grid-template-rows: auto auto minmax(0, 1fr) 34px; transform: translateX(calc(-1 * (var(--tree-col) - var(--tree-peek)))); transition: transform 180ms ease, box-shadow 140ms ease, opacity 140ms ease; z-index: 14; }
+    .resourceTree { grid-column: 1; grid-row: 1; position: relative; width: var(--tree-col); max-height: none; min-height: 0; overflow: hidden; overscroll-behavior: contain; justify-self: start; padding: 10px; border-color: var(--border); border-radius: 12px; background: var(--vscode-editor-background); contain: layout paint; display: grid; grid-template-rows: auto auto minmax(0, 1fr) 34px; transform: translateX(calc(-1 * (var(--tree-col) - var(--tree-peek)))); transition: transform 120ms ease; z-index: 14; }
     .resourceTree::after { content: "导航"; position: absolute; top: 12px; right: 0; bottom: 12px; width: var(--tree-peek); display: grid; place-items: center; padding: 8px 0; border-left: 1px solid rgba(148, 163, 184, .26); background: linear-gradient(180deg, rgba(248, 250, 252, .96), rgba(226, 232, 240, .92)); color: #475569; font-size: 11px; font-weight: 800; writing-mode: vertical-rl; text-orientation: mixed; letter-spacing: 0; opacity: 1; transition: opacity 120ms ease; pointer-events: none; }
-    .resourceTree:hover, .resourceTree:focus-within, body.layout-edit .resourceTree, body.resizing-layout .resourceTree { transform: translateX(0); box-shadow: 0 16px 34px rgba(15, 23, 42, .12); }
+    .resourceTree:hover, .resourceTree:focus-within, body.layout-edit .resourceTree, body.resizing-layout .resourceTree { transform: translateX(0); }
     .resourceTree:hover::after, .resourceTree:focus-within::after, body.layout-edit .resourceTree::after, body.resizing-layout .resourceTree::after { opacity: 0; }
-    .workbenchInspector { grid-column: 5; grid-row: 1; position: relative; width: var(--inspector-col); max-height: none; min-height: 0; justify-self: end; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; border-color: rgba(148, 163, 184, .30); border-radius: 12px; background: rgba(255, 255, 255, .86); backdrop-filter: blur(18px); box-shadow: 0 12px 30px rgba(15, 23, 42, .08); contain: layout paint; transform: translateX(calc(var(--inspector-col) - var(--inspector-peek))); transition: transform 180ms ease, box-shadow 140ms ease, opacity 140ms ease; z-index: 13; }
+    .workbenchInspector { grid-column: 5; grid-row: 1; position: relative; width: var(--inspector-col); max-height: none; min-height: 0; justify-self: end; grid-template-rows: auto minmax(0, 1fr); overflow: hidden; border-color: var(--border); border-radius: 12px; background: var(--vscode-editor-background); contain: layout paint; transform: translateX(calc(var(--inspector-col) - var(--inspector-peek))); transition: transform 120ms ease; z-index: 13; }
     .workbenchInspector::before { content: "详情"; position: absolute; top: 12px; left: 0; bottom: 12px; width: var(--inspector-peek); display: grid; place-items: center; padding: 8px 0; border-right: 1px solid rgba(148, 163, 184, .26); background: linear-gradient(180deg, rgba(248, 250, 252, .96), rgba(226, 232, 240, .92)); color: #475569; font-size: 11px; font-weight: 800; writing-mode: vertical-rl; text-orientation: mixed; letter-spacing: 0; opacity: 1; transition: opacity 120ms ease; pointer-events: none; }
-    .workbenchInspector:hover, .workbenchInspector:focus-within, body.layout-edit .workbenchInspector, body.resizing-layout .workbenchInspector, body.inspector-menu-open .workbenchInspector { transform: translateX(0); box-shadow: 0 16px 34px rgba(15, 23, 42, .12); }
+    .workbenchInspector:hover, .workbenchInspector:focus-within, body.layout-edit .workbenchInspector, body.resizing-layout .workbenchInspector, body.inspector-menu-open .workbenchInspector { transform: translateX(0); }
     .workbenchInspector:hover::before, .workbenchInspector:focus-within::before, body.layout-edit .workbenchInspector::before, body.resizing-layout .workbenchInspector::before, body.inspector-menu-open .workbenchInspector::before { opacity: 0; }
-    body.tree-pinned .resourceTree, body.inspector-pinned .workbenchInspector { transform: translateX(0); box-shadow: 0 16px 34px rgba(15, 23, 42, .10); }
+    body.tree-pinned .resourceTree, body.inspector-pinned .workbenchInspector { transform: translateX(0); }
     body.tree-pinned .resourceTree::after, body.inspector-pinned .workbenchInspector::before { opacity: 0; }
     .drawerPinButton { position: absolute; top: 8px; z-index: 3; width: 24px; height: 24px; min-width: 24px; padding: 0; display: grid; place-items: center; border-radius: 7px; border: 1px solid rgba(148, 163, 184, .42); background: rgba(255,255,255,.92); color: #475569; font-size: 13px; line-height: 1; box-shadow: 0 8px 18px rgba(15,23,42,.08); }
     .drawerPinButton:hover, .drawerPinButton:focus-visible, .drawerPinButton.is-pinned { background: #EEF2FF; border-color: #C7D2FE; color: #4F46E5; outline: none; }
@@ -1290,9 +1296,21 @@ function renderPanelHtml() {
       box-shadow: 0 4px 12px rgba(0,0,0,0.35);
     }
     #globalTip[hidden] { display: none; }
+    body.panel-low-effects *, body.panel-low-effects *::before, body.panel-low-effects *::after { animation: none !important; transition: none !important; box-shadow: none !important; text-shadow: none !important; filter: none !important; scroll-behavior: auto !important; }
+    body.panel-low-effects .topbar, body.panel-low-effects .resourceTree, body.panel-low-effects .workbenchInspector { backdrop-filter: none !important; }
   </style>
 </head>
 <body>
+  <div id="panelBootstrapStatus" role="status" aria-live="polite">
+    <div class="panelBootstrapCard">
+      <h2>SimpleExperiment 正在启动</h2>
+      <p id="panelBootstrapMessage">正在初始化面板通信。若此提示持续存在，可重新加载面板或复制诊断。</p>
+      <div class="panelBootstrapActions">
+        <button id="panelBootstrapReload" type="button">重新加载面板</button>
+        <button id="panelBootstrapCopy" class="secondary" type="button">复制诊断</button>
+      </div>
+    </div>
+  </div>
   <div class="app-shell">
     <header class="topbar" aria-label="状态图例与全局快捷操作">
       <div class="statusLegend" aria-label="状态颜色图例"><span class="legendItem"><span class="legendDot good"></span>正常</span><span class="legendItem"><span class="legendDot info"></span>运行 / 信息</span><span class="legendItem"><span class="legendDot warn"></span>等待 / 注意</span><span class="legendItem"><span class="legendDot error"></span>异常 / 失败</span><span class="legendItem"><span class="legendDot mine"></span>我的任务 / 重点</span></div>
@@ -1596,6 +1614,109 @@ function renderPanelHtml() {
   </div>
 
   <script nonce="${nonce}">
+    (function () {
+      var api = null;
+      var statusNode = document.getElementById("panelBootstrapMessage");
+      var statusOverlay = document.getElementById("panelBootstrapStatus");
+      var setStatus = function (message) { if (statusNode) statusNode.textContent = String(message || "面板启动中").slice(0, 480); };
+      try {
+        api = acquireVsCodeApi();
+        window.__simplePanelVsCodeApi = api;
+      } catch (error) {
+        setStatus("无法连接 VS Code 面板通信通道。请重载 VS Code 窗口。" + (error && error.message ? " " + error.message : ""));
+        var reloadButton = document.getElementById("panelBootstrapReload");
+        var copyButton = document.getElementById("panelBootstrapCopy");
+        if (reloadButton) reloadButton.disabled = true;
+        if (copyButton) copyButton.disabled = true;
+        return;
+      }
+      var generation = document.documentElement.getAttribute("data-panel-document-generation") || "0";
+      var bootstrapReady = false;
+      var bootstrapPhases = Object.create(null);
+      var reportedErrorSignatures = [];
+      var bootstrapErrorIncidents = [];
+      var bootstrapErrorFlushTimer = 0;
+      var timeout = 0;
+      var phase = function (name, detail) {
+        var key = String(name || "").slice(0, 40);
+        if (!key || bootstrapPhases[key]) return;
+        bootstrapPhases[key] = Date.now();
+        try { api.postMessage({ command: "webviewBootstrapPhase", documentGeneration: generation, phase: key, detail: String(detail || "").slice(0, 160) }); } catch (_) {}
+      };
+      phase("scriptStarted");
+      var flushBootstrapErrors = function (asRuntime) {
+        if (bootstrapErrorFlushTimer) clearTimeout(bootstrapErrorFlushTimer);
+        bootstrapErrorFlushTimer = 0;
+        var incidents = bootstrapErrorIncidents.splice(0, 32);
+        for (var i = 0; i < incidents.length; i++) {
+          var incident = incidents[i];
+          try {
+            if (asRuntime) api.postMessage({ command: "webviewRuntimeIncident", documentGeneration: generation,
+              stage: incident.stage, source: incident.source, signature: incident.signature, error: incident.error, stack: incident.stack });
+            else api.postMessage({ command: "webviewBootstrapError", documentGeneration: generation,
+              stage: incident.stage, source: incident.source, signature: incident.signature, error: incident.error,
+              stack: incident.stack, incidents: incidents });
+          } catch (_) {}
+          if (!asRuntime) break;
+        }
+      };
+      var markReady = function () {
+        bootstrapReady = true;
+        phase("bridgeReady");
+        if (timeout) clearTimeout(timeout);
+        timeout = 0;
+        flushBootstrapErrors(true);
+      };
+      var report = function (value, stage, source) {
+        var message = value && (value.message || value.reason || value.error) ? String(value.message || value.reason || value.error) : String(value || "Webview 启动失败");
+        var stack = value && value.stack ? String(value.stack).slice(0, 1200) : "";
+        if (statusOverlay) statusOverlay.hidden = false;
+        setStatus("面板启动异常：" + message);
+        var safeStage = String(stage || "runtime").slice(0, 32);
+        var safeSource = String(source || "").slice(0, 120);
+        var signature = safeStage + ":" + message.slice(0, 180);
+        if (reportedErrorSignatures.indexOf(signature) >= 0) return;
+        reportedErrorSignatures.push(signature);
+        if (reportedErrorSignatures.length > 32) reportedErrorSignatures.shift();
+        if (!bootstrapReady) {
+          bootstrapErrorIncidents.push({ stage: safeStage, source: safeSource, signature: signature, error: message.slice(0, 480), stack: stack });
+          if (bootstrapErrorIncidents.length > 32) bootstrapErrorIncidents.shift();
+          if (!bootstrapErrorFlushTimer) bootstrapErrorFlushTimer = window.setTimeout(function () { flushBootstrapErrors(false); }, 120);
+          return;
+        }
+        try { api.postMessage({ command: "webviewRuntimeIncident", documentGeneration: generation, stage: safeStage, source: safeSource, signature: signature, error: message.slice(0, 480), stack: stack }); } catch (_) {}
+      };
+      window.__simplePanelBootstrapReporter = {
+        report: report,
+        phase: phase,
+        stateReceived: function (seq) { phase("firstStateReceived", "seq=" + String(seq || "")); setStatus("已收到状态，正在绘制界面…"); },
+        rendered: function (seq) { phase("firstRenderCompleted", "seq=" + String(seq || "")); if (statusOverlay) statusOverlay.hidden = true; },
+        ready: markReady
+      };
+      var reloadButton = document.getElementById("panelBootstrapReload");
+      var copyButton = document.getElementById("panelBootstrapCopy");
+      if (reloadButton) reloadButton.addEventListener("click", function () { try { api.postMessage({ command: "reloadPanel" }); } catch (_) {} });
+      if (copyButton) copyButton.addEventListener("click", function () { try { api.postMessage({ command: "copyPanelDiagnostics" }); } catch (_) {} });
+      window.addEventListener("error", function (event) {
+        var target = event && event.target;
+        if (target && target !== window) {
+          var resource = String(target.src || target.href || target.currentSrc || target.tagName || "resource").slice(0, 160);
+          report("资源加载失败：" + resource, "resource-load", resource);
+          return;
+        }
+        report(event.error || event.message || "脚本运行失败", "runtime-error", event.filename || "");
+      }, true);
+      window.addEventListener("unhandledrejection", function (event) { report(event.reason, "unhandled-rejection", "promise"); });
+      document.addEventListener("securitypolicyviolation", function (event) {
+        report("csp-violation: " + String(event.violatedDirective || "unknown directive") + " / " + String(event.blockedURI || "inline"), "resource-policy", String(event.violatedDirective || ""));
+      });
+      window.addEventListener("simple-panel-bootstrap-ready", function () {
+        markReady();
+      }, { once: true });
+      timeout = window.setTimeout(function () { report("bootstrap-timeout: 主脚本未能完成初始化"); }, 15000);
+    })();
+  </script>
+  <script nonce="${nonce}">
     const patchPanelProgressDom = ${panelProgressDomPatchSource};
     // webview 原生 title 在长文本/含换行时渲染不稳定（只显示部分或完全不显示），
     // 且会把悬浮定位到元素附近导致表格行、卡片错位变形。
@@ -1606,32 +1727,92 @@ function renderPanelHtml() {
     (function () {
       try {
         var GARBAGE_TAGS = "tr,td,th,span,div,section,article,h1,h2,h3,h4,h5,h6,b,i,u,strong,em,summary,details";
-        var upgradeTitles = function () {
-          // 1. 操作元素 -> 自定义气泡
-          var ops = document.querySelectorAll("button[title], a[title]");
-          for (var i = 0; i < ops.length; i++) {
-            var b = ops[i];
-            var t = b.getAttribute("title");
-            if (!t) continue;
-            if (!b.hasAttribute("data-tip")) b.setAttribute("data-tip", t);
-            b.removeAttribute("title");
-          }
-          // 2. 冗余元素 -> 直接移除 title（不显示任何悬浮框）
-          var garbage = document.querySelectorAll(GARBAGE_TAGS + "[title]");
-          for (var j = 0; j < garbage.length; j++) {
-            garbage[j].removeAttribute("title");
-            garbage[j].removeAttribute("data-tip");
+        var pendingTitleRoots = [];
+        var pendingTitleRootSet = new Set();
+        var titleScanScheduled = false;
+        var titleObserver;
+        var normalizeTitleNode = function (node) {
+          if (!node || node.nodeType !== 1 || !node.hasAttribute("title")) return;
+          if (node.matches("button, a")) {
+            var title = node.getAttribute("title");
+            if (title && !node.hasAttribute("data-tip")) node.setAttribute("data-tip", title);
+            node.removeAttribute("title");
+          } else if (node.matches(GARBAGE_TAGS)) {
+            node.removeAttribute("title");
+            node.removeAttribute("data-tip");
           }
         };
-        upgradeTitles();
         if (typeof MutationObserver === "function") {
-          var scheduled = false;
-          var observer = new MutationObserver(function () {
-            if (scheduled) return;
-            scheduled = true;
-            setTimeout(function () { scheduled = false; upgradeTitles(); }, 30);
+          var scheduleTitleScan = function () {
+            if (titleScanScheduled || document.hidden) return;
+            titleScanScheduled = true;
+            setTimeout(function () {
+              titleScanScheduled = false;
+              var budget = 256;
+              while (budget > 0 && pendingTitleRoots.length) {
+                var current = pendingTitleRoots[0];
+                if (current.root && current.root.isConnected === false) {
+                  pendingTitleRoots.shift();
+                  pendingTitleRootSet.delete(current.root);
+                  continue;
+                }
+                if (!current.started) {
+                  current.started = true;
+                  normalizeTitleNode(current.root);
+                  budget--;
+                } else {
+                  var nextNode = current.walker.nextNode();
+                  if (!nextNode) {
+                    pendingTitleRoots.shift();
+                    pendingTitleRootSet.delete(current.root);
+                    continue;
+                  }
+                  normalizeTitleNode(nextNode);
+                  budget--;
+                }
+              }
+              if (pendingTitleRoots.length) scheduleTitleScan();
+            }, 30);
+          };
+          var enqueueTitleRoot = function (node) {
+            if (!node || node.nodeType !== 1 || node.isConnected === false || pendingTitleRootSet.has(node)) return;
+            if (pendingTitleRoots.length >= 512) {
+              pendingTitleRoots.length = 0;
+              pendingTitleRootSet.clear();
+              node = document.body || document.documentElement;
+              if (!node) return;
+            }
+            pendingTitleRootSet.add(node);
+            pendingTitleRoots.push({ root: node, walker: document.createTreeWalker(node, 1), started: false });
+          };
+          titleObserver = new MutationObserver(function (records) {
+            if (document.hidden) return;
+            for (var i = 0; i < records.length; i++) {
+              var record = records[i];
+              if (record.type === "attributes") normalizeTitleNode(record.target);
+              else for (var j = 0; j < record.addedNodes.length; j++) enqueueTitleRoot(record.addedNodes[j]);
+            }
+            scheduleTitleScan();
           });
-          observer.observe(document.body || document.documentElement, { childList: true, subtree: true });
+          window.__simplePanelTitleObserver = titleObserver;
+          var observeTitles = function () {
+            if (document.hidden) {
+              titleObserver.disconnect();
+              pendingTitleRoots.length = 0;
+              pendingTitleRootSet.clear();
+              return;
+            }
+            titleObserver.observe(document.body || document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["title"] });
+            enqueueTitleRoot(document.body || document.documentElement);
+            scheduleTitleScan();
+          };
+          document.addEventListener("visibilitychange", observeTitles);
+          window.addEventListener("pagehide", function () {
+            titleObserver.disconnect();
+            pendingTitleRoots.length = 0;
+            pendingTitleRootSet.clear();
+          });
+          observeTitles();
         }
         // 气泡挂在 body 下（脱离 .topbar / contain 容器），先写入内容并显示，
 // 再量出真实尺寸定位，避免估算导致的偏移。
@@ -1686,8 +1867,13 @@ function renderPanelHtml() {
       } catch (e) {}
     })();
     const PLUGIN_VERSION = "${PLUGIN_VERSION}";
-    const vscode = acquireVsCodeApi();
-    console.log("[webview] acquireVsCodeApi", !!vscode, typeof vscode?.postMessage);
+    const vscodeApiAvailable = !!window.__simplePanelVsCodeApi;
+    const vscode = window.__simplePanelVsCodeApi || {
+      postMessage: function () { return false; },
+      getState: function () { return null; },
+      setState: function () {}
+    };
+    console.log("[webview] acquireVsCodeApi", vscodeApiAvailable, typeof vscode.postMessage);
     const panelDocumentGeneration = String(document.documentElement?.getAttribute("data-panel-document-generation") || "");
     const panelRunningVersion = String(document.documentElement?.getAttribute("data-panel-running-version") || "");
     const panelDocumentBuildId = String(document.documentElement?.getAttribute("data-panel-build-id") || "");
@@ -1717,10 +1903,12 @@ function renderPanelHtml() {
       if (bootstrapErrorReported) return;
       bootstrapErrorReported = true;
       const message = error && (error.message || error.reason || error.error) ? String(error.message || error.reason || error.error) : String(error || "Webview 启动失败");
-      vscode.postMessage({ command: "webviewBootstrapError", documentGeneration: panelDocumentGeneration, error: message.slice(0, 480) });
+      if (window.__simplePanelBootstrapReporter && typeof window.__simplePanelBootstrapReporter.report === "function") {
+        window.__simplePanelBootstrapReporter.report(message);
+      } else {
+        vscode.postMessage({ command: "webviewBootstrapError", documentGeneration: panelDocumentGeneration, error: message.slice(0, 480) });
+      }
     };
-    window.addEventListener("error", (event) => reportBootstrapError(event.error || event.message));
-    window.addEventListener("unhandledrejection", (event) => reportBootstrapError(event.reason));
     const el = (id) => document.getElementById(id);
     let tmuxPollTimer = 0;
     const TMUX_POLL_MS = 5000;
@@ -2272,6 +2460,9 @@ function renderPanelHtml() {
     const explicitlyExpandedInterestSections = new Set();
     let visiblePanelSections = [];
     let sectionVisibilityListenerInstalled = false;
+    let sectionVisibilityObserver = null;
+    let sectionVisibilityObservedCards = new Map();
+    let intersectingPanelSections = new Set();
     let sectionVisibilityFrame = 0;
     let sentSectionInterestSignature = "";
     let sectionTelemetrySamples = [];
@@ -2633,7 +2824,7 @@ function renderPanelHtml() {
     const EMPTY_SCHEDULER_STATES = [];
     const MATCH_EVERY_OPERATION = () => true;
     const MATCH_NO_OPERATION = () => false;
-    const OPERATION_ACTIVE_MATCH_TOKENS = Object.freeze(["accepted", "submitted", "pending", "queued", "running", "in_progress", "started", "progress"]);
+    const OPERATION_ACTIVE_MATCH_TOKENS = Object.freeze(["accepted", "submitted", "pending", "queued", "running", "cancelling", "in_progress", "started", "progress"]);
     const OPERATION_FAILURE_MATCH_TOKENS = Object.freeze(["failed", "failure", "stalled", "interrupted", "timeout", "unsupported", "error"]);
     const OPERATION_INFRASTRUCTURE_PATTERN = /self|debug|audit|diagnostic|agent|tunnel|port/;
     const OPERATION_SECTION_MATCH_PATTERNS = new Map([
@@ -3214,7 +3405,9 @@ function renderPanelHtml() {
           if (!Object.keys(payload.mappings).length) { if (typeof showToast === "function") showToast("请选择 Plan 和目标数据集", "warning"); return; }
         }
         const pendingKey = pendingKeyForButton(button, command, payload);
-        if (!pendingButtonKeys?.has(pendingKey)) {
+        if (!pendingButtonKeys?.has(pendingKey) || retryableTransferCommand(command)) {
+          if (retryableTransferCommand(command) && pendingActions[pendingKey]?.clientActionId)
+            clearPendingActionTimeout(pendingActions[pendingKey].clientActionId);
           if (commandNeedsLoading(command)) {
             const clientActionId = createClientActionId(command, pendingKey);
             payload.clientActionId = clientActionId;
@@ -3292,7 +3485,7 @@ function renderPanelHtml() {
     });
     window.addEventListener("blur", () => { hidePinContextMenu(); persistTransientPanelState(); });
     window.addEventListener("pagehide", persistTransientPanelState);
-    window.addEventListener("resize", () => { scheduleGpuHistoryDraw(); });
+    window.addEventListener("resize", () => { scheduleGpuHistoryDraw(); postPanelLayoutEvidence("window-resize"); }, { passive: true });
     window.addEventListener("scroll", () => { hidePinContextMenu(); }, true);
     document.addEventListener("pointermove", (event) => {
       const canvas = event.target && event.target.closest ? event.target.closest("canvas.gpuHistoryCanvas") : null;
@@ -3552,7 +3745,7 @@ function renderPanelHtml() {
     }, true);
     document.addEventListener("keydown", (event) => { if (event && event.key === "Escape") { try { closeInspectorAddMenu(); } catch (e) {} } });
     window.addEventListener("pointermove", (event) => updateLayoutResize(event));
-    window.addEventListener("pointerup", () => finishLayoutResize());
+    window.addEventListener("pointerup", () => { finishLayoutResize(); postPanelLayoutEvidence("panel-resize"); });
     document.addEventListener("change", (event) => {
       const input = event.target;
       if (input && input.matches && input.matches('input[type="checkbox"][data-command="selectExperiment"]')) {
@@ -3579,13 +3772,44 @@ function renderPanelHtml() {
     window.addEventListener("message", (event) => {
       handleIncomingWebviewMessage(event.data);
     });
+    let panelLayoutEvidenceTimer = 0;
+    let lastPanelLayoutEvidenceSignature = "";
+    function postPanelLayoutEvidence(trigger) {
+      if (panelLayoutEvidenceTimer) clearTimeout(panelLayoutEvidenceTimer);
+      panelLayoutEvidenceTimer = setTimeout(() => {
+        panelLayoutEvidenceTimer = 0;
+        const rect = (id) => {
+          const node = el(id);
+          if (!node || typeof node.getBoundingClientRect !== "function") return { x: 0, y: 0, width: 0, height: 0 };
+          const value = node.getBoundingClientRect();
+          return { x: Math.round(value.left), y: Math.round(value.top), width: Math.round(value.width), height: Math.round(value.height) };
+        };
+        const evidence = {
+          command: "webviewLayoutEvidence",
+          documentGeneration: panelDocumentGeneration,
+          trigger: String(trigger || "unknown").slice(0, 32),
+          documentHidden: document.hidden === true,
+          viewport: { x: 0, y: 0, width: Math.max(0, Math.round(window.innerWidth || 0)), height: Math.max(0, Math.round(window.innerHeight || 0)) },
+          cardDeck: rect("cardDeck"),
+          mainColumn: rect("mainColumn"),
+          inspector: rect("workbenchInspector"),
+          devicePixelRatio: Math.max(0, Math.min(8, Number(window.devicePixelRatio) || 0)),
+        };
+        const signature = JSON.stringify({ hidden: evidence.documentHidden, viewport: evidence.viewport, cardDeck: evidence.cardDeck, mainColumn: evidence.mainColumn, inspector: evidence.inspector, devicePixelRatio: evidence.devicePixelRatio });
+        if (signature === lastPanelLayoutEvidenceSignature) return;
+        lastPanelLayoutEvidenceSignature = signature;
+        try { vscode.postMessage(evidence); } catch (_) {}
+      }, 500);
+    }
     function postWebviewVisibility() {
       try {
         vscode.postMessage({ command: "webviewVisibility", documentGeneration: panelDocumentGeneration, hidden: document.hidden === true });
       } catch (_) {}
     }
     document.addEventListener("visibilitychange", () => {
+      persistTransientPanelState();
       postWebviewVisibility();
+      postPanelLayoutEvidence("visibility");
       panelHealthProbeGeneration += 1;
       if (panelHealthProbeFrameId && typeof cancelAnimationFrame === "function") cancelAnimationFrame(panelHealthProbeFrameId);
       panelHealthProbeFrameId = 0;
@@ -3593,6 +3817,10 @@ function renderPanelHtml() {
       panelHealthProbeLastSuccessAt = 0;
       if (document.hidden) {
         awaitingVisibleStateRefresh = true;
+        clearInterval(tmuxPollTimer);
+        tmuxPollTimer = 0;
+        try { window.__simplePanelTitleObserver && window.__simplePanelTitleObserver.disconnect(); } catch (_) {}
+        suspendSectionVisibilityTracking();
         const hadPendingRender = stateRenderScheduled || stateRenderPendingWhileHidden || lastReceivedStateSeq > lastRenderedStateSeq;
         if (stateRenderFrameId) {
           if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(stateRenderFrameId);
@@ -3605,11 +3833,15 @@ function renderPanelHtml() {
       } else {
         // Host sends one latest-wins state after visibility returns; avoid rendering an older hidden frame first.
         awaitingVisibleStateRefresh = true;
+        try { window.__simplePanelTitleObserver && window.__simplePanelTitleObserver.observe(document.body || document.documentElement, { childList: true, subtree: true }); } catch (_) {}
+        resumeSectionVisibilityTracking();
         schedulePanelHealthProbe();
+        scheduleTmuxPoll();
         refreshTmuxList();
       }
     });
     postWebviewVisibility();
+    postPanelLayoutEvidence("document-ready");
     setupResourceTreeObserver();
     el("initialStateRetry").addEventListener("click", requestInitialPanelState);
     requestInitialPanelState();
@@ -3651,6 +3883,7 @@ function renderPanelHtml() {
 
     function requestInitialPanelState() {
       console.log("[webview] post webviewReady");
+      try { window.dispatchEvent(new Event("simple-panel-bootstrap-ready")); } catch (_) {}
       const notice = el("initialStateNotice");
       const retry = el("initialStateRetry");
       if (notice) notice.hidden = false;
@@ -3661,6 +3894,8 @@ function renderPanelHtml() {
       if (initialStateTimer) clearTimeout(initialStateTimer);
       initialStateTimer = window.setTimeout(() => {
         el("initialStateMessage").textContent = "尚未收到本地面板状态。";
+        const bootstrapMessage = el("panelBootstrapMessage");
+        if (bootstrapMessage && !el("panelBootstrapStatus").hidden) bootstrapMessage.textContent = "尚未收到本地面板状态。可重试读取，或重新加载面板。";
         if (retry) retry.hidden = false;
         document.body.removeAttribute("aria-busy");
       }, 8000);
@@ -3709,6 +3944,53 @@ function renderPanelHtml() {
       return { status: "ok", reason: "render-completed" };
     }
 
+    function panelRenderGeometryEvidence() {
+      const main = el("mainColumn");
+      let rect = null;
+      let style = null;
+      let hitTestOutsideMainCount = 0;
+      let hitTestTargets = [];
+      try { if (main && typeof main.getBoundingClientRect === "function") rect = main.getBoundingClientRect(); } catch (_) {}
+      try { if (main && typeof window.getComputedStyle === "function") style = window.getComputedStyle(main); } catch (_) {}
+      try {
+        if (main && rect && rect.width > 0 && rect.height > 0 && document.elementFromPoint) {
+          const points = [
+            [rect.left + rect.width / 2, rect.top + rect.height / 2],
+            [rect.left + rect.width * 0.25, rect.top + rect.height * 0.25],
+            [rect.left + rect.width * 0.75, rect.top + rect.height * 0.75]
+          ];
+          for (const point of points) {
+            const x = Math.max(0, Math.min(window.innerWidth - 1, point[0]));
+            const y = Math.max(0, Math.min(window.innerHeight - 1, point[1]));
+            const hit = document.elementFromPoint(x, y);
+            if (hit && hit !== main && !main.contains(hit)) {
+              hitTestOutsideMainCount += 1;
+              if (hitTestTargets.length < 3) {
+                const classes = typeof hit.className === "string" ? hit.className.trim().split(/\\s+/).slice(0, 3).join(".") : "";
+                hitTestTargets.push((String(hit.tagName || "element").toLowerCase() + (hit.id ? "#" + String(hit.id).slice(0, 48) : "") + (classes ? "." + classes.slice(0, 80) : "")).slice(0, 140));
+              }
+            }
+          }
+        }
+      } catch (_) {}
+      const finite = (value) => Number.isFinite(Number(value)) ? Math.max(0, Math.min(10000, Math.round(Number(value)))) : 0;
+      return {
+        documentHidden: document.hidden === true,
+        viewportWidth: finite(window.innerWidth),
+        viewportHeight: finite(window.innerHeight),
+        mainWidth: finite(rect && rect.width),
+        mainHeight: finite(rect && rect.height),
+        mainDisplay: String(style && style.display || "").slice(0, 24),
+        mainVisibility: String(style && style.visibility || "").slice(0, 24),
+        mainOpacity: String(style && style.opacity || "").slice(0, 12),
+        mainChildCount: finite(main && main.childElementCount),
+        hitTestOutsideMainCount,
+        hitTestTargets,
+        frameProbeAgeMs: panelHealthProbeLastSuccessAt ? finite(Date.now() - panelHealthProbeLastSuccessAt) : null,
+        lastRenderAgeMs: panelLastSuccessfulRenderAt ? finite(Date.now() - panelLastSuccessfulRenderAt) : null
+      };
+    }
+
     function schedulePanelHealthProbe() {
       if (document.hidden || panelHealthProbeScheduledAt) return;
       if (typeof requestAnimationFrame !== "function") {
@@ -3739,6 +4021,7 @@ function renderPanelHtml() {
         const renderHealth = currentPanelRenderHealth();
         vscode.postMessage({ command: "webviewHeartbeatAck", heartbeatId: message.heartbeatId,
           documentGeneration: panelDocumentGeneration || undefined, extensionVersion: panelRunningVersion, documentBuildId: panelDocumentBuildId, renderHealth,
+          renderEvidence: panelRenderGeometryEvidence(),
           lastReceivedStateSeq: lastReceivedStateSeq, lastRenderedStateSeq: lastRenderedStateSeq });
         return;
       }
@@ -3816,38 +4099,47 @@ function renderPanelHtml() {
           const latestSeq = Number(latestStateMessage && latestStateMessage.seq);
           if (!latestStateMessage || !Number.isFinite(latestSeq) || (Number.isFinite(itemSeq) && itemSeq >= latestSeq)) latestStateMessage = item;
         }
-        if (item.type === "navigate") latestNavigationMessage = item;
+        if (item.type === "navigate") {
+          // Navigation is an event, not render state. Consume each explicit
+          // user navigation once so later state batches cannot replay it.
+          if (item.userInitiated === true || item.openResultMapping === true) latestNavigationMessage = item;
+        }
       }
       if (latestStateMessage) {
         const incomingSeq = Number(latestStateMessage.seq);
-        if (!Number.isSafeInteger(incomingSeq) || incomingSeq <= lastReceivedStateSeq) return;
-        lastReceivedStateSeq = incomingSeq;
-        completeInitialPanelState();
-        const incomingState = latestStateMessage.state || {};
-        if (transientPanelStateNeedsRestore && transientPlanSelectionDirty) {
-          const selectedPlanFile = restoredTransientPanelState.selectedPlanFile;
-          lastState = Object.assign({}, incomingState, {
-            planFileInput: selectedPlanFile,
-            selection: Object.assign({}, incomingState.selection || {}, { selectedPlanId: selectedPlanFile })
-          });
-          if (selectedPlanFile !== String(incomingState.planFileInput || ((incomingState.selection || {}).selectedPlanId) || "")) {
-            vscode.postMessage({ command: "selectPlan", planFile: selectedPlanFile });
-          }
-        } else lastState = incomingState;
-        pendingRenderSeq = incomingSeq;
-        pendingRenderState = lastState;
-        awaitingVisibleStateRefresh = false;
-        rememberGpuHistoryState(lastState.gpuHistory);
-        invalidateSelectedTaskPayload();
-        clearCompletedPendingButtons(lastState);
-        scheduleStateRender();
-        try {
-          if (Date.now() - Number(lastSnapshotRequestAt || 0) < 15000) { var __snapSection = String(lastSnapshotSection || ""); lastSnapshotRequestAt = 0; lastSnapshotSection = ""; if (__snapSection === "gpu") refreshGpuHistoryAfterSnapshot(); }
-        } catch (e) {}
+        if (Number.isSafeInteger(incomingSeq) && incomingSeq > lastReceivedStateSeq) {
+          lastReceivedStateSeq = incomingSeq;
+          try { if (window.__simplePanelBootstrapReporter && typeof window.__simplePanelBootstrapReporter.stateReceived === "function") window.__simplePanelBootstrapReporter.stateReceived(incomingSeq); } catch (_) {}
+          completeInitialPanelState();
+          const incomingState = latestStateMessage.state || {};
+          if (transientPanelStateNeedsRestore && transientPlanSelectionDirty) {
+            const selectedPlanFile = restoredTransientPanelState.selectedPlanFile;
+            lastState = Object.assign({}, incomingState, {
+              planFileInput: selectedPlanFile,
+              selection: Object.assign({}, incomingState.selection || {}, { selectedPlanId: selectedPlanFile })
+            });
+            if (selectedPlanFile !== String(incomingState.planFileInput || ((incomingState.selection || {}).selectedPlanId) || "")) {
+              vscode.postMessage({ command: "selectPlan", planFile: selectedPlanFile });
+            }
+          } else lastState = incomingState;
+          pendingRenderSeq = incomingSeq;
+          pendingRenderState = lastState;
+          awaitingVisibleStateRefresh = false;
+          rememberGpuHistoryState(lastState.gpuHistory);
+          invalidateSelectedTaskPayload();
+          clearCompletedPendingButtons(lastState);
+          scheduleStateRender();
+          try {
+            if (Date.now() - Number(lastSnapshotRequestAt || 0) < 15000) { var __snapSection = String(lastSnapshotSection || ""); lastSnapshotRequestAt = 0; lastSnapshotSection = ""; if (__snapSection === "gpu") refreshGpuHistoryAfterSnapshot(); }
+          } catch (e) {}
+        }
+        latestStateMessage = null;
       }
-      if (latestNavigationMessage && (latestNavigationMessage.userInitiated === true || latestNavigationMessage.openResultMapping)) {
-        navigateToResourceTarget(latestNavigationMessage.section, latestNavigationMessage.anchor, { force: true });
-        if (latestNavigationMessage.openResultMapping) openResultColumnMappingEditor();
+      const navigation = latestNavigationMessage;
+      latestNavigationMessage = null;
+      if (navigation) {
+        navigateToResourceTarget(navigation.section, navigation.anchor, { force: true });
+        if (navigation.openResultMapping) openResultColumnMappingEditor();
       }
     }
 
@@ -3875,6 +4167,7 @@ function renderPanelHtml() {
           restoreTransientPanelState();
           lastRenderErrorMessage = "";
           updatePanelRenderHealth("ok", "render-completed");
+          try { if (window.__simplePanelBootstrapReporter && typeof window.__simplePanelBootstrapReporter.rendered === "function") window.__simplePanelBootstrapReporter.rendered(renderingStateSeq || lastReceivedStateSeq); } catch (_) {}
           return true;
         }
         applyUiLayout(state);
@@ -3888,6 +4181,7 @@ function renderPanelHtml() {
         restoreTransientPanelState();
         lastRenderErrorMessage = "";
         updatePanelRenderHealth("ok", "render-completed");
+        try { if (window.__simplePanelBootstrapReporter && typeof window.__simplePanelBootstrapReporter.rendered === "function") window.__simplePanelBootstrapReporter.rendered(renderingStateSeq || lastReceivedStateSeq); } catch (_) {}
         return true;
       } catch (error) {
         const message = error && error.message ? String(error.message) : String(error);
@@ -3895,6 +4189,8 @@ function renderPanelHtml() {
         const full = stack ? message + String.fromCharCode(10) + stack : message;
         updatePanelRenderHealth("unhealthy", "render-failed: " + message);
         el("renderError").textContent = "UI 渲染失败：" + message + (stack ? " | " + stack.slice(0, 380) : "");
+        const bootstrapMessage = el("panelBootstrapMessage");
+        if (bootstrapMessage && !el("panelBootstrapStatus").hidden) bootstrapMessage.textContent = "界面渲染失败：" + message + "。可重新加载面板或复制诊断。";
         if (message !== lastRenderErrorMessage) {
           lastRenderErrorMessage = message;
           vscode.postMessage({ command: "webviewRenderError", documentGeneration: panelDocumentGeneration, error: full.slice(0, 980) });
@@ -4217,6 +4513,7 @@ function renderPanelHtml() {
     }
 
     function sectionInMainColumnViewport(section) {
+      if (sectionVisibilityObserver) return intersectingPanelSections.has(section);
       const main = el("mainColumn");
       const card = main && main.querySelector ? main.querySelector('[data-section="' + cssEscape(section) + '"]') : null;
       if (!main || !card || !main.getBoundingClientRect || !card.getBoundingClientRect) return false;
@@ -4229,10 +4526,11 @@ function renderPanelHtml() {
     function panelSectionShouldRenderNow(section) {
       if (activeResourceSection === section) return true;
       if (currentUiLayout && currentUiLayout.inspectorPinned && activeResourceSection === section) return true;
-      return visiblePanelSections.indexOf(section) >= 0 || sectionInMainColumnViewport(section);
+      return visiblePanelSections.indexOf(section) >= 0;
     }
 
     function collectVisiblePanelSections() {
+      if (sectionVisibilityObserver) return sectionRenderOrder.filter((section) => !sectionIsCollapsed(section) && intersectingPanelSections.has(section));
       return sectionRenderOrder.filter((section) => !sectionIsCollapsed(section) && sectionInMainColumnViewport(section));
     }
 
@@ -4243,9 +4541,56 @@ function renderPanelHtml() {
       sectionVisibilityListenerInstalled = true;
       main.addEventListener("scroll", scheduleVisibleDirtySectionRender, { passive: true });
       if (typeof window !== "undefined" && typeof window.addEventListener === "function") window.addEventListener("resize", scheduleVisibleDirtySectionRender, { passive: true });
+      if (typeof IntersectionObserver === "function") {
+        try {
+          sectionVisibilityObserver = new IntersectionObserver((entries) => {
+            entries.forEach((entry) => {
+              const section = String((entry.target && entry.target.dataset && entry.target.dataset.section) || "");
+              if (!section) return;
+              if (entry.isIntersecting && entry.intersectionRatio > 0) intersectingPanelSections.add(section);
+              else intersectingPanelSections.delete(section);
+            });
+            scheduleVisibleDirtySectionRender();
+          }, { root: main, threshold: 0 });
+          sectionRenderOrder.forEach((section) => {
+            const card = main.querySelector('[data-section="' + cssEscape(section) + '"]');
+            if (!card) return;
+            sectionVisibilityObservedCards.set(section, card);
+            sectionVisibilityObserver.observe(card);
+          });
+        } catch (_) {
+          try { sectionVisibilityObserver && sectionVisibilityObserver.disconnect(); } catch (_) {}
+          sectionVisibilityObserver = null;
+          sectionVisibilityObservedCards.clear();
+          intersectingPanelSections.clear();
+        }
+      }
+    }
+
+    function suspendSectionVisibilityTracking() {
+      if (sectionVisibilityFrame) {
+        if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(sectionVisibilityFrame);
+        else clearTimeout(sectionVisibilityFrame);
+      }
+      sectionVisibilityFrame = 0;
+      try { sectionVisibilityObserver && sectionVisibilityObserver.disconnect(); } catch (_) {}
+      intersectingPanelSections.clear();
+      visiblePanelSections = [];
+    }
+
+    function resumeSectionVisibilityTracking() {
+      if (document.hidden) return;
+      if (!sectionVisibilityListenerInstalled) ensureSectionVisibilityTracking();
+      if (sectionVisibilityObserver) {
+        sectionVisibilityObservedCards.forEach((card) => {
+          try { sectionVisibilityObserver.observe(card); } catch (_) {}
+        });
+      }
+      scheduleVisibleDirtySectionRender();
     }
 
     function scheduleVisibleDirtySectionRender() {
+      if (document.hidden) return;
       if (sectionVisibilityFrame) return;
       const run = () => {
         sectionVisibilityFrame = 0;
@@ -5417,6 +5762,11 @@ function renderPanelHtml() {
       const clientActionId = String(data.clientActionId || "");
       const item = clientActionId ? pendingActionsById[clientActionId] : undefined;
       const pendingKey = String((item && item.pendingKey) || data.pendingKey || "");
+      if (!item && Object.values(pendingActions).some((row) => row.command === data.command)) return;
+      if (item && pendingActions[pendingKey] && pendingActions[pendingKey].clientActionId !== clientActionId) {
+        if (isTerminalUiStatus(data.status)) { delete pendingActionsById[clientActionId]; clearPendingActionTimeout(clientActionId); }
+        return;
+      }
       if (!item && !isTerminalUiStatus(data.status)) return;
       if (item) {
         if (isTerminalUiStatus(item.status) && !isTerminalUiStatus(data.status)) return;
@@ -5526,8 +5876,9 @@ function renderPanelHtml() {
       pendingButtonCandidates(clientActionId, pendingKey, command).forEach((button) => {
         const key = pendingKeyFromButtonDataset(button);
         if ((clientActionId && button.dataset.clientActionId === clientActionId) ||
-          (pendingKey && key === pendingKey) ||
-          (command && button.dataset.command === command && !buttonHasPendingScope(button))) {
+          (pendingKey && key === pendingKey && (!button.dataset.clientActionId || button.dataset.clientActionId === clientActionId)) ||
+          (command && button.dataset.command === command && !buttonHasPendingScope(button)
+            && (!button.dataset.clientActionId || button.dataset.clientActionId === clientActionId))) {
           clearButtonLoading(button);
         }
       });
@@ -5568,6 +5919,9 @@ function renderPanelHtml() {
       });
     }
 
+    function retryableTransferCommand(command) {
+      return ["syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts"].includes(command);
+    }
     function setButtonLoading(button, key) {
       if (!button) return;
       const alreadyLoading = button.classList.contains("is-loading");
@@ -5575,7 +5929,8 @@ function renderPanelHtml() {
       const item = pendingActions[key] || {};
       if (item.clientActionId) button.dataset.clientActionId = item.clientActionId;
       if (!alreadyLoading) button.dataset.wasDisabled = button.disabled ? "1" : "0";
-      button.disabled = true;
+      button.disabled = !retryableTransferCommand(item.command);
+      if (retryableTransferCommand(item.command)) button.title = "再次点击：取消这次同步，确认退出后重新执行；保留已有产物";
       if (!alreadyLoading) {
         button.classList.add("is-loading");
         loadingButtonCount += 1;
@@ -6345,7 +6700,7 @@ function renderPanelHtml() {
         selectPlan: "选择计划",
         selectExperiment: "选择任务",
         selectLogRunKey: "查看日志",
-        cleanupDrafts: "清理已拒绝或过期且未被引用的草稿文件"
+        cleanupDrafts: "将已拒绝或过期且未被引用的草稿文件移入 clean_dir"
       });
 
     function commandHelp(command, context) {
@@ -7462,7 +7817,7 @@ function renderPanelHtml() {
 
     function syncTreeObjects() {
       return [
-        treeObjectItem("sync", "运行环境准备链", "总览", "", "三步链速览：连接/上传/就绪，各卡左色条显示状态；全绿自动跳转实验卡。", "settings-chain-overview", "", "运行环境准备 连接 上传 就绪 chain overview 三步链"),
+        treeObjectItem("sync", "运行环境准备链", "总览", "", "三步链速览：连接/上传/就绪，各卡左色条显示状态；由用户决定下一步操作。", "settings-chain-overview", "", "运行环境准备 连接 上传 就绪 chain overview 三步链"),
         treeObjectItem("sync", "三步动作", "入口", "", "部署Agent→启动全部隧道→一键上传→检测全部→危险覆盖同在蓝框内横向一行；危险钮保留 sync-actions-danger 锚点。", "sync-actions", "", "运行环境准备 部署Agent 启动隧道 上传 检测 sync-actions 三步动作"),
         // 单链第二步下线：sync-servers 空容器/sync-publish-github/sync-github-push/sync-github-overwrite 原锚/sync-upload-hub/sync-upload-workers/sync-distribute-workers/sync-deploy-agent/sync-download-scope 共9树节点已下线（无DOM承接，点击回退链速览造成断层）；功能保留走 toolbar[data-anchor=sync-actions]/sync-actions-danger + inspector sync 全集，后端 case 全保留。覆盖本机如需树入口则改锚 sync-actions-danger（危险钮真实锚点）。
       ];
@@ -8157,6 +8512,8 @@ function renderPanelHtml() {
       const conflictById = indexes.conflictById;
       const hubName = setup.hubDisplayName || setup.sshConfigAlias || setup.hubHost || "Hub";
       const hubAssignment = assignmentById?.get("hub") || {};
+      const hubLocalHost = tunnelHost(setup.localForwardHost || hubAssignment.localForwardHost);
+      const hubRemoteHost = tunnelHost(setup.remoteAgentHost || hubAssignment.remoteBindHost);
       const hubStatus = (state.health || {}).state || "未检测";
       const goodWorkers = enabledWorkers.filter((worker) => serverObjectStatusClass((workerStatus?.get(String(worker.id)) || {}).status || "已配置", conflictById?.get(String(worker.id)), worker.enabled !== false) === "ok").length;
       const summary = [
@@ -8177,13 +8534,13 @@ function renderPanelHtml() {
           detail: "Hub",
           meta: [
             "控制面",
-            "127.0.0.1:" + (setup.localForwardPort || hubAssignment.localForwardPort || "-"),
+            formatTunnelAddress(hubLocalHost, setup.localForwardPort || hubAssignment.localForwardPort),
             serverSessionConfiguredLabel(setup.savedSessionPath, "隧道会话"),
             "Agent 随隧道"
           ],
           stats: [
-            ["本地隧道", "127.0.0.1:" + (setup.localForwardPort || hubAssignment.localForwardPort || "-"), "插件访问的本机端口"],
-            ["远端 Agent", "127.0.0.1:" + (setup.remoteAgentPort || hubAssignment.remoteServicePort || "-"), "Hub 服务器本机 Agent 端口"],
+            ["本地隧道", formatTunnelAddress(hubLocalHost, setup.localForwardPort || hubAssignment.localForwardPort), "插件访问的本机端口"],
+            ["远端 Agent", formatTunnelAddress(hubRemoteHost, setup.remoteAgentPort || hubAssignment.remoteServicePort), "Hub 服务器本机 Agent 端口"],
             ["TensorBoard", tensorBoardOverviewStatValue("hub", setup.localForwardPort || hubAssignment.localForwardPort), "复用 Agent 隧道，插件自动建立本机浏览器入口"],
             ["项目父目录", compactPath(setup.agentProjectDir || "-"), setup.agentProjectDir || "未配置"],
             ["会话来源", setup.savedSessionPath ? "Xshell .xsh" : "未选择", setup.savedSessionPath || "未选择 Xshell 隧道会话"]
@@ -8195,6 +8552,8 @@ function renderPanelHtml() {
         const status = worker.enabled === false ? "禁用" : (probe.status || "已配置");
         const localPort = worker.localForwardPort || assignment.localForwardPort || "-";
         const remotePort = worker.remoteTelemetryPort || worker.remoteAgentPort || assignment.remoteServicePort || "-";
+        const localHost = tunnelHost(worker.localForwardHost || assignment.localForwardHost || setup.localForwardHost);
+        const remoteHost = tunnelHost(worker.remoteAgentHost || assignment.remoteBindHost || setup.remoteAgentHost);
         const capLabel = (worker.maxConcurrentGpus === undefined || worker.maxConcurrentGpus === null || worker.maxConcurrentGpus === "auto" || worker.maxConcurrentGpus === 0) ? "全部" : String(worker.maxConcurrentGpus);
         cards.push(serverObjectCard({
           kind: "worker",
@@ -8206,13 +8565,13 @@ function renderPanelHtml() {
           detail: "Worker",
           meta: [
             worker.enabled === false ? "禁用" : "启用",
-            "127.0.0.1:" + localPort,
+            formatTunnelAddress(localHost, localPort),
             serverSessionConfiguredLabel(worker.savedSessionPath, "隧道会话"),
             "Agent 随隧道"
           ],
           stats: [
-            ["本地隧道", "127.0.0.1:" + localPort, "插件访问的 Worker 本机端口"],
-            ["远端 Agent", "127.0.0.1:" + remotePort, "Worker 服务器本机 Agent 端口"],
+            ["本地隧道", formatTunnelAddress(localHost, localPort), "插件访问的 Worker 本机端口"],
+            ["远端 Agent", formatTunnelAddress(remoteHost, remotePort), "Worker 服务器本机 Agent 端口"],
             ["TensorBoard", tensorBoardOverviewStatValue(String(worker.id), localPort), "复用 Agent 隧道，插件自动建立本机浏览器入口"],
             ["GPU 上限", capLabel, "空/0=auto=全部显卡数；显式值 clamp 1..总数"],
           ]
@@ -8252,6 +8611,20 @@ function renderPanelHtml() {
 
     function serverObjectSummaryItem(label, value, detail) {
       return '<div class="serverObjectSummaryItem" title="' + escAttr(detail) + '"><span>' + esc(label) + '</span><b>' + esc(value) + '</b></div>';
+    }
+
+    function tunnelHost(value) {
+      return String(value || "127.0.0.1").trim() || "127.0.0.1";
+    }
+
+    function formatTunnelHost(host) {
+      const value = tunnelHost(host);
+      return value.includes(":") && !value.startsWith("[") ? "[" + value + "]" : value;
+    }
+
+    function formatTunnelAddress(host, port) {
+      if (port === undefined || port === null || port === "" || String(port) === "-") return "-";
+      return formatTunnelHost(host) + ":" + String(port);
     }
 
     function serverObjectCard(options) {
@@ -8302,7 +8675,9 @@ function renderPanelHtml() {
       const enabledWorkers = enabledWorkerTunnelsForState(state);
       const scheduler = state.schedulerConfig || {};
       const hubPort = setup.localForwardPort || 18765;
-      const workerPorts = workers.map((worker) => worker.localForwardPort).filter(Boolean);
+      const workerPorts = workers.map((worker) => formatTunnelAddress(
+        tunnelHost(worker.localForwardHost || setup.localForwardHost), worker.localForwardPort,
+      )).filter(Boolean);
       const enabledCount = enabledWorkers.length;
       const jitter = Number(configDefault(scheduler.jitterSeconds, 30));
       const poll = Number(configDefault(scheduler.pollSeconds, 60));
@@ -8313,7 +8688,7 @@ function renderPanelHtml() {
       nodes.push(topologyNode("sftp", "SimpleSFTP", "显式文件传输"));
       const lanes = hubParticipates
         ? [
-            ["本机 -> Hub", "127.0.0.1:" + hubPort],
+            ["本机 -> Hub", formatTunnelAddress(tunnelHost(setup.localForwardHost), hubPort)],
             ["本机 -> Worker", workerPorts.length ? workerPorts.join(", ") : "未配置"],
             ["Worker -> Hub", "可用性批量上报"],
             ["Worker -> 本机", "实时日志/GPU/任务（WebSocket/SSE；快照备用）"],
@@ -8431,7 +8806,7 @@ function renderPanelHtml() {
       const agentCls = agent.ready ? "ok" : "warn";
       const worstCls = connCls === "error" ? "error" : (connCls === "warn" || syncCls === "warn" || agentCls === "warn" ? "warn" : "ok");
       const badgeText = conflicts.length ? ("冲突 " + conflicts.length) : (worstCls === "ok" ? "全绿" : "待配");
-      return '<div class="serverChainOverview ' + worstCls + '" data-anchor="settings-chain-overview" title="运行环境准备单链：部署Agent到上传到检测，全绿自动跳转实验卡">' +
+      return '<div class="serverChainOverview ' + worstCls + '" data-anchor="settings-chain-overview" title="运行环境准备单链：部署 Agent、上传代码并检测；后续操作由用户选择">' +
         '<b>' + esc(modeLabel) + '</b>' +
         '<span class="chainSteps">' +
         '<span class="chainStep ' + connCls + '" data-chain-step="connect"><span class="chainStepText" title="' + escAttr(setupReady.summary || connText) + '">' + esc(connText) + '</span></span>' +
@@ -8541,7 +8916,7 @@ function renderPanelHtml() {
         '<div class="server-card" data-anchor="servers-hub">' +
           '<div class="serverHead"><div class="serverTitle"><h3>' + esc(hubName) + '</h3><div class="muted">Hub 控制面</div></div>' +
           '<div class="serverBadges">' +
-            '<span class="pill">127.0.0.1:' + esc(setup.localForwardPort || hubAssignment.localForwardPort || "-") + '</span>' +
+              '<span class="pill">' + esc(formatTunnelAddress(tunnelHost(setup.localForwardHost || hubAssignment.localForwardHost), setup.localForwardPort || hubAssignment.localForwardPort)) + '</span>' +
             '<span class="pill">Agent ' + esc(setup.remoteAgentPort || hubAssignment.remoteServicePort || "-") + '</span>' +
             sessionStatusCell(conflictById?.get("hub"), (state.health || {}).state || "未检测") +
           '</div></div>' +
@@ -8553,7 +8928,7 @@ function renderPanelHtml() {
             configInput("hub", "condaEnv", "Conda 环境绝对路径（可选，必填完整路径）", setup.condaEnv || "") +
             configInput("hub", "agentProjectDir", "项目父目录", setup.agentProjectDir || "", "text", "wide") +
             configSessionSelect("hub", "savedSessionPath", "Xshell 隧道会话", setup.savedSessionPath || "") +
-            configPortPair("hub", "隧道端口对", "localForwardPort", "remoteAgentPort", setup.localForwardPort || hubAssignment.localForwardPort || "", setup.remoteAgentPort || hubAssignment.remoteServicePort || "", hubSession, "savedSessionForwardIndex", setup.savedSessionForwardIndex) +
+            configPortPair("hub", "隧道端口对", "localForwardPort", "remoteAgentPort", setup.localForwardPort || hubAssignment.localForwardPort || "", setup.remoteAgentPort || hubAssignment.remoteServicePort || "", hubSession, "savedSessionForwardIndex", setup.savedSessionForwardIndex, tunnelHost(setup.localForwardHost || hubAssignment.localForwardHost), tunnelHost(setup.remoteAgentHost || hubAssignment.remoteBindHost)) +
           '</div>' +
           '<div class="muted">插件的 SSH/SFTP 文件操作使用服务器地址；Xshell 会话只负责隧道。文件传输路径由项目父目录和当前项目名自动计算。</div>' +
           renderServerDestinationPreview(hubAgent, "hub") +
@@ -8594,7 +8969,7 @@ function renderPanelHtml() {
           '<div class="server-card" data-anchor="' + escAttr(treeAnchorId("servers-worker", worker.id || worker.displayName)) + '">' +
             '<div class="serverHead"><div class="serverTitle"><h3>' + esc(worker.displayName || worker.id) + '</h3><div class="muted">Worker 实时观测 · ' + esc(worker.id) + '</div></div>' +
             '<div class="serverBadges">' +
-              '<span class="pill">127.0.0.1:' + esc(worker.localForwardPort || assignment.localForwardPort || "-") + '</span>' +
+              '<span class="pill">' + esc(formatTunnelAddress(tunnelHost(worker.localForwardHost || assignment.localForwardHost || setup.localForwardHost), worker.localForwardPort || assignment.localForwardPort)) + '</span>' +
               '<span class="pill">Telemetry ' + esc(worker.remoteTelemetryPort || worker.remoteAgentPort || assignment.remoteServicePort || "-") + '</span>' +
               sessionStatusCell(conflictById?.get(String(worker.id)), status) +
             '</div></div>' +
@@ -8610,7 +8985,7 @@ function renderPanelHtml() {
             '<div class="thresholdRow" title="' + escAttr(configHelp(scope, "gpuIdleMemThresholdMb")) + '"><div class="label">空卡显存阈值 MB（显存 &lt; 阈值 视为空闲）' + helpBadge(configHelp(scope, "gpuIdleMemThresholdMb")) + '</div><div class="value"><input data-config-key="' + escAttr(scope + '.gpuIdleMemThresholdMb') + '" data-endpoint-id="' + escAttr(worker.id) + '" value="' + escAttr(worker.gpuIdleMemThresholdMb ?? "") + '" placeholder="默认 200（&lt;200MB 空闲）" type="number" min="0" max="8192" style="width:100%; min-width:120px; box-sizing:border-box;" title="' + escAttr(configHelp(scope, "gpuIdleMemThresholdMb")) + '" /></div></div>' +
             '<div class="thresholdRow" title="' + escAttr(configHelp(scope, "sessionCheckMinSeconds")) + '"><div class="label">会话检测最小间隔 秒' + helpBadge(configHelp(scope, "sessionCheckMinSeconds")) + '</div><div class="value"><input data-config-key="' + escAttr(scope + '.sessionCheckMinSeconds') + '" data-endpoint-id="' + escAttr(worker.id) + '" value="' + escAttr(worker.sessionCheckMinSeconds ?? "") + '" placeholder="默认 5" type="number" min="1" max="60" style="width:100%; min-width:120px; box-sizing:border-box;" title="' + escAttr(configHelp(scope, "sessionCheckMinSeconds")) + '" /></div></div>' +
             configSessionSelect(scope, "savedSessionPath", "Xshell 隧道会话", worker.savedSessionPath || "") +
-            configPortPair(scope, "隧道端口对", "localForwardPort", "remoteTelemetryPort", worker.localForwardPort || assignment.localForwardPort || "", worker.remoteTelemetryPort || worker.remoteAgentPort || assignment.remoteServicePort || "", workerSession, "savedSessionForwardIndex", worker.savedSessionForwardIndex) +
+            configPortPair(scope, "隧道端口对", "localForwardPort", "remoteTelemetryPort", worker.localForwardPort || assignment.localForwardPort || "", worker.remoteTelemetryPort || worker.remoteAgentPort || assignment.remoteServicePort || "", workerSession, "savedSessionForwardIndex", worker.savedSessionForwardIndex, tunnelHost(worker.localForwardHost || assignment.localForwardHost || setup.localForwardHost), tunnelHost(worker.remoteAgentHost || assignment.remoteBindHost || setup.remoteAgentHost)) +
             configSelect(scope, "enabled", "启用状态", worker.enabled === false ? "false" : "true", [["true", "启用"], ["false", "禁用"]]) +
           '</div>' +
           '<div class="muted">插件的 SSH/SFTP 文件操作使用服务器地址；Xshell 会话只负责隧道。文件传输路径由项目父目录和当前项目名自动计算。</div>' +
@@ -8692,7 +9067,10 @@ function renderPanelHtml() {
         '<span class="sub">健康 ' + esc(goodWorkers) + '/' + esc(enabledWorkers.length) + '</span>' +
         conflictPill +
       '</div>';
-      const workerPorts = workers.map((worker) => worker.localForwardPort).filter(Boolean);
+      const workerPorts = workers.map((worker) => {
+        const assignment = assignmentById.get(String(worker.id)) || {};
+        return formatTunnelAddress(tunnelHost(worker.localForwardHost || assignment.localForwardHost || setup.localForwardHost), worker.localForwardPort || assignment.localForwardPort);
+      }).filter(Boolean);
       const portsText = workerPorts.length ? workerPorts.join(", ") : "未配置";
       const schedText = topology.mode === "worker_pool" ? "每个 Plan 人工选择一台 Worker，由该 Worker 独立调度完整 Plan" : "Worker 本机处理完整 Plan";
       const links = '<div class="workerDenseLinks" title="通信链路">' +
@@ -8709,6 +9087,8 @@ function renderPanelHtml() {
         const statusClassValue = serverObjectStatusClass(status, conflictById.get(String(worker.id)), worker.enabled !== false);
         const localPort = worker.localForwardPort || assignment.localForwardPort || "-";
         const remotePort = worker.remoteTelemetryPort || worker.remoteAgentPort || assignment.remoteServicePort || "-";
+        const localHost = tunnelHost(worker.localForwardHost || assignment.localForwardHost || setup.localForwardHost);
+        const remoteHost = tunnelHost(worker.remoteAgentHost || assignment.remoteBindHost || setup.remoteAgentHost);
         const capLabel = (worker.maxConcurrentGpus === undefined || worker.maxConcurrentGpus === null || worker.maxConcurrentGpus === "auto" || worker.maxConcurrentGpus === 0) ? "全部" : String(worker.maxConcurrentGpus);
         const tbHtml = tensorBoardOverviewStatValue(String(worker.id), localPort);
         return '<div class="workerDenseWorker ' + escAttr(statusClassValue) + '" title="Worker ' + escAttr(worker.displayName || worker.id) + '">' +
@@ -8717,8 +9097,8 @@ function renderPanelHtml() {
           '<span class="pill" title="隧道会话">' + esc(serverSessionConfiguredLabel(worker.savedSessionPath, "隧道会话")) + '</span>' +
           '<span class="pill" title="Agent 随隧道启动">随隧道</span>' +
           '<span class="pill" title="' + escAttr(status) + '">' + esc(serverObjectStatusLabel(status, statusClassValue)) + '</span>' +
-          '<span class="wport" title="插件访问的 Worker 本机端口 127.0.0.1:' + escAttr(localPort) + '">本地:' + esc(localPort) + '</span>' +
-          '<span class="wport" title="Worker 服务器本机 Agent 端口 127.0.0.1:' + escAttr(remotePort) + '">远端:' + esc(remotePort) + '</span>' +
+          '<span class="wport" title="插件访问的 Worker 本机端口 ' + escAttr(formatTunnelAddress(localHost, localPort)) + '">本地:' + esc(formatTunnelAddress(localHost, localPort)) + '</span>' +
+          '<span class="wport" title="Worker Agent 远端绑定端口 ' + escAttr(formatTunnelAddress(remoteHost, remotePort)) + '">远端:' + esc(formatTunnelAddress(remoteHost, remotePort)) + '</span>' +
           '<span class="wport" title="复用 Agent 隧道，插件自动建立本机浏览器入口">TB ' + tbHtml + '</span>' +
           '<span class="wport" title="空/0=auto=全部显卡数">GPU上限' + esc(capLabel) + '</span>' +
           '</div>';
@@ -9119,7 +9499,7 @@ function renderPanelHtml() {
       return '<div class="field wide"' + title + '><label' + title + '>' + esc(label) + helpBadge(help) + '</label><select' + title + ' data-config-input="' + escAttr(scope) + '" data-key="' + escAttr(key) + '">' + options.join("") + '</select></div>';
     }
 
-    function configPortPair(scope, label, localKey, remoteKey, localValue, remoteValue, session, indexKey, selectedIndex) {
+    function configPortPair(scope, label, localKey, remoteKey, localValue, remoteValue, session, indexKey, selectedIndex, localHost, remoteHost) {
       const localHelp = configHelp(scope, localKey);
       const remoteHelp = configHelp(scope, remoteKey);
       const pairHelp = [localHelp, remoteHelp].filter(Boolean).join("；");
@@ -9139,9 +9519,9 @@ function renderPanelHtml() {
       }
       return '<div class="field portPair" data-port-pair-scope="' + escAttr(scope) + '"' + title + '><label' + title + '>' + esc(label) + helpBadge(pairHelp) + '</label>' +
         '<div class="portPairBox">' +
-          '<div class="portPairSide"><span class="portPairHost">127.0.0.1:</span><input' + (localHelp ? ' title="' + escAttr(localHelp) + '"' : "") + configBoundsAttrs(configInputBounds(scope, localKey)) + ' data-config-input="' + escAttr(scope) + '" data-key="' + escAttr(localKey) + '" type="number" value="' + escAttr(localValue || "") + '"></div>' +
+          '<div class="portPairSide"><span class="portPairHost">' + esc(formatTunnelHost(localHost)) + ':</span><input' + (localHelp ? ' title="' + escAttr(localHelp) + '"' : "") + configBoundsAttrs(configInputBounds(scope, localKey)) + ' data-config-input="' + escAttr(scope) + '" data-key="' + escAttr(localKey) + '" type="number" value="' + escAttr(localValue || "") + '"></div>' +
           '<span class="portPairArrow">-></span>' +
-          '<div class="portPairSide"><span class="portPairHost">127.0.0.1:</span><input' + (remoteHelp ? ' title="' + escAttr(remoteHelp) + '"' : "") + configBoundsAttrs(configInputBounds(scope, remoteKey)) + ' data-config-input="' + escAttr(scope) + '" data-key="' + escAttr(remoteKey) + '" type="number" value="' + escAttr(remoteValue || "") + '"></div>' +
+          '<div class="portPairSide"><span class="portPairHost">' + esc(formatTunnelHost(remoteHost)) + ':</span><input' + (remoteHelp ? ' title="' + escAttr(remoteHelp) + '"' : "") + configBoundsAttrs(configInputBounds(scope, remoteKey)) + ' data-config-input="' + escAttr(scope) + '" data-key="' + escAttr(remoteKey) + '" type="number" value="' + escAttr(remoteValue || "") + '"></div>' +
         '</div><div class="muted">当前会话文件未解析到 FwdReq，才需要手动填写。</div></div>';
     }
 
@@ -9200,7 +9580,7 @@ function renderPanelHtml() {
       return [session.name || session.filePath, login, forward].filter(Boolean).join(" · ");
     }
     function forwardPairLabel(forward) {
-      return "127.0.0.1:" + (forward.localPort || "-") + " -> " + (forward.remoteHost || "127.0.0.1") + ":" + (forward.remotePort || "-") + " (FwdReq_" + forward.index + ")";
+      return formatTunnelAddress(forward.localHost, forward.localPort) + " -> " + formatTunnelAddress(forward.remoteHost, forward.remotePort) + " (FwdReq_" + forward.index + ")";
     }
 
     function displayValue(value) {
@@ -9232,6 +9612,7 @@ function renderPanelHtml() {
         mode: "选择调度架构：单 Worker 由一台执行服务器运行；仅多 Worker 由多台执行服务器运行；Hub 可用时由 Hub 统一调度。切换后需保存。"
       };
       const schedulerHelp = {
+        dispatchMode: "选择新提交 Plan 的任务进入方式：本机按空闲 GPU 派发会在任务启动时连接 Worker；预派发到服务器队列会先把任务写入各服务器的持久队列，适合确认已入队后关机。",
         pollSeconds: "Hub 两次常规调度检查之间的基准间隔，单位秒；数值越小检查越频繁。",
         jitterSeconds: "每轮调度额外增加 0 到此值的随机等待，单位秒；用于错开多台机器的请求。",
         workerStatusTtlSeconds: "Worker 可用性信息可被沿用的最长时间，单位秒；过期时暂停向该 Worker 派发新任务。",
@@ -9252,8 +9633,8 @@ function renderPanelHtml() {
         agentProjectDir: "填写服务器上的绝对父目录，例如 /srv/projects；插件自动追加当前本地项目名作为代码目录，并在该父目录下计算 Agent 路径。不要填写单个文件或再次追加项目名。",
         savedSessionPath: "选择本机已有的 Xshell 会话文件，用于建立 Agent 端口转发；SSH/SFTP 连接地址仍取上面的服务器地址。",
         agentSessionPath: "Agent 会话",
-        localForwardPort: "本机监听的隧道端口；插件经 127.0.0.1 和此端口访问 Worker Agent。不是 SSH 登录端口。",
-        remoteTelemetryPort: "Worker Agent 在远端监听的端口；需与所选 Xshell 会话的远端转发端口一致。不是 SSH 登录端口。",
+        localForwardPort: "本机监听隧道的端口；插件通过当前 Worker 配置的本机主机地址和此端口访问 Agent。不是 SSH 登录端口。",
+        remoteTelemetryPort: "Worker Agent 在远端配置主机地址上监听的端口；需与所选 Xshell 会话的远端转发主机和端口一致。不是 SSH 登录端口。",
         enabled: "关闭后此 Worker 不参与新任务调度，也不作为当前文件传输目标；配置仍保留。",
         maxConcurrentGpus: "同时占用的 GPU 数上限；留空或 auto 使用全部可用 GPU，不限制排队任务数。",
         gpuIdleUtilThreshold: "空卡利用率阈值：利用率 < 阈值 才视为空闲（与显存双条件且关系）",
@@ -9269,8 +9650,8 @@ function renderPanelHtml() {
         agentProjectDir: "填写服务器上的绝对父目录，例如 /srv/projects；插件自动追加当前本地项目名作为代码目录，并在该父目录下计算 Agent 路径。不要填写单个文件或再次追加项目名。",
         savedSessionPath: "选择本机已有的 Xshell 会话文件，用于建立 Agent 端口转发；SSH/SFTP 连接地址仍取上面的服务器地址。",
         agentSessionPath: "Agent 会话",
-        localForwardPort: "本机监听的隧道端口；插件经 127.0.0.1 和此端口访问 Hub Agent。不是 SSH 登录端口。",
-        remoteAgentPort: "Hub Agent 在远端监听的端口；需与所选 Xshell 会话的远端转发端口一致。不是 SSH 登录端口。"
+        localForwardPort: "本机监听隧道的端口；插件通过当前 Hub 配置的本机主机地址和此端口访问 Agent。不是 SSH 登录端口。",
+        remoteAgentPort: "Hub Agent 在远端配置主机地址上监听的端口；需与所选 Xshell 会话的远端转发主机和端口一致。不是 SSH 登录端口。"
       };
       if (scope === "topology") return topologyHelp[key] || "";
       if (scope === "scheduler") return schedulerHelp[key] || "";
@@ -9350,7 +9731,7 @@ function renderPanelHtml() {
             endpointMini("最近心跳", hub.lastHeartbeat || "-", "Hub 心跳") +
             endpointMini("控制动作", hub.controlActionsEnabled ? "可用" : "不可用", "actions") +
             endpointMini("终态规则", "按钮恢复", "completed/failed/cancelled/stalled") +
-            endpointMini("通信边界", "本机端口", "127.0.0.1") +
+            endpointMini("通信边界", "本机端口", endpoint) +
           '</div>' +
         '</article>'
       ];
@@ -9368,7 +9749,7 @@ function renderPanelHtml() {
           endpointMini("任务观测", worker.workerTaskTelemetry ? "开启" : "关闭", "任务/日志") +
           endpointMini("事件流", labelStatus(rawEventStream), "原始事件流：" + rawEventStream) +
           endpointMini("心跳", worker.lastHeartbeat || "-", "Worker 心跳") +
-          endpointMini("本地端口", worker.localPort || "-", "127.0.0.1") +
+          endpointMini("本地端口", worker.localPort || "-", worker.localEndpoint || "当前 Worker 本机隧道端点") +
           endpointMini("策略", "推送优先", "推送优先") +
         '</div>' +
       '</article>';
@@ -9383,8 +9764,8 @@ function renderPanelHtml() {
         '<div class="endpointCardHead"><div><b>' + esc(role + " · " + item.endpointId) + '</b><div class="endpointCardSub">' + esc(item["s" + "shConfigAlias"] || "未填写登录别名") + '</div></div>' +
         '<span class="' + statusClass(status) + '">' + esc(labelStatus(status)) + '</span></div>' +
         '<div class="endpointMiniGrid">' +
-          endpointMini("本机端口", "127.0.0.1:" + (item.localForwardPort || "-"), "本机端口") +
-          endpointMini("远端端口", "127.0.0.1:" + (item.remoteServicePort || "-"), "远端端口") +
+          endpointMini("本机端口", formatTunnelAddress(item.localForwardHost, item.localForwardPort), "本机隧道主机与端口") +
+          endpointMini("远端端口", formatTunnelAddress(item.remoteBindHost, item.remoteServicePort), "远端 Agent 绑定主机与端口") +
           endpointMini("启用", endpointEnabled(state, item.endpointId) ? "是" : "否", "启用") +
           endpointMini("检测", labelStatus(status), "检测") +
         '</div>' +
@@ -9755,7 +10136,7 @@ function renderPanelHtml() {
             (draft.issues && draft.issues.length ? '<div class="muted">问题: ' + esc(draft.issues.map(function(i){return i.message;}).join("; ")) + '</div>' : "") +
           '</div></div>';
       }).join("");
-      const cleanup = (draftState.cleanupCandidates||[]).length ? '<div class="muted">清理候选 ' + draftState.cleanupCandidates.length + ' 个：' + esc(draftState.cleanupCandidates.map(function(c){return c.path;}).join(", ")) + '</div><button class="taskActionButton secondary" data-command="cleanupDrafts" title="清理已处理（通过或丢弃）的草稿记录&#10;只清理本地记录，不影响已生成的正式计划">清理 Rejected/Stale</button>' : "";
+      const cleanup = (draftState.cleanupCandidates||[]).length ? '<div class="muted">可移入 clean_dir 的候选 ' + draftState.cleanupCandidates.length + ' 个：' + esc(draftState.cleanupCandidates.map(function(c){return c.path;}).join(", ")) + '</div><button class="taskActionButton secondary" data-command="cleanupDrafts" title="将已处理（通过或丢弃）的草稿文件移入项目 clean_dir&#10;文件内容保留并写入 SHA256 清单">移入 clean_dir</button>' : "";
       return '<div class="section-card" style="margin-top:10px"><h3>草稿 PLAN（Draft）<span class="pill">独立发现</span></h3><div class="muted">草稿不能直接运行；请先审阅并转为正式 Plan。</div><div class="taskCardList">' + rows + '</div>' + cleanup + (draftState.error ? '<pre>' + esc(draftState.error) + '</pre>' : "") + '</div>';
     }
 
@@ -9808,7 +10189,7 @@ function renderPanelHtml() {
         const reason = actionButtonDisableReason(command, payload, options);
         const pendingKey = pendingKeyForButton(button, command, payload);
         const pending = pendingButtonKeys?.has(pendingKey);
-        button.disabled = Boolean(reason || pending);
+        button.disabled = Boolean(reason || (pending && !retryableTransferCommand(command)));
         button.dataset.pendingKey = pendingKey;
         const title = reason || (pending ? "执行中" : commandHelp(command));
         if (title) {
@@ -10074,7 +10455,7 @@ function renderPanelHtml() {
         const summary = activity.taskCount
           ? (historicalOnly ? "旧 revision 的 " : "") + activity.taskCount + " 个任务仍在排队或运行"
           : (historicalOnly ? "旧 revision 的 " : "") + activity.operationCount + " 个运行提交仍未结束";
-        return '<div class="planRunActions"><button class="mini" type="button" data-section-target="' + target + '" data-anchor-target="' + anchor + '" title="跳转到运行进度，查看重复提交的运行" aria-label="跳转到运行进度，查看重复提交的运行">' + label + '</button><span class="muted">' + esc(summary) + (historicalOnly ? "；为保护旧任务，当前版本暂不能提交。" : "，已阻止重复提交。") + '</span></div>';
+        return '<div class="planRunActions"><button class="mini" data-command="runPlan" data-plan-file="' + escAttr(selectedPlan) + '" title="确认停止这个 Plan 的旧运行，收到停止回执后重新提交；保留已有产物">停止并重新运行</button><button class="mini secondary" type="button" data-section-target="' + target + '" data-anchor-target="' + anchor + '">' + label + '</button><span class="muted">' + esc(summary) + '；重新运行需要确认停止。</span></div>';
       }
       return '<div class="planRunActions"><button class="mini" data-command="runPlan" data-plan-file="' + escAttr(selectedPlan) + '" title="同步代码、校验并预演；存在历史产物时必须在模态框选择处理方式">校验并提交运行</button><button class="mini secondary" data-command="validatePlan" data-plan-file="' + escAttr(selectedPlan) + '" title="校验实验计划，不会运行任务&#10;检查契约、输出接口与配置完整性&#10;未通过时列出缺失项与修复建议">单独校验</button><button class="mini secondary" data-command="dryRunPlan" data-plan-file="' + escAttr(selectedPlan) + '" title="预演运行，不提交任务&#10;展开「用例 × 随机种子」的任务数、远端路径、Worker 与并发上限">单独预演</button><span class="muted" style="font-size:11px;margin-left:6px;" title="调度前会检测输出目录已有产物并由模态框确认补跑或重跑">检测到已有产物时先确认处理方式</span></div>';
     }
@@ -12282,10 +12663,11 @@ function renderPanelHtml() {
         projectCache.set(cacheKey, cached);
         return cached;
       }
-      const configReady = !configFile || /[{}$]/.test(configFile) || asArray(configs).some((item) => String((item && item.file) || item || "") === configFile);
+      const declaredTaskOutputs = planOutputEvidenceSignals(planSource).some((item) => /任务产物:/.test(item));
+      const configReady = !configFile || declaredTaskOutputs || /[{}$]/.test(configFile) || asArray(configs).some((item) => String((item && item.file) || item || "") === configFile);
       const planSignals = contractReady ? planOutputEvidenceSignals(plan) : [];
       const planCandidates = contractReady ? planOutputEvidenceCandidates(plan) : [];
-      const planReady = Boolean(planSignals.length && planCandidates.length);
+      const planReady = Boolean(planSignals.length && (planCandidates.length || declaredTaskOutputs));
       const ruleCandidateCount = actionableAdapterRuleSignals(rules) ? adapterRuleResultCandidates(rules).length : 0;
       const candidateCount = ruleCandidateCount + planCandidates.length;
       const projectContractCount = asArray(outputContractFiles).length;
@@ -14962,6 +15344,7 @@ function renderPanelHtml() {
       if (String(status || "").toLowerCase() === "outcome_pending") return "执行结果待确认";
       const text = String(status || "").toLowerCase();
       if (text === "accepted" || text === "submitted") return "已提交";
+      if (text.includes("cancelling")) return "正在确认停止";
       if (text.includes("running") || text.includes("progress") || text.includes("started") || text.includes("in_progress")) return "执行中";
       if (text.includes("queue") || text.includes("pending")) return "排队";
       if (text.includes("completed_with_errors")) return "部分失败";
@@ -15233,6 +15616,17 @@ function renderPanelHtml() {
       const resultConfig = (state || {}).resultOutputConfig || {};
       const tables = asArray(resultConfig.tables);
       const catalog = resultConfig.catalog || { datasets: [] };
+      const catalogLoadStatus = String(resultConfig.catalogLoadStatus || "ready");
+      const catalogLoadError = String(resultConfig.catalogLoadError || "");
+      const catalogStatusHtml = catalogLoadStatus === "loading"
+        ? '<div class="muted">正在后台读取本地结果目录，完成后会自动更新。</div>'
+        : catalogLoadStatus === "stale"
+          ? '<div class="muted">结果目录正在刷新。当前显示最近一次可用结果' + (catalogLoadError ? '；刷新失败：' + esc(catalogLoadError) : '') + '。</div>'
+          : catalogLoadStatus === "publicationPending"
+            ? '<div class="muted">结果表正在原子发布，发布完成后会自动刷新。</div>'
+            : catalogLoadStatus === "error"
+              ? '<div class="notice warning">读取结果目录失败：' + esc(catalogLoadError || "未知错误") + '。已有结果保持不变，可稍后重试。</div>'
+              : "";
       const view = resultCatalogViewModel(catalog, state);
       const expandedDataset = view.datasets.find(row => detailsOpenState["result-dataset-" + row.datasetKey] === true) || view.datasets.find(row => row.datasetKey === view.defaultDatasetKey);
       const selected = tables.find(row => row.tableKey === resultSplitTableKey) || expandedDataset?.finalTable || view.datasets.find(row => row.finalTable)?.finalTable || tables[0];
@@ -15288,7 +15682,8 @@ function renderPanelHtml() {
       const optionsHtml = (items, chosen) => items.map(item => '<option value="' + escAttr(item) + '"' + (item === chosen ? ' selected' : '') + '>' + esc(item) + '</option>').join("");
       return '<div class="resultFinalCard resultTableBrowser"><div class="resultFinalHeader"><div><h3>结果总表</h3><p>按数据集组织结果。</p></div><div class="resultTopActions"><button type="button" data-command="syncPendingPlanArtifacts" title="校验并压缩同步各 Worker 的最新版产物，再下载指标更新总表；不会重新训练，权重和日志保留在服务器。">同步服务器结果并更新总表</button><button type="button" class="secondary" data-command="rebuildProjectResultTables" title="下载已完成运行的指标并重新汇总；权重、检查点和日志保留在服务器。">下载指标并重新汇总</button></div></div>' +
         reportHtml +
-        (catalog.error ? '<div class="muted">结果目录需要检查：' + esc(catalog.error) + '</div>' : view.datasets.length ? '<section class="resultDatasetList"><h4 class="resultDatasetSectionTitle">数据集结果</h4>' + datasetsHtml + '</section>' : '<div class="muted">尚无总表。点击“同步服务器结果并更新总表”合并 Worker 结果、下载指标并生成总表。</div>') +
+        catalogStatusHtml +
+        (catalog.error ? '<div class="muted">结果目录需要检查：' + esc(catalog.error) + '</div>' : view.datasets.length ? '<section class="resultDatasetList"><h4 class="resultDatasetSectionTitle">数据集结果</h4>' + datasetsHtml + '</section>' : catalogLoadStatus === "ready" ? '<div class="muted">尚无总表。点击“同步服务器结果并更新总表”合并 Worker 结果、下载指标并生成总表。</div>' : '') +
         unassignedHtml + (view.mappingConflicts.length ? '<div class="muted">' + view.mappingConflicts.map(item => esc('Plan ' + item.planFile + ' 的实际结果数据集 ' + item.actual.join('、') + ' 与历史人工映射 ' + item.mapped.join('、') + ' 不一致，已采用实际结果；请检查映射。')).join('<br>') + '</div>' : '') + advancedHtml +
         '<details class="resultArtifactGroup" id="resultSplitTables" data-details-key="result-split-tables"' + detailsOpenAttr("result-split-tables", false) + '><summary>按列和值拆成子表</summary>' +
         '<div class="muted" id="resultSplitSourceName">来源：' + esc((selected?.dataset || "未识别数据集") + " / " + (selected?.name || "无")) + '</div>' +
@@ -16386,15 +16781,7 @@ function renderPanelHtml() {
           pushSoft("planList", "没有可运行的计划文件");
         }
       }
-      if (SELECTED_PLAN_RUN_COMMANDS?.has(command)) {
-        const planFile = String(context.planFile || context.planId || state.planFileInput || ((state.selection || {}).selectedPlanId) || "");
-        const plan = typeof planFromContext === "function" ? planFromContext(state, { planFile }) || {} : {};
-        const activity = planActiveRunEvidence(state, planFile, plan);
-        if (activity.active) {
-          if (activity.historicalOnly) return "同一路径的旧 Plan revision 仍有 " + activity.taskCount + " 个任务和 " + activity.operationCount + " 个提交操作未结束；为保护旧任务，当前版本暂不能提交，请查看全部任务";
-          return "当前 Plan 已有 " + activity.taskCount + " 个任务和 " + activity.operationCount + " 个提交操作未结束，不能重复提交";
-        }
-      }
+      // Active Plans remain clickable: Host confirms an exact stop and rechecks activity before submission.
       if (SUBMITTED_RUN_COMMANDS?.has(command) && !executionWorkerReadiness(state).ready) {
         if (isLenient) { pushSoft("executionWorker", "至少配置并启用一个执行 Worker"); } else { return "至少配置并启用一个执行 Worker"; }
       }
@@ -16500,7 +16887,7 @@ function renderPanelHtml() {
       if (cached) return cached;
       const value = uniqueText(asArray(source.outputSignals || [])
         .map((item) => String(item || "").trim())
-        .filter((item) => /result_csv|results_csv|metrics_csv|summary_csv|标准契约|结果文件|结果目录|命令参数|文本日志|classification_report|stdout|stderr|metricRegex/i.test(item)));
+        .filter((item) => /result_csv|results_csv|metrics_csv|summary_csv|标准契约|结果文件|结果目录|任务产物|命令参数|文本日志|classification_report|stdout|stderr|metricRegex/i.test(item)));
       planOutputEvidenceSignalsCache.set(source, value);
       return value;
     }

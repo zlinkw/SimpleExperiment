@@ -1,10 +1,15 @@
 /**
  * GpuScore - GPU 密集表格评分模型
- * 方案一严格实现：0-100 跑得快=高分，同 plan 内 p5/p95 归一，仅成功 job 计入，卡分=均值，服务器分=卡均值，窗口仅7天且过期直接删盘
+ * 方案一严格实现：0-100 跑得快=高分，同 plan 内 p5/p95 归一，仅成功 job 计入，卡分=均值，服务器分=卡均值，评分窗口仅7天。
+ * 过期或损坏的文件只从当前评分视图排除；磁盘清理必须进入明确的路径审核流程。
  */
 
 import * as fs from "fs";
 import * as path from "path";
+
+export const GPU_SCORE_MAX_FILES = 10_000;
+export const GPU_SCORE_MAX_FILE_BYTES = 64 * 1024;
+export const GPU_SCORE_MAX_SCAN_BYTES = 16 * 1024 * 1024;
 
 export const GPU_SCORE_WINDOW_DAYS = 7;
 export const GPU_SCORE_WINDOW_MS = GPU_SCORE_WINDOW_DAYS * 24 * 3600 * 1000;
@@ -22,7 +27,7 @@ export interface GpuJobRecord {
   status: string; // completed/failed etc
   finishedAt: number; // epoch ms
   metricValue?: number;
-  filePath?: string; // 关联的落盘文件，过期需 unlink
+  filePath?: string; // 关联的落盘文件；过期后可进入人工清理候选
 }
 
 // p5/p95 计算
@@ -99,44 +104,45 @@ export function filterWindow(records: GpuJobRecord[], nowMs: number = Date.now()
   return records.filter((r) => Number.isFinite(r.finishedAt) && r.finishedAt >= cutoff);
 }
 
-// 过期直接删盘 + 内存删记录：返回保留的记录，并对过期记录尝试 unlink
-export function pruneExpiredAndUnlink(records: GpuJobRecord[], nowMs: number = Date.now()): { kept: GpuJobRecord[]; pruned: GpuJobRecord[] } {
+// 评分窗口只影响内存视图。磁盘候选由统一的人工路径审核处理。
+export function pruneExpired(records: GpuJobRecord[], nowMs: number = Date.now()): { kept: GpuJobRecord[]; pruned: GpuJobRecord[] } {
   const cutoff = nowMs - GPU_SCORE_WINDOW_MS;
   const kept: GpuJobRecord[] = [];
   const pruned: GpuJobRecord[] = [];
   for (const r of records) {
     if (!Number.isFinite(r.finishedAt) || r.finishedAt < cutoff) {
       pruned.push(r);
-      if (r.filePath) {
-        try {
-          const fp = path.resolve(String(r.filePath));
-          if (fs.existsSync(fp)) fs.unlinkSync(fp);
-        } catch {
-          // ignore unlink failure
-        }
-      }
     } else {
       kept.push(r);
     }
   }
-  // 内存删记录：调用方用 kept 替换原数组（in-place 也清理）
   return { kept, pruned };
 }
 
-// 磁盘扫描辅助：从目录加载所有 score json 并做 7天过滤 + unlink 过期文件
+/** @deprecated Kept as a source-compatible alias; this helper no longer deletes files. */
+export function pruneExpiredAndUnlink(records: GpuJobRecord[], nowMs: number = Date.now()): { kept: GpuJobRecord[]; pruned: GpuJobRecord[] } {
+  return pruneExpired(records, nowMs);
+}
+
+// 有界磁盘扫描；损坏、过期和超限文件均保留在原位，只从评分视图排除。
 export function loadAndPruneScoreDir(dir: string, nowMs: number = Date.now()): GpuJobRecord[] {
-  let files: string[] = [];
-  try { files = fs.readdirSync(dir); } catch { return []; }
+  let files: fs.Dirent[] = [];
+  try { files = fs.readdirSync(dir, { withFileTypes: true }).slice(0, GPU_SCORE_MAX_FILES); } catch { return []; }
   const records: GpuJobRecord[] = [];
-  for (const f of files) {
-    if (!f.endsWith(".json")) continue;
-    const full = path.join(dir, f);
+  let scannedBytes = 0;
+  for (const entry of files) {
+    if (!entry.isFile() || entry.isSymbolicLink() || path.extname(entry.name).toLowerCase() !== ".json") continue;
+    const full = path.join(dir, entry.name);
     try {
+      const stat = fs.lstatSync(full);
+      if (!stat.isFile() || stat.isSymbolicLink() || stat.nlink > 1 || stat.size > GPU_SCORE_MAX_FILE_BYTES
+        || scannedBytes + stat.size > GPU_SCORE_MAX_SCAN_BYTES) continue;
+      scannedBytes += stat.size;
       const raw = JSON.parse(fs.readFileSync(full, "utf8"));
       const rec: GpuJobRecord = {
         planFile: String(raw.planFile || raw.plan || ""),
         planId: raw.planId ? String(raw.planId) : undefined,
-        jobId: String(raw.jobId || raw.id || f),
+        jobId: String(raw.jobId || raw.id || entry.name),
         serverId: String(raw.serverId || raw.server || ""),
         gpuId: String(raw.gpuId || raw.gpu_id || ""),
         durationMs: Number(raw.durationMs ?? raw.duration ?? 0),
@@ -146,11 +152,10 @@ export function loadAndPruneScoreDir(dir: string, nowMs: number = Date.now()): G
       };
       records.push(rec);
     } catch {
-      // corrupted file -> treat as expired and unlink
-      try { fs.unlinkSync(full); } catch {}
+      // Keep malformed records on disk for explicit inspection and cleanup.
     }
   }
-  const { kept } = pruneExpiredAndUnlink(records, nowMs);
+  const { kept } = pruneExpired(records, nowMs);
   return kept;
 }
 

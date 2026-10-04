@@ -8,6 +8,19 @@ const { spawnSync } = require("node:child_process");
 const test = require("node:test");
 const { readSource } = require("../_helpers/sourceReader");
 
+function extractFunction(source, name) {
+  const start = source.indexOf(`function ${name}(`);
+  assert.ok(start >= 0, `missing function ${name}`);
+  const body = source.indexOf("{", start);
+  let depth = 0;
+  for (let index = body; index < source.length; index += 1) {
+    if (source[index] === "{") depth += 1;
+    if (source[index] === "}") depth -= 1;
+    if (depth === 0) return source.slice(start, index + 1);
+  }
+  throw new Error(`unterminated function ${name}`);
+}
+
 test("Plan summary uses declared raw CSV, computes sample SD, and marks missing seeds", () => {
   const source = readSource("src/clusterAgentRuntime.ts");
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "simple-plan-aggregate-"));
@@ -209,6 +222,8 @@ test("copy archive confirms exact targets and verifies the local Worker copy", a
   };
   const context = {
     fs: fs.promises, path, crypto, MAPPED_RESULT_DOWNLOAD_MAX_ENTRIES: 5000,
+    MAPPED_RESULT_DOWNLOAD_MAX_BATCH_BYTES: 128 * 1024 * 1024,
+    partitionMappedDownloadTransfers: new Function("return " + extractFunction(source, "partitionMappedDownloadTransfers"))(),
     vscode: { window: { showWarningMessage: async (message) => { confirmed = message; return "确认复制归档"; }, showInformationMessage: () => undefined } },
     stringField: (value, key) => String(value?.[key] || ""),
     makeOpId: () => "archive-test",
