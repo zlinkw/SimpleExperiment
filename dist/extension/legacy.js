@@ -10476,7 +10476,7 @@ class RealtimeTunnelPanelProvider {
                 const bytes = count === undefined ? "" : ` · ${(count / 1048576).toFixed(1)} MiB ${wire ? "实际传输" : "已处理"}`;
                 const elapsed = detail.elapsedMs === undefined ? "" : ` · 本步已耗时 ${Math.floor(detail.elapsedMs / 1000)} 秒`;
                 const labels = { preparing: "准备清单", hashing: "SHA256 校验", packing: "压缩打包", transferring: "压缩传输",
-                    unpacking: "解包", verifying: "内容复核", publishing: "发布文件", recording: "记录校验结果" };
+                    unpacking: "解包", verifying: "内容复核", publishing: "发布文件", recording: "记录校验结果", reconciling: "核实旧传输退出" };
                 const label = labels[detail.phase] || "处理产物";
                 const scope = detail.planFile ? ` · ${detail.planFile} job ${detail.jobIndex}`
                     : detail.batch ? ` · 第 ${detail.batch}${detail.batchCount ? `/${detail.batchCount}` : ""} 批` : "";

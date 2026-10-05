@@ -169,3 +169,114 @@ test('persisted same-target blocker is settled before the new operation is submi
     assert.equal(confirmations, 1);
   } finally { global.fetch = saved; }
 });
+
+test('legacy server transfer unknown is reconciled before exactly one fresh dispatch', async () => {
+  const saved = global.fetch, order = [], phases = [];
+  const discovery = { endpoint: new URL('http://127.0.0.1:1'), headers: {}, instanceId: 'host:new',
+    features: { transferSettlementReceipts: true, transferSettlementReconciliation: true } };
+  const params = { source: { host: 'source', username: 'tester', remotePath: '/projects/example' },
+    destination: { host: 'destination', username: 'tester', remotePath: '/projects/example' } };
+  let starts = 0;
+  global.fetch = async (url, options) => {
+    if (String(url).endsWith('/events')) return new Response(null, { status: 204 });
+    const request = JSON.parse(options.body); order.push(request.method);
+    if (request.method === 'transfers.cancel') return Response.json({ result: { ok: true, cancelled: false, status: 'outcomeUnknown',
+      operationId: 'old', operationInstanceId: 'host:old' } });
+    if (request.method === 'transfers.reconcile') {
+      assert.equal(request.params.operationId, 'old'); assert.deepEqual(request.params.retryParams.source, params.source);
+      assert.equal(request.params.retryParams.password, undefined);
+      return Response.json({ result: { ok: true, status: 'settled', settled: true, operationId: 'old',
+        operationInstanceId: 'host:old', instanceId: 'host:new' } });
+    }
+    if (starts++ === 0) return Response.json({ error: { data: { blockedOperationId: 'old', operationInstanceId: 'host:old', notStarted: true } } });
+    return Response.json({ result: { ok: true, verifiedFiles: 6 } });
+  };
+  try {
+    const retry = new SafeRequestRetry();
+    assert.equal((await retry.run('target', () => callSftpWithProgress('sync.serverToServerFpsync', params, async () => discovery,
+      snapshot => { phases.push(snapshot.phase); throw Error('notification unavailable'); }))).verifiedFiles, 6);
+    assert.deepEqual(order, ['sync.serverToServerFpsync', 'transfers.cancel', 'transfers.reconcile', 'sync.serverToServerFpsync']);
+    assert.deepEqual(phases, ['reconciling']);
+    assert.equal(retry.requests.size, 0);
+  } finally { global.fetch = saved; }
+});
+
+test('blocked not-started attempt cannot poison a later same-host retry with a nonexistent stop check', async () => {
+  const saved = global.fetch, retry = new SafeRequestRetry();
+  const discovery = { endpoint: new URL('http://127.0.0.1:1'), headers: {}, instanceId: 'host:new',
+    features: { transferSettlementReceipts: true, transferSettlementReconciliation: true } };
+  let idle = false, starts = 0;
+  global.fetch = async (url, options) => {
+    if (String(url).endsWith('/events')) return new Response(null, { status: 204 });
+    const request = JSON.parse(options.body);
+    if (request.method === 'transfers.cancel') {
+      assert.equal(request.params.operationId, 'old', 'must never try cancelling the unstarted operation');
+      return Response.json({ result: { ok: true, cancelled: false, status: 'outcomeUnknown', operationId: 'old', operationInstanceId: 'host:old' } });
+    }
+    if (request.method === 'transfers.reconcile') return Response.json({ result: { ok: true, settled: idle, status: idle ? 'settled' : 'outcomeUnknown',
+      reason: 'REMOTE_TRANSFER_SLOT_BUSY', operationId: 'old', operationInstanceId: 'host:old', instanceId: 'host:new' } });
+    starts++;
+    if (starts <= 2) return Response.json({ error: { data: { blockedOperationId: 'old', operationInstanceId: 'host:old', notStarted: true } } });
+    return Response.json({ result: { ok: true } });
+  };
+  try {
+    const work = () => callSftpWithProgress('sync.serverToServerFpsync', {}, async () => discovery);
+    await assert.rejects(retry.run('target', work), /REMOTE_TRANSFER_SLOT_BUSY/);
+    assert.equal(starts, 1); assert.equal(retry.requests.size, 0);
+    idle = true; assert.equal((await retry.run('target', work)).ok, true); assert.equal(starts, 3);
+  } finally { global.fetch = saved; }
+});
+
+test('unavailable or mismatched recovery proof never resends a modifying transfer', async () => {
+  const saved = global.fetch;
+  const discovery = { endpoint: new URL('http://127.0.0.1:1'), headers: {}, instanceId: 'host:new',
+    features: { transferSettlementReceipts: true, transferSettlementReconciliation: true } };
+  try {
+    for (const proof of [
+      { status: 'outcomeUnknown', settled: false, reason: 'REMOTE_TRANSFER_STILL_ACTIVE' },
+      { status: 'settled', settled: true, operationInstanceId: 'other:instance' },
+      { status: 'settled', settled: true, instanceId: 'another:host' },
+    ]) {
+      let starts = 0;
+      global.fetch = async (url, options) => {
+        if (String(url).endsWith('/events')) return new Response(null, { status: 204 });
+        const request = JSON.parse(options.body);
+        if (request.method === 'transfers.cancel') return Response.json({ result: { ok: true, status: 'outcomeUnknown', operationId: 'old', operationInstanceId: 'host:old' } });
+        if (request.method === 'transfers.reconcile') return Response.json({ result: { ok: true, operationId: 'old', operationInstanceId: 'host:old', instanceId: 'host:new', ...proof } });
+        starts++; return Response.json({ error: { data: { blockedOperationId: 'old', operationInstanceId: 'host:old', notStarted: true } } });
+      };
+      await assert.rejects(callSftpWithProgress('sync.serverToServerFpsync', {}, async () => discovery), /未重新传输/);
+      assert.equal(starts, 1);
+    }
+  } finally { global.fetch = saved; }
+});
+
+test('replacement during reconciliation drains the old caller and never dispatches its cancelled request', async () => {
+  const saved = global.fetch, retry = new SafeRequestRetry(), ids = [];
+  const discovery = { endpoint: new URL('http://127.0.0.1:1'), headers: {}, instanceId: 'host:new',
+    features: { transferSettlementReceipts: true, transferSettlementReconciliation: true } };
+  let entered, complete;
+  const ready = new Promise(resolve => { entered = resolve; });
+  global.fetch = async (url, options) => {
+    if (String(url).endsWith('/events')) return new Response(null, { status: 204 });
+    const request = JSON.parse(options.body);
+    if (request.method === 'transfers.cancel') return Response.json({ result: { ok: true, status: 'outcomeUnknown',
+      operationId: request.params.operationId, operationInstanceId: request.params.operationInstanceId } });
+    if (request.method === 'transfers.reconcile') {
+      entered(); return new Promise(resolve => { complete = () => resolve(Response.json({ result: { ok: true, status: 'settled', settled: true,
+        operationId: 'old', operationInstanceId: 'host:old', instanceId: 'host:new' } })); });
+    }
+    ids.push(request.params._operationId);
+    if (ids.length === 1) return Response.json({ error: { data: { blockedOperationId: 'old', operationInstanceId: 'host:old', notStarted: true } } });
+    return Response.json({ result: { ok: true } });
+  };
+  try {
+    const work = () => callSftpWithProgress('sync.serverToServerFpsync', {}, async () => discovery);
+    const first = retry.run('target', work), rejected = assert.rejects(first, /重新执行替代/);
+    await ready;
+    const next = retry.run('target', work); await turn();
+    assert.equal(ids.length, 1, 'must drain the proof before starting the replacement');
+    complete(); await rejected; assert.equal((await next).ok, true);
+    assert.equal(ids.length, 2); assert.notEqual(ids[0], ids[1]); assert.equal(retry.requests.size, 0);
+  } finally { global.fetch = saved; }
+});

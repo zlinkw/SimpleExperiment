@@ -35,7 +35,7 @@ function sftpRequestKey(method, params) {
     };
     return (0, node_crypto_1.createHash)("sha256").update(JSON.stringify(identity)).digest("hex");
 }
-async function confirmSftpOperationStopped(operationId, initial) {
+async function confirmSftpOperationStopped(operationId, initial, recovery) {
     const expectedInstanceId = String(initial.instanceId || "");
     if (!expectedInstanceId || initial.features?.transferSettlementReceipts !== true)
         throw new Error("当前 SimpleSFTP 未提供持久化退出回执，未重新传输；请更新 SimpleSFTP 后重试。");
@@ -52,8 +52,38 @@ async function confirmSftpOperationStopped(operationId, initial) {
     const receipt = await rpc("transfers.cancel", { operationId, operationInstanceId: expectedInstanceId, reason: "用户重新执行相同请求" });
     if (receipt.operationId !== operationId || receipt.operationInstanceId !== expectedInstanceId)
         throw new Error("旧传输取消回执身份不匹配。");
+    async function reconcileUnknown() {
+        if (!recovery || recovery.method !== "sync.serverToServerFpsync")
+            throw new Error("旧传输结果未知，未重新传输；请核对目标后人工恢复。");
+        const current = await recovery.discover("transfers.reconcile");
+        if (current.features?.transferSettlementReconciliation !== true)
+            throw new Error("旧传输结果未知；请更新 SimpleSFTP 并重载窗口，以核实旧传输退出后重试。");
+        try {
+            recovery.onProgress?.({ phase: "reconciling", elapsedMs: 0 });
+        }
+        catch { /* Telemetry cannot cancel recovery. */ }
+        const params = recovery.params;
+        const response = await fetch(new URL("/api/v1/rpc", current.endpoint), {
+            method: "POST", headers: { ...current.headers, "Content-Type": "application/json" },
+            body: JSON.stringify({ jsonrpc: "2.0", id: operationId, method: "transfers.reconcile", params: {
+                    operationId, operationInstanceId: expectedInstanceId, requestKey: sftpRequestKey(recovery.method, params),
+                    retryMethod: recovery.method, retryParams: {
+                        localPath: params.localPath || params.localBase || params.workspacePath,
+                        remotePath: params.remotePath, targetId: params.targetId || params.serverId, host: params.host,
+                        server: identityOf(params.server), sftp: identityOf(params.sftp), source: identityOf(params.source),
+                        destination: identityOf(params.destination), target: identityOf(params.target),
+                    },
+                } }), signal: AbortSignal.timeout(30_000),
+        });
+        const payload = await readSftpJson(response), proof = payload.result;
+        if (!response.ok || payload.error || proof?.ok !== true || proof.operationId !== operationId
+            || proof.operationInstanceId !== expectedInstanceId || proof.instanceId !== current.instanceId)
+            throw new Error("旧传输退出核实失败或身份已变化，未重新传输。");
+        if (proof.status !== "settled" || proof.settled !== true)
+            throw new Error(`旧传输尚未确认退出，未重新传输：${String(proof.reason || proof.status || "缺少退出证据").slice(0, 200)}`);
+    }
     if (receipt.status === "outcomeUnknown")
-        throw new Error("旧传输结果未知，未重新传输；请核对目标后人工恢复。");
+        return reconcileUnknown();
     if (receipt.status === "identityMismatch")
         throw new Error("旧传输取消回执身份不匹配。");
     if (receipt.cancelled !== true)
@@ -75,7 +105,7 @@ async function confirmSftpOperationStopped(operationId, initial) {
             return;
         const unresolved = state.operations.find((row) => (row?.operationId || row?.id) === operationId);
         if (unresolved?.status === "outcomeUnknown")
-            throw new Error("旧传输结果未知，未重新传输；请核对目标后人工恢复。");
+            return reconcileUnknown();
         const active = [...state.transfers, ...state.operations].some(row => (row.operationId || row.id) === operationId);
         if (!active)
             throw new Error("SimpleSFTP 缺少该传输的完成回执，未重新传输。");
@@ -193,8 +223,10 @@ async function callSftpWithProgress(method, params, discover, onProgress) {
     }
     try {
         requestAbort.signal.throwIfAborted();
+        const recovery = { method, params, discover, onProgress };
+        const registerStopCheck = () => (0, SafeRequestRetry_1.registerRetryStopCheck)(() => confirmSftpOperationStopped(operationId, discovery, recovery));
         if (fileOperation)
-            forgetStopCheck = (0, SafeRequestRetry_1.registerRetryStopCheck)(() => confirmSftpOperationStopped(operationId, discovery));
+            forgetStopCheck = registerStopCheck();
         const { signal: _signal, ...serializable } = params;
         const requestBody = JSON.stringify({ jsonrpc: "2.0", id: operationId, method, params: {
                 ...serializable, _operationId: operationId, _operationInstanceId: discovery.instanceId,
@@ -223,7 +255,15 @@ async function callSftpWithProgress(method, params, discover, onProgress) {
         requestAbort.signal.throwIfAborted();
         const blocker = payload.error?.data;
         if (fileOperation && blocker?.blockedOperationId && typeof blocker.operationInstanceId === "string") {
-            await confirmSftpOperationStopped(String(blocker.blockedOperationId), { ...discovery, instanceId: blocker.operationInstanceId });
+            // Only an explicit producer receipt proves that this new operation never
+            // started. Do not retain a stop check for a nonexistent operation id.
+            if (blocker.notStarted === true)
+                forgetStopCheck();
+            await confirmSftpOperationStopped(String(blocker.blockedOperationId), { ...discovery, instanceId: blocker.operationInstanceId }, recovery);
+            (0, SafeRequestRetry_1.assertRetryRequestCurrent)();
+            requestAbort.signal.throwIfAborted();
+            if (blocker.notStarted === true)
+                forgetStopCheck = registerStopCheck();
             response = await sendOperation();
             if (!response.ok)
                 throw new Error(`SimpleSFTP ${method} 失败：HTTP ${response.status}`);
@@ -231,6 +271,8 @@ async function callSftpWithProgress(method, params, discover, onProgress) {
             requestAbort.signal.throwIfAborted();
         }
         if (payload.error || payload.result?.ok === false) {
+            if (payload.error?.data?.notStarted === true)
+                forgetStopCheck();
             // Keep the stop check attached to this request generation. A later
             // explicit retry must reconcile this operation before starting another
             // modifying transfer; the current error response alone may not prove
