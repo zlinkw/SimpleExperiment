@@ -1611,6 +1611,12 @@ test("concurrent submissions append to the latest queue and reject the old sched
       rename: async (from, to) => { files.set(to, files.get(from)); files.delete(from); },
     },
   }));
+  // This fixture exercises queue append ordering; atomic-writer retry behavior has its own real-writer fixture.
+  host.StateStore_1 = { atomicWriteText: async (file, text, options = {}) => {
+    await host.fs.writeFile(file + ".writing", text);
+    await options.beforeRename?.();
+    await host.fs.rename(file + ".writing", file);
+  } };
   vm.runInContext(method + "\nthis.save = saveDistributedQueue;", host);
   const a = queueApi.enqueuePlan(queueApi.emptyDistributedQueue(), {
     planFile: "plans/a.yaml", revision: "rev-a", codeFingerprint: "code-1", jobs: [{ index: 0, case: "bus", seed: 1, outputDir: "work/a" }],

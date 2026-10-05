@@ -8,11 +8,16 @@ export type StateReadResult<T> =
   | { ok: true; value: T; migrated?: boolean }
   | { ok: false; error: string; lastKnownGood?: T };
 
-export async function atomicWriteText(file: string, text: string): Promise<void> {
+export type AtomicWriteOptions = {
+  /** Recheck optimistic-concurrency/ownership gates before every publication attempt. */
+  beforeRename?: () => Promise<void>;
+};
+
+export async function atomicWriteText(file: string, text: string, options: AtomicWriteOptions = {}): Promise<void> {
   const resolved = path.resolve(file);
   const key = process.platform === "win32" ? resolved.toLowerCase() : resolved;
   const previous = atomicWriteQueues.get(key) || Promise.resolve();
-  const current = previous.catch(() => undefined).then(() => writeFixedSlot(resolved, text));
+  const current = previous.catch(() => undefined).then(() => writeFixedSlot(resolved, text, options));
   atomicWriteQueues.set(key, current);
   try {
     await current;
@@ -21,7 +26,7 @@ export async function atomicWriteText(file: string, text: string): Promise<void>
   }
 }
 
-async function writeFixedSlot(file: string, text: string): Promise<void> {
+async function writeFixedSlot(file: string, text: string, options: AtomicWriteOptions): Promise<void> {
   const parent = path.dirname(file);
   await fs.mkdir(parent, { recursive: true });
   const staging = `${file}.writing`;
@@ -56,6 +61,9 @@ async function writeFixedSlot(file: string, text: string): Promise<void> {
     await handle.close();
   }
   for (let attempt = 0; ; attempt += 1) {
+    // A delayed rename must not bypass a queue generation or disk-version change.
+    // Guard failures are not sharing violations and must not enter the rename retry loop.
+    await options.beforeRename?.();
     try {
       await fs.rename(staging, file);
       break;

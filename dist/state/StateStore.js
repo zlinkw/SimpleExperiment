@@ -40,11 +40,11 @@ const fs = __importStar(require("fs/promises"));
 const path = __importStar(require("path"));
 const fsNode = __importStar(require("fs"));
 const atomicWriteQueues = new Map();
-async function atomicWriteText(file, text) {
+async function atomicWriteText(file, text, options = {}) {
     const resolved = path.resolve(file);
     const key = process.platform === "win32" ? resolved.toLowerCase() : resolved;
     const previous = atomicWriteQueues.get(key) || Promise.resolve();
-    const current = previous.catch(() => undefined).then(() => writeFixedSlot(resolved, text));
+    const current = previous.catch(() => undefined).then(() => writeFixedSlot(resolved, text, options));
     atomicWriteQueues.set(key, current);
     try {
         await current;
@@ -54,7 +54,7 @@ async function atomicWriteText(file, text) {
             atomicWriteQueues.delete(key);
     }
 }
-async function writeFixedSlot(file, text) {
+async function writeFixedSlot(file, text, options) {
     const parent = path.dirname(file);
     await fs.mkdir(parent, { recursive: true });
     const staging = `${file}.writing`;
@@ -94,6 +94,9 @@ async function writeFixedSlot(file, text) {
         await handle.close();
     }
     for (let attempt = 0;; attempt += 1) {
+        // A delayed rename must not bypass a queue generation or disk-version change.
+        // Guard failures are not sharing violations and must not enter the rename retry loop.
+        await options.beforeRename?.();
         try {
             await fs.rename(staging, file);
             break;

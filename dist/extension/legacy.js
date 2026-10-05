@@ -10343,38 +10343,27 @@ class RealtimeTunnelPanelProvider {
             }
             await fs.mkdir(path.dirname(file), { recursive: true });
             const serialized = JSON.stringify(queue, null, 2) + "\n";
-            const latestSource = await readDiskForSave();
-            const latestSignature = DistributedPlanQueue.distributedQueueDiskSignature(latestSource);
-            if (latestSignature !== diskSignature)
-                await conflict(latestSource, latestSignature);
-            const temporary = file + ".writing";
-            const existingTemporary = await fs.lstat(temporary).catch((error) => error?.code === "ENOENT" ? undefined : Promise.reject(error));
-            if (existingTemporary && (!existingTemporary.isFile() || existingTemporary.isSymbolicLink()))
-                throw new Error("分布式队列固定暂存槽不是普通文件，已拒绝写入。");
-            const noFollow = Number(fsNode.constants.O_NOFOLLOW || 0);
-            const temporaryHandle = await fs.open(temporary, fsNode.constants.O_WRONLY | fsNode.constants.O_CREAT | fsNode.constants.O_TRUNC | noFollow, 0o600);
+            let publicationConflict = false;
             try {
-                await temporaryHandle.writeFile(serialized, "utf8");
-                await temporaryHandle.sync();
+                await (0, StateStore_1.atomicWriteText)(file, serialized, { beforeRename: async () => {
+                        if (!options.appendPlanId && options.queueGeneration !== undefined && options.queueGeneration !== this.distributedQueueGeneration)
+                            throw new Error("过期调度轮次，已拒绝写入队列");
+                        if (options.submissionOperationId && ((this.distributedSubmissionEpochs?.get(options.submissionOperationId) || 0) !== options.submissionEpoch || workspaceRoot() !== root))
+                            throw new Error("提交已取消，已拒绝写入队列");
+                        const latestSource = await readDiskForSave();
+                        const latestSignature = DistributedPlanQueue.distributedQueueDiskSignature(latestSource);
+                        if (latestSignature !== diskSignature) {
+                            publicationConflict = true;
+                            await conflict(latestSource, latestSignature);
+                        }
+                    } });
             }
-            finally {
-                await temporaryHandle.close();
-            }
-            await fs.rename(temporary, file);
-            let directorySyncWarning = "";
-            if (process.platform !== "win32") {
-                try {
-                    const directoryHandle = await fs.open(path.dirname(file), "r");
-                    try {
-                        await directoryHandle.sync();
-                    }
-                    finally {
-                        await directoryHandle.close();
-                    }
-                }
-                catch (error) {
-                    directorySyncWarning = compactSensitiveText(errorMessage(error), 180);
-                }
+            catch (error) {
+                if (!publicationConflict)
+                    this.distributedQueueStorageDiagnostics = { status: "stale", updatedAt: new Date().toISOString(),
+                        reason: "queue-commit-failed", message: compactSensitiveText(errorMessage(error), 240) };
+                this.postState?.();
+                throw error;
             }
             this.distributedQueueRoot = root;
             this.distributedQueueCache = JSON.parse(JSON.stringify(queue));
@@ -10386,7 +10375,7 @@ class RealtimeTunnelPanelProvider {
             DistributedPlanQueue.setDistributedQueueBaseSignature(queue, this.distributedQueueDiskSignature);
             if (workingQueue && workingQueue !== queue)
                 DistributedPlanQueue.setDistributedQueueBaseSignature(workingQueue, this.distributedQueueDiskSignature);
-            this.distributedQueueStorageDiagnostics = { status: "ready", ...(directorySyncWarning ? { directorySyncWarning } : {}) };
+            this.distributedQueueStorageDiagnostics = { status: "ready" };
             if (options.appendPlanId) {
                 this.distributedQueueGeneration = (this.distributedQueueGeneration || 0) + 1;
                 this.distributedTickAbort?.abort();

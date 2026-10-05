@@ -16,6 +16,8 @@ function sourceBlock(startMarker, endMarker) {
 }
 
 const memoryFiles = new Map();
+const retryDelays = [];
+const memoryStat = () => ({ dev: 1, ino: 1, nlink: 1, isFile: () => true, isSymbolicLink: () => false });
 const memoryFs = {
   async readFile(file) {
     if (!memoryFiles.has(file)) {
@@ -33,10 +35,17 @@ const memoryFs = {
       error.code = "ENOENT";
       throw error;
     }
-    return { isFile: () => true, isSymbolicLink: () => false };
+    return memoryStat();
   },
   async open(file) {
+    if (!memoryFiles.has(file)) memoryFiles.set(file, "");
     return {
+      async stat() { return memoryStat(); },
+      async truncate() { memoryFiles.set(file, ""); },
+      async write(bytes, offset, length) {
+        memoryFiles.set(file, (memoryFiles.get(file) || "") + bytes.subarray(offset, offset + length).toString("utf8"));
+        return { bytesWritten: length };
+      },
       async writeFile(value) { memoryFiles.set(file, String(value)); },
       async sync() {},
       async close() {},
@@ -48,6 +57,14 @@ const memoryFs = {
     memoryFiles.delete(from);
   },
 };
+
+// Execute the real common atomic writer against the same virtual filesystem as the Host.
+const stateModule = { exports: {} };
+vm.runInNewContext(fsNode.readFileSync(require.resolve("../../dist/state/StateStore.js"), "utf8"), {
+  module: stateModule, exports: stateModule.exports, Buffer, process,
+  setTimeout: (fn, delay) => { retryDelays.push(delay); queueMicrotask(fn); },
+  require: (name) => name === "fs/promises" ? memoryFs : require(name),
+});
 
 const queueMethods = sourceBlock("async loadDistributedQueue(root) {", "scheduleDistributedPostprocess(root")
   .replace(/}\s+async /g, "}, async ").replace(/,\s*$/, "").trim();
@@ -69,6 +86,7 @@ const sandbox = {
   compactSensitiveText: (value) => String(value || "").slice(0, 240),
   workerTaskSnapshotPayload: (snapshot) => snapshot,
   UiCommandRemotePending: class extends Error {},
+  StateStore_1: stateModule.exports,
 };
 vm.createContext(sandbox);
 vm.runInContext(`this.methods = { ${methodSource} };`, sandbox);
@@ -233,4 +251,96 @@ test("a disk read failure retains the last-known-good display queue and marks it
   } finally {
     memoryFs.readFile = readFile;
   }
+});
+
+test("transient Windows EPERM on queue publication retries without emptying display or losing metadata", async () => {
+  memoryFiles.clear(); retryDelays.length = 0;
+  memoryFiles.set(file, JSON.stringify(makeQueue(28)));
+  const host = makeHost();
+  await host.loadDistributedQueue(root);
+  const rename = memoryFs.rename;
+  let attempts = 0;
+  memoryFs.rename = async (...args) => {
+    assert.equal(host.serverPlanProgress().length, 28);
+    if (++attempts <= 2) throw Object.assign(new Error("sharing violation"), { code: "EPERM" });
+    return rename(...args);
+  };
+  try {
+    await host.patchDistributedJob(root, "plan-0", 0, 1, { mirroredWorkerIds: ["worker-2"] });
+    assert.equal(attempts, 3);
+    assert.deepEqual(retryDelays, [20, 40]);
+    assert.deepEqual(JSON.parse(memoryFiles.get(file)).plans[0].jobs[0].mirroredWorkerIds, ["worker-2"]);
+    assert.equal(host.distributedQueueStorageDiagnostics.status, "ready");
+    assert.equal(memoryFiles.has(file + ".writing"), false);
+  } finally { memoryFs.rename = rename; }
+});
+
+test("external queue update during rename retry is never overwritten", async () => {
+  memoryFiles.clear(); retryDelays.length = 0;
+  memoryFiles.set(file, JSON.stringify(makeQueue(28)));
+  const host = makeHost();
+  const working = await host.loadDistributedQueue(root);
+  working.plans[0].jobs[0].error = "stale";
+  const external = JSON.stringify(makeQueue(29));
+  const rename = memoryFs.rename;
+  let attempts = 0;
+  memoryFs.rename = async () => {
+    attempts++;
+    memoryFiles.set(file, external);
+    throw Object.assign(new Error("sharing violation"), { code: "EPERM" });
+  };
+  try {
+    await assert.rejects(host.saveDistributedQueue(root, working), /另一窗口已更新/);
+    assert.equal(attempts, 1);
+    assert.equal(memoryFiles.get(file), external);
+    assert.equal(host.serverPlanProgress().length, 29);
+    assert.equal(host.distributedQueueStorageDiagnostics.status, "conflict");
+  } finally { memoryFs.rename = rename; }
+});
+
+test("persistent EPERM has bounded retries, keeps one staging slot, and allows a later successful retry", async () => {
+  memoryFiles.clear(); retryDelays.length = 0;
+  const initial = JSON.stringify(makeQueue(28));
+  memoryFiles.set(file, initial);
+  const host = makeHost();
+  await host.loadDistributedQueue(root);
+  const originalSignature = host.distributedQueueDiskSignature;
+  host.distributedQueueStorageDiagnostics = { status: "conflict", reason: "older-conflict" };
+  const rename = memoryFs.rename;
+  let attempts = 0;
+  memoryFs.rename = async () => { attempts++; throw Object.assign(new Error("sharing violation"), { code: "EPERM" }); };
+  try {
+    await assert.rejects(host.patchDistributedJob(root, "plan-0", 0, 1, { fragmentWorkerIds: ["worker-2"] }), /sharing violation/);
+    assert.equal(attempts, 6);
+    assert.equal(retryDelays.reduce((a, b) => a + b, 0), 550);
+    assert.equal(memoryFiles.get(file), initial);
+    assert.equal(host.distributedQueueDiskSignature, originalSignature);
+    assert.equal(host.serverPlanProgress().length, 28);
+    assert.equal(host.distributedQueueStorageDiagnostics.reason, "queue-commit-failed");
+    assert.equal(memoryFiles.size, 2);
+  } finally { memoryFs.rename = rename; }
+  await host.patchDistributedJob(root, "plan-0", 0, 1, { fragmentWorkerIds: ["worker-2"] });
+  assert.equal(memoryFiles.size, 1);
+  assert.equal(host.distributedQueueStorageDiagnostics.status, "ready");
+});
+
+test("generation cancellation during rename retry prevents publication", async () => {
+  memoryFiles.clear(); retryDelays.length = 0;
+  const initial = JSON.stringify(makeQueue(28));
+  memoryFiles.set(file, initial);
+  const host = makeHost();
+  const working = await host.loadDistributedQueue(root);
+  const rename = memoryFs.rename;
+  let attempts = 0;
+  memoryFs.rename = async () => {
+    attempts++;
+    host.distributedQueueGeneration++;
+    throw Object.assign(new Error("sharing violation"), { code: "EPERM" });
+  };
+  try {
+    await assert.rejects(host.saveDistributedQueue(root, working, { queueGeneration: 0 }), /过期调度轮次/);
+    assert.equal(attempts, 1);
+    assert.equal(memoryFiles.get(file), initial);
+    assert.equal(host.serverPlanProgress().length, 28);
+  } finally { memoryFs.rename = rename; }
 });
