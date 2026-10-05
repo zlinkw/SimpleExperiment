@@ -540,9 +540,9 @@ bootstrap 独占 `acquireVsCodeApi()`，通过明确接口供主程序使用；�
 |---|---|---|
 | 事务与临时文件 | passed | publication 不再自动 unlink/rmdir；保留 committed/rolled-back journal，固定槽复用；备份按已验证独占文件描述符流式写入，拒绝硬链接。publication 9/9、resultTables 18/18，包括 20 次重复发布、准备失败、旧 journal 恢复和全量回滚 |
 | 调度与请求负载 | passed | `23c0b4b7` 修复固定 500ms availability push 与失效配置：按配置上报、最小5秒；恢复 poll/TTL/push 的文档边界并同步 Host/UI/manifest。schedulerContract 2/2、configBounds 6/6、extensionStatePost 5/5、schedulerAvailability 12/12、queueCacheStability 7/7；distributed queue 的 500ms tick 保留；requestBudget 11/11 验证每 Worker 控制4/传输1、全局控制8/传输2及独立紧急容量；SSEBackpressure 3/3 |
-| 传输与兼容 | passed | 修复范围同步仅限制文件数而未限制字节的问题：归档最多128MiB，未知/超大文件独立批次；复用 bounded JSON/SSE decoder，异常流释放 reader，取消请求附 operationInstanceId。sftpProgressWait 4/4、safeRequestRetry 9/9、syncScopeTransferBatch 7/7、boundedResponse 5/5、planSafeRetry 9/9、cancelRetry 2/2；实际 SimpleSFTP 压缩策略/版本组合及吞吐数据仍待现场 |
+| 传输与兼容 | passed | `4afca2c8` 修复范围同步仅限制文件数而未限制字节的问题：归档最多128MiB，未知/超大文件独立批次；复用 bounded JSON/SSE decoder，异常流释放 reader，取消请求附 operationInstanceId。sftpProgressWait 4/4、safeRequestRetry 9/9、syncScopeTransferBatch 7/7、boundedResponse 5/5、planSafeRetry 9/9、cancelRetry 2/2；当前配套 SimpleSFTP 0.2.46 的 auto 仅按 zstd 工具可用性选择，压缩收益采样尚未实现，作为配套后续项，不虚报本仓已完成 |
 | Panel、通知、生命周期 | pending | 核对 projection、摘要/revision、dirty/DOM patch、独立 bootstrap、bounded incident、原生恢复及 scope 清理 |
-| 更新与通用接入 | pending | 核对版本/资产/平台、显式运行依赖、通用 runner 与工厂失败语义 |
+| 更新与通用接入 | passed | 补齐计划要求的显式 SemVer 依赖：固定 npm semver 7.7.3，仅打包 compare/valid 的9个模块闭包（20,274字节）及许可证；build identity 和 VSIX runtime 门禁覆盖该闭包。修复分布式契约允许 Windows 绝对路径/ADS 的漏洞。extensionUpdates 7/7、distributedProjectContract 5/5、publicReleaseBundle 4/4、pluginHandoffContract 3/3、multiFormatOutput 1/1、两组 factories 8/8 与14/14；保留 MultiModal 默认预设，CSV/JSON 项目可配置无 checkpoint/四态要求 |
 | 回归与交付 | pending | 分文件串行目标测试、build、vm.Script、打包；更新实际证据后限定文件提交并普通推送 |
 | 现场与长时门槛 | deferred | 两个已知挂起测试、SimpleSFTP 版本组合、MultiModal 同步及灰屏现场、跨窗口崩溃恢复、8 小时 soak 与 100 次布局切换仍保留，未实测不宣称解决 |
 - 批次 7/5A：Panel 将 navigate 消息作为一次性事件消费并立即清空待处理引用；导航不再受同一 batch 中旧 state 序号的 early-return 阻断，后续任意状态 batch 也不会重复播放旧的 userInitiated 导航，修复步骤完成后仍偶发自动跳转的问题。

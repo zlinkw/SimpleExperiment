@@ -43,3 +43,12 @@ test("project contract accepts a different Plan family and protects the checkpoi
   assert.throws(() => normalizeDistributedProjectContract({ checkpointPath: "../weights/final.pt" }));
   assert.throws(() => normalizeDistributedProjectContract({ mergeModule: "package.module;rm" }));
 });
+
+test("all distributed file and prefix fields reject Windows absolute paths and alternate streams", () => {
+  for (const unsafe of ["C:/outside.csv", "D:\\outside.csv", "//server/share/file.csv", "metrics.csv:secret", "../metrics.csv"]) {
+    for (const field of ["configPath", "checkpointPath", "resultRowsPath", "fourStatePath", "planPrefixes", "fragmentPaths", "requiredPaths"]) {
+      const value = ["planPrefixes", "fragmentPaths", "requiredPaths"].includes(field) ? [unsafe] : unsafe;
+      assert.throws(() => normalizeDistributedProjectContract({ [field]: value }), /相对路径无效/, `${field}: ${unsafe}`);
+    }
+  }
+});

@@ -36,6 +36,20 @@ test("release versions use semantic comparison and ignore the optional v prefix"
   );
 });
 
+test("SemVer comparison uses the explicitly packaged runtime closure", () => {
+  const manifest = JSON.parse(fs.readFileSync(path.join(__dirname, "../../package.json"), "utf8"));
+  const bundled = JSON.parse(fs.readFileSync(path.join(__dirname, "../../dist/vendor/semver/package.json"), "utf8"));
+  assert.equal(bundled.version, manifest.dependencies.semver);
+  const { collectLocalRuntimeClosure } = require("../../scripts/runtime-closure");
+  const closure = collectLocalRuntimeClosure(path.join(__dirname, "../.."), ["dist/features/ExtensionUpdates.js"]);
+  assert.ok(closure.some(item => item.file === "dist/vendor/semver/functions/compare.js"));
+  assert.ok(fs.existsSync(path.join(__dirname, "../../dist/vendor/semver/LICENSE")));
+  const precedence = ["1.0.0-alpha", "1.0.0-alpha.1", "1.0.0-alpha.beta", "1.0.0-beta", "1.0.0-beta.2", "1.0.0-beta.11", "1.0.0-rc.1", "1.0.0"];
+  for (let i = 1; i < precedence.length; i++) assert.equal(compareSemanticVersions(precedence[i - 1], precedence[i]), -1);
+  assert.equal(compareSemanticVersions("1.0.0+build.1", "1.0.0+build.2"), 0);
+  assert.throws(() => compareSemanticVersions("1.0.0-01", "1.0.0"), /无效/);
+});
+
 test("paired update plan requires VSIX assets from both releases", () => {
   const experiment = componentUpdate("simple-local.simple-experiment", "zlinkw/SimpleExperiment", "SimpleExperiment", "0.4.6", release("0.4.7", ["simple-experiment-0.4.7.vsix", "simple-experiment-0.4.7.vsix.sha256"]), "simple-experiment");
   const sftp = componentUpdate("simple-local.simple-sftp", "zlinkw/SimpleSFTP", "SimpleSFTP", "0.2.5", release("0.2.6", ["simple-sftp-0.2.6.vsix", "simple-sftp-0.2.6.vsix.sha256"]), "simple-sftp");

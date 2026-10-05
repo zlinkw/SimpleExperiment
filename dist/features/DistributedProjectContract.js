@@ -4,7 +4,7 @@ exports.normalizeDistributedProjectContract = normalizeDistributedProjectContrac
 function normalizeDistributedProjectContract(raw = {}) {
     const relative = (value, fallback) => {
         const text = String(value || fallback).replace(/\\/g, "/").trim();
-        if (!text || text.startsWith("/") || text.split("/").some((part) => !part || part === "." || part === "..") || /[\x00-\x1f]/.test(text))
+        if (!text || text.startsWith("/") || text.includes(":") || text.split("/").some((part) => !part || part === "." || part === "..") || /[\x00-\x1f]/.test(text))
             throw new Error(`分布式产物相对路径无效：${text}`);
         return text;
     };

@@ -1,5 +1,8 @@
 import { inflateRawSync } from "node:zlib";
 import { open as openFile } from "node:fs/promises";
+// The build copies only these modules and their dependency closure into VSIX.
+const semverCompare: (left: string, right: string) => number = require("../vendor/semver/functions/compare");
+const semverValid: (value: string) => string | null = require("../vendor/semver/functions/valid");
 
 export const EXPERIMENT_UPDATE_REPO = "zlinkw/SimpleExperiment";
 export const SFTP_UPDATE_REPO = "zlinkw/SimpleSFTP";
@@ -61,61 +64,23 @@ function releaseAssets(release: UpdateRelease): UpdateAsset[] {
     : [];
 }
 
-type ParsedVersion = { major: number; minor: number; patch: number; prerelease: Array<string | number>; build: string };
-const VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
-
-function parseSemanticVersion(value: string): ParsedVersion | undefined {
-  const match = VERSION_PATTERN.exec(text(value).replace(/^v/i, ""));
-  if (!match) return undefined;
-  const prerelease = match[4] ? match[4].split(".").map((part) => {
-    if (/^\d+$/.test(part)) {
-      if (part.length > 1 && part.startsWith("0")) return Number.NaN;
-      const number = Number(part);
-      return Number.isSafeInteger(number) ? number : Number.NaN;
-    }
-    return part;
-  }) : [];
-  if (prerelease.some((part) => typeof part === "number" && !Number.isSafeInteger(part))) return undefined;
-  const major = Number(match[1]), minor = Number(match[2]), patch = Number(match[3]);
-  if (![major, minor, patch].every(Number.isSafeInteger)) return undefined;
-  return { major, minor, patch, prerelease, build: match[5] || "" };
-}
-
 function embeddedSemanticVersion(value: string): string {
   const textValue = text(value);
   const pattern = /(?:^|[^0-9A-Za-z])v?((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)(?=$|[^0-9A-Za-z])/g;
   const found = pattern.exec(textValue)?.[1] || "";
-  return parseSemanticVersion(found) ? found : "";
+  return semverValid(found) ? found : "";
 }
 
 export function normalizeReleaseVersion(value: string): string {
   const raw = text(value).replace(/^v/i, "");
-  if (parseSemanticVersion(raw)) return raw;
+  if (semverValid(raw)) return raw;
   return embeddedSemanticVersion(raw);
 }
 
 export function compareSemanticVersions(left: string, right: string): number {
-  const a = parseSemanticVersion(left);
-  const b = parseSemanticVersion(right);
-  if (!a || !b) throw new Error(`无效的 SemVer 版本：${left} / ${right}`);
-  for (const key of ["major", "minor", "patch"] as const) {
-    if (a[key] !== b[key]) return a[key] > b[key] ? 1 : -1;
-  }
-  if (!a.prerelease.length || !b.prerelease.length) {
-    if (a.prerelease.length === b.prerelease.length) return 0;
-    return a.prerelease.length ? -1 : 1;
-  }
-  for (let index = 0; index < Math.max(a.prerelease.length, b.prerelease.length); index += 1) {
-    const leftPart = a.prerelease[index];
-    const rightPart = b.prerelease[index];
-    if (leftPart === undefined || rightPart === undefined) return leftPart === undefined ? -1 : 1;
-    if (leftPart === rightPart) continue;
-    if (typeof leftPart === "number" && typeof rightPart === "number") return leftPart > rightPart ? 1 : -1;
-    if (typeof leftPart === "number") return -1;
-    if (typeof rightPart === "number") return 1;
-    return leftPart > rightPart ? 1 : -1;
-  }
-  return 0;
+  const a = text(left).replace(/^v/i, ""), b = text(right).replace(/^v/i, "");
+  if (!semverValid(a) || !semverValid(b)) throw new Error(`无效的 SemVer 版本：${left} / ${right}`);
+  return semverCompare(a, b);
 }
 
 export function currentTargetPlatform(platform = process.platform, architecture = process.arch): string {

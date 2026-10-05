@@ -12,6 +12,9 @@ exports.refreshStoredPluginUpdatePlan = refreshStoredPluginUpdatePlan;
 exports.planPairedUpdates = planPairedUpdates;
 const node_zlib_1 = require("node:zlib");
 const promises_1 = require("node:fs/promises");
+// The build copies only these modules and their dependency closure into VSIX.
+const semverCompare = require("../vendor/semver/functions/compare");
+const semverValid = require("../vendor/semver/functions/valid");
 exports.EXPERIMENT_UPDATE_REPO = "zlinkw/SimpleExperiment";
 exports.SFTP_UPDATE_REPO = "zlinkw/SimpleSFTP";
 exports.EXPERIMENT_EXTENSION_ID = "simple-local.simple-experiment";
@@ -31,69 +34,23 @@ function releaseAssets(release) {
         })
         : [];
 }
-const VERSION_PATTERN = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
-function parseSemanticVersion(value) {
-    const match = VERSION_PATTERN.exec(text(value).replace(/^v/i, ""));
-    if (!match)
-        return undefined;
-    const prerelease = match[4] ? match[4].split(".").map((part) => {
-        if (/^\d+$/.test(part)) {
-            if (part.length > 1 && part.startsWith("0"))
-                return Number.NaN;
-            const number = Number(part);
-            return Number.isSafeInteger(number) ? number : Number.NaN;
-        }
-        return part;
-    }) : [];
-    if (prerelease.some((part) => typeof part === "number" && !Number.isSafeInteger(part)))
-        return undefined;
-    const major = Number(match[1]), minor = Number(match[2]), patch = Number(match[3]);
-    if (![major, minor, patch].every(Number.isSafeInteger))
-        return undefined;
-    return { major, minor, patch, prerelease, build: match[5] || "" };
-}
 function embeddedSemanticVersion(value) {
     const textValue = text(value);
     const pattern = /(?:^|[^0-9A-Za-z])v?((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)(?:-[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?(?:\+[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*)?)(?=$|[^0-9A-Za-z])/g;
     const found = pattern.exec(textValue)?.[1] || "";
-    return parseSemanticVersion(found) ? found : "";
+    return semverValid(found) ? found : "";
 }
 function normalizeReleaseVersion(value) {
     const raw = text(value).replace(/^v/i, "");
-    if (parseSemanticVersion(raw))
+    if (semverValid(raw))
         return raw;
     return embeddedSemanticVersion(raw);
 }
 function compareSemanticVersions(left, right) {
-    const a = parseSemanticVersion(left);
-    const b = parseSemanticVersion(right);
-    if (!a || !b)
+    const a = text(left).replace(/^v/i, ""), b = text(right).replace(/^v/i, "");
+    if (!semverValid(a) || !semverValid(b))
         throw new Error(`无效的 SemVer 版本：${left} / ${right}`);
-    for (const key of ["major", "minor", "patch"]) {
-        if (a[key] !== b[key])
-            return a[key] > b[key] ? 1 : -1;
-    }
-    if (!a.prerelease.length || !b.prerelease.length) {
-        if (a.prerelease.length === b.prerelease.length)
-            return 0;
-        return a.prerelease.length ? -1 : 1;
-    }
-    for (let index = 0; index < Math.max(a.prerelease.length, b.prerelease.length); index += 1) {
-        const leftPart = a.prerelease[index];
-        const rightPart = b.prerelease[index];
-        if (leftPart === undefined || rightPart === undefined)
-            return leftPart === undefined ? -1 : 1;
-        if (leftPart === rightPart)
-            continue;
-        if (typeof leftPart === "number" && typeof rightPart === "number")
-            return leftPart > rightPart ? 1 : -1;
-        if (typeof leftPart === "number")
-            return -1;
-        if (typeof rightPart === "number")
-            return 1;
-        return leftPart > rightPart ? 1 : -1;
-    }
-    return 0;
+    return semverCompare(a, b);
 }
 function currentTargetPlatform(platform = process.platform, architecture = process.arch) {
     const os = platform === "win32" ? "win32" : platform === "darwin" ? "darwin" : platform === "linux" ? "linux" : "";
