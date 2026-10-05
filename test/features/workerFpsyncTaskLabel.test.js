@@ -35,8 +35,8 @@ test("job artifact copies name the plan, job, workers, artifact kind, and batch"
   const context = loadMethod(
     "async syncDistributedJobArtifacts(",
     "async distributedOutputHashes(",
-    "async syncDistributedJobArtifacts(root, queue, phase, verifyAll = false)",
-    "async function syncJobArtifacts(root, queue, phase, verifyAll = false)",
+    "async syncDistributedJobArtifacts(root, queue, phase, verifyAll = false, report)",
+    "async function syncJobArtifacts(root, queue, phase, verifyAll = false, report)",
   );
   const files = Array.from({ length: 5001 }, (_, index) => `runs/a/weights/part-${String(index).padStart(4, "0")}.bin`);
   const job = {

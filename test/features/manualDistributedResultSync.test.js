@@ -16,7 +16,7 @@ function methods(start, end) {
   return source.slice(first, last).replace(/}\s+async /g, "}, async ");
 }
 
-function fixture({ emptyOriginal = false, cold = false, allMissing = false, retry = false, respectDepth = false } = {}) {
+function fixture({ emptyOriginal = false, cold = false, allMissing = false, retry = false, respectDepth = false, inventoryStdin = false } = {}) {
   const outputDir = "work_dirs/ebmc/job/attempts/run-b";
   const files = Object.fromEntries([...required, "stdout.log"].map(name => [`${outputDir}/${name}`, { sha256: hash }]));
   let state = { schemaVersion: 1, plans: ["run-a", "run-b"].map((id, index) => ({
@@ -54,6 +54,7 @@ function fixture({ emptyOriginal = false, cold = false, allMissing = false, retr
     planOutputRetentionMode: () => "latest-complete",
     workerCodeSyncTargets: () => ["w1", "w2", "w3"].map(id => ({ id })),
     sftpServerOptions: value => ({ id: value.id }), assertSshTransportIdentities: async () => {},
+    simpleSftpCapability: async () => ({ features: { projectInventoryStdinScopes: inventoryStdin } }),
     async refreshDistributedResultSyncProbes() {
       events.push("probe");
       this.lastWorkerProbes = { w1: { status: "ok" }, w2: { status: "ok" }, w3: { status: "ok" } };
@@ -146,6 +147,19 @@ test("verification batches are bounded by UTF-8 bytes and deduplicate exact path
   assert.equal(f.inventoryCalls.flatMap(call => call.scopePaths).length, paths.length);
   assert.ok(f.inventoryCalls.every(call => call.scopePaths.length <= 128
     && Buffer.byteLength(JSON.stringify(call.scopePaths), "utf8") <= 10240));
+});
+
+test("negotiated stdin inventory checks 5400 paths in two batches without command-line expansion", async (t) => {
+  const f = fixture({ inventoryStdin: true, respectDepth: true });
+  const paths = Array.from({ length: 5400 }, (_, index) => `work_dirs/method-${index % 17}/job-${index % 6}/attempts/distributed-plan-current/logs/file-${index}.csv`);
+  for (const file of paths) f.inventory.w1[file] = { sha256: hash };
+  const answer = await f.host.distributedOutputHashes({ id: "w1" }, paths);
+  assert.equal(Object.keys(answer).length, 5400);
+  assert.equal(f.inventoryCalls.length, 2);
+  assert.ok(f.inventoryCalls.every(call => call.scopePaths.length <= 5000
+    && Buffer.byteLength(JSON.stringify(call.scopePaths), "utf8") <= 1048576));
+  assert.ok(paths.every(file => answer[file] === hash));
+  t.diagnostic(`5400 explicit paths: ${f.inventoryCalls.length} inventory calls with negotiated stdin support`);
 });
 
 test("preflight hashes expire at the request boundary and changed copies fail visibly", async () => {
@@ -246,4 +260,19 @@ test("a full request waits for a metrics request and then performs the missing b
   resume();
   await Promise.all([metrics, full]);
   assert.equal(f.events.filter(value => value === "formal").length, 1);
+});
+
+test("batched hash progress reports the Worker and verified counts separately from transfer", async () => {
+  const f = fixture({ inventoryStdin: true });
+  const progress = [];
+  const paths = Object.keys(f.files);
+  await f.host.distributedOutputHashes({ id: "w1" }, paths, detail => progress.push(detail));
+  assert.equal(progress.length, 2);
+  assert.equal(progress[0].checkedCount, 0);
+  assert.equal(progress[1].checkedCount, paths.length);
+  assert.equal(progress[1].phase, "hashing");
+  assert.ok(progress[1].elapsedMs >= 0);
+  await f.host.postprocessDistributedResultsForManual(root, "full");
+  assert.ok(f.events.some(message => /SHA256 校验 · w1 · 第 1 批/.test(message)));
+  assert.ok(f.events.some(message => /压缩传输 · w1 → w2/.test(message)));
 });

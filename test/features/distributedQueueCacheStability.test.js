@@ -17,6 +17,7 @@ function sourceBlock(startMarker, endMarker) {
 
 const memoryFiles = new Map();
 const retryDelays = [];
+let renameCount = 0;
 const memoryStat = () => ({ dev: 1, ino: 1, nlink: 1, isFile: () => true, isSymbolicLink: () => false });
 const memoryFs = {
   async readFile(file) {
@@ -52,6 +53,7 @@ const memoryFs = {
     };
   },
   async rename(from, to) {
+    renameCount += 1;
     if (!memoryFiles.has(from)) throw new Error("temporary file missing");
     memoryFiles.set(to, memoryFiles.get(from));
     memoryFiles.delete(from);
@@ -123,6 +125,29 @@ function makeHost() {
     cachedWorkerTaskSnapshot: () => undefined,
   };
 }
+
+test("unchanged artifact and publication confirmations do not rewrite the queue and still observe fresh disk", async () => {
+  memoryFiles.clear();
+  memoryFiles.set(file, JSON.stringify(makeQueue(28)));
+  const host = makeHost();
+  await host.patchDistributedJob(root, "plan-0", 0, 1, { artifacts: { "a.csv": "digest" }, mirroredWorkerIds: ["worker-1"] });
+  await host.patchDistributedPublication(root, { publishedSignature: "current" });
+  const before = renameCount;
+  const signature = host.distributedQueueDiskSignature;
+  for (let index = 0; index < 20; index++) {
+    await host.patchDistributedJob(root, "plan-0", 0, 1, { artifacts: { "a.csv": "digest" }, mirroredWorkerIds: ["worker-1"] });
+    await host.patchDistributedPublication(root, { publishedSignature: "current" });
+  }
+  assert.equal(renameCount, before, "repeated hash confirmations must not create atomic staging writes");
+  assert.equal(host.distributedQueueDiskSignature, signature);
+  const external = JSON.parse(memoryFiles.get(file));
+  external.plans[1].jobs[0].status = "failed";
+  memoryFiles.set(file, JSON.stringify(external));
+  await host.patchDistributedJob(root, "plan-0", 0, 1, { mirroredWorkerIds: ["worker-1"] });
+  assert.equal(renameCount, before);
+  assert.equal(host.distributedQueueCache.plans[1].jobs[0].status, "failed");
+  assert.equal(host.serverPlanProgress().length, 28);
+});
 
 test("20 tick-equivalent writes keep all 28 historical Plans visible and isolate the display snapshot", async () => {
   memoryFiles.clear();

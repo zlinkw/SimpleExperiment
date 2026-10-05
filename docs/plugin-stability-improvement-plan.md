@@ -627,3 +627,9 @@ SFTP既有extension.js修改已按diff审阅并合入相关能力/哈希/批次�
 后续运行中 0.5.219 记录显示同步在本机 globalStorage 的队列 `.json.writing -> .json` rename 失败。队列保存曾独立实现固定槽并单次 rename，未沿用 StateStore 已有的有界共享冲突重试。本轮统一使用 StateStore，并增加每次发布前的磁盘签名/提交代次核验；延迟期间外部版本或取消状态变化必须拒绝覆盖。失败保留最后可信显示与签名，diagnostics 标 stale；不删除文件、不创建无限暂存文件、不重放传输。
 
 真实公共 writer 注入 EPERM 的回归、跨窗口租约/队列并发、原产物校验、通知/Plan guard、Panel 回归共 17 文件202项通过。已有 Plan guard 拒绝新运行而不取消同步；当前证据不能确定 Windows 文件具体占用者。交付门禁、0.5.220 安装及现场边界继续维护在 [同步校验回归记录](todo-artifact-sync-verification.md)。
+
+### 7.11 2026-10-05 传输与校验开销
+
+新增协商后的 stdin scope（5000 路径 / 1 MiB），旧版保留原边界；范围匹配与 SQLite 缓存仅加载请求范围，稳定文件复用五字段身份对应的 SHA256，变化重读。跨 Plan 仍按 Worker pair 合并有界压缩流，不新增压缩包暂存或强制依赖。通知分离哈希、打包、网络、解包和复核；wire bytes 持续可见且不混入控制输出/校验量。未变化的产物确认不重复原子写队列，磁盘并发保护不变。
+
+当前 MultiModal 的 5400 个真实路径在本地重放中由每 Worker 68 查询批次降至 2；未访问当前远端任务，不宣称实测网络提速。目标回归和交付边界见 [传输优化验收记录](todo-transfer-optimization.md)。

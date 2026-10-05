@@ -9837,7 +9837,14 @@ export class RealtimeTunnelPanelProvider {
                 || DistributedPlanQueue.distributedQueueDiskSignature("");
             if (options.mutateLatest) {
                 // Delta patches read and mutate inside the same serialized/leased storage transaction.
-                queue = options.mutateLatest(DistributedPlanQueue.cloneDistributedQueue(current, diskSignature));
+                const latest = DistributedPlanQueue.cloneDistributedQueue(current, diskSignature);
+                queue = options.mutateLatest(latest);
+                if (queue === latest) {
+                    // An unchanged confirmation still refreshes display from the leased disk read.
+                    // Do not create another multi-MiB staging write for every verified job.
+                    publishDiskSnapshot(diskSource, diskSignature, "ready", undefined);
+                    return;
+                }
             } else if (!options.appendPlanId && diskSignature !== baseSignature
                 && !DistributedPlanQueue.queueMetadataAdvanceRecorded(this.distributedQueueMetadataWrites || [], root, baseSignature, diskSignature)) {
                 await conflict(diskSource, diskSignature);
@@ -9926,18 +9933,29 @@ export class RealtimeTunnelPanelProvider {
     async patchDistributedJob(root, planId, index, attempt, fields) {
         const { replaceMirroredWorkerIds, replaceFragmentWorkerIds, ...updates } = fields;
         await this.saveDistributedQueue(root, undefined, { artifactMutation: true,
-            mutateLatest: (latest) => ({ ...latest, plans: latest.plans.map((plan) => plan.id !== planId ? plan : { ...plan,
-            jobs: plan.jobs.map((job) => job.index !== index || job.attempt !== attempt || job.outputRetiredAt ? job : { ...job, ...updates,
+            mutateLatest: (latest) => {
+                let changed = false;
+                const plans = latest.plans.map((plan) => plan.id !== planId ? plan : { ...plan,
+                jobs: plan.jobs.map((job) => {
+                    if (job.index !== index || job.attempt !== attempt || job.outputRetiredAt) return job;
+                    const next = { ...job, ...updates,
                 mirroredWorkerIds: fields.mirroredWorkerIds
                     ? replaceMirroredWorkerIds ? fields.mirroredWorkerIds : [...new Set([...(job.mirroredWorkerIds || []), ...fields.mirroredWorkerIds])]
                     : job.mirroredWorkerIds,
                 fragmentWorkerIds: fields.fragmentWorkerIds
                     ? replaceFragmentWorkerIds ? fields.fragmentWorkerIds : [...new Set([...(job.fragmentWorkerIds || []), ...fields.fragmentWorkerIds])]
-                    : job.fragmentWorkerIds }) }) }) });
+                    : job.fragmentWorkerIds };
+                    if (Object.keys(next).every((key) => JSON.stringify(next[key]) === JSON.stringify(job[key]))) return job;
+                    changed = true;
+                    return next;
+                }) });
+                return changed ? { ...latest, plans } : latest;
+            } });
     }
     async patchDistributedPublication(root, fields) {
         await this.saveDistributedQueue(root, undefined, { publicationMutation: true,
-            mutateLatest: (latest) => ({ ...latest, ...fields }) });
+            mutateLatest: (latest) => Object.keys(fields).every((key) => JSON.stringify(fields[key]) === JSON.stringify(latest[key]))
+                ? latest : { ...latest, ...fields } });
     }
     scheduleDistributedPostprocess(root, rerunIfBusy = false) {
         // Result files and summaries are user pulled. Keep this hook inert for legacy tick callers.
@@ -9982,8 +10000,11 @@ export class RealtimeTunnelPanelProvider {
             if (!this.workerCodeSyncTargets().some((target) => this.lastWorkerProbes[target.id]?.status === "ok"))
                 throw new Error("没有可用 Worker，未同步服务器产物。请检查连接后重试。");
             progress.report({ message: "校验并恢复最新版结果片段" });
+            const reportTransfer = (detail) => progress.report({ message: detail.phase === "hashing"
+                ? `SHA256 校验 · ${detail.workerId} · 第 ${detail.batch} 批 · ${detail.checkedCount}/${detail.fileCount} 路径${detail.elapsedMs === undefined ? "" : ` · 本批 ${Math.round(detail.elapsedMs / 1000)} 秒`}`
+                : `压缩传输 · ${detail.workerId} · 第 ${detail.batch}/${detail.batchCount} 批 · ${detail.fileCount} 路径` });
             try {
-                await this.syncDistributedJobArtifacts(root, queue, "fragments", true);
+                await this.syncDistributedJobArtifacts(root, queue, "fragments", true, reportTransfer);
                 assertRetryRequestCurrent();
             } catch (error) {
                 if (scope === "full") throw error;
@@ -9998,8 +10019,8 @@ export class RealtimeTunnelPanelProvider {
                 this.recordActionError({ command: "distributedPreviewRebuild", message: errorMessage(error) });
             }
             if (scope === "metrics") return;
-            progress.report({ message: "压缩打包同步最新版检查点与日志" });
-            await this.syncDistributedJobArtifacts(root, await this.loadDistributedQueue(root), "bulk", true);
+            progress.report({ message: "校验检查点与日志，按差异压缩传输" });
+            await this.syncDistributedJobArtifacts(root, await this.loadDistributedQueue(root), "bulk", true, reportTransfer);
             assertRetryRequestCurrent();
             if (workspaceRoot() !== root) return;
             progress.report({ message: "校验并发布正式结果" });
@@ -10702,7 +10723,7 @@ export class RealtimeTunnelPanelProvider {
         }
         this.postState();
     }
-    async syncDistributedJobArtifacts(root, queue, phase: "fragments" | "bulk", verifyAll = false) {
+    async syncDistributedJobArtifacts(root, queue, phase: "fragments" | "bulk", verifyAll = false, report?) {
         const contract = this.distributedProjectContract();
         const targets = new Map(this.workerCodeSyncTargets().map((target) => [target.id, target]));
         const online = [...targets.keys()].filter((id) => this.lastWorkerProbes[id]?.status === "ok");
@@ -10730,7 +10751,8 @@ export class RealtimeTunnelPanelProvider {
             }
             await mapLimited([...pathsByWorker], 2, async ([id, paths]) => {
                 if (workspaceRoot() !== root) return;
-                try { preflight.set(id, { hashes: await this.distributedOutputHashes(this.sftpServerOptions(targets.get(id)), [...paths]) }); }
+                try { preflight.set(id, { hashes: await this.distributedOutputHashes(this.sftpServerOptions(targets.get(id)), [...paths],
+                    report ? (detail) => report({ ...detail, workerId: id }) : undefined) }); }
                 catch (error) { preflight.set(id, { error }); }
             });
         }
@@ -10845,6 +10867,8 @@ export class RealtimeTunnelPanelProvider {
                 await this.assertSshTransportIdentities([first.sourceRow, first.target]);
                 const paths = [...new Set<string>(items.flatMap((item) => item.paths))].sort();
                 for (let offset = 0; offset < paths.length; offset += 5000) {
+                    report?.({ phase: "transferring", workerId: `${first.sourceId} → ${first.workerId}`,
+                        batch: offset / 5000 + 1, batchCount: Math.ceil(paths.length / 5000), fileCount: paths.slice(offset, offset + 5000).length });
                     await this.simpleSftpApiCall("sync.serverToServerFpsync", { source: first.source,
                         destination: { ...first.destination, host: first.destination.networkHost || first.destination.host },
                         relativePaths: paths.slice(offset, offset + 5000), compression: "auto", singleStream: true,
@@ -10854,7 +10878,8 @@ export class RealtimeTunnelPanelProvider {
                             detail: `${new Set(items.map((item) => item.plan.planFile)).size} 个 Plan / ${items.length} 个 job（${phase === "fragments" ? "结果片段" : "检查点、日志与结果"}）`,
                             batch: offset / 5000 + 1, batchCount: Math.ceil(paths.length / 5000) }) });
                 }
-                const checked = await this.distributedOutputHashes(first.destination, paths);
+                const checked = await this.distributedOutputHashes(first.destination, paths,
+                    report ? (detail) => report({ ...detail, workerId: first.workerId }) : undefined);
                 for (const { plan, job, workerId, paths } of items) {
                     if (paths.some((file) => checked[file] !== job.artifacts[file])) {
                         await failJob(plan, job, new Error(`${workerId} 内容校验失败：${job.outputDir}`));
@@ -10877,21 +10902,36 @@ export class RealtimeTunnelPanelProvider {
         }
         if (verifyAll && failures.length) throw new Error(`服务器最新产物同步未完成（${failures.length} 项）：${failures.slice(0, 3).join("；")}`);
     }
-    async distributedOutputHashes(source, paths) {
+    async distributedOutputHashes(source, paths, report?) {
         if (!paths.length) return {};
+        const capability = this.simpleSftpCapability ? await this.simpleSftpCapability("sync.projectInventory") : undefined;
+        const stdinScopes = capability?.features?.projectInventoryStdinScopes === true;
+        const maxPaths = stdinScopes ? 5000 : 128;
+        const maxBytes = stdinScopes ? 1048576 : 10240;
         const hashes = {};
+        const uniquePaths = [...new Set<string>(paths)].sort();
+        let batchCount = 0, checkedCount = 0;
         let batch: string[] = [];
+        let batchBytes = 2;
         const flush = async () => {
             if (!batch.length) return;
+            const startedAt = Date.now();
+            batchCount += 1;
+            report?.({ phase: "hashing", batch: batchCount, checkedCount, fileCount: uniquePaths.length });
             // recursive=false at the project root can only see direct children, even with scopes.
             // Exact file scopes prune all unrelated directories while reaching nested attempt files.
             const inventory = (await this.verifiedSftpProjectInventory({ source, relativePath: ".", scopePaths: batch, recursive: true })).files;
             for (const file of batch) hashes[file] = String(inventory[file]?.sha256 || "").toLowerCase();
+            checkedCount += batch.length;
+            report?.({ phase: "hashing", batch: batchCount, checkedCount, fileCount: uniquePaths.length, elapsedMs: Date.now() - startedAt });
             batch = [];
+            batchBytes = 2;
         };
-        for (const file of [...new Set<string>(paths)].sort()) {
-            if (Buffer.byteLength(JSON.stringify([file]), "utf8") > 10240) throw new Error("产物校验路径过长，未查询远端。");
-            if (batch.length >= 128 || Buffer.byteLength(JSON.stringify([...batch, file]), "utf8") > 10240) await flush();
+        for (const file of uniquePaths) {
+            const fileBytes = Buffer.byteLength(JSON.stringify(file), "utf8");
+            if (fileBytes + 2 > 10240) throw new Error("产物校验路径过长，未查询远端。");
+            if (batch.length >= maxPaths || batchBytes + fileBytes + (batch.length ? 1 : 0) > maxBytes) await flush();
+            batchBytes += fileBytes + (batch.length ? 1 : 0);
             batch.push(file);
         }
         await flush();

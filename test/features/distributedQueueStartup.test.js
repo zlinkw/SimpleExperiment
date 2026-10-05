@@ -191,7 +191,7 @@ test("successful artifact pass clears an old disconnected warning", async () => 
   const context = { workspaceRoot: () => "C:/project", Date, Set, Map, Object, errorMessage: String,
     PlanOutputRetention: require("../../dist/features/PlanOutputRetention.js") };
   vm.createContext(context);
-  vm.runInContext(compiled.slice(first, last).replace("async syncDistributedJobArtifacts(root, queue, phase, verifyAll = false)", "async function syncJobArtifacts(root, queue, phase, verifyAll = false)")
+  vm.runInContext(compiled.slice(first, last).replace("async syncDistributedJobArtifacts(root, queue, phase, verifyAll = false, report)", "async function syncJobArtifacts(root, queue, phase, verifyAll = false, report)")
     + "\nthis.sync = syncJobArtifacts;", context);
   const job = { index: 0, attempt: 1, status: "completed", workerId: "worker-b", outputDir: "runs/a",
     artifacts: {}, fragmentWorkerIds: ["worker-a"], mirroredWorkerIds: ["worker-a"], artifactError: "old disconnect" };
@@ -247,8 +247,8 @@ test("every newly completed job rechecks all recorded job mirrors and repairs dr
     DistributedJobArtifacts_1: { collectDistributedJobArtifacts: (_dir, inventory) => Object.fromEntries(Object.entries(inventory || {}).map(([name, row]) => [name, row.sha256])) },
     PlanArtifactTransfer_1: { workerFpsyncTaskLabel: (input) => [input.action, input.sourceId, input.destinationId].filter(Boolean).join(" ") } };
   vm.createContext(context);
-  vm.runInContext(compiled.slice(first, last).replace("async syncDistributedJobArtifacts(root, queue, phase, verifyAll = false)",
-    "async function syncJobArtifacts(root, queue, phase, verifyAll = false)")
+  vm.runInContext(compiled.slice(first, last).replace("async syncDistributedJobArtifacts(root, queue, phase, verifyAll = false, report)",
+    "async function syncJobArtifacts(root, queue, phase, verifyAll = false, report)")
     + "\nthis.sync = syncJobArtifacts;", context);
   const file = "runs/a/result.csv";
   const job = { index: 0, attempt: 1, status: "completed", workerId: "w2", outputDir: "runs/a",
