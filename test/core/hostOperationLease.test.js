@@ -14,6 +14,43 @@ function fixture() {
   });
   return {root,leasePath,manager,input}; // Retain isolated evidence; never delete arbitrary fixture paths.
 }
+test('a damaged registry keeps verified ownership and does not block unrelated targets',async()=>{
+  const f=fixture(), a=f.manager('recovery-a'), b=f.manager('recovery-b');
+  const held=await a.acquire(f.input());
+  fs.writeFileSync(held.record.resourceFile,'{broken','utf8');
+  const other=await b.acquire(f.input('D:/other/result.csv','local','D:/other'));
+  await assert.rejects(b.acquire(f.input()),HostOperationLeaseConflictError);
+  await other.release(); await held.release();
+});
+test('unknown ownership is preserved and cannot be silently ignored',async()=>{
+  const f=fixture(), a=f.manager('unknown-owner');
+  const held=await a.acquire(f.input());
+  fs.writeFileSync(held.record.resourceFile,'{broken','utf8');
+  fs.writeFileSync(held.record.resourceFile+'.ownership','{broken','utf8');
+  await assert.rejects(f.manager('other-owner').acquire(f.input('D:/other/a','local','D:/other')),error=>error.code==='RESOURCE_LEASE_OWNER_UNKNOWN');
+  await held.release();
+});
+
+test('successive proven-dead released hosts reuse registry slots instead of accumulating files',async()=>{
+  const f=fixture();
+  let currentPid=11000;
+  for(let i=0;i<20;i++){
+    const manager=f.manager('restart-'+i,{processId:currentPid,ownerAlive:row=>row.processId===currentPid});
+    const held=await manager.acquire(f.input()); await held.release(); currentPid++;
+    const names=fs.readdirSync(f.leasePath+'.resources-v2');
+    assert.equal(names.filter(name=>/^[a-f0-9]{64}\.json$/.test(name)).length,1);
+    assert.equal(names.length,2); // Main registry and bounded ownership copy, no random stale files.
+  }
+});
+
+test('idle slot contention never reclaims a live registry or admits two conflicting owners',async()=>{
+  const f=fixture();
+  const old=f.manager('closed',{processId:11001}); const previous=await old.acquire(f.input());await previous.release();
+  const managers=['next-a','next-b'].map((name,i)=>f.manager(name,{processId:12000+i,ownerAlive:row=>row.processId!==11001}));
+  const result=await Promise.allSettled(managers.map(manager=>manager.acquire(f.input())));
+  assert.equal(result.filter(row=>row.status==='fulfilled').length,1);
+  for(const row of result)if(row.status==='fulfilled')await row.value.release();
+});
 test('different targets, projects and Workers proceed in parallel across windows', async()=>{
   const f=fixture(), a=f.manager('a'), b=f.manager('b');
   const held=await a.acquire(f.input());

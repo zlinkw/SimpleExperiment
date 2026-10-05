@@ -49,18 +49,30 @@ test("manual cancellation remains terminal when work ignores the abort signal", 
   assert.equal(queue.snapshot().find((item) => item.id === "cancel-ignored").status, "cancelled");
 });
 
-test("timeouts remain distinct from manual cancellation", async () => {
+test("timeout retains the exclusive key until underlying work settles, then differs from manual cancellation", async () => {
   const queue = new OperationQueue();
+  let finish;
+  let aborted;
+  const abortSeen = new Promise(resolve => { aborted = resolve; });
   const operation = queue.enqueue({
     id: "timed-out",
     type: "test",
     priority: "background",
     timeoutMs: 5,
-    run: () => new Promise(() => undefined),
+    exclusiveKeys: ["timed-resource"],
+    run: signal => new Promise(resolve => {
+      finish = resolve;
+      signal.addEventListener("abort", aborted, { once: true });
+    }),
   });
-
-  await assert.rejects(operation, /operation timeout/);
+  const rejection = assert.rejects(operation, /operation timed out/);
+  await abortSeen;
+  assert.equal(queue.snapshot().find(item => item.id === "timed-out").status, "cancelling");
+  assert.equal(queue.activeExclusiveKeys().has("timed-resource"), true);
+  finish();
+  await rejection;
   assert.equal(queue.snapshot().find((item) => item.id === "timed-out").status, "timeout");
+  assert.equal(queue.activeExclusiveKeys().has("timed-resource"), false);
 });
 
 test("completed operation history is bounded while preserving newest records", async () => {
@@ -123,7 +135,7 @@ test("operation queue keeps direct indexes for records and active exclusive keys
   assert.doesNotMatch(source, /\[\.\.\.this\.records\]\.reverse\(\)\.find|for \(const item of this\.running\.values\(\)\)/);
 });
 
-test("history trimming remaps duplicate ids to a retained active record", async () => {
+test("history trimming preserves an active record and duplicate IDs cannot schedule concurrently", async () => {
   const queue = new OperationQueue(1);
   let releaseFirst;
   const first = queue.enqueue({
@@ -132,15 +144,18 @@ test("history trimming remaps duplicate ids to a retained active record", async 
     priority: "manual",
     run: () => new Promise((resolve) => { releaseFirst = resolve; }),
   });
-  await queue.enqueue({
+  await assert.rejects(queue.enqueue({
     id: "duplicate",
     type: "short",
     priority: "manual",
     run: async () => undefined,
-  });
+  }), error => error.code === "OPERATION_ALREADY_ACTIVE");
+  await queue.enqueue({ id: "other", type: "short", priority: "manual", run: async () => undefined });
 
   assert.deepEqual(queue.snapshot(10).map((item) => [item.type, item.status]), [["long", "running"]]);
   releaseFirst();
   await first;
   assert.deepEqual(queue.snapshot(10).map((item) => [item.type, item.status]), [["long", "succeeded"]]);
+  await queue.enqueue({ id: "duplicate", type: "retry", priority: "manual", run: async () => undefined });
+  assert.deepEqual(queue.snapshot(10).map(item => [item.type, item.status]), [["retry", "succeeded"]]);
 });

@@ -2,11 +2,12 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import * as crypto from "crypto";
 import * as os from "os";
+import { constants } from "fs";
 import { AsyncLocalStorage } from "async_hooks";
 import { atomicWriteText } from "../state/StateStore";
 
 export type ResourceTarget = { server: string; project: string; target?: string };
-type Registry = { schemaVersion: 2; windowId: string; ticket: number; choosing: boolean; admissionExpiresAt: number; leases: any[] };
+type Registry = { schemaVersion: 2; windowId: string; processId?: number; ticket: number; choosing: boolean; admissionExpiresAt: number; leases: any[] };
 const poolKey = Symbol.for("simple-local.resource-leases.v2");
 const contextKey = Symbol.for("simple-local.resource-lease-context.v2");
 const globals = globalThis as any;
@@ -97,7 +98,7 @@ export class ResourceOperationLeaseManager {
     const stableOwner = this.windowId.startsWith(processOwner + ":") ? processOwner : this.windowId;
     this.file = path.join(this.directory, crypto.createHash("sha256").update(stableOwner).digest("hex") + ".json");
     const key = this.file.toLowerCase();
-    if (!pools.has(key)) pools.set(key, { queue: Promise.resolve(), registry: { schemaVersion: 2, windowId: this.windowId, ticket: 0, choosing: false, admissionExpiresAt: 0, leases: [] } });
+    if (!pools.has(key)) pools.set(key, { queue: Promise.resolve(), registry: { schemaVersion: 2, windowId: this.windowId, processId: this.processId, ticket: 0, choosing: false, admissionExpiresAt: 0, leases: [] } });
     this.state = pools.get(key);
   }
   private exclusive<T>(operation: () => Promise<T>): Promise<T> {
@@ -106,16 +107,76 @@ export class ResourceOperationLeaseManager {
     return work;
   }
   private async write(): Promise<void> {
-    await atomicWriteText(this.file, JSON.stringify(this.state.registry));
+    await this.reuseIdleRegistry();
+    const text = JSON.stringify(this.state.registry);
+    if (Buffer.byteLength(text, "utf8") > 8 * 1024 * 1024) throw new Error("资源锁快照超过有界大小。");
+    // A second fixed slot preserves ownership if the main registry is damaged.
+    // Declaration precedes commit; business work begins only after the main commit succeeds.
+    await atomicWriteText(this.file + ".ownership", text);
+    await atomicWriteText(this.file, text);
+  }
+  private async reuseIdleRegistry(): Promise<void> {
+    try { await fs.lstat(this.file); return; }
+    catch (error: any) { if (error.code !== "ENOENT") throw error; }
+    await fs.mkdir(this.directory, { recursive: true });
+    const names = (await fs.readdir(this.directory)).filter(name => /^[a-f0-9]{64}[.]json$/.test(name)).sort();
+    for (const name of names.slice(0, 512)) {
+      const source = path.join(this.directory, name);
+      try {
+        const row = await this.readRegistry(source);
+        const oldPid = row.processId ?? Number(row.windowId.split(":")[1]);
+        // Released registries only. Unknown or live owners and recovery records stay protected.
+        if (!Number.isInteger(oldPid) || oldPid <= 0 || oldPid === this.processId || row.leases.length || row.choosing || row.ticket ||
+          row.admissionExpiresAt > this.now() || this.ownerAlive({ processId: oldPid })) continue;
+        // Atomic rename claims one idle slot: two new owners cannot both consume the source.
+        await fs.rename(source, this.file);
+        for (const suffix of [".ownership", ".writing", ".ownership.writing"]) {
+          try {
+            const side = await this.readRegistry(source + suffix);
+            if (side.windowId === row.windowId && !side.leases.length && !side.choosing && !side.ticket)
+              await fs.rename(source + suffix, this.file + suffix);
+          } catch { /* Unknown sidecar is retained; new ownership is written to our fixed slots. */ }
+        }
+        return;
+      } catch { /* Contested, damaged or unknown records are never reclaimed. */ }
+    }
+  }
+  private async readRegistry(file: string): Promise<Registry> {
+    const handle = await fs.open(file, constants.O_RDONLY | (constants.O_NOFOLLOW || 0));
+    try {
+      const before = await handle.stat();
+      const current = await fs.lstat(file);
+      if (current.isSymbolicLink() || current.dev !== before.dev || current.ino !== before.ino) throw new Error("资源锁路径身份无效。");
+      if (!before.isFile() || before.nlink > 1 || before.size > 8 * 1024 * 1024) throw new Error("资源锁文件身份或大小无效。");
+      const bytes = Buffer.alloc(before.size);
+      let offset = 0;
+      while (offset < bytes.length) {
+        const result = await handle.read(bytes, offset, bytes.length - offset, offset);
+        if (!result.bytesRead) throw new Error("资源锁读取未前进。");
+        offset += result.bytesRead;
+      }
+      const after = await handle.stat();
+      if (before.size !== after.size || before.mtimeMs !== after.mtimeMs || before.ctimeMs !== after.ctimeMs) throw new Error("资源锁读取期间发生变化。");
+      const row = JSON.parse(bytes.toString("utf8"));
+      if (row.schemaVersion !== 2 || !Array.isArray(row.leases) || !row.windowId || row.leases.some((lease: any) => !Array.isArray(lease.resources) || !lease.resources.length)) throw new Error("资源锁记录损坏。");
+      return row;
+    } finally { await handle.close(); }
   }
   private async rows(): Promise<Registry[]> {
     await fs.mkdir(this.directory, { recursive: true });
     const names = (await fs.readdir(this.directory)).filter(name => /^[a-f0-9]{64}[.]json$/.test(name));
-    return Promise.all(names.map(async name => {
-      const row = JSON.parse(await fs.readFile(path.join(this.directory, name), "utf8"));
-      if (row.schemaVersion !== 2 || !Array.isArray(row.leases) || !row.windowId) throw new Error("资源锁记录损坏，请重新加载持有窗口后重试。");
-      return row;
+    const rows = await Promise.all(names.map(async name => {
+      const file = path.join(this.directory, name);
+      try { return await this.readRegistry(file); }
+      catch (error: any) {
+        try { return await this.readRegistry(file + ".ownership"); }
+        catch (fallback: any) {
+          if (error.code === "ENOENT" && fallback.code === "ENOENT") return undefined; // Atomically consumed idle slot.
+          throw Object.assign(new Error("资源锁归属无法核实，记录已保留；请检查持有窗口，不能忽略未知活动锁。"), { code: "RESOURCE_LEASE_OWNER_UNKNOWN" });
+        }
+      }
     }));
+    return rows.filter((row): row is Registry => row !== undefined);
   }
   private async legacyGuard(): Promise<void> {
     try {

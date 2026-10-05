@@ -15,14 +15,21 @@ function runCli(args, extra = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [cli, ...args], {
       cwd: extra.cwd || root,
+      windowsHide: true,
       env: { ...process.env, SIMPLE_EXPERIMENT_API_FILE: extra.apiFile || path.join(os.tmpdir(), "missing-simple-experiment-api.json"), ...extra.env },
     });
     let stdout = "";
     let stderr = "";
-    child.stdout.on("data", (chunk) => { stdout += chunk.toString("utf8"); });
-    child.stderr.on("data", (chunk) => { stderr += chunk.toString("utf8"); });
-    child.on("error", reject);
-    child.on("close", (code) => resolve({ code, stdout, stderr }));
+    let timedOut = false;
+    const timer = setTimeout(() => { timedOut = true; child.kill(); }, 10000);
+    child.stdout.on("data", (chunk) => { stdout = (stdout + chunk.toString("utf8")).slice(-1024 * 1024); });
+    child.stderr.on("data", (chunk) => { stderr = (stderr + chunk.toString("utf8")).slice(-65536); });
+    child.on("error", (error) => { clearTimeout(timer); reject(error); });
+    child.on("close", (code) => {
+      clearTimeout(timer);
+      if (timedOut) reject(new Error(`CLI fixture exceeded 10 seconds: ${args[0]}`));
+      else resolve({ code, stdout, stderr });
+    });
   });
 }
 
@@ -88,7 +95,7 @@ test("project root uses Local API workspace from unrelated cwd and explicit env 
     });
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
-  t.after(() => server.close());
+  t.after(() => { server.closeAllConnections(); return new Promise(resolve => server.close(resolve)); });
   const apiFile = path.join(parent, "api.json");
   fs.writeFileSync(apiFile, JSON.stringify({ baseUrl: `http://127.0.0.1:${server.address().port}`, token: "test" }), "utf8");
   const resolved = await runCli(["project", "status", "--json"], { cwd: parent, apiFile });
@@ -325,6 +332,7 @@ test("loadResults includes parsed Worker summaries", async () => {
     assert.equal(rows.some((row) => row.id === "worker-stderr-row0"), false);
   } finally {
     api.optionalApi = originalOptionalApi;
+    workerServer.closeAllConnections();
     await new Promise((resolve) => workerServer.close(resolve));
   }
 });
@@ -633,6 +641,7 @@ test("running observation uses one worker config download to complete percent", 
     assert.equal(requests.filter((url) => url.startsWith("/api/files/download")).length, 1);
   } finally {
     api.optionalApi = originalOptionalApi;
+    server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
   }
 });
@@ -673,6 +682,7 @@ test("worker tmux metadata skips terminal windows before capture", async () => {
     assert.equal(requests.filter((url) => url.startsWith("/api/files/download")).length, 1);
   } finally {
     api.optionalApi = originalOptionalApi;
+    server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
   }
 });
@@ -711,6 +721,7 @@ test("historical worker config resolves only through its exact terminal task win
     assert.equal(requests.filter((url) => url.startsWith("/api/tmux/capture")).length, 1);
   } finally {
     api.optionalApi = originalOptionalApi;
+    server.closeAllConnections();
     await new Promise((resolve) => server.close(resolve));
   }
 });

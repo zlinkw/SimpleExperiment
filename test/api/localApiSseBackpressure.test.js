@@ -45,6 +45,15 @@ function openStream(server, since = 0) {
   server.streamEvents(request, response, new URL(`http://127.0.0.1/api/v1/events?since=${since}`));
   return { request, response };
 }
+test("event cap waits for buffered replay to drain", async () => {
+  const server = new LocalApiServer({ name: "test", version: "1", token: "t", maxEvents: 2 });
+  server.publish({ type: "progress", data: 1 }); server.publish({ type: "progress", data: 2 });
+  const stream = openStream(server);
+  assert.equal(stream.response.frames.length, 1); assert.equal(stream.response.writableEnded, false);
+  stream.response.writableLength = 0; stream.response.backpressure = false; stream.response.emit("drain");
+  assert.equal(stream.response.frames.length, 2); assert.equal(stream.response.writableEnded, true);
+  await server.dispose();
+});
 
 test("SSE pauses writes, drains queued frames, and emits snapshot gap at bounded overrun", async () => {
   const server = new LocalApiServer({ name: "test", version: "1", token: "t", maxSsePendingBytes: 512, sseTimeoutMs: 5000 });

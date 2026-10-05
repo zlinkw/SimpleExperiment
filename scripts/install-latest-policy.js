@@ -1,6 +1,7 @@
 "use strict";
 
-const crypto = require("node:crypto");
+const { spawn } = require("node:child_process");
+const path = require("node:path");
 
 function parseInstalledVersion(output, extensionId) {
   const prefix = `${extensionId.toLowerCase()}@`;
@@ -29,28 +30,33 @@ function compareVersions(left, right) {
   return 0;
 }
 
-async function acquireInstallLock({ fsApi, lockPath, targetVersion, pid, isProcessAlive }) {
-  let handle;
-  try {
-    handle = await fsApi.open(lockPath, "wx", 0o600);
-    const lockId = crypto.randomUUID();
-    await handle.writeFile(JSON.stringify({ pid, targetVersion, startedAt: new Date().toISOString(), lockId }), "utf8");
-    return async () => {
-      await handle.close().catch(() => undefined);
-      try {
-        const owner = JSON.parse(await fsApi.readFile(lockPath, "utf8"));
-        if (Number(owner.pid) === pid && owner.targetVersion === targetVersion && owner.lockId === lockId) await fsApi.unlink(lockPath);
-      } catch { /* The lock was already released or replaced. */ }
+async function acquireInstallLock({ lockPath }) {
+  const win = process.platform === "win32";
+  const args = win ? ["-NoProfile", "-NonInteractive", "-File", path.join(__dirname, "install-latest-lock.ps1"), "-LockPath", lockPath]
+    : ["-B", "-X", "utf8", path.join(__dirname, "install-latest-lock.py"), lockPath];
+  const child = spawn(win ? "pwsh.exe" : "python3", args, { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] });
+  let stderr = "", output = "", closed = false;
+  const exited = new Promise(resolve => child.once("close", () => { closed = true; resolve(); }));
+  child.stderr.on("data", bytes => { stderr = (stderr + bytes.toString("utf8")).slice(-8192); });
+  child.stdin.on("error", () => {});
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => { child.kill(); finish(new Error("Install lock admission timed out")); }, 5000);
+    const finish = error => {
+      clearTimeout(timer); child.removeListener("error", onError); child.removeListener("close", onClose);
+      child.stdout.removeListener("data", onData); error ? reject(error) : resolve();
     };
-  } catch (error) {
-    if (error.code !== "EEXIST") throw error;
-    let owner;
-    try { owner = JSON.parse(await fsApi.readFile(lockPath, "utf8")); } catch { owner = undefined; }
-    if (owner && Number.isInteger(Number(owner.pid)) && !isProcessAlive(Number(owner.pid))) {
-      throw new Error(`Found a stale install lock for pid ${owner.pid} (${owner.targetVersion || "unknown"}); inspect and remove ${lockPath} before retrying.`);
-    }
-    throw new Error(`Another install:latest process holds the lock${owner?.pid ? ` (pid ${owner.pid}, target ${owner.targetVersion || "unknown"})` : ""}: ${lockPath}`);
-  }
+    const onError = error => finish(error);
+    const onClose = () => finish(new Error(`Another install:latest process holds the lock or the lock target is unsafe: ${lockPath}\n${stderr}`));
+    const onData = bytes => { output = (output + bytes.toString("utf8")).slice(-128); if (output.trim() === "LOCKED") finish(); };
+    child.once("error", onError); child.once("close", onClose); child.stdout.on("data", onData);
+  });
+  let released = false;
+  return async () => {
+    if (released) return; released = true;
+    if (!closed) child.stdin.end("release\n");
+    const timer = setTimeout(() => child.kill(), 5000);
+    try { await exited; } finally { clearTimeout(timer); }
+  };
 }
 
 async function runInstallLatest({ targetVersion, extensionId, vsixPath, listExtensions, install, dryRun = false, fsApi = require("node:fs/promises"), lockPath, pid = process.pid, isProcessAlive = (candidate) => { try { process.kill(candidate, 0); return true; } catch (error) { return error.code === "EPERM"; } } }) {

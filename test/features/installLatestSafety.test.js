@@ -8,7 +8,7 @@ const { runInstallLatest, parseInstalledVersion, compareVersions } = require("..
 
 function testLock(t) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-install-test-"));
-  t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+  // Isolated evidence is retained; no recursive deletion during tests.
   return path.join(directory, "install.lock");
 }
 
@@ -87,25 +87,29 @@ test("dry-run reports the decision without invoking the installer or creating a 
 
 test("concurrent install processes are serialized by an atomic lock", async (t) => {
   const lockPath = testLock(t);
-  let version = "0.5.193", installs = 0, releaseInstall;
+  let version = "0.5.193", installs = 0, releaseInstall, startedInstall;
   const pause = new Promise(resolve => { releaseInstall = resolve; });
+  const started = new Promise(resolve => { startedInstall = resolve; });
   const shared = { targetVersion: "0.5.194", extensionId: "simple-local.simple-experiment", vsixPath: "fixture.vsix", lockPath,
     listExtensions: async () => `simple-local.simple-experiment@${version}\n`,
-    install: async () => { installs++; await pause; version = "0.5.194"; } };
+    install: async () => { installs++; startedInstall(); await pause; version = "0.5.194"; } };
   const first = runInstallLatest(shared);
-  await new Promise(resolve => setImmediate(resolve));
+  await started;
   await assert.rejects(() => runInstallLatest(shared), /holds the lock/);
   releaseInstall();
   assert.equal((await first).status, "installed");
   assert.equal(installs, 1);
 });
 
-test("stale lock is reported and preserved for explicit inspection", async (t) => {
+test("an unheld fixed slot is reused without deletion or stale metadata blocking", async (t) => {
   const lockPath = testLock(t);
   fs.writeFileSync(lockPath, JSON.stringify({ pid: 992341, targetVersion: "0.5.194", startedAt: "fixture" }), "utf8");
-  await assert.rejects(() => runInstallLatest({ targetVersion: "0.5.194", extensionId: "simple-local.simple-experiment", lockPath,
-    isProcessAlive: () => false, listExtensions: async () => "", install: async () => assert.fail("must not install while stale lock exists") }), /stale install lock/);
+  const original = fs.readFileSync(lockPath, "utf8");
+  const result = await runInstallLatest({ targetVersion: "0.5.194", extensionId: "simple-local.simple-experiment", lockPath,
+    listExtensions: async () => "simple-local.simple-experiment@0.5.194", install: async () => assert.fail("already installed") });
+  assert.equal(result.status, "skip");
   assert.equal(fs.existsSync(lockPath), true);
+  assert.equal(fs.readFileSync(lockPath, "utf8"), original);
 });
 
 test("requiring install-latest.js is inert and package does not run the installer", () => {

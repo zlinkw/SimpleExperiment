@@ -64,13 +64,16 @@ test('resource registry failures reuse one staging slot and keep prior ownership
   const text=fs.readFileSync(require.resolve('../../src/core/ResourceOperationLease.ts'),'utf8');
   const ast=ts.createSourceFile('lease.ts',text,ts.ScriptTarget.Latest,true);
   const cls=ast.statements.find(n=>ts.isClassDeclaration(n)&&n.name?.text==='ResourceOperationLeaseManager');
-  const method=cls.members.find(n=>n.name?.getText(ast)==='write').getText(ast);
+  const method=cls.members.filter(n=>['write','reuseIdleRegistry'].includes(n.name?.getText(ast))).map(n=>n.getText(ast)).join('\n');
   const files=new Map([['registry.json','trusted']]);let fail=true;
   const io={mkdir:async()=>{},lstat:async file=>files.has(file)?{isFile:()=>true,isSymbolicLink:()=>false}:Promise.reject({code:'ENOENT'}),
     writeFile:async(file,value)=>files.set(file,value),rename:async(from,to)=>{if(fail)throw Object.assign(new Error('disk failure'),{code:'EIO'});files.set(to,files.get(from));files.delete(from);}};
-  const Lease=vm.runInNewContext(ts.transpileModule(`class Lease {${method}};Lease`,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{fs:io,atomicWriteText:makeAtomicWriteText(io)});
+  const Lease=vm.runInNewContext(ts.transpileModule(`class Lease {${method}};Lease`,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{fs:io,Buffer,atomicWriteText:makeAtomicWriteText(io)});
   const lease=new Lease();lease.directory='registry';lease.file='registry.json';lease.state={registry:{leases:[]}};
   for(let i=0;i<50;i++)await assert.rejects(lease.write(),/disk failure/);
   assert.equal(files.size,2);assert.equal(files.get('registry.json'),'trusted');
-  fail=false;await lease.write();assert.equal(files.size,1);
+  fail=false;await lease.write();assert.equal(files.size,2);
+  assert.equal(files.has('registry.json.writing'),false);
+  assert.equal(files.has('registry.json.ownership.writing'),false);
+  assert.equal(files.get('registry.json.ownership'),files.get('registry.json'));
 });

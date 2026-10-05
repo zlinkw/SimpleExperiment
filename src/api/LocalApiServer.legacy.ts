@@ -624,7 +624,7 @@ export class LocalApiServer {
       if (item.seq > since) sendEvent(item);
       if (closed) return;
     }
-    if (sent >= this.maxEvents) {
+    if (sent >= this.maxEvents && !backpressured && !pending.length) {
       close();
       return;
     }

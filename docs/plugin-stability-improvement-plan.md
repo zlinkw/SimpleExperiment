@@ -3,7 +3,7 @@
 > 保存日期：2026-10-03（Asia/Shanghai）。
 > 本文为用户确认的完整合并版：全插件源码对照计划 + 长期灰屏专项 + Luna 执行交接。
 > 文档最初仅保存计划；2026-10-03 用户授权开始执行。本轮继续推进代码实现。
-> 当前执行状态（2026-10-05）：本仓核心机制已落地，本轮按原计划复核并修复事务槽、配置频率、传输限额、诊断写入积压、长读取身份和打包依赖问题。55 个目标测试文件共 390 条用例串行通过；0.5.217 build、脚本门禁和打包通过，已安装一次并核对 CLI，等待用户重载。最新证据与未完成项以第 7.7 节为准。SimpleSFTP 压缩收益采样仍缺实现；版本组合、现场和长时验收未完成，不能标记整个计划通过。第 7.2/7.6 节保留此前批次的历史事实。
+> 当前执行状态（2026-10-05）：批次 0–8、5A/5B 的计划内实现已完成，SimpleSFTP 压缩收益采样及分块恢复已补齐；当前交付为 SimpleExperiment 0.5.218 / SimpleSFTP 0.2.48。最新源码、短时测试和交付证据以第 7.8 节为准。用户明确将长时间及人工现场验收留后；这不等价于长期灰屏根因已解决或真实链路已提速。第 7.2/7.6/7.7 节保留历史快照，其 running/partial/pending 不再表示本轮仍缺实现。
 
 **补充结论：目前不能确认长期灰屏已经解决。审查时 0.5.215 的通信和渲染 ACK 正常，但 ACK 不能证明最终画面已经正确显示。**
 
@@ -550,6 +550,42 @@ bootstrap 独占 `acquireVsCodeApi()`，通过明确接口供主程序使用；�
 | 现场与长时门槛 | deferred | `test/core/operationQueue.test.js`、`test/cli/simpleCli.test.js` 两个已知挂起进程不原样重跑；SimpleSFTP 旧/新版本组合、MultiModal 最新产物与 payload/吞吐实测、灰屏现场、跨窗口崩溃恢复、8小时 soak 与100次布局切换仍保留，未实测不宣称解决 |
 
 本轮目标测试按项目约束逐文件执行 `node --test --test-force-exit --test-timeout 20000 <file>`，没有并行测试进程。55 文件是相关目标回归，不是全仓测试总数；上述压缩实现缺口和现场门槛仍是计划未完成项。历史文件和两个用户允许再生成的 `.pyc` 不纳入提交。
+
+### 7.8 2026-10-05 配套实现与计划收口
+
+用户要求本轮完成全部计划内实现；8小时 soak、人工现场和长时间观察由用户后续执行，不作为本轮阻塞。基线：主仓 `8591f513 / 0.5.217`，两个 `.pyc` 保留；SimpleSFTP `b2e39f9 / 0.2.46`，已有 extension.js 的221行新增/29行删除及未跟踪VSIX必须保护，按实际diff审阅后才能纳入相关交付。
+
+| 项目 | 状态 | 交付边界 / 核验 |
+|---|---|---|
+| 有界压缩收益采样 | local-tests-passed | SimpleSFTP `compression-policy.js` / `compression-sample.py`：最多8文件、256KiB分散窗口，读取不写sample/temp文件；Python采样3秒、SSH外层5秒；真实gzip样本字节/CPU/耗时及双方协商后的zstd参与成本比较，收益或成本优势不足5%使用none。link摘要最多64端点组合/15分钟，仅内存；无实测时明确使用估计。压缩策略6/6、协商/完整传输7/7，不将估计写成现场提速 |
+| 暂存与恢复发布 | local-tests-passed | `staged-tar-receive.py`：32固定槽，普通批次完整hash校验后发布；超大单文件最大64GiB，以8MiB SHA256帧连续流传输，重试验证checkpoint后从缺失块继续；无逐块SSH和自动unlink/rmtree。未知/损坏所有者隔离保护。一次checkpoint核验+一次压缩流fixture通过；100次固定槽复用、坏hash保留旧目标、分块失败恢复和fd关闭通过。checkpoint核验会修改暂存journal，按写请求保留远端未知结算保护 |
+| 计划全条目复核 | implementation-complete | 下表逐项对照批次0–8/5A/5B；旧OperationQueue挂起fixture改为可控底层settle并验证互斥不提前释放，7/7；CLI关闭模拟HTTP连接并限制子进程10秒/输出字节，原5个HTTP/root回归全部通过。未删除失败测试、延长测试时限或放宽active guard |
+| 串行回归与交付 | local-gates-passed | 主仓42个完整目标文件及CLI文件中的5个目标用例，共390项通过；配套27文件142项通过，均逐文件串行。主仓build/内联脚本/vm.Script/187模块闭包通过；配套JS语法、Python AST、16文件闭包通过。源码版本0.5.218/0.2.48；`scripts/verify-delivery-artifacts.py` 直接读取ZIP、流式核对187/16个源码SHA256及两层package/VSIX身份，不解压写临时文件。仅安装各目标一次，核对结果与提交记录在交付补记中保留 |
+
+#### 全计划实现对照（当前状态）
+
+| 批次 | 实现入口及证据 | 当前状态 |
+|---|---|---|
+| 0/1 | `SafeRequestRetry`、`PlanSafeRetry`、`OperationQueue`、`SimpleSftpProgressWait`、Agent upload-cancel及SFTP durable settlement：旧请求未settle不释放资源；失败历史不阻碍新请求。planStopClear33/33、safeRequestRetry9/9、OperationQueue7/7、SFTP settlement3/3及取消/关闭资源回归通过 | implementation-complete |
+| 2 | `ResourceOperationLease` / `StateStore`、Agent scope/cleanup、固定审计环及精确停止：本轮补有界8MiB nofollow读取、独立ownership摘要；损坏主记录按已证实资源保护，双记录损坏fail-closed；只回收已released、确认进程死亡的闲置注册槽，20次重启槽数恒定，竞争仍只允许一方。hostLease14/14、跨插件兼容1/1、staging4/4、agentScope4/4；两款安装器使用固定OS锁，关闭释放，禁止自动删除锁 | implementation-complete |
+| 3 | `ProjectResultPublication` / `ProjectResultTables` / 最新completed-run权威和latest-complete retention：固定事务槽、完整generation后切换、不混seed；本轮publication9/9、resultTables18/18、pendingSync26/26、completeness16/16、rerun8/8、completionRefresh1/1、retention15/15；队列23/23、startup19/19、稳定cache7/7验证显示快照不被清空 | implementation-complete |
+| 4 | `RequestBudget`、LocalApiServer、Agent bounded HTTP/SSE、SFTP `TransferCapacity`：控制4/Worker、8全局；大传输1/Worker、2全局，SFTP等待64上限、取消等待ticket；独立控制容量。SSE仅drain后结束replay，慢读队列限字节/订阅数；API断开只取消只读，写操作查询回执。SFTP discovery失败关闭新listener、请求body idle5秒/2MiB、响应8MiB。budget11/11、主/配套SSE各4/4、API19/19、capacity3/3通过 | implementation-complete |
+| 5 | `buildState` 纯投影、按业务revision缓存、catalog后台加载、Plan轻量摘要、offscreen dirty和局部DOM patch：核心projection5/5、progress DOM2/2、flow10/10、seq progress13/13、selector11/11、sharedRead5/5通过。ACK及one-outstanding机制保持，未通过降低刷新频率/放宽健康阈值取巧 | implementation-complete |
+| 5A/5B | 独立bootstrap、incident环/固定诊断槽、原生命令恢复、几何/遮挡/帧证据、隐藏释放与UI草稿恢复、Observer收敛、TensorBoard取消scope：renderHealth12/12、lifetime11/11、bootstrap7/7、diagnostics9/9、dispatch8/8、staleHandshake1/1、实际内联脚本1/1通过。ACK不证明像素正常，未复现原灰屏 | implementation-complete |
+| 6 | SFTP跨Plan批次≤128MiB/80文件并限元数据；gzip/none/协商zstd；8MiB超大文件块；固定校验发布槽；上传generated manifest≤2MiB内存Buffer；日志/回执writer只保留1个在写和1个最新待写。mapped16/16、packed7/7、serverToServer11/11、metadata4/4、sample6/6、negotiation7/7通过 | implementation-complete |
+| 7 | `OperationOutcome`、即时终态/异步通知、一次性userInitiated导航、标准SemVer/VSIX身份校验、生命周期scope及有界deactivate。SFTP停止自己资源并等待回执、不停止训练；API只使自己discovery失效。actionLifecycle9/9、navigation3/3、extensionUpdates7/7、installSafety10/10及配套API/settlement通过 | implementation-complete |
+| 8 | 通用command/cwd/input/output档位、可选CSV/JSON指标、MultiModal preset、动态隧道、工厂缺实现明确失败、小型独立资源/事务/通知/压缩模块及README更新。contract6/6、multiFormat1/1、factories8/8及14/14通过；无额外训练框架、同步daemon或虚拟DOM依赖 | implementation-complete |
+| 9 | 短时目标回归及build/package已完成；原现场灰屏、真实MultiModal产物/吞吐、旧新版本现场组合、8小时soak/100次布局切换、跨窗口强制崩溃仍由用户后续观察 | manual/long-run-deferred-by-user |
+
+本轮失败记录：SFTP旧取消fixture等待Promise结束后才emit close，与新“等待close再释放”语义形成测试死锁，20秒停止并核对限定测试进程后，修正fixture顺序，整文件16/16；未延长门槛。主仓staging切片fixture缺少新增helper/Buffer依赖及ownership固定槽期望，补真实依赖后4/4。SFTP VSCE首次8秒冷启动超时，检查本地工具入口后同一限额的build/package通过，未联网取工具或扩大时限。当前相关短时回归无失败；全仓600余文件并未全跑，CLI整文件长回归也未宣称完成。
+
+SFTP既有extension.js修改已按diff审阅并合入相关能力/哈希/批次实现，没有覆盖为旧版；旧VSIX、未知恢复槽和两枚pyc保留。用户确认的永久清理门禁仍保留；可恢复数据不是可随意删除的垃圾。测试隔离证据保留以符合删除约束，不纳入交付。实际链路CPU、吞吐、payload/min和灰屏现场未测，本轮不报告百分比提升。
+
+交付复核补记：SFTP安装器首次因临时根目录尾部斜杠触发严格parent检查，在执行安装前停止；规范化路径并补两条原生PowerShell回归后通过，提交`53a234e`。0.2.47安装一次，后续只读核对发现新固定stage目录/锁和mapped partial可能进入项目清单，补齐JS/Python清单、默认同步和精确路径的统一排除，真实Python清单fixture验证不会扫描或hash暂存数据；该生产修正单独推进0.2.48。此前0.2.47未被重复强制安装。配套主体实现提交`74e7a65`，均普通推送并fetch确认。SimpleExperiment 0.5.218已安装一次，已核对VS Code与全局CLI package版本；安装后不操作运行中的Panel，最终现场必须等待用户Reload Window。
+
+最终配套提交`7821847`已普通推送至`origin/master`并fetch确认一致，工作树干净。0.2.48的27文件142用例、build/闭包/VSIX通过，包116,850字节；16个allowlist文件源码hash及VSIX身份核对通过。已显式安装0.2.48一次并核对VS Code/全局SFTP CLI package。最终版本组合为0.5.218/0.2.48，两个Host均须用户重载；未访问混合版本的Panel API，不把旧Host或尚未重载数据作为新实现的现场验收。主仓代码、测试、计划和版本交付以本次scoped commit及fetch后`HEAD==origin/master`核对记录为准；只保留原有两枚pyc未提交。
+
+下列2026-10-04追加内容继续作为历史实现记录；其中旧的“尚未验证/running”描述已由本节当前对照及第7.7节局部回归覆盖。
 - 批次 7/5A：Panel 将 navigate 消息作为一次性事件消费并立即清空待处理引用；导航不再受同一 batch 中旧 state 序号的 early-return 阻断，后续任意状态 batch 也不会重复播放旧的 userInitiated 导航，修复步骤完成后仍偶发自动跳转的问题。
 - 批次 7：硬配置/认证失败提示改为修复配置后重新检测隧道，瞬态断线仍按连接策略自动退避恢复；manual_only 的显式手动恢复提示保留。
 - 2026-10-04 回检：`planStopClear.test.js` 33/33、`tunnelClient.test.js` 5/5；`npm run build` 成功（含 TypeScript、产物语法门禁和 `panelWebviewScriptHealth.test.js` 1/1）；独立 Webview `vm.Script`、`git diff --check` 通过。两个既有 dirty `.pyc` SHA256 与文档中的保护基线一致。尚未执行 package、安装、远端版本兼容或人工现场/长时间运行验收；批次 1–8 保持 running，批次 9 pending。
