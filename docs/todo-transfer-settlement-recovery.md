@@ -11,7 +11,7 @@
 - [x] 串行回归、build、vm.Script、版本和 VSIX 内容门禁。23 个目标文件共 209 个 Node 用例通过；另有 build 内联 Webview 1 用例和独立 vm.Script 通过。Python 只读探针的 10 个子用例通过。初次 Windows fixture 未模拟 Linux isabs，已修正 fixture 并验证，不放宽生产路径检查。
 - [x] 两插件各通过 install:latest 安装一次，CLI 及磁盘版本核对为 0.5.223 / 0.2.50；未使用 force。安装后未再调用当前面板/API。已安装的 186 / 18 个 runtime 文件逐项 hash 一致；package.json 除 VS Code 安装附加的 __metadata 外结构一致。
 - [x] SimpleSFTP scoped commit / push / fetch 核对完成：db0c090681d36794a84c8fe9bb34c560ab7fe2a8，HEAD=origin/master，工作树干净。
-- [ ] SimpleExperiment scoped commit / push / fetch 核对及最后两个原有 dirty .pyc 保留核对。
+- [x] SimpleExperiment 实现提交 4b64a1b5bfa5aad548267fc5572b72eb49b2964e 已正常 push / fetch，HEAD=origin/master；主项目只余两个原有 dirty .pyc，未纳入提交。收口记录的提交身份以本文件 Git 历史为准。
 - [x] 现场验收边界已标明：安装后的 Extension Host 需要用户重载，不能用旧 API 冒充新实现验收。现场 API 后续已拒绝连接，远端退出探针及最终实际同步未完成现场验收。
 
 不删除回执、不删除产物、不终止未知远端进程、不根据时间过期解锁。兼容旧回执的身份由原 requestKey 与当前相同请求重算证明，仅支持受控 serverToServerFpsync 协议。
