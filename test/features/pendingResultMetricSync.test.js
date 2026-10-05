@@ -20,6 +20,8 @@ const vscodeStub = {
     onDidChange: () => ({ dispose() {} }),
   },
   window: {
+    errors: [],
+    showErrorMessage: async (message) => { vscodeStub.window.errors.push(message); },
     showSaveDialog: async () => undefined,
     showWarningMessage: async (_text, _options, first) => vscodeStub.window.downloadChoice || first,
     showInformationMessage: async () => {},
@@ -190,6 +192,139 @@ function providerFor(workspace, options = {}) {
   };
   return provider;
 }
+
+function publicationLeaseFixture(workspace, provider) {
+  const { HostOperationLeaseManager } = require("../../dist/core/HostOperationLease");
+  const manager = new HostOperationLeaseManager({ leasePath: path.join(workspace, ".test-leases", "lease.json"),
+    windowId: "publication-window", heartbeatMs: 0 });
+  const requests = [];
+  const originalRun = manager.run.bind(manager);
+  manager.run = async (request, operation) => { requests.push(request); return originalRun(request, operation); };
+  provider.hostOperationLease = manager;
+  vscodeStub.window.errors = [];
+  return { manager, requests, input: (target, actionType = "worker-task-snapshot") => ({
+    pluginId: "simple-local.simple-experiment", workspaceUri: workspace, hostProjectPath: workspace,
+    actionType, actionLabel: actionType === "worker-task-snapshot" ? "保存 Worker 任务快照" : "写入指标文件",
+    resources: [{ server: "local", project: workspace, target }],
+  }) };
+}
+
+test("metric rebuild publishes the downloaded values while a real same-host Worker snapshot lease is held", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-metrics-snapshot-lock-"));
+  const provider = providerFor(workspace, { onlyFirst: true, workers: [{ id: "w1" }] });
+  const fixture = publicationLeaseFixture(workspace, provider);
+  const held = await fixture.manager.acquire(fixture.input(path.join(workspace, "simple_cluster/tmp/worker_task_snapshots/worker.json")));
+  const previousChoice = vscodeStub.window.downloadChoice;
+  vscodeStub.window.downloadChoice = "覆盖已有文件并同步";
+  try {
+    await require("../../dist/extension/legacy.js").__handleResultUiCommandForTest(provider, { command: "rebuildProjectResultTables" });
+    assert.match(fs.readFileSync(path.join(workspace, "experiments/results/set/final/final.csv"), "utf8"), /0\.91/);
+    const publishes = fixture.requests.filter(row => row.actionType === "publishMappedResult");
+    assert.ok(publishes.length > 0);
+    assert.equal(publishes.every(row => row.waitForConflict === true && row.resources.every(resource => resource.target !== workspace)), true);
+    assert.deepEqual(vscodeStub.window.errors, []);
+    await held.assertHeld();
+  } finally { await held.release(); vscodeStub.window.downloadChoice = previousChoice; }
+});
+
+test("hash-verified cached metric distribution uses narrow leases and never redownloads because a snapshot is being saved", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-metrics-cached-lock-"));
+  const provider = providerFor(workspace, { onlyFirst: true, workers: [{ id: "w1" }] });
+  const fixture = publicationLeaseFixture(workspace, provider);
+  const csv = "case,seed,method,dataset,metric,value\nalpha,1,a,set,AUC,0.91\n";
+  const remotePath = "simple_cluster/results/w1/raw.csv";
+  const first = "experiments/results/set/plans/a/raw/a.csv", second = "experiments/results/set/plans/b/raw/b.csv";
+  fs.mkdirSync(path.dirname(path.join(workspace, first)), { recursive: true });
+  fs.writeFileSync(path.join(workspace, first), csv, "utf8");
+  const entries = [first, second].map(localRelative => ({ remotePath, localRelative, bytes: Buffer.byteLength(csv),
+    sha256: crypto.createHash("sha256").update(csv).digest("hex"), exists: localRelative === first }));
+  const held = await fixture.manager.acquire(fixture.input(path.join(workspace, "simple_cluster/tmp/worker_task_snapshots/worker.json")));
+  try {
+    const host = Object.assign(Object.create(require("../../dist/extension/legacy.js").RealtimeTunnelPanelProvider.prototype), provider);
+    const result = await host.downloadMappedResultBatch({ root: workspace }, provider.client, { sourceId: "w1", workerId: "w1", entries }, "指标测试", { overwrite: true, notify: false, metricsOnly: true });
+    assert.equal(result.completed, 2);
+    assert.deepEqual(result.failures, []);
+    assert.equal(provider.calls.some(([method]) => method === "sync.downloadMappedPaths"), false);
+    assert.equal(fs.readFileSync(path.join(workspace, second), "utf8"), csv);
+    assert.deepEqual(vscodeStub.window.errors, []);
+    await held.assertHeld();
+  } finally { await held.release(); }
+});
+
+function directPublicationFixture() {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-metrics-publish-wait-"));
+  const provider = providerFor(workspace, { onlyFirst: true });
+  const fixture = publicationLeaseFixture(workspace, provider);
+  const source = "experiments/results/set/plans/a/raw/source.csv", destination = "experiments/results/set/plans/a/raw/final.csv";
+  fs.mkdirSync(path.dirname(path.join(workspace, source)), { recursive: true });
+  fs.writeFileSync(path.join(workspace, source), "new metrics", "utf8");
+  fs.writeFileSync(path.join(workspace, destination), "previous metrics", "utf8");
+  const entry = { remotePath: "metrics.csv", localRelative: destination };
+  const transfer = { remotePath: "metrics.csv", localRelativePath: source };
+  const host = Object.assign(Object.create(require("../../dist/extension/legacy.js").RealtimeTunnelPanelProvider.prototype), provider);
+  return { ...fixture, workspace, provider, host, source, destination, entry, transfer,
+    publish: (token = { isCancellationRequested: false }) => host.publishMappedResultDownloads({ root: workspace }, provider.client, [entry], [transfer], true, token, "发布指标测试") };
+}
+
+test("same-file publication waits, locks the source and reusable temp, and consumes the temp by atomic replacement", async () => {
+  const f = directPublicationFixture();
+  const held = await f.manager.acquire(f.input(path.join(f.workspace, f.destination), "metric-write"));
+  let settled = false;
+  const next = f.publish().finally(() => { settled = true; });
+  try {
+    await new Promise(resolve => setTimeout(resolve, 60));
+    assert.equal(settled, false);
+    assert.equal(fs.readFileSync(path.join(f.workspace, f.destination), "utf8"), "previous metrics");
+    await held.release();
+    assert.equal(await next, 1);
+    const request = f.requests.find(row => row.actionType === "publishMappedResult");
+    assert.equal(request.waitForConflict, true);
+    assert.equal(request.resources.length, 3);
+    assert.ok(request.resources.some(row => row.target === path.join(f.workspace, f.source)));
+    const temporary = request.resources.find(row => path.basename(row.target).startsWith(".simple-mapped-"));
+    assert.ok(temporary);
+    assert.equal(fs.existsSync(temporary.target), false);
+    assert.equal(fs.readFileSync(path.join(f.workspace, f.destination), "utf8"), "new metrics");
+    assert.deepEqual(vscodeStub.window.errors, []);
+    assert.deepEqual((await f.manager.inspect()).records, []);
+  } finally { await held.release(); await next.catch(() => undefined); }
+});
+
+test("cancelling publication while waiting releases listeners and never overwrites or releases the other writer", async () => {
+  const f = directPublicationFixture();
+  const held = await f.manager.acquire(f.input(path.join(f.workspace, f.destination), "metric-write"));
+  const callbacks = new Set();
+  let disposed = 0;
+  const token = { isCancellationRequested: false, onCancellationRequested(callback) {
+    callbacks.add(callback); return { dispose() { callbacks.delete(callback); disposed++; } };
+  } };
+  const next = f.publish(token);
+  const rejected = assert.rejects(next, /指标分发已取消/);
+  try {
+    await new Promise(resolve => setTimeout(resolve, 40));
+    token.isCancellationRequested = true;
+    for (const callback of callbacks) callback();
+    await rejected;
+    assert.equal(disposed, 1); assert.equal(callbacks.size, 0);
+    assert.equal(fs.readFileSync(path.join(f.workspace, f.destination), "utf8"), "previous metrics");
+    await held.assertHeld();
+    assert.deepEqual(vscodeStub.window.errors, []);
+  } finally { await held.release(); }
+});
+
+test("workspace change during a publication wait cannot commit downloaded data", async () => {
+  const f = directPublicationFixture();
+  const held = await f.manager.acquire(f.input(path.join(f.workspace, f.destination), "metric-write"));
+  const next = f.publish();
+  const rejected = assert.rejects(next, /工作区已切换/);
+  try {
+    await new Promise(resolve => setTimeout(resolve, 40));
+    f.host.projectContextIsCurrent = () => false;
+    await held.release(); await rejected;
+    assert.equal(fs.readFileSync(path.join(f.workspace, f.destination), "utf8"), "previous metrics");
+    assert.deepEqual(vscodeStub.window.errors, []);
+  } finally { await held.release(); }
+});
 
 test("dataset metadata overrides stale directory hints and preserves the old local table", async () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-result-layout-sync-"));

@@ -4012,6 +4012,8 @@ class RealtimeTunnelPanelProvider {
                 actionType,
                 actionLabel,
                 resources: options.resources,
+                waitForConflict: options.waitForConflict === true,
+                signal: options.signal,
             }, operation);
             console.log("[diag] withHostOperationLease acquired", { actionType, actionLabel });
             return result;
@@ -17669,9 +17671,37 @@ class RealtimeTunnelPanelProvider {
             throw new Error(`来源 Worker ${sourceId} 的远端项目目录不安全，已阻止下载。`);
         return server;
     }
+    async publishMappedResultDownloads(projectContext, client, entries, transfers, overwrite, token, actionLabel) {
+        const root = projectContext.root;
+        const resources = mappedResultPublicationResources(root, entries, transfers);
+        if (!resources.length)
+            return 0;
+        const abort = new AbortController();
+        const cancel = () => abort.abort(new UiCommandCancelled("指标分发已取消，未发布后续文件。"));
+        const cancellation = token.onCancellationRequested?.(cancel);
+        if (token.isCancellationRequested)
+            cancel();
+        const signals = [abort.signal, (0, SafeRequestRetry_1.retryRequestSignal)(), projectContext.signal].filter(Boolean);
+        const signal = AbortSignal.any(signals);
+        const assertCurrent = () => {
+            signal.throwIfAborted();
+            if (!this.projectContextIsCurrent(projectContext) || client !== this.client)
+                throw new UiCommandCancelled("工作区已切换，未发布后续指标文件。");
+        };
+        try {
+            assertCurrent();
+            return await this.withHostOperationLease("publishMappedResult", actionLabel, async () => {
+                assertCurrent();
+                return distributeMappedDownloads(root, entries, transfers, overwrite, { assertCurrent });
+            }, { resources, waitForConflict: true, signal });
+        }
+        finally {
+            cancellation?.dispose();
+        }
+    }
     async downloadMappedResultBatch(projectContext, client, batch, title, options = {}) {
         const root = projectContext.root;
-        const isCurrent = () => this.projectContextIsCurrent(projectContext) && client === this.client;
+        const isCurrent = () => !(0, SafeRequestRetry_1.retryRequestSignal)()?.aborted && this.projectContextIsCurrent(projectContext) && client === this.client;
         const metricsOnly = options.metricsOnly === true;
         const overwrite = options.overwrite !== false;
         const entries = batch.entries || [];
@@ -17714,9 +17744,7 @@ class RealtimeTunnelPanelProvider {
                 try {
                     const cachedPaths = new Set(cachedTransfers.map((entry) => String(entry.remotePath || "").toLowerCase()));
                     const cachedEntries = entries.filter((entry) => cachedPaths.has(String(entry.remotePath || "").toLowerCase()));
-                    const delivered = await this.withHostOperationLease("publishMappedResult", `复用已校验的 ${batch.sourceId} 结果`, () => distributeMappedDownloads(root, cachedEntries, cachedTransfers, overwrite), {
-                        resources: [{ server: "local", project: root, target: root }],
-                    });
+                    const delivered = await this.publishMappedResultDownloads(projectContext, client, cachedEntries, cachedTransfers, overwrite, token, `复用已校验的 ${batch.sourceId} 结果`);
                     completed += delivered;
                     cachedTransfers.forEach((entry) => { entry.delivered = true; });
                     cachedEntries.forEach((entry) => { entry.delivered = true; });
@@ -17821,9 +17849,7 @@ class RealtimeTunnelPanelProvider {
                     }
                     const chunkPaths = new Set(chunk.map((entry) => String(entry.remotePath || "").toLowerCase()));
                     const chunkEntries = entries.filter((entry) => chunkPaths.has(String(entry.remotePath || "").toLowerCase()));
-                    const delivered = await this.withHostOperationLease("publishMappedResult", `发布 ${batch.sourceId} 的映射结果`, () => distributeMappedDownloads(root, chunkEntries, chunk, overwrite), {
-                        resources: [{ server: "local", project: root, target: root }],
-                    });
+                    const delivered = await this.publishMappedResultDownloads(projectContext, client, chunkEntries, chunk, overwrite, token, `发布 ${batch.sourceId} 的映射结果`);
                     completed += delivered;
                     chunk.forEach((entry) => { entry.delivered = true; });
                     chunkEntries.forEach((entry) => { entry.delivered = true; });
@@ -32160,6 +32186,36 @@ async function openReusableMappedTemp(root, relative) {
         throw error;
     }
 }
+function mappedResultTemporaryRelativePath(relative) {
+    const token = crypto.createHash("sha256").update(String(relative).toLowerCase()).digest("hex").slice(0, 24);
+    return path.posix.join(path.posix.dirname(relative), `.simple-mapped-${token}.tmp`);
+}
+function mappedResultPublicationResources(root, entries, transfers) {
+    const targets = new Map();
+    const add = (relative) => {
+        if (!relative || String(relative).split("/").some(part => !part || part === "." || part === ".."))
+            throw new Error("本机指标发布路径不安全。");
+        const target = safeWorkspaceChildPath(root, relative);
+        if (path.resolve(target) === path.resolve(root))
+            throw new Error("指标分发不能锁定项目根目录。");
+        const key = process.platform === "win32" ? target.toLowerCase() : target;
+        targets.set(key, { server: "local", project: root, target });
+    };
+    for (const transfer of transfers) {
+        const matching = entries.filter(entry => String(entry.remotePath || "").toLowerCase() === String(transfer.remotePath || "").toLowerCase());
+        if (!matching.length)
+            continue;
+        const source = String(transfer.localRelativePath || matching[0].localRelative || "");
+        add(source);
+        for (const entry of matching) {
+            const destination = String(entry.localRelative || "");
+            add(destination);
+            if (path.resolve(safeWorkspaceChildPath(root, source)) !== path.resolve(safeWorkspaceChildPath(root, destination)))
+                add(mappedResultTemporaryRelativePath(destination));
+        }
+    }
+    return [...targets.values()];
+}
 async function distributeMappedDownloads(root, entries, transfers, overwrite, hooks = {}) {
     let delivered = 0;
     const residues = [];
@@ -32171,6 +32227,7 @@ async function distributeMappedDownloads(root, entries, transfers, overwrite, ho
         const sourceRelative = String(transfer.localRelativePath || matching[0].localRelative || "");
         const source = (await assertRealChildFile(root, sourceRelative, "file")).full;
         for (const entry of matching) {
+            hooks.assertCurrent?.();
             const destinationRelative = String(entry.localRelative || "");
             const destinationInfo = await assertRealChildFile(root, destinationRelative, "optional");
             const destination = destinationInfo.full;
@@ -32188,8 +32245,7 @@ async function distributeMappedDownloads(root, entries, transfers, overwrite, ho
             if (parentWithin.startsWith("..") || path.isAbsolute(parentWithin))
                 throw new Error(`本机映射父目录解析后超出项目根目录：${destinationRelative}`);
             const parentIdentity = checkedParent;
-            const tempToken = crypto.createHash("sha256").update(String(destinationRelative).toLowerCase()).digest("hex").slice(0, 24);
-            const temporaryRelative = path.posix.join(path.posix.dirname(destinationRelative), `.simple-mapped-${tempToken}.tmp`);
+            const temporaryRelative = mappedResultTemporaryRelativePath(destinationRelative);
             const temporaryState = await openReusableMappedTemp(root, temporaryRelative);
             const temporary = temporaryState.full;
             try {
@@ -32222,6 +32278,7 @@ async function distributeMappedDownloads(root, entries, transfers, overwrite, ho
                 residues.push(temporary);
                 throw new Error(`本机文件已存在且未确认覆盖，暂存保留：${temporary}`);
             }
+            hooks.assertCurrent?.();
             try {
                 await fs.rename(temporary, destination);
             }
