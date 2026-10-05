@@ -44,8 +44,8 @@ test("multi-file publication rolls back all targets after a rename failure", asy
   ], { rename, generationId: id }), /injected publish rename failure/);
   assert.equal(fsSync.readFileSync(path.join(root, ...tablePath.split("/")), "utf8"), "old-table");
   assert.equal(fsSync.readFileSync(path.join(root, ...registryPath.split("/")), "utf8"), "old-registry");
-  assert.equal(fsSync.existsSync(projectResultPublicationJournalPath(root)), false);
-  assert.equal(fsSync.existsSync(path.join(root, "simple_cluster", "tmp", "result_publication")), false);
+  assert.equal(JSON.parse(await fs.readFile(projectResultPublicationJournalPath(root), "utf8")).status, "rolled-back");
+  assert.equal(await recoverProjectResultPublication(root, resultDirectory), "clean");
 });
 
 test("recovery completes a prepared generation before readers consume its registry", async t => {
@@ -72,7 +72,8 @@ test("recovery completes a prepared generation before readers consume its regist
   assert.equal(await recoverProjectResultPublication(root, resultDirectory), "recovered");
   assert.equal(fsSync.readFileSync(path.join(root, ...tablePath.split("/")), "utf8"), "new-table");
   assert.equal(fsSync.readFileSync(path.join(root, ...registryPath.split("/")), "utf8"), nextRegistry);
-  assert.equal(fsSync.existsSync(projectResultPublicationJournalPath(root)), false);
+  assert.equal(JSON.parse(await fs.readFile(projectResultPublicationJournalPath(root), "utf8")).status, "committed");
+  assert.equal(fsSync.readFileSync(path.join(root, ...entries[0].backup.split("/")), "utf8"), "old-table", "legacy backups remain available for explicit inspection");
 });
 
 test("recovery rejects transaction targets outside the configured result directory", async t => {
@@ -108,7 +109,7 @@ test("same-process publications serialize and the registry remains the last gene
   assert.equal(secondResult.generationId, secondId);
   assert.equal(fsSync.readFileSync(path.join(root, ...tablePath.split("/")), "utf8"), "second-table");
   assert.equal(JSON.parse(fsSync.readFileSync(path.join(root, ...registryPath.split("/")), "utf8")).publicationGeneration, secondId);
-  assert.equal(fsSync.existsSync(projectResultPublicationJournalPath(root)), false);
+  assert.equal(JSON.parse(await fs.readFile(projectResultPublicationJournalPath(root), "utf8")).id, secondId);
   await assert.rejects(publishProjectResultFiles(root, resultDirectory, [
     { relativePath: registryPath, contents: "invalid-order" },
     { relativePath: tablePath, contents: "invalid-order" },
@@ -121,4 +122,50 @@ test("recovery refuses journal staging paths that are not owned by that transact
     { target: tablePath, staged: "simple_cluster/results/project_table_registry.json", backup: "simple_cluster/results/other.json", hadPrevious: false, nextHash: hash("x") },
   ] }));
   await assert.rejects(recoverProjectResultPublication(root, resultDirectory), /暂存路径不属于当前事务/);
+});
+
+test("repeated publications reuse bounded slots and retain only the latest settled journal", async t => {
+  const root = await workspace(t);
+  for (let index = 0; index < 20; index++) {
+    const id = crypto.randomUUID();
+    const result = await publishProjectResultFiles(root, resultDirectory, [
+      { relativePath: tablePath, contents: `table-${index}` },
+      { relativePath: registryPath, contents: JSON.stringify({ schemaVersion: 1, publicationGeneration: id, plans: {} }) },
+    ], { generationId: id });
+    assert.equal(result.cleanupPending, false);
+    assert.equal(await recoverProjectResultPublication(root, resultDirectory), "clean");
+    const journal = JSON.parse(await fs.readFile(projectResultPublicationJournalPath(root), "utf8"));
+    assert.equal(journal.status, "committed");
+    assert.equal(journal.id, id);
+    assert.deepEqual(await fs.readdir(path.join(root, "simple_cluster/tmp/result_publication")), ["current"]);
+    assert.ok((await fs.readdir(path.join(root, "simple_cluster/tmp/result_publication/current"))).length <= 2);
+  }
+});
+
+test("a hard-linked reusable backup is rejected without corrupting the linked file or current results", async t => {
+  const root = await workspace(t);
+  await write(root, tablePath, "old-table");
+  await write(root, "protected.txt", "protected");
+  await fs.mkdir(path.join(root, "simple_cluster/tmp/result_publication/current"), { recursive: true });
+  await fs.link(path.join(root, "protected.txt"), path.join(root, "simple_cluster/tmp/result_publication/current/0.old"));
+  await assert.rejects(publishProjectResultFiles(root, resultDirectory, [{ relativePath: tablePath, contents: "new-table" }]), /不是普通独占文件/);
+  assert.equal(await fs.readFile(path.join(root, "protected.txt"), "utf8"), "protected");
+  assert.equal(await fs.readFile(path.join(root, tablePath), "utf8"), "old-table");
+  assert.equal(JSON.parse(await fs.readFile(projectResultPublicationJournalPath(root), "utf8")).status, "rolled-back");
+});
+
+test("interrupted preparation is settled without touching targets or deleting partial slots", async t => {
+  const root = await workspace(t);
+  const id = crypto.randomUUID();
+  const staged = "simple_cluster/tmp/result_publication/current/0.new";
+  await write(root, tablePath, "old-table");
+  await write(root, staged, "partial");
+  await write(root, "simple_cluster/results/project_table_publication.json", JSON.stringify({ schemaVersion: 1, id, resultDirectory, status: "preparing", entries: [
+    { target: tablePath, staged, backup: "simple_cluster/tmp/result_publication/current/0.old", hadPrevious: true, nextHash: hash("new-table"), previousHash: hash("old-table") },
+  ] }));
+  assert.equal(await recoverProjectResultPublication(root, resultDirectory), "rolled-back");
+  assert.equal(await fs.readFile(path.join(root, tablePath), "utf8"), "old-table");
+  assert.equal(await fs.readFile(path.join(root, staged), "utf8"), "partial");
+  await publishProjectResultFiles(root, resultDirectory, [{ relativePath: tablePath, contents: "new-table" }]);
+  assert.equal(await fs.readFile(path.join(root, tablePath), "utf8"), "new-table");
 });

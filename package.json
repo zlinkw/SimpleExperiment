@@ -660,10 +660,10 @@
         },
         "simpleExperiment.scheduler.pollSeconds": {
           "type": "number",
-          "default": 60,
-          "minimum": 0.5,
+          "default": 10,
+          "minimum": 5,
           "scope": "application",
-          "description": "调度轮询基准，默认60秒；支持0.5秒以上的小数秒。任务结束事件立即触发检查。"
+          "description": "调度轮询基准，默认10秒，最小5秒；任务结束事件立即触发检查。"
         },
         "simpleExperiment.scheduler.jitterSeconds": {
           "type": "number",
@@ -698,40 +698,38 @@
         },
         "simpleExperiment.scheduler.workerStatusTtlSeconds": {
           "type": "number",
-          "default": 180,
-          "minimum": 60,
+          "default": 45,
+          "minimum": 10,
           "scope": "application",
-          "description": "可用性缓存（已忽略）：已去TTL化，仅为兼容旧配置保留，修改后无效果。",
-          "deprecationMessage": "已去TTL化，保留仅为兼容旧配置，修改无效果"
+          "description": "Worker 可用性证据有效期，默认45秒，最小10秒。"
         },
         "simpleExperiment.scheduler.localAvailabilityPushSeconds": {
           "type": "number",
-          "default": 60,
-          "minimum": 60,
+          "default": 10,
+          "minimum": 5,
           "scope": "application",
-          "description": "本机汇总（高级）：本地聚合可用性批量上报间隔，默认60秒，高级兼容参数。"
+          "description": "本机汇总可用性批量上报间隔，默认10秒，最小5秒。"
         },
         "simpleExperiment.scheduler.workerAvailabilityPushSeconds": {
           "type": "number",
-          "default": 60,
-          "minimum": 60,
+          "default": 10,
+          "minimum": 5,
           "scope": "application",
-          "description": "Worker上报（高级）：Worker直推可用性到Hub的间隔，默认60秒，高级兼容参数。"
+          "description": "Worker 可用性上报间隔，默认10秒，最小5秒。"
         },
         "simpleExperiment.scheduler.operationEventMaxDelayMs": {
           "type": "number",
-          "default": 1000,
+          "default": 200,
           "minimum": 100,
           "scope": "application",
-          "description": "事件合并延迟：操作事件批量推送最多等待1000毫秒，越小越实时但事件更多。"
+          "description": "事件合并延迟，默认200毫秒，最小100毫秒。"
         },
         "simpleExperiment.scheduler.workerActionMinIntervalMs": {
           "type": "number",
-          "default": 1500,
-          "minimum": 500,
+          "default": 500,
+          "minimum": 200,
           "scope": "application",
-          "description": "旧版兼容设置：请求限流已关闭，此间隔不再限制操作。",
-          "deprecationMessage": "请求限流已关闭，此设置不再生效。"
+          "description": "旧版兼容参数；控制请求使用每Worker 4、全局8的独立并发预算。"
         },
         "simpleExperiment.scheduler.workerActionMaxConcurrent": {
           "type": "number",

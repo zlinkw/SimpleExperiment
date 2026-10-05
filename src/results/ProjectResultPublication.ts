@@ -7,7 +7,7 @@ import { atomicWriteText } from "../state/StateStore";
 
 export type ProjectResultFile = { relativePath: string; contents: string };
 type JournalEntry = { target: string; staged: string; backup: string; hadPrevious: boolean; nextHash: string; previousHash?: string };
-type Journal = { schemaVersion: 1; id: string; resultDirectory: string; status: "preparing" | "publishing" | "committed"; entries: JournalEntry[] };
+type Journal = { schemaVersion: 1; id: string; resultDirectory: string; status: "preparing" | "publishing" | "committed" | "rolled-back"; entries: JournalEntry[] };
 export type ProjectResultPublicationOptions = { rename?: typeof fs.rename; generationId?: string };
 const JOURNAL_RELATIVE = "simple_cluster/results/project_table_publication.json";
 const STAGING_PARENT = "simple_cluster/tmp/result_publication";
@@ -92,7 +92,7 @@ async function verifyPath(root: string, relative: string, allowMissingLeaf = tru
   return full;
 }
 
-async function writeFileDurable(fullPath: string, contents: string): Promise<void> {
+async function writeSlotDurable(fullPath: string, write: (handle: Awaited<ReturnType<typeof fs.open>>) => Promise<void>): Promise<void> {
   let existing: Awaited<ReturnType<typeof fs.lstat>> | undefined;
   try {
     existing = await fs.lstat(fullPath);
@@ -111,15 +111,27 @@ async function writeFileDurable(fullPath: string, contents: string): Promise<voi
       || Boolean(current.dev && current.ino && opened.dev && opened.ino && (current.dev !== opened.dev || current.ino !== opened.ino)))
       throw new Error(`结果发布固定暂存槽身份发生变化：${fullPath}`);
     await handle.truncate(0);
-    await handle.writeFile(contents, "utf8");
+    await write(handle);
     await handle.sync();
   } finally { await handle.close(); }
 }
 
-async function syncFile(fullPath: string): Promise<void> {
-  const handle = await fs.open(fullPath, "r+");
-  try { await handle.sync(); }
-  finally { await handle.close(); }
+function writeFileDurable(fullPath: string, contents: string): Promise<void> {
+  return writeSlotDurable(fullPath, handle => handle.writeFile(contents, "utf8"));
+}
+
+function copyFileDurable(source: string, target: string): Promise<void> {
+  return writeSlotDurable(target, async handle => {
+    for await (const chunk of createReadStream(source)) {
+      const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
+      let offset = 0;
+      while (offset < buffer.length) {
+        const { bytesWritten } = await handle.write(buffer, offset, buffer.length - offset);
+        if (!bytesWritten) throw new Error("结果发布备份写入未取得进展。");
+        offset += bytesWritten;
+      }
+    }
+  });
 }
 
 async function syncDirectory(fullPath: string): Promise<void> {
@@ -141,7 +153,7 @@ async function readJournal(root: string): Promise<Journal | undefined> {
   if (!stat) return undefined;
   if (stat.size > 8 * 1024 * 1024) throw new Error("结果发布事务记录过大，拒绝自动恢复。");
   const value = JSON.parse(await fs.readFile(full, "utf8"));
-  if (value?.schemaVersion !== 1 || !/^[a-f0-9-]{36}$/i.test(String(value.id || "")) || !Array.isArray(value.entries) || !value.entries.length || value.entries.length > MAX_FILES || !["preparing", "publishing", "committed"].includes(value.status))
+  if (value?.schemaVersion !== 1 || !/^[a-f0-9-]{36}$/i.test(String(value.id || "")) || !Array.isArray(value.entries) || !value.entries.length || value.entries.length > MAX_FILES || !["preparing", "publishing", "committed", "rolled-back"].includes(value.status))
     throw new Error("结果发布事务记录无效，保留现有文件并停止恢复。");
   if (typeof value.resultDirectory !== "string") throw new Error("结果发布事务目录无效。");
   for (const [index, entry] of value.entries.entries()) {
@@ -161,55 +173,9 @@ async function readJournal(root: string): Promise<Journal | undefined> {
   return value as Journal;
 }
 
-async function removeOwnedStagingFile(root: string, relative: string, expectedHash: string | undefined): Promise<void> {
-  const full = await verifyPath(root, relative);
-  const existing = await fs.lstat(full).catch(error => error?.code === "ENOENT" ? undefined : Promise.reject(error));
-  if (!existing) return;
-  if (!expectedHash || !existing.isFile() || existing.isSymbolicLink() || existing.nlink !== 1)
-    throw new Error("结果发布暂存文件身份无法验证，保留待恢复事务：" + relative);
-  if (await hashAt(root, relative) !== expectedHash)
-    throw new Error("结果发布暂存文件指纹不匹配，保留待恢复事务：" + relative);
-  const current = await fs.lstat(full).catch(error => error?.code === "ENOENT" ? undefined : Promise.reject(error));
-  if (!current) return;
-  if (!current.isFile() || current.isSymbolicLink() || current.nlink !== 1
-    || (existing.dev && existing.ino && current.dev && current.ino && (existing.dev !== current.dev || existing.ino !== current.ino)))
-    throw new Error("结果发布暂存文件在清理前发生变化，保留待恢复事务：" + relative);
-  await fs.unlink(full);
-}
-
-async function cleanupTransactionArtifacts(root: string, journal: Journal): Promise<boolean> {
-  try {
-    for (const entry of journal.entries) {
-      await removeOwnedStagingFile(root, entry.staged, entry.nextHash);
-      await removeOwnedStagingFile(root, entry.backup, entry.hadPrevious ? entry.previousHash : undefined);
-    }
-    const current = await readJournal(root);
-    if (current) {
-      if (current.id !== journal.id || JSON.stringify(current.entries) !== JSON.stringify(journal.entries))
-        throw new Error("结果发布事务在清理前已由其他进程更新，保留其文件。");
-      const journalPath = await verifyPath(root, JOURNAL_RELATIVE, false);
-      const journalStat = await fs.lstat(journalPath);
-      if (!journalStat.isFile() || journalStat.isSymbolicLink() || journalStat.nlink !== 1)
-        throw new Error("结果发布事务记录不是普通独占文件，保留其文件。");
-      await fs.unlink(journalPath);
-    }
-    for (const relative of [STAGING_DIRECTORY, STAGING_PARENT]) {
-      const directory = await verifyPath(root, relative, true, "directory");
-      const stat = await fs.lstat(directory).catch(error => error?.code === "ENOENT" ? undefined : Promise.reject(error));
-      if (!stat) continue;
-      if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error("结果发布暂存目录类型异常，保留其文件：" + relative);
-      try { await fs.rmdir(directory); }
-      catch (error: any) {
-        if (error?.code === "ENOENT") continue;
-        if (error?.code === "ENOTEMPTY" || error?.code === "EEXIST") return true;
-        throw error;
-      }
-    }
-    return false;
-  } catch {
-    return true;
-  }
-}
+// Fixed slots and the last settled journal are bounded recovery state, not
+// cleanup targets. Successful rename consumes .new; the next transaction
+// reuses .old. Legacy random slots remain available for explicit inspection.
 
 async function hashAt(root: string, relative: string): Promise<string | undefined> {
   const full = await verifyPath(root, relative);
@@ -270,12 +236,10 @@ async function recoverProjectResultPublicationUnlocked(root: string, resultDirec
     if (entry.target === "simple_cluster/results/project_table_registry.json" && index !== journal.entries.length - 1)
       throw new Error("结果发布事务的注册表必须是最后提交的 generation 标记。");
   }
-  if (journal.status === "committed") {
-    await cleanupTransactionArtifacts(root, journal);
-    return "clean";
-  }
+  if (journal.status === "committed" || journal.status === "rolled-back") return "clean";
   if (journal.status === "preparing") {
-    if (await cleanupTransactionArtifacts(root, journal)) throw new Error("结果发布已回滚，但暂存文件清理待重试。");
+    journal.status = "rolled-back";
+    await writeJournal(root, journal);
     return "rolled-back";
   }
   try {
@@ -293,12 +257,10 @@ async function recoverProjectResultPublicationUnlocked(root: string, resultDirec
     await writeJournal(root, journal);
   } catch (publishError) {
     await rollback(root, journal, rename);
-    journal.status = "preparing";
+    journal.status = "rolled-back";
     await writeJournal(root, journal);
-    await cleanupTransactionArtifacts(root, journal);
     return "rolled-back";
   }
-  await cleanupTransactionArtifacts(root, journal);
   return "recovered";
 }
 
@@ -368,8 +330,7 @@ export function publishProjectResultFiles(root: string, resultDirectory: string,
       await fs.mkdir(path.dirname(target), { recursive: true });
       await writeFileDurable(staged, file.contents);
       if (entry.hadPrevious) {
-        await fs.copyFile(target, backup);
-        await syncFile(backup);
+        await copyFileDurable(target, backup);
         if (await hashAt(root, entry.backup) !== entry.previousHash) throw new Error("结果发布备份校验失败：" + entry.target);
       }
     }
@@ -387,12 +348,10 @@ export function publishProjectResultFiles(root: string, resultDirectory: string,
     await writeJournal(root, journal);
   } catch (error) {
     if (journal.status === "publishing") await rollback(root, journal, rename);
-    journal.status = "preparing";
+    journal.status = "rolled-back";
     await writeJournal(root, journal);
-    await cleanupTransactionArtifacts(root, journal);
     throw error;
   }
-  const cleanupPending = await cleanupTransactionArtifacts(root, journal);
-  return { generationId: id, recoveredPrevious: recovered !== "clean", cleanupPending };
+  return { generationId: id, recoveredPrevious: recovered !== "clean", cleanupPending: false };
   });
 }

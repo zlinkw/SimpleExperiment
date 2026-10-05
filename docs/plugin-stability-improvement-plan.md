@@ -531,6 +531,20 @@ bootstrap 独占 `acquireVsCodeApi()`，通过明确接口供主程序使用；�
 - 批次 4/5B：独立 Scalar Viewer 也取消 500ms 间隔轮询，改为递归单次定时器；页面隐藏、切换到原生 TensorBoard 或卸载时取消 catalog/tag/series 在途请求，返回后仅接受最新 series generation，避免辅助曲线窗口在长时间打开时持续空转并压住旧查询。
 - 批次 7：Plan 自动失败通知先尝试显示 modal，再持久化已通知键；显示失败时释放本 session 去重键供后续状态重试，避免先写“已通知”后 UI 未呈现导致错误永久静默。
 - 批次 7：配套插件安装前重新按当前 VS Code 已安装版本计算更新计划，只下载/安装 updateAvailable=true 的组件；配对状态已变为最新时跳过重复安装。
+
+### 7.7 2026-10-05 实现对照复核
+
+基线 `94721aa9 / 0.5.216` 已推送到 `origin/master`。此前 147 个变更测试文件串行通过，build、Webview 脚本健康检查、vm.Script 与 VSIX 打包通过；这不等价于全仓测试或现场验收。原有两个 `.pyc` 为用户允许再生成的缓存，不纳入代码提交。
+
+| 项目 | 状态 | 本轮核对 / TODO |
+|---|---|---|
+| 事务与临时文件 | passed | publication 不再自动 unlink/rmdir；保留 committed/rolled-back journal，固定槽复用；备份按已验证独占文件描述符流式写入，拒绝硬链接。publication 9/9、resultTables 18/18，包括 20 次重复发布、准备失败、旧 journal 恢复和全量回滚 |
+| 调度与请求负载 | running | 修复固定 500ms availability push 与失效配置：按配置上报、最小5秒；恢复 poll/TTL/push 的文档边界并同步 Host/UI/manifest。schedulerContract 2/2、configBounds 6/6、extensionStatePost 5/5、schedulerAvailability 12/12、queueCacheStability 7/7；distributed queue 的 500ms tick 保留；独立请求预算另行核对 |
+| 传输与兼容 | pending | 核对压缩批次、哈希检查点、取消回执、响应体/流资源边界 |
+| Panel、通知、生命周期 | pending | 核对 projection、摘要/revision、dirty/DOM patch、独立 bootstrap、bounded incident、原生恢复及 scope 清理 |
+| 更新与通用接入 | pending | 核对版本/资产/平台、显式运行依赖、通用 runner 与工厂失败语义 |
+| 回归与交付 | pending | 分文件串行目标测试、build、vm.Script、打包；更新实际证据后限定文件提交并普通推送 |
+| 现场与长时门槛 | deferred | 两个已知挂起测试、SimpleSFTP 版本组合、MultiModal 同步及灰屏现场、跨窗口崩溃恢复、8 小时 soak 与 100 次布局切换仍保留，未实测不宣称解决 |
 - 批次 7/5A：Panel 将 navigate 消息作为一次性事件消费并立即清空待处理引用；导航不再受同一 batch 中旧 state 序号的 early-return 阻断，后续任意状态 batch 也不会重复播放旧的 userInitiated 导航，修复步骤完成后仍偶发自动跳转的问题。
 - 批次 7：硬配置/认证失败提示改为修复配置后重新检测隧道，瞬态断线仍按连接策略自动退避恢复；manual_only 的显式手动恢复提示保留。
 - 2026-10-04 回检：`planStopClear.test.js` 33/33、`tunnelClient.test.js` 5/5；`npm run build` 成功（含 TypeScript、产物语法门禁和 `panelWebviewScriptHealth.test.js` 1/1）；独立 Webview `vm.Script`、`git diff --check` 通过。两个既有 dirty `.pyc` SHA256 与文档中的保护基线一致。尚未执行 package、安装、远端版本兼容或人工现场/长时间运行验收；批次 1–8 保持 running，批次 9 pending。

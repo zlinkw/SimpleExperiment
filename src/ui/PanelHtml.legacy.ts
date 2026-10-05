@@ -2843,16 +2843,16 @@ export function renderPanelHtml(): string {
     const CONFIG_PORT_BOUNDS = Object.freeze({ min: 1024, max: 65535, step: 1 });
     const CONFIG_GPU_CONCURRENCY_BOUNDS = Object.freeze({ min: 1, max: 16, step: 1 });
     const CONFIG_SCHEDULER_BOUNDS = Object.freeze({
-      pollSeconds: Object.freeze({ min: 0.5, max: 3600, step: 0.5 }),
+      pollSeconds: Object.freeze({ min: 5, max: 3600, step: 0.5 }),
       jitterSeconds: Object.freeze({ min: 0, max: 1800, step: 1 }),
       gpuIdleUtilThreshold: Object.freeze({ min: 0, max: 100, step: 1 }),
       gpuIdleMemThresholdMb: Object.freeze({ min: 0, max: 8192, step: 1 }),
       sessionCheckMinSeconds: Object.freeze({ min: 1, max: 60, step: 1 }),
-      workerStatusTtlSeconds: Object.freeze({ min: 60, max: 7200, step: 1 }),
-      localAvailabilityPushSeconds: Object.freeze({ min: 60, max: 3600, step: 1 }),
-      workerAvailabilityPushSeconds: Object.freeze({ min: 60, max: 3600, step: 1 }),
+      workerStatusTtlSeconds: Object.freeze({ min: 10, max: 7200, step: 1 }),
+      localAvailabilityPushSeconds: Object.freeze({ min: 5, max: 3600, step: 1 }),
+      workerAvailabilityPushSeconds: Object.freeze({ min: 5, max: 3600, step: 1 }),
       operationEventMaxDelayMs: Object.freeze({ min: 100, max: 10000, step: 100 }),
-      workerActionMinIntervalMs: Object.freeze({ min: 500, max: 60000, step: 100 }),
+      workerActionMinIntervalMs: Object.freeze({ min: 200, max: 60000, step: 100 }),
       workerActionMaxConcurrent: CONFIG_GPU_CONCURRENCY_BOUNDS
     });
     const EMPTY_CONFIG_INPUT_BOUNDS = Object.freeze({});
@@ -7715,7 +7715,7 @@ export function renderPanelHtml(): string {
         treeObjectItem("settings", "结果 CSV 目录", "设置", "", "配置新 Plan 和默认结果 CSV 的工作区相对目录。", "settings-result-csv", "", "结果 CSV 文件夹 路径 浏览 result_csv"),
         treeObjectItem("settings", "结果列映射", "设置", "", "交互式关联标准字段和结果 CSV 列，保存到插件设置。", "settings-result-mapping", "", "列映射 case seed metric value"),
         treeObjectItem("settings", "输出接入规则", "设置", "", "按需配置结果文件、日志和指标别名。", "settings-result-rules", "", "结果接入 指标 别名"),
-        treeObjectItem("settings", "调度与上报", "设置", "", "配置 scheduler poll、jitter、TTL 和可用性上报；请求限流已关闭。", "servers-scheduler", "", "pollSeconds jitterSeconds workerStatusTtlSeconds"),
+        treeObjectItem("settings", "调度与上报", "设置", "", "配置调度轮询、TTL 和可用性上报；控制与传输使用独立并发预算。", "servers-scheduler", "", "pollSeconds jitterSeconds workerStatusTtlSeconds"),
         treeObjectItem("settings", "Hub 设置", "设置", "", "配置 Hub 控制面、隧道、Agent 和项目父目录。", "servers-hub", "", "Hub 隧道 Agent 端口 项目父目录"),
         treeObjectItem("settings", "Worker 设置", "设置", "", "配置 Worker、GPU 上限、会话和端口。", "settings-servers", "", "Worker GPU 上限 maxConcurrentGpus localForwardPort")
       ];
@@ -8267,7 +8267,7 @@ export function renderPanelHtml(): string {
     }
 
     function overviewSchedulerRange(scheduler) {
-      const poll = Number(configDefault(scheduler.pollSeconds, 60));
+      const poll = Number(configDefault(scheduler.pollSeconds, 10));
       const jitter = Number(configDefault(scheduler.jitterSeconds, 30));
       return String(poll) + "-" + String(poll + Math.max(0, jitter)) + "s";
     }
@@ -8582,12 +8582,12 @@ export function renderPanelHtml(): string {
         }));
       }
       const jitter = configDefault(scheduler.jitterSeconds, 30);
-      const poll = configDefault(scheduler.pollSeconds, 60);
+      const poll = configDefault(scheduler.pollSeconds, 10);
       const riskBand = [
         '<span class="pill" title="调度所有者">' + esc(topology.schedulerOwner || "拓扑待确认") + '</span>',
         '<span class="pill" title="状态与结果位置">' + esc(topology.stateOwner || "保存位置待确认") + '</span>',
         '<span class="pill" title="策略基准">策略基准 ' + esc(poll) + '-' + esc(Number(poll) + Number(jitter || 0)) + 's</span>',
-        '<span class="pill" title="TTL">TTL ' + esc(configDefault(scheduler.workerStatusTtlSeconds, 180)) + 's</span>',
+        '<span class="pill" title="TTL">TTL ' + esc(configDefault(scheduler.workerStatusTtlSeconds, 45)) + 's</span>',
         '<span class="pill" title="事件延迟">实时事件 <= ' + esc(configDefault(scheduler.operationEventMaxDelayMs, 1000)) + 'ms</span>',
         '<span class="pill" title="不再按请求次数、间隔或请求并发限制操作">请求限流已关闭</span>'
       ];
@@ -8671,7 +8671,7 @@ export function renderPanelHtml(): string {
       )).filter(Boolean);
       const enabledCount = enabledWorkers.length;
       const jitter = Number(configDefault(scheduler.jitterSeconds, 30));
-      const poll = Number(configDefault(scheduler.pollSeconds, 60));
+      const poll = Number(configDefault(scheduler.pollSeconds, 10));
       const hubParticipates = topology.hubAllowed === true;
       const nodes = [topologyNode("local", "本机 VS Code", "127.0.0.1")];
       if (hubParticipates) nodes.push(topologyNode("hub", "Hub Agent", "全局调度/汇总"));
@@ -8880,18 +8880,18 @@ export function renderPanelHtml(): string {
         '<div class="server-card" data-anchor="servers-scheduler">' +
           '<div class="serverHead"><div class="serverTitle"><h3>调度与上报策略</h3><div class="muted">低频稳态、随机抖动与实时事件边界</div></div>' +
           '<div class="serverBadges">' +
-            '<span class="pill">调度 ' + esc(configDefault(scheduler.pollSeconds, 60)) + 's</span>' +
+            '<span class="pill">调度 ' + esc(configDefault(scheduler.pollSeconds, 10)) + 's</span>' +
             '<span class="pill">抖动 0-' + esc(configDefault(scheduler.jitterSeconds, 30)) + 's</span>' +
-            '<span class="pill">TTL ' + esc(configDefault(scheduler.workerStatusTtlSeconds, 180)) + 's</span>' +
+            '<span class="pill">TTL ' + esc(configDefault(scheduler.workerStatusTtlSeconds, 45)) + 's</span>' +
           '</div></div>' +
           '<div class="configGrid">' +
             configSelect("scheduler", "dispatchMode", "Plan 调度模式", scheduler.dispatchMode || "local_idle", [["local_idle", "本机按空卡派发（默认）"], ["server_prequeue", "预派发到服务器队列（可关机）"]]) +
             '<div class="muted">模式仅影响新提交的 Plan。预派发按空卡与本人占用卡计算比例；关机前确认所有任务已进入服务器队列。重连后读取所有服务器状态；指标文件仍需手动同步。</div>' +
-            configInput("scheduler", "pollSeconds", "调度轮询基准(秒)", configDefault(scheduler.pollSeconds, 60), "number") +
+            configInput("scheduler", "pollSeconds", "调度轮询基准(秒)", configDefault(scheduler.pollSeconds, 10), "number") +
             configInput("scheduler", "jitterSeconds", "正向随机抖动(秒)", configDefault(scheduler.jitterSeconds, 30), "number") +
-            configInput("scheduler", "workerStatusTtlSeconds", "可用性缓存 TTL(秒)", configDefault(scheduler.workerStatusTtlSeconds, 180), "number") +
-            configInput("scheduler", "localAvailabilityPushSeconds", "本机汇总上报间隔(秒)", configDefault(scheduler.localAvailabilityPushSeconds, 60), "number") +
-            configInput("scheduler", "workerAvailabilityPushSeconds", "Worker 上报间隔(秒)", configDefault(scheduler.workerAvailabilityPushSeconds, 60), "number") +
+            configInput("scheduler", "workerStatusTtlSeconds", "可用性缓存 TTL(秒)", configDefault(scheduler.workerStatusTtlSeconds, 45), "number") +
+            configInput("scheduler", "localAvailabilityPushSeconds", "本机汇总上报间隔(秒)", configDefault(scheduler.localAvailabilityPushSeconds, 10), "number") +
+            configInput("scheduler", "workerAvailabilityPushSeconds", "Worker 上报间隔(秒)", configDefault(scheduler.workerAvailabilityPushSeconds, 10), "number") +
             configInput("scheduler", "operationEventMaxDelayMs", "实时事件最多等待(毫秒)", configDefault(scheduler.operationEventMaxDelayMs, 1000), "number") +
             '<div class="muted">请求限流已关闭。旧版操作间隔和请求并发设置不再限制操作；GPU 任务并发仍按调度策略执行。</div>' +
           '</div>' +
@@ -9044,7 +9044,7 @@ export function renderPanelHtml(): string {
       const conflictById = indexes.conflictById;
       const goodWorkers = enabledWorkers.filter((worker) => serverObjectStatusClass((workerStatus.get(String(worker.id)) || {}).status || "已配置", conflictById.get(String(worker.id)), worker.enabled !== false) === "ok").length;
       const jitter = Number(configDefault(scheduler.jitterSeconds, 30));
-      const poll = Number(configDefault(scheduler.pollSeconds, 60));
+      const poll = Number(configDefault(scheduler.pollSeconds, 10));
       const modeLabel = topology.modeLabel || topologyModeLabel(topology.mode || "single_worker");
       const schedOwner = topology.schedulerOwner || "Worker本机调度";
       const conflictPill = conflicts.length
@@ -9096,7 +9096,7 @@ export function renderPanelHtml(): string {
       }).join("");
       const foot = '<div class="workerDenseFoot" title="策略与目录">' +
         '<span class="pill" title="策略基准">策略基准 ' + esc(poll) + '-' + esc(Number(poll) + Number(jitter || 0)) + 's</span>' +
-        '<span class="pill" title="TTL">TTL ' + esc(configDefault(scheduler.workerStatusTtlSeconds, 180)) + 's</span>' +
+        '<span class="pill" title="TTL">TTL ' + esc(configDefault(scheduler.workerStatusTtlSeconds, 45)) + 's</span>' +
         '<span class="pill" title="事件延迟">实时 ' + esc(configDefault(scheduler.operationEventMaxDelayMs, 1000)) + 'ms</span>' +
         '<span class="pill" title="旧版请求间隔与并发限制不再生效">请求限流已关闭</span>' +
         '<span class="pill" title="状态与结果位置">' + esc(topology.stateOwner || "保存位置待确认") + '</span>' +

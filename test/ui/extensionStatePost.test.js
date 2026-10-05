@@ -116,7 +116,9 @@ test("realtime state signatures stay bounded and sample across large values", ()
 
 test("local availability push stays server-only and project-state-free", () => {
   const source = readSource("src/extension.ts");
-  const loopBlock = source.match(/startAvailabilityPushLoop[\s\S]*?availabilityPushMinIntervalMs/)?.[0] || "";
+  const loopStart = source.indexOf("\n    startAvailabilityPushLoop() {");
+  assert.ok(loopStart >= 0);
+  const loopBlock = source.slice(loopStart, source.indexOf("\n    availabilityPushMinIntervalMs(", loopStart));
   const pushBlock = source.match(/private async pushLocalWorkerAvailability[\s\S]*?private localWorkerAvailabilityRows/)?.[0] || "";
   const rowsBlock = source.match(/private localWorkerAvailabilityRows[\s\S]*?private resetClient/)?.[0] || "";
 

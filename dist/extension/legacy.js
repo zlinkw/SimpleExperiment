@@ -12354,13 +12354,13 @@ class RealtimeTunnelPanelProvider {
         const settings = this.schedulerSettings();
         const updates = [
             config.update("scheduler.dispatchMode", DistributedSchedulingPolicy.schedulingMode(patch.dispatchMode ?? settings.dispatchMode), vscode.ConfigurationTarget.Global),
-            config.update("scheduler.pollSeconds", numberRangePatch(patch, "pollSeconds", settings.pollSeconds, 0.5, 3600), vscode.ConfigurationTarget.Global),
+            config.update("scheduler.pollSeconds", numberRangePatch(patch, "pollSeconds", settings.pollSeconds, 5, 3600), vscode.ConfigurationTarget.Global),
             config.update("scheduler.jitterSeconds", numberRangePatch(patch, "jitterSeconds", settings.jitterSeconds, 0, 1800), vscode.ConfigurationTarget.Global),
-            config.update("scheduler.workerStatusTtlSeconds", numberRangePatch(patch, "workerStatusTtlSeconds", settings.workerStatusTtlSeconds, 60, 7200), vscode.ConfigurationTarget.Global),
-            config.update("scheduler.localAvailabilityPushSeconds", numberRangePatch(patch, "localAvailabilityPushSeconds", settings.localAvailabilityPushSeconds, 60, 3600), vscode.ConfigurationTarget.Global),
-            config.update("scheduler.workerAvailabilityPushSeconds", numberRangePatch(patch, "workerAvailabilityPushSeconds", settings.workerAvailabilityPushSeconds, 60, 3600), vscode.ConfigurationTarget.Global),
+            config.update("scheduler.workerStatusTtlSeconds", numberRangePatch(patch, "workerStatusTtlSeconds", settings.workerStatusTtlSeconds, 10, 7200), vscode.ConfigurationTarget.Global),
+            config.update("scheduler.localAvailabilityPushSeconds", numberRangePatch(patch, "localAvailabilityPushSeconds", settings.localAvailabilityPushSeconds, 5, 3600), vscode.ConfigurationTarget.Global),
+            config.update("scheduler.workerAvailabilityPushSeconds", numberRangePatch(patch, "workerAvailabilityPushSeconds", settings.workerAvailabilityPushSeconds, 5, 3600), vscode.ConfigurationTarget.Global),
             config.update("scheduler.operationEventMaxDelayMs", numberRangePatch(patch, "operationEventMaxDelayMs", settings.operationEventMaxDelayMs, 100, 10000), vscode.ConfigurationTarget.Global),
-            config.update("scheduler.workerActionMinIntervalMs", numberRangePatch(patch, "workerActionMinIntervalMs", settings.workerActionMinIntervalMs, 500, 60000), vscode.ConfigurationTarget.Global),
+            config.update("scheduler.workerActionMinIntervalMs", numberRangePatch(patch, "workerActionMinIntervalMs", settings.workerActionMinIntervalMs, 200, 60000), vscode.ConfigurationTarget.Global),
             config.update("scheduler.workerActionMaxConcurrent", numberRangePatch(patch, "workerActionMaxConcurrent", settings.workerActionMaxConcurrent, 1, 16), vscode.ConfigurationTarget.Global),
         ];
         await Promise.all(updates);
@@ -20529,14 +20529,14 @@ class RealtimeTunnelPanelProvider {
         const config = vscode.workspace.getConfiguration("simpleExperiment");
         return {
             dispatchMode: DistributedSchedulingPolicy.schedulingMode(config.get("scheduler.dispatchMode", "local_idle")),
-            pollSeconds: Math.max(0.5, Number(config.get("scheduler.pollSeconds", 10)) || 10),
+            pollSeconds: Math.max(5, Math.min(3600, Number(config.get("scheduler.pollSeconds", 10)) || 10)),
             jitterSeconds: Math.max(0, Number(config.get("scheduler.jitterSeconds", 5)) || 0),
             gpuIdleUtilThreshold: Math.max(0, Math.min(100, Number(config.get("scheduler.gpuIdleUtilThreshold", 5)))),
             gpuIdleMemThresholdMb: Math.max(0, Math.min(8192, Number(config.get("scheduler.gpuIdleMemThresholdMb", 200)))),
-            sessionCheckMinSeconds: 0.5,
-            workerStatusTtlSeconds: Math.max(10, Number(config.get("scheduler.workerStatusTtlSeconds", 180)) || 180),
-            localAvailabilityPushSeconds: 0.5,
-            workerAvailabilityPushSeconds: 0.5,
+            sessionCheckMinSeconds: Math.max(1, Math.min(60, Number(config.get("scheduler.sessionCheckMinSeconds", 5)) || 5)),
+            workerStatusTtlSeconds: Math.max(10, Math.min(7200, Number(config.get("scheduler.workerStatusTtlSeconds", 45)) || 45)),
+            localAvailabilityPushSeconds: Math.max(5, Math.min(3600, Number(config.get("scheduler.localAvailabilityPushSeconds", 10)) || 10)),
+            workerAvailabilityPushSeconds: Math.max(5, Math.min(3600, Number(config.get("scheduler.workerAvailabilityPushSeconds", 10)) || 10)),
             operationEventMaxDelayMs: Math.max(100, Number(config.get("scheduler.operationEventMaxDelayMs", 200)) || 200),
             workerActionMinIntervalMs: Math.max(200, Number(config.get("scheduler.workerActionMinIntervalMs", 500)) || 500),
             workerActionMaxConcurrent: Math.max(1, Number(config.get("scheduler.workerActionMaxConcurrent", 1)) || 1),
@@ -20561,7 +20561,7 @@ class RealtimeTunnelPanelProvider {
             if (loopGeneration !== this.availabilityPushLoopGeneration)
                 return;
             const settings = this.schedulerSettings();
-            const delayMs = 500;
+            const delayMs = this.availabilityPushMinIntervalMs(settings);
             const timer = setTimeout(() => {
                 if (this.availabilityPushTimer === timer)
                     this.availabilityPushTimer = undefined;
@@ -20578,7 +20578,7 @@ class RealtimeTunnelPanelProvider {
         scheduleNext();
     }
     availabilityPushMinIntervalMs(settings = this.schedulerSettings()) {
-        return 0;
+        return Math.max(5000, Number(settings.localAvailabilityPushSeconds) * 1000 || 10000);
     }
     availabilityPushTtlSeconds(settings = this.schedulerSettings()) {
         return settings.workerStatusTtlSeconds;
