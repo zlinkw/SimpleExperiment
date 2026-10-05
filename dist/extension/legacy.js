@@ -53,6 +53,7 @@ const worker_threads_1 = require("worker_threads");
 const ProgressInactivity_1 = require("../core/ProgressInactivity");
 const OperationOutcome_1 = __importStar(require("../core/OperationOutcome"));
 const StateStore_1 = require("../state/StateStore");
+const LatestSnapshotWriter_1 = require("../core/LatestSnapshotWriter");
 const ProjectStaticCheck_1 = require("../features/ProjectStaticCheck");
 const SimpleSftpProgressWait_1 = require("../core/SimpleSftpProgressWait");
 const SafeRequestRetry_1 = require("../core/SafeRequestRetry");
@@ -897,6 +898,9 @@ class RealtimeTunnelPanelProvider {
     panelHostEventLoopSamples = [];
     panelIncidentSlots = { latest: null, previous: null };
     panelIncidentWrite = Promise.resolve();
+    panelIncidentRawWrite;
+    panelIncidentWriter;
+    panelIncidentPersistenceError = "";
     panelIncidentNoticeKeys = new Set();
     panelLowEffectsMode = false;
     retainPanelContextWhenHidden;
@@ -20000,6 +20004,7 @@ class RealtimeTunnelPanelProvider {
             reason: this.currentSessionRecoveryReason || String(evidence.reason || "") || this.reloadRequiredReason || this.lastStatePostErrorSignature || this.lastStateBuildErrorSignature || "panel-recovery",
             visualMode: this.panelLowEffectsMode ? "low-effects" : "standard",
             runningVersion: identity.runningVersion,
+            incidentPersistenceError: this.panelIncidentPersistenceError || "",
             installedVersion: identity.installedVersion,
             runningBuildId: String(identity.runningBuildId || "").slice(0, 12),
             diskBuildId: String(identity.diskBuildId || "").slice(0, 12),
@@ -20103,10 +20108,18 @@ class RealtimeTunnelPanelProvider {
         }
         this.panelIncidentSlots = next;
         const serialized = JSON.stringify(next);
-        this.panelIncidentWrite = this.panelIncidentWrite.then(async () => {
-            const latest = JSON.parse(serialized);
-            await this.context.workspaceState.update(PANEL_INCIDENT_STORAGE_KEY, latest);
-        }).catch(() => undefined);
+        if (!this.panelIncidentWriter)
+            this.panelIncidentWriter = new LatestSnapshotWriter_1.LatestSnapshotWriter(async (value) => {
+                await this.context.workspaceState.update(PANEL_INCIDENT_STORAGE_KEY, JSON.parse(value));
+                this.panelIncidentPersistenceError = "";
+            });
+        const write = this.panelIncidentWriter.enqueue(serialized);
+        if (this.panelIncidentRawWrite !== write) {
+            this.panelIncidentRawWrite = write;
+            this.panelIncidentWrite = write.catch(error => {
+                this.panelIncidentPersistenceError = compactSensitiveText(errorMessage(error), 180);
+            });
+        }
     }
     notifyPanelFailureOnce(key, message) {
         const incidentKey = String(key || "panel-failure").slice(0, 160);

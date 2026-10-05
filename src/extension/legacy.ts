@@ -10,6 +10,7 @@ import { Worker } from "worker_threads";
 import { ProgressInactivity } from "../core/ProgressInactivity";
 import * as OperationOutcome_1 from "../core/OperationOutcome";
 import { atomicWriteText } from "../state/StateStore";
+import { LatestSnapshotWriter } from "../core/LatestSnapshotWriter";
 import { runProjectStaticCheck } from "../features/ProjectStaticCheck";
 import { callSftpWithProgress } from "../core/SimpleSftpProgressWait";
 import { SafeRequestRetry, RequestReplacedError, assertRetryRequestCurrent, retryRequestSignal } from "../core/SafeRequestRetry";
@@ -987,6 +988,9 @@ export class RealtimeTunnelPanelProvider {
     private panelHostEventLoopSamples: Array<Record<string, unknown>> = [];
     private panelIncidentSlots: { latest: Record<string, unknown> | null; previous: Record<string, unknown> | null } = { latest: null, previous: null };
     private panelIncidentWrite = Promise.resolve();
+    private panelIncidentRawWrite?: Promise<void>;
+    private panelIncidentWriter?: LatestSnapshotWriter<string>;
+    private panelIncidentPersistenceError = "";
     private panelIncidentNoticeKeys = new Set<string>();
     private panelLowEffectsMode = false;
     readonly retainPanelContextWhenHidden: boolean;
@@ -18957,6 +18961,7 @@ export class RealtimeTunnelPanelProvider {
             reason: this.currentSessionRecoveryReason || String(evidence.reason || "") || this.reloadRequiredReason || this.lastStatePostErrorSignature || this.lastStateBuildErrorSignature || "panel-recovery",
             visualMode: this.panelLowEffectsMode ? "low-effects" : "standard",
             runningVersion: identity.runningVersion,
+            incidentPersistenceError: this.panelIncidentPersistenceError || "",
             installedVersion: identity.installedVersion,
             runningBuildId: String(identity.runningBuildId || "").slice(0, 12),
             diskBuildId: String(identity.diskBuildId || "").slice(0, 12),
@@ -19057,10 +19062,17 @@ export class RealtimeTunnelPanelProvider {
         }
         this.panelIncidentSlots = next;
         const serialized = JSON.stringify(next);
-        this.panelIncidentWrite = this.panelIncidentWrite.then(async () => {
-            const latest = JSON.parse(serialized);
-            await this.context.workspaceState.update(PANEL_INCIDENT_STORAGE_KEY, latest);
-        }).catch(() => undefined);
+        if (!this.panelIncidentWriter) this.panelIncidentWriter = new LatestSnapshotWriter(async value => {
+            await this.context.workspaceState.update(PANEL_INCIDENT_STORAGE_KEY, JSON.parse(value));
+            this.panelIncidentPersistenceError = "";
+        });
+        const write = this.panelIncidentWriter.enqueue(serialized);
+        if (this.panelIncidentRawWrite !== write) {
+            this.panelIncidentRawWrite = write;
+            this.panelIncidentWrite = write.catch(error => {
+                this.panelIncidentPersistenceError = compactSensitiveText(errorMessage(error), 180);
+            });
+        }
     }
     private notifyPanelFailureOnce(key: string, message: string): void {
         const incidentKey = String(key || "panel-failure").slice(0, 160);
