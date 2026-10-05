@@ -3,7 +3,7 @@
 > 保存日期：2026-10-03（Asia/Shanghai）。
 > 本文为用户确认的完整合并版：全插件源码对照计划 + 长期灰屏专项 + Luna 执行交接。
 > 文档最初仅保存计划；2026-10-03 用户授权开始执行。本轮继续推进代码实现。
-> 当前执行状态（2026-10-05）：本仓核心机制已落地，本轮按原计划复核并修复事务槽、配置频率、传输限额、诊断写入积压、长读取身份和打包依赖问题。55 个目标测试文件共 390 条用例串行通过；打包交付正在收口，最新证据与未完成项以第 7.7 节为准。SimpleSFTP 压缩收益采样仍缺实现；版本组合、现场和长时验收未完成，不能标记整个计划通过。第 7.2/7.6 节保留此前批次的历史事实。
+> 当前执行状态（2026-10-05）：本仓核心机制已落地，本轮按原计划复核并修复事务槽、配置频率、传输限额、诊断写入积压、长读取身份和打包依赖问题。55 个目标测试文件共 390 条用例串行通过；0.5.217 build、脚本门禁和打包通过，已安装一次并核对 CLI，等待用户重载。最新证据与未完成项以第 7.7 节为准。SimpleSFTP 压缩收益采样仍缺实现；版本组合、现场和长时验收未完成，不能标记整个计划通过。第 7.2/7.6 节保留此前批次的历史事实。
 
 **补充结论：目前不能确认长期灰屏已经解决。审查时 0.5.215 的通信和渲染 ACK 正常，但 ACK 不能证明最终画面已经正确显示。**
 
@@ -545,8 +545,8 @@ bootstrap 独占 `acquireVsCodeApi()`，通过明确接口供主程序使用；�
 | 更新与通用接入 | local-tests-passed | `ce5cc874` 补齐显式 SemVer 依赖：固定 npm semver 7.7.3，仅打包 compare/valid 的9个模块闭包（20,274字节）及许可证；修复 Windows 绝对路径/ADS 契约漏洞。extensionUpdates 7/7、distributedProjectContract 6/6、publicReleaseBundle 4/4、pluginHandoffContract 3/3、multiFormatOutput 1/1、两组 factories 8/8 与14/14。通用 runner 测试证明只需命令/cwd/inputs/outputs/命名任务，无 suite/base_config/seeds/指标或第二阶段要求 |
 | 结果、锁与恢复 | local-tests-passed | pendingResultMetricSync 26/26、projectResultSyncCompleteness 16/16、runCompletionRefresh 1/1、distributedRerun 8/8、outputRetention 15/15、跨插件 leaseCompatibility 1/1、hostLease 10/10、manifestStaging 4/4、tunnelClient 5/5、realtimeReconnect 4/4；最新 run 权威、旧 raw 追溯和严格 active guard 继续保留 |
 | 测试隔离与可重现打包 | local-tests-passed | memoryBudget 1/1、TensorBoard scalar 9/9、planRunModeWorkflow 5/5 改为函数切片和静态 fixture；不 import/启动完整 Agent/Scheduler、不创建实验或临时项目；Python 子进程限10秒且 windowsHide。VSIX 门禁首次因隐式 npm exec 联网等待在10秒失败；固定本地开发依赖 VSCE 4.0.0、直接 Node 调用且8秒限时后，新实现2/2通过；未延长测试阈值 |
-| 回归与交付 | running | 55 个目标测试文件390条均通过。待完成本批 build/vm.Script、0.5.217 的 package、安装核对及 scoped commit/push；内联脚本健康测试另随 build 执行，不重复计入目标测试数 |
-| 配套剩余实现 | pending | SimpleSFTP 需要按有限样本压缩收益、CPU时间、链路吞吐选择压缩；现有工具能力协商不能证明该要求完成。后续在配套仓独立批次补实现与测试，不更改本仓的传输状态机或引入未经验证的协议参数 |
+| 回归与交付 | local-gates-passed | 55 个目标测试文件390条均通过；`d8b12158` 为测试隔离及打包工具修复提交。0.5.217 的 `npm run package`（含 build/内联脚本门禁/VSIX闭包）与独立 vm.Script通过；直接读取VSIX验证187个runtime文件的SHA256全部匹配，包2.21MiB，无pyc/node_modules。安装一次成功，`code --list-extensions --show-versions` 为 `simple-local.simple-experiment@0.5.217`，simpleex npm入口和其package版本也为0.5.217。安装后停止Panel操作，现场待用户 Reload Window；交付版本改动按 scoped commit 普通推送，Git日志记录实际提交 |
+| 配套剩余实现 | pending | SimpleSFTP 需要按有限样本压缩收益、CPU时间、链路吞吐选择压缩；现有工具能力协商不能证明该要求完成。本轮只读核实配套仓 `extension.js` 已有未提交修改（221行新增/29行删除）及多个未跟踪VSIX，全部保留，未混入本仓提交或安装。后续在配套仓独立批次审阅既有改动后补实现与测试，不更改本仓的传输状态机或引入未经验证的协议参数 |
 | 现场与长时门槛 | deferred | `test/core/operationQueue.test.js`、`test/cli/simpleCli.test.js` 两个已知挂起进程不原样重跑；SimpleSFTP 旧/新版本组合、MultiModal 最新产物与 payload/吞吐实测、灰屏现场、跨窗口崩溃恢复、8小时 soak 与100次布局切换仍保留，未实测不宣称解决 |
 
 本轮目标测试按项目约束逐文件执行 `node --test --test-force-exit --test-timeout 20000 <file>`，没有并行测试进程。55 文件是相关目标回归，不是全仓测试总数；上述压缩实现缺口和现场门槛仍是计划未完成项。历史文件和两个用户允许再生成的 `.pyc` 不纳入提交。
