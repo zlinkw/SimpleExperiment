@@ -276,3 +276,77 @@ test("batched hash progress reports the Worker and verified counts separately fr
   assert.ok(f.events.some(message => /SHA256 校验 · w1 · 第 1 批/.test(message)));
   assert.ok(f.events.some(message => /压缩传输 · w1 → w2/.test(message)));
 });
+
+test("preview rebuilding immediately replaces the previous completed hash notification", async () => {
+  const f = fixture({ inventoryStdin: true });
+  let release, reached;
+  const rebuilding = new Promise(resolve => { reached = resolve; });
+  const paused = new Promise(resolve => { release = resolve; });
+  f.host.rebuildDistributedResults = async () => { reached(); await paused; };
+  const work = f.host.postprocessDistributedResultsForManual(root, "metrics");
+  await rebuilding;
+  const message = f.events.at(-1);
+  release();
+  await work;
+  assert.match(message, /重建.*预览/);
+  assert.doesNotMatch(message, /本批.*秒/);
+});
+
+test("missing bulk inventories share bounded Worker scope queries instead of per-job SSH", async (t) => {
+  const f = fixture({ inventoryStdin: true });
+  const model = JSON.parse(JSON.stringify(f.state.plans[1]));
+  f.state.plans.length = 0;
+  for (let index = 0; index < 20; index++) {
+    const plan = JSON.parse(JSON.stringify(model));
+    plan.id = `complete-${index}`;
+    plan.planFile = `experiments/plans/complete-${index}.yaml`;
+    const job = plan.jobs[0];
+    job.outputDir = `work_dirs/complete-${index}/job/attempts/${plan.id}`;
+    job.artifacts = Object.fromEntries(fragments.map(name => [`${job.outputDir}/${name}`, hash]));
+    for (const worker of ["w1", "w3"]) for (const name of [...required, "stdout.log"]) {
+      f.inventory[worker][`${job.outputDir}/${name}`] = { sha256: hash };
+    }
+    f.state.plans.push(plan);
+  }
+  const read = f.host.verifiedSftpProjectInventory.bind(f.host);
+  f.host.verifiedSftpProjectInventory = async options => {
+    const response = await read(options);
+    if (options.scopePaths) response.files = Object.fromEntries(Object.entries(f.inventory[options.source.id])
+      .filter(([file]) => options.scopePaths.some(scope => file === scope || file.startsWith(scope + "/"))));
+    return response;
+  };
+  await f.host.syncDistributedJobArtifacts(root, await f.host.loadDistributedQueue(), "bulk", true);
+  assert.deepEqual(f.errors, []);
+  assert.equal(f.transfers.length, 1);
+  assert.equal(f.transfers[0].paths.length, 100);
+  assert.ok(f.inventoryCalls.length <= 4, `${f.inventoryCalls.length} inventory calls for 20 jobs`);
+  assert.ok(f.inventoryCalls.every(call => call.scopePaths?.length && call.relativePath === "."));
+  assert.ok(f.state.plans.every(plan => plan.jobs[0].artifacts[`${plan.jobs[0].outputDir}/best_model.pth`] === hash));
+  t.diagnostic(`20 complete jobs / 100 bulk files: ${f.inventoryCalls.length} scoped inventory calls including fresh destination verification`);
+});
+
+test("in-flight inventory byte and file progress reaches the outer notification", async () => {
+  const f = fixture({ inventoryStdin: true });
+  const read = f.host.verifiedSftpProjectInventory.bind(f.host);
+  f.host.verifiedSftpProjectInventory = async options => {
+    options.onProgress?.({ phase: "hashing", processedFiles: 4, processedBytes: 3 * 1048576, elapsedMs: 4200 });
+    return read(options);
+  };
+  await f.host.postprocessDistributedResultsForManual(root, "full");
+  assert.ok(f.events.some(message => /SHA256 校验 · w1/.test(message) && /已处理 4 个文件/.test(message)
+    && /3.0 MiB 已处理/.test(message) && /本步已耗时 4 秒/.test(message) && /总耗时 \d+ 秒/.test(message)));
+});
+
+test("a directory inventory cannot inject sibling attempts or unrelated project files", async () => {
+  const f = fixture({ inventoryStdin: true });
+  const scope = "work_dirs/model/job/attempts/latest";
+  f.host.verifiedSftpProjectInventory = async () => ({ files: {
+    [`${scope}/stdout.log`]: { sha256: hash },
+    [`${scope}-old/stdout.log`]: { sha256: hash },
+    "work_dirs/unrelated/config.yaml": { sha256: hash },
+  } });
+  const hashes = await f.host.distributedOutputHashes({ id: "w1" }, [scope], undefined, true);
+  assert.equal(hashes[`${scope}/stdout.log`], hash);
+  assert.equal(hashes[`${scope}-old/stdout.log`], undefined);
+  assert.equal(hashes["work_dirs/unrelated/config.yaml"], undefined);
+});

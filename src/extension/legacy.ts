@@ -8222,7 +8222,8 @@ export class RealtimeTunnelPanelProvider {
         } finally { this.syncScopeMutationInFlight = false; }
     }
     async verifiedSftpProjectInventory(options) {
-        const result = await this.simpleSftpApiCall("sync.projectInventory", options);
+        const { onProgress, ...request } = options;
+        const result = await this.simpleSftpApiCall("sync.projectInventory", request, 0, onProgress);
         return requireCompleteScopeInventory(result, `Worker ${options.source?.id || options.source?.host || "未知"}`);
     }
     async updateSyncScopeHolds(root, mutate) {
@@ -9991,6 +9992,7 @@ export class RealtimeTunnelPanelProvider {
         this.distributedPostprocessScope = scope;
         const work = vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
             title: "同步服务器最新 Plan 产物", cancellable: false }, async (progress) => {
+            const syncStartedAt = Date.now();
             const queue = await this.loadDistributedQueue(root);
             if (!queue.plans.length || workspaceRoot() !== root) return;
             progress.report({ message: "检测当前 Worker 连接" });
@@ -10000,9 +10002,21 @@ export class RealtimeTunnelPanelProvider {
             if (!this.workerCodeSyncTargets().some((target) => this.lastWorkerProbes[target.id]?.status === "ok"))
                 throw new Error("没有可用 Worker，未同步服务器产物。请检查连接后重试。");
             progress.report({ message: "校验并恢复最新版结果片段" });
-            const reportTransfer = (detail) => progress.report({ message: detail.phase === "hashing"
-                ? `SHA256 校验 · ${detail.workerId} · 第 ${detail.batch} 批 · ${detail.checkedCount}/${detail.fileCount} 路径${detail.elapsedMs === undefined ? "" : ` · 本批 ${Math.round(detail.elapsedMs / 1000)} 秒`}`
-                : `压缩传输 · ${detail.workerId} · 第 ${detail.batch}/${detail.batchCount} 批 · ${detail.fileCount} 路径` });
+            const reportTransfer = (detail) => {
+                const processed = detail.processedFiles === undefined ? "" : ` · 已处理 ${detail.processedFiles} 个文件`;
+                const wire = detail.phase === "transferring" && detail.transferredBytes !== undefined;
+                const count = wire ? detail.transferredBytes : detail.processedBytes;
+                const bytes = count === undefined ? "" : ` · ${(count / 1048576).toFixed(1)} MiB ${wire ? "实际传输" : "已处理"}`;
+                const elapsed = detail.elapsedMs === undefined ? "" : ` · 本步已耗时 ${Math.floor(detail.elapsedMs / 1000)} 秒`;
+                const labels = { preparing: "准备清单", hashing: "SHA256 校验", packing: "压缩打包", transferring: "压缩传输",
+                    unpacking: "解包", verifying: "内容复核", publishing: "发布文件", recording: "记录校验结果" };
+                const label = labels[detail.phase] || "处理产物";
+                const scope = detail.planFile ? ` · ${detail.planFile} job ${detail.jobIndex}`
+                    : detail.batch ? ` · 第 ${detail.batch}${detail.batchCount ? `/${detail.batchCount}` : ""} 批` : "";
+                const paths = detail.checkedCount === undefined ? detail.fileCount === undefined ? "" : ` · ${detail.fileCount} 路径`
+                    : ` · ${detail.checkedCount}/${detail.fileCount} 范围`;
+                progress.report({ message: `${label} · ${detail.workerId}${scope}${paths}${processed}${bytes}${elapsed} · 总耗时 ${Math.floor((Date.now() - syncStartedAt) / 1000)} 秒` });
+            };
             try {
                 await this.syncDistributedJobArtifacts(root, queue, "fragments", true, reportTransfer);
                 assertRetryRequestCurrent();
@@ -10012,6 +10026,7 @@ export class RealtimeTunnelPanelProvider {
             }
             if (workspaceRoot() !== root) return;
             try {
+                progress.report({ message: "重建最新版增量结果预览，等待 Worker 返回" });
                 await this.rebuildDistributedResults(root, await this.loadDistributedQueue(root), true, true);
                 assertRetryRequestCurrent();
             } catch (error) {
@@ -10737,13 +10752,14 @@ export class RealtimeTunnelPanelProvider {
         const jobKey = (plan, job) => `${plan.id}:${job.index}:${job.attempt}`;
         // This is a request-local preflight snapshot, never a cross-request freshness cache.
         // Query each Worker in bounded batches instead of opening an SSH session per job/mirror.
-        const preflight = new Map<string, { hashes?: Record<string, string>; error?: unknown }>();
+        const preflight = new Map<string, { hashes?: Record<string, string>; scopes?: Set<string>; error?: unknown }>();
         if (verifyAll) {
             const pathsByWorker = new Map<string, Set<string>>();
             for (const plan of plans) for (const job of plan.jobs) {
                 if (job.status !== "completed" || !job.workerId || job.outputRetiredAt) continue;
+                const needsInventory = !job.artifacts || [...contract.fragmentPaths, ...contract.requiredPaths].some((name) => !job.artifacts[`${job.outputDir}/${name}`]);
                 const paths = phase === "fragments" ? contract.fragmentPaths.map((name) => `${job.outputDir}/${name}`)
-                    : Object.keys(job.artifacts || {}).filter((file) => file.startsWith(job.outputDir + "/"));
+                    : needsInventory ? [job.outputDir] : Object.keys(job.artifacts).filter((file) => file.startsWith(job.outputDir + "/"));
                 for (const id of online) {
                     if (!pathsByWorker.has(id)) pathsByWorker.set(id, new Set());
                     for (const file of paths) pathsByWorker.get(id).add(file);
@@ -10752,14 +10768,19 @@ export class RealtimeTunnelPanelProvider {
             await mapLimited([...pathsByWorker], 2, async ([id, paths]) => {
                 if (workspaceRoot() !== root) return;
                 try { preflight.set(id, { hashes: await this.distributedOutputHashes(this.sftpServerOptions(targets.get(id)), [...paths],
-                    report ? (detail) => report({ ...detail, workerId: id }) : undefined) }); }
+                    report ? (detail) => report({ ...detail, workerId: id }) : undefined, phase === "bulk"), scopes: paths }); }
                 catch (error) { preflight.set(id, { error }); }
             });
         }
         const initialHashes = async (id, source, paths) => {
             const checked = preflight.get(id);
             if (checked?.error) throw checked.error;
-            if (checked?.hashes && paths.every((file) => Object.prototype.hasOwnProperty.call(checked.hashes, file))) return checked.hashes;
+            if (checked?.hashes && paths.every((file) => {
+                if (Object.prototype.hasOwnProperty.call(checked.hashes, file)) return true;
+                const parts = file.split("/");
+                // A complete directory scope also proves its absent descendants.
+                return parts.some((_part, index) => checked.scopes?.has(parts.slice(0, index + 1).join("/")));
+            })) return checked.hashes;
             return this.distributedOutputHashes(source, paths);
         };
         const failJob = async (plan, job, error) => {
@@ -10797,8 +10818,14 @@ export class RealtimeTunnelPanelProvider {
                         const mismatched = known.filter((file) => hashes[file] !== job.artifacts[file]);
                         if (mismatched.length) throw new Error(`已记录产物 SHA256 不一致：${mismatched.slice(0, 2).join("、")}`);
                         if (needsInventory) {
-                            const inventory = (await this.verifiedSftpProjectInventory({ source, relativePath: job.outputDir,
-                                recursive: true, ...(phase === "fragments" ? { scopePaths: fragmentPaths } : {}) })).files;
+                            const checked = preflight.get(id);
+                            report?.({ phase: "hashing", workerId: id, planFile: plan.planFile, jobIndex: job.index });
+                            const inventory = phase === "bulk" && checked?.scopes?.has(job.outputDir) && checked.hashes
+                                ? Object.fromEntries(Object.entries(checked.hashes).filter(([file, digest]) => file.startsWith(job.outputDir + "/") && digest)
+                                    .map(([file, sha256]) => [file, { sha256 }]))
+                                : (await this.verifiedSftpProjectInventory({ source, relativePath: job.outputDir,
+                                    recursive: true, ...(phase === "fragments" ? { scopePaths: fragmentPaths } : {}),
+                                    onProgress: report ? (detail) => report({ ...detail, workerId: id, planFile: plan.planFile, jobIndex: job.index }) : undefined })).files;
                             collected = phase === "fragments" ? Object.fromEntries(fragmentPaths.map((file) => [file, String(inventory[file]?.sha256 || "").toLowerCase()]))
                                 : collectDistributedJobArtifacts(job.outputDir, inventory);
                             const required = phase === "fragments" ? fragmentPaths : contract.requiredPaths.map((name) => `${job.outputDir}/${name}`);
@@ -10816,6 +10843,7 @@ export class RealtimeTunnelPanelProvider {
                 }
                 const sourceRow = targets.get(sourceId);
                 const source = this.sftpServerOptions(sourceRow);
+                report?.({ phase: "recording", workerId: sourceId, planFile: plan.planFile, jobIndex: job.index });
                 if (collected) job.artifacts = { ...(job.artifacts || {}), ...collected };
                 const mirrorField = phase === "fragments" ? "fragmentWorkerIds" : "mirroredWorkerIds";
                 job[mirrorField] = [...new Set([...(job[mirrorField] || []).filter((id) => !invalidSources.includes(id)), sourceId])];
@@ -10876,7 +10904,9 @@ export class RealtimeTunnelPanelProvider {
                         taskLabel: workerFpsyncTaskLabel({ action: "压缩同步最新版 Plan 产物",
                             sourceId: first.sourceId, destinationId: first.workerId,
                             detail: `${new Set(items.map((item) => item.plan.planFile)).size} 个 Plan / ${items.length} 个 job（${phase === "fragments" ? "结果片段" : "检查点、日志与结果"}）`,
-                            batch: offset / 5000 + 1, batchCount: Math.ceil(paths.length / 5000) }) });
+                            batch: offset / 5000 + 1, batchCount: Math.ceil(paths.length / 5000) }) }, 0,
+                        report ? (detail) => report({ ...detail, workerId: `${first.sourceId} → ${first.workerId}`,
+                            batch: offset / 5000 + 1, batchCount: Math.ceil(paths.length / 5000), fileCount: paths.slice(offset, offset + 5000).length }) : undefined);
                 }
                 const checked = await this.distributedOutputHashes(first.destination, paths,
                     report ? (detail) => report({ ...detail, workerId: first.workerId }) : undefined);
@@ -10902,7 +10932,7 @@ export class RealtimeTunnelPanelProvider {
         }
         if (verifyAll && failures.length) throw new Error(`服务器最新产物同步未完成（${failures.length} 项）：${failures.slice(0, 3).join("；")}`);
     }
-    async distributedOutputHashes(source, paths, report?) {
+    async distributedOutputHashes(source, paths, report?, includeScopeContents = false) {
         if (!paths.length) return {};
         const capability = this.simpleSftpCapability ? await this.simpleSftpCapability("sync.projectInventory") : undefined;
         const stdinScopes = capability?.features?.projectInventoryStdinScopes === true;
@@ -10920,7 +10950,16 @@ export class RealtimeTunnelPanelProvider {
             report?.({ phase: "hashing", batch: batchCount, checkedCount, fileCount: uniquePaths.length });
             // recursive=false at the project root can only see direct children, even with scopes.
             // Exact file scopes prune all unrelated directories while reaching nested attempt files.
-            const inventory = (await this.verifiedSftpProjectInventory({ source, relativePath: ".", scopePaths: batch, recursive: true })).files;
+            const inventory = (await this.verifiedSftpProjectInventory({ source, relativePath: ".", scopePaths: batch, recursive: true,
+                onProgress: report ? (detail) => report({ ...detail, batch: batchCount, checkedCount, fileCount: uniquePaths.length }) : undefined })).files;
+            if (includeScopeContents) {
+                const scopes = new Set(batch);
+                for (const [file, entry] of Object.entries(inventory)) {
+                    // Match ancestors in O(path depth), never scope-count times file-count.
+                    const parts = file.split("/");
+                    if (parts.some((_part, index) => scopes.has(parts.slice(0, index + 1).join("/")))) hashes[file] = String(entry?.sha256 || "").toLowerCase();
+                }
+            }
             for (const file of batch) hashes[file] = String(inventory[file]?.sha256 || "").toLowerCase();
             checkedCount += batch.length;
             report?.({ phase: "hashing", batch: batchCount, checkedCount, fileCount: uniquePaths.length, elapsedMs: Date.now() - startedAt });
@@ -17346,9 +17385,9 @@ export class RealtimeTunnelPanelProvider {
             features: capabilities.features && typeof capabilities.features === "object" ? capabilities.features : {},
         };
     }
-    async simpleSftpApiCall(method, params, timeoutMs = 0) {
+    async simpleSftpApiCall(method, params, timeoutMs = 0, onProgress?) {
         assertRetryRequestCurrent();
-        return callSftpWithProgress(method, params || {}, (name) => this.simpleSftpCapability(name));
+        return callSftpWithProgress(method, params || {}, (name) => this.simpleSftpCapability(name), onProgress);
     }
     async syncPendingPlanArtifacts(onlyKey = "", knownSummary?) {
         if (this.syncScopeMutationInFlight) throw new Error("文件树操作进行中，Plan 同步稍后重试。");

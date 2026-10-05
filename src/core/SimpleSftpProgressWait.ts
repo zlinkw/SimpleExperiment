@@ -14,6 +14,14 @@ export type SimpleSftpDiscovery = {
   features?: Record<string, unknown>;
 };
 
+export type SimpleSftpProgress = {
+  phase: string;
+  processedBytes?: number;
+  processedFiles?: number;
+  transferredBytes?: number;
+  elapsedMs: number;
+};
+
 function identityOf(value: unknown): Record<string, unknown> | undefined {
   if (!value || typeof value !== "object") return undefined;
   const source = value as Record<string, unknown>;
@@ -83,6 +91,7 @@ export async function confirmSftpOperationStopped(operationId: string, initial: 
 export async function callSftpWithProgress(
   method: string, params: Record<string, any>,
   discover: (method: string) => Promise<SimpleSftpDiscovery>,
+  onProgress?: (snapshot: SimpleSftpProgress) => void,
 ): Promise<any> {
   assertRetryRequestCurrent();
   const scopedSignal = retryRequestSignal();
@@ -93,6 +102,7 @@ export async function callSftpWithProgress(
   const operationId = `sftp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   const fileOperation = /^(sync[.]|upload[.]|download[.]|remote[.])/.test(method);
   const requestAbort = new AbortController(), eventsAbort = new AbortController();
+  const startedAt = Date.now();
   let timer: NodeJS.Timeout | undefined, disposed = false;
   let forgetStopCheck = () => {};
   async function cancelRemote(): Promise<void> {
@@ -114,7 +124,14 @@ export async function callSftpWithProgress(
   else params.signal?.addEventListener("abort", onCancel, { once: true });
   function accept(item: any): void {
     if (disposed || requestAbort.signal.aborted || item?.operationId !== operationId) return;
-    inactivity.update({ phase: item.phase, scope: item.progressScope || item.id, processedBytes: item.processedBytes ?? item.transferredBytes, processedFiles: item.processedFiles, status: item.status });
+    const phase = typeof item.phase === "string" ? item.phase.slice(0, 64) : "";
+    const count = (value: unknown) => Number.isSafeInteger(value) && Number(value) >= 0 ? Number(value) : undefined;
+    const processedBytes = count(item.processedBytes ?? item.transferredBytes), processedFiles = count(item.processedFiles);
+    const changed = inactivity.update({ phase, scope: item.progressScope || item.id, processedBytes, processedFiles, status: item.status });
+    if (changed && onProgress) {
+      try { onProgress({ phase, processedBytes, processedFiles, transferredBytes: count(item.transferredBytes), elapsedMs: Date.now() - startedAt }); }
+      catch { /* Notification failures cannot cancel a genuine transfer. */ }
+    }
     if (item.status === "cancelled") requestAbort.abort(new Error(item.reason || "传输已取消"));
   }
   async function poll(): Promise<void> {

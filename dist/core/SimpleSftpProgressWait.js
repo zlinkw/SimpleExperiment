@@ -83,7 +83,7 @@ async function confirmSftpOperationStopped(operationId, initial) {
     } while (Date.now() < deadline);
     throw new Error("旧传输取消尚未完成，未重新传输。");
 }
-async function callSftpWithProgress(method, params, discover) {
+async function callSftpWithProgress(method, params, discover, onProgress) {
     (0, SafeRequestRetry_1.assertRetryRequestCurrent)();
     const scopedSignal = (0, SafeRequestRetry_1.retryRequestSignal)();
     if (scopedSignal)
@@ -94,6 +94,7 @@ async function callSftpWithProgress(method, params, discover) {
     const operationId = `sftp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
     const fileOperation = /^(sync[.]|upload[.]|download[.]|remote[.])/.test(method);
     const requestAbort = new AbortController(), eventsAbort = new AbortController();
+    const startedAt = Date.now();
     let timer, disposed = false;
     let forgetStopCheck = () => { };
     async function cancelRemote() {
@@ -119,7 +120,16 @@ async function callSftpWithProgress(method, params, discover) {
     function accept(item) {
         if (disposed || requestAbort.signal.aborted || item?.operationId !== operationId)
             return;
-        inactivity.update({ phase: item.phase, scope: item.progressScope || item.id, processedBytes: item.processedBytes ?? item.transferredBytes, processedFiles: item.processedFiles, status: item.status });
+        const phase = typeof item.phase === "string" ? item.phase.slice(0, 64) : "";
+        const count = (value) => Number.isSafeInteger(value) && Number(value) >= 0 ? Number(value) : undefined;
+        const processedBytes = count(item.processedBytes ?? item.transferredBytes), processedFiles = count(item.processedFiles);
+        const changed = inactivity.update({ phase, scope: item.progressScope || item.id, processedBytes, processedFiles, status: item.status });
+        if (changed && onProgress) {
+            try {
+                onProgress({ phase, processedBytes, processedFiles, transferredBytes: count(item.transferredBytes), elapsedMs: Date.now() - startedAt });
+            }
+            catch { /* Notification failures cannot cancel a genuine transfer. */ }
+        }
         if (item.status === "cancelled")
             requestAbort.abort(new Error(item.reason || "传输已取消"));
     }
