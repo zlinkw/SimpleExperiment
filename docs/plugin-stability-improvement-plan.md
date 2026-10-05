@@ -5,6 +5,8 @@
 > 文档最初仅保存计划；2026-10-03 用户授权开始执行。本轮继续推进代码实现。
 > 当前执行状态（2026-10-05）：批次 0–8、5A/5B 的计划内实现已完成，SimpleSFTP 压缩收益采样及分块恢复已补齐；当前交付为 SimpleExperiment 0.5.218 / SimpleSFTP 0.2.48。最新源码、短时测试和交付证据以第 7.8 节为准。用户明确将长时间及人工现场验收留后；这不等价于长期灰屏根因已解决或真实链路已提速。第 7.2/7.6/7.7 节保留历史快照，其 running/partial/pending 不再表示本轮仍缺实现。
 
+> 0.5.218 现场同步回归的后续修正见第 7.9 节：嵌套 attempt 哈希查询必须使用精确 scope 的递归扫描；本轮目标版本 0.5.219，配套仍为 0.2.48。
+
 **补充结论：目前不能确认长期灰屏已经解决。审查时 0.5.215 的通信和渲染 ACK 正常，但 ACK 不能证明最终画面已经正确显示。**
 
 ## 1. 审查结论与范围
@@ -609,3 +611,11 @@ SFTP既有extension.js修改已按diff审阅并合入相关能力/哈希/批次�
 - 批次 1/6：FileTransferClient 自动重试遇到远端上传身份未知时立即停止，不在未取得远端 settle 回执时重复 init/chunk；公开 retry 只允许已结算失败/取消任务；上传完成及幂等完成回执必须携带与源文件匹配的 SHA256 和 completed 状态；扩展停用时对所有未结算上传并行发送 upload-cancel settle 核验，并在有界窗口内等待本地与远端收尾。
 - 批次 2/4：跨窗口资源锁的 admission 与资源冲突等待从每 10ms 全量重读/争锁改为 20–250ms 指数退避、轻量 jitter 和 AbortSignal 即时唤醒，降低争用时磁盘扫描/原子写入频率且保留 30 秒冲突边界与 ticket 顺序。
 - 批次 4/5B/7：TensorBoard Scalar Dashboard 的 catalog/tag/series 读取带 AbortController；换 case、失去可见性、切至原生 TensorBoard 页或关闭 dashboard 时取消不再需要的读取。Local API 将请求断开/响应关闭转成 generation-local AbortSignal，传播到排队的 RequestBudget、每 Worker Agent fetch 和限额响应读取；取消不再伪装成 Worker 故障或进入重试退避。自动曲线刷新从 500ms 周期检查改为按配置间隔的一次性调度，插件健康轮询在文档隐藏时暂停。
+
+### 7.9 2026-10-05 产物同步目录深度与校验批次回归
+
+用户截图中的 108 个 job 校验失败已在真实只读 API 和遵循 SFTP 目录深度语义的 fixture 中复现。`distributedOutputHashes()` 原来从项目根使用 `recursive=false` 查询嵌套文件，精确 scope 并不会改变非递归扫描的深度，导致实际存在的结果被判定为丢失。修复使用 `recursive=true` 加精确文件 scope，最多 128 路径 / 10 KiB UTF-8 参数，不扫描无关历史。
+
+同一次产物同步按 Worker 合并预校验，同时最多两路读取；传输后重新校验目标，缓存不跨请求保留。108 job / 324 片段的 fixture 实际产生 12 次有界清单查询，含传输后的验证。缺失、SHA256 冲突和 SSH/API 错误分别保存具体原因，仍禁止不可信发布或混用其他 run。
+
+真实 corim 完整 run 的六个 job、18 个必要片段，两个 Worker 均 18/18 与 durable queue 原有哈希一致；此前清空的 Worker 18/18 缺失。三批只读查询分别 748/614/591 ms，未执行实际镜像修复或完整发布，未声称按钮耗时已实测改善。14 个目标文件、166 用例串行通过，build、实际内联脚本和独立 vm.Script 门禁通过。具体 TODO、版本交付和现场边界见 [同步校验回归记录](todo-artifact-sync-verification.md)。

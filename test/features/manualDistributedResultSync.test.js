@@ -16,7 +16,7 @@ function methods(start, end) {
   return source.slice(first, last).replace(/}\s+async /g, "}, async ");
 }
 
-function fixture({ emptyOriginal = false, cold = false, allMissing = false, retry = false } = {}) {
+function fixture({ emptyOriginal = false, cold = false, allMissing = false, retry = false, respectDepth = false } = {}) {
   const outputDir = "work_dirs/ebmc/job/attempts/run-b";
   const files = Object.fromEntries([...required, "stdout.log"].map(name => [`${outputDir}/${name}`, { sha256: hash }]));
   let state = { schemaVersion: 1, plans: ["run-a", "run-b"].map((id, index) => ({
@@ -29,8 +29,9 @@ function fixture({ emptyOriginal = false, cold = false, allMissing = false, retr
     }],
   })) };
   const inventory = { w1: emptyOriginal || allMissing ? {} : { ...files }, w2: {}, w3: allMissing ? {} : { ...files } };
-  const transfers = [], errors = [], events = [];
+  const transfers = [], errors = [], events = [], inventoryCalls = [];
   const sandbox = {
+    Buffer,
     SafeRequestRetry_1: require("../../dist/core/SafeRequestRetry.js"),
     PlanOutputRetention: retention, PlanRunFreshness: require("../../dist/results/PlanRunFreshness.js"),
     workspaceRoot: () => root, errorMessage: value => value.message,
@@ -57,9 +58,12 @@ function fixture({ emptyOriginal = false, cold = false, allMissing = false, retr
       events.push("probe");
       this.lastWorkerProbes = { w1: { status: "ok" }, w2: { status: "ok" }, w3: { status: "ok" } };
     },
-    async verifiedSftpProjectInventory({ source: server, relativePath, scopePaths }) {
-      return { files: Object.fromEntries(Object.entries(inventory[server.id]).filter(([name]) => scopePaths
-        ? scopePaths.includes(name) : name === relativePath || name.startsWith(relativePath + "/"))) };
+    async verifiedSftpProjectInventory({ source: server, relativePath, scopePaths, recursive }) {
+      inventoryCalls.push({ workerId: server.id, relativePath, scopePaths, recursive });
+      return { files: Object.fromEntries(Object.entries(inventory[server.id]).filter(([name]) => {
+        if (respectDepth && relativePath === "." && recursive === false && name.includes("/")) return false;
+        return scopePaths ? scopePaths.includes(name) : name === relativePath || name.startsWith(relativePath + "/");
+      })) };
     },
     async simpleSftpApiCall(method, payload) {
       assert.equal(method, "sync.serverToServerFpsync");
@@ -86,8 +90,83 @@ function fixture({ emptyOriginal = false, cold = false, allMissing = false, retr
     },
     recordActionError(value) { errors.push(value); }, postState() {},
   };
-  return { host, inventory, files, transfers, errors, events, get state() { return state; } };
+  return { host, inventory, files, transfers, errors, events, inventoryCalls, get state() { return state; } };
 }
+
+test("scoped nested artifact hashes respect the real SFTP directory depth contract", async () => {
+  const f = fixture({ respectDepth: true });
+  await f.host.postprocessDistributedResultsForManual(root, "full");
+  assert.deepEqual(f.errors, []);
+  assert.ok(f.events.includes("formal"));
+  assert.ok(f.inventoryCalls.filter(call => call.scopePaths).every(call => call.recursive === true));
+});
+
+test("108 completed jobs batch verification by Worker and recheck copied destinations", async (t) => {
+  const f = fixture({ respectDepth: true });
+  const model = f.state.plans[1];
+  f.state.plans.length = 0;
+  for (let index = 0; index < 108; index++) {
+    const plan = JSON.parse(JSON.stringify(model));
+    plan.id = `run-${index}`;
+    plan.planFile = `experiments/plans/model-${index}.yaml`;
+    const job = plan.jobs[0];
+    job.outputDir = `work_dirs/model-${index}/job/attempts/${plan.id}`;
+    job.commandId = `command-${index}`;
+    job.artifacts = Object.fromEntries(required.map(name => [`${job.outputDir}/${name}`, hash]));
+    for (const id of ["w1", "w3"]) for (const file of Object.keys(job.artifacts)) f.inventory[id][file] = { sha256: hash };
+    f.state.plans.push(plan);
+  }
+  await f.host.syncDistributedJobArtifacts(root, await f.host.loadDistributedQueue(), "fragments", true);
+  assert.deepEqual(f.errors, []);
+  assert.equal(f.transfers.length, 1);
+  assert.equal(f.transfers[0].paths.length, 324);
+  assert.ok(f.inventoryCalls.length < 40, `must avoid 324 sequential SSH queries: ${f.inventoryCalls.length}`);
+  assert.ok(f.inventoryCalls.every(call => call.recursive === true && call.scopePaths.length <= 128
+    && Buffer.byteLength(JSON.stringify(call.scopePaths), "utf8") <= 10240));
+  assert.ok(f.inventoryCalls.filter(call => call.workerId === "w2").length > f.inventoryCalls.filter(call => call.workerId === "w1").length,
+    "destination must be queried again after transfer");
+  t.diagnostic(`108 jobs / 324 fragment files: ${f.inventoryCalls.length} bounded inventory calls, including post-transfer verification`);
+});
+
+test("source verification errors retain the cause rather than reporting every replica as missing", async () => {
+  const f = fixture();
+  f.host.verifiedSftpProjectInventory = async () => { throw new Error("SSH_AUTH_FAILED: permission denied"); };
+  await assert.rejects(f.host.syncDistributedJobArtifacts(root, await f.host.loadDistributedQueue(), "fragments", true), /SSH_AUTH_FAILED/);
+  assert.equal(f.transfers.length, 0);
+});
+
+test("verification batches are bounded by UTF-8 bytes and deduplicate exact paths", async () => {
+  const f = fixture();
+  const paths = Array.from({ length: 180 }, (_, index) => `work_dirs/${"数据".repeat(70)}/${index}/attempts/run-b/result.csv`);
+  for (const file of paths) f.inventory.w1[file] = { sha256: hash };
+  const hashes = await f.host.distributedOutputHashes({ id: "w1" }, [...paths, ...paths]);
+  assert.equal(Object.keys(hashes).length, paths.length);
+  assert.ok(paths.every(file => hashes[file] === hash));
+  assert.ok(f.inventoryCalls.length > 1);
+  assert.equal(f.inventoryCalls.flatMap(call => call.scopePaths).length, paths.length);
+  assert.ok(f.inventoryCalls.every(call => call.scopePaths.length <= 128
+    && Buffer.byteLength(JSON.stringify(call.scopePaths), "utf8") <= 10240));
+});
+
+test("preflight hashes expire at the request boundary and changed copies fail visibly", async () => {
+  const f = fixture({ respectDepth: true });
+  await f.host.syncDistributedJobArtifacts(root, await f.host.loadDistributedQueue(), "fragments", true);
+  for (const id of ["w1", "w2", "w3"]) for (const file of Object.keys(f.inventory[id])) f.inventory[id][file].sha256 = "b".repeat(64);
+  const before = f.inventoryCalls.length;
+  await assert.rejects(f.host.syncDistributedJobArtifacts(root, await f.host.loadDistributedQueue(), "fragments", true), /SHA256 不一致/);
+  assert.ok(f.inventoryCalls.length > before);
+});
+
+test("post-transfer verification does not reuse a preflight snapshot", async () => {
+  const f = fixture({ respectDepth: true });
+  const transfer = f.host.simpleSftpApiCall.bind(f.host);
+  f.host.simpleSftpApiCall = async (method, payload) => {
+    await transfer(method, payload);
+    for (const file of payload.relativePaths) f.inventory[payload.destination.id][file].sha256 = "b".repeat(64);
+  };
+  await assert.rejects(f.host.postprocessDistributedResultsForManual(root, "full"), /内容校验失败/);
+  assert.equal(f.events.includes("formal"), false);
+});
 
 test("one cold manual click repairs deleted mirrors and result fragments before formal publication", async () => {
   const f = fixture({ cold: true, retry: true });
