@@ -1,7 +1,6 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
-const { npmCommand } = require("./npm-command");
 const { collectLocalRuntimeClosure } = require("./runtime-closure");
 
 const root = path.resolve(__dirname, "..");
@@ -11,13 +10,16 @@ if (compiledRuntimeVersion !== packageJson.version) {
   process.stderr.write(`Compiled runtime version ${compiledRuntimeVersion} differs from package ${packageJson.version}.\n`);
   process.exit(1);
 }
-const npm = npmCommand(["exec", "--", "@vscode/vsce", "ls", "--no-dependencies"]);
-const result = spawnSync(npm.command, npm.args, {
+// Use the lockfile-pinned local tool. Validation must never fetch packages or wait for npm consent.
+const vsceCli = require.resolve("@vscode/vsce/vsce");
+const result = spawnSync(process.execPath, [vsceCli, "ls", "--no-dependencies"], {
   cwd: root,
   encoding: "utf8",
+  timeout: 8000,
+  windowsHide: true,
 });
 if (result.status !== 0) {
-  process.stderr.write(result.stderr || result.stdout || "vsce ls failed\n");
+  process.stderr.write(result.stderr || result.stdout || `${result.error?.message || "vsce ls failed"}\n`);
   process.exit(result.status || 1);
 }
 

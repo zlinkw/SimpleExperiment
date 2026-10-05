@@ -1,18 +1,18 @@
 """Synthetic TensorBoard records; no training project or filesystem writes."""
 
-import importlib.util
 import io
 import math
 import pathlib
 import struct
+import sys
 from types import SimpleNamespace
 from unittest.mock import patch
 
 
 SOURCE = pathlib.Path(__file__).resolve().parents[1] / "dist/runtime/cluster_agent.py"
-spec = importlib.util.spec_from_file_location("scalar_agent_fixture", SOURCE)
-agent = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(agent)
+sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent / "_helpers"))
+from extractRuntimeFunctions import extract_runtime_functions
+agent = extract_runtime_functions(str(SOURCE), ["scalar_event", "scalar_file_points", "scalar_masked_crc", "scalar_query", "SCALAR_FILE_CACHE"])
 
 
 def varint(number):

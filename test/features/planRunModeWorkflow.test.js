@@ -1,6 +1,4 @@
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const os = require("node:os");
 const path = require("node:path");
 const test = require("node:test");
 const { spawnSync } = require("node:child_process");
@@ -9,8 +7,6 @@ const PlanArchive = require("../../dist/features/PlanArchive.js");
 const { readSource } = require("../_helpers/sourceReader");
 
 const root = path.join(__dirname, "../..");
-const schedulerRuntime = path.join(root, "dist/runtime/cluster_scheduler.py");
-const agentRuntime = path.join(root, "dist/runtime/cluster_agent.py");
 const schedulerSource = readSource("src/clusterSchedulerRuntime.ts");
 const agentSource = readSource("src/clusterAgentRuntime.ts");
 const extensionSource = readSource("src/extension.ts");
@@ -95,97 +91,26 @@ test("mode-specific local config references ignore an unused command", () => {
   assert.deepEqual(PlanArchive.planStaticConfigReferences(yaml), ["configs/base.yaml", "configs/train.yaml", "configs/test.yaml"]);
 });
 
-test("Hub output gate and Worker retry derive the same Plan mode", () => {
-  const project = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-agent-mode-"));
-  fs.mkdirSync(path.join(project, "experiments", "plans"), { recursive: true });
-  const relative = "experiments/plans/train.yaml";
-  fs.writeFileSync(path.join(project, ...relative.split("/")), [
-    "suite: smoke",
-    "mode: train",
-    "base_config: configs/base.yaml",
-    "seeds: [0]",
-    "runner:",
-    "  train_command: python train.py",
-    "  test_command: python stale_eval.py --result-csv work_dirs/metrics_summary.csv",
-    "cases:",
-    "  - case: baseline",
-  ].join("\n"), "utf8");
-  const py = [
-    "import json, sys",
-    `sys.path.insert(0, r'${path.dirname(agentRuntime).replace(/\\/g, "/")}')`,
-    "import cluster_agent as agent",
-    `root = r'${project.replace(/\\/g, "/")}'`,
-    `plan = '${relative}'`,
-    "print(json.dumps({'mode': agent.worker_command_plan_mode(root, plan), 'gate': agent.plan_output_capture_evidence(root, plan)}))",
-  ].join("; ");
-  const proc = spawnSync("python", ["-c", py], { encoding: "utf8" });
+function isolatedModeFixture(kind) {
+  const proc = spawnSync("python", ["-B", "-X", "utf8", path.join(__dirname, "planRunModeWorkflow.fixture.py"), kind], { cwd: root, encoding: "utf8", timeout: 10000, windowsHide: true });
   assert.equal(proc.status, 0, proc.stderr || proc.stdout);
-  const payload = JSON.parse(proc.stdout.trim().split(/\r?\n/).at(-1));
+  return JSON.parse(proc.stdout.trim());
+}
+
+test("Hub output gate and Worker retry derive the same Plan mode", () => {
+  const payload = isolatedModeFixture("agent");
   assert.equal(payload.mode, "train");
   assert.equal(payload.gate.ok, false, JSON.stringify(payload.gate));
   assert.equal(payload.gate.expectedResults.includes("work_dirs/metrics_summary.csv"), false);
 });
 
 test("scheduler derives train-only and test-only execution from Plan", () => {
-  const project = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-plan-mode-"));
-  fs.mkdirSync(path.join(project, "configs"), { recursive: true });
-  fs.mkdirSync(path.join(project, "experiments", "simple_adapter"), { recursive: true });
-  fs.mkdirSync(path.join(project, "experiments", "plans"), { recursive: true });
-  fs.writeFileSync(path.join(project, "configs", "base.yaml"), "{}\n", "utf8");
-  fs.writeFileSync(path.join(project, "experiments", "simple_project.yaml"), [
-    "adapter:",
-    "  runWrapper: experiments/simple_adapter/run_wrapper.py",
-  ].join("\n"), "utf8");
-  fs.writeFileSync(path.join(project, "experiments", "simple_adapter", "run_wrapper.py"), [
-    "import argparse",
-    "import json",
-    "import subprocess",
-    "import sys",
-    "from pathlib import Path",
-    "",
-    "parser = argparse.ArgumentParser()",
-    "parser.add_argument('--output-dir', required=True)",
-    "parser.add_argument('--context-json', default='{}')",
-    "parser.add_argument('command', nargs=argparse.REMAINDER)",
-    "args = parser.parse_args()",
-    "command = args.command[1:] if args.command[:1] == ['--'] else args.command",
-    "output = Path(args.output_dir)",
-    "output.mkdir(parents=True, exist_ok=True)",
-    "if command and command[0].lower().endswith('python.exe') and not Path(command[0]).exists(): command[0] = sys.executable",
-    "result = subprocess.run(command)",
-    "(output / 'stdout.log').write_text('', encoding='utf-8')",
-    "(output / 'config_snapshot.yaml').write_text('seed: 0\\n', encoding='utf-8')",
-    "(output / 'env_snapshot.json').write_text('{}\\n', encoding='utf-8')",
-    "raise SystemExit(result.returncode)",
-  ].join("\n"), "utf8");
-  fs.writeFileSync(path.join(project, "train_stage.py"), "from pathlib import Path\nPath('train.marker').write_text('train', encoding='utf-8')\n", "utf8");
-  fs.writeFileSync(path.join(project, "test_stage.py"), "from pathlib import Path\nPath('test.marker').write_text('test', encoding='utf-8')\n", "utf8");
-  const trainPlan = path.join(project, "experiments", "plans", "train.yaml");
-  const testPlan = path.join(project, "experiments", "plans", "test.yaml");
-  fs.writeFileSync(trainPlan, planText("train", ["train_command: python train_stage.py"]), "utf8");
-  fs.writeFileSync(testPlan, planText("test", ["test_command: python test_stage.py"]), "utf8");
-
-  const validateTrain = spawnSync("python", [schedulerRuntime, "--validate-plan", "--plan", trainPlan], { cwd: project, encoding: "utf8" });
-  assert.equal(validateTrain.status, 0, validateTrain.stderr || validateTrain.stdout);
-  assert.equal(JSON.parse(validateTrain.stdout).execution_mode, "train");
-  const runTrain = spawnSync("python", [schedulerRuntime, "--run-job", "--plan", trainPlan, "--only-index", "0"], { cwd: project, encoding: "utf8" });
-  assert.equal(runTrain.status, 0, `${runTrain.stdout}\n${runTrain.stderr}`);
-  assert.equal(fs.existsSync(path.join(project, "train.marker")), true);
-  assert.equal(fs.existsSync(path.join(project, "test.marker")), false);
-
-  fs.rmSync(path.join(project, "train.marker"));
-  const validateTest = spawnSync("python", [schedulerRuntime, "--validate-plan", "--plan", testPlan], { cwd: project, encoding: "utf8" });
-  assert.equal(validateTest.status, 0, validateTest.stderr || validateTest.stdout);
-  assert.equal(JSON.parse(validateTest.stdout).execution_mode, "test");
-  const workersFile = path.join(project, "workers.json");
-  fs.writeFileSync(workersFile, "[]\n", "utf8");
-  const dryRunTest = spawnSync("python", [schedulerRuntime, "--dry-run-plan", "--plan", testPlan, "--workers-json", workersFile], { cwd: project, encoding: "utf8" });
-  assert.equal(dryRunTest.status, 0, dryRunTest.stderr || dryRunTest.stdout);
-  const dryRunPayload = JSON.parse(dryRunTest.stdout);
-  assert.equal(dryRunPayload.executionMode, "test");
-  assert.deepEqual(dryRunPayload.runnerWarnings, []);
-  const runTest = spawnSync("python", [schedulerRuntime, "--run-job", "--plan", testPlan, "--only-index", "0"], { cwd: project, encoding: "utf8" });
-  assert.equal(runTest.status, 0, runTest.stderr || runTest.stdout);
-  assert.equal(fs.existsSync(path.join(project, "train.marker")), false);
-  assert.equal(fs.existsSync(path.join(project, "test.marker")), true);
+  const result = isolatedModeFixture("scheduler");
+  for (const mode of ["train", "test", "train_test"]) {
+    assert.equal(result[mode].validation.execution_mode, mode);
+    assert.equal(result[mode].preview.executionMode, mode);
+    assert.deepEqual(result[mode].preview.runnerWarnings, []);
+    assert.deepEqual(result[mode].commands, mode === "train_test" ? ["train", "test"] : [mode]);
+    assert.deepEqual(result[mode].verified, [true], "output verification must run after the selected stages");
+  }
 });

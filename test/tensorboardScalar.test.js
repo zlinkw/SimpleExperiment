@@ -125,7 +125,7 @@ test("hover details show one compact comparison row per case without an inner ve
 
 test("old and tensor scalar records, incomplete tail, overwrite and CRC", () => {
   const script = path.join(__dirname, "tensorboard_scalar_agent.py");
-  const result = spawnSync("python", ["-X", "utf8", script], { encoding: "utf8" });
+  const result = spawnSync("python", ["-B", "-X", "utf8", script], { encoding: "utf8", timeout: 10000, windowsHide: true });
   assert.equal(result.status, 0, result.stderr || result.stdout);
 });
 

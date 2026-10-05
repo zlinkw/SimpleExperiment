@@ -52,3 +52,14 @@ test("all distributed file and prefix fields reject Windows absolute paths and a
     }
   }
 });
+
+test("a generic command Plan needs named work and declared artifacts without research metadata or metrics", () => {
+  const { validateDeepLearningPlanContract } = require("../../dist/features/PlanBuilder");
+  const yaml = ["runner:", "  command: python tools/process.py", "  cwd: .", "  inputs: [data/input.json]", "  outputs: [artifacts/report.bin]", "cases:", "  - name: process", ""].join("\n");
+  const result = validateDeepLearningPlanContract(yaml);
+  assert.equal(result.ok, true, JSON.stringify(result.issues));
+  assert.equal(result.summary.mode, "train", "one-stage command does not require a second test command");
+  assert.equal(result.summary.hasGenericRunnerContract, true);
+  assert.deepEqual(result.summary.declaredOutputs, ["artifacts/report.bin"]);
+  assert.equal(validateDeepLearningPlanContract(yaml.replace("  outputs: [artifacts/report.bin]\n", "")).ok, false);
+});

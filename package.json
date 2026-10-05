@@ -821,7 +821,7 @@
     "test:port-allocation": "npm run build && node --test test/tunnel/tunnelPortAllocator.test.js test/tunnel/tunnelPortConflict.test.js",
     "test:hub-worker-boundary": "npm run build && node --test test/tunnel/workerTelemetryApiContract.test.js test/tunnel/hubControlApiContract.test.js test/tunnel/workerTelemetryNoFileActionRequired.test.js test/tunnel/authorityMergeWorkerGpuPreferred.test.js test/tunnel/authorityMergeHubSchedulerAuthoritative.test.js test/tunnel/workerTaskTelemetryEnrichment.test.js",
     "test:tunnel-migration": "npm run build && node --test test/migration/remainingRemoteFeatureAudit.test.js test/tunnel/capabilityDrivenUi.test.js test/tunnel/tunnelOnlyOperationQueue.test.js test/tunnel/noDirectRemoteActions.test.js test/tunnel/replaceGpuSchedulerLiveOutput.test.js test/tunnel/replaceRunPlanStopRetry.test.js test/tunnel/replaceArchiveSyncDelete.test.js test/tunnel/replaceRuntimeDiagnostics.test.js test/tunnel/replaceResultsAnalysis.test.js test/tunnel/legacyConfigMigration.test.js test/tunnel/noForbiddenSourceTerms.test.js",
-    "package": "npm run build && npm run compact:plan && npm run verify:package-runtime && npm exec -- @vscode/vsce package --no-dependencies --allow-missing-repository",
+    "package": "npm run build && npm run compact:plan && npm run verify:package-runtime && vsce package --no-dependencies --allow-missing-repository",
     "verify:package-runtime": "node scripts/verify-vsix-runtime.js",
     "install:latest": "node scripts/install-latest.js",
     "install:latest:dry-run": "node scripts/install-latest.js --dry-run",
@@ -836,6 +836,7 @@
   "devDependencies": {
     "@types/node": "^22.0.0",
     "@types/vscode": "^1.100.0",
+    "@vscode/vsce": "4.0.0",
     "typescript": "^5.8.3"
   },
   "dependencies": {

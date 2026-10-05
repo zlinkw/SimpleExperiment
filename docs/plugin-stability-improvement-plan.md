@@ -3,7 +3,7 @@
 > 保存日期：2026-10-03（Asia/Shanghai）。
 > 本文为用户确认的完整合并版：全插件源码对照计划 + 长期灰屏专项 + Luna 执行交接。
 > 文档最初仅保存计划；2026-10-03 用户授权开始执行。本轮继续推进代码实现。
-> 执行状态：批次 1–8 的计划内源码实现已落地并完成静态回检，尚未完成统一回归验收。批次 0 此前出现的测试超时在本轮按用户最新要求重新检查后不再复现，`planStopClear.test.js` 现为 33/33；已修复测试切片和 mock 与当前实现脱节的问题，并补上底层请求取消原因传播。`tunnelClient.test.js` 5/5、build、内联脚本健康检查及 `vm.Script` 通过。SimpleSFTP 版本组合、现场验收和 8 小时 soak 仍待后续，不得据此宣称全部运行风险已经排除。
+> 当前执行状态（2026-10-05）：本仓核心机制已落地，本轮按原计划复核并修复事务槽、配置频率、传输限额、诊断写入积压、长读取身份和打包依赖问题。55 个目标测试文件共 390 条用例串行通过；打包交付正在收口，最新证据与未完成项以第 7.7 节为准。SimpleSFTP 压缩收益采样仍缺实现；版本组合、现场和长时验收未完成，不能标记整个计划通过。第 7.2/7.6 节保留此前批次的历史事实。
 
 **补充结论：目前不能确认长期灰屏已经解决。审查时 0.5.215 的通信和渲染 ACK 正常，但 ACK 不能证明最终画面已经正确显示。**
 
@@ -428,7 +428,7 @@ bootstrap 独占 `acquireVsCodeApi()`，通过明确接口供主程序使用；�
 5. 构建版本、已安装版本、Extension Host 运行版本和 Agent/SFTP 能力分别核对。审查时安装的 SimpleSFTP 为 0.2.46；未来不能把此值当作强制版本或兼容依据。
 6. 单独的 SimpleSFTP 工作区在审查时为 `D:\GitRepo\MCP\simple-sftp`。涉及取消回执、压缩、暂存发布时，先读取其自身规则和 Git 状态，再限定修改协议所需范围。它是独立仓库，不能在 SimpleExperiment 中伪造它未提供的能力。
 
-### 7.2 当前未完成修改与真实阻塞
+### 7.2 2026-10-04 未完成修改与阻塞快照
 
 开始实施后，工作树包含安全重试新增模块：
 
@@ -540,11 +540,16 @@ bootstrap 独占 `acquireVsCodeApi()`，通过明确接口供主程序使用；�
 |---|---|---|
 | 事务与临时文件 | passed | publication 不再自动 unlink/rmdir；保留 committed/rolled-back journal，固定槽复用；备份按已验证独占文件描述符流式写入，拒绝硬链接。publication 9/9、resultTables 18/18，包括 20 次重复发布、准备失败、旧 journal 恢复和全量回滚 |
 | 调度与请求负载 | passed | `23c0b4b7` 修复固定 500ms availability push 与失效配置：按配置上报、最小5秒；恢复 poll/TTL/push 的文档边界并同步 Host/UI/manifest。schedulerContract 2/2、configBounds 6/6、extensionStatePost 5/5、schedulerAvailability 12/12、queueCacheStability 7/7；distributed queue 的 500ms tick 保留；requestBudget 11/11 验证每 Worker 控制4/传输1、全局控制8/传输2及独立紧急容量；SSEBackpressure 3/3 |
-| 传输与兼容 | passed | `4afca2c8` 修复范围同步仅限制文件数而未限制字节的问题：归档最多128MiB，未知/超大文件独立批次；复用 bounded JSON/SSE decoder，异常流释放 reader，取消请求附 operationInstanceId。sftpProgressWait 4/4、safeRequestRetry 9/9、syncScopeTransferBatch 7/7、boundedResponse 5/5、planSafeRetry 9/9、cancelRetry 2/2；当前配套 SimpleSFTP 0.2.46 的 auto 仅按 zstd 工具可用性选择，压缩收益采样尚未实现，作为配套后续项，不虚报本仓已完成 |
-| Panel、通知、生命周期 | running | 修复诊断持久化串行 Promise 链积累历史快照：只保留1个在写与1个最新待写，故障仅记录 bounded persistence error；共享读取长身份改用完整 SHA256，避免截断错误合并。sharedReadCoalescer 5/5 含1000次快照积压与实际 Host 写入回归；Panel 核心7文件全部通过（9/5/2/12/10/13/11）；继续核对消息隔离、启动保护、通知与附属窗口 |
-| 更新与通用接入 | passed | `ce5cc874` 补齐计划要求的显式 SemVer 依赖：固定 npm semver 7.7.3，仅打包 compare/valid 的9个模块闭包（20,274字节）及许可证；build identity 和 VSIX runtime 门禁覆盖该闭包。修复分布式契约允许 Windows 绝对路径/ADS 的漏洞。extensionUpdates 7/7、distributedProjectContract 5/5、publicReleaseBundle 4/4、pluginHandoffContract 3/3、multiFormatOutput 1/1、两组 factories 8/8 与14/14；保留 MultiModal 默认预设，CSV/JSON 项目可配置无 checkpoint/四态要求 |
-| 回归与交付 | pending | 分文件串行目标测试、build、vm.Script、打包；更新实际证据后限定文件提交并普通推送 |
-| 现场与长时门槛 | deferred | 两个已知挂起测试、SimpleSFTP 版本组合、MultiModal 同步及灰屏现场、跨窗口崩溃恢复、8 小时 soak 与 100 次布局切换仍保留，未实测不宣称解决 |
+| 传输与兼容 | partial | `4afca2c8` 修复范围同步仅限制文件数而未限制字节的问题：归档最多128MiB，未知/超大文件独立批次；复用 bounded JSON/SSE decoder，异常流释放 reader，取消请求附 operationInstanceId。sftpProgressWait 4/4、safeRequestRetry 9/9、syncScopeTransferBatch 7/7、boundedResponse 5/5、planSafeRetry 9/9、cancelRetry 2/2；当前配套 SimpleSFTP 0.2.46 的 auto 仅按 zstd 工具可用性选择，压缩收益采样尚未实现。未改配套仓库，不把该项标记为完成 |
+| Panel、通知、生命周期 | local-tests-passed | `af43264a` 修复诊断持久化串行 Promise 链积累历史快照：只保留1个在写与1个最新待写，故障仅记录 bounded persistence error；共享读取长身份改用完整 SHA256，避免截断错误合并。sharedReadCoalescer 5/5 含1000次快照积压与实际 Host 写入回归；Panel 核心7文件全部通过（9/5/2/12/10/13/11）；messageDispatch 8/8、staleHandshake 1/1、bootstrapRecovery 7/7、planSelector 11/11、catalogCache 1/1、apiCancellation 1/1、actionLifecycle 9/9、safeRetryFeedback 2/2、navigation 1/1、workspaceIsolation 19/19、agentScope 4/4；保持 ACK/背压/projection 与局部 DOM patch |
+| 更新与通用接入 | local-tests-passed | `ce5cc874` 补齐显式 SemVer 依赖：固定 npm semver 7.7.3，仅打包 compare/valid 的9个模块闭包（20,274字节）及许可证；修复 Windows 绝对路径/ADS 契约漏洞。extensionUpdates 7/7、distributedProjectContract 6/6、publicReleaseBundle 4/4、pluginHandoffContract 3/3、multiFormatOutput 1/1、两组 factories 8/8 与14/14。通用 runner 测试证明只需命令/cwd/inputs/outputs/命名任务，无 suite/base_config/seeds/指标或第二阶段要求 |
+| 结果、锁与恢复 | local-tests-passed | pendingResultMetricSync 26/26、projectResultSyncCompleteness 16/16、runCompletionRefresh 1/1、distributedRerun 8/8、outputRetention 15/15、跨插件 leaseCompatibility 1/1、hostLease 10/10、manifestStaging 4/4、tunnelClient 5/5、realtimeReconnect 4/4；最新 run 权威、旧 raw 追溯和严格 active guard 继续保留 |
+| 测试隔离与可重现打包 | local-tests-passed | memoryBudget 1/1、TensorBoard scalar 9/9、planRunModeWorkflow 5/5 改为函数切片和静态 fixture；不 import/启动完整 Agent/Scheduler、不创建实验或临时项目；Python 子进程限10秒且 windowsHide。VSIX 门禁首次因隐式 npm exec 联网等待在10秒失败；固定本地开发依赖 VSCE 4.0.0、直接 Node 调用且8秒限时后，新实现2/2通过；未延长测试阈值 |
+| 回归与交付 | running | 55 个目标测试文件390条均通过。待完成本批 build/vm.Script、0.5.217 的 package、安装核对及 scoped commit/push；内联脚本健康测试另随 build 执行，不重复计入目标测试数 |
+| 配套剩余实现 | pending | SimpleSFTP 需要按有限样本压缩收益、CPU时间、链路吞吐选择压缩；现有工具能力协商不能证明该要求完成。后续在配套仓独立批次补实现与测试，不更改本仓的传输状态机或引入未经验证的协议参数 |
+| 现场与长时门槛 | deferred | `test/core/operationQueue.test.js`、`test/cli/simpleCli.test.js` 两个已知挂起进程不原样重跑；SimpleSFTP 旧/新版本组合、MultiModal 最新产物与 payload/吞吐实测、灰屏现场、跨窗口崩溃恢复、8小时 soak 与100次布局切换仍保留，未实测不宣称解决 |
+
+本轮目标测试按项目约束逐文件执行 `node --test --test-force-exit --test-timeout 20000 <file>`，没有并行测试进程。55 文件是相关目标回归，不是全仓测试总数；上述压缩实现缺口和现场门槛仍是计划未完成项。历史文件和两个用户允许再生成的 `.pyc` 不纳入提交。
 - 批次 7/5A：Panel 将 navigate 消息作为一次性事件消费并立即清空待处理引用；导航不再受同一 batch 中旧 state 序号的 early-return 阻断，后续任意状态 batch 也不会重复播放旧的 userInitiated 导航，修复步骤完成后仍偶发自动跳转的问题。
 - 批次 7：硬配置/认证失败提示改为修复配置后重新检测隧道，瞬态断线仍按连接策略自动退避恢复；manual_only 的显式手动恢复提示保留。
 - 2026-10-04 回检：`planStopClear.test.js` 33/33、`tunnelClient.test.js` 5/5；`npm run build` 成功（含 TypeScript、产物语法门禁和 `panelWebviewScriptHealth.test.js` 1/1）；独立 Webview `vm.Script`、`git diff --check` 通过。两个既有 dirty `.pyc` SHA256 与文档中的保护基线一致。尚未执行 package、安装、远端版本兼容或人工现场/长时间运行验收；批次 1–8 保持 running，批次 9 pending。
