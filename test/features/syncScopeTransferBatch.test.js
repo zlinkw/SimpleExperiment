@@ -55,6 +55,18 @@ test("worker file batches stop at the fpsync path cap", () => {
   assert.deepEqual(plan.directoryDeletes, ["artifacts"]);
 });
 
+test("scope batches also cap uncompressed bytes and isolate unknown or oversized files", () => {
+  const limit = 128 * 1024 * 1024;
+  const sizes = [60 * 1024 * 1024, 60 * 1024 * 1024, 30 * 1024 * 1024, limit + 1, undefined, 10];
+  const files = Object.fromEntries(sizes.map((size, i) => [`artifacts/${i}.bin`, { sha256: digest(String(i)), ...(size === undefined ? {} : { size }) }]));
+  const plan = planSyncScopeTransferGroups([{ path: "artifacts", name: "artifacts", directory: true }], files);
+  assert.deepEqual(plan.groups.map(group => group.files), [
+    ["artifacts/0.bin", "artifacts/1.bin"], ["artifacts/2.bin"], ["artifacts/3.bin"], ["artifacts/4.bin"], ["artifacts/5.bin"],
+  ]);
+  assert.equal(plan.groups.every(group => group.files.length === 1 || group.files.reduce((sum, file) => sum + files[file].size, 0) <= limit), true);
+  assert.equal(plan.groups.every(group => group.batchCount === 5), true);
+});
+
 test("inventory scope stays on the confirmed deep file until the argument budget requires a common parent", () => {
   assert.deepEqual(compressSyncScopeInventoryPaths(["work_dirs/one/file.txt"]), ["work_dirs/one/file.txt"]);
   assert.deepEqual(

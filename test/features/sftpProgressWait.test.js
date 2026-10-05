@@ -41,3 +41,36 @@ test('repeated events expire; cancellation reaches known transfers and discards 
     f.finish();
   });
 });
+
+test('oversized RPC responses are bounded and their stream is cancelled', async () => {
+  const original = global.fetch;
+  let cancelled = false;
+  global.fetch = async (url) => {
+    if (String(url).includes('/events')) return new Response(null, { status: 204 });
+    return new Response(new ReadableStream({ cancel() { cancelled = true; } }), {
+      headers: { 'content-length': String(33 * 1024 * 1024) },
+    });
+  };
+  try {
+    await assert.rejects(callSftpWithProgress('upload.files', {}, async () => ({ endpoint: new URL('http://127.0.0.1:1'), headers: {} })), /byte limit/);
+    await new Promise(setImmediate);
+    assert.equal(cancelled, true);
+  } finally { global.fetch = original; }
+});
+
+test('oversized SSE frames release their reader and do not interrupt the actual transfer', async () => {
+  const original = global.fetch;
+  let cancelled = false;
+  global.fetch = async (url) => {
+    if (String(url).includes('/events')) return new Response(new ReadableStream({
+      start(c) { c.enqueue(new Uint8Array(1024 * 1024 + 1).fill(97)); },
+      cancel() { cancelled = true; },
+    }));
+    await new Promise(setImmediate);
+    return Response.json({ result: { ok: true } });
+  };
+  try {
+    assert.deepEqual(await callSftpWithProgress('upload.files', {}, async () => ({ endpoint: new URL('http://127.0.0.1:1'), headers: {} })), { ok: true });
+    assert.equal(cancelled, true);
+  } finally { global.fetch = original; }
+});

@@ -5,7 +5,10 @@ exports.callSftpWithProgress = callSftpWithProgress;
 const node_crypto_1 = require("node:crypto");
 const ProgressInactivity_1 = require("./ProgressInactivity");
 const SafeRequestRetry_1 = require("./SafeRequestRetry");
-const MAX_SFTP_EVENT_FRAME_BYTES = 1024 * 1024;
+const BoundedResponse_1 = require("../tunnel/BoundedResponse");
+async function readSftpJson(response) {
+    return JSON.parse(await (0, BoundedResponse_1.readBoundedResponseText)(response, () => { }));
+}
 function identityOf(value) {
     if (!value || typeof value !== "object")
         return undefined;
@@ -41,12 +44,12 @@ async function confirmSftpOperationStopped(operationId, initial) {
             method: "POST", headers: { ...initial.headers, "Content-Type": "application/json" },
             body: JSON.stringify({ jsonrpc: "2.0", id: operationId, method, params }), signal: AbortSignal.timeout(10_000),
         });
-        const payload = await response.json();
+        const payload = await readSftpJson(response);
         if (!response.ok || payload.error || payload.result?.ok !== true)
             throw new Error("旧传输停止结果无法确认，未重新传输。");
         return payload.result;
     }
-    const receipt = await rpc("transfers.cancel", { operationId, reason: "用户重新执行相同请求" });
+    const receipt = await rpc("transfers.cancel", { operationId, operationInstanceId: expectedInstanceId, reason: "用户重新执行相同请求" });
     if (receipt.operationId !== operationId || receipt.operationInstanceId !== expectedInstanceId)
         throw new Error("旧传输取消回执身份不匹配。");
     if (receipt.status === "outcomeUnknown")
@@ -92,15 +95,15 @@ async function callSftpWithProgress(method, params, discover) {
     const fileOperation = /^(sync[.]|upload[.]|download[.]|remote[.])/.test(method);
     const requestAbort = new AbortController(), eventsAbort = new AbortController();
     let timer, disposed = false;
-    const knownIds = new Set();
     let forgetStopCheck = () => { };
     async function cancelRemote() {
         try {
-            await fetch(new URL("/api/v1/rpc", endpoint), {
+            const response = await fetch(new URL("/api/v1/rpc", endpoint), {
                 method: "POST", headers: { ...headers, "Content-Type": "application/json" },
                 body: JSON.stringify({ jsonrpc: "2.0", id: operationId, method: "transfers.cancel", params: { operationId, operationInstanceId: discovery.instanceId, reason: "调用方已取消或无真实进展" } }),
                 signal: AbortSignal.timeout(30_000),
             });
+            await response.body?.cancel();
         }
         catch { /* Outcome remains unknown; never replay a modifying operation. */ }
     }
@@ -116,8 +119,6 @@ async function callSftpWithProgress(method, params, discover) {
     function accept(item) {
         if (disposed || requestAbort.signal.aborted || item?.operationId !== operationId)
             return;
-        if (item.id)
-            knownIds.add(item.id);
         inactivity.update({ phase: item.phase, scope: item.progressScope || item.id, processedBytes: item.processedBytes ?? item.transferredBytes, processedFiles: item.processedFiles, status: item.status });
         if (item.status === "cancelled")
             requestAbort.abort(new Error(item.reason || "传输已取消"));
@@ -131,7 +132,7 @@ async function callSftpWithProgress(method, params, discover) {
                 body: JSON.stringify({ jsonrpc: "2.0", id: operationId, method: "transfers.list", params: {} }),
                 signal: AbortSignal.any([eventsAbort.signal, AbortSignal.timeout(30_000)]),
             });
-            const payload = await response.json();
+            const payload = await readSftpJson(response);
             if (payload.result?.instanceId !== discovery.instanceId)
                 throw new Error("SimpleSFTP 实例已变化");
             for (const item of payload.result?.transfers || [])
@@ -146,30 +147,32 @@ async function callSftpWithProgress(method, params, discover) {
     async function readEvents() {
         try {
             const response = await fetch(new URL("/api/v1/events", endpoint), { headers, signal: eventsAbort.signal });
-            if (!response.ok || !response.body)
+            if (!response.ok || !response.body) {
+                void response.body?.cancel().catch(() => undefined);
                 return;
+            }
             const reader = response.body.getReader();
-            const decoder = new TextDecoder();
-            let pending = "";
-            while (!disposed) {
-                const chunk = await reader.read();
-                if (chunk.done)
-                    break;
-                pending += decoder.decode(chunk.value, { stream: true });
-                const frames = pending.split(/\r?\n\r?\n/);
-                pending = frames.pop() || "";
-                if (frames.some(frame => Buffer.byteLength(frame, "utf8") > MAX_SFTP_EVENT_FRAME_BYTES)
-                    || Buffer.byteLength(pending, "utf8") > MAX_SFTP_EVENT_FRAME_BYTES)
-                    throw new Error("SimpleSFTP SSE event exceeded the 1 MiB frame limit.");
-                for (const frame of frames) {
-                    const data = frame.split(/\r?\n/).filter(line => line.startsWith("data: ")).map(line => line.slice(6)).join("\n");
-                    if (data) {
+            const decoder = new BoundedResponse_1.BoundedSseDecoder();
+            let finished = false;
+            try {
+                while (!disposed) {
+                    const chunk = await reader.read();
+                    for (const data of decoder.push(chunk.done ? undefined : chunk.value)) {
                         try {
                             accept(JSON.parse(data));
                         }
                         catch { }
                     }
+                    if (chunk.done) {
+                        finished = true;
+                        break;
+                    }
                 }
+            }
+            finally {
+                if (!finished)
+                    void reader.cancel().catch(() => undefined);
+                reader.releaseLock();
             }
         }
         catch { /* Keep fallback reads; no event reconnect. */ }
@@ -189,9 +192,12 @@ async function callSftpWithProgress(method, params, discover) {
             } });
         const sendOperation = async () => {
             try {
-                return await fetch(new URL("/api/v1/rpc", endpoint), {
+                const response = await fetch(new URL("/api/v1/rpc", endpoint), {
                     method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: requestBody, signal: requestAbort.signal,
                 });
+                if (!response.ok)
+                    void response.body?.cancel().catch(() => undefined);
+                return response;
             }
             catch (error) {
                 if (requestAbort.signal.aborted)
@@ -203,7 +209,7 @@ async function callSftpWithProgress(method, params, discover) {
         let response = await sendOperation();
         if (!response.ok)
             throw new Error(`SimpleSFTP ${method} 失败：HTTP ${response.status}`);
-        let payload = await response.json();
+        let payload = await readSftpJson(response);
         requestAbort.signal.throwIfAborted();
         const blocker = payload.error?.data;
         if (fileOperation && blocker?.blockedOperationId && typeof blocker.operationInstanceId === "string") {
@@ -211,7 +217,7 @@ async function callSftpWithProgress(method, params, discover) {
             response = await sendOperation();
             if (!response.ok)
                 throw new Error(`SimpleSFTP ${method} 失败：HTTP ${response.status}`);
-            payload = await response.json();
+            payload = await readSftpJson(response);
             requestAbort.signal.throwIfAborted();
         }
         if (payload.error || payload.result?.ok === false) {

@@ -64,6 +64,7 @@ test('SFTP cancellation waits for disposed transfer and operation controllers, i
   const discovery = { endpoint, headers: {}, instanceId: 'host:started', features: { transferSettlementReceipts: true } };
   global.fetch = async (_url, options) => {
     const request = JSON.parse(options.body); calls.push(request.method);
+    if (request.method === 'transfers.cancel') assert.equal(request.params.operationInstanceId, discovery.instanceId);
     return Response.json({ result: request.method === 'transfers.cancel'
       ? { ok: true, cancelled: true, operationId: 'old', operationInstanceId: discovery.instanceId, status: 'cancelling', instanceId: discovery.instanceId }
       : { ok: true, instanceId: discovery.instanceId,

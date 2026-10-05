@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.SYNC_SCOPE_INVENTORY_ARG_LIMIT = exports.SYNC_SCOPE_INVENTORY_PATH_LIMIT = exports.SYNC_SCOPE_FPSYNC_PATH_LIMIT = void 0;
+exports.SYNC_SCOPE_INVENTORY_ARG_LIMIT = exports.SYNC_SCOPE_INVENTORY_PATH_LIMIT = exports.SYNC_SCOPE_BATCH_BYTE_LIMIT = exports.SYNC_SCOPE_FPSYNC_PATH_LIMIT = void 0;
 exports.partitionSyncScopeTransferPaths = partitionSyncScopeTransferPaths;
 exports.compressSyncScopeInventoryPaths = compressSyncScopeInventoryPaths;
 exports.batchSyncScopeInventoryPaths = batchSyncScopeInventoryPaths;
@@ -9,6 +9,7 @@ exports.planSyncScopeTransferGroups = planSyncScopeTransferGroups;
 exports.scopeInventorySnapshot = scopeInventorySnapshot;
 /** SimpleSFTP sync.serverToServerFpsync rejects more than 5000 relative paths per call. */
 exports.SYNC_SCOPE_FPSYNC_PATH_LIMIT = 5000;
+exports.SYNC_SCOPE_BATCH_BYTE_LIMIT = 128 * 1024 * 1024;
 /** Keep projectInventory scopePaths inside one SSH command. */
 exports.SYNC_SCOPE_INVENTORY_PATH_LIMIT = 48;
 exports.SYNC_SCOPE_INVENTORY_ARG_LIMIT = 6000;
@@ -28,6 +29,29 @@ function partitionSyncScopeTransferPaths(files, limit = exports.SYNC_SCOPE_FPSYN
     const groups = [];
     for (let offset = 0; offset < files.length; offset += limit)
         groups.push(files.slice(offset, offset + limit));
+    return groups;
+}
+/** Unknown or oversized files stay alone; the transport streams those files. */
+function partitionTransferFiles(files, pathLimit) {
+    if (!Number.isInteger(pathLimit) || pathLimit < 1)
+        throw new Error("批量传输上限无效。");
+    const groups = [];
+    let group = [], bytes = 0;
+    const flush = () => { if (group.length)
+        groups.push(group); group = []; bytes = 0; };
+    for (const file of Object.keys(files).sort()) {
+        const size = files[file].size;
+        if (!Number.isSafeInteger(size) || Number(size) < 0 || Number(size) > exports.SYNC_SCOPE_BATCH_BYTE_LIMIT) {
+            flush();
+            groups.push([file]);
+            continue;
+        }
+        if (group.length >= pathLimit || bytes + Number(size) > exports.SYNC_SCOPE_BATCH_BYTE_LIMIT)
+            flush();
+        group.push(file);
+        bytes += Number(size);
+    }
+    flush();
     return groups;
 }
 function fileInSelection(file, itemPath, directory) {
@@ -140,12 +164,12 @@ function selectConfirmedScopeFiles(files, items) {
     return { files: selected, directoryDeletes: [...new Set(directoryDeletes)].sort() };
 }
 /**
- * Directories and loose files share one relative-path archive, split only at the fpsync cap.
+ * Directories and loose files share archives bounded by path count and bytes.
  * Directory replacement stays a separate confirmed delete list; it is not one transfer per directory.
  */
 function planSyncScopeTransferGroups(items, files, pathLimit = exports.SYNC_SCOPE_FPSYNC_PATH_LIMIT) {
     const selected = selectConfirmedScopeFiles(files, items);
-    const slices = partitionSyncScopeTransferPaths(Object.keys(selected.files).sort(), pathLimit);
+    const slices = partitionTransferFiles(selected.files, pathLimit);
     const groups = slices.map((paths, index) => {
         const rows = paths.map((file) => [file, selected.files[file].sha256]);
         return {
