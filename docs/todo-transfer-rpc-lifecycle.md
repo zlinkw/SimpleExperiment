@@ -1,5 +1,20 @@
 # 传输等待、退出核查与通知收口
 
+## 2026-10-06 分块续传槽位与错误摘要
+
+- [x] 读取约束、Git 状态、实时 discovery/capabilities；运行仍为 SimpleExperiment 0.5.225 / SimpleSFTP 0.2.53，源码为 0.5.226 / 0.2.54。当前 transfers.list 没有活动请求；保留两个 dirty pyc 与所有已完成产物。
+- [x] 读取真实 actionErrors：接收端 chunk_state 抛出 `stale or invalid chunk offset`，随后源端 BrokenPipeError。弹窗被 SIMPLE_PROGRESS / SIMPLE_CHUNK_VERIFIED / SIMPLE_COMPRESSION_WIRE 淹没，根因不是指标 CSV 或 Panel 状态延迟。
+- [x] 用真实接收器复现：较早槽位释放后同身份续传会丢失原偏移；两个新增场景修复前均失败。已有身份优先恢复，连续大文件流固定槽与 flock 到整文件校验/发布，不逐块重新 claim。
+- [x] 保留逐块及整文件 SHA256、offset、所有权与退出核查；失败不删旧产物。接收器 5/5 覆盖空槽竞争、相同身份活跃拒绝、连续多帧、截断/校验失败后只续传有效前缀。
+- [x] direct/relay 的错误 ring 只保存有界非性能日志，保留退出码、实际异常与大文件路径/两端身份；进度仍走原有通道。实际进度洪流 fixture 仍能保留起始 tar 异常，包含 UTF-8 分段与无换行超长文本；packedSyncProgress 8/8。
+- [x] 串行接收器、压缩/续传、进度、批量同步与退出保护回归：SimpleSFTP 89 个 Node 场景通过（退出探针另有 35 个 Python 场景），SimpleExperiment 客户端/手动同步 33 个 Node 场景通过。旧 guard、两条并行流及 SHA256 差异传输均保留。
+- [x] 两项目 build 与 Webview vm.Script 通过；含 build 的 Webview 脚本回归，本轮共 123 个 Node 场景通过。补丁 SimpleSFTP 0.2.55 不变更 SimpleExperiment 0.5.226 的协议或版本。
+- [x] 补丁打包及 VSIX 18 个 runtime 文件逐字节 SHA256 核对通过。SimpleSFTP 修复提交 bb19001 已普通 fast-forward 推送并 fetch 核对 HEAD=origin/master；安装 0.2.55 一次，没有 force/降级，CLI 核对安装为 SimpleExperiment 0.5.226 / SimpleSFTP 0.2.55 与两个命令入口。安装后没有继续调用 API 或操作面板。
+
+SimpleSFTP 0.2.55 VSIX SHA256：8e747b09373ab0b8c895dd29577dcb3c193558370fa42f4c113130b585f574fc。
+
+现场限制：在传输已无活动请求后尝试通过 API stat 查询最新 ebmc 的两个权重；该次 discovery 端口拒绝连接，未得到目标目录数据，之后 SimpleSFTP discovery 监听仍不可达。不能宣称已现场核对两个目标的权重完整性，也没有重发/取消或删除任何服务器文件。待用户 Reload Window 后再次同步，差异比较跳过相同 SHA256 文件，失败权重仅在退出核查通过后从有效检查点继续；实际大传输尚未复测。
+
 目标：修复旧传输核查的 `/proc/exe` 权限误判、长传输 RPC 提前失败后后台仍运行，以及同一传输显示两层通知。保护正在运行的任务、历史产物、回执与原有两个 dirty .pyc。
 
 - [x] 读取项目约束、Git 状态、两插件 discovery/capabilities。开始时运行/安装 SimpleExperiment 0.5.224、SimpleSFTP 0.2.52。
