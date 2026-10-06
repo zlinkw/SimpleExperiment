@@ -7,7 +7,7 @@
 - [x] committed/rolled-back 记录存在被当作 publicationPending，导致线程永远无法启动；读取明确状态，preparing/publishing 才等待，无效状态显式错误。后台线程生命周期回归证明部分成功目录 ready 并 postState；只读真实 MultiModal 目录已能读取 BUS/PAD 各 34 行 final、各 17 个 method 表。该验证不等于已在运行中的旧面板展示，也不代表缺失 Worker 指标已下载。
 - [x] 串行 SimpleExperiment 147、SimpleSFTP 69 个场景通过；另含 build Webview 解析 1 个，两项目 build 与 vm.Script 通过。初次新回归明确复现 argv 超限、controller 泄漏及 settled journal 假等待；未删除失败测试或提高任何超时/内存阈值。
 - [x] 补丁 0.5.230 / 0.2.58 打包验证：194 / 18 个运行文件与工作区逐字节 SHA256 一致，无 pyc；buildId=341aabeb0be9。VSIX SHA256 分别为 ed344f1026f57739f0887470765a0fb9d8f0dc050cb359b26d0de04acdf643e1 / 0f55161536a37bf9a5d7e74614fa2a0c0dc82626949ec35eb45ac7f566d1e328。
-- [ ] scoped commit/push/fetch、每个版本安装一次，安装后停止 API/Panel 操作。
+- [x] scoped commit/push/fetch：SimpleExperiment c1208082 / SimpleSFTP 6c1c1e0 普通 fast-forward 推送，fetch 后 HEAD=origin/master；自动安装 0.5.230 / 0.2.58 各一次，无 force/降级。CLI 版本、simpleex / simple-sftp-api 入口及安装后 194 / 18 个运行文件身份核对通过（package.json 排除 VS Code __metadata）；随后停止 API/Panel 操作。两个原有 dirty pyc 未暂存。
 
 现场边界：本次已只读证明原先成功收录的 17 个 Plan 结果文件真实存在且可解析；修补后的目录状态检查为 publicationPending=false。运行 Host 尚未加载补丁，大批次修复通过真实生产 seam 及有界 stdin 回归验证，未重发真实下载、取消旧请求或改写 MultiModal。缺少来源指标的 3 个预实验仍属待指标，不能冒充成功；新网络下载及面板展示需重载后验收。
 
