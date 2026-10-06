@@ -27,6 +27,6 @@
 - [x] 新增整次传输 committed completedFiles/totalFiles、completedGroups/totalGroups；独立于局部 stage counter，经 SSE/poll 转发到统一通知。大文件未完成时不伪造完成文件数，旧版本缺少计数时不显示误导的“已处理 0”。
 - [x] 串行回归：SimpleExperiment 93 个 Node 场景、SimpleSFTP 81 个 Node 场景全部通过（同一文件多次执行不重复计数）；包括新计数、512 MiB 分组、乱序并发组累计、真实字节、压缩、取消/恢复、暂存发布、API 与 Panel 背压/健康检查。两插件 build、Webview vm.Script、UTF-8 和 diff 门禁通过。
 - [x] 打包 SimpleExperiment 0.5.226 / SimpleSFTP 0.2.54；包内 188/18 个运行文件与工作区逐字节一致，无 pyc。buildId=c906e92b79b9，VSIX SHA256 分别为 adf81de5d148fcc2f9a0cc819b738661dc90eb963202cd649c7f7329d750f8be、4ac69e054de415fa9724a3de7045bcf6e433d8e2b8edbb63b95d88bb8f076814。
-- [ ] scoped commit/push/fetch、自动安装一次；安装后停止 API，现场大任务由用户继续观察。新批次与新计数只在重载后的新请求生效，不能热改正在执行的旧请求；不要为展示新计数重载一个仍有活动传输的窗口。
+- [x] scoped commit/push/fetch：SimpleExperiment 87d524fc、SimpleSFTP e31c6c4 均普通 fast-forward 推送，fetch 后 HEAD=origin/master。各执行一次 install:latest，确认安装 0.5.226 / 0.2.54，核对运行文件与 simpleex 入口；安装后未再调用 API。两个 dirty pyc 保留未暂存。新批次与新计数只在重载后的新请求生效，不能热改正在执行的旧请求；不要为展示新计数重载一个仍有活动传输的窗口。
 
 安装前末次只读采样：同一活动请求仍 running，transferredBytes 从 9670022677 增至 21471241567，旧版 processedFiles 仍为 0。该采样证明实际流字节在增长，不证明已全部完成，也不代表新版现场提速测试。
