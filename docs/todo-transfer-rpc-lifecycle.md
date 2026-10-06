@@ -8,7 +8,9 @@
 - [x] 用真实 Python helper 复现中断丢缓存；最多 16 个待处理 future / 8 个工作线程，按完成顺序收集；每 32 条或累计 64 MiB 或间隔 1 秒（文件完成时检查）提交，正常结束提交尾批。中断后 inventory / exact batch 均复用已提交 SHA256；慢首文件不阻塞其他已完成文件写缓存。保留五字段身份、稳定读取与 SHA256；暴露缓存可用性、命中与重算数，缓存写入失败仍完整校验。
 - [x] 目录校验显示明确任务目录数、实际已校验文件与校验读取字节；差异清单显示相同跳过、目标缺失、内容不同，沿用旧协议 fallback，不增加远端扫描。性能/缓存计数不能成为 wire bytes 或 keepalive；跨 scope 不沿用旧命中数。
 - [x] 串行目标与传输回归：SimpleSFTP 79 个、SimpleExperiment 103 个 Node 场景全部通过（含 build Webview 解析 1 个）；两项目 build、Webview vm.Script、编码/diff 门禁通过。打包后 188 / 18 个 runtime 文件逐字节 SHA256 核对成功，无 pyc。
-- [ ] scoped commit/push/fetch、自动安装 SimpleExperiment 0.5.227 / SimpleSFTP 0.2.56 各一次；安装后停止 API 与 Panel 操作。
+- [x] scoped commit/push/fetch：SimpleExperiment 5732af2a / SimpleSFTP 178c4f2 均普通 fast-forward 推送，fetch 后 HEAD=origin/master；自动安装 SimpleExperiment 0.5.227 / SimpleSFTP 0.2.56 各一次，无 force/降级。CLI 版本和两个命令入口、安装后 runtime 字节身份均核对通过（package.json 排除 VS Code 注入的 __metadata 后语义一致）。安装后没有调用 API 或操作 Panel；两个原有 dirty pyc 未暂存。
+
+SimpleExperiment VSIX SHA256：827980857aa9bc4a02c98a6389527dd5afc3ad45df5eaaf1d3e81d0eb86c1796，buildId=0bfce220cbbd。SimpleSFTP VSIX SHA256：0fe5fc145ba9344248e03b5d31dcd91cf84b08ac0bfadfd69a859c9ea62415d4。
 
 安装前最后一次只读现场：同一请求仍 running/unpacking，3816 候选、2106 差异、已完成 231/2106 文件、21/132 分组，实际流字节 20177671732。没有取消/重发/删除。旧版没有记录 missing/different 分项，不能宣称这 2106 个全是缺失或证明某文件被重复复制。旧失败请求为 3296/4578 差异；两个请求候选不一致，也不能直接比较得到速度提升。新缓存行为已在本机真实 Python helper 验证，服务器大权重的下一轮耗时/命中率未实测；当前同步结束前不要 Reload Window。
 
