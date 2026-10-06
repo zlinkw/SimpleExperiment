@@ -8,7 +8,7 @@
 - [x] file_step 每秒最多读取一次直属子进程 /proc/<pid>/io（最多 4096 字节），使用包含 pagecache 的 rchar 与文件 write_bytes，扣除 stdin manifest，排除 stdout/wchar、CPU 与进程存在。采样不可用则不伪造进展；无工作/取消仍停止，30/120 秒阈值不变。Linux 计数语义已核对 [内核文档](https://www.kernel.org/doc/html/latest/filesystems/proc.html#proc-pid-io-display-the-io-accounting-fields)。I/O 表示实际活动，不证明结果已完成或可发布；既有 SHA256、终态与正式结果门禁保留。
 - [x] 超时诊断保存子进程步骤、最后阶段、I/O 是否可观测及脱敏 stderr 尾部；stderr ring 32 KiB、诊断尾部 2000 字符、stdout 4 MiB（超限拒绝截断结果）、单次读取 64 KiB、协议 phase 最多 32 个 + 一个 I/O phase。UTF-8 明确指定，持续排空输出，不新增日志文件。
 - [x] 串行 110 个 Node 场景通过，包含新增 helper 的 9 个场景、异步取消、Worker 并发入口、进展等待、手动产物同步、指标结果完整性、Panel 渲染/背压与 Webview 解析；build / vm.Script / UTF-8 / diff 门禁通过。
-- [ ] 补丁 0.5.228 打包/内容验证、scoped commit/push/fetch、自动安装一次。SimpleSFTP 保持 0.2.56，不重复安装。
+- [x] 补丁 0.5.228 完成打包/内容验证；代码 c0140309 普通 fast-forward push，fetch 后 HEAD=origin/master。install:latest 仅执行一次，无 force/降级；code 列表确认 0.5.228 / 0.2.56，simpleex / simple-sftp-api 入口有效，安装后的 194 个闭包/sidecar 文件身份核对通过（package.json 排除 VS Code 注入 __metadata 后语义一致）。SimpleSFTP 未修改或重复安装；安装后停止 API/Panel 操作。两个 dirty pyc 保留未暂存。
 
 打包记录：首次 package 的 vsce ls 超过既有 8 秒上限；单独检查及随后完整 package 成功，未延长上限或绕过门禁。VSIX 内 188 个闭包文件及 6 个 Agent/runtime sidecar 与工作区逐字节 SHA256 一致，无 pyc；buildId=d1f1e2053b11，VSIX SHA256=332c3875ba453ce0b254c34b0ccf48e870aa88e522ec3b0ee2cc9c9e33354ec2。
 
