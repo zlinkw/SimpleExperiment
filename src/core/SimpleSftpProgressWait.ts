@@ -86,7 +86,7 @@ export async function confirmSftpOperationStopped(operationId: string, initial: 
   if (receipt.operationId !== operationId || receipt.operationInstanceId !== expectedInstanceId)
     throw new Error("旧传输取消回执身份不匹配。");
   async function reconcileUnknown(): Promise<void> {
-    if (!recovery || recovery.method !== "sync.serverToServerFpsync")
+    if (!recovery || !["sync.serverToServerFpsync", "sync.downloadMappedPaths"].includes(recovery.method))
       throw new Error("旧传输结果未知，未重新传输；请核对目标后人工恢复。");
     const current = await recovery.discover("transfers.reconcile");
     if (current.features?.transferSettlementReconciliation !== true)

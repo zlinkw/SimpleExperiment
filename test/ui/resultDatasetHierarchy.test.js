@@ -63,6 +63,22 @@ const catalog = {
   legacyTables: [],
 };
 
+test("local results stay visible with failed synchronization and expose an independent offline refresh", () => {
+  const renderer = createRenderer();
+  const state = { connectionMode: "offline_import", resultSyncReport: { discovered: 20, accepted: 17, failed: 11 },
+    resultOutputConfig: { catalog, catalogLoadStatus: "ready", tables: catalog.datasets.flatMap(group => group.tables) } };
+  const html = renderer.renderProjectResultTables(state);
+  assert.match(html, /data-command="refreshLocalResults"/);
+  assert.match(html, /刷新本地结果/);
+  assert.match(html, /总表 34 行/);
+  assert.match(html, /总表 28 行/);
+  const start = source.indexOf("    function disableReason(");
+  const end = source.indexOf("\n    function ", start + 20);
+  const context = {};
+  vm.runInNewContext(source.slice(start, end) + "; this.disableReason = disableReason", context);
+  assert.equal(context.disableReason(state, "refreshLocalResults", {}), "");
+});
+
 test("view model separates datasets, unassigned plans, and shared sources; selected dataset leads natural order", () => {
   const renderer = createRenderer();
   const view = renderer.resultCatalogViewModel(catalog, { planFileInput: "experiments/plans/comparison/corim.yaml" });

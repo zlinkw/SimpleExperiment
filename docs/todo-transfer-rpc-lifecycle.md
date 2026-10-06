@@ -1,5 +1,16 @@
 # 传输等待、退出核查与通知收口
 
+## 2026-10-07 本地结果独立刷新与旧只读下载恢复
+
+- [x] 当前 Host 28164 运行 0.5.230 / 0.2.58。API 返回 catalogLoadStatus=error，缺少 dist/extension/results/ProjectResultCatalogWorker.js；实际线程在 dist/results。上轮 fake Worker 及直接 catalog 函数验证漏掉真实入口；本次先用实际编译目录启动 Node Worker 复现失败，修正相对路径后通过。新增只读“刷新本地结果”，重置读取失败退避、取消过期读取并按当前 results interest 重读；不连接服务器、不下载、不汇总，保留最后可信目录，独立于远端同步锁/失败回执。
+- [x] 只读 transfers.list：sftp-3512-1791292735154-glofj6d6ou6 仍 outcomeUnknown、childCount=0，旧 instance=3512:2026-10-06T13:17:53.723Z。两插件恢复白名单原来只支持服务器间传输，不能核实旧 mapped download。现在匹配原 operation/instance/requestKey/下载目标，只允许 remoteMutation=false 的读协议；两次核实旧 Host 与本机运输进程退出后持久化 settled 再允许一次新请求。活跃 child、旧 Host/运输进程仍存活、身份不匹配、无法证明只读、回执写入失败继续阻止；不凭 childCount=0 清记录，服务器间写入保护保持。
+- [x] 串行 SimpleExperiment 151、SimpleSFTP 72 个 Node 场景通过（含 build Webview 解析门禁 1 个，不重复统计同文件重跑）。覆盖真实 Worker 启动、已提交/回滚与真正发布事务、本机已有表格/部分同步失败/离线刷新、取消 generation 的迟到回调、精确目标恢复及活跃请求保护；主目标 panelResultCatalogCache 7/7、safeRequestRetry 14/14、resultDatasetHierarchy 8/8、transferRecovery 22/22。状态 ACK/背压/健康/生命周期、指标同步完整性、gzip 内存下载、传输退出回执与 API 回归均通过。两插件 build、Webview vm.Script 通过；SimpleSFTP 首次 build 的 vsce ls 触及原有 8 秒超时，后续完整 build 通过，未放宽门禁。
+- [ ] scoped 打包、commit/push/fetch、新版本安装一次；记录真实只读结果、未重载前不能验证的新 UI/传输范围，保护原有两个 dirty pyc。
+
+打包核对：SimpleExperiment 0.5.231 / SimpleSFTP 0.2.59。VSIX 内去重后的 192 / 18 个运行文件与工作区逐字节 SHA256 一致，真实目录 Worker 收录且无 pyc；buildId=3f6f9b55ee9b。VSIX SHA256 分别为 5b34a4686ba71ceb81df868a0d15ea0f4d9f0d735a0c3a7f03e71d34514e79ff / 3b83ef796d65569d9bbc0788de7dbed41019819a38ce46c5528bb7962d1210a2。主项目首次 package 也因原有 vsce ls 8 秒截止失败；进程退出后完整 package 重跑通过，没有绕过或延长门禁。
+
+真实只读边界：修正后的同一生产 Worker 从真实 MultiModal 目录读到 BUS final 32 行、PAD final 34 行，分别 17 个 method 表；该结果证明本地文件可独立读取，不代表缺失 seed 已补全。未调用真实下载、清理或取消旧请求，未改写 MultiModal。旧请求自动核实与新版按钮需用户重载窗口后验收；旧 Host 的错误/空目录状态不能冒充补丁已生效，两个 dirty pyc 保留未暂存。
+
 ## 2026-10-06 指标批次启动与本地目录读取回归
 
 - [x] 只读 discovery/capabilities 确认 Host 3512 运行 0.5.229 / 0.2.57，API state 的 catalogLoadStatus=loading；真实本机发布记录为 committed、75 个文件，与 registry generation 一致。17 个 Plan 已发布，未删除或重发旧产物，两个 dirty pyc 保留。

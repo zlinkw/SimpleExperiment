@@ -171,6 +171,30 @@ test('persisted same-target blocker is settled before the new operation is submi
   } finally { global.fetch = saved; }
 });
 
+test('unknown mapped metric download reconciles its exact target before dispatching one fresh request', async () => {
+  const saved = global.fetch;
+  const discovery = { endpoint: new URL('http://127.0.0.1:1'), headers: {}, instanceId: 'host:new',
+    features: { transferSettlementReceipts: true, transferSettlementReconciliation: true } };
+  let starts = 0, proofs = 0;
+  global.fetch = async (url, options) => {
+    if (String(url).endsWith('/events')) return new Response(null, { status: 204 });
+    const request = JSON.parse(options.body);
+    if (request.method === 'transfers.cancel') return Response.json({ result: { ok: true, status: 'outcomeUnknown', operationId: 'old-read', operationInstanceId: 'host:old' } });
+    if (request.method === 'transfers.reconcile') {
+      proofs++;
+      assert.equal(request.params.retryMethod, 'sync.downloadMappedPaths');
+      assert.equal(request.params.retryParams.localPath, 'C:/projects/example');
+      return Response.json({ result: { ok: true, status: 'settled', settled: true, operationId: 'old-read', operationInstanceId: 'host:old', instanceId: 'host:new' } });
+    }
+    if (starts++ === 0) return Response.json({ error: { data: { blockedOperationId: 'old-read', operationInstanceId: 'host:old', notStarted: true } } });
+    return Response.json({ result: { ok: true, memoryOnly: true, fileCount: 1 } });
+  };
+  try {
+    const result = await callSftpWithProgress('sync.downloadMappedPaths', { localPath: 'C:/projects/example', memoryOnly: true, metricsOnly: true }, async () => discovery);
+    assert.equal(result.fileCount, 1); assert.equal(starts, 2); assert.equal(proofs, 1);
+  } finally { global.fetch = saved; }
+});
+
 test('legacy server transfer unknown is reconciled before exactly one fresh dispatch', async () => {
   const saved = global.fetch, order = [], phases = [];
   const discovery = { endpoint: new URL('http://127.0.0.1:1'), headers: {}, instanceId: 'host:new',

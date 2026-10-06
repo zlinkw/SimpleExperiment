@@ -7,7 +7,7 @@ const ts = require("typescript");
 const source = fs.readFileSync(path.join(__dirname, "../../src/extension/legacy.ts"), "utf8");
 const ast = ts.createSourceFile("legacy.ts", source, ts.ScriptTarget.Latest, true);
 const provider = ast.statements.find(node => ts.isClassDeclaration(node) && node.name?.text === "RealtimeTunnelPanelProvider");
-const names = new Set(["resultCatalogKey", "invalidateResultCatalogCache", "hasResultCatalogForRoot", "cachedResultCatalog", "compactResultTablesFromCatalog", "inspectResultCatalogInputs", "scheduleResultCatalogRefresh", "finishQueuedResultCatalogRefresh", "startResultCatalogRefreshWorker"]);
+const names = new Set(["resultCatalogKey", "invalidateResultCatalogCache", "hasResultCatalogForRoot", "cachedResultCatalog", "compactResultTablesFromCatalog", "inspectResultCatalogInputs", "scheduleResultCatalogRefresh", "finishQueuedResultCatalogRefresh", "startResultCatalogRefreshWorker", "refreshLocalResultsFromUi", "cancelResultCatalogRefresh"]);
 const methods = provider.members.filter(node => node.name && names.has(node.name.getText(ast)));
 const code = ts.transpileModule(`class Subject { ${methods.map(node => node.getText(ast)).join("\n")} }`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 const sandbox = {
@@ -93,6 +93,85 @@ test("successful partial sync reaches ready catalog and publishes its tables thr
   assert.equal(subject.resultCatalogRefreshError, "");
 });
 
+test("packaged extension directory resolves and runs the real catalog worker without any network", async () => {
+  const root = path.resolve(__dirname, "../..");
+  const subject = new sandbox.Subject();
+  const saved = { root: sandbox.workspaceRoot, worker: sandbox.Worker, fs: sandbox.fs, dirname: sandbox.__dirname };
+  sandbox.workspaceRoot = () => root;
+  sandbox.fs = require("node:fs/promises");
+  sandbox.Worker = require("node:worker_threads").Worker;
+  sandbox.__dirname = path.dirname(require.resolve("../../dist/extension/legacy.js"));
+  Object.assign(subject, { resultCsvDirectory: "experiments/results", resultCatalogDirtyGeneration: 0,
+    resultCatalogRefreshSequence: 0, resultCatalogTtlMs: 5000, panelSectionInterest: {}, resultCatalogStatus: "loading" });
+  let timer;
+  try {
+    await new Promise((resolve, reject) => {
+      timer = setTimeout(() => reject(new Error("real catalog worker did not finish")), 3000);
+      subject.postState = resolve;
+      subject.scheduleResultCatalogRefreshTimer = () => undefined;
+      subject.scheduleResultCatalogRefresh({ root, mappings: {}, key: subject.resultCatalogKey(root, {}) });
+    });
+    assert.equal(subject.resultCatalogStatus, "ready", subject.resultCatalogRefreshError);
+    assert.ok(Array.isArray(subject.resultCatalogCache.catalog.datasets));
+  } finally {
+    clearTimeout(timer);
+    subject.cancelResultCatalogRefresh();
+    sandbox.workspaceRoot = saved.root; sandbox.Worker = saved.worker; sandbox.fs = saved.fs; sandbox.__dirname = saved.dirname;
+  }
+});
+
+test("manual local refresh resets read errors and rescans independently of failed or busy remote sync", async () => {
+  assert.equal(typeof sandbox.Subject.prototype.refreshLocalResultsFromUi, "function");
+  const subject = new sandbox.Subject();
+  Object.assign(subject, { resultCatalogDirtyGeneration: 0, resultCatalogRefreshSequence: 0,
+    resultCatalogRefreshError: "old read error", resultCatalogRefreshFailedKey: "old", resultCatalogRefreshBackoffUntil: Date.now() + 30000,
+    resultSyncReport: { failed: 11 }, manualResultSyncInFlight: true });
+  let rescans = 0, posts = 0;
+  subject.refreshResultCatalogForCurrentInterest = () => { rescans++; };
+  subject.postState = () => { posts++; };
+  subject.cancelResultCatalogRefresh = () => undefined;
+  subject.refreshLocalResultsFromUi();
+  assert.equal(rescans, 1);
+  assert.equal(posts, 1);
+  assert.equal(subject.resultCatalogRefreshError, "");
+  assert.equal(subject.resultCatalogRefreshBackoffUntil, 0);
+  assert.equal(subject.resultSyncReport.failed, 11);
+});
+
+test("cancelled catalog generations cannot replace the refreshed local results or surface late errors", async () => {
+  const subject = new sandbox.Subject();
+  const saved = { worker: sandbox.Worker, dirname: sandbox.__dirname };
+  const workers = [];
+  sandbox.__dirname = path.dirname(require.resolve("../../dist/extension/legacy.js"));
+  sandbox.Worker = class extends require("node:events").EventEmitter {
+    constructor() { super(); workers.push(this); }
+    postMessage() {}
+    async terminate() {}
+  };
+  Object.assign(subject, { resultCsvDirectory: "experiments/results", resultCatalogDirtyGeneration: 0,
+    resultCatalogRefreshSequence: 1, resultCatalogRefreshError: "", resultCatalogTtlMs: 5000 });
+  const current = { datasets: [{ tables: [{ kind: "final", rowCount: 17 }] }] };
+  subject.resultCatalogCache = { key: subject.resultCatalogKey("C:/workspace", {}), catalog: current };
+  subject.scheduleResultCatalogRefreshTimer = () => undefined;
+  let posts = 0;
+  subject.postState = () => { posts++; };
+  try {
+    const request = { root: "C:/workspace", mappings: {}, key: subject.resultCatalogKey("C:/workspace", {}), registryStat: "old" };
+    subject.startResultCatalogRefreshWorker(request, 1);
+    subject.cancelResultCatalogRefresh();
+    workers[0].emit("message", { id: 1, catalog: { datasets: [] } });
+    workers[0].emit("error", new Error("late cancelled read"));
+    workers[0].emit("exit", 1);
+    await new Promise(resolve => setImmediate(resolve));
+    assert.equal(subject.resultCatalogCache.catalog, current);
+    assert.equal(subject.resultCatalogRefreshError, "");
+    assert.equal(posts, 0);
+  } finally {
+    subject.cancelResultCatalogRefresh();
+    sandbox.Worker = saved.worker; sandbox.__dirname = saved.dirname;
+  }
+});
+
 test("buildState reads a UI-light catalog cache while catalog scanning stays in a worker", () => {
   const subject = new sandbox.Subject();
   subject.resultCsvDirectory = "experiments/results";
@@ -124,5 +203,5 @@ test("buildState reads a UI-light catalog cache while catalog scanning stays in 
   assert.match(buildState, /this\.latestPanelBuildTiming = timing/);
   assert.match(source, /resultCatalog: \{ \.\.\.this\.latestPanelBuildTiming\.resultCatalog \}/);
   assert.match(source, /receivedRenderedSemantics: "latest_heartbeat_ack"/);
-  assert.match(source, /new Worker\(path\.join\(__dirname, "results", "ProjectResultCatalogWorker\.js"\)\)/);
+  assert.match(source, /new Worker\(path\.join\(__dirname, "\.\.", "results", "ProjectResultCatalogWorker\.js"\)\)/);
 });

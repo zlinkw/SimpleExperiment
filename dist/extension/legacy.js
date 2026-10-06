@@ -502,6 +502,7 @@ const uiActionCommands = new Set([
 const SAFE_WEBVIEW_COMMANDS = new Set([
     "stopAllPlans",
     "stopAndClearPlan",
+    "refreshLocalResults",
     "webviewReady", "webviewHeartbeatAck", "webviewStateRendered", "webviewSectionInterest", "webviewSectionTelemetry", "webviewLayoutEvidence", "webviewBootstrapPhase", "webviewBootstrapError", "webviewRuntimeIncident", "webviewRenderError", "webviewVisibility", "copyPanelDiagnostics", "reloadPanel", "reloadPanelLowEffects", "reloadWindow", "recallPlanToLocalQueue", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
     "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "reassignWorkerTask", "openSetupGuide", "openAdvancedCommandsSetting", "applyPlanDatasetMapping", "autoMatchPlanDatasets",
     "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
@@ -5716,6 +5717,8 @@ class RealtimeTunnelPanelProvider {
                 break;
             case "rebuildProjectResultTables":
                 return this.withManualResultSync(() => this.rebuildProjectResultTablesFromUi());
+            case "refreshLocalResults":
+                return this.refreshLocalResultsFromUi();
             case "syncPendingPlanArtifacts":
                 return this.withManualResultSync(() => this.syncPendingResultMetricsFromUi());
             case "splitProjectResultTable":
@@ -21315,6 +21318,14 @@ class RealtimeTunnelPanelProvider {
         });
         return this.planRuntimeEvidenceCache.value;
     }
+    refreshLocalResultsFromUi() {
+        if (!workspaceRoot())
+            throw new Error("请先打开本地项目工作区。");
+        this.cancelResultCatalogRefresh();
+        this.resultCatalogRefreshError = "";
+        this.invalidateResultCatalogCache("manual-local-refresh");
+        this.postState();
+    }
     invalidateResultCatalogCache(reason) {
         this.resultCatalogDirtyGeneration += 1;
         if (reason === "workspaceChange") {
@@ -21517,7 +21528,7 @@ class RealtimeTunnelPanelProvider {
     startResultCatalogRefreshWorker(request, id) {
         let worker;
         try {
-            worker = new worker_threads_1.Worker(path.join(__dirname, "results", "ProjectResultCatalogWorker.js"));
+            worker = new worker_threads_1.Worker(path.join(__dirname, "..", "results", "ProjectResultCatalogWorker.js"));
         }
         catch (error) {
             this.resultCatalogRefreshFailedKey = request.key;
