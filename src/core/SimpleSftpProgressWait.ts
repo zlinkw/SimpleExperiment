@@ -19,6 +19,12 @@ export type SimpleSftpProgress = {
   phase: string;
   processedBytes?: number;
   processedFiles?: number;
+  cacheHits?: number;
+  cacheRehash?: number;
+  cacheStatus?: string;
+  missingFiles?: number;
+  differentFiles?: number;
+  unchangedFiles?: number;
   transferredBytes?: number;
   comparedFiles?: number;
   changedFiles?: number;
@@ -203,6 +209,9 @@ export async function callSftpWithProgress(
       const visiblePhase = ["packing", "transferring", "unpacking"].includes(phase) ? "streaming" : phase;
       try { onProgress({ phase: visiblePhase, processedBytes, processedFiles, transferredBytes: count(item.transferredBytes),
         comparedFiles: count(item.comparedFiles), changedFiles: count(item.changedFiles), totalBytes: count(item.totalBytes),
+        cacheHits: count(item.cacheHits), cacheRehash: count(item.cacheRehash),
+        cacheStatus: ["ready", "unavailable", "read-failed", "write-failed"].includes(item.cacheStatus) ? item.cacheStatus : undefined,
+        missingFiles: count(item.missingFiles), differentFiles: count(item.differentFiles), unchangedFiles: count(item.unchangedFiles),
         completedFiles: count(item.completedFiles), totalFiles: count(item.totalFiles),
         completedGroups: count(item.completedGroups), totalGroups: count(item.totalGroups), elapsedMs: Date.now() - startedAt }); }
       catch { /* Notification failures cannot cancel a genuine transfer. */ }

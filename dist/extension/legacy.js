@@ -10480,17 +10480,23 @@ class RealtimeTunnelPanelProvider {
                 const groups = detail.totalGroups ? ` · 分组 ${detail.completedGroups || 0}/${detail.totalGroups}` : "";
                 const wire = ["transferring", "streaming"].includes(detail.phase) && detail.transferredBytes !== undefined;
                 const count = wire ? detail.transferredBytes : detail.processedBytes;
-                const bytes = count === undefined ? "" : ` · ${(count / 1048576).toFixed(1)} MiB ${wire ? "实际传输" : "已处理"}`;
+                const bytes = count === undefined ? "" : ` · ${(count / 1048576).toFixed(1)} MiB ${wire ? "实际传输" : detail.phase === "hashing" ? "校验读取" : "已处理"}`;
+                const cache = detail.phase !== "hashing" || detail.cacheHits === undefined ? ""
+                    : ` · 缓存命中 ${detail.cacheHits}，重算 ${detail.cacheRehash ?? 0} 个文件`;
+                const cacheWarning = detail.phase === "hashing" && detail.cacheStatus && detail.cacheStatus !== "ready"
+                    ? ` · 缓存${({ unavailable: "不可用", "read-failed": "读取失败", "write-failed": "写入失败" })[detail.cacheStatus] || "异常"}，正在完整校验` : "";
                 const elapsed = detail.elapsedMs === undefined ? "" : ` · 本步已耗时 ${Math.floor(detail.elapsedMs / 1000)} 秒`;
                 const labels = { preparing: "准备清单", hashing: "SHA256 校验", packing: "压缩打包", transferring: "压缩传输",
                     unpacking: "解包", verifying: "内容复核", publishing: "发布文件", recording: "记录校验结果", reconciling: "核实旧传输退出" };
                 const label = labels[detail.phase] || "处理产物";
                 const scope = detail.planFile ? ` · ${detail.planFile} job ${detail.jobIndex}`
                     : detail.batch ? ` · 第 ${detail.batch}${detail.batchCount ? `/${detail.batchCount}` : ""} 批` : "";
-                const paths = detail.checkedCount === undefined ? detail.fileCount === undefined ? "" : ` · 校验范围 ${detail.fileCount} 路径`
-                    : ` · ${detail.checkedCount}/${detail.fileCount} 范围`;
+                const paths = detail.fileCount === undefined ? "" : detail.scopeKind === "directories"
+                    ? ` · ${detail.checkedCount === detail.fileCount ? "已核验" : "核验"} ${detail.fileCount} 个任务目录`
+                    : detail.checkedCount === undefined ? ` · 候选 ${detail.fileCount} 个文件` : ` · 已核验 ${detail.checkedCount}/${detail.fileCount} 个文件`;
                 const difference = detail.changedFiles === undefined ? "" : ` · 差异 ${detail.changedFiles}/${detail.comparedFiles ?? detail.fileCount} 文件`;
-                progress.report({ message: `${detail.phase === "streaming" ? "流处理（打包、传输与解包）" : label} · ${detail.workerId}${scope}${paths}${difference}${processed}${groups}${bytes}${elapsed} · 总耗时 ${Math.floor((Date.now() - syncStartedAt) / 1000)} 秒` });
+                const delta = detail.unchangedFiles === undefined ? "" : ` · 相同跳过 ${detail.unchangedFiles}，目标缺失 ${detail.missingFiles ?? 0}，内容不同 ${detail.differentFiles ?? 0}`;
+                progress.report({ message: `${detail.phase === "streaming" ? "流处理（打包、传输与解包）" : label} · ${detail.workerId}${scope}${paths}${difference}${delta}${cache}${cacheWarning}${processed}${groups}${bytes}${elapsed} · 总耗时 ${Math.floor((Date.now() - syncStartedAt) / 1000)} 秒` });
             };
             try {
                 await this.syncDistributedJobArtifacts(root, queue, "fragments", true, reportTransfer);
@@ -11554,6 +11560,7 @@ class RealtimeTunnelPanelProvider {
         const maxBytes = stdinScopes ? 1048576 : 10240;
         const hashes = {};
         const uniquePaths = [...new Set(paths)].sort();
+        const scopeKind = includeScopeContents ? "directories" : "files";
         let batchCount = 0, checkedCount = 0;
         let batch = [];
         let batchBytes = 2;
@@ -11562,11 +11569,12 @@ class RealtimeTunnelPanelProvider {
                 return;
             const startedAt = Date.now();
             batchCount += 1;
-            report?.({ phase: "hashing", batch: batchCount, checkedCount, fileCount: uniquePaths.length });
+            report?.({ phase: "hashing", batch: batchCount, checkedCount, fileCount: uniquePaths.length, scopeKind });
             // recursive=false at the project root can only see direct children, even with scopes.
             // Exact file scopes prune all unrelated directories while reaching nested attempt files.
-            const inventory = (await this.verifiedSftpProjectInventory({ source, relativePath: ".", scopePaths: batch, recursive: true,
-                onProgress: report ? (detail) => report({ ...detail, batch: batchCount, checkedCount, fileCount: uniquePaths.length }) : undefined })).files;
+            const result = await this.verifiedSftpProjectInventory({ source, relativePath: ".", scopePaths: batch, recursive: true,
+                onProgress: report ? (detail) => report({ ...detail, batch: batchCount, checkedCount, fileCount: uniquePaths.length, scopeKind }) : undefined });
+            const inventory = result.files;
             if (includeScopeContents) {
                 const scopes = new Set(batch);
                 for (const [file, entry] of Object.entries(inventory)) {
@@ -11579,7 +11587,8 @@ class RealtimeTunnelPanelProvider {
             for (const file of batch)
                 hashes[file] = String(inventory[file]?.sha256 || "").toLowerCase();
             checkedCount += batch.length;
-            report?.({ phase: "hashing", batch: batchCount, checkedCount, fileCount: uniquePaths.length, elapsedMs: Date.now() - startedAt });
+            report?.({ phase: "hashing", batch: batchCount, checkedCount, fileCount: uniquePaths.length, scopeKind,
+                cacheHits: result.reusedFiles, cacheRehash: result.hashedFiles, cacheStatus: result.cacheStatus, elapsedMs: Date.now() - startedAt });
             batch = [];
             batchBytes = 2;
         };

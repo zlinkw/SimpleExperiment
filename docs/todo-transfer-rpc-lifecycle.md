@@ -1,5 +1,17 @@
 # 传输等待、退出核查与通知收口
 
+## 2026-10-06 校验缓存持久化与差异透明度
+
+- [x] 读取约束、源码与 Git 状态，保留两个 dirty pyc；实际运行 SimpleExperiment 0.5.226 / SimpleSFTP 0.2.55。没有取消、重发或清理正在传输的产物。
+- [x] 通过实时 discovery/capabilities 调用只读 projectInventory：nwpu5 的 experiments/simple_project.yaml 570 ms，hashedFiles=0 / reusedFiles=1。仅证明该文件缓存有效，不代表所有权重缓存命中。
+- [x] 核实目录范围计数只在整批 RPC 返回时增长；缓存更新也仅在整批结束提交，途中退出会丢失本批已算出的 SHA256。ThreadPool map 的顺序等待还会延迟已完成小文件的统计与缓存写入。截图 3816 个候选、2106 个差异，不能称全部重传；1710 个相同文件应跳过，缺失/内容变化仍需分开统计。
+- [x] 用真实 Python helper 复现中断丢缓存；最多 16 个待处理 future / 8 个工作线程，按完成顺序收集；每 32 条或累计 64 MiB 或间隔 1 秒（文件完成时检查）提交，正常结束提交尾批。中断后 inventory / exact batch 均复用已提交 SHA256；慢首文件不阻塞其他已完成文件写缓存。保留五字段身份、稳定读取与 SHA256；暴露缓存可用性、命中与重算数，缓存写入失败仍完整校验。
+- [x] 目录校验显示明确任务目录数、实际已校验文件与校验读取字节；差异清单显示相同跳过、目标缺失、内容不同，沿用旧协议 fallback，不增加远端扫描。性能/缓存计数不能成为 wire bytes 或 keepalive；跨 scope 不沿用旧命中数。
+- [x] 串行目标与传输回归：SimpleSFTP 79 个、SimpleExperiment 103 个 Node 场景全部通过（含 build Webview 解析 1 个）；两项目 build、Webview vm.Script、编码/diff 门禁通过。打包后 188 / 18 个 runtime 文件逐字节 SHA256 核对成功，无 pyc。
+- [ ] scoped commit/push/fetch、自动安装 SimpleExperiment 0.5.227 / SimpleSFTP 0.2.56 各一次；安装后停止 API 与 Panel 操作。
+
+安装前最后一次只读现场：同一请求仍 running/unpacking，3816 候选、2106 差异、已完成 231/2106 文件、21/132 分组，实际流字节 20177671732。没有取消/重发/删除。旧版没有记录 missing/different 分项，不能宣称这 2106 个全是缺失或证明某文件被重复复制。旧失败请求为 3296/4578 差异；两个请求候选不一致，也不能直接比较得到速度提升。新缓存行为已在本机真实 Python helper 验证，服务器大权重的下一轮耗时/命中率未实测；当前同步结束前不要 Reload Window。
+
 ## 2026-10-06 分块续传槽位与错误摘要
 
 - [x] 读取约束、Git 状态、实时 discovery/capabilities；运行仍为 SimpleExperiment 0.5.225 / SimpleSFTP 0.2.53，源码为 0.5.226 / 0.2.54。当前 transfers.list 没有活动请求；保留两个 dirty pyc 与所有已完成产物。

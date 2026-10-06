@@ -208,6 +208,9 @@ async function callSftpWithProgress(method, params, discover, onProgress) {
             try {
                 onProgress({ phase: visiblePhase, processedBytes, processedFiles, transferredBytes: count(item.transferredBytes),
                     comparedFiles: count(item.comparedFiles), changedFiles: count(item.changedFiles), totalBytes: count(item.totalBytes),
+                    cacheHits: count(item.cacheHits), cacheRehash: count(item.cacheRehash),
+                    cacheStatus: ["ready", "unavailable", "read-failed", "write-failed"].includes(item.cacheStatus) ? item.cacheStatus : undefined,
+                    missingFiles: count(item.missingFiles), differentFiles: count(item.differentFiles), unchangedFiles: count(item.unchangedFiles),
                     completedFiles: count(item.completedFiles), totalFiles: count(item.totalFiles),
                     completedGroups: count(item.completedGroups), totalGroups: count(item.totalGroups), elapsedMs: Date.now() - startedAt });
             }

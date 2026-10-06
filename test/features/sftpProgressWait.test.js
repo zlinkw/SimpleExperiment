@@ -64,6 +64,20 @@ test('committed file and group counters reach the caller even when the active ch
   assert.equal(reports.at(-1).completedGroups,1);assert.equal(reports.at(-1).totalGroups,3);
 });
 
+test('cache and difference diagnostics are forwarded with real work and bounded fields', async () => {
+  const reports = [];
+  await fixture(async f => {
+    f.emit({phase:'hashing', processedFiles:52, processedBytes:4096, cacheHits:50, cacheRehash:2, cacheStatus:'write-failed'});
+    await new Promise(setImmediate);
+    f.emit({phase:'transferring', processedBytes:8192, unchangedFiles:4, missingFiles:1, differentFiles:1, cacheHits:-1, cacheStatus:'arbitrary'});
+    await new Promise(setImmediate);
+    f.finish(); await f.work;
+  }, row => reports.push(row));
+  assert.equal(reports[0].cacheHits,50); assert.equal(reports[0].cacheRehash,2); assert.equal(reports[0].cacheStatus,'write-failed');
+  assert.equal(reports[1].cacheHits,undefined); assert.equal(reports[1].cacheStatus,undefined);
+  assert.equal(reports[1].unchangedFiles,4); assert.equal(reports[1].missingFiles,1); assert.equal(reports[1].differentFiles,1);
+});
+
 test('poll fallback forwards current progress when the event stream is unavailable',async()=>{
   const original=global.fetch, progress=[];
   let operationId, finish;

@@ -375,7 +375,40 @@ test("in-flight inventory byte and file progress reaches the outer notification"
   };
   await f.host.postprocessDistributedResultsForManual(root, "full");
   assert.ok(f.events.some(message => /SHA256 校验 · w1/.test(message) && /已处理 4 个文件/.test(message)
-    && /3.0 MiB 已处理/.test(message) && /本步已耗时 4 秒/.test(message) && /总耗时 \d+ 秒/.test(message)));
+    && /3.0 MiB 校验读取/.test(message) && /本步已耗时 4 秒/.test(message) && /总耗时 \d+ 秒/.test(message)));
+});
+
+test("directory verification shows explicit task directories and live cache evidence", async () => {
+  const f = fixture({ inventoryStdin: true });
+  const read = f.host.verifiedSftpProjectInventory.bind(f.host);
+  f.host.verifiedSftpProjectInventory = async options => {
+    options.onProgress?.({ phase: "hashing", processedFiles: 5, processedBytes: 1024, cacheHits: 4, cacheRehash: 1, cacheStatus: 'ready' });
+    return { ...await read(options), reusedFiles: 4, hashedFiles: 1, cacheStatus: 'ready' };
+  };
+  await f.host.postprocessDistributedResultsForManual(root, "full");
+  assert.ok(f.events.some(message => message.includes('核验 1 个任务目录') && message.includes('缓存命中 4，重算 1 个文件')));
+  assert.ok(f.events.some(message => message.includes('已核验 1 个任务目录')));
+  assert.ok(f.events.every(message => !/\d+\/\d+ 范围/.test(message)));
+});
+
+test("unavailable inventory cache is explained instead of silently claiming cache reuse", async () => {
+  const f = fixture({ inventoryStdin: true });
+  const read = f.host.verifiedSftpProjectInventory.bind(f.host);
+  f.host.verifiedSftpProjectInventory = async options => ({ ...await read(options), reusedFiles: 0, hashedFiles: 5, cacheStatus: 'write-failed' });
+  await f.host.postprocessDistributedResultsForManual(root, 'full');
+  assert.ok(f.events.some(message => message.includes('缓存写入失败，正在完整校验') && message.includes('缓存命中 0，重算 5 个文件')));
+});
+
+test("transfer notification explains skipped identical and truly changed files", async () => {
+  const f = fixture({ inventoryStdin: true });
+  const transfer = f.host.simpleSftpApiCall.bind(f.host);
+  f.host.simpleSftpApiCall = async (method, payload, _timeout, onProgress) => {
+    onProgress?.({ phase: 'streaming', processedFiles: 0, transferredBytes: 1024, comparedFiles: 3816, changedFiles: 2106,
+      unchangedFiles: 1710, missingFiles: 2100, differentFiles: 6 });
+    return transfer(method, payload);
+  };
+  await f.host.postprocessDistributedResultsForManual(root, 'full');
+  assert.ok(f.events.some(message => message.includes('差异 2106/3816 文件') && message.includes('相同跳过 1710，目标缺失 2100，内容不同 6')));
 });
 
 test("stream notification shows committed totals and hides legacy zero stage counters", async () => {
