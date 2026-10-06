@@ -8,7 +8,7 @@
 - [x] 旧显式重建 helper 每次真实提交使用新 operationId，manifest signature 仍为成功缓存键；先失败后重试不复用旧回执。超限终态保留 bounded completion/failure/cancelled receipt、outputPaths/counts；输出清单无法完整表示时明确失败，非终态仍报告 journal_gap，不扩大 journal/SSE 上限。
 - [x] 生产 seam 验证：三个按钮各读取最新 B 的 6 个 job，BUS/PAD 各 3 seed，忽略 A 共享 CSV 且不创建 raw/staging；所属 Worker 缺失时仅接受 hash 一致的已记录镜像，hash 不同拒绝下载。终态 684929 字节 fixture 保留 completed/failed/cancelled 与完整输出清单。逐文件串行 SimpleExperiment 197、SimpleSFTP 59 个场景通过，包含原子发布、取消 RPC/监听器释放、完整权重同步与 Panel 背压/渲染回归；两项目 build 与 Webview vm.Script 通过。SimpleSFTP 第一次 build 的 vsce ls 在既有 8 秒上限超时，后续完整 build/package 通过，未延长上限。
 - [x] 打包 0.5.229 / 0.2.57；VSIX 内 194 / 18 个运行文件与工作区逐字节 SHA256 一致，无 pyc。SimpleExperiment buildId=58038b9efc51，VSIX SHA256=f903e63affa4b596041c9fe503c2d478a1f59d0aee83b85915d721871ab00fce；SimpleSFTP VSIX SHA256=4549d01dba54e7cde8b6f7e3c54c185227bdd0967c904c93f79318de6269291f。
-- [ ] 补丁打包、scoped commit/push/fetch、自动安装一次；安装后停止 API，记录现场验收范围与未验证项。
+- [x] scoped commit/push/fetch：SimpleExperiment 1f0fa94b / SimpleSFTP 4049e0a 均普通 fast-forward 推送，fetch 后 HEAD=origin/master；自动安装 0.5.229 / 0.2.57 各一次，无 force/降级。code 列表与 simpleex / simple-sftp-api 入口核对成功；安装后 194 / 18 个运行文件身份核对通过（package.json 排除 VS Code 注入 __metadata 后语义一致）。安装后停止 API/Panel 操作，两个原有 dirty pyc 未暂存。现场验收限制见下文。
 
 现场边界：当前运行的 0.5.228 / 0.2.56 不支持新内存协议，本轮没有重发旧入口、停止现有传输或删除历史产物。新按钮与真实 MultiModal 的最终指标/耗时须在用户重载窗口后验收；远端禁用自动重建需准备/更新 Agent 才生效。本次测试证明代码行为，不代表现场同步已成功或速度百分比改善。用户确认取消远端重建，并未提供完整的精确清理路径；旧远端汇总和已有本机 raw 文件不自动删除，但不参与最新 run 的结果选择。
 
