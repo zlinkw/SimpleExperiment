@@ -378,6 +378,22 @@ test("in-flight inventory byte and file progress reaches the outer notification"
     && /3.0 MiB 已处理/.test(message) && /本步已耗时 4 秒/.test(message) && /总耗时 \d+ 秒/.test(message)));
 });
 
+test("stream notification shows committed totals and hides legacy zero stage counters", async () => {
+  const f = fixture({inventoryStdin:true});
+  const transfer=f.host.simpleSftpApiCall.bind(f.host);
+  f.host.simpleSftpApiCall=async (method,payload,_timeout,onProgress)=>{
+    onProgress?.({phase:'streaming',processedFiles:0,transferredBytes:6*1024**3,elapsedMs:250000});
+    onProgress?.({phase:'streaming',processedFiles:0,completedFiles:12,totalFiles:30,completedGroups:3,totalGroups:8,
+      transferredBytes:7*1024**3,elapsedMs:251000});
+    return transfer(method,payload);
+  };
+  await f.host.postprocessDistributedResultsForManual(root,'full');
+  const rows=f.events.filter(message=>/流处理（打包、传输与解包）/.test(message));
+  assert.ok(rows.length>=2);
+  assert.ok(rows.every(message=>!message.includes('已处理 0 个文件')));
+  assert.ok(rows.some(message=>message.includes('已完成 12/30 个文件')&&message.includes('分组 3/8')));
+});
+
 test("a directory inventory cannot inject sibling attempts or unrelated project files", async () => {
   const f = fixture({ inventoryStdin: true });
   const scope = "work_dirs/model/job/attempts/latest";

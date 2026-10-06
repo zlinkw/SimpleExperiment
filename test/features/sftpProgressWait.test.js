@@ -50,6 +50,20 @@ test('only current operation genuine progress reaches the caller; telemetry fail
   assert.equal(progress[1].phase,'streaming');
 });
 
+test('committed file and group counters reach the caller even when the active child reports zero files',async()=>{
+  const reports=[];
+  await fixture(async f=>{
+    f.emit({phase:'transferring',processedBytes:100,processedFiles:2,completedFiles:2,totalFiles:6,completedGroups:1,totalGroups:3});
+    await new Promise(setImmediate);
+    f.emit({phase:'unpacking',processedBytes:200,processedFiles:0,completedFiles:2,totalFiles:6,completedGroups:1,totalGroups:3});
+    await new Promise(setImmediate);
+    f.finish();await f.work;
+  },row=>reports.push(row));
+  assert.equal(reports.at(-1).processedFiles,0);
+  assert.equal(reports.at(-1).completedFiles,2);assert.equal(reports.at(-1).totalFiles,6);
+  assert.equal(reports.at(-1).completedGroups,1);assert.equal(reports.at(-1).totalGroups,3);
+});
+
 test('poll fallback forwards current progress when the event stream is unavailable',async()=>{
   const original=global.fetch, progress=[];
   let operationId, finish;

@@ -10472,7 +10472,12 @@ class RealtimeTunnelPanelProvider {
                 throw new Error("没有可用 Worker，未同步服务器产物。请检查连接后重试。");
             progress.report({ message: "校验并恢复最新版结果片段" });
             const reportTransfer = (detail) => {
-                const processed = detail.processedFiles === undefined ? "" : ` · 已处理 ${detail.processedFiles} 个文件`;
+                const streaming = ["transferring", "streaming"].includes(detail.phase);
+                const processed = detail.completedFiles !== undefined && detail.totalFiles !== undefined
+                    ? ` · 已完成 ${detail.completedFiles}/${detail.totalFiles} 个文件`
+                    : detail.processedFiles === undefined || streaming && detail.processedFiles === 0
+                        ? "" : ` · 阶段已处理 ${detail.processedFiles} 个文件`;
+                const groups = detail.totalGroups ? ` · 分组 ${detail.completedGroups || 0}/${detail.totalGroups}` : "";
                 const wire = ["transferring", "streaming"].includes(detail.phase) && detail.transferredBytes !== undefined;
                 const count = wire ? detail.transferredBytes : detail.processedBytes;
                 const bytes = count === undefined ? "" : ` · ${(count / 1048576).toFixed(1)} MiB ${wire ? "实际传输" : "已处理"}`;
@@ -10485,7 +10490,7 @@ class RealtimeTunnelPanelProvider {
                 const paths = detail.checkedCount === undefined ? detail.fileCount === undefined ? "" : ` · 校验范围 ${detail.fileCount} 路径`
                     : ` · ${detail.checkedCount}/${detail.fileCount} 范围`;
                 const difference = detail.changedFiles === undefined ? "" : ` · 差异 ${detail.changedFiles}/${detail.comparedFiles ?? detail.fileCount} 文件`;
-                progress.report({ message: `${detail.phase === "streaming" ? "流处理（打包、传输与解包）" : label} · ${detail.workerId}${scope}${paths}${difference}${processed}${bytes}${elapsed} · 总耗时 ${Math.floor((Date.now() - syncStartedAt) / 1000)} 秒` });
+                progress.report({ message: `${detail.phase === "streaming" ? "流处理（打包、传输与解包）" : label} · ${detail.workerId}${scope}${paths}${difference}${processed}${groups}${bytes}${elapsed} · 总耗时 ${Math.floor((Date.now() - syncStartedAt) / 1000)} 秒` });
             };
             try {
                 await this.syncDistributedJobArtifacts(root, queue, "fragments", true, reportTransfer);

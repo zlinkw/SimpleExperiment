@@ -207,7 +207,9 @@ async function callSftpWithProgress(method, params, discover, onProgress) {
             const visiblePhase = ["packing", "transferring", "unpacking"].includes(phase) ? "streaming" : phase;
             try {
                 onProgress({ phase: visiblePhase, processedBytes, processedFiles, transferredBytes: count(item.transferredBytes),
-                    comparedFiles: count(item.comparedFiles), changedFiles: count(item.changedFiles), totalBytes: count(item.totalBytes), elapsedMs: Date.now() - startedAt });
+                    comparedFiles: count(item.comparedFiles), changedFiles: count(item.changedFiles), totalBytes: count(item.totalBytes),
+                    completedFiles: count(item.completedFiles), totalFiles: count(item.totalFiles),
+                    completedGroups: count(item.completedGroups), totalGroups: count(item.totalGroups), elapsedMs: Date.now() - startedAt });
             }
             catch { /* Notification failures cannot cancel a genuine transfer. */ }
         }

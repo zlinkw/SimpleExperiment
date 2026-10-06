@@ -23,6 +23,10 @@ export type SimpleSftpProgress = {
   comparedFiles?: number;
   changedFiles?: number;
   totalBytes?: number;
+  completedFiles?: number;
+  totalFiles?: number;
+  completedGroups?: number;
+  totalGroups?: number;
   elapsedMs: number;
 };
 
@@ -198,7 +202,9 @@ export async function callSftpWithProgress(
     if (changed && onProgress) {
       const visiblePhase = ["packing", "transferring", "unpacking"].includes(phase) ? "streaming" : phase;
       try { onProgress({ phase: visiblePhase, processedBytes, processedFiles, transferredBytes: count(item.transferredBytes),
-        comparedFiles: count(item.comparedFiles), changedFiles: count(item.changedFiles), totalBytes: count(item.totalBytes), elapsedMs: Date.now() - startedAt }); }
+        comparedFiles: count(item.comparedFiles), changedFiles: count(item.changedFiles), totalBytes: count(item.totalBytes),
+        completedFiles: count(item.completedFiles), totalFiles: count(item.totalFiles),
+        completedGroups: count(item.completedGroups), totalGroups: count(item.totalGroups), elapsedMs: Date.now() - startedAt }); }
       catch { /* Notification failures cannot cancel a genuine transfer. */ }
     }
     if (item.status === "cancelled") requestAbort.abort(new Error(item.reason || "传输已取消"));
