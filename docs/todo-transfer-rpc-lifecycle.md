@@ -1,5 +1,16 @@
 # 传输等待、退出核查与通知收口
 
+## 2026-10-06 指标批次启动与本地目录读取回归
+
+- [x] 只读 discovery/capabilities 确认 Host 3512 运行 0.5.229 / 0.2.57，API state 的 catalogLoadStatus=loading；真实本机发布记录为 committed、75 个文件，与 registry generation 一致。17 个 Plan 已发布，未删除或重发旧产物，两个 dirty pyc 保留。
+- [x] 128 个长路径映射复现 SSH argv 超限；固定远端脚本、1 MiB 有界 UTF-8 stdin manifest，不逐文件启动 SSH，不写暂存脚本。同步 spawn 失败曾泄漏无子进程的 controller；现在直接释放，仅已启动的子进程继续遵守退出核查。SHA256/大小/路径/取消及 gzip 门禁保留。
+- [x] committed/rolled-back 记录存在被当作 publicationPending，导致线程永远无法启动；读取明确状态，preparing/publishing 才等待，无效状态显式错误。后台线程生命周期回归证明部分成功目录 ready 并 postState；只读真实 MultiModal 目录已能读取 BUS/PAD 各 34 行 final、各 17 个 method 表。该验证不等于已在运行中的旧面板展示，也不代表缺失 Worker 指标已下载。
+- [x] 串行 SimpleExperiment 147、SimpleSFTP 69 个场景通过；另含 build Webview 解析 1 个，两项目 build 与 vm.Script 通过。初次新回归明确复现 argv 超限、controller 泄漏及 settled journal 假等待；未删除失败测试或提高任何超时/内存阈值。
+- [x] 补丁 0.5.230 / 0.2.58 打包验证：194 / 18 个运行文件与工作区逐字节 SHA256 一致，无 pyc；buildId=341aabeb0be9。VSIX SHA256 分别为 ed344f1026f57739f0887470765a0fb9d8f0dc050cb359b26d0de04acdf643e1 / 0f55161536a37bf9a5d7e74614fa2a0c0dc82626949ec35eb45ac7f566d1e328。
+- [ ] scoped commit/push/fetch、每个版本安装一次，安装后停止 API/Panel 操作。
+
+现场边界：本次已只读证明原先成功收录的 17 个 Plan 结果文件真实存在且可解析；修补后的目录状态检查为 publicationPending=false。运行 Host 尚未加载补丁，大批次修复通过真实生产 seam 及有界 stdin 回归验证，未重发真实下载、取消旧请求或改写 MultiModal。缺少来源指标的 3 个预实验仍属待指标，不能冒充成功；新网络下载及面板展示需重载后验收。
+
 ## 2026-10-06 指标直取与结果重建回执
 
 - [x] 读取约束/Git/discovery/capabilities：本地及三个 Worker 均报告 0.5.228；两个 dirty pyc 保留。只读操作记录显示 12:24 的重建产生 local-file-io 进展，但 684929 字节的 operation_completed 被替换成 journal_gap；另一固定签名重建 ID 命中 10 月 2 日的旧 failed 回执，仍返回旧版错误文字。不能再把本次报错直接说成新版 I/O 监视器失效。

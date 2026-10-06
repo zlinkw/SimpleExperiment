@@ -20363,7 +20363,17 @@ export class RealtimeTunnelPanelProvider {
         const registryPath = path.join(root, "simple_cluster", "results", "project_table_registry.json");
         const journalPath = ProjectResultPublication.projectResultPublicationJournalPath(root);
         const [registryStat, journalStat] = await Promise.all([signature(registryPath), signature(journalPath)]);
-        return { registryStat, publicationPending: journalStat !== "missing", signature: `${registryStat}\n${journalStat}` };
+        let publicationPending = false;
+        if (journalStat !== "missing") {
+            // The last settled receipt is retained for recovery. Existence is not an active publication.
+            if (Number(journalStat.split(":")[2]) > 8 * 1024 * 1024)
+                throw new Error("结果发布事务记录过大，拒绝读取结果目录。");
+            const journal = JSON.parse(await fs.readFile(journalPath, "utf8"));
+            if (journal?.schemaVersion !== 1 || !["preparing", "publishing", "committed", "rolled-back"].includes(journal.status))
+                throw new Error("结果发布事务状态无效，保留已有结果。");
+            publicationPending = journal.status === "preparing" || journal.status === "publishing";
+        }
+        return { registryStat, publicationPending, signature: `${registryStat}\n${journalStat}` };
     }
     private scheduleResultCatalogRefresh(request: { root: string; mappings: Record<string, unknown>; key: string; registryStat?: string }): void {
         if (this.resultCatalogRefreshWorker) {
