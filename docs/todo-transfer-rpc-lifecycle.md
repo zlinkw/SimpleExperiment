@@ -1,5 +1,19 @@
 # 传输等待、退出核查与通知收口
 
+## 2026-10-06 结果重建子进程误判无进展
+
+- [x] 读取约束、Git 状态和 discovery/capabilities；保留两个 dirty pyc。磁盘已安装 0.5.227 / 0.2.56，采样时 Host 仍运行 0.5.226 / 0.2.55；区分原请求与新补丁，不重发、取消或清理。
+- [x] 真实错误文字只来自 Agent subprocess_inactivity_run；file_step=True 的生产入口为 rebuild-distributed-results。现有 MultiModal 正式重建会再次读取每个 best_model.pth，_sha 没有 SIMPLE_PROGRESS；Agent 当前只认可协议行，静默但持续读权重也会在 120 秒后被杀。SFTP 原请求已 settled，不能把该错误说成其网络传输超时。
+- [x] 在生产 helper 的提取函数 seam + 子进程/时钟替身中复现：持续静默读取的旧监视器在逻辑 124 秒抛出相同错误。修复后逻辑时间超过 120 秒仍成功；真正无变化、重复协议行、stdin 输入、控制请求和开始/途中取消均保持原有约束。测试没有跑真实 120 秒大权重任务。
+- [x] file_step 每秒最多读取一次直属子进程 /proc/<pid>/io（最多 4096 字节），使用包含 pagecache 的 rchar 与文件 write_bytes，扣除 stdin manifest，排除 stdout/wchar、CPU 与进程存在。采样不可用则不伪造进展；无工作/取消仍停止，30/120 秒阈值不变。Linux 计数语义已核对 [内核文档](https://www.kernel.org/doc/html/latest/filesystems/proc.html#proc-pid-io-display-the-io-accounting-fields)。I/O 表示实际活动，不证明结果已完成或可发布；既有 SHA256、终态与正式结果门禁保留。
+- [x] 超时诊断保存子进程步骤、最后阶段、I/O 是否可观测及脱敏 stderr 尾部；stderr ring 32 KiB、诊断尾部 2000 字符、stdout 4 MiB（超限拒绝截断结果）、单次读取 64 KiB、协议 phase 最多 32 个 + 一个 I/O phase。UTF-8 明确指定，持续排空输出，不新增日志文件。
+- [x] 串行 110 个 Node 场景通过，包含新增 helper 的 9 个场景、异步取消、Worker 并发入口、进展等待、手动产物同步、指标结果完整性、Panel 渲染/背压与 Webview 解析；build / vm.Script / UTF-8 / diff 门禁通过。
+- [ ] 补丁 0.5.228 打包/内容验证、scoped commit/push/fetch、自动安装一次。SimpleSFTP 保持 0.2.56，不重复安装。
+
+打包记录：首次 package 的 vsce ls 超过既有 8 秒上限；单独检查及随后完整 package 成功，未延长上限或绕过门禁。VSIX 内 188 个闭包文件及 6 个 Agent/runtime sidecar 与工作区逐字节 SHA256 一致，无 pyc；buildId=d1f1e2053b11，VSIX SHA256=332c3875ba453ce0b254c34b0ccf48e870aa88e522ec3b0ee2cc9c9e33354ec2。
+
+现场限制：初次只读 transfers.list 显示原 2106/3816 请求 settledAt=2026-10-06T05:40:12.604Z，随后共享结果请求于 05:40:15.521Z settled；settled 仅证明资源退出，不能单独当作内容成功。最新 actionError 为同步入口转发的 Agent 子进程错误。随后 fresh discovery/capabilities 两次监听拒绝连接，未取得完整远端子进程日志、具体停在哪个权重、最终 raw/方法表或新版远端 Agent 状态；没有重发或清理。需重载并“准备 Agent 并启动”使远端加载新版后再复测；仅安装本地 VSIX 不等于远端进程已升级。
+
 ## 2026-10-06 校验缓存持久化与差异透明度
 
 - [x] 读取约束、源码与 Git 状态，保留两个 dirty pyc；实际运行 SimpleExperiment 0.5.226 / SimpleSFTP 0.2.55。没有取消、重发或清理正在传输的产物。

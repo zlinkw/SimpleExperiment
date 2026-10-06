@@ -10842,30 +10842,78 @@ def cancel_inactivity_action(root, wanted, plan=""):
             pass
     return True
 
+def subprocess_file_io(process, proc_root="/proc"):
+    # Owned direct child only. rchar includes cached file reads; pipe output/CPU do not count.
+    # Linux write_bytes excludes stdout/stderr pipe heartbeats.
+    try:
+        with open(os.path.join(proc_root, str(int(process.pid)), "io"), "r", encoding="ascii") as stream:
+            raw = stream.read(4097)
+        if len(raw) > 4096:
+            return None
+        values = {}
+        for line in raw.splitlines():
+            key, separator, value = line.partition(":")
+            if separator and key in ("rchar", "write_bytes"):
+                number = int(value.strip())
+                if number < 0 or number > (1 << 64) - 1 or key in values:
+                    return None
+                values[key] = number
+        if set(values) != {"rchar", "write_bytes"}:
+            return None
+        return values["rchar"], values["write_bytes"]
+    except (OSError, ValueError, TypeError, AttributeError):
+        return None
+
 def subprocess_inactivity_run(command, cwd=None, env=None, input=None, file_step=False):
     entry = getattr(INACTIVITY_ACTION_CONTEXT, "entry", None)
     if entry and entry["cancel"].is_set():
         raise RuntimeError("操作已取消")
     process = subprocess.Popen(command, cwd=cwd, env=env, stdin=subprocess.PIPE if input is not None else subprocess.DEVNULL,
-                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, start_new_session=True)
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, encoding="utf-8", errors="replace", start_new_session=True)
     if entry:
         with INACTIVITY_ACTIONS_LOCK:
             entry["processes"].add(process)
     last_progress = [time.monotonic()]
     progress_lock = threading.Lock()
     counters = {}
-    streams = {"stdout": [], "stderr": []}
+    streams = {"stdout": io.StringIO(), "stderr": deque()}
+    stream_bytes = {"stdout": 0, "stderr": 0}
+    output_overflow = [False]
+    last_io = [0, 0]
+    io_observable = False
+    next_io_sample = 0
+    input_bytes = len(str(input).encode("utf-8")) if input is not None else 0
     def consume(name, stream):
-        for line in stream:
-            streams[name].append(line)
+        for line in iter(lambda: stream.readline(65536), ""):
+            # Drain both pipes even after the output limit; never block the child's writer.
+            text = line[-8192:] if name == "stderr" else line
+            size = len(text.encode("utf-8"))
+            with progress_lock:
+                if name == "stdout" and stream_bytes[name] + size > 4 * 1024 * 1024:
+                    output_overflow[0] = True
+                else:
+                    if name == "stdout":
+                        streams[name].write(text)
+                    else:
+                        streams[name].append(text)
+                    stream_bytes[name] += size
+                    while name == "stderr" and stream_bytes[name] > 32768:
+                        stream_bytes[name] -= len(streams[name].popleft().encode("utf-8"))
             if not line.startswith("SIMPLE_PROGRESS "):
                 continue
             try:
                 item = json.loads(line[len("SIMPLE_PROGRESS "):])
-                phase = str(item.get("phase") or "")
+                if not isinstance(item, dict):
+                    continue
+                phase = str(item.get("phase") or "processing")[:64]
+                counts = (int(item.get("processedBytes") or 0), int(item.get("processedFiles") or 0))
+                if any(value < 0 or value > (1 << 64) - 1 for value in counts):
+                    continue
                 with progress_lock:
+                    if phase not in counters and len(counters) >= 32:
+                        continue
                     previous = counters.get(phase, (0, 0))
-                    current = (max(previous[0], int(item.get("processedBytes") or 0)), max(previous[1], int(item.get("processedFiles") or 0)))
+                    current = (max(previous[0], counts[0]), max(previous[1], counts[1]))
                     changed = phase not in counters or current != previous
                     counters[phase] = current
                     if changed:
@@ -10873,7 +10921,7 @@ def subprocess_inactivity_run(command, cwd=None, env=None, input=None, file_step
                 if changed and entry:
                     progress_action(entry["root"], entry["action"], entry["operationId"], entry["opId"], "running", "处理进展", {
                         "phase": phase, "processedBytes": current[0], "processedFiles": current[1], "lastProgressAt": now_iso()}, request=entry["payload"])
-            except (ValueError, TypeError):
+            except (ValueError, TypeError, OverflowError):
                 pass
     readers = [threading.Thread(target=consume, args=(name, stream), daemon=True) for name, stream in (("stdout", process.stdout), ("stderr", process.stderr))]
     for reader in readers:
@@ -10888,6 +10936,24 @@ def subprocess_inactivity_run(command, cwd=None, env=None, input=None, file_step
     try:
         while process.poll() is None:
             cancelled = bool(entry and entry["cancel"].is_set())
+            observed_at = time.monotonic()
+            if file_step and not cancelled and observed_at >= next_io_sample:
+                next_io_sample = observed_at + 1
+                observed = subprocess_file_io(process)
+                io_observable = observed is not None
+                if observed is not None:
+                    read_bytes = max(0, observed[0] - input_bytes)
+                    write_bytes = observed[1]
+                    with progress_lock:
+                        advanced = read_bytes > last_io[0] or write_bytes > last_io[1]
+                        last_io[:] = [max(last_io[0], read_bytes), max(last_io[1], write_bytes)]
+                        if advanced:
+                            last_progress[0] = observed_at
+                            counters["local-file-io"] = (sum(last_io), 0)
+                    if advanced and entry:
+                        progress_action(entry["root"], entry["action"], entry["operationId"], entry["opId"], "running", "本地文件处理", {
+                            "phase": "local-file-io", "processedBytes": sum(last_io), "readBytes": last_io[0],
+                            "writeBytes": last_io[1], "lastProgressAt": now_iso()}, request=entry["payload"])
             with progress_lock:
                 stalled = time.monotonic() - last_progress[0] >= (120 if file_step else 30)
             if cancelled or stalled:
@@ -10905,13 +10971,26 @@ def subprocess_inactivity_run(command, cwd=None, env=None, input=None, file_step
                             process.kill()
                     except OSError:
                         pass
-                raise RuntimeError("操作已取消" if cancelled else "无真实进展，已停止子进程；请检查日志后重试")
+                if cancelled:
+                    raise RuntimeError("操作已取消")
+                for reader in readers:
+                    reader.join(timeout=1)
+                step = str(entry.get("action") if entry else os.path.basename(str(command[0])))
+                if not entry and len(command) > 2 and command[1] == "-m":
+                    step += " -m " + str(command[2])
+                phase = next(reversed(counters), "starting")
+                tail = redact_text("".join(streams["stderr"])[-2000:]).strip()
+                io_detail = (f"最近读取 {last_io[0]} 字节，写入 {last_io[1]} 字节" if io_observable else "文件 I/O 不可观测") if file_step else "控制请求不使用文件 I/O 续期"
+                detail = f"步骤 {step}，阶段 {phase}，{120 if file_step else 30} 秒；{io_detail}"
+                raise RuntimeError(f"无真实进展（{detail}），已停止子进程；请检查日志后重试" + ("；子进程日志：" + tail if tail else ""))
             time.sleep(0.05)
         for reader in readers:
             reader.join(timeout=1)
         if entry and entry["cancel"].is_set():
             raise RuntimeError("操作已取消")
-        return subprocess.CompletedProcess(command, process.returncode, "".join(streams["stdout"]), "".join(streams["stderr"]))
+        if output_overflow[0]:
+            raise RuntimeError("子进程标准输出超过 4 MiB，未采用截断的结果")
+        return subprocess.CompletedProcess(command, process.returncode, streams["stdout"].getvalue(), "".join(streams["stderr"]))
     finally:
         if entry:
             with INACTIVITY_ACTIONS_LOCK:
