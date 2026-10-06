@@ -2320,28 +2320,9 @@ def append_agent_event(event: dict[str, Any]) -> dict[str, Any]:
 
 
 def run_agent_completion_pipeline(project_dir: str | Path, event: dict[str, Any]) -> None:
-    if str(event.get("type") or "") not in ("operation_completed", "operation_failed"):
-        return
-    payload = event.get("payload") if isinstance(event.get("payload"), dict) else {}
-    if bool(payload.get("debugMode") or event.get("debugMode")):
-        return
-    if str(payload.get("action") or event.get("action") or "") not in ("run-plan", "reproduce-plan"):
-        return
-    agent_path = Path(__file__).with_name("cluster_agent.py")
-    if not agent_path.is_file():
-        return
-    try:
-        spec = importlib.util.spec_from_file_location("simple_cluster_agent_runtime_for_scheduler", agent_path)
-        if not spec or not spec.loader:
-            return
-        module = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(module)
-        hook = getattr(module, "maybe_auto_run_completion_pipeline", None)
-        if callable(hook):
-            hook(str(project_dir), event)
-    except Exception as exc:
-        append_log(Path(project_dir) / "simple_cluster" / "logs" / "scheduler_auto_completion.log", f"[{now()}] auto_completion_skipped {exc}")
-
+    # The local Host pulls authoritative raw metrics and rebuilds the result tables.
+    # Preserve the hook without loading an Agent or producing remote derived results.
+    return None
 
 def append_scheduler_operation_event(args: argparse.Namespace, status: str, message: str, extra: dict[str, Any] | None = None) -> None:
     operation_id = str(getattr(args, "operation_id", "") or "").strip()

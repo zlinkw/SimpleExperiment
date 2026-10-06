@@ -1189,6 +1189,32 @@ def read_seq(root):
 def write_seq(root, seq):
     atomic_write(path_for(root, "seq.txt"), seq)
 
+def compact_terminal_event(event, original_bytes):
+    if event.get("type") not in ("operation_completed", "operation_failed", "operation_cancelled"):
+        return None
+    payload = event.get("payload")
+    if not isinstance(payload, dict):
+        return None
+    body = {}
+    for key in ("action", "opId", "status", "message", "planFile", "planRevision", "workerId", "runId", "completedRunId"):
+        value = payload.get(key)
+        if isinstance(value, str):
+            body[key] = value[:2048]
+    for key in ("publish", "jobCount", "completedCount", "failedCount", "fileCount", "rowCount"):
+        value = payload.get(key)
+        if isinstance(value, (bool, int, float)):
+            body[key] = value
+    paths = payload.get("outputPaths")
+    if isinstance(paths, list):
+        if len(paths) <= 64 and all(isinstance(value, str) and len(value.encode("utf-8")) <= 1024 for value in paths):
+            body["outputPaths"] = paths
+        else:
+            # An incomplete output list must never be advertised as a publishable completion.
+            body.update(status="failed", message="终态输出清单超过回执上限，未确认发布；请检查操作详情")
+    body.update(compacted=True, omittedBytes=original_bytes)
+    return {**{key: event[key] for key in ("schemaVersion", "seq", "generatedAt", "source", "hubId", "operationId") if key in event},
+            "type": "operation_failed" if body.get("status") == "failed" else event["type"], "payload": body}
+
 def append_event(root, event):
     prune_runtime_memory_state()
     os.makedirs(agent_dir(root), exist_ok=True)
@@ -1203,7 +1229,8 @@ def append_event(root, event):
         encoded = json.dumps(event, ensure_ascii=False, separators=(",", ":"))
         encoded_bytes = len(encoded.encode("utf-8"))
         if encoded_bytes > MAX_AGENT_EVENT_RECORD_BYTES:
-            event = {"schemaVersion": SCHEMA_VERSION, "seq": seq, "generatedAt": now_iso(), "source": "hub_agent", "hubId": event.get("hubId", "hub"),
+            terminal = compact_terminal_event(event, encoded_bytes)
+            event = terminal or {"schemaVersion": SCHEMA_VERSION, "seq": seq, "generatedAt": now_iso(), "source": "hub_agent", "hubId": event.get("hubId", "hub"),
                      "type": "diagnostics_updated", "payload": {"code": "journal_gap", "reason": "event_record_exceeds_limit", "omittedType": str(event.get("type") or "event")[:96], "omittedBytes": encoded_bytes}}
             operation_id = str(original_event.get("operationId") or "").strip()[:160] if isinstance(original_event, dict) else ""
             if operation_id:
@@ -9483,81 +9510,9 @@ def event_is_debug_run(event):
     return bool(any(action_bool(value) for value in (body.get("debugMode"), body.get("debug_mode"), payload.get("debugMode"), payload.get("debug_mode"))) or any(str(item).replace("\\", "/").lstrip("/").startswith("simple_cluster/debug_runs/") for item in paths))
 
 def maybe_auto_run_completion_pipeline(root, event):
-    if event_is_debug_run(event):
-        return []
-    typ = str(event.get("type") or "")
-    if typ not in ("worker_task_completed", "scheduler_snapshot", "file_changed", "operation_completed", "operation_failed"):
-        return None
-    root_key = os.path.abspath(root)
-    if root_key in AUTO_COMPLETION_RUNNING:
-        return None
-    try:
-        plans = auto_completion_plans(event, root=root)
-        if not plans:
-            plans = [""]
-        results = []
-        AUTO_COMPLETION_RUNNING.add(root_key)
-        for plan in plans:
-            plan_revision = auto_completion_plan_revision(event, plan or None)
-            keys = auto_completion_candidates(root, event, plan or None)
-            if not keys:
-                continue
-            state = read_auto_completion_state(root, plan or None)
-            processed = state["processedKeys"]
-            pending = [key for key in keys if auto_completion_should_run(processed.get(key), typ)]
-            if not pending:
-                continue
-            started = now_iso()
-            for key in pending:
-                previous = processed.get(key) if isinstance(processed.get(key), dict) else {}
-                attempts = int(previous.get("attempts") or 0) + 1
-                processed[key] = {"status": "running", "triggerType": typ, "startedAt": started, "attempts": attempts, "planFile": plan or "", "planRevision": plan_revision}
-            write_auto_completion_state(root, state, plan or None)
-            result = {"status": "completed", "triggerType": typ, "keys": pending, "startedAt": started, "planFile": plan or "", "planRevision": plan_revision}
-            try:
-                contract = check_output_contract_action(root, plan or None)
-                summary = parse_results_action(root, None, plan or None, plan_revision, action_operation_fields(event.get("payload") if isinstance(event.get("payload"), dict) else {}))
-                statistics_report = compute_statistics_action(root, plan or None, plan_revision) if int(summary.get("finalResultCount") or 0) > 0 else {}
-                result.update({
-                    "completedAt": now_iso(),
-                    "contractStatus": contract.get("status"),
-                    "resultCount": int(summary.get("resultCount") or 0),
-                    "parseFailed": int(summary.get("parseFailed") or 0),
-                    "statisticsRows": len(statistics_report.get("rows") or []),
-                    "planFile": plan or summary.get("planFile") or "",
-                    "summaryPath": summary.get("summaryPath") or plan_results_summary_relpath(plan or summary.get("planFile") or ""),
-                    "statisticsPath": statistics_report.get("path") or "",
-                    "contractReportPath": contract.get("path") or "simple_cluster/contracts/contract_check_reports/latest.json",
-                })
-                if not result["resultCount"]:
-                    result["status"] = "failed"
-                    result["message"] = "自动结果闭环未解析到结果，请检查输出接入规则。"
-                elif int(summary.get("finalResultCount") or 0) > 0:
-                    result["message"] = "自动结果闭环完成：已检查契约、解析结果并更新最终统计。"
-                else:
-                    result["message"] = "结果预览已更新；请筛选并归档有效记录后再生成最终统计。"
-            except Exception as exc:
-                result.update({"status": "failed", "completedAt": now_iso(), "message": str(exc)})
-            state = read_auto_completion_state(root, plan or None)
-            processed = state["processedKeys"]
-            for key in pending:
-                previous = processed.get(key) if isinstance(processed.get(key), dict) else {}
-                item = {k: v for k, v in result.items() if k != "keys"}
-                item["attempts"] = int(previous.get("attempts") or 1)
-                processed[key] = item
-            state["history"] = (state.get("history") or []) + [result]
-            state["lastRunAt"] = result.get("completedAt") or now_iso()
-            state["lastStatus"] = result.get("status")
-            state["lastMessage"] = result.get("message")
-            write_auto_completion_state(root, state, plan or None)
-            results.append(result)
-        if not results:
-            return None
-        if len(results) == 1:
-            return results[0]
-        return {"status": "completed", "triggerType": typ, "planFiles": [item.get("planFile") or "" for item in results], "results": results, "planFile": results[0].get("planFile") or ""}
-    finally:
-        AUTO_COMPLETION_RUNNING.discard(root_key)
+    # Result aggregation belongs to the local Host. Keep this compatibility hook inert:
+    # terminal/progress events must not create remote previews, statistics or parse caches.
+    return None
 
 def format_metric_cell(stat):
     if not stat:

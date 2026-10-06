@@ -10453,7 +10453,7 @@ class RealtimeTunnelPanelProvider {
             await previous;
             if (scope === "metrics" || previousScope === "full" || workspaceRoot() !== root)
                 return;
-            // A metrics preview cannot satisfy a request for checkpoint mirroring/formal publication.
+            // Metric fragments cannot satisfy a request for checkpoint mirroring.
             return this.postprocessDistributedResultsForManual(root, "full");
         }
         this.distributedPostprocessScope = scope;
@@ -10509,16 +10509,6 @@ class RealtimeTunnelPanelProvider {
             }
             if (workspaceRoot() !== root)
                 return;
-            try {
-                progress.report({ message: "重建最新版增量结果预览，等待 Worker 返回" });
-                await this.rebuildDistributedResults(root, await this.loadDistributedQueue(root), true, true);
-                (0, SafeRequestRetry_1.assertRetryRequestCurrent)();
-            }
-            catch (error) {
-                if (scope === "full")
-                    throw error;
-                this.recordActionError({ command: "distributedPreviewRebuild", message: errorMessage(error) });
-            }
             if (scope === "metrics")
                 return;
             progress.report({ message: "校验检查点与日志，按差异压缩传输" });
@@ -10526,8 +10516,6 @@ class RealtimeTunnelPanelProvider {
             (0, SafeRequestRetry_1.assertRetryRequestCurrent)();
             if (workspaceRoot() !== root)
                 return;
-            progress.report({ message: "校验并发布正式结果" });
-            await this.rebuildDistributedResults(root, await this.loadDistributedQueue(root), false, true);
             if (workspaceRoot() === root)
                 this.postState();
         });
@@ -11657,8 +11645,9 @@ class RealtimeTunnelPanelProvider {
         let sourceWorkerId = alreadyBuilt ? reusableSource : available;
         if (!alreadyBuilt) {
             const target = targets.get(available);
+            const operationId = makeOpId("distributed-merge");
             const submitted = await this.client.postWorkerAction(available, "rebuild-distributed-results", {
-                opId: `distributed-merge-${signature.slice(0, 24)}`, operationId: `distributed-merge-${signature.slice(0, 24)}`,
+                opId: operationId, operationId,
                 condaEnv: target.condaEnv, manifest, publish, mergeModule: contract.mergeModule
             });
             const response = remoteActionPendingStatus(resultStatus(submitted)) ? await this.waitForOperationTerminalResult("rebuild-distributed-results", submitted, "结果重建", 0, available) : submitted;
@@ -17091,286 +17080,15 @@ class RealtimeTunnelPanelProvider {
             void vscode.window.showInformationMessage(`结果文件已同步并打开：${localRelative}`);
     }
     async syncAllResultArtifactsFromUi(message) {
-        const projectContext = this.captureProjectContext();
-        const root = projectContext.root;
-        const client = this.client;
-        const isCurrent = () => !(0, SafeRequestRetry_1.retryRequestSignal)()?.aborted && this.projectContextIsCurrent(projectContext) && client === this.client;
-        if (!root)
-            throw new Error("请先打开当前实验项目。");
-        if (this.effectiveConnectionMode() === "offline_import")
-            throw new Error("离线模式无法同步远端结果文件。");
         const planFile = this.resolveSelectedPlanFile(stringField(message, "planFile") || this.planFileInput || this.selectedPlanId || "");
         if (!planFile)
-            throw new Error("无法确认结果文件所属 Plan，已阻止同步。");
-        await this.refreshLocalPlanMetadataForAction(this.actionBody({ planFile }), { allPlans: true });
-        if (!isCurrent())
-            return;
-        await this.postprocessDistributedResultsForManual(root, "full");
-        if (!isCurrent())
-            return;
-        await this.refreshResultsSummary(planFile);
-        if (!isCurrent())
-            return;
-        let summary = this.filterResultsSummaryForPlan(this.resultsSummary, planFile);
-        const ledger = await this.loadPlanSyncLedger(root);
-        const metadata = (this.localPlanMetadata.plans || []).find((item) => samePlanSelection(item.planFile || item.file, planFile));
-        const authority = PlanArtifactSync.latestPlanSyncEntry(ledger, planFile);
-        const queue = await this.loadDistributedQueue(root);
-        const runAuthority = PlanRunFreshness.selectLatestCompletePlanRun(queue, planFile, String(metadata?.revision || summary?.planRevision || authority?.revision || ""));
-        const readyItem = { planFile, metadata, authority, runAuthority, summary };
-        if (runAuthority && !PlanRunFreshness.summaryProvesRun(summary, runAuthority)) {
-            readyItem.summary = summary;
-            await this.recoverCompletedJobMetricFiles(projectContext, [readyItem], isCurrent);
-            summary = readyItem.summary;
-        }
-        const acceptance = acceptedCompletedRevision(readyItem, summary);
-        if (!acceptance.ok)
-            throw new Error(planFile + "：" + acceptance.reason);
-        readyItem.acceptedRevision = acceptance.revision;
-        readyItem.acceptedRunId = runAuthority?.runId || acceptance.runId;
-        readyItem.summary = summary;
-        readyItem.unavailableWorkerIds = Array.isArray(summary?.unavailableWorkerIds) ? summary.unavailableWorkerIds : [];
-        const candidates = resultSummarySyncCandidates(summary, planFile);
-        if (!candidates.length)
-            throw new Error(readyItem.metricDiscoveryError
-                ? "最新完成运行的 attempt 指标无法核验：" + readyItem.metricDiscoveryError
-                : "当前 Plan 没有可同步的结果文件；请先刷新或重建汇总。");
-        if (candidates.length > 64)
-            throw new Error(`当前 Plan 有 ${candidates.length} 个结果文件，超过单次同步上限 64；请分别打开需要的文件。`);
-        readyItem.candidates = candidates;
-        const download = await this.downloadResultArtifactCandidates(projectContext, client, planFile, summary, candidates, "同步当前 Plan 全部结果", { metricsOnly: false });
-        if (!isCurrent() || !download)
-            return;
-        if (download.cancelled && !download.completed && !download.failures?.length)
-            return;
-        if (download.completed > 0 && !download.failures?.length && !download.cancelled)
-            await this.publishDownloadedResultMetrics(projectContext, client, [readyItem], [download]);
-        return download;
+            throw new Error("无法确认结果所属 Plan，已阻止同步。");
+        return this.rebuildProjectResultTablesFromUi({ planFiles: [planFile], title: "更新当前 Plan 指标表" });
     }
     async syncPendingResultMetricsFromUi(options = {}) {
         if (options.background)
-            return { merged: false, downloaded: false, reason: "manual-only", plans: [], discovered: 0, included: 0, missing: 0, skipped: [] };
-        const projectContext = this.captureProjectContext();
-        const root = projectContext.root;
-        const client = this.client;
-        const isCurrent = () => !(0, SafeRequestRetry_1.retryRequestSignal)()?.aborted && this.projectContextIsCurrent(projectContext) && client === this.client;
-        if (!root)
-            throw new Error("请先打开当前实验项目。");
-        if (this.effectiveConnectionMode() === "offline_import")
-            throw new Error("离线模式无法合并 Worker 结果或下载指标文件。");
-        await this.refreshLocalPlanMetadataForAction({ options: {}, suppressGlobalTaskSelection: true }, { allPlans: true });
-        if (!isCurrent())
-            return { merged: false, downloaded: false, reason: "revision-changed" };
-        await this.postprocessDistributedResultsForManual(root, "full");
-        if (!isCurrent())
-            return { merged: false, downloaded: false, reason: "revision-changed" };
-        const ledger = await this.loadPlanSyncLedger(root);
-        const queue = await this.loadDistributedQueue(root);
-        const plans = (await completedResultPlanFiles(this, ledger, root)).filter((planFile) => !options.planFiles
-            || options.planFiles.some((selected) => samePlanSelection(selected, planFile)));
-        if (!plans.length) {
-            void vscode.window.showInformationMessage("当前项目没有已知 Plan，未下载指标文件。");
-            return { merged: true, downloaded: false, reason: "none", plans: [], discovered: 0, included: 0, missing: 0, skipped: [] };
-        }
-        const known = plans.map((planFile) => {
-            const metadata = (this.localPlanMetadata.plans || []).find((item) => samePlanSelection(item.planFile || item.file, planFile));
-            const authority = PlanArtifactSync.latestPlanSyncEntry(ledger, planFile);
-            const scopeHints = resultScopeHintsForPlan(ledger, planFile, authority);
-            const expectedRevision = String(metadata?.revision || authority?.revision || "");
-            const runAuthority = PlanRunFreshness.selectLatestCompletePlanRun(queue, planFile, expectedRevision);
-            return { planFile, metadata, authority, scopeHints, runAuthority };
-        });
-        const targets = this.workerCodeSyncTargets();
-        const configured = this.setupConfig.workerTunnels.map((worker) => worker.id).filter(Boolean);
-        const unreachable = configured.filter((id) => !targets.some((target) => target.id === id));
-        if (unreachable.length && !targets.length)
-            throw new Error("有 Worker 未连接或未启用；请恢复连接后再合并最新版。未下载指标文件。");
-        let merged = targets.length < 2;
-        const unverifiedScopes = new Set();
-        if (!isCurrent())
-            return { merged: false, downloaded: false, reason: "revision-changed" };
-        const ready = [];
-        const issues = [];
-        let summaryCancelled = false;
-        if (unreachable.length)
-            issues.push("Worker 未连接：" + unreachable.join("、") + "。下一步：恢复这些 Worker 后再同步其结果。");
-        await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "同步服务器结果并更新总表", cancellable: true }, async (progress, token) => {
-            for (const [index, item] of known.entries()) {
-                if (token.isCancellationRequested || !isCurrent()) {
-                    summaryCancelled = true;
-                    return;
-                }
-                progress.report({ message: (index + 1) + "/" + known.length + " " + item.planFile });
-                let summary;
-                try {
-                    summary = await this.summaryForMetricDownloadWithBudget(client, item.planFile, index, known.length, isCurrent, token, progress);
-                }
-                catch (error) {
-                    if (error instanceof UiCommandCancelled) {
-                        summaryCancelled = true;
-                        return;
-                    }
-                    issues.push(item.planFile + "：摘要失败（" + errorMessage(error) + "）。下一步：核对该 Plan 的 Worker 健康检查后重试。");
-                    continue;
-                }
-                if (!isCurrent())
-                    return { merged: true, downloaded: false, reason: "revision-changed", plans, issues };
-                const acceptance = acceptedCompletedRevision(item, summary, { allowRunRecovery: true });
-                if (!acceptance.ok) {
-                    issues.push(item.planFile + "：" + acceptance.reason);
-                    continue;
-                }
-                item.acceptedRevision = acceptance.revision;
-                item.acceptedRunId = item.runAuthority?.runId || acceptance.runId;
-                item.unavailableWorkerIds = Array.isArray(summary?.unavailableWorkerIds) ? summary.unavailableWorkerIds.slice() : [];
-                item.revisionNote = item.runAuthority ? "" : acceptance.note;
-                const summaryIsFresh = !item.runAuthority || PlanRunFreshness.summaryProvesRun(summary, item.runAuthority);
-                const candidates = summaryIsFresh ? resultMetricDownloadCandidates(summary, item.planFile) : [];
-                ready.push({ ...item, summary, candidates });
-            }
-            // The summary owns both legacy and dataset-first paths. Never recursively hash
-            // old output directories (or the entire project when those hints are empty).
-            const scopePaths = [...new Set(ready.flatMap((item) => item.candidates.map((candidate) => candidate.remotePath)))].sort();
-            if (targets.length >= 2 && scopePaths.length && !options.background) {
-                if (token.isCancellationRequested || !isCurrent()) {
-                    summaryCancelled = true;
-                    return;
-                }
-                const abort = new AbortController();
-                const cancellation = token.onCancellationRequested?.(() => abort.abort());
-                let outcome;
-                try {
-                    outcome = await this.mergeLatestWorkerVersions(root, targets, scopePaths, ".", (stage) => {
-                        progress.report({ message: stage });
-                        void vscode.window.setStatusBarMessage(`同步服务器结果：${stage}`, 4000);
-                    }, { metricsOnly: true, signal: abort.signal });
-                }
-                finally {
-                    cancellation?.dispose();
-                }
-                if (outcome === false)
-                    throw new UiCommandCancelled("已取消按最新版合并，未下载指标文件。");
-                const blocking = (Array.isArray(outcome?.errors) ? outcome.errors : []).filter((item) => item && !/没有需要同步的 Worker 文件|：代码以本机为准/.test(String(item)));
-                for (const item of blocking)
-                    unverifiedScopes.add(String(item));
-            }
-            merged = true;
-            for (let index = ready.length - 1; index >= 0; index--) {
-                const item = ready[index];
-                const conflict = mergeConflictForPlan(unverifiedScopes, item, item.candidates);
-                if (conflict) {
-                    issues.push(item.planFile + "：" + conflict);
-                    ready.splice(index, 1);
-                }
-            }
-            if (token.isCancellationRequested || !isCurrent()) {
-                summaryCancelled = true;
-                return;
-            }
-            await this.recoverCompletedJobMetricFiles(projectContext, ready, isCurrent, token);
-            for (const item of ready) {
-                item.candidates = resultMetricDownloadCandidates(item.summary, item.planFile);
-                const acceptance = acceptedCompletedRevision(item, item.summary);
-                if (!acceptance.ok) {
-                    item.downloadFailed = true;
-                    issues.push(item.planFile + "：" + acceptance.reason);
-                    continue;
-                }
-                item.acceptedRunId = acceptance.runId;
-                item.acceptedRevision = acceptance.revision;
-                item.unavailableWorkerIds = item.summary?.unavailableWorkerIds || [];
-                if (item.metricDiscoveryError)
-                    issues.push(item.planFile + "：" + item.metricDiscoveryError);
-                if (!trustedCompletedResultSummary(item.summary) && !item.candidates.length)
-                    issues.push(item.planFile + "：服务器摘要尚未收录可解析的 CSV。" + (item.completedMetricFilesMissing?.length ? "已完成 job 的指标文件不存在或校验失败：" + item.completedMetricFilesMissing.slice(0, 3).join("；") : "请核对已完成 job 的结果文件。"));
-            }
-        });
-        if (summaryCancelled || !isCurrent())
-            return { merged: true, downloaded: false, reason: "cancelled", plans, issues };
-        const downloads = [];
-        let confirmed = { cancelled: false, overwrite: true, batches: [], skippedExisting: 0 };
-        if (ready.some((item) => item.candidates.length)) {
-            const batches = [];
-            for (const item of ready.filter((entry) => !entry.downloadFailed && entry.candidates.length)) {
-                try {
-                    batches.push(...this.collectMappedResultDownloadBatches(projectContext, [item], { metricsOnly: true }));
-                }
-                catch (error) {
-                    issues.push(item.planFile + "：下载清单无法安全生成（" + errorMessage(error) + "），该 Plan 未下载。下一步：核对该 Plan 的 Worker 归属后重试。");
-                    item.downloadFailed = true;
-                    item.candidates = [];
-                }
-            }
-            let mergedBatches = [];
-            try {
-                mergedBatches = collapseMappedDownloadBatches(batches);
-            }
-            catch (error) {
-                const blockedPlans = new Set((String(errorMessage(error)).match(/experiments\/plans\/\S+?\.ya?ml/gi) || []).map((plan) => plan.replace(/[，。].*$/, "")));
-                for (const item of ready) {
-                    if (blockedPlans.has(item.planFile)) {
-                        item.downloadFailed = true;
-                        item.candidates = [];
-                        issues.push(item.planFile + "：" + errorMessage(error) + " 下一步：分开这些 Plan 的结果目录。");
-                    }
-                }
-                const remaining = batches.filter((batch) => (batch.entries || []).every((entry) => !blockedPlans.has(entry.planFile)));
-                mergedBatches = collapseMappedDownloadBatches(remaining);
-            }
-            if (!isCurrent())
-                return { merged: true, downloaded: false, reason: "revision-changed", plans, issues };
-            confirmed = await this.confirmMappedResultDownloads(projectContext, client, mergedBatches, "同步服务器结果并更新总表", { metricsOnly: true, missingOnly: options.background });
-            if (!confirmed || (confirmed.cancelled && !confirmed.rejected))
-                return { merged: true, downloaded: false, reason: "cancelled", plans, issues, downloads: confirmed ? [confirmed] : [] };
-            for (const batch of confirmed.batches || []) {
-                if (!isCurrent())
-                    return { merged: true, downloaded: false, reason: "revision-changed", plans, downloads, issues };
-                const download = await this.downloadMappedResultBatch(projectContext, client, batch, "同步服务器结果并更新总表", { metricsOnly: true, overwrite: confirmed.overwrite, notify: false });
-                downloads.push(download);
-                if (!isCurrent())
-                    return { merged: true, downloaded: false, reason: "revision-changed", plans, downloads, issues };
-                if (download?.failures?.length)
-                    issues.push("来源 " + (download.sourceId || "unknown") + " 指标下载失败：" + download.failures.slice(0, 3).join("；") + "。下一步：核对该来源 SSH 后只重试失败 Plan。");
-                if (download?.cancelled)
-                    return { merged: true, downloaded: false, reason: "cancelled", plans, downloads, issues };
-            }
-        }
-        const published = isCurrent()
-            ? await this.publishDownloadedResultMetrics(projectContext, client, ready.filter((item) => !item.downloadFailed), downloads)
-            : { included: [], missing: [], skipped: [] };
-        const report = {
-            merged,
-            downloaded: downloads.some((item) => item && item.completed > 0),
-            plans,
-            downloads,
-            discovered: plans.length,
-            included: published?.included || [],
-            missing: published?.missing || [],
-            skipped: [...issues, ...(published?.skipped || [])],
-            reason: downloads.some((item) => item?.cancelled) ? "partial" : undefined,
-        };
-        if (isCurrent() && report.included.length && report.included.length === plans.length && !report.skipped.length && !report.missing.length) {
-            const latest = await this.loadDistributedQueue(root);
-            const completed = [...new Map(latest.plans.map((plan) => [plan.planFile, plan])).values()].filter((plan) => !plan.recoveryConflict && !plan.recoveryMissingCount
-                && Number(plan.planJobCount || plan.jobs.length) === plan.jobs.length
-                && plan.jobs.length && plan.jobs.every((job) => job.status === "completed"));
-            const signature = latest.publishedSignature || latest.previewSignature ? crypto.createHash("sha256")
-                .update(JSON.stringify([latest.publishedSignature, latest.previewSignature,
-                completed.map((plan) => [plan.id, plan.revision, plan.jobs.map((job) => [job.index, job.attempt, job.commandId])])])).digest("hex") : "";
-            if (signature && completed.length === report.included.length && isCurrent())
-                await this.patchDistributedPublication(root, { localMetricsSignature: signature });
-        }
-        this.resultSyncReport = report;
-        if (isCurrent())
-            this.postState();
-        const text = formatResultSyncReport(report, "同步服务器结果并更新总表");
-        if (!options.background && (report.skipped.length || report.missing.length))
-            void vscode.window.showWarningMessage(text);
-        else if (!options.background)
-            void vscode.window.showInformationMessage(text);
-        if (!report.included.length && report.skipped.length)
-            throw new Error(text);
-        return report;
+            return { merged: false, downloaded: false, reason: "manual-only", plans: [], discovered: 0, included: [], missing: [], skipped: [] };
+        return this.rebuildProjectResultTablesFromUi({ planFiles: options.planFiles, title: "同步服务器结果并更新总表" });
     }
     async summaryForMetricDownload(client, planFile) {
         const summary = typeof client?.getResultsSummary === "function"
@@ -17386,14 +17104,10 @@ class RealtimeTunnelPanelProvider {
         for (const item of items) {
             const revision = String(item.metadata?.revision || item.summary?.planRevision || item.authority?.revision || "");
             const run = item.runAuthority || PlanRunFreshness.selectLatestCompletePlanRun(queue, item.planFile, revision);
-            if (!run) {
-                if (item.summary?.results?.length && resultMetricDownloadCandidates(item.summary, item.planFile).length)
-                    continue;
+            if (!run)
                 continue;
-            }
             item.runAuthority = run;
-            if (PlanRunFreshness.summaryProvesRun(item.summary, run))
-                continue;
+            // Latest-run raw metrics are authoritative even when a shared summary claims the same run.
             const plan = run.plan;
             item.summary = PlanRunFreshness.summaryForRunRecovery(item.summary, item.planFile, run);
             item.completedJobRunId = run.runId;
@@ -17411,61 +17125,100 @@ class RealtimeTunnelPanelProvider {
                     sources.set(job.workerId, new Set());
                 for (const file of metrics)
                     sources.get(job.workerId).add(file);
-                files.push({ job: { ...job, artifacts: run.jobs.find((candidate) => candidate.index === job.index)?.artifactHashes || job.artifacts }, raw, metrics });
+                const original = run.plan.jobs.find(candidate => candidate.index === job.index && Number(candidate.attempt || 1) === job.attempt);
+                files.push({ job: { ...job, artifacts: job.artifactHashes || job.artifacts }, raw, metrics,
+                    mirrors: uniqueStrings([...(original?.fragmentWorkerIds || []), ...(original?.mirroredWorkerIds || [])]).filter(id => id !== job.workerId) });
             }
             recoveries.push({ item, plan, run, files });
         }
         const inventories = new Map();
         const unavailable = new Set();
-        for (const [workerId, scopePaths] of sources) {
-            if (!isCurrent() || token?.isCancellationRequested)
-                throw new UiCommandCancelled("指标下载已取消，保留现有表格。");
-            try {
-                const source = this.mappedDownloadServerForSource(workerId);
-                const inventory = await this.simpleSftpApiCall("sync.projectInventory", { source, relativePath: ".", scopePaths: [...scopePaths] });
-                if (inventory?.ok === false || !inventory?.files)
-                    throw new Error("指标文件清单无效");
-                inventories.set(workerId, inventory);
+        const readInventories = async (requested) => {
+            for (const [workerId, scopePaths] of requested) {
+                if (!isCurrent() || token?.isCancellationRequested)
+                    throw new UiCommandCancelled("指标下载已取消，保留现有表格。");
+                const abort = new AbortController();
+                const cancel = () => abort.abort(new UiCommandCancelled("指标校验已取消，保留现有表格。"));
+                const listener = token?.onCancellationRequested?.(cancel);
+                try {
+                    const source = this.mappedDownloadServerForSource(workerId);
+                    const signal = AbortSignal.any([abort.signal, (0, SafeRequestRetry_1.retryRequestSignal)(), context.signal].filter(Boolean));
+                    const inventory = await this.simpleSftpApiCall("sync.projectInventory", { source, relativePath: ".", scopePaths: [...scopePaths], signal });
+                    if (inventory?.ok === false || !inventory?.files)
+                        throw new Error("指标文件清单无效");
+                    const previous = inventories.get(workerId);
+                    inventories.set(workerId, { ...inventory, files: { ...previous?.files, ...inventory.files },
+                        unverifiedFiles: { ...previous?.unverifiedFiles, ...inventory.unverifiedFiles } });
+                }
+                catch (error) {
+                    if (error instanceof UiCommandCancelled || !isCurrent() || token?.isCancellationRequested)
+                        throw error;
+                    unavailable.add(workerId);
+                    for (const recovery of recoveries.filter((row) => row.files.some((file) => file.job.workerId === workerId)))
+                        recovery.item.metricDiscoveryError = workerId + " 指标文件清单失败：" + errorMessage(error);
+                }
+                finally {
+                    listener?.dispose();
+                }
             }
-            catch (error) {
-                unavailable.add(workerId);
-                for (const recovery of recoveries.filter((row) => row.files.some((file) => file.job.workerId === workerId)))
-                    recovery.item.metricDiscoveryError = workerId + " 指标文件清单失败：" + errorMessage(error);
+        };
+        const verifiedMetrics = (file, workerId) => file.metrics.filter(name => {
+            const inventory = inventories.get(workerId), entry = inventory?.files?.[name], expected = file.job.artifacts?.[name];
+            return entry && !inventory.unverifiedFiles?.[name] && entry.size > 0 && entry.size <= 4 * 1024 * 1024
+                && /^[a-f0-9]{64}$/i.test(String(entry.sha256 || "")) && (!expected || expected === entry.sha256);
+        });
+        await readInventories(sources);
+        const fallbackSources = new Map();
+        for (const { files } of recoveries)
+            for (const file of files) {
+                if (verifiedMetrics(file, file.job.workerId).includes(file.raw) || !file.job.artifacts?.[file.raw])
+                    continue;
+                for (const workerId of file.mirrors) {
+                    const requested = file.metrics.filter(name => !inventories.get(workerId)?.files?.[name]);
+                    if (!requested.length)
+                        continue;
+                    if (!fallbackSources.has(workerId))
+                        fallbackSources.set(workerId, new Set());
+                    for (const name of requested)
+                        fallbackSources.get(workerId).add(name);
+                }
             }
-        }
+        if (fallbackSources.size)
+            await readInventories(fallbackSources);
         for (const { item, plan, run, files } of recoveries) {
             const tables = [];
             const missing = [];
-            for (const { job, raw, metrics } of files) {
-                const inventory = inventories.get(job.workerId);
-                const verified = metrics.filter((file) => {
-                    const entry = inventory?.files?.[file];
-                    const expected = job.artifacts?.[file];
-                    return entry && !inventory.unverifiedFiles?.[file] && entry.size > 0 && entry.size <= RESULT_ARTIFACT_MAX_BYTES
-                        && /^[a-f0-9]{64}$/i.test(String(entry.sha256 || "")) && (!expected || expected === entry.sha256);
-                });
+            const missingWorkers = new Set();
+            for (const file of files) {
+                const { job, raw } = file;
+                const workerId = [job.workerId, ...(job.artifacts?.[raw] ? file.mirrors : [])].find(id => verifiedMetrics(file, id).includes(raw));
+                const inventory = inventories.get(workerId);
+                const verified = workerId ? verifiedMetrics(file, workerId) : [];
                 if (!verified.includes(raw)) {
                     missing.push(job.workerId + ":" + raw);
+                    missingWorkers.add(job.workerId);
                     continue;
                 }
-                tables.push({ workerId: job.workerId, rawResultCsvPath: raw, aggregateStatus: "pending",
+                tables.push({ workerId, rawResultCsvPath: raw, aggregateStatus: "pending",
                     metricPaths: verified, metricHashes: Object.fromEntries(verified.map((file) => [file, inventory.files[file].sha256])),
                     metricSizes: Object.fromEntries(verified.map((file) => [file, inventory.files[file].size])),
                     completedJob: { index: job.index, case: job.case, seed: job.seed, attempt: job.attempt, commandId: job.commandId,
-                        runId: run.runId, outputDir: job.outputDir, artifactHashes: job.artifacts } });
+                        runId: run.runId, outputDir: job.outputDir, ownerWorkerId: job.workerId, artifactHashes: job.artifacts } });
             }
             if (!tables.length) {
                 item.completedMetricFilesMissing = missing;
                 continue;
             }
+            if (!missing.length)
+                item.metricDiscoveryError = undefined;
             const recoveredWorkers = new Set(tables.map((table) => table.workerId));
             item.summary = { ...item.summary, planFile: item.planFile, planRevision: run.revision, completedRunId: run.runId, runId: run.runId,
                 workerResultTables: tables, results: [], recoveredCompletedJobs: true, completedMetricFilesMissing: missing,
-                unavailableWorkerIds: [...new Set([...(item.summary?.unavailableWorkerIds || []), ...files.map((file) => file.job.workerId).filter((id) => unavailable.has(id))])].filter((id) => !recoveredWorkers.has(id)),
+                unavailableWorkerIds: [...new Set([...(item.summary?.unavailableWorkerIds || []), ...missingWorkers].filter(id => missingWorkers.has(id) && unavailable.has(id)))].filter((id) => !recoveredWorkers.has(id)),
                 incompleteAggregate: missing.length > 0, verifiedPartial: true };
         }
     }
-    async downloadMetricPlanItems(context, client, items, isCurrent, token, title, issues) {
+    async downloadMetricPlanItems(context, client, items, isCurrent, token, title, issues, progress) {
         const batches = [];
         for (const item of items) {
             try {
@@ -17494,14 +17247,22 @@ class RealtimeTunnelPanelProvider {
                 return { ...batch, entries, transfers: uniqueMappedTransfers(entries) };
             }).filter((batch) => batch.entries.length));
         }
-        const confirmed = await this.confirmMappedResultDownloads(context, client, merged, title, { metricsOnly: true });
-        if (confirmed.cancelled || !isCurrent() || token?.isCancellationRequested)
+        if (!isCurrent() || token?.isCancellationRequested)
             throw new UiCommandCancelled("指标下载已取消，保留现有表格。");
         const downloads = [];
-        for (const batch of confirmed.batches) {
+        for (const batch of merged) {
             if (!isCurrent() || token?.isCancellationRequested)
                 throw new UiCommandCancelled("指标下载已取消，保留现有表格。");
-            const download = await this.downloadMappedResultBatch(context, client, batch, title, { metricsOnly: true, overwrite: confirmed.overwrite, notify: false });
+            let download;
+            try {
+                download = await this.downloadMetricMemoryBatch(context, client, batch, title, token, progress);
+            }
+            catch (error) {
+                if (error instanceof UiCommandCancelled || !isCurrent() || token?.isCancellationRequested)
+                    throw error;
+                download = { sourceId: batch.sourceId, memoryOnly: true, completed: 0, selected: batch.entries.length,
+                    failures: [errorMessage(error)], cancelled: false, metricFiles: [] };
+            }
             if (download?.cancelled)
                 throw new UiCommandCancelled("指标下载已取消，保留现有表格。");
             downloads.push(download);
@@ -17509,6 +17270,82 @@ class RealtimeTunnelPanelProvider {
                 issues.push("来源 " + batch.sourceId + " 指标下载失败：" + download.failures.slice(0, 3).join("；") + "，保留旧表。");
         }
         return downloads;
+    }
+    async downloadMetricMemoryBatch(context, client, batch, title, token, suppliedProgress) {
+        const isCurrent = () => !(0, SafeRequestRetry_1.retryRequestSignal)()?.aborted && this.projectContextIsCurrent(context) && client === this.client;
+        const check = () => { if (!isCurrent() || token?.isCancellationRequested)
+            throw new UiCommandCancelled("指标下载已取消，保留现有表格。"); };
+        check();
+        const capability = await this.simpleSftpCapability("sync.downloadMappedPaths");
+        if (capability.methodOptions?.["sync.downloadMappedPaths"]?.memoryOnly !== true)
+            throw new Error("需要支持内存指标下载的 SimpleSFTP 版本；请安装最新版并重载窗口。未创建原始指标缓存。");
+        const server = batch.sourceId === "hub" ? this.hubMappedDownloadServer() : this.mappedDownloadServerForSource(batch.workerId || batch.sourceId);
+        const request = async (method, params, extraToken = token) => {
+            const abort = new AbortController();
+            const cancel = () => abort.abort(new UiCommandCancelled("指标下载已取消，保留现有表格。"));
+            const listeners = [...new Set([token, extraToken])].map(value => value?.onCancellationRequested?.(cancel));
+            if (token?.isCancellationRequested || extraToken?.isCancellationRequested)
+                cancel();
+            const signal = AbortSignal.any([abort.signal, (0, SafeRequestRetry_1.retryRequestSignal)(), context.signal].filter(Boolean));
+            try {
+                return await this.simpleSftpApiCall(method, { ...params, signal });
+            }
+            finally {
+                listeners.forEach(listener => listener?.dispose());
+            }
+        };
+        const transfers = uniqueMappedTransfers(batch.entries);
+        const unresolved = transfers.filter(file => !file.sha256 || file.bytes == null);
+        if (unresolved.length) {
+            const inventory = await request("sync.projectInventory", { source: server, relativePath: ".", scopePaths: unresolved.map(file => file.remotePath) });
+            check();
+            for (const file of unresolved) {
+                const evidence = inventory?.files?.[file.remotePath];
+                if (!evidence || inventory.unverifiedFiles?.[file.remotePath] || !Number.isSafeInteger(evidence.size) || evidence.size < 0 || !/^[a-f0-9]{64}$/i.test(evidence.sha256 || ""))
+                    throw new Error("指标文件无法核验大小和 SHA256：" + file.remotePath);
+                if (file.sha256 && file.sha256 !== evidence.sha256 || file.bytes != null && file.bytes !== evidence.size)
+                    throw new Error("指标文件身份已变化：" + file.remotePath);
+                file.sha256 = evidence.sha256;
+                file.bytes = evidence.size;
+            }
+        }
+        const chunks = partitionMappedDownloadTransfers(transfers, 128, 4 * 1024 * 1024, 4 * 1024 * 1024);
+        const metricFiles = [];
+        const receive = async (progress, innerToken) => {
+            for (const [index, chunk] of chunks.entries()) {
+                check();
+                if (innerToken.isCancellationRequested)
+                    throw new UiCommandCancelled("指标下载已取消，保留现有表格。");
+                progress.report({ message: `直接接收最新版指标 ${index + 1}/${chunks.length} 批，${chunk.length} 个文件；本机仅保存重建后的表格` });
+                const response = await request("sync.downloadMappedPaths", { localPath: context.root, server,
+                    entries: chunk.map(file => ({ remotePath: file.remotePath, localRelativePath: file.localRelativePath, bytes: file.bytes, sha256: file.sha256 })),
+                    memoryOnly: true, metricsOnly: true, maxFileBytes: 4 * 1024 * 1024, maxBatchBytes: 4 * 1024 * 1024, compression: "auto", confirm: true, pathConfirmed: true }, innerToken);
+                check();
+                if (innerToken.isCancellationRequested)
+                    throw new UiCommandCancelled("指标下载已取消，保留现有表格。");
+                if (response?.memoryOnly !== true || response.ok === false || response.entries?.length !== chunk.length)
+                    throw new Error("内存指标下载未返回完整文件清单");
+                const received = new Map();
+                for (const file of response.entries) {
+                    const expected = chunk.find(entry => entry.remotePath === file.remotePath);
+                    if (!expected || received.has(file.remotePath) || typeof file.dataBase64 !== "string" || file.dataBase64.length > 4 * Math.ceil(expected.bytes / 3))
+                        throw new Error("内存指标下载包含未声明或超限文件");
+                    const bytes = Buffer.from(file.dataBase64, "base64");
+                    if (bytes.toString("base64") !== file.dataBase64 || bytes.length !== expected.bytes || file.bytes !== expected.bytes || file.sha256 !== expected.sha256 || crypto.createHash("sha256").update(bytes).digest("hex") !== expected.sha256)
+                        throw new Error("已下载指标与服务器文件指纹不一致：" + file.remotePath);
+                    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+                    received.set(file.remotePath, { remotePath: file.remotePath, sha256: expected.sha256,
+                        rows: file.remotePath.toLowerCase().endsWith(".csv") ? parseDownloadedMetricCsv(text, pluginProjectAdapterRules(context.root).csvColumnMapping || {}) : [] });
+                    delete file.dataBase64;
+                }
+                metricFiles.push(...received.values());
+            }
+        };
+        if (suppliedProgress)
+            await receive(suppliedProgress, token);
+        else
+            await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: title + " · " + batch.sourceId, cancellable: true }, receive);
+        return { sourceId: batch.sourceId, memoryOnly: true, completed: metricFiles.length, selected: transfers.length, failures: [], cancelled: false, metricFiles };
     }
     async summaryForMetricDownloadWithBudget(client, planFile, index, total, isCurrent, token, progress) {
         let summary;
@@ -18023,12 +17860,15 @@ class RealtimeTunnelPanelProvider {
             const workerId = String(table.workerId || "");
             const localRelative = methodResultArtifactLocalRelativePath(remotePath, planFile, summary, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, tables.length > 1 ? workerId : "");
             const localPath = safeWorkspaceChildPath(root, localRelative);
-            const localStat = await fs.lstat(localPath).catch(() => undefined);
+            const memory = options.memoryMetricFiles?.get((workerId || "hub") + "\0" + remotePath);
+            if (options.memoryMetricFiles && !memory)
+                continue;
+            const localStat = options.memoryMetricFiles ? undefined : await fs.lstat(localPath).catch(() => undefined);
             const text = localStat?.isFile() ? await fs.readFile(localPath, "utf8").catch(() => "") : "";
-            if (!text)
+            if (!memory && !text)
                 continue;
             const expectedHash = table.metricHashes?.[remotePath];
-            if (expectedHash && crypto.createHash("sha256").update(text, "utf8").digest("hex") !== expectedHash)
+            if (expectedHash && (memory?.sha256 || crypto.createHash("sha256").update(text, "utf8").digest("hex")) !== expectedHash)
                 throw new Error("已下载指标与服务器文件指纹不一致：" + remotePath);
             const onlineParsedAt = Date.parse(String(table.lastParsedAt || summary?.lastParsedAt || ""));
             const sourceKey = workerId || "hub";
@@ -18037,9 +17877,9 @@ class RealtimeTunnelPanelProvider {
             const workerOnlineRows = (Array.isArray(summary?.results) ? summary.results : []).filter((row) => String(row?.workerId || row?.resultOwnerWorkerId || summary?.resultOwnerWorkerId || "") === workerId);
             if (!downloadedNow && selectedRun && !Number.isFinite(onlineParsedAt))
                 continue;
-            if (!downloadedNow && workerOnlineRows.length && Number.isFinite(onlineParsedAt) && localStat.mtimeMs + 1000 < onlineParsedAt)
+            if (!downloadedNow && workerOnlineRows.length && Number.isFinite(onlineParsedAt) && (localStat?.mtimeMs || 0) + 1000 < onlineParsedAt)
                 continue;
-            const parsed = parseDownloadedMetricCsv(text, pluginProjectAdapterRules(root).csvColumnMapping || {});
+            const parsed = memory?.rows || parseDownloadedMetricCsv(text, pluginProjectAdapterRules(root).csvColumnMapping || {});
             if (table.completedJob && (!parsed.length || parsed.some((row) => row.dimensions.case !== table.completedJob.case || String(row.dimensions.seed) !== String(table.completedJob.seed))))
                 throw new Error("已完成 job 的指标 CSV 缺失或 Case/seed 身份不匹配：" + remotePath);
             for (const row of parsed) {
@@ -18062,8 +17902,8 @@ class RealtimeTunnelPanelProvider {
             ...(options.completedRunId && options.downloadedSources?.size ? { stampCompletedRunId: true, completedRunId: options.completedRunId } : {}),
             results,
             workerResultTables: nextTables.length ? nextTables : summary.workerResultTables,
-            incompleteAggregate: false,
-            unavailableWorkerIds: [],
+            incompleteAggregate: Boolean(summary?.incompleteAggregate || summary?.unavailableWorkerIds?.length),
+            unavailableWorkerIds: summary?.unavailableWorkerIds || [],
         };
     }
     async loadProjectTableRegistry(root) {
@@ -18271,6 +18111,7 @@ class RealtimeTunnelPanelProvider {
             headers,
             instanceId: typeof capabilities.instanceId === "string" ? capabilities.instanceId : "",
             features: capabilities.features && typeof capabilities.features === "object" ? capabilities.features : {},
+            methodOptions: capabilities.methodOptions || {},
         };
     }
     async simpleSftpApiCall(method, params, timeoutMs = 0, onProgress) {
@@ -18456,7 +18297,7 @@ class RealtimeTunnelPanelProvider {
             return;
         await this.writeProjectTableRegistry(root, next);
     }
-    async rebuildProjectResultTablesFromUi() {
+    async rebuildProjectResultTablesFromUi(options = {}) {
         const context = this.captureProjectContext();
         const root = context.root;
         const client = this.client;
@@ -18469,7 +18310,7 @@ class RealtimeTunnelPanelProvider {
             return;
         const syncLedger = await this.loadPlanSyncLedger(root);
         const queue = await this.loadDistributedQueue(root);
-        const planFiles = (await completedResultPlanFiles(this, syncLedger, root)).slice(0, 500);
+        const planFiles = (await completedResultPlanFiles(this, syncLedger, root)).filter(file => !options.planFiles || options.planFiles.some(selected => samePlanSelection(selected, file))).slice(0, 500);
         const plans = planFiles.map((planFile) => {
             const metadata = (this.localPlanMetadata.plans || []).find((item) => samePlanSelection(item.planFile || item.file, planFile)) || { planFile };
             const authority = PlanArtifactSync.latestPlanSyncEntry(syncLedger, planFile);
@@ -18484,7 +18325,8 @@ class RealtimeTunnelPanelProvider {
         const missing = [];
         const registeredPlans = new Set();
         const refreshedSummaries = [];
-        await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "下载指标并重新汇总", cancellable: true }, async (progress, token) => {
+        const allDownloads = [];
+        await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: options.title || "下载指标并重新汇总", cancellable: true }, async (progress, token) => {
             const isCurrent = () => !(0, SafeRequestRetry_1.retryRequestSignal)()?.aborted && this.projectContextIsCurrent(context) && client === this.client;
             const ready = [];
             for (const [index, plan] of plans.entries()) {
@@ -18494,7 +18336,8 @@ class RealtimeTunnelPanelProvider {
                 progress.report({ message: (index + 1) + "/" + plans.length + " " + planFile });
                 let summary;
                 try {
-                    summary = await this.summaryForMetricDownloadWithBudget(client, planFile, index, plans.length, isCurrent, token, progress);
+                    summary = plan.runAuthority ? PlanRunFreshness.summaryForRunRecovery({}, planFile, plan.runAuthority)
+                        : await this.summaryForMetricDownloadWithBudget(client, planFile, index, plans.length, isCurrent, token, progress);
                 }
                 catch (error) {
                     if (error instanceof UiCommandCancelled)
@@ -18518,7 +18361,9 @@ class RealtimeTunnelPanelProvider {
                 if (item.metricDiscoveryError)
                     issues.push(item.planFile + "：" + item.metricDiscoveryError);
             }
-            const downloads = await this.downloadMetricPlanItems(context, client, ready.filter((item) => !item.downloadFailed), isCurrent, token, "下载指标并重新汇总", issues);
+            const downloads = await this.downloadMetricPlanItems(context, client, ready.filter((item) => !item.downloadFailed), isCurrent, token, "下载指标并重新汇总", issues, progress);
+            allDownloads.push(...downloads);
+            const memoryMetricFiles = new Map(downloads.flatMap(download => (download.metricFiles || []).map(file => [download.sourceId + "\0" + file.remotePath, file])));
             const downloadedSources = new Set(downloads.filter(verifiedDownload).map((item) => String(item.sourceId || "hub")));
             const failedSources = new Set(downloads.filter((item) => !verifiedDownload(item)).map((item) => String(item.sourceId || "hub")));
             for (const item of ready) {
@@ -18532,17 +18377,18 @@ class RealtimeTunnelPanelProvider {
                 const serverSummary = summaryWithoutSources(item.summary, failedSources);
                 let localSummary;
                 try {
-                    localSummary = await this.summaryFromLocalMetricFiles(root, planFile, serverSummary, { downloadedSources,
+                    localSummary = await this.summaryFromLocalMetricFiles(root, planFile, serverSummary, { downloadedSources, memoryMetricFiles,
                         completedRunId: reportedCompletedRunIds(serverSummary).includes(item.acceptedRunId) ? item.acceptedRunId : "" });
                 }
                 catch (error) {
                     issues.push(planFile + "：本地指标无法解析（" + errorMessage(error) + "），保留旧表。");
                     continue;
                 }
-                summary = summaryWithoutSources(preferServerMetricSummary(serverSummary, localSummary, { downloadedSources }) || serverSummary, failedSources);
+                // This path accepts downloaded raw rows only, never old remotely rebuilt tables.
+                summary = localSummary || { ...serverSummary, results: [] };
                 const authority = PlanArtifactSync.latestPlanSyncEntry(syncLedger, planFile);
                 let useRegistered = false;
-                if (!trustedCompletedResultSummary(summary) && !(serverSummary?.results?.length)) {
+                if (!trustedCompletedResultSummary(summary)) {
                     const registered = ProjectResultTables.registeredPlanSummary(registry, planFile);
                     if (registered) {
                         const reportedRevision = String(serverSummary?.planRevision || "");
@@ -18613,6 +18459,8 @@ class RealtimeTunnelPanelProvider {
             await this.writeProjectTableRegistry(root, registry);
         }
         const report = {
+            plans: planFiles, merged: true, downloaded: allDownloads.some(download => download.completed > 0),
+            downloads: allDownloads.map(({ sourceId, completed, selected, failures, cancelled }) => ({ sourceId, completed, selected, failures, cancelled, memoryOnly: true })),
             discovered: plans.length,
             included: registry.plans ? Object.keys(registry.plans).filter((planFile) => refreshedSummaries.some((summary) => samePlanSelection(summary.planFile, planFile))).map((planFile) => planFile + (registeredPlans.has(planFile) ? "：已按已收录的本机逐 seed 记录重算" : "：已按服务器摘要与本地指标重算")) : [],
             missing,
@@ -18623,11 +18471,12 @@ class RealtimeTunnelPanelProvider {
             report.included = Array.from({ length: included }, (_, index) => "已重算 " + (index + 1));
         this.resultSyncReport = report;
         this.postState();
-        const message = formatResultSyncReport(report, "下载指标并重新汇总");
+        const message = formatResultSyncReport(report, options.title || "下载指标并重新汇总");
         if (issues.length || missing.length)
             void vscode.window.showWarningMessage(message);
         else
             void vscode.window.showInformationMessage(message);
+        return report;
     }
     async openLocalResultTableFromUi(message) {
         const context = this.captureProjectContext();
@@ -32462,7 +32311,11 @@ function filterCompletedResultSummaryForPlan(summary, planFile) {
 function summaryWithoutSources(summary, blocked) {
     if (!summary)
         return summary;
-    const blockedIds = new Set([...blocked, ...(Array.isArray(summary.unavailableWorkerIds) ? summary.unavailableWorkerIds : [])].map((item) => String(item || "").toLowerCase()).filter(Boolean));
+    const owners = new Set([summary?.resultOwnerWorkerId || summary?.workerId || "", ...(summary?.workerResultTables || []).map(row => row?.workerId),
+        ...(summary?.results || []).map(row => row?.workerId || row?.resultOwnerWorkerId || "hub")].map(value => String(value || "").toLowerCase()).filter(Boolean));
+    const blockedIds = new Set([...blocked].filter(value => owners.has(String(value || "").toLowerCase())));
+    for (const value of summary.unavailableWorkerIds || [])
+        blockedIds.add(String(value || "").toLowerCase());
     if (!blockedIds.size)
         return summary;
     const ownerOf = (row) => String(row?.workerId || row?.resultOwnerWorkerId || "hub").toLowerCase();
@@ -32473,6 +32326,12 @@ function summaryWithoutSources(summary, blocked) {
 function verifiedDownload(download) {
     if (!download || download.cancelled)
         return false;
+    if (download.memoryOnly === true) {
+        const files = Array.isArray(download.metricFiles) ? download.metricFiles : [];
+        return files.length > 0 && !(download.failures || []).length
+            && Number(download.completed || 0) === files.length
+            && Number(download.selected || 0) === files.length;
+    }
     const delivered = Array.isArray(download.deliveredEntries) ? download.deliveredEntries : [];
     return delivered.length > 0 && Number(download.completed || 0) >= delivered.length;
 }
@@ -32607,7 +32466,9 @@ function resultMetricMergeScopePaths(plan, planFile, extras = []) {
     return [...paths].filter((item) => item && item !== "." && !isBlockedResultScope(item)).sort();
 }
 function resultMetricDownloadCandidates(summary, planFile) {
-    return resultSummarySyncCandidates(summary, planFile).filter((item) => isResultMetricFile(item.remotePath) && !isLegacyProjectAggregateMetric(item.remotePath));
+    const rawPaths = new Set([summary?.rawResultCsvPath, ...(summary?.workerResultTables || []).flatMap(table => [table.rawResultCsvPath, ...(table.completedJob ? table.metricPaths || [] : [])])].filter(Boolean));
+    return resultSummarySyncCandidates(summary, planFile).filter((item) => rawPaths.has(item.remotePath)
+        && isResultMetricFile(item.remotePath) && !isLegacyProjectAggregateMetric(item.remotePath));
 }
 const LEGACY_PROJECT_AGGREGATE_METRICS = new Set([
     "simple_cluster/results/project_seed_mean_std.csv",

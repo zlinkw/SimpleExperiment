@@ -53,11 +53,11 @@ function row(workerId, caseName, seed, metric, revision = "ra") {
   };
 }
 
-function table(workerId, status = "ready") {
+function table(workerId, status = "ready", planName = "a") {
   return {
     workerId,
     aggregateStatus: status,
-    rawResultCsvPath: "simple_cluster/results/" + workerId + "/raw.csv",
+    rawResultCsvPath: "simple_cluster/results/" + workerId + "/" + planName + "/raw.csv",
     aggregateCsvPath: "simple_cluster/results/" + workerId + "/detail.csv",
   };
 }
@@ -72,16 +72,22 @@ function providerFor(workspace) {
     },
     "experiments/plans/b.yaml": {
       planFile: "experiments/plans/b.yaml", planRevision: "rb",
-      workerResultTables: [table("w2")],
+      workerResultTables: [table("w2", "ready", "b")],
       results: [row("w2", "beta", 1, 0.71, "rb")],
     },
     "experiments/plans/c.yaml": {
       planFile: "experiments/plans/c.yaml", planRevision: "rc",
-      workerResultTables: [table("w1")],
+      workerResultTables: [table("w1", "ready", "c")],
       results: [row("w1", "gamma", 1, 0.61, "rc"), row("w1", "gamma", 2, 0.62, "rc")],
     },
   };
   const calls = [];
+  const metricText = (file, worker) => {
+    const name = file.includes("/b/") ? "beta" : file.includes("/c/") ? "gamma" : "alpha";
+    const seeds = name === "alpha" ? (worker === "w2" ? [[3, 0.83]] : [[1, 0.81], [2, 0.82]])
+      : name === "gamma" ? [[1, 0.61], [2, 0.62]] : [[1, 0.71]];
+    return "case,seed,method,dataset,eval_protocol,AUC\n" + seeds.map(([seed, value]) => `${name},${seed},${worker},set,holdout,${value}`).join("\n") + "\n";
+  };
   const provider = {
     calls,
     manualResultSyncCounts: new Map(),
@@ -108,7 +114,15 @@ function providerFor(workspace) {
     },
     simpleSftpApiCall: async (method, params) => {
       calls.push([method, (params.server || params.source)?.id, (params.entries || []).map((entry) => entry.remotePath)]);
-      if (method === "sync.projectInventory") return { ok: true, files: Object.fromEntries((params.scopePaths || []).map((remotePath) => [remotePath, { size: 10 }])) };
+      const worker = (params.server || params.source)?.id;
+      if (method === "sync.projectInventory") return { ok: true, files: Object.fromEntries((params.scopePaths || []).map(remotePath => {
+        const text = metricText(remotePath, worker);
+        return [remotePath, { size: Buffer.byteLength(text), sha256: crypto.createHash("sha256").update(text).digest("hex") }];
+      })) };
+      if (params.memoryOnly) return { ok: true, memoryOnly: true, entries: params.entries.map(entry => {
+        const text = metricText(entry.remotePath, worker);
+        return { remotePath: entry.remotePath, bytes: Buffer.byteLength(text), sha256: crypto.createHash("sha256").update(text).digest("hex"), dataBase64: Buffer.from(text).toString("base64") };
+      }) };
       if (method === "sync.projectFileStats") return { files: Object.fromEntries((params.paths || []).map((remotePath) => [remotePath, { size: 10 }])) };
       for (const entry of params.entries) {
         const full = path.join(workspace, ...entry.localRelativePath.split("/"));
@@ -122,6 +136,7 @@ function providerFor(workspace) {
       }
       return { ok: true, fileCount: params.entries.length, completedFiles: params.entries.length };
     },
+    simpleSftpCapability: async () => ({ methodOptions: { "sync.downloadMappedPaths": { memoryOnly: true } } }),
     sftpServerOptions: (item) => ({ id: item.id, host: item.host, user: item.user, port: item.port, remotePath: item.remotePath, transferHost: item.host, resolvedHost: item.host }),
     postState() {
       calls.push(["postState", this.resultSyncReport, this.resultsSummary && this.resultsSummary.planFile]);
@@ -182,7 +197,7 @@ test("sync includes every completed plan and both workers before one mapped down
   assert.equal(registry.plans["experiments/plans/c.yaml"].records.length, 2);
   const mergeAt = host.calls.findIndex((call) => call[0] === "merge");
   const downloadAt = host.calls.findIndex((call) => call[0] === "sync.downloadMappedPaths");
-  assert.ok(mergeAt >= 0 && mergeAt < downloadAt);
+  assert.equal(mergeAt, -1); assert.ok(downloadAt >= 0);
   const downloads = host.calls.filter((call) => call[0] === "sync.downloadMappedPaths");
   assert.equal(host.postedSummary.results.length > 0, true);
   assert.equal(host.calls.some((call) => call[0] === "postState" && call[1] && call[1].discovered === 4), true);
@@ -340,14 +355,11 @@ test("same-revision rerun recovery ignores anonymous shared CSV and publishes on
       return { ok: true, files };
     }
     if (method === "sync.downloadMappedPaths") {
-      for (const entry of params.entries) {
+      return { ok: true, memoryOnly: true, entries: params.entries.map(entry => {
         const body = fragments.get(entry.remotePath);
         assert.ok(body, `unexpected remote artifact ${entry.remotePath}`);
-        const full = path.join(workspace, ...entry.localRelativePath.split("/"));
-        fs.mkdirSync(path.dirname(full), { recursive: true });
-        fs.writeFileSync(full, body, "utf8");
-      }
-      return { ok: true, fileCount: params.entries.length, completedFiles: params.entries.length };
+        return { remotePath: entry.remotePath, bytes: entry.bytes, sha256: entry.sha256, dataBase64: Buffer.from(body).toString("base64") };
+      }) };
     }
     throw new Error("unexpected SimpleSFTP method " + method);
   };
@@ -375,19 +387,17 @@ test("same-revision rerun recovery ignores anonymous shared CSV and publishes on
     assert.equal(Number(row[header.indexOf("roc_auc_mean")]), dataset === "BUS" ? 0.81 : 0.84);
   }
   assert.equal(records.every((record) => record.metrics.AUC >= 0.8), true);
-  assert.equal(host.calls.some((call) => call[0] === "postprocess" && call[1] === "full"), true);
+  assert.equal(host.calls.some((call) => call[0] === "postprocess"), false);
   assert.equal(host.calls.some((call) => call[0] === "merge" && call[1].includes(oldSharedPath)), false);
   const downloadedRaw = host.calls.flatMap((call) => call[0] === "sync.downloadMappedPaths" ? call[2] : [])
     .filter((remote) => remote.endsWith("/formal_result_rows.csv"));
   assert.deepEqual([...new Set(downloadedRaw)].sort(), runB.jobs.map((job) => `${job.outputDir}/test_results/formal_result_rows.csv`).sort());
-  const localRaw = provider.selectedDownloadEntries.filter((entry) => entry.remotePath.endsWith("/formal_result_rows.csv"));
-  assert.equal(localRaw.length, runB.jobs.length);
-  for (const entry of localRaw) {
-    const text = fs.readFileSync(path.join(workspace, ...entry.localRelative.split("/")), "utf8");
+  for (const remotePath of downloadedRaw) {
+    const text = fragments.get(remotePath);
     const header = text.trim().split("\n")[0].split(",");
     const fields = text.trim().split("\n")[1].split(",");
     assert.equal(fields[header.indexOf("run_id")], "run-b");
-    assert.equal(fields[header.indexOf("job_dir")], entry.remotePath.replace(/\/test_results\/formal_result_rows\.csv$/, ""));
+    assert.equal(fields[header.indexOf("job_dir")], remotePath.replace(/\/test_results\/formal_result_rows\.csv$/, ""));
   }
   for (const caseName of ["bus_p100", "pad_p100"]) {
     const dataset = caseName === "bus_p100" ? "BUS" : "PAD";
@@ -423,7 +433,7 @@ test("yaml newer than the trusted completed run still publishes that completed r
   const registry = JSON.parse(fs.readFileSync(path.join(workspace, "simple_cluster", "results", "project_table_registry.json"), "utf8"));
   assert.equal(registry.plans["experiments/plans/a.yaml"].revision, "ra");
   assert.equal(registry.plans["experiments/plans/a.yaml"].records.some((item) => item.case === "other"), false);
-  assert.match(host.postedReport.included.join("\n"), /yaml-new/);
+  assert.match(host.postedReport.skipped.join("\n"), /yaml-new/);
 });
 
 test("a plan known only from the registry is still discovered", async () => {
@@ -448,15 +458,10 @@ test("one failed worker is omitted and the successful worker is published", asyn
   vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: workspace, scheme: "file", path: workspace } }];
   const provider = providerFor(workspace);
   provider.localPlanMetadata.plans = [{ planFile: "experiments/plans/a.yaml", revision: "ra", seeds: [1, 2, 3] }];
+  const firstSftp = provider.simpleSftpApiCall;
   provider.simpleSftpApiCall = async (method, params) => {
-    provider.calls.push([method, params.server.id, params.entries.map((entry) => entry.remotePath)]);
-    if (params.server.id === "w2") throw new Error("w2 ssh closed");
-    for (const entry of params.entries) {
-      const full = path.join(workspace, ...entry.localRelativePath.split("/"));
-      fs.mkdirSync(path.dirname(full), { recursive: true });
-      fs.writeFileSync(full, "case,seed,method,dataset,eval_protocol,AUC\nalpha,1,w1,set,holdout,0.91\nalpha,2,w1,set,holdout,0.92\n");
-    }
-    return { ok: true, fileCount: params.entries.length, completedFiles: params.entries.length };
+    if ((params.server || params.source).id === "w2") throw new Error("w2 ssh closed");
+    return firstSftp(method, params);
   };
   const { RealtimeTunnelPanelProvider } = require("../../dist/extension/legacy.js");
   const host = Object.assign(Object.create(RealtimeTunnelPanelProvider.prototype), provider);
@@ -476,15 +481,19 @@ test("nested comparison plans are discovered and a conflicting metric path block
   provider.loadPlanSyncLedger = async () => ({ schemaVersion: 2, entries: {} });
   provider.client.getResultsSummary = async (planFile) => ({
     planFile, planRevision: "rn",
-    workerResultTables: [{ workerId: "w1", rawResultCsvPath: "simple_cluster/results/" + planFile.split("/").at(-2) + "/raw.csv", aggregateStatus: "ready" }],
+    workerResultTables: [{ workerId: planFile.includes("/comparison/nested/") ? "w2" : "w1", rawResultCsvPath: "simple_cluster/results/" + planFile.split("/").at(-2) + "/raw.csv", aggregateStatus: "ready" }],
     results: [{ workerId: "w1", dimensions: { case: "alpha", seed: "1", method: "method", dataset: "set", eval_protocol: "holdout" }, metrics: { AUC: { value: 0.5 } }, sourceFiles: [{ path: "simple_cluster/results/" + planFile.split("/").at(-2) + "/raw.csv" }] }],
   });
-  provider.mergeLatestWorkerVersions = async () => ({ completed: [], errors: ["simple_cluster/results/comparison/raw.csv：没有可靠的最新版"] });
+  const nestedSftp = provider.simpleSftpApiCall;
+  provider.simpleSftpApiCall = async (method, params) => {
+    if ((params.scopePaths || params.entries?.map(entry => entry.remotePath) || []).some(file => file.includes("comparison/raw.csv"))) throw new Error("comparison raw SHA256 evidence unavailable");
+    return nestedSftp(method, params);
+  };
   const { RealtimeTunnelPanelProvider } = require("../../dist/extension/legacy.js");
   const host = Object.assign(Object.create(RealtimeTunnelPanelProvider.prototype), provider);
   await RealtimeTunnelPanelProvider.prototype.handleMessageCore.call(host, { command: "syncPendingPlanArtifacts" }, "syncPendingPlanArtifacts");
   assert.deepEqual(host.postedReport.plans, nested);
-  assert.match(host.postedReport.skipped.join("\n"), /drf\.yaml/);
+  assert.match(JSON.stringify(host.postedReport), /drf\.yaml/);
   assert.equal(host.calls.some((call) => call[0] === "sync.downloadMappedPaths" && JSON.stringify(call).includes("comparison/raw.csv")), false);
 });
 
@@ -503,15 +512,10 @@ test("an existing w2 record stays when this sync fails w2 and updates w1", async
     workerResultTables: [table("w1"), table("w2")],
     results: [row("w1", "alpha", 1, 0.81), row("w2", "alpha", 3, 0.99)],
   });
+  const existingSftp = provider.simpleSftpApiCall;
   provider.simpleSftpApiCall = async (method, params) => {
-    provider.calls.push([method, params.server.id]);
-    if (params.server.id === "w2") throw new Error("w2 ssh closed");
-    for (const entry of params.entries) {
-      const full = path.join(workspace, ...entry.localRelativePath.split("/"));
-      fs.mkdirSync(path.dirname(full), { recursive: true });
-      fs.writeFileSync(full, "case,seed,method,dataset,eval_protocol,AUC\nalpha,1,w1,set,holdout,0.81\n");
-    }
-    return { ok: true, fileCount: params.entries.length, completedFiles: params.entries.length };
+    if ((params.server || params.source).id === "w2") throw new Error("w2 ssh closed");
+    return existingSftp(method, params);
   };
   const { RealtimeTunnelPanelProvider } = require("../../dist/extension/legacy.js");
   const host = Object.assign(Object.create(RealtimeTunnelPanelProvider.prototype), provider);
@@ -575,35 +579,38 @@ test("three plans survive a real request budget cooldown and cancel publishes no
   cancelled.client.getResultsSummary = async () => { throw new RequestBudgetDeniedError("manual_refresh", { allowed: false, reason: "rate_limited", retryAfterMs: 1000 }); };
   cancelled.resultSummaryBudgetWait = async (_delay, _label, _isCurrent, token) => { token.isCancellationRequested = true; };
   const cancelHost = Object.assign(Object.create(RealtimeTunnelPanelProvider.prototype), cancelled);
-  await RealtimeTunnelPanelProvider.prototype.handleMessageCore.call(cancelHost, { command: "syncPendingPlanArtifacts" }, "syncPendingPlanArtifacts");
+  await assert.rejects(RealtimeTunnelPanelProvider.prototype.handleMessageCore.call(cancelHost, { command: "syncPendingPlanArtifacts" }, "syncPendingPlanArtifacts"), /已取消/);
   assert.equal(cancelHost.calls.some((call) => call[0] === "postState"), false);
   assert.equal(fs.existsSync(path.join(workspace, "simple_cluster", "results", "project_table_registry.json")), true);
 });
 
-test("cancelling the first worker does not publish the second worker of the same plan", async () => {
+test("cancelling the first worker aborts its RPC and never starts the second owner", async () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-result-cancel-source-"));
   vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: workspace, scheme: "file", path: workspace } }];
   const previous = vscodeStub.window.withProgress;
-  let cancelNext = false;
-  vscodeStub.window.withProgress = async (_options, task) => {
-    const token = { isCancellationRequested: cancelNext };
-    const result = await task({ report() {} }, token);
-    cancelNext = true;
-    return result;
-  };
+  const listeners = new Set();
+  const token = { isCancellationRequested: false, onCancellationRequested(fn) { listeners.add(fn); return {dispose() {listeners.delete(fn);}}; } };
+  vscodeStub.window.withProgress = async (_options, task) => task({ report() {} }, token);
   const provider = providerFor(workspace);
   provider.localPlanMetadata.plans = [{ planFile: "experiments/plans/a.yaml", revision: "ra", seeds: [1, 2, 3] }];
+  const sftp = provider.simpleSftpApiCall;
   provider.simpleSftpApiCall = async (method, params) => {
+    if (method !== "sync.downloadMappedPaths") return sftp(method, params);
     provider.calls.push([method, params.server.id]);
-    return { ok: true, fileCount: params.entries.length, completedFiles: params.entries.length };
+    token.isCancellationRequested = true;
+    for (const fn of listeners) fn();
+    assert.equal(params.signal.aborted, true);
+    throw params.signal.reason;
   };
   const { RealtimeTunnelPanelProvider } = require("../../dist/extension/legacy.js");
   const host = Object.assign(Object.create(RealtimeTunnelPanelProvider.prototype), provider);
-  const result = await RealtimeTunnelPanelProvider.prototype.syncPendingResultMetricsFromUi.call(host);
-  vscodeStub.window.withProgress = previous;
-  assert.equal(result.reason, "cancelled");
-  assert.equal(host.resultsSummary, undefined);
-  assert.equal(host.calls.filter((call) => call[0] === "sync.downloadMappedPaths").some((call) => call[1] === "w2"), false);
+  try {
+    await assert.rejects(host.syncPendingResultMetricsFromUi(), /已取消/);
+    assert.equal(host.resultsSummary, undefined);
+    assert.equal(host.calls.filter(call => call[0] === "sync.downloadMappedPaths").some(call => call[1] === "w2"), false);
+    assert.equal(listeners.size, 0);
+    assert.equal(fs.existsSync(path.join(workspace,"simple_cluster/results/project_table_registry.json")), false);
+  } finally { vscodeStub.window.withProgress = previous; }
 });
 
 test("a ledger run does not stamp anonymous summary rows and a contradictory run keeps the old table", async () => {

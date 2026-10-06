@@ -99,7 +99,7 @@ test("scoped nested artifact hashes respect the real SFTP directory depth contra
   const f = fixture({ respectDepth: true });
   await f.host.postprocessDistributedResultsForManual(root, "full");
   assert.deepEqual(f.errors, []);
-  assert.ok(f.events.includes("formal"));
+  assert.equal(f.events.includes("formal") || f.events.includes("preview"), false);
   assert.ok(f.inventoryCalls.filter(call => call.scopePaths).every(call => call.recursive === true));
 });
 
@@ -300,7 +300,8 @@ test("a full request waits for a metrics request and then performs the missing b
   f.host.distributedPostprocessPromise = undefined;
   resume();
   await Promise.all([metrics, full]);
-  assert.equal(f.events.filter(value => value === "formal").length, 1);
+  assert.equal(f.events.filter(value => value === "formal").length, 0);
+  assert.ok(f.transfers.length > 0);
 });
 
 test("batched hash progress reports the Worker and verified counts separately from transfer", async () => {
@@ -318,19 +319,13 @@ test("batched hash progress reports the Worker and verified counts separately fr
   assert.ok(f.events.some(message => /压缩传输 · w1 → w2/.test(message)));
 });
 
-test("preview rebuilding immediately replaces the previous completed hash notification", async () => {
+test("metric fragment syncing never rebuilds a remote preview or leaves an abandoned wait", async () => {
   const f = fixture({ inventoryStdin: true });
-  let release, reached;
-  const rebuilding = new Promise(resolve => { reached = resolve; });
-  const paused = new Promise(resolve => { release = resolve; });
-  f.host.rebuildDistributedResults = async () => { reached(); await paused; };
-  const work = f.host.postprocessDistributedResultsForManual(root, "metrics");
-  await rebuilding;
-  const message = f.events.at(-1);
-  release();
-  await work;
-  assert.match(message, /重建.*预览/);
-  assert.doesNotMatch(message, /本批.*秒/);
+  f.host.rebuildDistributedResults = async () => assert.fail("remote rebuild is retired from automatic/manual result syncing");
+  await f.host.postprocessDistributedResultsForManual(root, "metrics");
+  assert.equal(f.host.distributedPostprocessPromise, undefined);
+  assert.equal(f.events.some(message => /重建.*预览/.test(message)), false);
+  assert.ok(f.transfers.every(transfer => transfer.paths.every(file => !file.endsWith(".pth"))));
 });
 
 test("missing bulk inventories share bounded Worker scope queries instead of per-job SSH", async (t) => {

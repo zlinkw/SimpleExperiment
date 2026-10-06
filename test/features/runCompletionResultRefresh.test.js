@@ -14,7 +14,7 @@ function pyString(value) {
   return JSON.stringify(String(value));
 }
 
-test("scheduler terminal parses completed, failed, and cancelled plans without cross-plan mixing", () => {
+test("remote terminal events keep raw metrics intact and create no rebuilt results or caches", () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-run-terminal-"));
   const runtime = path.join(__dirname, "../../dist/runtime/cluster_agent.py");
   const plans = [
@@ -53,11 +53,13 @@ test("scheduler terminal parses completed, failed, and cancelled plans without c
     "for name, event_type, status in plans:",
     "    plan = f'experiments/plans/{name}.yaml'",
     "    event = {'schemaVersion': 1, 'seq': len(rows) + 1, 'generatedAt': agent.now_iso(), 'source': 'hub_agent', 'type': event_type, 'operationId': f'op-{name}', 'payload': {'action': 'run-plan', 'status': status, 'planFile': plan, 'schedulerFinished': True}}",
+    "    before = sorted(os.path.relpath(os.path.join(base, file), root) for base, _, files in os.walk(root) for file in files)",
+    "    original = open(os.path.join(root, 'experiments', 'results', name + '.csv'), encoding='utf-8').read()",
     "    result = agent.maybe_auto_run_completion_pipeline(root, event)",
     "    duplicate = agent.maybe_auto_run_completion_pipeline(root, event)",
-    "    summary = agent.read_results_summary(root, plan)",
-    "    state = agent.read_auto_completion_state(root, plan)",
-    "    rows.append({'name': name, 'result': result, 'duplicate': duplicate, 'planFile': summary.get('planFile'), 'sources': summary.get('sources') or [], 'resultCount': summary.get('resultCount'), 'statisticsPath': summary.get('statisticsPath') or '', 'statePlan': state.get('planFile'), 'processed': list((state.get('processedKeys') or {}).keys())})",
+    "    after = sorted(os.path.relpath(os.path.join(base, file), root) for base, _, files in os.walk(root) for file in files)",
+    "    assert before == after and original == open(os.path.join(root, 'experiments', 'results', name + '.csv'), encoding='utf-8').read()",
+    "    rows.append({'result': result, 'duplicate': duplicate})",
     "print(json.dumps(rows))",
   ].join("\n"));
   const result = spawnSync("python", ["-X", "utf8", script], {
@@ -68,17 +70,11 @@ test("scheduler terminal parses completed, failed, and cancelled plans without c
   const rows = JSON.parse((result.stdout || "").trim().split(/\r?\n/).pop());
   assert.equal(rows.length, 3);
   for (const row of rows) {
-    const plan = `experiments/plans/${row.name}.yaml`;
-    assert.equal(row.result.planFile, plan);
+    assert.equal(row.result, null);
     assert.equal(row.duplicate, null);
-    assert.equal(row.planFile, plan);
-    assert.equal(row.statePlan, plan);
-    assert.equal(row.resultCount, 1);
-    assert.equal(row.statisticsPath, "");
-    assert.equal(row.result.statisticsPath, "");
-    assert.match(row.result.message, /筛选并归档/);
-    assert.deepEqual(row.sources, [`experiments/results/${row.name}.csv`]);
-    assert.equal(row.processed.length, 1);
-    assert.match(row.processed[0], new RegExp(`^operation:run-plan:op-${row.name}$`));
   }
+  const scheduler = fs.readFileSync(path.join(__dirname, "../../src/clusterSchedulerRuntime.legacy.ts"), "utf8");
+  const hook = scheduler.slice(scheduler.indexOf("def run_agent_completion_pipeline("), scheduler.indexOf("def append_scheduler_operation_event("));
+  assert.match(hook, /return None/);
+  assert.doesNotMatch(hook, /exec_module|append_log|parse_results_action/);
 });

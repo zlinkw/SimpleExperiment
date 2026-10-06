@@ -32,10 +32,83 @@ const vscodeStub = {
   ProgressLocation: { Notification: 1 },
 };
 const adapterRulesByRoot = new Map();
+
+for (const command of ["rebuildProjectResultTables", "syncPendingPlanArtifacts", "syncAllResultArtifacts"]) {
+test(command + " pulls six latest-run jobs from their owners, without remote rebuild or local raw caches", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-memory-latest-run-"));
+  const provider = providerFor(workspace, { onlyFirst: true, workers: [{ id: "w1" }, { id: "w2" }, { id: "unused-offline" }] });
+  const planFile = "experiments/plans/a.yaml";
+  const jobs = ["bus", "pad"].flatMap((name, group) => [42, 43, 44].map((seed, index) => ({
+    index: group * 3 + index, case: name, seed, attempt: 1, workerId: group ? "w2" : "w1", status: "completed",
+    outputDir: `work_dirs/a/${name}/${seed}/attempts/run-b`, commandId: `command-b-${name}-${seed}`,
+  })));
+  const files = Object.fromEntries(jobs.flatMap(job => {
+    const csv = `case,seed,method,dataset,eval_protocol,metric,value\n${job.case},${job.seed},a,${job.case.toUpperCase()},clean,AUC,0.92\n`;
+    return [[job.outputDir + "/test_results/formal_result_rows.csv", csv], [job.outputDir + "/test_results/four_state_metrics.csv", csv]];
+  }));
+  for (const job of jobs) job.artifacts = Object.fromEntries(Object.entries(files).filter(([file]) => file.startsWith(job.outputDir + "/")).map(([file, text]) => [file, crypto.createHash("sha256").update(text).digest("hex")]));
+  provider.loadDistributedQueue = async () => ({ plans: [
+    { id: "run-a", planFile, revision: "r1", enqueuedAt: "2026-09-01T00:00:00Z", jobs: jobs.map(job => ({ ...job, outputDir: job.outputDir.replace("run-b", "run-a") })) },
+    { id: "run-b", planFile, revision: "r1", enqueuedAt: "2026-10-01T00:00:00Z", jobs },
+  ] });
+  provider.postprocessDistributedResultsForManual = async () => { throw new Error("must not rebuild or mirror remotely"); };
+  provider.client.getResultsSummary = async () => { throw new Error("latest jobs must not depend on shared summaries"); };
+  provider.simpleSftpCapability = async () => ({ methodOptions: { "sync.downloadMappedPaths": { memoryOnly: true } } });
+  provider.simpleSftpApiCall = async (method, params) => {
+    provider.calls.push([method, params]);
+    const owner = params.source?.id || params.server?.id;
+    if (method === "sync.projectInventory") return { ok: true, files: Object.fromEntries(params.scopePaths.map(file => {
+      assert.ok(file.includes("/attempts/run-b/")); assert.ok(jobs.some(job => job.workerId === owner && file.startsWith(job.outputDir + "/")));
+      return [file, { size: Buffer.byteLength(files[file]), sha256: crypto.createHash("sha256").update(files[file]).digest("hex") }];
+    })) };
+    assert.equal(method, "sync.downloadMappedPaths"); assert.equal(params.memoryOnly, true);
+    return { ok: true, memoryOnly: true, fileCount: params.entries.length, completedFiles: params.entries.length,
+      entries: params.entries.map(entry => ({ remotePath: entry.remotePath, bytes: Buffer.byteLength(files[entry.remotePath]), sha256: entry.sha256, dataBase64: Buffer.from(files[entry.remotePath]).toString("base64") })) };
+  };
+  await require("../../dist/extension/legacy.js").__handleResultUiCommandForTest(provider, { command, planFile });
+  const registry = JSON.parse(fs.readFileSync(path.join(workspace, "simple_cluster/results/project_table_registry.json"), "utf8"));
+  assert.equal(registry.plans[planFile].records.length, 6);
+  assert.equal(registry.plans[planFile].records.every(row => row.runId === "run-b"), true);
+  for (const dataset of ["BUS", "PAD"]) assert.deepEqual(registry.plans[planFile].records.filter(row => row.dataset === dataset).map(row => row.seed).sort(), ["42", "43", "44"]);
+  assert.equal(provider.calls.filter(([name]) => name === "sync.downloadMappedPaths").length, 2);
+  assert.equal(provider.calls.some(([name]) => name === "merge"), false);
+  const walk = dir => fs.readdirSync(dir, { withFileTypes: true }).flatMap(item => item.isDirectory() ? walk(path.join(dir, item.name)) : [path.relative(workspace, path.join(dir, item.name))]);
+  assert.equal(walk(workspace).some(file => /(?:raw|attempts|partial|four_state|formal_result_rows)/.test(file)), false);
+});
+}
 const originalLoad = Module._load;
 Module._load = function (request, ...args) {
   return request === "vscode" ? vscodeStub : originalLoad.call(this, request, ...args);
 };
+
+for (const mismatch of [false, true]) test("latest-run metrics use only a hash-proven recorded mirror when the owner is missing: " + mismatch, async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-metric-mirror-"));
+  const provider = providerFor(workspace, { onlyFirst: true });
+  const body = "case,seed,method,dataset,metric,value\nalpha,42,a,set,AUC,0.91\n";
+  const hash = crypto.createHash("sha256").update(body).digest("hex");
+  const outputDir = "work_dirs/a/attempts/run-b";
+  const file = outputDir + "/test_results/formal_result_rows.csv";
+  provider.loadDistributedQueue = async () => ({ plans: [{ id: "run-b", planFile: "experiments/plans/a.yaml", revision: "r1", jobs: [{
+    index: 0, case: "alpha", seed: 42, attempt: 1, status: "completed", workerId: "w1", outputDir,
+    commandId: "command-b", artifacts: { [file]: hash }, fragmentWorkerIds: ["w2"] }] }] });
+  provider.client.getResultsSummary = async () => assert.fail("no old remote summary");
+  provider.simpleSftpApiCall = async (method, params) => {
+    const worker = params.source?.id || params.server?.id;
+    provider.calls.push([method, worker]);
+    if (method === "sync.projectInventory") return { ok: true, files: worker === "w1" ? {} : {
+      [file]: { size: Buffer.byteLength(body), sha256: mismatch ? "f".repeat(64) : hash } } };
+    assert.equal(worker, "w2"); assert.equal(params.memoryOnly, true);
+    return { ok: true, memoryOnly: true, entries: params.entries.map(entry => ({ remotePath: entry.remotePath,
+      bytes: Buffer.byteLength(body), sha256: hash, dataBase64: Buffer.from(body).toString("base64") })) };
+  };
+  const work = require("../../dist/extension/legacy.js").__syncPendingResultMetricsForTest(provider);
+  if (mismatch) { await assert.rejects(work, /没有可用|校验失败/); assert.equal(provider.calls.some(call => call[0] === "sync.downloadMappedPaths"), false); return; }
+  const report = await work;
+  assert.deepEqual(report.skipped, []);
+  const registry = JSON.parse(fs.readFileSync(path.join(workspace, "simple_cluster/results/project_table_registry.json"), "utf8"));
+  assert.equal(registry.plans["experiments/plans/a.yaml"].records[0].runId, "run-b");
+  assert.equal(registry.plans["experiments/plans/a.yaml"].records[0].metrics.AUC, 0.91);
+});
 
 function sliceBetween(source, start, end) {
   const from = source.indexOf(start);
@@ -44,7 +117,7 @@ function sliceBetween(source, start, end) {
   return source.slice(from, to);
 }
 
-test("the result table button merges every known result scope before any metric download", () => {
+test("all result buttons share direct metric aggregation without prerequisite remote rebuild or mirroring", () => {
   assert.match(panel, /data-command="syncPendingPlanArtifacts"/);
   assert.match(panel, /同步服务器结果并更新总表/);
   assert.match(panel, /下载指标并重新汇总/);
@@ -54,18 +127,13 @@ test("the result table button merges every known result scope before any metric 
   assert.doesNotMatch(panel, /待处理产物计数属于自动的权重和日志同步/);
   assert.match(extension, /case "syncPendingPlanArtifacts":\s*return this\.withManualResultSync\(\(\) => this\.syncPendingResultMetricsFromUi\(\)\)/);
   const manual = sliceBetween(extension, "async syncPendingResultMetricsFromUi(", "async summaryForMetricDownload(");
-  const mergeAt = manual.indexOf("await this.mergeLatestWorkerVersions(");
-  const downloadAt = manual.indexOf("downloadMappedResultBatch(");
-  assert.ok(mergeAt > 0 && downloadAt > mergeAt);
-  assert.match(manual, /latestPlanSyncEntry\(ledger, planFile\)/);
-  assert.match(manual, /localPlanMetadata\.plans/);
-  assert.match(manual, /targets\.length >= 2/);
-  assert.match(manual, /outcome === false/);
-  assert.match(manual, /mergeConflictForPlan\(unverifiedScopes, item, item\.candidates\)/);
-  assert.match(manual, /acceptedCompletedRevision\(/);
-  assert.match(manual, /postprocessDistributedResultsForManual\(root, "full"\)/);
+  assert.match(manual, /rebuildProjectResultTablesFromUi\(/);
+  const rebuild = sliceBetween(extension, "async rebuildProjectResultTablesFromUi(", "async openLocalResultTableFromUi");
+  assert.match(rebuild, /selectLatestCompletePlanRun/);
+  assert.match(rebuild, /acceptedCompletedRevision\(/);
+  assert.match(rebuild, /memoryMetricFiles/);
+  assert.doesNotMatch(manual + rebuild, /postprocessDistributedResultsForManual|rebuildDistributedResults|mergeLatestWorkerVersions/);
   assert.doesNotMatch(manual, /rebuildDirectory|rebuildSyncedResultDirectory/);
-  assert.equal(manual.match(/mergeLatestWorkerVersions\(/g).length, 1);
   assert.doesNotMatch(manual, /pendingPlanSyncs\(ledger\)|markPlanSyncComplete\(/);
   assert.doesNotMatch(manual, /this\.planFileInput \|\| this\.selectedPlanId/);
   assert.doesNotMatch(manual, /syncPendingPlanArtifacts\(|reconcileProjectFilesAcrossWorkers|syncCodeTargets\(/);
@@ -160,6 +228,12 @@ function providerFor(workspace, options = {}) {
       calls.push([method, params]);
       if (options.transferError) throw new Error(options.transferError);
       if (method === "sync.projectFileStats") return { files: Object.fromEntries((params.paths || []).map((remotePath) => [remotePath, { size: 10 }])) };
+      const owner = String(params.server?.id || params.source?.id || "w");
+      const text = options.metricText || "case,seed,method,dataset,metric,value\nalpha,1," + owner + ",set,AUC,0.91\n";
+      const sha256 = crypto.createHash("sha256").update(text).digest("hex");
+      if (method === "sync.projectInventory") return { ok: true, files: Object.fromEntries(params.scopePaths.map(file => [file, { size: Buffer.byteLength(text), sha256 }])) };
+      if (method === "sync.downloadMappedPaths" && params.memoryOnly) return { ok: true, memoryOnly: true,
+        entries: params.entries.map(entry => ({ remotePath: entry.remotePath, bytes: Buffer.byteLength(text), sha256, dataBase64: Buffer.from(text).toString("base64") })) };
       const written = (params.entries || []).map((entry) => entry.localRelativePath);
       for (const relative of written) {
         const full = path.join(workspace, ...relative.split("/"));
@@ -169,6 +243,7 @@ function providerFor(workspace, options = {}) {
       }
       return { ok: true, fileCount: written.length, completedFiles: written.length, sshCount: 1, streamCount: 1 };
     },
+    simpleSftpCapability: async () => ({ methodOptions: { "sync.downloadMappedPaths": { memoryOnly: true } } }),
     sftpServerOptions: (target) => ({
       id: target.id, host: target.host, user: target.user, port: target.port, remotePath: target.remotePath,
       transferHost: target.host, resolvedHost: target.host,
@@ -220,7 +295,7 @@ test("metric rebuild publishes the downloaded values while a real same-host Work
     await require("../../dist/extension/legacy.js").__handleResultUiCommandForTest(provider, { command: "rebuildProjectResultTables" });
     assert.match(fs.readFileSync(path.join(workspace, "experiments/results/set/final/final.csv"), "utf8"), /0\.91/);
     const publishes = fixture.requests.filter(row => row.actionType === "publishMappedResult");
-    assert.ok(publishes.length > 0);
+    assert.equal(publishes.length, 0); // No raw metric files need publication leases.
     assert.equal(publishes.every(row => row.waitForConflict === true && row.resources.every(resource => resource.target !== workspace)), true);
     assert.deepEqual(vscodeStub.window.errors, []);
     await held.assertHeld();
@@ -344,9 +419,9 @@ test("dataset metadata overrides stale directory hints and preserves the old loc
     if (method !== "sync.projectInventory") return originalSftp(method, params);
     provider.calls.push([method, params]);
     assert.equal(params.relativePath, ".");
-    assert.ok(params.scopePaths.includes(newPath));
+    assert.equal(params.scopePaths.includes(newPath), false); // Remote final tables are no longer inputs.
     assert.ok(params.scopePaths.every(file => /\.(csv|json|md)$/.test(file)));
-    return { files: Object.fromEntries(params.scopePaths.map(file => [file, { sha256: "a".repeat(64), size: 10 }])) };
+    return originalSftp(method, params);
   };
   provider.mergeLatestWorkerVersions = function (...args) {
     this.calls.push(["merge", args[2]]);
@@ -354,20 +429,20 @@ test("dataset metadata overrides stale directory hints and preserves the old loc
   };
   const result = await require("../../dist/extension/legacy.js").__syncPendingResultMetricsForTest(provider);
   assert.equal(result.downloaded, true);
-  const scopes = provider.calls.find(call => call[0] === "merge")[1];
-  assert.ok(scopes.includes(newPath));
+  const scopes = provider.calls.find(call => call[0] === "sync.projectInventory")[1].scopePaths;
+  assert.ok(scopes.includes("simple_cluster/results/w1/raw.csv"));
   assert.ok(scopes.every(file => /\.(csv|json|md)$/.test(file)));
   assert.equal(scopes.some(file => file.startsWith("old_layout/")), false);
   assert.equal(fs.readFileSync(legacy, "utf8"), "old table retained");
   assert.ok(fs.existsSync(path.join(workspace, "experiments/results/set/final/final.csv")));
-  assert.ok(provider.calls.filter(call => call[0] === "sync.projectInventory").length >= 2);
+  assert.equal(provider.calls.some(call => call[0] === "merge"), false);
 });
 
 test("unindexed summaries never invoke the full directory merge fallback", async () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-result-empty-sync-"));
   const provider = providerFor(workspace, { onlyFirst: true });
   provider.client.getResultsSummary = async planFile => ({ planFile, planRevision: "r1", results: [] });
-  await assert.rejects(require("../../dist/extension/legacy.js").__syncPendingResultMetricsForTest(provider), /服务器摘要尚未收录可解析的 CSV/);
+  await assert.rejects(require("../../dist/extension/legacy.js").__syncPendingResultMetricsForTest(provider), /没有可用的逐 seed 结果/);
   assert.equal(provider.calls.some(call => call[0] === "merge"), false);
   assert.equal(provider.calls.some(call => call[0] === "sync.downloadMappedPaths"), false);
 });
@@ -393,9 +468,8 @@ test("legacy project-wide aggregates do not block or enter dataset-first metric 
 
     const result = await require("../../dist/extension/legacy.js").__syncPendingResultMetricsForTest(provider);
     assert.equal(result.included.length, 1);
-    assert.deepEqual(result.skipped, []);
-    const mergePaths = provider.calls.find(call => call[0] === "merge")[1];
-    assert.equal(mergePaths.includes(legacyAggregate), false);
+    assert.equal(result.skipped.some(text => text.includes(legacyAggregate)), false);
+    assert.equal(provider.calls.some(call => call[0] === "merge"), false);
     const downloaded = provider.calls.filter(call => call[0] === "sync.downloadMappedPaths").flatMap(call => call[1].entries || []);
     assert.equal(downloaded.some(entry => entry.remotePath === legacyAggregate), false);
   } finally {
@@ -413,7 +487,7 @@ test("manual sync preserves legacy files while updating dataset result layout", 
   await run();
   assert.equal(fs.readFileSync(legacy, "utf8"), "legacy mixed results");
   assert.ok(fs.existsSync(path.join(workspace, "experiments/results/set/final/final.csv")));
-  assert.ok(fs.existsSync(rawLocation(workspace)));
+  assert.equal(fs.existsSync(rawLocation(workspace)), false);
   const backup = path.join(workspace, "clean_dir/experiments/results");
   assert.equal(fs.existsSync(backup), false);
   await run();
@@ -422,7 +496,7 @@ test("manual sync preserves legacy files while updating dataset result layout", 
   assert.equal(fs.existsSync(backup), false);
 });
 
-test("two pending plans merge on all workers before either metric download when no plan is selected", async () => {
+test("two pending plans download directly from their owners without any all-worker merge", async () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-result-metrics-"));
   try {
     const provider = providerFor(workspace);
@@ -433,16 +507,15 @@ test("two pending plans merge on all workers before either metric download when 
     const merges = provider.calls.filter((call) => call[0] === "merge");
     const firstDownload = provider.calls.findIndex((call) => call[0] === "sync.downloadMappedPaths");
     const lastMerge = provider.calls.map((call) => call[0]).lastIndexOf("merge");
-    assert.equal(merges.length, 1);
-    assert.deepEqual(merges[0][1], ["simple_cluster/results/w1/detail.csv", "simple_cluster/results/w1/raw.csv", "simple_cluster/results/w2/detail.csv", "simple_cluster/results/w2/raw.csv"]);
-    assert.ok(lastMerge >= 0 && lastMerge < firstDownload);
+    assert.equal(merges.length, 0);
+    assert.equal(lastMerge, -1);
+    assert.ok(firstDownload >= 0);
     const mapped = provider.calls.filter((call) => call[0] === "sync.downloadMappedPaths");
     assert.equal(mapped.length, 2);
     assert.deepEqual(mapped.map((call) => call[1].server.id), ["w1", "w2"]);
-    assert.equal(mapped.every((call) => call[1].confirm === true && call[1].pathConfirmed === true && call[1].maxFileBytes === 128 * 1024 * 1024 && call[1].localPath === workspace), true);
+    assert.equal(mapped.every((call) => call[1].confirm === true && call[1].pathConfirmed === true && call[1].memoryOnly === true && call[1].maxFileBytes === 4 * 1024 * 1024 && call[1].localPath === workspace), true);
     assert.deepEqual(mapped[0][1].entries.map((entry) => entry.remotePath), [
       "simple_cluster/results/w1/raw.csv",
-      "simple_cluster/results/w1/detail.csv",
     ]);
     assert.equal(mapped[0][1].entries.every((entry) => !path.isAbsolute(entry.remotePath) && !path.isAbsolute(entry.localRelativePath)), true);
     assert.equal(provider.calls.some((call) => call[0] === "download" || call[0] === "hub-download"), false);
@@ -453,7 +526,7 @@ test("two pending plans merge on all workers before either metric download when 
   }
 });
 
-test("a fully synced ledger still merges known plan results before download", async () => {
+test("a fully synced ledger does not add a prerequisite mirror to metric downloads", async () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-result-metrics-synced-"));
   try {
     const synced = {
@@ -468,8 +541,7 @@ test("a fully synced ledger still merges known plan results before download", as
     const result = await __syncPendingResultMetricsForTest(provider);
     assert.equal(result.reason, undefined);
     assert.equal(result.downloaded, true);
-    assert.equal(provider.calls.filter((call) => call[0] === "merge").length, 1);
-    assert.ok(provider.calls.map((call) => call[0]).lastIndexOf("merge") < provider.calls.findIndex((call) => call[0] === "sync.downloadMappedPaths"));
+    assert.equal(provider.calls.filter((call) => call[0] === "merge").length, 0);
     assert.equal(provider.calls.filter((call) => call[0] === "sync.downloadMappedPaths").length, 2);
     assert.equal(provider.calls.some((call) => call[0] === "mark"), false);
   } finally {
@@ -477,28 +549,30 @@ test("a fully synced ledger still merges known plan results before download", as
   }
 });
 
-test("merge rejection, conflicts, offline workers and revision changes download nothing", async () => {
+test("unused-worker mirror conflicts do not block owners; missing owners and stale revisions remain isolated", async () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-result-metrics-fail-"));
   const { __syncPendingResultMetricsForTest } = require("../../dist/extension/legacy.js");
   try {
     const cancelled = providerFor(workspace, { merge: false });
-    await assert.rejects(() => __syncPendingResultMetricsForTest(cancelled), /未下载指标文件/);
-    assert.equal(cancelled.calls.some((call) => call[0] === "sync.downloadMappedPaths" || call[0] === "download"), false);
+    assert.equal((await __syncPendingResultMetricsForTest(cancelled)).included.length, 2);
+    assert.equal(cancelled.calls.some((call) => call[0] === "merge"), false);
 
     const conflicted = providerFor(workspace, { mergeErrors: ["simple_cluster/results/w1：没有可靠的最新版", "simple_cluster/results/w2：没有可靠的最新版"] });
-    await assert.rejects(() => __syncPendingResultMetricsForTest(conflicted), /未完全合并|未下载/);
-    assert.equal(conflicted.calls.some((call) => call[0] === "sync.downloadMappedPaths" || call[0] === "download"), false);
+    assert.equal((await __syncPendingResultMetricsForTest(conflicted)).included.length, 2);
+    assert.equal(conflicted.calls.some((call) => call[0] === "merge"), false);
 
-    const offline = providerFor(workspace, { targets: [{ id: "w1" }] });
-    await assert.rejects(() => __syncPendingResultMetricsForTest(offline), /未连接|未收录|w2/);
+    const offline = providerFor(fs.mkdtempSync(path.join(os.tmpdir(), "simple-owner-offline-")), { targets: [sftpTarget("w1", "/projects/w1")] });
+    const offlineResult = await __syncPendingResultMetricsForTest(offline);
+    assert.equal(offlineResult.included.length, 1);
+    assert.match(offlineResult.skipped.join("\n"), /w2/);
     assert.equal(offline.calls.some((call) => call[0] === "merge"), false);
-    assert.equal(offline.resultsSummary === undefined || offline.resultsSummary.stale !== false, true);
+    assert.equal(offline.calls.filter(call => call[0] === "postState").at(-1)[1].planFile, "experiments/plans/a.yaml");
 
-    const stale = providerFor(workspace, { ledgerRevision: "old" });
+    const stale = providerFor(fs.mkdtempSync(path.join(os.tmpdir(), "simple-revision-old-")), { ledgerRevision: "old" });
     const staleResult = await __syncPendingResultMetricsForTest(stale);
     assert.match(staleResult.skipped.join("\n"), /revision/);
     assert.equal(staleResult.included.some((line) => line.includes("b.yaml")), false);
-    assert.ok(stale.calls.some((call) => call[0] === "merge"));
+    assert.equal(stale.calls.some((call) => call[0] === "merge"), false);
   } finally {
     vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: "", scheme: "file", path: "" } }];
   }
@@ -513,7 +587,7 @@ test("one connected worker skips cross-worker merge and still downloads pending 
     assert.equal(result.merged, true);
     assert.equal(provider.calls.some((call) => call[0] === "merge"), false);
     assert.equal(provider.calls.filter((call) => call[0] === "sync.downloadMappedPaths").length, 1);
-    assert.equal(provider.calls.filter((call) => call[0] === "sync.downloadMappedPaths")[0][1].entries.length, 2);
+    assert.equal(provider.calls.filter((call) => call[0] === "sync.downloadMappedPaths")[0][1].entries.length, 1);
   } finally {
     vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: "", scheme: "file", path: "" } }];
   }
@@ -527,8 +601,8 @@ test("bulk plan sync keeps the previous candidate policy and metric mode stays o
   assert.match(download, /"覆盖已有文件并同步", "只同步缺失文件"/);
   assert.match(download, /批量同步已取消/);
   const bulk = sliceBetween(extension, "async syncAllResultArtifactsFromUi(message)", "async syncPendingResultMetricsFromUi");
-  assert.match(bulk, /resultSummarySyncCandidates\(summary, planFile\)/);
-  assert.match(bulk, /metricsOnly: false/);
+  assert.match(bulk, /rebuildProjectResultTablesFromUi\(\{ planFiles: \[planFile\]/);
+  assert.match(extension, /syncDistributedJobArtifacts\(root, await this\.loadDistributedQueue\(root\), "bulk"/);
   assert.doesNotMatch(bulk, /mergeLatestWorkerVersions\(/);
   assert.match(download, /sync\.downloadMappedPaths/);
   assert.doesNotMatch(download, /client\.downloadWorkerFile\(/);
@@ -565,7 +639,7 @@ test("the same worker across plans is one mapped download and a second worker is
     const mapped = provider.calls.filter((call) => call[0] === "sync.downloadMappedPaths");
     assert.equal(mapped.length, 1);
     assert.equal(mapped[0][1].server.id, "w1");
-    assert.equal(mapped[0][1].entries.length, 4);
+    assert.equal(mapped[0][1].entries.length, 2);
     assert.equal(provider.calls.filter((call) => call[0] === "download").length, 0);
   } finally {
     vscodeStub.window.showWarningMessage = previous;
@@ -573,7 +647,7 @@ test("the same worker across plans is one mapped download and a second worker is
   }
 });
 
-test("overwrite refusal, transfer failure and project switch do not publish a new summary", async () => {
+test("in-memory metrics never overwrite raw files; transfer failure and project switch preserve the table", async () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-result-metrics-guard-"));
   vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: workspace, scheme: "file", path: workspace } }];
   const previous = vscodeStub.window.showWarningMessage;
@@ -585,29 +659,29 @@ test("overwrite refusal, transfer failure and project switch do not publish a ne
     const raw = rawLocation(workspace);
     fs.mkdirSync(path.dirname(raw), { recursive: true });
     fs.writeFileSync(raw, "old");
-    await assert.rejects(() => __handleResultUiCommandForTest(refused, { command: "syncPendingPlanArtifacts" }), /已取消/);
-    assert.equal(refused.calls.some((call) => call[0] === "sync.downloadMappedPaths"), false);
-    assert.equal(refused.resultsSummary.stale, true);
+    await __handleResultUiCommandForTest(refused, { command: "syncPendingPlanArtifacts" });
+    assert.equal(refused.calls.some((call) => call[0] === "sync.downloadMappedPaths"), true);
+    assert.equal(fs.readFileSync(raw, "utf8"), "old");
 
     vscodeStub.window.showWarningMessage = async () => "覆盖已有文件并同步";
-    const failed = providerFor(workspace, { transferError: "ssh closed", previousSummary: { planFile: "old", stale: true } });
+    const failedWorkspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-metrics-failed-"));
+    const failed = providerFor(failedWorkspace, { transferError: "ssh closed", previousSummary: { planFile: "old", stale: true } });
     await assert.rejects(() => __handleResultUiCommandForTest(failed, { command: "syncPendingPlanArtifacts" }), /ssh closed|未收录/);
-    assert.equal(failed.calls.filter((call) => call[0] === "sync.downloadMappedPaths").length >= 1, true);
+    assert.equal(failed.calls.filter((call) => call[0] === "sync.downloadMappedPaths").length, 0); // Inventory failed before the stream.
     assert.equal(failed.resultsSummary.stale, true);
     assert.equal(failed.resultsSummary.planFile, "old");
 
     let switched = false;
-    const moving = providerFor(workspace, { previousSummary: { planFile: "old", stale: true } });
+    const moving = providerFor(fs.mkdtempSync(path.join(os.tmpdir(), "simple-metrics-moved-")), { previousSummary: { planFile: "old", stale: true } });
     const originalCurrent = moving.projectContextIsCurrent;
     moving.projectContextIsCurrent = () => switched ? false : originalCurrent();
+    const movingSftp = moving.simpleSftpApiCall;
     moving.simpleSftpApiCall = async (method, params) => {
       switched = true;
-      moving.calls.push([method, params]);
-      return { ok: true, fileCount: params.entries.length };
+      return movingSftp(method, params);
     };
-    const moved = await __syncPendingResultMetricsForTest(moving);
+    await assert.rejects(__syncPendingResultMetricsForTest(moving), /已取消|工作区已切换/);
     assert.equal(switched, true);
-    assert.equal(moved.reason, "revision-changed");
     assert.equal(moving.calls.some((call) => call[0] === "postState"), false);
     assert.equal(moving.resultsSummary.stale, true);
   } finally {
@@ -616,7 +690,7 @@ test("overwrite refusal, transfer failure and project switch do not publish a ne
   }
 });
 
-test("refresh all results redraws tables from local metric files for empty and stale catalogs", async () => {
+test("refresh rebuilds stale catalogs from downloaded metrics and ignores old local raw files", async () => {
   vscodeStub.window.downloadChoice = "只同步缺失文件";
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-result-metrics-refresh-"));
   vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: workspace, scheme: "file", path: workspace } }];
@@ -644,16 +718,16 @@ test("refresh all results redraws tables from local metric files for empty and s
     const posted = provider.calls.filter((call) => call[0] === "postState").map((call) => call[1]);
     assert.equal(posted.length > 0, true);
     assert.equal(posted.at(-1).planRevision, "r1");
-    assert.equal(posted.at(-1).results[0].metrics.AUC.value, 0.8);
+    assert.equal(posted.at(-1).results[0].metrics.AUC.value, 0.91);
     const finalCsv = fs.readFileSync(path.join(staleDir, "final.csv"), "utf8");
-    assert.match(finalCsv, /0\.8/);
+    assert.match(finalCsv, /0\.91/);
     assert.doesNotMatch(finalCsv, /0\.1000/);
   } finally {
     vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: "", scheme: "file", path: "" } }];
   }
 });
 
-test("two plans sharing one remote CSV use one mapped RPC and land in both plan files", async () => {
+test("two plans sharing a remote CSV use one memory RPC and produce both normalized plan records", async () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-result-metrics-shared-"));
   vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: workspace, scheme: "file", path: workspace } }];
   try {
@@ -680,11 +754,12 @@ test("two plans sharing one remote CSV use one mapped RPC and land in both plan 
     const mapped = provider.calls.filter((call) => call[0] === "sync.downloadMappedPaths");
     assert.equal(mapped.length, 1);
     assert.deepEqual(mapped[0][1].entries.map((entry) => entry.remotePath).sort(), [
-      "simple_cluster/results/shared/detail.csv",
       "simple_cluster/results/shared/raw.csv",
     ]);
-    assert.equal(fs.existsSync(rawLocation(workspace, "a", "_unassigned", "simple_cluster/results/shared/raw.csv")), true);
-    assert.equal(fs.existsSync(rawLocation(workspace, "b", "_unassigned", "simple_cluster/results/shared/raw.csv")), true);
+    assert.equal(fs.existsSync(rawLocation(workspace, "a", "_unassigned", "simple_cluster/results/shared/raw.csv")), false);
+    assert.equal(fs.existsSync(rawLocation(workspace, "b", "_unassigned", "simple_cluster/results/shared/raw.csv")), false);
+    const registry = JSON.parse(fs.readFileSync(path.join(workspace, "simple_cluster/results/project_table_registry.json"), "utf8"));
+    assert.deepEqual(Object.keys(registry.plans).sort(), ["experiments/plans/a.yaml", "experiments/plans/b.yaml"]);
   } finally {
     vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: "", scheme: "file", path: "" } }];
   }
@@ -699,7 +774,8 @@ test("quoted mapped columns refresh the visible table and a stale local file doe
     const csvDir = path.dirname(rawLocation(workspace));
     fs.mkdirSync(csvDir, { recursive: true });
     fs.writeFileSync(rawLocation(workspace), 'specimen,rng,method,dataset,rate,protocol,AUC\n"alpha,set",1,w1,set,10,holdout,0.77\n');
-    const provider = providerFor(workspace, { onlyFirst: true, workers: [{ id: "w1" }], targets: [sftpTarget("w1", "/projects/w1")] });
+    const provider = providerFor(workspace, { onlyFirst: true, workers: [{ id: "w1" }], targets: [sftpTarget("w1", "/projects/w1")],
+      metricText: 'specimen,rng,method,dataset,rate,protocol,AUC\n"alpha,set",1,w1,set,10,holdout,0.77\n' });
     provider.planFileInput = "experiments/plans/a.yaml";
     provider.client.getResultsSummary = async () => ({
       planFile: "experiments/plans/a.yaml", planRevision: "r1", resultOwnerWorkerId: "w1",
@@ -718,7 +794,8 @@ test("quoted mapped columns refresh the visible table and a stale local file doe
     assert.equal(posted.results[0].dimensions.split, "");
     assert.equal(posted.results[0].metrics.AUC.value, 0.77);
 
-    const newer = providerFor(workspace, { onlyFirst: true, workers: [{ id: "w1" }], targets: [sftpTarget("w1", "/projects/w1")] });
+    const newer = providerFor(workspace, { onlyFirst: true, workers: [{ id: "w1" }], targets: [sftpTarget("w1", "/projects/w1")],
+      metricText: "specimen,rng,method,dataset,rate,protocol,AUC\nbeta,2,w1,set,10,holdout,0.99\n" });
     newer.planFileInput = "experiments/plans/a.yaml";
     newer.client.getResultsSummary = async () => ({
       planFile: "experiments/plans/a.yaml", planRevision: "r1", lastParsedAt: "2999-01-01T00:00:00.000Z", resultOwnerWorkerId: "w1",
@@ -755,6 +832,8 @@ test("Hub debug, inspection, archive evidence, and metrics use the Hub SFTP targ
   const previousDialog = vscodeStub.window.showSaveDialog;
   try {
     const provider = hubProvider(workspace);
+    const hubSftp = provider.simpleSftpApiCall;
+    provider.simpleSftpApiCall = (method, params) => hubSftp(method, { ...params, server: { ...params.server, id: "hub" } });
     provider.localOperations = [{ type: "check-output-contract", planFile: "experiments/plans/a.yaml", planRevision: "r1", unparseableFiles: ["simple_cluster/results/w1/raw.csv"] }];
     provider.lastRealtimeState = { operations: [] };
     provider.planVersionForFile = () => ({ revision: "r1", updatedAt: "" });
@@ -784,7 +863,7 @@ test("Hub debug, inspection, archive evidence, and metrics use the Hub SFTP targ
   }
 });
 
-test("missing-only confirmation transfers exactly the absent source", async () => {
+test("old missing-only raw-file choices cannot suppress fresh in-memory downloads", async () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-result-metrics-missing-"));
   vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: workspace, scheme: "file", path: workspace } }];
   const previous = vscodeStub.window.showWarningMessage;
@@ -798,7 +877,9 @@ test("missing-only confirmation transfers exactly the absent source", async () =
     await __handleResultUiCommandForTest(provider, { command: "syncPendingPlanArtifacts" });
     const mapped = provider.calls.filter((call) => call[0] === "sync.downloadMappedPaths");
     assert.equal(mapped.length, 1);
-    assert.deepEqual(mapped[0][1].entries.map((entry) => entry.remotePath), ["simple_cluster/results/w1/detail.csv"]);
+    assert.deepEqual(mapped[0][1].entries.map((entry) => entry.remotePath), ["simple_cluster/results/w1/raw.csv"]);
+    assert.equal(mapped[0][1].memoryOnly, true);
+    assert.equal(fs.readFileSync(existing, "utf8"), "old");
   } finally {
     vscodeStub.window.showWarningMessage = previous;
     vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: "", scheme: "file", path: "" } }];
@@ -869,7 +950,7 @@ test("distribution rejects symlink destinations and preserves content when repla
   }
 });
 
-test("local train_rate 0.5 becomes 50 in the project table while rate_percent stays 50", async () => {
+test("downloaded train_rate 0.5 becomes 50 in the project table while rate_percent stays 50", async () => {
   vscodeStub.window.downloadChoice = "只同步缺失文件";
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-result-metrics-rate-"));
   vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: workspace, scheme: "file", path: workspace } }];
@@ -877,7 +958,8 @@ test("local train_rate 0.5 becomes 50 in the project table while rate_percent st
     const csvDir = path.dirname(rawLocation(workspace));
     fs.mkdirSync(csvDir, { recursive: true });
     fs.writeFileSync(rawLocation(workspace), "case,seed,method,dataset,train_rate,rate_percent,eval_protocol,AUC\nlow,1,w1,set,0.5,,holdout,0.7\nhigh,1,w1,set,,50,holdout,0.8\n");
-    const provider = providerFor(workspace, { onlyFirst: true, workers: [{ id: "w1" }], targets: [sftpTarget("w1", "/projects/w1")] });
+    const provider = providerFor(workspace, { onlyFirst: true, workers: [{ id: "w1" }], targets: [sftpTarget("w1", "/projects/w1")],
+      metricText: "case,seed,method,dataset,train_rate,rate_percent,eval_protocol,AUC\nlow,1,w1,set,0.5,,holdout,0.7\nhigh,1,w1,set,,50,holdout,0.8\n" });
     provider.planFileInput = "experiments/plans/a.yaml";
     provider.client.getResultsSummary = async () => ({
       planFile: "experiments/plans/a.yaml", planRevision: "r1", resultOwnerWorkerId: "w1",
@@ -921,8 +1003,8 @@ test("refresh keeps a newer online summary when the local file has no trustworth
     const { __handleResultUiCommandForTest } = require("../../dist/extension/legacy.js");
     await __handleResultUiCommandForTest(provider, { command: "rebuildProjectResultTables" });
     const posted = provider.calls.filter((call) => call[0] === "postState").at(-1)[1];
-    assert.equal(posted.results[0].metrics.AUC.value, 0.66);
-    assert.equal(posted.results[0].dimensions.case, "beta");
+    assert.equal(posted.results[0].metrics.AUC.value, 0.91);
+    assert.equal(posted.results[0].dimensions.case, "alpha");
   } finally {
     vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: "", scheme: "file", path: "" } }];
   }
@@ -977,7 +1059,7 @@ test("rebuild never replaces a contradictory server revision with old registered
   } finally { vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: "", scheme: "file", path: "" } }]; }
 });
 
-test("rebuild downloads raw and final metric files before recomputing without merging directories", async () => {
+test("rebuild downloads only raw metric rows, ignoring remote final and Markdown tables", async () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-rebuild-download-"));
   const provider = providerFor(workspace, { onlyFirst: true, workers: [{ id: "w1" }] });
   provider.client.getResultsSummary = async (planFile) => ({ ...summaryFor(planFile, "w1"),
@@ -987,8 +1069,7 @@ test("rebuild downloads raw and final metric files before recomputing without me
   const transfers = provider.calls.filter(([name]) => name === "sync.downloadMappedPaths");
   assert.equal(transfers.length, 1);
   assert.deepEqual(transfers[0][1].entries.map((row) => row.remotePath).sort(), [
-    "simple_cluster/results/w1/detail.csv", "simple_cluster/results/w1/final.csv",
-    "simple_cluster/results/w1/final.md", "simple_cluster/results/w1/raw.csv",
+    "simple_cluster/results/w1/raw.csv",
   ]);
   assert.equal(transfers[0][1].metricsOnly, true);
   assert.equal(provider.calls.some(([name]) => name === "merge" || name === "download"), false);
@@ -1022,12 +1103,8 @@ test("rebuild verifies completed job CSVs when the server summary has no indexed
         { size: Buffer.byteLength(text), sha256: crypto.createHash("sha256").update(text).digest("hex") }])) };
     }
     assert.equal(method, "sync.downloadMappedPaths");
-    for (const entry of params.entries) {
-      const full = path.join(workspace, ...entry.localRelativePath.split("/"));
-      fs.mkdirSync(path.dirname(full), { recursive: true });
-      fs.writeFileSync(full, files[entry.remotePath] + (fault === "wrong-hash" ? "\n" : ""), "utf8");
-    }
-    return { ok: true, fileCount: params.entries.length, completedFiles: params.entries.length };
+    return { ok: true, memoryOnly: true, entries: params.entries.map(entry => ({ remotePath: entry.remotePath,
+      bytes: entry.bytes, sha256: entry.sha256, dataBase64: Buffer.from(files[entry.remotePath] + (fault === "wrong-hash" ? "\n" : "")).toString("base64") })) };
   };
   const { __handleResultUiCommandForTest } = require("../../dist/extension/legacy.js");
   if (fault) {

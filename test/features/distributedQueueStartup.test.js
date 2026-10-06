@@ -275,7 +275,7 @@ test("every newly completed job rechecks all recorded job mirrors and repairs dr
   assert.deepEqual(Array.from(job.mirroredWorkerIds), ["w2", "w3"]);
 });
 
-test("a new completion also repairs a stale shared preview on every Worker", async () => {
+test("legacy explicit rebuilding can repair a stale shared preview without automatic invocation", async () => {
   const compiled = compiledSource;
   const first = compiled.indexOf("async rebuildDistributedResults(");
   const last = compiled.indexOf("planOutputRetentionMode(root)", first);
@@ -318,6 +318,37 @@ test("a new completion also repairs a stale shared preview on every Worker", asy
   assert.equal(copied, true);
   assert.ok(patches.some((fields) => fields.previewWorkerIds && !fields.previewWorkerIds.includes("w2")));
   assert.deepEqual(Array.from(queue.previewWorkerIds), ["w3", "w2"]);
+});
+
+test("legacy rebuild retries use fresh operation identities and cache only successful manifests", async () => {
+  const first = compiledSource.indexOf("async rebuildDistributedResults(");
+  const last = compiledSource.indexOf("planOutputRetentionMode(root)", first);
+  let sequence = 0;
+  const context = { PlanOutputRetention: require("../../dist/features/PlanOutputRetention.js"),
+    PlanRunFreshness: { selectLatestCompletePlanRun: queue => ({ plan: queue.plans[0] }) },
+    crypto: require("node:crypto"), workspaceRoot: () => "C:/project",
+    uniqueStrings: values => [...new Set(values)], makeOpId: prefix => `${prefix}-new-${++sequence}`,
+    resultStatus: value => value.status, remoteActionPendingStatus: () => false };
+  vm.createContext(context);
+  vm.runInContext(compiledSource.slice(first, last).replace("async rebuildDistributedResults(root, queue, previewOnly, verifyAll = false)",
+    "async function rebuildDistributedResults(root, queue, previewOnly, verifyAll = false)") + "\nthis.rebuild = rebuildDistributedResults;", context);
+  const queue = { plans: [{ id: "run-b", planFile: "p.yaml", revision: "r", jobs: [{ status: "completed", case: "a", seed: 1,
+    outputDir: "work_dirs/a/attempts/run-b", artifacts: {}, fragmentWorkerIds: ["w1"] }] }] };
+  const submitted = [];
+  const host = { lastWorkerProbes: { w1: { status: "ok" } }, workerCodeSyncTargets: () => [{ id: "w1" }],
+    sftpServerOptions: target => target,
+    distributedProjectContract: () => ({ fragmentPaths: [], requiredPaths: [] }),
+    patchDistributedPublication: async (_root, fields) => Object.assign(queue, fields), client: { postWorkerAction: async (_worker, _action, body) => {
+      submitted.push(body); return submitted.length === 1 ? { status: "failed", message: "old failure" } : { status: "completed", outputPaths: ["result.csv"] };
+    } } };
+  await assert.rejects(context.rebuild.call(host, "C:/project", queue, true), /old failure/);
+  assert.equal(queue.previewSignature, undefined);
+  await context.rebuild.call(host, "C:/project", queue, true);
+  await context.rebuild.call(host, "C:/project", queue, true);
+  assert.equal(submitted.length, 2); assert.notEqual(submitted[0].operationId, submitted[1].operationId);
+  assert.equal(submitted[1].operationId, submitted[1].opId);
+  assert.equal(submitted[1].manifest.plans[0].runId, "run-b");
+  assert.ok(queue.previewSignature);
 });
 
 test("durable local admission requires a fresh capable ledger and an explicit idle GPU", () => {
