@@ -1,4 +1,5 @@
 require('../_helpers/registerTsRequire');
+require('../../src/core/ProgressRpcTransport.ts').postProgressRpc = (url, options) => global.fetch(url, { method: 'POST', ...options });
 const test = require('node:test'), assert = require('node:assert/strict');
 const { SafeRequestRetry, retryRequestSignal, registerRetryStopCheck } = require('../../src/core/SafeRequestRetry.ts');
 const { confirmSftpOperationStopped, callSftpWithProgress } = require('../../src/core/SimpleSftpProgressWait.ts');
@@ -143,7 +144,7 @@ test('failed SFTP response with unknown remote outcome keeps same-target retry g
     await assert.rejects(retry.run('same-target', () => callSftpWithProgress('sync.downloadMappedPaths', {}, async () => discovery)), /旧传输结果未知/);
     await assert.rejects(retry.run('same-target', () => callSftpWithProgress('sync.downloadMappedPaths', {}, async () => discovery)), /旧传输结果未知/);
     assert.equal(starts, 1);
-    assert.equal(cancellations, 1);
+    assert.equal(cancellations, 2, 'failed wait requests its own stop; retry rechecks the unknown exit without another dispatch');
   } finally { global.fetch = saved; }
 });
 

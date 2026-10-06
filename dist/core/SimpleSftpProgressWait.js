@@ -6,6 +6,7 @@ const node_crypto_1 = require("node:crypto");
 const ProgressInactivity_1 = require("./ProgressInactivity");
 const SafeRequestRetry_1 = require("./SafeRequestRetry");
 const BoundedResponse_1 = require("../tunnel/BoundedResponse");
+const ProgressRpcTransport_1 = require("./ProgressRpcTransport");
 async function readSftpJson(response) {
     return JSON.parse(await (0, BoundedResponse_1.readBoundedResponseText)(response, () => { }));
 }
@@ -127,16 +128,64 @@ async function callSftpWithProgress(method, params, discover, onProgress) {
     const startedAt = Date.now();
     let timer, disposed = false;
     let forgetStopCheck = () => { };
-    async function cancelRemote() {
+    let cancellation, operationSent = false, operationNotStarted = false;
+    let stopPending = false;
+    function cancelRemote() {
+        if (cancellation)
+            return cancellation;
+        cancellation = cancelRemoteCore();
+        return cancellation;
+    }
+    async function cancelRemoteCore() {
         try {
             const response = await fetch(new URL("/api/v1/rpc", endpoint), {
                 method: "POST", headers: { ...headers, "Content-Type": "application/json" },
                 body: JSON.stringify({ jsonrpc: "2.0", id: operationId, method: "transfers.cancel", params: { operationId, operationInstanceId: discovery.instanceId, reason: "调用方已取消或无真实进展" } }),
                 signal: AbortSignal.timeout(30_000),
             });
-            await response.body?.cancel();
+            if (discovery.features?.transferSettlementReceipts !== true) {
+                await response.body?.cancel();
+                return;
+            }
+            const payload = await readSftpJson(response);
+            const receipt = payload.result;
+            const matches = (row) => row?.operationId === operationId && row?.operationInstanceId === discovery.instanceId;
+            if (!response.ok || payload.error || !matches(receipt)) {
+                stopPending = true;
+                return;
+            }
+            if (receipt.status === "settled" && receipt.settled === true)
+                return;
+            if (receipt.status !== "cancelling") {
+                stopPending = true;
+                return;
+            }
+            const deadline = Date.now() + 20_000;
+            do {
+                const stateResponse = await fetch(new URL("/api/v1/rpc", endpoint), {
+                    method: "POST", headers: { ...headers, "Content-Type": "application/json" },
+                    body: JSON.stringify({ jsonrpc: "2.0", id: operationId, method: "transfers.list", params: {} }), signal: AbortSignal.timeout(10_000),
+                });
+                const state = (await readSftpJson(stateResponse)).result;
+                if (state?.instanceId !== discovery.instanceId)
+                    break;
+                if (state?.settledOperations?.some((row) => matches(row) && row.status === "settled" && row.settledAt))
+                    return;
+                const current = state?.operations?.find(matches);
+                const active = state?.transfers?.some((row) => row?.operationId === operationId);
+                if (current?.status === "outcomeUnknown" && !active) {
+                    stopPending = true;
+                    return;
+                }
+                if (!current && !active)
+                    break;
+                await new Promise(resolve => setTimeout(resolve, 250));
+            } while (Date.now() < deadline);
+            stopPending = true;
         }
-        catch { /* Outcome remains unknown; never replay a modifying operation. */ }
+        catch {
+            stopPending = true; /* Outcome remains unknown; never replay a modifying operation. */
+        }
     }
     const inactivity = new ProgressInactivity_1.ProgressInactivity(fileOperation ? 120_000 : 30_000, () => {
         requestAbort.abort(new Error("无真实进展，执行结果待确认。连接中断时实时通道会自动重连；请刷新目标状态，勿重复执行。"));
@@ -155,8 +204,10 @@ async function callSftpWithProgress(method, params, discover, onProgress) {
         const processedBytes = count(item.processedBytes ?? item.transferredBytes), processedFiles = count(item.processedFiles);
         const changed = inactivity.update({ phase, scope: item.progressScope || item.id, processedBytes, processedFiles, status: item.status });
         if (changed && onProgress) {
+            const visiblePhase = ["packing", "transferring", "unpacking"].includes(phase) ? "streaming" : phase;
             try {
-                onProgress({ phase, processedBytes, processedFiles, transferredBytes: count(item.transferredBytes), elapsedMs: Date.now() - startedAt });
+                onProgress({ phase: visiblePhase, processedBytes, processedFiles, transferredBytes: count(item.transferredBytes),
+                    comparedFiles: count(item.comparedFiles), changedFiles: count(item.changedFiles), totalBytes: count(item.totalBytes), elapsedMs: Date.now() - startedAt });
             }
             catch { /* Notification failures cannot cancel a genuine transfer. */ }
         }
@@ -234,8 +285,10 @@ async function callSftpWithProgress(method, params, discover, onProgress) {
             } });
         const sendOperation = async () => {
             try {
-                const response = await fetch(new URL("/api/v1/rpc", endpoint), {
-                    method: "POST", headers: { ...headers, "Content-Type": "application/json" }, body: requestBody, signal: requestAbort.signal,
+                operationSent = true;
+                operationNotStarted = false;
+                const response = await (0, ProgressRpcTransport_1.postProgressRpc)(new URL("/api/v1/rpc", endpoint), {
+                    headers: { ...headers, "Content-Type": "application/json" }, body: requestBody, signal: requestAbort.signal,
                 });
                 if (!response.ok)
                     void response.body?.cancel().catch(() => undefined);
@@ -243,8 +296,9 @@ async function callSftpWithProgress(method, params, discover, onProgress) {
             }
             catch (error) {
                 if (requestAbort.signal.aborted)
-                    throw error;
-                const detail = error instanceof Error ? error.message : String(error || "连接中断");
+                    throw requestAbort.signal.reason || error;
+                const cause = error?.cause?.code || error?.code;
+                const detail = `${error instanceof Error ? error.message : String(error || "连接中断")}${cause ? ` [${String(cause).slice(0, 64)}]` : ""}`;
                 throw new Error(`SimpleSFTP ${method} 请求中断，旧传输结果未知，未重新传输；刷新目标状态并确认远端退出后再重试。${detail ? ` (${detail})` : ""}`);
             }
         };
@@ -254,6 +308,7 @@ async function callSftpWithProgress(method, params, discover, onProgress) {
         let payload = await readSftpJson(response);
         requestAbort.signal.throwIfAborted();
         const blocker = payload.error?.data;
+        operationNotStarted = blocker?.notStarted === true;
         if (fileOperation && blocker?.blockedOperationId && typeof blocker.operationInstanceId === "string") {
             // Only an explicit producer receipt proves that this new operation never
             // started. Do not retain a stop check for a nonexistent operation id.
@@ -271,8 +326,10 @@ async function callSftpWithProgress(method, params, discover, onProgress) {
             requestAbort.signal.throwIfAborted();
         }
         if (payload.error || payload.result?.ok === false) {
-            if (payload.error?.data?.notStarted === true)
+            if (payload.error?.data?.notStarted === true) {
+                operationNotStarted = true;
                 forgetStopCheck();
+            }
             // Keep the stop check attached to this request generation. A later
             // explicit retry must reconcile this operation before starting another
             // modifying transfer; the current error response alone may not prove
@@ -283,6 +340,15 @@ async function callSftpWithProgress(method, params, discover, onProgress) {
         }
         forgetStopCheck();
         return payload.result;
+    }
+    catch (error) {
+        // A failed wait must not silently abandon a still-running child. Cancel
+        // only this operation; unknown remote exit still requires the saved guard.
+        if (fileOperation && operationSent && !operationNotStarted)
+            await cancelRemote();
+        if (stopPending && !scopedSignal?.aborted)
+            throw new Error(`${error instanceof Error ? error.message : String(error)}；已请求停止本次传输，退出结果待确认（${operationId}）。请刷新传输状态，勿并发重发。`);
+        throw error;
     }
     finally {
         disposed = true;

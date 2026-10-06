@@ -10006,7 +10006,7 @@ export class RealtimeTunnelPanelProvider {
             progress.report({ message: "校验并恢复最新版结果片段" });
             const reportTransfer = (detail) => {
                 const processed = detail.processedFiles === undefined ? "" : ` · 已处理 ${detail.processedFiles} 个文件`;
-                const wire = detail.phase === "transferring" && detail.transferredBytes !== undefined;
+                const wire = ["transferring", "streaming"].includes(detail.phase) && detail.transferredBytes !== undefined;
                 const count = wire ? detail.transferredBytes : detail.processedBytes;
                 const bytes = count === undefined ? "" : ` · ${(count / 1048576).toFixed(1)} MiB ${wire ? "实际传输" : "已处理"}`;
                 const elapsed = detail.elapsedMs === undefined ? "" : ` · 本步已耗时 ${Math.floor(detail.elapsedMs / 1000)} 秒`;
@@ -10015,9 +10015,10 @@ export class RealtimeTunnelPanelProvider {
                 const label = labels[detail.phase] || "处理产物";
                 const scope = detail.planFile ? ` · ${detail.planFile} job ${detail.jobIndex}`
                     : detail.batch ? ` · 第 ${detail.batch}${detail.batchCount ? `/${detail.batchCount}` : ""} 批` : "";
-                const paths = detail.checkedCount === undefined ? detail.fileCount === undefined ? "" : ` · ${detail.fileCount} 路径`
+                const paths = detail.checkedCount === undefined ? detail.fileCount === undefined ? "" : ` · 校验范围 ${detail.fileCount} 路径`
                     : ` · ${detail.checkedCount}/${detail.fileCount} 范围`;
-                progress.report({ message: `${label} · ${detail.workerId}${scope}${paths}${processed}${bytes}${elapsed} · 总耗时 ${Math.floor((Date.now() - syncStartedAt) / 1000)} 秒` });
+                const difference = detail.changedFiles === undefined ? "" : ` · 差异 ${detail.changedFiles}/${detail.comparedFiles ?? detail.fileCount} 文件`;
+                progress.report({ message: `${detail.phase === "streaming" ? "流处理（打包、传输与解包）" : label} · ${detail.workerId}${scope}${paths}${difference}${processed}${bytes}${elapsed} · 总耗时 ${Math.floor((Date.now() - syncStartedAt) / 1000)} 秒` });
             };
             try {
                 await this.syncDistributedJobArtifacts(root, queue, "fragments", true, reportTransfer);
@@ -10759,9 +10760,8 @@ export class RealtimeTunnelPanelProvider {
             const pathsByWorker = new Map<string, Set<string>>();
             for (const plan of plans) for (const job of plan.jobs) {
                 if (job.status !== "completed" || !job.workerId || job.outputRetiredAt) continue;
-                const needsInventory = !job.artifacts || [...contract.fragmentPaths, ...contract.requiredPaths].some((name) => !job.artifacts[`${job.outputDir}/${name}`]);
                 const paths = phase === "fragments" ? contract.fragmentPaths.map((name) => `${job.outputDir}/${name}`)
-                    : needsInventory ? [job.outputDir] : Object.keys(job.artifacts).filter((file) => file.startsWith(job.outputDir + "/"));
+                    : [job.outputDir];
                 for (const id of online) {
                     if (!pathsByWorker.has(id)) pathsByWorker.set(id, new Set());
                     for (const file of paths) pathsByWorker.get(id).add(file);
@@ -10803,7 +10803,9 @@ export class RealtimeTunnelPanelProvider {
                 const sources = [...new Set([job.workerId, ...(job.mirroredWorkerIds || []), ...(phase === "fragments" ? job.fragmentWorkerIds || [] : [])])];
                 const fragmentPaths = contract.fragmentPaths.map((name) => `${job.outputDir}/${name}`);
                 const ownedPaths = () => Object.keys(job.artifacts || {}).filter((file) => file.startsWith(job.outputDir + "/"));
-                const needsInventory = !job.artifacts || fragmentPaths.some((file) => !job.artifacts[file])
+                // A complete old manifest does not prove that later checkpoints/logs were inventoried.
+                // Manual full sync rescans only selected attempt directories in the shared preflight.
+                const needsInventory = verifyAll && phase === "bulk" || !job.artifacts || fragmentPaths.some((file) => !job.artifacts[file])
                     || phase === "bulk" && !contract.requiredPaths.every((name) => job.artifacts[`${job.outputDir}/${name}`]);
                 let sourceId, collected;
                 const invalidSources = [];

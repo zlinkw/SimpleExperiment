@@ -1,6 +1,7 @@
 const test=require('node:test'), assert=require('node:assert/strict');
 const progressModule=require('../../dist/core/ProgressInactivity');
 const Original=progressModule.ProgressInactivity;
+require('../../dist/core/ProgressRpcTransport').postProgressRpc = (url, options) => global.fetch(url, { method:'POST', ...options });
 let now=0, waits=[];
 progressModule.ProgressInactivity=class extends Original {
   constructor(_idle,onIdle){super(120,onIdle,()=>now);waits.push(this);}
@@ -46,7 +47,7 @@ test('only current operation genuine progress reaches the caller; telemetry fail
   assert.equal(progress[0].processedFiles,4);
   assert.equal(progress[0].processedBytes,1048576);
   assert.ok(progress[0].elapsedMs>=0);
-  assert.equal(progress[1].phase,'unpacking');
+  assert.equal(progress[1].phase,'streaming');
 });
 
 test('poll fallback forwards current progress when the event stream is unavailable',async()=>{

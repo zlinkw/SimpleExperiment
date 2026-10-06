@@ -63,7 +63,8 @@ function fixture({ emptyOriginal = false, cold = false, allMissing = false, retr
       inventoryCalls.push({ workerId: server.id, relativePath, scopePaths, recursive });
       return { files: Object.fromEntries(Object.entries(inventory[server.id]).filter(([name]) => {
         if (respectDepth && relativePath === "." && recursive === false && name.includes("/")) return false;
-        return scopePaths ? scopePaths.includes(name) : name === relativePath || name.startsWith(relativePath + "/");
+        return scopePaths ? scopePaths.some(scope => name === scope || recursive && name.startsWith(scope + "/"))
+          : name === relativePath || name.startsWith(relativePath + "/");
       })) };
     },
     async simpleSftpApiCall(method, payload) {
@@ -207,6 +208,46 @@ test("bulk repair includes fragments even if deletion occurs after the fragment 
   await f.host.syncDistributedJobArtifacts(root, await f.host.loadDistributedQueue(), "bulk", true);
   assert.deepEqual(f.errors, []);
   for (const file of Object.keys(f.files)) assert.equal(f.inventory.w2[file]?.sha256, hash);
+});
+
+test("full synchronization rescans latest attempt weights beyond a previously complete artifact manifest", async () => {
+  const f = fixture({ inventoryStdin: true });
+  const job = f.state.plans[1].jobs[0];
+  const lateWeights = [`${job.outputDir}/last_checkpoint.pth`, `${job.outputDir}/checkpoints/epoch-90.safetensors`];
+  for (const file of lateWeights) f.inventory.w1[file] = { sha256: "b".repeat(64) };
+  await f.host.syncDistributedJobArtifacts(root, await f.host.loadDistributedQueue(), "bulk", true);
+  assert.deepEqual(f.errors, []);
+  for (const file of lateWeights) {
+    assert.equal(job.artifacts[file], "b".repeat(64));
+    assert.equal(f.inventory.w2[file]?.sha256, "b".repeat(64));
+    assert.equal(f.inventory.w3[file]?.sha256, "b".repeat(64));
+  }
+  assert.ok(f.transfers.every(row => lateWeights.every(file => row.paths.includes(file))));
+  assert.equal(f.inventoryCalls.filter(call => call.workerId === "w1").length, 1,
+    "one bounded directory preflight discovers weights without per-job extra SSH queries");
+  const dispatched = f.transfers.length;
+  await f.host.syncDistributedJobArtifacts(root, await f.host.loadDistributedQueue(), "bulk", true);
+  assert.equal(f.transfers.length, dispatched, "unchanged latest weights are verified and skipped");
+});
+
+test("full synchronization confines work_dirs to selected latest attempts and excludes temporary state", async () => {
+  const f = fixture({ inventoryStdin: true });
+  const latest = f.state.plans[1].jobs[0].outputDir;
+  const old = f.state.plans[0].jobs[0].outputDir;
+  const excluded = [`${old}/last_checkpoint.pth`, "work_dirs/untracked/checkpoint.pth",
+    `${latest}-old/best_model.pth`, `${latest}/worker.pid`, `${latest}/transfer.lock`, `${latest}/job.exit_code`];
+  for (const file of excluded) f.inventory.w1[file] = { sha256: hash };
+  await f.host.syncDistributedJobArtifacts(root, await f.host.loadDistributedQueue(), "bulk", true);
+  assert.deepEqual(f.errors, []);
+  assert.ok(f.inventoryCalls.every(call => call.scopePaths.every(scope => scope === latest || scope.startsWith(latest + "/"))),
+    "never inventory the entire work_dirs root or a retired attempt");
+  assert.ok(f.transfers.length > 0);
+  assert.ok(f.transfers.every(row => row.paths.every(file => file.startsWith(latest + "/") && !excluded.includes(file))));
+  for (const file of excluded) {
+    assert.equal(f.inventory.w2[file], undefined);
+    assert.equal(f.state.plans[1].jobs[0].artifacts[file], undefined);
+    assert.ok(f.inventory.w1[file], "synchronization must not delete historical or temporary source files");
+  }
 });
 
 test("different Plans sharing a Worker pair use one compressed batch", async () => {
