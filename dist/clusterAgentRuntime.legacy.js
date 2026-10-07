@@ -15370,6 +15370,7 @@ def serve_http(args):
             if route == "/api/tensorboard/proxy" or route == TENSORBOARD_BROWSER_PREFIX or route.startswith(TENSORBOARD_BROWSER_PREFIX + "/"):
                 return self.proxy_tensorboard(urlparse(self.path))
             allowed = ACTION_ROUTES.union({
+                "/api/tmux/kill-window",
                 "/api/worker/availability/batch",
                 "/api/workers/uplink/events",
                 "/api/files/upload-init",

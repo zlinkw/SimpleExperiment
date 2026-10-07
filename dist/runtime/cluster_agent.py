@@ -67,9 +67,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.245"
-RUNTIME_VERSION = "0.5.245"
-PLUGIN_VERSION = "0.5.245"
+AGENT_VERSION = "0.5.246"
+RUNTIME_VERSION = "0.5.246"
+PLUGIN_VERSION = "0.5.246"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -15422,6 +15422,7 @@ def serve_http(args):
             if route == "/api/tensorboard/proxy" or route == TENSORBOARD_BROWSER_PREFIX or route.startswith(TENSORBOARD_BROWSER_PREFIX + "/"):
                 return self.proxy_tensorboard(urlparse(self.path))
             allowed = ACTION_ROUTES.union({
+                "/api/tmux/kill-window",
                 "/api/worker/availability/batch",
                 "/api/workers/uplink/events",
                 "/api/files/upload-init",
