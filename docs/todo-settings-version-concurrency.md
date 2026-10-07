@@ -11,7 +11,7 @@
 - [x] 本机代码变化后保留派发校验：支持 proof 的 Agent 在原 Worker 校验原指纹及文件状态，不再用新本机 manifest 阻塞旧待派发任务；旧 Agent 仍须完整 manifest 匹配。持久化每 Worker 的 bounded proof 身份，重载不丢失。
 - [x] 串行设置、调度、提交、Panel 回归，build 与 vm.Script，打包校验、安装一次。
 - [x] 最终核对：本轮未向服务器提交任务、传输或停止请求；需用户重载后进行真实 UI/多版本并行验收。
-- [ ] scoped commit 并 fast-forward 推送；fetch 核对 HEAD 与 origin/master。
+- [x] scoped commit 并 fast-forward 推送；fetch 核对 HEAD 与 origin/master。
 
 ## 实现边界
 
@@ -31,4 +31,5 @@
 - 所有测试逐文件串行，均使用 20 秒超时及 force-exit；未执行官方实验。
 - 发布基线：`28692e55`，目标版本 `0.5.235`。build（内嵌 Webview 解析 1/1）、vm.Script、189 个运行时模块依赖门禁通过；VSIX 198 个关键文件与本机逐字节一致，无 `.pyc`。
 - `npm run install:latest` 仅执行一次；VS Code 已安装版本为 `0.5.235`，189 个运行时模块与本机一致，`simpleex --help` 及 npm link 入口正常。安装后停止 Panel/API 操作。
+- 代码提交 `fe1cf1d3` 已普通 fast-forward 推送至 `origin/master`，fetch 后 HEAD 一致；工作区仅剩原有两个 dirty `.pyc`。本条发布记录单独作为文档批次收口。
 - 未验证项仅为用户重载后的真实设置页及不同 Worker 的跨代码版本训练并行；同 Worker 的共享代码根目录仍须等待旧任务结束。
