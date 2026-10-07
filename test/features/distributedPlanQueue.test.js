@@ -226,28 +226,38 @@ test("a fingerprint with no idle GPU does not lock out another fingerprint that 
   assert.equal(result.queue.plans.find((row) => row.id === "busy-version").jobs[0].blockReason, undefined);
 });
 
-test("an active fingerprint waits other matching versions and clears the reason when it finishes", () => {
+test("different verified Workers dispatch different versions while an older Plan is still running", () => {
   const active = { ...plan("live", "code-live"), jobs: [{ index: 0, case: "bus", seed: 1, outputDir: "work_dirs/live/bus_1" }] };
   const next = { ...plan("next", "code-next"), jobs: [{ index: 0, case: "pad", seed: 2, outputDir: "work_dirs/next/pad_2" }] };
   let input = queue.enqueuePlan(queue.enqueuePlan(queue.emptyDistributedQueue(), active, "live-plan"), next, "next-plan");
-  input = queue.allocateAvailable(input, [{ workerId: "nwpu3", idleGpuIds: ["0"], online: true, codeFingerprint: "code-live" }]).queue;
+  input = queue.allocateAvailable(input, [{ workerId: "worker-old", idleGpuIds: ["0"], online: true, codeFingerprint: "code-live" }]).queue;
   input.plans[0].jobs[0].status = "running";
   const held = queue.allocateAvailable(input, [
-    { workerId: "nwpu3", idleGpuIds: ["1"], online: true, codeFingerprint: "code-live" },
-    { workerId: "nwpu5", idleGpuIds: ["0"], online: true, codeFingerprint: "code-next" },
+    { workerId: "worker-old", idleGpuIds: ["1"], online: true, codeFingerprint: "code-live" },
+    { workerId: "worker-new", idleGpuIds: ["0"], online: true, codeFingerprint: "code-next" },
   ]);
   const waiting = held.queue.plans.find((row) => row.id === "next-plan").jobs[0];
-  assert.equal(held.dispatches.length, 0);
-  assert.equal(waiting.status, "pending");
-  assert.match(waiting.blockReason, /等待当前代码版本/);
-  assert.doesNotMatch(waiting.blockReason, /代码指纹不匹配/);
-  held.queue.plans.find((row) => row.id === "live-plan").jobs[0].status = "completed";
-  const released = queue.allocateAvailable(held.queue, [
-    { workerId: "nwpu5", idleGpuIds: ["0"], online: true, codeFingerprint: "code-next" },
-  ]);
-  const resumed = released.queue.plans.find((row) => row.id === "next-plan").jobs[0];
-  assert.equal(resumed.status, "dispatching");
-  assert.equal(resumed.blockReason, undefined);
+  assert.equal(held.dispatches.length, 1);
+  assert.equal(waiting.status, "dispatching");
+  assert.equal(waiting.workerId, "worker-new");
+  assert.equal(waiting.blockReason, undefined);
+  assert.equal(held.queue.plans[0].jobs[0].status, "running");
+  assert.equal(input.plans[1].jobs[0].status, "pending");
+});
+
+test("a Worker remains version-locked for active or uncertain jobs, then releases on terminal receipt", () => {
+  const old = plan("old", "old-code"), fresh = plan("fresh", "new-code");
+  for (const status of ["dispatching", "queued", "running", "unknown"]) {
+    const input = queue.enqueuePlan(queue.enqueuePlan(queue.emptyDistributedQueue(), old, "old"), fresh, "new");
+    Object.assign(input.plans[0].jobs[0], { status, workerId: "worker-a", gpuId: "0", commandId: "old-command" });
+    const worker = { workerId: "worker-a", online: true, codeFingerprint: "new-code", idleGpuIds: ["1", "2", "3", "4", "5", "6"] };
+    assert.equal(queue.workerCodeVersionAvailable(input, "worker-a", "new-code"), false);
+    assert.equal(queue.allocateAvailable(input, [worker]).dispatches.length, 0);
+    input.plans[0].jobs[0].status = "completed";
+    const next = queue.allocateAvailable(input, [worker]);
+    assert.equal(next.dispatches.length, fresh.jobs.length);
+    assert.ok(next.dispatches.every(row => row.planId === "new"));
+  }
 });
 
 test("stop clear removes only the confirmed plan and keeps a failed sibling job", () => {

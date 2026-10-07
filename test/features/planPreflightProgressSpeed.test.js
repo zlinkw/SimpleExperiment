@@ -33,7 +33,7 @@ const manifestEnd = distSource.indexOf("function isLocalCodeOwnedPath(", manifes
 const manifestFactory = new Function("fs", "fsNode", "path", "crypto", "LocalCodeManifestCache_1", distSource.slice(manifestStart, manifestEnd) + "\nreturn { buildLocalCodeManifest };");
 const manifestApi = manifestFactory(require("node:fs").promises, require("node:fs"), path, crypto, require("../../dist/features/LocalCodeManifestCache.js"));
 
-const apiFactory = new Function("SyncResolution_1", "CodeSyncDelta_1", "fingerprintFromManifest", "buildLocalCodeManifest", "vscode_1", "LocalCodeManifestCache_1", "SafeRequestRetry_1", `
+const apiFactory = new Function("SyncResolution_1", "CodeSyncDelta_1", "fingerprintFromManifest", "buildLocalCodeManifest", "vscode_1", "LocalCodeManifestCache_1", "SafeRequestRetry_1", "DistributedPlanQueue", "workspaceRoot", `
   function stringField(message, key) { return String((message && message[key]) || ""); }
   function operationResultPlanFile(body) { return String((body && (body.planFile || body.selectedPlanId || (body.options && body.options.planFile))) || ""); }
   function errorMessage(error) { return error && error.message ? error.message : String(error || ""); }
@@ -50,6 +50,7 @@ const apiFactory = new Function("SyncResolution_1", "CodeSyncDelta_1", "fingerpr
   function codeSyncConfirmationLabel(scope) { return scope; }
   const vscode = arguments[4];
   ${compiled("syncCodeTargets")}
+  ${compiled("safeWorkerCodeSyncTargets")}
   ${compiled("reportPlanStage")}
   ${compiled("planSubmissionOperationId")}
   ${compiled("planSubmissionPlanFile")}
@@ -57,7 +58,7 @@ const apiFactory = new Function("SyncResolution_1", "CodeSyncDelta_1", "fingerpr
   ${compiled("patchPlanSubmissionProgress")}
   ${compiled("finishPlanSubmissionProgress")}
   ${compiled("trimPlanSubmissionEpochs")}
-  return { syncCodeTargets, reportPlanStage, planSubmissionOperationId, planSubmissionPlanFile, beginPlanSubmissionProgress, patchPlanSubmissionProgress, finishPlanSubmissionProgress, trimPlanSubmissionEpochs };
+  return { syncCodeTargets, safeWorkerCodeSyncTargets, reportPlanStage, planSubmissionOperationId, planSubmissionPlanFile, beginPlanSubmissionProgress, patchPlanSubmissionProgress, finishPlanSubmissionProgress, trimPlanSubmissionEpochs };
 `);
 
 function sha(char) { return char.repeat(64); }
@@ -86,6 +87,13 @@ function syncHost(remote) {
   fs.mkdirSync(path.join(project, "src"), { recursive: true });
   fs.writeFileSync(path.join(project, "src", "train.py"), "same");
   host.project = project;
+  host.projectTopologyAssessment = () => ({ mode: "worker_pool" });
+  host.loadDistributedQueue = async () => ({ schemaVersion: 1, plans: [] });
+  host.taskReads = [];
+  host.readWorkerTaskSnapshot = async (workerId, options) => {
+    host.taskReads.push({ workerId, options });
+    return { workerId, tasks: [], generatedAt: new Date().toISOString(), fetchedAt: new Date().toISOString(), capabilities: { durablePlanQueue: true, schemaVersion: 1 } };
+  };
   host.projectContextIsCurrent = () => true;
   host.ensureSftpManagerCommand = async () => {};
   host.confirmRemoteWriteTargets = async () => {};
@@ -116,6 +124,8 @@ function syncHost(remote) {
     vscodeStub,
     require("../../dist/features/LocalCodeManifestCache.js"),
     require("../../dist/core/SafeRequestRetry.js"),
+    require("../../dist/features/DistributedPlanQueue.js"),
+    () => project,
   );
   Object.assign(host, api);
   host.localCodeManifestCacheFile = () => path.join(host.context.globalStorageUri.fsPath, "code-manifest.json");
@@ -149,6 +159,16 @@ test("warm unchanged reuses stat hashes and Extension Host proof skips repeat re
   host.lastWorkerProbes["worker-a"].statusGeneration += 1;
   await host.syncCodeTargets([host.target], "plan-check", { projectContext: { root: host.project }, hashCompare: true });
   assert.equal(host.inventories.length, 3, "a Worker status generation change invalidates only that Worker's warm proof");
+});
+
+test("warm code proof still refreshes dynamic task ownership before every potential code write", async () => {
+  const host = syncHost({ files: { "src/train.py": { size: 4, sha256: crypto.createHash("sha256").update("same").digest("hex") } } });
+  await host.syncCodeTargets([host.target], "run", { projectContext: { root: host.project }, hashCompare: true });
+  host.readWorkerTaskSnapshot = async workerId => ({ workerId, tasks: [{ status: "running", codeFingerprint: "another-code" }],
+    generatedAt: new Date().toISOString(), fetchedAt: new Date().toISOString(), capabilities: { durablePlanQueue: true, schemaVersion: 1 } });
+  await assert.rejects(host.syncCodeTargets([host.target], "run", { projectContext: { root: host.project }, hashCompare: true }), /未覆盖运行中代码/);
+  assert.equal(host.uploads.length, 0);
+  assert.equal(host.codeSyncInFlight, 0);
 });
 
 test("run code sync consumes the current Plan submission manifest once", async () => {

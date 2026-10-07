@@ -6418,6 +6418,8 @@ export class RealtimeTunnelPanelProvider {
         const held = occupied.some((item) => item.codeFingerprint !== fingerprint
             && DistributedPlanQueue.fingerprintStillMounted(queue, item.codeFingerprint, workerFingerprints));
         if (!held) return undefined;
+        const candidates = this.enabledWorkerConfigs?.() || [];
+        if (candidates.some((worker) => DistributedPlanQueue.workerCodeVersionAvailable(queue, worker.id, fingerprint))) return undefined;
         const blocker = occupied.find((item) => item.codeFingerprint !== fingerprint) || occupied[0];
         return { root, queue, fingerprint, blocker };
     }
@@ -6558,6 +6560,7 @@ export class RealtimeTunnelPanelProvider {
                 const workers = rows.map((row) => ({ workerId: row.workerId,
                     online: this.lastWorkerProbes[row.workerId]?.status === "ok"
                         && this.lastCodeSyncState.workerVersions?.[row.workerId]?.fingerprint === fingerprint,
+                    codeFingerprint: this.lastCodeSyncState.workerVersions?.[row.workerId]?.fingerprint,
                     idleGpuIds: (row.availableGpuIds || []).filter((id) => !occupied.has(`${row.workerId}:${id}`)),
                     capacity: Number.isInteger(Number(row.capacityLimit)) ? Number(row.capacityLimit) : undefined }));
                 const preview = DistributedPlanQueue.previewAvailable(queue, { planFile: planKey,
@@ -8833,7 +8836,11 @@ export class RealtimeTunnelPanelProvider {
             ? this.topologyCodeSyncTargets().filter((target) => target.role === "hub" || selectedWorkerIds.includes(target.id))
             : this.topologyCodeSyncTargets();
         reportStage("正在同步运行所需代码…");
-        await this.syncCodeTargets(targets, "run", { projectContext, hashCompare: true, progressReport: (text) => reportStage(text) });
+        const syncedTargets = await this.syncCodeTargets(targets, "run", { projectContext, hashCompare: true, progressReport: (text) => reportStage(text) });
+        if (topology.mode === "worker_pool" && syncedTargets?.length) for (const body of bodies) {
+            if (!syncedTargets.some((target) => target.id === this.planSchedulerWorkerId(body)))
+                this.stampWorkerPoolManualTarget(body, syncedTargets[0].id);
+        }
         if (!this.projectContextIsCurrent(projectContext))
             throw new UiCommandCancelled("工作区已切换，运行前代码同步已取消。");
     }
@@ -8849,13 +8856,19 @@ export class RealtimeTunnelPanelProvider {
         const selectedWorkerId = this.planSchedulerWorkerId(body);
         const targets = topology.mode === "hub_worker"
             ? [this.hubCodeSyncTarget()]
-            : this.workerCodeSyncTargets().filter((target) => topology.mode !== "worker_pool" || target.id === selectedWorkerId);
-        await this.syncCodeTargets(targets, "plan-check", { hashCompare: true, progressReport: (text) => reportStage(text) });
+            : this.workerCodeSyncTargets().sort((a, b) => Number(b.id === selectedWorkerId) - Number(a.id === selectedWorkerId));
+        const syncedTargets = await this.syncCodeTargets(targets, "plan-check", { hashCompare: true, progressReport: (text) => reportStage(text) });
+        if (topology.mode === "worker_pool" && syncedTargets?.length
+            && !syncedTargets.some((target) => target.id === selectedWorkerId)) this.stampWorkerPoolManualTarget(body, syncedTargets[0].id);
     }
     async syncCodeTargets(targets, scope, options = {}) {
         if (this.syncScopeMutationInFlight) throw new Error("文件树操作进行中，代码同步稍后重试。");
+        if (this.codeSyncInFlight) throw new Error("已有代码同步进行中，请完成后重试，未覆盖正在使用的代码。");
         this.codeSyncInFlight = (this.codeSyncInFlight || 0) + 1;
         try {
+        const dispatchInFlight = this.distributedQueueTickPromise;
+        if (dispatchInFlight) await this.boundedPromise(() => dispatchInFlight, 10_000,
+            new Error("原派发尚未确认结束，代码同步未写入；请刷新任务状态后重试。"));
         const projectContext = options.projectContext;
         const assertCurrent = () => {
             assertRetryRequestCurrent();
@@ -8868,7 +8881,7 @@ export class RealtimeTunnelPanelProvider {
         const root = projectContext?.root || workspaceRoot();
         if (!root)
             throw new Error("请先打开一个工作区，再同步代码。");
-        const enabledTargets = targets.filter(Boolean);
+        let enabledTargets = targets.filter(Boolean);
         if (!enabledTargets.length)
             throw new Error("没有可用于代码同步的 Hub/Worker 目标。");
         const codeSyncConfig = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
@@ -8896,6 +8909,8 @@ export class RealtimeTunnelPanelProvider {
         assertCurrent();
         const fingerprint = fingerprintFromManifest(manifest);
         const expectedRelativeFiles = Object.keys(manifest).sort((a, b) => a.localeCompare(b)).slice(0, 8);
+        enabledTargets = await this.safeWorkerCodeSyncTargets(enabledTargets, root, fingerprint, scope, progressReport);
+        assertCurrent();
         if (progressReport) progressReport("正在确认远端写入路径…");
         await this.confirmRemoteWriteTargets(codeSyncConfirmationLabel(scope), enabledTargets.map((target) => ({
             ...target,
@@ -9034,7 +9049,37 @@ export class RealtimeTunnelPanelProvider {
         this.postState();
         this.lastCodeSyncStats = syncStats;
         if (progressReport) progressReport(`代码同步完成：哈希重算 ${syncStats.hashed}、沿用 ${syncStats.hashReused}${syncStats.cacheWriteSkipped ? "，本地缓存未改写" : ""}，远端清单请求 ${syncStats.inventoryCalls} 次，上传 ${syncStats.uploads} 次`);
+        return enabledTargets;
         } finally { this.codeSyncInFlight--; }
+    }
+    async safeWorkerCodeSyncTargets(targets, root, fingerprint, scope, progressReport?) {
+        const workers = targets.filter((target) => target.role === "worker");
+        if (!workers.length) return targets;
+        const client = this.client;
+        const snapshots = await mapLimited(workers, 2, async (target) => {
+            try { return await this.readWorkerTaskSnapshot(target.id, { fresh: true }); }
+            catch { return { workerId: target.id, tasks: [], error: "Worker task read failed" }; }
+        });
+        if (workspaceRoot() !== root || this.client !== client) throw new UiCommandCancelled("项目或连接已切换，代码同步已取消。");
+        const queue = await this.loadDistributedQueue(root);
+        const merged = DistributedPlanQueue.mergeDurableWorkerSnapshots(queue, snapshots, DistributedPlanQueue.canonicalProjectId(root));
+        const safe = new Set();
+        const blocked = [];
+        for (let index = 0; index < workers.length; index++) {
+            const target = workers[index], snapshot = snapshots[index];
+            const fresh = snapshot?.workerId === target.id && DistributedPlanQueue.hasFreshDurableSnapshot(snapshot);
+            const conflicting = (snapshot?.tasks || []).some((task) =>
+                !["completed", "succeeded", "failed", "cancelled", "canceled"].includes(String(task.status || "").toLowerCase())
+                && String(task.codeFingerprint || "") !== fingerprint);
+            if (fresh && !conflicting && DistributedPlanQueue.workerCodeVersionAvailable(merged, target.id, fingerprint)) safe.add(target.id);
+            else blocked.push(`${target.label || target.id}：${fresh ? "旧代码版本仍有活动或待核实任务" : "未获得新鲜任务快照"}`);
+        }
+        const selected = targets.filter((target) => target.role !== "worker" || safe.has(target.id));
+        if (!blocked.length) return scope === "plan-check" ? selected.slice(0, 1) : selected;
+        const partial = this.projectTopologyAssessment().mode === "worker_pool" && ["run", "plan-check"].includes(scope);
+        if (!partial || !selected.length) throw new Error(`未覆盖运行中代码；${blocked.join("；")}。请使用可核实且没有其他版本任务的 Worker，或等待原任务结束。`);
+        if (progressReport) progressReport(`新版本仅同步至 ${safe.size} 台安全 Worker；保留 ${blocked.join("；")} 上的原代码。`);
+        return scope === "plan-check" ? selected.slice(0, 1) : selected;
     }
     codeSyncWarmProofKey(target, root, fingerprint, includePaths, scopePaths) {
         const diagnostics = this.client?.diagnostics?.();
@@ -10313,12 +10358,19 @@ export class RealtimeTunnelPanelProvider {
         const rawMaxConcurrentGpus = workerConfig?.maxConcurrentGpus;
         const maxConcurrentGpus = rawMaxConcurrentGpus === undefined || rawMaxConcurrentGpus === null || rawMaxConcurrentGpus === "auto"
             ? 0 : Number(rawMaxConcurrentGpus);
-        const codeManifest = sharedCodeManifest || await this.buildDistributedJobCodeManifest(root);
-        if (fingerprintFromManifest(codeManifest) !== plan.codeFingerprint)
-            throw new Error("本机代码已偏离 Plan 的代码指纹，持久队列提交已暂停；请恢复该版本或重新提交计划。");
         const supportsCodeSyncProof = this.lastWorkerProbes?.[workerId]?.capabilities?.actionEndpoints?.["register-code-sync-proof"] === true;
         const workerVersion = this.lastCodeSyncState?.workerVersions?.[workerId] || {};
-        const codeProofFields = durableCodeProofRequestFields(supportsCodeSyncProof, workerVersion, plan.codeFingerprint, codeManifest, workerId);
+        let codeProofFields;
+        if (supportsCodeSyncProof) {
+            // Agent verifies the persisted proof against its own code files before admission.
+            // An unchanged Worker can finish an older Plan after the local workspace advances.
+            codeProofFields = durableCodeProofRequestFields(true, workerVersion, plan.codeFingerprint, undefined, workerId);
+        } else {
+            const codeManifest = sharedCodeManifest || await this.buildDistributedJobCodeManifest(root);
+            if (fingerprintFromManifest(codeManifest) !== plan.codeFingerprint)
+                throw new Error("本机代码已偏离 Plan 的代码指纹，持久队列提交已暂停；请恢复该版本或重新提交计划。");
+            codeProofFields = durableCodeProofRequestFields(false, workerVersion, plan.codeFingerprint, codeManifest, workerId);
+        }
         if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
             throw new Error("提交已取消或项目已切换，未向 Worker 发送任务。");
         const request = {
@@ -10496,6 +10548,12 @@ export class RealtimeTunnelPanelProvider {
         for (const [, timing] of submissionPlansForTiming())
             this.recordPlanSubmissionTimingByOperation?.(timing.operationId, "gpuSnapshotMs", gpuSnapshotResult.completedAt - snapshotsStartedAt);
         if (!queueWriteCurrent()) return;
+        // Code upload and new dispatch never mutate one Worker project root concurrently.
+        if (this.codeSyncInFlight) {
+            await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
+            this.postState();
+            return;
+        }
         const durableQueue = queue.plans.some((plan) => plan.projectId === projectId
             || plan.jobs.some((job) => job.recallRequested === true));
         if (durableQueue) {
@@ -10691,6 +10749,8 @@ export class RealtimeTunnelPanelProvider {
             }).filter(([id, plan]) => id && plan)).values()];
             const sharedManifests = new Map<string, any>();
             await Promise.all(dispatchPlans.map(async (plan) => {
+                if (dispatches.filter((row) => row.planId === plan.id).every((row) =>
+                    this.lastWorkerProbes?.[row.workerId]?.capabilities?.actionEndpoints?.["register-code-sync-proof"] === true)) return;
                 try { sharedManifests.set(plan.id, await this.buildDistributedJobCodeManifest(root)); }
                 catch (error) { sharedManifests.set(plan.id, error); }
             }));
@@ -10821,13 +10881,11 @@ export class RealtimeTunnelPanelProvider {
         }
         const occupied = new Set(queue.plans.flatMap((plan) => plan.jobs.filter((job) => ["dispatching", "running", "unknown"].includes(job.status))
             .map((job) => `${job.workerId}:${job.gpuId}`)));
-        const dispatchFingerprint = queue.plans.find((plan) => plan.jobs.some((job) => ["dispatching", "running", "unknown"].includes(job.status)))?.codeFingerprint;
         const rows = snapshot ? this.localWorkerAvailabilityRows(this.availabilityPushTtlSeconds(this.schedulerSettings()), snapshot) : [];
         const workers = rows.map((row) => {
             const codeFingerprint = String(this.lastCodeSyncState.workerVersions?.[row.workerId]?.fingerprint || "");
             return { workerId: row.workerId, codeFingerprint,
-            online: verifiedWorkerIds.has(row.workerId) && this.lastWorkerProbes[row.workerId]?.status === "ok"
-                && (!dispatchFingerprint || codeFingerprint === dispatchFingerprint),
+            online: verifiedWorkerIds.has(row.workerId) && this.lastWorkerProbes[row.workerId]?.status === "ok",
             idleGpuIds: (row.availableGpuIds || []).filter((id) => !occupied.has(`${row.workerId}:${id}`)),
             capacity: Number.isInteger(Number(row.capacityLimit)) ? Number(row.capacityLimit) : undefined };
         });
@@ -21015,9 +21073,13 @@ export class RealtimeTunnelPanelProvider {
         const planStatusSummaries = cachedPlanSummaries.summaries;
         const planStatusSummaryRevision = cachedPlanSummaries.revision;
         const actionErrorRevision = (Array.isArray(this.actionErrors) ? this.actionErrors : []).slice(0, 8).map((item: any) => `${item?.timestamp || ""}:${item?.command || ""}:${item?.message || ""}`).join("|");
+        const remoteRootPolicy = remoteRootPolicyConfig();
+        const remoteRootPolicyRevision = sha256Text(JSON.stringify(remoteRootPolicy));
         const sectionRevisions = this.panelSectionRevisionTracker.update({
             settings: [this.setupConfig, schedulerConfigRevision, this.localPlanMetadata.detectedProject, this.localPlanMetadata.plans, this.resultCsvDirectory,
-                projectAdapterRulesRevision, this.resultCatalogDirtyGeneration, pptPlotConfigRevision],
+                projectAdapterRulesRevision, this.resultCatalogDirtyGeneration, pptPlotConfigRevision, remoteRootPolicyRevision,
+                this.pluginUpdateStatus, this.lastProbe, this.lastWorkerProbes, realtimeState?.health, endpointRegistryState.registry,
+                this.confirmedRemotePaths, this.confirmedPptPaths],
             sync: [this.setupConfig, this.lastCodeSyncState, this.lastProbe, this.lastWorkerProbes, endpointRegistryState.registry, realtimeState?.health],
             plans: [this.localPlanMetadata.plans, this.localPlanMetadata.archivedPlans, recentPlansRevision, this.planFileInput, this.selectedPlanId, this.draftPlanState,
                 this.resultsSummary, planStopClearRevision, realtimeState?.operations, snapshot?.operations, offlineSnapshot?.operations,
@@ -21041,7 +21103,7 @@ export class RealtimeTunnelPanelProvider {
             topology,
             setup: compactXshellSetupForWebview(this.setupConfig),
             schedulerConfig,
-            remoteRootPolicy: remoteRootPolicyConfig(),
+            remoteRootPolicy,
             pluginUpdate: this.pluginUpdateStatus || { status: "unknown", message: "尚未检查配套更新。", checkedAt: "" },
             pptPlotConfig,
             pptAutomation: this.pptAutomationReadiness,
@@ -23675,6 +23737,14 @@ function normalizeCodeSyncState(value) {
         const version = String(item.fingerprint || "").trim();
         if (!/^[a-f0-9]{64}$/i.test(version)) continue;
         workerVersions[id] = { fingerprint: version, files: [...new Set((Array.isArray(item.files) ? item.files : []).map((file) => String(file || "").trim()).filter(Boolean))].sort(), syncedAt: String(item.syncedAt || "").trim() };
+        const proofId = String(item.codeSyncProofId || "");
+        const manifestDigest = String(item.manifestDigest || "");
+        if (/^[a-f0-9]{64}$/i.test(proofId) && manifestDigest === version) Object.assign(workerVersions[id], {
+            codeSyncProofId: proofId, manifestDigest,
+            codeSyncScopeSignature: String(item.codeSyncScopeSignature || "").slice(0, 128),
+            codeSyncProofRuntimeGeneration: String(item.codeSyncProofRuntimeGeneration || "").slice(0, 256),
+            codeSyncProofVerifiedAt: String(item.codeSyncProofVerifiedAt || "").slice(0, 80),
+        });
     }
     if (!fingerprint && !scope && !hub && !workers && !error && !updatedAt && !Object.keys(workerVersions).length)
         return undefined;

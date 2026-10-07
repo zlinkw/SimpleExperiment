@@ -1,5 +1,5 @@
 import { DistributedQueue, QueuedPlan, DurableWorkerSnapshot, durableCommandId,
-  mergeDurableWorkerSnapshots, freshIdleGpuEvidence, hasUnresolvedPlanRecovery } from "./DistributedPlanQueue";
+  mergeDurableWorkerSnapshots, freshIdleGpuEvidence, hasUnresolvedPlanRecovery, workerCodeVersionAvailable } from "./DistributedPlanQueue";
 
 export type SchedulingMode = "local_idle" | "server_prequeue";
 export const PROGRESS_FRESHNESS_MS = 5_000;
@@ -56,13 +56,10 @@ export function allocateServerPrequeue(queue: DistributedQueue, workers: readonl
   const next: DistributedQueue = { ...queue, plans: queue.plans.map((plan) => ({ ...plan,
     jobs: plan.jobs.map((job) => ({ ...job })) })) };
   const assigned: Array<{ planId: string; jobIndex: number; workerId: string; commandId: string; attempt: number }> = [];
-  let activeFingerprint = next.plans.find((plan) => plan.jobs.some((job) =>
-    ["dispatching", "queued", "running", "unknown"].includes(job.status)))?.codeFingerprint;
   for (const plan of next.plans) {
-    if (schedulingMode(plan.schedulingMode) !== "server_prequeue" || plan.localDispatchOverride === true || plan.recoveryConflict
-      || activeFingerprint && plan.codeFingerprint !== activeFingerprint) continue;
+    if (schedulingMode(plan.schedulingMode) !== "server_prequeue" || plan.localDispatchOverride === true || plan.recoveryConflict) continue;
     const eligible = workers.filter((worker) => worker.online && worker.weight > 0
-      && worker.codeFingerprint === plan.codeFingerprint);
+      && worker.codeFingerprint === plan.codeFingerprint && workerCodeVersionAvailable(next, worker.workerId, plan.codeFingerprint));
     if (!eligible.length) continue;
     const weights = plan.prequeueWeights || Object.fromEntries(eligible.map((worker) => [worker.workerId, worker.weight]));
     plan.prequeueWeights = weights;
@@ -75,7 +72,6 @@ export function allocateServerPrequeue(queue: DistributedQueue, workers: readonl
         ((loads.get(a.workerId) || 0) + 1) / weights[a.workerId]
           - ((loads.get(b.workerId) || 0) + 1) / weights[b.workerId] || a.workerId.localeCompare(b.workerId))[0];
       if (!target) break;
-      activeFingerprint ||= plan.codeFingerprint;
       const commandId = durableCommandId(plan, job, target.workerId);
       Object.assign(job, { workerId: target.workerId, commandId, runKey: commandId,
         status: "dispatching", gpuId: undefined, blockReason: undefined });

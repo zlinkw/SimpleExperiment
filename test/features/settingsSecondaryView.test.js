@@ -25,6 +25,63 @@ function productionFunction(name) {
   return panel.slice(start, end);
 }
 
+function settingsFixture(drafts = {}) {
+  const nodes = Object.fromEntries(["serverSettingsCards", "remoteRootPolicySettings", "pluginUpdateSettings", "resultCsvDirectorySettings", "resultColumnMappingSettings", "projectAdapterRuleSettings", "syncChainOverview"].map(id => [id, { innerHTML: "", contains: input => input?.containerId === id }]));
+  const samples = [];
+  const errors = [];
+  const sandbox = {
+    configDrafts: drafts, serverConfigEditLockUntil: 0, document: { activeElement: null }, el: id => nodes[id],
+    panelNow: () => 0, sectionIsCollapsed: () => false, panelSectionShouldRenderNow: () => true,
+    panelSectionPayloadNotLoaded: () => false, clearPanelSectionLoadingStatus() {}, sectionPreRenderKey: state => state.sectionRevisions.settings,
+    sectionRenderModel: state => state.setup, sectionRenderSignature: state => JSON.stringify(state),
+    dirtyPanelSections: new Set(), failedPanelSections: new Set(), lastSectionPreRenderKeys: {}, lastRenderedSectionSignatures: {},
+    recordPanelSectionSample: (...args) => samples.push(args), applyResourceTreeChildLayout() {},
+    renderSectionFailure: (_, error) => errors.push(error.message), vscode: { postMessage: message => errors.push(message.error) }, panelDocumentGeneration: 1,
+    setHtmlIfChanged: (id, html) => { nodes[id].innerHTML = html; },
+    esc: value => String(value ?? ""), escAttr: value => String(value ?? ""), asArray: value => Array.isArray(value) ? value : [],
+    serverStatusIndexesForState: () => ({ workerStatus: new Map(), assignmentById: new Map(), conflictById: new Map(), agentWorkerById: new Map() }),
+    sessionForPath: () => null, taskDetailLine: () => "", configDefault: (value, fallback) => value ?? fallback,
+    configHelp: () => "", helpBadge: () => "", configInputBounds: () => null, configBoundsHint: () => "", configBoundsViolation: () => "", configCondaEnvViolation: () => "", configBoundsAttrs: () => "", displayValue: value => value,
+    configSessionSelect: () => "", configPortPair: () => "", tunnelHost: value => value, formatTunnelAddress: () => "", sessionStatusCell: () => "",
+    treeAnchorId: (prefix, id) => prefix + id, topologyModeLabel: value => value,
+    renderProjectRuleEditor: () => '<input data-config-input="projectAdapterRules" data-key="primaryMetric">',
+  };
+  for (const name of ["renderSchedulerGlossary", "renderServerDestinationPreview", "renderSchedulerDependencyStatus", "renderTensorBoardLinkRow", "renderXshellSessionBudgetNote", "renderServerChainOverview"]) sandbox[name] = () => "";
+  const names = ["navigateToResourceTarget", "renderSectionIfVisible", "renderServerSettings", "renderServerCardsV2", "renderPluginUpdateSettings", "pluginUpdateStatusLabel", "renderRemoteRootPolicySettings", "remoteRootPolicyText", "remoteRootPolicyCount", "renderResultCsvDirectorySettings", "renderResultColumnMappingSettings", "configInput", "configSelect", "activeConfigScope", "configScopeHasDraft", "shouldKeepConfigDraftScope", "isServerConfigScope", "shouldKeepServerConfigDraft", "configDraftValue"];
+  if (panel.includes("function configContainerHasEditor(")) names.push("configContainerHasEditor");
+  Object.assign(sandbox, { activeResourceSection: "plans", activeResourceAnchor: "plans", applyMainViewForSection() {}, expandResourceSection() {}, syncPanelSectionInterest() {}, updateResourceTreeActiveSection() {}, resolveResourceScrollTarget: () => null, detailsOpenState: {}, scrollToResourceTarget() {}, forceWorkbenchInspectorRender() {}, renderWorkbenchInspector() {} });
+  vm.createContext(sandbox);
+  vm.runInContext(names.map(productionFunction).join("\n"), sandbox);
+  const state = { sectionRevisions: { settings: 1 }, setup: { workerTunnels: [{ id: "worker-a", workerHost: "worker.example", workerUser: "alice", agentProjectDir: "/srv/projects" }] }, topology: { mode: "worker_pool", workerCount: 1 }, resultOutputConfig: { csvDirectory: "experiments/results" } };
+  return { nodes, errors, samples, sandbox, state, render(next = state) { sandbox.lastState = next; vm.runInContext("navigateToResourceTarget('settings', 'settings');", sandbox); } };
+}
+
+test("real settings render mounts all dynamic containers despite restored server and result drafts", () => {
+  const f = settingsFixture({ "worker:worker-a": { workerUser: "draft-user" }, remotePolicy: { allowedRoots: "/srv/draft" }, resultOutput: { csvDirectory: "draft/results" } });
+  f.render();
+  assert.deepEqual(f.errors, []);
+  for (const id of ["serverSettingsCards", "remoteRootPolicySettings", "pluginUpdateSettings", "resultCsvDirectorySettings", "resultColumnMappingSettings", "projectAdapterRuleSettings"]) assert.ok(f.nodes[id].innerHTML.length > 0, id);
+  assert.match(f.nodes.serverSettingsCards.innerHTML, /worker\.example/);
+  assert.match(f.nodes.serverSettingsCards.innerHTML, /draft-user/);
+  assert.match(f.nodes.remoteRootPolicySettings.innerHTML, /\/srv\/draft/);
+  assert.match(f.nodes.resultCsvDirectorySettings.innerHTML, /draft\/results/);
+});
+
+test("focused settings input keeps its mounted editor while unrelated containers still hydrate", () => {
+  const f = settingsFixture({ "worker:worker-a": { workerUser: "typing-user" } });
+  f.nodes.serverSettingsCards.innerHTML = '<input value="typing-user">';
+  f.sandbox.document.activeElement = { containerId: "serverSettingsCards", dataset: { configInput: "worker:worker-a" } };
+  f.render();
+  assert.deepEqual(f.errors, []);
+  assert.equal(f.nodes.serverSettingsCards.innerHTML, '<input value="typing-user">');
+  assert.ok(f.nodes.pluginUpdateSettings.innerHTML.length > 0);
+  assert.ok(f.nodes.resultCsvDirectorySettings.innerHTML.length > 0);
+  f.sandbox.document.activeElement = null;
+  f.render({ ...f.state, sectionRevisions: { settings: 2 }, setup: { workerTunnels: [{ ...f.state.setup.workerTunnels[0], workerHost: "updated.example" }] } });
+  assert.match(f.nodes.serverSettingsCards.innerHTML, /updated\.example/);
+  assert.match(f.nodes.serverSettingsCards.innerHTML, /typing-user/);
+});
+
 test("settings navigation immediately renders server configuration even when the card was already expanded", () => {
   const renders = [];
   const calls = [];

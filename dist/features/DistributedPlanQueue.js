@@ -54,6 +54,7 @@ exports.distributedSubmissionResult = distributedSubmissionResult;
 exports.distributedSubmissionProgress = distributedSubmissionProgress;
 exports.fingerprintStillMounted = fingerprintStillMounted;
 exports.queueOccupiesCodeVersion = queueOccupiesCodeVersion;
+exports.workerCodeVersionAvailable = workerCodeVersionAvailable;
 exports.completedJobOutputs = completedJobOutputs;
 exports.distributedQueuePath = distributedQueuePath;
 exports.enqueuePlan = enqueuePlan;
@@ -148,7 +149,7 @@ function hasFreshDurableSnapshot(snapshot, now = Date.now(), maxAgeMs = 180_000)
         && generatedAt <= now + 30_000 && fetchedAt <= now + 30_000);
 }
 exports.CODE_FINGERPRINT_MISMATCH = "代码指纹不匹配：Worker 当前代码版本与该 Plan 不一致。任务仍保留为排队，不会自动失败或重发。请用当前代码重新提交该 Plan，或恢复提交前的代码版本并重新同步 Worker 后再继续。";
-exports.CODE_FINGERPRINT_WAITING = "等待当前代码版本的任务结束：已有其他代码版本占用 Worker，本 Plan 暂不派发。任务仍保留为排队。";
+exports.CODE_FINGERPRINT_WAITING = "等待当前代码版本的任务结束：匹配的 Worker 上旧版本仍有活动或待核实任务。仅这些 Worker 保留版本锁，其他匹配版本的 Worker 可并行派发。任务仍保留为排队。";
 const UNFINISHED_JOB = ["pending", "dispatching", "queued", "running", "unknown"];
 function canonicalProjectId(projectRoot) {
     const resolved = path.resolve(String(projectRoot || "")).replace(/\\/g, "/").replace(/\/$/, "");
@@ -492,6 +493,20 @@ function queueOccupiesCodeVersion(queue, verifiedWorkerFingerprints) {
         return known.includes(plan.codeFingerprint);
     }));
 }
+/** A project root on one Worker may host only one live code version. Other Workers are independent. */
+function workerCodeVersionAvailable(queue, workerId, fingerprint) {
+    return Boolean(workerId && fingerprint) && !queue.plans.some((plan) => {
+        if (plan.recoveryConflict && plan.codeFingerprint !== fingerprint)
+            return true;
+        return plan.jobs.some((job) => {
+            if (!["dispatching", "queued", "running", "unknown"].includes(job.status))
+                return false;
+            if (job.workerId && job.workerId !== workerId)
+                return false;
+            return !plan.codeFingerprint || plan.codeFingerprint !== fingerprint;
+        });
+    });
+}
 const emptyDistributedQueue = () => ({ schemaVersion: 1, plans: [] });
 exports.emptyDistributedQueue = emptyDistributedQueue;
 function completedJobOutputs(queue, planFile, jobs) {
@@ -543,22 +558,23 @@ function hostedRetryCandidates(plan) {
     return plan.jobs.filter((job) => job.localQueueOnly !== true && job.recallRequested !== true
         && Boolean(job.workerId && job.commandId) && ["dispatching", "unknown"].includes(job.status));
 }
-function noteFingerprintMismatch(plans, workers, activeFingerprint) {
+function noteFingerprintMismatch(plans, workers) {
     if (!workers.some((row) => row.codeFingerprint))
         return;
     const anyOnline = workers.some((row) => row.online);
     for (const plan of plans) {
+        const matched = workers.some((row) => row.online && row.codeFingerprint === plan.codeFingerprint);
+        const held = plan.jobs.some((item) => ["dispatching", "queued", "running", "unknown"].includes(item.status));
+        const waiting = matched && !workers.some((row) => row.online && row.codeFingerprint === plan.codeFingerprint
+            && workerCodeVersionAvailable({ schemaVersion: 1, plans }, row.workerId, plan.codeFingerprint));
         for (const job of plan.jobs) {
             if (job.status !== "pending")
                 continue;
-            const matched = workers.some((row) => row.online && row.codeFingerprint === plan.codeFingerprint);
-            const held = plan.jobs.some((item) => ["dispatching", "queued", "running", "unknown"].includes(item.status));
-            const waiting = Boolean(activeFingerprint && plan.codeFingerprint !== activeFingerprint && matched);
             if (waiting)
                 job.blockReason = exports.CODE_FINGERPRINT_WAITING;
             else if (anyOnline && !matched && !held)
                 job.blockReason = exports.CODE_FINGERPRINT_MISMATCH;
-            else if (job.blockReason === exports.CODE_FINGERPRINT_MISMATCH || job.blockReason === exports.CODE_FINGERPRINT_WAITING)
+            else if (job.blockReason === exports.CODE_FINGERPRINT_MISMATCH || String(job.blockReason || "").startsWith("等待当前代码版本"))
                 delete job.blockReason;
         }
     }
@@ -568,30 +584,33 @@ function allocateAvailable(queue, workers, options = {}) {
     const plans = queue.plans.map((plan) => ({ ...plan, jobs: plan.jobs.map((job) => ({ ...job })) }));
     const dispatches = [];
     const activeFingerprint = plans.find((plan) => plan.jobs.some((job) => ["dispatching", "queued", "running", "unknown"].includes(job.status)))?.codeFingerprint;
-    const runnableFingerprint = activeFingerprint || plans.find((plan) => (!options.localIdleOnly || plan.schedulingMode !== "server_prequeue" || plan.localDispatchOverride === true
+    const runnableFingerprint = !versioned && (activeFingerprint || plans.find((plan) => (!options.localIdleOnly || plan.schedulingMode !== "server_prequeue" || plan.localDispatchOverride === true
         || plan.jobs.some((job) => job.status === "pending" && job.localQueueOnly === true && !job.recallRequested))
         && plan.jobs.some((job) => job.status === "pending" && !job.recallRequested
             && (!options.localIdleOnly || plan.schedulingMode !== "server_prequeue" || plan.localDispatchOverride === true || job.localQueueOnly === true))
         && (!versioned || workers.some((row) => usableSlots(row)
-            && (!options.requireIdleGpuAdmission || row.idleGpuAdmission === true) && row.codeFingerprint === plan.codeFingerprint)))?.codeFingerprint;
+            && (!options.requireIdleGpuAdmission || row.idleGpuAdmission === true) && row.codeFingerprint === plan.codeFingerprint)))?.codeFingerprint);
     const slots = new Map(workers.filter((row) => row.online && (!options.requireIdleGpuAdmission || row.idleGpuAdmission === true)
-        && (!versioned || !runnableFingerprint || row.codeFingerprint === runnableFingerprint))
+        && (!versioned || Boolean(row.codeFingerprint)))
         .map((row) => [row.workerId, [...new Set(row.idleGpuIds)].slice(0, Math.max(0, row.capacity ?? row.idleGpuIds.length))]));
     for (const plan of plans) {
         if (options.localIdleOnly && plan.schedulingMode === "server_prequeue" && plan.localDispatchOverride !== true
             && !plan.jobs.some((job) => job.status === "pending" && job.localQueueOnly === true && !job.recallRequested))
             continue;
-        if (!runnableFingerprint || plan.codeFingerprint !== runnableFingerprint)
+        if (!versioned && (!runnableFingerprint || plan.codeFingerprint !== runnableFingerprint))
             continue;
         const pending = plan.jobs.filter((job) => job.status === "pending" && !job.recallRequested
             && (!options.localIdleOnly || plan.schedulingMode !== "server_prequeue" || plan.localDispatchOverride === true || job.localQueueOnly === true));
         if (!pending.length)
             continue;
-        const ranked = () => [...slots].filter(([, gpuIds]) => gpuIds.length).sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
+        const eligibleWorkerIds = new Set(workers.filter(row => (!versioned || row.codeFingerprint === plan.codeFingerprint)
+            && workerCodeVersionAvailable({ ...queue, plans }, row.workerId, plan.codeFingerprint)).map(row => row.workerId));
+        const ranked = () => [...slots].filter(([id, gpuIds]) => gpuIds.length && eligibleWorkerIds.has(id))
+            .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
         const assignedWorkerIds = [...new Set(plan.jobs.filter((job) => job.workerId).map((job) => job.workerId))];
-        const primary = assignedWorkerIds.find((id) => (slots.get(id)?.length || 0) > 0) || ranked()[0]?.[0];
+        const primary = assignedWorkerIds.find((id) => eligibleWorkerIds.has(id) && (slots.get(id)?.length || 0) > 0) || ranked()[0]?.[0];
         if (!primary)
-            break;
+            continue;
         const cases = [...new Set(pending.map((job) => job.case))];
         for (const caseName of cases) {
             const caseJobs = pending.filter((job) => job.case === caseName).sort((a, b) => a.index - b.index);
@@ -611,7 +630,7 @@ function allocateAvailable(queue, workers, options = {}) {
             }
         }
     }
-    noteFingerprintMismatch(plans, workers, activeFingerprint);
+    noteFingerprintMismatch(plans, workers);
     return { queue: { ...queue, plans }, dispatches };
 }
 function previewAvailable(queue, plan, workers) {

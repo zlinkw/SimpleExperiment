@@ -63,13 +63,11 @@ function allocateServerPrequeue(queue, workers) {
     const next = { ...queue, plans: queue.plans.map((plan) => ({ ...plan,
             jobs: plan.jobs.map((job) => ({ ...job })) })) };
     const assigned = [];
-    let activeFingerprint = next.plans.find((plan) => plan.jobs.some((job) => ["dispatching", "queued", "running", "unknown"].includes(job.status)))?.codeFingerprint;
     for (const plan of next.plans) {
-        if (schedulingMode(plan.schedulingMode) !== "server_prequeue" || plan.localDispatchOverride === true || plan.recoveryConflict
-            || activeFingerprint && plan.codeFingerprint !== activeFingerprint)
+        if (schedulingMode(plan.schedulingMode) !== "server_prequeue" || plan.localDispatchOverride === true || plan.recoveryConflict)
             continue;
         const eligible = workers.filter((worker) => worker.online && worker.weight > 0
-            && worker.codeFingerprint === plan.codeFingerprint);
+            && worker.codeFingerprint === plan.codeFingerprint && (0, DistributedPlanQueue_1.workerCodeVersionAvailable)(next, worker.workerId, plan.codeFingerprint));
         if (!eligible.length)
             continue;
         const weights = plan.prequeueWeights || Object.fromEntries(eligible.map((worker) => [worker.workerId, worker.weight]));
@@ -84,7 +82,6 @@ function allocateServerPrequeue(queue, workers) {
                 - ((loads.get(b.workerId) || 0) + 1) / weights[b.workerId] || a.workerId.localeCompare(b.workerId))[0];
             if (!target)
                 break;
-            activeFingerprint ||= plan.codeFingerprint;
             const commandId = (0, DistributedPlanQueue_1.durableCommandId)(plan, job, target.workerId);
             Object.assign(job, { workerId: target.workerId, commandId, runKey: commandId,
                 status: "dispatching", gpuId: undefined, blockReason: undefined });

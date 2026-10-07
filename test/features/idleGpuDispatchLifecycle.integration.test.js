@@ -36,7 +36,7 @@ test('G1 actual host tick only dispatches idle NWPU3, persists identity before R
   p.lastCodeSyncState={workerVersions:{nwpu3:{fingerprint:'f'},nwpu5:{fingerprint:'f'}}};
   p.enabledWorkerConfigs=()=>[{id:'nwpu3',workerUser:'alice'},{id:'nwpu5',workerUser:'alice'}];
   p.schedulerSettings=()=>({gpuIdleUtilThreshold:5,gpuIdleMemThresholdMb:200});p.gpuOwnerConfig=()=>({currentUser:'alice'});
-  p.recordActionError=()=>{};p.postState=()=>{};p.scheduleDistributedPostprocess=()=>{};
+  p.recordActionError=()=>{};p.postState=()=>{};p.scheduleDistributedPostprocess=()=>{};p.queuePlanArtifactSyncStatusCheck=()=>{};
   let manifestBuilds=0;p.buildDistributedJobCodeManifest=async()=>{manifestBuilds++;return {};};
   p.readWorkerTaskSnapshot=async workerId=>({workerId,generatedAt:new Date().toISOString(),fetchedAt:new Date().toISOString(),
     capabilities:{durablePlanQueue:true,idleGpuAdmission:true,schemaVersion:1},tasks:[]});
@@ -107,7 +107,7 @@ function durableTickFixture() {
   p.workerActionTargets=()=>[{id:'a'},{id:'b'}];p.lastWorkerProbes={a:{status:'ok'},b:{status:'ok'}};
   p.lastCodeSyncState={workerVersions:{a:{fingerprint:'f'},b:{fingerprint:'f'}}};
   p.enabledWorkerConfigs=()=>[{id:'a'},{id:'b'}];p.schedulerSettings=()=>({});p.gpuOwnerConfig=()=>({});
-  p.recordActionError=()=>{};p.postState=()=>{};p.scheduleDistributedPostprocess=()=>{};
+  p.recordActionError=()=>{};p.postState=()=>{};p.scheduleDistributedPostprocess=()=>{};p.queuePlanArtifactSyncStatusCheck=()=>{};
   p.buildDistributedJobCodeManifest=async()=>({});
   p.readWorkerTaskSnapshotBatch=async ids=>ids.map(workerId=>({workerId,generatedAt:new Date().toISOString(),fetchedAt:new Date().toISOString(),
     capabilities:{durablePlanQueue:true,idleGpuAdmission:true,schemaVersion:1},tasks:[]}));
@@ -123,6 +123,35 @@ function durableTickFixture() {
     seed:job.seed,attempt:job.attempt,outputDir:job.outputDir,runKey:commandId,commandId,workerId,gpuId:'',status:'queued',durableAccepted:true});
   return {p,receipt,stored:()=>stored};
 }
+
+test('actual Host tick dispatches two code versions to independent verified Workers in one tick',async()=>{
+  const {p,receipt,stored}=durableTickFixture();
+  p.lastCodeSyncState.workerVersions.b.fingerprint='g';
+  await p.saveDistributedQueue(root,DistributedPlanQueue.enqueuePlan(stored(),{
+    projectId:DistributedPlanQueue.canonicalProjectId(root),schedulingMode:'server_prequeue',planFile:'next.yaml',revision:'r2',codeFingerprint:'g',
+    jobs:[0,1].map(index=>({index,case:'pad',seed:index,outputDir:`next/${index}`}))},'next'));
+  const sent=[];
+  p.sendDistributedJob=async(...args)=>{sent.push({plan:args[0].id,worker:args[2]});return receipt(...args);};
+  await p.tickDistributedQueueCore();
+  assert.deepEqual(sent,[{plan:'p',worker:'a'},{plan:'p',worker:'a'},{plan:'next',worker:'b'},{plan:'next',worker:'b'}]);
+  assert.ok(stored().plans.every(plan=>plan.jobs.every(job=>job.status==='queued')));
+  assert.equal(p.distributedLaunchInFlight.size,0);
+});
+
+test('code upload holds only new allocation while the actual Host tick still records old terminal receipts',async()=>{
+  const {p,receipt,stored}=durableTickFixture();
+  const plan=stored().plans[0],job=plan.jobs[0];
+  Object.assign(job,{status:'running',workerId:'a',commandId:DistributedPlanQueue.durableCommandId(plan,job,'a')});
+  const terminal={...receipt(plan,job,'a',undefined,job.commandId),enqueuedAt:plan.enqueuedAt,status:'completed',finishedAt:new Date().toISOString()};
+  p.readWorkerTaskSnapshotBatch=async ids=>ids.map(workerId=>({workerId,generatedAt:new Date().toISOString(),fetchedAt:new Date().toISOString(),
+    capabilities:{durablePlanQueue:true,idleGpuAdmission:true,schemaVersion:1},tasks:workerId==='a'?[terminal]:[]}));
+  p.codeSyncInFlight=1;let sends=0;p.sendDistributedJob=async()=>{sends++;};
+  await p.tickDistributedQueueCore();
+  assert.equal(stored().plans[0].jobs[0].status,'completed');
+  assert.equal(stored().plans[0].jobs[1].status,'pending');
+  assert.equal(stored().plans[0].jobs[1].workerId,undefined);
+  assert.equal(sends,0);
+});
 test('receipt writes stay serialized and a failed commit drains every dispatched RPC before the tick rejects',async()=>{
   const {p,receipt,stored}=durableTickFixture();let release;const slow=new Promise(resolve=>{release=resolve;});
   let slowSent=false;let exited=false;let receiptWriteReached=false;let activeWrites=0;let maxWrites=0;

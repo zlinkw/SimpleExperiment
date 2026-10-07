@@ -68,14 +68,17 @@ test('hosted prequeue persists 3:2 ownership without GPUs; restart never duplica
   assert.deepEqual(restored.plans[0].prequeueWeights, {nwpu3:3,nwpu5:2});
 });
 
-test('hosted allocation gates online/fingerprint and locks a single active code version', () => {
+test('hosted allocation gates online/fingerprint independently per Worker', () => {
   const first = plan('server_prequeue', 'first', 'a', 1);
   const second = plan('server_prequeue', 'second', 'b', 1);
   const both = {...first,plans:[...first.plans,...second.plans]};
   assert.equal(policy.allocateServerPrequeue(first, [{workerId:'w',online:false,weight:3,codeFingerprint:'a'}]).dispatches.length, 0);
   const result = policy.allocateServerPrequeue(both, [{workerId:'a',online:true,weight:3,codeFingerprint:'a'},
     {workerId:'b',online:true,weight:3,codeFingerprint:'b'}]);
-  assert.equal(result.dispatches.length, 1);
+  assert.equal(result.dispatches.length, 2);
   assert.equal(result.dispatches[0].planId, 'first');
-  assert.equal(result.queue.plans[1].jobs[0].workerId, undefined);
+  assert.equal(result.queue.plans[1].jobs[0].workerId, 'b');
+  const busy = {...both, plans: both.plans.map(row => ({...row, jobs: row.jobs.map(job => ({...job}))}))};
+  Object.assign(busy.plans[0].jobs[0], {status:'running', workerId:'b', commandId:'old'});
+  assert.equal(policy.allocateServerPrequeue(busy, [{workerId:'b',online:true,weight:3,codeFingerprint:'b'}]).dispatches.length, 0);
 });

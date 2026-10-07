@@ -90,6 +90,19 @@ test("project code sync normalize keeps error and drops empty rows", () => {
   assert.ok(normalized.updatedAt);
 });
 
+test("per-Worker proof survives reload and remains tied to its own code version", () => {
+  const helpers = loadHelpers(), fingerprint = "a".repeat(64), proof = "b".repeat(64);
+  const normalized = helpers.normalizeCodeSyncState({ fingerprint: "c".repeat(64), workerVersions: {
+    "worker-old": { fingerprint, codeSyncProofId: proof, manifestDigest: fingerprint, codeSyncProofRuntimeGeneration: "1|1|1" },
+    "worker-bad": { fingerprint, codeSyncProofId: proof, manifestDigest: "d".repeat(64) },
+  } });
+  const restored = helpers.normalizeCodeSyncState(JSON.parse(JSON.stringify(normalized)));
+  assert.equal(restored.workerVersions["worker-old"].codeSyncProofId, proof);
+  assert.equal(restored.workerVersions["worker-old"].manifestDigest, fingerprint);
+  assert.equal(restored.workerVersions["worker-old"].codeSyncProofRuntimeGeneration, "1|1|1");
+  assert.equal(restored.workerVersions["worker-bad"].codeSyncProofId, undefined);
+});
+
 test("extension wires project code sync load/persist helpers", () => {
   const source = readSource("src/extension.ts");
   assert.match(source, /simple_cluster\/ui\/code_sync\.json/);

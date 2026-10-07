@@ -4442,7 +4442,7 @@ function renderPanelHtml() {
       if (section === "servers") {
         // 两卡合一兼容空分支：旧 servers 骨架已 display:none 隐藏，总览由 sync 卡内 syncServerOverview 渲染，避免双份。
       } else if (section === "settings") {
-        if (!shouldKeepServerConfigDraft()) renderServerSettings(state);
+        renderServerSettings(state);
       } else if (section === "sync") {
         renderSyncSection(state);
       } else if (section === "plans") {
@@ -4642,7 +4642,7 @@ function renderPanelHtml() {
 
     function sectionDependencyKey(data, section) {
       if (section === "servers") return refListKey(data.topology, data.schedulerConfig, data.setup, data.agentSessions, data.xshellSessions, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetry, data.workerTelemetryStatus, data.capabilities, data.realtimeDiagnostics, data.remotePathConfirmations, data.pptPathConfirmations);
-      if (section === "settings") return refListKey(data.topology, data.schedulerConfig, data.setup, data.agentSessions, data.xshellSessions, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetryStatus, data.remotePathConfirmations, data.pptPathConfirmations, data.resultOutputConfig, data.resultsSummary, data.detectedProject);
+      if (section === "settings") return refListKey(data.topology, data.schedulerConfig, data.setup, data.agentSessions, data.xshellSessions, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetryStatus, data.remotePathConfirmations, data.pptPathConfirmations, data.resultOutputConfig, data.detectedProject, data.remoteRootPolicy, data.pluginUpdate);
       if (section === "plans") return refListKey(data.planFileInput, data.selection, data.selectedPlan, data.plans, data.localPlans, data.detectedProject, data.planStatusSummaries, data.projectConfig, data.adapterRules, data.integrations, data.setup, data.agentSessions, data.health, data.probe, data.workerProbes, data.codeSync, data.operations, data.resultsSummary, data.schedulerStates, data.capabilities, data.extensionVersion);
       if (section === "results") return refListKey(data.planFileInput, data.plans, data.resultsSummary, data.operations, data.schedulerStates, data.experimentTraces, data.selection, data.planArchive, data.pptPlotConfig, data.pptAutomation, data.resultOutputConfig?.tables, data.resultOutputConfig?.catalog);
       if (section === "sync") return refListKey(data.topology, data.schedulerConfig, data.codeSync, data.capabilities, data.setup, data.agentSessions, data.xshellSessions, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetry, data.workerTelemetryStatus, data.realtimeDiagnostics);
@@ -4656,7 +4656,7 @@ function renderPanelHtml() {
 
     function sectionLocalPreKey(section) {
       if (section === "plans") return stableSectionJson({ detailsOpenState });
-      if (section === "settings") return shouldKeepServerConfigDraft() ? "draft" : "stable";
+      if (section === "settings") return [shouldKeepServerConfigDraft() ? "draft" : "stable", activeConfigScope()].join("|");
       if (section === "execution" || section === "tasks" || section === "operations") return stableSectionJson({ expandedTaskLogs });
       if (section === "results") return stableSectionJson({ pptDraft: shouldKeepConfigDraftScope("ppt"), tracePlanScope, resultSplitTableKey, resultSplitFieldName });
       if (section === "diagnostics") return diagnosticDetailsOpen() ? "details-open" : "details-closed";
@@ -4776,7 +4776,7 @@ function renderPanelHtml() {
           detailsOpenState
         });
       }
-      if (section === "settings") return shouldKeepServerConfigDraft() ? "draft" : "stable";
+      if (section === "settings") return [shouldKeepServerConfigDraft() ? "draft" : "stable", activeConfigScope()].join("|");
       if (section === "execution" || section === "tasks" || section === "operations") return stableSectionJson({ expandedTaskLogs: pruneExpandedTaskLogs(state || {}) });
       if (section === "results") return stableSectionJson({ pptDraft: shouldKeepConfigDraftScope("ppt"), tracePlanScope, resultSplitTableKey, resultSplitFieldName });
       if (section === "diagnostics") return diagnosticDetailsOpen() ? "details-open" : "details-closed";
@@ -4922,8 +4922,9 @@ function renderPanelHtml() {
 
     function settingsRenderModel(data) {
       return {
+        revision: data.sectionRevisions && data.sectionRevisions.settings,
         topology: compactSettingsTopologyForSignature(data.topology),
-        schedulerConfig: compactRecordForSignature(data.schedulerConfig || {}, ["pollSeconds", "jitterSeconds", "workerStatusTtlSeconds", "localAvailabilityPushSeconds", "workerAvailabilityPushSeconds", "operationEventMaxDelayMs", "workerActionMinIntervalMs", "workerActionMaxConcurrent"]),
+        schedulerConfig: compactRecordForSignature(data.schedulerConfig || {}, ["dispatchMode", "pollSeconds", "jitterSeconds", "workerStatusTtlSeconds", "localAvailabilityPushSeconds", "workerAvailabilityPushSeconds", "operationEventMaxDelayMs", "workerActionMinIntervalMs", "workerActionMaxConcurrent"]),
         setup: compactSetupForSignature(data.setup),
         agentDestinations: compactAgentDestinationsForSignature(data.agentSessions),
         xshellSessions: compactXshellSessionsForSignature(data.xshellSessions),
@@ -4935,8 +4936,19 @@ function renderPanelHtml() {
         workerTelemetryStatus: compactRowsForSignature(data.workerTelemetryStatus, SECTION_SIGNATURE_ROW_LIMIT, ["workerId", "status", "state"]),
         remotePathConfirmations: compactRecordForSignature(data.remotePathConfirmations || {}, ["count", "stateFile"]),
         pptPathConfirmations: compactRecordForSignature(data.pptPathConfirmations || {}, ["count", "stateFile"]),
-        resultOutputConfig: compactRecordForSignature(data.resultOutputConfig || {}, ["csvDirectory", "columnMapping"])
+        resultOutputConfig: compactRecordForSignature(data.resultOutputConfig || {}, ["csvDirectory", "columnMapping"]),
+        remoteRootPolicy: compactRecordForSignature(data.remoteRootPolicy || {}, ["allowedRoots", "deniedRoots"]),
+        pluginUpdate: compactRecordForSignature(data.pluginUpdate || {}, ["status", "checkedAt", "message", "experiment", "sftp"]),
+        projectAdapterRules: settingsAdapterRulesSignature(Object.assign({}, (data.detectedProject || {}).adapterRules, (data.resultOutputConfig || {}).adapterRules))
       };
+    }
+
+    function settingsAdapterRulesSignature(rules) {
+      const entries = Object.entries(rules || {});
+      return { count: entries.length, fields: Object.fromEntries(entries.slice(0, SECTION_SIGNATURE_ROW_LIMIT).map(([key, value]) => [key,
+        Array.isArray(value) ? { count: value.length, values: value.slice(0, SECTION_SIGNATURE_ROW_LIMIT) }
+          : value && typeof value === "object" ? { count: Object.keys(value).length, entries: Object.entries(value).slice(0, SECTION_SIGNATURE_ROW_LIMIT) }
+          : value])) };
     }
 
     function compactSettingsTopologyForSignature(topology) {
@@ -9176,9 +9188,15 @@ function renderPanelHtml() {
       renderResultColumnMappingSettings(state);
       const configuredRules = ((state || {}).resultOutputConfig || {}).adapterRules || {};
       const detectedRules = (((state || {}).detectedProject || {}).adapterRules) || {};
-      if (!shouldKeepConfigDraftScope("projectAdapterRules"))
+      if (!configContainerHasEditor("projectAdapterRuleSettings"))
         setHtmlIfChanged("projectAdapterRuleSettings", renderProjectRuleEditor(Object.assign({}, detectedRules, configuredRules)));
-      return renderServerCardsV2(state);
+      if (!configContainerHasEditor("serverSettingsCards")) renderServerCardsV2(state);
+    }
+
+    function configContainerHasEditor(id) {
+      const container = el(id);
+      const active = document.activeElement;
+      return Boolean(container && active && active.dataset && active.dataset.configInput && container.contains(active));
     }
 
     function pluginUpdateStatusLabel(status) {
@@ -9226,7 +9244,7 @@ function renderPanelHtml() {
     }
 
     function renderRemoteRootPolicySettings(state) {
-      if (shouldKeepConfigDraftScope("remotePolicy")) return;
+      if (configContainerHasEditor("remoteRootPolicySettings")) return;
       const config = (state || {}).remoteRootPolicy || {};
       const allowed = configDraftValue("remotePolicy", "allowedRoots", remoteRootPolicyText(config.allowedRoots));
       const denied = configDraftValue("remotePolicy", "deniedRoots", remoteRootPolicyText(config.deniedRoots));
@@ -9259,7 +9277,7 @@ function renderPanelHtml() {
     }
 
     function renderResultCsvDirectorySettings(state) {
-      if (shouldKeepConfigDraftScope("resultOutput")) return;
+      if (configContainerHasEditor("resultCsvDirectorySettings")) return;
       const config = (state || {}).resultOutputConfig || {};
       const value = String(configDraftValue("resultOutput", "csvDirectory", config.csvDirectory || "experiments/results"));
       setHtmlIfChanged("resultCsvDirectorySettings",
@@ -12882,12 +12900,14 @@ function renderPanelHtml() {
     }
 
     function projectRuleInput(key, label, value, title, cls) {
+      value = configDraftValue("projectAdapterRules", key, value);
       const fieldHelp = String(title || label);
       return '<div class="projectRuleField ' + escAttr(cls || "") + '" title="' + escAttr(fieldHelp) + '"><label title="' + escAttr(fieldHelp) + '">' + esc(label) + helpBadge(fieldHelp) + '</label><input data-config-input="projectAdapterRules" data-key="' + escAttr(key) + '" value="' + escAttr(value || "") + '" title="' + escAttr(fieldHelp) + '"></div>';
     }
 
     function projectRuleTextarea(key, label, value, title, cls) {
       const readonly = String(cls || "").includes("readonly");
+      if (!readonly) value = configDraftValue("projectAdapterRules", key, value);
       const configAttr = readonly ? "" : ' data-config-input="projectAdapterRules" data-key="' + escAttr(key) + '"';
       const lineCount = String(value || "").split(/\\n/).filter(Boolean).length;
       const fieldHelp = String(title || label) + "；当前 " + lineCount + " 行。";
@@ -14201,7 +14221,7 @@ function renderPanelHtml() {
             ? '<button type="button" class="mini secondary" data-command="recallPlanToLocalQueue" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-plan-file="' + escAttr(group.planFile || "") + '" data-job-index="' + escAttr(String(job.index)) + '" title="只召回此排队 job；运行中、已结束或状态不明的任务保持原 Worker。">' + (job.recallRequested ? "重试召回" : "召回到本机") + '</button>' : "";
           const recallNote = job.recallRequested ? "召回待确认，仍固定在原 Worker" : "";
           const blockText = blocked ? String(job.blockReason || "") : "";
-          const blockAdvice = blocked ? (blockText.indexOf("等待当前代码版本") === 0 ? "下一步：这个已提交 job 仍在排队，等当前代码版本结束后才会派发。先点上方“刷新状态”核实，不要把它当成未提交的 Plan。" : "下一步：空闲 GPU 不能运行这份旧代码。到实验准备的 Plan 列表手动选中，再点“校验并提交运行”；或恢复提交前的代码并重新同步 Worker。") : "";
+          const blockAdvice = blocked ? (blockText.indexOf("等待当前代码版本") === 0 ? "这个已提交 job 保留排队；其他 Worker 可运行匹配版本。被占用的 Worker 收到旧任务结束回执后自动释放版本锁，无需再次提交。" : "下一步：空闲 GPU 不能运行这份旧代码。到实验准备的 Plan 列表手动选中，再点“校验并提交运行”；或恢复提交前的代码并重新同步 Worker。") : "";
           const jobNext = errorText
             ? '<div class="muted">下一步：先点本行“终端日志”或“训练日志”看原因。这是已提交 job 的失败，不会自动清理。确认需要停止后，再点本 Plan 的“终止并清除该 Plan”（两次确认）。</div><span class="errorRowLinks" style="display:flex;gap:6px;flex-wrap:wrap;"><button type="button" class="mini secondary" data-section-target="execution" data-anchor-target="execution-operations" title="跳到运行进度，查看本 Plan 的状态">运行进度</button><button type="button" class="mini secondary" data-command="snapshot" title="重新拉取调度状态与操作记录">刷新状态</button></span>'
             : "";

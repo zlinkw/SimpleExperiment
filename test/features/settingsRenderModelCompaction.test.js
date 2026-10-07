@@ -51,7 +51,7 @@ test("settings model changes for topology scheduler and result directory updates
     compactObjectMapForSignature: (value) => value,
   };
   vm.createContext(sandbox);
-  vm.runInContext(`${extractFunction("settingsRenderModel")}\nthis.model = settingsRenderModel;`, sandbox);
+  vm.runInContext(`${extractFunction("settingsAdapterRulesSignature")}\n${extractFunction("settingsRenderModel")}\nthis.model = settingsRenderModel;`, sandbox);
   const base = {
     topology: { mode: "single_worker" },
     schedulerConfig: { pollSeconds: 60 },
@@ -67,6 +67,14 @@ test("settings model changes for topology scheduler and result directory updates
   assert.notEqual(JSON.stringify(model), JSON.stringify(plain(sandbox.model({ ...base, topology: { mode: "worker_pool" } }))));
   assert.notEqual(JSON.stringify(model), JSON.stringify(plain(sandbox.model({ ...base, schedulerConfig: { pollSeconds: 90 } }))));
   assert.notEqual(JSON.stringify(model), JSON.stringify(plain(sandbox.model({ ...base, resultOutputConfig: { csvDirectory: "results/final" } }))));
+  for (const change of [
+    { schedulerConfig: { dispatchMode: "server_prequeue" } },
+    { remoteRootPolicy: { allowedRoots: ["/srv/projects"] } },
+    { pluginUpdate: { status: "update_available" } },
+    { resultOutputConfig: { adapterRules: { primaryMetric: "F1" } } },
+    { detectedProject: { adapterRules: { candidateCsv: ["metrics.csv"] } } },
+    { sectionRevisions: { settings: 3 } },
+  ]) assert.notEqual(JSON.stringify(model), JSON.stringify(plain(sandbox.model({ ...base, ...change }))));
 });
 
 test("settings setup signature retains every editable Hub and Worker field", () => {

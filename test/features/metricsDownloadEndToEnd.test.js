@@ -37,6 +37,7 @@ Module._extensions[".ts"] = (loadedModule, filename) => {
 };
 Module._load = function (request, parent, isMain) {
   if (request === "vscode") return vscode;
+  if (request.startsWith("../vendor/semver/")) return originalLoad.call(this, path.join(repo, "dist/vendor/semver", request.slice("../vendor/semver/".length)), parent, isMain);
   if (request === "../results/ProjectResultTables" && parent?.filename.endsWith(path.join("src", "extension", "legacy.ts"))) return tablesModule.exports;
   return originalLoad.call(this, request, parent, isMain);
 };
@@ -79,17 +80,16 @@ function providerFor(workspace, csvText, oldRegistry) {
     resolveSelectedPlanFile: () => "", enabledWorkerConfigs: () => [{ id: "worker-a" }], postState() {},
     sftpServerOptions: (target) => ({ id: target.id, host: target.host, user: target.user, port: target.port, remotePath: target.remotePath }),
     loadProjectTableRegistry: async () => oldRegistry || tablesModule.exports.emptyTableRegistry(),
+    simpleSftpCapability: async () => ({ methodOptions: { "sync.downloadMappedPaths": { memoryOnly: true } } }),
     simpleSftpApiCall: async (method, params) => {
       calls.push([method, params]);
       if (method === "sync.projectInventory") return { files: { [remoteCsv]: { size: Buffer.byteLength(csvText), sha256: crypto.createHash("sha256").update(csvText).digest("hex") } } };
       if (method === "sync.projectFileStats") return { files: { [remoteCsv]: { size: Buffer.byteLength(csvText) } } };
       assert.equal(method, "sync.downloadMappedPaths");
-      for (const entry of params.entries) {
-        const staged = path.join(workspace, ...entry.localRelativePath.split("/"));
-        fs.mkdirSync(path.dirname(staged), { recursive: true });
-        fs.writeFileSync(staged, csvText, "utf8");
-      }
-      return { ok: true, fileCount: params.entries.length, completedFiles: params.entries.length };
+      assert.equal(params.memoryOnly, true);
+      return { ok: true, memoryOnly: true, fileCount: params.entries.length, completedFiles: params.entries.length,
+        entries: params.entries.map(entry => ({ remotePath: entry.remotePath, bytes: Buffer.byteLength(csvText),
+          sha256: crypto.createHash("sha256").update(csvText).digest("hex"), dataBase64: Buffer.from(csvText).toString("base64") })) };
     },
   };
   provider.testSummary = summary;
@@ -106,7 +106,7 @@ function seedRegistry() {
   }, planFile, 1);
 }
 
-test("production metrics-only SFTP mapping produces raw provenance, alias-normalized mean and sample SD", async () => {
+test("production metrics-only SFTP mapping retains provenance in the registry without raw cache, with alias-normalized mean and sample SD", async () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "p6-metrics-chain-"));
   try {
     const provider = providerFor(workspace, csvFor([
@@ -121,6 +121,7 @@ test("production metrics-only SFTP mapping produces raw provenance, alias-normal
     assert.ok(call);
     assert.equal(call[0], "sync.downloadMappedPaths");
     assert.equal(call[1].metricsOnly, true);
+    assert.equal(call[1].memoryOnly, true);
     assert.equal(call[1].confirm, true);
     assert.equal(call[1].pathConfirmed, true);
     assert.equal(call[1].server.id, "worker-a");
@@ -139,8 +140,7 @@ test("production metrics-only SFTP mapping produces raw provenance, alias-normal
       }
     };
     visit(workspace);
-    assert.equal(localMetricFiles.length, 1);
-    assert.equal(fs.readFileSync(localMetricFiles[0], "utf8").split("\n").length, 8);
+    assert.equal(localMetricFiles.length, 0, "raw metric bytes are parsed in memory, never saved as local cache");
     const outputRoot = path.join(workspace, "experiments", "results", "set", "final");
     const csv = fs.readFileSync(path.join(outputRoot, "final.csv"), "utf8");
     const markdown = fs.readFileSync(path.join(outputRoot, "final.md"), "utf8");
@@ -154,7 +154,7 @@ test("production metrics-only SFTP mapping produces raw provenance, alias-normal
     const registry = JSON.parse(fs.readFileSync(path.join(workspace, "simple_cluster", "results", "project_table_registry.json"), "utf8"));
     assert.deepEqual(Object.keys(registry.plans[planFile].records[0].metrics).sort(), ["AUC", "ECE", "ece", "roc_auc"].sort());
     assert.equal(registry.plans[planFile].records[0].runId, "run-complete");
-    assert.ok(localMetricFiles[0].toLowerCase().includes(path.join("experiments", "results", "_unassigned", "plans", tablesModule.exports.planDirectoryKey(planFile), "raw").toLowerCase()));
+    assert.ok(registry.plans[planFile].records.every(record=>record.runId==="run-complete"));
   } finally {
     vscode.workspace.workspaceFolders = [];
   }
@@ -175,7 +175,9 @@ test("conflicting raw aliases retain the previous published CSV and Markdown", a
       { seed: 42, metric: "AUC", value: 0.4 }, { seed: 42, metric: "roc_auc", value: 0.8 },
       { seed: 43, metric: "AUC", value: 0.6 },
     ]), oldRegistry);
-    await assert.rejects(() => __syncPendingResultMetricsForTest(provider), /等价指标值冲突/);
+    const report = await __syncPendingResultMetricsForTest(provider);
+    assert.ok(report.skipped.some(issue=>/等价指标值冲突/.test(issue)), "the conflict stays visible in the partial-sync report");
+    assert.equal(report.included.length, 0);
     assert.equal(provider.calls.find(([method]) => method === "sync.downloadMappedPaths")[1].metricsOnly, true);
     assert.equal(fs.readFileSync(path.join(outputRoot, "final.csv"), "utf8"), beforeCsv);
     assert.equal(fs.readFileSync(path.join(outputRoot, "final.md"), "utf8"), beforeMd);
@@ -223,15 +225,16 @@ test("completed plans stay untouched until manual metrics sync downloads and pub
     assert.equal(provider.calls.length, 0, "completion must not download metric files");
     await host.syncPendingResultMetricsFromUi();
 
-    assert.deepEqual(stages, ["fragments", "preview-rebuild", "bulk", "final-rebuild"],
-      "manual sync first restores the authoritative Plan artifacts, then publishes the final tables");
+    assert.deepEqual(stages, [], "manual metric sync builds local tables without remote mirroring or rebuilding");
     assert.equal(provider.calls.filter(([method]) => method === "sync.downloadMappedPaths").length, 1, "manual sync reaches mapped SFTP transport once");
     const [method, params] = provider.calls.find(([method]) => method === "sync.downloadMappedPaths");
     assert.equal(method, "sync.downloadMappedPaths");
     assert.equal(params.metricsOnly, true);
-    assert.equal(confirmations[0]?.metricsOnly, true, "manual result sync keeps the metrics-only download scope");
+    assert.equal(params.memoryOnly, true);
+    assert.equal(confirmations.length, 0, "memory-only parsing does not request an unrelated local raw-file overwrite");
     assert.deepEqual(params.entries.map((entry) => entry.remotePath), [remoteCsv]);
-    assert.equal(queue.localMetricsSignature?.length > 0, true, "successful publication records the completion signature");
+    const registry = JSON.parse(fs.readFileSync(path.join(workspace, "simple_cluster/results/project_table_registry.json"), "utf8"));
+    assert.ok(registry.plans[planFile].records.every(record=>record.runId==="run-complete"), "publication records the downloaded result generation");
     assert.equal(uiNotices.filter(([kind]) => kind === "warning").length, warningCount, "new metric files do not require overwrite confirmation");
     assert.ok(fs.existsSync(path.join(workspace, "experiments", "results", "set", "final", "final.csv")));
     assert.ok(fs.existsSync(path.join(workspace, "experiments", "results", "set", "final", "final.md")));
