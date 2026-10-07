@@ -83,6 +83,8 @@ test("GPU task close survives capture and still selects a Worker button", () => 
     tmuxSelectedPaneTarget: "",
     tmuxListCache: null,
     tmuxLastCaptureTarget: "",
+    tmuxJobLogSelection: null,
+    tmuxJobLogJumpTimeout: 0,
     tmuxClearTaskTabsBusy: false,
     pendingActionsById: {},
     pendingActionTimeouts: {},
@@ -108,6 +110,7 @@ test("GPU task close survives capture and still selects a Worker button", () => 
     extractBetween(html, "function esc(value)", "function cssEscape("),
     extractBetween(html, "function normalizeTmuxWindowFilter(", "function renderTmuxWorkersOverview("),
     extractBetween(html, "function selectTmuxWorker(", "async function refreshTmuxList("),
+    extractBetween(html, "function cancelJobTmuxLogJump(", "function failJobTmuxLogJump("),
     extractBetween(html, "function createClientActionId(", "function pendingKeyForButton("),
     "function renderTmuxWorkersOverview(){}",
     "function bubbleClick(event){",
@@ -173,8 +176,10 @@ test("GPU task close survives capture and still selects a Worker button", () => 
 
   const workerTag = '<button type="button" class="secondary" data-tmux-worker="worker-b"></button>';
   const workerClick = clickEvent(elementFromTag(workerTag));
+  context.tmuxJobLogSelection = { status: "waiting", workerId: "worker-a" };
   capture[0].handler(workerClick);
   assert.equal(workerClick.stopped, true);
   assert.equal(context.tmuxSelectedWorkerId, "worker-b");
   assert.equal(context.tmuxWindowFilter, "all");
+  assert.equal(context.tmuxJobLogSelection, null, "explicit Worker navigation cancels a pending job jump");
 });

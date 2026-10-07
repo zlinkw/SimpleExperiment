@@ -40,7 +40,7 @@ test("terminal attempts on one GPU keep immutable run and command log identities
 test("tmux overview requests and retains all Worker session lists", () => {
   const panel = readSource("src/ui/PanelHtml.legacy.ts");
   const host = readSource("src/extension/legacy.ts");
-  assert.match(panel, /allWorkers: true/);
+  assert.match(panel, /allWorkers: !jobWorker/);
   assert.match(panel, /tmuxListsByWorker\[item\.workerId\]/);
   assert.match(panel, /data-tmux-worker/);
   assert.match(host, /Promise\.all\(workerIds\.map\(\(workerId\) => this\.fetchOneTmuxListFromUi\(workerId, _message\?\.requestId\)\)\)/);

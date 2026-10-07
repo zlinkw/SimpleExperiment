@@ -116,7 +116,7 @@ test("rerun code sync also compares hashes before uploading", () => {
   assert.match(codeReady, /syncCodeTargets\(targets, "run", \{ projectContext, hashCompare: true,/);
 });
 
-test("running distributed job renders Worker log path, content, and loading indicator", () => {
+test("distributed job exposes one identity-bound tmux log jump and no inline log preview", () => {
   const start = renderedPanel.indexOf("function executionPlanGroupKey(");
   const end = renderedPanel.indexOf("function renderOperationSection(state)", start);
   assert.ok(start >= 0 && end > start);
@@ -153,18 +153,22 @@ test("running distributed job renders Worker log path, content, and loading indi
       commandId: "command-123", logPath: "tmp/tmux_logs/job.log" }],
   }] };
   sandbox.renderExecutionPlanList(state);
-  assert.match(html, /data-run-key="tmp\/tmux_logs\/job\.log"/);
-  assert.match(html, /data-run-key="work_dirs\/bus\/attempts\/new\/train\.log"/);
-  assert.doesNotMatch(html, /data-run-key="command-123"/);
-  assert.match(html, /epoch 3\/20/);
+  assert.match(html, /data-job-tmux-log="1"/);
+  assert.match(html, /data-command-id="command-123"/);
+  assert.match(html, /data-output-dir="work_dirs\/bus\/attempts\/new"/);
+  assert.equal((html.match(/>跳转到日志</g) || []).length, 1);
+  assert.doesNotMatch(html, /data-run-key=|训练日志|终端日志|epoch 3\/20/);
   assert.match(html, /loading-spinner/);
   state.selectedLogRunKey = "work_dirs/bus/attempts/new/train.log";
   state.logs[state.selectedLogRunKey] = { text: "Epoch 1: Val Loss = 0.5" };
   sandbox.renderExecutionPlanList(state);
-  assert.match(html, /Epoch 1: Val Loss = 0\.5/);
+  assert.doesNotMatch(html, /Epoch 1: Val Loss = 0\.5/);
   state.distributedPlans[0].jobs[0].status = "completed";
   sandbox.renderExecutionPlanList(state);
   assert.doesNotMatch(html, /loading-spinner/);
+  state.distributedPlans[0].jobs[0].workerId = "";
+  sandbox.renderExecutionPlanList(state);
+  assert.match(html, /data-job-tmux-log="1"[^>]* disabled/);
 });
 
 test("selected Worker log appends new bytes while polling", async () => {

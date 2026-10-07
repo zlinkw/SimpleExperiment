@@ -1915,6 +1915,8 @@ export function renderPanelHtml(): string {
     let tmuxWindowFilter = String((restoredWebviewState && restoredWebviewState.tmuxWindowFilter) || "all");
     let tmuxSelectedPaneTarget = String((restoredWebviewState && restoredWebviewState.tmuxSelectedPaneTarget) || "");
     let tmuxSelectedTaskTarget = String((restoredWebviewState && restoredWebviewState.tmuxSelectedTaskTarget) || "");
+    let tmuxJobLogSelection = null;
+    let tmuxJobLogJumpTimeout = 0;
     let tmuxLastCaptureTarget = "";
     let tmuxClearTaskTabsBusy = false;
     function normalizeTmuxWindowFilter(value) {
@@ -2184,6 +2186,113 @@ export function renderPanelHtml(): string {
         return '<button type="button" class="secondary" data-tmux-worker="' + escAttr(worker.id) + '" aria-pressed="' + (active ? 'true' : 'false') + '" style="border-radius:8px;' + (active ? 'outline:2px solid var(--vscode-focusBorder);' : '') + '">' + esc(worker.name || worker.id) + ' · ' + esc(label) + '</button>';
       }).join("");
     }
+    function resolveJobTmuxWindow(identity, listed) {
+      if (!identity || !listed || listed.workerId !== identity.workerId || listed.ok === false) return null;
+      const pathKey = function(value) {
+        let text = String(value || "").split(String.fromCharCode(92)).join("/");
+        while (text.endsWith("/")) text = text.slice(0, -1);
+        return text.startsWith("./") ? text.slice(2) : text;
+      };
+      const commandId = String(identity.commandId || "");
+      const outputDir = pathKey(identity.outputDir);
+      if (!commandId && !outputDir) return null;
+      const matches = [];
+      for (const session of Array.isArray(listed.sessions) ? listed.sessions : []) {
+        for (const win of Array.isArray(session.windows) ? session.windows : []) {
+          const task = win.task;
+          if (!task || !session.name) continue;
+          const taskOutput = pathKey(task.outputDir);
+          if (commandId) {
+            if (String(task.commandId || "") !== commandId) continue;
+            if (outputDir && taskOutput && outputDir !== taskOutput) continue;
+          } else if (!taskOutput || taskOutput !== outputDir) continue;
+          const target = String(win.target || (session.name + ":" + String(win.index ?? "0")));
+          if (!target.startsWith(String(session.name) + ":")) continue;
+          matches.push({ session: String(session.name), target: target });
+        }
+      }
+      return matches.length === 1 ? matches[0] : null;
+    }
+    function cancelJobTmuxLogJump() {
+      clearTimeout(tmuxJobLogJumpTimeout);
+      tmuxJobLogJumpTimeout = 0;
+      tmuxJobLogSelection = null;
+    }
+    function failJobTmuxLogJump(message) {
+      if (!tmuxJobLogSelection) return;
+      clearTimeout(tmuxJobLogJumpTimeout);
+      tmuxJobLogJumpTimeout = 0;
+      tmuxJobLogSelection.status = "unavailable";
+      const meta = el("tmuxCaptureMeta");
+      if (meta) meta.textContent = message;
+      const pre = el("tmuxCapturePre");
+      if (pre) { pre.textContent = ""; pre.dataset.captureTarget = ""; }
+      showToast(message, "warning");
+    }
+    function jumpToJobTmuxLog(identity) {
+      if (!identity.workerId || (!identity.commandId && !identity.outputDir)) {
+        showToast("任务尚未派发，暂时没有对应的 TMUX 日志标签。", "info");
+        return;
+      }
+      cancelJobTmuxLogJump();
+      tmuxJobLogSelection = { ...identity, status: "waiting", requestId: tmuxListRequestId + 1 };
+      tmuxSelectedWorkerId = identity.workerId;
+      tmuxWindowFilter = "all";
+      tmuxSelectedTaskTarget = "";
+      tmuxSelectedPaneTarget = "";
+      tmuxLastCaptureTarget = "";
+      tmuxListCache = tmuxListsByWorker[identity.workerId] || { workerId: identity.workerId, sessions: [], gpuIds: [] };
+      const workerSel = el("tmuxWorkerSelect");
+      if (workerSel) workerSel.value = identity.workerId;
+      const pre = el("tmuxCapturePre");
+      if (pre) { pre.textContent = ""; pre.dataset.captureTarget = ""; pre.dataset.lastFetch = ""; }
+      persistWebviewState({ tmuxSelectedWorkerId: tmuxSelectedWorkerId, tmuxWindowFilter: "all", tmuxSelectedTaskTarget: "", tmuxSelectedPaneTarget: "" });
+      navigateToResourceTarget("tmux", "tmux-overview", { force: true });
+      renderTmuxOverview(tmuxListCache.sessions || []);
+      renderTmuxWorkersOverview(tmuxConfiguredWorkers);
+      const meta = el("tmuxCaptureMeta");
+      if (meta) meta.textContent = "正在定位该任务的 TMUX 日志标签…";
+      tmuxJobLogJumpTimeout = setTimeout(function() {
+        failJobTmuxLogJump("未收到该 Worker 的 TMUX 窗口，请检查连接后再点“跳转到日志”。");
+      }, 20000);
+      // A click needs one fresh Worker response, not completion of an older
+      // all-Worker poll. Older replies remain excluded by the request id.
+      clearTimeout(tmuxListTimeout);
+      tmuxListTimeout = 0;
+      tmuxListBusy = false;
+      tmuxListPendingWorkers.clear();
+      refreshTmuxList();
+    }
+    function handleJobTmuxLogList(item) {
+      const selected = tmuxJobLogSelection;
+      if (!selected || selected.status === "unavailable") return;
+      if (selected.status === "selected") {
+        if (item.workerId === selected.workerId && !resolveJobTmuxWindow(selected, tmuxListsByWorker[selected.workerId])) {
+          failJobTmuxLogJump("该任务的 TMUX 标签已关闭或暂不可读取；可重新定位，不会切换到其他任务。");
+        }
+        return;
+      }
+      if (!tmuxListBusy && selected.requestId > tmuxListRequestId) refreshTmuxList();
+      const responseId = Number(item.requestId);
+      if (!Number.isFinite(responseId) || responseId < selected.requestId || responseId !== tmuxListRequestId) return;
+      if (Array.isArray(item.workers) && item.workers.length && !item.workers.some(function(worker) { return worker.id === selected.workerId; })) {
+        failJobTmuxLogJump("该任务的 Worker 已不在当前配置中，无法定位 TMUX 日志标签。");
+        return;
+      }
+      if (item.workerId !== selected.workerId) return;
+      const matched = resolveJobTmuxWindow(selected, tmuxListsByWorker[selected.workerId]);
+      if (!matched) {
+        failJobTmuxLogJump(item.ok === false || item.error ? "该 Worker 的 TMUX 列表读取失败，请检查连接后重试。" : "该任务尚未创建 TMUX 窗口，或历史标签已关闭；不会跳到其他任务。");
+        return;
+      }
+      clearTimeout(tmuxJobLogJumpTimeout);
+      tmuxJobLogJumpTimeout = 0;
+      selected.status = "selected";
+      tmuxWindowFilter = tmuxGpuIdFromSession(matched.session) ? matched.session : matched.target;
+      tmuxSelectedTaskTarget = matched.target;
+      tmuxSelectedPaneTarget = "";
+      persistWebviewState({ tmuxSelectedWorkerId: selected.workerId, tmuxWindowFilter: tmuxWindowFilter, tmuxSelectedTaskTarget: matched.target, tmuxSelectedPaneTarget: "" });
+    }
     function selectTmuxWorker(workerId) {
       const id = String(workerId || "");
       if (!id || !tmuxConfiguredWorkers.some(function(worker){ return worker.id === id; })) return;
@@ -2210,6 +2319,9 @@ export function renderPanelHtml(): string {
       tmuxListBusy = true;
       tmuxListRequestId += 1;
       tmuxListPendingWorkers.clear();
+      const jobWorker = typeof tmuxJobLogSelection !== "undefined" && tmuxJobLogSelection?.status === "waiting"
+        ? tmuxJobLogSelection.workerId : "";
+      if (jobWorker) tmuxListPendingWorkers.add(jobWorker);
       const meta = el("tmuxListMeta");
       if (meta) meta.textContent = "列举 tmux sessions ...";
       try {
@@ -2221,7 +2333,7 @@ export function renderPanelHtml(): string {
           if (meta) meta.textContent = "会话刷新暂未收到响应，下次自动重试";
           scheduleTmuxInitialRetry();
         }, 20000);
-        vscode.postMessage({ command: "fetchTmuxList", workerId: tmuxSelectedWorkerId, allWorkers: true, background: true, requestId: tmuxListRequestId });
+        vscode.postMessage({ command: "fetchTmuxList", workerId: jobWorker || tmuxSelectedWorkerId, allWorkers: !jobWorker, background: true, requestId: tmuxListRequestId });
       } catch (e) {
         clearTimeout(tmuxListTimeout);
         tmuxListTimeout = 0;
@@ -2260,6 +2372,11 @@ export function renderPanelHtml(): string {
       }
     }
     function tmuxResolveCaptureTarget() {
+      if (typeof tmuxJobLogSelection !== "undefined" && tmuxJobLogSelection) {
+        if (tmuxJobLogSelection.status !== "selected" || tmuxJobLogSelection.workerId !== tmuxSelectedWorkerId) return "";
+        const matched = resolveJobTmuxWindow(tmuxJobLogSelection, tmuxListCache);
+        return matched && matched.target === tmuxSelectedTaskTarget ? matched.target : "";
+      }
       const activeFilter = normalizeTmuxWindowFilter(tmuxWindowFilter);
       if (activeFilter !== "all") {
         if (activeFilter.indexOf("gpu-slot:") === 0) {
@@ -3067,6 +3184,17 @@ export function renderPanelHtml(): string {
         }
         return;
       }
+      const jobTmuxLogButton = event.target.closest("button[data-job-tmux-log]");
+      if (jobTmuxLogButton) {
+        event.preventDefault();
+        if (!jobTmuxLogButton.disabled) jumpToJobTmuxLog({
+          workerId: String(jobTmuxLogButton.getAttribute("data-worker-id") || ""),
+          commandId: String(jobTmuxLogButton.getAttribute("data-command-id") || ""),
+          outputDir: String(jobTmuxLogButton.getAttribute("data-output-dir") || ""),
+        });
+        return;
+      }
+      if (event.target.closest("[data-tmux-worker], [data-tmux-filter], [data-tmux-task-target], [data-tmux-pane], [data-tmux-close], [data-tmux-clear-task-tabs]")) cancelJobTmuxLogJump();
       const tmuxClearTaskTabs = event.target.closest("[data-tmux-clear-task-tabs]");
       if (tmuxClearTaskTabs) {
         event.preventDefault();
@@ -3840,15 +3968,16 @@ export function renderPanelHtml(): string {
       const workerSel = el("tmuxWorkerSelect");
       const btn = el("tmuxRefreshBtn");
       const listBtn = el("tmuxListBtn");
-      if (sel) sel.addEventListener("change", refreshTmuxCapture);
+      if (sel) sel.addEventListener("change", function() { cancelJobTmuxLogJump(); refreshTmuxCapture(); });
       document.addEventListener("change", function(event) {
-        if (event.target && event.target.id === "tmuxWorkerSelect") selectTmuxWorker(event.target.value);
+        if (event.target && event.target.id === "tmuxWorkerSelect") { cancelJobTmuxLogJump(); selectTmuxWorker(event.target.value); }
       }, true);
       document.addEventListener("click", function(event) {
         const button = event.target && event.target.closest && event.target.closest("button[data-tmux-worker]");
         if (!button || button.hasAttribute("data-tmux-close") || button.classList.contains("tmuxTaskTabClose") || button.hasAttribute("data-tmux-clear-task-tabs") || button.classList.contains("tmuxClearTaskTabs")) return;
         event.preventDefault();
         event.stopPropagation();
+        cancelJobTmuxLogJump();
         selectTmuxWorker(button.getAttribute("data-tmux-worker"));
       }, true);
       if (btn) btn.addEventListener("click", refreshTmuxCapture);
@@ -4035,6 +4164,7 @@ export function renderPanelHtml(): string {
           if (listedWorkers.length) tmuxConfiguredWorkers = listedWorkers;
           if (item.workerId) tmuxListsByWorker[item.workerId] = { sessions: item.sessions || [], gpuIds: item.gpuIds || [], workerId: item.workerId, fetchedAt: item.fetchedAt || new Date().toLocaleTimeString(), ok: item.ok !== false, error: item.error || "" };
           finishTmuxListRequest(item);
+          handleJobTmuxLogList(item);
           if (!tmuxSelectedWorkerId || (listedWorkers.length && !listedWorkers.some(function(worker){ return worker.id === tmuxSelectedWorkerId; }))) tmuxSelectedWorkerId = item.workerId || tmuxSelectedWorkerId;
           persistWebviewState({ tmuxSelectedWorkerId: tmuxSelectedWorkerId });
           const workerSel = el("tmuxWorkerSelect");
@@ -14189,9 +14319,7 @@ export function renderPanelHtml(): string {
         const selectButton = group.planFile ? '<button type="button" class="mini executionPlanSelect' + (isSelected ? ' is-active' : '') + '" data-execution-plan-select="' + escAttr(group.planFile) + '" aria-pressed="' + (isSelected ? 'true' : 'false') + '" title="选中整个 Plan，供上方按 Plan 清理历史">' + (isSelected ? '已选中' : '选中 Plan') + '</button>' : '';
         const dangerActions = group.planFile ? '<div class="executionPlanActions"><button class="mini history-clear" data-command="clearOperations" data-plan-file="' + escAttr(group.planFile) + '" title="仅清除这个 Plan 在本机的已结束运行历史；保留远端审计、日志和产物">清除历史</button></div>' : '';
         const statusBadge = '<b class="' + (group.tone === "blocked" || group.tone === "queued" ? "status-warning" : statusClass(group.tone)) + '">' + esc(statusText) + '</b>';
-        const runLogNote = distributedRows.length ? '<div class="muted">训练日志记录每轮验证结果；终端日志记录 Worker 命令输出。校验日志只记录提交前校验，放在高级记录区。</div>' : '';
         const distributedHtml = distributedRows.length ? '<h3>' + loadingPrefix(group.distributedActive) + '当前 job · 成功 ' + group.completed + '/' + distributedRows.length + '</h3>'
-          + runLogNote
           + (group.failedJobs ? '<div class="executionDistributedFailure">' + group.failedJobs + ' 个当前 job 失败，未计入成功。打开对应日志查看原因。</div>' : '')
           + '<div class="executionDistributedJobs">' + distributedRows.map((job) => {
           const status = String(job.status || "unknown");
@@ -14199,14 +14327,8 @@ export function renderPanelHtml(): string {
           const jobActive = ["pending", "dispatching", "queued", "running", "unknown"].includes(status) && !blocked;
           const statusLabel = blocked ? (String(job.blockReason || "").indexOf("等待当前代码版本") === 0 ? "等待代码版本" : "代码版本不匹配") : ({ pending: "本机等待空卡", queued: "服务器排队", dispatching: "派发中", running: "运行中", completed: "已完成", failed: "失败", cancelled: "已中止", unknown: "待核实" }[status] || status);
           const placement = job.workerId ? job.workerId + (job.gpuId == null || job.gpuId === "" ? "" : " · GPU " + job.gpuId) : "未派发";
-          const logPath = String(job.logPath || "");
-          const outputDir = String(job.outputDir || "");
-          const trainLogPath = outputDir.endsWith("/") ? outputDir + "train.log" : outputDir + "/train.log";
-          const trainLogButton = !job.outputRetiredAt && job.outputDir && job.workerId ? '<button class="mini secondary" data-command="selectLogRunKey" data-log-source="train" data-run-key="' + escAttr(trainLogPath) + '" data-worker-id="' + escAttr(job.workerId) + '" title="从 Worker ' + escAttr(job.workerId) + ' 读取每轮训练验证记录">训练日志</button>' : "";
-          const logButton = job.outputRetiredAt ? '<span class="muted">旧产物已替换</span>' : logPath && job.workerId ? '<button class="mini secondary" data-command="selectLogRunKey" data-log-source="run" data-run-key="' + escAttr(logPath) + '" data-worker-id="' + escAttr(job.workerId) + '" title="从 Worker ' + escAttr(job.workerId) + ' 读取终端输出">终端日志</button>' : '<span class="muted">终端日志路径待 Worker 回传</span>';
-          const selectedLogPath = state.selectedLogRunKey === trainLogPath ? trainLogPath : logPath;
-          const logText = selectedLogPath ? logPayloadText((state.logs || {})[selectedLogPath]) : "";
-          const logPreview = !job.outputRetiredAt && logText ? '<pre class="taskLogPre">' + esc(compactTaskLogText(logText)) + '</pre>' : "";
+          const canJumpLog = Boolean(job.workerId && (job.commandId || job.outputDir));
+          const logButton = '<button type="button" class="mini secondary" data-job-tmux-log="1" data-worker-id="' + escAttr(job.workerId || "") + '" data-command-id="' + escAttr(job.commandId || "") + '" data-output-dir="' + escAttr(job.outputDir || "") + '"' + (canJumpLog ? '' : ' disabled') + ' title="' + (canJumpLog ? '在 TMUX 区域选中该 Worker 的真实任务窗口标签' : '等待任务派发后定位对应的 TMUX 日志标签') + '">跳转到日志</button>';
           const errorText = String(job.artifactError || job.error || "").trim();
           const recallButton = status === "queued" || job.recallRequested === true
             ? '<button type="button" class="mini secondary" data-command="recallPlanToLocalQueue" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-plan-file="' + escAttr(group.planFile || "") + '" data-job-index="' + escAttr(String(job.index)) + '" title="只召回此排队 job；运行中、已结束或状态不明的任务保持原 Worker。">' + (job.recallRequested ? "重试召回" : "召回到本机") + '</button>' : "";
@@ -14214,12 +14336,12 @@ export function renderPanelHtml(): string {
           const blockText = blocked ? String(job.blockReason || "") : "";
           const blockAdvice = blocked ? (blockText.indexOf("等待当前代码版本") === 0 ? "这个已提交 job 保留排队；其他 Worker 可运行匹配版本。被占用的 Worker 收到旧任务结束回执后自动释放版本锁，无需再次提交。" : "下一步：空闲 GPU 不能运行这份旧代码。到实验准备的 Plan 列表手动选中，再点“校验并提交运行”；或恢复提交前的代码并重新同步 Worker。") : "";
           const jobNext = errorText
-            ? '<div class="muted">下一步：先点本行“终端日志”或“训练日志”看原因。这是已提交 job 的失败，不会自动清理。确认需要停止后，再点本 Plan 的“终止并清除该 Plan”（两次确认）。</div><span class="errorRowLinks" style="display:flex;gap:6px;flex-wrap:wrap;"><button type="button" class="mini secondary" data-section-target="execution" data-anchor-target="execution-operations" title="跳到运行进度，查看本 Plan 的状态">运行进度</button><button type="button" class="mini secondary" data-command="snapshot" title="重新拉取调度状态与操作记录">刷新状态</button></span>'
+            ? '<div class="muted">下一步：点本行“跳转到日志”查看对应 TMUX 任务窗口。这是已提交 job 的失败，不会自动清理。确认需要停止后，再点本 Plan 的“终止并清除该 Plan”（两次确认）。</div><span class="errorRowLinks" style="display:flex;gap:6px;flex-wrap:wrap;"><button type="button" class="mini secondary" data-section-target="execution" data-anchor-target="execution-operations" title="跳到运行进度，查看本 Plan 的状态">运行进度</button><button type="button" class="mini secondary" data-command="snapshot" title="重新拉取调度状态与操作记录">刷新状态</button></span>'
             : "";
-          return '<div class="executionDistributedJob' + (blocked ? " is-blocked" : "") + '" title="' + escAttr(job.outputDir || "") + '"><span>' + loadingPrefix(jobActive) + esc(job.case || "job " + job.index) + ' seed ' + esc(String(job.seed)) + '</span><span class="' + (blocked ? "status-warning" : statusClass(status)) + '">' + esc(statusLabel) + '</span><span>' + esc(blocked ? "阻塞" : placement) + '</span>' + recallButton + trainLogButton + logButton
+          return '<div class="executionDistributedJob' + (blocked ? " is-blocked" : "") + '" title="' + escAttr(job.outputDir || "") + '"><span>' + loadingPrefix(jobActive) + esc(job.case || "job " + job.index) + ' seed ' + esc(String(job.seed)) + '</span><span class="' + (blocked ? "status-warning" : statusClass(status)) + '">' + esc(statusLabel) + '</span><span>' + esc(blocked ? "阻塞" : placement) + '</span>' + recallButton + logButton
             + (recallNote ? '<div class="muted">' + esc(recallNote) + '</div>' : '')
             + (blockText ? '<div class="executionDistributedJobError">' + esc(blockText) + (blockAdvice ? '<div>下一步：' + esc(blockAdvice.replace(/^下一步：/, "")) + '</div>' : '') + '</div>' : '')
-            + (errorText ? '<div class="executionDistributedJobError">' + esc(errorText) + jobNext + '</div>' : '') + logPreview + '</div>';
+            + (errorText ? '<div class="executionDistributedJobError">' + esc(errorText) + jobNext + '</div>' : '') + '</div>';
         }).join("") + '</div>' : '';
         const opHtml = opRows.length ? '<h3>最近操作</h3><div class="operationTimeline">' + opRows.map(renderOperationItem).join("") + '</div>' : "";
         const taskHtml = taskRows.length ? '<h3>任务与日志</h3>' + renderPlanTaskCards(state, sortedTasks, selected, group.key) : "";
@@ -14420,6 +14542,7 @@ export function renderPanelHtml(): string {
             status: job.status,
             workerId: job.workerId,
             gpuId: job.gpuId,
+            commandId: job.commandId,
             blockReason: job.blockReason,
             outputDir: job.outputDir,
             logPath: job.logPath,
