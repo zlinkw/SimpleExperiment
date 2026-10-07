@@ -430,7 +430,7 @@ export function renderPanelHtml(): string {
     .executionPlanRow > summary:hover { background: color-mix(in srgb, var(--vscode-focusBorder) 6%, transparent); }
     .executionPlanName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 750; }
     .executionPlanCount { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
-    .executionPlanDetails { display: grid; gap: 9px; padding: 8px 11px 11px; border-top: 1px solid var(--border); }
+    .executionPlanDetails { display: grid; gap: 5px; padding: 6px 9px 8px; border-top: 1px solid var(--border); }
     .executionPlanDetails h3 { margin: 3px 0; font-size: 12px; }
     .executionPlanDetails .taskCardList { grid-template-columns: repeat(auto-fill, minmax(290px, 1fr)); gap: 7px; }
     .executionArchive, .executionFullRecords, .diagnosticAllChecks { margin-top: 8px; border: 1px solid var(--border); border-radius: 8px; background: var(--subtle-bg); }
@@ -14317,7 +14317,7 @@ export function renderPanelHtml(): string {
         const stopClearDetail = stopClear && Array.isArray(stopClear.failures) && stopClear.failures.length ? '<div class="executionDistributedJobError">' + stopClear.failures.map((item) => esc(item)).join("<br>") + '</div>' : '';
         const foldButton = '<button type="button" class="mini secondary" data-execution-plan-fold="' + escAttr(group.key) + '" title="只收起这张卡片，不停止调度、不清除历史">折叠此 Plan</button>';
         const selectButton = group.planFile ? '<button type="button" class="mini executionPlanSelect' + (isSelected ? ' is-active' : '') + '" data-execution-plan-select="' + escAttr(group.planFile) + '" aria-pressed="' + (isSelected ? 'true' : 'false') + '" title="选中整个 Plan，供上方按 Plan 清理历史">' + (isSelected ? '已选中' : '选中 Plan') + '</button>' : '';
-        const dangerActions = group.planFile ? '<div class="executionPlanActions"><button class="mini history-clear" data-command="clearOperations" data-plan-file="' + escAttr(group.planFile) + '" title="仅清除这个 Plan 在本机的已结束运行历史；保留远端审计、日志和产物">清除历史</button></div>' : '';
+        const dangerActions = group.planFile ? '<div class="executionPlanActions"><button class="mini history-clear" data-command="clearOperations" data-plan-file="' + escAttr(group.planFile) + '" title="仅清除这个 Plan 在本机的已结束运行历史；保留远端审计、日志和产物">清除历史</button>' + selectButton + '</div>' : '';
         const statusBadge = '<b class="' + (group.tone === "blocked" || group.tone === "queued" ? "status-warning" : statusClass(group.tone)) + '">' + esc(statusText) + '</b>';
         const distributedHtml = distributedRows.length ? '<h3>' + loadingPrefix(group.distributedActive) + '当前 job · 成功 ' + group.completed + '/' + distributedRows.length + '</h3>'
           + (group.failedJobs ? '<div class="executionDistributedFailure">' + group.failedJobs + ' 个当前 job 失败，未计入成功。打开对应日志查看原因。</div>' : '')
@@ -14359,7 +14359,7 @@ export function renderPanelHtml(): string {
         const recallPlanButton = recallPlanIds.length === 1 && currentJobs.some((job) => String(job.status || "") === "queued" || job.recallRequested === true)
           ? '<button type="button" class="mini secondary" data-command="recallPlanToLocalQueue" data-plan-id="' + escAttr(recallPlanIds[0]) + '" data-plan-file="' + escAttr(group.planFile || "") + '" title="召回此 Plan 当前所有服务器排队任务到本机空闲 GPU；运行中和已结束任务保持原状态。">召回 Plan 到本机</button>' : '';
         const actions = '<div class="executionPlanActions">' + resumeButton + recallPlanButton + stopButton + foldButton + '</div>';
-        const detailsBody = stopClearDetail + phaseNote + dangerActions + selectButton + distributedHtml + opHtml + taskHtml + more;
+        const detailsBody = stopClearDetail + phaseNote + dangerActions + distributedHtml + opHtml + taskHtml + more;
         const reportedSync = ((state || {}).planArtifactSyncStatuses || {})[group.distributedPlanId] || {};
         const syncState = reportedSync.runId === group.distributedPlanId ? reportedSync : {};
         const syncLabel = syncState.runId === group.distributedPlanId

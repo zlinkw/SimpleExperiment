@@ -60,7 +60,7 @@ test(command + " pulls six latest-run jobs from their owners, recorded hashes=" 
   provider.simpleSftpApiCall = async (method, params) => {
     provider.calls.push([method, params]);
     const owner = params.source?.id || params.server?.id;
-    if (method === "sync.projectInventory") return { ok: true, files: Object.fromEntries(params.scopePaths.map(file => {
+    if (method === "sync.projectInventory") return { ok: true, files: Object.fromEntries(params.scopePaths.filter(file => files[file] !== undefined).map(file => {
       assert.ok(file.includes("/attempts/run-b/")); assert.ok(jobs.some(job => job.workerId === owner && file.startsWith(job.outputDir + "/")));
       return [file, { size: Buffer.byteLength(files[file]), sha256: crypto.createHash("sha256").update(files[file]).digest("hex") }];
     })) };
@@ -90,7 +90,8 @@ test(command + " pulls six latest-run jobs from their owners, recorded hashes=" 
   assert.equal(provider.calls.filter(([name]) => name === "sync.downloadMappedPaths").length, 2);
   assert.equal(provider.calls.some(([name]) => name === "merge"), false);
   const walk = dir => fs.readdirSync(dir, { withFileTypes: true }).flatMap(item => item.isDirectory() ? walk(path.join(dir, item.name)) : [path.relative(workspace, path.join(dir, item.name))]);
-  assert.equal(walk(workspace).some(file => /(?:raw|attempts|partial|four_state|formal_result_rows)/.test(file)), false);
+  assert.equal(walk(workspace).filter(file => /four_state_metrics.*\.csv$/.test(file)).length, 8); // Six originals and two schema-preserving merged views.
+  assert.equal(registry.plans[planFile].wrapperEvidence.runId, "run-b");
 });
 }
 }
@@ -1116,7 +1117,7 @@ test("rebuild verifies completed job CSVs when the server summary has no indexed
   provider.simpleSftpApiCall = async (method, params) => {
     provider.calls.push([method, params]);
     if (method === "sync.projectInventory") {
-      assert.equal(params.scopePaths.every((file) => file.endsWith(".csv") && !file.includes("best_model")), true);
+      assert.equal(params.scopePaths.every((file) => /\.(csv|json)$/.test(file) && !file.includes("best_model")), true);
       return { ok: true, files: Object.fromEntries(Object.entries(files).map(([file, text]) => [file,
         { size: Buffer.byteLength(text), sha256: crypto.createHash("sha256").update(text).digest("hex") }])) };
     }
@@ -1126,7 +1127,7 @@ test("rebuild verifies completed job CSVs when the server summary has no indexed
   };
   const { __handleResultUiCommandForTest } = require("../../dist/extension/legacy.js");
   if (fault) {
-    await assert.rejects(__handleResultUiCommandForTest(provider, { command: "rebuildProjectResultTables" }), /Case\/seed|指纹不一致/);
+    await assert.rejects(__handleResultUiCommandForTest(provider, { command: "rebuildProjectResultTables" }), /Case\/seed|指纹不一致|身份不匹配/);
     assert.equal(fs.existsSync(path.join(workspace, "simple_cluster/results/project_table_registry.json")), false);
     return;
   }

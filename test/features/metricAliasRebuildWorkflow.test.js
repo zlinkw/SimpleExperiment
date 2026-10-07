@@ -40,7 +40,7 @@ Module._load = function (request, parent, isMain) {
   if (request === "../results/ProjectResultTables" && parent?.filename.endsWith(path.join("src", "extension", "legacy.ts"))) return tablesModule.exports;
   return originalLoad.call(this, request, parent, isMain);
 };
-const { __rebuildProjectResultTablesForTest } = require("../../src/extension/legacy.ts");
+const { __rebuildProjectResultTablesForTest } = require("../../dist/extension/legacy.js");
 Module._load = originalLoad;
 if (originalTsLoader) Module._extensions[".ts"] = originalTsLoader;
 else delete Module._extensions[".ts"];
@@ -59,6 +59,10 @@ function resultSummary(metrics) {
   };
 }
 function providerFor(workspace, previousRegistry, summary) {
+  const csv = tablesModule.exports.writeCsv(['case','seed','method','dataset','rate_percent','eval_protocol','metric','value'],
+    summary.results.flatMap(row => Object.entries(row.metrics).map(([metric, payload]) => [row.dimensions.case, row.dimensions.seed,
+      row.dimensions.method, row.dimensions.dataset, row.dimensions.rate_percent, row.dimensions.eval_protocol, metric, payload.value])));
+  const sha = require('node:crypto').createHash('sha256').update(csv).digest('hex');
   return {
     context: { globalStorageUri: { fsPath: workspace } },
     client: { getResultsSummary: async () => summary },
@@ -74,7 +78,11 @@ function providerFor(workspace, previousRegistry, summary) {
     loadProjectTableRegistry: async () => previousRegistry,
     loadDistributedQueue: async () => ({ schemaVersion: 1, plans: [] }),
     distributedProjectContract: () => ({ resultRowsPath: "test_results/formal_result_rows.csv", fourStatePath: "test_results/four_state_metrics.csv" }),
-    collectMappedResultDownloadBatches: () => [],
+    simpleSftpCapability: async () => ({ methodOptions: { 'sync.downloadMappedPaths': { memoryOnly: true } } }),
+    mappedDownloadServerForSource: id => ({ id, host: 'configured.example', remotePath: '/project' }),
+    simpleSftpApiCall: async (method, params) => method === 'sync.projectInventory'
+      ? { files: { [rawPath]: { size: Buffer.byteLength(csv), sha256: sha } } }
+      : { ok: true, memoryOnly: true, entries: params.entries.map(entry => ({ remotePath: entry.remotePath, bytes: Buffer.byteLength(csv), sha256: sha, dataBase64: Buffer.from(csv).toString('base64') })) },
     schedulerSettings: () => ({ gpuIdleUtilThreshold: 5, gpuIdleMemThresholdMb: 200, sessionCheckMinSeconds: 30, workerStatusTtlSeconds: 180 }),
     workerCodeSyncTargets: () => [],
     resolveSelectedPlanFile: () => "",

@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.selectLatestCompletePlanRun = selectLatestCompletePlanRun;
 exports.selectLatestCompletePlanRunIdentity = selectLatestCompletePlanRunIdentity;
+exports.selectLatestPlanRunPreview = selectLatestPlanRunPreview;
 exports.reportedRunIds = reportedRunIds;
 exports.summaryProvesRun = summaryProvesRun;
 exports.summaryForRunRecovery = summaryForRunRecovery;
@@ -49,6 +50,27 @@ function selectLatestCompletePlanRun(queue, planFile, expectedRevision = "") {
 /** Select completion identity before discovering metrics; empty hashes do not prove artifact availability. */
 function selectLatestCompletePlanRunIdentity(queue, planFile, expectedRevision = "") {
     return selectLatestCompletePlanRunInternal(queue, planFile, expectedRevision, false);
+}
+/** Incomplete newest runs have a separate preview; never lend their seeds to formal results. */
+function selectLatestPlanRunPreview(queue, planFile, expectedRevision = "") {
+    const rows = Array.isArray(queue?.plans) ? queue.plans : [];
+    const selected = rows.map((plan, order) => ({ plan, order })).filter(({ plan }) => normalizedPlanFile(plan.planFile || plan.file) === normalizedPlanFile(planFile) && plan.id && plan.revision
+        && (!expectedRevision || plan.revision === expectedRevision) && !plan.recoveryConflict)
+        .sort((left, right) => timestamp(right.plan.enqueuedAt) - timestamp(left.plan.enqueuedAt) || right.order - left.order)[0]?.plan;
+    if (!selected)
+        return undefined;
+    const all = Array.isArray(selected.jobs) ? selected.jobs : [];
+    const expected = Number(selected.fullPlanJobCount || selected.planJobCount || all.length);
+    if (all.length !== expected || !all.length || new Set(all.map(job => job.case + "\0" + job.seed)).size !== expected)
+        return undefined;
+    const completed = all.filter(job => ["completed", "succeeded", "success"].includes(String(job.status)) && !job.outputRetiredAt && !job.recoveryConflict);
+    if (!completed.length || completed.length === expected)
+        return undefined;
+    const jobs = completed.map(job => authoritativeJob(selected, job, false));
+    if (jobs.some(job => !job))
+        return undefined;
+    return { runId: String(selected.id), planFile, revision: String(selected.revision), enqueuedAt: String(selected.enqueuedAt || ""),
+        expectedJobCount: expected, jobs: jobs.sort((left, right) => left.index - right.index), plan: selected };
 }
 function selectLatestCompletePlanRunInternal(queue, planFile, expectedRevision, requireArtifactHashes) {
     const rows = Array.isArray(queue?.plans) ? queue.plans : [];

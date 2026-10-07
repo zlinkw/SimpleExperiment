@@ -44,6 +44,8 @@ import { collectDistributedJobArtifacts } from "../features/DistributedJobArtifa
 import { aggregateSeedScalars } from "../tensorboard/ScalarAggregation";
 import * as ProjectResultTables from "../results/ProjectResultTables";
 import * as ProjectResultPublication from "../results/ProjectResultPublication";
+import * as WrapperResultBundle from "../results/WrapperResultBundle";
+import { assertImmutableMetricFiles } from "../results/FourStateMetricBundle";
 import * as PlanRunFreshness from "../results/PlanRunFreshness";
 import * as PlanArtifactSyncStatus from "../features/PlanArtifactSyncStatus";
 import * as PlanOutputRetention from "../features/PlanOutputRetention";
@@ -16653,12 +16655,22 @@ export class RealtimeTunnelPanelProvider {
                 if (!output || output.startsWith("/") || /^[A-Za-z]:/.test(output) || output.split("/").some((part) => !part || part === "." || part === "..")
                     || !job.workerId || !job.case || !Number.isInteger(job.seed)) throw new Error("已完成 job 的结果路径或身份无效：" + item.planFile);
                 const raw = output + "/" + contract.resultRowsPath;
-                const metrics = uniqueStrings([raw, output + "/" + contract.fourStatePath]).filter(isResultMetricFile);
+                const artifacts = job.artifactHashes || job.artifacts || {};
+                const manifestPath = output + "/artifact_manifest.json";
+                const configured = this.localPlanMetadata?.detectedProject?.adapterRules?.distributed || {};
+                const requireFour = Boolean(configured.fourStatePath || configured.requiredPaths?.includes(contract.fourStatePath))
+                    && contract.planPrefixes.some(prefix => item.planFile.startsWith(prefix));
+                const required = uniqueStrings([raw, ...Object.keys(artifacts).filter(file => file.startsWith(output + "/") && WrapperResultBundle.isWrapperResultFile(file)),
+                    ...(requireFour ? [output + "/" + contract.fourStatePath] : []),
+                    ...(contract.fragmentPaths || []).filter(name => WrapperResultBundle.isWrapperResultFile(name) && name !== contract.fourStatePath)
+                        .filter(name => artifacts[output + "/" + name]).map(name => output + "/" + name)]);
+                const metrics = uniqueStrings([raw, output + "/" + contract.fourStatePath, manifestPath, ...(!requireFour ? [output + "/metrics_summary.csv"] : []),
+                    ...Object.keys(artifacts).filter(file => file.startsWith(output + "/") && WrapperResultBundle.isWrapperResultFile(file))]).filter(isResultMetricFile);
                 if (!raw.toLowerCase().endsWith(".csv") || !metrics.includes(raw)) throw new Error("分布式逐 seed 结果契约必须指向指标 CSV：" + item.planFile);
                 if (!sources.has(job.workerId)) sources.set(job.workerId, new Set());
                 for (const file of metrics) sources.get(job.workerId).add(file);
                 const original = run.plan.jobs.find(candidate => candidate.index === job.index && Number(candidate.attempt || 1) === job.attempt);
-                files.push({ job: { ...job, artifacts: job.artifactHashes || job.artifacts }, raw, metrics,
+                files.push({ job: { ...job, artifacts }, raw, metrics, required, manifestPath, requireFour,
                     mirrors: uniqueStrings([...(original?.fragmentWorkerIds || []), ...(original?.mirroredWorkerIds || [])]).filter(id => id !== job.workerId) });
             }
             recoveries.push({ item, plan, run, files });
@@ -16694,6 +16706,38 @@ export class RealtimeTunnelPanelProvider {
         });
         for (const recovery of recoveries) for (const file of recovery.files) file.runId = recovery.run.runId;
         await readInventories(sources);
+        // Read wrapper declarations once per source, then hash only the declared lightweight files.
+        const manifestMemory = new Map();
+        for (const workerId of sources.keys()) {
+            const manifestFiles = recoveries.flatMap(recovery => recovery.files).filter(file => file.job.workerId === workerId
+                && verifiedMetrics(file, workerId).includes(file.manifestPath));
+            if (!manifestFiles.length) continue;
+            try {
+                const entries = manifestFiles.map(file => ({ remotePath: file.manifestPath,
+                    localRelativePath: methodResultArtifactLocalRelativePath(file.manifestPath, "experiments/plans/wrapper.yaml", {}, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR),
+                    bytes: inventories.get(workerId).files[file.manifestPath].size, sha256: inventories.get(workerId).files[file.manifestPath].sha256 }));
+                const received = await this.downloadMetricMemoryBatch(context, this.client, { sourceId: workerId, workerId, entries }, "读取 wrapper 结果清单", token);
+                for (const memory of received.metricFiles) manifestMemory.set(workerId + "\0" + memory.remotePath, memory);
+                const additional = new Map();
+                for (const file of manifestFiles) {
+                    const manifestText = manifestMemory.get(workerId + "\0" + file.manifestPath).text;
+                    const declaration = WrapperResultBundle.declaredWrapperResults(manifestText, file.job.outputDir);
+                    const manifest = JSON.parse(manifestText.replace(/^\uFEFF/, ""));
+                    const primary = manifest.metrics_summary || manifest.result_csv || manifest.result_rows || manifest.standard_outputs?.metrics_summary;
+                    if (typeof primary === "string" && primary.toLowerCase().endsWith(".csv")) file.primary = WrapperResultBundle.jobResultPath(primary, file.job.outputDir);
+                    file.required = uniqueStrings([...file.required, file.manifestPath, ...declaration]);
+                    file.metrics = uniqueStrings([...file.metrics, ...declaration]);
+                    for (const name of declaration) if (!inventories.get(workerId)?.files?.[name]) {
+                        if (!additional.has(workerId)) additional.set(workerId, new Set());
+                        additional.get(workerId).add(name);
+                    }
+                }
+                if (additional.size) await readInventories(additional);
+            } catch (error) {
+                if (error instanceof UiCommandCancelled || !isCurrent() || token?.isCancellationRequested) throw error;
+                for (const file of manifestFiles) file.discoveryError = errorMessage(error);
+            }
+        }
         const fallbackSources = new Map();
         for (const { files } of recoveries) for (const file of files) {
             if (verifiedMetrics(file, file.job.workerId).includes(file.raw) || !file.job.artifacts?.[file.raw]) continue;
@@ -16705,18 +16749,33 @@ export class RealtimeTunnelPanelProvider {
             }
         }
         if (fallbackSources.size) await readInventories(fallbackSources);
+        for (const recovery of recoveries) for (const file of recovery.files) {
+            if (file.requireFour || this.localPlanMetadata?.detectedProject?.adapterRules?.distributed?.resultRowsPath
+                || verifiedMetrics(file, file.job.workerId).includes(file.raw)) continue;
+            const primary = [file.primary, ...file.metrics.filter(name => /(?:^|\/)metrics_summary\.csv$/i.test(name))]
+                .find(name => name && verifiedMetrics(file, file.job.workerId).includes(name));
+            if (primary) { file.required = file.required.filter(name => name !== file.raw); file.raw = primary; file.required.push(primary); }
+            else if (!file.primary && file.required.includes(file.manifestPath) && !file.discoveryError) {
+                // A wrapper may only emit structured data or reports, without scientific metric rows.
+                file.required = file.required.filter(name => name !== file.raw);
+                file.raw = file.manifestPath;
+                file.wrapperOnly = true;
+            }
+        }
         for (const { item, plan, run, files } of recoveries) {
             const tables = [];
             const missing = [];
             const missingWorkers = new Set<string>();
             for (const file of files) {
                 const { job, raw } = file;
-                const workerId = [job.workerId, ...(job.artifacts?.[raw] ? file.mirrors : [])].find(id => verifiedMetrics(file, id).includes(raw));
+                const workerId = [job.workerId, ...(file.required.every(name => job.artifacts?.[name]) ? file.mirrors : [])]
+                    .find(id => file.required.every(name => verifiedMetrics(file, id).includes(name)) && !file.discoveryError);
                 const inventory = inventories.get(workerId);
                 const verified = workerId ? verifiedMetrics(file, workerId) : [];
-                if (!verified.includes(raw)) { missing.push(job.workerId + ":" + raw); missingWorkers.add(job.workerId); continue; }
+                if (!workerId) { missing.push(job.workerId + ":" + (file.discoveryError || file.required.filter(name => !verifiedMetrics(file, job.workerId).includes(name)).join(", "))); missingWorkers.add(job.workerId); continue; }
                 tables.push({ workerId, rawResultCsvPath: raw, aggregateStatus: "pending",
-                    metricPaths: verified, metricHashes: Object.fromEntries(verified.map((file) => [file, inventory.files[file].sha256])),
+                    ...(file.wrapperOnly ? { wrapperOnly: true } : {}),
+                    metricPaths: verified, requiredMetricPaths: file.required, metricHashes: Object.fromEntries(verified.map((file) => [file, inventory.files[file].sha256])),
                     metricSizes: Object.fromEntries(verified.map((file) => [file, inventory.files[file].size])),
                     completedJob: { index: job.index, case: job.case, seed: job.seed, attempt: job.attempt, commandId: job.commandId,
                         runId: run.runId, outputDir: job.outputDir, ownerWorkerId: job.workerId, artifactHashes: job.artifacts } });
@@ -16725,9 +16784,11 @@ export class RealtimeTunnelPanelProvider {
             if (!missing.length) item.metricDiscoveryError = undefined;
             const recoveredWorkers = new Set(tables.map((table) => table.workerId));
             item.summary = { ...item.summary, planFile: item.planFile, planRevision: run.revision, completedRunId: run.runId, runId: run.runId,
+                expectedMetricJobs: (run.plan.jobs || []).map(job => ({ case: job.case, seed: job.seed })), metricPreviewOnly: item.previewOnly === true,
                 workerResultTables: tables, results: [], recoveredCompletedJobs: true, completedMetricFilesMissing: missing,
                 unavailableWorkerIds: [...new Set([...(item.summary?.unavailableWorkerIds || []), ...missingWorkers].filter(id => missingWorkers.has(id) && unavailable.has(id)))].filter((id) => !recoveredWorkers.has(id)),
                 incompleteAggregate: missing.length > 0, verifiedPartial: true };
+            item.manifestMemory = manifestMemory;
         }
     }
     async downloadMetricPlanItems(context, client, items, isCurrent, token, title, issues, progress?) {
@@ -16749,11 +16810,18 @@ export class RealtimeTunnelPanelProvider {
             }).filter((batch) => batch.entries.length));
         }
         if (!isCurrent() || token?.isCancellationRequested) throw new UiCommandCancelled("指标下载已取消，保留现有表格。");
+        const cachedManifests = new Map(items.flatMap(item => [...(item.manifestMemory || new Map())]));
         const downloads = [];
         for (const batch of merged) {
             if (!isCurrent() || token?.isCancellationRequested) throw new UiCommandCancelled("指标下载已取消，保留现有表格。");
             let download;
-            try { download = await this.downloadMetricMemoryBatch(context, client, batch, title, token, progress); }
+            try {
+                const cached = uniqueMappedTransfers(batch.entries).map(file => cachedManifests.get(batch.sourceId + "\0" + file.remotePath)).filter(Boolean);
+                const entries = batch.entries.filter(file => !cachedManifests.has(batch.sourceId + "\0" + file.remotePath));
+                download = entries.length ? await this.downloadMetricMemoryBatch(context, client, { ...batch, entries }, title, token, progress)
+                    : { sourceId: batch.sourceId, memoryOnly: true, completed: 0, selected: 0, failures: [], metricFiles: [] };
+                download.metricFiles.push(...cached); download.completed += cached.length; download.selected += cached.length;
+            }
             catch (error) {
                 if (error instanceof UiCommandCancelled || !isCurrent() || token?.isCancellationRequested) throw error;
                 download = { sourceId: batch.sourceId, memoryOnly: true, completed: 0, selected: batch.entries.length,
@@ -16801,22 +16869,53 @@ export class RealtimeTunnelPanelProvider {
             for (const [index, chunk] of chunks.entries()) {
                 check();
                 if (innerToken.isCancellationRequested) throw new UiCommandCancelled("指标下载已取消，保留现有表格。");
-                progress.report({ message: `直接接收最新版指标 ${index + 1}/${chunks.length} 批，${chunk.length} 个文件；本机仅保存重建后的表格` });
+                progress.report({ message: `接收 wrapper 最新结果 ${index + 1}/${chunks.length} 批，${chunk.length} 个文件；校验后保存原始证据和本机汇总` });
+                // Older SFTP versions accept YAML/TSV/JSONL through mapped file download, but not memoryOnly.
+                // Keep that verified original at its final immutable mapping; never create a throwaway raw cache.
+                const memoryChunk = chunk.filter(file => /\.(csv|json|md|txt|log)$/i.test(file.remotePath));
+                const diskChunk = chunk.filter(file => !memoryChunk.includes(file)), diskCopies = new Map();
+                for (const file of diskChunk) {
+                    const target = safeWorkspaceChildPath(context.root, file.localRelativePath);
+                    let cursor = context.root;
+                    for (const part of file.localRelativePath.split("/")) {
+                        cursor = path.join(cursor, part);
+                        const info = await fs.lstat(cursor).catch(error => { if (error?.code === "ENOENT") return undefined; throw error; });
+                        if (info?.isSymbolicLink()) throw new Error("wrapper 映射路径包含符号链接");
+                    }
+                    const original = await fs.readFile(target).catch(error => { if (error?.code === "ENOENT") return undefined; throw error; });
+                    if (original && crypto.createHash("sha256").update(original).digest("hex") !== file.sha256)
+                        throw new Error("同一 attempt 的历史结果变化，拒绝覆盖：" + file.localRelativePath);
+                    if (original) diskCopies.set(file.remotePath, original);
+                }
+                const missingDisk = diskChunk.filter(file => !diskCopies.has(file.remotePath));
+                if (missingDisk.length) await request("sync.downloadMappedPaths", { localPath: context.root, server, entries: missingDisk, memoryOnly: false,
+                    metricsOnly: false, maxFileBytes: 4 * 1024 * 1024, maxBatchBytes: 4 * 1024 * 1024, compression: "auto", overwrite: false, confirm: true, pathConfirmed: true }, innerToken);
+                check();
+                for (const file of diskChunk) {
+                    const original = diskCopies.get(file.remotePath) || await fs.readFile(safeWorkspaceChildPath(context.root, file.localRelativePath));
+                    if (original.length !== file.bytes || crypto.createHash("sha256").update(original).digest("hex") !== file.sha256)
+                        throw new Error("wrapper 下载结果 SHA256 不符：" + file.remotePath);
+                    metricFiles.push({ remotePath: file.remotePath, sha256: file.sha256, bytes: original.length,
+                        ...(WrapperResultBundle.isWrapperTextFile(file.remotePath) ? { text: new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(original) }
+                            : { text: original.toString("base64"), encoding: "base64" }), rows: [] });
+                }
+                if (!memoryChunk.length) continue;
                 const response = await request("sync.downloadMappedPaths", { localPath: context.root, server,
-                    entries: chunk.map(file => ({ remotePath: file.remotePath, localRelativePath: file.localRelativePath, bytes: file.bytes, sha256: file.sha256 })),
+                    entries: memoryChunk.map(file => ({ remotePath: file.remotePath, localRelativePath: file.localRelativePath, bytes: file.bytes, sha256: file.sha256 })),
                     memoryOnly: true, metricsOnly: true, maxFileBytes: 4 * 1024 * 1024, maxBatchBytes: 4 * 1024 * 1024, compression: "auto", confirm: true, pathConfirmed: true }, innerToken);
                 check();
                 if (innerToken.isCancellationRequested) throw new UiCommandCancelled("指标下载已取消，保留现有表格。");
-                if (response?.memoryOnly !== true || response.ok === false || response.entries?.length !== chunk.length) throw new Error("内存指标下载未返回完整文件清单");
+                if (response?.memoryOnly !== true || response.ok === false || response.entries?.length !== memoryChunk.length) throw new Error("内存指标下载未返回完整文件清单");
                 const received = new Map();
                 for (const file of response.entries) {
-                    const expected = chunk.find(entry => entry.remotePath === file.remotePath);
+                    const expected = memoryChunk.find(entry => entry.remotePath === file.remotePath);
                     if (!expected || received.has(file.remotePath) || typeof file.dataBase64 !== "string" || file.dataBase64.length > 4 * Math.ceil(expected.bytes / 3)) throw new Error("内存指标下载包含未声明或超限文件");
                     const bytes = Buffer.from(file.dataBase64, "base64");
                     if (bytes.toString("base64") !== file.dataBase64 || bytes.length !== expected.bytes || file.bytes !== expected.bytes || file.sha256 !== expected.sha256 || crypto.createHash("sha256").update(bytes).digest("hex") !== expected.sha256)
                         throw new Error("已下载指标与服务器文件指纹不一致：" + file.remotePath);
-                    const text = new TextDecoder("utf-8", { fatal: true }).decode(bytes);
+                    const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
                     received.set(file.remotePath, { remotePath: file.remotePath, sha256: expected.sha256,
+                        text, bytes: bytes.length,
                         rows: file.remotePath.toLowerCase().endsWith(".csv") ? parseDownloadedMetricCsv(text, pluginProjectAdapterRules(context.root).csvColumnMapping || {}) : [] });
                     delete file.dataBase64;
                 }
@@ -16873,8 +16972,8 @@ export class RealtimeTunnelPanelProvider {
             const planFile = String(item.planFile || "");
             const summary = item.summary;
             const candidates = Array.isArray(item.candidates) ? item.candidates : [];
-            if (candidates.length > 64)
-                throw new Error(`当前 Plan 有 ${candidates.length} 个${metricsOnly ? "指标" : "结果"}文件，超过单次同步上限 64；请分别打开需要的文件。`);
+            if (candidates.length > 4096)
+                throw new Error(`当前 Plan 有 ${candidates.length} 个结果文件，超过单次同步上限 4096。`);
             const workerTables = Array.isArray(summary?.workerResultTables) ? summary.workerResultTables : [];
             const availableWorkers = this.enabledWorkerConfigs().map((worker) => String(worker.id || "")).filter(Boolean);
             for (const candidate of candidates) {
@@ -17208,6 +17307,7 @@ export class RealtimeTunnelPanelProvider {
         let registry = await this.loadProjectTableRegistry(root);
         let changed = false;
         const summaries = [];
+        const wrapperFiles = [];
         for (const item of ready) {
             if (!this.projectContextIsCurrent(projectContext) || client !== this.client)
                 return { included, missing, skipped };
@@ -17258,6 +17358,8 @@ export class RealtimeTunnelPanelProvider {
                 }
                 registry = next;
                 changed = true;
+                wrapperFiles.push(...(summary._wrapperFiles || []));
+                delete summary._wrapperFiles;
                 summaries.push(summary);
                 const workers = [...new Set(records.map((row) => row.workerId).filter(Boolean))];
                 const seeds = new Set(records.map((row) => row.case + "\0" + row.seed));
@@ -17276,7 +17378,7 @@ export class RealtimeTunnelPanelProvider {
             return { included, missing, skipped };
         if (changed) {
             registry.derivedMetric = pluginProjectAdapterRules(root).derivedMetric || undefined;
-            await this.writeProjectTableRegistry(root, registry);
+            await this.writeProjectTableRegistry(root, registry, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, wrapperFiles);
         }
         const currentPlan = this.resolveSelectedPlanFile(this.planFileInput || this.selectedPlanId || "");
         const visible = summaries.find((summary) => !currentPlan || samePlanSelection(summary.planFile, currentPlan)) || summaries[0];
@@ -17289,9 +17391,12 @@ export class RealtimeTunnelPanelProvider {
         const tables = Array.isArray(summary?.workerResultTables) ? summary.workerResultTables : [];
         const results = [];
         const nextTables = [];
+        const wrapperJobs = [];
+        if (summary?.completedMetricFilesMissing?.length && !summary.metricPreviewOnly)
+            throw new Error("本次运行的 wrapper 必需文件缺失，保留旧完整结果：" + summary.completedMetricFilesMissing.slice(0, 3).join("；"));
         for (const table of tables.length ? tables : [{ ...summary, workerId: summary?.resultOwnerWorkerId || summary?.workerId || "" }]) {
             const remotePath = String(table.rawResultCsvPath || "");
-            if (!isResultMetricFile(remotePath) || !remotePath.toLowerCase().endsWith(".csv"))
+            if (!isResultMetricFile(remotePath) || !remotePath.toLowerCase().endsWith(".csv") && !table.wrapperOnly)
                 continue;
             const workerId = String(table.workerId || "");
             const localRelative = methodResultArtifactLocalRelativePath(remotePath, planFile, summary, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, tables.length > 1 ? workerId : "");
@@ -17314,23 +17419,55 @@ export class RealtimeTunnelPanelProvider {
                 continue;
             if (!downloadedNow && workerOnlineRows.length && Number.isFinite(onlineParsedAt) && (localStat?.mtimeMs || 0) + 1000 < onlineParsedAt)
                 continue;
-            const parsed = memory?.rows || parseDownloadedMetricCsv(text, pluginProjectAdapterRules(root).csvColumnMapping || {});
-            if (table.completedJob && (!parsed.length || parsed.some((row) => row.dimensions.case !== table.completedJob.case || String(row.dimensions.seed) !== String(table.completedJob.seed))))
+            const parsed = table.wrapperOnly ? [] : table.completedJob ? parseDownloadedMetricCsv(memory?.text ?? text, pluginProjectAdapterRules(root).csvColumnMapping || {}, table.completedJob)
+                : memory?.rows || parseDownloadedMetricCsv(memory?.text ?? text, pluginProjectAdapterRules(root).csvColumnMapping || {});
+            let wrapperJob;
+            if (table.completedJob) {
+                const inputs = [];
+                for (const file of table.metricPaths || [remotePath]) {
+                    const mapped = methodResultArtifactLocalRelativePath(file, planFile, summary, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, tables.length > 1 ? workerId : "");
+                    const cached = options.memoryMetricFiles?.get((workerId || "hub") + "\0" + file);
+                    if (cached) { inputs.push({ ...cached, sha256: table.metricHashes?.[file] || cached.sha256 }); continue; }
+                    if (options.memoryMetricFiles) continue;
+                    const target = safeWorkspaceChildPath(root, mapped);
+                    const info = await fs.lstat(target).catch(error => { if (error?.code === "ENOENT") return undefined; throw error; });
+                    if (!info?.isFile() || info.isSymbolicLink()) continue;
+                    if (info.size > 4 * 1024 * 1024) throw new Error("wrapper 本地结果超过轻量接收上限：" + mapped);
+                    const original = await fs.readFile(target);
+                    inputs.push({ remotePath: file, sha256: table.metricHashes?.[file] || crypto.createHash("sha256").update(original).digest("hex"), bytes: original.length,
+                        ...(WrapperResultBundle.isWrapperTextFile(file) ? { text: new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(original) }
+                            : { text: original.toString("base64"), encoding: "base64" }) });
+                }
+                wrapperJob = WrapperResultBundle.prepareWrapperJob({ ...table.completedJob, workerId }, inputs, remotePath,
+                    table.requiredMetricPaths || [remotePath], file => methodResultArtifactLocalRelativePath(file, planFile, summary, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, tables.length > 1 ? workerId : ""));
+                wrapperJobs.push(wrapperJob);
+            }
+            if (table.completedJob && !table.wrapperOnly && (!parsed.length || parsed.some((row) => row.dimensions.case !== table.completedJob.case || String(row.dimensions.seed) !== String(table.completedJob.seed))))
                 throw new Error("已完成 job 的指标 CSV 缺失或 Case/seed 身份不匹配：" + remotePath);
             for (const row of parsed) {
                 results.push({
                     workerId: workerId || summary?.resultOwnerWorkerId || "",
                     resultOwnerWorkerId: workerId || summary?.resultOwnerWorkerId || "",
                     ...((downloadedNow || expectedHash) && (table.completedJob?.runId || options.completedRunId) ? { runId: table.completedJob?.runId || options.completedRunId, planRevision: summary?.planRevision || "" } : {}),
+                    ...(table.completedJob ? { attempt: String(table.completedJob.attempt), jobDir: table.completedJob.outputDir, checkpointPath: wrapperJob?.evidence.checkpointPath } : {}),
                     dimensions: row.dimensions,
                     metrics: row.metrics,
                     sourceFiles: [{ path: remotePath }],
                 });
             }
-            nextTables.push({ ...table, aggregateStatus: parsed.length ? "ready" : table.aggregateStatus, rawResultCsvPath: remotePath });
+            nextTables.push({ ...table, aggregateStatus: parsed.length || wrapperJob ? "ready" : table.aggregateStatus, rawResultCsvPath: remotePath });
         }
-        if (!results.length)
+        if (!results.length && !wrapperJobs.length)
             return undefined;
+        let wrapperEvidence, wrapperFiles;
+        if (wrapperJobs.length) {
+            const publication = WrapperResultBundle.prepareWrapperPublication(String(summary.runId || options.completedRunId || ""),
+                summary.expectedMetricJobs || tables.map(table => ({ case: table.completedJob.case, seed: table.completedJob.seed })), wrapperJobs, summary.metricPreviewOnly === true);
+            const views = WrapperResultBundle.wrapperMergedFiles(this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, planFile, publication, wrapperJobs);
+            wrapperEvidence = { runId: publication.runId, status: publication.status, expectedJobs: publication.expectedJobs, jobs: publication.jobs,
+                views: views.map(file => file.relativePath) };
+            wrapperFiles = [...publication.files, ...views];
+        }
         return {
             ...summary,
             planFile,
@@ -17339,6 +17476,7 @@ export class RealtimeTunnelPanelProvider {
             workerResultTables: nextTables.length ? nextTables : summary.workerResultTables,
             incompleteAggregate: Boolean(summary?.incompleteAggregate || summary?.unavailableWorkerIds?.length),
             unavailableWorkerIds: summary?.unavailableWorkerIds || [],
+            ...(wrapperEvidence ? { wrapperEvidence, _wrapperFiles: wrapperFiles } : {}),
         };
     }
     async loadProjectTableRegistry(root) {
@@ -17385,14 +17523,18 @@ export class RealtimeTunnelPanelProvider {
             return ProjectResultTables.tableCatalog(root, resultDir);
         });
     }
-    async writeProjectTableRegistry(root, registry, resultDir = this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR) {
+    async writeProjectTableRegistry(root, registry, resultDir = this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, wrapperFiles = []) {
         return this.withProjectResultPublicationLease(root, resultDir, async () => {
             await ProjectResultPublication.recoverProjectResultPublication(root, resultDir);
             await ProjectResultPublication.assertProjectResultPublicationBaseGeneration(root, registry?.publicationGeneration);
             const tables = ProjectResultTables.buildTables(registry);
-            if (!Object.keys(tables).length) throw new Error("尚无可写入的逐 seed 结果。");
+            if (!Object.keys(tables).length && !wrapperFiles.length) throw new Error("尚无可写入的逐 seed 结果。");
             const catalog = ProjectResultTables.resultCatalog(root, resultDir);
-            const outputs: ProjectResultPublication.ProjectResultFile[] = [];
+            const immutable = wrapperFiles.filter(file => file.immutable || /\/plans\/[^/]+\/(?:raw|trace)\//.test(file.relativePath)
+                && !/\/preview__/.test(file.relativePath) && !file.relativePath.endsWith('.provenance.json'));
+            await assertImmutableMetricFiles(root, immutable);
+            await WrapperResultBundle.assertWrapperProvenance(root, wrapperFiles);
+            const outputs: ProjectResultPublication.ProjectResultFile[] = [...wrapperFiles];
             const datasets = new Map();
             for (const table of Object.values(tables)) {
                 const previous = catalog.datasets.find((item) => item.datasetKey.toLowerCase() === table.datasetKey.toLowerCase());
@@ -17723,6 +17865,8 @@ export class RealtimeTunnelPanelProvider {
         const registeredPlans = new Set<string>();
         const refreshedSummaries = [];
         const allDownloads = [];
+        const wrapperFiles = [];
+        const previews = [];
         await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: options.title || "下载指标并重新汇总", cancellable: true }, async (progress, token) => {
             const isCurrent = () => !retryRequestSignal()?.aborted && this.projectContextIsCurrent(context) && client === this.client;
             const ready = [];
@@ -17730,6 +17874,10 @@ export class RealtimeTunnelPanelProvider {
                 if (token.isCancellationRequested || !this.projectContextIsCurrent(context) || client !== this.client) throw new UiCommandCancelled("重新汇总指标已取消，未覆盖现有表格。");
                 const planFile = String(plan.planFile);
                 progress.report({ message: (index + 1) + "/" + plans.length + " " + planFile });
+                const preview = PlanRunFreshness.selectLatestPlanRunPreview(queue, planFile, String(plan.revision || ""));
+                if (preview) ready.push({ planFile, metadata: plan, runAuthority: preview, previewOnly: true,
+                    summary: PlanRunFreshness.summaryForRunRecovery({}, planFile, preview) });
+                if (preview && !plan.runAuthority) continue;
                 let summary;
                 try {
                     summary = plan.runAuthority ? PlanRunFreshness.summaryForRunRecovery({}, planFile, plan.runAuthority)
@@ -17743,6 +17891,11 @@ export class RealtimeTunnelPanelProvider {
             }
             await this.recoverCompletedJobMetricFiles(context, ready, isCurrent, token);
             for (const item of ready) {
+                if (item.previewOnly) {
+                    item.acceptedRunId = item.runAuthority.runId;
+                    item.candidates = resultMetricDownloadCandidates(item.summary, item.planFile);
+                    continue;
+                }
                 const acceptance = acceptedCompletedRevision(item, item.summary);
                 if (!acceptance.ok) { item.downloadFailed = true; issues.push(item.planFile + "：" + acceptance.reason); continue; }
                 item.acceptedRunId = acceptance.runId;
@@ -17765,6 +17918,15 @@ export class RealtimeTunnelPanelProvider {
                 try { localSummary = await this.summaryFromLocalMetricFiles(root, planFile, serverSummary, { downloadedSources, memoryMetricFiles,
                     completedRunId: reportedCompletedRunIds(serverSummary).includes(item.acceptedRunId) ? item.acceptedRunId : "" }); }
                 catch (error) { issues.push(planFile + "：本地指标无法解析（" + errorMessage(error) + "），保留旧表。"); continue; }
+                if (item.previewOnly) {
+                    if (localSummary?._wrapperFiles?.length) {
+                        wrapperFiles.push(...localSummary._wrapperFiles);
+                        previews.push({ planFile, runId: item.acceptedRunId, completedJobs: localSummary.wrapperEvidence.jobs.length,
+                            expectedJobs: localSummary.wrapperEvidence.expectedJobs.length,
+                            paths: localSummary._wrapperFiles.filter(file => /\/preview__/.test(file.relativePath)).map(file => file.relativePath) });
+                    }
+                    continue;
+                }
                 // This path accepts downloaded raw rows only, never old remotely rebuilt tables.
                 summary = localSummary || { ...serverSummary, results: [] };
                 const authority = PlanArtifactSync.latestPlanSyncEntry(syncLedger, planFile);
@@ -17791,7 +17953,7 @@ export class RealtimeTunnelPanelProvider {
                 else if (acceptance.runId)
                     issues.push(planFile + "：同步记录有完成运行 " + acceptance.runId + "，服务器摘要没有 run 身份，按 revision " + acceptance.revision + " 收录，不标记为该次运行。");
                 if (acceptance.note) issues.push(planFile + "：" + acceptance.note);
-                if (!trustedCompletedResultSummary(summary) || !(summary?.results || []).some((row) => Object.values(row?.metrics || {}).some((metric: any) => Number.isFinite(Number(metric?.value ?? metric))))) {
+                if (!trustedCompletedResultSummary(summary) || summary.wrapperEvidence?.status !== "formal" && !(summary?.results || []).some((row) => Object.values(row?.metrics || {}).some((metric: any) => Number.isFinite(Number(metric?.value ?? metric))))) {
                     const detail = planFile + "：尚无可收录的逐 seed 指标。" + (item.completedMetricFilesMissing?.length ? "已完成 job 的指标文件不存在或校验失败：" + item.completedMetricFilesMissing.slice(0, 3).join("；") : "服务器摘要尚未收录可解析的 CSV，请核对已完成 job 的结果文件。");
                     if (item.completedJobRunId || authority?.runId && authority.runId !== "historic") missing.push(detail);
                     else pending.push(detail);
@@ -17805,6 +17967,8 @@ export class RealtimeTunnelPanelProvider {
                         registry = next;
                         included++;
                     }
+                    wrapperFiles.push(...(summary._wrapperFiles || []));
+                    delete summary._wrapperFiles;
                     refreshedSummaries.push(summary);
                     if (useRegistered) registeredPlans.add(planFile);
                     if (summary.unavailableWorkerIds?.length)
@@ -17815,14 +17979,13 @@ export class RealtimeTunnelPanelProvider {
         if (!this.projectContextIsCurrent(context) || client !== this.client) return;
         const currentPlan = this.resolveSelectedPlanFile(this.planFileInput || this.selectedPlanId || "");
         const visible = refreshedSummaries.find((summary) => !currentPlan || samePlanSelection(summary.planFile, currentPlan)) || refreshedSummaries[0];
-        if (visible)
-            this.resultsSummary = visible;
         const retained = Object.keys(registry.plans || {}).length;
-        if (!retained) throw new Error("没有可用的逐 seed 结果；" + (issues.length ? issues.slice(0, 3).join("；") : "请检查各 Worker 的结果 CSV 与列映射。"));
-        if (refreshedSummaries.length || JSON.stringify(registry.plans || {}) !== originalPlans) {
+        if (!retained && !wrapperFiles.length) throw new Error("没有可用的逐 seed 结果；" + (issues.length ? issues.slice(0, 3).join("；") : "请检查各 Worker 的结果 CSV 与列映射。"));
+        if (refreshedSummaries.length || wrapperFiles.length || JSON.stringify(registry.plans || {}) !== originalPlans) {
             registry.derivedMetric = pluginProjectAdapterRules(root).derivedMetric || undefined;
-            await this.writeProjectTableRegistry(root, registry);
+            await this.writeProjectTableRegistry(root, registry, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, wrapperFiles);
         }
+        if (visible) this.resultsSummary = visible;
         const report = {
             plans: planFiles, merged: true, downloaded: allDownloads.some(download => download.completed > 0),
             downloads: allDownloads.map(({ sourceId, completed, selected, failures, cancelled }) => ({ sourceId, completed, selected, failures, cancelled, memoryOnly: true })),
@@ -17831,6 +17994,7 @@ export class RealtimeTunnelPanelProvider {
             missing,
             pending,
             skipped: issues,
+            previews,
         };
         if (!report.included.length)
             report.included = Array.from({ length: included }, (_, index) => "已重算 " + (index + 1));
@@ -30910,7 +31074,7 @@ function normalizeRemoteResultInspectionPath(value) {
     const normalized = String(value || "").trim().replace(/\\/g, "/").replace(/^\.\//, "");
     if (!(0, FileTransferTypes_1.isSafeRemotePath)(normalized))
         return "";
-    return /\.(csv|md|json|txt|log|out)$/i.test(normalized) ? normalized : "";
+    return WrapperResultBundle.isWrapperResultFile(normalized) ? normalized : "";
 }
 function remoteResultInspectionLocalRelativePath(remotePath, planFile, timestamp = new Date().toISOString()) {
     const normalized = normalizeRemoteResultInspectionPath(remotePath);
@@ -30926,6 +31090,13 @@ function methodResultArtifactLocalRelativePath(remotePath, planFile, summary, re
     const normalized = normalizeRemoteResultInspectionPath(remotePath);
     if (!normalized) throw new Error("不支持的结果文件路径。");
     const base = normalizeResultCsvDir(resultDir);
+    const evidence = summary?.wrapperEvidence;
+    if (evidence?.runId && evidence.runId === String(summary?.completedRunId || summary?.runId || "")) {
+        const existing = uniqueStrings((evidence.jobs || []).filter(job => !workerId || String(job.job?.workerId || "").toLowerCase() === String(workerId).toLowerCase())
+            .flatMap(job => (job.sources || []).filter(source => source.remotePath === normalized).map(source => source.localRelativePath)));
+        if (existing.length === 1 && existing[0].startsWith(base + "/")
+            && existing[0].split("/").every(part => part && part !== "." && part !== ".." && !part.includes(":"))) return existing[0];
+    }
     const tables = Array.isArray(summary?.workerResultTables) ? summary.workerResultTables : [];
     const ownedTables = !workerId && tables.length === 1 ? tables : tables.filter(row => String(row.workerId || "").toLowerCase() === String(workerId || "").toLowerCase());
     const datasetTables = [...(summary?.datasetResultTables || []), ...(summary?.projectDatasetTables || []), ...(summary?.paperDatasetTables || []), ...ownedTables.flatMap(row => [...(row.datasetResultTables || []), ...(row.projectDatasetTables || []), ...(row.paperDatasetTables || [])])];
@@ -31235,7 +31406,7 @@ async function distributeMappedDownloads(root, entries, transfers, overwrite, ho
         throw new Error(`映射下载已接收，但本机分发留下暂存文件：${residues.join("、")}`);
     return delivered;
 }
-function parseDownloadedMetricCsv(text, columnMapping = {}) {
+function parseDownloadedMetricCsv(text, columnMapping = {}, jobDefaults = {}) {
     const parsed = ProjectResultTables.readCsv(String(text || "").replace(/^\uFEFF/, ""));
     const mappedName = (field, fallback) => {
         const configured = String(columnMapping?.[field] || "").trim();
@@ -31255,8 +31426,8 @@ function parseDownloadedMetricCsv(text, columnMapping = {}) {
     const reserved = new Set([caseIndex, seedIndex, methodIndex, datasetIndex, ratePercentIndex, trainRateIndex, protocolIndex, splitIndex, metricIndex, valueIndex]);
     return parsed.rows.flatMap((cells) => {
         const dimensions = {
-            case: caseIndex >= 0 ? cells[caseIndex] : "",
-            seed: seedIndex >= 0 ? cells[seedIndex] : "",
+            case: caseIndex >= 0 ? cells[caseIndex] : jobDefaults.case || "",
+            seed: seedIndex >= 0 ? cells[seedIndex] : String(jobDefaults.seed ?? ""),
             method: methodIndex >= 0 ? cells[methodIndex] : "",
             dataset: datasetIndex >= 0 ? cells[datasetIndex] : "",
             rate_percent: ratePercentIndex >= 0 ? cells[ratePercentIndex] : "",
@@ -31283,8 +31454,8 @@ function parseDownloadedMetricCsv(text, columnMapping = {}) {
 function isResultMetricFile(value) {
     const normalized = String(value || "").replace(/\\/g, "/").toLowerCase();
     if (!normalized || /(?:^|\/)(?:checkpoints?|weights?)(?:\/|$)/.test(normalized)) return false;
-    if (/\.(pt|pth|ckpt|bin|safetensors|onnx|log|out|txt)$/i.test(normalized)) return false;
-    return /\.(csv|json|md)$/i.test(normalized);
+    if (/\.(pt|pth|ckpt|bin|safetensors|onnx)$/i.test(normalized)) return false;
+    return WrapperResultBundle.isWrapperResultFile(normalized);
 }
 function canonicalResultPlanFile(value) {
     const planFile = String(value || "").trim().replace(/\\/g, "/").replace(/^\.\//, "");

@@ -5,7 +5,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { atomicWriteText } from "../state/StateStore";
 
-export type ProjectResultFile = { relativePath: string; contents: string };
+export type ProjectResultFile = { relativePath: string; contents: string | Buffer; immutable?: boolean };
 type JournalEntry = { target: string; staged: string; backup: string; hadPrevious: boolean; nextHash: string; previousHash?: string };
 type Journal = { schemaVersion: 1; id: string; resultDirectory: string; status: "preparing" | "publishing" | "committed" | "rolled-back"; entries: JournalEntry[] };
 export type ProjectResultPublicationOptions = { rename?: typeof fs.rename; generationId?: string };
@@ -116,7 +116,7 @@ async function writeSlotDurable(fullPath: string, write: (handle: Awaited<Return
   } finally { await handle.close(); }
 }
 
-function writeFileDurable(fullPath: string, contents: string): Promise<void> {
+function writeFileDurable(fullPath: string, contents: string | Buffer): Promise<void> {
   return writeSlotDurable(fullPath, handle => handle.writeFile(contents, "utf8"));
 }
 
@@ -312,7 +312,7 @@ export function publishProjectResultFiles(root: string, resultDirectory: string,
   const registryIndex = entries.findIndex(entry => entry.target === "simple_cluster/results/project_table_registry.json");
   if (registryIndex >= 0 && registryIndex !== entries.length - 1) throw new Error("结果注册表必须是最后提交的 generation 标记。");
   if (registryIndex >= 0) {
-    const registry = JSON.parse(files[registryIndex].contents);
+    const registry = JSON.parse(files[registryIndex].contents.toString());
     if (registry?.schemaVersion !== 1 || !registry.plans || typeof registry.plans !== "object" || registry.publicationGeneration !== id)
       throw new Error("结果注册表 generation 与发布事务不一致。");
   }

@@ -116,10 +116,12 @@ function registeredPlanSummary(registry, planFile) {
     const source = "simple_cluster/results/project_table_registry.json";
     return {
         planFile, planRevision: plan.revision, source: "registered-local-seeds",
+        ...(plan.wrapperEvidence ? { wrapperEvidence: plan.wrapperEvidence } : {}),
         rawResultCsvPath: source,
         workerResultTables: [...new Set(records.map((row) => row.workerId))].map((workerId) => ({ workerId, aggregateStatus: "ready", rawResultCsvPath: source })),
         results: records.map((row) => ({
             workerId: row.workerId, runId: row.runId || "", attempt: row.attempt || "", planRevision: row.revision || plan.revision,
+            ...(row.jobDir ? { jobDir: row.jobDir } : {}), ...(row.checkpointPath ? { checkpointPath: row.checkpointPath } : {}),
             ...(row.datasetSource ? { datasetSource: row.datasetSource } : {}),
             dimensions: { case: row.case, seed: row.seed, method: row.method, dataset: row.dataset, rate_percent: row.rate, eval_protocol: row.endpoint },
             metrics: row.metrics, sourceFiles: [{ path: source }],
@@ -288,7 +290,8 @@ function recordsForSummary(summary, planFile, manualMappings = {}) {
         const mappedDataset = summaryDatasets.length === 1 ? summaryDatasets[0] : summaryDatasets.length ? "" : Array.isArray(mapping?.datasets) && mapping.datasets.length === 1 ? String(mapping.datasets[0] || "").trim() : "";
         const dataset = declaredDataset || mappedDataset;
         const isManual = row?.datasetSource === "manual-plan-mapping" || (!declaredDataset && summaryDatasets.length === 0 && Boolean(mappedDataset));
-        records.push({ planFile, workerId, case: caseName, seed, method: String(dims.method || row.method || "").trim() || path.posix.basename(planFile, path.posix.extname(planFile)), dataset, ...(isManual ? { datasetSource: "manual-plan-mapping" } : {}), rate: ratePercent(dims), endpoint: String(dims.eval_protocol || dims.split || "").trim(), metrics, runId, attempt, revision });
+        records.push({ planFile, workerId, case: caseName, seed, method: String(dims.method || row.method || "").trim() || path.posix.basename(planFile, path.posix.extname(planFile)), dataset, ...(isManual ? { datasetSource: "manual-plan-mapping" } : {}), rate: ratePercent(dims), endpoint: String(dims.eval_protocol || dims.split || "").trim(), metrics, runId, attempt, revision,
+            ...(row.jobDir ? { jobDir: row.jobDir } : {}), ...(row.checkpointPath ? { checkpointPath: row.checkpointPath } : {}) });
     }
     if (!records.length)
         throw new Error("当前 Plan 没有可核对的逐 seed 原始记录。");
@@ -297,9 +300,23 @@ function recordsForSummary(summary, planFile, manualMappings = {}) {
         throw new Error("当前 Plan 没有可核对的逐 seed 原始记录。");
     return selected;
 }
+function assertWrapperRecordIdentity(evidence, records) {
+    if (!evidence)
+        return;
+    if (evidence.status !== 'formal' || !evidence.runId || records.some(record => {
+        const job = evidence.jobs?.find((item) => item.job?.case === record.case && String(item.job?.seed) === record.seed);
+        return record.runId !== evidence.runId || !job || record.workerId !== job.job.workerId
+            || record.jobDir && record.jobDir !== job.job.outputDir || record.checkpointPath && record.checkpointPath !== job.checkpointPath;
+    }))
+        throw new Error("wrapper 与端点运行身份不一致，保留原有完整结果");
+}
 function updateRegistry(registry, summary, planFile, expectedSeeds = 0, manualMappings = {}) {
+    if (registry.plans?.[planFile]?.wrapperEvidence && !summary?.wrapperEvidence || summary?.wrapperEvidence?.status === 'preview')
+        throw new Error("wrapper 完整结果证明缺失或仅为预览，保留已发布的完整结果");
     const records = recordsForSummary(summary, planFile, manualMappings);
-    return { schemaVersion: 1, ...(registry?.publicationGeneration ? { publicationGeneration: registry.publicationGeneration } : {}), plans: { ...(registry?.plans || {}), [planFile]: { revision: String(summary.planRevision || ""), expectedSeeds: Math.max(0, Math.floor(expectedSeeds)), records } } };
+    assertWrapperRecordIdentity(summary.wrapperEvidence, records);
+    return { schemaVersion: 1, ...(registry?.publicationGeneration ? { publicationGeneration: registry.publicationGeneration } : {}), plans: { ...(registry?.plans || {}), [planFile]: { revision: String(summary.planRevision || ""), expectedSeeds: Math.max(0, Math.floor(expectedSeeds)), records,
+                ...(summary.wrapperEvidence ? { wrapperEvidence: summary.wrapperEvidence } : {}) } } };
 }
 function summaryForWorker(summary, workerId) {
     const id = String(workerId || "").toLowerCase();
@@ -314,12 +331,22 @@ function mergeAvailableWorkerResults(registry, summary, planFile, expectedSeeds 
     const ready = tables.filter((table) => table?.aggregateStatus === "ready" && rawSources(table).length > 0);
     const owners = new Set(ready.map((table) => String(table.workerId || "").toLowerCase()));
     const rows = (Array.isArray(summary?.results) ? summary.results : []).filter((row) => owners.has(String(row?.workerId || row?.resultOwnerWorkerId || "").toLowerCase()));
-    if (!rows.length)
-        return registry;
+    if (!rows.length) {
+        const evidence = summary?.wrapperEvidence;
+        if (evidence?.status !== 'formal' || !evidence.runId || !evidence.jobs?.length)
+            return registry;
+        if (registry.plans?.[planFile]?.records?.length)
+            throw new Error("新 wrapper 缺少既有端点指标，保留原有完整结果");
+        return { ...registry, plans: { ...registry.plans, [planFile]: { revision: String(summary.planRevision || ''),
+                    expectedSeeds: Math.max(0, Math.floor(expectedSeeds)), records: [], wrapperEvidence: evidence } } };
+    }
     const partial = { ...summary, workerResultTables: ready, results: rows, unavailableWorkerIds: [], incompleteAggregate: false };
     const incoming = recordsForSummary({ ...partial, completedRunId: summary.completedRunId || summary.selectedRunId || "", stampCompletedRunId: summary.stampCompletedRunId === true }, planFile, manualMappings);
+    assertWrapperRecordIdentity(summary.wrapperEvidence, incoming);
     const incomingRun = String(summary.completedRunId || summary.selectedRunId || incoming.find((record) => record.runId)?.runId || "");
     const previous = registry.plans?.[planFile];
+    if (summary.wrapperEvidence?.status === 'preview' || previous?.wrapperEvidence && !summary.wrapperEvidence)
+        throw new Error("wrapper 完整结果证明缺失或仅为预览，保留已发布的完整结果");
     const revision = String(incoming.find((record) => record.revision)?.revision || summary.planRevision || "");
     const sameRevision = !previous?.revision || !revision || previous.revision === revision;
     const covered = (record) => incoming.some((item) => seedIdentity(item) === seedIdentity(record));
@@ -333,6 +360,7 @@ function mergeAvailableWorkerResults(registry, summary, planFile, expectedSeeds 
                 revision: revision || previous?.revision || "",
                 expectedSeeds: Math.max(0, Math.floor(expectedSeeds || previous?.expectedSeeds || 0)),
                 records: selectLatestCompletedRun([...kept, ...incoming], incomingRun),
+                ...(summary.wrapperEvidence ? { wrapperEvidence: summary.wrapperEvidence } : {}),
             } } };
 }
 function csvCell(value) {
@@ -342,7 +370,9 @@ function csvCell(value) {
 function writeCsv(header, rows) {
     return [header, ...rows].map((row) => row.map(csvCell).join(",")).join("\r\n") + "\r\n";
 }
-function readCsv(text) {
+function readCsv(text, delimiter = ",") {
+    if (delimiter !== "," && delimiter !== "\t")
+        throw new Error("结果表分隔符不支持。");
     const rows = [];
     let row = [], cell = "", quoted = false;
     for (let i = 0; i < text.length; i++) {
@@ -362,7 +392,7 @@ function readCsv(text) {
                 throw new Error("CSV 引号格式无效。");
             quoted = true;
         }
-        else if (c === ",") {
+        else if (c === delimiter) {
             row.push(cell);
             cell = "";
         }
@@ -651,7 +681,7 @@ function resultCatalog(root, resultDir, manualMappings = {}) {
                         if (artifactCount >= 2000)
                             break;
                         const file = path.join(folder, entry.name);
-                        if (!entry.isFile() || !/\.(csv|json|md)$/i.test(entry.name) || !smallFile(file))
+                        if (!entry.isFile() || !/\.[A-Za-z0-9]+$/.test(entry.name) || entry.name.endsWith('.provenance.json') || !smallFile(file))
                             continue;
                         const relative = path.relative(root, file).replace(/\\/g, "/");
                         artifacts.push({ artifactKey: relative, kind, workerId: knownWorkers.get(workerId) || workerId, path: relative, format: path.extname(file).slice(1) });
@@ -660,7 +690,7 @@ function resultCatalog(root, resultDir, manualMappings = {}) {
                 };
                 collect(base);
                 for (const worker of childDirs(base, 100))
-                    collect(path.join(base, worker), worker);
+                    collect(path.join(base, worker), worker.startsWith('preview__') ? '' : worker);
             }
             if (artifacts.length) {
                 let metadataPlanFiles = [];
@@ -683,6 +713,26 @@ function resultCatalog(root, resultDir, manualMappings = {}) {
                 }
                 const planFiles = [...new Set(metadataPlanFiles.map(normalizePlanDatasetKey))];
                 const planFile = knownPlans.get(planKey) || (planFiles.length === 1 ? metadataPlanFiles.find(value => normalizePlanDatasetKey(value) === planFiles[0]) || "" : "");
+                const evidence = registry.plans?.[planFile]?.wrapperEvidence;
+                for (const view of evidence?.views || []) {
+                    if (artifactCount >= 2000)
+                        break;
+                    if (typeof view !== 'string' || !view.startsWith(resultDir + '/') || view.split('/').some(part => !part || part === '.' || part === '..' || part.includes(':')))
+                        continue;
+                    let cursor = root, valid = true;
+                    for (const part of view.split('/')) {
+                        cursor = path.join(cursor, part);
+                        if (!fs.existsSync(cursor) || fs.lstatSync(cursor).isSymbolicLink()) {
+                            valid = false;
+                            break;
+                        }
+                    }
+                    if (!valid || !smallFile(cursor) || artifacts.some(artifact => artifact.path === view))
+                        continue;
+                    artifacts.push({ artifactKey: view, kind: evidence.status === 'preview' ? 'preview' : 'wrapper', path: view,
+                        format: path.extname(view).slice(1), runId: evidence.runId });
+                    artifactCount++;
+                }
                 plans.push({ planKey, planFile, label: planFile || planKey, sourceDatasetKey: datasetKey, artifacts, artifactMetadataDatasets: [...new Set(metadataDatasets)] });
             }
         }

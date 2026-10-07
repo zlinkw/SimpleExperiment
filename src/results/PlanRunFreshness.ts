@@ -66,6 +66,25 @@ export function selectLatestCompletePlanRunIdentity(queue: unknown, planFile: st
   return selectLatestCompletePlanRunInternal(queue, planFile, expectedRevision, false);
 }
 
+/** Incomplete newest runs have a separate preview; never lend their seeds to formal results. */
+export function selectLatestPlanRunPreview(queue: unknown, planFile: string, expectedRevision = ""): AuthoritativePlanRun | undefined {
+  const rows: Record<string, any>[] = Array.isArray((queue as any)?.plans) ? (queue as any).plans : [];
+  const selected = rows.map((plan, order) => ({ plan, order })).filter(({ plan }) =>
+    normalizedPlanFile(plan.planFile || plan.file) === normalizedPlanFile(planFile) && plan.id && plan.revision
+    && (!expectedRevision || plan.revision === expectedRevision) && !plan.recoveryConflict)
+    .sort((left, right) => timestamp(right.plan.enqueuedAt) - timestamp(left.plan.enqueuedAt) || right.order - left.order)[0]?.plan;
+  if (!selected) return undefined;
+  const all = Array.isArray(selected.jobs) ? selected.jobs : [];
+  const expected = Number(selected.fullPlanJobCount || selected.planJobCount || all.length);
+  if (all.length !== expected || !all.length || new Set(all.map(job => job.case + "\0" + job.seed)).size !== expected) return undefined;
+  const completed = all.filter(job => ["completed", "succeeded", "success"].includes(String(job.status)) && !job.outputRetiredAt && !job.recoveryConflict);
+  if (!completed.length || completed.length === expected) return undefined;
+  const jobs = completed.map(job => authoritativeJob(selected, job, false));
+  if (jobs.some(job => !job)) return undefined;
+  return { runId: String(selected.id), planFile, revision: String(selected.revision), enqueuedAt: String(selected.enqueuedAt || ""),
+    expectedJobCount: expected, jobs: (jobs as AuthoritativeJobIdentity[]).sort((left, right) => left.index - right.index), plan: selected };
+}
+
 function selectLatestCompletePlanRunInternal(queue: unknown, planFile: string, expectedRevision: string, requireArtifactHashes: boolean): AuthoritativePlanRun | undefined {
   const rows: Record<string, any>[] = Array.isArray((queue as any)?.plans) ? (queue as any).plans : [];
   const selectedPlan = normalizedPlanFile(planFile);

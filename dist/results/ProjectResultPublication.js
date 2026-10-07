@@ -363,7 +363,7 @@ function publishProjectResultFiles(root, resultDirectory, files, options = {}) {
         if (registryIndex >= 0 && registryIndex !== entries.length - 1)
             throw new Error("结果注册表必须是最后提交的 generation 标记。");
         if (registryIndex >= 0) {
-            const registry = JSON.parse(files[registryIndex].contents);
+            const registry = JSON.parse(files[registryIndex].contents.toString());
             if (registry?.schemaVersion !== 1 || !registry.plans || typeof registry.plans !== "object" || registry.publicationGeneration !== id)
                 throw new Error("结果注册表 generation 与发布事务不一致。");
         }
