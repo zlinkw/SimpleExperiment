@@ -276,6 +276,7 @@ WORKER_ACTION_INFLIGHT = {}
 WORKER_ACTION_LAST_AT = {}
 TENSORBOARD_PROXY_PORTS = {}
 SCHEDULER_DEPENDENCY_CACHE = {}
+SCHEDULER_DEPENDENCY_IN_FLIGHT = {}
 SCHEDULER_DEPENDENCY_CACHE_LOCK = threading.Lock()
 PLAN_STRUCTURAL_VALIDATION_CACHE = {}
 PLAN_STRUCTURAL_VALIDATION_CACHE_LOCK = threading.RLock()
@@ -11021,28 +11022,59 @@ def scheduler_dependency_status(root, scheduler, env=None):
         status["message"] = (result.stderr or result.stdout or "Scheduler 依赖预检失败").strip()[-1200:]
     return status
 
+def scheduler_dependency_health_key(root, scheduler, env):
+    interpreter = simple_runtime_python(env)
+    def signature(file):
+        try:
+            info = os.stat(file)
+            return [os.path.abspath(file), info.st_size, info.st_mtime_ns]
+        except OSError:
+            return [os.path.abspath(file), None, None]
+    return json.dumps([os.path.abspath(root), signature(scheduler), signature(interpreter),
+                       *[str(env.get(name) or "") for name in ("SIMPLE_EXPERIMENT_CONDA_ENV", "SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV", "CONDA_PREFIX", "PYTHONPATH")]], sort_keys=True)
+
 def scheduler_dependency_health(root, max_age_seconds=30):
     scheduler = cluster_scheduler_path(root)
     if not scheduler:
         return {"ok": False, "missingRuntime": True, "missingModules": [], "installCommand": "", "message": "缺少 cluster_scheduler.py，请先部署最新版 Agent。", "checkedAt": now_iso()}
     env = simple_runtime_env(os.environ.copy())
-    key = "|".join([os.path.abspath(root), os.path.abspath(scheduler), str(env.get("SIMPLE_EXPERIMENT_CONDA_ENV") or ""), str(simple_runtime_python(env) or "")])
+    try:
+        key = scheduler_dependency_health_key(root, scheduler, env)
+    except Exception as exc:
+        return {"ok": False, "missingModules": [], "installCommand": "", "message": str(exc), "checkedAt": now_iso()}
     checked_at = time.time()
+    marker = None
     with SCHEDULER_DEPENDENCY_CACHE_LOCK:
         prune_scheduler_dependency_cache(checked_at, key)
         cached = SCHEDULER_DEPENDENCY_CACHE.get(key)
-    if isinstance(cached, dict) and time.time() - float(cached.get("_checkedAtEpoch") or 0) < max(1, int(max_age_seconds or 30)):
-        return {k: v for k, v in cached.items() if not str(k).startswith("_")}
-    try:
-        status = scheduler_dependency_status(root, scheduler, env)
-    except Exception as exc:
-        status = {"ok": False, "missingModules": [], "installCommand": "", "message": str(exc)}
-    status = {**status, "checkedAt": now_iso(), "schedulerPath": relpath(root, scheduler) if os.path.abspath(scheduler).startswith(os.path.abspath(root) + os.sep) else scheduler}
-    checked_at = time.time()
-    with SCHEDULER_DEPENDENCY_CACHE_LOCK:
-        SCHEDULER_DEPENDENCY_CACHE[key] = {**status, "_checkedAtEpoch": checked_at}
-        prune_scheduler_dependency_cache(checked_at, key)
-    return status
+        if isinstance(cached, dict) and checked_at - float(cached.get("_checkedAtEpoch") or 0) < max(1, int(max_age_seconds or 30)):
+            return {k: v for k, v in cached.items() if not str(k).startswith("_")}
+        if key not in SCHEDULER_DEPENDENCY_IN_FLIGHT and len(SCHEDULER_DEPENDENCY_IN_FLIGHT) < MAX_SCHEDULER_DEPENDENCY_CACHE_RECORDS:
+            marker = object()
+            SCHEDULER_DEPENDENCY_IN_FLIGHT[key] = marker
+    def refresh():
+        try:
+            try:
+                status = scheduler_dependency_status(root, scheduler, env)
+            except Exception as exc:
+                status = {"ok": False, "missingModules": [], "installCommand": "", "message": str(exc)}
+            status = {**status, "checkedAt": now_iso(), "schedulerPath": relpath(root, scheduler) if os.path.abspath(scheduler).startswith(os.path.abspath(root) + os.sep) else scheduler}
+            with SCHEDULER_DEPENDENCY_CACHE_LOCK:
+                SCHEDULER_DEPENDENCY_CACHE[key] = {**status, "_checkedAtEpoch": time.time()}
+                prune_scheduler_dependency_cache(time.time(), key)
+        finally:
+            with SCHEDULER_DEPENDENCY_CACHE_LOCK:
+                if SCHEDULER_DEPENDENCY_IN_FLIGHT.get(key) is marker:
+                    SCHEDULER_DEPENDENCY_IN_FLIGHT.pop(key, None)
+    if marker is not None:
+        try:
+            threading.Thread(target=refresh, name="scheduler-dependency-health", daemon=True).start()
+        except Exception:
+            with SCHEDULER_DEPENDENCY_CACHE_LOCK:
+                SCHEDULER_DEPENDENCY_IN_FLIGHT.pop(key, None)
+    # Health never waits for an interpreter/subprocess. Pending is not successful readiness.
+    return {**({k: v for k, v in cached.items() if not str(k).startswith("_")} if isinstance(cached, dict) else {"ok": None, "missingModules": [], "installCommand": ""}),
+            "pending": True, "message": "Scheduler 依赖正在后台检查，请稍后刷新状态。"}
 
 def require_scheduler_dependencies(root, scheduler, env=None):
     status = scheduler_dependency_status(root, scheduler, env)

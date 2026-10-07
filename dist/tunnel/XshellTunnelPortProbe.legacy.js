@@ -59,6 +59,19 @@ async function fetchHealthWithFallback(base, headers, timeoutMs) {
     // 如仍不可达，尝试 /api/version 作最后降级（版本比对路径）
     return primary;
 }
+async function readProbeHealth(response, base, headers, deadline) {
+    let health = await response.json();
+    // Agent health responds immediately while one shared dependency check runs.
+    // Only wait for an explicitly pending check, within this probe's existing budget.
+    while (health?.schedulerDependencies?.pending === true && Date.now() + 200 < deadline) {
+        await new Promise(resolve => setTimeout(resolve, 200));
+        const next = await fetchHealthWithFallback(base, headers, Math.max(1, deadline - Date.now()));
+        if (!next.ok)
+            throw new Error(`Agent 依赖检查返回 HTTP ${next.status}。`);
+        health = await next.json();
+    }
+    return health;
+}
 async function probeLocalTunnel(config, options = {}) {
     const started = Date.now();
     const timeoutMs = options.timeoutMs ?? 5_000;
@@ -96,7 +109,7 @@ async function probeLocalTunnel(config, options = {}) {
                 suggestion: "请检查该本地端口是否真的转发到了 Hub Agent。",
             };
         }
-        const health = await healthResponse.json();
+        const health = await readProbeHealth(healthResponse, base, headers, started + timeoutMs);
         if (!(0, AgentCapabilities_1.validateAgentHealth)(health)) {
             return {
                 ...baseResult,
@@ -291,7 +304,7 @@ async function probeWorkerTelemetryTunnel(config, options = {}) {
         if (!healthResponse.ok) {
             return { ...baseResult, tcpOpen: true, status: "agent_unreachable", message: `/api/health 返回 HTTP ${healthResponse.status}。` };
         }
-        const health = await healthResponse.json().catch(() => ({}));
+        const health = await readProbeHealth(healthResponse, base, headers, started + timeoutMs);
         const projectRoot = String(health.projectRoot || "").trim();
         const agentInstallDir = String(health.agentInstallDir || "").trim();
         const capsResponse = await timedFetch(`${base}/api/capabilities`, { headers }, timeoutMs);

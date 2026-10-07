@@ -305,3 +305,31 @@ test('replacement during reconciliation drains the old caller and never dispatch
     assert.equal(ids.length, 2); assert.notEqual(ids[0], ids[1]); assert.equal(retry.requests.size, 0);
   } finally { global.fetch = saved; }
 });
+
+for (const method of ['sync.projectInventory', 'sync.projectTree', 'sync.projectFileStats']) test(`explicit retry of legacy ${method} uses producer exit proof before dispatch`, async () => {
+  const saved = global.fetch, order = [], retry = new SafeRequestRetry();
+  const discovery = { endpoint: new URL('http://127.0.0.1:1'), headers: {}, instanceId: 'host:new',
+    features: { transferSettlementReceipts: true, transferSettlementReconciliation: true, transferReconciliationMethods: [method] } };
+  let starts = 0;
+  global.fetch = async (url, options) => {
+    if (String(url).endsWith('/events')) return new Response(null, { status: 204 });
+    const request = JSON.parse(options.body); order.push(request.method);
+    if (request.method === 'transfers.cancel') return Response.json({ result: { ok: true, status: 'outcomeUnknown', operationId: 'old', operationInstanceId: 'host:old' } });
+    if (request.method === 'transfers.reconcile') {
+      assert.equal(request.params.retryMethod, method); assert.equal(request.params.requestKey.length, 64);
+      assert.equal(request.params.retryParams.source.remotePath, '/project');
+      return Response.json({ result: { ok: true, settled: true, status: 'settled', operationId: 'old', operationInstanceId: 'host:old', instanceId: 'host:new' } });
+    }
+    if (starts++ === 0) return Response.json({ error: { data: { notStarted: true, blockedOperationId: 'old', operationInstanceId: 'host:old' } } });
+    return Response.json({ result: { ok: true, files: {} } });
+  };
+  try {
+    const params = { source: { host: 'server', username: 'owner', remotePath: '/project' } };
+    assert.equal((await retry.run('publish', () => callSftpWithProgress(method, params, async () => discovery))).ok, true);
+    assert.deepEqual(order, [method, 'transfers.cancel', 'transfers.reconcile', method]);
+    assert.equal(retry.requests.size, 0);
+    starts = 0; discovery.features.transferReconciliationMethods = [];
+    await assert.rejects(retry.run('publish', () => callSftpWithProgress(method, params, async () => discovery)), /更新 SimpleSFTP/);
+    assert.equal(starts, 1, 'unsupported producer must not dispatch a second request');
+  } finally { global.fetch = saved; }
+});

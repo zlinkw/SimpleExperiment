@@ -5872,7 +5872,11 @@ export class RealtimeTunnelPanelProvider {
         let statusPosted = false;
         if (result.status === "cancelled") {
             this.finishPlanSubmissionProgress(message, "cancelled", result.message || "已取消，未提交运行。");
-            try { vscode.window.showInformationMessage(result.message || "已取消"); } catch {}
+            const supersededResultRequest = /^(syncPendingPlanArtifacts|syncAllResultArtifacts|rebuildProjectResultTables)$/.test(command)
+                && String(result.message || "").includes("旧请求已被重新执行替代");
+            if (!supersededResultRequest) {
+                try { vscode.window.showInformationMessage(result.message || "已取消"); } catch {}
+            }
             const alreadyExplained = String(result.message || "").includes("未提交");
             if (!alreadyExplained) {
                 try { this.recordActionError({ command, message: result.message, suggestion: actionErrorSuggestion(result.message), operationOutcome }); this.postState(); } catch {}
@@ -7602,43 +7606,12 @@ export class RealtimeTunnelPanelProvider {
             if (showMessage) void vscode.window.showWarningMessage(`Agent runtime 已部署，但部分目标未校验：${verifyIssues.warnings.join("；")}`);
             else console.warn(`[Agent runtime 已部署，但部分目标未校验（静默）] ${verifyIssues.warnings.join("；")}`);
         }
-        // 成功后对每 target 追加 fs/sha256 二次核验并透传到 remoteDetails（便于 UI 与日志核验）
-        let _shaDetails: string[] = [];
-        try {
-          const _token2 = this.tunnelConfig && this.tunnelConfig.token;
-          const _expFiles: Record<string,string> = (manifest as any).files || {};
-          for (const t of targets) {
-            const port = (t as any).localForwardPort; if (!port) continue;
-            const host = String((t as any).localForwardHost || (t as any).localHost || "127.0.0.1").trim() || "127.0.0.1";
-            const base = tunnelHttpOrigin(host, port);
-            const _runtimeDirHint = String((t as any).remotePath || "").replace(/\/+$/, "");
-            let _installDir = "";
-            let _runtimeDir = "";
-            if (_runtimeDirHint.endsWith("/simple_cluster/runtime")) {
-              _runtimeDir = _runtimeDirHint;
-              _installDir = _runtimeDir.replace(/\/simple_cluster\/runtime\/?$/, "");
-            } else {
-              const _workRoot = String((t as any).projectWorkDir || (t as any).remoteRoot || (t as any).agentProjectDir || (t as any).remotePath || "").trim();
-              const _perTargetAgentInstallDir = String((t as any).agentInstallDir || "").trim();
-              try {
-                const _dirs = (this as any).agentRuntimeDirs ? (this as any).agentRuntimeDirs(_workRoot, _perTargetAgentInstallDir) : null;
-                _installDir = String(_dirs?.installDir || _perTargetAgentInstallDir || "").trim() || (_workRoot ? `${_workRoot.replace(/\/+$/, "")}/simple_agent` : "");
-              } catch { _installDir = _perTargetAgentInstallDir || (_workRoot ? `${_workRoot.replace(/\/+$/, "")}/simple_agent` : ""); }
-              _runtimeDir = _installDir ? `${_installDir.replace(/\/+$/, "")}/simple_cluster/runtime` : _runtimeDirHint;
-            }
-            for (const [fname, exp] of Object.entries(_expFiles)) {
-              const remoteAbs = `${_runtimeDir.replace(/\/+$/, "")}/${fname}`;
-              try {
-                const cc = new AbortController(); const tt = setTimeout(()=> cc.abort(), 2500); (tt as any).unref?.();
-                const rr = await fetch(`${base}/api/fs/sha256?path=${encodeURIComponent(remoteAbs)}`, { headers: _token2 ? { "X-Simple-Agent-Token": String(_token2) } : undefined, signal: cc.signal });
-                clearTimeout(tt);
-                if (!rr.ok) { _shaDetails.push(`${t.label}/${fname}:HTTP${rr.status}`); continue; }
-                const jj: any = await rr.json(); const ok = String(jj.sha256||"").toLowerCase() === String(exp).toLowerCase();
-                _shaDetails.push(`${t.label}/${fname}:${ok ? "sha256 ok" : "sha256 mismatch"}`);
-              } catch (e:any) { _shaDetails.push(`${t.label}/${fname}:不可达`); }
-            }
-          }
-        } catch {}
+        // Reuse this deployment's complete SHA256/version verification instead of repeating all requests.
+        const _shaDetails: string[] = _verifyOk
+            ? targets.flatMap(target => ["cluster_agent.py", "cluster_scheduler.py"]
+                .filter(name => (manifest as any).files?.[name] || (manifest as any).components?.[name === "cluster_agent.py" ? "hub_agent" : "cluster_scheduler"]?.sha256)
+                .map(name => `${target.label}/${name}:sha256 ok`))
+            : [...verifyIssues.fatal, ...verifyIssues.warnings];
         if (targets.some((target) => target.role === "hub"))
             this.lastProbe = undefined;
         for (const target of targets.filter((item) => item.role !== "hub"))
@@ -7648,13 +7621,13 @@ export class RealtimeTunnelPanelProvider {
             state: "agent_restart_required",
             status: "agent_restart_required",
             checkedAt: new Date().toISOString(),
-            message: `最新版 Agent runtime 已部署到 ${targets.map((target) => target.id).join("、")}。请重启对应 Xshell 会话后再次检测。` + (_shaDetails.length ? ` 二次核验：${_shaDetails.join("； ")}` : ""),
+            message: `最新版 Agent runtime 已部署到 ${targets.map((target) => target.id).join("、")}。请重启对应 Xshell 会话后再次检测。` + (_shaDetails.length ? ` 部署校验：${_shaDetails.join("； ")}` : ""),
             remoteDetails: _shaDetails,
         } as any;
         (this as any).lastDeployShaDetails = _shaDetails;
         this.postState();
         if (showMessage) {
-            const shaMsg = _shaDetails.length ? ` 二次核验：${_shaDetails.join("； ")}` : "";
+            const shaMsg = _shaDetails.length ? ` 部署校验：${_shaDetails.join("； ")}` : "";
             void vscode.window.showInformationMessage(`最新版 Agent runtime 已部署到 ${targets.map((target) => target.id).join("、")}。请重启对应 Xshell 会话，再点击“检测全部”。${shaMsg}`);
         }
         return { targets, manifest };
@@ -7676,7 +7649,7 @@ export class RealtimeTunnelPanelProvider {
         if (!expectedRuntimeVersion) {
             fatal.push("本地 runtimeVersion 为空（单源 src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION 缺失），禁止 fallback 硬编码，已阻止校验");
         }
-        for (const target of targets) {
+        await Promise.all(targets.map(async (target) => {
             const _runtimeHint = String((target as any).remotePath || "").replace(/\/+$/, "");
             let installDir = "";
             let runtimeDir = "";
@@ -7696,7 +7669,7 @@ export class RealtimeTunnelPanelProvider {
             const port = target.localForwardPort;
             if (!port) {
                 warnings.push(`${target.label}：缺少本地转发端口，跳过部署校验`);
-                continue;
+                return;
             }
             const host = String((target as unknown as { localForwardHost?: unknown }).localForwardHost || (target as unknown as { localHost?: unknown }).localHost || "127.0.0.1").trim() || "127.0.0.1";
             const base = tunnelHttpOrigin(host, port);
@@ -7756,7 +7729,7 @@ export class RealtimeTunnelPanelProvider {
                         clearTimeout(t2);
                         if (!resp.ok) {
                             warnings.push(`${target.label} 的版本接口返回 HTTP ${resp.status}，无法校验版本（已尝试 /api/health、/health、/api/version）`);
-                            continue;
+                            return;
                         }
                     }
                 } else {
@@ -7783,7 +7756,7 @@ export class RealtimeTunnelPanelProvider {
             } catch (error) {
                 warnings.push(`${target.label} 的版本校验不可达，跳过版本比对（${error instanceof Error ? error.message : String(error)}）`);
             }
-        }
+        }));
         return { fatal, warnings };
     }
     async checkRemoteAgentVersionAndNotify(showUi = false) {
@@ -26495,7 +26468,8 @@ function compactSchedulerDependenciesForWebview(value) {
         return undefined;
     const environment = objectRecord(item.environment);
     return dropUndefined({
-        ok: item.ok === true,
+        ok: item.ok === true ? true : item.ok === false ? false : null,
+        pending: item.pending === true,
         missingRuntime: item.missingRuntime === true,
         environment: environment ? dropUndefined({
             kind: environment.kind,
@@ -27231,7 +27205,7 @@ function tunnelTestCompletion(setup, hubProbe, health, workerProbes, hubRequired
     });
     const dependencyIssues = [{ label: "Hub", probe: hub }, ...workers].filter((row) => hubRequired || row.label !== "Hub").flatMap((row) => {
         const dependency = row?.probe?.schedulerDependencies;
-        if (!dependency || dependency.ok !== false)
+        if (!dependency || dependency.pending !== true && dependency.ok !== false)
             return [];
         const install = String(dependency.installCommand || "").trim();
         const message = String(dependency.message || "Scheduler 依赖缺失").trim();
@@ -27431,10 +27405,10 @@ function projectBootstrapEndpointReadiness(options) {
     const dependencyRows = hubRequired ? [{ label: "Hub", dependency: item.hubSchedulerDependencies }] : [];
     const dependencyIssues = [...dependencyRows, ...workers.map((worker) => ({ label: worker?.label, dependency: worker?.schedulerDependencies }))].flatMap((row) => {
         const dependency = row?.dependency;
-        if (!dependency || dependency.ok !== false)
+        if (!dependency || dependency.pending !== true && dependency.ok !== false)
             return [];
         const install = String(dependency.installCommand || "").trim();
-        return [`${String(row.label || "端点")} Scheduler 依赖缺失${install ? `；安装命令：${install}` : ""}`];
+        return [`${String(row.label || "端点")} Scheduler ${dependency.pending ? "依赖正在检查" : "依赖缺失"}${install ? `；安装命令：${install}` : ""}`];
     });
     return {
         ready: (!hubRequired || hubReady) && unavailableWorkers.length === 0 && dependencyIssues.length === 0,
@@ -31887,23 +31861,20 @@ function resultSyncCommandOutcome(report) {
     };
 }
 function formatResultSyncReport(report, title) {
-    const discovered = Number(report?.discovered || (report?.plans || []).length || 0);
     const included = Array.isArray(report?.included) ? report.included : [];
     const missing = Array.isArray(report?.missing) ? report.missing : [];
     const skipped = Array.isArray(report?.skipped) ? report.skipped : [];
-    const pending = Array.isArray(report?.pending) ? report.pending : [];
-    const previews = Array.isArray(report?.previews) ? report.previews : [];
-    const downloads = Array.isArray(report?.downloads) ? report.downloads : [];
+    const failures = [...new Set([...missing, ...skipped].map(value => String(value || "").trim()).filter(Boolean))];
+    if (!failures.length)
+        return title + (included.length ? "：完成。" : "：暂无可发布的完整结果。");
+    const details = failures.slice(0, 6).map(value => {
+        const compact = value.replace(/^.*[\\/]([^\\/]+\.ya?ml)([：:])/, "$1$2").replace(/[\r\n]+/g, " ");
+        return compact.length > 140 ? compact.slice(0, 139) + "…" : compact;
+    });
     return [
-        title,
-        "发现 Plan " + discovered + " 个，成功收录 " + included.length + " 个，缺指标 " + missing.length + " 个，跳过/失败 " + skipped.length + " 个" + (pending.length ? "，待指标 " + pending.length + " 个" : "") + "。",
-        downloads.length ? "SHA256 校验：本机复用 " + downloads.reduce((sum, row) => sum + Number(row.reusedFiles || 0), 0)
-            + " 个，下载差异 " + downloads.reduce((sum, row) => sum + Number(row.networkFiles ?? row.completed ?? 0), 0) + " 个。" : "",
-        included.length ? "收录：" + included.slice(0, 8).join("；") : "",
-        missing.length ? "缺指标：" + missing.slice(0, 6).join("；") : "",
-        skipped.length ? "未收录：" + skipped.slice(0, 6).join("；") : "",
-        pending.length ? "待指标：" + pending.slice(0, 6).join("；") : "",
-        previews.length ? "未完成运行预览 " + previews.length + " 个，不计入正式汇总。" : "",
+        title + "：未成功 " + failures.length + " 项。",
+        ...details,
+        failures.length > details.length ? "另有 " + (failures.length - details.length) + " 项；完整记录见结果总表的 Plan 与 Worker 明细。" : "",
     ].filter(Boolean).join("\n");
 }
 function resultMetricMergeScopePaths(plan, planFile, extras = []) {

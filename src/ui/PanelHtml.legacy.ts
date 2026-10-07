@@ -9293,9 +9293,10 @@ export function renderPanelHtml(): string {
       const environment = dependency.environment || {};
       const environmentLabel = environment.label || (environment.name ? "Conda " + environment.name : "系统 Python");
       const installCommand = String(dependency.installCommand || "").trim();
-      const ready = dependency.ok === true;
+      const pending = dependency.pending === true;
+      const ready = !pending && dependency.ok === true;
       return '<div class="schedulerDependencyStatus ' + (ready ? "" : "warn") + '" title="' + escAttr(dependency.message || "") + '">' +
-        '<b>' + esc(ready ? "Scheduler 依赖已就绪" : "Scheduler 依赖缺失") + '</b>' +
+        '<b>' + esc(pending ? "Scheduler 依赖正在检查" : ready ? "Scheduler 依赖已就绪" : "Scheduler 依赖缺失") + '</b>' +
         '<span>' + esc(environmentLabel) + (environment.python ? ' · <span title="' + escAttr(environment.python) + '">' + esc(compactPath(environment.python)) + '</span>' : '') + '</span>' +
         (!ready && dependency.message ? '<span class="muted">' + esc(dependency.message) + '</span>' : '') +
         (installCommand ? '<code title="' + escAttr(installCommand) + '">' + esc(installCommand) + '</code>' : '') +
@@ -17611,9 +17612,9 @@ export function renderPanelHtml(): string {
       workers.forEach((worker) => dependencyRows.push({ label: worker.displayName || worker.id || "Worker", dependency: (workerProbes[worker.id] || {}).schedulerDependencies }));
       const dependencyIssues = dependencyRows.flatMap((row) => {
         const dependency = row.dependency;
-        if (!dependency || dependency.ok !== false) return [];
+        if (!dependency || dependency.pending !== true && dependency.ok !== false) return [];
         const install = String(dependency.installCommand || "").trim();
-        return [String(row.label) + " Scheduler 依赖缺失" + (install ? "；安装命令：" + install : "")];
+        return [String(row.label) + (dependency.pending ? " Scheduler 依赖正在检查" : " Scheduler 依赖缺失") + (install ? "；安装命令：" + install : "")];
       });
       missing.push(...dependencyIssues);
       workers.forEach((worker) => {

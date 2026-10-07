@@ -9,6 +9,54 @@ export type ComparisonRun = {
 };
 export type ComparisonView = { title: string; header?: string[]; rows?: (string | number)[][]; text?: string };
 export type RunComparison = { runId: string; status: "formal" | "preview"; views: ComparisonView[]; sources: unknown[] };
+export type PlanComparisonTable = {
+  planFile: string;
+  columns: { key: string; label: string }[];
+  rows: { runId: string; values: (string | number)[] }[];
+};
+
+/** One run per row, with adapter statistics aligned across versions of the same Plan. */
+export function planComparisonTables(runs: ComparisonRun[], results: Map<string, RunComparison>): PlanComparisonTable[] {
+  const groups = new Map<string, { table: PlanComparisonTable; values: Map<string, Map<string, string | number>> }>();
+  for (const run of runs) {
+    if (!groups.has(run.planFile)) groups.set(run.planFile, {
+      table: { planFile: run.planFile, columns: [], rows: [] }, values: new Map(),
+    });
+    const group = groups.get(run.planFile)!, cells = new Map<string, string | number>();
+    group.values.set(run.runId, cells);
+    const result = results.get(run.runId);
+    // Preview values remain in their labelled detail view, never in formal version columns.
+    if (result?.status !== "formal") continue;
+    for (const view of result.views) {
+      if (!view.header || !view.rows || !view.title.endsWith("/final.csv")) continue;
+      const dimensions = view.header.map((_name, index) => index).filter(index => view.rows!.some(row => String(row[index] ?? "").trim())
+        && view.rows!.every(row => {
+          const value = row[index];
+          return value === undefined || !String(value).trim() || typeof value === "string"
+            && !Number.isFinite(Number(value)) && !value.includes("±") && value !== "未计算";
+        }));
+      const measures = view.header.map((_name, index) => index).filter(index => !dimensions.includes(index));
+      const occurrences = new Map<string, number>();
+      for (const row of view.rows) {
+        const identity = dimensions.map(index => [view.header![index], row[index] ?? ""]);
+        const rowKey = JSON.stringify(identity), occurrence = (occurrences.get(rowKey) || 0) + 1;
+        occurrences.set(rowKey, occurrence);
+        const label = [view.title.split(" / ")[0], ...identity.map(([_name, value]) => String(value)),
+          ...(occurrence > 1 ? [`第 ${occurrence} 行`] : [])].filter(Boolean).join(" / ");
+        for (const index of measures) {
+          const key = JSON.stringify([view.title, identity, occurrence, view.header[index]]);
+          if (!group.table.columns.some(column => column.key === key))
+            group.table.columns.push({ key, label: `${label} / ${view.header[index]}` });
+          const value = row[index];
+          cells.set(key, value === undefined || value === null || !String(value).trim() ? "未计算" : value);
+        }
+      }
+    }
+  }
+  for (const group of groups.values()) group.table.rows = runs.filter(run => run.planFile === group.table.planFile)
+    .map(run => ({ runId: run.runId, values: group.table.columns.map(column => group.values.get(run.runId)!.get(column.key) ?? "—") }));
+  return [...groups.values()].map(group => group.table);
+}
 
 /** Display only: retain adapter values unchanged, combine means and deviations at four decimals. */
 export function statisticsComparisonView(table: { header: string[]; rows: (string | number)[][] }): Pick<ComparisonView, "header" | "rows"> {

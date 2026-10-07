@@ -11,7 +11,7 @@ function method(first, next) {
 }
 
 function fixture() {
-  const alerts = [], warnings = [], statuses = [], terminal = [], progress = [];
+  const alerts = [], warnings = [], statuses = [], terminal = [], progress = [], information = [];
   const sandbox = {
     workspaceRoot: () => "C:/project",
     OperationOutcome_1,
@@ -22,7 +22,7 @@ function fixture() {
     errorMessage: error => error.message, compactSensitiveText: text => text,
     isUiCommandRemotePending: () => false, isUiCommandCancelled: error => error.name === "UiCommandCancelled",
     actionErrorSuggestion: () => "inspect",
-    vscode: { window: { showErrorMessage: async (...args) => alerts.push(args), showWarningMessage: async (...args) => warnings.push(args), showInformationMessage() {} } },
+    vscode: { window: { showErrorMessage: async (...args) => alerts.push(args), showWarningMessage: async (...args) => warnings.push(args), showInformationMessage: (...args) => information.push(args) } },
   };
   vm.createContext(sandbox);
   const helperStart = source.indexOf("function resultSyncCommandOutcome(");
@@ -42,8 +42,22 @@ function fixture() {
     finishPlanSubmissionProgress(_message, status, detail) { progress.push({ status, detail }); },
     postState() {}, recordActionError() {}, queuePlanArtifactSyncStatusCheck() {},
   };
-  return { host, alerts, warnings, statuses, terminal, progress };
+  return { host, alerts, warnings, statuses, terminal, progress, information };
 }
+
+test("replaced result requests finish silently while ordinary cancellations stay visible", async () => {
+  for (const replaced of [true, false]) {
+    const f = fixture();
+    await f.host.withUiCommandStatus("click", "rebuildProjectResultTables", {}, async () => {
+      const error = new Error(replaced ? "旧请求已被重新执行替代，保留已有产物。" : "用户取消同步。");
+      error.name = "UiCommandCancelled";
+      throw error;
+    });
+    assert.equal(f.statuses.at(-1), "cancelled");
+    assert.equal(f.information.length, replaced ? 0 : 1);
+    assert.equal(f.alerts.length, 0);
+  }
+});
 
 test("run during result sync fails in a modal without navigating, cancelling or touching the sync", async () => {
   const f = fixture();

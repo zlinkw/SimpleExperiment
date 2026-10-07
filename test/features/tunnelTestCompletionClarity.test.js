@@ -85,3 +85,12 @@ test("tunnel completion reuses fixed Hub readiness statuses", () => {
   assert.match(extension, /const HUB_READY_STATUSES = new Set\(\[\.\.\.ENDPOINT_READY_PROBE_STATUSES, "agent_ok"\]\)/);
   assert.match(extractFunction("tunnelTestCompletion"), /HUB_READY_STATUSES\??\.has\(hubStatus\)/);
 });
+
+test("pending scheduler dependency checks never report complete readiness or missing packages", () => {
+  const result = completion({ workerTunnels: [{ id: "w1", displayName: "GPU A", enabled: true }] }, { status: "ok" }, {}, {
+    w1: { status: "ok", schedulerDependencies: { ok: null, pending: true, message: "依赖正在后台检查" } },
+  });
+  assert.equal(result.ready, false);
+  assert.match(result.issues[0], /正在后台检查/);
+  assert.doesNotMatch(result.issues[0], /依赖缺失|pip install/);
+});

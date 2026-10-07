@@ -36,6 +36,7 @@ function sftpRequestKey(method, params) {
     };
     return (0, node_crypto_1.createHash)("sha256").update(JSON.stringify(identity)).digest("hex");
 }
+const RECONCILABLE_METHODS = ["sync.serverToServerFpsync", "sync.downloadMappedPaths", "sync.projectInventory", "sync.projectTree", "sync.projectFileStats"];
 async function confirmSftpOperationStopped(operationId, initial, recovery) {
     const expectedInstanceId = String(initial.instanceId || "");
     if (!expectedInstanceId || initial.features?.transferSettlementReceipts !== true)
@@ -54,11 +55,15 @@ async function confirmSftpOperationStopped(operationId, initial, recovery) {
     if (receipt.operationId !== operationId || receipt.operationInstanceId !== expectedInstanceId)
         throw new Error("旧传输取消回执身份不匹配。");
     async function reconcileUnknown() {
-        if (!recovery || !["sync.serverToServerFpsync", "sync.downloadMappedPaths"].includes(recovery.method))
+        if (!recovery || !RECONCILABLE_METHODS.includes(recovery.method))
             throw new Error("旧传输结果未知，未重新传输；请核对目标后人工恢复。");
         const current = await recovery.discover("transfers.reconcile");
         if (current.features?.transferSettlementReconciliation !== true)
             throw new Error("旧传输结果未知；请更新 SimpleSFTP 并重载窗口，以核实旧传输退出后重试。");
+        const methods = current.features?.transferReconciliationMethods;
+        if (["sync.projectInventory", "sync.projectTree", "sync.projectFileStats"].includes(recovery.method)
+            && (!Array.isArray(methods) || !methods.includes(recovery.method)))
+            throw new Error("旧清单读取尚未核实退出；请更新 SimpleSFTP 并重载窗口后重试，保留退出保护。");
         try {
             recovery.onProgress?.({ phase: "reconciling", elapsedMs: 0 });
         }

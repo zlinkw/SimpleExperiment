@@ -63,6 +63,27 @@ test("worker telemetry port probe accepts an Agent with install-rich and SSE", a
   }
 });
 
+test("a startup dependency check is polled only while pending and completes inside the probe budget", async () => {
+  let reads = 0;
+  const server = http.createServer((req, res) => {
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Connection", "close");
+    if (req.url === "/api/health") return res.end(JSON.stringify({ schemaVersion: 1, projectRoot: "p", status: "ok",
+      schedulerDependencies: ++reads === 1 ? { ok: null, pending: true } : { ok: true } }));
+    if (req.url === "/api/capabilities") return res.end(JSON.stringify(productionWorkerTelemetryCapabilities()));
+    res.writeHead(404); res.end("{}");
+  });
+  await listen(server);
+  try {
+    const result = await probeWorkerTelemetryTunnel({ localForwardPort: server.address().port, remoteAgentPort: 19001 }, { timeoutMs: 1000 });
+    assert.equal(result.status, "ok");
+    assert.deepEqual(result.schedulerDependencies, { ok: true });
+    assert.equal(reads, 2);
+    await probeWorkerTelemetryTunnel({ localForwardPort: server.address().port, remoteAgentPort: 19001 }, { timeoutMs: 1000 });
+    assert.equal(reads, 3, "already-ready checks must not sleep or retry");
+  } finally { await new Promise(resolve => server.close(resolve)); }
+});
+
 test("worker telemetry port probe explains stale hub-mode agent", async () => {
   const server = http.createServer((req, res) => {
     res.setHeader("Content-Type", "application/json");

@@ -30,6 +30,29 @@ test('statistical comparison uses mean±std with four decimals without rounding 
   assert.equal(JSON.stringify(source), before);
 });
 
+test('one table per Plan aligns version statistics across datasets and schemas without preview or old-seed mixing', () => {
+  const runs = ['A', 'B', 'preview', 'error', 'other'].map(runId => ({ runId, planFile: runId === 'other' ? 'other.yaml' : planFile }));
+  const view = (dataset, header, rows) => ({ title: dataset + ' / results/' + dataset + '/final.csv', header, rows });
+  const results = new Map([
+    ['A', { status: 'formal', views: [view('BUS', ['method', 'auc', 'jobs'], [['dpl', '0.8100±0.0100', 3]]),
+      view('PAD', ['method', 'auc'], [['dpl', '0.8200±0.0200']])] }],
+    ['B', { status: 'formal', views: [view('BUS', ['method', 'jobs', 'loss', 'auc'], [['dpl', 3, '0.1200±0.0200', '0.9200±0.0300']])] }],
+    ['preview', { status: 'preview', views: [view('BUS', ['method', 'auc'], [['dpl', '0.9900±0.0000']])] }],
+  ]);
+  const before = JSON.stringify([...results]), tables = comparison.planComparisonTables(runs, results);
+  assert.equal(tables.length, 2);
+  const table = tables[0];
+  assert.deepEqual(table.rows.map(row => row.runId), ['A', 'B', 'preview', 'error']);
+  const auc = table.columns.findIndex(column => column.label === 'BUS / dpl / auc');
+  assert.equal(table.rows[0].values[auc], '0.8100±0.0100');
+  assert.equal(table.rows[1].values[auc], '0.9200±0.0300');
+  const pad = table.columns.findIndex(column => column.label === 'PAD / dpl / auc');
+  assert.equal(table.rows[1].values[pad], '—');
+  assert.ok(table.rows.slice(2).every(row => row.values.every(value => value === '—')));
+  assert.equal(tables[1].rows[0].runId, 'other');
+  assert.equal(JSON.stringify([...results]), before);
+});
+
 function fixture({ incomplete = false, fault = '' } = {}) {
   // A nonexistent workspace makes any disk write a regression; no test cleanup is needed.
   const root = path.join(os.tmpdir(), 'comparison-no-files-' + crypto.randomUUID());
@@ -181,6 +204,53 @@ test('review page shows results, defaults to keep, validates selection and relea
   assert.equal((await pending).length, 3); assert.equal(signal.aborted, true);
   const messageCount = ui.messages.length;
   await ui.send({ type: 'ready' }); assert.equal(ui.messages.length, messageCount);
+});
+
+test('rendered review keeps one Plan table and one stable selectable row per run while results arrive', async () => {
+  class Element {
+    constructor(tag, text = '') { this.tag = tag; this.children = []; this.dataset = {}; this._text = text; }
+    append(...nodes) { for (const node of nodes) { const item = typeof node === 'string' ? new Element('#text', node) : node; item.remove(); item.parent = this; this.children.push(item); } }
+    remove() { if (this.parent) this.parent.children.splice(this.parent.children.indexOf(this), 1); this.parent = undefined; }
+    insertBefore(node, before) { node.remove(); node.parent = this; this.children.splice(this.children.indexOf(before), 0, node); }
+    replaceChildren(...nodes) { for (const node of [...this.children]) node.remove(); this._text = ''; this.append(...nodes); }
+    setAttribute(name, value) { this[name] = value; }
+    get firstChild() { return this.children[0]; }
+    get textContent() { return this._text + this.children.map(node => node.textContent).join(''); }
+    set textContent(value) { this.replaceChildren(); this._text = String(value); }
+  }
+  const ui = reviewPanel(), f = fixture(), a = f.runs.find(run => run.runId === 'A'), b = f.runs.find(run => run.runId === 'B');
+  const preview = { ...a, runId: 'preview', eligible: false }, error = { ...a, runId: 'error', eligible: false };
+  const other = { ...a, runId: 'other', planFile: 'other.yaml' }, runs = [a, b, preview, error, other];
+  const pending = ui.api.reviewPlanVersionResults(runs, [], async () => { throw Error('unused'); });
+  const ids = new Map(['runs', 'status', 'cancel', 'continue'].map(id => [id, new Element('div')]));
+  const sent = []; let receive;
+  vm.runInNewContext([...ui.html().matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)][0][1], {
+    document: { createElement: tag => new Element(tag), getElementById: id => ids.get(id) },
+    window: { addEventListener: (_name, handler) => { receive = handler; } }, acquireVsCodeApi: () => ({ postMessage: message => sent.push(message) }),
+  });
+  const results = new Map(), message = data => receive({ data });
+  message({ type: 'runs', runs, tables: comparison.planComparisonTables(runs, results) });
+  const sections = ids.get('runs').children;
+  assert.equal(sections.length, 2);
+  const table = sections[0].children[1].firstChild, rows = table.children[1].children;
+  assert.equal(table.className, 'plan-table'); assert.equal(rows.length, 4);
+  const check = rows[0].children[0].firstChild.firstChild, detail = rows[0].children.at(-1).firstChild;
+  assert.equal(check.checked, true); assert.equal(check.disabled, true);
+  const result = await f.load(a); results.set('A', result);
+  message({ type: 'result', result, tables: comparison.planComparisonTables(runs, results) });
+  check.checked = false; detail.open = true;
+  const newer = await f.load(b); results.set('B', newer);
+  message({ type: 'result', result: newer, tables: comparison.planComparisonTables(runs, results) });
+  assert.equal(rows[0].children[0].firstChild.firstChild, check); assert.equal(check.checked, false);
+  assert.equal(rows[0].children.at(-1).firstChild, detail); assert.equal(detail.open, true);
+  assert.equal(check.disabled, false); assert.equal(rows[1].children[0].firstChild.firstChild.disabled, true);
+  assert.match(rows[0].textContent, /0.8100±0.0000/); assert.match(rows[1].textContent, /0.9200±0.0000/);
+  message({ type: 'runError', runId: 'error', message: 'CSV 引号格式无效' });
+  message({ type: 'result', result: { runId: 'preview', status: 'preview', views: [], sources: [] }, tables: comparison.planComparisonTables(runs, results) });
+  assert.match(rows[2].textContent, /未完成预览/); assert.match(rows[3].textContent, /CSV 引号格式无效/);
+  message({ type: 'loaded' }); assert.equal(ids.get('continue').disabled, false);
+  ids.get('continue').onclick(); assert.deepEqual(Array.from(sent.at(-1).runIds), ['A']);
+  ui.panel.dispose(); assert.equal(await pending, undefined);
 });
 
 test('closing during reconstruction aborts reads and ignores the late response', async () => {
