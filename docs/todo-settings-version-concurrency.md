@@ -18,7 +18,7 @@
 - `worker_pool` 下不同 Worker 可并行使用不同指纹；同一 Worker 共用项目根目录，仍保留版本锁。没有增加源代码副本、工作目录或产物缓存。
 - 写代码前刷新任务占用，不因 warm hash/proof 缓存跳过动态检查。真正活动、未知或归属冲突的任务不允许覆盖；只读检查失败时可选其他可信 Worker。
 - 代码上传期间暂缓新派发，继续核对并持久化旧任务终态。运行和校验可选安全 Worker；手动全 Worker 同步不能把部分成功冒充全量完成。
-- 未在现场重启 Agent、重跑 Plan 或传输文件。0.5.235 安装后需用户重载，再观察设置及真实跨 Worker 并行。
+- 未在现场重启 Agent、重跑 Plan 或传输文件。最终版本 0.5.236 安装后需用户重载，再观察设置及真实跨 Worker 并行。
 
 ## 验证记录
 
@@ -33,3 +33,11 @@
 - `npm run install:latest` 仅执行一次；VS Code 已安装版本为 `0.5.235`，189 个运行时模块与本机一致，`simpleex --help` 及 npm link 入口正常。安装后停止 Panel/API 操作。
 - 代码提交 `fe1cf1d3` 已普通 fast-forward 推送至 `origin/master`，fetch 后 HEAD 一致；工作区仅剩原有两个 dirty `.pyc`。本条发布记录单独作为文档批次收口。
 - 未验证项仅为用户重载后的真实设置页及不同 Worker 的跨代码版本训练并行；同 Worker 的共享代码根目录仍须等待旧任务结束。
+
+## 旧缓存迁移兼容补丁 0.5.236
+
+- 旧版本曾在落盘时丢掉 proof id，仅持久化代码指纹。已经排队的 Plan 重载后可能缺少 Host proof。
+- 有原 Worker proof 时保持紧凑派发；仅缺失 proof 时，允许本机完整 manifest 与 Plan 指纹相等后交给 Agent 原有完整校验路径。保留同一 commandId，不上传代码，不重复提交 Plan。
+- 本机已经变化且没有原版本 proof 时仍拒绝派发；既有 proof 身份不匹配仍拒绝，不可把错误凭据静默降级。
+- 单 Plan 多 job 仍共享一次 manifest 构建，Agent 使用原有 legacy proof 缓存。版本隔离 10/10、持久化 6/6、冷恢复 4/4、Host 派发 9/9、Agent 集成 7/7、结构缓存 4/4；0.5.236 build 通过。
+- 0.5.236 package、vm.Script、189 个运行时模块与 VSIX 198 个文件逐字节校验通过。安装命令对 0.5.236 仅执行一次；已核对 VS Code 版本、189 个已安装模块和 simpleex 入口。0.5.235 到 0.5.236 是兼容修正的普通升级，没有同版本重复或强制安装；安装后未操作 Panel/API。

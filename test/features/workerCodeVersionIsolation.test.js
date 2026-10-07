@@ -113,6 +113,31 @@ test("old pending job uses the original Worker's durable proof after the local c
   assert.equal(sent.length, 1);
 });
 
+test("a pre-migration cache without a proof uses a verified matching manifest and preserves the pending command", async () => {
+  const f = fixture(), sent = [], manifest = { "models/train.py": "a".repeat(64) };
+  const fingerprintFunction = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "fingerprintFromManifest").getText(ast);
+  const proofFunction = ast.statements.find(node => ts.isFunctionDeclaration(node) && node.name?.text === "durableCodeProofRequestFields").getText(ast);
+  const sandbox = { crypto: require("node:crypto"), DistributedPlanQueue: queue, DistributedSchedulingPolicy: require("../../dist/features/DistributedSchedulingPolicy.js"), workspaceRoot: () => f.root };
+  vm.createContext(sandbox);
+  vm.runInContext(fingerprintFunction + "\n" + proofFunction + "\n" + method("sendDistributedJob"), sandbox);
+  const fingerprint = sandbox.fingerprintFromManifest(manifest);
+  Object.assign(f.host, sandbox.methods, { distributedQueueGeneration: 1, workerActionTargets: () => f.workers, enabledWorkerConfigs: () => f.workers,
+    schedulerSettings: () => ({}), withRemoteActionResource: async (_worker, _action, _request, run) => run(),
+    lastWorkerProbes: { "worker-free": { capabilities: { actionEndpoints: { "register-code-sync-proof": true } } } },
+    lastCodeSyncState: { fingerprint, workerVersions: { "worker-free": { fingerprint } } },
+    buildDistributedJobCodeManifest: async () => manifest,
+    client: { postWorkerAction: async (_worker, _action, request) => { sent.push(request); return { status: "queued" }; } },
+  });
+  const plan = { ...f.old.plans[0], codeFingerprint: fingerprint };
+  await f.host.sendDistributedJob(plan, plan.jobs[0], "worker-free", "1", "already-persisted-command");
+  assert.equal(sent[0].opId, "already-persisted-command");
+  assert.equal(sent[0].codeManifest, manifest);
+  assert.equal(sent[0].codeSyncProofId, undefined);
+  f.host.buildDistributedJobCodeManifest = async () => ({ "models/train.py": "c".repeat(64) });
+  await assert.rejects(f.host.sendDistributedJob(plan, plan.jobs[0], "worker-free", "1", "already-persisted-command"), /本机代码已偏离/);
+  assert.equal(sent.length, 1);
+});
+
 test("allocation is held only during a code write; running reconciliation continues and manifest identity stays mandatory", () => {
   const tick = source.slice(source.indexOf("async tickDistributedQueueCore("), source.indexOf("async patchDistributedJobArtifactState("));
   assert.ok(tick.indexOf("mergeDurableWorkerSnapshots") < tick.indexOf("if (this.codeSyncInFlight)"));

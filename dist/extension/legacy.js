@@ -10890,12 +10890,14 @@ class RealtimeTunnelPanelProvider {
         const supportsCodeSyncProof = this.lastWorkerProbes?.[workerId]?.capabilities?.actionEndpoints?.["register-code-sync-proof"] === true;
         const workerVersion = this.lastCodeSyncState?.workerVersions?.[workerId] || {};
         let codeProofFields;
-        if (supportsCodeSyncProof) {
+        if (supportsCodeSyncProof && workerVersion.codeSyncProofId) {
             // Agent verifies the persisted proof against its own code files before admission.
             // An unchanged Worker can finish an older Plan after the local workspace advances.
             codeProofFields = durableCodeProofRequestFields(true, workerVersion, plan.codeFingerprint, undefined, workerId);
         }
         else {
+            // Pre-migration Host caches may contain the fingerprint but no proof id.
+            // The Agent can validate a matching full manifest without copying code or resubmitting the Plan.
             const codeManifest = sharedCodeManifest || await this.buildDistributedJobCodeManifest(root);
             if (fingerprintFromManifest(codeManifest) !== plan.codeFingerprint)
                 throw new Error("本机代码已偏离 Plan 的代码指纹，持久队列提交已暂停；请恢复该版本或重新提交计划。");
@@ -11325,7 +11327,8 @@ class RealtimeTunnelPanelProvider {
                 }).filter(([id, plan]) => id && plan)).values()];
             const sharedManifests = new Map();
             await Promise.all(dispatchPlans.map(async (plan) => {
-                if (dispatches.filter((row) => row.planId === plan.id).every((row) => this.lastWorkerProbes?.[row.workerId]?.capabilities?.actionEndpoints?.["register-code-sync-proof"] === true))
+                if (dispatches.filter((row) => row.planId === plan.id).every((row) => this.lastWorkerProbes?.[row.workerId]?.capabilities?.actionEndpoints?.["register-code-sync-proof"] === true
+                    && this.lastCodeSyncState?.workerVersions?.[row.workerId]?.codeSyncProofId))
                     return;
                 try {
                     sharedManifests.set(plan.id, await this.buildDistributedJobCodeManifest(root));
