@@ -37,7 +37,7 @@ function fixture() {
     postUiCommandStatus(_id, status) { statuses.push(status); },
     planSubmissionOperationId: () => "op", submissionStillCurrent: () => true,
     finishPlanSubmissionProgress(_message, status, detail) { progress.push({ status, detail }); },
-    postState() {}, recordActionError() {},
+    postState() {}, recordActionError() {}, queuePlanArtifactSyncStatusCheck() {},
   };
   return { host, alerts, statuses, progress };
 }

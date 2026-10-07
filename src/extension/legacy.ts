@@ -45,6 +45,7 @@ import { aggregateSeedScalars } from "../tensorboard/ScalarAggregation";
 import * as ProjectResultTables from "../results/ProjectResultTables";
 import * as ProjectResultPublication from "../results/ProjectResultPublication";
 import * as PlanRunFreshness from "../results/PlanRunFreshness";
+import * as PlanArtifactSyncStatus from "../features/PlanArtifactSyncStatus";
 import * as PlanOutputRetention from "../features/PlanOutputRetention";
 import { resolvePlanWorkerAffinity } from "../features/PlanWorkerAffinity";
 import * as PlanArtifactSync from "../features/PlanArtifactSync";
@@ -1187,8 +1188,22 @@ export class RealtimeTunnelPanelProvider {
     gpuOwnerConfigCache;
     resultCsvDirectory = resultCsvDirSafe();
     topologyRuntimeMode = "";
+    private readonly cacheCleanupContextChanged = new vscode.EventEmitter<void>();
+    private cacheCleanupConnectionKey = "";
+    private planArtifactSyncStatuses: Record<string, PlanArtifactSyncStatus.PlanArtifactSyncStatus> = {};
+    private planArtifactSyncStatusRoot = "";
+    private planArtifactSyncStatusKey = "";
+    private planArtifactSyncStatusQueue;
+    private planArtifactSyncStatusMetadata;
+    private planArtifactSyncStatusConnectionKey = "";
+    private planArtifactSyncStatusPromise: Promise<void> | undefined;
+    private planArtifactSyncStatusPending = false;
+    private planArtifactSyncStatusForcePending = false;
+    private planArtifactSyncStatusRetryAt = 0;
+    private planArtifactSyncStatusRetryCount = 0;
     constructor(context) {
         this.context = context;
+        this.context.subscriptions.push(this.cacheCleanupContextChanged);
         this.startPanelHostEventLoopMonitor();
         this.retainPanelContextWhenHidden = vscode.workspace.getConfiguration("simpleExperiment").get("panel.retainContextWhenHidden", false) === true;
         const incidentSlots = this.context.workspaceState.get(PANEL_INCIDENT_STORAGE_KEY);
@@ -9565,7 +9580,10 @@ export class RealtimeTunnelPanelProvider {
         finally {
             const remaining = (counts.get(root) || 1) - 1;
             if (remaining) counts.set(root, remaining);
-            else counts.delete(root);
+            else {
+                counts.delete(root);
+                this.queuePlanArtifactSyncStatusCheck(true);
+            }
         }
     }
     async withSafeTransferRetry(command, message, work) {
@@ -9994,6 +10012,85 @@ export class RealtimeTunnelPanelProvider {
         void root;
         void rerunIfBusy;
     }
+    private queuePlanArtifactSyncStatusCheck(force = false): void {
+        void this.refreshPlanArtifactSyncStatus(force).catch((error) => console.warn(`[SimpleExperiment] 产物同步状态读取未完成：${errorMessage(error).slice(0, 300)}`));
+    }
+    private async refreshPlanArtifactSyncStatus(force = false): Promise<void> {
+        const root = workspaceRoot();
+        const queue = this.distributedQueueCache;
+        if (!root || this.distributedQueueRoot !== root || !queue || !this.isRealtimeMode()) return;
+        if (this.distributedPostprocessPromise || this.manualResultSyncCounts?.get(root)) {
+            this.planArtifactSyncStatusForcePending ||= force;
+            return;
+        }
+        force ||= this.planArtifactSyncStatusForcePending;
+        this.planArtifactSyncStatusForcePending = false;
+        force ||= this.planArtifactSyncStatusRetryAt > 0 && Date.now() >= this.planArtifactSyncStatusRetryAt;
+        const targets = this.workerCodeSyncTargets();
+        const online = targets.filter(target => this.lastWorkerProbes[target.id]?.status === "ok");
+        const queueStale = this.distributedQueueStorageDiagnostics?.status === "stale";
+        const connectionKey = JSON.stringify([root, this.projectContextGeneration, this.cacheCleanupConnectionKey, queueStale,
+            targets.map(target => [target.id, target.host, target.port, target.user, target.remotePath, this.lastWorkerProbes[target.id]?.status || "unknown"])]);
+        const metadata = this.localPlanMetadata;
+        if (!force && queue === this.planArtifactSyncStatusQueue && metadata === this.planArtifactSyncStatusMetadata
+            && connectionKey === this.planArtifactSyncStatusConnectionKey) return;
+        if (this.planArtifactSyncStatusPromise) {
+            this.planArtifactSyncStatusPending = true;
+            this.planArtifactSyncStatusForcePending ||= force;
+            return;
+        }
+        const plans = PlanArtifactSyncStatus.latestCompletePlansForSyncCheck(queue, metadata?.plans || []);
+        const workerIds = targets.map(target => target.id);
+        const requiredPaths = this.distributedProjectContract().requiredPaths;
+        const key = `${connectionKey}:${JSON.stringify(requiredPaths)}:${PlanArtifactSyncStatus.planArtifactSyncCheckKey(plans, workerIds, online.map(target => target.id))}`;
+        this.planArtifactSyncStatusQueue = queue;
+        this.planArtifactSyncStatusMetadata = metadata;
+        this.planArtifactSyncStatusConnectionKey = connectionKey;
+        if (!force && key === this.planArtifactSyncStatusKey) return;
+        if (key !== this.planArtifactSyncStatusKey) this.planArtifactSyncStatusRetryCount = 0;
+        this.planArtifactSyncStatusKey = key;
+        this.planArtifactSyncStatusRetryAt = 0;
+        this.planArtifactSyncStatusRoot = root;
+        const generation = this.projectContextGeneration;
+        const client = this.client;
+        const isCurrent = () => workspaceRoot() === root && generation === this.projectContextGeneration && client === this.client;
+        this.planArtifactSyncStatuses = Object.fromEntries(plans.map(plan => [plan.id, {
+            runId: plan.id, revision: plan.revision, status: "checking", checkedAt: "", targetCount: targets.length, syncedCount: 0,
+            pendingWorkerIds: [], unavailableWorkerIds: [], detail: "只读核验最新运行目录，复用 SHA256 缓存；不会自动传输。",
+        }]));
+        this.postState();
+        const work = async () => {
+            const inventories = new Map<string, Record<string, string>>();
+            const paths = [...new Set<string>(plans.flatMap(plan => plan.jobs.map(job => job.outputDir)))];
+            await mapLimited(queueStale ? [] : online, 2, async target => {
+                if (!isCurrent() || !paths.length) return;
+                try { inventories.set(target.id, await this.distributedOutputHashes(this.sftpServerOptions(target), paths, undefined, true)); }
+                catch { /* An unavailable Worker is explicit, never an empty matching directory. */ }
+            });
+            if (!isCurrent()) { this.planArtifactSyncStatusKey = ""; return; }
+            this.planArtifactSyncStatuses = Object.fromEntries(plans.map(plan => [plan.id,
+                PlanArtifactSyncStatus.assessPlanArtifactSync(plan, workerIds, inventories, requiredPaths)]));
+            this.postState();
+        };
+        const promise = work();
+        this.planArtifactSyncStatusPromise = promise;
+        try { await promise; }
+        catch (error) {
+            if (isCurrent()) {
+                this.planArtifactSyncStatuses = Object.fromEntries(Object.entries(this.planArtifactSyncStatuses).map(([id, row]) => [id, {
+                    ...row, status: "unknown", checkedAt: new Date().toISOString(), detail: `检测未完成：${errorMessage(error).slice(0, 200)}`,
+                }]));
+                this.postState();
+            }
+        }
+        finally {
+            if (this.planArtifactSyncStatusPromise === promise) this.planArtifactSyncStatusPromise = undefined;
+            if (isCurrent() && Object.values(this.planArtifactSyncStatuses).some(row => row.status === "unknown")) {
+                this.planArtifactSyncStatusRetryAt = Date.now() + Math.min(300_000, 60_000 * 2 ** Math.min(this.planArtifactSyncStatusRetryCount++, 3));
+            } else if (isCurrent()) this.planArtifactSyncStatusRetryCount = 0;
+            if (this.planArtifactSyncStatusPending) { this.planArtifactSyncStatusPending = false; this.queuePlanArtifactSyncStatusCheck(); }
+        }
+    }
     async refreshDistributedResultSyncProbes(root) {
         const client = this.client;
         const generation = this.projectContextGeneration;
@@ -10077,7 +10174,13 @@ export class RealtimeTunnelPanelProvider {
         });
         this.distributedPostprocessPromise = work;
         try { await work; }
-        finally { if (this.distributedPostprocessPromise === work) { this.distributedPostprocessPromise = undefined; this.distributedPostprocessScope = undefined; } }
+        finally {
+            if (this.distributedPostprocessPromise === work) {
+                this.distributedPostprocessPromise = undefined;
+                this.distributedPostprocessScope = undefined;
+                this.queuePlanArtifactSyncStatusCheck(true);
+            }
+        }
     }
     async enqueueDistributedPlan(body, validated, skipTick = false, supersededDeferredId = "", submissionEpoch = 0, submissionOperationId = "") {
         const root = workspaceRoot();
@@ -10255,6 +10358,7 @@ export class RealtimeTunnelPanelProvider {
         };
         if (!root || !this.isRealtimeMode() || this.projectTopologyAssessment().mode !== "worker_pool") return;
         let queue = await this.loadDistributedQueue(root);
+        this.queuePlanArtifactSyncStatusCheck();
         let newTerminal = false;
         if (!queue.plans.length && !(queue.deferred || []).length && !this.workerActionTargets().length) return;
         const targetsNeedingMirror = this.workerCodeSyncTargets().filter((target) => queue.plans.some((plan) => plan.jobs.some((job) => job.status === "completed" && !job.mirroredWorkerIds?.includes(target.id))));
@@ -15664,7 +15768,12 @@ export class RealtimeTunnelPanelProvider {
         void vscode.window.showInformationMessage(`已从本机面板隐藏 ${taskUiKeys.length} 条旧任务残留；未删除任何远端文件。`);
     }
     async clearCacheFromUi() {
-        openCacheCleanupPanel(this.client, () => this.setupConfig.workerTunnels.map((worker) => ({ id: worker.id, role: "worker" })), workspaceRoot());
+        openCacheCleanupPanel(() => ({
+            client: this.client,
+            endpoints: this.enabledWorkerConfigs().map((worker) => ({ id: worker.id, role: "worker" })),
+            localRoot: workspaceRoot(),
+            generation: this.projectContextGeneration,
+        }), this.cacheCleanupContextChanged.event);
     }
     async clearOperationHistoryFromUi(message) {
         const root = workspaceRoot();
@@ -16434,7 +16543,7 @@ export class RealtimeTunnelPanelProvider {
         const sources = new Map();
         for (const item of items) {
             const revision = String(item.metadata?.revision || item.summary?.planRevision || item.authority?.revision || "");
-            const run = item.runAuthority || PlanRunFreshness.selectLatestCompletePlanRun(queue, item.planFile, revision);
+            const run = item.runAuthority || PlanRunFreshness.selectLatestCompletePlanRunIdentity(queue, item.planFile, revision);
             if (!run) continue;
             item.runAuthority = run;
             // Latest-run raw metrics are authoritative even when a shared summary claims the same run.
@@ -16481,9 +16590,12 @@ export class RealtimeTunnelPanelProvider {
         } };
         const verifiedMetrics = (file, workerId) => file.metrics.filter(name => {
             const inventory = inventories.get(workerId), entry = inventory?.files?.[name], expected = file.job.artifacts?.[name];
+            const runScoped = file.job.outputDir.split("/").some((part, index, parts) => part === "attempts" && parts[index + 1] === file.runId);
+            if (!expected && !runScoped) return false; // A reused legacy directory cannot prove an unhashed new run.
             return entry && !inventory.unverifiedFiles?.[name] && entry.size > 0 && entry.size <= 4 * 1024 * 1024
                 && /^[a-f0-9]{64}$/i.test(String(entry.sha256 || "")) && (!expected || expected === entry.sha256);
         });
+        for (const recovery of recoveries) for (const file of recovery.files) file.runId = recovery.run.runId;
         await readInventories(sources);
         const fallbackSources = new Map();
         for (const { files } of recoveries) for (const file of files) {
@@ -17477,7 +17589,7 @@ export class RealtimeTunnelPanelProvider {
         const ledger = await this.loadPlanSyncLedger(root);
         const latest = PlanArtifactSync.latestPlanSyncEntry(ledger, planFile);
         const queue = await this.loadDistributedQueue(root);
-        const runAuthority = PlanRunFreshness.selectLatestCompletePlanRun(queue, planFile, String(metadata?.revision || summary?.planRevision || latest?.revision || ""));
+        const runAuthority = PlanRunFreshness.selectLatestCompletePlanRunIdentity(queue, planFile, String(metadata?.revision || summary?.planRevision || latest?.revision || ""));
         if (runAuthority && !PlanRunFreshness.summaryProvesRun(summary, runAuthority)) return;
         if (!ProjectResultTables.summaryMatchesPlanRevision(summary, metadata)) return;
         const expected = Array.isArray(metadata?.seeds) ? metadata.seeds.length : 0;
@@ -17502,7 +17614,7 @@ export class RealtimeTunnelPanelProvider {
         const plans = planFiles.map((planFile) => {
             const metadata = (this.localPlanMetadata.plans || []).find((item) => samePlanSelection(item.planFile || item.file, planFile)) || { planFile };
             const authority = PlanArtifactSync.latestPlanSyncEntry(syncLedger, planFile);
-            const runAuthority = PlanRunFreshness.selectLatestCompletePlanRun(queue, planFile, String(metadata?.revision || authority?.revision || ""));
+            const runAuthority = PlanRunFreshness.selectLatestCompletePlanRunIdentity(queue, planFile, String(metadata?.revision || authority?.revision || ""));
             return { ...metadata, authority, runAuthority };
         });
         let registry = await this.loadProjectTableRegistry(root);
@@ -19718,6 +19830,15 @@ export class RealtimeTunnelPanelProvider {
         this.budget = new RequestBudget_1.RequestBudget((0, TunnelGateway_1.requestBudgetConfigFromTunnel)(this.tunnelConfig));
         this.client = this.createClient();
         this.realtimeUiStateRefs = undefined;
+        this.cacheCleanupConnectionKey = "";
+        this.planArtifactSyncStatuses = {};
+        this.planArtifactSyncStatusRoot = "";
+        this.planArtifactSyncStatusKey = "";
+        this.planArtifactSyncStatusQueue = undefined;
+        this.planArtifactSyncStatusMetadata = undefined;
+        this.planArtifactSyncStatusRetryAt = 0;
+        this.planArtifactSyncStatusRetryCount = 0;
+        this.cacheCleanupContextChanged.fire();
         this.lastRealtimeHeartbeatPostAt = 0;
         this.lastAvailabilityGpuSignature = "";
         void previous?.disconnect("reconfigure").catch(() => undefined);
@@ -19776,6 +19897,12 @@ export class RealtimeTunnelPanelProvider {
         }, this.realtimeRefreshPolicy(), (state) => {
             if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
+            const cleanupConnectionKey = client.diagnostics().endpoints.map((endpoint) => `${endpoint.id}:${endpoint.streamStatus}`).join("|");
+            if (cleanupConnectionKey !== this.cacheCleanupConnectionKey) {
+                this.cacheCleanupConnectionKey = cleanupConnectionKey;
+                this.cacheCleanupContextChanged.fire();
+                this.queuePlanArtifactSyncStatusCheck();
+            }
             this.lastRealtimeState = state;
             this.updateCompactPanelLogsProjection(firstRecord(state?.logs));
             this.mergeRecentPlansFromRuntime(state, this.lastSnapshot, this.offlineBundle?.snapshot);
@@ -20302,10 +20429,25 @@ export class RealtimeTunnelPanelProvider {
         });
         return this.planRuntimeEvidenceCache.value;
     }
-    private refreshLocalResultsFromUi(): void {
-        if (!workspaceRoot()) throw new Error("请先打开本地项目工作区。");
+    private async refreshLocalResultsFromUi(): Promise<void> {
+        const context = this.captureProjectContext();
+        if (!context.root) throw new Error("请先打开本地项目工作区。");
         this.cancelResultCatalogRefresh();
         this.resultCatalogRefreshError = "";
+        const registry = await this.loadProjectTableRegistry(context.root);
+        if (!this.projectContextIsCurrent(context)) throw new UiCommandCancelled("项目已切换，未重建旧项目的结果表。");
+        const tables = ProjectResultTables.buildTables(registry);
+        const resultDir = this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR;
+        const outputs = Object.values(tables).flatMap(table => [
+            [table.relativePath, ProjectResultTables.writeCsv(table.header, table.rows)], [table.markdownPath, table.markdown],
+        ]);
+        const differs = await mapLimited(outputs, 8, async ([relative, expected]) => {
+            const file = safeWorkspaceChildPath(context.root, path.posix.join(resultDir, relative));
+            const current = await fs.readFile(file, "utf8").catch(error => { if (error?.code === "ENOENT") return undefined; throw error; });
+            return current !== expected;
+        });
+        if (!this.projectContextIsCurrent(context)) throw new UiCommandCancelled("项目已切换，未重建旧项目的结果表。");
+        if (differs.some(Boolean)) await this.writeProjectTableRegistry(context.root, registry, resultDir);
         this.invalidateResultCatalogCache("manual-local-refresh");
         this.postState();
     }
@@ -20885,7 +21027,7 @@ export class RealtimeTunnelPanelProvider {
                 offlineSnapshot?.experimentTraces, snapshot?.experimentTraces, realtimeState?.experimentTraces, includePanelResults],
             gpu: [offlineSnapshot?.gpu, snapshot?.gpu, realtimeState?.gpu, gpuHistory, this.setupConfig, includePanelGpuHistory],
             execution: [offlineSnapshot?.schedulerStates, snapshot?.schedulerStates, realtimeState?.schedulerStates, offlineSnapshot?.operations, snapshot?.operations,
-                realtimeState?.operations, distributedQueueStateRevision, planStopClearRevision, this.lastRealtimeState?.fileTransfers,
+                realtimeState?.operations, distributedQueueStateRevision, planStopClearRevision, this.lastRealtimeState?.fileTransfers, this.planArtifactSyncStatuses,
                 this.selectedPlanId, this.planFileInput, includePanelExecutionHistory],
             diagnostics: [this.lastHealth, this.lastProbe, this.lastWorkerProbes, this.lastIntegrationReport, endpointRegistryState.registry,
                 this.tunnelConfig, this.actionErrors.length, actionErrorRevision, this.lastSnapshot?.diagnostics, this.lastRealtimeState?.diagnostics],
@@ -20936,6 +21078,7 @@ export class RealtimeTunnelPanelProvider {
             sectionRevisions,
             schedulerStates,
             distributedPlans,
+            planArtifactSyncStatuses: this.planArtifactSyncStatusRoot === workspaceRoot() ? this.planArtifactSyncStatuses : {},
             planStopClearByFile: this.planStopClearByFile,
             deferredPlans: this.distributedQueueRoot === workspaceRoot()
                 ? (this.distributedQueueCache?.deferred || []).map((item) => ({ id: item.id, planFile: item.planFile,
@@ -31400,8 +31543,6 @@ function renderHtml() {
     <button data-command="restart" title="重新连接实时事件通道，不会重启 Xshell。">重启实时流</button>
     <button data-command="pauseStream" class="secondary" title="暂停实时事件刷新，但不关闭 Xshell。">暂停实时流</button>
     <button data-command="resumeStream" class="secondary" title="恢复实时事件刷新。">恢复实时流</button>
-    <button data-command="pauseAll" class="secondary" title="暂停插件所有本地隧道请求。">暂停全部网络</button>
-    <button data-command="resumeNetwork" class="secondary" title="恢复插件访问已配置的本地隧道端点。">恢复网络</button>
     <button data-command="snapshot" class="secondary" title="手动读取一次当前状态。">手动快照</button>
     <button data-command="script" class="secondary" title="生成可手动运行的 Xshell 隧道脚本。">生成脚本</button>
     <button data-command="realCheck" class="secondary" title="逐层检查 Xshell、端口、Hub Agent、实时通道和文件 API。">真实对接检测</button>

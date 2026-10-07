@@ -91,6 +91,7 @@ function fixture({ emptyOriginal = false, cold = false, allMissing = false, retr
         assert.equal(inventory[id][file]?.sha256, hash, `published before ${id}/${file} was restored`);
     },
     recordActionError(value) { errors.push(value); }, postState() {},
+    queuePlanArtifactSyncStatusCheck(force) { assert.equal(force, true); },
   };
   return { host, inventory, files, transfers, errors, events, inventoryCalls, get state() { return state; } };
 }

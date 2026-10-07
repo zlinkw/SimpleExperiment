@@ -6,12 +6,11 @@ const { readSource } = require("../_helpers/sourceReader");
 
 const panel = readSource("src/ui/PanelHtml.ts");
 
-test("topbar keeps network recovery and uses one settings entry", () => {
+test("topbar removes network pause/resume and uses one settings entry", () => {
   const topbarStart = panel.indexOf('<div class="topbar-actions">');
   const topbarEnd = panel.indexOf("</div>", topbarStart);
   const topbar = panel.slice(topbarStart, topbarEnd);
-  assert.match(topbar, /data-command="pauseAll"/);
-  assert.match(topbar, /data-command="resumeNetwork"/);
+  assert.doesNotMatch(topbar, /data-command="pauseAll"|data-command="resumeNetwork"/);
   assert.match(topbar, /data-section-target="settings"/);
   assert.doesNotMatch(topbar, /layoutEditToggle|collapseAllSections|expandAllSections|resetUiLayout/);
 });
@@ -23,5 +22,5 @@ test("layout tools remain available inside settings and editing returns to works
   assert.match(panel, /id="expandAllSections"/);
   assert.match(panel, /data-command="resetUiLayout"/);
   assert.match(panel, /if \(!layoutEdit && currentMainView === "settings"\) switchMainView\("workspace"\);/);
-  assert.match(panel, /treeObjectItem\("settings", "界面布局"/);
+  assert.match(panel, /section !== "servers" && section !== "settings"/);
 });

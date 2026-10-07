@@ -372,7 +372,7 @@ class MultiEndpointRealtimeClient {
         // 若 hub 未配置但为 clearCache 已在上方处理，此处仍抛 Hub not configured 以便上层回退
         return this.hubClient().postAction(action, body);
     }
-    async postWorkerAction(workerId, action, body) {
+    async postWorkerAction(workerId, action, body, options = {}) {
         const isCacheClearWorker = String(action || "").trim().toLowerCase().replace(/[-_]/g, "") === "clearcache";
         if (!isCacheClearWorker && action !== "preview-cache-cleanup" && action !== "delete-cache-candidates" && !(0, WorkerTelemetryApi_1.isWorkerTelemetryAction)(action) && !isWorkerLocalSchedulerRequest(action, body) && !isWorkerOwnedResultRequest(action, body)) {
             throw new Error(`Worker Agent action not allowed: ${action}`);
@@ -382,7 +382,7 @@ class MultiEndpointRealtimeClient {
         if (!client || endpoint?.role !== "worker") {
             throw new Error(`Worker Agent endpoint not configured: ${workerId}`);
         }
-        return client.postAction(action, body);
+        return client.postAction(action, body, options);
     }
     async postAvailabilityBatch(body) {
         // postAvailabilityBatch 保持 hub 聚合（workers 先直连 HUB 再聚合），失败单端忽略；此处简化为 hub 直调以兼容既有 worker 隔离测试

@@ -28,7 +28,7 @@ function timestamp(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY;
 }
 
-function authoritativeJob(plan: Record<string, any>, job: Record<string, any>): AuthoritativeJobIdentity | undefined {
+function authoritativeJob(plan: Record<string, any>, job: Record<string, any>, requireArtifactHashes: boolean): AuthoritativeJobIdentity | undefined {
   const index = Number(job?.index);
   const seed = Number(job?.seed);
   const attempt = Number(job?.attempt);
@@ -43,7 +43,7 @@ function authoritativeJob(plan: Record<string, any>, job: Record<string, any>): 
     if (/^[a-f0-9]{64}$/i.test(String(hash || ""))) artifactHashes[String(file)] = String(hash).toLowerCase();
   }
   const commandId = String(job.commandId || "").trim();
-  if (!commandId || !Object.keys(artifactHashes).length) return undefined;
+  if (!commandId || requireArtifactHashes && !Object.keys(artifactHashes).length) return undefined;
   return {
     index,
     case: String(job.case).trim(),
@@ -58,6 +58,15 @@ function authoritativeJob(plan: Record<string, any>, job: Record<string, any>): 
 
 /** Select the newest complete distributed run for a Plan/revision, never a shared result CSV. */
 export function selectLatestCompletePlanRun(queue: unknown, planFile: string, expectedRevision = ""): AuthoritativePlanRun | undefined {
+  return selectLatestCompletePlanRunInternal(queue, planFile, expectedRevision, true);
+}
+
+/** Select completion identity before discovering metrics; empty hashes do not prove artifact availability. */
+export function selectLatestCompletePlanRunIdentity(queue: unknown, planFile: string, expectedRevision = ""): AuthoritativePlanRun | undefined {
+  return selectLatestCompletePlanRunInternal(queue, planFile, expectedRevision, false);
+}
+
+function selectLatestCompletePlanRunInternal(queue: unknown, planFile: string, expectedRevision: string, requireArtifactHashes: boolean): AuthoritativePlanRun | undefined {
   const rows: Record<string, any>[] = Array.isArray((queue as any)?.plans) ? (queue as any).plans : [];
   const selectedPlan = normalizedPlanFile(planFile);
   const revision = String(expectedRevision || "").trim();
@@ -71,12 +80,16 @@ export function selectLatestCompletePlanRun(queue: unknown, planFile: string, ex
       const jobs = Array.isArray(plan.jobs) ? plan.jobs : [];
       const expectedJobCount = Number(plan.fullPlanJobCount || plan.planJobCount || jobs.length);
       if (!Number.isInteger(expectedJobCount) || expectedJobCount <= 0 || jobs.length !== expectedJobCount) return undefined;
-      const normalized = jobs.map((job: Record<string, any>) => authoritativeJob(plan, job));
+      const normalized = jobs.map((job: Record<string, any>) => authoritativeJob(plan, job, requireArtifactHashes));
       if (normalized.some((job: AuthoritativeJobIdentity | undefined) => !job)
         || jobs.some((job: Record<string, any>) => job.outputRetiredAt || !["completed", "succeeded", "success"].includes(String(job.status || "").toLowerCase()))) return undefined;
       const typedJobs = normalized as AuthoritativeJobIdentity[];
       if (new Set(typedJobs.map((job) => job.index)).size !== expectedJobCount
         || new Set(typedJobs.map((job) => `${job.case}\0${job.seed}`)).size !== expectedJobCount) return undefined;
+      if (!requireArtifactHashes && (jobs.some((job: Record<string, any>) => job.recoveryConflict
+        || job.trustedTerminalStatus && job.trustedTerminalStatus !== "completed")
+        || typedJobs.some(job => job.index >= expectedJobCount)
+        || new Set(typedJobs.map(job => `${job.workerId}\0${job.commandId}`)).size !== expectedJobCount)) return undefined;
       const latestFinishedAt = Math.max(...jobs.map((job: Record<string, any>) => timestamp(job.finishedAt)));
       return {
         runId: String(plan.id),

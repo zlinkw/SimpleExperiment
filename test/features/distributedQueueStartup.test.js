@@ -100,7 +100,7 @@ test("an outstanding queue retries an unavailable tunnel probe without a panel",
   const tickStart = compiledSource.indexOf("async tickDistributedQueueCore(");
   const tickEnd = compiledSource.indexOf("const assigned = queue.plans.flatMap", tickStart);
   assert.ok(tickStart >= 0 && tickEnd > tickStart);
-  const prefix = compiledSource.slice(tickStart, tickEnd).replace(/async tickDistributedQueueCore\(([^)]*)\) \{/, "async function probeQueue($1) { this.readWorkerTaskSnapshotBatch ||= async ids => Promise.all(ids.map(id => this.readWorkerTaskSnapshot(id)));");
+  const prefix = compiledSource.slice(tickStart, tickEnd).replace(/async tickDistributedQueueCore\(([^)]*)\) \{/, "async function probeQueue($1) { this.readWorkerTaskSnapshotBatch ||= async ids => Promise.all(ids.map(id => this.readWorkerTaskSnapshot(id))); this.queuePlanArtifactSyncStatusCheck ||= () => undefined;");
   const clock = { now: 100_000 };
   const probeSandbox = { workspaceRoot: () => "C:/project", Object, Date: { now: () => clock.now },
     mapLimited: async (items, _limit, fn) => Promise.all(items.map((item) => fn(item))), setInterval, clearInterval };
@@ -130,7 +130,7 @@ test("an outstanding queue retries an unavailable tunnel probe without a panel",
 test("completed job retries a stale source probe even while another Worker is online", async () => {
   const tickStart = compiledSource.indexOf("async tickDistributedQueueCore(");
   const tickEnd = compiledSource.indexOf("const assigned = queue.plans.flatMap", tickStart);
-  const prefix = compiledSource.slice(tickStart, tickEnd).replace(/async tickDistributedQueueCore\(([^)]*)\) \{/, "async function probeQueue($1) { this.readWorkerTaskSnapshotBatch ||= async ids => Promise.all(ids.map(id => this.readWorkerTaskSnapshot(id)));");
+  const prefix = compiledSource.slice(tickStart, tickEnd).replace(/async tickDistributedQueueCore\(([^)]*)\) \{/, "async function probeQueue($1) { this.readWorkerTaskSnapshotBatch ||= async ids => Promise.all(ids.map(id => this.readWorkerTaskSnapshot(id))); this.queuePlanArtifactSyncStatusCheck ||= () => undefined;");
   const probeSandbox = { workspaceRoot: () => "C:/project", Object, Date: { now: () => 100_000 },
     mapLimited: async (items, _limit, fn) => Promise.all(items.map((item) => fn(item))), setInterval, clearInterval };
   vm.createContext(probeSandbox);
@@ -213,7 +213,7 @@ test("successful artifact pass clears an old disconnected warning", async () => 
 test("automatic completion does not rebuild previews or mirror completed job artifacts", async () => {
   const compiled = compiledSource;
   const first = compiled.indexOf("scheduleDistributedPostprocess(root, rerunIfBusy = false) {");
-  const last = compiled.indexOf("async refreshDistributedResultSyncProbes(", first);
+  const last = compiled.indexOf("queuePlanArtifactSyncStatusCheck(", first);
   assert.ok(first >= 0 && last > first);
   const context = { workspaceRoot: () => "C:/project", errorMessage: String };
   vm.createContext(context);
@@ -370,7 +370,7 @@ test("restart fences an unacknowledged legacy dispatch with its original command
   const start = compiled.indexOf("async tickDistributedQueueCore(");
   const end = compiled.indexOf("async syncDistributedJobArtifacts(", start);
   assert.ok(start >= 0 && end > start);
-  const queueMethod = compiled.slice(start, end).replace(/async tickDistributedQueueCore\(([^)]*)\) \{/, "async function tickQueue($1) { this.readWorkerTaskSnapshotBatch ||= async ids => Promise.all(ids.map(id => this.readWorkerTaskSnapshot(id)));");
+  const queueMethod = compiled.slice(start, end).replace(/async tickDistributedQueueCore\(([^)]*)\) \{/, "async function tickQueue($1) { this.readWorkerTaskSnapshotBatch ||= async ids => Promise.all(ids.map(id => this.readWorkerTaskSnapshot(id))); this.queuePlanArtifactSyncStatusCheck ||= () => undefined;");
   const DistributedPlanQueue = loadSourceModule("src/features/DistributedPlanQueue.ts");
   const context = {
     workspaceRoot: () => "C:/project", DistributedPlanQueue,
@@ -415,7 +415,7 @@ test("a failed job retains its Agent error in the durable Plan queue", async () 
   const compiled = compiledSource;
   const start = compiled.indexOf("async tickDistributedQueueCore(");
   const end = compiled.indexOf("async syncDistributedJobArtifacts(", start);
-  const queueMethod = compiled.slice(start, end).replace(/async tickDistributedQueueCore\(([^)]*)\) \{/, "async function tickQueue($1) { this.readWorkerTaskSnapshotBatch ||= async ids => Promise.all(ids.map(id => this.readWorkerTaskSnapshot(id)));");
+  const queueMethod = compiled.slice(start, end).replace(/async tickDistributedQueueCore\(([^)]*)\) \{/, "async function tickQueue($1) { this.readWorkerTaskSnapshotBatch ||= async ids => Promise.all(ids.map(id => this.readWorkerTaskSnapshot(id))); this.queuePlanArtifactSyncStatusCheck ||= () => undefined;");
   const DistributedPlanQueue = loadSourceModule("src/features/DistributedPlanQueue.ts");
   const context = { workspaceRoot: () => "C:/project", DistributedPlanQueue,
     mapLimited: async (items, _limit, fn) => Promise.all(items.map(fn)),
@@ -453,7 +453,7 @@ test("idle queue recovery checks are spaced while a newly completed job still ch
   const context = { workspaceRoot: () => "C:/project", DistributedPlanQueue: loadSourceModule("src/features/DistributedPlanQueue.ts"),
     mapLimited: async (items, _limit, fn) => Promise.all(items.map(fn)), Object, Set, Date, setInterval, clearInterval };
   vm.createContext(context);
-  vm.runInContext(compiled.slice(start, end).replace(/async tickDistributedQueueCore\(([^)]*)\) \{/, "async function tickQueue($1) { this.readWorkerTaskSnapshotBatch ||= async ids => Promise.all(ids.map(id => this.readWorkerTaskSnapshot(id)));")
+  vm.runInContext(compiled.slice(start, end).replace(/async tickDistributedQueueCore\(([^)]*)\) \{/, "async function tickQueue($1) { this.readWorkerTaskSnapshotBatch ||= async ids => Promise.all(ids.map(id => this.readWorkerTaskSnapshot(id))); this.queuePlanArtifactSyncStatusCheck ||= () => undefined;")
     + "\nthis.tickQueue = tickQueue;", context);
   let queue = { schemaVersion: 1, plans: [{ id: "plan-1", planFile: "plans/p.yaml", revision: "rev-1",
     jobs: [{ index: 0, case: "case-a", seed: 1, attempt: 1, status: "completed", workerId: "worker-a", gpuId: "0",
@@ -496,7 +496,7 @@ function loadTickQueue() {
     actionErrorSuggestion: (message) => String(message || ""),
   };
   vm.createContext(context);
-  vm.runInContext(compiled.slice(start, end).replace(/async tickDistributedQueueCore\(([^)]*)\) \{/, "async function tickQueue($1) { this.readWorkerTaskSnapshotBatch ||= async ids => Promise.all(ids.map(id => this.readWorkerTaskSnapshot(id)));")
+  vm.runInContext(compiled.slice(start, end).replace(/async tickDistributedQueueCore\(([^)]*)\) \{/, "async function tickQueue($1) { this.readWorkerTaskSnapshotBatch ||= async ids => Promise.all(ids.map(id => this.readWorkerTaskSnapshot(id))); this.queuePlanArtifactSyncStatusCheck ||= () => undefined;")
     + "\nthis.tickQueue = tickQueue;", context);
   return context;
 }

@@ -6,17 +6,18 @@ import { spawn } from "node:child_process";
 
 type Candidate = { path: string; fullPath: string; type: "file"; bytes: number; modifiedAt: number; purpose: string; token: string; workerId: string };
 type Endpoint = { id: string; role: string };
-type WorkerScan = { id: string; count: number; bytes: number; error?: string };
+type WorkerScan = { id: string; count: number; bytes: number; status: "loading" | "ready" | "unavailable"; error?: string };
+type CleanupContext = { client: any; endpoints: Endpoint[]; localRoot?: string; generation: number };
 
 const html = (nonce: string) => `<!doctype html><html lang="zh"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'"><style>
 body{font-family:var(--vscode-font-family);color:var(--vscode-foreground);padding:18px;line-height:1.5}h1{font-size:20px}p{color:var(--vscode-descriptionForeground)}button{color:var(--vscode-button-foreground);background:var(--vscode-button-background);border:0;padding:7px 12px;cursor:pointer;margin-right:8px}button:disabled{opacity:.5;cursor:default}.secondary{background:var(--vscode-button-secondaryBackground);color:var(--vscode-button-secondaryForeground)}.summary{padding:12px;background:var(--vscode-editorWidget-background);margin:12px 0}.group{border:1px solid var(--vscode-panel-border);margin:10px 0}.group>summary{padding:9px;cursor:pointer;font-weight:bold}.rows{padding:4px 12px 12px}.row{display:flex;gap:9px;align-items:flex-start;padding:6px;border-top:1px solid var(--vscode-panel-border)}.row span{min-width:0;overflow-wrap:anywhere}.meta{color:var(--vscode-descriptionForeground)}.path{font-family:var(--vscode-editor-font-family);font-size:12px}.warning{color:var(--vscode-errorForeground)}#review{border:2px solid var(--vscode-errorForeground);padding:12px;margin-top:15px}#reviewPaths{max-height:260px;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:var(--vscode-editor-background);padding:10px}#status{margin:12px 0;white-space:pre-wrap;overflow-wrap:anywhere}
 </style></head><body><h1>缓存回收审核</h1><p>仅列出超过 7 天的临时文件和运行日志。Worker 有活动任务时不列候选；结果、权重、TensorBoard、原始测试结果表和机器状态保留。按本机或服务器的目录分组审核，勾选目录会选中其中展示的文件。</p><button id="refresh" class="secondary">刷新候选</button><button id="selectAll" class="secondary">全选候选</button><button id="deselectAll" class="secondary">清空选择</button><div id="summary" class="summary">正在读取…</div><div id="tree"></div><button id="reviewButton" disabled>审核所选路径</button><div id="review" hidden><h2>确认完整路径</h2><p id="reviewHint"></p><div id="reviewPaths"></div><button id="confirmButton">确认这些完整路径</button><button id="cancelButton" class="secondary">返回</button></div><div id="status" role="status"></div><script nonce="${nonce}">
-const vscode=acquireVsCodeApi();let rows=[],stage=0,reviewKeys=[];const tree=document.getElementById('tree'),summary=document.getElementById('summary'),status=document.getElementById('status'),review=document.getElementById('review');
+const vscode=acquireVsCodeApi();let rows=[],stage=0,reviewKeys=[],scanning=false;const tree=document.getElementById('tree'),summary=document.getElementById('summary'),status=document.getElementById('status'),review=document.getElementById('review');
 function selected(){return Array.from(document.querySelectorAll('input[data-key]:checked')).map(x=>x.dataset.key)}
-function updateButton(){document.getElementById('reviewButton').disabled=!selected().length}
-function render(scans){tree.replaceChildren();const groups=new Map();for(const row of rows){const folder=row.path.slice(0,row.path.lastIndexOf('/'))||'.',key=row.workerId+'|'+folder;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(row)}for(const [key,items] of groups){const d=document.createElement('details');d.className='group';const s=document.createElement('summary');const box=document.createElement('input');box.type='checkbox';box.title='勾选此目录内列出的候选文件';box.addEventListener('click',e=>e.stopPropagation());box.addEventListener('change',()=>{for(const c of d.querySelectorAll('input[data-key]'))c.checked=box.checked;updateButton()});s.append(box,' '+items[0].workerId+' · '+items[0].path.slice(0,items[0].path.lastIndexOf('/'))+' · '+items.length+' 个候选 · '+items[0].purpose);d.append(s);const list=document.createElement('div');list.className='rows';for(const row of items){const wrap=document.createElement('label');wrap.className='row';const check=document.createElement('input');check.type='checkbox';check.dataset.key=row.workerId+'|'+row.path;check.addEventListener('change',()=>{box.checked=Array.from(d.querySelectorAll('input[data-key]')).every(x=>x.checked);updateButton()});const content=document.createElement('span');const name=document.createElement('div');name.className='path';name.textContent=row.fullPath;const meta=document.createElement('div');meta.className='meta';meta.textContent=(row.bytes/1048576).toFixed(2)+' MB · '+new Date(row.modifiedAt*1000).toLocaleString('zh-CN',{hour12:false})+' · '+row.purpose;content.append(name,meta);wrap.append(check,content);list.append(wrap)}d.append(list);tree.append(d)}summary.textContent=rows.length+' 个候选 · '+(rows.reduce((n,r)=>n+r.bytes,0)/1048576).toFixed(2)+' MB'+String.fromCharCode(10)+(scans||[]).map(s=>s.id+'：'+(s.error?'读取失败 · '+s.error:s.count+' 个可回收 · '+(s.bytes/1048576).toFixed(2)+' MB')).join(String.fromCharCode(10));summary.style.whiteSpace='pre-wrap';updateButton()}
+function updateButton(){document.getElementById('reviewButton').disabled=scanning||!selected().length;document.getElementById('refresh').disabled=scanning;document.getElementById('selectAll').disabled=scanning;document.getElementById('deselectAll').disabled=scanning}
+function render(scans){tree.replaceChildren();const groups=new Map();for(const row of rows){const folder=row.path.slice(0,row.path.lastIndexOf('/'))||'.',key=row.workerId+'|'+folder;if(!groups.has(key))groups.set(key,[]);groups.get(key).push(row)}for(const [key,items] of groups){const d=document.createElement('details');d.className='group';const s=document.createElement('summary');const box=document.createElement('input');box.type='checkbox';box.title='勾选此目录内列出的候选文件';box.addEventListener('click',e=>e.stopPropagation());box.addEventListener('change',()=>{for(const c of d.querySelectorAll('input[data-key]'))c.checked=box.checked;updateButton()});s.append(box,' '+items[0].workerId+' · '+items[0].path.slice(0,items[0].path.lastIndexOf('/'))+' · '+items.length+' 个候选 · '+items[0].purpose);d.append(s);const list=document.createElement('div');list.className='rows';for(const row of items){const wrap=document.createElement('label');wrap.className='row';const check=document.createElement('input');check.type='checkbox';check.dataset.key=row.workerId+'|'+row.path;check.addEventListener('change',()=>{box.checked=Array.from(d.querySelectorAll('input[data-key]')).every(x=>x.checked);updateButton()});const content=document.createElement('span');const name=document.createElement('div');name.className='path';name.textContent=row.fullPath;const meta=document.createElement('div');meta.className='meta';meta.textContent=(row.bytes/1048576).toFixed(2)+' MB · '+new Date(row.modifiedAt*1000).toLocaleString('zh-CN',{hour12:false})+' · '+row.purpose;content.append(name,meta);wrap.append(check,content);list.append(wrap)}d.append(list);tree.append(d)}summary.textContent=rows.length+' 个候选 · '+(rows.reduce((n,r)=>n+r.bytes,0)/1048576).toFixed(2)+' MB'+String.fromCharCode(10)+(scans||[]).map(s=>s.id+'：'+(s.status==='loading'?'正在读取…':s.error?'未完成 · '+s.error:s.count+' 个可回收 · '+(s.bytes/1048576).toFixed(2)+' MB')).join(String.fromCharCode(10));summary.style.whiteSpace='pre-wrap';updateButton()}
 function showReview(){review.hidden=false;document.getElementById('reviewPaths').textContent=reviewKeys.map(k=>{const r=rows.find(x=>x.workerId+'|'+x.path===k);return r?r.workerId+'  '+r.fullPath:''}).join(String.fromCharCode(10));document.getElementById('reviewHint').textContent=stage===0?'第一次确认：核对每个服务器和完整路径。':'第二次确认：再次核对同一批完整路径，确认后永久删除。';document.getElementById('confirmButton').textContent=stage===0?'第一次确认完整路径':'第二次确认并永久删除';review.scrollIntoView({block:'nearest'})}
-document.getElementById('refresh').onclick=()=>{review.hidden=true;stage=0;status.textContent='正在刷新候选…';vscode.postMessage({type:'refresh'})};document.getElementById('selectAll').onclick=()=>{document.querySelectorAll('input[data-key]').forEach(x=>x.checked=true);document.querySelectorAll('.group>summary input').forEach(x=>x.checked=true);updateButton()};document.getElementById('deselectAll').onclick=()=>{document.querySelectorAll('input').forEach(x=>x.checked=false);updateButton()};document.getElementById('reviewButton').onclick=()=>{reviewKeys=selected();stage=0;vscode.postMessage({type:'review',keys:reviewKeys});showReview()};document.getElementById('cancelButton').onclick=()=>{review.hidden=true;stage=0;vscode.postMessage({type:'cancelReview'})};document.getElementById('confirmButton').onclick=()=>{if(stage===0){stage=1;vscode.postMessage({type:'confirmFirst',keys:reviewKeys});showReview();return}review.hidden=true;status.textContent='正在逐台删除所选候选…';vscode.postMessage({type:'confirmSecond',keys:reviewKeys})};window.addEventListener('message',event=>{const m=event.data;if(m.type==='data'){rows=m.rows||[];render(m.scans);status.textContent=m.note||''}if(m.type==='error')status.textContent=m.message||'操作失败';if(m.type==='busy')status.textContent=m.message||'正在处理…'});vscode.postMessage({type:'refresh'});
+document.getElementById('refresh').onclick=()=>{review.hidden=true;stage=0;status.textContent='正在刷新候选…';vscode.postMessage({type:'refresh'})};document.getElementById('selectAll').onclick=()=>{document.querySelectorAll('input[data-key]').forEach(x=>x.checked=true);document.querySelectorAll('.group>summary input').forEach(x=>x.checked=true);updateButton()};document.getElementById('deselectAll').onclick=()=>{document.querySelectorAll('input').forEach(x=>x.checked=false);updateButton()};document.getElementById('reviewButton').onclick=()=>{reviewKeys=selected();stage=0;vscode.postMessage({type:'review',keys:reviewKeys});showReview()};document.getElementById('cancelButton').onclick=()=>{review.hidden=true;stage=0;vscode.postMessage({type:'cancelReview'})};document.getElementById('confirmButton').onclick=()=>{if(stage===0){stage=1;vscode.postMessage({type:'confirmFirst',keys:reviewKeys});showReview();return}review.hidden=true;status.textContent='正在逐台删除所选候选…';vscode.postMessage({type:'confirmSecond',keys:reviewKeys})};window.addEventListener('message',event=>{const m=event.data;if(m.type==='data'){scanning=m.busy===true;review.hidden=true;stage=0;reviewKeys=[];rows=m.rows||[];render(m.scans);status.textContent=m.note||''}if(m.type==='error'){if(m.busy===false)scanning=false;status.textContent=m.message||'操作失败';updateButton()}if(m.type==='busy'){scanning=true;review.hidden=true;status.textContent=m.message||'正在处理…';updateButton()}});vscode.postMessage({type:'refresh'});
 </script></body></html>`;
 
 const candidateExtensions = new Set([".log", ".tmp", ".bak", ".part"]);
@@ -55,7 +56,8 @@ function realPathSync(value: string): string {
   return require("node:fs").realpathSync(value);
 }
 
-async function localCandidates(root: string): Promise<Candidate[]> {
+async function localCandidates(root: string, signal?: AbortSignal): Promise<Candidate[]> {
+  signal?.throwIfAborted();
   const rootInfo = await fs.lstat(root);
   if (!rootInfo.isDirectory() || rootInfo.isSymbolicLink()) throw new Error("本机项目根目录不是普通目录；已停止扫描。");
   const realRoot = await fs.realpath(root);
@@ -71,6 +73,7 @@ async function localCandidates(root: string): Promise<Candidate[]> {
     let scannedDirectories = 0;
     let scannedEntries = 0;
     while (queue.length) {
+      signal?.throwIfAborted();
       const parent = queue.shift()!;
       scannedDirectories += 1;
       if (scannedDirectories > MAX_SCAN_DIRECTORIES) throw new Error(`本机临时目录超过 ${MAX_SCAN_DIRECTORIES} 个，已停止不完整扫描`);
@@ -78,6 +81,7 @@ async function localCandidates(root: string): Promise<Candidate[]> {
       const directory = await fs.opendir(parent);
       try {
         for await (const entry of directory) {
+          signal?.throwIfAborted();
           scannedEntries += 1;
           if (scannedEntries > MAX_SCAN_ENTRIES) throw new Error(`本机临时目录超过 ${MAX_SCAN_ENTRIES} 个条目，已停止不完整扫描`);
           const full = path.join(parent, entry.name);
@@ -140,49 +144,108 @@ async function deleteLocalCandidate(root: string, row: Candidate): Promise<void>
   throw new Error(`本机删除后仍存在：${row.path}`);
 }
 
-export function openCacheCleanupPanel(client: any, endpointProvider: () => Endpoint[], localRoot?: string): void {
+function cleanupReadError(error: any): string {
+  const code = String(error?.cause?.code || error?.code || "").slice(0, 80);
+  const message = String(error?.message || error || "清单读取失败").slice(0, 300);
+  return /fetch failed|ECONNREFUSED|ECONNRESET|ETIMEDOUT/i.test(`${message} ${code}`)
+    ? `Agent 连接尚未就绪或已中断${code ? `（${code}）` : ""}；连接恢复后会重新读取，也可点击刷新候选。`
+    : message;
+}
+
+function completedCleanupCandidates(result: any): Candidate[] {
+  if (result?.status !== "completed" || !Array.isArray(result.candidates))
+    throw new Error(String(result?.message || "服务器未返回完整候选清单；请刷新候选，不能将此响应视为零候选。"));
+  if (result.candidates.length > MAX_CLEANUP_CANDIDATES) throw new Error("服务器候选清单超过审核上限");
+  const paths = new Set<string>();
+  for (const row of result.candidates) {
+    const parts = typeof row?.path === "string" ? row.path.split("/") : [];
+    if (row?.type !== "file" || !parts.length || parts.some((part: string) => !part || part === "." || part === ".." || part.includes("\\"))
+      || !(parts[0] === "tmp" || parts[0] === "simple_cluster" && parts[1] === "tmp")
+      || typeof row.fullPath !== "string" || !path.posix.isAbsolute(row.fullPath)
+      || typeof row.token !== "string" || !row.token || row.token.length > 256 || paths.has(row.path)
+      || !Number.isFinite(row.bytes) || row.bytes < 0 || !Number.isFinite(row.modifiedAt))
+      throw new Error("服务器候选清单格式或路径无效；已停止审核，请刷新候选。");
+    paths.add(row.path);
+  }
+  return result.candidates;
+}
+
+export function openCacheCleanupPanel(contextProvider: () => CleanupContext, onDidChangeContext?: vscode.Event<void>): void {
   const panel = vscode.window.createWebviewPanel("simpleExperimentCacheCleanup", "缓存回收审核", vscode.ViewColumn.Active, { enableScripts: true, retainContextWhenHidden: true });
   let current = new Map<string, Candidate>();
   let busy = false;
+  let disposed = false;
+  let deleting = false;
+  let refreshPending = false;
+  let scanGeneration = 0;
+  let scanAbort: AbortController | undefined;
+  let loadedContext: CleanupContext | undefined;
   let reviewedKeys: string[] = [];
   let approvalStage = 0;
-  const refresh = async () => {
-    if (busy) return;
-    busy = true;
-    reviewedKeys = [];
-    approvalStage = 0;
-    panel.webview.postMessage({ type: "busy", message: "正在读取各服务器的旧临时文件…" });
-    try {
-      const endpoints = endpointProvider().filter(e => e.role === "worker");
-      const settled = await Promise.allSettled(endpoints.map(async e => {
-        const result: any = await client.postWorkerAction(e.id, "preview-cache-cleanup", { opId: `cache-preview-${Date.now()}-${e.id}` });
-        if (result.status === "failed") throw new Error(String(result.message || "清单读取失败"));
-        return { id: e.id, rows: result.candidates as Candidate[] };
-      }));
-      const rows: Candidate[] = [];
-      const scans: WorkerScan[] = [];
-      if (localRoot) {
-        try { const local = await localCandidates(localRoot); rows.push(...local); scans.push({ id: "本机", count: local.length, bytes: local.reduce((sum, row) => sum + row.bytes, 0) }); }
-        catch (error) { scans.push({ id: "本机", count: 0, bytes: 0, error: String(error) }); }
-      }
-      settled.forEach((result, index) => {
-        const id = endpoints[index].id;
-        if (result.status === "rejected") scans.push({ id, count: 0, bytes: 0, error: String(result.reason) });
-        else {
-          const candidates = result.value.rows || [];
-          scans.push({ id, count: candidates.length, bytes: candidates.reduce((sum, row) => sum + row.bytes, 0) });
-          for (const row of candidates) rows.push({ ...row, workerId: id });
-        }
-      });
-      current = new Map(rows.map(row => [`${row.workerId}|${row.path}`, row]));
-      panel.webview.postMessage({ type: "data", rows, scans, note: "" });
-    } catch (error) { panel.webview.postMessage({ type: "error", message: String(error) }); }
-    finally { busy = false; }
+  const post = (message: any) => { if (!disposed) void panel.webview.postMessage(message); };
+  const contextMatches = (context?: CleanupContext) => {
+    const latest = contextProvider();
+    return Boolean(context && context.client === latest.client && context.generation === latest.generation && context.localRoot === latest.localRoot);
   };
-  panel.webview.onDidReceiveMessage(async message => {
+  const invalidateReview = () => { current.clear(); reviewedKeys = []; approvalStage = 0; loadedContext = undefined; };
+  const refresh = async (contextChanged = false) => {
+    if (disposed || deleting) { refreshPending = !disposed; return; }
+    if (busy && !contextChanged) return;
+    scanAbort?.abort();
+    const abort = new AbortController();
+    scanAbort = abort;
+    const generation = ++scanGeneration;
+    busy = true;
+    invalidateReview();
+    post({ type: "busy", message: "正在读取本机和各服务器的旧临时文件…" });
+    try {
+      const context = { ...contextProvider() };
+      const endpoints = context.endpoints.filter(e => e.role === "worker");
+      const scans: WorkerScan[] = [...(context.localRoot ? [{ id: "本机", count: 0, bytes: 0, status: "loading" as const }] : []), ...endpoints.map(e => ({ id: e.id, count: 0, bytes: 0, status: "loading" as const }))];
+      const rowsBySource = new Map<string, Candidate[]>();
+      const isCurrent = () => !disposed && !abort.signal.aborted && generation === scanGeneration && contextMatches(context);
+      const publish = () => {
+        if (!isCurrent()) return;
+        const rows = [...rowsBySource.values()].flat();
+        current = new Map(rows.map(row => [`${row.workerId}|${row.path}`, row]));
+        const incomplete = scans.some(scan => scan.status === "unavailable");
+        post({ type: "data", rows, scans: scans.map(scan => ({ ...scan })), busy,
+          note: incomplete ? "候选读取未完整完成；连接失败或暂停审核的服务器不计为零候选。可审核已成功读取的路径。" : busy ? "正在读取；各来源完成后独立更新。" : "" });
+      };
+      publish();
+      const readSource = async (id: string, workerId: string, read: () => Promise<Candidate[]>) => {
+        try {
+          const rows = await read();
+          if (!isCurrent()) return;
+          rowsBySource.set(id, rows.map(row => ({ ...row, workerId })));
+          Object.assign(scans.find(scan => scan.id === id)!, { status: "ready", count: rows.length, bytes: rows.reduce((sum, row) => sum + row.bytes, 0) });
+        } catch (error) {
+          if (!isCurrent()) return;
+          Object.assign(scans.find(scan => scan.id === id)!, { status: "unavailable", error: cleanupReadError(error) });
+        }
+        publish();
+      };
+      await Promise.all([
+        ...(context.localRoot ? [readSource("本机", "local", () => localCandidates(context.localRoot!, abort.signal))] : []),
+        ...endpoints.map(e => readSource(e.id, e.id, async () => completedCleanupCandidates(await context.client.postWorkerAction(e.id, "preview-cache-cleanup", { opId: `cache-preview-${Date.now()}-${e.id}` }, { signal: abort.signal })))),
+      ]);
+      if (isCurrent()) { loadedContext = context; busy = false; publish(); }
+    } catch (error) { if (generation === scanGeneration) post({ type: "error", message: cleanupReadError(error), busy: false }); }
+    finally { if (generation === scanGeneration) busy = false; }
+  };
+  const contextSubscription = onDidChangeContext?.(() => {
+    scanAbort?.abort();
+    invalidateReview();
+    if (deleting) { refreshPending = true; return; }
+    void refresh(true);
+  });
+  panel.onDidDispose(() => { disposed = true; scanGeneration++; scanAbort?.abort(); invalidateReview(); contextSubscription?.dispose(); messageSubscription.dispose(); });
+  const messageSubscription = panel.webview.onDidReceiveMessage(async message => {
+    if (disposed) return;
     if (message?.type === "refresh") { await refresh(); return; }
     if (message?.type === "cancelReview") { reviewedKeys = []; approvalStage = 0; return; }
     if (message?.type === "review") {
+      if (busy || !contextMatches(loadedContext)) { post({ type: "error", message: "连接或项目已变化，请刷新后重新审核" }); return; }
       const keys = message.keys;
       if (!Array.isArray(keys) || !keys.length || keys.length > 2000 || new Set(keys).size !== keys.length || keys.some(key => !current.has(key))) {
         panel.webview.postMessage({ type: "error", message: "选择已失效，请刷新后重新审核" }); return;
@@ -190,43 +253,54 @@ export function openCacheCleanupPanel(client: any, endpointProvider: () => Endpo
       reviewedKeys = keys.slice(); approvalStage = 0; return;
     }
     if (message?.type === "confirmFirst") {
-      if (!busy && approvalStage === 0 && JSON.stringify(message.keys) === JSON.stringify(reviewedKeys) && reviewedKeys.length) approvalStage = 1;
+      if (!busy && contextMatches(loadedContext) && approvalStage === 0 && JSON.stringify(message.keys) === JSON.stringify(reviewedKeys) && reviewedKeys.length) approvalStage = 1;
       return;
     }
     if (message?.type !== "confirmSecond" || busy || approvalStage !== 1 || JSON.stringify(message.keys) !== JSON.stringify(reviewedKeys)) return;
+    if (!contextMatches(loadedContext)) { invalidateReview(); post({ type: "error", message: "连接或项目已变化，请刷新后重新审核" }); return; }
+    const context = loadedContext!;
     const keys = message.keys;
     if (!Array.isArray(keys) || !keys.length || keys.length > 2000 || new Set(keys).size !== keys.length || keys.some(key => !current.has(key))) {
       panel.webview.postMessage({ type: "error", message: "选择已失效，请刷新后重新审核" }); return;
     }
     busy = true;
+    deleting = true;
     approvalStage = 0;
     let deletionAttempted = false;
     try {
       const byWorker = new Map<string, Candidate[]>();
       for (const key of keys) { const row = current.get(key)!; if (!byWorker.has(row.workerId)) byWorker.set(row.workerId, []); byWorker.get(row.workerId)!.push(row); }
       for (const [workerId, rows] of byWorker) {
-        panel.webview.postMessage({ type: "busy", message: `正在删除 ${workerId} 的 ${rows.length} 个已确认路径…` });
+        if (disposed || !contextMatches(context)) throw new Error("连接或项目已变化，已停止后续删除，请重新审核");
+        post({ type: "busy", message: `正在删除 ${workerId} 的 ${rows.length} 个已确认路径…` });
         if (workerId === "local") {
-          if (!localRoot) throw new Error("本机项目根目录已失效");
+          if (!context.localRoot) throw new Error("本机项目根目录已失效");
           deletionAttempted = true;
-          for (const row of rows) await deleteLocalCandidate(localRoot, row);
+          for (const row of rows) {
+            if (disposed || !contextMatches(context)) throw new Error("连接或项目已变化，已停止后续删除，请重新审核");
+            await deleteLocalCandidate(context.localRoot, row);
+          }
         } else {
           deletionAttempted = true;
-          const result: any = await client.postWorkerAction(workerId, "delete-cache-candidates", { opId: `cache-delete-${Date.now()}-${workerId}`, candidates: rows.map(row => ({ path: row.path, token: row.token })), confirm: true, pathConfirmed: true });
-          if (result.status === "failed") throw new Error(`${workerId}: ${String(result.message || "删除失败")}`);
+          const result: any = await context.client.postWorkerAction(workerId, "delete-cache-candidates", { opId: `cache-delete-${Date.now()}-${workerId}`, candidates: rows.map(row => ({ path: row.path, token: row.token })), confirm: true, pathConfirmed: true });
+          if (result?.status !== "completed") throw new Error(`${workerId}: ${String(result?.message || "删除尚未确认完成，请刷新候选核对；不会自动重发删除。")}`);
         }
       }
       busy = false;
+      deleting = false;
+      refreshPending = false;
       await refresh();
     } catch (error) {
       const message = String(error);
       if (deletionAttempted) {
         busy = false;
+        deleting = false;
+        refreshPending = false;
         await refresh();
       }
-      panel.webview.postMessage({ type: "error", message });
+      post({ type: "error", message, busy: false });
     }
-    finally { busy = false; }
+    finally { busy = false; deleting = false; if (refreshPending) { refreshPending = false; await refresh(); } }
   });
   panel.webview.html = html(crypto.randomBytes(16).toString("base64"));
 }

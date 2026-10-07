@@ -40,15 +40,14 @@ test("servers config stays expanded near primary workflow by default", () => {
   assert.equal(helpers.defaultUiLayout.collapsed.diagnostics, true);
 });
 
-test("topbar keeps tunnel/network actions for novice recovery", () => {
+test("ordinary panel keeps tunnel setup while omitting network pause/resume controls", () => {
   const source = readSource("src/ui/PanelHtml.ts");
   // start/test 全局动作在分区卡片里渲染（overview/ servers-sessions）。
   assert.match(source, /data-command="startAllConnections"/);
   assert.match(source, /data-command="testAll"/);
-  // topbar 提供网络与布局恢复入口。
+  // 保留设置和布局恢复入口，网络控制仍有兼容命令。
   assert.match(source, /class="topbar-actions"/);
-  assert.match(source, /data-command="pauseAll"/);
-  assert.match(source, /data-command="resumeNetwork"/);
+  assert.doesNotMatch(source, /data-command="pauseAll"|data-command="resumeNetwork"/);
   assert.match(source, /data-command="resetUiLayout"/);
   assert.match(source, /全局配置/);
 });

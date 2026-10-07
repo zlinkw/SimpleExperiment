@@ -184,7 +184,7 @@ class HttpTunnelClient {
             userInitiated: true,
         });
     }
-    async postAction(action, body) {
+    async postAction(action, body, options = {}) {
         if (!body || typeof body !== "object" || !("opId" in body) || !String(body.opId || "").trim()) {
             throw new Error("Tunnel action requires opId.");
         }
@@ -192,6 +192,7 @@ class HttpTunnelClient {
             method: "POST",
             userInitiated: true,
             timeoutMs: action === "rebuild-distributed-results" ? 330_000 : undefined,
+            signal: options.signal,
         });
     }
     postAvailabilityBatch(body) {

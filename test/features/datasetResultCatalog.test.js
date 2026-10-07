@@ -88,6 +88,51 @@ test('production writer, catalog, open and split obey dataset keys and configure
   assert.match(source, /::-webkit-details-marker \{ display: none; \}/);
 });
 
+test('local refresh repairs stale CSV and Markdown from recorded seeds without any remote reads or raw caches', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dataset-local-refresh-'));
+  const planFile = 'experiments/plans/demo.yaml';
+  const registry = tables.emptyTableRegistry();
+  registry.plans[planFile] = { revision: 'r1', expectedSeeds: 1, records: [{ planFile, workerId: 'worker-a', case: 'case-a', seed: '42',
+    method: 'method-a', dataset: 'dataset-a', rate: '', endpoint: 'clean', runId: 'run-b', revision: 'r1', metrics: { AUC: .93 } }] };
+  const host = Object.assign(Object.create(RealtimeTunnelPanelProvider.prototype), {
+    resultCsvDirectory: 'artifacts/results', captureProjectContext: () => ({ root }), projectContextIsCurrent: () => true,
+    cancelResultCatalogRefresh() {}, invalidateResultCatalogCache() {}, postState() {},
+    client: { getResultsSummary: async () => assert.fail('local refresh must not access remote summaries') },
+    simpleSftpApiCall: async () => assert.fail('local refresh must not download files'),
+  });
+  await host.writeProjectTableRegistry(root, registry);
+  const csv = path.join(root, 'artifacts/results/dataset-a/final/final.csv');
+  const md = path.join(root, 'artifacts/results/dataset-a/final/final.md');
+  const expected = fs.readFileSync(md, 'utf8');
+  fs.writeFileSync(csv, 'stale csv', 'utf8'); fs.writeFileSync(md, 'stale markdown', 'utf8');
+  await host.refreshLocalResultsFromUi();
+  assert.equal(fs.readFileSync(md, 'utf8'), expected);
+  assert.match(fs.readFileSync(csv, 'utf8'), /0.93/);
+  const registryPath = path.join(root, 'simple_cluster/results/project_table_registry.json');
+  const generation = JSON.parse(fs.readFileSync(registryPath, 'utf8')).publicationGeneration;
+  await host.refreshLocalResultsFromUi();
+  assert.equal(JSON.parse(fs.readFileSync(registryPath, 'utf8')).publicationGeneration, generation, 'an unchanged refresh does not republish');
+  assert.equal(fs.existsSync(path.join(root, 'artifacts/results/dataset-a/plans')), false);
+});
+
+test('published registry excludes retired method and dataset tables from current catalog without deleting their files', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dataset-current-generation-'));
+  const planFile = 'experiments/plans/demo.yaml';
+  const registry = tables.emptyTableRegistry();
+  registry.plans[planFile] = { revision: 'r1', expectedSeeds: 1, records: [{ planFile, workerId: 'worker-a', case: 'case-a', seed: '42',
+    method: 'old-method', dataset: 'old-dataset', rate: '', endpoint: 'clean', runId: 'run-a', metrics: { AUC: .81 } }] };
+  const host = Object.assign(Object.create(RealtimeTunnelPanelProvider.prototype), { resultCsvDirectory: 'artifacts/results' });
+  await host.writeProjectTableRegistry(root, registry);
+  const oldFile = path.join(root, 'artifacts/results/old-dataset/methods/old-method/old-method.csv');
+  const oldText = fs.readFileSync(oldFile, 'utf8');
+  registry.plans[planFile].records = registry.plans[planFile].records.map(row => ({ ...row, method: 'new-method', dataset: 'new-dataset', runId: 'run-b', metrics: { AUC: .93 } }));
+  await host.writeProjectTableRegistry(root, registry);
+  const current = tables.resultCatalog(root, 'artifacts/results').datasets.flatMap(dataset => dataset.tables);
+  assert.deepEqual(current.map(row => row.tableKey).sort(), ['new-dataset/final', 'new-dataset/method/new-method']);
+  assert.equal(fs.readFileSync(oldFile, 'utf8'), oldText);
+  assert.equal(fs.existsSync(path.join(root, 'artifacts/results/old-dataset/final/final.md')), true);
+});
+
 test('result catalog stays within dataset, plan, table and artifact response limits at stress scale', (t) => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dataset-catalog-stress-'));
   t.after(() => fs.rmSync(root, { recursive: true, force: true }));

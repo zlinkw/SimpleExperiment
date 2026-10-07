@@ -34,7 +34,8 @@ const vscodeStub = {
 const adapterRulesByRoot = new Map();
 
 for (const command of ["rebuildProjectResultTables", "syncPendingPlanArtifacts", "syncAllResultArtifacts"]) {
-test(command + " pulls six latest-run jobs from their owners, without remote rebuild or local raw caches", async () => {
+for (const hasRecordedHashes of [true, false]) {
+test(command + " pulls six latest-run jobs from their owners, recorded hashes=" + hasRecordedHashes, async () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-memory-latest-run-"));
   const provider = providerFor(workspace, { onlyFirst: true, workers: [{ id: "w1" }, { id: "w2" }, { id: "unused-offline" }] });
   const planFile = "experiments/plans/a.yaml";
@@ -46,9 +47,11 @@ test(command + " pulls six latest-run jobs from their owners, without remote reb
     const csv = `case,seed,method,dataset,eval_protocol,metric,value\n${job.case},${job.seed},a,${job.case.toUpperCase()},clean,AUC,0.92\n`;
     return [[job.outputDir + "/test_results/formal_result_rows.csv", csv], [job.outputDir + "/test_results/four_state_metrics.csv", csv]];
   }));
-  for (const job of jobs) job.artifacts = Object.fromEntries(Object.entries(files).filter(([file]) => file.startsWith(job.outputDir + "/")).map(([file, text]) => [file, crypto.createHash("sha256").update(text).digest("hex")]));
+  const oldJobs = jobs.map(job => ({ ...job, outputDir: job.outputDir.replace("run-b", "run-a"),
+    artifacts: { [job.outputDir.replace("run-b", "run-a") + "/test_results/formal_result_rows.csv"]: "a".repeat(64) } }));
+  if (hasRecordedHashes) for (const job of jobs) job.artifacts = Object.fromEntries(Object.entries(files).filter(([file]) => file.startsWith(job.outputDir + "/")).map(([file, text]) => [file, crypto.createHash("sha256").update(text).digest("hex")]));
   provider.loadDistributedQueue = async () => ({ plans: [
-    { id: "run-a", planFile, revision: "r1", enqueuedAt: "2026-09-01T00:00:00Z", jobs: jobs.map(job => ({ ...job, outputDir: job.outputDir.replace("run-b", "run-a") })) },
+    { id: "run-a", planFile, revision: "r1", enqueuedAt: "2026-09-01T00:00:00Z", jobs: oldJobs },
     { id: "run-b", planFile, revision: "r1", enqueuedAt: "2026-10-01T00:00:00Z", jobs },
   ] });
   provider.postprocessDistributedResultsForManual = async () => { throw new Error("must not rebuild or mirror remotely"); };
@@ -65,16 +68,31 @@ test(command + " pulls six latest-run jobs from their owners, without remote reb
     return { ok: true, memoryOnly: true, fileCount: params.entries.length, completedFiles: params.entries.length,
       entries: params.entries.map(entry => ({ remotePath: entry.remotePath, bytes: Buffer.byteLength(files[entry.remotePath]), sha256: entry.sha256, dataBase64: Buffer.from(files[entry.remotePath]).toString("base64") })) };
   };
+  const tables = require("../../dist/results/ProjectResultTables");
+  const oldRegistry = tables.emptyTableRegistry();
+  oldRegistry.plans[planFile] = { revision: "r1", expectedSeeds: 3, records: jobs.map(job => ({ planFile, workerId: job.workerId,
+    case: job.case, seed: String(job.seed), method: "a", dataset: job.case.toUpperCase(), endpoint: "clean", rate: "",
+    runId: "run-a", metrics: { AUC: .81 } })) };
+  const prototype = require("../../dist/extension/legacy.js").RealtimeTunnelPanelProvider.prototype;
+  await prototype.writeProjectTableRegistry.call(Object.assign(Object.create(prototype), provider), workspace, oldRegistry);
   await require("../../dist/extension/legacy.js").__handleResultUiCommandForTest(provider, { command, planFile });
   const registry = JSON.parse(fs.readFileSync(path.join(workspace, "simple_cluster/results/project_table_registry.json"), "utf8"));
   assert.equal(registry.plans[planFile].records.length, 6);
   assert.equal(registry.plans[planFile].records.every(row => row.runId === "run-b"), true);
   for (const dataset of ["BUS", "PAD"]) assert.deepEqual(registry.plans[planFile].records.filter(row => row.dataset === dataset).map(row => row.seed).sort(), ["42", "43", "44"]);
+  for (const table of Object.values(tables.buildTables(registry))) {
+    const directory = path.join(workspace, "experiments/results");
+    assert.equal(fs.readFileSync(path.join(directory, table.relativePath), "utf8"), tables.writeCsv(table.header, table.rows));
+    assert.equal(fs.readFileSync(path.join(directory, table.markdownPath), "utf8"), table.markdown);
+    assert.match(table.markdown, /0\.920/);
+    assert.doesNotMatch(table.markdown, /0\.810/);
+  }
   assert.equal(provider.calls.filter(([name]) => name === "sync.downloadMappedPaths").length, 2);
   assert.equal(provider.calls.some(([name]) => name === "merge"), false);
   const walk = dir => fs.readdirSync(dir, { withFileTypes: true }).flatMap(item => item.isDirectory() ? walk(path.join(dir, item.name)) : [path.relative(workspace, path.join(dir, item.name))]);
   assert.equal(walk(workspace).some(file => /(?:raw|attempts|partial|four_state|formal_result_rows)/.test(file)), false);
 });
+}
 }
 const originalLoad = Module._load;
 Module._load = function (request, ...args) {

@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.selectLatestCompletePlanRun = selectLatestCompletePlanRun;
+exports.selectLatestCompletePlanRunIdentity = selectLatestCompletePlanRunIdentity;
 exports.reportedRunIds = reportedRunIds;
 exports.summaryProvesRun = summaryProvesRun;
 exports.summaryForRunRecovery = summaryForRunRecovery;
@@ -11,7 +12,7 @@ function timestamp(value) {
     const parsed = Date.parse(String(value || ""));
     return Number.isFinite(parsed) ? parsed : Number.NEGATIVE_INFINITY;
 }
-function authoritativeJob(plan, job) {
+function authoritativeJob(plan, job, requireArtifactHashes) {
     const index = Number(job?.index);
     const seed = Number(job?.seed);
     const attempt = Number(job?.attempt);
@@ -28,7 +29,7 @@ function authoritativeJob(plan, job) {
             artifactHashes[String(file)] = String(hash).toLowerCase();
     }
     const commandId = String(job.commandId || "").trim();
-    if (!commandId || !Object.keys(artifactHashes).length)
+    if (!commandId || requireArtifactHashes && !Object.keys(artifactHashes).length)
         return undefined;
     return {
         index,
@@ -43,6 +44,13 @@ function authoritativeJob(plan, job) {
 }
 /** Select the newest complete distributed run for a Plan/revision, never a shared result CSV. */
 function selectLatestCompletePlanRun(queue, planFile, expectedRevision = "") {
+    return selectLatestCompletePlanRunInternal(queue, planFile, expectedRevision, true);
+}
+/** Select completion identity before discovering metrics; empty hashes do not prove artifact availability. */
+function selectLatestCompletePlanRunIdentity(queue, planFile, expectedRevision = "") {
+    return selectLatestCompletePlanRunInternal(queue, planFile, expectedRevision, false);
+}
+function selectLatestCompletePlanRunInternal(queue, planFile, expectedRevision, requireArtifactHashes) {
     const rows = Array.isArray(queue?.plans) ? queue.plans : [];
     const selectedPlan = normalizedPlanFile(planFile);
     const revision = String(expectedRevision || "").trim();
@@ -57,13 +65,18 @@ function selectLatestCompletePlanRun(queue, planFile, expectedRevision = "") {
         const expectedJobCount = Number(plan.fullPlanJobCount || plan.planJobCount || jobs.length);
         if (!Number.isInteger(expectedJobCount) || expectedJobCount <= 0 || jobs.length !== expectedJobCount)
             return undefined;
-        const normalized = jobs.map((job) => authoritativeJob(plan, job));
+        const normalized = jobs.map((job) => authoritativeJob(plan, job, requireArtifactHashes));
         if (normalized.some((job) => !job)
             || jobs.some((job) => job.outputRetiredAt || !["completed", "succeeded", "success"].includes(String(job.status || "").toLowerCase())))
             return undefined;
         const typedJobs = normalized;
         if (new Set(typedJobs.map((job) => job.index)).size !== expectedJobCount
             || new Set(typedJobs.map((job) => `${job.case}\0${job.seed}`)).size !== expectedJobCount)
+            return undefined;
+        if (!requireArtifactHashes && (jobs.some((job) => job.recoveryConflict
+            || job.trustedTerminalStatus && job.trustedTerminalStatus !== "completed")
+            || typedJobs.some(job => job.index >= expectedJobCount)
+            || new Set(typedJobs.map(job => `${job.workerId}\0${job.commandId}`)).size !== expectedJobCount))
             return undefined;
         const latestFinishedAt = Math.max(...jobs.map((job) => timestamp(job.finishedAt)));
         return {

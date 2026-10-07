@@ -111,6 +111,31 @@ test("coalesced reads survive one caller cancelling and cancel when last subscri
   }
 });
 
+test("closing cache review aborts its read-only preview POST without replaying it", async () => {
+  let calls = 0;
+  let started;
+  const requestStarted = new Promise(resolve => { started = resolve; });
+  const server = http.createServer((req, _res) => {
+    assert.equal(req.url, "/api/actions/preview-cache-cleanup");
+    calls++;
+    started();
+  });
+  await listen(server);
+  const budget = new RequestBudget({ ...defaultRequestBudgetConfig, minIntervalByPurpose: {}, disabledPurposes: [] });
+  const client = new HttpTunnelClient({ localHost: "127.0.0.1", localPort: server.address().port, timeoutMs: 1000 }, budget);
+  const controller = new AbortController();
+  try {
+    const preview = client.postAction("preview-cache-cleanup", { opId: "preview-cancel-test" }, { signal: controller.signal });
+    await requestStarted;
+    controller.abort();
+    await assert.rejects(preview, error => error.name === "AbortError");
+    assert.equal(calls, 1);
+  } finally {
+    server.closeAllConnections();
+    server.close();
+  }
+});
+
 function listen(server) {
   return new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 }

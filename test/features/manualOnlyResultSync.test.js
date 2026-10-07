@@ -77,6 +77,8 @@ function distributedHost() {
   provider.refreshDistributedResultSyncProbes = async () => { provider.lastWorkerProbes = { "worker-a": { status: "ok" } }; };
   provider.refreshLocalPlanMetadataForAction = async () => {};
   provider.loadPlanSyncLedger = async () => ({ schemaVersion: 2, entries: {} });
+  provider.queuePlanArtifactSyncStatusCheck = force => { assert.equal(force, true); calls.push("sync-check"); };
+  provider.rebuildProjectResultTablesFromUi = async options => { calls.push("local-tables"); return options; };
   return provider;
 }
 
@@ -93,19 +95,21 @@ test("background queue ticks, completion sync, and selection parsing do not star
   assert.deepEqual(calls, []);
 });
 
-test("manual result sync requires the full latest artifact transfer and publishes formal results", async () => {
+test("manual result sync directly downloads metrics and publishes local tables without remote rebuild or full mirroring", async () => {
   const provider = distributedHost();
-  await assert.rejects(provider.syncPendingResultMetricsFromUi(), /historical Plan has no fragment inventory/);
-  assert.deepEqual(provider.calls, ["artifacts:fragments"]);
+  const result = await provider.syncPendingResultMetricsFromUi({ planFiles: ["experiments/plans/a.yaml"] });
+  assert.equal(result.title, "同步服务器结果并更新总表");
+  assert.deepEqual(Array.from(result.planFiles), ["experiments/plans/a.yaml"]);
+  assert.deepEqual(provider.calls, ["local-tables"]);
 });
 
-test("full artifact sync can explicitly run both artifact phases and both rebuilds", async () => {
+test("explicit full artifact sync mirrors fragments, checkpoints and logs without remotely rebuilding results", async () => {
   const provider = distributedHost();
   provider.syncDistributedJobArtifacts = async (_root, _queue, phase) => provider.calls.push(`artifacts:${phase}`);
   provider.rebuildDistributedResults = async (_root, _queue, preview) => provider.calls.push(preview ? "rebuild:preview" : "rebuild:published");
   await provider.postprocessDistributedResultsForManual("/project", "full");
   assert.deepEqual(provider.calls, [
-    "artifacts:fragments", "rebuild:preview", "artifacts:bulk", "rebuild:published", "state",
+    "artifacts:fragments", "artifacts:bulk", "state", "sync-check",
   ]);
 });
 

@@ -478,6 +478,11 @@ export function resultCatalog(root: string, resultDir: string, manualMappings: R
   const knownDatasets = new Map(datasetPartitions(Object.values(registry.plans || {}).flatMap(plan => plan.records.map(row => row.dataset))).map(row => [row.datasetKey, row.dataset]));
   const knownWorkers = new Map(Object.values(registry.plans || {}).flatMap(plan => plan.records.map(row => [workerDirectoryKey(row.workerId), row.workerId] as [string, string])));
   const knownPlans = new Map(Object.keys(registry.plans || {}).map(file => [planDirectoryKey(file), file]));
+  // A published registry owns current tables; old directories remain available as history.
+  const currentTableKeys = registry.publicationGeneration ? new Set(Object.values(registry.plans || {}).flatMap(plan => plan.records.flatMap(record => {
+    const datasetKey = datasetPathKey(record.dataset);
+    return [tablePaths(datasetKey, "final", "final").tableKey, tablePaths(datasetKey, methodTableName(record.method), "method").tableKey];
+  }))) : undefined;
   const datasets: any[] = [], legacyTables: any[] = [];
   let artifactCount = 0;
   for (const datasetKey of childDirs(directory)) {
@@ -494,6 +499,7 @@ export function resultCatalog(root: string, resultDir: string, manualMappings: R
     const candidates = [{ name: "final", kind: "final" as const }, ...childDirs(path.join(datasetRoot, "methods"), 200).map(name => ({ name, kind: "method" as const }))];
     for (const candidate of candidates) {
       const paths = tablePaths(datasetKey, candidate.name, candidate.kind);
+      if (currentTableKeys && !currentTableKeys.has(paths.tableKey)) continue;
       const file = path.join(directory, paths.relativePath);
       if (!smallFile(file)) continue;
       const parent = path.dirname(file);

@@ -493,3 +493,23 @@ test("exact operation cleanup hides only terminal records", () => {
   const visible = sandbox.visibleRows({ executionHistoryHiddenOperationIds: ["old-run", "live-run"] });
   assert.deepEqual(Array.from(visible, (row) => row.operationId), ["live-run"]);
 });
+
+test("completed history displays run-scoped global artifact verification without expanding details", () => {
+  const sandbox = clickSandbox();
+  const completed = { id: "latest-run", planFile: "plans/ebmc.yaml", enqueuedAt: "2026-10-07T12:00:00Z",
+    jobs: [{ index: 0, case: "bus", seed: 42, status: "completed" }] };
+  for (const [status, label] of [["checking", "正在核验全局同步"], ["synced", "已全局同步最新产物"],
+    ["partial", "尚未全局同步"], ["unknown", "全局同步待核验"]]) {
+    sandbox.render({ distributedPlans: [completed], planArtifactSyncStatuses: {
+      "latest-run": { runId: "latest-run", status, targetCount: 3, syncedCount: status === "synced" ? 3 : 1, detail: "包含权重" },
+    } });
+    assert.match(sandbox.html, /已完成 Plan 历史 1/);
+    assert.ok(sandbox.html.includes(label));
+    assert.ok(sandbox.html.indexOf(label) < sandbox.html.indexOf("详情与日志"));
+  }
+  sandbox.render({ distributedPlans: [completed], planArtifactSyncStatuses: {
+    "latest-run": { runId: "old-run", status: "synced", targetCount: 3, syncedCount: 3 },
+  } });
+  assert.doesNotMatch(sandbox.html, /已全局同步最新产物/);
+  assert.match(sandbox.html, /全局同步待核验/);
+});

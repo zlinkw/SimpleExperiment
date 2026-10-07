@@ -323,9 +323,9 @@ export class RealtimeTunnelClient {
     return this.files.list(remotePath);
   }
 
-  postAction<T>(action: TunnelAction, body: unknown): Promise<T> {
+  postAction<T>(action: TunnelAction, body: unknown, options: { signal?: AbortSignal } = {}): Promise<T> {
     if (this.requiresManualReconnect) return Promise.reject(new Error(this.lastError));
-    return this.http.postAction<T>(action, body);
+    return this.http.postAction<T>(action, body, options);
   }
 
   postAvailabilityBatch<T>(body: unknown): Promise<T> {

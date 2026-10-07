@@ -392,7 +392,7 @@ export class MultiEndpointRealtimeClient {
     return this.hubClient().postAction<T>(action, body);
   }
 
-  async postWorkerAction<T>(workerId: string, action: TunnelAction, body: unknown): Promise<T> {
+  async postWorkerAction<T>(workerId: string, action: TunnelAction, body: unknown, options: { signal?: AbortSignal } = {}): Promise<T> {
     const isCacheClearWorker = String(action || "").trim().toLowerCase().replace(/[-_]/g, "") === "clearcache";
     if (!isCacheClearWorker && action !== "preview-cache-cleanup" && action !== "delete-cache-candidates" && !isWorkerTelemetryAction(action) && !isWorkerLocalSchedulerRequest(action, body) && !isWorkerOwnedResultRequest(action, body)) {
       throw new Error(`Worker Agent action not allowed: ${action}`);
@@ -402,7 +402,7 @@ export class MultiEndpointRealtimeClient {
     if (!client || endpoint?.role !== "worker") {
       throw new Error(`Worker Agent endpoint not configured: ${workerId}`);
     }
-    return client.postAction<T>(action, body);
+    return client.postAction<T>(action, body, options);
   }
 
   async postAvailabilityBatch<T>(body: unknown): Promise<T> {

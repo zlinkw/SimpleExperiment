@@ -100,7 +100,7 @@ export interface TunnelClient {
   getOperation(operationId: string): Promise<unknown>;
   getWorkerTasks?(options?: { signal?: AbortSignal }): Promise<unknown>;
   getRunEvidence?(params: { operationId?: string; planFile?: string; pid?: number | string; tmuxSession?: string }): Promise<unknown>;
-  postAction<T>(action: TunnelAction, body: unknown): Promise<T>;
+  postAction<T>(action: TunnelAction, body: unknown, options?: { signal?: AbortSignal }): Promise<T>;
   postAvailabilityBatch<T>(body: unknown): Promise<T>;
   openEventStream?(sinceSeq: number): Promise<void>;
 }
@@ -277,7 +277,7 @@ export class HttpTunnelClient implements TunnelClient {
     });
   }
 
-  async postAction<T>(action: TunnelAction, body: unknown): Promise<T> {
+  async postAction<T>(action: TunnelAction, body: unknown, options: { signal?: AbortSignal } = {}): Promise<T> {
     if (!body || typeof body !== "object" || !("opId" in body) || !String((body as { opId?: unknown }).opId || "").trim()) {
       throw new Error("Tunnel action requires opId.");
     }
@@ -285,6 +285,7 @@ export class HttpTunnelClient implements TunnelClient {
       method: "POST",
       userInitiated: true,
       timeoutMs: action === "rebuild-distributed-results" ? 330_000 : undefined,
+      signal: options.signal,
     });
   }
 

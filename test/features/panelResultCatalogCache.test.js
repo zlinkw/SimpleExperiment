@@ -15,6 +15,7 @@ const sandbox = {
   workspaceRoot: () => "C:/workspace",
   DEFAULT_RESULT_CSV_DIR: "experiments/results", Date, console,
   fs: {}, ProjectResultPublication: { projectResultPublicationJournalPath: root => path.join(root, "journal.json") },
+  ProjectResultTables: { buildTables: () => ({}) }, mapLimited: async (items, _limit, work) => Promise.all(items.map(work)),
   pluginProjectAdapterRules: () => ({ planDatasetMapping: {} }),
   PanelStateProjection_1: { panelInterestedSections: () => new Set(["results"]) },
   errorMessage: value => value instanceof Error ? value.message : String(value),
@@ -126,11 +127,14 @@ test("manual local refresh resets read errors and rescans independently of faile
   Object.assign(subject, { resultCatalogDirtyGeneration: 0, resultCatalogRefreshSequence: 0,
     resultCatalogRefreshError: "old read error", resultCatalogRefreshFailedKey: "old", resultCatalogRefreshBackoffUntil: Date.now() + 30000,
     resultSyncReport: { failed: 11 }, manualResultSyncInFlight: true });
+  subject.captureProjectContext = () => ({ root: "C:/workspace" });
+  subject.projectContextIsCurrent = () => true;
+  subject.loadProjectTableRegistry = async () => ({ schemaVersion: 1, plans: {} });
   let rescans = 0, posts = 0;
   subject.refreshResultCatalogForCurrentInterest = () => { rescans++; };
   subject.postState = () => { posts++; };
   subject.cancelResultCatalogRefresh = () => undefined;
-  subject.refreshLocalResultsFromUi();
+  await subject.refreshLocalResultsFromUi();
   assert.equal(rescans, 1);
   assert.equal(posts, 1);
   assert.equal(subject.resultCatalogRefreshError, "");

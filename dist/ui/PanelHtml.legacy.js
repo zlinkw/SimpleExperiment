@@ -1321,8 +1321,6 @@ function renderPanelHtml() {
         <span class="status-chip status-completed">仅本机端口</span>
         <button data-command="verifyAgentVersion" class="secondary" type="button" title="校验 Agent 版本&#10;对比本机与各服务器上的 Agent 版本&#10;不一致时提示升级">校验 Agent 版本</button>
         <button data-command="clearCache" class="secondary" type="button" title="查看各 Worker 已结束任务超过 7 天的临时文件与日志，审核完整路径后才可删除">缓存回收审核</button>
-        <button data-command="pauseAll" class="secondary" type="button" title="暂停全部网络活动&#10;挂起隧道与实时流，已提交的远端任务不受影响">暂停全部网络</button>
-        <button data-command="resumeNetwork" class="secondary" type="button" title="恢复网络&#10;重新建立此前暂停的隧道与实时流">恢复网络</button>
         <button data-command="openSetupGuide" class="secondary" type="button" title="打开该步骤的处理说明&#10;含配置步骤与常见问题排查">配置说明</button>
         <span class="status-chip pluginVersionChip" id="pluginVersionChip" title="当前插件版本">v${PLUGIN_VERSION}</span>
         <button type="button" class="secondary topbarIconButton" data-section-target="settings" data-anchor-target="settings" title="设置" aria-label="设置">&#9881;</button>
@@ -1585,7 +1583,7 @@ function renderPanelHtml() {
           <div class="section-desc">结果目录、服务器、隧道与调度参数</div>
         </div>
         <div class="cardTools">
-          <button type="button" class="secondary settingsBackButton" data-main-view="workspace" title="返回工作台">返回工作台</button>
+          <button type="button" class="secondary settingsBackButton" data-main-view="workspace" title="关闭设置，返回主界面">关闭设置</button>
         </div>
       </div>
       <div class="settingsLayoutTools" data-anchor="settings-layout">
@@ -5821,6 +5819,8 @@ function renderPanelHtml() {
       const targetChanged = nextSection !== activeResourceSection || nextAnchor !== activeResourceAnchor;
       activeResourceSection = nextSection;
       activeResourceAnchor = nextAnchor;
+      syncPanelSectionInterest();
+      renderSectionIfVisible(lastState || {}, nextSection, { force: true });
       updateResourceTreeActiveSection(activeResourceSection, activeResourceAnchor);
       let parentDetails = resolveResourceScrollTarget(activeResourceSection, activeResourceAnchor)?.closest?.("details");
       while (parentDetails) {
@@ -6364,9 +6364,10 @@ function renderPanelHtml() {
         const nextSig = [section, collapsed ? "1" : "0", layoutEdit ? "1" : "0"].join("|");
         if (tools.dataset.cardToolsSig !== nextSig) {
           tools.dataset.cardToolsSig = nextSig;
-          tools.innerHTML =
-            '<span class="dragHandle" draggable="true" title="拖动排序">拖动</span>' +
-            '<button class="collapseBtn" type="button" data-collapse-section="' + escAttr(section) + '" title="折叠或展开该卡片（按当前状态自动切换）">' + (collapsed ? "展开" : "折叠") + '</button>';
+          tools.innerHTML = section === "settings"
+            ? '<button type="button" class="secondary settingsBackButton" data-main-view="workspace" title="关闭设置，返回主界面">关闭设置</button>'
+            : '<span class="dragHandle" draggable="true" title="拖动排序">拖动</span>' +
+              '<button class="collapseBtn" type="button" data-collapse-section="' + escAttr(section) + '" title="折叠或展开该卡片（按当前状态自动切换）">' + (collapsed ? "展开" : "折叠") + '</button>';
         }
         card.draggable = layoutEdit;
       });
@@ -7325,6 +7326,7 @@ function renderPanelHtml() {
       updateResourceTreeActiveSection(activeResourceSection, activeResourceAnchor);
       forceWorkbenchInspectorRender();
       renderWorkbenchInspector(lastState || {}, { force: true });
+      renderVisibleSections(lastState || {});
       requestAnimationFrame(() => scrollToResourceTarget(activeResourceSection, activeResourceAnchor));
     }
 
@@ -7471,7 +7473,7 @@ function renderPanelHtml() {
 
     function renderResourceTree(_state) {
       // 顶级=卡片标题直摆（无 label 分组头），顺序沿用 RESOURCE_TREE_SECTION_ORDER 经 normalizeUiLayout；servers 隐藏跳过（合入 sync）。
-      const order = [...new Set(normalizeUiLayout(currentUiLayout).order)].filter((section) => section !== "servers");
+      const order = [...new Set(normalizeUiLayout(currentUiLayout).order)].filter((section) => section !== "servers" && section !== "settings");
       const nextRenderKey = resourceTreeNextRenderKey(order);
       if (!resourceTreeNeedsRerender(nextRenderKey)) {
         updateResourceTreeActiveSection(activeResourceSection, activeResourceAnchor);
@@ -7514,7 +7516,6 @@ function renderPanelHtml() {
       };
       return {
         servers: { label: "运行环境准备", node: withResourceTreeChildren(item("servers", "服务器管理", "服务器管理", "▦", "Hub/Worker/端口", "Hub Worker Xshell 端口 调度"), serverTreeObjects()) },
-        settings: { label: "设置", node: withResourceTreeChildren(item("settings", "设置", "项目与服务器设置", "⚙", "结果目录、服务器、隧道与调度参数", "设置 结果 CSV 服务器 Hub Worker Xshell 端口 调度 参数"), settingsTreeObjects()) },
         gpu: { label: "GPU 状态", node: withResourceTreeChildren(item("gpu", "GPU 状态", "GPU 总览", "◫", "GPU 总览", "GPU 显卡 显存 温度 利用率 我的任务 进程"), gpuTreeObjects()) },
         tmux: { label: "TMUX 会话 / 窗口 / 窗格", icon: RESOURCE_TREE_SECTION_ICONS.tmux || "⬢", node: withResourceTreeChildren(item("tmux", "TMUX 会话 / 窗口 / 窗格", "TMUX 会话 / 窗口 / 窗格", RESOURCE_TREE_SECTION_ICONS.tmux || "⬢", "会话/窗口/窗格", "tmux 会话 窗口 窗格 会话总览"), tmuxTreeObjects()) },
         plans: { label: "实验准备", node: withResourceTreeChildren(item("plans", "实验准备", "实验计划", "◇", "计划/校验/运行", "计划 参数 校验 预演 运行"), planTreeObjects()) },
@@ -14226,9 +14227,16 @@ function renderPanelHtml() {
           ? '<button type="button" class="mini secondary" data-command="recallPlanToLocalQueue" data-plan-id="' + escAttr(recallPlanIds[0]) + '" data-plan-file="' + escAttr(group.planFile || "") + '" title="召回此 Plan 当前所有服务器排队任务到本机空闲 GPU；运行中和已结束任务保持原状态。">召回 Plan 到本机</button>' : '';
         const actions = '<div class="executionPlanActions">' + resumeButton + recallPlanButton + stopButton + foldButton + '</div>';
         const detailsBody = stopClearDetail + phaseNote + dangerActions + selectButton + distributedHtml + opHtml + taskHtml + more;
+        const reportedSync = ((state || {}).planArtifactSyncStatuses || {})[group.distributedPlanId] || {};
+        const syncState = reportedSync.runId === group.distributedPlanId ? reportedSync : {};
+        const syncLabel = syncState.runId === group.distributedPlanId
+          ? ({ checking: "正在核验全局同步", synced: "已全局同步最新产物", partial: "尚未全局同步", unknown: "全局同步待核验" }[syncState.status] || "全局同步待核验")
+          : "全局同步待核验";
+        const syncBadge = group.tone === "completed" ? '<div class="executionPlanSyncStatus" title="' + escAttr([syncState.detail || "启动后连接就绪、Plan 完成及同步/下载结束时自动只读核验。", syncState.checkedAt || ""].join(" · ")) + '"><span class="pill ' + (syncState.status === "synced" ? "status-completed" : "status-warning") + '">' + esc(syncLabel) + (Number(syncState.targetCount) > 0 ? ' · ' + Number(syncState.syncedCount || 0) + '/' + Number(syncState.targetCount) + ' Worker' : '') + '</span></div>' : '';
         return '<article class="executionPlanCard executionPlanRow ' + group.tone + (isSelected ? ' is-selected' : '') + '" data-execution-plan-key="' + escAttr(group.key) + '">' +
           '<div class="executionPlanHead" title="' + escAttr(group.planFile || group.label) + '"><span class="executionPlanName">' + loadingPrefix((group.active && !group.waitingSubmission && !group.deferredCurrent) || group.distributedActive) + esc(group.label) + '</span>' + statusBadge + '</div>' +
           '<div class="executionPlanMeta"><span class="executionPlanCount">' + esc(count) + '</span><span title="' + escAttr(group.planFile || group.label) + '">' + esc(group.planFile || "未关联 Plan") + '</span></div>' +
+          syncBadge +
           stopClearSummary +
           actions +
           (detailsBody ? '<details class="executionPlanDetails" data-details-key="' + escAttr(detailKey) + '"' + detailsOpenAttr(detailKey, false) + '><summary>详情与日志</summary>' + detailsBody + '</details>' : '') +
@@ -14385,6 +14393,7 @@ function renderPanelHtml() {
         };
       });
       const planList = stableSectionSignature({
+        planArtifactSyncStatuses: data.planArtifactSyncStatuses,
         operations: planOperations,
         tasks: compactTaskRowsForRenderStructureSignature(view.allRows, view.allRows.length),
         taskSubmissions: view.allRows.map((row) => [row.enqueuedAt, row.createdAt, row.startedAt]),
@@ -15691,7 +15700,7 @@ function renderPanelHtml() {
       const legacyHtml = legacyTables.length ? '<details class="resultSpecialGroup" data-details-key="result-legacy-tables"' + detailsOpenAttr("result-legacy-tables", false) + '><summary>旧版结果结构（' + legacyTables.length + '）</summary><div class="resultSpecialBody"><div class="muted">旧结构只读保留；重新汇总后会生成按数据集组织的结果。</div>' + legacyTables.map(row => '<div class="resultTableName" title="' + escAttr(row.path || "") + '">' + esc(resultCatalogBasename(row.path)) + '</div>').join("") + '</div></details>' : "";
       const advancedHtml = sharedHtml || legacyHtml ? '<details class="resultSpecialGroup resultAdvancedSources" id="result-advanced-sources" data-details-key="result-advanced-sources"' + detailsOpenAttr("result-advanced-sources", false) + '><summary>高级来源</summary><div class="resultSpecialBody">' + sharedHtml + legacyHtml + '</div></details>' : "";
       const optionsHtml = (items, chosen) => items.map(item => '<option value="' + escAttr(item) + '"' + (item === chosen ? ' selected' : '') + '>' + esc(item) + '</option>').join("");
-      return '<div class="resultFinalCard resultTableBrowser"><div class="resultFinalHeader"><div><h3>结果总表</h3><p>按数据集组织结果。</p></div><div class="resultTopActions"><button type="button" class="secondary" data-command="refreshLocalResults" title="重新读取本机结果目录；不连接服务器、不下载、不重新汇总。">刷新本地结果</button><button type="button" data-command="syncPendingPlanArtifacts" title="从任务所属服务器下载最新完整运行的指标，在本机更新总表；权重和日志保留在服务器。">同步服务器结果并更新总表</button><button type="button" class="secondary" data-command="rebuildProjectResultTables" title="下载已完成运行的指标并重新汇总；权重、检查点和日志保留在服务器。">下载指标并重新汇总</button></div></div>' +
+      return '<div class="resultFinalCard resultTableBrowser"><div class="resultFinalHeader"><div><h3>结果总表</h3><p>按数据集组织结果。</p></div><div class="resultTopActions"><button type="button" class="secondary" data-command="refreshLocalResults" title="重新读取本机结果，并用已收录指标修复缺失或陈旧的 CSV/Markdown；不连接服务器、不下载。">刷新本地结果</button><button type="button" data-command="syncPendingPlanArtifacts" title="从任务所属服务器下载最新完整运行的指标，在本机更新总表；权重和日志保留在服务器。">同步服务器结果并更新总表</button><button type="button" class="secondary" data-command="rebuildProjectResultTables" title="下载已完成运行的指标并重新汇总；权重、检查点和日志保留在服务器。">下载指标并重新汇总</button></div></div>' +
         reportHtml +
         catalogStatusHtml +
         (catalog.error ? '<div class="muted">结果目录需要检查：' + esc(catalog.error) + '</div>' : view.datasets.length ? '<section class="resultDatasetList"><h4 class="resultDatasetSectionTitle">数据集结果</h4>' + datasetsHtml + '</section>' : catalogLoadStatus === "ready" ? '<div class="muted">尚无总表。点击“同步服务器结果并更新总表”合并 Worker 结果、下载指标并生成总表。</div>' : '') +

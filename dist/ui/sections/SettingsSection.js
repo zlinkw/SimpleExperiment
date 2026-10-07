@@ -18,7 +18,7 @@ class SettingsSection {
           <div class="section-desc">结果目录、服务器、隧道与调度参数</div>
         </div>
         <div class="cardTools">
-          <button type="button" class="secondary settingsBackButton" data-main-view="workspace" title="返回工作台">返回工作台</button>
+          <button type="button" class="secondary settingsBackButton" data-main-view="workspace" title="关闭设置，返回主界面">关闭设置</button>
         </div>
       </div>
       <div class="settingsLayoutTools" data-anchor="settings-layout">

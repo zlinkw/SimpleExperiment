@@ -306,10 +306,10 @@ class RealtimeTunnelClient {
     listRemoteFiles(remotePath) {
         return this.files.list(remotePath);
     }
-    postAction(action, body) {
+    postAction(action, body, options = {}) {
         if (this.requiresManualReconnect)
             return Promise.reject(new Error(this.lastError));
-        return this.http.postAction(action, body);
+        return this.http.postAction(action, body, options);
     }
     postAvailabilityBatch(body) {
         if (this.requiresManualReconnect)

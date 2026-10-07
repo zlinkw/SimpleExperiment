@@ -235,6 +235,7 @@ test("formal publication calls replacement only after rebuilding and mirroring t
   const sandbox = { PlanOutputRetention: retention, PlanRunFreshness: freshness, crypto: require("node:crypto"),
     uniqueStrings: (values) => [...new Set(values)], samePlanSelection: (a, b) => a === b,
     remoteActionPendingStatus: () => false, resultStatus: (value) => value.status, errorMessage: (error) => error.message,
+    makeOpId: () => "distributed-merge-fixture",
     PlanArtifactTransfer_1: { workerFpsyncTaskLabel: () => "publish" }, workspaceRoot: () => "C:/project",
   };
   vm.createContext(sandbox);
