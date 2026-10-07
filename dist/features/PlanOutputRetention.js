@@ -33,6 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.outputVersionReview = outputVersionReview;
 exports.withValidatedPlanJobCounts = withValidatedPlanJobCounts;
 exports.plansForOutputSync = plansForOutputSync;
 exports.isAttemptOutputDir = isAttemptOutputDir;
@@ -50,6 +51,31 @@ const normalizePlan = (value) => String(value || "").replace(/\\/g, "/").replace
 const ordered = (plans) => plans.map((plan, index) => ({ plan, index }))
     .sort((a, b) => (Date.parse(a.plan.enqueuedAt) || 0) - (Date.parse(b.plan.enqueuedAt) || 0) || a.index - b.index)
     .map(({ plan }) => plan);
+const codeVersion = (plan) => plan.codeFingerprint && plan.revision
+    ? JSON.stringify([plan.codeFingerprint, plan.revision]) : "";
+/** Count code/config versions, not seeds, copies or repeat submissions. Unknown identities stay separate. */
+function outputVersionReview(queue, limit = 5) {
+    const reports = [];
+    for (const file of new Set(queue.plans.map(plan => normalizePlan(plan.planFile)))) {
+        const versions = new Map();
+        for (const plan of ordered(queue.plans.filter(plan => normalizePlan(plan.planFile) === file))) {
+            if (!plan.jobs.flatMap(job => [job, ...(job.history || [])]).some(job => !job.outputRetiredAt && isAttemptOutputDir(job.outputDir)))
+                continue;
+            const key = codeVersion(plan) || `unknown:${plan.id}`;
+            const runs = versions.get(key) || [];
+            runs.push(plan);
+            versions.delete(key);
+            versions.set(key, runs);
+        }
+        if (versions.size <= limit)
+            continue;
+        const olderRunIds = [...versions.values()].slice(0, versions.size - limit).flatMap(runs => runs.map(plan => plan.id));
+        reports.push({ planFile: queue.plans.find(plan => normalizePlan(plan.planFile) === file).planFile,
+            versionCount: versions.size, olderRunIds,
+            signature: (0, node_crypto_1.createHash)("sha256").update(JSON.stringify([...versions].map(([key, runs]) => [key, runs.map(plan => plan.id)]))).digest("hex") });
+    }
+    return reports;
+}
 /** Upgrade legacy subset counts only from an exact current revision, without touching the display cache. */
 function withValidatedPlanJobCounts(queue, metadata = []) {
     const next = (0, DistributedPlanQueue_1.cloneDistributedQueue)(queue);
@@ -91,7 +117,7 @@ function isAttemptOutputDir(value) {
         && (parts[0] !== "experiments" || parts[1] === "runs")
         && !parts.some((part) => [".git", "clean_dir", "simple_cluster", ".runtime"].includes(part));
 }
-function outputRetirementCandidates(queue, publishedRunIds, requiredPaths) {
+function outputRetirementCandidates(queue, publishedRunIds, requiredPaths, reviewedOlderRunIds = []) {
     const candidates = new Map();
     const protectedDirs = queue.plans.flatMap((plan) => plan.jobs.filter((job) => !terminal.has(job.status)).map((job) => job.outputDir));
     for (const id of publishedRunIds) {
@@ -121,12 +147,17 @@ function outputRetirementCandidates(queue, publishedRunIds, requiredPaths) {
             candidates.set(outputDir, { planFile: plan.planFile, replacementRunId: id, outputDir, type: "directory",
                 workerIds: [...new Set([...(existing?.workerIds || []), ...workerIds].filter((id) => Boolean(id)))] });
         };
-        for (const old of plans.slice(0, completeIndex + 1))
+        for (const old of plans.slice(0, completeIndex + 1)) {
+            // Changed code/config is history, not an implicit replacement target. An
+            // overflow review can select older versions, still behind exact-path approval.
+            if (!(codeVersion(plan) && codeVersion(old) === codeVersion(plan)) && !reviewedOlderRunIds.includes(old.id))
+                continue;
             for (const job of old.jobs) {
                 add(job.outputDir, [job.workerId, ...(job.mirroredWorkerIds || []), ...(job.fragmentWorkerIds || [])], job.status, job.outputRetiredAt);
                 for (const history of job.history || [])
                     add(history.outputDir, [history.workerId], history.status, history.outputRetiredAt);
             }
+        }
     }
     return [...candidates.values()];
 }

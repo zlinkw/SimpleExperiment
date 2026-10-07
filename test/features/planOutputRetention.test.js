@@ -13,7 +13,7 @@ const root = "/srv/research";
 
 function plan(id, time, options = {}) {
   const count = options.count ?? 6;
-  return { id, planFile: "experiments/plans/model.yaml", revision: options.revision || "r1", codeFingerprint: "fp",
+  return { id, planFile: "experiments/plans/model.yaml", revision: options.revision || "r1", codeFingerprint: options.codeFingerprint ?? "fp",
     enqueuedAt: new Date(time).toISOString(), planJobCount: count, fullPlanJobCount: options.fullCount ?? 6,
     jobs: Array.from({ length: count }, (_, index) => {
       const outputDir = `work_dirs/model/case-${index}/attempts/${id}`;
@@ -53,12 +53,50 @@ test("a failed, running, partial or unverified replacement keeps the previous co
   assert.deepEqual(retention.outputRetirementCandidates(queue(a, b), [b.id], required), []);
 });
 
-test("a complete newer revision supersedes old attempts, while a newer staging run is protected", () => {
+test("changed code or Plan config keeps its older complete results and newer staging is protected", () => {
   const a = plan("run-a", 1000), b = plan("run-b", 2000, { revision: "r2" }), c = plan("run-c", 3000, { status: "running" });
   const obsolete = retention.outputRetirementCandidates(queue(a, b, c), [b.id], required);
-  assert.equal(obsolete.length, 6);
-  assert.ok(obsolete.every((row) => row.outputDir.endsWith("/run-a")));
+  assert.deepEqual(obsolete, []);
+  const changed = plan("run-d", 4000, { codeFingerprint: "new-code" });
+  assert.deepEqual(retention.outputRetirementCandidates(queue(a, changed), [changed.id], required), []);
+  const unknown = plan("run-unknown", 5000, { codeFingerprint: "" });
+  assert.deepEqual(retention.outputRetirementCandidates(queue(a, unknown), [unknown.id], required), []);
   assert.deepEqual(ids(retention.plansForOutputSync(queue(a, b, c))), ["run-b", "run-c"]);
+});
+
+test("only more than five distinct retained versions require review; same-code reruns are one version", () => {
+  const versions = Array.from({ length: 6 }, (_, index) => plan(`v${index}`, 1000 + index, { codeFingerprint: `code-${index}` }));
+  assert.deepEqual(retention.outputVersionReview(queue(...versions.slice(0, 5))), []);
+  const repeated = plan("v5-again", 2000, { codeFingerprint: "code-5" });
+  const report = retention.outputVersionReview(queue(...versions, repeated));
+  assert.equal(report.length, 1);
+  assert.equal(report[0].versionCount, 6);
+  assert.deepEqual(report[0].olderRunIds, ["v0"]);
+  const older = retention.outputRetirementCandidates(queue(...versions, repeated), [repeated.id], required);
+  assert.ok(older.every(row => row.outputDir.endsWith("/v5")));
+  const reviewed = retention.outputRetirementCandidates(queue(...versions, repeated), [repeated.id], required, report[0].olderRunIds);
+  assert.equal(reviewed.length, 12);
+  assert.ok(reviewed.every(row => ["v0", "v5"].some(id => row.outputDir.endsWith('/' + id))));
+  const latest = retention.markOutputsRetired(queue(...versions, repeated), reviewed.find(row => row.outputDir.endsWith('/v0')), 'now');
+  // One retired job does not make the whole version disappear while its other outputs exist.
+  assert.equal(retention.outputVersionReview(latest)[0].versionCount, 6);
+});
+
+test("unknown version evidence never implies same code and active older versions cannot become deletion candidates", () => {
+  const a = plan("a", 1000, { codeFingerprint: "" }), b = plan("b", 2000, { codeFingerprint: "" });
+  assert.deepEqual(retention.outputRetirementCandidates(queue(a, b), [b.id], required), []);
+  const active = plan("active", 500, { status: "running", codeFingerprint: "old" });
+  assert.deepEqual(retention.outputRetirementCandidates(queue(active, b), [b.id], required, ['active']), []);
+});
+
+test("a version leaves the review only when all of its attempt outputs have been retired", () => {
+  const versions = Array.from({ length: 6 }, (_, index) => plan(`v${index}`, 1000 + index, { codeFingerprint: `code-${index}` }));
+  let state = queue(...versions);
+  const oldest = retention.outputRetirementCandidates(state, ['v5'], required, ['v0']);
+  for (const candidate of oldest) state = retention.markOutputsRetired(state, candidate, 'now');
+  assert.deepEqual(retention.outputVersionReview(state), []);
+  assert.ok(state.plans[0].jobs.every(job => job.outputRetiredAt));
+  assert.ok(state.plans[1].jobs.every(job => !job.outputRetiredAt));
 });
 
 test("retiring is scoped to exact attempt leaves, including superseded job retries", () => {
@@ -186,20 +224,20 @@ test("Host uses the double-confirm review and guarded SimpleSFTP deletion; keep-
   const start = source.indexOf("planOutputRetentionMode(root) {");
   const end = source.indexOf("async retryDistributedJobFromUi(message)", start);
   assert.ok(start >= 0 && end > start);
-  const methods = source.slice(start, end).trim().replace(/}\s+async /g, "}, async ");
+  const methods = source.slice(start, end).trim();
   let state = queue(plan("a", 1000), plan("b", 2000));
   const removed = new Set(), apiCalls = [], holds = {}, errors = [];
-  let mode = "latest-complete", reviews = 0;
+  let mode = "latest-complete", reviews = 0, expectedCopies = 12, published = true;
   const sandbox = { PlanOutputRetention: retention, PlanRunFreshness: freshness,
     remoteActionPendingStatus: (status) => ["accepted", "running"].includes(status), resultStatus: (value) => value.status,
     remoteActionSucceeded: (status) => status === "completed",
     vscode: { workspace: { getConfiguration: () => ({ get: () => mode }) }, Uri: { file: (value) => value }, window: { showInformationMessage() {} } },
     workspaceRoot: () => "C:/project", compactSensitiveText: (value) => value, errorMessage: (value) => value.message,
-    confirmSyncScopePaths: async (title, note, records, label) => { reviews++; assert.equal(records.length, 12); assert.match(label, /永久删除/); assert.ok(records.every((row) => row.path.startsWith(root + "/"))); return true; },
+    confirmSyncScopePaths: async (title, note, records, label) => { reviews++; assert.equal(records.length, expectedCopies); assert.match(label, /永久删除/); assert.ok(records.every((row) => row.path.startsWith(root + "/"))); return true; },
   };
   sandbox.SyncScopeConfirmation_1 = { confirmSyncScopePaths: sandbox.confirmSyncScopePaths };
   vm.createContext(sandbox);
-  vm.runInContext(`this.methods = { ${methods} };`, sandbox);
+  vm.runInContext(`class Subject { ${methods} }; this.methods = Object.fromEntries(Object.getOwnPropertyNames(Subject.prototype).filter(name => name !== 'constructor').map(name => [name, Subject.prototype[name]]));`, sandbox);
   const host = { ...sandbox.methods,
     client: { async postWorkerAction(id, action, payload) { assert.equal(action, "preview-cache-cleanup"); const candidate = { outputDir: payload.planOutputPaths[0] }; return { status: "completed", payload: { planOutputs: [proof(candidate, !removed.has(id + ":" + candidate.outputDir))] } }; } },
     distributedProjectContract: () => ({ requiredPaths: required }),
@@ -207,6 +245,7 @@ test("Host uses the double-confirm review and guarded SimpleSFTP deletion; keep-
     sftpServerOptions: (target) => ({ id: target.id, host: target.id + ".invalid", user: "researcher", port: 22, remotePath: root }),
     lastWorkerProbes: { "worker-a": { status: "ok" }, "worker-b": { status: "ok" } },
     async loadDistributedQueue() { return queueApi.cloneDistributedQueue(state); },
+    async loadProjectTableRegistry() { return { plans: published ? { [state.plans.at(-1).planFile]: { wrapperEvidence: { status: 'formal', runId: state.plans.at(-1).id } } } : {} }; },
     async saveDistributedQueue(_root, value) { state = value; },
     distributedOutputHashes: async (_source, paths) => Object.fromEntries(paths.map((file) => [file, hash])),
     async assertSshTransportIdentities() {},
@@ -225,6 +264,85 @@ test("Host uses the double-confirm review and guarded SimpleSFTP deletion; keep-
   mode = "keep-history";
   await host.retainLatestDistributedPlanOutputs("C:/project", ["b"]);
   assert.equal(apiCalls.length, 12);
+  mode = "latest-complete";
+  state = queue(...Array.from({ length: 6 }, (_, index) => plan(`v${index}`, 1000 + index, { codeFingerprint: `code-${index}` })),
+    plan('v5-again', 2000, { codeFingerprint: 'code-5' }));
+  expectedCopies = 24;
+  await host.retainLatestDistributedPlanOutputs('C:/project', ['v5-again'], ['v0'], true);
+  assert.deepEqual(errors, []);
+  assert.equal(apiCalls.length, 36);
+  assert.ok(state.plans[0].jobs.every(job => job.outputRetiredAt));
+  assert.ok(state.plans.slice(1, 5).every(plan => plan.jobs.every(job => !job.outputRetiredAt)));
+  assert.ok(state.plans[5].jobs.every(job => job.outputRetiredAt));
+  assert.ok(state.plans[6].jobs.every(job => !job.outputRetiredAt));
+  state = queue(plan('not-yet-a', 5000), plan('not-yet-b', 6000));
+  published = false;
+  await host.retainLatestDistributedPlanOutputs('C:/project', ['not-yet-b']);
+  assert.equal(apiCalls.length, 36, 'a completed but unpublished replacement must keep the old complete results');
+  assert.match(errors.at(-1).message, /尚未正式收录/);
+});
+
+test('version notifications are read-only, deduplicated and open the existing review only on user choice', async () => {
+  const source = fs.readFileSync(require.resolve('../../dist/extension/legacy.js'), 'utf8');
+  const methods = source.slice(source.indexOf('planOutputRetentionMode(root) {'), source.indexOf('async retryDistributedJobFromUi(message)'));
+  let currentRoot = 'C:/project', choice;
+  const warnings = [], reviewed = [], errors = [];
+  let state = queue(...Array.from({ length: 6 }, (_, index) => plan(`v${index}`, 1000 + index, { codeFingerprint: `code-${index}` })));
+  const sandbox = { PlanOutputRetention: retention, PlanArtifactSyncStatus: require('../../dist/features/PlanArtifactSyncStatus'),
+    workspaceRoot: () => currentRoot, errorMessage: error => error.message,
+    vscode: { Uri: { file: value => value }, workspace: { getConfiguration: () => ({ get: () => 'latest-complete' }) },
+      window: { showWarningMessage: async (message, action) => { warnings.push({ message, action }); return choice; } } } };
+  vm.createContext(sandbox);
+  vm.runInContext(`class Subject { ${methods} }; this.Subject = Subject;`, sandbox);
+  const host = Object.assign(new sandbox.Subject(), { distributedProjectContract: () => ({ requiredPaths: required }),
+    loadPlanOutputRetentionQueue: async () => state,
+    retainLatestDistributedPlanOutputs: async (...args) => reviewed.push(args), recordActionError: error => errors.push(error) });
+  host.notifyPlanOutputVersionReview('C:/project', queue(...state.plans.slice(0, 5)));
+  assert.equal(warnings.length, 0);
+  host.notifyPlanOutputVersionReview('C:/project', state);
+  host.notifyPlanOutputVersionReview('C:/project', state);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(warnings.length, 1);
+  assert.match(warnings[0].message, /超过 5/);
+  assert.equal(reviewed.length, 0);
+  choice = '审核和清理历史产物';
+  state = queue(...state.plans, plan('v6', 3000, { codeFingerprint: 'code-6' }));
+  host.notifyPlanOutputVersionReview('C:/project', state);
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(reviewed.length, 1);
+  assert.deepEqual(Array.from(reviewed[0][1]), ['v6']);
+  assert.deepEqual(Array.from(reviewed[0][2]), ['v0', 'v1']);
+  assert.equal(reviewed[0][3], true);
+  host.distributedQueueStorageDiagnostics = { status: 'stale' };
+  state = queue(...state.plans, plan('v7', 4000, { codeFingerprint: 'code-7' }));
+  host.notifyPlanOutputVersionReview('C:/project', state);
+  assert.equal(warnings.length, 2);
+  assert.deepEqual(errors, []);
+  assert.match(source, /this\.notifyPlanOutputVersionReview\?\.\(root, queue\)/);
+  assert.match(source, /this\.notifyPlanOutputVersionReview\?\.\(root, next\)/);
+  assert.match(source, /this\.notifyPlanOutputVersionReview\?\.\(root, await this\.loadPlanOutputRetentionQueue\(root\)\)/);
+});
+
+test('cache review exposes the Plan history entry independently of temporary-file deletion', async () => {
+  let handler, html, reviews = 0, disposed;
+  const actions = [];
+  const vscode = { ViewColumn: { Active: 1 }, window: { createWebviewPanel: () => ({
+    webview: { set html(value) { html = value; }, postMessage: async () => true,
+      onDidReceiveMessage: callback => { handler = callback; return { dispose() {} }; } },
+    onDidDispose: callback => { disposed = callback; },
+  }) } };
+  const module = { exports: {} };
+  vm.runInNewContext(fs.readFileSync(require.resolve('../../dist/extension/CacheCleanupPanel'), 'utf8'), {
+    require: id => id === 'vscode' ? vscode : require(id), module, exports: module.exports, Buffer, process, console, AbortController,
+  });
+  module.exports.openCacheCleanupPanel(() => ({ generation: 1, endpoints: [],
+    client: { postWorkerAction: async action => actions.push(action) }, reviewPlanOutputs: async () => reviews++ }));
+  assert.match(html, /Plan 历史产物审核/);
+  for (const script of html.matchAll(/<script\b[^>]*>([\s\S]*?)<\/script>/gi)) new vm.Script(script[1]);
+  await handler({ type: 'planOutputs' });
+  assert.equal(reviews, 1);
+  assert.deepEqual(actions, []);
+  disposed();
 });
 
 test("formal publication calls replacement only after rebuilding and mirroring the latest complete run", async () => {

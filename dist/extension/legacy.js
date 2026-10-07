@@ -932,6 +932,8 @@ class RealtimeTunnelPanelProvider {
     resultCatalogRefreshBackoffUntil = 0;
     resultCatalogStatus = "notLoaded";
     resultCatalogRefreshTimer;
+    planOutputReviewNotices;
+    planOutputReviewCache;
     panelPlanStatusSummaryCache;
     distributedPlanProgressCache;
     panelPlanStatusSummaryRevision = 0;
@@ -6767,7 +6769,7 @@ class RealtimeTunnelPanelProvider {
             ...jobPaths.map((value) => `- ${value}`),
             `结果表：${resultPaths.join("、") || "按 Plan 配置"}（只由本 Plan 任务写入对应结果行）`,
             versionedAttempts
-                ? `重跑全部将创建独立的新 attempt；上一版完整结果保留到新一轮完整完成且校验发布。默认只保留最新完整版本，同步正式结果后须核对旧 attempt 完整路径并两次确认永久删除；取消清理会暂时保留旧版。仅补跑缺失任务只派发 ${missingJobs} 个缺失 job，不替换上一版完整结果。`
+                ? `重跑全部将创建独立的新 attempt；上一版完整结果保留到新一轮完整完成且校验发布。同代码和相同 Plan 配置可由最新完整结果替代；修改后的版本保留，超过 5 个版本时提示审核清理。旧 attempt 清理须核对完整路径并两次确认；取消清理会保留旧版。仅补跑缺失任务只派发 ${missingJobs} 个缺失 job，不替换上一版完整结果。`
                 : `仅补跑缺失任务将按 scheduler 默认语义跳过已有输出；重跑全部将按 scheduler 现有 overwriteExisting/--overwrite 语义重训当前 Plan 的全部任务并覆盖当前输出。`,
         ].join("\n");
         const pick = allJobsExist
@@ -10593,6 +10595,7 @@ class RealtimeTunnelPanelProvider {
         const queue = this.distributedQueueCache;
         if (!root || this.distributedQueueRoot !== root || !queue || !this.isRealtimeMode())
             return;
+        this.notifyPlanOutputVersionReview?.(root, queue);
         if (this.distributedPostprocessPromise || this.manualResultSyncCounts?.get(root)) {
             this.planArtifactSyncStatusForcePending ||= force;
             return;
@@ -10848,6 +10851,7 @@ class RealtimeTunnelPanelProvider {
         const enqueueStartedAt = Date.now();
         await this.saveDistributedQueue(root, next, { queueGeneration, submissionOperationId, submissionEpoch,
             appendPlanId: id, supersededDeferredId: supersededId });
+        this.notifyPlanOutputVersionReview?.(root, next);
         this.recordPlanSubmissionTimingByOperation?.(submissionOperationId, "enqueueMs", Date.now() - enqueueStartedAt);
         if (!submissionCurrent())
             return { enqueued: true, cancelled: true };
@@ -12042,31 +12046,83 @@ class RealtimeTunnelPanelProvider {
     planOutputRetentionMode(root) {
         return vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root)).get("results.planOutputRetention", "latest-complete");
     }
+    notifyPlanOutputVersionReview(root, queue) {
+        if (workspaceRoot() !== root || this.distributedQueueStorageDiagnostics?.status === "stale")
+            return;
+        try {
+            const mode = this.planOutputRetentionMode(root);
+            const requiredPaths = this.distributedProjectContract().requiredPaths;
+            const pathsKey = JSON.stringify(requiredPaths);
+            const cache = this.planOutputReviewCache;
+            if (cache?.root === root && cache.queue === queue && cache.metadata === this.localPlanMetadata && cache.mode === mode && cache.requiredPaths === pathsKey)
+                return;
+            const overflow = PlanOutputRetention.outputVersionReview(queue);
+            const completeIds = PlanArtifactSyncStatus.latestCompletePlansForSyncCheck(queue, this.localPlanMetadata?.plans || []).map(plan => plan.id);
+            const sameCode = mode === "keep-history" ? [] : PlanOutputRetention.outputRetirementCandidates(queue, completeIds, requiredPaths);
+            this.planOutputReviewCache = { root, queue, metadata: this.localPlanMetadata, mode, requiredPaths: pathsKey };
+            if (!overflow.length && !sameCode.length)
+                return;
+            const signature = JSON.stringify([root, overflow.map(row => row.signature), PlanOutputRetention.retirementIdentity(sameCode)]);
+            const notices = this.planOutputReviewNotices ||= new Set();
+            if (notices.has(signature))
+                return;
+            if (notices.size >= 128)
+                notices.clear();
+            notices.add(signature);
+            const message = overflow.length
+                ? `Plan 历史产物超过 5 个代码/配置版本：${overflow.map(row => `${row.planFile}（${row.versionCount} 个）`).join("；")}。请前往审核和清理；当前及运行中的产物保留。`
+                : `有 ${sameCode.length} 个同代码旧任务目录可由最新完整结果替代。请审核完整路径；新结果未完成或校验未通过时保留旧结果。`;
+            void vscode.window.showWarningMessage(message, "审核和清理历史产物").then(async (choice) => {
+                if (choice !== "审核和清理历史产物" || workspaceRoot() !== root)
+                    return;
+                const latest = await this.loadPlanOutputRetentionQueue(root);
+                if (workspaceRoot() !== root)
+                    return;
+                const olderIds = PlanOutputRetention.outputVersionReview(latest).flatMap(row => row.olderRunIds);
+                const runIds = PlanArtifactSyncStatus.latestCompletePlansForSyncCheck(latest, this.localPlanMetadata?.plans || []).map(plan => plan.id);
+                await this.retainLatestDistributedPlanOutputs(root, runIds, olderIds, true);
+            }).then(undefined, error => this.recordActionError({ command: "planOutputRetention", message: errorMessage(error) }));
+        }
+        catch (error) {
+            this.recordActionError?.({ command: "planOutputRetention", message: errorMessage(error) });
+        }
+    }
     async loadPlanOutputRetentionQueue(root) {
         return PlanOutputRetention.withValidatedPlanJobCounts(await this.loadDistributedQueue(root), this.localPlanMetadata?.plans || []);
     }
-    async retainLatestDistributedPlanOutputs(root, publishedRunIds) {
-        if (this.planOutputRetentionMode(root) !== "latest-complete" || this.syncScopeMutationInFlight || this.codeSyncInFlight || this.planSyncInFlight)
+    async retainLatestDistributedPlanOutputs(root, publishedRunIds, reviewedOlderRunIds = [], manualReview = false) {
+        if (!manualReview && this.planOutputRetentionMode(root) !== "latest-complete")
             return;
+        if (this.syncScopeMutationInFlight || this.codeSyncInFlight || this.planSyncInFlight) {
+            if (manualReview)
+                void vscode.window.showInformationMessage("当前同步或清理尚未结束，请稍后重新审核 Plan 历史产物。");
+            return;
+        }
         const client = this.client;
         const contract = this.distributedProjectContract();
         this.syncScopeMutationInFlight = true;
         try {
             const queue = await this.loadPlanOutputRetentionQueue(root);
-            const candidates = PlanOutputRetention.outputRetirementCandidates(queue, publishedRunIds, contract.requiredPaths);
-            if (!candidates.length)
+            const candidates = PlanOutputRetention.outputRetirementCandidates(queue, publishedRunIds, contract.requiredPaths, reviewedOlderRunIds);
+            if (!candidates.length) {
+                if (manualReview)
+                    void vscode.window.showInformationMessage("当前没有可安全替换的旧 attempt；请先同步最新完整结果，或等待运行中的任务完成后再审核。");
                 return;
+            }
             const targets = new Map(this.workerCodeSyncTargets().map((target) => [target.id, target]));
             const identity = (server) => JSON.stringify([server.host, server.user, server.port, server.remotePath]);
             const servers = new Map([...targets].map(([id, row]) => [id, this.sftpServerOptions(row)]));
             const pending = new Map(candidates.map((candidate) => [candidate.outputDir, candidate]));
             const assertCurrent = async () => {
-                if (workspaceRoot() !== root || this.client !== client || this.planOutputRetentionMode(root) !== "latest-complete")
+                if (workspaceRoot() !== root || this.client !== client || (!manualReview && this.planOutputRetentionMode(root) !== "latest-complete"))
                     throw new Error("项目或保留策略已变化；停止旧 attempt 替换。");
                 const latest = await this.loadPlanOutputRetentionQueue(root);
                 if (this.distributedQueueStorageDiagnostics?.status === "stale")
                     throw new Error("队列磁盘状态尚未核实；保留旧 attempt。");
-                const current = PlanOutputRetention.outputRetirementCandidates(latest, publishedRunIds, contract.requiredPaths);
+                const stillOlderIds = manualReview ? PlanOutputRetention.outputVersionReview(latest).flatMap(row => row.olderRunIds) : [];
+                if (reviewedOlderRunIds.some(id => !stillOlderIds.includes(id) && latest.plans.some(plan => plan.id === id && plan.jobs.some(job => !job.outputRetiredAt))))
+                    throw new Error("历史版本范围已变化，请重新审核；未删除产物。");
+                const current = PlanOutputRetention.outputRetirementCandidates(latest, publishedRunIds, contract.requiredPaths, reviewedOlderRunIds);
                 for (const candidate of pending.values()) {
                     const found = current.find((row) => row.outputDir === candidate.outputDir);
                     if (!found || PlanOutputRetention.retirementIdentity([found]) !== PlanOutputRetention.retirementIdentity([candidate]))
@@ -12091,8 +12147,14 @@ class RealtimeTunnelPanelProvider {
             const verifyReplacement = async () => {
                 await assertCurrent();
                 const latest = await this.loadPlanOutputRetentionQueue(root);
+                const registry = await this.loadProjectTableRegistry(root);
                 for (const id of new Set(candidates.map((candidate) => candidate.replacementRunId))) {
                     const plan = latest.plans.find((row) => row.id === id);
+                    const published = registry.plans?.[plan.planFile];
+                    const evidence = published?.wrapperEvidence;
+                    if (evidence ? evidence.status !== "formal" || evidence.runId !== id
+                        : !published?.records?.length || published.records.some(record => record.runId !== id))
+                        throw new Error("最新完整运行尚未正式收录到本机结果；请先下载并重新汇总，旧 attempt 保留。");
                     const sourceId = [...targets.keys()].find((workerId) => this.lastWorkerProbes[workerId]?.status === "ok"
                         && plan.jobs.every((job) => job.mirroredWorkerIds?.includes(workerId)));
                     if (!sourceId)
@@ -12108,7 +12170,7 @@ class RealtimeTunnelPanelProvider {
                 workerIds: [...targets.keys()], inspect, assertCurrent,
                 confirm: async (records) => {
                     const bytes = records.reduce((sum, record) => sum + record.inspection.bytes, 0);
-                    const confirmed = await (0, SyncScopeConfirmation_1.confirmSyncScopePaths)("仅保留 Plan 最新完整版本", `新一轮全部 job 已完整完成，正式结果已发布且检查点/结果 hash 已核验。永久删除下方旧 attempt 目录，共 ${records.length} 个副本，${bytes} 字节。当前完整版本和仍在运行的新 attempt 不受影响；队列历史身份保留，旧版日志/检查点将无法再打开。取消会保留旧目录，下次同步可再次审核。`, records.map((record) => ({ label: `${record.workerId} (${servers.get(record.workerId).user}@${servers.get(record.workerId).host}:${servers.get(record.workerId).port}) / ${record.planFile} → ${record.replacementRunId}`, path: record.inspection.absolutePath })), "永久删除旧 attempt，保留最新完整版本");
+                    const confirmed = await (0, SyncScopeConfirmation_1.confirmSyncScopePaths)("Plan 历史产物审核", `新一轮全部 job 已完整完成且检查点/结果 hash 已核验。同代码重复运行以最新完整结果替代；不同代码/配置保留，超过 5 个版本时仅列出较早版本供审核。永久删除下方旧 attempt 目录，共 ${records.length} 个副本，${bytes} 字节。当前完整版本和仍在运行的新 attempt 不受影响；队列历史身份保留，旧版日志/检查点将无法再打开。取消会保留旧目录。`, records.map((record) => ({ label: `${record.workerId} (${servers.get(record.workerId).user}@${servers.get(record.workerId).host}:${servers.get(record.workerId).port}) / ${record.planFile} → ${record.replacementRunId}`, path: record.inspection.absolutePath })), "永久删除已审核旧 attempt");
                     if (confirmed)
                         await verifyReplacement();
                     return confirmed;
@@ -12129,11 +12191,13 @@ class RealtimeTunnelPanelProvider {
             });
             this.lastPlanOutputRetention = { ...result, updatedAt: new Date().toISOString() };
             if (result.retired)
-                void vscode.window.showInformationMessage(`已替换 ${result.retired} 个旧 attempt，回收 ${result.bytes} 字节；仅保留当前 Plan 最新完整产物和在建版本。`);
+                void vscode.window.showInformationMessage(`已清理 ${result.retired} 个已审核旧 attempt，回收 ${result.bytes} 字节；其余代码版本及在建产物保留。`);
         }
         catch (error) {
             this.lastPlanOutputRetention = { status: "blocked", message: compactSensitiveText(errorMessage(error), 240), updatedAt: new Date().toISOString() };
             this.recordActionError({ command: "planOutputRetention", message: errorMessage(error) });
+            if (manualReview)
+                void vscode.window.showWarningMessage(`历史产物审核未完成：${this.lastPlanOutputRetention.message}`);
         }
         finally {
             this.syncScopeMutationInFlight = false;
@@ -16609,6 +16673,17 @@ class RealtimeTunnelPanelProvider {
             endpoints: this.enabledWorkerConfigs().map((worker) => ({ id: worker.id, role: "worker" })),
             localRoot: workspaceRoot(),
             generation: this.projectContextGeneration,
+            reviewPlanOutputs: async () => {
+                const root = workspaceRoot();
+                if (!root)
+                    throw new Error("请先打开当前实验项目。");
+                const queue = await this.loadPlanOutputRetentionQueue(root);
+                if (workspaceRoot() !== root)
+                    throw new UiCommandCancelled("项目已切换，未审核旧项目的产物。");
+                const runIds = PlanArtifactSyncStatus.latestCompletePlansForSyncCheck(queue, this.localPlanMetadata?.plans || []).map(plan => plan.id);
+                const olderIds = PlanOutputRetention.outputVersionReview(queue).flatMap(row => row.olderRunIds);
+                await this.retainLatestDistributedPlanOutputs(root, runIds, olderIds, true);
+            },
         }), this.cacheCleanupContextChanged.event);
     }
     async clearOperationHistoryFromUi(message) {
@@ -19042,6 +19117,7 @@ class RealtimeTunnelPanelProvider {
             report.included = Array.from({ length: included }, (_, index) => "已重算 " + (index + 1));
         this.resultSyncReport = report;
         await this.refreshLocalResultCatalogForProject(context);
+        this.notifyPlanOutputVersionReview?.(root, await this.loadPlanOutputRetentionQueue(root));
         const message = formatResultSyncReport(report, options.title || "下载指标并重新汇总");
         if (issues.length || missing.length)
             void vscode.window.showWarningMessage(message);

@@ -2,7 +2,7 @@
   "name": "simple-experiment",
   "displayName": "SimpleExperiment",
   "description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
-  "version": "0.5.242",
+  "version": "0.5.243",
   "publisher": "simple-local",
   "extensionKind": [
     "ui"
@@ -428,7 +428,7 @@
           ],
           "default": "latest-complete",
           "scope": "resource",
-          "description": "分布式 Plan 产物保留方式。默认保留最新完整版本；新运行在独立 attempt 中完成并校验发布后，审核旧 attempt 完整路径并两次确认永久删除。取消审核、失败或仅补跑缺失任务时保留上一版完整结果。keep-history 保留全部历史产物。"
+          "description": "分布式 Plan 产物保留方式。同代码与相同 Plan 配置的重复运行以最新完整结果替代；不同版本保留，超过5个代码/配置版本时提示前往审核清理。删除旧 attempt 仍须核对完整路径并两次确认；取消、失败、身份未知或仅补跑时保留旧结果。keep-history 不主动建议同版本替换，仍提示版本超限。"
         },
         "simpleExperiment.codeSync.includePaths": {
           "type": "array",
