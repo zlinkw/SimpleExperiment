@@ -46,7 +46,11 @@ test("github completion names the pre-transfer stages and still uploads only cha
   assert.match(publish, /GitHub 已完成，正在准备 Worker 上传…/);
   assert.doesNotMatch(publish, /开始上传到 Worker/);
   const upload = extension.slice(extension.indexOf("async uploadProjectToWorkers("), extension.indexOf("async distributeCodeToWorkers("));
-  assert.ok(upload.indexOf("正在准备 SFTP 目标") < upload.indexOf("开始核对本地代码清单") && upload.indexOf("开始核对本地代码清单") < upload.indexOf("syncCodeTargets"));
+  assert.ok(upload.indexOf("正在准备 SFTP 目标") < upload.indexOf("开始核对本地代码清单") && upload.indexOf("开始核对本地代码清单") < upload.indexOf("syncManualWorkerCode"));
+  const manual = extension.slice(extension.indexOf("async syncManualWorkerCode("), extension.indexOf("async deployLatestAgentRuntime("));
+  assert.match(manual, /syncCodeTargets\(this\.workerCodeSyncTargets\(\), "workers"/);
+  assert.match(manual, /allowLockedWorkerSkip: true/);
+  assert.match(publish, /report\(upload\.message, 0\)/);
   const sync = extension.slice(extension.indexOf("async syncCodeTargets("), extension.indexOf("async inspectCodeSyncTarget("));
   const localAt = sync.indexOf("正在建立本地代码清单并核对文件哈希");
   const remoteAt = sync.indexOf("正在比对");

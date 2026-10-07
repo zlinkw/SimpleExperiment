@@ -44,13 +44,18 @@ const apiFactory = new Function("SyncResolution_1", "CodeSyncDelta_1", "fingerpr
     for (let index = 0; index < items.length; index += 1) out.push(await worker(items[index], index));
     return out;
   }
-  function syncRoleStatus() { return { hubRunning: "running", workersRunning: "running", hubSuccess: "已同步", workersSuccess: "已同步" }; }
+  ${distSource.slice(distSource.indexOf("const NON_SUCCESSFUL_SYNC_STATUSES"), distSource.indexOf("function persistedTunnelGatewayConfig", distSource.indexOf("const NON_SUCCESSFUL_SYNC_STATUSES")))}
   function sftpUploadSucceeded(result) { return Boolean(result && result.ok === true); }
   function resultError(result) { return String((result && result.error) || ""); }
   function codeSyncConfirmationLabel(scope) { return scope; }
   const vscode = arguments[4];
+  function gitRepositoryHasRemote() { return true; }
   ${compiled("syncCodeTargets")}
   ${compiled("safeWorkerCodeSyncTargets")}
+  ${compiled("syncManualWorkerCode")}
+  ${compiled("uploadProjectToWorkers")}
+  ${compiled("distributeCodeToWorkers")}
+  ${compiled("publishToGitHub")}
   ${compiled("reportPlanStage")}
   ${compiled("planSubmissionOperationId")}
   ${compiled("planSubmissionPlanFile")}
@@ -58,7 +63,7 @@ const apiFactory = new Function("SyncResolution_1", "CodeSyncDelta_1", "fingerpr
   ${compiled("patchPlanSubmissionProgress")}
   ${compiled("finishPlanSubmissionProgress")}
   ${compiled("trimPlanSubmissionEpochs")}
-  return { syncCodeTargets, safeWorkerCodeSyncTargets, reportPlanStage, planSubmissionOperationId, planSubmissionPlanFile, beginPlanSubmissionProgress, patchPlanSubmissionProgress, finishPlanSubmissionProgress, trimPlanSubmissionEpochs };
+  return { syncCodeTargets, safeWorkerCodeSyncTargets, syncManualWorkerCode, uploadProjectToWorkers, distributeCodeToWorkers, publishToGitHub, reportPlanStage, planSubmissionOperationId, planSubmissionPlanFile, beginPlanSubmissionProgress, patchPlanSubmissionProgress, finishPlanSubmissionProgress, trimPlanSubmissionEpochs };
 `);
 
 function sha(char) { return char.repeat(64); }
@@ -81,6 +86,11 @@ function syncHost(remote) {
     stages: [],
     inventories: [],
     uploads: [],
+    uploadRequests: [],
+    notices: [],
+    errors: [],
+    confirmations: [],
+    profiles: [],
     builds: 0,
   };
   const project = fs.mkdtempSync(path.join(os.tmpdir(), "plan-sync-root-"));
@@ -96,8 +106,13 @@ function syncHost(remote) {
   };
   host.projectContextIsCurrent = () => true;
   host.ensureSftpManagerCommand = async () => {};
-  host.confirmRemoteWriteTargets = async () => {};
-  host.writeSftpManagerServerProfiles = async () => {};
+  host.confirmRemoteWriteTargets = async (_label, targets) => { host.confirmations.push(targets.map(row => row.id)); };
+  host.writeSftpManagerServerProfiles = async (ids) => { host.profiles.push(ids); };
+  host.prepareSftpTargets = async () => {};
+  host.notifyLocalActionStarted = () => {};
+  host.githubUpdateToken = async () => "test-token";
+  host.primaryGitRepository = async () => ({});
+  host.syncToGitHub = async () => { host.githubPublished = true; };
   host.persistProjectCodeSyncState = async () => {};
   host.postState = () => {};
   host.markProjectOnboardingComplete = async () => {};
@@ -113,8 +128,10 @@ function syncHost(remote) {
   const vscodeStub = {
     workspace: { getConfiguration: () => ({ get: (key, fallback) => key.endsWith("includePaths") ? ["src"] : fallback }) },
     Uri: { file: (value) => ({ fsPath: value }) },
-    window: { setStatusBarMessage() {} },
-    commands: { executeCommand: async (_command, payload) => { host.uploads.push(Object.keys(payload.manifest)); return { ok: true, status: "completed" }; } },
+    ProgressLocation: { Notification: 15 },
+    window: { setStatusBarMessage() {}, withProgress: async (_options, run) => run({ report: row => host.stages.push(row.message) }),
+      showInformationMessage: text => host.notices.push(text), showErrorMessage: text => host.errors.push(text) },
+    commands: { executeCommand: async (_command, payload) => { host.uploads.push(Object.keys(payload.manifest)); host.uploadRequests.push(payload); return { ok: true, status: "completed" }; } },
   };
   const api = apiFactory(
     SyncResolution,
@@ -130,8 +147,109 @@ function syncHost(remote) {
   Object.assign(host, api);
   host.localCodeManifestCacheFile = () => path.join(host.context.globalStorageUri.fsPath, "code-manifest.json");
   host.target = { id: "worker-a", role: "worker", label: "Worker A", host: "worker.example", user: "me", port: 22, remotePath: "/work/proj" };
+  host.workerCodeSyncTargets = () => [host.target];
   return host;
 }
+
+function mixedWorkers() {
+  const host = syncHost({ files: {} });
+  const busy = { ...host.target, id: "worker-b", label: "Worker B" };
+  host.workerCodeSyncTargets = () => [host.target, busy];
+  host.lastCodeSyncState = { fingerprint: sha("b"), workerVersions: { "worker-b": {
+    fingerprint: sha("b"), manifestDigest: sha("b"), codeSyncProofId: sha("c"), files: ["old.py"],
+  } } };
+  host.oldVersion = JSON.stringify(host.lastCodeSyncState.workerVersions["worker-b"]);
+  const read = host.readWorkerTaskSnapshot;
+  host.readWorkerTaskSnapshot = async (id, options) => {
+    const snapshot = await read(id, options);
+    if (id === busy.id) snapshot.tasks = [{ status: "running", codeFingerprint: sha("b") }];
+    return snapshot;
+  };
+  return host;
+}
+
+test("manual upload touches only the free Worker and accurately reports the held original version", async () => {
+  const host = mixedWorkers();
+  const result = await host.uploadProjectToWorkers();
+  assert.deepEqual(host.uploadRequests.map(row => row.targetId), ["worker-a"]);
+  assert.deepEqual(host.confirmations, [["worker-a"]]);
+  assert.deepEqual(host.profiles, [["worker-a"]]);
+  assert.deepEqual(host.inventories.map(row => row.source.id), ["worker-a"]);
+  assert.equal(JSON.stringify(host.lastCodeSyncState.workerVersions["worker-b"]), host.oldVersion);
+  assert.deepEqual(result.syncedWorkerIds, ["worker-a"]);
+  assert.match(result.message, /已同步 1 台.*待同步 1 台.*Worker B/);
+  assert.match(host.lastCodeSyncState.workers, /^待同步 1 台/);
+  assert.equal(host.lastCodeSyncState.error, undefined);
+  assert.equal(host.errors.length, 0);
+  assert.match(host.notices.at(-1), /Worker B/);
+  assert.ok(host.taskReads.every(row => row.options.fresh === true));
+});
+
+test("all occupied Workers stay pending without writes and can be uploaded after ownership clears", async () => {
+  const host = mixedWorkers();
+  host.workerCodeSyncTargets = () => [{ ...host.target, id: "worker-b", label: "Worker B" }];
+  const held = await host.uploadProjectToWorkers();
+  assert.deepEqual(held.syncedWorkerIds, []);
+  assert.match(held.message, /已同步 0 台.*待同步 1 台/);
+  assert.equal(host.confirmations.length + host.profiles.length + host.inventories.length + host.uploads.length, 0);
+  assert.equal(JSON.stringify(host.lastCodeSyncState.workerVersions["worker-b"]), host.oldVersion);
+  assert.equal(host.codeSyncInFlight, 0);
+  host.readWorkerTaskSnapshot = async workerId => ({ workerId, tasks: [], generatedAt: new Date().toISOString(),
+    fetchedAt: new Date().toISOString(), capabilities: { durablePlanQueue: true, schemaVersion: 1 } });
+  const retried = await host.uploadProjectToWorkers();
+  assert.deepEqual(retried.syncedWorkerIds, ["worker-b"]);
+  assert.equal(retried.heldWorkers.length, 0);
+  assert.deepEqual(host.uploadRequests.map(row => row.targetId), ["worker-b"]);
+  assert.match(host.lastCodeSyncState.workers, /^已同步 1 台$/);
+  assert.notEqual(JSON.stringify(host.lastCodeSyncState.workerVersions["worker-b"]), host.oldVersion);
+});
+
+test("GitHub publish reports partial or pending Worker uploads as such and preserves real transfer errors", async () => {
+  const host = mixedWorkers();
+  await host.publishToGitHub("publish-test");
+  assert.equal(host.githubPublished, true);
+  assert.equal(host.errors.length, 0);
+  assert.match(host.notices.at(-1), /GitHub.*已同步 1 台.*待同步 1 台/);
+  assert.doesNotMatch(host.notices.at(-1), /所有 Worker/);
+  const allHeld = mixedWorkers();
+  allHeld.workerCodeSyncTargets = () => [{ ...allHeld.target, id: "worker-b", label: "Worker B" }];
+  await allHeld.publishToGitHub("publish-test");
+  assert.equal(allHeld.errors.length, 0);
+  assert.match(allHeld.notices.at(-1), /GitHub.*已同步 0 台.*待同步 1 台/);
+  assert.ok(allHeld.stages.every(text => text !== "全部完成"));
+  const failed = mixedWorkers();
+  failed.verifiedSftpProjectInventory = async () => { throw new Error("permission denied"); };
+  await assert.rejects(failed.publishToGitHub("publish-test"), /permission denied/);
+  assert.match(failed.errors.at(-1), /GitHub 已发布.*上传失败/);
+  assert.equal(failed.notices.length, 0);
+  assert.equal(JSON.stringify(failed.lastCodeSyncState.workerVersions["worker-b"]), failed.oldVersion);
+});
+
+test("manual distribute skips locked Workers but internal artifact/file coordination keeps strict protection", async () => {
+  const host = mixedWorkers();
+  await host.distributeCodeToWorkers();
+  assert.deepEqual(host.uploadRequests.map(row => row.targetId), ["worker-a"]);
+  assert.match(host.notices.at(-1), /已同步 1 台.*待同步 1 台/);
+  const strict = mixedWorkers();
+  await assert.rejects(strict.syncCodeTargets(strict.workerCodeSyncTargets(), "workers", { hashCompare: true }), /未覆盖运行中代码/);
+  assert.equal(strict.uploads.length + strict.confirmations.length + strict.inventories.length, 0);
+});
+
+test("manual skipping works for both topologies while stale or failed probes keep their Worker protected", async () => {
+  for (const snapshotChange of [{ error: "offline" }, { generatedAt: "2000-01-01T00:00:00Z" }, { tasks: [{ status: "unknown" }] }]) {
+    const host = mixedWorkers(), read = host.readWorkerTaskSnapshot;
+    host.projectTopologyAssessment = () => ({ mode: "hub_worker", hubAllowed: true });
+    host.readWorkerTaskSnapshot = async (id, options) => {
+      const row = await read(id, options);
+      return id === "worker-b" ? { ...row, ...snapshotChange } : row;
+    };
+    const result = await host.uploadProjectToWorkers();
+    assert.deepEqual(result.syncedWorkerIds, ["worker-a"]);
+    assert.deepEqual(host.uploadRequests.map(row => row.targetId), ["worker-a"]);
+    assert.equal(result.heldWorkers.length, 1);
+    assert.equal(JSON.stringify(host.lastCodeSyncState.workerVersions["worker-b"]), host.oldVersion);
+  }
+});
 
 test("warm unchanged reuses stat hashes and Extension Host proof skips repeat remote inventory", async () => {
   const host = syncHost({

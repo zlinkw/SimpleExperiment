@@ -7504,8 +7504,6 @@ class RealtimeTunnelPanelProvider {
         void vscode.window.showInformationMessage(`GitHub 同步完成：${timestampCommitMessage(taskName, [])}`);
     }
     async publishToGitHub(taskName) {
-        const topology = this.projectTopologyAssessment();
-        const hubRequired = topology.hubAllowed === true && topology.mode === "hub_worker";
         await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "发布到git并上传worker", cancellable: false }, async (progress) => {
             const report = (message, increment) => progress.report({ message, increment });
             report("正在连接 GitHub 并提交/推送仓库…", 8);
@@ -7539,15 +7537,16 @@ class RealtimeTunnelPanelProvider {
                 await runVsCodeShellTask("SimpleExperiment GitHub publish", "gh repo create --source . --remote origin --private --push", root);
             }
             report("GitHub 已完成，正在准备 Worker 上传…", 22);
+            let upload;
             try {
-                await this.uploadProjectToWorkers(false, { progressReport: report, progressSpan: 70 });
+                upload = await this.uploadProjectToWorkers(false, { progressReport: report, progressSpan: 70 });
             }
             catch (uploadErr) {
                 void vscode.window.showErrorMessage(`GitHub 已发布，但 Worker 上传失败：${errorMessage(uploadErr)}。可单独使用「上传到 Worker」入口重试。`);
                 throw uploadErr;
             }
-            report("全部完成", 0);
-            void vscode.window.showInformationMessage(hubRequired ? "发布完成：GitHub + 所有 Worker。" : "发布完成：GitHub + 所有 Worker（无 Hub 模式已跳过 Hub）。");
+            report(upload.message, 0);
+            void vscode.window.showInformationMessage(`GitHub 已发布；${upload.message}`);
             void token;
         });
     }
@@ -7574,15 +7573,30 @@ class RealtimeTunnelPanelProvider {
         await this.prepareSftpTargets("uploadProjectToWorkers", "simpleSftp.uploadWorkspace");
         if (progressReport)
             progressReport("SFTP 目标已就绪，开始核对本地代码清单…", 0);
-        await this.syncCodeTargets(this.workerCodeSyncTargets(), "workers", { ...progressOptions, hashCompare: true, ...(confirm ? {
-                startedAction: { title: "首次上传到 Worker", detail: "正在通过 SimpleSFTP 同步本地轻量代码到所有启用 Worker。" },
+        const result = await this.syncManualWorkerCode({ ...progressOptions, hashCompare: true, ...(confirm ? {
+                startedAction: { title: "上传到 Worker", detail: "正在核对各 Worker 占用并上传代码，占用或未核实的 Worker 保留原版本。" },
             } : {}) });
+        if (confirm)
+            void vscode.window.showInformationMessage(result.message);
+        return result;
     }
     async distributeCodeToWorkers() {
         await this.prepareSftpTargets("distributeCodeToWorkers", "simpleSftp.uploadWorkspace");
-        await this.syncCodeTargets(this.workerCodeSyncTargets(), "workers", {
-            startedAction: { title: "分发代码到所有 Worker", detail: "正在把本地最新轻量代码同步到所有启用 Worker。" },
+        const result = await this.syncManualWorkerCode({ hashCompare: true,
+            startedAction: { title: "分发代码到 Worker", detail: "正在核对各 Worker 占用并分发代码，占用或未核实的 Worker 保留原版本。" },
         });
+        void vscode.window.showInformationMessage(result.message);
+        return result;
+    }
+    async syncManualWorkerCode(options = {}) {
+        let heldWorkers = [];
+        const targets = await this.syncCodeTargets(this.workerCodeSyncTargets(), "workers", { ...options,
+            allowLockedWorkerSkip: true, onHeldWorkers: (rows) => { heldWorkers = rows; } });
+        const syncedWorkerIds = targets.filter((target) => target.role === "worker").map((target) => target.id);
+        const message = heldWorkers.length
+            ? `Worker 代码已同步 ${syncedWorkerIds.length} 台；待同步 ${heldWorkers.length} 台（${heldWorkers.slice(0, 8).join("；")}${heldWorkers.length > 8 ? "；其余见 Worker 状态" : ""}）。待原任务结束或恢复连接核实后，可重新上传。`
+            : `Worker 代码已同步 ${syncedWorkerIds.length} 台。`;
+        return { syncedWorkerIds, heldWorkers, message };
     }
     async deployLatestAgentRuntime(showMessage = true, pathConfirmed = false, serverIds = [], deferVerification = false) {
         console.log("[diag] deployLatestAgentRuntime entry", { showMessage, pathConfirmed, serverIds });
@@ -9276,8 +9290,32 @@ class RealtimeTunnelPanelProvider {
             assertCurrent();
             const fingerprint = fingerprintFromManifest(manifest);
             const expectedRelativeFiles = Object.keys(manifest).sort((a, b) => a.localeCompare(b)).slice(0, 8);
-            enabledTargets = await this.safeWorkerCodeSyncTargets(enabledTargets, root, fingerprint, scope, progressReport);
+            let heldWorkers = [];
+            enabledTargets = await this.safeWorkerCodeSyncTargets(enabledTargets, root, fingerprint, scope, progressReport, {
+                allowLockedWorkerSkip: options.allowLockedWorkerSkip === true,
+                onHeldWorkers: (rows) => {
+                    heldWorkers = rows;
+                    if (typeof options.onHeldWorkers === "function")
+                        options.onHeldWorkers(rows);
+                },
+            });
             assertCurrent();
+            const roleStatus = syncRoleStatus(enabledTargets, this.lastCodeSyncState, fingerprint);
+            const workerStatus = (status) => heldWorkers.length
+                ? `待同步 ${heldWorkers.length} 台；${status}（${heldWorkers.slice(0, 8).join("；")}${heldWorkers.length > 8 ? "；其余待核实" : ""}）` : status;
+            const syncStats = { hashed: Number(built.stats?.hashed || 0), hashReused: Number(built.stats?.reused || 0), cacheWriteSkipped: Number(built.stats?.cacheWriteSkipped || 0), inventoryCalls: 0, uploads: 0 };
+            // Explicit manual uploads may have no safe Worker. Keep the old per-Worker
+            // versions and report pending without confirming paths or initiating writes.
+            if (!enabledTargets.length) {
+                this.lastCodeSyncState = { fingerprint, scope, hub: roleStatus.hubSuccess,
+                    workers: workerStatus("已同步 0 台"), workerVersions: { ...(this.lastCodeSyncState.workerVersions || {}) },
+                    updatedAt: new Date().toISOString() };
+                await this.persistProjectCodeSyncState();
+                assertCurrent();
+                this.lastCodeSyncStats = syncStats;
+                this.postState();
+                return enabledTargets;
+            }
             if (progressReport)
                 progressReport("正在确认远端写入路径…");
             await this.confirmRemoteWriteTargets(codeSyncConfirmationLabel(scope), enabledTargets.map((target) => ({
@@ -9292,7 +9330,6 @@ class RealtimeTunnelPanelProvider {
             assertCurrent();
             if (options.startedAction && !options.progressReport)
                 this.notifyLocalActionStarted(options.startedAction.title, options.startedAction.detail);
-            const roleStatus = syncRoleStatus(enabledTargets, this.lastCodeSyncState, fingerprint);
             const failures = [];
             const workerVersions = { ...(this.lastCodeSyncState.workerVersions || {}) };
             this.lastCodeSyncState = { fingerprint, scope, hub: roleStatus.hubRunning, workers: roleStatus.workersRunning, workerVersions, updatedAt: new Date().toISOString() };
@@ -9300,7 +9337,6 @@ class RealtimeTunnelPanelProvider {
             this.postState();
             const progressStep = progressReport ? Number(options.progressSpan || 0) / enabledTargets.length : 0;
             const hashCompare = options.hashCompare === true;
-            const syncStats = { hashed: Number(built.stats?.hashed || 0), hashReused: Number(built.stats?.reused || 0), cacheWriteSkipped: Number(built.stats?.cacheWriteSkipped || 0), inventoryCalls: 0, uploads: 0 };
             await mapLimited(enabledTargets, 2, async (target, index) => {
                 if (progressReport)
                     progressReport(`正在读取 ${target.label || target.id} 的远端清单（${index + 1}/${enabledTargets.length}）…`);
@@ -9407,7 +9443,7 @@ class RealtimeTunnelPanelProvider {
                     fingerprint,
                     scope,
                     hub: failures.some((failure) => failure.role === "hub") ? "failed" : roleStatus.hubSuccess,
-                    workers: failures.some((failure) => failure.role === "worker") ? "failed" : roleStatus.workersSuccess,
+                    workers: workerStatus(failures.some((failure) => failure.role === "worker") ? "failed" : roleStatus.workersSuccess),
                     workerVersions,
                     error: failedText.join("; "),
                     updatedAt: new Date().toISOString(),
@@ -9420,12 +9456,13 @@ class RealtimeTunnelPanelProvider {
                 fingerprint,
                 scope,
                 hub: roleStatus.hubSuccess,
-                workers: roleStatus.workersSuccess,
+                workers: workerStatus(roleStatus.workersSuccess),
                 workerVersions,
                 updatedAt: new Date().toISOString(),
             };
             void this.persistProjectCodeSyncState().catch(() => undefined);
-            await this.markProjectOnboardingComplete(projectContext);
+            if (!heldWorkers.length)
+                await this.markProjectOnboardingComplete(projectContext);
             assertCurrent();
             this.postState();
             this.lastCodeSyncStats = syncStats;
@@ -9437,7 +9474,7 @@ class RealtimeTunnelPanelProvider {
             this.codeSyncInFlight--;
         }
     }
-    async safeWorkerCodeSyncTargets(targets, root, fingerprint, scope, progressReport) {
+    async safeWorkerCodeSyncTargets(targets, root, fingerprint, scope, progressReport, options = {}) {
         const workers = targets.filter((target) => target.role === "worker");
         if (!workers.length)
             return targets;
@@ -9467,10 +9504,13 @@ class RealtimeTunnelPanelProvider {
                 blocked.push(`${target.label || target.id}：${fresh ? "旧代码版本仍有活动或待核实任务" : "未获得新鲜任务快照"}`);
         }
         const selected = targets.filter((target) => target.role !== "worker" || safe.has(target.id));
+        const manualSkip = scope === "workers" && options.allowLockedWorkerSkip === true;
+        if (manualSkip && typeof options.onHeldWorkers === "function")
+            options.onHeldWorkers(blocked);
         if (!blocked.length)
             return scope === "plan-check" ? selected.slice(0, 1) : selected;
-        const partial = this.projectTopologyAssessment().mode === "worker_pool" && ["run", "plan-check"].includes(scope);
-        if (!partial || !selected.length)
+        const partial = manualSkip || (this.projectTopologyAssessment().mode === "worker_pool" && ["run", "plan-check"].includes(scope));
+        if (!partial || (!manualSkip && !selected.length))
             throw new Error(`未覆盖运行中代码；${blocked.join("；")}。请使用可核实且没有其他版本任务的 Worker，或等待原任务结束。`);
         if (progressReport)
             progressReport(`新版本仅同步至 ${safe.size} 台安全 Worker；保留 ${blocked.join("；")} 上的原代码。`);
@@ -33866,7 +33906,7 @@ function syncRoleStatus(targets, previous = {}, fingerprint = "") {
 }
 function successfulSyncStatus(value) {
     const text = String(value || "").trim().toLowerCase();
-    return Boolean(text && !NON_SUCCESSFUL_SYNC_STATUSES.has(text) && !text.includes("fail") && !text.includes("error") && !text.includes("未参与") && !text.includes("skip"));
+    return Boolean(text && !NON_SUCCESSFUL_SYNC_STATUSES.has(text) && !text.includes("待同步") && !text.includes("fail") && !text.includes("error") && !text.includes("未参与") && !text.includes("skip"));
 }
 function persistedTunnelGatewayConfig(config) {
     return { ...config };

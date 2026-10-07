@@ -10539,7 +10539,7 @@ function renderPanelHtml() {
     // 同步/发布状态统一由 renderServerChainOverview + settings-chain-overview 新链承载。
     function syncStatusOk(value) {
       const text = String(value || "").toLowerCase();
-      return Boolean(text && !SYNC_NOT_READY_STATUS_TOKENS?.has(text) && !text.includes("fail") && !text.includes("error") && !text.includes("失败") && !text.includes("错误") && !text.includes("未参与") && !text.includes("skip"));
+      return Boolean(text && !SYNC_NOT_READY_STATUS_TOKENS?.has(text) && !text.includes("待同步") && !text.includes("fail") && !text.includes("error") && !text.includes("失败") && !text.includes("错误") && !text.includes("未参与") && !text.includes("skip"));
     }
 
     function syncStatusFailure(value) {

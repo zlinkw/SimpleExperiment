@@ -72,3 +72,15 @@ test("overview only blocks explicit sync failures", () => {
   assert.match(panel, /function overviewSyncReadiness\(state\)/);
   assert.doesNotMatch(panel, /blockers\.push\(\["代码待同步"/);
 });
+
+test("some safe Workers uploaded does not imply every Worker has the new code", () => {
+  const setup = { workerTunnels: [{ id: "worker-a", enabled: true }, { id: "worker-b", enabled: true }] };
+  for (const workers of ["待同步 1 台；已同步 1 台（Worker B：仍有旧任务）", "待同步 2 台；已同步 0 台"]) {
+    assert.deepEqual(readiness({ setup, codeSync: { hub: "已同步", workers, fingerprint: "current" } }), {
+      ready: false, failure: false, status: "运行时自动同步",
+    });
+  }
+  assert.deepEqual(readiness({ setup, codeSync: { hub: "已同步", workers: "待同步 1 台；failed", fingerprint: "current" } }), {
+    ready: false, failure: true, status: "失败",
+  });
+});

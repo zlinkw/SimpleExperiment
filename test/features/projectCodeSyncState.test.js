@@ -47,6 +47,19 @@ function loadSyncRoleStatus() {
   return sandbox.exports.syncRoleStatus;
 }
 
+test("partial manual upload stays pending across persistence and cannot become all-Worker readiness", async () => {
+  const helpers = loadHelpers();
+  const pending = "待同步 2 台；已同步 1 台（Worker B：旧代码版本仍有活动任务）";
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "simple-partial-code-sync-"));
+  await helpers.writeProjectCodeSyncState(root, { fingerprint: "current", workers: pending,
+    workerVersions: { "worker-b": { fingerprint: "a".repeat(64), codeSyncProofId: "b".repeat(64), manifestDigest: "a".repeat(64) } } });
+  const loaded = await helpers.readProjectCodeSyncState(root);
+  assert.equal(loaded.workers, pending);
+  assert.equal(loaded.workerVersions["worker-b"].fingerprint, "a".repeat(64));
+  const subsequentHubOnly = loadSyncRoleStatus()([{ role: "hub" }], loaded, "current");
+  assert.equal(subsequentHubOnly.workersSuccess, "待同步");
+});
+
 test("project code sync state persists under simple_cluster/ui", async () => {
   const helpers = loadHelpers();
   assert.equal(helpers.PROJECT_CODE_SYNC_PATH, "simple_cluster/ui/code_sync.json");
