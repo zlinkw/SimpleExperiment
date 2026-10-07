@@ -199,6 +199,33 @@ function durableStatus(value: unknown): JobState | undefined {
   return undefined;
 }
 
+/** Missing recovery is a gap in job identities, not the absence of a terminal receipt from this snapshot. */
+export function distributedPlanRecoveryMissingCount(plan: QueuedPlan, acceptedIndices: ReadonlySet<number> = new Set()): number {
+  const expected = Number(plan.planJobCount);
+  if (!Number.isInteger(expected) || expected < 1) return Math.max(0, Number(plan.recoveryMissingCount) || 0);
+  const known = new Set(acceptedIndices);
+  const latestAttempts = new Map<number, number>();
+  for (const job of plan.jobs) {
+    if (Number.isInteger(job.index) && job.index >= 0 && Number.isInteger(job.attempt) && job.attempt > 0)
+      latestAttempts.set(job.index, Math.max(latestAttempts.get(job.index) || 0, job.attempt));
+  }
+  for (const job of plan.jobs) {
+    if (job.recoveryConflict || !Number.isInteger(job.index) || job.index < 0
+      || !Number.isInteger(job.attempt) || job.attempt < 1 || job.attempt !== latestAttempts.get(job.index)) continue;
+    const localPending = job.status === "pending" && !job.workerId && !job.commandId;
+    const terminalReceipt = ["completed", "failed", "cancelled"].includes(job.status)
+      && (!job.trustedTerminalStatus || job.trustedTerminalStatus === job.status)
+      && Boolean(job.workerId && job.commandId && job.outputDir && job.case) && Number.isInteger(job.seed);
+    if (localPending || terminalReceipt) known.add(job.index);
+  }
+  return Math.max(0, expected - known.size);
+}
+
+export function hasUnresolvedPlanRecovery(plan: QueuedPlan): boolean {
+  return Boolean(plan.recoveryConflict || plan.jobs.some(job => job.recoveryConflict)
+    || Number(plan.recoveryMissingCount) > 0 && distributedPlanRecoveryMissingCount(plan) > 0);
+}
+
 /** Merge only fresh, capability-bearing server snapshots for this exact project. */
 export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: readonly DurableWorkerSnapshot[], projectId: string,
   now = Date.now(), maxAgeMs = 180_000): DistributedQueue {
@@ -369,9 +396,7 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
       .map((row) => Number(row.task.experimentIndex)));
     for (const job of plan.jobs) if (legacyReceipt(plan, job)) currentAcceptedIndices.add(job.index);
     plan.remoteAcceptedJobCount = currentAcceptedIndices.size;
-    const knownLocalPending = plan.jobs.filter((job) => job.status === "pending" && !job.workerId && !job.commandId
-      && !currentAcceptedIndices.has(job.index)).length;
-    plan.recoveryMissingCount = Math.max(0, jobCount - currentAcceptedIndices.size - knownLocalPending);
+    plan.recoveryMissingCount = distributedPlanRecoveryMissingCount(plan, currentAcceptedIndices);
     if (!countConflict && plan.recoveryConflict?.startsWith("Server summaries disagree on expected Plan job count")) delete plan.recoveryConflict;
     if (planIndex < 0) plans.push(plan); else plans[planIndex] = plan;
   }

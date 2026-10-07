@@ -934,6 +934,7 @@ class RealtimeTunnelPanelProvider {
     panelPlanStatusSummaryRevision = 0;
     workerTaskSnapshotRevision = 0;
     workerTaskSnapshotDiskCache = new Map();
+    workerTaskSnapshotWriters = new Map();
     workerTaskPlanStatusSignatures = new Map();
     checkStaticReportsRoot = "";
     checkStaticReportsCache = [];
@@ -1515,12 +1516,7 @@ class RealtimeTunnelPanelProvider {
             };
             this.storeWorkerTaskSnapshot(cacheKey, snapshot);
             this.postState();
-            try {
-                await this.writeWorkerTaskSnapshot(workerId, root, snapshot);
-            }
-            catch {
-                // A local cache write must not turn a successful Worker read into a failed snapshot.
-            }
+            this.queueWorkerTaskSnapshotPersistence(workerId, root, snapshot);
             return workerTaskSnapshotPayload(snapshot);
         }
         catch (error) {
@@ -1595,6 +1591,32 @@ class RealtimeTunnelPanelProvider {
         while (this.workerTaskPlanStatusSignatures.size > 64)
             this.workerTaskPlanStatusSignatures.delete(this.workerTaskPlanStatusSignatures.keys().next().value);
         this.workerTaskSnapshotRevision += 1;
+    }
+    queueWorkerTaskSnapshotPersistence(workerId, root, snapshot) {
+        if (!root || this.panelDisposed || this.activationAbortController?.signal.aborted)
+            return;
+        const key = `${root}\u0000${workerId}`;
+        let entry = this.workerTaskSnapshotWriters.get(key);
+        if (!entry) {
+            entry = { writer: new LatestSnapshotWriter_1.LatestSnapshotWriter(async (value) => {
+                    if (workspaceRoot() !== root || this.client !== value.client || this.panelDisposed
+                        || this.activationAbortController?.signal.aborted)
+                        return;
+                    await this.writeWorkerTaskSnapshot(workerId, root, value.snapshot);
+                }) };
+            this.workerTaskSnapshotWriters.set(key, entry);
+        }
+        const active = entry.writer.enqueue({ snapshot, client: this.client });
+        if (entry.active === active)
+            return;
+        entry.active = active;
+        const release = () => {
+            if (this.workerTaskSnapshotWriters.get(key) === entry && entry.active === active)
+                this.workerTaskSnapshotWriters.delete(key);
+        };
+        // One handler per active drain, not one retained promise/closure for every polling event.
+        // This is a best-effort restart cache; a failed disk write cannot invalidate a live receipt.
+        void active.then(release, release);
     }
     async writeWorkerTaskSnapshot(workerId, root, snapshot) {
         if (!root)
@@ -11117,74 +11139,99 @@ class RealtimeTunnelPanelProvider {
                 }
             }));
             const dispatchStartedAt = Date.now();
-            const responses = await Promise.all(dispatches.map(async (dispatch) => {
+            const dispatchTimings = new Map(dispatchPlans.map((plan) => [plan.id, this.distributedSubmissionTimings?.get(plan.id)]));
+            let receiptCommits = Promise.resolve();
+            let receiptCommitError;
+            await Promise.all(dispatches.map(async (dispatch) => {
                 const plan = queue.plans.find((item) => item.id === dispatch.planId);
                 const job = plan?.jobs.find((item) => item.index === dispatch.jobIndex && item.attempt === dispatch.attempt);
-                if (!plan || !job)
-                    return { dispatch, plan, job };
+                if (!plan || !job || !queueWriteCurrent())
+                    return;
                 const gpuId = "gpuId" in dispatch ? dispatch.gpuId : undefined;
+                const launchKey = `${plan.id}\0${job.index}\0${job.attempt}`;
+                this.distributedLaunchInFlight.add(launchKey);
+                let receipt;
+                let receiptError;
                 try {
                     const sharedManifest = sharedManifests.get(plan.id);
                     if (sharedManifest instanceof Error)
                         throw sharedManifest;
-                    const receipt = await this.sendDistributedJob(plan, job, dispatch.workerId, gpuId, dispatch.commandId, sharedManifest);
-                    return { dispatch, plan, job, gpuId, receipt };
+                    receipt = await this.sendDistributedJob(plan, job, dispatch.workerId, gpuId, dispatch.commandId, sharedManifest);
                 }
                 catch (error) {
-                    return { dispatch, plan, job, gpuId, error };
+                    receiptError = error;
+                }
+                const receivedAt = Date.now();
+                // RPCs remain parallel; each completed receipt commits independently in arrival order.
+                // Drain all RPCs even if a commit fails, so a subsequent tick cannot overlap unowned requests.
+                receiptCommits = receiptCommits.then(async () => {
+                    if (receiptCommitError || !queueWriteCurrent())
+                        return;
+                    const plan = queue.plans.find((item) => item.id === dispatch.planId);
+                    const job = plan?.jobs.find((item) => item.index === dispatch.jobIndex && item.attempt === dispatch.attempt
+                        && item.commandId === dispatch.commandId && item.workerId === dispatch.workerId);
+                    if (!plan || !job)
+                        return;
+                    try {
+                        if (receiptError)
+                            throw receiptError;
+                        const status = String(receipt?.status || "").toLowerCase();
+                        const rejectedBusy = receipt?.durableAccepted === false && receipt?.admissionRejected === true
+                            && status === "pending" && String(receipt?.reason || "") === "gpu_busy"
+                            && String(receipt?.commandId || "") === dispatch.commandId
+                            && String(receipt?.workerId || "") === dispatch.workerId
+                            && String(receipt?.gpuId || "") === gpuId
+                            && DistributedPlanQueue.remoteTaskMatchesJob(plan, job, receipt);
+                        if (rejectedBusy) {
+                            const released = DistributedPlanQueue.resetBusyRejectedDispatch(queue, { ...dispatch, gpuId: gpuId }, receipt);
+                            if (released === queue)
+                                throw new Error("Worker busy receipt did not match the complete requested job identity");
+                            queue = released;
+                        }
+                        else {
+                            if (receipt?.durableAccepted !== true || String(receipt.commandId || "") !== job.commandId
+                                || gpuId !== undefined && String(receipt.gpuId || "") !== gpuId
+                                || !["queued", "running", "completed", "failed", "cancelled"].includes(status)
+                                || !DistributedPlanQueue.remoteTaskMatchesJob(plan, job, receipt))
+                                throw new Error(String(receipt?.message || "Worker 未返回 durableAccepted 及匹配完整身份的状态回执"));
+                            job.status = status;
+                            job.blockReason = undefined;
+                            const timing = this.distributedSubmissionTimings?.get(plan.id);
+                            if (timing && this.localOperations?.[timing.operationId]?.timings?.clickToFirstAcceptedJobMs === 0) {
+                                this.recordPlanSubmissionTimingByOperation?.(timing.operationId, "clickToFirstAcceptedJobMs", receivedAt - timing.clickStartedAt);
+                                this.distributedSubmissionTimings.delete(plan.id);
+                            }
+                            if (["completed", "failed"].includes(job.status))
+                                newTerminal = true;
+                        }
+                    }
+                    catch (error) {
+                        job.status = "unknown";
+                        job.blockReason = `持久队列接收回执未确认，保留原 Worker、GPU 和 commandId：${errorMessage(error)}`;
+                        this.recordActionError({ command: "distributedPlanQueue", message: `${plan.planFile} job ${job.index}：${job.blockReason}` });
+                    }
+                    if (queueWriteCurrent()) {
+                        await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
+                        if (queueWriteCurrent())
+                            this.postState();
+                    }
+                }).catch((error) => { receiptCommitError ||= error; });
+                try {
+                    await receiptCommits;
+                }
+                finally {
+                    this.distributedLaunchInFlight.delete(launchKey);
                 }
             }));
-            for (const plan of dispatchPlans) {
-                const timing = this.distributedSubmissionTimings?.get(plan.id);
+            await receiptCommits;
+            if (receiptCommitError)
+                throw receiptCommitError;
+            for (const timing of dispatchTimings.values()) {
                 if (timing)
                     this.recordPlanSubmissionTimingByOperation?.(timing.operationId, "dispatchMs", Date.now() - dispatchStartedAt);
             }
             if (!queueWriteCurrent())
                 return;
-            for (const response of responses) {
-                const { dispatch, plan, job, gpuId } = response;
-                if (!plan || !job)
-                    continue;
-                try {
-                    if ("error" in response)
-                        throw response.error;
-                    const receipt = response.receipt;
-                    const status = String(receipt?.status || "").toLowerCase();
-                    const rejectedBusy = receipt?.durableAccepted === false && receipt?.admissionRejected === true
-                        && status === "pending" && String(receipt?.reason || "") === "gpu_busy"
-                        && String(receipt?.commandId || "") === dispatch.commandId
-                        && String(receipt?.workerId || "") === dispatch.workerId
-                        && String(receipt?.gpuId || "") === gpuId
-                        && DistributedPlanQueue.remoteTaskMatchesJob(plan, job, receipt);
-                    if (rejectedBusy) {
-                        const released = DistributedPlanQueue.resetBusyRejectedDispatch(queue, { ...dispatch, gpuId: gpuId }, receipt);
-                        if (released === queue)
-                            throw new Error("Worker busy receipt did not match the complete requested job identity");
-                        queue = released;
-                    }
-                    else {
-                        if (receipt?.durableAccepted !== true || String(receipt.commandId || "") !== job.commandId
-                            || gpuId !== undefined && String(receipt.gpuId || "") !== gpuId
-                            || !["queued", "running", "completed", "failed", "cancelled"].includes(status)
-                            || !DistributedPlanQueue.remoteTaskMatchesJob(plan, job, receipt))
-                            throw new Error(String(receipt?.message || "Worker 未返回 durableAccepted 及匹配完整身份的状态回执"));
-                        job.status = status;
-                        job.blockReason = undefined;
-                        const timing = this.distributedSubmissionTimings?.get(plan.id);
-                        if (timing && this.localOperations?.[timing.operationId]?.timings?.clickToFirstAcceptedJobMs === 0) {
-                            this.recordPlanSubmissionTimingByOperation?.(timing.operationId, "clickToFirstAcceptedJobMs", Date.now() - timing.clickStartedAt);
-                            this.distributedSubmissionTimings.delete(plan.id);
-                        }
-                        if (["completed", "failed"].includes(job.status))
-                            newTerminal = true;
-                    }
-                }
-                catch (error) {
-                    job.status = "unknown";
-                    job.blockReason = `持久队列接收回执未确认，保留原 Worker、GPU 和 commandId：${errorMessage(error)}`;
-                    this.recordActionError({ command: "distributedPlanQueue", message: `${plan.planFile} job ${job.index}：${job.blockReason}` });
-                }
-            }
             if (queueWriteCurrent())
                 await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
             if (newTerminal || Date.now() >= this.distributedNextPostprocessAt) {

@@ -30,6 +30,38 @@ test('failed/cancelled history never blocks or needs stop confirmation', async (
     assert.equal(f.queue.plans[0].jobs[0].outputDir, 'work_dirs/one/attempts/run-old');
   }
 });
+test('complete local terminal receipts remain rerunnable when a partial snapshot leaves an old missing count', async () => {
+  const f = fixture('completed');
+  const plan = f.queue.plans[0];
+  plan.planJobCount = 6; plan.remoteAcceptedJobCount = 3; plan.recoveryMissingCount = 3;
+  plan.jobs = Array.from({ length: 6 }, (_, index) => ({ ...plan.jobs[0], index, seed: 42 + index,
+    commandId: `complete-${index}`, trustedTerminalStatus: 'completed' }));
+  assert.equal(await f.run(), false);
+  assert.equal(f.modal, 0); assert.equal(f.stops, 0);
+  assert.equal(f.queue.plans[1].jobs[0].status, 'completed');
+  f.queue.plans[1].jobs[0].status = 'running';
+  assert.equal(await f.run(), false, 'another Plan is allowed to keep running while this Plan proceeds to submission');
+  assert.equal(f.queue.plans[1].jobs[0].status, 'running');
+});
+
+test('partial or contradictory recovery still blocks even when some historical jobs finished', async () => {
+  for (const variant of ['partial', 'duplicate-index', 'missing-identity', 'unknown-job', 'conflict', 'unknown-count', 'missing-attempt', 'older-terminal', 'terminal-disagreement']) {
+    const f = fixture('completed'), plan = f.queue.plans[0];
+    plan.planJobCount = 6; plan.recoveryMissingCount = 3;
+    plan.jobs = Array.from({ length: 6 }, (_, index) => ({ ...plan.jobs[0], index, commandId: `complete-${index}` }));
+    if (variant === 'partial') plan.jobs.splice(3);
+    if (variant === 'duplicate-index') plan.jobs[5].index = 4;
+    if (variant === 'missing-identity') delete plan.jobs[5].commandId;
+    if (variant === 'unknown-job') plan.jobs[5].status = 'unknown';
+    if (variant === 'conflict') plan.jobs[5].recoveryConflict = true;
+    if (variant === 'unknown-count') delete plan.planJobCount;
+    if (variant === 'missing-attempt') delete plan.jobs[5].attempt;
+    if (variant === 'older-terminal') plan.jobs.push({ ...plan.jobs[5], attempt: 2, status: 'unknown', commandId: 'newer-unverified' });
+    if (variant === 'terminal-disagreement') plan.jobs[5].trustedTerminalStatus = 'failed';
+    await assert.rejects(f.run(), /未核实/);
+    assert.equal(f.modal, 0); assert.equal(f.stops, 0);
+  }
+});
 test('active same Plan needs one confirmation, exact stop receipt then permits submission; history stays', async () => {
   const f = fixture(); await f.run(); assert.equal(f.modal, 1); assert.equal(f.stops, 1);
   assert.equal(f.queue.plans.length, 2); assert.equal(f.queue.plans[0].jobs[0].status, 'cancelled');
@@ -92,4 +124,18 @@ test('a new same-Plan run appearing during stop is never stopped or silently rep
   };
   await assert.rejects(f.run(), /又出现未结束任务/);
   assert.equal(f.queue.plans.at(-1).jobs[0].status, 'running');
+});
+
+test('post-stop checks recognize exact exit receipts despite an obsolete recovery counter', async () => {
+  const f = fixture();
+  f.queue.plans[0].planJobCount = 1;
+  const stop = f.host.stopDistributedJobForClear;
+  f.host.stopDistributedJobForClear = async (plan, job) => {
+    await stop(plan, job);
+    f.queue.plans[0].recoveryMissingCount = 1;
+  };
+  assert.equal(await f.run(), true);
+  assert.equal(f.modal, 1); assert.equal(f.stops, 1);
+  assert.equal(f.queue.plans[0].jobs[0].status, 'cancelled');
+  assert.equal(f.queue.plans[1].jobs[0].status, 'running');
 });

@@ -17,7 +17,7 @@ export async function preparePlanSafeRetry(host: any, planFile: string,
   current();
   const queue: Queue.DistributedQueue = await host.loadDistributedQueue(context.root);
   const plans = queue.plans.filter(row => Queue.sameDistributedPlanFile(row.planFile, planFile));
-  if (plans.some(row => row.recoveryConflict || Number(row.recoveryMissingCount) > 0))
+  if (plans.some(row => Queue.hasUnresolvedPlanRecovery(row)))
     throw new Error("该 Plan 仍有未核实的远端任务，未启动新运行；请恢复连接并刷新状态后重试。");
   let jobs = plans.flatMap(plan => plan.jobs.filter(job => !terminal(job.status)).map(job => ({ plan, job })));
   const operations = host.longRunningPlanRunOperations().filter((row: any) =>
@@ -100,7 +100,7 @@ export async function preparePlanSafeRetry(host: any, planFile: string,
     current();
     const latest: Queue.DistributedQueue = await host.loadDistributedQueue(context.root);
     if (latest.plans.some(plan => Queue.sameDistributedPlanFile(plan.planFile, planFile)
-      && (plan.recoveryConflict || Number(plan.recoveryMissingCount) > 0 || plan.jobs.some(job => !terminal(job.status)))))
+      && (Queue.hasUnresolvedPlanRecovery(plan) || plan.jobs.some(job => !terminal(job.status)))))
       throw new Error("该 Plan 又出现未结束任务，未创建重复运行，请刷新后重试。");
     host.postState();
     return true;

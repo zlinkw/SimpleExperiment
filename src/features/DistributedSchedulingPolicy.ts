@@ -1,5 +1,5 @@
 import { DistributedQueue, QueuedPlan, DurableWorkerSnapshot, durableCommandId,
-  mergeDurableWorkerSnapshots, freshIdleGpuEvidence } from "./DistributedPlanQueue";
+  mergeDurableWorkerSnapshots, freshIdleGpuEvidence, hasUnresolvedPlanRecovery } from "./DistributedPlanQueue";
 
 export type SchedulingMode = "local_idle" | "server_prequeue";
 export const PROGRESS_FRESHNESS_MS = 5_000;
@@ -7,7 +7,7 @@ export const PROGRESS_FRESHNESS_MS = 5_000;
 export function progressRefreshWorkerIds(queue: DistributedQueue, configuredIds: string[]): string[] {
   const needed = new Set<string>();
   for (const plan of queue.plans) {
-    if (plan.recoveryMissingCount || plan.recoveryConflict) return [...new Set(configuredIds)];
+    if (hasUnresolvedPlanRecovery(plan)) return [...new Set(configuredIds)];
     for (const job of plan.jobs || []) {
       if (["completed", "failed", "cancelled"].includes(job.status) && !job.recallRequested) continue;
       if (job.workerId) needed.add(job.workerId);

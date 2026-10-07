@@ -9,6 +9,7 @@ require.extensions['.ts'] = (loaded, filename) => loaded._compile(ts.transpileMo
 }).outputText, filename);
 const queue = require('../../src/features/DistributedPlanQueue.ts');
 const policy = require('../../src/features/DistributedSchedulingPolicy.ts');
+const { LatestSnapshotWriter } = require('../../src/core/LatestSnapshotWriter.ts');
 require.extensions['.ts'] = original;
 const now = Date.now();
 const iso = new Date(now).toISOString();
@@ -96,8 +97,11 @@ test('automatic progress polling ignores terminal history and targets only live 
   for(let tick=0;tick<30;tick++) await provider.refreshServerPlanProgress({automatic:true});
   assert.deepEqual(calls,[]);
   provider.distributedQueueCache.plans.push({jobs:[{status:'queued',workerId:'b'},{status:'pending'}]});
+  provider.distributedQueueCache.plans.push({planJobCount:2,recoveryMissingCount:1,jobs:[0,1].map(index=>({
+    index,attempt:1,status:'completed',trustedTerminalStatus:'completed',workerId:'a',commandId:`old-${index}`,
+    outputDir:`runs/${index}`,case:'bus',seed:index}))});
   await provider.refreshServerPlanProgress({automatic:true});
-  assert.deepEqual(calls,['b']);
+  assert.deepEqual(calls,['b'],'obsolete missing counters on complete receipt sets must not keep polling every Worker');
   calls.length=0;
   await provider.refreshServerPlanProgress();
   assert.deepEqual(calls,['a','b','c'], 'explicit refresh still reconciles all workers');
@@ -111,7 +115,8 @@ test('automatic progress still probes uncertain ownership and recall, but not re
   assert.deepEqual(policy.progressRefreshWorkerIds({plans:[{jobs:[{status:'completed',workerId:'a',outputRetiredAt:iso}]}]},workers),[]);
 });
 test('actual snapshot reader deduplicates fresh reads, publishes immediately and invalidates cached running on failure', async () => {
-  const Provider=providerMethods(['readWorkerTaskSnapshot','refreshWorkerTaskSnapshot','storeWorkerTaskSnapshot'],{
+  const Provider=providerMethods(['readWorkerTaskSnapshot','refreshWorkerTaskSnapshot','storeWorkerTaskSnapshot','queueWorkerTaskSnapshotPersistence','workerTaskSnapshotWriters'],{
+    LatestSnapshotWriter,
     workerTaskSnapshotPayload:row=>row,workerTaskLooksRunning:row=>row.status==='running',RequestBudget_1:{RequestBudgetDeniedError:class extends Error{}},
     noteWorkerTaskPlanStatus() {},
   });
@@ -119,14 +124,50 @@ test('actual snapshot reader deduplicates fresh reads, publishes immediately and
   provider.noteWorkerTaskPlanStatus=()=>{};
   provider.workerTaskSnapshotDiskCache=new Map();provider.workerTaskPlanStatusSignatures=new Map();
   provider.cachedWorkerTaskSnapshot=(_worker,_root,key)=>provider.lastWorkerTaskSnapshots.get(key);
-  provider.writeWorkerTaskSnapshot=()=>{};let posts=0;provider.postState=()=>posts++;
+  let releaseDisk; const diskGate=new Promise(resolve=>{releaseDisk=resolve;});
+  provider.writeWorkerTaskSnapshot=async()=>diskGate;let posts=0;provider.postState=()=>posts++;
   let count=0;let release;const response=new Promise(resolve=>release=resolve);
   provider.client={getWorkerTasks:async()=>{count++;return response;}};
   const a=provider.readWorkerTaskSnapshot('w',{fresh:true}), b=provider.readWorkerTaskSnapshot('w',{fresh:true});
   release({schemaVersion:1,generatedAt:iso,capabilities:{durablePlanQueue:true,schemaVersion:1},tasks:[{status:'running'}]});
-  await Promise.all([a,b]);assert.equal(count,1);assert.equal(posts,1);
+  let returned=false; const readers=Promise.all([a,b]).then(()=>{returned=true;});
+  try {
+    for(let attempt=0;attempt<10&&!returned;attempt++) await new Promise(setImmediate);
+    assert.equal(returned,true,'a received task snapshot must not wait for the local cache file lease/write');
+  } finally { releaseDisk(); await readers; }
+  assert.equal(count,1);assert.equal(posts,1);
   provider.client.getWorkerTasks=async()=>{throw new Error('offline');};
   const failed=await provider.readWorkerTaskSnapshot('w',{fresh:true});
   assert.equal(failed.error,'Worker task snapshot unavailable');
   assert.equal(provider.lastWorkerTaskSnapshots.get('/project\u0000w').error,failed.error);assert.equal(posts,2);
+});
+
+test('snapshot cache persistence retains only one active and one latest snapshot per Worker, then releases idle writers',async()=>{
+  const Provider=providerMethods(['queueWorkerTaskSnapshotPersistence','workerTaskSnapshotWriters'],{LatestSnapshotWriter});
+  const p=new Provider();p.client={};let release;const gate=new Promise(resolve=>{release=resolve;});const written=[];
+  p.writeWorkerTaskSnapshot=async(id,_root,row)=>{written.push([id,row.seq]);if(id==='a'&&row.seq===0)await gate;};
+  p.queueWorkerTaskSnapshotPersistence('a','/project',{seq:0});await new Promise(setImmediate);
+  const writer=p.workerTaskSnapshotWriters.get('/project\u0000a');
+  for(let seq=1;seq<=1000;seq++)p.queueWorkerTaskSnapshotPersistence('a','/project',{seq});
+  p.queueWorkerTaskSnapshotPersistence('b','/project',{seq:7});
+  assert.equal(writer.writer.pendingCount,1);assert.equal(p.workerTaskSnapshotWriters.size,2);
+  const drains=[...p.workerTaskSnapshotWriters.values()].map(row=>row.active);release();await Promise.all(drains);
+  assert.deepEqual(written.filter(([id])=>id==='a'),[['a',0],['a',1000]]);
+  assert.deepEqual(written.filter(([id])=>id==='b'),[['b',7]],'a blocked Worker cache cannot discard another Worker');
+  assert.equal(p.workerTaskSnapshotWriters.size,0,'idle writer keys do not accumulate across polling cycles');
+});
+test('optional snapshot write failure, changed client/workspace and disposal cannot overwrite later snapshots or leak writers',async()=>{
+  let currentRoot='/project';
+  const Provider=providerMethods(['queueWorkerTaskSnapshotPersistence','workerTaskSnapshotWriters'],{LatestSnapshotWriter,workspaceRoot:()=>currentRoot});
+  const p=new Provider();p.client={};let writes=0;
+  p.writeWorkerTaskSnapshot=async()=>{writes++;throw new Error('cache busy');};
+  p.queueWorkerTaskSnapshotPersistence('w','/project',{});await new Promise(setImmediate);
+  assert.equal(writes,1);assert.equal(p.workerTaskSnapshotWriters.size,0,'write rejection is contained and can be retried');
+  p.writeWorkerTaskSnapshot=async()=>{writes++;};
+  p.queueWorkerTaskSnapshotPersistence('w','/project',{});p.client={};await new Promise(setImmediate);
+  assert.equal(writes,1,'queued evidence belongs to its original client');
+  p.queueWorkerTaskSnapshotPersistence('w','/project',{});currentRoot='/other';await new Promise(setImmediate);
+  assert.equal(writes,1,'an old workspace request cannot publish into a new context');
+  currentRoot='/project';p.queueWorkerTaskSnapshotPersistence('w','/project',{});p.panelDisposed=true;await new Promise(setImmediate);
+  assert.equal(writes,1);assert.equal(p.workerTaskSnapshotWriters.size,0);
 });

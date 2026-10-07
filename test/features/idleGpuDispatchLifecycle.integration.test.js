@@ -65,6 +65,12 @@ test('G1 actual host tick only dispatches idle NWPU3, persists identity before R
   assert.equal(calls.length,1,`G1 busy NWPU5 must receive no default dispatch; queue=${JSON.stringify(stored)}`);assert.equal(calls[0].workerId,'nwpu3');assert.equal(calls[0].gpuId,'0');
   assert.equal(stored.plans[0].jobs[1].workerId,undefined);
   stored=make('server_prequeue');calls=[];
+  p.distributedSubmissionTimings=new Map([['p',{operationId:'submit',clickStartedAt:Date.now()-100}]]);
+  p.localOperations={submit:{timings:{clickToFirstAcceptedJobMs:0}}};
+  const timingEvents=[];
+  p.recordPlanSubmissionTimingByOperation=(_id,key,value)=>{
+    timingEvents.push(key);p.localOperations.submit.timings[key]=value;
+  };
   const send = p.sendDistributedJob;
   let releaseFirst;
   const firstReceipt = new Promise(resolve => { releaseFirst = resolve; });
@@ -77,11 +83,76 @@ test('G1 actual host tick only dispatches idle NWPU3, persists identity before R
   try {
     for (let attempt = 0; attempt < 10 && calls.length < 2; attempt++) await new Promise(setImmediate);
     assert.equal(calls.length, 2, 'a slow first receipt must not block the second dispatch');
+    for (let attempt = 0; attempt < 10 && stored.plans[0].jobs[1].status !== 'queued'; attempt++) await new Promise(setImmediate);
+    assert.equal(stored.plans[0].jobs[1].status, 'queued', 'a fast receipt must be persisted while another Worker is still responding');
+    assert.equal(stored.plans[0].jobs[0].status, 'dispatching', 'the delayed request remains owned and cannot be falsely acknowledged');
+    assert.ok(p.distributedLaunchInFlight.has('p\u00000\u00001'),'safe retry must still see the delayed launch as in flight');
+    assert.ok(p.localOperations.submit.timings.clickToFirstAcceptedJobMs>=100,'first acceptance is timed before the slow receipt returns');
+    assert.equal(timingEvents.includes('dispatchMs'),false,'batch completion has not yet happened');
   } finally { releaseFirst(); }
   await dispatching;
   assert.equal(calls.length,2);assert.deepEqual(calls.map(row=>row.workerId).sort(),['nwpu3','nwpu5']);
   assert.equal(manifestBuilds,2,'the second Plan tick also builds only one shared manifest');
   assert.ok(calls.every(row=>row.gpuId===undefined));assert.ok(stored.plans[0].jobs.every(row=>row.status==='queued'));
+  assert.equal(timingEvents.filter(key=>key==='clickToFirstAcceptedJobMs').length,1);
+  assert.ok(timingEvents.includes('dispatchMs'),'batch timing survives removing the first-acceptance tracker');
+  assert.equal(p.distributedLaunchInFlight.size,0);
+});
+
+function durableTickFixture() {
+  const Provider=provider(['tickDistributedQueueCore']);const p=new Provider();
+  p.distributedQueueGeneration=0;p.distributedPlanStopEpoch=0;p.distributedNextFailureDetailAt=Infinity;
+  p.distributedNextPostprocessAt=Infinity;p.distributedLaunchInFlight=new Set();
+  p.isRealtimeMode=()=>true;p.projectTopologyAssessment=()=>({mode:'worker_pool'});p.workerCodeSyncTargets=()=>[];
+  p.workerActionTargets=()=>[{id:'a'},{id:'b'}];p.lastWorkerProbes={a:{status:'ok'},b:{status:'ok'}};
+  p.lastCodeSyncState={workerVersions:{a:{fingerprint:'f'},b:{fingerprint:'f'}}};
+  p.enabledWorkerConfigs=()=>[{id:'a'},{id:'b'}];p.schedulerSettings=()=>({});p.gpuOwnerConfig=()=>({});
+  p.recordActionError=()=>{};p.postState=()=>{};p.scheduleDistributedPostprocess=()=>{};
+  p.buildDistributedJobCodeManifest=async()=>({});
+  p.readWorkerTaskSnapshotBatch=async ids=>ids.map(workerId=>({workerId,generatedAt:new Date().toISOString(),fetchedAt:new Date().toISOString(),
+    capabilities:{durablePlanQueue:true,idleGpuAdmission:true,schemaVersion:1},tasks:[]}));
+  p.client={getGpu:async()=>({a:[{index:'0',utilizationPercent:0,memoryUsedMb:7,processes:[]}],
+    b:[{index:'0',utilizationPercent:0,memoryUsedMb:7,processes:[]}]})};
+  let stored=DistributedPlanQueue.enqueuePlan(DistributedPlanQueue.emptyDistributedQueue(),{
+    projectId:DistributedPlanQueue.canonicalProjectId(root),schedulingMode:'server_prequeue',planFile:'p.yaml',revision:'r',codeFingerprint:'f',
+    jobs:[0,1].map(index=>({index,case:'bus',seed:index,outputDir:`runs/${index}`}))},'p');
+  p.loadDistributedQueue=async()=>JSON.parse(JSON.stringify(stored));
+  p.saveDistributedQueue=async(_root,value)=>{stored=JSON.parse(JSON.stringify(value));};
+  const receipt=(plan,job,workerId,_gpuId,commandId)=>({projectId:plan.projectId,workflowId:plan.id,planRevision:plan.revision,
+    codeFingerprint:plan.codeFingerprint,planJobCount:plan.planJobCount,planFile:plan.planFile,experimentIndex:job.index,case:job.case,
+    seed:job.seed,attempt:job.attempt,outputDir:job.outputDir,runKey:commandId,commandId,workerId,gpuId:'',status:'queued',durableAccepted:true});
+  return {p,receipt,stored:()=>stored};
+}
+test('receipt writes stay serialized and a failed commit drains every dispatched RPC before the tick rejects',async()=>{
+  const {p,receipt,stored}=durableTickFixture();let release;const slow=new Promise(resolve=>{release=resolve;});
+  let slowSent=false;let exited=false;let receiptWriteReached=false;let activeWrites=0;let maxWrites=0;
+  const save=p.saveDistributedQueue;
+  p.saveDistributedQueue=async(...args)=>{
+    activeWrites++;maxWrites=Math.max(maxWrites,activeWrites);
+    try { if(args[1].plans[0].jobs.some(job=>job.status==='queued')){receiptWriteReached=true;throw new Error('disk write denied');}await save(...args); }
+    finally {activeWrites--;}
+  };
+  p.sendDistributedJob=async(...args)=>{if(args[1].index===0){slowSent=true;await slow;exited=true;}return receipt(...args);};
+  let finished=false;const tick=p.tickDistributedQueueCore().then(()=>{finished=true;return null;},error=>{finished=true;return error;});
+  try {
+    for(let i=0;i<20&&!receiptWriteReached;i++)await new Promise(setImmediate);
+    assert.equal(slowSent,true);assert.equal(receiptWriteReached,true);
+    assert.equal(finished,false,'a failed local commit cannot release tick ownership while another RPC is still pending');
+    assert.ok(stored().plans[0].jobs.every(job=>job.status==='dispatching'),'failed publication retains the last committed owners');
+  } finally {release();}
+  const error=await tick;assert.match(error.message,/disk write denied/);assert.equal(exited,true);assert.equal(maxWrites,1);
+  assert.equal(p.distributedLaunchInFlight.size,0);
+});
+test('a late receipt after stop/generation change cannot save or publish the old run',async()=>{
+  const {p,receipt,stored}=durableTickFixture();let release;const gate=new Promise(resolve=>{release=resolve;});let calls=0;let posts=0;
+  p.postState=()=>posts++;
+  p.sendDistributedJob=async(...args)=>{calls++;await gate;return receipt(...args);};
+  const tick=p.tickDistributedQueueCore();
+  try {
+    for(let i=0;i<20&&calls<2;i++)await new Promise(setImmediate);
+    assert.equal(calls,2);p.distributedQueueGeneration++;const before=JSON.stringify(stored());
+    release();await tick;assert.equal(JSON.stringify(stored()),before);assert.equal(posts,0);
+  } finally {release();await tick;}
 });
 test('G1 actual RPC envelope distinguishes local GPU admission from durable hosted prequeue', async () => {
   const Provider=provider(['buildDistributedJobCodeManifest','sendDistributedJob'], {vscode:{workspace:{getConfiguration:()=>({get:(_key,value)=>value})},Uri:{file:value=>value}},

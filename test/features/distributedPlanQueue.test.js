@@ -335,6 +335,30 @@ test("a terminal Worker snapshot cannot replace an attempt-bound log with a shar
   });
 });
 
+test("a partial fresh snapshot does not discard six persisted terminal receipts or revive a completed Plan", () => {
+  const now = Date.now(), projectId = queue.canonicalProjectId("C:/research/project");
+  for (const status of ["completed", "failed", "cancelled"]) {
+    const jobs = Array.from({ length: 6 }, (_, index) => ({ index, case: "case-a", seed: 42 + index, attempt: 1,
+      outputDir: `runs/a/attempts/run-a/job-${index}`, commandId: `command-${index}`, workerId: index < 3 ? "worker-a" : "worker-b",
+      status, trustedTerminalStatus: status }));
+    const plan = { id: "run-a", projectId, planFile: "experiments/plans/a.yaml", revision: "rev-a", codeFingerprint: "code-a",
+      enqueuedAt: new Date(now).toISOString(), planJobCount: 6, recoveryMissingCount: 3, jobs };
+    const tasks = jobs.slice(0, 3).map(job => ({ ...job, projectId, workflowId: plan.id, planFile: plan.planFile,
+      planRevision: plan.revision, codeFingerprint: plan.codeFingerprint, planJobCount: 6, enqueuedAt: plan.enqueuedAt,
+      experimentIndex: job.index, runKey: job.commandId }));
+    const input = { schemaVersion: 1, plans: [plan], deferred: [] };
+    const before = JSON.stringify(input);
+    const result = queue.mergeDurableWorkerSnapshots(input, [{ workerId: "worker-a",
+      capabilities: { durablePlanQueue: true, schemaVersion: 1 }, generatedAt: new Date(now).toISOString(),
+      fetchedAt: new Date(now).toISOString(), tasks }], projectId, now);
+    assert.equal(result.plans[0].remoteAcceptedJobCount, 3, "fresh remote evidence still reports the true subset");
+    assert.equal(result.plans[0].recoveryMissingCount, 0, "the other exact terminal receipts remain accounted for locally");
+    assert.equal(result.plans[0].jobs.length, 6);
+    assert.ok(result.plans[0].jobs.every(job => job.status === status));
+    assert.equal(JSON.stringify(input), before, "display cache and disk base must not be mutated");
+  }
+});
+
 test("cold recovery ignores old agents, stale snapshots, and another project", () => {
   const now = Date.now();
   const projectId = queue.canonicalProjectId("C:/research/project");

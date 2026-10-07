@@ -46,6 +46,6 @@ test("proof-capable Worker receives compact dispatch identity; legacy Agent keep
 test("cold recovery cannot infer a complete Plan from the returned task subset", () => {
   assert.match(queue, /planJobCount\?: number/);
   assert.match(queue, /remoteAcceptedJobCount = currentAcceptedIndices\.size/);
-  assert.match(queue, /recoveryMissingCount = Math\.max\(0, jobCount - currentAcceptedIndices\.size - knownLocalPending\)/);
+  assert.match(queue, /recoveryMissingCount = distributedPlanRecoveryMissingCount\(plan, currentAcceptedIndices\)/);
   assert.match(extension, /!plan\.recoveryMissingCount/);
 });

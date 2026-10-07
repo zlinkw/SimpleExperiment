@@ -12,7 +12,7 @@ exports.PROGRESS_FRESHNESS_MS = 5_000;
 function progressRefreshWorkerIds(queue, configuredIds) {
     const needed = new Set();
     for (const plan of queue.plans) {
-        if (plan.recoveryMissingCount || plan.recoveryConflict)
+        if ((0, DistributedPlanQueue_1.hasUnresolvedPlanRecovery)(plan))
             return [...new Set(configuredIds)];
         for (const job of plan.jobs || []) {
             if (["completed", "failed", "cancelled"].includes(job.status) && !job.recallRequested)
