@@ -18449,11 +18449,44 @@ class RealtimeTunnelPanelProvider {
             return status;
         });
     }
-    async readProjectResultCatalog(root, mappings = {}, resultDir = this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR) {
+    async readProjectResultCatalog(root, mappings = {}, resultDir = this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, options = {}) {
         return this.withProjectResultPublicationLease(root, resultDir, async () => {
             const status = await ProjectResultPublication.recoverProjectResultPublication(root, resultDir);
             if (status !== "clean")
                 this.invalidateResultCatalogCache("resultPublicationRecovery");
+            if (options.worker)
+                return new Promise((resolve, reject) => {
+                    const worker = new worker_threads_1.Worker(path.join(__dirname, "..", "results", "ProjectResultCatalogWorker.js"));
+                    let settled = false;
+                    const finish = (error, catalog) => {
+                        if (settled)
+                            return;
+                        settled = true;
+                        clearTimeout(timeout);
+                        void worker.terminate().catch(() => undefined);
+                        if (error)
+                            reject(error);
+                        else
+                            resolve(catalog);
+                    };
+                    const timeout = setTimeout(() => finish(new Error("本地结果目录读取超时，已有结果保持不变。")), 15_000);
+                    worker.once("message", message => {
+                        if (message?.error)
+                            finish(new Error(String(message.error)));
+                        else if (message?.id !== 1 || !Array.isArray(message?.catalog?.datasets))
+                            finish(new Error("本地结果目录读取回执无效。"));
+                        else
+                            finish(undefined, message.catalog);
+                    });
+                    worker.once("error", error => finish(error));
+                    worker.once("exit", code => finish(new Error(`本地结果目录读取线程提前退出（${code}）。`)));
+                    try {
+                        worker.postMessage({ id: 1, root, resultDir, mappings });
+                    }
+                    catch (error) {
+                        finish(error);
+                    }
+                });
             return ProjectResultTables.resultCatalog(root, resultDir, mappings || {});
         });
     }
@@ -19008,7 +19041,7 @@ class RealtimeTunnelPanelProvider {
         if (!report.included.length)
             report.included = Array.from({ length: included }, (_, index) => "已重算 " + (index + 1));
         this.resultSyncReport = report;
-        this.postState();
+        await this.refreshLocalResultCatalogForProject(context);
         const message = formatResultSyncReport(report, options.title || "下载指标并重新汇总");
         if (issues.length || missing.length)
             void vscode.window.showWarningMessage(message);
@@ -21892,8 +21925,35 @@ class RealtimeTunnelPanelProvider {
             throw new UiCommandCancelled("项目已切换，未重建旧项目的结果表。");
         if (differs.some(Boolean))
             await this.writeProjectTableRegistry(context.root, registry, resultDir);
-        this.invalidateResultCatalogCache("manual-local-refresh");
-        this.postState();
+        await this.refreshLocalResultCatalogForProject(context);
+    }
+    async refreshLocalResultCatalogForProject(context) {
+        this.cancelResultCatalogRefresh();
+        this.resultCatalogDirtyGeneration = (Number(this.resultCatalogDirtyGeneration) || 0) + 1;
+        this.resultCatalogRefreshError = "";
+        this.resultCatalogRefreshFailedKey = "";
+        this.resultCatalogRefreshBackoffUntil = 0;
+        const mappings = pluginProjectAdapterRules(context.root).planDatasetMapping || {};
+        const key = this.resultCatalogKey(context.root, mappings);
+        this.resultCatalogStatus = this.hasResultCatalogForRoot(context.root) ? "stale" : "loading";
+        try {
+            const catalog = await this.readProjectResultCatalog(context.root, mappings, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, { worker: true });
+            if (!this.projectContextIsCurrent(context) || this.resultCatalogKey(context.root, pluginProjectAdapterRules(context.root).planDatasetMapping || {}) !== key)
+                throw new UiCommandCancelled("项目或结果配置已变化，未显示过期的本地结果。");
+            this.resultCatalogCache = { key, expiresAt: Date.now() + (this.resultCatalogTtlMs || 5000),
+                catalog, tables: this.compactResultTablesFromCatalog(catalog) };
+            this.resultCatalogStatus = "ready";
+            this.postState();
+            this.refreshResultCatalogForCurrentInterest();
+        }
+        catch (error) {
+            if (this.projectContextIsCurrent(context)) {
+                this.resultCatalogRefreshError = errorMessage(error);
+                this.resultCatalogStatus = this.hasResultCatalogForRoot(context.root) ? "stale" : "error";
+                this.postState();
+            }
+            throw error;
+        }
     }
     invalidateResultCatalogCache(reason) {
         this.resultCatalogDirtyGeneration += 1;
@@ -21972,7 +22032,7 @@ class RealtimeTunnelPanelProvider {
     }
     refreshResultCatalogForCurrentInterest() {
         const root = workspaceRoot();
-        if (!root || !PanelStateProjection_1.panelInterestedSections(this.panelSectionInterest).has("results"))
+        if (!root || !this.panelSectionInterest || !PanelStateProjection_1.panelInterestedSections(this.panelSectionInterest).has("results"))
             return;
         const mappings = pluginProjectAdapterRules(root).planDatasetMapping || {};
         const key = this.resultCatalogKey(root, mappings);
@@ -22018,7 +22078,7 @@ class RealtimeTunnelPanelProvider {
         let publicationPending = false;
         if (journalStat !== "missing") {
             // The last settled receipt is retained for recovery. Existence is not an active publication.
-            if (Number(journalStat.split(":")[2]) > 8 * 1024 * 1024)
+            if (Number(journalStat.split(":")[2]) > ProjectResultPublication.MAX_PROJECT_RESULT_JOURNAL_BYTES)
                 throw new Error("结果发布事务记录过大，拒绝读取结果目录。");
             const journal = JSON.parse(await fs.readFile(journalPath, "utf8"));
             if (journal?.schemaVersion !== 1 || !["preparing", "publishing", "committed", "rolled-back"].includes(journal.status))

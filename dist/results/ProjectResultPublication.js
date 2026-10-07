@@ -33,6 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.MAX_PROJECT_RESULT_JOURNAL_BYTES = void 0;
 exports.projectResultPublicationJournalPath = projectResultPublicationJournalPath;
 exports.recoverProjectResultPublication = recoverProjectResultPublication;
 exports.assertProjectResultPublicationBaseGeneration = assertProjectResultPublicationBaseGeneration;
@@ -48,7 +49,7 @@ const STAGING_PARENT = "simple_cluster/tmp/result_publication";
 const STAGING_DIRECTORY = `${STAGING_PARENT}/current`;
 // Generic wrapper bundles include originals, provenance and views for many plans.
 const MAX_FILES = 32768;
-const MAX_JOURNAL_BYTES = 32 * 1024 * 1024;
+exports.MAX_PROJECT_RESULT_JOURNAL_BYTES = 32 * 1024 * 1024;
 const publicationQueues = new Map();
 function serializePublication(root, operation) {
     const key = path.resolve(root).toLowerCase();
@@ -183,7 +184,7 @@ async function syncDirectory(fullPath) {
 async function writeJournal(root, journal) {
     const target = await verifyPath(root, JOURNAL_RELATIVE);
     const text = JSON.stringify(journal);
-    if (Buffer.byteLength(text) > MAX_JOURNAL_BYTES)
+    if (Buffer.byteLength(text) > exports.MAX_PROJECT_RESULT_JOURNAL_BYTES)
         throw new Error("结果发布事务记录过大，未推进发布。");
     await (0, StateStore_1.atomicWriteText)(target, text, { renameRetryBudgetMs: process.platform === "win32" ? 5000 : undefined });
 }
@@ -192,7 +193,7 @@ async function readJournal(root) {
     const stat = await fs.lstat(full).catch(error => error?.code === "ENOENT" ? undefined : Promise.reject(error));
     if (!stat)
         return undefined;
-    if (stat.size > MAX_JOURNAL_BYTES)
+    if (stat.size > exports.MAX_PROJECT_RESULT_JOURNAL_BYTES)
         throw new Error("结果发布事务记录过大，拒绝自动恢复。");
     const value = JSON.parse(await fs.readFile(full, "utf8"));
     if (value?.schemaVersion !== 1 || !/^[a-f0-9-]{36}$/i.test(String(value.id || "")) || !Array.isArray(value.entries) || !value.entries.length || value.entries.length > MAX_FILES || !["preparing", "publishing", "committed", "rolled-back"].includes(value.status))

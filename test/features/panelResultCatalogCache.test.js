@@ -7,14 +7,14 @@ const ts = require("typescript");
 const source = fs.readFileSync(path.join(__dirname, "../../src/extension/legacy.ts"), "utf8");
 const ast = ts.createSourceFile("legacy.ts", source, ts.ScriptTarget.Latest, true);
 const provider = ast.statements.find(node => ts.isClassDeclaration(node) && node.name?.text === "RealtimeTunnelPanelProvider");
-const names = new Set(["resultCatalogKey", "invalidateResultCatalogCache", "hasResultCatalogForRoot", "cachedResultCatalog", "compactResultTablesFromCatalog", "inspectResultCatalogInputs", "scheduleResultCatalogRefresh", "finishQueuedResultCatalogRefresh", "startResultCatalogRefreshWorker", "refreshLocalResultsFromUi", "cancelResultCatalogRefresh"]);
+const names = new Set(["resultCatalogKey", "invalidateResultCatalogCache", "hasResultCatalogForRoot", "cachedResultCatalog", "compactResultTablesFromCatalog", "inspectResultCatalogInputs", "scheduleResultCatalogRefresh", "finishQueuedResultCatalogRefresh", "startResultCatalogRefreshWorker", "refreshLocalResultsFromUi", "refreshLocalResultCatalogForProject", "cancelResultCatalogRefresh"]);
 const methods = provider.members.filter(node => node.name && names.has(node.name.getText(ast)));
 const code = ts.transpileModule(`class Subject { ${methods.map(node => node.getText(ast)).join("\n")} }`, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 const sandbox = {
   path,
   workspaceRoot: () => "C:/workspace",
   DEFAULT_RESULT_CSV_DIR: "experiments/results", Date, console,
-  fs: {}, ProjectResultPublication: { projectResultPublicationJournalPath: root => path.join(root, "journal.json") },
+  fs: {}, ProjectResultPublication: { projectResultPublicationJournalPath: root => path.join(root, "journal.json"), MAX_PROJECT_RESULT_JOURNAL_BYTES: 32 * 1024 * 1024 },
   ProjectResultTables: { buildTables: () => ({}) }, mapLimited: async (items, _limit, work) => Promise.all(items.map(work)),
   pluginProjectAdapterRules: () => ({ planDatasetMapping: {} }),
   PanelStateProjection_1: { panelInterestedSections: () => new Set(["results"]) },
@@ -63,9 +63,16 @@ test("malformed or unreadable publication journals fail explicitly rather than c
   }
   sandbox.fs.readFile = async () => { throw Object.assign(new Error("unreadable receipt"), { code: "EACCES" }); };
   await assert.rejects(subject.inspectResultCatalogInputs("C:/workspace"), /unreadable receipt/);
-  sandbox.fs.stat = async () => ({ dev: 1, ino: 2, size: 8 * 1024 * 1024 + 1, mtimeMs: 1, ctimeMs: 1 });
+  sandbox.fs.stat = async () => ({ dev: 1, ino: 2, size: sandbox.ProjectResultPublication.MAX_PROJECT_RESULT_JOURNAL_BYTES + 1, mtimeMs: 1, ctimeMs: 1 });
   await assert.rejects(subject.inspectResultCatalogInputs("C:/workspace"), /记录过大/);
   sandbox.fs.stat = async () => { throw Object.assign(new Error("absent"), { code: "ENOENT" }); };
+  assert.equal((await subject.inspectResultCatalogInputs("C:/workspace")).publicationPending, false);
+});
+
+test("catalog accepts the same bounded journal size as publication and recovery", async () => {
+  const subject = new sandbox.Subject();
+  sandbox.fs.stat = async () => ({ dev: 1, ino: 2, size: 12 * 1024 * 1024, mtimeMs: 1, ctimeMs: 1 });
+  sandbox.fs.readFile = async () => JSON.stringify({ schemaVersion: 1, status: "committed" });
   assert.equal((await subject.inspectResultCatalogInputs("C:/workspace")).publicationPending, false);
 });
 
@@ -131,6 +138,7 @@ test("manual local refresh resets read errors and rescans independently of faile
   subject.projectContextIsCurrent = () => true;
   subject.loadProjectTableRegistry = async () => ({ schemaVersion: 1, plans: {} });
   let rescans = 0, posts = 0;
+  subject.readProjectResultCatalog = async (_root, _mappings, _dir, options) => { assert.equal(options.worker, true); return { datasets: [] }; };
   subject.refreshResultCatalogForCurrentInterest = () => { rescans++; };
   subject.postState = () => { posts++; };
   subject.cancelResultCatalogRefresh = () => undefined;
@@ -209,3 +217,115 @@ test("buildState reads a UI-light catalog cache while catalog scanning stays in 
   assert.match(source, /receivedRenderedSemantics: "latest_heartbeat_ack"/);
   assert.match(source, /new Worker\(path\.join\(__dirname, "\.\.", "results", "ProjectResultCatalogWorker\.js"\)\)/);
 });
+
+function largeLocalResultFixture() {
+  const tables = require("../../dist/results/ProjectResultTables");
+  const root = fs.mkdtempSync(path.join(require("node:os").tmpdir(), "simple-local-catalog-limit-"));
+  const registry = tables.emptyTableRegistry();
+  registry.publicationGeneration = "local-complete-generation";
+  for (let index = 0; index < 11; index++) {
+    const planFile = `experiments/plans/comparison/plan-${String(index).padStart(2, "0")}.yaml`;
+    registry.plans[planFile] = { revision: "r1", expectedSeeds: 1, records: ["dataset-a", "dataset-b"].map(dataset => ({
+      planFile, dataset, workerId: "worker-a", case: dataset, seed: "42", method: "method-a", endpoint: "clean", rate: "", runId: "run-a", metrics: { AUC: .93 },
+    })) };
+    const raw = path.join(root, "experiments/results/_shared/plans", tables.planDirectoryKey(planFile), "raw/worker-a");
+    fs.mkdirSync(raw, { recursive: true });
+    for (let file = 0; file < 200; file++) fs.writeFileSync(path.join(raw, `result-${file}.json`), '{"value":1}', "utf8");
+  }
+  const registryPath = path.join(root, "simple_cluster/results/project_table_registry.json");
+  fs.mkdirSync(path.dirname(registryPath), { recursive: true });
+  fs.writeFileSync(registryPath, JSON.stringify(registry), "utf8");
+  for (const table of Object.values(tables.buildTables(registry))) {
+    const csv = path.join(root, "experiments/results", table.relativePath);
+    const md = path.join(root, "experiments/results", table.markdownPath);
+    fs.mkdirSync(path.dirname(csv), { recursive: true });
+    fs.writeFileSync(csv, tables.writeCsv(table.header, table.rows), "utf8");
+    fs.writeFileSync(md, table.markdown, "utf8");
+  }
+  return { root, registry, tables };
+}
+
+test("a full raw artifact budget cannot hide later datasets, final tables, methods or registered Plans", () => {
+  const { root, tables } = largeLocalResultFixture();
+  const catalog = tables.resultCatalog(root, "experiments/results");
+  assert.deepEqual(catalog.datasets.flatMap(dataset => dataset.tables.map(table => table.tableKey)).sort(), [
+    "dataset-a/final", "dataset-a/method/method-a", "dataset-b/final", "dataset-b/method/method-a",
+  ]);
+  assert.equal(catalog.multiDatasetPlans.length, 11);
+  assert.equal(catalog.datasets.flatMap(dataset => dataset.plans).reduce((total, plan) => total + plan.artifacts.length, 0), 2000);
+});
+
+let offlineVscode;
+function productionProvider(root) {
+  const Module = require("node:module");
+  const originalLoad = Module._load;
+  offlineVscode ||= {
+    Uri: { file: fsPath => ({ fsPath }) }, ProgressLocation: { Notification: 1 },
+    extensions: { getExtension: () => ({ extensionPath: path.resolve(__dirname, "../.."), packageJSON: require("../../package.json") }) },
+    workspace: { workspaceFolders: [], getConfiguration: () => ({ get: (_key, fallback) => fallback }) },
+    window: { showInformationMessage: async () => {}, showWarningMessage: async () => {},
+      withProgress: async (_options, work) => work({ report() {} }, { isCancellationRequested: false }) },
+  };
+  offlineVscode.workspace.workspaceFolders = [{ uri: { fsPath: root, scheme: "file" } }];
+  let Provider;
+  Module._load = function(request, ...args) {
+    return request === "vscode" ? offlineVscode : originalLoad.call(this, request, ...args);
+  };
+  try { Provider = require("../../dist/extension/legacy").RealtimeTunnelPanelProvider; } finally { Module._load = originalLoad; }
+  return Provider;
+}
+
+test("the real local refresh returns only after the offline catalog is ready and posted, even without section interest", async () => {
+  const { root } = largeLocalResultFixture();
+  const Provider = productionProvider(root);
+  const posts = [];
+  const host = Object.assign(Object.create(Provider.prototype), {
+    resultCsvDirectory: "experiments/results", resultCatalogDirtyGeneration: 0, resultCatalogRefreshSequence: 0, resultCatalogTtlMs: 5000,
+    resultCatalogStatus: "notLoaded", panelSectionInterest: { mainSection: "overview", visibleSections: [], expandedSections: [] },
+    captureProjectContext: () => ({ root }), projectContextIsCurrent: () => true,
+    postState: () => posts.push({ status: host.resultCatalogStatus, tables: host.resultCatalogCache?.tables }),
+    client: { getResultsSummary: () => assert.fail("local refresh cannot query a server") },
+    simpleSftpApiCall: () => assert.fail("local refresh cannot download results"),
+  });
+  try {
+    await host.refreshLocalResultsFromUi();
+    assert.equal(host.resultCatalogStatus, "ready");
+    assert.equal(host.resultCatalogCache.tables.length, 4);
+    assert.equal(posts.at(-1).status, "ready");
+    assert.equal(posts.at(-1).tables.length, 4);
+    assert.equal(host.resultCatalogRefreshWorker, undefined);
+  } finally { host.cancelResultCatalogRefresh(); }
+});
+
+for (const command of ["syncPendingPlanArtifacts", "rebuildProjectResultTables"]) {
+  test(`${command} cannot post completed before its published local tables reach the panel cache`, async () => {
+    const { root, registry } = largeLocalResultFixture();
+    const Provider = productionProvider(root);
+    const statuses = [];
+    const host = Object.assign(Object.create(Provider.prototype), {
+      resultCsvDirectory: "experiments/results", resultCatalogDirtyGeneration: 0, resultCatalogRefreshSequence: 0, resultCatalogTtlMs: 5000,
+      resultCatalogStatus: "notLoaded", panelSectionInterest: { mainSection: "overview", visibleSections: [], expandedSections: [] },
+      context: { globalStorageUri: { fsPath: root } }, manualResultSyncCounts: new Map(),
+      runningBuildIdentity: require("../../dist/features/PanelBuildIdentity").readPanelBuildIdentity(path.resolve(__dirname, "../..")),
+      captureProjectContext: () => ({ root }), projectContextIsCurrent: () => true,
+      effectiveConnectionMode: () => "tunnel", actionBody: body => body,
+      refreshLocalPlanMetadataForAction: async () => {}, loadPlanSyncLedger: async () => ({ schemaVersion: 2, entries: {} }),
+      loadDistributedQueue: async () => ({ plans: [] }), queuePlanArtifactSyncStatusCheck: () => {},
+      distributedProjectContract: () => ({}), enabledWorkerConfigs: () => [],
+      localPlanMetadata: { plans: Object.keys(registry.plans).map(planFile => ({ planFile, revision: "r1", seeds: [42] })) },
+      client: { getResultsSummary: async planFile => ({ planFile, planRevision: "r1", results: [], workerResultTables: [] }) },
+      simpleSftpApiCall: () => assert.fail("this existing registered-result fixture needs no transfer"),
+      postState: () => {}, finishPlanSubmissionProgress: () => {},
+      recordActionError: error => assert.fail(error.message),
+      postUiCommandStatus: (_id, status) => statuses.push({ status, tables: host.resultCatalogCache?.tables.length, loadStatus: host.resultCatalogStatus }),
+    });
+    try {
+      await host.withUiCommandStatus("local-result-button", command, {}, () => host.handleMessageCore({ command }, command));
+      assert.equal(statuses.at(-1).status, "completed");
+      assert.equal(statuses.at(-1).loadStatus, "ready");
+      assert.equal(statuses.at(-1).tables, 4);
+      assert.equal(host.resultSyncReport.included.length, 11);
+      assert.equal(host.manualResultSyncCounts.size, 0);
+    } finally { host.cancelResultCatalogRefresh(); }
+  });
+}

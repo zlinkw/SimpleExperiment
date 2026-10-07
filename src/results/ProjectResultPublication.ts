@@ -14,7 +14,7 @@ const STAGING_PARENT = "simple_cluster/tmp/result_publication";
 const STAGING_DIRECTORY = `${STAGING_PARENT}/current`;
 // Generic wrapper bundles include originals, provenance and views for many plans.
 const MAX_FILES = 32768;
-const MAX_JOURNAL_BYTES = 32 * 1024 * 1024;
+export const MAX_PROJECT_RESULT_JOURNAL_BYTES = 32 * 1024 * 1024;
 const publicationQueues = new Map<string, Promise<void>>();
 
 function serializePublication<T>(root: string, operation: () => Promise<T>): Promise<T> {
@@ -147,7 +147,7 @@ async function syncDirectory(fullPath: string): Promise<void> {
 async function writeJournal(root: string, journal: Journal): Promise<void> {
   const target = await verifyPath(root, JOURNAL_RELATIVE);
   const text = JSON.stringify(journal);
-  if (Buffer.byteLength(text) > MAX_JOURNAL_BYTES) throw new Error("结果发布事务记录过大，未推进发布。");
+  if (Buffer.byteLength(text) > MAX_PROJECT_RESULT_JOURNAL_BYTES) throw new Error("结果发布事务记录过大，未推进发布。");
   await atomicWriteText(target, text, { renameRetryBudgetMs: process.platform === "win32" ? 5000 : undefined });
 }
 
@@ -155,7 +155,7 @@ async function readJournal(root: string): Promise<Journal | undefined> {
   const full = await verifyPath(root, JOURNAL_RELATIVE);
   const stat = await fs.lstat(full).catch(error => error?.code === "ENOENT" ? undefined : Promise.reject(error));
   if (!stat) return undefined;
-  if (stat.size > MAX_JOURNAL_BYTES) throw new Error("结果发布事务记录过大，拒绝自动恢复。");
+  if (stat.size > MAX_PROJECT_RESULT_JOURNAL_BYTES) throw new Error("结果发布事务记录过大，拒绝自动恢复。");
   const value = JSON.parse(await fs.readFile(full, "utf8"));
   if (value?.schemaVersion !== 1 || !/^[a-f0-9-]{36}$/i.test(String(value.id || "")) || !Array.isArray(value.entries) || !value.entries.length || value.entries.length > MAX_FILES || !["preparing", "publishing", "committed", "rolled-back"].includes(value.status))
     throw new Error("结果发布事务记录无效，保留现有文件并停止恢复。");

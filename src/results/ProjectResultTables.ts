@@ -516,7 +516,6 @@ export function resultCatalog(root: string, resultDir: string, manualMappings: R
   const datasets: any[] = [], legacyTables: any[] = [];
   let artifactCount = 0;
   for (const datasetKey of childDirs(directory)) {
-    if (artifactCount >= 2000) break;
     const datasetRoot = path.join(directory, datasetKey);
     const tables: CatalogRow[] = [];
     let dataset = knownDatasets.get(datasetKey) ?? (datasetKey === "_unassigned" ? "" : datasetKey);
@@ -546,9 +545,9 @@ export function resultCatalog(root: string, resultDir: string, manualMappings: R
     }
     const plans: any[] = [];
     for (const planKey of childDirs(path.join(datasetRoot, "plans"))) {
-      if (artifactCount >= 2000) break;
       const artifacts: any[] = [];
       for (const kind of ["raw", "detail", "trace"]) {
+        if (artifactCount >= 2000) break;
         const base = path.join(datasetRoot, "plans", planKey, kind);
         const collect = (folder: string, workerId = "") => {
           if (!fs.existsSync(folder) || !fs.lstatSync(folder).isDirectory() || fs.lstatSync(folder).isSymbolicLink()) return;
@@ -562,9 +561,14 @@ export function resultCatalog(root: string, resultDir: string, manualMappings: R
           }
         };
         collect(base);
-        for (const worker of childDirs(base, 100)) collect(path.join(base, worker), worker.startsWith('preview__') ? '' : worker);
+        for (const worker of childDirs(base, 100)) {
+          if (artifactCount >= 2000) break;
+          collect(path.join(base, worker), worker.startsWith('preview__') ? '' : worker);
+        }
       }
-      if (artifacts.length) {
+      // Limit the raw file list independently. Current tables and registered
+      // Plan identities must remain discoverable after that list is full.
+      if (artifacts.length || knownPlans.has(planKey)) {
         let metadataPlanFiles: string[] = [];
         let metadataDatasets: string[] = [];
         if (!knownPlans.has(planKey)) {
@@ -640,7 +644,6 @@ export function resultCatalog(root: string, resultDir: string, manualMappings: R
     for (const plan of (dataset.plans || [])) {
       if (remainingPlans <= 0) break;
       const artifacts = (plan.artifacts || []).slice(0, remainingArtifacts);
-      if (!artifacts.length && (plan.artifacts || []).length) break;
       remainingArtifacts -= artifacts.length;
       plans.push({ ...plan, artifacts });
       remainingPlans -= 1;
