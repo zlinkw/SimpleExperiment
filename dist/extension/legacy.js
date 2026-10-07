@@ -5751,8 +5751,7 @@ class RealtimeTunnelPanelProvider {
                 await this.openResultArtifactFromUi(message);
                 break;
             case "syncAllResultArtifacts":
-                await this.withManualResultSync(() => this.syncAllResultArtifactsFromUi(message));
-                break;
+                return this.withManualResultSync(() => this.syncAllResultArtifactsFromUi(message));
             case "rebuildProjectResultTables":
                 return this.withManualResultSync(() => this.rebuildProjectResultTablesFromUi());
             case "refreshLocalResults":
@@ -5838,9 +5837,10 @@ class RealtimeTunnelPanelProvider {
         const isLocalTrigger = localCommandReleasesAfterTrigger(command);
         const guardedWork = work()
             .then(async (value) => {
-            if (["syncPendingPlanArtifacts", "rebuildProjectResultTables"].includes(command)
-                && value && (value.skipped?.length || value.missing?.length)) {
-                return { status: "failed", message: formatResultSyncReport(value, "结果同步未完整完成") };
+            if (["syncPendingPlanArtifacts", "rebuildProjectResultTables", "syncAllResultArtifacts"].includes(command)) {
+                const outcome = resultSyncCommandOutcome(value);
+                if (outcome)
+                    return outcome;
             }
             if (command === "syncAllResultArtifacts" && value && (value.failures?.length || value.cancelled)) {
                 const detail = Array.isArray(value.failures) ? value.failures.slice(0, 5).join("；") : "";
@@ -5874,6 +5874,7 @@ class RealtimeTunnelPanelProvider {
         });
         const result = await guardedWork;
         const operationOutcome = OperationOutcome_1.operationOutcomeFor(result.error, result.status);
+        const resultDetails = result.resultSync ? { resultSync: result.resultSync } : {};
         let statusPosted = false;
         if (result.status === "cancelled") {
             this.finishPlanSubmissionProgress(message, "cancelled", result.message || "已取消，未提交运行。");
@@ -5900,12 +5901,19 @@ class RealtimeTunnelPanelProvider {
             this.finishPlanSubmissionProgress(message, "failed", result.message || "提交失败。");
             this.recordActionError({ command, message: result.message, suggestion: result.planStopClear?.nextStep || actionErrorSuggestion(result.message), operationOutcome });
             this.postState();
-            this.postUiCommandStatus(clientActionId, result.status, command, result.message, { operationOutcome, ...(result.planStopClear ? { planFile: result.planStopClear.planFile, planStopClear: result.planStopClear } : {}) });
+            this.postUiCommandStatus(clientActionId, result.status, command, result.message, { operationOutcome, ...resultDetails, ...(result.planStopClear ? { planFile: result.planStopClear.planFile, planStopClear: result.planStopClear } : {}) });
             statusPosted = true;
-            void vscode.window.showErrorMessage(`${hostOperationLeaseActionLabel(command) || command}未完成`, { modal: true, detail: compactSensitiveText(result.message || "操作失败，请检查连接与产物校验记录。", 4000) }, "知道了").catch(() => undefined);
+            if (result.resultSync) {
+                if (!result.notificationShown)
+                    void vscode.window.showWarningMessage(result.message).catch(() => undefined);
+            }
+            else
+                void vscode.window.showErrorMessage(`${hostOperationLeaseActionLabel(command) || command}未完成`, { modal: true, detail: compactSensitiveText(result.message || "操作失败，请检查连接与产物校验记录。", 4000) }, "知道了").catch(() => undefined);
         }
+        if (result.status === "completed" && result.resultSync?.partial && !result.notificationShown)
+            void vscode.window.showWarningMessage(result.message).catch(() => undefined);
         if (!statusPosted)
-            this.postUiCommandStatus(clientActionId, result.status, command, result.message, { operationOutcome, ...(result.planStopClear ? { planFile: result.planStopClear.planFile, planStopClear: result.planStopClear } : {}) });
+            this.postUiCommandStatus(clientActionId, result.status, command, result.message, { operationOutcome, ...resultDetails, ...(result.planStopClear ? { planFile: result.planStopClear.planFile, planStopClear: result.planStopClear } : {}) });
     }
     uiCommandWatchdogMs(command) {
         // Each underlying request owns inactivity and cancellation. No total UI deadline.
@@ -18995,6 +19003,7 @@ class RealtimeTunnelPanelProvider {
             pending,
             skipped: issues,
             previews,
+            notificationShown: true,
         };
         if (!report.included.length)
             report.included = Array.from({ length: included }, (_, index) => "已重算 " + (index + 1));
@@ -33037,12 +33046,34 @@ function preferServerMetricSummary(serverSummary, localSummary, options = {}) {
         return serverSummary;
     return { ...serverSummary, results: rows, workerResultTables: tables.length ? tables : serverSummary.workerResultTables, verifiedPartial: serverSummary.verifiedPartial === true || Boolean(serverSummary.unavailableWorkerIds?.length), aggregateCoverage: serverSummary.aggregateCoverage };
 }
+function resultSyncCommandOutcome(report) {
+    if (!report || !Array.isArray(report.included) || !Array.isArray(report.skipped) || !Array.isArray(report.missing))
+        return undefined;
+    const included = report.included.length;
+    const missing = report.missing.length;
+    const skipped = report.skipped.length;
+    const pending = Array.isArray(report.pending) ? report.pending.length : 0;
+    const previews = Array.isArray(report.previews) ? report.previews.length : 0;
+    const partial = Boolean(missing || skipped);
+    // The collector already publishes only verified complete Plans and retains
+    // older complete results for rejected Plans. A partial report is a warning,
+    // not an exception that invalidates the successfully published Plans.
+    const failed = partial && !included && !previews;
+    const outcome = failed ? "failed" : partial ? "partial" : !included && previews ? "preview" : !included && pending ? "pending" : "completed";
+    return {
+        status: failed ? "failed" : "completed",
+        message: formatResultSyncReport(report, failed ? "结果未更新，保留原有完整结果" : !included && previews ? "仅更新未完成运行预览，正式结果未更新" : partial ? "部分结果已更新，其余保留原有完整结果" : outcome === "pending" ? "等待完成作业的指标" : "结果更新完成"),
+        resultSync: { outcome, partial, included, missing, skipped, pending, previews },
+        notificationShown: report.notificationShown === true,
+    };
+}
 function formatResultSyncReport(report, title) {
     const discovered = Number(report?.discovered || (report?.plans || []).length || 0);
     const included = Array.isArray(report?.included) ? report.included : [];
     const missing = Array.isArray(report?.missing) ? report.missing : [];
     const skipped = Array.isArray(report?.skipped) ? report.skipped : [];
     const pending = Array.isArray(report?.pending) ? report.pending : [];
+    const previews = Array.isArray(report?.previews) ? report.previews : [];
     const downloads = Array.isArray(report?.downloads) ? report.downloads : [];
     return [
         title,
@@ -33053,6 +33084,7 @@ function formatResultSyncReport(report, title) {
         missing.length ? "缺指标：" + missing.slice(0, 6).join("；") : "",
         skipped.length ? "未收录：" + skipped.slice(0, 6).join("；") : "",
         pending.length ? "待指标：" + pending.slice(0, 6).join("；") : "",
+        previews.length ? "未完成运行预览 " + previews.length + " 个，不计入正式汇总。" : "",
     ].filter(Boolean).join("\n");
 }
 function resultMetricMergeScopePaths(plan, planFile, extras = []) {

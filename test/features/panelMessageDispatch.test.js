@@ -73,9 +73,12 @@ assert.match(handleMessageCore, /case "configureSessions"/);
 assert.ok(handleMessageCore.length > 8000, "handleMessageCore must stay complete");
 
 const factory = new Function("OperationOutcome_1", `
+  class UiCommandRemotePending extends Error {}
+  class UiCommandCancelled extends Error {}
   function compactSensitiveText(value, max = 480) { return String(value || "").slice(0, max); }
   ${constants}
   ${helpers}
+  ${sliceBetween("function resultSyncCommandOutcome(", "function resultMetricMergeScopePaths(")}
   const vscode = { window: { showInformationMessage() {}, showWarningMessage() { return Promise.resolve(); }, showErrorMessage() { return Promise.resolve(); } } };
   ${handleMessage}
   ${handleMessageCore}
@@ -292,3 +295,23 @@ test("a legal lease command with clientActionId acquires the host lease once", a
   assert.equal(host.calls.statuses.at(-1).status, "completed");
   assert.equal(host.calls.statuses.at(-1).clientActionId, "act-lease");
 });
+
+for (const command of ["syncPendingPlanArtifacts", "rebuildProjectResultTables", "syncAllResultArtifacts"]) {
+  test(`${command} delivers the actual collector report through the button dispatch and terminal status`, async () => {
+    const report = { discovered: 2, included: ["a"], missing: [], skipped: ["b: seed mismatch"], pending: [], notificationShown: true };
+    const host = createHost({
+      withManualResultSync: work => work(),
+      syncPendingResultMetricsFromUi: async () => report,
+      rebuildProjectResultTablesFromUi: async () => report,
+      syncAllResultArtifactsFromUi: async () => report,
+    });
+    assert.equal(await api.handleMessageCore.call(host, { command }, command), report);
+    await api.handleMessage.call(host, { command, clientActionId: "act-result", documentGeneration: 4 });
+    const terminal = host.calls.statuses.at(-1);
+    assert.equal(terminal.status, "completed");
+    assert.equal(terminal.resultSync.outcome, "partial");
+    assert.equal(terminal.resultSync.included, 1);
+    assert.equal(terminal.resultSync.skipped, 1);
+    assert.match(terminal.message, /seed mismatch/);
+  });
+}

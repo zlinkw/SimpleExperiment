@@ -18,11 +18,14 @@ const vscodeStub = {
     onDidChange: () => ({ dispose() {} }),
   },
   window: {
-    showWarningMessage: async () => "覆盖已有文件并同步",
+    showWarningMessage: async (text) => { vscodeStub.window.warnings.push(String(text)); return "覆盖已有文件并同步"; },
+    showErrorMessage: async (...args) => { vscodeStub.window.errors.push(args); },
     showInformationMessage: async (text) => { vscodeStub.window.messages.push(String(text)); },
     setStatusBarMessage: () => {},
     withProgress: async (_options, task) => task({ report() {} }, { isCancellationRequested: false }),
     messages: [],
+    warnings: [],
+    errors: [],
   },
   Uri: { file: (value) => ({ fsPath: value }) },
   ProgressLocation: { Notification: 1 },
@@ -208,6 +211,43 @@ test("sync includes every completed plan and both workers before one mapped down
   assert.match(JSON.stringify(host.postedReport), /发现|empty\.yaml|收录/);
   assert.equal(fs.existsSync(path.join(workspace, "experiments", "results", "set", "final", "final.csv")), true);
 });
+
+for (const command of ["syncPendingPlanArtifacts", "rebuildProjectResultTables"]) {
+  test(`${command} publishes valid local tables and releases its button with one partial warning`, async () => {
+    const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-result-button-"));
+    vscodeStub.workspace.workspaceFolders = [{ uri: { fsPath: workspace, scheme: "file", path: workspace } }];
+    vscodeStub.window.warnings = [];
+    vscodeStub.window.errors = [];
+    const { RealtimeTunnelPanelProvider } = require("../../dist/extension/legacy.js");
+    const statuses = [];
+    const host = Object.assign(Object.create(RealtimeTunnelPanelProvider.prototype), providerFor(workspace), {
+      postUiCommandStatus: (id, status, name, message, extra) => statuses.push({ id, status, name, message, ...extra }),
+      finishPlanSubmissionProgress: () => {},
+      recordActionError: error => { throw new Error("partial publication must not record a global failure: " + error.message); },
+    });
+    const invoke = () => host.withUiCommandStatus("result-button", command, {}, () => host.handleMessageCore({ command }, command));
+    await invoke();
+    const terminal = statuses.at(-1);
+    assert.equal(terminal.status, "completed");
+    assert.equal(terminal.resultSync.outcome, "partial");
+    assert.equal(terminal.resultSync.included, 3);
+    assert.equal(terminal.resultSync.skipped, 1);
+    assert.match(terminal.message, /empty\.yaml/);
+    assert.equal(vscodeStub.window.warnings.length, 1);
+    assert.equal(vscodeStub.window.errors.length, 0);
+    assert.equal(host.manualResultSyncCounts.size, 0);
+    const registryPath = path.join(workspace, "simple_cluster/results/project_table_registry.json");
+    const registry = JSON.parse(fs.readFileSync(registryPath, "utf8"));
+    assert.equal(Object.keys(registry.plans).length, 3);
+    assert.equal(fs.existsSync(path.join(workspace, "experiments/results/set/final/final.md")), true);
+    host.calls.length = 0;
+    await invoke();
+    assert.equal(statuses.at(-1).resultSync.outcome, "partial");
+    assert.equal(vscodeStub.window.warnings.length, 2, "one warning per click, including a repeated click");
+    assert.equal(statuses.at(-1).resultSync.included, 3, "a repeated click still reports the actual published Plans");
+    assert.equal(vscodeStub.window.errors.length, 0);
+  });
+}
 
 test("rebuild downloads metrics from both workers before recomputing and does not merge directories", async () => {
   const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "simple-result-rebuild-"));
