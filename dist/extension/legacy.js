@@ -88,6 +88,7 @@ const ScalarAggregation_1 = require("../tensorboard/ScalarAggregation");
 const ProjectResultTables = __importStar(require("../results/ProjectResultTables"));
 const ProjectResultPublication = __importStar(require("../results/ProjectResultPublication"));
 const WrapperResultBundle = __importStar(require("../results/WrapperResultBundle"));
+const PlanVersionComparison = __importStar(require("../results/PlanVersionComparison"));
 const FourStateMetricBundle_1 = require("../results/FourStateMetricBundle");
 const PlanRunFreshness = __importStar(require("../results/PlanRunFreshness"));
 const PlanArtifactSyncStatus = __importStar(require("../features/PlanArtifactSyncStatus"));
@@ -12103,7 +12104,17 @@ class RealtimeTunnelPanelProvider {
         this.syncScopeMutationInFlight = true;
         try {
             const queue = await this.loadPlanOutputRetentionQueue(root);
-            const candidates = PlanOutputRetention.outputRetirementCandidates(queue, publishedRunIds, contract.requiredPaths, reviewedOlderRunIds);
+            let reviewIdentity;
+            let candidates = PlanOutputRetention.outputRetirementCandidates(queue, publishedRunIds, contract.requiredPaths, manualReview ? queue.plans.map(plan => plan.id) : reviewedOlderRunIds);
+            if (manualReview) {
+                reviewIdentity = PlanVersionComparison.comparisonQueueIdentity(queue);
+                const runs = PlanVersionComparison.comparisonRuns(queue, candidates);
+                const chosen = await (0, SyncScopeConfirmation_1.reviewPlanVersionResults)(runs, candidates, (run, signal) => this.loadPlanVersionComparison(root, queue, run, signal));
+                if (!chosen?.length)
+                    return;
+                candidates = chosen;
+                reviewedOlderRunIds = runs.filter(run => run.authority?.plan.jobs.some(job => candidates.some(candidate => candidate.outputDir === job.outputDir))).map(run => run.runId);
+            }
             if (!candidates.length) {
                 if (manualReview)
                     void vscode.window.showInformationMessage("当前没有可安全替换的旧 attempt；请先同步最新完整结果，或等待运行中的任务完成后再审核。");
@@ -12119,9 +12130,8 @@ class RealtimeTunnelPanelProvider {
                 const latest = await this.loadPlanOutputRetentionQueue(root);
                 if (this.distributedQueueStorageDiagnostics?.status === "stale")
                     throw new Error("队列磁盘状态尚未核实；保留旧 attempt。");
-                const stillOlderIds = manualReview ? PlanOutputRetention.outputVersionReview(latest).flatMap(row => row.olderRunIds) : [];
-                if (reviewedOlderRunIds.some(id => !stillOlderIds.includes(id) && latest.plans.some(plan => plan.id === id && plan.jobs.some(job => !job.outputRetiredAt))))
-                    throw new Error("历史版本范围已变化，请重新审核；未删除产物。");
+                if (manualReview && PlanVersionComparison.comparisonQueueIdentity(latest) !== reviewIdentity)
+                    throw new Error("运行或代码身份在审核期间已变化，请重新审核；未删除产物。");
                 const current = PlanOutputRetention.outputRetirementCandidates(latest, publishedRunIds, contract.requiredPaths, reviewedOlderRunIds);
                 for (const candidate of pending.values()) {
                     const found = current.find((row) => row.outputDir === candidate.outputDir);
@@ -12170,7 +12180,7 @@ class RealtimeTunnelPanelProvider {
                 workerIds: [...targets.keys()], inspect, assertCurrent,
                 confirm: async (records) => {
                     const bytes = records.reduce((sum, record) => sum + record.inspection.bytes, 0);
-                    const confirmed = await (0, SyncScopeConfirmation_1.confirmSyncScopePaths)("Plan 历史产物审核", `新一轮全部 job 已完整完成且检查点/结果 hash 已核验。同代码重复运行以最新完整结果替代；不同代码/配置保留，超过 5 个版本时仅列出较早版本供审核。永久删除下方旧 attempt 目录，共 ${records.length} 个副本，${bytes} 字节。当前完整版本和仍在运行的新 attempt 不受影响；队列历史身份保留，旧版日志/检查点将无法再打开。取消会保留旧目录。`, records.map((record) => ({ label: `${record.workerId} (${servers.get(record.workerId).user}@${servers.get(record.workerId).host}:${servers.get(record.workerId).port}) / ${record.planFile} → ${record.replacementRunId}`, path: record.inspection.absolutePath })), "永久删除已审核旧 attempt");
+                    const confirmed = await (0, SyncScopeConfirmation_1.confirmSyncScopePaths)("Plan 历史产物审核", `新一轮全部 job 已完整完成且检查点/结果 hash 已核验。${manualReview ? "仅清理刚才临时对比中明确取消保留的旧运行；其余版本保留。" : "同代码重复运行以最新完整结果替代；不同代码/配置保留。"}永久删除下方旧 attempt 目录，共 ${records.length} 个副本，${bytes} 字节。当前完整版本和仍在运行的新 attempt 不受影响；队列历史身份保留，旧版日志/检查点将无法再打开。取消会保留旧目录。`, records.map((record) => ({ label: `${record.workerId} (${servers.get(record.workerId).user}@${servers.get(record.workerId).host}:${servers.get(record.workerId).port}) / ${record.planFile} → ${record.replacementRunId}`, path: record.inspection.absolutePath })), "永久删除已审核旧 attempt");
                     if (confirmed)
                         await verifyReplacement();
                     return confirmed;
@@ -12202,6 +12212,52 @@ class RealtimeTunnelPanelProvider {
         finally {
             this.syncScopeMutationInFlight = false;
             this.postState();
+        }
+    }
+    async loadPlanVersionComparison(root, queue, run, signal) {
+        if (!run.authority)
+            throw new Error("没有可核验的完成 job；保留该运行。");
+        const context = { ...this.captureProjectContext(), temporaryResultReview: true, reviewQueue: queue };
+        context.signal = AbortSignal.any([context.signal, signal].filter(Boolean));
+        const client = this.client;
+        const isCurrent = () => !context.signal.aborted && this.projectContextIsCurrent(context) && client === this.client;
+        if (context.root !== root || !isCurrent())
+            throw new UiCommandCancelled("审核项目已变化。");
+        const fresh = await this.loadPlanOutputRetentionQueue(root);
+        if (PlanVersionComparison.comparisonQueueIdentity(fresh) !== PlanVersionComparison.comparisonQueueIdentity(queue))
+            throw new Error("运行状态已变化，请关闭后重新审核。");
+        const token = { get isCancellationRequested() { return context.signal.aborted; },
+            onCancellationRequested: callback => {
+                context.signal.addEventListener("abort", callback, { once: true });
+                if (context.signal.aborted)
+                    callback();
+                return { dispose: () => context.signal.removeEventListener("abort", callback) };
+            } };
+        const item = { planFile: run.planFile, metadata: { revision: run.revision }, runAuthority: run.authority,
+            previewOnly: run.completed !== run.expected, summary: PlanRunFreshness.summaryForRunRecovery({}, run.planFile, run.authority) };
+        await this.recoverCompletedJobMetricFiles(context, [item], isCurrent, token);
+        if (!isCurrent())
+            throw new UiCommandCancelled("临时审核已关闭。");
+        item.candidates = resultMetricDownloadCandidates(item.summary, item.planFile);
+        const issues = [];
+        const downloads = await this.downloadMetricPlanItems(context, client, [item], isCurrent, token, "临时版本结果审核", issues, { report() { } });
+        const memory = new Map(downloads.flatMap(download => (download.metricFiles || []).map(file => [download.sourceId + "\0" + file.remotePath, file])));
+        try {
+            if (!isCurrent())
+                throw new UiCommandCancelled("临时审核已关闭。");
+            if (issues.length || item.metricDiscoveryError || item.downloadFailed || !item.summary.workerResultTables?.length)
+                throw new Error(issues[0] || item.metricDiscoveryError || "该版本原始 wrapper 文件缺失或尚未核验。");
+            const summary = await this.summaryFromLocalMetricFiles(root, run.planFile, item.summary, { memoryMetricFiles: memory,
+                downloadedSources: new Set(downloads.filter(verifiedDownload).map(download => download.sourceId)), completedRunId: run.runId });
+            if (!isCurrent())
+                throw new UiCommandCancelled("临时审核已关闭。");
+            return PlanVersionComparison.comparisonFromSummary(run, summary, pluginProjectAdapterRules(root));
+        }
+        finally {
+            memory.clear();
+            for (const download of downloads)
+                download.metricFiles = [];
+            item.manifestMemory?.clear();
         }
     }
     async retryDistributedJobFromUi(message) {
@@ -17485,8 +17541,8 @@ class RealtimeTunnelPanelProvider {
         return filterCompletedResultSummaryForPlan(summary, planFile);
     }
     async recoverCompletedJobMetricFiles(context, items, isCurrent, token) {
-        const queue = await this.loadDistributedQueue(context.root);
-        const registry = await this.loadProjectTableRegistry(context.root);
+        const queue = context.temporaryResultReview ? context.reviewQueue : await this.loadDistributedQueue(context.root);
+        const registry = context.temporaryResultReview ? ProjectResultTables.emptyTableRegistry() : await this.loadProjectTableRegistry(context.root);
         const contract = this.distributedProjectContract();
         const recoveries = [];
         const sources = new Map();
@@ -17590,7 +17646,7 @@ class RealtimeTunnelPanelProvider {
                 const entries = manifestFiles.map(file => ({ remotePath: file.manifestPath,
                     localRelativePath: methodResultArtifactLocalRelativePath(file.manifestPath, file.planFile, file.mappingSummary, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, file.multipleJobs ? workerId : ""),
                     bytes: inventories.get(workerId).files[file.manifestPath].size, sha256: inventories.get(workerId).files[file.manifestPath].sha256 }));
-                const received = await this.downloadMetricMemoryBatch(context, this.client, { sourceId: workerId, workerId, entries }, "读取 wrapper 结果清单", token);
+                const received = await this.downloadMetricMemoryBatch(context, this.client, { sourceId: workerId, workerId, entries }, "读取 wrapper 结果清单", token, context.temporaryResultReview ? { report() { } } : undefined);
                 for (const memory of received.metricFiles)
                     manifestMemory.set(workerId + "\0" + memory.remotePath, memory);
                 const additional = new Map();
@@ -17757,13 +17813,15 @@ class RealtimeTunnelPanelProvider {
         return downloads;
     }
     async downloadMetricMemoryBatch(context, client, batch, title, token, suppliedProgress) {
-        const isCurrent = () => !(0, SafeRequestRetry_1.retryRequestSignal)()?.aborted && this.projectContextIsCurrent(context) && client === this.client;
+        const isCurrent = () => !context.signal?.aborted && !(0, SafeRequestRetry_1.retryRequestSignal)()?.aborted && this.projectContextIsCurrent(context) && client === this.client;
         const check = () => { if (!isCurrent() || token?.isCancellationRequested)
             throw new UiCommandCancelled("指标下载已取消，保留现有表格。"); };
         check();
         const capability = await this.simpleSftpCapability("sync.downloadMappedPaths");
         if (capability.methodOptions?.["sync.downloadMappedPaths"]?.memoryOnly !== true)
             throw new Error("需要支持内存指标下载的 SimpleSFTP 版本；请安装最新版并重载窗口。未创建原始指标缓存。");
+        if (context.temporaryResultReview && capability.methodOptions?.["sync.downloadMappedPaths"]?.memoryWrapperResults !== true)
+            throw new Error("临时版本审核需要支持 wrapper 全格式内存接收的 SimpleSFTP；请更新并重载窗口。该版本保留，未创建结果缓存。");
         const server = batch.sourceId === "hub" ? this.hubMappedDownloadServer() : this.mappedDownloadServerForSource(batch.workerId || batch.sourceId);
         const request = async (method, params, extraToken = token) => {
             const abort = new AbortController();
@@ -17816,7 +17874,7 @@ class RealtimeTunnelPanelProvider {
                 progress.report({ message: `wrapper 结果 ${index + 1}/${chunks.length} 批：本机 SHA256 复用 ${reusedFiles} 个，本批下载差异 ${pending.length} 个` });
                 // Older SFTP versions accept YAML/TSV/JSONL through mapped file download, but not memoryOnly.
                 // Keep that verified original at its final immutable mapping; never create a throwaway raw cache.
-                const memoryChunk = pending.filter(file => /\.(csv|json|md|txt|log)$/i.test(file.remotePath));
+                const memoryChunk = pending.filter(file => context.temporaryResultReview || /\.(csv|json|md|txt|log)$/i.test(file.remotePath));
                 const diskChunk = pending.filter(file => !memoryChunk.includes(file)), diskCopies = new Map();
                 for (const file of diskChunk) {
                     const target = safeWorkspaceChildPath(context.root, file.localRelativePath);
@@ -17854,7 +17912,7 @@ class RealtimeTunnelPanelProvider {
                     continue;
                 const response = await request("sync.downloadMappedPaths", { localPath: context.root, server,
                     entries: memoryChunk.map(file => ({ remotePath: file.remotePath, localRelativePath: file.localRelativePath, bytes: file.bytes, sha256: file.sha256 })),
-                    memoryOnly: true, metricsOnly: true, maxFileBytes: 4 * 1024 * 1024, maxBatchBytes: 4 * 1024 * 1024, compression: "auto", confirm: true, pathConfirmed: true }, innerToken);
+                    memoryOnly: true, metricsOnly: true, ...(context.temporaryResultReview ? { wrapperResults: true } : {}), maxFileBytes: 4 * 1024 * 1024, maxBatchBytes: 4 * 1024 * 1024, compression: "auto", confirm: true, pathConfirmed: true }, innerToken);
                 check();
                 if (innerToken.isCancellationRequested)
                     throw new UiCommandCancelled("指标下载已取消，保留现有表格。");
@@ -17870,9 +17928,10 @@ class RealtimeTunnelPanelProvider {
                     const bytes = Buffer.from(file.dataBase64, "base64");
                     if (bytes.toString("base64") !== file.dataBase64 || bytes.length !== expected.bytes || file.bytes !== expected.bytes || file.sha256 !== expected.sha256 || crypto.createHash("sha256").update(bytes).digest("hex") !== expected.sha256)
                         throw new Error("已下载指标与服务器文件指纹不一致：" + file.remotePath);
-                    const text = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
+                    const binary = !WrapperResultBundle.isWrapperTextFile(file.remotePath);
+                    const text = binary ? bytes.toString("base64") : new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes);
                     received.set(file.remotePath, { remotePath: file.remotePath, sha256: expected.sha256,
-                        text, bytes: bytes.length,
+                        text, bytes: bytes.length, ...(binary ? { encoding: "base64" } : {}),
                         rows: file.remotePath.toLowerCase().endsWith(".csv") ? parseDownloadedMetricCsv(text, pluginProjectAdapterRules(context.root).csvColumnMapping || {}) : [] });
                     delete file.dataBase64;
                 }

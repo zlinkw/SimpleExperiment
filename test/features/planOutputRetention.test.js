@@ -228,14 +228,15 @@ test("Host uses the double-confirm review and guarded SimpleSFTP deletion; keep-
   let state = queue(plan("a", 1000), plan("b", 2000));
   const removed = new Set(), apiCalls = [], holds = {}, errors = [];
   let mode = "latest-complete", reviews = 0, expectedCopies = 12, published = true;
-  const sandbox = { PlanOutputRetention: retention, PlanRunFreshness: freshness,
+  const sandbox = { PlanOutputRetention: retention, PlanRunFreshness: freshness, PlanVersionComparison: require('../../dist/results/PlanVersionComparison'),
     remoteActionPendingStatus: (status) => ["accepted", "running"].includes(status), resultStatus: (value) => value.status,
     remoteActionSucceeded: (status) => status === "completed",
     vscode: { workspace: { getConfiguration: () => ({ get: () => mode }) }, Uri: { file: (value) => value }, window: { showInformationMessage() {} } },
     workspaceRoot: () => "C:/project", compactSensitiveText: (value) => value, errorMessage: (value) => value.message,
     confirmSyncScopePaths: async (title, note, records, label) => { reviews++; assert.equal(records.length, expectedCopies); assert.match(label, /永久删除/); assert.ok(records.every((row) => row.path.startsWith(root + "/"))); return true; },
   };
-  sandbox.SyncScopeConfirmation_1 = { confirmSyncScopePaths: sandbox.confirmSyncScopePaths };
+  sandbox.SyncScopeConfirmation_1 = { confirmSyncScopePaths: sandbox.confirmSyncScopePaths,
+    reviewPlanVersionResults: async (_runs, candidates) => candidates.filter(row => ['/v0', '/v5'].some(leaf => row.outputDir.endsWith(leaf))) };
   vm.createContext(sandbox);
   vm.runInContext(`class Subject { ${methods} }; this.methods = Object.fromEntries(Object.getOwnPropertyNames(Subject.prototype).filter(name => name !== 'constructor').map(name => [name, Subject.prototype[name]]));`, sandbox);
   const host = { ...sandbox.methods,
