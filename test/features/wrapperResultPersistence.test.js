@@ -148,6 +148,32 @@ test('TSV merge preserves commas, quotes and multiline cells; JSONL run mismatch
   assert.throws(() => bundle.prepareWrapperJob(job, [{ remotePath: job.outputDir + '/rows.jsonl', text: bad, sha256: sha(bad) }], '', [], file => file), /身份不匹配/);
 });
 
+test('auxiliary diagnostic seed is preserved; canonical and anchored job seeds remain strict', () => {
+  const job = { runId: 'A', index: 1, attempt: 1, case: 'one', seed: 43, workerId: 'owner', outputDir: 'work_dirs/a/attempts/A', commandId: 'cmd' };
+  const file = (name, text) => ({ remotePath: job.outputDir + '/' + name, text, sha256: sha(text), bytes: Buffer.byteLength(text) });
+  const diagnostic = file('undefined_metrics.csv', 'case,run_id,seed,metric,value\n,,42,target_accuracy_change,NaN\n');
+  const prepared = bundle.prepareWrapperJob(job, [diagnostic], '', [], name => name);
+  assert.equal(prepared.records[0].rows[0].seed, '42');
+  const pub = bundle.prepareWrapperPublication('A', [{ case: 'one', seed: 43 }], [prepared]);
+  assert.match(bundle.wrapperMergedFiles('experiments/results', planFile, pub, [prepared])[0].contents, /NaN,A,1,one,43,owner/);
+  assert.throws(() => bundle.prepareWrapperJob(job, [diagnostic], diagnostic.remotePath, [], name => name), /期望 43，实际 42/);
+  const anchored = file('diagnostic.json', JSON.stringify({ seed: 42, job_dir: job.outputDir }));
+  assert.throws(() => bundle.prepareWrapperJob(job, [anchored], '', [], name => name), /身份不匹配/);
+  assert.equal(bundle.isWrapperResultFile(job.outputDir + '/code_backup/results.csv'), false);
+});
+
+test('local reuse checks current SHA256 even when size and mtime match', async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'simple-wrapper-reuse-'));
+  const text = 'seed,metric,value\n42,AUC,0.8\n', relative = 'results/metric.csv';
+  fs.mkdirSync(path.join(root, 'results'));
+  const target = path.join(root, relative); fs.writeFileSync(target, text);
+  const entry = { remotePath: 'work_dirs/a/metric.csv', localRelativePath: relative, sha256: sha(text), bytes: Buffer.byteLength(text) };
+  assert.equal((await bundle.readVerifiedLocalResult(root, entry)).text, text);
+  const before = fs.statSync(target); fs.writeFileSync(target, text.replace('0.8', '0.9')); fs.utimesSync(target, before.atime, before.mtime);
+  assert.equal(await bundle.readVerifiedLocalResult(root, entry), undefined);
+  await assert.rejects(bundle.readVerifiedLocalResult(root, { ...entry, localRelativePath: '../metric.csv' }), /路径不安全/);
+});
+
 for (const fault of ['missing-four', 'hash-mismatch', 'wrong-checkpoint', 'missing-custom']) test(fault + ' retains old complete endpoint and wrapper generation', async () => {
   const f = fixture(); const b = f.runs.pop(); await f.sync();
   const previous = fs.readFileSync(path.join(f.root, 'experiments/results/arbitrary_set/final/final.csv'));
@@ -193,6 +219,17 @@ test('repeated collection is byte-idempotent and never overwrites another attemp
   await f.sync();
   assert.deepEqual(f.registry().plans[planFile].wrapperEvidence.jobs.flatMap(job => job.sources), previousSources);
   for (const source of previousSources) assert.equal(sha(fs.readFileSync(path.join(f.root, source.localRelativePath))), source.sha256);
+});
+
+test('unchanged wrapper results are verified locally and send no repeated download request', async () => {
+  const f = fixture(); await f.sync();
+  f.calls.length = 0;
+  const report = await f.sync();
+  const transferred = f.calls.filter(call => call.method === 'sync.downloadMappedPaths').flatMap(call => call.params.entries);
+  assert.equal(transferred.length, 0, 'Repeated sync must not transfer verified existing originals or manifests');
+  assert.equal(report.downloaded, false);
+  assert.equal(report.downloads[0].networkFiles, 0);
+  assert.equal(report.downloads[0].reusedFiles, 21);
 });
 
 test('endpoint and wrapper tables roll back together on transactional publication failure', async () => {

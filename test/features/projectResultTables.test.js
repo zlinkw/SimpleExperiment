@@ -55,6 +55,20 @@ test("registry mutations preserve the publication base generation for optimistic
   assert.equal(tables.applyPlanDatasetOverrides(merged, {}).publicationGeneration, "generation-7");
 });
 
+test("complete recovered wrapper replaces legacy same-run endpoints without borrowing anonymous records", () => {
+  const legacy = { ...record('w1', 'demo', 'c1', 42, 'legacy-endpoint', 'acc', .7), runId: 'B' };
+  const previous = tables.updateRegistry(tables.emptyTableRegistry(), summary([legacy]), plan, 1);
+  const job = { runId: 'B', case: 'c1', seed: 42, workerId: 'w1', outputDir: 'work_dirs/demo/attempts/B' };
+  const checkpointPath = job.outputDir + '/best.pth';
+  const fresh = { ...summary([{ ...record('w1', 'demo', 'c1', 42, 'clean', 'acc', .8), runId: 'B', jobDir: job.outputDir, checkpointPath }]),
+    completedRunId: 'B', recoveredCompletedJobs: true,
+    wrapperEvidence: { status: 'formal', runId: 'B', jobs: [{ job, checkpointPath }], expectedJobs: [{ case: 'c1', seed: 42 }] } };
+  const merged = tables.mergeAvailableWorkerResults(previous, fresh, plan, 1);
+  assert.equal(merged.plans[plan].records.length, 1);
+  assert.equal(merged.plans[plan].records[0].jobDir, job.outputDir);
+  assert.equal(merged.plans[plan].records[0].checkpointPath, checkpointPath);
+});
+
 test("global and method tables recompute seed means across Workers, deduplicate and mark incomplete", () => {
   const s = summary([
     record("w1", "demo", "bus_p30", 42, "clean", "acc", 0.2),

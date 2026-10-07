@@ -17403,6 +17403,7 @@ class RealtimeTunnelPanelProvider {
     }
     async recoverCompletedJobMetricFiles(context, items, isCurrent, token) {
         const queue = await this.loadDistributedQueue(context.root);
+        const registry = await this.loadProjectTableRegistry(context.root);
         const contract = this.distributedProjectContract();
         const recoveries = [];
         const sources = new Map();
@@ -17415,6 +17416,11 @@ class RealtimeTunnelPanelProvider {
             // Latest-run raw metrics are authoritative even when a shared summary claims the same run.
             const plan = run.plan;
             item.summary = PlanRunFreshness.summaryForRunRecovery(item.summary, item.planFile, run);
+            const registered = registry.plans?.[item.planFile]?.wrapperEvidence;
+            if (registered?.runId === run.runId)
+                item.summary.wrapperEvidence = registered;
+            else
+                delete item.summary.wrapperEvidence;
             item.completedJobRunId = run.runId;
             const files = [];
             for (const job of run.jobs) {
@@ -17442,6 +17448,7 @@ class RealtimeTunnelPanelProvider {
                     sources.get(job.workerId).add(file);
                 const original = run.plan.jobs.find(candidate => candidate.index === job.index && Number(candidate.attempt || 1) === job.attempt);
                 files.push({ job: { ...job, artifacts }, raw, metrics, required, manifestPath, requireFour,
+                    planFile: item.planFile, mappingSummary: item.summary, multipleJobs: run.jobs.length > 1,
                     mirrors: uniqueStrings([...(original?.fragmentWorkerIds || []), ...(original?.mirroredWorkerIds || [])]).filter(id => id !== job.workerId) });
             }
             recoveries.push({ item, plan, run, files });
@@ -17498,7 +17505,7 @@ class RealtimeTunnelPanelProvider {
                 continue;
             try {
                 const entries = manifestFiles.map(file => ({ remotePath: file.manifestPath,
-                    localRelativePath: methodResultArtifactLocalRelativePath(file.manifestPath, "experiments/plans/wrapper.yaml", {}, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR),
+                    localRelativePath: methodResultArtifactLocalRelativePath(file.manifestPath, file.planFile, file.mappingSummary, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, file.multipleJobs ? workerId : ""),
                     bytes: inventories.get(workerId).files[file.manifestPath].size, sha256: inventories.get(workerId).files[file.manifestPath].sha256 }));
                 const received = await this.downloadMetricMemoryBatch(context, this.client, { sourceId: workerId, workerId, entries }, "读取 wrapper 结果清单", token);
                 for (const memory of received.metricFiles)
@@ -17644,10 +17651,13 @@ class RealtimeTunnelPanelProvider {
                 const cached = uniqueMappedTransfers(batch.entries).map(file => cachedManifests.get(batch.sourceId + "\0" + file.remotePath)).filter(Boolean);
                 const entries = batch.entries.filter(file => !cachedManifests.has(batch.sourceId + "\0" + file.remotePath));
                 download = entries.length ? await this.downloadMetricMemoryBatch(context, client, { ...batch, entries }, title, token, progress)
-                    : { sourceId: batch.sourceId, memoryOnly: true, completed: 0, selected: 0, failures: [], metricFiles: [] };
+                    : { sourceId: batch.sourceId, memoryOnly: true, completed: 0, selected: 0, failures: [], metricFiles: [], reusedFiles: 0, networkFiles: 0, networkBytes: 0 };
                 download.metricFiles.push(...cached);
                 download.completed += cached.length;
                 download.selected += cached.length;
+                download.reusedFiles += cached.filter(file => file.reused).length;
+                download.networkFiles += cached.filter(file => !file.reused).length;
+                download.networkBytes += cached.filter(file => !file.reused).reduce((total, file) => total + file.bytes, 0);
             }
             catch (error) {
                 if (error instanceof UiCommandCancelled || !isCurrent() || token?.isCancellationRequested)
@@ -17703,16 +17713,28 @@ class RealtimeTunnelPanelProvider {
         }
         const chunks = partitionMappedDownloadTransfers(transfers, 128, 4 * 1024 * 1024, 4 * 1024 * 1024);
         const metricFiles = [];
+        let reusedFiles = 0, networkFiles = 0, networkBytes = 0;
         const receive = async (progress, innerToken) => {
             for (const [index, chunk] of chunks.entries()) {
                 check();
                 if (innerToken.isCancellationRequested)
                     throw new UiCommandCancelled("指标下载已取消，保留现有表格。");
-                progress.report({ message: `接收 wrapper 最新结果 ${index + 1}/${chunks.length} 批，${chunk.length} 个文件；校验后保存原始证据和本机汇总` });
+                const pending = [];
+                for (const file of chunk) {
+                    check();
+                    const cached = await WrapperResultBundle.readVerifiedLocalResult(context.root, file);
+                    if (cached) {
+                        metricFiles.push(cached);
+                        reusedFiles++;
+                    }
+                    else
+                        pending.push(file);
+                }
+                progress.report({ message: `wrapper 结果 ${index + 1}/${chunks.length} 批：本机 SHA256 复用 ${reusedFiles} 个，本批下载差异 ${pending.length} 个` });
                 // Older SFTP versions accept YAML/TSV/JSONL through mapped file download, but not memoryOnly.
                 // Keep that verified original at its final immutable mapping; never create a throwaway raw cache.
-                const memoryChunk = chunk.filter(file => /\.(csv|json|md|txt|log)$/i.test(file.remotePath));
-                const diskChunk = chunk.filter(file => !memoryChunk.includes(file)), diskCopies = new Map();
+                const memoryChunk = pending.filter(file => /\.(csv|json|md|txt|log)$/i.test(file.remotePath));
+                const diskChunk = pending.filter(file => !memoryChunk.includes(file)), diskCopies = new Map();
                 for (const file of diskChunk) {
                     const target = safeWorkspaceChildPath(context.root, file.localRelativePath);
                     let cursor = context.root;
@@ -17734,6 +17756,8 @@ class RealtimeTunnelPanelProvider {
                 if (missingDisk.length)
                     await request("sync.downloadMappedPaths", { localPath: context.root, server, entries: missingDisk, memoryOnly: false,
                         metricsOnly: false, maxFileBytes: 4 * 1024 * 1024, maxBatchBytes: 4 * 1024 * 1024, compression: "auto", overwrite: false, confirm: true, pathConfirmed: true }, innerToken);
+                networkFiles += missingDisk.length;
+                networkBytes += missingDisk.reduce((total, file) => total + file.bytes, 0);
                 check();
                 for (const file of diskChunk) {
                     const original = diskCopies.get(file.remotePath) || await fs.readFile(safeWorkspaceChildPath(context.root, file.localRelativePath));
@@ -17741,7 +17765,7 @@ class RealtimeTunnelPanelProvider {
                         throw new Error("wrapper 下载结果 SHA256 不符：" + file.remotePath);
                     metricFiles.push({ remotePath: file.remotePath, sha256: file.sha256, bytes: original.length,
                         ...(WrapperResultBundle.isWrapperTextFile(file.remotePath) ? { text: new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(original) }
-                            : { text: original.toString("base64"), encoding: "base64" }), rows: [] });
+                            : { text: original.toString("base64"), encoding: "base64" }) });
                 }
                 if (!memoryChunk.length)
                     continue;
@@ -17753,6 +17777,8 @@ class RealtimeTunnelPanelProvider {
                     throw new UiCommandCancelled("指标下载已取消，保留现有表格。");
                 if (response?.memoryOnly !== true || response.ok === false || response.entries?.length !== memoryChunk.length)
                     throw new Error("内存指标下载未返回完整文件清单");
+                networkFiles += memoryChunk.length;
+                networkBytes += memoryChunk.reduce((total, file) => total + file.bytes, 0);
                 const received = new Map();
                 for (const file of response.entries) {
                     const expected = memoryChunk.find(entry => entry.remotePath === file.remotePath);
@@ -17774,7 +17800,8 @@ class RealtimeTunnelPanelProvider {
             await receive(suppliedProgress, token);
         else
             await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: title + " · " + batch.sourceId, cancellable: true }, receive);
-        return { sourceId: batch.sourceId, memoryOnly: true, completed: metricFiles.length, selected: transfers.length, failures: [], cancelled: false, metricFiles };
+        return { sourceId: batch.sourceId, memoryOnly: true, completed: metricFiles.length, selected: transfers.length, failures: [], cancelled: false,
+            metricFiles, reusedFiles, networkFiles, networkBytes };
     }
     async summaryForMetricDownloadWithBudget(client, planFile, index, total, isCurrent, token, progress) {
         let summary;
@@ -18960,8 +18987,8 @@ class RealtimeTunnelPanelProvider {
         if (visible)
             this.resultsSummary = visible;
         const report = {
-            plans: planFiles, merged: true, downloaded: allDownloads.some(download => download.completed > 0),
-            downloads: allDownloads.map(({ sourceId, completed, selected, failures, cancelled }) => ({ sourceId, completed, selected, failures, cancelled, memoryOnly: true })),
+            plans: planFiles, merged: true, downloaded: allDownloads.some(download => (download.networkFiles ?? download.completed) > 0),
+            downloads: allDownloads.map(({ sourceId, completed, selected, failures, cancelled, reusedFiles, networkFiles, networkBytes }) => ({ sourceId, completed, selected, failures, cancelled, reusedFiles, networkFiles, networkBytes, memoryOnly: true })),
             discovered: plans.length,
             included: registry.plans ? Object.keys(registry.plans).filter((planFile) => refreshedSummaries.some((summary) => samePlanSelection(summary.planFile, planFile))).map((planFile) => planFile + (registeredPlans.has(planFile) ? "：已按已收录的本机逐 seed 记录重算" : "：已按服务器摘要与本地指标重算")) : [],
             missing,
@@ -33016,9 +33043,12 @@ function formatResultSyncReport(report, title) {
     const missing = Array.isArray(report?.missing) ? report.missing : [];
     const skipped = Array.isArray(report?.skipped) ? report.skipped : [];
     const pending = Array.isArray(report?.pending) ? report.pending : [];
+    const downloads = Array.isArray(report?.downloads) ? report.downloads : [];
     return [
         title,
         "发现 Plan " + discovered + " 个，成功收录 " + included.length + " 个，缺指标 " + missing.length + " 个，跳过/失败 " + skipped.length + " 个" + (pending.length ? "，待指标 " + pending.length + " 个" : "") + "。",
+        downloads.length ? "SHA256 校验：本机复用 " + downloads.reduce((sum, row) => sum + Number(row.reusedFiles || 0), 0)
+            + " 个，下载差异 " + downloads.reduce((sum, row) => sum + Number(row.networkFiles ?? row.completed ?? 0), 0) + " 个。" : "",
         included.length ? "收录：" + included.slice(0, 8).join("；") : "",
         missing.length ? "缺指标：" + missing.slice(0, 6).join("；") : "",
         skipped.length ? "未收录：" + skipped.slice(0, 6).join("；") : "",

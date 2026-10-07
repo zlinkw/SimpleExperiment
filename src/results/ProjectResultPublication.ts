@@ -12,7 +12,9 @@ export type ProjectResultPublicationOptions = { rename?: typeof fs.rename; gener
 const JOURNAL_RELATIVE = "simple_cluster/results/project_table_publication.json";
 const STAGING_PARENT = "simple_cluster/tmp/result_publication";
 const STAGING_DIRECTORY = `${STAGING_PARENT}/current`;
-const MAX_FILES = 4096;
+// Generic wrapper bundles include originals, provenance and views for many plans.
+const MAX_FILES = 32768;
+const MAX_JOURNAL_BYTES = 32 * 1024 * 1024;
 const publicationQueues = new Map<string, Promise<void>>();
 
 function serializePublication<T>(root: string, operation: () => Promise<T>): Promise<T> {
@@ -144,14 +146,16 @@ async function syncDirectory(fullPath: string): Promise<void> {
 
 async function writeJournal(root: string, journal: Journal): Promise<void> {
   const target = await verifyPath(root, JOURNAL_RELATIVE);
-  await atomicWriteText(target, JSON.stringify(journal));
+  const text = JSON.stringify(journal);
+  if (Buffer.byteLength(text) > MAX_JOURNAL_BYTES) throw new Error("结果发布事务记录过大，未推进发布。");
+  await atomicWriteText(target, text, { renameRetryBudgetMs: process.platform === "win32" ? 5000 : undefined });
 }
 
 async function readJournal(root: string): Promise<Journal | undefined> {
   const full = await verifyPath(root, JOURNAL_RELATIVE);
   const stat = await fs.lstat(full).catch(error => error?.code === "ENOENT" ? undefined : Promise.reject(error));
   if (!stat) return undefined;
-  if (stat.size > 8 * 1024 * 1024) throw new Error("结果发布事务记录过大，拒绝自动恢复。");
+  if (stat.size > MAX_JOURNAL_BYTES) throw new Error("结果发布事务记录过大，拒绝自动恢复。");
   const value = JSON.parse(await fs.readFile(full, "utf8"));
   if (value?.schemaVersion !== 1 || !/^[a-f0-9-]{36}$/i.test(String(value.id || "")) || !Array.isArray(value.entries) || !value.entries.length || value.entries.length > MAX_FILES || !["preparing", "publishing", "committed", "rolled-back"].includes(value.status))
     throw new Error("结果发布事务记录无效，保留现有文件并停止恢复。");
@@ -288,7 +292,7 @@ export async function assertProjectResultPublicationBaseGeneration(root: string,
 
 export function publishProjectResultFiles(root: string, resultDirectory: string, files: ProjectResultFile[], options: ProjectResultPublicationOptions = {}): Promise<{ generationId: string; recoveredPrevious: boolean; cleanupPending: boolean }> {
   return serializePublication(root, async () => {
-  if (!Array.isArray(files) || !files.length || files.length > MAX_FILES) throw new Error("结果发布文件数无效。");
+  if (!Array.isArray(files) || !files.length || files.length > MAX_FILES) throw new Error("结果发布文件数无效（上限 " + MAX_FILES + "）。");
   const allowedDirectory = safeResultDirectory(resultDirectory);
   const rename = options.rename || fs.rename;
   const recovered = await recoverProjectResultPublicationUnlocked(root, allowedDirectory, options);
@@ -297,7 +301,15 @@ export function publishProjectResultFiles(root: string, resultDirectory: string,
   const stagingDirectory = STAGING_DIRECTORY;
   const entries: JournalEntry[] = [];
   const seen = new Set<string>();
-  for (const [index, file] of files.entries()) {
+  const changed: ProjectResultFile[] = [], unchanged: Array<{ target: string; hash: string }> = [];
+  const registryInput = files.findIndex(file => file.relativePath === "simple_cluster/results/project_table_registry.json");
+  if (registryInput >= 0 && registryInput !== files.length - 1) throw new Error("结果注册表必须是最后提交的 generation 标记。");
+  if (registryInput >= 0) {
+    const registry = JSON.parse(files[registryInput].contents.toString());
+    if (registry?.schemaVersion !== 1 || !registry.plans || typeof registry.plans !== "object" || registry.publicationGeneration !== id)
+      throw new Error("结果注册表 generation 与发布事务不一致。");
+  }
+  for (const file of files) {
     const targetRelative = String(file.relativePath || "").replace(/\\/g, "/");
     assertAllowedTarget(targetRelative, allowedDirectory);
     const targetKey = targetRelative.toLowerCase();
@@ -305,17 +317,15 @@ export function publishProjectResultFiles(root: string, resultDirectory: string,
     seen.add(targetKey);
     await verifyPath(root, targetRelative);
     const targetHash = await hashAt(root, targetRelative);
-    const staged = `${stagingDirectory}/${index}.new`;
-    const backup = `${stagingDirectory}/${index}.old`;
-    entries.push({ target: targetRelative, staged, backup, hadPrevious: targetHash !== undefined, nextHash: digest(file.contents), ...(targetHash ? { previousHash: targetHash } : {}) });
+    const nextHash = digest(file.contents);
+    if (targetHash === nextHash) { unchanged.push({ target: targetRelative, hash: nextHash }); continue; }
+    const staged = `${stagingDirectory}/${entries.length}.new`;
+    const backup = `${stagingDirectory}/${entries.length}.old`;
+    entries.push({ target: targetRelative, staged, backup, hadPrevious: targetHash !== undefined, nextHash, ...(targetHash ? { previousHash: targetHash } : {}) });
+    changed.push(file);
   }
-  const registryIndex = entries.findIndex(entry => entry.target === "simple_cluster/results/project_table_registry.json");
-  if (registryIndex >= 0 && registryIndex !== entries.length - 1) throw new Error("结果注册表必须是最后提交的 generation 标记。");
-  if (registryIndex >= 0) {
-    const registry = JSON.parse(files[registryIndex].contents.toString());
-    if (registry?.schemaVersion !== 1 || !registry.plans || typeof registry.plans !== "object" || registry.publicationGeneration !== id)
-      throw new Error("结果注册表 generation 与发布事务不一致。");
-  }
+  if (!entries.length) return { generationId: id, recoveredPrevious: recovered !== "clean", cleanupPending: false };
+  files = changed;
   const journal: Journal = { schemaVersion: 1, id, resultDirectory: allowedDirectory, status: "preparing", entries };
   const stagingPath = await verifyPath(root, stagingDirectory, true, "directory");
   await fs.mkdir(path.dirname(stagingPath), { recursive: true });
@@ -335,6 +345,7 @@ export function publishProjectResultFiles(root: string, resultDirectory: string,
       }
     }
     await syncDirectory(stagingPath);
+    for (const file of unchanged) if (await hashAt(root, file.target) !== file.hash) throw new Error("复用的结果在发布期间变化：" + file.target);
     journal.status = "publishing";
     await writeJournal(root, journal);
     for (const entry of entries) {
@@ -347,6 +358,9 @@ export function publishProjectResultFiles(root: string, resultDirectory: string,
     journal.status = "committed";
     await writeJournal(root, journal);
   } catch (error) {
+    // All targets, including the generation marker, are already committed. Leave the
+    // on-disk publishing journal recoverable if its final status write was locked.
+    if (journal.status === "committed") throw error;
     if (journal.status === "publishing") await rollback(root, journal, rename);
     journal.status = "rolled-back";
     await writeJournal(root, journal);

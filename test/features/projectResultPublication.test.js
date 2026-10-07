@@ -48,6 +48,66 @@ test("multi-file publication rolls back all targets after a rename failure", asy
   assert.equal(await recoverProjectResultPublication(root, resultDirectory), "clean");
 });
 
+test("identical originals are hash-verified and excluded from replacement and staging", async t => {
+  const root = await workspace(t), original = resultDirectory + '/raw/original.csv';
+  await write(root, original, 'original');
+  const previous = fsSync.statSync(path.join(root, original)).mtimeMs;
+  const id = crypto.randomUUID(), registry = JSON.stringify({ schemaVersion: 1, publicationGeneration: id, plans: {} });
+  const renamed = [];
+  await publishProjectResultFiles(root, resultDirectory, [
+    { relativePath: original, contents: 'original', immutable: true },
+    { relativePath: tablePath, contents: 'table' }, { relativePath: registryPath, contents: registry },
+  ], { generationId: id, rename: async (from, to) => { renamed.push(to); return fs.rename(from, to); } });
+  assert.equal(renamed.includes(path.join(root, original)), false);
+  assert.equal(fsSync.statSync(path.join(root, original)).mtimeMs, previous);
+  const journal = JSON.parse(await fs.readFile(projectResultPublicationJournalPath(root), 'utf8'));
+  assert.deepEqual(journal.entries.map(entry => entry.target), [tablePath, registryPath]);
+  await publishProjectResultFiles(root, resultDirectory, [{ relativePath: original, contents: 'original' }]);
+  assert.equal(JSON.parse(await fs.readFile(projectResultPublicationJournalPath(root), 'utf8')).id, id);
+});
+
+test("large wrapper bundles reach path preflight beyond the legacy 4096-file cap", async t => {
+  const root = await workspace(t);
+  const files = Array.from({ length: 4097 }, (_, index) => ({ relativePath: index ? resultDirectory + '/raw/' + index + '.csv' : 'outside.csv', contents: 'x' }));
+  await assert.rejects(publishProjectResultFiles(root, resultDirectory, files), /目录外目标/);
+  await assert.rejects(publishProjectResultFiles(root, resultDirectory, Array.from({ length: 32769 }, () => files[0])), /上限 32768/);
+});
+
+test("Windows journal retries longer sharing violations without downgrading a committed generation", { skip: process.platform !== 'win32' }, async t => {
+  const root = await workspace(t), rename = fs.rename;
+  const journalPath = projectResultPublicationJournalPath(root);
+  let locked = 0;
+  fs.rename = async (from, to) => {
+    if (to === journalPath && ++locked <= 6) throw Object.assign(new Error('journal indexer holds handle'), { code: 'EPERM' });
+    return rename(from, to);
+  };
+  try { await publishProjectResultFiles(root, resultDirectory, [{ relativePath: tablePath, contents: 'new' }]); }
+  finally { fs.rename = rename; }
+  assert.ok(locked > 6);
+  assert.equal(await fs.readFile(path.join(root, tablePath), 'utf8'), 'new');
+  assert.equal(JSON.parse(await fs.readFile(journalPath, 'utf8')).status, 'committed');
+});
+
+test("final journal write failure leaves the published generation recoverable instead of recording a false rollback", async t => {
+  const root = await workspace(t), rename = fs.rename, id = crypto.randomUUID();
+  const journalPath = projectResultPublicationJournalPath(root);
+  fs.rename = async (from, to) => {
+    if (to === journalPath && JSON.parse(await fs.readFile(from, 'utf8')).status === 'committed')
+      throw Object.assign(new Error('final journal write unavailable'), { code: 'EIO' });
+    return rename(from, to);
+  };
+  try {
+    await assert.rejects(publishProjectResultFiles(root, resultDirectory, [
+      { relativePath: tablePath, contents: 'new-table' },
+      { relativePath: registryPath, contents: JSON.stringify({ schemaVersion: 1, publicationGeneration: id, plans: {} }) },
+    ], { generationId: id }), /final journal write unavailable/);
+  } finally { fs.rename = rename; }
+  assert.equal(JSON.parse(await fs.readFile(journalPath, 'utf8')).status, 'publishing');
+  assert.equal(JSON.parse(await fs.readFile(path.join(root, registryPath), 'utf8')).publicationGeneration, id);
+  assert.equal(await recoverProjectResultPublication(root, resultDirectory), 'recovered');
+  assert.equal(JSON.parse(await fs.readFile(journalPath, 'utf8')).status, 'committed');
+});
+
 test("recovery completes a prepared generation before readers consume its registry", async t => {
   const root = await workspace(t);
   await write(root, tablePath, "old-table");

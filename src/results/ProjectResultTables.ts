@@ -275,7 +275,10 @@ export function mergeAvailableWorkerResults(registry: TableRegistry, summary: an
   const realIncoming = incoming.filter(record => record.dataset && record.datasetSource !== "manual-plan-mapping");
   const sameSeedWithoutDataset = (left: SeedRecord, right: SeedRecord) => [left.workerId, left.method, left.rate, left.endpoint, left.case, left.seed].join("\0") === [right.workerId, right.method, right.rate, right.endpoint, right.case, right.seed].join("\0");
   const belongsToIncomingRun = (record: SeedRecord) => incomingRun ? record.runId === incomingRun : !record.runId;
-  const kept = sameRevision
+  // A complete recovery is the canonical endpoint set for its verified wrapper generation.
+  // Keeping old same-run rows can retain legacy endpoint names without job/checkpoint provenance.
+  const completeRecovery = summary.recoveredCompletedJobs === true && summary.wrapperEvidence?.status === 'formal';
+  const kept = sameRevision && !completeRecovery
     ? (previous?.records || []).filter((record) => !covered(record) && !(record.datasetSource === "manual-plan-mapping" && realIncoming.some(item => sameSeedWithoutDataset(record, item))) && record.revision === revision && belongsToIncomingRun(record))
     : [];
   return { schemaVersion: 1, ...(registry?.publicationGeneration ? { publicationGeneration: registry.publicationGeneration } : {}), plans: { ...(registry?.plans || {}), [planFile]: {

@@ -38,3 +38,30 @@
 ## 风险与边界
 
 新 Host 代码安装后需要用户执行 **Developer: Reload Window**。重载后按钮实际显示、窄屏排版及长期自动刷新仍由用户观察；本轮现场补收通过复用生产 helper 的独立 API 验收入口执行，不伪装旧 Host 已运行新实现。磁盘结果发布复用现有租约、世代比较和事务入口。已发布文件身份不一致时拒绝覆盖。原始科学指标和不可计算原因原样保留，不自行生成统计结论。
+
+## 0.5.240 兼容性与增量修复
+
+0.5.239 的通用收集暴露两处回归。旧 Corim seed43 作业的 `undefined_metrics.csv` 中存在诊断字段 `seed=42`，但同作业四态 CSV 为 seed43，job_dir/checkpoint 正确。不能把任意附属 CSV 的同名列当成作业身份。现在仅对 canonical 指标角色、四态 schema 或明确 run/job 锚点执行作业身份校验；附属诊断字段保持原文，并另附已验证的 `simple_seed` 来源。真正的端点、四态及带运行锚点的冲突仍拒绝发布，错误明确包含期望值、实际值及来源文件。
+
+原 SHA256 校验没有消失，但内存接收路径没有复用本机原始证据，manifest 发现还使用了占位 Plan 映射，导致重复下载。现在使用本轮远端清单的大小与 SHA256 校验本机既有映射，所有格式和 manifest 均可复用；仅缺失或不同内容进入传输请求。校验不依赖 mtime，不创建额外缓存。manifest 使用实际 Plan、运行及 Worker 映射；跨运行不借用旧证据。通知分别报告本机复用、下载差异，完成数包含验证而不会冒充网络下载数。`code_backup/` 属于代码快照，由完整产物同步处理，不进入结果解析。
+
+现场全量发布超过原 4096 个事务目标上限。现在上限为 32768，事务日志读写同时受 32 MiB 上限保护；路径、去重、世代与注册表最后提交门禁保留。已核验且字节相同的目标不重新暂存、备份或覆盖；正式发布前再次核验复用目标。Windows 大日志共享冲突只在发生冲突时允许最多 5 秒重试，普通任务状态仍保留原短重试。最终 journal 写入失败不会把已经提交的结果误记为回滚，可由既有恢复入口完成。
+
+完整 wrapper 恢复还会替换旧同运行的端点集合，避免旧端点别名记录虽带 runId、却没有 job_dir/checkpoint 的记录混入新汇总。真正的 Worker 部分结果刷新继续保留其既有合并策略。
+
+### 本轮代码验证
+
+- 串行单文件回归：通用持久化 18、指标同步 39、端到端指标 5、事务发布 13、项目表 19、队列缓存 12、暂存生命周期 4，共 110 项通过；build 的 Webview 健康检查另外 1 项通过。
+- 新增覆盖：重复同步网络请求为零、相同大小/mtime 的本机污染不复用、诊断 seed 保真且 canonical seed 仍严格、旧同运行匿名端点移除、相同原件不替换、超过旧事务容量的安全预检、Windows 长共享冲突、已提交 journal 失败后恢复。
+- 补丁版本递增期间曾因尚未 build 的 runtime/package 不一致触发测试保护页；完整 build 后对应指标同步 39 项已重新通过。不是以修改生产保护来修测试。
+- `npm run build`、编译和两个渲染脚本的 `vm.Script` 均通过；VSIX 191 模块闭包、package/runtime 0.5.240 及不含 `.pyc` 已核对。`npm run install:latest` 只执行一次，已安装 0.5.240，`simpleex --help` 入口正常。安装后停止操作旧 Host，等待用户重载。
+
+### 本轮实际补收验证
+
+使用 `scripts/recover-wrapper-results.js --workspace D:/GitRepo/MultiModal --plan-prefix experiments/plans/comparison/ --publish` 复用修改后的生产 helper，通过现场 SimpleSFTP API 补收。现场 Extension Host 仍是 0.5.239，本次验证不宣称旧 Host 已加载新实现。
+
+17 个比较 Plan 全部成功，102 个完成 job，3216 份原始结果。直接核对每份本机 SHA256、provenance 的 runId/attempt/case/seed/Worker/job_dir/来源，以及正式端点记录与同运行 wrapper checkpoint 的绑定，缺失、待指标、跳过均为 0。BUS 与 PAD 的本机 `final/final.md` 已重新发布；不重训、不修改 MultiModal 模型、不删除旧 attempt。
+
+重复补收时 nwpu2 复用 1614 份、nwpu3 复用 1330 份、nwpu5 复用 272 份，共 3216 份；网络文件数及网络内容字节数均为 0。首次新原件补收仍需下载，清单与 SHA256 校验继续执行，不将零下载误称为零网络请求。
+
+实机批量发布中曾遭遇 Windows journal `EPERM`；现有恢复入口完成该发布，再补充长共享冲突和终态恢复机制及回归验证。最后一次批量补收与本机核对全部通过。其它 3 个预实验 Plan 在当前权威队列中没有可核对的完成运行或已记录逐 seed CSV，仍应标为待指标，不能补零或套用比较实验结果。

@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.resultHash = exports.isWrapperTextFile = exports.isWrapperResultFile = void 0;
+exports.readVerifiedLocalResult = readVerifiedLocalResult;
 exports.jobResultPath = jobResultPath;
 exports.declaredWrapperResults = declaredWrapperResults;
 exports.prepareWrapperJob = prepareWrapperJob;
@@ -47,12 +48,55 @@ const ProjectResultTables_1 = require("./ProjectResultTables");
 const FourStateMetricBundle_1 = require("./FourStateMetricBundle");
 const isWrapperResultFile = (file) => /\.[A-Za-z0-9]+$/.test(file)
     && !/\.(pt|pth|ckpt|safetensors|onnx|bin|py|pyc|js|ts|sh|exe|dll|lock|pid)$/i.test(file)
-    && !/(?:^|\/)(?:weights?|checkpoints?|\.git|\.runtime|__pycache__|clean_dir)(?:\/|$)/i.test(file);
+    && !/(?:^|\/)(?:weights?|checkpoints?|code_backup|\.git|\.runtime|__pycache__|clean_dir)(?:\/|$)/i.test(file);
 exports.isWrapperResultFile = isWrapperResultFile;
 const isWrapperTextFile = (file) => /\.(csv|tsv|json|jsonl|ya?ml|md|txt|log|out)$/i.test(file);
 exports.isWrapperTextFile = isWrapperTextFile;
 const resultHash = (text) => (0, node_crypto_1.createHash)("sha256").update(text, "utf8").digest("hex");
 exports.resultHash = resultHash;
+/** Reuse final originals only after comparing their bytes to this sync's remote inventory. */
+async function readVerifiedLocalResult(root, entry) {
+    if (!Number.isSafeInteger(entry.bytes) || entry.bytes < 0 || entry.bytes > 4 * 1024 * 1024 || !/^[a-f0-9]{64}$/i.test(entry.sha256))
+        throw new Error("wrapper 本机复用缺少大小和 SHA256");
+    const parts = entry.localRelativePath.replace(/\\/g, "/").split("/");
+    if (parts.some(part => !part || part === "." || part === ".." || /[:\x00-\x1f]/.test(part)))
+        throw new Error("wrapper 本机复用路径不安全");
+    let cursor = path.resolve(root);
+    for (const part of ["", ...parts]) {
+        if (part)
+            cursor = path.join(cursor, part);
+        const info = await fs.lstat(cursor).catch(error => { if (error.code === "ENOENT")
+            return undefined; throw error; });
+        if (!info)
+            return undefined;
+        if (info.isSymbolicLink())
+            throw new Error("wrapper 映射路径包含符号链接");
+    }
+    const handle = await fs.open(cursor, "r");
+    try {
+        const info = await handle.stat();
+        if (!info.isFile() || info.size !== entry.bytes)
+            return undefined;
+        // Bounded read even if another process grows this file while it is being checked.
+        const buffer = Buffer.alloc(entry.bytes + 1);
+        let length = 0;
+        while (length < buffer.length) {
+            const read = await handle.read(buffer, length, buffer.length - length, length);
+            if (!read.bytesRead)
+                break;
+            length += read.bytesRead;
+        }
+        const bytes = buffer.subarray(0, length);
+        if (length !== entry.bytes || (0, node_crypto_1.createHash)("sha256").update(bytes).digest("hex") !== entry.sha256.toLowerCase())
+            return undefined;
+        return { remotePath: entry.remotePath, sha256: entry.sha256.toLowerCase(), bytes: length, reused: true,
+            ...((0, exports.isWrapperTextFile)(entry.remotePath) ? { text: new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes) }
+                : { text: bytes.toString("base64"), encoding: "base64" }) };
+    }
+    finally {
+        await handle.close();
+    }
+}
 function jobResultPath(value, outputDir) {
     const output = outputDir.replace(/\\/g, "/");
     let file = String(value || "").replace(/\\/g, "/");
@@ -97,10 +141,10 @@ function csvRecords(text, delimiter = ",") {
     const parsed = (0, ProjectResultTables_1.readCsv)(text.replace(/^\uFEFF/, ""), delimiter);
     return parsed.rows.map(cells => Object.fromEntries(parsed.header.map((name, index) => [name, cells[index]])));
 }
-function validateIdentity(row, job) {
+function validateIdentity(row, job, source) {
     for (const [field, expected] of [["case", job.case], ["seed", job.seed], ["run_id", job.runId], ["runId", job.runId], ["attempt", job.attempt]])
         if (row[field] != null && String(row[field]).trim() && String(row[field]) !== String(expected))
-            throw new Error("wrapper 结果身份不匹配：" + field);
+            throw new Error("wrapper 结果身份不匹配：" + field + "（期望 " + expected + "，实际 " + row[field] + "；来源 " + source + "）");
     for (const field of ["job_dir", "output_dir"])
         if (row[field] && jobResultPath(String(row[field]) + "/.identity", job.outputDir) !== job.outputDir + "/.identity")
             throw new Error("wrapper job_dir 不匹配");
@@ -115,6 +159,17 @@ function prepareWrapperJob(job, inputs, endpointPath, requiredPaths, localPath) 
         throw new Error("wrapper 必需结果缺失，保留原有完整结果：" + job.case + "/" + job.seed);
     const sources = [], files = [], records = [];
     const checkpoints = new Set();
+    const primaryPaths = new Set([endpointPath]);
+    const declaration = byPath.get(job.outputDir + "/artifact_manifest.json");
+    if (declaration) {
+        // Parse role metadata only after verifying the declaration itself.
+        if ((0, exports.resultHash)(declaration.text) !== declaration.sha256.toLowerCase())
+            throw new Error("wrapper manifest SHA256 不符");
+        const manifest = JSON.parse(declaration.text.replace(/^\uFEFF/, ""));
+        for (const file of [manifest.metrics_summary, manifest.result_csv, manifest.result_rows, manifest.standard_outputs?.metrics_summary])
+            if (typeof file === "string")
+                primaryPaths.add(jobResultPath(file, job.outputDir));
+    }
     for (const file of inputs.slice().sort((left, right) => left.remotePath < right.remotePath ? -1 : left.remotePath > right.remotePath ? 1 : 0)) {
         if (jobResultPath(file.remotePath, job.outputDir) !== file.remotePath || !(0, exports.isWrapperResultFile)(file.remotePath))
             throw new Error("wrapper 来源无效");
@@ -132,14 +187,17 @@ function prepareWrapperJob(job, inputs, endpointPath, requiredPaths, localPath) 
             ? file.text.split(/\r?\n/).filter(line => line.trim()).map(line => JSON.parse(line)) : rows ? undefined : file.text;
         const identities = rows || (Array.isArray(value) ? value.filter(row => row && typeof row === 'object' && !Array.isArray(row))
             : value && typeof value === "object" ? [value] : []);
+        const fourState = Boolean(rows?.length && Object.hasOwn(rows[0], "state") && Object.hasOwn(rows[0], "p0_value") && Object.hasOwn(rows[0], "delta_p100_minus_p0"));
         for (const row of identities) {
-            if (file.remotePath !== endpointPath && !row.run_id && !row.runId && !row.job_dir && !row.output_dir && !(row.metric && row.seed != null))
+            // Auxiliary diagnostics may use seed/case for sampling or patients. Only a canonical
+            // metric role, recognized schema, or explicit run/job anchor gives them job semantics.
+            if (!primaryPaths.has(file.remotePath) && !fourState && !row.run_id && !row.runId && !row.job_dir && !row.output_dir)
                 continue;
-            const checkpoint = validateIdentity(row, job);
+            const checkpoint = validateIdentity(row, job, file.remotePath);
             if (checkpoint)
                 checkpoints.add(checkpoint);
         }
-        if (rows?.length && Object.hasOwn(rows[0], "state") && Object.hasOwn(rows[0], "p0_value") && Object.hasOwn(rows[0], "delta_p100_minus_p0"))
+        if (fourState)
             (0, FourStateMetricBundle_1.validateFourStateMetricPair)(job, byPath.get(endpointPath), file);
         sources.push(source);
         files.push({ relativePath: source.localRelativePath, contents, immutable: true });

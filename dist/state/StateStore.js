@@ -55,6 +55,9 @@ async function atomicWriteText(file, text, options = {}) {
     }
 }
 async function writeFixedSlot(file, text, options) {
+    const budget = options.renameRetryBudgetMs;
+    if (budget != null && (!Number.isFinite(budget) || budget < 0 || budget > 5000))
+        throw new Error("状态重命名重试预算无效");
     const parent = path.dirname(file);
     await fs.mkdir(parent, { recursive: true });
     const staging = `${file}.writing`;
@@ -93,6 +96,7 @@ async function writeFixedSlot(file, text, options) {
     finally {
         await handle.close();
     }
+    const deadline = Date.now() + (budget || 0);
     for (let attempt = 0;; attempt += 1) {
         // A delayed rename must not bypass a queue generation or disk-version change.
         // Guard failures are not sharing violations and must not enter the rename retry loop.
@@ -102,9 +106,9 @@ async function writeFixedSlot(file, text, options) {
             break;
         }
         catch (error) {
-            if (!error || !["EACCES", "EPERM", "EBUSY"].includes(error.code) || attempt >= 5)
+            if (!error || !["EACCES", "EPERM", "EBUSY"].includes(error.code) || attempt >= 5 && (budget == null || Date.now() >= deadline) || attempt >= 25)
                 throw error;
-            await new Promise(resolve => setTimeout(resolve, Math.min(250, 20 * (2 ** attempt))));
+            await new Promise(resolve => setTimeout(resolve, Math.max(1, Math.min(250, 20 * (2 ** attempt), budget == null ? 250 : deadline - Date.now()))));
         }
     }
     if (process.platform !== "win32") {
