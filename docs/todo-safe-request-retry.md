@@ -9,7 +9,8 @@
 - [x] 快照读取原来 await 本地 lease/write，会延迟已经收到的任务证据。生产方法测试以阻塞磁盘写入复现 7/8，改为复用 LatestSnapshotWriter，每个 Worker 一份 active、一份可替换 pending；1000 次更新只保存第一份和最后一份，其他 Worker 不受影响，完成/失败后释放 key。仍使用原文件租约/原子写入；失效 workspace/client、扩展停用时丢弃未开始的可选缓存写入，不增加临时文件种类。
 - [x] 串行目标回归/build/vm.Script、UTF-8/diff：21 个目标文件共 249 条通过，另内层 Webview 脚本 1/1；npm run build 与额外 vm.Script 通过。
 - [x] 0.5.232 补丁打包/包身份验证：完整 npm run package 通过，188 个运行模块闭包与 VSIX 内 192 个身份文件 SHA256 一致，未收录 pyc。VSIX SHA256：96497b81b6f2e46a9833f5943b41925952d8c5f3339ce010ca09b2d6a45271dd。
-- [ ] scoped commit/push/fetch 后安装一次，安装后停止 API；保留两个 dirty pyc。真实 UI/新运行仍需用户重载后验收，不自动取消 dpl 或提交 drf。
+- [x] scoped 代码提交 `1ba488d2` 已普通推送 origin/master，fetch 后 HEAD 与远端一致。npm run install:latest 仅安装一次 0.5.232；code 列表核对 SimpleExperiment 0.5.232 / SimpleSFTP 0.2.59，已安装 192 个身份文件与本机已验证 VSIX runtime 一致（package 只排除 VS Code 安装元数据）。simpleex 入口存在；安装后没有调用 API 或操作面板。两个 dirty pyc SHA256 未变化。
+- [x] 本轮代码收口完成，验收边界已记录：真实 UI/新运行由用户 Developer: Reload Window 后观察；未自动取消 dpl、提交 drf、清理产物或改变隧道/heartbeat 阈值。
 
 初始回归：新增 planSafeRetry 场景 10/11、distributedPlanQueue 23/24；失败分别与截图同文错误及 missingCount=3（期望 0），原有活跃/冲突保护测试仍通过。
 
