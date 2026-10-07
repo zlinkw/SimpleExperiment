@@ -404,20 +404,56 @@ test("deferred status stays distinct and is not hidden by an older distributed r
   assert.doesNotMatch(heldHead, /代码指纹不匹配/);
 });
 
-test("plan cards sort running, queued, blocked, failed, then completed", () => {
+test("plan cards follow submission order rather than running or failure priority", () => {
   const sandbox = clickSandbox();
   sandbox.render({
     distributedPlans: [
       { id: "done", planFile: "plans/done.yaml", enqueuedAt: "2026-09-25T12:00:00Z", jobs: [{ status: "completed", case: "a", seed: 1 }] },
-      { id: "bad", planFile: "plans/bad.yaml", enqueuedAt: "2026-09-25T12:00:00Z", jobs: [{ status: "failed", case: "b", seed: 1 }] },
-      { id: "hold", planFile: "plans/hold.yaml", enqueuedAt: "2026-09-25T12:00:00Z", jobs: [{ status: "pending", case: "c", seed: 1, blockReason: "代码指纹不匹配：旧代码" }] },
-      { id: "wait", planFile: "plans/wait.yaml", enqueuedAt: "2026-09-25T12:00:00Z", jobs: [{ status: "pending", case: "d", seed: 1 }] },
-      { id: "run", planFile: "plans/run.yaml", enqueuedAt: "2026-09-25T12:00:00Z", jobs: [{ status: "running", case: "e", seed: 1 }] },
+      { id: "bad", planFile: "plans/bad.yaml", enqueuedAt: "2026-09-25T12:01:00Z", jobs: [{ status: "failed", case: "b", seed: 1 }] },
+      { id: "hold", planFile: "plans/hold.yaml", enqueuedAt: "2026-09-25T12:02:00Z", jobs: [{ status: "pending", case: "c", seed: 1, blockReason: "代码指纹不匹配：旧代码" }] },
+      { id: "wait", planFile: "plans/wait.yaml", enqueuedAt: "2026-09-25T12:03:00Z", jobs: [{ status: "pending", case: "d", seed: 1 }] },
+      { id: "run", planFile: "plans/run.yaml", enqueuedAt: "2026-09-25T12:04:00Z", jobs: [{ status: "running", case: "e", seed: 1 }] },
     ],
   });
-  const order = ["run.yaml", "wait.yaml", "hold.yaml", "bad.yaml", "done.yaml"].map((name) => sandbox.html.indexOf(name));
+  const order = ["bad.yaml", "hold.yaml", "wait.yaml", "run.yaml"].map((name) => sandbox.html.indexOf(name));
   assert.deepEqual(order, order.slice().sort((left, right) => left - right));
   assert.ok(order.every((index) => index >= 0));
+  assert.match(sandbox.html, /已完成 Plan 历史 1/);
+  assert.ok(sandbox.html.indexOf("done.yaml") > order.at(-1), "completed history keeps its existing separate fold");
+});
+
+test("concurrent Plan cards stay fixed through twenty alternating progress snapshots", () => {
+  const sandbox = clickSandbox();
+  const first = { id: "first", planFile: "plans/a.yaml", enqueuedAt: "2026-10-07T10:00:00Z",
+    jobs: [{ index: 0, case: "bus", seed: 42, status: "running" }] };
+  const second = { id: "second", planFile: "plans/b.yaml", enqueuedAt: "2026-10-07T10:01:00Z",
+    jobs: [{ index: 0, case: "pad", seed: 42, status: "running" }] };
+  for (let index = 0; index < 20; index += 1) {
+    const plans = [first, second].map((plan, slot) => ({ ...plan, jobs: plan.jobs.map((job) => ({ ...job,
+      status: (index + slot) % 3 === 0 ? "queued" : "running",
+      updatedAt: new Date(Date.parse("2026-10-07T10:02:00Z") + (index * 2 + ((index + slot) % 2)) * 500).toISOString(),
+      epoch: index, loss: 1 / (index + 1), percent: index * 2,
+    })) }));
+    sandbox.selectedExecutionPlanFile = index % 2 ? first.planFile : second.planFile;
+    sandbox.render({ distributedPlans: index % 2 ? plans.reverse() : plans });
+    assert.ok(sandbox.html.indexOf('data-execution-plan-key="plans/a.yaml"')
+      < sandbox.html.indexOf('data-execution-plan-key="plans/b.yaml"'), `snapshot ${index}`);
+  }
+});
+
+test("card order uses the latest submission generation and deterministic path ties", () => {
+  const sandbox = clickSandbox();
+  const row = (id, planFile, enqueuedAt) => ({ id, planFile, enqueuedAt,
+    jobs: [{ index: 0, case: "bus", seed: 42, status: "running" }] });
+  const plans = [row("old-a", "plans/a.yaml", "2026-10-07T09:00:00Z"),
+    row("b", "plans/b.yaml", "2026-10-07T10:00:00Z"), row("new-a", "plans/a.yaml", "2026-10-07T11:00:00Z")];
+  sandbox.render({ distributedPlans: plans });
+  assert.ok(sandbox.html.indexOf("b.yaml") < sandbox.html.indexOf("a.yaml"));
+  for (const rows of [[row("z", "plans/z.yaml", ""), row("a", "plans/a.yaml", "")],
+    [row("a", "plans/a.yaml", ""), row("z", "plans/z.yaml", "")]]) {
+    sandbox.render({ distributedPlans: rows });
+    assert.ok(sandbox.html.indexOf("a.yaml") < sandbox.html.indexOf("z.yaml"));
+  }
 });
 
 test("manual fold survives an empty snapshot and webview restore", () => {

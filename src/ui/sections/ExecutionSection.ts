@@ -17,7 +17,7 @@ export class ExecutionSection implements Section {
             <div class="section-desc">按 Plan 查看进度；展开单行查看任务和日志</div>
           </div>
           <div class="section-head-actions">
-            <span class="pill" title="运行中和异常置顶；完成记录折叠">按 Plan</span>
+            <span class="pill" title="按提交顺序排列；完成记录折叠">按 Plan</span>
           </div>
       </div>
       <div id="executionControls" class="executionControls"></div>

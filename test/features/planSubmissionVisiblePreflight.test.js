@@ -90,7 +90,6 @@ function provider() {
   host.lastCodeSyncState = { fingerprint: "new-code", workerVersions: { w1: { fingerprint: "old-code" } } };
   host.lastWorkerProbes = { w1: { status: "ok", agentVersion: "agent-1" } };
   host.planValidationCache = new Map();
-  host.planValidationCacheTtlMs = 120000;
   host.planValidationCacheMaxEntries = 32;
   host.projectTopologyAssessment = () => ({ mode: "worker_pool", hubAllowed: false });
   host.distributedPostprocessPromise = undefined;
@@ -466,13 +465,26 @@ test("successful Plan validation cache is bounded, cloned, and keyed by all exec
   const hit = host.cachedPlanValidation(key);
   assert.deepEqual(hit.validation.jobs, [{ index: 0 }]);
   assert.equal(hit.validation.extra, "kept");
+  assert.equal(Object.hasOwn(hit.validation, "existing"), false, "dynamic artifact evidence is never cached");
+  const now = Date.now;
+  Date.now = () => now() + 3600000;
+  try { assert.ok(host.cachedPlanValidation(key), "unchanged content survives arbitrary elapsed time"); }
+  finally { Date.now = now; }
   hit.validation.jobs.push({ index: 1 });
   assert.equal(host.cachedPlanValidation(key).validation.jobs.length, 1, "callers cannot mutate the cached payload");
   assert.notEqual(host.planValidationCacheKey({ ...body, planRevision: "rev-next" }, "w1"), key);
+  assert.notEqual(host.planValidationCacheKey({ ...body, options: { defaultResultCsvDir: "results/other" } }, "w1"), key);
+  assert.notEqual(host.planValidationCacheKey({ ...body, options: { debugMode: true } }, "w1"), key);
+  host.setupConfig = { condaEnv: "/environments/other" };
+  assert.notEqual(host.planValidationCacheKey(body, "w1"), key);
+  host.setupConfig = {};
+  host.lastWorkerProbes.w1.agentVersion = "agent-next";
+  assert.notEqual(host.planValidationCacheKey(body, "w1"), key);
+  host.lastWorkerProbes.w1.agentVersion = "agent-1";
   host.lastCodeSyncState.fingerprint = "other-code";
   assert.notEqual(host.planValidationCacheKey(body, "w1"), key);
   host.planValidationCacheMaxEntries = 1;
-  host.rememberPlanValidation("second", { ok: true });
+  host.rememberPlanValidation("second", result);
   assert.equal(host.planValidationCache.has(key), false);
 });
 

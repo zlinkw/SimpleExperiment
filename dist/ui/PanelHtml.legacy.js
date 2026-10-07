@@ -1492,7 +1492,7 @@ function renderPanelHtml() {
             <div class="section-desc">每个 Plan 一张概览卡；详情按需展开，已完成的 Plan 可手动折叠</div>
           </div>
           <div class="section-head-actions">
-            <span class="pill" title="运行中、排队和异常置顶；手动折叠的 Plan 收进折叠区">按 Plan</span>
+            <span class="pill" title="按提交顺序排列；手动折叠的 Plan 收进折叠区">按 Plan</span>
           </div>
       </div>
       <div id="executionControls" class="executionControls"></div>
@@ -14072,6 +14072,7 @@ function renderPanelHtml() {
         const group = getGroup(plan.planFile);
         group.deferredStatus = status;
         group.deferredNote = String(plan.reason || plan.error || "").trim();
+        group.deferredEnqueuedAt = String(plan.enqueuedAt || plan.createdAt || "");
       });
       const stopClearMap = state && state.planStopClearByFile && typeof state.planStopClearByFile === "object" ? state.planStopClearByFile : {};
       const stopClearForPlan = (planFile) => {
@@ -14133,11 +14134,17 @@ function renderPanelHtml() {
         }
         if (dispatching) countText += " · 派发 " + dispatching;
         if (unknown > recovery.missingCount) countText += " · 待核实 " + unknown;
-        const stamp = [...group.operations, ...group.tasks, ...currentJobs].reduce((latest, row) => Math.max(latest, Date.parse(row.updatedAt || row.startedAt || row.finishedAt || row.enqueuedAt || "") || 0), 0);
+        // Submission identity is immutable; progress/status timestamps must never reorder cards.
+        const submitted = submission ? submission.enqueuedAt || submission.createdAt || submission.startedAt
+          : deferredCurrent ? group.deferredEnqueuedAt : group.distributedEnqueuedAt;
+        const operationStamps = group.operations.filter((row) => ["run-plan", "reproduce-plan", "workflow-run"].includes(String(row.type || row.action || "").toLowerCase()))
+          .map((row) => Date.parse(row.enqueuedAt || row.createdAt || row.startedAt || "")).filter(Number.isFinite);
+        const taskStamps = group.tasks.map((row) => Date.parse(row.enqueuedAt || row.createdAt || row.startedAt || "")).filter(Number.isFinite);
+        const stamp = Date.parse(submitted || "") || (operationStamps.length ? Math.max(...operationStamps)
+          : taskStamps.length ? Math.min(...taskStamps) : Number.MAX_SAFE_INTEGER);
         return { ...group, currentJobs, tone, active, distributedActive, blockedOnly, blockedCount, queued, completed, running, submitting: !!submission, waitingSubmission, deferredCurrent, statusText, countText, failedJobs, label, stamp };
       });
-      const toneOrder = { running: 0, queued: 1, blocked: 2, failed: 3, completed: 4 };
-      items.sort((a, b) => (toneOrder[a.tone] ?? 5) - (toneOrder[b.tone] ?? 5) || b.stamp - a.stamp || a.label.localeCompare(b.label));
+      items.sort((a, b) => a.stamp - b.stamp || a.key.localeCompare(b.key));
       if (selectedExecutionPlanFile && !items.some((item) => item.planFile && samePlanSelection(item.planFile, selectedExecutionPlanFile))) {
         selectedExecutionPlanFile = "";
         persistWebviewState({ selectedExecutionPlanFile });
@@ -14368,6 +14375,8 @@ function renderPanelHtml() {
           planFile: row.planFile || row.plan,
           status: row.status || row.state,
           startedAt: row.startedAt,
+          enqueuedAt: row.enqueuedAt,
+          createdAt: row.createdAt,
           finishedAt: row.finishedAt,
           localSubmissionProgress: row.localSubmissionProgress,
           error: row.error,
@@ -14378,6 +14387,7 @@ function renderPanelHtml() {
       const planList = stableSectionSignature({
         operations: planOperations,
         tasks: compactTaskRowsForRenderStructureSignature(view.allRows, view.allRows.length),
+        taskSubmissions: view.allRows.map((row) => [row.enqueuedAt, row.createdAt, row.startedAt]),
         distributedPlans: asArray(data.distributedPlans).map((plan) => ({
           id: plan.id,
           planFile: plan.planFile,
@@ -14403,6 +14413,7 @@ function renderPanelHtml() {
         })),
         deferredPlans: asArray(data.deferredPlans).map((plan) => ({
           planFile: plan.planFile, status: plan.status, reason: plan.reason, error: plan.error,
+          enqueuedAt: plan.enqueuedAt, createdAt: plan.createdAt,
         })),
         planStopClearByFile: data.planStopClearByFile || {},
         executionHistoryCutoffs: data.executionHistoryCutoffs || {},

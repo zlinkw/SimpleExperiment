@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.CLUSTER_SCHEDULER_RUNTIME = void 0;
+const PlanExistingArtifacts_1 = require("./runtime/PlanExistingArtifacts");
 exports.CLUSTER_SCHEDULER_RUNTIME = String.raw `from __future__ import annotations
 
 import argparse
@@ -347,7 +348,11 @@ def iso_age_seconds(value: object) -> float | None:
 
 def load_yaml_file(path: str | Path) -> dict[str, Any]:
     with Path(path).open("r", encoding="utf-8") as f:
-        return yaml.safe_load(f) or {}
+        value = yaml.safe_load(f) or {}
+    tracked = globals().get("PLAN_VALIDATION_INPUT_FILES")
+    if isinstance(tracked, set):
+        tracked.add(str(Path(path).resolve()))
+    return value
 
 
 def atomic_write_text(path: Path, text: str) -> None:
@@ -638,40 +643,7 @@ RESULT_PREFIX_PAIRS = {
 RESULT_EXACT_PAIRS = {("experiments", "results.csv")}
 
 # 历史产物解耦：用于调度前检测 output_dir 是否已有产物的标记文件（与 RESULT_ROOT_FILES 交叉但聚焦关键产物）
-EXISTING_ARTIFACT_MARKERS = (
-    "metrics_summary.csv", "metrics.csv", "results.csv", "summary.csv",
-    "best_model.pth", "checkpoint.pth", "latest.pth", "model.pth",
-    "train.log", "test.log", "stdout.log", "stderr.log", "console.log",
-    "artifact_manifest.json", "checkpoint_manifest.json",
-    "config_snapshot.yaml", "env_snapshot.json",
-)
-
-
-def has_existing_artifacts(output_dir: str | Path) -> dict[str, Any]:
-    base = Path(str(output_dir or "").strip())
-    if not base.is_dir():
-        return {"exists": False, "markers": [], "totalFiles": 0}
-    markers: list[str] = []
-    total = 0
-    try:
-        for child in base.iterdir():
-            total += 1
-            if child.name in EXISTING_ARTIFACT_MARKERS:
-                markers.append(child.name)
-        # 深层 checkpoint 兜底
-        for name in ("best_model.pth", "checkpoint.pth", "latest.pth"):
-            if not any(m == name for m in markers) and (base / name).exists():
-                markers.append(name)
-            # work_dirs 常见 checkpoint 子目录
-            ckpt_dir = base / "checkpoints"
-            if ckpt_dir.is_dir():
-                for p in ckpt_dir.iterdir():
-                    if p.is_file() and p.suffix in (".pth", ".ckpt", ".pt"):
-                        markers.append(f"checkpoints/{p.name}")
-                        break
-    except Exception:
-        pass
-    return {"exists": bool(markers or total > 0 and (base / "artifact_manifest.json").exists()), "markers": sorted(set(markers)), "totalFiles": total}
+${PlanExistingArtifacts_1.PLAN_EXISTING_ARTIFACTS_PYTHON}
 
 
 def detect_existing_outputs(jobs: list[Job]) -> list[dict[str, Any]]:
@@ -2082,6 +2054,8 @@ def print_job_dir_mode(args: argparse.Namespace) -> None:
 
 
 def validate_plan_mode(args: argparse.Namespace) -> None:
+    global PLAN_VALIDATION_INPUT_FILES
+    PLAN_VALIDATION_INPUT_FILES = set()
     project_root = Path.cwd()
     plan, jobs = build_jobs(load_plan(args.plan), args.default_result_csv_dir)
     mode = plan_execution_mode(plan, args.mode)
@@ -2105,6 +2079,7 @@ def validate_plan_mode(args: argparse.Namespace) -> None:
         "execution_mode": mode,
         "job_count": len(jobs),
         "outputInterface": output_interface,
+        "structuralInputPaths": sorted(PLAN_VALIDATION_INPUT_FILES),
         "existingCount": len(existing),
         "existing": existing,
         "jobs": [
@@ -2114,6 +2089,7 @@ def validate_plan_mode(args: argparse.Namespace) -> None:
                 "seed": job.seed,
                 "output_dir": job.output_dir,
                 "result_csv": job.result_csv,
+                "inputs": list(job.inputs or ()),
             }
             for job in jobs
         ],

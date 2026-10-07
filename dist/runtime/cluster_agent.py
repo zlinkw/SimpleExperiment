@@ -36,11 +36,40 @@ def result_plan_directory_key(plan_file):
     return stem + "__" + hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:8]
 
 
+EXISTING_ARTIFACT_MARKERS = (
+    "metrics_summary.csv", "metrics.csv", "results.csv", "summary.csv",
+    "best_model.pth", "checkpoint.pth", "latest.pth", "model.pth",
+    "train.log", "test.log", "stdout.log", "stderr.log", "console.log",
+    "artifact_manifest.json", "checkpoint_manifest.json",
+    "config_snapshot.yaml", "env_snapshot.json",
+)
+
+def has_existing_artifacts(output_dir):
+    base = str(output_dir or "").strip()
+    if not base:
+        return {"exists": False, "markers": [], "totalFiles": 0}
+    try:
+        with os.scandir(base) as entries:
+            names = [entry.name for entry in entries]
+    except (FileNotFoundError, NotADirectoryError):
+        return {"exists": False, "markers": [], "totalFiles": 0}
+    markers = [name for name in names if name in EXISTING_ARTIFACT_MARKERS]
+    try:
+        with os.scandir(os.path.join(base, "checkpoints")) as entries:
+            for entry in entries:
+                if entry.is_file() and os.path.splitext(entry.name)[1] in (".pth", ".ckpt", ".pt"):
+                    markers.append("checkpoints/" + entry.name)
+                    break
+    except (FileNotFoundError, NotADirectoryError):
+        pass
+    return {"exists": bool(markers), "markers": sorted(set(markers)), "totalFiles": len(names)}
+
+
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.232"
-RUNTIME_VERSION = "0.5.232"
-PLUGIN_VERSION = "0.5.232"
+AGENT_VERSION = "0.5.233"
+RUNTIME_VERSION = "0.5.233"
+PLUGIN_VERSION = "0.5.233"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -303,6 +332,8 @@ WORKER_ACTION_LAST_AT = {}
 TENSORBOARD_PROXY_PORTS = {}
 SCHEDULER_DEPENDENCY_CACHE = {}
 SCHEDULER_DEPENDENCY_CACHE_LOCK = threading.Lock()
+PLAN_STRUCTURAL_VALIDATION_CACHE = {}
+PLAN_STRUCTURAL_VALIDATION_CACHE_LOCK = threading.RLock()
 
 def now_iso():
     return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
@@ -11074,15 +11105,114 @@ def require_scheduler_dependencies(root, scheduler, env=None):
         raise RuntimeError(str(status.get("message") or "Scheduler 依赖缺失，请检查当前 Python 环境。"))
     return status
 
-def scheduler_validate_json(root, scheduler, plan, default_result_csv_dir="experiments/results", env=None):
+def plan_structural_validation_key(root, scheduler, plan, default_result_csv_dir, options=None, env=None):
+    options = options if isinstance(options, dict) else {}
+    request_key = str(options.get("structuralValidationKey") or "")
+    identity = options.get("validationCodeProof")
+    if not re.fullmatch(r"[a-f0-9]{64}", request_key) or not isinstance(identity, dict):
+        return ""
+    try:
+        proof_id = str(identity.get("codeSyncProofId") or "")
+        proof = code_sync_proof_document(root).get("proofs", {}).get(proof_id)
+        verify_code_sync_proof_record(root, proof, identity)
+        relative_plan = os.path.relpath(safe_project_path(root, plan), os.path.abspath(root)).replace(os.sep, "/")
+        if relative_plan not in {str(item.get("path") or "") for item in proof["files"]}:
+            return ""
+        runtime_env = simple_runtime_env(os.environ.copy() if env is None else env)
+        python = simple_runtime_python(runtime_env)
+        executable_stats = []
+        for executable in (scheduler, python):
+            current = os.stat(executable)
+            executable_stats.append([os.path.realpath(executable), int(current.st_size),
+                int(getattr(current, "st_mtime_ns", current.st_mtime * 1_000_000_000))])
+        # No TTL: content/proof, execution options, runtime and environment select the generation.
+        identity_parts = [os.path.realpath(root), os.path.realpath(scheduler), relative_plan,
+                          default_result_csv_dir, request_key, proof_id, code_sync_proof_runtime_generation(),
+                          executable_stats, sorted(runtime_env.items())]
+        return hashlib.sha256(json.dumps(identity_parts, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
+    except (OSError, ValueError, TypeError, KeyError):
+        return ""  # Missing/stale proof falls back to the complete validation, never an assumed success.
+
+def plan_preflight_project_path(root, value):
+    if not str(value or "").strip():
+        raise ValueError("empty preflight path")
+    real_root = os.path.realpath(root)
+    target = os.path.realpath(os.path.join(root, str(value)))
+    if target == real_root or os.path.commonpath([real_root, target]) != real_root:
+        raise ValueError("preflight path outside project")
+    return target
+
+def plan_validation_with_current_outputs(root, structural):
+    validation = json.loads(json.dumps(structural))
+    existing = []
+    for job in validation.get("jobs") or []:
+        for relative in job.get("inputs") or []:
+            if not os.path.exists(plan_preflight_project_path(root, relative)):
+                raise ValueError("声明的输入不存在：" + str(relative))
+        output_dir = str(job.get("output_dir") or "").strip()
+        output_path = plan_preflight_project_path(root, output_dir)
+        info = has_existing_artifacts(output_path)
+        if info["exists"]:
+            existing.append({"index": job["index"], "case": job.get("case"), "seed": job.get("seed"),
+                             "output_dir": output_dir, "markers": info["markers"], "totalFiles": info["totalFiles"]})
+    validation.update({"existing": existing, "existingCount": len(existing), "structuralValidationReused": True})
+    return validation
+
+def plan_validation_cache_covers_inputs(root, validation, options):
+    if not isinstance(validation.get("structuralInputPaths"), list) or not validation["structuralInputPaths"]:
+        return False
+    identity = options.get("validationCodeProof") if isinstance(options, dict) else {}
+    proof = code_sync_proof_document(root).get("proofs", {}).get(str((identity or {}).get("codeSyncProofId") or "")) or {}
+    covered = {str(item.get("path") or "") for item in proof.get("files") or []}
+    required = list(validation["structuralInputPaths"])
+    for row in (validation.get("outputInterface") or {}).get("rows") or []:
+        required.extend(row.get("sourceFiles") or [])
+        for channel in row.get("channels") or []:
+            if channel.get("type") == "run_wrapper":
+                required.append(channel.get("path") or "")
+    try:
+        return all(os.path.relpath(plan_preflight_project_path(root, value), os.path.abspath(root)).replace(os.sep, "/") in covered
+                   for value in required)
+    except (OSError, ValueError, TypeError):
+        return False
+
+def cached_scheduler_validation(root, scheduler, plan, default_result_csv_dir="experiments/results", options=None, env=None):
+    key = plan_structural_validation_key(root, scheduler, plan, default_result_csv_dir, options, env)
+    if not key:
+        return None
+    with PLAN_STRUCTURAL_VALIDATION_CACHE_LOCK:
+        structural = PLAN_STRUCTURAL_VALIDATION_CACHE.pop(key, None)
+        if structural is None:
+            return None
+        PLAN_STRUCTURAL_VALIDATION_CACHE[key] = structural
+    validation = plan_validation_with_current_outputs(root, structural)
+    if key != plan_structural_validation_key(root, scheduler, plan, default_result_csv_dir, options, env):
+        return None
+    return validation
+
+def scheduler_validate_json(root, scheduler, plan, default_result_csv_dir="experiments/results", env=None, options=None):
+    cached = cached_scheduler_validation(root, scheduler, plan, default_result_csv_dir, options, env)
+    if cached is not None:
+        return cached
+    base_key = plan_structural_validation_key(root, scheduler, plan, default_result_csv_dir, options, env)
     require_scheduler_dependencies(root, scheduler, env)
     result = scheduler_capture(root, scheduler, ["--validate-plan", "--plan", plan, "--default-result-csv-dir", default_result_csv_dir], env=env)
     if result.returncode != 0:
         raise RuntimeError((result.stderr or result.stdout or "计划校验失败").strip()[-1000:])
     try:
-        return json.loads((result.stdout or "{}").strip())
+        validation = json.loads((result.stdout or "{}").strip())
     except Exception:
         return {"ok": True, "plan": plan, "jobs": [], "raw": result.stdout}
+    key = plan_structural_validation_key(root, scheduler, plan, default_result_csv_dir, options, env)
+    if (key and key == base_key and validation.get("ok") is True and validation.get("jobs")
+            and plan_validation_cache_covers_inputs(root, validation, options)):
+        structural = {k: v for k, v in validation.items() if k not in ("existing", "existingCount", "structuralValidationReused")}
+        with PLAN_STRUCTURAL_VALIDATION_CACHE_LOCK:
+            PLAN_STRUCTURAL_VALIDATION_CACHE.pop(key, None)
+            PLAN_STRUCTURAL_VALIDATION_CACHE[key] = structural
+            while len(PLAN_STRUCTURAL_VALIDATION_CACHE) > 32:
+                PLAN_STRUCTURAL_VALIDATION_CACHE.pop(next(iter(PLAN_STRUCTURAL_VALIDATION_CACHE)))
+    return validation
 
 def dry_run_preview_action(root, plan, workers, assigned_indices=None, default_result_csv_dir="experiments/results", operation_id=""):
     scheduler = cluster_scheduler_path(root)
@@ -12388,7 +12518,7 @@ def handle_action(root, action, payload, operation_id, op_id):
         if not scheduler:
             return terminal_action(root, action, operation_id, op_id, "failed", "调度节点缺少 cluster_scheduler.py，请先部署最新版 Agent。", request=payload)
         try:
-            validation = scheduler_validate_json(root, scheduler, plan, default_result_csv_dir)
+            validation = scheduler_validate_json(root, scheduler, plan, default_result_csv_dir, options=action_options(payload))
             job_count = int(validation.get("job_count") or len(validation.get("jobs") or []))
             execution_mode = str(validation.get("execution_mode") or "train_test")
             return terminal_action(root, action, operation_id, op_id, "completed", f"计划校验通过：模式 {execution_mode}，任务 {job_count}", {"validation": validation, "jobCount": job_count, "executionMode": execution_mode}, request=payload)
@@ -15611,6 +15741,21 @@ def serve_http(args):
                 current_worker = str(getattr(args, "worker_id", "") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip()
                 if topology_mode not in ("single_worker", "worker_pool") or not owner or owner != current_worker or options.get("automaticBackup") is not False:
                     return self.send_json({"error": "worker result ownership mismatch"}, status=403)
+            if action == "validate-plan" and not action_debug_mode(payload):
+                # A warm, verified template only needs fresh artifact stats, so no background action/poll wait.
+                try:
+                    plan = action_plan_file(payload)
+                    scheduler = cluster_scheduler_path(root)
+                    options = action_options(payload)
+                    result_dir = str(options.get("defaultResultCsvDir") or options.get("default_result_csv_dir") or "experiments/results")
+                    validation = cached_scheduler_validation(root, scheduler, plan, result_dir, options) if plan and scheduler else None
+                    if validation is not None:
+                        return self.send_json(terminal_action(root, action, operation_id, op_id, "completed",
+                            f"配置检查已复用，已有产物已刷新：{validation.get('existingCount', 0)}/{len(validation.get('jobs') or [])}",
+                            {"validation": validation, "jobCount": len(validation.get("jobs") or []),
+                             "executionMode": validation.get("execution_mode") or "train_test"}, request=payload))
+                except Exception as exc:
+                    return self.send_json(terminal_action(root, action, operation_id, op_id, "failed", str(exc), request=payload))
             if action in ("validate-plan", "dry-run-plan", "rebuild-distributed-results") or (action == "preview-cache-cleanup" and "planOutputPaths" in payload):
                 worker = (selected_worker_id(payload) or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker") if mode == "worker_telemetry" and action in ("validate-plan", "dry-run-plan") else ""
                 return self.send_json(start_inactivity_action(root, action, payload, operation_id, op_id, worker), status=202)

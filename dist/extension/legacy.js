@@ -1025,7 +1025,6 @@ class RealtimeTunnelPanelProvider {
     workerProbeSignatures = new Map();
     workerProbeGenerations = new Map();
     planValidationCache = new Map();
-    planValidationCacheTtlMs = 120_000;
     planValidationCacheMaxEntries = 32;
     distributedSubmissionTimings = new Map();
     pendingPlanSubmissionManifest;
@@ -6489,12 +6488,20 @@ class RealtimeTunnelPanelProvider {
         if (!root || !runtimeVersion)
             return "";
         const topology = this.projectTopologyAssessment();
+        const worker = this.enabledWorkerConfigs?.().find((item) => item.id === workerId);
+        const options = body?.options || {};
         const payload = {
+            root,
             planFile: normalizePlanSelectionKey(String(body?.planFile || body?.plan || body?.selectedPlanId || body?.options?.planFile || body?.options?.plan || "")).toLowerCase(),
             planRevision: String(body?.planRevision || body?.options?.planRevision || ""),
             codeFingerprint: String(this.lastCodeSyncState?.fingerprint || ""),
             adapterRules: pluginProjectAdapterRules(root), topology: { mode: topology.mode, hubAllowed: topology.hubAllowed },
             schedulerOwner: workerId, runtimeVersion,
+            proofGeneration: this.lastCodeSyncState?.workerVersions?.[workerId]?.codeSyncProofRuntimeGeneration,
+            defaultResultCsvDir: options.defaultResultCsvDir || options.default_result_csv_dir || "experiments/results",
+            mode: body?.mode || options.mode || "", debugMode: body?.debugMode || options.debugMode || false,
+            condaEnv: worker?.condaEnv ?? this.setupConfig?.condaEnv ?? "",
+            remoteProjectDir: worker?.agentProjectDir || worker?.remotePath || "",
         };
         if (!payload.planFile || !payload.planRevision || !payload.codeFingerprint)
             return "";
@@ -6506,10 +6513,6 @@ class RealtimeTunnelPanelProvider {
         const row = this.planValidationCache.get(key);
         if (!row)
             return undefined;
-        if (row.expiresAt <= Date.now()) {
-            this.planValidationCache.delete(key);
-            return undefined;
-        }
         this.planValidationCache.delete(key);
         this.planValidationCache.set(key, row);
         return JSON.parse(JSON.stringify(row.value));
@@ -6517,8 +6520,12 @@ class RealtimeTunnelPanelProvider {
     rememberPlanValidation(key, value) {
         if (!key || !value || !this.planValidationCache)
             return;
+        const validation = planValidationFromResult(value);
+        if (!validation || !Array.isArray(validation.jobs) || !validation.jobs.length || validation.ok === false)
+            return;
+        const { existing, existingCount, structuralValidationReused, ...structural } = validation;
         this.planValidationCache.delete(key);
-        this.planValidationCache.set(key, { expiresAt: Date.now() + this.planValidationCacheTtlMs, value: JSON.parse(JSON.stringify(value)) });
+        this.planValidationCache.set(key, { value: { ok: true, status: "completed", validation: JSON.parse(JSON.stringify(structural)) } });
         while (this.planValidationCache.size > this.planValidationCacheMaxEntries)
             this.planValidationCache.delete(this.planValidationCache.keys().next().value);
     }
@@ -6555,14 +6562,10 @@ class RealtimeTunnelPanelProvider {
         };
         let check = "校验(validate-plan)";
         try {
-            let validated = this.cachedPlanValidation(validationCacheKey);
-            if (validated) {
-                reportStage("复用近期成功的 Agent Plan 校验…");
-                recordTiming("validateSubmitMs", 0);
-                recordTiming("validateTerminalWaitMs", 0);
-            }
-            else {
-                reportStage("正在校验计划…");
+            let validated;
+            {
+                const warm = this.cachedPlanValidation(validationCacheKey);
+                reportStage(warm ? "正在按代码内容复用配置检查并刷新已有产物…" : "正在校验计划…");
                 const validateSubmitStarted = Date.now();
                 let validate;
                 try {
@@ -6597,7 +6600,9 @@ class RealtimeTunnelPanelProvider {
             const agentDuration = remoteOperationDurationMs(validated);
             if (agentDuration !== undefined)
                 recordTiming("validateAgentDurationMs", agentDuration);
-            reportStage("Agent 校验已返回");
+            const currentValidation = planValidationFromResult(validated);
+            recordTiming("validateStructuralCacheHit", currentValidation?.structuralValidationReused === true ? 1 : 0);
+            reportStage(currentValidation?.structuralValidationReused === true ? "配置检查已复用，当前已有产物已刷新" : "Agent 校验已返回");
             if (!planCheckAccepted(validated)) {
                 throw failPreflight(check, String(validated?.error || validated?.message || resultStatus(validated) || "校验未通过"), validated?.output || validated?.message);
             }
@@ -12259,6 +12264,17 @@ class RealtimeTunnelPanelProvider {
     async postPlanSchedulerAction(action, body, options = {}) {
         this.assertActionAuthorityCurrent(options);
         const route = this.assertPlanTopologyReady(options.title || action);
+        if (action === "validate-plan") {
+            const workerId = this.planSchedulerWorkerId(body);
+            const key = this.planValidationCacheKey(body, workerId);
+            const version = this.lastCodeSyncState?.workerVersions?.[workerId];
+            if (key && version?.codeSyncProofId && version.manifestDigest === this.lastCodeSyncState?.fingerprint) {
+                body = { ...body, options: { ...(body.options || {}), structuralValidationKey: key,
+                        validationCodeProof: { projectId: DistributedPlanQueue.canonicalProjectId(workspaceRoot()),
+                            codeSyncProofId: version.codeSyncProofId, codeFingerprint: version.fingerprint,
+                            manifestDigest: version.manifestDigest } } };
+            }
+        }
         let result;
         if (route.mode === "worker_pool") {
             result = await this.postWorkerPoolPlanAction(action, body, options);
