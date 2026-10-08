@@ -35,6 +35,7 @@ function makeFixtureScript(root) {
     "register_code_sync_proof",
     "_legacy_durable_code_sync_proof",
     "resolve_durable_code_sync_proof",
+    "renew_code_sync_proof_runtime",
     "_durable_gpu_busy_reason",
     "accept_durable_plan_job",
     "worker_recall_tombstones_path",
@@ -237,6 +238,41 @@ with open(os.path.join(guard_root, "train.py"), "w", encoding="utf-8") as handle
 guard_dispatch = drain_durable_plan_queue_once(guard_root, "worker-a", gpu_probe=lambda: ([idle_gpu("9")], ""),
     execute=lambda *args: {"status": "completed"})
 assert len(guard_dispatch) == 1 and guard_dispatch[0]["status"] == "completed"
+
+# Replay the reported failure through the real durable queue and proof verifier.
+runtime_root = os.path.join(ROOT, "runtime-renewal")
+os.makedirs(runtime_root, exist_ok=True)
+with open(os.path.join(runtime_root, "train.py"), "w", encoding="utf-8") as handle: handle.write("version-one")
+runtime_proof = register_code_sync_proof(runtime_root, {
+    "projectId": guard_job["projectId"], "workerId": "worker-a", "codeFingerprint": fingerprint,
+    "manifestDigest": fingerprint, "scopeSignature": hashlib.sha256(b"original-scope").hexdigest(),
+    "codeManifest": manifest}, "worker-a")
+runtime_job = {**make_job(0), "commandId": "runtime-waiting", "runKey": "runtime-waiting",
+    "codeFingerprint": fingerprint, "codeSyncProofId": runtime_proof["proofId"], "manifestDigest": fingerprint}
+accept_durable_plan_job(runtime_root, runtime_job, "worker-a")
+runtime_queue = read_durable_plan_queue(runtime_root)
+runtime_queue["jobs"][0].update({"codeBlocked":True,"error":"code-sync proof identity mismatch or stale runtime generation"})
+write_durable_plan_queue(runtime_root, runtime_queue)
+AGENT_VERSION = "upgraded-agent"
+runtime_calls = []
+runtime_busy = lambda: ([{"gpuId":"9","processes":[{}]}], "")
+assert not drain_durable_plan_queue_once(runtime_root, "worker-a", gpu_probe=runtime_busy, execute=lambda *args: runtime_calls.append(True))
+renewed_row = read_durable_plan_queue(runtime_root)["jobs"][0]
+assert renewed_row["status"] == "queued" and not runtime_calls
+assert renewed_row["codeSyncProofId"] != runtime_proof["proofId"]
+assert renewed_row["codeSyncProofRuntimeGeneration"] == code_sync_proof_runtime_generation()
+assert not renewed_row.get("codeBlocked") and not renewed_row.get("error"), "busy GPU must not retain an obsolete code error"
+assert durable_plan_same_identity(renewed_row, runtime_job), "runtime refresh must not create an attempt or change job provenance"
+public_row = next(row for row in api_worker_tasks(runtime_root)["tasks"] if row["commandId"] == runtime_job["commandId"])
+assert public_row["status"] == "queued" and not public_row.get("error"), "Host snapshot must see the cleared blocker"
+def runtime_execute(root, command, worker_id):
+    runtime_calls.append((command["commandId"],command["attempt"],command["outputDir"]))
+    return {"status":"running"}
+assert len(drain_durable_plan_queue_once(runtime_root, "worker-a", gpu_probe=lambda: ([idle_gpu("9")], ""), execute=runtime_execute)) == 1
+assert runtime_calls == [(runtime_job["commandId"],runtime_job["attempt"],runtime_job["outputDir"])]
+assert not drain_durable_plan_queue_once(runtime_root, "worker-a", gpu_probe=lambda: ([idle_gpu("9")], ""), execute=runtime_execute)
+assert len(runtime_calls) == 1, "repeated polling cannot start another copy"
+
 ledger_path = durable_plan_queue_path(guard_root)
 with open(ledger_path, "w", encoding="utf-8") as handle: handle.write("{broken")
 try:

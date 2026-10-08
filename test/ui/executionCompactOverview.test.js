@@ -37,6 +37,16 @@ test("automatic retry shows waiting, queue, exhaustion and success without losin
   sandbox.render(state); assert.doesNotMatch(sandbox.html, /连续失败/);
 });
 
+test("queued code-proof rejection describes a blocked start rather than a failed training job", () => {
+  const sandbox=clickSandbox();
+  const job={index:2,case:"bus",seed:44,status:"queued",workerId:"nwpu2",gpuId:"0",commandId:"pending-command",
+    error:"code-sync proof identity mismatch or stale runtime generation"};
+  sandbox.render({distributedPlans:[{id:"run",planFile:"plans/current.yaml",jobs:[job]}]});
+  assert.match(sandbox.html,/启动前代码校验阻塞/);
+  assert.match(sandbox.html,/部署并重启该 Worker 的 Agent/);
+  assert.doesNotMatch(sandbox.html,/这是已提交 job 的失败/);
+});
+
 test("retry scheduling and exhaustion redraw the Plan even when the failed status and error stay the same", () => {
   const sandbox = clickSandbox();
   const state = { distributedPlans: [{ id: "run", planFile: "plans/current.yaml", jobs: [{ index: 0, status: "failed", error: "CUDA" }] }] };

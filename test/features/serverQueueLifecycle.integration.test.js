@@ -242,7 +242,7 @@ def resolve_durable_code_sync_proof(root, row):
         digest = hashlib.sha256(open(full, "rb").read()).hexdigest()
         if digest != expected.get("sha256"):
             raise ValueError("mounted code changed: " + relative)
-    return {"proofId": "legacy-test"}
+    return {"proofId": "legacy-test", "manifestDigest": row["codeFingerprint"], "runtimeGeneration": "fixture-runtime"}
 def append_worker_task(root, task):
     path = path_for(root, "worker_task_snapshot.json")
     data = read_json(path, {"tasks": []})

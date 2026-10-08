@@ -2779,7 +2779,7 @@ def _code_sync_stat_record(root, relative, expected, verify_content=False):
         raise ValueError("mounted code changed during proof verification: " + relative)
     return {"path": relative, "size": int(after.st_size), "mtime_ns": after_mtime}
 
-def verify_code_sync_proof_record(root, proof, row):
+def verify_code_sync_proof_record(root, proof, row, runtime_generation=None):
     if not isinstance(proof, dict):
         raise ValueError("code-sync proof missing")
     expected_project = str(row.get("projectId") or "")
@@ -2787,12 +2787,13 @@ def verify_code_sync_proof_record(root, proof, row):
     expected_digest = str(row.get("manifestDigest") or row.get("codeFingerprint") or "")
     proof_id = str(row.get("codeSyncProofId") or row.get("proofId") or "")
     scope_signature = str(proof.get("scopeSignature") or "")
+    expected_generation = runtime_generation or code_sync_proof_runtime_generation()
     runtime_generation = str(proof.get("runtimeGeneration") or "")
     if (not proof_id or str(proof.get("proofId") or "") != proof_id
             or str(proof.get("projectId") or "") != expected_project
             or str(proof.get("codeFingerprint") or "") != expected_fingerprint
             or str(proof.get("manifestDigest") or "") != expected_digest
-            or runtime_generation != code_sync_proof_runtime_generation()
+            or runtime_generation != expected_generation
             or not re.fullmatch(r"[a-f0-9]{64}", scope_signature)
             or proof_id != code_sync_proof_id(expected_project, expected_fingerprint, expected_digest,
                                                scope_signature, runtime_generation)):
@@ -2910,10 +2911,37 @@ def _legacy_durable_code_sync_proof(root, row, manifest):
     _store_code_sync_proof(root, proof)
     return proof
 
+def renew_code_sync_proof_runtime(root, proof, row):
+    # An Agent upgrade changes the verifier generation, not the mounted project.
+    # Validate the complete old identity and every stat-bound source file before
+    # issuing a new proof. Ordinary verification remains strict about generation.
+    if not isinstance(proof, dict) or proof.get("schemaVersion") != 1:
+        raise ValueError("code-sync proof missing or unsupported schema")
+    previous_generation = str(proof.get("runtimeGeneration") or "")
+    if not previous_generation:
+        raise ValueError("code-sync proof runtime generation missing")
+    with CODE_SYNC_PROOF_LOCK:
+        verify_code_sync_proof_record(root, proof, row, runtime_generation=previous_generation)
+        generation = code_sync_proof_runtime_generation()
+        proof_id = code_sync_proof_id(proof["projectId"], proof["codeFingerprint"],
+                                     proof["manifestDigest"], proof["scopeSignature"], generation)
+        current_identity = {**row, "codeSyncProofId": proof_id}
+        current = code_sync_proof_document(root).get("proofs", {}).get(proof_id)
+        if current is not None:
+            return verify_code_sync_proof_record(root, current, current_identity)
+        renewed = {**proof, "proofId": proof_id, "codeSyncProofId": proof_id,
+                   "runtimeGeneration": generation, "verifiedAt": now_iso(),
+                   "previousProofId": proof["proofId"], "runtimeRenewedFrom": previous_generation}
+        verify_code_sync_proof_record(root, renewed, current_identity)
+        _store_code_sync_proof(root, renewed)
+        return renewed
+
 def resolve_durable_code_sync_proof(root, row):
     proof_id = str(row.get("codeSyncProofId") or "")
     if proof_id:
         proof = code_sync_proof_document(root).get("proofs", {}).get(proof_id)
+        if isinstance(proof, dict) and str(proof.get("runtimeGeneration") or "") != code_sync_proof_runtime_generation():
+            return renew_code_sync_proof_runtime(root, proof, row)
         return verify_code_sync_proof_record(root, proof, row)
     manifest = row.get("codeManifest")
     if isinstance(manifest, dict):
@@ -3527,7 +3555,7 @@ def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None,
         if str(row.get("status") or "").lower() != "queued" or str(row.get("workerId") or "") != worker_id:
             continue
         try:
-            resolve_durable_code_sync_proof(root, row)
+            proof = resolve_durable_code_sync_proof(root, row)
         except Exception as exc:
             message = str(exc)
             with WORKER_TASK_SNAPSHOT_LOCK:
@@ -3539,6 +3567,26 @@ def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None,
                     append_event(root, {"type": "distributed_plan_code_wait", "workerId": worker_id,
                                         "operationId": row.get("commandId"), "payload": {"error": message}})
             continue
+        # Persist renewal on the same queued command before admission. A busy GPU
+        # must not leave an obsolete code error or require another submission.
+        with WORKER_TASK_SNAPSHOT_LOCK:
+            latest = read_durable_plan_queue(root)
+            current = next((item for item in latest["jobs"] if isinstance(item, dict)
+                            and item.get("commandId") == row.get("commandId")), None)
+            if not current or current.get("status") != "queued" or not durable_plan_same_identity(current, row):
+                continue
+            changed = False
+            if isinstance(proof, dict) and proof.get("proofId") and proof["proofId"] != current.get("codeSyncProofId"):
+                current.update({"codeSyncProofId": proof["proofId"],
+                                "manifestDigest": proof["manifestDigest"],
+                                "codeSyncProofRuntimeGeneration": proof["runtimeGeneration"]})
+                changed = True
+            if current.pop("codeBlocked", False):
+                current.pop("error", None)
+                changed = True
+            if changed:
+                write_durable_plan_queue(root, latest)
+            row = current
         gpus, error = gpu_probe()
         if error:
             if row.get("requireIdleGpu") is True:

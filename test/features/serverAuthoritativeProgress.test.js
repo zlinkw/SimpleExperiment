@@ -81,6 +81,30 @@ test('hosted unbound GPU receives its first authoritative GPU without false iden
   plan.schedulingMode='local_idle';assert.equal(queue.remoteTaskMatchesJob(plan,job,remote.tasks[0]),false);
 });
 
+test('fresh matching receipts clear a resolved code-proof block without erasing retry provenance', () => {
+  const input=intent(), plan=input.plans[0], job=plan.jobs[0];
+  const error='code-sync proof identity mismatch or stale runtime generation';
+  Object.assign(job,{status:'queued',error,automaticRetry:{failureCount:1,failedAttempt:1,lastError:'CUDA failure'},
+    history:[{attempt:1,status:'failed',commandId:'original',outputDir:'runs/original',error:'CUDA failure'}]});
+  const other=snapshot(plan,plan.jobs[1]);
+  const project=owner=>policy.serverAuthoritativeProgress(input,[owner,other],'project',now)[0].jobs[0];
+  for(const status of ['queued','running','completed']) {
+    const result=project(snapshot(plan,job,status));
+    assert.equal(result.status,status);assert.equal(result.error,undefined);
+    assert.equal(result.commandId,job.commandId);assert.equal(result.attempt,job.attempt);
+    assert.deepEqual(result.automaticRetry,job.automaticRetry);assert.deepEqual(result.history,job.history);
+  }
+  const stillBlocked=snapshot(plan,job,'queued');stillBlocked.tasks[0].error=error;
+  assert.equal(project(stillBlocked).error,error,'current server rejection remains visible');
+  const missingError=snapshot(plan,job,'queued');
+  assert.equal(project({...missingError,error:'disconnected'}).error,error);
+  assert.equal(project({...missingError,fetchedAt:new Date(now-6000).toISOString()}).error,error);
+  const mismatch=snapshot(plan,job,'queued');mismatch.tasks[0].seed++;
+  assert.equal(project(mismatch).error,error);
+  job.status='failed';job.trustedTerminalStatus='failed';job.error='CUDA failure';
+  assert.equal(project(snapshot(plan,job,'failed')).error,'CUDA failure','terminal failure evidence is preserved');
+});
+
 function providerMethods(names, extra={}) {
   const source=fs.readFileSync(require.resolve('../../src/extension/legacy.ts'),'utf8');
   const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true);

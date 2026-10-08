@@ -24,6 +24,7 @@ test("Worker code-sync proof is durable, stat-checked, and legacy content hashin
     "code_sync_proof_document", "_code_sync_stat_record", "verify_code_sync_proof_record",
     "_store_code_sync_proof", "register_code_sync_proof", "_legacy_durable_code_sync_proof",
     "resolve_durable_code_sync_proof",
+    "renew_code_sync_proof_runtime",
   ].map(pythonDefinition);
   const script = String.raw`
 import builtins, hashlib, json, os, re, threading, time
@@ -101,6 +102,46 @@ resolve_durable_code_sync_proof(ROOT, compact)
 legacy = {"projectId":"project-a", "codeFingerprint":fingerprint, "codeManifest":manifest}
 for _ in range(6): resolve_durable_code_sync_proof(ROOT, legacy)
 assert bytes_read == len(content), "six jobs with one legacy fingerprint must hash file contents once"
+
+# A queued job survives an Agent upgrade with the same source and full proof identity.
+previous_id = compact["codeSyncProofId"]
+previous_generation = code_sync_proof_runtime_generation()
+AGENT_VERSION = "agent-upgraded"
+old_proof = code_sync_proof_document(ROOT)["proofs"][previous_id]
+try:
+    verify_code_sync_proof_record(ROOT, old_proof, compact)
+    raise AssertionError("direct stale proof verification must still fail closed")
+except ValueError as error:
+    assert "stale runtime generation" in str(error)
+for bad_proof in [dict(old_proof, fileCount=999), dict(old_proof, schemaVersion=99),
+                  dict(old_proof, proofId="0" * 64)]:
+    try:
+        renew_code_sync_proof_runtime(ROOT, bad_proof, compact)
+        raise AssertionError("runtime renewal must not accept a malformed proof")
+    except ValueError: pass
+renewed = resolve_durable_code_sync_proof(ROOT, compact)
+assert renewed["proofId"] != previous_id
+assert renewed["runtimeGeneration"] == code_sync_proof_runtime_generation()
+assert renewed["previousProofId"] == previous_id
+assert renewed["runtimeRenewedFrom"] == previous_generation
+assert previous_id in code_sync_proof_document(ROOT)["proofs"], "renewal preserves original proof provenance"
+for _ in range(6):
+    assert resolve_durable_code_sync_proof(ROOT, compact)["proofId"] == renewed["proofId"]
+assert bytes_read == len(content), "unchanged source keeps the existing stat-bound cache"
+for field, value in [("projectId", "other-project"), ("codeFingerprint", "0" * 64), ("manifestDigest", "0" * 64)]:
+    bad = dict(compact, **{field: value})
+    try:
+        resolve_durable_code_sync_proof(ROOT, bad)
+        raise AssertionError("runtime renewal must not accept another identity")
+    except ValueError: pass
+stat = os.stat(source_path)
+os.utime(source_path, ns=(stat.st_atime_ns, stat.st_mtime_ns + 1_000_000_000))
+AGENT_VERSION = "agent-upgraded-again"
+try:
+    resolve_durable_code_sync_proof(ROOT, compact)
+    raise AssertionError("runtime renewal must not accept changed source stat")
+except ValueError as error:
+    assert "stat changed" in str(error)
 print(json.dumps({"compactStatOnly":True,"missingAndStaleFailClosed":True,"legacyHashCount":1}))
 `;
   fs.writeFileSync(scriptPath, script, "utf8");

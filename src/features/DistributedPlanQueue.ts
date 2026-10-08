@@ -405,6 +405,8 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
         const terminalConflict = Boolean(terminal && merged.status !== terminal);
         plan.jobs[existing] = (localIdentity === remoteIdentity || unassignedLocalIntent && sameJob) && !conflict && !terminalConflict ? {
           ...local, ...merged, localQueueOnly: local.localQueueOnly, recallRequested: local.recallRequested,
+          ...(local.error?.startsWith("code-sync proof") && typeof task.error !== "string"
+            && ["queued", "running", "completed"].includes(merged.status) ? { error: undefined } : {}),
           ...(merged.history ? { history: [...(local.history || []), ...merged.history].filter((entry, index, entries) =>
             entries.findIndex(other => other.commandId === entry.commandId && other.workerId === entry.workerId
               && other.attempt === entry.attempt) === index) } : {}),
