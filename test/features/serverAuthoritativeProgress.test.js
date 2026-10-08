@@ -39,6 +39,22 @@ test('all-server projection immediately supersedes local running, while one fail
   const expired=policy.serverAuthoritativeProgress(input,snapshots,'project',now+5001);
   assert.ok(expired[0].jobs.every(job=>job.status==='unknown'));
 });
+test('a poll predating a verified dispatch receipt does not undo queued status, but newer or untrusted evidence does', () => {
+  const input=intent(), plan=input.plans[0], job=plan.jobs[0];
+  job.status='queued';job.dispatchAcknowledgedAt=iso;job.lastDispatchAttemptAt=iso;
+  const before=snapshot(plan,job,'queued',{tasks:[],generatedAt:new Date(now-100).toISOString(),fetchedAt:new Date(now-100).toISOString()});
+  const other=snapshot(plan,plan.jobs[1]);
+  const project=owner=>policy.serverAuthoritativeProgress(input,[owner,other],'project',now+1000)[0].jobs[0];
+  assert.equal(project(before).status,'queued');
+  assert.equal(project({...before,fetchedAt:new Date(now+1).toISOString()}).status,'unknown','newer empty poll is unresolved ownership');
+  assert.equal(project({...before,error:'disconnected'}).status,'unknown');
+  assert.equal(project({...before,fetchedAt:new Date(now-6000).toISOString()}).status,'unknown');
+  const mismatch=snapshot(plan,job,'running');mismatch.tasks[0].seed++;
+  assert.equal(project(mismatch).status,'unknown','receipt grace cannot hide conflicting identity');
+  assert.equal(policy.serverAuthoritativeProgress(input,[before,other],'project',now+11000)[0].jobs[0].status,'unknown');
+  job.status='dispatching';assert.equal(project(before).status,'dispatching');
+  job.status='unknown';assert.equal(project(before).status,'unknown','unconfirmed RPC never fabricates an accepted state');
+});
 test('cold restart rebuilds hosted identities across servers without duplicate jobs or fabricated completion', () => {
   const input=intent(); const plan=input.plans[0]; const snapshots=plan.jobs.map(job=>snapshot(plan,job,'completed'));
   let restored=queue.emptyDistributedQueue();

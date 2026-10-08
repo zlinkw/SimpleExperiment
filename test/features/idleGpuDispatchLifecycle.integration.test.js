@@ -125,6 +125,110 @@ function durableTickFixture() {
   return {p,receipt,stored:()=>stored};
 }
 
+function queuedMigrationFixture() {
+  const fixture = durableTickFixture(), {p, receipt, stored} = fixture;
+  const plan = stored().plans[0]; plan.schedulingMode = 'local_idle';
+  plan.jobs.forEach((job, index) => Object.assign(job, { status: index ? 'queued' : 'completed', workerId: 'a',
+    gpuId: index ? '0' : '1', commandId: `original-${index}`, runKey: `original-${index}`,
+    outputDir: `work/job${index}/attempts/original-run`, ...(index ? {} : { finishedAt: new Date().toISOString() }) }));
+  plan.jobs[1].automaticRetry = {failureCount:1,failedAttempt:0,lastError:'CUDA failure'};
+  p.readWorkerTaskSnapshotBatch = async ids => ids.map(workerId => ({workerId, generatedAt:new Date().toISOString(),
+    fetchedAt:new Date().toISOString(),capabilities:{durablePlanQueue:true,idleGpuAdmission:true,schemaVersion:1},
+    tasks:stored().plans.flatMap(plan => plan.jobs.filter(job => job.workerId === workerId).map(job => ({
+      ...receipt(plan,job,workerId,job.gpuId,job.commandId),gpuId:job.gpuId,enqueuedAt:plan.enqueuedAt,
+      status:job.status,finishedAt:job.finishedAt}))) }));
+  const cancelled=[], sent=[];
+  p.withRemoteActionResource=async (_id,_action,_request,work)=>work();
+  p.client.postWorkerAction=async (_id,_action,request)=>{
+    cancelled.push(request.targetCommandId);
+    return {...request,status:'cancelled',stopReason:'requeue',durableAccepted:true,durableReleased:true,
+      neverStarted:true,neverStartedEvidence:'durable_queued_row',finishedAt:new Date().toISOString()};
+  };
+  p.sendDistributedJob=async (...args)=>{sent.push({workerId:args[2],gpuId:args[3],attempt:args[1].attempt});
+    return {...receipt(...args),gpuId:args[3]};};
+  return {...fixture,cancelled,sent};
+}
+
+test('local queued job on its own idle GPU is not cancelled and redispatched every tick',async()=>{
+  const {p,stored,cancelled,sent}=queuedMigrationFixture();
+  const before=stored().plans[0].jobs[1].commandId;
+  for(let tick=0;tick<5;tick++)await p.tickDistributedQueueCore();
+  assert.equal(cancelled.length,0,'a second idle Worker must not interrupt an admitted task on an idle owner GPU');
+  assert.equal(sent.length,0);
+  assert.equal(stored().plans[0].jobs[1].attempt,1);
+  assert.equal(stored().plans[0].jobs[1].commandId,before);
+});
+
+test('a verified busy owner GPU migrates once to the selected destination instead of the original Worker',async()=>{
+  const {p,stored,cancelled,sent}=queuedMigrationFixture();
+  p.client.getGpu=async()=>({a:[{index:'0',utilizationPercent:99,memoryUsedMb:23000,processes:[]},
+    {index:'1',utilizationPercent:0,memoryUsedMb:7,processes:[]}],
+    b:[{index:'0',utilizationPercent:0,memoryUsedMb:7,processes:[]}]});
+  await p.tickDistributedQueueCore();
+  assert.deepEqual(sent.map(row=>row.workerId),['b'],'release destination must survive normal case/seed affinity allocation');
+  for(let tick=0;tick<4;tick++)await p.tickDistributedQueueCore();
+  assert.equal(cancelled.length,1);assert.equal(sent.length,1);
+  assert.equal(stored().plans[0].jobs[1].workerId,'b');
+  assert.equal(stored().plans[0].jobs[1].attempt,2);
+  assert.equal(stored().plans[0].jobs[1].automaticRetry.failureCount,1);
+});
+
+test('unknown or missing owner GPU telemetry cannot trigger a queued-task release',async()=>{
+  for(const row of [{index:'0'}, {index:'1',utilizationPercent:0,memoryUsedMb:7,processes:[]}]) {
+    const {p,cancelled,sent}=queuedMigrationFixture();
+    p.client.getGpu=async()=>({a:[row],b:[{index:'0',utilizationPercent:0,memoryUsedMb:7,processes:[]}]});
+    await p.tickDistributedQueueCore();assert.equal(cancelled.length,0);assert.equal(sent.length,0);
+  }
+});
+
+test('a release racing a Worker start retains the original command without dispatching another attempt',async()=>{
+  const {p,stored,sent}=queuedMigrationFixture();
+  p.client.getGpu=async()=>({a:[{index:'0',utilizationPercent:99,memoryUsedMb:23000,processes:[]}],
+    b:[{index:'0',utilizationPercent:0,memoryUsedMb:7,processes:[]}]});
+  p.client.postWorkerAction=async(_id,_action,request)=>({...request,commandId:request.targetCommandId,status:'running',durableReleased:false});
+  await p.tickDistributedQueueCore();
+  const job=stored().plans[0].jobs[1];
+  assert.equal(job.status,'running');assert.equal(job.commandId,'original-1');assert.equal(job.attempt,1);
+  assert.equal(job.reassignmentWorkerId,undefined);assert.equal(sent.length,0);
+});
+
+test('unconfirmed command reconciliation keeps unknown stable and backs off repeated RPCs',async()=>{
+  const {p,stored}=durableTickFixture();
+  const plan=stored().plans[0];plan.schedulingMode='local_idle';
+  Object.assign(plan.jobs[0],{status:'completed',workerId:'a',gpuId:'1',commandId:'completed-command'});
+  Object.assign(plan.jobs[1],{status:'unknown',workerId:'a',gpuId:'0',commandId:'unconfirmed-command',
+    outputDir:'work/job1/attempts/original-run'});
+  let calls=0;const statuses=[];
+  const save=p.saveDistributedQueue;p.saveDistributedQueue=async (...args)=>{statuses.push(args[1].plans[0].jobs[1].status);await save(...args);};
+  p.sendDistributedJob=async()=>{calls++;throw new Error('receipt not yet available');};
+  for(let tick=0;tick<4;tick++)await p.tickDistributedQueueCore();
+  assert.equal(calls,1,'same command recovery must not hammer the Worker every tick');
+  assert.equal(statuses.includes('dispatching'),false,'unverified ownership stays unknown while reconciliation is attempted');
+  assert.equal(stored().plans[0].jobs[1].commandId,'unconfirmed-command');
+  assert.equal(stored().plans[0].jobs[1].attempt,1);
+});
+
+test('task snapshot grace uses only a recently verified cache while a slow fresh request continues',async()=>{
+  const Provider=provider(['readWorkerTaskSnapshotBatch'],{setTimeout,clearTimeout});const p=new Provider();
+  let release;const slow=new Promise(resolve=>{release=resolve;});p.readWorkerTaskSnapshot=()=>slow;
+  const cache={workerId:'a',generatedAt:new Date().toISOString(),fetchedAt:new Date().toISOString(),
+    capabilities:{durablePlanQueue:true,schemaVersion:1},tasks:[{commandId:'verified-command'}]};
+  p.cachedWorkerTaskSnapshot=()=>cache;
+  try {
+    const result=await p.readWorkerTaskSnapshotBatch(['a'],{graceMs:0});
+    assert.equal(result[0].error,undefined,'normal polling latency must not erase a recent authoritative snapshot');
+    assert.equal(result[0].tasks[0].commandId,'verified-command');
+    assert.equal(result[0].fetchedAt,cache.fetchedAt,'cache age must not be fabricated as a fresh read');
+    cache.fetchedAt=cache.generatedAt=new Date(Date.now()-6000).toISOString();
+    const expired=await p.readWorkerTaskSnapshotBatch(['a'],{graceMs:0});
+    assert.equal(expired[0].pending,true);assert.equal(expired[0].tasks.length,0);
+    assert.ok(expired[0].error,'expired ownership must remain unverified');
+    cache.fetchedAt=cache.generatedAt=new Date().toISOString();cache.error='disconnected';
+    const failed=await p.readWorkerTaskSnapshotBatch(['a'],{graceMs:0});
+    assert.ok(failed[0].error);assert.equal(failed[0].tasks.length,0);
+  } finally {release(cache);}
+});
+
 test('actual Host tick adopts an existing partial failure, persists backoff and dispatches only the due failed job', async () => {
   const {p, receipt, stored} = durableTickFixture();
   const queue = stored(), plan = queue.plans[0];

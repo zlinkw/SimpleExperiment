@@ -1538,9 +1538,14 @@ export class RealtimeTunnelPanelProvider {
         finally {
             if (timer) clearTimeout(timer);
         }
-        for (const workerId of pending.keys()) snapshots.set(workerId, {
-            workerId, schemaVersion: 1, tasks: [], pending: true, error: "Worker task snapshot still pending",
-        });
+        const root = workspaceRoot();
+        for (const workerId of pending.keys()) {
+            const cached = this.cachedWorkerTaskSnapshot(workerId, root, `${root || ""}\u0000${workerId}`);
+            snapshots.set(workerId, cached?.workerId === workerId && DistributedPlanQueue.hasFreshDurableSnapshot(
+                cached, Date.now(), DistributedSchedulingPolicy.PROGRESS_FRESHNESS_MS)
+                ? { ...cached, refreshPending: true }
+                : { workerId, schemaVersion: 1, tasks: [], pending: true, error: "Worker task snapshot still pending" });
+        }
         return ids.map((workerId) => snapshots.get(workerId));
     }
     serverPlanProgress() {
@@ -10640,6 +10645,7 @@ export class RealtimeTunnelPanelProvider {
                 for (const job of plan.jobs) {
                     if (!queueWriteCurrent()) return;
                     if (job.recallRequested === true) continue;
+                    if (String(this.lastCodeSyncState?.workerVersions?.[job.workerId || ""]?.fingerprint || "") !== plan.codeFingerprint) continue;
                     const snapshot = snapshotsByWorker.get(job.workerId || "");
                     const retry = DistributedPlanQueue.retryPinnedDispatch(queue, plan.id, job.index,
                         snapshot, idleByWorker.get(job.workerId || "") || []);
@@ -10647,7 +10653,8 @@ export class RealtimeTunnelPanelProvider {
                     const launchKey = `${plan.id}\0${job.index}\0${job.attempt}`;
                     if (this.distributedLaunchInFlight.has(launchKey)) continue;
                     this.distributedLaunchInFlight.add(launchKey);
-                    job.status = "dispatching";
+                    // Reconciliation retains unknown ownership until the same command is verified.
+                    job.lastDispatchAttemptAt = new Date().toISOString();
                     await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
                     try {
                         const receipt: any = await this.sendDistributedJob(plan, job, retry.workerId, retry.gpuId, retry.commandId);
@@ -10670,6 +10677,7 @@ export class RealtimeTunnelPanelProvider {
                                 || !DistributedPlanQueue.remoteTaskMatchesJob(plan, job, receipt))
                                 throw new Error(String(receipt?.message || "Worker 未返回原 commandId 的完整持久接收回执"));
                             job.status = status as any;
+                            job.dispatchAcknowledgedAt = new Date().toISOString();
                             job.blockReason = undefined;
                         }
                     } catch (error) {
@@ -10697,13 +10705,26 @@ export class RealtimeTunnelPanelProvider {
                     if (!remote || !DistributedPlanQueue.remoteTaskMatchesJob(plan, job, remote)) continue;
                     if (job.status === "cancelled" && String(remote.stopReason || "") === "requeue"
                         && DistributedPlanQueue.isExactQueuedReleaseProof(plan, job, remote)) {
+                        if (!job.reassignmentWorkerId) {
+                            const destination = targets.find((target) => canReceive(target, { workerId: job.workerId, codeFingerprint: plan.codeFingerprint }));
+                            if (!destination) continue;
+                            job.reassignmentWorkerId = destination.id;
+                        }
+                        migrationReserved.set(job.reassignmentWorkerId, (migrationReserved.get(job.reassignmentWorkerId) || 0) + 1);
                         queue = DistributedPlanQueue.releaseQueuedForReassignment(queue, plan.id, job.index,
                             remote, makeOpId("distributed-attempt"));
                         continue;
                     }
+                    const ownerGpuRows = dispatchGpuSnapshot?.[job.workerId];
+                    const ownerGpuKnown = Array.isArray(ownerGpuRows) && ownerGpuRows.some((row) =>
+                        String(row.index ?? row.gpu_id ?? row.gpuId ?? row.id ?? "") === String(job.gpuId));
                     if (job.status !== "queued" || String(remote.status || "").toLowerCase() !== "queued"
-                        || !targets.some((target) => canReceive(target, { workerId: job.workerId, codeFingerprint: plan.codeFingerprint }))) continue;
+                        || !ownerGpuKnown || !idleByWorker.has(job.workerId)
+                        || (idleByWorker.get(job.workerId) || []).includes(String(job.gpuId))) continue;
+                    const destination = targets.find((target) => canReceive(target, { workerId: job.workerId, codeFingerprint: plan.codeFingerprint }));
+                    if (!destination) continue;
                     job.reassignmentPending = true;
+                    job.reassignmentWorkerId = destination.id;
                     await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
                     const stopOperationId = makeOpId("distributed-requeue");
                     const request = { schemaVersion: 1, opId: stopOperationId, operationId: stopOperationId,
@@ -10720,13 +10741,13 @@ export class RealtimeTunnelPanelProvider {
                         const proof = result?.receipt || result?.releasedTask || result;
                         if (DistributedPlanQueue.isExactQueuedReleaseProof(plan, job, proof)
                             && String(proof?.status || "").toLowerCase() === "cancelled" && String(proof?.stopReason || "") === "requeue") {
-                            const destination = targets.find((target) => canReceive(target, { workerId: job.workerId, codeFingerprint: plan.codeFingerprint }));
-                            if (destination) migrationReserved.set(destination.id, (migrationReserved.get(destination.id) || 0) + 1);
+                            migrationReserved.set(destination.id, (migrationReserved.get(destination.id) || 0) + 1);
                             queue = DistributedPlanQueue.releaseQueuedForReassignment(queue, plan.id, job.index,
                                 proof, makeOpId("distributed-attempt"));
                         } else if (proof?.durableReleased === false
                             && DistributedPlanQueue.stopIdentityMatchesJob(plan, job, proof)) {
                             job.reassignmentPending = false;
+                            job.reassignmentWorkerId = undefined;
                             const actualStatus = String(proof?.status || "").toLowerCase();
                             if (["running", "starting"].includes(actualStatus)) job.status = "running";
                             job.blockReason = `Worker 未释放排队任务（${actualStatus || "状态未知"}）；保留原 Worker 和 commandId。`;
@@ -10774,6 +10795,11 @@ export class RealtimeTunnelPanelProvider {
                     .map((job) => ({ planId: plan.id, jobIndex: job.index, workerId: job.workerId!, commandId: job.commandId!, attempt: job.attempt })));
             const dispatches = [...allocation.dispatches, ...hosted.dispatches, ...hostedRetries.filter((retry) =>
                 !hosted.dispatches.some((item) => item.commandId === retry.commandId))];
+            for (const dispatch of dispatches) {
+                const job = queue.plans.find((plan) => plan.id === dispatch.planId)?.jobs.find((job) =>
+                    job.index === dispatch.jobIndex && job.attempt === dispatch.attempt && job.commandId === dispatch.commandId);
+                if (job) job.lastDispatchAttemptAt = new Date().toISOString();
+            }
             if (dispatches.length) await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
             const dispatchPlans = [...new Map(dispatches.map((dispatch) => {
                 const plan = queue.plans.find((item) => item.id === dispatch.planId);
@@ -10836,6 +10862,7 @@ export class RealtimeTunnelPanelProvider {
                                 || !DistributedPlanQueue.remoteTaskMatchesJob(plan, job, receipt))
                                 throw new Error(String(receipt?.message || "Worker 未返回 durableAccepted 及匹配完整身份的状态回执"));
                             job.status = status as any;
+                            job.dispatchAcknowledgedAt = new Date(receivedAt).toISOString();
                             job.blockReason = undefined;
                             const timing = this.distributedSubmissionTimings?.get(plan.id);
                             if (timing && this.localOperations?.[timing.operationId]?.timings?.clickToFirstAcceptedJobMs === 0) {

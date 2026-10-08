@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.AUTOMATIC_JOB_RETRY_BASE_DELAY_MS = exports.AUTOMATIC_JOB_RETRY_MAX_FAILURES = exports.emptyDistributedQueue = exports.CODE_FINGERPRINT_WAITING = exports.CODE_FINGERPRINT_MISMATCH = void 0;
+exports.AUTOMATIC_JOB_RETRY_BASE_DELAY_MS = exports.AUTOMATIC_JOB_RETRY_MAX_FAILURES = exports.emptyDistributedQueue = exports.DISPATCH_RECONCILIATION_DELAY_MS = exports.CODE_FINGERPRINT_WAITING = exports.CODE_FINGERPRINT_MISMATCH = void 0;
 exports.distributedQueueDiskSignature = distributedQueueDiskSignature;
 exports.distributedQueueBaseSignature = distributedQueueBaseSignature;
 exports.setDistributedQueueBaseSignature = setDistributedQueueBaseSignature;
@@ -42,6 +42,7 @@ exports.queueMetadataAdvanceRecorded = queueMetadataAdvanceRecorded;
 exports.terminalHistoryLogBinding = terminalHistoryLogBinding;
 exports.workerTaskLogBinding = workerTaskLogBinding;
 exports.hasFreshDurableSnapshot = hasFreshDurableSnapshot;
+exports.dispatchReconciliationDue = dispatchReconciliationDue;
 exports.canonicalProjectId = canonicalProjectId;
 exports.durableCommandId = durableCommandId;
 exports.freshIdleGpuEvidence = freshIdleGpuEvidence;
@@ -153,6 +154,11 @@ function hasFreshDurableSnapshot(snapshot, now = Date.now(), maxAgeMs = 180_000)
 exports.CODE_FINGERPRINT_MISMATCH = "代码指纹不匹配：Worker 当前代码版本与该 Plan 不一致。任务仍保留为排队，不会自动失败或重发。请用当前代码重新提交该 Plan，或恢复提交前的代码版本并重新同步 Worker 后再继续。";
 exports.CODE_FINGERPRINT_WAITING = "等待当前代码版本的任务结束：匹配的 Worker 上旧版本仍有活动或待核实任务。仅这些 Worker 保留版本锁，其他匹配版本的 Worker 可并行派发。任务仍保留为排队。";
 const UNFINISHED_JOB = ["pending", "dispatching", "queued", "running", "unknown"];
+exports.DISPATCH_RECONCILIATION_DELAY_MS = 10_000;
+function dispatchReconciliationDue(job, now = Date.now()) {
+    const attemptedAt = Date.parse(String(job.lastDispatchAttemptAt || ""));
+    return !Number.isFinite(attemptedAt) || now - attemptedAt >= exports.DISPATCH_RECONCILIATION_DELAY_MS;
+}
 function canonicalProjectId(projectRoot) {
     const resolved = path.resolve(String(projectRoot || "")).replace(/\\/g, "/").replace(/\/$/, "");
     return process.platform === "win32" ? resolved.toLowerCase() : resolved;
@@ -279,6 +285,16 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
             }
             if (!job.workerId || !job.commandId || !UNFINISHED_JOB.includes(job.status)
                 || acceptedRows.some((row) => remoteTaskMatchesJob(plan, job, row.task)))
+                return job;
+            const receiptAt = Date.parse(String(job.status === "queued" ? job.dispatchAcknowledgedAt
+                : job.status === "dispatching" ? job.lastDispatchAttemptAt : ""));
+            const owner = snapshots.find((snapshot) => snapshot.workerId === job.workerId
+                && hasFreshDurableSnapshot(snapshot, now, Math.min(maxAgeMs, 5_000)));
+            // A cached poll taken before this RPC cannot revoke its just-verified receipt.
+            // Errors, expired snapshots and a newer authoritative poll still require reconciliation.
+            if (owner && Number.isFinite(receiptAt) && receiptAt <= now && now - receiptAt < exports.DISPATCH_RECONCILIATION_DELAY_MS
+                && Date.parse(String(owner.fetchedAt)) <= receiptAt
+                && !(owner.tasks || []).some((task) => String(task.commandId || "") === job.commandId))
                 return job;
             return { ...job, status: "unknown",
                 blockReason: "Current server receipt is unavailable; the original owner and command identity are retained." };
@@ -560,11 +576,12 @@ function pinnedRetryPlanAllowed(plan) {
     return plan.schedulingMode !== "server_prequeue" || plan.localDispatchOverride === true
         || plan.jobs.some((job) => job.localQueueOnly === true && ["dispatching", "unknown"].includes(job.status));
 }
-function hostedRetryCandidates(plan) {
+function hostedRetryCandidates(plan, now = Date.now()) {
     if (plan.schedulingMode !== "server_prequeue" || plan.localDispatchOverride === true || plan.recoveryConflict)
         return [];
     return plan.jobs.filter((job) => job.localQueueOnly !== true && job.recallRequested !== true
-        && Boolean(job.workerId && job.commandId) && ["dispatching", "unknown"].includes(job.status));
+        && Boolean(job.workerId && job.commandId) && ["dispatching", "unknown"].includes(job.status)
+        && dispatchReconciliationDue(job, now));
 }
 function noteFingerprintMismatch(plans, workers) {
     if (!workers.some((row) => row.codeFingerprint))
@@ -625,15 +642,18 @@ function allocateAvailable(queue, workers, options = {}) {
             const whole = ranked().find(([workerId, ids]) => workerId === primary && ids.length >= caseJobs.length)
                 || ranked().find(([, ids]) => ids.length >= caseJobs.length);
             for (const job of caseJobs) {
-                const chosen = whole?.[0] && slots.get(whole[0])?.length ? whole[0]
-                    : slots.get(primary)?.length ? primary : ranked()[0]?.[0];
+                const chosen = job.reassignmentWorkerId ? eligibleWorkerIds.has(job.reassignmentWorkerId)
+                    && slots.get(job.reassignmentWorkerId)?.length ? job.reassignmentWorkerId : undefined
+                    : whole?.[0] && slots.get(whole[0])?.length ? whole[0]
+                        : slots.get(primary)?.length ? primary : ranked()[0]?.[0];
                 if (!chosen)
-                    break;
+                    continue;
                 const gpuId = slots.get(chosen)?.shift();
                 if (gpuId === undefined)
                     break;
                 const commandId = durableCommandId(plan, job, chosen, gpuId);
-                Object.assign(job, { status: "dispatching", workerId: chosen, gpuId, commandId, blockReason: undefined });
+                Object.assign(job, { status: "dispatching", workerId: chosen, gpuId, commandId, blockReason: undefined,
+                    reassignmentWorkerId: undefined });
                 dispatches.push({ planId: plan.id, jobIndex: job.index, workerId: chosen, gpuId, attempt: job.attempt, commandId });
             }
         }
@@ -701,14 +721,16 @@ function resetBusyRejectedDispatch(queue, dispatch, receipt) {
     return { ...queue, plans: queue.plans.map((plan) => plan.id !== dispatch.planId ? plan : { ...plan,
             jobs: plan.jobs.map((job) => job.index !== dispatch.jobIndex || job.attempt !== dispatch.attempt
                 || job.commandId !== dispatch.commandId || job.workerId !== dispatch.workerId || job.gpuId !== dispatch.gpuId
-                || job.status !== "dispatching" ? job : { ...job, status: "pending", workerId: undefined,
-                gpuId: undefined, commandId: undefined, runKey: undefined, blockReason: "Worker confirmed the requested GPU was busy; awaiting fresh availability." }) }) };
+                || !["dispatching", "unknown"].includes(job.status) ? job : { ...job, status: "pending", workerId: undefined,
+                gpuId: undefined, commandId: undefined, runKey: undefined, lastDispatchAttemptAt: undefined, dispatchAcknowledgedAt: undefined,
+                blockReason: "Worker confirmed the requested GPU was busy; awaiting fresh availability." }) }) };
 }
 function retryPinnedDispatch(queue, planId, jobIndex, snapshot, idleGpuIds, now = Date.now()) {
     const plan = queue.plans.find((row) => row.id === planId);
     const job = plan?.jobs.find((row) => row.index === jobIndex);
     if (!plan || !job || plan.recoveryConflict || job.recoveryConflict || job.recallRequested === true || !["dispatching", "unknown"].includes(job.status)
         || !job.workerId || !job.commandId || !String(job.gpuId || "").trim()
+        || !dispatchReconciliationDue(job, now)
         || !snapshotAllowsPinnedRetry(snapshot, job, now))
         return undefined;
     const occupiedByOther = queue.plans.some((candidatePlan) => candidatePlan.jobs.some((candidate) => !(candidatePlan.id === planId && candidate.index === jobIndex && candidate.attempt === job.attempt)
@@ -739,6 +761,7 @@ function releaseQueuedForReassignment(queue, planId, jobIndex, receipt, nextRunI
                 index: item.index, case: item.case, seed: item.seed, outputDir, attempt: item.attempt + 1,
                 status: "pending", projectId: item.projectId, localQueueOnly: true, recallRequested: undefined,
                 recallOperationId: undefined, reassignmentPending: undefined,
+                reassignmentWorkerId: item.reassignmentWorkerId,
                 automaticRetry: item.automaticRetry,
                 history: [...(item.history || []), { attempt: item.attempt,
                         status: "cancelled", workerId: item.workerId, commandId: item.commandId, outputDir: item.outputDir,
