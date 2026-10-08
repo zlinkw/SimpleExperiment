@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import * as path from "node:path";
 
 export type JobState = "pending" | "dispatching" | "queued" | "running" | "completed" | "failed" | "cancelled" | "unknown";
+export type AutomaticJobRetry = { failureCount: number; failedAttempt: number; retryAt?: string; exhausted?: boolean; lastError?: string };
 export type QueuedJob = {
   index: number;
   case: string;
@@ -35,7 +36,8 @@ export type QueuedJob = {
   lastReconciliationAt?: string;
   blockReason?: string;
   stopReason?: string;
-  history?: Array<{ attempt: number; status: JobState; workerId?: string; commandId?: string; outputDir: string; finishedAt?: string; stopReason?: string; outputRetiredAt?: string }>;
+  automaticRetry?: AutomaticJobRetry;
+  history?: Array<{ attempt: number; status: JobState; workerId?: string; commandId?: string; outputDir: string; finishedAt?: string; stopReason?: string; error?: string; outputRetiredAt?: string }>;
 };
 export type QueuedPlan = {
   id: string;
@@ -54,6 +56,7 @@ export type QueuedPlan = {
   codeFingerprint: string;
   enqueuedAt: string;
   overwriteExisting?: boolean;
+  automaticRetry?: { enabledAt: string; healthyAt?: string; healthyReason?: "completed" | "majority_running"; disabledAt?: string };
   jobs: QueuedJob[];
 };
 export type DeferredPlan = { id: string; planFile: string; revision: string; codeFingerprint: string;
@@ -322,6 +325,8 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
       if (!history.length) return job;
       const entries = [...(job.history || []), ...history.map((row) => ({ attempt: Number(row.task.attempt), status: row.status,
         workerId: row.workerId, commandId: String(row.task.commandId), outputDir: String(row.task.outputDir),
+        ...(typeof row.task.error === "string" ? { error: String(row.task.error) } : {}),
+        ...(typeof row.task.finishedAt === "string" ? { finishedAt: String(row.task.finishedAt) } : {}),
         ...(typeof row.task.stopReason === "string" ? { stopReason: String(row.task.stopReason) } : {}) }))];
       return { ...job, history: entries.filter((entry, index) => entries.findIndex((other) => other.commandId === entry.commandId
         && other.workerId === entry.workerId && other.attempt === entry.attempt) === index) };
@@ -361,6 +366,7 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
           history: historicalRows.filter((row) => Number(row.task.experimentIndex) === index).map((row) => ({
             attempt: Number(row.task.attempt), status: row.status, workerId: row.workerId,
             commandId: String(row.task.commandId), outputDir: String(row.task.outputDir),
+            ...(typeof row.task.error === "string" ? { error: String(row.task.error) } : {}),
             ...(typeof row.task.stopReason === "string" ? { stopReason: String(row.task.stopReason) } : {}),
             ...(typeof row.task.finishedAt === "string" ? { finishedAt: row.task.finishedAt } : {}),
           })),
@@ -380,6 +386,9 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
         const terminalConflict = Boolean(terminal && merged.status !== terminal);
         plan.jobs[existing] = (localIdentity === remoteIdentity || unassignedLocalIntent && sameJob) && !conflict && !terminalConflict ? {
           ...local, ...merged, localQueueOnly: local.localQueueOnly, recallRequested: local.recallRequested,
+          ...(merged.history ? { history: [...(local.history || []), ...merged.history].filter((entry, index, entries) =>
+            entries.findIndex(other => other.commandId === entry.commandId && other.workerId === entry.workerId
+              && other.attempt === entry.attempt) === index) } : {}),
           recallOperationId: local.recallOperationId, reassignmentPending: local.reassignmentPending,
           recoveryConflict: undefined, blockReason: undefined,
           ...(terminal ? { trustedTerminalStatus: terminal } : {}),
@@ -507,7 +516,8 @@ export function enqueuePlan(queue: DistributedQueue, plan: Omit<QueuedPlan, "id"
   if (!jobs.length) throw new Error("Plan has no jobs.");
   const planJobCount = Number(plan.planJobCount || plan.jobs.length);
   if (!Number.isInteger(planJobCount) || planJobCount < jobs.length) throw new Error("Plan expected job count is invalid.");
-  return { ...queue, plans: [...queue.plans, { ...plan, planJobCount, id, enqueuedAt, jobs }] };
+  return { ...queue, plans: [...queue.plans, { ...plan, planJobCount, id, enqueuedAt,
+    automaticRetry: { enabledAt: enqueuedAt }, jobs }] };
 }
 
 function usableSlots(row: WorkerSlots) {
@@ -693,6 +703,7 @@ export function releaseQueuedForReassignment(queue: DistributedQueue, planId: st
       index: item.index, case: item.case, seed: item.seed, outputDir, attempt: item.attempt + 1,
       status: "pending" as const, projectId: item.projectId, localQueueOnly: true, recallRequested: undefined,
       recallOperationId: undefined, reassignmentPending: undefined,
+      automaticRetry: item.automaticRetry,
       history: [...(item.history || []), { attempt: item.attempt,
         status: "cancelled" as const, workerId: item.workerId, commandId: item.commandId, outputDir: item.outputDir,
         finishedAt: typeof receipt.finishedAt === "string" ? receipt.finishedAt : item.finishedAt, stopReason: "requeue" }],
@@ -938,6 +949,105 @@ export function retryVerifiedJob(queue: DistributedQueue, planId: string, jobInd
       index: item.index, case: item.case, seed: item.seed, outputDir, attempt: item.attempt + 1,
       status: "pending" as const, history: [...(item.history || []), { attempt: item.attempt,
         status: item.status, workerId: item.workerId, commandId: item.commandId, outputDir: item.outputDir,
-        finishedAt: item.finishedAt }],
+        finishedAt: item.finishedAt, stopReason: item.stopReason, error: item.error }],
     }) }) };
+}
+
+export const AUTOMATIC_JOB_RETRY_MAX_FAILURES = 5;
+export const AUTOMATIC_JOB_RETRY_BASE_DELAY_MS = 30_000;
+
+/** A stopped or unverified process must never be launched again by this policy. */
+export function scheduleAutomaticJobRetries(queue: DistributedQueue, snapshots: readonly DurableWorkerSnapshot[],
+  projectId: string, options: { now?: number; selectedPlanFile?: string; excludedPlanFiles?: readonly string[];
+    makeAttemptId: () => string }): DistributedQueue {
+  const now = options.now ?? Date.now();
+  if (!Number.isFinite(now)) return queue;
+  const at = new Date(now).toISOString();
+  const next = { ...queue, plans: [...queue.plans] };
+  let changed = false;
+  const latest = new Map<string, QueuedPlan>();
+  for (const plan of next.plans) {
+    if (plan.projectId !== projectId || !Number.isFinite(Date.parse(plan.enqueuedAt))) continue;
+    const key = plan.planFile.replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
+    const prior = latest.get(key);
+    if (!prior || Date.parse(plan.enqueuedAt) >= Date.parse(prior.enqueuedAt)) latest.set(key, plan);
+  }
+  const freshTasks = new Map<string, Record<string, unknown>[]>();
+  for (const snapshot of snapshots) {
+    if (!hasFreshDurableSnapshot(snapshot, now)) continue;
+    for (const task of snapshot.tasks || []) {
+      const key = `${snapshot.workerId}\0${task.commandId}`;
+      freshTasks.set(key, [...(freshTasks.get(key) || []), task]);
+    }
+  }
+  const proof = (plan: QueuedPlan, job: QueuedJob) => (freshTasks.get(`${job.workerId}\0${job.commandId}`) || [])
+    .find(task => remoteTaskMatchesJob(plan, job, task) && !task.identityConflict && !task.manualStopType
+      && !task.stopReason && !job.stopReason && !job.recallRequested && !job.recoveryConflict);
+  for (const original of latest.values()) {
+    if (hasUnresolvedPlanRecovery(original) || original.automaticRetry?.disabledAt
+      || options.excludedPlanFiles?.some(file => samePlanFile(file, original.planFile))) continue;
+    const plan = { ...original, automaticRetry: original.automaticRetry ? { ...original.automaticRetry } : undefined,
+      jobs: original.jobs.map(job => ({ ...job })) };
+    next.plans[next.plans.indexOf(original)] = plan;
+    // Upgrade only live/current runs. Old abandoned history is not revived on reload.
+    if (!plan.automaticRetry) {
+      const active = plan.jobs.some(job => UNFINISHED_JOB.includes(job.status));
+      if (!active && !samePlanFile(options.selectedPlanFile || "", plan.planFile)) continue;
+      plan.automaticRetry = { enabledAt: at };
+      changed = true;
+    }
+    const evidence = new Map(plan.jobs.map(job => [job.index, proof(plan, job)]));
+    if (!plan.automaticRetry.healthyAt) {
+      const completed = plan.jobs.some(job => job.status === "completed" && evidence.get(job.index)?.status === "completed");
+      const running = plan.jobs.filter(job => job.status === "running" && evidence.get(job.index)?.status === "running"
+        && !evidence.get(job.index)?.error).length;
+      const total = Math.max(plan.jobs.length, Number(plan.fullPlanJobCount || plan.planJobCount || plan.jobs.length));
+      if (completed || running > total / 2) {
+        plan.automaticRetry.healthyAt = at;
+        plan.automaticRetry.healthyReason = completed ? "completed" : "majority_running";
+        changed = true;
+      }
+    }
+    if (!plan.automaticRetry.healthyAt) continue;
+    for (let index = 0; index < plan.jobs.length; index++) {
+      const job = plan.jobs[index], task = evidence.get(job.index);
+      if (job.status === "completed" && task?.status === "completed") {
+        if (job.automaticRetry) { delete job.automaticRetry; changed = true; }
+        continue;
+      }
+      if (job.status !== "failed" || task?.status !== "failed"
+        || !(Number.isFinite(Date.parse(String(task.finishedAt || "")))
+          || typeof task.exitCode === "number" && task.exitCode !== 0)) continue;
+      let retry = job.automaticRetry;
+      if (!retry || retry.failedAttempt !== job.attempt) {
+        const count = Math.min(AUTOMATIC_JOB_RETRY_MAX_FAILURES, Math.max(0, retry?.failureCount || 0) + 1);
+        retry = job.automaticRetry = { failureCount: count, failedAttempt: job.attempt,
+          lastError: job.error || String(task.error || ""),
+          ...(count >= AUTOMATIC_JOB_RETRY_MAX_FAILURES ? { exhausted: true }
+            : { retryAt: new Date(now + AUTOMATIC_JOB_RETRY_BASE_DELAY_MS * 2 ** (count - 1)).toISOString() }) };
+        changed = true;
+      }
+      if (retry.exhausted || !retry.retryAt || !Number.isFinite(Date.parse(retry.retryAt)) || Date.parse(retry.retryAt) > now) continue;
+      const attemptId = options.makeAttemptId();
+      const outputDir = nextAttemptOutputDir(job.outputDir, attemptId);
+      if (outputDir === job.outputDir || job.history?.some(row => row.outputDir === outputDir))
+        throw new Error("Automatic retry attempt directory is already in use.");
+      plan.jobs[index] = { index: job.index, case: job.case, seed: job.seed, outputDir,
+        attempt: job.attempt + 1, status: "pending", projectId: job.projectId,
+        automaticRetry: { ...retry, retryAt: undefined },
+        history: [...(job.history || []), { attempt: job.attempt, status: job.status, workerId: job.workerId,
+          commandId: job.commandId, outputDir: job.outputDir, finishedAt: job.finishedAt,
+          stopReason: job.stopReason, error: retry.lastError }] };
+      changed = true;
+    }
+  }
+  return changed ? next : queue;
+}
+
+/** Explicit stop intent persists even if a remote cleanup fails partway through. */
+export function disableAutomaticJobRetries(queue: DistributedQueue, planFile: string, at = new Date().toISOString()): DistributedQueue {
+  return { ...queue, plans: queue.plans.map(plan => !samePlanFile(plan.planFile, planFile) ? plan : { ...plan,
+    automaticRetry: { ...plan.automaticRetry, enabledAt: plan.automaticRetry?.enabledAt || at, disabledAt: at },
+    jobs: plan.jobs.map(job => job.automaticRetry?.retryAt ? { ...job,
+      automaticRetry: { ...job.automaticRetry, retryAt: undefined } } : job) }) };
 }

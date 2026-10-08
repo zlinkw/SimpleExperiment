@@ -10576,6 +10576,16 @@ export class RealtimeTunnelPanelProvider {
             this.postState();
             return;
         }
+        queue = DistributedPlanQueue.scheduleAutomaticJobRetries(queue, taskSnapshots.map((snapshot, index) => ({
+            ...snapshot, workerId: snapshot.workerId || snapshotWorkerIds[index],
+        })), projectId, {
+            selectedPlanFile: this.resolveSelectedPlanFile?.(this.planFileInput || this.selectedPlanId || "") || "",
+            excludedPlanFiles: (this.localPlanMetadata?.archivedPlans || [])
+                .map((plan) => String(plan.originalFile || plan.plan_file || plan.planFile || plan.file || ""))
+                .filter((file) => !(this.localPlanMetadata?.plans || []).some((plan) =>
+                    DistributedPlanQueue.sameDistributedPlanFile(plan.planFile || plan.file || "", file))),
+            makeAttemptId: () => makeOpId("auto-retry"),
+        });
         const durableQueue = queue.plans.some((plan) => plan.projectId === projectId
             || plan.jobs.some((job) => job.recallRequested === true));
         if (durableQueue) {
@@ -16262,6 +16272,13 @@ export class RealtimeTunnelPanelProvider {
                 message: "确认后项目或清理批次已变化，已停止写队列。",
                 nextStep: "回到原项目后重新确认这一张 Plan。",
             });
+        }
+        const retryQueue = await this.loadDistributedQueue(root);
+        if (!clearStillHere()) return;
+        if (retryQueue.plans.some((plan) => DistributedPlanQueue.sameDistributedPlanFile(plan.planFile, planFile))) {
+            await this.saveDistributedQueue(root, DistributedPlanQueue.disableAutomaticJobRetries(retryQueue, planFile),
+                { queueGeneration: clearGeneration });
+            if (!clearStillHere()) return;
         }
         this.publishPlanStopClear(planFile, {
             phase: "stop-targets", outcome: "running",

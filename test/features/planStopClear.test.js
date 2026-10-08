@@ -458,6 +458,7 @@ test("an unconfirmed active job stays queued and the plan card records the reaso
   assert.match(result.message, /下一步/);
   assert.equal(saved.plans[0].jobs.length, 1);
   assert.equal(saved.plans[0].jobs[0].status, "running");
+  assert.ok(saved.plans[0].automaticRetry.disabledAt, "partial remote stop still disables automatic retries");
   const card = host.provider.planStopClearByFile["plans/live.yaml"];
   assert.equal(card.outcome, "failed");
   assert.match(card.failures.join("\n"), /不可达/);
@@ -680,6 +681,8 @@ test("a tick that resumes after the timeout still cannot save or dispatch, and s
   provider.tickDistributedQueue();
   assert.equal(provider.distributedQueueTickPromise, trackedTick);
   const result = await provider.stopAndClearPlanFromUi({ planFile: "plans/late.yaml" });
+  const stopIntentWrites = writes.length;
+  assert.ok(writes.some(queue => queue.plans[0].automaticRetry.disabledAt));
   assert.notEqual(result.status, "cancelled");
   assert.equal(provider.distributedPlanStopEpoch, 0);
   assert.ok(provider.distributedQueueGeneration > 0);
@@ -690,6 +693,7 @@ test("a tick that resumes after the timeout still cannot save or dispatch, and s
   const tickBody = tickSource.slice(tickStart, tickEnd);
   let continued = false;
   const tickHost = {
+    queuePlanArtifactSyncStatusCheck: () => undefined,
     distributedPlanStopEpoch: provider.distributedPlanStopEpoch,
     distributedQueueGeneration: provider.distributedQueueGeneration,
     distributedQueueTickPromise: undefined,
@@ -725,7 +729,7 @@ test("a tick that resumes after the timeout still cannot save or dispatch, and s
   vm.runInContext(`this.run = async function (generation) { ${tickBody.replace(/async tickDistributedQueueCore\(generation[^)]*\)/, "async function tickDistributedQueueCore(generation, signal)")} const signal = undefined; await tickDistributedQueueCore.call(this, generation, signal); };`, tickHost);
   await tickHost.run(provider.distributedQueueGeneration - 1);
   assert.equal(continued, false);
-  assert.equal(writes.length, 0);
+  assert.equal(writes.length, stopIntentWrites, "stale tick must not write after explicit stop intent");
   assert.equal(dispatches.length, 0);
   releaseCore();
   await trackedTick.catch(() => undefined);
@@ -770,6 +774,7 @@ test("a late old tick cannot revive a queue-only plan after a newer tick saves",
   let saved = stale;
   const host = {
     distributedQueueGeneration: 2,
+    queuePlanArtifactSyncStatusCheck: () => undefined,
     distributedPlanStopEpoch: 0,
     distributedQueueTickPromise: undefined,
     distributedLaunchInFlight: new Set(),
@@ -864,6 +869,7 @@ test("a stale reconciliation launch does not start after the project changes", a
   const launches = [];
   const host = {
     distributedQueueGeneration: 4,
+    queuePlanArtifactSyncStatusCheck: () => undefined,
     distributedPlanStopEpoch: 0,
     distributedQueueTickPromise: undefined,
     distributedLaunchInFlight: new Set(),
@@ -1353,7 +1359,7 @@ test("a launch still in flight is not treated as an undispatched job", async () 
     projectContextIsCurrent: () => true,
     buildPlanRuntimeEvidenceState: () => ({ operations: {} }),
     loadDistributedQueue: async () => saved,
-    saveDistributedQueue: async () => { writes += 1; },
+    saveDistributedQueue: async (_root, next) => { saved = next; writes += 1; },
     postState: () => undefined,
     context: { workspaceState: { get: () => [], update: async () => undefined } },
   };
@@ -1361,7 +1367,8 @@ test("a launch still in flight is not treated as an undispatched job", async () 
   const result = await host.provider.stopAndClearPlanFromUi({ planFile: "plans/launch.yaml" });
   assert.equal(result.status, "failed");
   assert.match(result.message, /远端身份尚未回写/);
-  assert.equal(writes, 0);
+  assert.equal(writes, 1, "only persist explicit stop intent; never clear an in-flight launch");
+  assert.ok(saved.plans[0].automaticRetry.disabledAt);
   assert.equal(saved.plans[0].jobs.length, 1);
 });
 

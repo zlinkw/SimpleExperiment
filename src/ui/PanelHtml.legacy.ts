@@ -14171,6 +14171,19 @@ export function renderPanelHtml(): string {
     }
 
     function renderExecutionPlanList(state) {
+      function automaticJobRetryView(job) {
+        const retry = job.automaticRetry;
+        if (!retry || !retry.failureCount || job.status === "completed") return { label: "", note: "" };
+        const failures = "连续失败 " + retry.failureCount + "/5";
+        if (retry.exhausted) return { label: "重试已停止", note: failures + "，自动重试已停止。可查看日志后手动处理。" };
+        if (job.status === "failed" && retry.retryAt) {
+          const at = new Date(retry.retryAt);
+          return { label: "等待自动重试", note: failures + "，计划于 " + at.toLocaleTimeString() + " 重新排队。指数退避期间无需再次提交。" };
+        }
+        if (["pending", "dispatching", "queued", "running"].includes(job.status))
+          return { label: job.status === "running" ? "自动重试运行中" : "自动重试排队", note: failures + "；重试继续检查空闲 GPU 和 Worker 代码版本。" };
+        return { label: "", note: "" };
+      }
       const groups = new Map();
       const getGroup = (path) => {
         const planFile = String(path || "").trim();
@@ -14324,9 +14337,10 @@ export function renderPanelHtml(): string {
           + (group.failedJobs ? '<div class="executionDistributedFailure">' + group.failedJobs + ' 个当前 job 失败，未计入成功。打开对应日志查看原因。</div>' : '')
           + '<div class="executionDistributedJobs">' + distributedRows.map((job) => {
           const status = String(job.status || "unknown");
+          const retryView = automaticJobRetryView(job);
           const blocked = status === "pending" && fingerprintBlocked(job);
           const jobActive = ["pending", "dispatching", "queued", "running", "unknown"].includes(status) && !blocked;
-          const statusLabel = blocked ? (String(job.blockReason || "").indexOf("等待当前代码版本") === 0 ? "等待代码版本" : "代码版本不匹配") : ({ pending: "本机等待空卡", queued: "服务器排队", dispatching: "派发中", running: "运行中", completed: "已完成", failed: "失败", cancelled: "已中止", unknown: "待核实" }[status] || status);
+          const statusLabel = blocked ? (String(job.blockReason || "").indexOf("等待当前代码版本") === 0 ? "等待代码版本" : "代码版本不匹配") : retryView.label || ({ pending: "本机等待空卡", queued: "服务器排队", dispatching: "派发中", running: "运行中", completed: "已完成", failed: "失败", cancelled: "已中止", unknown: "待核实" }[status] || status);
           const placement = job.workerId ? job.workerId + (job.gpuId == null || job.gpuId === "" ? "" : " · GPU " + job.gpuId) : "未派发";
           const canJumpLog = Boolean(job.workerId && (job.commandId || job.outputDir));
           const logButton = '<button type="button" class="mini secondary" data-job-tmux-log="1" data-worker-id="' + escAttr(job.workerId || "") + '" data-command-id="' + escAttr(job.commandId || "") + '" data-output-dir="' + escAttr(job.outputDir || "") + '"' + (canJumpLog ? '' : ' disabled') + ' title="' + (canJumpLog ? '在 TMUX 区域选中该 Worker 的真实任务窗口标签' : '等待任务派发后定位对应的 TMUX 日志标签') + '">跳转到日志</button>';
@@ -14336,11 +14350,12 @@ export function renderPanelHtml(): string {
           const recallNote = job.recallRequested ? "召回待确认，仍固定在原 Worker" : "";
           const blockText = blocked ? String(job.blockReason || "") : "";
           const blockAdvice = blocked ? (blockText.indexOf("等待当前代码版本") === 0 ? "这个已提交 job 保留排队；其他 Worker 可运行匹配版本。被占用的 Worker 收到旧任务结束回执后自动释放版本锁，无需再次提交。" : "下一步：空闲 GPU 不能运行这份旧代码。到实验准备的 Plan 列表手动选中，再点“校验并提交运行”；或恢复提交前的代码并重新同步 Worker。") : "";
-          const jobNext = errorText
+          const jobNext = errorText && !retryView.note
             ? '<div class="muted">下一步：点本行“跳转到日志”查看对应 TMUX 任务窗口。这是已提交 job 的失败，不会自动清理。确认需要停止后，再点本 Plan 的“终止并清除该 Plan”（两次确认）。</div><span class="errorRowLinks" style="display:flex;gap:6px;flex-wrap:wrap;"><button type="button" class="mini secondary" data-section-target="execution" data-anchor-target="execution-operations" title="跳到运行进度，查看本 Plan 的状态">运行进度</button><button type="button" class="mini secondary" data-command="snapshot" title="重新拉取调度状态与操作记录">刷新状态</button></span>'
             : "";
           return '<div class="executionDistributedJob' + (blocked ? " is-blocked" : "") + '" title="' + escAttr(job.outputDir || "") + '"><span>' + loadingPrefix(jobActive) + esc(job.case || "job " + job.index) + ' seed ' + esc(String(job.seed)) + '</span><span class="' + (blocked ? "status-warning" : statusClass(status)) + '">' + esc(statusLabel) + '</span><span>' + esc(blocked ? "阻塞" : placement) + '</span>' + recallButton + logButton
             + (recallNote ? '<div class="muted">' + esc(recallNote) + '</div>' : '')
+            + (retryView.note ? '<div class="muted">' + esc(retryView.note) + '</div>' : '')
             + (blockText ? '<div class="executionDistributedJobError">' + esc(blockText) + (blockAdvice ? '<div>下一步：' + esc(blockAdvice.replace(/^下一步：/, "")) + '</div>' : '') + '</div>' : '')
             + (errorText ? '<div class="executionDistributedJobError">' + esc(errorText) + jobNext + '</div>' : '') + '</div>';
         }).join("") + '</div>' : '';
@@ -14551,6 +14566,7 @@ export function renderPanelHtml(): string {
             trainLogPath: job.trainLogPath,
             error: job.error,
             artifactError: job.artifactError,
+            automaticRetry: job.automaticRetry,
             recallRequested: job.recallRequested,
           })),
           recovery: distributedPlanRecoveryView(plan),

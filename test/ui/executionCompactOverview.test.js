@@ -19,6 +19,37 @@ function executionPlanSource() {
   return panel.slice(helpers, end).replaceAll("\\\\", "\\");
 }
 
+test("automatic retry shows waiting, queue, exhaustion and success without losing the original failure", () => {
+  const sandbox = clickSandbox();
+  const job = { index: 1, case: "bus", seed: 44, status: "failed", workerId: "nwpu5", commandId: "failed-job",
+    error: "CUDA failed", automaticRetry: { failureCount: 1, failedAttempt: 1, retryAt: "2026-10-08T08:01:00Z" } };
+  const state = { distributedPlans: [{ id: "current", planFile: "plans/current.yaml", enqueuedAt: "2026-10-08T08:00:00Z", jobs: [job] }] };
+  sandbox.render(state);
+  assert.match(sandbox.html, /等待自动重试/);
+  assert.match(sandbox.html, /连续失败 1\/5/);
+  assert.match(sandbox.html, /CUDA failed/);
+  assert.doesNotMatch(sandbox.html, /确认需要停止后/);
+  job.status = "pending"; delete job.automaticRetry.retryAt; delete job.error;
+  sandbox.render(state); assert.match(sandbox.html, /自动重试排队/);
+  job.status = "failed"; job.automaticRetry.failureCount = 5; job.automaticRetry.exhausted = true;
+  sandbox.render(state); assert.match(sandbox.html, /连续失败 5\/5，自动重试已停止/);
+  job.status = "completed";
+  sandbox.render(state); assert.doesNotMatch(sandbox.html, /连续失败/);
+});
+
+test("retry scheduling and exhaustion redraw the Plan even when the failed status and error stay the same", () => {
+  const sandbox = clickSandbox();
+  const state = { distributedPlans: [{ id: "run", planFile: "plans/current.yaml", jobs: [{ index: 0, status: "failed", error: "CUDA" }] }] };
+  const before = sandbox.executionRenderKeysForState(state).planList;
+  const waiting = JSON.parse(JSON.stringify(state));
+  waiting.distributedPlans[0].jobs[0].automaticRetry = { failureCount: 1, retryAt: "2026-10-08T08:01:00Z" };
+  const scheduled = sandbox.executionRenderKeysForState(waiting).planList;
+  assert.notEqual(scheduled, before);
+  const exhausted = JSON.parse(JSON.stringify(waiting));
+  exhausted.distributedPlans[0].jobs[0].automaticRetry = { failureCount: 5, exhausted: true };
+  assert.notEqual(sandbox.executionRenderKeysForState(exhausted).planList, scheduled);
+});
+
 test("Plan overview keeps completed and failed Plans visible without routine validation rows", () => {
   let html = "";
   const sandbox = {
