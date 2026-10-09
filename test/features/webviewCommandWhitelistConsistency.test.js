@@ -2,6 +2,8 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
 const test = require("node:test");
+const vm = require("node:vm");
+const ts = require("typescript");
 
 const root = path.join(__dirname, "../..");
 function readFirst(candidates) {
@@ -44,6 +46,75 @@ function safeCommands() {
     ...quotedValues(block(extension, "const SAFE_WEBVIEW_COMMANDS = new Set([", "]);")),
   ]);
 }
+
+test("literal messages emitted by specialized click handlers pass the safety gate", () => {
+  const emitted = [...panel.matchAll(/vscode\.postMessage\(\{\s*command:\s*"([^"]+)"/g)].map(match => match[1]);
+  assert.deepEqual([...new Set(emitted)].filter(command => !safeCommands().has(command)).sort(), []);
+});
+
+test("training recovery click reaches the Host dispatcher with its exact target and status channel", async () => {
+  const gate = block(extension, "const SAFE_WEBVIEW_COMMANDS = new Set([", "]);" ) + "]);\n"
+    + block(extension, "const uiActionCommands = new Set<WebviewActionCommand>([", "]);" ).replace("Set<WebviewActionCommand>", "Set") + "]);\n"
+    + block(extension, "function getSafeCommand(message)", "const hostOperationUiCommands");
+  const handler = block(extension, "    async handleMessage(message)", "    async handleMessageCore(");
+  const dispatch = vm.runInNewContext(gate + '\n({' + handler + '})', {
+    console: { log() {} }, stringField: (message, key) => String(message[key] || ''),
+    commandNeedsUiStatus: () => true, hostOperationLeaseActionForUiCommand: () => '',
+  }).handleMessage;
+  const message = { command: 'retryDistributedJob', clientActionId: 'recovery-click', planId: 'run', jobIndex: 0 };
+  let received, statusChannel;
+  const owner = { recordActionError: error => assert.fail(error.message), postState() {}, postUiCommandStatus() {},
+    withUiCommandStatus: async (id, command, payload, work) => { statusChannel = id; return work(); },
+    withSafeTransferRetry: async (_, __, work) => work(),
+    handleMessageCore: async (payload, command) => { received = { ...payload, command }; },
+  };
+  await dispatch.call(owner, message);
+  assert.deepEqual(received, message);
+  assert.equal(statusChannel, 'recovery-click');
+});
+
+test("training recovery reports real completion, cancellation and rejected evidence to the correlated button", async () => {
+  const methods = block(extension, "    async handleMessageCore(", "    private async withUiCommandStatus(")
+    + block(extension, "    private async withUiCommandStatus(", "    uiCommandWatchdogMs(").replace("private async", "async");
+  const compiled = ts.transpileModule("const subject = {" + methods + "};", {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+  }).outputText;
+  const statuses = [], notices = [], errors = [];
+  const scope = {
+    booleanField: () => false, localCommandReleasesAfterTrigger: () => false,
+    PLAN_SUBMISSION_COMMANDS: new Set(), isUiCommandRemotePending: () => false, isUiCommandCancelled: () => false,
+    errorMessage: error => error.message, actionErrorSuggestion: () => "", compactSensitiveText: text => text,
+    hostOperationLeaseActionLabel: () => "核验并恢复任务",
+    OperationOutcome_1: require("../../dist/core/OperationOutcome.js"),
+    vscode: { window: {
+      showInformationMessage: async message => notices.push(message),
+      showErrorMessage: async (_, options) => errors.push(options.detail),
+    } },
+  };
+  const api = vm.runInNewContext(compiled + "\nsubject;", scope);
+  const payload = { command: "retryDistributedJob", planId: "run", jobIndex: 0, clientActionId: "recovery-status" };
+  const owner = { ...api, panelLifecycleState: "ready", extensionRuntimeVersionState: () => ({ reloadRequired: false }),
+    postUiCommandStatus: (id, status, command, message) => statuses.push({ id, status, command, message }),
+    finishPlanSubmissionProgress() {}, recordActionError() {}, postState() {},
+  };
+  for (const status of ["completed", "cancelled", "failed"]) {
+    const message = status === "completed" ? "已核验并恢复训练完成，未重新训练。"
+      : status === "cancelled" ? "训练恢复已取消，任务状态未修改。" : "checkpoint SHA256 不符，未恢复。";
+    owner.retryDistributedJobFromUi = async received => {
+      assert.equal(received, payload);
+      if (status === "failed") throw new Error(message);
+      return { status, message };
+    };
+    await owner.withUiCommandStatus(payload.clientActionId, payload.command, payload,
+      () => owner.handleMessageCore(payload, payload.command));
+    assert.equal(statuses.at(-1).id, payload.clientActionId);
+    assert.equal(statuses.at(-1).status, status);
+    assert.equal(statuses.at(-1).message, message);
+    assert.equal(statuses.at(-2).status, "running");
+  }
+  assert.equal(notices.length, 1);
+  assert.equal(errors.length, 1);
+});
 
 test("all declared webview commands pass the extension safety whitelist", () => {
   const webview = webviewCommands();

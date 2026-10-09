@@ -506,6 +506,7 @@ const uiActionCommands = new Set([
     "abortScheduler",
 ]);
 const SAFE_WEBVIEW_COMMANDS = new Set([
+    "retryDistributedJob",
     "stopAllPlans",
     "stopAndClearPlan",
     "refreshLocalResults",
@@ -539,6 +540,7 @@ const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set([
 ]);
 const UI_LAYOUT_SECTION_KEYS = new Set(defaultUiSectionOrder);
 const UI_BUTTON_ACTION_COMMANDS = new Set([
+    "retryDistributedJob",
     "testAll", "snapshot", "startAllConnections", "runPlan", "parseResults", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope",
     ...uiActionCommands,
     "quickSetup", "openSetupGuide", "configureSessions", "configureAgentSessions", "writeAgentCommands",
@@ -553,6 +555,7 @@ const UI_BUTTON_ACTION_COMMANDS = new Set([
     "runDraftDebug", "promoteDraft", "rejectDraft", "reviewDraft", "cleanupDrafts",
 ]);
 const UI_BUTTON_PAYLOAD_KEYS = new Set([
+    "jobIndex",
     "endpointId", "planFile", "planId", "file", "runKey", "taskUiKey", "experimentId",
     "archiveKey", "experimentIndex", "gpuId", "workerId", "remotePath", "savePlan", "batchSelected",
     "sourcePath", "sourceLabel", "presentationPath", "chartType", "styleMode",
@@ -5471,8 +5474,7 @@ class RealtimeTunnelPanelProvider {
                 await this.reassignWorkerTaskFromUi(message);
                 break;
             case "retryDistributedJob":
-                await this.retryDistributedJobFromUi(message);
-                break;
+                return await this.retryDistributedJobFromUi(message);
             case "recallPlanToLocalQueue":
                 await this.recallPlanToLocalQueueFromUi(message);
                 break;
@@ -5859,7 +5861,7 @@ class RealtimeTunnelPanelProvider {
                 ? this.localOperations?.[this.planSubmissionOperationId(message)] : undefined;
             if (submission?.status === "failed")
                 return { status: "failed", message: submission.message || "计划未提交。" };
-            if (command === "stopAndClearPlan" && value && typeof value === "object" && (value.status === "completed" || value.status === "failed" || value.status === "cancelled" || value.status === "partial")) {
+            if ((command === "stopAndClearPlan" || command === "retryDistributedJob") && value && typeof value === "object" && (value.status === "completed" || value.status === "failed" || value.status === "cancelled" || value.status === "partial")) {
                 const outcome = value.status === "partial" ? "failed" : value.status;
                 return { status: outcome, message: String(value.message || outcome), planStopClear: value.planStopClear };
             }
@@ -12295,7 +12297,7 @@ class RealtimeTunnelPanelProvider {
             throw new Error("目标 job 当前不能恢复");
         const fresh = await client.getWorkerTasks(job.workerId);
         if (!isCurrent())
-            return;
+            return { status: "cancelled", message: "项目已切换，训练恢复已取消。" };
         const task = (fresh?.tasks || []).find((row) => String(row.commandId || "") === job.commandId);
         if (!task || !DistributedPlanQueue.remoteTaskMatchesJob(plan, job, task)
             || !["failed", "stopped", "cancelled", "canceled"].includes(String(task.status || "").toLowerCase())
@@ -12306,22 +12308,22 @@ class RealtimeTunnelPanelProvider {
                 recoverTrainingOnly: true, options: { workerId: job.workerId } };
             const preview = await client.postWorkerAction(job.workerId, "retry-worker-task", request);
             if (!isCurrent())
-                return;
+                return { status: "cancelled", message: "项目已切换，训练恢复已取消。" };
             const proof = preview?.result || preview;
             if (!proof.preview || !proof.evidenceSignature)
                 throw new Error(proof.message || "训练恢复证据未通过；未重训。");
             const answer = await vscode.window.showWarningMessage(`恢复已有训练完成状态：${plan.planFile}\n运行 ${plan.id} · ${job.case} seed ${job.seed} · attempt ${job.attempt}\nWorker ${job.workerId}\n目录 ${job.outputDir}\n已核验 checkpoint、最终配置和验证指标。仅记录训练完成，保留原测试失败回执与验证指标身份。`, { modal: true }, "恢复训练完成");
             if (answer !== "恢复训练完成" || !isCurrent())
-                return;
+                return { status: "cancelled", message: "训练恢复已取消，任务状态未修改。" };
             const current = await this.loadDistributedQueue(root);
             const currentJob = current.plans.find(row => row.id === plan.id)?.jobs.find(row => row.index === job.index);
             if (!isCurrent() || currentJob?.attempt !== job.attempt || currentJob?.commandId !== job.commandId
                 || !["failed", "unknown"].includes(currentJob.status))
-                return;
+                return { status: "cancelled", message: "目标 job 或项目已变化，训练恢复已取消。" };
             const recovered = await client.postWorkerAction(job.workerId, "retry-worker-task", { ...request,
                 opId: makeOpId("recover-training"), confirm: true, evidenceSignature: proof.evidenceSignature });
             if (!isCurrent())
-                return;
+                return { status: "cancelled", message: "项目已切换；已发送的恢复请求请在原项目刷新状态核对。" };
             if (!(recovered?.result || recovered)?.recovered)
                 throw new Error("Worker 尚未确认训练恢复，未修改本地状态。");
             await this.saveDistributedQueue(root, undefined, { mutateLatest: latest => ({ ...latest,
@@ -12331,7 +12333,7 @@ class RealtimeTunnelPanelProvider {
                             originalExecution: { status: job.status, error: job.error, mode: job.actualExecutionMode },
                         }) }) }) });
             this.postState();
-            return recovered;
+            return { ...(recovered.result || recovered), status: "completed", message: "已核验并恢复训练完成，未重新训练。" };
         }
         const sourceRow = this.workerCodeSyncTargets().find((row) => row.id === job.workerId);
         if (!sourceRow)
@@ -27316,6 +27318,7 @@ function hostOperationLeaseActionForUiCommand(command) {
     return hostOperationUiCommands.has(command) ? command : "";
 }
 const HOST_OPERATION_LEASE_ACTION_LABELS = Object.freeze({
+    retryDistributedJob: "核验并恢复任务",
     quickSetup: "检查服务器配置",
     configureSessions: "配置 Xshell 会话",
     configureAgentSessions: "配置 Agent 会话",

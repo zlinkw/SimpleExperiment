@@ -169,9 +169,11 @@ test('training recovery requires confirmation for the unchanged job and current 
         return scenario === 'cancel' ? undefined : '恢复训练完成';
       } } },
     }).retryDistributedJobFromUi;
-    await retry.call(owner, { planId: 'run', jobIndex: 0 });
+    const outcome = await retry.call(owner, { planId: 'run', jobIndex: 0 });
     assert.equal(confirmations, scenario === 'confirm' ? 1 : 0);
     assert.equal(owner.queue.plans[0].jobs[0].status, scenario === 'confirm' ? 'completed' : 'failed');
+    assert.equal(outcome.status, scenario === 'confirm' ? 'completed' : 'cancelled');
+    assert.match(outcome.message, scenario === 'confirm' ? /已核验并恢复训练完成/ : /已取消/);
   }
 });
 test('isolated Worker modes and reviewed training recovery reject unsafe evidence', () => {

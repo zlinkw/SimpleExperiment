@@ -3161,6 +3161,7 @@ export function renderPanelHtml(): string {
     const explicitPlanFileCommands = new Set(["openPlan", "archivePlan", "restoreArchivedPlan"]);
     const explicitSavePlanCommands = new Set(["savePlan"]);
     const webviewHandledCommands = new Set([
+      "retryDistributedJob",
       "stopAllPlans",
       "stopAndClearPlan", "reloadWindow", "webviewHeartbeatAck", "webviewVisibility",
       "quickSetup", "openSetupGuide", "openAdvancedCommandsSetting", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "reassignWorkerTask", "recallPlanToLocalQueue", "prepareAgents",
@@ -3363,9 +3364,9 @@ export function renderPanelHtml(): string {
       const distributedRetry = event.target.closest("button[data-distributed-retry]");
       if (distributedRetry) {
         event.preventDefault();
-        vscode.postMessage({ command: "retryDistributedJob", planId: distributedRetry.dataset.distributedRetry,
-          jobIndex: Number(distributedRetry.dataset.jobIndex) });
-        return;
+        // Preserve the legacy attribute while using the shared busy/status message path.
+        distributedRetry.dataset.command = "retryDistributedJob";
+        distributedRetry.dataset.planId = distributedRetry.dataset.distributedRetry;
       }
       const executionPlanTarget = event.target.closest("button[data-execution-plan-select]");
       if (executionPlanTarget) {
@@ -5839,7 +5840,7 @@ export function renderPanelHtml(): string {
 
     function pendingKeyFromButtonDataset(button) {
       const payload = {};
-      ["runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "endpointId", "remotePath", "file", "planFile", "workerId", "configScope", "savePlan", "sourcePath", "sourceLabel", "presentationPath", "chartType", "styleMode", "target", "session", "window"].forEach((key) => {
+      ["runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "endpointId", "remotePath", "file", "planFile", "planId", "jobIndex", "workerId", "configScope", "savePlan", "sourcePath", "sourceLabel", "presentationPath", "chartType", "styleMode", "target", "session", "window"].forEach((key) => {
         if (button.dataset[key]) payload[key] = button.dataset[key];
       });
       if (button.dataset.batchSelected === "true") payload.batchSelected = "true";
@@ -5848,9 +5849,9 @@ export function renderPanelHtml(): string {
 
     function pendingKeyForAction(command, payload) {
       const parts = [command];
-      ["runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "endpointId", "remotePath", "file", "planFile", "workerId", "configScope", "savePlan", "sourcePath", "sourceLabel", "presentationPath", "chartType", "styleMode", "target", "batchSelected"].forEach((key) => {
+      ["runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "endpointId", "remotePath", "file", "planFile", "planId", "jobIndex", "workerId", "configScope", "savePlan", "sourcePath", "sourceLabel", "presentationPath", "chartType", "styleMode", "target", "batchSelected"].forEach((key) => {
         const value = payload && payload[key];
-        if (value) parts.push(key + "=" + String(value));
+        if (value || (key === "jobIndex" && value === 0)) parts.push(key + "=" + String(value));
       });
       return parts.join("|");
     }
@@ -14397,7 +14398,7 @@ export function renderPanelHtml(): string {
           const logButton = '<button type="button" class="mini secondary" data-job-tmux-log="1" data-worker-id="' + escAttr(job.workerId || "") + '" data-command-id="' + escAttr(job.commandId || "") + '" data-output-dir="' + escAttr(job.outputDir || "") + '"' + (canJumpLog ? '' : ' disabled') + ' title="' + (canJumpLog ? '在 TMUX 区域选中该 Worker 的真实任务窗口标签' : '等待任务派发后定位对应的 TMUX 日志标签') + '">跳转到日志</button>';
           const errorText = String(job.artifactError || job.error || "").trim();
           const trainingRecoveryButton = status === "failed" && errorText.indexOf("Validation-only tuning cannot access test patients") >= 0
-            ? '<button type="button" class="mini secondary" data-distributed-retry="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-job-index="' + escAttr(String(job.index)) + '">核验并恢复训练完成</button>' : "";
+            ? '<button type="button" class="mini secondary" data-command="retryDistributedJob" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-plan-file="' + escAttr(group.planFile || "") + '" data-distributed-retry="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-job-index="' + escAttr(String(job.index)) + '">核验并恢复训练完成</button>' : "";
           const codeProofBlocked = status === "queued" && errorText.indexOf("code-sync proof") >= 0;
           const recallButton = status === "queued" || job.recallRequested === true
             ? '<button type="button" class="mini secondary" data-command="recallPlanToLocalQueue" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-plan-file="' + escAttr(group.planFile || "") + '" data-job-index="' + escAttr(String(job.index)) + '" title="只召回此排队 job；运行中、已结束或状态不明的任务保持原 Worker。">' + (job.recallRequested ? "重试召回" : "召回到本机") + '</button>' : "";
