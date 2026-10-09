@@ -19,6 +19,35 @@ function executionPlanSource() {
   return panel.slice(helpers, end).replaceAll("\\\\", "\\");
 }
 
+test("completed Plan history keeps explicit expansion across status refreshes, count changes and recreation", () => {
+  const sandbox = clickSandbox({ detailsOpenState: {}, persistTransientPanelState: () => {} });
+  vm.runInContext(extract("detailsOpenAttr", "scheduleStatusInfoPopoverClose"), sandbox);
+  const toggleStart = panel.indexOf('const keyed = event.target.closest && event.target.closest("details[data-details-key]")');
+  const toggleEnd = panel.indexOf('const historyDetails =', toggleStart);
+  vm.runInContext('this.toggleHistory = function(event) {' + panel.slice(toggleStart, toggleEnd) + '};', sandbox);
+  const plan = { id: "completed-run", planFile: "plans/done.yaml", enqueuedAt: "2026-10-09T08:00:00Z",
+    jobs: [{ index: 0, case: "done", seed: 42, status: "completed", workerId: "worker-a", commandId: "done-command" }] };
+  const render = (extra = []) => sandbox.render({ distributedPlans: [plan, ...extra] });
+  const history = /<details class="executionPlanHistory" data-details-key="execution-plan-history"([^>]*)>/;
+  render();
+  assert.ok(history.test(sandbox.html), "history participates in persisted detail state");
+  assert.doesNotMatch(sandbox.html.match(history)[1], /open/);
+  const element = { open: true, dataset: { detailsKey: "execution-plan-history" }, closest() { return this; } };
+  sandbox.toggleHistory({ target: element });
+  plan.jobs[0].finishedAt = "2026-10-09T09:00:00Z";
+  render(); assert.match(sandbox.html.match(history)[1], /open/);
+  render([{ ...plan, id: "second-run", planFile: "plans/second.yaml" }]);
+  assert.match(sandbox.html.match(history)[1], /open/);
+  sandbox.render({ distributedPlans: [] });
+  render(); assert.match(sandbox.html.match(history)[1], /open/);
+  element.open = false; sandbox.toggleHistory({ target: element });
+  render(); assert.doesNotMatch(sandbox.html.match(history)[1], /open/);
+  const restored = clickSandbox({ detailsOpenState: { "execution-plan-history": true } });
+  vm.runInContext(extract("detailsOpenAttr", "scheduleStatusInfoPopoverClose"), restored);
+  restored.render({ distributedPlans: [plan] });
+  assert.match(restored.html.match(history)[1], /open/, "webview restoration retains the explicit expansion");
+});
+
 test("automatic retry shows waiting, queue, exhaustion and success without losing the original failure", () => {
   const sandbox = clickSandbox();
   const job = { index: 1, case: "bus", seed: 44, status: "failed", workerId: "nwpu5", commandId: "failed-job",

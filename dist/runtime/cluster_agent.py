@@ -67,9 +67,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.262"
-RUNTIME_VERSION = "0.5.262"
-PLUGIN_VERSION = "0.5.262"
+AGENT_VERSION = "0.5.263"
+RUNTIME_VERSION = "0.5.263"
+PLUGIN_VERSION = "0.5.263"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024

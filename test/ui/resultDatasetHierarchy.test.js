@@ -234,6 +234,44 @@ test("shared Plan link opens and scrolls to its advanced artifact detail", () =>
   assert.match(source, /openSharedArtifactsForPlan\(sharedPlanSource\.dataset\.planKey \|\| ""\)/);
 });
 
+test("same-name Plans display distinct paths while dataset references and manual expansion remain stable", () => {
+  const normal = { ...plan("experiments/plans/comparison/concatenation.yaml", "normal-concatenation"),
+    assignment: { kind: "multiple", datasets: ["bus_cot_lesion", "pad_ufes_20"] } };
+  const tuning = plan("experiments/plans/comparison_tuning/concatenation.yaml", "tuning-concatenation");
+  const sameNameCatalog = { datasets: [
+    { dataset: "bus_cot_lesion", datasetKey: "bus_cot_lesion", tables: [finalTable("bus_cot_lesion", 2, "bus/final.csv")], plans: [] },
+    { dataset: "pad_ufes_20", datasetKey: "pad_ufes_20", tables: [finalTable("pad_ufes_20", 8, "pad/final.csv")], plans: [tuning] },
+    { dataset: "_shared", datasetKey: "_shared", tables: [], plans: [normal] },
+  ], multiDatasetPlans: [normal], legacyTables: [] };
+  const renderer = createRenderer();
+  const state = { planFileInput: tuning.planFile, resultOutputConfig: { catalog: sameNameCatalog, tables: sameNameCatalog.datasets.flatMap(group => group.tables) } };
+  const view = renderer.resultCatalogViewModel(sameNameCatalog, state);
+  assert.equal(view.defaultDatasetKey, "pad_ufes_20");
+  assert.equal(view.datasets.find(group => group.datasetKey === "pad_ufes_20").associatedPlanCount, 2);
+  assert.equal(view.datasets.find(group => group.datasetKey === "bus_cot_lesion").associatedPlanCount, 1);
+  renderer.detailsOpenState["result-dataset-pad_ufes_20"] = false;
+  renderer.detailsOpenState["result-dataset-plans-pad_ufes_20"] = true;
+  const html = renderer.renderProjectResultTables(state);
+  assert.match(html, /resultPlanReferenceName">comparison\/concatenation.yaml</);
+  assert.match(html, /resultPlanReferenceName">comparison_tuning\/concatenation.yaml</);
+  assert.match(html, /data-details-key="result-plan-shared-sources-normal-concatenation"[^>]*><summary[^>]*>comparison\/concatenation.yaml/);
+  assert.match(html, /data-details-key="result-dataset-pad_ufes_20"(?! open)/);
+  assert.match(html, /data-details-key="result-dataset-plans-pad_ufes_20" open/);
+  const uniqueCatalog = { ...sameNameCatalog, datasets: sameNameCatalog.datasets.map(group => ({ ...group, plans: group.datasetKey === "pad_ufes_20" ? [] : group.plans })) };
+  const uniqueHtml = renderer.renderProjectResultTables({ resultOutputConfig: { catalog: uniqueCatalog, tables: [] } });
+  assert.match(uniqueHtml, /resultPlanReferenceName">concatenation.yaml</, "repeated references to a single Plan do not qualify its label");
+});
+
+test("Plan labels use enough parent directories to distinguish deeper name collisions", () => {
+  const plans = [plan("experiments/plans/train/shared/model.yaml", "train"), plan("experiments/plans/test/shared/model.yaml", "test")];
+  const renderer = createRenderer();
+  const html = renderer.renderProjectResultTables({ resultOutputConfig: { catalog: {
+    datasets: [{ dataset: "dataset", datasetKey: "dataset", plans, tables: [] }], legacyTables: [],
+  }, tables: [] } });
+  assert.match(html, /resultPlanReferenceName">train\/shared\/model.yaml</);
+  assert.match(html, /resultPlanReferenceName">test\/shared\/model.yaml</);
+});
+
 test("split tool is reset only at fresh document initialization", () => {
   assert.match(source, /let detailsOpenState = restoredTransientPanelState\.detailsOpenState \|\| \{\};\s*detailsOpenState\["execution-full-records"\] = false;\s*detailsOpenState\["result-split-tables"\] = false;/);
   assert.match(source, /\.resultDatasetGroup > summary \{ display: grid;/);

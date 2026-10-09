@@ -14470,7 +14470,7 @@ export function renderPanelHtml(): string {
         ? '<details class="executionPlanFold" data-details-key="execution-plan-fold" open><summary>已折叠 Plan ' + folded.length + '</summary>' + folded.map(foldRow).join("") + '</details>'
         : "";
       const completedHistoryHtml = completedHistory.length
-        ? '<details class="executionPlanHistory"><summary>已完成 Plan 历史 ' + completedHistory.length + '</summary>' + completedHistory.map(renderPlan).join("") + '</details>'
+        ? '<details class="executionPlanHistory" data-details-key="execution-plan-history"' + detailsOpenAttr("execution-plan-history", false) + '><summary>已完成 Plan 历史 ' + completedHistory.length + '</summary>' + completedHistory.map(renderPlan).join("") + '</details>'
         : "";
       setHtmlIfChanged("executionPlanList", items.length
         ? '<div class="executionPlanList">' + currentItems.map(renderPlan).join("") + '</div>' + completedHistoryHtml + foldHtml
@@ -15818,6 +15818,27 @@ export function renderPanelHtml(): string {
       const parts = String(value || "").split("/");
       return parts[parts.length - 1] || String(value || "");
     }
+    function resultCatalogPlanPath(plan) {
+      return String(plan.planFile || plan.label || plan.planKey || "").split(String.fromCharCode(92)).join("/");
+    }
+    function resultCatalogPlanLabels(plans) {
+      const pathsByName = new Map(), labels = new Map();
+      for (const plan of plans) {
+        const path = resultCatalogPlanPath(plan), name = resultCatalogBasename(path);
+        if (!pathsByName.has(name)) pathsByName.set(name, new Set());
+        pathsByName.get(name).add(path);
+      }
+      for (const [name, paths] of pathsByName) for (const path of paths) {
+        const parts = path.split("/");
+        let label = name;
+        for (let depth = 2; paths.size > 1 && depth <= parts.length; depth++) {
+          label = parts.slice(-depth).join("/");
+          if ([...paths].every(other => other === path || other.split("/").slice(-depth).join("/") !== label)) break;
+        }
+        labels.set(path, label);
+      }
+      return labels;
+    }
     function openResultSplitToolForTable(tableKey) {
       resultSplitTableKey = String(tableKey || "");
       resultSplitFieldName = "";
@@ -15855,6 +15876,7 @@ export function renderPanelHtml(): string {
               ? '<div class="notice warning">读取结果目录失败：' + esc(catalogLoadError || "未知错误") + '。已有结果保持不变，可稍后重试。</div>'
               : "";
       const view = resultCatalogViewModel(catalog, state);
+      const planLabels = resultCatalogPlanLabels(view.datasets.flatMap(dataset => dataset.associatedPlans).concat(view.unassigned.plans, view.shared.plans));
       const expandedDataset = view.datasets.find(row => detailsOpenState["result-dataset-" + row.datasetKey] === true) || view.datasets.find(row => row.datasetKey === view.defaultDatasetKey);
       const selected = tables.find(row => row.tableKey === resultSplitTableKey) || expandedDataset?.finalTable || view.datasets.find(row => row.finalTable)?.finalTable || tables[0];
       const field = selected && selected.header.includes(resultSplitFieldName) ? resultSplitFieldName : selected && selected.header.includes("rate_percent") ? "rate_percent" : selected?.header?.[0] || "";
@@ -15870,7 +15892,7 @@ export function renderPanelHtml(): string {
       const reportHtml = reportCount ? '<div class="resultSyncStatus"><span>' + esc(reportCount) + '</span>' + (reportDetails ? '<details data-details-key="result-sync-report"' + detailsOpenAttr("result-sync-report", false) + '><summary>查看 Plan 与 Worker 明细</summary><div class="resultSyncDetails">' + reportDetails + '</div></details>' : '') + '</div>' : "";
       const tableRow = (row, kind) => '<div class="resultTableRowCompact' + (kind === "final" ? ' resultDatasetFinal' : '') + '" title="' + escAttr(row.path || "") + '"><span class="resultTableName" title="' + escAttr(row.path || "") + '">' + esc(kind === "final" ? "final.csv" : row.name) + '</span><span class="resultTableCount">' + Number(row.rowCount || 0) + ' 行</span><span class="resultTableActions"><button type="button" class="secondary mini" data-command="openLocalResultTable" data-table-key="' + escAttr(row.tableKey) + '" data-format="csv" title="' + escAttr(row.path || "") + '">CSV</button><button type="button" class="secondary mini" data-command="openLocalResultTable" data-table-key="' + escAttr(row.tableKey) + '" data-format="md" title="' + escAttr(row.markdownPath || "") + '">Markdown</button><button type="button" class="secondary mini" data-open-result-split data-table-key="' + escAttr(row.tableKey) + '">拆表</button></span></div>';
       const planRows = (plans, ownerKey, referenceOnly = false) => plans.map(plan => {
-        const planName = resultCatalogBasename(plan.planFile || plan.label || plan.planKey);
+        const planName = planLabels.get(resultCatalogPlanPath(plan));
         const stablePlanKey = String(plan.planKey || plan.planFile || planName);
         const detailKey = "result-plan-" + ownerKey + "-" + stablePlanKey;
         const assignmentDatasets = asArray(plan.assignment?.datasets);
@@ -15900,7 +15922,7 @@ export function renderPanelHtml(): string {
       }).join("");
       const specialHtml = (special, key, title) => special.plans.length ? '<details class="resultSpecialGroup ' + (key === "unassigned" ? 'resultUnassigned' : 'resultAdvancedSources') + '" id="result-' + key + '" data-details-key="result-' + key + '"' + detailsOpenAttr("result-" + key, false) + '><summary>' + (key === "shared-sources" ? title + '（' + special.planCount + ' 个 Plan · ' + special.artifactCount + ' 个文件）' : title + '（' + special.planCount + '）') + '</summary><div class="resultSpecialBody">' + planRows(special.plans, key) + '</div></details>' : "";
       const datasetOptions = view.datasets.map(row => '<option value="' + escAttr(row.dataset) + '">' + esc(row.dataset) + '</option>').join("");
-      const unassignedRows = view.unassigned.plans.map(plan => '<label class="resultPlanMapRow"><input type="checkbox" data-plan-map-check value="' + escAttr(plan.planFile || "") + '"><span title="' + escAttr(plan.planFile || "") + '">' + esc(resultCatalogBasename(plan.planFile || plan.label)) + '<small class="muted">' + esc(plan.planFile || "") + '</small></span><select data-plan-map-dataset aria-label="映射 ' + escAttr(plan.planFile || "") + '"><option value="">请选择数据集</option>' + datasetOptions + '</select></label>').join("");
+      const unassignedRows = view.unassigned.plans.map(plan => '<label class="resultPlanMapRow"><input type="checkbox" data-plan-map-check value="' + escAttr(plan.planFile || "") + '"><span title="' + escAttr(plan.planFile || "") + '">' + esc(planLabels.get(resultCatalogPlanPath(plan))) + '<small class="muted">' + esc(plan.planFile || "") + '</small></span><select data-plan-map-dataset aria-label="映射 ' + escAttr(plan.planFile || "") + '"><option value="">请选择数据集</option>' + datasetOptions + '</select></label>').join("");
       const unassignedHtml = view.unassigned.planCount ? '<section class="resultSpecialSection"><h4 class="resultDatasetSectionTitle">待处理</h4><div class="resultSpecialGroup resultUnassigned"><div class="resultUnassignedLead">⚠ ' + view.unassigned.planCount + ' 个 Plan 尚未识别数据集</div><div class="muted">这些现有结果缺少数据集元数据；应用映射只重新整理本地已有结果，不会重新训练。</div><div class="resultTopActions"><button type="button" class="secondary mini" data-command="autoMatchPlanDatasets">自动匹配可确定项（已恢复 ' + view.autoRecoverableCount + '）</button><button type="button" class="secondary mini" data-open-result-mapping>设置结果列映射</button><details data-details-key="result-unassigned"' + detailsOpenAttr("result-unassigned", false) + '><summary>尚未识别 Plan（' + view.unassigned.planCount + '）</summary><div class="resultPlanMapList">' + unassignedRows + '<button type="button" data-command="applyPlanDatasetMapping">应用映射并重新整理已有结果</button><div class="muted">从本地已有逐 seed 结果重新汇总；原始 CSV 保持不变。</div></div></details></div></div></section>' : "";
       const sharedHtml = specialHtml(view.shared, "shared-sources", "跨数据集 Plan 与共享产物");
       const legacyTables = asArray(catalog.legacyTables);
