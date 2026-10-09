@@ -1450,7 +1450,7 @@ export function renderPanelHtml(): string {
        <div class="section-head">
          <div class="section-title">
            <h2>TMUX 会话 / 窗口 / 窗格</h2>
-           <div class="section-desc">默认展示所有窗口卡片，点击卡片切换 capture-pane；窗口数量按服务器 GPU 数量动态生成</div>
+           <div class="section-desc">总览显示服务器当前窗口列表；选中具体任务或窗口后读取日志</div>
          </div>
          <div class="cardTools">
            <select id="tmuxWorkerSelect" title="选择 tmux 所在 Worker"></select>
@@ -1466,8 +1466,8 @@ export function renderPanelHtml(): string {
          <div id="tmuxOverview" class="tmuxOverviewGrid" style="margin-top:6px;display:grid;gap:4px;"></div>
        </div>
        <details open>
-         <summary>实时捕获数据（<span id="tmuxCaptureMeta">等待同步</span>）</summary>
-         <pre id="tmuxCapturePre" style="max-height:320px;overflow:auto;background:var(--vscode-textCodeBlock-background);padding:10px;border-radius:4px;white-space:pre-wrap;word-break:break-all;">尚未同步，请刷新或等待自动轮询...</pre>
+         <summary>实时捕获数据（<span id="tmuxCaptureMeta">选择任务或窗口后读取日志</span>）</summary>
+         <pre id="tmuxCapturePre" style="max-height:320px;overflow:auto;background:var(--vscode-textCodeBlock-background);padding:10px;border-radius:4px;white-space:pre-wrap;word-break:break-all;"></pre>
        </details>
       <div id="tmuxInstructions" style="display:grid;gap:6px;margin-top:8px;padding:8px;border:1px solid var(--border);border-radius:6px;background:var(--subtle-bg);">
         <b style="font-size:12px;">可复制的 tmux 附着指令（当嵌入 xterm 异常时手动打开）</b>
@@ -2108,22 +2108,30 @@ export function renderPanelHtml(): string {
         for (let si = 0; si < list.length; si++) {
           const sess = list[si] || {};
           const badge = classifyTmuxWindow(sess.name || "");
-          let sessionGrid = '<div class="tmuxOverviewItem"><span class="pill">' + esc(badge) + '</span><b>' + esc(sess.name || "") + '</b><span class="muted">windows ' + String(sess.windowCount || (sess.windows ? sess.windows.length : 0)) + '</span>';
+          let sessionGrid = '<div class="tmuxOverviewItem"><span class="pill">' + esc(badge) + '</span><b>' + esc(sess.name || "") + '</b><span class="muted">服务器窗口 ' + String(sess.windowCount || (sess.windows ? sess.windows.length : 0)) + '</span>';
           const wins = sess.windows || [];
+          let extraWindows = "";
+          let extraCount = 0;
           for (let wi = 0; wi < wins.length; wi++) {
             const w = wins[wi] || {};
             const wLabel = (w.index || "") + ":" + (w.name || "") + (w.active ? " *" : "");
             const target = (sess.name || "") + ":" + (w.index || "0");
             const isActive = activeFilter === target;
-            sessionGrid += '<span style="padding:2px 6px;border:1px dashed var(--border);border-radius:4px;font-size:11px;' + (isActive ? 'outline:1px solid var(--vscode-focusBorder);' : '') + '" data-tmux-filter="' + escAttr(target) + '">' + esc(wLabel) + ' panes ' + String(w.panes ? w.panes.length : 0);
+            let windowHtml = '<span style="padding:2px 6px;border:1px dashed var(--border);border-radius:4px;font-size:11px;' + (isActive ? 'outline:1px solid var(--vscode-focusBorder);' : '') + '" data-tmux-filter="' + escAttr(target) + '">' + esc(wLabel) + ' panes ' + String(w.panes ? w.panes.length : 0);
             if (w.panes) {
               for (let pi = 0; pi < w.panes.length; pi++) {
                 const pane = w.panes[pi] || {};
                 const pLabel = "." + (pane.index || "") + " " + (pane.command || "") + (pane.active ? "*" : "");
-                sessionGrid += ' <code style="font-size:10px;">' + esc(pane.target || "") + esc(pLabel) + '</code>';
+                windowHtml += ' <code style="font-size:10px;">' + esc(pane.target || "") + esc(pLabel) + '</code>';
               }
             }
-            sessionGrid += '</span>';
+            windowHtml += '</span>';
+            if (badge === "gpu" && !w.task) { extraWindows += windowHtml; extraCount++; }
+            else sessionGrid += windowHtml;
+          }
+          if (extraCount) {
+            const extraId = "tmuxExtraWindows-" + si;
+            sessionGrid += '<details id="' + extraId + '" class="tmuxOtherSessions"' + (el(extraId)?.open ? ' open' : '') + '><summary>其他服务器窗口 · ' + extraCount + '</summary><div class="tmuxOverviewGrid">' + extraWindows + '</div></details>';
           }
           sessionGrid += '</div>';
           if (badge === "gpu") grid += sessionGrid;
@@ -2390,18 +2398,14 @@ export function renderPanelHtml(): string {
       }
     }
     function tmuxResolveCaptureTarget() {
+      const activeFilter = normalizeTmuxWindowFilter(tmuxWindowFilter);
+      if (activeFilter === "all" || activeFilter.indexOf("gpu-slot:") === 0) return "";
       if (typeof tmuxJobLogSelection !== "undefined" && tmuxJobLogSelection) {
         if (tmuxJobLogSelection.status !== "selected" || tmuxJobLogSelection.workerId !== tmuxSelectedWorkerId) return "";
         const matched = resolveJobTmuxWindow(tmuxJobLogSelection, tmuxListCache);
         return matched && matched.target === tmuxSelectedTaskTarget ? matched.target : "";
       }
-      const activeFilter = normalizeTmuxWindowFilter(tmuxWindowFilter);
       if (activeFilter !== "all") {
-        if (activeFilter.indexOf("gpu-slot:") === 0) {
-          const sessions = tmuxListCache.sessions || [];
-          const workerSession = sessions.find(function(item){ return classifyTmuxWindow(item && item.name) === "worker"; });
-          return workerSession ? String(workerSession.name || "") : (sessions[0] ? String(sessions[0].name || "") : "");
-        }
         if (tmuxSelectedPaneTarget && (tmuxSelectedPaneTarget.indexOf(activeFilter + ".") === 0 || tmuxSelectedPaneTarget.indexOf(activeFilter + ":") === 0)) {
           const sessions = tmuxListCache.sessions || [];
           for (let si = 0; si < sessions.length; si++) {
@@ -2419,21 +2423,22 @@ export function renderPanelHtml(): string {
           const sessions = tmuxListCache.sessions || [];
           const session = sessions.find(function(item){ return String(item.name || "") === activeFilter; });
           const windows = session && Array.isArray(session.windows) ? session.windows : [];
-          if (tmuxSelectedTaskTarget && windows.some(function(win){ return String(win.target || "") === tmuxSelectedTaskTarget; })) return tmuxSelectedTaskTarget;
+          if (tmuxSelectedTaskTarget && windows.some(function(win){ return !!win.task && String(win.target || (activeFilter + ":" + String(win.index || "0"))) === tmuxSelectedTaskTarget; })) return tmuxSelectedTaskTarget;
           const preferred = windows.find(function(win){ return String((win.task || {}).status || "").toLowerCase() === "running"; }) || windows.slice().reverse().find(function(win){ return !!win.task; });
           if (preferred) {
             tmuxSelectedTaskTarget = String(preferred.target || (activeFilter + ":" + String(preferred.index || "0")));
             return tmuxSelectedTaskTarget;
           }
+          tmuxSelectedTaskTarget = "";
+          return "";
         }
-        return activeFilter;
+        const exists = (tmuxListCache.sessions || []).some(function(session){
+          return (session.windows || []).some(function(win){
+            return String(win.target || (String(session.name || "") + ":" + String(win.index || "0"))) === activeFilter;
+          });
+        });
+        return exists ? activeFilter : "";
       }
-      const sel = el("tmuxWindowSelect");
-      if (sel && sel.value) return sel.value.trim();
-      const cands = getTmuxWindowCandidates(tmuxListCache.sessions || []);
-      for (let i = 0; i < cands.length; i++) if (cands[i].active) return cands[i].target;
-      if (cands.length) return cands[0].target;
-      if (tmuxListCache.sessions && tmuxListCache.sessions[0]) return (tmuxListCache.sessions[0].name || "") + ":0";
       return "";
     }
     function decodeCapturedText(raw){
@@ -2501,7 +2506,14 @@ export function renderPanelHtml(): string {
       const meta = el("tmuxCaptureMeta");
       const win = tmuxResolveCaptureTarget();
       if (!pre || !meta) return;
-      if (!win || !tmuxSelectedWorkerId) return;
+      if (!win || !tmuxSelectedWorkerId) {
+        pre.textContent = "";
+        pre.dataset.captureTarget = "";
+        pre.dataset.lastFetch = "";
+        tmuxLastCaptureTarget = "";
+        meta.textContent = "选择任务或窗口后读取日志";
+        return;
+      }
       const now = Date.now();
       const captureKey = tmuxSelectedWorkerId + ":" + win;
       if (document.hidden || tmuxCaptureBusy.has(captureKey)) return;

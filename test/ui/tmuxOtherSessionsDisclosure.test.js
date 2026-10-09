@@ -17,15 +17,102 @@ function harness() {
   ] }));
   sessions.push({ name: "m1mechanism", windows: Array.from({ length: 17 }, (_, i) => ({ index: String(i), name: "mechanism-" + i, panes: [{ target: "m1mechanism:" + i + ".0", command: "bash" }] })) });
   sessions.push({ name: "zlk-worker-agent", windows: [{ index: "0", name: "agent", panes: [] }] });
+  const requests = [];
   const context = vm.createContext({
     tmuxListCache: { workerId: "NWPU5", sessions, gpuIds: ["0", "1"], fetchedAt: "t0" },
     tmuxWindowFilter: "all", tmuxSelectedTaskTarget: "", tmuxSelectedPaneTarget: "", tmuxSelectedWorkerId: "NWPU5", tmuxClearTaskTabsBusy: false,
-    el: id => elements[id] || (elements[id] = { innerHTML: "", textContent: "", value: "", options: [], open: false }),
+    tmuxLastCaptureTarget: "old", tmuxCaptureBusy: new Set(), document: { hidden: false },
+    vscode: { postMessage: message => requests.push(message) },
+    el: id => elements[id] || (elements[id] = { innerHTML: "", textContent: "", value: "", options: [], open: false, dataset: {} }),
   });
   vm.runInContext(between("function esc(value)", "function cssEscape(") + between("function normalizeTmuxWindowFilter(", "function renderTmuxWorkersOverview("), context);
+  vm.runInContext(between("function tmuxResolveCaptureTarget()", "function decodeCapturedText(")
+    + between("async function refreshTmuxCapture()", "function scheduleTmuxPoll()"), context);
   const render = () => vm.runInContext("renderTmuxOverview(tmuxListCache.sessions)", context);
-  return { context, elements, render };
+  return { context, elements, render, requests };
 }
+
+test("GPU overview never downloads pane history and releases previously selected output", async () => {
+  const f = harness();
+  f.render();
+  f.elements.tmuxWindowSelect.value = "zlk-gpu-0:1";
+  f.elements.tmuxCapturePre = { textContent: "previous log".repeat(1000), dataset: { captureTarget: "old", lastFetch: "old" } };
+  for (let index = 0; index < 5; index++) await f.context.refreshTmuxCapture();
+  assert.equal(f.requests.length, 0, "overview polling must fetch metadata only");
+  assert.equal(f.elements.tmuxCapturePre.textContent, "");
+  assert.equal(f.elements.tmuxCapturePre.dataset.captureTarget, "");
+  assert.equal(f.context.tmuxLastCaptureTarget, "");
+  if (process.env.TMUX_LIVE_INVENTORY) {
+    const inventory = JSON.parse(process.env.TMUX_LIVE_INVENTORY);
+    assert.equal(inventory.ok, true);
+    f.context.tmuxListCache = inventory;
+    f.context.tmuxSelectedWorkerId = inventory.workerId;
+    f.render();
+    for (const session of inventory.sessions.filter(row => row.name.includes("-gpu-"))) {
+      const header = f.elements.tmuxOverview.innerHTML.indexOf("<b>" + session.name + "</b>");
+      const folded = f.elements.tmuxOverview.innerHTML.indexOf('<details id="tmuxExtraWindows-', header);
+      assert.ok(header >= 0 && folded > header);
+      const primary = f.elements.tmuxOverview.innerHTML.slice(header, folded);
+      for (const window of session.windows) {
+        const present = primary.includes('data-tmux-filter="' + window.target + '"');
+        assert.equal(present, Boolean(window.task), window.target);
+      }
+    }
+    await f.context.refreshTmuxCapture();
+    assert.equal(f.requests.length, 0, "the real server inventory must not trigger historical captures either");
+  }
+});
+
+test("a late capture cannot restore cleared output after returning to overview", async () => {
+  const f = harness();
+  f.render();
+  f.elements.tmuxCapturePre = { textContent: "selected output", dataset: { captureTarget: "zlk-gpu-0:1" } };
+  f.elements.tmuxCaptureMeta = { textContent: "old" };
+  f.context.tmuxWindowFilter = "zlk-gpu-0";
+  await f.context.refreshTmuxCapture();
+  assert.equal(f.requests[0].window, "zlk-gpu-0:1");
+  f.context.tmuxWindowFilter = "all";
+  await f.context.refreshTmuxCapture();
+  const html = renderPanelHtml();
+  const start = html.indexOf('if (item.type === "tmuxCapture")');
+  const end = html.indexOf('if (item.type === "tensorboardSwitchStatus")', start);
+  assert.ok(start >= 0 && end > start);
+  f.context.decodeCapturedText = String;
+  vm.runInContext('for (const item of [{type:"tmuxCapture",workerId:"NWPU5",window:"zlk-gpu-0:1",text:"late old output"}]) { '
+    + html.slice(start, end) + ' }', f.context);
+  assert.equal(f.elements.tmuxCapturePre.textContent, "");
+  assert.equal(f.requests.length, 1);
+});
+
+test("empty GPU and removed explicit window never fall back to historical consoles", async () => {
+  const f = harness();
+  f.render();
+  f.context.tmuxListCache.sessions[0].windows = [{ index: "0", name: "bash" }, { index: "7", name: "run-old" }];
+  for (const filter of ["zlk-gpu-0", "gpu-slot:2", "zlk-gpu-0:9", "missing:0"]) {
+    f.context.tmuxWindowFilter = filter;
+    assert.equal(f.context.tmuxResolveCaptureTarget(), "", filter);
+    await f.context.refreshTmuxCapture();
+  }
+  assert.equal(f.requests.length, 0);
+  f.context.tmuxWindowFilter = "zlk-gpu-0:7";
+  await f.context.refreshTmuxCapture();
+  assert.equal(f.requests.length, 1, "explicit selection of an existing old server window remains available");
+  assert.equal(f.requests[0].window, "zlk-gpu-0:7");
+});
+
+test("old unbound GPU windows stay collapsed while the current task is shown", () => {
+  const f = harness();
+  f.context.tmuxListCache.sessions[0].windows.push({ index: "7", name: "run-old", panes: [{ target: "zlk-gpu-0:7.0", command: "bash" }] });
+  f.render();
+  const html = f.elements.tmuxOverview.innerHTML;
+  const folded = html.indexOf('<details id="tmuxExtraWindows-0"');
+  assert.ok(folded > 0);
+  assert.doesNotMatch(html.slice(0, folded), /run-old|0:bash/);
+  assert.match(html.slice(0, folded), /1:run-0/);
+  assert.doesNotMatch(html.slice(folded, html.indexOf(">", folded) + 1), /\bopen\b/);
+  assert.match(html.slice(folded), /其他服务器窗口 · 2/);
+  assert.match(html.slice(folded), /data-tmux-filter="zlk-gpu-0:7"/);
+});
 
 test("unrelated tmux windows are folded outside the GPU cards and overview", () => {
   const { elements, render } = harness();
