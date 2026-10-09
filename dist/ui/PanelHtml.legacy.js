@@ -509,7 +509,12 @@ function renderPanelHtml() {
     .operationStatusCard.accepted { border-left-color: #D97706; background: #FFFBEB; color: #0F172A; }
     .operationStatusCard span { color: var(--muted); font-size: var(--simple-font-sm); }
     .operationStatusCard b { font-size: var(--simple-font-status); font-weight: 850; font-variant-numeric: tabular-nums; }
-    .tmuxFilterBar { display: grid; grid-template-columns: repeat(auto-fit, minmax(132px, 1fr)); gap: 6px; margin: 8px 0 6px; }
+    .tmuxFilterBar { margin: 8px 0 6px; }
+    .tmuxGpuCards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 6px; }
+    .tmuxGpuCards .tmuxWindowCard { grid-template-columns: minmax(0, 1fr); gap: 3px; padding-right: 8px; }
+    .tmuxOtherSessions { grid-column: 1 / -1; min-width: 0; }
+    .tmuxOtherSessions > summary { color: var(--muted); cursor: pointer; padding: 4px 0; }
+    .tmuxOtherSessionGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 6px; margin-top: 6px; }
     .tmuxWindowWrap { position: relative; min-width: 0; }
     .tmuxWindowCard { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 6px; min-height: 42px; width: 100%; padding: 6px 28px 6px 8px; border: 1px solid var(--border); border-left: 4px solid #94A3B8; border-radius: 6px; background: var(--vscode-input-background); color: var(--text); text-align: left; position: relative; }
     .tmuxClose { position: absolute; top: 2px; right: 2px; width: 18px; height: 18px; line-height: 16px; text-align: center; font-size: 13px; font-weight: 700; border-radius: 50%; border: 1px solid var(--border); background: var(--subtle-bg); color: var(--muted); cursor: pointer; padding: 0; }
@@ -2017,6 +2022,7 @@ function renderPanelHtml() {
         const ao = order[a.category] !== undefined ? order[a.category] : 4;
         const bo = order[b.category] !== undefined ? order[b.category] : 4;
         if (ao !== bo) return ao - bo;
+        if (a.category === "gpu" && b.category === "gpu") return Number(a.gpuId) - Number(b.gpuId);
         if (a.active !== b.active) return a.active ? -1 : 1;
         const al = String(a.label).toLowerCase();
         const bl = String(b.label).toLowerCase();
@@ -2030,11 +2036,14 @@ function renderPanelHtml() {
       const bar = el("tmuxFilterBar");
       if (!bar) return;
       const candidates = getTmuxWindowCandidates(sessions);
-      const total = candidates.length;
+      const gpuCandidates = candidates.filter(function(c){ return c.category === "gpu"; });
       const activeFilter = normalizeTmuxWindowFilter(tmuxWindowFilter);
-      let html = "";
+      let html = '<div class="tmuxGpuCards">';
+      let otherHtml = "";
+      let otherCount = 0;
       const allActive = activeFilter === "all";
-      html += '<button type="button" class="tmuxWindowCard other' + (allActive ? ' is-active' : '') + '" data-tmux-filter="all" aria-pressed="' + (allActive ? "true" : "false") + '" title="显示所有窗口概览"><span>全部</span><b>' + String(total) + '</b></button>';
+      const otherExpanded = !!el("tmuxOtherSessions")?.open || candidates.some(function(c){ return c.category !== "gpu" && c.target === activeFilter; });
+      html += '<button type="button" class="tmuxWindowCard other' + (allActive ? ' is-active' : '') + '" data-tmux-filter="all" aria-pressed="' + (allActive ? "true" : "false") + '" title="显示 GPU 任务概览；普通会话可在下方展开"><span>GPU 总览</span><b>' + String(gpuCandidates.length) + '</b></button>';
       for (let i = 0; i < candidates.length; i++) {
         const c = candidates[i];
         const isActive = activeFilter === c.target;
@@ -2045,8 +2054,12 @@ function renderPanelHtml() {
         const closeTitle = "关闭 tmux 窗口 " + c.target + (isAgentWin ? "（Agent 窗口，需二次确认）" : "");
         const closeHtml = '<button type="button" class="tmuxClose" aria-label="关闭 ' + escAttr(c.target) + '" title="' + escAttr(closeTitle) + '" data-tmux-close="' + escAttr(c.target) + '"' + (isAgentWin ? ' data-danger="true"' : '') + '>×</button>';
         const summary = c.category === "gpu" ? (c.synthetic ? "空闲" : ("运行 " + c.runningCount + " · 失败 " + c.failedCount + " · 标签 " + c.windows.filter(function(win){ return !!win.task; }).length)) : c.target;
-        html += '<div class="tmuxWindowWrap"><button type="button" class="tmuxWindowCard ' + escAttr(klass) + miss + (isActive ? ' is-active' : '') + '" data-tmux-filter="' + escAttr(c.target) + '" aria-pressed="' + (isActive ? "true" : "false") + '" title="' + escAttr(title) + '"><span>' + esc(c.label) + '</span><b>' + esc(summary) + '</b></button>' + ((c.category === "gpu" || c.synthetic) ? "" : closeHtml) + '</div>';
+        const card = '<div class="tmuxWindowWrap"><button type="button" class="tmuxWindowCard ' + escAttr(klass) + miss + (isActive ? ' is-active' : '') + '" data-tmux-filter="' + escAttr(c.target) + '" aria-pressed="' + (isActive ? "true" : "false") + '" title="' + escAttr(title) + '"><span>' + esc(c.label) + '</span><b>' + esc(summary) + '</b></button>' + ((c.category === "gpu" || c.synthetic) ? "" : closeHtml) + '</div>';
+        if (c.category === "gpu") html += card;
+        else { otherHtml += card; otherCount++; }
       }
+      html += '</div>';
+      if (otherHtml) html += '<details id="tmuxOtherSessions" class="tmuxOtherSessions"' + (otherExpanded ? ' open' : '') + '><summary>其他会话 · ' + otherCount + ' 个窗口</summary><div class="tmuxOtherSessionGrid">' + otherHtml + '</div></details>';
       bar.innerHTML = html || '<span class="muted" style="font-size:11px;">暂无窗口</span>';
     }
     function renderTmuxOverview(sessions) {
@@ -2092,35 +2105,40 @@ function renderPanelHtml() {
         overview.innerHTML = grid;
         return;
       }
-      const totalWindows = list.reduce(function(a, s){ return a + (s.windows ? s.windows.length : 0); }, 0);
-      const totalPanes = list.reduce(function(a, s){ return a + (s.windows ? s.windows.reduce(function(b, w){ return b + (w.panes ? w.panes.length : 0); }, 0) : 0); }, 0);
-      meta.textContent = "会话 " + list.length + " 个 窗口 " + totalWindows + " 个 窗格 " + totalPanes + " @ " + (tmuxListCache.fetchedAt || new Date().toLocaleTimeString());
+      const gpuCount = getTmuxWindowCandidates(list).filter(function(c){ return c.category === "gpu"; }).length;
+      const taskCount = list.reduce(function(total, session){ return total + (session.windows || []).filter(function(win){ return !!win.task; }).length; }, 0);
+      const otherSessionCount = list.filter(function(session){ return classifyTmuxWindow(session.name || "") !== "gpu"; }).length;
+      meta.textContent = "GPU " + gpuCount + " 个 · 任务标签 " + taskCount + " 个 · 其他会话 " + otherSessionCount + " 个 @ " + (tmuxListCache.fetchedAt || new Date().toLocaleTimeString());
       renderTmuxFilterBar(list);
       const activeFilter = normalizeTmuxWindowFilter(tmuxWindowFilter);
       let grid = "";
       if (activeFilter === "all") {
+        let otherGrid = "";
         for (let si = 0; si < list.length; si++) {
           const sess = list[si] || {};
           const badge = classifyTmuxWindow(sess.name || "");
-          grid += '<div class="tmuxOverviewItem"><span class="pill">' + esc(badge) + '</span><b>' + esc(sess.name || "") + '</b><span class="muted">windows ' + String(sess.windowCount || (sess.windows ? sess.windows.length : 0)) + '</span>';
+          let sessionGrid = '<div class="tmuxOverviewItem"><span class="pill">' + esc(badge) + '</span><b>' + esc(sess.name || "") + '</b><span class="muted">windows ' + String(sess.windowCount || (sess.windows ? sess.windows.length : 0)) + '</span>';
           const wins = sess.windows || [];
           for (let wi = 0; wi < wins.length; wi++) {
             const w = wins[wi] || {};
             const wLabel = (w.index || "") + ":" + (w.name || "") + (w.active ? " *" : "");
             const target = (sess.name || "") + ":" + (w.index || "0");
             const isActive = activeFilter === target;
-            grid += '<span style="padding:2px 6px;border:1px dashed var(--border);border-radius:4px;font-size:11px;' + (isActive ? 'outline:1px solid var(--vscode-focusBorder);' : '') + '" data-tmux-filter="' + escAttr(target) + '">' + esc(wLabel) + ' panes ' + String(w.panes ? w.panes.length : 0);
+            sessionGrid += '<span style="padding:2px 6px;border:1px dashed var(--border);border-radius:4px;font-size:11px;' + (isActive ? 'outline:1px solid var(--vscode-focusBorder);' : '') + '" data-tmux-filter="' + escAttr(target) + '">' + esc(wLabel) + ' panes ' + String(w.panes ? w.panes.length : 0);
             if (w.panes) {
               for (let pi = 0; pi < w.panes.length; pi++) {
                 const pane = w.panes[pi] || {};
                 const pLabel = "." + (pane.index || "") + " " + (pane.command || "") + (pane.active ? "*" : "");
-                grid += ' <code style="font-size:10px;">' + esc(pane.target || "") + esc(pLabel) + '</code>';
+                sessionGrid += ' <code style="font-size:10px;">' + esc(pane.target || "") + esc(pLabel) + '</code>';
               }
             }
-            grid += '</span>';
+            sessionGrid += '</span>';
           }
-          grid += '</div>';
+          sessionGrid += '</div>';
+          if (badge === "gpu") grid += sessionGrid;
+          else otherGrid += sessionGrid;
         }
+        if (otherGrid) grid += '<details id="tmuxOtherOverview" class="tmuxOtherSessions"' + (el("tmuxOtherOverview")?.open ? ' open' : '') + '><summary>其他会话 · ' + otherSessionCount + ' 个</summary><div class="tmuxOverviewGrid">' + otherGrid + '</div></details>';
       } else {
         let found = null;
         let foundSess = null;
