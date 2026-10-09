@@ -257,6 +257,29 @@ function clearedJobBelongsToPlan(entry, plan, projectId) {
     return entry.projectId === projectId && entry.workflowId === plan.id && entry.planFile === plan.planFile
         && entry.planRevision === plan.revision && entry.codeFingerprint === plan.codeFingerprint;
 }
+/** A confirmed Worker adoption may supersede the original failed test receipt after a Host crash. */
+function reviewedTrainingCompletion(plan, job, task) {
+    const proof = task.trainingRecovery;
+    const original = task.originalExecution;
+    if (plan.executionMode !== "train" || task.executionMode !== "train" || task.status !== "completed"
+        || !remoteTaskMatchesJob(plan, job, task) || proof?.kind !== "validation_adapter_checkpoint"
+        || !Number.isFinite(Date.parse(String(proof.confirmedAt))) || proof.metricSplit !== "val"
+        || original?.status !== "failed" || original.mode !== "train_test"
+        || !original.error?.includes("Validation-only tuning cannot access test patients"))
+        return false;
+    const expected = { projectId: plan.projectId, workflowId: plan.id, planFile: plan.planFile, planRevision: plan.revision,
+        codeFingerprint: plan.codeFingerprint, experimentIndex: job.index, case: job.case, seed: job.seed,
+        attempt: job.attempt, commandId: job.commandId, workerId: job.workerId, outputDir: job.outputDir };
+    if (Object.entries(expected).some(([key, value]) => value === undefined || proof[key] !== value))
+        return false;
+    const hashes = proof.sha256;
+    const checkpoint = String(proof.checkpointPath || "");
+    return Boolean(hashes && Object.entries(hashes).every(([file, hash]) => file.startsWith(job.outputDir + "/")
+        && !file.split("/").includes("..") && /^[a-f0-9]{64}$/.test(String(hash)))
+        && checkpoint.startsWith(job.outputDir + "/") && hashes[checkpoint]
+        && ["config.yaml", "config_snapshot.yaml", "metrics_summary.csv", "artifact_manifest.json", "checkpoint_manifest.json"]
+            .every(file => hashes[job.outputDir + "/" + file]));
+}
 /** Merge only fresh, capability-bearing server snapshots for this exact project. */
 function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now(), maxAgeMs = 180_000) {
     const clearedJobs = Array.isArray(queue.clearedJobs) ? queue.clearedJobs : [];
@@ -356,6 +379,14 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
                 .map(entry => entry.experimentIndex))];
         if (!plan.schedulingMode && !plan.localDispatchOverride && (first.schedulingMode === "server_prequeue" || first.schedulingMode === "local_idle"))
             plan.schedulingMode = first.schedulingMode;
+        const modes = [...new Set(rows.map(row => row.task.executionMode).filter(mode => ["train", "test", "train_test"].includes(String(mode))))];
+        if (!plan.executionMode && modes.length === 1) {
+            plan.executionMode = modes[0];
+            plan.executionModeSource = "worker_receipt";
+            plan.executionModeBlocked = false;
+        }
+        if (modes.length > 1 || modes.some(mode => plan.executionMode && mode !== plan.executionMode))
+            plan.recoveryConflict = "Worker execution mode conflicts with the validated Plan; redispatch is blocked.";
         plan.planJobCount = jobCount;
         const fullCounts = [...new Set([...rows.map((row) => Number(row.task.fullPlanJobCount)), Number(plan.fullPlanJobCount)]
                 .filter((count) => Number.isInteger(count) && count >= jobCount))];
@@ -424,8 +455,11 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
             const logBinding = terminalStatus
                 ? terminalHistoryLogBinding(plan, { status: terminalStatus, outputDir: String(task.outputDir), commandId: String(task.commandId) })
                 : workerTaskLogBinding(plan, { status: "running", outputDir: String(task.outputDir), commandId: String(task.commandId) }, taskLogPath);
+            const recoveredMode = task.originalExecution?.mode || task.mode || task.stage;
             const merged = {
                 index, case: String(task.case || ""), seed: Number(task.seed), attempt, outputDir: String(task.outputDir),
+                ...(["train", "test", "train_test"].includes(String(recoveredMode))
+                    ? { actualExecutionMode: recoveredMode } : {}),
                 status: conflict ? "unknown" : source.status, workerId: source.workerId,
                 commandId: String(task.commandId), runKey: String(task.runKey), projectId,
                 ...(task.gpuId !== undefined && task.gpuId !== null ? { gpuId: String(task.gpuId) } : {}),
@@ -446,6 +480,9 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
                 ...(conflict ? { recoveryConflict: true } : {}),
                 ...(conflict ? { blockReason: "Conflicting fresh server summaries for the same durable job identity." } : {}),
             };
+            const trainingAdopted = reviewedTrainingCompletion(plan, merged, task);
+            if (trainingAdopted)
+                Object.assign(merged, { trainingRecovery: task.trainingRecovery, originalExecution: task.originalExecution });
             if (existing >= 0) {
                 const local = plan.jobs[existing];
                 const localIdentity = [local.workerId, local.commandId, local.case, local.seed, local.outputDir].join("\0");
@@ -455,7 +492,7 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
                 const unassignedLocalIntent = !local.workerId && !local.commandId && ["pending", "dispatching"].includes(local.status);
                 const terminal = local.trustedTerminalStatus || (["completed", "failed", "cancelled"].includes(local.status)
                     ? local.status : undefined);
-                const terminalConflict = Boolean(terminal && merged.status !== terminal);
+                const terminalConflict = Boolean(terminal && merged.status !== terminal && !(terminal === "failed" && trainingAdopted));
                 plan.jobs[existing] = (localIdentity === remoteIdentity || unassignedLocalIntent && sameJob) && !conflict && !terminalConflict ? {
                     ...local, ...merged, localQueueOnly: local.localQueueOnly, recallRequested: local.recallRequested,
                     ...(local.error?.startsWith("code-sync proof") && typeof task.error !== "string"
@@ -464,7 +501,7 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
                             && other.attempt === entry.attempt) === index) } : {}),
                     recallOperationId: local.recallOperationId, reassignmentPending: local.reassignmentPending,
                     recoveryConflict: undefined, blockReason: undefined,
-                    ...(terminal ? { trustedTerminalStatus: terminal } : {}),
+                    ...(terminal ? { trustedTerminalStatus: trainingAdopted ? "completed" : terminal } : {}),
                 } : {
                     ...local, status: "unknown", recoveryConflict: true,
                     ...(terminal ? { trustedTerminalStatus: terminal } : {}),
@@ -609,11 +646,11 @@ function usableSlots(row) {
     return row.online && [...new Set(row.idleGpuIds)].slice(0, Math.max(0, row.capacity ?? row.idleGpuIds.length)).length > 0;
 }
 function pinnedRetryPlanAllowed(plan) {
-    return plan.schedulingMode !== "server_prequeue" || plan.localDispatchOverride === true
-        || plan.jobs.some((job) => job.localQueueOnly === true && ["dispatching", "unknown"].includes(job.status));
+    return !plan.executionModeBlocked && (plan.schedulingMode !== "server_prequeue" || plan.localDispatchOverride === true
+        || plan.jobs.some((job) => job.localQueueOnly === true && ["dispatching", "unknown"].includes(job.status)));
 }
 function hostedRetryCandidates(plan, now = Date.now()) {
-    if (plan.schedulingMode !== "server_prequeue" || plan.localDispatchOverride === true || plan.recoveryConflict)
+    if (plan.executionModeBlocked || plan.schedulingMode !== "server_prequeue" || plan.localDispatchOverride === true || plan.recoveryConflict)
         return [];
     return plan.jobs.filter((job) => job.localQueueOnly !== true && job.recallRequested !== true
         && Boolean(job.workerId && job.commandId) && ["dispatching", "unknown"].includes(job.status)
@@ -655,6 +692,8 @@ function allocateAvailable(queue, workers, options = {}) {
         && (!versioned || Boolean(row.codeFingerprint)))
         .map((row) => [row.workerId, [...new Set(row.idleGpuIds)].slice(0, Math.max(0, row.capacity ?? row.idleGpuIds.length))]));
     for (const plan of plans) {
+        if (plan.executionModeBlocked || plan.recoveryConflict)
+            continue;
         if (options.localIdleOnly && plan.schedulingMode === "server_prequeue" && plan.localDispatchOverride !== true
             && !plan.jobs.some((job) => job.status === "pending" && job.localQueueOnly === true && !job.recallRequested))
             continue;
@@ -727,6 +766,7 @@ function remoteTaskMatchesJob(plan, job, task) {
         && (!plan.projectId || String(task.projectId || "") === plan.projectId)
         && (!plan.projectId || String(task.planFile || "") === plan.planFile)
         && String(task.planRevision || "") === plan.revision
+        && (!plan.executionMode || task.executionMode === undefined || task.executionMode === plan.executionMode)
         && (!plan.projectId || String(task.codeFingerprint || "") === plan.codeFingerprint)
         && (!plan.projectId || Number(task.planJobCount) === Number(plan.planJobCount))
         && (!plan.projectId || Number(task.experimentIndex) === job.index)

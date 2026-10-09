@@ -64,7 +64,7 @@ function allocateServerPrequeue(queue, workers) {
             jobs: plan.jobs.map((job) => ({ ...job })) })) };
     const assigned = [];
     for (const plan of next.plans) {
-        if (schedulingMode(plan.schedulingMode) !== "server_prequeue" || plan.localDispatchOverride === true || plan.recoveryConflict)
+        if (plan.executionModeBlocked || schedulingMode(plan.schedulingMode) !== "server_prequeue" || plan.localDispatchOverride === true || plan.recoveryConflict)
             continue;
         const eligible = workers.filter((worker) => worker.online && worker.weight > 0
             && worker.codeFingerprint === plan.codeFingerprint && (0, DistributedPlanQueue_1.workerCodeVersionAvailable)(next, worker.workerId, plan.codeFingerprint));

@@ -2703,7 +2703,10 @@ def durable_plan_public_task(row):
               "enqueuedAt": row.get("enqueuedAt"), "status": str(row.get("status") or "unknown").lower(),
               "durableAccepted": True, "acceptedAt": row.get("acceptedAt"), "gpuId": row.get("gpuId") or "",
               "schedulingMode": row.get("schedulingMode") or "local_idle"}
-    for key in ("finishedAt", "cancelledAt", "stopReason", "error", "exitCode", "identityConflict", "lastDispatchResult"):
+    for key in ("mode", "executionMode", "executionModeSource"):
+        if row.get(key) is not None:
+            public[key] = row.get(key)
+    for key in ("finishedAt", "cancelledAt", "stopReason", "error", "exitCode", "identityConflict", "lastDispatchResult", "trainingRecovery", "originalExecution"):
         if row.get(key) is not None:
             public[key] = row.get(key)
     if (public["status"] == "cancelled" and row.get("stopReason") == "requeue"
@@ -3089,6 +3092,8 @@ def accept_durable_plan_job(root, command, worker_id):
         if old:
             if not durable_plan_same_identity(old, identity) or int(old.get("planJobCount") or 0) != count:
                 raise ValueError("commandId 已绑定到不同的 Plan job 身份")
+            if old.get("executionMode") and command.get("executionMode") != old["executionMode"]:
+                raise ValueError("commandId 已绑定到不同的运行模式")
             status = str(old.get("status") or "unknown")
             if status.lower() == "queued":
                 try:
@@ -3114,10 +3119,13 @@ def accept_durable_plan_job(root, command, worker_id):
                         "durableAccepted": False, "admissionRejected": True, "reason": "gpu_busy",
                         "message": "指定 GPU 当前繁忙，任务未持久接收"}
         row = dict(command)
+        mode = verified_durable_execution_mode(root, command)
         row.update(identity)
         row.update({"schemaVersion": 1, "planJobCount": count, "fullPlanJobCount": full_count, "enqueuedAt": enqueued_at,
                     "workerId": str(worker_id), "status": "queued", "acceptedAt": now_iso(),
                     "requireIdleGpu": require_idle_gpu, "gpuId": requested_gpu if require_idle_gpu else ""})
+        row.update({"mode": mode, "executionMode": mode, "executionModeSource": "matching_plan_revision"})
+        row["options"] = {**options, "mode": mode, "executionMode": mode}
         data["schemaVersion"] = 1
         data["jobs"].append(row)
         write_durable_plan_queue(root, data)
@@ -3562,6 +3570,7 @@ def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None,
             continue
         try:
             proof = resolve_durable_code_sync_proof(root, row)
+            execution_mode = verified_durable_execution_mode(root, row)
         except Exception as exc:
             message = str(exc)
             with WORKER_TASK_SNAPSHOT_LOCK:
@@ -3582,6 +3591,13 @@ def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None,
             if not current or current.get("status") != "queued" or not durable_plan_same_identity(current, row):
                 continue
             changed = False
+            # Only unstarted queued commands can be migrated. Running processes and
+            # terminal audit records retain their original actual mode and exit status.
+            if current.get("executionMode") != execution_mode or current.get("mode") != execution_mode:
+                current.update({"legacyRequestedMode": current.get("mode"), "mode": execution_mode,
+                                "executionMode": execution_mode, "executionModeSource": "matching_plan_revision"})
+                current["options"] = {**(current.get("options") or {}), "mode": execution_mode, "executionMode": execution_mode}
+                changed = True
             if isinstance(proof, dict) and proof.get("proofId") and proof["proofId"] != current.get("codeSyncProofId"):
                 current.update({"codeSyncProofId": proof["proofId"],
                                 "manifestDigest": proof["manifestDigest"],
@@ -5239,7 +5255,7 @@ def _execute_worker_command_unfenced(root, command, worker_id):
     source_worker_id = str(command.get("sourceWorkerId") or command.get("source_worker_id") or options.get("sourceWorkerId") or options.get("source_worker_id") or "").strip()
     original_run_key = str(command.get("originalRunKey") or command.get("original_run_key") or options.get("originalRunKey") or options.get("original_run_key") or "").strip()
     reassignment_run_key = str(command.get("runKey") or options.get("reassignmentRunKey") or options.get("reassignment_run_key") or "").strip()
-    mode = worker_command_plan_mode(project_dir, plan, command.get("mode") or options.get("mode"))
+    mode = verified_durable_execution_mode(project_dir, command) if command.get("projectId") and command.get("planRevision") else worker_command_plan_mode(project_dir, plan, command.get("mode") or options.get("mode"))
     # per-GPU单tmux(1C)：抽出 worker_tmux_session_name 纯函数，直传值仍经 simple_tmux_name 归一
     if command.get("session"):
         session = str(command.get("session"))
@@ -5386,6 +5402,8 @@ def _execute_worker_command_unfenced(root, command, worker_id):
         "gpuId": gpu_id,
         "case": case_name,
         "seed": seed,
+        "mode": mode,
+        **({"executionMode": mode, "executionModeSource": "matching_plan_revision"} if distributed_results else {}),
         **({"planRevision": str(command.get("planRevision")), "codeFingerprint": str(command.get("codeFingerprint")),
             "attempt": int(command.get("attempt"))} if distributed_results else {}),
         **({"stage": str(command.get("stage") or command.get("phase") or command.get("mode"))} if command.get("stage") or command.get("phase") or command.get("mode") else {}),
@@ -5473,6 +5491,8 @@ def _execute_worker_command_unfenced(root, command, worker_id):
 
 def execute_worker_command(root, command, worker_id):
     action = str(command.get("action") or "").strip()
+    if action == "retry-worker-task" and command.get("recoverTrainingOnly") is True:
+        return recover_train_only_completion(root, command, worker_id)
     if action in ("start-worker-task", "retry-worker-task"):
         # Durable admission rechecks the tombstone while holding its queue lock.
         if command.get("durablePlanQueue") is True:
@@ -5523,11 +5543,132 @@ def worker_command_plan_mode(project_dir, plan, explicit=""):
             raw = ""
     return normalized_experiment_mode(raw)
 
+def verified_durable_execution_mode(project_dir, command):
+    """Bind intended mode to the original PLAN revision, never a legacy hardcoded mode."""
+    plan_path = safe_project_path(project_dir, durable_plan_value(command, "planFile"))
+    raw = pathlib.Path(plan_path).read_bytes()
+    if len(raw) > 1048576 or hashlib.sha256(raw).hexdigest() != durable_plan_value(command, "planRevision"):
+        raise ValueError("Original Plan revision unavailable; execution mode cannot be recovered safely")
+    scheduler = scalar_scheduler_module()
+    plan = scheduler.load_plan(plan_path)
+    if pathlib.Path(plan_path).read_bytes() != raw:
+        raise ValueError("Original Plan changed during execution mode verification")
+    mode = scheduler.plan_execution_mode(plan)
+    # executionMode is introduced by the fixed Host. Old mode alone is not
+    # evidence: affected versions always saved train_test regardless of validation.
+    expected = command.get("executionMode")
+    if expected is not None and (expected not in ("train", "test", "train_test") or expected != mode):
+        raise ValueError("Validated execution mode disagrees with original Plan revision")
+    if expected is not None and command.get("mode") not in (None, "", expected):
+        raise ValueError("Worker mode disagrees with validated execution mode")
+    return mode
+
+def recover_train_only_completion(root, command, worker_id):
+    """Review/adopt existing validation-only adapter evidence; never execute training or test."""
+    import csv
+    import math
+    target_id = str(command.get("targetCommandId") or "")
+    with WORKER_TASK_SNAPSHOT_LOCK:
+        data = read_durable_plan_queue(root)
+        row = next((item for item in data["jobs"] if item.get("commandId") == target_id), None)
+        if not row or str(row.get("workerId")) != worker_id:
+            raise ValueError("Training recovery target is unavailable")
+        expected = {**command, "commandId": target_id, "runKey": target_id}
+        if not durable_plan_same_identity(row, expected):
+            raise ValueError("Training recovery identity mismatch")
+        if row.get("trainingRecovery") and row.get("status") == "completed":
+            snapshot = read_json(path_for(root, "worker_task_snapshot.json"), {})
+            old_task = next((item for item in snapshot.get("tasks", []) if item.get("commandId") == target_id), None)
+            if old_task and durable_plan_same_identity(row, old_task) and old_task.get("status") == "failed":
+                append_worker_task(root, {**old_task, "status": "completed", "trainingRecovery": row["trainingRecovery"],
+                                         "originalExecution": row["originalExecution"], "executionMode": "train", "error": ""})
+            return {"status": "completed", "trainingRecovery": row["trainingRecovery"], "recovered": True}
+        if row.get("status") != "failed" or not row.get("finishedAt") or row.get("stopReason"):
+            raise ValueError("Only a verified failed, stopped process can adopt training completion")
+        if verified_durable_execution_mode(root, {key: value for key, value in row.items() if key != "executionMode"}) != "train":
+            raise ValueError("Training recovery requires the original train-only PLAN")
+        snapshot = read_json(path_for(root, "worker_task_snapshot.json"), {})
+        task = next((item for item in snapshot.get("tasks", []) if item.get("commandId") == target_id), None)
+        if not task or not durable_plan_same_identity(row, task) or task.get("status") != "failed" or task.get("stage") != "train_test":
+            raise ValueError("Original unintended test failure is not verified")
+        error = str(task.get("error") or row.get("error") or "")
+        if "Validation-only tuning cannot access test patients" not in error:
+            raise ValueError("Failure is not the validation-only test-access guard; manual review required")
+        output = str(row["outputDir"])
+        manifest = read_json(safe_project_path(root, output + "/artifact_manifest.json"), {})
+        if manifest.get("selection_only") is not True or manifest.get("test_accessed") is not False or manifest.get("selection_metric") != "roc_auc":
+            raise ValueError("Adapter does not certify validation-only checkpoint selection")
+        evidence = {}
+        def verified_file(relative):
+            normalized = str(relative or "").replace("\\", "/").strip()
+            if not normalized.startswith(output + "/"):
+                raise ValueError("Training artifact belongs to another attempt")
+            filename = safe_project_path(root, normalized)
+            if not os.path.isfile(filename) or os.path.islink(filename):
+                raise ValueError("Missing training artifact: " + normalized)
+            evidence[normalized] = sha256_file(filename)
+            return filename
+        checkpoint = verified_file(manifest.get("checkpoint_path"))
+        checkpoint_index = read_json(verified_file(manifest.get("checkpoint_manifest")), {})
+        if checkpoint_index.get("checkpoint_path") != manifest.get("checkpoint_path") or checkpoint_index.get("size_bytes") != os.path.getsize(checkpoint):
+            raise ValueError("Checkpoint index disagrees with the existing checkpoint")
+        config = verified_file(output + "/config.yaml")
+        snapshot_config = verified_file(manifest.get("config_snapshot"))
+        scheduler = scalar_scheduler_module()
+        final_config = scheduler.load_config(config)
+        if final_config != scheduler.load_config(snapshot_config):
+            raise ValueError("Final training config differs from adapter snapshot")
+        if (int(final_config.get("seed", -1)) != row["seed"]
+                or final_config.get("train", {}).get("selection_only") is not True
+                or final_config.get("paper", {}).get("case") != row["case"]
+                or final_config.get("tuning", {}).get("candidate") != manifest.get("selection_candidate")
+                or final_config.get("data", {}).get("dataset") != manifest.get("selection_dataset")):
+            raise ValueError("Final config is not the selected validation candidate/case/seed")
+        metric_path = verified_file(manifest.get("metrics_summary"))
+        if os.path.getmtime(checkpoint) > os.path.getmtime(metric_path):
+            raise ValueError("Checkpoint changed after validation export")
+        with open(metric_path, encoding="utf-8-sig", newline="") as stream:
+            metrics = list(csv.DictReader(stream))
+        if not metrics or any(item.get("split") != "val" or item.get("source") != "p100_validation_checkpoint"
+                              or item.get("eval_protocol") != "p100_low"
+                              or str(item.get("seed")) != str(row["seed"]) or item.get("case") != row["case"]
+                              or not math.isfinite(float(item.get("value", "nan"))) for item in metrics):
+            raise ValueError("Metrics are not finite validation evidence for this exact case/seed")
+        if not any(item.get("metric") == "roc_auc" for item in metrics):
+            raise ValueError("Validation checkpoint selection metric is missing")
+        verified_file(output + "/artifact_manifest.json")
+        proof = {"kind": "validation_adapter_checkpoint", "projectId": row["projectId"], "planFile": row["planFile"],
+                 "planRevision": row["planRevision"], "codeFingerprint": row["codeFingerprint"],
+                 "experimentIndex": row["experimentIndex"], "case": row["case"], "seed": row["seed"],
+                 "workflowId": row["workflowId"], "attempt": row["attempt"],
+                 "commandId": target_id, "outputDir": output, "workerId": worker_id, "sha256": evidence,
+                 "metricSplit": "val", "checkpointPath": manifest["checkpoint_path"]}
+        signature = hashlib.sha256(json.dumps(proof, sort_keys=True).encode("utf-8")).hexdigest()
+        if command.get("confirm") is not True:
+            return {"status": "completed", "preview": True, "recovered": False, "evidenceSignature": signature,
+                    "trainingRecovery": proof, "message": "Existing checkpoint/config/validation evidence verified; confirmation required"}
+        if command.get("evidenceSignature") != signature:
+            raise ValueError("Training recovery evidence changed after review")
+        for filename, digest in evidence.items():
+            if sha256_file(safe_project_path(root, filename)) != digest:
+                raise ValueError("Training recovery artifact changed during verification")
+        proof["confirmedAt"] = now_iso()
+        original = {"status": task["status"], "exitCode": task.get("exitCode"), "error": error, "mode": task.get("mode") or task.get("stage")}
+        row.update({"status": "completed", "trainingRecovery": proof, "originalExecution": original,
+                    "executionMode": "train", "mode": "train", "error": ""})
+        write_durable_plan_queue(root, data)
+        append_worker_task(root, {**task, "status": "completed", "trainingRecovery": proof,
+                                 "originalExecution": original, "executionMode": "train", "error": ""})
+        return {"status": "completed", "recovered": True, "trainingRecovery": proof,
+                "message": "Existing training completion adopted; no command or result file was changed"}
+
 def normalized_experiment_mode(raw):
     normalized = re.sub(r"[\s-]+", "_", str(raw or "").strip().lower()) or "train_test"
     aliases = {"training": "train", "train_only": "train", "eval": "test", "evaluate": "test", "evaluation": "test", "test_only": "test", "eval_only": "test", "train_and_test": "train_test", "both": "train_test", "all": "train_test"}
     mode = aliases.get(normalized, normalized)
-    return mode if mode in ("train", "test", "train_test") else "train_test"
+    if mode not in ("train", "test", "train_test"):
+        raise ValueError("Unsupported Plan execution mode: " + mode)
+    return mode
 
 def read_events_after_seq(root, since, limit=100, cursor_id=""):
     journal = os.path.abspath(path_for(root, "events.jsonl"))

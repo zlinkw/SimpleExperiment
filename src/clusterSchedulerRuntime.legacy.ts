@@ -1978,6 +1978,8 @@ def run_job_mode(args: argparse.Namespace) -> None:
         raise SystemExit("Debug 运行模式已移除，请使用正式 Plan 运行。")
     plan = load_plan(args.plan)
     args.mode = plan_execution_mode(plan, args.mode)
+    if os.environ.get("SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS") and args.mode != plan_execution_mode(plan):
+        raise SystemExit("Distributed execution mode disagrees with the original PLAN; no command was launched")
     jobs = jobs_for_args(plan, args)
     chosen = [job for job in jobs if int(job.index) == int(args.only_index)]
     if not chosen:

@@ -199,3 +199,13 @@ VS Code 扩展安装会改写磁盘目录，而已运行的 Extension Host 仍�
 关闭请求在确认前冻结窗口 ID 与 pane ID，执行时重新核实名称和窗格，Agent 使用 `@window_id` 关闭。关闭后以原 ID 消失作为成功证据，不用可能重新编号的 `session:index` 判断。连接断开或超时后只读取新清单核实，不能对旧编号自动重复执行关闭。列表失败或不完整不构成窗口已消失的证据，失败保留并报告具体原因。
 
 本机和 Worker Agent 均需更新到 0.5.258；旧 Agent 未提供窗口 ID 时关闭入口明确要求更新，不继续执行。历史窗口此前为何没有关闭，必须结合当时的真实回执核实，不能仅凭当前窗口清单判定。
+
+## 分布式 PLAN 模式与已有训练恢复
+
+0.5.259 将校验返回的 `validation.execution_mode` 保存为队列的 `executionMode`。派发、手动重试、自动重试及跨 Worker 重分配都使用该值；Worker 按原 PLAN 的 SHA256 revision 再核验一次。`train` 不进入测试阶段，`test` 不进入训练阶段。
+
+旧队列缺少模式时，只从内容哈希与原 revision 完全相同的 PLAN 恢复，或使用新版 Worker 的明确模式回执。原 PLAN 不可核实时暂停新派发。已运行进程保留原命令，不自动停止或重训。旧 Worker 已接收但未启动的条目，在更新 Agent 后按原 PLAN 修正模式；正在运行的旧命令不能通过修改队列改变阶段。
+
+对于 `train` 作业训练已完成、却被旧插件误调用测试并触发 `Validation-only tuning cannot access test patients` 的情况，失败行提供“核验并恢复训练完成”。更新对应 Worker Agent 后点击该按钮，插件只读核验同一 workflow、attempt、command、Worker、目录的 checkpoint 索引、最终配置及其快照，以及 adapter 输出的有限 `val/p100_low` 指标。adapter 必须声明 `selection_only=true`、`test_accessed=false`，指标必须来自 `p100_validation_checkpoint`。这份证据依赖项目 adapter 在导出时已核验 checkpoint 选优信息及配置一致性，插件不会加载任意 pickle 权重。
+
+核验通过后，确认具体目标才记录训练完成。原始失败、退出码与执行模式保存在 `originalExecution`；文件 SHA256 保存在 `trainingRecovery`。该操作不启动训练或测试，不写 checkpoint、配置或指标文件，不将验证指标改成测试指标。文件缺失、身份或配置不符、指标来源不明时拒绝恢复，保留失败记录。其他错误需要独立核验，不能只凭 checkpoint 存在认定训练成功。

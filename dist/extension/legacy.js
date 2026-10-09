@@ -97,6 +97,7 @@ const PlanOutputRetention = __importStar(require("../features/PlanOutputRetentio
 const PlanWorkerAffinity_1 = require("../features/PlanWorkerAffinity");
 const PlanArtifactSync = __importStar(require("../features/PlanArtifactSync"));
 const DistributedPlanQueue = __importStar(require("../features/DistributedPlanQueue"));
+const PlanExecutionMode = __importStar(require("../features/PlanExecutionMode"));
 const DistributedSchedulingPolicy = __importStar(require("../features/DistributedSchedulingPolicy"));
 const CodeSyncDelta_1 = require("../features/CodeSyncDelta");
 const LocalCodeManifestCache_1 = require("../features/LocalCodeManifestCache");
@@ -10331,6 +10332,24 @@ class RealtimeTunnelPanelProvider {
                 throw new Error("分布式 Plan 队列格式无效，已停止自动派发。");
             if (Array.isArray(queue.deferred))
                 queue.deferred = queue.deferred.map((row) => row.status === "processing" ? { ...row, status: "pending" } : row);
+            for (const plan of queue.plans) {
+                if (!plan.executionMode) {
+                    try {
+                        const text = await fs.readFile(safeWorkspacePlanPath(root, plan.planFile, planDirSafe()), "utf8");
+                        const summary = (0, PlanBuilder_1.parsePlanSummary)(text);
+                        const mode = summary.modeValid ? PlanExecutionMode.modeFromMatchingPlan(plan.revision, text, summary.mode) : undefined;
+                        if (mode)
+                            Object.assign(plan, { executionMode: mode, executionModeSource: "matching_plan_revision" });
+                    }
+                    catch { /* Missing or unsafe original PLAN cannot authorize a new launch. */ }
+                }
+                plan.executionModeBlocked = !["train", "test", "train_test"].includes(plan.executionMode);
+                if (plan.executionModeBlocked)
+                    for (const job of plan.jobs) {
+                        if (job.status === "pending")
+                            job.blockReason = "原 Plan 运行模式无法核实，派发已暂停；请恢复相同 revision 的 Plan 后重新加载。正在运行的任务保持原状。";
+                    }
+            }
         }
         catch (error) {
             if (!hasSameRootSnapshot)
@@ -10771,6 +10790,7 @@ class RealtimeTunnelPanelProvider {
         const validation = planValidationFromResult(validated);
         if (!Array.isArray(validation?.jobs) || !validation.jobs.length)
             throw new Error("Agent 校验未返回逐 job 清单，无法分布式派发。");
+        const executionMode = PlanExecutionMode.requirePlanExecutionMode(validation.execution_mode);
         if (Number(body.existingOutputCount || 0) > 0 && body.existingOutputChoice === undefined)
             throw new Error("历史产物处理方式未确认；未提交运行。");
         if (body.existingOutputChoice === undefined && Array.isArray(validation.existing) && validation.existing.length)
@@ -10804,6 +10824,7 @@ class RealtimeTunnelPanelProvider {
             return { enqueued: false };
         }
         const enqueued = DistributedPlanQueue.enqueuePlan(current, { projectId: DistributedPlanQueue.canonicalProjectId(root),
+            executionMode, executionModeSource: "validation",
             schedulingMode: DistributedSchedulingPolicy.schedulingMode(body.schedulingMode ?? this.schedulerSettings().dispatchMode),
             planJobCount: selectedJobs.length, fullPlanJobCount: validation.jobs.length, planFile, revision, codeFingerprint, overwriteExisting, jobs: selectedJobs.map((job) => ({
                 index: Number(job.index), case: String(job.case), seed: Number(job.seed),
@@ -10897,6 +10918,7 @@ class RealtimeTunnelPanelProvider {
         return (0, SyncResolution_1.filterHeldFiles)(await buildLocalCodeManifest(root, config.get("codeSync.includePaths", []), config.get("codeSync.scopePaths"), { cacheFile: this.localCodeManifestCacheFile(root) }), holds);
     }
     async sendDistributedJob(plan, job, workerId, gpuId, commandId, sharedCodeManifest) {
+        const executionMode = PlanExecutionMode.requirePlanExecutionMode(plan.executionMode);
         const target = this.workerActionTargets().find((item) => item.id === workerId);
         if (!target)
             throw new Error(`Worker ${workerId} 配置已失效`);
@@ -10932,11 +10954,12 @@ class RealtimeTunnelPanelProvider {
             requireIdleGpu: gpuId !== undefined, ...codeProofFields, projectId: plan.projectId || DistributedPlanQueue.canonicalProjectId(root),
             planJobCount: Number(plan.planJobCount || plan.jobs.length), fullPlanJobCount: Number(plan.fullPlanJobCount || plan.planJobCount || plan.jobs.length), enqueuedAt: plan.enqueuedAt,
             planFile: plan.planFile, experimentIndex: job.index, ...(gpuId !== undefined ? { gpuId } : {}),
-            case: job.case, seed: job.seed, outputDir: job.outputDir, mode: "train_test",
+            case: job.case, seed: job.seed, outputDir: job.outputDir, mode: executionMode, executionMode,
             planRevision: plan.revision, codeFingerprint: plan.codeFingerprint, attempt: job.attempt,
             condaEnv: target.condaEnv, workflowId: plan.id,
             overwriteExisting: plan.overwriteExisting === true,
             options: { workerId, distributedResults: true, durablePlanQueue: true, requireIdleGpu: gpuId !== undefined,
+                mode: executionMode, executionMode,
                 gpuIdleUtilThreshold: Number(workerConfig?.gpuIdleUtilThreshold ?? schedulerSettings.gpuIdleUtilThreshold ?? 5),
                 gpuIdleMemThresholdMb: Number(workerConfig?.gpuIdleMemThresholdMb ?? schedulerSettings.gpuIdleMemThresholdMb ?? 200),
                 maxConcurrentGpus,
@@ -12262,17 +12285,54 @@ class RealtimeTunnelPanelProvider {
         const root = workspaceRoot();
         if (!root)
             throw new Error("没有当前项目目录");
+        const projectContext = this.captureProjectContext();
+        const client = this.client;
+        const isCurrent = () => this.projectContextIsCurrent(projectContext) && this.client === client;
         const queue = await this.loadDistributedQueue(root);
         const plan = queue.plans.find((row) => row.id === String(message.planId || ""));
         const job = plan?.jobs.find((row) => row.index === Number(message.jobIndex));
         if (!plan || !job || !job.workerId || !job.commandId || !["failed", "unknown"].includes(job.status))
             throw new Error("目标 job 当前不能恢复");
-        const fresh = await this.client.getWorkerTasks(job.workerId);
+        const fresh = await client.getWorkerTasks(job.workerId);
+        if (!isCurrent())
+            return;
         const task = (fresh?.tasks || []).find((row) => String(row.commandId || "") === job.commandId);
         if (!task || !DistributedPlanQueue.remoteTaskMatchesJob(plan, job, task)
             || !["failed", "stopped", "cancelled", "canceled"].includes(String(task.status || "").toLowerCase())
             || !(task.finishedAt || task.exitCode !== undefined))
             throw new Error("原 Worker 尚未确认任务停止；当前禁止换机恢复");
+        if (plan.executionMode === "train" && String(task.error || job.error || "").includes("Validation-only tuning cannot access test patients")) {
+            const request = { ...task, opId: makeOpId("recover-training"), targetCommandId: job.commandId,
+                recoverTrainingOnly: true, options: { workerId: job.workerId } };
+            const preview = await client.postWorkerAction(job.workerId, "retry-worker-task", request);
+            if (!isCurrent())
+                return;
+            const proof = preview?.result || preview;
+            if (!proof.preview || !proof.evidenceSignature)
+                throw new Error(proof.message || "训练恢复证据未通过；未重训。");
+            const answer = await vscode.window.showWarningMessage(`恢复已有训练完成状态：${plan.planFile}\n运行 ${plan.id} · ${job.case} seed ${job.seed} · attempt ${job.attempt}\nWorker ${job.workerId}\n目录 ${job.outputDir}\n已核验 checkpoint、最终配置和验证指标。仅记录训练完成，保留原测试失败回执与验证指标身份。`, { modal: true }, "恢复训练完成");
+            if (answer !== "恢复训练完成" || !isCurrent())
+                return;
+            const current = await this.loadDistributedQueue(root);
+            const currentJob = current.plans.find(row => row.id === plan.id)?.jobs.find(row => row.index === job.index);
+            if (!isCurrent() || currentJob?.attempt !== job.attempt || currentJob?.commandId !== job.commandId
+                || !["failed", "unknown"].includes(currentJob.status))
+                return;
+            const recovered = await client.postWorkerAction(job.workerId, "retry-worker-task", { ...request,
+                opId: makeOpId("recover-training"), confirm: true, evidenceSignature: proof.evidenceSignature });
+            if (!isCurrent())
+                return;
+            if (!(recovered?.result || recovered)?.recovered)
+                throw new Error("Worker 尚未确认训练恢复，未修改本地状态。");
+            await this.saveDistributedQueue(root, undefined, { mutateLatest: latest => ({ ...latest,
+                    plans: latest.plans.map(row => row.id !== plan.id ? row : { ...row, jobs: row.jobs.map(item => item.index !== job.index || item.attempt !== job.attempt || item.commandId !== job.commandId ? item : {
+                            ...item, status: "completed", trustedTerminalStatus: "completed", error: "",
+                            trainingRecovery: (recovered.result || recovered).trainingRecovery,
+                            originalExecution: { status: job.status, error: job.error, mode: job.actualExecutionMode },
+                        }) }) }) });
+            this.postState();
+            return recovered;
+        }
         const sourceRow = this.workerCodeSyncTargets().find((row) => row.id === job.workerId);
         if (!sourceRow)
             throw new Error("原 Worker 配置不可用，无法保存已有产物");

@@ -14396,6 +14396,8 @@ export function renderPanelHtml(): string {
           const canJumpLog = Boolean(job.workerId && (job.commandId || job.outputDir));
           const logButton = '<button type="button" class="mini secondary" data-job-tmux-log="1" data-worker-id="' + escAttr(job.workerId || "") + '" data-command-id="' + escAttr(job.commandId || "") + '" data-output-dir="' + escAttr(job.outputDir || "") + '"' + (canJumpLog ? '' : ' disabled') + ' title="' + (canJumpLog ? '在 TMUX 区域选中该 Worker 的真实任务窗口标签' : '等待任务派发后定位对应的 TMUX 日志标签') + '">跳转到日志</button>';
           const errorText = String(job.artifactError || job.error || "").trim();
+          const trainingRecoveryButton = status === "failed" && errorText.indexOf("Validation-only tuning cannot access test patients") >= 0
+            ? '<button type="button" class="mini secondary" data-distributed-retry="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-job-index="' + escAttr(String(job.index)) + '">核验并恢复训练完成</button>' : "";
           const codeProofBlocked = status === "queued" && errorText.indexOf("code-sync proof") >= 0;
           const recallButton = status === "queued" || job.recallRequested === true
             ? '<button type="button" class="mini secondary" data-command="recallPlanToLocalQueue" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-plan-file="' + escAttr(group.planFile || "") + '" data-job-index="' + escAttr(String(job.index)) + '" title="只召回此排队 job；运行中、已结束或状态不明的任务保持原 Worker。">' + (job.recallRequested ? "重试召回" : "召回到本机") + '</button>' : "";
@@ -14407,7 +14409,7 @@ export function renderPanelHtml(): string {
             : errorText && !retryView.note
             ? '<div class="muted">下一步：点本行“跳转到日志”查看对应 TMUX 任务窗口。这是已提交 job 的失败，不会自动清理。确认需要停止后，再点本 Plan 的“终止并清除该 Plan”（两次确认）。</div><span class="errorRowLinks" style="display:flex;gap:6px;flex-wrap:wrap;"><button type="button" class="mini secondary" data-section-target="execution" data-anchor-target="execution-operations" title="跳到运行进度，查看本 Plan 的状态">运行进度</button><button type="button" class="mini secondary" data-command="snapshot" title="重新拉取调度状态与操作记录">刷新状态</button></span>'
             : "";
-          return '<div class="executionDistributedJob' + (blocked ? " is-blocked" : "") + '" title="' + escAttr(job.outputDir || "") + '"><span>' + loadingPrefix(jobActive) + esc(job.case || "job " + job.index) + ' seed ' + esc(String(job.seed)) + '</span><span class="' + (blocked ? "status-warning" : statusClass(status)) + '">' + esc(statusLabel) + '</span><span>' + esc(blocked ? "阻塞" : placement) + '</span>' + recallButton + logButton
+          return '<div class="executionDistributedJob' + (blocked ? " is-blocked" : "") + '" title="' + escAttr(job.outputDir || "") + '"><span>' + loadingPrefix(jobActive) + esc(job.case || "job " + job.index) + ' seed ' + esc(String(job.seed)) + '</span><span class="' + (blocked ? "status-warning" : statusClass(status)) + '">' + esc(statusLabel) + '</span><span>' + esc(blocked ? "阻塞" : placement) + '</span>' + recallButton + logButton + trainingRecoveryButton
             + (recallNote ? '<div class="muted">' + esc(recallNote) + '</div>' : '')
             + (retryView.note ? '<div class="muted">' + esc(retryView.note) + '</div>' : '')
             + (blockText ? '<div class="executionDistributedJobError">' + esc(blockText) + (blockAdvice ? '<div>下一步：' + esc(blockAdvice.replace(/^下一步：/, "")) + '</div>' : '') + '</div>' : '')
