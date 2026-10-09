@@ -56,6 +56,8 @@ export type QueuedPlan = {
   fullPlanJobCount?: number;
   remoteAcceptedJobCount?: number;
   recoveryMissingCount?: number;
+  /** Confirmed removal is accounted for without inventing a remote receipt. */
+  clearedJobIndices?: number[];
   recoveryConflict?: string;
   planFile: string;
   revision: string;
@@ -69,7 +71,11 @@ export type DeferredPlan = { id: string; planFile: string; revision: string; cod
   body: Record<string, unknown>; enqueuedAt: string; status: "pending" | "processing" | "blocked" | "superseded"; error?: string; retryAfter?: string; supersededBy?: string;
   confirmedOutputChoice?: boolean; overwriteExisting?: boolean; distributedSkipJobIndices?: number[];
   waitingForPlanId?: string; waitingForPlanFile?: string; waitingForRevision?: string; waitingForFingerprint?: string; reason?: string };
-export type DistributedQueue = { schemaVersion: 1; plans: QueuedPlan[]; deferred?: DeferredPlan[]; publishedSignature?: string; previewSignature?: string;
+export type ClearedDistributedJob = { projectId: string; workflowId: string; planFile: string; planRevision: string;
+  codeFingerprint: string; experimentIndex: number; case: string; seed: number; attempt: number; outputDir: string;
+  workerId: string; commandId: string; runKey: string; clearedAt: string };
+export type DistributedQueue = { schemaVersion: 1; plans: QueuedPlan[]; deferred?: DeferredPlan[];
+  clearedJobs?: ClearedDistributedJob[]; publishedSignature?: string; previewSignature?: string;
   localMetricsSignature?: string;
   publishedWorkerId?: string; publishedWorkerIds?: string[]; publishedPaths?: string[];
   previewWorkerId?: string; previewWorkerIds?: string[]; previewPaths?: string[] };
@@ -219,6 +225,9 @@ export function distributedPlanRecoveryMissingCount(plan: QueuedPlan, acceptedIn
   const expected = Number(plan.planJobCount);
   if (!Number.isInteger(expected) || expected < 1) return Math.max(0, Number(plan.recoveryMissingCount) || 0);
   const known = new Set(acceptedIndices);
+  for (const index of plan.clearedJobIndices || []) {
+    if (Number.isInteger(index) && index >= 0 && index < expected && !plan.jobs.some(job => job.index === index)) known.add(index);
+  }
   const latestAttempts = new Map<number, number>();
   for (const job of plan.jobs) {
     if (Number.isInteger(job.index) && job.index >= 0 && Number.isInteger(job.attempt) && job.attempt > 0)
@@ -241,9 +250,22 @@ export function hasUnresolvedPlanRecovery(plan: QueuedPlan): boolean {
     || Number(plan.recoveryMissingCount) > 0 && distributedPlanRecoveryMissingCount(plan) > 0);
 }
 
+function clearedJobIdentityKey(identity: Record<string, unknown>): string {
+  return JSON.stringify([identity.projectId, identity.workflowId, identity.planFile, identity.planRevision,
+    identity.codeFingerprint, identity.experimentIndex, identity.case, identity.seed, identity.attempt,
+    identity.outputDir, identity.workerId, identity.commandId, identity.runKey]);
+}
+
+function clearedJobBelongsToPlan(entry: ClearedDistributedJob, plan: QueuedPlan, projectId: string): boolean {
+  return entry.projectId === projectId && entry.workflowId === plan.id && entry.planFile === plan.planFile
+    && entry.planRevision === plan.revision && entry.codeFingerprint === plan.codeFingerprint;
+}
+
 /** Merge only fresh, capability-bearing server snapshots for this exact project. */
 export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: readonly DurableWorkerSnapshot[], projectId: string,
   now = Date.now(), maxAgeMs = 180_000): DistributedQueue {
+  const clearedJobs = Array.isArray(queue.clearedJobs) ? queue.clearedJobs : [];
+  const clearedKeys = new Set(clearedJobs.map(entry => clearedJobIdentityKey(entry)));
   const acceptedRows: Array<{ workerId: string; task: Record<string, unknown>; status: JobState }> = [];
   for (const snapshot of snapshots) {
     if (snapshot.error || snapshot.capabilities?.durablePlanQueue !== true || snapshot.capabilities.schemaVersion !== 1) continue;
@@ -261,6 +283,11 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
         || task.experimentIndex == null || !Number.isInteger(Number(task.experimentIndex)) || Number(task.experimentIndex) < 0
         || task.attempt == null || !Number.isInteger(Number(task.attempt)) || Number(task.attempt) < 1
         || !Number.isInteger(Number(task.planJobCount)) || Number(task.planJobCount) < 1) continue;
+      // A terminal audit record survives on the server, but must not recreate a user-cleared card.
+      // Active/uncertain receipts always remain visible, including contradictory old identities.
+      if (["completed", "failed", "cancelled"].includes(status)
+        && clearedKeys.has(clearedJobIdentityKey({ ...task, workerId: snapshot.workerId,
+          experimentIndex: Number(task.experimentIndex), seed: Number(task.seed), attempt: Number(task.attempt) }))) continue;
       acceptedRows.push({ workerId: snapshot.workerId, task, status });
     }
   }
@@ -268,7 +295,16 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
     ? snapshots.filter((snapshot) => snapshot.workerId === job.workerId && hasFreshDurableSnapshot(snapshot, now, maxAgeMs))
       .flatMap((snapshot) => (snapshot.tasks || []).map((task) => ({ ...task, workerId: task.workerId || snapshot.workerId })))
       .find((task) => historicalRecallTaskMatchesJob(plan, job, task)) : undefined;
-  const plans = queue.plans.map((plan) => plan.projectId !== projectId ? plan : { ...plan, jobs: plan.jobs.map((job) => {
+  const retainedPlans = queue.plans.flatMap(plan => {
+    if (plan.projectId !== projectId) return [plan];
+    const jobs = plan.jobs.filter(job => !(["completed", "failed", "cancelled"].includes(job.status)
+      && clearedKeys.has(clearedJobIdentityKey({ projectId, workflowId: plan.id, planFile: plan.planFile,
+        planRevision: plan.revision, codeFingerprint: plan.codeFingerprint, experimentIndex: job.index,
+        case: job.case, seed: job.seed, attempt: job.attempt, outputDir: job.outputDir,
+        workerId: job.workerId || "", commandId: job.commandId || "", runKey: job.runKey || job.commandId || "" }))));
+    return jobs.length || !plan.jobs.length ? [{ ...plan, jobs }] : [];
+  });
+  const plans = retainedPlans.map((plan) => plan.projectId !== projectId ? plan : { ...plan, jobs: plan.jobs.map((job) => {
     const legacy = legacyReceipt(plan, job);
     const legacyStatus = legacy && durableStatus(legacy.status);
     if (legacyStatus) {
@@ -312,6 +348,8 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
       codeFingerprint: String(first.codeFingerprint), enqueuedAt: String(first.enqueuedAt || ""), planJobCount: jobCount, jobs: [],
     };
     plan.projectId = projectId;
+    plan.clearedJobIndices = [...new Set(clearedJobs.filter(entry => clearedJobBelongsToPlan(entry, plan, projectId))
+      .map(entry => entry.experimentIndex))];
     if (!plan.schedulingMode && !plan.localDispatchOverride && (first.schedulingMode === "server_prequeue" || first.schedulingMode === "local_idle"))
       plan.schedulingMode = first.schedulingMode;
     plan.planJobCount = jobCount;
@@ -936,15 +974,34 @@ export function distributedStopTargets(queue: DistributedQueue, planFile: string
 }
 
 /** Drop only confirmed plan runs. A partial stop keeps every unconfirmed job and deferred row. */
-export function removeConfirmedDistributedPlan(queue: DistributedQueue, planFile: string, confirmed: { jobKeys: ReadonlySet<string>; deferredIds: ReadonlySet<string> }): DistributedQueue {
+export function removeConfirmedDistributedPlan(queue: DistributedQueue, planFile: string, confirmed: {
+  jobKeys: ReadonlySet<string>; deferredIds: ReadonlySet<string>; projectId?: string }): DistributedQueue {
   const selected = String(planFile || "").trim();
+  const clearedJobs = [...(queue.clearedJobs || [])];
+  const clearedKeys = new Set(clearedJobs.map(entry => clearedJobIdentityKey(entry)));
+  const clearedAt = new Date().toISOString();
   const plans = (queue.plans || []).flatMap((plan) => {
     if (!samePlanFile(plan.planFile, selected)) return [plan];
-    const jobs = plan.jobs.filter((job) => !confirmed.jobKeys.has(`${plan.id}\0${job.index}\0${job.attempt}`));
-    return jobs.length ? [{ ...plan, jobs }] : [];
+    const jobs = plan.jobs.filter((job) => {
+      if (!confirmed.jobKeys.has(`${plan.id}\0${job.index}\0${job.attempt}`)) return true;
+      const attempts = [job, ...(job.history || []).filter(entry => ["completed", "failed", "cancelled"].includes(entry.status))];
+      for (const attempt of attempts) {
+        const entry: ClearedDistributedJob = { projectId: plan.projectId || job.projectId || confirmed.projectId || "",
+          workflowId: plan.id, planFile: plan.planFile, planRevision: plan.revision, codeFingerprint: plan.codeFingerprint,
+          experimentIndex: job.index, case: job.case, seed: job.seed, attempt: attempt.attempt, outputDir: attempt.outputDir,
+          workerId: attempt.workerId || "", commandId: attempt.commandId || "",
+          runKey: attempt === job ? job.runKey || job.commandId || "" : attempt.commandId || "", clearedAt };
+        const key = clearedJobIdentityKey(entry);
+        if (!clearedKeys.has(key)) { clearedJobs.push(entry); clearedKeys.add(key); }
+      }
+      return false;
+    });
+    const clearedJobIndices = [...new Set([...(plan.clearedJobIndices || []), ...plan.jobs.filter(job =>
+      confirmed.jobKeys.has(`${plan.id}\0${job.index}\0${job.attempt}`)).map(job => job.index)])];
+    return jobs.length ? [{ ...plan, jobs, clearedJobIndices }] : [];
   });
   const deferred = (queue.deferred || []).filter((row) => !samePlanFile(row.planFile, selected) || !confirmed.deferredIds.has(row.id));
-  return { ...queue, plans, deferred };
+  return { ...queue, plans, deferred, clearedJobs };
 }
 
 export function stopIdentityMatchesJob(plan: QueuedPlan, job: QueuedJob, identity: Record<string, unknown>): boolean {

@@ -126,6 +126,34 @@ function makeHost() {
   };
 }
 
+test("confirmed clear markers survive the production atomic writer, a new Host and repeated recovery", async () => {
+  memoryFiles.clear();
+  const initial = makeQueue(2);
+  initial.plans[0].planJobCount = 1;
+  initial.plans[0].jobs[0].runKey = initial.plans[0].jobs[0].commandId;
+  memoryFiles.set(file, JSON.stringify(initial));
+  let host = makeHost();
+  const current = await host.loadDistributedQueue(root);
+  await host.saveDistributedQueue(root, queueApi.removeConfirmedDistributedPlan(current, current.plans[0].planFile, {
+    jobKeys: new Set([`plan-0\0${0}\0${1}`]), deferredIds: new Set(), projectId,
+  }), { queueGeneration: 0 });
+  const plan = initial.plans[0], job = plan.jobs[0];
+  for (let index = 0; index < 3; index++) {
+    host = makeHost();
+    const persisted = await host.loadDistributedQueue(root);
+    assert.equal(persisted.clearedJobs.length, 1);
+    const now = Date.now();
+    const recovered = queueApi.mergeDurableWorkerSnapshots(persisted, [{ workerId: job.workerId,
+      capabilities: { durablePlanQueue: true, schemaVersion: 1 },
+      generatedAt: new Date(now).toISOString(), fetchedAt: new Date(now).toISOString(),
+      tasks: [{ ...job, projectId, workflowId: plan.id, planFile: plan.planFile, planRevision: plan.revision,
+        codeFingerprint: plan.codeFingerprint, experimentIndex: job.index, planJobCount: 1, enqueuedAt: plan.enqueuedAt }],
+    }], projectId, now);
+    await host.saveDistributedQueue(root, recovered, { queueGeneration: 0 });
+    assert.deepEqual(JSON.parse(memoryFiles.get(file)).plans.map(row => row.id), ["plan-1"]);
+  }
+});
+
 test("unchanged artifact and publication confirmations do not rewrite the queue and still observe fresh disk", async () => {
   memoryFiles.clear();
   memoryFiles.set(file, JSON.stringify(makeQueue(28)));

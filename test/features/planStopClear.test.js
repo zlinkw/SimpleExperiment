@@ -1733,6 +1733,19 @@ test("serialized Agent stop receipts pass the production project-scoped clear ch
   assert.equal(cleared.status, "completed", JSON.stringify(cleared));
   assert.equal(cleared.planStopClear.clearedJobs, 1);
   assert.equal(saved.plans.length, 0);
+  const recoverAfterClear = (value, tasks, projectId) => {
+    const now = Date.now();
+    const workerIds = [...new Set(tasks.map(row => row.workerId))];
+    return queueApi.mergeDurableWorkerSnapshots(JSON.parse(JSON.stringify(value)), workerIds.map(workerId => ({
+      workerId, capabilities: { durablePlanQueue: true, schemaVersion: 1 },
+      generatedAt: new Date(now).toISOString(), fetchedAt: new Date(now).toISOString(),
+      tasks: tasks.filter(row => row.workerId === workerId),
+    })), projectId, now);
+  };
+  for (let index = 0; index < 3; index++) {
+    saved = recoverAfterClear(saved, [task], task.projectId);
+    assert.equal(saved.plans.length, 0, "real serialized receipt must remain cleared after restart and remote recovery");
+  }
   for (const field of ["projectId", "codeFingerprint", "experimentIndex", "runKey", "attempt", "workerId", "outputDir"]) {
     const invalid = { ...receipt, stoppedTasks: [{ ...receipt.stoppedTasks[0], [field]: "wrong" }] };
     provider.client = { ...client, postWorkerAction: async () => invalid };
@@ -1759,5 +1772,9 @@ test("serialized Agent stop receipts pass the production project-scoped clear ch
     assert.equal(liveCleared.status, "completed", JSON.stringify(liveCleared));
     assert.equal(liveCleared.planStopClear.clearedJobs, evidence.plan.jobs.length);
     assert.equal(liveQueue.plans.length, 0);
+    for (let index = 0; index < 3; index++) {
+      liveQueue = recoverAfterClear(liveQueue, evidence.tasks, evidence.plan.projectId);
+      assert.equal(liveQueue.plans.length, 0, "live audit receipts must not resurrect this exact cleared run");
+    }
   }
 });

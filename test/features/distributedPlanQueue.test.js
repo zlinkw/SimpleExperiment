@@ -14,6 +14,76 @@ queueModule.paths = Module._nodeModulePaths(path.dirname(queueSourcePath));
 queueModule._compile(compiledQueue, queueSourcePath);
 const queue = queueModule.exports;
 
+function clearedRunFixture() {
+  const now = Date.now();
+  const projectId = queue.canonicalProjectId("D:/project");
+  const tasks = [0, 1].map(index => ({ projectId, workflowId: "run-clear", planFile: "plans/aoept.yaml",
+    planRevision: "revision", codeFingerprint: "code", experimentIndex: index, case: "bus", seed: 42 + index,
+    attempt: 1, workerId: "worker-a", commandId: `command-${index}`, runKey: `command-${index}`,
+    outputDir: `work/aoept/${index}/attempts/run-clear`, planJobCount: 2,
+    enqueuedAt: new Date(now - 10000).toISOString(), status: index ? "cancelled" : "failed" }));
+  const snapshot = (rows = tasks) => ({ workerId: "worker-a", capabilities: { durablePlanQueue: true, schemaVersion: 1 },
+    fetchedAt: new Date(now).toISOString(), generatedAt: new Date(now).toISOString(), tasks: rows });
+  const input = queue.mergeDurableWorkerSnapshots(queue.emptyDistributedQueue(), [snapshot()], projectId, now);
+  const clear = (value, indices = [0, 1]) => queue.removeConfirmedDistributedPlan(value, "plans/aoept.yaml", {
+    projectId, jobKeys: new Set(indices.map(index => `run-clear\0${index}\0${1}`)), deferredIds: new Set() });
+  return { now, projectId, tasks, snapshot, input, clear };
+}
+
+test("confirmed clear survives repeated remote recovery and JSON restart without changing server audit", () => {
+  const f = clearedRunFixture();
+  const before = JSON.stringify(f.tasks);
+  let cleared = JSON.parse(JSON.stringify(f.clear(f.input)));
+  for (let index = 0; index < 3; index++) {
+    cleared = queue.mergeDurableWorkerSnapshots(cleared, [f.snapshot()], f.projectId, f.now);
+    assert.equal(cleared.plans.length, 0, "terminal remote receipts must not recreate a cleared run");
+    cleared = JSON.parse(JSON.stringify(cleared));
+  }
+  assert.equal(JSON.stringify(f.tasks), before);
+  assert.deepEqual(f.clear(cleared), cleared, "repeated clear must retain the same durable markers");
+  const staleCopy = { ...cleared, plans: f.input.plans };
+  assert.equal(queue.mergeDurableWorkerSnapshots(staleCopy, [f.snapshot()], f.projectId, f.now).plans.length, 0,
+    "a stale local projection must obey the same confirmed clear markers");
+});
+
+test("partial clear keeps unconfirmed jobs visible and accounts for confirmed indices", () => {
+  const f = clearedRunFixture();
+  f.tasks[1].status = "running";
+  const partial = f.clear(queue.mergeDurableWorkerSnapshots(queue.emptyDistributedQueue(), [f.snapshot()], f.projectId, f.now), [0]);
+  const restored = queue.mergeDurableWorkerSnapshots(JSON.parse(JSON.stringify(partial)), [f.snapshot()], f.projectId, f.now);
+  assert.deepEqual(restored.plans[0].jobs.map(job => job.index), [1]);
+  assert.equal(restored.plans[0].jobs[0].status, "running");
+  assert.equal(restored.plans[0].recoveryMissingCount, 0);
+  assert.equal(queue.distributedPlanRecoveryMissingCount(restored.plans[0], new Set([1])), 0);
+});
+
+test("clearing a retried job also dismisses its trusted historical attempts", () => {
+  const f = clearedRunFixture();
+  const old = { ...f.tasks[0], attempt: 1 };
+  const current = { ...old, attempt: 2, commandId: "retry-command", runKey: "retry-command", outputDir: "work/retry" };
+  const input = queue.mergeDurableWorkerSnapshots(f.input, [f.snapshot([old, current, f.tasks[1]])], f.projectId, f.now);
+  assert.equal(input.plans[0].jobs.find(job => job.index === 0).history.length, 1);
+  const cleared = queue.removeConfirmedDistributedPlan(input, "plans/aoept.yaml", {
+    jobKeys: new Set([`run-clear\0${0}\0${2}`, `run-clear\0${1}\0${1}`]), deferredIds: new Set() });
+  const recovered = queue.mergeDurableWorkerSnapshots(JSON.parse(JSON.stringify(cleared)), [f.snapshot([old, current, f.tasks[1]])], f.projectId, f.now);
+  assert.equal(recovered.plans.length, 0);
+});
+
+test("clear markers never suppress active receipts, new attempts, reruns or a different identity", () => {
+  const f = clearedRunFixture();
+  const cleared = f.clear(f.input);
+  const changes = [{ status: "running" }, { status: "queued" }, { status: "unknown" }, { attempt: 2 },
+    { commandId: "other", runKey: "other" }, { outputDir: "work/other" }, { workflowId: "run-new" },
+    { planFile: "other/aoept.yaml" }, { planRevision: "new-revision" }, { codeFingerprint: "new-code" },
+    { case: "pad" }, { seed: 999 }, { experimentIndex: 2, planJobCount: 3 }, { workerId: "worker-b" }, { projectId: "other-project" }];
+  for (const change of changes) {
+    const task = { ...f.tasks[0], ...change };
+    const snapshot = { ...f.snapshot([task]), workerId: task.workerId };
+    const recovered = queue.mergeDurableWorkerSnapshots(JSON.parse(JSON.stringify(cleared)), [snapshot], task.projectId, f.now);
+    assert.equal(recovered.plans.length, 1, JSON.stringify(change));
+  }
+});
+
 function plan(name, fingerprint = "code-a") {
   return { planFile: `experiments/plans/comparison/${name}.yaml`, revision: `rev-${name}`, codeFingerprint: fingerprint,
     jobs: ["bus", "pad"].flatMap((caseName, c) => [42, 43, 44].map((seed, s) => ({ index: c * 3 + s, case: caseName, seed, outputDir: `work_dirs/${name}/${caseName}_${seed}` }))) };

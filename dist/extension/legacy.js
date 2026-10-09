@@ -17243,7 +17243,9 @@ class RealtimeTunnelPanelProvider {
                         failures,
                     });
                 }
-                const next = DistributedPlanQueue.removeConfirmedDistributedPlan(current, planFile, { jobKeys: confirmedJobs, deferredIds: confirmedDeferred });
+                const next = DistributedPlanQueue.removeConfirmedDistributedPlan(current, planFile, {
+                    jobKeys: confirmedJobs, deferredIds: confirmedDeferred, projectId: DistributedPlanQueue.canonicalProjectId(root),
+                });
                 await this.saveDistributedQueue(root, next, { queueGeneration: clearGeneration });
             }
             if (!clearStillHere()) {
