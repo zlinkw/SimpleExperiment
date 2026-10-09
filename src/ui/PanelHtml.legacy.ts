@@ -13446,15 +13446,14 @@ export function renderPanelHtml(): string {
       if (!raw) return EMPTY_PLAN_FILE_EQUIVALENCE_ENTRY;
       const lower = raw.toLowerCase();
       if (planFileEquivalenceCache?.has(lower)) return planFileEquivalenceCache?.get(lower);
-      const base = lower.split("/").pop() || lower;
-      const extension = [".yaml", ".yml", ".json"].find((item) => base.endsWith(item)) || "";
-      const noExt = extension ? base.slice(0, -extension.length) : base;
+      const relative = lower.startsWith("experiments/plans/") ? lower.slice("experiments/plans/".length)
+        : lower.startsWith("plans/") ? lower.slice("plans/".length) : lower;
+      const extension = [".yaml", ".yml", ".json"].find((item) => relative.endsWith(item)) || "";
+      const noExt = !relative.includes("/") ? (extension ? relative.slice(0, -extension.length) : relative) : "";
       const keys = uniqueText([
         lower,
-        base,
+        relative,
         noExt,
-        lower.startsWith("experiments/plans/") ? lower.slice("experiments/plans/".length) : lower,
-        lower.startsWith("plans/") ? lower.slice("plans/".length) : lower
       ]);
       const entry = { keys, keySet: new Set(keys) };
       if (planFileEquivalenceCache.size >= PLAN_FILE_EQUIVALENCE_CACHE_LIMIT) planFileEquivalenceCache.clear();
@@ -17085,7 +17084,7 @@ export function renderPanelHtml(): string {
       const idMatch = planId ? index?.get(planId) : null;
       if (!fileMatch) return idMatch && idMatch.plan;
       if (!idMatch) return fileMatch.plan;
-      return (fileMatch.rowIndex <= idMatch.rowIndex ? fileMatch : idMatch).plan;
+      return fileMatch.plan;
     }
     function planMayBeOmittedFromWebview(state, context) {
       const planFile = String((context && (context.planFile || context.planId)) || state.planFileInput || ((state.selection || {}).selectedPlanId) || "");

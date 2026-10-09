@@ -36,6 +36,15 @@ function loadLookup() {
   return sandbox;
 }
 
+test("qualified Plan file wins over a conflicting earlier display id", () => {
+  const sandbox = loadLookup();
+  const normal = { planFile: "experiments/plans/comparison/aoept.yaml", planId: "aoept.yaml" };
+  const tuning = { planFile: "experiments/plans/comparison_tuning/aoept.yaml", planId: "aoept.yaml" };
+  const state = { plans: [tuning, normal] };
+  assert.equal(sandbox.lookup(state, { planFile: normal.planFile, planId: "aoept.yaml" }), normal);
+  assert.equal(sandbox.lookup(state, { planFile: tuning.planFile, planId: "aoept.yaml" }), tuning);
+});
+
 test("Plan lookup index reuses source arrays and invalidates on replacement", () => {
   const sandbox = loadLookup();
   let reads = 0;
@@ -62,11 +71,11 @@ test("Plan lookup index reuses source arrays and invalidates on replacement", ()
   assert.equal(sandbox.lookup(nextState, { planId: "a" }), undefined);
 });
 
-test("Plan lookup preserves first-row priority across distinct context keys", () => {
+test("Plan lookup gives an explicit file priority over another context id", () => {
   const sandbox = loadLookup();
   const first = { planFile: "plans/first.yaml", planId: "first" };
   const second = { planFile: "plans/second.yaml", planId: "second" };
   const state = { plans: [first, second] };
-  assert.equal(sandbox.lookup(state, { planFile: "plans/second.yaml", planId: "first" }), first);
+  assert.equal(sandbox.lookup(state, { planFile: "plans/second.yaml", planId: "first" }), second);
   assert.equal(sandbox.lookup({ plans: [], recentPlans: [second] }, { planId: "second" }), second);
 });

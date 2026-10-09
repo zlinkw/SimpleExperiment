@@ -18095,7 +18095,7 @@ export class RealtimeTunnelPanelProvider {
             const metadata = (this.localPlanMetadata.plans || []).find((item) => samePlanSelection(item.planFile || item.file, planFile)) || { planFile };
             const authority = PlanArtifactSync.latestPlanSyncEntry(syncLedger, planFile);
             const runAuthority = PlanRunFreshness.selectLatestCompletePlanRunIdentity(queue, planFile, String(metadata?.revision || authority?.revision || ""));
-            return { ...metadata, authority, runAuthority };
+            return { ...metadata, planFile, authority, runAuthority };
         });
         let registry = await this.loadProjectTableRegistry(root);
         const originalPlans = JSON.stringify(registry.plans || {});
@@ -24482,15 +24482,16 @@ function planFileEquivalenceKeys(value) {
     if (!raw)
         return [];
     const lower = raw.toLowerCase();
-    const base = lower.split("/").pop() || lower;
-    const noExt = base.replace(/\.(ya?ml|json)$/i, "");
+    // Qualified paths retain their directories. Basenames are display labels,
+    // not identities shared by comparison and tuning plans.
+    const relative = lower.startsWith("experiments/plans/") ? lower.slice("experiments/plans/".length)
+        : lower.startsWith("plans/") ? lower.slice("plans/".length) : lower;
+    const short = !relative.includes("/");
+    const noExt = short ? relative.replace(/\.(ya?ml|json)$/i, "") : "";
     return uniqueStrings([
         lower,
-        base,
+        relative,
         noExt,
-        lower.replace(/^experiments\/plans\//, ""),
-        lower.replace(/^plans\//, ""),
-        lower.replace(/^\.\//, ""),
     ].filter(Boolean));
 }
 function samePlanSelection(left, right) {
@@ -24511,14 +24512,16 @@ function resolvePlanFileFromPlanList(plans, hint, fallbackHints = []) {
     if (!candidates.length)
         return "";
     for (const raw of candidates) {
-        const byFile = list.find((plan) => samePlanSelection(plan.planFile || plan.file || "", raw));
-        if (byFile)
-            return normalizePlanSelectionKey(byFile.planFile || byFile.file || raw);
-    }
-    for (const raw of candidates) {
-        const byId = list.find((plan) => planIdentityKeys(plan).some((key) => samePlanSelection(key, raw)));
-        if (byId)
-            return normalizePlanSelectionKey(byId.planFile || byId.file || raw);
+        const qualified = raw.includes("/");
+        const matches = list.filter((plan) => qualified
+            ? samePlanSelection(plan.planFile || plan.file || "", raw)
+            : [...planIdentityKeys(plan), normalizePlanSelectionKey(plan.planFile || plan.file || "").split("/").pop()]
+                .some((key) => samePlanSelection(key, raw)));
+        if (matches.length === 1)
+            return normalizePlanSelectionKey(matches[0].planFile || matches[0].file || raw);
+        if (matches.length > 1) throw new Error("Plan 名称不唯一，请使用完整 Plan 路径：" + raw);
+        // An explicit path must not fall back to an unrelated selected Plan.
+        if (qualified) return raw;
     }
     const pathLike = candidates.find((item) => item.includes("/") || /\.(ya?ml|json)$/i.test(item));
     return pathLike || candidates[0];

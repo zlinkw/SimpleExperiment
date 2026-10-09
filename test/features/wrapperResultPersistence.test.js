@@ -23,7 +23,7 @@ const publication = require('../../dist/results/ProjectResultPublication');
 const sha = data => crypto.createHash('sha256').update(data).digest('hex');
 const planFile = 'experiments/plans/comparison/anything.yaml';
 
-function fixture({ wrapperOnly = false, incomplete = false, retry = false, retryWorker = 'owner',
+function fixture({ sameNamePlans = false, wrapperOnly = false, incomplete = false, retry = false, retryWorker = 'owner',
   retryToken = 'distributed-attempt-1791468346173-xuw2sy' } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'simple-wrapper-results-'));
   const files = new Map(), calls = [];
@@ -51,11 +51,14 @@ function fixture({ wrapperOnly = false, incomplete = false, retry = false, retry
       return job;
     }) });
   const runs = [makeRun('A', .81), makeRun('B', .92, incomplete ? 2 : 3)];
+  const tuningFile = planFile.replace('/comparison/', '/comparison_tuning/');
+  if (sameNamePlans) runs.push({ ...makeRun('C', .66), planFile: tuningFile });
   vscode.workspace.workspaceFolders = [{ uri: { fsPath: root, scheme: 'file', path: root } }];
   const host = Object.create(RealtimeTunnelPanelProvider.prototype);
   Object.assign(host, {
     client: {}, context: { globalStorageUri: { fsPath: root } }, resultCsvDirectory: 'experiments/results',
-    localPlanMetadata: { plans: [{ planFile, revision: 'same-revision', seeds: [42, 43, 44] }],
+    localPlanMetadata: { plans: [...(sameNamePlans ? [{ planFile: tuningFile, revision: 'same-revision', seeds: [42, 43, 44] }] : []),
+      { planFile, revision: 'same-revision', seeds: [42, 43, 44] }],
       detectedProject: { adapterRules: { distributedResults: !wrapperOnly } } },
     captureProjectContext: () => ({ root, generation: 1 }), projectContextIsCurrent: () => true,
     effectiveConnectionMode: () => 'tunnel', actionBody: body => body, refreshLocalPlanMetadataForAction: async () => {},
@@ -80,10 +83,37 @@ function fixture({ wrapperOnly = false, incomplete = false, retry = false, retry
         bytes: entry.bytes, sha256: entry.sha256, dataBase64: files.get(entry.remotePath).toString('base64') })) };
     },
   });
-  const sync = () => host.rebuildProjectResultTablesFromUi({ planFiles: [planFile] });
+  const sync = () => host.rebuildProjectResultTablesFromUi({ planFiles: sameNamePlans ? [planFile, tuningFile] : [planFile] });
   const registry = () => JSON.parse(fs.readFileSync(path.join(root, 'simple_cluster/results/project_table_registry.json'), 'utf8'));
-  return { root, host, files, calls, runs, sync, registry };
+  return { root, host, files, calls, runs, sync, registry, tuningFile };
 }
+
+test('same-named Plans sync and publish separate runs, original files and result rows without duplicate targets', async () => {
+  const f = fixture({ sameNamePlans: true });
+  const selected = await f.host.rebuildProjectResultTablesFromUi({ planFiles: [planFile] });
+  assert.equal(selected.included.length, 1);
+  assert.deepEqual(Object.keys(f.registry().plans), [planFile]);
+  assert.ok(f.calls.filter(call => call.method === 'sync.downloadMappedPaths')
+    .every(call => call.params.entries.every(entry => !entry.remotePath.includes('/attempts/C/'))));
+  const report = await f.sync();
+  assert.equal(report.included.length, 2); assert.deepEqual(report.skipped, []); assert.deepEqual(report.missing, []);
+  const registered = f.registry();
+  const normal = registered.plans[planFile], tuning = registered.plans[f.tuningFile];
+  assert.equal(normal.wrapperEvidence.runId, 'B'); assert.equal(tuning.wrapperEvidence.runId, 'C');
+  assert.ok(normal.records.every(row => row.planFile === planFile && row.runId === 'B' && row.metrics.AUC === .92));
+  assert.ok(tuning.records.every(row => row.planFile === f.tuningFile && row.runId === 'C' && row.metrics.AUC === .66));
+  const paths = new Set(normal.wrapperEvidence.jobs.flatMap(job => job.sources.map(source => source.localRelativePath)));
+  for (const job of tuning.wrapperEvidence.jobs) for (const source of job.sources) {
+    assert.equal(paths.has(source.localRelativePath), false);
+    assert.equal(sha(fs.readFileSync(path.join(f.root, source.localRelativePath))), source.sha256);
+  }
+  const final = tables.readCsv(fs.readFileSync(path.join(f.root, 'experiments/results/arbitrary_set/final/final.csv'), 'utf8'));
+  assert.equal(final.rows.length, 2);
+  assert.deepEqual(new Set(final.rows.map(row => row[final.header.indexOf('plan_file')])), new Set([planFile, f.tuningFile]));
+  f.calls.length = 0;
+  await f.sync();
+  assert.equal(f.calls.filter(call => call.method === 'sync.downloadMappedPaths').length, 0);
+});
 
 for (const [name, retryWorker, retryToken] of [
   ['manual retry', 'owner', 'distributed-attempt-1791468346173-xuw2sy'],

@@ -79,6 +79,17 @@ test("webview plan matching supports path, basename, and extensionless identity"
   assert.equal(helpers.samePlanSelection("experiments/plans/other.yaml", "demo.yaml"), false);
 });
 
+test("same-named Plan archive readiness excludes another directory's results and active jobs", () => {
+  const { planArchiveUiReadiness } = loadHelpers();
+  const normal = "experiments/plans/comparison/aoept.yaml";
+  const tuning = "experiments/plans/comparison_tuning/aoept.yaml";
+  const state = { resultsSummary: { previewCsvPath: "preview.csv", effectiveResultsCsvPath: "effective.csv",
+    results: [{ planFile: normal, finalEvidenceState: "archived" }, { planFile: tuning, finalEvidenceState: "pending_review" }] },
+    __tasks: [{ planFile: tuning, status: "running" }] };
+  assert.equal(planArchiveUiReadiness(state, normal).ready, true);
+  assert.equal(planArchiveUiReadiness(state, tuning).ready, false);
+});
+
 test("plan archive UI mirrors result and active-task backend gates", () => {
   const { planArchiveUiReadiness } = loadHelpers();
   const planFile = "experiments/plans/demo.yaml";
