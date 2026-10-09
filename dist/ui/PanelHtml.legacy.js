@@ -10060,7 +10060,8 @@ function renderPanelHtml() {
             .every((count) => typeof count === "number" && Number.isInteger(count) && count >= 0);
       });
       const exact = summaries.filter((summary) => normalizedKey(summary.planFile) === normalizedKey(normalizedFile));
-      const matches = exact.length ? exact : summaries.filter((summary) => samePlanSelection(normalizedFile, summary.planFile));
+      const fallback = exact.length ? [] : summaries.filter((summary) => samePlanSelection(normalizedFile, summary.planFile));
+      const matches = exact.length ? exact : fallback.length === 1 ? fallback : [];
       for (const summary of matches) {
         const summaryRevision = String(summary.revision || "");
         if (revision && summaryRevision !== revision) continue;
@@ -10104,9 +10105,14 @@ function renderPanelHtml() {
         candidates.push(entry);
       }));
       const candidatesFor = (file) => {
+        const keys = planFileEquivalenceKeys(file);
         const found = new Set();
-        planFileEquivalenceKeys(file).forEach((key) => (byAlias.get(key) || []).forEach((entry) => found.add(entry)));
-        return found;
+        keys.forEach((key) => (byAlias.get(key) || []).forEach((entry) => found.add(entry)));
+        const exact = Array.from(found).filter((entry) => normalizePlanSelectionKey(entry.file).toLowerCase() === normalizePlanSelectionKey(file).toLowerCase());
+        if (exact.length) return exact;
+        const qualified = keys.filter((key) => key.includes("/"));
+        const matches = Array.from(found).filter((entry) => !qualified.length || planFileEquivalenceKeys(entry.file).some((key) => qualified.includes(key)));
+        return matches.length === 1 ? matches : [];
       };
       const addVersionedRows = (rows, field, versionMatches) => asArray(rows).forEach((row) => {
         const file = String((row || {}).planFile || (row || {}).plan_file || (row || {}).plan || "");
@@ -10161,9 +10167,13 @@ function renderPanelHtml() {
       const revision = entry ? entry.revision : String(plan.revision || "");
       const planUpdatedAt = entry ? entry.updatedAt : Date.parse(String(plan.updatedAt || ""));
       const tasks = planSelectorLatestJobRows(entry ? entry.tasks : planVersionTaskRows(data, planFile, revision, planUpdatedAt));
-      const operations = entry ? entry.operations : planVersionOperationRows(data, planFile, revision, planUpdatedAt);
+      const operationRows = entry ? entry.operations : planVersionOperationRows(data, planFile, revision, planUpdatedAt);
       const distributedPlans = entry ? entry.distributedPlans : [];
       const distributedJobs = planSelectorLatestJobRows(distributedPlans.flatMap((row) => asArray((row || {}).jobs).map((job) => Object.assign({ planFile, planRevision: (row || {}).planRevision || (row || {}).revision }, job || {}))));
+      const jobEvidenceAt = Math.max(0, ...distributedPlans.map((row) => Date.parse(row.enqueuedAt || "") || 0),
+        ...distributedJobs.map((row) => Date.parse(row.finishedAt || row.updatedAt || row.startedAt || "") || 0));
+      const operations = operationRows.filter((row) => !distributedJobs.length || !jobEvidenceAt
+        || (Date.parse(row.startedAt || row.updatedAt || "") || 0) > jobEvidenceAt);
       const countRows = distributedJobs.length ? distributedJobs : tasks;
       const taskStatuses = tasks.map((row) => taskStatusToken((row || {}).status));
       const completedCount = taskStatuses.filter((status) => ["completed", "done", "archived"].includes(status)).length;
@@ -10186,7 +10196,6 @@ function renderPanelHtml() {
       const latestOperation = operations.reduce((latest, row) => !latest || operationAtOrAfter(row, latest) ? row : latest, null);
       const failedOperation = operationIsFailureLike((latestOperation || {}).status || (latestOperation || {}).state);
       const latestRun = runOperations.reduce((latest, row) => !latest || operationAtOrAfter(row, latest) ? row : latest, null);
-      const latestRunSucceeded = operationSucceeded(latestRun);
       const latestRunFailed = operationIsFailureLike((latestRun || {}).status || (latestRun || {}).state);
       const shownCompletedCount = distributedJobs.length ? distributedCompleted : completedCount;
       const shownFailedCount = distributedJobs.length ? distributedFailed : failedCount;
@@ -10195,7 +10204,7 @@ function renderPanelHtml() {
       const allTasksCompleted = countRows.length > 0 && totalCount > 0 && shownCompletedCount >= totalCount;
       let status = "not-started";
       if (shownFailedCount || failedOperation || latestRunFailed) status = "failed";
-      else if (shownActiveCount || pendingOperation || shownQueuedCount && !shownCompletedCount || latestRun && !latestRunSucceeded && !latestRunFailed) status = "running";
+      else if (shownActiveCount || pendingOperation || shownQueuedCount && !shownCompletedCount) status = "running";
       else if (allTasksCompleted) status = "completed";
       else if (countRows.length || runOperations.length) status = "partial";
       const shownCompleted = status === "completed" && !shownCompletedCount && totalCount ? totalCount : shownCompletedCount;

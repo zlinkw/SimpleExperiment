@@ -65,11 +65,18 @@ export function summarizePlanStatuses(input: PanelPlanStatusSummaryInput = {}): 
   }
 
   const candidatesFor = (file: string): PlanEntry[] => {
+    const keys = planFileEquivalenceKeys(file);
     const found = new Set<PlanEntry>();
-    for (const alias of planFileEquivalenceKeys(file)) {
+    for (const alias of keys) {
       for (const entry of byAlias.get(alias) || []) found.add(entry);
     }
-    return [...found].filter((entry) => samePlanSelection(file, entry.file));
+    const exact = [...found].filter((entry) => normalizePlanFile(entry.file) === normalizePlanFile(file));
+    if (exact.length) return exact;
+    const qualified = keys.filter((key) => key.includes("/"));
+    const matches = [...found].filter((entry) => qualified.length
+      ? planFileEquivalenceKeys(entry.file).some((key) => qualified.includes(key))
+      : samePlanSelection(file, entry.file));
+    return matches.length === 1 ? matches : [];
   };
 
   const schedulerRows = schedulerRowsForInput(input);
@@ -151,20 +158,24 @@ function summarizeEntry(entry: PlanEntry): PanelPlanStatusSummary {
   const displayedCounts = distributedJobs.length ? distributedCounts : taskCounts;
   const expectedCount = expectedPlanJobs(entry.plan);
   const totalCount = countRows.length ? Math.max(countRows.length, expectedCount) : expectedCount;
-  const runOperations = entry.operations.filter((row) => PLAN_RUN_OPERATION_TYPES.has(String(row.type || "").toLowerCase()));
-  const pendingOperation = entry.operations.some((row) => operationPending(row.status));
-  const latestOperation = latestOperationRow(entry.operations);
+  // Completed job evidence supersedes the submission/progress records of that run.
+  // A genuinely newer submission must still remain visible as active.
+  const jobEvidenceAt = Math.max(0, ...entry.distributedPlans.map(row => dateValue(row.enqueuedAt) || 0),
+    ...distributedJobs.map(row => dateValue(row.finishedAt || row.updatedAt || row.startedAt) || 0));
+  const operations = entry.operations.filter(row => !distributedJobs.length || !jobEvidenceAt
+    || (dateValue(row.startedAt || row.updatedAt) || 0) > jobEvidenceAt);
+  const runOperations = operations.filter((row) => PLAN_RUN_OPERATION_TYPES.has(String(row.type || "").toLowerCase()));
+  const pendingOperation = operations.some((row) => operationPending(row.status));
+  const latestOperation = latestOperationRow(operations);
   const latestRun = latestOperationRow(runOperations);
   const failedOperation = operationFailureLike(latestOperation && (latestOperation.status || latestOperation.state));
   const latestRunStatus = latestRun && (latestRun.status || latestRun.state);
-  const latestRunSucceeded = operationSucceeded(latestRunStatus);
   const latestRunFailed = operationFailureLike(latestRunStatus);
   const allTasksCompleted = countRows.length > 0 && totalCount > 0 && displayedCounts.completedCount >= totalCount;
 
   let status: PlanSelectorStatus = "not-started";
   if (displayedCounts.failedCount || failedOperation || latestRunFailed) status = "failed";
-  else if (displayedCounts.activeCount || pendingOperation || displayedCounts.queuedCount && !displayedCounts.completedCount
-    || latestRun && !latestRunSucceeded && !latestRunFailed) status = "running";
+  else if (displayedCounts.activeCount || pendingOperation || displayedCounts.queuedCount && !displayedCounts.completedCount) status = "running";
   else if (allTasksCompleted) status = "completed";
   else if (countRows.length || runOperations.length) status = "partial";
 

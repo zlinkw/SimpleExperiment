@@ -3,9 +3,9 @@ const assert = require("node:assert/strict");
 require("../_helpers/registerTsRequire");
 const { normalizeDistributedProjectContract } = require("../../src/features/DistributedProjectContract.ts");
 
-test("default independent Plan prefix and required evidence remain compatible", () => {
+test("default distributed contract covers every Plan and retains required evidence", () => {
   const contract = normalizeDistributedProjectContract();
-  assert.deepEqual(contract.planPrefixes, ["experiments/plans/comparison/"]);
+  assert.deepEqual(contract.planPrefixes, []);
   assert.ok(contract.requiredPaths.includes("best_model.pth"));
   assert.ok(contract.fragmentPaths.includes("test_results/formal_result_rows.csv"));
 });

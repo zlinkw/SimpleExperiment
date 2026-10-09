@@ -10023,8 +10023,12 @@ class RealtimeTunnelPanelProvider {
             || this.localPlanMetadata.detectedProject?.adapterRules?.distributedResults !== true
             || !/\.ya?ml$/i.test(String(planFile || "")))
             return false;
-        return this.distributedProjectContract().planPrefixes
-            .some((prefix) => String(planFile || "").replace(/\\/g, "/").startsWith(prefix));
+        const file = String(planFile || "").replace(/\\/g, "/");
+        if (file.startsWith("/") || file.includes(":") || /[\x00-\x1f]/.test(file)
+            || file.split("/").some((part) => !part || part === "." || part === ".."))
+            return false;
+        const prefixes = this.distributedProjectContract().planPrefixes;
+        return !prefixes.length || prefixes.some((prefix) => file.startsWith(prefix));
     }
     distributedProjectContract() {
         return (0, DistributedProjectContract_1.normalizeDistributedProjectContract)(this.localPlanMetadata.detectedProject?.adapterRules?.distributed || {});
@@ -10277,7 +10281,8 @@ class RealtimeTunnelPanelProvider {
         await this.saveDistributedQueue(root, { ...queue, deferred: [...retained, deferred] });
         this.postState();
     }
-    async selectDistributedPlanPrimary(body) {
+    async selectDistributedPlanPrimary(body, candidateWorkerIds) {
+        const allowed = candidateWorkerIds ? new Set(candidateWorkerIds) : undefined;
         let snapshot;
         try {
             snapshot = await this.client.getGpu();
@@ -10288,11 +10293,11 @@ class RealtimeTunnelPanelProvider {
             snapshot = this.lastRealtimeState?.gpu || {};
         }
         const availability = this.localWorkerAvailabilityRows(this.availabilityPushTtlSeconds(this.schedulerSettings()), snapshot);
-        const ranked = availability.filter((row) => this.lastWorkerProbes[row.workerId]?.status === "ok")
+        const ranked = availability.filter((row) => this.lastWorkerProbes[row.workerId]?.status === "ok" && (!allowed || allowed.has(row.workerId)))
             .sort((a, b) => (b.availableGpuIds?.length || 0) - (a.availableGpuIds?.length || 0) || a.workerId.localeCompare(b.workerId));
         if (!ranked.length) {
             for (const worker of this.workerActionTargets())
-                if (this.lastWorkerProbes[worker.id]?.status === "ok")
+                if (this.lastWorkerProbes[worker.id]?.status === "ok" && (!allowed || allowed.has(worker.id)))
                     ranked.push({ workerId: worker.id, availableGpuIds: [] });
         }
         if (!ranked.length)
@@ -12532,6 +12537,8 @@ class RealtimeTunnelPanelProvider {
         }
         if (!available.length)
             throw new Error(`${label} 没有已检测在线且支持 Plan 校验的 Worker；请先启动并检测 Worker。`);
+        if (this.distributedPlanEligible(operationResultPlanFile(body)))
+            return this.selectDistributedPlanPrimary(body, available.map((worker) => worker.id));
         const candidates = available.map((worker) => {
             const probe = this.lastWorkerProbes[worker.id] || {};
             return {
@@ -17572,7 +17579,7 @@ class RealtimeTunnelPanelProvider {
                 const manifestPath = output + "/artifact_manifest.json";
                 const configured = this.localPlanMetadata?.detectedProject?.adapterRules?.distributed || {};
                 const requireFour = Boolean(configured.fourStatePath || configured.requiredPaths?.includes(contract.fourStatePath))
-                    && contract.planPrefixes.some(prefix => item.planFile.startsWith(prefix));
+                    && (!contract.planPrefixes.length || contract.planPrefixes.some(prefix => item.planFile.startsWith(prefix)));
                 const required = uniqueStrings([raw, ...Object.keys(artifacts).filter(file => file.startsWith(output + "/") && WrapperResultBundle.isWrapperResultFile(file)),
                     ...(requireFour ? [output + "/" + contract.fourStatePath] : []),
                     ...(contract.fragmentPaths || []).filter(name => WrapperResultBundle.isWrapperResultFile(name) && name !== contract.fourStatePath)

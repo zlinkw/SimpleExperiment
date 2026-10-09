@@ -9,7 +9,8 @@ function normalizeDistributedProjectContract(raw = {}) {
         return text;
     };
     const list = (value) => Array.isArray(value) ? value.map(String) : [];
-    const planPrefixes = (list(raw.planPrefixes).length ? list(raw.planPrefixes) : ["experiments/plans/comparison/"])
+    // An absent filter applies to every Plan; only the project's explicit prefixes restrict it.
+    const planPrefixes = list(raw.planPrefixes)
         .map((value) => `${relative(value.replace(/\/+$/, ""), "")}/`);
     const configPath = relative(raw.configPath, "job_config.yaml");
     const checkpointPath = relative(raw.checkpointPath, "best_model.pth");

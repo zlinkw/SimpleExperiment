@@ -204,7 +204,7 @@ my_project/
 
 普通项目不必复制示例目录或添加论文文件。保留自己的入口、配置格式和命令参数，在 Plan 中写实际命令即可；`train_test` 只用于确实有独立测试步骤的项目，只有训练步骤时选择 `mode: train`。先通过“识别工作区”和“检查项目配置”核对入口，再校验、预演、提交。静态检查异步执行，重复点击共享同一次检查，只更新 `simple_cluster/check_reports/check-static-latest.md`。
 
-现有 CSV/JSON 可在结果设置中指定候选文件、列映射和指标别名，不必为接入改写训练代码。高级跨 Worker 产物合并仍需项目自己的汇总模块；非模型训练项目可在工作区设置中明确取消 checkpoint 要求，例如：
+现有 CSV/JSON 可在结果设置中指定候选文件、列映射和指标别名，不必为接入改写训练代码。启用 `distributedResults` 的多 Worker 项目默认将所有 Plan 的任务自动分布式派发；未配置 `distributed.planPrefixes` 时不限制 Plan 目录，校验和预演自动选择可用 Worker。只有明确配置 `planPrefixes` 时才限制范围，范围外保留单 Worker 提交流程。高级跨 Worker 产物合并仍需项目自己的汇总模块；非模型训练项目可在工作区设置中明确取消 checkpoint 要求，例如：
 
 ```json
 "simpleExperiment.projectAdapterRules": {

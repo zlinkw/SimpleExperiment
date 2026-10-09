@@ -31,6 +31,7 @@ function selectorSandbox(stateForSummary) {
   const readCounts = { tasks: 0, operations: 0 };
   const sandbox = {
     el: (id) => elements[id],
+    normalizePlanSelectionKey: (value) => String(value || "").trim().replaceAll("\\", "/").replace(/^\.\//, ""),
     samePlanSelection: (left, right) => String(left || "").replaceAll("\\", "/") === String(right || "").replaceAll("\\", "/"),
     planFromContext: (state, context) => (state.plans || []).find((plan) => plan.file === context.planFile) || {},
     planVersionTaskRows: (state, file, revision) => (state.tasks || []).filter((task) => task.planFile === file && task.planRevision === revision),
@@ -47,7 +48,7 @@ function selectorSandbox(stateForSummary) {
     taskStatusToken: (status) => String(status || "").toLowerCase(),
     taskFailureLikeStatus: (status) => ["failed", "error", "stalled", "stopped", "cancelled"].includes(status),
     taskTerminalStatus: (status) => ["completed", "done", "archived", "failed", "error", "stalled", "stopped", "cancelled"].includes(status),
-    operationIsFailureLike: (status) => ["failed", "error", "cancelled"].includes(String(status || "").toLowerCase()),
+    operationIsFailureLike: (status) => ["failed", "error", "stalled", "interrupted"].includes(String(status || "").toLowerCase()),
     PLAN_ACTIVE_STATUSES: new Set(["accepted", "submitted", "queued", "pending", "running", "testing", "progress", "in_progress", "operation_started", "started"]),
     PLAN_RUN_OPERATION_TYPES: new Set(["run-plan", "reproduce-plan"]),
     naturalCompare: (left, right) => String(left || "").localeCompare(String(right || ""), undefined, { numeric: true }),
@@ -133,6 +134,26 @@ test("a finished submission does not mark missing configured jobs complete", () 
   assert.equal(summary.status, "partial");
   assert.equal(summary.completedCount, 2);
   assert.equal(summary.totalCount, 3);
+});
+
+test("cancelled submission is incomplete rather than running", () => {
+  const sandbox = selectorSandbox();
+  const file = "plans/tuning.yaml";
+  const summary = sandbox.selector.summary({ plans: [{ file, revision: "r1", jobCount: 36 }],
+    operations: [{ planFile: file, planRevision: "r1", type: "run-plan", status: "cancelled" }] }, file);
+  assert.equal(summary.status, "partial");
+  assert.equal(summary.completedCount, 0);
+});
+
+test("completed jobs suppress old operation activity while a newer rerun stays active", () => {
+  const sandbox = selectorSandbox();
+  const file = "plans/comparison.yaml";
+  const state = { plans: [{ file, revision: "r1", jobCount: 1 }],
+    distributedPlans: [{ planFile: file, revision: "r1", enqueuedAt: "2026-10-09T00:00:00Z", jobs: [{ index: 0, status: "completed", updatedAt: "2026-10-09T02:00:00Z" }] }],
+    operations: [{ planFile: file, planRevision: "r1", type: "run-plan", status: "running", startedAt: "2026-10-09T01:00:00Z" }] };
+  assert.equal(sandbox.selector.summary(state, file).status, "completed");
+  const newer = { ...state, operations: [{ ...state.operations[0], startedAt: "2026-10-09T03:00:00Z" }] };
+  assert.equal(sandbox.selector.summary(newer, file).status, "running");
 });
 
 test("latest successful retry supersedes an older failure for the same job", () => {
