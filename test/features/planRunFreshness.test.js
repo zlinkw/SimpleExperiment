@@ -116,3 +116,36 @@ test("recovery projection strips shared summary paths before applying the author
   assert.deepEqual(summary.workerResultTables, []);
   assert.equal(summary.projectFinalCsvPath, undefined);
 });
+
+test("metric recovery recognizes exclusive queued retry namespaces without requiring the directory to equal runId", () => {
+  for (const token of ['distributed-attempt-1791468346173-xuw2sy', 'auto-retry-1791468346173-xuw2sy']) {
+    const plan=run('run-current', '2026-10-09T00:00:00Z');
+    Object.assign(plan.jobs[2], { attempt:43, artifacts:{}, outputDir:'custom_results/method/seed44/attempts/' + token });
+    const queue={plans:[plan]}, selected=freshness.selectLatestCompletePlanRunIdentity(queue,plan.planFile,'same');
+    assert.equal(freshness.hasExclusiveAttemptOutput(queue,selected,selected.jobs[2]),true);
+    assert.equal(freshness.hasExclusiveAttemptOutput(queue,selected,selected.jobs[0]),true,'normal run namespaces remain supported');
+    assert.equal(freshness.hasExclusiveAttemptOutput({plans:[]},selected,selected.jobs[2]),false);
+    assert.equal(freshness.hasExclusiveAttemptOutput(queue,selected,{...selected.jobs[2],commandId:'other'}),false);
+    plan.jobs[2].status='unknown';
+    assert.equal(freshness.hasExclusiveAttemptOutput(queue,selected,selected.jobs[2]),false);
+  }
+});
+
+test("unhashed discovery rejects legacy output reuse, collisions and historical attempts", () => {
+  for (const mutate of [
+    (queue,plan)=>{ plan.jobs[2].outputDir='custom_results/legacy'; },
+    (queue,plan)=>{ plan.jobs[2].outputDir='custom_results/attempts/shared'; },
+    (queue,plan)=>{ plan.jobs[2].attempt=1; },
+    (queue,plan)=>{ plan.jobs[1].outputDir=plan.jobs[2].outputDir; },
+    (queue,plan)=>{ queue.plans.push({...plan,id:'other-run'}); },
+    (queue,plan)=>{ plan.jobs[2].history=[{...plan.jobs[2],attempt:42,commandId:'previous'}]; },
+    (queue,plan)=>{ plan.jobs[2].recoveryConflict=true; },
+  ]) {
+    const plan=run('run-current', '2026-10-09T00:00:00Z');
+    Object.assign(plan.jobs[2],{attempt:43,artifacts:{},outputDir:'custom_results/seed44/attempts/auto-retry-1791468346173-xuw2sy'});
+    const queue={plans:[plan]}, selected=freshness.selectLatestCompletePlanRunIdentity(queue,plan.planFile,'same');
+    mutate(queue,plan);
+    const current=freshness.selectLatestCompletePlanRunIdentity(queue,plan.planFile,'same') || selected;
+    assert.equal(freshness.hasExclusiveAttemptOutput(queue,current,current.jobs[2]),false);
+  }
+});

@@ -23,14 +23,16 @@ const publication = require('../../dist/results/ProjectResultPublication');
 const sha = data => crypto.createHash('sha256').update(data).digest('hex');
 const planFile = 'experiments/plans/comparison/anything.yaml';
 
-function fixture({ wrapperOnly = false, incomplete = false } = {}) {
+function fixture({ wrapperOnly = false, incomplete = false, retry = false, retryWorker = 'owner',
+  retryToken = 'distributed-attempt-1791468346173-xuw2sy' } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'simple-wrapper-results-'));
   const files = new Map(), calls = [];
   const makeRun = (id, value, done = 3) => ({ id, planFile, revision: 'same-revision', enqueuedAt: id === 'A' ? '2026-10-01T00:00:00Z' : '2026-10-02T00:00:00Z',
     jobs: [42, 43, 44].map((seed, index) => {
-      const outputDir = `work_dirs/arbitrary/${seed}/attempts/${id}`;
+      const retried = retry && id === 'B' && seed === 44;
+      const outputDir = `work_dirs/arbitrary/${seed}/attempts/${retried ? retryToken : id}`;
       const checkpoint = outputDir + '/best_model.pth';
-      const job = { index, case: 'case-one', seed, attempt: 1, workerId: 'owner', commandId: id + '-' + seed,
+      const job = { index, case: 'case-one', seed, attempt: retried ? 43 : 1, workerId: retried ? retryWorker : 'owner', commandId: id + '-' + seed,
         outputDir, status: index < done ? 'completed' : 'running' };
       const endpoint = wrapperOnly ? outputDir + '/scoring.csv' : outputDir + '/test_results/formal_result_rows.csv';
       const endpointText = `case,seed,method,dataset,metric,value,checkpoint_path,job_dir,run_id\ncase-one,${seed},unknown_method,arbitrary_set,AUC,${value},${checkpoint},${outputDir},${id}\n`;
@@ -58,7 +60,7 @@ function fixture({ wrapperOnly = false, incomplete = false } = {}) {
     captureProjectContext: () => ({ root, generation: 1 }), projectContextIsCurrent: () => true,
     effectiveConnectionMode: () => 'tunnel', actionBody: body => body, refreshLocalPlanMetadataForAction: async () => {},
     loadPlanSyncLedger: async () => ({ schemaVersion: 2, entries: {} }), loadDistributedQueue: async () => ({ plans: runs }),
-    resolveSelectedPlanFile: () => planFile, enabledWorkerConfigs: () => [{ id: 'owner' }],
+    resolveSelectedPlanFile: () => planFile, enabledWorkerConfigs: () => [...new Set(runs.flatMap(run => run.jobs.map(job => job.workerId)))].map(id => ({ id })),
     mappedDownloadServerForSource: id => ({ id, host: 'current-config.example', remotePath: '/verified/project' }),
     simpleSftpCapability: async () => ({ methodOptions: { 'sync.downloadMappedPaths': { memoryOnly: true } } }),
     postState() {}, invalidateResultCatalogCache() {},
@@ -82,6 +84,34 @@ function fixture({ wrapperOnly = false, incomplete = false } = {}) {
   const registry = () => JSON.parse(fs.readFileSync(path.join(root, 'simple_cluster/results/project_table_registry.json'), 'utf8'));
   return { root, host, files, calls, runs, sync, registry };
 }
+
+for (const [name, retryWorker, retryToken] of [
+  ['manual retry', 'owner', 'distributed-attempt-1791468346173-xuw2sy'],
+  ['cross Worker reassignment', 'new-owner', 'distributed-attempt-1791468346173-xuw2sy'],
+  ['automatic retry', 'owner', 'auto-retry-1791468346173-xuw2sy'],
+]) test(name + ' publishes the completed attempt under the original Plan run and refreshes locally', async () => {
+  const f = fixture({ retry: true, retryWorker, retryToken }); const report = await f.sync();
+  assert.deepEqual(report.skipped, []); assert.deepEqual(report.missing, []);
+  const evidence = f.registry().plans[planFile].wrapperEvidence;
+  assert.equal(evidence.runId, 'B'); assert.equal(evidence.jobs.length, 3);
+  const retried = evidence.jobs.find(row => row.job.seed === 44);
+  assert.equal(retried.job.attempt, 43); assert.equal(retried.job.commandId, 'B-44');
+  assert.equal(retried.job.workerId, retryWorker); assert.equal(retried.job.ownerWorkerId, retryWorker);
+  assert.equal(retried.job.outputDir, f.runs[1].jobs[2].outputDir);
+  assert.ok(f.calls.some(call => call.method === 'sync.downloadMappedPaths' && call.params.server.id === retryWorker
+    && call.params.entries.some(file => file.remotePath.startsWith(retried.job.outputDir + '/'))));
+  assert.ok(f.registry().plans[planFile].records.every(row => row.runId === 'B'));
+  assert.ok(retried.sources.some(file => file.kind === 'test_results/four_state_metrics.csv'));
+  const local = await f.host.summaryFromLocalMetricFiles(f.root, planFile, f.host.resultsSummary, { authoritativeLocal: true });
+  assert.equal(local.wrapperEvidence.runId, 'B'); assert.deepEqual(local.wrapperEvidence.jobs, evidence.jobs);
+  f.calls.length = 0;
+  f.host.cancelResultCatalogRefresh = () => {};
+  let refreshed = false; f.host.refreshLocalResultCatalogForProject = async () => { refreshed = true; };
+  await f.host.refreshLocalResultsFromUi();
+  assert.equal(refreshed, true); assert.equal(f.calls.length, 0, 'local refresh does not download or select an older run');
+  await f.sync();
+  assert.equal(f.calls.filter(call => call.method === 'sync.downloadMappedPaths').length, 0);
+});
 
 test('memoryOnly persistence includes four-state and arbitrary wrapper outputs with exact bytes and provenance', async () => {
   const f = fixture(); const report = await f.sync(); assert.deepEqual(report.skipped, []);
@@ -175,10 +205,10 @@ test('local reuse checks current SHA256 even when size and mtime match', async (
 });
 
 for (const fault of ['missing-four', 'hash-mismatch', 'wrong-checkpoint', 'missing-custom']) test(fault + ' retains old complete endpoint and wrapper generation', async () => {
-  const f = fixture(); const b = f.runs.pop(); await f.sync();
+  const f = fixture({ retry: true }); const b = f.runs.pop(); await f.sync();
   const previous = fs.readFileSync(path.join(f.root, 'experiments/results/arbitrary_set/final/final.csv'));
   f.runs.push(b);
-  const output = b.jobs[0].outputDir;
+  const output = b.jobs[2].outputDir;
   if (fault === 'missing-four') f.files.delete(output + '/test_results/four_state_metrics.csv');
   if (fault === 'missing-custom') f.files.delete(output + '/custom.json');
   if (fault === 'wrong-checkpoint') f.files.set(output + '/test_results/four_state_metrics.csv',

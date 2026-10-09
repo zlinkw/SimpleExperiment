@@ -17587,6 +17587,7 @@ class RealtimeTunnelPanelProvider {
                     sources.get(job.workerId).add(file);
                 const original = run.plan.jobs.find(candidate => candidate.index === job.index && Number(candidate.attempt || 1) === job.attempt);
                 files.push({ job: { ...job, artifacts }, raw, metrics, required, manifestPath, requireFour,
+                    isolatedAttempt: PlanRunFreshness.hasExclusiveAttemptOutput(queue, run, job),
                     planFile: item.planFile, mappingSummary: item.summary, multipleJobs: run.jobs.length > 1,
                     mirrors: uniqueStrings([...(original?.fragmentWorkerIds || []), ...(original?.mirroredWorkerIds || [])]).filter(id => id !== job.workerId) });
             }
@@ -17625,15 +17626,11 @@ class RealtimeTunnelPanelProvider {
         };
         const verifiedMetrics = (file, workerId) => file.metrics.filter(name => {
             const inventory = inventories.get(workerId), entry = inventory?.files?.[name], expected = file.job.artifacts?.[name];
-            const runScoped = file.job.outputDir.split("/").some((part, index, parts) => part === "attempts" && parts[index + 1] === file.runId);
-            if (!expected && !runScoped)
-                return false; // A reused legacy directory cannot prove an unhashed new run.
+            if (!expected && !file.isolatedAttempt)
+                return false; // Reused legacy or conflicting attempt paths require recorded hashes.
             return entry && !inventory.unverifiedFiles?.[name] && entry.size > 0 && entry.size <= 4 * 1024 * 1024
                 && /^[a-f0-9]{64}$/i.test(String(entry.sha256 || "")) && (!expected || expected === entry.sha256);
         });
-        for (const recovery of recoveries)
-            for (const file of recovery.files)
-                file.runId = recovery.run.runId;
         await readInventories(sources);
         // Read wrapper declarations once per source, then hash only the declared lightweight files.
         const manifestMemory = new Map();

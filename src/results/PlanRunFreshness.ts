@@ -66,6 +66,34 @@ export function selectLatestCompletePlanRunIdentity(queue: unknown, planFile: st
   return selectLatestCompletePlanRunInternal(queue, planFile, expectedRevision, false);
 }
 
+/** A retry namespace belongs to a job attempt, while publication still belongs to its Plan run. */
+export function hasExclusiveAttemptOutput(queue: unknown, run: AuthoritativePlanRun, job: AuthoritativeJobIdentity): boolean {
+  const output = job.outputDir.replace(/\\/g, "/");
+  const parts = output.split("/");
+  if (!run.runId || output.startsWith("/") || parts.some(part => !part || part === "." || part === ".." || /[:\x00-\x1f]/.test(part))) return false;
+  const scoped = parts.some((part, index) => part === "attempts" && (parts[index + 1] === run.runId
+    || job.attempt > 1 && /^(?:distributed-attempt|auto-retry)-[0-9]+-[a-z0-9]+$/.test(parts[index + 1] || "")));
+  if (!scoped) return false;
+  const identity = (plan: Record<string, any>, row: Record<string, any>) => JSON.stringify([
+    normalizedPlanFile(plan.planFile || plan.file), String(plan.revision || ""), String(plan.codeFingerprint || ""), String(plan.id || ""),
+    Number(row.index), String(row.case || ""), Number(row.seed), Number(row.attempt), String(row.workerId || ""), String(row.commandId || ""),
+  ]);
+  const expected = identity(run.plan, job);
+  if (!run.jobs.some(row => row.outputDir === output && identity(run.plan, row) === expected)) return false;
+  const plans = Array.isArray((queue as any)?.plans) ? (queue as any).plans : [];
+  let found = false;
+  for (const plan of plans) for (const row of Array.isArray(plan.jobs) ? plan.jobs : []) {
+    if (String(row.outputDir || "").replace(/\\/g, "/") === output) {
+      if (identity(plan, row) !== expected || plan.recoveryConflict || row.recoveryConflict || row.outputRetiredAt
+        || !["completed", "succeeded", "success"].includes(String(row.status || "").toLowerCase())
+        || row.trustedTerminalStatus && row.trustedTerminalStatus !== "completed") return false;
+      found = true;
+    }
+    if ((Array.isArray(row.history) ? row.history : []).some((previous: Record<string, any>) => String(previous.outputDir || "").replace(/\\/g, "/") === output)) return false;
+  }
+  return found;
+}
+
 /** Incomplete newest runs have a separate preview; never lend their seeds to formal results. */
 export function selectLatestPlanRunPreview(queue: unknown, planFile: string, expectedRevision = ""): AuthoritativePlanRun | undefined {
   const rows: Record<string, any>[] = Array.isArray((queue as any)?.plans) ? (queue as any).plans : [];

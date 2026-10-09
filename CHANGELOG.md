@@ -1,3 +1,10 @@
+## 0.5.250 (2026-10-09)
+
+- 修复已完成重试的 wrapper 结果被误报缺失：Plan 的 runId 与 job 的重试目录标识各自保留，通过完整 job 身份及队列中独占的 attempt 目录确认来源，覆盖迁移重排与自动重试，不要求重试目录名等于 Plan runId。
+- 保留 SHA256、来源、Case/seed、run、attempt 与 checkpoint 校验。复用的旧目录、输出冲突、历史 attempt、未核实任务及真实缺失仍拒绝发布，保留旧完整结果；三种子完整发布和四态、任意 wrapper 产物原子发布规则不变。
+- 回归覆盖普通完成、手动重试、跨 Worker 重新分配及自动重试的持久化、无网络本地刷新、重复下载幂等，以及重试中缺文件、哈希不符和 checkpoint 冲突。
+- 实际补收使用生产重建链路和 SimpleSFTP API，已发布 MultiModal 的 DPL `distributed-plan-1791379276392-jqzwhi` 与 DRF `distributed-plan-1791379121239-bys2fy`，各六个 job、合计 168 个原始产物的 SHA256 与来源身份全部核对。registry 仅使用对应新版运行的种子，两数据集的 final CSV/Markdown 与新版 registry 重建内容逐字一致，原有 168 个历史产物保持原哈希；未重训。
+
 ## 0.5.249 (2026-10-08)
 
 - 修复 Agent 升级后，原排队 job 引用旧 runtime generation 的代码证明而无法启动。只有原证明的完整身份、规范路径及全部文件 stat 绑定仍通过校验，才签发当前运行时的证明；身份冲突、文件变化及不支持的证明格式继续阻塞。
