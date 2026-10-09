@@ -180,5 +180,5 @@ test('isolated Worker modes and reviewed training recovery reject unsafe evidenc
   const proc = spawnSync('python', ['-B', '-X', 'utf8', path.join(__dirname, 'distributedPlanExecutionMode.fixture.py')],
     { encoding: 'utf8', timeout: 10000, windowsHide: true });
   assert.equal(proc.status, 0, proc.stderr || proc.stdout);
-  assert.deepEqual(JSON.parse(proc.stdout), { modes: ['train', 'test', 'train_test'], recovery: 'verified', rejected: 9 });
+  assert.deepEqual(JSON.parse(proc.stdout), { modes: ['train', 'test', 'train_test'], recovery: 'verified', rejected: 14 });
 });

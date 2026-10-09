@@ -294,8 +294,17 @@ class HttpTunnelClient {
                     body: body === undefined ? undefined : JSON.stringify(body),
                 });
                 const text = await (0, BoundedResponse_1.readBoundedResponseText)(response, received => inactivity.update({ processedBytes: received }));
-                if (!response.ok)
-                    throw new Error(`Hub Agent HTTP ${response.status}: ${text.slice(0, 200)}`);
+                if (!response.ok) {
+                    let detail = text;
+                    try {
+                        const failure = JSON.parse(text);
+                        const message = failure?.message || failure?.error?.message || failure?.error;
+                        if (typeof message === "string" && message.trim())
+                            detail = message;
+                    }
+                    catch { /* Keep a bounded plain-text reason for non-JSON responses. */ }
+                    throw new Error(`Hub Agent HTTP ${response.status}: ${detail.slice(0, 2000)}`);
+                }
                 if (!text.trim())
                     return {};
                 return JSON.parse(text);

@@ -5592,6 +5592,15 @@ def recover_train_only_completion(root, command, worker_id):
         if not task or not durable_plan_same_identity(row, task) or task.get("status") != "failed" or task.get("stage") != "train_test":
             raise ValueError("Original unintended test failure is not verified")
         error = str(task.get("error") or row.get("error") or "")
+        failure_evidence_path = ""
+        failure_evidence_hash = ""
+        if not error:
+            # Exit-code reconciliation leaves error blank; task telemetry reads this exact attempt's stderr.
+            failure_evidence_path = str(row["outputDir"]).rstrip("/") + "/stderr.log"
+            filename = safe_project_path(root, failure_evidence_path)
+            if os.path.isfile(filename) and not os.path.islink(filename):
+                failure_evidence_hash = sha256_file(filename)
+                error = worker_task_failure_message(root, task, use_cache=False)
         if "Validation-only tuning cannot access test patients" not in error:
             raise ValueError("Failure is not the validation-only test-access guard; manual review required")
         output = str(row["outputDir"])
@@ -5608,6 +5617,10 @@ def recover_train_only_completion(root, command, worker_id):
                 raise ValueError("Missing training artifact: " + normalized)
             evidence[normalized] = sha256_file(filename)
             return filename
+        if failure_evidence_path:
+            verified_file(failure_evidence_path)
+            if evidence[failure_evidence_path] != failure_evidence_hash:
+                raise ValueError("Training failure evidence changed during verification")
         checkpoint = verified_file(manifest.get("checkpoint_path"))
         checkpoint_index = read_json(verified_file(manifest.get("checkpoint_manifest")), {})
         if checkpoint_index.get("checkpoint_path") != manifest.get("checkpoint_path") or checkpoint_index.get("size_bytes") != os.path.getsize(checkpoint):
@@ -13455,7 +13468,7 @@ def recover_worker_task_launch_paths(root, task):
 
 WORKER_TASK_FAILURE_CACHE = {}
 
-def worker_task_failure_message(root, task):
+def worker_task_failure_message(root, task, use_cache=True):
     output_dir = str(task.get("outputDir") or "").strip().replace("\\", "/").rstrip("/")
     if not output_dir:
         return ""
@@ -13463,16 +13476,17 @@ def worker_task_failure_message(root, task):
         stderr_path = safe_project_path(root, output_dir + "/stderr.log")
         stat = os.stat(stderr_path)
         cache_key = (stderr_path, stat.st_mtime_ns, stat.st_size)
-        if cache_key in WORKER_TASK_FAILURE_CACHE:
+        if use_cache and cache_key in WORKER_TASK_FAILURE_CACHE:
             return WORKER_TASK_FAILURE_CACHE[cache_key]
         with open(stderr_path, "rb") as stream:
             stream.seek(max(0, stat.st_size - 8192))
             tail = stream.read(8192).decode("utf-8", errors="replace")
         lines = [line.strip() for line in tail.splitlines() if line.strip()]
         message = next((line for line in reversed(lines) if "Error:" in line or "Exception:" in line), lines[-1] if lines else "")[:600]
-        if len(WORKER_TASK_FAILURE_CACHE) >= 512:
-            WORKER_TASK_FAILURE_CACHE.clear()
-        WORKER_TASK_FAILURE_CACHE[cache_key] = message
+        if use_cache:
+            if len(WORKER_TASK_FAILURE_CACHE) >= 512:
+                WORKER_TASK_FAILURE_CACHE.clear()
+            WORKER_TASK_FAILURE_CACHE[cache_key] = message
         return message
     except (OSError, ValueError):
         return ""

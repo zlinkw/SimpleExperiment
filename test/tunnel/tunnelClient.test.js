@@ -41,6 +41,30 @@ test("tunnel client requires an endpoint host", () => {
   assert.throws(() => new HttpTunnelClient({ localHost: "", localPort: 18765 }, budget), /host is required/);
 });
 
+test("failed Agent action exposes the complete structured reason instead of truncating the envelope", async () => {
+  const reason = "action failed: Failure is not the validation-only test-access guard; manual review required";
+  const server = http.createServer((_req, res) => {
+    res.statusCode = 500;
+    res.setHeader("Content-Type", "application/json");
+    res.end(JSON.stringify({ schemaVersion: 1, opId: "recover-training-1791552998153-ev2a7d",
+      operationId: "2019fab2e674e090f60aa759cf5087d9", action: "retry-worker-task", status: "failed", message: reason }));
+  });
+  await listen(server);
+  const client = new HttpTunnelClient({ localHost: "127.0.0.1", localPort: server.address().port, timeoutMs: 1000 },
+    new RequestBudget({ ...defaultRequestBudgetConfig, minIntervalByPurpose: {}, disabledPurposes: [] }));
+  try {
+    await assert.rejects(() => client.postAction("retry-worker-task", { opId: "recover-preview" }), error => {
+      assert.match(error.message, /HTTP 500/);
+      assert.ok(error.message.includes(reason), error.message);
+      assert.equal(error.message.includes('"schemaVersion"'), false);
+      return true;
+    });
+  } finally {
+    server.closeAllConnections();
+    server.close();
+  }
+});
+
 test("distributed result rebuild may finish beyond the short telemetry timeout", async () => {
   const server = http.createServer((req, res) => {
     res.setHeader("Content-Type", "application/json");

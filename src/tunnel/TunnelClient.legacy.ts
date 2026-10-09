@@ -396,7 +396,15 @@ export class HttpTunnelClient implements TunnelClient {
               body: body === undefined ? undefined : JSON.stringify(body),
             });
             const text = await readBoundedResponseText(response, received => inactivity.update({ processedBytes: received }));
-            if (!response.ok) throw new Error(`Hub Agent HTTP ${response.status}: ${text.slice(0, 200)}`);
+            if (!response.ok) {
+              let detail = text;
+              try {
+                const failure = JSON.parse(text);
+                const message = failure?.message || failure?.error?.message || failure?.error;
+                if (typeof message === "string" && message.trim()) detail = message;
+              } catch { /* Keep a bounded plain-text reason for non-JSON responses. */ }
+              throw new Error(`Hub Agent HTTP ${response.status}: ${detail.slice(0, 2000)}`);
+            }
             if (!text.trim()) return {} as T;
             return JSON.parse(text) as T;
           } finally {

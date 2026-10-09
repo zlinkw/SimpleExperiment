@@ -107,6 +107,7 @@ final_config = {"seed": 42, "train": {"selection_only": True}, "paper": {"case":
 files = {output + "/config.yaml": json.dumps(final_config).encode(), output + "/config_snapshot.yaml": b"# snapshot comment\n" + json.dumps(final_config).encode(),
          output + "/best_model.pth": b"checkpoint", output + "/checkpoint_manifest.json": b"checkpoint-index",
          output + "/artifact_manifest.json": b"manifest",
+         output + "/stderr.log": b"Traceback (most recent call last):\nValueError: Validation-only tuning cannot access test patients; lock parameters in a separate PLAN first\n",
          output + "/metrics_summary.csv": b"split,eval_protocol,source,seed,case,metric,value\nval,p100_low,p100_validation_checkpoint,42,candidate,roc_auc,0.8\n"}
 
 def recovery(change=None, confirm=False):
@@ -117,6 +118,7 @@ def recovery(change=None, confirm=False):
         change(data["jobs"][0], snapshot["tasks"][0], local_files, local_manifest)
     before = copy.deepcopy(local_files)
     writes = []
+    agent.WORKER_TASK_FAILURE_CACHE.clear()
     def read_json(filename, default):
         if filename == "snapshot": return snapshot
         if filename.endswith("artifact_manifest.json"): return local_manifest
@@ -126,6 +128,12 @@ def recovery(change=None, confirm=False):
     def append(_, task):
         snapshot["tasks"] = [task]
         writes.append("snapshot")
+    def stat(filename, *args, **kwargs):
+        if filename not in local_files:
+            raise FileNotFoundError(filename)
+        return SimpleNamespace(st_size=len(local_files[filename]), st_mtime_ns=1)
+    def open_file(filename, mode="r", **kwargs):
+        return io.BytesIO(local_files[filename]) if "b" in mode else io.StringIO(local_files[filename].decode("utf-8"))
     with patch.object(agent, "read_durable_plan_queue", lambda _: data), \
          patch.object(agent, "write_durable_plan_queue", lambda *args: writes.append("queue")), \
          patch.object(agent, "append_worker_task", append), \
@@ -139,11 +147,26 @@ def recovery(change=None, confirm=False):
          patch.object(agent.os.path, "islink", lambda _: False), \
          patch.object(agent.os.path, "getsize", lambda filename: len(local_files[filename])), \
          patch.object(agent.os.path, "getmtime", lambda filename: 0 if filename.endswith(".pth") else 1), \
-         patch("builtins.open", lambda filename, **kwargs: io.StringIO(local_files[filename].decode("utf-8"))):
+         patch.object(agent.os, "stat", stat), \
+         patch("builtins.open", open_file):
         request = {**row, "commandId": "recovery-command", "targetCommandId": "command"}
+        if not snapshot["tasks"][0].get("error") and not data["jobs"][0].get("error"):
+            agent.WORKER_TASK_FAILURE_CACHE[(output + "/stderr.log", 1, len(local_files.get(output + "/stderr.log", b"")))] = "RuntimeError: stale cached failure"
         preview = agent.recover_train_only_completion("virtual", request, "worker")
         assert not writes and preview["preview"] and not preview["recovered"]
+        if not snapshot["tasks"][0].get("error") and not data["jobs"][0].get("error"):
+            assert preview["trainingRecovery"]["sha256"][output + "/stderr.log"] == hashlib.sha256(local_files[output + "/stderr.log"]).hexdigest()
         if confirm:
+            if output + "/stderr.log" in preview["trainingRecovery"]["sha256"]:
+                original_stderr = local_files[output + "/stderr.log"]
+                local_files[output + "/stderr.log"] += b"\n"
+                try:
+                    agent.recover_train_only_completion("virtual", {**request, "confirm": True,
+                        "evidenceSignature": preview["evidenceSignature"]}, "worker")
+                except ValueError: pass
+                else: raise AssertionError("changed failure evidence accepted after review")
+                assert not writes
+                local_files[output + "/stderr.log"] = original_stderr
             try:
                 agent.recover_train_only_completion("virtual", {**request, "confirm": True, "evidenceSignature": "stale"}, "worker")
             except ValueError: pass
@@ -157,6 +180,12 @@ def recovery(change=None, confirm=False):
         assert local_files == before, "recovery must never modify result/config/checkpoint bytes"
 
 recovery(confirm=True)
+def clear_errors(r, t, f, m):
+    r.pop("error", None)
+    t.pop("error", None)
+
+# Exit-code reconciliation stores no error string; the public task endpoint enriches it from this attempt's stderr.
+recovery(clear_errors, confirm=True)
 rejected = 0
 for change in [lambda r,t,f,m: f.pop(output + "/best_model.pth"),
                lambda r,t,f,m: f.update({output + "/config_snapshot.yaml": json.dumps({**final_config, "seed": 43}).encode()}),
@@ -165,7 +194,12 @@ for change in [lambda r,t,f,m: f.pop(output + "/best_model.pth"),
                lambda r,t,f,m: f.update({output + "/metrics_summary.csv": files[output + "/metrics_summary.csv"].replace(b"candidate,", b"other,")}),
                lambda r,t,f,m: f.update({output + "/metrics_summary.csv": files[output + "/metrics_summary.csv"].replace(b",42,", b",44,")}),
                lambda r,t,f,m: f.update({output + "/metrics_summary.csv": files[output + "/metrics_summary.csv"].replace(b"0.8", b"nan")}),
-               lambda r,t,f,m: m.update(test_accessed=True), lambda r,t,f,m: r.update(status="running")]:
+               lambda r,t,f,m: m.update(test_accessed=True), lambda r,t,f,m: r.update(status="running"),
+               lambda r,t,f,m: (clear_errors(r,t,f,m), f.pop(output + "/stderr.log")),
+               lambda r,t,f,m: (clear_errors(r,t,f,m), f.update({output + "/stderr.log": b"ValueError: project configuration is broken\n"})),
+               lambda r,t,f,m: t.update(error="RuntimeError: CUDA out of memory"),
+               lambda r,t,f,m: r.update(stopReason="manual_stop"),
+               lambda r,t,f,m: t.update(workerId="foreign-worker")]:
     try: recovery(change)
     except ValueError: rejected += 1
     else: raise AssertionError("unsafe training recovery accepted")
