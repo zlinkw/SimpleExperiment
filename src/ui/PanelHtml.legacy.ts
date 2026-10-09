@@ -1960,6 +1960,13 @@ export function renderPanelHtml(): string {
       const seedText = task.seed !== undefined && task.seed !== null && String(task.seed) !== "" ? "seed " + String(task.seed) : "seed 未知";
       return caseName + " · " + seedText + " · " + tmuxTaskStatusLabel(task.status);
     }
+    function tmuxWindowCloseButton(win, session, className) {
+      if (!win) return "";
+      const target = String(win.target || (session + ":" + win.index));
+      const worker = String(tmuxListCache.workerId || tmuxSelectedWorkerId || "");
+      const paneIds = (win.panes || []).map(function(pane){ return String(pane.id || ""); }).filter(Boolean);
+      return '<button type="button" class="' + escAttr(className) + '" data-tmux-close="' + escAttr(target) + '" data-tmux-close-worker="' + escAttr(worker) + '" data-tmux-close-id="' + escAttr(win.windowId || "") + '" data-tmux-close-name="' + escAttr(win.name || "") + '" data-tmux-close-panes="' + escAttr(paneIds.join(",")) + '" aria-label="关闭 ' + escAttr(target) + '" title="关闭服务器上的实际窗口 ' + escAttr(target) + '（需确认）">×</button>';
+    }
     function getTmuxWindowCandidates(sessions) {
       const out = [];
       const seen = {};
@@ -1996,7 +2003,7 @@ export function renderPanelHtml(): string {
             const target = sessName + ":" + wIdx;
             const shortLabel = wName ? (sessName + ":" + wName) : target;
             const category = classifyTmuxWindow(wName || sessName);
-            if (!seen[target]) { seen[target] = 1; out.push({ target: target, label: shortLabel, sessName: sessName, windowIndex: wIdx, windowName: wName, panes: paneCount, active: isActive, category: category, synthetic: false }); }
+            if (!seen[target]) { seen[target] = 1; out.push({ target: target, label: shortLabel, sessName: sessName, windowIndex: wIdx, windowName: wName, panes: paneCount, active: isActive, category: category, synthetic: false, window: w }); }
           }
         }
       }
@@ -2041,9 +2048,7 @@ export function renderPanelHtml(): string {
         const klass = c.category || "other";
         const miss = c.synthetic ? " missing" : "";
         const title = c.synthetic ? (c.label + "（当前空闲，尚未创建 tmux 会话）") : (c.category === "gpu" ? (c.label + "；运行中 " + c.runningCount + "；失败保留 " + c.failedCount) : (c.target + "  panes:" + c.panes + (c.active ? " *" : "")));
-        const isAgentWin = String(c.target || "").indexOf("-agent") !== -1;
-        const closeTitle = "关闭 tmux 窗口 " + c.target + (isAgentWin ? "（Agent 窗口，需二次确认）" : "");
-        const closeHtml = '<button type="button" class="tmuxClose" aria-label="关闭 ' + escAttr(c.target) + '" title="' + escAttr(closeTitle) + '" data-tmux-close="' + escAttr(c.target) + '"' + (isAgentWin ? ' data-danger="true"' : '') + '>×</button>';
+        const closeHtml = tmuxWindowCloseButton(c.window, c.sessName, "tmuxClose");
         const summary = c.category === "gpu" ? (c.synthetic ? "空闲" : ("运行 " + c.runningCount + " · 失败 " + c.failedCount + " · 标签 " + c.windows.filter(function(win){ return !!win.task; }).length)) : c.target;
         const card = '<div class="tmuxWindowWrap"><button type="button" class="tmuxWindowCard ' + escAttr(klass) + miss + (isActive ? ' is-active' : '') + '" data-tmux-filter="' + escAttr(c.target) + '" aria-pressed="' + (isActive ? "true" : "false") + '" title="' + escAttr(title) + '"><span>' + esc(c.label) + '</span><b>' + esc(summary) + '</b></button>' + ((c.category === "gpu" || c.synthetic) ? "" : closeHtml) + '</div>';
         if (c.category === "gpu") html += card;
@@ -2125,7 +2130,7 @@ export function renderPanelHtml(): string {
                 windowHtml += ' <code style="font-size:10px;">' + esc(pane.target || "") + esc(pLabel) + '</code>';
               }
             }
-            windowHtml += '</span>';
+            windowHtml += tmuxWindowCloseButton(w, sess.name || "", "tmuxTaskTabClose") + '</span>';
             if (badge === "gpu" && !w.task) { extraWindows += windowHtml; extraCount++; }
             else sessionGrid += windowHtml;
           }
@@ -2179,8 +2184,7 @@ export function renderPanelHtml(): string {
             const target = String(win.target || ((foundSess.name || "") + ":" + (win.index || "0")));
             const status = String((win.task || {}).status || "").toLowerCase() || "retained";
             const selected = tmuxSelectedTaskTarget === target || (!tmuxSelectedTaskTarget && !!win.active);
-            const tabWorkerId = String(tmuxListCache.workerId || tmuxSelectedWorkerId || "");
-            grid += '<span class="tmuxTaskTabWrap ' + escAttr(status) + '"><button type="button" class="tmuxTaskTab' + (selected ? ' is-active' : '') + '" data-tmux-task-target="' + escAttr(target) + '" title="查看 ' + escAttr(tmuxTaskWindowLabel(win)) + '">' + esc(tmuxTaskWindowLabel(win)) + '</button><button type="button" class="tmuxTaskTabClose" data-tmux-close="' + escAttr(target) + '" data-tmux-close-worker="' + escAttr(tabWorkerId) + '" title="关闭该任务标签">×</button></span>';
+            grid += '<span class="tmuxTaskTabWrap ' + escAttr(status) + '"><button type="button" class="tmuxTaskTab' + (selected ? ' is-active' : '') + '" data-tmux-task-target="' + escAttr(target) + '" title="查看 ' + escAttr(tmuxTaskWindowLabel(win)) + '">' + esc(tmuxTaskWindowLabel(win)) + '</button>' + tmuxWindowCloseButton(win, foundSess.name || "", "tmuxTaskTabClose") + '</span>';
           }
           grid += '</div></div>';
         } else if (activeFilter.indexOf("gpu-slot:") === 0) {
@@ -3271,6 +3275,9 @@ export function renderPanelHtml(): string {
           return;
         }
         const closeDanger = tmuxCloseTarget.getAttribute && tmuxCloseTarget.getAttribute("data-danger") === "true";
+        const closePaneIds = String(tmuxCloseTarget.getAttribute("data-tmux-close-panes") || "").split(",").filter(Boolean);
+        const closeWindowId = String(tmuxCloseTarget.getAttribute("data-tmux-close-id") || "");
+        const closeIdentity = closeWindowId || closePaneIds.length ? { windowId: closeWindowId, windowName: String(tmuxCloseTarget.getAttribute("data-tmux-close-name") || ""), paneIds: closePaneIds } : undefined;
         try {
           const closeClientActionId = createClientActionId("killTmuxWindow", closeTarget);
           const closePendingKey = "killTmuxWindow|target=" + closeTarget;
@@ -3284,7 +3291,7 @@ export function renderPanelHtml(): string {
               try { refreshTmuxList(); refreshTmuxCapture(); } catch (e) {}
             }
           }, 30000);
-          vscode.postMessage({ command: "killTmuxWindow", workerId: closeWorkerId, target: closeTarget, window: closeTarget, session: closeSession, danger: closeDanger ? "true" : "false", clientActionId: closeClientActionId });
+          vscode.postMessage({ command: "killTmuxWindow", workerId: closeWorkerId, target: closeTarget, window: closeTarget, session: closeSession, identity: closeIdentity, danger: closeDanger ? "true" : "false", clientActionId: closeClientActionId });
         } catch (e) {
           try { refreshTmuxList(); } catch (err) {}
         }
@@ -5952,8 +5959,8 @@ export function renderPanelHtml(): string {
         renderCommandPhaseLine();
         try {
           if (String(data.command || "") === "killTmuxWindow" || String(data.command || "") === "clearTmuxTaskTabs") {
-            if (String(data.command || "") === "clearTmuxTaskTabs") {
-              tmuxClearTaskTabsBusy = false;
+            if (String(data.command || "") === "clearTmuxTaskTabs" || String(data.command || "") === "killTmuxWindow") {
+              if (String(data.command || "") === "clearTmuxTaskTabs") tmuxClearTaskTabsBusy = false;
               const clearText = String(data.message || "");
               if (clearText && clearText !== "completed") {
                 try { if (typeof showToast === "function") showToast(clearText.slice(0, 240), String(data.status || "").toLowerCase() === "completed" ? "info" : "warning"); } catch (e) {}

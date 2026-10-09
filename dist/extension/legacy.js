@@ -55,6 +55,7 @@ const OperationOutcome_1 = __importStar(require("../core/OperationOutcome"));
 const StateStore_1 = require("../state/StateStore");
 const LatestSnapshotWriter_1 = require("../core/LatestSnapshotWriter");
 const ProjectStaticCheck_1 = require("../features/ProjectStaticCheck");
+const TmuxWindowIdentity = __importStar(require("../features/TmuxWindowIdentity"));
 const SimpleSftpProgressWait_1 = require("../core/SimpleSftpProgressWait");
 const SafeRequestRetry_1 = require("../core/SafeRequestRetry");
 const PlanSafeRetry_1 = require("../features/PlanSafeRetry");
@@ -5863,7 +5864,7 @@ class RealtimeTunnelPanelProvider {
             }
             const completedMessage = command === "syncAllResultArtifacts" && value && typeof value === "object"
                 ? `结果文件同步完成：${Number(value.completed || 0)}/${Number(value.selected || 0)}，跳过已有 ${Number(value.skippedExisting || 0)} 个。`
-                : command === "clearTmuxTaskTabs" && typeof value === "string" && value.trim()
+                : (command === "clearTmuxTaskTabs" || command === "killTmuxWindow") && typeof value === "string" && value.trim()
                     ? value.trim()
                     : (isLocalTrigger ? "已触发本地 VS Code 操作" : "completed");
             return {
@@ -19905,12 +19906,14 @@ class RealtimeTunnelPanelProvider {
         return payload;
     }
     async readTmuxListAfterKill(workerId) {
+        // Do not join a list request which started before the close operation.
+        const requestPath = `/api/tmux/list?closeCheck=${crypto.randomUUID()}`;
         const tryClient = this.client?.clients?.get(workerId);
         if (tryClient && typeof tryClient.requestJson === "function") {
-            const listed = await tryClient.requestJson(`/api/tmux/list`, "manual_refresh", undefined, { method: "GET", userInitiated: true });
+            const listed = await tryClient.requestJson(requestPath, "manual_refresh", undefined, { method: "GET", userInitiated: true });
             return this.publishTmuxList(workerId, listed);
         }
-        return this.fetchOneTmuxListFromUi(workerId);
+        return this.publishTmuxList(workerId, await this.requestTmuxJson(workerId, requestPath, 5000, 512 * 1024));
     }
     async fetchOneTmuxListFromUi(workerId, requestId, options = {}) {
         options.signal?.throwIfAborted();
@@ -20022,6 +20025,7 @@ class RealtimeTunnelPanelProvider {
             throw new Error(`清理目标与当前 Worker/GPU 任务标签不一致：${verified.rejected.slice(0, 6).join(", ")}`);
         if (!verified.targets.length)
             throw new Error("当前 GPU 会话没有可清理的任务标签。");
+        const identities = verified.targets.map((target) => TmuxWindowIdentity.resolveTmuxWindowIdentity(listed, target));
         const answer = await vscode.window.showWarningMessage(`确定关闭 ${workerId} 的 GPU 会话 ${session} 中 ${verified.targets.length} 个任务标签？只关闭这些任务窗口，不会关闭 GPU 会话本身。`, { modal: true }, "关闭任务标签");
         if (answer !== "关闭任务标签")
             throw new UiCommandCancelled("已取消清理任务标签。");
@@ -20033,13 +20037,7 @@ class RealtimeTunnelPanelProvider {
                     const target = verified.targets[index];
                     progress.report({ increment: Math.round(100 / verified.targets.length), message: `正在关闭 ${index + 1}/${verified.targets.length} ${target}` });
                     try {
-                        const current = await this.readTmuxListAfterKill(workerId);
-                        const again = this.verifiedTmuxTaskTargets(current, workerId, session, [target]);
-                        if (!again.targets.length) {
-                            failed.push(`${target}（列表已变化，未关闭）`);
-                            continue;
-                        }
-                        await this.performKillTmuxWindow(workerId, target);
+                        await this.performKillTmuxWindow(workerId, target, identities[index]);
                         closed.push(target);
                     }
                     catch (error) {
@@ -20096,7 +20094,9 @@ class RealtimeTunnelPanelProvider {
         const target = String(message?.target || message?.window || message?.session || "").trim();
         if (!target)
             throw new Error("缺少关闭目标 target（期望 session:index）");
-        const answer = await vscode.window.showWarningMessage(`确定关闭 tmux 窗口 ${target}？窗口内的进程会终止。${message?.danger === "true" ? "这是 Agent 窗口，关闭后对应隧道暂时无法提供数据。" : ""}`, { modal: true }, "关闭窗口");
+        this.tmuxKillSessionFromTarget(target);
+        const identity = TmuxWindowIdentity.resolveTmuxWindowIdentity(await this.readTmuxListAfterKill(workerId), target, message?.identity);
+        const answer = await vscode.window.showWarningMessage(`确定关闭 ${workerId} 的 tmux 窗口 ${identity.target}（${identity.windowName}，${identity.windowId || identity.paneIds.join(", ")}）？窗口内的进程会终止。`, { modal: true }, "关闭窗口");
         if (answer !== "关闭窗口")
             throw new UiCommandCancelled("已取消关闭 tmux 窗口。");
         let closed = false;
@@ -20104,7 +20104,7 @@ class RealtimeTunnelPanelProvider {
             await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: `关闭 tmux 窗口 ${target}`, cancellable: false }, async (progress) => {
                 progress.report({ increment: 10, message: "等待 Agent 确认" });
                 try {
-                    await this.performKillTmuxWindow(workerId, target);
+                    await this.performKillTmuxWindow(workerId, target, identity);
                     closed = true;
                     progress.report({ increment: 90, message: "完成" });
                 }
@@ -20119,6 +20119,7 @@ class RealtimeTunnelPanelProvider {
             if (!closed)
                 throw error;
         }
+        return `已核实关闭 ${workerId} · ${identity.target}（${identity.windowName}）。`;
     }
     tmuxKillSessionFromTarget(target) {
         const match = /^([A-Za-z0-9._-]+):([A-Za-z0-9._-]+)$/.exec(String(target || "").trim());
@@ -20158,6 +20159,10 @@ class RealtimeTunnelPanelProvider {
                 if (!this.isTmuxKillTransportFailure(error))
                     throw error;
                 transportError = errorMessage(error);
+                // A timeout/reset can occur after tmux has already killed the window.
+                // Never repeat a mutation against an index which may now belong to another task.
+                if (!/Only Hub Agent API paths are allowed|API path not allowed|argument must be of type string/i.test(transportError))
+                    throw error;
             }
         }
         else {
@@ -20205,18 +20210,33 @@ class RealtimeTunnelPanelProvider {
         }
         return result;
     }
-    async performKillTmuxWindow(workerId, target) {
+    async performKillTmuxWindow(workerId, target, expected = undefined) {
         if (!target)
             throw new Error("缺少关闭目标 target（期望 session:index）");
         const session = this.tmuxKillSessionFromTarget(target);
-        const body = { target, window: target, session, confirm: true };
-        const result = await this.requestKillTmuxWindow(workerId, body);
+        const before = await this.readTmuxListAfterKill(workerId);
+        const identity = TmuxWindowIdentity.resolveTmuxWindowIdentity(before, target, expected);
+        const body = { ...identity, window: identity.target, session, confirm: true };
+        let result;
+        try {
+            result = await this.requestKillTmuxWindow(workerId, body);
+        }
+        catch (error) {
+            if (!this.isTmuxKillTransportFailure(error))
+                throw error;
+            const current = await this.readTmuxListAfterKill(workerId);
+            if (!TmuxWindowIdentity.tmuxWindowIdentityPresent(current, identity))
+                return;
+            throw new Error(`关闭回执未知，原窗口仍在，未重复关闭：${errorMessage(error)}`);
+        }
         if (result?.ok === false || result?.error) {
             const text = String(result?.error || result?.message || "agent 拒绝关闭窗口");
             throw new Error(`Agent 拒绝关闭：${text}`);
         }
-        if (result?.ok !== true)
-            throw new Error("Agent 未确认关闭窗口");
+        if (result?.ok !== true || result?.verified !== true)
+            throw new Error("Agent 未确认并验证关闭窗口，请更新 Worker Agent 后重试。");
+        if (result.windowId && identity.windowId && result.windowId !== identity.windowId)
+            throw new Error("Agent 关闭回执窗口身份不匹配。");
         let listed = null;
         try {
             listed = await this.readTmuxListAfterKill(workerId);
@@ -20226,8 +20246,8 @@ class RealtimeTunnelPanelProvider {
         }
         if (listed?.ok === false)
             throw new Error(`关闭请求已返回，但 tmux 列表失败：${String(listed?.error || "unknown")}`);
-        if (this.tmuxListStillHasTarget(listed, target))
-            throw new Error(`关闭未生效：target 仍在 tmux 列表 ${target}`);
+        if (TmuxWindowIdentity.tmuxWindowIdentityPresent(listed, identity))
+            throw new Error(`关闭未生效：原窗口仍在 tmux 列表 ${identity.target}`);
     }
     async openTensorBoardUrlFromUi(message) {
         const endpointId = String(message?.endpointId || message?.endpoint_id || "hub").trim() || "hub";

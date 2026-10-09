@@ -67,9 +67,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.257"
-RUNTIME_VERSION = "0.5.257"
-PLUGIN_VERSION = "0.5.257"
+AGENT_VERSION = "0.5.258"
+RUNTIME_VERSION = "0.5.258"
+PLUGIN_VERSION = "0.5.258"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -14717,24 +14717,41 @@ def kill_tmux_window_response(payload, mode, mgmt_env=""):
         threading.Timer(0.3, lambda: subprocess.run(["tmux", "kill-window", "-t", target], capture_output=True, text=True, timeout=5)).start()
         return {"schemaVersion": SCHEMA_VERSION, "target": target, "ok": True, "scheduled": True}, 200
     try:
-        before = subprocess.run(["tmux", "list-windows", "-t", sess_name, "-F", "#{window_index}"], capture_output=True, text=True, timeout=5)
-        before_indexes = {line.strip() for line in (before.stdout or "").splitlines() if line.strip()}
-        if before.returncode != 0 or window_index not in before_indexes:
+        expected_id = str((payload or {}).get("windowId") or "").strip()
+        expected_name = (payload or {}).get("windowName")
+        expected_panes = (payload or {}).get("paneIds")
+        if expected_id and not re.fullmatch(r"@\d+", expected_id):
+            return {"ok": False, "error": "invalid window identity"}, 400
+        if expected_panes is not None and (not isinstance(expected_panes, list) or not expected_panes or any(not isinstance(item, str) or not re.fullmatch(r"%\d+", item) for item in expected_panes)):
+            return {"ok": False, "error": "invalid pane identities"}, 400
+        before = subprocess.run(["tmux", "list-windows", "-t", "=" + sess_name, "-F", "#{session_name}|#{window_index}|#{window_id}|#{window_name}"], capture_output=True, text=True, timeout=5)
+        rows = [line.split("|", 3) for line in (before.stdout or "").splitlines()]
+        found = next((row for row in rows if len(row) == 4 and row[0] == sess_name and (row[2] == expected_id if expected_id else row[1] == window_index)), None)
+        if before.returncode != 0 or not found:
             err = (before.stderr or "").strip()[-500:]
             return {"schemaVersion": SCHEMA_VERSION, "target": target, "ok": False, "error": err or "target window not found"}, 200
-        r = subprocess.run(["tmux", "kill-window", "-t", target], capture_output=True, text=True, timeout=5)
+        resolved_id = found[2]
+        if not re.fullmatch(r"@\d+", resolved_id) or expected_name is not None and str(expected_name) != found[3]:
+            return {"schemaVersion": SCHEMA_VERSION, "target": target, "ok": False, "error": "window identity changed; not closed"}, 200
+        if expected_panes is not None:
+            pane_list = subprocess.run(["tmux", "list-panes", "-t", resolved_id, "-F", "#{pane_id}"], capture_output=True, text=True, timeout=5)
+            if pane_list.returncode != 0 or sorted(set(expected_panes)) != sorted(set((pane_list.stdout or "").splitlines())):
+                return {"schemaVersion": SCHEMA_VERSION, "target": target, "ok": False, "error": "pane identities changed; not closed"}, 200
+        # Window indexes can be renumbered immediately by tmux after any close.
+        # Kill and verify the immutable ID, never a reused session:index.
+        r = subprocess.run(["tmux", "kill-window", "-t", resolved_id], capture_output=True, text=True, timeout=5)
         err = (r.stderr or "").strip()[-500:]
         if r.returncode != 0:
             return {"schemaVersion": SCHEMA_VERSION, "target": target, "ok": False, "error": err or f"rc={r.returncode}"}, 200
-        after = subprocess.run(["tmux", "list-windows", "-t", sess_name, "-F", "#{window_index}"], capture_output=True, text=True, timeout=5)
+        after = subprocess.run(["tmux", "list-windows", "-a", "-F", "#{window_id}"], capture_output=True, text=True, timeout=5)
         after_err = (after.stderr or "").strip().lower()
-        after_indexes = {line.strip() for line in (after.stdout or "").splitlines() if line.strip()}
+        after_ids = {line.strip() for line in (after.stdout or "").splitlines() if line.strip()}
         gone = after.returncode != 0 and ("no server" in after_err or "no sessions" in after_err or "can't find session" in after_err or "no such session" in after_err)
         if after.returncode == 0:
-            gone = window_index not in after_indexes
+            gone = resolved_id not in after_ids
         if not gone:
             return {"schemaVersion": SCHEMA_VERSION, "target": target, "ok": False, "error": "target still present after kill-window"}, 200
-        return {"schemaVersion": SCHEMA_VERSION, "target": target, "session": sess_name, "index": window_index, "ok": True, "verified": True}, 200
+        return {"schemaVersion": SCHEMA_VERSION, "target": target, "session": sess_name, "index": found[1], "windowId": resolved_id, "ok": True, "verified": True}, 200
     except Exception as exc:
         return {"error": str(exc)}, 500
 
@@ -15422,6 +15439,7 @@ def serve_http(args):
                         if gpu_value and gpu_value not in gpu_ids:
                             gpu_ids.append(gpu_value)
                     sessions = []
+                    list_errors = []
                     for line in (sess_proc.stdout or "").splitlines():
                         if not line.strip():
                             continue
@@ -15436,7 +15454,7 @@ def serve_http(args):
                         # list windows for this session
                         windows = []
                         try:
-                            win_proc = subprocess.run(["tmux", "list-windows", "-t", sess_name, "-F", "#{window_index}|#{window_name}|#{window_active}|#{window_panes}"], capture_output=True, text=True, timeout=5)
+                            win_proc = subprocess.run(["tmux", "list-windows", "-t", "=" + sess_name, "-F", "#{window_index}|#{window_name}|#{window_active}|#{window_panes}|#{window_id}"], capture_output=True, text=True, timeout=5)
                             if win_proc.returncode == 0:
                                 for wline in (win_proc.stdout or "").splitlines():
                                     if not wline.strip():
@@ -15445,6 +15463,9 @@ def serve_http(args):
                                     widx = (wparts[0] if len(wparts)>0 else "").strip()
                                     wname = (wparts[1] if len(wparts)>1 else "").strip()
                                     wactive = (wparts[2] if len(wparts)>2 else "0").strip() == "1"
+                                    wid = (wparts[4] if len(wparts)>4 else "").strip()
+                                    if not re.fullmatch(r"@\d+", wid):
+                                        list_errors.append(sess_name + ": invalid window identity")
                                     try:
                                         wpanes = int((wparts[3] if len(wparts)>3 else "1").strip() or 1)
                                     except Exception:
@@ -15493,11 +15514,13 @@ def serve_http(args):
                                             "outputDir": matched_task.get("outputDir") or matched_task.get("output_dir") or "",
                                             "configPath": matched_task.get("configPath") or matched_task.get("config_path") or "",
                                         }
-                                    windows.append({"index": widx, "name": wname, "active": wactive, "panes": panes, "target": f"{sess_name}:{widx}", "paneCount": wpanes, "task": task_meta})
-                        except Exception:
-                            pass
+                                    windows.append({"index": widx, "windowId": wid, "name": wname, "active": wactive, "panes": panes, "target": f"{sess_name}:{widx}", "paneCount": wpanes, "task": task_meta})
+                            else:
+                                list_errors.append(sess_name + ": " + (win_proc.stderr or "list-windows failed").strip()[-300:])
+                        except Exception as exc:
+                            list_errors.append(sess_name + ": " + str(exc)[-300:])
                         sessions.append({"name": sess_name, "windowCount": sess_windows, "windows": windows})
-                    return self.send_json({"schemaVersion": SCHEMA_VERSION, "ok": True, "available": True, "workerId": os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker", "gpuIds": gpu_ids, "sessions": sessions})
+                    return self.send_json({"schemaVersion": SCHEMA_VERSION, "ok": not list_errors, "available": True, "workerId": os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker", "gpuIds": gpu_ids, "sessions": sessions, "error": "; ".join(list_errors)})
                 except Exception as exc:
                     return self.send_json({"error": str(exc)}, status=500)
             return self.send_json({"error": "not found"}, status=404)

@@ -45,7 +45,7 @@ namespace = {
 start = source.index("def kill_tmux_window_response(")
 end = source.index("\ndef serve_http(", start)
 exec(compile(source[start:end], "production-tmux-close", "exec"), namespace)
-methods = ["localhost_only", "authorized", "send_json", "read_request_body", "reject_if_needed", "do_POST"]
+methods = ["localhost_only", "authorized", "send_json", "read_request_body", "reject_if_needed", "do_POST", "do_GET"]
 for name in methods:
     exec(compile(handler_method(name), "production-http-" + name, "exec"), namespace)
 
@@ -75,20 +75,38 @@ behavior = {"kill": "normal"}
 def fake_run(args, **kwargs):
     calls.append(args)
     assert kwargs.get("timeout") == 5, kwargs
+    if args[:2] == ["tmux", "list-sessions"]:
+        return Result(stdout="zlk-gpu-0|" + str(len(windows)) + "|0|0")
     if args[:2] == ["tmux", "list-windows"]:
-        assert args[2:] == ["-t", "zlk-gpu-0", "-F", "#{window_index}"], args
-        return Result(stdout="\n".join(sorted(windows)))
+        if "-a" in args:
+            assert args[2:] == ["-a", "-F", "#{window_id}"], args
+            return Result(stdout="\n".join("@" + i for i in sorted(windows) if i != "agent"))
+        if args[-1] == "#{window_index}|#{window_name}|#{window_active}|#{window_panes}|#{window_id}":
+            if behavior.get('list') == 'failed':
+                return Result(1, stderr='fixture list denied')
+            return Result(stdout="\n".join(i + "|run-" + i + "|0|1|@" + i for i in sorted(windows) if i != "agent"))
+        assert args[2:] == ["-t", "=zlk-gpu-0", "-F", "#{session_name}|#{window_index}|#{window_id}|#{window_name}"], args
+        return Result(stdout="\n".join("zlk-gpu-0|" + i + "|@" + i + "|run-" + i for i in sorted(windows) if i != "agent"))
+    if args[:2] == ["tmux", "list-panes"]:
+        if args[-1] != "#{pane_id}":
+            index = args[3].split(':')[1]
+            return Result(stdout="0|1|bash|80|24|%" + index + "|fixture")
+        return Result(stdout="%" + args[3][1:])
     assert args[:3] == ["tmux", "kill-window", "-t"], args
-    assert args[3] in {"zlk-gpu-0:" + str(i) for i in range(10, 14)}, args
+    assert args[3] in {"@" + str(i) for i in range(10, 14)}, args
     if behavior["kill"] == "failed":
         return Result(1, stderr="fixture tmux denial")
     if behavior["kill"] != "still-present":
-        windows.remove(args[3].split(":")[1])
+        windows.remove(args[3][1:])
     return Result()
 
 
 namespace["subprocess"] = types.SimpleNamespace(run=fake_run)
 namespace["_resolve_tmux_prefix"] = lambda: "zlk"
+namespace["root"] = "fixture-project"
+namespace["tmux_available"] = lambda: True
+namespace["path_for"] = lambda root, path: path
+namespace["read_runtime_json_cached"] = lambda path, default: default
 os.environ["SIMPLE_EXPERIMENT_TMUX_SESSION"] = "fixture-worker-agent"
 
 for mode in ("worker_telemetry", "hub_control"):
@@ -114,9 +132,24 @@ for mode in ("worker_telemetry", "hub_control"):
             conn.close()
 
     try:
+        def get_list():
+            conn = http.client.HTTPConnection(*server.server_address, timeout=2)
+            try:
+                conn.request('GET', '/api/tmux/list', headers={'X-Simple-Agent-Token': namespace['token']})
+                result = conn.getresponse()
+                return json.loads(result.read())
+            finally:
+                conn.close()
+        listed = get_list()
+        assert listed['ok'] is True and listed['sessions'][0]['windows'][0]['windowId'].startswith('@'), listed
+        assert all(win['panes'][0]['id'].startswith('%') for win in listed['sessions'][0]['windows']), listed
+        behavior['list'] = 'failed'
+        listed = get_list()
+        assert listed['ok'] is False and 'fixture list denied' in listed['error'], listed
+        behavior['list'] = 'normal'
         for i in range(10, 14):
             target = "zlk-gpu-0:" + str(i)
-            status, body = post({"target": target, "window": target, "session": "zlk-gpu-0", "confirm": True})
+            status, body = post({"target": target, "window": target, "session": "zlk-gpu-0", "windowId": "@" + str(i), "windowName": "run-" + str(i), "paneIds": ["%" + str(i)], "confirm": True})
             assert status == 200 and body.get("ok") is True and body.get("verified") is True, (mode, status, body)
             assert body["target"] == target and str(i) not in windows, body
         assert windows == {"0", "agent"}, windows

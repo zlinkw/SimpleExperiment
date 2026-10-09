@@ -61,12 +61,14 @@ function baseSandbox() {
   const calls = [];
   const windows = [
     { index: "0", target: "zlk-gpu-0:0", name: "bash" },
-    { index: "2", target: "zlk-gpu-0:2", task: { status: "running", case: "a" } },
-    { index: "3", target: "zlk-gpu-0:3", task: { status: "failed", case: "b" } },
+    { index: "2", target: "zlk-gpu-0:2", windowId: '@2', panes: [{ id: '%2' }], task: { status: "running", case: "a" } },
+    { index: "3", target: "zlk-gpu-0:3", windowId: '@3', panes: [{ id: '%3' }], task: { status: "failed", case: "b" } },
     { index: "8", target: "zlk-gpu-0:8", name: "agent", task: { status: "running", case: "agent" } },
     { index: "9", target: "zlk-gpu-0-agent:9", task: { status: "running", case: "agent" } },
   ];
   const sandbox = {
+    crypto: require('node:crypto'),
+    TmuxWindowIdentity: require('../../dist/features/TmuxWindowIdentity'),
     calls,
     warnings: [],
     progress: [],
@@ -76,9 +78,11 @@ function baseSandbox() {
     workers: [{ id: "NWPU3", enabled: true }, { id: "worker-b", enabled: true }],
     tmuxClearTaskTabsInFlight: false,
     enabledWorkerConfigs() { return this.workers; },
+    async requestTmuxJson() { return { ok: true, sessions: [] }; },
     view: { webview: { postMessage(payload) { sandbox.posted.push(payload); } } },
     client: { clients: new Map([["NWPU3", {
       requestJson: async (apiPath, purpose, body) => {
+        apiPath = apiPath.split('?')[0];
         calls.push({ apiPath, purpose, body, workerId: "NWPU3" });
         if (apiPath === "/api/tmux/list") {
           if (sandbox.removeThreeOnNextList) {
@@ -93,7 +97,7 @@ function baseSandbox() {
         if (apiPath === "/api/tmux/kill-window") {
           if (body.target === "zlk-gpu-0:3" && sandbox.failThree) return { ok: false, error: "busy" };
           sandbox.windows = sandbox.windows.filter((win) => win.target !== body.target);
-          return { ok: true };
+          return { ok: true, verified: true };
         }
         throw new Error(`unexpected ${apiPath}`);
       },
@@ -160,8 +164,8 @@ test("partial failure reports closed and failed targets once", async () => {
 
   sandbox.calls.length = 0;
   sandbox.windows = [
-    { index: "2", target: "zlk-gpu-0:2", task: { status: "running" } },
-    { index: "3", target: "zlk-gpu-0:3", task: { status: "failed" } },
+    { index: "2", target: "zlk-gpu-0:2", windowId: '@2', panes: [{ id: '%2' }], task: { status: "running" } },
+    { index: "3", target: "zlk-gpu-0:3", windowId: '@3', panes: [{ id: '%3' }], task: { status: "failed" } },
   ];
   sandbox.failThree = false;
   sandbox.removeThreeOnNextList = false;
@@ -169,12 +173,32 @@ test("partial failure reports closed and failed targets once", async () => {
   const original = client.requestJson;
   let lists = 0;
   client.requestJson = async (apiPath, purpose, body) => {
-    if (apiPath === "/api/tmux/list" && ++lists === 2) sandbox.removeThreeOnNextList = true;
+    if (apiPath.startsWith("/api/tmux/list") && ++lists === 2) sandbox.removeThreeOnNextList = true;
     return original(apiPath, purpose, body);
   };
   const raced = clearTabs.call(sandbox, { ...message, targets: ["zlk-gpu-0:2", "zlk-gpu-0:3"] });
-  await assert.rejects(raced, /zlk-gpu-0:3（列表已变化，未关闭）/);
+  await assert.rejects(raced, /zlk-gpu-0:3（.*身份已变化或不存在/);
   assert.deepEqual(sandbox.calls.filter((call) => call.apiPath === "/api/tmux/kill-window").map((call) => call.body.target), ["zlk-gpu-0:2"]);
+});
+
+test('bulk close follows frozen window identities when tmux renumbers siblings', async () => {
+  const sandbox = baseSandbox();
+  const client = sandbox.client.clients.get('NWPU3');
+  const original = client.requestJson;
+  client.requestJson = async (apiPath, purpose, body) => {
+    const result = await original(apiPath, purpose, body);
+    if (apiPath === '/api/tmux/kill-window' && body.windowId === '@2') {
+      sandbox.windows = sandbox.windows.map(win => win.windowId === '@3' ? { ...win, index: '2', target: 'zlk-gpu-0:2', task: null } : win);
+    }
+    return result;
+  };
+  const clearTabs = install(sandbox);
+  assert.match(await clearTabs.call(sandbox, message), /已关闭 2\/2/);
+  const kills = sandbox.calls.filter(call => call.apiPath === '/api/tmux/kill-window');
+  assert.deepEqual(kills.map(call => call.body.windowId), ['@2', '@3']);
+  assert.deepEqual(kills.map(call => call.body.target), ['zlk-gpu-0:2', 'zlk-gpu-0:2']);
+  assert.equal(sandbox.windows.some(win => win.windowId === '@2' || win.windowId === '@3'), false);
+  assert.equal(sandbox.windows.some(win => win.name === 'bash'), true);
 });
 
 test("a second clear is rejected while the first is running", async () => {

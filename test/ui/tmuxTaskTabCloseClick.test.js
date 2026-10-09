@@ -70,8 +70,9 @@ test("GPU task close survives capture and still selects a Worker button", () => 
         sessions: [{
           name: "zlk-gpu-0",
           windows: [
-            { index: "2", target: "zlk-gpu-0:2", task: { status: "running", case: "case-a", seed: 1 }, active: true },
+            { index: "2", target: "zlk-gpu-0:2", windowId: '@2', name: 'run-active', panes: [{ id: '%2' }], task: { status: "running", case: "case-a", seed: 1 }, active: true },
             { index: "3", target: "zlk-gpu-0:3", task: { status: "failed", case: "case-b", seed: 2 } },
+            { index: '4', target: 'zlk-gpu-0:4', windowId: '@4', name: 'run-old-completed', panes: [{ id: '%4' }], task: null },
           ],
         }],
       },
@@ -159,6 +160,7 @@ test("GPU task close survives capture and still selects a Worker button", () => 
   assert.equal(kills[0].target, "zlk-gpu-0:2");
   assert.equal(kills[0].window, "zlk-gpu-0:2");
   assert.equal(kills[0].session, "zlk-gpu-0");
+  assert.equal(kills[0].identity.windowId, '@2');
   assert.equal(context.tmuxWindowFilter, "zlk-gpu-0");
   assert.equal(context.tmuxSelectedWorkerId, "worker-a");
   assert.equal(toasts.length, 0);
@@ -182,4 +184,21 @@ test("GPU task close survives capture and still selects a Worker button", () => 
   assert.equal(context.tmuxSelectedWorkerId, "worker-b");
   assert.equal(context.tmuxWindowFilter, "all");
   assert.equal(context.tmuxJobLogSelection, null, "explicit Worker navigation cancels a pending job jump");
+
+  // Pruning the task snapshot must not remove the ability to close its real server window.
+  context.tmuxSelectedWorkerId = 'worker-a';
+  context.tmuxListCache = context.tmuxListsByWorker['worker-a'];
+  context.tmuxWindowFilter = 'all';
+  vm.runInNewContext('renderTmuxOverview(tmuxListCache.sessions);', context);
+  const oldTag = elements.tmuxOverview.innerHTML.match(/<button[^>]+data-tmux-close="zlk-gpu-0:4"[^>]*>/)?.[0];
+  assert.ok(oldTag, 'overview offers an explicit server close for an unbound historical window');
+  posted.length = 0;
+  const oldClick = clickEvent(elementFromTag(oldTag));
+  capture[0].handler(oldClick);
+  bubble[0].handler(oldClick);
+  assert.equal(posted.length, 1);
+  assert.equal(posted[0].command, 'killTmuxWindow');
+  assert.equal(posted[0].identity.windowId, '@4');
+  assert.equal(posted[0].identity.windowName, 'run-old-completed');
+  assert.deepEqual(Array.from(posted[0].identity.paneIds), ['%4']);
 });

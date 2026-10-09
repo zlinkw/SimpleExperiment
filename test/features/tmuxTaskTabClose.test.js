@@ -43,21 +43,24 @@ test("GPU task tab close uses the requested Worker and exact session:index", asy
   const progressMessages = [];
   const posted = [];
   const sandbox = {
+    crypto: require('node:crypto'),
+    TmuxWindowIdentity: require('../../dist/features/TmuxWindowIdentity'),
     calls,
     warnings,
     progressMessages,
     posted,
     workers: [{ id: "worker-a", enabled: true }, { id: "worker-b", enabled: true }],
     windows: [
-      { index: "2", target: "zlk-gpu-0:2" },
-      { index: "3", target: "zlk-gpu-0:3" },
+      { index: "2", target: "zlk-gpu-0:2", windowId: '@2', name: 'run-old', panes: [{ id: '%2' }] },
+      { index: "3", target: "zlk-gpu-0:3", windowId: '@3', name: 'run-running', panes: [{ id: '%3' }] },
     ],
-    killResult: { ok: true },
+    killResult: { ok: true, verified: true },
     enabledWorkerConfigs() { return this.workers; },
     view: { webview: { postMessage(payload) { posted.push(payload); } } },
     client: {
       clients: new Map([["worker-a", {
         requestJson: async (apiPath, purpose, body, options) => {
+          apiPath = apiPath.split('?')[0];
           calls.push({ apiPath, purpose, body, options, workerId: "worker-a" });
           if (apiPath === "/api/tmux/kill-window") {
             if (sandbox.killResult?.ok === true) sandbox.windows = sandbox.windows.filter((win) => win.target !== body.target);
@@ -86,27 +89,28 @@ test("GPU task tab close uses the requested Worker and exact session:index", asy
   const killCall = calls.find((call) => call.apiPath === "/api/tmux/kill-window");
   assert.equal(killCall.workerId, "worker-a");
   assert.equal(killCall.purpose, "manual_refresh");
-  assert.equal(JSON.stringify(killCall.body), JSON.stringify({ target: "zlk-gpu-0:2", window: "zlk-gpu-0:2", session: "zlk-gpu-0", confirm: true }));
+  assert.equal(JSON.stringify(killCall.body), JSON.stringify({ target: 'zlk-gpu-0:2', session: 'zlk-gpu-0', windowId: '@2', windowName: 'run-old', paneIds: ['%2'], window: 'zlk-gpu-0:2', confirm: true }));
   assert.equal(killCall.options.method, "POST");
-  assert.equal(calls.filter((call) => call.apiPath === "/api/tmux/list").length, 1);
+  assert.equal(calls.filter((call) => call.apiPath === "/api/tmux/list").length, 3);
   assert.equal(calls.some((call) => call.body && call.body.target === "zlk-gpu-0:3"), false);
-  assert.equal(posted.length, 1);
-  assert.equal(posted[0].type, "tmuxList");
-  assert.equal(posted[0].workerId, "worker-a");
-  assert.equal(posted[0].sessions[0].windows.some((win) => win.target === "zlk-gpu-0:2"), false);
-  assert.equal(posted[0].sessions[0].windows.some((win) => win.target === "zlk-gpu-0:3"), true);
+  assert.equal(posted.length, 3);
+  assert.equal(posted.at(-1).type, "tmuxList");
+  assert.equal(posted.at(-1).workerId, "worker-a");
+  assert.equal(posted.at(-1).sessions[0].windows.some((win) => win.target === "zlk-gpu-0:2"), false);
+  assert.equal(posted.at(-1).sessions[0].windows.some((win) => win.target === "zlk-gpu-0:3"), true);
   assert.equal(progressMessages.at(-1), "完成");
 
   calls.length = 0;
   posted.length = 0;
   sandbox.killResult = { ok: false, error: "target window not found" };
+  sandbox.windows.push({ index: '2', target: 'zlk-gpu-0:2', windowId: '@2', name: 'run-old', panes: [{ id: '%2' }] });
   await assert.rejects(
     () => kill.call(sandbox, { workerId: "worker-a", target: "zlk-gpu-0:2" }),
     /Agent 拒绝关闭：target window not found/,
   );
   assert.match(progressMessages.at(-1), /Agent 拒绝关闭：/);
-  assert.equal(calls.filter((call) => call.apiPath === "/api/tmux/list").length, 0);
-  assert.equal(posted.length, 0);
+  assert.equal(calls.filter((call) => call.apiPath === "/api/tmux/list").length, 2);
+  assert.equal(posted.length, 2);
 
   calls.length = 0;
   await assert.rejects(
