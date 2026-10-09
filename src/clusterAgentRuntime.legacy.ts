@@ -5030,6 +5030,50 @@ def reconcile_worker_tasks_after_restart(root, eligible_ids=None):
         append_event(root, {"type": event_type, "workerId": task.get("workerId") or "", "operationId": task.get("commandId") or "", "payload": task})
     return {"changed": exit_result["changed"] + len(events)}
 
+def worker_task_pane_presence(root, task):
+    """A successful full inventory proves absence; a failed target lookup does not."""
+    pane = str(task.get("tmuxPane") or "").strip()
+    session = str(task.get("tmuxSession") or "").strip()
+    if not re.fullmatch(r"%[0-9]+", pane) or not session:
+        raise ValueError("任务缺少可信 tmux pane/session 身份")
+    listed = subprocess.run(["tmux", "list-panes", "-a", "-F", "#{pane_id}\t#{session_name}"],
+                            capture_output=True, text=True, timeout=3, cwd=root)
+    if listed.returncode != 0:
+        error = str(listed.stderr or "").strip()
+        if error.lower().startswith("no server running on ") or error.lower() == "no sessions":
+            return False
+        raise RuntimeError("tmux 清单读取失败：" + (error[-500:] or str(listed.returncode)))
+    sessions = []
+    for line in str(listed.stdout or "").splitlines():
+        if not line.strip():
+            continue
+        fields = line.split("\t")
+        if len(fields) != 2 or not re.fullmatch(r"%[0-9]+", fields[0]) or not fields[1]:
+            raise ValueError("tmux 清单格式无效，不能确认窗口消失")
+        if fields[0] == pane:
+            sessions.append(fields[1])
+    if not sessions:
+        return False
+    if session not in sessions:
+        raise ValueError("tmux pane 所属会话与 job 身份不一致，未停止该窗格")
+    return True
+
+def close_worker_task_pane(root, task):
+    try:
+        if not worker_task_pane_presence(root, task):
+            return {"paneClosed": True, "paneAlreadyMissing": True}
+        pane = str(task["tmuxPane"])
+        killed = subprocess.run(["tmux", "kill-pane", "-t", pane],
+                                capture_output=True, text=True, timeout=5, cwd=root)
+        # The task can exit between inventory and kill. Only a fresh absence proof
+        # accepts that race; an error or timeout still leaves the job uncleared.
+        if not worker_task_pane_presence(root, task):
+            return {"paneClosed": True, "paneAlreadyMissing": False}
+        error = str(killed.stderr or "").strip()[-500:]
+        return {"paneClosed": False, "paneCloseError": error or "停止后 tmux pane 仍存在"}
+    except Exception as exc:
+        return {"paneClosed": False, "paneCloseError": str(exc)[-500:]}
+
 def _execute_worker_command_unfenced(root, command, worker_id):
     action = str(command.get("action") or "").strip()
     command_id = str(command.get("commandId") or command.get("operationId") or f"cmd-{int(time.time() * 1000)}")
@@ -5085,7 +5129,7 @@ def _execute_worker_command_unfenced(root, command, worker_id):
         matched = []
         stopped = []
         stopped_tasks = []
-        closed_panes = {}
+        pane_close_proofs = {}
         for task in tasks:
             if not isinstance(task, dict):
                 continue
@@ -5100,23 +5144,17 @@ def _execute_worker_command_unfenced(root, command, worker_id):
             pid = int(raw_pid) if raw_pid.isdigit() else 0
             matched.append(task)
             pane = str(task.get("tmuxPane") or "").strip()
-            pane_closed = bool(closed_panes.get(task_command))
-            if re.fullmatch(r"%[0-9]+", pane) and not pane_closed:
-                try:
-                    before = subprocess.run(["tmux", "display-message", "-p", "-t", pane, "#{pane_id}"], capture_output=True, text=True, timeout=3)
-                    if before.returncode == 0 and before.stdout.strip().splitlines()[-1].strip() == pane:
-                        killed = subprocess.run(["tmux", "kill-pane", "-t", pane], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
-                        after = subprocess.run(["tmux", "display-message", "-p", "-t", pane, "#{pane_id}"], capture_output=True, text=True, timeout=3)
-                        pane_closed = killed.returncode == 0 and not (after.returncode == 0 and after.stdout.strip().splitlines()[-1].strip() == pane)
-                        if pane_closed:
-                            stopped.append(pane)
-                except Exception:
-                    pane_closed = False
+            proof_key = (task_command, pane)
+            proof = pane_close_proofs.get(proof_key)
+            if pane and proof is None:
+                proof = close_worker_task_pane(root, task)
+                pane_close_proofs[proof_key] = proof
+                if proof.get("paneClosed") and not proof.get("paneAlreadyMissing"):
+                    stopped.append(pane)
+            pane_closed = bool((proof or {}).get("paneClosed"))
             task["_paneClosed"] = pane_closed
-            if task_command:
-                closed_panes[task_command] = pane_closed
-            if re.fullmatch(r"%[0-9]+", pane) and not pane_closed:
-                result = {"commandId": command_id, "status": "failed", "message": "该 job 的 tmux 标签未确认关闭，未结束整会话", "stoppedPids": stopped, "stoppedTasks": [], "stopReason": stop_reason, "manualStopType": stop_reason, "stopSource": stop_source}
+            if pane and not pane_closed:
+                result = {"commandId": command_id, "status": "failed", "message": "该 job 的 tmux 标签未确认关闭，未结束整会话：" + str((proof or {}).get("paneCloseError") or "关闭证据不足"), "stoppedPids": stopped, "stoppedTasks": [], "stopReason": stop_reason, "manualStopType": stop_reason, "stopSource": stop_source}
                 append_event(root, {"type": "worker_command_failed", "workerId": worker_id, "operationId": command_id, "payload": result})
                 return result
             if pid > 0 and not str(task.get("pid") or "").strip().startswith("%"):
@@ -5141,6 +5179,8 @@ def _execute_worker_command_unfenced(root, command, worker_id):
                     return result
                 receipt = {k: current.get(k) for k in ("commandId", "operationId", "runKey", "session", "experimentIndex", "gpuId", "stopReason", "manualStopType", "stopSource", "workflowId", "planId", "planRevision", "planFile", "case", "seed", "attempt", "outputDir", "workerId", "tmuxPane") if current.get(k) not in (None, "")}
                 receipt["paneClosed"] = bool(task.get("_paneClosed")) or not str(task.get("tmuxPane") or "").strip()
+                if proof:
+                    receipt["paneAlreadyMissing"] = proof.get("paneAlreadyMissing") is True
                 if task.get("tmuxPane") and not task.get("_paneClosed"):
                     receipt["paneCloseError"] = "tmux 标签未确认关闭，未结束整会话"
                 stopped_tasks.append(receipt)

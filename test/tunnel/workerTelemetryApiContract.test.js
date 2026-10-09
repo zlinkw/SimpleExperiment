@@ -138,9 +138,14 @@ test("worker capabilities accept local scheduler actions and reject other Hub ac
   assert.match(missingGpu.warnings.join("\n"), /缺少端点：gpu/);
 });
 
-test("Worker-only client requires topology stamp and never substitutes Worker for Hub", async () => {
+test("Worker-only client requires topology stamp and never substitutes Worker for Hub", async (context) => {
+  // A rejected read must be independent of the user's live Agent/tunnel ports.
+  context.mock.method(global, "fetch", async (url) => {
+    assert.match(String(url), /\/api\/results\/summary$/);
+    throw new TypeError("fetch failed");
+  });
   const client = new MultiEndpointRealtimeClient([
-    { id: "worker-1", role: "worker", localHost: "127.0.0.1", localPort: 1 },
+    { id: "worker-1", role: "worker", localHost: "127.0.0.1", localPort: 23456 },
   ], () => new RequestBudget({ ...defaultRequestBudgetConfig, minIntervalByPurpose: {}, disabledPurposes: [] }));
   await assert.rejects(client.postWorkerAction("worker-1", "run-plan", {}), /action not allowed/);
   await assert.rejects(client.postWorkerAction("worker-1", "parse-results", {}), /action not allowed/);
