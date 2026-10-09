@@ -14184,13 +14184,18 @@ function renderPanelHtml() {
         const retry = job.automaticRetry;
         if (!retry || !retry.failureCount || job.status === "completed") return { label: "", note: "" };
         const failures = "连续失败 " + retry.failureCount + "/5";
+        if (retry.blockedReason) return { label: retry.failureClass === "deterministic" ? "代码错误，停止重试"
+          : "需人工核查", note: failures + "；" + retry.blockedReason };
         if (retry.exhausted) return { label: "重试已停止", note: failures + "，自动重试已停止。可查看日志后手动处理。" };
         if (job.status === "failed" && retry.retryAt) {
           const at = new Date(retry.retryAt);
-          return { label: "等待自动重试", note: failures + "，计划于 " + at.toLocaleTimeString() + " 重新排队。指数退避期间无需再次提交。" };
+          return { label: retry.failureClass === "resource" ? "资源不足，等待重试" : "等待自动重试",
+            note: failures + "，计划于 " + at.toLocaleTimeString() + " 重新排队。指数退避期间无需再次提交。" };
         }
         if (["pending", "dispatching", "queued", "running"].includes(job.status))
-          return { label: job.status === "running" ? "自动重试运行中" : "自动重试排队", note: failures + "；重试继续检查空闲 GPU 和 Worker 代码版本。" };
+          return { label: job.status === "running" ? "自动重试运行中"
+            : retry.failureClass === "resource" ? "资源不足，重新排队" : "自动重试排队",
+            note: failures + "；重试继续检查空闲 GPU 和 Worker 代码版本。" };
         return { label: "", note: "" };
       }
       const groups = new Map();

@@ -24,7 +24,7 @@ function fixture(states = ['completed', 'failed', 'pending', 'pending', 'pending
     if (states[index] !== 'pending') Object.assign(job, { workerId: 'worker', gpuId: String(index),
       commandId: `command-${index}-${job.attempt}`, runKey: `command-${index}-${job.attempt}` });
     if (['completed', 'failed'].includes(job.status)) job.finishedAt = new Date(initialTime).toISOString();
-    if (job.status === 'failed') job.error = 'CUDA unavailable';
+    if (job.status === 'failed') job.error = 'RuntimeError: CUDA error: CUBLAS_STATUS_NOT_INITIALIZED';
   });
   return queue;
 }
@@ -65,7 +65,7 @@ test('one exact successful job enables a durable, idempotent 30 second retry', (
   assert.equal(failed(next).commandId, undefined);
   assert.notEqual(failed(next).outputDir, failed(queue).outputDir);
   assert.equal(failed(next).history[0].outputDir, failed(queue).outputDir);
-  assert.equal(failed(next).history[0].error, 'CUDA unavailable');
+  assert.equal(failed(next).history[0].error, 'RuntimeError: CUDA error: CUBLAS_STATUS_NOT_INITIALIZED');
   assert.equal(failed(next).automaticRetry.failureCount, 1);
   assert.equal(next.plans[0].jobs[0].status, 'completed');
 });
@@ -119,7 +119,7 @@ test('failure delays are 30/60/120/240 seconds and the fifth total failure is fi
     queue = apply(queue, now);
     assert.equal(failed(queue).status, 'pending');
     Object.assign(failed(queue), { status: 'failed', workerId: 'worker', gpuId: '1', commandId: `command-retry-${count}`,
-      runKey: `command-retry-${count}`, finishedAt: new Date(now).toISOString(), error: `error-${count}` });
+      runKey: `command-retry-${count}`, finishedAt: new Date(now).toISOString(), error: 'RuntimeError: CUDA error: CUBLAS_STATUS_NOT_INITIALIZED' });
   }
 });
 
@@ -191,7 +191,7 @@ test('remote history merge keeps retry count, old failure details and new attemp
   assert.equal(failed(reconciled).status, 'pending');
   assert.equal(failed(reconciled).automaticRetry.failureCount, 1);
   assert.equal(failed(reconciled).history.length, 1);
-  assert.equal(failed(reconciled).history[0].error, 'CUDA unavailable');
+  assert.equal(failed(reconciled).history[0].error, 'RuntimeError: CUDA error: CUBLAS_STATUS_NOT_INITIALIZED');
   Object.assign(failed(reconciled), { status: 'running', workerId: 'worker', gpuId: '1', commandId: 'second-attempt', runKey: 'second-attempt' });
   const terminal = snapshots(reconciled, initialTime + 60000);
   terminal[0].tasks[1].status = 'completed';
@@ -201,7 +201,7 @@ test('remote history merge keeps retry count, old failure details and new attemp
   const success = apply(merged, initialTime + 60000, terminal);
   assert.equal(failed(success).status, 'completed');
   assert.equal(failed(success).automaticRetry, undefined);
-  assert.equal(failed(success).history[0].error, 'CUDA unavailable');
+  assert.equal(failed(success).history[0].error, 'RuntimeError: CUDA error: CUBLAS_STATUS_NOT_INITIALIZED');
 });
 
 test('attempt ids cannot reuse or escape existing output paths', () => {
@@ -209,4 +209,134 @@ test('attempt ids cannot reuse or escape existing output paths', () => {
   assert.throws(() => apply(queue, initialTime + 30000, snapshots(queue, initialTime + 30000), { makeAttemptId: () => 'current-plan' }), /already in use/);
   failed(queue).outputDir = '../unsafe/attempts/current-plan';
   assert.throws(() => apply(queue, initialTime + 30000), /directory is invalid/);
+});
+
+test('startup majority does not turn a shared project AttributeError into thirty launches', () => {
+  let queue = apply(fixture(Array(6).fill('running')));
+  assert.equal(queue.plans[0].automaticRetry.healthyReason, 'majority_running');
+  queue.plans[0].jobs.forEach(job => Object.assign(job, { status: 'failed', finishedAt: new Date(initialTime + 60000).toISOString(),
+    error: "AttributeError: 'JointEncoder' object has no attribute 'encode_token_features'" }));
+  queue = apply(queue, initialTime + 60000);
+  for (const job of queue.plans[0].jobs) {
+    assert.equal(job.automaticRetry.retryAt, undefined);
+    assert.equal(job.automaticRetry.failureClass, 'deterministic');
+    assert.ok(job.automaticRetry.blockedReason);
+    assert.equal(job.attempt, 1); assert.equal(job.history, undefined);
+  }
+  assert.equal(apply(queue, initialTime + 1000000), queue, 'reload and repeated polls must never create another attempt');
+});
+
+for (const [error, failureClass] of [
+  ['AttributeError: model has no attribute forward', 'deterministic'],
+  ['ModuleNotFoundError: missing_dependency', 'deterministic'],
+  ['SyntaxError: invalid syntax', 'deterministic'],
+  ['ValueError: invalid configuration', 'deterministic'],
+  ['RuntimeError: mat1 and mat2 shapes cannot be multiplied (32x20 and 40x5)', 'deterministic'],
+  ['RuntimeError: CUDA error: device-side assert triggered', 'deterministic'],
+  ['worker exited with code 1', 'unknown'],
+  ['', 'unknown'],
+  ['AttributeError: missing member; caused after CUBLAS_STATUS_NOT_INITIALIZED', 'deterministic'],
+]) test('a successful sibling does not authorize blind retry: ' + (error || 'no diagnostic'), () => {
+  const original=fixture(); failed(original).error=error;
+  const queue=apply(original);
+  assert.equal(failed(queue).automaticRetry.retryAt,undefined);
+  assert.equal(failed(queue).automaticRetry.failureClass,failureClass);
+  assert.ok(failed(queue).automaticRetry.blockedReason);
+  assert.equal(failed(queue).attempt,1);
+  assert.equal(apply(queue,initialTime+1000000),queue);
+});
+
+test('an old retry deadline is revoked if fresh evidence identifies a code error', () => {
+  const original=apply(fixture());
+  const evidence=snapshots(original,initialTime+30000);
+  evidence[0].tasks[1].error='TypeError: incompatible model input';
+  const queue=apply(original,initialTime+30000,evidence);
+  assert.equal(failed(original).automaticRetry.retryAt,new Date(initialTime+30000).toISOString());
+  assert.equal(failed(queue).status,'failed'); assert.equal(failed(queue).attempt,1);
+  assert.equal(failed(queue).automaticRetry.retryAt,undefined);
+  assert.equal(failed(queue).automaticRetry.failureCount,1);
+  assert.equal(failed(queue).automaticRetry.failureClass,'deterministic');
+});
+
+test('upgrade stops only an unsubmitted unsafe automatic attempt and leaves owned attempts alone', () => {
+  const original=apply(apply(fixture()),initialTime+30000);
+  const job=failed(original), error='AttributeError: missing method';
+  job.automaticRetry.lastError=error; job.history.at(-1).error=error;
+  const queue=apply(original,initialTime+30001);
+  assert.equal(failed(queue).status,'failed');
+  assert.equal(failed(queue).automaticRetry.retryAt,undefined);
+  assert.ok(failed(queue).automaticRetry.blockedReason);
+  assert.equal(failed(queue).attempt,2); assert.equal(failed(queue).history.length,1);
+  assert.equal(failed(queue).commandId,undefined);
+  for(const status of ['dispatching','queued','running']) {
+    const owned=JSON.parse(JSON.stringify(original));
+    Object.assign(failed(owned),{status,workerId:'worker',commandId:'owned-attempt',runKey:'owned-attempt'});
+    const result=apply(owned,initialTime+30001);
+    assert.equal(failed(result).status,status); assert.equal(failed(result).commandId,'owned-attempt');
+  }
+});
+
+test('code failures are explained even without a healthy sibling; manual retry is still explicit', () => {
+  const original=fixture(Array(6).fill('failed'));
+  original.plans[0].jobs.forEach(job=>{job.error='AttributeError: missing method';});
+  const blocked=apply(original);
+  assert.equal(blocked.plans[0].automaticRetry.healthyAt,undefined);
+  assert.ok(blocked.plans[0].jobs.every(job=>job.automaticRetry.blockedReason&&!job.automaticRetry.retryAt));
+  const reloaded=JSON.parse(JSON.stringify(blocked));
+  assert.equal(apply(reloaded,initialTime+100000),reloaded);
+  const manual=api.retryVerifiedJob(reloaded,reloaded.plans[0].id,1,'manual-retry-fixed-code');
+  assert.equal(failed(manual).status,'pending');assert.equal(failed(manual).automaticRetry,undefined);
+  assert.equal(failed(manual).history.at(-1).error,'AttributeError: missing method');
+  assert.equal(failed(apply(manual,initialTime+100001)).status,'pending','manual intent is not an automatic retry');
+});
+
+for(const error of ['ConnectionResetError: peer reset the connection','RuntimeError: CUDA initialization error'])
+  test('explicit recoverable runtime failure retains bounded retry: '+error,()=>{
+    const original=fixture();failed(original).error=error;
+    const queue=apply(original);
+    assert.equal(failed(queue).automaticRetry.failureClass,'transient');
+    assert.equal(failed(queue).automaticRetry.blockedReason,undefined);
+    assert.equal(Date.parse(failed(queue).automaticRetry.retryAt),initialTime+30000);
+  });
+
+for(const error of ['torch.OutOfMemoryError: CUDA out of memory','CUBLAS_STATUS_ALLOC_FAILED','all CUDA-capable devices are busy or unavailable'])
+  test('resource failure returns to the queue even without a successful sibling: '+error,()=>{
+    const original=fixture(['queued','failed','pending','pending','pending','pending']);failed(original).error=error;
+    const scheduled=apply(original);
+    assert.equal(scheduled.plans[0].automaticRetry.healthyAt,undefined);
+    assert.equal(failed(scheduled).automaticRetry.failureClass,'resource');
+    assert.equal(failed(scheduled).automaticRetry.blockedReason,undefined);
+    assert.equal(Date.parse(failed(scheduled).automaticRetry.retryAt),initialTime+30000);
+    const waiting=apply(scheduled,initialTime+30000);
+    assert.equal(failed(waiting).status,'pending');assert.equal(failed(waiting).attempt,2);
+    for(let tick=1;tick<=5;tick++)assert.equal(apply(waiting,initialTime+30000+tick*1000),waiting);
+    assert.equal(failed(waiting).automaticRetry.failureCount,1,'waiting for a GPU is not another failed run');
+  });
+
+test('resource retries still stop after five actual failures',()=>{
+  let queue=fixture(['queued','failed','pending','pending','pending','pending']),now=initialTime;
+  for(let count=1;count<=5;count++){
+    failed(queue).error='CUDA out of memory';queue=apply(queue,now);
+    assert.equal(failed(queue).automaticRetry.failureCount,count);
+    if(count===5){assert.equal(failed(queue).automaticRetry.exhausted,true);assert.equal(failed(queue).automaticRetry.retryAt,undefined);break;}
+    now+=30000*2**(count-1);queue=apply(queue,now);
+    assert.equal(failed(queue).status,'pending');
+    Object.assign(failed(queue),{status:'failed',workerId:'worker',commandId:'oom-'+count,runKey:'oom-'+count,finishedAt:new Date(now).toISOString()});
+  }
+});
+
+test('late verified diagnostics can resolve an unknown failure without incrementing its count or overriding code evidence', () => {
+  for(const error of ['', 'AttributeError: missing method']){
+    const original=fixture();failed(original).error=error;const stopped=apply(original);
+    const evidence=snapshots(stopped,initialTime+1000);
+    evidence[0].tasks[1].error='RuntimeError: CUDA initialization error';
+    const queue=apply(stopped,initialTime+1000,evidence);
+    assert.equal(failed(queue).automaticRetry.failureCount,1);
+    if(error) assert.equal(failed(queue).automaticRetry.retryAt,undefined,'positive code evidence still needs manual review');
+    else {
+      assert.equal(failed(queue).automaticRetry.blockedReason,undefined);
+      assert.equal(Date.parse(failed(queue).automaticRetry.retryAt),initialTime+31000);
+      assert.equal(apply(queue,initialTime+2000,evidence),queue,'diagnostic refinement cannot restart its backoff');
+    }
+  }
 });

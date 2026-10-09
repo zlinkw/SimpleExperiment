@@ -209,6 +209,18 @@ test("failed current-Plan tasks expose a direct log target without auto retry", 
   assert.doesNotMatch(recoverySource, /retryExperiment/);
 });
 
+test("automatic retry display distinguishes code stops and resource requeue", () => {
+  const sandbox={};vm.createContext(sandbox);
+  vm.runInContext(extractFunction("automaticJobRetryView")+";this.view=automaticJobRetryView;",sandbox);
+  for(const [failureClass,label] of [['deterministic','代码错误，停止重试'],['unknown','需人工核查']]){
+    const result=sandbox.view({status:'failed',automaticRetry:{failureCount:1,failureClass,blockedReason:'检查日志后手动处理',retryAt:'2026-10-09T00:00:00Z'}});
+    assert.equal(result.label,label);assert.match(result.note,/检查日志后手动处理/);assert.doesNotMatch(result.note,/重新排队/);
+  }
+  assert.equal(sandbox.view({status:'failed',automaticRetry:{failureCount:1,retryAt:'2026-10-09T00:00:00Z'}}).label,'等待自动重试');
+  assert.equal(sandbox.view({status:'failed',automaticRetry:{failureCount:1,failureClass:'resource',retryAt:'2026-10-09T00:00:00Z'}}).label,'资源不足，等待重试');
+  assert.equal(sandbox.view({status:'pending',automaticRetry:{failureCount:1,failureClass:'resource'}}).label,'资源不足，重新排队');
+});
+
 test("task UI treats all scheduler failure terminals as visible retryable failures", () => {
   const status = loadTaskStatus();
   assert.match(panel, /const TASK_STOPPED_STATUSES = new Set\(\["stopped", "cancelled"\]\)/);

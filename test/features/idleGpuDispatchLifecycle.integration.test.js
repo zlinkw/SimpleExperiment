@@ -236,7 +236,7 @@ test('actual Host tick adopts an existing partial failure, persists backoff and 
   plan.jobs.forEach((job, index) => Object.assign(job, { status: index === 0 ? 'completed' : 'failed', workerId: 'a',
     commandId: `old-command-${index}`, runKey: `old-command-${index}`,
     outputDir: `work/job${index}/attempts/old-attempt`, finishedAt: new Date().toISOString(),
-    ...(index === 1 ? { error: 'CUDA unavailable' } : {}) }));
+    ...(index === 1 ? { error: 'RuntimeError: CUDA error: CUBLAS_STATUS_NOT_INITIALIZED' } : {}) }));
   p.resolveSelectedPlanFile = () => 'p.yaml';
   const tasks = plan.jobs.map(job => ({...receipt(plan, job, 'a', undefined, job.commandId),
     enqueuedAt: plan.enqueuedAt, status: job.status, finishedAt: job.finishedAt, error: job.error}));
@@ -259,23 +259,25 @@ test('actual Host tick adopts an existing partial failure, persists backoff and 
   assert.equal(stored().plans[0].jobs[0].status, 'completed');
   assert.equal(stored().plans[0].jobs[1].status, 'queued');
   assert.equal(stored().plans[0].jobs[1].attempt, 2);
-  assert.equal(stored().plans[0].jobs[1].history[0].error, 'CUDA unavailable');
+  assert.equal(stored().plans[0].jobs[1].history[0].error, 'RuntimeError: CUDA error: CUBLAS_STATUS_NOT_INITIALIZED');
   assert.equal(stored().plans[0].jobs[1].automaticRetry.failureCount, 1);
   assert.notEqual(stored().plans[0].jobs[1].commandId, 'old-command-1');
 });
 
-test('actual Host auto retry still waits for matching Worker code and fresh idle GPU admission', async () => {
+test('actual Host resource retry waits for matching Worker code and fresh idle GPU admission without counting waits as failures', async () => {
   const {p, receipt, stored} = durableTickFixture();
   const plan = stored().plans[0];
   plan.schedulingMode = 'local_idle';
   plan.jobs.forEach((job,index) => Object.assign(job, {status:index ? 'failed':'completed', workerId:'a',gpuId:String(index),
-    commandId:`old-${index}`,runKey:`old-${index}`,outputDir:`work/job${index}/attempts/old-attempt`,finishedAt:new Date().toISOString()}));
+    commandId:`old-${index}`,runKey:`old-${index}`,outputDir:`work/job${index}/attempts/old-attempt`,finishedAt:new Date().toISOString(),
+    ...(index ? {error:'torch.OutOfMemoryError: CUDA out of memory'} : {})}));
   const tasks = plan.jobs.map(job => ({...receipt(plan,job,'a',undefined,job.commandId),gpuId:job.gpuId,
-    enqueuedAt:plan.enqueuedAt,status:job.status,finishedAt:job.finishedAt}));
+    enqueuedAt:plan.enqueuedAt,status:job.status,finishedAt:job.finishedAt,error:job.error}));
   p.readWorkerTaskSnapshotBatch=async ids=>ids.map(workerId=>({workerId,generatedAt:new Date().toISOString(),fetchedAt:new Date().toISOString(),
     capabilities:{durablePlanQueue:true,idleGpuAdmission:true,schemaVersion:1},tasks:workerId==='a'?tasks:[]}));
   const sent=[];p.sendDistributedJob=async(...args)=>{sent.push(args[1].index);return {...receipt(...args),gpuId:args[3]};};
   await p.tickDistributedQueueCore();
+  assert.equal(stored().plans[0].jobs[1].automaticRetry.failureClass,'resource');
   stored().plans[0].jobs[1].automaticRetry.retryAt=new Date(Date.now()-1).toISOString();
   p.lastCodeSyncState.workerVersions={a:{fingerprint:'different-code'},b:{fingerprint:'different-code'}};
   await p.tickDistributedQueueCore();
@@ -284,9 +286,45 @@ test('actual Host auto retry still waits for matching Worker code and fresh idle
   p.client.getGpu=async()=>({a:[{index:'0',utilizationPercent:99,memoryUsedMb:23000,processes:[]}],
     b:[{index:'0',utilizationPercent:99,memoryUsedMb:23000,processes:[]}]});
   await p.tickDistributedQueueCore();assert.equal(sent.length,0);
+  await p.tickDistributedQueueCore();assert.equal(sent.length,0);
+  assert.equal(stored().plans[0].jobs[1].automaticRetry.failureCount,1);
+  assert.equal(stored().plans[0].jobs[1].attempt,2);
   p.client.getGpu=async()=>({a:[{index:'0',utilizationPercent:0,memoryUsedMb:7,processes:[]}],
     b:[{index:'0',utilizationPercent:0,memoryUsedMb:7,processes:[]}]});
   await p.tickDistributedQueueCore();assert.deepEqual(sent,[1]);
+});
+
+test('actual Host tick never dispatches retries after startup majority fails with a project AttributeError', async () => {
+  const {p,receipt,stored}=durableTickFixture();
+  const plan=stored().plans[0];
+  plan.jobs.forEach((job,index)=>Object.assign(job,{status:'running',workerId:'a',commandId:`startup-${index}`,runKey:`startup-${index}`}));
+  const tasks=plan.jobs.map(job=>({...receipt(plan,job,'a',undefined,job.commandId),enqueuedAt:plan.enqueuedAt,status:'running'}));
+  p.readWorkerTaskSnapshotBatch=async ids=>ids.map(workerId=>({workerId,generatedAt:new Date().toISOString(),fetchedAt:new Date().toISOString(),
+    capabilities:{durablePlanQueue:true,idleGpuAdmission:true,schemaVersion:1},tasks:workerId==='a'?tasks:[]}));
+  const sent=[];p.sendDistributedJob=async(...args)=>{sent.push(args[1].index);return receipt(...args);};
+  await p.tickDistributedQueueCore();
+  assert.equal(stored().plans[0].automaticRetry.healthyReason,'majority_running');
+  tasks.forEach(task=>Object.assign(task,{status:'failed',finishedAt:new Date().toISOString(),error:'AttributeError: encoder has no attribute encode_token_features'}));
+  for(let tick=0;tick<4;tick++)await p.tickDistributedQueueCore();
+  assert.equal(sent.length,0);
+  for(const job of stored().plans[0].jobs){assert.equal(job.status,'failed');assert.equal(job.attempt,1);
+    assert.equal(job.automaticRetry.failureClass,'deterministic');assert.equal(job.automaticRetry.retryAt,undefined);assert.ok(job.automaticRetry.blockedReason);}
+});
+
+test('actual Host blocks an unsafe unsubmitted retry retained by the previous plugin version', async () => {
+  const {p,receipt,stored}=durableTickFixture(); const plan=stored().plans[0];
+  Object.assign(plan.jobs[0],{status:'completed',workerId:'a',commandId:'success',runKey:'success',finishedAt:new Date().toISOString()});
+  Object.assign(plan.jobs[1],{status:'pending',attempt:2,outputDir:'work/job1/attempts/auto-retry-old',
+    automaticRetry:{failureCount:1,failedAttempt:1,lastError:'AttributeError: missing method'},
+    history:[{status:'failed',attempt:1,outputDir:'work/job1/attempts/old',workerId:'a',commandId:'old-failure',error:'AttributeError: missing method'}]});
+  const tasks=[{...receipt(plan,plan.jobs[0],'a',undefined,'success'),enqueuedAt:plan.enqueuedAt,status:'completed',finishedAt:plan.jobs[0].finishedAt}];
+  p.readWorkerTaskSnapshotBatch=async ids=>ids.map(workerId=>({workerId,generatedAt:new Date().toISOString(),fetchedAt:new Date().toISOString(),
+    capabilities:{durablePlanQueue:true,idleGpuAdmission:true,schemaVersion:1},tasks:workerId==='a'?tasks:[]}));
+  const sent=[];p.sendDistributedJob=async(...args)=>{sent.push(args[1].index);return receipt(...args);};
+  for(let tick=0;tick<3;tick++)await p.tickDistributedQueueCore();
+  assert.equal(sent.length,0);assert.equal(stored().plans[0].jobs[1].status,'failed');
+  assert.equal(stored().plans[0].jobs[1].attempt,2);assert.equal(stored().plans[0].jobs[1].history.length,1);
+  assert.match(stored().plans[0].jobs[1].automaticRetry.blockedReason,/尚未派发/);
 });
 
 test('actual Host tick dispatches two code versions to independent verified Workers in one tick',async()=>{

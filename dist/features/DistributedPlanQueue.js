@@ -83,6 +83,7 @@ exports.distributedStopTargets = distributedStopTargets;
 exports.removeConfirmedDistributedPlan = removeConfirmedDistributedPlan;
 exports.stopIdentityMatchesJob = stopIdentityMatchesJob;
 exports.retryVerifiedJob = retryVerifiedJob;
+exports.classifyAutomaticJobFailure = classifyAutomaticJobFailure;
 exports.scheduleAutomaticJobRetries = scheduleAutomaticJobRetries;
 exports.disableAutomaticJobRetries = disableAutomaticJobRetries;
 const node_crypto_1 = require("node:crypto");
@@ -1000,6 +1001,18 @@ function retryVerifiedJob(queue, planId, jobIndex, runId) {
 }
 exports.AUTOMATIC_JOB_RETRY_MAX_FAILURES = 5;
 exports.AUTOMATIC_JOB_RETRY_BASE_DELAY_MS = 30_000;
+/** A successful sibling cannot prove that a different code path or configuration is valid. */
+function classifyAutomaticJobFailure(error) {
+    const text = String(error || "");
+    if (/\b(?:AttributeError|SyntaxError|IndentationError|TabError|ImportError|ModuleNotFoundError|NameError|UnboundLocalError|TypeError|ValueError|KeyError|IndexError|AssertionError|NotImplementedError|FileNotFoundError|PermissionError|ZeroDivisionError)\b/i.test(text)
+        || /mat1 and mat2 shapes cannot be multiplied|size mismatch|sizes? of tensors? must match|shape .*invalid|expected scalar type|device-side assert|does not require grad|no grad_fn/i.test(text))
+        return { failureClass: "deterministic", blockedReason: "代码、配置、依赖或输入错误，自动重试已停止；请检查日志，修复后手动重试。" };
+    if (/out of memory|\bMemoryError\b|CUBLAS_STATUS_ALLOC_FAILED|CUDNN_STATUS_ALLOC_FAILED|CUDA_ERROR_OUT_OF_MEMORY|all CUDA-capable devices are busy or unavailable|resource temporarily unavailable/i.test(text))
+        return { failureClass: "resource" };
+    if (/CUBLAS_STATUS_NOT_INITIALIZED|CUDNN_STATUS_NOT_INITIALIZED|CUDA[^\n]*(?:initialization error|driver shutting down)|CUDA_ERROR_(?:NOT_READY|SYSTEM_NOT_READY)|NCCL[^\n]*(?:connection closed|connection reset|remote error)|\b(?:ConnectionResetError|ConnectionAbortedError|BrokenPipeError)\b|temporary failure in name resolution/i.test(text))
+        return { failureClass: "transient" };
+    return { failureClass: "unknown", blockedReason: "无法确认是偶发错误，自动重试已停止；请查看日志后手动处理。" };
+}
 /** A stopped or unverified process must never be launched again by this policy. */
 function scheduleAutomaticJobRetries(queue, snapshots, projectId, options) {
     const now = options.now ?? Date.now();
@@ -1056,8 +1069,6 @@ function scheduleAutomaticJobRetries(queue, snapshots, projectId, options) {
                 changed = true;
             }
         }
-        if (!plan.automaticRetry.healthyAt)
-            continue;
         for (let index = 0; index < plan.jobs.length; index++) {
             const job = plan.jobs[index], task = evidence.get(job.index);
             if (job.status === "completed" && task?.status === "completed") {
@@ -1067,15 +1078,55 @@ function scheduleAutomaticJobRetries(queue, snapshots, projectId, options) {
                 }
                 continue;
             }
+            // An older Host may already have created a retry locally. Do not submit it
+            // after upgrading when its recorded failure is unsafe; never cancel owned work.
+            if (job.status === "pending" && !job.commandId && !job.workerId && job.automaticRetry
+                && job.automaticRetry.failedAttempt === job.attempt - 1
+                && job.history?.some(row => row.attempt === job.automaticRetry.failedAttempt && row.status === "failed")) {
+                const decision = classifyAutomaticJobFailure(job.automaticRetry.lastError);
+                if (decision.blockedReason) {
+                    job.status = "failed";
+                    job.error = job.automaticRetry.lastError;
+                    job.automaticRetry = { ...job.automaticRetry, ...decision, retryAt: undefined,
+                        blockedReason: decision.blockedReason + " 本次自动 attempt 尚未派发。" };
+                    changed = true;
+                }
+            }
             if (job.status !== "failed" || task?.status !== "failed"
                 || !(Number.isFinite(Date.parse(String(task.finishedAt || "")))
                     || typeof task.exitCode === "number" && task.exitCode !== 0))
                 continue;
             let retry = job.automaticRetry;
+            const lastError = String(task.error || job.error || ""), decision = classifyAutomaticJobFailure(lastError);
+            if (decision.blockedReason) {
+                if (retry?.failedAttempt !== job.attempt || retry.blockedReason !== decision.blockedReason
+                    || retry.failureClass !== decision.failureClass || retry.retryAt || retry.lastError !== lastError) {
+                    job.automaticRetry = { failureCount: retry?.failedAttempt === job.attempt ? retry.failureCount
+                            : Math.min(exports.AUTOMATIC_JOB_RETRY_MAX_FAILURES, Math.max(0, retry?.failureCount || 0) + 1),
+                        failedAttempt: job.attempt, lastError, ...decision };
+                    changed = true;
+                }
+                continue;
+            }
+            // Resource admission can fail before training has produced healthy siblings.
+            if (!plan.automaticRetry.healthyAt && decision.failureClass !== "resource")
+                continue;
+            if (retry?.blockedReason) {
+                // Failure details may arrive after the terminal receipt. Refine an unknown
+                // cause once, but never erase positive code evidence automatically.
+                if (retry.failedAttempt !== job.attempt || retry.failureClass !== "unknown"
+                    && !(retry.failureClass === "resource" && decision.failureClass === "resource"))
+                    continue;
+                retry = job.automaticRetry = { ...retry, lastError, failureClass: decision.failureClass, blockedReason: undefined,
+                    exhausted: retry.failureCount >= exports.AUTOMATIC_JOB_RETRY_MAX_FAILURES || undefined,
+                    retryAt: retry.failureCount >= exports.AUTOMATIC_JOB_RETRY_MAX_FAILURES ? undefined
+                        : new Date(now + exports.AUTOMATIC_JOB_RETRY_BASE_DELAY_MS * 2 ** (retry.failureCount - 1)).toISOString() };
+                changed = true;
+            }
             if (!retry || retry.failedAttempt !== job.attempt) {
                 const count = Math.min(exports.AUTOMATIC_JOB_RETRY_MAX_FAILURES, Math.max(0, retry?.failureCount || 0) + 1);
                 retry = job.automaticRetry = { failureCount: count, failedAttempt: job.attempt,
-                    lastError: job.error || String(task.error || ""),
+                    lastError, failureClass: decision.failureClass,
                     ...(count >= exports.AUTOMATIC_JOB_RETRY_MAX_FAILURES ? { exhausted: true }
                         : { retryAt: new Date(now + exports.AUTOMATIC_JOB_RETRY_BASE_DELAY_MS * 2 ** (count - 1)).toISOString() }) };
                 changed = true;
