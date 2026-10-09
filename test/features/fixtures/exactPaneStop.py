@@ -1,4 +1,5 @@
 import ast
+import json
 import os
 import pathlib
 import threading
@@ -6,7 +7,8 @@ import threading
 source = pathlib.Path(os.environ["TEST_AGENT_PATH"]).read_text(encoding="utf-8")
 tree = ast.parse(source)
 wanted = {"execute_worker_command", "_execute_worker_command_unfenced", "worker_task_matches_stop_identity", "close_worker_task_pane", "worker_task_pane_presence", "append_event", "read_json", "atomic_write", "path_for", "current_worker_task", "append_worker_task", "now_iso"}
-body = [node for node in tree.body if isinstance(node, (ast.Import, ast.ImportFrom)) or getattr(node, "name", None) in wanted]
+body = [node for node in tree.body if isinstance(node, (ast.Import, ast.ImportFrom)) or getattr(node, "name", None) in wanted
+        or isinstance(node, ast.Assign) and any(isinstance(target, ast.Name) and target.id == "DURABLE_PLAN_IDENTITY_FIELDS" for target in node.targets)]
 module = ast.Module(body=body, type_ignores=[])
 ast.fix_missing_locations(module)
 namespace = {"__builtins__": __builtins__}
@@ -155,4 +157,53 @@ inventory_error = "no server running on /tmp/tmux-user/default"
 result = execute(root, isolated("failed"), "w1")
 assert result["status"] == "completed" and result["stoppedTasks"][0]["paneAlreadyMissing"] is True, result
 inventory_error = None
-print("exact pane stop: live close, repeated stop, five missing-pane states, session identity, failed inventory, timeout and exit race ok")
+
+# Project-scoped production jobs must retain every durable identity field across
+# Python -> JSON -> extension. Legacy fixtures alone miss this publication gate.
+modern = dict(own, projectId="d:/project", codeFingerprint="code-current", experimentIndex=0,
+              planJobCount=36, runKey=own["commandId"], status="cancelled", tmuxPane="%999", pid="%999")
+modern_request = dict(request, projectId=modern["projectId"], codeFingerprint=modern["codeFingerprint"],
+                      experimentIndex=0, planJobCount=36, runKey=modern["runKey"],
+                      commandId="stop-modern", operationId="stop-modern")
+store[namespace["path_for"](root, "worker_task_snapshot.json")] = {"schemaVersion": 1, "tasks": [modern, other]}
+before_calls = list(calls)
+for field in ("projectId", "codeFingerprint", "experimentIndex", "runKey", "planJobCount"):
+    wrong = dict(modern_request)
+    wrong[field] = 999 if field in ("experimentIndex", "planJobCount") else "another-identity"
+    rejected = execute(root, wrong, "w1")
+    assert rejected["status"] == "failed" and calls == before_calls, (field, rejected)
+    wrong.pop(field)
+    missing = execute(root, wrong, "w1")
+    assert missing["status"] == "failed" and calls == before_calls, (field, missing)
+modern_result = execute(root, modern_request, "w1")
+assert modern_result["status"] == "completed", modern_result
+modern_receipt = modern_result["stoppedTasks"][0]
+for field in namespace["DURABLE_PLAN_IDENTITY_FIELDS"]:
+    assert modern_receipt.get(field) == modern.get(field), (field, modern_receipt)
+assert modern_receipt["planJobCount"] == modern["planJobCount"], modern_receipt
+assert modern_receipt["paneAlreadyMissing"] is True, modern_receipt
+live_receipts = []
+if os.environ.get("TEST_STOP_EVIDENCE"):
+    evidence = json.loads(os.environ["TEST_STOP_EVIDENCE"])
+    plan = evidence["plan"]
+    for job in plan["jobs"]:
+        task = next(row for row in evidence["tasks"] if row.get("commandId") == job["commandId"])
+        inventory = next(row for row in evidence["inventories"] if row["workerId"] == job["workerId"])
+        assert inventory["ok"] is True and task["status"] in ("failed", "cancelled", "completed", "stopped")
+        pane_sessions.clear()
+        for session in inventory["sessions"]:
+            for window in session["windows"]:
+                for pane in window["panes"]:
+                    pane_sessions[pane["id"]] = session["name"]
+        closed_panes.clear()
+        assert task["tmuxPane"] not in pane_sessions, "live target must already be absent; no simulated active stop"
+        store[namespace["path_for"](root, "worker_task_snapshot.json")] = {"schemaVersion": 1, "tasks": [task]}
+        stop = {"action": "stop-worker-task", "commandId": "verify-" + job["commandId"],
+                "targetCommandId": job["commandId"], "workflowId": plan["id"], "planRevision": plan["revision"],
+                "planFile": plan["planFile"], "projectId": plan["projectId"], "codeFingerprint": plan["codeFingerprint"],
+                "planJobCount": plan["planJobCount"], "experimentIndex": job["index"], "runKey": job["runKey"],
+                **{key: job[key] for key in ("case", "seed", "attempt", "outputDir", "workerId", "gpuId")}}
+        verified = execute(root, stop, job["workerId"])
+        assert verified["status"] == "completed" and verified["stoppedTasks"][0]["paneAlreadyMissing"] is True, verified
+        live_receipts.append(verified["stoppedTasks"][0])
+print(json.dumps({"modernTask": modern, "modernResult": modern_result, "legacyAndPaneRegressions": True, "liveReceipts": live_receipts}))

@@ -16114,8 +16114,10 @@ export class RealtimeTunnelPanelProvider {
             () => this.client.postWorkerAction(job.workerId, "stop-worker-task", request));
         const stopped = Array.isArray(result?.stoppedTasks) ? result.stoppedTasks : [];
         const receipt = stopped.find((row) => DistributedPlanQueue.stopIdentityMatchesJob(plan, job, row));
-        if (String(result?.status || "").toLowerCase() !== "completed" || !receipt)
-            throw new Error(String(result?.message || "Worker 回执身份与目标 job 不一致，队列保留"));
+        if (String(result?.status || "").toLowerCase() !== "completed")
+            throw new Error(String(result?.message || "Worker 未确认停止目标 job，队列保留"));
+        if (!receipt)
+            throw new Error("Worker 已返回停止结果，但回执的项目、代码版本或 job 身份不完整或不一致，队列保留；请更新对应 Worker Agent 后重试。");
         if (job.gpuId !== undefined && receipt.paneClosed !== true)
             throw new Error(String(receipt.paneCloseError || "该 job 的 tmux 标签未确认关闭，队列保留"));
         const fresh: any = await this.client.getWorkerTasks(job.workerId);

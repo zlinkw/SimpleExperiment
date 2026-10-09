@@ -1691,7 +1691,7 @@ test("plugin refuses exact pane stop unless the live worker probe advertises it"
   assert.ok(clear.lastIndexOf("finally {") < restore);
 });
 
-test("agent stop-worker-task requires a full job identity and closes only that pane", () => {
+test("serialized Agent stop receipts pass the production project-scoped clear chain", async () => {
   const agentPath = path.join(__dirname, "../../dist/runtime/cluster_agent.py");
   const file = path.join(__dirname, "fixtures/exactPaneStop.py");
   const result = spawnSync("python", [file], {
@@ -1701,4 +1701,63 @@ test("agent stop-worker-task requires a full job identity and closes only that p
     env: { ...process.env, PYTHONIOENCODING: "utf-8", PYTHONUTF8: "1", TEST_AGENT_PATH: agentPath },
   });
   assert.equal(result.status, 0, result.stderr || result.stdout);
+  const fixture = JSON.parse(result.stdout);
+  const { modernTask: task, modernResult: receipt } = fixture;
+  const queueApi = require("../../dist/features/DistributedPlanQueue.js");
+  const plan = { id: task.workflowId, projectId: task.projectId, planFile: task.planFile,
+    revision: task.planRevision, codeFingerprint: task.codeFingerprint, planJobCount: task.planJobCount };
+  const job = { index: task.experimentIndex, case: task.case, seed: task.seed, attempt: task.attempt,
+    outputDir: task.outputDir, commandId: task.commandId, runKey: task.runKey, workerId: task.workerId,
+    gpuId: task.gpuId, status: task.status };
+  assert.equal(queueApi.stopIdentityMatchesJob(plan, job, receipt.stoppedTasks[0]), true);
+  const context = vm.createContext({ DistributedPlanQueue: queueApi, makeOpId: () => "stop-host",
+    workspaceRoot: () => "D:/project" });
+  const stopper = loadExtensionHandler("async stopDistributedJobForClear(", "async stopAndClearPlanFromUi(");
+  vm.runInContext(`class Host { ${stopper} } this.Host = Host;`, context);
+  const provider = new context.Host();
+  const client = { postWorkerAction: async () => receipt, getWorkerTasks: async () => ({ tasks: [task] }) };
+  Object.assign(provider, { refreshExactPaneStopCapability: async () => true, client,
+    withRemoteActionResource: async (_worker, _action, _request, action) => action() });
+  assert.equal((await provider.stopDistributedJobForClear(plan, job)).status, "completed");
+  const modernQueue = { ...queueApi.emptyDistributedQueue(), plans: [{ ...plan, jobs: [job], enqueuedAt: "t" }] };
+  let saved = modernQueue;
+  const clearHost = installStopClearHost({ root: "D:/project", answers: ["继续中止并清除", "确认中止并清除"],
+    distributedPlanStopEpoch: 0, planStopClearByFile: {}, client,
+    isRealtimeMode: () => true, enabledWorkerConfigs: () => [{ id: task.workerId }],
+    captureProjectContext: () => ({ root: "D:/project" }), projectContextIsCurrent: () => true,
+    buildPlanRuntimeEvidenceState: () => ({ operations: {} }),
+    loadDistributedQueue: async () => saved, saveDistributedQueue: async (_root, next) => { saved = next; },
+    stopDistributedJobForClear: (currentPlan, currentJob) => provider.stopDistributedJobForClear(currentPlan, currentJob),
+    postState: () => undefined, context: { workspaceState: { get: () => [], update: async () => undefined } } });
+  const cleared = await clearHost.provider.stopAndClearPlanFromUi({ command: "stopAndClearPlan", planFile: plan.planFile });
+  assert.equal(cleared.status, "completed", JSON.stringify(cleared));
+  assert.equal(cleared.planStopClear.clearedJobs, 1);
+  assert.equal(saved.plans.length, 0);
+  for (const field of ["projectId", "codeFingerprint", "experimentIndex", "runKey", "attempt", "workerId", "outputDir"]) {
+    const invalid = { ...receipt, stoppedTasks: [{ ...receipt.stoppedTasks[0], [field]: "wrong" }] };
+    provider.client = { ...client, postWorkerAction: async () => invalid };
+    await assert.rejects(provider.stopDistributedJobForClear(plan, job), /回执.*身份/);
+  }
+  if (process.env.TEST_STOP_EVIDENCE) {
+    const evidence = JSON.parse(process.env.TEST_STOP_EVIDENCE);
+    const liveClient = {
+      getWorkerTasks: async (workerId) => ({ tasks: evidence.tasks.filter(row => row.workerId === workerId) }),
+      postWorkerAction: async (workerId, _action, request) => ({ status: "completed", message: "stopped=0 matched=1",
+        stoppedTasks: fixture.liveReceipts.filter(row => row.workerId === workerId && row.commandId === request.targetCommandId) }),
+    };
+    provider.client = liveClient;
+    let liveQueue = { ...queueApi.emptyDistributedQueue(), plans: [evidence.plan] };
+    const liveHost = installStopClearHost({ root: "D:/project", answers: ["继续中止并清除", "确认中止并清除"],
+      distributedPlanStopEpoch: 0, planStopClearByFile: {}, client: liveClient,
+      isRealtimeMode: () => true, enabledWorkerConfigs: () => evidence.inventories.map(row => ({ id: row.workerId })),
+      captureProjectContext: () => ({ root: "D:/project" }), projectContextIsCurrent: () => true,
+      buildPlanRuntimeEvidenceState: () => ({ operations: {} }),
+      loadDistributedQueue: async () => liveQueue, saveDistributedQueue: async (_root, next) => { liveQueue = next; },
+      stopDistributedJobForClear: (currentPlan, currentJob) => provider.stopDistributedJobForClear(currentPlan, currentJob),
+      postState: () => undefined, context: { workspaceState: { get: () => [], update: async () => undefined } } });
+    const liveCleared = await liveHost.provider.stopAndClearPlanFromUi({ command: "stopAndClearPlan", planFile: evidence.plan.planFile });
+    assert.equal(liveCleared.status, "completed", JSON.stringify(liveCleared));
+    assert.equal(liveCleared.planStopClear.clearedJobs, evidence.plan.jobs.length);
+    assert.equal(liveQueue.plans.length, 0);
+  }
 });

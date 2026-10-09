@@ -67,9 +67,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.254"
-RUNTIME_VERSION = "0.5.254"
-PLUGIN_VERSION = "0.5.254"
+AGENT_VERSION = "0.5.255"
+RUNTIME_VERSION = "0.5.255"
+PLUGIN_VERSION = "0.5.255"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -3504,10 +3504,13 @@ def worker_task_matches_stop_identity(command, task):
     task_command = str(task.get("commandId") or task.get("operationId") or "").strip()
     if not target_command or task_command != target_command:
         return False
-    for field in LEGACY_WORKER_STOP_IDENTITY_FIELDS:
+    fields = (*DURABLE_PLAN_IDENTITY_FIELDS, "gpuId", "planJobCount") if task.get("projectId") else LEGACY_WORKER_STOP_IDENTITY_FIELDS
+    for field in fields:
+        if field == "commandId":
+            continue  # targetCommandId identifies the job; commandId identifies this stop.
         expected = command.get(field)
         actual = task.get("plan") if field == "planFile" and task.get("planFile") in (None, "") else task.get(field)
-        if field in ("seed", "attempt"):
+        if field in ("seed", "attempt", "experimentIndex", "planJobCount"):
             try:
                 if int(actual) != int(expected):
                     return False
@@ -5232,7 +5235,7 @@ def _execute_worker_command_unfenced(root, command, worker_id):
                     result = {"commandId": command_id, "status": "failed", "message": "该 job 的 tmux 标签未确认关闭，未结束整会话", "stoppedPids": stopped, "stoppedTasks": [], "stopReason": stop_reason, "manualStopType": stop_reason, "stopSource": stop_source}
                     append_event(root, {"type": "worker_command_failed", "workerId": worker_id, "operationId": command_id, "payload": result})
                     return result
-                receipt = {k: current.get(k) for k in ("commandId", "operationId", "runKey", "session", "experimentIndex", "gpuId", "stopReason", "manualStopType", "stopSource", "workflowId", "planId", "planRevision", "planFile", "case", "seed", "attempt", "outputDir", "workerId", "tmuxPane") if current.get(k) not in (None, "")}
+                receipt = {k: current.get(k) for k in (*DURABLE_PLAN_IDENTITY_FIELDS, "operationId", "session", "gpuId", "planJobCount", "enqueuedAt", "stopReason", "manualStopType", "stopSource", "planId", "tmuxPane", "tmuxSession") if current.get(k) not in (None, "")}
                 receipt["paneClosed"] = bool(task.get("_paneClosed")) or not str(task.get("tmuxPane") or "").strip()
                 if proof:
                     receipt["paneAlreadyMissing"] = proof.get("paneAlreadyMissing") is True
