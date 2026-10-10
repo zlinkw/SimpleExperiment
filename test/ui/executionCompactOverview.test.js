@@ -472,6 +472,99 @@ test("newer active preflight replaces an older completed run until the new run e
   assert.doesNotMatch(sandbox.html, /bus seed 1|校验中/);
 });
 
+test("background attempt recovery and result operations never hide restored Plan jobs", () => {
+  const plan = { id: "distributed-plan-1791608959184-9rrh9s",
+    planFile: "experiments/plans/comparison_tuning/qmf.yaml", enqueuedAt: "2026-10-10T05:09:19.203Z",
+    jobs: Array.from({ length: 18 }, (_, index) => ({ index, case: "qmf_pad_ufes_20_c00", seed: 42 + index,
+      status: index < 15 ? "completed" : "running", workerId: "nwpu2", commandId: "job-" + index })) };
+  const operation = { planFile: plan.planFile, status: "running", startedAt: "2026-10-10T09:35:16Z",
+    payload: { workflowId: plan.id } };
+  const sandbox = clickSandbox({ operationRowsForState: () => [operation] });
+  for (const type of ["archive-worker-artifacts", "parse-results", "download-results", "recover-training-completion",
+    "stop-worker-task", "refresh-state"]) {
+    operation.type = type;
+    // Repeated progress/restart snapshots must keep the real job list visible immediately.
+    for (let refresh = 0; refresh < 3; refresh++) {
+      operation.updatedAt = "2026-10-10T09:36:0" + refresh + "Z";
+      sandbox.render({ distributedPlans: [plan] });
+      assert.match(sandbox.html, /成功 15\/18 · 83% · 运行 3/, type);
+      assert.match(sandbox.html, /qmf_pad_ufes_20_c00 seed 42/, type);
+      assert.doesNotMatch(sandbox.html, /待生成 job|当前还没有新 job/, type);
+    }
+  }
+});
+
+test("restored execution identity and progress timestamps cannot masquerade as a new submission", () => {
+  const plan = { id: "current-run", planFile: "plans/live.yaml", enqueuedAt: "2026-10-10T05:09:19Z",
+    jobs: [{ index: 0, case: "live", seed: 42, status: "unknown" }] };
+  const operation = { planFile: plan.planFile, type: "run-plan", status: "running",
+    startedAt: "2026-10-10T09:35:16Z", payload: { workflowId: plan.id } };
+  const sandbox = clickSandbox({ operationRowsForState: () => [operation] });
+  const beforeIdentity = structuredClone(operation);
+  delete operation.payload;
+  const unboundKey = sandbox.executionRenderKeysForState({ distributedPlans: [plan] }).planList;
+  operation.payload = beforeIdentity.payload;
+  const boundKey = sandbox.executionRenderKeysForState({ distributedPlans: [plan] }).planList;
+  assert.notEqual(boundKey, unboundKey, "late workflow evidence must redraw immediately without a job status change");
+  sandbox.render({ distributedPlans: [plan] });
+  assert.match(sandbox.html, /live seed 42/);
+  assert.match(sandbox.html, /待核实/);
+  assert.doesNotMatch(sandbox.html, /待生成 job/);
+  delete operation.payload;
+  delete operation.startedAt;
+  operation.updatedAt = "2026-10-10T09:35:16Z";
+  sandbox.render({ distributedPlans: [plan] });
+  assert.match(sandbox.html, /live seed 42/, "missing submission time cannot displace known durable jobs");
+  assert.doesNotMatch(sandbox.html, /待生成 job/);
+  operation.createdAt = "2026-10-10T05:09:13Z";
+  sandbox.render({ distributedPlans: [plan] });
+  assert.match(sandbox.html, /live seed 42/);
+  assert.doesNotMatch(sandbox.html, /待生成 job/);
+  operation.createdAt = "2026-10-10T10:00:00Z";
+  sandbox.render({ distributedPlans: [plan] });
+  assert.match(sandbox.html, /提交中 · 待生成 job/, "a genuinely newer submission still has its own stage");
+  assert.doesNotMatch(sandbox.html, /live seed 42/);
+});
+
+test("production operation projection and normalization retain submission identity before Plan rendering", () => {
+  const ts = require("typescript");
+  const projected = { exports: {} };
+  vm.runInNewContext(ts.transpileModule(readSource("src/ui/OperationPayload.ts"), {
+    compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.CommonJS },
+  }).outputText, projected);
+  const sandbox = clickSandbox({ resolveWorkerId: String, operationStatusFromType: () => "running",
+    normalizeUnparseableDetails: () => [], outputContractMissingLabel: String, operationSearchText: () => "" });
+  vm.runInContext(extract("operationPayload", "normalizeFileTransferRows") + extract("pick", "formatDuration")
+    + extract("normalizeOperationRows", "normalizeUnparseableDetails")
+    + "\noperationRowsForState = (state) => normalizeOperationRows(state.operations);", sandbox);
+  const plan = { id: "current-run", planFile: "plans/live.yaml", enqueuedAt: "2026-10-10T05:09:19Z",
+    jobs: [{ index: 0, case: "live", seed: 42, status: "running" }] };
+  const row = { operationId: "operation", planFile: plan.planFile, type: "run-plan", status: "running",
+    events: Array.from({ length: 100 }, (_, seq) => ({ seq, message: "large".repeat(5000) })),
+    payload: { log: "tail".repeat(5000), workflowId: plan.id },
+    startedAt: "2026-10-10T09:35:16Z", updatedAt: "2026-10-10T09:36:00Z" };
+  const render = () => sandbox.render({ distributedPlans: [plan],
+    operations: projected.exports.compactOperationsForWebview({ operation: { ...row } }) });
+  render();
+  assert.match(sandbox.html, /live seed 42/, "restored workflow survives large optional diagnostics");
+  assert.doesNotMatch(sandbox.html, /待生成 job/);
+  delete row.payload;
+  row.type = "validate-plan";
+  render();
+  assert.match(sandbox.html, /校验中 · 待生成 job/, "a real new preflight retains its immutable start time");
+  row.startedAt = "2026-10-10T05:09:13Z";
+  render();
+  assert.match(sandbox.html, /live seed 42/);
+  assert.doesNotMatch(sandbox.html, /待生成 job/);
+  row.startedAt = "2026-10-10T10:00:00Z";
+  row.type = "run-plan";
+  row.localSubmissionProgress = true;
+  row.status = "queued";
+  sandbox.operationIsActive = (status) => status === "running" || status === "queued";
+  render();
+  assert.match(sandbox.html, /等待继续提交 · 待生成 job/, "local submission metadata survives normalization");
+});
+
 test("deferred status stays distinct and is not hidden by an older distributed run", () => {
   const sandbox = clickSandbox();
   sandbox.render({

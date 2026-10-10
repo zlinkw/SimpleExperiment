@@ -14237,14 +14237,28 @@ function renderPanelHtml() {
       return "处理中";
     }
 
+    function executionOperationWorkflowId(row) {
+      return String(row.workflowId || row.payload?.workflowId || row.latestEvent?.payload?.workflowId || "");
+    }
+
     function executionNewerSubmission(group) {
       const enqueuedAt = Date.parse(group.distributedEnqueuedAt || "") || 0;
-      const live = (group.operations || []).filter((row) => operationIsActive(row.status));
-      const newer = live.filter((row) => {
-        const started = Date.parse(row.startedAt || row.updatedAt || "");
-        return !Number.isFinite(started) || started > enqueuedAt;
+      const submissionStamp = (row) => row.enqueuedAt || row.createdAt || row.startedAt || "";
+      const live = (group.operations || []).filter((row) => {
+        if (!operationIsActive(row.status)) return false;
+        const action = String(row.type || row.action || "").toLowerCase();
+        // Result collection, failed-attempt quarantine and other background work do not create jobs.
+        if (row.localSubmissionProgress !== true && !["validate-plan", "dry-run-plan", "run-plan", "reproduce-plan", "workflow-run"].includes(action)) return false;
+        const workflowId = executionOperationWorkflowId(row);
+        // A restored operation can start after Agent restart while its durable jobs already exist.
+        return !workflowId || workflowId !== String(group.distributedPlanId || "");
       });
-      return newer.sort((a, b) => String(b.startedAt || b.updatedAt || "").localeCompare(String(a.startedAt || a.updatedAt || "")))[0] || null;
+      const newer = live.filter((row) => {
+        const started = Date.parse(submissionStamp(row));
+        // Progress timestamps are mutable and cannot identify a newer submission generation.
+        return Number.isFinite(started) ? started > enqueuedAt : !group.distributedPlanId;
+      });
+      return newer.sort((a, b) => String(submissionStamp(b)).localeCompare(String(submissionStamp(a))))[0] || null;
     }
 
     function executionDeferredView(status) {
@@ -14639,6 +14653,7 @@ function renderPanelHtml() {
           createdAt: row.createdAt,
           finishedAt: row.finishedAt,
           localSubmissionProgress: row.localSubmissionProgress,
+          workflowId: executionOperationWorkflowId(row),
           error: row.error,
           message: active ? "" : row.message,
           reconcileEvidenceActive: row.reconcileEvidenceActive,
@@ -18591,6 +18606,12 @@ function projectSectionNextAction(status, label, section, anchor) {
           status: pick(row, ["status", "state"], pick(payload, ["status", "state"], operationStatusFromType(type))),
           planFile: pick(row, ["planFile", "plan_file", "plan"], pick(payload, ["planFile", "plan_file", "plan"], pick(options, ["planFile", "plan_file", "plan", "selectedPlanId"], ""))),
           planRevision: pick(row, ["planRevision", "plan_revision"], pick(payload, ["planRevision", "plan_revision"], pick(options, ["planRevision", "plan_revision"], ""))),
+          workflowId: executionOperationWorkflowId(row),
+          startedAt: pick(row, ["startedAt", "started_at"], pick(payload, ["startedAt", "started_at"], "")),
+          createdAt: pick(row, ["createdAt", "created_at"], pick(payload, ["createdAt", "created_at"], "")),
+          enqueuedAt: pick(row, ["enqueuedAt", "enqueued_at"], pick(payload, ["enqueuedAt", "enqueued_at"], "")),
+          finishedAt: pick(row, ["finishedAt", "finished_at"], pick(payload, ["finishedAt", "finished_at"], "")),
+          localSubmissionProgress: row.localSubmissionProgress === true,
           debugMode: pick(row, ["debugMode", "debug_mode"], pick(payload, ["debugMode", "debug_mode"], pick(options, ["debugMode", "debug_mode"], false))) === true,
           debugRunId: pick(row, ["debugRunId", "debug_run_id"], pick(payload, ["debugRunId", "debug_run_id"], "")),
           debugOutputDir: pick(row, ["debugOutputDir", "debug_output_dir"], pick(payload, ["debugOutputDir", "debug_output_dir"], "")),
