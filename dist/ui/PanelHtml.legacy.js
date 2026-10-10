@@ -3188,6 +3188,7 @@ function renderPanelHtml() {
     const webviewHandledCommands = new Set([
       "retryDistributedJob",
       "recallFailedJob",
+      "markJobUnavailable", "restoreJobAvailability",
       "stopAllPlans",
       "stopAndClearPlan", "reloadWindow", "webviewHeartbeatAck", "webviewVisibility",
       "quickSetup", "openSetupGuide", "openAdvancedCommandsSetting", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "reassignWorkerTask", "recallPlanToLocalQueue", "prepareAgents",
@@ -10112,6 +10113,7 @@ function renderPanelHtml() {
           totalCount: Number(summary.totalCount),
           taskCount: Number(summary.taskCount),
           failedCount: Number(summary.failedCount),
+          unavailableCount: Number(summary.unavailableCount || 0),
           activeCount: Number(summary.activeCount),
           queuedCount: Number(summary.queuedCount),
           revision: summaryRevision,
@@ -10217,7 +10219,9 @@ function renderPanelHtml() {
       const failedCount = taskStatuses.filter((status) => taskFailureLikeStatus(status)).length;
       const activeCount = taskStatuses.filter((status) => ["running", "testing", "progress", "in_progress", "operation_started", "started"].includes(status)).length;
       const queuedCount = taskStatuses.filter((status) => ["accepted", "submitted", "queued", "pending"].includes(status)).length;
-      const distributedStatuses = distributedJobs.map((row) => taskStatusToken((row || {}).status));
+      const distributedUnavailable = distributedJobs.filter((row) => row.unavailable && row.status === "cancelled").length;
+      const distributedStatuses = distributedJobs.filter((row) => !(row.unavailable && row.status === "cancelled"))
+        .map((row) => taskStatusToken((row || {}).status));
       const distributedCompleted = distributedStatuses.filter((status) => ["completed", "done", "archived"].includes(status)).length;
       const distributedFailed = distributedStatuses.filter((status) => taskFailureLikeStatus(status)).length;
       const distributedActive = distributedStatuses.filter((status) => ["running", "testing", "progress", "in_progress", "operation_started", "started"].includes(status)).length;
@@ -10245,7 +10249,7 @@ function renderPanelHtml() {
       else if (allTasksCompleted) status = "completed";
       else if (countRows.length || runOperations.length) status = "partial";
       const shownCompleted = status === "completed" && !shownCompletedCount && totalCount ? totalCount : shownCompletedCount;
-      return { status, statusLabel: PLAN_SELECTOR_STATUS_LABELS[status], completedCount: shownCompleted, totalCount, taskCount: countRows.length, revision };
+      return { status, statusLabel: PLAN_SELECTOR_STATUS_LABELS[status], completedCount: shownCompleted, unavailableCount: distributedUnavailable, totalCount, taskCount: countRows.length, revision };
     }
     function planSelectorMatchesFilter(summary, filter) {
       if (filter === "all") return true;
@@ -10266,7 +10270,7 @@ function renderPanelHtml() {
     }
     function planSelectorOptionLabel(file, summary, pinned) {
       const count = summary.totalCount > 0 ? " · " + summary.completedCount + "/" + summary.totalCount + " 已完成" : "";
-      return "● " + summary.statusLabel + count + " · " + file + (pinned ? "（当前；不符合筛选）" : "");
+      return "● " + summary.statusLabel + count + (summary.unavailableCount ? " · 不可用 " + summary.unavailableCount : "") + " · " + file + (pinned ? "（当前；不符合筛选）" : "");
     }
     function refreshPlanFileOptions(state) {
       var sel = el("planFileInput");
@@ -10304,7 +10308,7 @@ function renderPanelHtml() {
       const statusHost = el("planSelectorStatus");
       if (statusHost) {
         statusHost.className = "planSelectorStatus is-" + currentStatus.status;
-        statusHost.innerHTML = "<span>" + esc(currentStatus.statusLabel) + "</span>" + (currentStatus.totalCount > 0 ? "<span>" + esc(currentStatus.completedCount + "/" + currentStatus.totalCount + " 已完成") + "</span>" : "<span>进度待确认</span>") + (currentStatus.revision ? "<span>版本 " + esc(currentStatus.revision) + "</span>" : "");
+        statusHost.innerHTML = "<span>" + esc(currentStatus.statusLabel) + "</span>" + (currentStatus.totalCount > 0 ? "<span>" + esc(currentStatus.completedCount + "/" + currentStatus.totalCount + " 已完成") + "</span>" : "<span>进度待确认</span>") + (currentStatus.unavailableCount ? "<span>不可用 " + esc(currentStatus.unavailableCount) + "</span>" : "") + (currentStatus.revision ? "<span>版本 " + esc(currentStatus.revision) + "</span>" : "");
       }
     }
     function renderPlanSection(state) {
@@ -14381,9 +14385,10 @@ function renderPanelHtml() {
         const label = group.planFile ? planBaseName(group.planFile) : "未关联 Plan 的操作";
         const totalJobs = Math.max(currentJobs.length, !submission && !deferredCurrent ? recovery.expectedJobCount : 0) || (!submission && !deferredCurrent ? group.tasks.length : 0);
         const failedJobs = currentJobs.filter((job) => String(job.status || "") === "failed").length;
-        const cancelledJobs = currentJobs.filter((job) => String(job.status || "") === "cancelled").length;
+        const unavailableJobs = currentJobs.filter((job) => job.unavailable && job.status === "cancelled").length;
+        const cancelledJobs = currentJobs.filter((job) => String(job.status || "") === "cancelled" && !job.unavailable).length;
         const successRate = totalJobs ? Math.round(completed * 100 / totalJobs) : 0;
-        const statusText = submission ? executionSubmissionLabel(submission) : deferredView ? deferredView.statusText : unknown || recovery.unresolved ? "待核实" : tone === "blocked" ? "阻塞" : tone === "queued" ? "排队" : running ? "运行中" : dispatching ? "派发中" : tone === "failed" ? "失败" : cancelledJobs === totalJobs && totalJobs ? "已中止" : cancelledJobs ? "已结束" : currentJobs.length ? "已完成" : "已结束";
+        const statusText = submission ? executionSubmissionLabel(submission) : deferredView ? deferredView.statusText : unknown || recovery.unresolved ? "待核实" : tone === "blocked" ? "阻塞" : tone === "queued" ? "排队" : running ? "运行中" : dispatching ? "派发中" : tone === "failed" ? "失败" : unavailableJobs ? "已结束（含不可用 job）" : cancelledJobs === totalJobs && totalJobs ? "已中止" : cancelledJobs ? "已结束" : currentJobs.length ? "已完成" : "已结束";
         let countText = submission ? (statusText + " · 待生成 job") : deferredView ? deferredView.countText : totalJobs
           ? ("成功 " + completed + "/" + totalJobs + " · " + successRate + "%" + (running ? " · 运行 " + running : "") + (queued ? " · 排队 " + queued : "") + (blockedCount ? " · 阻塞 " + blockedCount : "") + (failedJobs ? " · 失败 " + failedJobs : "") + (recovery.missingCount ? " · 待核实 " + recovery.missingCount : "") + (recovery.conflict ? " · 服务器状态冲突" : ""))
           : ("操作 " + group.operations.length);
@@ -14393,6 +14398,7 @@ function renderPanelHtml() {
             ? " · 已托管，可关机" : " · 尚未完整确认托管";
         }
         if (dispatching) countText += " · 派发 " + dispatching;
+        if (unavailableJobs) countText += " · 不可用 " + unavailableJobs;
         if (unknown > recovery.missingCount) countText += " · 待核实 " + unknown;
         // Submission identity is immutable; progress/status timestamps must never reorder cards.
         const submitted = submission ? submission.enqueuedAt || submission.createdAt || submission.startedAt
@@ -14402,7 +14408,7 @@ function renderPanelHtml() {
         const taskStamps = group.tasks.map((row) => Date.parse(row.enqueuedAt || row.createdAt || row.startedAt || "")).filter(Number.isFinite);
         const stamp = Date.parse(submitted || "") || (operationStamps.length ? Math.max(...operationStamps)
           : taskStamps.length ? Math.min(...taskStamps) : Number.MAX_SAFE_INTEGER);
-        return { ...group, currentJobs, tone, active, distributedActive, blockedOnly, blockedCount, queued, completed, running, submitting: !!submission, waitingSubmission, deferredCurrent, statusText, countText, failedJobs, label, stamp };
+        return { ...group, currentJobs, tone, active, distributedActive, blockedOnly, blockedCount, queued, completed, running, submitting: !!submission, waitingSubmission, deferredCurrent, statusText, countText, failedJobs, unavailableJobs, label, stamp };
       });
       items.sort((a, b) => a.stamp - b.stamp || a.key.localeCompare(b.key));
       if (selectedExecutionPlanFile && !items.some((item) => item.planFile && samePlanSelection(item.planFile, selectedExecutionPlanFile))) {
@@ -14444,7 +14450,8 @@ function renderPanelHtml() {
           const retryView = automaticJobRetryView(job);
           const blocked = status === "pending" && fingerprintBlocked(job);
           const jobActive = ["pending", "dispatching", "queued", "running", "unknown"].includes(status) && !blocked;
-          const statusLabel = blocked ? (String(job.blockReason || "").indexOf("等待当前代码版本") === 0 ? "等待代码版本" : "代码版本不匹配") : retryView.label || ({ pending: "本机等待空卡", queued: "服务器排队", dispatching: "派发中", running: "运行中", completed: "已完成", failed: "失败", cancelled: "已中止", unknown: "待核实" }[status] || status);
+          const unavailable = job.unavailable && status === "cancelled";
+          const statusLabel = unavailable ? "不可用" : blocked ? (String(job.blockReason || "").indexOf("等待当前代码版本") === 0 ? "等待代码版本" : "代码版本不匹配") : retryView.label || ({ pending: "本机等待空卡", queued: "服务器排队", dispatching: "派发中", running: "运行中", completed: "已完成", failed: "失败", cancelled: "已中止", unknown: "待核实" }[status] || status);
           const placement = job.workerId ? job.workerId + (job.gpuId == null || job.gpuId === "" ? "" : " · GPU " + job.gpuId) : "未派发";
           const canJumpLog = Boolean(job.workerId && (job.commandId || job.outputDir));
           const logButton = '<button type="button" class="mini secondary" data-job-tmux-log="1" data-worker-id="' + escAttr(job.workerId || "") + '" data-command-id="' + escAttr(job.commandId || "") + '" data-output-dir="' + escAttr(job.outputDir || "") + '"' + (canJumpLog ? '' : ' disabled') + ' title="' + (canJumpLog ? '在 TMUX 区域选中该 Worker 的真实任务窗口标签' : '等待任务派发后定位对应的 TMUX 日志标签') + '">跳转到日志</button>';
@@ -14458,6 +14465,10 @@ function renderPanelHtml() {
           const failedRecallButton = status === "failed" && job.workerId && job.commandId && job.attempt
             ? '<button type="button" class="mini secondary" data-command="recallFailedJob" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-plan-file="' + escAttr(group.planFile || "") + '" data-job-index="' + escAttr(String(job.index)) + '" data-attempt="' + escAttr(String(job.attempt)) + '" data-command-id="' + escAttr(job.commandId) + '" title="只为此失败 job 新建 attempt，放回本机分布式队列；原 Worker 恢复后核验并移走旧目录。">召回本机重跑</button>' : "";
           const failedCleanup = asArray(group.failedAttemptRecoveries).filter(row => Number(row.jobIndex) === Number(job.index)).at(-1);
+          const canMarkUnavailable = !job.unavailable && !job.recoveryConflict && !group.distributedRecovery?.conflict
+            && (["failed", "cancelled"].includes(status) || status === "pending" && !job.workerId && !job.commandId);
+          const availabilityButton = unavailable || canMarkUnavailable
+            ? '<button type="button" class="mini secondary" data-command="' + (unavailable ? 'restoreJobAvailability' : 'markJobUnavailable') + '" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-plan-file="' + escAttr(group.planFile || "") + '" data-job-index="' + escAttr(String(job.index)) + '" data-attempt="' + escAttr(String(job.attempt)) + '" data-command-id="' + escAttr(job.commandId || "") + '">' + (unavailable ? '撤销不可用' : '标记不可用') + '</button>' : "";
           const failedCleanupNote = failedCleanup ? (failedCleanup.status === "completed"
             ? failedCleanup.alreadyAbsent ? "旧失败 attempt 已核验不存在，无需移动。" : "旧失败 attempt 已移入原 Worker 的 clean_dir。"
             : (failedCleanup.status === "blocked" ? "旧 attempt 已保留。" : "原 Worker 恢复后自动核验并移走旧失败 attempt。") + (failedCleanup.error ? " " + failedCleanup.error : "")) : "";
@@ -14466,10 +14477,11 @@ function renderPanelHtml() {
           const jobNext = codeProofBlocked
             ? '<div class="muted">启动前代码校验阻塞，训练尚未开始。部署并重启该 Worker 的 Agent 后刷新状态；原 job 保留排队，无需重新提交 Plan。校验仍未通过时，请核对 Worker 的对应代码版本。</div><button type="button" class="mini secondary" data-command="snapshot">刷新状态</button>'
             : failedRecallButton ? '<div class="muted">可召回这个失败 job 到本机排队重跑，其他 job 保持原状态。原 Worker 恢复后自动核验并将旧 attempt 移入 clean_dir。</div>'
-            : errorText && !retryView.note
+            : errorText && !retryView.note && !unavailable
             ? '<div class="muted">下一步：点本行“跳转到日志”查看对应 TMUX 任务窗口。这是已提交 job 的失败，不会自动清理。确认需要停止后，再点本 Plan 的“终止并清除该 Plan”（两次确认）。</div><span class="errorRowLinks" style="display:flex;gap:6px;flex-wrap:wrap;"><button type="button" class="mini secondary" data-section-target="execution" data-anchor-target="execution-operations" title="跳到运行进度，查看本 Plan 的状态">运行进度</button><button type="button" class="mini secondary" data-command="snapshot" title="重新拉取调度状态与操作记录">刷新状态</button></span>'
             : "";
-          return '<div class="executionDistributedJob' + (blocked ? " is-blocked" : "") + '" title="' + escAttr(job.outputDir || "") + '"><span>' + loadingPrefix(jobActive) + esc(job.case || "job " + job.index) + ' seed ' + esc(String(job.seed)) + '</span><span class="' + (blocked ? "status-warning" : statusClass(status)) + '">' + esc(statusLabel) + '</span><span>' + esc(blocked ? "阻塞" : placement) + '</span>' + recallButton + failedRecallButton + logButton + trainingRecoveryButton
+          return '<div class="executionDistributedJob' + (blocked ? " is-blocked" : "") + '" title="' + escAttr(job.outputDir || "") + '"><span>' + loadingPrefix(jobActive) + esc(job.case || "job " + job.index) + ' seed ' + esc(String(job.seed)) + '</span><span class="' + (blocked || unavailable ? "status-warning" : statusClass(status)) + '">' + esc(statusLabel) + '</span><span>' + esc(blocked ? "阻塞" : placement) + '</span>' + recallButton + failedRecallButton + availabilityButton + logButton + trainingRecoveryButton
+            + (unavailable ? '<div class="muted">不可用原因：' + esc(job.unavailable.reason) + ' · ' + esc(job.unavailable.markedAt) + '</div>' : '')
             + (recallNote ? '<div class="muted">' + esc(recallNote) + '</div>' : '')
             + (failedCleanupNote ? '<div class="muted">' + esc(failedCleanupNote) + '</div>' : '')
             + (retryView.note ? '<div class="muted">' + esc(retryView.note) + '</div>' : '')
@@ -14520,7 +14532,7 @@ function renderPanelHtml() {
       const foldRow = (group) => {
         const totalJobs = (group.currentJobs || []).length;
         const statusText = group.statusText;
-        const count = totalJobs ? ("成功 " + group.completed + "/" + totalJobs + (group.failedJobs ? " · 失败 " + group.failedJobs : "")) : group.countText;
+        const count = totalJobs ? ("成功 " + group.completed + "/" + totalJobs + (group.failedJobs ? " · 失败 " + group.failedJobs : "") + (group.unavailableJobs ? " · 不可用 " + group.unavailableJobs : "")) : group.countText;
         const foldRaw = stopClearForPlan(group.planFile);
         const foldClear = foldRaw && !stopClearNewerThan(group, foldRaw) && String(foldRaw.outcome || "") !== "completed" ? foldRaw : null;
         const foldOutcome = String(foldClear && foldClear.outcome || "");
@@ -17349,7 +17361,7 @@ function renderPanelHtml() {
       if (!payload.planFile && command === "archivePlan" && el("planFileInput")) payload.planFile = el("planFileInput").value;
       if (button.dataset.planId) payload.planId = button.dataset.planId;
       if (button.dataset.jobIndex !== undefined) payload.jobIndex = Number(button.dataset.jobIndex);
-      if (command === "recallFailedJob") {
+      if (["recallFailedJob", "markJobUnavailable", "restoreJobAvailability"].includes(command)) {
         payload.attempt = Number(button.dataset.attempt);
         payload.commandId = button.dataset.commandId || "";
       }

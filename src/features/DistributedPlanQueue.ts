@@ -13,6 +13,9 @@ export type QueuedJob = {
   outputDir: string;
   attempt: number;
   status: JobState;
+  /** Explicit local exclusion of this exact attempt; never a successful result. */
+  unavailable?: { identity: string; reason: string; markedAt: string; previousStatus: JobState;
+    previousFinishedAt?: string; previousTrustedTerminalStatus?: "completed" | "failed" | "cancelled" };
   projectId?: string;
   actualExecutionMode?: PlanExecutionMode;
   trainingRecovery?: Record<string, unknown>;
@@ -188,6 +191,56 @@ export function canonicalProjectId(projectRoot: string): string {
   return process.platform === "win32" ? resolved.toLowerCase() : resolved;
 }
 
+export function jobAvailabilityIdentity(plan: QueuedPlan, job: QueuedJob): string {
+  return JSON.stringify([plan.projectId, plan.id, plan.planFile, plan.revision, plan.codeFingerprint,
+    job.index, job.case, job.seed, job.attempt, job.outputDir, job.workerId, job.commandId, job.runKey, job.gpuId]);
+}
+
+export function jobIsUnavailable(plan: QueuedPlan, job: QueuedJob): boolean {
+  return Boolean(job.status === "cancelled" && !job.recoveryConflict && job.unavailable?.reason
+    && job.unavailable.identity === jobAvailabilityIdentity(plan, job));
+}
+
+export function markJobUnavailable(queue: DistributedQueue, planId: string, index: number,
+  expectedIdentity: string, reason: string, markedAt: string, terminalReceipt?: Record<string, unknown>): DistributedQueue {
+  const plan = queue.plans.find(row => row.id === planId), job = plan?.jobs.find(row => row.index === index);
+  const text = String(reason || "").trim();
+  if (!plan || !job || jobAvailabilityIdentity(plan, job) !== expectedIdentity || job.unavailable
+    || job.recoveryConflict || plan.recoveryConflict || !text || text.length > 500 || !Number.isFinite(Date.parse(markedAt)))
+    throw new Error("job 身份或状态已变化，或缺少不可用原因；未修改。");
+  const unsent = !job.workerId && !job.commandId && job.gpuId === undefined
+    && ["pending", "failed", "cancelled"].includes(job.status);
+  const terminal = terminalReceipt && durableStatus(terminalReceipt.status);
+  if (!unsent && (!job.workerId || !job.commandId || !["failed", "cancelled"].includes(job.status)
+    || !terminalReceipt || terminalReceipt.identityConflict || !remoteTaskMatchesJob(plan, job, terminalReceipt)
+    || terminal !== job.status || !(Number.isFinite(Date.parse(String(terminalReceipt.finishedAt || "")))
+      || typeof terminalReceipt.exitCode === "number")))
+    throw new Error("仅可标记未派发或已核验结束的失败/中止 job；活动或待核实任务须先停止。");
+  const nextPlan: QueuedPlan = { ...plan,
+    jobs: plan.jobs.map(item => item.index !== index ? item : { ...item, status: "cancelled" as const,
+      unavailable: { identity: expectedIdentity, reason: text, markedAt, previousStatus: item.status,
+        previousFinishedAt: item.finishedAt, previousTrustedTerminalStatus: item.trustedTerminalStatus },
+      finishedAt: item.finishedAt || markedAt, automaticRetry: undefined, blockReason: undefined,
+      ...(terminal ? { trustedTerminalStatus: terminal as "failed" | "cancelled" } : {}) }) };
+  nextPlan.recoveryMissingCount = distributedPlanRecoveryMissingCount(nextPlan);
+  return { ...queue, plans: queue.plans.map(row => row.id !== planId ? row : nextPlan) };
+}
+
+/** Undo only the local decision, without restarting or inventing a Worker completion. */
+export function restoreJobAvailability(queue: DistributedQueue, planId: string, index: number, expectedIdentity: string): DistributedQueue {
+  const plan = queue.plans.find(row => row.id === planId), job = plan?.jobs.find(row => row.index === index);
+  if (!plan || !job || !jobIsUnavailable(plan, job) || jobAvailabilityIdentity(plan, job) !== expectedIdentity)
+    throw new Error("不可用 job 身份已变化，未撤销。");
+  const nextPlan: QueuedPlan = { ...plan,
+    jobs: plan.jobs.map(item => item.index !== index ? item : { ...item, status: item.unavailable!.previousStatus,
+      finishedAt: item.unavailable!.previousFinishedAt, trustedTerminalStatus: item.unavailable!.previousTrustedTerminalStatus,
+      unavailable: undefined, automaticRetry: item.unavailable!.previousStatus === "failed"
+        ? { failureCount: 0, failedAttempt: item.attempt, failureClass: "unknown" as const,
+          blockedReason: "已撤销不可用标记；如需重跑，请手动召回。" } : undefined }) };
+  nextPlan.recoveryMissingCount = distributedPlanRecoveryMissingCount(nextPlan);
+  return { ...queue, plans: queue.plans.map(row => row.id !== planId ? row : nextPlan) };
+}
+
 export function durableCommandId(plan: Pick<QueuedPlan, "id" | "projectId" | "planFile" | "revision" | "codeFingerprint">,
   job: Pick<QueuedJob, "index" | "case" | "seed" | "attempt" | "outputDir">, workerId: string, gpuId?: string): string {
   return createHash("sha256").update([plan.projectId || "", plan.id, plan.planFile,
@@ -256,7 +309,7 @@ export function distributedPlanRecoveryMissingCount(plan: QueuedPlan, acceptedIn
     const terminalReceipt = ["completed", "failed", "cancelled"].includes(job.status)
       && (!job.trustedTerminalStatus || job.trustedTerminalStatus === job.status)
       && Boolean(job.workerId && job.commandId && job.outputDir && job.case) && Number.isInteger(job.seed);
-    if (localPending || terminalReceipt) known.add(job.index);
+    if (localPending || terminalReceipt || jobIsUnavailable(plan, job)) known.add(job.index);
   }
   return Math.max(0, expected - known.size);
 }
@@ -349,7 +402,7 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
       const terminal = job.trustedTerminalStatus || (["completed", "failed", "cancelled"].includes(job.status) ? job.status : undefined);
       if (terminal && terminal !== legacyStatus) return { ...job, status: "unknown" as const, recoveryConflict: true,
         blockReason: "Fresh historical server state contradicts a trusted terminal receipt." };
-      return { ...job, status: legacyStatus, blockReason: undefined };
+      return { ...job, status: jobIsUnavailable(plan, job) ? "cancelled" as const : legacyStatus, blockReason: undefined };
     }
     if (!job.workerId || !job.commandId || !UNFINISHED_JOB.includes(job.status)
       || acceptedRows.some((row) => remoteTaskMatchesJob(plan, job, row.task))) return job;
@@ -495,7 +548,8 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
           ? local.status as "completed" | "failed" | "cancelled" : undefined);
         const terminalConflict = Boolean(terminal && merged.status !== terminal && !(terminal === "failed" && trainingAdopted));
         plan.jobs[existing] = (localIdentity === remoteIdentity || unassignedLocalIntent && sameJob) && !conflict && !terminalConflict ? {
-          ...local, ...merged, localQueueOnly: local.localQueueOnly, recallRequested: local.recallRequested,
+          ...local, ...merged, ...(jobIsUnavailable(plan, local) ? { status: "cancelled" as const } : {}),
+          localQueueOnly: local.localQueueOnly, recallRequested: local.recallRequested,
           ...(local.error?.startsWith("code-sync proof") && typeof task.error !== "string"
             && ["queued", "running", "completed"].includes(merged.status) ? { error: undefined } : {}),
           ...(merged.history ? { history: [...(local.history || []), ...merged.history].filter((entry, index, entries) =>
@@ -1078,7 +1132,7 @@ export function stopIdentityMatchesJob(plan: QueuedPlan, job: QueuedJob, identit
 export function retryVerifiedJob(queue: DistributedQueue, planId: string, jobIndex: number, runId: string): DistributedQueue {
   const plan = queue.plans.find((row) => row.id === planId);
   const job = plan?.jobs.find((row) => row.index === jobIndex);
-  if (!job || !["failed", "unknown"].includes(job.status) || !/^[a-zA-Z0-9-]{8,80}$/.test(runId))
+  if (!job || job.unavailable || !["failed", "unknown"].includes(job.status) || !/^[a-zA-Z0-9-]{8,80}$/.test(runId))
     throw new Error("Only a verified stopped job can be retried.");
   const prefix = job.outputDir.replace(/\\/g, "/");
   const marker = prefix.lastIndexOf("/attempts/");
@@ -1163,6 +1217,7 @@ export function scheduleAutomaticJobRetries(queue: DistributedQueue, snapshots: 
     }
     for (let index = 0; index < plan.jobs.length; index++) {
       const job = plan.jobs[index], task = evidence.get(job.index);
+      if (job.unavailable) continue;
       if (job.status === "completed" && task?.status === "completed") {
         if (job.automaticRetry) { delete job.automaticRetry; changed = true; }
         continue;

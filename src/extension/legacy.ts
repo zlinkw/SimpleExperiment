@@ -17,6 +17,7 @@ import { callSftpWithProgress } from "../core/SimpleSftpProgressWait";
 import { SafeRequestRetry, RequestReplacedError, assertRetryRequestCurrent, retryRequestSignal } from "../core/SafeRequestRetry";
 import { preparePlanSafeRetry } from "../features/PlanSafeRetry";
 import * as FailedJobRecovery from "../features/FailedJobRecovery";
+import * as JobAvailability from "../features/JobAvailability";
 import { openCacheCleanupPanel } from "./CacheCleanupPanel";
 import RequestBudget_1 = require("../tunnel/RequestBudget");
 import TunnelGateway_1 = require("../tunnel/TunnelGateway");
@@ -558,6 +559,7 @@ const uiActionCommands = new Set<WebviewActionCommand>([
     "abortScheduler",
 ]);
 const SAFE_WEBVIEW_COMMANDS = new Set([
+    "markJobUnavailable", "restoreJobAvailability",
     "recallFailedJob",
     "retryDistributedJob",
     "stopAllPlans",
@@ -593,6 +595,7 @@ const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set([
 ]);
 const UI_LAYOUT_SECTION_KEYS = new Set(defaultUiSectionOrder);
 const UI_BUTTON_ACTION_COMMANDS = new Set([
+    "markJobUnavailable", "restoreJobAvailability",
     "recallFailedJob",
     "retryDistributedJob",
     "testAll", "snapshot", "startAllConnections", "runPlan", "parseResults", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope",
@@ -5501,6 +5504,15 @@ export class RealtimeTunnelPanelProvider {
             case "recallFailedJob":
                 return await FailedJobRecovery.recallFailedJobFromUi(this, message, async detail =>
                     await vscode.window.showWarningMessage(detail, { modal: true }, "召回并重跑") === "召回并重跑", makeOpId);
+            case "markJobUnavailable":
+            case "restoreJobAvailability":
+                return await JobAvailability.changeJobAvailabilityFromUi(this, message,
+                    () => vscode.window.showInputBox({ title: "标记 job 不可用", prompt: "填写原因（例如此组参数不适用）", ignoreFocusOut: true,
+                        validateInput: value => !value.trim() ? "请填写原因" : value.trim().length > 500 ? "原因最多 500 字" : undefined }),
+                    async (detail, restore) => {
+                        const label = restore ? "撤销不可用" : "标记不可用";
+                        return await vscode.window.showWarningMessage(detail, { modal: true }, label) === label;
+                    });
             case "recallPlanToLocalQueue":
                 await this.recallPlanToLocalQueueFromUi(message);
                 break;
@@ -5885,7 +5897,7 @@ export class RealtimeTunnelPanelProvider {
             const submission = PLAN_SUBMISSION_COMMANDS.has(command)
                 ? this.localOperations?.[this.planSubmissionOperationId(message)] : undefined;
             if (submission?.status === "failed") return { status: "failed", message: submission.message || "计划未提交。" };
-            if ((command === "stopAndClearPlan" || command === "retryDistributedJob") && value && typeof value === "object" && (value.status === "completed" || value.status === "failed" || value.status === "cancelled" || value.status === "partial")) {
+            if (["stopAndClearPlan", "retryDistributedJob", "markJobUnavailable", "restoreJobAvailability"].includes(command) && value && typeof value === "object" && (value.status === "completed" || value.status === "failed" || value.status === "cancelled" || value.status === "partial")) {
                 const outcome = value.status === "partial" ? "failed" : value.status;
                 return { status: outcome, message: String(value.message || outcome), planStopClear: value.planStopClear };
             }
@@ -11338,6 +11350,7 @@ export class RealtimeTunnelPanelProvider {
             expectedJobCount: Number(plan.fullPlanJobCount || plan.planJobCount || plan.jobs.length), recoveryMissingCount: Number(plan.recoveryMissingCount || 0),
             expectedJobs: plan.jobs.map((job) => ({ case: job.case, seed: job.seed })),
             jobStates: plan.jobs.map((job) => ({ runId: plan.id, case: job.case, seed: job.seed, attempt: job.attempt,
+                unavailable: DistributedPlanQueue.jobIsUnavailable(plan, job) ? { reason: job.unavailable.reason, markedAt: job.unavailable.markedAt } : undefined,
                 status: job.status, workerId: job.workerId, finishedAt: job.finishedAt })),
             jobs: plan.jobs.filter((job) => job.status === "completed" && job.artifacts).map((job) => ({
                 runId: plan.id, case: job.case, seed: job.seed, attempt: job.attempt, outputDir: job.outputDir,
@@ -21578,6 +21591,7 @@ export class RealtimeTunnelPanelProvider {
                     .map(row => ({ jobIndex: row.job.index, attempt: row.job.attempt, status: row.status, error: row.error,
                         alreadyAbsent: row.receipt?.alreadyAbsent === true })),
                 jobs: plan.jobs.map((job) => ({ index: job.index, case: job.case, seed: job.seed, attempt: job.attempt,
+                    unavailable: DistributedPlanQueue.jobIsUnavailable(plan, job) ? job.unavailable : undefined,
                     status: job.status, workerId: job.workerId, gpuId: job.gpuId, outputDir: job.outputDir,
                     localQueueOnly: job.localQueueOnly === true, recallRequested: job.recallRequested === true,
                     recallOperationId: job.recallOperationId || "",
@@ -26157,6 +26171,8 @@ function hostOperationLeaseActionForUiCommand(command) {
 const HOST_OPERATION_LEASE_ACTION_LABELS = Object.freeze({
     retryDistributedJob: "核验并恢复任务",
     recallFailedJob: "召回失败 job 到本机重跑",
+    markJobUnavailable: "标记 job 不可用",
+    restoreJobAvailability: "撤销 job 不可用",
     quickSetup: "检查服务器配置",
     configureSessions: "配置 Xshell 会话",
     configureAgentSessions: "配置 Agent 会话",
