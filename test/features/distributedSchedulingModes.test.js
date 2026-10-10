@@ -35,11 +35,11 @@ test('default local mode never preassigns occupied NWPU5 and reserves each idle 
 
 test('prequeue weights count idle plus own GPU once, excluding mixed or unknown owners and enforcing capacity', () => {
   const owner = { currentUser: 'alice', myProcessMatchMode: 'username' };
-  const rows = [gpu(0), gpu(1,[{username:'alice'},{username:'alice'}]), gpu(2,[{username:'bob'}]),
-    gpu(3,[{username:'alice'},{username:'bob'}]), gpu(4,[{}])];
+  const rows = [gpu(0), gpu(1,[{username:'alice',submittedByThisClient:true},{username:'alice',submittedByThisClient:true}]), gpu(2,[{username:'bob',pluginManaged:true}]),
+    gpu(3,[{username:'alice',submittedByThisClient:true},{username:'bob',pluginManaged:true}]), gpu(4,[{}])];
   assert.equal(policy.prequeueGpuWeight(rows, 5, 200, owner), 2);
   assert.equal(policy.prequeueGpuWeight(rows, 5, 200, owner, '', 1), 1);
-  assert.equal(policy.prequeueGpuWeight([gpu(0,[{username:'remoteuser'}])], 5, 200, {}, 'remoteuser'), 1);
+  assert.equal(policy.prequeueGpuWeight([gpu(0,[{username:'remoteuser',pluginManaged:true}])], 5, 200, {}, 'remoteuser'), 0);
   assert.equal(policy.prequeueGpuWeight([{...gpu(0),memoryUsedMb:undefined}], 5, 200, owner), 0);
   assert.equal(policy.prequeueGpuWeight([{...gpu(0,[{username:'alice'}]),processCount:2}], 5, 200, owner), 0);
   for (const mode of ['both','command_contains']) {

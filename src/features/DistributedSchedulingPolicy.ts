@@ -29,22 +29,11 @@ export function prequeueGpuWeight(rows: unknown, idleUtil: number, idleMem: numb
   const evidence = freshIdleGpuEvidence({ worker: rows }, ["worker"], idleUtil, idleMem);
   if (!evidence.complete) return 0;
   const ids = new Set(evidence.idleGpuIdsByWorker.get("worker") || []);
-  const users = new Set([owner.currentUser || fallbackUser, ...(owner.currentUserAliases || [])]
-    .map((user) => String(user).trim().toLowerCase()).filter(Boolean));
-  const keywords = (owner.myCommandKeywords || []).map((word) => word.toLowerCase()).filter(Boolean);
   for (const row of rows) {
     const processes = Array.isArray(row.processes) ? row.processes : Array.isArray(row.procs) ? row.procs : [];
     const count = Number(row.processCount ?? row.process_count ?? processes.length);
     if (!processes.length || count > processes.length) continue;
-    const own = (process: Record<string, unknown>) => {
-      if (process.pluginManaged === true) return true;
-      const user = String(process.username ?? process.user ?? process.userName ?? "").trim().toLowerCase();
-      const command = String(process.command ?? process.cmdline ?? process.cmd ?? "").toLowerCase();
-      const userMatch = Boolean(user && users.has(user));
-      const commandMatch = keywords.some((word) => command.includes(word));
-      // A keyword cannot turn another user's or an unidentified process into our capacity.
-      return userMatch && (owner.myProcessMatchMode === "command_contains" ? commandMatch : true);
-    };
+    const own = (process: Record<string, unknown>) => process.submittedByThisClient === true;
     if (processes.every((process: unknown) => process && typeof process === "object" && own(process as Record<string, unknown>)))
       ids.add(String(row.index ?? row.gpu_id ?? row.gpuId ?? row.id));
   }

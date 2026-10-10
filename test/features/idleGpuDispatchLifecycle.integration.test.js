@@ -13,6 +13,8 @@ require.extensions['.ts'] = (loaded, filename) => loaded._compile(ts.transpileMo
 }).outputText,filename);
 const DistributedPlanQueue = require('../../src/features/DistributedPlanQueue.ts');
 const DistributedSchedulingPolicy = require('../../src/features/DistributedSchedulingPolicy.ts');
+const GpuJobOwnership = require('../../src/features/GpuJobOwnership.ts');
+const PlanExecutionMode = require('../../src/features/PlanExecutionMode.ts');
 require.extensions['.ts'] = original;
 const source = fs.readFileSync(path.join(root,'src/extension/legacy.ts'),'utf8');
 const proofHelperSource = source.match(/^function durableCodeProofRequestFields\([\s\S]*?^\}/m)?.[0];
@@ -23,7 +25,7 @@ function provider(names, extra={}) {
   const cls=ast.statements.find(node=>ts.isClassDeclaration(node)&&node.name?.text==='RealtimeTunnelPanelProvider');
   const code='class Provider {'+cls.members.filter(node=>names.includes(node.name?.getText(ast))).map(node=>node.getText(ast)).join('\n')+'}; Provider;';
   return vm.runInNewContext(ts.transpileModule(code,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,
-    {DistributedPlanQueue,DistributedSchedulingPolicy,durableCodeProofRequestFields,workspaceRoot:()=>root,setInterval,clearInterval,
+    {DistributedPlanQueue,DistributedSchedulingPolicy,GpuJobOwnership,PlanExecutionMode,durableCodeProofRequestFields,workspaceRoot:()=>root,setInterval,clearInterval,
       mapLimited:async(rows,_limit,callback)=>Promise.all(rows.map(callback)),errorMessage:error=>error.message,...extra});
 }
 test('G1 actual host tick only dispatches idle NWPU3, persists identity before RPC, and explicitly hosts opt-in queue',async()=>{
@@ -91,7 +93,8 @@ test('G1 actual host tick only dispatches idle NWPU3, persists identity before R
     assert.equal(timingEvents.includes('dispatchMs'),false,'batch completion has not yet happened');
   } finally { releaseFirst(); }
   await dispatching;
-  assert.equal(calls.length,2);assert.deepEqual(calls.map(row=>row.workerId).sort(),['nwpu3','nwpu5']);
+  assert.equal(calls.length,2);assert.deepEqual(calls.map(row=>row.workerId).sort(),['nwpu3','nwpu3'],
+    'a shared login cannot add the foreign occupied NWPU5 GPU to our hosted share');
   assert.equal(manifestBuilds,2,'the second Plan tick also builds only one shared manifest');
   assert.ok(calls.every(row=>row.gpuId===undefined));assert.ok(stored.plans[0].jobs.every(row=>row.status==='queued'));
   assert.equal(timingEvents.filter(key=>key==='clickToFirstAcceptedJobMs').length,1);
@@ -395,7 +398,7 @@ test('G1 actual RPC envelope distinguishes local GPU admission from durable host
   p.schedulerSettings=()=>({gpuIdleUtilThreshold:5,gpuIdleMemThresholdMb:200,workerActionMinIntervalMs:500});
   p.withRemoteActionResource=async(_worker,_action,_request,callback)=>callback();let sent;
   p.client={postWorkerAction:async(_worker,_action,request)=>{sent=request;return {status:'queued'};}};
-  const plan={id:'p',projectId:'project',planFile:'p.yaml',revision:'r',codeFingerprint:'f',enqueuedAt:'date',planJobCount:1,schedulingMode:'server_prequeue'};
+  const plan={id:'p',projectId:'project',planFile:'p.yaml',revision:'r',codeFingerprint:'f',enqueuedAt:'date',planJobCount:1,schedulingMode:'server_prequeue',executionMode:'train'};
   const job={index:0,case:'bus',seed:42,attempt:1,outputDir:'runs/0'};
   await p.sendDistributedJob(plan,job,'w',undefined,'same-command');
   assert.equal(sent.schedulingMode,'server_prequeue');assert.equal(sent.requireIdleGpu,false);assert.equal(Object.hasOwn(sent,'gpuId'),false);

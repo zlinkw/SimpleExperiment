@@ -1,5 +1,11 @@
 # 故障排查
 
+## GPU job 归属
+
+0.5.268 的“我的 GPU”以本机持久队列中的实际派发记录为准，逐 job 核对新鲜 Worker 回执的 commandId、workflow、attempt、case、seed、Worker 和输出目录，再关联 GPU 进程。相同 Plan 名称、共享登录用户以及通用插件启动标记均不能认领进程；仅从服务器发现的任务也不会自动成为“我的任务”。未匹配的进程继续显示为占用，不会增加本机的服务器预排队份额。
+
+新 Agent 为启动的 job 传递 commandId 和 projectId，并在 GPU 采样中返回该身份及进程工作目录。升级前已经运行的任务通过回执绑定的精确输出目录、配置路径、case 和 seed 兼容识别；不停止或重启训练。回执过期、身份冲突或证据不足时不认领。任务重试和跨 Worker 派发按当前 attempt 的身份重新匹配。
+
 优先运行 `SimpleExperiment：打开面板` 后的“自检”。
 
 常见状态：

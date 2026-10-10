@@ -67,9 +67,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.267"
-RUNTIME_VERSION = "0.5.267"
-PLUGIN_VERSION = "0.5.267"
+AGENT_VERSION = "0.5.268"
+RUNTIME_VERSION = "0.5.268"
+PLUGIN_VERSION = "0.5.268"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -2077,8 +2077,18 @@ def collect_local_gpu():
             for proc in gpu["processes"]:
                 try:
                     with open(f"/proc/{proc['pid']}/environ", "rb") as env_file:
-                        proc["pluginManaged"] = b"SIMPLE_EXPERIMENT_MANAGED_JOB=1" in env_file.read().split(b"\0")
+                        entries = env_file.read(262144).split(b"\0")
+                        proc["pluginManaged"] = b"SIMPLE_EXPERIMENT_MANAGED_JOB=1" in entries
+                        for key, field in ((b"SIMPLE_EXPERIMENT_JOB_COMMAND_ID", "jobCommandId"),
+                                           (b"SIMPLE_EXPERIMENT_JOB_PROJECT_ID", "jobProjectId")):
+                            values = [entry[len(key) + 1:].decode("utf-8", errors="replace") for entry in entries if entry.startswith(key + b"=")]
+                            if len(values) == 1:
+                                proc[field] = values[0]
                 except (OSError, ValueError):
+                    pass
+                try:
+                    proc["cwd"] = os.readlink(f"/proc/{proc['pid']}/cwd")
+                except OSError:
                     pass
     return gpus, ""
 
@@ -4628,6 +4638,8 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
         lines.append("export SIMPLE_EXPERIMENT_EXIT_CODE_PATH=" + shlex.quote(str(env.get("SIMPLE_EXPERIMENT_EXIT_CODE_PATH"))))
     if env.get("SIMPLE_EXPERIMENT_MANAGED_JOB"):
         lines.append("export SIMPLE_EXPERIMENT_MANAGED_JOB=1")
+    for key in ("SIMPLE_EXPERIMENT_JOB_COMMAND_ID", "SIMPLE_EXPERIMENT_JOB_PROJECT_ID"):
+        lines.append("export " + key + "=" + shlex.quote(str(env.get(key) or "")))
     if env.get("SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS"):
         lines.append("export SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS=1")
     # The command below appends its rc via '; printf "%s" "$?" > exit_code_path'. That redirect
@@ -4648,7 +4660,7 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
     # Forward critical env vars directly into the tmux session environment so the
     # launched scheduler sees them even if a later send-keys line is dropped by the
     # startup race. This complements the export lines above (belt-and-suspenders).
-    for _key in ("SIMPLE_EXPERIMENT_TMUX_SESSION", "SIMPLE_EXPERIMENT_TMUX_LOG_DIR", "SIMPLE_EXPERIMENT_EXIT_CODE_PATH", "SIMPLE_EXPERIMENT_MANAGED_JOB", "SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS", "SIMPLE_EXPERIMENT_CONDA_ENV", "CUDA_VISIBLE_DEVICES"):
+    for _key in ("SIMPLE_EXPERIMENT_TMUX_SESSION", "SIMPLE_EXPERIMENT_TMUX_LOG_DIR", "SIMPLE_EXPERIMENT_EXIT_CODE_PATH", "SIMPLE_EXPERIMENT_MANAGED_JOB", "SIMPLE_EXPERIMENT_JOB_COMMAND_ID", "SIMPLE_EXPERIMENT_JOB_PROJECT_ID", "SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS", "SIMPLE_EXPERIMENT_CONDA_ENV", "CUDA_VISIBLE_DEVICES"):
         _val = env.get(_key)
         if _val:
             try:
@@ -4843,7 +4855,8 @@ def start_job_in_gpu_pane(gpu_window, args, cwd, env, log_path, exit_code_path):
         except Exception:
             pass
         _distributed_export = "export SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS=1; " if env.get("SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS") else ""
-        _cmd = f"export SIMPLE_EXPERIMENT_MANAGED_JOB=1; {_distributed_export}set -o pipefail; {{ {_inner}; }} 2>&1 | tee -a {_tee_log}; printf '%s' \"$?\" > {__import__('shlex').quote(str(exit_code_path))}; exec bash"
+        _job_export = "".join("export " + key + "=" + shlex.quote(str(env.get(key) or "")) + "; " for key in ("SIMPLE_EXPERIMENT_JOB_COMMAND_ID", "SIMPLE_EXPERIMENT_JOB_PROJECT_ID"))
+        _cmd = f"export SIMPLE_EXPERIMENT_MANAGED_JOB=1; {_job_export}{_distributed_export}set -o pipefail; {{ {_inner}; }} 2>&1 | tee -a {_tee_log}; printf '%s' \"$?\" > {__import__('shlex').quote(str(exit_code_path))}; exec bash"
         # Each task gets a separate window in the GPU session. A failed window
         # remains visible; later plans can launch another window on this GPU.
         window_name = "run-" + str(int(time.time() * 1000))
@@ -5323,6 +5336,8 @@ def _execute_worker_command_unfenced(root, command, worker_id):
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
     env = simple_runtime_env(os.environ.copy())
     env["SIMPLE_EXPERIMENT_MANAGED_JOB"] = "1"
+    env["SIMPLE_EXPERIMENT_JOB_COMMAND_ID"] = str(command_id)
+    env["SIMPLE_EXPERIMENT_JOB_PROJECT_ID"] = str(command.get("projectId") or "")
     distributed_results = options.get("distributedResults") is True or command.get("distributedResults") is True
     if distributed_results:
         if not output_dir or "/attempts/" not in output_dir or not str(command.get("planRevision") or "").strip() or not str(command.get("codeFingerprint") or "").strip():

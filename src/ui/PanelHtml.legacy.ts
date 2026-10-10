@@ -5501,7 +5501,7 @@ export function renderPanelHtml(): string {
             runKey: gpu.runKey,
             staleFromCache: gpu.staleFromCache,
             mine: isMyGpu(gpu, server.ownerConfig || ownerConfig),
-        processes: asArray(gpu.processes).slice(0, GPU_PROCESS_SIGNATURE_LIMIT).map((proc) => compactRecordForSignature(proc, ["pid", "name", "memoryMb", "user", "command", "pluginManaged"]))
+        processes: asArray(gpu.processes).slice(0, GPU_PROCESS_SIGNATURE_LIMIT).map((proc) => compactRecordForSignature(proc, ["pid", "name", "memoryMb", "user", "command", "pluginManaged", "submittedByThisClient", "submittedJobCommandId"]))
           }))
         }))
       };
@@ -11178,7 +11178,7 @@ export function renderPanelHtml(): string {
              bodyHtml += '<tr class="expandRow expandChartRow" data-expand-for="' + escAttr(row.key) + '"><td colspan="' + colspan + '" style="background:' + bg + '; padding:10px;"><div class="expandChartWrap"><div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;"><b>最近 24 小时（线性时间）</b><span class="muted">服务器 ' + esc(row.serverId) + ' GPU ' + esc(String(row.gpu.index)) + '</span></div><div id="' + escAttr(chartId) + '" class="gpuDenseChartHost" data-server-id="' + escAttr(row.serverId) + '" data-gpu-id="' + escAttr(String(row.gpu.index)) + '"><canvas class="gpuHistoryCanvas" data-chart-kind="gpu" tabindex="0"></canvas><div class="gpuHistoryTooltip" hidden></div></div><div class="muted">GPU 利用率 (%) · 显存已用 (MB)</div></div></td></tr>';
             var procs = row.gpu.processes || [];
             var procRows = procs.length ? procs.map(function(p){
-              return '<tr><td>' + esc(p.pid||"-") + '</td><td>' + esc(p.user||"-") + '</td><td>' + esc(String(p.memoryMb||"-")) + '</td><td>' + esc(row.gpu.runKey||"-") + '</td><td class="cmd" style="white-space:pre-wrap; word-break:break-all;">' + esc(p.command||p.name||"-") + '</td></tr>';
+              return '<tr><td>' + esc(p.pid||"-") + '</td><td>' + esc(p.user||"-") + '</td><td>' + esc(String(p.memoryMb||"-")) + '</td><td>' + esc(p.submittedJobCommandId||"未匹配本机 job") + '</td><td class="cmd" style="white-space:pre-wrap; word-break:break-all;">' + esc(p.command||p.name||"-") + '</td></tr>';
             }).join("") : '<tr><td colspan="5" class="muted">暂无进程</td></tr>';
             bodyHtml += '<tr class="expandRow expandProcRow" data-expand-for="' + escAttr(row.key) + '"><td colspan="' + colspan + '" style="background:' + bg + '; padding:10px;"><div><b>进程列表</b> <span class="muted">PID | 所属用户 | 占用显存 | 关联任务 | 原始指令（换行完整显示不截断）</span></div><table class="processTable"><thead><tr><th>PID</th><th>所属用户</th><th>占用显存</th><th>关联任务</th><th>原始指令</th></tr></thead><tbody>' + procRows + '</tbody></table></div></td></tr>';
           }
@@ -12135,7 +12135,7 @@ export function renderPanelHtml(): string {
     }
 
     function isMyGpuProcess(process, config) {
-      return process && process.pluginManaged === true;
+      return process && process.submittedByThisClient === true;
     }
 
     function normalizeGpuOwnerConfig(value) {
@@ -18239,7 +18239,9 @@ function projectSectionNextAction(status, label, section, anchor) {
         memoryMb: pick(proc, ["usedMemoryMb", "used_memory_mb", "memoryMb", "memory"], "-"),
         user: pick(proc, ["username", "user", "owner"], "-"),
         command: pick(proc, ["command", "cmd", "commandLine", "cmdline", "args"], "-"),
-        pluginManaged: proc.pluginManaged === true
+        pluginManaged: proc.pluginManaged === true,
+        submittedByThisClient: proc.submittedByThisClient === true,
+        submittedJobCommandId: proc.submittedJobCommandId || ""
       }));
     }
     function normalizeSchedulerRows(rows) {

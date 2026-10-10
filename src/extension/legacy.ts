@@ -57,6 +57,7 @@ import * as PlanArtifactSync from "../features/PlanArtifactSync";
 import * as DistributedPlanQueue from "../features/DistributedPlanQueue";
 import * as PlanExecutionMode from "../features/PlanExecutionMode";
 import * as DistributedSchedulingPolicy from "../features/DistributedSchedulingPolicy";
+import * as GpuJobOwnership from "../features/GpuJobOwnership";
 import { changedManifestFiles, inventoryFilesByPath } from "../features/CodeSyncDelta";
 import { hashLocalCodeFiles, localCodeManifestCachePath } from "../features/LocalCodeManifestCache";
 import { distributedQueueOnlyClearable, mergeTrustedPlanOperations, planCleanupTargets, planRecoveryConflicts, planStopClearFeedback, planStopClearPreview, planStopClearUiResult, planStopIdentityConflictMessage, planStopMissingEvidenceMessage, trustedRemotePlanOperations } from "../features/PlanStopClear";
@@ -1037,6 +1038,8 @@ export class RealtimeTunnelPanelProvider {
     private distributedPlanProgressCache?: { root: string; queue: unknown; snapshotRevision: number; targetsKey: string; value: any[] };
     private panelPlanStatusSummaryRevision = 0;
     private workerTaskSnapshotRevision = 0;
+    private gpuSubmittedJobsCache?: { root: string; queue: any; snapshotRevision: number; targetsKey: string;
+        expiresAt: number; value: GpuJobOwnership.SubmittedGpuJobs };
     private workerTaskSnapshotDiskCache = new Map<string, { signature: string; snapshot?: any }>();
     private workerTaskSnapshotWriters = new Map<string, { writer: LatestSnapshotWriter<any>; active?: Promise<void> }>();
     private workerTaskPlanStatusSignatures = new Map<string, string>();
@@ -1557,6 +1560,22 @@ export class RealtimeTunnelPanelProvider {
                 : { workerId, schemaVersion: 1, tasks: [], pending: true, error: "Worker task snapshot still pending" });
         }
         return ids.map((workerId) => snapshots.get(workerId));
+    }
+    gpuSubmissionOwnership() {
+        const root = workspaceRoot() || "";
+        const queue = this.distributedQueueRoot === root ? this.distributedQueueCache : undefined;
+        const targets = this.workerActionTargets();
+        const targetsKey = targets.map(target => `${target.id}:${target.project_dir}`).join("\n");
+        const cached = this.gpuSubmittedJobsCache;
+        if (cached && cached.root === root && cached.queue === queue && cached.snapshotRevision === this.workerTaskSnapshotRevision
+            && cached.targetsKey === targetsKey && cached.expiresAt > Date.now()) return cached.value;
+        const snapshots = targets.map(target => this.cachedWorkerTaskSnapshot(target.id, root, `${root}\u0000${target.id}`))
+            .filter(Boolean).map(workerTaskSnapshotPayload);
+        const value = GpuJobOwnership.submittedGpuJobs(queue, snapshots, root ? DistributedPlanQueue.canonicalProjectId(root) : "",
+            Object.fromEntries(targets.map(target => [target.id, target.project_dir])));
+        this.gpuSubmittedJobsCache = { root, queue, snapshotRevision: this.workerTaskSnapshotRevision, targetsKey,
+            expiresAt: Date.now() + 5_000, value };
+        return value;
     }
     serverPlanProgress() {
         const root = workspaceRoot();
@@ -10819,9 +10838,12 @@ export class RealtimeTunnelPanelProvider {
                     capacity: Number.isInteger(configuredCapacity) && configuredCapacity > 0
                         ? Math.max(0, configuredCapacity - (activeByWorker.get(target.id) || 0)) : undefined };
             });
+            const ownedGpuSnapshot = GpuJobOwnership.projectGpuOwnership(dispatchGpuSnapshot || {},
+                GpuJobOwnership.submittedGpuJobs(queue, taskSnapshots, DistributedPlanQueue.canonicalProjectId(root),
+                    Object.fromEntries(targets.map(target => [target.id, target.project_dir]))));
             const hosted = DistributedSchedulingPolicy.allocateServerPrequeue(queue, workers.map((worker) => {
                 const config = this.enabledWorkerConfigs().find((item) => item.id === worker.workerId);
-                return { ...worker, weight: DistributedSchedulingPolicy.prequeueGpuWeight(dispatchGpuSnapshot?.[worker.workerId],
+                return { ...worker, weight: DistributedSchedulingPolicy.prequeueGpuWeight(ownedGpuSnapshot[worker.workerId],
                     Number(config?.gpuIdleUtilThreshold ?? defaultUtil), Number(config?.gpuIdleMemThresholdMb ?? defaultMem),
                     this.gpuOwnerConfig(), String(config?.workerUser || ""), Number(config?.maxConcurrentGpus)) };
             }));
@@ -21368,7 +21390,8 @@ export class RealtimeTunnelPanelProvider {
         timing.runtimeEvidenceMs = Math.max(0, Date.now() - runtimeEvidenceStartedAt);
         const { connectionMode, realtimeState, snapshot, offlineSnapshot, schedulerStates, operations } = runtimeEvidence;
         const taskSelection = this.taskSelectionDerivedState();
-        const gpu = compactMergedGpuForWebview(offlineSnapshot?.gpu, snapshot?.gpu, realtimeState?.gpu, realtimeState?.workerHealth);
+        const gpuOwnership = this.gpuSubmissionOwnership();
+        const gpu = compactMergedGpuForWebview(offlineSnapshot?.gpu, snapshot?.gpu, realtimeState?.gpu, realtimeState?.workerHealth, gpuOwnership);
         const selectedPlanKeys = uniqueStrings([this.planFileInput || "", this.selectedPlanId || ""]);
         const tracesStartedAt = Date.now();
         const selectedTracePlanFile = this.resolveSelectedPlanFile(this.planFileInput || this.selectedPlanId || "") || this.planFileInput || this.selectedPlanId || "";
@@ -21593,7 +21616,7 @@ export class RealtimeTunnelPanelProvider {
             results: [this.resultCatalogDirtyGeneration, this.resultCatalogCache?.key, this.resultCatalogCache?.catalog, this.resultsSummary, this.resultSyncReport,
                 this.resultCatalogStatus, this.resultCatalogRefreshError, projectAdapterRulesRevision, pptPlotConfigRevision,
                 offlineSnapshot?.experimentTraces, snapshot?.experimentTraces, realtimeState?.experimentTraces, includePanelResults],
-            gpu: [offlineSnapshot?.gpu, snapshot?.gpu, realtimeState?.gpu, gpuHistory, this.setupConfig, includePanelGpuHistory],
+            gpu: [offlineSnapshot?.gpu, snapshot?.gpu, realtimeState?.gpu, gpuOwnership, gpuHistory, this.setupConfig, includePanelGpuHistory],
             execution: [offlineSnapshot?.schedulerStates, snapshot?.schedulerStates, realtimeState?.schedulerStates, offlineSnapshot?.operations, snapshot?.operations,
                 realtimeState?.operations, distributedQueueStateRevision, planStopClearRevision, this.lastRealtimeState?.fileTransfers, this.planArtifactSyncStatuses,
                 this.selectedPlanId, this.planFileInput, includePanelExecutionHistory],
@@ -25547,7 +25570,7 @@ function compactHealthForWebview(health) {
 }
 const EMPTY_GPU_FOR_WEBVIEW_SOURCE = Object.freeze({});
 let mergedGpuForWebviewCache = null;
-function compactMergedGpuForWebview(offlineGpu, snapshotGpu, realtimeGpu, workerHealth?) {
+function compactMergedGpuForWebview(offlineGpu, snapshotGpu, realtimeGpu, workerHealth?, ownership?) {
     const offlineSource = offlineGpu && typeof offlineGpu === "object" ? offlineGpu : EMPTY_GPU_FOR_WEBVIEW_SOURCE;
     const snapshotSource = snapshotGpu && typeof snapshotGpu === "object" ? snapshotGpu : EMPTY_GPU_FOR_WEBVIEW_SOURCE;
     const realtimeSource = realtimeGpu && typeof realtimeGpu === "object" ? realtimeGpu : EMPTY_GPU_FOR_WEBVIEW_SOURCE;
@@ -25556,7 +25579,8 @@ function compactMergedGpuForWebview(offlineGpu, snapshotGpu, realtimeGpu, worker
         && mergedGpuForWebviewCache.offlineSource === offlineSource
         && mergedGpuForWebviewCache.snapshotSource === snapshotSource
         && mergedGpuForWebviewCache.realtimeSource === realtimeSource
-        && mergedGpuForWebviewCache.healthSource === healthSource) {
+        && mergedGpuForWebviewCache.healthSource === healthSource
+        && mergedGpuForWebviewCache.ownership === ownership) {
         return mergedGpuForWebviewCache.value;
     }
     const merged = mergeFallbackRecords(offlineSource, snapshotSource, realtimeSource);
@@ -25565,8 +25589,8 @@ function compactMergedGpuForWebview(offlineGpu, snapshotGpu, realtimeGpu, worker
             merged[serverId] = { gpus: merged[serverId], status: health.status, updatedAt: health.updatedAt, message: health.lastError || "" };
         }
     }
-    const value = compactGpuForWebview(merged);
-    mergedGpuForWebviewCache = { offlineSource, snapshotSource, realtimeSource, healthSource, value };
+    const value = compactGpuForWebview(ownership ? GpuJobOwnership.projectGpuOwnership(merged, ownership) : merged);
+    mergedGpuForWebviewCache = { offlineSource, snapshotSource, realtimeSource, healthSource, ownership, value };
     return value;
 }
 function compactGpuForWebview(gpu) {
@@ -25635,6 +25659,8 @@ function compactGpuProcessForWebview(proc) {
         user: firstStringFieldForWebview(proc, "username", "user", "owner"),
         command: compactSensitiveText(firstStringFieldForWebview(proc, "command", "cmd", "commandLine", "cmdline", "args") || "-", WEBVIEW_GPU_PROCESS_COMMAND_LIMIT),
         pluginManaged: proc.pluginManaged === true,
+        submittedByThisClient: proc.submittedByThisClient === true,
+        submittedJobCommandId: proc.submittedByThisClient === true ? proc.submittedJobCommandId : undefined,
     });
 }
 function compactRealtimeEndpointForWebview(endpoint) {
