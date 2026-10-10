@@ -209,3 +209,13 @@ VS Code 扩展安装会改写磁盘目录，而已运行的 Extension Host 仍�
 对于 `train` 作业训练已完成、却被旧插件误调用测试并触发 `Validation-only tuning cannot access test patients` 的情况，失败行提供“核验并恢复训练完成”。更新对应 Worker Agent 后点击该按钮，插件只读核验同一 workflow、attempt、command、Worker、目录的 checkpoint 索引、最终配置及其快照，以及 adapter 输出的有限 `val/p100_low` 指标。adapter 必须声明 `selection_only=true`、`test_accessed=false`，指标必须来自 `p100_validation_checkpoint`。这份证据依赖项目 adapter 在导出时已核验 checkpoint 选优信息及配置一致性，插件不会加载任意 pickle 权重。
 
 核验通过后，确认具体目标才记录训练完成。原始失败、退出码与执行模式保存在 `originalExecution`；文件 SHA256 保存在 `trainingRecovery`。该操作不启动训练或测试，不写 checkpoint、配置或指标文件，不将验证指标改成测试指标。文件缺失、身份或配置不符、指标来源不明时拒绝恢复，保留失败记录。其他错误需要独立核验，不能只凭 checkpoint 存在认定训练成功。
+
+## 长时间打开后面板黑屏（0.5.264）
+
+若 `panel.diagnostics` 显示 `heartbeatTimeout`，随后出现 `panelReadyWatchdogTimeout` 且新文档没有 `scriptStarted`，说明 HTML 重载后仍未收到脚本握手。后台 API 可用不代表 Webview 已恢复；这份证据也不能单独证明 GPU 驱动崩溃或内存耗尽。
+
+状态去重不再计入上次发送的 telemetry、ACK 序号和本次构建耗时；这些测量仍保留在诊断中。GPU、任务状态和真实错误变化继续刷新。自动恢复最多执行一次，并使用低效果模式；隐藏视图及旧文档的启动超时不能触发恢复。
+
+启动脚本持续不响应时，恢复提示由 VS Code 通知展示，避免依赖已经失效的网页按钮。从通知点击“重新加载面板”，或从命令面板执行“SimpleExperiment: 恢复 Panel”，会关闭并重新打开 SimpleExperiment 视图，让 VS Code 释放旧 iframe 后重新握手。VS Code 的 Reload Webviews 仅重发内容消息，不能作为释放失效 iframe 的证据。该恢复不会重载其他 Webview 或 Extension Host，不提交任务、不修改远端结果。重复点击合并为一次恢复，迟到回调不能改写替换后的视图。`rendererNeedsReset` 和 `rendererResetInFlight` 可用于核对这条恢复路径。
+
+验证包括生产发送链路的八小时虚拟时钟复现、丢失心跳后握手失败、显式恢复、重复点击和旧文档隔离。虚拟时钟验证不能替代更新后真实过夜运行观察。

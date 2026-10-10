@@ -1058,6 +1058,8 @@ export class RealtimeTunnelPanelProvider {
     private recoveryLoopPreventedCount = 0;
     private panelDocumentGeneration = 0;
     private panelDocumentBuildId = "";
+    private panelNeedsWebviewReset = false;
+    private panelRendererResetPromise?: Promise<void>;
     private readonly panelHeartbeatIntervalMs = 30_000;
     private readonly panelHeartbeatAckTimeoutMs = 12_000;
     private forceReloadRequired = false;
@@ -3822,8 +3824,11 @@ export class RealtimeTunnelPanelProvider {
         const viewGeneration = ++this.viewGeneration;
         this.transitionPanelLifecycle("booting", "resolveWebviewView");
         this.panelDisposed = false;
+        this.panelNeedsWebviewReset = false;
         this.view = webviewView;
         this.viewWasVisible = webviewView.visible === true;
+        this.budget.setHidden(!webviewView.visible);
+        this.client.setHidden(!webviewView.visible);
         webviewView.webview.options = { enableScripts: true };
         this.viewLifetimeDisposables = [];
         this.viewLifetimeDisposables.push(webviewView.webview.onDidReceiveMessage((message) => {
@@ -5348,6 +5353,7 @@ export class RealtimeTunnelPanelProvider {
             case "webviewReady":
                 if (this.panelLifecycleState === "maintenance" || this.panelLifecycleState === "reload_required") return;
                 this.webviewReady = true;
+                this.panelNeedsWebviewReset = false;
                 this.recordPanelIncident("lifecycle", "webview-ready");
                 this.transitionPanelLifecycle("ready", "webviewReady");
                 await this.flushPendingPanelNavigation();
@@ -5445,10 +5451,10 @@ export class RealtimeTunnelPanelProvider {
                 }
                 break;
             case "reloadPanel":
-                this.reloadPanelHtml();
+                await this.reloadPanelHtml();
                 break;
             case "reloadPanelLowEffects":
-                this.reloadPanelLowEffects();
+                await this.reloadPanelLowEffects();
                 break;
             case "reloadWindow":
                 await vscode.commands.executeCommand("workbench.action.reloadWindow");
@@ -19693,6 +19699,8 @@ export class RealtimeTunnelPanelProvider {
             diskBuildId: String(identity.diskBuildId || this.diskBuildIdentity?.buildId || ""),
             documentGeneration: this.panelDocumentGeneration,
             viewGeneration: this.viewGeneration,
+            rendererNeedsReset: this.panelNeedsWebviewReset,
+            rendererResetInFlight: Boolean(this.panelRendererResetPromise),
             latestTelemetry: this.latestPanelStateTelemetry || null,
             statePostTraffic: this.panelStateTrafficSnapshot(),
             latestHeartbeat: this.latestPanelHeartbeatEvidence || null,
@@ -19777,8 +19785,8 @@ export class RealtimeTunnelPanelProvider {
             this.panelIncidentNoticeKeys.delete(this.panelIncidentNoticeKeys.values().next().value);
         void vscode.window.showErrorMessage(message, "复制 Panel 诊断", "重新加载面板", "低效果模式重载面板", "重载窗口").then(async (choice) => {
             if (choice === "复制 Panel 诊断") await this.copyPanelDiagnosticsFromUi();
-            else if (choice === "重新加载面板") this.reloadPanelHtml();
-            else if (choice === "低效果模式重载面板") this.reloadPanelLowEffects();
+            else if (choice === "重新加载面板") await this.reloadPanelHtml();
+            else if (choice === "低效果模式重载面板") await this.reloadPanelLowEffects();
             else if (choice === "重载窗口") await vscode.commands.executeCommand("workbench.action.reloadWindow");
         }).catch(() => undefined);
     }
@@ -19792,8 +19800,9 @@ export class RealtimeTunnelPanelProvider {
             await vscode.commands.executeCommand(`${viewId}.focus`);
             return;
         }
-        this.reloadPanelHtml();
-        await vscode.commands.executeCommand(`${viewId}.focus`);
+        const resettingRenderer = this.panelNeedsWebviewReset;
+        await this.reloadPanelHtml();
+        if (!resettingRenderer) await vscode.commands.executeCommand(`${viewId}.focus`);
     }
     private panelStateTrafficSnapshot(): Record<string, unknown> {
         const cutoff = Date.now() - 60_000;
@@ -21864,11 +21873,14 @@ export class RealtimeTunnelPanelProvider {
         this.clearPanelReadyWatchdog();
         const view = this.view;
         const generation = this.viewGeneration;
+        const documentGeneration = this.panelDocumentGeneration;
         this.panelReadyWatchdogTimer = setTimeout(() => {
             this.panelReadyWatchdogTimer = undefined;
-            if (view && this.view === view && this.viewGeneration === generation && !this.webviewReady) {
+            if (view?.visible && this.view === view && this.viewGeneration === generation
+                && this.panelDocumentGeneration === documentGeneration && !this.webviewReady) {
+                this.panelNeedsWebviewReset = true;
                 this.recordPanelLifecycleDiagnostic("panelReadyWatchdogTimeout");
-                this.showPanelRecovery("面板在规定时间内没有完成启动握手。请重新加载面板。", false, "panelReadyWatchdogTimeout");
+                this.showPanelRecovery("面板启动脚本未响应。点击“重新加载面板”将关闭并重新打开 SimpleExperiment 视图；远端任务继续运行。", false, "panelReadyWatchdogTimeout");
             }
         }, 10_000);
         this.panelReadyWatchdogTimer.unref?.();
@@ -21932,13 +21944,53 @@ export class RealtimeTunnelPanelProvider {
         if (!this.webviewReady)
             this.startPanelReadyWatchdog();
     }
-    private reloadPanelHtml(): void {
+    private reloadPanelHtml(): void | Promise<void> {
+        if (this.panelNeedsWebviewReset) return this.resetUnresponsivePanelRenderer();
         this.panelLowEffectsMode = false;
         this.loadPanelHtml();
     }
-    private reloadPanelLowEffects(): void {
+    private reloadPanelLowEffects(): void | Promise<void> {
+        if (this.panelNeedsWebviewReset) return this.resetUnresponsivePanelRenderer();
         this.panelLowEffectsMode = true;
         this.loadPanelHtml();
+    }
+    private resetUnresponsivePanelRenderer(): Promise<void> {
+        if (this.panelRendererResetPromise) return this.panelRendererResetPromise;
+        const view = this.view;
+        const generation = this.viewGeneration;
+        const documentGeneration = this.panelDocumentGeneration;
+        if (!view || this.panelDisposed || ["maintenance", "reload_required", "disposed"].includes(this.panelLifecycleState)) return Promise.resolve();
+        if (this.extensionRuntimeVersionState().reloadRequired) {
+            this.showPanelReloadRequired();
+            return Promise.resolve();
+        }
+        this.clearPanelReadyWatchdog();
+        this.clearPanelHeartbeat();
+        // Reload Webviews resends the same content message as webview.html. Remove and reopen
+        // this specific view instead, so VS Code disposes its iframe without touching peers.
+        const reset = Promise.resolve().then(async () => {
+            this.panelLowEffectsMode = true;
+            if (!view.visible) await vscode.commands.executeCommand(`${viewId}.focus`);
+            if (this.view !== view || this.panelDisposed
+                || ["maintenance", "reload_required", "disposed"].includes(this.panelLifecycleState)) return;
+            await vscode.commands.executeCommand(`${viewId}.toggleVisibility`);
+            if ((this.view && this.view !== view) || this.panelDisposed
+                || ["maintenance", "reload_required", "disposed"].includes(this.panelLifecycleState)) return;
+            this.panelNeedsWebviewReset = false;
+            await vscode.commands.executeCommand(`${viewId}.focus`);
+            // Visibility/resolution normally loads the replacement document itself.
+            if (this.view === view && this.viewGeneration === generation
+                && this.panelDocumentGeneration === documentGeneration) this.loadPanelHtml();
+        }).catch(error => {
+            if ((this.view && this.view !== view) || this.panelDisposed) return;
+            this.panelNeedsWebviewReset = true;
+            this.recordActionError({ command: "reloadPanel", message: errorMessage(error), suggestion: "Webview 恢复失败，请执行 Developer: Reload Window。" });
+            this.notifyPanelFailureOnce(`renderer-reset:${documentGeneration}`, "SimpleExperiment Webview 恢复失败，请执行 Developer: Reload Window。");
+        }).finally(() => {
+            if (this.panelRendererResetPromise === reset) this.panelRendererResetPromise = undefined;
+        });
+        this.panelRendererResetPromise = reset;
+        return reset;
     }
     private isCurrentPanelDocumentMessage(message, command): boolean {
         if (!message || String(message.documentGeneration ?? "") !== String(this.panelDocumentGeneration)) return false;
@@ -22180,6 +22232,7 @@ export class RealtimeTunnelPanelProvider {
         if (this.automaticRecoveryCount === 0) {
             this.automaticRecoveryCount += 1;
             this.lastAutomaticRecoveryAt = now;
+            this.panelLowEffectsMode = true;
             this.loadPanelHtml();
         } else {
             this.recoveryLoopPreventedCount += 1;
@@ -25799,7 +25852,20 @@ function compactRealtimePolicyForWebview(policy) {
     return compacted;
 }
 function webviewStatePostSignature(state: WebviewClusterState): string {
-    return realtimeUiTopLevelSignature(state);
+    // Delivery measurements describe the previous post. Including them here makes every
+    // successful render manufacture another changed full state even when jobs are unchanged.
+    return realtimeUiTopLevelSignature({ ...state, diagnostics: compactPanelDiagnosticsForPostGate(state.diagnostics) });
+}
+function compactPanelDiagnosticsForPostGate(diagnostics: unknown): unknown {
+    if (!diagnostics || typeof diagnostics !== "object" || Array.isArray(diagnostics)) return diagnostics;
+    const item = diagnostics as Record<string, unknown>;
+    const omitted = new Set(["panelBuildTiming", "panelStateTelemetryPreviousSample"]);
+    const result = Object.fromEntries(Object.entries(item).filter(([key]) => !omitted.has(key)));
+    if (item.bulkCounts && typeof item.bulkCounts === "object" && !Array.isArray(item.bulkCounts)) {
+        const counters = new Set(["statePostedSeq", "stateReceivedSeq", "stateRenderedSeq", "panelStateTelemetryPreviousSample"]);
+        result.bulkCounts = Object.fromEntries(Object.entries(item.bulkCounts).filter(([key]) => !counters.has(key)));
+    }
+    return result;
 }
 function contextActionStatePostSignature(state: WebviewClusterState): string {
     return realtimeUiTopLevelSignature({
