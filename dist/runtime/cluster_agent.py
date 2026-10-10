@@ -67,9 +67,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.265"
-RUNTIME_VERSION = "0.5.265"
-PLUGIN_VERSION = "0.5.265"
+AGENT_VERSION = "0.5.266"
+RUNTIME_VERSION = "0.5.266"
+PLUGIN_VERSION = "0.5.266"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -316,6 +316,7 @@ EVENT_CURSOR_CACHE = {}
 EVENT_CURSOR_LOCK = threading.Lock()
 EVENT_APPEND_LOCK = threading.RLock()
 WORKER_TASK_SNAPSHOT_LOCK = threading.RLock()
+FAILED_ATTEMPT_MOVE_LOCK = threading.RLock()
 CODE_SYNC_PROOF_LOCK = threading.RLock()
 DURABLE_PLAN_QUEUE_PROCESSOR_LOCK = threading.Lock()
 DURABLE_PLAN_QUEUE_PROCESSORS = {}
@@ -12430,7 +12431,7 @@ def deregister_active_run_plan(root, op_id):
         _write_run_plan_registry(root, entries)
 
 
-def inspect_plan_output_retirement(root, relative):
+def inspect_plan_output_retirement(root, relative, on_progress=None):
     """Read-only proof for one exact attempt. Never follow links or mounted descendants."""
     import stat
     relative = str(relative or "")
@@ -12468,6 +12469,8 @@ def inspect_plan_output_retirement(root, relative):
         info = os.lstat(current)
         if not stat.S_ISDIR(info.st_mode) or os.path.ismount(current):
             raise ValueError("unsafe attempt directory")
+        if current == target:
+            proof["sourceIdentity"] = identity(info)
         rows.append((os.path.relpath(current, root_real), "directory", identity(info)))
         for name in directories:
             child = os.path.join(current, name)
@@ -12485,6 +12488,8 @@ def inspect_plan_output_retirement(root, relative):
                 digest = hashlib.sha256()
                 for chunk in iter(lambda: stream.read(1024 * 1024), b""):
                     digest.update(chunk)
+                    if on_progress:
+                        on_progress(proof["bytes"] + stream.tell())
                 if identity(os.fstat(stream.fileno())) != identity(before):
                     raise ValueError("attempt file changed during inspection")
             if identity(os.lstat(child)) != identity(before):
@@ -12501,6 +12506,186 @@ def inspect_plan_output_retirement(root, relative):
         if row[1] == "directory" and identity(os.lstat(os.path.join(root_real, row[0]))) != row[2]:
             raise ValueError("attempt directory changed after inspection")
     return {**proof, "exists": True, "fingerprint": hashlib.sha256(encoded.encode("utf-8")).hexdigest()}
+
+
+def failed_attempt_content_digest(target, on_progress=None):
+    import stat
+    rows = []
+    hashed_bytes = 0
+    for current, directories, files in os.walk(target, followlinks=False):
+        if os.path.islink(current) or os.path.ismount(current):
+            raise ValueError("failed attempt contains a link or mount")
+        rows.append((os.path.relpath(current, target), "directory"))
+        for name in directories:
+            child = os.path.join(current, name)
+            if os.path.islink(child) or os.path.ismount(child):
+                raise ValueError("failed attempt contains a link or mount")
+        for name in files:
+            child = os.path.join(current, name)
+            before = os.lstat(child)
+            if not stat.S_ISREG(before.st_mode) or os.path.ismount(child):
+                raise ValueError("failed attempt contains a non-regular file")
+            digest = hashlib.sha256()
+            with os.fdopen(os.open(child, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0)), "rb") as stream:
+                opened = os.fstat(stream.fileno())
+                if (opened.st_dev, opened.st_ino, opened.st_size, opened.st_mtime_ns) != (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns):
+                    raise ValueError("failed attempt changed before hashing")
+                for chunk in iter(lambda: stream.read(1024 * 1024), b""):
+                    digest.update(chunk)
+                    hashed_bytes += len(chunk)
+                    if on_progress:
+                        on_progress(hashed_bytes)
+                after = os.fstat(stream.fileno())
+                if (after.st_size, after.st_mtime_ns) != (opened.st_size, opened.st_mtime_ns):
+                    raise ValueError("failed attempt changed during hashing")
+            final = os.lstat(child)
+            if (final.st_dev, final.st_ino, final.st_size, final.st_mtime_ns) != (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns):
+                raise ValueError("failed attempt changed after hashing")
+            rows.append((os.path.relpath(child, target), "file", before.st_size, digest.hexdigest()))
+        if len(rows) > 200000:
+            raise ValueError("failed attempt inventory exceeds limit")
+    return hashlib.sha256(json.dumps(sorted(rows), ensure_ascii=False, separators=(",", ":")).encode("utf-8")).hexdigest(), rows
+
+
+def move_failed_attempt_exact(root, parent, leaf, destination, expected_identity):
+    if not leaf or leaf in (".", "..") or "/" in leaf or "\\" in leaf or os.path.realpath(parent) != parent or os.path.commonpath((root, parent)) != root or parent == root:
+        raise ValueError("PARENT_CD_FAILED: failed attempt parent is unsafe")
+    if os.path.lexists(destination):
+        raise ValueError("failed attempt destination already exists")
+    destination_parent = os.path.dirname(destination)
+    if os.path.realpath(destination_parent) != destination_parent or os.path.commonpath((root, destination_parent)) != root or os.path.ismount(destination_parent):
+        raise ValueError("PARENT_CD_FAILED: failed attempt destination parent is unsafe")
+    source = os.path.join(parent, leaf)
+    info = os.lstat(source)
+    actual_identity = (info.st_dev, info.st_ino, info.st_size, info.st_mtime_ns, info.st_ctime_ns)
+    if tuple(expected_identity) != actual_identity or not stat.S_ISDIR(info.st_mode) or os.path.islink(source) or os.path.ismount(source):
+        raise ValueError("failed attempt identity changed immediately before move")
+    if os.stat(destination_parent).st_dev != info.st_dev:
+        raise ValueError("failed attempt destination crosses a mount")
+    script = 'cd -- "$1" || exit 41; [ "$(pwd -P)" = "$1" ] || exit 42; [ "$(cd -- "$4" && pwd -P)" = "$4" ] || exit 42; [ -d "$2" ] && [ ! -L "$2" ] || exit 43; [ "$(stat -c "%d:%i" "$2")" = "$5" ] || exit 43; [ ! -e "$3" ] && [ ! -L "$3" ] || exit 44; mv -n -T -- "$2" "$3"'
+    result = subprocess.run(["sh", "-c", script, "failed-attempt-move", parent, "./" + leaf, destination,
+                             destination_parent, str(info.st_dev) + ":" + str(info.st_ino)],
+                            cwd=root, capture_output=True, text=True, timeout=10)
+    if result.returncode != 0:
+        raise ValueError("PARENT_CD_FAILED" if result.returncode in (41, 42) else "failed attempt move rejected: " + str(result.stderr or result.returncode)[:300])
+    if os.path.lexists(os.path.join(parent, leaf)) or not os.path.isdir(destination):
+        raise ValueError("failed attempt move was not confirmed")
+
+
+def quarantine_failed_worker_attempt(root, payload):
+    """Relocate one explicitly authorized failed attempt; never delete or overwrite a result."""
+    import stat
+    if payload.get("confirm") is not True or payload.get("pathConfirmed") is not True:
+        raise ValueError("CONFIRM_REQUIRED: failed attempt move needs exact path authorization")
+    root_real = os.path.realpath(root)
+    if root_real != os.path.abspath(root) or root_real in (os.path.abspath(os.sep), os.path.expanduser("~")) or payload.get("remoteRoot") != root_real:
+        raise ValueError("failed attempt safety root differs from authorization")
+    recovery_id = str(payload.get("recoveryId") or "")
+    if not re.fullmatch(r"[A-Za-z0-9-]{8,100}", recovery_id):
+        raise ValueError("invalid failed attempt recovery ID")
+    expected = durable_plan_identity({**payload, "commandId": payload.get("targetCommandId")})
+    if any(expected.get(key) in (None, "") for key in DURABLE_PLAN_IDENTITY_FIELDS):
+        raise ValueError("failed attempt identity is incomplete")
+    worker = os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID")
+    if worker and expected["workerId"] != worker:
+        raise ValueError("failed attempt Worker identity mismatch")
+    last_progress = [0.0]
+    def progress(phase, processed):
+        entry = getattr(INACTIVITY_ACTION_CONTEXT, "entry", None)
+        if entry and entry["cancel"].is_set():
+            raise RuntimeError("failed attempt move cancelled; journal retained")
+        if time.monotonic() - last_progress[0] >= 5:
+            progress_action(root, "archive-worker-artifacts", payload.get("operationId"), payload.get("opId"),
+                "running", "正在核验失败 attempt", {"phase": phase, "processedBytes": processed}, request=payload)
+            last_progress[0] = time.monotonic()
+    # Inspect validates every source path component before creating a destination.
+    proof = inspect_plan_output_retirement(root_real, expected["outputDir"], lambda count: progress("source-inspection", count))
+    source = proof["absolutePath"]
+    destination = os.path.join(root_real, "clean_dir", *expected["outputDir"].split("/"))
+    if payload.get("approvedAbsolutePath") != source or payload.get("approvedDestination") != destination:
+        raise ValueError("failed attempt approved paths mismatch")
+    tasks = api_worker_tasks(root).get("tasks") or []
+    matches = [task for task in tasks if task.get("commandId") == expected["commandId"]]
+    if len(matches) != 1 or durable_plan_identity(matches[0]) != expected:
+        raise ValueError("failed attempt task identity mismatch or missing")
+    task = matches[0]
+    if str(task.get("status") or "").lower() not in ("failed", "cancelled", "canceled", "stopped"):
+        raise ValueError("failed attempt is running, unverified, or completed; retained")
+    if task.get("pid") and _is_pid_alive(task["pid"]):
+        raise ValueError("failed attempt still has a live process; retained")
+    pane = close_worker_task_pane(root, task)
+    if pane.get("paneClosed") is not True:
+        raise ValueError(pane.get("paneCloseError") or "failed attempt pane still exists")
+    if os.path.isdir(os.path.join(root_real, ".git")):
+        tracked = subprocess.run(["git", "ls-files", "--", expected["outputDir"]], cwd=root_real, capture_output=True, text=True, timeout=5)
+        if tracked.returncode != 0 or tracked.stdout.strip():
+            raise ValueError("failed attempt includes tracked files; retained")
+    journal_path = path_for(root, "failed_attempt_moves.json")
+    with FAILED_ATTEMPT_MOVE_LOCK:
+        journal = read_json(journal_path, {"entries": {}})
+        entries = journal.get("entries")
+        if not isinstance(entries, dict):
+            raise ValueError("failed attempt move journal is invalid")
+        entry = entries.get(recovery_id)
+        if entry and (entry.get("identity") != expected or entry.get("source") != source or entry.get("destination") != destination):
+            raise ValueError("failed attempt recovery ID is bound to another identity")
+        with WORKER_TASK_SNAPSHOT_LOCK:
+            fresh = [item for item in api_worker_tasks(root).get("tasks", []) if item.get("commandId") == expected["commandId"]]
+            if len(fresh) != 1 or durable_plan_identity(fresh[0]) != expected or fresh[0].get("status") not in ("failed", "cancelled", "canceled", "stopped") or (fresh[0].get("pid") and _is_pid_alive(fresh[0]["pid"])):
+                raise ValueError("failed attempt changed before recall fence; retained")
+            write_worker_recall_tombstone(root, {**expected, "gpuId": payload.get("gpuId"), "status": "cancelled",
+                "stopReason": "failed_attempt_recall", "recoveryId": recovery_id})
+        clean_root = os.path.join(root_real, "clean_dir")
+        current = root_real
+        for part in ("clean_dir", *expected["outputDir"].split("/")[:-1]):
+            current = os.path.join(current, part)
+            if os.path.lexists(current):
+                if os.path.islink(current) or os.path.ismount(current) or not os.path.isdir(current):
+                    raise ValueError("failed attempt destination contains a link, mount or non-directory")
+            else:
+                os.mkdir(current)
+            if os.path.realpath(current) != current or os.stat(current).st_dev != os.stat(root_real).st_dev:
+                raise ValueError("failed attempt destination escapes safety root")
+        manifest = os.path.join(clean_root, "MANIFEST.md")
+        if os.path.lexists(manifest) and (os.path.islink(manifest) or not stat.S_ISREG(os.lstat(manifest).st_mode)):
+            raise ValueError("failed attempt manifest is not a regular file")
+        if proof["exists"]:
+            if os.path.lexists(destination):
+                raise ValueError("failed attempt destination already exists; never overwritten")
+            digest, inventory = failed_attempt_content_digest(source, lambda count: progress("source-hash", count))
+            repeated = inspect_plan_output_retirement(root_real, expected["outputDir"], lambda count: progress("pre-move-inspection", count))
+            if not repeated.get("exists") or repeated.get("fingerprint") != proof.get("fingerprint"):
+                raise ValueError("failed attempt changed during preflight")
+            entry = {"identity": expected, "source": source, "destination": destination, "digest": digest,
+                     "inventory": inventory, "status": "prepared", "at": now_iso()}
+            entries[recovery_id] = entry
+            atomic_write(journal_path, {"entries": entries})
+            progress("before-move", 0)
+            move_failed_attempt_exact(root_real, proof["parent"], os.path.basename(source), destination, proof["sourceIdentity"])
+        elif not entry and os.path.lexists(destination):
+            raise ValueError("unowned failed attempt destination; retained")
+        elif not entry:
+            entry = {"identity": expected, "source": source, "destination": destination, "status": "absent", "at": now_iso()}
+            entries[recovery_id] = entry
+        if entry.get("digest"):
+            if not os.path.isdir(destination) or os.path.islink(destination) or os.path.ismount(destination):
+                raise ValueError("failed attempt destination missing or unsafe")
+            digest, inventory = failed_attempt_content_digest(destination, lambda count: progress("destination-hash", count))
+            if digest != entry["digest"]:
+                raise ValueError("failed attempt destination SHA256 inventory mismatch")
+            marker = "failed-attempt-move:" + recovery_id
+            existing = ""
+            if os.path.exists(manifest):
+                with open(manifest, "r", encoding="utf-8") as stream:
+                    existing = stream.read()
+            if marker not in existing:
+                with open(manifest, "a", encoding="utf-8") as stream:
+                    stream.write("\n" + marker + " " + json.dumps(entry, ensure_ascii=False, separators=(",", ":")) + "\n")
+            entry["status"] = "moved"
+        atomic_write(journal_path, {"entries": entries})
+        return {**expected, "gpuId": payload.get("gpuId"), "recoveryId": recovery_id, "quarantined": True,
+                "absolutePath": source, "destination": destination, "contentSha256": entry.get("digest"),
+                "alreadyAbsent": not bool(entry.get("digest")), "paneClosed": True}
 
 
 def scheduler_state_cleanup_owner_matches(root, file_path, state):
@@ -13278,6 +13463,12 @@ def handle_action(root, action, payload, operation_id, op_id):
             return terminal_action(root, action, operation_id, op_id, "failed", str(exc), request=payload)
         return terminal_action(root, action, operation_id, op_id, "completed", f"已排除 {len(keys)} 条结果；完整预览保留，未删除任务或产物。", {"excludedKeys": keys, "planFile": plan, "planRevision": revision}, request=payload)
     if action in ("archive-artifacts", "archive-worker-artifacts"):
+        if action == "archive-worker-artifacts" and payload.get("quarantineFailedAttempt") is True:
+            try:
+                report = quarantine_failed_worker_attempt(root, {**payload, "operationId": operation_id, "opId": op_id})
+                return terminal_action(root, action, operation_id, op_id, "completed", "失败 attempt 已核验并移入 clean_dir", report, request=payload)
+            except Exception as exc:
+                return terminal_action(root, action, operation_id, op_id, "failed", str(exc), request=payload)
         keys = action_target_keys(payload)
         if not keys:
             return terminal_action(root, action, operation_id, op_id, "failed", "没有选择可归档目标。")
@@ -13602,7 +13793,7 @@ def api_worker_tasks(root):
                     enriched[index] = entry
         _out["tasks"] = enriched
         _out["generatedAt"] = now_iso()
-        _out["capabilities"] = {"durablePlanQueue": True, "codeSyncProof": True, "idleGpuAdmission": True, "queuedJobRecall": True, "schemaVersion": 1}
+        _out["capabilities"] = {"durablePlanQueue": True, "codeSyncProof": True, "idleGpuAdmission": True, "queuedJobRecall": True, "failedAttemptQuarantine": True, "schemaVersion": 1}
         return _out
     tasks = []
     for row in read_durable_plan_queue(root).get("jobs", []):
@@ -13612,7 +13803,7 @@ def api_worker_tasks(root):
         if status in ("queued", "dispatching", "running", "unknown", "completed", "failed", "cancelled"):
             tasks.append(durable_plan_public_task(row))
     return {"schemaVersion": SCHEMA_VERSION, "tasks": tasks,
-            "capabilities": {"durablePlanQueue": True, "codeSyncProof": True, "idleGpuAdmission": True, "queuedJobRecall": True, "schemaVersion": 1}, "generatedAt": now_iso()}
+            "capabilities": {"durablePlanQueue": True, "codeSyncProof": True, "idleGpuAdmission": True, "queuedJobRecall": True, "failedAttemptQuarantine": True, "schemaVersion": 1}, "generatedAt": now_iso()}
 
 def api_openapi(root, token_required=False, mode="hub_control"):
     if mode == "worker_telemetry":
@@ -16058,7 +16249,7 @@ def serve_http(args):
                              "executionMode": validation.get("execution_mode") or "train_test"}, request=payload))
                 except Exception as exc:
                     return self.send_json(terminal_action(root, action, operation_id, op_id, "failed", str(exc), request=payload))
-            if action in ("validate-plan", "dry-run-plan", "rebuild-distributed-results") or (action == "preview-cache-cleanup" and "planOutputPaths" in payload):
+            if action in ("validate-plan", "dry-run-plan", "rebuild-distributed-results") or (action == "preview-cache-cleanup" and "planOutputPaths" in payload) or (action == "archive-worker-artifacts" and payload.get("quarantineFailedAttempt") is True):
                 worker = (selected_worker_id(payload) or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker") if mode == "worker_telemetry" and action in ("validate-plan", "dry-run-plan") else ""
                 return self.send_json(start_inactivity_action(root, action, payload, operation_id, op_id, worker), status=202)
             if action not in ("preview-cache-cleanup", "delete-cache-candidates"):

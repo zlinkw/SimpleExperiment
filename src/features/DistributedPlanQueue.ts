@@ -82,7 +82,15 @@ export type DeferredPlan = { id: string; planFile: string; revision: string; cod
 export type ClearedDistributedJob = { projectId: string; workflowId: string; planFile: string; planRevision: string;
   codeFingerprint: string; experimentIndex: number; case: string; seed: number; attempt: number; outputDir: string;
   workerId: string; commandId: string; runKey: string; clearedAt: string };
+export type FailedAttemptRecovery = {
+  id: string; plan: Pick<QueuedPlan, "id" | "projectId" | "planFile" | "revision" | "codeFingerprint" | "planJobCount">;
+  job: Pick<QueuedJob, "index" | "case" | "seed" | "attempt" | "outputDir" | "workerId" | "commandId" | "runKey" | "gpuId">;
+  serverIdentity: string; remoteRoot: string; absolutePath: string; destination: string; authorizedAt: string;
+  status: "pending" | "completed" | "blocked"; tries?: number; retryAt?: string; error?: string;
+  receipt?: Record<string, unknown>;
+};
 export type DistributedQueue = { schemaVersion: 1; plans: QueuedPlan[]; deferred?: DeferredPlan[];
+  failedAttemptRecoveries?: FailedAttemptRecovery[];
   clearedJobs?: ClearedDistributedJob[]; publishedSignature?: string; previewSignature?: string;
   localMetricsSignature?: string;
   publishedWorkerId?: string; publishedWorkerIds?: string[]; publishedPaths?: string[];

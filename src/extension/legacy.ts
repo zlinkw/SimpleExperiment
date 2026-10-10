@@ -16,6 +16,7 @@ import * as TmuxWindowIdentity from "../features/TmuxWindowIdentity";
 import { callSftpWithProgress } from "../core/SimpleSftpProgressWait";
 import { SafeRequestRetry, RequestReplacedError, assertRetryRequestCurrent, retryRequestSignal } from "../core/SafeRequestRetry";
 import { preparePlanSafeRetry } from "../features/PlanSafeRetry";
+import * as FailedJobRecovery from "../features/FailedJobRecovery";
 import { openCacheCleanupPanel } from "./CacheCleanupPanel";
 import RequestBudget_1 = require("../tunnel/RequestBudget");
 import TunnelGateway_1 = require("../tunnel/TunnelGateway");
@@ -556,6 +557,7 @@ const uiActionCommands = new Set<WebviewActionCommand>([
     "abortScheduler",
 ]);
 const SAFE_WEBVIEW_COMMANDS = new Set([
+    "recallFailedJob",
     "retryDistributedJob",
     "stopAllPlans",
     "stopAndClearPlan",
@@ -590,6 +592,7 @@ const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set([
 ]);
 const UI_LAYOUT_SECTION_KEYS = new Set(defaultUiSectionOrder);
 const UI_BUTTON_ACTION_COMMANDS = new Set([
+    "recallFailedJob",
     "retryDistributedJob",
     "testAll", "snapshot", "startAllConnections", "runPlan", "parseResults", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope",
     ...uiActionCommands,
@@ -5476,6 +5479,9 @@ export class RealtimeTunnelPanelProvider {
                 break;
             case "retryDistributedJob":
                 return await this.retryDistributedJobFromUi(message);
+            case "recallFailedJob":
+                return await FailedJobRecovery.recallFailedJobFromUi(this, message, async detail =>
+                    await vscode.window.showWarningMessage(detail, { modal: true }, "召回并重跑") === "召回并重跑", makeOpId);
             case "recallPlanToLocalQueue":
                 await this.recallPlanToLocalQueueFromUi(message);
                 break;
@@ -10470,6 +10476,9 @@ export class RealtimeTunnelPanelProvider {
         if (!root || !this.isRealtimeMode() || this.projectTopologyAssessment().mode !== "worker_pool") return;
         let queue = await this.loadDistributedQueue(root);
         this.queuePlanArtifactSyncStatusCheck();
+        if (queue.failedAttemptRecoveries?.some(row => row.status === "pending"))
+            void FailedJobRecovery.processFailedAttemptRecoveries(this, root, makeOpId).catch(error =>
+                this.recordActionError({ command: "failedAttemptRecovery", message: errorMessage(error) }));
         let newTerminal = false;
         if (!queue.plans.length && !(queue.deferred || []).length && !this.workerActionTargets().length) return;
         const targetsNeedingMirror = this.workerCodeSyncTargets().filter((target) => queue.plans.some((plan) => plan.jobs.some((job) => job.status === "completed" && !job.mirroredWorkerIds?.includes(target.id))));
@@ -21542,7 +21551,10 @@ export class RealtimeTunnelPanelProvider {
                 planJobCount: plan.planJobCount, recoveryMissingCount: plan.recoveryMissingCount, remoteAcceptedJobCount: plan.remoteAcceptedJobCount,
                 recoveryConflict: plan.recoveryConflict, planFile: plan.planFile,
                 revision: plan.revision, codeFingerprint: plan.codeFingerprint, enqueuedAt: plan.enqueuedAt,
-                jobs: plan.jobs.map((job) => ({ index: job.index, case: job.case, seed: job.seed,
+                failedAttemptRecoveries: (this.distributedQueueCache?.failedAttemptRecoveries || []).filter(row => row.plan.id === plan.id)
+                    .map(row => ({ jobIndex: row.job.index, attempt: row.job.attempt, status: row.status, error: row.error,
+                        alreadyAbsent: row.receipt?.alreadyAbsent === true })),
+                jobs: plan.jobs.map((job) => ({ index: job.index, case: job.case, seed: job.seed, attempt: job.attempt,
                     status: job.status, workerId: job.workerId, gpuId: job.gpuId, outputDir: job.outputDir,
                     localQueueOnly: job.localQueueOnly === true, recallRequested: job.recallRequested === true,
                     recallOperationId: job.recallOperationId || "",
@@ -26118,6 +26130,7 @@ function hostOperationLeaseActionForUiCommand(command) {
 }
 const HOST_OPERATION_LEASE_ACTION_LABELS = Object.freeze({
     retryDistributedJob: "核验并恢复任务",
+    recallFailedJob: "召回失败 job 到本机重跑",
     quickSetup: "检查服务器配置",
     configureSessions: "配置 Xshell 会话",
     configureAgentSessions: "配置 Agent 会话",

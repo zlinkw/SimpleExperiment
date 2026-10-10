@@ -16,8 +16,32 @@ function executionPlanSource() {
   const helpers = panel.indexOf("function renderPlanTaskCards(");
   const end = panel.indexOf("function renderOperationSectionIfChanged(", helpers);
   assert.ok(helpers > 0 && end > helpers);
-  return panel.slice(helpers, end).replaceAll("\\\\", "\\");
+  const asArray = panel.slice(panel.indexOf("function asArray(")).split("\n")[0];
+  return asArray + "\n" + panel.slice(helpers, end).replaceAll("\\\\", "\\");
 }
+
+test("failed job recall is compact, scoped to the exact attempt, and redraws remote cleanup receipts", () => {
+  const sandbox = clickSandbox();
+  const state = { distributedPlans: [{ id: "failed-run", planFile: "plans/cpsc.yaml", failedAttemptRecoveries: [],
+    jobs: ["failed", "running", "completed"].map((status, index) => ({ index, case: "case" + index, seed: 42,
+      status, workerId: "worker-a", commandId: "command-" + index, attempt: 1, outputDir: "work_dirs/a/attempts/old" })) }] };
+  sandbox.render(state);
+  assert.equal((sandbox.html.match(/data-command="recallFailedJob"/g) || []).length, 1);
+  assert.match(sandbox.html, /data-command="recallFailedJob"[^>]*data-plan-id="failed-run"[^>]*data-job-index="0"[^>]*data-attempt="1"[^>]*data-command-id="command-0"/);
+  const oldKey = sandbox.executionRenderKeysForState(state).planList;
+  const updated = structuredClone(state);
+  updated.distributedPlans[0].failedAttemptRecoveries = [{ jobIndex: 0, attempt: 1, status: "pending" }];
+  updated.distributedPlans[0].jobs[0].attempt = 2;
+  updated.distributedPlans[0].jobs[0].status = "pending";
+  assert.notEqual(sandbox.executionRenderKeysForState(updated).planList, oldKey);
+  sandbox.render(updated); assert.match(sandbox.html, /原 Worker 恢复后自动核验并移走旧失败 attempt/);
+  const final = structuredClone(updated);
+  final.distributedPlans[0].failedAttemptRecoveries[0].status = "completed";
+  sandbox.render(final); assert.match(sandbox.html, /旧失败 attempt 已移入原 Worker 的 clean_dir/);
+  const absent = structuredClone(final);
+  absent.distributedPlans[0].failedAttemptRecoveries[0].alreadyAbsent = true;
+  sandbox.render(absent); assert.match(sandbox.html, /已核验不存在，无需移动/);
+});
 
 test("completed Plan history keeps explicit expansion across status refreshes, count changes and recreation", () => {
   const sandbox = clickSandbox({ detailsOpenState: {}, persistTransientPanelState: () => {} });

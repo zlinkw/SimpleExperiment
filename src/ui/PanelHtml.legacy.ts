@@ -2248,6 +2248,22 @@ export function renderPanelHtml(): string {
       tmuxJobLogJumpTimeout = 0;
       tmuxJobLogSelection = null;
     }
+    function showToast(message, tone) {
+      let toast = el("simpleExperimentToast");
+      if (!toast && document.body && document.createElement) {
+        toast = document.createElement("div");
+        toast.id = "simpleExperimentToast";
+        toast.setAttribute("role", "status");
+        toast.style.cssText = "position:fixed;right:16px;bottom:16px;z-index:10000;max-width:480px;padding:10px 14px;border:1px solid var(--vscode-panel-border);border-radius:6px;background:var(--vscode-editorWidget-background);color:var(--vscode-editorWidget-foreground);box-shadow:0 3px 12px #0003;";
+        document.body.appendChild(toast);
+      }
+      if (!toast) { const meta = el("tmuxCaptureMeta"); if (meta) meta.textContent = String(message || ""); return; }
+      toast.textContent = String(message || "");
+      toast.dataset.tone = String(tone || "info");
+      toast.hidden = false;
+      clearTimeout(showToast.hideTimer);
+      showToast.hideTimer = setTimeout(() => { toast.hidden = true; }, 5000);
+    }
     function failJobTmuxLogJump(message) {
       if (!tmuxJobLogSelection) return;
       clearTimeout(tmuxJobLogJumpTimeout);
@@ -3162,6 +3178,7 @@ export function renderPanelHtml(): string {
     const explicitSavePlanCommands = new Set(["savePlan"]);
     const webviewHandledCommands = new Set([
       "retryDistributedJob",
+      "recallFailedJob",
       "stopAllPlans",
       "stopAndClearPlan", "reloadWindow", "webviewHeartbeatAck", "webviewVisibility",
       "quickSetup", "openSetupGuide", "openAdvancedCommandsSetting", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveHubConfig", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "reassignWorkerTask", "recallPlanToLocalQueue", "prepareAgents",
@@ -5840,7 +5857,7 @@ export function renderPanelHtml(): string {
 
     function pendingKeyFromButtonDataset(button) {
       const payload = {};
-      ["runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "endpointId", "remotePath", "file", "planFile", "planId", "jobIndex", "workerId", "configScope", "savePlan", "sourcePath", "sourceLabel", "presentationPath", "chartType", "styleMode", "target", "session", "window"].forEach((key) => {
+      ["runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "endpointId", "remotePath", "file", "planFile", "planId", "jobIndex", "attempt", "commandId", "workerId", "configScope", "savePlan", "sourcePath", "sourceLabel", "presentationPath", "chartType", "styleMode", "target", "session", "window"].forEach((key) => {
         if (button.dataset[key]) payload[key] = button.dataset[key];
       });
       if (button.dataset.batchSelected === "true") payload.batchSelected = "true";
@@ -5849,7 +5866,7 @@ export function renderPanelHtml(): string {
 
     function pendingKeyForAction(command, payload) {
       const parts = [command];
-      ["runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "endpointId", "remotePath", "file", "planFile", "planId", "jobIndex", "workerId", "configScope", "savePlan", "sourcePath", "sourceLabel", "presentationPath", "chartType", "styleMode", "target", "batchSelected"].forEach((key) => {
+      ["runKey", "taskUiKey", "experimentId", "archiveKey", "experimentIndex", "gpuId", "endpointId", "remotePath", "file", "planFile", "planId", "jobIndex", "attempt", "commandId", "workerId", "configScope", "savePlan", "sourcePath", "sourceLabel", "presentationPath", "chartType", "styleMode", "target", "batchSelected"].forEach((key) => {
         const value = payload && payload[key];
         if (value || (key === "jobIndex" && value === 0)) parts.push(key + "=" + String(value));
       });
@@ -14282,6 +14299,7 @@ export function renderPanelHtml(): string {
         group.localDispatchOverride = plan.localDispatchOverride === true;
         group.distributedPlanId = String(plan.id || "");
         group.remoteAcceptedJobCount = Number(plan.remoteAcceptedJobCount || 0);
+        group.failedAttemptRecoveries = asArray(plan.failedAttemptRecoveries);
         jobs.forEach((job) => group.distributedJobs.push({ ...job, enqueuedAt: plan.enqueuedAt, planId: plan.id }));
       });
       (Array.isArray(state && state.deferredPlans) ? state.deferredPlans : []).forEach((plan) => {
@@ -14414,15 +14432,23 @@ export function renderPanelHtml(): string {
           const recallButton = status === "queued" || job.recallRequested === true
             ? '<button type="button" class="mini secondary" data-command="recallPlanToLocalQueue" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-plan-file="' + escAttr(group.planFile || "") + '" data-job-index="' + escAttr(String(job.index)) + '" title="只召回此排队 job；运行中、已结束或状态不明的任务保持原 Worker。">' + (job.recallRequested ? "重试召回" : "召回到本机") + '</button>' : "";
           const recallNote = job.recallRequested ? "召回待确认，仍固定在原 Worker" : "";
+          const failedRecallButton = status === "failed" && job.workerId && job.commandId && job.attempt
+            ? '<button type="button" class="mini secondary" data-command="recallFailedJob" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-plan-file="' + escAttr(group.planFile || "") + '" data-job-index="' + escAttr(String(job.index)) + '" data-attempt="' + escAttr(String(job.attempt)) + '" data-command-id="' + escAttr(job.commandId) + '" title="只为此失败 job 新建 attempt，放回本机分布式队列；原 Worker 恢复后核验并移走旧目录。">召回本机重跑</button>' : "";
+          const failedCleanup = asArray(group.failedAttemptRecoveries).filter(row => Number(row.jobIndex) === Number(job.index)).at(-1);
+          const failedCleanupNote = failedCleanup ? (failedCleanup.status === "completed"
+            ? failedCleanup.alreadyAbsent ? "旧失败 attempt 已核验不存在，无需移动。" : "旧失败 attempt 已移入原 Worker 的 clean_dir。"
+            : (failedCleanup.status === "blocked" ? "旧 attempt 已保留。" : "原 Worker 恢复后自动核验并移走旧失败 attempt。") + (failedCleanup.error ? " " + failedCleanup.error : "")) : "";
           const blockText = blocked ? String(job.blockReason || "") : "";
           const blockAdvice = blocked ? (blockText.indexOf("等待当前代码版本") === 0 ? "这个已提交 job 保留排队；其他 Worker 可运行匹配版本。被占用的 Worker 收到旧任务结束回执后自动释放版本锁，无需再次提交。" : "下一步：空闲 GPU 不能运行这份旧代码。到实验准备的 Plan 列表手动选中，再点“校验并提交运行”；或恢复提交前的代码并重新同步 Worker。") : "";
           const jobNext = codeProofBlocked
             ? '<div class="muted">启动前代码校验阻塞，训练尚未开始。部署并重启该 Worker 的 Agent 后刷新状态；原 job 保留排队，无需重新提交 Plan。校验仍未通过时，请核对 Worker 的对应代码版本。</div><button type="button" class="mini secondary" data-command="snapshot">刷新状态</button>'
+            : failedRecallButton ? '<div class="muted">可召回这个失败 job 到本机排队重跑，其他 job 保持原状态。原 Worker 恢复后自动核验并将旧 attempt 移入 clean_dir。</div>'
             : errorText && !retryView.note
             ? '<div class="muted">下一步：点本行“跳转到日志”查看对应 TMUX 任务窗口。这是已提交 job 的失败，不会自动清理。确认需要停止后，再点本 Plan 的“终止并清除该 Plan”（两次确认）。</div><span class="errorRowLinks" style="display:flex;gap:6px;flex-wrap:wrap;"><button type="button" class="mini secondary" data-section-target="execution" data-anchor-target="execution-operations" title="跳到运行进度，查看本 Plan 的状态">运行进度</button><button type="button" class="mini secondary" data-command="snapshot" title="重新拉取调度状态与操作记录">刷新状态</button></span>'
             : "";
-          return '<div class="executionDistributedJob' + (blocked ? " is-blocked" : "") + '" title="' + escAttr(job.outputDir || "") + '"><span>' + loadingPrefix(jobActive) + esc(job.case || "job " + job.index) + ' seed ' + esc(String(job.seed)) + '</span><span class="' + (blocked ? "status-warning" : statusClass(status)) + '">' + esc(statusLabel) + '</span><span>' + esc(blocked ? "阻塞" : placement) + '</span>' + recallButton + logButton + trainingRecoveryButton
+          return '<div class="executionDistributedJob' + (blocked ? " is-blocked" : "") + '" title="' + escAttr(job.outputDir || "") + '"><span>' + loadingPrefix(jobActive) + esc(job.case || "job " + job.index) + ' seed ' + esc(String(job.seed)) + '</span><span class="' + (blocked ? "status-warning" : statusClass(status)) + '">' + esc(statusLabel) + '</span><span>' + esc(blocked ? "阻塞" : placement) + '</span>' + recallButton + failedRecallButton + logButton + trainingRecoveryButton
             + (recallNote ? '<div class="muted">' + esc(recallNote) + '</div>' : '')
+            + (failedCleanupNote ? '<div class="muted">' + esc(failedCleanupNote) + '</div>' : '')
             + (retryView.note ? '<div class="muted">' + esc(retryView.note) + '</div>' : '')
             + (blockText ? '<div class="executionDistributedJobError">' + esc(blockText) + (blockAdvice ? '<div>下一步：' + esc(blockAdvice.replace(/^下一步：/, "")) + '</div>' : '') + '</div>' : '')
             + (errorText ? '<div class="executionDistributedJobError">' + esc(errorText) + jobNext + '</div>' : '') + '</div>';
@@ -14621,8 +14647,10 @@ export function renderPanelHtml(): string {
           schedulingMode: plan.schedulingMode,
           localDispatchOverride: plan.localDispatchOverride,
           remoteAcceptedJobCount: plan.remoteAcceptedJobCount,
+          failedAttemptRecoveries: plan.failedAttemptRecoveries,
           jobs: asArray(plan.jobs).map((job) => ({
             jobIndex: job.jobIndex,
+            attempt: job.attempt,
             status: job.status,
             workerId: job.workerId,
             gpuId: job.gpuId,
@@ -17297,6 +17325,10 @@ export function renderPanelHtml(): string {
       if (!payload.planFile && command === "archivePlan" && el("planFileInput")) payload.planFile = el("planFileInput").value;
       if (button.dataset.planId) payload.planId = button.dataset.planId;
       if (button.dataset.jobIndex !== undefined) payload.jobIndex = Number(button.dataset.jobIndex);
+      if (command === "recallFailedJob") {
+        payload.attempt = Number(button.dataset.attempt);
+        payload.commandId = button.dataset.commandId || "";
+      }
       if (button.dataset.file) {
         payload.file = button.dataset.file;
         payload.planFile = payload.planFile || button.dataset.file;
