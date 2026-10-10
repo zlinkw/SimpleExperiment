@@ -54,6 +54,7 @@ class RealtimeTunnelClient {
     requiresManualReconnect = false;
     connectionGeneration = 0;
     disposed = false;
+    workerGpuUpdatedAt = 0;
     constructor(endpoint, budget, policy = exports.defaultRealtimeRefreshPolicy, onState = () => undefined) {
         this.endpoint = endpoint;
         this.budget = budget;
@@ -88,6 +89,8 @@ class RealtimeTunnelClient {
                 await this.budget.run("events", async () => {
                     this.connectWebSocket(sinceSeq);
                 }, { userInitiated: true });
+                if (this.isWorkerTelemetryEndpoint())
+                    await this.refreshSnapshot();
                 return;
             }
             catch (error) {
@@ -109,7 +112,7 @@ class RealtimeTunnelClient {
                 await this.connectSse(sinceSeq);
                 if (!this.isCurrentConnection(generation))
                     return;
-                if (options.manual)
+                if (options.manual || this.isWorkerTelemetryEndpoint())
                     await this.getSnapshot();
                 return;
             }
@@ -226,7 +229,45 @@ class RealtimeTunnelClient {
     getGpu(options = {}) {
         if (this.requiresManualReconnect)
             return Promise.reject(new Error(this.lastError));
-        return this.coalescedRead(`gpu:${options.dispatch === true ? "dispatch" : "snapshot"}`, undefined, () => this.http.getGpu(options));
+        const generation = this.connectionGeneration;
+        return this.coalescedRead(`gpu:${options.dispatch === true ? "dispatch" : "snapshot"}`, undefined, async () => {
+            const value = await this.http.getGpu(options);
+            if (generation === this.connectionGeneration && !this.disposed) {
+                if (this.isWorkerTelemetryEndpoint())
+                    this.acceptWorkerGpuSample(value);
+                else {
+                    const gpu = gpuSnapshotRows(value, "hub");
+                    this.state = { ...this.state, gpu, lastKnownGood: { ...(this.state.lastKnownGood || {}), gpu } };
+                    this.onState(this.state);
+                }
+            }
+            return value;
+        });
+    }
+    isWorkerTelemetryEndpoint() {
+        return this.endpoint.role === "worker"
+            || objectRecord(this.endpoint.capabilities)?.mode === "worker_telemetry";
+    }
+    workerEndpointId() {
+        return String(this.endpoint.id || this.endpoint.resourceServer || "hub");
+    }
+    acceptWorkerGpuSample(value) {
+        const item = objectRecord(value) || {};
+        const sampledAt = Date.parse(String(item.generatedAt || item.updatedAt || ""));
+        const sampleTime = Number.isFinite(sampledAt) ? sampledAt : Date.now();
+        if (sampleTime < this.workerGpuUpdatedAt)
+            return;
+        this.workerGpuUpdatedAt = sampleTime;
+        const workerId = this.workerEndpointId();
+        const gpu = gpuSnapshotRows(value, workerId);
+        this.state = { ...this.state, gpu,
+            lastHeartbeatAt: new Date().toISOString(),
+            workerHealth: { ...(this.state.workerHealth || {}), [workerId]: {
+                    status: item.status || "ok", lastError: item.error || "", updatedAt: item.generatedAt || "",
+                } },
+            lastKnownGood: { ...(this.state.lastKnownGood || {}), gpu },
+        };
+        this.onState(this.state);
     }
     getGpuHistory(query = {}) {
         if (this.requiresManualReconnect)
@@ -495,7 +536,29 @@ class RealtimeTunnelClient {
             const generation = this.connectionGeneration;
             let snapshot;
             try {
-                snapshot = await this.http.getSnapshot({ manual, signal: abort.signal });
+                if (this.isWorkerTelemetryEndpoint()) {
+                    // Worker telemetry deliberately has no Hub /api/snapshot. Bootstrap
+                    // from current snapshots even when no GPU change is in the SSE replay.
+                    const [gpuResult, tasksResult] = await Promise.allSettled([
+                        this.http.getGpu(), this.http.getWorkerTasks({ signal: abort.signal }),
+                    ]);
+                    if (gpuResult.status === "rejected")
+                        throw gpuResult.reason;
+                    if (generation !== this.connectionGeneration || this.disposed)
+                        return { gpu: {} };
+                    this.acceptWorkerGpuSample(gpuResult.value);
+                    if (tasksResult.status === "fulfilled") {
+                        const tasks = objectRecord(tasksResult.value) || {};
+                        const rows = Array.isArray(tasksResult.value) ? tasksResult.value : tasks.tasks || tasks.workerTasks || tasks.rows;
+                        if (Array.isArray(rows))
+                            this.state = (0, RealtimeEventReducer_1.compactRealtimeState)({ ...this.state,
+                                workerTasks: { ...(this.state.workerTasks || {}), [this.workerEndpointId()]: rows },
+                            }, { protectedLogKeys: this.protectedLogKeys });
+                    }
+                    snapshot = { generatedAt: objectRecord(gpuResult.value)?.generatedAt, gpu: this.state.gpu };
+                }
+                else
+                    snapshot = await this.http.getSnapshot({ manual, signal: abort.signal });
             }
             catch (error) {
                 if (generation === this.connectionGeneration && !(error instanceof RequestBudget_1.RequestBudgetDeniedError))
@@ -510,6 +573,8 @@ class RealtimeTunnelClient {
                 this.lastError = undefined;
             }
             this.state = (0, RealtimeEventReducer_1.applySnapshot)(this.state, snapshot, { protectedLogKeys: this.protectedLogKeys });
+            if (this.isWorkerTelemetryEndpoint())
+                this.lastError = undefined;
             this.onState(this.state);
             return snapshot;
         })();
@@ -542,6 +607,25 @@ class RealtimeTunnelClient {
             return;
         }
         this.state = (0, RealtimeEventReducer_1.applyRealtimeEvent)(this.state, raw, { protectedLogKeys: this.protectedLogKeys });
+        if (this.isWorkerTelemetryEndpoint() && event && typeof event === "object"
+            && event.type === "gpu_snapshot" && this.state.lastSeq > before) {
+            const sampledAt = Date.parse(event.generatedAt);
+            if (Number.isFinite(sampledAt) && sampledAt < this.workerGpuUpdatedAt) {
+                // Advance replay cursor without letting an old journal sample undo HTTP refresh.
+                this.state = { ...this.state, gpu: beforeState.gpu,
+                    lastKnownGood: { ...(this.state.lastKnownGood || {}), gpu: beforeState.gpu } };
+            }
+            else {
+                if (Number.isFinite(sampledAt))
+                    this.workerGpuUpdatedAt = sampledAt;
+                const gpu = { [this.workerEndpointId()]: this.state.gpu[event.workerId || event.serverId || "hub"] || [] };
+                const payload = objectRecord(event.payload) || {};
+                this.state = { ...this.state, gpu,
+                    workerHealth: { ...(this.state.workerHealth || {}), [this.workerEndpointId()]: {
+                            status: payload.status || "ok", lastError: payload.error || "", updatedAt: event.generatedAt,
+                        } }, lastKnownGood: { ...(this.state.lastKnownGood || {}), gpu } };
+            }
+        }
         if (this.state !== beforeState || this.state.lastSeq !== before || this.state.resultSummaryDirtyKey !== beforeDirtyKey)
             this.onState(this.state);
     }
@@ -565,6 +649,19 @@ class RealtimeTunnelClient {
     }
 }
 exports.RealtimeTunnelClient = RealtimeTunnelClient;
+function gpuSnapshotRows(value, serverId) {
+    if (Array.isArray(value))
+        return { [serverId]: value };
+    const item = objectRecord(value) || {};
+    for (const rows of [item.gpu, item.gpus, item.rows]) {
+        if (Array.isArray(rows))
+            return { [serverId]: rows };
+        if (rows && typeof rows === "object")
+            return Object.fromEntries(Object.entries(rows)
+                .map(([key, value]) => [key === "hub" ? serverId : key, Array.isArray(value) ? value : []]));
+    }
+    return { [serverId]: [] };
+}
 function normalizeProtectedLogKeys(keys) {
     return [...new Set((Array.isArray(keys) ? keys : []).map((key) => String(key || "").trim()).filter(Boolean))];
 }

@@ -11083,7 +11083,7 @@ export function renderPanelHtml(): string {
               sc = Math.max(0, Math.min(100, Math.round((100 - mem*0.35 - util*0.25 + 20)*10)/10));
             }
             var srvScore = serverCardScores[srvId];
-            flat.push({ serverId: srvId, displayName: disp, gpu: gpu, key: key, score: sc, serverScore: srvScore, serverObj: srv });
+            flat.push({ serverId: srvId, displayName: disp, gpu: Object.assign({}, gpu, { staleFromCache: !!(gpu.staleFromCache || srv.staleFromCache) }), key: key, score: sc, serverScore: srvScore, serverObj: srv });
           });
         });
         var sorts = gpuDenseState.sorts && gpuDenseState.sorts.length ? gpuDenseState.sorts : GPU_DENSE_DEFAULT_SORTS;
@@ -11127,7 +11127,7 @@ export function renderPanelHtml(): string {
           var bg = "transparent";
           var accent = gpuDenseServerAccent(row.serverId);
           var mine = isMyGpu(row.gpu, row.serverObj.ownerConfig || ownerConfig);
-          var rowTone = Number(row.gpu.memoryPercent) >= 90 ? "mem-danger" : mine ? "is-mine" : row.gpu.busy ? "is-occupied" : "is-free";
+          var rowTone = row.gpu.staleFromCache ? "is-stale" : Number(row.gpu.memoryPercent) >= 90 ? "mem-danger" : mine ? "is-mine" : row.gpu.busy ? "is-occupied" : "is-free";
           var colsHtml = visibleCols.map(function(col){
             var cell = "";
             if(col.key==="server"){
@@ -11149,7 +11149,7 @@ export function renderPanelHtml(): string {
             else if(col.key==="temp") cell = '<td data-col="temp" style="background:' + bg + ';">' + esc(row.gpu.temperature==="-"? "-": row.gpu.temperature+" C") + '</td>';
             else if(col.key==="proc") cell = '<td data-col="proc" style="background:' + bg + ';">' + esc(String(row.gpu.processCount)) + (Number(row.gpu.processOmittedCount)? ' (+'+esc(String(row.gpu.processOmittedCount))+' 省略)':'' ) + '</td>';
             else if(col.key==="runKey") cell = '<td data-col="runKey" style="background:' + bg + ';">' + esc(row.gpu.runKey||"-") + '</td>';
-            else if(col.key==="status") cell = '<td data-col="status"><span class="gpuDenseStatus ' + rowTone + '">' + esc(row.gpu.busy?"占用":"空闲") + (mine?' · 我的':'') + '</span></td>';
+            else if(col.key==="status") cell = '<td data-col="status"><span class="gpuDenseStatus ' + rowTone + '" title="' + escAttr(row.serverObj.message || "") + '">' + esc(row.gpu.busy?"占用":"空闲") + (mine?' · 我的':'') + (row.gpu.staleFromCache?' · 数据陈旧':'') + (row.serverObj.message?' · 采样失败':'') + '</span></td>';
             else cell = '<td data-col="' + escAttr(col.key) + '" style="background:' + bg + ';">-</td>';
             return cell;
           }).join("");
@@ -11166,7 +11166,13 @@ export function renderPanelHtml(): string {
             bodyHtml += '<tr class="expandRow expandProcRow" data-expand-for="' + escAttr(row.key) + '"><td colspan="' + colspan + '" style="background:' + bg + '; padding:10px;"><div><b>进程列表</b> <span class="muted">PID | 所属用户 | 占用显存 | 关联任务 | 原始指令（换行完整显示不截断）</span></div><table class="processTable"><thead><tr><th>PID</th><th>所属用户</th><th>占用显存</th><th>关联任务</th><th>原始指令</th></tr></thead><tbody>' + procRows + '</tbody></table></div></td></tr>';
           }
         });
-        if(!flat.length){
+        servers.filter(function(srv){ return !srv.gpuRows.length; }).forEach(function(srv){
+          var srvId = String(srv.serverId || srv.workerId || "");
+          var telemetry = asArray(state.workerTelemetryStatus).find(function(item){ return cleanEndpointId(item.workerId) === cleanEndpointId(srvId); });
+          var hint = srv.message ? "GPU 采样失败：" + srv.message : telemetry && telemetry.status === "offline" ? "服务器离线，暂无 GPU 数据" : "暂未收到 GPU 数据";
+          bodyHtml += '<tr class="gpuDenseRow is-unavailable" data-server-id="' + escAttr(srvId) + '"><td>' + esc(gpuServerDisplayName(state, srv)) + '<span class="muted"> (' + esc(srvId) + ')</span></td><td colspan="' + visibleCols.length + '" class="muted">' + esc(hint) + '</td></tr>';
+        });
+        if(!flat.length && !servers.length){
           bodyHtml = '<tr><td colspan="' + (visibleCols.length+1) + '" class="muted">暂无 GPU 行</td></tr>';
         }
          setHtmlPreservingGpuCanvases(bodyEl, bodyHtml);
@@ -12153,6 +12159,12 @@ export function renderPanelHtml(): string {
         return gpuViewModelCacheValue;
       }
       const incoming = Object.entries(data.gpu || {}).map(([serverId, rows]) => normalizeServerGpu(serverId, rows));
+      // A configured Worker must stay visible before its first snapshot arrives.
+      // Empty rows are an unavailable reading, never an invented free GPU.
+      enabledWorkerTunnelsForState(data).forEach((worker) => {
+        const key = cleanEndpointId(worker.id);
+        if (key && !incoming.some((server) => cleanEndpointId(server.serverId || server.workerId) === key)) incoming.push(normalizeServerGpu(worker.id, []));
+      });
       const ownerConfig = normalizeGpuOwnerConfig(data.gpuOwnerConfig || {});
       const servers = sortGpuServers(data, mergeGpuServers(incoming, data));
       servers.forEach((server) => { server.ownerConfig = gpuOwnerConfigForServer(server, ownerConfig, setupSource); });
@@ -12190,7 +12202,7 @@ export function renderPanelHtml(): string {
           lastGpuServersById[key] = next;
           merged.push(next);
         } else if (cached && cached.gpuRows && cached.gpuRows.length) {
-          merged.push(Object.assign({}, cached, { status: "stale", staleFromCache: true }));
+          merged.push(Object.assign({}, cached, { status: "stale", staleFromCache: true, message: server.message || "" }));
         } else {
           lastGpuServersById[key] = Object.assign({}, server, { uiReceivedAt: now, uiReceivedMs: nowMs, staleFromCache: false });
           merged.push(lastGpuServersById[key]);
@@ -18089,6 +18101,7 @@ function projectSectionNextAction(status, label, section, anchor) {
         workerId: pick(rows, ["workerId", "worker_id", "worker"], serverId),
         gpuRows,
         status: String(pick(rows, ["status", "state"], gpuRows.length ? "online" : "stale")).toLowerCase(),
+        message: String(pick(rows, ["message", "error", "lastError"], "") || ""),
         updatedAt: pick(rows, ["updatedAt", "updated_at", "generatedAt", "generated_at", "timestamp"], "-"),
         source: pick(rows, ["source", "telemetrySource", "telemetry_source"], "-")
       };
