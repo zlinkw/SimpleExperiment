@@ -71,8 +71,9 @@ export function hasExclusiveAttemptOutput(queue: unknown, run: AuthoritativePlan
   const output = job.outputDir.replace(/\\/g, "/");
   const parts = output.split("/");
   if (!run.runId || output.startsWith("/") || parts.some(part => !part || part === "." || part === ".." || /[:\x00-\x1f]/.test(part))) return false;
+  // FailedJobRecovery mints "attempt-*" for recalled jobs; the identity/collision checks below still apply.
   const scoped = parts.some((part, index) => part === "attempts" && (parts[index + 1] === run.runId
-    || job.attempt > 1 && /^(?:distributed-attempt|auto-retry)-[0-9]+-[a-z0-9]+$/.test(parts[index + 1] || "")));
+    || job.attempt > 1 && /^(?:distributed-attempt|auto-retry|attempt)-[0-9]+-[a-z0-9]+$/.test(parts[index + 1] || "")));
   if (!scoped) return false;
   const identity = (plan: Record<string, any>, row: Record<string, any>) => JSON.stringify([
     normalizedPlanFile(plan.planFile || plan.file), String(plan.revision || ""), String(plan.codeFingerprint || ""), String(plan.id || ""),

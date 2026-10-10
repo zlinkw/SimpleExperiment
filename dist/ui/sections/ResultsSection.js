@@ -19,6 +19,7 @@ class ResultsSection {
           </div>
         </div>
         <div class="resultMainPane">
+          <div id="resultCommandPhaseLine" class="commandPhaseLine muted" role="status" aria-live="polite"></div>
           <div id="resultSummary" data-anchor="results-summary"></div>
           <div class="resultRelatedTools" data-anchor="results-contract">
             <span class="resultRelatedToolsLabel">相关检查</span>

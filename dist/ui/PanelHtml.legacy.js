@@ -1520,6 +1520,7 @@ function renderPanelHtml() {
         </div>
       </div>
       <div class="resultMainPane">
+        <div id="resultCommandPhaseLine" class="commandPhaseLine muted" role="status" aria-live="polite"></div>
         <div id="resultSummary" data-anchor="results-summary"></div>
         <div class="resultRelatedTools" data-anchor="results-contract">
           <span class="resultRelatedToolsLabel">相关检查</span>
@@ -2946,6 +2947,7 @@ function renderPanelHtml() {
       execution: "运行进度", results: "结果", sync: "发布同步", diagnostics: "诊断"
     });
     const COMMAND_INSPECTOR_SECTIONS = Object.freeze({
+      refreshLocalResults: "results", syncPendingPlanArtifacts: "results", rebuildProjectResultTables: "results", syncAllResultArtifacts: "results",
       prepareAgents: "sync", startAllConnections: "sync", pauseAll: "sync", resumeNetwork: "sync", saveTopologyMode: "sync", saveSchedulerConfig: "sync", startAll: "sync", testAll: "sync", snapshot: "gpu",
       validatePlan: "plans", dryRunPlan: "plans", runPlan: "plans", runAllPlans: "plans", archivePlan: "plans", generateOutputAdapter: "plans",
       stopExperiment: "execution", retryExperiment: "execution", reassignWorkerTask: "execution", archiveArtifacts: "execution", excludeResults: "results",       deleteArtifacts: "execution", clearOperations: "execution", parseResults: "results", refreshResults: "results", checkOutputContract: "results",
@@ -5825,6 +5827,11 @@ function renderPanelHtml() {
       return minutes > 0 ? minutes + " 分 " + rest + " 秒" : seconds + " 秒";
     }
 
+    function commandPhaseSection(item) {
+      if (planPhaseCommand(item.command)) return "plans";
+      return item.actionSection === "results" || commandInspectorSection(item.command) === "results" ? "results" : "execution";
+    }
+
     function renderCommandPhaseLine() {
       const phaseLineText = (item) => {
         if (!item || !item.message) return { shown: "", full: "" };
@@ -5833,17 +5840,10 @@ function renderPanelHtml() {
         return { shown, full };
       };
       const pending = Object.values(pendingActionsById || {});
-      const planItem = pending.find((row) => row && planPhaseCommand(row.command) && row.message);
-      const globalItem = pending.find((row) => row && row.message);
-      const planText = phaseLineText(planItem);
-      const globalText = phaseLineText(globalItem);
-      const hosts = [
-        ["commandPhaseLine", globalText],
-        ["planCommandPhaseLine", planText]
-      ];
+      const hosts = [["commandPhaseLine", "execution"], ["planCommandPhaseLine", "plans"], ["resultCommandPhaseLine", "results"]];
       for (const pair of hosts) {
         const host = el(pair[0]);
-        const text = pair[1];
+        const text = phaseLineText(pending.find((row) => row && row.message && commandPhaseSection(row) === pair[1]));
         if (host) {
           host.textContent = text.shown;
           host.title = text.full;
@@ -16005,7 +16005,7 @@ function renderPanelHtml() {
       const legacyHtml = legacyTables.length ? '<details class="resultSpecialGroup" data-details-key="result-legacy-tables"' + detailsOpenAttr("result-legacy-tables", false) + '><summary>旧版结果结构（' + legacyTables.length + '）</summary><div class="resultSpecialBody"><div class="muted">旧结构只读保留；重新汇总后会生成按数据集组织的结果。</div>' + legacyTables.map(row => '<div class="resultTableName" title="' + escAttr(row.path || "") + '">' + esc(resultCatalogBasename(row.path)) + '</div>').join("") + '</div></details>' : "";
       const advancedHtml = sharedHtml || legacyHtml ? '<details class="resultSpecialGroup resultAdvancedSources" id="result-advanced-sources" data-details-key="result-advanced-sources"' + detailsOpenAttr("result-advanced-sources", false) + '><summary>高级来源</summary><div class="resultSpecialBody">' + sharedHtml + legacyHtml + '</div></details>' : "";
       const optionsHtml = (items, chosen) => items.map(item => '<option value="' + escAttr(item) + '"' + (item === chosen ? ' selected' : '') + '>' + esc(item) + '</option>').join("");
-      return '<div class="resultFinalCard resultTableBrowser"><div class="resultFinalHeader"><div><h3>结果总表</h3><p>按数据集组织结果。</p></div><div class="resultTopActions"><button type="button" class="secondary" data-command="refreshLocalResults" title="重新读取本机结果，并用已收录指标修复缺失或陈旧的 CSV/Markdown；不连接服务器、不下载。">刷新本地结果</button><button type="button" data-command="syncPendingPlanArtifacts" title="从任务所属服务器下载最新完整运行的指标，在本机更新总表；权重和日志保留在服务器。">同步服务器结果并更新总表</button><button type="button" class="secondary" data-command="rebuildProjectResultTables" title="下载已完成运行的指标并重新汇总；权重、检查点和日志保留在服务器。">下载指标并重新汇总</button></div></div>' +
+      return '<div class="resultFinalCard resultTableBrowser"><div class="resultFinalHeader"><div><h3>结果总表</h3><p>按数据集组织结果。</p></div><div class="resultTopActions"><button type="button" class="secondary" data-command="refreshLocalResults" data-action-section="results" title="重新读取本机结果，并用已收录指标修复缺失或陈旧的 CSV/Markdown；不连接服务器、不下载。">刷新本地结果</button><button type="button" data-command="syncPendingPlanArtifacts" data-action-section="results" title="从任务所属服务器下载最新完整运行的指标，在本机更新总表；权重和日志保留在服务器。">同步服务器结果并更新总表</button><button type="button" class="secondary" data-command="rebuildProjectResultTables" data-action-section="results" title="下载已完成运行的指标并重新汇总；权重、检查点和日志保留在服务器。">下载指标并重新汇总</button></div></div>' +
         reportHtml +
         catalogStatusHtml +
         (catalog.error ? '<div class="muted">结果目录需要检查：' + esc(catalog.error) + '</div>' : view.datasets.length ? '<section class="resultDatasetList"><h4 class="resultDatasetSectionTitle">数据集结果</h4>' + datasetsHtml + '</section>' : catalogLoadStatus === "ready" ? '<div class="muted">尚无总表。点击“同步服务器结果并更新总表”合并 Worker 结果、下载指标并生成总表。</div>' : '') +

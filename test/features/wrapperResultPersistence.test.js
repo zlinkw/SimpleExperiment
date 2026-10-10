@@ -23,7 +23,7 @@ const publication = require('../../dist/results/ProjectResultPublication');
 const sha = data => crypto.createHash('sha256').update(data).digest('hex');
 const planFile = 'experiments/plans/comparison/anything.yaml';
 
-function fixture({ sameNamePlans = false, wrapperOnly = false, incomplete = false, retry = false, retryWorker = 'owner',
+function fixture({ sameNamePlans = false, wrapperOnly = false, trainSummary = false, incomplete = false, retry = false, retryWorker = 'owner',
   retryToken = 'distributed-attempt-1791468346173-xuw2sy' } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'simple-wrapper-results-'));
   const files = new Map(), calls = [];
@@ -34,10 +34,10 @@ function fixture({ sameNamePlans = false, wrapperOnly = false, incomplete = fals
       const checkpoint = outputDir + '/best_model.pth';
       const job = { index, case: 'case-one', seed, attempt: retried ? 43 : 1, workerId: retried ? retryWorker : 'owner', commandId: id + '-' + seed,
         outputDir, status: index < done ? 'completed' : 'running' };
-      const endpoint = wrapperOnly ? outputDir + '/scoring.csv' : outputDir + '/test_results/formal_result_rows.csv';
+      const endpoint = wrapperOnly ? outputDir + '/scoring.csv' : outputDir + (trainSummary ? '/metrics_summary.csv' : '/test_results/formal_result_rows.csv');
       const endpointText = `case,seed,method,dataset,metric,value,checkpoint_path,job_dir,run_id\ncase-one,${seed},unknown_method,arbitrary_set,AUC,${value},${checkpoint},${outputDir},${id}\n`;
       files.set(endpoint, Buffer.from(endpointText));
-      if (!wrapperOnly) files.set(outputDir + '/test_results/four_state_metrics.csv', Buffer.from('state,metric,value,p0_value,delta_p100_minus_p0,sample_count,checkpoint_path,job_dir,seed,method,dataset,undefined_reason,p0_undefined_reason,extra_column\n'
+      if (!wrapperOnly && !trainSummary) files.set(outputDir + '/test_results/four_state_metrics.csv', Buffer.from('state,metric,value,p0_value,delta_p100_minus_p0,sample_count,checkpoint_path,job_dir,seed,method,dataset,undefined_reason,p0_undefined_reason,extra_column\n'
         + ['both', 'image_missing', 'text_missing', 'both_missing'].map(state => `${state},AUC,${value},0.7,0.2,210,${checkpoint},${outputDir},${seed},unknown_method,arbitrary_set,,,保留原文`).join('\n') + '\n'));
       files.set(outputDir + '/custom.csv', Buffer.from('case,state,label,score,unknown_field\npatient-case,custom-state,lesion,NaN,不能计算\n'));
       files.set(outputDir + '/custom.json', Buffer.from(JSON.stringify({ arbitrary: { list: [1, null, '完整保留'] } })));
@@ -45,7 +45,7 @@ function fixture({ sameNamePlans = false, wrapperOnly = false, incomplete = fals
       files.set(outputDir + '/mask.npz', Buffer.from([0, 255, 2, 4, 9]));
       files.set(outputDir + '/artifact_manifest.json', Buffer.from(JSON.stringify({ output_dir: outputDir, checkpoint_path: checkpoint,
         metrics_summary: endpoint, outputs: ['custom.csv', 'custom.json', 'config_snapshot.yaml', 'mask.npz',
-          ...(!wrapperOnly ? ['test_results/four_state_metrics.csv'] : [])] })));
+          ...(!wrapperOnly && !trainSummary ? ['test_results/four_state_metrics.csv'] : [])] })));
       // Discovery must work with just a standard manifest, without metric hashes recorded in the queue.
       job.artifacts = {};
       return job;
@@ -119,8 +119,10 @@ for (const [name, retryWorker, retryToken] of [
   ['manual retry', 'owner', 'distributed-attempt-1791468346173-xuw2sy'],
   ['cross Worker reassignment', 'new-owner', 'distributed-attempt-1791468346173-xuw2sy'],
   ['automatic retry', 'owner', 'auto-retry-1791468346173-xuw2sy'],
+  ['recalled failure retry', 'new-owner', 'attempt-1791624729570-fw3s7l'],
 ]) test(name + ' publishes the completed attempt under the original Plan run and refreshes locally', async () => {
-  const f = fixture({ retry: true, retryWorker, retryToken }); const report = await f.sync();
+  const trainSummary = name === 'recalled failure retry';
+  const f = fixture({ retry: true, retryWorker, retryToken, trainSummary }); const report = await f.sync();
   assert.deepEqual(report.skipped, []); assert.deepEqual(report.missing, []);
   const evidence = f.registry().plans[planFile].wrapperEvidence;
   assert.equal(evidence.runId, 'B'); assert.equal(evidence.jobs.length, 3);
@@ -131,7 +133,9 @@ for (const [name, retryWorker, retryToken] of [
   assert.ok(f.calls.some(call => call.method === 'sync.downloadMappedPaths' && call.params.server.id === retryWorker
     && call.params.entries.some(file => file.remotePath.startsWith(retried.job.outputDir + '/'))));
   assert.ok(f.registry().plans[planFile].records.every(row => row.runId === 'B'));
-  assert.ok(retried.sources.some(file => file.kind === 'test_results/four_state_metrics.csv'));
+  assert.ok(retried.sources.some(file => file.kind === (trainSummary ? 'metrics_summary.csv' : 'test_results/four_state_metrics.csv')));
+  if (trainSummary) assert.ok(f.calls.filter(call => call.method === 'sync.downloadMappedPaths')
+    .every(call => call.params.entries.every(file => !file.remotePath.includes('/test_results/'))), 'train-only wrapper needs no test outputs');
   const local = await f.host.summaryFromLocalMetricFiles(f.root, planFile, f.host.resultsSummary, { authoritativeLocal: true });
   assert.equal(local.wrapperEvidence.runId, 'B'); assert.deepEqual(local.wrapperEvidence.jobs, evidence.jobs);
   f.calls.length = 0;
