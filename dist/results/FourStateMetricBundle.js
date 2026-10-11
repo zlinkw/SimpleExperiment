@@ -33,6 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.boundCheckpointPath = boundCheckpointPath;
 exports.validateFourStateMetricPair = validateFourStateMetricPair;
 exports.assertImmutableMetricFiles = assertImmutableMetricFiles;
 const node_crypto_1 = require("node:crypto");
@@ -45,6 +46,22 @@ function relative(value) {
     if (!text || text.startsWith("/") || text.includes(":") || text.split("/").some(part => !part || part === "." || part === ".."))
         throw new Error("指标来源路径不安全：" + text);
     return text;
+}
+function boundCheckpointPath(value, job) {
+    const source = job.resultPathPolicy === "declared" ? job.checkpointSource : undefined;
+    const file = String(value || "").replace(/\\/g, "/");
+    if (file.split("/").includes("..") || /[\x00-\x1f]/.test(file))
+        throw new Error("checkpoint 来源路径不安全");
+    if (source?.checkpoint_path && /^[a-f0-9]{64}$/i.test(source.checkpoint_sha256 || "")
+        && /^[a-f0-9]{64}$/i.test(source.config_sha256 || "") && /^[a-f0-9]{64}$/i.test(source.plan_revision || "")) {
+        const expected = relative(source.checkpoint_path);
+        if (file === expected || file.startsWith("/") && file.endsWith("/" + expected))
+            return expected;
+    }
+    const result = sourcePath(file, job.outputDir);
+    if (!result.startsWith(job.outputDir + "/"))
+        throw new Error("checkpoint 不属于本次 job 或已核验来源");
+    return result;
 }
 function sourcePath(value, output) {
     const text = String(value || "").replace(/\\/g, "/").replace(/\/$/, "");
@@ -76,11 +93,13 @@ function validateFourStateMetricPair(job, endpoint, four) {
     if (!endpoint || !four)
         throw new Error("端点或四态指标缺失，保留原有完整结果：" + job.case + "/" + job.seed);
     const output = relative(job.outputDir);
-    if (!job.runId || !job.commandId || !job.workerId || !job.case || !Number.isInteger(job.seed) || !Number.isInteger(job.attempt) || job.attempt < 1)
+    if (!job.runId || !job.commandId || !job.workerId || !job.case || !Number.isInteger(job.seed) || !Number.isInteger(job.attempt)
+        || job.attempt < 1 && !(job.attempt === 0 && job.resultPathPolicy === "declared" && job.globalJobId === `${job.runId}:${job.index}`))
         throw new Error("指标缺少可信 run/attempt/job 身份");
     for (const file of [endpoint, four])
-        if (!relative(file.remotePath).startsWith(output + "/"))
-            throw new Error("指标来源不属于本次 attempt");
+        if (!relative(file.remotePath).startsWith(output + "/")
+            && !(job.resultPathPolicy === "declared" && file === endpoint && file.remotePath === job.collectionResultCsv))
+            throw new Error("指标来源不属于本次 job");
     const endpoints = csv(endpoint), states = csv(four);
     const dataset = endpoints[0].dataset, method = endpoints[0].method;
     const checkpoints = new Set();
@@ -89,9 +108,7 @@ function validateFourStateMetricPair(job, endpoint, four) {
             || !row.dataset || row.dataset !== dataset || !row.method || row.method !== method
             || sourcePath(row.job_dir, output) !== output)
             throw new Error("端点与四态的运行/Case/seed/数据集身份不一致：" + output);
-        const checkpoint = sourcePath(row.checkpoint_path, output);
-        if (!checkpoint.startsWith(output + "/"))
-            throw new Error("checkpoint 不属于本次 attempt");
+        const checkpoint = boundCheckpointPath(row.checkpoint_path, job);
         if (job.checkpointPath && checkpoint !== job.checkpointPath)
             throw new Error("checkpoint 与作业契约不一致");
         checkpoints.add(checkpoint);

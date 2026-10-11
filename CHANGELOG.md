@@ -1,3 +1,10 @@
+## 0.5.278 (2026-10-11)
+
+- 新 PLAN 默认 declared 正式 job，命令、配置快照、执行及收集路径完全一致；不追加 attempts 或生成 preview attempt，不进入草稿转正/debug 执行。历史 attempt 仅只读，自动退休/迁移关闭，独立人工清理保持原确认边界。
+- Host/Hub/Scheduler/Worker 队列采用稳定 run/globalJob/command 身份；真实消息入队前要求配套 declared 协议。正式目录单写入者锁、精确 owner/SHA256、重复提交幂等、失败残留明确冲突；train→test 与显式 checkpoint 来源核验保留训练权重，不自动重训或覆盖。
+- 同步、下载汇总和单文件查看的原始指标、配置、manifest/sidecar 全格式仅内存读取，缺少 SimpleSFTP 内存能力明确失败；本机仅保存生成汇总与必要来源哈希，不落原始缓存。再次本地刷新可从汇总重建，完整性失败保留旧表。
+- MultiModal 七个实际 PLAN 与 quality_paths.py 纯校验、Scheduler/Agent 正式消息、三模式、三种子、幂等/冲突、旧记录和内存汇总回归通过。未训练、重跑、上传、部署 Worker 或清理生产文件；Windows/Mac 部署边界及验收见 docs/formal-job-execution.md。
+
 ## 0.5.277 (2026-10-11)
 
 - 修复正式 PLAN 的结果声明与 Worker attempt 重定位契约不明：命令别名、test/runtime/paper 配置及快照绑定同一执行 CSV，显式记录声明/执行/收集路径、作业身份和 PLAN SHA256。

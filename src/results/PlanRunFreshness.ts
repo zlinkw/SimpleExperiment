@@ -5,6 +5,12 @@ export type AuthoritativeJobIdentity = {
   attempt: number;
   workerId: string;
   outputDir: string;
+  resultPathPolicy?: "declared";
+  globalJobId?: string;
+  collectionResultCsv?: string;
+  checkpointSource?: Record<string, string>;
+  planRevision?: string;
+  codeFingerprint?: string;
   commandId: string;
   artifactHashes: Record<string, string>;
 };
@@ -35,7 +41,8 @@ function authoritativeJob(plan: Record<string, any>, job: Record<string, any>, r
   const workerId = String(job?.workerId || "").trim();
   const outputDir = String(job?.outputDir || "").replace(/\\/g, "/").trim();
   if (!Number.isInteger(index) || index < 0 || !String(job?.case || "").trim() || !Number.isInteger(seed)
-    || !Number.isInteger(attempt) || attempt < 1 || !workerId || !outputDir
+    || !Number.isInteger(attempt) || attempt < 1 && !(attempt === 0 && plan.resultPathPolicy === "declared"
+      && job.globalJobId === `${plan.id}:${index}`) || !workerId || !outputDir
     || outputDir.startsWith("/") || /^[A-Za-z]:/.test(outputDir)
     || outputDir.split("/").some((part) => !part || part === "." || part === "..")) return undefined;
   const artifactHashes: Record<string, string> = {};
@@ -51,6 +58,9 @@ function authoritativeJob(plan: Record<string, any>, job: Record<string, any>, r
     attempt,
     workerId,
     outputDir,
+    ...(plan.resultPathPolicy === "declared" ? { resultPathPolicy: "declared" as const,
+      globalJobId: String(job.globalJobId), collectionResultCsv: String(job.collectionResultCsv || ""), checkpointSource: job.checkpointSource,
+      planRevision: plan.revision, codeFingerprint: plan.codeFingerprint } : {}),
     commandId,
     artifactHashes,
   };

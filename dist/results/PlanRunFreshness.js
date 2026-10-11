@@ -21,7 +21,8 @@ function authoritativeJob(plan, job, requireArtifactHashes) {
     const workerId = String(job?.workerId || "").trim();
     const outputDir = String(job?.outputDir || "").replace(/\\/g, "/").trim();
     if (!Number.isInteger(index) || index < 0 || !String(job?.case || "").trim() || !Number.isInteger(seed)
-        || !Number.isInteger(attempt) || attempt < 1 || !workerId || !outputDir
+        || !Number.isInteger(attempt) || attempt < 1 && !(attempt === 0 && plan.resultPathPolicy === "declared"
+        && job.globalJobId === `${plan.id}:${index}`) || !workerId || !outputDir
         || outputDir.startsWith("/") || /^[A-Za-z]:/.test(outputDir)
         || outputDir.split("/").some((part) => !part || part === "." || part === ".."))
         return undefined;
@@ -40,6 +41,9 @@ function authoritativeJob(plan, job, requireArtifactHashes) {
         attempt,
         workerId,
         outputDir,
+        ...(plan.resultPathPolicy === "declared" ? { resultPathPolicy: "declared",
+            globalJobId: String(job.globalJobId), collectionResultCsv: String(job.collectionResultCsv || ""), checkpointSource: job.checkpointSource,
+            planRevision: plan.revision, codeFingerprint: plan.codeFingerprint } : {}),
         commandId,
         artifactHashes,
     };

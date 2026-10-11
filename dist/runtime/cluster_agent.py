@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 from __future__ import annotations
-import argparse, base64, calendar, csv, errno, fnmatch, glob, hashlib, http.client, importlib.util, io, ipaddress, json, math, os, pathlib, random, re, shutil, shlex, signal, socket, statistics, stat, struct, subprocess, sys, threading, time, traceback, urllib.request, uuid, zipfile
+import argparse, base64, calendar, copy, csv, errno, fnmatch, glob, hashlib, http.client, importlib.util, io, ipaddress, json, math, os, pathlib, random, re, shutil, shlex, signal, socket, statistics, stat, struct, subprocess, sys, threading, time, traceback, urllib.request, uuid, zipfile
 from collections import deque
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
@@ -67,9 +67,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.277"
-RUNTIME_VERSION = "0.5.277"
-PLUGIN_VERSION = "0.5.277"
+AGENT_VERSION = "0.5.278"
+RUNTIME_VERSION = "0.5.278"
+PLUGIN_VERSION = "0.5.278"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -2597,7 +2597,9 @@ def availability_from_gpu(worker_id, gpu_payload, source="worker_agent_direct", 
 
 def api_worker_availability(root):
     gpu_payload = api_worker_gpu(root)
-    return {"schemaVersion": SCHEMA_VERSION, "workers": [availability_from_gpu(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker", gpu_payload)]}
+    row = availability_from_gpu(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker", gpu_payload)
+    row.update({"declaredJobPaths": formal_job_path_capable(root), "runtimeVersion": RUNTIME_VERSION})
+    return {"schemaVersion": SCHEMA_VERSION, "workers": [row]}
 
 def availability_cache_path(root):
     return path_for(root, "worker_availability.json")
@@ -2701,6 +2703,9 @@ def retain_worker_task_snapshot(tasks, terminal_limit=200):
     return [task for index, task in enumerate(tasks) if index not in discard]
 
 def append_worker_task(root, task):
+    if isinstance(task, dict) and task.get("resultPathPolicy") == "declared":
+        task = dict(task)
+        task.pop("attempt", None)
     with WORKER_TASK_SNAPSHOT_LOCK:
         data = read_json(path_for(root, "worker_task_snapshot.json"), {})
         tasks = data.get("tasks") if isinstance(data, dict) and isinstance(data.get("tasks"), list) else []
@@ -2727,11 +2732,20 @@ def read_durable_plan_queue(root):
         return {"schemaVersion": 1, "jobs": []}
     if not isinstance(data, dict) or data.get("schemaVersion") != 1 or not isinstance(data.get("jobs"), list):
         raise ValueError("持久 Plan 队列格式损坏；禁止覆盖或自动重发")
+    for row in data["jobs"]:
+        if isinstance(row, dict) and row.get("resultPathPolicy") == "declared" and "attempt" not in row:
+            row["attempt"] = 0 # internal compatibility; not persisted as a version
     return data
 
 def write_durable_plan_queue(root, data):
     path = durable_plan_queue_path(root)
-    atomic_write(path, data)
+    saved = copy.deepcopy(data)
+    for row in saved.get("jobs", []):
+        if row.get("resultPathPolicy") == "declared":
+            row.pop("attempt", None)
+            if isinstance(row.get("options"), dict):
+                row["options"].pop("attempt", None)
+    atomic_write(path, saved)
 
 DURABLE_PLAN_IDENTITY_FIELDS = (
     "projectId", "workflowId", "planFile", "planRevision", "codeFingerprint",
@@ -2740,6 +2754,8 @@ DURABLE_PLAN_IDENTITY_FIELDS = (
 )
 
 def durable_plan_value(command, key):
+    if key == "attempt" and command.get("resultPathPolicy") == "declared" and command.get(key) in (None, ""):
+        return 0 # schema-1 compatibility only; formal jobs have no attempt version
     value = command.get(key)
     if value in (None, ""):
         options = command.get("options") if isinstance(command.get("options"), dict) else {}
@@ -2761,12 +2777,21 @@ def durable_plan_value(command, key):
 def durable_plan_identity(command):
     return {key: durable_plan_value(command, key) for key in DURABLE_PLAN_IDENTITY_FIELDS}
 
+def durable_plan_public_identity(row):
+    identity = durable_plan_identity(row)
+    if row.get("resultPathPolicy") == "declared":
+        identity.pop("attempt", None)
+        for key in ("resultPathPolicy", "globalJobId", "collectionResultCsv", "checkpointSource"):
+            if row.get(key) is not None:
+                identity[key] = row[key]
+    return identity
+
 def durable_plan_public_task(row):
-    public = {**durable_plan_identity(row), "planJobCount": row.get("planJobCount"), "fullPlanJobCount": row.get("fullPlanJobCount"),
+    public = {**durable_plan_public_identity(row), "planJobCount": row.get("planJobCount"), "fullPlanJobCount": row.get("fullPlanJobCount"),
               "enqueuedAt": row.get("enqueuedAt"), "status": str(row.get("status") or "unknown").lower(),
               "durableAccepted": True, "acceptedAt": row.get("acceptedAt"), "gpuId": row.get("gpuId") or "",
               "schedulingMode": row.get("schedulingMode") or "local_idle"}
-    for key in ("mode", "executionMode", "executionModeSource"):
+    for key in ("mode", "executionMode", "executionModeSource", "resultPathPolicy", "globalJobId", "collectionResultCsv", "checkpointSource"):
         if row.get(key) is not None:
             public[key] = row.get(key)
     for key in ("finishedAt", "cancelledAt", "stopReason", "error", "exitCode", "identityConflict", "lastDispatchResult", "trainingRecovery", "originalExecution"):
@@ -3117,8 +3142,8 @@ def accept_durable_plan_job(root, command, worker_id):
         raise ValueError("experimentIndex 无效")
     if not isinstance(identity["seed"], int):
         raise ValueError("seed 无效")
-    if not isinstance(identity["attempt"], int) or identity["attempt"] < 1:
-        raise ValueError("attempt 必须为正整数")
+    if command.get("resultPathPolicy") != "declared" or identity["attempt"] != 0:
+        raise ValueError("HISTORICAL_ATTEMPT_READ_ONLY: new jobs require declared paths without attempt versions")
     if not isinstance(count, int) or count < 1:
         raise ValueError("planJobCount 必须为正整数；experimentIndex 保留原计划索引")
     full_count = durable_plan_value(command, "fullPlanJobCount")
@@ -3132,11 +3157,13 @@ def accept_durable_plan_job(root, command, worker_id):
     output_dir = str(identity["outputDir"]).replace("\\", "/")
     if output_dir.startswith("/") or any(part in ("", ".", "..") for part in output_dir.split("/")):
         raise ValueError("outputDir 必须是项目内规范相对路径")
-    if "/attempts/" not in output_dir:
-        raise ValueError("outputDir 必须位于 attempts 路径下")
+    if "attempts" in output_dir.split("/"):
+        raise ValueError("HISTORICAL_ATTEMPT_READ_ONLY")
     identity["planFile"] = plan_file
     identity["outputDir"] = output_dir
     options = command.get("options") if isinstance(command.get("options"), dict) else {}
+    if any(action_bool(value) for value in (command.get("overwriteExisting"), command.get("overwrite"), options.get("overwriteExisting"), options.get("overwrite"))):
+        raise ValueError("FORMAL_JOB_CONFLICT: overwrite is retired; explicitly clean or change the declared job")
     require_idle_gpu = command.get("requireIdleGpu") is True or options.get("requireIdleGpu") is True
     requested_gpu = str(command.get("gpuId") or options.get("gpuId") or "").strip()
     if require_idle_gpu and not requested_gpu:
@@ -3149,11 +3176,12 @@ def accept_durable_plan_job(root, command, worker_id):
         if tombstone:
             if not _legacy_recall_identity_matches(identity, tombstone):
                 raise ValueError("commandId 已被 recall tombstone 绑定到不同的任务身份")
-            return {**identity, "planJobCount": count, "gpuId": tombstone.get("gpuId") or "",
+            return {**durable_plan_public_identity(command), "planJobCount": count, "gpuId": tombstone.get("gpuId") or "",
                     "status": "cancelled", "durableAccepted": True, "durableReleased": True,
                     "neverStarted": True, "neverStartedEvidence": tombstone.get("neverStartedEvidence")}
         if old:
-            if not durable_plan_same_identity(old, identity) or int(old.get("planJobCount") or 0) != count:
+            if (not durable_plan_same_identity(old, identity) or int(old.get("planJobCount") or 0) != count
+                    or any(old.get(key) != command.get(key) for key in ("resultPathPolicy", "globalJobId", "collectionResultCsv", "checkpointSource"))):
                 raise ValueError("commandId 已绑定到不同的 Plan job 身份")
             if old.get("executionMode") and command.get("executionMode") != old["executionMode"]:
                 raise ValueError("commandId 已绑定到不同的运行模式")
@@ -3163,9 +3191,16 @@ def accept_durable_plan_job(root, command, worker_id):
                     signal_durable_plan_queue_processor(root, worker_id)
                 except Exception:
                     pass
-            return {**durable_plan_identity(old), "planJobCount": old.get("planJobCount"), "enqueuedAt": old.get("enqueuedAt"),
+            return {**durable_plan_public_identity(old), "planJobCount": old.get("planJobCount"), "enqueuedAt": old.get("enqueuedAt"),
                     "gpuId": old.get("gpuId") or "", "status": status, "durableAccepted": True,
                     "message": "Agent 已持久接收该 job"}
+        if any(item.get("outputDir") == output_dir and item.get("commandId") != identity["commandId"]
+               and item.get("status") in ("queued", "dispatching", "running", "unknown") for item in data["jobs"]):
+            raise ValueError("FORMAL_JOB_ACTIVE_WRITER: declared job directory already queued")
+        if any(item.get("collectionResultCsv") == command.get("collectionResultCsv") and item.get("commandId") != identity["commandId"]
+               and item.get("status") in ("queued", "dispatching", "running", "unknown") for item in data["jobs"]):
+            raise ValueError("FORMAL_JOB_ACTIVE_WRITER: declared CSV already queued")
+        verified_formal_job_command(root, command)
         if require_idle_gpu:
             try:
                 gpus, gpu_error = collect_local_gpu()
@@ -3178,7 +3213,7 @@ def accept_durable_plan_job(root, command, worker_id):
                                                           util_threshold=util_threshold, mem_threshold=mem_threshold,
                                                           max_concurrent_gpus=max_concurrent_gpus)
             if reason:
-                return {**identity, "planJobCount": count, "gpuId": requested_gpu, "status": "pending",
+                return {**durable_plan_public_identity(command), "planJobCount": count, "gpuId": requested_gpu, "status": "pending",
                         "durableAccepted": False, "admissionRejected": True, "reason": "gpu_busy",
                         "message": "指定 GPU 当前繁忙，任务未持久接收"}
         row = dict(command)
@@ -3187,8 +3222,9 @@ def accept_durable_plan_job(root, command, worker_id):
         row.update({"schemaVersion": 1, "planJobCount": count, "fullPlanJobCount": full_count, "enqueuedAt": enqueued_at,
                     "workerId": str(worker_id), "status": "queued", "acceptedAt": now_iso(),
                     "requireIdleGpu": require_idle_gpu, "gpuId": requested_gpu if require_idle_gpu else ""})
-        row.update({"mode": mode, "executionMode": mode, "executionModeSource": "matching_plan_revision"})
-        row["options"] = {**options, "mode": mode, "executionMode": mode}
+        requested_mode = "test" if command.get("checkpointTestOnly") is True and mode == "train_test" else mode
+        row.update({"mode": requested_mode, "executionMode": mode, "executionModeSource": "matching_plan_revision"})
+        row["options"] = {**options, "mode": requested_mode, "executionMode": mode}
         data["schemaVersion"] = 1
         data["jobs"].append(row)
         write_durable_plan_queue(root, data)
@@ -3196,14 +3232,14 @@ def accept_durable_plan_job(root, command, worker_id):
             DISTRIBUTED_GPU_RESERVATIONS[requested_gpu] = identity["commandId"]
     try:
         append_event(root, {"type": "distributed_plan_job_accepted", "workerId": worker_id,
-                            "operationId": identity["commandId"], "payload": {**identity, "planJobCount": count, "enqueuedAt": enqueued_at}})
+                            "operationId": identity["commandId"], "payload": {**durable_plan_public_identity(command), "planJobCount": count, "enqueuedAt": enqueued_at}})
     except Exception:
         pass
     try:
         signal_durable_plan_queue_processor(root, worker_id)
     except Exception:
         pass
-    return {**identity, "planJobCount": count, "enqueuedAt": enqueued_at,
+    return {**durable_plan_public_identity(command), "planJobCount": count, "enqueuedAt": enqueued_at,
             "gpuId": requested_gpu if require_idle_gpu else "", "status": "queued",
             "durableAccepted": True, "message": "Agent 已持久接收该 job"}
 
@@ -3227,7 +3263,7 @@ def cancel_durable_plan_job(root, command):
         row.update({"status": "cancelled", "cancelledAt": cancelled_at,
                     "cancelCommandId": str(command.get("commandId") or command.get("operationId") or "")})
         write_durable_plan_queue(root, data)
-        receipt = {**durable_plan_identity(row), "planJobCount": row.get("planJobCount"), "enqueuedAt": row.get("enqueuedAt"),
+        receipt = {**durable_plan_public_identity(row), "planJobCount": row.get("planJobCount"), "enqueuedAt": row.get("enqueuedAt"),
                    "status": "cancelled", "finishedAt": cancelled_at, "stopReason": "user_cancel", "gpuId": ""}
     append_worker_task(root, {**receipt, "schemaVersion": SCHEMA_VERSION})
     append_event(root, {"type": "distributed_plan_job_cancelled", "workerId": receipt["workerId"],
@@ -3262,14 +3298,14 @@ def requeue_durable_plan_job(root, command):
                 tombstone = recalled_worker_command(root, {"commandId": target})
                 if tombstone:
                     return {**tombstone, "durableAccepted": True, "durableReleased": True}
-                receipt = {**durable_plan_identity(row), "planJobCount": row.get("planJobCount"),
+                receipt = {**durable_plan_public_identity(row), "planJobCount": row.get("planJobCount"),
                            "gpuId": row.get("gpuId") or "", "targetCommandId": target,
                            "status": "cancelled", "stopReason": "requeue", "durableAccepted": True,
                            "durableReleased": True, "neverStarted": True,
                            "neverStartedEvidence": "durable_queued_row", "stopCommandId": stop_id}
                 return write_worker_recall_tombstone(root, receipt)
             if status != "queued":
-                return {**durable_plan_identity(row), "planJobCount": row.get("planJobCount"),
+                return {**durable_plan_public_identity(row), "planJobCount": row.get("planJobCount"),
                         "gpuId": row.get("gpuId") or "", "status": status,
                         "durableAccepted": True, "durableReleased": False}
             snapshot = read_json(path_for(root, "worker_task_snapshot.json"), {})
@@ -3278,23 +3314,23 @@ def requeue_durable_plan_job(root, command):
                             and str(item.get("commandId") or item.get("operationId") or "") == target), None)
             if started and (not durable_plan_same_identity(row, started)
                             or str(row.get("gpuId") or "") != str(started.get("gpuId") or "")):
-                return {**durable_plan_identity(row), "planJobCount": row.get("planJobCount"),
+                return {**durable_plan_public_identity(row), "planJobCount": row.get("planJobCount"),
                         "gpuId": row.get("gpuId") or "", "status": "unknown",
                         "durableAccepted": True, "durableReleased": False, "identityConflict": True}
             if started and durable_plan_value(started, "planJobCount") != count:
-                return {**durable_plan_identity(row), "planJobCount": row.get("planJobCount"),
+                return {**durable_plan_public_identity(row), "planJobCount": row.get("planJobCount"),
                         "gpuId": row.get("gpuId") or "", "status": "unknown",
                         "durableAccepted": True, "durableReleased": False, "identityConflict": True}
             if started and str(started.get("status") or "").lower() != "queued":
-                return {**durable_plan_identity(row), "planJobCount": row.get("planJobCount"),
+                return {**durable_plan_public_identity(row), "planJobCount": row.get("planJobCount"),
                         "gpuId": row.get("gpuId") or "", "status": str(started.get("status") or "unknown").lower(),
                         "durableAccepted": True, "durableReleased": False}
             if started and _legacy_recall_has_execution_marker(started):
-                return {**durable_plan_identity(row), "planJobCount": row.get("planJobCount"),
+                return {**durable_plan_public_identity(row), "planJobCount": row.get("planJobCount"),
                         "gpuId": row.get("gpuId") or "", "status": "unknown",
                         "durableAccepted": True, "durableReleased": False, "identityConflict": True}
             at = now_iso()
-            receipt = {**durable_plan_identity(row), "planJobCount": row.get("planJobCount"),
+            receipt = {**durable_plan_public_identity(row), "planJobCount": row.get("planJobCount"),
                        "enqueuedAt": row.get("enqueuedAt"), "gpuId": row.get("gpuId") or "",
                        "targetCommandId": target, "status": "cancelled", "stopReason": "requeue",
                        "durableAccepted": True, "durableReleased": True,
@@ -3449,6 +3485,8 @@ def write_worker_recall_tombstone(root, receipt):
     return receipt
 
 def _legacy_recall_value(row, field):
+    if field == "attempt" and row.get("resultPathPolicy") == "declared" and row.get(field) in (None, ""):
+        return 0
     options = row.get("options") if isinstance(row.get("options"), dict) else {}
     aliases = {
         "workflowId": ("workflowId", "workflow_id", "parentId"),
@@ -3631,9 +3669,12 @@ def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None,
             continue
         if str(row.get("status") or "").lower() != "queued" or str(row.get("workerId") or "") != worker_id:
             continue
+        if row.get("resultPathPolicy") != "declared" or "attempts" in str(row.get("outputDir") or "").split("/"):
+            continue
         try:
             proof = resolve_durable_code_sync_proof(root, row)
             execution_mode = verified_durable_execution_mode(root, row)
+            admission = verified_formal_job_command(root, row)
         except Exception as exc:
             message = str(exc)
             with WORKER_TASK_SNAPSHOT_LOCK:
@@ -3644,6 +3685,16 @@ def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None,
                     write_durable_plan_queue(root, latest)
                     append_event(root, {"type": "distributed_plan_code_wait", "workerId": worker_id,
                                         "operationId": row.get("commandId"), "payload": {"error": message}})
+            continue
+        if admission.get("completed") is True:
+            with WORKER_TASK_SNAPSHOT_LOCK:
+                latest = read_durable_plan_queue(root)
+                current = next((item for item in latest["jobs"] if item.get("commandId") == row.get("commandId")), None)
+                if current and current.get("status") == "queued" and durable_plan_same_identity(current, row):
+                    current.update({"status": "completed", "finishedAt": now_iso(), "exitCode": 0})
+                    write_durable_plan_queue(root, latest)
+                    append_worker_task(root, durable_plan_public_task(current))
+                    dispatched.append(durable_plan_public_task(current))
             continue
         # Persist renewal on the same queued command before admission. A busy GPU
         # must not leave an obsolete code error or require another submission.
@@ -3656,10 +3707,11 @@ def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None,
             changed = False
             # Only unstarted queued commands can be migrated. Running processes and
             # terminal audit records retain their original actual mode and exit status.
-            if current.get("executionMode") != execution_mode or current.get("mode") != execution_mode:
-                current.update({"legacyRequestedMode": current.get("mode"), "mode": execution_mode,
+            requested_mode = "test" if current.get("checkpointTestOnly") is True and execution_mode == "train_test" else execution_mode
+            if current.get("executionMode") != execution_mode or current.get("mode") != requested_mode:
+                current.update({"legacyRequestedMode": current.get("mode"), "mode": requested_mode,
                                 "executionMode": execution_mode, "executionModeSource": "matching_plan_revision"})
-                current["options"] = {**(current.get("options") or {}), "mode": execution_mode, "executionMode": execution_mode}
+                current["options"] = {**(current.get("options") or {}), "mode": requested_mode, "executionMode": execution_mode}
                 changed = True
             if isinstance(proof, dict) and proof.get("proofId") and proof["proofId"] != current.get("codeSyncProofId"):
                 current.update({"codeSyncProofId": proof["proofId"],
@@ -5323,6 +5375,8 @@ def _execute_worker_command_unfenced(root, command, worker_id):
     reassignment_run_key = str(command.get("runKey") or options.get("reassignmentRunKey") or options.get("reassignment_run_key") or "").strip()
     mode = verified_durable_execution_mode(project_dir, command) if command.get("projectId") and command.get("planRevision") else worker_command_plan_mode(project_dir, plan, command.get("mode") or options.get("mode"))
     # per-GPU单tmux(1C)：抽出 worker_tmux_session_name 纯函数，直传值仍经 simple_tmux_name 归一
+    if command.get("checkpointTestOnly") is True:
+        mode = "test"
     if command.get("session"):
         session = str(command.get("session"))
     else:
@@ -5340,17 +5394,18 @@ def _execute_worker_command_unfenced(root, command, worker_id):
     env["SIMPLE_EXPERIMENT_JOB_PROJECT_ID"] = str(command.get("projectId") or "")
     distributed_results = options.get("distributedResults") is True or command.get("distributedResults") is True
     if distributed_results:
-        if not output_dir or "/attempts/" not in output_dir or not str(command.get("planRevision") or "").strip() or not str(command.get("codeFingerprint") or "").strip():
-            raise ValueError("分布式任务缺少 Plan、代码或独立 attempt 身份")
-        try:
-            if int(command.get("attempt")) < 1:
-                raise ValueError("attempt must be positive")
-        except (TypeError, ValueError) as exc:
-            raise ValueError("分布式任务缺少有效 attempt") from exc
+        if not output_dir or "attempts" in output_dir.split("/") or command.get("resultPathPolicy") != "declared":
+            raise ValueError("HISTORICAL_ATTEMPT_READ_ONLY")
         if os.path.isabs(output_dir) or any(part in ("", ".", "..") for part in output_dir.split("/")):
             raise ValueError("分布式任务输出路径不安全")
         safe_project_path(project_dir, output_dir)
         env["SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS"] = "1"
+    formal = verified_formal_job_command(project_dir, command)
+    env["SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY"] = json.dumps(formal["identity"], ensure_ascii=False)
+    if command.get("checkpointTestOnly") is True:
+        if formal.get("checkpointVerified") is not True:
+            raise ValueError("FORMAL_CHECKPOINT_PROOF_REQUIRED")
+        env["SIMPLE_EXPERIMENT_CHECKPOINT_TEST_ONLY"] = "1"
     conda_declared = any(key in command for key in ("condaEnv", "conda_env")) or any(key in options for key in ("condaEnv", "conda_env"))
     conda_env = str(command.get("condaEnv") or command.get("conda_env") or options.get("condaEnv") or options.get("conda_env") or "").strip()
     if conda_env in {"-", "--"}:
@@ -5456,7 +5511,7 @@ def _execute_worker_command_unfenced(root, command, worker_id):
         "commandId": command_id,
         "operationId": command_id,
         "runKey": command.get("runKey") or command_id,
-        **({key: command.get(key) for key in DURABLE_PLAN_IDENTITY_FIELDS if command.get(key) not in (None, "")} if command.get("planJobCount") is not None else {}),
+        **({key: command.get(key) for key in DURABLE_PLAN_IDENTITY_FIELDS if key != "attempt" and command.get(key) not in (None, "")} if command.get("planJobCount") is not None else {}),
         **({"planJobCount": command.get("planJobCount"), "enqueuedAt": command.get("enqueuedAt")} if command.get("planJobCount") is not None and command.get("enqueuedAt") else {}),
         "workerId": worker_id,
         "resultOwnerWorkerId": worker_id,
@@ -5473,7 +5528,9 @@ def _execute_worker_command_unfenced(root, command, worker_id):
         "mode": mode,
         **({"executionMode": mode, "executionModeSource": "matching_plan_revision"} if distributed_results else {}),
         **({"planRevision": str(command.get("planRevision")), "codeFingerprint": str(command.get("codeFingerprint")),
-            "attempt": int(command.get("attempt"))} if distributed_results else {}),
+            "resultPathPolicy": "declared",
+            "globalJobId": command.get("globalJobId"), "collectionResultCsv": command.get("collectionResultCsv"),
+            "checkpointSource": command.get("checkpointSource")} if distributed_results else {}),
         **({"stage": str(command.get("stage") or command.get("phase") or command.get("mode"))} if command.get("stage") or command.get("phase") or command.get("mode") else {}),
         **({"experimentCase": str(command.get("experimentCase") or command.get("experiment_case") or command.get("case"))} if command.get("experimentCase") or command.get("experiment_case") or command.get("case") else {}),
         **({"workflowId": str(command.get("workflowId") or command.get("workflow_id") or command.get("parentId"))} if command.get("workflowId") or command.get("workflow_id") or command.get("parentId") else {}),
@@ -5627,9 +5684,40 @@ def verified_durable_execution_mode(project_dir, command):
     expected = command.get("executionMode")
     if expected is not None and (expected not in ("train", "test", "train_test") or expected != mode):
         raise ValueError("Validated execution mode disagrees with original Plan revision")
-    if expected is not None and command.get("mode") not in (None, "", expected):
+    if expected is not None and command.get("mode") not in (None, "", expected) and not (
+            command.get("checkpointTestOnly") is True and mode == "train_test" and command.get("mode") == "test"):
         raise ValueError("Worker mode disagrees with validated execution mode")
     return mode
+
+
+def verified_formal_job_command(project_dir, command):
+    """Check the real Scheduler message contract before queue admission or tmux creation."""
+    if command.get("resultPathPolicy") != "declared" or "attempts" in str(command.get("outputDir") or "").split("/"):
+        raise ValueError("HISTORICAL_ATTEMPT_READ_ONLY")
+    scheduler_path = cluster_scheduler_path(project_dir)
+    if not scheduler_path or not formal_job_path_capable(project_dir):
+        raise ValueError("WORKER_PROTOCOL_INCOMPATIBLE: deploy matching formal-path Scheduler and Agent")
+    identity = {key: command.get(key) for key in ("workflowId", "globalJobId", "commandId", "planRevision", "codeFingerprint")}
+    identity["globalJobId"] = identity.get("globalJobId") or str(identity.get("workflowId") or "") + ":" + str(command.get("experimentIndex"))
+    env = simple_runtime_env(os.environ.copy())
+    env["SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY"] = json.dumps(identity)
+    requested_mode = "test" if command.get("checkpointTestOnly") is True else str(command.get("mode") or "")
+    args = [simple_runtime_python(env), scheduler_path, "--formal-job-preflight", "--plan", durable_plan_value(command, "planFile"),
+            "--only-index", str(command.get("experimentIndex")), "--mode", requested_mode,
+            "--plan-revision", str(command.get("planRevision") or ""), "--output-dir-override", str(command.get("outputDir") or "")]
+    proc = subprocess.run(args, cwd=project_dir, env=env, capture_output=True, text=True, encoding="utf-8", timeout=10)
+    if proc.returncode:
+        raise ValueError((proc.stderr or proc.stdout or "FORMAL_JOB_PREFLIGHT_FAILED")[-4000:])
+    result = json.loads(proc.stdout)
+    if result.get("policy") != "declared" or result.get("outputDir") != command.get("outputDir"):
+        raise ValueError("FORMAL_JOB_DECLARATION_CHANGED")
+    if not command.get("collectionResultCsv") or command["collectionResultCsv"] != result.get("collectionResultCsv"):
+        raise ValueError("FORMAL_JOB_DECLARATION_CHANGED: collection CSV")
+    if any(str(result.get("identity", {}).get(key)) != str(command.get(field)) for key, field in (("index", "experimentIndex"), ("case", "case"), ("seed", "seed"))):
+        raise ValueError("FORMAL_JOB_DECLARATION_CHANGED: job identity")
+    if (command.get("checkpointSource") or None) != (result.get("checkpointSource") or None):
+        raise ValueError("FORMAL_JOB_DECLARATION_CHANGED: checkpoint source")
+    return result
 
 def recover_train_only_completion(root, command, worker_id):
     """Review/adopt existing validation-only adapter evidence; never execute training or test."""
@@ -5641,6 +5729,8 @@ def recover_train_only_completion(root, command, worker_id):
         row = next((item for item in data["jobs"] if item.get("commandId") == target_id), None)
         if not row or str(row.get("workerId")) != worker_id:
             raise ValueError("Training recovery target is unavailable")
+        if "attempts" in str(row.get("outputDir") or "").split("/") and action_bool(command.get("confirm")):
+            raise ValueError("HISTORICAL_ATTEMPT_READ_ONLY: existing training evidence remains readable; no status adoption")
         expected = {**command, "commandId": target_id, "runKey": target_id}
         if not durable_plan_same_identity(row, expected):
             raise ValueError("Training recovery identity mismatch")
@@ -5834,6 +5924,7 @@ def start_worker_hub_uplink(root, hub_uplink_url="", worker_id="", availability_
                 availability = None
                 if now_ts >= next_availability:
                     availability = availability_from_gpu(worker_id, api_worker_gpu(root), "worker_uplink", 180)
+                    availability.update({"declaredJobPaths": formal_job_path_capable(root), "runtimeVersion": RUNTIME_VERSION})
                     next_availability = now_ts + availability_base + (random.random() * jitter if jitter else 0)
                 if events or availability:
                     payload = {
@@ -6284,6 +6375,17 @@ def api_version(root, mode="realtime"):
         "checkedAt": now_iso(),
     }
 
+def formal_job_path_capable(root):
+    try:
+        scheduler = cluster_scheduler_path(root)
+        with open(scheduler, "r", encoding="utf-8") as stream:
+            header = stream.read(8192)
+        version = re.search(r'(?m)^RUNTIME_VERSION = "([^"]+)"', header)
+        return bool("FORMAL_JOB_PATH_PROTOCOL = 1" in header and version and version.group(1) == RUNTIME_VERSION)
+    except (OSError, TypeError):
+        return False
+
+
 def api_capabilities(root, token_required=False, mode="hub_control"):
     if mode == "worker_telemetry":
         return {
@@ -6305,6 +6407,7 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
                 "workerAvailability": True,
                 "workerHubUplink": True,
                 "workerTasks": True,
+                "declaredJobPaths": formal_job_path_capable(root),
                 "durablePlanQueue": True,
                 "codeSyncProof": True,
                 "idleGpuAdmission": True,
@@ -6357,6 +6460,7 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
             "workerAvailability": True,
             "workerHubUplink": True,
             "scheduler": True,
+            "declaredJobPaths": formal_job_path_capable(root),
             "traces": True,
             "liveOutput": True,
             "diagnostics": True,
@@ -9815,9 +9919,7 @@ def materialize_draft_snapshot(root, plan):
 def prepare_draft_run_plan(root, plan, debug_mode):
     normalized = str(plan or "").replace("\\", "/").lstrip("/")
     if normalized.startswith("tmp/plan/"):
-        if not debug_mode:
-            raise RuntimeError("tmp/plan 只能使用 Debug 隔离运行；正式 PLAN 必须位于 experiments/plans/。")
-        return materialize_draft_snapshot(root, plan)["executionPlan"]
+        raise RuntimeError("DRAFT_EXECUTION_RETIRED: historical draft is read-only; declare a formal PLAN explicitly")
     return plan
 
 
@@ -12728,8 +12830,8 @@ def scheduler_state_cleanup_owner_matches(root, file_path, state):
             return False
         operation_id = str(owner.get("operationId") or "").strip()
         run_id = str(owner.get("runId") or "").strip()
-        attempt_id = str(owner.get("attemptId") or "").strip()
-        if not operation_id or not run_id or not attempt_id or operation_id != run_id:
+        command_id = str(owner.get("commandId") or owner.get("attemptId") or "").strip()
+        if not operation_id or not run_id or not command_id or operation_id != run_id:
             return False
         if state.get("schedulerTerminal") is not True:
             return False
@@ -13808,7 +13910,7 @@ def api_worker_tasks(root):
                     enriched[index] = entry
         _out["tasks"] = enriched
         _out["generatedAt"] = now_iso()
-        _out["capabilities"] = {"durablePlanQueue": True, "codeSyncProof": True, "idleGpuAdmission": True, "queuedJobRecall": True, "failedAttemptQuarantine": True, "schemaVersion": 1}
+        _out["capabilities"] = {"durablePlanQueue": True, "codeSyncProof": True, "idleGpuAdmission": True, "queuedJobRecall": True, "failedAttemptQuarantine": True, "declaredJobPaths": formal_job_path_capable(root), "schemaVersion": 1}
         return _out
     tasks = []
     for row in read_durable_plan_queue(root).get("jobs", []):
@@ -13818,7 +13920,7 @@ def api_worker_tasks(root):
         if status in ("queued", "dispatching", "running", "unknown", "completed", "failed", "cancelled"):
             tasks.append(durable_plan_public_task(row))
     return {"schemaVersion": SCHEMA_VERSION, "tasks": tasks,
-            "capabilities": {"durablePlanQueue": True, "codeSyncProof": True, "idleGpuAdmission": True, "queuedJobRecall": True, "failedAttemptQuarantine": True, "schemaVersion": 1}, "generatedAt": now_iso()}
+            "capabilities": {"durablePlanQueue": True, "codeSyncProof": True, "idleGpuAdmission": True, "queuedJobRecall": True, "failedAttemptQuarantine": True, "declaredJobPaths": formal_job_path_capable(root), "schemaVersion": 1}, "generatedAt": now_iso()}
 
 def api_openapi(root, token_required=False, mode="hub_control"):
     if mode == "worker_telemetry":

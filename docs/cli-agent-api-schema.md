@@ -1,5 +1,7 @@
 # Agent JSON API
 
+0.5.278 的正式 declared job、旧 attempt 只读限制、Worker 协议及仅内存读取原始指标的契约见 [正式 job 与内存汇总](formal-job-execution.md)。读取当前 discovery/capabilities/OpenAPI 后调用；旧进程和不同平台安装包不能据此视为已升级。
+
 PLAN 及关联产物的统一清除接口、离线信号只读核查、新预览续办、确认参数、恢复与安全边界见 [PLAN 清除](plan-cleanup.md)。新增方法由 live capabilities/OpenAPI 公布，旧版运行进程不会自动获得新接口。
 
 `simpleex experiment <active|health|overview|inspect> --json` 的稳定输出，`schema_version` 固定为 `"1"`。字段变化必须提升版本号。四个接口职责不重叠，文本模式不带 `schema_version` 和 `snapshot`。

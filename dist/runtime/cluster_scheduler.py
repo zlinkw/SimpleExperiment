@@ -21,6 +21,7 @@ import threading
 import time
 import urllib.request
 from collections import deque
+from contextlib import contextmanager
 from concurrent import futures
 from dataclasses import dataclass, replace
 from datetime import datetime
@@ -35,9 +36,10 @@ except ModuleNotFoundError as exc:
     yaml = None
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_scheduler.py 为准
-SCHEDULER_VERSION = "0.5.277"
-RUNTIME_VERSION = "0.5.277"
-PLUGIN_VERSION = "0.5.277"
+SCHEDULER_VERSION = "0.5.278"
+RUNTIME_VERSION = "0.5.278"
+PLUGIN_VERSION = "0.5.278"
+FORMAL_JOB_PATH_PROTOCOL = 1
 
 TAIL_BYTES = 16 * 1024
 WORKER_AVAILABILITY_REFRESH_TIMEOUT_SECONDS = 5.0
@@ -1243,7 +1245,10 @@ def build_jobs(plan: dict[str, Any], default_result_csv_dir: str = "experiments/
             runner_expected_results = list(runner_result_alias_values.values())
             result_csv_tpl = direct_result_field(case_item, case_paper, plan_paper, plan) or (case_expected_results + plan_expected_results + runner_expected_results + [f"{normalize_default_result_csv_dir(default_result_csv_dir)}/{suite}.csv"])[0]
             result_csv = render_template(result_csv_tpl, values)
-            values["result_path_policy"] = str(local_runner.get("result_path_policy") or "attempt")
+            metadata_file = Path.cwd() / "experiments/simple_project.yaml"
+            metadata = load_yaml_file(metadata_file) if metadata_file.is_file() else {}
+            values["result_path_policy"] = str(case_item.get("result_path_policy") or local_runner.get("result_path_policy")
+                                               or plan.get("result_path_policy") or metadata.get("resultPathPolicy") or "declared")
             values["declared_result_csv"] = result_csv
             values["declared_output_dir"] = output_dir
             values["plan_file"] = str(plan.get("_file") or "")
@@ -1308,22 +1313,15 @@ def bind_execution_result_paths(job: Job, output_override: str = "") -> Job:
     """One binding drives commands, config snapshots and collection, without writes."""
     root = Path.cwd()
     values = dict(job.template_values or {})
-    policy = str(values.get("result_path_policy") or "attempt")
-    if policy != "attempt":
-        raise ValueError("RESULT_PATH_POLICY_INVALID: distributed execution requires runner.result_path_policy=attempt")
+    policy = str(values.get("result_path_policy") or "declared")
+    if policy != "declared":
+        raise ValueError("RESULT_PATH_POLICY_RETIRED: new jobs require declared; historical attempts are read-only")
     declared = safe_project_relative_path(root, str(values.get("declared_result_csv") or job.result_csv), "paper.result_csv")
     original_output = str(values.get("declared_output_dir") or job.output_dir).replace("\\", "/").rstrip("/")
     output = safe_project_relative_path(root, output_override or job.output_dir, "runtime.output_dir")
-    attempt = ""
     execution = declared
-    if output_override:
-        prefix = original_output + "/attempts/"
-        if not output.startswith(prefix):
-            raise ValueError("RESULT_PATH_ATTEMPT_INVALID: output override is outside this job's attempts")
-        attempt = output[len(prefix):]
-        if not attempt or "/" in attempt:
-            raise ValueError("RESULT_PATH_ATTEMPT_INVALID: expected one exact attempt directory")
-        execution = output + "/test_results/job_metrics.csv"
+    if output != original_output or "attempts" in output.split("/") or "attempts" in declared.split("/"):
+        raise ValueError("RESULT_PATH_DECLARATION_CHANGED: command output must equal the formal PLAN job; attempts are read-only")
     execution = safe_project_relative_path(root, execution, "execution.result_csv")
     aliases = {key: execution for key in job.result_aliases}
     aliases.update({"result_csv": execution, "resultCsv": execution})
@@ -1335,7 +1333,7 @@ def bind_execution_result_paths(job: Job, output_override: str = "") -> Job:
     contract = {"schemaVersion": 1, "policy": policy, "declared_result_csv": declared,
                 "execution_result_csv": execution, "collection_result_csv": execution,
                 "declared_output_dir": original_output, "execution_output_dir": output,
-                "attempt": attempt, "index": job.index, "case": job.case, "seed": job.seed,
+                "index": job.index, "case": job.case, "seed": job.seed,
                 "plan_file": str(values.get("plan_file") or ""), "plan_revision": str(values.get("plan_revision") or "")}
     set_dotted(config, "runtime.result_path_contract", contract)
     for key in OUTPUT_TEMPLATE_ALIAS_KEYS:
@@ -1351,7 +1349,7 @@ def bind_execution_result_paths(job: Job, output_override: str = "") -> Job:
 
 
 def result_path_preflight(root: Path, jobs: list[Job], include_attempt: bool = True, execution_mode: str = "") -> dict[str, Any]:
-    """Read-only project hook; validate the same relocation used by Worker execution."""
+    """Read-only project hook; no preview namespace or output creation."""
     metadata_path = root / "experiments/simple_project.yaml"
     metadata = load_yaml_file(metadata_path) if metadata_path.is_file() else {}
     hook_path = str((metadata.get("adapter") or {}).get("resultPathValidator") or "")
@@ -1370,8 +1368,6 @@ def result_path_preflight(root: Path, jobs: list[Job], include_attempt: bool = T
     rows, seen = [], set()
     for job in jobs:
         candidates = [job]
-        if include_attempt and job.output_dir == str(job.template_values.get("declared_output_dir") or job.output_dir):
-            candidates.append(bind_execution_result_paths(job, job.output_dir.rstrip("/") + "/attempts/preflight-preview"))
         for candidate in candidates:
             contract = candidate.config.get("runtime", {}).get("result_path_contract", {})
             error = ""
@@ -1391,11 +1387,10 @@ def result_path_preflight(root: Path, jobs: list[Job], include_attempt: bool = T
                             raise ValueError("runner.test_command result CSV disagrees with execution binding; use {result_csv}")
                 if validator and validator(copy.deepcopy(candidate.config), {**contract, "project_root": str(root)}) is False:
                     raise ValueError("project validator refused the execution path")
-                if contract.get("attempt") or not include_attempt:
-                    key = os.path.normcase(str((root / candidate.result_csv).resolve()))
-                    if key in seen:
-                        raise ValueError("multiple jobs share one execution CSV")
-                    seen.add(key)
+                key = os.path.normcase(str((root / candidate.result_csv).resolve()))
+                if key in seen:
+                    raise ValueError("multiple jobs share one execution CSV")
+                seen.add(key)
             except Exception as exc:
                 error = ("RESULT_PATH_INCOMPATIBLE: " + hook_path + ": " + str(exc)
                          + "; declared=" + str(contract.get("declared_result_csv"))
@@ -1470,7 +1465,7 @@ def jobs_for_args(plan: dict[str, Any], args: argparse.Namespace) -> list[Job]:
         if missing:
             raise SystemExit("Assigned experiment indices are not present in Plan: " + ",".join(str(index) for index in missing))
     if bool(getattr(args, "debug_mode", False)):
-        jobs = isolate_debug_jobs(jobs, str(getattr(args, "plan", "") or plan.get("_file") or "plan"), str(getattr(args, "debug_run_id", "") or "debug"), str(getattr(args, "debug_output_dir", "") or ""))
+        raise ValueError("DRAFT_EXECUTION_RETIRED: use a formal PLAN job; dryRun only renders and validates")
     return jobs
 
 
@@ -1499,7 +1494,15 @@ def write_job_config(job: Job) -> Path:
     out_dir = Path(job.output_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
     config_path = out_dir / "job_config.yaml"
-    config_path.write_text(yaml.safe_dump(job.config, allow_unicode=True, sort_keys=False), encoding="utf-8")
+    config = copy.deepcopy(job.config)
+    identity = os.environ.get("SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY")
+    if identity:
+        provenance = json.loads(identity)
+        set_dotted(config, "runtime.execution_provenance", {**provenance, "sourceCodeHash": formal_source_fingerprint(Path.cwd())})
+        set_dotted(config, "runtime.run_id", provenance["workflowId"])
+        set_dotted(config, "runtime.global_job_id", provenance["globalJobId"])
+        set_dotted(config, "runtime.command_id", provenance["commandId"])
+    config_path.write_text(yaml.safe_dump(config, allow_unicode=True, sort_keys=False), encoding="utf-8")
     return config_path
 
 
@@ -1522,7 +1525,7 @@ def write_env_snapshot(path: Path, job: Job) -> None:
 
 def merge_tensorboard_csv(path: Path, rows: list[dict[str, Any]]) -> int:
     fieldnames = [
-        "experiment_id", "attempt_id", "study_id", "plan_id", "suite", "method", "dataset", "split",
+        "experiment_id", "global_job_id", "run_id", "command_id", "study_id", "plan_id", "suite", "method", "dataset", "split",
         "fold", "seed", "metric", "value", "unit", "higher_is_better", "epoch", "step", "timestamp",
     ]
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -1572,12 +1575,16 @@ def collect_tensorboard_metrics(job: Job) -> dict[str, Any]:
         except Exception:
             continue
     context = job.template_values or {}
+    provenance = json.loads(os.environ.get("SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY", "{}"))
+    runtime = job.config.get("runtime", {})
     timestamp = now()
     rows = []
     for tag, scalar in sorted(values.items()):
         rows.append({
             "experiment_id": str(context.get("experiment_id") or context.get("experimentId") or f"{job.suite}/{job.case}/seed_{job.seed}"),
-            "attempt_id": "attempt-1",
+            "global_job_id": str(provenance.get("globalJobId") or runtime.get("global_job_id") or ""),
+            "run_id": str(provenance.get("workflowId") or runtime.get("run_id") or ""),
+            "command_id": str(provenance.get("commandId") or runtime.get("command_id") or ""),
             "study_id": str(context.get("study_id") or ""),
             "plan_id": str(context.get("plan_id") or ""),
             "suite": job.suite,
@@ -1925,6 +1932,9 @@ def wrapper_context(job: Job, config_path: Path, args: argparse.Namespace, stage
     })
     for key in RESULT_TEMPLATE_ALIAS_KEYS:
         values[key] = path_for_job_command(job.result_csv, job)
+    provenance = json.loads(os.environ.get("SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY", "{}"))
+    values.update({"run_id": str(provenance.get("workflowId") or ""),
+                   "global_job_id": str(provenance.get("globalJobId") or ""), "command_id": str(provenance.get("commandId") or "")})
     return values
 
 
@@ -2055,18 +2065,231 @@ def verify_declared_outputs(job: Job) -> None:
         raise SystemExit("任务命令已退出，但声明的输出未生成：" + ", ".join(missing[:12]))
 
 
+def formal_job_file_hash(filename: Path) -> str:
+    if filename.is_symlink() or not filename.is_file():
+        raise ValueError("FORMAL_JOB_UNSAFE_FILE")
+    digest = hashlib.sha256()
+    with filename.open("rb") as stream:
+        for block in iter(lambda: stream.read(1024 * 1024), b""):
+            digest.update(block)
+    return digest.hexdigest()
+
+
+def formal_job_safe_path(relative: str) -> Path:
+    normalized = safe_project_relative_path(Path.cwd(), relative, "formal job")
+    cursor = Path.cwd().resolve()
+    for part in normalized.split("/"):
+        cursor = cursor / part
+        if cursor.exists() or cursor.is_symlink():
+            info = cursor.lstat()
+            if stat.S_ISLNK(info.st_mode) or getattr(info, "st_file_attributes", 0) & 1024:
+                raise ValueError("FORMAL_JOB_UNSAFE_FILE: linked/reparse path")
+    return Path(normalized)
+
+
+def formal_job_verify_hashes(job: Job, hashes: dict[str, str]) -> bool:
+    return bool(hashes) and all((file.startswith(job.output_dir.rstrip("/") + "/") or file == job.result_csv)
+        and re.fullmatch(r"[a-f0-9]{64}", digest or "") and formal_job_safe_path(file).is_file()
+        and formal_job_file_hash(Path(file)) == digest for file, digest in hashes.items())
+
+
+def formal_job_config_hash(job: Job) -> str:
+    return hashlib.sha256(json.dumps(job.config, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")).hexdigest()
+
+
+def formal_training_signature(config: dict[str, Any]) -> str:
+    value = copy.deepcopy(config)
+    value.pop("experiment_name", None)
+    for section, keys in {"runtime": ("output_dir", "result_csv", "result_path_contract", "checkpoint_source", "execution_provenance", "run_id", "global_job_id", "command_id"),
+                          "test": ("results_csv", "checkpoint"), "paper": ("result_csv",)}.items():
+        for key in keys:
+            if isinstance(value.get(section), dict):
+                value[section].pop(key, None)
+    return hashlib.sha256(json.dumps(value, sort_keys=True, ensure_ascii=False, default=str).encode("utf-8")).hexdigest()
+
+
+def formal_checkpoint_source(job: Job, identity: dict[str, Any], mode: str = "test") -> dict[str, Any]:
+    source = job.config.get("runtime", {}).get("checkpoint_source") or {}
+    required = ("checkpoint_path", "checkpoint_sha256", "config_path", "config_sha256", "plan_file", "plan_revision", "code_fingerprint")
+    if not isinstance(source, dict) or any(not source.get(key) for key in required):
+        raise ValueError("FORMAL_CHECKPOINT_PROOF_REQUIRED: test-only/resume needs runtime.checkpoint_source with checkpoint, final config, PLAN and code hashes")
+    for path_key, hash_key in (("checkpoint_path", "checkpoint_sha256"), ("config_path", "config_sha256"), ("plan_file", "plan_revision")):
+        file = formal_job_safe_path(source[path_key])
+        if not re.fullmatch(r"[a-f0-9]{64}", str(source[hash_key])) or formal_job_file_hash(file) != source[hash_key]:
+            raise ValueError("FORMAL_CHECKPOINT_SOURCE_CHANGED: " + path_key)
+    configured = str(job.config.get("test", {}).get("checkpoint") or "")
+    if mode == "test" and (not configured or (Path.cwd() / configured).resolve() != (Path.cwd() / source["checkpoint_path"]).resolve()):
+        raise ValueError("FORMAL_CHECKPOINT_DECLARATION_CHANGED")
+    saved = load_yaml_file(Path(source["config_path"]))
+    provenance = saved.get("runtime", {}).get("execution_provenance") or {}
+    same_code = source["code_fingerprint"] == identity.get("codeFingerprint")
+    if not same_code:
+        same_code = (provenance.get("codeFingerprint") == source["code_fingerprint"]
+                     and source.get("source_code_sha256") == provenance.get("sourceCodeHash") == formal_source_fingerprint(Path.cwd()))
+    if formal_training_signature(saved) != formal_training_signature(job.config) or not same_code:
+        raise ValueError("FORMAL_CHECKPOINT_CONFIG_OR_CODE_CHANGED")
+    saved_contract = saved.get("runtime", {}).get("result_path_contract") or {}
+    if saved_contract.get("plan_file") != source["plan_file"] or saved_contract.get("plan_revision") != source["plan_revision"]:
+        raise ValueError("FORMAL_CHECKPOINT_PLAN_BINDING_CHANGED")
+    checkpoint = (Path.cwd() / source["checkpoint_path"]).resolve()
+    original = (Path.cwd() / str(saved.get("runtime", {}).get("output_dir") or "")).resolve()
+    if checkpoint == original or not checkpoint.is_relative_to(original):
+        raise ValueError("FORMAL_CHECKPOINT_JOB_BINDING_CHANGED")
+    return source
+
+
+def formal_resume_targets(job: Job) -> list[str]:
+    targets = [str(job.config.get("train", {}).get(key) or "") for key in ("resume_checkpoint", "resume_from")]
+    args = argparse.Namespace(mode="train", plan=job.template_values.get("plan_file", ""), worker_id="", gpu_ids="")
+    tokens = render_command(job.train_command, job, Path(job.output_dir) / "job_config.yaml", args) if job.train_command else []
+    if len(tokens) >= 3 and tokens[1] in ("-lc", "-c"):
+        tokens = shlex.split(tokens[2])
+    for index, token in enumerate(tokens):
+        key, separator, value = token.partition("=")
+        if key in ("--resume", "--resume-from", "--resume-checkpoint"):
+            target = value if separator else tokens[index + 1] if index + 1 < len(tokens) else ""
+            if not target or target.startswith("--"):
+                raise ValueError("FORMAL_CHECKPOINT_PROOF_REQUIRED: resume needs an exact checkpoint path")
+            targets.append(target)
+    return [target for target in targets if target]
+
+
+def formal_job_preflight(job: Job, identity: dict[str, Any], mode: str) -> dict[str, Any]:
+    if identity.get("planRevision") != job.template_values.get("plan_revision"):
+        raise ValueError("PLAN_REVISION_CHANGED")
+    """Admission is read-only. Existing bytes cannot be adopted based on a directory name."""
+    if job.config.get("runtime", {}).get("result_path_contract", {}).get("policy") != "declared":
+        raise ValueError("HISTORICAL_ATTEMPT_READ_ONLY")
+    required = ("workflowId", "commandId", "planRevision", "codeFingerprint", "globalJobId")
+    if any(not identity.get(key) for key in required) or identity["globalJobId"] != str(identity["workflowId"]) + ":" + str(job.index):
+        raise ValueError("FORMAL_JOB_IDENTITY_REQUIRED")
+    if mode in ("train", "train_test"):
+        resume_targets = formal_resume_targets(job)
+        if resume_targets:
+            source = formal_checkpoint_source(job, identity, "train")
+            if any((Path.cwd() / job.working_directory / target).resolve() != (Path.cwd() / source["checkpoint_path"]).resolve() for target in resume_targets):
+                raise ValueError("FORMAL_CHECKPOINT_DECLARATION_CHANGED: resume command/config differs from verified source")
+    expected = {**{key: identity[key] for key in required}, "index": job.index, "case": job.case, "seed": job.seed,
+                "outputDir": job.output_dir, "collectionResultCsv": job.result_csv, "configHash": formal_job_config_hash(job)}
+    formal_job_safe_path(job.result_csv)
+    owner_path = formal_job_safe_path(job.output_dir + "/formal_job_owner.json")
+    owner = json.loads(owner_path.read_text(encoding="utf-8")) if owner_path.is_file() else {}
+    same = owner and all(owner.get(key) == value for key, value in expected.items())
+    if same and (owner.get("state") == "completed" or owner.get("state") == "training_completed" and mode == "train"):
+        hashes = owner.get("sha256") or {}
+        if not formal_job_verify_hashes(job, hashes):
+            raise ValueError("FORMAL_JOB_COMPLETION_CHANGED")
+        return {"identity": expected, "completed": True}
+    same_training = owner and all(owner.get(key) == value for key, value in expected.items() if key != "commandId")
+    if same_training and (owner.get("state") == "training_completed" or owner.get("state") == "failed" and owner.get("trainingCompleted") is True) and mode == "test":
+        hashes = owner.get("checkpointSha256") or {}
+        if not formal_job_verify_hashes(job, hashes):
+            raise ValueError("FORMAL_JOB_CHECKPOINT_CHANGED")
+        if not formal_job_verify_hashes(job, owner.get("sha256") or owner.get("trainingConfigSha256") or {}):
+            raise ValueError("FORMAL_JOB_TRAINING_CONFIG_CHANGED")
+        return {"identity": expected, "checkpointVerified": True}
+    directory = Path(job.output_dir)
+    existing = directory.exists() and any(item.name != ".formal_job.lock" for item in directory.iterdir())
+    if existing or Path(job.result_csv).exists():
+        raise ValueError("FORMAL_JOB_CONFLICT: existing output/checkpoint/result belongs to an unfinished or different writer; review/clean explicitly or declare a different job")
+    if mode == "test" or job.config.get("runtime", {}).get("checkpoint_source"):
+        formal_checkpoint_source(job, identity, mode)
+        return {"identity": expected, "checkpointVerified": True}
+    return {"identity": expected}
+
+
+@contextmanager
+def formal_job_writer(job: Job, identity: dict[str, Any], mode: str):
+    admission = formal_job_preflight(job, identity, mode)
+    directory = Path(job.output_dir)
+    directory.mkdir(parents=True, exist_ok=True)
+    # Persistent lock inode: never unlink it (unlinking would permit two writers).
+    with (directory / ".formal_job.lock").open("a+b") as lock:
+        if os.name == "nt":
+            import msvcrt
+            lock.seek(0)
+            if not lock.read(1):
+                lock.write(b"0")
+                lock.flush()
+            lock.seek(0)
+            try:
+                msvcrt.locking(lock.fileno(), msvcrt.LK_NBLCK, 1)
+            except OSError as exc:
+                raise ValueError("FORMAL_JOB_ACTIVE_WRITER") from exc
+        else:
+            import fcntl
+            try:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except OSError as exc:
+                raise ValueError("FORMAL_JOB_ACTIVE_WRITER") from exc
+        try:
+            admission = formal_job_preflight(job, identity, mode)
+            owner = {"schemaVersion": 1, **admission["identity"], "sourceCodeHash": formal_source_fingerprint(Path.cwd()),
+                     "checkpointSource": job.config.get("runtime", {}).get("checkpoint_source"),
+                     "state": "running", "mode": mode}
+            target = directory / "formal_job_owner.json"
+            if not admission.get("completed"):
+                target.write_text(json.dumps(owner, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+            try:
+                yield admission
+            except BaseException:
+                if not admission.get("completed"):
+                    updated = json.loads(target.read_text(encoding="utf-8"))
+                    for key in ("trainingCompleted", "checkpointSha256", "trainingConfigSha256"):
+                        if key in updated:
+                            owner[key] = updated[key]
+                    owner["state"] = "failed"
+                    target.write_text(json.dumps(owner, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+                raise
+            else:
+                if not admission.get("completed"):
+                    paths = [item for item in directory.rglob("*") if item.is_file() and item.name not in ("formal_job_owner.json", ".formal_job.lock")]
+                    if Path(job.result_csv).is_file():
+                        paths.append(Path(job.result_csv))
+                    owner["sha256"] = {item.as_posix(): formal_job_file_hash(item) for item in paths}
+                    owner["checkpointSha256"] = {file: digest for file, digest in owner["sha256"].items() if file.endswith((".pt", ".pth", ".ckpt", ".safetensors"))}
+                    owner["state"] = "training_completed" if mode == "train" else "completed"
+                    target.write_text(json.dumps(owner, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+        finally:
+            if os.name == "nt":
+                lock.seek(0)
+                msvcrt.locking(lock.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
+
+
 def run_job(job: Job, args: argparse.Namespace) -> None:
-    manifest = Path(job.output_dir) / "artifact_manifest.json"
-    overwrite = bool(getattr(args, "overwrite", False) or getattr(args, "overwrite_existing", False))
-    # 历史产物存在但正式结果未完整发布时必须重跑，避免恢复模式静默遗漏种子。
-    if not overwrite and args.resume and manifest.exists() and args.mode != "test":
-        if result_table_covers_job(job) or declared_outputs_complete(job):
-            info = has_existing_artifacts(job.output_dir)
-            print(f"[simple-experiment-runtime] skip existing job index={job.index} output={job.output_dir} markers={info.get('markers') or []} (use --overwrite to force rerun)", flush=True)
-            return
-        print(f"[simple-experiment-runtime] rerun incomplete published results index={job.index} output={job.output_dir} result_csv={job.result_csv}", flush=True)
-    if overwrite and manifest.exists():
-        print(f"[simple-experiment-runtime] overwrite existing job index={job.index} output={job.output_dir}", flush=True)
+    raw = os.environ.get("SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY", "")
+    identity = json.loads(raw) if raw else {"workflowId": str(getattr(args, "operation_id", "") or ""),
+        "commandId": str(getattr(args, "operation_id", "") or ""), "planRevision": job.template_values.get("plan_revision"),
+        "codeFingerprint": formal_source_fingerprint(Path.cwd())}
+    identity.setdefault("globalJobId", str(identity.get("workflowId", "")) + ":" + str(job.index))
+    if getattr(args, "overwrite", False) or getattr(args, "overwrite_existing", False):
+        raise ValueError("FORMAL_JOB_CONFLICT: overwrite is retired; explicitly clean or change the declared job")
+    try:
+        os.environ["SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY"] = json.dumps(identity, ensure_ascii=False)
+        with formal_job_writer(job, identity, args.mode) as admission:
+            if not admission.get("completed"):
+                run_job_unlocked(job, args)
+    finally:
+        if raw:
+            os.environ["SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY"] = raw
+        else:
+            os.environ.pop("SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY", None)
+
+
+def formal_source_fingerprint(root: Path) -> str:
+    files = []
+    for directory in ("configs", "models", "trainers", "comparison_methods", "experiments", "utils", "losses", "metrics", "data", "optimizers"):
+        folder = root / directory
+        if folder.is_dir():
+            files.extend(item for item in folder.rglob("*") if item.is_file() and not item.is_symlink()
+                         and item.suffix == ".py" and "clean_dir" not in item.parts)
+    files.extend(item for item in root.glob("*.py") if item.is_file() and not item.is_symlink())
+    return hashlib.sha256("\n".join(sorted(item.relative_to(root).as_posix() + ":" + hashlib.sha256(item.read_bytes()).hexdigest() for item in files)).encode("utf-8")).hexdigest()
+
+
+def run_job_unlocked(job: Job, args: argparse.Namespace) -> None:
     config_path = write_job_config(job)
     # Publish the resolved experiment output_dir to a sidecar so the agent's tmux window can
     # mirror stdout.log/stderr.log live. Only active when the agent injected the env vars.
@@ -2099,6 +2322,14 @@ def run_job(job: Job, args: argparse.Namespace) -> None:
             raise SystemExit(_failed_process_exit_code(exc)) from None
         if args.mode == "train" and job.collect_metrics:
             collect_tensorboard_metrics(job)
+        owner_path = Path(job.output_dir) / "formal_job_owner.json"
+        owner = json.loads(owner_path.read_text(encoding="utf-8"))
+        checkpoints = [file for file in Path(job.output_dir).rglob("*") if file.is_file()
+                       and file.suffix in (".pt", ".pth", ".ckpt", ".safetensors")]
+        config_files = [Path(job.output_dir) / name for name in ("config.yaml", "config_snapshot.yaml") if (Path(job.output_dir) / name).is_file()]
+        owner.update({"trainingCompleted": True, "checkpointSha256": {file.as_posix(): formal_job_file_hash(file) for file in checkpoints},
+                      "trainingConfigSha256": {file.as_posix(): formal_job_file_hash(file) for file in config_files}})
+        owner_path.write_text(json.dumps(owner, ensure_ascii=False, sort_keys=True), encoding="utf-8")
     if args.mode in {"test", "train_test"}:
         command = render_command(job.test_command, job, config_path, args) if job.test_command else [runtime_python_command(env), "test.py", "--config", str(config_path), "--output-dir", job.output_dir, "--case", job.case, "--seed", str(job.seed), "--suite", job.suite, "--result-csv", job.result_csv]
         command = wrap_command(command, job, config_path, args, "test")
@@ -2113,16 +2344,41 @@ def run_job(job: Job, args: argparse.Namespace) -> None:
     verify_declared_outputs(job)
 
 
+def formal_job_preflight_mode(args: argparse.Namespace) -> dict[str, Any]:
+    plan = load_plan(args.plan)
+    if str(args.plan).replace("\\", "/").startswith("tmp/plan/"):
+        raise ValueError("DRAFT_EXECUTION_RETIRED")
+    if getattr(args, "plan_revision", "") != plan.get("_revision"):
+        raise ValueError("PLAN_REVISION_CHANGED")
+    mode = plan_execution_mode(plan, args.mode)
+    _, jobs = build_jobs(plan, args.default_result_csv_dir)
+    selected = next((job for job in jobs if job.index == args.only_index), None)
+    if not selected:
+        raise ValueError("FORMAL_JOB_INDEX_INVALID")
+    job = bind_execution_result_paths(selected, args.output_dir_override)
+    report = result_path_preflight(Path.cwd(), jobs, execution_mode=mode)
+    if not report["ok"]:
+        raise ValueError(";".join(report["missing"]))
+    identity = json.loads(os.environ.get("SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY", "{}"))
+    admission = formal_job_preflight(job, identity, mode)
+    return {**admission, "policy": "declared", "outputDir": job.output_dir, "checkpointSource": job.config.get("runtime", {}).get("checkpoint_source"),
+            "collectionResultCsv": job.result_csv, "resultPathContract": job.config["runtime"]["result_path_contract"]}
+
+
 def run_job_mode(args: argparse.Namespace) -> None:
     if args.debug_mode:
         raise SystemExit("Debug 运行模式已移除，请使用正式 Plan 运行。")
     plan = load_plan(args.plan)
+    if str(args.plan).replace("\\", "/").startswith("tmp/plan/"):
+        raise SystemExit("DRAFT_EXECUTION_RETIRED: use an explicit formal PLAN; no automatic promotion")
     expected_revision = str(getattr(args, "plan_revision", "") or "")
     if expected_revision and hashlib.sha256(Path(args.plan).read_bytes()).hexdigest() != expected_revision:
         raise SystemExit("PLAN_REVISION_CHANGED: current PLAN differs from queued validation; no command was launched")
     args.mode = plan_execution_mode(plan, args.mode)
     if os.environ.get("SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS") and args.mode != plan_execution_mode(plan):
-        raise SystemExit("Distributed execution mode disagrees with the original PLAN; no command was launched")
+        if not (args.mode == "test" and os.environ.get("SIMPLE_EXPERIMENT_CHECKPOINT_TEST_ONLY") == "1"
+                and formal_job_preflight_mode(args).get("checkpointVerified") is True):
+            raise SystemExit("Distributed execution mode disagrees with the original PLAN; no command was launched")
     jobs = jobs_for_args(plan, args)
     chosen = [job for job in jobs if int(job.index) == int(args.only_index)]
     if not chosen:
@@ -2201,6 +2457,7 @@ def validate_plan_mode(args: argparse.Namespace) -> None:
         "plan": args.plan,
         "suite": str(plan.get("suite") or ""),
         "execution_mode": mode,
+        "result_path_policy": "declared",
         "job_count": len(jobs),
         "outputInterface": output_interface,
         "resultPathPreflight": path_check,
@@ -2214,6 +2471,8 @@ def validate_plan_mode(args: argparse.Namespace) -> None:
                 "seed": job.seed,
                 "output_dir": job.output_dir,
                 "result_csv": job.result_csv,
+                "result_path_policy": "declared",
+                "checkpoint_source": job.config.get("runtime", {}).get("checkpoint_source"),
                 "inputs": list(job.inputs or ()),
             }
             for job in jobs
@@ -2514,6 +2773,10 @@ def worker_command_queue_path(worker: dict[str, Any]) -> Path:
 
 
 def enqueue_worker_command(worker: dict[str, Any], command: dict[str, Any]) -> dict[str, Any]:
+    if command.get("action") == "start-worker-task":
+        if command.get("resultPathPolicy") != "declared":
+            raise ValueError("HISTORICAL_ATTEMPT_READ_ONLY")
+        require_formal_worker_protocol(worker)
     item = {
         "schemaVersion": 1,
         "commandId": str(command.get("commandId") or f"cmd-{int(time.time() * 1000)}"),
@@ -2526,6 +2789,21 @@ def enqueue_worker_command(worker: dict[str, Any], command: dict[str, Any]) -> d
     with path.open("a", encoding="utf-8") as f:
         f.write(json.dumps(item, ensure_ascii=False, separators=(",", ":")) + "\n")
     return item
+
+
+def require_formal_worker_protocol(worker: dict[str, Any]) -> None:
+    cached = worker.get("_availability") or {}
+    received = float(worker.get("_availability_received_monotonic") or 0)
+    if (received and 0 <= time.monotonic() - received <= 30 and cached.get("declaredJobPaths") is True
+            and cached.get("runtimeVersion") == RUNTIME_VERSION):
+        return
+    base_url = str(worker.get("local_agent_url") or "").rstrip("/")
+    if not base_url:
+        raise ValueError("WORKER_PROTOCOL_UNVERIFIED: refresh/deploy matching Agent and Scheduler before submission")
+    with urllib.request.urlopen(base_url + "/api/capabilities", timeout=5) as response:
+        capability = json.loads(response.read(1024 * 1024).decode("utf-8"))
+    if capability.get("endpoints", {}).get("declaredJobPaths") is not True or capability.get("runtimeVersion") != RUNTIME_VERSION:
+        raise ValueError("WORKER_PROTOCOL_INCOMPATIBLE: deploy matching Agent and Scheduler before submission")
 
 
 def is_terminal_worker_command_event(event: dict[str, Any]) -> bool:
@@ -3411,9 +3689,19 @@ def launch_experiment(worker: dict[str, Any], plan: str, experiment_index: int, 
     command_id = session
     output_dir_text = str(output_dir or "").replace("\\", "/").strip()
     config_path_text = output_dir_text.rstrip("/") + "/job_config.yaml" if output_dir_text else ""
+    loaded = load_plan(plan)
+    _, declared_jobs = build_jobs(loaded, default_result_csv_dir)
+    declared_job = next((job for job in declared_jobs if job.index == experiment_index), None)
+    if not declared_job or declared_job.output_dir != output_dir_text:
+        raise ValueError("FORMAL_JOB_DECLARATION_CHANGED: Hub dispatch output")
     enqueue_worker_command(worker, {
         "action": "start-worker-task",
         "commandId": command_id,
+        "resultPathPolicy": "declared", "globalJobId": str(workflow_id) + ":" + str(experiment_index),
+        "collectionResultCsv": declared_job.result_csv, "checkpointSource": declared_job.config.get("runtime", {}).get("checkpoint_source"),
+        "checkpointTestOnly": mode == "test" and plan_execution_mode(loaded) == "train_test",
+        "planRevision": hashlib.sha256(Path(plan).read_bytes()).hexdigest(),
+        "codeFingerprint": formal_source_fingerprint(Path.cwd()),
         "runKey": command_id,
         "session": session,
         "projectDir": project_dir,
@@ -3427,6 +3715,7 @@ def launch_experiment(worker: dict[str, Any], plan: str, experiment_index: int, 
         **({"experimentCase": str(case_name)} if case_name else {}),
         "seed": seed,
         "mode": mode,
+        "executionMode": plan_execution_mode(loaded),
         "stage": mode,
         "condaEnv": conda_env,
         "logPath": raw_log.as_posix(),
@@ -3594,6 +3883,7 @@ def main() -> None:
     parser.add_argument("--sync-state", action="store_true")
     parser.add_argument("--state-path", default="")
     parser.add_argument("--run-job", action="store_true")
+    parser.add_argument("--formal-job-preflight", action="store_true")
     parser.add_argument("--print-job-dir", action="store_true")
     parser.add_argument("--validate-plan", action="store_true")
     parser.add_argument("--dry-run-plan", action="store_true")
@@ -3638,9 +3928,11 @@ def main() -> None:
     args = parser.parse_args()
     _SCHEDULER_ARGS_FOR_GUARD = args
     args.default_result_csv_dir = normalize_default_result_csv_dir(args.default_result_csv_dir)
+    if args.formal_job_preflight:
+        print(json.dumps(formal_job_preflight_mode(args), ensure_ascii=False))
+        return
     if args.debug_mode:
-        args.debug_run_id = str(args.debug_run_id or args.operation_id or f"debug-{int(time.time())}")
-        args.debug_output_dir = str(args.debug_output_dir or debug_run_root(args.plan or "plan", args.debug_run_id))
+        raise SystemExit("DRAFT_EXECUTION_RETIRED: use a formal PLAN job; dryRun remains read-only")
     AGENT_STATE_DIR = str(args.agent_state_dir or os.environ.get("SIMPLE_EXPERIMENT_AGENT_STATE_DIR", "")).strip()
     if getattr(args, "check_existing", False):
         if not args.plan:
@@ -3827,7 +4119,7 @@ def main() -> None:
 
     def state_payload(error: str = "") -> dict[str, Any]:
         operation_id = str(getattr(args, "operation_id", "") or "").strip()
-        attempt_id = str(getattr(args, "op_id", "") or operation_id).strip()
+        command_id = str(getattr(args, "op_id", "") or operation_id).strip()
         return {
             "plan": args.plan,
             "cleanupOwner": {
@@ -3836,7 +4128,7 @@ def main() -> None:
                 "planFile": str(args.plan or "").replace("\\", "/"),
                 "operationId": operation_id,
                 "runId": operation_id,
-                "attemptId": attempt_id,
+                "commandId": command_id,
                 "purpose": "scheduler-state",
                 "statePath": str(state_path.resolve()).replace("\\", "/"),
             },
@@ -3884,7 +4176,7 @@ def main() -> None:
             "projectRoot": str(Path.cwd().resolve()),
             "planFile": str(args.plan or "").replace("\\", "/"),
             "runId": str(getattr(args, "op_id", "") or operation_id),
-            "attemptId": str(item.get("session") or item.get("command_id") or item.get("commandId") or ""),
+            "commandId": str(item.get("session") or item.get("command_id") or item.get("commandId") or ""),
             "workerId": str(worker.get("id") or ""),
             "experimentIndex": int(item.get("experiment_index", -1)),
             "outputDir": output_dir,

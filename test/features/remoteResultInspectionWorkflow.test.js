@@ -25,6 +25,7 @@ function loadHelpers() {
     path,
     crypto,
     ProjectResultTables: require("../../dist/results/ProjectResultTables.js"),
+    WrapperResultBundle: require("../../dist/results/WrapperResultBundle.js"),
     FileTransferTypes_1: { isSafeRemotePath },
     normalizePlanSelectionKey: (value) => String(value || "").trim().replace(/\\/g, "/"),
     operationResultPlanFile(item) {
@@ -75,14 +76,16 @@ test("remote result inspection accepts only lightweight project files", () => {
     "metrics_summary.csv",
     "work_dirs/smoke/metrics_summary.csv",
     "outputs/eval/metrics.json",
+    "outputs/plot.png",
     "reports/run/summary.txt",
     "logs/run/stdout.log",
     "artifacts/eval/output.out",
     "simple_cluster/results/by_plan/demo/final.md",
+    "tmp/result/quality_composition/official/pad_reference/one/seed42/metrics.csv",
   ]) {
     assert.equal(helpers.normalizeRemoteResultInspectionPath(file), file);
   }
-  for (const file of ["/etc/passwd", "../metrics.csv", "work_dirs/model.pt", "outputs/plot.png", "reports/id_rsa.txt", "logs/key.pem"]) {
+  for (const file of ["/etc/passwd", "../metrics.csv", "work_dirs/model.pt", "reports/id_rsa.txt", "logs/key.pem", "tmp/plan/draft.yaml", "tmp/cache/metrics.csv", "tmp/result/../metrics.csv"]) {
     assert.equal(helpers.normalizeRemoteResultInspectionPath(file), "");
   }
   const local = helpers.remoteResultInspectionLocalRelativePath("work_dirs/smoke/metrics_summary.csv", "experiments/plans/smoke.yaml", "2026-07-17T12:34:56.000Z");
@@ -163,7 +166,7 @@ test("remote result inspection is authorized by the matching Plan contract opera
   };
   assert.deepEqual(
     Array.from(helpers.remoteResultInspectionCandidates([operations], "experiments/plans/smoke.yaml")),
-    ["work_dirs/smoke/metrics_summary.csv", "outputs/smoke/metrics.json"]
+    ["work_dirs/smoke/metrics_summary.csv", "outputs/smoke/metrics.json", "outputs/smoke/plot.png"]
   );
   assert.deepEqual(Array.from(helpers.remoteResultInspectionCandidates([operations], "experiments/plans/missing.yaml")), []);
   operations.latestSuccess = {
@@ -210,17 +213,18 @@ test("generated result artifacts are authorized only by the matching Plan summar
   assert.deepEqual(Array.from(helpers.resultSummaryInspectionCandidates(summary, "experiments/plans/other.yaml")), []);
 });
 
-test("extension and workbench expose a confirmed download-and-open path", () => {
+test("extension and workbench expose confirmed memory-only result inspection", () => {
   assert.match(extension, /case "downloadRemoteResult":\s*await this\.downloadRemoteResultFromUi\(message\)/);
   const download = extension.match(/async downloadRemoteResultFromUi\(message\)[\s\S]*?async openResultArtifactFromUi/)?.[0] || "";
   assert.match(download, /const generation = this\.projectContextGeneration/);
   assert.match(download, /const client = this\.client/);
-  assert.ok([...download.matchAll(/generation !== this\.projectContextGeneration \|\| root !== workspaceRoot\(\) \|\| client !== this\.client/g)].length >= 4);
-  assert.ok(download.indexOf("sync.downloadMappedPaths") < download.indexOf("await this.openWorkspaceFileForProjectContext(localRelative"));
+  assert.ok([...download.matchAll(/generation !== this\.projectContextGeneration \|\| root !== workspaceRoot\(\) \|\| client !== this\.client/g)].length >= 3);
+  assert.ok(download.indexOf("downloadMetricMemoryBatch") < download.indexOf("vscode.workspace.openTextDocument"));
   assert.match(extension, /remoteResultInspectionCandidates\(\[this\.localOperations, this\.lastRealtimeState\?\.operations\], planFile, version\.revision, version\.updatedAt\)/);
-  assert.match(extension, /showWarningMessage\(\[\s*"【远端结果查看确认】"[\s\S]*`远端来源：\$\{remotePath\}`[\s\S]*`本地副本：\$\{localPath\}`[\s\S]*\{ modal: true \}, "下载并打开"\)/);
-  assert.match(extension, /maxFileBytes: REMOTE_RESULT_INSPECTION_MAX_BYTES/);
-  assert.match(extension, /await this\.openWorkspaceFileForProjectContext\(localRelative, \{ generation, root \}, client\)/);
+  assert.match(download, /"【远端结果查看确认】"/);
+  assert.match(download, /临时读取并查看/);
+  assert.match(download, /resultInspection: true/);
+  assert.doesNotMatch(download, /fs\.mkdir|fs\.writeFile|overwrite: true|memoryOnly: false/);
   assert.doesNotMatch(extension.slice(extension.indexOf("async downloadRemoteResultFromUi"), extension.indexOf("async openAuditTail")), /openWorkspaceFile\(remotePath\)/);
   assert.match(panel, /downloadRemoteResult: \[\]/);
   assert.match(panel, /data-command="downloadRemoteResult" data-remote-path=/);
@@ -238,15 +242,16 @@ test("preview and effective CSV buttons open result artifacts without changing P
   assert.match(handler, /this\.filterResultsSummaryForPlan\(this\.resultsSummary, planFile\)/);
   assert.match(handler, /const projectContext = this\.captureProjectContext\(\)/);
   assert.match(handler, /const client = this\.client/);
-  assert.ok([...handler.matchAll(/isCurrent\(\)/g)].length >= 6);
+  assert.ok([...handler.matchAll(/isCurrent\(\)/g)].length >= 5);
   assert.match(handler, /resultSummaryInspectionCandidates\(summary, planFile\)/);
   assert.match(handler, /"【结果文件位置确认】"/);
   assert.match(handler, /`远端来源：\$\{artifactPath\}`/);
-  assert.match(handler, /`本机结果位置：\$\{localCopyPath\}`/);
+  assert.match(handler, /只读内存查看/);
   assert.match(handler, /methodResultArtifactLocalRelativePath\(artifactPath, planFile, summary, this\.resultCsvDirectory \|\| DEFAULT_RESULT_CSV_DIR/);
   assert.match(handler, /owned\.finalCsvPath, owned\.finalMarkdownPath/);
   assert.doesNotMatch(handler, /experiments\/simple_project\.yaml/);
-  assert.match(handler, /maxFileBytes: RESULT_ARTIFACT_MAX_BYTES/);
+  assert.match(handler, /downloadMetricMemoryBatch/);
+  assert.doesNotMatch(handler.slice(0, handler.indexOf("async syncAllResultArtifactsFromUi")), /fs\.mkdir|fs\.writeFile|memoryOnly: false|overwrite: true/);
   assert.match(handler, /await this\.openWorkspaceFileForProjectContext\(localRelative, projectContext, client\)/);
   const opener = extension.slice(extension.indexOf("async openWorkspaceFileForProjectContext"), extension.indexOf("async openWorkspaceFolderForContinuation"));
   assert.match(opener, /const editorUri = workspaceEditorUriForFile\(file\)/);
@@ -266,7 +271,7 @@ test("Plan concise table is the primary result entry with scoped explanations", 
   assert.match(panel, /data-command="openLocalResultTable"/);
   assert.match(panel, /查看共享产物/);
   assert.doesNotMatch(panel, /resultFileButton\("查看简洁汇总 CSV"/);
-  assert.match(panel, /同步当前 Plan 原始与详细表/);
+  assert.match(panel, /更新当前 Plan 指标表/);
   assert.doesNotMatch(panel, /data-details-key="result-trace-files"/);
   assert.doesNotMatch(panel, /原始数据与详细追溯/);
   assert.match(panel, /data-details-key="result-split-tables"/);
@@ -274,14 +279,13 @@ test("Plan concise table is the primary result entry with scoped explanations", 
   assert.match(panel, /重建当前 Plan 汇总/);
 });
 
-test("bulk sync uses one action, one overwrite decision and one mapped transfer per source", () => {
-  const handler = extension.slice(extension.indexOf("async syncAllResultArtifactsFromUi"), extension.indexOf("async editResultColumnMappingFromUi"));
-  assert.match(extension, /case "syncAllResultArtifacts":\s*await this\.withManualResultSync\(\(\) => this\.syncAllResultArtifactsFromUi\(message\)\)/);
+test("current Plan sync delegates to the scoped verified metric rebuild without saving raw copies", () => {
+  const handler = extension.slice(extension.indexOf("async syncAllResultArtifactsFromUi"), extension.indexOf("async syncPendingResultMetricsFromUi"));
+  assert.match(extension, /case "syncAllResultArtifacts":\s*return this\.withManualResultSync\(\(\) => this\.syncAllResultArtifactsFromUi\(message\)\)/);
   assert.match(panel, /data-command="syncAllResultArtifacts" data-plan-file=/);
-  assert.match(handler, /resultSummarySyncCandidates\(summary, planFile\)/);
-  assert.match(handler, /methodResultArtifactLocalRelativePath\(remotePath, planFile, summary/);
-  assert.match(handler, /if \(existingCount && !options\.missingOnly\) \{/);
-  assert.match(handler, /sync\.downloadMappedPaths/);
+  assert.match(handler, /resolveSelectedPlanFile/);
+  assert.match(handler, /if \(!planFile\) throw new Error/);
+  assert.match(handler, /return this\.rebuildProjectResultTablesFromUi\(\{ planFiles: \[planFile\]/);
   assert.doesNotMatch(handler, /client\.downloadWorkerFile\(|client\.downloadFile\(/);
   assert.doesNotMatch(handler, /selectPlanFromUi|this\.selectedPlanId\s*=/);
 });

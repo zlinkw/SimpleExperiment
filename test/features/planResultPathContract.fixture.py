@@ -25,7 +25,7 @@ if sys.argv[1] == "--generic":
                     "paper": {"result_csv": "tmp/result/quality_composition/{case}/seed{seed}/metrics.csv"},
                     "runner": {"test_command": "python test.py --result-csv {result_csv}"}, "cases": [{"case": "one"}]}
     _, virtual_jobs = scheduler.build_jobs(virtual_plan)
-    resolved = [scheduler.bind_execution_result_paths(item, item.output_dir + "/attempts/run-one") for item in virtual_jobs]
+    resolved = [scheduler.bind_execution_result_paths(item, item.output_dir) for item in virtual_jobs]
     assert len({item.result_csv for item in resolved}) == 2
     assert scheduler.result_path_preflight(project, virtual_jobs)["ok"]
     for item in resolved:
@@ -47,7 +47,7 @@ plan = scheduler.load_plan(plan_file)
 _, jobs = scheduler.build_jobs(plan)
 captured = []
 args = SimpleNamespace(debug_mode=False, plan=plan_file, mode="", only_index=0, worker_id="fixture", gpu_ids="",
-                       default_result_csv_dir="experiments/results", output_dir_override=jobs[0].output_dir + "/attempts/replay-one")
+                       default_result_csv_dir="experiments/results", output_dir_override=jobs[0].output_dir)
 with patch.object(scheduler, "run_job", lambda job, args: captured.append(job)), \
      patch.dict(os.environ, {"SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS": "1"}), contextlib.redirect_stdout(io.StringIO()):
     scheduler.run_job_mode(args)
@@ -90,15 +90,18 @@ result["quality_plan_preflights"] = {}
 for filename in sorted((project / "experiments/plans/quality_composition").rglob("*.yaml")):
     _, other_jobs = scheduler.build_jobs(scheduler.load_plan(filename.relative_to(project).as_posix()))
     result["quality_plan_preflights"][filename.relative_to(project).as_posix()] = scheduler.result_path_preflight(project, other_jobs)
-relocated = [scheduler.bind_execution_result_paths(item, item.output_dir + "/attempts/replay-one") for item in jobs]
-retry = scheduler.bind_execution_result_paths(jobs[0], jobs[0].output_dir + "/attempts/replay-two")
-result["isolated_csvs"] = [item.result_csv for item in relocated] + [retry.result_csv]
-result["collection_csvs"] = [item.config["runtime"]["result_path_contract"]["collection_result_csv"] for item in relocated] + [retry.result_csv]
+relocated = [scheduler.bind_execution_result_paths(item, item.output_dir) for item in jobs]
+result["isolated_csvs"] = [item.result_csv for item in relocated]
+result["collection_csvs"] = [item.config["runtime"]["result_path_contract"]["collection_result_csv"] for item in relocated]
+try:
+    scheduler.bind_execution_result_paths(jobs[0], jobs[0].output_dir + "/attempts/replay-two")
+except ValueError as exc:
+    result["attempt_rejection"] = str(exc)
 result["shared_preflight"] = scheduler.result_path_preflight(project, [job, job], include_attempt=False)
-literal = scheduler.replace(jobs[0], test_command="python test.py --result-csv " + jobs[0].result_csv)
+literal = scheduler.replace(jobs[0], test_command="python test.py --result-csv stale.csv")
 result["literal_preflight"] = scheduler.result_path_preflight(project, [literal])
 cwd_job = scheduler.replace(job, working_directory="experiments")
-cwd_job = scheduler.bind_execution_result_paths(cwd_job, jobs[0].output_dir + "/attempts/replay-one")
+cwd_job = scheduler.bind_execution_result_paths(cwd_job, jobs[0].output_dir)
 cwd_command = scheduler.render_command(cwd_job.test_command, cwd_job, pathlib.Path(cwd_job.output_dir) / "job_config.yaml", args)
 result["cwd_csv"] = cwd_command[cwd_command.index("--result-csv") + 1]
 result["cwd_config_csv"] = cwd_job.config["test"]["results_csv"]
@@ -166,7 +169,7 @@ manifest_ns["write_artifact_manifest"](pathlib.Path(job.output_dir) / "artifact_
     metrics_summary_path=job.output_dir + "/metrics_summary.csv", extra_artifacts={"result_csv": job.result_csv})
 
 rejections = []
-for mutation in ("shared", "escape", "unbound", "pressure", "config_mismatch"):
+for mutation in ("shared", "escape", "pressure", "config_mismatch"):
     altered = copy.deepcopy(job.config)
     target = job.result_csv
     if mutation == "shared":
@@ -192,7 +195,7 @@ result["guard_rejections"] = rejections
 
 # Formal PLAN + tmp/result never invokes the retained legacy draft snapshot.
 agent = extract_runtime_functions(str(runtime.parent / "cluster_agent.py"), ["prepare_draft_run_plan"])
-with patch.object(agent, "materialize_draft_snapshot", lambda *a: (_ for _ in ()).throw(AssertionError("draft snapshot called"))):
+with patch.object(agent, "materialize_draft_snapshot", lambda *a: (_ for _ in ()).throw(AssertionError("draft snapshot called")), create=True):
     result["execution_plan"] = agent.prepare_draft_run_plan(str(project), plan_file, False)
 
 # Verify an unchanged PLAN still declares tmp/result, and preflight makes zero
