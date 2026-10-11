@@ -119,12 +119,13 @@ with patch.object(agent, "cluster_scheduler_path", lambda _: str(runtime / "clus
                     {**command, "overwriteExisting": True},
                     {**command, "checkpointSource": {"checkpoint_sha256": "changed"}}):
         try:
-            agent.accept_durable_plan_job(str(root), mutated, "worker")
+            rejected = agent.accept_durable_plan_job(str(root), mutated, "worker")
         except ValueError:
             pass
         else:
-            raise AssertionError("unsafe or conflicting message accepted")
-    assert len(queue["jobs"]) == 1
+            assert rejected["durableAccepted"] is False and rejected["admissionRejected"] is True
+            assert rejected["neverStarted"] and rejected["status"] == "failed"
+    assert len([row for row in queue["jobs"] if row["status"] == "queued"]) == 1
 
 def fails(callback, token):
     try:

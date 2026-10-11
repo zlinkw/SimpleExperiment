@@ -75,6 +75,7 @@ exports.remoteTaskMatchesJob = remoteTaskMatchesJob;
 exports.hasLegacyOwnership = hasLegacyOwnership;
 exports.resetUnsentDispatch = resetUnsentDispatch;
 exports.resetBusyRejectedDispatch = resetBusyRejectedDispatch;
+exports.applyPreflightRejectedDispatch = applyPreflightRejectedDispatch;
 exports.retryPinnedDispatch = retryPinnedDispatch;
 exports.releaseQueuedForReassignment = releaseQueuedForReassignment;
 exports.isExactQueuedReleaseProof = isExactQueuedReleaseProof;
@@ -383,6 +384,12 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
             const status = durableStatus(task.status);
             if (!status || String(task.projectId || "") !== projectId || String(task.workerId || snapshot.workerId) !== snapshot.workerId)
                 continue;
+            if (task.durableAccepted === false && !preflightRejectionEvidence(task))
+                continue;
+            const localPlan = queue.plans.find(plan => plan.id === task.workflowId);
+            const localJob = localPlan?.jobs.find(job => job.index === Number(task.experimentIndex));
+            if (preflightRejectionEvidence(task) && localPlan && localJob && !preflightRejectionMatchesJob(localPlan, localJob, task))
+                continue;
             if (!String(task.workflowId || "") || !String(task.planFile || "") || !String(task.planRevision || "")
                 || !String(task.codeFingerprint || "") || !String(task.commandId || "") || !String(task.outputDir || "")
                 || String(task.runKey || "") !== String(task.commandId || "") || !String(task.enqueuedAt || "")
@@ -559,6 +566,9 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
                 ...(logBinding || {}),
                 ...(typeof task.finishedAt === "string" ? { finishedAt: task.finishedAt } : {}),
                 ...(typeof task.error === "string" ? { error: task.error } : {}),
+                ...(preflightRejectionEvidence(task) ? { admissionRejection: {
+                        code: String(task.errorCode), message: String(task.error || task.message), rejectedAt: String(task.finishedAt)
+                    } } : {}),
                 ...(typeof task.stopReason === "string" ? { stopReason: task.stopReason } : {}),
                 ...(terminalStatus ? { trustedTerminalStatus: terminalStatus } : {}),
                 ...(historicalRows.some((row) => Number(row.task.experimentIndex) === index) ? {
@@ -612,7 +622,13 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
         for (const job of plan.jobs)
             if (legacyReceipt(plan, job))
                 currentAcceptedIndices.add(job.index);
-        plan.remoteAcceptedJobCount = currentAcceptedIndices.size;
+        const remoteAcceptedIndices = new Set(rows.filter(row => row.task.durableAccepted !== false
+            && Number(row.task.attempt) === latestAttempts.get(Number(row.task.experimentIndex)))
+            .map(row => Number(row.task.experimentIndex)));
+        for (const job of plan.jobs)
+            if (legacyReceipt(plan, job))
+                remoteAcceptedIndices.add(job.index);
+        plan.remoteAcceptedJobCount = remoteAcceptedIndices.size;
         plan.recoveryMissingCount = distributedPlanRecoveryMissingCount(plan, currentAcceptedIndices);
         if (!countConflict && plan.recoveryConflict?.startsWith("Server summaries disagree on expected Plan job count"))
             delete plan.recoveryConflict;
@@ -631,7 +647,8 @@ function distributedSubmissionDisposition(plan) {
     const acceptedStatuses = new Set(["queued", "running", "completed", "failed", "cancelled"]);
     return { localQueued: Boolean(plan), durableAccepted: Boolean(plan && plan.jobs.length > 0
             && plan.jobs.length === Number(plan.planJobCount || plan.jobs.length) && !plan.recoveryConflict
-            && plan.jobs.every((job) => acceptedStatuses.has(job.status))),
+            && plan.jobs.every((job) => acceptedStatuses.has(job.status) && !job.admissionRejection)),
+        rejectedCount: plan?.jobs.filter(job => job.status === "failed" && job.admissionRejection).length || 0,
         pendingCount: plan?.jobs.filter((job) => job.status === "pending" && !job.workerId && !job.commandId).length || 0 };
 }
 function distributedSubmissionResult(plan, dispatchError = "") {
@@ -650,6 +667,9 @@ function distributedSubmissionProgress(submission) {
     if (submission.localQueued !== true)
         return { status: "failed", waiting: false,
             message: `本机未能确认保存调度意图：${submission.dispatchError || "状态未知"}。` };
+    if (Number(submission.rejectedCount || 0) > 0)
+        return { status: "failed", waiting: false,
+            message: `${submission.rejectedCount} 个 job 被 Worker 启动前预检拒绝，未启动训练。具体原因见 Plan 卡片；这些 job 不会自动重派。` };
     if (Number(submission.pendingCount || 0) > 0 || Boolean(submission.dispatchError)) {
         const pending = Number(submission.pendingCount || 0) > 0 ? ` ${submission.pendingCount} 个 job 保持未绑定，等待新鲜空闲 GPU。` : "";
         const detail = submission.dispatchError ? ` 状态核对仍有待处理项：${submission.dispatchError}。` : "";
@@ -915,6 +935,31 @@ function resetBusyRejectedDispatch(queue, dispatch, receipt) {
                 || !["dispatching", "unknown"].includes(job.status) ? job : { ...job, status: "pending", workerId: undefined,
                 gpuId: undefined, commandId: undefined, runKey: undefined, lastDispatchAttemptAt: undefined, dispatchAcknowledgedAt: undefined,
                 blockReason: "Worker confirmed the requested GPU was busy; awaiting fresh availability." }) }) };
+}
+function preflightRejectionEvidence(receipt) {
+    return receipt.durableAccepted === false && receipt.admissionRejected === true && receipt.status === "failed"
+        && receipt.reason === "formal_preflight_rejected" && receipt.neverStarted === true
+        && receipt.neverStartedEvidence === "formal_preflight_rejected" && receipt.resultPathPolicy === "declared"
+        && /^[A-Z][A-Z0-9_]{2,80}$/.test(String(receipt.errorCode || ""))
+        && Number.isFinite(Date.parse(String(receipt.finishedAt || ""))) && Boolean(receipt.error || receipt.message);
+}
+/** Only a durable, exact pre-execution rejection can resolve uncertain dispatch as failed. */
+function applyPreflightRejectedDispatch(queue, plan, job, receipt) {
+    if (!preflightRejectionMatchesJob(plan, job, receipt) || !["dispatching", "unknown"].includes(job.status))
+        return queue;
+    const rejection = { code: String(receipt.errorCode), message: String(receipt.error || receipt.message),
+        rejectedAt: String(receipt.finishedAt) };
+    return { ...queue, plans: queue.plans.map(row => row.id !== plan.id ? row : { ...row,
+            jobs: row.jobs.map(item => item.index !== job.index || item.commandId !== job.commandId ? item : {
+                ...item, status: "failed", trustedTerminalStatus: "failed", error: rejection.message,
+                admissionRejection: rejection, finishedAt: rejection.rejectedAt, blockReason: undefined,
+                dispatchAcknowledgedAt: new Date().toISOString(),
+            }) }) };
+}
+function preflightRejectionMatchesJob(plan, job, receipt) {
+    return preflightRejectionEvidence(receipt) && remoteTaskMatchesJob(plan, job, receipt)
+        && receipt.executionMode === plan.executionMode && receipt.globalJobId === job.globalJobId
+        && receipt.collectionResultCsv === job.collectionResultCsv;
 }
 function retryPinnedDispatch(queue, planId, jobIndex, snapshot, idleGpuIds, now = Date.now()) {
     const plan = queue.plans.find((row) => row.id === planId);

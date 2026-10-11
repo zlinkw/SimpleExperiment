@@ -79,3 +79,11 @@ resume 的配置/命令也必须指向同一个已核验 checkpoint。核对训�
 | planOutputRetention.test.js | 自动退休关闭，人工清理双确认和原父目录安全门禁保留 |
 
 构建另运行 14 项 Webview/清理消息桥测试及语法门禁，额外对 `dist/ui/PanelHtml.js` 运行 `vm.Script`。没有执行全套测试、真实训练、生产服务器检查、UI 点击验收或 Mac 验收。
+
+## 0.5.279 启动前拒绝回执
+
+`FORMAL_JOB_CONFLICT` 等启动前预检失败现在持久保存完整 job 身份、错误码、精确输出/结果路径、结束时间和 `neverStartedEvidence: formal_preflight_rejected`，返回 `failed`、`durableAccepted: false`、`admissionRejected: true`。首次派发、原 commandId 核查和重载后的 Worker 快照使用同一证据；不会将拒绝误报为持久接收，也不会一直显示待核实或自动重派。已接收的排队 job 在实际启动前发生路径冲突时也终止报错，代码同步等待仍保留原机制。
+
+只有完整且匹配的 Worker 回执可以终结待核实。普通 HTTP 错误、丢失回执、身份不一致继续保留原 owner。若 durable 行丢失而执行快照或 formal owner 仍证明该 command 曾执行，禁止伪造未启动证据。GPU 繁忙仍返回本机等待，不计为预检失败。界面显示训练未启动，禁止跳转到不存在的 TMUX 日志；已有权重、日志、结果和历史 attempts 保留，路径冲突仍需用户显式处理或修改正式 job 声明。
+
+需要 Windows 扩展与对应 Worker 的 Scheduler/Agent 一起更新到 0.5.279。本轮只读核验了 MultiModal 的本机状态及 Worker 回传快照，未部署 Worker、重启训练或清理目录。`preflightDispatchRejection.test.js` 回放提取的生产 Scheduler、Agent action、Host tick 和持久队列，覆盖首次拒绝、旧 unknown、重复提交、丢失响应、外来/不完整证据、GPU 繁忙和排队后冲突。

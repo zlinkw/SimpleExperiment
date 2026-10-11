@@ -43,6 +43,22 @@ test("failed job recall is compact, scoped to the exact attempt, and redraws rem
   sandbox.render(absent); assert.match(sandbox.html, /已核验不存在，无需移动/);
 });
 
+test("formal preflight rejection explains that training never started and disables nonexistent TMUX logs", () => {
+  const sandbox = clickSandbox();
+  const state = { distributedPlans: [{ id: "formal-run", planFile: "plans/formal.yaml", jobs: [{ index: 0,
+    case: "formal", seed: 42, status: "failed", workerId: "worker-a", commandId: "rejected-command", attempt: 0,
+    outputDir: "work_dirs/formal", error: "FORMAL_JOB_CONFLICT: work_dirs/formal",
+    admissionRejection: { code: "FORMAL_JOB_CONFLICT", message: "conflict", rejectedAt: "2026-10-12T00:00:00Z" } }] }] };
+  sandbox.render(state);
+  assert.match(sandbox.html, /启动前预检已拒绝此 job，训练未开始，不会自动重派/);
+  assert.match(sandbox.html, /worker-a · 未启动/);
+  assert.match(sandbox.html, /data-job-tmux-log="1"[^>]* disabled/);
+  assert.doesNotMatch(sandbox.html, /这是已提交 job 的失败|data-command="recallFailedJob"/);
+  const updated = structuredClone(state);
+  updated.distributedPlans[0].jobs[0].admissionRejection.code = "FORMAL_JOB_DECLARATION_CHANGED";
+  assert.notEqual(sandbox.executionRenderKeysForState(updated).planList, sandbox.executionRenderKeysForState(state).planList);
+});
+
 test("completed Plan history keeps explicit expansion across status refreshes, count changes and recreation", () => {
   const sandbox = clickSandbox({ detailsOpenState: {}, persistTransientPanelState: () => {} });
   vm.runInContext(extract("detailsOpenAttr", "scheduleStatusInfoPopoverClose"), sandbox);

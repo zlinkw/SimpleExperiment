@@ -2167,7 +2167,8 @@ def formal_job_preflight(job: Job, identity: dict[str, Any], mode: str) -> dict[
     directory = Path(job.output_dir)
     existing = directory.exists() and any(item.name != ".formal_job.lock" for item in directory.iterdir())
     if existing or Path(job.result_csv).exists():
-        raise ValueError("FORMAL_JOB_CONFLICT: existing output/checkpoint/result belongs to an unfinished or different writer; review/clean explicitly or declare a different job")
+        raise ValueError("FORMAL_JOB_CONFLICT: existing output/checkpoint/result belongs to an unfinished or different writer; "
+                         "review explicitly or declare a different job; output=" + job.output_dir + "; result=" + job.result_csv)
     if mode == "test" or job.config.get("runtime", {}).get("checkpoint_source"):
         formal_checkpoint_source(job, identity, mode)
         return {"identity": expected, "checkpointVerified": True}

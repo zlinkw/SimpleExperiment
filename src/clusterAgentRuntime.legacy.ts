@@ -2734,12 +2734,13 @@ def durable_plan_public_identity(row):
 def durable_plan_public_task(row):
     public = {**durable_plan_public_identity(row), "planJobCount": row.get("planJobCount"), "fullPlanJobCount": row.get("fullPlanJobCount"),
               "enqueuedAt": row.get("enqueuedAt"), "status": str(row.get("status") or "unknown").lower(),
-              "durableAccepted": True, "acceptedAt": row.get("acceptedAt"), "gpuId": row.get("gpuId") or "",
+              "durableAccepted": row.get("durableAccepted") is not False, "acceptedAt": row.get("acceptedAt"), "gpuId": row.get("gpuId") or "",
               "schedulingMode": row.get("schedulingMode") or "local_idle"}
     for key in ("mode", "executionMode", "executionModeSource", "resultPathPolicy", "globalJobId", "collectionResultCsv", "checkpointSource"):
         if row.get(key) is not None:
             public[key] = row.get(key)
-    for key in ("finishedAt", "cancelledAt", "stopReason", "error", "exitCode", "identityConflict", "lastDispatchResult", "trainingRecovery", "originalExecution"):
+    for key in ("finishedAt", "cancelledAt", "stopReason", "error", "exitCode", "identityConflict", "lastDispatchResult", "trainingRecovery", "originalExecution",
+                "admissionRejected", "reason", "errorCode", "message", "neverStarted", "neverStartedEvidence"):
         if row.get(key) is not None:
             public[key] = row.get(key)
     if (public["status"] == "cancelled" and row.get("stopReason") == "requeue"
@@ -3071,6 +3072,19 @@ def _durable_gpu_busy_reason(root, gpu_id, command_id, gpus=None, util_threshold
         return "gpu_busy"
     return ""
 
+def durable_plan_preflight_failure(command, exc, accepted=False):
+    # Called only before execution: a traceback/HTTP error alone is never launch evidence.
+    lines = [line.strip() for line in str(exc).splitlines() if line.strip()]
+    message = (lines[-1] if lines else "FORMAL_JOB_PREFLIGHT_FAILED")[:2000]
+    message = re.sub(r"^(?:ValueError|RuntimeError|SystemExit):\s*", "", message)
+    code = message.split(":", 1)[0]
+    if not re.fullmatch(r"[A-Z][A-Z0-9_]{2,80}", code):
+        code = "FORMAL_JOB_PREFLIGHT_FAILED"
+    return {**command, "status": "failed", "durableAccepted": bool(accepted),
+            "admissionRejected": not accepted, "reason": "formal_preflight_rejected", "errorCode": code,
+            "error": message, "message": message, "finishedAt": now_iso(),
+            "neverStarted": True, "neverStartedEvidence": "formal_preflight_rejected"}
+
 def accept_durable_plan_job(root, command, worker_id):
     identity = durable_plan_identity(command)
     missing = [key for key in DURABLE_PLAN_IDENTITY_FIELDS if identity.get(key) in (None, "")]
@@ -3136,16 +3150,31 @@ def accept_durable_plan_job(root, command, worker_id):
                     signal_durable_plan_queue_processor(root, worker_id)
                 except Exception:
                     pass
-            return {**durable_plan_public_identity(old), "planJobCount": old.get("planJobCount"), "enqueuedAt": old.get("enqueuedAt"),
-                    "gpuId": old.get("gpuId") or "", "status": status, "durableAccepted": True,
-                    "message": "Agent 已持久接收该 job"}
-        if any(item.get("outputDir") == output_dir and item.get("commandId") != identity["commandId"]
-               and item.get("status") in ("queued", "dispatching", "running", "unknown") for item in data["jobs"]):
-            raise ValueError("FORMAL_JOB_ACTIVE_WRITER: declared job directory already queued")
-        if any(item.get("collectionResultCsv") == command.get("collectionResultCsv") and item.get("commandId") != identity["commandId"]
-               and item.get("status") in ("queued", "dispatching", "running", "unknown") for item in data["jobs"]):
-            raise ValueError("FORMAL_JOB_ACTIVE_WRITER: declared CSV already queued")
-        verified_formal_job_command(root, command)
+            return {**durable_plan_public_task(old), "message": old.get("message") or "Agent 已持久接收该 job"}
+        # A missing durable row cannot prove a prior command never ran.
+        snapshot = read_json(path_for(root, "worker_task_snapshot.json"), {})
+        if any(str(item.get("commandId") or "") == identity["commandId"] for item in snapshot.get("tasks", []) if isinstance(item, dict)):
+            raise ValueError("FORMAL_JOB_RECEIPT_UNCERTAIN: command already has execution evidence; reconcile without redispatch")
+        owner = read_json(safe_project_path(root, output_dir + "/formal_job_owner.json"), {})
+        if owner.get("commandId") == identity["commandId"]:
+            raise ValueError("FORMAL_JOB_RECEIPT_UNCERTAIN: command already has a formal writer owner; reconcile without redispatch")
+        try:
+            if any(item.get("outputDir") == output_dir and item.get("commandId") != identity["commandId"]
+                   and item.get("status") in ("queued", "dispatching", "running", "unknown") for item in data["jobs"]):
+                raise ValueError("FORMAL_JOB_ACTIVE_WRITER: declared job directory already queued")
+            if any(item.get("collectionResultCsv") == command.get("collectionResultCsv") and item.get("commandId") != identity["commandId"]
+                   and item.get("status") in ("queued", "dispatching", "running", "unknown") for item in data["jobs"]):
+                raise ValueError("FORMAL_JOB_ACTIVE_WRITER: declared CSV already queued")
+            verified_formal_job_command(root, command)
+            mode = verified_durable_execution_mode(root, command)
+        except Exception as exc:
+            # Persist a terminal audit before returning, so a lost response/reload is recoverable.
+            row = durable_plan_preflight_failure({**command, **identity, "schemaVersion": 1,
+                "planJobCount": count, "fullPlanJobCount": full_count, "enqueuedAt": enqueued_at,
+                "gpuId": requested_gpu}, exc)
+            data["jobs"].append(row)
+            write_durable_plan_queue(root, data)
+            return durable_plan_public_task(row)
         if require_idle_gpu:
             try:
                 gpus, gpu_error = collect_local_gpu()
@@ -3162,7 +3191,6 @@ def accept_durable_plan_job(root, command, worker_id):
                         "durableAccepted": False, "admissionRejected": True, "reason": "gpu_busy",
                         "message": "指定 GPU 当前繁忙，任务未持久接收"}
         row = dict(command)
-        mode = verified_durable_execution_mode(root, command)
         row.update(identity)
         row.update({"schemaVersion": 1, "planJobCount": count, "fullPlanJobCount": full_count, "enqueuedAt": enqueued_at,
                     "workerId": str(worker_id), "status": "queued", "acceptedAt": now_iso(),
@@ -3619,7 +3647,6 @@ def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None,
         try:
             proof = resolve_durable_code_sync_proof(root, row)
             execution_mode = verified_durable_execution_mode(root, row)
-            admission = verified_formal_job_command(root, row)
         except Exception as exc:
             message = str(exc)
             with WORKER_TASK_SNAPSHOT_LOCK:
@@ -3631,6 +3658,21 @@ def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None,
                     append_event(root, {"type": "distributed_plan_code_wait", "workerId": worker_id,
                                         "operationId": row.get("commandId"), "payload": {"error": message}})
             continue
+        try:
+            admission = verified_formal_job_command(root, row)
+        except Exception as exc:
+            with WORKER_TASK_SNAPSHOT_LOCK:
+                latest = read_durable_plan_queue(root)
+                current = next((item for item in latest["jobs"] if item.get("commandId") == row.get("commandId")), None)
+                if current and current.get("status") == "queued" and durable_plan_same_identity(current, row):
+                    current.update(durable_plan_preflight_failure(current, exc, accepted=True))
+                    current.pop("codeBlocked", None)
+                    write_durable_plan_queue(root, latest)
+                    release_distributed_gpu_reservation(str(current.get("gpuId") or ""), str(current.get("commandId") or ""))
+                    append_event(root, {"type": "distributed_plan_job_preflight_failed", "workerId": worker_id,
+                        "operationId": row.get("commandId"), "payload": durable_plan_public_task(current)})
+                    dispatched.append(durable_plan_public_task(current))
+            continue
         if admission.get("completed") is True:
             with WORKER_TASK_SNAPSHOT_LOCK:
                 latest = read_durable_plan_queue(root)
@@ -3638,6 +3680,7 @@ def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None,
                 if current and current.get("status") == "queued" and durable_plan_same_identity(current, row):
                     current.update({"status": "completed", "finishedAt": now_iso(), "exitCode": 0})
                     write_durable_plan_queue(root, latest)
+                    release_distributed_gpu_reservation(str(current.get("gpuId") or ""), str(current.get("commandId") or ""))
                     append_worker_task(root, durable_plan_public_task(current))
                     dispatched.append(durable_plan_public_task(current))
             continue
@@ -12958,10 +13001,8 @@ def handle_action(root, action, payload, operation_id, op_id):
                     "action": action, **result}
         if action == "start-worker-task" and result.get("admissionRejected") is True:
             details = action_event_fields(result, payload)
-            append_event(root, {"type": "operation_progress", "operationId": operation_id,
-                                "payload": {"action": action, "opId": op_id, "status": "pending",
-                                            "message": str(result.get("message") or "GPU is busy"),
-                                            "reason": "gpu_busy", **details}})
+            append_event(root, {"type": "operation_failed" if result.get("status") == "failed" else "operation_progress", "operationId": operation_id,
+                                "payload": {"action": action, "opId": op_id, **details}})
             return {"schemaVersion": SCHEMA_VERSION, "opId": op_id, "operationId": operation_id,
                     "action": action, **result}
         if action == "start-worker-task" and result.get("durableAccepted") is True:

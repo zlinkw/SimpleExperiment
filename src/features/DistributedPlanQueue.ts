@@ -44,6 +44,7 @@ export type QueuedJob = {
   logPath?: string;
   historyLogIdentity?: { commandId: string; outputDir: string; runId: string };
   error?: string;
+  admissionRejection?: { code: string; message: string; rejectedAt: string };
   finishedAt?: string;
   artifacts?: Record<string, string>;
   fragmentWorkerIds?: string[];
@@ -405,6 +406,10 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
       const task: Record<string, unknown> = { ...rawTask, attempt: taskAttempt(rawTask) };
       const status = durableStatus(task.status);
       if (!status || String(task.projectId || "") !== projectId || String(task.workerId || snapshot.workerId) !== snapshot.workerId) continue;
+      if (task.durableAccepted === false && !preflightRejectionEvidence(task)) continue;
+      const localPlan = queue.plans.find(plan => plan.id === task.workflowId);
+      const localJob = localPlan?.jobs.find(job => job.index === Number(task.experimentIndex));
+      if (preflightRejectionEvidence(task) && localPlan && localJob && !preflightRejectionMatchesJob(localPlan, localJob, task)) continue;
       if (!String(task.workflowId || "") || !String(task.planFile || "") || !String(task.planRevision || "")
         || !String(task.codeFingerprint || "") || !String(task.commandId || "") || !String(task.outputDir || "")
         || String(task.runKey || "") !== String(task.commandId || "") || !String(task.enqueuedAt || "")
@@ -565,6 +570,8 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
         ...(logBinding || {}),
         ...(typeof task.finishedAt === "string" ? { finishedAt: task.finishedAt } : {}),
         ...(typeof task.error === "string" ? { error: task.error } : {}),
+        ...(preflightRejectionEvidence(task) ? { admissionRejection: {
+          code: String(task.errorCode), message: String(task.error || task.message), rejectedAt: String(task.finishedAt) } } : {}),
         ...(typeof task.stopReason === "string" ? { stopReason: task.stopReason } : {}),
         ...(terminalStatus ? { trustedTerminalStatus: terminalStatus } : {}),
         ...(historicalRows.some((row) => Number(row.task.experimentIndex) === index) ? {
@@ -614,7 +621,11 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
     const currentAcceptedIndices = new Set(rows.filter((row) => Number(row.task.attempt) === latestAttempts.get(Number(row.task.experimentIndex)))
       .map((row) => Number(row.task.experimentIndex)));
     for (const job of plan.jobs) if (legacyReceipt(plan, job)) currentAcceptedIndices.add(job.index);
-    plan.remoteAcceptedJobCount = currentAcceptedIndices.size;
+    const remoteAcceptedIndices = new Set(rows.filter(row => row.task.durableAccepted !== false
+      && Number(row.task.attempt) === latestAttempts.get(Number(row.task.experimentIndex)))
+      .map(row => Number(row.task.experimentIndex)));
+    for (const job of plan.jobs) if (legacyReceipt(plan, job)) remoteAcceptedIndices.add(job.index);
+    plan.remoteAcceptedJobCount = remoteAcceptedIndices.size;
     plan.recoveryMissingCount = distributedPlanRecoveryMissingCount(plan, currentAcceptedIndices);
     if (!countConflict && plan.recoveryConflict?.startsWith("Server summaries disagree on expected Plan job count")) delete plan.recoveryConflict;
     if (planIndex < 0) plans.push(plan); else plans[planIndex] = plan;
@@ -631,7 +642,8 @@ export function distributedSubmissionDisposition(plan: QueuedPlan | undefined) {
   const acceptedStatuses = new Set<JobState>(["queued", "running", "completed", "failed", "cancelled"]);
   return { localQueued: Boolean(plan), durableAccepted: Boolean(plan && plan.jobs.length > 0
       && plan.jobs.length === Number(plan.planJobCount || plan.jobs.length) && !plan.recoveryConflict
-      && plan.jobs.every((job) => acceptedStatuses.has(job.status))),
+      && plan.jobs.every((job) => acceptedStatuses.has(job.status) && !job.admissionRejection)),
+    rejectedCount: plan?.jobs.filter(job => job.status === "failed" && job.admissionRejection).length || 0,
     pendingCount: plan?.jobs.filter((job) => job.status === "pending" && !job.workerId && !job.commandId).length || 0 };
 }
 
@@ -643,12 +655,14 @@ export function distributedSubmissionResult(plan: QueuedPlan | undefined, dispat
     ? unresolved.blockReason || "持久接收状态仍待核对" : "") };
 }
 
-export function distributedSubmissionProgress(submission: { enqueued?: boolean; localQueued?: boolean; pendingCount?: number; dispatchError?: string } | undefined) {
+export function distributedSubmissionProgress(submission: { enqueued?: boolean; localQueued?: boolean; pendingCount?: number; rejectedCount?: number; dispatchError?: string } | undefined) {
   if (!submission) return { status: "failed" as const, waiting: false, message: "本机未能确认保存调度意图：未返回提交记录。" };
   if (submission.enqueued === false) return { status: "succeeded" as const, waiting: false,
     message: "已有产物覆盖本次全部任务；按所选“跳过已有”处理，未创建新调度任务。" };
   if (submission.localQueued !== true) return { status: "failed" as const, waiting: false,
     message: `本机未能确认保存调度意图：${submission.dispatchError || "状态未知"}。` };
+  if (Number(submission.rejectedCount || 0) > 0) return { status: "failed" as const, waiting: false,
+    message: `${submission.rejectedCount} 个 job 被 Worker 启动前预检拒绝，未启动训练。具体原因见 Plan 卡片；这些 job 不会自动重派。` };
   if (Number(submission.pendingCount || 0) > 0 || Boolean(submission.dispatchError)) {
     const pending = Number(submission.pendingCount || 0) > 0 ? ` ${submission.pendingCount} 个 job 保持未绑定，等待新鲜空闲 GPU。` : "";
     const detail = submission.dispatchError ? ` 状态核对仍有待处理项：${submission.dispatchError}。` : "";
@@ -900,6 +914,34 @@ export function resetBusyRejectedDispatch(queue: DistributedQueue, dispatch: Dis
       || !["dispatching", "unknown"].includes(job.status) ? job : { ...job, status: "pending" as const, workerId: undefined,
         gpuId: undefined, commandId: undefined, runKey: undefined, lastDispatchAttemptAt: undefined, dispatchAcknowledgedAt: undefined,
         blockReason: "Worker confirmed the requested GPU was busy; awaiting fresh availability." }) }) };
+}
+
+function preflightRejectionEvidence(receipt: Record<string, unknown>): boolean {
+  return receipt.durableAccepted === false && receipt.admissionRejected === true && receipt.status === "failed"
+    && receipt.reason === "formal_preflight_rejected" && receipt.neverStarted === true
+    && receipt.neverStartedEvidence === "formal_preflight_rejected" && receipt.resultPathPolicy === "declared"
+    && /^[A-Z][A-Z0-9_]{2,80}$/.test(String(receipt.errorCode || ""))
+    && Number.isFinite(Date.parse(String(receipt.finishedAt || ""))) && Boolean(receipt.error || receipt.message);
+}
+
+/** Only a durable, exact pre-execution rejection can resolve uncertain dispatch as failed. */
+export function applyPreflightRejectedDispatch(queue: DistributedQueue, plan: QueuedPlan, job: QueuedJob,
+  receipt: Record<string, unknown>): DistributedQueue {
+  if (!preflightRejectionMatchesJob(plan, job, receipt) || !["dispatching", "unknown"].includes(job.status)) return queue;
+  const rejection = { code: String(receipt.errorCode), message: String(receipt.error || receipt.message),
+    rejectedAt: String(receipt.finishedAt) };
+  return { ...queue, plans: queue.plans.map(row => row.id !== plan.id ? row : { ...row,
+    jobs: row.jobs.map(item => item.index !== job.index || item.commandId !== job.commandId ? item : {
+      ...item, status: "failed" as const, trustedTerminalStatus: "failed" as const, error: rejection.message,
+      admissionRejection: rejection, finishedAt: rejection.rejectedAt, blockReason: undefined,
+      dispatchAcknowledgedAt: new Date().toISOString(),
+    }) }) };
+}
+
+function preflightRejectionMatchesJob(plan: QueuedPlan, job: QueuedJob, receipt: Record<string, unknown>): boolean {
+  return preflightRejectionEvidence(receipt) && remoteTaskMatchesJob(plan, job, receipt)
+    && receipt.executionMode === plan.executionMode && receipt.globalJobId === job.globalJobId
+    && receipt.collectionResultCsv === job.collectionResultCsv;
 }
 
 export function retryPinnedDispatch(queue: DistributedQueue, planId: string, jobIndex: number,

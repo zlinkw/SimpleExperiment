@@ -11336,6 +11336,14 @@ class RealtimeTunnelPanelProvider {
                                 throw new Error("Worker busy receipt did not match the complete persisted job identity");
                             queue = released;
                         }
+                        else if (receipt?.admissionRejected === true) {
+                            const rejected = DistributedPlanQueue.applyPreflightRejectedDispatch(queue, plan, job, receipt);
+                            if (rejected === queue)
+                                throw new Error("Worker preflight rejection did not match the complete persisted job identity");
+                            queue = rejected;
+                            newTerminal = true;
+                            this.recordActionError({ command: "distributedPlanQueue", message: `${plan.planFile} job ${job.index}：${receipt.message}` });
+                        }
                         else {
                             if (receipt?.durableAccepted !== true || String(receipt.commandId || "") !== retry.commandId
                                 || String(receipt.gpuId || "") !== retry.gpuId
@@ -11547,6 +11555,14 @@ class RealtimeTunnelPanelProvider {
                             if (released === queue)
                                 throw new Error("Worker busy receipt did not match the complete requested job identity");
                             queue = released;
+                        }
+                        else if (receipt?.admissionRejected === true) {
+                            const rejected = DistributedPlanQueue.applyPreflightRejectedDispatch(queue, plan, job, receipt);
+                            if (rejected === queue)
+                                throw new Error("Worker preflight rejection did not match the complete requested job identity");
+                            queue = rejected;
+                            newTerminal = true;
+                            this.recordActionError({ command: "distributedPlanQueue", message: `${plan.planFile} job ${job.index}：${receipt.message}` });
                         }
                         else {
                             if (receipt?.durableAccepted !== true || String(receipt.commandId || "") !== job.commandId
@@ -22764,7 +22780,7 @@ class RealtimeTunnelPanelProvider {
                 localQueueOnly: job.localQueueOnly === true, recallRequested: job.recallRequested === true,
                 recallOperationId: job.recallOperationId || "",
                 commandId: job.commandId, logPath: job.logPath, finishedAt: job.finishedAt, outputRetiredAt: job.outputRetiredAt,
-                error: job.error, blockReason: job.blockReason,
+                error: job.error, blockReason: job.blockReason, admissionRejection: job.admissionRejection,
                 artifactError: job.artifactError, mirroredWorkerIds: job.mirroredWorkerIds || [] })) }));
         const summaryInputs = {
             plans: [

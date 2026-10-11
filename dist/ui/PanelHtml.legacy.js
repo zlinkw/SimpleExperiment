@@ -14480,9 +14480,10 @@ function renderPanelHtml() {
           const blocked = status === "pending" && fingerprintBlocked(job);
           const jobActive = ["pending", "dispatching", "queued", "running", "unknown"].includes(status) && !blocked;
           const unavailable = job.unavailable && status === "cancelled";
+          const preflightRejected = Boolean(job.admissionRejection && status === "failed");
           const statusLabel = unavailable ? "不可用" : blocked ? (String(job.blockReason || "").indexOf("等待当前代码版本") === 0 ? "等待代码版本" : "代码版本不匹配") : retryView.label || ({ pending: "本机等待空卡", queued: "服务器排队", dispatching: "派发中", running: "运行中", completed: "已完成", failed: "失败", cancelled: "已中止", unknown: "待核实" }[status] || status);
-          const placement = job.workerId ? job.workerId + (job.gpuId == null || job.gpuId === "" ? "" : " · GPU " + job.gpuId) : "未派发";
-          const canJumpLog = Boolean(job.workerId && (job.commandId || job.outputDir));
+          const placement = job.workerId ? job.workerId + (preflightRejected ? " · 未启动" : job.gpuId == null || job.gpuId === "" ? "" : " · GPU " + job.gpuId) : "未派发";
+          const canJumpLog = Boolean(!preflightRejected && job.workerId && (job.commandId || job.outputDir));
           const logButton = '<button type="button" class="mini secondary" data-job-tmux-log="1" data-worker-id="' + escAttr(job.workerId || "") + '" data-command-id="' + escAttr(job.commandId || "") + '" data-output-dir="' + escAttr(job.outputDir || "") + '"' + (canJumpLog ? '' : ' disabled') + ' title="' + (canJumpLog ? '在 TMUX 区域选中该 Worker 的真实任务窗口标签' : '等待任务派发后定位对应的 TMUX 日志标签') + '">跳转到日志</button>';
           const errorText = String(job.artifactError || job.error || "").trim();
           const trainingRecoveryButton = status === "failed" && errorText.indexOf("Validation-only tuning cannot access test patients") >= 0
@@ -14503,7 +14504,9 @@ function renderPanelHtml() {
             : (failedCleanup.status === "blocked" ? "旧 attempt 已保留。" : "原 Worker 恢复后自动核验并移走旧失败 attempt。") + (failedCleanup.error ? " " + failedCleanup.error : "")) : "";
           const blockText = blocked ? String(job.blockReason || "") : "";
           const blockAdvice = blocked ? (blockText.indexOf("等待当前代码版本") === 0 ? "这个已提交 job 保留排队；其他 Worker 可运行匹配版本。被占用的 Worker 收到旧任务结束回执后自动释放版本锁，无需再次提交。" : "下一步：空闲 GPU 不能运行这份旧代码。到实验准备的 Plan 列表手动选中，再点“校验并提交运行”；或恢复提交前的代码并重新同步 Worker。") : "";
-          const jobNext = codeProofBlocked
+          const jobNext = preflightRejected
+            ? '<div class="muted">启动前预检已拒绝此 job，训练未开始，不会自动重派。请核对上面的输出与结果路径；保留已有权重和结果，显式处理冲突或修改正式 job 声明后再提交。</div>'
+            : codeProofBlocked
             ? '<div class="muted">启动前代码校验阻塞，训练尚未开始。部署并重启该 Worker 的 Agent 后刷新状态；原 job 保留排队，无需重新提交 Plan。校验仍未通过时，请核对 Worker 的对应代码版本。</div><button type="button" class="mini secondary" data-command="snapshot">刷新状态</button>'
             : failedRecallButton ? '<div class="muted">可召回这个失败 job 到本机排队重跑，其他 job 保持原状态。原 Worker 恢复后自动核验并将旧 attempt 移入 clean_dir。</div>'
             : errorText && !retryView.note && !unavailable
@@ -14721,6 +14724,7 @@ function renderPanelHtml() {
             gpuId: job.gpuId,
             commandId: job.commandId,
             blockReason: job.blockReason,
+            admissionRejection: job.admissionRejection,
             outputDir: job.outputDir,
             logPath: job.logPath,
             outputRetiredAt: job.outputRetiredAt,
