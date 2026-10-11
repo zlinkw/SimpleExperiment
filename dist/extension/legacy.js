@@ -1243,6 +1243,8 @@ class RealtimeTunnelPanelProvider {
     createLocalApiMethods() {
         return {
             "plans.cleanup.preview": params => this.planCleanupHost().service.preview(params),
+            "plans.cleanup.continue": params => this.planCleanupHost().service.continuePreview(String(params.operationId || ""), { verifiedOnly: params.verifiedOnly }),
+            "plans.cleanup.recheck": params => this.planCleanupHost().service.recheckNode(String(params.nodeId || "")),
             "plans.cleanup.list": () => this.planCleanupHost().service.list(),
             "plans.cleanup.confirm": params => this.planCleanupHost().service.confirm(params),
             "plans.cleanup.execute": params => this.planCleanupHost().execute(String(params.operationId || "")),
@@ -21662,6 +21664,9 @@ class RealtimeTunnelPanelProvider {
             if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             const cleanupConnectionKey = client.diagnostics().endpoints.map((endpoint) => `${endpoint.id}:${endpoint.streamStatus}`).join("|");
+            if (workspaceRoot())
+                void this.planCleanupHost().observeConnections(client.diagnostics().endpoints)
+                    .catch((error) => this.recordActionError({ command: "cleanupPlan.reconnect", message: errorMessage(error) }));
             if (cleanupConnectionKey !== this.cacheCleanupConnectionKey) {
                 this.cacheCleanupConnectionKey = cleanupConnectionKey;
                 this.cacheCleanupContextChanged.fire();

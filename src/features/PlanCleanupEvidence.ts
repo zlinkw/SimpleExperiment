@@ -4,7 +4,7 @@ import { createHash } from "node:crypto";
 import { planStaticConfigReferences } from "./PlanArchive";
 import { type DistributedQueue, canonicalProjectId } from "./DistributedPlanQueue";
 import { type PlanSyncLedger } from "./PlanArtifactSync";
-import { cleanupDigest, cleanupRelative, type CleanupScope, type CleanupNode, type CleanupCandidate } from "./PlanCleanup";
+import { cleanupDigest, cleanupRelative, type CleanupScope, type CleanupNode, type CleanupCandidate, type CleanupRemovedMetadata } from "./PlanCleanup";
 
 const terminal = new Set(["completed", "failed", "cancelled"]);
 const sha = (text: string) => createHash("sha256").update(text, "utf8").digest("hex");
@@ -15,7 +15,7 @@ export const cleanupStablePlanId = (text: string) => text.match(/^(?:plan_id|sta
 
 export type CleanupEvidenceInput = { root: string; planFile: string; queue: DistributedQueue; ledger: PlanSyncLedger;
   nodes: CleanupNode[]; snapshots: Array<{ workerId: string; tasks?: any[]; error?: string; generatedAt?: string; fetchedAt?: string }>;
-  operations?: any[]; registry?: any; extraEvidence?: CleanupCandidate[]; allowMissing?: boolean; archivedFiles?: Record<string, string> };
+  operations?: any[]; registry?: any; extraEvidence?: CleanupCandidate[]; allowMissing?: boolean; archivedFiles?: Record<string, string>; removedMetadata?: CleanupRemovedMetadata };
 
 async function literalPlans(root: string): Promise<Array<{ file: string; text: string }>> {
   const found: Array<{ file: string; text: string }> = [];
@@ -50,17 +50,26 @@ export async function collectPlanCleanupEvidence(input: CleanupEvidenceInput): P
     virtual.set(source, text);
     if (/^(?:experiments\/(?:plans|drafts)|tmp\/plan)\//.test(source)) plans.push({ file: source, text });
   }
+  const removed = input.removedMetadata;
+  for (const source of Object.keys(removed?.hashes || {})) {
+    cleanupRelative(source);
+    if (await fs.lstat(path.join(input.root, source)).then(() => true, (error: any) => { if (error.code === "ENOENT") return false; throw error; }))
+      throw new Error("SOURCE_RECREATED_OR_CHANGED");
+  }
+  for (const source of Object.keys(removed?.hashes || {})) if (/^(?:experiments\/(?:plans|drafts)|tmp\/plan)\//.test(source)
+    && !plans.some(row => sameFile(row.file, source))) plans.push({ file: source, text: "" });
+  const planSha = (row: { file: string; text: string }) => removed?.hashes[row.file] || sha(row.text);
   const current = plans.find(row => sameFile(row.file, file));
   if (!current && !input.allowMissing) throw new Error("PLAN_NOT_FOUND");
   const stable = current && cleanupStablePlanId(current.text);
-  const planKey = cleanupDigest([projectId, stable || file]);
+  const planKey = removed?.hashes[file] ? removed.planKey : cleanupDigest([projectId, stable || file]);
   const aliases = new Set(plans.filter(row => stable && cleanupStablePlanId(row.text) === stable).map(row => row.file));
   aliases.add(file);
-  const selected = input.queue.plans.filter(row => stable && row.stablePlanId === stable || [...aliases].some(alias => sameFile(normalized(row.planFile), alias)));
+  const selected = input.queue.plans.filter(row => removed?.runIds.includes(row.id) || stable && row.stablePlanId === stable || [...aliases].some(alias => sameFile(normalized(row.planFile), alias)));
   selected.forEach(row => aliases.add(normalized(row.planFile)));
   const runIds = selected.map(row => row.id), candidates: CleanupCandidate[] = [];
   const blockers: CleanupScope["blockers"] = [];
-  const scope: CleanupScope = { projectId, planKey, planFile: file, planHash: current ? sha(current.text) : "absent", runIds, revision: "",
+  const scope: CleanupScope = { projectId, planKey, planFile: file, planHash: removed?.hashes[file] || (current ? sha(current.text) : "absent"), runIds, revision: "",
     nodes: input.nodes, candidates, blockers };
   const add = (nodeId: string, rel: string, type: CleanupCandidate["type"], category: string, evidence: string[], owners = [planKey], protectedReason?: string) => {
     try { rel = cleanupRelative(normalized(rel)); }
@@ -70,8 +79,8 @@ export async function collectPlanCleanupEvidence(input: CleanupEvidenceInput): P
     candidates.push({ nodeId, relativePath: rel, type, category, evidence, owners, dependencies: [], ...(protectedReason ? { protectedReason } : {}) });
   };
   for (const alias of plans.filter(row => aliases.has(row.file))) {
-    add("local", alias.file, "file", "PLAN 文件", ["项目规范路径=" + projectId, "PLAN SHA256=" + sha(alias.text), "PLAN ID=" + planKey]);
-    candidates.find(row => row.relativePath === alias.file)!.expectedSha256 = sha(alias.text);
+    add("local", alias.file, "file", "PLAN 文件", ["项目规范路径=" + projectId, "PLAN SHA256=" + planSha(alias), "PLAN ID=" + planKey]);
+    candidates.find(row => row.relativePath === alias.file)!.expectedSha256 = removed?.hashes[alias.file] || sha(alias.text);
   }
   // The full graph includes config inheritance, not merely references of the selected PLAN.
   const configRefs = new Map<string, Set<string>>(), configHashes: Record<string, string> = {};
@@ -84,7 +93,7 @@ export async function collectPlanCleanupEvidence(input: CleanupEvidenceInput): P
     if (visiting.has(config)) return;
     visiting.add(config);
     const text = virtual.has(config) ? virtual.get(config)! : await fs.readFile(path.join(input.root, config), "utf8").catch((error: any) => { if (error.code === "ENOENT") return ""; throw error; });
-    configHashes[config] = sha(text);
+    configHashes[config] = removed?.hashes[config] || sha(text);
     unknownConfigReferences ||= /\$\{|!(?:include|inherit)\b/.test(text);
     for (const match of text.matchAll(/^[ \t]*(?:checkpoint(?:_path)?|pretrained(?:_path)?|weights(?:_path)?|resume(?:_from)?|code_backup_ref):[ \t]*["']?([^\r\n"'#]+)["']?[ \t]*(?:#.*)?$/gm)) {
       let asset = normalized(match[1].trim());
@@ -108,6 +117,11 @@ export async function collectPlanCleanupEvidence(input: CleanupEvidenceInput): P
     for (const config of planStaticConfigReferences(plan.text)) {
       try { await configGraph(config, owner); } catch { blockers.push({ code: "CONFIG_REFERENCE_UNVERIFIED", detail: config }); }
     }
+  }
+  if (removed) for (const [config, owners] of Object.entries(removed.references)) if (owners.includes(planKey)) {
+    await configGraph(config, planKey);
+    // Retain old external dependents conservatively; current PLAN scans can add further dependents.
+    for (const owner of owners) configRefs.get(config)!.add(owner);
   }
   for (const [config, owners] of configRefs) if (owners.has(planKey)) {
     const shared = owners.size > 1 || !/^(?:configs|tmp\/config)\//.test(config) || /(?:^|\/)(?:base|_base_|defaults)(?:\/|\.)/.test(config);
@@ -174,7 +188,7 @@ export async function collectPlanCleanupEvidence(input: CleanupEvidenceInput): P
       add(remote, entry.planFile, "file", "远端 PLAN 同步副本", ["同步登记 revision=" + entry.revision + " runId=" + entry.runId, "精确 PLAN 路径与当前文件 SHA256 绑定"], [planKey],
         confirmed && localPlan ? undefined : "缺少已确认运行或 PLAN 文件哈希证据");
       if (confirmed && localPlan) {
-        candidates.find(row => row.nodeId === remote && row.relativePath === normalized(entry.planFile))!.expectedSha256 = sha(localPlan.text);
+        candidates.find(row => row.nodeId === remote && row.relativePath === normalized(entry.planFile))!.expectedSha256 = planSha(localPlan);
         for (const config of candidates.filter(row => row.nodeId === "local" && row.category === "专用配置")) {
           add(remote, config.relativePath, "file", "远端配置同步副本", ["已确认同步关联 runId=" + entry.runId, ...config.evidence], config.owners, config.protectedReason);
           candidates.find(row => row.nodeId === remote && row.relativePath === config.relativePath)!.expectedSha256 = config.expectedSha256;
@@ -242,8 +256,8 @@ export async function collectPlanCleanupEvidence(input: CleanupEvidenceInput): P
   scope.blockers = blockers.filter(row => !row.nodeId || scope.nodes.some(node => node.id === row.nodeId));
   scope.references = Object.fromEntries([...configRefs].map(([config, owners]) => [config, [...owners]]));
   // Exclude lifecycle markers and wall-clock freshness from the revision, retain every ownership/status field.
-  scope.revision = cleanupDigest({ projectId, file, planHash: scope.planHash, plans: plans.map(row => [row.file, sha(row.text)]).sort(), configHashes: Object.fromEntries(Object.entries(configHashes).sort()),
-    queue: input.queue.plans.map(plan => ({ ...plan, cleanup: undefined })), deferred: input.queue.deferred,
+  scope.revision = cleanupDigest({ projectId, file, planHash: scope.planHash, plans: plans.map(row => [row.file, planSha(row)]).sort(), configHashes: Object.fromEntries(Object.entries(configHashes).sort()),
+    queue: input.queue.plans.map(plan => ({ ...plan, cleanup: undefined })), removedMetadata: removed, deferred: input.queue.deferred,
     recoveries: input.queue.failedAttemptRecoveries, ledger: input.ledger, nodes: scope.nodes.map(node => ({ ...node, error: undefined })), candidates });
   return scope;
 }

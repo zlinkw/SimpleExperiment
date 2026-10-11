@@ -170,7 +170,7 @@ test('partial restore discovery skips metadata files already restored and rechec
 test('Host refuses a backend without the required Git ancestor safety capability before approvals',async()=>{
   const modulePath=require.resolve('../../dist/extension/PlanCleanupHost'),from=require('node:module').createRequire(modulePath),exports={};
   vm.runInNewContext(await fs.readFile(modulePath,'utf8'),{exports,require:name=>['vscode','./PlanCleanupPanel'].includes(name)?{}:from(name)});
-  let safe=false;const host=new exports.PlanCleanupHost({context:{globalStorageUri:{fsPath:os.tmpdir()}},simpleSftpApiCall:async()=>({safety:{gitRepositoryAncestors:safe}})},'C:/fixture');
+  let safe=false;const host=new exports.PlanCleanupHost({context:{globalStorageUri:{fsPath:os.tmpdir()}},simpleSftpApiCall:async()=>({safety:{gitRepositoryAncestors:safe,readOnlyReceiptCheck:safe}})},'C:/fixture');
   await assert.rejects(host.service.ports.sftp('files.cleanup.preview',{}),error=>error.apiData.code==='SFTP_SAFE_CLEANUP_UPGRADE_REQUIRED');
   safe=true;assert.equal((await host.service.ports.sftp('files.cleanup.preview',{})).safety.gitRepositoryAncestors,true);
 });
@@ -198,10 +198,11 @@ test('another PLAN checkpoint reference protects the registered attempt; absolut
 
 test('local API publishes the cleanup method contract and both deletion confirmations without starting a listener',()=>{
   const {LocalApiServer}=require('../../dist/api/LocalApiServer');
-  const names=['preview','list','confirm','execute','status','resume','cancel','restore'].map(name=>'plans.cleanup.'+name);
+  const names=['preview','list','confirm','execute','status','resume','cancel','restore','continue','recheck'].map(name=>'plans.cleanup.'+name);
   const server=new LocalApiServer({name:'fixture',version:'test',preferredPort:0,discoveryPath:path.join(os.tmpdir(),'unused-cleanup-discovery.json'),methods:Object.fromEntries(names.map(name=>[name,async()=>({})]))});
   const caps=server.capabilities();assert.ok(names.every(name=>caps.methods.includes(name)));assert.equal(caps.methodOptions['plans.cleanup.confirm'].deleteConfirmationCount,2);
   assert.equal(caps.methodOptions['plans.cleanup.preview'].zeroWrites,true);assert.equal(server.openapi()['x-simple-method-options']['plans.cleanup.restore'].noOverwrite,true);
+  assert.equal(caps.methodOptions['plans.cleanup.recheck'].automaticExecution,false);assert.equal(caps.methodOptions['plans.cleanup.continue'].newExactConfirmation,true);
 });
 
 test('exact legacy task references include unselected historical workers but cannot authorize unknown lineage',async()=>{

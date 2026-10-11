@@ -90,18 +90,30 @@ async function collectPlanCleanupEvidence(input) {
         if (/^(?:experiments\/(?:plans|drafts)|tmp\/plan)\//.test(source))
             plans.push({ file: source, text });
     }
+    const removed = input.removedMetadata;
+    for (const source of Object.keys(removed?.hashes || {})) {
+        (0, PlanCleanup_1.cleanupRelative)(source);
+        if (await fs.lstat(path.join(input.root, source)).then(() => true, (error) => { if (error.code === "ENOENT")
+            return false; throw error; }))
+            throw new Error("SOURCE_RECREATED_OR_CHANGED");
+    }
+    for (const source of Object.keys(removed?.hashes || {}))
+        if (/^(?:experiments\/(?:plans|drafts)|tmp\/plan)\//.test(source)
+            && !plans.some(row => sameFile(row.file, source)))
+            plans.push({ file: source, text: "" });
+    const planSha = (row) => removed?.hashes[row.file] || sha(row.text);
     const current = plans.find(row => sameFile(row.file, file));
     if (!current && !input.allowMissing)
         throw new Error("PLAN_NOT_FOUND");
     const stable = current && (0, exports.cleanupStablePlanId)(current.text);
-    const planKey = (0, PlanCleanup_1.cleanupDigest)([projectId, stable || file]);
+    const planKey = removed?.hashes[file] ? removed.planKey : (0, PlanCleanup_1.cleanupDigest)([projectId, stable || file]);
     const aliases = new Set(plans.filter(row => stable && (0, exports.cleanupStablePlanId)(row.text) === stable).map(row => row.file));
     aliases.add(file);
-    const selected = input.queue.plans.filter(row => stable && row.stablePlanId === stable || [...aliases].some(alias => sameFile(normalized(row.planFile), alias)));
+    const selected = input.queue.plans.filter(row => removed?.runIds.includes(row.id) || stable && row.stablePlanId === stable || [...aliases].some(alias => sameFile(normalized(row.planFile), alias)));
     selected.forEach(row => aliases.add(normalized(row.planFile)));
     const runIds = selected.map(row => row.id), candidates = [];
     const blockers = [];
-    const scope = { projectId, planKey, planFile: file, planHash: current ? sha(current.text) : "absent", runIds, revision: "",
+    const scope = { projectId, planKey, planFile: file, planHash: removed?.hashes[file] || (current ? sha(current.text) : "absent"), runIds, revision: "",
         nodes: input.nodes, candidates, blockers };
     const add = (nodeId, rel, type, category, evidence, owners = [planKey], protectedReason) => {
         try {
@@ -121,8 +133,8 @@ async function collectPlanCleanupEvidence(input) {
         candidates.push({ nodeId, relativePath: rel, type, category, evidence, owners, dependencies: [], ...(protectedReason ? { protectedReason } : {}) });
     };
     for (const alias of plans.filter(row => aliases.has(row.file))) {
-        add("local", alias.file, "file", "PLAN 文件", ["项目规范路径=" + projectId, "PLAN SHA256=" + sha(alias.text), "PLAN ID=" + planKey]);
-        candidates.find(row => row.relativePath === alias.file).expectedSha256 = sha(alias.text);
+        add("local", alias.file, "file", "PLAN 文件", ["项目规范路径=" + projectId, "PLAN SHA256=" + planSha(alias), "PLAN ID=" + planKey]);
+        candidates.find(row => row.relativePath === alias.file).expectedSha256 = removed?.hashes[alias.file] || sha(alias.text);
     }
     // The full graph includes config inheritance, not merely references of the selected PLAN.
     const configRefs = new Map(), configHashes = {};
@@ -139,7 +151,7 @@ async function collectPlanCleanupEvidence(input) {
         visiting.add(config);
         const text = virtual.has(config) ? virtual.get(config) : await fs.readFile(path.join(input.root, config), "utf8").catch((error) => { if (error.code === "ENOENT")
             return ""; throw error; });
-        configHashes[config] = sha(text);
+        configHashes[config] = removed?.hashes[config] || sha(text);
         unknownConfigReferences ||= /\$\{|!(?:include|inherit)\b/.test(text);
         for (const match of text.matchAll(/^[ \t]*(?:checkpoint(?:_path)?|pretrained(?:_path)?|weights(?:_path)?|resume(?:_from)?|code_backup_ref):[ \t]*["']?([^\r\n"'#]+)["']?[ \t]*(?:#.*)?$/gm)) {
             let asset = normalized(match[1].trim());
@@ -180,6 +192,14 @@ async function collectPlanCleanupEvidence(input) {
             }
         }
     }
+    if (removed)
+        for (const [config, owners] of Object.entries(removed.references))
+            if (owners.includes(planKey)) {
+                await configGraph(config, planKey);
+                // Retain old external dependents conservatively; current PLAN scans can add further dependents.
+                for (const owner of owners)
+                    configRefs.get(config).add(owner);
+            }
     for (const [config, owners] of configRefs)
         if (owners.has(planKey)) {
             const shared = owners.size > 1 || !/^(?:configs|tmp\/config)\//.test(config) || /(?:^|\/)(?:base|_base_|defaults)(?:\/|\.)/.test(config);
@@ -261,7 +281,7 @@ async function collectPlanCleanupEvidence(input) {
                 const confirmed = selectedIds.has(entry.runId) && (remote === entry.sourceWorkerId || entry.destinations[remote]?.status === "synced");
                 add(remote, entry.planFile, "file", "远端 PLAN 同步副本", ["同步登记 revision=" + entry.revision + " runId=" + entry.runId, "精确 PLAN 路径与当前文件 SHA256 绑定"], [planKey], confirmed && localPlan ? undefined : "缺少已确认运行或 PLAN 文件哈希证据");
                 if (confirmed && localPlan) {
-                    candidates.find(row => row.nodeId === remote && row.relativePath === normalized(entry.planFile)).expectedSha256 = sha(localPlan.text);
+                    candidates.find(row => row.nodeId === remote && row.relativePath === normalized(entry.planFile)).expectedSha256 = planSha(localPlan);
                     for (const config of candidates.filter(row => row.nodeId === "local" && row.category === "专用配置")) {
                         add(remote, config.relativePath, "file", "远端配置同步副本", ["已确认同步关联 runId=" + entry.runId, ...config.evidence], config.owners, config.protectedReason);
                         candidates.find(row => row.nodeId === remote && row.relativePath === config.relativePath).expectedSha256 = config.expectedSha256;
@@ -355,8 +375,8 @@ async function collectPlanCleanupEvidence(input) {
     scope.blockers = blockers.filter(row => !row.nodeId || scope.nodes.some(node => node.id === row.nodeId));
     scope.references = Object.fromEntries([...configRefs].map(([config, owners]) => [config, [...owners]]));
     // Exclude lifecycle markers and wall-clock freshness from the revision, retain every ownership/status field.
-    scope.revision = (0, PlanCleanup_1.cleanupDigest)({ projectId, file, planHash: scope.planHash, plans: plans.map(row => [row.file, sha(row.text)]).sort(), configHashes: Object.fromEntries(Object.entries(configHashes).sort()),
-        queue: input.queue.plans.map(plan => ({ ...plan, cleanup: undefined })), deferred: input.queue.deferred,
+    scope.revision = (0, PlanCleanup_1.cleanupDigest)({ projectId, file, planHash: scope.planHash, plans: plans.map(row => [row.file, planSha(row)]).sort(), configHashes: Object.fromEntries(Object.entries(configHashes).sort()),
+        queue: input.queue.plans.map(plan => ({ ...plan, cleanup: undefined })), removedMetadata: removed, deferred: input.queue.deferred,
         recoveries: input.queue.failedAttemptRecoveries, ledger: input.ledger, nodes: scope.nodes.map(node => ({ ...node, error: undefined })), candidates });
     return scope;
 }

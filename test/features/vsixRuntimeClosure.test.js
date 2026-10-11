@@ -26,7 +26,7 @@ test("tooling uses pinned local VSCE and npm-cli without shell argument concaten
   assert.match(helper, /command: process\.execPath/);
   assert.match(verifier, /require\.resolve\("@vscode\/vsce\/vsce"\)/);
   assert.match(verifier, /spawnSync\(process\.execPath/);
-  assert.match(verifier, /timeout: 8000/);
+  assert.match(verifier, /timeout: 30000/);
   assert.doesNotMatch(verifier, /npmCommand|"exec"/);
   assert.match(acceptance, /function runNpm/);
   assert.doesNotMatch(verifier, /shell\s*:/);

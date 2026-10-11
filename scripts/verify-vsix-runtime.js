@@ -15,7 +15,9 @@ const vsceCli = require.resolve("@vscode/vsce/vsce");
 const result = spawnSync(process.execPath, [vsceCli, "ls", "--no-dependencies"], {
   cwd: root,
   encoding: "utf8",
-  timeout: 8000,
+  // VSCE enumerates package metadata; keep this bounded separately from the
+  // shorter deadlines required for Python and test processes.
+  timeout: 30000,
   windowsHide: true,
 });
 if (result.status !== 0) {

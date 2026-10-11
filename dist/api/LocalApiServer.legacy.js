@@ -689,6 +689,8 @@ class LocalApiServer {
                 "plans.cleanup.preview": { readOnly: true, zeroWrites: true, modes: ["move", "delete"], default: "move", historicalNodes: true },
                 "plans.cleanup.list": { readOnly: true },
                 "plans.cleanup.status": { readOnly: true, durableOperationId: true },
+                "plans.cleanup.continue": { previewOnly: true, newExactConfirmation: true, deleteConfirmationCount: 2, archivedMetadata: true },
+                "plans.cleanup.recheck": { remoteReadOnly: true, automaticExecution: false, durablePendingSignals: true },
                 "plans.cleanup.confirm": { previewDigest: true, exactTargets: true, deleteConfirmationCount: 2, rememberedConfirmations: false },
                 "plans.cleanup.execute": { durableOperationId: true, allNodesPreflight: true, idempotentResume: true },
                 "plans.cleanup.resume": { durableOperationId: true, allNodesPreflight: true, idempotentResume: true },

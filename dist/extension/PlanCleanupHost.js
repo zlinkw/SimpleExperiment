@@ -54,19 +54,24 @@ class PlanCleanupHost {
     root;
     service;
     executing = false;
+    connections = new Map();
+    pendingReconnects = new Set();
+    reconnectWork;
+    notices = new Set();
     constructor(host, root) {
         this.host = host;
         this.root = root;
         const storage = host.context.globalStorageUri.fsPath;
         this.service = new PlanCleanup_1.PlanCleanup({ storageRoot: path.join(storage, "plan-cleanup", (0, PlanCleanup_1.cleanupDigest)(root)),
-            collect: (file, options) => this.collect(file, false, options?.archivedFiles),
+            collect: (file, options) => this.collect(file, Boolean(options?.removedMetadata), options?.archivedFiles, options?.removedMetadata),
             sftp: async (method, params) => {
                 const result = await host.simpleSftpApiCall(method, params);
-                if (method === "files.cleanup.preview" && result.safety?.gitRepositoryAncestors !== true)
-                    (0, PlanCleanup_1.cleanupError)("SFTP_SAFE_CLEANUP_UPGRADE_REQUIRED", "当前 SimpleSFTP 缺少 Git 祖先仓库预检；请更新配套插件后重新预览。");
+                if (method === "files.cleanup.preview" && (result.safety?.gitRepositoryAncestors !== true || result.safety?.readOnlyReceiptCheck !== true))
+                    (0, PlanCleanup_1.cleanupError)("SFTP_SAFE_CLEANUP_UPGRADE_REQUIRED", "当前 SimpleSFTP 缺少 Git 祖先仓库预检或只读回执核查；请更新配套插件后重新预览。");
                 return result;
             },
             restoreGate: (preview, operation) => this.restoreGate(preview, operation),
+            currentNode: async (id) => this.currentNode(id),
             updateIndexes: (operation, restore) => this.updateIndexes(operation, restore) });
     }
     assertWorkspace() {
@@ -74,7 +79,61 @@ class PlanCleanupHost {
         if (current !== this.root)
             (0, PlanCleanup_1.cleanupError)("WORKSPACE_CHANGED");
     }
-    async collect(file, allowMissing = false, archivedFiles) {
+    currentNode(id) {
+        this.assertWorkspace();
+        if (id === "local")
+            return { id, kind: "local", root: this.root };
+        const worker = (this.host.setupConfig.workerTunnels || []).find((row) => row.id === id);
+        const target = id === "hub" ? this.host.hubCodeSyncTarget() : worker && this.host.workerCodeSyncTarget(worker);
+        if (!target)
+            (0, PlanCleanup_1.cleanupError)("SERVER_IDENTITY_UNVERIFIED");
+        return { id, kind: "remote", host: target.host, user: target.user, port: target.port, root: target.remotePath };
+    }
+    /** Edge-triggered on initial connection/reconnection, never on ordinary telemetry heartbeats. */
+    observeConnections(endpoints) {
+        const present = new Set(endpoints.map(endpoint => endpoint.id));
+        for (const id of this.connections.keys())
+            if (!present.has(id))
+                this.connections.delete(id);
+        for (const endpoint of endpoints) {
+            const online = ["websocket", "sse", "polling"].includes(endpoint.streamStatus), count = endpoint.reconnectCount || 0;
+            const before = this.connections.get(endpoint.id);
+            this.connections.set(endpoint.id, { online, count });
+            if (online && (!before?.online || before.count !== count))
+                this.pendingReconnects.add(endpoint.id);
+        }
+        return this.drainReconnects();
+    }
+    drainReconnects() {
+        if (this.reconnectWork)
+            return this.reconnectWork;
+        if (this.executing)
+            return Promise.resolve();
+        this.reconnectWork = (async () => {
+            while (this.pendingReconnects.size && !this.executing) {
+                const nodeId = this.pendingReconnects.values().next().value;
+                this.pendingReconnects.delete(nodeId);
+                if (!this.connections.get(nodeId)?.online)
+                    continue;
+                this.assertWorkspace();
+                const reports = await this.service.recheckNode(nodeId);
+                this.assertWorkspace();
+                if (!reports.length || this.notices.has(nodeId))
+                    continue;
+                this.notices.add(nodeId);
+                void Promise.resolve(vscode.window.showWarningMessage(`${nodeId} 已重连，${reports.length} 个 PLAN 的清理信号仍需审核确认。未自动移动或删除。`, "审核未完成清理", "稍后"))
+                    .then(async (choice) => {
+                    this.assertWorkspace();
+                    if (choice === "审核未完成清理") {
+                        const operation = await this.service.status(reports[0].operationId);
+                        await this.open(operation.preview.scope.planFile, operation.id);
+                    }
+                }).catch(() => undefined).finally(() => this.notices.delete(nodeId));
+            }
+        })().finally(() => { this.reconnectWork = undefined; });
+        return this.reconnectWork;
+    }
+    async collect(file, allowMissing = false, archivedFiles, removedMetadata) {
         this.assertWorkspace();
         const storage = this.host.context.globalStorageUri.fsPath;
         const queue = await json((0, DistributedPlanQueue_1.distributedQueuePath)(storage, this.root), (0, DistributedPlanQueue_1.emptyDistributedQueue)());
@@ -112,7 +171,7 @@ class PlanCleanupHost {
         this.assertWorkspace();
         const state = this.host.buildPlanRuntimeEvidenceState();
         const operations = Object.values(state.operations || {});
-        const scope = await (0, PlanCleanupEvidence_1.collectPlanCleanupEvidence)({ root: this.root, planFile: file, queue, ledger, registry, nodes, snapshots, operations, allowMissing, archivedFiles });
+        const scope = await (0, PlanCleanupEvidence_1.collectPlanCleanupEvidence)({ root: this.root, planFile: file, queue, ledger, registry, nodes, snapshots, operations, allowMissing, archivedFiles, removedMetadata });
         scope.nodes.push({ id: "pluginState", kind: "local", root: storage });
         for (const indexFile of [(0, DistributedPlanQueue_1.distributedQueuePath)(storage, this.root), (0, PlanArtifactSync_1.planSyncLedgerStoragePath)(storage, this.root)]) {
             scope.candidates.push({ nodeId: "pluginState", relativePath: path.relative(storage, indexFile).replace(/\\/g, "/"), type: "file",
@@ -148,12 +207,14 @@ class PlanCleanupHost {
     async updateIndexes(operation, restore) {
         this.assertWorkspace();
         const originalId = operation.preview.originalOperationId || operation.id;
+        const restoreChain = restore ? await this.service.history(originalId) : [];
+        const restoreIds = new Set(restoreChain.map(row => row.id));
         const queue = await this.host.loadDistributedQueue(this.root);
         const ids = new Set(operation.preview.scope.runIds);
         for (const plan of queue.plans)
             if (ids.has(plan.id)) {
                 if (restore) {
-                    if (plan.cleanup?.operationId === originalId)
+                    if (restoreIds.has(plan.cleanup?.operationId))
                         delete plan.cleanup;
                 }
                 else
@@ -165,7 +226,7 @@ class PlanCleanupHost {
             for (const entry of Object.values(ledger.entries))
                 if (ids.has(entry.runId)) {
                     if (restore) {
-                        if (entry.cleanupOperationId === originalId)
+                        if (restoreIds.has(entry.cleanupOperationId))
                             delete entry.cleanupOperationId;
                     }
                     else
@@ -174,10 +235,11 @@ class PlanCleanupHost {
             return ledger;
         });
         if (restore) {
-            const original = await this.service.status(originalId);
-            original.restoredBy = operation.id;
-            const storage = path.join(this.host.context.globalStorageUri.fsPath, "plan-cleanup", (0, PlanCleanup_1.cleanupDigest)(this.root), originalId + ".json");
-            await (0, StateStore_1.atomicWriteText)(storage, JSON.stringify(original, null, 2));
+            for (const original of restoreChain) {
+                original.restoredBy = operation.id;
+                const storage = path.join(this.host.context.globalStorageUri.fsPath, "plan-cleanup", (0, PlanCleanup_1.cleanupDigest)(this.root), original.id + ".json");
+                await (0, StateStore_1.atomicWriteText)(storage, JSON.stringify(original, null, 2));
+            }
         }
         this.host.localPlanMetadataUpdatedAt = 0;
         this.host.postState();
@@ -194,8 +256,9 @@ class PlanCleanupHost {
         }
         finally {
             this.executing = false;
+            void this.drainReconnects().catch(() => undefined);
         }
     }
-    open(file) { return (0, PlanCleanupPanel_1.openPlanCleanupPanel)(this, file); }
+    open(file, operationId) { return (0, PlanCleanupPanel_1.openPlanCleanupPanel)(this, file, operationId); }
 }
 exports.PlanCleanupHost = PlanCleanupHost;

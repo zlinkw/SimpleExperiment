@@ -101,9 +101,115 @@ class PlanCleanup {
         for (const name of names.filter(name => /^[a-f0-9]{48}\.json$/.test(name))) {
             const operation = await this.status(name.slice(0, -5));
             rows.push({ id: operation.id, state: operation.state, updatedAt: operation.updatedAt, pendingNodes: operation.pendingNodes,
-                planFile: operation.preview.scope.planFile, action: operation.preview.action });
+                planFile: operation.preview.scope.planFile, action: operation.preview.action,
+                continuedBy: operation.continuedBy, restoredBy: operation.restoredBy, nodeChecks: operation.nodeChecks });
         }
         return rows.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+    }
+    async history(id) {
+        const rows = [], seen = new Set();
+        while (id) {
+            if (seen.has(id) || rows.length >= 32)
+                cleanupError("INVALID_CONTINUATION_CHAIN");
+            seen.add(id);
+            const operation = await this.status(id);
+            rows.push(operation);
+            id = operation.preview.continuationOf || "";
+        }
+        return rows;
+    }
+    nodeIdentity(node) { return (0, exports.cleanupDigest)({ ...node, error: undefined }); }
+    async completedHistory(history) {
+        const completed = new Map();
+        for (const operation of history)
+            for (const row of operation.preview.rows) {
+                const state = operation.targets[row.id]?.state;
+                if (state === "completed") {
+                    await this.ports.sftp("files.cleanup.verify", { token: row.backendToken, index: row.backendIndex });
+                    completed.set(row.id, { ...row, disposition: "completed" });
+                }
+                else if (state === "executing") {
+                    const proof = await this.ports.sftp("files.cleanup.check", { token: row.backendToken, index: row.backendIndex });
+                    if (proof.state === "completed")
+                        completed.set(row.id, { ...row, disposition: "completed" });
+                    else if (proof.state !== "pending")
+                        cleanupError("DELETE_RECEIPT_UNCERTAIN");
+                }
+                else if (row.disposition === "absent" && operation.indexed) {
+                    const proof = await this.ports.sftp("files.cleanup.inspect", { node: row.node,
+                        target: { relativePath: row.relativePath, type: row.type }, allowMissing: true });
+                    if (!proof.target.missing)
+                        cleanupError("SOURCE_RECREATED_OR_CHANGED");
+                    completed.set(row.id, { ...row, disposition: "completed" });
+                }
+            }
+        return [...completed.values()];
+    }
+    archivedMetadata(rows) {
+        return Object.fromEntries(rows.filter(row => row.node.kind === "local" && ["PLAN 文件", "专用配置"].includes(row.category)
+            && row.fingerprint).map(row => [row.relativePath, row.destination]));
+    }
+    removedMetadata(history, completed) {
+        if (history[0]?.preview.action !== "delete")
+            return;
+        const scope = history[0].preview.scope;
+        const hashes = Object.fromEntries(completed.filter(row => row.node.kind === "local" && ["PLAN 文件", "专用配置"].includes(row.category)
+            && row.expectedSha256).map(row => [row.relativePath, row.expectedSha256]));
+        return { planKey: scope.planKey, planHash: scope.planHash, planFile: scope.planFile, runIds: scope.runIds, hashes, references: scope.references || {} };
+    }
+    async continuePreview(id, params = {}) {
+        const original = await this.status(id);
+        if (original.continuedBy || original.restoredBy || original.preview.action === "restore" || this.busy.has(id))
+            cleanupError("NOT_CONTINUABLE");
+        return this.preview({ planFile: original.preview.scope.planFile, action: original.preview.action,
+            verifiedOnly: params.verifiedOnly, continuationOf: id });
+    }
+    /** Reconnection observes receipts and source presence only. It never settles or executes a mutation. */
+    async recheckNode(nodeId) {
+        const reports = [];
+        for (const item of await this.list()) {
+            const operation = await this.status(item.id);
+            if (operation.continuedBy || operation.restoredBy || operation.preview.action === "restore" || this.busy.has(item.id))
+                continue;
+            const rows = operation.preview.rows.filter(row => row.node.id === nodeId
+                && (operation.targets[row.id] && operation.targets[row.id].state !== "completed"
+                    || operation.pendingNodes.includes(nodeId) && row.disposition !== "completed"));
+            if (!rows.length)
+                continue;
+            const report = { operationId: item.id, nodeId, checkedAt: new Date().toISOString(), state: "confirmation_required", targets: [] };
+            for (const row of rows) {
+                try {
+                    if (this.ports.currentNode && this.nodeIdentity(await this.ports.currentNode(nodeId)) !== this.nodeIdentity(row.node))
+                        cleanupError("SERVER_IDENTITY_CHANGED");
+                    if (row.disposition === "protected") {
+                        report.targets.push({ id: row.id, absolutePath: row.absolutePath, state: "protected" });
+                        continue;
+                    }
+                    const proof = row.backendToken
+                        ? await this.ports.sftp("files.cleanup.check", { token: row.backendToken, index: row.backendIndex })
+                        : await this.ports.sftp("files.cleanup.inspect", { node: row.node, target: { relativePath: row.relativePath, type: row.type }, allowMissing: true });
+                    const state = proof.state || (proof.target.missing ? "absent" : "pending");
+                    report.targets.push({ id: row.id, absolutePath: row.absolutePath, state });
+                    if (state === "completed" && report.state !== "blocked")
+                        report.state = "settlement_required";
+                    if (state === "absent_unverified") {
+                        report.state = "blocked";
+                        report.targets.at(-1).code = "DELETE_RECEIPT_UNCERTAIN";
+                    }
+                }
+                catch (error) {
+                    report.state = "blocked";
+                    report.targets.push({ id: row.id, absolutePath: row.absolutePath, state: "unverified", code: error.apiData?.code || error.code || "NODE_UNREACHABLE" });
+                }
+            }
+            const fresh = await this.status(item.id);
+            if (this.busy.has(item.id) || fresh.continuedBy || fresh.restoredBy)
+                continue;
+            (fresh.nodeChecks ||= {})[nodeId] = report;
+            await this.save(fresh);
+            reports.push(report);
+        }
+        return reports;
     }
     async preview(params) {
         for (const [token, preview] of this.previews)
@@ -114,11 +220,30 @@ class PlanCleanup {
         const action = params.action || "move";
         if (!["move", "delete"].includes(action))
             cleanupError("INVALID_ACTION");
-        const scope = await this.ports.collect(cleanupRelative(params.planFile));
+        const history = params.continuationOf ? await this.history(params.continuationOf) : [];
+        if (history[0]?.continuedBy || history[0]?.restoredBy || history.some(row => row.preview.action !== action))
+            cleanupError("NOT_CONTINUABLE");
+        const completed = await this.completedHistory(history);
+        const scope = await this.ports.collect(cleanupRelative(params.planFile), { archivedFiles: action === "move" ? this.archivedMetadata(completed) : {},
+            removedMetadata: this.removedMetadata(history, completed) });
+        if (history.length && (scope.planKey !== history[0].preview.scope.planKey || scope.planHash !== history[0].preview.scope.planHash))
+            cleanupError("PREVIEW_CHANGED");
+        for (const original of history[0]?.preview.scope.nodes || []) {
+            const current = scope.nodes.find(node => node.id === original.id);
+            if (!current || this.nodeIdentity(current) !== this.nodeIdentity(original))
+                cleanupError("SERVER_IDENTITY_CHANGED");
+        }
         const token = (0, node_crypto_1.randomBytes)(24).toString("hex");
         const result = { token, digest: "", action, scope, rows: [], blockers: clone(scope.blockers),
-            verifiedOnly: params.verifiedOnly === true, expiresAt: Date.now() + 30 * 60 * 1000, confirmations: 0 };
-        const candidates = classifyCleanupCandidates(scope);
+            verifiedOnly: params.verifiedOnly === true, expiresAt: Date.now() + 30 * 60 * 1000, confirmations: 0,
+            ...(params.continuationOf ? { continuationOf: params.continuationOf } : {}) };
+        const candidates = classifyCleanupCandidates(scope).filter(row => !completed.some(done => done.nodeId === row.nodeId && done.relativePath === row.relativePath))
+            .map(row => {
+            const previous = history.flatMap(operation => operation.preview.rows).find(previous => previous.nodeId === row.nodeId && previous.relativePath === row.relativePath && previous.protectedReason);
+            if (previous)
+                row.protectedReason ||= previous.protectedReason;
+            return row;
+        });
         for (const candidate of candidates) {
             const node = scope.nodes.find(row => row.id === candidate.nodeId);
             if (!node) {
@@ -212,6 +337,12 @@ class PlanCleanup {
                 row.error ||= "受保护目标未读取或不存在；不会处理";
             }
         }
+        for (const row of result.rows.filter(row => row.disposition === action && row.fingerprint)) {
+            const previous = history.flatMap(operation => operation.preview.rows).find(previous => previous.id === row.id && previous.fingerprint);
+            if (previous && previous.fingerprint !== row.fingerprint)
+                cleanupError("SOURCE_RECREATED_OR_CHANGED");
+        }
+        result.rows.push(...completed);
         result.digest = (0, exports.cleanupDigest)({ action, scope, rows: result.rows, verifiedOnly: result.verifiedOnly });
         this.previews.set(token, clone(result));
         return clone(result);
@@ -219,7 +350,8 @@ class PlanCleanup {
     assertAllowed(preview) {
         if (preview.blockers.some(row => !(preview.verifiedOnly && ["OFFLINE_NODE", "NODE_UNREACHABLE"].includes(row.code))))
             cleanupError("PREFLIGHT_BLOCKED", JSON.stringify(preview.blockers));
-        if (!preview.rows.some(row => row.disposition === preview.action))
+        if (!preview.rows.some(row => row.disposition === preview.action)
+            && !(preview.continuationOf && preview.rows.some(row => ["absent", "completed"].includes(row.disposition))))
             cleanupError("NO_VERIFIED_TARGETS");
     }
     async confirm(params) {
@@ -234,6 +366,11 @@ class PlanCleanup {
             || params.phase !== preview.confirmations + 1 || params.phase > (preview.action === "delete" ? 2 : 1))
             cleanupError("CONFIRM_REQUIRED");
         await this.revalidate(preview);
+        if (preview.continuationOf) {
+            const previous = await this.status(preview.continuationOf);
+            if (previous.continuedBy && previous.continuedBy !== preview.token || previous.restoredBy || this.busy.has(previous.id))
+                cleanupError("NOT_CONTINUABLE");
+        }
         for (const [backendToken, row] of new Map(preview.rows.filter(row => row.disposition === preview.action).map(row => [row.backendToken, row]))) {
             const backend = await this.ports.sftp("files.cleanup.status", { token: backendToken });
             await this.ports.sftp("files.cleanup.confirm", { token: backendToken, digest: row.backendDigest, phase: params.phase,
@@ -244,6 +381,11 @@ class PlanCleanup {
             pendingNodes: [...new Set(preview.blockers.map(row => row.nodeId).filter(Boolean))], updatedAt: "" };
         await this.save(operation);
         this.previews.set(preview.token, clone(preview));
+        if (preview.continuationOf) {
+            const previous = await this.status(preview.continuationOf);
+            previous.continuedBy = operation.id;
+            await this.save(previous);
+        }
         return clone(operation);
     }
     async revalidate(preview, operation) {
@@ -251,9 +393,11 @@ class PlanCleanup {
             await this.ports.restoreGate(preview, operation);
             return;
         }
-        const archivedFiles = Object.fromEntries(preview.rows.filter(row => row.node.kind === "local" && ["PLAN 文件", "专用配置"].includes(row.category)
-            && operation?.targets[row.id]?.state === "completed" && preview.action === "move").map(row => [row.relativePath, row.destination]));
-        const fresh = await this.ports.collect(preview.scope.planFile, { archivedFiles });
+        const prior = preview.continuationOf ? await this.history(preview.continuationOf) : [];
+        const completed = await this.completedHistory(prior);
+        const archivedFiles = { ...(preview.action === "move" ? this.archivedMetadata(completed) : {}), ...Object.fromEntries(preview.rows.filter(row => row.node.kind === "local" && ["PLAN 文件", "专用配置"].includes(row.category)
+                && operation?.targets[row.id]?.state === "completed" && preview.action === "move").map(row => [row.relativePath, row.destination])) };
+        const fresh = await this.ports.collect(preview.scope.planFile, { archivedFiles, removedMetadata: this.removedMetadata(prior, completed) });
         if (fresh.revision !== preview.scope.revision || fresh.planHash !== preview.scope.planHash)
             cleanupError("PREVIEW_CHANGED");
         const allowedOffline = new Set(preview.verifiedOnly ? preview.blockers.filter(row => ["OFFLINE_NODE", "NODE_UNREACHABLE"].includes(row.code)).map(row => row.nodeId) : []);
@@ -273,6 +417,8 @@ class PlanCleanup {
         if (this.busy.has(id))
             cleanupError("OPERATION_BUSY");
         const operation = await this.status(id), preview = operation.preview;
+        if (operation.continuedBy || operation.restoredBy)
+            cleanupError("OPERATION_SUPERSEDED");
         if (preview.confirmations !== (preview.action === "delete" ? 2 : 1))
             cleanupError("CONFIRM_REQUIRED");
         if (operation.state === "completed")
@@ -291,7 +437,7 @@ class PlanCleanup {
             }
             for (const row of preview.rows.filter(row => operation.targets[row.id]?.state === "completed"))
                 await this.ports.sftp("files.cleanup.verify", { token: row.backendToken, index: row.backendIndex });
-            if (Object.values(operation.targets).some(target => target.state !== "completed"))
+            if (preview.continuationOf || Object.values(operation.targets).some(target => target.state !== "completed"))
                 await this.revalidate(preview, operation);
             for (const row of preview.rows.filter(row => row.disposition === "absent")) {
                 const check = await this.ports.sftp("files.cleanup.preview", { node: row.node, action: preview.action,
@@ -306,6 +452,17 @@ class PlanCleanup {
                 if (check.targets[0].fingerprint !== row.fingerprint || (0, exports.cleanupDigest)(check.rootIdentity) !== (0, exports.cleanupDigest)(row.rootIdentity))
                     cleanupError("PREVIEW_CHANGED");
             }
+            if (preview.continuationOf)
+                for (const previous of await this.history(preview.continuationOf)) {
+                    for (const row of previous.preview.rows.filter(row => previous.targets[row.id]?.state === "executing"
+                        && preview.rows.some(done => done.id === row.id && done.disposition === "completed"))) {
+                        const response = await this.ports.sftp("files.cleanup.settle", { token: row.backendToken, digest: row.backendDigest, index: row.backendIndex });
+                        if (response.state !== "completed")
+                            cleanupError("RECEIPT_UNVERIFIED");
+                        previous.targets[row.id] = { state: "completed", receipt: response.receipt };
+                        await this.save(previous);
+                    }
+                }
             operation.state = "running";
             delete operation.error;
             await this.save(operation);
@@ -355,18 +512,19 @@ class PlanCleanup {
     }
     async restorePreview(id) {
         const original = await this.status(id);
-        if (original.preview.action !== "move" || original.restoredBy)
+        if (original.preview.action !== "move" || original.restoredBy || original.continuedBy)
             cleanupError("NOT_RESTORABLE");
         // Dependencies and live activity remain gates; original PLAN may be absent after a successful move.
         const preview = clone(original.preview);
         preview.token = (0, node_crypto_1.randomBytes)(24).toString("hex");
         preview.action = "restore";
+        delete preview.continuationOf;
         preview.originalOperationId = id;
         preview.confirmations = 0;
         preview.expiresAt = Date.now() + 30 * 60 * 1000;
         preview.blockers = [];
         preview.rows = [];
-        for (const row of original.preview.rows.filter(row => original.targets[row.id]?.state === "completed")) {
+        for (const row of (await this.completedHistory(await this.history(id))).filter(row => row.fingerprint)) {
             const backend = await this.ports.sftp("files.cleanup.preview", { node: row.node, action: "restore",
                 targets: [{ relativePath: row.destination, type: row.type, destination: row.relativePath }] });
             if (backend.targets[0].contentFingerprint !== row.contentFingerprint || backend.targets[0].inode !== row.inode)

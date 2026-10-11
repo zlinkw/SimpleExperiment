@@ -1,6 +1,6 @@
 # PLAN 及关联产物清除
 
-SimpleExperiment 0.5.272 与 SimpleSFTP 0.2.65 增加统一预览和受限执行接口。开发验证只使用本机临时夹具与模拟 Worker，没有清理 MultiModal、启动实验或向生产服务器写入。VSIX 仅在本地生成，没有安装或发布。
+SimpleExperiment 0.5.273 与 SimpleSFTP 0.2.66 提供统一预览、受限执行及离线节点续办接口。开发验证只使用本机临时夹具与模拟 Worker，没有清理 MultiModal、启动实验或向生产服务器写入。VSIX 在本地打包安装，运行中的 VS Code 窗口需重载后才能使用新版接口；未发布扩展。
 
 ## UI
 
@@ -9,6 +9,8 @@ SimpleExperiment 0.5.272 与 SimpleSFTP 0.2.65 增加统一预览和受限执行
 默认选择“移入 clean_dir”，目标固定为 `<当前项目安全根>/clean_dir/<源相对路径>`。核对完整表格后确认，再点击执行。已有目标直接阻断，不能合并或覆盖。永久删除是独立选项，必须对同一个预览中的精确路径分别点击第一次、第二次确认，再执行。任何内容、节点配置、任务或引用变化都会阻断旧预览。
 
 历史操作下拉框提供状态、暂停、幂等恢复未完成项、已移动项的恢复预览。恢复也需要审核与确认，不能覆盖新 PLAN 或新作业。暂停在目标之间生效，不会杀任务或中断正在进行的单次安全文件操作。
+
+未处理节点及清理信号持久化保存，重启插件不会丢失。首次连接及每次重连只核查这些精确目标和既有回执，不执行移动、删除或回执结算。待用户选择“审核未完成清理”，在原审核页点击“重新预览未完成项”，重新审核和确认后才能继续。普通心跳不会重复核查；未关闭通知不会阻塞以后重连核查。若已失去移动响应，仅显示待结算证据，确认新的预览后才结算。未知删除回执仍阻断，不自行重删。
 
 ## API
 
@@ -39,13 +41,15 @@ SimpleExperiment 0.5.272 与 SimpleSFTP 0.2.65 增加统一预览和受限执行
 | plans.cleanup.confirm | token、digest、phase、confirm、exactTargets；精确批准 |
 | plans.cleanup.execute | operationId；先全节点预检，再逐目标处理 |
 | plans.cleanup.status | operationId；返回逐目标状态和 pendingNodes |
+| plans.cleanup.recheck | nodeId；只读核查该节点持久化未完成信号，返回 nodeChecks，不执行清理 |
+| plans.cleanup.continue | operationId、verifiedOnly；生成未完成项的新预览，需新的精确批准；删除仍需两次确认 |
 | plans.cleanup.resume | operationId；重新预检，核验已完成回执，只处理未完成项 |
 | plans.cleanup.cancel | operationId；请求在目标边界暂停 |
 | plans.cleanup.restore | operationId；仅生成恢复预览，再走 confirm/execute |
 
-SimpleSFTP 下层接口为 `files.cleanup.inspect/verify/preview/confirm/execute/status/settle`。其令牌独立绑定节点身份、根目录身份、内容指纹、固定类型和处理方式。业务调用应优先使用 SimpleExperiment 协调接口，不自行拼接删除请求。
+SimpleSFTP 下层接口为 `files.cleanup.inspect/check/verify/preview/confirm/execute/status/settle`。`check` 仅核查冻结批次的源和回执，零写入，不获取执行授权。其令牌独立绑定节点身份、根目录身份、内容指纹、固定类型和处理方式。业务调用应优先使用 SimpleExperiment 协调接口，不自行拼接删除请求。
 
-SimpleExperiment 要求配套 SimpleSFTP 的预览响应包含 `safety.gitRepositoryAncestors: true`。旧版虽有同名接口，但缺少祖先 Git 仓库保护时返回 `SFTP_SAFE_CLEANUP_UPGRADE_REQUIRED`，阻断批准和执行。
+SimpleExperiment 要求配套 SimpleSFTP 的预览响应包含 `safety.gitRepositoryAncestors: true` 与 `safety.readOnlyReceiptCheck: true`。旧版虽有同名接口，但缺少祖先 Git 仓库保护或只读核查能力时返回 `SFTP_SAFE_CLEANUP_UPGRADE_REQUIRED`，阻断批准和执行。
 
 ## 所有权和保护
 
@@ -71,7 +75,7 @@ SimpleExperiment 要求配套 SimpleSFTP 的预览响应包含 `safety.gitReposi
 
 所有已批准且可执行目标验收完成后，PLAN 和同步登记追加 lifecycle 标记并保留原所有权证据。标记的 PLAN 不再自动同步或重新收集；SimpleSFTP 的各上传/打包路径始终排除 clean_dir。恢复后仅撤销对应原操作的标记。
 
-首次预览有效期 30 分钟；超过期限需重新预览。已确认操作支持重启后读取和恢复。永久删除后的 PLAN/config 已不存在时，若重新预检无法恢复唯一关联证据，保持阻断，不猜测续删。
+首次预览有效期 30 分钟；超过期限需重新预览。已确认操作支持重启后读取和恢复。续办通过验收过的 clean_dir 文件重建已移动的 PLAN/config 元数据；已删除的元数据仅沿用批准记录中的原始哈希、运行 ID 和引用关系，不保存配置秘密。新 PLAN 在原路径重建、服务器身份变化、内容变化或活动作业均阻断。已完成目标不会重新执行；已不存在的目标仍需审核确认后才能消除待办信号。删除过程中元数据已消失时优先使用 continue 重新预览，无法证明原身份则保持阻断。恢复覆盖整条续办链的已移动目标，仅撤销该链自身的生命周期标记，不覆盖新文件。
 
 当前文件执行器依赖本机 Python 和远端 Python 3。验证平台为 Windows，本次没有 Linux 生产节点实测。macOS 缺少可靠文件句柄核验时返回 `HANDLE_CHECK_UNAVAILABLE`，不会执行清理。
 
@@ -81,7 +85,7 @@ SimpleExperiment 要求配套 SimpleSFTP 的预览响应包含 `safety.gitReposi
 
 生产服务器、MultiModal 清理/恢复、真实永久删除、Linux/macOS 文件句柄与多节点故障注入未执行。这些是部署前验收边界，不能用单元测试声称生产目录已清除。
 
-已通过新增测试 `test/features/planCleanup.test.js` 20 项、SimpleSFTP `test/cleanupFiles.test.js` 15 项。既有回归分别单文件执行，覆盖 SFTP 进度/错误桥、面板脚本、PLAN 模式和提交路由、产物同步/保留、结果运行身份、本地 API 以及精确传输范围；未执行全量测试集。两插件 build、语法/VM 校验与 VSIX runtime 闭包检查均通过。
+已通过清理测试 `test/features/planCleanup.test.js` 20 项、`test/features/planCleanupReconnect.test.js` 9 项、SimpleSFTP `test/cleanupFiles.test.js` 17 项。新增覆盖重启后的离线信号、逐次重连核查零写入、新批准续办、删除双确认、路径重建/身份变化、丢失响应结算、删除元数据续办、整链恢复及索引隔离。既有回归分别单文件执行，覆盖 SFTP 进度/错误桥、面板脚本、PLAN 模式和提交路由、产物同步/保留、结果运行身份、本地 API 以及精确传输范围；未执行全量测试集。两插件 build、语法/VM 校验与 VSIX runtime 闭包检查均通过。
 
 ## 修改文件
 
@@ -92,7 +96,7 @@ SimpleExperiment 要求配套 SimpleSFTP 的预览响应包含 `safety.gitReposi
 | SimpleExperiment | `src/api/LocalApiServer.legacy.ts` capabilities/OpenAPI 与结构化错误；`src/core/SimpleSftpProgressWait.ts` 下层安全错误透传 |
 | SimpleExperiment | `src/features/DistributedPlanQueue.ts` 生命周期/稳定 ID 类型；`src/features/PlanArtifactSync.ts`、`src/features/PlanOutputRetention.ts`、`src/results/PlanRunFreshness.ts` 清理后同步/收集排除 |
 | SimpleExperiment | `src/ui/PanelHtml.legacy.ts`、`src/ui/sections/PlansSection.ts` 按钮和路由；`src/runtime/RuntimeManifest.ts` 版本 |
-| SimpleExperiment | `test/features/planCleanup.test.js`；`test/features/distributedPlanExecutionMode.test.js` 新依赖及稳定 ID 回归；`test/features/planOutputRetention.test.js`、`test/fixtures/plan-output-retention-inspection.py` 现有提取夹具适配 |
-| SimpleExperiment | 本说明、`docs/cli-agent-api-schema.md`、`CHANGELOG.md`、`package.json`、`package-lock.json`；对应受版本控制的 dist JS/runtime 与新增四个模块的 dist JS |
+| SimpleExperiment | `test/features/planCleanup.test.js`、`test/features/planCleanupReconnect.test.js`；`test/features/distributedPlanExecutionMode.test.js` 新依赖及稳定 ID 回归；`test/features/planOutputRetention.test.js`、`test/fixtures/plan-output-retention-inspection.py` 现有提取夹具适配 |
+| SimpleExperiment | 本说明、`docs/cli-agent-api-schema.md`、`CHANGELOG.md`、`package.json`、`package-lock.json`；`scripts/verify-vsix-runtime.js` 有界 VSCE 元数据枚举期限；对应受版本控制的 dist JS/runtime 与新增四个模块的 dist JS |
 | SimpleSFTP | `cleanup-file-api.js` 审批/回执状态；`cleanup-files.py` 受限文件执行器；`extension.js` 接口与归档排除；`api-server.js` 只读标记/OpenAPI |
 | SimpleSFTP | `test/cleanupFiles.test.js`；`scripts/verify-runtime.js` 仅延长 VSCE 元数据枚举上限，Python/测试期限不变；`readme.md`、`CHANGELOG.md`、`package.json`、`package-lock.json` |
