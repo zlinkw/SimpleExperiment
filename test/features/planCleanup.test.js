@@ -124,8 +124,13 @@ test('evidence joins all attempts and historical workers; same prefixes stay sep
 test('same physical root/target across aliases is processed once',async()=>{
   const f=await fixture();f.scope.nodes[1].root=f.scope.nodes[0].root;f.scope.candidates[1].relativePath=f.scope.candidates[0].relativePath;
   f.sources.set('w1:'+f.scope.candidates[0].relativePath,'sha-'+f.scope.candidates[0].relativePath);
-  const p=await f.service.preview({planFile:f.scope.planFile});assert.equal(p.rows.filter(r=>r.disposition==='move').length,1);assert.match(p.rows[1].protectedReason,/物理目标/);
-  const op=await f.confirm(p);await f.service.execute(op.id);assert.equal(f.mutations,1);
+  f.scope.candidates.push({...f.scope.candidates[1],relativePath:'work_dirs/exact/unique.csv'});f.sources.set('w1:work_dirs/exact/unique.csv','unique');
+  const p=await f.service.preview({planFile:f.scope.planFile});assert.equal(p.rows.filter(r=>r.disposition==='move').length,2);assert.match(p.rows[1].protectedReason,/物理目标/);
+  const op=await f.confirm(p);
+  const duplicate=p.rows[1],unique=p.rows[2];assert.notEqual(unique.backendToken,duplicate.backendToken);
+  const approval=f.calls.find(row=>row.method==='files.cleanup.confirm'&&row.params.token===unique.backendToken);
+  assert.deepEqual(approval.params.exactTargets,[unique.absolutePath]);assert.ok(!f.calls.some(row=>row.method==='files.cleanup.confirm'&&row.params.token===duplicate.backendToken));
+  await f.service.execute(op.id);assert.equal(f.mutations,2);
 });
 test('resume reconstructs only our already-moved PLAN/config evidence without reading active replacements',async()=>{
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'simple-plan-resume-evidence-'));
@@ -161,6 +166,13 @@ test('partial restore discovery skips metadata files already restored and rechec
   await exports.PlanCleanupHost.prototype.restoreGate.call({collect:async(_file,_allowMissing,archivedFiles)=>{
     assert.deepEqual(clone(archivedFiles),{'configs/p.yaml':'clean_dir/configs/p.yaml'});return {blockers:[],nodes:[node],references:{},candidates:[]};
   }},preview,{targets:{p:{state:'completed'},c:{state:'pending'}}});
+});
+test('Host refuses a backend without the required Git ancestor safety capability before approvals',async()=>{
+  const modulePath=require.resolve('../../dist/extension/PlanCleanupHost'),from=require('node:module').createRequire(modulePath),exports={};
+  vm.runInNewContext(await fs.readFile(modulePath,'utf8'),{exports,require:name=>['vscode','./PlanCleanupPanel'].includes(name)?{}:from(name)});
+  let safe=false;const host=new exports.PlanCleanupHost({context:{globalStorageUri:{fsPath:os.tmpdir()}},simpleSftpApiCall:async()=>({safety:{gitRepositoryAncestors:safe}})},'C:/fixture');
+  await assert.rejects(host.service.ports.sftp('files.cleanup.preview',{}),error=>error.apiData.code==='SFTP_SAFE_CLEANUP_UPGRADE_REQUIRED');
+  safe=true;assert.equal((await host.service.ports.sftp('files.cleanup.preview',{})).safety.gitRepositoryAncestors,true);
 });
 
 test('recorded stable identity joins renamed PLAN; unknown historical and dynamic config references stay protected',async()=>{

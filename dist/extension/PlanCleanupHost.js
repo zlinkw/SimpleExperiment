@@ -60,7 +60,12 @@ class PlanCleanupHost {
         const storage = host.context.globalStorageUri.fsPath;
         this.service = new PlanCleanup_1.PlanCleanup({ storageRoot: path.join(storage, "plan-cleanup", (0, PlanCleanup_1.cleanupDigest)(root)),
             collect: (file, options) => this.collect(file, false, options?.archivedFiles),
-            sftp: (method, params) => host.simpleSftpApiCall(method, params),
+            sftp: async (method, params) => {
+                const result = await host.simpleSftpApiCall(method, params);
+                if (method === "files.cleanup.preview" && result.safety?.gitRepositoryAncestors !== true)
+                    (0, PlanCleanup_1.cleanupError)("SFTP_SAFE_CLEANUP_UPGRADE_REQUIRED", "当前 SimpleSFTP 缺少 Git 祖先仓库预检；请更新配套插件后重新预览。");
+                return result;
+            },
             restoreGate: (preview, operation) => this.restoreGate(preview, operation),
             updateIndexes: (operation, restore) => this.updateIndexes(operation, restore) });
     }

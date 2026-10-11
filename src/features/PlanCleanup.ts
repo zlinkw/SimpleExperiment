@@ -129,6 +129,18 @@ export class PlanCleanup {
               absolutePath: node.kind === "local" ? path.join(node.root, ref.path) : path.posix.join(node.root, ref.path), destination: "clean_dir/" + ref.path });
           }
         });
+        // A physical alias may share a backend batch with unique targets. Freeze
+        // a new capability containing only the paths the user can approve here.
+        const approved = rows.filter(row => row.disposition === action);
+        if (approved.length && rows.some(row => row.disposition === "protected")) {
+          const exact = await this.ports.sftp("files.cleanup.preview", { node, action,
+            targets: approved.map(row => ({ relativePath: row.relativePath, type: row.type, destination: row.destination,
+              expectedSha256: row.expectedSha256, expectedOwner: row.expectedOwner })) });
+          if (cleanupDigest(exact.rootIdentity) !== cleanupDigest(backend.rootIdentity)
+            || exact.targets.length !== approved.length
+            || approved.some((row, index) => exact.targets[index].fingerprint !== row.fingerprint)) cleanupError("PREVIEW_CHANGED");
+          approved.forEach((row, index) => Object.assign(row, { backendToken: exact.token, backendDigest: exact.digest, backendIndex: index }));
+        }
       } catch (error: any) {
         const code = error.apiData?.code || error.code || "NODE_PREFLIGHT_FAILED";
         result.blockers.push({ code, nodeId: node.id, detail: String(error.message || code) });

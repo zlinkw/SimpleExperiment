@@ -1,6 +1,6 @@
 # PLAN 及关联产物清除
 
-SimpleExperiment 0.5.271 与 SimpleSFTP 0.2.64 增加统一预览和受限执行接口。开发验证只使用本机临时夹具与模拟 Worker，没有清理 MultiModal、启动实验或向生产服务器写入。VSIX 仅在本地生成，没有安装或发布。
+SimpleExperiment 0.5.272 与 SimpleSFTP 0.2.65 增加统一预览和受限执行接口。开发验证只使用本机临时夹具与模拟 Worker，没有清理 MultiModal、启动实验或向生产服务器写入。VSIX 仅在本地生成，没有安装或发布。
 
 ## UI
 
@@ -45,6 +45,8 @@ SimpleExperiment 0.5.271 与 SimpleSFTP 0.2.64 增加统一预览和受限执行
 
 SimpleSFTP 下层接口为 `files.cleanup.inspect/verify/preview/confirm/execute/status/settle`。其令牌独立绑定节点身份、根目录身份、内容指纹、固定类型和处理方式。业务调用应优先使用 SimpleExperiment 协调接口，不自行拼接删除请求。
 
+SimpleExperiment 要求配套 SimpleSFTP 的预览响应包含 `safety.gitRepositoryAncestors: true`。旧版虽有同名接口，但缺少祖先 Git 仓库保护时返回 `SFTP_SAFE_CLEANUP_UPGRADE_REQUIRED`，阻断批准和执行。
+
 ## 所有权和保护
 
 任务目录通过规范项目 ID、精确 PLAN 路径/版本、workflow、case/seed/fold、attempt、commandId、Worker 和 outputDir 登记关联。遍历当前及历史 attempts、镜像节点和已确认同步记录；没有完整证据的旧目录只报告。manifest 中已有身份字段必须匹配，包含 outputDir；所有待处理内容重新计算 SHA256。
@@ -59,9 +61,11 @@ SimpleSFTP 下层接口为 `files.cleanup.inspect/verify/preview/confirm/execute
 
 ## 安全和恢复边界
 
-所有节点身份、端口和项目根从当前配置获取，包括禁用但历史关联的 Worker。活动作业、重试、收集、传输、未提交的受跟踪目标和未保存编辑阻断；没有隐式停止或取消。离线节点默认阻断。显式勾选“仅处理已验证节点”会保留 pendingNodes，结果为 partial。以后处理此前未授权的离线节点需要重新完整预览和确认。
+所有节点身份、端口和项目根从当前配置获取，包括禁用但历史关联的 Worker。活动作业、重试、收集、传输、未提交的受跟踪目标和未保存编辑阻断；没有隐式停止或取消。Git 检查包含工作区所在的祖先仓库及 `.git` 文件形式的 worktree。离线节点默认阻断。显式勾选“仅处理已验证节点”会保留 pendingNodes，结果为 partial。以后处理此前未授权的离线节点需要重新完整预览和确认。
 
 引擎拒绝根/home/.git/clean_dir 审计目录、链接/reparse point、挂载/同设备 bind mount、硬链接、路径穿越、通配符、类型/指纹变化和已有目标。源的直接父目录必须是安全根的严格子目录；根目录直接子项不能作为清除目标。文件与目录删除器分开，必须切换到规范直接父目录并核实物理 cwd，只传 `./直接子名称`。远端规范路径使用 Python 的 realpath 与物理 cwd 校验，等价于 `realpath -e` 和 `pwd -P` 的存在与身份检查。
+
+同一物理根及文件经不同节点别名发现时仅处理一次；去重后重新冻结下层授权，受保护的重复路径不包含在其他目标的批准批次中。
 
 移动保留文件身份和内容清单，验收源不存在、目标相同后追加 UTF-8 `clean_dir/MANIFEST.md`。持久化操作日志保存在插件存储目录，不记录凭据或确认 token 到审计清单。日志/权限失败停止。跨节点没有原子事务或自动回滚：失败后状态为 blocked，已完成目标保留回执。移动响应丢失时先通过仅结算回执的 settle 接口核验源/目标，再重建已移动的 PLAN/config 元数据并重新预检，不能在结算阶段启动新移动；部分恢复会跳过已经还原的元数据。不重复移动；删除响应丢失时返回 `DELETE_RECEIPT_UNCERTAIN`，需要人工审核，不自动重删。
 
@@ -77,7 +81,7 @@ SimpleSFTP 下层接口为 `files.cleanup.inspect/verify/preview/confirm/execute
 
 生产服务器、MultiModal 清理/恢复、真实永久删除、Linux/macOS 文件句柄与多节点故障注入未执行。这些是部署前验收边界，不能用单元测试声称生产目录已清除。
 
-已通过新增测试 `test/features/planCleanup.test.js` 19 项、SimpleSFTP `test/cleanupFiles.test.js` 14 项。既有回归分别单文件执行，覆盖 SFTP 进度/错误桥、面板脚本、PLAN 模式和提交路由、产物同步/保留、结果运行身份、本地 API 以及精确传输范围；未执行全量测试集。两插件 build、语法/VM 校验与 VSIX runtime 闭包检查均通过。
+已通过新增测试 `test/features/planCleanup.test.js` 20 项、SimpleSFTP `test/cleanupFiles.test.js` 15 项。既有回归分别单文件执行，覆盖 SFTP 进度/错误桥、面板脚本、PLAN 模式和提交路由、产物同步/保留、结果运行身份、本地 API 以及精确传输范围；未执行全量测试集。两插件 build、语法/VM 校验与 VSIX runtime 闭包检查均通过。
 
 ## 修改文件
 
