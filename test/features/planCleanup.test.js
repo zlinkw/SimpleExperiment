@@ -215,7 +215,7 @@ test('cleanup review script parses; opening reads only, and permanent delete nee
   const element=id=>{if(!fields.has(id))fields.set(id,{value:id==='action'?'delete':'',checked:false,disabled:false,textContent:'',innerHTML:''});return fields.get(id)};
   const vscode={ViewColumn:{Active:1},window:{createWebviewPanel:()=>panel={
     webview:{html:'',onDidReceiveMessage:()=>({dispose(){}})},onDidDispose(){}}}};
-  const exports={};vm.runInNewContext(await fs.readFile(require.resolve('../../dist/extension/PlanCleanupPanel'),'utf8'),{exports,require:name=>name==='vscode'?vscode:require(name)});
+  const exports={},panelPath=require.resolve('../../dist/extension/PlanCleanupPanel'),panelRequire=require('node:module').createRequire(panelPath);vm.runInNewContext(await fs.readFile(panelPath,'utf8'),{exports,require:name=>name==='vscode'?vscode:panelRequire(name)});
   await exports.openPlanCleanupPanel({service:{}},'experiments/plans/p.yaml');
   const script=panel.webview.html.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/)[1];new vm.Script(script);
   vm.runInNewContext(script,{acquireVsCodeApi:()=>({postMessage:message=>posted.push(clone(message))}),document:{getElementById:element},setInterval:()=>0,window:{addEventListener:(_event,listener)=>listeners.push(listener)}});
