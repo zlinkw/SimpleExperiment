@@ -5340,7 +5340,7 @@ def _execute_worker_command_unfenced(root, command, worker_id):
         "--default-result-csv-dir", default_result_csv_dir,
     ]
     if distributed_results:
-        args.extend(["--output-dir-override", output_dir])
+        args.extend(["--output-dir-override", output_dir, "--plan-revision", str(command.get("planRevision") or "")])
     if overwrite_existing:
         args.append("--overwrite")
     if debug_mode:

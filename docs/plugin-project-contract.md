@@ -2,6 +2,35 @@
 
 本文档是研究项目接入两个插件的规范。新建或修改研究项目前必须先阅读本文；项目内的 `docs/project-constraints.md` 可以追加约束，但不能放宽本文要求。
 
+## 正式 PLAN 的结果路径与 attempt 隔离（0.5.277）
+
+`paper.result_csv` 是 PLAN 的声明路径。分布式 Worker 使用唯一作业目录
+`<声明 output_dir>/attempts/<attempt>/test_results/job_metrics.csv` 执行及收集，
+不会写入旧运行的声明 CSV。`runner.result_path_policy: attempt` 可显式声明该契约，
+未填写时使用同一策略，不回退到共享 CSV。
+
+Job 配置的 `test.results_csv`、`runtime.result_csv`、`paper.result_csv` 和所有结果模板别名
+统一为实际执行路径；`runtime.result_path_contract` 和 wrapper context 保存原声明、执行路径、
+收集路径、原/实际 output_dir、attempt、case/seed/index、PLAN 文件及 SHA256。
+配置快照复制该绑定。标准 wrapper 汇总和 manifest 继续限定在该 attempt 内；
+项目应在 manifest 中声明额外的执行 CSV，插件沿用文件清单及 SHA256 校验收集，不扩大旧文件门禁。
+
+有严格路径政策的项目在 `experiments/simple_project.yaml` 配置
+`adapter.resultPathValidator: experiments/<纯路径校验模块>.py`，模块提供
+`validate_result_paths(config, contract)`。contract 附带当前 `project_root`。
+这是用户项目代码接口，只做纯路径验证，不得导入训练入口、访问 GPU、写文件或连接服务器。
+validate/dryRun 使用与 Worker 相同的 attempt 绑定进行只读检查；失败以
+`RESULT_PATH_INCOMPATIBLE` 报出模块、声明和执行路径，在派发前阻断。
+Worker 启动前再次核验实际绑定和 queued PLAN revision。
+硬编码测试 CSV 与执行目标不同也会阻断，应改用 `{result_csv}`。
+未声明校验模块的项目不能据此声称其自定义路径政策已得到验证。
+
+正式 PLAN 在 `experiments/plans/`，配置在 `configs/`；`tmp/result/` 可作独立实验结果目录。
+本轮审计中旧草稿快照入口仅匹配 PLAN 文件 `tmp/plan/`，草稿转正目标限制仅作用于旧转正入口，
+没有命中正式 PLAN 的执行/同步/收集路径。保留这些历史兼容入口，不要求正式 PLAN 转正。
+验证缓存以完整 PLAN 路径、revision、代码 fingerprint、运行版本及结构输入文件绑定；
+校验模块纳入结构输入，陈旧 PLAN 拒绝执行，不恢复旧快照、不自动重跑。
+
 ## 版本与运行边界
 
 - SimpleExperiment 必须 `>= 0.4.2`，SimpleSFTP 必须 `>= 0.2.4`。

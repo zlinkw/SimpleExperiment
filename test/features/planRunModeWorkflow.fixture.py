@@ -35,6 +35,7 @@ elif kind == "scheduler":
                 "build_jobs": lambda *a: (plan, [job]),
                 "jobs_for_args": lambda *a: [job],
                 "output_interface_report": lambda *a: {"ok": True, "missing": []},
+                "result_path_preflight": lambda *a, **kw: {"ok": True, "missing": [], "rows": []},
                 "detect_existing_outputs": lambda *a: [],
                 "read_availability_cache": lambda *a: None,
                 "refresh_missing_worker_availability": lambda *a: None,

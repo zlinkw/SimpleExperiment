@@ -35,9 +35,9 @@ except ModuleNotFoundError as exc:
     yaml = None
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_scheduler.py 为准
-SCHEDULER_VERSION = "0.5.276"
-RUNTIME_VERSION = "0.5.276"
-PLUGIN_VERSION = "0.5.276"
+SCHEDULER_VERSION = "0.5.277"
+RUNTIME_VERSION = "0.5.277"
+PLUGIN_VERSION = "0.5.277"
 
 TAIL_BYTES = 16 * 1024
 WORKER_AVAILABILITY_REFRESH_TIMEOUT_SECONDS = 5.0
@@ -472,6 +472,7 @@ def load_config(path: str | Path, inheritance_stack: tuple[Path, ...] = ()) -> d
 def load_plan(path: str | Path) -> dict[str, Any]:
     plan = load_yaml_file(path)
     plan["_file"] = str(path)
+    plan["_revision"] = hashlib.sha256(Path(path).read_bytes()).hexdigest()
     return plan
 
 
@@ -1242,6 +1243,12 @@ def build_jobs(plan: dict[str, Any], default_result_csv_dir: str = "experiments/
             runner_expected_results = list(runner_result_alias_values.values())
             result_csv_tpl = direct_result_field(case_item, case_paper, plan_paper, plan) or (case_expected_results + plan_expected_results + runner_expected_results + [f"{normalize_default_result_csv_dir(default_result_csv_dir)}/{suite}.csv"])[0]
             result_csv = render_template(result_csv_tpl, values)
+            values["result_path_policy"] = str(local_runner.get("result_path_policy") or "attempt")
+            values["declared_result_csv"] = result_csv
+            values["declared_output_dir"] = output_dir
+            values["plan_file"] = str(plan.get("_file") or "")
+            values["plan_revision"] = str(plan.get("_revision") or "")
+            values["execution_mode"] = plan_execution_mode(plan)
             values.update({"result_csv": result_csv, "resultCsv": result_csv})
             for alias_key, alias_tpl in result_alias_values.items():
                 values[alias_key] = render_template(alias_tpl, values)
@@ -1294,7 +1301,109 @@ def build_jobs(plan: dict[str, Any], default_result_csv_dir: str = "experiments/
                 collect_metrics=bool_field(local_runner.get("collect_metrics", local_runner.get("collectMetrics")), True),
             ))
             index += 1
-    return plan, jobs
+    return plan, [bind_execution_result_paths(job) for job in jobs]
+
+
+def bind_execution_result_paths(job: Job, output_override: str = "") -> Job:
+    """One binding drives commands, config snapshots and collection, without writes."""
+    root = Path.cwd()
+    values = dict(job.template_values or {})
+    policy = str(values.get("result_path_policy") or "attempt")
+    if policy != "attempt":
+        raise ValueError("RESULT_PATH_POLICY_INVALID: distributed execution requires runner.result_path_policy=attempt")
+    declared = safe_project_relative_path(root, str(values.get("declared_result_csv") or job.result_csv), "paper.result_csv")
+    original_output = str(values.get("declared_output_dir") or job.output_dir).replace("\\", "/").rstrip("/")
+    output = safe_project_relative_path(root, output_override or job.output_dir, "runtime.output_dir")
+    attempt = ""
+    execution = declared
+    if output_override:
+        prefix = original_output + "/attempts/"
+        if not output.startswith(prefix):
+            raise ValueError("RESULT_PATH_ATTEMPT_INVALID: output override is outside this job's attempts")
+        attempt = output[len(prefix):]
+        if not attempt or "/" in attempt:
+            raise ValueError("RESULT_PATH_ATTEMPT_INVALID: expected one exact attempt directory")
+        execution = output + "/test_results/job_metrics.csv"
+    execution = safe_project_relative_path(root, execution, "execution.result_csv")
+    aliases = {key: execution for key in job.result_aliases}
+    aliases.update({"result_csv": execution, "resultCsv": execution})
+    config = rewrite_debug_config_paths(copy.deepcopy(job.config), output, execution, original_output, job.result_aliases)
+    command_path = path_for_job_command(execution, job)
+    for field in ("test.results_csv", "runtime.result_csv", "paper.result_csv"):
+        set_dotted(config, field, command_path)
+    set_dotted(config, "runtime.output_dir", path_for_job_command(output, job))
+    contract = {"schemaVersion": 1, "policy": policy, "declared_result_csv": declared,
+                "execution_result_csv": execution, "collection_result_csv": execution,
+                "declared_output_dir": original_output, "execution_output_dir": output,
+                "attempt": attempt, "index": job.index, "case": job.case, "seed": job.seed,
+                "plan_file": str(values.get("plan_file") or ""), "plan_revision": str(values.get("plan_revision") or "")}
+    set_dotted(config, "runtime.result_path_contract", contract)
+    for key in OUTPUT_TEMPLATE_ALIAS_KEYS:
+        values[key] = output
+    for key in RESULT_TEMPLATE_ALIAS_KEYS:
+        values[key] = execution
+    values.update({"result_path_contract": contract, "output_dir": output, "outputDir": output,
+                   "result_csv": execution, "resultCsv": execution})
+    outputs = tuple(execution if item == job.result_csv else output + item[len(job.output_dir):]
+                    if item.startswith(job.output_dir.rstrip("/") + "/") else item for item in job.outputs)
+    return replace(job, output_dir=output, result_csv=execution, result_aliases=aliases,
+                   config=config, template_values=values, outputs=outputs)
+
+
+def result_path_preflight(root: Path, jobs: list[Job], include_attempt: bool = True, execution_mode: str = "") -> dict[str, Any]:
+    """Read-only project hook; validate the same relocation used by Worker execution."""
+    metadata_path = root / "experiments/simple_project.yaml"
+    metadata = load_yaml_file(metadata_path) if metadata_path.is_file() else {}
+    hook_path = str((metadata.get("adapter") or {}).get("resultPathValidator") or "")
+    validator = None
+    if hook_path:
+        relative = safe_project_relative_path(root, hook_path, "adapter.resultPathValidator", require_exists=True)
+        filename = root / relative
+        tracked = globals().get("PLAN_VALIDATION_INPUT_FILES")
+        if isinstance(tracked, set):
+            tracked.add(filename.resolve().as_posix())
+        namespace = {"__file__": str(filename), "__name__": "simple_experiment_result_path_validator"}
+        exec(compile(filename.read_text(encoding="utf-8"), str(filename), "exec"), namespace)
+        validator = namespace.get("validate_result_paths")
+        if not callable(validator):
+            raise ValueError("RESULT_PATH_VALIDATOR_INVALID: " + hook_path + " requires validate_result_paths(config, contract)")
+    rows, seen = [], set()
+    for job in jobs:
+        candidates = [job]
+        if include_attempt and job.output_dir == str(job.template_values.get("declared_output_dir") or job.output_dir):
+            candidates.append(bind_execution_result_paths(job, job.output_dir.rstrip("/") + "/attempts/preflight-preview"))
+        for candidate in candidates:
+            contract = candidate.config.get("runtime", {}).get("result_path_contract", {})
+            error = ""
+            try:
+                if candidate.test_command and (execution_mode or candidate.template_values.get("execution_mode")) in ("test", "train_test"):
+                    arguments = argparse.Namespace(worker_id="preflight", gpu_ids="", mode="test", debug_mode=False,
+                                                  plan=str(candidate.template_values.get("plan_file") or ""))
+                    command = render_command(candidate.test_command, candidate, Path(candidate.output_dir) / "job_config.yaml", arguments)
+                    tokens = shlex.split(command[-1]) if command_requires_shell(candidate.test_command) else command
+                    for position, token in enumerate(tokens):
+                        flag, separator, value = token.partition("=")
+                        if flag.replace("_", "-") not in ("--result-csv", "--results-csv"):
+                            continue
+                        if not separator:
+                            value = tokens[position + 1] if position + 1 < len(tokens) else ""
+                        if not value or (root / candidate.working_directory / value).resolve() != (root / candidate.result_csv).resolve():
+                            raise ValueError("runner.test_command result CSV disagrees with execution binding; use {result_csv}")
+                if validator and validator(copy.deepcopy(candidate.config), {**contract, "project_root": str(root)}) is False:
+                    raise ValueError("project validator refused the execution path")
+                if contract.get("attempt") or not include_attempt:
+                    key = os.path.normcase(str((root / candidate.result_csv).resolve()))
+                    if key in seen:
+                        raise ValueError("multiple jobs share one execution CSV")
+                    seen.add(key)
+            except Exception as exc:
+                error = ("RESULT_PATH_INCOMPATIBLE: " + hook_path + ": " + str(exc)
+                         + "; declared=" + str(contract.get("declared_result_csv"))
+                         + "; execution=" + candidate.result_csv
+                         + "; check runner.result_path_policy / project validate_result_paths")
+            rows.append({"index": job.index, "ok": not error, "contract": contract, "error": error, "projectInterface": hook_path})
+    missing = [row["error"] for row in rows if not row["ok"]]
+    return {"ok": not missing, "rows": rows, "missing": missing}
 
 
 def debug_run_root(plan_file: str, run_id: str) -> str:
@@ -1694,7 +1803,7 @@ def path_for_job_command(value: object, job: Job) -> str:
     if not text or job.working_directory in ("", "."):
         return text
     candidate = Path(text)
-    return str((candidate if candidate.is_absolute() else Path.cwd() / candidate).resolve())
+    return (candidate if candidate.is_absolute() else Path.cwd() / candidate).resolve().as_posix()
 
 
 def normalize_command_text(command: str) -> str:
@@ -1748,6 +1857,8 @@ def render_command(template: str, job: Job, config_path: Path, args: argparse.Na
         "python": python_bin,
     })
     # 同时支持模板使用 {python} 占位；未使用占位时后续 _replace_bare_python_prefix 会固化首 token
+    for key in RESULT_TEMPLATE_ALIAS_KEYS:
+        values[key] = path_for_job_command(job.result_csv, job)
     values["python"] = python_bin
     rendered = normalize_command_text(render_template(template, values))
     if bool(getattr(args, "debug_mode", False)):
@@ -1812,6 +1923,8 @@ def wrapper_context(job: Job, config_path: Path, args: argparse.Namespace, stage
         "plan": path_for_job_command(args.plan or "", job),
         "plan_file": path_for_job_command(args.plan or "", job),
     })
+    for key in RESULT_TEMPLATE_ALIAS_KEYS:
+        values[key] = path_for_job_command(job.result_csv, job)
     return values
 
 
@@ -2004,6 +2117,9 @@ def run_job_mode(args: argparse.Namespace) -> None:
     if args.debug_mode:
         raise SystemExit("Debug 运行模式已移除，请使用正式 Plan 运行。")
     plan = load_plan(args.plan)
+    expected_revision = str(getattr(args, "plan_revision", "") or "")
+    if expected_revision and hashlib.sha256(Path(args.plan).read_bytes()).hexdigest() != expected_revision:
+        raise SystemExit("PLAN_REVISION_CHANGED: current PLAN differs from queued validation; no command was launched")
     args.mode = plan_execution_mode(plan, args.mode)
     if os.environ.get("SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS") and args.mode != plan_execution_mode(plan):
         raise SystemExit("Distributed execution mode disagrees with the original PLAN; no command was launched")
@@ -2016,31 +2132,10 @@ def run_job_mode(args: argparse.Namespace) -> None:
         parts = output_override.split("/")
         if os.path.isabs(output_override) or any(part in ("", ".", "..") for part in parts):
             raise SystemExit("Unsafe --output-dir-override")
-        original = chosen[0]
-        if not output_override.startswith(original.output_dir.rstrip("/") + "/attempts/"):
-            raise SystemExit("Output override must be an attempt directory of the selected job")
-        result_csv = output_override + "/test_results/job_metrics.csv"
-        aliases = {key: result_csv for key in original.result_aliases}
-        aliases.update({"result_csv": result_csv, "resultCsv": result_csv})
-        config = rewrite_debug_config_paths(copy.deepcopy(original.config), output_override, result_csv,
-                                            original.output_dir, original.result_aliases)
-        set_dotted(config, "runtime.output_dir", str((Path.cwd() / output_override).resolve()) if original.working_directory != "." else output_override)
-        values = dict(original.template_values or {})
-        for key in OUTPUT_TEMPLATE_ALIAS_KEYS:
-            values[key] = output_override
-        for key in RESULT_TEMPLATE_ALIAS_KEYS:
-            values[key] = aliases.get(key) or result_csv
-        values.update({"output_dir": output_override, "outputDir": output_override,
-                       "result_csv": result_csv, "resultCsv": result_csv,
-                       "formal_output_dir": output_override, "formal_result_csv": result_csv})
-        replaced_outputs = tuple(
-            output_override + item[len(original.output_dir):]
-            if item == original.output_dir or item.startswith(original.output_dir.rstrip("/") + "/")
-            else item
-            for item in original.outputs
-        )
-        chosen = [replace(original, output_dir=output_override, result_csv=result_csv,
-                          result_aliases=aliases, config=config, template_values=values, outputs=replaced_outputs)]
+        chosen = [bind_execution_result_paths(chosen[0], output_override)]
+    path_check = result_path_preflight(Path.cwd(), chosen, include_attempt=False, execution_mode=args.mode)
+    if not path_check["ok"]:
+        raise SystemExit("；".join(path_check["missing"]))
     jobs_csv = Path(str(args.debug_output_dir)) / "jobs.csv" if args.debug_mode else Path(normalize_default_result_csv_dir(args.default_result_csv_dir)) / "jobs.csv"
     if not os.environ.get("SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS"):
         append_jobs_csv(chosen, jobs_csv, plan_file=str(args.plan or ""))
@@ -2094,6 +2189,9 @@ def validate_plan_mode(args: argparse.Namespace) -> None:
         missing.append("test.py, runner.test_command 或 simple_project.entrypoints.testCommandTemplate")
     if missing:
         raise SystemExit("缺少必要运行入口：" + ", ".join(missing))
+    path_check = result_path_preflight(project_root, jobs, execution_mode=mode)
+    if not path_check["ok"]:
+        raise SystemExit("；".join(path_check["missing"]))
     output_interface = output_interface_report(project_root, jobs)
     if not output_interface["ok"]:
         raise SystemExit("输出接口预检失败：" + "；".join(output_interface["missing"]))
@@ -2105,6 +2203,7 @@ def validate_plan_mode(args: argparse.Namespace) -> None:
         "execution_mode": mode,
         "job_count": len(jobs),
         "outputInterface": output_interface,
+        "resultPathPreflight": path_check,
         "structuralInputPaths": sorted(PLAN_VALIDATION_INPUT_FILES),
         "existingCount": len(existing),
         "existing": existing,
@@ -2128,6 +2227,9 @@ def dry_run_plan_mode(args: argparse.Namespace) -> None:
     plan = load_plan(args.plan)
     jobs = jobs_for_args(plan, args)
     mode = plan_execution_mode(plan, args.mode)
+    path_check = result_path_preflight(project_root, jobs, execution_mode=mode)
+    if not path_check["ok"]:
+        raise SystemExit("；".join(path_check["missing"]))
     workers = json.loads(Path(args.workers_json).read_text(encoding="utf-8")) if args.workers_json else []
     worker_status_ttl_seconds = max(60, int(args.worker_status_ttl_seconds or 180))
     read_availability_cache(args.availability_path, workers, worker_status_ttl_seconds)
@@ -2191,6 +2293,7 @@ def dry_run_plan_mode(args: argparse.Namespace) -> None:
         "blockedReasons": blocked_reasons,
         "runnerWarnings": runner_missing,
         "outputInterface": output_interface,
+        "resultPathPreflight": path_check,
         "availabilitySource": "hub_availability_cache",
         "workerStatusTtlSeconds": worker_status_ttl_seconds,
         "dispatchProbe": dispatch_probe,
