@@ -56,6 +56,7 @@ const StateStore_1 = require("../state/StateStore");
 const LatestSnapshotWriter_1 = require("../core/LatestSnapshotWriter");
 const ProjectStaticCheck_1 = require("../features/ProjectStaticCheck");
 const TmuxWindowIdentity = __importStar(require("../features/TmuxWindowIdentity"));
+const GpuTmuxClose_1 = require("./GpuTmuxClose");
 const SimpleSftpProgressWait_1 = require("../core/SimpleSftpProgressWait");
 const SafeRequestRetry_1 = require("../core/SafeRequestRetry");
 const PlanSafeRetry_1 = require("../features/PlanSafeRetry");
@@ -20037,7 +20038,9 @@ class RealtimeTunnelPanelProvider {
         await Promise.all(workerIds.map((workerId) => this.fetchOneTmuxListFromUi(workerId, _message?.requestId)));
     }
     publishTmuxList(workerId, result, requestId, publish = true) {
-        const payload = { type: "tmuxList", ok: result?.ok !== false, available: result?.available !== false, workerId, requestId, workers: this.enabledWorkerConfigs().map((worker) => ({ id: worker.id, name: worker.displayName || worker.id })), gpuIds: result?.gpuIds || [], sessions: result?.sessions || [], error: result?.error || result?.message || "", fetchedAt: new Date().toISOString() };
+        const cfg = vscode.workspace.getConfiguration("simpleExperiment");
+        const tmuxSessionPrefix = AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix(this.setupConfig?.sessionPrefix || this.setupConfig?.remoteTmuxSessionPrefix || cfg.get("sessionPrefix") || cfg.get("tunnel.remoteTmuxSessionPrefix") || "simple");
+        const payload = { type: "tmuxList", ok: result?.ok !== false, available: result?.available !== false, workerId, requestId, workers: this.enabledWorkerConfigs().map((worker) => ({ id: worker.id, name: worker.displayName || worker.id })), tmuxSessionPrefix, gpuIds: result?.gpuIds || [], sessions: result?.sessions || [], error: result?.error || result?.message || "", fetchedAt: new Date().toISOString() };
         if (publish)
             this.view?.webview.postMessage(payload);
         return payload;
@@ -20228,6 +20231,30 @@ class RealtimeTunnelPanelProvider {
     }
     async killTmuxWindowFromUi(message) {
         const workerId = this.tmuxWorkerId(message);
+        if (message?.gpuSession) {
+            if (this.tmuxClearTaskTabsInFlight)
+                throw new Error("正在关闭 GPU 窗口，请等待本次结束。");
+            this.tmuxClearTaskTabsInFlight = true;
+            const prefix = () => {
+                const cfg = vscode.workspace.getConfiguration("simpleExperiment");
+                return AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix(this.setupConfig?.sessionPrefix || this.setupConfig?.remoteTmuxSessionPrefix || cfg.get("sessionPrefix") || cfg.get("tunnel.remoteTmuxSessionPrefix") || "simple");
+            };
+            try {
+                return await (0, GpuTmuxClose_1.closeGpuTmuxSession)({ prefix, read: () => this.readTmuxListAfterKill(workerId),
+                    close: identity => this.performKillTmuxWindow(workerId, identity.target, identity),
+                    confirm: async (description) => {
+                        const answer = await vscode.window.showWarningMessage(description, { modal: true }, "关闭上述 GPU 窗口");
+                        if (answer !== "关闭上述 GPU 窗口")
+                            throw new UiCommandCancelled("已取消关闭 GPU 窗口。");
+                    }, progress: work => vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
+                        title: `关闭 ${workerId} · ${message.gpuSession}`, cancellable: false }, progress => work(message => progress.report({ message }))),
+                }, { workerId, gpuSession: String(message.gpuSession), identities: message.identities });
+            }
+            finally {
+                this.tmuxClearTaskTabsInFlight = false;
+                await this.fetchOneTmuxListFromUi(workerId);
+            }
+        }
         const target = String(message?.target || message?.window || message?.session || "").trim();
         if (!target)
             throw new Error("缺少关闭目标 target（期望 session:index）");
