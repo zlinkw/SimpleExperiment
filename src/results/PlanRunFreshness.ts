@@ -99,7 +99,7 @@ export function hasExclusiveAttemptOutput(queue: unknown, run: AuthoritativePlan
 export function selectLatestPlanRunPreview(queue: unknown, planFile: string, expectedRevision = ""): AuthoritativePlanRun | undefined {
   const rows: Record<string, any>[] = Array.isArray((queue as any)?.plans) ? (queue as any).plans : [];
   const selected = rows.map((plan, order) => ({ plan, order })).filter(({ plan }) =>
-    normalizedPlanFile(plan.planFile || plan.file) === normalizedPlanFile(planFile) && plan.id && plan.revision
+    !plan.cleanup && normalizedPlanFile(plan.planFile || plan.file) === normalizedPlanFile(planFile) && plan.id && plan.revision
     && (!expectedRevision || plan.revision === expectedRevision) && !plan.recoveryConflict)
     .sort((left, right) => timestamp(right.plan.enqueuedAt) - timestamp(left.plan.enqueuedAt) || right.order - left.order)[0]?.plan;
   if (!selected) return undefined;
@@ -119,7 +119,7 @@ function selectLatestCompletePlanRunInternal(queue: unknown, planFile: string, e
   const selectedPlan = normalizedPlanFile(planFile);
   const revision = String(expectedRevision || "").trim();
   const candidates = rows.map((plan: Record<string, any>, order: number) => ({ plan, order }))
-    .filter(({ plan }) => normalizedPlanFile(plan?.planFile || plan?.file) === selectedPlan
+    .filter(({ plan }) => !plan.cleanup && normalizedPlanFile(plan?.planFile || plan?.file) === selectedPlan
       && Boolean(String(plan?.id || "").trim())
       && Boolean(String(plan?.revision || "").trim())
       && (!revision || String(plan.revision) === revision)

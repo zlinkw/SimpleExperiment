@@ -351,7 +351,7 @@ test("formal publication calls replacement only after rebuilding and mirroring t
   const start = source.indexOf("async rebuildDistributedResults(");
   const end = source.indexOf("planOutputRetentionMode(root)", start);
   assert.ok(start >= 0 && end > start);
-  const sandbox = { PlanOutputRetention: retention, PlanRunFreshness: freshness, crypto: require("node:crypto"),
+  const sandbox = { PlanOutputRetention: retention, PlanRunFreshness: freshness, DistributedPlanQueue: require("../../dist/features/DistributedPlanQueue"), crypto: require("node:crypto"),
     uniqueStrings: (values) => [...new Set(values)], samePlanSelection: (a, b) => a === b,
     remoteActionPendingStatus: () => false, resultStatus: (value) => value.status, errorMessage: (error) => error.message,
     makeOpId: () => "distributed-merge-fixture",

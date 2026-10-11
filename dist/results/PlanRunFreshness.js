@@ -89,7 +89,7 @@ function hasExclusiveAttemptOutput(queue, run, job) {
 /** Incomplete newest runs have a separate preview; never lend their seeds to formal results. */
 function selectLatestPlanRunPreview(queue, planFile, expectedRevision = "") {
     const rows = Array.isArray(queue?.plans) ? queue.plans : [];
-    const selected = rows.map((plan, order) => ({ plan, order })).filter(({ plan }) => normalizedPlanFile(plan.planFile || plan.file) === normalizedPlanFile(planFile) && plan.id && plan.revision
+    const selected = rows.map((plan, order) => ({ plan, order })).filter(({ plan }) => !plan.cleanup && normalizedPlanFile(plan.planFile || plan.file) === normalizedPlanFile(planFile) && plan.id && plan.revision
         && (!expectedRevision || plan.revision === expectedRevision) && !plan.recoveryConflict)
         .sort((left, right) => timestamp(right.plan.enqueuedAt) - timestamp(left.plan.enqueuedAt) || right.order - left.order)[0]?.plan;
     if (!selected)
@@ -112,7 +112,7 @@ function selectLatestCompletePlanRunInternal(queue, planFile, expectedRevision, 
     const selectedPlan = normalizedPlanFile(planFile);
     const revision = String(expectedRevision || "").trim();
     const candidates = rows.map((plan, order) => ({ plan, order }))
-        .filter(({ plan }) => normalizedPlanFile(plan?.planFile || plan?.file) === selectedPlan
+        .filter(({ plan }) => !plan.cleanup && normalizedPlanFile(plan?.planFile || plan?.file) === selectedPlan
         && Boolean(String(plan?.id || "").trim())
         && Boolean(String(plan?.revision || "").trim())
         && (!revision || String(plan.revision) === revision)

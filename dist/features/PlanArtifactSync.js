@@ -168,6 +168,8 @@ function pendingPlanSyncs(ledger) {
             latestRun.set(scope, key);
     }
     return entries.filter(([key, entry]) => {
+        if (entry.cleanupOperationId)
+            return false;
         const winner = latestRun.get(canonicalPlan(entry.planFile));
         return winner ? key === winner : entry.runId === "historic";
     }).flatMap(([key, entry]) => Object.entries(entry.destinations)

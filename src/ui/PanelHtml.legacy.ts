@@ -1411,6 +1411,7 @@ export function renderPanelHtml(): string {
           <button data-command="dryRunPlan" class="secondary" title="预演运行，不提交任务&#10;展开「用例 × 随机种子」的任务数、远端路径、Worker 与并发上限">预演</button>
           <button data-command="runPlan" title="同步代码、校验并预演；存在历史产物时选择补跑缺失任务、重跑全部或取消">校验并提交运行</button>
           <button data-command="runAllPlans" data-confirm="true" class="secondary" title="按顺序提交当前实验计划目录下的全部计划&#10;每个计划仍会走完整的校验与预演门禁">运行全部计划</button>
+          <button data-command="cleanupPlan" class="secondary" title="只读预览选中 PLAN 的本机及历史关联服务器产物，再核对精确路径">清除 PLAN 及关联产物</button>
           </div>
         </div>
         <div id="planCommandPhaseLine" class="commandPhaseLine muted" role="status" aria-live="polite"></div>
@@ -2879,7 +2880,7 @@ export function renderPanelHtml(): string {
     const PLAN_PREFLIGHT_COMMANDS = new Set(["validatePlan", "dryRunPlan"]);
     const SELECTED_PLAN_RUN_COMMANDS = new Set(["runPlan", "reproducePlan"]);
     const SELECTED_PLAN_ACTION_COMMANDS = new Set([...PLAN_PREFLIGHT_COMMANDS, ...SELECTED_PLAN_RUN_COMMANDS]);
-    const PLAN_FILE_PAYLOAD_COMMANDS = new Set([...SELECTED_PLAN_ACTION_COMMANDS, "archivePlan", "archivePlanCopy", "savePlan"]);
+    const PLAN_FILE_PAYLOAD_COMMANDS = new Set([...SELECTED_PLAN_ACTION_COMMANDS, "cleanupPlan", "archivePlan", "archivePlanCopy", "savePlan"]);
     const RESTORABLE_PLAN_FILE_PAYLOAD_COMMANDS = new Set([...PLAN_FILE_PAYLOAD_COMMANDS, "restoreArchivedPlan"]);
     const SUBMITTED_RUN_COMMANDS = new Set([...SELECTED_PLAN_RUN_COMMANDS, "runAllPlans"]);
     const CONFIG_SAVE_COMMANDS = new Set(["saveTopologyMode", "saveHubConfig", "saveWorkerConfig", "saveSchedulerConfig", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy"]);
@@ -2940,7 +2941,7 @@ export function renderPanelHtml(): string {
     const COMMAND_INSPECTOR_SECTIONS = Object.freeze({
       refreshLocalResults: "results", syncPendingPlanArtifacts: "results", rebuildProjectResultTables: "results", syncAllResultArtifacts: "results",
       prepareAgents: "sync", startAllConnections: "sync", pauseAll: "sync", resumeNetwork: "sync", saveTopologyMode: "sync", saveSchedulerConfig: "sync", startAll: "sync", testAll: "sync", snapshot: "gpu",
-      validatePlan: "plans", dryRunPlan: "plans", runPlan: "plans", runAllPlans: "plans", archivePlan: "plans", generateOutputAdapter: "plans",
+      validatePlan: "plans", dryRunPlan: "plans", runPlan: "plans", runAllPlans: "plans", cleanupPlan: "plans", archivePlan: "plans", generateOutputAdapter: "plans",
       stopExperiment: "execution", retryExperiment: "execution", reassignWorkerTask: "execution", archiveArtifacts: "execution", excludeResults: "results",       deleteArtifacts: "execution", clearOperations: "execution", parseResults: "results", refreshResults: "results", checkOutputContract: "results",
       inferConfigFromRun: "results", recoverPlanFromRun: "results", diagnoseResultAnomaly: "results", compareWithBestConfig: "results", inspectDataset: "results", planCheckpointRetention: "results",
       parseCaseLevel: "results", runLeakageCheck: "results", runSubgroupAnalysis: "results", exportCaseAnalysis: "results", runQualityGate: "results", runStatistics: "results", checkClaimEvidence: "results",
@@ -2961,7 +2962,7 @@ export function renderPanelHtml(): string {
     });
     const ACTION_RESOURCE_ANCHORS = Object.freeze({
       saveTopologyMode: "settings-servers", saveRemoteRootPolicy: "settings-remote-root-policy", saveSchedulerConfig: "servers-scheduler", startAll: "sync-actions", startAllConnections: "sync-actions", prepareAgents: "sync-actions", testAll: "sync-actions", snapshot: "gpu-summary",
-      validatePlan: "plans-actions", dryRunPlan: "plans-actions", runPlan: "plans-actions", runAllPlans: "plans-actions", archivePlan: "plans-actions", generateOutputAdapter: "plans-detected",
+      validatePlan: "plans-actions", dryRunPlan: "plans-actions", runPlan: "plans-actions", runAllPlans: "plans-actions", cleanupPlan: "plans-actions", archivePlan: "plans-actions", generateOutputAdapter: "plans-detected",
       stopExperiment: "execution", retryExperiment: "execution", reassignWorkerTask: "execution", archiveArtifacts: "execution", excludeResults: "results-traces",       deleteArtifacts: "execution", clearOperations: "execution", parseResults: "results-summary", refreshResults: "results-summary",
       runQualityGate: "results-summary", runStatistics: "results-summary", checkClaimEvidence: "results-summary", exportPaperTable: "results-summary", checkOutputContract: "results-contract", inspectDataset: "results-dataset",
       planCheckpointRetention: "results-checkpoints", inferConfigFromRun: "results-recovery", recoverPlanFromRun: "results-recovery", diagnoseResultAnomaly: "results-anomaly", compareWithBestConfig: "results-anomaly",
@@ -3188,6 +3189,7 @@ export function renderPanelHtml(): string {
       "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections",
       "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot",
       "selectLogRunKey", "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "checkPluginUpdates", "installPluginUpdates", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
+      "cleanupPlan",
       "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope", "resetRemotePathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "refreshLocalResults", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail", "applyPlanDatasetMapping", "autoMatchPlanDatasets",
       "selectPlan", "selectExperiment",
       "abortScheduler", "clearOperations", "clearCache", "openScalarViewer", "openTensorBoard", "stopTensorBoard", "getTensorBoardStatus", "copyTensorBoardUrl", "openTensorBoardUrl", "showLogHistory", "openFullLog", "copyText", "openLastCheckStaticReport", "copyLastCheckStaticReport", "runCheckStatic", "verifyAgentVersion", "fetchTmuxList", "fetchTmuxCapture", "killTmuxWindow", "clearTmuxTaskTabs",
@@ -6776,6 +6778,7 @@ export function renderPanelHtml(): string {
         dryRunPlan: "预演计划",
         runPlan: "校验并提交运行",
         runAllPlans: "运行全部计划",
+        cleanupPlan: "清除 PLAN 及关联产物",
         archivePlan: "归档计划",
         publishGithub: "发布到git并上传worker",
         syncGithub: "同步 GitHub",
@@ -16719,6 +16722,7 @@ export function renderPanelHtml(): string {
         dryRunPlan: "预演计划",
         runPlan: "校验并提交运行",
         runAllPlans: "运行全部计划",
+        cleanupPlan: "清除 PLAN 及关联产物",
         archivePlan: "归档计划",
         restoreArchivedPlan: "恢复归档 Plan",
         reproducePlan: "复现实验",

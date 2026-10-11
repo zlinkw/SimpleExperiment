@@ -19,6 +19,8 @@ import { preparePlanSafeRetry } from "../features/PlanSafeRetry";
 import * as FailedJobRecovery from "../features/FailedJobRecovery";
 import * as JobAvailability from "../features/JobAvailability";
 import { openCacheCleanupPanel } from "./CacheCleanupPanel";
+import { PlanCleanupHost } from "./PlanCleanupHost";
+import { cleanupStablePlanId } from "../features/PlanCleanupEvidence";
 import RequestBudget_1 = require("../tunnel/RequestBudget");
 import TunnelGateway_1 = require("../tunnel/TunnelGateway");
 import RealtimeEventReducer_1 = require("../tunnel/RealtimeEventReducer");
@@ -559,6 +561,7 @@ const uiActionCommands = new Set<WebviewActionCommand>([
     "abortScheduler",
 ]);
 const SAFE_WEBVIEW_COMMANDS = new Set([
+    "cleanupPlan",
     "markJobUnavailable", "restoreJobAvailability",
     "recallFailedJob",
     "retryDistributedJob",
@@ -595,6 +598,7 @@ const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set([
 ]);
 const UI_LAYOUT_SECTION_KEYS = new Set(defaultUiSectionOrder);
 const UI_BUTTON_ACTION_COMMANDS = new Set([
+    "cleanupPlan",
     "markJobUnavailable", "restoreJobAvailability",
     "recallFailedJob",
     "retryDistributedJob",
@@ -1322,6 +1326,14 @@ export class RealtimeTunnelPanelProvider {
     }
     createLocalApiMethods() {
         return {
+            "plans.cleanup.preview": params => this.planCleanupHost().service.preview(params),
+            "plans.cleanup.list": () => this.planCleanupHost().service.list(),
+            "plans.cleanup.confirm": params => this.planCleanupHost().service.confirm(params),
+            "plans.cleanup.execute": params => this.planCleanupHost().execute(String(params.operationId || "")),
+            "plans.cleanup.status": params => this.planCleanupHost().service.status(String(params.operationId || "")),
+            "plans.cleanup.resume": params => this.planCleanupHost().execute(String(params.operationId || "")),
+            "plans.cleanup.cancel": params => this.planCleanupHost().service.cancel(String(params.operationId || "")),
+            "plans.cleanup.restore": params => this.planCleanupHost().service.restorePreview(String(params.operationId || "")),
             status: async () => ({
                 ok: true,
                 name: "SimpleExperiment",
@@ -5648,6 +5660,9 @@ export class RealtimeTunnelPanelProvider {
                 break;
             case "archivePlan":
                 await this.archivePlanFromUi(message);
+                break;
+            case "cleanupPlan":
+                await this.planCleanupHost().open(stringField(message, "planFile") || this.planFileInput || this.selectedPlanId);
                 break;
             case "archivePlanCopy":
                 await this.archivePlanCopyFromUi(message);
@@ -10360,7 +10375,8 @@ export class RealtimeTunnelPanelProvider {
             }
             return { enqueued: false };
         }
-        const enqueued = DistributedPlanQueue.enqueuePlan(current, { projectId: DistributedPlanQueue.canonicalProjectId(root),
+        const stablePlanId = cleanupStablePlanId(await fs.readFile(path.join(root, planFile), "utf8"));
+        const enqueued = DistributedPlanQueue.enqueuePlan(current, { projectId: DistributedPlanQueue.canonicalProjectId(root), stablePlanId,
             executionMode, executionModeSource: "validation",
             schedulingMode: DistributedSchedulingPolicy.schedulingMode(body.schedulingMode ?? this.schedulerSettings().dispatchMode),
             planJobCount: selectedJobs.length, fullPlanJobCount: validation.jobs.length, planFile, revision, codeFingerprint, overwriteExisting, jobs: selectedJobs.map((job) => ({
@@ -10406,6 +10422,7 @@ export class RealtimeTunnelPanelProvider {
         void Promise.resolve(task).then(() => undefined, () => undefined);
     }
     async tickDistributedQueue() {
+        if (this.planCleanupHosts.get(workspaceRoot())?.executing) return;
         if (this.distributedQueueTickPromise) return this.distributedQueueTickPromise;
         if (this.distributedPlanStopEpoch) return;
         const generation = this.distributedQueueGeneration;
@@ -14361,6 +14378,14 @@ export class RealtimeTunnelPanelProvider {
             completed.push(workerId);
         }
         void vscode.window.showInformationMessage(`当前 Plan 已在 ${completed.join("、")} 和本地复制轻量归档：${archiveRelative}`);
+    }
+    private planCleanupHosts = new Map<string, PlanCleanupHost>();
+    planCleanupHost() {
+        const root = workspaceRoot();
+        if (!root) throw new Error("需要先打开工作区。");
+        let service = this.planCleanupHosts.get(root);
+        if (!service) { service = new PlanCleanupHost(this, root); this.planCleanupHosts.set(root, service); }
+        return service;
     }
     async archivePlanFromUi(message) {
         const projectContext = this.captureProjectContext();

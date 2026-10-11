@@ -54,6 +54,10 @@ export type QueuedJob = {
 };
 export type QueuedPlan = {
   id: string;
+  /** Explicit top-level PLAN identity, retained across a recorded rename. */
+  stablePlanId?: string;
+  /** Retain ownership even when the activity directory is archived or partly cleared. */
+  cleanup?: { operationId: string; state: "archived" | "deleted" | "partial"; completedTargets: string[]; pendingNodes: string[] };
   /** Requested mode, frozen from validation or the identical original PLAN content. */
   executionMode?: PlanExecutionMode;
   executionModeSource?: "validation" | "matching_plan_revision" | "worker_receipt";

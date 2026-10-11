@@ -1,5 +1,7 @@
 # Agent JSON API
 
+PLAN 及关联产物的统一清除接口、确认参数、恢复与安全边界见 [PLAN 清除](plan-cleanup.md)。新增方法由 live capabilities/OpenAPI 公布，旧版运行进程不会自动获得新接口。
+
 `simpleex experiment <active|health|overview|inspect> --json` 的稳定输出，`schema_version` 固定为 `"1"`。字段变化必须提升版本号。四个接口职责不重叠，文本模式不带 `schema_version` 和 `snapshot`。
 
 四个接口的 `snapshot` 相同，描述这一次查询，不描述实验：

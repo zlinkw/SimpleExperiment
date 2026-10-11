@@ -93,6 +93,7 @@ function withValidatedPlanJobCounts(queue, metadata = []) {
 }
 /** Only the complete authority and newer staging runs need artifact transfer. History is metadata. */
 function plansForOutputSync(queue) {
+    queue = { ...queue, plans: queue.plans.filter(plan => !plan.cleanup) };
     const keep = new Set();
     for (const file of new Set(queue.plans.map((plan) => normalizePlan(plan.planFile)))) {
         const plans = ordered(queue.plans.filter((plan) => normalizePlan(plan.planFile) === file));

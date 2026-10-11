@@ -16,6 +16,8 @@ function method(start, end, scope = {}) {
   assert.ok(from >= 0 && to > from);
   return vm.runInNewContext('({' + source.slice(from, to) + '})', {
     PlanExecutionMode, DistributedPlanQueue: Queue, PlanBuilder_1: PlanBuilder,
+    PlanCleanupEvidence_1: require('../../dist/features/PlanCleanupEvidence'), path,
+    fs: { readFile: async () => 'plan_id: stable-mode-plan\n' },
     workspaceRoot: () => root, makeOpId: () => 'distributed-plan-mode',
     operationResultPlanFile: body => body.planFile, planValidationFromResult: result => result.validation,
     DistributedSchedulingPolicy: { schedulingMode: value => value || 'local_idle' },
@@ -43,6 +45,7 @@ for (const mode of ['train', 'test', 'train_test']) test('validated mode survive
   owner.queue = JSON.parse(JSON.stringify(owner.queue));
   let plan = owner.queue.plans[0], job = plan.jobs[0];
   assert.equal(plan.executionMode, mode);
+  assert.equal(plan.stablePlanId, 'stable-mode-plan');
   const send = method('async sendDistributedJob(', 'async tickDistributedQueueCore(').sendDistributedJob;
   const request = await send.call(owner, plan, job, 'worker', '0', 'command');
   assert.equal(request.mode, mode); assert.equal(request.executionMode, mode); assert.equal(request.options.mode, mode);
