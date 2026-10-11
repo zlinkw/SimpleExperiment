@@ -12,7 +12,9 @@ const preview = () => ({ token: 'a'.repeat(48), digest: 'digest', action: 'move'
   rows: [{ node: { id: 'local', root: 'C:/fixture' }, disposition: 'move', absolutePath: 'C:/fixture/experiments/plans/p.yaml', type: 'file', evidence: ['exact'], dependencies: [] }] });
 
 function bridge({ immediateBoot = true, service = {} } = {}) {
-  const elements = new Map(), requests = [], responses = [], calls = [], viewers = [];
+  const elements = new Map(), requests = [], responses = [], calls = [], viewers = [], timers = [];
+  let now = 1000;
+  class Clock extends Date { static now() { return now; } }
   let hostListener, html, booted = false;
   const element = id => {
     if (!elements.has(id)) elements.set(id, { value: id === 'action' ? 'move' : '', checked: false, disabled: false, textContent: '', innerHTML: '' });
@@ -24,7 +26,8 @@ function bridge({ immediateBoot = true, service = {} } = {}) {
     const script = html.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/)[1];
     vm.runInNewContext(script, {
       acquireVsCodeApi: () => ({ postMessage: message => { requests.push(clone(message)); if (hostListener) void hostListener(clone(message)); } }),
-      document: { getElementById: element }, window: { addEventListener: (_type, listener) => viewers.push(listener) }, setInterval: () => 0,
+      document: { getElementById: element }, window: { addEventListener: (_type, listener) => viewers.push(listener) }, Date: Clock,
+      setInterval: callback => { timers.push(callback); return timers.length; },
     });
   };
   const panel = { webview: {
@@ -44,7 +47,8 @@ function bridge({ immediateBoot = true, service = {} } = {}) {
   }, async execute() { calls.push('execute'); throw new Error('Not authorized in fixture'); } };
   return { async open() { await exports.openPlanCleanupPanel(host, 'experiments/plans/p.yaml'); if (!immediateBoot) boot(); await flush(); },
     element, requests, responses, calls, hostMessage: message => hostListener(message),
-    deliver: message => viewers.forEach(listener => listener({ data: clone(message) })) };
+    deliver: message => viewers.forEach(listener => listener({ data: clone(message) })),
+    advance: seconds => { now += seconds * 1000; timers.forEach(callback => callback()); } };
 }
 
 test('fast Webview startup reaches the host and its automatic preview completes without a second click', async () => {
@@ -143,4 +147,22 @@ test('an obsolete reply cannot unlock controls or replace the pending newer prev
   release(preview()); await flush();
   assert.equal(f.element('confirm').disabled, false);
   assert.match(f.element('confirm').textContent, /确认上述精确路径/);
+});
+
+test('the review page shows live node progress and elapsed time without enabling approval while preflight is pending', async () => {
+  let release;
+  const f = bridge({ service: { preview: (_params, onProgress) => new Promise(resolve => {
+    release = resolve;
+    if (onProgress) onProgress({ phase: 'nodes', message: 'nwpu3：校验身份与 SHA256', completed: 2, total: 3 });
+  }) } });
+  await f.open();
+  assert.match(f.element('progress').textContent, /nwpu3.*2\/3/);
+  f.advance(3);
+  assert.match(f.element('progress').textContent, /3 秒/);
+  assert.equal(f.element('confirm').disabled, true);
+  f.deliver({ type: 'progress', requestId: 'obsolete-progress', message: '旧操作进度' });
+  assert.doesNotMatch(f.element('progress').textContent, /旧操作/);
+  release(preview()); await flush();
+  assert.equal(f.element('confirm').disabled, false);
+  assert.match(f.element('progress').textContent, /3 秒/);
 });

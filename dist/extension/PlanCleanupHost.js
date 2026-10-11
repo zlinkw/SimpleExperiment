@@ -63,7 +63,7 @@ class PlanCleanupHost {
         this.root = root;
         const storage = host.context.globalStorageUri.fsPath;
         this.service = new PlanCleanup_1.PlanCleanup({ storageRoot: path.join(storage, "plan-cleanup", (0, PlanCleanup_1.cleanupDigest)(root)),
-            collect: (file, options) => this.collect(file, Boolean(options?.removedMetadata), options?.archivedFiles, options?.removedMetadata),
+            collect: (file, options) => this.collect(file, Boolean(options?.removedMetadata), options?.archivedFiles, options?.removedMetadata, options?.onProgress),
             sftp: async (method, params) => {
                 const result = await host.simpleSftpApiCall(method, params);
                 if (method === "files.cleanup.preview" && (result.safety?.gitRepositoryAncestors !== true || result.safety?.readOnlyReceiptCheck !== true))
@@ -133,7 +133,7 @@ class PlanCleanupHost {
         })().finally(() => { this.reconnectWork = undefined; });
         return this.reconnectWork;
     }
-    async collect(file, allowMissing = false, archivedFiles, removedMetadata) {
+    async collect(file, allowMissing = false, archivedFiles, removedMetadata, onProgress) {
         this.assertWorkspace();
         const storage = this.host.context.globalStorageUri.fsPath;
         const queue = await json((0, DistributedPlanQueue_1.distributedQueuePath)(storage, this.root), (0, DistributedPlanQueue_1.emptyDistributedQueue)());
@@ -158,20 +158,30 @@ class PlanCleanupHost {
         }
         const nodes = [{ id: "local", kind: "local", root: this.root }, ...targets.map(target => ({ id: target.id, kind: "remote",
                 host: target.host, user: target.user, port: target.port, root: target.remotePath || "", ...(target.error ? { error: target.error } : {}) }))];
-        const snapshots = await Promise.all(nodes.filter(node => node.kind === "remote").map(async (node) => {
-            if (node.error)
+        const remoteNodes = nodes.filter(node => node.kind === "remote");
+        let checkedNodes = 0;
+        onProgress?.({ phase: "tasks", message: "并行读取各节点当前任务与传输状态…", completed: 0, total: remoteNodes.length });
+        const snapshots = await Promise.all(remoteNodes.map(async (node) => {
+            if (node.error) {
+                onProgress?.({ phase: "tasks", message: node.id + "：身份未核实，保留", completed: ++checkedNodes, total: remoteNodes.length });
                 return { workerId: node.id, error: node.error };
+            }
             try {
                 return { ...await this.host.client.getWorkerTasks(node.id, { signal: AbortSignal.timeout(5000) }), workerId: node.id, fetchedAt: new Date().toISOString() };
             }
             catch {
                 return { workerId: node.id, error: "节点当前任务证据不可达" };
             }
+            finally {
+                onProgress?.({ phase: "tasks", message: node.id + "：任务状态检查已返回", completed: ++checkedNodes, total: remoteNodes.length });
+            }
         }));
         this.assertWorkspace();
         const state = this.host.buildPlanRuntimeEvidenceState();
         const operations = Object.values(state.operations || {});
-        const scope = await (0, PlanCleanupEvidence_1.collectPlanCleanupEvidence)({ root: this.root, planFile: file, queue, ledger, registry, nodes, snapshots, operations, allowMissing, archivedFiles, removedMetadata });
+        onProgress?.({ phase: "references", message: "核对 PLAN/attempt 所有权、共享引用与受保护资产…" });
+        const scope = await (0, PlanCleanupEvidence_1.collectPlanCleanupEvidence)({ root: this.root, planFile: file, queue, ledger, registry,
+            resultDir: this.host.resultCsvDirectory || "experiments/results", nodes, snapshots, operations, allowMissing, archivedFiles, removedMetadata });
         scope.nodes.push({ id: "pluginState", kind: "local", root: storage });
         for (const indexFile of [(0, DistributedPlanQueue_1.distributedQueuePath)(storage, this.root), (0, PlanArtifactSync_1.planSyncLedgerStoragePath)(storage, this.root)]) {
             scope.candidates.push({ nodeId: "pluginState", relativePath: path.relative(storage, indexFile).replace(/\\/g, "/"), type: "file",

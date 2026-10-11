@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import * as vscode from "vscode";
-import { PlanCleanup, cleanupDigest, cleanupError, type CleanupOperation, type CleanupPreview, type CleanupRemovedMetadata } from "../features/PlanCleanup";
+import { PlanCleanup, cleanupDigest, cleanupError, type CleanupOperation, type CleanupPreview, type CleanupRemovedMetadata, type CleanupProgressSink } from "../features/PlanCleanup";
 import { collectPlanCleanupEvidence } from "../features/PlanCleanupEvidence";
 import { distributedQueuePath, emptyDistributedQueue } from "../features/DistributedPlanQueue";
 import { planSyncLedgerStoragePath, emptyPlanSyncLedger } from "../features/PlanArtifactSync";
@@ -24,7 +24,7 @@ export class PlanCleanupHost {
   constructor(private readonly host: any, readonly root: string) {
     const storage = host.context.globalStorageUri.fsPath;
     this.service = new PlanCleanup({ storageRoot: path.join(storage, "plan-cleanup", cleanupDigest(root)),
-      collect: (file, options) => this.collect(file, Boolean(options?.removedMetadata), options?.archivedFiles, options?.removedMetadata),
+      collect: (file, options) => this.collect(file, Boolean(options?.removedMetadata), options?.archivedFiles, options?.removedMetadata, options?.onProgress),
       sftp: async (method, params) => {
         const result = await host.simpleSftpApiCall(method, params);
         if (method === "files.cleanup.preview" && (result.safety?.gitRepositoryAncestors !== true || result.safety?.readOnlyReceiptCheck !== true))
@@ -83,7 +83,7 @@ export class PlanCleanupHost {
     })().finally(() => { this.reconnectWork = undefined; });
     return this.reconnectWork;
   }
-  async collect(file: string, allowMissing = false, archivedFiles?: Record<string, string>, removedMetadata?: CleanupRemovedMetadata) {
+  async collect(file: string, allowMissing = false, archivedFiles?: Record<string, string>, removedMetadata?: CleanupRemovedMetadata, onProgress?: CleanupProgressSink) {
     this.assertWorkspace();
     const storage = this.host.context.globalStorageUri.fsPath;
     const queue = await json(distributedQueuePath(storage, this.root), emptyDistributedQueue());
@@ -99,15 +99,21 @@ export class PlanCleanupHost {
     catch { targets.push({ id: "hub", error: "当前 Hub 身份或安全根未核实" }); }
     const nodes: any[] = [{ id: "local", kind: "local", root: this.root }, ...targets.map(target => ({ id: target.id, kind: "remote",
       host: target.host, user: target.user, port: target.port, root: target.remotePath || "", ...(target.error ? { error: target.error } : {}) }))];
-    const snapshots = await Promise.all(nodes.filter(node => node.kind === "remote").map(async node => {
-      if (node.error) return { workerId: node.id, error: node.error };
+    const remoteNodes = nodes.filter(node => node.kind === "remote");
+    let checkedNodes = 0;
+    onProgress?.({ phase: "tasks", message: "并行读取各节点当前任务与传输状态…", completed: 0, total: remoteNodes.length });
+    const snapshots = await Promise.all(remoteNodes.map(async node => {
+      if (node.error) { onProgress?.({ phase: "tasks", message: node.id + "：身份未核实，保留", completed: ++checkedNodes, total: remoteNodes.length }); return { workerId: node.id, error: node.error }; }
       try { return { ...await this.host.client.getWorkerTasks(node.id, { signal: AbortSignal.timeout(5000) }), workerId: node.id, fetchedAt: new Date().toISOString() }; }
       catch { return { workerId: node.id, error: "节点当前任务证据不可达" }; }
+      finally { onProgress?.({ phase: "tasks", message: node.id + "：任务状态检查已返回", completed: ++checkedNodes, total: remoteNodes.length }); }
     }));
     this.assertWorkspace();
     const state = this.host.buildPlanRuntimeEvidenceState();
     const operations = Object.values(state.operations || {});
-    const scope = await collectPlanCleanupEvidence({ root: this.root, planFile: file, queue, ledger, registry, nodes, snapshots, operations, allowMissing, archivedFiles, removedMetadata });
+    onProgress?.({ phase: "references", message: "核对 PLAN/attempt 所有权、共享引用与受保护资产…" });
+    const scope = await collectPlanCleanupEvidence({ root: this.root, planFile: file, queue, ledger, registry,
+      resultDir: this.host.resultCsvDirectory || "experiments/results", nodes, snapshots, operations, allowMissing, archivedFiles, removedMetadata });
     scope.nodes.push({ id: "pluginState", kind: "local", root: storage });
     for (const indexFile of [distributedQueuePath(storage, this.root), planSyncLedgerStoragePath(storage, this.root)]) {
       scope.candidates.push({ nodeId: "pluginState", relativePath: path.relative(storage, indexFile).replace(/\\/g, "/"), type: "file",

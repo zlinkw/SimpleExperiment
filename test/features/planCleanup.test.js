@@ -58,6 +58,13 @@ test('preview performs no journal writes, no mutation, keeps exact evidence and 
   assert.ok(f.calls.every(row=>['files.cleanup.preview','files.cleanup.inspect'].includes(row.method)));
   p.rows[0].relativePath='foreign.csv';const operation=await f.confirm(p);assert.notEqual(operation.preview.rows[0].relativePath,'foreign.csv');
 });
+test('preview reports real preflight progress without storing observers or authorizing mutation',async()=>{
+  const f=await fixture(),events=[];
+  const p=await f.service.preview({planFile:f.scope.planFile},event=>{events.push(event);if(event.phase==='discovery')throw new Error('UI detached');});
+  assert.equal(events[0].phase,'discovery');assert.equal(events.at(-1).phase,'complete');
+  assert.ok(events.some(event=>event.phase==='nodes'&&event.completed===2&&event.total===2));
+  assert.equal(f.mutations,0);assert.equal(p.confirmations,0);assert.equal(JSON.stringify(p).includes('onProgress'),false);
+});
 test('all nodes are rechecked before the first move, then indexes update; duplicate execution is idempotent',async()=>{
   const f=await fixture(),p=await f.service.preview({planFile:f.scope.planFile}),op=await f.confirm(p),start=f.calls.length;
   const done=await f.service.execute(op.id);assert.equal(done.state,'completed');assert.equal(f.mutations,2);assert.equal(f.indexed,1);
@@ -132,6 +139,54 @@ test('same physical root/target across aliases is processed once',async()=>{
   assert.deepEqual(approval.params.exactTargets,[unique.absolutePath]);assert.ok(!f.calls.some(row=>row.method==='files.cleanup.confirm'&&row.params.token===duplicate.backendToken));
   await f.service.execute(op.id);assert.equal(f.mutations,2);
 });
+test('result review excludes regenerated tables and unrelated PLAN files while retaining published source protection',async()=>{
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'simple-cleanup-result-scope-')),file='experiments/plans/p.yaml';
+  await fs.mkdir(path.join(root,'experiments/plans'),{recursive:true});await fs.writeFile(path.join(root,file),'mode: train\n','utf8');
+  const output='work_dirs/p/attempts/run',raw='custom/results/pad/plans/p__exact/raw/metrics.csv',other='custom/results/pad/plans/q__exact/raw/metrics.csv';
+  const record={planFile:file,runId:'run',dataset:'pad',method:'p',jobDir:output};
+  const scope=await collectPlanCleanupEvidence({root,planFile:file,resultDir:'custom/results',queue:{schemaVersion:1,plans:[{id:'run',projectId:canonicalProjectId(root),planFile:file,revision:'r',jobs:[{case:'p',seed:42,attempt:1,workerId:'w',commandId:'cmd',status:'completed',outputDir:output}]}]},ledger:{schemaVersion:2,entries:{}},nodes:[{id:'local',kind:'local',root},{id:'w',kind:'remote',root:'/project'}],snapshots:[{workerId:'w',tasks:[],generatedAt:new Date().toISOString()}],registry:{schemaVersion:1,plans:{[file]:{records:[record],wrapperEvidence:{sources:[{localRelativePath:raw}],tablePath:'custom/results/pad/final/final.md'}},'experiments/plans/q.yaml':{records:[{...record,planFile:'experiments/plans/q.yaml',runId:'other'}],wrapperEvidence:{sources:[{localRelativePath:other}]}}}}});
+  assert.ok(scope.candidates.some(row=>row.relativePath===raw&&row.protectedReason));
+  assert.ok(!scope.candidates.some(row=>[other,'custom/results/pad/final/final.md','simple_cluster/results/project_table_registry.json'].includes(row.relativePath)));
+  assert.ok(scope.candidates.find(row=>row.relativePath===output).dependencies.some(ref=>ref.includes('正式/历史')));
+});
+test('only exclusive config is eligible; transitive, absolute command and canonical aliases stay shared',async()=>{
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'simple-cleanup-config-scope-')),file='experiments/plans/p.yaml';
+  await fs.mkdir(path.join(root,'experiments/plans'),{recursive:true});await fs.mkdir(path.join(root,'configs/sub'),{recursive:true});
+  const shared='configs/shared.yaml',exclusive='configs/only.yaml';
+  await fs.writeFile(path.join(root,file),'config: '+exclusive+'\nbase_config: '+shared+'\n','utf8');
+  await fs.writeFile(path.join(root,exclusive),'seed: 42\nresult_file: "configs/generated.json"\nreport_file: configs/generated.yaml\n','utf8');await fs.writeFile(path.join(root,shared),'seed: 43\n','utf8');
+  await fs.writeFile(path.join(root,'configs/sub/other.yaml'),'_base_:\n  - ../shared.yaml\n','utf8');
+  await fs.writeFile(path.join(root,'experiments/plans/q.yaml'),'config: configs/sub/other.yaml\n','utf8');
+  const input={root,planFile:file,queue:{schemaVersion:1,plans:[]},ledger:{schemaVersion:2,entries:{}},nodes:[{id:'local',kind:'local',root}],snapshots:[]};
+  let scope=await collectPlanCleanupEvidence(input);
+  assert.equal(scope.candidates.find(row=>row.relativePath===exclusive).protectedReason,undefined);
+  assert.ok(!scope.candidates.some(row=>row.relativePath==='configs/generated.json'));
+  assert.ok(!scope.candidates.some(row=>row.relativePath==='configs/generated.yaml'));
+  assert.match(scope.candidates.find(row=>row.relativePath===shared).protectedReason,/共享/);
+  await fs.writeFile(path.join(root,'configs/sub/other.json'),JSON.stringify({extends:['../shared.yaml'],result_file:'configs/generated.json'}),'utf8');
+  await fs.writeFile(path.join(root,'experiments/plans/q.yaml'),'config: configs/sub/other.json\n','utf8');
+  scope=await collectPlanCleanupEvidence(input);
+  assert.match(scope.candidates.find(row=>row.relativePath===shared).protectedReason,/共享/);
+  assert.ok(!scope.candidates.some(row=>row.relativePath==='configs/generated.json'));
+  const alias=process.platform==='win32'?'CONFIGS/ONLY.yaml':'configs/./only.yaml';
+  await fs.writeFile(path.join(root,'experiments/plans/q.yaml'),'train_command: python train.py --config "'+path.join(root,alias).replace(/\\/g,'/')+'"\n','utf8');
+  scope=await collectPlanCleanupEvidence(input);
+  assert.match(scope.candidates.find(row=>row.relativePath===exclusive).protectedReason,/共享/);
+  assert.equal(scope.candidates.filter(row=>row.relativePath.toLowerCase()===exclusive).length,1);
+  await fs.writeFile(path.join(root,'experiments/plans/q.yaml'),'train_command: python train.py config="'+path.join(root,exclusive).replace(/\\/g,'/')+'"\n','utf8');
+  scope=await collectPlanCleanupEvidence(input);
+  assert.match(scope.candidates.find(row=>row.relativePath===exclusive).protectedReason,/共享/);
+});
+test('a new cross-PLAN config reference invalidates an exclusive preview before confirmation',async()=>{
+  const f=await fixture(),file=f.scope.planFile,config='configs/only.yaml';
+  await fs.mkdir(path.join(f.root,'experiments/plans'),{recursive:true});await fs.mkdir(path.join(f.root,'configs'),{recursive:true});
+  await fs.writeFile(path.join(f.root,file),'config: '+config+'\n','utf8');await fs.writeFile(path.join(f.root,config),'seed: 42\n','utf8');
+  f.sources.set('local:'+file,'plan-fingerprint');f.sources.set('local:'+config,'config-fingerprint');
+  f.ports.collect=()=>collectPlanCleanupEvidence({root:f.root,planFile:file,queue:{schemaVersion:1,plans:[]},ledger:{schemaVersion:2,entries:{}},nodes:[{id:'local',kind:'local',root:f.root}],snapshots:[]});
+  const p=await f.service.preview({planFile:file});assert.equal(p.rows.find(row=>row.relativePath===config).disposition,'move');
+  await fs.writeFile(path.join(f.root,'experiments/plans/other.yaml'),'config: '+config+'\n','utf8');
+  await assert.rejects(f.confirm(p),/PREVIEW_CHANGED/);assert.equal(f.mutations,0);
+});
 test('resume reconstructs only our already-moved PLAN/config evidence without reading active replacements',async()=>{
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'simple-plan-resume-evidence-'));
   await fs.mkdir(path.join(root,'experiments/plans'),{recursive:true});await fs.mkdir(path.join(root,'configs'),{recursive:true});
@@ -182,6 +237,10 @@ test('recorded stable identity joins renamed PLAN; unknown historical and dynami
   const plan={id:'run',stablePlanId:'stable-A',projectId:canonicalProjectId(root),planFile:'experiments/plans/old/p.yaml',revision:'r',jobs:[]};
   const scope=await collectPlanCleanupEvidence({root,planFile:file,queue:{schemaVersion:1,plans:[plan]},ledger:{schemaVersion:2,entries:{}},nodes:[{id:'local',kind:'local',root}],snapshots:[]});
   assert.deepEqual(scope.runIds,['run']);assert.match(scope.candidates.find(row=>row.relativePath==='configs/p.yaml').protectedReason,/无法证明独占/);
+  await fs.writeFile(path.join(root,'configs/p.yaml'),'seed: 42\n','utf8');
+  await fs.writeFile(path.join(root,'experiments/plans/new/q.yaml'),'shared: &cfg configs/p.yaml\nconfig: *cfg\n','utf8');
+  const aliased=await collectPlanCleanupEvidence({root,planFile:file,queue:{schemaVersion:1,plans:[plan]},ledger:{schemaVersion:2,entries:{}},nodes:[{id:'local',kind:'local',root}],snapshots:[]});
+  assert.match(aliased.candidates.find(row=>row.relativePath==='configs/p.yaml').protectedReason,/无法证明独占/);
 });
 
 test('another PLAN checkpoint reference protects the registered attempt; absolute registry paths also protect it',async()=>{

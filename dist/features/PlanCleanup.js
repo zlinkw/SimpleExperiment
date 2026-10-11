@@ -157,12 +157,12 @@ class PlanCleanup {
             && row.expectedSha256).map(row => [row.relativePath, row.expectedSha256]));
         return { planKey: scope.planKey, planHash: scope.planHash, planFile: scope.planFile, runIds: scope.runIds, hashes, references: scope.references || {} };
     }
-    async continuePreview(id, params = {}) {
+    async continuePreview(id, params = {}, onProgress) {
         const original = await this.status(id);
         if (original.continuedBy || original.restoredBy || original.preview.action === "restore" || this.busy.has(id))
             cleanupError("NOT_CONTINUABLE");
         return this.preview({ planFile: original.preview.scope.planFile, action: original.preview.action,
-            verifiedOnly: params.verifiedOnly, continuationOf: id });
+            verifiedOnly: params.verifiedOnly, continuationOf: id }, onProgress);
     }
     /** Reconnection observes receipts and source presence only. It never settles or executes a mutation. */
     async recheckNode(nodeId) {
@@ -211,7 +211,13 @@ class PlanCleanup {
         }
         return reports;
     }
-    async preview(params) {
+    async preview(params, onProgress) {
+        // UI observations cannot change the frozen preview or authorize execution.
+        const notify = progress => { try {
+            onProgress?.(progress);
+        }
+        catch { } };
+        notify({ phase: "discovery", message: "读取 PLAN、历史登记与完成回执…" });
         for (const [token, preview] of this.previews)
             if (Date.now() > preview.expiresAt)
                 this.previews.delete(token);
@@ -225,7 +231,7 @@ class PlanCleanup {
             cleanupError("NOT_CONTINUABLE");
         const completed = await this.completedHistory(history);
         const scope = await this.ports.collect(cleanupRelative(params.planFile), { archivedFiles: action === "move" ? this.archivedMetadata(completed) : {},
-            removedMetadata: this.removedMetadata(history, completed) });
+            removedMetadata: this.removedMetadata(history, completed), onProgress: notify });
         if (history.length && (scope.planKey !== history[0].preview.scope.planKey || scope.planHash !== history[0].preview.scope.planHash))
             cleanupError("PREVIEW_CHANGED");
         for (const original of history[0]?.preview.scope.nodes || []) {
@@ -272,14 +278,19 @@ class PlanCleanup {
                 row.protectedReason = "由同批精确父目录处理（保留逐项证据）";
             }
         const physical = new Map();
-        for (const node of scope.nodes) {
+        for (const [index, node] of scope.nodes.entries()) {
             const rows = result.rows.filter(row => row.node.id === node.id && row.disposition === action);
+            const progress = { phase: "nodes", completed: index, total: scope.nodes.length };
+            notify({ ...progress, message: node.id + "：检查身份、SHA256 与目标冲突（" + rows.length + " 个目标）…" });
             if (node.error) {
                 result.blockers.push({ code: "OFFLINE_NODE", nodeId: node.id, detail: node.error });
+                notify({ ...progress, completed: index + 1, message: node.id + "：离线，保留未处理信号" });
                 continue;
             }
-            if (!rows.length)
+            if (!rows.length) {
+                notify({ ...progress, completed: index + 1, message: node.id + "：无可处理的独占目标" });
                 continue;
+            }
             try {
                 const backend = await this.ports.sftp("files.cleanup.preview", { node, action, targets: rows.map(row => ({ relativePath: row.relativePath, type: row.type,
                         destination: row.destination, expectedSha256: row.expectedSha256, expectedOwner: row.expectedOwner })) });
@@ -326,9 +337,15 @@ class PlanCleanup {
                 result.blockers.push({ code, nodeId: node.id, detail: String(error.message || code) });
                 rows.forEach(row => { row.disposition = "unverified"; row.error = code; });
             }
+            finally {
+                notify({ ...progress, completed: index + 1, message: node.id + "：节点预检已结束，异常会列入审核表" });
+            }
         }
         // Shared/unknown targets remain visible, with hashes when read-only inspection is possible.
-        for (const row of result.rows.filter(row => row.disposition === "protected" && !row.fingerprint && row.node.root && !row.node.error)) {
+        const protectedRows = result.rows.filter(row => row.disposition === "protected" && !row.fingerprint && row.node.root && !row.node.error);
+        for (const [index, row] of protectedRows.entries()) {
+            const progress = { phase: "protected", completed: index, total: protectedRows.length };
+            notify({ ...progress, message: row.node.id + "：只读核对受保护条目，保持原样…" });
             try {
                 const info = await this.ports.sftp("files.cleanup.inspect", { node: row.node, target: { relativePath: row.relativePath, type: row.type } });
                 Object.assign(row, info.target);
@@ -336,6 +353,7 @@ class PlanCleanup {
             catch {
                 row.error ||= "受保护目标未读取或不存在；不会处理";
             }
+            notify({ ...progress, completed: index + 1, message: "受保护条目核对完成，保持原样" });
         }
         for (const row of result.rows.filter(row => row.disposition === action && row.fingerprint)) {
             const previous = history.flatMap(operation => operation.preview.rows).find(previous => previous.id === row.id && previous.fingerprint);
@@ -345,6 +363,7 @@ class PlanCleanup {
         result.rows.push(...completed);
         result.digest = (0, exports.cleanupDigest)({ action, scope, rows: result.rows, verifiedOnly: result.verifiedOnly });
         this.previews.set(token, clone(result));
+        notify({ phase: "complete", message: "预览检查完成，尚未执行清理" });
         return clone(result);
     }
     assertAllowed(preview) {

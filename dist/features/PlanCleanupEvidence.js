@@ -41,6 +41,8 @@ const node_crypto_1 = require("node:crypto");
 const PlanArchive_1 = require("./PlanArchive");
 const DistributedPlanQueue_1 = require("./DistributedPlanQueue");
 const PlanCleanup_1 = require("./PlanCleanup");
+const ResultLayout_1 = require("../results/ResultLayout");
+const ProjectResultTables_1 = require("../results/ProjectResultTables");
 const terminal = new Set(["completed", "failed", "cancelled"]);
 const sha = (text) => (0, node_crypto_1.createHash)("sha256").update(text, "utf8").digest("hex");
 const normalized = (value) => String(value || "").replace(/\\/g, "/").replace(/^\.\//, "");
@@ -112,6 +114,21 @@ async function collectPlanCleanupEvidence(input) {
     const selected = input.queue.plans.filter(row => removed?.runIds.includes(row.id) || stable && row.stablePlanId === stable || [...aliases].some(alias => sameFile(normalized(row.planFile), alias)));
     selected.forEach(row => aliases.add(normalized(row.planFile)));
     const runIds = selected.map(row => row.id), candidates = [];
+    // Exact publication paths come from the existing result layout and registry,
+    // never from a directory/method prefix. Regenerated views are not cleanup targets.
+    const generatedResults = new Set();
+    const resultDir = (0, PlanCleanup_1.cleanupRelative)(normalized(input.resultDir || "experiments/results"));
+    for (const entry of Object.values(input.registry?.plans || {}))
+        for (const record of entry.records || []) {
+            try {
+                for (const table of [(0, ResultLayout_1.tablePaths)((0, ResultLayout_1.datasetPathKey)(record.dataset), "final", "final"),
+                    (0, ResultLayout_1.tablePaths)((0, ResultLayout_1.datasetPathKey)(record.dataset), (0, ProjectResultTables_1.methodTableName)(record.method), "method")]) {
+                    generatedResults.add(path.posix.join(resultDir, table.relativePath));
+                    generatedResults.add(path.posix.join(resultDir, table.markdownPath));
+                }
+            }
+            catch { /* Unrecognized records cannot establish an exclusion. */ }
+        }
     const blockers = [];
     const scope = { projectId, planKey, planFile: file, planHash: removed?.hashes[file] || (current ? sha(current.text) : "absent"), runIds, revision: "",
         nodes: input.nodes, candidates, blockers };
@@ -123,6 +140,8 @@ async function collectPlanCleanupEvidence(input) {
             blockers.push({ code: "UNSAFE_RECORDED_PATH", nodeId, detail: String(rel) });
             return;
         }
+        if (nodeId === "local" && generatedResults.has(rel))
+            return;
         const existing = candidates.find(row => row.nodeId === nodeId && row.relativePath === rel);
         if (existing) {
             existing.evidence = [...new Set([...existing.evidence, ...evidence])];
@@ -138,11 +157,23 @@ async function collectPlanCleanupEvidence(input) {
     }
     // The full graph includes config inheritance, not merely references of the selected PLAN.
     const configRefs = new Map(), configHashes = {};
+    const ownerPlans = new Map();
+    const resolveConfig = (value, parent) => {
+        let rel = normalized(value);
+        if (path.isAbsolute(rel))
+            rel = normalized(path.relative(input.root, rel));
+        else if (parent && !/^(?:configs|tmp\/config)\//i.test(rel))
+            rel = path.posix.join(path.posix.dirname(parent), rel);
+        rel = (0, PlanCleanup_1.cleanupRelative)(path.posix.normalize(rel));
+        // Windows aliases must join the same physical config before exclusivity is decided.
+        return [...configRefs.keys()].find(existing => sameFile(existing, rel)) || rel;
+    };
     const externalAssetRefs = [];
-    let unknownConfigReferences = plans.some(plan => /\$\{|!(?:include|inherit)\b/.test(plan.text))
+    const dynamicConfig = (text) => /\$\{|!(?:include|inherit)\b|(?:^|[\s:])[*&][A-Za-z_]/m.test(text);
+    let unknownConfigReferences = plans.some(plan => dynamicConfig(plan.text))
         || input.queue.plans.some(plan => !aliases.has(normalized(plan.planFile)) && !plans.some(row => sameFile(row.file, normalized(plan.planFile))));
     const configGraph = async (config, owner, visiting = new Set()) => {
-        config = (0, PlanCleanup_1.cleanupRelative)(normalized(config));
+        config = resolveConfig(config);
         const users = configRefs.get(config) || new Set();
         users.add(owner);
         configRefs.set(config, users);
@@ -152,7 +183,7 @@ async function collectPlanCleanupEvidence(input) {
         const text = virtual.has(config) ? virtual.get(config) : await fs.readFile(path.join(input.root, config), "utf8").catch((error) => { if (error.code === "ENOENT")
             return ""; throw error; });
         configHashes[config] = removed?.hashes[config] || sha(text);
-        unknownConfigReferences ||= /\$\{|!(?:include|inherit)\b/.test(text);
+        unknownConfigReferences ||= dynamicConfig(text) || /\.py$/i.test(config);
         for (const match of text.matchAll(/^[ \t]*(?:checkpoint(?:_path)?|pretrained(?:_path)?|weights(?:_path)?|resume(?:_from)?|code_backup_ref):[ \t]*["']?([^\r\n"'#]+)["']?[ \t]*(?:#.*)?$/gm)) {
             let asset = normalized(match[1].trim());
             if (/\$\{|!(?:include|inherit)\b/.test(asset))
@@ -169,25 +200,54 @@ async function collectPlanCleanupEvidence(input) {
             }
             catch { }
         }
-        // Parse only literal config references. Dynamic inheritance remains protected.
-        const refs = [...text.matchAll(/(?:["']|^|[\s\[,])((?:\.?\.?\/)?[A-Za-z0-9_./-]+\.ya?ml)(?:["']|$|[\s\],])/gm)].map(match => match[1]);
-        for (const ref of refs) {
-            const child = ref.startsWith("configs/") ? ref : path.posix.normalize(path.posix.join(path.posix.dirname(config), ref));
+        // A result/data filename in a config is not ownership of another config.
+        // Only explicit config/inheritance fields may introduce cleanup candidates.
+        const configKey = /^(?:_base_|base[-_]config|config(?:[-_](?:file|path))?|cfg|extends|inherits?|includes?)$/i;
+        const values = [...text.matchAll(/^[ \t]*(?:-[ \t]*)?(?:_base_|base[-_]config|config(?:[-_](?:file|path))?|cfg|extends|inherits?|includes?)[ \t]*:[ \t]*([^\r\n]*(?:\r?\n[ \t]+-[^\r\n]*)*)/gmi)].map(match => match[1]);
+        if (/\.json$/i.test(config)) {
+            const visit = (value) => {
+                if (!value || typeof value !== "object")
+                    return;
+                for (const [key, item] of Object.entries(value)) {
+                    if (configKey.test(key))
+                        values.push(...(Array.isArray(item) ? item : [item]).filter((entry) => typeof entry === "string"));
+                    else
+                        visit(item);
+                }
+            };
             try {
-                await configGraph(child, owner, visiting);
+                visit(JSON.parse(text));
             }
             catch {
+                unknownConfigReferences = true;
+            }
+        }
+        const refs = [...new Set([...(0, PlanArchive_1.planStaticConfigReferences)(text), ...values.flatMap(value => [...value.matchAll(/(?:["']([^"'\r\n]+\.(?:ya?ml|json))["']|(?:^|[\s\[,])([A-Za-z0-9_./\\:-]+\.(?:ya?ml|json))(?=$|[\s\],#]))/gmi)].map(match => match[1] || match[2]))])];
+        for (const ref of refs) {
+            try {
+                await configGraph(resolveConfig(ref, config), owner, visiting);
+            }
+            catch {
+                unknownConfigReferences = true;
                 blockers.push({ code: "CONFIG_REFERENCE_UNVERIFIED", detail: config });
             }
         }
     };
     for (const plan of plans) {
         const owner = aliases.has(plan.file) ? planKey : (0, PlanCleanup_1.cleanupDigest)([projectId, plan.file]);
-        for (const config of (0, PlanArchive_1.planStaticConfigReferences)(plan.text)) {
+        const names = ownerPlans.get(owner) || new Set();
+        names.add(plan.file);
+        ownerPlans.set(owner, names);
+        // The archive parser omits absolute command arguments; cleanup must still
+        // account for those references before claiming a local config is exclusive.
+        const commandConfigs = [...plan.text.matchAll(/(?:--(?:base[-_]config|config(?:[-_](?:file|path))?|cfg)(?:\s*=\s*|\s+)|(?:^|[\s;&|])(?:base_config|config|cfg)\s*=\s*)(?:"([^"\r\n]+)"|'([^'\r\n]+)'|([^\s;&|"']+))/gmi)]
+            .map(match => match[1] || match[2] || match[3]);
+        for (const config of new Set([...(0, PlanArchive_1.planStaticConfigReferences)(plan.text), ...commandConfigs])) {
             try {
                 await configGraph(config, owner);
             }
             catch {
+                unknownConfigReferences = true;
                 blockers.push({ code: "CONFIG_REFERENCE_UNVERIFIED", detail: config });
             }
         }
@@ -202,8 +262,8 @@ async function collectPlanCleanupEvidence(input) {
             }
     for (const [config, owners] of configRefs)
         if (owners.has(planKey)) {
-            const shared = owners.size > 1 || !/^(?:configs|tmp\/config)\//.test(config) || /(?:^|\/)(?:base|_base_|defaults)(?:\/|\.)/.test(config);
-            add("local", config, "file", "专用配置", ["PLAN 配置引用图", "配置 SHA256=" + configHashes[config]], [...owners], shared ? "共享或基础配置" : unknownConfigReferences ? "动态/缺失历史 PLAN 的配置引用无法证明独占" : undefined);
+            const shared = owners.size > 1 || !/^(?:configs|tmp\/config)\//i.test(config) || /(?:^|\/)(?:base|_base_|defaults)(?:\/|\.)/i.test(config);
+            add("local", config, "file", "专用配置", ["PLAN 配置引用图（含继承/命令/规范路径）：" + [...owners].flatMap(owner => [...ownerPlans.get(owner) || [owner]]).join("；"), "配置 SHA256=" + configHashes[config]], [...owners], shared ? "共享或基础配置" : unknownConfigReferences ? "动态/缺失历史 PLAN 的配置引用无法证明独占" : undefined);
             candidates.find(row => row.relativePath === config).expectedSha256 = configHashes[config];
         }
     const selectedIds = new Set(runIds);
@@ -327,14 +387,14 @@ async function collectPlanCleanupEvidence(input) {
     }
     // Published indexes and their sources are paper/formal evidence, never rewrite merged tables here.
     const protectedPaths = new Set();
-    const visit = (value, depth = 0) => {
+    const visit = (value, paths, depth = 0) => {
         if (depth > 20)
             return;
         if (typeof value === "string") {
             const rel = normalized(value);
             if (rel.includes("/") && !path.isAbsolute(value)) {
                 try {
-                    protectedPaths.add((0, PlanCleanup_1.cleanupRelative)(rel));
+                    paths.add((0, PlanCleanup_1.cleanupRelative)(rel));
                 }
                 catch { }
             }
@@ -342,22 +402,26 @@ async function collectPlanCleanupEvidence(input) {
                 const base = normalized(node.root).replace(/\/$/, "");
                 if (base && rel.startsWith(base + "/")) {
                     try {
-                        protectedPaths.add((0, PlanCleanup_1.cleanupRelative)(rel.slice(base.length + 1)));
+                        paths.add((0, PlanCleanup_1.cleanupRelative)(rel.slice(base.length + 1)));
                     }
                     catch { }
                 }
             }
         }
         else if (Array.isArray(value))
-            value.forEach(item => visit(item, depth + 1));
+            value.forEach(item => visit(item, paths, depth + 1));
         else if (value && typeof value === "object")
-            Object.values(value).forEach(item => visit(item, depth + 1));
+            Object.values(value).forEach(item => visit(item, paths, depth + 1));
     };
-    visit(input.registry);
-    if (input.registry)
-        add("local", "simple_cluster/results/project_table_registry.json", "file", "插件结果索引", ["项目结果注册表"], [planKey], "跨 PLAN 共享正式/历史结果索引");
-    for (const rel of protectedPaths) {
-        if (/^(?:experiments\/results|tmp\/result|simple_cluster\/results)\//.test(rel))
+    visit(input.registry, protectedPaths);
+    const selectedResultPaths = new Set();
+    for (const [planFile, entry] of Object.entries(input.registry?.plans || {}))
+        if ([...aliases].some(alias => sameFile(alias, normalized(planFile))) || (entry.records || []).some((record) => runIds.includes(record.runId)))
+            visit(entry, selectedResultPaths);
+    if (!input.registry?.plans && runIds.includes(input.registry?.planRun))
+        visit(input.registry, selectedResultPaths);
+    for (const rel of selectedResultPaths) {
+        if (rel !== "simple_cluster/results/project_table_registry.json" && [resultDir, "tmp/result", "simple_cluster/results"].some(base => ancestor(base, rel)))
             add("local", rel, "file", "专用结果/原始 sidecar/结果索引", ["项目结果索引的精确路径引用"], [planKey], "已有正式/历史或共享结果受保护");
     }
     for (const candidate of candidates)
@@ -375,7 +439,7 @@ async function collectPlanCleanupEvidence(input) {
     scope.blockers = blockers.filter(row => !row.nodeId || scope.nodes.some(node => node.id === row.nodeId));
     scope.references = Object.fromEntries([...configRefs].map(([config, owners]) => [config, [...owners]]));
     // Exclude lifecycle markers and wall-clock freshness from the revision, retain every ownership/status field.
-    scope.revision = (0, PlanCleanup_1.cleanupDigest)({ projectId, file, planHash: scope.planHash, plans: plans.map(row => [row.file, planSha(row)]).sort(), configHashes: Object.fromEntries(Object.entries(configHashes).sort()),
+    scope.revision = (0, PlanCleanup_1.cleanupDigest)({ projectId, file, resultDir, planHash: scope.planHash, plans: plans.map(row => [row.file, planSha(row)]).sort(), configHashes: Object.fromEntries(Object.entries(configHashes).sort()),
         queue: input.queue.plans.map(plan => ({ ...plan, cleanup: undefined })), removedMetadata: removed, deferred: input.queue.deferred,
         recoveries: input.queue.failedAttemptRecoveries, ledger: input.ledger, nodes: scope.nodes.map(node => ({ ...node, error: undefined })), candidates });
     return scope;
