@@ -9,7 +9,7 @@ const panelRequire = require('node:module').createRequire(require.resolve('../..
 const clone = value => JSON.parse(JSON.stringify(value));
 const flush = async () => { for (let i = 0; i < 12; i++) await new Promise(resolve => setImmediate(resolve)); };
 const preview = () => ({ token: 'a'.repeat(48), digest: 'digest', action: 'move', scope: { planFile: 'experiments/plans/p.yaml', planHash: 'hash' }, blockers: [],
-  rows: [{ node: { id: 'local', root: 'C:/fixture' }, disposition: 'move', absolutePath: 'C:/fixture/experiments/plans/p.yaml', type: 'file', evidence: ['exact'], dependencies: [] }] });
+  rows: [{ node: { id: 'local', root: 'C:/fixture' }, disposition: 'move', absolutePath: 'C:/fixture/experiments/plans/p.yaml', destination: 'clean_dir/experiments/plans/p.yaml', type: 'file', evidence: ['exact'], dependencies: [] }] });
 
 function bridge({ immediateBoot = true, service = {} } = {}) {
   const elements = new Map(), requests = [], responses = [], calls = [], viewers = [], timers = [];
@@ -165,4 +165,43 @@ test('the review page shows live node progress and elapsed time without enabling
   release(preview()); await flush();
   assert.equal(f.element('confirm').disabled, false);
   assert.match(f.element('progress').textContent, /3 秒/);
+});
+
+test('blocked preview explains disabled approval, removes missing-node text and leaves fresh preview available', async () => {
+  const p = preview(); p.blockers = [{ code: 'ACTIVE_OPERATION', detail: 'same-plan-operation' }];
+  const f = bridge({ service: { async preview() { return p; } } }); await f.open();
+  assert.match(f.element('status').textContent, /预检受阻.*不能确认/s);
+  assert.match(f.element('status').textContent, /same-plan-operation/);
+  assert.doesNotMatch(f.element('review').innerHTML, /undefined/);
+  assert.equal(f.element('confirm').disabled, true); assert.equal(f.element('execute').disabled, true);
+  assert.match(f.element('confirm').title, /ACTIVE_OPERATION/);
+  assert.equal(f.element('preview').disabled, false);
+  f.element('confirm').onclick(); await flush();
+  assert.equal(f.requests.some(message => message.type === 'confirm'), false);
+});
+
+test('report-only config notices do not block other verified targets; protected-only review explains no target', async () => {
+  let protectedOnly = false;
+  const f = bridge({ service: { async preview() {
+    const p = preview(); p.scope.notices = [{ code: 'CONFIG_REFERENCE_UNVERIFIED', detail: 'q.yaml：{custom_config}' }];
+    if (protectedOnly) p.rows[0].disposition = 'protected';
+    return p;
+  } } }); await f.open();
+  assert.equal(f.element('confirm').disabled, false);
+  assert.match(f.element('review').innerHTML, /相关配置保留/);
+  assert.doesNotMatch(f.element('review').innerHTML, /undefined/);
+  protectedOnly = true; f.element('preview').onclick(); await flush();
+  assert.equal(f.element('confirm').disabled, true);
+  assert.match(f.element('status').textContent, /没有可确认的独占目标/);
+  assert.match(f.element('confirm').title, /独占目标/);
+  assert.match(f.element('restore').title, /已有清理操作/);
+});
+
+test('verified-only approval accepts only offline exceptions and still blocks active tasks', async () => {
+  const p = preview(); p.verifiedOnly = true; p.blockers = [{ code: 'OFFLINE_NODE', nodeId: 'w2', detail: 'offline' }];
+  const f = bridge({ service: { async preview() { return p; } } }); await f.open();
+  assert.equal(f.element('confirm').disabled, false);
+  p.blockers.push({ code: 'ACTIVE_JOB', detail: 'run:0' });
+  f.element('preview').onclick(); await flush();
+  assert.equal(f.element('confirm').disabled, true); assert.match(f.element('status').textContent, /ACTIVE_JOB/);
 });

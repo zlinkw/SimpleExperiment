@@ -139,6 +139,32 @@ test('same physical root/target across aliases is processed once',async()=>{
   assert.deepEqual(approval.params.exactTargets,[unique.absolutePath]);assert.ok(!f.calls.some(row=>row.method==='files.cleanup.confirm'&&row.params.token===duplicate.backendToken));
   await f.service.execute(op.id);assert.equal(f.mutations,2);
 });
+test('standard PLAN command placeholders resolve through the declared config without false global blockers',async()=>{
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'simple-cleanup-placeholder-')),file='experiments/plans/p.yaml';
+  await fs.mkdir(path.join(root,'experiments/plans'),{recursive:true});await fs.mkdir(path.join(root,'configs'),{recursive:true});
+  await fs.writeFile(path.join(root,file),'base_config: configs/p.yaml\nrunner:\n  train_command: "wrapper --config {config} -- train --config {config}"\n  test_command: "test --config {config}"\n','utf8');
+  await fs.writeFile(path.join(root,'configs/p.yaml'),'seed: 42\n','utf8');
+  const input={root,planFile:file,queue:{schemaVersion:1,plans:[]},ledger:{schemaVersion:2,entries:{}},nodes:[{id:'local',kind:'local',root}],snapshots:[]};
+  const scope=await collectPlanCleanupEvidence(input);
+  assert.deepEqual(scope.blockers,[]);assert.equal(scope.candidates.find(row=>row.relativePath==='configs/p.yaml').protectedReason,undefined);
+  await fs.writeFile(path.join(root,'experiments/plans/q.yaml'),'base_config: configs/q.yaml\ntrain_command: train --config {custom_config}\n','utf8');
+  await fs.writeFile(path.join(root,'configs/q.yaml'),'seed: 43\n','utf8');
+  const unknown=await collectPlanCleanupEvidence(input);
+  assert.ok(!unknown.blockers.some(row=>row.code==='CONFIG_REFERENCE_UNVERIFIED'));
+  assert.match(unknown.candidates.find(row=>row.relativePath==='configs/p.yaml').protectedReason,/无法证明独占/);
+  assert.equal(unknown.notices.filter(row=>row.code==='CONFIG_REFERENCE_UNVERIFIED').length,1);
+});
+test('only matching or overlapping active operations block cleanup; unscoped activity still fails closed',async()=>{
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'simple-cleanup-op-scope-')),file='experiments/plans/p.yaml';
+  await fs.mkdir(path.join(root,'experiments/plans'),{recursive:true});await fs.writeFile(path.join(root,file),'mode: train\n','utf8');
+  const input={root,planFile:file,queue:{schemaVersion:1,plans:[]},ledger:{schemaVersion:2,entries:{}},nodes:[{id:'local',kind:'local',root}],snapshots:[]};
+  const ops=[{operationId:'other',status:'running',planFile:'experiments/plans/q.yaml',payload:{outputDir:'work_dirs/q/attempts/one'}},
+    {operationId:'own',status:'running',payload:{planFile:file}},
+    {operationId:'overlap',status:'pending',planFile:'experiments/plans/q.yaml',payload:{targetPath:file}},
+    {operationId:'unknown',status:'running',type:'sync'}];
+  const scope=await collectPlanCleanupEvidence({...input,operations:ops});
+  assert.deepEqual(scope.blockers.filter(row=>row.code==='ACTIVE_OPERATION').map(row=>row.detail),['own','overlap','unknown']);
+});
 test('result review excludes regenerated tables and unrelated PLAN files while retaining published source protection',async()=>{
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'simple-cleanup-result-scope-')),file='experiments/plans/p.yaml';
   await fs.mkdir(path.join(root,'experiments/plans'),{recursive:true});await fs.writeFile(path.join(root,file),'mode: train\n','utf8');

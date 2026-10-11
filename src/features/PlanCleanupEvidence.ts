@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { createHash } from "node:crypto";
-import { planStaticConfigReferences } from "./PlanArchive";
+import { planConfigScalarTokens, planStaticConfigReferences } from "./PlanArchive";
 import { type DistributedQueue, canonicalProjectId } from "./DistributedPlanQueue";
 import { type PlanSyncLedger } from "./PlanArtifactSync";
 import { cleanupDigest, cleanupRelative, type CleanupScope, type CleanupNode, type CleanupCandidate, type CleanupRemovedMetadata } from "./PlanCleanup";
@@ -84,8 +84,14 @@ export async function collectPlanCleanupEvidence(input: CleanupEvidenceInput): P
     } catch { /* Unrecognized records cannot establish an exclusion. */ }
   }
   const blockers: CleanupScope["blockers"] = [];
+  const notices: NonNullable<CleanupScope["notices"]> = [];
+  const configNotice = (config: string, source: string) => {
+    const detail = source + "：" + config;
+    if (!notices.some(row => row.code === "CONFIG_REFERENCE_UNVERIFIED" && row.detail === detail))
+      notices.push({ code: "CONFIG_REFERENCE_UNVERIFIED", detail });
+  };
   const scope: CleanupScope = { projectId, planKey, planFile: file, planHash: removed?.hashes[file] || (current ? sha(current.text) : "absent"), runIds, revision: "",
-    nodes: input.nodes, candidates, blockers };
+    nodes: input.nodes, candidates, blockers, notices };
   const add = (nodeId: string, rel: string, type: CleanupCandidate["type"], category: string, evidence: string[], owners = [planKey], protectedReason?: string) => {
     try { rel = cleanupRelative(normalized(rel)); }
     catch { blockers.push({ code: "UNSAFE_RECORDED_PATH", nodeId, detail: String(rel) }); return; }
@@ -118,7 +124,13 @@ export async function collectPlanCleanupEvidence(input: CleanupEvidenceInput): P
     const users = configRefs.get(config) || new Set<string>(); users.add(owner); configRefs.set(config, users);
     if (visiting.has(config)) return;
     visiting.add(config);
-    const text = virtual.has(config) ? virtual.get(config)! : await fs.readFile(path.join(input.root, config), "utf8").catch((error: any) => { if (error.code === "ENOENT") return ""; throw error; });
+    const text = virtual.has(config) ? virtual.get(config)! : await fs.readFile(path.join(input.root, config), "utf8").catch((error: any) => {
+      if (error.code === "ENOENT") {
+        if (!removed?.hashes[config]) { unknownConfigReferences = true; configNotice(config, "配置文件缺失"); }
+        return "";
+      }
+      throw error;
+    });
     configHashes[config] = removed?.hashes[config] || sha(text);
     unknownConfigReferences ||= dynamicConfig(text) || /\.py$/i.test(config);
     for (const match of text.matchAll(/^[ \t]*(?:checkpoint(?:_path)?|pretrained(?:_path)?|weights(?:_path)?|resume(?:_from)?|code_backup_ref):[ \t]*["']?([^\r\n"'#]+)["']?[ \t]*(?:#.*)?$/gm)) {
@@ -149,7 +161,7 @@ export async function collectPlanCleanupEvidence(input: CleanupEvidenceInput): P
       [...value.matchAll(/(?:["']([^"'\r\n]+\.(?:ya?ml|json))["']|(?:^|[\s\[,])([A-Za-z0-9_./\\:-]+\.(?:ya?ml|json))(?=$|[\s\],#]))/gmi)].map(match => match[1] || match[2]))])];
     for (const ref of refs) {
       try { await configGraph(resolveConfig(ref, config), owner, visiting); }
-      catch { unknownConfigReferences = true; blockers.push({ code: "CONFIG_REFERENCE_UNVERIFIED", detail: config }); }
+      catch { unknownConfigReferences = true; configNotice(ref, config); }
     }
   };
   for (const plan of plans) {
@@ -159,9 +171,13 @@ export async function collectPlanCleanupEvidence(input: CleanupEvidenceInput): P
     // account for those references before claiming a local config is exclusive.
     const commandConfigs = [...plan.text.matchAll(/(?:--(?:base[-_]config|config(?:[-_](?:file|path))?|cfg)(?:\s*=\s*|\s+)|(?:^|[\s;&|])(?:base_config|config|cfg)\s*=\s*)(?:"([^"\r\n]+)"|'([^'\r\n]+)'|([^\s;&|"']+))/gmi)]
       .map(match => match[1] || match[2] || match[3]);
+    // {config} is the runner's generated job config, bound through this PLAN's
+    // literal config declaration. Other templates cannot prove exclusivity.
+    const hasConfigBinding = planConfigScalarTokens(plan.text).length > 0;
     for (const config of new Set([...planStaticConfigReferences(plan.text), ...commandConfigs])) {
+      if (config === "{config}" && hasConfigBinding) continue;
       try { await configGraph(config, owner); }
-      catch { unknownConfigReferences = true; blockers.push({ code: "CONFIG_REFERENCE_UNVERIFIED", detail: config }); }
+      catch { unknownConfigReferences = true; configNotice(config, plan.file); }
     }
   }
   if (removed) for (const [config, owners] of Object.entries(removed.references)) if (owners.includes(planKey)) {
@@ -248,8 +264,6 @@ export async function collectPlanCleanupEvidence(input: CleanupEvidenceInput): P
     blockers.push({ code: "ACTIVE_DEFERRED_PLAN", detail: deferred.id });
   for (const recovery of input.queue.failedAttemptRecoveries || []) if (selectedIds.has(recovery.plan.id) && recovery.status !== "completed")
     blockers.push({ code: "ACTIVE_ATTEMPT_RECOVERY", nodeId: recovery.job.workerId, detail: recovery.id });
-  for (const operation of input.operations || []) if (["running", "queued", "pending", "accepted"].includes(operation.status))
-    blockers.push({ code: "ACTIVE_OPERATION", detail: String(operation.id || operation.opId || operation.kind || "操作") });
   for (const id of associations) if (!input.nodes.some(node => node.id === id)) {
     scope.nodes.push({ id, kind: "remote", root: "", error: "历史关联节点缺少当前主机/端口/项目根配置" });
   }
@@ -300,6 +314,46 @@ export async function collectPlanCleanupEvidence(input: CleanupEvidenceInput): P
   for (const candidate of candidates) for (const ref of externalAssetRefs) if (ref.owner !== planKey && ancestor(candidate.relativePath, ref.path))
     candidate.dependencies.push("其他 PLAN 配置引用 checkpoint/权重/代码备份 " + ref.path);
   candidates.push(...input.extraEvidence || []);
+  // Use registered identities and exact path overlap, never a name prefix or age.
+  // A known unrelated PLAN with bounded, nonoverlapping paths is not this batch's
+  // active operation. Unscoped operations still block because exclusion is unproven.
+  const operationPath = (value: string) => {
+    let rel = normalized(value);
+    if (path.isAbsolute(rel) || rel.startsWith("/")) {
+      const base = input.nodes.map(node => normalized(node.root).replace(/\/$/, ""))
+        .find(root => root && (sameFile(root, rel) || (process.platform === "win32" ? rel.toLowerCase().startsWith(root.toLowerCase() + "/") : rel.startsWith(root + "/"))));
+      if (!base) return;
+      rel = sameFile(base, rel) ? "" : rel.slice(base.length + 1);
+    }
+    if (!rel) return ""; // Project-root operations overlap every target.
+    try { return cleanupRelative(rel); } catch { return; }
+  };
+  for (const operation of input.operations || []) if (["running", "queued", "pending", "accepted"].includes(operation.status)) {
+    const identities: string[] = [], paths: string[] = [];
+    let unboundedPath = false;
+    const inspect = (record: any, depth = 0) => {
+      if (!record || typeof record !== "object" || depth > 8) return;
+      if (Array.isArray(record)) { record.slice(0, 500).forEach(row => inspect(row, depth + 1)); return; }
+      for (const [key, value] of Object.entries(record)) {
+        if (/^(?:planFile|plan_file|planPath|plan_path|selectedPlanId|stablePlanId|stable_plan_id|planKey|workflowId|workflow_id|planWorkflowId|runId|commandId|command_id|targetCommandId)$/.test(key) && typeof value === "string" && value) {
+          identities.push(value);
+        } else if (/^(?:outputDir|output_dir|targetPath|relativePath|approvedAbsolutePath|approvedDestination|sourcePath|destinationPath|localPath|remotePath|path)$/.test(key) && typeof value === "string" && value) {
+          const rel = operationPath(value);
+          if (rel === undefined) unboundedPath = true; else paths.push(rel);
+        } else if (["payload", "params", "request", "target", "targets", "latestEvent"].includes(key)) inspect(value, depth + 1);
+      }
+    };
+    inspect(operation);
+    const matches = identities.some(value => selectedIds.has(value) || knownCommands.has(value) || value === planKey || stable && value === stable
+      || [...aliases].some(alias => sameFile(alias, operationPath(value) || normalized(value))));
+    const overlaps = paths.some(rel => rel === "" || candidates.some(candidate => {
+      const a = process.platform === "win32" ? rel.toLowerCase() : rel;
+      const b = process.platform === "win32" ? candidate.relativePath.toLowerCase() : candidate.relativePath;
+      return ancestor(a, b) || ancestor(b, a);
+    }));
+    if (matches || overlaps || !identities.length || !paths.length || unboundedPath)
+      blockers.push({ code: "ACTIVE_OPERATION", detail: String(operation.operationId || operation.id || operation.opId || operation.kind || "操作") });
+  }
   candidates.forEach(candidate => { candidate.owners.sort(); candidate.dependencies.sort(); });
   candidates.sort((a, b) => Number(a.category === "PLAN 文件") - Number(b.category === "PLAN 文件") || a.nodeId.localeCompare(b.nodeId) || a.relativePath.localeCompare(b.relativePath));
   scope.nodes = scope.nodes.filter(node => node.id === "local" || associations.has(node.id));
@@ -308,6 +362,6 @@ export async function collectPlanCleanupEvidence(input: CleanupEvidenceInput): P
   // Exclude lifecycle markers and wall-clock freshness from the revision, retain every ownership/status field.
   scope.revision = cleanupDigest({ projectId, file, resultDir, planHash: scope.planHash, plans: plans.map(row => [row.file, planSha(row)]).sort(), configHashes: Object.fromEntries(Object.entries(configHashes).sort()),
     queue: input.queue.plans.map(plan => ({ ...plan, cleanup: undefined })), removedMetadata: removed, deferred: input.queue.deferred,
-    recoveries: input.queue.failedAttemptRecoveries, ledger: input.ledger, nodes: scope.nodes.map(node => ({ ...node, error: undefined })), candidates });
+    recoveries: input.queue.failedAttemptRecoveries, ledger: input.ledger, nodes: scope.nodes.map(node => ({ ...node, error: undefined })), candidates, notices });
   return scope;
 }

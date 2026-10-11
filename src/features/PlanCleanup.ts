@@ -9,7 +9,8 @@ export type CleanupCandidate = { nodeId: string; relativePath: string; type: "fi
   expectedOwner?: { workflowId: string; commandId: string; workerId: string; outputDir: string; attempt: number; case: string; seed: number } };
 export type CleanupScope = { projectId: string; planKey: string; planFile: string; planHash: string; runIds: string[];
   revision: string; nodes: CleanupNode[]; candidates: CleanupCandidate[]; references?: Record<string, string[]>;
-  blockers: Array<{ code: string; nodeId?: string; detail: string }> };
+  blockers: Array<{ code: string; nodeId?: string; detail: string }>;
+  notices?: Array<{ code: string; nodeId?: string; detail: string }> };
 export type CleanupRemovedMetadata = { planKey: string; planHash: string; planFile: string; runIds: string[];
   hashes: Record<string, string>; references: Record<string, string[]> };
 export type CleanupProgress = { phase: string; message: string; completed?: number; total?: number };
