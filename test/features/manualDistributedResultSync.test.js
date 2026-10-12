@@ -17,12 +17,12 @@ function methods(start, end) {
 }
 
 function fixture({ emptyOriginal = false, cold = false, allMissing = false, retry = false, respectDepth = false, inventoryStdin = false } = {}) {
-  const outputDir = "work_dirs/ebmc/job/attempts/run-b";
-  const files = Object.fromEntries([...required, "stdout.log"].map(name => [`${outputDir}/${name}`, { sha256: hash }]));
+  const outputDir = "work_dirs/ebmc/job/run-b";
+  const files = Object.fromEntries([...required, "stdout.log", "formal_job_owner.json"].map(name => [`${outputDir}/${name}`, { sha256: hash }]));
   let state = { schemaVersion: 1, plans: ["run-a", "run-b"].map((id, index) => ({
-    id, planFile: "experiments/plans/ebmc.yaml", revision: "r", codeFingerprint: "fp", fullPlanJobCount: 1,
+    id, planFile: "experiments/plans/ebmc.yaml", revision: "r", codeFingerprint: "fp", fullPlanJobCount: 1, resultPathPolicy: "declared",
     enqueuedAt: new Date(1700000000000 + index).toISOString(), jobs: [{
-      index: 0, case: "bus", seed: 42, attempt: 1, status: "completed", commandId: id, workerId: "w1",
+      index: 0, case: "bus", seed: 42, attempt: 0, resultPathPolicy: "declared", globalJobId: `${id}:0`, status: "completed", commandId: id, workerId: "w1",
       outputDir: outputDir.replace("run-b", id), artifacts: Object.fromEntries(Object.keys(files).map(file => [file.replace("run-b", id), hash])),
       mirroredWorkerIds: ["w1", "w2", "w3"], fragmentWorkerIds: ["w1", "w2", "w3"],
       ...(retry ? { artifactRetryAfter: new Date(Date.now() + 30000).toISOString() } : {}),
@@ -113,22 +113,23 @@ test("108 completed jobs batch verification by Worker and recheck copied destina
     plan.id = `run-${index}`;
     plan.planFile = `experiments/plans/model-${index}.yaml`;
     const job = plan.jobs[0];
-    job.outputDir = `work_dirs/model-${index}/job/attempts/${plan.id}`;
+    job.outputDir = `work_dirs/model-${index}/job/${plan.id}`;
+    job.globalJobId = `${plan.id}:0`;
     job.commandId = `command-${index}`;
-    job.artifacts = Object.fromEntries(required.map(name => [`${job.outputDir}/${name}`, hash]));
+    job.artifacts = Object.fromEntries([...required, "formal_job_owner.json"].map(name => [`${job.outputDir}/${name}`, hash]));
     for (const id of ["w1", "w3"]) for (const file of Object.keys(job.artifacts)) f.inventory[id][file] = { sha256: hash };
     f.state.plans.push(plan);
   }
   await f.host.syncDistributedJobArtifacts(root, await f.host.loadDistributedQueue(), "fragments", true);
   assert.deepEqual(f.errors, []);
   assert.equal(f.transfers.length, 1);
-  assert.equal(f.transfers[0].paths.length, 324);
-  assert.ok(f.inventoryCalls.length < 40, `must avoid 324 sequential SSH queries: ${f.inventoryCalls.length}`);
+  assert.equal(f.transfers[0].paths.length, 432);
+  assert.ok(f.inventoryCalls.length < 40, `must avoid 432 sequential SSH queries: ${f.inventoryCalls.length}`);
   assert.ok(f.inventoryCalls.every(call => call.recursive === true && call.scopePaths.length <= 128
     && Buffer.byteLength(JSON.stringify(call.scopePaths), "utf8") <= 10240));
   assert.ok(f.inventoryCalls.filter(call => call.workerId === "w2").length > f.inventoryCalls.filter(call => call.workerId === "w1").length,
     "destination must be queried again after transfer");
-  t.diagnostic(`108 jobs / 324 fragment files: ${f.inventoryCalls.length} bounded inventory calls, including post-transfer verification`);
+  t.diagnostic(`108 jobs / 432 fragment files: ${f.inventoryCalls.length} bounded inventory calls, including post-transfer verification`);
 });
 
 test("source verification errors retain the cause rather than reporting every replica as missing", async () => {
@@ -190,7 +191,7 @@ test("one cold manual click repairs deleted mirrors and result fragments before 
   assert.ok(f.events.includes("probe"));
   assert.deepEqual(f.errors, []);
   assert.ok(f.transfers.length > 0);
-  assert.ok(f.transfers.every(row => row.paths.every(file => file.includes("/attempts/run-b/"))));
+  assert.ok(f.transfers.every(row => row.paths.every(file => file.includes("/job/run-b/"))));
   assert.equal(f.state.plans[1].jobs[0].artifactRetryAfter, undefined);
   const count = f.transfers.length;
   await f.host.postprocessDistributedResultsForManual(root, "full");
@@ -211,7 +212,7 @@ test("bulk repair includes fragments even if deletion occurs after the fragment 
   for (const file of Object.keys(f.files)) assert.equal(f.inventory.w2[file]?.sha256, hash);
 });
 
-test("full synchronization rescans latest attempt weights beyond a previously complete artifact manifest", async () => {
+test("full synchronization rescans latest formal job weights beyond a previously complete artifact manifest", async () => {
   const f = fixture({ inventoryStdin: true });
   const job = f.state.plans[1].jobs[0];
   const lateWeights = [`${job.outputDir}/last_checkpoint.pth`, `${job.outputDir}/checkpoints/epoch-90.safetensors`];
@@ -231,7 +232,7 @@ test("full synchronization rescans latest attempt weights beyond a previously co
   assert.equal(f.transfers.length, dispatched, "unchanged latest weights are verified and skipped");
 });
 
-test("full synchronization confines work_dirs to selected latest attempts and excludes temporary state", async () => {
+test("full synchronization confines work_dirs to selected latest formal jobs and excludes temporary state", async () => {
   const f = fixture({ inventoryStdin: true });
   const latest = f.state.plans[1].jobs[0].outputDir;
   const old = f.state.plans[0].jobs[0].outputDir;
@@ -338,9 +339,10 @@ test("missing bulk inventories share bounded Worker scope queries instead of per
     plan.id = `complete-${index}`;
     plan.planFile = `experiments/plans/complete-${index}.yaml`;
     const job = plan.jobs[0];
-    job.outputDir = `work_dirs/complete-${index}/job/attempts/${plan.id}`;
+    job.outputDir = `work_dirs/complete-${index}/job/${plan.id}`;
+    job.globalJobId = `${plan.id}:0`;
     job.artifacts = Object.fromEntries(fragments.map(name => [`${job.outputDir}/${name}`, hash]));
-    for (const worker of ["w1", "w3"]) for (const name of [...required, "stdout.log"]) {
+    for (const worker of ["w1", "w3"]) for (const name of [...required, "stdout.log", "formal_job_owner.json"]) {
       f.inventory[worker][`${job.outputDir}/${name}`] = { sha256: hash };
     }
     f.state.plans.push(plan);
@@ -355,11 +357,11 @@ test("missing bulk inventories share bounded Worker scope queries instead of per
   await f.host.syncDistributedJobArtifacts(root, await f.host.loadDistributedQueue(), "bulk", true);
   assert.deepEqual(f.errors, []);
   assert.equal(f.transfers.length, 1);
-  assert.equal(f.transfers[0].paths.length, 100);
+  assert.equal(f.transfers[0].paths.length, 120);
   assert.ok(f.inventoryCalls.length <= 4, `${f.inventoryCalls.length} inventory calls for 20 jobs`);
   assert.ok(f.inventoryCalls.every(call => call.scopePaths?.length && call.relativePath === "."));
   assert.ok(f.state.plans.every(plan => plan.jobs[0].artifacts[`${plan.jobs[0].outputDir}/best_model.pth`] === hash));
-  t.diagnostic(`20 complete jobs / 100 bulk files: ${f.inventoryCalls.length} scoped inventory calls including fresh destination verification`);
+  t.diagnostic(`20 complete jobs / 120 bulk files: ${f.inventoryCalls.length} scoped inventory calls including fresh destination verification`);
 });
 
 test("in-flight inventory byte and file progress reaches the outer notification", async () => {

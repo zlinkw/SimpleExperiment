@@ -1061,6 +1061,7 @@ class RealtimeTunnelPanelProvider {
     distributedQueueWritePromise = Promise.resolve();
     distributedPostprocessPromise;
     distributedPostprocessScope;
+    completedPlanMirrorRescan = false;
     planSyncSummaryRetries = new Map();
     confirmedRemotePaths = [];
     confirmedPptPaths = [];
@@ -3231,6 +3232,7 @@ class RealtimeTunnelPanelProvider {
         for (const retry of this.planSyncSummaryRetries.values())
             clearTimeout(retry.timer);
         this.planSyncSummaryRetries.clear();
+        this.completedPlanMirrorRescan = false;
         this.selectedPlanId = undefined;
         this.planFileInput = undefined;
         this.recentPlans = [];
@@ -4026,6 +4028,7 @@ class RealtimeTunnelPanelProvider {
         for (const retry of this.planSyncSummaryRetries.values())
             clearTimeout(retry.timer);
         this.planSyncSummaryRetries.clear();
+        this.completedPlanMirrorRescan = false;
         if (this.planLocalChangeParseTimer)
             clearTimeout(this.planLocalChangeParseTimer);
         this.planLocalChangeParseTimer = undefined;
@@ -10635,9 +10638,108 @@ class RealtimeTunnelPanelProvider {
                 ? latest : { ...latest, ...fields } });
     }
     scheduleDistributedPostprocess(root, rerunIfBusy = false) {
-        // Result files and summaries are user pulled. Keep this hook inert for legacy tick callers.
-        void root;
-        void rerunIfBusy;
+        if (root !== workspaceRoot() || this.panelDisposed || !this.isRealtimeMode()
+            || this.projectTopologyAssessment().mode !== "worker_pool" || this.distributedPlanStopEpoch
+            || this.planCleanupHosts?.get(root)?.executing)
+            return;
+        if (this.distributedPostprocessPromise) {
+            this.completedPlanMirrorRescan ||= rerunIfBusy;
+            return;
+        }
+        if (this.codeSyncInFlight || this.planSyncInFlight || this.syncScopeMutationInFlight || this.manualResultSyncCounts?.get(root))
+            return;
+        const context = this.captureProjectContext();
+        const work = Promise.resolve().then(() => this.syncCompletedPlanArtifacts(context));
+        this.distributedPostprocessPromise = work;
+        this.distributedPostprocessScope = "automatic";
+        void work.catch(error => this.recordActionError({ command: "completedPlanWorkerMirror", message: errorMessage(error) })).finally(() => {
+            if (this.distributedPostprocessPromise !== work)
+                return;
+            this.distributedPostprocessPromise = undefined;
+            this.distributedPostprocessScope = undefined;
+            if (!this.projectContextIsCurrent(context) || this.panelDisposed)
+                return;
+            this.queuePlanArtifactSyncStatusCheck(true);
+            this.postState();
+            if (this.completedPlanMirrorRescan) {
+                this.completedPlanMirrorRescan = false;
+                this.scheduleDistributedPostprocess(root);
+            }
+        });
+    }
+    async syncCompletedPlanArtifacts(context) {
+        const root = context.root;
+        const client = this.client;
+        const targetsKey = () => JSON.stringify(this.workerCodeSyncTargets().map(row => [row.id, row.host, row.port, row.user, row.remotePath]));
+        const expectedTargets = targetsKey();
+        const current = () => this.projectContextIsCurrent(context) && !this.panelDisposed && !this.distributedPlanStopEpoch
+            && !this.planCleanupHosts?.get(root)?.executing && client === this.client && expectedTargets === targetsKey();
+        if (!current())
+            return;
+        const workerIds = this.workerCodeSyncTargets().map(target => target.id);
+        if (workerIds.length < 2)
+            return;
+        const queue = await this.loadDistributedQueue(root);
+        if (!current() || this.distributedQueueStorageDiagnostics?.status === "stale")
+            return;
+        const plans = PlanArtifactSyncStatus.pendingCompletedPlanMirrors(queue, this.localPlanMetadata?.plans || [], workerIds)
+            .filter(plan => plan.projectId === DistributedPlanQueue.canonicalProjectId(root)
+            && workerIds.some(id => this.lastWorkerProbes[id]?.status === "ok" && plan.jobs.some(job => !job.mirroredWorkerIds?.includes(id) || job.artifactError
+                || !/^[a-f0-9]{64}$/i.test(job.artifacts?.[`${job.outputDir}/formal_job_owner.json`] || ""))));
+        if (!plans.length)
+            return;
+        const identities = new Map(plans.map(plan => [plan.id, PlanArtifactSyncStatus.completedPlanMirrorIdentity(plan)]));
+        const assertCurrent = async () => {
+            if (!current())
+                throw new Error("PLAN_MIRROR_CONTEXT_CHANGED：项目或清理状态已变化，停止自动同步。");
+            const latest = await this.loadDistributedQueue(root);
+            const complete = PlanArtifactSyncStatus.completeFormalPlansForWorkerMirror(latest, this.localPlanMetadata?.plans || []);
+            if (!current() || this.distributedQueueStorageDiagnostics?.status === "stale" || [...identities].some(([id, identity]) => !complete.some(plan => !plan.cleanup && plan.id === id && PlanArtifactSyncStatus.completedPlanMirrorIdentity(plan) === identity)))
+                throw new Error("PLAN_MIRROR_IDENTITY_CHANGED：完成状态或正式作业身份已变化，停止自动同步。");
+            const holds = await (0, SyncResolution_1.loadSyncHolds)(this.context.globalStorageUri.fsPath, root);
+            if (plans.some(plan => plan.jobs.some(job => (0, SyncResolution_1.isSyncHeld)(job.outputDir, holds)
+                || job.collectionResultCsv && (0, SyncResolution_1.isSyncHeld)(job.collectionResultCsv, holds)
+                || Object.keys(holds).some(file => file.startsWith(job.outputDir + "/") && (0, SyncResolution_1.isSyncHeld)(file, holds)))))
+                throw new Error("PLAN_MIRROR_HELD：清理或保留记录禁止重新同步这些产物。");
+            const overlap = (a, b) => a && b && (a === b || a.startsWith(b + "/") || b.startsWith(a + "/"));
+            if (plans.some(plan => plan.jobs.some(job => latest.plans.some(other => other.jobs.some(row => !(other.id === plan.id && row.index === job.index)
+                && (overlap(job.outputDir, row.outputDir) || job.collectionResultCsv && row.collectionResultCsv === job.collectionResultCsv
+                    || overlap(job.collectionResultCsv, row.outputDir) || overlap(row.collectionResultCsv, job.outputDir)))))))
+                throw new Error("FORMAL_JOB_MIRROR_PATH_CONFLICT：其他作业登记引用了这些正式路径，禁止自动传输。");
+        };
+        if (this.codeSyncInFlight || this.planSyncInFlight || this.syncScopeMutationInFlight || this.manualResultSyncCounts?.get(root))
+            return;
+        this.planSyncInFlight = true;
+        try {
+            await assertCurrent();
+            // Worker-only copies: never parse/publish results, upload code, reconcile the whole project or remove files.
+            await this.syncDistributedJobArtifacts(root, { ...queue, plans }, "bulk", true, undefined, { assertCurrent });
+        }
+        finally {
+            this.planSyncInFlight = false;
+        }
+    }
+    async verifyCompletedJobMirrorOwner(root, plan, job, sourceId, sha256) {
+        if (!/^[a-f0-9]{64}$/i.test(sha256 || ""))
+            throw new Error("FORMAL_JOB_MIRROR_OWNER_REQUIRED：缺少正式作业归属文件。");
+        const remotePath = `${job.outputDir}/formal_job_owner.json`;
+        const context = this.captureProjectContext();
+        if (context.root !== root)
+            throw new Error("PLAN_MIRROR_CONTEXT_CHANGED：身份核验的项目已变化。");
+        const result = await this.downloadMetricMemoryBatch({ ...context, resultInspection: true }, this.client, { sourceId, workerId: sourceId, entries: [{ remotePath, localRelativePath: remotePath, sha256 }] }, "只读核验完成作业身份", { isCancellationRequested: false }, { report() { } });
+        const file = result.metricFiles?.find(row => row.remotePath === remotePath);
+        if (!file || file.sha256 !== sha256 || Buffer.byteLength(file.text || "", "utf8") > 65536)
+            throw new Error("FORMAL_JOB_MIRROR_OWNER_INVALID：身份文件缺失、过大或 SHA256 变化。");
+        const owner = JSON.parse(file.text);
+        const expected = { workflowId: plan.id, commandId: job.commandId, globalJobId: job.globalJobId, planRevision: plan.revision,
+            codeFingerprint: plan.codeFingerprint, index: job.index, case: job.case, seed: job.seed,
+            outputDir: job.outputDir, collectionResultCsv: job.collectionResultCsv };
+        const mismatched = Object.keys(expected).filter(key => owner?.[key] !== expected[key]);
+        const mode = job.actualExecutionMode || plan.executionMode;
+        if (owner?.schemaVersion !== 1 || owner?.mode !== mode
+            || owner?.state !== (mode === "train" ? "training_completed" : "completed") || mismatched.length
+            || JSON.stringify(owner.checkpointSource || null) !== JSON.stringify(job.checkpointSource || null))
+            throw new Error(`FORMAL_JOB_MIRROR_OWNER_MISMATCH：${mismatched.join(",") || "mode/state"}`);
     }
     queuePlanArtifactSyncStatusCheck(force = false) {
         void this.refreshPlanArtifactSyncStatus(force).catch((error) => console.warn(`[SimpleExperiment] 产物同步状态读取未完成：${errorMessage(error).slice(0, 300)}`));
@@ -11739,12 +11841,12 @@ class RealtimeTunnelPanelProvider {
         }
         this.postState();
     }
-    async syncDistributedJobArtifacts(root, queue, phase, verifyAll = false, report) {
+    async syncDistributedJobArtifacts(root, queue, phase, verifyAll = false, report, automatic) {
         const contract = this.distributedProjectContract();
         const targets = new Map(this.workerCodeSyncTargets().map((target) => [target.id, target]));
         const online = [...targets.keys()].filter((id) => this.lastWorkerProbes[id]?.status === "ok");
         const selectedIds = new Set(PlanOutputRetention.plansForOutputSync(PlanOutputRetention.withValidatedPlanJobCounts(queue, this.localPlanMetadata?.plans || [])).map((plan) => plan.id));
-        const plans = (this.planOutputRetentionMode(root) === "keep-history" ? queue.plans : queue.plans.filter((plan) => selectedIds.has(plan.id)))
+        const plans = (automatic || this.planOutputRetentionMode(root) === "keep-history" ? queue.plans : queue.plans.filter((plan) => selectedIds.has(plan.id)))
             .filter(plan => plan.resultPathPolicy === "declared"); // Historical attempts are display/collection sources only.
         const transfers = [];
         const failures = [];
@@ -11818,7 +11920,7 @@ class RealtimeTunnelPanelProvider {
                         `${job.outputDir}/formal_job_owner.json`, ...(job.collectionResultCsv && job.actualExecutionMode !== "train" ? [job.collectionResultCsv] : [])];
                     const ownedPaths = () => Object.keys(job.artifacts || {}).filter((file) => file.startsWith(job.outputDir + "/") || file === job.collectionResultCsv);
                     // A complete old manifest does not prove that later checkpoints/logs were inventoried.
-                    // Manual full sync rescans only selected attempt directories in the shared preflight.
+                    // Full sync inventories only selected formal job directories, never their historical parents.
                     const needsInventory = verifyAll && phase === "bulk" || !job.artifacts || fragmentPaths.some((file) => !job.artifacts[file])
                         || phase === "bulk" && !contract.requiredPaths.every((name) => job.artifacts[`${job.outputDir}/${name}`]);
                     let sourceId, collected;
@@ -11857,10 +11959,13 @@ class RealtimeTunnelPanelProvider {
                                         throw new Error("声明的正式 CSV 缺失或 SHA256 未核实");
                                     collected[job.collectionResultCsv] = csvHashes[job.collectionResultCsv];
                                 }
-                                const required = phase === "fragments" ? fragmentPaths : contract.requiredPaths.map((name) => `${job.outputDir}/${name}`);
+                                const required = phase === "fragments" ? fragmentPaths : [...contract.requiredPaths.map((name) => `${job.outputDir}/${name}`),
+                                    `${job.outputDir}/formal_job_owner.json`];
                                 if (required.some((file) => !/^[a-f0-9]{64}$/.test(collected[file] || "")))
                                     throw new Error("缺少检查点或结果片段");
                             }
+                            if (automatic)
+                                await this.verifyCompletedJobMirrorOwner(root, plan, job, id, collected?.[`${job.outputDir}/formal_job_owner.json`] || job.artifacts?.[`${job.outputDir}/formal_job_owner.json`]);
                             sourceId = id;
                             break;
                         }
@@ -11895,6 +12000,11 @@ class RealtimeTunnelPanelProvider {
                         const existingHashes = await initialHashes(workerId, destination, paths);
                         if (paths.some(file => existingHashes[file] && existingHashes[file] !== job.artifacts[file]))
                             throw new Error(`FORMAL_JOB_MIRROR_CONFLICT：${workerId} 已有不同的正式作业产物，禁止覆盖。`);
+                        if (automatic && paths.every(file => existingHashes[file] === job.artifacts[file])) {
+                            job[mirrorField] = [...new Set([...(job[mirrorField] || []), workerId])];
+                            await this.patchDistributedJob(root, plan.id, job.index, job.attempt, { [mirrorField]: [workerId] });
+                            continue;
+                        }
                         if (previouslyMirrored) {
                             let matches = false;
                             try {
@@ -11935,21 +12045,24 @@ class RealtimeTunnelPanelProvider {
             const first = items[0];
             try {
                 await this.assertSshTransportIdentities([first.sourceRow, first.target]);
+                await automatic?.assertCurrent();
                 const paths = [...new Set(items.flatMap((item) => item.paths))].sort();
                 for (let offset = 0; offset < paths.length; offset += 5000) {
+                    await automatic?.assertCurrent();
                     report?.({ phase: "transferring", workerId: `${first.sourceId} → ${first.workerId}`,
                         batch: offset / 5000 + 1, batchCount: Math.ceil(paths.length / 5000), fileCount: paths.slice(offset, offset + 5000).length });
                     await this.simpleSftpApiCall("sync.serverToServerFpsync", { source: first.source,
                         destination: { ...first.destination, host: first.destination.networkHost || first.destination.host },
                         relativePaths: paths.slice(offset, offset + 5000), compression: "auto", singleStream: true,
                         confirm: true, pathConfirmed: true,
-                        taskLabel: (0, PlanArtifactTransfer_1.workerFpsyncTaskLabel)({ action: "压缩同步最新版 Plan 产物",
+                        taskLabel: (0, PlanArtifactTransfer_1.workerFpsyncTaskLabel)({ action: automatic ? "自动同步已完成 Plan 产物" : "压缩同步最新版 Plan 产物",
                             sourceId: first.sourceId, destinationId: first.workerId,
                             detail: `${new Set(items.map((item) => item.plan.planFile)).size} 个 Plan / ${items.length} 个 job（${phase === "fragments" ? "结果片段" : "检查点、日志与结果"}）`,
                             batch: offset / 5000 + 1, batchCount: Math.ceil(paths.length / 5000) }) }, 0, report ? (detail) => report({ ...detail, workerId: `${first.sourceId} → ${first.workerId}`,
                         batch: offset / 5000 + 1, batchCount: Math.ceil(paths.length / 5000), fileCount: paths.slice(offset, offset + 5000).length }) : undefined);
                 }
                 const checked = await this.distributedOutputHashes(first.destination, paths, report ? (detail) => report({ ...detail, workerId: first.workerId }) : undefined);
+                await automatic?.assertCurrent();
                 for (const { plan, job, workerId, paths } of items) {
                     if (paths.some((file) => checked[file] !== job.artifacts[file])) {
                         await failJob(plan, job, new Error(`${workerId} 内容校验失败：${job.outputDir}`));
@@ -18807,8 +18920,11 @@ class RealtimeTunnelPanelProvider {
         });
     }
     async queueCompletedPlanArtifactSync(operation) {
-        void operation;
-        return;
+        if (String(operation?.status || "").toLowerCase() !== "completed")
+            return;
+        const root = workspaceRoot();
+        if (root)
+            this.scheduleDistributedPostprocess(root, true);
     }
     schedulePlanSyncRetry(root, syncKey, operation) {
         if (this.planSyncSummaryRetries.has(syncKey) || this.planSyncSummaryRetries.size >= 64)

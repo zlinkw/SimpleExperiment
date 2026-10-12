@@ -423,10 +423,14 @@ test('G3 actual task API syncs exit evidence into durable ledger immediately, wi
   assert.equal(result.status,'completed','G3 exit evidence must supersede durable running during same API call');
   assert.equal(result.exitCode,0);assert.ok(result.finishedAt);assert.equal(result.schedulingMode,'server_prequeue');
 });
-test('G4 automatic postprocess stays inert and package/lock/runtime versions match',()=>{
+test('G4 automatic postprocess schedules only Worker mirroring and package/lock/runtime versions match',async()=>{
   const Provider=provider(['scheduleDistributedPostprocess']);const p=new Provider();let calls=0;
   p.syncDistributedJobArtifacts=()=>calls++;p.rebuildDistributedResults=()=>calls++;
-  p.scheduleDistributedPostprocess(root,true);assert.equal(calls,0,'G4 no automatic result transfer');
+  p.isRealtimeMode=()=>true;p.projectTopologyAssessment=()=>({mode:'worker_pool'});
+  p.captureProjectContext=()=>({root});p.projectContextIsCurrent=()=>true;
+  let mirrors=0;p.syncCompletedPlanArtifacts=async()=>mirrors++;p.queuePlanArtifactSyncStatusCheck=()=>{};p.postState=()=>{};
+  p.scheduleDistributedPostprocess(root,true);await p.distributedPostprocessPromise;
+  assert.equal(mirrors,1);assert.equal(calls,0,'G4 no automatic raw result download or publication');
   const version=JSON.parse(fs.readFileSync(path.join(root,'package.json'),'utf8')).version;
   assert.match(version,/^\d+\.\d+\.\d+$/);assert.equal(JSON.parse(fs.readFileSync(path.join(root,'package-lock.json'),'utf8')).version,version);
   assert.match(fs.readFileSync(path.join(root,'src/runtime/RuntimeManifest.ts'),'utf8'),new RegExp(`CURRENT_RUNTIME_VERSION = "${version.replaceAll('.','\\.')}"`));

@@ -1,9 +1,14 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.latestCompletePlansForSyncCheck = latestCompletePlansForSyncCheck;
+exports.pendingCompletedPlanMirrors = pendingCompletedPlanMirrors;
+exports.completeFormalPlansForWorkerMirror = completeFormalPlansForWorkerMirror;
+exports.completedPlanMirrorIdentity = completedPlanMirrorIdentity;
 exports.planArtifactSyncCheckKey = planArtifactSyncCheckKey;
 exports.assessPlanArtifactSync = assessPlanArtifactSync;
 const node_crypto_1 = require("node:crypto");
+const PlanArtifactSync_1 = require("./PlanArtifactSync");
+const DistributedJobArtifacts_1 = require("./DistributedJobArtifacts");
 const planKey = (value) => String(value || "").replace(/\\/g, "/").toLowerCase();
 /** Completion is independent of a previous sync ledger; a same-revision rerun is a new generation. */
 function latestCompletePlansForSyncCheck(queue, metadata = []) {
@@ -28,6 +33,29 @@ function latestCompletePlansForSyncCheck(queue, metadata = []) {
     }
     return [...latest.values()].slice(0, 500);
 }
+/** A durable mirror receipt belongs to a complete formal run, never to a partial job or a basename. */
+function pendingCompletedPlanMirrors(queue, metadata, workerIds, now = Date.now()) {
+    return completeFormalPlansForWorkerMirror(queue, metadata).filter(plan => {
+        if (plan.cleanup || plan.resultPathPolicy !== "declared" || !plan.revision || !plan.codeFingerprint
+            || plan.jobs.some(job => job.unavailable || job.resultPathPolicy !== "declared" || job.globalJobId !== `${plan.id}:${job.index}`
+                || !(0, PlanArtifactSync_1.safePlanArtifactPath)(job.outputDir) || job.outputDir.split("/").length < 2 || job.outputDir.split("/").includes("attempts")
+                || job.collectionResultCsv && !(0, PlanArtifactSync_1.safePlanArtifactPath)(job.collectionResultCsv)
+                || job.artifactRetryAfter && Date.parse(job.artifactRetryAfter) > now))
+            return false;
+        return plan.jobs.some(job => !/^[a-f0-9]{64}$/i.test(job.artifacts?.[`${job.outputDir}/formal_job_owner.json`] || "")
+            || job.artifactError || workerIds.some(id => !job.mirroredWorkerIds?.includes(id)));
+    });
+}
+/** Mirror each frozen run, including a run finishing after the on-disk PLAN has advanced. */
+function completeFormalPlansForWorkerMirror(queue, metadata) {
+    return queue.plans.filter(plan => !plan.cleanup && plan.resultPathPolicy === "declared").flatMap(plan => latestCompletePlansForSyncCheck({ ...queue, plans: [plan] }, metadata.filter(row => row.revision === plan.revision)));
+}
+/** Excludes changing mirror receipts; includes every execution binding used by a fresh pre-transfer check. */
+function completedPlanMirrorIdentity(plan) {
+    return JSON.stringify([plan.id, plan.projectId, plan.revision, plan.codeFingerprint, plan.resultPathPolicy, plan.executionMode,
+        plan.jobs.map(job => [job.index, job.case, job.seed, job.globalJobId, job.commandId, job.workerId,
+            job.outputDir, job.collectionResultCsv, job.actualExecutionMode, job.checkpointSource])]);
+}
 function planArtifactSyncCheckKey(plans, workerIds, onlineIds) {
     return (0, node_crypto_1.createHash)("sha256").update(JSON.stringify([workerIds.slice().sort(), onlineIds.slice().sort(), plans.map(plan => [
             plan.id, plan.revision, plan.jobs.map(job => [job.index, job.attempt, job.commandId, job.workerId, job.outputDir,
@@ -39,9 +67,13 @@ function assessPlanArtifactSync(plan, workerIds, inventories, requiredPaths, che
     const pending = new Set();
     const unavailable = new Set();
     let missingSource = false;
-    const subtree = (workerId, directory, csv) => Object.entries(inventories.get(workerId) || {})
-        .filter(([file, hash]) => (file.startsWith(directory + "/") || csv && file === csv) && /^[a-f0-9]{64}$/i.test(hash))
-        .sort(([a], [b]) => a.localeCompare(b));
+    const subtree = (workerId, directory, csv) => {
+        const inventory = inventories.get(workerId) || {};
+        const files = (0, DistributedJobArtifacts_1.collectDistributedJobArtifacts)(directory, Object.fromEntries(Object.entries(inventory).map(([file, sha256]) => [file, { sha256 }])), false);
+        if (csv && /^[a-f0-9]{64}$/i.test(inventory[csv] || ""))
+            files[csv] = inventory[csv].toLowerCase();
+        return Object.entries(files).sort(([a], [b]) => a.localeCompare(b));
+    };
     for (const job of plan.jobs) {
         const csv = job.resultPathPolicy === "declared" ? job.collectionResultCsv : undefined;
         const source = subtree(job.workerId, job.outputDir, csv);
