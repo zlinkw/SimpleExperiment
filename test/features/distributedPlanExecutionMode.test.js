@@ -28,7 +28,7 @@ function method(start, end, scope = {}) {
 function host(queue = Queue.emptyDistributedQueue()) {
   const owner = { queue, distributedQueueGeneration: 0, context: { globalStorageUri: { fsPath: 'C:/storage' } },
     lastCodeSyncState: { fingerprint: 'code', workerVersions: { worker: { codeSyncProofId: 'proof' } } },
-    lastWorkerProbes: { worker: { capabilities: { endpoints: { declaredJobPaths: true }, actionEndpoints: { 'register-code-sync-proof': true } } } },
+    lastWorkerProbes: { worker: { capabilities: { endpoints: { declaredJobPaths: true, formalJobIdentityEnv: 1 }, actionEndpoints: { 'register-code-sync-proof': true } } } },
     workerActionTargets: () => [{ id: 'worker', condaEnv: 'env' }], enabledWorkerConfigs: () => [],
     schedulerSettings: () => ({}), loadDistributedQueue: async () => owner.queue,
     saveDistributedQueue: async (_, value) => { owner.queue = value; }, postState() {},

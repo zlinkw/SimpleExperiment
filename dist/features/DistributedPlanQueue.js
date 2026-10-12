@@ -566,6 +566,8 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
                 ...(logBinding || {}),
                 ...(typeof task.finishedAt === "string" ? { finishedAt: task.finishedAt } : {}),
                 ...(typeof task.error === "string" ? { error: task.error } : {}),
+                ...(task.failureDiagnostic && typeof task.failureDiagnostic === "object" ? { failureDiagnostic: task.failureDiagnostic } : {}),
+                ...(task.formalConflictEvidence && typeof task.formalConflictEvidence === "object" ? { formalConflictEvidence: task.formalConflictEvidence } : {}),
                 ...(preflightRejectionEvidence(task) ? { admissionRejection: {
                         code: String(task.errorCode), message: String(task.error || task.message), rejectedAt: String(task.finishedAt)
                     } } : {}),
@@ -720,14 +722,10 @@ function workerCodeVersionAvailable(queue, workerId, fingerprint) {
 const emptyDistributedQueue = () => ({ schemaVersion: 1, plans: [] });
 exports.emptyDistributedQueue = emptyDistributedQueue;
 function completedJobOutputs(queue, planFile, jobs) {
-    const key = String(planFile || "").replace(/\\/g, "/").replace(/^\.\//, "");
-    const matching = queue.plans.filter((plan) => String(plan.planFile || "").replace(/\\/g, "/").replace(/^\.\//, "") === key);
-    return jobs.flatMap((job) => {
-        const previous = matching.slice().reverse().flatMap((plan) => plan.jobs.slice().reverse())
-            .find((item) => item.index === job.index && item.case === job.case && item.seed === job.seed
-            && item.status === "completed" && item.outputDir && !item.outputRetiredAt);
-        return previous ? [{ index: job.index, case: job.case, seed: job.seed, output_dir: previous.outputDir }] : [];
-    });
+    // Historical status has no current Worker config/checkpoint/file-hash proof.
+    // Keep this entry point for compatibility, but never use it to adopt/skip a new job.
+    // Current declared outputs are inspected by the Worker validation/admission path.
+    return [];
 }
 function distributedQueuePath(storageRoot, projectRoot) {
     const root = path.resolve(projectRoot);
@@ -953,6 +951,7 @@ function applyPreflightRejectedDispatch(queue, plan, job, receipt) {
             jobs: row.jobs.map(item => item.index !== job.index || item.commandId !== job.commandId ? item : {
                 ...item, status: "failed", trustedTerminalStatus: "failed", error: rejection.message,
                 admissionRejection: rejection, finishedAt: rejection.rejectedAt, blockReason: undefined,
+                formalConflictEvidence: receipt.formalConflictEvidence,
                 dispatchAcknowledgedAt: new Date().toISOString(),
             }) }) };
 }

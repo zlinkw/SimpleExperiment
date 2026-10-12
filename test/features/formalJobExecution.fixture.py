@@ -138,7 +138,7 @@ def fails(callback, token):
 job = jobs[0]
 assert len({item.output_dir for item in jobs}) == len({item.result_csv for item in jobs}) == 3
 worker = {"id":"worker","project_dir":str(root),"conda_env":"fixture-env",
-          "_availability":{"declaredJobPaths":True,"runtimeVersion":scheduler.RUNTIME_VERSION},
+          "_availability":{"declaredJobPaths":True,"formalJobIdentityEnv":1,"runtimeVersion":scheduler.RUNTIME_VERSION},
           "_availability_received_monotonic":scheduler.time.monotonic()}
 with patch.object(scheduler,"scheduler_agent_state_dir",lambda: root/"fixture-hub-state"), \
      patch.object(scheduler.urllib.request,"urlopen",side_effect=AssertionError("unexpected server access")):

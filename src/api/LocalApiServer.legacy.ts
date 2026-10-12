@@ -650,7 +650,7 @@ export class LocalApiServer {
       version: this.version,
       transport: ["http", "cli"],
       rpc: "json-rpc-2.0",
-      execution: { resultPathPolicy: "declared", formalJobPathProtocol: 1, historicalAttempts: "readOnly", draftPromotion: "retired" },
+      execution: { resultPathPolicy: "declared", formalJobPathProtocol: 1, formalJobIdentityEnvProtocol: 1, historicalAttempts: "readOnly", draftPromotion: "retired" },
       retiredMethods: { "drafts.promote": "DRAFT_PROMOTION_RETIRED" },
       methods: Object.keys(this.methods).sort(),
       methodOptions: Object.keys(this.methods).includes("plans.cleanup.preview") ? {

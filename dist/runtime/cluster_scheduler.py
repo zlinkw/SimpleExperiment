@@ -36,10 +36,11 @@ except ModuleNotFoundError as exc:
     yaml = None
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_scheduler.py 为准
-SCHEDULER_VERSION = "0.5.279"
-RUNTIME_VERSION = "0.5.279"
-PLUGIN_VERSION = "0.5.279"
+SCHEDULER_VERSION = "0.5.280"
+RUNTIME_VERSION = "0.5.280"
+PLUGIN_VERSION = "0.5.280"
 FORMAL_JOB_PATH_PROTOCOL = 1
+FORMAL_JOB_IDENTITY_ENV_PROTOCOL = 1
 
 TAIL_BYTES = 16 * 1024
 WORKER_AVAILABILITY_REFRESH_TIMEOUT_SECONDS = 5.0
@@ -2154,15 +2155,85 @@ def formal_resume_targets(job: Job) -> list[str]:
     return [target for target in targets if target]
 
 
+class FormalJobConflictError(ValueError):
+    def __init__(self, message, evidence):
+        super().__init__(message)
+        self.evidence = evidence
+
+def formal_job_conflict_evidence(job, expected, owner):
+    output = formal_job_safe_path(job.output_dir)
+    result = formal_job_safe_path(job.result_csv)
+    categories = set()
+    children = []
+    if output.is_dir():
+        for item in output.iterdir():
+            if len(children) >= 32:
+                categories.add("additional_entries")
+                break
+            name = item.name
+            kind = "symlink" if item.is_symlink() else "directory" if item.is_dir() else "file" if item.is_file() else "unknown"
+            children.append({"name": name, "type": kind})
+            if name == "attempts":
+                categories.add("historical_attempts_directory")
+            elif name == "formal_job_owner.json":
+                categories.add("formal_owner")
+            elif name == ".formal_job.lock":
+                categories.add("writer_lock")
+            elif name in ("checkpoint_manifest.json", "artifact_manifest.json", "run_wrapper_report.json"):
+                categories.add("manifest")
+            elif item.suffix in (".pth", ".pt", ".ckpt"):
+                categories.add("checkpoint")
+            elif item.suffix in (".yaml", ".yml"):
+                categories.add("configuration")
+            elif item.suffix in (".log", ".txt"):
+                categories.add("log")
+            else:
+                categories.add("other")
+    lock_state = "absent"
+    lock_path = formal_job_safe_path(job.output_dir + "/.formal_job.lock")
+    if lock_path.is_file():
+        lock_state = "unknown"
+        try:
+            with lock_path.open("rb") as handle:
+                if os.name == "nt":
+                    import msvcrt
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+                else:
+                    import fcntl
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+                lock_state = "available"
+        except (OSError, ValueError):
+            lock_state = "held_or_unverifiable"
+    meaningful = [item for item in children if item["name"] != ".formal_job.lock"]
+    return {"schemaVersion": 1, "projectRoot": str(Path.cwd().resolve()), "outputDir": str(output.resolve()),
+        "resultCsv": str(result.resolve()), "resultExists": result.exists(), "categories": sorted(categories),
+        "entries": children, "ownerExists": bool(owner), "ownerState": str(owner.get("state") or "unknown"),
+        "identityDifferences": [key for key, value in expected.items() if owner and owner.get(key) != value],
+        "onlyHistoricalAttemptsDirectory": len(meaningful) == 1 and meaningful[0] == {"name": "attempts", "type": "directory"},
+        "lockState": lock_state, "hashesVerified": False}
+
 def formal_job_preflight(job: Job, identity: dict[str, Any], mode: str) -> dict[str, Any]:
-    if identity.get("planRevision") != job.template_values.get("plan_revision"):
-        raise ValueError("PLAN_REVISION_CHANGED")
+    if not isinstance(identity, dict):
+        raise ValueError("FORMAL_JOB_IDENTITY_REQUIRED: expected object")
     """Admission is read-only. Existing bytes cannot be adopted based on a directory name."""
     if job.config.get("runtime", {}).get("result_path_contract", {}).get("policy") != "declared":
         raise ValueError("HISTORICAL_ATTEMPT_READ_ONLY")
     required = ("workflowId", "commandId", "planRevision", "codeFingerprint", "globalJobId")
-    if any(not identity.get(key) for key in required) or identity["globalJobId"] != str(identity["workflowId"]) + ":" + str(job.index):
-        raise ValueError("FORMAL_JOB_IDENTITY_REQUIRED")
+    missing = [key for key in required if not isinstance(identity.get(key), str) or not identity[key].strip()]
+    if missing:
+        raise ValueError("FORMAL_JOB_IDENTITY_REQUIRED: missing=" + ",".join(missing))
+    mismatched = []
+    if identity["globalJobId"] != identity["workflowId"] + ":" + str(job.index):
+        mismatched.append("globalJobId")
+    expected_command = os.environ.get("SIMPLE_EXPERIMENT_JOB_COMMAND_ID")
+    if expected_command and identity["commandId"] != expected_command:
+        mismatched.append("commandId")
+    if mismatched:
+        raise ValueError("FORMAL_JOB_IDENTITY_MISMATCH: fields=" + ",".join(mismatched))
+    if identity["planRevision"] != job.template_values.get("plan_revision"):
+        raise ValueError("PLAN_REVISION_CHANGED: fields=planRevision")
     if mode in ("train", "train_test"):
         resume_targets = formal_resume_targets(job)
         if resume_targets:
@@ -2173,7 +2244,11 @@ def formal_job_preflight(job: Job, identity: dict[str, Any], mode: str) -> dict[
                 "outputDir": job.output_dir, "collectionResultCsv": job.result_csv, "configHash": formal_job_config_hash(job)}
     formal_job_safe_path(job.result_csv)
     owner_path = formal_job_safe_path(job.output_dir + "/formal_job_owner.json")
+    if owner_path.is_file() and owner_path.stat().st_size > 65536:
+        raise ValueError("FORMAL_JOB_OWNER_INVALID: owner metadata exceeds 64 KiB")
     owner = json.loads(owner_path.read_text(encoding="utf-8")) if owner_path.is_file() else {}
+    if not isinstance(owner, dict):
+        raise ValueError("FORMAL_JOB_OWNER_INVALID: expected object")
     same = owner and all(owner.get(key) == value for key, value in expected.items())
     if same and (owner.get("state") == "completed" or owner.get("state") == "training_completed" and mode == "train"):
         hashes = owner.get("sha256") or {}
@@ -2191,8 +2266,9 @@ def formal_job_preflight(job: Job, identity: dict[str, Any], mode: str) -> dict[
     directory = Path(job.output_dir)
     existing = directory.exists() and any(item.name != ".formal_job.lock" for item in directory.iterdir())
     if existing or Path(job.result_csv).exists():
-        raise ValueError("FORMAL_JOB_CONFLICT: existing output/checkpoint/result belongs to an unfinished or different writer; "
-                         "review explicitly or declare a different job; output=" + job.output_dir + "; result=" + job.result_csv)
+        raise FormalJobConflictError("FORMAL_JOB_CONFLICT: existing output/checkpoint/result belongs to an unfinished or different writer; "
+                         "review explicitly or declare a different job; output=" + job.output_dir + "; result=" + job.result_csv,
+                         formal_job_conflict_evidence(job, expected, owner))
     if mode == "test" or job.config.get("runtime", {}).get("checkpoint_source"):
         formal_checkpoint_source(job, identity, mode)
         return {"identity": expected, "checkpointVerified": True}
@@ -2261,10 +2337,20 @@ def formal_job_writer(job: Job, identity: dict[str, Any], mode: str):
 
 def run_job(job: Job, args: argparse.Namespace) -> None:
     raw = os.environ.get("SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY", "")
-    identity = json.loads(raw) if raw else {"workflowId": str(getattr(args, "operation_id", "") or ""),
+    if not raw and os.environ.get("SIMPLE_EXPERIMENT_MANAGED_JOB") == "1":
+        raise ValueError("FORMAL_JOB_IDENTITY_REQUIRED: missing=workflowId,commandId,globalJobId,planRevision,codeFingerprint")
+    if raw:
+        try:
+            parsed = json.loads(raw)
+        except ValueError as exc:
+            raise ValueError("FORMAL_JOB_IDENTITY_REQUIRED: invalid JSON") from exc
+        if not isinstance(parsed, dict):
+            raise ValueError("FORMAL_JOB_IDENTITY_REQUIRED: expected object")
+    identity = parsed if raw else {"workflowId": str(getattr(args, "operation_id", "") or ""),
         "commandId": str(getattr(args, "operation_id", "") or ""), "planRevision": job.template_values.get("plan_revision"),
         "codeFingerprint": formal_source_fingerprint(Path.cwd())}
-    identity.setdefault("globalJobId", str(identity.get("workflowId", "")) + ":" + str(job.index))
+    if not raw:
+        identity["globalJobId"] = str(identity.get("workflowId", "")) + ":" + str(job.index)
     if getattr(args, "overwrite", False) or getattr(args, "overwrite_existing", False):
         raise ValueError("FORMAL_JOB_CONFLICT: overwrite is retired; explicitly clean or change the declared job")
     try:
@@ -2365,6 +2451,14 @@ def formal_job_preflight_mode(args: argparse.Namespace) -> dict[str, Any]:
     return {**admission, "policy": "declared", "outputDir": job.output_dir, "checkpointSource": job.config.get("runtime", {}).get("checkpoint_source"),
             "collectionResultCsv": job.result_csv, "resultPathContract": job.config["runtime"]["result_path_contract"]}
 
+
+def formal_job_preflight_report(args):
+    try:
+        return {"ok": True, **formal_job_preflight_mode(args)}
+    except ValueError as exc:
+        code = str(exc).split(":", 1)[0]
+        return {"ok": False, "errorCode": code if re.fullmatch(r"[A-Z][A-Z0-9_]+", code) else "FORMAL_JOB_PREFLIGHT_FAILED",
+                "error": str(exc), "evidence": getattr(exc, "evidence", None)}
 
 def run_job_mode(args: argparse.Namespace) -> None:
     if args.debug_mode:
@@ -2796,14 +2890,14 @@ def require_formal_worker_protocol(worker: dict[str, Any]) -> None:
     cached = worker.get("_availability") or {}
     received = float(worker.get("_availability_received_monotonic") or 0)
     if (received and 0 <= time.monotonic() - received <= 30 and cached.get("declaredJobPaths") is True
-            and cached.get("runtimeVersion") == RUNTIME_VERSION):
+            and cached.get("formalJobIdentityEnv") == 1 and cached.get("runtimeVersion") == RUNTIME_VERSION):
         return
     base_url = str(worker.get("local_agent_url") or "").rstrip("/")
     if not base_url:
         raise ValueError("WORKER_PROTOCOL_UNVERIFIED: refresh/deploy matching Agent and Scheduler before submission")
     with urllib.request.urlopen(base_url + "/api/capabilities", timeout=5) as response:
         capability = json.loads(response.read(1024 * 1024).decode("utf-8"))
-    if capability.get("endpoints", {}).get("declaredJobPaths") is not True or capability.get("runtimeVersion") != RUNTIME_VERSION:
+    if capability.get("endpoints", {}).get("declaredJobPaths") is not True or capability.get("endpoints", {}).get("formalJobIdentityEnv") != 1 or capability.get("runtimeVersion") != RUNTIME_VERSION:
         raise ValueError("WORKER_PROTOCOL_INCOMPATIBLE: deploy matching Agent and Scheduler before submission")
 
 
@@ -3930,7 +4024,7 @@ def main() -> None:
     _SCHEDULER_ARGS_FOR_GUARD = args
     args.default_result_csv_dir = normalize_default_result_csv_dir(args.default_result_csv_dir)
     if args.formal_job_preflight:
-        print(json.dumps(formal_job_preflight_mode(args), ensure_ascii=False))
+        print(json.dumps(formal_job_preflight_report(args), ensure_ascii=False))
         return
     if args.debug_mode:
         raise SystemExit("DRAFT_EXECUTION_RETIRED: use a formal PLAN job; dryRun remains read-only")

@@ -12,7 +12,7 @@ const extension = fs.readFileSync(path.join(root, "src/extension/legacy.ts"), "u
 const panel = fs.readFileSync(path.join(root, "src/ui/PanelHtml.legacy.ts"), "utf8");
 const renderedPanel = require("../../dist/ui/PanelHtml.legacy.js").renderPanelHtml();
 
-test("completed jobs from a prior distributed run are identified by Plan and job identity", () => {
+test("old completed queue rows cannot be adopted into a current declaration", () => {
   const stored = { schemaVersion: 1, plans: [
     { id: "old", planFile: "experiments/plans/comparison/concatenation.yaml", revision: "r1", codeFingerprint: "abc", enqueuedAt: "2026-01-01",
       jobs: [
@@ -24,10 +24,10 @@ test("completed jobs from a prior distributed run are identified by Plan and job
   ] };
   assert.deepEqual(queue.completedJobOutputs(stored, "./experiments/plans/comparison/concatenation.yaml", [
     { index: 0, case: "bus", seed: 42 }, { index: 1, case: "bus", seed: 43 },
-  ]), [{ index: 0, case: "bus", seed: 42, output_dir: "work_dirs/bus/attempts/old" }]);
-  const selected = [{ index: 1, case: "bus", seed: 43, outputDir: "work_dirs/bus43/attempts/new" }];
+  ]), []);
+  const selected = [{ index: 1, case: "bus", seed: 43, outputDir: "work_dirs/bus43/direct_job", collectionResultCsv: "tmp/result/bus43/metrics.csv" }];
   const next = queue.enqueuePlan(stored, { planFile: "experiments/plans/comparison/concatenation.yaml",
-    revision: "r1", codeFingerprint: "abc", overwriteExisting: false, jobs: selected }, "new");
+    revision: "r1", codeFingerprint: "abc", resultPathPolicy: "declared", overwriteExisting: false, jobs: selected }, "new");
   assert.equal(next.plans.at(-1).jobs.length, 1);
   assert.equal(next.plans.at(-1).jobs[0].seed, 43);
 });
@@ -123,6 +123,7 @@ test("distributed job exposes one identity-bound tmux log jump and no inline log
   const source = renderedPanel.slice(start, end);
   let html = "";
   const sandbox = {
+    asArray: value => Array.isArray(value) ? value : [],
     selectedExecutionPlanFile: "",
     collapsedExecutionPlanKeys: new Set(),
     persistWebviewState: () => undefined,

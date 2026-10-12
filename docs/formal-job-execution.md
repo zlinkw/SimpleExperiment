@@ -87,3 +87,21 @@ resume 的配置/命令也必须指向同一个已核验 checkpoint。核对训�
 只有完整且匹配的 Worker 回执可以终结待核实。普通 HTTP 错误、丢失回执、身份不一致继续保留原 owner。若 durable 行丢失而执行快照或 formal owner 仍证明该 command 曾执行，禁止伪造未启动证据。GPU 繁忙仍返回本机等待，不计为预检失败。界面显示训练未启动，禁止跳转到不存在的 TMUX 日志；已有权重、日志、结果和历史 attempts 保留，路径冲突仍需用户显式处理或修改正式 job 声明。
 
 需要 Windows 扩展与对应 Worker 的 Scheduler/Agent 一起更新到 0.5.279。本轮只读核验了 MultiModal 的本机状态及 Worker 回传快照，未部署 Worker、重启训练或清理目录。`preflightDispatchRejection.test.js` 回放提取的生产 Scheduler、Agent action、Host tick 和持久队列，覆盖首次拒绝、旧 unknown、重复提交、丢失响应、外来/不完整证据、GPU 繁忙和排队后冲突。
+
+## 0.5.280 正式身份穿过 tmux 的契约
+
+本轮基于 Windows HEAD `42902a5a`、0.5.279 源码与消费项目保存的 `identity_forwarding_20261012` 证据实现；没有使用 Mac e81201e/0.5.312 的工作区或覆盖其改动。最新故障是正式身份没有进入 tmux 任务 shell，不能再归因为目录冲突。MultiModal 的七份 PLAN、direct_jobs 路径和配置均未修改。
+
+GPU 独立窗口和普通启动路径共用 `job_shell_environment_prefix`，通过每次命令的 `env` 白名单完整传入原始 `SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY` 字符串，安全引用中文、空格、单双引号、反斜杠和换行。不存在的任务控制字段用 `env -u` 显式清除；身份不写入共享 tmux session/global environment。`fresh_task_runtime_env` 同时隔离 Agent 重启继承的旧身份、只测试标志、分布式结果标志和 GPU 绑定。只传 job 身份/模式控制、conda、GPU、退出码和日志需要的变量，不显式传 Agent 凭据或整个环境。
+
+启动前核查五项身份、`workflowId:index`、原 commandId 及实际 CLI index/revision。受管理 Scheduler 缺少原 JSON 时立即报具体缺失字段，不扫描源目录或补造身份；非法 JSON 和跨 job/command 身份仍拒绝。配套 Scheduler 标记 `FORMAL_JOB_IDENTITY_ENV_PROTOCOL=1`，Worker capabilities/availability 宣告 `formalJobIdentityEnv=1`；旧 Worker 在本机保存/派发前阻断。本地 API execution capabilities 同步公布协议 1，原路径协议/单写者/revision/完成 SHA256 门禁保留。
+
+新的正式任务控制台日志按 commandId 的 SHA256 独占命名，原来的共享 GPU 日志及历史文件保留。失败回执与任务快照保存 `failureDiagnostic`，包括原始有界 traceback、错误字段、commandId/runKey、真实 pane/windowId 与精确日志路径。重启后的退出码核查使用同一证据；不能将 GPU 基础 shell 或其他 command 的日志归给本 job。
+
+目录冲突仍阻断，另外返回只读 `formalConflictEvidence`：Worker、项目根、精确 output/result、有限文件类别/元数据、owner 差异与状态、锁状态、是否仅含历史 attempts 子目录。不会读取权重、推断成功、移动或清理。`completedJobOutputs` 保留兼容入口但不再依据本机 completed 缓存复用/跳过当前作业；必须以当前 Worker 对当前声明的验证为准，已有直接正式目录照常拒绝另一写入者。
+
+真实测试在本机 WSL Ubuntu-Codex、tmux 3.4、Python 3.12.3 上运行两个已有隔离服务器路径（GPU 与普通），每条路径同时启动 index 0/1 的轻量探针；调用提取的生产启动函数与真实 bash/tmux，合法身份进入实际 Scheduler writer，修改/缺失/跨任务身份被拒绝。没有使用研究 train.py/test.py。夹具保留，结束时仅停止该夹具创建的隔离 tmux server。模式、checkpoint-only、train→test、重载、旧 Worker 阻断另有提取生产函数回归。
+
+七份实际 MultiModal PLAN 的 20 条真实 launch-message 生产函数契约已校验，预算仍为 PAD/fold0/seed42 的 18 个压力作业和 2 个官方参考。该消息测试使用冻结的夹具代码证明值，禁止重新扫描科研数据树或访问网络；它不代表远端资产/权重或科研结果验证通过。
+
+安装 Windows 0.5.280 后需用户重载 VS Code，再显式部署匹配版本的 Agent/Scheduler（含 NWPU2）。之后先核对失败 job 的现有文件、revision、checkpoint/owner/hash 与实际 Worker capabilities，再人工决定是否重新提交。不自动更名、清理、覆盖或重训。提供的 traceback 与调用顺序表明该次 train.py 尚未调用；NWPU2 远端产物实检、实机重跑和 Mac 部署仍待验证，本轮未连接服务器执行训练、同步、部署或清理。

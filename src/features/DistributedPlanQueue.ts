@@ -44,6 +44,8 @@ export type QueuedJob = {
   logPath?: string;
   historyLogIdentity?: { commandId: string; outputDir: string; runId: string };
   error?: string;
+  failureDiagnostic?: Record<string, unknown>;
+  formalConflictEvidence?: Record<string, unknown>;
   admissionRejection?: { code: string; message: string; rejectedAt: string };
   finishedAt?: string;
   artifacts?: Record<string, string>;
@@ -570,6 +572,8 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
         ...(logBinding || {}),
         ...(typeof task.finishedAt === "string" ? { finishedAt: task.finishedAt } : {}),
         ...(typeof task.error === "string" ? { error: task.error } : {}),
+        ...(task.failureDiagnostic && typeof task.failureDiagnostic === "object" ? { failureDiagnostic: task.failureDiagnostic as Record<string, unknown> } : {}),
+        ...(task.formalConflictEvidence && typeof task.formalConflictEvidence === "object" ? { formalConflictEvidence: task.formalConflictEvidence as Record<string, unknown> } : {}),
         ...(preflightRejectionEvidence(task) ? { admissionRejection: {
           code: String(task.errorCode), message: String(task.error || task.message), rejectedAt: String(task.finishedAt) } } : {}),
         ...(typeof task.stopReason === "string" ? { stopReason: task.stopReason } : {}),
@@ -710,14 +714,10 @@ export function workerCodeVersionAvailable(queue: DistributedQueue, workerId: st
 export const emptyDistributedQueue = (): DistributedQueue => ({ schemaVersion: 1, plans: [] });
 
 export function completedJobOutputs(queue: DistributedQueue, planFile: string, jobs: Array<Pick<QueuedJob, "index" | "case" | "seed">>) {
-  const key = String(planFile || "").replace(/\\/g, "/").replace(/^\.\//, "");
-  const matching = queue.plans.filter((plan) => String(plan.planFile || "").replace(/\\/g, "/").replace(/^\.\//, "") === key);
-  return jobs.flatMap((job) => {
-    const previous = matching.slice().reverse().flatMap((plan) => plan.jobs.slice().reverse())
-      .find((item) => item.index === job.index && item.case === job.case && item.seed === job.seed
-        && item.status === "completed" && item.outputDir && !item.outputRetiredAt);
-    return previous ? [{ index: job.index, case: job.case, seed: job.seed, output_dir: previous.outputDir }] : [];
-  });
+  // Historical status has no current Worker config/checkpoint/file-hash proof.
+  // Keep this entry point for compatibility, but never use it to adopt/skip a new job.
+  // Current declared outputs are inspected by the Worker validation/admission path.
+  return [] as Array<{ index: number; case: string; seed: number; output_dir: string }>;
 }
 
 export function distributedQueuePath(storageRoot: string, projectRoot: string): string {
@@ -934,6 +934,7 @@ export function applyPreflightRejectedDispatch(queue: DistributedQueue, plan: Qu
     jobs: row.jobs.map(item => item.index !== job.index || item.commandId !== job.commandId ? item : {
       ...item, status: "failed" as const, trustedTerminalStatus: "failed" as const, error: rejection.message,
       admissionRejection: rejection, finishedAt: rejection.rejectedAt, blockReason: undefined,
+      formalConflictEvidence: receipt.formalConflictEvidence as Record<string, unknown> | undefined,
       dispatchAcknowledgedAt: new Date().toISOString(),
     }) }) };
 }

@@ -2543,7 +2543,7 @@ def availability_from_gpu(worker_id, gpu_payload, source="worker_agent_direct", 
 def api_worker_availability(root):
     gpu_payload = api_worker_gpu(root)
     row = availability_from_gpu(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker", gpu_payload)
-    row.update({"declaredJobPaths": formal_job_path_capable(root), "runtimeVersion": RUNTIME_VERSION})
+    row.update({"declaredJobPaths": formal_job_path_capable(root), "formalJobIdentityEnv": 1 if formal_job_path_capable(root) else 0, "runtimeVersion": RUNTIME_VERSION})
     return {"schemaVersion": SCHEMA_VERSION, "workers": [row]}
 
 def availability_cache_path(root):
@@ -2739,8 +2739,8 @@ def durable_plan_public_task(row):
     for key in ("mode", "executionMode", "executionModeSource", "resultPathPolicy", "globalJobId", "collectionResultCsv", "checkpointSource"):
         if row.get(key) is not None:
             public[key] = row.get(key)
-    for key in ("finishedAt", "cancelledAt", "stopReason", "error", "exitCode", "identityConflict", "lastDispatchResult", "trainingRecovery", "originalExecution",
-                "admissionRejected", "reason", "errorCode", "message", "neverStarted", "neverStartedEvidence"):
+    for key in ("finishedAt", "cancelledAt", "stopReason", "error", "exitCode", "identityConflict", "lastDispatchResult", "trainingRecovery", "originalExecution", "failureDiagnostic",
+                "admissionRejected", "reason", "errorCode", "message", "neverStarted", "neverStartedEvidence", "logPath", "tmuxPane", "tmuxWindowId", "tmuxSession", "formalConflictEvidence"):
         if row.get(key) is not None:
             public[key] = row.get(key)
     if (public["status"] == "cancelled" and row.get("stopReason") == "requeue"
@@ -3080,7 +3080,7 @@ def durable_plan_preflight_failure(command, exc, accepted=False):
     code = message.split(":", 1)[0]
     if not re.fullmatch(r"[A-Z][A-Z0-9_]{2,80}", code):
         code = "FORMAL_JOB_PREFLIGHT_FAILED"
-    return {**command, "status": "failed", "durableAccepted": bool(accepted),
+    return {**command, **({"formalConflictEvidence": exc.evidence} if getattr(exc, "evidence", None) else {}), "status": "failed", "durableAccepted": bool(accepted),
             "admissionRejected": not accepted, "reason": "formal_preflight_rejected", "errorCode": code,
             "error": message, "message": message, "finishedAt": now_iso(),
             "neverStarted": True, "neverStartedEvidence": "formal_preflight_rejected"}
@@ -3603,7 +3603,7 @@ def sync_durable_plan_task_rows(root):
             mapped = durable_plan_task_status(task)
             if mapped and mapped != old_status:
                 row.update({"status": mapped, "updatedAt": now_iso()})
-                for key in ("finishedAt", "exitCode", "error", "logPath", "cancelledAt", "stopReason"):
+                for key in ("finishedAt", "exitCode", "error", "logPath", "cancelledAt", "stopReason", "failureDiagnostic"):
                     if task.get(key) is not None:
                         row[key] = task[key]
                 changed = True
@@ -3784,6 +3784,9 @@ def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None,
             if current and current.get("status") == "dispatching":
                 current["status"] = new_status
                 current["lastDispatchResult"] = result
+                for field in ("logPath", "tmuxPane", "tmuxWindowId", "tmuxSession"):
+                    if result.get(field):
+                        current[field] = result[field]
                 current["updatedAt"] = now_iso()
                 if new_status == "queued":
                     current["gpuId"] = ""
@@ -4623,7 +4626,71 @@ def _send_tmux_line(session, line, env, retries=3):
         time.sleep(0.3 * attempt)
     return last_rc
 
+JOB_SHELL_ENV_FIELDS = (
+    "SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY", "SIMPLE_EXPERIMENT_JOB_COMMAND_ID", "SIMPLE_EXPERIMENT_JOB_PROJECT_ID",
+    "SIMPLE_EXPERIMENT_MANAGED_JOB", "SIMPLE_EXPERIMENT_CHECKPOINT_TEST_ONLY", "SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS",
+    "SIMPLE_EXPERIMENT_TMUX_SESSION", "SIMPLE_EXPERIMENT_TMUX_LOG_DIR", "SIMPLE_EXPERIMENT_EXIT_CODE_PATH",
+    "SIMPLE_EXPERIMENT_CONDA_ENV", "SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV", "CUDA_VISIBLE_DEVICES", "PYTHONUNBUFFERED",
+)
+
+def fresh_task_runtime_env():
+    env = simple_runtime_env(os.environ.copy())
+    for key in JOB_SHELL_ENV_FIELDS:
+        if key not in ("SIMPLE_EXPERIMENT_CONDA_ENV", "SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV", "PYTHONUNBUFFERED"):
+            env.pop(key, None)
+    return env
+
+def tmux_task_client_env(env):
+    # A new server inherits the client environment, so exclude credentials and task controls.
+    fields = ("PATH", "HOME", "SHELL", "LANG", "LC_ALL", "LC_CTYPE", "TERM", "USER", "LOGNAME", "TZ",
+              "TMPDIR", "TMUX_TMPDIR", "XDG_RUNTIME_DIR", "SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX")
+    return {key: str(env[key]) for key in fields if env.get(key) is not None}
+
+def job_shell_environment_prefix(env, args=None):
+    """Command-scoped allowlist; never depend on or mutate a shared tmux environment."""
+    raw = str(env.get("SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY") or "")
+    if raw or str(env.get("SIMPLE_EXPERIMENT_MANAGED_JOB") or "") == "1":
+        required = ("workflowId", "commandId", "globalJobId", "planRevision", "codeFingerprint")
+        try:
+            identity = json.loads(raw) if raw else {}
+        except (ValueError, TypeError) as exc:
+            raise ValueError("FORMAL_JOB_IDENTITY_REQUIRED: invalid JSON") from exc
+        if not isinstance(identity, dict):
+            raise ValueError("FORMAL_JOB_IDENTITY_REQUIRED: expected object")
+        missing = [key for key in required if not isinstance(identity.get(key), str) or not identity[key].strip()]
+        if missing:
+            raise ValueError("FORMAL_JOB_IDENTITY_REQUIRED: missing=" + ",".join(missing))
+        mismatch = []
+        suffix = identity["globalJobId"][len(identity["workflowId"]) + 1:]
+        if not identity["globalJobId"].startswith(identity["workflowId"] + ":") or not suffix.isdigit():
+            mismatch.append("globalJobId")
+        if identity.get("index") is not None and identity["globalJobId"] != identity["workflowId"] + ":" + str(identity["index"]):
+            mismatch.append("index")
+        if env.get("SIMPLE_EXPERIMENT_JOB_COMMAND_ID") and identity["commandId"] != str(env["SIMPLE_EXPERIMENT_JOB_COMMAND_ID"]):
+            mismatch.append("commandId")
+        tokens = [str(item) for item in (args or [])]
+        for option, field in (("--only-index", "index"), ("--plan-revision", "planRevision")):
+            if option in tokens:
+                position = tokens.index(option) + 1
+                expected = tokens[position] if position < len(tokens) else ""
+                actual = suffix if field == "index" else identity[field]
+                if actual != expected:
+                    mismatch.append(field)
+        if mismatch:
+            raise ValueError("FORMAL_JOB_IDENTITY_MISMATCH: fields=" + ",".join(sorted(set(mismatch))))
+    # Explicitly remove absent controls inherited from an older task/server shell.
+    tokens = ["env"]
+    for key in JOB_SHELL_ENV_FIELDS:
+        if env.get(key) in (None, ""):
+            tokens.extend(("-u", key))
+    for key in JOB_SHELL_ENV_FIELDS:
+        if env.get(key) not in (None, ""):
+            tokens.append(key + "=" + str(env[key]))
+    return shlex.join(tokens)
+
 def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=None):
+    task_environment = job_shell_environment_prefix(env, args)
+    client_env = tmux_task_client_env(env)
     # Simulate a human operator: open a detached tmux session (login shell so conda/profile
     # is available), mirror the pane to a log file (screen + log), then type 'conda activate',
     # 'cd', and finally the command. No nested 'bash -lc' quoting, no process substitution.
@@ -4645,7 +4712,7 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
     # 围栏：显式拒绝主 shell target 作为 session（仅针对调度类 session 名，建窗指令本身可在主 shell 执行）
     if _is_main_shell_target(session):
         raise RuntimeError(f"refusing to create tmux session on main shell target {session!r}; must be simple-sch-*/simple-gpu-*/simple-worker-*-agent; " + _build_tmux_error_context(session, None, "", "", cwd, 1, env))
-    proc = subprocess.run(["tmux", "new-session", "-d", "-s", session] + shell_cmd, cwd=cwd, capture_output=True, text=True, env=env, timeout=20)
+    proc = subprocess.run(["tmux", "new-session", "-d", "-s", session] + shell_cmd, cwd=cwd, capture_output=True, text=True, env=client_env, timeout=20)
     if proc.returncode != 0:
         err = (proc.stderr or "") + (proc.stdout or "")
         # A duplicate may belong to a failed run whose console must be retained.
@@ -4666,22 +4733,6 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
         lines.append("conda activate " + shlex.quote(conda_env))
     if cwd:
         lines.append("cd " + shlex.quote(str(cwd)))
-    # tmux does not forward arbitrary env vars into the session shell, so export the
-    # session/log dir explicitly. The scheduler (run_job) reads these to publish the
-    # experiment output_dir sidecar used by the split-pane log mirror.
-    if env.get("SIMPLE_EXPERIMENT_TMUX_SESSION") and env.get("SIMPLE_EXPERIMENT_TMUX_LOG_DIR"):
-        lines.append("export SIMPLE_EXPERIMENT_TMUX_SESSION=" + shlex.quote(str(env.get("SIMPLE_EXPERIMENT_TMUX_SESSION"))))
-        lines.append("export SIMPLE_EXPERIMENT_TMUX_LOG_DIR=" + shlex.quote(str(env.get("SIMPLE_EXPERIMENT_TMUX_LOG_DIR"))))
-    # Forward the exit-code path so the launched --run-job writes it from Python too (belt-and-suspenders
-    # completion signal that does not depend on the trailing shell 'printf' surviving tmux send-keys).
-    if env.get("SIMPLE_EXPERIMENT_EXIT_CODE_PATH"):
-        lines.append("export SIMPLE_EXPERIMENT_EXIT_CODE_PATH=" + shlex.quote(str(env.get("SIMPLE_EXPERIMENT_EXIT_CODE_PATH"))))
-    if env.get("SIMPLE_EXPERIMENT_MANAGED_JOB"):
-        lines.append("export SIMPLE_EXPERIMENT_MANAGED_JOB=1")
-    for key in ("SIMPLE_EXPERIMENT_JOB_COMMAND_ID", "SIMPLE_EXPERIMENT_JOB_PROJECT_ID"):
-        lines.append("export " + key + "=" + shlex.quote(str(env.get(key) or "")))
-    if env.get("SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS"):
-        lines.append("export SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS=1")
     # The command below appends its rc via '; printf "%s" "$?" > exit_code_path'. That redirect
     # fails (and the completion signal is lost forever) if the parent dir does not exist, which
     # would leave the scheduler waiting on a never-written file while the session stays alive.
@@ -4693,20 +4744,10 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
                 os.makedirs(_ec_dir, exist_ok=True)
         except Exception:
             pass
-    command = shlex.join([str(item) for item in args])
+    command = task_environment + " " + shlex.join([str(item) for item in args])
     if exit_code_path:
         command = command + "; printf '%s' \"$?\" > " + shlex.quote(str(exit_code_path))
     lines.append(command)
-    # Forward critical env vars directly into the tmux session environment so the
-    # launched scheduler sees them even if a later send-keys line is dropped by the
-    # startup race. This complements the export lines above (belt-and-suspenders).
-    for _key in ("SIMPLE_EXPERIMENT_TMUX_SESSION", "SIMPLE_EXPERIMENT_TMUX_LOG_DIR", "SIMPLE_EXPERIMENT_EXIT_CODE_PATH", "SIMPLE_EXPERIMENT_MANAGED_JOB", "SIMPLE_EXPERIMENT_JOB_COMMAND_ID", "SIMPLE_EXPERIMENT_JOB_PROJECT_ID", "SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS", "SIMPLE_EXPERIMENT_CONDA_ENV", "CUDA_VISIBLE_DEVICES"):
-        _val = env.get(_key)
-        if _val:
-            try:
-                subprocess.run(["tmux", "set-environment", "-t", session, _key, str(_val)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5, env=env)
-            except Exception:
-                pass
     # cwd 存在性校验（前置）：若 cwd 不存在直接抛错带路径，避免高负载下 bash -l 慢启与 capture 超时静默
     if cwd:
         try:
@@ -4721,7 +4762,7 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
     _wait_ok = False
     _wait_exc_info = None
     try:
-        _wait_ok = _wait_tmux_ready(session, env, timeout=60.0, poll=0.3, cwd=cwd)
+        _wait_ok = _wait_tmux_ready(session, client_env, timeout=60.0, poll=0.3, cwd=cwd)
     except RuntimeError as _wait_exc:
         _wait_exc_info = _wait_exc
         print(f"[warn] tmux _wait_tmux_ready exception for {session!r}: {_wait_exc!r}, attempting fallback via main shell", file=sys.stderr, flush=True)
@@ -4742,7 +4783,7 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
         except Exception:
             pass
         # 尝试在主 shell (zlk1:0.0) 上人工发送 tmux new-session 建窗，不阻断调度
-        _fallback_ok = _fallback_bootstrap_via_main_shell(session, shell_cmd, cwd, env, log_path)
+        _fallback_ok = _fallback_bootstrap_via_main_shell(session, shell_cmd, cwd, client_env, log_path)
         if _fallback_ok:
             print(f"[info] fallback bootstrap succeeded for {session!r}, retrying _wait_tmux_ready", file=sys.stderr, flush=True)
             try:
@@ -4776,15 +4817,15 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
     # Type each line, validating the send-keys return code. 宽松：失败先尝试 fallback 重建 session 并重发，仍失败则 Popen 兜底
     _send_failed_lines = []
     for line in lines:
-        rc = _send_tmux_line(session, line, env)
+        rc = _send_tmux_line(session, line, client_env)
         if rc != 0:
             print(f"[warn] tmux send-keys failed rc={rc} for {session!r} line={_truncate_text(line, 200)!r}, attempting retry via fallback", file=sys.stderr, flush=True)
             # 若 session 已死，尝试 fallback 重建
             if not tmux_session_alive(session, cwd, env):
-                _fallback_ok2 = _fallback_bootstrap_via_main_shell(session, shell_cmd, cwd, env, log_path)
+                _fallback_ok2 = _fallback_bootstrap_via_main_shell(session, shell_cmd, cwd, client_env, log_path)
                 if _fallback_ok2:
                     time.sleep(0.5)
-                    rc = _send_tmux_line(session, line, env)
+                    rc = _send_tmux_line(session, line, client_env)
                     if rc == 0:
                         print(f"[info] retry send-keys after fallback succeeded for {session!r}", file=sys.stderr, flush=True)
                         continue
@@ -4817,6 +4858,8 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
     return tmux_pane_pid(session, cwd, env) or 0
 
 def start_job_in_gpu_pane(gpu_window, args, cwd, env, log_path, exit_code_path):
+    task_environment = job_shell_environment_prefix(env, args)
+    client_env = tmux_task_client_env(env)
     # Mark the command identity pending before publishing a pane; readers only accept
     # an integer exit code as completion, so a prior command's value cannot leak forward.
     write_atomic_text(str(exit_code_path), "pending\n")
@@ -4824,7 +4867,7 @@ def start_job_in_gpu_pane(gpu_window, args, cwd, env, log_path, exit_code_path):
         shell = os.environ.get("SHELL") or ("/bin/bash" if os.path.isfile("/bin/bash") else "/bin/sh")
         # 宽松建窗：不强制 bash -l，与 start_simple_tmux_command 一致
         shell_cmd = [shell]
-        proc_gs = subprocess.run(["tmux", "new-session", "-d", "-s", gpu_window] + shell_cmd, cwd=cwd, capture_output=True, text=True, env=env, timeout=20)
+        proc_gs = subprocess.run(["tmux", "new-session", "-d", "-s", gpu_window] + shell_cmd, cwd=cwd, capture_output=True, text=True, env=client_env, timeout=20)
         if proc_gs.returncode != 0:
             err = (proc_gs.stderr or proc_gs.stdout or "")
             # Do not kill a duplicate session: it may contain failed-task logs.
@@ -4894,15 +4937,14 @@ def start_job_in_gpu_pane(gpu_window, args, cwd, env, log_path, exit_code_path):
             os.makedirs(os.path.dirname(str(log_path)) or ".", exist_ok=True)
         except Exception:
             pass
-        _distributed_export = "export SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS=1; " if env.get("SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS") else ""
-        _job_export = "".join("export " + key + "=" + shlex.quote(str(env.get(key) or "")) + "; " for key in ("SIMPLE_EXPERIMENT_JOB_COMMAND_ID", "SIMPLE_EXPERIMENT_JOB_PROJECT_ID"))
-        _cmd = f"export SIMPLE_EXPERIMENT_MANAGED_JOB=1; {_job_export}{_distributed_export}set -o pipefail; {{ {_inner}; }} 2>&1 | tee -a {_tee_log}; printf '%s' \"$?\" > {__import__('shlex').quote(str(exit_code_path))}; exec bash"
+        _task_command = task_environment + " bash -c " + shlex.quote(_inner)
+        _cmd = f"set -o pipefail; {{ {_task_command}; }} 2>&1 | tee -a {_tee_log}; printf '%s' \"$?\" > {__import__('shlex').quote(str(exit_code_path))}; exec bash"
         # Each task gets a separate window in the GPU session. A failed window
         # remains visible; later plans can launch another window on this GPU.
         window_name = "run-" + str(int(time.time() * 1000))
         split_args = ["tmux", "new-window", "-d", "-t", gpu_window, "-n", window_name, "-c", str(cwd or "."), "-P", "-F", "#{pane_id}", "--", "bash", "-c", _cmd]
         for split_attempt in range(3):
-            result = subprocess.run(split_args, capture_output=True, text=True, timeout=10, cwd=cwd, env=env)
+            result = subprocess.run(split_args, capture_output=True, text=True, timeout=10, cwd=cwd, env=client_env)
             if result.returncode == 0:
                 break
             split_error = ((result.stderr or "") + " " + (result.stdout or "")).lower()
@@ -5035,6 +5077,15 @@ def start_gpu_log_tail_sampler(root, poll_seconds=60, jitter_seconds=30):
     _th.Thread(target=loop, daemon=True, name="gpu-log-tail-sampler").start()
 
 
+def worker_task_tmux_location(pane, session, cwd, env):
+    target = str(pane) if str(pane).startswith("%") else str(session)
+    result = subprocess.run(["tmux", "display-message", "-p", "-t", target, "#{pane_id}\t#{session_name}\t#{window_id}"],
+                            cwd=cwd, env=env, capture_output=True, text=True, timeout=3)
+    fields = result.stdout.strip().split("\t")
+    if result.returncode or len(fields) != 3 or not re.fullmatch(r"%[0-9]+", fields[0]) or not re.fullmatch(r"@[0-9]+", fields[2]):
+        raise RuntimeError("TMUX_TASK_LOCATION_UNVERIFIED: command started but its exact pane/window receipt is missing")
+    return {"tmuxPane": fields[0], "tmuxSession": fields[1], "tmuxWindowId": fields[2]}
+
 def read_task_exit_code(exit_code_path):
     try:
         return int(str(pathlib.Path(exit_code_path).read_text(encoding="utf-8")).strip())
@@ -5092,6 +5143,8 @@ def reconcile_worker_task_exit_codes(root):
             task["exitCode"] = exit_code
             task["finishedAt"] = now_iso()
             task["reconciledAt"] = task["finishedAt"]
+            if exit_code != 0:
+                task.update(worker_task_failure_diagnostic(root, task))
             events.append(("worker_task_completed" if exit_code == 0 else "worker_task_failed", dict(task)))
         if events:
             atomic_write(path_for(root, "worker_task_snapshot.json"), {"schemaVersion": SCHEMA_VERSION, "tasks": retain_worker_task_snapshot(tasks), "generatedAt": now_iso()})
@@ -5369,14 +5422,14 @@ def _execute_worker_command_unfenced(root, command, worker_id):
         session = str(command.get("session"))
     else:
         session = worker_tmux_session_name(worker_id, gpu_id, os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID"))
-    _raw_log = str(command.get("logPath") or f"tmp/tmux_logs/{session}.log")
+    _raw_log = worker_task_console_log(command_id) if command.get("resultPathPolicy") == "declared" else str(command.get("logPath") or f"tmp/tmux_logs/{session}.log")
     if os.path.isabs(_raw_log):
         rel_log = os.path.relpath(os.path.abspath(_raw_log), os.path.abspath(project_dir)).replace("\\", "/")
     else:
         rel_log = _raw_log.replace("\\", "/").lstrip("/")
     log_path = safe_project_path(project_dir, rel_log)
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
-    env = simple_runtime_env(os.environ.copy())
+    env = fresh_task_runtime_env()
     env["SIMPLE_EXPERIMENT_MANAGED_JOB"] = "1"
     env["SIMPLE_EXPERIMENT_JOB_COMMAND_ID"] = str(command_id)
     env["SIMPLE_EXPERIMENT_JOB_PROJECT_ID"] = str(command.get("projectId") or "")
@@ -5494,6 +5547,7 @@ def _execute_worker_command_unfenced(root, command, worker_id):
         if reserved_gpu:
             release_distributed_gpu_reservation(gpu_id, command_id)
         raise RuntimeError("tmux available but launch failed and ALLOW_POPEN_FALLBACK not enabled; refusing silent bash fallback\uff1b\u8bf7\u5b89\u88c5 tmux \u6216\u542f\u7528 ALLOW_POPEN_FALLBACK")
+    location = worker_task_tmux_location(pid, tmux_session, project_dir, env) if used_tmux else {}
     task = {
         "schemaVersion": SCHEMA_VERSION,
         "commandId": command_id,
@@ -5541,6 +5595,7 @@ def _execute_worker_command_unfenced(root, command, worker_id):
             "reassignmentRunKey": reassignment_run_key or command_id,
         } if manual_reassignment else {}),
     }
+    task.update(location)
     try:
         append_worker_task(root, task)
     except Exception as exc:
@@ -5550,6 +5605,7 @@ def _execute_worker_command_unfenced(root, command, worker_id):
     if reserved_gpu:
         release_distributed_gpu_reservation(gpu_id, command_id)
     result = {"commandId": command_id, "status": "running", "pid": pid, "session": session, "tmuxSession": tmux_session if used_tmux else "", "logPath": rel_log, "debugMode": debug_mode, "debugRunId": debug_run_id, "debugOutputDir": debug_output_dir, "resultOwnerWorkerId": worker_id, **({"manualReassignment": True, "sourceWorkerId": source_worker_id, "targetWorkerId": worker_id, "originalRunKey": original_run_key, "reassignmentRunKey": reassignment_run_key or command_id} if manual_reassignment else {}), "message": "Debug Worker 任务已启动" if debug_mode else "Worker 任务已启动"}
+    result.update(location)
     append_event(root, {"type": "worker_task_started", "workerId": worker_id, "operationId": command_id, "payload": {**task, **result}})
     def wait_task():
         def _resolve_pane_id():
@@ -5588,6 +5644,8 @@ def _execute_worker_command_unfenced(root, command, worker_id):
                 if worker_task_was_stopped(root, task) or str(current_worker_task(root, task).get("status") or "").lower() != "running":
                     return
                 finished = {**task, "status": "completed" if rc == 0 else "failed", "exitCode": rc, "finishedAt": now_iso()}
+                if rc != 0:
+                    finished.update(worker_task_failure_diagnostic(project_dir, task))
                 append_worker_task(root, finished)
             append_event(root, {"type": "worker_task_completed" if rc == 0 else "worker_task_failed", "workerId": worker_id, "operationId": command_id, "payload": finished})
             if used_tmux and rc == 0:
@@ -5686,17 +5744,23 @@ def verified_formal_job_command(project_dir, command):
     if not scheduler_path or not formal_job_path_capable(project_dir):
         raise ValueError("WORKER_PROTOCOL_INCOMPATIBLE: deploy matching formal-path Scheduler and Agent")
     identity = {key: command.get(key) for key in ("workflowId", "globalJobId", "commandId", "planRevision", "codeFingerprint")}
-    identity["globalJobId"] = identity.get("globalJobId") or str(identity.get("workflowId") or "") + ":" + str(command.get("experimentIndex"))
-    env = simple_runtime_env(os.environ.copy())
+    env = fresh_task_runtime_env()
     env["SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY"] = json.dumps(identity)
+    env["SIMPLE_EXPERIMENT_JOB_COMMAND_ID"] = str(identity.get("commandId") or "")
     requested_mode = "test" if command.get("checkpointTestOnly") is True else str(command.get("mode") or "")
     args = [simple_runtime_python(env), scheduler_path, "--formal-job-preflight", "--plan", durable_plan_value(command, "planFile"),
             "--only-index", str(command.get("experimentIndex")), "--mode", requested_mode,
             "--plan-revision", str(command.get("planRevision") or ""), "--output-dir-override", str(command.get("outputDir") or "")]
+    job_shell_environment_prefix(env, args)  # Validate the supplied identity; never fabricate a missing globalJobId.
     proc = subprocess.run(args, cwd=project_dir, env=env, capture_output=True, text=True, encoding="utf-8", timeout=10)
     if proc.returncode:
         raise ValueError((proc.stderr or proc.stdout or "FORMAL_JOB_PREFLIGHT_FAILED")[-4000:])
     result = json.loads(proc.stdout)
+    if result.get("ok") is False:
+        failure = ValueError(str(result.get("error") or result.get("errorCode") or "FORMAL_JOB_PREFLIGHT_FAILED"))
+        if isinstance(result.get("evidence"), dict):
+            failure.evidence = {**result["evidence"], "workerId": durable_plan_value(command, "workerId"), "projectId": command.get("projectId")}
+        raise failure
     if result.get("policy") != "declared" or result.get("outputDir") != command.get("outputDir"):
         raise ValueError("FORMAL_JOB_DECLARATION_CHANGED")
     if not command.get("collectionResultCsv") or command["collectionResultCsv"] != result.get("collectionResultCsv"):
@@ -5912,7 +5976,7 @@ def start_worker_hub_uplink(root, hub_uplink_url="", worker_id="", availability_
                 availability = None
                 if now_ts >= next_availability:
                     availability = availability_from_gpu(worker_id, api_worker_gpu(root), "worker_uplink", 180)
-                    availability.update({"declaredJobPaths": formal_job_path_capable(root), "runtimeVersion": RUNTIME_VERSION})
+                    availability.update({"declaredJobPaths": formal_job_path_capable(root), "formalJobIdentityEnv": 1 if formal_job_path_capable(root) else 0, "runtimeVersion": RUNTIME_VERSION})
                     next_availability = now_ts + availability_base + (random.random() * jitter if jitter else 0)
                 if events or availability:
                     payload = {
@@ -6369,7 +6433,7 @@ def formal_job_path_capable(root):
         with open(scheduler, "r", encoding="utf-8") as stream:
             header = stream.read(8192)
         version = re.search(r'(?m)^RUNTIME_VERSION = "([^"]+)"', header)
-        return bool("FORMAL_JOB_PATH_PROTOCOL = 1" in header and version and version.group(1) == RUNTIME_VERSION)
+        return bool("FORMAL_JOB_PATH_PROTOCOL = 1" in header and "FORMAL_JOB_IDENTITY_ENV_PROTOCOL = 1" in header and version and version.group(1) == RUNTIME_VERSION)
     except (OSError, TypeError):
         return False
 
@@ -6396,6 +6460,7 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
                 "workerHubUplink": True,
                 "workerTasks": True,
                 "declaredJobPaths": formal_job_path_capable(root),
+                "formalJobIdentityEnv": 1 if formal_job_path_capable(root) else 0,
                 "durablePlanQueue": True,
                 "codeSyncProof": True,
                 "idleGpuAdmission": True,
@@ -6449,6 +6514,7 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
             "workerHubUplink": True,
             "scheduler": True,
             "declaredJobPaths": formal_job_path_capable(root),
+            "formalJobIdentityEnv": 1 if formal_job_path_capable(root) else 0,
             "traces": True,
             "liveOutput": True,
             "diagnostics": True,
@@ -13166,7 +13232,7 @@ def handle_action(root, action, payload, operation_id, op_id):
         gpu_idle_util = max(0, min(100, int(options.get("gpuIdleUtilThreshold") or options.get("gpu_idle_util_threshold") or 5)))
         gpu_idle_mem = max(0, min(8192, int(options.get("gpuIdleMemThresholdMb") or options.get("gpu_idle_mem_threshold") or 200)))
         session_check_min = max(1, min(60, int(options.get("sessionCheckMinSeconds") or options.get("session_check_min_seconds") or 5)))
-        env = simple_runtime_env(os.environ.copy())
+        env = fresh_task_runtime_env()
         env["SIMPLE_GPU_IDLE_UTIL_THRESHOLD"] = str(gpu_idle_util)
         env["SIMPLE_GPU_IDLE_MEM_THRESHOLD"] = str(gpu_idle_mem)
         scheduler_args = [
@@ -13814,7 +13880,36 @@ def recover_worker_task_launch_paths(root, task):
 
 WORKER_TASK_FAILURE_CACHE = {}
 
+def worker_task_console_log(command_id):
+    return "simple_cluster/tmux_logs/" + hashlib.sha256(str(command_id).encode("utf-8")).hexdigest() + ".console.log"
+
+def worker_task_failure_diagnostic(root, task):
+    command_id = str(task.get("commandId") or "")
+    if not command_id or str(task.get("runKey") or command_id) != command_id:
+        return {}
+    expected = worker_task_console_log(command_id)
+    if str(task.get("logPath") or "").replace("\\", "/") != expected:
+        return {}  # Shared GPU/session logs cannot be attributed to this command.
+    try:
+        filename = safe_project_path(root, expected)
+        with open(filename, "rb") as stream:
+            stream.seek(0, os.SEEK_END)
+            stream.seek(max(0, stream.tell() - 16384))
+            tail = stream.read(16384).decode("utf-8", errors="replace")
+        lines = [line.strip() for line in tail.splitlines() if line.strip()]
+        message = next((line for line in reversed(lines) if "Error:" in line or "Exception:" in line), lines[-1] if lines else "")
+        trace_start = tail.rfind("Traceback (most recent call last):")
+        diagnostic = {"schemaVersion": 1, "commandId": command_id, "runKey": command_id,
+            "tmuxPane": str(task.get("tmuxPane") or ""), "tmuxSession": str(task.get("tmuxSession") or ""), "tmuxWindowId": str(task.get("tmuxWindowId") or ""),
+            "logPath": expected, "traceback": tail[trace_start:] if trace_start >= 0 else "", "message": message}
+        return {"error": message, "failureDiagnostic": diagnostic} if message else {}
+    except (OSError, ValueError):
+        return {}
+
 def worker_task_failure_message(root, task, use_cache=True):
+    diagnostic = worker_task_failure_diagnostic(root, task)
+    if diagnostic.get("error"):
+        return diagnostic["error"]
     output_dir = str(task.get("outputDir") or "").strip().replace("\\", "/").rstrip("/")
     if not output_dir:
         return ""
@@ -13852,6 +13947,7 @@ def api_worker_tasks(root):
                 continue
             _row = recover_worker_task_launch_paths(root, _item)
             if str(_row.get("status") or "").lower() == "failed" and not _row.get("error"):
+                _row.update(worker_task_failure_diagnostic(root, _row))
                 failure_message = worker_task_failure_message(root, _row)
                 if failure_message:
                     _row["error"] = failure_message

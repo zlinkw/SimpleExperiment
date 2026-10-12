@@ -10346,8 +10346,9 @@ export class RealtimeTunnelPanelProvider {
         if (body.overwriteExisting === true || body.overwrite === true || body.existingOutputChoice === "rerun_all"
             || body.options?.overwriteExisting === true || body.options?.overwrite === true)
             throw new Error("FORMAL_JOB_CONFLICT：正式 job 禁止覆盖；请显式清理或修改 case/job 路径。");
-        const incompatible = this.workerActionTargets().filter(target => this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.declaredJobPaths !== true);
-        if (incompatible.length) throw new Error("WORKER_PROTOCOL_INCOMPATIBLE：请部署支持 declaredJobPaths 的 Agent/Scheduler：" + incompatible.map(target => target.id).join("、"));
+        const incompatible = this.workerActionTargets().filter(target => this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.declaredJobPaths !== true
+            || this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.formalJobIdentityEnv !== 1);
+        if (incompatible.length) throw new Error("WORKER_PROTOCOL_INCOMPATIBLE：请部署支持 declaredJobPaths 与 formalJobIdentityEnv=1 的匹配 Agent/Scheduler：" + incompatible.map(target => target.id).join("、"));
         const root = workspaceRoot();
         if (!root) throw new Error("没有当前项目目录。");
         const submissionCurrent = () => {
@@ -10477,8 +10478,9 @@ export class RealtimeTunnelPanelProvider {
     async sendDistributedJob(plan, job, workerId, gpuId, commandId, sharedCodeManifest?) {
         if (plan.resultPathPolicy !== "declared" || job.outputDir.split("/").includes("attempts"))
             throw new Error("HISTORICAL_ATTEMPT_READ_ONLY：旧队列仅供查看，不会重启既有任务。");
-        if (this.lastWorkerProbes?.[workerId]?.capabilities?.endpoints?.declaredJobPaths !== true)
-            throw new Error(`WORKER_PROTOCOL_INCOMPATIBLE：${workerId} 未声明 declaredJobPaths；请部署匹配的 Scheduler 和 Agent。`);
+        if (this.lastWorkerProbes?.[workerId]?.capabilities?.endpoints?.declaredJobPaths !== true
+            || this.lastWorkerProbes?.[workerId]?.capabilities?.endpoints?.formalJobIdentityEnv !== 1)
+            throw new Error(`WORKER_PROTOCOL_INCOMPATIBLE：${workerId} 未声明正式身份环境协议；请部署匹配的 Scheduler 和 Agent。`);
         const executionMode = PlanExecutionMode.requirePlanExecutionMode(plan.executionMode);
         const target = this.workerActionTargets().find((item) => item.id === workerId);
         if (!target) throw new Error(`Worker ${workerId} 配置已失效`);
@@ -10891,7 +10893,8 @@ export class RealtimeTunnelPanelProvider {
                 const workerConfig = this.enabledWorkerConfigs().find((worker) => worker.id === target.id);
                 const configuredCapacity = Number(workerConfig?.maxConcurrentGpus);
                 return { workerId: target.id, online: live, idleGpuAdmission: snapshot?.capabilities?.idleGpuAdmission === true,
-                    declaredJobPaths: this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.declaredJobPaths === true,
+                    declaredJobPaths: this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.declaredJobPaths === true
+                        && this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.formalJobIdentityEnv === 1,
                     codeFingerprint: workerFingerprint,
                     idleGpuIds: (idleByWorker.get(target.id) || []).filter((gpuId) => !occupiedGpuIds.has(`${target.id}:${gpuId}`)),
                     capacity: Number.isInteger(configuredCapacity) && configuredCapacity > 0
@@ -21575,7 +21578,7 @@ export class RealtimeTunnelPanelProvider {
                     localQueueOnly: job.localQueueOnly === true, recallRequested: job.recallRequested === true,
                     recallOperationId: job.recallOperationId || "",
                     commandId: job.commandId, logPath: job.logPath, finishedAt: job.finishedAt, outputRetiredAt: job.outputRetiredAt,
-                    error: job.error, blockReason: job.blockReason, admissionRejection: job.admissionRejection,
+                    error: job.error, blockReason: job.blockReason, admissionRejection: job.admissionRejection, failureDiagnostic: job.failureDiagnostic, formalConflictEvidence: job.formalConflictEvidence,
                     artifactError: job.artifactError, mirroredWorkerIds: job.mirroredWorkerIds || [] })) }));
         const summaryInputs = {
             plans: [
