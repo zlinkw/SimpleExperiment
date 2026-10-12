@@ -687,18 +687,26 @@ class LocalApiServer {
             execution: { resultPathPolicy: "declared", formalJobPathProtocol: 1, formalJobIdentityEnvProtocol: 1, formalJobStopIdentityProtocol: 2, formalJobStopUsesAttempts: false, historicalAttempts: "readOnly", draftPromotion: "retired" },
             retiredMethods: { "drafts.promote": "DRAFT_PROMOTION_RETIRED" },
             methods: Object.keys(this.methods).sort(),
-            methodOptions: Object.keys(this.methods).includes("plans.cleanup.preview") ? {
-                "plans.cleanup.preview": { readOnly: true, zeroWrites: true, modes: ["move", "delete"], default: "move", historicalNodes: true },
-                "plans.cleanup.list": { readOnly: true },
-                "plans.cleanup.status": { readOnly: true, durableOperationId: true },
-                "plans.cleanup.continue": { previewOnly: true, newExactConfirmation: true, deleteConfirmationCount: 2, archivedMetadata: true },
-                "plans.cleanup.recheck": { remoteReadOnly: true, automaticExecution: false, durablePendingSignals: true },
-                "plans.cleanup.confirm": { previewDigest: true, exactTargets: true, deleteConfirmationCount: 2, rememberedConfirmations: false },
-                "plans.cleanup.execute": { durableOperationId: true, allNodesPreflight: true, idempotentResume: true },
-                "plans.cleanup.resume": { durableOperationId: true, allNodesPreflight: true, idempotentResume: true },
-                "plans.cleanup.cancel": { targetBoundary: true, cancelJobs: false },
-                "plans.cleanup.restore": { previewOnly: true, noOverwrite: true },
-            } : {},
+            methodOptions: {
+                ...(Object.keys(this.methods).includes("tasks.preflight") ? {
+                    "tasks.preflight": { params: ["workerId", "commandId"], researchFilesReadOnly: true, launchesTraining: false, changesQueue: false,
+                        originalRejectedIdentity: true, inactivitySeconds: 30, progressStream: "stderr", requiresMatchingWorkerAction: "preflight-worker-task" },
+                    "tasks.preflight.status": { params: ["workerId", "operationId"], readOnly: true },
+                    "tasks.preflight.cancel": { params: ["workerId", "operationId"], cancelsDiagnosticOnly: true },
+                } : {}),
+                ...(Object.keys(this.methods).includes("plans.cleanup.preview") ? {
+                    "plans.cleanup.preview": { readOnly: true, zeroWrites: true, modes: ["move", "delete"], default: "move", historicalNodes: true },
+                    "plans.cleanup.list": { readOnly: true },
+                    "plans.cleanup.status": { readOnly: true, durableOperationId: true },
+                    "plans.cleanup.continue": { previewOnly: true, newExactConfirmation: true, deleteConfirmationCount: 2, archivedMetadata: true },
+                    "plans.cleanup.recheck": { remoteReadOnly: true, automaticExecution: false, durablePendingSignals: true },
+                    "plans.cleanup.confirm": { previewDigest: true, exactTargets: true, deleteConfirmationCount: 2, rememberedConfirmations: false },
+                    "plans.cleanup.execute": { durableOperationId: true, allNodesPreflight: true, idempotentResume: true },
+                    "plans.cleanup.resume": { durableOperationId: true, allNodesPreflight: true, idempotentResume: true },
+                    "plans.cleanup.cancel": { targetBoundary: true, cancelJobs: false },
+                    "plans.cleanup.restore": { previewOnly: true, noOverwrite: true },
+                } : {}),
+            },
             confirmation: { required: true, categories: ["confirm", "pathConfirmed"] },
         };
     }

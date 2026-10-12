@@ -8,6 +8,7 @@ const BoundedResponse_1 = require("./BoundedResponse");
 exports.tunnelActions = [
     "run-plan", "stop-experiment", "retry-experiment", "reproduce-plan", "validate-plan", "dry-run-plan",
     "stop-scheduler-operation",
+    "preflight-worker-task",
     "archive-artifacts", "archive-plan-copy", "exclude-results", "sync-artifacts", "complete-three-way", "delete-artifacts", "reconcile-deletions",
     "parse-results", "save-result-policy", "refresh-results", "self-check", "rescan-results", "run-quality-gate", "run-statistics", "export-paper-table",
     "check-claim-evidence", "deploy-runtime", "restart-agent", "create-debug-bundle", "create-offline-bundle", "cancel-operation",
@@ -32,6 +33,7 @@ const getPurposeByPath = new Map([
 ]);
 const actionPurpose = {
     "validate-plan": "run_plan",
+    "preflight-worker-task": "manual_refresh",
     "dry-run-plan": "run_plan",
     "run-plan": "run_plan",
     "start-worker-task": "job_dispatch",

@@ -14492,8 +14492,10 @@ function renderPanelHtml() {
           const recallButton = status === "queued" || job.recallRequested === true
             ? '<button type="button" class="mini secondary" data-command="recallPlanToLocalQueue" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-plan-file="' + escAttr(group.planFile || "") + '" data-job-index="' + escAttr(String(job.index)) + '" title="只召回此排队 job；运行中、已结束或状态不明的任务保持原 Worker。">' + (job.recallRequested ? "重试召回" : "召回到本机") + '</button>' : "";
           const recallNote = job.recallRequested ? "召回待确认，仍固定在原 Worker" : "";
-          const failedRecallButton = status === "failed" && job.workerId && job.commandId && job.attempt
-            ? '<button type="button" class="mini secondary" data-command="recallFailedJob" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-plan-file="' + escAttr(group.planFile || "") + '" data-job-index="' + escAttr(String(job.index)) + '" data-attempt="' + escAttr(String(job.attempt)) + '" data-command-id="' + escAttr(job.commandId) + '" title="只为此失败 job 新建 attempt，放回本机分布式队列；原 Worker 恢复后核验并移走旧目录。">召回本机重跑</button>' : "";
+          const failedRecallButton = status === "failed" && job.resultPathPolicy === "declared" && job.workerId && job.commandId
+            && job.globalJobId === String(job.planId || group.distributedPlanId || "") + ":" + String(job.index)
+            && !job.unavailable && !job.recoveryConflict && !group.distributedRecovery?.conflict
+            ? '<button type="button" class="mini secondary" data-command="recallFailedJob" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-plan-file="' + escAttr(group.planFile || "") + '" data-job-index="' + escAttr(String(job.index)) + '" data-command-id="' + escAttr(job.commandId) + '" title="核对原作业身份、已停止状态及空输出，确认后保留原 PLAN/revision/正式目录重新排队；已有产物会阻断。">重新排队此 job</button>' : "";
           const failedCleanup = asArray(group.failedAttemptRecoveries).filter(row => Number(row.jobIndex) === Number(job.index)).at(-1);
           const canMarkUnavailable = !job.unavailable && !job.recoveryConflict && !group.distributedRecovery?.conflict
             && (["failed", "cancelled"].includes(status) || status === "pending" && !job.workerId && !job.commandId);
@@ -14719,6 +14721,8 @@ function renderPanelHtml() {
           jobs: asArray(plan.jobs).map((job) => ({
             jobIndex: job.jobIndex,
             attempt: job.attempt,
+            resultPathPolicy: job.resultPathPolicy,
+            globalJobId: job.globalJobId,
             status: job.status,
             workerId: job.workerId,
             gpuId: job.gpuId,
@@ -17396,7 +17400,8 @@ function renderPanelHtml() {
       if (button.dataset.planId) payload.planId = button.dataset.planId;
       if (button.dataset.jobIndex !== undefined) payload.jobIndex = Number(button.dataset.jobIndex);
       if (["recallFailedJob", "markJobUnavailable", "restoreJobAvailability"].includes(command)) {
-        payload.attempt = Number(button.dataset.attempt);
+        if (command !== "recallFailedJob" && button.dataset.attempt !== undefined)
+          payload.attempt = Number(button.dataset.attempt);
         payload.commandId = button.dataset.commandId || "";
       }
       if (button.dataset.file) {

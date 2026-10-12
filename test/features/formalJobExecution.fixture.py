@@ -42,7 +42,7 @@ command = {**identity, "projectId": "project-fixture", "planFile": plan_file, "w
            "outputDir": jobs[0].output_dir, "collectionResultCsv": jobs[0].result_csv}
 
 def scheduler_rpc(argv, **kw):
-    assert kw["timeout"] == 10 and kw["cwd"] == str(root)
+    assert kw["progress_stream"] == "stderr" and kw["cwd"] == str(root)
     args = SimpleNamespace(plan=argv[argv.index("--plan") + 1], only_index=int(argv[argv.index("--only-index") + 1]),
         mode=argv[argv.index("--mode") + 1], plan_revision=argv[argv.index("--plan-revision") + 1],
         output_dir_override=argv[argv.index("--output-dir-override") + 1], default_result_csv_dir="experiments/results")
@@ -66,7 +66,7 @@ def read_queue(_):
     return restored
 
 with patch.object(agent, "cluster_scheduler_path", lambda _: str(runtime / "cluster_scheduler.py")), \
-     patch.object(agent.subprocess, "run", scheduler_rpc), \
+     patch.object(agent, "subprocess_inactivity_run", scheduler_rpc), \
      patch.object(agent, "simple_runtime_env", lambda value: value), \
      patch.object(agent, "simple_runtime_python", lambda _: sys.executable), \
      patch.object(agent, "read_durable_plan_queue", read_queue), \

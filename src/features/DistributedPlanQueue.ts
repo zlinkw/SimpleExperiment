@@ -59,7 +59,7 @@ export type QueuedJob = {
   blockReason?: string;
   stopReason?: string;
   automaticRetry?: AutomaticJobRetry;
-  history?: Array<{ attempt: number; status: JobState; workerId?: string; commandId?: string; outputDir: string; finishedAt?: string; stopReason?: string; error?: string; outputRetiredAt?: string }>;
+  history?: Array<{ attempt: number; status: JobState; workerId?: string; commandId?: string; outputDir: string; finishedAt?: string; stopReason?: string; error?: string; outputRetiredAt?: string; admissionRejection?: QueuedJob["admissionRejection"] }>;
 };
 export type QueuedPlan = {
   id: string;
@@ -476,11 +476,24 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
     const key = [projectId, task.workflowId, task.planFile, task.planRevision, task.codeFingerprint].join("\0");
     grouped.set(key, [...(grouped.get(key) || []), row]);
   }
-  for (const [key, rows] of grouped) {
-    const first = rows[0].task;
+  for (const [key, observedRows] of grouped) {
+    const first = observedRows[0].task;
     const planIndex = plans.findIndex((plan) => (!plan.projectId || plan.projectId === projectId) && plan.id === String(first.workflowId)
       && plan.planFile === String(first.planFile) && plan.revision === String(first.planRevision)
       && plan.codeFingerprint === String(first.codeFingerprint));
+    // A formal retry has a new command, not an attempt number. Keep its exact,
+    // locally recorded terminal predecessor as audit rather than current work.
+    const rows = observedRows.filter(row => {
+      const local = planIndex >= 0 ? plans[planIndex] : undefined;
+      if (local?.resultPathPolicy !== "declared" || row.task.resultPathPolicy !== "declared") return true;
+      const job = local.jobs.find(item => item.index === Number(row.task.experimentIndex));
+      const commandId = String(row.task.commandId || "");
+      if (!job || commandId === job.commandId || commandId === job.nextCommandId) return true;
+      const prior = job.history?.find(entry => entry.commandId === commandId && entry.workerId === row.workerId
+        && entry.outputDir === job.outputDir && entry.status === row.status && ["completed", "failed", "cancelled"].includes(entry.status));
+      return !prior || !remoteTaskMatchesJob(local, { ...job, commandId, runKey: commandId, workerId: prior.workerId, gpuId: undefined }, row.task);
+    });
+    if (!rows.length) continue;
     const declaredCounts = [...new Set([...rows.map((row) => Number(row.task.planJobCount)),
       ...(planIndex >= 0 && plans[planIndex].planJobCount ? [Number(plans[planIndex].planJobCount)] : [])])];
     const acceptedIndices = new Set(rows.map((row) => Number(row.task.experimentIndex)));
@@ -1285,9 +1298,12 @@ export function retryVerifiedJob(queue: DistributedQueue, planId: string, jobInd
   return { ...queue, plans: queue.plans.map((row) => row.id !== planId ? row : { ...row,
     jobs: row.jobs.map((item) => item.index !== jobIndex ? item : {
       ...item, outputDir, attempt: 0, nextCommandId: runId, workerId: undefined, commandId: undefined, runKey: undefined, gpuId: undefined,
+      trustedTerminalStatus: undefined, admissionRejection: undefined, error: undefined, finishedAt: undefined,
+      failureDiagnostic: undefined, formalConflictEvidence: undefined, blockReason: undefined, recoveryConflict: undefined,
+      stopReason: undefined, automaticRetry: undefined, dispatchAcknowledgedAt: undefined, lastDispatchAttemptAt: undefined,
       status: "pending" as const, history: [...(item.history || []), { attempt: item.attempt,
         status: item.status, workerId: item.workerId, commandId: item.commandId, outputDir: item.outputDir,
-        finishedAt: item.finishedAt, stopReason: item.stopReason, error: item.error }],
+        finishedAt: item.finishedAt, stopReason: item.stopReason, error: item.error, admissionRejection: item.admissionRejection }],
     }) }) };
 }
 

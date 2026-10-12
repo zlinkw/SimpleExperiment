@@ -1322,7 +1322,7 @@ def bind_execution_result_paths(job: Job, output_override: str = "") -> Job:
                    config=config, template_values=values, outputs=outputs)
 
 
-def result_path_preflight(root: Path, jobs: list[Job], include_attempt: bool = True, execution_mode: str = "") -> dict[str, Any]:
+def result_path_preflight(root: Path, jobs: list[Job], include_attempt: bool = True, execution_mode: str = "", validate_indices=None) -> dict[str, Any]:
     """Read-only project hook; no preview namespace or output creation."""
     metadata_path = root / "experiments/simple_project.yaml"
     metadata = load_yaml_file(metadata_path) if metadata_path.is_file() else {}
@@ -1339,13 +1339,24 @@ def result_path_preflight(root: Path, jobs: list[Job], include_attempt: bool = T
         validator = namespace.get("validate_result_paths")
         if not callable(validator):
             raise ValueError("RESULT_PATH_VALIDATOR_INVALID: " + hook_path + " requires validate_result_paths(config, contract)")
-    rows, seen = [], set()
+    rows, seen, seen_outputs = [], set(), set()
     for job in jobs:
         candidates = [job]
         for candidate in candidates:
             contract = candidate.config.get("runtime", {}).get("result_path_contract", {})
             error = ""
             try:
+                if contract.get("schemaVersion") != 1 or contract.get("policy") != "declared":
+                    raise ValueError("formal result path contract schema/policy invalid")
+                output = safe_project_relative_path(root, candidate.output_dir, "runtime.output_dir")
+                result = safe_project_relative_path(root, candidate.result_csv, "paper.result_csv")
+                if any(contract.get(key) != output for key in ("declared_output_dir", "execution_output_dir")) or any(
+                        contract.get(key) != result for key in ("declared_result_csv", "execution_result_csv", "collection_result_csv")):
+                    raise ValueError("declared/execution/collection result path binding changed")
+                for section, key, target in (("runtime", "output_dir", output), ("runtime", "result_csv", result),
+                                              ("test", "results_csv", result), ("paper", "result_csv", result)):
+                    if (root / candidate.working_directory / str(candidate.config.get(section, {}).get(key) or "")).resolve() != (root / target).resolve():
+                        raise ValueError(section + "." + key + " disagrees with declared binding")
                 if candidate.test_command and (execution_mode or candidate.template_values.get("execution_mode")) in ("test", "train_test"):
                     arguments = argparse.Namespace(worker_id="preflight", gpu_ids="", mode="test", debug_mode=False,
                                                   plan=str(candidate.template_values.get("plan_file") or ""))
@@ -1359,18 +1370,34 @@ def result_path_preflight(root: Path, jobs: list[Job], include_attempt: bool = T
                             value = tokens[position + 1] if position + 1 < len(tokens) else ""
                         if not value or (root / candidate.working_directory / value).resolve() != (root / candidate.result_csv).resolve():
                             raise ValueError("runner.test_command result CSV disagrees with execution binding; use {result_csv}")
-                if validator and validator(copy.deepcopy(candidate.config), {**contract, "project_root": str(root)}) is False:
-                    raise ValueError("project validator refused the execution path")
                 key = os.path.normcase(str((root / candidate.result_csv).resolve()))
                 if key in seen:
                     raise ValueError("multiple jobs share one execution CSV")
                 seen.add(key)
+                output_key = os.path.normcase(str((root / candidate.output_dir).resolve()))
+                if output_key in seen_outputs:
+                    raise ValueError("multiple jobs share one formal output directory")
+                seen_outputs.add(output_key)
             except Exception as exc:
                 error = ("RESULT_PATH_INCOMPATIBLE: " + hook_path + ": " + str(exc)
                          + "; declared=" + str(contract.get("declared_result_csv"))
                          + "; execution=" + candidate.result_csv
                          + "; check runner.result_path_policy / project validate_result_paths")
-            rows.append({"index": job.index, "ok": not error, "contract": contract, "error": error, "projectInterface": hook_path})
+            rows.append({"index": job.index, "ok": not error, "contract": contract, "error": error, "projectInterface": hook_path,
+                         "assetValidation": "not_selected" if validate_indices is not None and job.index not in validate_indices else "pending"})
+    # Full-PLAN structural rejection comes before expensive project callbacks.
+    if not any(row["error"] for row in rows):
+        for job, row in zip(jobs, rows):
+            if row["assetValidation"] == "not_selected":
+                continue
+            try:
+                if validator and validator(copy.deepcopy(job.config), {**row["contract"], "project_root": str(root)}) is False:
+                    raise ValueError("project validator refused the execution path")
+                row["assetValidation"] = "checked" if validator else "not_configured"
+            except Exception as exc:
+                row.update({"ok": False, "error": "RESULT_PATH_INCOMPATIBLE: " + hook_path + ": " + str(exc)
+                            + "; declared=" + str(row["contract"].get("declared_result_csv")) + "; execution=" + job.result_csv
+                            + "; check runner.result_path_policy / project validate_result_paths"})
     missing = [row["error"] for row in rows if not row["ok"]]
     return {"ok": not missing, "rows": rows, "missing": missing}
 
@@ -2416,12 +2443,13 @@ def formal_job_preflight_mode(args: argparse.Namespace) -> dict[str, Any]:
     if not selected:
         raise ValueError("FORMAL_JOB_INDEX_INVALID")
     job = bind_execution_result_paths(selected, args.output_dir_override)
-    report = result_path_preflight(Path.cwd(), jobs, execution_mode=mode)
+    report = result_path_preflight(Path.cwd(), jobs, execution_mode=mode, validate_indices={job.index})
     if not report["ok"]:
         raise ValueError(";".join(report["missing"]))
     identity = json.loads(os.environ.get("SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY", "{}"))
     admission = formal_job_preflight(job, identity, mode)
     return {**admission, "policy": "declared", "outputDir": job.output_dir, "checkpointSource": job.config.get("runtime", {}).get("checkpoint_source"),
+            "preflight": {"onlyIndex": job.index, "structuralJobCount": len(jobs), "assetValidationIndices": [job.index], "executionStarted": False},
             "collectionResultCsv": job.result_csv, "resultPathContract": job.config["runtime"]["result_path_contract"]}
 
 

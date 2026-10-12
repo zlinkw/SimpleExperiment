@@ -1383,6 +1383,9 @@ export class RealtimeTunnelPanelProvider {
                     workerTasks,
                 };
             },
+            "tasks.preflight": (params, _server, context) => this.apiTaskPreflight(params, "start", context.signal),
+            "tasks.preflight.status": (params, _server, context) => this.apiTaskPreflight(params, "status", context.signal),
+            "tasks.preflight.cancel": (params, _server, context) => this.apiTaskPreflight(params, "cancel", context.signal),
             "operations.list": async (params = {}) => {
                 const runtime = this.buildPlanRuntimeEvidenceState();
                 const rows = Object.entries(runtime.operations || {}).map(([operationId, operation]) => ({
@@ -11834,6 +11837,8 @@ export class RealtimeTunnelPanelProvider {
         const job = plan?.jobs.find((row) => row.index === Number(message.jobIndex));
         if (!plan || !job || !job.workerId || !job.commandId || !["failed", "unknown"].includes(job.status))
             throw new Error("目标 job 当前不能恢复");
+        if (String(message.commandId || "") !== job.commandId)
+            throw new Error("任务 commandId 已变化；请刷新原 job 后重新确认，未重排。");
         if (plan.resultPathPolicy !== "declared") throw new Error("HISTORICAL_ATTEMPT_READ_ONLY：保留权重和日志，旧 attempt 不会恢复执行。");
         const fresh: any = await client.getWorkerTasks(job.workerId);
         if (!isCurrent()) return { status: "cancelled", message: "项目已切换，训练恢复已取消。" };
@@ -11852,7 +11857,12 @@ export class RealtimeTunnelPanelProvider {
                 throw new Error("FORMAL_JOB_CONFLICT：失败目录或结果仍存在；请自行清理，或显式声明新的 case/job。不会自动移走、覆盖或创建 attempt。");
             const answer = await vscode.window.showWarningMessage(`重新排队正式 job：${plan.planFile} / ${job.case} / seed ${job.seed}\n目录 ${job.outputDir}\n已确认原任务停止、输出为空。`, { modal: true }, "重新排队");
             if (answer !== "重新排队" || !isCurrent()) return;
-            await this.saveDistributedQueue(root, DistributedPlanQueue.retryVerifiedJob(await this.loadDistributedQueue(root), plan.id, job.index, makeOpId("job-command")));
+            const latest = await this.loadDistributedQueue(root);
+            const latestPlan = latest.plans.find(row => row.id === plan.id);
+            const latestJob = latestPlan?.jobs.find(row => row.index === job.index);
+            if (!isCurrent() || !latestPlan || !latestJob || !DistributedPlanQueue.remoteTaskMatchesJob(latestPlan, latestJob, task))
+                throw new Error("任务身份在核验或确认期间已变化；未重排。");
+            await this.saveDistributedQueue(root, DistributedPlanQueue.retryVerifiedJob(latest, plan.id, job.index, makeOpId("job-command")));
             await this.tickDistributedQueue();
             return;
         }
@@ -12868,6 +12878,43 @@ export class RealtimeTunnelPanelProvider {
             };
         }
         return void 0;
+    }
+    async apiTaskPreflight(params, action: "start" | "status" | "cancel", signal: AbortSignal) {
+        const root = workspaceRoot();
+        const workerId = stringField(params, "workerId");
+        if (!root || !workerId || !this.workerActionTargets().some(worker => worker.id === workerId))
+            throw new Error("FORMAL_JOB_PREFLIGHT_WORKER_REQUIRED");
+        const client = this.client;
+        if (!client) throw new Error("FORMAL_JOB_PREFLIGHT_CLIENT_UNAVAILABLE: 请先识别工作区并连接配置的 Worker");
+        await this.refreshDistributedResultSyncProbes(root);
+        signal.throwIfAborted();
+        if (workspaceRoot() !== root || this.client !== client)
+            throw new Error("FORMAL_JOB_PREFLIGHT_PROJECT_CHANGED");
+        const missing = this.missingWorkerActionCapabilities(workerId, "preflight-worker-task");
+        if (missing.length) throw new Error(`WORKER_PROTOCOL_INCOMPATIBLE: ${workerId}: ${missing.join(",")}; 请更新 Agent/Scheduler`);
+        if (action !== "start") {
+            const operationId = stringField(params, "operationId");
+            if (!/^formal-preflight-[a-zA-Z0-9-]+$/.test(operationId))
+                throw new Error("FORMAL_JOB_PREFLIGHT_OPERATION_REQUIRED");
+            const operation: any = await client.getWorkerOperation(workerId, operationId);
+            if ((operation?.action || operation?.payload?.action) !== "preflight-worker-task") throw new Error("FORMAL_JOB_PREFLIGHT_OPERATION_MISMATCH");
+            signal.throwIfAborted();
+            return action === "status" ? operation : client.postWorkerAction(workerId, "preflight-worker-task",
+                { opId: makeOpId("cancel-preflight"), targetPreflightOperationId: operationId, workerId }, { signal });
+        }
+        const commandId = stringField(params, "commandId");
+        if (!commandId) throw new Error("FORMAL_JOB_PREFLIGHT_COMMAND_REQUIRED");
+        const snapshot = await this.readWorkerTaskSnapshot(workerId, { fresh: true, signal });
+        const row = snapshot.tasks?.find(task => task.commandId === commandId);
+        if (!row || row.projectId !== DistributedPlanQueue.canonicalProjectId(root) || row.workerId !== workerId)
+            throw new Error("FORMAL_JOB_PREFLIGHT_TARGET_UNAVAILABLE");
+        if (row.status !== "failed" || row.neverStarted !== true || row.neverStartedEvidence !== "formal_preflight_rejected")
+            throw new Error("FORMAL_JOB_PREFLIGHT_REQUIRES_NEVER_STARTED_REJECTION");
+        signal.throwIfAborted();
+        if (workspaceRoot() !== root || this.client !== client) throw new Error("FORMAL_JOB_PREFLIGHT_PROJECT_CHANGED");
+        const operationId = makeOpId("formal-preflight");
+        return client.postWorkerAction(workerId, "preflight-worker-task", { schemaVersion: 1, opId: operationId,
+            operationId, workerId, targetCommandId: commandId, expectedIdentity: row }, { signal });
     }
     missingWorkerActionCapabilities(workerId, action) {
         workerId = this.resolveWorkerEndpointId(workerId) || workerId;
@@ -21660,6 +21707,7 @@ export class RealtimeTunnelPanelProvider {
                     .map(row => ({ jobIndex: row.job.index, attempt: row.job.attempt, status: row.status, error: row.error,
                         alreadyAbsent: row.receipt?.alreadyAbsent === true })),
                 jobs: plan.jobs.map((job) => ({ index: job.index, case: job.case, seed: job.seed, attempt: job.attempt,
+                    resultPathPolicy: plan.resultPathPolicy, globalJobId: job.globalJobId,
                     unavailable: DistributedPlanQueue.jobIsUnavailable(plan, job) ? job.unavailable : undefined,
                     status: job.status, workerId: job.workerId, gpuId: job.gpuId, outputDir: job.outputDir,
                     localQueueOnly: job.localQueueOnly === true, recallRequested: job.recallRequested === true,

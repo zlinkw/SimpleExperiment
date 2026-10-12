@@ -175,6 +175,7 @@ ACTION_NAMES = [
     "diagnose-result-anomaly",
     "compare-with-best-config",
     "start-worker-task",
+    "preflight-worker-task",
     "register-code-sync-proof",
     "rebuild-distributed-results",
     "retry-worker-task",
@@ -236,6 +237,7 @@ ACTION_PATHS = [
     "/api/actions/diagnose-result-anomaly",
     "/api/actions/compare-with-best-config",
     "/api/actions/start-worker-task",
+    "/api/actions/preflight-worker-task",
     "/api/actions/register-code-sync-proof",
     "/api/actions/rebuild-distributed-results",
     "/api/actions/retry-worker-task",
@@ -5783,7 +5785,11 @@ def verified_formal_job_command(project_dir, command):
             "--only-index", str(command.get("experimentIndex")), "--mode", requested_mode,
             "--plan-revision", str(command.get("planRevision") or ""), "--output-dir-override", str(command.get("outputDir") or "")]
     job_shell_environment_prefix(env, args)  # Validate the supplied identity; never fabricate a missing globalJobId.
-    proc = subprocess.run(args, cwd=project_dir, env=env, capture_output=True, text=True, encoding="utf-8", timeout=10)
+    try:
+        proc = subprocess_inactivity_run(args, cwd=project_dir, env=env, progress_stream="stderr")
+    except RuntimeError as exc:
+        code = "FORMAL_JOB_PREFLIGHT_CANCELLED" if "操作已取消" in str(exc) else "FORMAL_JOB_PREFLIGHT_STALLED" if "无真实进展" in str(exc) else "FORMAL_JOB_PREFLIGHT_PROCESS_FAILED"
+        raise ValueError(code + ": " + " | ".join(str(exc).splitlines())[:3500]) from exc
     if proc.returncode:
         raise ValueError((proc.stderr or proc.stdout or "FORMAL_JOB_PREFLIGHT_FAILED")[-4000:])
     result = json.loads(proc.stdout)
@@ -5801,6 +5807,46 @@ def verified_formal_job_command(project_dir, command):
     if (command.get("checkpointSource") or None) != (result.get("checkpointSource") or None):
         raise ValueError("FORMAL_JOB_DECLARATION_CHANGED: checkpoint source")
     return result
+
+def preflight_existing_worker_task(root, payload, worker_id):
+    """Run the startup gate for one frozen rejection, without admission or execution."""
+    target = str(payload.get("targetCommandId") or "").strip()
+    expected = payload.get("expectedIdentity")
+    if not target or not isinstance(expected, dict):
+        raise ValueError("FORMAL_JOB_PREFLIGHT_IDENTITY_REQUIRED")
+    with WORKER_TASK_SNAPSHOT_LOCK:
+        row = next((item for item in read_durable_plan_queue(root)["jobs"]
+                    if isinstance(item, dict) and item.get("commandId") == target), None)
+        if not row:
+            raise ValueError("FORMAL_JOB_PREFLIGHT_TARGET_UNAVAILABLE")
+        row = dict(row)
+    if (row.get("workerId") != worker_id or expected.get("commandId") != target
+            or not durable_plan_same_identity(row, expected)
+            or any(row.get(key) != expected.get(key) for key in
+                   ("resultPathPolicy", "globalJobId", "collectionResultCsv", "checkpointSource", "executionMode", "mode"))):
+        raise ValueError("FORMAL_JOB_PREFLIGHT_IDENTITY_MISMATCH")
+    if (row.get("status") != "failed" or row.get("neverStarted") is not True
+            or row.get("neverStartedEvidence") != "formal_preflight_rejected"):
+        raise ValueError("FORMAL_JOB_PREFLIGHT_REQUIRES_NEVER_STARTED_REJECTION")
+    # Read the original proof without renewing it or writing a new admission record.
+    proof_id = str(row.get("codeSyncProofId") or "")
+    if proof_id:
+        proof = code_sync_proof_document(root).get("proofs", {}).get(proof_id)
+        if not isinstance(proof, dict):
+            raise ValueError("code-sync proof missing; original source cannot be verified")
+        verify_code_sync_proof_record(root, proof, row, runtime_generation=proof.get("runtimeGeneration"))
+    elif isinstance(row.get("codeManifest"), dict):
+        manifest = row["codeManifest"]
+        if durable_code_manifest_digest(manifest) != row.get("codeFingerprint"):
+            raise ValueError("code manifest fingerprint mismatch")
+        for relative, digest in manifest.items():
+            _code_sync_stat_record(root, relative, digest, verify_content=True)
+    else:
+        raise ValueError("code-sync proof missing; original source cannot be verified")
+    report = verified_formal_job_command(root, row)
+    verified_durable_execution_mode(root, row)
+    return {"schemaVersion": 1, "targetCommandId": target, "workerId": worker_id,
+            "executionStarted": False, "queueChanged": False, "report": report}
 
 def recover_train_only_completion(root, command, worker_id):
     """Review/adopt existing validation-only adapter evidence; never execute training or test."""
@@ -6508,6 +6554,7 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
             },
             "actionEndpoints": {
                 "start-worker-task": True,
+                "preflight-worker-task": True,
                 "register-code-sync-proof": True,
                 "rebuild-distributed-results": True,
                 "retry-worker-task": True,
@@ -11329,7 +11376,9 @@ def subprocess_file_io(process, proc_root="/proc"):
     except (OSError, ValueError, TypeError, AttributeError):
         return None
 
-def subprocess_inactivity_run(command, cwd=None, env=None, input=None, file_step=False):
+def subprocess_inactivity_run(command, cwd=None, env=None, input=None, file_step=False, progress_stream=None):
+    if progress_stream not in (None, "stdout", "stderr"):
+        raise ValueError("invalid subprocess progress stream")
     entry = getattr(INACTIVITY_ACTION_CONTEXT, "entry", None)
     if entry and entry["cancel"].is_set():
         raise RuntimeError("操作已取消")
@@ -11341,6 +11390,7 @@ def subprocess_inactivity_run(command, cwd=None, env=None, input=None, file_step
     last_progress = [time.monotonic()]
     progress_lock = threading.Lock()
     counters = {}
+    cumulative_counts = [0, 0]
     streams = {"stdout": io.StringIO(), "stderr": deque()}
     stream_bytes = {"stdout": 0, "stderr": 0}
     output_overflow = [False]
@@ -11364,23 +11414,30 @@ def subprocess_inactivity_run(command, cwd=None, env=None, input=None, file_step
                     stream_bytes[name] += size
                     while name == "stderr" and stream_bytes[name] > 32768:
                         stream_bytes[name] -= len(streams[name].popleft().encode("utf-8"))
-            if not line.startswith("SIMPLE_PROGRESS "):
+            if (progress_stream and name != progress_stream) or not line.startswith("SIMPLE_PROGRESS "):
                 continue
             try:
                 item = json.loads(line[len("SIMPLE_PROGRESS "):])
                 if not isinstance(item, dict):
                     continue
                 phase = str(item.get("phase") or "processing")[:64]
-                counts = (int(item.get("processedBytes") or 0), int(item.get("processedFiles") or 0))
+                values = (item.get("processedBytes", 0), item.get("processedFiles", 0))
+                if progress_stream and any(not isinstance(value, int) or isinstance(value, bool) for value in values):
+                    continue
+                counts = tuple(int(value or 0) for value in values)
                 if any(value < 0 or value > (1 << 64) - 1 for value in counts):
                     continue
                 with progress_lock:
                     if phase not in counters and len(counters) >= 32:
-                        continue
-                    previous = counters.get(phase, (0, 0))
+                        if not progress_stream:
+                            continue
+                        counters.pop(next(iter(counters)))
+                    previous = tuple(cumulative_counts) if progress_stream else counters.get(phase, (0, 0))
                     current = (max(previous[0], counts[0]), max(previous[1], counts[1]))
-                    changed = phase not in counters or current != previous
+                    changed = current != previous
                     counters[phase] = current
+                    if progress_stream:
+                        cumulative_counts[:] = current
                     if changed:
                         last_progress[0] = time.monotonic()
                 if changed and entry:
@@ -11436,6 +11493,7 @@ def subprocess_inactivity_run(command, cwd=None, env=None, input=None, file_step
                             process.kill()
                     except OSError:
                         pass
+                    process.wait(timeout=2)  # Reap even after SIGKILL; never abandon an owned child.
                 if cancelled:
                     raise RuntimeError("操作已取消")
                 for reader in readers:
@@ -11457,6 +11515,24 @@ def subprocess_inactivity_run(command, cwd=None, env=None, input=None, file_step
             raise RuntimeError("子进程标准输出超过 4 MiB，未采用截断的结果")
         return subprocess.CompletedProcess(command, process.returncode, streams["stdout"].getvalue(), "".join(streams["stderr"]))
     finally:
+        if process.returncode is None:
+            try:
+                if hasattr(os, "killpg"):
+                    os.killpg(process.pid, signal.SIGTERM)
+                else:
+                    process.terminate()
+                process.wait(timeout=2)
+            except (OSError, subprocess.TimeoutExpired):
+                try:
+                    if hasattr(os, "killpg"):
+                        os.killpg(process.pid, signal.SIGKILL)
+                    else:
+                        process.kill()
+                except OSError:
+                    pass
+                process.wait(timeout=2)
+        for reader in readers:
+            reader.join(timeout=0.2)
         if entry:
             with INACTIVITY_ACTIONS_LOCK:
                 entry["processes"].discard(process)
@@ -13090,6 +13166,24 @@ def handle_action(root, action, payload, operation_id, op_id):
             return {"schemaVersion": SCHEMA_VERSION, "opId": op_id, "status": "failed", "message": str(exc)}
     if action in DEBUG_BLOCKED_ACTIONS and (action_debug_mode(payload) or action_targets_debug_run(payload)):
         return terminal_action(root, action, operation_id, op_id, "failed", "Debug 模式产物与正式实验隔离，禁止执行归档、删除、有效结果、统计、论文或 PPT 操作。", request=payload)
+    if action == "preflight-worker-task":
+        worker_id = str(payload.get("workerId") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker")
+        try:
+            if payload.get("targetPreflightOperationId"):
+                target = str(payload["targetPreflightOperationId"])
+                with INACTIVITY_ACTIONS_LOCK:
+                    entry = INACTIVITY_ACTIONS.get((os.path.abspath(root), target))
+                    if not entry or entry["action"] != action or entry["payload"].get("workerId") != worker_id:
+                        raise ValueError("FORMAL_JOB_PREFLIGHT_OPERATION_MISMATCH")
+                if not cancel_inactivity_action(root, target):
+                    raise ValueError("FORMAL_JOB_PREFLIGHT_OPERATION_UNAVAILABLE")
+                return terminal_action(root, action, operation_id, op_id, "completed", "已取消指定预检；未停止科研作业",
+                                       {"targetPreflightOperationId": target, "executionStarted": False, "queueChanged": False})
+            result = preflight_existing_worker_task(root, payload, worker_id)
+            return terminal_action(root, action, operation_id, op_id, "completed", "单作业启动前预检通过；未启动或重新入队", result)
+        except Exception as exc:
+            return terminal_action(root, action, operation_id, op_id, "failed", str(exc),
+                                   {"executionStarted": False, "queueChanged": False, "targetCommandId": payload.get("targetCommandId")})
     if action in ("start-worker-task", "retry-worker-task", "stop-worker-task"):
         command = dict(payload)
         command["action"] = action
@@ -14056,6 +14150,7 @@ def api_openapi(root, token_required=False, mode="hub_control"):
             "/api/events/sse",
             "/api/operations/{id}",
             "/api/actions/start-worker-task",
+            "/api/actions/preflight-worker-task",
             "/api/actions/register-code-sync-proof",
             "/api/actions/rebuild-distributed-results",
             "/api/actions/retry-worker-task",
@@ -16109,7 +16204,7 @@ def serve_http(args):
             route = urlparse(self.path).path
             if mode == "worker_telemetry":
                 worker_action = route.rsplit("/", 1)[-1] if route.startswith("/api/actions/") else ""
-                if route not in ("/api/actions/save-result-policy", "/api/actions/start-worker-task", "/api/actions/register-code-sync-proof", "/api/actions/rebuild-distributed-results", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan", "/api/actions/stop-scheduler-operation", "/api/actions/clear-cache", "/api/actions/clearCache", "/api/actions/preview-cache-cleanup", "/api/actions/delete-cache-candidates", "/api/tmux/kill-window", "/api/tensorboard/proxy", "/api/tensorboard/scalars/query") and not route.startswith(TENSORBOARD_BROWSER_PREFIX + "/") and route != TENSORBOARD_BROWSER_PREFIX and worker_action not in WORKER_RESULT_ACTIONS and worker_action not in WORKER_TENSORBOARD_ACTIONS and worker_action not in WORKER_ENV_ACTIONS:
+                if route not in ("/api/actions/save-result-policy", "/api/actions/start-worker-task", "/api/actions/preflight-worker-task", "/api/actions/register-code-sync-proof", "/api/actions/rebuild-distributed-results", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan", "/api/actions/stop-scheduler-operation", "/api/actions/clear-cache", "/api/actions/clearCache", "/api/actions/preview-cache-cleanup", "/api/actions/delete-cache-candidates", "/api/tmux/kill-window", "/api/tensorboard/proxy", "/api/tensorboard/scalars/query") and not route.startswith(TENSORBOARD_BROWSER_PREFIX + "/") and route != TENSORBOARD_BROWSER_PREFIX and worker_action not in WORKER_RESULT_ACTIONS and worker_action not in WORKER_TENSORBOARD_ACTIONS and worker_action not in WORKER_ENV_ACTIONS:
                     return self.send_json({"error": "worker telemetry only accepts local worker actions"}, status=404)
             if route == "/api/tensorboard/proxy" or route == TENSORBOARD_BROWSER_PREFIX or route.startswith(TENSORBOARD_BROWSER_PREFIX + "/"):
                 return self.proxy_tensorboard(urlparse(self.path))
@@ -16444,6 +16539,10 @@ def serve_http(args):
                 return
             action = route.rsplit("/", 1)[-1]
             operation_id = str(payload.get("operationId") or f"{action}-{op_id}")
+            if action == "preflight-worker-task":
+                current_worker = str(getattr(args, "worker_id", "") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip()
+                if payload.get("workerId") != current_worker:
+                    return self.send_json({"error": "FORMAL_JOB_PREFLIGHT_WORKER_MISMATCH"}, status=403)
             if mode == "worker_telemetry" and action in ("validate-plan", "dry-run-plan", "run-plan", "reproduce-plan"):
                 options = payload.get("options") or {}
                 topology_mode = str(options.get("topologyMode") or payload.get("topologyMode") or "")
@@ -16481,8 +16580,8 @@ def serve_http(args):
                              "executionMode": validation.get("execution_mode") or "train_test"}, request=payload))
                 except Exception as exc:
                     return self.send_json(terminal_action(root, action, operation_id, op_id, "failed", str(exc), request=payload))
-            if action in ("validate-plan", "dry-run-plan", "rebuild-distributed-results") or (action == "preview-cache-cleanup" and "planOutputPaths" in payload) or (action == "archive-worker-artifacts" and payload.get("quarantineFailedAttempt") is True):
-                worker = (selected_worker_id(payload) or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker") if mode == "worker_telemetry" and action in ("validate-plan", "dry-run-plan") else ""
+            if action in ("validate-plan", "dry-run-plan", "preflight-worker-task", "rebuild-distributed-results") or (action == "preview-cache-cleanup" and "planOutputPaths" in payload) or (action == "archive-worker-artifacts" and payload.get("quarantineFailedAttempt") is True):
+                worker = (selected_worker_id(payload) or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker") if mode == "worker_telemetry" and action in ("validate-plan", "dry-run-plan", "preflight-worker-task") else ""
                 return self.send_json(start_inactivity_action(root, action, payload, operation_id, op_id, worker), status=202)
             if action not in ("preview-cache-cleanup", "delete-cache-candidates"):
                 append_event(root, {"type": "operation_started", "operationId": operation_id, "payload": {"action": action, "opId": op_id, **action_operation_fields(payload)}})
