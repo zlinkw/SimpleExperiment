@@ -119,3 +119,15 @@ Host 的中止、排队召回和重新分配共用冻结身份请求，正式任
 新增真实边界测试在本机 WSL Ubuntu-Codex、tmux 3.4 的专用隔离 server 上执行：failed/running/completed 三种任务只关闭对应 pane，另一窗口保留；重复停止成功；跨任务/缺字段/非零 attempt 均不调用 tmux；待启动任务取消的正式回执经 JSON 进入 Host 的实际中止方法。原失败日志字节保持不变，已确认清除的队列不会被后台快照恢复。只运行轻量 `sleep` 夹具，未运行科研入口；夹具文件保留，结束时仅停止该测试创建的隔离 tmux server。
 
 Windows 插件和 runtime 为 0.5.281。用户须重载 VS Code，并部署、重启关联 Worker 的 0.5.281 Agent/Scheduler，随后人工重试原 `late_fusion.yaml` 的“终止并清理”。本轮未调用生产 API、连接服务器执行停止/部署、修改 MultiModal、清理文件或重启训练；原 workflow 的生产服务器/UI 验收和 Mac 部署仍待验证。安装包验证不等于这些实机操作已经完成。
+
+## 0.5.282 中止链路移除 attempt 依赖
+
+0.5.281 对正式 job 仍保留了停止请求 `attempt=0` 的兼容，Host 匹配、清除确认键和已清除记录也还依赖旧字段。本轮明确移除这些控制链路的依赖，而不是用缺失字段补造版本。正式任务的快照匹配、中止/召回回执、清除确认键、派发中的保护键和新清除审计记录以原 workflow、command、globalJobId、revision、代码和路径为依据，不读取 `attempt`。不同 command 或 revision 产生不同控制键；旧的 attempt 确认键不能授权清除当前正式 job。
+
+Worker 在任何中止或排队召回操作开始前拒绝正式请求携带 `attempt`（包括 `0`），返回 `FORMAL_ATTEMPT_RETIRED`。正式停止回执的构造直接跳过旧字段；不先计算一个假 attempt 再删除。历史任务仍可以通过其原登记身份手动中止，历史数据不迁移或删除。已清除的旧审计记录即使含 `attempt=0` 也只读取原 command/revision/路径等证据，不修改原记录字节，且不会恢复已清除的卡片。
+
+本地 API 的 `execution.formalJobStopIdentityProtocol=2`、`formalJobStopUsesAttempts=false`，对应 Worker 需同时声明 `stop-worker-task-formal-identity` 和 `stop-worker-task-formal-no-attempt`。只具有上版兼容能力的 Worker 在停止请求发送前被阻断，必须显式部署、重启 0.5.282 Agent/Scheduler。没有改写声明输出、创建 attempts 目录、启动训练、自动部署或执行真实清理。
+
+验证共 72 项全部通过：`formalJobStop.test.js` 3 项、`planStopClear.test.js` 34 项、`formalJobExecution.test.js` 6 项、`prequeueRecallLifecycle.test.js` 5 项、`test/agent/prequeueRecall.test.js` 1 项、`distributedPlanExecutionMode.test.js` 9 项、构建消息桥和 Webview 14 项。新增回归让正式 job 的 `attempt` 读取直接抛错，覆盖实际 Host 完整中止/清除路径、精确确认键和旧审计刷新；本机独立真实 tmux 测试也禁止 Python 读取该字段，并验证带 `attempt=0` 的中止及召回都拒绝。历史记录和失败日志保留原样。
+
+验证边界仍为 Windows 构建/安装、WSL 隔离 tmux 和本地合成消息。没有执行生产服务器操作、全套测试或 Mac 部署；生产 UI 和原 NWPU2 任务中止需用户重载、更新关联 Worker 后实测。版本更新后停止操作旧面板，不能将安装成功当作生产任务已经中止。

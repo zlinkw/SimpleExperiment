@@ -65,19 +65,24 @@ def stop_for(task):
                                         "resultPathPolicy", "globalJobId", "collectionResultCsv")
                if key not in ("commandId", "attempt")}}
 
+class FormalTask(dict):
+    def get(self, key, *args):
+        assert key != "attempt", "formal stop must never read or manufacture an attempt version"
+        return super().get(key, *args)
+
 reports = []
 try:
     tmux("new-session", "-d", "-s", "zlk-gpu-0", "sleep 60")
     unrelated = tmux("display-message", "-p", "-t", "zlk-gpu-0:0", "#{pane_id}")
     for index, status in enumerate(("failed", "running", "completed")):
         pane = tmux("new-window", "-d", "-P", "-F", "#{pane_id}", "-t", "zlk-gpu-0", "sleep 60")
-        task = {"projectId": "project", "workflowId": "old-workflow", "planFile": "experiments/plans/quality_composition/late_fusion.yaml",
+        task = FormalTask({"projectId": "project", "workflowId": "old-workflow", "planFile": "experiments/plans/quality_composition/late_fusion.yaml",
                 "planRevision": "original-revision", "codeFingerprint": "original-code", "experimentIndex": index,
                 "case": "original-case-" + str(index), "seed": 42, "outputDir": "work_dirs/direct_jobs/" + str(index),
                 "runKey": "command-" + str(index), "commandId": "command-" + str(index), "workerId": "worker",
                 "gpuId": "0", "planJobCount": 3, "resultPathPolicy": "declared", "globalJobId": "old-workflow:" + str(index),
                 "collectionResultCsv": "tmp/result/direct_jobs/" + str(index) + "/metrics.csv",
-                "tmuxPane": pane, "tmuxSession": "zlk-gpu-0", "pid": pane, "status": status}
+                "tmuxPane": pane, "tmuxSession": "zlk-gpu-0", "pid": pane, "status": status})
         log = pathlib.Path(root) / (task["commandId"] + ".failed.log")
         log.write_text("original failure\n", encoding="utf-8")
         before = log.read_bytes()
@@ -95,9 +100,11 @@ try:
                 rejected = execute(root, wrong, "worker")
                 assert rejected["status"] == "failed" and len(calls) == call_count, (field, rejected)
                 assert field in rejected.get("identityMismatchFields", []), (field, rejected)
-        wrong = {**request, "attempt": 1}
-        rejected = execute(root, wrong, "worker")
-        assert rejected["errorCode"] == "WORKER_TASK_IDENTITY_MISMATCH" and "attempt" in rejected["identityMismatchFields"], rejected
+        for retired_value in (0, 1):
+            for recall in (False, True):
+                wrong = {**request, "attempt": retired_value, "requeueRequested": recall}
+                rejected = execute(root, wrong, "worker")
+                assert rejected["errorCode"] == "FORMAL_ATTEMPT_RETIRED" and "attempt" in rejected["identityMismatchFields"], rejected
         result = execute(root, request, "worker")
         assert result["status"] == "completed", result
         receipt = result["stoppedTasks"][0]

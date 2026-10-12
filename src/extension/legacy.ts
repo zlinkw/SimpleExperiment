@@ -10764,7 +10764,7 @@ export class RealtimeTunnelPanelProvider {
                     const retry = DistributedPlanQueue.retryPinnedDispatch(queue, plan.id, job.index,
                         snapshot, idleByWorker.get(job.workerId || "") || []);
                     if (!retry) continue;
-                    const launchKey = `${plan.id}\0${job.index}\0${job.attempt}`;
+                    const launchKey = DistributedPlanQueue.distributedJobControlKey(plan, job);
                     if (this.distributedLaunchInFlight.has(launchKey)) continue;
                     this.distributedLaunchInFlight.add(launchKey);
                     // Reconciliation retains unknown ownership until the same command is verified.
@@ -10943,7 +10943,7 @@ export class RealtimeTunnelPanelProvider {
                 const job = plan?.jobs.find((item) => item.index === dispatch.jobIndex && item.attempt === dispatch.attempt);
                 if (!plan || !job || !queueWriteCurrent()) return;
                 const gpuId = "gpuId" in dispatch ? dispatch.gpuId as string : undefined;
-                const launchKey = `${plan.id}\0${job.index}\0${job.attempt}`;
+                const launchKey = DistributedPlanQueue.distributedJobControlKey(plan, job);
                 this.distributedLaunchInFlight.add(launchKey);
                 let receipt: any;
                 let receiptError: unknown;
@@ -11095,7 +11095,7 @@ export class RealtimeTunnelPanelProvider {
             const plan = queue.plans.find((item) => item.id === dispatch.planId);
             const job = plan?.jobs.find((item) => item.index === dispatch.jobIndex);
             if (!plan || !job || !queueWriteCurrent()) return { dispatch, plan, job };
-            const launchKey = `${plan.id}\0${job.index}\0${job.attempt}`;
+            const launchKey = DistributedPlanQueue.distributedJobControlKey(plan, job);
             this.distributedLaunchInFlight.add(launchKey);
             try {
                 const started: any = await this.sendDistributedJob(plan, job, dispatch.workerId, dispatch.gpuId, dispatch.commandId);
@@ -16170,14 +16170,15 @@ export class RealtimeTunnelPanelProvider {
             this.lastWorkerProbes = { ...(this.lastWorkerProbes || {}), [workerId]: probe };
         }
         return probe?.status === "ok" && probe?.capabilities?.actionEndpoints?.["stop-worker-task-exact-pane"] === true
-            && (!formal || probe?.capabilities?.actionEndpoints?.["stop-worker-task-formal-identity"] === true);
+            && (!formal || probe?.capabilities?.actionEndpoints?.["stop-worker-task-formal-identity"] === true
+                && probe?.capabilities?.actionEndpoints?.["stop-worker-task-formal-no-attempt"] === true);
     }
     async stopDistributedJobForClear(plan, job) {
         if (!job.workerId || !job.commandId) throw new Error("活动 job 缺少 Worker 或 commandId，未发送停止");
         const formal = plan.resultPathPolicy === "declared";
         const exactPane = job.gpuId === undefined && !formal ? true : await this.refreshExactPaneStopCapability(job.workerId, formal);
         if (exactPane !== true)
-            throw new Error(`Worker ${job.workerId} 的实时能力没有 ${formal ? "stop-worker-task-formal-identity" : "stop-worker-task-exact-pane"}。请先更新并重启该 Worker Agent，再重试；未发送停止命令。`);
+            throw new Error(`Worker ${job.workerId} 的实时能力没有 ${formal ? "stop-worker-task-formal-identity / stop-worker-task-formal-no-attempt" : "stop-worker-task-exact-pane"}。请先更新并重启该 Worker Agent，再重试；未发送停止命令。`);
         const stopOperationId = makeOpId("stop-distributed-job");
         const request = {
             schemaVersion: 1,
@@ -16477,13 +16478,13 @@ export class RealtimeTunnelPanelProvider {
         for (const row of DistributedPlanQueue.distributedStopTargets(latest, planFile)) {
             if (!clearStillHere()) break;
             const plan = latest.plans.find((item) => item.id === row.planId);
-            const job = plan?.jobs.find((item) => item.index === row.jobIndex && item.attempt === row.attempt);
+            const job = plan?.jobs.find((item) => DistributedPlanQueue.distributedJobControlKey(plan, item) === row.jobKey);
             if (row.kind === "deferred") {
                 confirmedDeferred.add(row.planId);
                 continue;
             }
             if (!plan || !job) continue;
-            const launchKey = `${row.planId}\0${row.jobIndex}\0${row.attempt}`;
+            const launchKey = DistributedPlanQueue.distributedJobControlKey(plan, job);
             if (this.distributedLaunchInFlight?.has(launchKey)) {
                 failures.push(`${row.planFile} ${row.planId} job ${row.jobIndex}: 正在向 Worker 发起启动，远端身份尚未回写，不能按未派发清除。下一步：等这一次启动回执落地后再点“终止并清理”。`);
                 continue;
@@ -16492,7 +16493,7 @@ export class RealtimeTunnelPanelProvider {
             const needsRemoteStop = ["dispatching", "queued", "running", "unknown"].includes(job.status) || remoteIdentity;
             if (!needsRemoteStop) {
                 if (DistributedPlanQueue.jobClearableWithoutRemoteReceipt(job)) {
-                    confirmedJobs.add(`${row.planId}\0${row.jobIndex}\0${row.attempt}`);
+                    confirmedJobs.add(launchKey);
                     continue;
                 }
                 failures.push(`${row.planFile} ${row.planId} job ${row.jobIndex}: 终态 job 没有 Worker 身份，无法确认没有残留 tmux 标签，队列保留`);
@@ -16525,7 +16526,7 @@ export class RealtimeTunnelPanelProvider {
                 continue;
             }
             else if (!pane && !session) {
-                confirmedJobs.add(`${row.planId}\0${row.jobIndex}\0${row.attempt}`);
+                confirmedJobs.add(launchKey);
                 continue;
             }
             if (!clearStillHere()) break;
@@ -16538,7 +16539,7 @@ export class RealtimeTunnelPanelProvider {
                 continue;
             }
             if (!clearStillHere()) break;
-            confirmedJobs.add(`${row.planId}\0${row.jobIndex}\0${row.attempt}`);
+            confirmedJobs.add(launchKey);
         }
         if (!clearStillHere()) {
             return this.finishPlanStopClear(planFile, {

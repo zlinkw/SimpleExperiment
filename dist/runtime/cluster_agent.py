@@ -67,9 +67,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.281"
-RUNTIME_VERSION = "0.5.281"
-PLUGIN_VERSION = "0.5.281"
+AGENT_VERSION = "0.5.282"
+RUNTIME_VERSION = "0.5.282"
+PLUGIN_VERSION = "0.5.282"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -2778,9 +2778,9 @@ def durable_plan_identity(command):
     return {key: durable_plan_value(command, key) for key in DURABLE_PLAN_IDENTITY_FIELDS}
 
 def durable_plan_public_identity(row):
-    identity = durable_plan_identity(row)
+    identity = {key: durable_plan_value(row, key) for key in DURABLE_PLAN_IDENTITY_FIELDS
+                if key != "attempt" or row.get("resultPathPolicy") != "declared"}
     if row.get("resultPathPolicy") == "declared":
-        identity.pop("attempt", None)
         for key in ("resultPathPolicy", "globalJobId", "collectionResultCsv", "checkpointSource"):
             if row.get(key) is not None:
                 identity[key] = row[key]
@@ -3594,7 +3594,7 @@ def worker_task_stop_identity_mismatches(command, task):
     if formal:
         fields = tuple(field for field in fields if field != "attempt") + ("resultPathPolicy", "globalJobId", "collectionResultCsv")
     differences = []
-    if formal and (command.get("attempt") not in (None, "", 0, "0") or task.get("attempt") not in (None, "", 0, "0")):
+    if formal and "attempt" in command:
         differences.append("attempt")
     for field in fields:
         if field == "commandId":
@@ -5323,6 +5323,13 @@ def _execute_worker_command_unfenced(root, command, worker_id):
     action = str(command.get("action") or "").strip()
     command_id = str(command.get("commandId") or command.get("operationId") or f"cmd-{int(time.time() * 1000)}")
     append_event(root, {"type": "worker_command_started", "workerId": worker_id, "operationId": command_id, "payload": command})
+    if action == "stop-worker-task" and command.get("resultPathPolicy") == "declared" and "attempt" in command:
+        result = {"commandId": command_id, "targetCommandId": command.get("targetCommandId"), "status": "failed",
+                  "errorCode": "FORMAL_ATTEMPT_RETIRED", "identityMismatchFields": ["attempt"],
+                  "message": "正式 job 已停用 attempt；中止或召回请求必须使用原 workflow/command/revision 身份，不允许 attempt 或 attempt=0。",
+                  "stoppedPids": [], "stoppedTasks": []}
+        append_event(root, {"type": "worker_command_failed", "workerId": worker_id, "operationId": command_id, "payload": result})
+        return result
     if action == "stop-worker-task" and command.get("requeueRequested") is True:
         try:
             result = requeue_durable_plan_job(root, command)
@@ -6562,6 +6569,7 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
                 "stop-worker-task": True,
                 "stop-worker-task-exact-pane": True,
                 "stop-worker-task-formal-identity": True,
+                "stop-worker-task-formal-no-attempt": True,
                 "delete-worker-artifacts": True,
                 "archive-worker-artifacts": True,
                 "validate-plan": True,

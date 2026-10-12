@@ -97,7 +97,8 @@ export type DeferredPlan = { id: string; planFile: string; revision: string; cod
   confirmedOutputChoice?: boolean; overwriteExisting?: boolean; distributedSkipJobIndices?: number[];
   waitingForPlanId?: string; waitingForPlanFile?: string; waitingForRevision?: string; waitingForFingerprint?: string; reason?: string };
 export type ClearedDistributedJob = { projectId: string; workflowId: string; planFile: string; planRevision: string;
-  codeFingerprint: string; experimentIndex: number; case: string; seed: number; attempt: number; outputDir: string;
+  codeFingerprint: string; experimentIndex: number; case: string; seed: number; attempt?: number;
+  resultPathPolicy?: "declared"; globalJobId?: string; outputDir: string;
   workerId: string; commandId: string; runKey: string; clearedAt: string };
 export type FailedAttemptRecovery = {
   id: string; plan: Pick<QueuedPlan, "id" | "projectId" | "planFile" | "revision" | "codeFingerprint" | "planJobCount">;
@@ -360,9 +361,13 @@ export function hasUnresolvedPlanRecovery(plan: QueuedPlan): boolean {
 }
 
 function clearedJobIdentityKey(identity: Record<string, unknown>): string {
-  return JSON.stringify([identity.projectId, identity.workflowId, identity.planFile, identity.planRevision,
-    identity.codeFingerprint, identity.experimentIndex, identity.case, identity.seed, identity.attempt,
-    identity.outputDir, identity.workerId, identity.commandId, identity.runKey]);
+  const fields = [identity.projectId, identity.workflowId, identity.planFile, identity.planRevision,
+    identity.codeFingerprint, identity.experimentIndex, identity.case, identity.seed,
+    identity.outputDir, identity.workerId, identity.commandId, identity.runKey];
+  // Retain real historical version distinctions. Zero was only the retired
+  // formal schema sentinel; its old audit record must remain readable unchanged.
+  return JSON.stringify(identity.resultPathPolicy !== "declared" && Number(identity.attempt) > 0
+    ? [...fields, Number(identity.attempt)] : fields);
 }
 
 function clearedJobBelongsToPlan(entry: ClearedDistributedJob, plan: QueuedPlan, projectId: string): boolean {
@@ -886,7 +891,7 @@ export function remoteTaskMatchesJob(plan: QueuedPlan, job: QueuedJob, task: Rec
     && (!plan.projectId || String(task.runKey || "") === String(job.runKey || job.commandId))
     && String(task.case || "") === job.case
     && Number(task.seed) === job.seed
-    && taskAttempt(task) === job.attempt
+    && (plan.resultPathPolicy === "declared" ? formalStopIdentityMatches(plan, job, task) : taskAttempt(task) === job.attempt)
     && String(task.outputDir || "") === job.outputDir
     && String(task.workerId || "") === job.workerId);
 }
@@ -996,7 +1001,8 @@ export function isExactQueuedReleaseProof(plan: QueuedPlan, job: QueuedJob, proo
   if (proof.legacyReleased === true)
     return historicalRecallIdentityMatchesJob(plan, job, proof);
   const modernIdentity = [proof.projectId, proof.codeFingerprint, proof.workflowId, proof.planRevision,
-    proof.planFile, proof.experimentIndex, proof.runKey, proof.case, proof.seed, taskAttempt(proof),
+    proof.planFile, proof.experimentIndex, proof.runKey, proof.case, proof.seed,
+    ...(plan.resultPathPolicy === "declared" ? [proof.globalJobId, proof.collectionResultCsv] : [taskAttempt(proof)]),
     proof.outputDir, proof.workerId, proof.targetCommandId, proof.planJobCount];
   if (modernIdentity.some((value) => value === undefined || value === null || value === "")) return false;
   return proof.durableAccepted === true && recallResponseMatchesJob(plan, job, proof)
@@ -1024,7 +1030,7 @@ function identityAliasesMatchJob(plan: QueuedPlan, job: QueuedJob, identity: Rec
     && equalsAll(["experimentIndex", "jobIndex"], job.index)
     && equalsAll(["case", "caseName"], job.case)
     && equalsAll(["seed"], job.seed)
-    && equalsAll(["attempt"], job.attempt)
+    && (plan.resultPathPolicy === "declared" || equalsAll(["attempt"], job.attempt))
     && equalsAll(["outputDir"], job.outputDir)
     && equalsAll(["workerId"], job.workerId)
     && equalsAll(["runKey"], job.runKey || job.commandId)
@@ -1129,6 +1135,7 @@ export type DistributedStopTarget = {
   revision: string;
   codeFingerprint: string;
   jobIndex?: number;
+  jobKey?: string;
   attempt?: number;
   commandId?: string;
   workerId?: string;
@@ -1161,7 +1168,8 @@ export function distributedStopTargets(queue: DistributedQueue, planFile: string
     revision: plan.revision,
     codeFingerprint: plan.codeFingerprint,
     jobIndex: job.index,
-    attempt: job.attempt,
+    jobKey: distributedJobControlKey(plan, job),
+    ...(plan.resultPathPolicy !== "declared" ? { attempt: job.attempt } : {}),
     commandId: job.commandId,
     workerId: job.workerId,
     gpuId: job.gpuId,
@@ -1183,6 +1191,14 @@ export function distributedStopTargets(queue: DistributedQueue, planFile: string
   return [...jobs, ...deferred];
 }
 
+/** A frozen formal command identifies a control target, without a synthetic attempt version. */
+export function distributedJobControlKey(plan: Pick<QueuedPlan, "id" | "revision" | "codeFingerprint" | "resultPathPolicy">,
+  job: Pick<QueuedJob, "index" | "attempt" | "globalJobId" | "commandId" | "outputDir">): string {
+  return plan.resultPathPolicy === "declared"
+    ? JSON.stringify([plan.id, plan.revision, plan.codeFingerprint, job.globalJobId, job.index, job.commandId || "", job.outputDir])
+    : `${plan.id}\0${job.index}\0${job.attempt}`;
+}
+
 /** Drop only confirmed plan runs. A partial stop keeps every unconfirmed job and deferred row. */
 export function removeConfirmedDistributedPlan(queue: DistributedQueue, planFile: string, confirmed: {
   jobKeys: ReadonlySet<string>; deferredIds: ReadonlySet<string>; projectId?: string }): DistributedQueue {
@@ -1193,21 +1209,24 @@ export function removeConfirmedDistributedPlan(queue: DistributedQueue, planFile
   const plans = (queue.plans || []).flatMap((plan) => {
     if (!samePlanFile(plan.planFile, selected)) return [plan];
     const jobs = plan.jobs.filter((job) => {
-      if (!confirmed.jobKeys.has(`${plan.id}\0${job.index}\0${job.attempt}`)) return true;
-      const attempts = [job, ...(job.history || []).filter(entry => ["completed", "failed", "cancelled"].includes(entry.status))];
-      for (const attempt of attempts) {
+      if (!confirmed.jobKeys.has(distributedJobControlKey(plan, job))) return true;
+      const records = [job, ...(job.history || []).filter(entry => ["completed", "failed", "cancelled"].includes(entry.status))];
+      for (const record of records) {
+        const formalRecord = plan.resultPathPolicy === "declared" && (record === job || !(Number(record.attempt) > 0));
         const entry: ClearedDistributedJob = { projectId: plan.projectId || job.projectId || confirmed.projectId || "",
           workflowId: plan.id, planFile: plan.planFile, planRevision: plan.revision, codeFingerprint: plan.codeFingerprint,
-          experimentIndex: job.index, case: job.case, seed: job.seed, attempt: attempt.attempt, outputDir: attempt.outputDir,
-          workerId: attempt.workerId || "", commandId: attempt.commandId || "",
-          runKey: attempt === job ? job.runKey || job.commandId || "" : attempt.commandId || "", clearedAt };
+          experimentIndex: job.index, case: job.case, seed: job.seed,
+          ...(formalRecord ? { resultPathPolicy: "declared" as const, globalJobId: job.globalJobId } : { attempt: record.attempt }),
+          outputDir: record.outputDir,
+          workerId: record.workerId || "", commandId: record.commandId || "",
+          runKey: record === job ? job.runKey || job.commandId || "" : record.commandId || "", clearedAt };
         const key = clearedJobIdentityKey(entry);
         if (!clearedKeys.has(key)) { clearedJobs.push(entry); clearedKeys.add(key); }
       }
       return false;
     });
     const clearedJobIndices = [...new Set([...(plan.clearedJobIndices || []), ...plan.jobs.filter(job =>
-      confirmed.jobKeys.has(`${plan.id}\0${job.index}\0${job.attempt}`)).map(job => job.index)])];
+      confirmed.jobKeys.has(distributedJobControlKey(plan, job))).map(job => job.index)])];
     return jobs.length ? [{ ...plan, jobs, clearedJobIndices }] : [];
   });
   const deferred = (queue.deferred || []).filter((row) => !samePlanFile(row.planFile, selected) || !confirmed.deferredIds.has(row.id));
@@ -1228,13 +1247,17 @@ export function workerStopJobIdentity(plan: QueuedPlan, job: QueuedJob): Record<
   };
 }
 
-export function stopIdentityMatchesJob(plan: QueuedPlan, job: QueuedJob, identity: Record<string, unknown>): boolean {
-  const gpuMatches = job.gpuId === undefined || String(identity.gpuId ?? "") === String(job.gpuId);
-  const formalMatches = plan.resultPathPolicy !== "declared" || (identity.resultPathPolicy === "declared"
+function formalStopIdentityMatches(plan: QueuedPlan, job: QueuedJob, identity: Record<string, unknown>): boolean {
+  return identity.resultPathPolicy === "declared"
     && Boolean(job.globalJobId && job.collectionResultCsv)
     && String(identity.globalJobId || "") === job.globalJobId
     && String(identity.collectionResultCsv || "") === job.collectionResultCsv
-    && Number(identity.planJobCount) === Number(plan.planJobCount || plan.jobs.length));
+    && Number(identity.planJobCount) === Number(plan.planJobCount || plan.jobs.length);
+}
+
+export function stopIdentityMatchesJob(plan: QueuedPlan, job: QueuedJob, identity: Record<string, unknown>): boolean {
+  const gpuMatches = job.gpuId === undefined || String(identity.gpuId ?? "") === String(job.gpuId);
+  const formalMatches = plan.resultPathPolicy !== "declared" || formalStopIdentityMatches(plan, job, identity);
   return Boolean(job.commandId && job.workerId && gpuMatches && formalMatches
     && String(identity.commandId || identity.targetCommandId || "") === job.commandId
     && String(identity.workflowId || identity.planId || "") === plan.id
@@ -1246,7 +1269,7 @@ export function stopIdentityMatchesJob(plan: QueuedPlan, job: QueuedJob, identit
     && String(identity.planFile || identity.plan || "") === plan.planFile
     && String(identity.case || identity.caseName || "") === job.case
     && Number(identity.seed) === job.seed
-    && taskAttempt(identity) === job.attempt
+    && (plan.resultPathPolicy === "declared" || taskAttempt(identity) === job.attempt)
     && String(identity.outputDir || "") === job.outputDir
     && String(identity.workerId || "") === job.workerId);
 }

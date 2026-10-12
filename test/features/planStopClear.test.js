@@ -207,6 +207,7 @@ test("queued-only plan clears without a worker stop and a mixed failure keeps th
   }, "plan-done");
   const sessionJob = finished.plans[0].jobs[0];
   const clearJob = finished.plans[0].jobs[1];
+  delete finished.plans[0].resultPathPolicy; // These two records model the read-only legacy schema.
   for (const job of [sessionJob, clearJob]) Object.assign(job, { status: "completed", workerId: "w1", gpuId: "0", commandId: "cmd-" + job.index, attempt: 1 });
   sandbox.planFile = "plans/done.yaml";
   sandbox.failures = [];
@@ -1372,7 +1373,7 @@ test("a launch still in flight is not treated as an undispatched job", async () 
     distributedQueueTickPromise: undefined,
     distributedQueueWritePromise: Promise.resolve(),
     distributedPlanStopEpoch: 0,
-    distributedLaunchInFlight: new Set([`${queued.plans[0].id}\0${job.index}\0${job.attempt}`]),
+    distributedLaunchInFlight: new Set([queueApi.distributedJobControlKey(queued.plans[0], job)]),
     planStopClearByFile: {},
     client: { getWorkerTasks: async () => { throw new Error("must not query"); } },
     isRealtimeMode: () => false,
@@ -1713,6 +1714,41 @@ test("plugin refuses exact pane stop unless the live worker probe advertises it"
   assert.ok(arm >= 0 && wait > arm && restore > wait);
   assert.ok(clear.indexOf("try {") < wait);
   assert.ok(clear.lastIndexOf("finally {") < restore);
+});
+
+test("the full formal stop-clear chain accepts no attempt field and never recreates an attempt key", async () => {
+  const queueApi = require("../../dist/features/DistributedPlanQueue.js");
+  let saved = queueApi.enqueuePlan(queueApi.emptyDistributedQueue(), { projectId: "d:/project", planFile: "plans/no_attempt.yaml",
+    revision: "frozen-revision", codeFingerprint: "frozen-code", executionMode: "train",
+    jobs: [{ index: 0, case: "case", seed: 42, outputDir: "work_dirs/direct/job", collectionResultCsv: "tmp/result/direct/job.csv" }] }, "original-workflow");
+  const plan = saved.plans[0], job = plan.jobs[0];
+  Object.assign(job, { status: "failed", workerId: "worker", commandId: "original-command", runKey: "original-command", gpuId: "0" });
+  Object.defineProperty(job, "attempt", { enumerable: false, configurable: true,
+    get() { throw Error("formal stop-clear must not read attempt"); } });
+  const task = { ...queueApi.workerStopJobIdentity(plan, job), commandId: job.commandId, status: "failed",
+    tmuxPane: "%123", tmuxSession: "isolated-test-session", enqueuedAt: plan.enqueuedAt, durableAccepted: true };
+  const client = { getWorkerTasks: async () => ({ tasks: [task] }), postWorkerAction: async (_worker, _action, request) => {
+    assert.equal(Object.hasOwn(request, "attempt"), false);
+    return { status: "completed", stoppedTasks: [{ ...task, paneClosed: true }] };
+  } };
+  const host = installStopClearHost({ root: "D:/project", answers: ["继续中止并清除", "确认中止并清除"],
+    distributedPlanStopEpoch: 0, planStopClearByFile: {}, client, isRealtimeMode: () => false, enabledWorkerConfigs: () => [],
+    captureProjectContext: () => ({ root: "D:/project" }), projectContextIsCurrent: () => true,
+    buildPlanRuntimeEvidenceState: () => ({ operations: {} }), loadDistributedQueue: async () => saved,
+    saveDistributedQueue: async (_root, next) => { saved = next; }, postState: () => undefined,
+    refreshExactPaneStopCapability: async () => true, withRemoteActionResource: async (_worker, _action, _request, action) => action(),
+    context: { workspaceState: { get: () => [], update: async () => undefined } } });
+  const stopper = loadExtensionHandler("async stopDistributedJobForClear(", "async stopAndClearPlanFromUi(");
+  vm.runInContext(`class Stopper { ${stopper} } this.Stopper = Stopper;`, host);
+  host.provider.stopDistributedJobForClear = host.Stopper.prototype.stopDistributedJobForClear;
+  const result = await host.provider.stopAndClearPlanFromUi({ planFile: plan.planFile });
+  assert.equal(result.status, "completed", JSON.stringify(result));
+  assert.equal(saved.plans.length, 0);
+  assert.ok(saved.clearedJobs.every(entry => !Object.hasOwn(entry, "attempt")));
+  const now = Date.now();
+  const refreshed = queueApi.mergeDurableWorkerSnapshots(saved, [{ workerId: "worker", capabilities: { durablePlanQueue: true, schemaVersion: 1 },
+    generatedAt: new Date(now).toISOString(), fetchedAt: new Date(now).toISOString(), tasks: [task] }], plan.projectId, now);
+  assert.equal(refreshed.plans.length, 0);
 });
 
 test("serialized Agent stop receipts pass the production project-scoped clear chain", async () => {
