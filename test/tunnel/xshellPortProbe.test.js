@@ -65,12 +65,13 @@ test("worker telemetry port probe accepts an Agent with install-rich and SSE", a
 
 test("a startup dependency check is polled only while pending and completes inside the probe budget", async () => {
   let reads = 0;
+  const capabilities = productionWorkerTelemetryCapabilities();
   const server = http.createServer((req, res) => {
     res.setHeader("Content-Type", "application/json");
     res.setHeader("Connection", "close");
     if (req.url === "/api/health") return res.end(JSON.stringify({ schemaVersion: 1, projectRoot: "p", status: "ok",
       schedulerDependencies: ++reads === 1 ? { ok: null, pending: true } : { ok: true } }));
-    if (req.url === "/api/capabilities") return res.end(JSON.stringify(productionWorkerTelemetryCapabilities()));
+    if (req.url === "/api/capabilities") return res.end(JSON.stringify(capabilities));
     res.writeHead(404); res.end("{}");
   });
   await listen(server);
@@ -126,6 +127,8 @@ test("worker telemetry production probe accepts the live worker capability sampl
     assert.equal(result.status, "ok");
     assert.equal(result.capabilitiesOk, true);
     assert.equal(result.capabilities.actionEndpoints["stop-worker-task-exact-pane"], true);
+    assert.equal(result.capabilities.actionEndpoints["stop-worker-task-formal-identity"], true);
+    assert.equal(result.capabilities.actionEndpoints["stop-worker-task-formal-no-attempt"], true);
     assert.equal(result.capabilities.endpoints.fileDownload, true);
     assert.equal(result.capabilities.endpoints.fileList, false);
     assert.equal(result.capabilities.endpoints.fileUploadChunk, false);
@@ -201,44 +204,7 @@ test("prepare agent health loop finishes when the worker probe recovers", async 
 });
 
 function productionWorkerTelemetryCapabilities() {
-  const fs = require("node:fs");
-  const path = require("node:path");
-  const source = fs.readFileSync(path.join(__dirname, "../../src/clusterAgentRuntime.legacy.ts"), "utf8");
-  const fn = source.indexOf("def api_capabilities(");
-  const branch = source.indexOf('if mode == "worker_telemetry":', fn);
-  const actionsAt = source.indexOf('"actionEndpoints": {', branch);
-  const endpointsAt = source.indexOf('"endpoints": {', branch);
-  const endpointsBlock = source.slice(endpointsAt, actionsAt);
-  const actionsEnd = source.indexOf("},", actionsAt);
-  const names = (constant) => {
-    const marker = `${constant} = `;
-    const at = source.indexOf(marker);
-    assert.ok(at >= 0, constant);
-    const brace = source.indexOf("{", at);
-    let depth = 0;
-    for (let index = brace; index < source.length; index += 1) {
-      if (source[index] === "{") depth += 1;
-      if (source[index] === "}") {
-        depth -= 1;
-        if (depth === 0) {
-          return [...source.slice(brace, index + 1).matchAll(/"([^"]+)"/g)].map((match) => match[1]);
-        }
-      }
-    }
-    throw new Error(`unterminated ${constant}`);
-  };
-  const quoted = (block, key) => [...block.matchAll(new RegExp(`"${key}":\\s*(True|False)`, "g"))].map((match) => [key, match[1] === "True"]);
-  const endpoints = Object.fromEntries(["health", "capabilities", "gpu", "workerTasks", "liveOutput", "diagnostics", "resultsSummary", "websocketEvents", "sseEvents", "actions", "fileList", "fileDownload", "fileUploadChunk"].flatMap((key) => quoted(endpointsBlock, key)));
-  const actionEndpoints = Object.fromEntries([...source.slice(actionsAt, actionsEnd).matchAll(/"([a-z0-9-]+)":\s*True/g)].map((match) => [match[1], true]));
-  for (const name of [...names("WORKER_RESULT_ACTIONS"), ...names("WORKER_TENSORBOARD_ACTIONS"), ...names("WORKER_ENV_ACTIONS")]) actionEndpoints[name] = true;
-  return {
-    schemaVersion: 1,
-    apiVersion: "1",
-    agentVersion: "0.5.156",
-    mode: "worker_telemetry",
-    endpoints,
-    actionEndpoints,
-  };
+  return require('../_helpers/workerTelemetryCapabilities')();
 }
 
 function loadPrepareAgentHelpers() {

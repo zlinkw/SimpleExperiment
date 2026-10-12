@@ -131,3 +131,13 @@ Worker 在任何中止或排队召回操作开始前拒绝正式请求携带 `at
 验证共 72 项全部通过：`formalJobStop.test.js` 3 项、`planStopClear.test.js` 34 项、`formalJobExecution.test.js` 6 项、`prequeueRecallLifecycle.test.js` 5 项、`test/agent/prequeueRecall.test.js` 1 项、`distributedPlanExecutionMode.test.js` 9 项、构建消息桥和 Webview 14 项。新增回归让正式 job 的 `attempt` 读取直接抛错，覆盖实际 Host 完整中止/清除路径、精确确认键和旧审计刷新；本机独立真实 tmux 测试也禁止 Python 读取该字段，并验证带 `attempt=0` 的中止及召回都拒绝。历史记录和失败日志保留原样。
 
 验证边界仍为 Windows 构建/安装、WSL 隔离 tmux 和本地合成消息。没有执行生产服务器操作、全套测试或 Mac 部署；生产 UI 和原 NWPU2 任务中止需用户重载、更新关联 Worker 后实测。版本更新后停止操作旧面板，不能将安装成功当作生产任务已经中止。
+
+## 0.5.283 部署探测接受正式中止能力标记
+
+上版 Agent 已声明 `stop-worker-task-formal-identity`、`stop-worker-task-formal-no-attempt`，但本机 Worker Telemetry 校验器只识别实际控制动作，漏掉了这两个协议能力标记，因此健康响应可达的 Worker 仍被判为 `worker_api_invalid`。本地回归通过实际能力生产函数和 HTTP 探测复现了截图中的两条“不允许的控制动作”。
+
+本机校验器用独立、精确的能力标记表识别这两个名称，保留原有真实控制动作白名单。标记不会变成可调用的 POST 动作，未知名称、相似前缀、Hub 部署动作和文件写入/列表能力继续拒绝。正式中止的无 attempt、完整身份及窗格验证门禁不变。
+
+回归的 Agent 能力数据改为 AST 提取安装包 runtime 的实际 `api_capabilities`，并读取配套 Scheduler 头部核验版本/协议，不再用正则拼出模拟能力表。该 JSON 通过本机随机端口 HTTP 服务进入实际 `probeWorkerTelemetryTunnel`，随后验证部署等待循环能结束。没有启动完整 Agent、连接生产服务器或执行部署。
+
+34 项验证通过：Worker Telemetry 契约 8 项、HTTP 隧道探测 9 项、正式中止 3 项、构建消息桥/Webview 14 项。构建/打包新增强制的串行 Telemetry 契约与 HTTP 探测门禁，能力生产方与校验方不一致时直接停止，不能再打包安装。Windows 0.5.283 安装后需重载 VS Code，再点击隧道检测核对现有 Worker；此截图的修复位于本机校验逻辑。若后续提交或部署提示 runtime 版本需要一致，再由用户显式部署 0.5.283 配套 runtime。生产服务器、实际 UI 和 Mac 验收未执行，科研任务、历史产物和 MultiModal 未修改。

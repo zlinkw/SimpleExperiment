@@ -1,6 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.defaultMultiWorkerRealtimePolicy = exports.workerTelemetryForbiddenFileEndpointKeys = exports.workerTelemetryReadOnlyFileEndpointKeys = exports.workerTelemetryForbiddenEndpoints = exports.workerTelemetryAllowedActions = exports.workerResultActionNames = exports.workerLocalSchedulerActionNames = exports.workerTelemetryActionNames = exports.workerTelemetryRequiredEndpoints = exports.workerTelemetryAllowedEvents = void 0;
+exports.defaultMultiWorkerRealtimePolicy = exports.workerTelemetryForbiddenFileEndpointKeys = exports.workerTelemetryReadOnlyFileEndpointKeys = exports.workerTelemetryForbiddenEndpoints = exports.workerTelemetryAllowedActions = exports.workerResultActionNames = exports.workerLocalSchedulerActionNames = exports.workerTelemetryCapabilityMarkerNames = exports.workerTelemetryActionNames = exports.workerTelemetryRequiredEndpoints = exports.workerTelemetryAllowedEvents = void 0;
 exports.isWorkerTelemetryAction = isWorkerTelemetryAction;
 exports.isWorkerDirectAction = isWorkerDirectAction;
 exports.isWorkerTelemetryEventType = isWorkerTelemetryEventType;
@@ -37,6 +37,11 @@ exports.workerTelemetryActionNames = [
     "get-tensorboard-status",
     "install-rich",
     "save-result-policy",
+];
+/** Protocol traits published in actionEndpoints; these names are not POST actions. */
+exports.workerTelemetryCapabilityMarkerNames = [
+    "stop-worker-task-formal-identity",
+    "stop-worker-task-formal-no-attempt",
 ];
 exports.workerLocalSchedulerActionNames = [
     "validate-plan",
@@ -123,7 +128,8 @@ function validateWorkerTelemetryCapabilities(value) {
     if (caps.endpoints.actions) {
         const actions = caps.actionEndpoints || {};
         for (const action of Object.keys(actions)) {
-            if (!isWorkerDirectAction(action) && actions[action]) {
+            const protocolMarker = exports.workerTelemetryCapabilityMarkerNames.includes(action);
+            if (!isWorkerDirectAction(action) && !protocolMarker && actions[action]) {
                 warnings.push(`Worker Telemetry 暴露了不允许的控制动作：${action}`);
             }
         }

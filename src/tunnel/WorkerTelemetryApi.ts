@@ -42,6 +42,12 @@ export const workerTelemetryActionNames = [
   "save-result-policy",
 ] as const;
 
+/** Protocol traits published in actionEndpoints; these names are not POST actions. */
+export const workerTelemetryCapabilityMarkerNames = [
+  "stop-worker-task-formal-identity",
+  "stop-worker-task-formal-no-attempt",
+] as const;
+
 export const workerLocalSchedulerActionNames = [
   "validate-plan",
   "dry-run-plan",
@@ -203,7 +209,8 @@ export function validateWorkerTelemetryCapabilities(value: unknown): { ok: boole
   if (caps.endpoints.actions) {
     const actions = caps.actionEndpoints || {};
     for (const action of Object.keys(actions)) {
-      if (!isWorkerDirectAction(action) && actions[action]) {
+      const protocolMarker = workerTelemetryCapabilityMarkerNames.includes(action as typeof workerTelemetryCapabilityMarkerNames[number]);
+      if (!isWorkerDirectAction(action) && !protocolMarker && actions[action]) {
         warnings.push(`Worker Telemetry 暴露了不允许的控制动作：${action}`);
       }
     }
