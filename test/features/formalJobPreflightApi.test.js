@@ -23,6 +23,7 @@ function fixture() {
   p.workerActionTargets = () => [{ id: 'worker' }];
   p.refreshDistributedResultSyncProbes = async () => {};
   p.missingWorkerActionCapabilities = () => [];
+  p.lastWorkerProbes = { worker: { capabilities: { endpoints: { executionShellPreflight: 1 } } } };
   p.readWorkerTaskSnapshot = async () => ({ tasks: [row] });
   return { p, row, calls, signal: new AbortController().signal };
 }
@@ -48,6 +49,29 @@ test('Host API sends the frozen original identity exclusively to the dedicated n
   assert.equal(calls[0][2].expectedIdentity, row);
   assert.notEqual(calls[0][2].opId, row.commandId);
   assert.equal(JSON.stringify(row), frozen);
+});
+test('environment-only API verifies the actual child shell without admitting or changing an occupied failed job', async () => {
+  const proc = spawnSync(process.platform === 'win32' ? 'python' : 'python3', ['-B', '-X', 'utf8',
+    path.join(__dirname, 'formalJobPreflightProgress.fixture.py'), 'api-environment'], { cwd: root, encoding: 'utf8', timeout: 10000, windowsHide: true });
+  assert.equal(proc.status, 0, proc.stderr || proc.stdout);
+  const { receipt, callbacks } = JSON.parse(proc.stdout);
+  assert.equal(receipt.report.environmentOnly, true);
+  assert.equal(receipt.report.formalJobAdmissionChecked, false);
+  assert.equal(receipt.report.shellVerified, true);
+  assert.equal(receipt.executionStarted, false);
+  assert.equal(receipt.queueChanged, false);
+  assert.equal(JSON.parse(receipt.report.identity).commandId, 'owned-command');
+  assert.deepEqual(callbacks, []);
+  const { p, row, calls, signal } = fixture();
+  row.neverStarted = false;
+  row.neverStartedEvidence = '';
+  await assert.rejects(p.apiTaskPreflight({ workerId: 'worker', commandId: row.commandId }, 'start', signal), /NEVER_STARTED/);
+  await p.apiTaskPreflight({ workerId: 'worker', commandId: row.commandId, environmentOnly: true }, 'start', signal);
+  assert.equal(calls[0][2].environmentOnly, true);
+  p.lastWorkerProbes.worker.capabilities.endpoints.executionShellPreflight = 0;
+  await assert.rejects(p.apiTaskPreflight({ workerId: 'worker', commandId: row.commandId, environmentOnly: true }, 'start', signal), /INCOMPATIBLE/);
+  await assert.rejects(p.apiTaskPreflight({ workerId: 'worker', commandId: row.commandId, environmentOnly: 'true' }, 'start', signal), /INVALID_ENVIRONMENT/);
+  assert.equal(calls.length, 1);
 });
 test('preflight calls only real provider methods, and a missing configured client blocks before any POST', async () => {
   const members = new Set(cls.members.map(n => n.name?.getText(ast)));

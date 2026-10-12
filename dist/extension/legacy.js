@@ -13620,18 +13620,23 @@ class RealtimeTunnelPanelProvider {
         const commandId = stringField(params, "commandId");
         if (!commandId)
             throw new Error("FORMAL_JOB_PREFLIGHT_COMMAND_REQUIRED");
+        if (params.environmentOnly !== undefined && typeof params.environmentOnly !== "boolean")
+            throw new Error("FORMAL_JOB_PREFLIGHT_INVALID_ENVIRONMENT_ONLY");
+        const environmentOnly = params.environmentOnly === true;
+        if (environmentOnly && this.lastWorkerProbes[workerId]?.capabilities?.endpoints?.executionShellPreflight !== 1)
+            throw new Error(`WORKER_PROTOCOL_INCOMPATIBLE: ${workerId}: executionShellPreflight; 请更新匹配的 Agent/Scheduler`);
         const snapshot = await this.readWorkerTaskSnapshot(workerId, { fresh: true, signal });
         const row = snapshot.tasks?.find(task => task.commandId === commandId);
         if (!row || row.projectId !== DistributedPlanQueue.canonicalProjectId(root) || row.workerId !== workerId)
             throw new Error("FORMAL_JOB_PREFLIGHT_TARGET_UNAVAILABLE");
-        if (row.status !== "failed" || row.neverStarted !== true || row.neverStartedEvidence !== "formal_preflight_rejected")
+        if (row.status !== "failed" || !environmentOnly && (row.neverStarted !== true || row.neverStartedEvidence !== "formal_preflight_rejected"))
             throw new Error("FORMAL_JOB_PREFLIGHT_REQUIRES_NEVER_STARTED_REJECTION");
         signal.throwIfAborted();
         if (workspaceRoot() !== root || this.client !== client)
             throw new Error("FORMAL_JOB_PREFLIGHT_PROJECT_CHANGED");
         const operationId = makeOpId("formal-preflight");
         return client.postWorkerAction(workerId, "preflight-worker-task", { schemaVersion: 1, opId: operationId,
-            operationId, workerId, targetCommandId: commandId, expectedIdentity: row }, { signal });
+            operationId, workerId, targetCommandId: commandId, expectedIdentity: row, environmentOnly }, { signal });
     }
     missingWorkerActionCapabilities(workerId, action) {
         workerId = this.resolveWorkerEndpointId(workerId) || workerId;

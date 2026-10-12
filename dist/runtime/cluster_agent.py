@@ -67,9 +67,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.287"
-RUNTIME_VERSION = "0.5.287"
-PLUGIN_VERSION = "0.5.287"
+AGENT_VERSION = "0.5.288"
+RUNTIME_VERSION = "0.5.288"
+PLUGIN_VERSION = "0.5.288"
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -5517,7 +5517,7 @@ def _execute_worker_command_unfenced(root, command, worker_id):
         rel_log = _raw_log.replace("\\", "/").lstrip("/")
     log_path = safe_project_path(project_dir, rel_log)
     os.makedirs(os.path.dirname(log_path), exist_ok=True)
-    env = fresh_task_runtime_env()
+    env = formal_job_command_env(command)
     env["SIMPLE_EXPERIMENT_MANAGED_JOB"] = "1"
     env["SIMPLE_EXPERIMENT_JOB_COMMAND_ID"] = str(command_id)
     env["SIMPLE_EXPERIMENT_JOB_PROJECT_ID"] = str(command.get("projectId") or "")
@@ -5824,6 +5824,38 @@ def verified_durable_execution_mode(project_dir, command):
     return mode
 
 
+def formal_job_command_env(command):
+    """Use the same configured prefix at preflight and task execution, with fresh job identity."""
+    env = fresh_task_runtime_env()
+    options = command.get("options") if isinstance(command.get("options"), dict) else {}
+    if any(key in command for key in ("condaEnv", "conda_env")) or any(key in options for key in ("condaEnv", "conda_env")):
+        selected = str(command.get("condaEnv") or command.get("conda_env") or options.get("condaEnv") or options.get("conda_env") or "").strip()
+        env["SIMPLE_EXPERIMENT_CONDA_ENV"] = "" if selected in {"-", "--"} else selected
+        env["SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV"] = "1" if env["SIMPLE_EXPERIMENT_CONDA_ENV"] else "0"
+    identity = {key: command.get(key) for key in ("workflowId", "globalJobId", "commandId", "planRevision", "codeFingerprint")}
+    env["SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY"] = json.dumps(identity, ensure_ascii=False)
+    env["SIMPLE_EXPERIMENT_JOB_COMMAND_ID"] = str(identity.get("commandId") or "")
+    return env
+
+def verified_worker_execution_shell(project_dir, command):
+    """Only probe the task shell; occupied output directories remain untouched and unadmitted."""
+    if not execution_shell_preflight_capable(project_dir):
+        raise ValueError("WORKER_PROTOCOL_INCOMPATIBLE: execution shell preflight requires matching Agent/Scheduler")
+    if command.get("resultPathPolicy") != "declared" or "attempts" in str(command.get("outputDir") or "").split("/"):
+        raise ValueError("HISTORICAL_ATTEMPT_READ_ONLY")
+    env = formal_job_command_env(command)
+    args = [simple_runtime_python(env), "-B", "-X", "utf8", cluster_scheduler_path(project_dir), "--check-execution-shell-json"]
+    job_shell_environment_prefix(env, args)
+    proc = subprocess_inactivity_run(args, cwd=project_dir, env=env, progress_stream="stderr")
+    if proc.returncode:
+        raise ValueError((proc.stderr or proc.stdout or "EXECUTION_SHELL_PREFLIGHT_FAILED")[-4000:])
+    report = json.loads(proc.stdout)
+    if report.get("ok") is not True or report.get("shellVerified") is not True:
+        raise ValueError("EXECUTION_SHELL_PREFLIGHT_FAILED: " + str(report.get("error") or "invalid shell probe report"))
+    if report.get("identity") != env["SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY"]:
+        raise ValueError("FORMAL_JOB_PREFLIGHT_IDENTITY_MISMATCH: task shell")
+    return {**report, "environmentOnly": True, "formalJobAdmissionChecked": False}
+
 def verified_formal_job_command(project_dir, command):
     """Check the real Scheduler message contract before queue admission or tmux creation."""
     if command.get("resultPathPolicy") != "declared" or "attempts" in str(command.get("outputDir") or "").split("/"):
@@ -5831,12 +5863,9 @@ def verified_formal_job_command(project_dir, command):
     scheduler_path = cluster_scheduler_path(project_dir)
     if not scheduler_path or not formal_job_path_capable(project_dir):
         raise ValueError("WORKER_PROTOCOL_INCOMPATIBLE: deploy matching formal-path Scheduler and Agent")
-    identity = {key: command.get(key) for key in ("workflowId", "globalJobId", "commandId", "planRevision", "codeFingerprint")}
-    env = fresh_task_runtime_env()
-    env["SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY"] = json.dumps(identity)
-    env["SIMPLE_EXPERIMENT_JOB_COMMAND_ID"] = str(identity.get("commandId") or "")
+    env = formal_job_command_env(command)
     requested_mode = "test" if command.get("checkpointTestOnly") is True else str(command.get("mode") or "")
-    args = [simple_runtime_python(env), scheduler_path, "--formal-job-preflight", "--plan", durable_plan_value(command, "planFile"),
+    args = [simple_runtime_python(env), "-B", "-X", "utf8", scheduler_path, "--formal-job-preflight", "--plan", durable_plan_value(command, "planFile"),
             "--only-index", str(command.get("experimentIndex")), "--mode", requested_mode,
             "--plan-revision", str(command.get("planRevision") or ""), "--output-dir-override", str(command.get("outputDir") or "")]
     job_shell_environment_prefix(env, args)  # Validate the supplied identity; never fabricate a missing globalJobId.
@@ -5880,8 +5909,9 @@ def preflight_existing_worker_task(root, payload, worker_id):
             or any(row.get(key) != expected.get(key) for key in
                    ("resultPathPolicy", "globalJobId", "collectionResultCsv", "checkpointSource", "executionMode", "mode"))):
         raise ValueError("FORMAL_JOB_PREFLIGHT_IDENTITY_MISMATCH")
-    if (row.get("status") != "failed" or row.get("neverStarted") is not True
-            or row.get("neverStartedEvidence") != "formal_preflight_rejected"):
+    environment_only = payload.get("environmentOnly") is True
+    if (row.get("status") != "failed" or not environment_only and (row.get("neverStarted") is not True
+            or row.get("neverStartedEvidence") != "formal_preflight_rejected")):
         raise ValueError("FORMAL_JOB_PREFLIGHT_REQUIRES_NEVER_STARTED_REJECTION")
     # Read the original proof without renewing it or writing a new admission record.
     proof_id = str(row.get("codeSyncProofId") or "")
@@ -5898,8 +5928,8 @@ def preflight_existing_worker_task(root, payload, worker_id):
             _code_sync_stat_record(root, relative, digest, verify_content=True)
     else:
         raise ValueError("code-sync proof missing; original source cannot be verified")
-    report = verified_formal_job_command(root, row)
     verified_durable_execution_mode(root, row)
+    report = verified_worker_execution_shell(root, row) if environment_only else verified_formal_job_command(root, row)
     return {"schemaVersion": 1, "targetCommandId": target, "workerId": worker_id,
             "executionStarted": False, "queueChanged": False, "report": report}
 
@@ -6569,6 +6599,13 @@ def formal_job_path_capable(root):
     except (OSError, TypeError):
         return False
 
+def execution_shell_preflight_capable(root):
+    try:
+        with open(cluster_scheduler_path(root), "r", encoding="utf-8") as stream:
+            return formal_job_path_capable(root) and "EXECUTION_SHELL_PREFLIGHT_PROTOCOL = 1" in stream.read(8192)
+    except (OSError, TypeError):
+        return False
+
 
 def api_capabilities(root, token_required=False, mode="hub_control"):
     if mode == "worker_telemetry":
@@ -6593,6 +6630,7 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
                 "workerTasks": True,
                 "declaredJobPaths": formal_job_path_capable(root),
                 "formalJobIdentityEnv": 1 if formal_job_path_capable(root) else 0,
+                "executionShellPreflight": 1 if execution_shell_preflight_capable(root) else 0,
                 "durablePlanQueue": True,
                 "codeSyncProof": True,
                 "idleGpuAdmission": True,
@@ -6650,6 +6688,7 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
             "scheduler": True,
             "declaredJobPaths": formal_job_path_capable(root),
             "formalJobIdentityEnv": 1 if formal_job_path_capable(root) else 0,
+            "executionShellPreflight": 1 if execution_shell_preflight_capable(root) else 0,
             "traces": True,
             "liveOutput": True,
             "diagnostics": True,
@@ -13235,7 +13274,8 @@ def handle_action(root, action, payload, operation_id, op_id):
                 return terminal_action(root, action, operation_id, op_id, "completed", "已取消指定预检；未停止科研作业",
                                        {"targetPreflightOperationId": target, "executionStarted": False, "queueChanged": False})
             result = preflight_existing_worker_task(root, payload, worker_id)
-            return terminal_action(root, action, operation_id, op_id, "completed", "单作业启动前预检通过；未启动或重新入队", result)
+            message = "任务 shell 核验通过；未核验目录准入、未启动或重新入队" if payload.get("environmentOnly") is True else "单作业启动前预检通过；未启动或重新入队"
+            return terminal_action(root, action, operation_id, op_id, "completed", message, result)
         except Exception as exc:
             return terminal_action(root, action, operation_id, op_id, "failed", str(exc),
                                    {"executionStarted": False, "queueChanged": False, "targetCommandId": payload.get("targetCommandId")})

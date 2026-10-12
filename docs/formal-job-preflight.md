@@ -2,7 +2,7 @@
 
 0.5.286 修复 Worker 启动前的固定 10 秒总时长限制，以及 only-index 仍重复调用全部作业资产校验的问题。修改范围为插件、Scheduler 和 Agent；消费项目的模型、数据、权重及历史结果不变。
 
-当前交付版本为 **0.5.287**，另补齐正式失败 job 的显式重排入口。2026-10-13 用户手动重新运行同名 AOEPT PLAN 时，最新提交操作 `plan-submit-runPlan|1791832616556|6167491056271724|runPlan|planFile=experiments/plans/comparison/aoept.yaml` 被本机 `FORMAL_JOB_CONFLICT: this declared directory is already registered` 拒绝；没有产生新的 Worker 失败作业。这是重复登记保护，不是 10 秒超时重现。
+当前交付版本为 **0.5.288**，补齐 Scheduler 的任务 shell 环境核验。0.5.287 已补齐正式失败 job 的显式重排入口。2026-10-13 用户手动重新运行同名 AOEPT PLAN 时，提交操作 `plan-submit-runPlan|1791832616556|6167491056271724|runPlan|planFile=experiments/plans/comparison/aoept.yaml` 被本机 `FORMAL_JOB_CONFLICT: this declared directory is already registered` 拒绝；该次没有产生新的 Worker 失败作业。这是重复登记保护，不是 10 秒超时重现。
 
 旧界面用 `job.attempt` 的真值决定显示重排按钮，正式 job 的内部兼容值 0 导致按钮隐藏。现改为完整 declared/globalJobId 身份，按钮为 **重新排队此 job**，不发送 attempt。进入原失败 Plan 的此按钮，经原 Worker 停止/身份、空输出核验及用户显式确认后，保留 workflow、globalJobId、revision、代码指纹和正式路径，生成独立的控制 command；旧 command 和拒绝证据存入历史。重排清除当前命令旧的 terminal/rejection 缓存；服务器返回已登记的原终态 command 时只作为历史，不与新 command 冲突。未记录、身份变动或仍活动的旧 command 继续阻断。
 
@@ -71,3 +71,23 @@ PAD 诊断提交 ID 对应 UTC 19:15:04.251；status 最多取最近 200 事件�
 本地验证实际执行：三个新增预检文件共 10 项通过；`subprocessInactivity.test.js` 9 项、`formalJobExecution.test.js` 6 项、`preflightDispatchRejection.test.js` 6 项、`localApi.test.js` 28 项通过。`npm run package` 内置构建门禁共 52 项通过，完成 TypeScript、node -c、额外 vm.Script 和 VSIX runtime closure 校验。未执行全仓库全量测试或科研训练。
 
 既有 `planResultPathContract.test.js` 的通用夹具和缓存检查通过；依赖消费项目旧 `quality_composition/late_fusion.yaml` 的实机测试失败，因为该 PLAN 当前不存在，未伪装通过或改动消费项目来适配旧测试。
+
+## 0.5.288 后续任务 shell 修复
+
+用户随后自行提交工作流 `distributed-plan-1791833986160-p2fzbq`。只读 `tasks.list` 核实 BUS index0/1/2 在 NWPU3 running，PAD index3/4/5 在 NWPU2 failed。通过插件 `tmux.capture` 定位原 PAD index3 command `a1021796a28fcef81beeb2824f29196c` 的实际窗格 `%57`，读到连续五次 `conda activate /data/qgking/conda_env/zlk` 失败，原始错误 `/bin/bash: conda: command not found`；尚未执行项目 train.py。其正式目录中可能已有 Scheduler 身份、配置和失败日志，不能把 failed 当成空目录或自动清除。开发助手未提交、重派或停止这些科研任务。
+
+Agent 预检用配置的绝对 Python 启动，而 Scheduler 的 `run_command()` 又包一层依赖 conda CLI 的 shell；两者环境不一致。Scheduler 现在与 Agent 一样优先使用已验证的环境目录 `bin/python` 和 PATH，不要求非交互 shell 存在 conda CLI。命名环境/不存在的前缀仍失败，未关闭身份、目录、checkpoint 或来源哈希门禁。统一 `formal_job_command_env()` 使预检使用原冻结命令的 condaEnv，真实执行也使用同一前缀。
+
+完整启动预检新增无科研副作用的 stdlib shell 探针，比较实际解释器、sys.prefix 和原始身份 JSON；UTF-8 显式传递。stdout 上限 64 KiB，stderr 尾部 32 KiB，探针超时后回收子进程。这里的 8 秒仅限制轻量环境探针，昂贵资产核验仍采用 30 秒无真实进展检测，没有改回固定总预算。
+
+另提供原失败任务的独立环境诊断：
+
+```json
+{"method":"tasks.preflight","params":{"workerId":"nwpu2","commandId":"a1021796a28fcef81beeb2824f29196c","environmentOnly":true}}
+```
+
+该可选模式仍核对当前项目、冻结失败 command 身份、PLAN revision、代码证明及原模式，只运行任务 shell，不访问/改写失败输出目录，不收养已有结果，不入队。报告明确给出 `environmentOnly=true`、`formalJobAdmissionChecked=false`、`executionStarted=false`、`queueChanged=false`，不能把它作为资产、checkpoint 或正式目录准入成功。默认完整预检仍仅接受 neverStarted / formal_preflight_rejected。Worker capability `executionShellPreflight=1` 必须来自同版 Agent/Scheduler 的协议标记，旧端点在 Host POST 前阻断。
+
+本地实际回归：清洁 Git Bash 中无 conda CLI 的环境前缀及 `/bin/python` 路径可执行，中文、空格和引号路径保留；不存在的环境失败。真实 Python 子进程验证两份独立身份与 UTF-8；不一致 metadata、非法 JSON、超限 stdout、超时均拒绝并回收。独立已有 tmux server 的 GPU/普通启动身份回归两项通过。完整 Worker 启动回归、停滞/取消/JSON 流分离、结构六作业但仅一次资产回调及非空失败目录只诊断均通过；没有运行科研训练。测试临时夹具保留，没有删除研究或远端资产。
+
+Windows 本机交付 0.5.288；**本节新增远端 shell 核验尚待部署后通过 API 实测**。需用户重载 VS Code，并通过插件更新 NWPU2 的 Agent 和 Scheduler 到 0.5.288。NWPU3 的三项正在运行的作业保持原状，等完成后再更新该 Worker。不得重派原失败任务来代替只预检验收，也不能将前节 0.5.286 的完整资产验收冒充本节新增 shell 验收。

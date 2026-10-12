@@ -690,6 +690,7 @@ class LocalApiServer {
             methodOptions: {
                 ...(Object.keys(this.methods).includes("tasks.preflight") ? {
                     "tasks.preflight": { params: ["workerId", "commandId"], researchFilesReadOnly: true, launchesTraining: false, changesQueue: false,
+                        optionalParams: { environmentOnly: { type: "boolean", default: false, description: "Only verify the real task shell for a frozen failed job; does not validate assets, checkpoint or output admission", requiresWorkerEndpoint: "executionShellPreflight=1" } },
                         originalRejectedIdentity: true, inactivitySeconds: 30, progressStream: "stderr", requiresMatchingWorkerAction: "preflight-worker-task" },
                     "tasks.preflight.status": { params: ["workerId", "operationId"], readOnly: true },
                     "tasks.preflight.cancel": { params: ["workerId", "operationId"], cancelsDiagnosticOnly: true },

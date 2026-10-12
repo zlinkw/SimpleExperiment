@@ -36,11 +36,12 @@ except ModuleNotFoundError as exc:
     yaml = None
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_scheduler.py 为准
-SCHEDULER_VERSION = "0.5.287"
-RUNTIME_VERSION = "0.5.287"
-PLUGIN_VERSION = "0.5.287"
+SCHEDULER_VERSION = "0.5.288"
+RUNTIME_VERSION = "0.5.288"
+PLUGIN_VERSION = "0.5.288"
 FORMAL_JOB_PATH_PROTOCOL = 1
 FORMAL_JOB_IDENTITY_ENV_PROTOCOL = 1
+EXECUTION_SHELL_PREFLIGHT_PROTOCOL = 1
 
 TAIL_BYTES = 16 * 1024
 WORKER_AVAILABILITY_REFRESH_TIMEOUT_SECONDS = 5.0
@@ -1762,16 +1763,18 @@ def simple_conda_activation_script(env: dict[str, str] | None = None) -> str:
     return (
         'export SIMPLE_EXPERIMENT_CONDA_ENV=' + shlex.quote(str(raw_env_name)) + '; '
         'if [ -n "$SIMPLE_EXPERIMENT_CONDA_ENV" ]; then '
+        '__simple_conda_env_dir="$SIMPLE_EXPERIMENT_CONDA_ENV"; case "$__simple_conda_env_dir" in */bin/python) __simple_conda_env_dir="$(dirname "$(dirname "$__simple_conda_env_dir")")";; esac; '
+        'if [ -x "$__simple_conda_env_dir/bin/python" ]; then export PATH="$__simple_conda_env_dir/bin:$PATH"; else '
         '__conda_root="$(conda info --base 2>/dev/null)"; '
         '__conda_sh=""; '
         'if [ -n "$CONDA_PREFIX" ] && [ -f "$CONDA_PREFIX/etc/profile.d/conda.sh" ]; then __conda_sh="$CONDA_PREFIX/etc/profile.d/conda.sh"; '
         'elif [ -n "$__conda_root" ] && [ -f "$__conda_root/etc/profile.d/conda.sh" ]; then __conda_sh="$__conda_root/etc/profile.d/conda.sh"; '
-        'elif [ -n "$CONDA_EXE" ]; then __conda_sh="$(dirname $CONDA_EXE)/../etc/profile.d/conda.sh"; fi; '
+        'elif [ -n "$CONDA_EXE" ]; then __conda_sh="$(dirname "$CONDA_EXE")/../etc/profile.d/conda.sh"; fi; '
         'if [ -n "$__conda_sh" ] && [ -f "$__conda_sh" ]; then . "$__conda_sh"; fi; '
         '_c_ok=0; for _i in 1 2 3 4 5; do '
         'if conda activate "$SIMPLE_EXPERIMENT_CONDA_ENV" 2>/dev/null; then _c_ok=1; break; fi; '
         'echo "[simple-agent] conda activate attempt $_i failed for $SIMPLE_EXPERIMENT_CONDA_ENV"; conda env list 2>&1 | head -20; sleep 1; done; '
-        'if [ "$_c_ok" != "1" ]; then echo "[simple-agent] conda activate $SIMPLE_EXPERIMENT_CONDA_ENV failed PATH=$PATH CONDA_EXE=$CONDA_EXE"; conda activate "$SIMPLE_EXPERIMENT_CONDA_ENV"; exit 127; fi; fi'
+        'if [ "$_c_ok" != "1" ]; then echo "[simple-agent] conda activate $SIMPLE_EXPERIMENT_CONDA_ENV failed PATH=$PATH CONDA_EXE=$CONDA_EXE"; conda activate "$SIMPLE_EXPERIMENT_CONDA_ENV"; exit 127; fi; fi; fi'
     )
 
 
@@ -1783,6 +1786,61 @@ def simple_conda_wrapped_args(args: list[str], env: dict[str, str]) -> list[str]
     if not (simple_conda_required(env) or conda_env):
         return args
     return shell_command_args(f"{simple_conda_activation_script(env)} && exec {shlex.join(args)}")
+
+def execution_shell_preflight() -> dict[str, Any]:
+    """Use the real task shell to probe only stdlib/interpreter identity, never a job."""
+    env = simple_runtime_env()
+    code = "import json,os,sys; print(json.dumps(dict(python=sys.executable,prefix=sys.prefix,identity=os.environ.get('SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY','')),ensure_ascii=False))"
+    proc = None
+    readers = []
+    try:
+        python = runtime_python_command(env)
+        proc = subprocess.Popen(simple_conda_wrapped_args([python, "-B", "-X", "utf8", "-c", code], env), env=env,
+                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        buffers = {"stdout": bytearray(), "stderr": bytearray()}
+        overflow = [False]
+        def drain(name, stream):
+            for chunk in iter(lambda: stream.read(4096), b""):
+                if name == "stdout":
+                    if len(buffers[name]) + len(chunk) > 65536:
+                        overflow[0] = True
+                    if not overflow[0]:
+                        buffers[name].extend(chunk)
+                else:
+                    buffers[name].extend(chunk)
+                    del buffers[name][:-32768]
+        readers = [threading.Thread(target=drain, args=(name, stream), daemon=True)
+                   for name, stream in (("stdout", proc.stdout), ("stderr", proc.stderr))]
+        for reader in readers: reader.start()
+        proc.wait(timeout=8)  # Bounded stdlib probe only; asset verification uses genuine-progress inactivity.
+        for reader in readers: reader.join(timeout=1)
+        if any(reader.is_alive() for reader in readers):
+            raise ValueError("execution environment output did not close")
+        stdout = buffers["stdout"].decode("utf-8")
+        stderr = buffers["stderr"].decode("utf-8", errors="replace")
+        if proc.returncode:
+            raise ValueError("task shell exited " + str(proc.returncode) + ": " + (stderr or stdout)[-1500:])
+        if overflow[0]:
+            raise ValueError("execution environment stdout exceeds limit")
+        report = json.loads(stdout)
+        if not isinstance(report, dict) or any(not isinstance(report.get(key), str) for key in ("python", "prefix", "identity")):
+            raise ValueError("invalid execution environment metadata")
+        selected = simple_conda_env_name(env)
+        prefix = selected[:-len("/bin/python")] if selected.endswith("/bin/python") else selected.rstrip("/")
+        if (os.path.realpath(report.get("python", "")) != os.path.realpath(python)
+                or prefix and os.path.realpath(report.get("prefix", "")) != os.path.realpath(prefix)
+                or report.get("identity") != env.get("SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY", "")):
+            raise ValueError("selected interpreter, prefix or job identity changed across task shell")
+        return {"ok": True, "shellVerified": True, "declaredCondaEnv": selected, **report, "executionStarted": False}
+    except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as exc:
+        return {"ok": False, "errorCode": "EXECUTION_SHELL_PREFLIGHT_FAILED", "error": str(exc)[-2000:], "executionStarted": False}
+    finally:
+        if proc is not None:
+            if proc.poll() is None:
+                proc.kill()
+                proc.wait(timeout=2)
+            for reader in readers: reader.join(timeout=1)
+            for stream in (proc.stdout, proc.stderr): stream.close()
 
 
 def _replace_bare_python_prefix(text: str, python_bin: str) -> str:
@@ -2459,6 +2517,9 @@ def run_job_unlocked(job: Job, args: argparse.Namespace) -> None:
 
 
 def formal_job_preflight_mode(args: argparse.Namespace) -> dict[str, Any]:
+    environment = execution_shell_preflight()
+    if not environment["ok"]:
+        raise ValueError(environment["errorCode"] + ": " + environment["error"])
     plan = load_plan(args.plan)
     if str(args.plan).replace("\\", "/").startswith("tmp/plan/"):
         raise ValueError("DRAFT_EXECUTION_RETIRED")
@@ -2475,7 +2536,7 @@ def formal_job_preflight_mode(args: argparse.Namespace) -> dict[str, Any]:
         raise ValueError(";".join(report["missing"]))
     identity = json.loads(os.environ.get("SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY", "{}"))
     admission = formal_job_preflight(job, identity, mode)
-    return {**admission, "policy": "declared", "outputDir": job.output_dir, "checkpointSource": job.config.get("runtime", {}).get("checkpoint_source"),
+    return {**admission, "executionEnvironment": environment, "policy": "declared", "outputDir": job.output_dir, "checkpointSource": job.config.get("runtime", {}).get("checkpoint_source"),
             "preflight": {"onlyIndex": job.index, "structuralJobCount": len(jobs), "assetValidationIndices": [job.index], "executionStarted": False},
             "collectionResultCsv": job.result_csv, "resultPathContract": job.config["runtime"]["result_path_contract"]}
 
@@ -4007,6 +4068,7 @@ def main() -> None:
     parser.add_argument("--state-path", default="")
     parser.add_argument("--run-job", action="store_true")
     parser.add_argument("--formal-job-preflight", action="store_true")
+    parser.add_argument("--check-execution-shell-json", action="store_true")
     parser.add_argument("--print-job-dir", action="store_true")
     parser.add_argument("--validate-plan", action="store_true")
     parser.add_argument("--dry-run-plan", action="store_true")
@@ -4051,6 +4113,9 @@ def main() -> None:
     args = parser.parse_args()
     _SCHEDULER_ARGS_FOR_GUARD = args
     args.default_result_csv_dir = normalize_default_result_csv_dir(args.default_result_csv_dir)
+    if args.check_execution_shell_json:
+        print(json.dumps(execution_shell_preflight(), ensure_ascii=False))
+        return
     if args.formal_job_preflight:
         print(json.dumps(formal_job_preflight_report(args), ensure_ascii=False))
         return

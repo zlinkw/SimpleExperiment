@@ -58,11 +58,12 @@ from extractRuntimeFunctions import extract_runtime_functions
 scheduler = extract_runtime_functions(''' + repr(str(runtime / "cluster_scheduler.py")) + ''', ['formal_job_preflight_report'])
 p = argparse.ArgumentParser()
 p.add_argument('--formal-job-preflight',action='store_true')
+p.add_argument('--check-execution-shell-json',action='store_true')
 p.add_argument('--plan');p.add_argument('--only-index',type=int);p.add_argument('--mode')
 p.add_argument('--plan-revision');p.add_argument('--output-dir-override')
 p.add_argument('--default-result-csv-dir',default='experiments/results')
 args=p.parse_args()
-print(json.dumps(scheduler.formal_job_preflight_report(args),ensure_ascii=False),flush=True)
+print(json.dumps(scheduler.execution_shell_preflight() if args.check_execution_shell_json else scheduler.formal_job_preflight_report(args),ensure_ascii=False),flush=True)
 ''', encoding="utf-8")
 scheduler = extract_runtime_functions(str(runtime / "cluster_scheduler.py"), ["load_plan", "build_jobs", "formal_source_fingerprint"])
 plan_file = "experiments/plans/formal.yaml"
@@ -101,6 +102,7 @@ agent.path_for = lambda *args: str(root / "not-created.json")
 agent.signal_durable_plan_queue_processor = lambda *args: None
 agent.cluster_scheduler_path = lambda _: str(child)
 agent.formal_job_path_capable = lambda _: True  # The child runs the real Scheduler preflight implementation.
+agent.execution_shell_preflight_capable = lambda _: True  # Version rejection is tested separately; this child uses the real extracted probe.
 agent.simple_runtime_python = lambda env: sys.executable
 agent.scalar_scheduler_module = lambda: scheduler
 def environment():
@@ -131,18 +133,24 @@ entry = {"cancel": threading.Event(), "processes": set(), "root": str(root), "ac
 agent.INACTIVITY_ACTION_CONTEXT.entry = entry
 if variant == "cancel": threading.Timer(0.4, entry["cancel"].set).start()
 started = time.monotonic()
-if variant == "api":
+if variant in ("api", "api-environment"):
     # Frozen never-started admission rejection, verified again without queue mutation.
     raw = hook.read_bytes()
     command["codeManifest"] = {"validator.py": {"size": len(raw), "sha256": agent.hashlib.sha256(raw).hexdigest()}}
     command["codeFingerprint"] = agent.durable_code_manifest_digest(command["codeManifest"])
     row = {**command, "status": "failed", "neverStarted": True, "neverStartedEvidence": "formal_preflight_rejected"}
+    if variant == "api-environment":
+        row.update(neverStarted=False, neverStartedEvidence="", condaEnv="")
+        output = pathlib.Path(job.output_dir)
+        output.mkdir(parents=True)
+        (output / "failure.log").write_bytes(b"preserve the original failure bytes")
     queue["jobs"] = [row]
     original_queue = copy.deepcopy(queue)
     def forbidden(*args, **kw): raise AssertionError("diagnostic attempted to mutate or launch")
     agent.write_durable_plan_queue = forbidden
     agent.signal_durable_plan_queue_processor = forbidden
     payload = {"targetCommandId": row["commandId"], "expectedIdentity": copy.deepcopy(row)}
+    if variant == "api-environment": payload["environmentOnly"] = True
     receipt = agent.preflight_existing_worker_task(str(root), payload, "worker")
     rejections = []
     for change in ({"globalJobId": "foreign:0"}, {"mode": "train"}, {"collectionResultCsv": "other.csv"}):
@@ -174,7 +182,11 @@ for line in "".join(stderr).splitlines():
             row = json.loads(line[len("SIMPLE_PROGRESS "):])
             if "callbackIndex" in row: callbacks.append(row["callbackIndex"])
         except ValueError: pass
-assert not pathlib.Path(job.output_dir).exists(), "preflight created a training directory"
+if variant == "api-environment":
+    assert sorted(p.name for p in pathlib.Path(job.output_dir).iterdir()) == ["failure.log"]
+    assert (pathlib.Path(job.output_dir) / "failure.log").read_bytes() == b"preserve the original failure bytes"
+else:
+    assert not pathlib.Path(job.output_dir).exists(), "preflight created a training directory"
 assert all(proc.poll() is not None for proc in children), "preflight child is still alive"
 assert not entry["processes"], "preflight child remained registered"
 print(json.dumps({"receipt": receipt, "callbacks": callbacks, "progressCount": len(events),
