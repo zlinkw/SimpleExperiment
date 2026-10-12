@@ -10848,12 +10848,8 @@ export class RealtimeTunnelPanelProvider {
                     await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
                     const stopOperationId = makeOpId("distributed-requeue");
                     const request = { schemaVersion: 1, opId: stopOperationId, operationId: stopOperationId,
-                        commandId: stopOperationId, targetCommandId: job.commandId, runKey: job.runKey || job.commandId,
-                        requeueRequested: true, workflowId: plan.id, planId: plan.id, projectId,
-                        planRevision: plan.revision, codeFingerprint: plan.codeFingerprint,
-                        planJobCount: Number(plan.planJobCount || plan.jobs.length), planFile: plan.planFile,
-                        experimentIndex: job.index, case: job.case, seed: job.seed, attempt: job.attempt,
-                        outputDir: job.outputDir, workerId: job.workerId, gpuId: job.gpuId };
+                        commandId: stopOperationId, requeueRequested: true,
+                        ...DistributedPlanQueue.workerStopJobIdentity(plan, job), projectId };
                     try {
                         const result: any = await this.withRemoteActionResource(job.workerId, "stop-worker-task", request,
                             () => this.client.postWorkerAction(job.workerId, "stop-worker-task", request));
@@ -11892,11 +11888,7 @@ export class RealtimeTunnelPanelProvider {
                 return;
             }
             const request = { schemaVersion: 1, opId: operationId, operationId, commandId: operationId,
-                targetCommandId: job.commandId, runKey: job.runKey || job.commandId, requeueRequested: true,
-                workflowId: plan.id, planId: plan.id, projectId: plan.projectId, codeFingerprint: plan.codeFingerprint,
-                planRevision: plan.revision, planJobCount: Number(plan.planJobCount || plan.jobs.length), planFile: plan.planFile,
-                experimentIndex: job.index, case: job.case, seed: job.seed, attempt: job.attempt,
-                outputDir: job.outputDir, workerId: job.workerId, gpuId: job.gpuId };
+                requeueRequested: true, ...DistributedPlanQueue.workerStopJobIdentity(plan, job) };
             try {
                 const result: any = await this.withRemoteActionResource(job.workerId, "stop-worker-task", request,
                     () => this.client.postWorkerAction(job.workerId, "stop-worker-task", request));
@@ -16169,40 +16161,30 @@ export class RealtimeTunnelPanelProvider {
         const probe = this.lastWorkerProbes?.[workerId];
         return probe?.status === "ok" && probe?.capabilities?.actionEndpoints?.["stop-worker-task-exact-pane"] === true;
     }
-    async refreshExactPaneStopCapability(workerId) {
+    async refreshExactPaneStopCapability(workerId, formal = false) {
         const item = this.tunnelLaunchItems().find((entry) => entry.id === workerId && entry.role === "worker");
-        if (!item) return this.workerSupportsExactPaneStop(workerId);
-        const probe = this.stampWorkerProbeGeneration(workerId,
-            await (0, XshellTunnelPortProbe_1.probeWorkerTelemetryTunnel)({ ...item.config, token: this.tunnelConfig.token }, { timeoutMs: 1500 }));
-        this.lastWorkerProbes = { ...(this.lastWorkerProbes || {}), [workerId]: probe };
-        return probe?.status === "ok" && probe?.capabilities?.actionEndpoints?.["stop-worker-task-exact-pane"] === true;
+        let probe = this.lastWorkerProbes?.[workerId];
+        if (item) {
+            probe = this.stampWorkerProbeGeneration(workerId,
+                await (0, XshellTunnelPortProbe_1.probeWorkerTelemetryTunnel)({ ...item.config, token: this.tunnelConfig.token }, { timeoutMs: 1500 }));
+            this.lastWorkerProbes = { ...(this.lastWorkerProbes || {}), [workerId]: probe };
+        }
+        return probe?.status === "ok" && probe?.capabilities?.actionEndpoints?.["stop-worker-task-exact-pane"] === true
+            && (!formal || probe?.capabilities?.actionEndpoints?.["stop-worker-task-formal-identity"] === true);
     }
     async stopDistributedJobForClear(plan, job) {
         if (!job.workerId || !job.commandId) throw new Error("活动 job 缺少 Worker 或 commandId，未发送停止");
-        const exactPane = job.gpuId === undefined ? true : await this.refreshExactPaneStopCapability(job.workerId);
+        const formal = plan.resultPathPolicy === "declared";
+        const exactPane = job.gpuId === undefined && !formal ? true : await this.refreshExactPaneStopCapability(job.workerId, formal);
         if (exactPane !== true)
-            throw new Error(`Worker ${job.workerId} 的实时能力没有 stop-worker-task-exact-pane。请先更新并重启该 Worker Agent，再重试；未发送停止命令。`);
+            throw new Error(`Worker ${job.workerId} 的实时能力没有 ${formal ? "stop-worker-task-formal-identity" : "stop-worker-task-exact-pane"}。请先更新并重启该 Worker Agent，再重试；未发送停止命令。`);
         const stopOperationId = makeOpId("stop-distributed-job");
         const request = {
             schemaVersion: 1,
             opId: stopOperationId,
             operationId: stopOperationId,
-            targetCommandId: job.commandId,
-            runKey: job.runKey || job.commandId,
-            workflowId: plan.id,
-            planId: plan.id,
+            ...DistributedPlanQueue.workerStopJobIdentity(plan, job),
             projectId: plan.projectId || DistributedPlanQueue.canonicalProjectId(workspaceRoot()),
-            planRevision: plan.revision,
-            codeFingerprint: plan.codeFingerprint,
-            planJobCount: Number(plan.planJobCount || plan.jobs.length),
-            planFile: plan.planFile,
-            experimentIndex: job.index,
-            case: job.case,
-            seed: job.seed,
-            attempt: job.attempt,
-            outputDir: job.outputDir,
-            workerId: job.workerId,
-            ...(job.gpuId !== undefined ? { gpuId: String(job.gpuId) } : {}),
             manualStopType: "scheduler_aborted",
             stopReason: "scheduler_aborted",
             stopSource: "user",

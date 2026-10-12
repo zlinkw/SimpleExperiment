@@ -3228,19 +3228,18 @@ def cancel_durable_plan_job(root, command):
         row = next((item for item in data["jobs"] if isinstance(item, dict) and str(item.get("commandId") or "") == target), None)
         if not row or str(row.get("status") or "").lower() != "queued":
             return None
-        required = tuple(key for key in DURABLE_PLAN_IDENTITY_FIELDS if key != "commandId")
-        supplied = {key: durable_plan_value(command, key) for key in required}
-        missing = [key for key, value in supplied.items() if value in (None, "")]
-        if missing:
-            raise ValueError("待启动任务取消缺少完整身份：" + ",".join(missing))
-        if any(str(row.get(key) if row.get(key) is not None else "") != str(value) for key, value in supplied.items()):
-            raise ValueError("取消请求身份与持久队列 job 不匹配")
+        differences = worker_task_stop_identity_mismatches(command, row)
+        if differences:
+            failure = ValueError("取消请求身份与持久队列 job 不匹配：" + ",".join(differences))
+            failure.identity_mismatch_fields = differences
+            raise failure
         cancelled_at = now_iso()
         row.update({"status": "cancelled", "cancelledAt": cancelled_at,
                     "cancelCommandId": str(command.get("commandId") or command.get("operationId") or "")})
         write_durable_plan_queue(root, data)
         receipt = {**durable_plan_public_identity(row), "planJobCount": row.get("planJobCount"), "enqueuedAt": row.get("enqueuedAt"),
-                   "status": "cancelled", "finishedAt": cancelled_at, "stopReason": "user_cancel", "gpuId": ""}
+                   "status": "cancelled", "finishedAt": cancelled_at, "stopReason": "user_cancel", "gpuId": row.get("gpuId") or ""}
+        release_distributed_gpu_reservation(str(row.get("gpuId") or ""), target)
     append_worker_task(root, {**receipt, "schemaVersion": SCHEMA_VERSION})
     append_event(root, {"type": "distributed_plan_job_cancelled", "workerId": receipt["workerId"],
                         "operationId": target, "payload": receipt})
@@ -3532,26 +3531,36 @@ def historical_command_is_unprocessed(root, worker_id, sequence):
     except (OSError, KeyError, TypeError, ValueError):
         return False
 
-def worker_task_matches_stop_identity(command, task):
+def worker_task_stop_identity_mismatches(command, task):
+    """Compare the frozen execution identity; formal jobs never require an attempt version."""
     target_command = str(command.get("targetCommandId") or command.get("commandIdTarget") or "").strip()
     task_command = str(task.get("commandId") or task.get("operationId") or "").strip()
     if not target_command or task_command != target_command:
-        return False
+        return ["targetCommandId"]
     fields = (*DURABLE_PLAN_IDENTITY_FIELDS, "gpuId", "planJobCount") if task.get("projectId") else LEGACY_WORKER_STOP_IDENTITY_FIELDS
+    formal = command.get("resultPathPolicy") == "declared" or task.get("resultPathPolicy") == "declared"
+    if formal:
+        fields = tuple(field for field in fields if field != "attempt") + ("resultPathPolicy", "globalJobId", "collectionResultCsv")
+    differences = []
+    if formal and (command.get("attempt") not in (None, "", 0, "0") or task.get("attempt") not in (None, "", 0, "0")):
+        differences.append("attempt")
     for field in fields:
         if field == "commandId":
             continue  # targetCommandId identifies the job; commandId identifies this stop.
-        expected = command.get(field)
-        actual = task.get("plan") if field == "planFile" and task.get("planFile") in (None, "") else task.get(field)
+        expected = durable_plan_value(command, field)
+        actual = durable_plan_value(task, field)
         if field in ("seed", "attempt", "experimentIndex", "planJobCount"):
             try:
                 if int(actual) != int(expected):
-                    return False
+                    differences.append(field)
             except (TypeError, ValueError):
-                return False
-        elif str(actual if actual is not None else "") != str(expected):
-            return False
-    return True
+                differences.append(field)
+        elif str(actual) != str(expected) or (formal and field != "gpuId" and not str(expected)):
+            differences.append(field)
+    return differences
+
+def worker_task_matches_stop_identity(command, task):
+    return not worker_task_stop_identity_mismatches(command, task)
 def durable_plan_task_status(task):
     status = str(task.get("status") or "").lower()
     return {"running": "running", "completed": "completed", "failed": "failed",
@@ -5284,11 +5293,16 @@ def _execute_worker_command_unfenced(root, command, worker_id):
             result = {"commandId": command_id, "status": "failed", "message": "停止操作 ID 不能与目标 job ID 相同", "stoppedPids": [], "stoppedTasks": []}
             append_event(root, {"type": "worker_command_failed", "workerId": worker_id, "operationId": command_id, "payload": result})
             return result
-        identity_fields = LEGACY_WORKER_STOP_IDENTITY_FIELDS
+        identity_fields = (tuple(field for field in DURABLE_PLAN_IDENTITY_FIELDS if field not in ("commandId", "attempt"))
+                           + ("planJobCount", "resultPathPolicy", "globalJobId", "collectionResultCsv")) if command.get("resultPathPolicy") == "declared" else tuple(field for field in LEGACY_WORKER_STOP_IDENTITY_FIELDS if field != "attempt")
+        # The persisted task determines whether attempt is required; a missing
+        # formal policy must report that mismatch, not invent a legacy attempt.
         if target_command:
             missing_identity = [field for field in identity_fields if command.get(field) in (None, "") and field != "gpuId"]
             if missing_identity:
-                result = {"commandId": command_id, "status": "failed", "message": "精确停止缺少完整身份：" + ",".join(missing_identity), "stoppedPids": [], "stoppedTasks": []}
+                result = {"commandId": command_id, "targetCommandId": target_command, "status": "failed",
+                          "errorCode": "WORKER_TASK_IDENTITY_REQUIRED", "identityMismatchFields": missing_identity,
+                          "message": "精确停止缺少完整身份：" + ",".join(missing_identity), "stoppedPids": [], "stoppedTasks": []}
                 append_event(root, {"type": "worker_command_failed", "workerId": worker_id, "operationId": command_id, "payload": result})
                 return result
         elif not session:
@@ -5302,12 +5316,15 @@ def _execute_worker_command_unfenced(root, command, worker_id):
         try:
             cancelled = cancel_durable_plan_job(root, command) if target_command else None
         except ValueError as exc:
-            result = {"commandId": command_id, "status": "failed", "message": str(exc), "stoppedPids": [], "stoppedTasks": []}
+            result = {"commandId": command_id, "targetCommandId": target_command, "status": "failed",
+                      "errorCode": "WORKER_TASK_IDENTITY_MISMATCH", "identityMismatchFields": getattr(exc, "identity_mismatch_fields", []),
+                      "message": str(exc), "stoppedPids": [], "stoppedTasks": []}
             append_event(root, {"type": "worker_command_failed", "workerId": worker_id, "operationId": command_id, "payload": result})
             return result
         if cancelled:
             result = {"commandId": command_id, "status": "completed", "message": "已确认取消尚未启动的 Agent 队列 job", "stoppedPids": [],
-                      "stoppedTasks": [{key: cancelled.get(key) for key in (*DURABLE_PLAN_IDENTITY_FIELDS, "planJobCount", "enqueuedAt", "gpuId")} | {"paneClosed": True}]}
+                      "stoppedTasks": [{**durable_plan_public_identity(cancelled),
+                                        **{key: cancelled.get(key) for key in ("planJobCount", "enqueuedAt", "gpuId")}, "paneClosed": True}]}
             append_event(root, {"type": "worker_task_stopped", "workerId": worker_id, "operationId": command_id, "payload": result})
             return result
         matched = []
@@ -5361,7 +5378,8 @@ def _execute_worker_command_unfenced(root, command, worker_id):
                     result = {"commandId": command_id, "status": "failed", "message": "该 job 的 tmux 标签未确认关闭，未结束整会话", "stoppedPids": stopped, "stoppedTasks": [], "stopReason": stop_reason, "manualStopType": stop_reason, "stopSource": stop_source}
                     append_event(root, {"type": "worker_command_failed", "workerId": worker_id, "operationId": command_id, "payload": result})
                     return result
-                receipt = {k: current.get(k) for k in (*DURABLE_PLAN_IDENTITY_FIELDS, "operationId", "session", "gpuId", "planJobCount", "enqueuedAt", "stopReason", "manualStopType", "stopSource", "planId", "tmuxPane", "tmuxSession") if current.get(k) not in (None, "")}
+                receipt = {**durable_plan_public_identity(current),
+                           **{k: current.get(k) for k in ("operationId", "session", "gpuId", "planJobCount", "enqueuedAt", "stopReason", "manualStopType", "stopSource", "planId", "tmuxPane", "tmuxSession", "tmuxWindowId") if current.get(k) not in (None, "")}}
                 receipt["paneClosed"] = bool(task.get("_paneClosed")) or not str(task.get("tmuxPane") or "").strip()
                 if proof:
                     receipt["paneAlreadyMissing"] = proof.get("paneAlreadyMissing") is True
@@ -5369,7 +5387,13 @@ def _execute_worker_command_unfenced(root, command, worker_id):
                     receipt["paneCloseError"] = "tmux 标签未确认关闭，未结束整会话"
                 stopped_tasks.append(receipt)
         if target_command and not matched:
-            result = {"commandId": command_id, "status": "failed", "message": "没有与指定 job 身份一致的任务，未停止其他任务", "stoppedPids": [], "stoppedTasks": [], "stopReason": stop_reason, "manualStopType": stop_reason, "stopSource": stop_source}
+            same_command = next((task for task in tasks if isinstance(task, dict) and str(task.get("commandId") or task.get("operationId") or "") == target_command), None)
+            differences = worker_task_stop_identity_mismatches(command, same_command) if same_command else []
+            result = {"commandId": command_id, "targetCommandId": target_command, "status": "failed",
+                      "errorCode": "WORKER_TASK_IDENTITY_MISMATCH" if same_command else "WORKER_TASK_NOT_FOUND",
+                      "identityMismatchFields": differences,
+                      "message": "没有与指定 job 身份一致的任务，未停止其他任务" + ("；不一致字段：" + ",".join(differences) if differences else "；当前快照缺少原 commandId"),
+                      "stoppedPids": [], "stoppedTasks": [], "stopReason": stop_reason, "manualStopType": stop_reason, "stopSource": stop_source}
             append_event(root, {"type": "worker_command_failed", "workerId": worker_id, "operationId": command_id, "payload": result})
             return result
         result = {"commandId": command_id, "status": "completed", "message": f"stopped={len(stopped)} matched={len(matched)}", "stoppedPids": stopped, "stoppedTasks": stopped_tasks, "stopReason": stop_reason, "manualStopType": stop_reason, "stopSource": stop_source}
@@ -6485,6 +6509,7 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
                 "retry-worker-task": True,
                 "stop-worker-task": True,
                 "stop-worker-task-exact-pane": True,
+                "stop-worker-task-formal-identity": True,
                 "delete-worker-artifacts": True,
                 "archive-worker-artifacts": True,
                 "validate-plan": True,

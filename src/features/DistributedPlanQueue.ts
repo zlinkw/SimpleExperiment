@@ -1214,9 +1214,28 @@ export function removeConfirmedDistributedPlan(queue: DistributedQueue, planFile
   return { ...queue, plans, deferred, clearedJobs };
 }
 
+export function workerStopJobIdentity(plan: QueuedPlan, job: QueuedJob): Record<string, unknown> {
+  return {
+    targetCommandId: job.commandId, runKey: job.runKey || job.commandId,
+    workflowId: plan.id, planId: plan.id, projectId: plan.projectId,
+    planRevision: plan.revision, codeFingerprint: plan.codeFingerprint,
+    planJobCount: Number(plan.planJobCount || plan.jobs.length), planFile: plan.planFile,
+    experimentIndex: job.index, case: job.case, seed: job.seed,
+    ...(plan.resultPathPolicy === "declared" ? { resultPathPolicy: "declared", globalJobId: job.globalJobId,
+      collectionResultCsv: job.collectionResultCsv } : { attempt: job.attempt }),
+    outputDir: job.outputDir, workerId: job.workerId,
+    ...(job.gpuId !== undefined ? { gpuId: String(job.gpuId) } : {}),
+  };
+}
+
 export function stopIdentityMatchesJob(plan: QueuedPlan, job: QueuedJob, identity: Record<string, unknown>): boolean {
   const gpuMatches = job.gpuId === undefined || String(identity.gpuId ?? "") === String(job.gpuId);
-  return Boolean(job.commandId && job.workerId && gpuMatches
+  const formalMatches = plan.resultPathPolicy !== "declared" || (identity.resultPathPolicy === "declared"
+    && Boolean(job.globalJobId && job.collectionResultCsv)
+    && String(identity.globalJobId || "") === job.globalJobId
+    && String(identity.collectionResultCsv || "") === job.collectionResultCsv
+    && Number(identity.planJobCount) === Number(plan.planJobCount || plan.jobs.length));
+  return Boolean(job.commandId && job.workerId && gpuMatches && formalMatches
     && String(identity.commandId || identity.targetCommandId || "") === job.commandId
     && String(identity.workflowId || identity.planId || "") === plan.id
     && (!plan.projectId || String(identity.projectId || "") === plan.projectId)

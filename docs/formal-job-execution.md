@@ -105,3 +105,17 @@ GPU 独立窗口和普通启动路径共用 `job_shell_environment_prefix`，通
 七份实际 MultiModal PLAN 的 20 条真实 launch-message 生产函数契约已校验，预算仍为 PAD/fold0/seed42 的 18 个压力作业和 2 个官方参考。该消息测试使用冻结的夹具代码证明值，禁止重新扫描科研数据树或访问网络；它不代表远端资产/权重或科研结果验证通过。
 
 安装 Windows 0.5.280 后需用户重载 VS Code，再显式部署匹配版本的 Agent/Scheduler（含 NWPU2）。之后先核对失败 job 的现有文件、revision、checkpoint/owner/hash 与实际 Worker capabilities，再人工决定是否重新提交。不自动更名、清理、覆盖或重训。提供的 traceback 与调用顺序表明该次 train.py 尚未调用；NWPU2 远端产物实检、实机重跑和 Mac 部署仍待验证，本轮未连接服务器执行训练、同步、部署或清理。
+
+## 0.5.281 正式 job 精确中止
+
+0.5.280 的正式任务快照按协议省略 `attempt`，但中止匹配仍直接执行 `int(task.get("attempt"))`。Host 队列内部的兼容值 `0` 因此无法匹配同一个正式 job；Worker 返回“没有与指定 job 身份一致的任务”。对 Git 中 0.5.280 的真实生产函数进行了 AST 提取复现：除快照没有 `attempt` 外身份完全相同，旧函数拒绝，新函数接受。正式任务不再创建或持久保存 attempt 版本。
+
+Host 的中止、排队召回和重新分配共用冻结身份请求，正式任务显式传递 `resultPathPolicy`、`globalJobId`、`collectionResultCsv`，不发送 `attempt`。Worker 按正式或历史任务分别匹配；旧 schema 的正式兼容值 `0` 可读取，非零 attempt、原 workflow/command/revision/代码/结果路径不一致仍拒绝。中止回执完整保留正式身份。待启动任务取消保留原 GPU 绑定并释放该 job 的预约；失败/已完成窗口仍必须取得精确 pane 消失证明，不能关闭共享会话或猜测不存在。
+
+结构化失败包含 `WORKER_TASK_IDENTITY_REQUIRED`、`WORKER_TASK_IDENTITY_MISMATCH` 或 `WORKER_TASK_NOT_FOUND`，附带缺少/不一致字段。`/api/v1/capabilities` 的 `execution.formalJobStopIdentityProtocol` 为 `1`；Worker 实时 `actionEndpoints["stop-worker-task-formal-identity"]` 必须为 `true`，旧 Worker 在发送正式停止请求前被阻断并提示更新。
+
+验证串行执行，全部通过：`formalJobStop.test.js` 2 项、`planStopClear.test.js` 33 项、`formalJobExecution.test.js` 6 项、`prequeueRecallLifecycle.test.js` 5 项、`test/agent/prequeueRecall.test.js` 1 项、`distributedPlanExecutionMode.test.js` 9 项，以及构建的 Webview/清理消息桥 14 项，共 70 项。相关旧测试夹具补齐生产依赖和 declared 路径，移除已退休的“召回自动追加 attempt”期望；未放宽生产门禁。
+
+新增真实边界测试在本机 WSL Ubuntu-Codex、tmux 3.4 的专用隔离 server 上执行：failed/running/completed 三种任务只关闭对应 pane，另一窗口保留；重复停止成功；跨任务/缺字段/非零 attempt 均不调用 tmux；待启动任务取消的正式回执经 JSON 进入 Host 的实际中止方法。原失败日志字节保持不变，已确认清除的队列不会被后台快照恢复。只运行轻量 `sleep` 夹具，未运行科研入口；夹具文件保留，结束时仅停止该测试创建的隔离 tmux server。
+
+Windows 插件和 runtime 为 0.5.281。用户须重载 VS Code，并部署、重启关联 Worker 的 0.5.281 Agent/Scheduler，随后人工重试原 `late_fusion.yaml` 的“终止并清理”。本轮未调用生产 API、连接服务器执行停止/部署、修改 MultiModal、清理文件或重启训练；原 workflow 的生产服务器/UI 验收和 Mac 部署仍待验证。安装包验证不等于这些实机操作已经完成。
