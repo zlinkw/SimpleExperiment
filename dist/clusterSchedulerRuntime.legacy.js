@@ -49,6 +49,7 @@ FORMAL_JOB_PATH_PROTOCOL = 1
 FORMAL_JOB_IDENTITY_ENV_PROTOCOL = 1
 EXECUTION_SHELL_PREFLIGHT_PROTOCOL = 1
 TASK_SHELL_ENVIRONMENT_PROTOCOL = 1
+FORMAL_JOB_PREFLIGHT_STAGES_PROTOCOL = 1
 
 TAIL_BYTES = 16 * 1024
 WORKER_AVAILABILITY_REFRESH_TIMEOUT_SECONDS = 5.0
@@ -1342,11 +1343,12 @@ def result_path_preflight(root: Path, jobs: list[Job], include_attempt: bool = T
         tracked = globals().get("PLAN_VALIDATION_INPUT_FILES")
         if isinstance(tracked, set):
             tracked.add(filename.resolve().as_posix())
-        namespace = {"__file__": str(filename), "__name__": "simple_experiment_result_path_validator"}
-        exec(compile(filename.read_text(encoding="utf-8"), str(filename), "exec"), namespace)
-        validator = namespace.get("validate_result_paths")
-        if not callable(validator):
-            raise ValueError("RESULT_PATH_VALIDATOR_INVALID: " + hook_path + " requires validate_result_paths(config, contract)")
+        if validate_indices is None or validate_indices:
+            namespace = {"__file__": str(filename), "__name__": "simple_experiment_result_path_validator"}
+            exec(compile(filename.read_text(encoding="utf-8"), str(filename), "exec"), namespace)
+            validator = namespace.get("validate_result_paths")
+            if not callable(validator):
+                raise ValueError("RESULT_PATH_VALIDATOR_INVALID: " + hook_path + " requires validate_result_paths(config, contract)")
     rows, seen, seen_outputs = [], set(), set()
     for job in jobs:
         candidates = [job]
@@ -2507,7 +2509,8 @@ def run_job_unlocked(job: Job, args: argparse.Namespace) -> None:
 
 
 def formal_job_preflight_mode(args: argparse.Namespace) -> dict[str, Any]:
-    environment = execution_shell_preflight()
+    structure_only = getattr(args, "formal_job_structure_only", False) is True
+    environment = {"ok": True, "deferredUntilStart": True} if structure_only else execution_shell_preflight()
     if not environment["ok"]:
         raise ValueError(environment["errorCode"] + ": " + environment["error"])
     plan = load_plan(args.plan)
@@ -2521,13 +2524,16 @@ def formal_job_preflight_mode(args: argparse.Namespace) -> dict[str, Any]:
     if not selected:
         raise ValueError("FORMAL_JOB_INDEX_INVALID")
     job = bind_execution_result_paths(selected, args.output_dir_override)
-    report = result_path_preflight(Path.cwd(), jobs, execution_mode=mode, validate_indices={job.index})
+    report = result_path_preflight(Path.cwd(), jobs, execution_mode=mode,
+                                   validate_indices=set() if structure_only else {job.index})
     if not report["ok"]:
         raise ValueError(";".join(report["missing"]))
     identity = json.loads(os.environ.get("SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY", "{}"))
     admission = formal_job_preflight(job, identity, mode)
     return {**admission, "executionEnvironment": environment, "policy": "declared", "outputDir": job.output_dir, "checkpointSource": job.config.get("runtime", {}).get("checkpoint_source"),
-            "preflight": {"onlyIndex": job.index, "structuralJobCount": len(jobs), "assetValidationIndices": [job.index], "executionStarted": False},
+            "preflight": {"onlyIndex": job.index, "structuralJobCount": len(jobs),
+                          "assetValidationIndices": [] if structure_only else [job.index],
+                          "assetValidationDeferred": structure_only, "executionStarted": False},
             "collectionResultCsv": job.result_csv, "resultPathContract": job.config["runtime"]["result_path_contract"]}
 
 
@@ -2551,7 +2557,7 @@ def run_job_mode(args: argparse.Namespace) -> None:
     args.mode = plan_execution_mode(plan, args.mode)
     if os.environ.get("SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS") and args.mode != plan_execution_mode(plan):
         if not (args.mode == "test" and os.environ.get("SIMPLE_EXPERIMENT_CHECKPOINT_TEST_ONLY") == "1"
-                and formal_job_preflight_mode(args).get("checkpointVerified") is True):
+                and formal_job_preflight_mode(argparse.Namespace(**{**vars(args), "formal_job_structure_only": True})).get("checkpointVerified") is True):
             raise SystemExit("Distributed execution mode disagrees with the original PLAN; no command was launched")
     jobs = jobs_for_args(plan, args)
     chosen = [job for job in jobs if int(job.index) == int(args.only_index)]
@@ -4058,6 +4064,7 @@ def main() -> None:
     parser.add_argument("--state-path", default="")
     parser.add_argument("--run-job", action="store_true")
     parser.add_argument("--formal-job-preflight", action="store_true")
+    parser.add_argument("--formal-job-structure-only", action="store_true")
     parser.add_argument("--check-execution-shell-json", action="store_true")
     parser.add_argument("--print-job-dir", action="store_true")
     parser.add_argument("--validate-plan", action="store_true")
@@ -4101,6 +4108,8 @@ def main() -> None:
     parser.add_argument("--default-result-csv-dir", default="experiments/results")
     parser.add_argument("--check-dependencies-json", action="store_true")
     args = parser.parse_args()
+    if args.formal_job_structure_only and not args.formal_job_preflight:
+        raise SystemExit("FORMAL_JOB_STRUCTURE_ONLY_REQUIRES_PREFLIGHT: execution always validates assets")
     _SCHEDULER_ARGS_FOR_GUARD = args
     args.default_result_csv_dir = normalize_default_result_csv_dir(args.default_result_csv_dir)
     if args.check_execution_shell_json:

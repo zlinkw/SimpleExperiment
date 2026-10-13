@@ -50,7 +50,8 @@ def persist(_, value):
 
 def scheduler_rpc(argv, **kw):
     assert kw["progress_stream"] == "stderr" and kw["cwd"] == str(root)
-    args = SimpleNamespace(plan=plan_file, only_index=int(argv[argv.index("--only-index") + 1]),
+    args = SimpleNamespace(plan=plan_file, formal_job_structure_only="--formal-job-structure-only" in argv,
+        only_index=int(argv[argv.index("--only-index") + 1]),
         mode=argv[argv.index("--mode") + 1], plan_revision=argv[argv.index("--plan-revision") + 1],
         output_dir_override=argv[argv.index("--output-dir-override") + 1], default_result_csv_dir="experiments/results")
     preflight_calls.append(args.only_index)

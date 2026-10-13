@@ -1,6 +1,8 @@
 """Real Worker admission -> subprocess -> extracted real Scheduler; no runtime entry point or training."""
 import ast
 import copy
+import contextlib
+import io
 import json
 import os
 import pathlib
@@ -32,14 +34,14 @@ def validate_result_paths(config, contract):
     if variant == 'exit':
         print('ACTUAL_PREFLIGHT_EXIT_7', file=sys.stderr, flush=True)
         sys.exit(7)
-    if variant in ('grow','cancel'):
+    if variant not in ('stall','heartbeat','decreasing','exit'):
         digest = hashlib.sha256()
         with open('asset.dat','rb') as asset:
             for chunk in iter(lambda: asset.read(64), b''):
                 digest.update(chunk)
                 processed += len(chunk)
                 print('SIMPLE_PROGRESS ' + json.dumps({'phase':'assets','processedBytes':processed,'processedFiles':files}),file=sys.stderr,flush=True)
-                time.sleep(0.015)
+                if variant in ('grow','cancel'): time.sleep(0.015)
         if digest.hexdigest() != os.environ['PROBE_ASSET_SHA256']:
             raise ValueError('SOURCE_HASH_CHANGED')
     if variant in ('stall','heartbeat','decreasing'):
@@ -51,6 +53,7 @@ def validate_result_paths(config, contract):
     if variant == 'mixed': print('SIMPLE_PROGRESS {"processedBytes": 999999}',flush=True)
 ''', encoding="utf-8")
 (root / "asset.dat").write_bytes(b"owned-asset" * 512)
+asset_sha256 = __import__('hashlib').sha256((root / "asset.dat").read_bytes()).hexdigest()
 child = root / "scheduler_probe.py"
 child.write_text('''import argparse, json, pathlib, sys
 TASK_SHELL_ENVIRONMENT_PROTOCOL = 1
@@ -59,6 +62,7 @@ from extractRuntimeFunctions import extract_runtime_functions
 scheduler = extract_runtime_functions(''' + repr(str(runtime / "cluster_scheduler.py")) + ''', ['formal_job_preflight_report'])
 p = argparse.ArgumentParser()
 p.add_argument('--formal-job-preflight',action='store_true')
+p.add_argument('--formal-job-structure-only',action='store_true')
 p.add_argument('--check-execution-shell-json',action='store_true')
 p.add_argument('--plan');p.add_argument('--only-index',type=int);p.add_argument('--mode')
 p.add_argument('--plan-revision');p.add_argument('--output-dir-override')
@@ -66,7 +70,7 @@ p.add_argument('--default-result-csv-dir',default='experiments/results')
 args=p.parse_args()
 print(json.dumps(scheduler.execution_shell_preflight() if args.check_execution_shell_json else scheduler.formal_job_preflight_report(args),ensure_ascii=False),flush=True)
 ''', encoding="utf-8")
-scheduler = extract_runtime_functions(str(runtime / "cluster_scheduler.py"), ["load_plan", "build_jobs", "formal_source_fingerprint"])
+scheduler = extract_runtime_functions(str(runtime / "cluster_scheduler.py"), ["load_plan", "build_jobs", "formal_source_fingerprint", "run_job_mode"])
 plan_file = "experiments/plans/formal.yaml"
 plan = {"mode": "train_test", "seeds": [42, 43, 44], "base_config": {"runtime": {}, "test": {}},
         "naming": {"sweep_dir": "work_dirs/formal", "job_name": "{case}_seed{seed}"},
@@ -90,7 +94,7 @@ command = {"schemaVersion": 1, "commandId": "owned-command", "runKey": "owned-co
     "durablePlanQueue": True}
 if variant == "identity": command["globalJobId"] = "foreign:0"
 agent = extract_runtime_functions(str(runtime / "cluster_agent.py"),
-    ["accept_durable_plan_job", "subprocess_inactivity_run", "preflight_existing_worker_task"])
+    ["accept_durable_plan_job", "subprocess_inactivity_run", "preflight_existing_worker_task", "drain_durable_plan_queue_once", "_execute_worker_command_unfenced"])
 queue, events, stderr, children = {"schemaVersion": 1, "jobs": []}, [], [], []
 agent.read_durable_plan_queue = lambda _: copy.deepcopy(queue)
 def save(_, value):
@@ -108,7 +112,7 @@ agent.simple_runtime_python = lambda env: sys.executable
 agent.scalar_scheduler_module = lambda: scheduler
 def environment():
     env = dict(os.environ, PROBE_VARIANT=variant, PYTHONDONTWRITEBYTECODE="1")
-    env["PROBE_ASSET_SHA256"] = scheduler.hashlib.sha256((root / "asset.dat").read_bytes()).hexdigest()
+    env["PROBE_ASSET_SHA256"] = asset_sha256
     return env
 agent.fresh_task_runtime_env = environment
 agent.progress_action = lambda *args, **kw: events.append(args[6] if len(args) > 6 else kw)
@@ -134,7 +138,95 @@ entry = {"cancel": threading.Event(), "processes": set(), "root": str(root), "ac
 agent.INACTIVITY_ACTION_CONTEXT.entry = entry
 if variant == "cancel": threading.Timer(0.4, entry["cancel"].set).start()
 started = time.monotonic()
-if variant in ("api", "api-environment"):
+if variant == "staged":
+    # Real admission/drain/start functions. The tmux boundary is deliberately closed;
+    # final Scheduler path validation uses a sentinel instead of a training command.
+    command.update(action="start-worker-task", condaEnv="/fixture", schedulerPath=str(child))
+    original_command_env = agent.formal_job_command_env
+    def native_probe_env(value):
+        # Native CPU fixture uses the current interpreter, rather than a POSIX conda installation.
+        env = original_command_env(value)
+        env.pop("SIMPLE_EXPERIMENT_CONDA_ENV", None)
+        env.pop("SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV", None)
+        return env
+    agent.formal_job_command_env = native_probe_env
+    def callbacks_so_far():
+        return sum('"callbackIndex"' in line for line in "".join(stderr).splitlines())
+    receipt = agent.accept_durable_plan_job(str(root), command, "worker")
+    assert receipt.get("durableAccepted") is True, receipt
+    assert callbacks_so_far() == 0, "admission ran expensive assets before a GPU was available"
+    for other in jobs[1:3]:
+        other_command = {**command, "commandId": "owned-command-" + str(other.index), "runKey": "owned-command-" + str(other.index),
+            "globalJobId": "owned-workflow:" + str(other.index), "experimentIndex": other.index,
+            "case": other.case, "seed": other.seed, "outputDir": other.output_dir, "collectionResultCsv": other.result_csv}
+        assert agent.accept_durable_plan_job(str(root), other_command, "worker")["durableAccepted"] is True
+    agent.reconcile_worker_task_exit_codes = lambda *args: None
+    agent.sync_durable_plan_task_rows = lambda _: copy.deepcopy(queue)
+    agent.resolve_durable_code_sync_proof = lambda *args: {}
+    agent._durable_gpu_busy_reason = lambda *args, **kw: "busy"
+    before_busy_children = len(children)
+    for _ in range(3):
+        probes = []
+        def gpu_hint():
+            probes.append(True)
+            return ([{"id": "0"}], "")
+        agent.drain_durable_plan_queue_once(str(root), "worker", gpu_probe=gpu_hint)
+        assert len(probes) == 1, "busy queue rescanned GPU telemetry for every waiting job"
+    assert callbacks_so_far() == 0, "busy polling repeated expensive asset verification"
+    assert len(children) == before_busy_children, "busy queue spawned one Scheduler for every waiting job"
+    assert queue["jobs"][0]["commandId"] == command["commandId"]
+    assert queue["jobs"][0]["status"] == "queued"
+    # A free hint cannot authorize launch when the later mandatory fresh probe is busy.
+    freshness_probes = []
+    def changing_gpu():
+        freshness_probes.append(True)
+        return ([{"id": "0", "becameBusy": len(freshness_probes) > 1}], "")
+    agent._durable_gpu_busy_reason = lambda _root, _gpu, _command, gpus, *args, **kw: "busy" if gpus[0].get("becameBusy") else ""
+    def forbidden_launch(*args): raise AssertionError("a stale GPU hint authorized execution")
+    assert not agent.drain_durable_plan_queue_once(str(root), "worker", gpu_probe=changing_gpu,
+        execute=forbidden_launch, target_command_id=command["commandId"])
+    assert len(freshness_probes) == 2 and queue["jobs"][0]["status"] == "queued"
+    assert not agent.DISTRIBUTED_GPU_RESERVATIONS
+    agent.agent_install_dir = lambda _: str(root)
+    agent.worker_task_console_log = lambda _: "tmp/probe/console.log"
+    agent.require_scheduler_dependencies = lambda *args: None
+    agent.tmux_available = lambda: False
+    try:
+        agent._execute_worker_command_unfenced(str(root), {**command, "durablePlanQueue": False, "gpuId": "0"}, "worker")
+        raise AssertionError("tmux boundary unexpectedly opened")
+    except RuntimeError as exc:
+        assert "refusing silent bash fallback" in str(exc), exc
+    assert callbacks_so_far() == 1, "actual startup did not verify exactly one selected asset set"
+    args = SimpleNamespace(debug_mode=False, plan=plan_file, plan_revision=loaded["_revision"],
+        mode="train_test", only_index=index, output_dir_override=job.output_dir,
+        default_result_csv_dir="experiments/results", worker_id="worker", gpu_ids="", resume=False)
+    previous = dict(os.environ)
+    capture = io.StringIO()
+    reached = []
+    os.environ.update(environment())
+    os.environ.update(SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS="1")
+    scheduler.run_job = lambda selected, _: reached.append(selected.index)
+    try:
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(capture):
+            scheduler.run_job_mode(args)
+    finally:
+        os.environ.clear(); os.environ.update(previous)
+    stderr.append(capture.getvalue())
+    assert reached == [index]
+    assert callbacks_so_far() == 2, "Scheduler writer path lost the fresh asset gate"
+    # A later asset change must fail at the real Worker gate, before tmux creation.
+    (root / "asset.dat").write_bytes(b"changed protected asset")
+    agent._durable_gpu_busy_reason = lambda *args, **kw: ""
+    agent.worker_task_snapshot_document = lambda *args: {}
+    rejected = agent.drain_durable_plan_queue_once(str(root), "worker", gpu_probe=lambda: ([{"id": "0"}], ""),
+        execute=agent._execute_worker_command_unfenced, target_command_id=command["commandId"])
+    assert rejected[0]["status"] == "failed", rejected
+    assert queue["jobs"][0]["neverStarted"] is True
+    assert queue["jobs"][0]["commandId"] == command["commandId"]
+    assert "SOURCE_HASH_CHANGED" in queue["jobs"][0]["error"]
+    assert not agent.DISTRIBUTED_GPU_RESERVATIONS, "proven never-started gate kept its own reservation"
+    receipt.update(admissionAssetChecks=0, busyPollAssetChecks=0, startupAssetChecks=1, finalAssetChecks=1)
+elif variant in ("api", "api-environment"):
     # Frozen never-started admission rejection, verified again without queue mutation.
     raw = hook.read_bytes()
     command["codeManifest"] = {"validator.py": {"size": len(raw), "sha256": agent.hashlib.sha256(raw).hexdigest()}}
@@ -176,6 +268,11 @@ if variant in ("api", "api-environment"):
     receipt["rejections"] = rejections
 else:
     receipt = agent.accept_durable_plan_job(str(root), command, "worker")
+    if receipt.get("status") == "queued":
+        try:
+            agent.verified_formal_job_command(str(root), command)
+        except Exception as exc:
+            receipt = agent.durable_plan_preflight_failure(command, exc, accepted=True)
 callbacks = []
 for line in "".join(stderr).splitlines():
     if line.startswith("SIMPLE_PROGRESS "):

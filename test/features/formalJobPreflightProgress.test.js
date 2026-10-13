@@ -10,7 +10,7 @@ function run(variant) {
   assert.equal(proc.status, 0, proc.stderr || proc.stdout || String(proc.error));
   return JSON.parse(proc.stdout.trim());
 }
-test('real Worker admission accepts asset progress beyond the previous fixed ten-second budget', () => {
+test('real Worker startup accepts asset progress beyond the previous fixed ten-second budget', () => {
   const result = run('grow');
   assert.equal(result.receipt.durableAccepted, true, JSON.stringify(result));
   assert.ok(result.elapsedVirtualSeconds > 10);

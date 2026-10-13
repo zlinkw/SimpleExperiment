@@ -2742,7 +2742,7 @@ def durable_plan_public_task(row):
               "enqueuedAt": row.get("enqueuedAt"), "status": str(row.get("status") or "unknown").lower(),
               "durableAccepted": row.get("durableAccepted") is not False, "acceptedAt": row.get("acceptedAt"), "gpuId": row.get("gpuId") or "",
               "schedulingMode": row.get("schedulingMode") or "local_idle"}
-    for key in ("mode", "executionMode", "executionModeSource", "resultPathPolicy", "globalJobId", "collectionResultCsv", "checkpointSource"):
+    for key in ("mode", "executionMode", "executionModeSource", "resultPathPolicy", "globalJobId", "collectionResultCsv", "checkpointSource", "startupPreflight"):
         if row.get(key) is not None:
             public[key] = row.get(key)
     for key in ("finishedAt", "cancelledAt", "stopReason", "error", "exitCode", "identityConflict", "lastDispatchResult", "trainingRecovery", "originalExecution", "failureDiagnostic",
@@ -2823,9 +2823,9 @@ def _code_sync_stat_record(root, relative, expected, verify_content=False):
     after_mtime = int(getattr(after, "st_mtime_ns", after.st_mtime * 1_000_000_000))
     if int(before.st_size) != int(after.st_size) or before_mtime != after_mtime:
         raise ValueError("mounted code changed during proof verification: " + relative)
-    return {"path": relative, "size": int(after.st_size), "mtime_ns": after_mtime}
+    return {"path": relative, "size": int(after.st_size), "mtime_ns": after_mtime, "sha256": expected_sha}
 
-def verify_code_sync_proof_record(root, proof, row, runtime_generation=None):
+def verify_code_sync_proof_record(root, proof, row, runtime_generation=None, verify_content=False):
     if not isinstance(proof, dict):
         raise ValueError("code-sync proof missing")
     expected_project = str(row.get("projectId") or "")
@@ -2847,6 +2847,14 @@ def verify_code_sync_proof_record(root, proof, row, runtime_generation=None):
     files = proof.get("files") if isinstance(proof.get("files"), list) else []
     if not files or int(proof.get("fileCount") or -1) != len(files):
         raise ValueError("code-sync proof file inventory is invalid")
+    if verify_content:
+        manifest = row.get("codeManifest")
+        if not isinstance(manifest, dict):
+            manifest = {str(item.get("path") or ""): {"size": item.get("size"), "sha256": item.get("sha256")}
+                        for item in files if isinstance(item, dict)}
+        if (len(manifest) != len(files) or durable_code_manifest_digest(manifest) != expected_digest
+                or set(manifest) != {str(item.get("path") or "") for item in files if isinstance(item, dict)}):
+            raise ValueError("CODE_SYNC_ORIGINAL_HASH_UNAVAILABLE: cannot verify the original manifest; no proof was renewed")
     for item in files:
         if not isinstance(item, dict):
             raise ValueError("code-sync proof file inventory is invalid")
@@ -2872,6 +2880,9 @@ def verify_code_sync_proof_record(root, proof, row, runtime_generation=None):
             raise ValueError("code-sync proof stale; file missing: " + relative)
         stat = os.stat(full, follow_symlinks=False)
         actual_mtime = int(getattr(stat, "st_mtime_ns", stat.st_mtime * 1_000_000_000))
+        if verify_content:
+            _code_sync_stat_record(root, relative, manifest[relative], verify_content=True)
+            continue  # Diagnostics accept changed metadata only after the original SHA matches.
         if int(stat.st_size) != int(item.get("size", -1)) or actual_mtime != int(item.get("mtime_ns", -1)):
             raise ValueError("code-sync proof stale; stat changed: " + relative)
     return proof
@@ -3171,7 +3182,9 @@ def accept_durable_plan_job(root, command, worker_id):
             if any(item.get("collectionResultCsv") == command.get("collectionResultCsv") and item.get("commandId") != identity["commandId"]
                    and item.get("status") in ("queued", "dispatching", "running", "unknown") for item in data["jobs"]):
                 raise ValueError("FORMAL_JOB_ACTIVE_WRITER: declared CSV already queued")
-            verified_formal_job_command(root, command)
+            # Admission proves identity, declarations and writer conflicts; expensive
+            # assets and the actual task shell are checked afresh before tmux start.
+            verified_formal_job_command(root, command, structure_only=True)
             mode = verified_durable_execution_mode(root, command)
         except Exception as exc:
             # Persist a terminal audit before returning, so a lost response/reload is recoverable.
@@ -3200,7 +3213,7 @@ def accept_durable_plan_job(root, command, worker_id):
         row.update(identity)
         row.update({"schemaVersion": 1, "planJobCount": count, "fullPlanJobCount": full_count, "enqueuedAt": enqueued_at,
                     "workerId": str(worker_id), "status": "queued", "acceptedAt": now_iso(),
-                    "requireIdleGpu": require_idle_gpu, "gpuId": requested_gpu if require_idle_gpu else ""})
+                    "requireIdleGpu": require_idle_gpu, "gpuId": requested_gpu if require_idle_gpu else "", "startupPreflight": "pending"})
         requested_mode = "test" if command.get("checkpointTestOnly") is True and mode == "train_test" else mode
         row.update({"mode": requested_mode, "executionMode": mode, "executionModeSource": "matching_plan_revision"})
         row["options"] = {**options, "mode": requested_mode, "executionMode": mode}
@@ -3220,7 +3233,7 @@ def accept_durable_plan_job(root, command, worker_id):
         pass
     return {**durable_plan_public_identity(command), "planJobCount": count, "enqueuedAt": enqueued_at,
             "gpuId": requested_gpu if require_idle_gpu else "", "status": "queued",
-            "durableAccepted": True, "message": "Agent 已持久接收该 job"}
+            "durableAccepted": True, "startupPreflight": "pending", "message": "已持久入队；分配 GPU 后核验资产和任务环境，尚未启动训练"}
 
 def cancel_durable_plan_job(root, command):
     target = str(command.get("targetCommandId") or command.get("commandIdTarget") or "").strip()
@@ -3650,6 +3663,7 @@ def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None,
     reconcile_worker_task_exit_codes(root)
     data = sync_durable_plan_task_rows(root)
     dispatched = []
+    busy_gpu_hint = None
     for row in data["jobs"]:
         if not isinstance(row, dict):
             continue
@@ -3674,7 +3688,32 @@ def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None,
                                         "operationId": row.get("commandId"), "payload": {"error": message}})
             continue
         try:
-            admission = verified_formal_job_command(root, row)
+            # A shared hint can defer idle, untouched directories without starting
+            # one Scheduler (and nvidia-smi) per queued job. It NEVER authorizes a
+            # launch: the fresh probe and final reservation below remain mandatory.
+            # Existing output/owner/completion evidence must still be checked even
+            # when telemetry is unavailable, so it cannot remain hidden in a queue.
+            existing = (os.path.lexists(safe_project_path(root, row.get("outputDir")))
+                        or os.path.lexists(safe_project_path(root, row.get("collectionResultCsv"))))
+            if not existing:
+                if busy_gpu_hint is None:
+                    try:
+                        busy_gpu_hint = gpu_probe()
+                    except Exception as exc:
+                        busy_gpu_hint = ([], str(exc))
+                hint_gpus, hint_error = busy_gpu_hint
+                hint_options = row.get("options") if isinstance(row.get("options"), dict) else {}
+                pinned = str(row.get("gpuId") or "") if row.get("requireIdleGpu") is True else ""
+                hint_free = not hint_error and any((not pinned or gpu_row_id(gpu) == pinned)
+                    and not _durable_gpu_busy_reason(root, gpu_row_id(gpu), str(row.get("commandId") or ""), hint_gpus,
+                        util_threshold=row.get("gpuIdleUtilThreshold", hint_options.get("gpuIdleUtilThreshold", hint_options.get("gpu_idle_util_threshold"))),
+                        mem_threshold=row.get("gpuIdleMemThresholdMb", hint_options.get("gpuIdleMemThresholdMb", hint_options.get("gpu_idle_mem_threshold"))),
+                        max_concurrent_gpus=row.get("maxConcurrentGpus", hint_options.get("maxConcurrentGpus"))) for gpu in hint_gpus)
+                if not hint_free:
+                    if pinned:
+                        fence_queued_idle_gpu_admission(root, row, "Requested GPU unavailable before startup verification; reconciliation required")
+                    continue
+            admission = verified_formal_job_command(root, row, structure_only=True)
         except Exception as exc:
             with WORKER_TASK_SNAPSHOT_LOCK:
                 latest = read_durable_plan_queue(root)
@@ -3792,6 +3831,9 @@ def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None,
                 "已被待启动任务占用", "已有插件任务运行", "当前非空闲", "GPU 实时检测失败", "GPU 不存在或尚无实时状态"))
             result = {"status": "queued" if waiting else "unknown", "message": message}
             new_status = "unknown" if row.get("requireIdleGpu") is True and waiting else "queued" if waiting else "unknown"
+            if getattr(exc, "formalPreflightRejected", False) is True:
+                result = durable_plan_preflight_failure(row, exc, accepted=True)
+                new_status = "failed"
         with WORKER_TASK_SNAPSHOT_LOCK:
             latest = read_durable_plan_queue(root)
             current = next((item for item in latest["jobs"] if isinstance(item, dict)
@@ -3799,6 +3841,11 @@ def drain_durable_plan_queue_once(root, worker_id, gpu_probe=None, execute=None,
             if current and current.get("status") == "dispatching":
                 current["status"] = new_status
                 current["lastDispatchResult"] = result
+                if result.get("neverStarted") is True:
+                    current.update({key: result[key] for key in ("neverStarted", "neverStartedEvidence", "error", "errorCode", "reason", "message", "formalConflictEvidence") if key in result})
+                    current["startupPreflight"] = "rejected"
+                elif new_status in ("running", "completed"):
+                    current["startupPreflight"] = "checked"
                 for field in ("logPath", "tmuxPane", "tmuxWindowId", "tmuxSession"):
                     if result.get(field):
                         current[field] = result[field]
@@ -5415,7 +5462,16 @@ def _execute_worker_command_unfenced(root, command, worker_id):
             raise ValueError("分布式任务输出路径不安全")
         safe_project_path(project_dir, output_dir)
         env["SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS"] = "1"
-    formal = verified_formal_job_command(project_dir, command)
+    try:
+        formal = verified_formal_job_command(project_dir, command)
+    except Exception as exc:
+        # Only a rejection at this read-only gate proves the task never started.
+        # Later launch/receipt failures retain unknown status and their resource fence.
+        exc.formalPreflightRejected = True
+        raise
+    if formal.get("completed") is True:
+        return {"commandId": command_id, "status": "completed", "exitCode": 0,
+                "message": "Matching completion and output hashes verified; no process launched"}
     env["SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY"] = json.dumps(formal["identity"], ensure_ascii=False)
     env["SIMPLE_EXPERIMENT_NVJITLINK_PROOF"] = json.dumps(formal.get("executionEnvironment", {}).get("nvJitLink"), ensure_ascii=False, separators=(",", ":"))
     if command.get("checkpointTestOnly") is True:
@@ -5743,7 +5799,7 @@ def verified_worker_execution_shell(project_dir, command):
         raise ValueError("FORMAL_JOB_PREFLIGHT_IDENTITY_MISMATCH: task shell")
     return {**report, "environmentOnly": True, "formalJobAdmissionChecked": False}
 
-def verified_formal_job_command(project_dir, command):
+def verified_formal_job_command(project_dir, command, structure_only=False):
     """Check the real Scheduler message contract before queue admission or tmux creation."""
     if command.get("resultPathPolicy") != "declared" or "attempts" in str(command.get("outputDir") or "").split("/"):
         raise ValueError("HISTORICAL_ATTEMPT_READ_ONLY")
@@ -5755,9 +5811,11 @@ def verified_formal_job_command(project_dir, command):
     args = [simple_runtime_python(env), "-B", "-X", "utf8", scheduler_path, "--formal-job-preflight", "--plan", durable_plan_value(command, "planFile"),
             "--only-index", str(command.get("experimentIndex")), "--mode", requested_mode,
             "--plan-revision", str(command.get("planRevision") or ""), "--output-dir-override", str(command.get("outputDir") or "")]
+    if structure_only:
+        args.append("--formal-job-structure-only")
     job_shell_environment_prefix(env, args)  # Validate the supplied identity; never fabricate a missing globalJobId.
     try:
-        proc = subprocess_inactivity_run(simple_conda_wrapped_args(args, env), cwd=project_dir, env=env, progress_stream="stderr")
+        proc = subprocess_inactivity_run(args if structure_only else simple_conda_wrapped_args(args, env), cwd=project_dir, env=env, progress_stream="stderr")
     except RuntimeError as exc:
         code = "FORMAL_JOB_PREFLIGHT_CANCELLED" if "操作已取消" in str(exc) else "FORMAL_JOB_PREFLIGHT_STALLED" if "无真实进展" in str(exc) else "FORMAL_JOB_PREFLIGHT_PROCESS_FAILED"
         raise ValueError(code + ": " + " | ".join(str(exc).splitlines())[:3500]) from exc
@@ -5806,7 +5864,7 @@ def preflight_existing_worker_task(root, payload, worker_id):
         proof = code_sync_proof_document(root).get("proofs", {}).get(proof_id)
         if not isinstance(proof, dict):
             raise ValueError("code-sync proof missing; original source cannot be verified")
-        verify_code_sync_proof_record(root, proof, row, runtime_generation=proof.get("runtimeGeneration"))
+        verify_code_sync_proof_record(root, proof, row, runtime_generation=proof.get("runtimeGeneration"), verify_content=True)
     elif isinstance(row.get("codeManifest"), dict):
         manifest = row["codeManifest"]
         if durable_code_manifest_digest(manifest) != row.get("codeFingerprint"):
@@ -5818,7 +5876,7 @@ def preflight_existing_worker_task(root, payload, worker_id):
     verified_durable_execution_mode(root, row)
     report = verified_worker_execution_shell(root, row) if environment_only else verified_formal_job_command(root, row)
     return {"schemaVersion": 1, "targetCommandId": target, "workerId": worker_id,
-            "executionStarted": False, "queueChanged": False, "report": report}
+            "executionStarted": False, "queueChanged": False, "sourceContentVerified": True, "proofRenewed": False, "report": report}
 
 def recover_train_only_completion(root, command, worker_id):
     """Review/adopt existing validation-only adapter evidence; never execute training or test."""
@@ -6501,6 +6559,13 @@ def task_shell_environment_capable(root):
         return False
 
 
+def staged_job_preflight_capable(root):
+    try:
+        with open(cluster_scheduler_path(root), "r", encoding="utf-8") as stream:
+            return task_shell_environment_capable(root) and "FORMAL_JOB_PREFLIGHT_STAGES_PROTOCOL = 1" in stream.read(8192)
+    except (OSError, TypeError):
+        return False
+
 def api_capabilities(root, token_required=False, mode="hub_control"):
     if mode == "worker_telemetry":
         return {
@@ -6526,6 +6591,8 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
                 "formalJobIdentityEnv": 1 if formal_job_path_capable(root) else 0,
                 "executionShellPreflight": 1 if execution_shell_preflight_capable(root) else 0,
                 "taskShellEnvironment": 1 if task_shell_environment_capable(root) else 0,
+                "stagedJobPreflight": 1 if staged_job_preflight_capable(root) else 0,
+                "originalSourceHashDiagnostic": 1,
                 "durablePlanQueue": True,
                 "codeSyncProof": True,
                 "idleGpuAdmission": True,
@@ -6585,6 +6652,8 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
             "formalJobIdentityEnv": 1 if formal_job_path_capable(root) else 0,
             "executionShellPreflight": 1 if execution_shell_preflight_capable(root) else 0,
             "taskShellEnvironment": 1 if task_shell_environment_capable(root) else 0,
+            "stagedJobPreflight": 1 if staged_job_preflight_capable(root) else 0,
+            "originalSourceHashDiagnostic": 1,
             "traces": True,
             "liveOutput": True,
             "diagnostics": True,

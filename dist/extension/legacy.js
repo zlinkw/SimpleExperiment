@@ -13848,7 +13848,7 @@ class RealtimeTunnelPanelProvider {
                 if (delayMs > 0)
                     await sleep(delayMs);
                 this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，等待 Agent 操作终态已取消。");
-                await this.refreshOperationStatus(opId, action, workerId, attempt, authority.authorityClient || this.client).catch(() => false);
+                await this.refreshOperationStatus(opId, action, workerId, attempt, authority.authorityClient || this.client, true).catch(() => false);
                 this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，等待 Agent 操作终态已取消。");
                 const current = this.localOperations[opId];
                 const evidence = current?.payload || current?.latestEvent?.payload || current || {};
@@ -13897,7 +13897,7 @@ class RealtimeTunnelPanelProvider {
         this.operationTimers.delete(opId);
         this.postState();
     }
-    async refreshOperationStatus(opId, action, workerId, probeAttempt = 0, authorityClient = this.client) {
+    async refreshOperationStatus(opId, action, workerId, probeAttempt = 0, authorityClient = this.client, statusOnly = false) {
         const generation = this.projectContextGeneration;
         if (authorityClient !== this.client)
             return false;
@@ -13927,7 +13927,7 @@ class RealtimeTunnelPanelProvider {
                 this.clearOperationStatusProbe(opId);
                 this.clearOperationWatchdog(opId);
             }
-            else if (this.shouldRetryOperationStatusProbe(opId, probeAttempt) || probeAttempt >= this.operationStatusProbeMaxAttempts) {
+            else if (!statusOnly && (this.shouldRetryOperationStatusProbe(opId, probeAttempt) || probeAttempt >= this.operationStatusProbeMaxAttempts)) {
                 // Evidence-based reconciliation: if the scheduler process is dead
                 // (or its log shows a hard error) promote the operation to a
                 // terminal failed/stale state. This is independent of

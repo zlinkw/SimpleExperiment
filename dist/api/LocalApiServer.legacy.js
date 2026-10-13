@@ -684,7 +684,8 @@ class LocalApiServer {
             version: this.version,
             transport: ["http", "cli"],
             rpc: "json-rpc-2.0",
-            execution: { resultPathPolicy: "declared", formalJobPathProtocol: 1, formalJobIdentityEnvProtocol: 1, formalJobStopIdentityProtocol: 2, formalJobStopUsesAttempts: false, historicalAttempts: "readOnly", draftPromotion: "retired" },
+            execution: { resultPathPolicy: "declared", formalJobPathProtocol: 1, formalJobIdentityEnvProtocol: 1, formalJobStopIdentityProtocol: 2, formalJobStopUsesAttempts: false, historicalAttempts: "readOnly", draftPromotion: "retired",
+                stagedJobPreflightProtocol: 1, admissionAssetValidation: "deferred_until_start", executionAssetValidation: "fresh" },
             retiredMethods: { "drafts.promote": "DRAFT_PROMOTION_RETIRED" },
             methods: Object.keys(this.methods).sort(),
             methodOptions: {
@@ -695,7 +696,8 @@ class LocalApiServer {
                 } : {}),
                 ...(Object.keys(this.methods).includes("tasks.preflight") ? {
                     "tasks.preflight": { params: ["workerId", "commandId"], researchFilesReadOnly: true, launchesTraining: false, changesQueue: false,
-                        optionalParams: { environmentOnly: { type: "boolean", default: false, description: "Only verify the real task shell for a frozen failed job; does not validate assets, checkpoint or output admission", requiresWorkerEndpoint: "executionShellPreflight=1" } },
+                        optionalParams: { environmentOnly: { type: "boolean", default: false, description: "Verify original source SHA256 and the real task shell for a frozen failed job; does not validate data assets, checkpoint or output admission", requiresWorkerEndpoint: "taskShellEnvironment=1" } },
+                        originalSourceContentVerification: true, renewsOriginalProof: false,
                         originalRejectedIdentity: true, inactivitySeconds: 30, progressStream: "stderr", requiresMatchingWorkerAction: "preflight-worker-task" },
                     "tasks.preflight.status": { params: ["workerId", "operationId"], readOnly: true },
                     "tasks.preflight.cancel": { params: ["workerId", "operationId"], cancelsDiagnosticOnly: true },
