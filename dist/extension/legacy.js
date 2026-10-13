@@ -2022,7 +2022,7 @@ class RealtimeTunnelPanelProvider {
         if (blocked.length)
             throw new Error(`project.prepare 未修改 Xshell 自启动命令：${blocked.map((item) => item.summary).join("；")}`);
         if (params.deployRuntime !== false)
-            await this.deployLatestAgentRuntime(false, true, serverIds, true);
+            await this.deployLatestAgentRuntime(false, true, serverIds, true, { migrationDigests: params.legacyMigrationDigests });
         if (params.startSessions === true)
             await this.startAllXshellConnections(false, false, serverIds);
         const test = params.autoTest === true
@@ -4625,7 +4625,7 @@ class RealtimeTunnelPanelProvider {
             if (blocked.length)
                 throw new Error(`Agent 自启动命令未就绪，尚未部署远端 runtime：${blocked.map((item) => item.summary).join("；")}`);
             progress.report({ message: "部署 runtime" });
-            const deployed = await this.deployLatestAgentRuntime(false, true, [], true);
+            const deployed = await this.deployLatestAgentRuntime(false, true, [], true, { promptLegacyMigration: true });
             progress.report({ message: "启动 Xshell 会话" });
             await this.startAllXshellConnections(false, false);
             const deadline = Date.now() + 60000;
@@ -7748,7 +7748,7 @@ class RealtimeTunnelPanelProvider {
             : `Worker 代码已同步 ${syncedWorkerIds.length} 台。`;
         return { syncedWorkerIds, heldWorkers, message };
     }
-    async deployLatestAgentRuntime(showMessage = true, pathConfirmed = false, serverIds = [], deferVerification = false) {
+    async deployLatestAgentRuntime(showMessage = true, pathConfirmed = false, serverIds = [], deferVerification = false, migrationOptions = {}) {
         console.log("[diag] deployLatestAgentRuntime entry", { showMessage, pathConfirmed, serverIds });
         console.log("[diag] prepareSftpTargets before", { serverIds });
         await this.prepareSftpTargets("deployLatestAgentRuntime", "simpleSftp.uploadFiles", serverIds);
@@ -7785,6 +7785,28 @@ class RealtimeTunnelPanelProvider {
             if (before.activeTasks?.length && (before.runningVersion !== runtimeVersion || Object.entries(manifest.files).some(([name, digest]) => before.files?.[name] !== digest)))
                 throw new Error(`${target.id}: AGENT_ACTIVE_TASK: 未写入 runtime 或重启 Agent`);
             inspections.set(target.id, before);
+        }
+        const legacyTargets = targets.filter(target => inspections.get(target.id)?.status === "legacy");
+        if (legacyTargets.length) {
+            const preview = legacyTargets.map(target => ({ serverId: target.id, host: target.host, port: target.port, user: target.user,
+                ...inspections.get(target.id).legacyMigration }));
+            let approvals = migrationOptions.migrationDigests;
+            if (!approvals && (migrationOptions.promptLegacyMigration === true || showMessage)) {
+                const detail = preview.map(row => `${row.serverId}: ${row.user}@${row.host}:${row.port}\n项目: ${row.contract.projectDir}\nRuntime: ${row.contract.installDir}\n状态: ${row.contract.stateDir}\n旧 Agent PID: ${row.pid || "无运行进程"}; 版本: ${row.runningVersion || "旧状态"}\n预览指纹: ${row.digest}`).join("\n\n");
+                const answer = await vscode.window.showWarningMessage(`核对旧 Agent 归属迁移\n${detail}\n\n仅绑定此状态的当前容器归属，停止已验证的旧辅助 PID；保留所有任务、日志和结果，不停止训练或平台进程。`, { modal: true }, "确认上述归属迁移");
+                if (answer !== "确认上述归属迁移")
+                    throw new UiCommandCancelled("旧 Agent 归属迁移已取消，未上传 runtime。");
+                approvals = Object.fromEntries(preview.map(row => [row.serverId, row.digest]));
+            }
+            if (!approvals || preview.some(row => approvals[row.serverId] !== row.digest))
+                throw confirmationRequired({
+                    operation: "agents.lifecycle", requires: ["confirm", "migrationDigests"], preview: { action: "migrate", targets: preview },
+                    params: { action: "migrate", serverIds: preview.map(row => row.serverId), migrationDigests: Object.fromEntries(preview.map(row => [row.serverId, row.digest])) },
+                });
+            for (const target of legacyTargets) {
+                await this.agentLifecycleForTarget(target, "migrate", manifest, true, approvals[target.id]);
+                inspections.set(target.id, await this.agentLifecycleForTarget(target, "inspect", manifest));
+            }
         }
         if (!deferVerification) {
             try {
@@ -7899,8 +7921,24 @@ class RealtimeTunnelPanelProvider {
             throw new Error("AGENT_TARGET_REQUIRED: 必须明确 serverIds");
         const targets = AgentRuntimeScope_1.selectAgentRuntimeTargets(this.agentRuntimeUploadTargets(), ids);
         const action = String(params.action || "inspect");
-        if (!["inspect", "ensure", "stop", "restart"].includes(action))
+        if (!["inspect", "ensure", "stop", "restart", "migrate"].includes(action))
             throw new Error("AGENT_ACTION_INVALID");
+        if (action === "migrate") {
+            const preview = [];
+            for (const target of targets) {
+                const before = await this.agentLifecycleForTarget(target, "inspect");
+                if (before.status !== "legacy")
+                    throw new Error(`AGENT_MIGRATION_NOT_REQUIRED: ${target.id}`);
+                if (before.activeTasks?.length)
+                    throw new Error(`AGENT_ACTIVE_TASK: ${target.id}`);
+                preview.push({ serverId: target.id, host: target.host, user: target.user, port: target.port, ...before.legacyMigration });
+            }
+            if (params.confirm !== true || preview.some(row => params.migrationDigests?.[row.serverId] !== row.digest))
+                throw confirmationRequired({
+                    operation: "agents.lifecycle", requires: ["confirm", "migrationDigests"], preview: { action, targets: preview },
+                    params: { action, serverIds: ids, migrationDigests: Object.fromEntries(preview.map(row => [row.serverId, row.digest])) },
+                });
+        }
         if (action !== "inspect" && params.confirm !== true)
             throw confirmationRequired({
                 operation: "agents.lifecycle", requires: ["confirm"], preview: { action, targets: normalizeRemoteWriteTargets(targets) },
@@ -7912,7 +7950,7 @@ class RealtimeTunnelPanelProvider {
             } };
         const results = [];
         for (const target of targets)
-            results.push({ id: target.id, ...await this.agentLifecycleForTarget(target, action, manifest, params.confirm === true) });
+            results.push({ id: target.id, ...await this.agentLifecycleForTarget(target, action, manifest, params.confirm === true, params.migrationDigests?.[target.id]) });
         return { ok: true, action, results };
     }
     async agentLifecycleServer(target) {
@@ -7937,10 +7975,10 @@ class RealtimeTunnelPanelProvider {
             throw new Error(`AGENT_SSH_ALIAS_MISMATCH: ${target.id} / ${alias}; expected=${expectedUser}@${expectedHost}:${expectedPort}; resolved=${resolved.user}@${resolved.hostname}:${resolved.port}; ${resolved.message || ""}`);
         return { ...server, host: alias, sftpHost: alias, sshHost: alias, transferHost: alias, resolvedHost: alias, networkHost: expectedHost };
     }
-    async agentLifecycleForTarget(target, action, manifest, confirmed = false) {
+    async agentLifecycleForTarget(target, action, manifest, confirmed = false, migrationDigest) {
         const installed = vscode.extensions.getExtension(SIMPLE_SFTP_EXTENSION_ID);
-        if (require("../features/ExtensionUpdates").compareSemanticVersions(String(installed?.packageJSON?.version || "0.0.0"), "0.2.71") < 0)
-            throw new Error("AGENT_LIFECYCLE_CAPABILITY_REQUIRED: 需要 SimpleSFTP 0.2.71，未修改远端或自定义登录命令。");
+        if (require("../features/ExtensionUpdates").compareSemanticVersions(String(installed?.packageJSON?.version || "0.0.0"), "0.2.72") < 0)
+            throw new Error("AGENT_LIFECYCLE_CAPABILITY_REQUIRED: 需要 SimpleSFTP 0.2.72，未修改远端或自定义登录命令。");
         const config = target.id === "hub" ? this.setupConfig : this.setupConfig.workerTunnels.find(row => row.id === target.id);
         if (!config)
             throw new Error(`AGENT_CONFIG_MISSING: ${target.id}`);
@@ -7953,9 +7991,15 @@ class RealtimeTunnelPanelProvider {
             sessionPrefix: this.setupConfig.remoteTmuxSessionPrefix,
             agentToken: this.tunnelConfig?.token || "",
             expectedVersion: manifest?.runtimeVersion || RuntimeManifest_1.CURRENT_RUNTIME_VERSION, files: manifest?.files,
+            migrationDigest,
             confirm: confirmed, pathConfirmed: confirmed,
         });
         if (result?.ok !== true) {
+            if (action === "inspect" && result?.code === "AGENT_LEGACY_STATE_UNVERIFIED" && /^[a-f0-9]{64}$/.test(result.evidence?.migration?.digest || "")) {
+                const proof = result.evidence.migration;
+                return { ok: true, status: "legacy", activeTasks: proof.activeTasks, runningVersion: proof.runningVersion,
+                    legacyMigration: proof, evidence: result.evidence };
+            }
             const error = new Error(`${target.id}: ${result?.code || "AGENT_LIFECYCLE_FAILED"}: ${result?.error || "未收到有效回执"}`);
             error.apiData = { code: result?.code || "AGENT_LIFECYCLE_FAILED", serverId: target.id, evidence: result?.evidence };
             throw error;

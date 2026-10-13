@@ -16709,7 +16709,7 @@ def main():
     add_state_args(p)
     p = sub.add_parser("lifecycle")
     p.add_argument("--config", required=True)
-    p.add_argument("--action", choices=("inspect", "ensure", "stop", "restart"), default="ensure")
+    p.add_argument("--action", choices=("inspect", "ensure", "stop", "restart", "migrate"), default="ensure")
     args = parser.parse_args()
     if args.cmd == "lifecycle":
         params = json.loads(args.config)

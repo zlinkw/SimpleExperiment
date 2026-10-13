@@ -1,6 +1,6 @@
 # 独立 Agent 服务与准备
 
-SimpleExperiment 0.5.295 / SimpleSFTP 0.2.71 使用独立辅助服务协议 1。平台主服务、sshd、容器启动入口和用户训练保持独立；准备不再要求覆盖 Xshell 的自定义登录命令。所有地址、SSH 身份、端口、项目父目录、项目目录、环境和 runtime 根均从当前服务器配置读取。
+SimpleExperiment 0.5.296 / SimpleSFTP 0.2.72 使用独立辅助服务协议 1。平台主服务、sshd、容器启动入口和用户训练保持独立；准备不再要求覆盖 Xshell 的自定义登录命令。所有地址、SSH 身份、端口、项目父目录、项目目录、环境和 runtime 根均从当前服务器配置读取。
 
 ## 入口与状态
 
@@ -21,11 +21,15 @@ SimpleExperiment API 示例（使用 live discovery 的实际方法和配置，�
 
 默认 `agentLoginPolicy=preserve`，原登录命令完全保留，辅助 Agent 通过 SimpleSFTP 独立启动。用户主动选择“写入 Agent 自启动命令”并确认精确会话后，可启用 `managed`；原登录命令保存于版本化启动段，启动段在子 shell 内运行，之后执行原登录行为。更新只替换同一个段，原始 `.simple-backup` 仅创建一次。其他 Host、User、X11 和转发设置保持原样。损坏或人工改动的受管段拒绝静默覆盖。
 
-既有插件自启动命令迁移到非破坏性的 `lifecycle ensure`，不再使用端口/命令片段扫描后 kill 或 tmux kill-session。后续协议 1 更新保持 owner 和 process 记录，核实后才升级。没有归属证据的旧状态返回 `AGENT_LEGACY_STATE_UNVERIFIED`；旧 Agent 没有完整实例证明时返回 `AGENT_PROCESS_UNVERIFIED`。这些状态不会被自动收养、清空或强制停止，需要人工核对迁移，不能伪造就绪。
+既有插件自启动命令迁移到非破坏性的 `lifecycle ensure`，不再使用端口/命令片段扫描后 kill 或 tmux kill-session。后续协议 1 更新保持 owner 和 process 记录，核实后才升级。旧状态先返回只读迁移证据；不具备完整证明时保持阻断。0.5.296 的准备/部署入口提供独立归属迁移确认，列出主机、端口、项目、runtime、状态目录、旧 PID 和冻结指纹；拒绝或取消时不上传 runtime。不自动收养、清空或强制停止未知进程。
 
 旧配置中的 `sshConfigAlias` 可能只是 Xshell 会话标题。0.5.295 对 `ssh -G` 未映射 HostName 的此类标题保留已配置的直接 Host/User/Port；真正映射的 OpenSSH 别名仍须三者完全匹配后才使用，错误配置或解析失败继续阻断，不改写用户配置。H20 的 `jqg_gpu_zlk` 有真实 HostName 映射，继续使用其密钥和端口。
 
 SimpleSFTP 0.2.71 的只读 `inspect` 在旧状态缺少 owner 记录时返回结构化 `evidence`：三份固定小型元数据的路径、大小、SHA256 与允许字段，以及旧服务的健康信息。该回执不落盘、不迁移、不写归属，也不授权停止旧进程。SimpleExperiment API 保留这些诊断字段，后续迁移必须单独核实。
+
+SimpleSFTP 0.2.72 的 `migrate` 必须绑定 `inspect` 的 `evidence.migration.digest`。旧服务核对完整 argv、所选 Python/Conda、UID、PID 启动身份、PID/挂载 namespace、真实监听 socket、健康回执及旧 session。无运行服务时保留旧历史并核验当前容器 GPU、Worker 和状态路径证据。活动作业及未消费 command/cursor 均阻断；迁移只停止已验证辅助 PID，并以独占创建写入 `agent.owner.json`，不更改旧任务、日志、权重或结果。磁盘 runtime 之后部署，运行版本仍须另行验收。后台自动升级不自动确认旧归属。
+
+API 调用 `agents.lifecycle` 的 `action: migrate` 先不传确认取得完整预览，再传 `confirm:true` 和逐服务器 `migrationDigests`。`project.prepare` 可传本轮 `legacyMigrationDigests`；指纹变化即拒绝。API 和 UI 使用同一受限控制器。多节点失败会留下明确的未处理节点；已经迁移的节点保留 owner，下一次准备重新核验，不重复停止。
 
 ## 归属保护与边界
 

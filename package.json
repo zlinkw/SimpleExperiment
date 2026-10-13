@@ -2,7 +2,7 @@
   "name": "simple-experiment",
   "displayName": "SimpleExperiment",
   "description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
-  "version": "0.5.295",
+  "version": "0.5.296",
   "publisher": "simple-local",
   "extensionKind": [
     "ui"
@@ -863,7 +863,7 @@
     "compact:plan": "node scripts/compact-target-mode-plan.js",
     "check:tmux-guard": "node scripts/check-tmux-guard.js",
     "check:static": "node scripts/check-static.js",
-    "test:agent-lifecycle": "node --test --test-force-exit --test-timeout 20000 test/tunnel/independentAgent.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/agentLifecycle.test.js && node --test --test-force-exit --test-timeout 20000 test/features/agentPreparationLifecycle.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/agentTmuxPolicy.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/xshellSessionPatcher.test.js",
+    "test:agent-lifecycle": "node --test --test-force-exit --test-timeout 20000 test/tunnel/independentAgent.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/agentLifecycle.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/agentLegacyMigration.test.js && node --test --test-force-exit --test-timeout 20000 test/features/agentPreparationLifecycle.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/agentTmuxPolicy.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/xshellSessionPatcher.test.js",
     "test:terminal-history": "node --test --test-force-exit --test-timeout 20000 test/features/terminalPlanHistory.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planStopClear.test.js"
   },
   "devDependencies": {
