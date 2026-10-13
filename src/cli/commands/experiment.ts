@@ -9,7 +9,8 @@ import { CliFlags, requirePositional } from "../parse";
 import { retryExperiment } from "../../features/Lifecycle";
 import { cloneOrReproducePlan } from "../../features/PlanBuilder";
 import { parsePlanSummary } from "../../features/PlanBuilder";
-import { runRecordedExperiment } from "../../features/ExperimentRunner";
+import { assertProjectPlan, requestWorkflowRun } from "../WorkflowRun";
+import { assertPlanSeedContract } from "../../features/WorkflowWorkspaceBinding";
 import { loadResults } from "./result";
 import type { ResultRow } from "./result";
 
@@ -654,19 +655,26 @@ export async function experimentBatch(planArg: string, flags: CliFlags): Promise
 
 export async function experimentRun(planArg: string, flags: CliFlags): Promise<number> {
   const planFile = resolvePlanFile(planArg);
-  const recordedRunner = runRecordedExperiment;
+  assertProjectPlan(projectRoot(), planFile);
+  assertPlanSeedContract(flags as unknown as Record<string, unknown>);
   const checks = flags.check ? await preflightChecks(planFile) : undefined;
+  if (hasApiDiscovery()) {
+    const { code, payload } = await requestWorkflowRun(projectRoot(), planFile, flags);
+    if (flags.json) writeJson({ ...payload, checks }, flags.compactJson);
+    else writeText(block("Experiment run", { ...payload, checks }));
+    return code;
+  }
   if (flags.dryRun) {
-    const route = flags.check ? null : await optionalApi("workflow.plan", { planFile, seed: flags.seed, dryRun: true, debugMode: false });
     const payload = {
       dryRun: true,
       planFile,
       seed: flags.seed || "",
       submitted: false,
-      runner: recordedRunner.name,
+      runner: "SimpleExperiment Local API",
       submitPath: "workflow.run",
-      wouldExecute: `workflow.run ${planFile}${flags.seed ? ` --seed ${flags.seed}` : ""}`,
-      workflow: route,
+      wouldExecute: `workflow.run ${planFile}`,
+      workflow: null,
+      validation: "local_only", ready: false, requested: false,
       checks,
     };
     if (flags.json) writeJson(payload, flags.compactJson);
@@ -674,7 +682,7 @@ export async function experimentRun(planArg: string, flags: CliFlags): Promise<n
     return 0;
   }
   if (flags.check && !flags.dryRun) {
-    const payload = { submitted: false, planFile, checks };
+    const payload = { submitted: false, requested: false, planFile, checks, validation: "local_only", ready: false };
     if (flags.json) writeJson(payload, flags.compactJson);
     else writeText(block("Experiment check", payload as unknown as Record<string, unknown>));
     return 0;
@@ -682,11 +690,7 @@ export async function experimentRun(planArg: string, flags: CliFlags): Promise<n
   if (!hasApiDiscovery()) {
     throw envError("experiment run requires SimpleExperiment Local API. Open VS Code, or pass --dry-run.");
   }
-  const result = await callApi("workflow.run", { planFile, seed: flags.seed, debugMode: false });
-  const payload = { submitted: true, runner: recordedRunner.name, submitPath: "workflow.run", result };
-  if (flags.json) writeJson(payload, flags.compactJson);
-  else writeText(block("Experiment run", asRecord(payload)));
-  return 0;
+  throw envError("experiment run requires SimpleExperiment Local API. Open VS Code, or pass --dry-run.");
 }
 
 export async function experimentStop(id: string, flags: CliFlags): Promise<number> {

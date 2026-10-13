@@ -688,6 +688,11 @@ class LocalApiServer {
             retiredMethods: { "drafts.promote": "DRAFT_PROMOTION_RETIRED" },
             methods: Object.keys(this.methods).sort(),
             methodOptions: {
+                ...(Object.keys(this.methods).includes("workflow.run") ? {
+                    "workflow.plan": { requiresCurrentWorkspace: true, workspaceIdentityRechecked: true, seedOverride: false, startsTraining: false },
+                    "workflow.run": { requiresCurrentWorkspace: true, workspaceIdentityRechecked: true, seedOverride: false,
+                        receipt: "waiting_confirmation", requiresUserApproval: true, receiptProvesSubmission: false },
+                } : {}),
                 ...(Object.keys(this.methods).includes("tasks.preflight") ? {
                     "tasks.preflight": { params: ["workerId", "commandId"], researchFilesReadOnly: true, launchesTraining: false, changesQueue: false,
                         optionalParams: { environmentOnly: { type: "boolean", default: false, description: "Only verify the real task shell for a frozen failed job; does not validate assets, checkpoint or output admission", requiresWorkerEndpoint: "executionShellPreflight=1" } },

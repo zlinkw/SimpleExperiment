@@ -85,6 +85,10 @@ test("project root uses Local API workspace from unrelated cwd and explicit env 
   writeProject(project, { "experiments/plans/plan.yaml": "name: test\n" });
   writeProject(override, { "experiments/plans/plan.yaml": "name: override\n" });
   const server = http.createServer((req, res) => {
+    if (req.url === "/api/v1/capabilities") {
+      res.end(JSON.stringify({ schemaVersion: 1, rpc: "json-rpc-2.0", methods: ["status"] }));
+      return;
+    }
     const chunks = [];
     req.on("data", (chunk) => chunks.push(chunk));
     req.on("end", () => {
@@ -188,14 +192,15 @@ test("workflow terminal aliases normalize to canonical public statuses", async (
 });
 
 test("simpleex experiment run --dry-run does not submit", async () => {
-  const result = await runCli(["experiment", "run", validPlan, "--seed", "42", "--dry-run", "--json"]);
+  const result = await runCli(["experiment", "run", validPlan, "--dry-run", "--json"]);
   assert.equal(result.code, 0);
   const payload = JSON.parse(result.stdout);
   assert.equal(payload.dryRun, true);
   assert.equal(payload.submitted, false);
-  assert.equal(payload.seed, "42");
+  assert.equal(payload.ready, false);
+  assert.equal(payload.validation, "local_only");
   assert.equal(payload.submitPath, "workflow.run");
-  assert.equal(payload.runner, "runRecordedExperiment");
+  assert.equal(payload.runner, "SimpleExperiment Local API");
 });
 
 test("simpleex experiment run without API is env error", async () => {

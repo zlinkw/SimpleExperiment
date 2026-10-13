@@ -42,6 +42,7 @@ const fs = __importStar(require("fs"));
 const http = __importStar(require("http"));
 const os = __importStar(require("os"));
 const path = __importStar(require("path"));
+const LocalApiClient_1 = require("./cli/LocalApiClient");
 const PlanBuilder_1 = require("./features/PlanBuilder");
 const Metrics_1 = require("./features/Metrics");
 const Results_1 = require("./features/Results");
@@ -223,13 +224,13 @@ function readApiDiscovery() {
     if (!fs.existsSync(file)) {
         throw new Error(`SimpleExperiment API discovery not found: ${file}. Open VS Code once to start the extension host.`);
     }
-    const discovery = JSON.parse(fs.readFileSync(file, "utf8"));
-    if (!discovery.baseUrl || !discovery.token) {
-        throw new Error(`SimpleExperiment API discovery is invalid: ${file}`);
-    }
-    return discovery;
+    return (0, LocalApiClient_1.readLocalDiscovery)(file);
 }
 function apiRequest(discovery, method, params = {}) {
+    return (0, LocalApiClient_1.callLocalRpc)(readApiDiscovery, method, params);
+}
+/** Retained private legacy reader; public CLI calls use fresh discovery/capabilities. */
+function legacyApiRequest(discovery, method, params = {}) {
     const url = new URL("/api/v1/rpc", String(discovery.baseUrl));
     const body = Buffer.from(JSON.stringify({
         jsonrpc: "2.0",

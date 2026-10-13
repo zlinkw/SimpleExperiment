@@ -3,6 +3,7 @@ import * as fs from "fs";
 import * as http from "http";
 import * as os from "os";
 import * as path from "path";
+import { callLocalRpc, readLocalDiscovery } from "./cli/LocalApiClient";
 import { buildExperimentMatrix } from "./features/PlanBuilder";
 import { buildLeaderboard, leaderboardToMarkdown, parseMetricsFile } from "./features/Metrics";
 import {
@@ -191,14 +192,14 @@ export function readApiDiscovery(): Record<string, unknown> {
   if (!fs.existsSync(file)) {
     throw new Error(`SimpleExperiment API discovery not found: ${file}. Open VS Code once to start the extension host.`);
   }
-  const discovery = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
-  if (!discovery.baseUrl || !discovery.token) {
-    throw new Error(`SimpleExperiment API discovery is invalid: ${file}`);
-  }
-  return discovery;
+  return readLocalDiscovery(file);
 }
 
 export function apiRequest(discovery: Record<string, unknown>, method: string, params: Record<string, unknown> = {}): Promise<Record<string, any>> {
+  return callLocalRpc(readApiDiscovery, method, params);
+}
+/** Retained private legacy reader; public CLI calls use fresh discovery/capabilities. */
+function legacyApiRequest(discovery: Record<string, unknown>, method: string, params: Record<string, unknown> = {}): Promise<Record<string, any>> {
   const url = new URL("/api/v1/rpc", String(discovery.baseUrl));
   const body = Buffer.from(JSON.stringify({
     jsonrpc: "2.0",

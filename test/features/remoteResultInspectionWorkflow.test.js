@@ -26,6 +26,7 @@ function loadHelpers() {
     crypto,
     ProjectResultTables: require("../../dist/results/ProjectResultTables.js"),
     WrapperResultBundle: require("../../dist/results/WrapperResultBundle.js"),
+    ResultOwnershipScope: require("../../dist/results/ResultOwnershipScope.js"),
     FileTransferTypes_1: { isSafeRemotePath },
     normalizePlanSelectionKey: (value) => String(value || "").trim().replace(/\\/g, "/"),
     operationResultPlanFile(item) {

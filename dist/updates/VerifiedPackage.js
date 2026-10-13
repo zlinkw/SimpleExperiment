@@ -88,6 +88,9 @@ function inspectVsix(bytes) {
         const key = name.toLowerCase();
         if (!name || name.includes("\\") || name.startsWith("/") || name.includes(":") || name.includes("\0") || name.split("/").some(p => p === ".." || p === ".") || names.has(key))
             throw new Error("VSIX 路径或重复条目无效。");
+        const parts = name.endsWith("/") ? name.slice(0, -1).split("/") : name.split("/");
+        if (parts.some(p => !p || /[<>"|?*\x00-\x1f]/.test(p) || /[. ]$/.test(p) || /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(p)))
+            throw new Error("VSIX 包含 Windows 路径别名或保留名称。");
         names.add(key);
         if ((zip.readUInt32LE(offset + 38) >>> 16 & 0xf000) === 0xa000 || local + 30 > start || zip.readUInt32LE(local) !== 0x04034b50)
             throw new Error("VSIX 本地条目无效。");

@@ -155,6 +155,8 @@ const RuntimeManifest_1 = require("../runtime/RuntimeManifest");
 const AgentRuntimeScope_1 = require("../features/AgentRuntimeScope");
 const WorkerPlanSharding_1 = require("../features/WorkerPlanSharding");
 const ExtensionUpdates_1 = require("../features/ExtensionUpdates");
+const WorkflowBinding = require("../features/WorkflowWorkspaceBinding");
+const ResultOwnershipScope = require("../results/ResultOwnershipScope");
 const RunOperations_1 = require("../features/RunOperations");
 const LocalApiServer_1 = require("../api/LocalApiServer");
 const { LocalApiError, LocalApiServer: LocalApiServerClass, confirmationRequired } = LocalApiServer_1;
@@ -2674,15 +2676,20 @@ class RealtimeTunnelPanelProvider {
         };
     }
     async apiWorkflowPlan(params = {}) {
-        const root = String(params.workspace || workspaceRoot() || "").trim();
+        const binding = WorkflowBinding.bindWorkflowWorkspace(params.workspace, workspaceRoot());
+        WorkflowBinding.assertPlanSeedContract(params);
+        const assertCurrent = () => WorkflowBinding.assertWorkflowWorkspace(binding, workspaceRoot());
+        const root = binding.root;
         if (!root)
             throw new Error("workflow.plan 需要已打开工作区，或传入 workspace 参数。");
         assertSingleProjectWorkspace("workflow.plan");
         await this.reconcileStalePlanRunOperations({ reason: "workflow.plan" });
+        assertCurrent();
         await this.refreshLocalPlanMetadata({ post: false, force: true }).catch((error) => {
             this.localPlanMetadata = { ...this.localPlanMetadata, error: errorMessage(error) };
         });
         const planSelection = ApiWorkflow_1.selectWorkflowPlan(this.localPlanMetadata.plans || [], params);
+        assertCurrent();
         const topology = this.projectTopologyAssessment();
         const infrastructureMissing = ApiWorkflow_1.structuredMissingInventory({
             workspace: root,
@@ -2715,15 +2722,18 @@ class RealtimeTunnelPanelProvider {
                 };
             }
             await this.apiProjectPrepare({ ...params, confirm: true });
+            assertCurrent();
         }
         const validation = await this.apiPlanValidate(planSelection.plan ? {
             planFile: String(planSelection.plan.planFile || planSelection.plan.file || ""),
             planId: String(planSelection.plan.planId || planSelection.plan.planFile || planSelection.plan.file || ""),
         } : params);
+        assertCurrent();
         const selectedPlanFile = planSelection.plan ? String(planSelection.plan.planFile || planSelection.plan.file || "") : "";
         const selectedPlanId = planSelection.plan ? String(planSelection.plan.planId || selectedPlanFile) : "";
         const prepareParams = { ...params, confirm: true };
         const runParams = {
+            workspace: root,
             ...(selectedPlanFile ? { planFile: selectedPlanFile } : {}),
             ...(selectedPlanId ? { planId: selectedPlanId } : {}),
             debugMode: params.debugMode === true,
@@ -2771,7 +2781,10 @@ class RealtimeTunnelPanelProvider {
         };
     }
     async apiWorkflowRun(params = {}) {
+        const binding = WorkflowBinding.bindWorkflowWorkspace(params.workspace, workspaceRoot());
+        WorkflowBinding.assertPlanSeedContract(params);
         const route = await this.apiWorkflowPlan(params);
+        WorkflowBinding.assertWorkflowWorkspace(binding, workspaceRoot());
         if (!route.ready) {
             return {
                 ok: false,
@@ -2780,20 +2793,6 @@ class RealtimeTunnelPanelProvider {
                 ...route,
             };
         }
-        const operationId = makeOpId("workflow-run");
-        const startedAt = new Date().toISOString();
-        this.localOperations[operationId] = {
-            operationId,
-            type: "workflow-run",
-            status: "waiting_confirmation",
-            message: "请在 VS Code 弹窗中人工确认实验提交。",
-            startedAt,
-            planFile: String(route.calls[0]?.params?.planFile || route.plan?.planFile || ""),
-            planId: String(route.calls[0]?.params?.planId || route.plan?.planId || ""),
-            debugMode: params.debugMode === true,
-        };
-        this.markLocalOperationsDirty();
-        this.postState();
         const submittedPlanFile = String(route.calls[0]?.params?.planFile || route.plan?.planFile || "");
         const submittedPlanId = String(route.calls[0]?.params?.planId || route.plan?.planId || "");
         try {
@@ -2817,7 +2816,16 @@ class RealtimeTunnelPanelProvider {
             }
             throw error;
         }
-        void this.runApiWorkflowOperation(operationId, route).catch(() => undefined);
+        WorkflowBinding.assertWorkflowWorkspace(binding, workspaceRoot());
+        const operationId = makeOpId("workflow-run");
+        this.localOperations[operationId] = {
+            operationId, type: "workflow-run", status: "waiting_confirmation",
+            message: "请在 VS Code 弹窗中人工确认实验提交。", startedAt: new Date().toISOString(),
+            planFile: submittedPlanFile, planId: submittedPlanId, debugMode: params.debugMode === true,
+        };
+        this.markLocalOperationsDirty();
+        this.postState();
+        void this.runApiWorkflowOperation(operationId, route, binding).catch(() => undefined);
         return {
             ok: true,
             started: true,
@@ -2829,20 +2837,39 @@ class RealtimeTunnelPanelProvider {
             calls: [{ method: "operations.list", params: {} }],
         };
     }
-    async runApiWorkflowOperation(operationId, route) {
+    async runApiWorkflowOperation(operationId, route, binding) {
+        const operations = this.localOperations;
+        const assertCurrent = () => {
+            if (!binding)
+                return;
+            WorkflowBinding.assertWorkflowWorkspace(binding, workspaceRoot());
+            if (this.localOperations !== operations)
+                throw new Error("workflow 操作归属已变化，未继续提交。");
+        };
         const knownOperationIds = new Set(Object.keys(this.localOperations || {}));
         const finish = (patch = {}) => {
-            this.localOperations[operationId] = {
-                ...(this.localOperations[operationId] || {}),
+            operations[operationId] = {
+                ...(operations[operationId] || {}),
                 operationId,
                 type: "workflow-run",
                 finishedAt: new Date().toISOString(),
                 ...patch,
             };
+            if (this.localOperations !== operations)
+                return;
+            if (binding) {
+                try {
+                    assertCurrent();
+                }
+                catch {
+                    return;
+                }
+            }
             this.markLocalOperationsDirty();
             this.postState();
         };
         try {
+            assertCurrent();
             this.localOperations[operationId] = {
                 ...(this.localOperations[operationId] || {}),
                 status: "running",
@@ -2851,9 +2878,11 @@ class RealtimeTunnelPanelProvider {
             this.markLocalOperationsDirty();
             this.postState();
             const submitted = await this.runActionCommand("runPlan", route.calls[0].params);
+            assertCurrent();
             let evidence = this.runSubmissionEvidence(submitted, knownOperationIds);
             if (!evidence)
                 evidence = await this.waitForRunSubmissionEvidence({ knownOperationIds, timeoutMs: 20_000 });
+            assertCurrent();
             if (!evidence) {
                 finish({
                     status: "failed",
@@ -3585,7 +3614,7 @@ class RealtimeTunnelPanelProvider {
             this.resultsSummary = {
                 ...raw,
                 __offlineImport: true,
-                planFile: raw.planFile || raw.plan_file || this.planFileInput || this.selectedPlanId || "",
+                planFile: raw.planFile || raw.plan_file || "",
                 ...(qualityGate && !raw.qualityGate && !raw.quality_gate ? { qualityGate } : {}),
                 ...(paperTable && !raw.paperTable && !raw.paper_table ? { paperTable } : {}),
             };
@@ -6114,6 +6143,12 @@ class RealtimeTunnelPanelProvider {
         return this.runActionCommandCore(command, message);
     }
     async runActionCommandCore(command, message) {
+        const workflowBinding = PLAN_SUBMISSION_COMMANDS.has(command)
+            ? WorkflowBinding.bindWorkflowWorkspace(this.actionBody(message).workspace, workspaceRoot()) : undefined;
+        const assertWorkflowCurrent = () => { if (workflowBinding)
+            WorkflowBinding.assertWorkflowWorkspace(workflowBinding, workspaceRoot()); };
+        if (workflowBinding)
+            WorkflowBinding.assertPlanSeedContract(this.actionBody(message));
         const action = actionCommandMap[command];
         if (!action)
             return;
@@ -6126,18 +6161,24 @@ class RealtimeTunnelPanelProvider {
             const rules = root ? pluginProjectAdapterRules(root) : {};
             if (Object.keys(rules).length) {
                 const errors = await this.syncProjectAdapterRulesToAgents(rules);
+                assertWorkflowCurrent();
                 if (errors.length)
                     throw new Error(`插件接入规则尚未同步到 Agent：${errors.join("；")}。请检查隧道和 Agent 版本。`);
             }
         }
         this.assertRetryPlanContext(command, message);
         const body = this.actionBody(message);
+        assertWorkflowCurrent();
+        if (workflowBinding)
+            body.workspace = workflowBinding.root;
         const actionPlanFile = operationResultPlanFile(body) || body?.options?.planFile || body?.planFile || body?.selectedPlanId || "";
         if (actionPlanFile && command !== "runAllPlans") {
             await this.refreshLocalPlanMetadataForAction(body);
+            assertWorkflowCurrent();
             this.stampPlanRevision(body);
         }
         await this.ensureManualStopReason(command, body, message);
+        assertWorkflowCurrent();
         if (command === "stopExperiment") {
             const routed = await this.stopExperimentRouted({ ...body, operationId: stringField(message, "operationId"), remoteOperationId: stringField(message, "remoteOperationId") });
             if (routed !== undefined)
@@ -6203,10 +6244,13 @@ class RealtimeTunnelPanelProvider {
         if (PLAN_SUBMISSION_COMMANDS.has(command)) {
             this.reportPlanStage(message, "已收到校验并提交运行，正在检查计划与拓扑…");
             await new Promise((resolve) => setTimeout(resolve, 0));
+            assertWorkflowCurrent();
             this.assertPlanTopologyReady(command);
             await this.refreshLocalPlanMetadataForAction(body);
+            assertWorkflowCurrent();
             this.stampPlanRevision(body);
             await this.assertPlanLocalConfigFiles(body);
+            assertWorkflowCurrent();
             const plan = this.localPlanForActionBody(body);
             const distributedPlan = command === "runPlan" && this.distributedPlanEligible(operationResultPlanFile(body) || plan?.planFile || plan?.file);
             const outputGateReason = projectOutputGateReason(this.localPlanMetadata.detectedProject, plan);
@@ -6224,6 +6268,7 @@ class RealtimeTunnelPanelProvider {
                 await this.selectDistributedPlanPrimary(body);
             else
                 await this.selectPlanSubmissionWorker(body, operationResultPlanFile(body) || plan?.planFile || command);
+            assertWorkflowCurrent();
             this.recordPlanSubmissionTiming?.(message, "selectWorkerMs", Date.now() - selectWorkerStarted);
             if (LENIENT_RUN) {
                 try {
@@ -6244,28 +6289,35 @@ class RealtimeTunnelPanelProvider {
                 this.assertExecutionAgentProjectsReady(body);
             }
             const retryPlanFile = operationResultPlanFile(body) || plan?.planFile || plan?.file || plan?.planId || "";
-            const restarted = await (0, PlanSafeRetry_1.preparePlanSafeRetry)(this, retryPlanFile, async (detail) => await vscode.window.showWarningMessage("停止当前 Plan 并重新运行？", { modal: true, detail }, "停止并重新运行") === "停止并重新运行", () => new UiCommandCancelled("已取消重新运行，旧运行保持原状态。"));
+            const restarted = await (0, PlanSafeRetry_1.preparePlanSafeRetry)(this, retryPlanFile, async (detail) => await vscode.window.showWarningMessage("停止当前 Plan 并重新运行？", { modal: true, detail }, "停止并重新运行") === "停止并重新运行", () => new UiCommandCancelled("已取消重新运行，旧运行保持原状态。"), assertWorkflowCurrent);
+            assertWorkflowCurrent();
             if (restarted) {
                 delete message.deferredPlanId;
                 delete body.deferredPlanId;
             }
             await this.assertPlanNotAlreadyActive(retryPlanFile, plan);
+            assertWorkflowCurrent();
             if (body.debugMode === true)
                 throw new Error("Debug 运行模式已移除，请使用正式 Plan 运行。");
             this.reportPlanStage(message, "正在确认 SimpleSFTP 与提交信息…");
             if (!await this.ensureSimpleSftpReadyForSetup(command === "reproducePlan" ? "复现实验" : "运行计划"))
                 return;
+            assertWorkflowCurrent();
             if (command !== "runPlan")
                 await this.confirmPlanRunSubmission(command, plan, false, body);
+            assertWorkflowCurrent();
             const planFileForProvenance = operationResultPlanFile(body) || plan?.planFile || plan?.file || "";
             body.gitProvenance = await this.recordRunGitProvenance(planFileForProvenance, String(body.planRevision || plan?.revision || ""), makeOpId(command));
+            assertWorkflowCurrent();
             body.options = { ...(body.options || {}), gitProvenance: body.gitProvenance };
             if (distributedPlan) {
-                await this.finishDistributedPlanSubmission(command, message, plan, body);
+                await this.finishDistributedPlanSubmission(command, message, plan, body, workflowBinding);
                 return;
             }
             await this.ensureCodeReadyForRun(undefined, [body], (text) => this.reportPlanStage(message, text));
+            assertWorkflowCurrent();
             const preflightOk = await this.runPlanPreflight(body, "当前计划", { reportStage: (text) => this.reportPlanStage(message, text) });
+            assertWorkflowCurrent();
             if (!preflightOk) {
                 if (LENIENT_RUN) {
                     recordLenientSoftPass(this, "runPlanPreflight", "preflight not ok, continue to submit");
@@ -6278,37 +6330,20 @@ class RealtimeTunnelPanelProvider {
             if (preflightOk) {
                 this.reportPlanStage(message, "正在确认历史产物处理方式…");
                 await this.confirmPlanExistingOutputs(plan, body, preflightOk);
+                assertWorkflowCurrent();
                 if (body.existingOutputChoice === "keep_existing") {
                     this.finishPlanSubmissionProgress(message, "succeeded", "用户选择保留现有完整结果，本次未创建新调度任务。");
                     return;
                 }
             }
-            try {
-                const pf = operationResultPlanFile(body) || (typeof plan !== 'undefined' ? (plan?.planFile || plan?.file || "") : "") || "";
-                if (pf) {
-                    const states = this.lastState?.schedulerStates || [];
-                    const ops = this.lastState?.operations ? Object.values(this.lastState.operations) : [];
-                    const hasStale = states.some((s) => String(s.plan || s.planFile || "").includes(pf.replace(/^.*\//, "").replace(".yaml", "")) && ((s.running_experiments || []).length || (s.testing_experiments || []).length));
-                    const hasActiveOp = ops.some((op) => String(op.planFile || op.plan || "").includes(pf) && String(op.status || "").toLowerCase().match(/running|started|waiting/));
-                    if (hasStale || hasActiveOp) {
-                        const _fallbackAbortOp = (() => { try {
-                            const ops = this.longRunningPlanRunOperations?.();
-                            if (Array.isArray(ops) && ops.length)
-                                return ops[0];
-                        }
-                        catch { } return undefined; })();
-                        await this.abortSchedulerFromUi({ operationId: String(_fallbackAbortOp?.operationId || ""), planFile: pf });
-                        // P0 fix: event-driven, reduce from 1500 to 200ms
-                        await new Promise(r => setTimeout(r, 200));
-                    }
-                }
-            }
-            catch { }
+            // Stale snapshots cannot authorize an implicit stop. The explicit
+            // safe-retry flow above owns any user-approved cancellation.
             this.assertExecutionCondaEnvReady(this.workerActionTargets());
             if (PLAN_SUBMISSION_COMMANDS.has(command))
                 this.reportPlanStage(message, "预演通过，正在开启调度…");
         }
         const danger = command === "deleteArtifacts";
+        assertWorkflowCurrent();
         const noHubResult = await this.postNoHubResultAction(command, action, body, {
             confirm: NO_HUB_RESULT_CONFIRM_COMMANDS.has(command),
             danger,
@@ -10199,7 +10234,10 @@ class RealtimeTunnelPanelProvider {
             throw error;
         }
     }
-    async finishDistributedPlanSubmission(command, message, plan, body) {
+    async finishDistributedPlanSubmission(command, message, plan, body, binding) {
+        const workflowBinding = binding || WorkflowBinding.bindWorkflowWorkspace(body.workspace, workspaceRoot());
+        const assertCurrent = () => WorkflowBinding.assertWorkflowWorkspace(workflowBinding, workspaceRoot());
+        assertCurrent();
         const operationId = this.planSubmissionOperationId(message);
         const submissionEpoch = operationId ? (this.distributedSubmissionEpochs?.get(operationId) || 0) : 0;
         const submissionRoot = workspaceRoot();
@@ -10234,6 +10272,7 @@ class RealtimeTunnelPanelProvider {
         try {
             const codeSyncStarted = Date.now();
             await this.waitForPlanSubmission(message, () => this.ensureCodeReadyForRun(undefined, [body], (text) => this.reportPlanStage(message, text)));
+            assertCurrent();
             this.recordPlanSubmissionTiming?.(message, "codeSyncMs", Date.now() - codeSyncStarted);
             if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot))
                 return;
@@ -10242,6 +10281,7 @@ class RealtimeTunnelPanelProvider {
                 reportStage: (text) => this.reportPlanStage(message, text),
                 recordTiming: (key, ms) => this.recordPlanSubmissionTimingByOperation(operationId, key, ms),
             }));
+            assertCurrent();
             this.recordPlanSubmissionTiming?.(message, "validateMs", Date.now() - validateStarted);
             if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot))
                 return;
@@ -10252,6 +10292,7 @@ class RealtimeTunnelPanelProvider {
             this.reportPlanStage(message, "正在确认历史产物处理方式…");
             const historyChoiceStarted = Date.now();
             await this.waitForPlanSubmission(message, () => this.confirmDistributedPlanExistingOutputs(plan, body, preflightOk));
+            assertCurrent();
             this.recordPlanSubmissionTiming?.(message, "historyChoiceMs", Date.now() - historyChoiceStarted);
             if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot))
                 return;
@@ -10261,7 +10302,7 @@ class RealtimeTunnelPanelProvider {
             }
             this.assertExecutionCondaEnvReady(this.workerActionTargets());
             this.reportPlanStage(message, "预演通过，正在开启调度…");
-            const submission = await this.enqueueDistributedPlan(body, preflightOk, false, "", submissionEpoch, operationId);
+            const submission = await this.enqueueDistributedPlan(body, preflightOk, false, "", submissionEpoch, operationId, workflowBinding);
             if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot) || submission?.cancelled)
                 return;
             const submissionProgress = DistributedPlanQueue.distributedSubmissionProgress(submission);
@@ -10955,7 +10996,9 @@ class RealtimeTunnelPanelProvider {
             }
         }
     }
-    async enqueueDistributedPlan(body, validated, skipTick = false, supersededDeferredId = "", submissionEpoch = 0, submissionOperationId = "") {
+    async enqueueDistributedPlan(body, validated, skipTick = false, supersededDeferredId = "", submissionEpoch = 0, submissionOperationId = "", binding) {
+        const workflowBinding = binding || WorkflowBinding.bindWorkflowWorkspace(body.workspace, workspaceRoot());
+        WorkflowBinding.assertPlanSeedContract(body);
         if (body.overwriteExisting === true || body.overwrite === true || body.existingOutputChoice === "rerun_all"
             || body.options?.overwriteExisting === true || body.options?.overwrite === true)
             throw new Error("FORMAL_JOB_CONFLICT：正式 job 禁止覆盖；请显式清理或修改 case/job 路径。");
@@ -10967,6 +11010,7 @@ class RealtimeTunnelPanelProvider {
         if (!root)
             throw new Error("没有当前项目目录。");
         const submissionCurrent = () => {
+            WorkflowBinding.assertWorkflowWorkspace(workflowBinding, workspaceRoot());
             if (!submissionOperationId)
                 return workspaceRoot() === root;
             const record = this.localOperations?.[submissionOperationId];
@@ -26248,6 +26292,8 @@ const resultsSummaryArrayLimits = {
 const RESULTS_SUMMARY_WEBVIEW_VARIANT_CACHE_LIMIT = 8;
 const resultsSummaryForWebviewCache = new WeakMap();
 function compactResultsSummaryForPlanForWebview(summary, selectedPlan, planRevision = "", planUpdatedAt = "") {
+    if (selectedPlan)
+        summary = ResultOwnershipScope.scopeResultSummary(summary, selectedPlan);
     const cacheable = Boolean(summary) && typeof summary === "object" && !Array.isArray(summary);
     if (!cacheable)
         return compactResultsSummaryForWebview(filterResultsSummaryForSelectedPlan(summary, selectedPlan, planRevision, planUpdatedAt));
@@ -33073,7 +33119,8 @@ function remoteResultInspectionCandidates(operationGroups, planFile, planRevisio
         for (const row of rows) {
             if (!row || typeof row !== "object")
                 continue;
-            const payloads = remoteResultOperationPayloads(row);
+            const scopedReceipt = ResultOwnershipScope.scopeResultOperation(row, selectedPlan);
+            const payloads = scopedReceipt.payloads;
             const rowPlan = payloads.map((item) => operationResultPlanFile(item)).find(Boolean);
             if (!rowPlan || !samePlanSelection(rowPlan, selectedPlan))
                 continue;
@@ -33089,7 +33136,7 @@ function remoteResultInspectionCandidates(operationGroups, planFile, planRevisio
                     continue;
             }
             const operationType = payloads.map((item) => String(item.type || item.action || "")).join(" ").toLowerCase();
-            const hasContractReport = payloads.some((item) => item.contractReport && typeof item.contractReport === "object");
+            const hasContractReport = scopedReceipt.contractCheck;
             if (!operationType.includes("check-output-contract") && !hasContractReport)
                 continue;
             const files = [];
@@ -33117,6 +33164,7 @@ function remoteResultInspectionCandidates(operationGroups, planFile, planRevisio
     return checks[0]?.files || [];
 }
 function resultSummaryInspectionCandidates(summary, planFile) {
+    summary = ResultOwnershipScope.scopeResultSummary(summary, planFile);
     const selectedPlan = normalizePlanSelectionKey(planFile);
     if (!selectedPlan || !summary || typeof summary !== "object" || Array.isArray(summary))
         return [];
@@ -33697,6 +33745,7 @@ function resultMetricMergeScopePaths(plan, planFile, extras = []) {
     return [...paths].filter((item) => item && item !== "." && !isBlockedResultScope(item)).sort();
 }
 function resultMetricDownloadCandidates(summary, planFile) {
+    summary = ResultOwnershipScope.scopeResultSummary(summary, planFile);
     const rawPaths = new Set([summary?.rawResultCsvPath, ...(summary?.workerResultTables || []).flatMap(table => [table.rawResultCsvPath, ...(table.completedJob ? table.metricPaths || [] : [])])].filter(Boolean));
     return resultSummarySyncCandidates(summary, planFile).filter((item) => rawPaths.has(item.remotePath)
         && isResultMetricFile(item.remotePath) && !isLegacyProjectAggregateMetric(item.remotePath));
@@ -33711,6 +33760,7 @@ function isLegacyProjectAggregateMetric(value) {
     return LEGACY_PROJECT_AGGREGATE_METRICS.has(normalized);
 }
 function resultSummarySyncCandidates(summary, planFile) {
+    summary = ResultOwnershipScope.scopeResultSummary(summary, planFile);
     const inspected = new Set(resultSummaryInspectionCandidates(summary, planFile));
     const tables = Array.isArray(summary?.workerResultTables) ? summary.workerResultTables : [];
     const fields = ["rawResultCsvPath", "aggregateCsvPath", "projectAggregateCsvPath", "finalCsvPath", "finalMarkdownPath", "projectFinalCsvPath", "projectFinalMarkdownPath"];

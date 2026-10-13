@@ -27,6 +27,8 @@ test('validates actual XML, package, engine, runtime CRC and Windows platform in
   const bad = Buffer.from(good); bad[good.indexOf('module.exports')] ^= 1; assert.throws(() => inspectVsix(bad), /CRC/);
   assert.throws(() => inspectVsix(zip([['../escape', 'bad']])), /路径/);
   assert.throws(() => inspectVsix(zip([['x', '1'], ['X', '2']])), /重复/);
+  for (const name of ['extension/package.json ', 'extension/CON.txt', 'extension//main.js', 'extension/a./main.js', 'extension/a?b.js'])
+    assert.throws(() => inspectVsix(zip([[name, 'bad']])), /Windows/);
 });
 test('prepared file is hash-addressed, reused without overwrite, and reverified just before installation', async () => {
   const root = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'paired-update-package-')), bytes = fixture(); let calls = 0;

@@ -87,7 +87,8 @@ const parse_1 = require("../parse");
 const Lifecycle_1 = require("../../features/Lifecycle");
 const PlanBuilder_1 = require("../../features/PlanBuilder");
 const PlanBuilder_2 = require("../../features/PlanBuilder");
-const ExperimentRunner_1 = require("../../features/ExperimentRunner");
+const WorkflowRun_1 = require("../WorkflowRun");
+const WorkflowWorkspaceBinding_1 = require("../../features/WorkflowWorkspaceBinding");
 const result_1 = require("./result");
 const AGENT_SCHEMA_VERSION = "1";
 function createCommandSnapshot(runtimeVersion = "", runtimeSource = "experiment_index") {
@@ -672,19 +673,28 @@ async function experimentBatch(planArg, flags) {
 }
 async function experimentRun(planArg, flags) {
     const planFile = resolvePlanFile(planArg);
-    const recordedRunner = ExperimentRunner_1.runRecordedExperiment;
+    (0, WorkflowRun_1.assertProjectPlan)((0, data_1.projectRoot)(), planFile);
+    (0, WorkflowWorkspaceBinding_1.assertPlanSeedContract)(flags);
     const checks = flags.check ? await preflightChecks(planFile) : undefined;
+    if ((0, api_1.hasApiDiscovery)()) {
+        const { code, payload } = await (0, WorkflowRun_1.requestWorkflowRun)((0, data_1.projectRoot)(), planFile, flags);
+        if (flags.json)
+            (0, format_1.writeJson)({ ...payload, checks }, flags.compactJson);
+        else
+            (0, format_1.writeText)((0, format_1.block)("Experiment run", { ...payload, checks }));
+        return code;
+    }
     if (flags.dryRun) {
-        const route = flags.check ? null : await (0, api_1.optionalApi)("workflow.plan", { planFile, seed: flags.seed, dryRun: true, debugMode: false });
         const payload = {
             dryRun: true,
             planFile,
             seed: flags.seed || "",
             submitted: false,
-            runner: recordedRunner.name,
+            runner: "SimpleExperiment Local API",
             submitPath: "workflow.run",
-            wouldExecute: `workflow.run ${planFile}${flags.seed ? ` --seed ${flags.seed}` : ""}`,
-            workflow: route,
+            wouldExecute: `workflow.run ${planFile}`,
+            workflow: null,
+            validation: "local_only", ready: false, requested: false,
             checks,
         };
         if (flags.json)
@@ -694,7 +704,7 @@ async function experimentRun(planArg, flags) {
         return 0;
     }
     if (flags.check && !flags.dryRun) {
-        const payload = { submitted: false, planFile, checks };
+        const payload = { submitted: false, requested: false, planFile, checks, validation: "local_only", ready: false };
         if (flags.json)
             (0, format_1.writeJson)(payload, flags.compactJson);
         else
@@ -704,13 +714,7 @@ async function experimentRun(planArg, flags) {
     if (!(0, api_1.hasApiDiscovery)()) {
         throw (0, errors_1.envError)("experiment run requires SimpleExperiment Local API. Open VS Code, or pass --dry-run.");
     }
-    const result = await (0, api_1.callApi)("workflow.run", { planFile, seed: flags.seed, debugMode: false });
-    const payload = { submitted: true, runner: recordedRunner.name, submitPath: "workflow.run", result };
-    if (flags.json)
-        (0, format_1.writeJson)(payload, flags.compactJson);
-    else
-        (0, format_1.writeText)((0, format_1.block)("Experiment run", asRecord(payload)));
-    return 0;
+    throw (0, errors_1.envError)("experiment run requires SimpleExperiment Local API. Open VS Code, or pass --dry-run.");
 }
 async function experimentStop(id, flags) {
     const match = await findExperiment(id);
