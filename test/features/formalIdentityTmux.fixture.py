@@ -20,7 +20,7 @@ wrapper = root / "tmux"
 wrapper.write_text("#!/bin/sh\nexec /usr/bin/tmux -L " + shlex.quote(socket) + " -f /dev/null \"$@\"\n", encoding="utf-8")
 wrapper.chmod(0o700)
 shell = root / "probe-shell"
-shell.write_text("#!/bin/sh\nexec /bin/bash --noprofile --norc\n", encoding="utf-8")
+shell.write_text('#!/bin/sh\nexec /bin/bash --noprofile --norc "$@"\n', encoding="utf-8")
 shell.chmod(0o700)
 os.environ["PATH"] = str(root) + ":" + os.environ["PATH"]
 os.environ["SHELL"] = str(shell)

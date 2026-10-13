@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.CLUSTER_SCHEDULER_RUNTIME = void 0;
 const PlanExistingArtifacts_1 = require("./runtime/PlanExistingArtifacts");
+const TaskShellEnvironment_1 = require("./runtime/TaskShellEnvironment");
 exports.CLUSTER_SCHEDULER_RUNTIME = String.raw `from __future__ import annotations
 
 import argparse
@@ -18,6 +19,7 @@ import random
 import re
 import shlex
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -46,6 +48,7 @@ PLUGIN_VERSION = "0.4.64"
 FORMAL_JOB_PATH_PROTOCOL = 1
 FORMAL_JOB_IDENTITY_ENV_PROTOCOL = 1
 EXECUTION_SHELL_PREFLIGHT_PROTOCOL = 1
+TASK_SHELL_ENVIRONMENT_PROTOCOL = 1
 
 TAIL_BYTES = 16 * 1024
 WORKER_AVAILABILITY_REFRESH_TIMEOUT_SECONDS = 5.0
@@ -649,6 +652,7 @@ RESULT_EXACT_PAIRS = {("experiments", "results.csv")}
 
 # 历史产物解耦：用于调度前检测 output_dir 是否已有产物的标记文件（与 RESULT_ROOT_FILES 交叉但聚焦关键产物）
 ${PlanExistingArtifacts_1.PLAN_EXISTING_ARTIFACTS_PYTHON}
+${TaskShellEnvironment_1.TASK_SHELL_ENVIRONMENT_PYTHON}
 
 
 def detect_existing_outputs(jobs: list[Job]) -> list[dict[str, Any]]:
@@ -1758,21 +1762,25 @@ def simple_conda_wrapped_args(args: list[str], env: dict[str, str]) -> list[str]
     # 变量化：tmux 人工发送模式仍需在 bash -lc 前拼接 conda activate；不依赖 shutil.which，保持在非交互 shell 也能 activate
     if os.name == "nt":
         return args
-    conda_env = str(env.get("SIMPLE_EXPERIMENT_CONDA_ENV") or "").strip()
-    if not (simple_conda_required(env) or conda_env):
-        return args
-    return shell_command_args(f"{simple_conda_activation_script(env)} && exec {shlex.join(args)}")
+    return task_shell_args(args, env, runtime_python_command(env))
 
 def execution_shell_preflight() -> dict[str, Any]:
-    """Use the real task shell to probe only stdlib/interpreter identity, never a job."""
+    """Probe the login shell, loader and installed torch import; never execute a job or use a GPU."""
     env = simple_runtime_env()
-    code = "import json,os,sys; print(json.dumps(dict(python=sys.executable,prefix=sys.prefix,identity=os.environ.get('SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY','')),ensure_ascii=False))"
+    code = TASK_EXECUTION_PROBE_CODE
     proc = None
     readers = []
+    previous_signal = None
     try:
+        if os.name != "nt" and threading.current_thread() is threading.main_thread():
+            previous_signal = signal.getsignal(signal.SIGTERM)
+            def cancelled(signum, frame):
+                raise InterruptedError("execution shell preflight cancelled")
+            signal.signal(signal.SIGTERM, cancelled)
         python = runtime_python_command(env)
         proc = subprocess.Popen(simple_conda_wrapped_args([python, "-B", "-X", "utf8", "-c", code], env), env=env,
-                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                                stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+                                start_new_session=os.name != "nt")
         buffers = {"stdout": bytearray(), "stderr": bytearray()}
         overflow = [False]
         def drain(name, stream):
@@ -1788,7 +1796,7 @@ def execution_shell_preflight() -> dict[str, Any]:
         readers = [threading.Thread(target=drain, args=(name, stream), daemon=True)
                    for name, stream in (("stdout", proc.stdout), ("stderr", proc.stderr))]
         for reader in readers: reader.start()
-        proc.wait(timeout=8)  # Bounded stdlib probe only; asset verification uses genuine-progress inactivity.
+        proc.wait(timeout=8)  # Bounded import/CPU probe; full assets use genuine-progress inactivity.
         for reader in readers: reader.join(timeout=1)
         if any(reader.is_alive() for reader in readers):
             raise ValueError("execution environment output did not close")
@@ -1812,11 +1820,17 @@ def execution_shell_preflight() -> dict[str, Any]:
         return {"ok": False, "errorCode": "EXECUTION_SHELL_PREFLIGHT_FAILED", "error": str(exc)[-2000:], "executionStarted": False}
     finally:
         if proc is not None:
-            if proc.poll() is None:
-                proc.kill()
-                proc.wait(timeout=2)
+            if proc.poll() is None or any(reader.is_alive() for reader in readers):
+                if os.name != "nt" and isinstance(getattr(proc, "pid", None), int):
+                    try: os.killpg(proc.pid, signal.SIGKILL)
+                    except ProcessLookupError: pass
+                else:
+                    proc.kill()
+            proc.wait(timeout=2)
             for reader in readers: reader.join(timeout=1)
             for stream in (proc.stdout, proc.stderr): stream.close()
+        if previous_signal is not None:
+            signal.signal(signal.SIGTERM, previous_signal)
 
 
 def _replace_bare_python_prefix(text: str, python_bin: str) -> str:

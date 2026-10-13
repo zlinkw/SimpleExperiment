@@ -66,10 +66,14 @@ test('environment-only API verifies the actual child shell without admitting or 
   row.neverStarted = false;
   row.neverStartedEvidence = '';
   await assert.rejects(p.apiTaskPreflight({ workerId: 'worker', commandId: row.commandId }, 'start', signal), /NEVER_STARTED/);
+  p.lastWorkerProbes.worker.capabilities.endpoints.taskShellEnvironment = 1;
   await p.apiTaskPreflight({ workerId: 'worker', commandId: row.commandId, environmentOnly: true }, 'start', signal);
   assert.equal(calls[0][2].environmentOnly, true);
   p.lastWorkerProbes.worker.capabilities.endpoints.executionShellPreflight = 0;
   await assert.rejects(p.apiTaskPreflight({ workerId: 'worker', commandId: row.commandId, environmentOnly: true }, 'start', signal), /INCOMPATIBLE/);
+  p.lastWorkerProbes.worker.capabilities.endpoints.executionShellPreflight = 1;
+  p.lastWorkerProbes.worker.capabilities.endpoints.taskShellEnvironment = 0;
+  await assert.rejects(p.apiTaskPreflight({ workerId: 'worker', commandId: row.commandId, environmentOnly: true }, 'start', signal), /taskShellEnvironment/);
   await assert.rejects(p.apiTaskPreflight({ workerId: 'worker', commandId: row.commandId, environmentOnly: 'true' }, 'start', signal), /INVALID_ENVIRONMENT/);
   assert.equal(calls.length, 1);
 });

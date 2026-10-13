@@ -53,6 +53,7 @@ def validate_result_paths(config, contract):
 (root / "asset.dat").write_bytes(b"owned-asset" * 512)
 child = root / "scheduler_probe.py"
 child.write_text('''import argparse, json, pathlib, sys
+TASK_SHELL_ENVIRONMENT_PROTOCOL = 1
 sys.path.insert(0, ''' + repr(str(repo / "test/_helpers")) + ''')
 from extractRuntimeFunctions import extract_runtime_functions
 scheduler = extract_runtime_functions(''' + repr(str(runtime / "cluster_scheduler.py")) + ''', ['formal_job_preflight_report'])

@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.CLUSTER_AGENT_RUNTIME = void 0;
 const ResultLayout_1 = require("./results/ResultLayout");
 const PlanExistingArtifacts_1 = require("./runtime/PlanExistingArtifacts");
+const TaskShellEnvironment_1 = require("./runtime/TaskShellEnvironment");
 exports.CLUSTER_AGENT_RUNTIME = String.raw `#!/usr/bin/env python3
 from __future__ import annotations
 import argparse, base64, calendar, copy, csv, errno, fnmatch, glob, hashlib, http.client, importlib.util, io, ipaddress, json, math, os, pathlib, random, re, shutil, shlex, signal, socket, statistics, stat, struct, subprocess, sys, threading, time, traceback, urllib.request, uuid, zipfile
@@ -3915,6 +3916,8 @@ def release_distributed_gpu_reservation(gpu_id, command_id):
         if DISTRIBUTED_GPU_RESERVATIONS.get(str(gpu_id)) == command_id:
             DISTRIBUTED_GPU_RESERVATIONS.pop(str(gpu_id), None)
 
+${TaskShellEnvironment_1.TASK_SHELL_ENVIRONMENT_PYTHON}
+
 def simple_runtime_env(base=None):
     env = dict(os.environ if base is None else base)
     if str(env.get("SIMPLE_EXPERIMENT_CONDA_ENV") or "").strip() in {"-", "--"}:
@@ -4026,15 +4029,7 @@ def simple_conda_wrapped_args(args, env):
     source = simple_runtime_env(env)
     if os.name == "nt":
         return args
-    conda_env = str(source.get("SIMPLE_EXPERIMENT_CONDA_ENV") or "").strip()
-    require = str(source.get("SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV") or "").strip().lower() in ("1", "true", "yes", "on")
-    if not (require and conda_env):
-        return args
-    # 变量化双保险：conda activate 与绝对 python 共存；不在此因 which 失败而跳过 wrapping，activation 脚本自行 source conda.sh
-    shell = os.environ.get("SHELL") or ("/bin/bash" if os.path.isfile("/bin/bash") else "/bin/sh")
-    # Keep the portable activation pattern expected by runtime tests (empty-arg call)
-    # simple_conda_activation_script()} && exec
-    return [shell, "-lc", f"{simple_conda_activation_script(env)} && exec {shlex.join([str(item) for item in args])}"]
+    return task_shell_args(args, source, simple_runtime_python(source))
 
 def _normalize_gpu_id_for_window(value):
     s = str(value or "0").strip()
@@ -4640,12 +4635,7 @@ def _send_tmux_line(session, line, env, retries=3):
         time.sleep(0.3 * attempt)
     return last_rc
 
-JOB_SHELL_ENV_FIELDS = (
-    "SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY", "SIMPLE_EXPERIMENT_JOB_COMMAND_ID", "SIMPLE_EXPERIMENT_JOB_PROJECT_ID",
-    "SIMPLE_EXPERIMENT_MANAGED_JOB", "SIMPLE_EXPERIMENT_CHECKPOINT_TEST_ONLY", "SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS",
-    "SIMPLE_EXPERIMENT_TMUX_SESSION", "SIMPLE_EXPERIMENT_TMUX_LOG_DIR", "SIMPLE_EXPERIMENT_EXIT_CODE_PATH",
-    "SIMPLE_EXPERIMENT_CONDA_ENV", "SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV", "CUDA_VISIBLE_DEVICES", "PYTHONUNBUFFERED",
-)
+JOB_SHELL_ENV_FIELDS = TASK_SHELL_ENV_FIELDS
 
 def fresh_task_runtime_env():
     env = simple_runtime_env(os.environ.copy())
@@ -4741,10 +4731,7 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
             os.makedirs(os.path.dirname(str(log_path)) or ".", exist_ok=True)
         except Exception:
             pass
-    conda_env = simple_conda_env_name(env)
     lines = []
-    if conda_env:
-        lines.append("conda activate " + shlex.quote(conda_env))
     if cwd:
         lines.append("cd " + shlex.quote(str(cwd)))
     # The command below appends its rc via '; printf "%s" "$?" > exit_code_path'. That redirect
@@ -4758,7 +4745,7 @@ def start_simple_tmux_command(session, args, cwd, log_path, env, exit_code_path=
                 os.makedirs(_ec_dir, exist_ok=True)
         except Exception:
             pass
-    command = task_environment + " " + shlex.join([str(item) for item in args])
+    command = task_environment + " " + shlex.join(simple_conda_wrapped_args(args, env))
     if exit_code_path:
         command = command + "; printf '%s' \"$?\" > " + shlex.quote(str(exit_code_path))
     lines.append(command)
@@ -4893,65 +4880,16 @@ def start_job_in_gpu_pane(gpu_window, args, cwd, env, log_path, exit_code_path):
         # new-session 已同步创建 tmux 会话。任务由独立 split-window pane 运行，
         # 无须等待基础 shell 的 bashrc，也不向该 shell 发送训练命令。
     try:
-        # 修复 GPU pane 无 conda：若 SIMPLE_EXPERIMENT_CONDA_ENV 是绝对路径且 $CONDA_ENV/bin/python 存在，则直接用该 python 和 PATH 包含 $CONDA_ENV/bin，不走 conda activate（兜底 conda 已清洗 PATH 的情况）
-        _conda_env_name = simple_conda_env_name(env) if isinstance(env, dict) else ""
-        _args_list = [str(x) for x in args]
-        _conda_env_is_abs = bool(str(_conda_env_name or "").strip().startswith("/"))
-        _direct_python = ""
-        _direct_bin = ""
-        _activation = "true"
-        if _conda_env_is_abs:
-            try:
-                _ep = simple_conda_env_python(_conda_env_name)
-                if _ep:
-                    _direct_python = str(_ep).strip()
-                    if _direct_python.endswith("/bin/python"):
-                        _direct_bin = _direct_python[:-7]
-                    else:
-                        _clean_tmp = str(_conda_env_name).strip().rstrip("/\\")
-                        if _clean_tmp.endswith("/bin/python"):
-                            _direct_bin = __import__("os").path.dirname(_clean_tmp)
-                            _direct_python = _clean_tmp
-                        elif _clean_tmp.endswith("/bin"):
-                            _direct_bin = _clean_tmp
-                        else:
-                            _direct_bin = _clean_tmp.rstrip("/") + "/bin"
-                    if __import__("os").path.isfile(_direct_python) and __import__("os").access(_direct_python, __import__("os").X_OK):
-                        if _args_list and _args_list[0] == "python":
-                            _args_list[0] = _direct_python
-                        _activation = f'export PATH={__import__("shlex").quote(_direct_bin)}:$PATH'
-                    else:
-                        if _args_list and _args_list[0] == "python" and _direct_python:
-                            _args_list[0] = _direct_python
-                        _direct_bin_q = __import__("shlex").quote(_direct_bin)
-                        _direct_py_q = __import__("shlex").quote(_direct_python)
-                        _orig_act = simple_conda_activation_script(env)
-                        _activation = f'if [ -x {_direct_py_q} ]; then export PATH={_direct_bin_q}:$PATH; else {_orig_act}; fi'
-                else:
-                    _activation = simple_conda_activation_script(env)
-            except Exception:
-                _activation = simple_conda_activation_script(env) if _conda_env_name else "true"
-        else:
-            _activation = simple_conda_activation_script(env) if isinstance(env, dict) and _conda_env_name else "true"
-            if _args_list and _args_list[0] == "python" and _conda_env_name:
-                try:
-                    _ep = simple_conda_env_python(_conda_env_name)
-                    if _ep:
-                        _args_list[0] = _ep
-                except Exception:
-                    pass
-        _joined = __import__("shlex").join(_args_list)
-        if _activation and _activation != "true":
-            _inner = f"{_activation} && {_joined}"
-        else:
-            _inner = _joined
+        _args_list = [str(item) for item in args]
+        if _args_list and _args_list[0] in ("python", "python3"):
+            _args_list[0] = simple_runtime_python(env)
         # 实时日志 tee：stdout/stderr 同时输出到 TMUX pane（可见）与文件备份（log_path），exit_code 用 pipefail 保留
         _tee_log = __import__("shlex").quote(str(log_path))
         try:
             os.makedirs(os.path.dirname(str(log_path)) or ".", exist_ok=True)
         except Exception:
             pass
-        _task_command = task_environment + " bash -c " + shlex.quote(_inner)
+        _task_command = task_environment + " " + shlex.join(simple_conda_wrapped_args(_args_list, env))
         _cmd = f"set -o pipefail; {{ {_task_command}; }} 2>&1 | tee -a {_tee_log}; printf '%s' \"$?\" > {__import__('shlex').quote(str(exit_code_path))}; exec bash"
         # Each task gets a separate window in the GPU session. A failed window
         # remains visible; later plans can launch another window on this GPU.
@@ -5479,6 +5417,7 @@ def _execute_worker_command_unfenced(root, command, worker_id):
         env["SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS"] = "1"
     formal = verified_formal_job_command(project_dir, command)
     env["SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY"] = json.dumps(formal["identity"], ensure_ascii=False)
+    env["SIMPLE_EXPERIMENT_NVJITLINK_PROOF"] = json.dumps(formal.get("executionEnvironment", {}).get("nvJitLink"), ensure_ascii=False, separators=(",", ":"))
     if command.get("checkpointTestOnly") is True:
         if formal.get("checkpointVerified") is not True:
             raise ValueError("FORMAL_CHECKPOINT_PROOF_REQUIRED")
@@ -5787,14 +5726,14 @@ def formal_job_command_env(command):
 
 def verified_worker_execution_shell(project_dir, command):
     """Only probe the task shell; occupied output directories remain untouched and unadmitted."""
-    if not execution_shell_preflight_capable(project_dir):
+    if not task_shell_environment_capable(project_dir):
         raise ValueError("WORKER_PROTOCOL_INCOMPATIBLE: execution shell preflight requires matching Agent/Scheduler")
     if command.get("resultPathPolicy") != "declared" or "attempts" in str(command.get("outputDir") or "").split("/"):
         raise ValueError("HISTORICAL_ATTEMPT_READ_ONLY")
     env = formal_job_command_env(command)
     args = [simple_runtime_python(env), "-B", "-X", "utf8", cluster_scheduler_path(project_dir), "--check-execution-shell-json"]
     job_shell_environment_prefix(env, args)
-    proc = subprocess_inactivity_run(args, cwd=project_dir, env=env, progress_stream="stderr")
+    proc = subprocess_inactivity_run(simple_conda_wrapped_args(args, env), cwd=project_dir, env=env, progress_stream="stderr")
     if proc.returncode:
         raise ValueError((proc.stderr or proc.stdout or "EXECUTION_SHELL_PREFLIGHT_FAILED")[-4000:])
     report = json.loads(proc.stdout)
@@ -5809,7 +5748,7 @@ def verified_formal_job_command(project_dir, command):
     if command.get("resultPathPolicy") != "declared" or "attempts" in str(command.get("outputDir") or "").split("/"):
         raise ValueError("HISTORICAL_ATTEMPT_READ_ONLY")
     scheduler_path = cluster_scheduler_path(project_dir)
-    if not scheduler_path or not formal_job_path_capable(project_dir):
+    if not scheduler_path or not formal_job_path_capable(project_dir) or not task_shell_environment_capable(project_dir):
         raise ValueError("WORKER_PROTOCOL_INCOMPATIBLE: deploy matching formal-path Scheduler and Agent")
     env = formal_job_command_env(command)
     requested_mode = "test" if command.get("checkpointTestOnly") is True else str(command.get("mode") or "")
@@ -5818,7 +5757,7 @@ def verified_formal_job_command(project_dir, command):
             "--plan-revision", str(command.get("planRevision") or ""), "--output-dir-override", str(command.get("outputDir") or "")]
     job_shell_environment_prefix(env, args)  # Validate the supplied identity; never fabricate a missing globalJobId.
     try:
-        proc = subprocess_inactivity_run(args, cwd=project_dir, env=env, progress_stream="stderr")
+        proc = subprocess_inactivity_run(simple_conda_wrapped_args(args, env), cwd=project_dir, env=env, progress_stream="stderr")
     except RuntimeError as exc:
         code = "FORMAL_JOB_PREFLIGHT_CANCELLED" if "操作已取消" in str(exc) else "FORMAL_JOB_PREFLIGHT_STALLED" if "无真实进展" in str(exc) else "FORMAL_JOB_PREFLIGHT_PROCESS_FAILED"
         raise ValueError(code + ": " + " | ".join(str(exc).splitlines())[:3500]) from exc
@@ -6554,6 +6493,13 @@ def execution_shell_preflight_capable(root):
     except (OSError, TypeError):
         return False
 
+def task_shell_environment_capable(root):
+    try:
+        with open(cluster_scheduler_path(root), "r", encoding="utf-8") as stream:
+            return execution_shell_preflight_capable(root) and "TASK_SHELL_ENVIRONMENT_PROTOCOL = 1" in stream.read(8192)
+    except (OSError, TypeError):
+        return False
+
 
 def api_capabilities(root, token_required=False, mode="hub_control"):
     if mode == "worker_telemetry":
@@ -6579,6 +6525,7 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
                 "declaredJobPaths": formal_job_path_capable(root),
                 "formalJobIdentityEnv": 1 if formal_job_path_capable(root) else 0,
                 "executionShellPreflight": 1 if execution_shell_preflight_capable(root) else 0,
+                "taskShellEnvironment": 1 if task_shell_environment_capable(root) else 0,
                 "durablePlanQueue": True,
                 "codeSyncProof": True,
                 "idleGpuAdmission": True,
@@ -6637,6 +6584,7 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
             "declaredJobPaths": formal_job_path_capable(root),
             "formalJobIdentityEnv": 1 if formal_job_path_capable(root) else 0,
             "executionShellPreflight": 1 if execution_shell_preflight_capable(root) else 0,
+            "taskShellEnvironment": 1 if task_shell_environment_capable(root) else 0,
             "traces": True,
             "liveOutput": True,
             "diagnostics": True,

@@ -11003,9 +11003,10 @@ class RealtimeTunnelPanelProvider {
             || body.options?.overwriteExisting === true || body.options?.overwrite === true)
             throw new Error("FORMAL_JOB_CONFLICT：正式 job 禁止覆盖；请显式清理或修改 case/job 路径。");
         const incompatible = this.workerActionTargets().filter(target => this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.declaredJobPaths !== true
-            || this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.formalJobIdentityEnv !== 1);
+            || this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.formalJobIdentityEnv !== 1
+            || this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.taskShellEnvironment !== 1);
         if (incompatible.length)
-            throw new Error("WORKER_PROTOCOL_INCOMPATIBLE：请部署支持 declaredJobPaths 与 formalJobIdentityEnv=1 的匹配 Agent/Scheduler：" + incompatible.map(target => target.id).join("、"));
+            throw new Error("WORKER_PROTOCOL_INCOMPATIBLE：请部署支持正式身份与 taskShellEnvironment=1 的匹配 Agent/Scheduler：" + incompatible.map(target => target.id).join("、"));
         const root = workspaceRoot();
         if (!root)
             throw new Error("没有当前项目目录。");
@@ -11161,8 +11162,9 @@ class RealtimeTunnelPanelProvider {
         if (plan.resultPathPolicy !== "declared" || job.outputDir.split("/").includes("attempts"))
             throw new Error("HISTORICAL_ATTEMPT_READ_ONLY：旧队列仅供查看，不会重启既有任务。");
         if (this.lastWorkerProbes?.[workerId]?.capabilities?.endpoints?.declaredJobPaths !== true
-            || this.lastWorkerProbes?.[workerId]?.capabilities?.endpoints?.formalJobIdentityEnv !== 1)
-            throw new Error(`WORKER_PROTOCOL_INCOMPATIBLE：${workerId} 未声明正式身份环境协议；请部署匹配的 Scheduler 和 Agent。`);
+            || this.lastWorkerProbes?.[workerId]?.capabilities?.endpoints?.formalJobIdentityEnv !== 1
+            || this.lastWorkerProbes?.[workerId]?.capabilities?.endpoints?.taskShellEnvironment !== 1)
+            throw new Error(`WORKER_PROTOCOL_INCOMPATIBLE：${workerId} 未声明正式身份与登录 shell 环境协议；请部署匹配的 Scheduler 和 Agent。`);
         const executionMode = PlanExecutionMode.requirePlanExecutionMode(plan.executionMode);
         const target = this.workerActionTargets().find((item) => item.id === workerId);
         if (!target)
@@ -11623,7 +11625,8 @@ class RealtimeTunnelPanelProvider {
                 const configuredCapacity = Number(workerConfig?.maxConcurrentGpus);
                 return { workerId: target.id, online: live, idleGpuAdmission: snapshot?.capabilities?.idleGpuAdmission === true,
                     declaredJobPaths: this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.declaredJobPaths === true
-                        && this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.formalJobIdentityEnv === 1,
+                        && this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.formalJobIdentityEnv === 1
+                        && this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.taskShellEnvironment === 1,
                     codeFingerprint: workerFingerprint,
                     idleGpuIds: (idleByWorker.get(target.id) || []).filter((gpuId) => !occupiedGpuIds.has(`${target.id}:${gpuId}`)),
                     capacity: Number.isInteger(configuredCapacity) && configuredCapacity > 0
@@ -13697,6 +13700,8 @@ class RealtimeTunnelPanelProvider {
         const environmentOnly = params.environmentOnly === true;
         if (environmentOnly && this.lastWorkerProbes[workerId]?.capabilities?.endpoints?.executionShellPreflight !== 1)
             throw new Error(`WORKER_PROTOCOL_INCOMPATIBLE: ${workerId}: executionShellPreflight; 请更新匹配的 Agent/Scheduler`);
+        if (environmentOnly && this.lastWorkerProbes[workerId]?.capabilities?.endpoints?.taskShellEnvironment !== 1)
+            throw new Error(`WORKER_PROTOCOL_INCOMPATIBLE: ${workerId}: taskShellEnvironment; 请更新匹配的 Agent/Scheduler`);
         const snapshot = await this.readWorkerTaskSnapshot(workerId, { fresh: true, signal });
         const row = snapshot.tasks?.find(task => task.commandId === commandId);
         if (!row || row.projectId !== DistributedPlanQueue.canonicalProjectId(root) || row.workerId !== workerId)
