@@ -5504,12 +5504,6 @@ def _execute_worker_command_unfenced(root, command, worker_id):
         result = {"commandId": command_id, "status": "failed", "message": "Worker 上缺少 cluster_scheduler.py，请先部署最新版 Agent。"}
         append_event(root, {"type": "worker_command_failed", "workerId": worker_id, "operationId": command_id, "payload": result})
         return result
-    try:
-        require_scheduler_dependencies(project_dir, scheduler_path, env)
-    except Exception as exc:
-        result = {"commandId": command_id, "status": "failed", "message": str(exc)}
-        append_event(root, {"type": "worker_command_failed", "workerId": worker_id, "operationId": command_id, "payload": result})
-        return result
     overwrite_existing = any(action_bool(value) for value in (command.get("overwriteExisting"), command.get("overwrite_existing"), command.get("overwrite"), options.get("overwriteExisting"), options.get("overwrite_existing"), options.get("overwrite")))
     args = [
         simple_runtime_python(env),
@@ -6524,7 +6518,7 @@ def api_health(root, mode="realtime"):
         "status": "ok" if serving or health.get("running") is not False else "degraded",
         "snapshotAge": age if age is not None else 999999,
         "workerCount": (1 if snapshot.get("gpu") or snapshot.get("gpus") else 0) if mode == "worker_telemetry" else len(snapshot.get("workers") or []),
-        "schedulerDependencies": scheduler_dependency_health(root),
+        "schedulerDependencies": {"checked": False, "automatic": False, "scope": "agent", "reason": "research_environment_owned_by_project"},
         "checkedAt": now_iso(),
     }
 
@@ -11819,7 +11813,6 @@ def scheduler_validate_json(root, scheduler, plan, default_result_csv_dir="exper
     if cached is not None:
         return cached
     base_key = plan_structural_validation_key(root, scheduler, plan, default_result_csv_dir, options, env)
-    require_scheduler_dependencies(root, scheduler, env)
     result = scheduler_capture(root, scheduler, ["--validate-plan", "--plan", plan, "--default-result-csv-dir", default_result_csv_dir], env=env)
     if result.returncode != 0:
         raise RuntimeError((result.stderr or result.stdout or "计划校验失败").strip()[-1000:])
@@ -11842,7 +11835,6 @@ def dry_run_preview_action(root, plan, workers, assigned_indices=None, default_r
     scheduler = cluster_scheduler_path(root)
     if not scheduler:
         raise RuntimeError("Hub 上缺少 cluster_scheduler.py，请先部署最新版 Agent。")
-    require_scheduler_dependencies(root, scheduler)
     owner = str(operation_id or "").strip()
     if not owner:
         raise ValueError("Dry-run 缺少稳定 operationId，拒绝创建无归属暂存文件。")
@@ -14297,7 +14289,7 @@ def api_diagnostics(root, include_token=False):
         "maxAgentStateBytes": MAX_AGENT_STATE_BYTES,
         "agentStatePrune": dict(AGENT_STATE_PRUNE_DIAGNOSTICS),
         "tokenConfigured": bool((read_runtime_json_cached(path_for(root, "agent.session.json"), {}) or {}).get("tokenConfigured")),
-        "schedulerDependencies": scheduler_dependency_health(root),
+        "schedulerDependencies": {"checked": False, "automatic": False, "scope": "agent", "reason": "research_environment_owned_by_project"},
     }
     return result
 

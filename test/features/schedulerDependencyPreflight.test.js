@@ -58,7 +58,7 @@ test("dependency guidance targets an explicitly configured Conda environment", (
   assert.match(status.message, /当前执行环境：Conda research/);
 });
 
-test("Agent propagates dependency failures before validation, preview, or Worker launch", () => {
+test("explicit dependency diagnostics remain available without automatic Worker or Plan probes", () => {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), "simple-experiment-dependency-"));
   const fixture = path.join(directory, "scheduler.py");
   fs.writeFileSync(fixture, [
@@ -77,8 +77,8 @@ test("Agent propagates dependency failures before validation, preview, or Worker
   const worker = agentSource.slice(workerStart, workerEnd);
   const dependencyGate = worker.indexOf("require_scheduler_dependencies(project_dir, scheduler_path, env)");
   const launchPositions = [worker.indexOf("start_job_in_gpu_pane("), worker.indexOf("start_simple_tmux_command(")].filter((index) => index >= 0);
-  assert.ok(dependencyGate >= 0 && launchPositions.length > 0 && launchPositions.every((index) => dependencyGate < index),
-    "dependency preflight must run before any Worker launch");
+  assert.ok(dependencyGate === -1 && launchPositions.length > 0,
+    "Worker launch must not preflight the user's research environment");
   const entryPointStart = agentSource.indexOf("def execute_worker_command(root, command, worker_id):");
   const entryPointEnd = agentSource.indexOf("\ndef worker_command_plan_mode", entryPointStart);
   assert.match(agentSource.slice(entryPointStart, entryPointEnd), /return _execute_worker_command_unfenced\(root, command, worker_id\)/);
@@ -102,22 +102,44 @@ test("Agent propagates dependency failures before validation, preview, or Worker
   assert.match(payload.error, /python -m pip install PyYAML/);
   const validate = agentSource.slice(agentSource.indexOf("def scheduler_validate_json"), agentSource.indexOf("def dry_run_preview_action"));
   const preview = agentSource.slice(agentSource.indexOf("def dry_run_preview_action"), agentSource.indexOf("def selected_worker_id"));
-  assert.match(validate, /require_scheduler_dependencies\(root, scheduler, env\)/);
-  assert.match(preview, /require_scheduler_dependencies\(root, scheduler\)/);
+  assert.doesNotMatch(validate, /require_scheduler_dependencies\(root, scheduler, env\)/);
+  assert.doesNotMatch(preview, /require_scheduler_dependencies\(root, scheduler\)/);
   assert.match(agentSource, /simple_conda_activation_script\(\)\} && exec/);
   assert.match(schedulerSource, /simple_conda_activation_script\(env\)\} && exec/);
 });
 
-test("Agent health reports scheduler dependency readiness before plan actions", () => {
+test("Agent health does not probe the research environment or claim unchecked readiness", () => {
   const healthStart = agentSource.indexOf("def api_health(root, mode=\"realtime\"):");
   const healthEnd = agentSource.indexOf("\ndef api_version", healthStart);
   const dependenciesStart = agentSource.indexOf("def scheduler_dependency_health(root, max_age_seconds=30):");
   const dependenciesEnd = agentSource.indexOf("\ndef require_scheduler_dependencies", dependenciesStart);
   assert.ok(healthStart >= 0 && healthEnd > healthStart);
   assert.ok(dependenciesStart >= 0 && dependenciesEnd > dependenciesStart);
-  assert.match(agentSource.slice(healthStart, healthEnd), /"schedulerDependencies": scheduler_dependency_health\(root\)/);
+  assert.doesNotMatch(agentSource.slice(healthStart, healthEnd), /scheduler_dependency_health\(root\)/);
+  assert.match(agentSource.slice(healthStart, healthEnd), /"schedulerDependencies": \{"checked": False, "automatic": False/);
   assert.match(agentSource.slice(dependenciesStart, dependenciesEnd), /status = scheduler_dependency_status\(root, scheduler, env\)/);
   assert.match(agentSource.slice(dependenciesStart, dependenciesEnd), /SCHEDULER_DEPENDENCY_CACHE/);
+});
+
+test("unchecked environments render as project-managed, without a missing or ready claim", () => {
+  const start = panelSource.indexOf('    function renderSchedulerDependencyStatus(');
+  const end = panelSource.indexOf('    function renderServerSettings(', start);
+  assert.ok(start >= 0 && end > start);
+  const render = new Function(panelSource.slice(start, end) + '; return renderSchedulerDependencyStatus;')();
+  for (const value of [undefined, { checked: false, automatic: false }]) {
+    const html = render(value, 'worker');
+    assert.match(html, /科研环境由用户和项目管理/);
+    assert.doesNotMatch(html, /依赖缺失|已就绪|检测全部|pip install/);
+  }
+  const compactStart = extensionSource.indexOf('function compactSchedulerDependenciesForWebview(');
+  const compactEnd = extensionSource.indexOf('const BOOLEAN_TRUE_TEXTS', compactStart);
+  const compact = new Function('objectRecord', 'dropUndefined', 'compactSensitiveText', extensionSource.slice(compactStart, compactEnd) + '; return compactSchedulerDependenciesForWebview;')(
+    value => value && typeof value === 'object' ? value : undefined,
+    value => Object.fromEntries(Object.entries(value).filter(([, item]) => item !== undefined)), value => value);
+  const packed = compact({ checked: false, automatic: false });
+  assert.equal(packed.checked, false);
+  assert.equal(packed.automatic, false);
+  assert.match(render(packed, 'worker'), /不自动校验依赖/);
 });
 
 test("endpoint probes, onboarding, and UI retain scheduler dependency guidance", () => {

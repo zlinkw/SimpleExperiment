@@ -9374,7 +9374,7 @@ export function renderPanelHtml(): string {
     }
 
     function renderSchedulerDependencyStatus(dependency, label) {
-      if (!dependency || typeof dependency !== "object") return '<div class="schedulerDependencyStatus warn"><b>Scheduler 依赖待检测</b><span class="muted">点击“检测全部”读取 ' + esc(label || "端点") + ' 的 Python 与 PyYAML 状态。</span></div>';
+      if (!dependency || typeof dependency !== "object" || dependency.checked === false) return '<div class="schedulerDependencyStatus"><span class="muted">科研环境由用户和项目管理；插件按配置启动和使用，不自动校验依赖。</span></div>';
       const environment = dependency.environment || {};
       const environmentLabel = environment.label || (environment.name ? "Conda " + environment.name : "系统 Python");
       const installCommand = String(dependency.installCommand || "").trim();

@@ -1,6 +1,6 @@
 # 独立 Agent 服务与准备
 
-SimpleExperiment 0.5.298 / SimpleSFTP 0.2.74 使用独立辅助服务协议 1。平台主服务、sshd、容器启动入口和用户训练保持独立；准备不再要求覆盖 Xshell 的自定义登录命令。所有地址、SSH 身份、端口、项目父目录、项目目录、环境和 runtime 根均从当前服务器配置读取。
+SimpleExperiment 0.5.299 / SimpleSFTP 0.2.75 使用独立辅助服务协议 1。平台主服务、sshd、容器启动入口和用户训练保持独立；准备不再要求覆盖 Xshell 的自定义登录命令。所有地址、SSH 身份、端口、项目父目录、项目目录、环境和 runtime 根均从当前服务器配置读取。
 
 ## 入口与状态
 
@@ -35,9 +35,13 @@ API 调用 `agents.lifecycle` 的 `action: migrate` 先不传确认取得完整�
 
 0.5.298 / 0.2.74 核对旧 Agent 的 `/proc/<pid>/exe` 与所选环境的 `bin/python` 是否为同一设备和 inode。Conda 的 `python` 与 `python3` 为硬链接时，启动名称不同不会误报环境冲突；字节相同但身份不同的解释器仍阻断。真正冲突时 UI/API 提供所选和实际解释器路径、PID，保持只读，不停止进程或自动更改环境。本地回归使用实际独立 HTTP 进程和硬链接解释器，不以 mock 路径字符串代替；NWPU3 的实机判定须新版本重载后再只读核验。
 
+0.5.299 / 0.2.75 按用户约束取消上述科研环境门禁。Conda 不属于插件管理范围；配置只用于传递和启动实际任务，插件不激活或校验 Conda 来判断 Agent 归属，不自动导入 torch、检查依赖、安装包或修复环境。辅助 Agent 使用 SSH 传输控制器当前的标准库 Python；已有服务即使使用系统 Python、科研环境尚不存在或配置发生变化，也可在身份、版本及哈希符合时复用。旧 `condaEnv` 元数据保留，owner/健康归属比较不再用它阻断。
+
+Agent 健康检查、校验/预演、Worker 启动和 Scheduler 正式预检不再自动调用环境/依赖探针；回执明确 `checked=false`，不能宣称环境已通过。历史显式只读诊断入口保留，须用户主动调用。任务仍按所选环境执行，保留身份、来源哈希、checkpoint、路径、输出单写者和项目回调校验；实际启动失败如实回传程序错误。远端旧 Agent/Scheduler 须部署 0.5.299 后才采用新的实际作业行为，不自动重派任务。
+
 ## 归属保护与边界
 
-项目状态保留现有项目 namespace。首次写入前，Agent 取得持有整个生命周期的独占 owner 锁并绑定 Worker、项目、模式、Conda、用户、物理 runtime 根和容器/挂载/可见 GPU 身份。不同容器共享 NFS 状态时返回 `AGENT_STATE_OWNER_CONFLICT`；重复 Worker ID 指向不同配置时直接阻断。不会迁移其他服务器状态。
+项目状态保留现有项目 namespace。首次写入前，Agent 取得持有整个生命周期的独占 owner 锁并绑定 Worker、项目、模式、用户、物理 runtime 根和容器/挂载/可见 GPU 身份。Conda 是任务配置而非辅助服务归属。不同容器共享 NFS 状态时返回 `AGENT_STATE_OWNER_CONFLICT`；重复 Worker ID 指向不同配置时直接阻断。不会迁移其他服务器状态。
 
 停止使用健康实例 nonce、PID 启动身份、UID、解释器和完整 argv 共同核验，并用 Linux pidfd 固定目标，只发送该进程 SIGTERM。不会停止进程组、sshd、tmux、平台或训练子进程。缺少 pidfd、状态不明、活动任务或无法确认退出时阻断，禁止扩大 kill 范围。
 

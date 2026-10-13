@@ -19,6 +19,20 @@ assert source.read_bytes() == vendor_source.read_bytes()
 spec = importlib.util.spec_from_file_location('lifecycle', source)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
+agent_source = (pathlib.Path(__file__).resolve().parents[2] / 'src' / 'clusterAgentRuntime.legacy.ts').read_text(encoding='utf-8')
+health_source = agent_source.split('def api_health(root, mode="realtime"):',1)[1].split('\ndef api_version',1)[0]
+def forbidden_environment_probe(*args):
+    raise AssertionError('Agent health started a research environment probe')
+health_scope = dict(scheduler_dependency_health=forbidden_environment_probe,
+    read_runtime_json_cached=lambda *args: {}, path_for=lambda *args:'fixture', inspect_agent=lambda root:{'running':True},
+    iso_age_seconds=lambda value:0, now_iso=lambda:'fixture-time', agent_install_dir=lambda root:'runtime', agent_dir=lambda root:'state',
+    SCHEMA_VERSION=1, AGENT_VERSION='fixture', API_VERSION='1', RUNTIME_VERSION='fixture', PLUGIN_VERSION='fixture',
+    AGENT_LIFECYCLE_IDENTITY={}, os=os)
+# Extract only the real health function; never import/execute the production module.
+exec('def api_health(root, mode="realtime"):'+health_source, health_scope)
+health = health_scope['api_health'](str(root), 'worker_telemetry')
+assert health['schedulerDependencies']['checked'] is False
+assert 'ok' not in health['schedulerDependencies'], 'unchecked environment was claimed valid'
 project = root / 'project'
 project.mkdir()
 install = root / 'runtime'
@@ -43,7 +57,7 @@ with socket.socket() as sock:
     sock.bind(('127.0.0.1',0))
     port = sock.getsockname()[1]
 params = dict(action='inspect', projectDir=str(project),installDir=str(install),mode='worker_telemetry',workerId='container-gpu',
-              host='127.0.0.1',port=port,condaEnv='',agentToken='fixture-credential',expectedVersion='fixture-v1',files={
+              host='127.0.0.1',port=port,condaEnv=str(root/'missing-training-env'),agentToken='fixture-credential',expectedVersion='fixture-v1',files={
                   name:hashlib.sha256((runtime/name).read_bytes()).hexdigest() for name in ('cluster_agent.py','cluster_scheduler.py')})
 tree = sorted(str(p) for p in root.rglob('*'))
 assert module.lifecycle_control(params)['status']=='absent'
@@ -82,6 +96,8 @@ try:
     assert first['reused'] is False
     again = module.lifecycle_control(dict(params,action='ensure'))
     assert again['reused'] is True and again['identity']['pid']==agent
+    changed_env = module.lifecycle_control(dict(params,action='ensure',condaEnv='another-task-environment'))
+    assert changed_env['reused'] is True and changed_env['identity']['pid']==agent
     before = (pathlib.Path(first['contract']['stateDir'])/'agent.owner.json').read_bytes()
     assert b'fixture-credential' not in before
     machine = module.lifecycle_machine
@@ -141,7 +157,7 @@ try:
     except module.AgentLifecycleError as e:
         assert e.code=='AGENT_ACTIVE_TASK'
     assert not module.lifecycle_process(agent)
-    print(json.dumps({'firstStart':True,'reused':True,'ownedRestart':True,'cpuConflictRejected':True,'platformAlive':True,'unverifiedPidProtected':True,'zeroWriteInspect':True,'queuedResearchBlocked':True}))
+    print(json.dumps({'firstStart':True,'reused':True,'ownedRestart':True,'cpuConflictRejected':True,'platformAlive':True,'unverifiedPidProtected':True,'zeroWriteInspect':True,'queuedResearchBlocked':True,'missingResearchEnvAllowed':True,'changedResearchEnvReused':True,'healthWithoutEnvironmentProbe':True}))
 finally:
     # Only fixture processes created in this script; no user/platform target touched.
     if agent and module.lifecycle_process(agent):

@@ -692,7 +692,8 @@ class LocalApiServer {
                 ...(Object.keys(this.methods).includes("agents.lifecycle") ? {
                     "agents.lifecycle": { actions: ["inspect", "ensure", "stop", "restart", "migrate"], requiredParams: ["serverIds"],
                         inspectZeroWrites: true, independentServiceProtocol: 1, noTaskCancellation: true, ownerVerifiedPidfdOnly: true,
-                        mutationConfirmation: "exact configured target", requiresSimpleSftp: "0.2.74", legacyMigration: { migrationDigests: true, explicitConfirmation: true, activeJobsBlocked: true, preservesStateBytes: true } },
+                        researchEnvironmentManagement: "external", agentResearchEnvironmentValidation: false,
+                        mutationConfirmation: "exact configured target", requiresSimpleSftp: "0.2.75", legacyMigration: { migrationDigests: true, explicitConfirmation: true, activeJobsBlocked: true, preservesStateBytes: true } },
                     "project.prepare": { healthyAgentReuse: true, inspectBeforeRuntimeWrite: true, preservesUnmanagedLogin: true,
                         agentLoginPolicy: ["preserve", "managed"], actualRunningVersionRequired: true },
                 } : {}),

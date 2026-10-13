@@ -69,6 +69,13 @@ D:\GitRepo\MCP\zlk-cluster-orchestrator
 
 ## 版本与安装
 
+### 科研环境边界
+
+- Conda 环境由用户和消费项目管理。插件只传递所选环境并启动实际命令，不自动检查科研依赖、导入 torch、安装包、修复环境或修改全局 shell。
+- Agent 准备、旧归属迁移、健康探测及实际作业调度不得将辅助 Agent 的 Python 与科研 Conda 解释器相同作为门禁。Conda 配置变化或科研环境尚不存在不能否定已经证明的 Agent 进程归属。
+- 保留实际 PID/启动身份、UID、项目、Worker、监听 socket、容器、状态锁、版本、来源哈希、checkpoint、目录单写者及项目回调门禁。只启动和使用不代表跳过这些保护；实际命令错误须如实回传。
+- 未执行的环境检查须明确标记未检查，不得冒充通过。历史显式只读诊断入口仅由用户主动调用，不从准备、健康刷新、校验、预演或 Worker 启动自动触发。
+
 - 阶段 1：修改完成并通过验证后递增一个补丁版本，同步 `package.json`、`package-lock.json` 与 runtime 版本，再运行 `npm run package`。该命令只构建和生成 VSIX，不得改变当前 VS Code 安装状态。
 - 阶段 2：全部修改与打包验证结束、准备交给用户重载时，显式运行一次 `npm run install:latest`。同版本必须跳过，禁止默认 `--force`、禁止降级；每个目标版本最多安装一次。
 - 安装后立即核对 VS Code 已安装版本与 `simpleex` 入口，并停止操作当前 SimpleExperiment 面板。用户执行 **Developer: Reload Window** 后再进行 UI 验收。

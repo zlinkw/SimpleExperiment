@@ -67,9 +67,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.298"
-RUNTIME_VERSION = "0.5.298"
-PLUGIN_VERSION = "0.5.298"
+AGENT_VERSION = "0.5.299"
+RUNTIME_VERSION = "0.5.299"
+PLUGIN_VERSION = "0.5.299"
 """Restricted auxiliary Agent lifecycle protocol. Never signals process groups or tmux."""
 import contextlib
 import hashlib
@@ -171,7 +171,7 @@ def lifecycle_contract(params):
 def lifecycle_check_owner(contract):
     owner = lifecycle_json(os.path.join(contract["stateDir"], "agent.owner.json"))
     if owner:
-        fields = [key for key in contract if owner.get(key) != contract[key]]
+        fields = [key for key in contract if key != "condaEnv" and owner.get(key) != contract[key]]
         if fields:
             raise AgentLifecycleError("AGENT_STATE_OWNER_CONFLICT", ",".join(fields))
     elif os.path.isdir(contract["stateDir"]) and set(os.listdir(contract["stateDir"])) - {"agent.owner.lock"}:
@@ -268,23 +268,11 @@ def lifecycle_legacy_proof(contract, params):
         tail = process["argv"][3:]
         if len(tail) % 2 or len(tail) != 2 * len(wanted) or dict(zip(tail[::2], tail[1::2])) != wanted:
             raise AgentLifecycleError("AGENT_LEGACY_PROCESS_UNVERIFIED")
-        expected_python = lifecycle_python(contract)
-        process_exe = "/proc/" + str(process["pid"]) + "/exe"
-        # Conda's python/python3 can be hard links. Compare the running kernel
-        # executable's device/inode, not its launch name or matching file bytes.
-        # A replaced/deleted interpreter or a different environment still fails.
-        try:
-            same_python = os.path.samefile(process_exe, expected_python)
-        except OSError:
-            same_python = False
-        if not same_python:
-            error = AgentLifecycleError("AGENT_LEGACY_CONDA_CONFLICT")
-            error.evidence = {"pid": process["pid"], "expectedPython": os.path.realpath(expected_python),
-                              "actualPython": process["exe"], "condaEnv": contract["condaEnv"]}
-            raise error
+        # Ownership binds the actual process, listener and project. Research
+        # Conda selection is per-job configuration, not an Agent admission gate.
         with open("/proc/" + str(process["pid"]) + "/environ", "rb") as stream:
             env = dict(part.split(b"=", 1) for part in stream.read(1024 * 1024).split(b"\0") if b"=" in part)
-        if env.get(b"SIMPLE_EXPERIMENT_AGENT_INSTALL_DIR", b"").decode() != contract["installDir"] or env.get(b"SIMPLE_EXPERIMENT_CONDA_ENV", b"").decode() != contract["condaEnv"]:
+        if env.get(b"SIMPLE_EXPERIMENT_AGENT_INSTALL_DIR", b"").decode() != contract["installDir"]:
             raise AgentLifecycleError("AGENT_LEGACY_PROCESS_UNVERIFIED")
         for key, wanted_value in {"projectRoot": contract["projectDir"], "agentInstallDir": contract["installDir"], "agentStateDir": state,
                                   "runtimeVersion": session.get("agentVersion"), "startedAt": session.get("startedAt"),
@@ -395,7 +383,7 @@ def lifecycle_health(contract, token=""):
 
 def lifecycle_verify_running(contract, health, process):
     instance = health.get("agentIdentity") or {}
-    differences = [key for key in contract if instance.get(key) != contract[key]]
+    differences = [key for key in contract if key != "condaEnv" and instance.get(key) != contract[key]]
     if health.get("agentLifecycleProtocol") != 1 or health.get("schemaVersion") != 1:
         differences.append("capabilities")
     actual = lifecycle_process(process.get("pid", 0))
@@ -409,21 +397,9 @@ def lifecycle_verify_running(contract, health, process):
 
 
 def lifecycle_python(contract):
-    env = contract["condaEnv"]
-    if env.startswith("/"):
-        candidate = pathlib.Path(env) / "bin" / "python"
-        if not candidate.is_file():
-            raise AgentLifecycleError("AGENT_CONDA_UNAVAILABLE", env)
-        return str(candidate)
-    if not env:
-        return sys.executable
-    import shlex
-    command = "conda run -n " + shlex.quote(env) + " python -c " + shlex.quote("import sys; print(sys.executable)")
-    completed = subprocess.run(["bash", "-lc", command], capture_output=True, text=True, timeout=10)
-    lines = completed.stdout.strip().splitlines()
-    if completed.returncode or not lines or not os.path.isfile(lines[-1]):
-        raise AgentLifecycleError("AGENT_CONDA_UNAVAILABLE", env)
-    return lines[-1]
+    # The auxiliary service uses its transport's stdlib Python. Never resolve,
+    # activate, import-test or change a research environment during preparation.
+    return sys.executable
 
 
 def lifecycle_files(contract, params):
@@ -505,8 +481,6 @@ def lifecycle_inspect(params):
             migration.pop("process")
         except Exception as failure:
             migration = {"blocked": getattr(failure, "code", "AGENT_LEGACY_PROOF_FAILED"), "errorType": type(failure).__name__}
-            if getattr(failure, "code", "") == "AGENT_LEGACY_CONDA_CONFLICT":
-                migration["pythonEvidence"] = failure.evidence
         return {"ok": False, "code": error.code, "error": str(error), "evidence": {
             "stateDir": contract["stateDir"], "metadata": metadata, "requiresExplicitMigration": True,
             "migration": migration,
@@ -558,10 +532,9 @@ def lifecycle_control(params):
             proofs = lifecycle_files(contract, params)
             if not version or any(not proofs.get(name) or proofs[name] != (params.get("files") or {}).get(name) for name in proofs):
                 raise AgentLifecycleError("AGENT_RUNTIME_PROOF_REQUIRED")
-            lifecycle_python(contract)
         if before["status"] == "running":
             identity = before["identity"]
-            if action == "ensure" and before["runningVersion"] == version and identity.get("python") == os.path.realpath(lifecycle_python(contract)):
+            if action == "ensure" and before["runningVersion"] == version:
                 lifecycle_files(contract, params)
                 if identity.get("runtimeFiles") != params.get("files"):
                     raise AgentLifecycleError("AGENT_RUNNING_HASH_MISMATCH")
@@ -6217,12 +6190,6 @@ def _execute_worker_command_unfenced(root, command, worker_id):
         result = {"commandId": command_id, "status": "failed", "message": "Worker 上缺少 cluster_scheduler.py，请先部署最新版 Agent。"}
         append_event(root, {"type": "worker_command_failed", "workerId": worker_id, "operationId": command_id, "payload": result})
         return result
-    try:
-        require_scheduler_dependencies(project_dir, scheduler_path, env)
-    except Exception as exc:
-        result = {"commandId": command_id, "status": "failed", "message": str(exc)}
-        append_event(root, {"type": "worker_command_failed", "workerId": worker_id, "operationId": command_id, "payload": result})
-        return result
     overwrite_existing = any(action_bool(value) for value in (command.get("overwriteExisting"), command.get("overwrite_existing"), command.get("overwrite"), options.get("overwriteExisting"), options.get("overwrite_existing"), options.get("overwrite")))
     args = [
         simple_runtime_python(env),
@@ -7237,7 +7204,7 @@ def api_health(root, mode="realtime"):
         "status": "ok" if serving or health.get("running") is not False else "degraded",
         "snapshotAge": age if age is not None else 999999,
         "workerCount": (1 if snapshot.get("gpu") or snapshot.get("gpus") else 0) if mode == "worker_telemetry" else len(snapshot.get("workers") or []),
-        "schedulerDependencies": scheduler_dependency_health(root),
+        "schedulerDependencies": {"checked": False, "automatic": False, "scope": "agent", "reason": "research_environment_owned_by_project"},
         "checkedAt": now_iso(),
     }
 
@@ -12532,7 +12499,6 @@ def scheduler_validate_json(root, scheduler, plan, default_result_csv_dir="exper
     if cached is not None:
         return cached
     base_key = plan_structural_validation_key(root, scheduler, plan, default_result_csv_dir, options, env)
-    require_scheduler_dependencies(root, scheduler, env)
     result = scheduler_capture(root, scheduler, ["--validate-plan", "--plan", plan, "--default-result-csv-dir", default_result_csv_dir], env=env)
     if result.returncode != 0:
         raise RuntimeError((result.stderr or result.stdout or "计划校验失败").strip()[-1000:])
@@ -12555,7 +12521,6 @@ def dry_run_preview_action(root, plan, workers, assigned_indices=None, default_r
     scheduler = cluster_scheduler_path(root)
     if not scheduler:
         raise RuntimeError("Hub 上缺少 cluster_scheduler.py，请先部署最新版 Agent。")
-    require_scheduler_dependencies(root, scheduler)
     owner = str(operation_id or "").strip()
     if not owner:
         raise ValueError("Dry-run 缺少稳定 operationId，拒绝创建无归属暂存文件。")
@@ -15010,7 +14975,7 @@ def api_diagnostics(root, include_token=False):
         "maxAgentStateBytes": MAX_AGENT_STATE_BYTES,
         "agentStatePrune": dict(AGENT_STATE_PRUNE_DIAGNOSTICS),
         "tokenConfigured": bool((read_runtime_json_cached(path_for(root, "agent.session.json"), {}) or {}).get("tokenConfigured")),
-        "schedulerDependencies": scheduler_dependency_health(root),
+        "schedulerDependencies": {"checked": False, "automatic": False, "scope": "agent", "reason": "research_environment_owned_by_project"},
     }
     return result
 

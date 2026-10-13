@@ -37,9 +37,9 @@ except ModuleNotFoundError as exc:
     yaml = None
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_scheduler.py 为准
-SCHEDULER_VERSION = "0.5.298"
-RUNTIME_VERSION = "0.5.298"
-PLUGIN_VERSION = "0.5.298"
+SCHEDULER_VERSION = "0.5.299"
+RUNTIME_VERSION = "0.5.299"
+PLUGIN_VERSION = "0.5.299"
 FORMAL_JOB_PATH_PROTOCOL = 1
 FORMAL_JOB_IDENTITY_ENV_PROTOCOL = 1
 EXECUTION_SHELL_PREFLIGHT_PROTOCOL = 1
@@ -2628,9 +2628,7 @@ def run_job_unlocked(job: Job, args: argparse.Namespace) -> None:
 
 def formal_job_preflight_mode(args: argparse.Namespace) -> dict[str, Any]:
     structure_only = getattr(args, "formal_job_structure_only", False) is True
-    environment = {"ok": True, "deferredUntilStart": True} if structure_only else execution_shell_preflight()
-    if not environment["ok"]:
-        raise ValueError(environment["errorCode"] + ": " + environment["error"])
+    environment = {"checked": False, "automatic": False, "reason": "research_environment_owned_by_project"}
     plan = load_plan(args.plan)
     if str(args.plan).replace("\\", "/").startswith("tmp/plan/"):
         raise ValueError("DRAFT_EXECUTION_RETIRED")
@@ -4247,28 +4245,6 @@ def main() -> None:
     if args.check_dependencies_json:
         print(json.dumps(scheduler_dependency_status(), ensure_ascii=False))
         return
-    try:
-        require_scheduler_dependencies()
-    except SystemExit as _exc:
-        # Even when startup fails before run_job_mode, publish a terminal failed event so
-        # the operation journal is never left pending waiting for a scheduler terminal that
-        # will never arrive (defense in depth beyond the agent-side wait_scheduler fallback).
-        try:
-            _early_msg = str(_exc).strip().splitlines()[0][:200] if str(_exc).strip() else f"调度器依赖检查未通过：{_exc}"
-            append_scheduler_operation_event(args, "failed", f"调度器依赖检查未通过：{_exc}", {"failureSource": "scheduler_dependency_check", "schedulerStarted": True, "schedulerErrorZh": _early_msg[:200]})
-        except Exception:
-            pass
-        try:
-            _msg = f"[{now()}] scheduler_dependency_check_failed {_exc}"
-            _sched_log = str(getattr(args, "scheduler_log", "") or "").strip()
-            if _sched_log:
-                append_log(Path(_sched_log), _msg)
-            _op = str(getattr(args, "operation_id", "") or getattr(args, "op_id", "") or "").strip()
-            if _op:
-                append_log(Path(f"simple_cluster/tmp/cluster_scheduler/{_op}.log"), _msg)
-        except Exception:
-            pass
-        raise
     if args.print_job_dir:
         if args.only_index is None:
             raise SystemExit("--print-job-dir 必须同时提供 --only-index")

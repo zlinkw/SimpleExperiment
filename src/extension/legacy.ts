@@ -7852,8 +7852,8 @@ export class RealtimeTunnelPanelProvider {
     }
     async agentLifecycleForTarget(target, action, manifest?, confirmed = false, migrationDigest?: string) {
         const installed = vscode.extensions.getExtension(SIMPLE_SFTP_EXTENSION_ID);
-        if (require("../features/ExtensionUpdates").compareSemanticVersions(String(installed?.packageJSON?.version || "0.0.0"), "0.2.74") < 0)
-            throw new Error("AGENT_LIFECYCLE_CAPABILITY_REQUIRED: 需要 SimpleSFTP 0.2.74，未修改远端或自定义登录命令。");
+        if (require("../features/ExtensionUpdates").compareSemanticVersions(String(installed?.packageJSON?.version || "0.0.0"), "0.2.75") < 0)
+            throw new Error("AGENT_LIFECYCLE_CAPABILITY_REQUIRED: 需要 SimpleSFTP 0.2.75，未修改远端或自定义登录命令。");
         const config = target.id === "hub" ? this.setupConfig : this.setupConfig.workerTunnels.find(row => row.id === target.id);
         if (!config) throw new Error(`AGENT_CONFIG_MISSING: ${target.id}`);
         const dirs = this.agentRuntimeDirs(config.agentProjectDir, config.agentInstallDir);
@@ -7876,8 +7876,6 @@ export class RealtimeTunnelPanelProvider {
             }
             const error: any = new Error(`${target.id}: ${result?.code || "AGENT_LIFECYCLE_FAILED"}: ${result?.error || "未收到有效回执"}`);
             if (result.evidence?.migration?.blocked) error.message += `; migration=${result.evidence.migration.blocked}; type=${result.evidence.migration.errorType || "unknown"}`;
-            const pythonEvidence = result.evidence?.migration?.pythonEvidence;
-            if (pythonEvidence) error.message += `; expectedPython=${pythonEvidence.expectedPython}; actualPython=${pythonEvidence.actualPython}; pid=${pythonEvidence.pid}`;
             error.apiData = { code: result?.code || "AGENT_LIFECYCLE_FAILED", serverId: target.id, evidence: result?.evidence };
             throw error;
         }
@@ -27125,6 +27123,8 @@ function compactSchedulerDependenciesForWebview(value) {
         return undefined;
     const environment = objectRecord(item.environment);
     return dropUndefined({
+        checked: item.checked,
+        automatic: item.automatic,
         ok: item.ok === true ? true : item.ok === false ? false : null,
         pending: item.pending === true,
         missingRuntime: item.missingRuntime === true,

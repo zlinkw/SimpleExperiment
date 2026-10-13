@@ -55,11 +55,14 @@ def validate_result_paths(config, contract):
 (root / "asset.dat").write_bytes(b"owned-asset" * 512)
 asset_sha256 = __import__('hashlib').sha256((root / "asset.dat").read_bytes()).hexdigest()
 child = root / "scheduler_probe.py"
-child.write_text('''import argparse, json, pathlib, sys
+child.write_text('''import argparse, json, os, pathlib, sys
 TASK_SHELL_ENVIRONMENT_PROTOCOL = 1
 sys.path.insert(0, ''' + repr(str(repo / "test/_helpers")) + ''')
 from extractRuntimeFunctions import extract_runtime_functions
-scheduler = extract_runtime_functions(''' + repr(str(runtime / "cluster_scheduler.py")) + ''', ['formal_job_preflight_report'])
+scheduler = extract_runtime_functions(''' + repr(str(runtime / "cluster_scheduler.py")) + ''', ['formal_job_preflight_report', 'execution_shell_preflight'])
+if os.environ.get('PROBE_VARIANT') == 'no-environment':
+ def forbidden_environment_probe(): raise AssertionError('automatic environment probe invoked')
+ scheduler.execution_shell_preflight = forbidden_environment_probe
 p = argparse.ArgumentParser()
 p.add_argument('--formal-job-preflight',action='store_true')
 p.add_argument('--formal-job-structure-only',action='store_true')
@@ -189,7 +192,8 @@ if variant == "staged":
     assert not agent.DISTRIBUTED_GPU_RESERVATIONS
     agent.agent_install_dir = lambda _: str(root)
     agent.worker_task_console_log = lambda _: "tmp/probe/console.log"
-    agent.require_scheduler_dependencies = lambda *args: None
+    def forbidden_dependency_gate(*args): raise AssertionError('automatic dependency gate invoked')
+    agent.require_scheduler_dependencies = forbidden_dependency_gate
     agent.tmux_available = lambda: False
     try:
         agent._execute_worker_command_unfenced(str(root), {**command, "durablePlanQueue": False, "gpuId": "0"}, "worker")

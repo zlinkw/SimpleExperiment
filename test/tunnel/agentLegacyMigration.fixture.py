@@ -31,7 +31,7 @@ conda = root / 'selected-conda'
 # /proc/<pid>/exe retains the launched name; realpath equality is insufficient.
 shutil.copy2(os.path.realpath(sys.executable), conda / 'bin' / 'python')
 os.link(conda / 'bin' / 'python', conda / 'bin' / 'python3')
-params['condaEnv'] = str(conda)
+params['condaEnv'] = str(root / 'training-env-not-installed')
 contract = m.lifecycle_contract(params)
 state = pathlib.Path(contract['stateDir'])
 state.mkdir(parents=True)
@@ -55,8 +55,8 @@ HTTPServer(('127.0.0.1',%d),H).serve_forever()
 script = runtime / 'cluster_agent.py'
 script.write_text(probe, encoding='utf-8')
 (runtime / 'cluster_scheduler.py').write_bytes(b'fixture scheduler\n')
-argv = [str(conda / 'bin' / 'python3'),str(script),'serve','--project-dir',str(project),'--mode','worker_telemetry','--host','127.0.0.1','--port',str(port),'--worker-id','fixture-worker']
-env = dict(os.environ,SIMPLE_EXPERIMENT_AGENT_INSTALL_DIR=str(install),SIMPLE_EXPERIMENT_CONDA_ENV=str(conda))
+argv = [sys.executable,str(script),'serve','--project-dir',str(project),'--mode','worker_telemetry','--host','127.0.0.1','--port',str(port),'--worker-id','fixture-worker']
+env = dict(os.environ,SIMPLE_EXPERIMENT_AGENT_INSTALL_DIR=str(install),SIMPLE_EXPERIMENT_CONDA_ENV='legacy-training-environment')
 platform = subprocess.Popen(['sleep','60'])
 agent = subprocess.Popen(argv,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
 try:
@@ -70,13 +70,12 @@ try:
     assert 'blocked' not in migration, migration
     assert migration['pid']==agent.pid
     assert original == {str(p.relative_to(state)):p.read_bytes() for p in state.rglob('*') if p.is_file()}
-    # Identical bytes in another environment must not count as this interpreter.
+    # Research environments are task configuration, never auxiliary ownership.
     foreign_conda = root / 'foreign-conda'
     (foreign_conda / 'bin').mkdir(parents=True)
     shutil.copy2(conda / 'bin' / 'python', foreign_conda / 'bin' / 'python')
-    wrong_python = m.lifecycle_control(dict(params, condaEnv=str(foreign_conda)))['evidence']['migration']
-    assert wrong_python['blocked'] == 'AGENT_LEGACY_CONDA_CONFLICT', wrong_python
-    assert wrong_python['pythonEvidence'] == dict(pid=agent.pid, expectedPython=str(foreign_conda / 'bin' / 'python'), actualPython=str(conda / 'bin' / 'python3'), condaEnv=str(foreign_conda))
+    other_config = m.lifecycle_control(dict(params, condaEnv=str(foreign_conda)))['evidence']['migration']
+    assert 'blocked' not in other_config and other_config['pid'] == agent.pid, other_config
     assert agent.poll() is None and platform.poll() is None
     availability_file=state/'worker_availability.json'
     availability_bytes=availability_file.read_bytes()

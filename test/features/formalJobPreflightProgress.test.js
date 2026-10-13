@@ -27,3 +27,9 @@ test('real Worker only-index preflight checks one asset callback but all Plan pa
   assert.equal(shared.receipt.neverStarted, true);
   assert.match(shared.receipt.error || shared.receipt.message, /share one execution CSV/);
 });
+test('real Worker startup verifies project assets and formal ownership without an automatic environment probe', () => {
+  const result = run('no-environment');
+  assert.equal(result.receipt.durableAccepted, true, JSON.stringify(result));
+  assert.deepEqual(result.callbacks, [0]);
+  assert.equal(result.executionStarted, false);
+});
