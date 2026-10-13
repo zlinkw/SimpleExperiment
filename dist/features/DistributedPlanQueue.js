@@ -377,6 +377,7 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
     const clearedJobs = Array.isArray(queue.clearedJobs) ? queue.clearedJobs.map(entry => ({ ...entry })) : [];
     const clearedByKey = new Map(clearedJobs.map(entry => [clearedJobIdentityKey(entry), entry]));
     const clearedKeys = new Set(clearedJobs.filter(entry => !entry.activeReceiptObservedAt).map(entry => clearedJobIdentityKey(entry)));
+    const locallyStopped = new Set(clearedJobs.filter(entry => entry.stopBoundary === "local_command").map(entry => JSON.stringify([entry.projectId, entry.workflowId, entry.workerId, entry.commandId])));
     const acceptedRows = [];
     for (const snapshot of snapshots) {
         if (snapshot.error || snapshot.capabilities?.durablePlanQueue !== true || snapshot.capabilities.schemaVersion !== 1)
@@ -390,6 +391,11 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
             const task = { ...rawTask, attempt: taskAttempt(rawTask) };
             const status = durableStatus(task.status);
             if (!status || String(task.projectId || "") !== projectId || String(task.workerId || snapshot.workerId) !== snapshot.workerId)
+                continue;
+            // Once this exact local command was closed, stale terminal metadata cannot recreate its card.
+            if (["completed", "failed", "cancelled"].includes(status) && locallyStopped.has(JSON.stringify([
+                task.projectId, task.workflowId, snapshot.workerId, task.commandId
+            ])))
                 continue;
             if (task.durableAccepted === false && !preflightRejectionEvidence(task))
                 continue;
@@ -815,7 +821,7 @@ function pinnedRetryPlanAllowed(plan) {
 function hostedRetryCandidates(plan, now = Date.now()) {
     if (plan.resultPathPolicy !== "declared" || plan.executionModeBlocked || plan.schedulingMode !== "server_prequeue" || plan.localDispatchOverride === true || plan.recoveryConflict)
         return [];
-    return plan.jobs.filter((job) => job.localQueueOnly !== true && job.recallRequested !== true
+    return plan.jobs.filter((job) => job.localQueueOnly !== true && job.recallRequested !== true && !job.stopIntent
         && Boolean(job.workerId && job.commandId) && ["dispatching", "unknown"].includes(job.status)
         && dispatchReconciliationDue(job, now));
 }
@@ -866,7 +872,7 @@ function allocateAvailable(queue, workers, options = {}) {
             continue;
         if (!versioned && (!runnableFingerprint || plan.codeFingerprint !== runnableFingerprint))
             continue;
-        const pending = plan.jobs.filter((job) => job.status === "pending" && !job.recallRequested
+        const pending = plan.jobs.filter((job) => job.status === "pending" && !job.recallRequested && !job.stopIntent
             && (!options.localIdleOnly || plan.schedulingMode !== "server_prequeue" || plan.localDispatchOverride === true || job.localQueueOnly === true));
         if (!pending.length)
             continue;
@@ -1008,7 +1014,7 @@ function preflightRejectionMatchesJob(plan, job, receipt) {
 function retryPinnedDispatch(queue, planId, jobIndex, snapshot, idleGpuIds, now = Date.now()) {
     const plan = queue.plans.find((row) => row.id === planId);
     const job = plan?.jobs.find((row) => row.index === jobIndex);
-    if (!plan || !job || plan.recoveryConflict || job.recoveryConflict || job.recallRequested === true || !["dispatching", "unknown"].includes(job.status)
+    if (!plan || !job || plan.recoveryConflict || job.recoveryConflict || job.recallRequested === true || job.stopIntent || !["dispatching", "unknown"].includes(job.status)
         || !job.workerId || !job.commandId || !String(job.gpuId || "").trim()
         || !dispatchReconciliationDue(job, now)
         || !snapshotAllowsPinnedRetry(snapshot, job, now))
@@ -1252,10 +1258,14 @@ function removeConfirmedDistributedPlan(queue, planFile, confirmed) {
                 const entry = { projectId: plan.projectId || job.projectId || confirmed.projectId || "",
                     workflowId: plan.id, planFile: plan.planFile, planRevision: plan.revision, codeFingerprint: plan.codeFingerprint,
                     experimentIndex: job.index, case: job.case, seed: job.seed,
-                    ...(formalRecord ? { resultPathPolicy: "declared", globalJobId: job.globalJobId } : { attempt: record.attempt }),
+                    ...(formalRecord ? { resultPathPolicy: "declared", globalJobId: job.globalJobId,
+                        collectionResultCsv: job.collectionResultCsv, status: record.status, actualExecutionMode: job.actualExecutionMode || plan.executionMode,
+                        checkpointSource: job.checkpointSource, mirroredWorkerIds: job.mirroredWorkerIds, fragmentWorkerIds: job.fragmentWorkerIds,
+                        cleanup: job.cleanup, outputRetiredAt: record.outputRetiredAt } : { attempt: record.attempt }),
                     outputDir: record.outputDir,
                     workerId: record.workerId || "", commandId: record.commandId || "",
                     runKey: record === job ? job.runKey || job.commandId || "" : record.commandId || "", clearedAt,
+                    ...(record === job && job.workerId && job.commandId && confirmed.localControlJobKeys?.has(distributedJobControlKey(plan, job)) ? { stopBoundary: "local_command" } : {}),
                     ...(confirmed.historyOnlyJobKeys?.has(distributedJobControlKey(plan, job))
                         ? { clearMode: "terminal_history", remoteClosureConfirmed: false } : {}) };
                 const key = clearedJobIdentityKey(entry);

@@ -63,7 +63,10 @@ async function updateXshellSessionLoginCommand(filePath, command, options = {}) 
     }
     const login = managed ? managed.login : existing && !isSimpleManagedLoginCommand(existing) ? existingCommand : "exec bash -i";
     const payload = Buffer.from(JSON.stringify({ schemaVersion: 1, login }), "utf8").toString("base64");
-    const nextCommand = `SIMPLE_EXPERIMENT_LOGIN_V1=${payload}; (${command}) || printf '%s\\n' 'SimpleExperiment Agent preparation failed; original login preserved' >&2; ${login}`;
+    // The lifecycle controller returns an API receipt, not interactive terminal output.
+    // Keep only this managed startup segment quiet; original login output stays intact.
+    // Plugin preparation/health requests still receive the complete structured receipt.
+    const nextCommand = `SIMPLE_EXPERIMENT_LOGIN_V1=${payload}; (${command}) >/dev/null 2>&1; ${login}`;
     const nextText = setLoginCommand(text, nextCommand);
     if (nextText === text)
         return { filePath, command, changed: false };

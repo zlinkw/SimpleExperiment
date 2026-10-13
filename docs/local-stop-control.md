@@ -1,0 +1,33 @@
+# 本机停止意图与服务器任务状态
+
+0.5.303 修复三处独立问题：覆盖只查询活动队列而漏掉已清除的归属登记；受管理 Xshell 登录段打印 lifecycle JSON；停止错误地要求历史 revision、代码哈希、结果契约及停止后快照全部一致。
+
+## 普通停止与终止并清理
+
+本机发出开始/停止意图，服务器报告实际运行状态。停止保留原 commandId，不创建新的科研任务。请求使用现有 `stop-worker-task` / `stop-scheduler-operation` 路由及 `stopBoundary: local_command`，不按插件/Agent 版本号拒绝停止。新增协议能力为 `stop-worker-task-local-command`，旧 Agent 必须部署一次新实现才能执行该模式；磁盘更新不代表运行中 Agent 已更新。
+
+服务器只检查稳定 Worker、项目、工作流、commandId 及实际标签页归属。PLAN revision、代码指纹、CSV、科研环境和 attempt 不作为停止门禁。通过原 task 的精确 pane/window 或窗口 command/project 标记定位；无任务缓存时仍可通过标记找到窗口。旧记录仅有共享会话且无法定位任务窗口时不关闭整个会话。新任务记录 command/project 窗口标记，支持缓存恢复。
+
+停止先记录原命令取消围栏，再关闭精确 tmux window，重新读取实际清单确认消失，解除对应活动登记、启动 claim 与 GPU 预约。无 PID 信号、不关闭 Agent、SSH、平台入口或其他科研标签页。保持原始日志、模型、结果及归属审计；不删除缓存目录或共享状态文件。
+
+停止意图未确认时保留本机队列，禁止该 command 重新派发。重连后用户重试同一目标；没有有效回执时不假报完成。晚到启动在启动边界再次检查取消围栏，已经创建的晚到窗格按该意图关闭。已确认停止的旧终态回执即使带陈旧 revision 也不恢复本机卡片；新的活动证据仍可见。
+
+## 覆盖已清除卡片的正式产物
+
+0.5.302 已清除登记实际保留了项目、workflow、revision、代码指纹、globalJobId、case、seed、输出及 Worker/commandId，但没有 CSV 和状态。恢复覆盖候选时，以新鲜、完整 Worker 消息补齐缺项，并逐项匹配保留的原身份。只生成内存清理视图，不重新保存执行卡片或收养旧结果为当前成功。新清除记录保留结果绑定和清理生命周期。
+
+预览与执行仍复用 `plans.cleanup.*`，仅删除已证明独占的 job 输出、独立 CSV 和确认的同步副本。精确路径两次确认、全部节点预检、指纹、类型、直接父目录、活动写入者和共享依赖保护保持原样。源身份变更不能授权删除其他任务文件。执行围栏与删除结果写回原清除审计；部分失败不能重跑。
+
+## Xshell 登录
+
+只有受管理 Agent 启动段重定向到 `/dev/null`，保留原登录命令和转发设置。API 的完整 JSON 回执及 Agent tmux 日志保持可用。已保存的 V1 启动段在用户执行“准备 Agent”或“写入 Agent 自启动 RemoteCommand”时幂等更新，不在开发验证期间修改真实 Xshell 配置。
+
+## 验证与边界
+
+`localStopControl.test.js` 使用隔离的真实 WSL/tmux server 和轻量 CPU shell，测试陈旧版本字段、丢失缓存、重复停止、排队取消、不同项目、窗口重用、Scheduler 停止及其他任务保留。没有导入完整 Agent/Scheduler，也没有科研训练、GPU 或生产服务器操作。
+
+`clearedOutputReplacement.test.js` 使用与实际 0.5.302 清除登记相同的夹具，覆盖只读归属恢复、消息过期/身份不符拒绝、真实 Host 预览/执行索引链、部分生命周期保存和卡片不复活。永久删除执行器继续由既有 SimpleSFTP 回归验证，没有清理真实产物。
+
+`independentAgent.test.js` 在真实登录 shell 边界验证成功/失败启动静默、中文登录输出保留及旧 V1 幂等升级；直接 API 路径仍返回 JSON。
+
+生产 Worker、旧卡片覆盖和 Xshell 登录 UI 验收需要用户重载本机并更新对应 Agent 后完成，本轮未自动部署或执行真实中止/覆盖。

@@ -76,7 +76,7 @@ function fixture(kind = 'completed') {
     finishPlanStopClear(file, input) { this.publishPlanStopClear(file, input); return Planner.planStopClearUiResult(this.planStopClearByFile[file]); },
   });
   return { host, selected, state, notices, calls, artifact, queue: () => saved, operations,
-    run: () => host.stopAndClearPlanFromUi({ planFile: selected }) };
+    run: () => host.stopAndClearPlanFromUi({ planFile: selected, clearMode:'history' }) };
 }
 
 test('expired terminal Worker snapshots permit explicit local history removal without stopping windows or touching artifacts', async () => {

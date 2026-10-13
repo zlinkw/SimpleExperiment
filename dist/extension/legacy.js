@@ -7033,7 +7033,7 @@ class RealtimeTunnelPanelProvider {
         }
         const cleanup = this.planCleanupHost();
         const stablePlanId = (0, PlanCleanupEvidence_1.cleanupStablePlanId)(await fs.readFile(path.join(root, planFile), "utf8"));
-        const groups = (0, PlanOutputReplacement_1.replacementJobGroups)(queue, planFile, affected, DistributedPlanQueue.canonicalProjectId(root), stablePlanId);
+        const groups = await cleanup.replacementGroups(queue, planFile, affected, DistributedPlanQueue.canonicalProjectId(root), stablePlanId);
         body.outputReplacementOperationIds = await (0, PlanOutputReplacement_1.replacePlanOutputs)({ service: cleanup.service, execute: id => cleanup.execute(id), assertCurrent,
             planRevision: String(body.planRevision), progress: text => body.reportPlanStageLocal?.(text),
             review: async (detail) => {
@@ -11732,7 +11732,7 @@ class RealtimeTunnelPanelProvider {
                 for (const job of plan.jobs) {
                     if (!queueWriteCurrent())
                         return;
-                    if (job.recallRequested === true)
+                    if (job.recallRequested === true || job.stopIntent)
                         continue;
                     if (String(this.lastCodeSyncState?.workerVersions?.[job.workerId || ""]?.fingerprint || "") !== plan.codeFingerprint)
                         continue;
@@ -11804,7 +11804,7 @@ class RealtimeTunnelPanelProvider {
                 for (const job of plan.jobs) {
                     if (!queueWriteCurrent())
                         return;
-                    if (job.recallRequested === true)
+                    if (job.recallRequested === true || job.stopIntent)
                         continue;
                     if (job.recoveryConflict || !job.workerId || !job.commandId
                         || !(job.status === "queued" || job.status === "cancelled" && job.reassignmentPending))
@@ -14741,10 +14741,14 @@ class RealtimeTunnelPanelProvider {
         const terminatedPids = [];
         const reconciledOperations = [];
         const remainingActiveEvidence = [];
+        const localStopConfirmed = [];
         for (const [workerId, rows] of byOwner) {
+            const stopOperationId = makeOpId("stop-scheduler-operation");
             const request = {
-                opId: makeOpId("stop-scheduler-operation"),
-                operationId: makeOpId("stop-scheduler-operation"),
+                opId: stopOperationId,
+                operationId: stopOperationId,
+                stopBoundary: "local_command",
+                projectId: DistributedPlanQueue.canonicalProjectId(workspaceRoot()),
                 planFile: (rows[0] ? operationResultPlanFile(rows[0]) : "") || target.planFile,
                 targetOperationId: target.operationId || undefined,
                 remoteOperationId: target.remoteOperationId || undefined,
@@ -14770,7 +14774,7 @@ class RealtimeTunnelPanelProvider {
                 request.pid ||= Number(row.pid || row.checkedPid || 0);
                 request.tmuxSession ||= String(row.tmuxSession || row.session || row.checkedTmuxSession || "");
             }
-            const result = await this.postWorkerTunnelAction(workerId, "stop-scheduler-operation", request, {
+            const result = request.stopBoundary === "local_command" ? await this.client.postWorkerAction(workerId, "stop-scheduler-operation", request) : await this.postWorkerTunnelAction(workerId, "stop-scheduler-operation", request, {
                 title: "stopExperiment",
                 confirm: false,
             });
@@ -14778,6 +14782,8 @@ class RealtimeTunnelPanelProvider {
             const confirmed = Array.isArray(record.matchedOperations) ? record.matchedOperations : Array.isArray(record.matched_operations) ? record.matched_operations : [];
             if (resultStatus(record) === "failed" || !confirmed.map(String).includes(String(request.targetOperationId || "")))
                 throw new Error(stringFromRecord(record, ["message"]) || "远端未确认停止目标，已保留本地运行状态。");
+            if (record.stopBoundary === "local_command" && record.cacheRetired === true)
+                localStopConfirmed.push(...confirmed);
             terminatedSessions.push(...stringArrayField(record, "terminatedSessions"), ...stringArrayField(record, "terminated_sessions"));
             terminatedPids.push(...stringArrayField(record, "terminatedPids"), ...stringArrayField(record, "terminated_pids"));
             remainingActiveEvidence.push(...(Array.isArray(record.remainingActiveEvidence) ? record.remainingActiveEvidence : []));
@@ -14786,11 +14792,11 @@ class RealtimeTunnelPanelProvider {
                 matchedOperations.push(operationId);
                 if (!operationTerminal(this.localOperations[operationId])) {
                     const now = new Date().toISOString();
-                    const orphan = !terminatedSessions.length && !terminatedPids.length && Number(record.stoppedTaskCount || 0) === 0;
+                    const orphan = record.stopBoundary !== "local_command" && !terminatedSessions.length && !terminatedPids.length && Number(record.stoppedTaskCount || 0) === 0;
                     // 定案：取消 stale 终态；orphan（无可杀 pid/tmux）保持 running，由用户自行判断、手动中止/清理，不再标记 stale。
                     this.localOperations[operationId] = {
                         ...row,
-                        status: orphan ? "running" : resultStatus(record) === "failed" ? "failed" : "completed",
+                        status: orphan ? "running" : resultStatus(record) === "failed" ? "failed" : record.stopBoundary === "local_command" ? "cancelled" : "completed",
                         message: orphan
                             ? "停止对账未发现活动 pid/tmux；未自动终结，请用户自行判断，必要时手动中止/清理。"
                             : stringFromRecord(record, ["message"]) || "已请求终止对应调度进程。",
@@ -14815,6 +14821,7 @@ class RealtimeTunnelPanelProvider {
             terminatedPids: uniqueStrings(terminatedPids),
             reconciledOperations,
             remainingActiveEvidence,
+            localStopConfirmed,
         };
     }
     clearOperationStatusProbe(opId) {
@@ -17435,14 +17442,26 @@ class RealtimeTunnelPanelProvider {
             && (!formal || probe?.capabilities?.actionEndpoints?.["stop-worker-task-formal-identity"] === true
                 && probe?.capabilities?.actionEndpoints?.["stop-worker-task-formal-no-attempt"] === true);
     }
-    async stopDistributedJobForClear(plan, job) {
+    async stopDistributedJobForClear(plan, job, localControl = false) {
         if (!job.workerId || !job.commandId)
             throw new Error("活动 job 缺少 Worker 或 commandId，未发送停止");
+        const stopOperationId = makeOpId("stop-distributed-job");
+        if (localControl) {
+            const request = { ...DistributedPlanQueue.workerStopJobIdentity(plan, job), schemaVersion: 1,
+                opId: stopOperationId, operationId: stopOperationId, stopBoundary: "local_command",
+                projectId: plan.projectId || DistributedPlanQueue.canonicalProjectId(workspaceRoot()),
+                manualStopType: "scheduler_aborted", stopReason: "scheduler_aborted", stopSource: "user" };
+            const result = await this.client.postWorkerAction(job.workerId, "stop-worker-task", request);
+            const receipt = result?.stoppedTasks?.find(row => row.commandId === job.commandId && row.workerId === job.workerId
+                && row.projectId === request.projectId && row.workflowId === plan.id && row.stopBoundary === "local_command");
+            if (result?.status !== "completed" || receipt?.paneClosed !== true || receipt?.cacheRetired !== true)
+                throw new Error(String(result?.message || "Worker 未确认关闭本机指定标签页，停止意图保留；无需修改 PLAN 版本"));
+            return result;
+        }
         const formal = plan.resultPathPolicy === "declared";
         const exactPane = job.gpuId === undefined && !formal ? true : await this.refreshExactPaneStopCapability(job.workerId, formal);
         if (exactPane !== true)
             throw new Error(`Worker ${job.workerId} 的实时能力没有 ${formal ? "stop-worker-task-formal-identity / stop-worker-task-formal-no-attempt" : "stop-worker-task-exact-pane"}。请先更新并重启该 Worker Agent，再重试；未发送停止命令。`);
-        const stopOperationId = makeOpId("stop-distributed-job");
         const request = {
             schemaVersion: 1,
             opId: stopOperationId,
@@ -17502,7 +17521,8 @@ class RealtimeTunnelPanelProvider {
             localOperations = this.buildPlanRuntimeEvidenceState().operations || {};
             distributed = DistributedPlanQueue.distributedStopTargets(queue, planFile);
             const history = (0, PlanStopClear_1.terminalPlanHistorySelection)(localOperations, distributed, planFile, operationTerminal);
-            if (history && stringField(message, "clearMode") !== "remote")
+            if (history && stringField(message, "clearMode") !== "remote" && (stringField(message, "clearMode") === "history"
+                || !distributed.length && !(0, PlanStopClear_1.planCleanupTargets)(localOperations, planFile, operationTerminal).length))
                 return await this.clearEndedPlanHistoryFromUi(message, root, planFile, history);
             const localTargets = (0, PlanStopClear_1.planCleanupTargets)(localOperations, planFile, (row) => operationTerminal(row));
             const localSubmissionTarget = (target) => {
@@ -17525,7 +17545,7 @@ class RealtimeTunnelPanelProvider {
                     : `正在核对 ${recoverWorkers.length || "已启用"} 个相关 Worker 的调度身份，单次查询最长 8 秒。`,
                 nextStep: "等待目标预览和两次确认；取消不会改队列。",
             });
-            recovered = queueOnly
+            recovered = queueOnly || distributed.length || remoteLocalTargets.length && remoteLocalTargets.every(target => target.workerId)
                 ? { recovered: [], conflicts: [], realtime: this.isRealtimeMode(), workersChecked: 0, failures: [] }
                 : await this.recoverPlanOperationsForStopClear(planFile, { workerIds: recoverWorkers, timeoutMs: this.planStopClearWaitMs() });
         }
@@ -17545,7 +17565,7 @@ class RealtimeTunnelPanelProvider {
                 failures: recovered.failures || [],
             });
         }
-        if (recovered.conflicts?.length) {
+        if (recovered.conflicts?.length && !distributed.length) {
             const text = (0, PlanStopClear_1.planStopIdentityConflictMessage)(planFile, recovered.conflicts);
             void vscode.window.showWarningMessage(text);
             return this.finishPlanStopClear(planFile, {
@@ -17671,7 +17691,7 @@ class RealtimeTunnelPanelProvider {
                 message: `正在按身份停止 ${active.length} 条活动进度和 ${distributed.filter((row) => row.active).length} 个活动 job。`,
                 nextStep: "未确认停止或 tmux 未关闭的条目会保留在队列里。",
             });
-            for (const target of active) {
+            for (const target of targets.filter(target => !target.localSubmission && target.workerId)) {
                 if (!clearStillHere())
                     break;
                 if (target.localSubmission)
@@ -17681,7 +17701,7 @@ class RealtimeTunnelPanelProvider {
                     const workerId = this.runOperationWorkerId(row) || target.workerId;
                     if (!clearStillHere())
                         break;
-                    await this.boundedPromise(() => this.stopExperimentRouted({
+                    const result = await this.boundedPromise(() => this.stopExperimentRouted({
                         operationId: target.operationId,
                         planFile: target.planFile,
                         workerId,
@@ -17690,6 +17710,8 @@ class RealtimeTunnelPanelProvider {
                     if (!clearStillHere())
                         break;
                     stopped.add(target.operationId);
+                    if (result?.localStopConfirmed?.includes(target.operationId))
+                        closedTmux.add(target.operationId);
                 }
                 catch (error) {
                     if (!clearStillHere())
@@ -17705,8 +17727,8 @@ class RealtimeTunnelPanelProvider {
                     failures,
                 });
             }
-            const stoppedOrEnded = targets.filter((target) => !target.active || stopped.has(target.operationId));
-            closedTmux = new Set();
+            const stoppedOrEnded = targets.filter((target) => target.workerId && !target.localSubmission
+                ? stopped.has(target.operationId) : !target.active || stopped.has(target.operationId));
             const closeWindow = async (workerId, tmuxTarget, tmuxSession, label) => {
                 if (!clearStillHere())
                     return false;
@@ -17732,6 +17754,8 @@ class RealtimeTunnelPanelProvider {
             for (const target of stoppedOrEnded) {
                 if (!clearStillHere())
                     break;
+                if (closedTmux.has(target.operationId))
+                    continue;
                 if (!target.tmuxSession && !target.tmuxTarget)
                     continue;
                 if (await closeWindow(target.workerId, target.tmuxTarget, target.tmuxSession, target.operationId))
@@ -17770,7 +17794,7 @@ class RealtimeTunnelPanelProvider {
                 if (!plan || !job)
                     continue;
                 const launchKey = DistributedPlanQueue.distributedJobControlKey(plan, job);
-                if (this.distributedLaunchInFlight?.has(launchKey)) {
+                if (this.distributedLaunchInFlight?.has(launchKey) && (!job.workerId || !job.commandId)) {
                     failures.push(`${row.planFile} ${row.planId} job ${row.jobIndex}: 正在向 Worker 发起启动，远端身份尚未回写，不能按未派发清除。下一步：等这一次启动回执落地后再点“终止并清理”。`);
                     continue;
                 }
@@ -17786,41 +17810,15 @@ class RealtimeTunnelPanelProvider {
                 }
                 if (!clearStillHere())
                     break;
-                let snapshot;
                 try {
-                    snapshot = remoteIdentity ? await this.boundedPromise(() => this.client.getWorkerTasks(job.workerId), this.planStopClearWaitMs(), new Error(`查询 Worker ${job.workerId} 30 秒无有效响应，job ${row.jobIndex} 保留。下一步：恢复该 Worker 后重试；晚到快照不会当作已清除。`)) : { tasks: [] };
-                }
-                catch (error) {
+                    job.stopIntent ||= { commandId: job.commandId, workerId: job.workerId, requestedAt: new Date().toISOString(), state: "pending" };
+                    await this.saveDistributedQueue(root, latest, { queueGeneration: clearGeneration });
                     if (!clearStillHere())
                         break;
-                    failures.push(`${row.planFile} ${row.planId} job ${row.jobIndex}: ${errorMessage(error)}`);
-                    continue;
-                }
-                if (!clearStillHere())
-                    break;
-                const tasks = Array.isArray(snapshot?.tasks) ? snapshot.tasks : null;
-                const task = tasks?.find((item) => DistributedPlanQueue.remoteTaskMatchesJob(plan, job, item) || DistributedPlanQueue.stopIdentityMatchesJob(plan, job, item));
-                const pane = String(task?.tmuxPane || "").trim();
-                const session = String(task?.tmuxSession || "").trim();
-                const terminal = ["completed", "failed", "stopped", "cancelled", "canceled"].includes(String(task?.status || "").toLowerCase());
-                if (!tasks || !task || !terminal) {
-                    if (["completed", "failed"].includes(job.status)) {
-                        failures.push(`${row.planFile} ${row.planId} job ${row.jobIndex}: 快照缺少与该 job 全身份匹配的终态记录，无法确认 tmux 标签已关闭，队列保留`);
-                        continue;
-                    }
-                }
-                else if (!pane && session) {
-                    failures.push(`${row.planFile} ${row.planId} job ${row.jobIndex}: 终态记录只有 tmux 会话名 ${session}，没有 pane，无法确认具体标签，未关闭共享会话，队列保留`);
-                    continue;
-                }
-                else if (!pane && !session) {
-                    confirmedJobs.add(launchKey);
-                    continue;
-                }
-                if (!clearStillHere())
-                    break;
-                try {
-                    await this.boundedPromise(() => this.stopDistributedJobForClear(plan, job), this.planStopClearWaitMs(), new Error(`停止 Worker ${job.workerId} job ${row.jobIndex} 30 秒无有效响应，队列保留。下一步：核对精确 pane 回执后再重试；晚到回执不会当作已清除。`));
+                    const result = await this.boundedPromise(() => this.stopDistributedJobForClear(plan, job, true), this.planStopClearWaitMs(), new Error(`Worker ${job.workerId} job ${row.jobIndex} 尚未确认标签页关闭，停止意图与原 commandId 保留；重连后可重试同一停止操作。`));
+                    for (const receipt of result?.stoppedTasks || [])
+                        for (const window of receipt.closedWindowIds || [])
+                            closedTmux.add(job.workerId + ":" + window);
                 }
                 catch (error) {
                     if (!clearStillHere())
@@ -17852,6 +17850,7 @@ class RealtimeTunnelPanelProvider {
                 }
                 const next = DistributedPlanQueue.removeConfirmedDistributedPlan(current, planFile, {
                     jobKeys: confirmedJobs, deferredIds: confirmedDeferred, projectId: DistributedPlanQueue.canonicalProjectId(root),
+                    localControlJobKeys: confirmedJobs,
                 });
                 await this.saveDistributedQueue(root, next, { queueGeneration: clearGeneration });
             }
@@ -17902,7 +17901,7 @@ class RealtimeTunnelPanelProvider {
             const summary = [`已清除 ${clearable.length} 条运行进度、${confirmedJobs.size} 个分布式 job、${confirmedDeferred.size} 条等待提交，停止 ${stopped.size} 条，关闭 tmux ${closedTmux.size} 个。`, ...failures].join("\n");
             const outcome = failures.length ? (clearable.length || confirmedJobs.size || confirmedDeferred.size ? "partial" : "failed") : "completed";
             const nextStep = failures.length
-                ? "未确认的 job、deferred 和运行进度仍留在这一张 Plan 卡片上。先按失败原因处理 Worker、tmux 或身份，再重新点“终止并清理”。"
+                ? "停止意图与原 commandId 保留；恢复对应 Worker 连接后再点“终止并清理”。只有实际无法关闭或标签页属于其他任务时保留，不需要修改 PLAN/revision 或科研环境。"
                 : "本 Plan 已确认的队列条目已清除。其他 Plan 未改。";
             if (failures.length)
                 void vscode.window.showWarningMessage(`${summary} 未完成：${failures.join("；")}`);

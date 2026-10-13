@@ -144,6 +144,8 @@ test("queued-only plan clears without a worker stop and a mixed failure keeps th
   const end = dist.indexOf("if (confirmedJobs.size || confirmedDeferred.size)", start);
   const body = dist.slice(start, end)
     .replaceAll("this.loadDistributedQueue(root)", "loadDistributedQueue()")
+    .replaceAll("this.saveDistributedQueue", "saveDistributedQueue")
+    .replaceAll("queueGeneration: clearGeneration", "queueGeneration: 0")
     .replaceAll("this.client.getWorkerTasks", "getWorkerTasks")
     .replaceAll("this.boundedPromise", "boundedPromise")
     .replaceAll("this.stopDistributedJobForClear", "stopDistributedJobForClear")
@@ -218,9 +220,10 @@ test("queued-only plan clears without a worker stop and a mixed failure keeps th
     { commandId: sessionJob.commandId, status: "completed", tmuxSession: "simple-gpu-0", workflowId: "plan-done", planRevision: "rev-done", planFile: "plans/done.yaml", case: sessionJob.case, seed: sessionJob.seed, attempt: 1, outputDir: sessionJob.outputDir, workerId: "w1", gpuId: "0" },
     { commandId: clearJob.commandId, status: "completed", workflowId: "plan-done", planRevision: "rev-done", planFile: "plans/done.yaml", case: clearJob.case, seed: clearJob.seed, attempt: 1, outputDir: clearJob.outputDir, workerId: "w1", gpuId: "0" },
   ] });
-  sandbox.stopDistributedJobForClear = async () => { calls.push("stop-session"); };
+  sandbox.stopDistributedJobForClear = async (_plan, job, localControl) => { calls.push("stop-session"); assert.equal(localControl,true);
+    if(job.commandId===sessionJob.commandId)throw Error("只有 tmux 会话名 simple-gpu-0，无法定位具体窗口"); };
   await run.call(sandbox, queue, "root");
-  assert.equal(calls.includes("stop-session"), false);
+  assert.equal(calls.includes("stop-session"), true);
   assert.deepEqual(saved.plans[0].jobs.map((job) => job.index), [0]);
   assert.match(sandbox.failures.join("\n"), /只有 tmux 会话名 simple-gpu-0/);
 });
@@ -534,7 +537,7 @@ test("a hung worker stop returns a bounded plan failure and a late receipt canno
   assert.ok(Date.now() - started < 1000);
   assert.equal(result.status, "failed");
   assert.match(result.message, /w-hang/);
-  assert.match(result.message, /30 秒无有效响应/);
+  assert.match(result.message, /停止意图与原 commandId 保留/);
   assert.match(result.planStopClear.failures.join("\n"), /重试/);
   assert.equal(saved.plans[0].jobs.length, 1);
   assert.equal(host.provider.planStopClearByFile["plans/hang.yaml"].outcome, "failed");
@@ -1123,7 +1126,7 @@ test("completed stop-clear feedback does not invent a plan card and a newer run 
   assert.doesNotMatch(html, /旧清理失败|不要再显示/);
 });
 
-test("a failed worker query keeps its plan progress while an exact receipt still clears another plan", async () => {
+test("a failed actual stop keeps its progress; cached Worker query failures do not gate stopping another operation", async () => {
   const queueApi = require("../../dist/features/DistributedPlanQueue.js");
   const queued = queueApi.emptyDistributedQueue();
   const sandbox = {
@@ -1132,7 +1135,9 @@ test("a failed worker query keeps its plan progress while an exact receipt still
     distributedQueueTickPromise: undefined,
     distributedPlanStopEpoch: 0,
     planStopClearByFile: {},
-    client: { getWorkerTasks: async (workerId) => { if (workerId === "slow") throw new Error("查询 slow 超过 8 秒"); return { tasks: [] }; } },
+    client: { getWorkerTasks: async () => { assert.fail("known local stops do not need a Worker snapshot"); } },
+    stopExperimentRouted: async body => { if(body.workerId==='slow')throw Error('TMUX_UNREACHABLE: slow');
+      return {localStopConfirmed:[body.operationId]}; },
     isRealtimeMode: () => true,
     enabledWorkerConfigs: () => [{ id: "slow" }, { id: "ok" }],
     captureProjectContext: () => ({ root: "D:/project" }),
@@ -1154,7 +1159,7 @@ test("a failed worker query keeps its plan progress while an exact receipt still
   assert.deepEqual(sandbox.hidden, ["op-ok"]);
   const card = host.provider.planStopClearByFile["plans/query.yaml"];
   assert.match(card.failures.join("\n"), /op-slow/);
-  assert.match(card.failures.join("\n"), /刷新状态/);
+  assert.match(card.failures.join("\n"), /TMUX_UNREACHABLE/);
 });
 
 test("execution section redraws when only the stop-clear feedback changes", () => {
@@ -1347,6 +1352,7 @@ test("mixed clear drops the pending job and keeps the running job when the worke
     planStopClearByFile: {},
     planStopClearTimeoutMs: 30,
     client: { getWorkerTasks: () => new Promise(() => {}) },
+    stopDistributedJobForClear: () => new Promise(() => {}),
     isRealtimeMode: () => true,
     enabledWorkerConfigs: () => [{ id: "w1" }],
     captureProjectContext: () => ({ root: "D:/project" }),
@@ -1362,7 +1368,7 @@ test("mixed clear drops the pending job and keeps the running job when the worke
   const result = await host.provider.stopAndClearPlanFromUi({ planFile: "plans/mix.yaml" });
   assert.ok(Date.now() - started < 1000);
   assert.equal(result.status, "failed");
-  assert.match(result.message, /job 1 保留|30 秒无有效响应/);
+  assert.match(result.message, /停止意图与原 commandId 保留/);
   const mix = saved.plans.find((plan) => plan.id === "plan-mix");
   assert.equal(mix.jobs.length, 1);
   assert.equal(mix.jobs[0].commandId, remote.commandId);
@@ -1743,7 +1749,7 @@ test("the full formal stop-clear chain accepts no attempt field and never recrea
     tmuxPane: "%123", tmuxSession: "isolated-test-session", enqueuedAt: plan.enqueuedAt, durableAccepted: true };
   const client = { getWorkerTasks: async () => ({ tasks: [task] }), postWorkerAction: async (_worker, _action, request) => {
     assert.equal(Object.hasOwn(request, "attempt"), false);
-    return { status: "completed", stoppedTasks: [{ ...task, paneClosed: true }] };
+    return { status: "completed", stoppedTasks: [{ ...task, paneClosed: true, stopBoundary:"local_command",cacheRetired:true }] };
   } };
   const host = installStopClearHost({ root: "D:/project", answers: ["继续中止并清除", "确认中止并清除"],
     distributedPlanStopEpoch: 0, planStopClearByFile: {}, client, isRealtimeMode: () => false, enabledWorkerConfigs: () => [],

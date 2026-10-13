@@ -26,7 +26,7 @@ function productionWorkerTelemetryCapabilities() {
 test("formal stop capability markers validate without becoming callable controls", async (context) => {
   context.mock.method(global, "fetch", async () => { throw Error("capability marker must never dispatch HTTP"); });
   const capabilities = productionWorkerTelemetryCapabilities();
-  for (const marker of ['stop-worker-task-formal-identity', 'stop-worker-task-formal-no-attempt']) {
+  for (const marker of ['stop-worker-task-formal-identity', 'stop-worker-task-formal-no-attempt', 'stop-worker-task-local-command']) {
     assert.equal(capabilities.actionEndpoints[marker], true);
     assert.equal(isWorkerDirectAction(marker), false);
     assert.equal(isWorkerTelemetryAction(marker), false);

@@ -60,6 +60,7 @@ export type QueuedJob = {
   lastReconciliationAt?: string;
   blockReason?: string;
   stopReason?: string;
+  stopIntent?: { commandId: string; workerId: string; requestedAt: string; state: "pending" };
   automaticRetry?: AutomaticJobRetry;
   history?: Array<{ attempt: number; status: JobState; workerId?: string; commandId?: string; outputDir: string; finishedAt?: string; stopReason?: string; error?: string; outputRetiredAt?: string; admissionRejection?: QueuedJob["admissionRejection"]; cleanupOperationId?: string }>;
 };
@@ -101,6 +102,10 @@ export type DeferredPlan = { id: string; planFile: string; revision: string; cod
 export type ClearedDistributedJob = { projectId: string; workflowId: string; planFile: string; planRevision: string;
   codeFingerprint: string; experimentIndex: number; case: string; seed: number; attempt?: number;
   resultPathPolicy?: "declared"; globalJobId?: string; outputDir: string;
+  collectionResultCsv?: string; status?: JobState; actualExecutionMode?: PlanExecutionMode;
+  checkpointSource?: QueuedJob["checkpointSource"]; mirroredWorkerIds?: string[]; fragmentWorkerIds?: string[];
+  cleanup?: QueuedJob["cleanup"]; outputRetiredAt?: string;
+  stopBoundary?: "local_command";
   workerId: string; commandId: string; runKey: string; clearedAt: string;
   clearMode?: "terminal_history"; remoteClosureConfirmed?: false; activeReceiptObservedAt?: string };
 export type FailedAttemptRecovery = {
@@ -406,6 +411,8 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
   const clearedJobs = Array.isArray(queue.clearedJobs) ? queue.clearedJobs.map(entry => ({ ...entry })) : [];
   const clearedByKey = new Map(clearedJobs.map(entry => [clearedJobIdentityKey(entry), entry]));
   const clearedKeys = new Set(clearedJobs.filter(entry => !entry.activeReceiptObservedAt).map(entry => clearedJobIdentityKey(entry)));
+  const locallyStopped = new Set(clearedJobs.filter(entry => entry.stopBoundary === "local_command").map(entry =>
+    JSON.stringify([entry.projectId, entry.workflowId, entry.workerId, entry.commandId])));
   const acceptedRows: Array<{ workerId: string; task: Record<string, unknown>; status: JobState }> = [];
   for (const snapshot of snapshots) {
     if (snapshot.error || snapshot.capabilities?.durablePlanQueue !== true || snapshot.capabilities.schemaVersion !== 1) continue;
@@ -417,6 +424,9 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
       const task: Record<string, unknown> = { ...rawTask, attempt: taskAttempt(rawTask) };
       const status = durableStatus(task.status);
       if (!status || String(task.projectId || "") !== projectId || String(task.workerId || snapshot.workerId) !== snapshot.workerId) continue;
+      // Once this exact local command was closed, stale terminal metadata cannot recreate its card.
+      if (["completed", "failed", "cancelled"].includes(status) && locallyStopped.has(JSON.stringify([
+        task.projectId, task.workflowId, snapshot.workerId, task.commandId]))) continue;
       if (task.durableAccepted === false && !preflightRejectionEvidence(task)) continue;
       const localPlan = queue.plans.find(plan => plan.id === task.workflowId);
       const localJob = localPlan?.jobs.find(job => job.index === Number(task.experimentIndex));
@@ -805,7 +815,7 @@ export function pinnedRetryPlanAllowed(plan: QueuedPlan): boolean {
 
 export function hostedRetryCandidates(plan: QueuedPlan, now = Date.now()): QueuedJob[] {
   if (plan.resultPathPolicy !== "declared" || plan.executionModeBlocked || plan.schedulingMode !== "server_prequeue" || plan.localDispatchOverride === true || plan.recoveryConflict) return [];
-  return plan.jobs.filter((job) => job.localQueueOnly !== true && job.recallRequested !== true
+  return plan.jobs.filter((job) => job.localQueueOnly !== true && job.recallRequested !== true && !job.stopIntent
     && Boolean(job.workerId && job.commandId) && ["dispatching", "unknown"].includes(job.status)
     && dispatchReconciliationDue(job, now));
 }
@@ -848,7 +858,7 @@ export function allocateAvailable(queue: DistributedQueue, workers: readonly Wor
     if (options.localIdleOnly && plan.schedulingMode === "server_prequeue" && plan.localDispatchOverride !== true
       && !plan.jobs.some((job) => job.status === "pending" && job.localQueueOnly === true && !job.recallRequested)) continue;
     if (!versioned && (!runnableFingerprint || plan.codeFingerprint !== runnableFingerprint)) continue;
-    const pending = plan.jobs.filter((job) => job.status === "pending" && !job.recallRequested
+    const pending = plan.jobs.filter((job) => job.status === "pending" && !job.recallRequested && !job.stopIntent
       && (!options.localIdleOnly || plan.schedulingMode !== "server_prequeue" || plan.localDispatchOverride === true || job.localQueueOnly === true));
     if (!pending.length) continue;
     const eligibleWorkerIds = new Set(workers.filter(row => row.declaredJobPaths === true && (!versioned || row.codeFingerprint === plan.codeFingerprint)
@@ -992,7 +1002,7 @@ export function retryPinnedDispatch(queue: DistributedQueue, planId: string, job
   snapshot: DurableWorkerSnapshot | undefined, idleGpuIds: readonly string[], now = Date.now()): Dispatch | undefined {
   const plan = queue.plans.find((row) => row.id === planId);
   const job = plan?.jobs.find((row) => row.index === jobIndex);
-  if (!plan || !job || plan.recoveryConflict || job.recoveryConflict || job.recallRequested === true || !["dispatching", "unknown"].includes(job.status)
+  if (!plan || !job || plan.recoveryConflict || job.recoveryConflict || job.recallRequested === true || job.stopIntent || !["dispatching", "unknown"].includes(job.status)
     || !job.workerId || !job.commandId || !String(job.gpuId || "").trim()
     || !dispatchReconciliationDue(job, now)
     || !snapshotAllowsPinnedRetry(snapshot, job, now)) return undefined;
@@ -1239,7 +1249,7 @@ export function distributedJobControlKey(plan: Pick<QueuedPlan, "id" | "revision
 
 /** Drop only confirmed plan runs. A partial stop keeps every unconfirmed job and deferred row. */
 export function removeConfirmedDistributedPlan(queue: DistributedQueue, planFile: string, confirmed: {
-  jobKeys: ReadonlySet<string>; deferredIds: ReadonlySet<string>; projectId?: string; historyOnlyJobKeys?: ReadonlySet<string> }): DistributedQueue {
+  jobKeys: ReadonlySet<string>; deferredIds: ReadonlySet<string>; projectId?: string; historyOnlyJobKeys?: ReadonlySet<string>; localControlJobKeys?: ReadonlySet<string> }): DistributedQueue {
   const selected = String(planFile || "").trim();
   const clearedJobs = [...(queue.clearedJobs || [])];
   const clearedKeys = new Set(clearedJobs.map(entry => clearedJobIdentityKey(entry)));
@@ -1254,10 +1264,14 @@ export function removeConfirmedDistributedPlan(queue: DistributedQueue, planFile
         const entry: ClearedDistributedJob = { projectId: plan.projectId || job.projectId || confirmed.projectId || "",
           workflowId: plan.id, planFile: plan.planFile, planRevision: plan.revision, codeFingerprint: plan.codeFingerprint,
           experimentIndex: job.index, case: job.case, seed: job.seed,
-          ...(formalRecord ? { resultPathPolicy: "declared" as const, globalJobId: job.globalJobId } : { attempt: record.attempt }),
+          ...(formalRecord ? { resultPathPolicy: "declared" as const, globalJobId: job.globalJobId,
+            collectionResultCsv: job.collectionResultCsv, status: record.status, actualExecutionMode: job.actualExecutionMode || plan.executionMode,
+            checkpointSource: job.checkpointSource, mirroredWorkerIds: job.mirroredWorkerIds, fragmentWorkerIds: job.fragmentWorkerIds,
+            cleanup: job.cleanup, outputRetiredAt: record.outputRetiredAt } : { attempt: record.attempt }),
           outputDir: record.outputDir,
           workerId: record.workerId || "", commandId: record.commandId || "",
           runKey: record === job ? job.runKey || job.commandId || "" : record.commandId || "", clearedAt,
+          ...(record === job && job.workerId && job.commandId && confirmed.localControlJobKeys?.has(distributedJobControlKey(plan, job)) ? { stopBoundary: "local_command" as const } : {}),
           ...(confirmed.historyOnlyJobKeys?.has(distributedJobControlKey(plan, job))
             ? { clearMode: "terminal_history" as const, remoteClosureConfirmed: false as const } : {}) };
         const key = clearedJobIdentityKey(entry);

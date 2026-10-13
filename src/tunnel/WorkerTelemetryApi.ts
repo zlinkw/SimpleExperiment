@@ -47,6 +47,7 @@ export const workerTelemetryActionNames = [
 export const workerTelemetryCapabilityMarkerNames = [
   "stop-worker-task-formal-identity",
   "stop-worker-task-formal-no-attempt",
+  "stop-worker-task-local-command",
 ] as const;
 
 export const workerLocalSchedulerActionNames = [

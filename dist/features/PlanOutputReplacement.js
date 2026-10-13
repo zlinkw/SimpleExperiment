@@ -1,9 +1,69 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.replacementEvidenceQueue = replacementEvidenceQueue;
+exports.replacementLifecycleJob = replacementLifecycleJob;
 exports.replacementJobGroups = replacementJobGroups;
 exports.replacePlanOutputs = replacePlanOutputs;
 const PlanCleanup_1 = require("./PlanCleanup");
+const DistributedPlanQueue_1 = require("./DistributedPlanQueue");
 const pathKey = (value) => String(value || "").replace(/\\/g, "/").replace(/^\.\//, "");
+/** Cleanup-only view. Never persist restored execution cards or bypass cleared tombstones. */
+function replacementEvidenceQueue(queue, snapshots, projectId) {
+    const view = (0, DistributedPlanQueue_1.cloneDistributedQueue)(queue);
+    const commands = new Set((queue.clearedJobs || []).filter(entry => entry.projectId === projectId && entry.resultPathPolicy === "declared")
+        .map(entry => entry.commandId));
+    if (!commands.size)
+        return view;
+    // Reuse the existing message contract parser, bounded to retained ownership, not every server job.
+    const recovered = (0, DistributedPlanQueue_1.mergeDurableWorkerSnapshots)((0, DistributedPlanQueue_1.emptyDistributedQueue)(), snapshots.map(snapshot => ({ ...snapshot,
+        tasks: snapshot.tasks?.filter(task => commands.has(String(task.commandId || ""))) })), projectId);
+    for (const plan of recovered.plans) {
+        if (plan.resultPathPolicy !== "declared" || plan.recoveryConflict)
+            continue;
+        for (const job of plan.jobs) {
+            if (!["completed", "failed"].includes(job.status) || job.recoveryConflict || !job.collectionResultCsv)
+                continue;
+            const audit = queue.clearedJobs?.find(entry => entry.projectId === projectId && entry.resultPathPolicy === "declared"
+                && entry.workflowId === plan.id && entry.planFile === plan.planFile && entry.planRevision === plan.revision
+                && entry.codeFingerprint === plan.codeFingerprint && /^[a-f0-9]{64}$/i.test(entry.planRevision)
+                && /^[a-f0-9]{64}$/i.test(entry.codeFingerprint) && entry.experimentIndex === job.index
+                && entry.case === job.case && entry.seed === job.seed && entry.outputDir === job.outputDir
+                && entry.globalJobId === job.globalJobId && job.globalJobId === plan.id + ":" + job.index
+                && entry.workerId === job.workerId && entry.commandId === job.commandId && entry.runKey === job.runKey
+                && (!entry.collectionResultCsv || entry.collectionResultCsv === job.collectionResultCsv)
+                && (!entry.status || entry.status === job.status));
+            if (!audit || !snapshots.some(snapshot => snapshot.workerId === job.workerId && snapshot.tasks?.some(task => (0, DistributedPlanQueue_1.remoteTaskMatchesJob)(plan, job, task) && task.status === job.status && (task.finishedAt || task.exitCode !== undefined)
+                && !task.identityConflict)))
+                continue;
+            let target = view.plans.find(row => row.id === plan.id);
+            if (target?.jobs.some(row => row.index === job.index))
+                continue;
+            if (!target) {
+                target = { ...plan, jobs: [] };
+                view.plans.push(target);
+            }
+            if (target.revision !== plan.revision || target.codeFingerprint !== plan.codeFingerprint || target.projectId !== projectId)
+                continue;
+            target.jobs.push({ ...job, checkpointSource: audit.checkpointSource || job.checkpointSource,
+                mirroredWorkerIds: audit.mirroredWorkerIds, fragmentWorkerIds: audit.fragmentWorkerIds,
+                cleanup: audit.cleanup, outputRetiredAt: audit.outputRetiredAt });
+        }
+    }
+    return view;
+}
+/** Keep retirement on the original audit when a user intentionally cleared the card. */
+function replacementLifecycleJob(queue, selection) {
+    const job = queue.plans.find(plan => plan.id === selection.workflowId)?.jobs.find(job => job.index === selection.index
+        && job.commandId === selection.commandId && ["completed", "failed"].includes(job.status));
+    if (job)
+        return job;
+    if (selection.purpose !== "replace_outputs")
+        return;
+    const matches = queue.clearedJobs?.filter(entry => entry.workflowId === selection.workflowId && entry.experimentIndex === selection.index
+        && entry.commandId === selection.commandId && entry.resultPathPolicy === "declared"
+        && entry.globalJobId === selection.workflowId + ":" + selection.index);
+    return matches?.length === 1 ? matches[0] : undefined;
+}
 function replacementJobGroups(queue, planFile, jobs, projectId, stablePlanId = "") {
     return jobs.map(declaration => {
         const output = (0, PlanCleanup_1.cleanupRelative)(pathKey(declaration.output_dir)), csv = (0, PlanCleanup_1.cleanupRelative)(pathKey(declaration.result_csv));
@@ -19,6 +79,10 @@ function replacementJobGroups(queue, planFile, jobs, projectId, stablePlanId = "
                 if (pathKey(job.outputDir) === output
                     && (job.cleanup?.state === "partial" || job.cleanup?.pendingNodes?.length))
                     (0, PlanCleanup_1.cleanupError)("OUTPUT_REPLACEMENT_PENDING", "原清理尚未完成，请先核查操作：" + job.cleanup.operationId);
+        for (const audit of queue.clearedJobs || [])
+            if (audit.projectId === projectId && pathKey(audit.outputDir) === output
+                && (audit.cleanup?.state === "partial" || audit.cleanup?.pendingNodes?.length))
+                (0, PlanCleanup_1.cleanupError)("OUTPUT_REPLACEMENT_PENDING", "原清理尚未完成，请先核查操作：" + audit.cleanup.operationId);
         if (!matches.length)
             (0, PlanCleanup_1.cleanupError)("OUTPUT_OWNER_UNVERIFIED", "没有当前声明对应的已停止正式 job 登记：" + output);
         return matches.reverse(); // Preference only; every candidate still needs current owner proof.

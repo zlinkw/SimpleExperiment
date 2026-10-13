@@ -40,6 +40,7 @@ const vscode = __importStar(require("vscode"));
 const PlanCleanup_1 = require("../features/PlanCleanup");
 const PlanCleanupEvidence_1 = require("../features/PlanCleanupEvidence");
 const DistributedPlanQueue_1 = require("../features/DistributedPlanQueue");
+const PlanOutputReplacement_1 = require("../features/PlanOutputReplacement");
 const PlanArtifactSync_1 = require("../features/PlanArtifactSync");
 const StateStore_1 = require("../state/StateStore");
 const PlanCleanupPanel_1 = require("./PlanCleanupPanel");
@@ -140,6 +141,22 @@ class PlanCleanupHost {
         })().finally(() => { this.reconnectWork = undefined; });
         return this.reconnectWork;
     }
+    async replacementGroups(queue, file, declarations, projectId, stablePlanId) {
+        this.assertWorkspace();
+        const workers = [...new Set((queue.clearedJobs || []).filter(entry => entry.projectId === projectId && entry.resultPathPolicy === "declared"
+                && declarations.some(job => job.output_dir === entry.outputDir && job.case === entry.case && Number(job.seed) === entry.seed))
+                .map(entry => entry.workerId))];
+        const snapshots = await Promise.all(workers.map(async (workerId) => {
+            try {
+                return { ...await this.host.client.getWorkerTasks(workerId, { signal: AbortSignal.timeout(5000) }), workerId, fetchedAt: new Date().toISOString() };
+            }
+            catch {
+                return { workerId, error: "历史 job 当前任务证据不可达" };
+            }
+        }));
+        this.assertWorkspace();
+        return (0, PlanOutputReplacement_1.replacementJobGroups)((0, PlanOutputReplacement_1.replacementEvidenceQueue)(queue, snapshots, projectId), file, declarations, projectId, stablePlanId);
+    }
     async collect(file, allowMissing = false, archivedFiles, removedMetadata, onProgress, job) {
         this.assertWorkspace();
         const storage = this.host.context.globalStorageUri.fsPath;
@@ -187,7 +204,8 @@ class PlanCleanupHost {
         const state = this.host.buildPlanRuntimeEvidenceState();
         const operations = Object.values(state.operations || {});
         onProgress?.({ phase: "references", message: "核对 PLAN/attempt 所有权、共享引用与受保护资产…" });
-        const scope = await (0, PlanCleanupEvidence_1.collectPlanCleanupEvidence)({ root: this.root, planFile: file, queue, ledger, registry,
+        const evidenceQueue = job?.purpose === "replace_outputs" ? (0, PlanOutputReplacement_1.replacementEvidenceQueue)(queue, snapshots, (0, DistributedPlanQueue_1.canonicalProjectId)(this.root)) : queue;
+        const scope = await (0, PlanCleanupEvidence_1.collectPlanCleanupEvidence)({ root: this.root, planFile: file, queue: evidenceQueue, ledger, registry,
             resultDir: this.host.resultCsvDirectory || "experiments/results", nodes, snapshots, operations, allowMissing, archivedFiles, removedMetadata, job });
         if (!job) {
             scope.nodes.push({ id: "pluginState", kind: "local", root: storage });
@@ -235,16 +253,17 @@ class PlanCleanupHost {
             const plan = queue.plans.find((plan) => plan.id === selection.workflowId);
             const job = plan?.jobs.find((job) => job.index === selection.index && job.commandId === selection.commandId
                 && (selection.purpose === "replace_outputs" ? ["failed", "completed"].includes(job.status) : job.status === "failed"));
-            if (!job)
+            const record = job || (0, PlanOutputReplacement_1.replacementLifecycleJob)(queue, selection);
+            if (!record)
                 (0, PlanCleanup_1.cleanupError)("JOB_SCOPE_CHANGED");
             if (restore) {
-                if (restoreIds.has(job.cleanup?.operationId)) {
-                    delete job.cleanup;
-                    delete job.outputRetiredAt;
+                if (restoreIds.has(record.cleanup?.operationId)) {
+                    delete record.cleanup;
+                    delete record.outputRetiredAt;
                 }
             }
             else
-                job.cleanup = { operationId: operation.id, state: operation.pendingNodes.length ? "partial" : operation.preview.action === "delete" ? "deleted" : "archived",
+                record.cleanup = { operationId: operation.id, state: operation.pendingNodes.length ? "partial" : operation.preview.action === "delete" ? "deleted" : "archived",
                     completedTargets: operation.preview.rows.filter(row => operation.targets[row.id]?.state === "completed").map(row => row.node.id + ":" + row.absolutePath), pendingNodes: operation.pendingNodes };
         }
         else {
@@ -296,7 +315,7 @@ class PlanCleanupHost {
                 await this.service.preflightConfirmed(id);
                 const selection = operation.preview.scope.job;
                 const queue = await this.host.loadDistributedQueue(this.root);
-                const job = queue.plans.find((plan) => plan.id === selection.workflowId)?.jobs.find((job) => job.index === selection.index && job.commandId === selection.commandId);
+                const job = (0, PlanOutputReplacement_1.replacementLifecycleJob)(queue, selection);
                 if (!job)
                     (0, PlanCleanup_1.cleanupError)("JOB_SCOPE_CHANGED");
                 const priorIds = new Set((await this.service.history(id)).map(row => row.id));

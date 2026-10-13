@@ -69,9 +69,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.302"
-RUNTIME_VERSION = "0.5.302"
-PLUGIN_VERSION = "0.5.302"
+AGENT_VERSION = "0.5.303"
+RUNTIME_VERSION = "0.5.303"
+PLUGIN_VERSION = "0.5.303"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -5775,6 +5775,11 @@ def worker_task_tmux_location(pane, session, cwd, env):
     fields = result.stdout.strip().split("\t")
     if result.returncode or len(fields) != 3 or not re.fullmatch(r"%[0-9]+", fields[0]) or not re.fullmatch(r"@[0-9]+", fields[2]):
         raise RuntimeError("TMUX_TASK_LOCATION_UNVERIFIED: command started but its exact pane/window receipt is missing")
+    for option, value in (("@simple_experiment_command", env.get("SIMPLE_EXPERIMENT_JOB_COMMAND_ID")),
+                          ("@simple_experiment_project", env.get("SIMPLE_EXPERIMENT_JOB_PROJECT_ID") or os.path.realpath(cwd))):
+        if value:
+            subprocess.run(["tmux", "set-window-option", "-t", fields[2], option, str(value)],
+                           cwd=cwd, env=env, capture_output=True, text=True, timeout=3)
     return {"tmuxPane": fields[0], "tmuxSession": fields[1], "tmuxWindowId": fields[2]}
 
 def read_task_exit_code(exit_code_path):
@@ -5946,10 +5951,119 @@ def close_worker_task_pane(root, task):
     except Exception as exc:
         return {"paneClosed": False, "paneCloseError": str(exc)[-500:]}
 
+def local_stop_tmux_inventory(root):
+    listed = subprocess.run(["tmux", "list-panes", "-a", "-F", "#{pane_id}\t#{session_name}\t#{window_id}\t#{window_name}\t#{@simple_experiment_command}\t#{@simple_experiment_project}"],
+                            capture_output=True, text=True, timeout=3, cwd=root)
+    if listed.returncode:
+        error = str(listed.stderr or "").strip()
+        if error.lower().startswith("no server running on ") or error.lower() == "no sessions":
+            return []
+        raise RuntimeError("TMUX_UNREACHABLE: " + error[-500:])
+    rows = []
+    for line in str(listed.stdout or "").splitlines():
+        fields = line.split("\t")
+        if len(fields) != 6 or not re.fullmatch(r"%[0-9]+", fields[0]) or not re.fullmatch(r"@[0-9]+", fields[2]) or not fields[1]:
+            raise ValueError("TMUX_INVENTORY_INVALID")
+        rows.append(dict(zip(("pane", "session", "window", "name", "command", "project"), fields)))
+    return rows
+
+def stop_local_worker_task(root, command, worker_id):
+    """Local stop intent uses stable command/window binding, never scientific revisions or PID gates."""
+    target = str(command.get("targetCommandId") or "").strip()
+    project = str(command.get("projectId") or "").strip()
+    workflow = str(command.get("workflowId") or "").strip()
+    stop_id = str(command.get("operationId") or command.get("opId") or "").strip()
+    receipt = {"commandId": target, "targetCommandId": target, "workerId": worker_id, "projectId": project,
+               "workflowId": workflow, "stopBoundary": "local_command", "stopCommandId": stop_id}
+    def failed(code, detail):
+        return {"status": "failed", "errorCode": code, "message": detail, "stoppedTasks": [], "stoppedPids": []}
+    if not target or not project or not stop_id or stop_id == target or str(command.get("workerId") or "") != worker_id:
+        return failed("LOCAL_STOP_TARGET_REQUIRED", "停止需要本机明确的 Worker、项目和 commandId")
+    with WORKER_TASK_SNAPSHOT_LOCK:
+        data = read_json(path_for(root, "worker_task_snapshot.json"), {})
+        tasks = data.get("tasks") if isinstance(data, dict) and isinstance(data.get("tasks"), list) else []
+        queue = read_durable_plan_queue(root)
+        records = [row for row in tasks + queue["jobs"] if isinstance(row, dict) and str(row.get("commandId") or "") == target]
+        for row in records:
+            if (row.get("workerId") and str(row["workerId"]) != worker_id or row.get("projectId") and str(row["projectId"]) != project
+                    or workflow and row.get("workflowId") and str(row["workflowId"]) != workflow):
+                return failed("LOCAL_STOP_OWNER_MISMATCH", "commandId 属于其他 Worker、项目或工作流，未关闭标签页")
+        try:
+            inventory = local_stop_tmux_inventory(root)
+        except Exception as exc:
+            return failed("TMUX_UNREACHABLE", str(exc))
+        bound = [row for row in inventory if row["command"] == target and row["project"] in (project, os.path.realpath(root))]
+        for task in records:
+            pane = str(task.get("tmuxPane") or (task.get("pid") if str(task.get("pid") or "").startswith("%") else "") or "")
+            window = str(task.get("tmuxWindowId") or "")
+            session = str(task.get("tmuxSession") or "")
+            if pane or window:
+                locations = [row for row in inventory if (pane and row["pane"] == pane or window and row["window"] == window)]
+                if any(session and row["session"] != session or row["command"] and row["command"] != target
+                       or row["project"] and row["project"] not in (project, os.path.realpath(root)) for row in locations):
+                    return failed("LOCAL_STOP_WINDOW_REUSED", "原标签页已属于其他任务，未关闭")
+                bound.extend(locations)
+            elif session:
+                locations = [row for row in inventory if row["session"] == session]
+                windows = set(row["window"] for row in locations)
+                if len(windows) > 1:
+                    return failed("LOCAL_STOP_WINDOW_UNLOCATED", "旧记录只有共享会话，不能关闭其他标签页")
+                bound.extend(locations)
+        windows = {row["window"] for row in bound}
+        if any(row["name"] == "agent" or row["session"].endswith("-agent") for row in bound):
+            return failed("LOCAL_STOP_PROTECTED_WINDOW", "该目标是辅助 Agent 窗口，未关闭")
+        # Fence a delayed start before touching tmux. Preserve the original source/identity as audit.
+        tombstones = read_json(worker_recall_tombstones_path(root), {})
+        audit = tombstones.get("rows") if isinstance(tombstones, dict) and isinstance(tombstones.get("rows"), list) else []
+        old = next((row for row in audit if isinstance(row, dict) and row.get("commandId") == target), None)
+        if not old:
+            audit.append({**(records[0] if records else receipt), "commandId": target, "status": "cancelled", "stopReason": "user_stop_clear",
+                          "stopBoundary": "local_command", "stopCommandId": stop_id, "finishedAt": now_iso()})
+        atomic_write(worker_recall_tombstones_path(root), {"schemaVersion": SCHEMA_VERSION, "rows": audit, "updatedAt": now_iso()})
+        for row in queue["jobs"]:
+            if isinstance(row, dict) and row.get("commandId") == target and str(row.get("status") or "").lower() not in ("completed", "failed", "cancelled"):
+                row.update({"status": "cancelled", "finishedAt": now_iso(), "stopReason": "user_stop_clear"})
+        if records:
+            write_durable_plan_queue(root, queue)
+        try:
+            for window in sorted(windows):
+                fresh = local_stop_tmux_inventory(root)
+                actual = [row for row in fresh if row["window"] == window]
+                if any(row["command"] and row["command"] != target or row["project"] and row["project"] not in (project, os.path.realpath(root)) for row in actual):
+                    return failed("LOCAL_STOP_WINDOW_REUSED", "停止前标签页已被替换")
+                if actual:
+                    subprocess.run(["tmux", "kill-window", "-t", window], capture_output=True, text=True, timeout=5, cwd=root)
+                if any(row["window"] == window for row in local_stop_tmux_inventory(root)):
+                    return failed("TMUX_CLOSE_FAILED", "目标标签页仍存在，保留本机停止意图以便重试")
+        except Exception as exc:
+            return failed("TMUX_CLOSE_FAILED", str(exc))
+        now = now_iso()
+        for row in tasks + queue["jobs"]:
+            if not isinstance(row, dict) or row.get("commandId") != target:
+                continue
+            if str(row.get("status") or "").lower() not in ("completed", "failed", "cancelled", "stopped"):
+                row.update({"status": "cancelled", "finishedAt": now})
+            row.update({"controlClearedAt": now, "manualStopType": "scheduler_aborted", "stopReason": "user_stop_clear", "stopSource": "user"})
+            release_distributed_gpu_reservation(str(row.get("gpuId") or ""), target)
+        if records:
+            atomic_write(path_for(root, "worker_task_snapshot.json"), {**data, "schemaVersion": SCHEMA_VERSION, "tasks": tasks, "generatedAt": now})
+            write_durable_plan_queue(root, queue)
+        claims = read_json(worker_start_claims_path(root), {})
+        claim_rows = claims.get("rows") if isinstance(claims, dict) and isinstance(claims.get("rows"), list) else []
+        if any(isinstance(row, dict) and row.get("commandId") == target for row in claim_rows):
+            atomic_write(worker_start_claims_path(root), {**claims, "rows": [row for row in claim_rows if not isinstance(row, dict) or row.get("commandId") != target]})
+        result = {"status": "completed", "message": "已关闭对应任务标签页并解除其活动缓存；原日志、产物和归属审计保留",
+                  "stoppedTasks": [{**receipt, "paneClosed": True, "closedWindowIds": sorted(windows), "alreadyAbsent": not windows,
+                                    "cacheRetired": True, "finishedAt": now}], "stoppedPids": []}
+        append_event(root, {"type": "worker_task_stopped", "workerId": worker_id, "operationId": target, "payload": result})
+        return result
+
 def _execute_worker_command_unfenced(root, command, worker_id):
     action = str(command.get("action") or "").strip()
     command_id = str(command.get("commandId") or command.get("operationId") or f"cmd-{int(time.time() * 1000)}")
     append_event(root, {"type": "worker_command_started", "workerId": worker_id, "operationId": command_id, "payload": command})
+    if action == "stop-worker-task" and command.get("stopBoundary") == "local_command":
+        return stop_local_worker_task(root, command, worker_id)
     if action == "stop-worker-task" and command.get("resultPathPolicy") == "declared" and "attempt" in command:
         result = {"commandId": command_id, "targetCommandId": command.get("targetCommandId"), "status": "failed",
                   "errorCode": "FORMAL_ATTEMPT_RETIRED", "identityMismatchFields": ["attempt"],
@@ -6227,6 +6341,10 @@ def _execute_worker_command_unfenced(root, command, worker_id):
     # Exit evidence belongs to the command identity, independent of which launch path
     # (GPU pane or fallback session) succeeds. This also reuses the same marker on fallback.
     exit_code_path = safe_project_path(project_dir, f"simple_cluster/tmux_logs/{command_id}.exit_code")
+    if recalled_worker_command(root, {"commandId": command_id}):
+        if reserved_gpu:
+            release_distributed_gpu_reservation(gpu_id, command_id)
+        return {"commandId": command_id, "status": "cancelled", "recalled": True, "message": "本机停止意图已确认，未启动任务"}
     try:
         env["SIMPLE_EXPERIMENT_EXIT_CODE_PATH"] = str(exit_code_path)
     except Exception:
@@ -6265,6 +6383,12 @@ def _execute_worker_command_unfenced(root, command, worker_id):
             release_distributed_gpu_reservation(gpu_id, command_id)
         raise RuntimeError("tmux available but launch failed and ALLOW_POPEN_FALLBACK not enabled; refusing silent bash fallback\uff1b\u8bf7\u5b89\u88c5 tmux \u6216\u542f\u7528 ALLOW_POPEN_FALLBACK")
     location = worker_task_tmux_location(pid, tmux_session, project_dir, env) if used_tmux else {}
+    if recalled_worker_command(root, {"commandId": command_id}):
+        proof = close_worker_task_pane(root, location) if used_tmux else {"paneClosed": False}
+        if reserved_gpu:
+            release_distributed_gpu_reservation(gpu_id, command_id)
+        return {"commandId": command_id, "status": "cancelled" if proof.get("paneClosed") else "unknown", "recalled": True,
+                "message": "已按本机停止意图关闭晚到任务", **location, **proof}
     task = {
         "schemaVersion": SCHEMA_VERSION,
         "commandId": command_id,
@@ -7320,6 +7444,7 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
                 "stop-worker-task-exact-pane": True,
                 "stop-worker-task-formal-identity": True,
                 "stop-worker-task-formal-no-attempt": True,
+                "stop-worker-task-local-command": True,
                 "delete-worker-artifacts": True,
                 "archive-worker-artifacts": True,
                 "validate-plan": True,
@@ -15834,6 +15959,18 @@ def scheduler_stop_record_identity(wanted, requested_plan, event):
 def stop_scheduler_operation(root, payload):
     wanted = str(payload.get("targetOperationId") or payload.get("remoteOperationId") or payload.get("operationId") or payload.get("opId") or "").strip()
     plan = action_plan_file(payload)
+    if payload.get("stopBoundary") == "local_command":
+        worker = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or payload.get("workerId") or "")
+        result = stop_local_worker_task(root, {**payload, "targetCommandId": wanted,
+            "projectId": payload.get("projectId") or os.path.realpath(root), "workerId": worker}, worker)
+        ok = result.get("status") == "completed"
+        if ok:
+            cancel_inactivity_action(root, wanted, plan)
+            deregister_active_run_plan(root, wanted)
+        return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or ""), str(payload.get("opId") or ""),
+            "completed" if ok else "failed", result.get("message") or "停止未完成", {"matchedOperations": [wanted] if ok else [],
+            "planFile": plan, "stopBoundary": "local_command", "terminatedWindowIds": [window for row in result.get("stoppedTasks", []) for window in row.get("closedWindowIds", [])],
+            "cacheRetired": ok, "remainingActiveEvidence": [] if ok else [result.get("errorCode")]}, request=payload)
     if wanted and plan and cancel_inactivity_action(root, wanted, plan):
         return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or ""), str(payload.get("opId") or ""), "completed", "已取消处理中操作", {"matchedOperations": [wanted], "planFile": plan}, request=payload)
     if not wanted or not plan:

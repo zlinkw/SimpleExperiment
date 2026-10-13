@@ -98,7 +98,7 @@ function hostFor(operation, accepted = true, outputChoice) {
     clearOperationStatusProbe: () => {}, clearOperationWatchdog: () => {}, markLocalOperationsDirty: () => {}, postState: () => {},
     distributedPlanEligible: () => true,
     workerActionTargets: () => [{id:"nwpu3"}],
-    planCleanupHost: () => ({service:{}}),
+    planCleanupHost: () => ({service:{},replacementGroups: (queue,file,jobs,project,stable) => context.replacementJobGroups(queue,file,jobs,project,stable)}),
     apiTaskPreflight: async params => { host.actions.push("completed-hash-preflight"); return {params}; },
     waitForCompleted: true,
     planValidationCacheKey: () => "",
