@@ -29,8 +29,13 @@ state = pathlib.Path(contract['stateDir'])
 state.mkdir(parents=True)
 session = {'agentInstallDir': str(install), 'agentStateDir': str(state), 'agentVersion':'fixture-old', 'startedAt':'fixture-start'}
 (state / 'agent.session.json').write_text(json.dumps(session), encoding='utf-8')
-(state / 'worker_availability.json').write_text(json.dumps({'workers':[{'workerId':'fixture-worker','totalGpus':0,'gpus':[]}]}), encoding='utf-8')
+(state / 'worker_availability.json').write_text(json.dumps({'schemaVersion':1,'workers':{'fixture-worker':{'workerId':'fixture-worker','totalGpus':0,'gpus':[]}}}), encoding='utf-8')
 (state / 'events.jsonl').write_bytes(b'original historical bytes\n')
+for name in ('actions', 'cluster_scheduler', 'live_output'):
+    folder = state / name
+    folder.mkdir()
+    (folder/'retained.json').write_text('{"history":"retained"}',encoding='utf-8')
+(state/'distributed_plan_queue.json').write_text(json.dumps({'schemaVersion':1,'jobs':[],'historicalPadding':'x'*(5*1024*1024)}),encoding='utf-8')
 probe = '''import json
 from http.server import BaseHTTPRequestHandler,HTTPServer
 class H(BaseHTTPRequestHandler):
@@ -51,12 +56,19 @@ try:
     while not m.lifecycle_health(contract) and time.monotonic()<deadline:
         time.sleep(.02)
     assert agent.poll() is None
-    original = {p.name:p.read_bytes() for p in state.iterdir()}
+    original = {str(p.relative_to(state)):p.read_bytes() for p in state.rglob('*') if p.is_file()}
     before = m.lifecycle_control(params)
     migration = before['evidence']['migration']
     assert 'blocked' not in migration, migration
     assert migration['pid']==agent.pid
-    assert original == {p.name:p.read_bytes() for p in state.iterdir()}
+    assert original == {str(p.relative_to(state)):p.read_bytes() for p in state.rglob('*') if p.is_file()}
+    availability_file=state/'worker_availability.json'
+    availability_bytes=availability_file.read_bytes()
+    availability_file.write_text(json.dumps({'workers':[{'workerId':'fixture-worker','totalGpus':0,'gpus':[]}]}),encoding='utf-8')
+    assert 'blocked' not in m.lifecycle_control(params)['evidence']['migration']
+    availability_file.write_bytes(availability_bytes)
+    foreign=dict(params,workerId='another-worker')
+    assert m.lifecycle_control(foreign)['evidence']['migration']['blocked']=='AGENT_LEGACY_WORKER_CONFLICT'
     for digest in ('', '0'*64):
         try:
             m.lifecycle_control(dict(params,action='migrate',migrationDigest=digest))
@@ -75,7 +87,7 @@ try:
         assert e.code=='AGENT_ACTIVE_TASK'
     raw=queue.read_bytes();stat=queue.stat()
     pathlib.Path(str(queue)[:-6]+'.cursor.json').write_text(json.dumps({'queueSeq':1,'device':stat.st_dev,'inode':stat.st_ino,'size':len(raw),'prefixLength':len(raw),'prefixSha256':hashlib.sha256(raw).hexdigest()}),encoding='utf-8')
-    original = {p.name:p.read_bytes() for p in state.iterdir()}
+    original = {str(p.relative_to(state)):p.read_bytes() for p in state.rglob('*') if p.is_file()}
     verified = m.lifecycle_control(params)['evidence']['migration']
     result=m.lifecycle_control(dict(params,action='migrate',migrationDigest=verified['digest']))
     assert result['status']=='migrated' and result['stoppedPid']==agent.pid

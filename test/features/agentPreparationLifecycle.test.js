@@ -21,7 +21,7 @@ function fixture(state='absent', inspection) {
   SshTransportIdentity_1:{...require('../../dist/tunnel/SshTransportIdentity'),inspectOpenSshAlias:async()=>inspection},
   sftpUploadFilesSucceeded:row=>row.ok===true,stringFromRecord:()=>'',errorMessage:e=>e.message,effectiveWorkerCondaEnv:row=>row.condaEnv,
   confirmationRequired:data=>Object.assign(new Error('CONFIRM_REQUIRED'),{apiData:data}),UiCommandCancelled:class extends Error{},
-  vscode:{window:{showWarningMessage:async()=>undefined},extensions:{getExtension:()=>({packageJSON:{version:'0.2.72'}})},commands:{executeCommand:async(name,params)=>{
+  vscode:{window:{showWarningMessage:async()=>undefined},extensions:{getExtension:()=>({packageJSON:{version:'0.2.73'}})},commands:{executeCommand:async(name,params)=>{
    calls.push({name,params});
    if(name==='simpleSftp.uploadFiles')return {ok:true};
    if(params.action==='inspect') {

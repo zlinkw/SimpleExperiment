@@ -1493,6 +1493,7 @@ def prune_agent_state(root, force=False):
         protected = {
             "agent.pid", "agent.lock", "agent.started_at", "agent.version", "agent.config.json",
             "agent.session.json", "seq.txt", "stop", "distributed_plan_queue.json",
+            "agent.owner.json", "agent.process.json", "agent.owner.lock",
             "worker_recall_tombstones.json", "worker_start_claims.json",
         }
         try:
