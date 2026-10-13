@@ -90,7 +90,14 @@ if saved_open:delattr(os,'pidfd_open')
 if saved_send:delattr(module.signal,'pidfd_send_signal')
 os.kill=lambda *args: (_ for _ in ()).throw(AssertionError('PID signalling forbidden'))
 other_window=None
+old_server_window=None
 try:
+    # An existing tmux server may carry a previous shell's GPU environment.
+    # New auxiliary windows must preserve this launch's container binding.
+    stale_env=dict(os.environ,CUDA_VISIBLE_DEVICES='old-shell-device',NVIDIA_VISIBLE_DEVICES='old-container')
+    started=subprocess.run(['tmux','new-session','-d','-s','preexisting-shell','-n','keep','exec sleep 60'],env=stale_env,capture_output=True,text=True,timeout=3)
+    assert started.returncode==0,started.stderr
+    old_server_window='preexisting-shell:keep'
     def concurrent_prepare(_):
         try:
             return module.lifecycle_control(dict(params,action='ensure'))
@@ -198,13 +205,15 @@ try:
     print(json.dumps({'firstStartInAssignedTmux':True,'reused':True,'ownedWindowRestart':True,'cpuConflictRejected':True,'platformAlive':True,'researchAlive':True,'siblingAndGpuWindowsPreserved':True,'changedWindowProtected':True,'noPidfdOrPidSignal':True,'zeroWriteInspect':True,'activeTasksNeverBlockRestart':True,'queueBytesPreserved':True,'unhealthyRecovered':True,'corruptActivityNotGate':True,'missingResearchEnvAllowed':True,'changedResearchEnvReused':True,'healthWithoutEnvironmentProbe':True}))
 finally:
     # Only fixture processes created in this script; no user/platform target touched.
-    if agent and module.lifecycle_process(agent):
-        module.lifecycle_control(dict(params,action='stop'))
+    fixture_window=module.lifecycle_tmux_window(params)
+    if fixture_window:
+        module.lifecycle_close_tmux(params,fixture_window)
     os.kill=saved_kill
     if saved_open:os.pidfd_open=saved_open
     if saved_send:module.signal.pidfd_send_signal=saved_send
     if other_window:module.lifecycle_tmux_run(['kill-window','-t',other_window])
     if 'gpu_session' in globals():module.lifecycle_tmux_run(['kill-window','-t',gpu_session+':0'])
+    if old_server_window:module.lifecycle_tmux_run(['kill-window','-t',old_server_window])
     platform.terminate()
     platform.wait(timeout=2)
     research.terminate()
