@@ -49,7 +49,7 @@ function scopeResultSummary(summary, selectedPlan) {
     if (!plan)
         return empty();
     try {
-        const identity = (r) => alias(r, ["planFile", "plan_file"], "provenance", true);
+        const identity = (r) => alias(r, ["planFile", "plan_file", "plan", "selectedPlanId"], "provenance", true);
         const root = identity(summary);
         if (root && root !== key(plan))
             return empty();
@@ -85,6 +85,18 @@ function scopeResultSummary(summary, selectedPlan) {
         if (!changed)
             return summary;
         const out = { ...empty(), ...arrays };
+        out.unverifiedResults = Array.isArray(summary.results) ? summary.results.filter((r) => {
+            try {
+                return object(r) && !identity(r);
+            }
+            catch {
+                return false;
+            }
+        }).slice(0, 30).map((r) => ({
+            ownershipState: "unverified", experimentId: r.experimentId || r.runKey || "", dimensions: r.dimensions || {}, metrics: r.metrics || {},
+        })) : [];
+        if (out.unverifiedResults.length)
+            out.message = "部分历史结果归属待核实；保留指标预览，不授权原始文件读取或作为当前作业完成证据。";
         for (const name of ["planRevision", "plan_revision", "generatedAt", "generated_at", "lastParsedAt", "last_parsed_at", "completedRunId"])
             if (rootOwned && summary[name] !== undefined)
                 out[name] = summary[name];

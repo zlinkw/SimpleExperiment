@@ -33,6 +33,9 @@ export class PlanCleanupHost {
           cleanupError("SFTP_FORMAL_OWNER_UPGRADE_REQUIRED", "需要支持正式 job 身份核验的 SimpleSFTP，尚未执行任何清理。");
         if (method === "files.cleanup.preview" && params.targets?.some((target: any) => target.archiveBatch) && result.safety?.immutableArchiveBatch !== true)
           cleanupError("SFTP_ARCHIVE_BATCH_UPGRADE_REQUIRED", "需要支持预先确定的归档批次布局的 SimpleSFTP，尚未执行任何清理。");
+        if (method === "files.cleanup.preview" && params.targets?.some((target: any) => target.expectedOwner?.expectedState === "completed")
+          && !(Number(result.safety?.batchPreviewCapacity) >= 4096))
+          cleanupError("SFTP_BATCH_PREVIEW_UPGRADE_REQUIRED", "需要 SimpleSFTP 0.2.79 的批次预览保留能力，未执行清理。");
         return result;
       },
       restoreGate: (preview, operation) => this.restoreGate(preview, operation),
@@ -159,9 +162,10 @@ export class PlanCleanupHost {
     const selection = operation.preview.scope.job;
     if (selection) {
       const plan = queue.plans.find((plan: any) => plan.id === selection.workflowId);
-      const job = plan?.jobs.find((job: any) => job.index === selection.index && job.commandId === selection.commandId && job.status === "failed");
+      const job = plan?.jobs.find((job: any) => job.index === selection.index && job.commandId === selection.commandId
+        && (selection.purpose === "replace_outputs" ? ["failed", "completed"].includes(job.status) : job.status === "failed"));
       if (!job) cleanupError("JOB_SCOPE_CHANGED");
-      if (restore) { if (restoreIds.has(job.cleanup?.operationId)) delete job.cleanup; }
+      if (restore) { if (restoreIds.has(job.cleanup?.operationId)) { delete job.cleanup; delete job.outputRetiredAt; } }
       else job.cleanup = { operationId: operation.id, state: operation.pendingNodes.length ? "partial" : operation.preview.action === "delete" ? "deleted" : "archived",
         completedTargets: operation.preview.rows.filter(row => operation.targets[row.id]?.state === "completed").map(row => row.node.id + ":" + row.absolutePath), pendingNodes: operation.pendingNodes };
     } else {
@@ -195,6 +199,19 @@ export class PlanCleanupHost {
     try {
       const pending = this.host.distributedQueueTickPromise;
       if (pending) await pending;
+      const operation = await this.service.status(id);
+      if (operation.preview.scope.job?.purpose === "replace_outputs") {
+        await this.service.preflightConfirmed(id);
+        const selection = operation.preview.scope.job;
+        const queue = await this.host.loadDistributedQueue(this.root);
+        const job = queue.plans.find((plan: any) => plan.id === selection.workflowId)?.jobs.find((job: any) => job.index === selection.index && job.commandId === selection.commandId);
+        if (!job) cleanupError("JOB_SCOPE_CHANGED");
+        const priorIds = new Set((await this.service.history(id)).map(row => row.id));
+        if (job.cleanup?.state === "partial" && !priorIds.has(job.cleanup.operationId)) cleanupError("OUTPUT_REPLACEMENT_PENDING");
+        job.outputRetiredAt ||= new Date().toISOString();
+        job.cleanup = { operationId: id, state: "partial", completedTargets: [], pendingNodes: operation.preview.scope.nodes.map(node => node.id) };
+        await this.host.saveDistributedQueue(this.root, queue);
+      }
       return await this.host.withHostOperationLease("cleanupPlan", "清除 PLAN 及关联产物", () => this.service.execute(id),
         { resources: [{ server: "local", project: this.root, target: this.root }] });
     } finally { this.executing = false; void this.drainReconnects().catch(() => undefined); }

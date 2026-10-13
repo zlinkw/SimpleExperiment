@@ -37,8 +37,16 @@ Module._extensions[".ts"] = (loadedModule, filename) => {
 };
 Module._load = function (request, parent, isMain) {
   if (request === "vscode") return vscode;
+  if (request === "node:worker_threads" || request === "worker_threads") {
+    const workerThreads = originalLoad.call(this, request, parent, isMain);
+    return { ...workerThreads, Worker: class extends workerThreads.Worker { constructor(filename, options) {
+      super(String(filename).endsWith(path.join('src', 'results', 'ProjectResultCatalogWorker.js'))
+        ? path.join(repo, 'dist/results/ProjectResultCatalogWorker.js') : filename, options);
+    } } };
+  }
   if (request.startsWith("../vendor/semver/")) return originalLoad.call(this, path.join(repo, "dist/vendor/semver", request.slice("../vendor/semver/".length)), parent, isMain);
   if (request === "../results/ProjectResultTables" && parent?.filename.endsWith(path.join("src", "extension", "legacy.ts"))) return tablesModule.exports;
+  if (request === "../results/ProjectResultCatalog") return originalLoad.call(this, path.join(repo, "dist/results/ProjectResultCatalog.js"), parent, isMain);
   return originalLoad.call(this, request, parent, isMain);
 };
 const { __syncPendingResultMetricsForTest, RealtimeTunnelPanelProvider, planValidationFromResult } = require("../../src/extension/legacy.ts");
@@ -80,7 +88,7 @@ function providerFor(workspace, csvText, oldRegistry) {
     resolveSelectedPlanFile: () => "", enabledWorkerConfigs: () => [{ id: "worker-a" }], postState() {},
     sftpServerOptions: (target) => ({ id: target.id, host: target.host, user: target.user, port: target.port, remotePath: target.remotePath }),
     loadProjectTableRegistry: async () => oldRegistry || tablesModule.exports.emptyTableRegistry(),
-    simpleSftpCapability: async () => ({ methodOptions: { "sync.downloadMappedPaths": { memoryOnly: true } } }),
+    simpleSftpCapability: async () => ({ methodOptions: { "sync.downloadMappedPaths": { memoryOnly: true, memoryWrapperResults: true } } }),
     simpleSftpApiCall: async (method, params) => {
       calls.push([method, params]);
       if (method === "sync.projectInventory") return { files: { [remoteCsv]: { size: Buffer.byteLength(csvText), sha256: crypto.createHash("sha256").update(csvText).digest("hex") } } };
@@ -260,14 +268,15 @@ test("late local lock ACK is fenced before the captured Worker client can send",
     provider.localCodeManifestCacheFile = () => path.join(workspace, "manifest-cache.json");
     const host = Object.assign(Object.create(RealtimeTunnelPanelProvider.prototype), provider);
     host.distributedQueueGeneration = 7;
+    host.lastWorkerProbes = { 'worker-a': { capabilities: { endpoints: { declaredJobPaths: true, formalJobIdentityEnv: 1, taskShellEnvironment: 1, projectManagedValidation: 1 } } } };
     host.withRemoteActionResource = async (_workerId, _resource, _request, callback) => {
       host.distributedQueueGeneration += 1;
       return callback();
     };
     const emptyManifestFingerprint = crypto.createHash("sha256").update("[]").digest("hex");
     await assert.rejects(() => host.sendDistributedJob(
-      { id: "plan-a", projectId: "project-a", planJobCount: 1, planFile, revision: "rev-1", codeFingerprint: emptyManifestFingerprint },
-      { index: 0, attempt: 1, case: "alpha", seed: 42, outputDir: "runs/a" }, "worker-a", undefined, "command-a",
+      { id: "plan-a", projectId: "project-a", resultPathPolicy: "declared", executionMode: "train_test", planJobCount: 1, planFile, revision: "rev-1", codeFingerprint: emptyManifestFingerprint },
+      { index: 0, case: "alpha", seed: 42, outputDir: "runs/a", collectionResultCsv: "tmp/result/a.csv" }, "worker-a", undefined, "command-a",
     ), /提交已取消或项目已切换/);
     assert.equal(sends, 0, "generation changed while awaiting the local resource lock must block the remote write");
   } finally {

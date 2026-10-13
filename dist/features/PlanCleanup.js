@@ -44,7 +44,7 @@ const StateStore_1 = require("../state/StateStore");
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const cleanupDigest = (value) => (0, node_crypto_1.createHash)("sha256").update(JSON.stringify(value)).digest("hex");
 exports.cleanupDigest = cleanupDigest;
-const cleanupJobKey = (job) => (0, exports.cleanupDigest)(job ? [job.workflowId, job.index, job.commandId] : null);
+const cleanupJobKey = (job) => (0, exports.cleanupDigest)(job ? [job.workflowId, job.index, job.commandId, job.purpose || "failed_review"] : null);
 exports.cleanupJobKey = cleanupJobKey;
 function cleanupError(code, detail = code) {
     const error = Object.assign(new Error(detail), { apiCode: code === "CONFIRM_REQUIRED" ? 2001 : 2010, apiData: { code, detail } });
@@ -223,8 +223,8 @@ class PlanCleanup {
         for (const [token, preview] of this.previews)
             if (Date.now() > preview.expiresAt)
                 this.previews.delete(token);
-        if (this.previews.size >= 16)
-            this.previews.delete(this.previews.keys().next().value);
+        if (this.previews.size >= 512)
+            cleanupError("CLEANUP_PREVIEW_CAPACITY_EXCEEDED");
         const action = params.action || "move";
         if (!["move", "delete"].includes(action))
             cleanupError("INVALID_ACTION");
@@ -302,6 +302,8 @@ class PlanCleanup {
             try {
                 const backend = await this.ports.sftp("files.cleanup.preview", { node, action, targets: rows.map(row => ({ relativePath: row.relativePath, type: row.type,
                         destination: row.destination, expectedSha256: row.expectedSha256, expectedOwner: row.expectedOwner, archiveBatch: row.archiveBatch })) });
+                if (scope.job?.purpose === "replace_outputs" && !(Number(backend.safety?.batchPreviewCapacity) >= 4096))
+                    cleanupError("SFTP_BATCH_PREVIEW_UPGRADE_REQUIRED", "需要 SimpleSFTP 0.2.79 的批次预览保留能力");
                 rows.forEach((row, index) => {
                     const info = backend.targets[index];
                     Object.assign(row, { ...info, relativePath: row.relativePath, destination: row.destination,
@@ -527,6 +529,17 @@ class PlanCleanup {
         finally {
             this.busy.delete(id);
         }
+    }
+    /** Batch replacement checks every confirmed operation before its first deletion. */
+    async preflightConfirmed(id) {
+        const operation = await this.status(id);
+        if (operation.preview.confirmations !== (operation.preview.action === "delete" ? 2 : 1))
+            cleanupError("CONFIRM_REQUIRED");
+        if (operation.state === "completed")
+            return;
+        if (operation.continuedBy || operation.restoredBy || this.busy.has(id))
+            cleanupError("OPERATION_SUPERSEDED");
+        await this.revalidate(operation.preview, operation);
     }
     async cancel(id) {
         const operation = await this.status(id);

@@ -28,9 +28,9 @@ test('changed discovery or mismatched capability version cannot POST', async t =
   assert.ok(!f.calls.includes('/api/v1/rpc'));
   await assert.rejects(callLocalRpc(() => ({ ...f.discovery, version: '1.0.0' }), 'status', {}), /mismatched/);
 });
-test('an old running extension cannot accept a new workflow before its workspace guard protocol is loaded', async t => {
+test('legacy Windows workflow routes remain usable without a Mac-specific option field', async t => {
   const f = await fixture(t); f.state.contract.methods.push('workflow.run');
-  await assert.rejects(callLocalRpc(() => f.discovery, 'workflow.run', {}), /reload/); assert.ok(!f.calls.includes('/api/v1/rpc'));
+  await callLocalRpc(() => f.discovery, 'workflow.run', {}); assert.equal(f.calls.at(-1), '/api/v1/rpc');
   f.state.contract.methodOptions = { 'workflow.run': { workspaceIdentityRechecked: true } };
   await callLocalRpc(() => f.discovery, 'workflow.run', {}); assert.equal(f.calls.at(-1), '/api/v1/rpc');
 });

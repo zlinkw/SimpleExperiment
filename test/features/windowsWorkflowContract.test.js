@@ -19,7 +19,11 @@ async function fixture(t) {
       const body = JSON.parse(Buffer.concat(chunks)); calls.push(body); let result;
       if (body.method === 'status') result = { workspace: state.workspace };
       if (body.method === 'workflow.plan') { result = { ok: !state.blocked, ready: !state.blocked, plan: { planFile: state.wrongPlan ? 'wrong.yaml' : planFile }, nextAction: 'server.testAll' }; if (state.switch) state.workspace = other; }
-      if (body.method === 'workflow.run') result = state.runBlocked ? { ok: false, started: false } : { ok: true, started: true, operationId: 'mock-op', status: 'waiting_confirmation', confirmation: 'vscode_modal' };
+      if (body.method === 'workflow.run') {
+        if (state.switch) state.workspace = other;
+        result = state.runBlocked || state.blocked || state.workspace !== body.params.workspace ? { ok: false, started: false }
+          : { ok: true, started: true, plan: { planFile: state.wrongPlan ? 'wrong.yaml' : planFile }, operationId: 'mock-op', status: 'waiting_confirmation', confirmation: 'vscode_modal' };
+      }
       res.end(JSON.stringify({ jsonrpc: '2.0', id: body.id, result }));
     });
   });
@@ -32,17 +36,17 @@ async function fixture(t) {
 test('compiled Windows CLI verifies the actual workspace and accurately reports a request awaiting approval', async t => {
   const f = await fixture(t), out = await requestWorkflowRun(f.root, f.planFile, {});
   assert.equal(out.code, 0); assert.equal(out.payload.requested, true); assert.equal(out.payload.submitted, false); assert.equal(out.payload.confirmation, 'vscode_modal');
-  assert.deepEqual(f.calls.map(c => c.method), ['status', 'workflow.plan', 'status', 'workflow.run']);
+  assert.deepEqual(f.calls.map(c => c.method), ['status', 'workflow.run']);
   assert.equal(f.calls.at(-1).params.workspace, fs.realpathSync.native(f.root));
 });
 test('wrong workspace/PLAN, changed workspace, blocked route and seed override cannot request a run', async t => {
   const f = await fixture(t);
   f.state.workspace = f.other; await assert.rejects(requestWorkflowRun(f.root, f.planFile, {}), /differs/); assert.equal(f.calls.length, 1);
-  f.state.workspace = f.root; f.state.wrongPlan = true; await assert.rejects(requestWorkflowRun(f.root, f.planFile, {}), /different Plan/);
-  f.state.wrongPlan = false; f.state.switch = true; await assert.rejects(requestWorkflowRun(f.root, f.planFile, {}), /differs/);
+  f.state.workspace = f.root; f.state.wrongPlan = true; await assert.rejects(requestWorkflowRun(f.root, f.planFile, { dryRun: true }), /different Plan/);
+  f.state.wrongPlan = false; f.state.switch = true; assert.equal((await requestWorkflowRun(f.root, f.planFile, {})).code, 3);
   f.state.switch = false; f.state.workspace = f.root; f.state.blocked = true; assert.equal((await requestWorkflowRun(f.root, f.planFile, {})).code, 3);
   await assert.rejects(requestWorkflowRun(f.root, f.planFile, { seed: '42' }), /seed/);
-  assert.ok(!f.calls.some(c => c.method === 'workflow.run'));
+  assert.ok(f.calls.filter(c => c.method === 'workflow.run').every(c => c.params.workspace === fs.realpathSync.native(f.root)));
 });
 test('dry-run/check are read-only route checks; blocked run never reports submitted', async t => {
   const f = await fixture(t); await requestWorkflowRun(f.root, f.planFile, { dryRun: true }); await requestWorkflowRun(f.root, f.planFile, { check: true });

@@ -3141,7 +3141,7 @@ def accept_durable_plan_job(root, command, worker_id):
     identity["outputDir"] = output_dir
     options = command.get("options") if isinstance(command.get("options"), dict) else {}
     if any(action_bool(value) for value in (command.get("overwriteExisting"), command.get("overwrite"), options.get("overwriteExisting"), options.get("overwrite"))):
-        raise ValueError("FORMAL_JOB_CONFLICT: overwrite is retired; explicitly clean or change the declared job")
+        raise ValueError("CONFIRM_REQUIRED: overwrite requires the exact output-replacement preview and two path confirmations")
     require_idle_gpu = command.get("requireIdleGpu") is True or options.get("requireIdleGpu") is True
     requested_gpu = str(command.get("gpuId") or options.get("gpuId") or "").strip()
     if require_idle_gpu and not requested_gpu:
@@ -5851,8 +5851,12 @@ def preflight_existing_worker_task(root, payload, worker_id):
                    ("resultPathPolicy", "globalJobId", "collectionResultCsv", "checkpointSource", "executionMode", "mode"))):
         raise ValueError("FORMAL_JOB_PREFLIGHT_IDENTITY_MISMATCH")
     environment_only = payload.get("environmentOnly") is True
-    if (row.get("status") != "failed" or not environment_only and (row.get("neverStarted") is not True
-            or row.get("neverStartedEvidence") != "formal_preflight_rejected")):
+    completed_verify = payload.get("completedOutputVerify") is True
+    if completed_verify and environment_only:
+        raise ValueError("FORMAL_JOB_PREFLIGHT_INVALID_MODE")
+    if ((completed_verify and row.get("status") != "completed") or (not completed_verify and
+        (row.get("status") != "failed" or not environment_only and (row.get("neverStarted") is not True
+            or row.get("neverStartedEvidence") != "formal_preflight_rejected")))):
         raise ValueError("FORMAL_JOB_PREFLIGHT_REQUIRES_NEVER_STARTED_REJECTION")
     # Read the original proof without renewing it or writing a new admission record.
     proof_id = str(row.get("codeSyncProofId") or "")
@@ -5871,6 +5875,8 @@ def preflight_existing_worker_task(root, payload, worker_id):
         raise ValueError("code-sync proof missing; original source cannot be verified")
     verified_durable_execution_mode(root, row)
     report = verified_worker_execution_shell(root, row) if environment_only else verified_formal_job_command(root, row)
+    if completed_verify and report.get("completed") is not True:
+        raise ValueError("FORMAL_JOB_COMPLETION_CHANGED")
     return {"schemaVersion": 1, "targetCommandId": target, "workerId": worker_id,
             "executionStarted": False, "queueChanged": False, "sourceContentVerified": True, "proofRenewed": False, "report": report}
 
@@ -6564,6 +6570,13 @@ def staged_job_preflight_capable(root):
     except (OSError, TypeError):
         return False
 
+def project_managed_validation_capable(root):
+    try:
+        with open(cluster_scheduler_path(root), "r", encoding="utf-8") as stream:
+            return formal_job_path_capable(root) and "PROJECT_MANAGED_VALIDATION_PROTOCOL = 1" in stream.read(8192)
+    except (OSError, TypeError):
+        return False
+
 def api_capabilities(root, token_required=False, mode="hub_control"):
     if mode == "worker_telemetry":
         return {
@@ -6591,6 +6604,8 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
                 "taskShellEnvironment": 1 if task_shell_environment_capable(root) else 0,
                 "stagedJobPreflight": 1 if staged_job_preflight_capable(root) else 0,
                 "originalSourceHashDiagnostic": 1,
+                "projectManagedValidation": 1 if project_managed_validation_capable(root) else 0,
+                "completedOutputPreflight": 1 if project_managed_validation_capable(root) else 0,
                 "durablePlanQueue": True,
                 "codeSyncProof": True,
                 "idleGpuAdmission": True,
@@ -6652,6 +6667,8 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
             "taskShellEnvironment": 1 if task_shell_environment_capable(root) else 0,
             "stagedJobPreflight": 1 if staged_job_preflight_capable(root) else 0,
             "originalSourceHashDiagnostic": 1,
+            "projectManagedValidation": 1 if project_managed_validation_capable(root) else 0,
+            "completedOutputPreflight": 1 if project_managed_validation_capable(root) else 0,
             "traces": True,
             "liveOutput": True,
             "diagnostics": True,
@@ -11765,7 +11782,8 @@ def plan_validation_with_current_outputs(root, structural):
         output_dir = str(job.get("output_dir") or "").strip()
         output_path = plan_preflight_project_path(root, output_dir)
         info = has_existing_artifacts(output_path)
-        if info["exists"]:
+        result_exists = bool(job.get("result_csv")) and os.path.isfile(plan_preflight_project_path(root, job["result_csv"]))
+        if info["exists"] or result_exists:
             existing.append({"index": job["index"], "case": job.get("case"), "seed": job.get("seed"),
                              "output_dir": output_dir, "markers": info["markers"], "totalFiles": info["totalFiles"]})
     validation.update({"existing": existing, "existingCount": len(existing), "structuralValidationReused": True})

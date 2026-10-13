@@ -1484,7 +1484,7 @@ export function renderPanelHtml(): string {
       <div class="section-head">
           <div class="section-title">
             <h2>运行进度</h2>
-            <div class="section-desc">每个 Plan 一张概览卡；详情按需展开，已完成的 Plan 可手动折叠</div>
+            <div class="section-desc">每个 Plan 一张概览卡；详情按需展开，已完成的 Plan 可手动折叠。结构、同步与 Worker 状态分别核实；项目科研校验未自动执行。</div>
           </div>
           <div class="section-head-actions">
             <span class="pill" title="按提交顺序排列；手动折叠的 Plan 收进折叠区">按 Plan</span>
@@ -5645,6 +5645,7 @@ export function renderPanelHtml(): string {
         claimSupportedCount: pick(item, ["claimSupportedCount", "claim_supported_count"], pick(claimEvidence, ["supportedCount", "supported_count"], "")),
         claimUnsupportedCount: pick(item, ["claimUnsupportedCount", "claim_unsupported_count"], pick(claimEvidence, ["unsupportedCount", "unsupported_count"], "")),
         claimNeedsExperimentCount: pick(item, ["claimNeedsExperimentCount", "claim_needs_experiment_count"], pick(claimEvidence, ["needsExperimentCount", "needs_experiment_count"], "")),
+        unverifiedResults: compactRowsForSignature(item.unverifiedResults, 30, ["experiment_id", "experimentId", "suite", "method", "dataset", "split", "seed", "metric", "value", "status"]),
         results: compactRowsForSignature(item.results, 40, ["experiment_id", "experimentId", "suite", "method", "dataset", "split", "seed", "metric", "value", "status"]),
         leaderboard: compactRowsForSignature(item.leaderboard, 40, ["method", "dataset", "metric", "mean", "std", "rank", "status"]),
         pairedComparisons: compactRowsForSignature(item.pairedComparisons || item.paired_comparisons, 20, ["baseline", "candidate", "metric", "pValue", "p_value", "effect", "status"]),
@@ -15699,7 +15700,11 @@ export function renderPanelHtml(): string {
     function renderResultSummary(state) {
       const summary = state.resultsSummary || {};
       renderPptPlotConfig(state);
-      setHtmlIfChanged("resultSummary", renderWorkerResultAggregateWarning(summary) + renderResultEvidenceWorkbench(state, summary));
+      const unverified = Array.isArray(summary.unverifiedResults) ? summary.unverifiedResults : [];
+      const historyPreview = unverified.length ? '<details class="muted"><summary>历史指标归属待核实 · ' + unverified.length + ' 条预览</summary><p>仅显示历史指标，不作为当前 job 完成证明。</p><table><tbody>' + unverified.map(function(row) {
+        return '<tr><td>' + escapeHtml(String(row.experimentId || '历史记录')) + '</td><td>' + escapeHtml(JSON.stringify(row.dimensions || {})) + '</td><td>' + escapeHtml(JSON.stringify(row.metrics || {})) + '</td></tr>';
+      }).join('') + '</tbody></table></details>' : '';
+      setHtmlIfChanged("resultSummary", renderWorkerResultAggregateWarning(summary) + historyPreview + renderResultEvidenceWorkbench(state, summary));
     }
 
     function renderWorkerResultAggregateWarning(summary) {

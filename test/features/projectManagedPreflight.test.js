@@ -21,3 +21,15 @@ test('actual collection keeps custom metrics without implicitly evaluating scien
   assert.equal(proc.status, 0, proc.stderr || proc.stdout);
   assert.equal(JSON.parse(proc.stdout).scientificCalls, 0);
 });
+
+test('completed-output verification uses the actual writer hashes and rejects changed metrics without a launch', () => {
+  const proc = spawnSync('python', ['-B', '-X', 'utf8', path.join(__dirname, 'formalJobPreflightProgress.fixture.py'), 'api-completed'], {
+    cwd: path.resolve(__dirname, '../..'), encoding: 'utf8', timeout: 10000, windowsHide: true,
+  });
+  assert.equal(proc.status, 0, proc.stderr || proc.stdout);
+  const result = JSON.parse(proc.stdout);
+  assert.equal(result.receipt.report.completed, true);
+  assert.equal(result.receipt.changedResultRejected, true);
+  assert.equal(result.executionStarted, false);
+  assert.deepEqual(result.callbacks, []);
+});

@@ -39,14 +39,19 @@ test('arbitrary recorded CLI commands cannot bypass formal PLAN admission in a r
     name: 'fixture', command: ['must-never-start'] }), /FORMAL_PLAN_REQUIRED/);
 });
 
-test('formal output review never offers the legacy new-attempt or overwrite rerun choices', async () => {
+test('formal output review delegates to exact replacement and never opens an unsafe legacy overwrite dialog', async () => {
   const source = fs.readFileSync(path.join(__dirname, '../../dist/extension/legacy.js'), 'utf8');
   const start = source.indexOf('    async confirmPlanExistingOutputsFromValidation(');
-  const end = source.indexOf('    async confirmPlanRunSubmission(', start);
+  const end = source.indexOf('    async confirmDeclaredPlanOutputs(', start);
   const owner = Function('vscode', 'return {'+source.slice(start,end)+'}')({window:{showWarningMessage(){throw Error('legacy dialog opened');}}});
-  await assert.rejects(owner.confirmPlanExistingOutputsFromValidation({}, {}, {result_path_policy:'declared', existing:[{output_dir:'work_dirs/formal/case/seed42'}]}), /FORMAL_JOB_CONFLICT.*[\s\S]*work_dirs\/formal\/case\/seed42/);
-  await assert.rejects(owner.confirmPlanExistingOutputsFromValidation({}, {overwrite:true}, {result_path_policy:'declared', existing:[]}), /FORMAL_JOB_CONFLICT/);
+  let previews = 0;
+  owner.confirmDeclaredPlanOutputs = async (_, body, validation) => { previews++; body.overwrite = false; assert.equal(validation.result_path_policy, 'declared'); };
+  await owner.confirmPlanExistingOutputsFromValidation({}, {}, {result_path_policy:'declared', existing:[{output_dir:'work_dirs/formal/case/seed42'}]});
+  const body = { overwrite: true };
+  await owner.confirmPlanExistingOutputsFromValidation({}, body, {result_path_policy:'declared', existing:[]});
+  assert.equal(body.overwrite, false);
   await owner.confirmPlanExistingOutputsFromValidation({}, {}, {result_path_policy:'declared', existing:[]});
+  assert.equal(previews, 3);
 });
 
 test('formal three-seed queue persists stable paths, requires new Worker protocol and rejects duplicate writers', () => {

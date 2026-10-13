@@ -47,6 +47,7 @@ FORMAL_JOB_IDENTITY_ENV_PROTOCOL = 1
 EXECUTION_SHELL_PREFLIGHT_PROTOCOL = 1
 TASK_SHELL_ENVIRONMENT_PROTOCOL = 1
 FORMAL_JOB_PREFLIGHT_STAGES_PROTOCOL = 1
+PROJECT_MANAGED_VALIDATION_PROTOCOL = 1
 
 TAIL_BYTES = 16 * 1024
 WORKER_AVAILABILITY_REFRESH_TIMEOUT_SECONDS = 5.0
@@ -657,7 +658,8 @@ def detect_existing_outputs(jobs: list[Job]) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     for job in jobs:
         info = has_existing_artifacts(job.output_dir)
-        if info["exists"]:
+        result_exists = Path(job.result_csv).is_file()
+        if info["exists"] or result_exists:
             out.append({"index": job.index, "case": job.case, "seed": job.seed, "output_dir": job.output_dir, "markers": info["markers"], "totalFiles": info["totalFiles"]})
     return out
 
@@ -1155,6 +1157,8 @@ def build_jobs(plan: dict[str, Any], default_result_csv_dir: str = "experiments/
     sweep_dir_tpl = str(naming.get("sweep_dir") or "work_dirs/multirun/{suite}")
     job_name_tpl = str(naming.get("job_name") or "{index}_{case}_seed{seed}")
     plan_paper = plan.get("paper") if isinstance(plan.get("paper"), dict) else {}
+    metadata_file = Path.cwd() / "experiments/simple_project.yaml"
+    metadata = load_yaml_file(metadata_file) if metadata_file.is_file() else {}
 
     def load_config_cached(path: str) -> dict[str, Any]:
         if not str(path or "").strip():
@@ -1225,8 +1229,6 @@ def build_jobs(plan: dict[str, Any], default_result_csv_dir: str = "experiments/
             runner_expected_results = list(runner_result_alias_values.values())
             result_csv_tpl = direct_result_field(case_item, case_paper, plan_paper, plan) or (case_expected_results + plan_expected_results + runner_expected_results + [f"{normalize_default_result_csv_dir(default_result_csv_dir)}/{suite}.csv"])[0]
             result_csv = render_template(result_csv_tpl, values)
-            metadata_file = Path.cwd() / "experiments/simple_project.yaml"
-            metadata = load_yaml_file(metadata_file) if metadata_file.is_file() else {}
             values["result_path_policy"] = str(case_item.get("result_path_policy") or local_runner.get("result_path_policy")
                                                or plan.get("result_path_policy") or metadata.get("resultPathPolicy") or "declared")
             values["declared_result_csv"] = result_csv
@@ -2398,7 +2400,7 @@ def run_job(job: Job, args: argparse.Namespace) -> None:
     if not raw:
         identity["globalJobId"] = str(identity.get("workflowId", "")) + ":" + str(job.index)
     if getattr(args, "overwrite", False) or getattr(args, "overwrite_existing", False):
-        raise ValueError("FORMAL_JOB_CONFLICT: overwrite is retired; explicitly clean or change the declared job")
+        raise ValueError("CONFIRM_REQUIRED: overwrite requires the exact output-replacement preview and two path confirmations")
     try:
         os.environ["SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY"] = json.dumps(identity, ensure_ascii=False)
         with formal_job_writer(job, identity, args.mode) as admission:

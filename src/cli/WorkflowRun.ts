@@ -19,13 +19,16 @@ export async function requestWorkflowRun(root: string, planFile: string, flags: 
     catch { throw envError("CLI project differs from the current VS Code API workspace; open the intended project"); }
   };
   await verify();
-  const params = { planFile, workspace: canonical, debugMode: false }, route = record(await callApi("workflow.plan", params));
+  const params = { planFile, workspace: canonical, debugMode: false };
+  const preview = Boolean(flags.dryRun || flags.check);
+  // workflow.run already invokes the server's workflow.plan, including all normal preflight steps.
+  const route = record(await callApi(preview ? "workflow.plan" : "workflow.run", params));
   const normalize = (v: string) => process.platform === "win32" ? v.replace(/\\/g, "/").toLowerCase() : v;
-  if (route.ok === true && route.ready === true && (typeof route.plan?.planFile !== "string" || normalize(route.plan.planFile) !== normalize(planFile))) throw businessError("Workflow selected a different Plan; no run requested");
-  const base = { planFile, dryRun: flags.dryRun, submitted: false, requested: false, runner: "SimpleExperiment Local API", submitPath: "workflow.run", workflow: route, validation: "live_api", ready: route.ok === true && route.ready === true };
+  if (route.plan?.planFile && normalize(route.plan.planFile) !== normalize(planFile)) throw businessError("Workflow selected a different Plan; no further action requested");
+  assertWorkflowWorkspace(binding, canonical);
+  const base = { planFile, dryRun: flags.dryRun, submitted: false, requested: false, runner: "SimpleExperiment Local API", submitPath: "workflow.run", workflow: route, validation: "live_api", ready: route.ok === true && (preview ? route.ready === true : route.started === true) };
   if (!base.ready) return { code: 3, payload: { ...base, status: "blocked", blocker: route.blocker, nextAction: route.nextAction } };
-  if (flags.dryRun || flags.check) return { code: 0, payload: { ...base, status: "preflight_ready" } };
-  await verify();
-  const result = record(await callApi("workflow.run", params)), requested = result.ok === true && result.started === true && typeof result.operationId === "string" && Boolean(result.operationId);
+  if (preview) return { code: 0, payload: { ...base, status: "preflight_ready" } };
+  const result = route, requested = result.ok === true && result.started === true && typeof result.operationId === "string" && Boolean(result.operationId);
   return { code: requested ? 0 : 3, payload: { ...base, requested, result, operationId: result.operationId, status: result.status || "blocked", confirmation: result.confirmation || "none", nextAction: result.nextAction || "operations.list" } };
 }

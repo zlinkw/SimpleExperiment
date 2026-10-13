@@ -129,8 +129,6 @@ async function callLocalRpc(readDiscovery, method, params) {
         throw new Error("Invalid or mismatched live API capabilities");
     if (!contract.methods.includes(method))
         throw new Error(`Method unavailable in live API: ${method}`);
-    if (["workflow.plan", "workflow.run"].includes(method) && contract.methodOptions?.[method]?.workspaceIdentityRechecked !== true)
-        throw new Error("Workflow workspace identity protocol unavailable; reload the updated VS Code extension before retrying");
     const fresh = validateDiscovery(readDiscovery());
     for (const k of ["baseUrl", "token", "name", "version", "pid", "startedAt"])
         if (fresh[k] !== discovery[k])

@@ -52,8 +52,6 @@ export async function callLocalRpc(readDiscovery: () => Discovery, method: strin
   if (contract.schemaVersion !== 1 || contract.rpc !== "json-rpc-2.0" || !Array.isArray(contract.methods) || !contract.methods.every((m: unknown) => typeof m === "string")
     || discovery.name && contract.name !== discovery.name || discovery.version && contract.version !== discovery.version) throw new Error("Invalid or mismatched live API capabilities");
   if (!contract.methods.includes(method)) throw new Error(`Method unavailable in live API: ${method}`);
-  if (["workflow.plan", "workflow.run"].includes(method) && contract.methodOptions?.[method]?.workspaceIdentityRechecked !== true)
-    throw new Error("Workflow workspace identity protocol unavailable; reload the updated VS Code extension before retrying");
   const fresh = validateDiscovery(readDiscovery());
   for (const k of ["baseUrl", "token", "name", "version", "pid", "startedAt"]) if (fresh[k] !== discovery[k]) throw new Error("Local API discovery changed during preflight; check the current listener");
   const result = await requestLocalJson(fresh, "/api/v1/rpc", body);

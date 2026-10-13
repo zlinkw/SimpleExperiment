@@ -704,7 +704,8 @@ class LocalApiServer {
                 } : {}),
                 ...(Object.keys(this.methods).includes("tasks.preflight") ? {
                     "tasks.preflight": { params: ["workerId", "commandId"], researchFilesReadOnly: true, launchesTraining: false, changesQueue: false,
-                        optionalParams: { environmentOnly: { type: "boolean", default: false, description: "Verify original source SHA256 and the real task shell for a frozen failed job; does not validate data assets, checkpoint or output admission", requiresWorkerEndpoint: "taskShellEnvironment=1" } },
+                        optionalParams: { environmentOnly: { type: "boolean", default: false, description: "Verify original source SHA256 and the real task shell for a frozen failed job; does not validate data assets, checkpoint or output admission", requiresWorkerEndpoint: "taskShellEnvironment=1" },
+                            completedOutputVerify: { type: "boolean", default: false, requiresWorkerEndpoint: "completedOutputPreflight=1", description: "Read-only verification of original completed job identity, source and completed artifact hashes; incompatible with environmentOnly" } },
                         originalSourceContentVerification: true, renewsOriginalProof: false,
                         originalRejectedIdentity: true, inactivitySeconds: 30, progressStream: "stderr", requiresMatchingWorkerAction: "preflight-worker-task" },
                     "tasks.preflight.status": { params: ["workerId", "operationId"], readOnly: true },
@@ -712,7 +713,8 @@ class LocalApiServer {
                 } : {}),
                 ...(Object.keys(this.methods).includes("plans.cleanup.preview") ? {
                     "plans.cleanup.preview": { readOnly: true, zeroWrites: true, modes: ["move", "delete"], default: "move", historicalNodes: true,
-                        optionalJob: { fields: ["workflowId", "index", "commandId"], failedFormalJobOnly: true, excludesPlanAndConfig: true, neverRequeues: true } },
+                        optionalJob: { fields: ["workflowId", "index", "commandId", "purpose"], failedFormalJobOnly: false,
+                            default: "failed_review", replacementPurpose: "replace_outputs", replacementStates: ["failed", "completed"], excludesPlanAndConfig: true, neverRequeues: true } },
                     "plans.cleanup.list": { readOnly: true },
                     "plans.cleanup.status": { readOnly: true, durableOperationId: true },
                     "plans.cleanup.continue": { previewOnly: true, newExactConfirmation: true, deleteConfirmationCount: 2, archivedMetadata: true },

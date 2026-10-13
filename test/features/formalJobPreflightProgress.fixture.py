@@ -238,6 +238,37 @@ if variant == "staged":
     assert queue["jobs"][0]["commandId"] == command["commandId"]
     assert not agent.DISTRIBUTED_GPU_RESERVATIONS, "proven never-started gate kept its own reservation"
     receipt.update(admissionAssetChecks=0, busyPollAssetChecks=0, startupAssetChecks=0, finalAssetChecks=0)
+elif variant == "api-completed":
+    raw = hook.read_bytes()
+    command["codeManifest"] = {"validator.py": {"size": len(raw), "sha256": agent.hashlib.sha256(raw).hexdigest()}}
+    command["codeFingerprint"] = agent.durable_code_manifest_digest(command["codeManifest"])
+    previous_identity = os.environ.get("SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY")
+    os.environ["SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY"] = json.dumps(command)
+    try:
+        with scheduler.formal_job_writer(job, command, "train_test"):
+            scheduler.write_job_config(job)
+            result_file = pathlib.Path(job.result_csv)
+            result_file.parent.mkdir(parents=True)
+            result_file.write_text("metric,value\ncustom,0.7\n", encoding="utf-8")
+    finally:
+        if previous_identity is None: os.environ.pop("SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY", None)
+        else: os.environ["SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY"] = previous_identity
+    row = {**command, "status": "completed", "exitCode": 0}
+    queue["jobs"] = [row]
+    frozen_queue = copy.deepcopy(queue)
+    preserved = {str(path): path.read_bytes() for path in pathlib.Path(job.output_dir).rglob("*") if path.is_file()}
+    payload = {"targetCommandId": row["commandId"], "expectedIdentity": copy.deepcopy(row), "completedOutputVerify": True}
+    receipt = agent.preflight_existing_worker_task(str(root), payload, "worker")
+    assert receipt["report"]["completed"] is True
+    assert queue == frozen_queue
+    assert preserved == {str(path): path.read_bytes() for path in pathlib.Path(job.output_dir).rglob("*") if path.is_file()}
+    result_file.write_text("metric,value\ncustom,0.1\n", encoding="utf-8")
+    try:
+        agent.preflight_existing_worker_task(str(root), payload, "worker")
+        raise AssertionError("modified completed result was adopted")
+    except ValueError as error:
+        assert "COMPLETION_CHANGED" in str(error), error
+    receipt["changedResultRejected"] = True
 elif variant in ("api", "api-environment"):
     # Frozen never-started admission rejection, verified again without queue mutation.
     raw = hook.read_bytes()
@@ -295,7 +326,7 @@ for line in "".join(stderr).splitlines():
 if variant == "api-environment":
     assert sorted(p.name for p in pathlib.Path(job.output_dir).iterdir()) == ["failure.log"]
     assert (pathlib.Path(job.output_dir) / "failure.log").read_bytes() == b"preserve the original failure bytes"
-else:
+elif variant != "api-completed":
     assert not pathlib.Path(job.output_dir).exists(), "preflight created a training directory"
 assert all(proc.poll() is not None for proc in children), "preflight child is still alive"
 assert not entry["processes"], "preflight child remained registered"

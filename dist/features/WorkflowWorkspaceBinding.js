@@ -37,6 +37,7 @@ exports.probeWorkspace = probeWorkspace;
 exports.assertPlanSeedContract = assertPlanSeedContract;
 exports.bindWorkflowWorkspace = bindWorkflowWorkspace;
 exports.assertWorkflowWorkspace = assertWorkflowWorkspace;
+exports.assertWorkflowContext = assertWorkflowContext;
 const fs = __importStar(require("node:fs"));
 const path = __importStar(require("node:path"));
 function absolute(value) {
@@ -65,4 +66,9 @@ function bindWorkflowWorkspace(requested, current, probe = probeWorkspace) {
 function assertWorkflowWorkspace(binding, current, probe = probeWorkspace) {
     if (!same(binding.identity, probe(absolute(current))) || !same(binding.identity, probe(binding.root)))
         throw new Error("workflow 工作区或目录身份已变化，未继续准备或提交。");
+}
+/** Cheap async-boundary guard; the native directory check remains at entry and before writes. */
+function assertWorkflowContext(binding, current, currentGeneration, expectedGeneration) {
+    if (currentGeneration !== expectedGeneration || key(absolute(current)) !== key(binding.root))
+        throw new Error("workflow 工作区已变化，未继续准备或提交。");
 }

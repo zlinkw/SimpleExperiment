@@ -4,7 +4,7 @@ import * as path from "node:path";
 import { atomicWriteText } from "../state/StateStore";
 
 export type CleanupNode = { id: string; kind: "local" | "remote"; root: string; host?: string; port?: number; user?: string; error?: string };
-export type CleanupJobSelection = { workflowId: string; index: number; commandId: string };
+export type CleanupJobSelection = { workflowId: string; index: number; commandId: string; purpose?: "replace_outputs" };
 export type CleanupCandidate = { nodeId: string; relativePath: string; type: "file" | "directory"; category: string;
   owners: string[]; evidence: string[]; protectedReason?: string; dependencies: string[]; expectedSha256?: string;
   expectedOwner?: { workflowId: string; commandId: string; workerId: string; outputDir: string; attempt?: number; case: string; seed: number;
@@ -42,7 +42,7 @@ export type CleanupPorts = {
 };
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 export const cleanupDigest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
-export const cleanupJobKey = (job?: CleanupJobSelection) => cleanupDigest(job ? [job.workflowId, job.index, job.commandId] : null);
+export const cleanupJobKey = (job?: CleanupJobSelection) => cleanupDigest(job ? [job.workflowId, job.index, job.commandId, job.purpose || "failed_review"] : null);
 export function cleanupError(code: string, detail = code): never {
   const error = Object.assign(new Error(detail), { apiCode: code === "CONFIRM_REQUIRED" ? 2001 : 2010, apiData: { code, detail } });
   throw error;
@@ -176,7 +176,7 @@ export class PlanCleanup {
     const notify: CleanupProgressSink = progress => { try { onProgress?.(progress); } catch {} };
     notify({ phase: "discovery", message: "读取 PLAN、历史登记与完成回执…" });
     for (const [token, preview] of this.previews) if (Date.now() > preview.expiresAt) this.previews.delete(token);
-    if (this.previews.size >= 16) this.previews.delete(this.previews.keys().next().value!);
+    if (this.previews.size >= 512) cleanupError("CLEANUP_PREVIEW_CAPACITY_EXCEEDED");
     const action = params.action || "move";
     if (!["move", "delete"].includes(action)) cleanupError("INVALID_ACTION");
     const history = params.continuationOf ? await this.history(params.continuationOf) : [];
@@ -229,6 +229,8 @@ export class PlanCleanup {
       try {
         const backend = await this.ports.sftp("files.cleanup.preview", { node, action, targets: rows.map(row => ({ relativePath: row.relativePath, type: row.type,
           destination: row.destination, expectedSha256: row.expectedSha256, expectedOwner: row.expectedOwner, archiveBatch: row.archiveBatch })) });
+        if (scope.job?.purpose === "replace_outputs" && !(Number(backend.safety?.batchPreviewCapacity) >= 4096))
+          cleanupError("SFTP_BATCH_PREVIEW_UPGRADE_REQUIRED", "需要 SimpleSFTP 0.2.79 的批次预览保留能力");
         rows.forEach((row, index) => {
           const info = backend.targets[index];
           Object.assign(row, { ...info, relativePath: row.relativePath, destination: row.destination,
@@ -392,6 +394,14 @@ export class PlanCleanup {
       operation.state = "blocked"; operation.error = String(error.message || error);
       await this.save(operation); throw Object.assign(error, { apiData: { ...error.apiData, operationId: id, state: operation.state } });
     } finally { this.busy.delete(id); }
+  }
+  /** Batch replacement checks every confirmed operation before its first deletion. */
+  async preflightConfirmed(id: string): Promise<void> {
+    const operation = await this.status(id);
+    if (operation.preview.confirmations !== (operation.preview.action === "delete" ? 2 : 1)) cleanupError("CONFIRM_REQUIRED");
+    if (operation.state === "completed") return;
+    if (operation.continuedBy || operation.restoredBy || this.busy.has(id)) cleanupError("OPERATION_SUPERSEDED");
+    await this.revalidate(operation.preview, operation);
   }
   async cancel(id: string) {
     const operation = await this.status(id); this.cancelled.add(id);

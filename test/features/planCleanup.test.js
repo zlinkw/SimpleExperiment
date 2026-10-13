@@ -58,6 +58,12 @@ test('preview performs no journal writes, no mutation, keeps exact evidence and 
   assert.ok(f.calls.every(row=>['files.cleanup.preview','files.cleanup.inspect'].includes(row.method)));
   p.rows[0].relativePath='foreign.csv';const operation=await f.confirm(p);assert.notEqual(operation.preview.rows[0].relativePath,'foreign.csv');
 });
+test('replacement preview rejects an old backend that omits its batch capacity before either confirmation',async()=>{
+  const f=await fixture(); f.scope.job={workflowId:'run-A',index:0,commandId:'command',purpose:'replace_outputs'};
+  const p=await f.service.preview({planFile:f.scope.planFile,action:'delete',job:f.scope.job});
+  assert.ok(p.blockers.some(row=>row.code==='SFTP_BATCH_PREVIEW_UPGRADE_REQUIRED'));
+  assert.equal(f.mutations,0); assert.ok(p.rows.every(row=>row.disposition!=='delete'));
+});
 test('job review freezes archive layout, orders external CSV before its owner directory, and continuation cannot change job',async()=>{
   const f=await fixture(),job={workflowId:'run',index:1,commandId:'command'};f.scope.job=job;
   f.scope.candidates[0].type='directory';f.scope.candidates[0].relativePath='work_dirs/exact/owner';

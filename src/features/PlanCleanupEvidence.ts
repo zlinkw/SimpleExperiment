@@ -40,7 +40,7 @@ async function literalPlans(root: string): Promise<Array<{ file: string; text: s
 
 /** Read-only joins from registered attempts/sync receipts. Unknown legacy ownership is report-only. */
 export async function collectPlanCleanupEvidence(input: CleanupEvidenceInput): Promise<CleanupScope> {
-  if (input.job && (Object.keys(input.job).sort().join(",") !== "commandId,index,workflowId" || typeof input.job.workflowId !== "string"
+  if (input.job && (Object.keys(input.job).some(key => !["commandId", "index", "workflowId", "purpose"].includes(key)) || typeof input.job.workflowId !== "string"
       || typeof input.job.commandId !== "string" || !Number.isInteger(input.job.index))) cleanupError("INVALID_JOB_SELECTION");
   const file = cleanupRelative(normalized(input.planFile)), projectId = canonicalProjectId(input.root);
   const plans = await literalPlans(input.root);
@@ -72,12 +72,21 @@ export async function collectPlanCleanupEvidence(input: CleanupEvidenceInput): P
   const selected = input.queue.plans.filter(row => (!input.job || row.id === input.job.workflowId)
     && (removed?.runIds.includes(row.id) || stable && row.stablePlanId === stable || [...aliases].some(alias => sameFile(normalized(row.planFile), alias))));
   const selectedJob = input.job && selected[0]?.jobs.find(job => job.index === input.job!.index && job.commandId === input.job!.commandId);
+  const replacement = input.job?.purpose === "replace_outputs";
+  if (input.job?.purpose !== undefined && !replacement) cleanupError("INVALID_JOB_PURPOSE");
+  const sameHistoricalJob = (otherPlan: any, other: any) => replacement && selectedJob
+    && otherPlan.projectId === projectId && (sameFile(normalized(otherPlan.planFile), file) || stable && otherPlan.stablePlanId === stable)
+    && terminal.has(other.status) && !other.reassignmentPending && !other.automaticRetry?.retryAt
+    && other.case === selectedJob.case && other.seed === selectedJob.seed
+    && normalized(other.outputDir) === normalized(selectedJob.outputDir)
+    && normalized(other.collectionResultCsv || "") === normalized(selectedJob.collectionResultCsv || "");
   if (input.job && (!Number.isInteger(input.job.index) || !input.job.workflowId || !input.job.commandId || selected.length !== 1
       || !selectedJob || selected[0].projectId !== projectId || selected[0].resultPathPolicy !== "declared"
       || !selectedJob.collectionResultCsv
-      || selectedJob.globalJobId !== input.job.workflowId + ":" + input.job.index || selectedJob.status !== "failed"
-      || selectedJob.reassignmentPending || selectedJob.unavailable || selectedJob.outputDir.split("/").includes("attempts")))
-    cleanupError("FAILED_JOB_SCOPE_UNVERIFIED", "仅支持当前项目中身份完整、已停止的原正式失败 job；未改变清理范围。");
+      || selectedJob.globalJobId !== input.job.workflowId + ":" + input.job.index
+      || (replacement ? !["failed", "completed"].includes(selectedJob.status) : selectedJob.status !== "failed")
+      || selectedJob.reassignmentPending || selectedJob.unavailable && !replacement || selectedJob.outputDir.split("/").includes("attempts")))
+    cleanupError("FAILED_JOB_SCOPE_UNVERIFIED", "仅支持当前项目中身份完整、已停止的正式 job；未改变清理范围。");
   const selectedJobs = (plan: typeof selected[number]) => input.job ? plan.jobs.filter(job => job === selectedJob) : plan.jobs;
   selected.forEach(row => aliases.add(normalized(row.planFile)));
   const runIds = selected.map(row => row.id), candidates: CleanupCandidate[] = [];
@@ -214,7 +223,7 @@ export async function collectPlanCleanupEvidence(input: CleanupEvidenceInput): P
         const workerIds = [...new Set([attempt.workerId, ...job.fragmentWorkerIds || [], ...job.mirroredWorkerIds || []].filter(Boolean))] as string[];
         workerIds.forEach(id => associations.add(id));
         const output = normalized(attempt.outputDir);
-        const conflicts = input.queue.plans.flatMap(other => other.jobs.filter(row => other.id !== plan.id || row.index !== job.index).flatMap(row => [row, ...(row.history || [])]))
+        const conflicts = input.queue.plans.flatMap(other => other.jobs.filter(row => (other.id !== plan.id || row.index !== job.index) && !sameHistoricalJob(other, row)).flatMap(row => [row, ...(row.history || [])]))
           .filter(other => ancestor(output, normalized(other.outputDir)) || ancestor(normalized(other.outputDir), output));
         const trusted = Boolean(plan.projectId === projectId && plan.id && plan.revision && job.case && Number.isInteger(job.seed)
           && (plan.resultPathPolicy === "declared" ? job.globalJobId === plan.id + ":" + job.index && !output.split("/").includes("attempts") : Number.isInteger(attempt.attempt))
@@ -229,7 +238,7 @@ export async function collectPlanCleanupEvidence(input: CleanupEvidenceInput): P
             workflowId: plan.id, commandId: attempt.commandId!, workerId: attempt.workerId!, outputDir: output,
             ...(plan.resultPathPolicy === "declared" ? { resultPathPolicy: "declared", globalJobId: job.globalJobId, index: job.index,
               planRevision: plan.revision, codeFingerprint: plan.codeFingerprint, collectionResultCsv: job.collectionResultCsv,
-              ...(input.job ? { expectedState: "failed" } : {}) } : { attempt: attempt.attempt }), case: job.case, seed: job.seed };
+              ...(input.job ? { expectedState: selectedJob!.status === "completed" && (selectedJob!.actualExecutionMode || plan.executionMode) === "train" ? "training_completed" : selectedJob!.status } : {}) } : { attempt: attempt.attempt }), case: job.case, seed: job.seed };
         }
         if (input.job && job.collectionResultCsv && !ancestor(output, normalized(job.collectionResultCsv))) {
           add(attempt.workerId!, job.collectionResultCsv, "file", "该 job 声明的独立指标", [...evidence, "精确 collectionResultCsv 声明"], [planKey], reason);
@@ -297,7 +306,7 @@ export async function collectPlanCleanupEvidence(input: CleanupEvidenceInput): P
     const jobNodes = new Set(candidates.map(row => row.nodeId));
     scope.nodes = scope.nodes.filter(node => jobNodes.has(node.id));
     const task = input.snapshots.find(snapshot => snapshot.workerId === selectedJob.workerId)?.tasks?.find(task => task.commandId === selectedJob.commandId);
-    if (!task || !remoteTaskMatchesJob(selected[0], selectedJob, task) || task.status !== "failed" || !(task.finishedAt || task.exitCode !== undefined))
+    if (!task || !remoteTaskMatchesJob(selected[0], selectedJob, task) || task.status !== selectedJob.status || !(task.finishedAt || task.exitCode !== undefined))
       blockers.push({ code: "FAILED_JOB_STOP_UNVERIFIED", nodeId: selectedJob.workerId, detail: input.job!.commandId });
   }
   for (const id of associations) if (!input.nodes.some(node => node.id === id)) {
@@ -354,6 +363,7 @@ export async function collectPlanCleanupEvidence(input: CleanupEvidenceInput): P
     candidate.dependencies.push("其他 PLAN 配置引用 checkpoint/权重/代码备份 " + ref.path);
   if (selectedJob) for (const candidate of candidates) for (const plan of input.queue.plans) for (const other of plan.jobs) {
     if (plan.id === input.job!.workflowId && other.index === input.job!.index) continue;
+    if (sameHistoricalJob(plan, other)) continue;
     const otherCsv = normalized(other.collectionResultCsv || "");
     if (otherCsv && ancestor(candidate.relativePath, otherCsv)) candidate.dependencies.push("其他 job 登记的指标路径：" + plan.id + ":" + other.index);
     for (const key of ["checkpoint_path", "config_path"]) {
@@ -410,7 +420,7 @@ export async function collectPlanCleanupEvidence(input: CleanupEvidenceInput): P
   scope.references = Object.fromEntries([...configRefs].map(([config, owners]) => [config, [...owners]]));
   // Exclude lifecycle markers and wall-clock freshness from the revision, retain every ownership/status field.
   scope.revision = cleanupDigest({ projectId, file, resultDir, planHash: scope.planHash, plans: plans.map(row => [row.file, planSha(row)]).sort(), configHashes: Object.fromEntries(Object.entries(configHashes).sort()),
-    queue: input.queue.plans.map(plan => ({ ...plan, cleanup: undefined, jobs: plan.jobs.map(job => ({ ...job, cleanup: undefined })) })), removedMetadata: removed, deferred: input.queue.deferred,
+    queue: input.queue.plans.map(plan => ({ ...plan, cleanup: undefined, jobs: plan.jobs.map(job => ({ ...job, cleanup: undefined, outputRetiredAt: undefined })) })), removedMetadata: removed, deferred: input.queue.deferred,
     recoveries: input.queue.failedAttemptRecoveries, ledger: input.ledger, nodes: scope.nodes.map(node => ({ ...node, error: undefined })), candidates, notices });
   return scope;
 }

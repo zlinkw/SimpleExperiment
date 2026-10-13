@@ -31,7 +31,7 @@ export function scopeResultSummary(summary: unknown, selectedPlan: unknown): any
     message: "摘要缺少当前 PLAN 的唯一归属；已隐藏混合或匿名产物，请按当前 PLAN 重新汇总。" });
   if (!plan) return empty();
   try {
-    const identity = (r: Row) => alias(r, ["planFile", "plan_file"], "provenance", true);
+    const identity = (r: Row) => alias(r, ["planFile", "plan_file", "plan", "selectedPlanId"], "provenance", true);
     const root = identity(summary); if (root && root !== key(plan)) return empty();
     const rootOwned = root === key(plan), owned = (r: unknown, inherit: boolean): r is Row => {
       if (!object(r)) return false;
@@ -53,6 +53,12 @@ export function scopeResultSummary(summary: unknown, selectedPlan: unknown): any
       || ["claims", "preview", "catalog"].some(k => Array.isArray(summary[name][k]) && !summary[name][k].every((r: unknown) => !object(r) || owned(r, true))))) changed = true;
     if (!changed) return summary;
     const out: Row = { ...empty(), ...arrays };
+    out.unverifiedResults = Array.isArray(summary.results) ? summary.results.filter((r: unknown) => {
+      try { return object(r) && !identity(r); } catch { return false; }
+    }).slice(0, 30).map((r: Row) => ({
+      ownershipState: "unverified", experimentId: r.experimentId || r.runKey || "", dimensions: r.dimensions || {}, metrics: r.metrics || {},
+    })) : [];
+    if (out.unverifiedResults.length) out.message = "部分历史结果归属待核实；保留指标预览，不授权原始文件读取或作为当前作业完成证据。";
     for (const name of ["planRevision", "plan_revision", "generatedAt", "generated_at", "lastParsedAt", "last_parsed_at", "completedRunId"]) if (rootOwned && summary[name] !== undefined) out[name] = summary[name];
     const rows = arrays.results || [...(arrays.finalResults || arrays.final_results || []), ...(arrays.pendingReviewRecords || arrays.pending_review_records || [])];
     out.results = rows; out.resultCount = out.parsedResults = rows.length;

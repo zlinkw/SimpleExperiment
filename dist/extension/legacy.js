@@ -61,6 +61,7 @@ const SimpleSftpProgressWait_1 = require("../core/SimpleSftpProgressWait");
 const SafeRequestRetry_1 = require("../core/SafeRequestRetry");
 const PlanSafeRetry_1 = require("../features/PlanSafeRetry");
 const StaticEntrypointProbe_1 = require("../features/StaticEntrypointProbe");
+const PlanOutputReplacement_1 = require("../features/PlanOutputReplacement");
 const FailedJobRecovery = __importStar(require("../features/FailedJobRecovery"));
 const JobAvailability = __importStar(require("../features/JobAvailability"));
 const CacheCleanupPanel_1 = require("./CacheCleanupPanel");
@@ -2451,19 +2452,28 @@ class RealtimeTunnelPanelProvider {
         return rows;
     }
     async apiPlanValidate(params = {}) {
+        const binding = WorkflowBinding.bindWorkflowWorkspace(params.workspace, workspaceRoot());
+        const bindingGeneration = this.projectContextGeneration;
         await this.ensureRemoteAgentVersionConsistent().catch(() => undefined);
+        WorkflowBinding.assertWorkflowContext(binding, workspaceRoot(), this.projectContextGeneration, bindingGeneration);
         const __root = workspaceRoot() || "";
         await Promise.all([
             this.refreshLocalPlanMetadataForAction(params).catch((error) => {
                 this.localPlanMetadata = { ...this.localPlanMetadata, error: errorMessage(error) };
             }),
         ]);
+        const plan = this.apiResolveSelectedPlan(params);
         if (__root && await fs.stat(path.join(__root, "experiments", "simple_project.yaml")).then((stat) => stat.isFile()).catch(() => false)) {
             // 探查默认指令是否可执行，仅失败时提示（附尾部日志，经脱敏与换行固化）
             try {
                 const rules = await readProjectAdapterRules(__root, "experiments/simple_project.yaml").catch(() => null);
-                const tpl = String(rules?.trainCommandTemplate || DEFAULT_TRAIN_TEMPLATE);
-                const probe = await probeEntrypointTemplate(__root, tpl);
+                const selectedText = plan?.planFile ? await fs.readFile(path.join(__root, plan.planFile), "utf8") : "";
+                const commands = selectedText ? PlanBuilder_1.parsePlanSummary(selectedText) : {};
+                const templates = uniqueStrings([commands.trainCommand, commands.testCommand].filter(Boolean));
+                if (!templates.length)
+                    templates.push(String(rules?.trainCommandTemplate || DEFAULT_TRAIN_TEMPLATE));
+                const probes = await Promise.all(templates.map(template => probeEntrypointTemplate(__root, template)));
+                const probe = probes.find(row => !row.ok) || { ok: true };
                 if (!probe.ok) {
                     const rawTail = String(probe.tail || "").slice(-800);
                     const tail = rawTail.replace(/[\r\n]+/g, " ").replace(/\s+/g, " ").trim().slice(0, 800).replace(/`/g, "'").replace(/\$\{/g, "{");
@@ -2477,7 +2487,6 @@ class RealtimeTunnelPanelProvider {
                     throw e;
             }
         }
-        const plan = this.apiResolveSelectedPlan(params);
         const topology = this.projectTopologyAssessment();
         const missing = ApiWorkflow_1.structuredMissingInventory({
             workspace: workspaceRoot() || "",
@@ -2536,7 +2545,9 @@ class RealtimeTunnelPanelProvider {
                 await this.assertPlanLocalConfigFiles(body);
                 await this.ensureWorkerPoolPlanTarget(body, body.planFile);
                 this.assertPlanSchedulerAgentReady("validatePlan", body);
+                WorkflowBinding.assertWorkflowWorkspace(binding, workspaceRoot());
                 await this.ensureHubCodeReadyForPlanCheck(body);
+                WorkflowBinding.assertWorkflowContext(binding, workspaceRoot(), this.projectContextGeneration, bindingGeneration);
                 const result = await this.runPlanPreflight(body, "API 计划", { recordTiming: (key, ms) => { timing[key] = ms; } });
                 validation = planValidationFromResult(result);
                 if (!validation?.ok)
@@ -2704,7 +2715,8 @@ class RealtimeTunnelPanelProvider {
     async apiWorkflowPlan(params = {}) {
         const binding = WorkflowBinding.bindWorkflowWorkspace(params.workspace, workspaceRoot());
         WorkflowBinding.assertPlanSeedContract(params);
-        const assertCurrent = () => WorkflowBinding.assertWorkflowWorkspace(binding, workspaceRoot());
+        const bindingGeneration = this.projectContextGeneration;
+        const assertCurrent = () => WorkflowBinding.assertWorkflowContext(binding, workspaceRoot(), this.projectContextGeneration, bindingGeneration);
         const root = binding.root;
         if (!root)
             throw new Error("workflow.plan 需要已打开工作区，或传入 workspace 参数。");
@@ -2747,6 +2759,7 @@ class RealtimeTunnelPanelProvider {
                     missing: infrastructureMissing,
                 };
             }
+            WorkflowBinding.assertWorkflowWorkspace(binding, workspaceRoot());
             await this.apiProjectPrepare({ ...params, confirm: true });
             assertCurrent();
         }
@@ -6178,8 +6191,9 @@ class RealtimeTunnelPanelProvider {
     async runActionCommandCore(command, message) {
         const workflowBinding = PLAN_SUBMISSION_COMMANDS.has(command)
             ? WorkflowBinding.bindWorkflowWorkspace(this.actionBody(message).workspace, workspaceRoot()) : undefined;
+        const bindingGeneration = this.projectContextGeneration;
         const assertWorkflowCurrent = () => { if (workflowBinding)
-            WorkflowBinding.assertWorkflowWorkspace(workflowBinding, workspaceRoot()); };
+            WorkflowBinding.assertWorkflowContext(workflowBinding, workspaceRoot(), this.projectContextGeneration, bindingGeneration); };
         if (workflowBinding)
             WorkflowBinding.assertPlanSeedContract(this.actionBody(message));
         const action = actionCommandMap[command];
@@ -6201,6 +6215,7 @@ class RealtimeTunnelPanelProvider {
         }
         this.assertRetryPlanContext(command, message);
         const body = this.actionBody(message);
+        Object.defineProperty(body, "reportPlanStageLocal", { configurable: true, value: (text) => this.reportPlanStage(message, text) });
         assertWorkflowCurrent();
         if (workflowBinding)
             body.workspace = workflowBinding.root;
@@ -6322,7 +6337,7 @@ class RealtimeTunnelPanelProvider {
                 this.assertExecutionAgentProjectsReady(body);
             }
             const retryPlanFile = operationResultPlanFile(body) || plan?.planFile || plan?.file || plan?.planId || "";
-            const restarted = await (0, PlanSafeRetry_1.preparePlanSafeRetry)(this, retryPlanFile, async (detail) => await vscode.window.showWarningMessage("停止当前 Plan 并重新运行？", { modal: true, detail }, "停止并重新运行") === "停止并重新运行", () => new UiCommandCancelled("已取消重新运行，旧运行保持原状态。"), assertWorkflowCurrent);
+            const restarted = await (0, PlanSafeRetry_1.preparePlanSafeRetry)(this, retryPlanFile, async (detail) => await vscode.window.showWarningMessage("停止当前 Plan 并重新运行？", { modal: true, detail }, "停止并重新运行") === "停止并重新运行", () => new UiCommandCancelled("已取消重新运行，旧运行保持原状态。"));
             assertWorkflowCurrent();
             if (restarted) {
                 delete message.deferredPlanId;
@@ -6339,6 +6354,7 @@ class RealtimeTunnelPanelProvider {
             if (command !== "runPlan")
                 await this.confirmPlanRunSubmission(command, plan, false, body);
             assertWorkflowCurrent();
+            WorkflowBinding.assertWorkflowWorkspace(workflowBinding, workspaceRoot());
             const planFileForProvenance = operationResultPlanFile(body) || plan?.planFile || plan?.file || "";
             body.gitProvenance = await this.recordRunGitProvenance(planFileForProvenance, String(body.planRevision || plan?.revision || ""), makeOpId(command));
             assertWorkflowCurrent();
@@ -6377,6 +6393,8 @@ class RealtimeTunnelPanelProvider {
         }
         const danger = command === "deleteArtifacts";
         assertWorkflowCurrent();
+        if (workflowBinding)
+            WorkflowBinding.assertWorkflowWorkspace(workflowBinding, workspaceRoot());
         const noHubResult = await this.postNoHubResultAction(command, action, body, {
             confirm: NO_HUB_RESULT_CONFIRM_COMMANDS.has(command),
             danger,
@@ -6808,6 +6826,7 @@ class RealtimeTunnelPanelProvider {
                 const workers = rows.map((row) => ({ workerId: row.workerId,
                     online: this.lastWorkerProbes[row.workerId]?.status === "ok"
                         && this.lastCodeSyncState.workerVersions?.[row.workerId]?.fingerprint === fingerprint,
+                    declaredJobPaths: this.lastWorkerProbes[row.workerId]?.capabilities?.endpoints?.declaredJobPaths === true,
                     codeFingerprint: this.lastCodeSyncState.workerVersions?.[row.workerId]?.fingerprint,
                     idleGpuIds: (row.availableGpuIds || []).filter((id) => !occupied.has(`${row.workerId}:${id}`)),
                     capacity: Number.isInteger(Number(row.capacityLimit)) ? Number(row.capacityLimit) : undefined }));
@@ -6868,11 +6887,11 @@ class RealtimeTunnelPanelProvider {
         body.distributedSkipJobIndices = undefined;
         body.existingOutputChoice = undefined;
         body.existingOutputCount = existingByIndex.size;
-        if (!existingByIndex.size)
+        if (!existingByIndex.size && validation.result_path_policy !== "declared")
             return;
         await this.confirmPlanExistingOutputsFromValidation(plan, body, { ...validation, existing: [...existingByIndex.values()] }, true);
         if (body.existingOutputChoice === "rerun_missing")
-            body.distributedSkipJobIndices = [...existingByIndex.keys()];
+            body.distributedSkipJobIndices ??= [...existingByIndex.keys()];
         else if (body.existingOutputChoice === "rerun_all")
             body.distributedSkipJobIndices = [];
     }
@@ -6887,13 +6906,7 @@ class RealtimeTunnelPanelProvider {
             throw new Error("当前 Plan 的历史产物清单无效；未提交运行。");
         const existing = validation.existing;
         if (validation.result_path_policy === "declared") {
-            if (body.overwriteExisting === true || body.overwrite === true || body.options?.overwriteExisting === true || body.options?.overwrite === true)
-                throw new Error("FORMAL_JOB_CONFLICT：正式 job 禁止覆盖；请显式清理或修改 case/job 路径。");
-            body.existingOutputChoice = undefined;
-            if (existing.length)
-                throw new Error("FORMAL_JOB_CONFLICT：正式目录已有产物，未提交或覆盖。请审核后独立清理，或显式修改 case/job；测试/续训须声明 checkpoint 来源。\n"
-                    + existing.map(entry => String(entry.output_dir || "身份未核实")).join("\n"));
-            return;
+            return this.confirmDeclaredPlanOutputs(plan, body, validation);
         }
         if (!existing.length) {
             body.existingOutputChoice = undefined;
@@ -6943,6 +6956,95 @@ class RealtimeTunnelPanelProvider {
         body.options = { ...(body.options || {}), overwriteExisting: overwrite, overwrite };
         body.overwriteExisting = overwrite;
         body.overwrite = overwrite;
+    }
+    async confirmDeclaredPlanOutputs(plan, body, validation) {
+        const root = workspaceRoot();
+        if (!root || !Array.isArray(validation.jobs))
+            throw new Error("正式作业声明未核实");
+        const planFile = operationResultPlanFile(body) || plan?.planFile || plan?.file;
+        const binding = WorkflowBinding.bindWorkflowWorkspace(body.workspace, root);
+        const generation = this.projectContextGeneration;
+        const assertCurrent = () => {
+            (0, SafeRequestRetry_1.assertRetryRequestCurrent)();
+            WorkflowBinding.assertWorkflowContext(binding, workspaceRoot(), this.projectContextGeneration, generation);
+            WorkflowBinding.assertWorkflowWorkspace(binding, workspaceRoot());
+        };
+        const queue = await this.loadDistributedQueue(root);
+        const declared = validation.jobs;
+        const indices = new Set(validation.existing.map(row => Number(row.index)));
+        for (const old of queue.plans)
+            if (normalizePlanSelectionKey(old.planFile).toLowerCase() === normalizePlanSelectionKey(planFile).toLowerCase())
+                for (const job of old.jobs)
+                    if (!job.outputRetiredAt && !job.cleanup && ["completed", "failed"].includes(job.status)
+                        && (job.status === "completed" || job.startedAt || Object.keys(job.artifacts || {}).length)) {
+                        const current = declared.find(row => row.case === job.case && Number(row.seed) === job.seed
+                            && row.output_dir === job.outputDir && row.result_csv === job.collectionResultCsv);
+                        if (current)
+                            indices.add(Number(current.index));
+                    }
+        body.overwriteExisting = body.overwrite = false;
+        body.options = { ...(body.options || {}), overwriteExisting: false, overwrite: false };
+        body.existingOutputChoice = undefined;
+        body.existingOutputCount = indices.size;
+        if (!indices.size)
+            return;
+        const affected = declared.filter(row => indices.has(Number(row.index)));
+        const cover = "覆盖并重跑", missing = "仅补跑缺失任务", keep = "保留已有产物，不运行";
+        const choice = await vscode.window.showWarningMessage(`PLAN：${planFile}；${affected.length}/${declared.length} 个 job 有产物登记。覆盖将预览全部精确路径并再次确认两次。`, { modal: true }, cover, ...(affected.length < declared.length ? [missing] : []), keep, "取消");
+        assertCurrent();
+        if (!choice || choice === "取消")
+            throw new UiCommandCancelled("已取消：未删除产物或提交任务。");
+        if (choice === keep) {
+            body.existingOutputChoice = "keep_existing";
+            return;
+        }
+        if (choice === missing) {
+            const verified = [];
+            for (const declaration of affected) {
+                const records = queue.plans.filter(old => old.planFile === planFile && old.revision === body.planRevision
+                    && old.codeFingerprint === this.lastCodeSyncState?.fingerprint).flatMap(old => old.jobs.filter(job => job.status === "completed" && !job.outputRetiredAt && !job.cleanup
+                    && job.case === declaration.case && job.seed === Number(declaration.seed) && job.outputDir === declaration.output_dir
+                    && job.collectionResultCsv === declaration.result_csv));
+                let accepted = false;
+                for (const job of records) {
+                    try {
+                        const diagnostic = await this.apiTaskPreflight({ workerId: job.workerId, commandId: job.commandId, completedOutputVerify: true }, "start", new AbortController().signal);
+                        const result = await this.waitForOperationTerminalResult("preflight-worker-task", diagnostic, "核实已有完成产物", 45_000, job.workerId);
+                        const report = result?.payload?.report || result?.report;
+                        if (report?.report?.completed === true || report?.completed === true) {
+                            accepted = true;
+                            break;
+                        }
+                    }
+                    catch (error) {
+                        if (isUiCommandRemotePending(error))
+                            throw error;
+                    }
+                }
+                if (!accepted)
+                    throw new Error("FORMAL_JOB_CONFLICT：产物未被核实为当前声明的完整完成结果，请选择覆盖或取消：" + declaration.output_dir);
+                verified.push(Number(declaration.index));
+            }
+            assertCurrent();
+            body.distributedSkipJobIndices = verified;
+            body.assignedExperimentIndices = declared.map(row => Number(row.index)).filter(index => !verified.includes(index));
+            body.existingOutputChoice = "rerun_missing";
+            return;
+        }
+        const cleanup = this.planCleanupHost();
+        const stablePlanId = (0, PlanCleanupEvidence_1.cleanupStablePlanId)(await fs.readFile(path.join(root, planFile), "utf8"));
+        const groups = (0, PlanOutputReplacement_1.replacementJobGroups)(queue, planFile, affected, DistributedPlanQueue.canonicalProjectId(root), stablePlanId);
+        body.outputReplacementOperationIds = await (0, PlanOutputReplacement_1.replacePlanOutputs)({ service: cleanup.service, execute: id => cleanup.execute(id), assertCurrent,
+            planRevision: String(body.planRevision), progress: text => body.reportPlanStageLocal?.(text),
+            review: async (detail) => {
+                const document = await vscode.workspace.openTextDocument({ language: "plaintext", content: detail });
+                await vscode.window.showTextDocument(document, { preview: false });
+            },
+            confirm: async (detail, phase) => await vscode.window.showWarningMessage(`第 ${phase} 次确认：永久替换上述精确产物`, { modal: true, detail }, "确认上述精确路径") === "确认上述精确路径",
+        }, planFile, groups);
+        assertCurrent();
+        body.distributedSkipJobIndices = [];
+        body.existingOutputChoice = "rerun_all";
     }
     async confirmPlanRunSubmission(command, plan, debugMode = false, body) {
         const remoteTargets = this.planRunRemoteTargets(body);
@@ -10453,7 +10555,7 @@ class RealtimeTunnelPanelProvider {
             if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot))
                 return;
             if (body.existingOutputChoice === "keep_existing") {
-                this.finishPlanSubmissionProgress(message, "succeeded", "用户选择保留现有完整结果，本次未创建新调度任务。");
+                this.finishPlanSubmissionProgress(message, "succeeded", "用户选择保留已有产物，本次未创建新调度任务。");
                 return;
             }
             this.assertExecutionCondaEnvReady(this.workerActionTargets());
@@ -11155,14 +11257,15 @@ class RealtimeTunnelPanelProvider {
     async enqueueDistributedPlan(body, validated, skipTick = false, supersededDeferredId = "", submissionEpoch = 0, submissionOperationId = "", binding) {
         const workflowBinding = binding || WorkflowBinding.bindWorkflowWorkspace(body.workspace, workspaceRoot());
         WorkflowBinding.assertPlanSeedContract(body);
-        if (body.overwriteExisting === true || body.overwrite === true || body.existingOutputChoice === "rerun_all"
+        if (body.overwriteExisting === true || body.overwrite === true
             || body.options?.overwriteExisting === true || body.options?.overwrite === true)
             throw new Error("FORMAL_JOB_CONFLICT：正式 job 禁止覆盖；请显式清理或修改 case/job 路径。");
         const incompatible = this.workerActionTargets().filter(target => this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.declaredJobPaths !== true
             || this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.formalJobIdentityEnv !== 1
-            || this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.taskShellEnvironment !== 1);
+            || this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.taskShellEnvironment !== 1
+            || this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.projectManagedValidation !== 1);
         if (incompatible.length)
-            throw new Error("WORKER_PROTOCOL_INCOMPATIBLE：请部署支持正式身份与 taskShellEnvironment=1 的匹配 Agent/Scheduler：" + incompatible.map(target => target.id).join("、"));
+            throw new Error("WORKER_PROTOCOL_INCOMPATIBLE：请部署支持正式身份、taskShellEnvironment=1 与 projectManagedValidation=1 的匹配 Agent/Scheduler：" + incompatible.map(target => target.id).join("、"));
         const root = workspaceRoot();
         if (!root)
             throw new Error("没有当前项目目录。");
@@ -11199,8 +11302,10 @@ class RealtimeTunnelPanelProvider {
         const current = await this.loadDistributedQueue(root);
         if (!submissionCurrent())
             return { enqueued: false, cancelled: true };
-        const overwriteExisting = body.existingOutputChoice === "rerun_all" || body.overwriteExisting === true;
-        const skipped = new Set(overwriteExisting || body.existingOutputChoice === undefined ? [] : (Array.isArray(body.distributedSkipJobIndices) ? body.distributedSkipJobIndices.map(Number) : []));
+        // Replacement already finished through the confirmed cleanup service. A new
+        // formal writer must still reject occupied paths; never forward overwrite.
+        const overwriteExisting = false;
+        const skipped = new Set(body.existingOutputChoice !== "rerun_missing" ? [] : (Array.isArray(body.distributedSkipJobIndices) ? body.distributedSkipJobIndices.map(Number) : []));
         const selectedJobs = validation.jobs.filter((job) => !skipped.has(Number(job.index)));
         if (!selectedJobs.length) {
             void vscode.window.showInformationMessage("此 Plan 的任务均已有完成产物，本次选择跳过；未提交新任务。");
@@ -11319,7 +11424,8 @@ class RealtimeTunnelPanelProvider {
             throw new Error("HISTORICAL_ATTEMPT_READ_ONLY：旧队列仅供查看，不会重启既有任务。");
         if (this.lastWorkerProbes?.[workerId]?.capabilities?.endpoints?.declaredJobPaths !== true
             || this.lastWorkerProbes?.[workerId]?.capabilities?.endpoints?.formalJobIdentityEnv !== 1
-            || this.lastWorkerProbes?.[workerId]?.capabilities?.endpoints?.taskShellEnvironment !== 1)
+            || this.lastWorkerProbes?.[workerId]?.capabilities?.endpoints?.taskShellEnvironment !== 1
+            || this.lastWorkerProbes?.[workerId]?.capabilities?.endpoints?.projectManagedValidation !== 1)
             throw new Error(`WORKER_PROTOCOL_INCOMPATIBLE：${workerId} 未声明正式身份与登录 shell 环境协议；请部署匹配的 Scheduler 和 Agent。`);
         const executionMode = PlanExecutionMode.requirePlanExecutionMode(plan.executionMode);
         const target = this.workerActionTargets().find((item) => item.id === workerId);
@@ -13100,6 +13206,7 @@ class RealtimeTunnelPanelProvider {
     }
     async postPlanSchedulerAction(action, body, options = {}) {
         this.assertActionAuthorityCurrent(options);
+        options = { ...options, requiresCapability: [...new Set([...(options.requiresCapability || []), "endpoints.projectManagedValidation"])] };
         const route = this.assertPlanTopologyReady(options.title || action);
         if (action === "validate-plan") {
             const workerId = this.planSchedulerWorkerId(body);
@@ -13141,7 +13248,7 @@ class RealtimeTunnelPanelProvider {
             topologyMode: "worker_pool",
             schedulerOwnerWorkerId: workerId,
             workerSetRevision: manualPlanTarget ? undefined : shardSet?.workerSetRevision,
-            assignedExperimentIndices: manualPlanTarget ? undefined : indices,
+            assignedExperimentIndices: manualPlanTarget ? body.assignedExperimentIndices : indices,
             options: {
                 ...(body.options || {}),
                 workers: [{
@@ -13157,7 +13264,7 @@ class RealtimeTunnelPanelProvider {
                 workerPoolDispatchPolicy: manualPlanTarget ? "manual_plan_target" : "deterministic_shard",
                 workerSetRevision: manualPlanTarget ? undefined : shardSet?.workerSetRevision,
                 workerShardRevision: manualPlanTarget ? undefined : shard?.shardRevision,
-                assignedExperimentIndices: manualPlanTarget ? undefined : indices,
+                assignedExperimentIndices: manualPlanTarget ? body.assignedExperimentIndices : indices,
             },
         };
     }
@@ -13658,6 +13765,9 @@ class RealtimeTunnelPanelProvider {
         }
     }
     async postWorkerTunnelAction(workerId, action, body, options = {}) {
+        if (options.requiresCapability?.includes("endpoints.projectManagedValidation")
+            && !this.lastWorkerProbes?.[workerId]?.capabilities?.endpoints?.projectManagedValidation)
+            throw new Error(`WORKER_PROTOCOL_INCOMPATIBLE: ${workerId}: projectManagedValidation; 请更新匹配的 Agent/Scheduler`);
         this.assertActionAuthorityCurrent(options);
         workerId = this.resolveWorkerEndpointId(workerId) || workerId;
         const command = options.title || action;
@@ -13855,6 +13965,11 @@ class RealtimeTunnelPanelProvider {
         if (params.environmentOnly !== undefined && typeof params.environmentOnly !== "boolean")
             throw new Error("FORMAL_JOB_PREFLIGHT_INVALID_ENVIRONMENT_ONLY");
         const environmentOnly = params.environmentOnly === true;
+        if (params.completedOutputVerify !== undefined && typeof params.completedOutputVerify !== "boolean")
+            throw new Error("FORMAL_JOB_PREFLIGHT_INVALID_COMPLETED_OUTPUT");
+        const completedOutputVerify = params.completedOutputVerify === true;
+        if (completedOutputVerify && (environmentOnly || this.lastWorkerProbes[workerId]?.capabilities?.endpoints?.completedOutputPreflight !== 1))
+            throw new Error(`WORKER_PROTOCOL_INCOMPATIBLE: ${workerId}: completedOutputPreflight`);
         if (environmentOnly && this.lastWorkerProbes[workerId]?.capabilities?.endpoints?.executionShellPreflight !== 1)
             throw new Error(`WORKER_PROTOCOL_INCOMPATIBLE: ${workerId}: executionShellPreflight; 请更新匹配的 Agent/Scheduler`);
         if (environmentOnly && this.lastWorkerProbes[workerId]?.capabilities?.endpoints?.taskShellEnvironment !== 1)
@@ -13863,14 +13978,14 @@ class RealtimeTunnelPanelProvider {
         const row = snapshot.tasks?.find(task => task.commandId === commandId);
         if (!row || row.projectId !== DistributedPlanQueue.canonicalProjectId(root) || row.workerId !== workerId)
             throw new Error("FORMAL_JOB_PREFLIGHT_TARGET_UNAVAILABLE");
-        if (row.status !== "failed" || !environmentOnly && (row.neverStarted !== true || row.neverStartedEvidence !== "formal_preflight_rejected"))
+        if (completedOutputVerify ? row.status !== "completed" : row.status !== "failed" || !environmentOnly && (row.neverStarted !== true || row.neverStartedEvidence !== "formal_preflight_rejected"))
             throw new Error("FORMAL_JOB_PREFLIGHT_REQUIRES_NEVER_STARTED_REJECTION");
         signal.throwIfAborted();
         if (workspaceRoot() !== root || this.client !== client)
             throw new Error("FORMAL_JOB_PREFLIGHT_PROJECT_CHANGED");
         const operationId = makeOpId("formal-preflight");
         return client.postWorkerAction(workerId, "preflight-worker-task", { schemaVersion: 1, opId: operationId,
-            operationId, workerId, targetCommandId: commandId, expectedIdentity: row, environmentOnly }, { signal });
+            operationId, workerId, targetCommandId: commandId, expectedIdentity: row, environmentOnly, completedOutputVerify }, { signal });
     }
     missingWorkerActionCapabilities(workerId, action) {
         workerId = this.resolveWorkerEndpointId(workerId) || workerId;

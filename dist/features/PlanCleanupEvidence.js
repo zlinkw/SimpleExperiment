@@ -76,7 +76,7 @@ async function literalPlans(root) {
 }
 /** Read-only joins from registered attempts/sync receipts. Unknown legacy ownership is report-only. */
 async function collectPlanCleanupEvidence(input) {
-    if (input.job && (Object.keys(input.job).sort().join(",") !== "commandId,index,workflowId" || typeof input.job.workflowId !== "string"
+    if (input.job && (Object.keys(input.job).some(key => !["commandId", "index", "workflowId", "purpose"].includes(key)) || typeof input.job.workflowId !== "string"
         || typeof input.job.commandId !== "string" || !Number.isInteger(input.job.index)))
         (0, PlanCleanup_1.cleanupError)("INVALID_JOB_SELECTION");
     const file = (0, PlanCleanup_1.cleanupRelative)(normalized(input.planFile)), projectId = (0, DistributedPlanQueue_1.canonicalProjectId)(input.root);
@@ -117,12 +117,22 @@ async function collectPlanCleanupEvidence(input) {
     const selected = input.queue.plans.filter(row => (!input.job || row.id === input.job.workflowId)
         && (removed?.runIds.includes(row.id) || stable && row.stablePlanId === stable || [...aliases].some(alias => sameFile(normalized(row.planFile), alias))));
     const selectedJob = input.job && selected[0]?.jobs.find(job => job.index === input.job.index && job.commandId === input.job.commandId);
+    const replacement = input.job?.purpose === "replace_outputs";
+    if (input.job?.purpose !== undefined && !replacement)
+        (0, PlanCleanup_1.cleanupError)("INVALID_JOB_PURPOSE");
+    const sameHistoricalJob = (otherPlan, other) => replacement && selectedJob
+        && otherPlan.projectId === projectId && (sameFile(normalized(otherPlan.planFile), file) || stable && otherPlan.stablePlanId === stable)
+        && terminal.has(other.status) && !other.reassignmentPending && !other.automaticRetry?.retryAt
+        && other.case === selectedJob.case && other.seed === selectedJob.seed
+        && normalized(other.outputDir) === normalized(selectedJob.outputDir)
+        && normalized(other.collectionResultCsv || "") === normalized(selectedJob.collectionResultCsv || "");
     if (input.job && (!Number.isInteger(input.job.index) || !input.job.workflowId || !input.job.commandId || selected.length !== 1
         || !selectedJob || selected[0].projectId !== projectId || selected[0].resultPathPolicy !== "declared"
         || !selectedJob.collectionResultCsv
-        || selectedJob.globalJobId !== input.job.workflowId + ":" + input.job.index || selectedJob.status !== "failed"
-        || selectedJob.reassignmentPending || selectedJob.unavailable || selectedJob.outputDir.split("/").includes("attempts")))
-        (0, PlanCleanup_1.cleanupError)("FAILED_JOB_SCOPE_UNVERIFIED", "仅支持当前项目中身份完整、已停止的原正式失败 job；未改变清理范围。");
+        || selectedJob.globalJobId !== input.job.workflowId + ":" + input.job.index
+        || (replacement ? !["failed", "completed"].includes(selectedJob.status) : selectedJob.status !== "failed")
+        || selectedJob.reassignmentPending || selectedJob.unavailable && !replacement || selectedJob.outputDir.split("/").includes("attempts")))
+        (0, PlanCleanup_1.cleanupError)("FAILED_JOB_SCOPE_UNVERIFIED", "仅支持当前项目中身份完整、已停止的正式 job；未改变清理范围。");
     const selectedJobs = (plan) => input.job ? plan.jobs.filter(job => job === selectedJob) : plan.jobs;
     selected.forEach(row => aliases.add(normalized(row.planFile)));
     const runIds = selected.map(row => row.id), candidates = [];
@@ -314,7 +324,7 @@ async function collectPlanCleanupEvidence(input) {
                 const workerIds = [...new Set([attempt.workerId, ...job.fragmentWorkerIds || [], ...job.mirroredWorkerIds || []].filter(Boolean))];
                 workerIds.forEach(id => associations.add(id));
                 const output = normalized(attempt.outputDir);
-                const conflicts = input.queue.plans.flatMap(other => other.jobs.filter(row => other.id !== plan.id || row.index !== job.index).flatMap(row => [row, ...(row.history || [])]))
+                const conflicts = input.queue.plans.flatMap(other => other.jobs.filter(row => (other.id !== plan.id || row.index !== job.index) && !sameHistoricalJob(other, row)).flatMap(row => [row, ...(row.history || [])]))
                     .filter(other => ancestor(output, normalized(other.outputDir)) || ancestor(normalized(other.outputDir), output));
                 const trusted = Boolean(plan.projectId === projectId && plan.id && plan.revision && job.case && Number.isInteger(job.seed)
                     && (plan.resultPathPolicy === "declared" ? job.globalJobId === plan.id + ":" + job.index && !output.split("/").includes("attempts") : Number.isInteger(attempt.attempt))
@@ -330,7 +340,7 @@ async function collectPlanCleanupEvidence(input) {
                             workflowId: plan.id, commandId: attempt.commandId, workerId: attempt.workerId, outputDir: output,
                             ...(plan.resultPathPolicy === "declared" ? { resultPathPolicy: "declared", globalJobId: job.globalJobId, index: job.index,
                                 planRevision: plan.revision, codeFingerprint: plan.codeFingerprint, collectionResultCsv: job.collectionResultCsv,
-                                ...(input.job ? { expectedState: "failed" } : {}) } : { attempt: attempt.attempt }), case: job.case, seed: job.seed
+                                ...(input.job ? { expectedState: selectedJob.status === "completed" && (selectedJob.actualExecutionMode || plan.executionMode) === "train" ? "training_completed" : selectedJob.status } : {}) } : { attempt: attempt.attempt }), case: job.case, seed: job.seed
                         };
                 }
                 if (input.job && job.collectionResultCsv && !ancestor(output, normalized(job.collectionResultCsv))) {
@@ -412,7 +422,7 @@ async function collectPlanCleanupEvidence(input) {
         const jobNodes = new Set(candidates.map(row => row.nodeId));
         scope.nodes = scope.nodes.filter(node => jobNodes.has(node.id));
         const task = input.snapshots.find(snapshot => snapshot.workerId === selectedJob.workerId)?.tasks?.find(task => task.commandId === selectedJob.commandId);
-        if (!task || !(0, DistributedPlanQueue_1.remoteTaskMatchesJob)(selected[0], selectedJob, task) || task.status !== "failed" || !(task.finishedAt || task.exitCode !== undefined))
+        if (!task || !(0, DistributedPlanQueue_1.remoteTaskMatchesJob)(selected[0], selectedJob, task) || task.status !== selectedJob.status || !(task.finishedAt || task.exitCode !== undefined))
             blockers.push({ code: "FAILED_JOB_STOP_UNVERIFIED", nodeId: selectedJob.workerId, detail: input.job.commandId });
     }
     for (const id of associations)
@@ -496,6 +506,8 @@ async function collectPlanCleanupEvidence(input) {
                 for (const other of plan.jobs) {
                     if (plan.id === input.job.workflowId && other.index === input.job.index)
                         continue;
+                    if (sameHistoricalJob(plan, other))
+                        continue;
                     const otherCsv = normalized(other.collectionResultCsv || "");
                     if (otherCsv && ancestor(candidate.relativePath, otherCsv))
                         candidate.dependencies.push("其他 job 登记的指标路径：" + plan.id + ":" + other.index);
@@ -575,7 +587,7 @@ async function collectPlanCleanupEvidence(input) {
     scope.references = Object.fromEntries([...configRefs].map(([config, owners]) => [config, [...owners]]));
     // Exclude lifecycle markers and wall-clock freshness from the revision, retain every ownership/status field.
     scope.revision = (0, PlanCleanup_1.cleanupDigest)({ projectId, file, resultDir, planHash: scope.planHash, plans: plans.map(row => [row.file, planSha(row)]).sort(), configHashes: Object.fromEntries(Object.entries(configHashes).sort()),
-        queue: input.queue.plans.map(plan => ({ ...plan, cleanup: undefined, jobs: plan.jobs.map(job => ({ ...job, cleanup: undefined })) })), removedMetadata: removed, deferred: input.queue.deferred,
+        queue: input.queue.plans.map(plan => ({ ...plan, cleanup: undefined, jobs: plan.jobs.map(job => ({ ...job, cleanup: undefined, outputRetiredAt: undefined })) })), removedMetadata: removed, deferred: input.queue.deferred,
         recoveries: input.queue.failedAttemptRecoveries, ledger: input.ledger, nodes: scope.nodes.map(node => ({ ...node, error: undefined })), candidates, notices });
     return scope;
 }

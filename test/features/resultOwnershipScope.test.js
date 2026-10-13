@@ -33,3 +33,12 @@ test('revision aliases, cycles, traversal, deep trees and conflicting entries re
   const deep = { planFile: plan }; let nested = deep; for (let i = 0; i < 10; i++) { nested.payload = {}; nested = nested.payload; } bad.push(deep);
   for (const row of bad) assert.equal(scopeResultOperation(row, plan).payloads.length, 0);
 });
+
+test('legacy exact PLAN aliases retain historical metrics while anonymous rows remain preview-only', () => {
+  assert.equal(scopeResultSummary({ plan, results: [{ seed: 42 }] }, plan).results.length, 1);
+  const out = scopeResultSummary({ results: [{ metrics: { custom: 0.8 }, outputDir: 'must-not-authorize' }] }, plan);
+  assert.equal(out.results.length, 0);
+  assert.equal(out.unverifiedResults.length, 1);
+  assert.equal(out.unverifiedResults[0].ownershipState, 'unverified');
+  assert.equal(out.unverifiedResults[0].outputDir, undefined);
+});

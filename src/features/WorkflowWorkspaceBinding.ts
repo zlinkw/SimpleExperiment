@@ -26,3 +26,9 @@ export function bindWorkflowWorkspace(requested: unknown, current: unknown, prob
 export function assertWorkflowWorkspace(binding: WorkflowBinding, current: unknown, probe: Probe = probeWorkspace): void {
   if (!same(binding.identity, probe(absolute(current))) || !same(binding.identity, probe(binding.root))) throw new Error("workflow 工作区或目录身份已变化，未继续准备或提交。");
 }
+
+/** Cheap async-boundary guard; the native directory check remains at entry and before writes. */
+export function assertWorkflowContext(binding: WorkflowBinding, current: unknown, currentGeneration: unknown, expectedGeneration: unknown): void {
+  if (currentGeneration !== expectedGeneration || key(absolute(current)) !== key(binding.root))
+    throw new Error("workflow 工作区已变化，未继续准备或提交。");
+}

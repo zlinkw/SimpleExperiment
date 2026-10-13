@@ -779,8 +779,11 @@ export function enqueuePlan(queue: DistributedQueue, plan: Omit<QueuedPlan, "id"
       throw new Error("FORMAL_JOB_CSV_PATH_REQUIRED");
     if (plan.jobs.some(other => other !== job && (other.outputDir === job.outputDir
         || job.collectionResultCsv && other.collectionResultCsv === job.collectionResultCsv))
-      || queue.plans.some(other => !other.cleanup && other.jobs.some(prior => prior.outputDir === job.outputDir
-        || job.collectionResultCsv && prior.collectionResultCsv === job.collectionResultCsv)))
+      || queue.plans.some(other => !(other.cleanup && ["archived", "deleted"].includes(other.cleanup.state)
+        && other.cleanup.operationId && !other.cleanup.pendingNodes?.length) && other.jobs.some(prior => !(prior.outputRetiredAt
+        && ["completed", "failed", "cancelled"].includes(prior.status) && prior.cleanup && ["archived", "deleted"].includes(prior.cleanup.state)
+        && prior.cleanup.operationId && prior.cleanup.completedTargets?.length && !prior.cleanup.pendingNodes?.length)
+        && (prior.outputDir === job.outputDir || job.collectionResultCsv && prior.collectionResultCsv === job.collectionResultCsv))))
       throw new Error("FORMAL_JOB_CONFLICT: this declared directory is already registered; review existing ownership before resubmitting.");
     return { ...job, resultPathPolicy: "declared" as const, globalJobId: `${id}:${job.index}`, attempt: 0, status: "pending" as const };
   });
@@ -881,10 +884,20 @@ export function allocateAvailable(queue: DistributedQueue, workers: readonly Wor
 
 export function previewAvailable(queue: DistributedQueue, plan: Omit<QueuedPlan, "id" | "enqueuedAt" | "jobs"> & { jobs: Array<Pick<QueuedJob, "index" | "case" | "seed" | "outputDir">> }, workers: readonly WorkerSlots[]) {
   const previewId = "distributed-preview";
-  const candidate = enqueuePlan(queue, plan, previewId);
+  // Capacity preview does not authorize a writer. Retain original terminal rows
+  // in the real queue and surface their conflicts for the explicit output review.
+  const reviewedIndices = new Set<number>();
+  const capacityQueue = { ...queue, plans: queue.plans.map(prior => ({ ...prior, jobs: prior.jobs.filter(job => {
+    const conflicts = plan.jobs.filter(current => current.outputDir === job.outputDir);
+    if (["completed", "failed", "cancelled"].includes(job.status) && conflicts.length) {
+      conflicts.forEach(current => reviewedIndices.add(current.index)); return false;
+    }
+    return true;
+  }) })).filter(prior => prior.jobs.length) };
+  const candidate = enqueuePlan(capacityQueue, plan, previewId);
   const { dispatches } = allocateAvailable(candidate, workers);
   const selected = dispatches.filter((item) => item.planId === previewId);
-  return { totalJobs: plan.jobs.length, dispatchableCount: selected.length,
+  return { totalJobs: plan.jobs.length, outputReviewIndices: [...reviewedIndices], dispatchableCount: selected.length,
     queuedCount: plan.jobs.length - selected.length,
     assignments: selected.map(({ jobIndex, workerId, gpuId }) => ({ jobIndex, workerId, gpuId })) };
 }

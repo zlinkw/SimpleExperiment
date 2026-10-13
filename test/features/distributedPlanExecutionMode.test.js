@@ -10,12 +10,13 @@ const PlanExecutionMode = require('../../dist/features/PlanExecutionMode');
 const PlanBuilder = require('../../dist/features/PlanBuilder');
 const Policy = require('../../dist/features/DistributedSchedulingPolicy');
 const source = fs.readFileSync(require.resolve('../../dist/extension/legacy'), 'utf8');
-const root = 'C:/mode-project';
+const root = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'mode-project-'));
 function method(start, end, scope = {}) {
   const from = source.indexOf(start), to = source.indexOf(end, from);
   assert.ok(from >= 0 && to > from);
   return vm.runInNewContext('({' + source.slice(from, to) + '})', {
     PlanExecutionMode, DistributedPlanQueue: Queue, PlanBuilder_1: PlanBuilder,
+    WorkflowBinding: require('../../dist/features/WorkflowWorkspaceBinding'),
     PlanCleanupEvidence_1: require('../../dist/features/PlanCleanupEvidence'), path,
     fs: { readFile: async () => 'plan_id: stable-mode-plan\n' },
     workspaceRoot: () => root, makeOpId: () => 'distributed-plan-mode',
@@ -28,7 +29,7 @@ function method(start, end, scope = {}) {
 function host(queue = Queue.emptyDistributedQueue()) {
   const owner = { queue, distributedQueueGeneration: 0, context: { globalStorageUri: { fsPath: 'C:/storage' } },
     lastCodeSyncState: { fingerprint: 'code', workerVersions: { worker: { codeSyncProofId: 'proof' } } },
-    lastWorkerProbes: { worker: { capabilities: { endpoints: { declaredJobPaths: true, formalJobIdentityEnv: 1 }, actionEndpoints: { 'register-code-sync-proof': true } } } },
+    lastWorkerProbes: { worker: { capabilities: { endpoints: { declaredJobPaths: true, formalJobIdentityEnv: 1, taskShellEnvironment: 1, projectManagedValidation: 1 }, actionEndpoints: { 'register-code-sync-proof': true } } } },
     workerActionTargets: () => [{ id: 'worker', condaEnv: 'env' }], enabledWorkerConfigs: () => [],
     schedulerSettings: () => ({}), loadDistributedQueue: async () => owner.queue,
     saveDistributedQueue: async (_, value) => { owner.queue = value; }, postState() {},
@@ -41,11 +42,12 @@ for (const mode of ['train', 'test', 'train_test']) test('validated mode survive
   const owner = host();
   const enqueue = method('async enqueueDistributedPlan(', 'detachStaleDistributedTick(');
   await enqueue.enqueueDistributedPlan.call(owner, { planFile: 'experiments/plans/mode.yaml', planRevision: 'rev' },
-    { validation: { execution_mode: mode, jobs: [{ index: 0, case: 'case', seed: 42, output_dir: 'work/job' }] } }, true);
+    { validation: { execution_mode: mode, jobs: [{ index: 0, case: 'case', seed: 42, output_dir: 'work/job', result_csv: 'tmp/result/job.csv' }] } }, true);
   owner.queue = JSON.parse(JSON.stringify(owner.queue));
   let plan = owner.queue.plans[0], job = plan.jobs[0];
   assert.equal(plan.executionMode, mode);
   assert.equal(plan.stablePlanId, 'stable-mode-plan');
+  assert.equal(plan.overwriteExisting, false, 'formal dispatch never forwards a delete/overwrite flag');
   const send = method('async sendDistributedJob(', 'async tickDistributedQueueCore(').sendDistributedJob;
   const request = await send.call(owner, plan, job, 'worker', '0', 'command');
   assert.equal(request.mode, mode); assert.equal(request.executionMode, mode); assert.equal(request.options.mode, mode);
@@ -179,7 +181,7 @@ test('training recovery requires confirmation for the unchanged job and current 
         return scenario === 'cancel' ? undefined : '恢复训练完成';
       } } },
     }).retryDistributedJobFromUi;
-    await assert.rejects(retry.call(owner, { planId: 'run', jobIndex: 0 }),/HISTORICAL_ATTEMPT_READ_ONLY/);
+    await assert.rejects(retry.call(owner, { planId: 'run', jobIndex: 0 }),/HISTORICAL_ATTEMPT_READ_ONLY|commandId 已变化/);
     assert.equal(confirmations,0);
     assert.equal(owner.queue.plans[0].jobs[0].status,'failed');
   }

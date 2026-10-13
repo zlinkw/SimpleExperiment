@@ -44,7 +44,7 @@ async function staticEntrypointProbe(root, template) {
     const command = String(template || "").trim();
     if (!command)
         return { ok: false, error: "指令为空" };
-    const match = command.match(/(?:^|\s)python(?:\d+(?:\.\d+)?)?\s+(?:"([^"]+)"|'([^']+)'|([^\s]+))/);
+    const match = command.match(/(?:^|\s)python(?:\d+(?:\.\d+)?)?\s+(?:(?:-u|-B|-E|-I|-s|-S)\s+)*(?:"([^"]+)"|'([^']+)'|([^\s]+))/);
     const script = match?.[1] || match?.[2] || match?.[3] || "";
     if (!script || script.startsWith("-"))
         return { ok: true };
@@ -67,7 +67,10 @@ async function staticEntrypointProbe(root, template) {
         }
         if (!before.isFile())
             return { ok: false, error: `入口不是文件: ${script}` };
-        const identity = [await fs.realpath(file), before.dev, before.ino, before.size, before.mtimeNs, before.ctimeNs].join(":");
+        const realFile = await fs.realpath(file), realRelative = path.relative(canonical, realFile);
+        if (realRelative === ".." || realRelative.startsWith(".." + path.sep) || path.isAbsolute(realRelative))
+            return { ok: false, error: "入口文件的实际路径不在当前项目内" };
+        const identity = [realFile, before.dev, before.ino, before.size, before.mtimeNs, before.ctimeNs].join(":");
         const saved = cache.get(key);
         if (saved?.identity === identity)
             return { ...saved.report, reused: true };

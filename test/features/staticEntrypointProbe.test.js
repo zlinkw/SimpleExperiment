@@ -19,6 +19,8 @@ test('static entry probe keeps parameter failures, shares requests, and invalida
   assert.equal((await probe(root, command)).reused, false);
   assert.equal((await probe(root, 'python train.py --config {config}')).ok, true);
   assert.equal((await probe(root, 'python missing.py')).ok, false);
+  assert.equal((await probe(root, 'python -u -B missing.py')).ok, false);
+  assert.equal((await probe(root, 'python -u train.py --config {config}')).ok, true);
   assert.equal((await probe(root, 'python ../train.py')).ok, false);
   assert.equal((await probe(root, '')).ok, false);
   // Preserve fixture bytes; no unconfirmed recursive fixture deletion.

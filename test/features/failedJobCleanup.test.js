@@ -92,3 +92,20 @@ test('partial job cleanup blocks requeue; complete manual cleanup keeps its audi
   assert.equal(retried.plans[0].jobs[1].history.at(-1).cleanupOperationId, 'review-operation');
   assert.equal(retried.plans[0].jobs[1].outputDir, plan.jobs[1].outputDir);
 });
+
+test('replacement purpose supports completed jobs and preserves PLAN/config and prior revision evidence', async () => {
+  const { input, plan } = await fixture();
+  input.job = { workflowId: plan.id, index: 0, commandId: 'command0', purpose: 'replace_outputs' };
+  const before = structuredClone(input.queue);
+  const scope = await collectPlanCleanupEvidence(input);
+  assert.deepEqual(scope.blockers, []);
+  assert.deepEqual(scope.candidates.map(row => row.relativePath).sort(), ['tmp/result/job0.csv', 'work_dirs/formal/job0']);
+  assert.ok(scope.candidates.every(row => row.expectedOwner.expectedState === 'completed'));
+  await fs.writeFile(path.join(input.root, input.planFile), 'mode: train_test\n# new revision\n', 'utf8');
+  const revised = await collectPlanCleanupEvidence(input);
+  assert.notEqual(revised.planHash, plan.revision);
+  assert.ok(revised.candidates.every(row => row.expectedOwner.planRevision === plan.revision));
+  assert.deepEqual(input.queue, before);
+  delete input.job.purpose;
+  await assert.rejects(collectPlanCleanupEvidence(input), /身份完整/);
+});
