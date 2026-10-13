@@ -1,6 +1,6 @@
 # 独立 Agent 服务与准备
 
-SimpleExperiment 0.5.297 / SimpleSFTP 0.2.73 使用独立辅助服务协议 1。平台主服务、sshd、容器启动入口和用户训练保持独立；准备不再要求覆盖 Xshell 的自定义登录命令。所有地址、SSH 身份、端口、项目父目录、项目目录、环境和 runtime 根均从当前服务器配置读取。
+SimpleExperiment 0.5.298 / SimpleSFTP 0.2.74 使用独立辅助服务协议 1。平台主服务、sshd、容器启动入口和用户训练保持独立；准备不再要求覆盖 Xshell 的自定义登录命令。所有地址、SSH 身份、端口、项目父目录、项目目录、环境和 runtime 根均从当前服务器配置读取。
 
 ## 入口与状态
 
@@ -32,6 +32,8 @@ SimpleSFTP 0.2.72 的 `migrate` 必须绑定 `inspect` 的 `evidence.migration.d
 API 调用 `agents.lifecycle` 的 `action: migrate` 先不传确认取得完整预览，再传 `confirm:true` 和逐服务器 `migrationDigests`。`project.prepare` 可传本轮 `legacyMigrationDigests`；指纹变化即拒绝。API 和 UI 使用同一受限控制器。多节点失败会留下明确的未处理节点；已经迁移的节点保留 owner，下一次准备重新核验，不重复停止。
 
 0.5.297 / 0.2.73 同时读取真实持久化的 `workers` 字典和 API 历史列表，拒绝字典键与 Worker ID 不一致。标准 `actions/cluster_scheduler/live_output` 目录进行有界递归身份检查，保留全部历史；只读取活动队列的有界 JSON（最多 16 MiB），不读取大型来源缓存内容。GPU 绑定同时核对实际 index 和 UUID。无法证明时回执显示具体阻断码及错误类型；owner/process/lock 文件从状态清理候选中排除。
+
+0.5.298 / 0.2.74 核对旧 Agent 的 `/proc/<pid>/exe` 与所选环境的 `bin/python` 是否为同一设备和 inode。Conda 的 `python` 与 `python3` 为硬链接时，启动名称不同不会误报环境冲突；字节相同但身份不同的解释器仍阻断。真正冲突时 UI/API 提供所选和实际解释器路径、PID，保持只读，不停止进程或自动更改环境。本地回归使用实际独立 HTTP 进程和硬链接解释器，不以 mock 路径字符串代替；NWPU3 的实机判定须新版本重载后再只读核验。
 
 ## 归属保护与边界
 

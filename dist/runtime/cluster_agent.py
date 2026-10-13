@@ -67,9 +67,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.297"
-RUNTIME_VERSION = "0.5.297"
-PLUGIN_VERSION = "0.5.297"
+AGENT_VERSION = "0.5.298"
+RUNTIME_VERSION = "0.5.298"
+PLUGIN_VERSION = "0.5.298"
 """Restricted auxiliary Agent lifecycle protocol. Never signals process groups or tmux."""
 import contextlib
 import hashlib
@@ -268,8 +268,20 @@ def lifecycle_legacy_proof(contract, params):
         tail = process["argv"][3:]
         if len(tail) % 2 or len(tail) != 2 * len(wanted) or dict(zip(tail[::2], tail[1::2])) != wanted:
             raise AgentLifecycleError("AGENT_LEGACY_PROCESS_UNVERIFIED")
-        if process["exe"] != os.path.realpath(lifecycle_python(contract)):
-            raise AgentLifecycleError("AGENT_LEGACY_CONDA_CONFLICT")
+        expected_python = lifecycle_python(contract)
+        process_exe = "/proc/" + str(process["pid"]) + "/exe"
+        # Conda's python/python3 can be hard links. Compare the running kernel
+        # executable's device/inode, not its launch name or matching file bytes.
+        # A replaced/deleted interpreter or a different environment still fails.
+        try:
+            same_python = os.path.samefile(process_exe, expected_python)
+        except OSError:
+            same_python = False
+        if not same_python:
+            error = AgentLifecycleError("AGENT_LEGACY_CONDA_CONFLICT")
+            error.evidence = {"pid": process["pid"], "expectedPython": os.path.realpath(expected_python),
+                              "actualPython": process["exe"], "condaEnv": contract["condaEnv"]}
+            raise error
         with open("/proc/" + str(process["pid"]) + "/environ", "rb") as stream:
             env = dict(part.split(b"=", 1) for part in stream.read(1024 * 1024).split(b"\0") if b"=" in part)
         if env.get(b"SIMPLE_EXPERIMENT_AGENT_INSTALL_DIR", b"").decode() != contract["installDir"] or env.get(b"SIMPLE_EXPERIMENT_CONDA_ENV", b"").decode() != contract["condaEnv"]:
@@ -493,6 +505,8 @@ def lifecycle_inspect(params):
             migration.pop("process")
         except Exception as failure:
             migration = {"blocked": getattr(failure, "code", "AGENT_LEGACY_PROOF_FAILED"), "errorType": type(failure).__name__}
+            if getattr(failure, "code", "") == "AGENT_LEGACY_CONDA_CONFLICT":
+                migration["pythonEvidence"] = failure.evidence
         return {"ok": False, "code": error.code, "error": str(error), "evidence": {
             "stateDir": contract["stateDir"], "metadata": metadata, "requiresExplicitMigration": True,
             "migration": migration,

@@ -21,10 +21,11 @@ function fixture(state='absent', inspection) {
   SshTransportIdentity_1:{...require('../../dist/tunnel/SshTransportIdentity'),inspectOpenSshAlias:async()=>inspection},
   sftpUploadFilesSucceeded:row=>row.ok===true,stringFromRecord:()=>'',errorMessage:e=>e.message,effectiveWorkerCondaEnv:row=>row.condaEnv,
   confirmationRequired:data=>Object.assign(new Error('CONFIRM_REQUIRED'),{apiData:data}),UiCommandCancelled:class extends Error{},
-  vscode:{window:{showWarningMessage:async()=>undefined},extensions:{getExtension:()=>({packageJSON:{version:'0.2.73'}})},commands:{executeCommand:async(name,params)=>{
+  vscode:{window:{showWarningMessage:async()=>undefined},extensions:{getExtension:()=>({packageJSON:{version:'0.2.74'}})},commands:{executeCommand:async(name,params)=>{
    calls.push({name,params});
    if(name==='simpleSftp.uploadFiles')return {ok:true};
    if(params.action==='inspect') {
+     if(currentState==='python-conflict')return {ok:false,code:'AGENT_LEGACY_STATE_UNVERIFIED',evidence:{migration:{blocked:'AGENT_LEGACY_CONDA_CONFLICT',errorType:'AgentLifecycleError',pythonEvidence:{expectedPython:'/srv/env/bin/python',actualPython:'/usr/bin/python3',pid:123}}}};
      if(currentState==='legacy')return {ok:false,code:'AGENT_LEGACY_STATE_UNVERIFIED',evidence:{migration:{digest:'a'.repeat(64),activeTasks:[],contract:{projectDir:'/srv/project',installDir:'/srv/agent',stateDir:'/srv/agent/state/projects/project.id'}}}};
      if(state==='foreign')return {ok:false,code:'AGENT_STATE_OWNER_CONFLICT'};
      const filehashes={};for(const name of ['cluster_agent.py','cluster_scheduler.py'])filehashes[name]=manifest.sha256Text(fs.readFileSync(path.join(__dirname,'../../dist/runtime',name),'utf8'));
@@ -63,6 +64,15 @@ test('healthy preparation reuses service without uploading or restarting; foreig
  assert.deepEqual(healthy.calls.map(c=>c.params.action),['inspect','ensure']);
  const foreign=fixture('foreign');await assert.rejects(()=>foreign.host.deployLatestAgentRuntime(false,true,['container'],true),/AGENT_STATE_OWNER_CONFLICT/);
  assert.equal(foreign.calls.length,1);
+});
+test('a real legacy Python mismatch exposes exact diagnostics and never uploads or signals',async()=>{
+ const {host,calls}=fixture('python-conflict');
+ await assert.rejects(()=>host.deployLatestAgentRuntime(false,true,['container'],true),error=>{
+  assert.match(error.message,/expectedPython=\/srv\/env\/bin\/python; actualPython=\/usr\/bin\/python3; pid=123/);
+  assert.equal(error.apiData.evidence.migration.blocked,'AGENT_LEGACY_CONDA_CONFLICT');
+  return true;
+ });
+ assert.deepEqual(calls.map(c=>c.params.action),['inspect']);
 });
 test('legacy Xshell session names without an OpenSSH HostName mapping preserve the configured direct transport',async()=>{
  const {host}=fixture('absent',{ok:true,alias:'old-session',hostname:'old-session',user:'desktop-user',port:'22'});
