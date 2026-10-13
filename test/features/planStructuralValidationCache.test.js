@@ -66,7 +66,8 @@ test("warm inline response keeps Worker identity guard and cold/legacy asynchron
   const post = agent.slice(agent.indexOf("        def do_POST(self):"));
   const warm = post.indexOf('if action == "validate-plan" and not action_debug_mode(payload):');
   assert.ok(warm > post.indexOf('"local worker scheduler identity mismatch"'));
-  const next = post.indexOf('if action in ("validate-plan", "dry-run-plan", "rebuild-distributed-results")', warm);
+  const next = post.indexOf('if action in ("validate-plan", "dry-run-plan", "preflight-worker-task", "rebuild-distributed-results")', warm);
+  assert.ok(next > warm);
   const block = post.slice(warm, next);
   assert.match(block, /cached_scheduler_validation/);
   assert.match(block, /if validation is not None:[\s\S]*terminal_action/);

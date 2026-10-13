@@ -343,7 +343,11 @@ function commandRunner() {
   const end = legacySource.indexOf("        this.throwIfTerminalActionFailure(command, action, resultStatus(finalResult), finalResult);", start);
   const body = legacySource.slice(start, end).replace(/: any\[\]/g, "").replace(/: any/g, "").replace(/ as any/g, "").replace(/<string\[\]>/g, "");
   return new Function("PLAN_SUBMISSION_COMMANDS", "PLAN_PREFLIGHT_COMMANDS", "PLAN_SCHEDULER_COMMANDS", "LENIENT_RUN", "operationResultPlanFile", "stringField", "stringArrayField", "uniqueStrings", "usableSelectionKey", "resultStatus", "planCheckAccepted", "remoteActionPendingStatus", "stringFromRecord", "isUiCommandRemotePending", "actionCommandMap", "assertSingleProjectWorkspace", "pluginProjectAdapterRules", "workspaceRoot", "directWorkerActionMap", "WORKER_ACTION_CONFIRM_COMMANDS", "NO_HUB_RESULT_CONFIRM_COMMANDS", "TUNNEL_ACTION_CONFIRM_COMMANDS", "IMMEDIATE_RESULT_SUMMARY_REFRESH_COMMANDS", "RESULT_PARSE_COMMANDS", "actionAffectsResultsSummary", "capabilityForUiCommand", `
-    return async function(command, message) { ${body}
+    return async function(command, message) {
+      const generation = this.projectContextGeneration;
+      const workflowBinding = undefined;
+      const assertWorkflowCurrent = () => { if (generation !== this.projectContextGeneration) throw new Error('project switched'); };
+      ${body}
       this.throwIfTerminalActionFailure(command, action, resultStatus(finalResult), finalResult);
     };
   `)(new Set(["runPlan"]), new Set(["validatePlan", "dryRunPlan"]), new Set(["validatePlan", "dryRunPlan", "runPlan"]), false,

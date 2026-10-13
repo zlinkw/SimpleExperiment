@@ -1329,23 +1329,8 @@ def bind_execution_result_paths(job: Job, output_override: str = "") -> Job:
 
 
 def result_path_preflight(root: Path, jobs: list[Job], include_attempt: bool = True, execution_mode: str = "", validate_indices=None) -> dict[str, Any]:
-    """Read-only project hook; no preview namespace or output creation."""
-    metadata_path = root / "experiments/simple_project.yaml"
-    metadata = load_yaml_file(metadata_path) if metadata_path.is_file() else {}
-    hook_path = str((metadata.get("adapter") or {}).get("resultPathValidator") or "")
-    validator = None
-    if hook_path:
-        relative = safe_project_relative_path(root, hook_path, "adapter.resultPathValidator", require_exists=True)
-        filename = root / relative
-        tracked = globals().get("PLAN_VALIDATION_INPUT_FILES")
-        if isinstance(tracked, set):
-            tracked.add(filename.resolve().as_posix())
-        if validate_indices is None or validate_indices:
-            namespace = {"__file__": str(filename), "__name__": "simple_experiment_result_path_validator"}
-            exec(compile(filename.read_text(encoding="utf-8"), str(filename), "exec"), namespace)
-            validator = namespace.get("validate_result_paths")
-            if not callable(validator):
-                raise ValueError("RESULT_PATH_VALIDATOR_INVALID: " + hook_path + " requires validate_result_paths(config, contract)")
+    """Plugin path/message contract only. Project science callbacks are never imported."""
+    hook_path = "plugin.result_path_contract"
     rows, seen, seen_outputs = [], set(), set()
     for job in jobs:
         candidates = [job]
@@ -1391,20 +1376,7 @@ def result_path_preflight(root: Path, jobs: list[Job], include_attempt: bool = T
                          + "; execution=" + candidate.result_csv
                          + "; check runner.result_path_policy / project validate_result_paths")
             rows.append({"index": job.index, "ok": not error, "contract": contract, "error": error, "projectInterface": hook_path,
-                         "assetValidation": "not_selected" if validate_indices is not None and job.index not in validate_indices else "pending"})
-    # Full-PLAN structural rejection comes before expensive project callbacks.
-    if not any(row["error"] for row in rows):
-        for job, row in zip(jobs, rows):
-            if row["assetValidation"] == "not_selected":
-                continue
-            try:
-                if validator and validator(copy.deepcopy(job.config), {**row["contract"], "project_root": str(root)}) is False:
-                    raise ValueError("project validator refused the execution path")
-                row["assetValidation"] = "checked" if validator else "not_configured"
-            except Exception as exc:
-                row.update({"ok": False, "error": "RESULT_PATH_INCOMPATIBLE: " + hook_path + ": " + str(exc)
-                            + "; declared=" + str(row["contract"].get("declared_result_csv")) + "; execution=" + job.result_csv
-                            + "; check runner.result_path_policy / project validate_result_paths"})
+                         "assetValidation": "project_owned", "projectValidationExecuted": False})
     missing = [row["error"] for row in rows if not row["ok"]]
     return {"ok": not missing, "rows": rows, "missing": missing}
 
@@ -2527,8 +2499,8 @@ def formal_job_preflight_mode(args: argparse.Namespace) -> dict[str, Any]:
     admission = formal_job_preflight(job, identity, mode)
     return {**admission, "executionEnvironment": environment, "policy": "declared", "outputDir": job.output_dir, "checkpointSource": job.config.get("runtime", {}).get("checkpoint_source"),
             "preflight": {"onlyIndex": job.index, "structuralJobCount": len(jobs),
-                          "assetValidationIndices": [] if structure_only else [job.index],
-                          "assetValidationDeferred": structure_only, "executionStarted": False},
+                          "assetValidationIndices": [], "projectValidationExecuted": False,
+                          "assetValidationDeferred": False, "executionStarted": False},
             "collectionResultCsv": job.result_csv, "resultPathContract": job.config["runtime"]["result_path_contract"]}
 
 

@@ -45,18 +45,18 @@ test('foreground terminal polling does not add broad tmux reconciliation between
   assert.equal(reconciles, 0);
 });
 
-test('real admission and busy queue defer assets; Worker startup and Scheduler still validate', () => {
+test('real admission, busy queue, Worker and Scheduler retain structural gates without project science', () => {
   const proc = spawnSync(process.platform === 'win32' ? 'python' : 'python3', ['-B', '-X', 'utf8',
     path.join(__dirname, 'formalJobPreflightProgress.fixture.py'), 'staged'], {
     cwd: path.join(__dirname, '../..'), encoding: 'utf8', timeout: 10000, windowsHide: true,
   });
   assert.equal(proc.status, 0, proc.stderr || proc.stdout || String(proc.error));
   const result = JSON.parse(proc.stdout.trim());
-  assert.deepEqual(result.callbacks, [0, 0, 0]);
+    assert.deepEqual(result.callbacks, []);
   assert.equal(result.receipt.admissionAssetChecks, 0);
   assert.equal(result.receipt.busyPollAssetChecks, 0);
-  assert.equal(result.receipt.startupAssetChecks, 1);
-  assert.equal(result.receipt.finalAssetChecks, 1);
+  assert.equal(result.receipt.startupAssetChecks, 0);
+  assert.equal(result.receipt.finalAssetChecks, 0);
   assert.equal(result.executionStarted, false);
 });
 

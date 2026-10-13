@@ -34,9 +34,10 @@ test('diagnostic API runs the real Worker startup gate without changing the reje
   const { receipt, callbacks } = JSON.parse(proc.stdout);
   assert.equal(receipt.executionStarted, false);
   assert.equal(receipt.queueChanged, false);
-  assert.deepEqual(receipt.report.preflight.assetValidationIndices, [0]);
+  assert.deepEqual(receipt.report.preflight.assetValidationIndices, []);
+  assert.equal(receipt.report.preflight.projectValidationExecuted, false);
   assert.equal(receipt.report.preflight.structuralJobCount, 6);
-  assert.deepEqual(callbacks, [0]);
+  assert.deepEqual(callbacks, []);
   assert.ok(receipt.rejections.every(r => /MISMATCH|REQUIRES|size mismatch|hash mismatch/.test(r)), JSON.stringify(receipt));
 });
 test('Host API sends the frozen original identity exclusively to the dedicated no-launch action', async () => {

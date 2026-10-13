@@ -71,6 +71,13 @@ p.add_argument('--plan');p.add_argument('--only-index',type=int);p.add_argument(
 p.add_argument('--plan-revision');p.add_argument('--output-dir-override')
 p.add_argument('--default-result-csv-dir',default='experiments/results')
 args=p.parse_args()
+# Explicit fixture-only CPU progress probe exercises the real inactivity runner.
+# Production result_path_preflight must never import this project callback.
+if not args.formal_job_structure_only and os.environ.get('PROBE_VARIANT') in ('grow','cancel','stall','heartbeat','decreasing','exit','mixed'):
+ source=pathlib.Path('validator.py').read_text(encoding='utf-8').replace('def validate_result_paths(', 'def progress_probe(').replace("'callbackIndex':index", "'probeIndex':index")
+ scope={}
+ exec(compile(source,'fixture-progress-only','exec'),scope)
+ scope['progress_probe']({}, {'index':args.only_index})
 print(json.dumps(scheduler.execution_shell_preflight() if args.check_execution_shell_json else scheduler.formal_job_preflight_report(args),ensure_ascii=False),flush=True)
 ''', encoding="utf-8")
 scheduler = extract_runtime_functions(str(runtime / "cluster_scheduler.py"), ["load_plan", "build_jobs", "formal_source_fingerprint", "run_job_mode"])
@@ -200,7 +207,7 @@ if variant == "staged":
         raise AssertionError("tmux boundary unexpectedly opened")
     except RuntimeError as exc:
         assert "refusing silent bash fallback" in str(exc), exc
-    assert callbacks_so_far() == 1, "actual startup did not verify exactly one selected asset set"
+    assert callbacks_so_far() == 0, "actual startup invoked project science"
     args = SimpleNamespace(debug_mode=False, plan=plan_file, plan_revision=loaded["_revision"],
         mode="train_test", only_index=index, output_dir_override=job.output_dir,
         default_result_csv_dir="experiments/results", worker_id="worker", gpu_ids="", resume=False)
@@ -217,19 +224,20 @@ if variant == "staged":
         os.environ.clear(); os.environ.update(previous)
     stderr.append(capture.getvalue())
     assert reached == [index]
-    assert callbacks_so_far() == 2, "Scheduler writer path lost the fresh asset gate"
-    # A later asset change must fail at the real Worker gate, before tmux creation.
-    (root / "asset.dat").write_bytes(b"changed protected asset")
-    agent._durable_gpu_busy_reason = lambda *args, **kw: ""
-    agent.worker_task_snapshot_document = lambda *args: {}
-    rejected = agent.drain_durable_plan_queue_once(str(root), "worker", gpu_probe=lambda: ([{"id": "0"}], ""),
-        execute=agent._execute_worker_command_unfenced, target_command_id=command["commandId"])
-    assert rejected[0]["status"] == "failed", rejected
-    assert queue["jobs"][0]["neverStarted"] is True
+    assert callbacks_so_far() == 0, "Scheduler writer invoked project science"
+    # A later PLAN change must still fail at the real gate, before tmux creation.
+    # Scientific assets are deliberately not inspected by this plugin gate.
+    (root / plan_file).write_text((root / plan_file).read_text(encoding="utf-8") + "\n# changed declaration\n", encoding="utf-8")
+    frozen_queue = copy.deepcopy(queue)
+    try:
+        agent.verified_formal_job_command(str(root), command)
+        raise AssertionError("changed PLAN entered the launch boundary")
+    except ValueError as error:
+        assert "PLAN_REVISION_CHANGED" in str(error), error
+    assert queue == frozen_queue, "read-only startup probe altered the queue"
     assert queue["jobs"][0]["commandId"] == command["commandId"]
-    assert "SOURCE_HASH_CHANGED" in queue["jobs"][0]["error"]
     assert not agent.DISTRIBUTED_GPU_RESERVATIONS, "proven never-started gate kept its own reservation"
-    receipt.update(admissionAssetChecks=0, busyPollAssetChecks=0, startupAssetChecks=1, finalAssetChecks=1)
+    receipt.update(admissionAssetChecks=0, busyPollAssetChecks=0, startupAssetChecks=0, finalAssetChecks=0)
 elif variant in ("api", "api-environment"):
     # Frozen never-started admission rejection, verified again without queue mutation.
     raw = hook.read_bytes()

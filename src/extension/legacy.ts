@@ -17,6 +17,7 @@ import { closeGpuTmuxSession } from "./GpuTmuxClose";
 import { callSftpWithProgress } from "../core/SimpleSftpProgressWait";
 import { SafeRequestRetry, RequestReplacedError, assertRetryRequestCurrent, retryRequestSignal } from "../core/SafeRequestRetry";
 import { preparePlanSafeRetry } from "../features/PlanSafeRetry";
+import { staticEntrypointProbe } from "../features/StaticEntrypointProbe";
 import * as FailedJobRecovery from "../features/FailedJobRecovery";
 import * as JobAvailability from "../features/JobAvailability";
 import { openCacheCleanupPanel } from "./CacheCleanupPanel";
@@ -2506,7 +2507,7 @@ export class RealtimeTunnelPanelProvider {
         await this.ensureRemoteAgentVersionConsistent().catch(() => undefined);
         const __root = workspaceRoot() || "";
         await Promise.all([
-            this.refreshLocalPlanMetadata({ post: false, force: true }).catch((error) => {
+            this.refreshLocalPlanMetadataForAction(params).catch((error) => {
                 this.localPlanMetadata = { ...this.localPlanMetadata, error: errorMessage(error) };
             }),
         ]);
@@ -2578,12 +2579,32 @@ export class RealtimeTunnelPanelProvider {
         }
         const unique = new Map(missing.map((item) => [`${item.step}:${item.reason}`, item]));
         const rows = [...unique.values()];
+        let validation, timing = {};
+        if (!rows.length && plan) {
+            const body = { ...params, planFile: plan.planFile || plan.file, options: { ...(params.options || {}) } };
+            try {
+                this.stampPlanRevision(body);
+                await this.assertPlanLocalConfigFiles(body);
+                await this.ensureWorkerPoolPlanTarget(body, body.planFile);
+                this.assertPlanSchedulerAgentReady("validatePlan", body);
+                await this.ensureHubCodeReadyForPlanCheck(body);
+                const result = await this.runPlanPreflight(body, "API 计划", { recordTiming: (key, ms) => { timing[key] = ms; } });
+                validation = planValidationFromResult(result);
+                if (!validation?.ok) throw new Error("远端结构校验未返回成功结果");
+            } catch (error) {
+                rows.push({ step: "validate_plan", reason: errorMessage(error), options: ["validatePlan"], requiredConfirm: [] });
+            }
+        }
         return {
             ok: rows.length === 0,
             missing: rows,
             plan: plan ? { planId: plan.planId || plan.planFile || plan.file || "", planFile: plan.planFile || plan.file || "" } : null,
             topology: this.apiPublicTopology(topology),
             flow: this.apiFlowState,
+            validation, timing,
+            checks: { structure: rows.some(row => ["validate_plan", "dry_run"].includes(row.step)) ? "failed" : validation ? "passed" : "not_verified",
+                workers: rows.some(row => row.step === "prepare_agents") ? "not_ready" : "ready",
+                remoteExecution: "not_started", projectScience: "project_owned_not_executed" },
         };
     }
     apiResolveSelectedPlan(params) {
@@ -7899,7 +7920,7 @@ export class RealtimeTunnelPanelProvider {
         if (!expectedRuntimeVersion) {
             fatal.push("本地 runtimeVersion 为空（单源 src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION 缺失），禁止 fallback 硬编码，已阻止校验");
         }
-        await Promise.all(targets.map(async (target) => {
+        for (let offset = 0; offset < targets.length; offset += 4) await Promise.all(targets.slice(offset, offset + 4).map(async (target) => {
             const _runtimeHint = String((target as any).remotePath || "").replace(/\/+$/, "");
             let installDir = "";
             let runtimeDir = "";
@@ -8054,27 +8075,13 @@ export class RealtimeTunnelPanelProvider {
             }
             const result = await this.verifyDeployedAgentRuntime(targets, manifest);
             if (result.fatal.length) {
-                const detail = `远端 Agent 版本不一致（旧版覆盖风险）：${result.fatal.join("；")}，正在自动覆盖安装最新版。`;
+                const detail = `远端 Agent 实际运行版本不一致：${result.fatal.join("；")}。请通过“准备 Agent”更新辅助服务。`;
                 console.warn(`[version-check] ${detail}`);
-                try {
-                    await this.deployLatestAgentRuntime(showUi, true);
-                    const actual = await this.verifyDeployedAgentRuntime(targets, manifest);
-                    result.fatal = actual.fatal;
-                    result.warnings = actual.warnings;
-                    if (!actual.fatal.length && !actual.warnings.length)
-                        await vscode.window.showInformationMessage(`Agent 独立服务实际运行版本已核实：${pluginVersion}（runtime ${runtimeVersion}）。`);
-                    else throw new Error([...actual.fatal, ...actual.warnings].join("；"));
-                    try { (this as any).client?.reconnect?.(); } catch {}
-                } catch (deployError) {
-                    const failDetail = `自动覆盖安装失败：${String(deployError && (deployError as any).message || deployError)}。请手动执行“部署 Agent”。`;
-                    console.warn(`[version-check] ${failDetail}`);
-                    void vscode.window.showWarningMessage(`${detail} ${failDetail}`, "部署 Agent").then((choice) => {
+                if (showUi) {
+                    void vscode.window.showWarningMessage(detail, "部署 Agent").then((choice) => {
                         if (choice === "部署 Agent")
                             void this.deployLatestAgentRuntime(true, false).catch((err) => void vscode.window.showErrorMessage(String(err && (err as any).message || err)));
                     });
-                }
-                if (showUi) {
-                    await vscode.window.showInformationMessage(detail);
                 }
             }
             else if (showUi && result.warnings.length) {
@@ -8097,7 +8104,12 @@ export class RealtimeTunnelPanelProvider {
     }
     async ensureRemoteAgentVersionConsistent() {
         let result: any;
-        try { result = await this.checkRemoteAgentVersionAndNotify(false); } catch (err) { console.warn(`[version-check] ensureRemoteAgentVersionConsistent check failed: ${String((err as any)?.message || err)}`); throw err; }
+        if (!this.remoteVersionCheckPromise) {
+            const work = this.checkRemoteAgentVersionAndNotify(false);
+            this.remoteVersionCheckPromise = work;
+            void work.finally(() => { if (this.remoteVersionCheckPromise === work) this.remoteVersionCheckPromise = undefined; }).catch(() => undefined);
+        }
+        try { result = await this.remoteVersionCheckPromise; } catch (err) { console.warn(`[version-check] ensureRemoteAgentVersionConsistent check failed: ${String((err as any)?.message || err)}`); throw err; }
         if (result && Array.isArray(result.fatal) && result.fatal.length) {
             // 版本差异不能自动清理调度器或 GPU tmux；用户需通过 Agent 准备流程仅重启 Agent 会话。
             try {
@@ -14208,13 +14220,12 @@ export class RealtimeTunnelPanelProvider {
             await this.localPlanMetadataRefreshPromise;
         }
         const key = `${root}::${dir}`;
-        const planFile = usableSelectionKey(String(body?.options?.planFile || body?.selectedPlanId || ""));
+        const planFile = usableSelectionKey(String(body?.planFile || body?.options?.planFile || body?.selectedPlanId || ""));
         const actionRecent = this.localPlanMetadataActionUpdatedAt &&
-            this.localPlanMetadataFullRefresh &&
             this.localPlanMetadataKey === key &&
             !this.localPlanMetadata.error;
         const [plans, selectedPlan, detectedProject] = await Promise.all([
-            options.allPlans || !actionRecent ? readLocalPlans(root, dir).catch(() => this.localPlanMetadata.plans || []) : Promise.resolve(this.localPlanMetadata.plans || []),
+            options.allPlans || !planFile || !actionRecent ? readLocalPlans(root, dir).catch(() => this.localPlanMetadata.plans || []) : Promise.resolve(this.localPlanMetadata.plans || []),
             planFile ? readLocalPlanSummary(root, dir, planFile).catch(() => undefined) : Promise.resolve(undefined),
             detectLocalProjectForActionGate(root, dir, this.localPlanMetadata.detectedProject).catch((error) => ({
                 ...this.localPlanMetadata.detectedProject,
@@ -29226,25 +29237,7 @@ async function ensureSimpleProjectEntrypoints(root: string): Promise<{ ensured: 
 }
 
 async function probeEntrypointTemplate(root: string, template: string): Promise<{ ok: boolean; error?: string; tail?: string }> {
-    const cmd = String(template||"").trim();
-    if (!cmd) return { ok:false, error:"指令为空" };
-    const m = cmd.match(/python\s+([^\s]+)/);
-    const script = m ? m[1] : "";
-    if (script) {
-        const full = path.join(root, script);
-        const exists = await fs.stat(full).then(s=>s.isFile()).catch(()=>false);
-        if (!exists) return { ok:false, error:`入口文件不存在: ${script}`, tail:`${script} not found` };
-        // argparse probe: check --config / --output_dir placeholders use
-        const content = await fs.readFile(full,"utf-8").catch(()=> "");
-        if (content && /argparse/.test(content)) {
-            const expectsConfig = /\-\-config/.test(content);
-            const expectsOutputDir = /output_dir|output-dir/.test(content);
-            if (expectsConfig && !cmd.includes("{config}")) return { ok:false, error:`参数不匹配: ${script} 需要 --config 但模板缺少 {config}`, tail: content.slice(-800) };
-            if (expectsOutputDir && !cmd.includes("{output_dir}")) return { ok:false, error:`参数不匹配: ${script} 需要 --output_dir 但模板缺少 {output_dir}`, tail: content.slice(-800) };
-            // dry try python --help like check via file parse, no execution
-        }
-    }
-    return { ok:true };
+    return staticEntrypointProbe(root, template);
 }
 const localConfigSummaryLimit = 80;
 const guidedPlanConfigPickerSummaryLimit = 24;

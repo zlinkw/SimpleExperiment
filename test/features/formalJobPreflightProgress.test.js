@@ -17,19 +17,19 @@ test('real Worker startup accepts asset progress beyond the previous fixed ten-s
   assert.ok(result.progressCount > 1);
   assert.equal(result.executionStarted, false);
 });
-test('real Worker only-index preflight checks one asset callback but all Plan paths', () => {
+test('real Worker only-index preflight checks all Plan paths without project science', () => {
   for (const variant of ['fast', 'pad']) {
     const result = run(variant);
     assert.equal(result.receipt.durableAccepted, true, JSON.stringify(result));
-    assert.deepEqual(result.callbacks, [variant === 'pad' ? 3 : 0]);
+    assert.deepEqual(result.callbacks, []);
   }
   const shared = run('duplicate');
   assert.equal(shared.receipt.neverStarted, true);
   assert.match(shared.receipt.error || shared.receipt.message, /share one execution CSV/);
 });
-test('real Worker startup verifies project assets and formal ownership without an automatic environment probe', () => {
+test('real Worker startup verifies formal ownership without an automatic environment or science probe', () => {
   const result = run('no-environment');
   assert.equal(result.receipt.durableAccepted, true, JSON.stringify(result));
-  assert.deepEqual(result.callbacks, [0]);
+  assert.deepEqual(result.callbacks, []);
   assert.equal(result.executionStarted, false);
 });

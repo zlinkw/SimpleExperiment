@@ -60,6 +60,7 @@ const GpuTmuxClose_1 = require("./GpuTmuxClose");
 const SimpleSftpProgressWait_1 = require("../core/SimpleSftpProgressWait");
 const SafeRequestRetry_1 = require("../core/SafeRequestRetry");
 const PlanSafeRetry_1 = require("../features/PlanSafeRetry");
+const StaticEntrypointProbe_1 = require("../features/StaticEntrypointProbe");
 const FailedJobRecovery = __importStar(require("../features/FailedJobRecovery"));
 const JobAvailability = __importStar(require("../features/JobAvailability"));
 const CacheCleanupPanel_1 = require("./CacheCleanupPanel");
@@ -2453,7 +2454,7 @@ class RealtimeTunnelPanelProvider {
         await this.ensureRemoteAgentVersionConsistent().catch(() => undefined);
         const __root = workspaceRoot() || "";
         await Promise.all([
-            this.refreshLocalPlanMetadata({ post: false, force: true }).catch((error) => {
+            this.refreshLocalPlanMetadataForAction(params).catch((error) => {
                 this.localPlanMetadata = { ...this.localPlanMetadata, error: errorMessage(error) };
             }),
         ]);
@@ -2527,12 +2528,34 @@ class RealtimeTunnelPanelProvider {
         }
         const unique = new Map(missing.map((item) => [`${item.step}:${item.reason}`, item]));
         const rows = [...unique.values()];
+        let validation, timing = {};
+        if (!rows.length && plan) {
+            const body = { ...params, planFile: plan.planFile || plan.file, options: { ...(params.options || {}) } };
+            try {
+                this.stampPlanRevision(body);
+                await this.assertPlanLocalConfigFiles(body);
+                await this.ensureWorkerPoolPlanTarget(body, body.planFile);
+                this.assertPlanSchedulerAgentReady("validatePlan", body);
+                await this.ensureHubCodeReadyForPlanCheck(body);
+                const result = await this.runPlanPreflight(body, "API 计划", { recordTiming: (key, ms) => { timing[key] = ms; } });
+                validation = planValidationFromResult(result);
+                if (!validation?.ok)
+                    throw new Error("远端结构校验未返回成功结果");
+            }
+            catch (error) {
+                rows.push({ step: "validate_plan", reason: errorMessage(error), options: ["validatePlan"], requiredConfirm: [] });
+            }
+        }
         return {
             ok: rows.length === 0,
             missing: rows,
             plan: plan ? { planId: plan.planId || plan.planFile || plan.file || "", planFile: plan.planFile || plan.file || "" } : null,
             topology: this.apiPublicTopology(topology),
             flow: this.apiFlowState,
+            validation, timing,
+            checks: { structure: rows.some(row => ["validate_plan", "dry_run"].includes(row.step)) ? "failed" : validation ? "passed" : "not_verified",
+                workers: rows.some(row => row.step === "prepare_agents") ? "not_ready" : "ready",
+                remoteExecution: "not_started", projectScience: "project_owned_not_executed" },
         };
     }
     apiResolveSelectedPlan(params) {
@@ -8026,125 +8049,126 @@ class RealtimeTunnelPanelProvider {
         if (!expectedRuntimeVersion) {
             fatal.push("本地 runtimeVersion 为空（单源 src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION 缺失），禁止 fallback 硬编码，已阻止校验");
         }
-        await Promise.all(targets.map(async (target) => {
-            const _runtimeHint = String(target.remotePath || "").replace(/\/+$/, "");
-            let installDir = "";
-            let runtimeDir = "";
-            if (_runtimeHint.endsWith("/simple_cluster/runtime")) {
-                runtimeDir = _runtimeHint;
-                installDir = runtimeDir.replace(/\/simple_cluster\/runtime\/?$/, "");
-            }
-            else {
-                const _workRoot = String(target.projectWorkDir || target.remoteRoot || target.agentProjectDir || target.remotePath || "").trim();
-                const _perTargetAgentInstallDir = String(target.agentInstallDir || "").trim();
-                try {
-                    const _dirs = this.agentRuntimeDirs(_workRoot, _perTargetAgentInstallDir);
-                    installDir = String(_dirs?.installDir || _perTargetAgentInstallDir || "").trim() || (_workRoot ? `${_workRoot.replace(/\/+$/, "")}/simple_agent` : "");
-                    runtimeDir = installDir ? `${installDir.replace(/\/+$/, "")}/simple_cluster/runtime` : "";
-                }
-                catch {
-                    installDir = _perTargetAgentInstallDir || (_workRoot ? `${_workRoot.replace(/\/+$/, "")}/simple_agent` : "");
-                    runtimeDir = installDir ? `${installDir.replace(/\/+$/, "")}/simple_cluster/runtime` : "";
-                }
-                if (!runtimeDir && _runtimeHint)
+        for (let offset = 0; offset < targets.length; offset += 4)
+            await Promise.all(targets.slice(offset, offset + 4).map(async (target) => {
+                const _runtimeHint = String(target.remotePath || "").replace(/\/+$/, "");
+                let installDir = "";
+                let runtimeDir = "";
+                if (_runtimeHint.endsWith("/simple_cluster/runtime")) {
                     runtimeDir = _runtimeHint;
-            }
-            const port = target.localForwardPort;
-            if (!port) {
-                warnings.push(`${target.label}：缺少本地转发端口，跳过部署校验`);
-                return;
-            }
-            const host = String(target.localForwardHost || target.localHost || "127.0.0.1").trim() || "127.0.0.1";
-            const base = tunnelHttpOrigin(host, port);
-            const headers = token ? { "X-Simple-Agent-Token": String(token) } : undefined;
-            const checks = [
-                ["cluster_agent.py", expectedFiles["cluster_agent.py"] || ""],
-                ["cluster_scheduler.py", expectedFiles["cluster_scheduler.py"] || ""],
-            ];
-            const effectiveChecks = checks.filter(([, expected]) => Boolean(expected));
-            await Promise.all(effectiveChecks.map(async ([name, expected]) => {
-                const _effectiveRuntime = (runtimeDir || `${installDir.replace(/\/+$/, "")}/simple_cluster/runtime`).replace(/\/+$/, "");
-                const remoteAbs = `${_effectiveRuntime}/${name}`;
+                    installDir = runtimeDir.replace(/\/simple_cluster\/runtime\/?$/, "");
+                }
+                else {
+                    const _workRoot = String(target.projectWorkDir || target.remoteRoot || target.agentProjectDir || target.remotePath || "").trim();
+                    const _perTargetAgentInstallDir = String(target.agentInstallDir || "").trim();
+                    try {
+                        const _dirs = this.agentRuntimeDirs(_workRoot, _perTargetAgentInstallDir);
+                        installDir = String(_dirs?.installDir || _perTargetAgentInstallDir || "").trim() || (_workRoot ? `${_workRoot.replace(/\/+$/, "")}/simple_agent` : "");
+                        runtimeDir = installDir ? `${installDir.replace(/\/+$/, "")}/simple_cluster/runtime` : "";
+                    }
+                    catch {
+                        installDir = _perTargetAgentInstallDir || (_workRoot ? `${_workRoot.replace(/\/+$/, "")}/simple_agent` : "");
+                        runtimeDir = installDir ? `${installDir.replace(/\/+$/, "")}/simple_cluster/runtime` : "";
+                    }
+                    if (!runtimeDir && _runtimeHint)
+                        runtimeDir = _runtimeHint;
+                }
+                const port = target.localForwardPort;
+                if (!port) {
+                    warnings.push(`${target.label}：缺少本地转发端口，跳过部署校验`);
+                    return;
+                }
+                const host = String(target.localForwardHost || target.localHost || "127.0.0.1").trim() || "127.0.0.1";
+                const base = tunnelHttpOrigin(host, port);
+                const headers = token ? { "X-Simple-Agent-Token": String(token) } : undefined;
+                const checks = [
+                    ["cluster_agent.py", expectedFiles["cluster_agent.py"] || ""],
+                    ["cluster_scheduler.py", expectedFiles["cluster_scheduler.py"] || ""],
+                ];
+                const effectiveChecks = checks.filter(([, expected]) => Boolean(expected));
+                await Promise.all(effectiveChecks.map(async ([name, expected]) => {
+                    const _effectiveRuntime = (runtimeDir || `${installDir.replace(/\/+$/, "")}/simple_cluster/runtime`).replace(/\/+$/, "");
+                    const remoteAbs = `${_effectiveRuntime}/${name}`;
+                    try {
+                        const controller = new AbortController();
+                        const timer = setTimeout(() => controller.abort(), 2500);
+                        timer.unref?.();
+                        const resp = await fetch(`${base}/api/fs/sha256?path=${encodeURIComponent(remoteAbs)}`, { headers, signal: controller.signal });
+                        clearTimeout(timer);
+                        if (!resp.ok) {
+                            warnings.push(`${target.label} 的 ${name}：agent 返回 HTTP ${resp.status}，无法校验`);
+                            return;
+                        }
+                        const data = await resp.json();
+                        if (!data || data.ok !== true) {
+                            warnings.push(`${target.label} 的 ${name}：agent 拒绝校验（${data && data.error ? data.error : "未知"}）`);
+                            return;
+                        }
+                        if (String(data.sha256).toLowerCase() !== String(expected).toLowerCase())
+                            fatal.push(`${target.label} 的 ${name} 部署校验不一致：远端 sha256(${data.sha256}) 与本地(${expected}) 不同，可能部署到错误路径`);
+                    }
+                    catch (error) {
+                        warnings.push(`${target.label} 的 ${name}：agent 不可达，跳过校验（${error instanceof Error ? error.message : String(error)}）`);
+                    }
+                }));
                 try {
+                    // 统一走 /api/health，兼容降级 /health 与 /api/version（worker_telemetry 曾仅暴露 /health）；超时 2500ms（原4000），并行文件校验已提速
                     const controller = new AbortController();
                     const timer = setTimeout(() => controller.abort(), 2500);
                     timer.unref?.();
-                    const resp = await fetch(`${base}/api/fs/sha256?path=${encodeURIComponent(remoteAbs)}`, { headers, signal: controller.signal });
-                    clearTimeout(timer);
+                    let resp = await fetch(`${base}/api/health`, { headers, signal: controller.signal });
                     if (!resp.ok) {
-                        warnings.push(`${target.label} 的 ${name}：agent 返回 HTTP ${resp.status}，无法校验`);
-                        return;
+                        clearTimeout(timer);
+                        // 降级 1: /health
+                        try {
+                            const c1 = new AbortController();
+                            const t1 = setTimeout(() => c1.abort(), 2500);
+                            t1.unref?.();
+                            const r1 = await fetch(`${base}/health`, { headers, signal: c1.signal });
+                            clearTimeout(t1);
+                            if (r1.ok)
+                                resp = r1;
+                            else
+                                throw new Error(String(r1.status));
+                        }
+                        catch {
+                            const c2 = new AbortController();
+                            const t2 = setTimeout(() => c2.abort(), 2500);
+                            t2.unref?.();
+                            resp = await fetch(`${base}/api/version`, { headers, signal: c2.signal });
+                            clearTimeout(t2);
+                            if (!resp.ok) {
+                                warnings.push(`${target.label} 的版本接口返回 HTTP ${resp.status}，无法校验版本（已尝试 /api/health、/health、/api/version）`);
+                                return;
+                            }
+                        }
+                    }
+                    else {
+                        clearTimeout(timer);
                     }
                     const data = await resp.json();
-                    if (!data || data.ok !== true) {
-                        warnings.push(`${target.label} 的 ${name}：agent 拒绝校验（${data && data.error ? data.error : "未知"}）`);
-                        return;
-                    }
-                    if (String(data.sha256).toLowerCase() !== String(expected).toLowerCase())
-                        fatal.push(`${target.label} 的 ${name} 部署校验不一致：远端 sha256(${data.sha256}) 与本地(${expected}) 不同，可能部署到错误路径`);
-                }
-                catch (error) {
-                    warnings.push(`${target.label} 的 ${name}：agent 不可达，跳过校验（${error instanceof Error ? error.message : String(error)}）`);
-                }
-            }));
-            try {
-                // 统一走 /api/health，兼容降级 /health 与 /api/version（worker_telemetry 曾仅暴露 /health）；超时 2500ms（原4000），并行文件校验已提速
-                const controller = new AbortController();
-                const timer = setTimeout(() => controller.abort(), 2500);
-                timer.unref?.();
-                let resp = await fetch(`${base}/api/health`, { headers, signal: controller.signal });
-                if (!resp.ok) {
-                    clearTimeout(timer);
-                    // 降级 1: /health
-                    try {
-                        const c1 = new AbortController();
-                        const t1 = setTimeout(() => c1.abort(), 2500);
-                        t1.unref?.();
-                        const r1 = await fetch(`${base}/health`, { headers, signal: c1.signal });
-                        clearTimeout(t1);
-                        if (r1.ok)
-                            resp = r1;
-                        else
-                            throw new Error(String(r1.status));
-                    }
-                    catch {
-                        const c2 = new AbortController();
-                        const t2 = setTimeout(() => c2.abort(), 2500);
-                        t2.unref?.();
-                        resp = await fetch(`${base}/api/version`, { headers, signal: c2.signal });
-                        clearTimeout(t2);
-                        if (!resp.ok) {
-                            warnings.push(`${target.label} 的版本接口返回 HTTP ${resp.status}，无法校验版本（已尝试 /api/health、/health、/api/version）`);
-                            return;
+                    // 单源统一版本校验：所有远端版本字段必须与本地统一版本一致（以 package.json version为准）
+                    const unifiedExpected = String(manifest.pluginVersion || manifest.runtimeVersion || expectedRuntimeVersion || expectedPluginVersion || RuntimeManifest_1.CURRENT_RUNTIME_VERSION || "").trim();
+                    const remoteAgentVersion = String(data.agentVersion || data.agent_version || "").trim();
+                    const remoteRuntimeVersion = String(data.runtimeVersion || data.runtime_version || data.schedulerVersion || data.scheduler_version || "").trim();
+                    const remotePluginVersion = String(data.pluginVersion || data.plugin_version || "").trim();
+                    const remoteSchedulerVersion = String(data.schedulerVersion || data.scheduler_version || "").trim();
+                    const remotes = [
+                        remoteAgentVersion && ["agentVersion", remoteAgentVersion],
+                        remoteRuntimeVersion && ["runtimeVersion", remoteRuntimeVersion],
+                        remotePluginVersion && ["pluginVersion", remotePluginVersion],
+                        remoteSchedulerVersion && ["schedulerVersion", remoteSchedulerVersion],
+                    ].filter(Boolean);
+                    for (const [key, val] of remotes) {
+                        if (unifiedExpected && val !== unifiedExpected) {
+                            fatal.push(`${target.label} 的 ${key} 不一致：远端 ${val} vs 本地统一版本 ${unifiedExpected}（单源 package.json#version）`);
                         }
                     }
                 }
-                else {
-                    clearTimeout(timer);
+                catch (error) {
+                    warnings.push(`${target.label} 的版本校验不可达，跳过版本比对（${error instanceof Error ? error.message : String(error)}）`);
                 }
-                const data = await resp.json();
-                // 单源统一版本校验：所有远端版本字段必须与本地统一版本一致（以 package.json version为准）
-                const unifiedExpected = String(manifest.pluginVersion || manifest.runtimeVersion || expectedRuntimeVersion || expectedPluginVersion || RuntimeManifest_1.CURRENT_RUNTIME_VERSION || "").trim();
-                const remoteAgentVersion = String(data.agentVersion || data.agent_version || "").trim();
-                const remoteRuntimeVersion = String(data.runtimeVersion || data.runtime_version || data.schedulerVersion || data.scheduler_version || "").trim();
-                const remotePluginVersion = String(data.pluginVersion || data.plugin_version || "").trim();
-                const remoteSchedulerVersion = String(data.schedulerVersion || data.scheduler_version || "").trim();
-                const remotes = [
-                    remoteAgentVersion && ["agentVersion", remoteAgentVersion],
-                    remoteRuntimeVersion && ["runtimeVersion", remoteRuntimeVersion],
-                    remotePluginVersion && ["pluginVersion", remotePluginVersion],
-                    remoteSchedulerVersion && ["schedulerVersion", remoteSchedulerVersion],
-                ].filter(Boolean);
-                for (const [key, val] of remotes) {
-                    if (unifiedExpected && val !== unifiedExpected) {
-                        fatal.push(`${target.label} 的 ${key} 不一致：远端 ${val} vs 本地统一版本 ${unifiedExpected}（单源 package.json#version）`);
-                    }
-                }
-            }
-            catch (error) {
-                warnings.push(`${target.label} 的版本校验不可达，跳过版本比对（${error instanceof Error ? error.message : String(error)}）`);
-            }
-        }));
+            }));
         return { fatal, warnings };
     }
     async checkRemoteAgentVersionAndNotify(showUi = false) {
@@ -8194,32 +8218,13 @@ class RealtimeTunnelPanelProvider {
             }
             const result = await this.verifyDeployedAgentRuntime(targets, manifest);
             if (result.fatal.length) {
-                const detail = `远端 Agent 版本不一致（旧版覆盖风险）：${result.fatal.join("；")}，正在自动覆盖安装最新版。`;
+                const detail = `远端 Agent 实际运行版本不一致：${result.fatal.join("；")}。请通过“准备 Agent”更新辅助服务。`;
                 console.warn(`[version-check] ${detail}`);
-                try {
-                    await this.deployLatestAgentRuntime(showUi, true);
-                    const actual = await this.verifyDeployedAgentRuntime(targets, manifest);
-                    result.fatal = actual.fatal;
-                    result.warnings = actual.warnings;
-                    if (!actual.fatal.length && !actual.warnings.length)
-                        await vscode.window.showInformationMessage(`Agent 独立服务实际运行版本已核实：${pluginVersion}（runtime ${runtimeVersion}）。`);
-                    else
-                        throw new Error([...actual.fatal, ...actual.warnings].join("；"));
-                    try {
-                        this.client?.reconnect?.();
-                    }
-                    catch { }
-                }
-                catch (deployError) {
-                    const failDetail = `自动覆盖安装失败：${String(deployError && deployError.message || deployError)}。请手动执行“部署 Agent”。`;
-                    console.warn(`[version-check] ${failDetail}`);
-                    void vscode.window.showWarningMessage(`${detail} ${failDetail}`, "部署 Agent").then((choice) => {
+                if (showUi) {
+                    void vscode.window.showWarningMessage(detail, "部署 Agent").then((choice) => {
                         if (choice === "部署 Agent")
                             void this.deployLatestAgentRuntime(true, false).catch((err) => void vscode.window.showErrorMessage(String(err && err.message || err)));
                     });
-                }
-                if (showUi) {
-                    await vscode.window.showInformationMessage(detail);
                 }
             }
             else if (showUi && result.warnings.length) {
@@ -8243,8 +8248,14 @@ class RealtimeTunnelPanelProvider {
     }
     async ensureRemoteAgentVersionConsistent() {
         let result;
+        if (!this.remoteVersionCheckPromise) {
+            const work = this.checkRemoteAgentVersionAndNotify(false);
+            this.remoteVersionCheckPromise = work;
+            void work.finally(() => { if (this.remoteVersionCheckPromise === work)
+                this.remoteVersionCheckPromise = undefined; }).catch(() => undefined);
+        }
         try {
-            result = await this.checkRemoteAgentVersionAndNotify(false);
+            result = await this.remoteVersionCheckPromise;
         }
         catch (err) {
             console.warn(`[version-check] ensureRemoteAgentVersionConsistent check failed: ${String(err?.message || err)}`);
@@ -14989,13 +15000,12 @@ class RealtimeTunnelPanelProvider {
             await this.localPlanMetadataRefreshPromise;
         }
         const key = `${root}::${dir}`;
-        const planFile = usableSelectionKey(String(body?.options?.planFile || body?.selectedPlanId || ""));
+        const planFile = usableSelectionKey(String(body?.planFile || body?.options?.planFile || body?.selectedPlanId || ""));
         const actionRecent = this.localPlanMetadataActionUpdatedAt &&
-            this.localPlanMetadataFullRefresh &&
             this.localPlanMetadataKey === key &&
             !this.localPlanMetadata.error;
         const [plans, selectedPlan, detectedProject] = await Promise.all([
-            options.allPlans || !actionRecent ? readLocalPlans(root, dir).catch(() => this.localPlanMetadata.plans || []) : Promise.resolve(this.localPlanMetadata.plans || []),
+            options.allPlans || !planFile || !actionRecent ? readLocalPlans(root, dir).catch(() => this.localPlanMetadata.plans || []) : Promise.resolve(this.localPlanMetadata.plans || []),
             planFile ? readLocalPlanSummary(root, dir, planFile).catch(() => undefined) : Promise.resolve(undefined),
             detectLocalProjectForActionGate(root, dir, this.localPlanMetadata.detectedProject).catch((error) => ({
                 ...this.localPlanMetadata.detectedProject,
@@ -30614,29 +30624,7 @@ async function ensureSimpleProjectEntrypoints(root) {
     return { ensured: filled.length > 0, trainExists, testExists, filled };
 }
 async function probeEntrypointTemplate(root, template) {
-    const cmd = String(template || "").trim();
-    if (!cmd)
-        return { ok: false, error: "指令为空" };
-    const m = cmd.match(/python\s+([^\s]+)/);
-    const script = m ? m[1] : "";
-    if (script) {
-        const full = path.join(root, script);
-        const exists = await fs.stat(full).then(s => s.isFile()).catch(() => false);
-        if (!exists)
-            return { ok: false, error: `入口文件不存在: ${script}`, tail: `${script} not found` };
-        // argparse probe: check --config / --output_dir placeholders use
-        const content = await fs.readFile(full, "utf-8").catch(() => "");
-        if (content && /argparse/.test(content)) {
-            const expectsConfig = /\-\-config/.test(content);
-            const expectsOutputDir = /output_dir|output-dir/.test(content);
-            if (expectsConfig && !cmd.includes("{config}"))
-                return { ok: false, error: `参数不匹配: ${script} 需要 --config 但模板缺少 {config}`, tail: content.slice(-800) };
-            if (expectsOutputDir && !cmd.includes("{output_dir}"))
-                return { ok: false, error: `参数不匹配: ${script} 需要 --output_dir 但模板缺少 {output_dir}`, tail: content.slice(-800) };
-            // dry try python --help like check via file parse, no execution
-        }
-    }
-    return { ok: true };
+    return (0, StaticEntrypointProbe_1.staticEntrypointProbe)(root, template);
 }
 const localConfigSummaryLimit = 80;
 const guidedPlanConfigPickerSummaryLimit = 24;

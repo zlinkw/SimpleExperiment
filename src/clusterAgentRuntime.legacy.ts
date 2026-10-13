@@ -9565,8 +9565,7 @@ def parse_results_action(root, selected=None, plan=None, plan_revision="", owner
     apply_result_ownership(summary, ownership)
     apply_final_evidence_summary(root, summary)
     write_plan_seed_aggregate(root, summary, policy)
-    claim_report = evaluate_claim_evidence(root, summary)
-    apply_claim_evidence_summary(summary, claim_report)
+    summary["projectScientificValidation"] = {"executed": False, "responsibility": "project"}
     target = write_results_summary_v2(root, summary)
     append_event(root, {"type": "result_parsed", "payload": {"resultCount": len(records), "parseFailed": len(failures), "summaryPath": relpath(root, target), "planFile": plan_norm or summary.get("planFile") or ""}})
     return summary
@@ -10203,8 +10202,7 @@ def export_paper_table_action(root, plan=None, plan_revision=""):
         summary["paperTableCsvPath"] = tables[0]["paperTableCsvPath"]
         summary["exportPath"] = tables[0]["paperTablePath"]
     summary["paperTableResultCount"] = stats.get("resultCount", 0)
-    claim_report = evaluate_claim_evidence(root, summary)
-    apply_claim_evidence_summary(summary, claim_report)
+    summary["projectScientificValidation"] = {"executed": False, "responsibility": "project"}
     write_results_summary_v2(root, summary)
     append_event(root, {"type": "paper_table_updated", "payload": {"datasetTables": tables, "planFile": plan or ""}})
     return {"schemaVersion": 1, "path": summary.get("paperTablePath", ""), "csvPath": summary.get("paperTableCsvPath", ""), "paperDatasetTables": tables, "rows": sum(table["rowCount"] for table in tables), "resultCount": stats.get("resultCount", 0), "claimEvidence": summary.get("claimEvidence")}
