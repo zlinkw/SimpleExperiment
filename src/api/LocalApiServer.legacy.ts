@@ -662,7 +662,8 @@ export class LocalApiServer {
           "tasks.preflight.cancel": { params: ["workerId", "operationId"], cancelsDiagnosticOnly: true },
         } : {}),
         ...(Object.keys(this.methods).includes("plans.cleanup.preview") ? {
-        "plans.cleanup.preview": { readOnly: true, zeroWrites: true, modes: ["move", "delete"], default: "move", historicalNodes: true },
+        "plans.cleanup.preview": { readOnly: true, zeroWrites: true, modes: ["move", "delete"], default: "move", historicalNodes: true,
+          optionalJob: { fields: ["workflowId", "index", "commandId"], failedFormalJobOnly: true, excludesPlanAndConfig: true, neverRequeues: true } },
         "plans.cleanup.list": { readOnly: true },
         "plans.cleanup.status": { readOnly: true, durableOperationId: true },
         "plans.cleanup.continue": { previewOnly: true, newExactConfirmation: true, deleteConfirmationCount: 2, archivedMetadata: true },

@@ -33,7 +33,7 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.PlanCleanup = exports.cleanupDigest = void 0;
+exports.PlanCleanup = exports.cleanupJobKey = exports.cleanupDigest = void 0;
 exports.cleanupError = cleanupError;
 exports.cleanupRelative = cleanupRelative;
 exports.classifyCleanupCandidates = classifyCleanupCandidates;
@@ -44,6 +44,8 @@ const StateStore_1 = require("../state/StateStore");
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const cleanupDigest = (value) => (0, node_crypto_1.createHash)("sha256").update(JSON.stringify(value)).digest("hex");
 exports.cleanupDigest = cleanupDigest;
+const cleanupJobKey = (job) => (0, exports.cleanupDigest)(job ? [job.workflowId, job.index, job.commandId] : null);
+exports.cleanupJobKey = cleanupJobKey;
 function cleanupError(code, detail = code) {
     const error = Object.assign(new Error(detail), { apiCode: code === "CONFIRM_REQUIRED" ? 2001 : 2010, apiData: { code, detail } });
     throw error;
@@ -101,7 +103,7 @@ class PlanCleanup {
         for (const name of names.filter(name => /^[a-f0-9]{48}\.json$/.test(name))) {
             const operation = await this.status(name.slice(0, -5));
             rows.push({ id: operation.id, state: operation.state, updatedAt: operation.updatedAt, pendingNodes: operation.pendingNodes,
-                planFile: operation.preview.scope.planFile, action: operation.preview.action,
+                planFile: operation.preview.scope.planFile, action: operation.preview.action, job: operation.preview.scope.job,
                 continuedBy: operation.continuedBy, restoredBy: operation.restoredBy, nodeChecks: operation.nodeChecks });
         }
         return rows.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
@@ -162,7 +164,7 @@ class PlanCleanup {
         if (original.continuedBy || original.restoredBy || original.preview.action === "restore" || this.busy.has(id))
             cleanupError("NOT_CONTINUABLE");
         return this.preview({ planFile: original.preview.scope.planFile, action: original.preview.action,
-            verifiedOnly: params.verifiedOnly, continuationOf: id }, onProgress);
+            verifiedOnly: params.verifiedOnly, continuationOf: id, job: original.preview.scope.job }, onProgress);
     }
     /** Reconnection observes receipts and source presence only. It never settles or executes a mutation. */
     async recheckNode(nodeId) {
@@ -231,7 +233,10 @@ class PlanCleanup {
             cleanupError("NOT_CONTINUABLE");
         const completed = await this.completedHistory(history);
         const scope = await this.ports.collect(cleanupRelative(params.planFile), { archivedFiles: action === "move" ? this.archivedMetadata(completed) : {},
-            removedMetadata: this.removedMetadata(history, completed), onProgress: notify });
+            removedMetadata: this.removedMetadata(history, completed), onProgress: notify, job: params.job });
+        if ((0, exports.cleanupJobKey)(scope.job) !== (0, exports.cleanupJobKey)(params.job)
+            || history.length && (0, exports.cleanupJobKey)(scope.job) !== (0, exports.cleanupJobKey)(history[0].preview.scope.job))
+            cleanupError("JOB_SCOPE_CHANGED");
         if (history.length && (scope.planKey !== history[0].preview.scope.planKey || scope.planHash !== history[0].preview.scope.planHash))
             cleanupError("PREVIEW_CHANGED");
         for (const original of history[0]?.preview.scope.nodes || []) {
@@ -240,6 +245,7 @@ class PlanCleanup {
                 cleanupError("SERVER_IDENTITY_CHANGED");
         }
         const token = (0, node_crypto_1.randomBytes)(24).toString("hex");
+        const archiveBatch = scope.job ? history[0]?.preview.rows.find(row => row.archiveBatch)?.archiveBatch || "job-" + token : undefined;
         const result = { token, digest: "", action, scope, rows: [], blockers: clone(scope.blockers),
             verifiedOnly: params.verifiedOnly === true, expiresAt: Date.now() + 30 * 60 * 1000, confirmations: 0,
             ...(params.continuationOf ? { continuationOf: params.continuationOf } : {}) };
@@ -258,10 +264,12 @@ class PlanCleanup {
             }
             const absolutePath = node.kind === "local" ? path.join(node.root, candidate.relativePath) : path.posix.join(node.root, candidate.relativePath);
             const row = { ...candidate, id: (0, exports.cleanupDigest)([node.id, node.root, candidate.relativePath, candidate.type]), node,
-                absolutePath, destination: "clean_dir/" + candidate.relativePath,
+                absolutePath, destination: "clean_dir/" + (archiveBatch ? archiveBatch + "/" : "") + candidate.relativePath, ...(archiveBatch ? { archiveBatch } : {}),
                 disposition: candidate.protectedReason ? "protected" : node.error ? "unverified" : action };
             result.rows.push(row);
         }
+        if (scope.job)
+            result.rows.sort((a, b) => Number(a.type === "directory") - Number(b.type === "directory"));
         // Parent targets absorb exact registered children only; evidence is preserved in the parent review.
         for (const row of result.rows)
             if (row.disposition === action) {
@@ -293,7 +301,7 @@ class PlanCleanup {
             }
             try {
                 const backend = await this.ports.sftp("files.cleanup.preview", { node, action, targets: rows.map(row => ({ relativePath: row.relativePath, type: row.type,
-                        destination: row.destination, expectedSha256: row.expectedSha256, expectedOwner: row.expectedOwner })) });
+                        destination: row.destination, expectedSha256: row.expectedSha256, expectedOwner: row.expectedOwner, archiveBatch: row.archiveBatch })) });
                 rows.forEach((row, index) => {
                     const info = backend.targets[index];
                     Object.assign(row, { ...info, relativePath: row.relativePath, destination: row.destination,
@@ -324,7 +332,7 @@ class PlanCleanup {
                 if (approved.length && rows.some(row => row.disposition === "protected")) {
                     const exact = await this.ports.sftp("files.cleanup.preview", { node, action,
                         targets: approved.map(row => ({ relativePath: row.relativePath, type: row.type, destination: row.destination,
-                            expectedSha256: row.expectedSha256, expectedOwner: row.expectedOwner })) });
+                            expectedSha256: row.expectedSha256, expectedOwner: row.expectedOwner, archiveBatch: row.archiveBatch })) });
                     if ((0, exports.cleanupDigest)(exact.rootIdentity) !== (0, exports.cleanupDigest)(backend.rootIdentity)
                         || exact.targets.length !== approved.length
                         || approved.some((row, index) => exact.targets[index].fingerprint !== row.fingerprint))
@@ -347,7 +355,7 @@ class PlanCleanup {
             const progress = { phase: "protected", completed: index, total: protectedRows.length };
             notify({ ...progress, message: row.node.id + "：只读核对受保护条目，保持原样…" });
             try {
-                const info = await this.ports.sftp("files.cleanup.inspect", { node: row.node, target: { relativePath: row.relativePath, type: row.type } });
+                const info = await this.ports.sftp("files.cleanup.inspect", { node: row.node, target: { relativePath: row.relativePath, type: row.type, expectedOwner: row.expectedOwner } });
                 Object.assign(row, info.target);
             }
             catch {
@@ -416,7 +424,7 @@ class PlanCleanup {
         const completed = await this.completedHistory(prior);
         const archivedFiles = { ...(preview.action === "move" ? this.archivedMetadata(completed) : {}), ...Object.fromEntries(preview.rows.filter(row => row.node.kind === "local" && ["PLAN 文件", "专用配置"].includes(row.category)
                 && operation?.targets[row.id]?.state === "completed" && preview.action === "move").map(row => [row.relativePath, row.destination])) };
-        const fresh = await this.ports.collect(preview.scope.planFile, { archivedFiles, removedMetadata: this.removedMetadata(prior, completed) });
+        const fresh = await this.ports.collect(preview.scope.planFile, { archivedFiles, removedMetadata: this.removedMetadata(prior, completed), job: preview.scope.job });
         if (fresh.revision !== preview.scope.revision || fresh.planHash !== preview.scope.planHash)
             cleanupError("PREVIEW_CHANGED");
         const allowedOffline = new Set(preview.verifiedOnly ? preview.blockers.filter(row => ["OFFLINE_NODE", "NODE_UNREACHABLE"].includes(row.code)).map(row => row.nodeId) : []);
@@ -427,7 +435,7 @@ class PlanCleanup {
                 && (parent.node.id === row.node.id && under(parent.relativePath, row.relativePath)
                     || parent.inode === row.inode && parent.device === row.device && (0, exports.cleanupDigest)(parent.rootIdentity) === (0, exports.cleanupDigest)(row.rootIdentity))))
                 continue;
-            const current = await this.ports.sftp("files.cleanup.inspect", { node: row.node, target: { relativePath: row.relativePath, type: row.type } });
+            const current = await this.ports.sftp("files.cleanup.inspect", { node: row.node, target: { relativePath: row.relativePath, type: row.type, expectedOwner: row.expectedOwner } });
             if (current.target.fingerprint !== row.fingerprint)
                 cleanupError("DEPENDENCY_CHANGED");
         }
@@ -460,14 +468,14 @@ class PlanCleanup {
                 await this.revalidate(preview, operation);
             for (const row of preview.rows.filter(row => row.disposition === "absent")) {
                 const check = await this.ports.sftp("files.cleanup.preview", { node: row.node, action: preview.action,
-                    targets: [{ relativePath: row.relativePath, destination: row.destination, type: row.type }] });
+                    targets: [{ relativePath: row.relativePath, destination: row.destination, type: row.type, archiveBatch: row.archiveBatch, expectedOwner: row.expectedOwner }] });
                 if (!check.targets[0].missing || (0, exports.cleanupDigest)(check.rootIdentity) !== (0, exports.cleanupDigest)(row.rootIdentity))
                     cleanupError("PREVIEW_CHANGED");
             }
             // Recheck every unprocessed node before any mutation; successful targets are never resent.
             for (const row of preview.rows.filter(row => operation.targets[row.id]?.state === "pending")) {
                 const check = await this.ports.sftp("files.cleanup.preview", { node: row.node, action: preview.action,
-                    targets: [{ relativePath: row.relativePath, destination: row.destination, type: row.type }] });
+                    targets: [{ relativePath: row.relativePath, destination: row.destination, type: row.type, archiveBatch: row.archiveBatch, expectedOwner: row.expectedOwner }] });
                 if (check.targets[0].fingerprint !== row.fingerprint || (0, exports.cleanupDigest)(check.rootIdentity) !== (0, exports.cleanupDigest)(row.rootIdentity))
                     cleanupError("PREVIEW_CHANGED");
             }
@@ -545,7 +553,7 @@ class PlanCleanup {
         preview.rows = [];
         for (const row of (await this.completedHistory(await this.history(id))).filter(row => row.fingerprint)) {
             const backend = await this.ports.sftp("files.cleanup.preview", { node: row.node, action: "restore",
-                targets: [{ relativePath: row.destination, type: row.type, destination: row.relativePath }] });
+                targets: [{ relativePath: row.destination, type: row.type, destination: row.relativePath, archiveBatch: row.archiveBatch }] });
             if (backend.targets[0].contentFingerprint !== row.contentFingerprint || backend.targets[0].inode !== row.inode)
                 cleanupError("CONTENT_CHANGED");
             preview.rows.push({ ...row, ...backend.targets[0], relativePath: row.destination, destination: row.relativePath, disposition: "restore",

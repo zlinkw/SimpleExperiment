@@ -5922,6 +5922,8 @@ class RealtimeTunnelPanelProvider {
                 ? this.localOperations?.[this.planSubmissionOperationId(message)] : undefined;
             if (submission?.status === "failed")
                 return { status: "failed", message: submission.message || "计划未提交。" };
+            if (["recallFailedJob", "retryDistributedJob"].includes(command) && value?.status === "blocked")
+                return { status: "cancelled", message: String(value.message || "未提交重新排队；请先审核该 job 的遗留文件。") };
             if (["stopAndClearPlan", "retryDistributedJob", "markJobUnavailable", "restoreJobAvailability"].includes(command) && value && typeof value === "object" && (value.status === "completed" || value.status === "failed" || value.status === "cancelled" || value.status === "partial")) {
                 const outcome = value.status === "partial" ? "failed" : value.status;
                 return { status: outcome, message: String(value.message || outcome), planStopClear: value.planStopClear };
@@ -12529,6 +12531,8 @@ class RealtimeTunnelPanelProvider {
             throw new Error("任务 commandId 已变化；请刷新原 job 后重新确认，未重排。");
         if (plan.resultPathPolicy !== "declared")
             throw new Error("HISTORICAL_ATTEMPT_READ_ONLY：保留权重和日志，旧 attempt 不会恢复执行。");
+        if (job.cleanup?.state === "partial" || job.cleanup?.pendingNodes?.length)
+            throw new Error("FAILED_JOB_CLEANUP_PENDING：该 job 尚有节点未完成人工清理审核；请先核对全部回执，未重排。");
         const fresh = await client.getWorkerTasks(job.workerId);
         if (!isCurrent())
             return { status: "cancelled", message: "项目已切换，训练恢复已取消。" };
@@ -12543,9 +12547,22 @@ class RealtimeTunnelPanelProvider {
                 throw new Error("原 Worker 配置不可用，未重排。");
             const inventory = await this.simpleSftpApiCall("sync.projectInventory", { source: this.sftpServerOptions(sourceRow),
                 relativePath: ".", scopePaths: [job.outputDir, ...(job.collectionResultCsv ? [job.collectionResultCsv] : [])] });
-            if (!inventory?.files || Object.keys(inventory.unverifiedFiles || {}).length
-                || Object.keys(inventory.files).some(file => file !== job.outputDir + "/.formal_job.lock"))
-                throw new Error("FORMAL_JOB_CONFLICT：失败目录或结果仍存在；请自行清理，或显式声明新的 case/job。不会自动移走、覆盖或创建 attempt。");
+            if (!inventory?.files)
+                throw new Error("FAILED_JOB_INVENTORY_UNVERIFIED：原 Worker 产物清单未核实，未重排。");
+            if (Object.keys(inventory.unverifiedFiles || {}).length
+                || Object.keys(inventory.files).some(file => file !== job.outputDir + "/.formal_job.lock")) {
+                const files = [...Object.keys(inventory.files), ...Object.keys(inventory.unverifiedFiles || {})];
+                const answer = await vscode.window.showWarningMessage(`正式 job 仍有遗留文件，尚未重新排队：${plan.planFile} / ${job.case} / seed ${job.seed}\nWorker ${job.workerId}：${job.outputDir}\n${files.slice(0, 8).join("\n")}${files.length > 8 ? "\n另有 " + (files.length - 8) + " 项" : ""}\n可打开仅针对这个失败 job 的只读预览。移入 clean_dir 或删除均需另行确认；PLAN、源配置和其他 job 保留。`, { modal: true }, "审核遗留文件");
+                if (answer === "审核遗留文件" && isCurrent()) {
+                    const current = await this.loadDistributedQueue(root);
+                    const currentPlan = current.plans.find(row => row.id === plan.id);
+                    const currentJob = currentPlan?.jobs.find(row => row.index === job.index);
+                    if (!currentPlan || !currentJob || !DistributedPlanQueue.remoteTaskMatchesJob(currentPlan, currentJob, task))
+                        throw new Error("任务身份在审核期间已变化；未打开清理预览。");
+                    await this.planCleanupHost().openJob(plan.planFile, { workflowId: plan.id, index: job.index, commandId: job.commandId });
+                }
+                return { status: "blocked", code: "FORMAL_JOB_CONFLICT", message: "未提交重新排队；遗留文件仍受保护，审核清理后再重排。当前队列未改变。" };
+            }
             const answer = await vscode.window.showWarningMessage(`重新排队正式 job：${plan.planFile} / ${job.case} / seed ${job.seed}\n目录 ${job.outputDir}\n已确认原任务停止、输出为空。`, { modal: true }, "重新排队");
             if (answer !== "重新排队" || !isCurrent())
                 return;

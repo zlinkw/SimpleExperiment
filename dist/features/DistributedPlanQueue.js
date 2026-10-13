@@ -1288,7 +1288,7 @@ function stopIdentityMatchesJob(plan, job, identity) {
 function retryVerifiedJob(queue, planId, jobIndex, runId) {
     const plan = queue.plans.find((row) => row.id === planId);
     const job = plan?.jobs.find((row) => row.index === jobIndex);
-    if (!job || job.unavailable || !["failed", "unknown"].includes(job.status) || !/^[a-zA-Z0-9-]{8,80}$/.test(runId))
+    if (!job || job.unavailable || job.cleanup?.state === "partial" || job.cleanup?.pendingNodes.length || !["failed", "unknown"].includes(job.status) || !/^[a-zA-Z0-9-]{8,80}$/.test(runId))
         throw new Error("Only a verified stopped job can be retried.");
     const prefix = job.outputDir.replace(/\\/g, "/");
     if (plan?.resultPathPolicy !== "declared")
@@ -1300,9 +1300,12 @@ function retryVerifiedJob(queue, planId, jobIndex, runId) {
                 trustedTerminalStatus: undefined, admissionRejection: undefined, error: undefined, finishedAt: undefined,
                 failureDiagnostic: undefined, formalConflictEvidence: undefined, blockReason: undefined, recoveryConflict: undefined,
                 stopReason: undefined, automaticRetry: undefined, dispatchAcknowledgedAt: undefined, lastDispatchAttemptAt: undefined,
+                cleanup: undefined,
+                artifacts: undefined, artifactError: undefined, artifactRetryAfter: undefined, outputRetiredAt: undefined,
+                historyLogIdentity: undefined, logPath: undefined,
                 status: "pending", history: [...(item.history || []), { attempt: item.attempt,
                         status: item.status, workerId: item.workerId, commandId: item.commandId, outputDir: item.outputDir,
-                        finishedAt: item.finishedAt, stopReason: item.stopReason, error: item.error, admissionRejection: item.admissionRejection }],
+                        finishedAt: item.finishedAt, stopReason: item.stopReason, error: item.error, admissionRejection: item.admissionRejection, cleanupOperationId: item.cleanup?.operationId }],
             }) }) };
 }
 exports.AUTOMATIC_JOB_RETRY_MAX_FAILURES = 5;

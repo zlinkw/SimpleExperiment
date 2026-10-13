@@ -25,6 +25,8 @@ export type QueuedJob = {
   actualExecutionMode?: PlanExecutionMode;
   trainingRecovery?: Record<string, unknown>;
   originalExecution?: { status: string; error?: string; mode?: PlanExecutionMode; exitCode?: number };
+  /** Exact failed-job manual cleanup; never a whole-PLAN lifecycle change. */
+  cleanup?: QueuedPlan["cleanup"];
   recoveryConflict?: boolean;
   trustedTerminalStatus?: "completed" | "failed" | "cancelled";
   runKey?: string;
@@ -59,7 +61,7 @@ export type QueuedJob = {
   blockReason?: string;
   stopReason?: string;
   automaticRetry?: AutomaticJobRetry;
-  history?: Array<{ attempt: number; status: JobState; workerId?: string; commandId?: string; outputDir: string; finishedAt?: string; stopReason?: string; error?: string; outputRetiredAt?: string; admissionRejection?: QueuedJob["admissionRejection"] }>;
+  history?: Array<{ attempt: number; status: JobState; workerId?: string; commandId?: string; outputDir: string; finishedAt?: string; stopReason?: string; error?: string; outputRetiredAt?: string; admissionRejection?: QueuedJob["admissionRejection"]; cleanupOperationId?: string }>;
 };
 export type QueuedPlan = {
   id: string;
@@ -1290,7 +1292,7 @@ export function stopIdentityMatchesJob(plan: QueuedPlan, job: QueuedJob, identit
 export function retryVerifiedJob(queue: DistributedQueue, planId: string, jobIndex: number, runId: string): DistributedQueue {
   const plan = queue.plans.find((row) => row.id === planId);
   const job = plan?.jobs.find((row) => row.index === jobIndex);
-  if (!job || job.unavailable || !["failed", "unknown"].includes(job.status) || !/^[a-zA-Z0-9-]{8,80}$/.test(runId))
+  if (!job || job.unavailable || job.cleanup?.state === "partial" || job.cleanup?.pendingNodes.length || !["failed", "unknown"].includes(job.status) || !/^[a-zA-Z0-9-]{8,80}$/.test(runId))
     throw new Error("Only a verified stopped job can be retried.");
   const prefix = job.outputDir.replace(/\\/g, "/");
   if (plan?.resultPathPolicy !== "declared") throw new Error("HISTORICAL_ATTEMPT_READ_ONLY");
@@ -1301,9 +1303,12 @@ export function retryVerifiedJob(queue: DistributedQueue, planId: string, jobInd
       trustedTerminalStatus: undefined, admissionRejection: undefined, error: undefined, finishedAt: undefined,
       failureDiagnostic: undefined, formalConflictEvidence: undefined, blockReason: undefined, recoveryConflict: undefined,
       stopReason: undefined, automaticRetry: undefined, dispatchAcknowledgedAt: undefined, lastDispatchAttemptAt: undefined,
+      cleanup: undefined,
+      artifacts: undefined, artifactError: undefined, artifactRetryAfter: undefined, outputRetiredAt: undefined,
+      historyLogIdentity: undefined, logPath: undefined,
       status: "pending" as const, history: [...(item.history || []), { attempt: item.attempt,
         status: item.status, workerId: item.workerId, commandId: item.commandId, outputDir: item.outputDir,
-        finishedAt: item.finishedAt, stopReason: item.stopReason, error: item.error, admissionRejection: item.admissionRejection }],
+        finishedAt: item.finishedAt, stopReason: item.stopReason, error: item.error, admissionRejection: item.admissionRejection, cleanupOperationId: item.cleanup?.operationId }],
     }) }) };
 }
 

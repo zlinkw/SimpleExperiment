@@ -76,6 +76,9 @@ async function literalPlans(root) {
 }
 /** Read-only joins from registered attempts/sync receipts. Unknown legacy ownership is report-only. */
 async function collectPlanCleanupEvidence(input) {
+    if (input.job && (Object.keys(input.job).sort().join(",") !== "commandId,index,workflowId" || typeof input.job.workflowId !== "string"
+        || typeof input.job.commandId !== "string" || !Number.isInteger(input.job.index)))
+        (0, PlanCleanup_1.cleanupError)("INVALID_JOB_SELECTION");
     const file = (0, PlanCleanup_1.cleanupRelative)(normalized(input.planFile)), projectId = (0, DistributedPlanQueue_1.canonicalProjectId)(input.root);
     const plans = await literalPlans(input.root);
     const virtual = new Map();
@@ -111,7 +114,16 @@ async function collectPlanCleanupEvidence(input) {
     const planKey = removed?.hashes[file] ? removed.planKey : (0, PlanCleanup_1.cleanupDigest)([projectId, stable || file]);
     const aliases = new Set(plans.filter(row => stable && (0, exports.cleanupStablePlanId)(row.text) === stable).map(row => row.file));
     aliases.add(file);
-    const selected = input.queue.plans.filter(row => removed?.runIds.includes(row.id) || stable && row.stablePlanId === stable || [...aliases].some(alias => sameFile(normalized(row.planFile), alias)));
+    const selected = input.queue.plans.filter(row => (!input.job || row.id === input.job.workflowId)
+        && (removed?.runIds.includes(row.id) || stable && row.stablePlanId === stable || [...aliases].some(alias => sameFile(normalized(row.planFile), alias))));
+    const selectedJob = input.job && selected[0]?.jobs.find(job => job.index === input.job.index && job.commandId === input.job.commandId);
+    if (input.job && (!Number.isInteger(input.job.index) || !input.job.workflowId || !input.job.commandId || selected.length !== 1
+        || !selectedJob || selected[0].projectId !== projectId || selected[0].resultPathPolicy !== "declared"
+        || !selectedJob.collectionResultCsv
+        || selectedJob.globalJobId !== input.job.workflowId + ":" + input.job.index || selectedJob.status !== "failed"
+        || selectedJob.reassignmentPending || selectedJob.unavailable || selectedJob.outputDir.split("/").includes("attempts")))
+        (0, PlanCleanup_1.cleanupError)("FAILED_JOB_SCOPE_UNVERIFIED", "仅支持当前项目中身份完整、已停止的原正式失败 job；未改变清理范围。");
+    const selectedJobs = (plan) => input.job ? plan.jobs.filter(job => job === selectedJob) : plan.jobs;
     selected.forEach(row => aliases.add(normalized(row.planFile)));
     const runIds = selected.map(row => row.id), candidates = [];
     // Exact publication paths come from the existing result layout and registry,
@@ -137,7 +149,7 @@ async function collectPlanCleanupEvidence(input) {
             notices.push({ code: "CONFIG_REFERENCE_UNVERIFIED", detail });
     };
     const scope = { projectId, planKey, planFile: file, planHash: removed?.hashes[file] || (current ? sha(current.text) : "absent"), runIds, revision: "",
-        nodes: input.nodes, candidates, blockers, notices };
+        nodes: input.nodes, candidates, blockers, notices, ...(input.job ? { job: { ...input.job } } : {}) };
     const add = (nodeId, rel, type, category, evidence, owners = [planKey], protectedReason) => {
         try {
             rel = (0, PlanCleanup_1.cleanupRelative)(normalized(rel));
@@ -292,28 +304,39 @@ async function collectPlanCleanupEvidence(input) {
             blockers.push({ code: "PROJECT_ID_MISMATCH", detail: plan.id });
             continue;
         }
-        for (const job of plan.jobs) {
+        for (const job of selectedJobs(plan)) {
             if (!terminal.has(job.status) || job.reassignmentPending || job.automaticRetry?.retryAt && !job.automaticRetry.exhausted)
                 blockers.push({ code: "ACTIVE_JOB", nodeId: job.workerId, detail: plan.id + ":" + job.index });
-            for (const attempt of [job, ...(job.history || [])]) {
+            for (const attempt of input.job ? [job] : [job, ...(job.history || [])]) {
+                if (plan.resultPathPolicy === "declared" && attempt !== job && attempt.workerId === job.workerId
+                    && normalized(attempt.outputDir) === normalized(job.outputDir))
+                    continue;
                 const workerIds = [...new Set([attempt.workerId, ...job.fragmentWorkerIds || [], ...job.mirroredWorkerIds || []].filter(Boolean))];
                 workerIds.forEach(id => associations.add(id));
                 const output = normalized(attempt.outputDir);
-                const conflicts = input.queue.plans.filter(other => !selectedIds.has(other.id)).flatMap(other => other.jobs.flatMap(row => [row, ...(row.history || [])]))
+                const conflicts = input.queue.plans.flatMap(other => other.jobs.filter(row => other.id !== plan.id || row.index !== job.index).flatMap(row => [row, ...(row.history || [])]))
                     .filter(other => ancestor(output, normalized(other.outputDir)) || ancestor(normalized(other.outputDir), output));
                 const trusted = Boolean(plan.projectId === projectId && plan.id && plan.revision && job.case && Number.isInteger(job.seed)
-                    && Number.isInteger(attempt.attempt) && attempt.commandId && attempt.workerId && output);
+                    && (plan.resultPathPolicy === "declared" ? job.globalJobId === plan.id + ":" + job.index && !output.split("/").includes("attempts") : Number.isInteger(attempt.attempt))
+                    && attempt.commandId && attempt.workerId && output);
                 const reason = !trusted ? "旧记录缺少完整项目/job/attempt/命令所有权" : conflicts.length ? "其他 PLAN/job 引用该目录" : undefined;
                 const evidence = ["任务登记 workflow=" + plan.id, "PLAN revision=" + plan.revision, "case=" + job.case + " seed=" + job.seed,
                     "fold=" + String(job.fold ?? "未登记"),
-                    "attempt=" + attempt.attempt + " commandId=" + (attempt.commandId || "未核实"), "Worker=" + (attempt.workerId || "未核实")];
+                    (plan.resultPathPolicy === "declared" ? "globalJobId=" + job.globalJobId : "attempt=" + attempt.attempt) + " commandId=" + (attempt.commandId || "未核实"), "Worker=" + (attempt.workerId || "未核实")];
                 for (const worker of workerIds) {
                     add(worker, output, "directory", "作业产物（权重/日志/预测/指标/协议/快照）", evidence, [planKey], reason);
                     if (trusted)
                         candidates.find(row => row.nodeId === worker && row.relativePath === output).expectedOwner = {
                             workflowId: plan.id, commandId: attempt.commandId, workerId: attempt.workerId, outputDir: output,
-                            attempt: attempt.attempt, case: job.case, seed: job.seed
+                            ...(plan.resultPathPolicy === "declared" ? { resultPathPolicy: "declared", globalJobId: job.globalJobId, index: job.index,
+                                planRevision: plan.revision, codeFingerprint: plan.codeFingerprint, collectionResultCsv: job.collectionResultCsv,
+                                ...(input.job ? { expectedState: "failed" } : {}) } : { attempt: attempt.attempt }), case: job.case, seed: job.seed
                         };
+                }
+                if (input.job && job.collectionResultCsv && !ancestor(output, normalized(job.collectionResultCsv))) {
+                    add(attempt.workerId, job.collectionResultCsv, "file", "该 job 声明的独立指标", [...evidence, "精确 collectionResultCsv 声明"], [planKey], reason);
+                    candidates.find(row => row.nodeId === attempt.workerId && row.relativePath === normalized(job.collectionResultCsv)).expectedOwner =
+                        candidates.find(row => row.nodeId === attempt.workerId && row.relativePath === output).expectedOwner;
                 }
                 // A local mirror is owned only when synchronization history declares that exact directory.
                 for (const entry of Object.values(input.ledger.entries))
@@ -321,8 +344,11 @@ async function collectPlanCleanupEvidence(input) {
                         const synced = Object.entries(entry.destinations || {}).filter(([, receipt]) => receipt.status === "synced").map(([id]) => id);
                         for (const destination of synced) {
                             associations.add(destination);
-                            if ((entry.directoryPaths || []).includes(output))
+                            if ((entry.directoryPaths || []).includes(output)) {
                                 add(destination, output, "directory", "同步副本", [...evidence, "已确认同步 runId=" + entry.runId], [planKey], reason);
+                                candidates.find(row => row.nodeId === destination && row.relativePath === output).expectedOwner =
+                                    candidates.find(row => row.nodeId === attempt.workerId && row.relativePath === output)?.expectedOwner;
+                            }
                         }
                     }
                 for (const [artifact, hash] of Object.entries(job.artifacts || {}))
@@ -334,9 +360,12 @@ async function collectPlanCleanupEvidence(input) {
             }
         }
     }
-    const knownCommands = new Set(selected.flatMap(plan => plan.jobs.flatMap(job => [job, ...(job.history || [])]).map(attempt => attempt.commandId).filter(Boolean)));
+    const knownCommands = new Set(selected.flatMap(plan => selectedJobs(plan).flatMap(job => [job, ...(job.history || [])]).map(attempt => attempt.commandId).filter(Boolean)));
     for (const snapshot of input.snapshots)
         for (const task of snapshot.tasks || []) {
+            if (selectedJob && task.commandId !== selectedJob.commandId && !ancestor(selectedJob.outputDir, normalized(task.outputDir || task.output_dir || ""))
+                && !ancestor(normalized(task.outputDir || task.output_dir || ""), selectedJob.outputDir))
+                continue;
             const taskPlan = normalized(task.planFile || task.plan_file || "");
             if (![...aliases].some(alias => sameFile(alias, taskPlan)) && !(stable && task.stablePlanId === stable))
                 continue;
@@ -377,6 +406,15 @@ async function collectPlanCleanupEvidence(input) {
     for (const recovery of input.queue.failedAttemptRecoveries || [])
         if (selectedIds.has(recovery.plan.id) && recovery.status !== "completed")
             blockers.push({ code: "ACTIVE_ATTEMPT_RECOVERY", nodeId: recovery.job.workerId, detail: recovery.id });
+    if (selectedJob) {
+        // A job review never moves the PLAN, configurations, siblings, old revisions or unregistered copies.
+        candidates.splice(0, candidates.length, ...candidates.filter(row => row.relativePath === selectedJob.outputDir || row.relativePath === selectedJob.collectionResultCsv));
+        const jobNodes = new Set(candidates.map(row => row.nodeId));
+        scope.nodes = scope.nodes.filter(node => jobNodes.has(node.id));
+        const task = input.snapshots.find(snapshot => snapshot.workerId === selectedJob.workerId)?.tasks?.find(task => task.commandId === selectedJob.commandId);
+        if (!task || !(0, DistributedPlanQueue_1.remoteTaskMatchesJob)(selected[0], selectedJob, task) || task.status !== "failed" || !(task.finishedAt || task.exitCode !== undefined))
+            blockers.push({ code: "FAILED_JOB_STOP_UNVERIFIED", nodeId: selectedJob.workerId, detail: input.job.commandId });
+    }
     for (const id of associations)
         if (!input.nodes.some(node => node.id === id)) {
             scope.nodes.push({ id, kind: "remote", root: "", error: "历史关联节点缺少当前主机/端口/项目根配置" });
@@ -388,13 +426,15 @@ async function collectPlanCleanupEvidence(input) {
             blockers.push({ code: "OFFLINE_NODE", nodeId: node.id, detail: node.error });
         }
         else {
-            if ((snapshot.tasks || []).some(task => !terminal.has(String(task.status).toLowerCase())))
+            if ((snapshot.tasks || []).some(task => !terminal.has(String(task.status).toLowerCase()) && (!selectedJob
+                || !task.outputDir || candidates.some(candidate => candidate.nodeId === node.id
+                && (ancestor(candidate.relativePath, normalized(task.outputDir)) || ancestor(normalized(task.outputDir), candidate.relativePath))))))
                 blockers.push({ code: "ACTIVE_NODE_TASK", nodeId: node.id, detail: "该项目节点存在运行/排队/待核实任务" });
             for (const candidate of candidates.filter(row => row.nodeId === node.id)) {
                 const conflicts = (snapshot.tasks || []).filter(task => {
                     const output = normalized(task.outputDir || task.output_dir || "");
                     return output && (ancestor(candidate.relativePath, output) || ancestor(output, candidate.relativePath))
-                        && task.commandId !== candidate.expectedOwner?.commandId && !runIds.includes(String(task.workflowId || task.planWorkflowId || ""));
+                        && task.commandId !== candidate.expectedOwner?.commandId && (selectedJob || !runIds.includes(String(task.workflowId || task.planWorkflowId || "")));
                 });
                 if (conflicts.length)
                     candidate.dependencies.push("当前节点其他命令登记引用该精确目录");
@@ -437,6 +477,8 @@ async function collectPlanCleanupEvidence(input) {
     if (!input.registry?.plans && runIds.includes(input.registry?.planRun))
         visit(input.registry, selectedResultPaths);
     for (const rel of selectedResultPaths) {
+        if (selectedJob)
+            continue;
         if (rel !== "simple_cluster/results/project_table_registry.json" && [resultDir, "tmp/result", "simple_cluster/results"].some(base => ancestor(base, rel)))
             add("local", rel, "file", "专用结果/原始 sidecar/结果索引", ["项目结果索引的精确路径引用"], [planKey], "已有正式/历史或共享结果受保护");
     }
@@ -448,7 +490,26 @@ async function collectPlanCleanupEvidence(input) {
         for (const ref of externalAssetRefs)
             if (ref.owner !== planKey && ancestor(candidate.relativePath, ref.path))
                 candidate.dependencies.push("其他 PLAN 配置引用 checkpoint/权重/代码备份 " + ref.path);
-    candidates.push(...input.extraEvidence || []);
+    if (selectedJob)
+        for (const candidate of candidates)
+            for (const plan of input.queue.plans)
+                for (const other of plan.jobs) {
+                    if (plan.id === input.job.workflowId && other.index === input.job.index)
+                        continue;
+                    const otherCsv = normalized(other.collectionResultCsv || "");
+                    if (otherCsv && ancestor(candidate.relativePath, otherCsv))
+                        candidate.dependencies.push("其他 job 登记的指标路径：" + plan.id + ":" + other.index);
+                    for (const key of ["checkpoint_path", "config_path"]) {
+                        let ref = normalized(other.checkpointSource?.[key] || "");
+                        for (const node of input.nodes)
+                            if (ref.startsWith(normalized(node.root).replace(/\/$/, "") + "/"))
+                                ref = ref.slice(normalized(node.root).replace(/\/$/, "").length + 1);
+                        if (ref && ancestor(candidate.relativePath, ref))
+                            candidate.dependencies.push("其他 job 已登记的 checkpoint 来源：" + plan.id + ":" + other.index);
+                    }
+                }
+    if (!selectedJob)
+        candidates.push(...input.extraEvidence || []);
     // Use registered identities and exact path overlap, never a name prefix or age.
     // A known unrelated PLAN with bounded, nonoverlapping paths is not this batch's
     // active operation. Unscoped operations still block because exclusion is unproven.
@@ -497,8 +558,8 @@ async function collectPlanCleanupEvidence(input) {
                 }
             };
             inspect(operation);
-            const matches = identities.some(value => selectedIds.has(value) || knownCommands.has(value) || value === planKey || stable && value === stable
-                || [...aliases].some(alias => sameFile(alias, operationPath(value) || normalized(value))));
+            const matches = identities.some(value => knownCommands.has(value) || !selectedJob && (selectedIds.has(value) || value === planKey || stable && value === stable
+                || [...aliases].some(alias => sameFile(alias, operationPath(value) || normalized(value)))));
             const overlaps = paths.some(rel => rel === "" || candidates.some(candidate => {
                 const a = process.platform === "win32" ? rel.toLowerCase() : rel;
                 const b = process.platform === "win32" ? candidate.relativePath.toLowerCase() : candidate.relativePath;
@@ -514,7 +575,7 @@ async function collectPlanCleanupEvidence(input) {
     scope.references = Object.fromEntries([...configRefs].map(([config, owners]) => [config, [...owners]]));
     // Exclude lifecycle markers and wall-clock freshness from the revision, retain every ownership/status field.
     scope.revision = (0, PlanCleanup_1.cleanupDigest)({ projectId, file, resultDir, planHash: scope.planHash, plans: plans.map(row => [row.file, planSha(row)]).sort(), configHashes: Object.fromEntries(Object.entries(configHashes).sort()),
-        queue: input.queue.plans.map(plan => ({ ...plan, cleanup: undefined })), removedMetadata: removed, deferred: input.queue.deferred,
+        queue: input.queue.plans.map(plan => ({ ...plan, cleanup: undefined, jobs: plan.jobs.map(job => ({ ...job, cleanup: undefined })) })), removedMetadata: removed, deferred: input.queue.deferred,
         recoveries: input.queue.failedAttemptRecoveries, ledger: input.ledger, nodes: scope.nodes.map(node => ({ ...node, error: undefined })), candidates, notices });
     return scope;
 }

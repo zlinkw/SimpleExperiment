@@ -78,9 +78,10 @@ const method = cls.members.find(n => n.name?.getText(ast) === 'retryDistributedJ
 const code = ts.transpileModule('class Provider {' + method + '}; Provider;', { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 function host(variant) {
   const Provider = vm.runInNewContext(code, { workspaceRoot: () => root, DistributedPlanQueue: Q,
-    makeOpId: () => 'explicit-requeue-command', vscode: { window: { showWarningMessage: async () => variant === 'cancel' ? undefined : '重新排队' } } });
+    makeOpId: () => 'explicit-requeue-command', vscode: { window: { showWarningMessage: async () => variant === 'cancel' ? undefined : variant === 'artifacts' ? '审核遗留文件' : '重新排队' } } });
   const p = new Provider();
   let stored = queue(), ticks = 0;
+  const reviews = [];
   const plan = stored.plans[0], job = plan.jobs[0];
   p.captureProjectContext = () => ({});
   p.projectContextIsCurrent = () => true;
@@ -89,19 +90,20 @@ function host(variant) {
   p.tickDistributedQueue = async () => { ticks++; }; // No production training/GPU/network.
   p.workerCodeSyncTargets = () => [{ id: 'worker' }];
   p.sftpServerOptions = () => ({ host: 'fixture', user: 'fixture', port: 22, remotePath: '/fixture' });
+  p.planCleanupHost = () => ({ openJob: async (...args) => { reviews.push(args); } });
   p.simpleSftpApiCall = async () => ({ files: variant === 'artifacts' ? { 'work_dirs/aoept/bus_seed44/model.pth': 'hash' } : {}, unverifiedFiles: {} });
   p.client = { getWorkerTasks: async () => ({ tasks: [{ projectId: plan.projectId, workflowId: plan.id,
     planFile: plan.planFile, planRevision: plan.revision, codeFingerprint: variant === 'identity' ? 'foreign-code' : plan.codeFingerprint,
     experimentIndex: job.index, case: job.case, seed: job.seed, planJobCount: 1, fullPlanJobCount: 1,
     executionMode: plan.executionMode, mode: plan.executionMode, ...job, status: variant === 'running' ? 'running' : 'failed' }] }) };
-  return { p, message: { planId: plan.id, jobIndex: job.index, commandId: job.commandId }, stored: () => stored, ticks: () => ticks };
+  return { p, message: { planId: plan.id, jobIndex: job.index, commandId: job.commandId }, stored: () => stored, ticks: () => ticks, reviews };
 }
 test('existing formal recovery entry rechecks stopped ownership and empty output before explicit queue changes', async () => {
   const success = host('empty');
   await success.p.retryDistributedJobFromUi(success.message);
   assert.equal(success.stored().plans[0].jobs[0].status, 'pending');
   assert.equal(success.ticks(), 1);
-  for (const variant of ['identity', 'running', 'artifacts', 'cancel', 'stale']) {
+  for (const variant of ['identity', 'running', 'cancel', 'stale']) {
     const h = host(variant), original = structuredClone(h.stored());
     if (variant === 'stale') h.message.commandId = 'stale-command';
     if (variant === 'cancel') await h.p.retryDistributedJobFromUi(h.message);
@@ -109,6 +111,17 @@ test('existing formal recovery entry rechecks stopped ownership and empty output
     assert.deepEqual(h.stored(), original);
     assert.equal(h.ticks(), 0);
   }
+});
+test('occupied failed output opens an exact-job read-only review, preserving the queue and all successful jobs', async () => {
+  const h = host('artifacts'), before = structuredClone(h.stored());
+  const result = await h.p.retryDistributedJobFromUi(h.message);
+  assert.equal(result.status, 'blocked');
+  assert.equal(result.code, 'FORMAL_JOB_CONFLICT');
+  assert.equal(h.reviews.length, 1);
+  assert.deepEqual(structuredClone(h.reviews[0]), [before.plans[0].planFile,
+    { workflowId: before.plans[0].id, index: 2, commandId: 'original-command' }]);
+  assert.deepEqual(h.stored(), before);
+  assert.equal(h.ticks(), 0);
 });
 test('ownership changing during confirmation blocks requeue and duplicate workflow registration remains protected', async () => {
   const h = host('empty'), before = structuredClone(h.stored());
