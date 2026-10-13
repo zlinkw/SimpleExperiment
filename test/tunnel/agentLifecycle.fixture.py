@@ -9,11 +9,16 @@ import sys
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 
-source = pathlib.Path(__file__).resolve().parents[3] / 'simple-sftp' / 'agent-lifecycle.py'
+vendor_source = pathlib.Path(__file__).resolve().parents[3] / 'simple-sftp' / 'agent-lifecycle.py'
+root = pathlib.Path(tempfile.mkdtemp(prefix='agent-service-'))
+# Each real child imports the unchanged controller bytes from native Linux
+# storage, avoiding repeated WSL cross-filesystem reads in the 10 second budget.
+source = root / 'lifecycle.py'
+source.write_bytes(vendor_source.read_bytes())
+assert source.read_bytes() == vendor_source.read_bytes()
 spec = importlib.util.spec_from_file_location('lifecycle', source)
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
-root = pathlib.Path(tempfile.mkdtemp(prefix='agent-service-'))
 project = root / 'project'
 project.mkdir()
 install = root / 'runtime'
@@ -43,6 +48,23 @@ params = dict(action='inspect', projectDir=str(project),installDir=str(install),
 tree = sorted(str(p) for p in root.rglob('*'))
 assert module.lifecycle_control(params)['status']=='absent'
 assert tree==sorted(str(p) for p in root.rglob('*')), 'inspect wrote files'
+legacy_contract = module.lifecycle_contract(params)
+legacy_state = pathlib.Path(legacy_contract['stateDir'])
+legacy_state.mkdir(parents=True)
+legacy_file = legacy_state / 'agent.session.json'
+legacy_bytes = json.dumps({'agentVersion':'fixture-old','agentStateDir':str(legacy_state),'token':'must-not-be-returned'}).encode()
+legacy_file.write_bytes(legacy_bytes)
+before_legacy = sorted((str(p),p.read_bytes()) for p in legacy_state.rglob('*') if p.is_file())
+legacy = module.lifecycle_control(params)
+assert legacy['ok'] is False and legacy['code'] == 'AGENT_LEGACY_STATE_UNVERIFIED'
+assert legacy['evidence']['metadata'][0]['sha256'] == hashlib.sha256(legacy_bytes).hexdigest()
+assert 'must-not-be-returned' not in json.dumps(legacy)
+assert before_legacy == sorted((str(p),p.read_bytes()) for p in legacy_state.rglob('*') if p.is_file())
+# Keep the legacy fixture intact; create the independent service in a different
+# explicit fixture project, without clearing or adopting any old metadata.
+project = root / 'fresh-project'
+project.mkdir()
+params['projectDir'] = str(project)
 platform = subprocess.Popen(['sleep','60'])
 agent = None
 try:

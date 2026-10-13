@@ -19,9 +19,11 @@ scripts/**
 test/**
 scenarios/**
 *.vsix
+*.vsix.sha256
 *.tgz
 review_report.md
 **/*.vsix
+**/*.vsix.sha256
 **/review_report.md
 
 # 打包/测试日志与备份文件（不入包）

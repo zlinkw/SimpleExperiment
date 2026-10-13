@@ -7925,14 +7925,22 @@ class RealtimeTunnelPanelProvider {
         const expectedHost = String(config.workerHost || config.hubHost || target.networkHost || target.host || "");
         const expectedUser = String(config.workerUser || config.hubUser || target.user || "");
         const expectedPort = Number(config.workerSshPort || config.hubSshPort || target.port);
+        // Older configuration also stored Xshell session titles in sshConfigAlias.
+        // ssh -G accepts unknown names and returns that name with local defaults;
+        // this is not evidence of an OpenSSH transport mapping. Keep the already
+        // configured direct endpoint, rather than requiring a nonexistent alias.
+        if (resolved.ok && resolved.hostname === alias && expectedHost !== alias
+            && server.host === expectedHost && Number(server.port) === expectedPort
+            && (!expectedUser || server.user === expectedUser))
+            return server;
         if (!resolved.ok || resolved.hostname !== expectedHost || Number(resolved.port) !== expectedPort || expectedUser && resolved.user !== expectedUser)
-            throw new Error(`AGENT_SSH_ALIAS_MISMATCH: ${target.id} / ${alias}`);
+            throw new Error(`AGENT_SSH_ALIAS_MISMATCH: ${target.id} / ${alias}; expected=${expectedUser}@${expectedHost}:${expectedPort}; resolved=${resolved.user}@${resolved.hostname}:${resolved.port}; ${resolved.message || ""}`);
         return { ...server, host: alias, sftpHost: alias, sshHost: alias, transferHost: alias, resolvedHost: alias, networkHost: expectedHost };
     }
     async agentLifecycleForTarget(target, action, manifest, confirmed = false) {
         const installed = vscode.extensions.getExtension(SIMPLE_SFTP_EXTENSION_ID);
-        if (require("../features/ExtensionUpdates").compareSemanticVersions(String(installed?.packageJSON?.version || "0.0.0"), "0.2.70") < 0)
-            throw new Error("AGENT_LIFECYCLE_CAPABILITY_REQUIRED: 需要 SimpleSFTP 0.2.70，未修改远端或自定义登录命令。");
+        if (require("../features/ExtensionUpdates").compareSemanticVersions(String(installed?.packageJSON?.version || "0.0.0"), "0.2.71") < 0)
+            throw new Error("AGENT_LIFECYCLE_CAPABILITY_REQUIRED: 需要 SimpleSFTP 0.2.71，未修改远端或自定义登录命令。");
         const config = target.id === "hub" ? this.setupConfig : this.setupConfig.workerTunnels.find(row => row.id === target.id);
         if (!config)
             throw new Error(`AGENT_CONFIG_MISSING: ${target.id}`);
@@ -7947,8 +7955,11 @@ class RealtimeTunnelPanelProvider {
             expectedVersion: manifest?.runtimeVersion || RuntimeManifest_1.CURRENT_RUNTIME_VERSION, files: manifest?.files,
             confirm: confirmed, pathConfirmed: confirmed,
         });
-        if (result?.ok !== true)
-            throw new Error(`${target.id}: ${result?.code || "AGENT_LIFECYCLE_FAILED"}: ${result?.error || "未收到有效回执"}`);
+        if (result?.ok !== true) {
+            const error = new Error(`${target.id}: ${result?.code || "AGENT_LIFECYCLE_FAILED"}: ${result?.error || "未收到有效回执"}`);
+            error.apiData = { code: result?.code || "AGENT_LIFECYCLE_FAILED", serverId: target.id, evidence: result?.evidence };
+            throw error;
+        }
         return result;
     }
     async verifyDeployedAgentRuntime(targets, manifest) {

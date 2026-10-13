@@ -11,14 +11,15 @@ const tree=ts.createSourceFile('provider.ts',source,ts.ScriptTarget.Latest,true)
 const cls=tree.statements.find(n=>ts.isClassDeclaration(n)&&n.name?.text==='RealtimeTunnelPanelProvider');
 const names=['deployLatestAgentRuntime','agentLifecycleForTarget','agentLifecycleServer','writeXshellAgentStartupCommands'];
 const code=ts.transpileModule(`class Host {${cls.members.filter(n=>names.includes(n.name?.getText(tree))).map(n=>n.getText(tree)).join('\n')}};Host;`,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
-function fixture(state='absent') {
+function fixture(state='absent', inspection) {
  const calls=[];
  const target={id:'container',label:'container',host:'configured-host',port:23094,remotePath:'/srv/agent/simple_cluster/runtime',localForwardPort:23069};
  let host;
  const Host=vm.runInNewContext(code,{require:specifier=>require(path.resolve(__dirname,'../../dist/extension',specifier)),console:{log(){},warn(){}},fs:fs.promises,path,__dirname:path.resolve(__dirname,'../../dist/extension'),
   AgentRuntimeScope_1:scope,RuntimeManifest_1:manifest,SIMPLE_SFTP_EXTENSION_ID:'simple-local.simple-sftp',
+  SshTransportIdentity_1:{...require('../../dist/tunnel/SshTransportIdentity'),inspectOpenSshAlias:async()=>inspection},
   sftpUploadFilesSucceeded:row=>row.ok===true,stringFromRecord:()=>'',errorMessage:e=>e.message,effectiveWorkerCondaEnv:row=>row.condaEnv,
-  vscode:{extensions:{getExtension:()=>({packageJSON:{version:'0.2.70'}})},commands:{executeCommand:async(name,params)=>{
+  vscode:{extensions:{getExtension:()=>({packageJSON:{version:'0.2.71'}})},commands:{executeCommand:async(name,params)=>{
    calls.push({name,params});
    if(name==='simpleSftp.uploadFiles')return {ok:true};
    if(params.action==='inspect') {
@@ -46,4 +47,21 @@ test('healthy preparation reuses service without uploading or restarting; foreig
  assert.deepEqual(healthy.calls.map(c=>c.params.action),['inspect','ensure']);
  const foreign=fixture('foreign');await assert.rejects(()=>foreign.host.deployLatestAgentRuntime(false,true,['container'],true),/AGENT_STATE_OWNER_CONFLICT/);
  assert.equal(foreign.calls.length,1);
+});
+test('legacy Xshell session names without an OpenSSH HostName mapping preserve the configured direct transport',async()=>{
+ const {host}=fixture('absent',{ok:true,alias:'old-session',hostname:'old-session',user:'desktop-user',port:'22'});
+ Object.assign(host.setupConfig.workerTunnels[0],{workerHost:'configured-host',workerUser:'user',workerSshPort:23094,sshConfigAlias:'old-session'});
+ const server=await host.agentLifecycleServer(host.agentRuntimeUploadTargets()[0]);
+ assert.equal(server.host,'configured-host');assert.equal(server.user,'user');assert.equal(server.port,23094);
+});
+test('a real OpenSSH alias must match host, user and SSH port before use',async()=>{
+ const matching=fixture('absent',{ok:true,alias:'container-ssh',hostname:'configured-host',user:'user',port:'23094'});
+ Object.assign(matching.host.setupConfig.workerTunnels[0],{workerHost:'configured-host',workerUser:'user',workerSshPort:23094,sshConfigAlias:'container-ssh'});
+ assert.equal((await matching.host.agentLifecycleServer(matching.host.agentRuntimeUploadTargets()[0])).host,'container-ssh');
+ for(const changed of [{hostname:'foreign-host'},{user:'other-user'},{port:'22'},{ok:false}]){
+  const f=fixture('absent',{ok:true,alias:'container-ssh',hostname:'configured-host',user:'user',port:'23094',...changed});
+  Object.assign(f.host.setupConfig.workerTunnels[0],{workerHost:'configured-host',workerUser:'user',workerSshPort:23094,sshConfigAlias:'container-ssh'});
+  await assert.rejects(()=>f.host.agentLifecycleServer(f.host.agentRuntimeUploadTargets()[0]),/AGENT_SSH_ALIAS_MISMATCH/);
+  assert.equal(f.calls.length,0);
+ }
 });
