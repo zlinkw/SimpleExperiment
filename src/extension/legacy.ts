@@ -4104,6 +4104,7 @@ export class RealtimeTunnelPanelProvider {
         await Promise.all(shutdownTasks);
     }
     async withHostOperationLease(actionType, actionLabel, operation, options = {}) {
+        if (actionType !== "installPluginUpdates") require("../updates/Bootstrap").assertBusinessAllowed();
         // Preflight, reads, transfer orchestration and cancellation use their target-level guards.
         if (/^(runPlan|reproducePlan|runAllPlans|validatePlan|dryRunPlan|parseResults|stop|abort|cancel|kill|clearTmux|sync|upload|download|distribute|prepareAgents|deploy|refresh|fetch|get|check|plot|startPpt)/i.test(actionType)) return operation();
         const leaseContext = currentHostOperationLeaseContext();
@@ -6041,6 +6042,7 @@ export class RealtimeTunnelPanelProvider {
         return undefined;
     }
     async runActionCommand(command, message) {
+        require("../updates/Bootstrap").assertBusinessAllowed();
         if (PLAN_SUBMISSION_COMMANDS.has(command)) {
             this.planRunStageStartedAt = Date.now();
             this.beginPlanSubmissionProgress(message, this.actionBody(message));
@@ -7254,6 +7256,8 @@ export class RealtimeTunnelPanelProvider {
         return value;
     }
     async checkPluginUpdates(manual = false) {
+        const updater = require("../updates/Bootstrap").getUpdater();
+        if (updater) return updater.check(manual);
         await this.setPluginUpdateStatus({ status: "checking", message: "正在检查 SimpleExperiment 与 SimpleSFTP 的配套 Release。", checkedAt: new Date().toISOString() });
         try {
             const token = await this.githubUpdateToken(manual);
@@ -7364,6 +7368,8 @@ export class RealtimeTunnelPanelProvider {
         }
     }
     async installPluginUpdates() {
+        const updater = require("../updates/Bootstrap").getUpdater();
+        if (updater) return updater.install();
         return this.withHostOperationLease("installPluginUpdates", "安装配套插件更新", () => this.installPluginUpdatesOwned());
     }
     private async installPluginUpdatesOwned() {
@@ -10538,6 +10544,7 @@ export class RealtimeTunnelPanelProvider {
         void Promise.resolve(task).then(() => undefined, () => undefined);
     }
     async tickDistributedQueue() {
+        if (require("../updates/Bootstrap").getUpdater()?.blocked) return;
         if (this.planCleanupHosts.get(workspaceRoot())?.executing) return;
         if (this.distributedQueueTickPromise) return this.distributedQueueTickPromise;
         if (this.distributedPlanStopEpoch) return;
@@ -21785,7 +21792,7 @@ export class RealtimeTunnelPanelProvider {
             setup: compactXshellSetupForWebview(this.setupConfig),
             schedulerConfig,
             remoteRootPolicy,
-            pluginUpdate: this.pluginUpdateStatus || { status: "unknown", message: "尚未检查配套更新。", checkedAt: "" },
+            pluginUpdate: require("../updates/Bootstrap").getUpdater() ? require("../updates/Bootstrap").getUpdateStatus() : this.pluginUpdateStatus || { status: "unknown", message: "尚未检查配套更新。", checkedAt: "" },
             pptPlotConfig,
             pptAutomation: this.pptAutomationReadiness,
             integrations,
