@@ -1,10 +1,10 @@
 # 独立 Agent 服务与准备
 
-SimpleExperiment 0.5.299 / SimpleSFTP 0.2.75 使用独立辅助服务协议 1。平台主服务、sshd、容器启动入口和用户训练保持独立；准备不再要求覆盖 Xshell 的自定义登录命令。所有地址、SSH 身份、端口、项目父目录、项目目录、环境和 runtime 根均从当前服务器配置读取。
+SimpleExperiment 0.5.300 / SimpleSFTP 0.2.77 使用独立辅助服务协议 1。平台主服务、sshd、容器启动入口和用户训练保持独立；准备不再要求覆盖 Xshell 的自定义登录命令。所有地址、SSH 身份、端口、项目父目录、项目目录、环境和 runtime 根均从当前服务器配置读取。
 
 ## 入口与状态
 
-“准备 Agent”、`project.prepare`、`project.bootstrap`、单端点启动、runtime 部署及自动升级共用 SimpleSFTP 的受限 `agents.lifecycle` 控制器。准备先只读核对所有所选端点，再上传缺少或不匹配的两个 runtime 小文件；健康且身份、环境、版本和 SHA256 一致时复用，不上传、不重启。只部署到磁盘不能报告运行升级成功，必须核对运行进程的版本和身份回执。活动任务阻断升级，失败或超时必须明确报告；传输/启动回执不确定时不得重复启动。
+“准备 Agent”、`project.prepare`、`project.bootstrap`、单端点启动、runtime 部署及自动升级共用 SimpleSFTP 的受限 `agents.lifecycle` 控制器。准备先只读核对所有所选端点，再上传缺少或不匹配的两个 runtime 小文件；健康且身份、版本和 SHA256 一致时复用，不上传、不重启。只部署到磁盘不能报告运行升级成功，必须核对运行进程的版本和身份回执。任务活动不阻断辅助服务升级或重启；失败或超时明确报告，传输/启动回执不确定时不得重复启动。
 
 SimpleExperiment API 示例（使用 live discovery 的实际方法和配置，不套用示例服务器路径）：
 
@@ -39,13 +39,17 @@ API 调用 `agents.lifecycle` 的 `action: migrate` 先不传确认取得完整�
 
 Agent 健康检查、校验/预演、Worker 启动和 Scheduler 正式预检不再自动调用环境/依赖探针；回执明确 `checked=false`，不能宣称环境已通过。历史显式只读诊断入口保留，须用户主动调用。任务仍按所选环境执行，保留身份、来源哈希、checkpoint、路径、输出单写者和项目回调校验；实际启动失败如实回传程序错误。远端旧 Agent/Scheduler 须部署 0.5.299 后才采用新的实际作业行为，不自动重派任务。
 
+0.5.300 / 0.2.77 按用户新约束撤销此前活动任务阻断规则。`running/queued/accepted/stop_requested`、未知状态、陈旧或损坏的遥测以及未消费 command/cursor 均不阻断辅助 Agent 的准备、迁移、升级、停止和重启；不消费或改写这些文件。任务活动只作诊断，重复 commandId 去重，`completed/failed/cancelled/canceled/stopped/unavailable` 正确识别为终态。NWPU2 两条旧 AOEPT 记录为 `stopped`，旧检查遗漏终态导致误报。迁移冻结指纹不绑定可变的任务状态和文件名清单，仍重新核验安全根、容器、实际 PID 和 runtime 哈希。
+
+已登记服务 HTTP 无响应时返回 `status=unhealthy`，可通过精确 PID 启动身份、UID、nonce、完整 argv、runtime 根及 namespace 证明停止和恢复；不要求失效的 HTTP 服务自行证明健康。`ensure` 复用健康同版本服务；已核实的不健康服务恢复启动。准备/升级调用同一逻辑。API capabilities 提供 `activeTasksBlockRestart=false`、`restartPreservesTasks=true`。服务重启保留原 commandId、队列、游标和运行任务；控制器不重派或清理科研作业，实际 Agent 的正常遥测与队列处理仍遵循原作业身份协议。
+
 ## 归属保护与边界
 
 项目状态保留现有项目 namespace。首次写入前，Agent 取得持有整个生命周期的独占 owner 锁并绑定 Worker、项目、模式、用户、物理 runtime 根和容器/挂载/可见 GPU 身份。Conda 是任务配置而非辅助服务归属。不同容器共享 NFS 状态时返回 `AGENT_STATE_OWNER_CONFLICT`；重复 Worker ID 指向不同配置时直接阻断。不会迁移其他服务器状态。
 
-停止使用健康实例 nonce、PID 启动身份、UID、解释器和完整 argv 共同核验，并用 Linux pidfd 固定目标，只发送该进程 SIGTERM。不会停止进程组、sshd、tmux、平台或训练子进程。缺少 pidfd、状态不明、活动任务或无法确认退出时阻断，禁止扩大 kill 范围。
+停止使用实例 nonce、PID 启动身份、UID、解释器和完整 argv 共同核验，并用 Linux pidfd 固定目标，只发送该进程 SIGTERM。不会停止进程组、sshd、tmux、平台或训练子进程。缺少 pidfd、无法证明进程归属或无法确认退出时明确拒绝扩大 kill 范围；任务状态不构成拒绝理由。
 
-本地回归使用轻量 CPU/HTTP 辅助探针和独立平台进程，验证首次启动、重复复用、运行版本拒绝、状态冲突、活动任务阻断、精确停止/重启及原登录段更新；不运行 train.py/test.py。H20 的真实 SSH/SFTP/Conda/GPU 与实际插件 API 验收须在安装后用户重载窗口，再仅针对已配置的 H20 执行。其他服务器保留。
+本地回归使用轻量 CPU/HTTP 辅助探针和独立平台、科研进程替身，验证首次启动、重复复用、运行版本拒绝、状态冲突、活动/未知任务和损坏遥测下重启、无 HTTP 健康时恢复、精确停止/重启及原登录段更新。活动期间迁移保留未消费队列和所有历史字节；不运行 train.py/test.py。生产节点真实重启须用户重载后核对精确目标及迁移预览，不能将本地回归冒充服务器验收。
 
 ## 已结束 PLAN 历史
 

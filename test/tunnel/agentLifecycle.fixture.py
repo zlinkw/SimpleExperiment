@@ -80,6 +80,7 @@ project = root / 'fresh-project'
 project.mkdir()
 params['projectDir'] = str(project)
 platform = subprocess.Popen(['sleep','60'])
+research = subprocess.Popen(['sleep','60'])
 agent = None
 try:
     def concurrent_prepare(_):
@@ -123,13 +124,22 @@ try:
         assert e.code=='AGENT_RUNTIME_HASH_MISMATCH'
     assert module.lifecycle_process(agent)
     state = pathlib.Path(first['contract']['stateDir'])
-    (state/'worker_task_snapshot.json').write_text(json.dumps({'tasks':[{'commandId':'retained-command','status':'running'}]}),encoding='utf-8')
-    try:
-        module.lifecycle_control(dict(params,action='restart'))
-        raise AssertionError('restarted active jobs')
-    except module.AgentLifecycleError as e:
-        assert e.code=='AGENT_ACTIVE_TASK'
-    (state/'worker_task_snapshot.json').write_text('{"tasks":[]}',encoding='utf-8')
+    for status in ('running','queued','accepted','stop_requested','unknown',''):
+        (state/'worker_task_snapshot.json').write_text(json.dumps({'tasks':[{'commandId':'retained-command','status':status}]}),encoding='utf-8')
+        assert module.lifecycle_control(params)['activeTasks']==['retained-command']
+        original=(state/'worker_task_snapshot.json').read_bytes()
+        restarted=module.lifecycle_control(dict(params,action='restart'))
+        assert restarted['identity']['pid']!=agent and not module.lifecycle_process(agent)
+        agent=restarted['identity']['pid']
+        assert (state/'worker_task_snapshot.json').read_bytes()==original
+        assert platform.poll() is None and research.poll() is None
+    terminal_bytes=json.dumps({'tasks':[{'commandId':'old-stopped-job','status':'stopped','finishedAt':'old','stopReason':'scheduler_aborted'},
+                                      {'commandId':'old-canceled-job','status':'canceled','finishedAt':'old'}]}).encode()
+    (state/'worker_task_snapshot.json').write_bytes(terminal_bytes)
+    assert module.lifecycle_control(params)['activeTasks']==[]
+    (state/'distributed_plan_queue.json').write_text(json.dumps({'jobs':[{'commandId':'queued-durable','status':'queued'}]}),encoding='utf-8')
+    assert module.lifecycle_control(params)['activeTasks']==['queued-durable']
+    queued_bytes=(state/'distributed_plan_queue.json').read_bytes()
     (runtime/'cluster_agent.py').write_text(probe.replace('fixture-v1','fixture-v2'),encoding='utf-8')
     upgraded=dict(params,expectedVersion='fixture-v2',files={name:hashlib.sha256((runtime/name).read_bytes()).hexdigest() for name in params['files']})
     restarted=module.lifecycle_control(dict(upgraded,action='restart'))
@@ -137,6 +147,9 @@ try:
     assert restarted['identity']['pid']!=agent
     agent=restarted['identity']['pid']
     assert platform.poll() is None
+    assert research.poll() is None
+    assert (state/'distributed_plan_queue.json').read_bytes()==queued_bytes
+    assert (state/'worker_task_snapshot.json').read_bytes()==terminal_bytes
     record=state/'agent.process.json'
     value=json.loads(record.read_text(encoding='utf-8'))
     record.write_text(json.dumps(dict(value,nonce='wrong')),encoding='utf-8')
@@ -147,20 +160,36 @@ try:
         assert e.code=='AGENT_PROCESS_UNVERIFIED'
     assert module.lifecycle_process(agent)
     record.write_text(json.dumps(value),encoding='utf-8')
+    # Lost HTTP health cannot obstruct recovery of the independently proven PID.
+    health_function=module.lifecycle_health
+    unhealthy_pid=agent
+    module.lifecycle_health=lambda *args: {} if module.lifecycle_process(unhealthy_pid) else health_function(*args)
+    assert module.lifecycle_control(params)['status']=='unhealthy'
+    recovered=module.lifecycle_control(dict(upgraded,action='restart'))
+    assert not module.lifecycle_process(unhealthy_pid)
+    agent=recovered['identity']['pid']
+    module.lifecycle_health=health_function
+    (state/'worker_task_snapshot.json').write_bytes(b'{corrupt activity')
+    assert module.lifecycle_control(params)['activeTasks']==['unverified-activity:worker_task_snapshot.json','queued-durable']
+    original=(state/'worker_task_snapshot.json').read_bytes()
     assert module.lifecycle_control(dict(params,action='stop'))['status']=='stopped'
     assert not module.lifecycle_process(agent)
     assert platform.poll() is None
+    assert research.poll() is None
+    assert (state/'worker_task_snapshot.json').read_bytes()==original
     (state/'worker_task_snapshot.json').write_text(json.dumps({'tasks':[{'commandId':'queued-original','status':'queued'}]}),encoding='utf-8')
-    try:
-        module.lifecycle_control(dict(upgraded,action='ensure'))
-        raise AssertionError('Agent preparation silently resumed queued research')
-    except module.AgentLifecycleError as e:
-        assert e.code=='AGENT_ACTIVE_TASK'
-    assert not module.lifecycle_process(agent)
-    print(json.dumps({'firstStart':True,'reused':True,'ownedRestart':True,'cpuConflictRejected':True,'platformAlive':True,'unverifiedPidProtected':True,'zeroWriteInspect':True,'queuedResearchBlocked':True,'missingResearchEnvAllowed':True,'changedResearchEnvReused':True,'healthWithoutEnvironmentProbe':True}))
+    original=(state/'worker_task_snapshot.json').read_bytes()
+    prepared=module.lifecycle_control(dict(upgraded,action='ensure'))
+    agent=prepared['identity']['pid']
+    assert (state/'worker_task_snapshot.json').read_bytes()==original
+    assert (state/'distributed_plan_queue.json').read_bytes()==queued_bytes
+    assert research.poll() is None and platform.poll() is None
+    print(json.dumps({'firstStart':True,'reused':True,'ownedRestart':True,'cpuConflictRejected':True,'platformAlive':True,'researchAlive':True,'unverifiedPidProtected':True,'zeroWriteInspect':True,'activeTasksNeverBlockRestart':True,'queueBytesPreserved':True,'unhealthyRecovered':True,'corruptActivityNotGate':True,'missingResearchEnvAllowed':True,'changedResearchEnvReused':True,'healthWithoutEnvironmentProbe':True}))
 finally:
     # Only fixture processes created in this script; no user/platform target touched.
     if agent and module.lifecycle_process(agent):
         module.lifecycle_control(dict(params,action='stop'))
     platform.terminate()
     platform.wait(timeout=2)
+    research.terminate()
+    research.wait(timeout=2)

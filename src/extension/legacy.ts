@@ -7678,8 +7678,6 @@ export class RealtimeTunnelPanelProvider {
                 && (Object.entries(manifest.files).some(([name, digest]) => before.files?.[name] !== digest)
                     || before.identity?.runtimeFiles && Object.entries(manifest.files).some(([name, digest]) => before.identity.runtimeFiles[name] !== digest)))
                 throw new Error(`${target.id}: AGENT_RUNTIME_VERSION_REUSED: 同版本字节已改变，未覆盖或重启`);
-            if (before.activeTasks?.length && (before.runningVersion !== runtimeVersion || Object.entries(manifest.files).some(([name, digest]) => before.files?.[name] !== digest)))
-                throw new Error(`${target.id}: AGENT_ACTIVE_TASK: 未写入 runtime 或重启 Agent`);
             inspections.set(target.id, before);
         }
         const legacyTargets = targets.filter(target => inspections.get(target.id)?.status === "legacy");
@@ -7743,7 +7741,7 @@ export class RealtimeTunnelPanelProvider {
             throw new Error(`Agent runtime 部署失败：${failures.join("; ")}`);
         for (const target of targets) {
             const before: any = inspections.get(target.id);
-            await this.agentLifecycleForTarget(target, before.status === "running" && before.runningVersion !== runtimeVersion ? "restart" : "ensure", manifest, true);
+            await this.agentLifecycleForTarget(target, before.status === "unhealthy" || before.status === "running" && before.runningVersion !== runtimeVersion ? "restart" : "ensure", manifest, true);
         }
         if (deferVerification) return { targets, manifest };
         // 手动触发(showMessage=true)：单次 verify 立即返回，避免 fetch failed/ECONNREFUSED 无意义延迟；仅自动触发(showMessage=false)才轮询重试
@@ -7811,7 +7809,6 @@ export class RealtimeTunnelPanelProvider {
             for (const target of targets) {
                 const before = await this.agentLifecycleForTarget(target, "inspect");
                 if (before.status !== "legacy") throw new Error(`AGENT_MIGRATION_NOT_REQUIRED: ${target.id}`);
-                if (before.activeTasks?.length) throw new Error(`AGENT_ACTIVE_TASK: ${target.id}`);
                 preview.push({ serverId: target.id, host: target.host, user: target.user, port: target.port, ...before.legacyMigration });
             }
             if (params.confirm !== true || preview.some(row => params.migrationDigests?.[row.serverId] !== row.digest)) throw confirmationRequired({
@@ -7852,8 +7849,8 @@ export class RealtimeTunnelPanelProvider {
     }
     async agentLifecycleForTarget(target, action, manifest?, confirmed = false, migrationDigest?: string) {
         const installed = vscode.extensions.getExtension(SIMPLE_SFTP_EXTENSION_ID);
-        if (require("../features/ExtensionUpdates").compareSemanticVersions(String(installed?.packageJSON?.version || "0.0.0"), "0.2.75") < 0)
-            throw new Error("AGENT_LIFECYCLE_CAPABILITY_REQUIRED: 需要 SimpleSFTP 0.2.75，未修改远端或自定义登录命令。");
+        if (require("../features/ExtensionUpdates").compareSemanticVersions(String(installed?.packageJSON?.version || "0.0.0"), "0.2.77") < 0)
+            throw new Error("AGENT_LIFECYCLE_CAPABILITY_REQUIRED: 需要 SimpleSFTP 0.2.77，未修改远端或自定义登录命令。");
         const config = target.id === "hub" ? this.setupConfig : this.setupConfig.workerTunnels.find(row => row.id === target.id);
         if (!config) throw new Error(`AGENT_CONFIG_MISSING: ${target.id}`);
         const dirs = this.agentRuntimeDirs(config.agentProjectDir, config.agentInstallDir);

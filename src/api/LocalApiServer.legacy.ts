@@ -659,7 +659,7 @@ export class LocalApiServer {
           "agents.lifecycle": { actions: ["inspect", "ensure", "stop", "restart", "migrate"], requiredParams: ["serverIds"],
             inspectZeroWrites: true, independentServiceProtocol: 1, noTaskCancellation: true, ownerVerifiedPidfdOnly: true,
             researchEnvironmentManagement: "external", agentResearchEnvironmentValidation: false,
-            mutationConfirmation: "exact configured target", requiresSimpleSftp: "0.2.75", legacyMigration: { migrationDigests: true, explicitConfirmation: true, activeJobsBlocked: true, preservesStateBytes: true } },
+            mutationConfirmation: "exact configured target", requiresSimpleSftp: "0.2.77", activeTasksBlockRestart: false, restartPreservesTasks: true, legacyMigration: { migrationDigests: true, explicitConfirmation: true, activeJobsBlocked: false, preservesStateBytes: true } },
           "project.prepare": { healthyAgentReuse: true, inspectBeforeRuntimeWrite: true, preservesUnmanagedLogin: true,
             agentLoginPolicy: ["preserve", "managed"], actualRunningVersionRequired: true },
         } : {}),

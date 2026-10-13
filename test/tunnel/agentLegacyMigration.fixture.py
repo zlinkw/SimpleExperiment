@@ -39,6 +39,9 @@ session = {'agentInstallDir': str(install), 'agentStateDir': str(state), 'agentV
 (state / 'agent.session.json').write_text(json.dumps(session), encoding='utf-8')
 (state / 'worker_availability.json').write_text(json.dumps({'schemaVersion':1,'workers':{'fixture-worker':{'workerId':'fixture-worker','totalGpus':0,'gpus':[]}}}), encoding='utf-8')
 (state / 'events.jsonl').write_bytes(b'original historical bytes\n')
+(state / 'worker_task_snapshot.json').write_text(json.dumps({'tasks':[
+    {'commandId':'old-aoept-seed43','status':'stopped','pid':'%344','finishedAt':'2026-10-09T10:16:48Z','stopReason':'scheduler_aborted','stopSource':'user'},
+    {'commandId':'old-aoept-seed44','status':'stopped','pid':'%345','finishedAt':'2026-10-09T10:16:53Z','stopReason':'scheduler_aborted','stopSource':'user'}]}),encoding='utf-8')
 for name in ('actions', 'cluster_scheduler', 'live_output'):
     folder = state / name
     folder.mkdir()
@@ -58,6 +61,7 @@ script.write_text(probe, encoding='utf-8')
 argv = [sys.executable,str(script),'serve','--project-dir',str(project),'--mode','worker_telemetry','--host','127.0.0.1','--port',str(port),'--worker-id','fixture-worker']
 env = dict(os.environ,SIMPLE_EXPERIMENT_AGENT_INSTALL_DIR=str(install),SIMPLE_EXPERIMENT_CONDA_ENV='legacy-training-environment')
 platform = subprocess.Popen(['sleep','60'])
+research = subprocess.Popen(['sleep','60'])
 agent = subprocess.Popen(argv,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
 try:
     deadline = time.monotonic()+3
@@ -69,6 +73,7 @@ try:
     migration = before['evidence']['migration']
     assert 'blocked' not in migration, migration
     assert migration['pid']==agent.pid
+    assert migration['activeTasks']==[], migration
     assert original == {str(p.relative_to(state)):p.read_bytes() for p in state.rglob('*') if p.is_file()}
     # Research environments are task configuration, never auxiliary ownership.
     foreign_conda = root / 'foreign-conda'
@@ -95,24 +100,23 @@ try:
     queue.write_text(json.dumps({'commandId':'retained-command'})+'\n',encoding='utf-8')
     queued = m.lifecycle_control(params)['evidence']['migration']
     assert queued['activeTasks']==['retained-command']
-    try:
-        m.lifecycle_control(dict(params,action='migrate',migrationDigest=queued['digest']))
-        raise AssertionError('accepted pending command')
-    except m.AgentLifecycleError as e:
-        assert e.code=='AGENT_ACTIVE_TASK'
-    raw=queue.read_bytes();stat=queue.stat()
-    pathlib.Path(str(queue)[:-6]+'.cursor.json').write_text(json.dumps({'queueSeq':1,'device':stat.st_dev,'inode':stat.st_ino,'size':len(raw),'prefixLength':len(raw),'prefixSha256':hashlib.sha256(raw).hexdigest()}),encoding='utf-8')
+    # New telemetry/actions while confirmation is open must not invalidate
+    # the stable auxiliary ownership proof or consume the original queue.
+    (state/'worker_task_snapshot.json').write_text(json.dumps({'tasks':[{'commandId':'running-research','status':'running'}]}),encoding='utf-8')
+    (state/'actions'/'new-action.json').write_text('{"status":"queued"}',encoding='utf-8')
+    refreshed=m.lifecycle_control(params)['evidence']['migration']
+    assert refreshed['digest']==queued['digest'] and refreshed['activeTasks']==['running-research','retained-command']
     original = {str(p.relative_to(state)):p.read_bytes() for p in state.rglob('*') if p.is_file()}
-    verified = m.lifecycle_control(params)['evidence']['migration']
-    result=m.lifecycle_control(dict(params,action='migrate',migrationDigest=verified['digest']))
+    result=m.lifecycle_control(dict(params,action='migrate',migrationDigest=queued['digest']))
     assert result['status']=='migrated' and result['stoppedPid']==agent.pid
     agent.wait(timeout=2)
-    assert platform.poll() is None
+    assert platform.poll() is None and research.poll() is None
     assert all((state/name).read_bytes()==raw for name,raw in original.items())
     assert json.loads((state/'agent.owner.json').read_text())==contract
-    print(json.dumps({'legacyPidVerified':True,'explicitDigestRequired':True,'pendingCommandsBlocked':True,'stateBytesPreserved':True,'platformAlive':True}))
+    print(json.dumps({'legacyPidVerified':True,'explicitDigestRequired':True,'pendingCommandsRetained':True,'activityDoesNotInvalidateOwnership':True,'stateBytesPreserved':True,'platformAlive':True,'researchAlive':True}))
 finally:
     # These are fixture Popen handles only, never user or server processes.
     if agent.poll() is None:
         agent.terminate();agent.wait(timeout=2)
     platform.terminate();platform.wait(timeout=2)
+    research.terminate();research.wait(timeout=2)

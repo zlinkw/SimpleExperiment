@@ -9,7 +9,7 @@ const scope=require('../../dist/features/AgentRuntimeScope');
 const source=fs.readFileSync(path.join(__dirname,'../../src/extension/legacy.ts'),'utf8');
 const tree=ts.createSourceFile('provider.ts',source,ts.ScriptTarget.Latest,true);
 const cls=tree.statements.find(n=>ts.isClassDeclaration(n)&&n.name?.text==='RealtimeTunnelPanelProvider');
-const names=['deployLatestAgentRuntime','agentLifecycleForTarget','agentLifecycleServer','writeXshellAgentStartupCommands'];
+const names=['deployLatestAgentRuntime','apiAgentLifecycle','agentLifecycleForTarget','agentLifecycleServer','writeXshellAgentStartupCommands'];
 const code=ts.transpileModule(`class Host {${cls.members.filter(n=>names.includes(n.name?.getText(tree))).map(n=>n.getText(tree)).join('\n')}};Host;`,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
 function fixture(state='absent', inspection) {
  let currentState=state;
@@ -20,15 +20,15 @@ function fixture(state='absent', inspection) {
   AgentRuntimeScope_1:scope,RuntimeManifest_1:manifest,SIMPLE_SFTP_EXTENSION_ID:'simple-local.simple-sftp',
   SshTransportIdentity_1:{...require('../../dist/tunnel/SshTransportIdentity'),inspectOpenSshAlias:async()=>inspection},
   sftpUploadFilesSucceeded:row=>row.ok===true,stringFromRecord:()=>'',errorMessage:e=>e.message,effectiveWorkerCondaEnv:row=>row.condaEnv,
-  confirmationRequired:data=>Object.assign(new Error('CONFIRM_REQUIRED'),{apiData:data}),UiCommandCancelled:class extends Error{},
-  vscode:{window:{showWarningMessage:async()=>undefined},extensions:{getExtension:()=>({packageJSON:{version:'0.2.75'}})},commands:{executeCommand:async(name,params)=>{
+  stringArrayField:(params,key)=>params[key]||[],confirmationRequired:data=>Object.assign(new Error('CONFIRM_REQUIRED'),{apiData:data}),UiCommandCancelled:class extends Error{},
+  vscode:{window:{showWarningMessage:async()=>undefined},extensions:{getExtension:()=>({packageJSON:{version:'0.2.77'}})},commands:{executeCommand:async(name,params)=>{
    calls.push({name,params});
    if(name==='simpleSftp.uploadFiles')return {ok:true};
    if(params.action==='inspect') {
-     if(currentState==='legacy')return {ok:false,code:'AGENT_LEGACY_STATE_UNVERIFIED',evidence:{migration:{digest:'a'.repeat(64),activeTasks:[],contract:{projectDir:'/srv/project',installDir:'/srv/agent',stateDir:'/srv/agent/state/projects/project.id'}}}};
+     if(currentState.startsWith('legacy'))return {ok:false,code:'AGENT_LEGACY_STATE_UNVERIFIED',evidence:{migration:{digest:'a'.repeat(64),activeTasks:state==='legacy-busy'?['running-job','queued-job']:[],contract:{projectDir:'/srv/project',installDir:'/srv/agent',stateDir:'/srv/agent/state/projects/project.id'}}}};
      if(state==='foreign')return {ok:false,code:'AGENT_STATE_OWNER_CONFLICT'};
      const filehashes={};for(const name of ['cluster_agent.py','cluster_scheduler.py'])filehashes[name]=manifest.sha256Text(fs.readFileSync(path.join(__dirname,'../../dist/runtime',name),'utf8'));
-     return {ok:true,status:state==='healthy'?'running':'absent',runningVersion:manifest.CURRENT_RUNTIME_VERSION,files:filehashes};
+     return {ok:true,status:state==='healthy'||state==='busy'?'running':state==='unhealthy'?'unhealthy':'absent',activeTasks:state==='busy'?['running-job','queued-job']:[],runningVersion:state==='busy'?'old-version':manifest.CURRENT_RUNTIME_VERSION,files:filehashes};
    }
    if(params.action==='migrate'){currentState='absent';return {ok:true,status:'migrated'};}
    return {ok:true,status:'running',runningVersion:manifest.CURRENT_RUNTIME_VERSION};
@@ -63,6 +63,16 @@ test('healthy preparation reuses service without uploading or restarting; foreig
  assert.deepEqual(healthy.calls.map(c=>c.params.action),['inspect','ensure']);
  const foreign=fixture('foreign');await assert.rejects(()=>foreign.host.deployLatestAgentRuntime(false,true,['container'],true),/AGENT_STATE_OWNER_CONFLICT/);
  assert.equal(foreign.calls.length,1);
+});
+test('active tasks do not block real preparation, upgrade or legacy migration API preview',async()=>{
+ const busy=fixture('busy');await busy.host.deployLatestAgentRuntime(false,true,['container'],true);
+ assert.deepEqual(busy.calls.map(c=>c.name==='simpleSftp.uploadFiles'?'upload':c.params.action),['inspect','upload','restart']);
+ const legacy=fixture('legacy-busy');
+ await assert.rejects(()=>legacy.host.apiAgentLifecycle({action:'migrate',serverIds:['container']}),e=>e.message==='CONFIRM_REQUIRED'&&e.apiData.preview.targets[0].activeTasks.length===2);
+ await legacy.host.deployLatestAgentRuntime(false,true,['container'],true,{migrationDigests:{container:'a'.repeat(64)}});
+ assert.deepEqual(legacy.calls.slice(1).map(c=>c.name==='simpleSftp.uploadFiles'?'upload':c.params.action),['inspect','migrate','inspect','upload','ensure']);
+ const unhealthy=fixture('unhealthy');await unhealthy.host.deployLatestAgentRuntime(false,true,['container'],true);
+ assert.equal(unhealthy.calls.at(-1).params.action,'restart');
 });
 test('legacy Xshell session names without an OpenSSH HostName mapping preserve the configured direct transport',async()=>{
  const {host}=fixture('absent',{ok:true,alias:'old-session',hostname:'old-session',user:'desktop-user',port:'22'});
