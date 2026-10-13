@@ -11,6 +11,8 @@ import tempfile
 import time
 
 root = pathlib.Path(tempfile.mkdtemp(prefix='agent-legacy-'))
+(root/'tmux').mkdir()
+os.environ['TMUX_TMPDIR']=str(root/'tmux')
 source = root / 'lifecycle.py'
 source.write_bytes((pathlib.Path(__file__).resolve().parents[3] / 'simple-sftp' / 'agent-lifecycle.py').read_bytes())
 spec = importlib.util.spec_from_file_location('lifecycle', source)
@@ -24,7 +26,7 @@ runtime.mkdir(parents=True)
 with socket.socket() as sock:
     sock.bind(('127.0.0.1', 0))
     port = sock.getsockname()[1]
-params = dict(action='inspect', projectDir=str(project), installDir=str(install), mode='worker_telemetry', workerId='fixture-worker', host='127.0.0.1', port=port, condaEnv='')
+params = dict(action='inspect', projectDir=str(project), installDir=str(install), mode='worker_telemetry', workerId='fixture-worker', host='127.0.0.1', port=port, condaEnv='',tmuxSession='fixture-worker-agent',tmuxWindow='agent')
 conda = root / 'selected-conda'
 (conda / 'bin').mkdir(parents=True)
 # Conda may expose python and python3 as hard links, not symbolic links.
@@ -62,7 +64,18 @@ argv = [sys.executable,str(script),'serve','--project-dir',str(project),'--mode'
 env = dict(os.environ,SIMPLE_EXPERIMENT_AGENT_INSTALL_DIR=str(install),SIMPLE_EXPERIMENT_CONDA_ENV='legacy-training-environment')
 platform = subprocess.Popen(['sleep','60'])
 research = subprocess.Popen(['sleep','60'])
-agent = subprocess.Popen(argv,env=env,stdout=subprocess.DEVNULL,stderr=subprocess.PIPE)
+import shlex
+launched=subprocess.run(['tmux','new-session','-d','-s',params['tmuxSession'],'-n','agent','exec env '+shlex.join(['SIMPLE_EXPERIMENT_AGENT_INSTALL_DIR='+str(install),'SIMPLE_EXPERIMENT_CONDA_ENV=legacy-training-environment',*argv])],capture_output=True,text=True,timeout=3)
+assert launched.returncode==0,launched.stderr
+agent_pid=int(subprocess.check_output(['tmux','display-message','-p','-t',params['tmuxSession']+':agent','#{pane_pid}'],text=True))
+class AgentHandle:
+    pid=agent_pid
+    def poll(self):return None if m.lifecycle_process(self.pid) else 0
+    def wait(self,timeout):
+        deadline=time.monotonic()+timeout
+        while self.poll() is None and time.monotonic()<deadline:time.sleep(.01)
+        assert self.poll() is not None
+agent=AgentHandle()
 try:
     deadline = time.monotonic()+3
     while not m.lifecycle_health(contract) and time.monotonic()<deadline:
@@ -72,7 +85,7 @@ try:
     before = m.lifecycle_control(params)
     migration = before['evidence']['migration']
     assert 'blocked' not in migration, migration
-    assert migration['pid']==agent.pid
+    assert migration['tmuxWindow']['session']==params['tmuxSession']
     assert migration['activeTasks']==[], migration
     assert original == {str(p.relative_to(state)):p.read_bytes() for p in state.rglob('*') if p.is_file()}
     # Research environments are task configuration, never auxiliary ownership.
@@ -80,7 +93,7 @@ try:
     (foreign_conda / 'bin').mkdir(parents=True)
     shutil.copy2(conda / 'bin' / 'python', foreign_conda / 'bin' / 'python')
     other_config = m.lifecycle_control(dict(params, condaEnv=str(foreign_conda)))['evidence']['migration']
-    assert 'blocked' not in other_config and other_config['pid'] == agent.pid, other_config
+    assert 'blocked' not in other_config and other_config['tmuxWindow'] == migration['tmuxWindow'], other_config
     assert agent.poll() is None and platform.poll() is None
     availability_file=state/'worker_availability.json'
     availability_bytes=availability_file.read_bytes()
@@ -107,16 +120,28 @@ try:
     refreshed=m.lifecycle_control(params)['evidence']['migration']
     assert refreshed['digest']==queued['digest'] and refreshed['activeTasks']==['running-research','retained-command']
     original = {str(p.relative_to(state)):p.read_bytes() for p in state.rglob('*') if p.is_file()}
-    result=m.lifecycle_control(dict(params,action='migrate',migrationDigest=queued['digest']))
-    assert result['status']=='migrated' and result['stoppedPid']==agent.pid
+    # Match the old Python boundary: pidfd APIs are unavailable; numeric PID
+    # signalling is explicitly forbidden. Only the assigned tmux window may stop.
+    saved_open=getattr(os,'pidfd_open',None);saved_send=getattr(m.signal,'pidfd_send_signal',None);saved_kill=os.kill
+    if saved_open:delattr(os,'pidfd_open')
+    if saved_send:delattr(m.signal,'pidfd_send_signal')
+    os.kill=lambda *args: (_ for _ in ()).throw(AssertionError('PID signalling forbidden'))
+    try:
+        result=m.lifecycle_control(dict(params,action='migrate',migrationDigest=queued['digest']))
+    finally:
+        os.kill=saved_kill
+        if saved_open:os.pidfd_open=saved_open
+        if saved_send:m.signal.pidfd_send_signal=saved_send
+    assert result['status']=='migrated' and result['closedTmuxWindow']['session']==params['tmuxSession']
     agent.wait(timeout=2)
     assert platform.poll() is None and research.poll() is None
     assert all((state/name).read_bytes()==raw for name,raw in original.items())
     assert json.loads((state/'agent.owner.json').read_text())==contract
-    print(json.dumps({'legacyPidVerified':True,'explicitDigestRequired':True,'pendingCommandsRetained':True,'activityDoesNotInvalidateOwnership':True,'stateBytesPreserved':True,'platformAlive':True,'researchAlive':True}))
+    print(json.dumps({'assignedTmuxWindowClosed':True,'noPidfdOrPidSignal':True,'explicitDigestRequired':True,'pendingCommandsRetained':True,'activityDoesNotInvalidateOwnership':True,'stateBytesPreserved':True,'platformAlive':True,'researchAlive':True}))
 finally:
     # These are fixture Popen handles only, never user or server processes.
     if agent.poll() is None:
-        agent.terminate();agent.wait(timeout=2)
+        subprocess.run(['tmux','kill-window','-t',params['tmuxSession']+':agent'],capture_output=True,timeout=3)
+        agent.wait(timeout=2)
     platform.terminate();platform.wait(timeout=2)
     research.terminate();research.wait(timeout=2)

@@ -39,5 +39,7 @@ test('startup is a bounded independent ensure, without process/session killing o
   assert.match(command,/ensure/);
   assert.match(command,/23001/);
   assert.match(command,/127.0.0.2/);
+  assert.match(command,/"tmuxSession":"simple-worker-gpu-agent"/);
+  assert.match(command,/"tmuxWindow":"agent"/);
   assert.doesNotMatch(command,/kill-session|kill -9|ps -eo|AGENT_PIDS|rm -f/);
 });

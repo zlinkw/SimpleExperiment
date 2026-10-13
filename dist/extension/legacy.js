@@ -7790,8 +7790,8 @@ class RealtimeTunnelPanelProvider {
                 ...inspections.get(target.id).legacyMigration }));
             let approvals = migrationOptions.migrationDigests;
             if (!approvals && (migrationOptions.promptLegacyMigration === true || showMessage)) {
-                const detail = preview.map(row => `${row.serverId}: ${row.user}@${row.host}:${row.port}\n项目: ${row.contract.projectDir}\nRuntime: ${row.contract.installDir}\n状态: ${row.contract.stateDir}\n旧 Agent PID: ${row.pid || "无运行进程"}; 版本: ${row.runningVersion || "旧状态"}\n预览指纹: ${row.digest}`).join("\n\n");
-                const answer = await vscode.window.showWarningMessage(`核对旧 Agent 归属迁移\n${detail}\n\n仅绑定此状态的当前容器归属，停止已验证的旧辅助 PID；保留所有任务、日志和结果，不停止训练或平台进程。`, { modal: true }, "确认上述归属迁移");
+                const detail = preview.map(row => `${row.serverId}: ${row.user}@${row.host}:${row.port}\n项目: ${row.contract.projectDir}\nRuntime: ${row.contract.installDir}\n状态: ${row.contract.stateDir}\nAgent 窗口: ${row.tmuxWindow?.session || "无运行窗口"}:${row.tmuxWindow?.windowName || ""} ${row.tmuxWindow?.windowId || ""}; 版本: ${row.runningVersion || "旧状态"}\n预览指纹: ${row.digest}`).join("\n\n");
+                const answer = await vscode.window.showWarningMessage(`核对旧 Agent 归属迁移\n${detail}\n\n仅绑定此状态的当前容器归属，关闭指定 Agent 窗口；保留所有任务、日志和结果，不关闭其他窗口或平台进程。`, { modal: true }, "确认上述归属迁移");
                 if (answer !== "确认上述归属迁移")
                     throw new UiCommandCancelled("旧 Agent 归属迁移已取消，未上传 runtime。");
                 approvals = Object.fromEntries(preview.map(row => [row.serverId, row.digest]));
@@ -7937,7 +7937,9 @@ class RealtimeTunnelPanelProvider {
         }
         if (action !== "inspect" && params.confirm !== true)
             throw confirmationRequired({
-                operation: "agents.lifecycle", requires: ["confirm"], preview: { action, targets: normalizeRemoteWriteTargets(targets) },
+                operation: "agents.lifecycle", requires: ["confirm"], preview: { action, targets: normalizeRemoteWriteTargets(targets),
+                    tmuxTargets: targets.map(target => ({ serverId: target.id, host: target.host, port: target.port,
+                        session: AgentTmuxPolicy_1.defaultAgentTmuxSessionName(target.id === "hub" ? "hub" : "worker", target.id === "hub" ? undefined : target.id, this.setupConfig.sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix), window: "agent" })) },
             });
         const runtimeDir = path.join(__dirname, "..", "runtime");
         const [agent, scheduler] = await Promise.all([fs.readFile(path.join(runtimeDir, "cluster_agent.py"), "utf8"), fs.readFile(path.join(runtimeDir, "cluster_scheduler.py"), "utf8")]);
@@ -7973,8 +7975,8 @@ class RealtimeTunnelPanelProvider {
     }
     async agentLifecycleForTarget(target, action, manifest, confirmed = false, migrationDigest) {
         const installed = vscode.extensions.getExtension(SIMPLE_SFTP_EXTENSION_ID);
-        if (require("../features/ExtensionUpdates").compareSemanticVersions(String(installed?.packageJSON?.version || "0.0.0"), "0.2.77") < 0)
-            throw new Error("AGENT_LIFECYCLE_CAPABILITY_REQUIRED: 需要 SimpleSFTP 0.2.77，未修改远端或自定义登录命令。");
+        if (require("../features/ExtensionUpdates").compareSemanticVersions(String(installed?.packageJSON?.version || "0.0.0"), "0.2.78") < 0)
+            throw new Error("AGENT_LIFECYCLE_CAPABILITY_REQUIRED: 需要 SimpleSFTP 0.2.78，未修改远端或自定义登录命令。");
         const config = target.id === "hub" ? this.setupConfig : this.setupConfig.workerTunnels.find(row => row.id === target.id);
         if (!config)
             throw new Error(`AGENT_CONFIG_MISSING: ${target.id}`);
@@ -7984,7 +7986,9 @@ class RealtimeTunnelPanelProvider {
             mode: target.id === "hub" ? "hub_control" : "worker_telemetry", workerId: target.id === "hub" ? "" : target.id,
             condaEnv: target.id === "hub" ? config.condaEnv : effectiveWorkerCondaEnv(config, this.setupConfig.condaEnv),
             host: config.remoteAgentHost, port: config.remoteTelemetryPort || config.remoteAgentPort,
-            sessionPrefix: this.setupConfig.remoteTmuxSessionPrefix,
+            sessionPrefix: this.setupConfig.sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix,
+            tmuxSession: AgentTmuxPolicy_1.defaultAgentTmuxSessionName(target.id === "hub" ? "hub" : "worker", target.id === "hub" ? undefined : target.id, this.setupConfig.sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix),
+            tmuxWindow: "agent",
             agentToken: this.tunnelConfig?.token || "",
             expectedVersion: manifest?.runtimeVersion || RuntimeManifest_1.CURRENT_RUNTIME_VERSION, files: manifest?.files,
             migrationDigest,

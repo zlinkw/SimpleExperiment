@@ -11,6 +11,8 @@ from concurrent.futures import ThreadPoolExecutor
 
 vendor_source = pathlib.Path(__file__).resolve().parents[3] / 'simple-sftp' / 'agent-lifecycle.py'
 root = pathlib.Path(tempfile.mkdtemp(prefix='agent-service-'))
+(root/'tmux').mkdir()
+os.environ['TMUX_TMPDIR']=str(root/'tmux')
 # Each real child imports the unchanged controller bytes from native Linux
 # storage, avoiding repeated WSL cross-filesystem reads in the 10 second budget.
 source = root / 'lifecycle.py'
@@ -57,6 +59,7 @@ with socket.socket() as sock:
     sock.bind(('127.0.0.1',0))
     port = sock.getsockname()[1]
 params = dict(action='inspect', projectDir=str(project),installDir=str(install),mode='worker_telemetry',workerId='container-gpu',
+              tmuxSession='user-worker-container-gpu-agent',tmuxWindow='agent',sessionPrefix='user',
               host='127.0.0.1',port=port,condaEnv=str(root/'missing-training-env'),agentToken='fixture-credential',expectedVersion='fixture-v1',files={
                   name:hashlib.sha256((runtime/name).read_bytes()).hexdigest() for name in ('cluster_agent.py','cluster_scheduler.py')})
 tree = sorted(str(p) for p in root.rglob('*'))
@@ -82,6 +85,11 @@ params['projectDir'] = str(project)
 platform = subprocess.Popen(['sleep','60'])
 research = subprocess.Popen(['sleep','60'])
 agent = None
+saved_open=getattr(os,'pidfd_open',None);saved_send=getattr(module.signal,'pidfd_send_signal',None);saved_kill=os.kill
+if saved_open:delattr(os,'pidfd_open')
+if saved_send:delattr(module.signal,'pidfd_send_signal')
+os.kill=lambda *args: (_ for _ in ()).throw(AssertionError('PID signalling forbidden'))
+other_window=None
 try:
     def concurrent_prepare(_):
         try:
@@ -124,6 +132,10 @@ try:
         assert e.code=='AGENT_RUNTIME_HASH_MISMATCH'
     assert module.lifecycle_process(agent)
     state = pathlib.Path(first['contract']['stateDir'])
+    # A sibling window and GPU sessions must survive every Agent restart/stop.
+    other_window=module.lifecycle_tmux_run(['new-window','-d','-P','-F','#{window_id}','-t','='+params['tmuxSession'],'-n','research-watch','exec sleep 60'])
+    gpu_session='user-gpu-0'
+    module.lifecycle_tmux_run(['new-session','-d','-s',gpu_session,'exec sleep 60'])
     for status in ('running','queued','accepted','stop_requested','unknown',''):
         (state/'worker_task_snapshot.json').write_text(json.dumps({'tasks':[{'commandId':'retained-command','status':status}]}),encoding='utf-8')
         assert module.lifecycle_control(params)['activeTasks']==['retained-command']
@@ -133,6 +145,8 @@ try:
         agent=restarted['identity']['pid']
         assert (state/'worker_task_snapshot.json').read_bytes()==original
         assert platform.poll() is None and research.poll() is None
+        assert module.lifecycle_tmux_run(['display-message','-p','-t',other_window,'#{window_name}'])=='research-watch'
+        assert module.lifecycle_tmux_run(['list-windows','-t','='+gpu_session,'-F','#{session_name}'])==gpu_session
     terminal_bytes=json.dumps({'tasks':[{'commandId':'old-stopped-job','status':'stopped','finishedAt':'old','stopReason':'scheduler_aborted'},
                                       {'commandId':'old-canceled-job','status':'canceled','finishedAt':'old'}]}).encode()
     (state/'worker_task_snapshot.json').write_bytes(terminal_bytes)
@@ -150,17 +164,14 @@ try:
     assert research.poll() is None
     assert (state/'distributed_plan_queue.json').read_bytes()==queued_bytes
     assert (state/'worker_task_snapshot.json').read_bytes()==terminal_bytes
-    record=state/'agent.process.json'
-    value=json.loads(record.read_text(encoding='utf-8'))
-    record.write_text(json.dumps(dict(value,nonce='wrong')),encoding='utf-8')
+    actual_window=restarted['tmuxWindow']
     try:
-        module.lifecycle_control(dict(params,action='stop'))
-        raise AssertionError('unverified process stopped')
+        module.lifecycle_close_tmux(params,dict(actual_window,windowId='@999999'))
+        raise AssertionError('changed window was closed')
     except module.AgentLifecycleError as e:
-        assert e.code=='AGENT_PROCESS_UNVERIFIED'
+        assert e.code=='AGENT_TMUX_WINDOW_CHANGED'
     assert module.lifecycle_process(agent)
-    record.write_text(json.dumps(value),encoding='utf-8')
-    # Lost HTTP health cannot obstruct recovery of the independently proven PID.
+    # Lost HTTP health cannot obstruct closing the assigned window.
     health_function=module.lifecycle_health
     unhealthy_pid=agent
     module.lifecycle_health=lambda *args: {} if module.lifecycle_process(unhealthy_pid) else health_function(*args)
@@ -184,11 +195,16 @@ try:
     assert (state/'worker_task_snapshot.json').read_bytes()==original
     assert (state/'distributed_plan_queue.json').read_bytes()==queued_bytes
     assert research.poll() is None and platform.poll() is None
-    print(json.dumps({'firstStart':True,'reused':True,'ownedRestart':True,'cpuConflictRejected':True,'platformAlive':True,'researchAlive':True,'unverifiedPidProtected':True,'zeroWriteInspect':True,'activeTasksNeverBlockRestart':True,'queueBytesPreserved':True,'unhealthyRecovered':True,'corruptActivityNotGate':True,'missingResearchEnvAllowed':True,'changedResearchEnvReused':True,'healthWithoutEnvironmentProbe':True}))
+    print(json.dumps({'firstStartInAssignedTmux':True,'reused':True,'ownedWindowRestart':True,'cpuConflictRejected':True,'platformAlive':True,'researchAlive':True,'siblingAndGpuWindowsPreserved':True,'changedWindowProtected':True,'noPidfdOrPidSignal':True,'zeroWriteInspect':True,'activeTasksNeverBlockRestart':True,'queueBytesPreserved':True,'unhealthyRecovered':True,'corruptActivityNotGate':True,'missingResearchEnvAllowed':True,'changedResearchEnvReused':True,'healthWithoutEnvironmentProbe':True}))
 finally:
     # Only fixture processes created in this script; no user/platform target touched.
     if agent and module.lifecycle_process(agent):
         module.lifecycle_control(dict(params,action='stop'))
+    os.kill=saved_kill
+    if saved_open:os.pidfd_open=saved_open
+    if saved_send:module.signal.pidfd_send_signal=saved_send
+    if other_window:module.lifecycle_tmux_run(['kill-window','-t',other_window])
+    if 'gpu_session' in globals():module.lifecycle_tmux_run(['kill-window','-t',gpu_session+':0'])
     platform.terminate()
     platform.wait(timeout=2)
     research.terminate()

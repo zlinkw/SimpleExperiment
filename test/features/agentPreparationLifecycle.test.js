@@ -18,10 +18,11 @@ function fixture(state='absent', inspection) {
  let host;
  const Host=vm.runInNewContext(code,{require:specifier=>require(path.resolve(__dirname,'../../dist/extension',specifier)),console:{log(){},warn(){}},fs:fs.promises,path,__dirname:path.resolve(__dirname,'../../dist/extension'),
   AgentRuntimeScope_1:scope,RuntimeManifest_1:manifest,SIMPLE_SFTP_EXTENSION_ID:'simple-local.simple-sftp',
+  AgentTmuxPolicy_1:require('../../dist/tunnel/AgentTmuxPolicy'),
   SshTransportIdentity_1:{...require('../../dist/tunnel/SshTransportIdentity'),inspectOpenSshAlias:async()=>inspection},
   sftpUploadFilesSucceeded:row=>row.ok===true,stringFromRecord:()=>'',errorMessage:e=>e.message,effectiveWorkerCondaEnv:row=>row.condaEnv,
   stringArrayField:(params,key)=>params[key]||[],confirmationRequired:data=>Object.assign(new Error('CONFIRM_REQUIRED'),{apiData:data}),UiCommandCancelled:class extends Error{},
-  vscode:{window:{showWarningMessage:async()=>undefined},extensions:{getExtension:()=>({packageJSON:{version:'0.2.77'}})},commands:{executeCommand:async(name,params)=>{
+  vscode:{window:{showWarningMessage:async()=>undefined},extensions:{getExtension:()=>({packageJSON:{version:'0.2.78'}})},commands:{executeCommand:async(name,params)=>{
    calls.push({name,params});
    if(name==='simpleSftp.uploadFiles')return {ok:true};
    if(params.action==='inspect') {
@@ -45,6 +46,7 @@ test('real deployment entry checks ownership before upload and preserves dynamic
  const request=calls.at(-1).params;
  assert.equal(request.port,23065);assert.equal(request.host,'127.0.0.2');assert.equal(request.condaEnv,'/srv/env');
  assert.equal(request.projectDir,'/srv/project');assert.equal(request.server.port,23094);
+ assert.equal(request.tmuxSession,'user-worker-container-agent');assert.equal(request.tmuxWindow,'agent');
 });
 test('legacy preparation requires exact migration approval before any upload; confirmed migration preserves the staged order',async()=>{
  const unconfirmed=fixture('legacy');

@@ -1,6 +1,6 @@
 # 独立 Agent 服务与准备
 
-SimpleExperiment 0.5.300 / SimpleSFTP 0.2.77 使用独立辅助服务协议 1。平台主服务、sshd、容器启动入口和用户训练保持独立；准备不再要求覆盖 Xshell 的自定义登录命令。所有地址、SSH 身份、端口、项目父目录、项目目录、环境和 runtime 根均从当前服务器配置读取。
+SimpleExperiment 0.5.301 / SimpleSFTP 0.2.78 使用独立辅助服务协议 1，Agent 前台运行在用户配置的专用 tmux 窗口。平台主服务、sshd、容器启动入口和用户训练保持独立；准备不再要求覆盖 Xshell 的自定义登录命令。所有地址、SSH 身份、端口、项目父目录、项目目录、环境和 runtime 根均从当前服务器配置读取。
 
 ## 入口与状态
 
@@ -15,7 +15,7 @@ SimpleExperiment API 示例（使用 live discovery 的实际方法和配置，�
 {"method":"agents.lifecycle","params":{"serverIds":["<已配置 Worker ID>"],"action":"restart","confirm":true}}
 ```
 
-执行前用户核对本次预览中的服务器、SSH 端口、项目和 runtime 精确路径，再传确认。`inspect` 零写入；`ensure` 缺失时启动；`restart` 仅允许停止已核实的辅助进程后启动；`stop` 不删除状态。SimpleSFTP 同名方法的底层参数还包括配置解析得到的 `server/projectDir/installDir/workerId/mode/host/port/condaEnv`，启动须绑定版本和两个文件 SHA256；禁止任意 command、环境字典或信号参数。
+执行前用户核对本次预览中的服务器、SSH 端口、项目、runtime 和 Agent 窗口，再传确认。`inspect` 零写入；`ensure` 缺失时在指定窗口启动；`restart` 关闭精确 Agent 窗口后前台重新启动；`stop` 不删除状态。SimpleSFTP 参数包含配置解析得到的 `server/projectDir/installDir/workerId/mode/host/port/condaEnv/sessionPrefix/tmuxSession/tmuxWindow`；窗口与 UI 的 `defaultAgentTmuxSessionName` 一致。启动须绑定版本和两个文件 SHA256；禁止任意 command、环境字典或信号参数。
 
 ## 登录行为及迁移
 
@@ -47,9 +47,13 @@ Agent 健康检查、校验/预演、Worker 启动和 Scheduler 正式预检不�
 
 项目状态保留现有项目 namespace。首次写入前，Agent 取得持有整个生命周期的独占 owner 锁并绑定 Worker、项目、模式、用户、物理 runtime 根和容器/挂载/可见 GPU 身份。Conda 是任务配置而非辅助服务归属。不同容器共享 NFS 状态时返回 `AGENT_STATE_OWNER_CONFLICT`；重复 Worker ID 指向不同配置时直接阻断。不会迁移其他服务器状态。
 
-停止使用实例 nonce、PID 启动身份、UID、解释器和完整 argv 共同核验，并用 Linux pidfd 固定目标，只发送该进程 SIGTERM。不会停止进程组、sshd、tmux、平台或训练子进程。缺少 pidfd、无法证明进程归属或无法确认退出时明确拒绝扩大 kill 范围；任务状态不构成拒绝理由。
+0.5.301 / 0.2.78 按用户原有 tmux 约定替代以上历史 PID 停止实现。迁移、准备、升级、停止和重启共用指定窗口逻辑：只读取得用户配置的 Agent 会话及窗口，绑定 tmux server 身份、完整会话名、windowId 和窗口名；执行前重新核对，再只运行 `tmux kill-window -t @<精确ID>`。不要求 `os.pidfd_open` 或 `signal.pidfd_send_signal`，不调用 `os.kill`，不扫描进程来决定能否停止。旧专用 Agent 会话仅有一个窗口时兼容旧默认窗口名；新 Agent 始终以前台 `exec` 启动在明确命名的 `agent` 窗口。重复准备复用健康窗口，不重复创建。
 
-本地回归使用轻量 CPU/HTTP 辅助探针和独立平台、科研进程替身，验证首次启动、重复复用、运行版本拒绝、状态冲突、活动/未知任务和损坏遥测下重启、无 HTTP 健康时恢复、精确停止/重启及原登录段更新。活动期间迁移保留未消费队列和所有历史字节；不运行 train.py/test.py。生产节点真实重启须用户重载后核对精确目标及迁移预览，不能将本地回归冒充服务器验收。
+关闭窗口不修改任务、游标、日志、checkpoint 或历史结果；不关闭整个会话/server，其他同会话窗口与 GPU 会话保持运行。缺少科研 Conda、活动任务、历史目录形态或缺少 pidfd 都不构成窗口操作门禁。只核验必要的小型服务归属和项目根，不递归扫描历史产物。窗口变更不关闭其他窗口；已关闭窗口但 Agent 仍响应则如实报告，不能改用 PID 杀进程或假报升级成功。
+
+历史故障 `AGENT_PIDFD_REQUIRED` 来自把较新 Python 的可选接口当成统一部署前提，也违背“Agent 在指定 tmux 窗口中运行”的约定。实现必须覆盖旧 Python、首次启动、健康复用、迁移、升级和重启；不能用只支持新 Python 的测试环境宣称兼容旧服务器。其他明确运行在用户指定 tmux 窗口中的服务/任务也优先关闭精确窗口，继续保留其相应身份检查；未指定窗口的进程不得自动扩展停止范围。
+
+本地回归使用真实隔离 tmux server、轻量 CPU/HTTP 辅助探针和平台、科研进程替身；删除 Python 的 pidfd 绑定并禁止 PID 发信号。验证首次启动、重复复用、升级、旧归属迁移、活动/未知任务和损坏遥测下重启、HTTP 不健康时窗口恢复、窗口变更保护、同会话科研窗口和 GPU 会话保留及原登录段更新。保留未消费队列和所有历史字节；不运行 train.py/test.py。生产节点真实重启须用户重载后核对精确目标及迁移预览，不能将本地回归冒充服务器验收。
 
 ## 已结束 PLAN 历史
 
