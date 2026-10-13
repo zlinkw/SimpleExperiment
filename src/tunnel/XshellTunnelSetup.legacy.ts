@@ -38,6 +38,8 @@ export interface XshellWorkerTunnelConfig {
   agentSessionPath?: string;
   agentProjectDir?: string;
   agentInstallDir?: string;
+  /** Opt-in only: preserve custom login while maintaining a separate versioned fragment. */
+  agentLoginPolicy?: "preserve" | "managed";
   condaEnv?: string;
   maxConcurrentGpus: number | string;
   /** @deprecated allowed 语义已删除，仅兼容旧配置读取，始终视为空=全部允许 */
@@ -74,6 +76,7 @@ export interface XshellRealtimeTunnelConfig {
   agentSessionPath?: string;
   agentProjectDir?: string;
   agentInstallDir?: string;
+  agentLoginPolicy?: "preserve" | "managed";
   condaEnv: string;
   authMethod: XshellAuthMethod;
   launchMode: XshellLaunchMode;
@@ -134,6 +137,11 @@ export function normalizeXshellSetupConfig(input: Partial<XshellTunnelSetupConfi
   const normalizedWorkers = Array.isArray(input.workerTunnels)
     ? input.workerTunnels.map((worker, index) => normalizeXshellWorkerTunnelConfig(worker, index, input.remoteAgentPort)).filter((worker) => worker.id)
     : [];
+  for (const worker of normalizedWorkers) {
+    if (normalizedWorkers.filter(row => row.id === worker.id).some(row => row !== worker
+      && (row.workerHost !== worker.workerHost || row.workerSshPort !== worker.workerSshPort || row.agentProjectDir !== worker.agentProjectDir)))
+      throw new Error(`DUPLICATE_WORKER_ID: ${worker.id}`);
+  }
   const workerTunnels = dedupeWorkerTunnels(normalizedWorkers);
   const workerTelemetryMode = input.workerTelemetryMode === "hub_plus_worker_telemetry" || input.workerRealtimeMode === "hub_plus_workers"
     ? "hub_plus_worker_telemetry"
@@ -163,6 +171,7 @@ export function normalizeXshellSetupConfig(input: Partial<XshellTunnelSetupConfi
     agentSessionPath: input.agentSessionPath?.trim() || undefined,
     agentProjectDir: input.agentProjectDir?.trim() || undefined,
     agentInstallDir: input.agentInstallDir?.trim() || undefined,
+    agentLoginPolicy: input.agentLoginPolicy === "managed" ? "managed" : "preserve",
     condaEnv: normalizeCondaEnvName(input.condaEnv),
     authMethod: normalizeAuthMethod(input.authMethod),
     launchMode: normalizeLaunchMode(input.launchMode),
@@ -219,6 +228,7 @@ export function normalizeXshellWorkerTunnelConfig(
     agentSessionPath: input.agentSessionPath?.trim() || undefined,
     agentProjectDir: input.agentProjectDir?.trim() || undefined,
     agentInstallDir: input.agentInstallDir?.trim() || undefined,
+    agentLoginPolicy: input.agentLoginPolicy === "managed" ? "managed" : "preserve",
     condaEnv: input.condaEnv === undefined ? undefined : normalizeCondaEnvName(input.condaEnv),
     maxConcurrentGpus: normalizePositiveInt(input.maxConcurrentGpus, 1) === 1 && input.maxConcurrentGpus !== 1 ? "auto" : normalizePositiveInt(input.maxConcurrentGpus, 1),
     authMethod: normalizeAuthMethod(input.authMethod),
@@ -445,6 +455,7 @@ function dedupeWorkerTunnels(workers: XshellWorkerTunnelConfig[]): XshellWorkerT
 }
 
 function isDuplicateWorker(first: XshellWorkerTunnelConfig, second: XshellWorkerTunnelConfig): boolean {
+  if (first.id !== second.id) return false;
   if (first.savedSessionPath && second.savedSessionPath && pathKey(first.savedSessionPath) === pathKey(second.savedSessionPath)) return true;
   const firstHost = hostKey(first);
   const secondHost = hostKey(second);

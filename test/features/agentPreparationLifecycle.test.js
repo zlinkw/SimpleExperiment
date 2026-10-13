@@ -1,0 +1,49 @@
+const test=require('node:test');
+const assert=require('node:assert/strict');
+const fs=require('node:fs');
+const path=require('node:path');
+const vm=require('node:vm');
+const ts=require('typescript');
+const manifest=require('../../dist/runtime/RuntimeManifest');
+const scope=require('../../dist/features/AgentRuntimeScope');
+const source=fs.readFileSync(path.join(__dirname,'../../src/extension/legacy.ts'),'utf8');
+const tree=ts.createSourceFile('provider.ts',source,ts.ScriptTarget.Latest,true);
+const cls=tree.statements.find(n=>ts.isClassDeclaration(n)&&n.name?.text==='RealtimeTunnelPanelProvider');
+const names=['deployLatestAgentRuntime','agentLifecycleForTarget','agentLifecycleServer','writeXshellAgentStartupCommands'];
+const code=ts.transpileModule(`class Host {${cls.members.filter(n=>names.includes(n.name?.getText(tree))).map(n=>n.getText(tree)).join('\n')}};Host;`,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
+function fixture(state='absent') {
+ const calls=[];
+ const target={id:'container',label:'container',host:'configured-host',port:23094,remotePath:'/srv/agent/simple_cluster/runtime',localForwardPort:23069};
+ let host;
+ const Host=vm.runInNewContext(code,{require:specifier=>require(path.resolve(__dirname,'../../dist/extension',specifier)),console:{log(){},warn(){}},fs:fs.promises,path,__dirname:path.resolve(__dirname,'../../dist/extension'),
+  AgentRuntimeScope_1:scope,RuntimeManifest_1:manifest,SIMPLE_SFTP_EXTENSION_ID:'simple-local.simple-sftp',
+  sftpUploadFilesSucceeded:row=>row.ok===true,stringFromRecord:()=>'',errorMessage:e=>e.message,effectiveWorkerCondaEnv:row=>row.condaEnv,
+  vscode:{extensions:{getExtension:()=>({packageJSON:{version:'0.2.70'}})},commands:{executeCommand:async(name,params)=>{
+   calls.push({name,params});
+   if(name==='simpleSftp.uploadFiles')return {ok:true};
+   if(params.action==='inspect') {
+     if(state==='foreign')return {ok:false,code:'AGENT_STATE_OWNER_CONFLICT'};
+     const filehashes={};for(const name of ['cluster_agent.py','cluster_scheduler.py'])filehashes[name]=manifest.sha256Text(fs.readFileSync(path.join(__dirname,'../../dist/runtime',name),'utf8'));
+     return {ok:true,status:state==='healthy'?'running':'absent',runningVersion:manifest.CURRENT_RUNTIME_VERSION,files:filehashes};
+   }
+   return {ok:true,status:'running',runningVersion:manifest.CURRENT_RUNTIME_VERSION};
+  }}}});
+ host=new Host();Object.assign(host,{context:{extension:{packageJSON:{version:manifest.CURRENT_RUNTIME_VERSION}}},setupConfig:{workerTunnels:[{id:'container',agentProjectDir:'/srv',agentInstallDir:'/srv/agent',condaEnv:'/srv/env',remoteAgentHost:'127.0.0.2',remoteAgentPort:23065}],remoteTmuxSessionPrefix:'user'},
+  prepareSftpTargets:async()=>{},sftpSharedTargets:()=>[target],agentRuntimeUploadTargets:()=>[target],agentRuntimeDirs:()=>({workDir:'/srv/project',installDir:'/srv/agent'}),sftpServerOptions:()=>({host:'configured-host',port:23094,user:'user'}),tunnelConfig:{},
+  confirmRemoteWriteTargets:async()=>{},writeSftpManagerServerProfiles:async()=>{},verifyDeployedAgentRuntime:async()=>({fatal:[],warnings:[]})});
+ return {host,calls};
+}
+test('real deployment entry checks ownership before upload and preserves dynamic endpoint/Conda',async()=>{
+ const {host,calls}=fixture();
+ await host.deployLatestAgentRuntime(false,true,['container'],true);
+ assert.deepEqual(calls.map(c=>c.name==='simpleSftp.uploadFiles'?'upload':c.params.action),['inspect','upload','ensure']);
+ const request=calls.at(-1).params;
+ assert.equal(request.port,23065);assert.equal(request.host,'127.0.0.2');assert.equal(request.condaEnv,'/srv/env');
+ assert.equal(request.projectDir,'/srv/project');assert.equal(request.server.port,23094);
+});
+test('healthy preparation reuses service without uploading or restarting; foreign state blocks every write',async()=>{
+ const healthy=fixture('healthy');await healthy.host.deployLatestAgentRuntime(false,true,['container'],true);
+ assert.deepEqual(healthy.calls.map(c=>c.params.action),['inspect','ensure']);
+ const foreign=fixture('foreign');await assert.rejects(()=>foreign.host.deployLatestAgentRuntime(false,true,['container'],true),/AGENT_STATE_OWNER_CONFLICT/);
+ assert.equal(foreign.calls.length,1);
+});

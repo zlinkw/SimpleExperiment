@@ -655,6 +655,13 @@ export class LocalApiServer {
       retiredMethods: { "drafts.promote": "DRAFT_PROMOTION_RETIRED" },
       methods: Object.keys(this.methods).sort(),
       methodOptions: {
+        ...(Object.keys(this.methods).includes("agents.lifecycle") ? {
+          "agents.lifecycle": { actions: ["inspect", "ensure", "stop", "restart"], requiredParams: ["serverIds"],
+            inspectZeroWrites: true, independentServiceProtocol: 1, noTaskCancellation: true, ownerVerifiedPidfdOnly: true,
+            mutationConfirmation: "exact configured target", requiresSimpleSftp: "0.2.70" },
+          "project.prepare": { healthyAgentReuse: true, inspectBeforeRuntimeWrite: true, preservesUnmanagedLogin: true,
+            agentLoginPolicy: ["preserve", "managed"], actualRunningVersionRequired: true },
+        } : {}),
         ...(Object.keys(this.methods).includes("workflow.run") ? {
           "workflow.plan": { requiresCurrentWorkspace: true, workspaceIdentityRechecked: true, seedOverride: false, startsTraining: false },
           "workflow.run": { requiresCurrentWorkspace: true, workspaceIdentityRechecked: true, seedOverride: false,

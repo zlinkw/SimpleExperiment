@@ -101,7 +101,8 @@ export type DeferredPlan = { id: string; planFile: string; revision: string; cod
 export type ClearedDistributedJob = { projectId: string; workflowId: string; planFile: string; planRevision: string;
   codeFingerprint: string; experimentIndex: number; case: string; seed: number; attempt?: number;
   resultPathPolicy?: "declared"; globalJobId?: string; outputDir: string;
-  workerId: string; commandId: string; runKey: string; clearedAt: string };
+  workerId: string; commandId: string; runKey: string; clearedAt: string;
+  clearMode?: "terminal_history"; remoteClosureConfirmed?: false; activeReceiptObservedAt?: string };
 export type FailedAttemptRecovery = {
   id: string; plan: Pick<QueuedPlan, "id" | "projectId" | "planFile" | "revision" | "codeFingerprint" | "planJobCount">;
   job: Pick<QueuedJob, "index" | "case" | "seed" | "attempt" | "outputDir" | "workerId" | "commandId" | "runKey" | "gpuId">;
@@ -373,7 +374,7 @@ function clearedJobIdentityKey(identity: Record<string, unknown>): string {
 }
 
 function clearedJobBelongsToPlan(entry: ClearedDistributedJob, plan: QueuedPlan, projectId: string): boolean {
-  return entry.projectId === projectId && entry.workflowId === plan.id && entry.planFile === plan.planFile
+  return !entry.activeReceiptObservedAt && entry.projectId === projectId && entry.workflowId === plan.id && entry.planFile === plan.planFile
     && entry.planRevision === plan.revision && entry.codeFingerprint === plan.codeFingerprint;
 }
 
@@ -402,8 +403,9 @@ function reviewedTrainingCompletion(plan: QueuedPlan, job: QueuedJob, task: Reco
 /** Merge only fresh, capability-bearing server snapshots for this exact project. */
 export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: readonly DurableWorkerSnapshot[], projectId: string,
   now = Date.now(), maxAgeMs = 180_000): DistributedQueue {
-  const clearedJobs = Array.isArray(queue.clearedJobs) ? queue.clearedJobs : [];
-  const clearedKeys = new Set(clearedJobs.map(entry => clearedJobIdentityKey(entry)));
+  const clearedJobs = Array.isArray(queue.clearedJobs) ? queue.clearedJobs.map(entry => ({ ...entry })) : [];
+  const clearedByKey = new Map(clearedJobs.map(entry => [clearedJobIdentityKey(entry), entry]));
+  const clearedKeys = new Set(clearedJobs.filter(entry => !entry.activeReceiptObservedAt).map(entry => clearedJobIdentityKey(entry)));
   const acceptedRows: Array<{ workerId: string; task: Record<string, unknown>; status: JobState }> = [];
   for (const snapshot of snapshots) {
     if (snapshot.error || snapshot.capabilities?.durablePlanQueue !== true || snapshot.capabilities.schemaVersion !== 1) continue;
@@ -430,6 +432,14 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
         || !Number.isInteger(Number(task.planJobCount)) || Number(task.planJobCount) < 1) continue;
       // A terminal audit record survives on the server, but must not recreate a user-cleared card.
       // Active/uncertain receipts always remain visible, including contradictory old identities.
+      const clearedKey = clearedJobIdentityKey({ ...task, workerId: snapshot.workerId,
+        experimentIndex: Number(task.experimentIndex), seed: Number(task.seed), attempt: Number(task.attempt) });
+      const cleared = clearedByKey.get(clearedKey);
+      if (cleared?.clearMode === "terminal_history" && !["completed", "failed", "cancelled"].includes(status)) {
+        // Local history hiding cannot suppress a subsequently verified active task.
+        cleared.activeReceiptObservedAt ||= new Date(now).toISOString();
+        clearedKeys.delete(clearedKey);
+      }
       if (["completed", "failed", "cancelled"].includes(status)
         && clearedKeys.has(clearedJobIdentityKey({ ...task, workerId: snapshot.workerId,
           experimentIndex: Number(task.experimentIndex), seed: Number(task.seed), attempt: Number(task.attempt) }))) continue;
@@ -654,7 +664,7 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
     if (!countConflict && plan.recoveryConflict?.startsWith("Server summaries disagree on expected Plan job count")) delete plan.recoveryConflict;
     if (planIndex < 0) plans.push(plan); else plans[planIndex] = plan;
   }
-  return { ...queue, plans };
+  return { ...queue, plans, clearedJobs };
 }
 
 export function unfinishedJobs(plan: QueuedPlan, states: readonly JobState[] = UNFINISHED_JOB): boolean {
@@ -1216,7 +1226,7 @@ export function distributedJobControlKey(plan: Pick<QueuedPlan, "id" | "revision
 
 /** Drop only confirmed plan runs. A partial stop keeps every unconfirmed job and deferred row. */
 export function removeConfirmedDistributedPlan(queue: DistributedQueue, planFile: string, confirmed: {
-  jobKeys: ReadonlySet<string>; deferredIds: ReadonlySet<string>; projectId?: string }): DistributedQueue {
+  jobKeys: ReadonlySet<string>; deferredIds: ReadonlySet<string>; projectId?: string; historyOnlyJobKeys?: ReadonlySet<string> }): DistributedQueue {
   const selected = String(planFile || "").trim();
   const clearedJobs = [...(queue.clearedJobs || [])];
   const clearedKeys = new Set(clearedJobs.map(entry => clearedJobIdentityKey(entry)));
@@ -1234,7 +1244,9 @@ export function removeConfirmedDistributedPlan(queue: DistributedQueue, planFile
           ...(formalRecord ? { resultPathPolicy: "declared" as const, globalJobId: job.globalJobId } : { attempt: record.attempt }),
           outputDir: record.outputDir,
           workerId: record.workerId || "", commandId: record.commandId || "",
-          runKey: record === job ? job.runKey || job.commandId || "" : record.commandId || "", clearedAt };
+          runKey: record === job ? job.runKey || job.commandId || "" : record.commandId || "", clearedAt,
+          ...(confirmed.historyOnlyJobKeys?.has(distributedJobControlKey(plan, job))
+            ? { clearMode: "terminal_history" as const, remoteClosureConfirmed: false as const } : {}) };
         const key = clearedJobIdentityKey(entry);
         if (!clearedKeys.has(key)) { clearedJobs.push(entry); clearedKeys.add(key); }
       }

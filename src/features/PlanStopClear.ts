@@ -8,6 +8,7 @@ export type PlanCleanupTarget = {
 };
 
 const PLAN_RUN_TYPES = new Set(["run-plan", "reproduce-plan"]);
+const PLAN_HISTORY_TYPES = new Set([...PLAN_RUN_TYPES, "validate-plan", "dry-run-plan"]);
 
 function text(value: unknown): string {
   return String(value || "").trim();
@@ -44,6 +45,54 @@ export function planCleanupTargets(operations: Record<string, any>, planFile: st
       tmuxTarget: tmuxTarget.includes(":") ? tmuxTarget : (tmuxSession.includes(":") ? tmuxSession : ""),
     }];
   });
+}
+
+export type TerminalPlanHistorySelection = {
+  operationIds: string[];
+  jobs: Array<Record<string, any>>;
+  deferredIds: string[];
+  signature: string;
+};
+
+/** Local display/index removal only; this is never evidence of remote termination. */
+export function terminalPlanHistorySelection(operations: Record<string, any>, distributed: Array<Record<string, any>>,
+  planFile: string, terminal: (row: any) => boolean): TerminalPlanHistorySelection | undefined {
+  const ended: Array<Record<string, any>> = [];
+  for (const [key, row] of Object.entries(operations || {})) {
+    if (!row || typeof row !== "object") continue;
+    const payload = row.payload && typeof row.payload === "object" ? row.payload : row.latestEvent?.payload || {};
+    const options = payload.options || row.options || {};
+    const type = text(row.type || row.action || payload.action || payload.type).toLowerCase();
+    const file = text(row.planFile || row.plan || payload.planFile || payload.plan || options.planFile || options.plan);
+    if (!PLAN_HISTORY_TYPES.has(type) || !samePlan(file, planFile)) continue;
+    if (!terminal(row) || row.reconcileEvidenceActive === true || payload.reconcileEvidenceActive === true) return undefined;
+    ended.push({ id: text(row.operationId || row.id || row.opId || payload.operationId || payload.opId || key),
+      type, file, status: text(row.status || row.state || payload.status),
+      revision: text(row.planRevision || payload.planRevision || options.planRevision),
+      workerId: text(row.schedulerOwnerWorkerId || row.workerId || payload.workerId),
+      projectId: text(row.projectId || payload.projectId), commandId: text(row.commandId || payload.commandId),
+      codeFingerprint: text(row.codeFingerprint || payload.codeFingerprint) });
+  }
+  const jobs = [], deferredIds = [];
+  let terminalJobs = 0;
+  for (const row of distributed || []) {
+    if (row.active) return undefined;
+    if (row.kind === "deferred") {
+      if (!["pending", "blocked", "superseded"].includes(text(row.status))) return undefined;
+      deferredIds.push(text(row.planId));
+    } else if (["completed", "failed", "cancelled"].includes(text(row.status))) {
+      terminalJobs += 1;
+      jobs.push({ ...row });
+    } else if (["pending", "blocked"].includes(text(row.status)) && !row.workerId && !row.commandId && row.gpuId === undefined) {
+      jobs.push({ ...row });
+    } else return undefined;
+  }
+  if (!ended.length && !terminalJobs) return undefined;
+  ended.sort((a, b) => a.id.localeCompare(b.id));
+  jobs.sort((a, b) => text(a.jobKey).localeCompare(text(b.jobKey)));
+  deferredIds.sort();
+  return { operationIds: ended.map(row => row.id), jobs, deferredIds,
+    signature: JSON.stringify([ended, jobs, deferredIds]) };
 }
 
 export type TrustedRemotePlanEvidence = {

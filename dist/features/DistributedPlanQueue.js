@@ -346,7 +346,7 @@ function clearedJobIdentityKey(identity) {
         ? [...fields, Number(identity.attempt)] : fields);
 }
 function clearedJobBelongsToPlan(entry, plan, projectId) {
-    return entry.projectId === projectId && entry.workflowId === plan.id && entry.planFile === plan.planFile
+    return !entry.activeReceiptObservedAt && entry.projectId === projectId && entry.workflowId === plan.id && entry.planFile === plan.planFile
         && entry.planRevision === plan.revision && entry.codeFingerprint === plan.codeFingerprint;
 }
 /** A confirmed Worker adoption may supersede the original failed test receipt after a Host crash. */
@@ -374,8 +374,9 @@ function reviewedTrainingCompletion(plan, job, task) {
 }
 /** Merge only fresh, capability-bearing server snapshots for this exact project. */
 function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now(), maxAgeMs = 180_000) {
-    const clearedJobs = Array.isArray(queue.clearedJobs) ? queue.clearedJobs : [];
-    const clearedKeys = new Set(clearedJobs.map(entry => clearedJobIdentityKey(entry)));
+    const clearedJobs = Array.isArray(queue.clearedJobs) ? queue.clearedJobs.map(entry => ({ ...entry })) : [];
+    const clearedByKey = new Map(clearedJobs.map(entry => [clearedJobIdentityKey(entry), entry]));
+    const clearedKeys = new Set(clearedJobs.filter(entry => !entry.activeReceiptObservedAt).map(entry => clearedJobIdentityKey(entry)));
     const acceptedRows = [];
     for (const snapshot of snapshots) {
         if (snapshot.error || snapshot.capabilities?.durablePlanQueue !== true || snapshot.capabilities.schemaVersion !== 1)
@@ -408,6 +409,14 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
                 continue;
             // A terminal audit record survives on the server, but must not recreate a user-cleared card.
             // Active/uncertain receipts always remain visible, including contradictory old identities.
+            const clearedKey = clearedJobIdentityKey({ ...task, workerId: snapshot.workerId,
+                experimentIndex: Number(task.experimentIndex), seed: Number(task.seed), attempt: Number(task.attempt) });
+            const cleared = clearedByKey.get(clearedKey);
+            if (cleared?.clearMode === "terminal_history" && !["completed", "failed", "cancelled"].includes(status)) {
+                // Local history hiding cannot suppress a subsequently verified active task.
+                cleared.activeReceiptObservedAt ||= new Date(now).toISOString();
+                clearedKeys.delete(clearedKey);
+            }
             if (["completed", "failed", "cancelled"].includes(status)
                 && clearedKeys.has(clearedJobIdentityKey({ ...task, workerId: snapshot.workerId,
                     experimentIndex: Number(task.experimentIndex), seed: Number(task.seed), attempt: Number(task.attempt) })))
@@ -661,7 +670,7 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
         else
             plans[planIndex] = plan;
     }
-    return { ...queue, plans };
+    return { ...queue, plans, clearedJobs };
 }
 function unfinishedJobs(plan, states = UNFINISHED_JOB) {
     return plan.jobs.some((job) => states.includes(job.status));
@@ -1232,7 +1241,9 @@ function removeConfirmedDistributedPlan(queue, planFile, confirmed) {
                     ...(formalRecord ? { resultPathPolicy: "declared", globalJobId: job.globalJobId } : { attempt: record.attempt }),
                     outputDir: record.outputDir,
                     workerId: record.workerId || "", commandId: record.commandId || "",
-                    runKey: record === job ? job.runKey || job.commandId || "" : record.commandId || "", clearedAt };
+                    runKey: record === job ? job.runKey || job.commandId || "" : record.commandId || "", clearedAt,
+                    ...(confirmed.historyOnlyJobKeys?.has(distributedJobControlKey(plan, job))
+                        ? { clearMode: "terminal_history", remoteClosureConfirmed: false } : {}) };
                 const key = clearedJobIdentityKey(entry);
                 if (!clearedKeys.has(key)) {
                     clearedJobs.push(entry);

@@ -342,7 +342,16 @@ function loadExtensionHandler(name, nextName) {
 
 function installStopClearHost(sandbox) {
   const notices = [];
+  const workflowBinding = require("../../dist/features/WorkflowWorkspaceBinding.js");
+  const workspaceProbe = root => ({ canonical: path.resolve(root), device: "fixture", inode: "fixture" });
   const context = {
+    require: name => name === "../updates/Bootstrap" ? { assertBusinessAllowed() {}, getUpdater: () => undefined }
+      : require(name.startsWith(".") ? path.resolve(__dirname, "../../dist/extension", name) : name),
+    WorkflowBinding: {
+      bindWorkflowWorkspace: (requested, current) => workflowBinding.bindWorkflowWorkspace(requested, current, workspaceProbe),
+      assertWorkflowWorkspace: (binding, current) => workflowBinding.assertWorkflowWorkspace(binding, current, workspaceProbe),
+      assertPlanSeedContract: workflowBinding.assertPlanSeedContract,
+    },
     queueApi: require("../../dist/features/DistributedPlanQueue.js"),
     planner: require("../../dist/features/PlanStopClear.js"),
     PlanStopClear_1: require("../../dist/features/PlanStopClear.js"),
@@ -396,6 +405,10 @@ function installStopClearHost(sandbox) {
   if (!provider.localOperations) provider.localOperations = {};
   if (!provider.distributedSubmissionEpochs) provider.distributedSubmissionEpochs = new Map();
   context.provider = provider;
+  // These older fixtures exercise the preserved explicit remote stop/window path.
+  // The default record-only terminal path has its own production-method regressions.
+  const clearRemote = provider.stopAndClearPlanFromUi;
+  provider.stopAndClearPlanFromUi = (message) => clearRemote.call(provider, { ...message, clearMode: "remote" });
   return context;
 }
 
@@ -1198,6 +1211,7 @@ test("handleMessage posts the real stop-clear outcome for failed, cancelled, and
     completed: { status: "completed", message: "已清除 1 条运行进度", planStopClear: { planFile: "plans/a.yaml", outcome: "completed", phase: "cleared" } },
   };
   const context = {
+    require: name => name === "../updates/Bootstrap" ? { assertBusinessAllowed() {}, getUpdater: () => undefined } : require(name),
     OperationOutcome_1: OperationOutcome,
     getSafeCommand: (message) => message.command,
     stringField: (message, key) => String(message[key] || ""),

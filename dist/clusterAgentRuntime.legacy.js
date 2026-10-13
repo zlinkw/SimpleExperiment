@@ -4,6 +4,7 @@ exports.CLUSTER_AGENT_RUNTIME = void 0;
 const ResultLayout_1 = require("./results/ResultLayout");
 const PlanExistingArtifacts_1 = require("./runtime/PlanExistingArtifacts");
 const TaskShellEnvironment_1 = require("./runtime/TaskShellEnvironment");
+const AgentLifecycle_1 = require("./runtime/AgentLifecycle");
 exports.CLUSTER_AGENT_RUNTIME = String.raw `#!/usr/bin/env python3
 from __future__ import annotations
 import argparse, base64, calendar, copy, csv, errno, fnmatch, glob, hashlib, http.client, importlib.util, io, ipaddress, json, math, os, pathlib, random, re, shutil, shlex, signal, socket, statistics, stat, struct, subprocess, sys, threading, time, traceback, urllib.request, uuid, zipfile
@@ -19,6 +20,9 @@ SCHEMA_VERSION = 1
 AGENT_VERSION = "0.4.64"
 RUNTIME_VERSION = "0.4.64"
 PLUGIN_VERSION = "0.4.64"
+${AgentLifecycle_1.AGENT_LIFECYCLE_PYTHON}
+AGENT_LIFECYCLE_IDENTITY = {}
+AGENT_LIFECYCLE_LOCK = None
 API_VERSION = "1"
 MAX_EVENTS = 5000
 MAX_JOURNAL_BYTES = 32 * 1024 * 1024
@@ -6512,6 +6516,8 @@ def api_health(root, mode="realtime"):
         "serverTime": now_iso(),
         "uptimeSeconds": uptime if uptime is not None else 0,
         "projectRoot": os.path.abspath(root),
+        "agentIdentity": AGENT_LIFECYCLE_IDENTITY,
+        "agentLifecycleProtocol": 1,
         "agentInstallDir": agent_install_dir(root),
         "agentStateDir": agent_dir(root),
         "status": "ok" if serving or health.get("running") is not False else "degraded",
@@ -15489,6 +15495,8 @@ def kill_tmux_window_response(payload, mode, mgmt_env=""):
         return {"error": str(exc)}, 500
 
 def serve_http(args):
+    global AGENT_LIFECYCLE_LOCK, AGENT_LIFECYCLE_IDENTITY
+    AGENT_LIFECYCLE_LOCK, AGENT_LIFECYCLE_IDENTITY = lifecycle_service_guard(args, RUNTIME_VERSION)
     bind_host = str(getattr(args, "host", "") or "127.0.0.1").strip()
     if bind_host.startswith("[") and bind_host.endswith("]"):
         bind_host = bind_host[1:-1]
@@ -15500,7 +15508,7 @@ def serve_http(args):
         except ValueError as exc:
             raise RuntimeError("Agent --host IPv6 address is invalid") from exc
     root = args.project_dir
-    token = args.token or ""
+    token = args.token or os.environ.get("SIMPLE_EXPERIMENT_AGENT_TOKEN", "")
     mode = args.mode or "hub_control"
     # Keep the worker id used for availability reporting and the worker command queue path
     # consistent with the serve --worker-id. The scheduler dispatches to and matches
@@ -16699,7 +16707,17 @@ def main():
     p.add_argument("--jitter-seconds", type=float, default=30.0)
     p.add_argument("--operation-event-max-delay-ms", type=float, default=1000.0)
     add_state_args(p)
+    p = sub.add_parser("lifecycle")
+    p.add_argument("--config", required=True)
+    p.add_argument("--action", choices=("inspect", "ensure", "stop", "restart"), default="ensure")
     args = parser.parse_args()
+    if args.cmd == "lifecycle":
+        params = json.loads(args.config)
+        params["action"] = args.action
+        params["expectedVersion"] = RUNTIME_VERSION
+        manifest_path = os.path.join(params["installDir"], "simple_cluster", "runtime", "runtime_manifest.json")
+        params["files"] = lifecycle_json(manifest_path).get("files", {})
+        return lifecycle_main(params)
     AGENT_STATE_DIR = os.path.abspath(args.state_dir) if getattr(args, "state_dir", "") else ""
     MAX_EVENTS = max(100, int(getattr(args, "journal_max_events", MAX_EVENTS) or MAX_EVENTS))
     MAX_JOURNAL_BYTES = max(1024 * 1024, int(float(getattr(args, "journal_max_mb", 32.0) or 32.0) * 1024 * 1024))

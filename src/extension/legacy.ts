@@ -64,7 +64,7 @@ import * as DistributedSchedulingPolicy from "../features/DistributedSchedulingP
 import * as GpuJobOwnership from "../features/GpuJobOwnership";
 import { changedManifestFiles, inventoryFilesByPath } from "../features/CodeSyncDelta";
 import { hashLocalCodeFiles, localCodeManifestCachePath } from "../features/LocalCodeManifestCache";
-import { distributedQueueOnlyClearable, mergeTrustedPlanOperations, planCleanupTargets, planRecoveryConflicts, planStopClearFeedback, planStopClearPreview, planStopClearUiResult, planStopIdentityConflictMessage, planStopMissingEvidenceMessage, trustedRemotePlanOperations } from "../features/PlanStopClear";
+import { distributedQueueOnlyClearable, mergeTrustedPlanOperations, planCleanupTargets, planRecoveryConflicts, planStopClearFeedback, planStopClearPreview, planStopClearUiResult, planStopIdentityConflictMessage, planStopMissingEvidenceMessage, terminalPlanHistorySelection, trustedRemotePlanOperations } from "../features/PlanStopClear";
 import { parseDistributedResultsFlag } from "../features/DistributedAdapterFlag";
 import { directPlanSyncPreview, transferPlanArtifacts, workerFpsyncTaskLabel } from "../features/PlanArtifactTransfer";
 import { planProjectMirror, normalizeMirrorScopePaths, filterInventoryByScope } from "../features/ProjectMirror";
@@ -1448,6 +1448,7 @@ export class RealtimeTunnelPanelProvider {
             "state.set": async (params) => this.apiStateSet(params),
             "state.reset": async (params) => this.apiStateReset(params),
             "project.prepare": async (params) => this.apiProjectPrepare(params),
+            "agents.lifecycle": async (params) => this.apiAgentLifecycle(params),
             "project.bootstrap": async (params) => this.apiProjectBootstrap(params),
             "project.bootstrap.operation": async (params) => this.apiProjectBootstrapOperation(params),
             "flow.get": async () => this.apiFlowGet(),
@@ -1998,7 +1999,6 @@ export class RealtimeTunnelPanelProvider {
         return { ok: true, key, reset: true };
     }
     async apiProjectPrepare(params = {}) {
-        await this.ensureRemoteAgentVersionConsistent().catch(() => undefined);
         const root = String(params.workspace || workspaceRoot() || "").trim();
         if (!root)
             throw new Error("project.prepare 需要已打开工作区，或传入 workspace 参数。");
@@ -2069,19 +2069,21 @@ export class RealtimeTunnelPanelProvider {
         const profileResult = await this.writeSftpManagerServerProfiles(targets.map((target) => target.id));
         if (profileResult.targetCount < targets.length)
             throw new Error(`project.prepare 写入 SimpleSFTP 目标不完整：需要 ${targets.length} 个，当前 ${profileResult.targetCount} 个。`);
-        const commandResults = params.applyXshell === false ? [] : await this.writeXshellAgentStartupCommands(false, false);
+        const commandResults = params.applyXshell === false ? [] : await this.writeXshellAgentStartupCommands(false, false, serverIds);
         const blocked = commandResults.filter((item) => item.error || AGENT_STARTUP_BLOCKED_SKIP_REASONS.has(item.skippedReason));
         if (blocked.length)
             throw new Error(`project.prepare 未修改 Xshell 自启动命令：${blocked.map((item) => item.summary).join("；")}`);
         if (params.deployRuntime !== false)
-            await this.deployLatestAgentRuntime(false, true, serverIds);
+            await this.deployLatestAgentRuntime(false, true, serverIds, true);
         if (params.startSessions === true)
-            await this.startAllXshellConnections(false, false);
+            await this.startAllXshellConnections(false, false, serverIds);
         const test = params.autoTest === true
             ? await this.apiServerTestAll({ refresh: true })
             : await this.apiServerTestAll({ refresh: false });
         await this.apiAdvanceFlow("select_servers", { completed: true });
         if (topology.mode) await this.apiAdvanceFlow("select_mode", { completed: true });
+        if (test.ok === false || targets.some(target => !test.rows.some(row => target.id === row.serverId && row.status === "ok")))
+            throw new Error(`AGENT_PREPARATION_UNVERIFIED: ${JSON.stringify(test)}`);
         await this.apiAdvanceFlow("prepare_agents", { completed: true });
         return {
             ok: true,
@@ -2125,6 +2127,7 @@ export class RealtimeTunnelPanelProvider {
                 const localForwardPort = Number(row.localForwardPort || this.setupConfig.localForwardPort || 18765);
                 const remoteAgentPort = Number(row.remoteAgentPort || row.remoteTelemetryPort || this.setupConfig.remoteAgentPort || 18765);
                 return {
+                    ...row,
                     id,
                     displayName: String(row.displayName || row.label || row.name || id || host || "").trim() || id,
                     hubHost: host,
@@ -2133,9 +2136,9 @@ export class RealtimeTunnelPanelProvider {
                     workerHost: host,
                     workerUser: user,
                     workerSshPort: Number.isInteger(port) && port > 0 ? port : 22,
-                    localForwardHost: "127.0.0.1",
+                    localForwardHost: row.localForwardHost || this.setupConfig.localForwardHost,
                     localForwardPort: Number.isInteger(localForwardPort) && localForwardPort >= 1024 ? localForwardPort : 18765,
-                    remoteAgentHost: "127.0.0.1",
+                    remoteAgentHost: row.remoteAgentHost || this.setupConfig.remoteAgentHost,
                     remoteAgentPort: Number.isInteger(remoteAgentPort) && remoteAgentPort >= 1024 ? remoteAgentPort : 18765,
                     remoteTelemetryPort: Number.isInteger(remoteAgentPort) && remoteAgentPort >= 1024 ? remoteAgentPort : 18765,
                     savedSessionPath: String(row.savedSessionPath || row.xshPath || "").trim() || undefined,
@@ -4498,10 +4501,10 @@ export class RealtimeTunnelPanelProvider {
     async configureXshellAgentSessions() {
         await this.writeXshellAgentStartupCommands(true);
     }
-    async writeXshellAgentStartupCommands(showMessage = true, requireConfirm = true) {
+    async writeXshellAgentStartupCommands(showMessage = true, requireConfirm = true, serverIds = []) {
         assertSingleProjectWorkspace("写入 Agent 自启动路径");
         this.assertTopologyActualWorkRoots("写入 Agent 自启动路径");
-        const targets = this.agentStartupTargets();
+        const targets = AgentRuntimeScope_1.selectAgentRuntimeTargets(this.agentStartupTargets(), serverIds);
         if (!targets.length) {
             void vscode.window.showWarningMessage("没有可写入的 Xshell Agent 会话。请先配置或复用 Hub/Worker 会话。");
             return [];
@@ -4516,8 +4519,14 @@ export class RealtimeTunnelPanelProvider {
         const results = [];
         for (const target of targets) {
             try {
-                const result = await (0, XshellSessionPatcher_1.updateXshellSessionLoginCommand)(target.filePath, target.command, { backup: true, skipIfRemoteCommandIncludes: [target.command] });
+                const policy = target.id === "hub" ? this.setupConfig.agentLoginPolicy : this.setupConfig.workerTunnels.find(row => row.id === target.id)?.agentLoginPolicy;
+                const result = await (0, XshellSessionPatcher_1.updateXshellSessionLoginCommand)(target.filePath, target.command,
+                    { backup: true, managedAgentLogin: requireConfirm || policy === "managed", preserveUnmanaged: !requireConfirm && policy !== "managed" });
                 results.push({ id: target.id, ...result, summary: `${target.id}: ${xshellLoginCommandUpdateLabel(result.skippedReason, result.changed)}${result.backupPath ? `，备份 ${path.basename(result.backupPath)}` : ""}` });
+                if (requireConfirm && !result.skippedReason) {
+                    if (target.id === "hub") await this.applySetupDraft({ agentLoginPolicy: "managed" });
+                    else await this.applySetupDraft({ workerTunnels: this.setupConfig.workerTunnels.map(row => row.id === target.id ? { ...row, agentLoginPolicy: "managed" } : row) });
+                }
             }
             catch (error) {
                 results.push({ id: target.id, error: errorMessage(error), summary: `${target.id}: ${errorMessage(error)}` });
@@ -4533,14 +4542,14 @@ export class RealtimeTunnelPanelProvider {
         await this.startAllXshellRealtimeTunnels(requireConfirm);
         return true;
     }
-    async startAllXshellConnections(requireConfirm = true, scheduleAutoTest = true) {
+    async startAllXshellConnections(requireConfirm = true, scheduleAutoTest = true, serverIds = []) {
         await this.syncXshellConfigBeforeNetwork("start all xshell connections");
         const launchBlockers = this.currentTunnelLaunchBlockers();
         if (launchBlockers.length) {
             void vscode.window.showErrorMessage(`连接启动已阻止：${launchBlockers.join("；")}`);
             return false;
         }
-        const tunnelItems = this.tunnelLaunchItems();
+        const tunnelItems = AgentRuntimeScope_1.selectAgentRuntimeTargets(this.tunnelLaunchItems(), serverIds);
         const launchItems = [
             ...tunnelItems
                 .filter((item) => item.config.savedSessionPath)
@@ -7661,6 +7670,18 @@ export class RealtimeTunnelPanelProvider {
             "cluster_scheduler.py": RuntimeManifest_1.sha256Text(schedulerText),
         };
         (manifest as any).deployedAt = new Date().toISOString();
+        // Read-only ownership/health inspection precedes every remote overwrite.
+        const inspections = new Map();
+        for (const target of targets) {
+            const before = await this.agentLifecycleForTarget(target, "inspect", manifest);
+            if (before.status === "running" && before.runningVersion === runtimeVersion
+                && (Object.entries(manifest.files).some(([name, digest]) => before.files?.[name] !== digest)
+                    || before.identity?.runtimeFiles && Object.entries(manifest.files).some(([name, digest]) => before.identity.runtimeFiles[name] !== digest)))
+                throw new Error(`${target.id}: AGENT_RUNTIME_VERSION_REUSED: 同版本字节已改变，未覆盖或重启`);
+            if (before.activeTasks?.length && (before.runningVersion !== runtimeVersion || Object.entries(manifest.files).some(([name, digest]) => before.files?.[name] !== digest)))
+                throw new Error(`${target.id}: AGENT_ACTIVE_TASK: 未写入 runtime 或重启 Agent`);
+            inspections.set(target.id, before);
+        }
         if (!deferVerification) {
             try {
                 const preCheck = await this.verifyDeployedAgentRuntime(targets, manifest);
@@ -7674,6 +7695,9 @@ export class RealtimeTunnelPanelProvider {
         }
         const failures = [];
         for (const target of targets) {
+            const before: any = inspections.get(target.id);
+            if (before.status === "running" && before.runningVersion === runtimeVersion
+                && Object.entries(manifest.files).every(([name, digest]) => before.files?.[name] === digest)) continue;
             console.log("[diag] simpleSftp.uploadFiles invoke", target.id, target.remotePath);
             const result = await vscode.commands.executeCommand("simpleSftp.uploadFiles", {
                 apiMode: true,
@@ -7683,7 +7707,7 @@ export class RealtimeTunnelPanelProvider {
                 targetId: `${target.id}-agent-runtime`,
                 targetRole: target.role,
                 remotePath: target.remotePath,
-                server: this.sftpServerOptions(target),
+                server: await this.agentLifecycleServer(target),
                 files: [
                     { localPath: agentPath, remoteName: "cluster_agent.py" },
                     { localPath: schedulerPath, remoteName: "cluster_scheduler.py" },
@@ -7697,6 +7721,10 @@ export class RealtimeTunnelPanelProvider {
         }
         if (failures.length)
             throw new Error(`Agent runtime 部署失败：${failures.join("; ")}`);
+        for (const target of targets) {
+            const before: any = inspections.get(target.id);
+            await this.agentLifecycleForTarget(target, before.status === "running" && before.runningVersion !== runtimeVersion ? "restart" : "ensure", manifest, true);
+        }
         if (deferVerification) return { targets, manifest };
         // 手动触发(showMessage=true)：单次 verify 立即返回，避免 fetch failed/ECONNREFUSED 无意义延迟；仅自动触发(showMessage=false)才轮询重试
         let verifyIssues: any;
@@ -7738,19 +7766,69 @@ export class RealtimeTunnelPanelProvider {
             delete this.lastWorkerProbes[target.id];
         this.lastFullEndpointProbeAt = 0;
         this.lastHealth = {
-            state: "agent_restart_required",
-            status: "agent_restart_required",
+            state: _verifyOk ? "agent_ok" : "agent_verification_pending",
+            status: _verifyOk ? "ok" : "verifying",
             checkedAt: new Date().toISOString(),
-            message: `最新版 Agent runtime 已部署到 ${targets.map((target) => target.id).join("、")}。请重启对应 Xshell 会话后再次检测。` + (_shaDetails.length ? ` 部署校验：${_shaDetails.join("； ")}` : ""),
+            message: `Agent 独立服务 ${_verifyOk ? "已核实实际运行版本" : "已启动，隧道待核实"}：${targets.map((target) => target.id).join("、")}` + (_shaDetails.length ? ` 部署校验：${_shaDetails.join("； ")}` : ""),
             remoteDetails: _shaDetails,
         } as any;
         (this as any).lastDeployShaDetails = _shaDetails;
         this.postState();
         if (showMessage) {
             const shaMsg = _shaDetails.length ? ` 部署校验：${_shaDetails.join("； ")}` : "";
-            void vscode.window.showInformationMessage(`最新版 Agent runtime 已部署到 ${targets.map((target) => target.id).join("、")}。请重启对应 Xshell 会话，再点击“检测全部”。${shaMsg}`);
+            void vscode.window.showInformationMessage(`Agent 独立服务 ${_verifyOk ? "运行版本已验证" : "隧道尚待验证"}：${targets.map((target) => target.id).join("、")}。${shaMsg}`);
         }
         return { targets, manifest };
+    }
+    async apiAgentLifecycle(params = {}) {
+        const ids = stringArrayField(params, "serverIds");
+        if (!ids.length) throw new Error("AGENT_TARGET_REQUIRED: 必须明确 serverIds");
+        const targets = AgentRuntimeScope_1.selectAgentRuntimeTargets(this.agentRuntimeUploadTargets(), ids);
+        const action = String(params.action || "inspect");
+        if (!["inspect", "ensure", "stop", "restart"].includes(action)) throw new Error("AGENT_ACTION_INVALID");
+        if (action !== "inspect" && params.confirm !== true) throw confirmationRequired({
+            operation: "agents.lifecycle", requires: ["confirm"], preview: { action, targets: normalizeRemoteWriteTargets(targets) },
+        });
+        const runtimeDir = path.join(__dirname, "..", "runtime");
+        const [agent, scheduler] = await Promise.all([fs.readFile(path.join(runtimeDir,"cluster_agent.py"),"utf8"), fs.readFile(path.join(runtimeDir,"cluster_scheduler.py"),"utf8")]);
+        const manifest = { runtimeVersion: RuntimeManifest_1.CURRENT_RUNTIME_VERSION, files: {
+            "cluster_agent.py": RuntimeManifest_1.sha256Text(agent), "cluster_scheduler.py": RuntimeManifest_1.sha256Text(scheduler) } };
+        const results = [];
+        for (const target of targets) results.push({ id: target.id, ...await this.agentLifecycleForTarget(target, action, manifest, params.confirm === true) });
+        return { ok: true, action, results };
+    }
+    async agentLifecycleServer(target) {
+        const server = this.sftpServerOptions(target);
+        const config = target.id === "hub" ? this.setupConfig : this.setupConfig.workerTunnels.find(row => row.id === target.id);
+        const alias = config?.sshConfigAlias;
+        if (!alias) return server;
+        const resolved = await SshTransportIdentity_1.inspectOpenSshAlias(alias);
+        const expectedHost = String(config.workerHost || config.hubHost || target.networkHost || target.host || "");
+        const expectedUser = String(config.workerUser || config.hubUser || target.user || "");
+        const expectedPort = Number(config.workerSshPort || config.hubSshPort || target.port);
+        if (!resolved.ok || resolved.hostname !== expectedHost || Number(resolved.port) !== expectedPort || expectedUser && resolved.user !== expectedUser)
+            throw new Error(`AGENT_SSH_ALIAS_MISMATCH: ${target.id} / ${alias}`);
+        return { ...server, host: alias, sftpHost: alias, sshHost: alias, transferHost: alias, resolvedHost: alias, networkHost: expectedHost };
+    }
+    async agentLifecycleForTarget(target, action, manifest?, confirmed = false) {
+        const installed = vscode.extensions.getExtension(SIMPLE_SFTP_EXTENSION_ID);
+        if (require("../features/ExtensionUpdates").compareSemanticVersions(String(installed?.packageJSON?.version || "0.0.0"), "0.2.70") < 0)
+            throw new Error("AGENT_LIFECYCLE_CAPABILITY_REQUIRED: 需要 SimpleSFTP 0.2.70，未修改远端或自定义登录命令。");
+        const config = target.id === "hub" ? this.setupConfig : this.setupConfig.workerTunnels.find(row => row.id === target.id);
+        if (!config) throw new Error(`AGENT_CONFIG_MISSING: ${target.id}`);
+        const dirs = this.agentRuntimeDirs(config.agentProjectDir, config.agentInstallDir);
+        const result: any = await vscode.commands.executeCommand("simpleSftp.agentLifecycle", {
+            action, server: await this.agentLifecycleServer(target), projectDir: dirs.workDir, installDir: dirs.installDir,
+            mode: target.id === "hub" ? "hub_control" : "worker_telemetry", workerId: target.id === "hub" ? "" : target.id,
+            condaEnv: target.id === "hub" ? config.condaEnv : effectiveWorkerCondaEnv(config, this.setupConfig.condaEnv),
+            host: config.remoteAgentHost, port: config.remoteTelemetryPort || config.remoteAgentPort,
+            sessionPrefix: this.setupConfig.remoteTmuxSessionPrefix,
+            agentToken: this.tunnelConfig?.token || "",
+            expectedVersion: manifest?.runtimeVersion || RuntimeManifest_1.CURRENT_RUNTIME_VERSION, files: manifest?.files,
+            confirm: confirmed, pathConfirmed: confirmed,
+        });
+        if (result?.ok !== true) throw new Error(`${target.id}: ${result?.code || "AGENT_LIFECYCLE_FAILED"}: ${result?.error || "未收到有效回执"}`);
+        return result;
     }
     async verifyDeployedAgentRuntime(targets, manifest) {
         const token = this.tunnelConfig && this.tunnelConfig.token;
@@ -7928,9 +8006,12 @@ export class RealtimeTunnelPanelProvider {
                 console.warn(`[version-check] ${detail}`);
                 try {
                     await this.deployLatestAgentRuntime(showUi, true);
-                    const successMsg = `Agent 已自动更新到 ${pluginVersion}（runtime ${runtimeVersion}），请重启 Xshell 会话以生效。可点击“检测全部”验证。`;
-                    await vscode.window.showInformationMessage(successMsg);
-                    try { await this.restartRealtimeTunnelSessionsIfNeeded?.(); } catch {}
+                    const actual = await this.verifyDeployedAgentRuntime(targets, manifest);
+                    result.fatal = actual.fatal;
+                    result.warnings = actual.warnings;
+                    if (!actual.fatal.length && !actual.warnings.length)
+                        await vscode.window.showInformationMessage(`Agent 独立服务实际运行版本已核实：${pluginVersion}（runtime ${runtimeVersion}）。`);
+                    else throw new Error([...actual.fatal, ...actual.warnings].join("；"));
                     try { (this as any).client?.reconnect?.(); } catch {}
                 } catch (deployError) {
                     const failDetail = `自动覆盖安装失败：${String(deployError && (deployError as any).message || deployError)}。请手动执行“部署 Agent”。`;
@@ -7967,13 +8048,12 @@ export class RealtimeTunnelPanelProvider {
         try { result = await this.checkRemoteAgentVersionAndNotify(false); } catch (err) { console.warn(`[version-check] ensureRemoteAgentVersionConsistent check failed: ${String((err as any)?.message || err)}`); throw err; }
         if (result && Array.isArray(result.fatal) && result.fatal.length) {
             // 版本差异不能自动清理调度器或 GPU tmux；用户需通过 Agent 准备流程仅重启 Agent 会话。
-            void this.deployLatestAgentRuntime(false, true).catch(() => undefined);
             try {
                 this.lastHealth = {
                     state: "agent_restart_required",
                     status: "verifying",
                     checkedAt: new Date().toISOString(),
-                    message: "Agent 文件已更新；请通过“准备 Agent 并启动”重启 Agent 会话，再点击“检测全部”。训练与故障 tmux 保留。",
+                    message: "Agent 实际运行版本尚未核实；请通过“准备 Agent”检查具体归属或活动任务阻断，未重复部署或启动。",
                     fatal: result.fatal,
                 } as any;
                 this.postState();
@@ -12648,7 +12728,8 @@ export class RealtimeTunnelPanelProvider {
         await this.launchTunnelItem(item);
     }
     async startAgentEndpointFromUi(message) {
-        await this.startTunnelEndpointFromUi(message);
+        const id = stringField(message, "endpointId") || "hub";
+        await this.deployLatestAgentRuntime(true, false, [id]);
     }
     async withRemoteActionResource(workerId, action, body, work) {
         if (/^(validate-plan|dry-run-plan|cancel-|health|check-)/.test(action)
@@ -16455,6 +16536,9 @@ export class RealtimeTunnelPanelProvider {
         try {
             localOperations = this.buildPlanRuntimeEvidenceState().operations || {};
             distributed = DistributedPlanQueue.distributedStopTargets(queue, planFile);
+            const history = terminalPlanHistorySelection(localOperations, distributed, planFile, operationTerminal);
+            if (history && stringField(message, "clearMode") !== "remote")
+                return await this.clearEndedPlanHistoryFromUi(message, root, planFile, history);
         const localTargets = planCleanupTargets(localOperations, planFile, (row) => operationTerminal(row));
         const localSubmissionTarget = (target) => {
             const row = localOperations[target.operationId] || {};
@@ -16847,6 +16931,84 @@ export class RealtimeTunnelPanelProvider {
             });
         }
         finally {
+            if (this.distributedPlanStopEpoch === stopEpoch) {
+                if (this.distributedQueueTickPromise) this.detachStaleDistributedTick(this.distributedQueueTickPromise);
+                this.distributedPlanStopEpoch = 0;
+            }
+        }
+    }
+    async clearEndedPlanHistoryFromUi(message, root, planFile, frozen) {
+        const generation = this.projectContextGeneration;
+        const current = () => root === workspaceRoot() && generation === this.projectContextGeneration;
+        const preview = [`仅清除 ${planFile} 的本机已结束记录`,
+            `${frozen.operationIds.length} 条校验/运行历史、${frozen.jobs.length} 个队列记录、${frozen.deferredIds.length} 条未提交记录。`,
+            "不停止远端进程，不关闭 tmux，不移动或删除 PLAN、配置、日志、权重、结果。远端快照已过期或离线不代表旧窗口已关闭。",
+            ...frozen.operationIds,
+            ...frozen.jobs.map(row => `${row.planId} · job ${row.jobIndex} · ${row.status} · ${row.workerId || "本机"} · ${row.commandId || "未派发"} · ${row.outputDir || ""}`)].join("\n");
+        this.publishPlanStopClear(planFile, { phase: "history-preview", outcome: "running", message: preview,
+            nextStep: "确认只清除本机历史；需要关闭窗口时选择核实远端窗口。" });
+        const first = await vscode.window.showWarningMessage(preview, { modal: true }, "继续清除本机历史", "核实并关闭远端窗口");
+        if (first === "核实并关闭远端窗口" && current())
+            return await this.stopAndClearPlanFromUi({ ...message, clearMode: "remote" });
+        if (first !== "继续清除本机历史" || !current())
+            return this.finishPlanStopClear(planFile, { phase: "confirm-cancelled", outcome: "cancelled", message: "本机历史清除已取消，记录和远端任务未改。", nextStep: "需要时重新选择。" });
+        const second = await vscode.window.showWarningMessage(`第二次确认：\n${preview}`, { modal: true }, "确认清除本机历史");
+        if (second !== "确认清除本机历史" || !current())
+            return this.finishPlanStopClear(planFile, { phase: "confirm-cancelled", outcome: "cancelled", message: "确认期间取消或工作区已变化，未清除记录。", nextStep: "回到原项目重新选择。" });
+        const warnings = [];
+        const workers = [...new Set(frozen.jobs.map(row => String(row.workerId || "")).filter(Boolean))];
+        this.publishPlanStopClear(planFile, { phase: "history-check", outcome: "running", message: "只读核对相关 Worker 的当前活动状态。", nextStep: "不会发送停止或文件操作命令。" });
+        const snapshots = await Promise.allSettled(workers.map(worker => this.boundedPromise(
+            () => this.client.getWorkerTasks(worker), this.planStopClearWaitMs(), new Error(`Worker ${worker} 未响应；仅清除本机历史，远端状态未核实`))));
+        for (let index = 0; index < snapshots.length; index++) {
+            const item = snapshots[index];
+            if (item.status === "rejected" || !Array.isArray(item.value?.tasks)) {
+                warnings.push(`Worker ${workers[index]} 状态未核实，保留远端窗口与产物。`);
+                continue;
+            }
+            const conflict = item.value.tasks.find(task => frozen.jobs.some(row => row.workerId === workers[index]
+                && row.commandId && String(task.commandId || "") === row.commandId)
+                && !["completed", "failed", "cancelled", "canceled", "stopped"].includes(String(task.status || "").toLowerCase()));
+            if (conflict) return this.finishPlanStopClear(planFile, { phase: "history-active", outcome: "failed",
+                message: `${workers[index]} 仍报告 commandId=${conflict.commandId} 为 ${conflict.status}，不能当已结束历史清除。`, nextStep: "先核对并中止对应任务；未清除记录。" });
+        }
+        if (!current()) return this.finishPlanStopClear(planFile, { phase: "project-switch", outcome: "failed", message: "工作区已变化，未清除记录。", nextStep: "重新选择。" });
+        const latest = await this.loadDistributedQueue(root);
+        const checked = terminalPlanHistorySelection(this.buildPlanRuntimeEvidenceState().operations || {},
+            DistributedPlanQueue.distributedStopTargets(latest, planFile), planFile, operationTerminal);
+        if (!current() || !checked || checked.signature !== frozen.signature
+                || frozen.jobs.some(row => this.distributedLaunchInFlight?.has(row.jobKey)))
+            return this.finishPlanStopClear(planFile, { phase: "history-changed", outcome: "failed", message: "确认后作业身份、状态或历史范围已变化，未清除记录。", nextStep: "刷新后重新确认。" });
+        const stopEpoch = this.distributedPlanStopEpoch = (this.distributedPlanStopEpoch || 0) + 1;
+        this.distributedQueueGeneration = (this.distributedQueueGeneration || 0) + 1;
+        const queueGeneration = this.distributedQueueGeneration;
+        this.distributedTickAbort?.abort();
+        let queueSaved = false;
+        try {
+            const jobKeys = new Set<string>(frozen.jobs.map(row => String(row.jobKey)));
+            if (jobKeys.size || frozen.deferredIds.length) {
+                const next = DistributedPlanQueue.removeConfirmedDistributedPlan(latest, planFile, {
+                    jobKeys, deferredIds: new Set<string>(frozen.deferredIds),
+                    historyOnlyJobKeys: jobKeys, projectId: DistributedPlanQueue.canonicalProjectId(root) });
+                await this.saveDistributedQueue(root, next, { queueGeneration });
+                queueSaved = true;
+            }
+            if (!current()) throw new Error("项目已切换，停止后续历史状态写入");
+            const hidden = this.context.workspaceState.get(keys.executionHistoryHiddenOperationIds, []);
+            await this.context.workspaceState.update(keys.executionHistoryHiddenOperationIds,
+                uniqueStrings([...(Array.isArray(hidden) ? hidden : []), ...frozen.operationIds]));
+            if (!current()) throw new Error("历史状态保存后项目已切换，未报告全部完成");
+            this.postState();
+            return this.finishPlanStopClear(planFile, { phase: "history-cleared", outcome: "completed",
+                message: `已清除 ${frozen.operationIds.length} 条本机历史、${frozen.jobs.length} 个队列记录。未停止远端任务，未关闭 tmux；日志、权重及结果保留。${warnings.join(" ")}`,
+                nextStep: "旧窗口需要另行核实后关闭；本机记录清除不等于远端窗口已关闭。",
+                clearedOperations: frozen.operationIds.length, clearedJobs: frozen.jobs.length, clearedDeferred: frozen.deferredIds.length,
+                stopped: 0, closedTmux: 0, retained: 0 });
+        } catch (error) {
+            return this.finishPlanStopClear(planFile, { phase: "history-save", outcome: queueSaved ? "partial" : "failed",
+                message: `本机历史保存未全部完成：${errorMessage(error)}`, nextStep: "刷新后重试剩余记录；远端未操作。",
+                clearedJobs: queueSaved ? frozen.jobs.length : 0, stopped: 0, closedTmux: 0 });
+        } finally {
             if (this.distributedPlanStopEpoch === stopEpoch) {
                 if (this.distributedQueueTickPromise) this.detachStaleDistributedTick(this.distributedQueueTickPromise);
                 this.distributedPlanStopEpoch = 0;
@@ -20103,6 +20265,7 @@ export class RealtimeTunnelPanelProvider {
             remoteAgentPort: (0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.remoteAgentPort", saved.remoteAgentPort || this.tunnelConfig.remotePort),
             xshellExePath: saved.xshellExePath || this.tunnelConfig.xshellExePath || "",
             hubDisplayName: (0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.hubDisplayName", saved.hubDisplayName),
+            agentLoginPolicy: (0, ConfigurationSettings_1.explicitConfigurationValue)(config, "tunnel.agentLoginPolicy", saved.agentLoginPolicy || "preserve"),
             remoteTmuxSessionPrefix: sessionDefaultValue(
                 "tunnel.remoteTmuxSessionPrefix",
                 saved.remoteTmuxSessionPrefix,
@@ -20197,6 +20360,7 @@ export class RealtimeTunnelPanelProvider {
         await Promise.all([
             configuration.update("tunnel.remoteTmuxSessionPrefix", next.remoteTmuxSessionPrefix, vscode.ConfigurationTarget.Global),
             configuration.update("tunnel.condaEnv", next.condaEnv, vscode.ConfigurationTarget.Global),
+            configuration.update("tunnel.agentLoginPolicy", next.agentLoginPolicy || "preserve", vscode.ConfigurationTarget.Global),
         ]);
         await this.saveState();
         await this.context.globalState.update(keys.setupConfigurationSignature, this.sessionDefaultConfigurationSignature());
@@ -20970,7 +21134,7 @@ export class RealtimeTunnelPanelProvider {
                     startupCommand: (0, AgentTmuxPolicy_1.agentTmuxStartupCommand)({ role: "worker", endpointId: worker.id, host: worker.remoteAgentHost, port: worker.remoteTelemetryPort || worker.remoteAgentPort, installDir: dirs.installDir, workDir: dirs.workDir, condaEnv: effectiveWorkerCondaEnv(worker, this.setupConfig.condaEnv), sessionPrefix: (this.setupConfig as any).sessionPrefix || (this.setupConfig as any).sessionPrefix || this.setupConfig.remoteTmuxSessionPrefix }),
                 };
             }),
-            note: "Agent 跟随 Xshell 隧道会话启动。插件只打开 .xsh 会话文件，不直接执行远端命令。",
+            note: "Agent 是独立辅助服务，由 SimpleSFTP 核验归属后准备、复用或升级；Xshell 只负责登录与隧道。所列 tmux 名称保留用于旧版 Agent 历史会话。",
         };
         this.agentSessionStateCacheSetup = this.setupConfig;
         this.agentSessionStateCacheSessions = sessions;
@@ -24447,12 +24611,12 @@ function agentStartupWriteConfirmationDetail(startupTargets, runtimeTargets, inc
     }
     lines.push("");
     if (includeRuntimeUpload) {
-        lines.push(`将一次完成 ${sessions.length} 个端点的首次准备：`, "1. 写入上述本地 .xsh 的受管 RemoteCommand，并创建固定备份", "2. 通过 SimpleSFTP 上传上述 Agent runtime 文件", "3. 打开 Hub/Worker Xshell 会话", "4. 等待启动后检测全部本地隧道");
+        lines.push(`准备 ${sessions.length} 个独立辅助 Agent：`, "1. 通过 SimpleSFTP 只读核对运行身份与状态目录归属，健康同版本复用", "2. 缺失时部署并启动；旧版仅核实归属且无活动任务后升级", "3. 原登录行为保留；只有 agentLoginPolicy=managed 才维护独立启动段", "4. 检测实际运行版本及当前配置的隧道；不修改平台入口或停止用户训练");
     }
     else {
         lines.push("本操作只写入上述本地 .xsh 及固定备份，不上传远端文件，也不会修改 X11、Host、User、端口转发或其它会话项。");
     }
-    lines.push("已有非 SimpleExperiment RemoteCommand 时会停止且不会覆盖。");
+    lines.push(includeRuntimeUpload ? "自定义登录命令默认保持原样。" : "本次确认授权维护独立启动段；原登录命令逐字保留，后续更新替换该段，不重复拼接。");
     return lines.join("\n");
 }
 function codeSyncConfirmationLabel(scope) {
@@ -33649,6 +33813,8 @@ function xshellLoginCommandUpdateLabel(skippedReason, changed) {
     switch (skippedReason) {
         case "existing_simple_command":
             return "已存在当前 SimpleExperiment Agent 命令，跳过";
+        case "preserved_login":
+            return "原登录命令保留；Agent 由独立生命周期接口维护";
         case "non_simple_remote_command":
             return "检测到已有非 SimpleExperiment 登录后命令，已跳过，未覆盖用户自定义命令";
         case "different_simple_agent_session":

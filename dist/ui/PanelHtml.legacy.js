@@ -6800,7 +6800,7 @@ function renderPanelHtml() {
 
     const COMMAND_HELP_TEXT = Object.freeze({
         startAllConnections: "打开已配置的 Xshell 连接",
-        prepareAgents: "部署 Agent、写入受管自启动命令、启动会话并检测全部",
+        prepareAgents: "检测并复用健康 Agent；必要时部署独立服务，保留原登录行为，核实运行版本",
         testAll: "检测全部",
         snapshot: "刷新快照",
         resetUiLayout: "恢复布局",
