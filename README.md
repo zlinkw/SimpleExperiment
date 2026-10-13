@@ -54,6 +54,8 @@ code --install-extension .\simple-experiment-<version>.vsix
 
 插件开发发布分为两个显式阶段：先运行 `npm run package` 生成并验证 VSIX；所有修改结束后，再运行一次 `npm run install:latest`。`package` 不会自动安装扩展，同版本安装会跳过。安装后执行 **Developer: Reload Window**。不要在窗口继续使用插件时反复强制重装同一版本。
 
+运行版本交付还必须提交/推送源码，并将经过验证的 VSIX 与 SHA256 发布到实际更新源的稳定 GitHub Release；需要新配套 SimpleSFTP 时同步核对其发布包。确认 Latest Release 和插件更新解析可见后再宣布发行完成，不能以源码 push 代替可更新安装包。纯文档变更不发布空运行版本。完整规则见 [插件更新源交付](docs/release-delivery.md)。
+
 新版面板的“设置”区域提供配套更新入口。它会检查两个插件的 GitHub Latest Release；选择“安装并重载”后，插件安装更新并重载窗口。
 
 ## 核心概念

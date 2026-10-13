@@ -1,7 +1,7 @@
 
 Path
 ----
-D:\GitRepo\MCP\simple-experiment
+D:\GitRepo\MCP\zlk-cluster-orchestrator
 
 ## 展示规范
 
@@ -73,3 +73,16 @@ D:\GitRepo\MCP\simple-experiment
 - 阶段 2：全部修改与打包验证结束、准备交给用户重载时，显式运行一次 `npm run install:latest`。同版本必须跳过，禁止默认 `--force`、禁止降级；每个目标版本最多安装一次。
 - 安装后立即核对 VS Code 已安装版本与 `simpleex` 入口，并停止操作当前 SimpleExperiment 面板。用户执行 **Developer: Reload Window** 后再进行 UI 验收。
 - P0：禁止 `package` 生命周期自动 live install 正在运行的扩展；禁止对同一版本连续执行 `code --install-extension ... --force`。若磁盘版本与 Extension Host 运行版本不一致，预期显示“需要重载窗口”专页。
+
+## GitHub 更新源发布（交付硬门禁）
+
+- 用户已授权今后将经过验证、交付所必需的插件安装包发布到当前项目既有 GitHub 更新源。常规发布无需重复询问；该授权不包含新仓库、其他账号/平台、覆盖历史资产、连接训练服务器写入或自动更新远端 Agent。
+- 源码 push、本机生成 VSIX、本机安装和远端 Release 发布是四个独立状态。插件或配套运行协议发生变更时，不能仅完成前三项便宣布交付完成。
+- 每次运行版本交付必须先通过相关回归、build、VSIX 身份/版本/平台/运行闭包与秘密排除检查；提交并普通 fast-forward push 到既有 `origin/master`，fetch 确认 HEAD 一致，然后发布绑定该已验证提交和版本的稳定 Release。
+- 发布目标必须从当前更新客户端及各仓库 origin 核对。Windows 当前读取 SimpleExperiment 与 SimpleSFTP 各自的公开 `/releases/latest`；上传到普通分支、只推 tag、draft、prerelease 或另一个平台的索引均不算可更新交付。
+- Release 必须包含与本次打包验证、本机安装字节一致的 `.vsix` 和逐包 `.vsix.sha256`。SHA256 清单必须绑定精确文件名。配套依赖或协议需要新 SimpleSFTP 时，必须同时确认其所需版本已在自己的更新源可取得；未修改且已有一致包可复用，不得为凑批次降级或伪造版本。
+- tag 和同名发布资产不可覆盖。已有同版本同提交、同指纹资产可幂等跳过；提交、字节、平台或版本不同立即阻断。远端已有更高稳定版本时，不得降级 Latest；禁止 force tag、覆写/删除历史 Release 和资产。
+- 上传成功后重新读取真实 Latest Release，核对 repo、tag、绑定提交、`draft=false`、`prerelease=false`、资产名、大小及 SHA256；通过实际更新解析逻辑确认匹配平台的旧版本能看到更新。需要时将精确发布包读取到隔离验证目录再核验，不能用 mock JSON 或源码 push 代替远端发行验收。
+- 权限、网络、上传、配套包、校验或 Latest 可见性任一失败，记录“源码已推送，远端发行未完成”及具体阻断，不得报告“已发布/全部完成”，不得跳过完整性门禁或偷偷更换发行源。
+- `npm run package` 继续只构建/打包，不自动上传 Release 或安装。源提交、远端发行、本机安装均显式执行；本机每版本最多安装一次，重载及远端 Agent 更新仍按原规则办理。
+- 纯文档/约束变更无需递增运行版本、重打 VSIX、重复安装或发布空版本；仍须完成适用检查并提交、推送。开发发布详见 [docs/release-delivery.md](docs/release-delivery.md)。最终说明源码提交、发行链接/资产/指纹、安装/重载和远端部署的真实状态。
