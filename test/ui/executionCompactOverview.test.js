@@ -5,6 +5,25 @@ const { readSource } = require("../_helpers/sourceReader");
 
 const panel = readSource("src/ui/PanelHtml.ts");
 
+test('failed jobs show a short error and a window-log button instead of embedding the terminal', () => {
+  const sandbox = clickSandbox();
+  const error = 'FULL_COMMAND_AND_CONFIG_DO_NOT_RENDER '.repeat(200) + '\nTraceback (most recent call last):\n  File "private.py", line 8\nModuleNotFoundError: No module named torch\nPane is dead (status 1)';
+  sandbox.render({ distributedPlans: [{ id:'wf',planFile:'plans/failure.yaml',jobs:[{index:0,case:'a',seed:42,status:'failed',
+    workerId:'w',commandId:'c',outputDir:'work/job',error}] }] });
+  assert.match(sandbox.html, /ModuleNotFoundError/);
+  assert.match(sandbox.html, /查看窗口日志/);
+  assert.match(sandbox.html, /data-job-tmux-log="1"[^>]*data-command-id="c"/);
+  assert.doesNotMatch(sandbox.html, /FULL_COMMAND_AND_CONFIG_DO_NOT_RENDER|Traceback|private.py/);
+});
+
+test('a starting task window stays in the queue and does not add a running job', () => {
+  const sandbox = clickSandbox();
+  sandbox.render({ distributedPlans: [{ id:'wf',planFile:'plans/starting.yaml',jobs:[{index:0,case:'a',seed:42,status:'queued',
+    lifecycleProtocol:2,executionState:'starting',workerId:'w',commandId:'c',outputDir:'work/job'}] }] });
+  assert.match(sandbox.html, /正在启动命令/);
+  assert.doesNotMatch(sandbox.html, />运行中<| · 运行 1/);
+});
+
 function extract(startName, endName) {
   const start = panel.indexOf(`function ${startName}(`);
   const end = panel.indexOf(`function ${endName}(`, start + 1);

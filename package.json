@@ -2,7 +2,7 @@
   "name": "simple-experiment",
   "displayName": "SimpleExperiment",
   "description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
-  "version": "0.5.316",
+  "version": "0.5.317",
   "publisher": "simple-local",
   "extensionKind": [
     "ui"
@@ -821,7 +821,7 @@
     "compact:plan": "node scripts/compact-target-mode-plan.js",
     "check:tmux-guard": "node scripts/check-tmux-guard.js",
     "check:static": "node scripts/check-static.js",
-    "test:agent-lifecycle": "node --test --test-force-exit --test-timeout 20000 test/tunnel/independentAgent.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/agentLifecycle.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/agentLegacyMigration.test.js && node --test --test-force-exit --test-timeout 20000 test/features/agentPreparationLifecycle.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/agentTmuxPolicy.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/xshellSessionPatcher.test.js",
+    "test:agent-lifecycle": "node scripts/prepare-wsl-tests.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/independentAgent.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/agentLifecycle.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/agentLegacyMigration.test.js && node --test --test-force-exit --test-timeout 20000 test/features/agentPreparationLifecycle.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/agentTmuxPolicy.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/xshellSessionPatcher.test.js",
     "test:terminal-history": "node --test --test-force-exit --test-timeout 20000 test/features/terminalPlanHistory.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planStopClear.test.js",
     "test:windows-flow": "node --test --test-force-exit --test-timeout 20000 test/features/projectManagedPreflight.test.js && node --test --test-force-exit --test-timeout 20000 test/features/staticEntrypointProbe.test.js && node --test --test-force-exit --test-timeout 20000 test/features/windowsWorkflowContract.test.js && node --test --test-force-exit --test-timeout 20000 test/features/localApiClientContract.test.js && node --test --test-force-exit --test-timeout 20000 test/features/resultOwnershipScope.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planOutputReplacement.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planOutputReplacementHost.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planCleanup.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planCleanupReconnect.test.js && node --test --test-force-exit --test-timeout 20000 test/features/metricsDownloadEndToEnd.test.js && npm run test:local-stop-control",
     "test:local-stop-control": "node --test --test-force-exit --test-timeout 20000 test/features/clearedOutputReplacement.test.js && node --test --test-force-exit --test-timeout 20000 test/features/cleanupActivity.test.js && node --test --test-force-exit --test-timeout 20000 test/features/localStopControl.test.js && node --test --test-force-exit --test-timeout 20000 test/features/operationRetirement.test.js",

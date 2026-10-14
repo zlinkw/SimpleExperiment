@@ -63,6 +63,13 @@ function selectorSandbox(stateForSummary) {
   return sandbox;
 }
 
+test('submission and queued jobs stay distinct from running commands', () => {
+  const sandbox = selectorSandbox(), file = 'plans/queued.yaml';
+  const state = { plans: [{file, revision:'r',jobCount:2}], tasks:[{planFile:file,planRevision:'r',status:'queued'}] };
+  assert.equal(sandbox.selector.summary(state,file).status,'queued');
+  assert.equal(sandbox.selector.summary({plans:state.plans,operations:[{planFile:file,planRevision:'r',type:'run-plan',status:'running'}]},file).status,'submitting');
+});
+
 test("selector derives task progress from the selected Plan revision only", () => {
   const sandbox = selectorSandbox();
   const state = {
@@ -153,7 +160,7 @@ test("completed jobs suppress old operation activity while a newer rerun stays a
     operations: [{ planFile: file, planRevision: "r1", type: "run-plan", status: "running", startedAt: "2026-10-09T01:00:00Z" }] };
   assert.equal(sandbox.selector.summary(state, file).status, "completed");
   const newer = { ...state, operations: [{ ...state.operations[0], startedAt: "2026-10-09T03:00:00Z" }] };
-  assert.equal(sandbox.selector.summary(newer, file).status, "running");
+  assert.equal(sandbox.selector.summary(newer, file).status, "submitting");
 });
 
 test("latest successful retry supersedes an older failure for the same job", () => {

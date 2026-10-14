@@ -1,6 +1,6 @@
 import { jobIsUnavailable, QueuedPlan, QueuedJob } from "./DistributedPlanQueue";
 
-export type PlanSelectorStatus = "not-started" | "partial" | "running" | "completed" | "failed";
+export type PlanSelectorStatus = "not-started" | "partial" | "submitting" | "queued" | "running" | "completed" | "failed";
 
 export interface PanelPlanStatusSummary {
   planFile: string;
@@ -179,7 +179,9 @@ function summarizeEntry(entry: PlanEntry): PanelPlanStatusSummary {
 
   let status: PlanSelectorStatus = "not-started";
   if (displayedCounts.failedCount || failedOperation || latestRunFailed) status = "failed";
-  else if (displayedCounts.activeCount || pendingOperation || displayedCounts.queuedCount && !displayedCounts.completedCount) status = "running";
+  else if (displayedCounts.activeCount) status = "running";
+  else if (pendingOperation) status = "submitting";
+  else if (displayedCounts.queuedCount && !displayedCounts.completedCount) status = "queued";
   else if (allTasksCompleted) status = "completed";
   else if (countRows.length || runOperations.length) status = "partial";
 

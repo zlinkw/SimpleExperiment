@@ -141,8 +141,12 @@ function summarizeEntry(entry) {
     let status = "not-started";
     if (displayedCounts.failedCount || failedOperation || latestRunFailed)
         status = "failed";
-    else if (displayedCounts.activeCount || pendingOperation || displayedCounts.queuedCount && !displayedCounts.completedCount)
+    else if (displayedCounts.activeCount)
         status = "running";
+    else if (pendingOperation)
+        status = "submitting";
+    else if (displayedCounts.queuedCount && !displayedCounts.completedCount)
+        status = "queued";
     else if (allTasksCompleted)
         status = "completed";
     else if (countRows.length || runOperations.length)

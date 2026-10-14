@@ -1399,7 +1399,7 @@ export function renderPanelHtml(): string {
         <div id="planQuickGrid" class="planQuickGrid" data-anchor="plans-actions">
           <div class="planSelectorControls" aria-label="计划筛选与排序">
             <div class="field"><label for="planSelectorQuery">搜索计划</label><input id="planSelectorQuery" type="search" placeholder="筛选文件名或路径" autocomplete="off"></div>
-            <div class="field"><label for="planSelectorStatusFilter">状态</label><select id="planSelectorStatusFilter"><option value="all">全部状态</option><option value="remaining">未完成</option><option value="not-started">未开始</option><option value="partial">部分完成</option><option value="running">运行中</option><option value="completed">已完成</option><option value="failed">失败</option></select></div>
+            <div class="field"><label for="planSelectorStatusFilter">状态</label><select id="planSelectorStatusFilter"><option value="all">全部状态</option><option value="remaining">未完成</option><option value="not-started">未开始</option><option value="partial">部分完成</option><option value="submitting">准备提交中</option><option value="queued">排队中</option><option value="running">运行中</option><option value="completed">已完成</option><option value="failed">失败</option></select></div>
             <div class="field"><label for="planSelectorSortOrder">排序</label><select id="planSelectorSortOrder"><option value="scan">扫描顺序</option><option value="progress-desc">进度从高到低</option><option value="progress-asc">进度从低到高</option><option value="name">名称</option></select></div>
           </div>
           <div class="field wide">
@@ -2862,7 +2862,7 @@ export function renderPanelHtml(): string {
     const PPT_STYLE_MODE_LABELS = Object.freeze({ activePpt: "跟随当前 PPT", default: "默认样式" });
     const PLAN_EXECUTION_PHASE_LABELS = Object.freeze({
       select: "选择计划", ready: "可提交", validating: "校验中", validate: "校验待修复", "dry-running": "预演中", "dry-run": "预演待处理",
-      submitting: "提交中", run: "提交待处理", monitor: "运行中", results: "结果待处理", review: "任务需处理"
+      submitting: "提交中", run: "提交待处理", monitor: "任务状态", results: "结果待处理", review: "任务需处理"
     });
     const PROJECT_TASK_TYPE_LABELS = Object.freeze({
       classification: "分类", segmentation: "分割", regression: "回归", detection: "目标检测",
@@ -2925,7 +2925,7 @@ export function renderPanelHtml(): string {
     const PENDING_ACTION_LABELS = Object.freeze({
       stopExperiment: "停止中", retryExperiment: "重试中", reassignWorkerTask: "转移中", parseResults: "解析中",
       archiveArtifacts: "归档中", syncArtifacts: "检查中", completeThreeWay: "校验中", deleteArtifacts: "删除中",
-      runPlan: "运行中", dryRunPlan: "预演中", validatePlan: "校验中", checkClaimEvidence: "检查中"
+      runPlan: "准备提交中", dryRunPlan: "预演中", validatePlan: "校验中", checkClaimEvidence: "检查中"
     });
     const OPERATION_TYPE_LABELS = Object.freeze({
       "validate-plan": "校验计划", "dry-run-plan": "预演计划", "run-plan": "运行计划", "reproduce-plan": "复现实验", "run-all-plans": "运行全部计划", "queued": "历史记录",
@@ -8655,7 +8655,7 @@ export function renderPanelHtml(): string {
           return result("旧版本运行中", "同一路径的旧 Plan revision 仍有 " + activeRun.taskCount + " 个任务和 " + activeRun.operationCount + " 个提交操作未结束；为保护旧任务，当前版本暂不能提交。", { ready: false, blocking: true, tone: "warn" });
         }
         const activeStage = planExecutionStage(state, planFile);
-        return result(activeRun.taskCount > 0 ? "运行中" : "提交中", activeStage.status || "当前 Plan 已有未结束运行；查看现有进度，避免重复提交。", { ready: true, blocking: false, tone: "info" });
+        return result(activeStage.executionLabel || "提交中", activeStage.status || "当前 Plan 已有未结束任务；查看现有进度，避免重复提交。", { ready: true, blocking: false, tone: "info" });
       }
       const terminalStage = selectedPlan ? planExecutionStage(state, planFile) : undefined;
       const terminalPhase = String((terminalStage || {}).phase || "");
@@ -8692,7 +8692,7 @@ export function renderPanelHtml(): string {
       const stage = terminalStage || planExecutionStage(state, planFile);
       const phase = String(stage.phase || "ready");
       if (PLAN_WORKFLOW_RUNNING_PHASES?.has(phase)) {
-        const status = phase === "validating" ? "校验中" : phase === "dry-running" ? "预演中" : phase === "submitting" ? "提交中" : "运行中";
+        const status = phase === "validating" ? "校验中" : phase === "dry-running" ? "预演中" : phase === "submitting" ? "提交中" : stage.executionLabel || "等待执行确认";
         return result(status, stage.status, { ready: true, blocking: false, tone: "info" });
       }
       if (phase === "debug-review") return result("历史任务待复核", stage.status, { ready: true, blocking: false, tone: "info" });
@@ -9947,7 +9947,7 @@ export function renderPanelHtml(): string {
       }
       return "";
     }
-    const PLAN_SELECTOR_STATUS_LABELS = Object.freeze({ "not-started": "未开始", partial: "部分完成", running: "运行中", completed: "已完成", failed: "失败" });
+    const PLAN_SELECTOR_STATUS_LABELS = Object.freeze({ "not-started": "未开始", partial: "部分完成", submitting: "准备提交中", queued: "排队中", running: "运行中", completed: "已完成", failed: "失败" });
     let planSelectorStatusIndexState = null;
     let planSelectorStatusIndexValue = null;
     function planSelectorTrustedSummary(state, planFile, plan) {
@@ -10113,7 +10113,9 @@ export function renderPanelHtml(): string {
       const allTasksCompleted = countRows.length > 0 && totalCount > 0 && shownCompletedCount >= totalCount;
       let status = "not-started";
       if (shownFailedCount || failedOperation || latestRunFailed) status = "failed";
-      else if (shownActiveCount || pendingOperation || shownQueuedCount && !shownCompletedCount) status = "running";
+      else if (shownActiveCount) status = "running";
+      else if (pendingOperation) status = "submitting";
+      else if (shownQueuedCount && !shownCompletedCount) status = "queued";
       else if (allTasksCompleted) status = "completed";
       else if (countRows.length || runOperations.length) status = "partial";
       const shownCompleted = status === "completed" && !shownCompletedCount && totalCount ? totalCount : shownCompletedCount;
@@ -14082,6 +14084,15 @@ export function renderPanelHtml(): string {
       return normalizePlanSelectionKey(String(path || "").trim()).toLowerCase() || "unassigned";
     }
 
+    function executionJobErrorSummary(value) {
+      const text = String(value || "").trim();
+      if (!text) return "";
+      const lines = text.split(String.fromCharCode(10)).map(line => line.trim()).filter(Boolean);
+      const reason = lines.slice().reverse().find(line => line.includes("Error:") || line.includes("Exception:"));
+      const summary = reason || (lines.length === 1 ? lines[0] : "执行失败，请查看对应窗口日志。");
+      return summary.length > 180 ? summary.slice(0, 177) + "…" : summary;
+    }
+
     function distributedPlanRecoveryView(plan) {
       const jobs = Array.isArray(plan && plan.jobs) ? plan.jobs : [];
       const expectedJobCount = Math.max(jobs.length, Number(plan && plan.planJobCount) || 0);
@@ -14247,10 +14258,10 @@ export function renderPanelHtml(): string {
         const unknown = currentJobs.filter((job) => String(job.status || "") === "unknown" && distributedJobIsActive(job)).length;
         const dispatching = currentJobs.filter((job) => String(job.status || "") === "dispatching").length;
         const running = currentJobs.length ? currentJobs.filter((job) => String(job.status || "") === "running").length
-          : submission ? 1 : group.tasks.filter((row) => TASK_LIVE_STATUS_TOKENS?.has(taskStatusToken(row.status))).length;
+          : submission ? 0 : group.tasks.filter((row) => TASK_LIVE_STATUS_TOKENS?.has(taskStatusToken(row.status))).length;
         const deferredView = deferredCurrent ? executionDeferredView(group.deferredStatus) : null;
         const waitingSubmission = submission && submission.localSubmissionProgress === true && String(submission.status || "").toLowerCase() === "queued";
-        const tone = submission ? (waitingSubmission ? "blocked" : "running") : deferredView ? deferredView.tone : unknown || recovery.unresolved ? "blocked" : running || dispatching ? "running" : queued ? "queued" : failed ? "failed" : blockedOnly ? "blocked" : active ? "blocked" : "completed";
+        const tone = submission ? (waitingSubmission ? "blocked" : "queued") : deferredView ? deferredView.tone : unknown || recovery.unresolved ? "blocked" : running ? "running" : queued || dispatching ? "queued" : failed ? "failed" : blockedOnly ? "blocked" : active ? "blocked" : "completed";
         const completed = currentJobs.length ? currentJobs.filter((job) => String(job.status || "") === "completed").length
           : submission || deferredCurrent ? 0
           : group.tasks.filter((row) => TASK_TERMINAL_STATUSES?.has(taskStatusToken(row.status)) && !taskFailureLikeStatus(row.status)).length;
@@ -14328,10 +14339,10 @@ export function renderPanelHtml(): string {
           const jobActive = ["pending", "dispatching", "queued", "running", ...(job.lifecycleProtocol === 2 ? [] : ["unknown"])].includes(status) && !blocked;
           const unavailable = job.unavailable && status === "cancelled";
           const preflightRejected = Boolean(job.admissionRejection && status === "failed");
-          const statusLabel = job.retainExistingOutputs ? "保留已有产物" : job.lifecycleProtocol === 2 && status === "unknown" ? (job.statusQueryError ? "查询失败，状态未知" : job.executionState === "exited" ? "执行结束，结果待确认" : "远端未发现该任务") : unavailable ? "不可用" : blocked ? (String(job.blockReason || "").indexOf("等待当前代码版本") === 0 ? "等待代码版本" : "代码版本不匹配") : retryView.label || ({ pending: "本机等待空卡", queued: "服务器排队", dispatching: "派发中", running: "运行中", completed: "已完成", failed: "失败", cancelled: "已中止", unknown: "待核实" }[status] || status);
+          const statusLabel = job.executionState === "starting" ? "正在启动命令" : job.retainExistingOutputs ? "保留已有产物" : job.lifecycleProtocol === 2 && status === "unknown" ? (job.statusQueryError ? "查询失败，状态未知" : job.executionState === "exited" ? "执行结束，结果待确认" : job.executionState === "missing" ? "远端未发现该任务" : "执行状态待核实") : unavailable ? "不可用" : blocked ? (String(job.blockReason || "").indexOf("等待当前代码版本") === 0 ? "等待代码版本" : "代码版本不匹配") : retryView.label || ({ pending: "本机等待空卡", queued: "服务器排队", dispatching: "派发中", running: "运行中", completed: "已完成", failed: "失败", cancelled: "已中止", unknown: "待核实" }[status] || status);
           const placement = (job.workerId ? job.workerId + (preflightRejected ? " · 未启动" : job.gpuId == null || job.gpuId === "" ? "" : " · GPU " + job.gpuId) : "未派发") + (job.manualDispatch ? " · 手动指定" : "");
           const canJumpLog = Boolean(!preflightRejected && job.workerId && (job.commandId || job.outputDir));
-          const logButton = '<button type="button" class="mini secondary" data-job-tmux-log="1" data-worker-id="' + escAttr(job.workerId || "") + '" data-command-id="' + escAttr(job.commandId || "") + '" data-output-dir="' + escAttr(job.outputDir || "") + '"' + (canJumpLog ? '' : ' disabled') + ' title="' + (canJumpLog ? '在 TMUX 区域选中该 Worker 的真实任务窗口标签' : '等待任务派发后定位对应的 TMUX 日志标签') + '">跳转到日志</button>';
+          const logButton = '<button type="button" class="mini secondary" data-job-tmux-log="1" data-worker-id="' + escAttr(job.workerId || "") + '" data-command-id="' + escAttr(job.commandId || "") + '" data-output-dir="' + escAttr(job.outputDir || "") + '"' + (canJumpLog ? '' : ' disabled') + ' title="' + (canJumpLog ? '在 TMUX 区域选中该 Worker 的真实任务窗口标签' : '等待任务派发后定位对应的 TMUX 日志标签') + '">查看窗口日志</button>';
           const errorText = String(job.artifactError || job.error || "").trim();
           const trainingRecoveryButton = status === "failed" && errorText.indexOf("Validation-only tuning cannot access test patients") >= 0
             ? '<button type="button" class="mini secondary" data-command="retryDistributedJob" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-plan-file="' + escAttr(group.planFile || "") + '" data-distributed-retry="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-job-index="' + escAttr(String(job.index)) + '">核验并恢复训练完成</button>' : "";
@@ -14369,7 +14380,7 @@ export function renderPanelHtml(): string {
             + (job.manualDispatchNotice ? '<div class="muted">' + esc(job.manualDispatchNotice) + '</div>' : '')
             + (job.latestArtifactSync ? '<div class="muted">最新产物同步：' + esc(job.latestArtifactSync.state === "synced" ? "已同步到全部启用服务器" : job.latestArtifactSync.state === "excluded" ? "不在当前勾选范围内" : "未完成，可刷新重试") + '</div>' : '')
             + (blockText ? '<div class="executionDistributedJobError">' + esc(blockText) + (blockAdvice ? '<div>下一步：' + esc(blockAdvice.replace(/^下一步：/, "")) + '</div>' : '') + '</div>' : '')
-            + (errorText ? '<div class="executionDistributedJobError">' + esc(errorText) + jobNext + '</div>' : '') + '</div>';
+            + (errorText ? '<div class="executionDistributedJobError">' + esc(executionJobErrorSummary(errorText)) + (preflightRejected || codeProofBlocked ? jobNext : '<div class="muted">点击“查看窗口日志”查看完整输出。</div>') + '</div>' : '') + '</div>';
         }).join("") + '</div>' : '';
         const opHtml = opRows.length ? '<h3>最近操作</h3><div class="operationTimeline">' + opRows.map(renderOperationItem).join("") + '</div>' : "";
         const taskHtml = taskRows.length ? '<h3>任务与日志</h3>' + renderPlanTaskCards(state, sortedTasks, selected, group.key) : "";
@@ -17400,11 +17411,14 @@ export function renderPanelHtml(): string {
       const distributedRun = selectedPlanDistributedRun(data, planFile);
       if (distributedRun.jobs.length) {
         const sample = distributedRun.activeJobs.find((job) => job.logPath || job.workerId) || distributedRun.activeJobs[0] || {};
-        const source = sample.logPath ? "运行日志：" + sample.workerId + " " + sample.logPath : "运行日志：任务已入队，等待 Worker 回传日志路径";
+        const source = sample.logPath ? "运行日志：" + sample.workerId + " " + sample.logPath : "可主动查询对应 Worker 的任务窗口日志。";
         const failed = distributedRun.jobs.some((job) => String(job.status || "").toLowerCase() === "failed");
         const phase = distributedRun.active ? "monitor" : failed ? "review" : "results";
-        const status = distributedRun.active ? "计划运行中。" + source : failed ? "分布式任务失败；请查看对应 Worker 的运行日志。" : "分布式任务已完成；可查看各 Worker 的运行日志。";
-        return { phase, status: status + " 校验日志只属于提交前校验。", label: "查看运行日志", section: "execution", anchor: "execution" };
+        const executionLabel = distributedRun.jobs.some(job => job.status === "running") ? "运行中"
+          : distributedRun.jobs.some(job => job.executionState === "starting") ? "正在启动命令"
+          : distributedRun.jobs.some(job => job.status === "unknown") ? "待核实" : "排队中";
+        const status = distributedRun.active ? executionLabel + "。" + source : failed ? "分布式任务失败；请查看对应 Worker 的运行日志。" : "分布式任务已完成；可查看各 Worker 的运行日志。";
+        return { phase, executionLabel, status: status + " 校验日志只属于提交前校验。", label: "查看运行日志", section: "execution", anchor: "execution" };
       }
       const plan = planFromContext(data, { planFile }) || {};
       const planUpdatedAtText = String(plan.updatedAt || "");
@@ -17457,7 +17471,7 @@ export function renderPanelHtml(): string {
       const runAccepted = Boolean(latestRun && (latestRun.submissionAccepted || latestRun.schedulerStarted));
       if (operationPending(latestRun)) {
         if (runAccepted) {
-          return cachePlanExecutionStage(cacheKey, { phase: "monitor", status: "计划已提交，调度器正在排队或运行任务", label: "查看任务", section: "execution", anchor: "execution" });
+          return cachePlanExecutionStage(cacheKey, { phase: "monitor", executionLabel: "等待执行确认", status: "计划已提交，主动查询任务窗口后确认执行状态", label: "查看任务", section: "execution", anchor: "execution" });
         }
         return cachePlanExecutionStage(cacheKey, { phase: "submitting", status: "运行计划提交中，等待调度确认", label: "查看进度", section: "execution", anchor: "execution" });
       }

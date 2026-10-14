@@ -79,7 +79,25 @@ test('actual login shell suppresses lifecycle JSON and diagnostics, preserving o
   // Enter WSL once. Repeated cold WSL/DrvFS startup is unrelated to the login
   // boundary and used most of the bounded child budget on Windows.
   const driver=path.join(root,'driver.py'),entry=path.join(root,'all.sh');
-  await fs.writeFile(driver,'import json,subprocess\nrows=[]\nfor file in '+JSON.stringify(scripts.map(shellPath))+':\n p=subprocess.run(["/bin/bash",file],capture_output=True,text=True,timeout=3)\n assert p.returncode==0,(p.returncode,p.stderr)\n rows.append(dict(stdout=p.stdout,stderr=p.stderr))\nprint(json.dumps(rows,ensure_ascii=False))\n','utf8');
+  // WSL startup and repeated DrvFS reads must fit the existing ten-second cap.
+  // Execute the same generated scripts and emitter from Linux's temporary FS.
+  const driverCode = [
+    'import json,pathlib,subprocess,tempfile',
+    'source=pathlib.Path('+JSON.stringify(shellPath(root))+')',
+    'native=pathlib.Path(tempfile.mkdtemp(prefix="agent-quiet-login-"))',
+    'scripts='+JSON.stringify(scripts.map(shellPath)),
+    'for file in scripts+['+JSON.stringify(shellPath(probe))+']:',
+    ' target=native/pathlib.Path(file).relative_to(source)',
+    ' target.parent.mkdir(parents=True,exist_ok=True)',
+    ' target.write_text(pathlib.Path(file).read_text(encoding="utf-8").replace(str(source),str(native)),encoding="utf-8")',
+    'rows=[]',
+    'for file in scripts:',
+    ' p=subprocess.run(["/bin/bash",str(native/pathlib.Path(file).relative_to(source))],capture_output=True,text=True,timeout=3)',
+    ' assert p.returncode==0,(p.returncode,p.stderr)',
+    ' rows.append(dict(stdout=p.stdout,stderr=p.stderr))',
+    'print(json.dumps(rows,ensure_ascii=False))',
+  ].join('\n');
+  await fs.writeFile(driver,driverCode+'\n','utf8');
   await fs.writeFile(entry,'python3 '+quote(shellPath(driver))+'\n','utf8');
   const outputs=JSON.parse(runShell(entry).stdout);
   for(const result of outputs.slice(0,2)){

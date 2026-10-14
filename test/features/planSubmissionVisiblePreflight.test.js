@@ -184,7 +184,7 @@ function webviewState(host) {
   };
 }
 
-test("click creates a named running-progress row before preflight", async () => {
+test("click creates a named submission-progress row without claiming a running job", async () => {
   const host = provider();
   host.beginPlanSubmissionProgress(message(), { planFile: drf, planRevision: "rev-drf" });
   const row = host.localOperations["plan-submit-click-drf"];
@@ -196,7 +196,8 @@ test("click creates a named running-progress row before preflight", async () => 
   assert.equal(host.localOperations["plan-submit-click-drf"].planRevision, "rev-drf");
   const html = renderExecution(progressState(host));
   assert.match(html.executionPlanList, /drf\.yaml/);
-  assert.match(html.executionPlanList, /running/);
+  assert.match(html.executionPlanList, /executionPlanRow queued/);
+  assert.doesNotMatch(html.executionPlanList, /executionPlanRow running|>运行中</);
   assert.match(html.executionPlanList, /提交中/);
   assert.doesNotMatch(html.executionPlanList, /强制中止调度器|abortScheduler/);
 });

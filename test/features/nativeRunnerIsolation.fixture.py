@@ -16,20 +16,32 @@ root = pathlib.Path(tempfile.mkdtemp(prefix='native-runner-isolation-'))
 agent = extract_runtime_functions(runtime, ['task_shell_args', 'append_event'])
 prefix = root / 'environment with spaces'
 venv.EnvBuilder(with_pip=False, symlinks=True).create(prefix)
+activation = prefix / 'etc/conda/activate.d'
+activation.mkdir(parents=True)
+(activation / 'project.sh').write_text('export PROJECT_ACTIVATED="selected-environment"\nexport CUDA_VISIBLE_DEVICES="wrong-hook-gpu"\n', encoding='utf-8')
 profile = root / 'login-shell'
-profile.write_text('#!/bin/sh\nexport LD_LIBRARY_PATH="/project/user-library"\nexec /bin/bash --noprofile --norc "$@"\n', encoding='utf-8')
+profile.write_text('#!/bin/sh\nexport PATH="/usr/bin:/bin"\nexport LD_LIBRARY_PATH="/project/user-library"\nexec /bin/bash --noprofile --norc "$@"\n', encoding='utf-8')
 profile.chmod(0o700)
 env = dict(os.environ, SHELL=str(profile), SIMPLE_EXPERIMENT_CONDA_ENV=str(prefix),
            SIMPLE_EXPERIMENT_NVJITLINK_PROOF='stale-invalid-proof', CUDA_VISIBLE_DEVICES='3',
            SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY='job identity', SIMPLE_EXPERIMENT_TASK_LIFECYCLE='2')
-code = 'import json,os; print(json.dumps(dict(identity=os.getenv("SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY"), gpu=os.getenv("CUDA_VISIBLE_DEVICES"), ld=os.getenv("LD_LIBRARY_PATH"), proof=os.getenv("SIMPLE_EXPERIMENT_NVJITLINK_PROOF"))))'
+code = 'import json,os,subprocess; child=subprocess.check_output(["python","-B","-c","import sys;print(sys.prefix)"],text=True).strip(); print(json.dumps(dict(child=child,activated=os.getenv("PROJECT_ACTIVATED"),identity=os.getenv("SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY"), gpu=os.getenv("CUDA_VISIBLE_DEVICES"), ld=os.getenv("LD_LIBRARY_PATH"), proof=os.getenv("SIMPLE_EXPERIMENT_NVJITLINK_PROOF"))))'
 args = [str(prefix / 'bin/python'), '-B', '-c', code]
 for _ in range(2):
     args = agent.task_shell_args(args, env, str(prefix / 'bin/python'))
 result = subprocess.run(args, env=env, capture_output=True, text=True, timeout=3)
 assert result.returncode == 0, result.stderr
 report = json.loads(result.stdout)
-assert report == dict(identity='job identity', gpu='3', ld='/project/user-library', proof=None), report
+assert report == dict(child=str(prefix), activated='selected-environment', identity='job identity', gpu='3', ld='/project/user-library', proof=None), report
+# Exercise real shell activation with a tiny synthetic Conda hook, no package operations.
+conda_root = root / 'conda installation'
+(conda_root / 'bin').mkdir(parents=True)
+(conda_root / 'etc/profile.d').mkdir(parents=True)
+(conda_root / 'etc/profile.d/conda.sh').write_text('conda() { if [ "$1" = "shell.posix" ]; then echo ":"; elif [ "$1" = "activate" ]; then export CONDA_PREFIX="$2"; . "$2/etc/conda/activate.d/project.sh"; export CONDA_ACTIVATE_USED=1; else return 9; fi; }\n', encoding='utf-8')
+conda_env = dict(env, CONDA_EXE=str(conda_root / 'bin/conda'))
+activated = subprocess.run(agent.task_shell_args([str(prefix / 'bin/python'), '-c', 'import os;assert os.environ["CONDA_ACTIVATE_USED"]=="1"'], conda_env, str(prefix / 'bin/python')),
+                           env=conda_env, capture_output=True, text=True, timeout=3)
+assert activated.returncode == 0, activated.stderr
 # Task errors stay task errors, with their actual exit code and output.
 failed = subprocess.run(agent.task_shell_args([str(prefix / 'bin/python'), '-c', 'import sys; print("project error",file=sys.stderr); sys.exit(7)'], env, str(prefix / 'bin/python')),
                         env=env, capture_output=True, text=True, timeout=3)

@@ -105,7 +105,7 @@ def task_public_observation(root, job, row=None):
                             "exitCode": row["exitCode"], "phase": row["phase"]}
     status = "unknown"
     if row and not row["dead"]:
-        status = "queued" if row["phase"] in ("queued", "bound") else "running"
+        status = "queued" if row["phase"] in ("queued", "bound", "admitted", "starting") else "running" if row["phase"] == "running" else "unknown"
     elif row and row["exitCode"] != 0:
         status = "failed"
     elif result and result["runId"] == job["commandId"] and result["status"] == "completed" and result["verified"]:

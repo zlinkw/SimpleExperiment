@@ -42,6 +42,30 @@ def task_shell_args(args, env, python):
     for key in TASK_SHELL_ENV_FIELDS:
         value = env.get(key)
         assignments.append("export " + key + "=" + shlex.quote(str(value)) if value not in (None, "") else "unset " + key)
+    # Absolute Python selects the launcher; activation also selects its child commands.
+    # Login profiles can reset PATH, so bind the configured environment afterwards.
+    selected = str(env.get("SIMPLE_EXPERIMENT_CONDA_ENV") or "").strip()
+    if selected and os.path.isabs(str(python)):
+        controls = list(assignments)
+        prefix = os.path.dirname(os.path.dirname(str(python)))
+        assignments.extend([
+            "__simple_task_prefix=" + shlex.quote(prefix),
+            'if [ "$' + '{CONDA_PREFIX:-}" != "$__simple_task_prefix" ]; then '
+            'if ! command -v conda >/dev/null 2>&1 && [ -n "$' + '{CONDA_EXE:-}" ]; then '
+            '__simple_conda_hook="$(dirname -- "$CONDA_EXE")/../etc/profile.d/conda.sh"; '
+            'if [ -f "$__simple_conda_hook" ]; then . "$__simple_conda_hook" || exit $?; fi; fi; '
+            'if command -v conda >/dev/null 2>&1; then '
+            '__simple_conda_setup="$(conda shell.posix hook)" || exit $?; eval "$__simple_conda_setup" || exit $?; '
+            'conda activate "$__simple_task_prefix" || exit $?; '
+            'else export CONDA_PREFIX="$__simple_task_prefix"; '
+            'for __simple_activate in "$__simple_task_prefix"/etc/conda/activate.d/*.sh; do '
+            'if [ -f "$__simple_activate" ]; then . "$__simple_activate" || exit $?; fi; done; fi; fi',
+            'case "$PATH" in "$__simple_task_prefix/bin"|"$__simple_task_prefix/bin":*) ;; '
+            '*) export PATH="$__simple_task_prefix/bin:$PATH" ;; esac',
+        ])
+        assignments.extend(controls)  # Environment hooks cannot replace this job's GPU or identity.
+    if env.get("SIMPLE_EXPERIMENT_TASK_LIFECYCLE") == "2" and env.get("TMUX_PANE"):
+        assignments.append("tmux set-option -w -t " + shlex.quote(str(env["TMUX_PANE"])) + " @se_phase running || exit $?")
     # A renderer may already request a login shell. Execute its body in this prepared
     # login shell instead of starting another shell that could reset library/identity controls.
     nested = len(args) == 3 and str(args[1]) == "-lc" and str(args[0]) == str(shell)

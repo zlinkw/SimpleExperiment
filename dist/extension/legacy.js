@@ -11689,8 +11689,12 @@ class RealtimeTunnelPanelProvider {
                             job.reassignmentPending = false;
                             job.reassignmentWorkerId = undefined;
                             const actualStatus = String(proof?.status || "").toLowerCase();
-                            if (["running", "starting"].includes(actualStatus))
+                            if (actualStatus === "running")
                                 job.status = "running";
+                            else if (actualStatus === "starting") {
+                                job.status = "queued";
+                                job.executionState = "starting";
+                            }
                             job.blockReason = `Worker 未释放排队任务（${actualStatus || "状态未知"}）；保留原 Worker 和 commandId。`;
                         }
                         else {

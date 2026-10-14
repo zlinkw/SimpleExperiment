@@ -5782,7 +5782,6 @@ def _execute_worker_command_unfenced(root, command, worker_id):
         pane = os.environ.get("TMUX_PANE")
         if not pane:
             raise RuntimeError("TASK_WINDOW_REQUIRED")
-        task_option(pane, "phase", "running")
         task_option(pane, "log", rel_log)
         # One foreground command tree, real shell exit status, no shell left alive afterwards.
         prefix = job_shell_environment_prefix(env, args)

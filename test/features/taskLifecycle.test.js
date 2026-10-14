@@ -2,6 +2,11 @@ const test = require('node:test'), assert = require('node:assert/strict');
 require('../_helpers/registerTsRequire');
 const { taskLifecycle, observationMatches } = require('../../src/features/TaskLifecycle.ts');
 const base = { lifecycleProtocol:2, commandId:'c', projectId:'p', workerId:'w', observedAt:new Date().toISOString() };
+test('admitted and starting windows are not running until the task command begins', () => {
+  for (const phase of ['queued','bound','admitted','starting'])
+    assert.equal(taskLifecycle({...base, tmux:{windowId:'@1',paneId:'%1',dead:false,phase}}).status,'queued', phase);
+  assert.equal(taskLifecycle({...base, tmux:{windowId:'@1',paneId:'%1',dead:false}}).status,'unknown');
+});
 test('pull evidence advances without an acceptance event; ended shell is not success', () => {
   assert.equal(taskLifecycle({...base, tmux:{dead:false, phase:'queued'}}).status,'queued');
   assert.equal(taskLifecycle({...base, tmux:{dead:false, phase:'running'}}).status,'running');
