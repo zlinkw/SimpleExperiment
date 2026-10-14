@@ -11,7 +11,7 @@ const flush = async () => { for (let i = 0; i < 12; i++) await new Promise(resol
 const preview = () => ({ token: 'a'.repeat(48), digest: 'digest', action: 'move', scope: { planFile: 'experiments/plans/p.yaml', planHash: 'hash' }, blockers: [],
   rows: [{ node: { id: 'local', root: 'C:/fixture' }, disposition: 'move', absolutePath: 'C:/fixture/experiments/plans/p.yaml', destination: 'clean_dir/experiments/plans/p.yaml', type: 'file', evidence: ['exact'], dependencies: [] }] });
 
-function bridge({ immediateBoot = true, service = {} } = {}) {
+function bridge({ immediateBoot = true, service = {}, execute } = {}) {
   const elements = new Map(), requests = [], responses = [], calls = [], viewers = [], timers = [];
   let now = 1000;
   class Clock extends Date { static now() { return now; } }
@@ -44,8 +44,9 @@ function bridge({ immediateBoot = true, service = {} } = {}) {
     async preview() { calls.push('preview'); return preview(); },
     async confirm() { calls.push('confirm'); throw new Error('Not authorized in fixture'); },
     ...service,
-  }, async execute() { calls.push('execute'); throw new Error('Not authorized in fixture'); } };
-  return { async open(job) { await exports.openPlanCleanupPanel(host, 'experiments/plans/p.yaml', '', job); if (!immediateBoot) boot(); await flush(); },
+  }, async execute(id) { calls.push('execute'); if (execute) return execute(id); throw new Error('Not authorized in fixture'); } };
+  return { async open(job, initialId = '') { await exports.openPlanCleanupPanel(host, 'experiments/plans/p.yaml', initialId, job); if (!immediateBoot) boot(); await flush(); },
+    html: () => html,
     element, requests, responses, calls, hostMessage: message => hostListener(message),
     deliver: message => viewers.forEach(listener => listener({ data: clone(message) })),
     advance: seconds => { now += seconds * 1000; timers.forEach(callback => callback()); } };
@@ -54,7 +55,7 @@ function bridge({ immediateBoot = true, service = {} } = {}) {
 test('fast Webview startup reaches the host and its automatic preview completes without a second click', async () => {
   const f = bridge(); await f.open();
   assert.deepEqual(f.calls, ['list', 'preview']);
-  assert.match(f.element('status').textContent, /只读预览完成/);
+  assert.match(f.element('status').textContent, /审核完成/);
   assert.equal(f.element('confirm').disabled, false);
   assert.equal(f.element('execute').disabled, true);
   assert.equal(f.calls.includes('execute'), false);
@@ -74,14 +75,14 @@ test('failed-job panel freezes its job scope in the host, starts only preview an
 test('history response can immediately request a preview while the preceding host response is still being delivered', async () => {
   const f = bridge({ immediateBoot: false }); await f.open();
   assert.deepEqual(f.calls, ['list', 'preview']);
-  assert.match(f.element('status').textContent, /只读预览完成/);
+  assert.match(f.element('status').textContent, /审核完成/);
 });
 
 test('slow preflight responds immediately; blocked preview reports its reason and permits a fresh click', async () => {
   let release;
   const f = bridge({ immediateBoot: false, service: { preview: () => new Promise(resolve => { release = resolve; }) } });
   await f.open();
-  assert.match(f.element('status').textContent, /预览|预检|读取/);
+  assert.match(f.element('status').textContent, /审核|读取/);
   assert.equal(f.element('preview').disabled, true);
   assert.equal(f.element('confirm').disabled, true);
   release(preview()); await flush();
@@ -122,7 +123,7 @@ test('duplicate host requests return an explicit busy response without starting 
   assert.equal(count, 1);
   assert.equal(f.element('preview').disabled, true);
   release(preview()); await flush();
-  assert.match(f.element('status').textContent, /只读预览完成/);
+  assert.match(f.element('status').textContent, /审核完成/);
 });
 
 test('permanent-delete approval requires two separate clicks against identical exact paths, and never executes itself', async () => {
@@ -157,7 +158,7 @@ test('an obsolete reply cannot unlock controls or replace the pending newer prev
   assert.equal(f.element('preview').disabled, true); assert.equal(f.element('confirm').disabled, true);
   release(preview()); await flush();
   assert.equal(f.element('confirm').disabled, false);
-  assert.match(f.element('confirm').textContent, /确认上述精确路径/);
+  assert.match(f.element('confirm').textContent, /确认上述完整路径/);
 });
 
 test('the review page shows live node progress and elapsed time without enabling approval while preflight is pending', async () => {
@@ -181,7 +182,7 @@ test('the review page shows live node progress and elapsed time without enabling
 test('blocked preview explains disabled approval, removes missing-node text and leaves fresh preview available', async () => {
   const p = preview(); p.blockers = [{ code: 'ACTIVE_OPERATION', detail: 'same-plan-operation' }];
   const f = bridge({ service: { async preview() { return p; } } }); await f.open();
-  assert.match(f.element('status').textContent, /预检受阻.*不能确认/s);
+  assert.match(f.element('status').textContent, /审核未通过.*不能确认/s);
   assert.match(f.element('status').textContent, /same-plan-operation/);
   assert.doesNotMatch(f.element('review').innerHTML, /undefined/);
   assert.equal(f.element('confirm').disabled, true); assert.equal(f.element('execute').disabled, true);
@@ -199,13 +200,13 @@ test('report-only config notices do not block other verified targets; protected-
     return p;
   } } }); await f.open();
   assert.equal(f.element('confirm').disabled, false);
-  assert.match(f.element('review').innerHTML, /预检说明与受保护项/);
+  assert.match(f.element('review').innerHTML, /审核说明与保留文件/);
   assert.match(f.element('review').innerHTML, /CONFIG_REFERENCE_UNVERIFIED/);
   assert.doesNotMatch(f.element('review').innerHTML, /undefined/);
   protectedOnly = true; f.element('preview').onclick(); await flush();
   assert.equal(f.element('confirm').disabled, true);
-  assert.match(f.element('status').textContent, /没有可确认的独占目标/);
-  assert.match(f.element('confirm').title, /独占目标/);
+  assert.match(f.element('status').textContent, /没有可处理文件/);
+  assert.match(f.element('confirm').title, /可处理文件/);
   assert.match(f.element('restore').title, /已有清理操作/);
 });
 
@@ -216,4 +217,83 @@ test('verified-only approval accepts only offline exceptions and still blocks ac
   p.blockers.push({ code: 'ACTIVE_JOB', detail: 'run:0' });
   f.element('preview').onclick(); await flush();
   assert.equal(f.element('confirm').disabled, true); assert.match(f.element('status').textContent, /ACTIVE_JOB/);
+});
+
+test('loading a ready delete review restores each remaining confirmation and permits deletion only after both clicks', async () => {
+  for (const savedPhase of [0, 1, 2]) {
+    const p = preview(); p.action = 'delete'; p.confirmations = savedPhase; p.rows[0].disposition = 'delete'; p.scope.nodes = [];
+    const operation = { id: 'b'.repeat(48), state: 'ready', preview: p, targets: { row: { state: 'pending' } }, pendingNodes: ['nwpu2'],
+      nodeChecks: { nwpu2: { nodeId: 'nwpu2', state: 'confirmation_required', targets: [{ state: 'pending' }] } } };
+    const confirmations = [];
+    let executions = 0;
+    const f = bridge({ service: {
+      async status(id) { assert.equal(id, operation.id); return clone(operation); },
+      async confirm(input) { confirmations.push(input); operation.preview.confirmations = input.phase; return clone(operation); },
+    }, async execute(id) { assert.equal(id, operation.id); executions++; return { ...clone(operation), state: 'completed' }; } });
+    await f.open(undefined, operation.id);
+    assert.equal(f.element('action').value, 'delete');
+    assert.equal(f.element('confirm').disabled, savedPhase === 2);
+    assert.equal(f.element('execute').disabled, savedPhase !== 2);
+    for (let phase = savedPhase + 1; phase <= 2; phase++) {
+      assert.equal(f.element('confirm').disabled, false);
+      assert.equal(f.element('execute').disabled, true);
+      f.element('confirm').onclick(); await flush();
+      assert.equal(confirmations.at(-1).phase, phase);
+      assert.deepEqual(confirmations.at(-1).exactTargets, ['local:C:/fixture/experiments/plans/p.yaml']);
+      f.element('load').onclick(); await flush();
+      assert.equal(f.element('execute').disabled, phase !== 2);
+      assert.equal(f.element('confirm').disabled, phase === 2);
+    }
+    assert.equal(executions, 0);
+    assert.equal(f.element('execute').disabled, false);
+    f.element('execute').onclick(); await flush();
+    assert.equal(executions, 1);
+    assert.equal(f.element('confirm').disabled, true);
+    assert.equal(f.element('execute').disabled, true);
+  }
+});
+
+test('expired and superseded reviews explain how to review again and cannot delete', async () => {
+  for (const invalid of [{ expiresAt: 1 }, { continuedBy: 'later' }, { blockers: [{ code: 'ACTIVE_JOB', detail: 'active task' }] }]) {
+    const p = preview(); p.action = 'delete'; p.rows[0].disposition = 'delete'; p.confirmations = 2;
+    if (invalid.expiresAt) p.expiresAt = invalid.expiresAt;
+    if (invalid.blockers) p.blockers = invalid.blockers;
+    const operation = { id: 'c'.repeat(48), state: 'ready', preview: p, targets: {}, pendingNodes: [], continuedBy: invalid.continuedBy };
+    const f = bridge({ service: { async status() { return operation; } } }); await f.open(undefined, operation.id);
+    assert.equal(f.element('confirm').disabled, true);
+    assert.equal(f.element('execute').disabled, true);
+    assert.equal(f.element('preview').disabled, false);
+    assert.match(f.element('status').textContent, /重新审核|后续操作|正在运行/);
+    f.element('execute').onclick(); await flush();
+    assert.equal(f.calls.includes('execute'), false);
+  }
+});
+
+test('review page uses ordinary action names and keeps deletion destinations out of the review', async () => {
+  const p = preview(); p.action = 'delete'; p.rows[0].disposition = 'delete';
+  const f = bridge({ service: { async preview() { return p; } } }); await f.open();
+  assert.match(f.html(), /审核文件/);
+  assert.doesNotMatch(f.html(), /幂等|核查未完成信号|等待.*回执/);
+  assert.match(f.element('execute').textContent, /删除/);
+  assert.match(f.element('review').innerHTML, /永久删除/);
+  assert.doesNotMatch(f.element('review').innerHTML, /clean_dir|<code>.*<\/code><br>/);
+});
+
+test('active queries finish the delete page when its execute response is lost, with readable progress', async () => {
+  const p = preview(); p.action = 'delete'; p.confirmations = 2; p.rows[0].disposition = 'delete'; p.scope.observationMode = 'managed_tmux';
+  const operation = { id: 'd'.repeat(48), state: 'ready', preview: p, targets: { row: { state: 'pending' } }, pendingNodes: [] };
+  const f = bridge({ service: { async status() { return clone(operation); } }, execute: () => new Promise(() => {}) });
+  await f.open(undefined, operation.id);
+  f.element('execute').onclick(); await flush();
+  operation.state = 'running'; operation.targets.row.state = 'executing';
+  f.advance(2); await flush();
+  assert.match(f.element('status').textContent, /正在处理文件/);
+  assert.doesNotMatch(f.element('status').textContent, /running|executing|pending/);
+  assert.equal(f.element('execute').disabled, true);
+  operation.state = 'completed'; operation.targets.row.state = 'completed';
+  f.advance(2); await flush();
+  assert.match(f.element('status').textContent, /文件处理完成/);
+  assert.equal(f.element('preview').disabled, false);
+  assert.equal(f.element('execute').disabled, true);
+  assert.equal(f.calls.filter(call => call === 'execute').length, 1);
 });
