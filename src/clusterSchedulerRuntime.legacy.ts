@@ -2325,6 +2325,17 @@ def formal_job_preflight(job: Job, identity: dict[str, Any], mode: str) -> dict[
 
 @contextmanager
 def formal_job_writer(job: Job, identity: dict[str, Any], mode: str):
+    if os.environ.get("SIMPLE_EXPERIMENT_TASK_LIFECYCLE") == "2":
+        admission = formal_job_preflight(job, identity, mode)
+        Path(job.output_dir).mkdir(parents=True, exist_ok=True)
+        job._native_training = {}
+        outcome = "failed"
+        try:
+            yield admission
+            outcome = "completed"
+        finally:
+            native_job_result(job, identity, mode, outcome)
+        return
     admission = formal_job_preflight(job, identity, mode)
     directory = Path(job.output_dir)
     directory.mkdir(parents=True, exist_ok=True)
@@ -2382,6 +2393,22 @@ def formal_job_writer(job: Job, identity: dict[str, Any], mode: str):
             else:
                 fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
+
+def native_job_result(job: Job, identity: dict[str, Any], mode: str, outcome: str):
+    directory = Path(job.output_dir)
+    manifest = formal_job_safe_path(job.output_dir + "/artifact_manifest.json")
+    if manifest.is_file() and manifest.stat().st_size > 1024 * 1024:
+        raise ValueError("ARTIFACT_MANIFEST_TOO_LARGE")
+    document = json.loads(manifest.read_text(encoding="utf-8")) if manifest.is_file() else {}
+    if not isinstance(document, dict):
+        raise ValueError("ARTIFACT_MANIFEST_INVALID")
+    # Completion evidence is an output, not a mutable queue/owner snapshot.
+    document["simpleExperiment"] = {"schemaVersion": 1, "runId": identity["commandId"], "status": outcome,
+        "planFile": str(job.template_values.get("plan_file") or ""), "job": {"index": job.index, "case": job.case, "seed": job.seed},
+        "mode": mode, "outputDir": job.output_dir, "resultCsv": job.result_csv,
+        "weights": sorted(file.as_posix() for file in directory.rglob("*") if file.is_file() and not file.is_symlink()
+                          and file.suffix in (".pt", ".pth", ".ckpt", ".safetensors"))}
+    manifest.write_text(json.dumps(document, ensure_ascii=False, sort_keys=True), encoding="utf-8")
 
 def run_job(job: Job, args: argparse.Namespace) -> None:
     raw = os.environ.get("SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY", "")
@@ -2458,13 +2485,16 @@ def run_job_unlocked(job: Job, args: argparse.Namespace) -> None:
         if args.mode == "train" and job.collect_metrics:
             collect_tensorboard_metrics(job)
         owner_path = Path(job.output_dir) / "formal_job_owner.json"
-        owner = json.loads(owner_path.read_text(encoding="utf-8"))
+        owner = getattr(job, "_native_training", {}) if os.environ.get("SIMPLE_EXPERIMENT_TASK_LIFECYCLE") == "2" else json.loads(owner_path.read_text(encoding="utf-8"))
         checkpoints = [file for file in Path(job.output_dir).rglob("*") if file.is_file()
                        and file.suffix in (".pt", ".pth", ".ckpt", ".safetensors")]
         config_files = [Path(job.output_dir) / name for name in ("config.yaml", "config_snapshot.yaml") if (Path(job.output_dir) / name).is_file()]
         owner.update({"trainingCompleted": True, "checkpointSha256": {file.as_posix(): formal_job_file_hash(file) for file in checkpoints},
                       "trainingConfigSha256": {file.as_posix(): formal_job_file_hash(file) for file in config_files}})
-        owner_path.write_text(json.dumps(owner, ensure_ascii=False, sort_keys=True), encoding="utf-8")
+        if os.environ.get("SIMPLE_EXPERIMENT_TASK_LIFECYCLE") == "2":
+            job._native_training = owner
+        else:
+            owner_path.write_text(json.dumps(owner, ensure_ascii=False, sort_keys=True), encoding="utf-8")
     if args.mode in {"test", "train_test"}:
         command = render_command(job.test_command, job, config_path, args) if job.test_command else [runtime_python_command(env), "test.py", "--config", str(config_path), "--output-dir", job.output_dir, "--case", job.case, "--seed", str(job.seed), "--suite", job.suite, "--result-csv", job.result_csv]
         command = wrap_command(command, job, config_path, args, "test")

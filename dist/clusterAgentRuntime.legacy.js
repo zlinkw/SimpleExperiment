@@ -5,6 +5,7 @@ const ResultLayout_1 = require("./results/ResultLayout");
 const PlanExistingArtifacts_1 = require("./runtime/PlanExistingArtifacts");
 const TaskShellEnvironment_1 = require("./runtime/TaskShellEnvironment");
 const AgentLifecycle_1 = require("./runtime/AgentLifecycle");
+const TmuxTaskLifecycle_1 = require("./runtime/TmuxTaskLifecycle");
 exports.CLUSTER_AGENT_RUNTIME = String.raw `#!/usr/bin/env python3
 from __future__ import annotations
 import argparse, base64, calendar, copy, csv, errno, fnmatch, glob, hashlib, http.client, importlib.util, io, ipaddress, json, math, os, pathlib, random, re, shutil, shlex, signal, socket, statistics, stat, struct, subprocess, sys, threading, time, traceback, urllib.request, uuid, zipfile
@@ -5739,6 +5740,21 @@ def _execute_worker_command_unfenced(root, command, worker_id):
         args.append("--overwrite")
     if debug_mode:
         args.extend(["--debug-mode", "--debug-run-id", debug_run_id or command_id, "--debug-output-dir", debug_output_dir])
+    if command.get("_lifecycleRunner") is True:
+        env["SIMPLE_EXPERIMENT_TASK_LIFECYCLE"] = "2"
+        env.pop("SIMPLE_EXPERIMENT_EXIT_CODE_PATH", None)
+        pane = os.environ.get("TMUX_PANE")
+        if not pane:
+            raise RuntimeError("TASK_WINDOW_REQUIRED")
+        task_option(pane, "phase", "running")
+        task_option(pane, "log", rel_log)
+        # One foreground command tree, real shell exit status, no shell left alive afterwards.
+        prefix = job_shell_environment_prefix(env, args)
+        shell = "set -o pipefail; " + prefix + " " + shlex.join(simple_conda_wrapped_args(args, env)) + " 2>&1 | tee -a " + shlex.quote(str(log_path)) + "; exit \"\u0024{PIPESTATUS[0]}\""
+        child_env = {key: value for key, value in os.environ.items() if key in (
+            "PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TERM", "SHELL", "TMUX", "TMUX_PANE", "CONDA_EXE")}
+        result = subprocess.run(["bash", "-c", shell], cwd=project_dir, env=child_env)
+        return {"commandId": command_id, "status": "completed" if result.returncode == 0 else "failed", "exitCode": result.returncode}
     # per-GPU固定窗口(1C)：主路径为 simple-gpu-{gpu_id} 复用 + split-window，log_path 仍按 session 归一，保证 tmux ls 仅 simple-gpu-0..3
     _tmux_prefix = str(os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "").strip()
     try:
@@ -5918,6 +5934,13 @@ def _execute_worker_command_unfenced(root, command, worker_id):
 
 def execute_worker_command(root, command, worker_id):
     action = str(command.get("action") or "").strip()
+    if command.get("lifecycleProtocol") == 2:
+        if action == "stop-worker-task":
+            return task_stop(root, command, worker_id)
+        if action in ("start-worker-task", "retry-worker-task"):
+            if command.get("_lifecycleRunner") is True:
+                return _execute_worker_command_unfenced(root, command, worker_id)
+            return task_queue_rpc(root, worker_id, "accept", command, ensure=True)
     if action == "retry-worker-task" and command.get("recoverTrainingOnly") is True:
         return recover_train_only_completion(root, command, worker_id)
     if action in ("start-worker-task", "retry-worker-task"):
@@ -14395,7 +14418,9 @@ def active_cleanup_operations(root):
             if entry["action"] not in ("validate-plan", "dry-run-plan", "preflight-worker-task")]
 
 
-def api_worker_tasks(root, retired_commands=()):
+def api_worker_tasks(root, retired_commands=(), queries=None):
+    if queries is not None:
+        return task_query(root, queries)
     wanted = set(retired_commands)
     if len(wanted) > 500 or any(not re.match(r"^[A-Za-z0-9._:-]{1,128}$", value) for value in wanted):
         raise ValueError("INVALID_RETIRED_COMMAND_SELECTION")
@@ -15833,18 +15858,8 @@ def serve_http(args):
         # Single-worker (no hub) mode has no uplink driving command execution, so start a
         # local processor that polls the worker command queue and runs start-worker-task
         # commands (otherwise run-plan tasks would never launch).
-        if not hub_uplink_url:
-            start_worker_local_command_processor(
-                root,
-                getattr(args, "worker_id", "") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID", ""),
-                getattr(args, "worker_command_poll_seconds", 5),
-                getattr(args, "jitter_seconds", 2),
-            )
-        start_durable_plan_queue_processor(
-            root,
-            getattr(args, "worker_id", "") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID", ""),
-            getattr(args, "worker_command_poll_seconds", 5),
-        )
+        # Historical file queues are evidence only. New submissions are owned by
+        # the independent tmux Scheduler and must not be replayed on Agent restart.
     elif mode == "hub_control":
         start_hub_control_sampler(root, getattr(args, "poll_seconds", 60), getattr(args, "jitter_seconds", 30))
         try:
@@ -16314,7 +16329,10 @@ def serve_http(args):
                 return self.send_json(read_availability_cache(root, True))
             if route == "/api/worker/tasks":
                 wanted = (parse_qs(parsed.query).get("retiredCommandIds") or [""])[0]
-                return self.send_json(api_worker_tasks(root, wanted.split(",") if wanted else []))
+                selection = (parse_qs(parsed.query).get("queries") or ["[]"])[0]
+                if len(selection) > 128 * 1024:
+                    raise ValueError("TASK_QUERY_LIMIT")
+                return self.send_json(api_worker_tasks(root, wanted.split(",") if wanted else [], json.loads(selection)))
             if route == "/api/worker/commands":
                 params = parse_qs(parsed.query)
                 worker_id = (params.get("workerId") or [os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker"])[0]
@@ -16973,6 +16991,13 @@ def add_state_args(parser):
 
 def main():
     global AGENT_STATE_DIR, MAX_EVENTS, MAX_JOURNAL_BYTES, STATE_RETENTION_SECONDS, TMP_RETENTION_SECONDS, MAX_AGENT_STATE_BYTES
+    if len(sys.argv) > 1 and sys.argv[1] in ("task-queue", "task-runner"):
+        parser = argparse.ArgumentParser()
+        parser.add_argument("cmd")
+        parser.add_argument("--project-dir", required=True)
+        parser.add_argument("--worker-id", required=True)
+        args = parser.parse_args()
+        return task_queue_serve(args.project_dir, args.worker_id) if args.cmd == "task-queue" else task_runner(args.project_dir, args.worker_id)
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="cmd", required=True)
     for name in ("run", "snapshot", "health", "inspect", "stop"):
@@ -17037,6 +17062,8 @@ def main():
     if args.cmd == "health" or args.cmd == "inspect":
         print(json.dumps(inspect_agent(args.project_dir), ensure_ascii=False))
         return 0
+
+${TmuxTaskLifecycle_1.TMUX_TASK_LIFECYCLE_PYTHON}
 
 if __name__ == "__main__":
     try:

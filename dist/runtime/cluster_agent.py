@@ -4574,7 +4574,7 @@ TASK_SHELL_ENV_FIELDS = (
     "SIMPLE_EXPERIMENT_MANAGED_JOB", "SIMPLE_EXPERIMENT_CHECKPOINT_TEST_ONLY", "SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS",
     "SIMPLE_EXPERIMENT_TMUX_SESSION", "SIMPLE_EXPERIMENT_TMUX_LOG_DIR", "SIMPLE_EXPERIMENT_EXIT_CODE_PATH",
     "SIMPLE_EXPERIMENT_CONDA_ENV", "SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV", "CUDA_VISIBLE_DEVICES", "PYTHONUNBUFFERED",
-    "SIMPLE_EXPERIMENT_NVJITLINK_PROOF",
+    "SIMPLE_EXPERIMENT_NVJITLINK_PROOF", "SIMPLE_EXPERIMENT_TASK_LIFECYCLE",
 )
 
 TASK_LIBRARY_SETUP_CODE = r'''
@@ -6426,6 +6426,21 @@ def _execute_worker_command_unfenced(root, command, worker_id):
         args.append("--overwrite")
     if debug_mode:
         args.extend(["--debug-mode", "--debug-run-id", debug_run_id or command_id, "--debug-output-dir", debug_output_dir])
+    if command.get("_lifecycleRunner") is True:
+        env["SIMPLE_EXPERIMENT_TASK_LIFECYCLE"] = "2"
+        env.pop("SIMPLE_EXPERIMENT_EXIT_CODE_PATH", None)
+        pane = os.environ.get("TMUX_PANE")
+        if not pane:
+            raise RuntimeError("TASK_WINDOW_REQUIRED")
+        task_option(pane, "phase", "running")
+        task_option(pane, "log", rel_log)
+        # One foreground command tree, real shell exit status, no shell left alive afterwards.
+        prefix = job_shell_environment_prefix(env, args)
+        shell = "set -o pipefail; " + prefix + " " + shlex.join(simple_conda_wrapped_args(args, env)) + " 2>&1 | tee -a " + shlex.quote(str(log_path)) + "; exit \"\u0024{PIPESTATUS[0]}\""
+        child_env = {key: value for key, value in os.environ.items() if key in (
+            "PATH", "HOME", "USER", "LOGNAME", "LANG", "LC_ALL", "TERM", "SHELL", "TMUX", "TMUX_PANE", "CONDA_EXE")}
+        result = subprocess.run(["bash", "-c", shell], cwd=project_dir, env=child_env)
+        return {"commandId": command_id, "status": "completed" if result.returncode == 0 else "failed", "exitCode": result.returncode}
     # per-GPU固定窗口(1C)：主路径为 simple-gpu-{gpu_id} 复用 + split-window，log_path 仍按 session 归一，保证 tmux ls 仅 simple-gpu-0..3
     _tmux_prefix = str(os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "").strip()
     try:
@@ -6605,6 +6620,13 @@ def _execute_worker_command_unfenced(root, command, worker_id):
 
 def execute_worker_command(root, command, worker_id):
     action = str(command.get("action") or "").strip()
+    if command.get("lifecycleProtocol") == 2:
+        if action == "stop-worker-task":
+            return task_stop(root, command, worker_id)
+        if action in ("start-worker-task", "retry-worker-task"):
+            if command.get("_lifecycleRunner") is True:
+                return _execute_worker_command_unfenced(root, command, worker_id)
+            return task_queue_rpc(root, worker_id, "accept", command, ensure=True)
     if action == "retry-worker-task" and command.get("recoverTrainingOnly") is True:
         return recover_train_only_completion(root, command, worker_id)
     if action in ("start-worker-task", "retry-worker-task"):
@@ -15082,7 +15104,9 @@ def active_cleanup_operations(root):
             if entry["action"] not in ("validate-plan", "dry-run-plan", "preflight-worker-task")]
 
 
-def api_worker_tasks(root, retired_commands=()):
+def api_worker_tasks(root, retired_commands=(), queries=None):
+    if queries is not None:
+        return task_query(root, queries)
     wanted = set(retired_commands)
     if len(wanted) > 500 or any(not re.match(r"^[A-Za-z0-9._:-]{1,128}$", value) for value in wanted):
         raise ValueError("INVALID_RETIRED_COMMAND_SELECTION")
@@ -16520,18 +16544,8 @@ def serve_http(args):
         # Single-worker (no hub) mode has no uplink driving command execution, so start a
         # local processor that polls the worker command queue and runs start-worker-task
         # commands (otherwise run-plan tasks would never launch).
-        if not hub_uplink_url:
-            start_worker_local_command_processor(
-                root,
-                getattr(args, "worker_id", "") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID", ""),
-                getattr(args, "worker_command_poll_seconds", 5),
-                getattr(args, "jitter_seconds", 2),
-            )
-        start_durable_plan_queue_processor(
-            root,
-            getattr(args, "worker_id", "") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID", ""),
-            getattr(args, "worker_command_poll_seconds", 5),
-        )
+        # Historical file queues are evidence only. New submissions are owned by
+        # the independent tmux Scheduler and must not be replayed on Agent restart.
     elif mode == "hub_control":
         start_hub_control_sampler(root, getattr(args, "poll_seconds", 60), getattr(args, "jitter_seconds", 30))
         try:
@@ -17001,7 +17015,10 @@ def serve_http(args):
                 return self.send_json(read_availability_cache(root, True))
             if route == "/api/worker/tasks":
                 wanted = (parse_qs(parsed.query).get("retiredCommandIds") or [""])[0]
-                return self.send_json(api_worker_tasks(root, wanted.split(",") if wanted else []))
+                selection = (parse_qs(parsed.query).get("queries") or ["[]"])[0]
+                if len(selection) > 128 * 1024:
+                    raise ValueError("TASK_QUERY_LIMIT")
+                return self.send_json(api_worker_tasks(root, wanted.split(",") if wanted else [], json.loads(selection)))
             if route == "/api/worker/commands":
                 params = parse_qs(parsed.query)
                 worker_id = (params.get("workerId") or [os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker"])[0]
@@ -17660,6 +17677,13 @@ def add_state_args(parser):
 
 def main():
     global AGENT_STATE_DIR, MAX_EVENTS, MAX_JOURNAL_BYTES, STATE_RETENTION_SECONDS, TMP_RETENTION_SECONDS, MAX_AGENT_STATE_BYTES
+    if len(sys.argv) > 1 and sys.argv[1] in ("task-queue", "task-runner"):
+        parser = argparse.ArgumentParser()
+        parser.add_argument("cmd")
+        parser.add_argument("--project-dir", required=True)
+        parser.add_argument("--worker-id", required=True)
+        args = parser.parse_args()
+        return task_queue_serve(args.project_dir, args.worker_id) if args.cmd == "task-queue" else task_runner(args.project_dir, args.worker_id)
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="cmd", required=True)
     for name in ("run", "snapshot", "health", "inspect", "stop"):
@@ -17724,6 +17748,346 @@ def main():
     if args.cmd == "health" or args.cmd == "inspect":
         print(json.dumps(inspect_agent(args.project_dir), ensure_ascii=False))
         return 0
+
+
+TASK_LIFECYCLE_PROTOCOL = 2
+
+def task_tmux(args, timeout=5):
+    proc = subprocess.run(["tmux", *args], capture_output=True, text=True, timeout=timeout)
+    if proc.returncode:
+        if args[0] in ("list-panes", "list-windows") and any(text in (proc.stderr or "").lower() for text in ("no server running", "no sessions", "error connecting")):
+            return ""
+        raise RuntimeError("TMUX_QUERY_FAILED: " + (proc.stderr or "")[-1000:])
+    return proc.stdout.rstrip("\r\n")
+
+def task_option(target, key, value=None):
+    if value is None:
+        return task_tmux(["display-message", "-p", "-t", target, "#{@se_" + key + "}"])
+    task_tmux(["set-option", "-w", "-t", target, "@se_" + key, str(value)])
+
+def task_safe_path(root, relative):
+    value = str(relative or "").replace("\\", "/")
+    if not value or value.startswith("/") or any(x in value for x in (":", "*", "?", "\0")) or any(x in ("", ".", "..", ".git", "clean_dir") for x in value.split("/")):
+        raise ValueError("UNSAFE_TASK_PATH")
+    root = os.path.realpath(root)
+    full = os.path.join(root, *value.split("/"))
+    parent = root
+    for leaf in value.split("/"):
+        parent = os.path.join(parent, leaf)
+        if os.path.islink(parent):
+            raise ValueError("TASK_PATH_LINK")
+    if os.path.commonpath([root, os.path.realpath(full)]) != root or os.path.realpath(full) == root:
+        raise ValueError("UNSAFE_TASK_PATH")
+    return full
+
+def task_inventory(root):
+    fmt = "#{pane_id}\t#{window_id}\t#{session_name}\t#{pane_dead}\t#{pane_dead_status}\t#{@se_job}\t#{@se_phase}\t#{@se_gpu}"
+    rows = []
+    for line in task_tmux(["list-panes", "-a", "-F", fmt]).splitlines():
+        fields = line.split("\t")
+        if len(fields) != 8 or not fields[5]:
+            continue
+        try:
+            job = json.loads(base64.urlsafe_b64decode(fields[5]).decode("utf-8"))
+        except (ValueError, UnicodeError):
+            continue
+        if job.get("root") != os.path.realpath(root) or job.get("lifecycleProtocol") != 2:
+            continue
+        if job.get("pane") and job["pane"] != fields[0]:
+            continue
+        row = {**job, "tmuxPane": fields[0], "tmuxWindowId": fields[1], "tmuxSession": fields[2],
+               "dead": fields[3] == "1", "phase": fields[6], "gpuId": fields[7]}
+        row["exitCode"] = int(fields[4]) if re.fullmatch(r"-?\d+", fields[4]) else None
+        rows.append(row)
+    return rows
+
+def task_manifest_observation(root, job):
+    output = str(job.get("outputDir") or "")
+    manifest = task_safe_path(root, output + "/artifact_manifest.json")
+    if not os.path.isfile(manifest):
+        return None
+    if os.path.getsize(manifest) > 1024 * 1024:
+        raise ValueError("TASK_MANIFEST_TOO_LARGE")
+    with open(manifest, encoding="utf-8") as handle:
+        document = json.load(handle)
+    report = document.get("simpleExperiment") or {}
+    if not report:
+        return None  # Historical project evidence remains available to manual result inspection.
+    files = list(report.get("weights") or [])
+    mode = report.get("mode")
+    result_csv = report.get("resultCsv")
+    if mode in ("test", "train_test") and result_csv:
+        files.append(result_csv)
+    present = bool(files) and all(os.path.isfile(task_safe_path(root, file)) for file in files)
+    if mode in ("train", "train_test") and not report.get("weights"):
+        present = False
+    if mode in ("test", "train_test") and result_csv != job.get("collectionResultCsv"):
+        present = False
+    return {"runId": report.get("runId"), "status": report.get("status"), "present": present,
+            "verified": present and report.get("outputDir") == output}
+
+def task_public_observation(root, job, row=None):
+    result = task_manifest_observation(root, job)
+    observed = {"lifecycleProtocol": 2, "commandId": job["commandId"], "projectId": job["projectId"],
+                "workerId": job["workerId"], "observedAt": now_iso(), "result": result}
+    if row:
+        observed["tmux"] = {"windowId": row["tmuxWindowId"], "paneId": row["tmuxPane"], "dead": row["dead"],
+                            "exitCode": row["exitCode"], "phase": row["phase"]}
+    status = "unknown"
+    if row and not row["dead"]:
+        status = "queued" if row["phase"] in ("queued", "bound") else "running"
+    elif row and row["exitCode"] != 0:
+        status = "failed"
+    elif result and result["runId"] == job["commandId"] and result["status"] == "completed" and result["verified"]:
+        status = "completed"
+    return {**job, **({k: row[k] for k in ("tmuxWindowId", "tmuxPane", "tmuxSession", "gpuId", "exitCode")} if row else {}),
+            "status": status, "observation": observed, "lifecycleProtocol": 2, "durableAccepted": True}
+
+def task_query(root, queries=()):
+    if not isinstance(queries, (list, tuple)) or len(queries) > 500:
+        raise ValueError("TASK_QUERY_LIMIT")
+    rows = task_inventory(root)
+    jobs = {(row["projectId"], row["commandId"]): row for row in rows}
+    for query in queries:
+        if not isinstance(query, dict) or not query.get("commandId") or not query.get("projectId") or not query.get("workerId"):
+            raise ValueError("TASK_QUERY_IDENTITY_REQUIRED")
+        task_safe_path(root, query.get("outputDir"))
+        key = (query["projectId"], query["commandId"])
+        if key not in jobs:
+            jobs[key] = query
+    tasks = []
+    for key, job in jobs.items():
+        row = next((item for item in rows if (item["projectId"], item["commandId"]) == key), None)
+        try:
+            tasks.append(task_public_observation(root, job, row))
+        except Exception as exc:
+            tasks.append({**job, "status": "unknown", "lifecycleProtocol": 2, "observation": {
+                "lifecycleProtocol": 2, "commandId": job["commandId"], "projectId": job["projectId"], "workerId": job["workerId"],
+                "observedAt": now_iso(), "queryError": str(exc)}})
+    return {"schemaVersion": 1, "generatedAt": now_iso(), "tasks": tasks, "queryComplete": True,
+            "activeOperations": active_cleanup_operations(root) if "active_cleanup_operations" in globals() else [],
+            "capabilities": {"schemaVersion": 1, "durablePlanQueue": True, "declaredJobPaths": True,
+                             "idleGpuAdmission": True, "queuedJobRecall": True, "taskLifecycle": 2}}
+
+def task_queue_session(root, worker_id):
+    key = hashlib.sha256((os.path.realpath(root) + "\0" + worker_id).encode("utf-8")).hexdigest()[:16]
+    return "simple-sch-" + key
+
+def task_queue_endpoint(root, worker_id):
+    session = task_queue_session(root, worker_id)
+    text = task_tmux(["display-message", "-p", "-t", session + ":queue", "#{@se_endpoint}"])
+    endpoint = json.loads(text)
+    if endpoint.get("root") != os.path.realpath(root) or endpoint.get("workerId") != worker_id:
+        raise ValueError("SCHEDULER_OWNER_MISMATCH")
+    return endpoint
+
+def task_queue_rpc(root, worker_id, action, payload, ensure=False):
+    if ensure:
+        session = task_queue_session(root, worker_id)
+        exists = subprocess.run(["tmux", "has-session", "-t", session], capture_output=True, timeout=3).returncode == 0
+        if not exists:
+            argv = [sys.executable, "-B", os.path.abspath(__file__), "task-queue", "--project-dir", os.path.realpath(root), "--worker-id", worker_id]
+            shell = "exec " + shlex.join(argv)
+            made = subprocess.run(["tmux", "new-session", "-d", "-s", session, "-n", "queue", "-c", root,
+                                   ";", "set-option", "-w", "-t", session + ":queue", "remain-on-exit", "on",
+                                   ";", "respawn-pane", "-k", "-t", session + ":queue", shell], capture_output=True, text=True, timeout=5)
+            if made.returncode and "duplicate session" not in (made.stderr or "").lower():
+                raise RuntimeError("SCHEDULER_START_FAILED: " + str(made.stderr))
+        # Bounded startup observation. This is not an acceptance/termination wait.
+        deadline = time.monotonic() + 4
+        while True:
+            try:
+                endpoint = task_queue_endpoint(root, worker_id)
+                break
+            except Exception:
+                if time.monotonic() >= deadline:
+                    raise RuntimeError("SCHEDULER_QUERY_FAILED: control window is not ready")
+                time.sleep(0.05)
+    else:
+        endpoint = task_queue_endpoint(root, worker_id)
+    body = json.dumps({"action": action, "payload": payload, "epoch": endpoint["epoch"]}, ensure_ascii=False).encode("utf-8")
+    request = urllib.request.Request("http://" + endpoint["host"] + ":" + str(endpoint["port"]) + "/control", data=body,
+                                    headers={"Content-Type": "application/json", "Authorization": "Bearer " + endpoint["secret"]})
+    with urllib.request.urlopen(request, timeout=8) as response:
+        result = json.loads(response.read(1024 * 1024))
+    if not result.get("ok"):
+        raise RuntimeError(result.get("error") or "SCHEDULER_ACTION_FAILED")
+    return result.get("value")
+
+def task_queue_accept(root, worker_id, command, window):
+    allowed = {"action", "commandId", "operationId", "runKey", "projectId", "workflowId", "planFile", "planRevision", "codeFingerprint",
+               "globalJobId", "experimentIndex", "case", "seed", "outputDir", "collectionResultCsv", "resultPathPolicy", "planJobCount",
+               "fullPlanJobCount", "enqueuedAt", "workerId", "gpuId", "requireIdleGpu", "executionMode", "mode", "checkpointSource",
+               "checkpointTestOnly", "condaEnv", "distributedResults", "codeSyncProofId", "tmuxSessionPrefix", "maxConcurrentGpus",
+               "gpuIdleUtilThreshold", "gpuIdleMemThresholdMb", "schedulerPath", "defaultResultCsvDir", "lifecycleProtocol"}
+    job = {key: command[key] for key in allowed if key in command}
+    options = command.get("options") if isinstance(command.get("options"), dict) else {}
+    job["options"] = {key: value for key, value in options.items() if key in allowed or key == "distributedResults"}
+    for key in allowed:
+        if key not in job and key in job["options"]:
+            job[key] = job["options"][key]
+    if job.get("workerId") != worker_id or job.get("resultPathPolicy") != "declared":
+        raise ValueError("TASK_OWNER_REQUIRED")
+    if not re.fullmatch(r"[a-zA-Z0-9._:-]{1,128}", str(job.get("commandId") or "")):
+        raise ValueError("TASK_COMMAND_ID_REQUIRED")
+    for key in ("projectId", "workflowId", "planFile", "outputDir", "collectionResultCsv", "planRevision", "codeFingerprint", "globalJobId"):
+        if not job.get(key):
+            raise ValueError("TASK_IDENTITY_REQUIRED: " + key)
+    for key in ("planFile", "outputDir", "collectionResultCsv"):
+        task_safe_path(root, job[key])
+    if "attempts" in job["outputDir"].split("/"):
+        raise ValueError("HISTORICAL_ATTEMPT_READ_ONLY")
+    job.update(root=os.path.realpath(root), lifecycleProtocol=2, runKey=job["commandId"], action="start-worker-task")
+    if any(not row["dead"] and row["outputDir"] == job["outputDir"] and row["commandId"] != job["commandId"] for row in task_inventory(root)):
+        raise ValueError("TASK_OUTPUT_BUSY: another managed tmux job uses this declared output")
+    title = pathlib.Path(job["planFile"]).stem + "·" + str(job.get("case") or job.get("experimentIndex")) + "·seed" + str(job.get("seed")) + "·" + job["commandId"][-8:]
+    title = title.replace(":", "_").replace("\n", "_")[:160]
+    runner = [sys.executable, "-B", os.path.abspath(__file__), "task-runner", "--project-dir", root, "--worker-id", worker_id]
+    pane = task_tmux(["new-window", "-d", "-t", task_queue_session(root, worker_id), "-n", title, "-c", root,
+                      "-P", "-F", "#{pane_id}", "--", "sh", "-c", "exec " + shlex.join(runner)])
+    job["pane"] = pane
+    task_tmux(["set-option", "-w", "-t", pane, "remain-on-exit", "on"])
+    task_option(pane, "job", base64.urlsafe_b64encode(json.dumps(job, ensure_ascii=False).encode("utf-8")).decode("ascii"))
+    task_option(pane, "phase", "queued")
+    for key, value in (("@simple_experiment_command", job["commandId"]), ("@simple_experiment_project", job["projectId"])):
+        task_tmux(["set-option", "-w", "-t", pane, key, value])
+    return job
+
+def task_queue_serve(root, worker_id):
+    root = os.path.realpath(root)
+    controller = os.environ["TMUX_PANE"]
+    secret, epoch = uuid.uuid4().hex, uuid.uuid4().hex
+    mutex = threading.RLock()
+    remembered = set(json.loads(task_option(controller, "cancelled") or "[]"))
+    accepted = {row["commandId"] for row in task_inventory(root)}
+    class Handler(BaseHTTPRequestHandler):
+        def log_message(self, *_):
+            pass
+        def do_POST(self):
+            try:
+                if self.headers.get("Authorization") != "Bearer " + secret:
+                    raise ValueError("SCHEDULER_AUTH_REQUIRED")
+                size = int(self.headers.get("Content-Length") or 0)
+                if size < 1 or size > 256 * 1024:
+                    raise ValueError("SCHEDULER_REQUEST_LIMIT")
+                request = json.loads(self.rfile.read(size))
+                if request.get("epoch") != epoch:
+                    raise ValueError("SCHEDULER_INSTANCE_CHANGED")
+                payload = request.get("payload") or {}
+                with mutex:
+                    if request["action"] == "accept":
+                        command_id = payload.get("commandId")
+                        if command_id in remembered:
+                            raise ValueError("TASK_CANCELLED")
+                        found = next((row for row in task_inventory(root) if row["commandId"] == command_id), None)
+                        if found:
+                            if any(found.get(key) != payload.get(key) for key in ("projectId", "workflowId", "outputDir")):
+                                raise ValueError("TASK_COMMAND_ID_CONFLICT")
+                            value = task_public_observation(root, found, found)
+                        elif command_id in accepted:
+                            raise ValueError("TASK_ALREADY_ACCEPTED_WINDOW_CLOSED: query result without redispatch")
+                        else:
+                            job = task_queue_accept(root, worker_id, payload, controller)
+                            accepted.add(command_id)
+                            value = {**job, "status": "queued", "durableAccepted": True}
+                    elif request["action"] == "cancel":
+                        command_id = payload["targetCommandId"]
+                        if len(remembered) >= 10000 and command_id not in remembered:
+                            raise ValueError("CANCELLATION_CAPACITY")
+                        remembered.add(command_id)
+                        task_option(controller, "cancelled", json.dumps(sorted(remembered)))
+                        for row in task_inventory(root):
+                            if row["commandId"] == command_id:
+                                if row["projectId"] != payload["projectId"]:
+                                    raise ValueError("TASK_OWNER_MISMATCH")
+                                task_tmux(["kill-window", "-t", row["tmuxWindowId"]])
+                        value = {"cancelled": True}
+                    else:
+                        raise ValueError("UNKNOWN_SCHEDULER_ACTION")
+                result = {"ok": True, "value": value}
+            except Exception as exc:
+                result = {"ok": False, "error": str(exc)}
+            body = json.dumps(result, ensure_ascii=False).encode("utf-8")
+            self.send_response(200); self.send_header("Content-Type", "application/json"); self.send_header("Content-Length", str(len(body))); self.end_headers()
+            self.wfile.write(body)
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    task_option(controller, "endpoint", json.dumps({"host": server.server_address[0], "port": server.server_address[1],
+        "secret": secret, "epoch": epoch, "root": root, "workerId": worker_id}))
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    while True:
+        try:
+            with mutex:
+                rows = task_inventory(root)
+                occupied = {row["gpuId"] for row in rows if not row["dead"] and row["phase"] in ("admitted", "starting", "running") and row["gpuId"]}
+                queued = [row for row in rows if not row["dead"] and row["phase"] == "queued"]
+                if queued:
+                    gpus, error = collect_local_gpu()
+                    if not error:
+                        for row in queued:
+                            options = row.get("options") or {}
+                            cap = max(1, int(row.get("maxConcurrentGpus") or options.get("maxConcurrentGpus") or len(gpus) or 1))
+                            if len(occupied) >= min(cap, len(gpus)):
+                                break
+                            pinned = str(row.get("gpuId") or "") if row.get("requireIdleGpu") else ""
+                            chosen = next((gpu_row_id(gpu) for gpu in gpus if (not pinned or gpu_row_id(gpu) == pinned)
+                                and gpu_row_id(gpu) not in occupied and not gpu_row_busy(gpu,
+                                    row.get("gpuIdleUtilThreshold", options.get("gpuIdleUtilThreshold")),
+                                    row.get("gpuIdleMemThresholdMb", options.get("gpuIdleMemThresholdMb")))), None)
+                            if chosen is None:
+                                continue
+                            session = fixed_gpu_window_name(row.get("tmuxSessionPrefix") or options.get("tmuxSessionPrefix") or os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX"), chosen)
+                            if subprocess.run(["tmux", "has-session", "-t", session], capture_output=True, timeout=3).returncode:
+                                task_tmux(["new-session", "-d", "-s", session])
+                            task_tmux(["move-window", "-s", row["tmuxWindowId"], "-t", session + ":"])
+                            task_option(row["tmuxWindowId"], "gpu", chosen)
+                            task_option(row["tmuxWindowId"], "phase", "admitted")
+                            occupied.add(chosen)
+        except Exception as exc:
+            print("[queue] " + str(exc), file=sys.stderr, flush=True)
+        time.sleep(0.5)
+
+def task_runner(root, worker_id):
+    pane = os.environ["TMUX_PANE"]
+    deadline = time.monotonic() + 8
+    while not task_option(pane, "job"):
+        if time.monotonic() > deadline:
+            raise RuntimeError("TASK_WINDOW_BINDING_MISSING")
+        time.sleep(0.05)
+    job = json.loads(base64.urlsafe_b64decode(task_option(pane, "job")).decode("utf-8"))
+    if job.get("root") != os.path.realpath(root) or job.get("workerId") != worker_id or job.get("pane") != pane:
+        raise ValueError("TASK_WINDOW_OWNER_MISMATCH")
+    while task_option(pane, "phase") != "admitted":
+        time.sleep(0.2)
+    job["gpuId"] = task_option(pane, "gpu")
+    job["_lifecycleRunner"] = True
+    job["durablePlanQueue"] = False
+    job["options"] = {**(job.get("options") or {}), "durablePlanQueue": False}
+    task_option(pane, "phase", "starting")
+    result = execute_worker_command(root, job, worker_id)
+    return 0 if result.get("status") == "completed" else int(result.get("exitCode") or 1)
+
+def task_stop(root, command, worker_id):
+    target = str(command.get("targetCommandId") or "")
+    project = str(command.get("projectId") or "")
+    if not target or not project:
+        raise ValueError("TASK_STOP_IDENTITY_REQUIRED")
+    rows = [row for row in task_inventory(root) if row["commandId"] == target]
+    if any(row["projectId"] != project or row["workerId"] != worker_id for row in rows):
+        raise ValueError("TASK_OWNER_MISMATCH")
+    try:
+        task_queue_rpc(root, worker_id, "cancel", {"targetCommandId": target, "projectId": project}, ensure=True)
+    except Exception:
+        # Exact tab closure remains possible even when its controller is unhealthy.
+        if not rows:
+            raise
+        for row in rows:
+            task_tmux(["kill-window", "-t", row["tmuxWindowId"]])
+    remaining = [row for row in task_inventory(root) if row["commandId"] == target and row["projectId"] == project]
+    if remaining:
+        raise RuntimeError("TASK_STOP_NOT_CONFIRMED")
+    return {"status": "completed", "stoppedTasks": [{"commandId": target, "projectId": project, "workerId": worker_id,
+        "workflowId": command.get("workflowId"), "stopBoundary": "local_command", "paneClosed": True, "cacheRetired": True}], "stoppedPids": []}
+
 
 if __name__ == "__main__":
     try:
