@@ -10,7 +10,7 @@
 2. 共用两次确认、覆盖/补跑与提交恢复：实现并验证完成。
 3. 单 job 最新产物自动同步、最新一轮保留：实现，单文件回归通过。
 4. 批量删除后文件树与空目录读取：实现，单文件回归通过。删除或成功查询不存在的路径直接从文件索引、勾选及过滤列表移除，不建立“已删除”展示项；查询失败保留错误，不能当作空目录。
-5. 集成、真实隔离 tmux：本地通过；发行与一次安装在最终包验证后执行。
+5. 集成、真实隔离 tmux、稳定发行与一次安装：完成。生产验收等待用户重载和更新远端。
 
 失败基线：提交链路在替换后查询 Worker；全部历史记录混入请求，99 条缺少 projectId；错误被改成通用 unavailable。0.5.309 的原失败运行不自动重放。
 
@@ -35,3 +35,10 @@
 集成前验证：latestJobArtifacts 3 项、completedJobLatestSync 3 项、syncScopeDeletionRefresh 3 项、sftpProgressWait 9 项、manualJobDispatch 8 项通过；真实隔离 tmux CPU 启动约 7.5 秒通过，新增声明结果查询确认成功/失败。SimpleSFTP metadataTreeRead 4 项和 transferRecovery 32 项通过，完整 build 通过。所有路径均临时夹具或模拟节点，未访问生产产物。
 
 集成验证：SimpleExperiment 完整 package（含 build、串行回归、Windows 流程和运行闭包检查）通过，SimpleSFTP 0.2.84 package 通过。补充重载期间的确认中断回归，planRunRecovery 5 项通过：停用扩展释放确认等待不会被持久化成用户取消；显式取消仍不能恢复执行。运行包最终以相同源码重新构建、核对 SHA256 后发行。未测生产冷/热耗时、真实服务器文件交互和重载后的面板；这些留待用户重载并更新 Agent/Scheduler 后验收，不能以夹具耗时代替。
+
+交付记录（2026-10-14）：
+
+- SimpleExperiment 源码提交 53d45bb099549762e63313a9f602db7049581e56；[稳定发行 v0.5.310](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.310)。VSIX 为 2776243 字节，SHA256 e54ad8d0cda97ee146940ffce2e8c9bba9ac812927473e65fd1fbe0c0f943e74。
+- SimpleSFTP 源码提交 097c01c62a78b9881875222a7cee01e6da283d03；[稳定发行 v0.2.84](https://github.com/zlinkw/SimpleSFTP/releases/tag/v0.2.84)。VSIX 为 163645 字节，SHA256 52c0065fc82e5d2a2576eaabfc61b4f7c8838d9ea7c39542017c41be17cb65e7。
+- 两仓库均普通推送后 fetch 核实；实际 Latest、tag 提交、非 draft/prerelease、包身份、平台及逐包 SHA256 已验证。使用原安装版 0.5.309 的 ReleaseClient 实际读取更新源并下载到内存，两个包字节与本机确定包完全相同，旧版能看到配套更新。
+- 两插件各执行一次 install:latest，code --list-extensions --show-versions 核实 0.5.310 / 0.2.84。安装后未操作现有面板。用户须 Developer: Reload Window，再通过插件更新启用 Worker 的 Agent/Scheduler 至 0.5.310；不可自动重派原失败 PLAN。远端运行版本和真实入口仍待验收。
