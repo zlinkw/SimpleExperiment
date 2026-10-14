@@ -415,7 +415,7 @@ export class HttpTunnelClient implements TunnelClient {
                 const message = failure?.message || failure?.error?.message || failure?.error;
                 if (typeof message === "string" && message.trim()) detail = message;
               } catch { /* Keep a bounded plain-text reason for non-JSON responses. */ }
-              throw new Error(`Hub Agent HTTP ${response.status}: ${detail.slice(0, 2000)}`);
+              throw new Error(`Worker Agent HTTP ${response.status}: ${detail.slice(0, 2000)}`);
             }
             if (!text.trim()) return {} as T;
             return JSON.parse(text) as T;

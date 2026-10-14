@@ -59,6 +59,13 @@ def fake_run(args, **kwargs):
 
 
 subprocess.run = fake_run
+os.environ.pop("SIMPLE_EXPERIMENT_TMUX_SESSION", None)
+body, status = kill_tmux_window_response(
+    {"target": "zlk-gpu-0:2", "windowId": "@41", "windowName": "run-old", "paneIds": ["%184"], "confirm": True},
+    "worker_telemetry",
+)
+assert status == 200 and body.get("verified") is True, body
+windows = {"0": ("@40", "bash", "%183"), "2": ("@41", "run-old", "%184"), "3": ("@42", "run-running", "%185")}
 os.environ["SIMPLE_EXPERIMENT_TMUX_SESSION"] = "simple-worker-w1-agent"
 body, status = kill_tmux_window_response(
     {"target": "zlk-gpu-0:2", "window": "zlk-gpu-0:2", "session": "zlk-gpu-0", "windowId": "@41", "windowName": "run-old", "paneIds": ["%184"], "confirm": True},

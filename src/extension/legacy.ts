@@ -13,7 +13,7 @@ import { atomicWriteText } from "../state/StateStore";
 import { LatestSnapshotWriter } from "../core/LatestSnapshotWriter";
 import { runProjectStaticCheck } from "../features/ProjectStaticCheck";
 import * as TmuxWindowIdentity from "../features/TmuxWindowIdentity";
-import { closeGpuTmuxSession, closeTmuxSession } from "./GpuTmuxClose";
+import { closeGpuTmuxSession, closeTmuxSession, manageTmuxSession } from "./GpuTmuxClose";
 import { callSftpWithProgress } from "../core/SimpleSftpProgressWait";
 import { deleteConfirmedScopeCopy } from "../features/SyncScopeDelete";
 import { SafeRequestRetry, RequestReplacedError, assertRetryRequestCurrent, retryRequestSignal } from "../core/SafeRequestRetry";
@@ -19109,7 +19109,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     publishTmuxList(workerId: string, result: any, requestId?: number, publish = true) {
         const cfg = vscode.workspace.getConfiguration("simpleExperiment");
         const tmuxSessionPrefix = AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix(this.setupConfig?.sessionPrefix || this.setupConfig?.remoteTmuxSessionPrefix || cfg.get("sessionPrefix") || cfg.get("tunnel.remoteTmuxSessionPrefix") || "simple");
-        const payload = { type: "tmuxList", ok: result?.ok !== false, available: result?.available !== false, workerId, requestId, workers: this.enabledWorkerConfigs().map((worker) => ({ id: worker.id, name: worker.displayName || worker.id })), tmuxSessionPrefix, gpuIds: result?.gpuIds || [], sessions: result?.sessions || [], error: result?.error || result?.message || "", fetchedAt: new Date().toISOString() };
+        const payload = { type: "tmuxList", ok: result?.ok !== false, available: result?.available !== false, workerId, requestId, workers: this.enabledWorkerConfigs().map((worker) => ({ id: worker.id, name: worker.displayName || worker.id })), tmuxSessionPrefix, sessionActions: result?.sessionActions || [], gpuIds: result?.gpuIds || [], sessions: result?.sessions || [], error: result?.error || result?.message || "", fetchedAt: new Date().toISOString() };
         if (publish) this.view?.webview.postMessage(payload);
         return payload;
     }
@@ -19293,6 +19293,16 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 return AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix(this.setupConfig?.sessionPrefix || this.setupConfig?.remoteTmuxSessionPrefix || cfg.get("sessionPrefix") || cfg.get("tunnel.remoteTmuxSessionPrefix") || "simple");
             };
             try {
+                if (message.sessionAction) {
+                    if (!["close", "clear"].includes(message.sessionAction)) throw new Error("未知会话操作。");
+                    return await manageTmuxSession({ read: () => this.readTmuxListAfterKill(workerId),
+                        request: body => this.requestKillTmuxWindow(workerId, body),
+                        confirm: async description => {
+                            const label = message.sessionAction === "clear" ? "清空标签页" : "关闭会话";
+                            if (await vscode.window.showWarningMessage(description, { modal: true }, label) !== label)
+                                throw new UiCommandCancelled("已取消操作。");
+                        } }, { workerId, session: String(message.closeSession || message.gpuSession), identities: message.identities, action: message.sessionAction });
+                }
                 const close = message.gpuSession ? closeGpuTmuxSession : closeTmuxSession;
                 return await close({ prefix, read: () => this.readTmuxListAfterKill(workerId),
                     close: identity => this.performKillTmuxWindow(workerId, identity.target, identity),
@@ -26302,6 +26312,9 @@ function hostOperationLeaseActionForUiCommand(command) {
     return hostOperationUiCommands.has(command) ? command : "";
 }
 const HOST_OPERATION_LEASE_ACTION_LABELS = Object.freeze({
+    killTmuxWindow: "关闭或清空 tmux 会话",
+    clearTmuxTaskTabs: "清空任务标签页",
+    dispatchJobs: "手动派发任务",
     retryDistributedJob: "核验并恢复任务",
     recallFailedJob: "召回失败 job 到本机重跑",
     markJobUnavailable: "标记 job 不可用",

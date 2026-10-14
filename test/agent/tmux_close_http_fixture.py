@@ -106,7 +106,13 @@ namespace["_resolve_tmux_prefix"] = lambda: "zlk"
 namespace["root"] = "fixture-project"
 namespace["tmux_available"] = lambda: True
 namespace["path_for"] = lambda root, path: path
-namespace["read_runtime_json_cached"] = lambda path, default: default
+def read_snapshot(path, default):
+    assert 'worker_task_snapshot' not in path, 'tmux inventory must not read old task snapshots'
+    return default
+namespace["read_runtime_json_cached"] = read_snapshot
+namespace["task_inventory"] = lambda root: [dict(tmuxPane='%10',tmuxWindowId='@10',workerId='fixture-worker',commandId='native-http-job',
+    phase='running',dead=False,gpuId='0',case='native-case',seed=42)]
+os.environ['SIMPLE_EXPERIMENT_WORKER_ID']='fixture-worker'
 os.environ["SIMPLE_EXPERIMENT_TMUX_SESSION"] = "fixture-worker-agent"
 
 for mode in ("worker_telemetry", "hub_control"):
@@ -142,6 +148,9 @@ for mode in ("worker_telemetry", "hub_control"):
                 conn.close()
         listed = get_list()
         assert listed['ok'] is True and listed['sessions'][0]['windows'][0]['windowId'].startswith('@'), listed
+        native=next(row for row in listed['sessions'][0]['windows'] if row['windowId']=='@10')
+        assert native['task']['commandId']=='native-http-job' and native['task']['status']=='running', listed
+        assert listed['sessionActions']==['close','clear']
         assert all(win['panes'][0]['id'].startswith('%') for win in listed['sessions'][0]['windows']), listed
         behavior['list'] = 'failed'
         listed = get_list()

@@ -81,39 +81,6 @@ class ManualDispatchHost {
         if (!fromUi && params.confirm !== true)
             throw Error("CONFIRM_REQUIRED：请确认所选 job、服务器和 GPU。");
         const workflowId = String(params.workflowId || params.planId || ""), indices = Array.isArray(params.indices) ? params.indices : [params.jobIndex];
-        let workerId = String(params.workerId || ""), gpuId = params.gpuId === undefined ? "" : String(params.gpuId);
-        if (fromUi && !workerId) {
-            const saved = await h.loadDistributedQueue(this.root), plan = saved.plans.find((p) => p.id === workflowId);
-            const placements = indices.map((i) => plan?.jobs.find((j) => j.index === i)?.manualDispatch);
-            const first = placements[0];
-            if (first?.stage === "preparing" && placements.every((p) => p?.workerId === first.workerId && p?.gpuId === first.gpuId)) {
-                workerId = first.workerId;
-                gpuId = first.gpuId;
-            }
-        }
-        if (fromUi && !workerId) {
-            const picked = await vscode.window.showQuickPick(h.enabledWorkerConfigs().map((w) => ({ label: w.displayName || w.id, description: w.id + (h.lastWorkerProbes?.[w.id]?.status === "ok" ? " · 已连接" : " · 未连接"), id: w.id })), { title: "手动派发：选择服务器", ignoreFocusOut: true });
-            if (!picked)
-                return { status: "cancelled" };
-            workerId = picked.id;
-        }
-        if (!h.enabledWorkerConfigs().some((w) => w.id === workerId))
-            throw Error("目标 Worker 未启用或不存在：" + workerId);
-        if (fromUi && !gpuId) {
-            let snapshot = h.client.currentState?.().gpu || h.lastRealtimeState?.gpu || {};
-            try {
-                snapshot = await h.client.getGpu({ userInitiated: true });
-                this.gpuSnapshot = snapshot;
-            }
-            catch { }
-            const rows = Array.isArray(snapshot[workerId]) ? snapshot[workerId] : [];
-            const tasks = h.lastWorkerTaskSnapshots?.get(this.root + "\u0000" + workerId)?.tasks || [];
-            const picked = await vscode.window.showQuickPick(rows.map((r) => ({ label: "GPU " + String(r.index ?? r.gpu_id ?? r.gpuId ?? r.id), id: String(r.index ?? r.gpu_id ?? r.gpuId ?? r.id),
-                description: String(r.name || "") + " · 显存 " + String(r.memoryUsedMb ?? r.memoryUsed ?? r.memory_used_mb ?? "?") + "/" + String(r.memoryTotalMb ?? r.memoryTotal ?? r.memory_total_mb ?? "?") + " MB · 利用率 " + String(r.utilizationPercent ?? r.utilization ?? r.utilization_gpu ?? "?") + "% · 任务 " + tasks.filter((t) => !['completed', 'failed', 'cancelled'].includes(t.status) && String(t.gpuId ?? t.observation?.tmux?.gpuId ?? "") === String(r.index ?? r.gpu_id ?? r.gpuId ?? r.id)).length })), { title: "选择 GPU（忙卡可用，允许多个 job 同时运行）", ignoreFocusOut: true });
-            if (!picked)
-                return { status: "cancelled" };
-            gpuId = picked.id;
-        }
         const key = this.root + "\0" + workflowId;
         if (h.manualDispatchInFlight.has(key))
             throw Error("这批任务正在处理，请勿重复点击。");
@@ -121,6 +88,39 @@ class ManualDispatchHost {
         try {
             if (h.distributedQueueTickPromise)
                 await h.distributedQueueTickPromise;
+            let workerId = String(params.workerId || ""), gpuId = params.gpuId === undefined ? "" : String(params.gpuId);
+            if (fromUi && !workerId) {
+                const saved = await h.loadDistributedQueue(this.root), plan = saved.plans.find((p) => p.id === workflowId);
+                const placements = indices.map((i) => plan?.jobs.find((j) => j.index === i)?.manualDispatch);
+                const first = placements[0];
+                if (first?.stage === "preparing" && placements.every((p) => p?.workerId === first.workerId && p?.gpuId === first.gpuId)) {
+                    workerId = first.workerId;
+                    gpuId = first.gpuId;
+                }
+            }
+            if (fromUi && !workerId) {
+                const picked = await vscode.window.showQuickPick(h.enabledWorkerConfigs().map((w) => ({ label: w.displayName || w.id, description: w.id + (h.lastWorkerProbes?.[w.id]?.status === "ok" ? " · 已连接" : " · 未连接"), id: w.id })), { title: "手动派发：选择服务器", ignoreFocusOut: true });
+                if (!picked)
+                    return { status: "cancelled" };
+                workerId = picked.id;
+            }
+            if (!h.enabledWorkerConfigs().some((w) => w.id === workerId))
+                throw Error("目标 Worker 未启用或不存在：" + workerId);
+            if (fromUi && !gpuId) {
+                let snapshot = h.client.currentState?.().gpu || h.lastRealtimeState?.gpu || {};
+                try {
+                    snapshot = await h.client.getGpu({ userInitiated: true });
+                    this.gpuSnapshot = snapshot;
+                }
+                catch { }
+                const rows = Array.isArray(snapshot[workerId]) ? snapshot[workerId] : [];
+                const tasks = h.lastWorkerTaskSnapshots?.get(this.root + "\u0000" + workerId)?.tasks || [];
+                const picked = await vscode.window.showQuickPick(rows.map((r) => ({ label: "GPU " + String(r.index ?? r.gpu_id ?? r.gpuId ?? r.id), id: String(r.index ?? r.gpu_id ?? r.gpuId ?? r.id),
+                    description: String(r.name || "") + " · 显存 " + String(r.memoryUsedMb ?? r.memoryUsed ?? r.memory_used_mb ?? "?") + "/" + String(r.memoryTotalMb ?? r.memoryTotal ?? r.memory_total_mb ?? "?") + " MB · 利用率 " + String(r.utilizationPercent ?? r.utilization ?? r.utilization_gpu ?? "?") + "% · 任务 " + tasks.filter((t) => !['completed', 'failed', 'cancelled'].includes(t.status) && String(t.gpuId ?? t.observation?.tmux?.gpuId ?? "") === String(r.index ?? r.gpu_id ?? r.gpuId ?? r.id)).length })), { title: "选择 GPU（忙卡可用，允许多个 job 同时运行）", ignoreFocusOut: true });
+                if (!picked)
+                    return { status: "cancelled" };
+                gpuId = picked.id;
+            }
             return await (0, ManualJobDispatch_1.dispatchManualJobs)(this.ports(), { workflowId, indices, workerId, gpuId, expectedCommands: params.expectedCommands, stopRunning: fromUi || params.stopRunning === true });
         }
         finally {

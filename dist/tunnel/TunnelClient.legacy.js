@@ -318,7 +318,7 @@ class HttpTunnelClient {
                             detail = message;
                     }
                     catch { /* Keep a bounded plain-text reason for non-JSON responses. */ }
-                    throw new Error(`Hub Agent HTTP ${response.status}: ${detail.slice(0, 2000)}`);
+                    throw new Error(`Worker Agent HTTP ${response.status}: ${detail.slice(0, 2000)}`);
                 }
                 if (!text.trim())
                     return {};

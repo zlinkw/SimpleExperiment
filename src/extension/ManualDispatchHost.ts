@@ -35,6 +35,10 @@ export class ManualDispatchHost {
     const h=this.host;
     if(!fromUi&&params.confirm!==true)throw Error("CONFIRM_REQUIRED：请确认所选 job、服务器和 GPU。");
     const workflowId=String(params.workflowId||params.planId||""),indices=Array.isArray(params.indices)?params.indices:[params.jobIndex];
+    const key=this.root+"\0"+workflowId;if(h.manualDispatchInFlight.has(key))throw Error("这批任务正在处理，请勿重复点击。");
+    h.manualDispatchInFlight.add(key);
+    try {
+    if(h.distributedQueueTickPromise)await h.distributedQueueTickPromise;
     let workerId=String(params.workerId||""),gpuId=params.gpuId===undefined?"":String(params.gpuId);
     if(fromUi&&!workerId){
       const saved=await h.loadDistributedQueue(this.root),plan=saved.plans.find((p:any)=>p.id===workflowId);
@@ -58,9 +62,8 @@ export class ManualDispatchHost {
         description:String(r.name||"")+" · 显存 "+String(r.memoryUsedMb??r.memoryUsed??r.memory_used_mb??"?")+"/"+String(r.memoryTotalMb??r.memoryTotal??r.memory_total_mb??"?")+" MB · 利用率 "+String(r.utilizationPercent??r.utilization??r.utilization_gpu??"?")+"% · 任务 "+tasks.filter((t:any)=>!['completed','failed','cancelled'].includes(t.status)&&String(t.gpuId??t.observation?.tmux?.gpuId??"")===String(r.index??r.gpu_id??r.gpuId??r.id)).length})),{title:"选择 GPU（忙卡可用，允许多个 job 同时运行）",ignoreFocusOut:true});
       if(!picked)return {status:"cancelled"};gpuId=picked.id;
     }
-    const key=this.root+"\0"+workflowId;if(h.manualDispatchInFlight.has(key))throw Error("这批任务正在处理，请勿重复点击。");
-    h.manualDispatchInFlight.add(key);
-    try{if(h.distributedQueueTickPromise)await h.distributedQueueTickPromise;return await dispatchManualJobs(this.ports(),{workflowId,indices,workerId,gpuId,expectedCommands:params.expectedCommands,stopRunning:fromUi||params.stopRunning===true} as ManualDispatchRequest);}
+    return await dispatchManualJobs(this.ports(),{workflowId,indices,workerId,gpuId,expectedCommands:params.expectedCommands,stopRunning:fromUi||params.stopRunning===true} as ManualDispatchRequest);
+    }
     finally{h.manualDispatchInFlight.delete(key);h.postState();void h.tickDistributedQueue();}
   }
   async review(plan:any,jobs:any[]){

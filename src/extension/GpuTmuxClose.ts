@@ -15,7 +15,7 @@ export function gpuTmuxSessionBatch(list: any, workerId: string, session: string
   return tmuxSessionBatch(list, workerId, session, expected);
 }
 
-export function tmuxSessionBatch(list: any, workerId: string, session: string, expected: GpuTmuxWindow[]): GpuTmuxWindow[] {
+export function tmuxSessionBatch(list: any, workerId: string, session: string, expected: GpuTmuxWindow[], compareActivity = true): GpuTmuxWindow[] {
   if (!/^[A-Za-z0-9._-]+$/.test(session) || session.endsWith("-agent"))
     throw new Error("会话名称无效或属于受保护的 Agent，未关闭窗口。");
   if (list?.workerId !== workerId || list?.ok === false || list?.available === false || !Array.isArray(list?.sessions))
@@ -37,8 +37,8 @@ export function tmuxSessionBatch(list: any, workerId: string, session: string, e
   // the frozen stable ID inside the same session, never a reused index.
   const normalized = (rows: GpuTmuxWindow[]) => JSON.stringify(rows.map(row => ({ session: row.session,
     windowId: row.windowId, windowName: row.windowName, paneIds: [...row.paneIds].sort(),
-    taskCommandId: row.taskCommandId, taskStatus: row.taskStatus,
-    paneCommands: [...row.paneCommands].sort((a, b) => a.id.localeCompare(b.id)) })).sort((a, b) => a.windowId.localeCompare(b.windowId)));
+    taskCommandId: row.taskCommandId, taskStatus: compareActivity ? row.taskStatus : "",
+    paneCommands: compareActivity ? [...row.paneCommands].sort((a, b) => a.id.localeCompare(b.id)) : [] })).sort((a, b) => a.windowId.localeCompare(b.windowId)));
   if (normalized(result) !== normalized(expected)) throw new Error("GPU 窗口身份或运行任务已变化，请刷新后重新确认。");
   return result;
 }
@@ -71,4 +71,30 @@ export async function closeTmuxSession(ports: GpuTmuxClosePorts, request: { work
       throw new Error(`已关闭 ${closed.size}/${batch.length} 个窗口；其余未关闭：${String(error.message || error)}`);
     }
   });
+}
+
+/** Explicit session control, separate from the legacy selected-window batch. */
+export async function manageTmuxSession(ports: Pick<GpuTmuxClosePorts, "read" | "confirm"> & {
+  request(body: any): Promise<any>;
+}, request: { workerId: string; session: string; identities: GpuTmuxWindow[]; action: "close" | "clear" }): Promise<string> {
+  const { workerId, session, action } = request;
+  const before = await ports.read();
+  const batch = tmuxSessionBatch(before, workerId, session, request.identities, false);
+  if (!before.sessionActions?.includes(action)) throw new Error("Worker Agent 不支持会话关闭/清空，请更新远端 Agent 后重试。");
+  if (!batch.length) throw new Error("会话已不存在，请刷新列表。");
+  await ports.confirm(`${action === "close" ? "关闭整个会话" : "清空全部标签页"} ${workerId} · ${session}？其中进程会终止。`
+    + (action === "clear" ? "保留会话和一个空闲终端。" : "会话也会移除。") + "\n" + batch.map(row => `${row.target}（${row.windowName}，${row.windowId}）`).join("\n"));
+  tmuxSessionBatch(await ports.read(), workerId, session, batch, false);
+  let response: any, failure: any;
+  try { response = await ports.request({ session, sessionAction: action, identities: batch, confirm: true }); }
+  catch (error) { failure = error; }
+  const after = await ports.read();
+  if (after?.workerId !== workerId || after.ok === false || !Array.isArray(after.sessions)) throw new Error("操作后无法查询会话，请刷新核对；未重复执行。");
+  const remaining = after.sessions.find((row: any) => row.name === session);
+  const oldIds = new Set(batch.map(row => row.windowId));
+  const done = action === "close" ? !remaining : remaining && remaining.windows?.length === 1
+    && !remaining.windows.some((row: any) => oldIds.has(row.windowId))
+    && (!response?.idleWindowId || remaining.windows[0].windowId === response.idleWindowId);
+  if (!done) throw new Error(`操作尚未完成：${response?.error || failure?.message || "原会话或标签页仍存在，请刷新核对"}`);
+  return action === "close" ? `已关闭会话 ${session}。` : `已清空 ${session} 的标签页，保留一个空闲终端。`;
 }

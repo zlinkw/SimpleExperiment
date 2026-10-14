@@ -1,6 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const { closeGpuTmuxSession, closeTmuxSession, gpuTmuxSessionBatch } = require('../../dist/extension/GpuTmuxClose');
+const { manageTmuxSession } = require('../../dist/extension/GpuTmuxClose');
 const clone = value => JSON.parse(JSON.stringify(value));
 
 function fixture(sessionName) {
@@ -116,6 +117,36 @@ test('every read failure, ambiguous session and protected Agent window rejects t
   assert.throws(() => gpuTmuxSessionBatch(list, 'w3', f.request.gpuSession, 'my-user', f.request.identities), /受保护/);
 });
 
+test('session actions query actual completion after lost responses without repeating a mutation', async () => {
+  for (const action of ['close','clear']) {
+    const f=fixture('ordinary');let reads=0,sent=0,done=false;
+    const ports={read:async()=>{reads++;return {workerId:'w3',sessionActions:['close','clear'],sessions:done?
+      (action==='close'?[]:[{name:'ordinary',windows:[{windowId:'@new',name:'bash',panes:[]}]}]):f.list().sessions};},
+      confirm:async()=>{},request:async body=>{sent++;assert.equal(body.sessionAction,action);assert.equal(body.confirm,true);done=true;throw new Error('response lost');}};
+    assert.match(await manageTmuxSession(ports,{workerId:'w3',session:'ordinary',identities:f.request.identities,action}),/已关闭会话|已清空/);
+    assert.equal(sent,1);assert.equal(reads,3);
+  }
+});
+
+test('old Agent and changed sessions stop before mutation, while an unchanged remote failure remains visible', async () => {
+  for (const scenario of ['old','changed','failed']) {
+    const f=fixture('ordinary');let sent=0;
+    const ports={read:async()=>({...f.list(),sessionActions:scenario==='old'?[]:['close','clear']}),
+      confirm:async()=>{if(scenario==='changed')f.windows()[0].name='new';},
+      request:async()=>{sent++;return {ok:false,error:'tmux refused'};}};
+    await assert.rejects(manageTmuxSession(ports,{workerId:'w3',session:'ordinary',identities:f.request.identities,action:'close'}),/更新远端|变化|tmux refused/);
+    assert.equal(sent,scenario==='failed'?1:0);
+  }
+});
+
+test('explicit session close tolerates the same task starting or finishing during confirmation', async () => {
+  const f=fixture('ordinary');let done=false;
+  const ports={read:async()=>({...f.list(),sessions:done?[]:f.list().sessions,sessionActions:['close','clear']}),
+    confirm:async()=>{f.windows()[1].task.status='completed';f.windows()[1].panes[0].command='bash';},
+    request:async()=>{done=true;return {ok:true};}};
+  assert.match(await manageTmuxSession(ports,{workerId:'w3',session:'ordinary',identities:f.request.identities,action:'close'}),/已关闭会话/);
+});
+
 test('panel host routes GPU card requests through exact confirmation, progress and the existing window executor', async () => {
   const fs = require('node:fs'), vm = require('node:vm'), ts = require('typescript');
   const source = fs.readFileSync(require('node:path').join(__dirname, '../../src/extension/legacy.ts'), 'utf8');
@@ -125,7 +156,7 @@ test('panel host routes GPU card requests through exact confirmation, progress a
     compilerOptions: { target: ts.ScriptTarget.ES2022 },
   }).outputText;
   const f = fixture(), progress = [], refreshed = [], descriptions = [];
-  const context = vm.createContext({ closeGpuTmuxSession, closeTmuxSession, AgentTmuxPolicy_1: require('../../dist/tunnel/AgentTmuxPolicy'),
+  const context = vm.createContext({ closeGpuTmuxSession, closeTmuxSession, manageTmuxSession, AgentTmuxPolicy_1: require('../../dist/tunnel/AgentTmuxPolicy'),
     UiCommandCancelled: Error, vscode: { workspace: { getConfiguration: () => ({ get: () => 'my-user' }) },
       ProgressLocation: { Notification: 1 }, window: {
         showWarningMessage: async (text, options, answer) => { descriptions.push(text); assert.equal(options.modal, true); return answer; },

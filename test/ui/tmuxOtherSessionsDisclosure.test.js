@@ -164,10 +164,39 @@ test("GPU selection retains job labels and a synthetic idle GPU stays visible", 
   assert.doesNotMatch(elements.tmuxOverview.innerHTML, /m1mechanism/);
 });
 
+test('native tasks pin the real session even when its prefix differs from current settings', () => {
+  const f = harness();
+  f.context.tmuxListCache.sessions.push({name:'old-gpu-0', windows:[{index:'7',name:'ordinary-plan',windowId:'@700',
+    target:'old-gpu-0:7', panes:[{id:'%700',target:'old-gpu-0:7.0',command:'python'}],
+    task:{commandId:'native-job',gpuId:'0',case:'ordinary-plan',seed:42,status:'running'}}]});
+  f.render();
+  const bar=f.elements.tmuxFilterBar.innerHTML;
+  assert.equal((bar.match(/data-tmux-filter="old-gpu-0"/g)||[]).length,1);
+  assert.doesNotMatch(bar,/data-tmux-filter="zlk-gpu-0"/);
+  assert.match(bar,/运行 1/);
+  f.context.tmuxWindowFilter='old-gpu-0'; f.render();
+  assert.match(f.elements.tmuxOverview.innerHTML,/data-tmux-task-target="old-gpu-0:7"/);
+  // A similarly named foreign session without native task evidence stays outside GPU cards.
+  f.context.tmuxListCache.sessions.at(-1).windows[0].task=null;f.render();
+  assert.doesNotMatch(f.elements.tmuxFilterBar.innerHTML,/data-tmux-filter="old-gpu-0"/);
+});
+
+test('ordinary tabs have a single clickable name and no duplicated pane address', () => {
+  const f=harness();f.render();
+  const html=f.elements.tmuxOverview.innerHTML;
+  assert.equal((html.match(/>0:mechanism-0<\/button>/g)||[]).length,1);
+  assert.match(html,/<button[^>]+data-tmux-filter="m1mechanism:0"/);
+  assert.doesNotMatch(html,/<code[^>]*>m1mechanism:0/);
+  f.context.tmuxWindowFilter='m1mechanism:0';f.render();
+  assert.match(f.elements.tmuxOverview.innerHTML,/data-tmux-pane="m1mechanism:0.0"[^>]*>mechanism-0<\/button>/);
+  assert.match(f.elements.tmuxOverview.innerHTML,/data-tmux-session-action="clear"/);
+});
+
 test('ordinary sessions expose one clearly labelled close-all action and never offer it for Agent sessions', () => {
   const f = harness(); f.render();
   assert.match(f.elements.tmuxOverview.innerHTML, /data-tmux-close-session="m1mechanism"/);
-  assert.match(f.elements.tmuxOverview.innerHTML, /关闭全部窗口/);
+  assert.match(f.elements.tmuxOverview.innerHTML, /关闭会话/);
+  assert.match(f.elements.tmuxOverview.innerHTML, /清空标签页/);
   assert.doesNotMatch(f.elements.tmuxOverview.innerHTML, /data-tmux-close-session="zlk-worker-agent"/);
   const html=renderPanelHtml(),start=html.indexOf('const sessionClose = event.target.closest("[data-tmux-close-session]");'),end=html.indexOf('const gpuSessionClose =',start);
   f.context.pendingActionsById={}; f.context.createClientActionId=()=> 'ordinary-batch'; f.context.showToast=()=>{};
@@ -177,6 +206,7 @@ test('ordinary sessions expose one clearly labelled close-all action and never o
   const button={disabled:false,getAttribute:key=>attrs[key]},event={target:{closest:()=>button},preventDefault(){},stopPropagation(){}};
   f.context.closeOther(event);f.context.closeOther(event);
   assert.equal(f.requests.length,1); assert.equal(f.requests[0].closeSession,'m1mechanism');
+  assert.equal(f.requests[0].sessionAction,'clear');
   assert.equal(f.requests[0].workerId,'NWPU5');assert.equal(f.requests[0].identities.length,17);assert.equal(f.requests[0].confirm,undefined);
   f.context.pendingActionsById={};f.context.tmuxSelectedWorkerId='another';f.context.closeOther(event);assert.equal(f.requests.length,1);
 });

@@ -69,9 +69,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.320"
-RUNTIME_VERSION = "0.5.320"
-PLUGIN_VERSION = "0.5.320"
+AGENT_VERSION = "0.5.321"
+RUNTIME_VERSION = "0.5.321"
+PLUGIN_VERSION = "0.5.321"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -16195,6 +16195,8 @@ def require_op_id(handler, payload):
     return op_id
 
 def kill_tmux_window_response(payload, mode, mgmt_env=""):
+    if (payload or {}).get("sessionAction"):
+        return manage_tmux_session_response(payload)
     target = str((payload or {}).get("target") or (payload or {}).get("window") or "").strip()
     if not target:
         return {"error": "target required"}, 400
@@ -16220,11 +16222,11 @@ def kill_tmux_window_response(payload, mode, mgmt_env=""):
             if not _pfx:
                 _pfx = str(os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "simple").strip().lower() or "simple"
             _pfx = re.sub(r"[^a-z0-9._-]+", "-", _pfx.lower()).strip("-")[:32] or "simple"
-            pass
+            _worker = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "").strip()
+            if re.fullmatch(r"[A-Za-z0-9._-]+", _worker):
+                mgmt_target = _pfx + "-worker-" + _worker + "-agent"
         except Exception:
             mgmt_target = ""
-    if not mgmt_target:
-        return {"schemaVersion": SCHEMA_VERSION, "target": target, "ok": False, "error": "agent mgmt session unknown"}, 500
     if sess_name == mgmt_target:
         if not confirmed:
             return {"schemaVersion": SCHEMA_VERSION, "target": target, "ok": False, "error": "current Agent window requires confirmation"}, 403
@@ -16245,6 +16247,8 @@ def kill_tmux_window_response(payload, mode, mgmt_env=""):
             err = (before.stderr or "").strip()[-500:]
             return {"schemaVersion": SCHEMA_VERSION, "target": target, "ok": False, "error": err or "target window not found"}, 200
         resolved_id = found[2]
+        if found[3].lower() == "agent" or sess_name.endswith("-agent"):
+            return {"ok": False, "error": "Agent window is protected; use Agent controls"}, 403
         if not re.fullmatch(r"@\d+", resolved_id) or expected_name is not None and str(expected_name) != found[3]:
             return {"schemaVersion": SCHEMA_VERSION, "target": target, "ok": False, "error": "window identity changed; not closed"}, 200
         if expected_panes is not None:
@@ -16268,6 +16272,71 @@ def kill_tmux_window_response(payload, mode, mgmt_env=""):
         return {"schemaVersion": SCHEMA_VERSION, "target": target, "session": sess_name, "index": found[1], "windowId": resolved_id, "ok": True, "verified": True}, 200
     except Exception as exc:
         return {"error": str(exc)}, 500
+
+def manage_tmux_session_response(payload):
+    """Explicit session controls; runtime evidence only, no task history or PID gates."""
+    action, session = payload.get("sessionAction"), str(payload.get("session") or "")
+    if action not in ("close", "clear") or not re.fullmatch(r"[A-Za-z0-9._-]+", session):
+        return {"ok": False, "error": "invalid session action"}, 400
+    if payload.get("confirm") is not True:
+        return {"ok": False, "error": "session action requires confirm"}, 403
+    if session.endswith("-agent") or session == os.environ.get("SIMPLE_EXPERIMENT_TMUX_SESSION"):
+        return {"ok": False, "error": "Agent session is protected"}, 403
+    expected = payload.get("identities")
+    if not isinstance(expected, list) or not expected:
+        return {"ok": False, "error": "complete window identities required"}, 400
+    def run(args):
+        result = subprocess.run(["tmux"] + args, capture_output=True, text=True, timeout=5)
+        if result.returncode:
+            raise ValueError((result.stderr or "tmux query failed").strip()[-400:])
+        return (result.stdout or "").strip()
+    def inventory(target):
+        rows = [line.split("|", 2) for line in run(["list-windows", "-t", target, "-F", "#{session_id}|#{window_id}|#{window_name}"]).splitlines()]
+        if not rows or any(len(row) != 3 or not re.fullmatch(r"\$\d+", row[0]) or not re.fullmatch(r"@\d+", row[1]) for row in rows):
+            raise ValueError("invalid session inventory")
+        return rows
+    try:
+        rows = inventory("=" + session)
+        session_id = rows[0][0]
+        if any(row[0] != session_id or row[2].lower() == "agent" for row in rows):
+            raise ValueError("protected or ambiguous session")
+        if len(expected) != len(rows) or len({row.get("windowId") for row in expected}) != len(rows):
+            raise ValueError("window set changed; refresh before confirming")
+        closed = set()
+        for row in rows:
+            item = next((item for item in expected if item.get("windowId") == row[1]), None)
+            if not item or item.get("session") != session or item.get("windowName") != row[2]:
+                raise ValueError("window identity changed")
+            panes = run(["list-panes", "-t", row[1], "-F", "#{pane_id}"]).splitlines()
+            if sorted(item.get("paneIds") or []) != sorted(panes):
+                raise ValueError("pane identities changed")
+        # Recheck the whole set after pane inspection. A recreated name must not be targeted.
+        if inventory("=" + session) != rows:
+            raise ValueError("session changed during inspection")
+        if action == "close":
+            run(["kill-session", "-t", session_id])
+            after = subprocess.run(["tmux", "has-session", "-t", session_id], capture_output=True, text=True, timeout=5)
+            if after.returncode == 0:
+                raise ValueError("session still present")
+            if not any(text in (after.stderr or "").lower() for text in ("can't find session", "no such session", "no server", "no sessions")):
+                raise ValueError("could not verify session absence")
+            return {"ok": True, "verified": True, "sessionAction": action, "session": session, "closed": len(rows)}, 200
+        # tmux cannot retain an empty session. Create one idle terminal before removing the frozen tabs.
+        idle = run(["new-window", "-d", "-P", "-F", "#{window_id}", "-t", session_id, "-n", "bash"])
+        if not re.fullmatch(r"@\d+", idle):
+            raise ValueError("could not create idle terminal")
+        for row in rows:
+            live = inventory(session_id)
+            if {entry[1] for entry in live} != {idle} | {entry[1] for entry in rows if entry[1] not in closed}:
+                raise ValueError("window set changed during clearing")
+            run(["kill-window", "-t", row[1]])
+            closed.add(row[1])
+        if [row[1] for row in inventory(session_id)] != [idle]:
+            raise ValueError("tabs not fully cleared")
+        return {"ok": True, "verified": True, "sessionAction": action, "session": session, "closed": len(closed), "idleWindowId": idle}, 200
+    except Exception as exc:
+        return {"ok": False, "session": session, "error": str(exc)}, 200
+
 
 def serve_http(args):
     global AGENT_LIFECYCLE_LOCK, AGENT_LIFECYCLE_IDENTITY
@@ -16924,8 +16993,13 @@ def serve_http(args):
                         if sess_proc2.returncode != 0 and ("no server" in (sess_proc2.stderr or "").lower() or "no sessions" in (sess_proc2.stderr or "").lower()):
                             return self.send_json({"schemaVersion": SCHEMA_VERSION, "ok": True, "available": True, "sessions": [], "message": "no tmux server"})
                         return self.send_json({"schemaVersion": SCHEMA_VERSION, "ok": False, "available": True, "sessions": [], "error": (sess_proc.stderr or sess_proc2.stderr or "list-sessions failed").strip()[-500:]}, status=200)
-                    task_snapshot = read_runtime_json_cached(path_for(root, "worker_task_snapshot.json"), {})
-                    task_rows = task_snapshot.get("tasks") if isinstance(task_snapshot, dict) and isinstance(task_snapshot.get("tasks"), list) else []
+                    task_rows = []
+                    for live in task_inventory(root):
+                        if live.get("workerId") != (os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker"):
+                            continue
+                        phase = live.get("phase")
+                        status = ("failed" if live.get("exitCode") != 0 else "exited") if live.get("dead") else ("running" if phase == "running" else "queued")
+                        task_rows.append({**live, "status": status})
                     tasks_by_pane = {}
                     for task_row in task_rows:
                         if not isinstance(task_row, dict):
@@ -17016,7 +17090,7 @@ def serve_http(args):
                                             "planFile": matched_task.get("planFile") or matched_task.get("plan") or "",
                                             "startedAt": matched_task.get("startedAt") or matched_task.get("started_at") or "",
                                             "finishedAt": matched_task.get("finishedAt") or matched_task.get("finished_at") or "",
-                                            "logUpdatedAt": worker_task_log_updated_at(root, matched_task),
+                                            "logUpdatedAt": "",
                                             "outputDir": matched_task.get("outputDir") or matched_task.get("output_dir") or "",
                                             "configPath": matched_task.get("configPath") or matched_task.get("config_path") or "",
                                         }
@@ -17026,7 +17100,7 @@ def serve_http(args):
                         except Exception as exc:
                             list_errors.append(sess_name + ": " + str(exc)[-300:])
                         sessions.append({"name": sess_name, "windowCount": sess_windows, "windows": windows})
-                    return self.send_json({"schemaVersion": SCHEMA_VERSION, "ok": not list_errors, "available": True, "workerId": os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker", "gpuIds": gpu_ids, "sessions": sessions, "error": "; ".join(list_errors)})
+                    return self.send_json({"schemaVersion": SCHEMA_VERSION, "ok": not list_errors, "available": True, "sessionActions": ["close", "clear"], "workerId": os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker", "gpuIds": gpu_ids, "sessions": sessions, "error": "; ".join(list_errors)})
                 except Exception as exc:
                     return self.send_json({"error": str(exc)}, status=500)
             return self.send_json({"error": "not found"}, status=404)
