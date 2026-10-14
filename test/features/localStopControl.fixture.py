@@ -11,7 +11,8 @@ import threading
 import types
 
 source = Path(sys.argv[1]).read_text(encoding="utf-8")
-names = {"local_stop_tmux_inventory", "stop_local_worker_task", "worker_task_tmux_location", "stop_scheduler_operation", "_execute_worker_command_unfenced"}
+names = {"local_stop_tmux_inventory", "stop_local_worker_task", "worker_task_tmux_location", "stop_scheduler_operation", "_execute_worker_command_unfenced",
+         "retire_worker_state", "retirement_plan_file", "retired_operation_ids"}
 tree = ast.parse(source)
 functions = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in names]
 assert len(functions) == len(names)
@@ -47,6 +48,8 @@ m.worker_recall_tombstones_path = lambda _: "stops"
 m.worker_start_claims_path = lambda _: "claims"
 m.now_iso = lambda: "2026-10-14T00:00:00Z"
 m.append_event = lambda *_: None
+m.active_cleanup_operations = lambda _: []
+m.operation_journal_index = lambda _: {"rows": []}
 m.release_distributed_gpu_reservation = lambda gpu, command: events.append(["release", gpu, command])
 m.action_plan_file = lambda body: body.get("planFile", "")
 m.cancel_inactivity_action = lambda *_: events.append(["cancel-operation"])
@@ -79,8 +82,10 @@ try:
     stopped = m._execute_worker_command_unfenced(root, request("target-command"), "w")
     assert stopped["status"] == "completed", stopped
     assert not alive(location["tmuxWindowId"]) and alive(protected["tmuxWindowId"])
-    assert files["worker_task_snapshot.json"]["tasks"][0]["controlClearedAt"]
-    assert files["worker_task_snapshot.json"]["tasks"][0]["planRevision"] == "old"
+    assert files["worker_task_snapshot.json"]["tasks"] == [{"commandId":"other-command", "status":"running"}]
+    assert files["queue"]["jobs"] == []
+    assert next(row for row in files["stops"]["rows"] if row["commandId"] == "target-command")["retiredTask"]["planRevision"] == "old"
+    assert stopped["stateRetired"] and "target-command" in stopped["retiredOperationIds"]
     assert files["claims"]["rows"] == [{"commandId":"other-command"}]
     assert next(i for i, row in enumerate(events) if row[:2] == ["write","stops"]) < next(i for i, row in enumerate(events) if "kill-window" in row)
     assert m._execute_worker_command_unfenced(root, request("target-command"), "w")["stoppedTasks"][0]["alreadyAbsent"]
@@ -94,7 +99,7 @@ try:
     # A queued command is fenced without a tmux launch or scientific identity checks.
     files["queue"] = {"jobs":[{"commandId":"queued-command", "workerId":"w", "projectId":"project", "workflowId":"workflow", "status":"queued", "planRevision":"older"}]}
     assert m._execute_worker_command_unfenced(root, request("queued-command"), "w")["status"] == "completed"
-    assert files["queue"]["jobs"][0]["status"] == "cancelled"
+    assert files["queue"]["jobs"] == []
 
     # Stable ownership and an actually reused window still protect unrelated work.
     foreign = {"commandId":"wrong-command", "workerId":"w", "projectId":"foreign", **protected}

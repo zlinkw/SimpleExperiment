@@ -74,6 +74,25 @@ test('partial proc visibility is shown in exact-path review without hiding real 
   assert.ok(p.rows.every(row=>row.evidence.some(text=>text.includes('/proc'))));
   assert.equal(p.confirmations,0);assert.equal(f.mutations,0);
 });
+test('metadata phase stays resumable after files complete, reconnect requests confirmation and completed deletion never repeats',async()=>{
+  const f=await fixture(),original=f.ports.sftp;
+  f.scope.job={workflowId:'run',index:0,commandId:'old',purpose:'replace_outputs'};
+  f.ports.sftp=async(method,params)=>{
+    if(method==='files.cleanup.check')return {state:'completed'};
+    const result=await original(method,params);if(method==='files.cleanup.preview')result.safety={batchPreviewCapacity:4096};return result;
+  };
+  const p=await f.service.preview({planFile:f.scope.planFile,action:'delete',job:f.scope.job});
+  const first=await f.confirm(p);
+  await f.service.confirm({token:p.token,digest:p.digest,phase:2,confirm:true,exactTargets:p.rows.filter(row=>row.disposition==='delete').map(row=>row.node.id+':'+row.absolutePath)});
+  await f.service.execute(first.id);assert.equal(f.mutations,2);
+  await f.service.setStateRetirement(first.id,['w1'],'metadata connection lost');
+  assert.equal((await f.service.status(first.id)).state,'partial');
+  assert.ok((await f.service.list())[0].pendingNodes.includes('w1'));
+  assert.equal((await f.service.recheckNode('w1'))[0].state,'confirmation_required');
+  await f.service.execute(first.id);assert.equal(f.mutations,2);
+  await f.service.setStateRetirement(first.id,[]);
+  assert.equal((await f.service.status(first.id)).state,'completed');assert.equal(f.indexed,1);
+});
 test('job review freezes archive layout, orders external CSV before its owner directory, and continuation cannot change job',async()=>{
   const f=await fixture(),job={workflowId:'run',index:1,commandId:'command'};f.scope.job=job;
   f.scope.candidates[0].type='directory';f.scope.candidates[0].relativePath='work_dirs/exact/owner';

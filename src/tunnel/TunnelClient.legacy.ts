@@ -99,7 +99,7 @@ export interface TunnelClient {
   getDiagnostics(): Promise<unknown>;
   getAuditTail(): Promise<unknown>;
   getOperation(operationId: string): Promise<unknown>;
-  getWorkerTasks?(options?: { signal?: AbortSignal }): Promise<unknown>;
+  getWorkerTasks?(options?: { signal?: AbortSignal; retiredCommandIds?: string[] }): Promise<unknown>;
   getRunEvidence?(params: { operationId?: string; planFile?: string; pid?: number | string; tmuxSession?: string }): Promise<unknown>;
   postAction<T>(action: TunnelAction, body: unknown, options?: { signal?: AbortSignal }): Promise<T>;
   postAvailabilityBatch<T>(body: unknown): Promise<T>;
@@ -259,8 +259,11 @@ export class HttpTunnelClient implements TunnelClient {
     });
   }
 
-  getWorkerTasks(options: { signal?: AbortSignal } = {}): Promise<unknown> {
-    return this.requestJson("/api/worker/tasks", "job_reconcile", undefined, {
+  getWorkerTasks(options: { signal?: AbortSignal; retiredCommandIds?: string[] } = {}): Promise<unknown> {
+    const ids = [...new Set(options.retiredCommandIds || [])].sort();
+    if (ids.length > 500 || ids.some(id => !/^[A-Za-z0-9._:-]{1,128}$/.test(id))) throw new Error("INVALID_RETIRED_COMMAND_SELECTION");
+    const query = ids.length ? "?retiredCommandIds=" + encodeURIComponent(ids.join(",")) : "";
+    return this.requestJson("/api/worker/tasks" + query, "job_reconcile", undefined, {
       method: "GET",
       userInitiated: true,
       signal: options.signal,

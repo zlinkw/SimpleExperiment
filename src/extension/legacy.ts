@@ -23,6 +23,7 @@ import * as FailedJobRecovery from "../features/FailedJobRecovery";
 import * as JobAvailability from "../features/JobAvailability";
 import { openCacheCleanupPanel } from "./CacheCleanupPanel";
 import { PlanCleanupHost } from "./PlanCleanupHost";
+import { cleanupDigest } from "../features/PlanCleanup";
 import { cleanupStablePlanId } from "../features/PlanCleanupEvidence";
 import RequestBudget_1 = require("../tunnel/RequestBudget");
 import TunnelGateway_1 = require("../tunnel/TunnelGateway");
@@ -117,6 +118,7 @@ import ExtensionUpdates_1 = require("../features/ExtensionUpdates");
 import WorkflowBinding = require("../features/WorkflowWorkspaceBinding");
 import ResultOwnershipScope = require("../results/ResultOwnershipScope");
 import RunOperations_1 = require("../features/RunOperations");
+import { withoutRetiredOperations, endedPlanOperationIds } from "../features/OperationRetirement";
 import LocalApiServer_1 = require("../api/LocalApiServer");
 const { LocalApiError, LocalApiServer: LocalApiServerClass, confirmationRequired } = LocalApiServer_1;
 import RenamedExtensionStateMigration_1 = require("../config/RenamedExtensionStateMigration");
@@ -335,6 +337,7 @@ const keys = {
     hiddenLegacyTaskUiKeys: "simpleExperiment.hiddenLegacyTaskUiKeys",
     executionHistoryCutoffs: "simpleExperiment.executionHistoryCutoffs",
     executionHistoryHiddenOperationIds: "simpleExperiment.executionHistoryHiddenOperationIds",
+    retiredOperationIds: "simpleExperiment.retiredOperationIds",
     pptPlotConfig: "simpleExperiment.pptPlotConfig",
     firstRunSetupPrompt: "simpleExperiment.firstRunSetupPromptVersion",
     projectOnboardingPrompt: "simpleExperiment.projectOnboardingPromptVersion",
@@ -3822,16 +3825,89 @@ export class RealtimeTunnelPanelProvider {
         this.postState(true);
         void vscode.window.showInformationMessage(`已恢复当前项目 ${count} 个远端路径的上传确认提醒。`);
     }
+    retiredOperationIds() {
+        const project = DistributedPlanQueue.canonicalProjectId(workspaceRoot() || "");
+        const ledger = this.context?.workspaceState?.get(keys.retiredOperationIds, {}) || {};
+        return new Set<string>(Array.isArray(ledger[project]) ? ledger[project] : []);
+    }
+    async retireLocalOperationState(operationIds: string[]) {
+        const root = workspaceRoot(), generation = this.projectContextGeneration;
+        const prior = this.localOperationRetirementWork;
+        const work = (async () => {
+            if (prior) await prior.catch(() => undefined);
+            if (workspaceRoot() !== root || generation !== this.projectContextGeneration) throw new Error("STATE_RETIREMENT_WORKSPACE_CHANGED");
+            await this.retireLocalOperationStateOwned(operationIds);
+        })();
+        this.localOperationRetirementWork = work;
+        try { await work; } finally { if (this.localOperationRetirementWork === work) this.localOperationRetirementWork = undefined; }
+    }
+    async retireLocalOperationStateOwned(operationIds: string[]) {
+        const root = workspaceRoot();
+        if (!root || !operationIds.length) return;
+        const project = DistributedPlanQueue.canonicalProjectId(root);
+        const ledger = this.context.workspaceState.get(keys.retiredOperationIds, {}) || {};
+        const ids = uniqueStrings([...(Array.isArray(ledger[project]) ? ledger[project] : []), ...operationIds]);
+        await this.context.workspaceState.update(keys.retiredOperationIds, { ...ledger, [project]: ids });
+        if (workspaceRoot() !== root) return;
+        for (const id of operationIds) {
+            this.clearOperationStatusProbe(id); this.clearOperationWatchdog(id);
+            this.clearLocalOperationCachesForOp(id);
+            delete this.localOperations[id];
+        }
+        this.markLocalOperationsDirty();
+        await this.persistProjectLocalOperationsState(true);
+    }
+    async retireReplacedJobState(operation) {
+        const root = workspaceRoot(), generation = this.projectContextGeneration, client = this.client, selection = operation.preview.scope.job;
+        if (!root) throw new Error("STATE_RETIREMENT_WORKSPACE_REQUIRED");
+        const assertCurrent = () => { if (workspaceRoot() !== root || generation !== this.projectContextGeneration || this.client !== client) throw new Error("STATE_RETIREMENT_WORKSPACE_CHANGED"); };
+        const queue = await this.loadDistributedQueue(root);
+        assertCurrent();
+        const plan = queue.plans.find(row => row.id === selection.workflowId);
+        const job = plan?.jobs.find(row => row.commandId === selection.commandId)
+            || queue.clearedJobs?.find(row => row.workflowId === selection.workflowId && row.commandId === selection.commandId);
+        if (!job) throw new Error("STATE_RETIREMENT_OWNER_MISSING");
+        const nodes = operation.preview.scope.nodes.filter(row => row.kind === "remote" && row.id === job.workerId);
+        if (!nodes.length && job.workerId) throw new Error("STATE_RETIREMENT_OWNER_NODE_MISSING");
+        job.cleanup = { ...job.cleanup, operationId: operation.id, state: "partial", pendingNodes: nodes.map(node => node.id) };
+        await this.saveDistributedQueue(root, queue);
+        const pending = [];
+        for (const node of nodes) {
+            assertCurrent();
+            const current = await this.planCleanupHost().service.ports.currentNode(node.id);
+            if (["id", "kind", "host", "port", "user", "root"].some(key => current[key] !== node[key])) throw new Error("STATE_RETIREMENT_SERVER_CHANGED");
+            const operationId = "retire-state-" + cleanupDigest([operation.id, node.id]).slice(0, 32);
+            const request = { operationId, opId: operationId, retireAbandonedState: true, workerId: node.id,
+                projectId: plan?.projectId || job.projectId, workflowId: selection.workflowId,
+                planFile: operation.preview.scope.planFile, outputDir: job.outputDir, targetCommandIds: [selection.commandId] };
+            try {
+                const result = await this.withRemoteActionResource(node.id, "finalize-worker-operation", request,
+                    () => client.postWorkerAction(node.id, "finalize-worker-operation", request));
+                assertCurrent();
+                if (result?.stateRetired !== true) throw new Error("远端未确认旧状态移除；需更新 Agent 的状态清理能力");
+                await this.retireLocalOperationState([selection.commandId, ...(result.retiredOperationIds || [])]);
+            } catch (error) { assertCurrent(); pending.push(node.id); this.recordActionError({ command: "retireReplacedJobState", message: errorMessage(error) }); }
+        }
+        const latest = await this.loadDistributedQueue(root);
+        assertCurrent();
+        const current = latest.plans.find(row => row.id === selection.workflowId)?.jobs.find(row => row.commandId === selection.commandId)
+            || latest.clearedJobs?.find(row => row.workflowId === selection.workflowId && row.commandId === selection.commandId);
+        if (!current) throw new Error("STATE_RETIREMENT_OWNER_MISSING");
+        current.cleanup = { ...current.cleanup, operationId: operation.id, state: pending.length ? "partial" : "deleted", pendingNodes: pending };
+        await this.saveDistributedQueue(root, latest);
+        if (pending.length) throw new Error("STATE_RETIREMENT_PENDING：产物删除已完成，旧状态清理待恢复；未提交重跑。请继续清理操作 " + operation.id);
+    }
     async loadProjectLocalOperationsState() {
         const loaded = await this.readCurrentProjectState(readProjectLocalOperationsState);
         const ops = loaded.value;
         if (!loaded.current)
             return;
         if (ops && typeof ops === "object")
-            this.localOperations = compactOperationRecords(ops, LOCAL_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT);
+            this.localOperations = withoutRetiredOperations(compactOperationRecords(ops, LOCAL_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT), this.retiredOperationIds());
         this.localOperationsDirty = false;
     }
     markLocalOperationsDirty() {
+        this.localOperations = withoutRetiredOperations(this.localOperations, this.retiredOperationIds());
         this.localOperationsDirty = true;
         this.localOperationsRevision += 1;
         if (!this.localOperationsPersistTimer && !this.panelDisposed) {
@@ -3852,7 +3928,7 @@ export class RealtimeTunnelPanelProvider {
         let persistence: Promise<void>;
         persistence = (async () => {
             while (this.localOperationsDirty && this.projectContextIsCurrent(projectContext)) {
-                this.localOperations = compactOperationRecords(this.localOperations, LOCAL_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT);
+                this.localOperations = withoutRetiredOperations(compactOperationRecords(this.localOperations, LOCAL_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT), this.retiredOperationIds());
                 const operations = this.localOperations;
                 this.localOperationsDirty = false;
                 if (projectContext.root) {
@@ -6177,6 +6253,7 @@ export class RealtimeTunnelPanelProvider {
         this.assertRetryPlanContext(command, message);
         const body = this.actionBody(message);
         Object.defineProperty(body, "reportPlanStageLocal", { configurable: true, value: (text: string) => this.reportPlanStage(message, text) });
+        Object.defineProperty(body, "submissionOperationIdLocal", { configurable: true, value: this.planSubmissionOperationId(message) });
         assertWorkflowCurrent();
         if (workflowBinding) body.workspace = workflowBinding.root;
         const actionPlanFile = operationResultPlanFile(body) || body?.options?.planFile || body?.planFile || body?.selectedPlanId || "";
@@ -6867,6 +6944,10 @@ export class RealtimeTunnelPanelProvider {
         };
         const queue = await this.loadDistributedQueue(root);
         const declared = validation.jobs;
+        const pendingRetirement = [...queue.plans.filter(row => row.planFile === planFile).flatMap(row => row.jobs),
+            ...(queue.clearedJobs || []).filter(row => row.planFile === planFile)]
+            .find(row => row.outputRetiredAt && row.cleanup?.state === "partial");
+        if (pendingRetirement) throw new Error("OUTPUT_REPLACEMENT_PENDING：请先继续清理操作 " + pendingRetirement.cleanup.operationId);
         const indices = new Set(validation.existing.map(row => Number(row.index)));
         for (const old of queue.plans) if (normalizePlanSelectionKey(old.planFile).toLowerCase() === normalizePlanSelectionKey(planFile).toLowerCase())
             for (const job of old.jobs) if (!job.outputRetiredAt && !job.cleanup && ["completed", "failed"].includes(job.status)
@@ -6920,6 +7001,8 @@ export class RealtimeTunnelPanelProvider {
             confirm: async (detail, phase) => await vscode.window.showWarningMessage(`第 ${phase} 次确认：永久替换上述精确产物`, { modal: true, detail }, "确认上述精确路径") === "确认上述精确路径",
         }, planFile, groups);
         assertCurrent(); body.distributedSkipJobIndices = []; body.existingOutputChoice = "rerun_all";
+        await this.retireLocalOperationState(endedPlanOperationIds(this.buildPlanRuntimeEvidenceState().operations || {}, planFile,
+            new Set([body.submissionOperationIdLocal].filter(Boolean))));
     }
     async confirmPlanRunSubmission(command, plan, debugMode = false, body) {
         const remoteTargets = this.planRunRemoteTargets(body);
@@ -16638,6 +16721,7 @@ export class RealtimeTunnelPanelProvider {
         if (!job.workerId || !job.commandId) throw new Error("活动 job 缺少 Worker 或 commandId，未发送停止");
         const stopOperationId = makeOpId("stop-distributed-job");
         if (localControl) {
+            const retirementRoot = workspaceRoot(), retirementGeneration = this.projectContextGeneration;
             const request = { ...DistributedPlanQueue.workerStopJobIdentity(plan, job), schemaVersion: 1,
                 opId: stopOperationId, operationId: stopOperationId, stopBoundary: "local_command",
                 projectId: plan.projectId || DistributedPlanQueue.canonicalProjectId(workspaceRoot()),
@@ -16647,6 +16731,8 @@ export class RealtimeTunnelPanelProvider {
                 && row.projectId === request.projectId && row.workflowId === plan.id && row.stopBoundary === "local_command");
             if (result?.status !== "completed" || receipt?.paneClosed !== true || receipt?.cacheRetired !== true)
                 throw new Error(String(result?.message || "Worker 未确认关闭本机指定标签页，停止意图保留；无需修改 PLAN 版本"));
+            if (workspaceRoot() === retirementRoot && retirementGeneration === this.projectContextGeneration)
+                await this.retireLocalOperationState?.([job.commandId, ...(result.retiredOperationIds || [])]);
             return result;
         }
         const formal = plan.resultPathPolicy === "declared";
@@ -17056,6 +17142,8 @@ export class RealtimeTunnelPanelProvider {
             }
             this.markLocalOperationsDirty();
         }
+        await this.retireLocalOperationState?.([...clearable.map(target => target.operationId),
+            ...(!failures.length ? endedPlanOperationIds(this.buildPlanRuntimeEvidenceState().operations || {}, planFile) : [])]);
         if (clearStillHere()) this.postState();
         const retained = DistributedPlanQueue.distributedStopTargets(await this.loadDistributedQueue(root), planFile).length + (targets.length - clearable.length);
         const summary = [`已清除 ${clearable.length} 条运行进度、${confirmedJobs.size} 个分布式 job、${confirmedDeferred.size} 条等待提交，停止 ${stopped.size} 条，关闭 tmux ${closedTmux.size} 个。`, ...failures].join("\n");
@@ -21494,7 +21582,8 @@ export class RealtimeTunnelPanelProvider {
         };
         this.planRuntimeEvidenceCache = resolvePlanRuntimeEvidenceCache(this.planRuntimeEvidenceCache, cacheInput, () => {
             const schedulerStates = compactSchedulerStates(mergeFallbackRows(compactFallbackRowSources([offlineSnapshot?.schedulerStates, snapshot?.schedulerStates, realtimeState?.schedulerStates], (rows) => compactSchedulerStates(rows, schedulerProtectedKeys)), schedulerFallbackRowKey, mergeSchedulerFallbackRow), schedulerProtectedKeys);
-            const operations = compactOperationRecords(mergeOperationRecords(cacheInput.localOperations, compactOperationRecords(operationsRecord(snapshot?.operations), STATE_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT), compactOperationRecords(operationsRecord(offlineSnapshot?.operations), STATE_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT), compactOperationRecords(realtimeState?.operations, STATE_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT)), STATE_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT);
+            const mergedOperations = compactOperationRecords(mergeOperationRecords(cacheInput.localOperations, compactOperationRecords(operationsRecord(snapshot?.operations), STATE_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT), compactOperationRecords(operationsRecord(offlineSnapshot?.operations), STATE_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT), compactOperationRecords(realtimeState?.operations, STATE_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT)), STATE_OPERATION_RECORD_LIMIT, TERMINAL_OPERATION_RECORD_LIMIT);
+            const operations = withoutRetiredOperations(mergedOperations, this.retiredOperationIds());
             return { connectionMode, realtimeState, snapshot, offlineSnapshot, schedulerStates, operations };
         });
         return this.planRuntimeEvidenceCache.value;

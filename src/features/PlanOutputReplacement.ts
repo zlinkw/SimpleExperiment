@@ -4,8 +4,15 @@ import { cloneDistributedQueue, emptyDistributedQueue, mergeDurableWorkerSnapsho
 
 const pathKey = (value: unknown) => String(value || "").replace(/\\/g, "/").replace(/^\.\//, "");
 
+/** Retired ownership is only an audit source for cleanup, never a runnable queue. */
+export const cleanupTaskEvidence = (snapshot: any) => {
+  const tasks = snapshot.tasks || [], current = new Set(tasks.map((row: any) => row.commandId));
+  return { ...snapshot, tasks: [...tasks, ...(snapshot.retiredTasks || []).filter((row: any) => !current.has(row.commandId))] };
+};
+
 /** Cleanup-only view. Never persist restored execution cards or bypass cleared tombstones. */
 export function replacementEvidenceQueue(queue: DistributedQueue, snapshots: readonly DurableWorkerSnapshot[], projectId: string): DistributedQueue {
+  snapshots = snapshots.map(cleanupTaskEvidence);
   const view = cloneDistributedQueue(queue);
   const commands = new Set((queue.clearedJobs || []).filter(entry => entry.projectId === projectId && entry.resultPathPolicy === "declared")
     .map(entry => entry.commandId));

@@ -31,7 +31,7 @@ export type CleanupNodeCheck = { operationId: string; nodeId: string; checkedAt:
 export type CleanupOperation = { id: string; preview: CleanupPreview; state: "ready" | "running" | "paused" | "partial" | "completed" | "blocked";
   targets: Record<string, { state: "pending" | "executing" | "completed"; receipt?: any; error?: string }>;
   pendingNodes: string[]; error?: string; updatedAt: string; indexed?: boolean; restoredBy?: string; continuedBy?: string;
-  nodeChecks?: Record<string, CleanupNodeCheck> };
+  nodeChecks?: Record<string, CleanupNodeCheck>; retirementPendingNodes?: string[] };
 export type CleanupPorts = {
   collect(planFile: string, options?: { archivedFiles: Record<string, string>; removedMetadata?: CleanupRemovedMetadata; onProgress?: CleanupProgressSink; job?: CleanupJobSelection }): Promise<CleanupScope>;
   sftp(method: string, params: any): Promise<any>;
@@ -86,7 +86,7 @@ export class PlanCleanup {
     const rows = [];
     for (const name of names.filter(name => /^[a-f0-9]{48}\.json$/.test(name))) {
       const operation = await this.status(name.slice(0, -5));
-      rows.push({ id: operation.id, state: operation.state, updatedAt: operation.updatedAt, pendingNodes: operation.pendingNodes,
+      rows.push({ id: operation.id, state: operation.state, updatedAt: operation.updatedAt, pendingNodes: [...new Set([...operation.pendingNodes, ...(operation.retirementPendingNodes || [])])],
         planFile: operation.preview.scope.planFile, action: operation.preview.action, job: operation.preview.scope.job,
         continuedBy: operation.continuedBy, restoredBy: operation.restoredBy, nodeChecks: operation.nodeChecks });
     }
@@ -147,7 +147,8 @@ export class PlanCleanup {
       if (operation.continuedBy || operation.restoredBy || operation.preview.action === "restore" || this.busy.has(item.id)) continue;
       const rows = operation.preview.rows.filter(row => row.node.id === nodeId
         && (operation.targets[row.id] && operation.targets[row.id].state !== "completed"
-          || operation.pendingNodes.includes(nodeId) && row.disposition !== "completed"));
+          || operation.pendingNodes.includes(nodeId) && row.disposition !== "completed"
+          || operation.retirementPendingNodes?.includes(nodeId) && operation.targets[row.id]?.state === "completed"));
       if (!rows.length) continue;
       const report: CleanupNodeCheck = { operationId: item.id, nodeId, checkedAt: new Date().toISOString(), state: "confirmation_required", targets: [] };
       for (const row of rows) {
@@ -165,6 +166,7 @@ export class PlanCleanup {
           report.state = "blocked"; report.targets.push({ id: row.id, absolutePath: row.absolutePath, state: "unverified", code: error.apiData?.code || error.code || "NODE_UNREACHABLE" });
         }
       }
+      if (operation.retirementPendingNodes?.includes(nodeId) && report.state !== "blocked") report.state = "confirmation_required";
       const fresh = await this.status(item.id);
       if (this.busy.has(item.id) || fresh.continuedBy || fresh.restoredBy) continue;
       (fresh.nodeChecks ||= {})[nodeId] = report; await this.save(fresh); reports.push(report);
@@ -401,6 +403,15 @@ export class PlanCleanup {
     } finally { this.busy.delete(id); }
   }
   /** Batch replacement checks every confirmed operation before its first deletion. */
+  async setStateRetirement(id: string, nodes: string[], error?: string): Promise<void> {
+    const operation = await this.status(id);
+    if (operation.preview.action !== "delete" || operation.preview.scope.job?.purpose !== "replace_outputs"
+      || operation.pendingNodes.length || Object.values(operation.targets).some(row => row.state !== "completed")
+      || nodes.some(id => !operation.preview.scope.nodes.some(node => node.id === id && node.kind === "remote"))) cleanupError("INVALID_STATE_RETIREMENT_PHASE");
+    operation.retirementPendingNodes = [...new Set(nodes)]; operation.state = nodes.length ? "partial" : "completed";
+    if (error) operation.error = error; else delete operation.error;
+    await this.save(operation);
+  }
   async preflightConfirmed(id: string): Promise<void> {
     const operation = await this.status(id);
     if (operation.preview.confirmations !== (operation.preview.action === "delete" ? 2 : 1)) cleanupError("CONFIRM_REQUIRED");

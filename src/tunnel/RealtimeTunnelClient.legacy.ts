@@ -349,9 +349,10 @@ export class RealtimeTunnelClient {
     return this.coalescedRead(`operation:${String(operationId)}`, undefined, () => this.http.getOperation(operationId));
   }
 
-  getWorkerTasks(options: { signal?: AbortSignal } = {}): Promise<unknown> {
+  getWorkerTasks(options: { signal?: AbortSignal; retiredCommandIds?: string[] } = {}): Promise<unknown> {
     if (this.requiresManualReconnect) return Promise.reject(new Error(this.lastError));
-    return this.coalescedRead("worker-tasks", options, () => this.http.getWorkerTasks(options));
+    const selection = [...new Set(options.retiredCommandIds || [])].sort().join(",");
+    return this.coalescedRead("worker-tasks:" + selection, options, () => this.http.getWorkerTasks(options));
   }
 
   getRunEvidence(params: { operationId?: string; planFile?: string; pid?: number | string; tmuxSession?: string }): Promise<unknown> {

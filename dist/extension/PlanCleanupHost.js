@@ -147,8 +147,9 @@ class PlanCleanupHost {
                 && declarations.some(job => job.output_dir === entry.outputDir && job.case === entry.case && Number(job.seed) === entry.seed))
                 .map(entry => entry.workerId))];
         const snapshots = await Promise.all(workers.map(async (workerId) => {
+            const retiredCommandIds = (queue.clearedJobs || []).filter(entry => entry.workerId === workerId && entry.planFile === file).map(entry => entry.commandId);
             try {
-                return { ...await this.host.client.getWorkerTasks(workerId, { signal: AbortSignal.timeout(5000) }), workerId, fetchedAt: new Date().toISOString() };
+                return { ...await this.host.client.getWorkerTasks(workerId, { signal: AbortSignal.timeout(5000), retiredCommandIds }), workerId, fetchedAt: new Date().toISOString() };
             }
             catch {
                 return { workerId, error: "历史 job 当前任务证据不可达" };
@@ -191,7 +192,7 @@ class PlanCleanupHost {
                 return { workerId: node.id, error: node.error };
             }
             try {
-                return { ...await this.host.client.getWorkerTasks(node.id, { signal: AbortSignal.timeout(5000) }), workerId: node.id, fetchedAt: new Date().toISOString() };
+                return { ...await this.host.client.getWorkerTasks(node.id, { signal: AbortSignal.timeout(5000), retiredCommandIds: job ? [job.commandId] : [] }), workerId: node.id, fetchedAt: new Date().toISOString() };
             }
             catch {
                 return { workerId: node.id, error: "节点当前任务证据不可达" };
@@ -221,7 +222,14 @@ class PlanCleanupHost {
         onProgress?.({ phase: "references", message: "核对 PLAN/attempt 所有权、共享引用与受保护资产…" });
         const evidenceQueue = job?.purpose === "replace_outputs" ? (0, PlanOutputReplacement_1.replacementEvidenceQueue)(queue, snapshots, (0, DistributedPlanQueue_1.canonicalProjectId)(this.root)) : queue;
         const scope = await (0, PlanCleanupEvidence_1.collectPlanCleanupEvidence)({ root: this.root, planFile: file, queue: evidenceQueue, ledger, registry,
-            resultDir: this.host.resultCsvDirectory || "experiments/results", nodes, snapshots, operations, allowMissing, archivedFiles, removedMetadata, job });
+            resultDir: this.host.resultCsvDirectory || "experiments/results", nodes, snapshots: snapshots.map(PlanOutputReplacement_1.cleanupTaskEvidence), operations, allowMissing, archivedFiles, removedMetadata, job });
+        if (job?.purpose === "replace_outputs") {
+            const owner = evidenceQueue.plans.find((plan) => plan.id === job.workflowId)?.jobs.find((row) => row.commandId === job.commandId);
+            const snapshot = snapshots.find(row => row.workerId === owner?.workerId);
+            if (!snapshot?.error && snapshot?.capabilities?.controlStateRetirement !== 1)
+                scope.blockers.push({ code: "STATE_RETIREMENT_CAPABILITY_REQUIRED", nodeId: owner?.workerId,
+                    detail: "原 Worker 尚不支持旧状态回收；更新 Agent 后再预览。未删除产物，不影响单独停止任务。" });
+        }
         if (!job) {
             scope.nodes.push({ id: "pluginState", kind: "local", root: storage });
             for (const indexFile of [(0, DistributedPlanQueue_1.distributedQueuePath)(storage, this.root), (0, PlanArtifactSync_1.planSyncLedgerStoragePath)(storage, this.root)]) {
@@ -277,9 +285,17 @@ class PlanCleanupHost {
                     delete record.outputRetiredAt;
                 }
             }
-            else
-                record.cleanup = { operationId: operation.id, state: operation.pendingNodes.length ? "partial" : operation.preview.action === "delete" ? "deleted" : "archived",
-                    completedTargets: operation.preview.rows.filter(row => operation.targets[row.id]?.state === "completed").map(row => row.node.id + ":" + row.absolutePath), pendingNodes: operation.pendingNodes };
+            else {
+                const retiringState = selection.purpose === "replace_outputs" && operation.preview.action === "delete";
+                const ownerWorker = job?.workerId || queue.clearedJobs?.find((row) => row.commandId === selection.commandId && row.workflowId === selection.workflowId)?.workerId;
+                record.cleanup = { operationId: operation.id, state: operation.pendingNodes.length || retiringState ? "partial" : operation.preview.action === "delete" ? "deleted" : "archived",
+                    completedTargets: operation.preview.rows.filter(row => operation.targets[row.id]?.state === "completed").map(row => row.node.id + ":" + row.absolutePath),
+                    pendingNodes: retiringState ? [...new Set([...operation.pendingNodes, ...[ownerWorker].filter(Boolean)])] : operation.pendingNodes };
+                if (retiringState && !operation.pendingNodes.length && Object.values(operation.targets).every(row => row.state === "completed")) {
+                    operation.retirementPendingNodes = [ownerWorker].filter(Boolean);
+                    operation.state = "partial";
+                }
+            }
         }
         else {
             for (const plan of queue.plans)
@@ -326,6 +342,9 @@ class PlanCleanupHost {
             if (pending)
                 await pending;
             const operation = await this.service.status(id);
+            if (operation.state === "completed" && operation.retirementPendingNodes?.length === 0
+                && operation.preview.scope.job?.purpose === "replace_outputs")
+                return operation;
             if (operation.preview.scope.job?.purpose === "replace_outputs") {
                 await this.service.preflightConfirmed(id);
                 const selection = operation.preview.scope.job;
@@ -340,7 +359,23 @@ class PlanCleanupHost {
                 job.cleanup = { operationId: id, state: "partial", completedTargets: [], pendingNodes: operation.preview.scope.nodes.map(node => node.id) };
                 await this.host.saveDistributedQueue(this.root, queue);
             }
-            return await this.host.withHostOperationLease("cleanupPlan", "清除 PLAN 及关联产物", () => this.service.execute(id), { resources: [{ server: "local", project: this.root, target: this.root }] });
+            const result = await this.host.withHostOperationLease("cleanupPlan", "清除 PLAN 及关联产物", () => this.service.execute(id), { resources: [{ server: "local", project: this.root, target: this.root }] });
+            if ((result.state === "completed" || result.retirementPendingNodes?.length && !result.pendingNodes.length
+                && Object.values(result.targets).every((row) => row.state === "completed"))
+                && operation.preview.action === "delete" && operation.preview.scope.job?.purpose === "replace_outputs") {
+                const pending = result.retirementPendingNodes || operation.retirementPendingNodes || operation.preview.scope.nodes.filter(node => node.kind === "remote").map(node => node.id);
+                await this.service.setStateRetirement(id, pending);
+                try {
+                    await this.host.retireReplacedJobState(operation);
+                    await this.service.setStateRetirement(id, []);
+                }
+                catch (error) {
+                    await this.service.setStateRetirement(id, pending, String(error.message || error));
+                    throw error;
+                }
+                return await this.service.status(id);
+            }
+            return result;
         }
         finally {
             this.executing = false;

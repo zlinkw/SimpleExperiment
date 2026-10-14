@@ -2,6 +2,7 @@
 import ast
 import json
 import os
+import re
 from pathlib import Path
 import sys
 import threading
@@ -12,7 +13,7 @@ names = {"active_cleanup_operations", "tracked_cleanup_action", "api_worker_task
 functions = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in names]
 assert len(functions) == len(names)
 m = types.ModuleType("activity_probe")
-m.os, m.INACTIVITY_ACTIONS_LOCK = os, threading.Lock()
+m.os, m.re, m.INACTIVITY_ACTIONS_LOCK = os, re, threading.Lock()
 m.INACTIVITY_ACTIONS, m.LIVE_CLEANUP_ACTIONS = {}, {}
 exec(compile(ast.Module(body=functions, type_ignores=[]), "activity_probe", "exec"), m.__dict__)
 root = os.path.abspath("fixture-project")
@@ -31,11 +32,16 @@ m.read_durable_plan_queue = lambda _: {"jobs": []}
 m.now_iso = lambda: "2026-10-14T00:00:00Z"
 m.formal_job_path_capable = lambda _: True
 m.SCHEMA_VERSION = 1
+m.read_worker_recall_tombstones = lambda _: []
 for stored in ({"tasks": []}, None):
     m.read_runtime_json_cached = lambda *_: stored
     response = m.api_worker_tasks(root)
     assert response["tasks"] == []
     assert [row["operationId"] for row in response["activeOperations"]] == ["live"]
+m.read_worker_recall_tombstones = lambda _: [{"commandId":"old", "retiredTask":{"commandId":"old", "status":"failed", "readOnly":True}},
+                                            {"commandId":"unrequested", "retiredTask":{"commandId":"unrequested"}}]
+assert m.api_worker_tasks(root)["retiredTasks"] == []
+assert [row["commandId"] for row in m.api_worker_tasks(root, ["old"])["retiredTasks"]] == ["old"]
 def handle(*args):
     assert {row["operationId"] for row in m.active_cleanup_operations(root)} == {"live", "sync"}
     return {"ok": True}

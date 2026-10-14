@@ -360,6 +360,7 @@ function installStopClearHost(sandbox) {
     PlanStopClear_1: require("../../dist/features/PlanStopClear.js"),
     PlanExecutionMode: require("../../dist/features/PlanExecutionMode.js"),
     PlanCleanupEvidence_1: require("../../dist/features/PlanCleanupEvidence.js"),
+    OperationRetirement_1: require("../../dist/features/OperationRetirement.js"),
     fs: { readFile: async (file) => `id: fixture_${path.basename(file, ".yaml")}\n` },
     path,
     DistributedPlanQueue: require("../../dist/features/DistributedPlanQueue.js"),
@@ -406,6 +407,8 @@ function installStopClearHost(sandbox) {
   provider.detachStaleDistributedTick = sourceDetach;
   if (typeof provider.markLocalOperationsDirty !== "function") provider.markLocalOperationsDirty = () => undefined;
   if (!provider.localOperations) provider.localOperations = {};
+  provider.retiredLocalOperationCalls = [];
+  if (!provider.retireLocalOperationState) provider.retireLocalOperationState = async ids => provider.retiredLocalOperationCalls.push(...ids);
   if (!provider.distributedSubmissionEpochs) provider.distributedSubmissionEpochs = new Map();
   context.provider = provider;
   // These older fixtures exercise the preserved explicit remote stop/window path.
@@ -1533,6 +1536,7 @@ test("a local submission spinner clears without a remote stop", async () => {
   assert.equal(result.status, "completed", result && result.message);
   assert.deepEqual(stops, []);
   assert.equal(host.provider.localOperations["plan-submit-local"].status, "cancelled");
+  assert.ok(host.provider.retiredLocalOperationCalls.includes("plan-submit-local"));
 });
 
 test("stopping during a hung fingerprint cancels that submission and a new one can enqueue", async () => {

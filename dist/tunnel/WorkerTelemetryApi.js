@@ -33,6 +33,7 @@ exports.workerTelemetryActionNames = [
     "stop-worker-task-exact-pane",
     "delete-worker-artifacts",
     "archive-worker-artifacts",
+    "finalize-worker-operation",
     "start-tensorboard",
     "stop-tensorboard",
     "get-tensorboard-status",

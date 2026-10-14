@@ -42,8 +42,10 @@ test('missing-only checks actual completed Worker hashes and forwards only remai
 });
 test('replacement fence persists before deletion and prevents re-mirroring after partial failure', async () => {
   const text = fs.readFileSync(path.join(__dirname, '../../src/extension/PlanCleanupHost.ts'), 'utf8');
-  const method = text.slice(text.indexOf('  async execute(id: string)'), text.indexOf('  open(file: string')).replace('id: string', 'id').replace('(plan: any)', '(plan)').replace('(job: any)', '(job)');
-  const Host = vm.runInNewContext('class Host {' + method + '} Host', { replacementLifecycleJob, cleanupError: code => { throw Error(code); } });
+  const method = text.slice(text.indexOf('  async execute(id: string)'), text.indexOf('  open(file: string'));
+  const ts = require('typescript');
+  const compiled = ts.transpileModule('class Host {' + method + '}; Host;', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText;
+  const Host = vm.runInNewContext(compiled, { replacementLifecycleJob, cleanupError: code => { throw Error(code); } });
   const queue = { plans: [{ id: 'run', jobs: [{ index: 0, commandId: 'c', status: 'completed' }, { index: 1, commandId: 'other', status: 'completed' }] }] };
   let saved;
   const instance = new Host(); instance.root = 'fixture'; instance.drainReconnects = async () => {};

@@ -22,7 +22,7 @@ async function fixture() {
     outputDir:'work_dirs/formal/concatenation/job0', workerId:'w', commandId:'original-command', runKey:'original-command', clearedAt:now};
   const task = {...audit, status:'completed', enqueuedAt:now, finishedAt:now, planJobCount:1, fullPlanJobCount:1,
     collectionResultCsv:'tmp/result/concatenation/job0.csv', executionMode:'train_test', mode:'train_test', durableAccepted:true};
-  const snapshots = [{workerId:'w', generatedAt:now, fetchedAt:now, capabilities:{durablePlanQueue:true,schemaVersion:1}, tasks:[task]}];
+  const snapshots = [{workerId:'w', generatedAt:now, fetchedAt:now, capabilities:{controlStateRetirement:1,durablePlanQueue:true,schemaVersion:1}, tasks:[task]}];
   const queue = {schemaVersion:1, plans:[], clearedJobs:[audit]};
   const declarations = [{index:0,case:audit.case,seed:42,output_dir:audit.outputDir,result_csv:task.collectionResultCsv}];
   return {root,file,projectId,queue,snapshots,task,audit,declarations};
@@ -106,11 +106,15 @@ test('actual cleanup Host joins cleared ownership and persists deletion on the a
     }}),loadDistributedQueue:async()=>structuredClone(f.queue),
     hostOperationLease:{inspect:async options=>{assert.equal(options.excludeCurrent,true);return {records:[]};}},
     saveDistributedQueue:async(_,q)=>{saved=structuredClone(q);events.push('save');},postState(){},
+    retireReplacedJobState:async()=>{assert.equal(saved.clearedJobs[0].cleanup.state,'partial');saved.clearedJobs[0].cleanup.state='deleted';saved.clearedJobs[0].cleanup.pendingNodes=[];events.push('retire-state')},
     withHostOperationLease:async(_,__,work)=>work()};
   const cleanup=new Host(host,f.root);
   const groups=await cleanup.replacementGroups(f.queue,f.file,f.declarations,f.projectId,'');
   const scope=await cleanup.collect(f.file,false,undefined,undefined,undefined,groups[0][0]);
   assert.deepEqual(Array.from(scope.blockers),[]);
+  delete f.snapshots[0].capabilities.controlStateRetirement;
+  assert.ok((await cleanup.collect(f.file,false,undefined,undefined,undefined,groups[0][0])).blockers.some(row=>row.code==='STATE_RETIREMENT_CAPABILITY_REQUIRED'));
+  f.snapshots[0].capabilities.controlStateRetirement=1;
   f.snapshots[0].activeOperations=[{operationId:'live-archive',status:'running',payload:{outputDir:f.audit.outputDir}}];
   const busy=await cleanup.collect(f.file,false,undefined,undefined,undefined,groups[0][0]);
   assert.ok(busy.blockers.some(row=>row.code==='ACTIVE_OPERATION'&&row.detail==='live-archive'));
@@ -126,10 +130,13 @@ test('actual cleanup Host joins cleared ownership and persists deletion on the a
   const rows=scope.candidates.map((row,index)=>({...row,id:String(index),node:{id:'w'},absolutePath:'/safe/project/'+row.relativePath}));
   const operation={id:'confirmed-operation',pendingNodes:[],preview:{action:'delete',scope,rows},targets:Object.fromEntries(rows.map(row=>[row.id,{state:'completed'}]))};
   cleanup.service={status:async()=>operation,history:async()=>[],preflightConfirmed:async()=>events.push('preflight'),
+    setStateRetirement:async(_,nodes)=>{operation.retirementPendingNodes=nodes;operation.state=nodes.length?'partial':'completed'},
     execute:async()=>{events.push('delete');assert.equal(saved.plans.length,0);assert.equal(saved.clearedJobs[0].cleanup.state,'partial');
       host.loadDistributedQueue=async()=>structuredClone(saved);await cleanup.updateIndexes(operation,false);return {state:'completed'};}};
   await cleanup.execute(operation.id);
   assert.ok(events.indexOf('save')<events.indexOf('delete'));
+  assert.ok(events.indexOf('delete')<events.indexOf('retire-state'));
+  const callsAfterComplete=events.length;await cleanup.execute(operation.id);assert.equal(events.length,callsAfterComplete);
   assert.equal(saved.plans.length,0);assert.equal(saved.clearedJobs[0].cleanup.state,'deleted');
   assert.equal(saved.clearedJobs[0].commandId,f.audit.commandId);assert.equal(saved.clearedJobs[0].planRevision,f.audit.planRevision);
   assert.ok(saved.clearedJobs[0].outputRetiredAt);assert.equal(await fs.readFile(queuePath,'utf8'),bytes);

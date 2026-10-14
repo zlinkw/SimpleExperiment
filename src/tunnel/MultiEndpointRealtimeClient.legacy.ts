@@ -306,7 +306,7 @@ export class MultiEndpointRealtimeClient {
     return client.getOperation(operationId);
   }
 
-  async getWorkerTasks(workerId: string, options: { signal?: AbortSignal } = {}): Promise<unknown> {
+  async getWorkerTasks(workerId: string, options: { signal?: AbortSignal; retiredCommandIds?: string[] } = {}): Promise<unknown> {
     const client = this.clients.get(workerId);
     const endpoint = this.endpointById.get(workerId);
     if (!client || endpoint?.role !== "worker") throw new Error(`Worker Agent endpoint not configured: ${workerId}`);

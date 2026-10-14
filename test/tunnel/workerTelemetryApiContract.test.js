@@ -73,6 +73,7 @@ test("worker telemetry permits bounded worker controls plus local scheduler acti
     "POST /api/actions/stop-worker-task-exact-pane",
     "POST /api/actions/delete-worker-artifacts",
     "POST /api/actions/archive-worker-artifacts",
+    "POST /api/actions/finalize-worker-operation",
     "POST /api/actions/start-tensorboard",
     "POST /api/actions/stop-tensorboard",
     "POST /api/actions/get-tensorboard-status",

@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.cleanupTaskEvidence = void 0;
 exports.replacementEvidenceQueue = replacementEvidenceQueue;
 exports.replacementLifecycleJob = replacementLifecycleJob;
 exports.replacementJobGroups = replacementJobGroups;
@@ -7,8 +8,15 @@ exports.replacePlanOutputs = replacePlanOutputs;
 const PlanCleanup_1 = require("./PlanCleanup");
 const DistributedPlanQueue_1 = require("./DistributedPlanQueue");
 const pathKey = (value) => String(value || "").replace(/\\/g, "/").replace(/^\.\//, "");
+/** Retired ownership is only an audit source for cleanup, never a runnable queue. */
+const cleanupTaskEvidence = (snapshot) => {
+    const tasks = snapshot.tasks || [], current = new Set(tasks.map((row) => row.commandId));
+    return { ...snapshot, tasks: [...tasks, ...(snapshot.retiredTasks || []).filter((row) => !current.has(row.commandId))] };
+};
+exports.cleanupTaskEvidence = cleanupTaskEvidence;
 /** Cleanup-only view. Never persist restored execution cards or bypass cleared tombstones. */
 function replacementEvidenceQueue(queue, snapshots, projectId) {
+    snapshots = snapshots.map(exports.cleanupTaskEvidence);
     const view = (0, DistributedPlanQueue_1.cloneDistributedQueue)(queue);
     const commands = new Set((queue.clearedJobs || []).filter(entry => entry.projectId === projectId && entry.resultPathPolicy === "declared")
         .map(entry => entry.commandId));

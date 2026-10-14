@@ -69,9 +69,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.304"
-RUNTIME_VERSION = "0.5.304"
-PLUGIN_VERSION = "0.5.304"
+AGENT_VERSION = "0.5.305"
+RUNTIME_VERSION = "0.5.305"
+PLUGIN_VERSION = "0.5.305"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -3255,6 +3255,8 @@ def append_worker_task(root, task):
         task = dict(task)
         task.pop("attempt", None)
     with WORKER_TASK_SNAPSHOT_LOCK:
+        if any(row.get("commandId") == task.get("commandId") and row.get("stateRetiredAt") for row in read_worker_recall_tombstones(root)):
+            return
         data = read_json(path_for(root, "worker_task_snapshot.json"), {})
         tasks = data.get("tasks") if isinstance(data, dict) and isinstance(data.get("tasks"), list) else []
         key = worker_task_snapshot_key(task)
@@ -3288,6 +3290,8 @@ def read_durable_plan_queue(root):
 def write_durable_plan_queue(root, data):
     path = durable_plan_queue_path(root)
     saved = copy.deepcopy(data)
+    retired = {row.get("commandId") for row in read_worker_recall_tombstones(root) if row.get("stateRetiredAt")}
+    saved["jobs"] = [row for row in saved.get("jobs", []) if row.get("commandId") not in retired]
     for row in saved.get("jobs", []):
         if row.get("resultPathPolicy") == "declared":
             row.pop("attempt", None)
@@ -4040,6 +4044,8 @@ def write_worker_start_claim(root, command):
     command_id = str(command.get("commandId") or command.get("operationId") or "").strip()
     if not command_id:
         raise ValueError("worker start claim requires commandId")
+    if any(row.get("commandId") == command_id and row.get("stateRetiredAt") for row in read_worker_recall_tombstones(root)):
+        return False
     data = read_json(worker_start_claims_path(root), {})
     rows = data.get("rows") if isinstance(data, dict) and isinstance(data.get("rows"), list) else []
     if any(isinstance(row, dict) and str(row.get("commandId") or "") == command_id for row in rows):
@@ -4526,6 +4532,8 @@ def reserve_distributed_gpu(root, gpu_id, command_id, util_threshold=None, mem_t
                             require_idle_gpu=False, max_concurrent_gpus=None):
     """Reserve one physical GPU before starting a distributed job; never infer ownership from username."""
     with WORKER_TASK_SNAPSHOT_LOCK:
+        if any(row.get("commandId") == command_id and row.get("stateRetiredAt") for row in read_worker_recall_tombstones(root)):
+            raise RuntimeError("WORKER_COMMAND_RETIRED")
         data = read_json(path_for(root, "worker_task_snapshot.json"), {})
         tasks = data.get("tasks") if isinstance(data, dict) and isinstance(data.get("tasks"), list) else []
         existing = next((row for row in tasks if isinstance(row, dict) and str(row.get("commandId") or "") == command_id), None)
@@ -5967,6 +5975,99 @@ def local_stop_tmux_inventory(root):
         rows.append(dict(zip(("pane", "session", "window", "name", "command", "project"), fields)))
     return rows
 
+def retirement_plan_file(value):
+    value = str(value or "").replace("\\", "/")
+    return value[2:] if value.startswith("./") else value
+
+
+def retired_operation_ids(root):
+    data = read_json(path_for(root, "retired_operation_ids.json"), {})
+    return set(str(value) for value in data.get("ids", []) if isinstance(value, str)) if isinstance(data, dict) else set()
+
+
+def retire_worker_state(root, payload, worker_id, closed=False):
+    """Remove exact inactive control rows, keep compact ownership/cancellation evidence."""
+    project = str(payload.get("projectId") or "")
+    commands = set(str(value) for value in payload.get("targetCommandIds", []) if isinstance(value, str) and value)
+    plan_file = retirement_plan_file(payload.get("planFile"))
+    if not project or not commands or str(payload.get("workerId") or "") != worker_id:
+        raise ValueError("STATE_RETIREMENT_TARGET_REQUIRED")
+    with WORKER_TASK_SNAPSHOT_LOCK:
+        data = read_json(path_for(root, "worker_task_snapshot.json"), {})
+        tasks = data.get("tasks", []) if isinstance(data, dict) else []
+        queue = read_durable_plan_queue(root)
+        audit = read_json(worker_recall_tombstones_path(root), {})
+        audits = audit.get("rows", []) if isinstance(audit, dict) else []
+        owned = [row for row in tasks + queue["jobs"] if isinstance(row, dict) and row.get("commandId") in commands]
+        terminal = ("completed", "failed", "cancelled", "stopped")
+        for row in [item for item in audits if isinstance(item, dict) and item.get("commandId") in commands]:
+            if row.get("projectId") not in (None, "", project) or row.get("workerId") not in (None, "", worker_id):
+                raise ValueError("STATE_RETIREMENT_OWNER_MISMATCH")
+        for row in owned:
+            if row.get("projectId") not in (None, "", project) or row.get("workerId") not in (None, "", worker_id):
+                raise ValueError("STATE_RETIREMENT_OWNER_MISMATCH")
+            if payload.get("workflowId") and row.get("workflowId") not in (None, "", payload["workflowId"]):
+                raise ValueError("STATE_RETIREMENT_OWNER_MISMATCH")
+            if not closed and str(row.get("status") or "").lower() not in terminal:
+                raise ValueError("STATE_RETIREMENT_ACTIVE_TASK")
+        live = active_cleanup_operations(root)
+        if not closed and any(row.get("payload", {}).get("commandId") in commands or row.get("payload", {}).get("targetCommandId") in commands
+               for row in live if row.get("operationId") != payload.get("operationId")):
+            raise ValueError("STATE_RETIREMENT_ACTIVE_OPERATION")
+        now = now_iso()
+        fields = ("commandId", "workerId", "projectId", "workflowId", "planFile", "planRevision", "codeFingerprint", "globalJobId",
+                  "experimentIndex", "index", "case", "seed", "outputDir", "collectionResultCsv", "resultPathPolicy", "planJobCount",
+                  "fullPlanJobCount", "enqueuedAt", "finishedAt", "exitCode", "actualExecutionMode", "executionMode", "mode", "runKey", "checkpointSource", "attempt", "gpuId")
+        for command in commands:
+            rows = [row for row in owned if row.get("commandId") == command]
+            old = next((row for row in audits if isinstance(row, dict) and row.get("commandId") == command), None)
+            source = {}
+            # Same command's durable launch fills sparse legacy snapshot fields;
+            # the current snapshot supplies its actual terminal status/exit data.
+            for row in reversed(rows):
+                source.update({key: row[key] for key in fields + ("status", "gpuId") if key in row and row[key] is not None and row[key] != ""})
+            if old is None:
+                old = {"commandId": command, "projectId": project, "workerId": worker_id, "status": "cancelled", "stopBoundary": "local_command"}
+                audits.append(old)
+            compact = {key: old[key] for key in fields + ("status", "stopBoundary", "stopCommandId", "stopReason", "retiredTask") if key in old}
+            audits = [compact if row is old else row for row in audits]
+            old = compact
+            if source:
+                old["retiredTask"] = {key: source[key] for key in fields if key in source}
+                old["retiredTask"].update({"status": source.get("status") if source.get("status") in terminal else "cancelled", "finishedAt": source.get("finishedAt") or now,
+                                           "controlRetiredAt": now, "readOnly": True})
+                release_distributed_gpu_reservation(str(source.get("gpuId") or ""), command)
+            old["stateRetiredAt"] = now
+        # Fence first. Never delete cancellation or ownership evidence with activity rows.
+        atomic_write(worker_recall_tombstones_path(root), {"schemaVersion": SCHEMA_VERSION, "rows": audits, "updatedAt": now})
+        atomic_write(path_for(root, "worker_task_snapshot.json"), {**data, "tasks": [row for row in tasks if not isinstance(row, dict) or row.get("commandId") not in commands], "generatedAt": now})
+        write_durable_plan_queue(root, {**queue, "jobs": [row for row in queue["jobs"] if not isinstance(row, dict) or row.get("commandId") not in commands]})
+        claims = read_json(worker_start_claims_path(root), {})
+        if isinstance(claims, dict) and isinstance(claims.get("rows"), list):
+            atomic_write(worker_start_claims_path(root), {**claims, "rows": [row for row in claims["rows"] if not isinstance(row, dict) or row.get("commandId") not in commands]})
+        active_ids = {row.get("operationId") for row in live}
+        active_same_plan = any(isinstance(row, dict) and str(row.get("status") or "").lower() not in terminal
+                              and retirement_plan_file(row.get("planFile")) == plan_file
+                              and row.get("commandId") not in commands for row in tasks + queue["jobs"])
+        ids = retired_operation_ids(root)
+        selected_ids = set(commands)
+        if payload.get("operationId"):
+            selected_ids.add(str(payload["operationId"]))
+        ids.update(commands)
+        for row in operation_journal_index(root)["rows"]:
+            op = str(row.get("operationId") or "")
+            if not op or op in active_ids or op == payload.get("operationId"):
+                continue
+            body = row.get("payload") if isinstance(row.get("payload"), dict) else {}
+            file = retirement_plan_file(row.get("planFile") or body.get("planFile"))
+            if body.get("commandId") in commands or body.get("targetCommandId") in commands or (plan_file and file == plan_file and not active_same_plan):
+                ids.add(op)
+                selected_ids.add(op)
+        ids.update(selected_ids)
+        atomic_write(path_for(root, "retired_operation_ids.json"), {"schemaVersion": 1, "ids": sorted(ids), "updatedAt": now})
+        return {"stateRetired": True, "retiredCommandIds": sorted(commands), "retiredOperationIds": sorted(selected_ids), "retiredAt": now}
+
+
 def stop_local_worker_task(root, command, worker_id):
     """Local stop intent uses stable command/window binding, never scientific revisions or PID gates."""
     target = str(command.get("targetCommandId") or "").strip()
@@ -6052,7 +6153,8 @@ def stop_local_worker_task(root, command, worker_id):
         claim_rows = claims.get("rows") if isinstance(claims, dict) and isinstance(claims.get("rows"), list) else []
         if any(isinstance(row, dict) and row.get("commandId") == target for row in claim_rows):
             atomic_write(worker_start_claims_path(root), {**claims, "rows": [row for row in claim_rows if not isinstance(row, dict) or row.get("commandId") != target]})
-        result = {"status": "completed", "message": "已关闭对应任务标签页并解除其活动缓存；原日志、产物和归属审计保留",
+        retirement = retire_worker_state(root, {**command, "targetCommandIds": [target]}, worker_id, closed=True)
+        result = {"status": "completed", "message": "已关闭对应任务标签页并移除旧活动状态；原日志、产物和归属审计保留", **retirement,
                   "stoppedTasks": [{**receipt, "paneClosed": True, "closedWindowIds": sorted(windows), "alreadyAbsent": not windows,
                                     "cacheRetired": True, "finishedAt": now}], "stoppedPids": []}
         append_event(root, {"type": "worker_task_stopped", "workerId": worker_id, "operationId": target, "payload": result})
@@ -7447,6 +7549,7 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
                 "stop-worker-task-local-command": True,
                 "delete-worker-artifacts": True,
                 "archive-worker-artifacts": True,
+                "finalize-worker-operation": True,
                 "validate-plan": True,
                 "dry-run-plan": True,
                 "run-plan": True,
@@ -14693,6 +14796,9 @@ def handle_action(root, action, payload, operation_id, op_id):
             message = f"删除未完全完成：成功 {len(deleted)} 项，跳过 {len(skipped)} 项，残留 {len(residues)} 项"
         return terminal_action(root, action, operation_id, op_id, status, message, summary)
     if action == "finalize-worker-operation":
+        if payload.get("retireAbandonedState") is True:
+            summary = retire_worker_state(root, payload, selected_worker_id(payload) or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker")
+            return terminal_action(root, action, operation_id, op_id, "completed", "已移除对应旧活动状态", summary, request=payload)
         return terminal_action(root, action, operation_id, op_id, "completed", "Worker 操作终态已确认")
     if action == "run-quality-gate":
         report = run_quality_gate_action(root, action_plan_file(payload), action_operation_fields(payload).get("planRevision") or "")
@@ -14976,7 +15082,12 @@ def active_cleanup_operations(root):
             if entry["action"] not in ("validate-plan", "dry-run-plan", "preflight-worker-task")]
 
 
-def api_worker_tasks(root):
+def api_worker_tasks(root, retired_commands=()):
+    wanted = set(retired_commands)
+    if len(wanted) > 500 or any(not re.match(r"^[A-Za-z0-9._:-]{1,128}$", value) for value in wanted):
+        raise ValueError("INVALID_RETIRED_COMMAND_SELECTION")
+    retired_tasks = [row["retiredTask"] for row in read_worker_recall_tombstones(root)
+                     if row.get("commandId") in wanted and isinstance(row.get("retiredTask"), dict)] if wanted else []
     try:
         reconcile_worker_task_exit_codes(root)
         sync_durable_plan_task_rows(root)
@@ -15035,9 +15146,10 @@ def api_worker_tasks(root):
                         entry["status"] = "unknown"
                     enriched[index] = entry
         _out["tasks"] = enriched
+        _out["retiredTasks"] = retired_tasks
         _out["activeOperations"] = active_cleanup_operations(root)
         _out["generatedAt"] = now_iso()
-        _out["capabilities"] = {"durablePlanQueue": True, "codeSyncProof": True, "idleGpuAdmission": True, "queuedJobRecall": True, "failedAttemptQuarantine": True, "declaredJobPaths": formal_job_path_capable(root), "schemaVersion": 1}
+        _out["capabilities"] = {"controlStateRetirement": 1, "durablePlanQueue": True, "codeSyncProof": True, "idleGpuAdmission": True, "queuedJobRecall": True, "failedAttemptQuarantine": True, "declaredJobPaths": formal_job_path_capable(root), "schemaVersion": 1}
         return _out
     tasks = []
     for row in read_durable_plan_queue(root).get("jobs", []):
@@ -15047,7 +15159,8 @@ def api_worker_tasks(root):
         if status in ("queued", "dispatching", "running", "unknown", "completed", "failed", "cancelled"):
             tasks.append(durable_plan_public_task(row))
     return {"schemaVersion": SCHEMA_VERSION, "tasks": tasks, "activeOperations": active_cleanup_operations(root),
-            "capabilities": {"durablePlanQueue": True, "codeSyncProof": True, "idleGpuAdmission": True, "queuedJobRecall": True, "failedAttemptQuarantine": True, "declaredJobPaths": formal_job_path_capable(root), "schemaVersion": 1}, "generatedAt": now_iso()}
+            "retiredTasks": retired_tasks,
+            "capabilities": {"controlStateRetirement": 1, "durablePlanQueue": True, "codeSyncProof": True, "idleGpuAdmission": True, "queuedJobRecall": True, "failedAttemptQuarantine": True, "declaredJobPaths": formal_job_path_capable(root), "schemaVersion": 1}, "generatedAt": now_iso()}
 
 def api_openapi(root, token_required=False, mode="hub_control"):
     if mode == "worker_telemetry":
@@ -15454,6 +15567,8 @@ def operation_summary_from_events(operation_id, events):
     }
 
 def api_operation(root, operation_id):
+    if str(operation_id) in retired_operation_ids(root):
+        return {"operationId": str(operation_id), "status": "retired", "terminal": True, "eventCount": 1, "events": [], "stateRetired": True}
     events = read_operation_events(root, operation_id, 200)
     result = operation_summary_from_events(operation_id, events)
     result["events"] = events[-50:]
@@ -16001,7 +16116,7 @@ def stop_scheduler_operation(root, payload):
         return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or ""), str(payload.get("opId") or ""),
             "completed" if ok else "failed", result.get("message") or "停止未完成", {"matchedOperations": [wanted] if ok else [],
             "planFile": plan, "stopBoundary": "local_command", "terminatedWindowIds": [window for row in result.get("stoppedTasks", []) for window in row.get("closedWindowIds", [])],
-            "cacheRetired": ok, "remainingActiveEvidence": [] if ok else [result.get("errorCode")]}, request=payload)
+            "cacheRetired": ok, "stateRetired": result.get("stateRetired", False), "retiredOperationIds": result.get("retiredOperationIds", []), "remainingActiveEvidence": [] if ok else [result.get("errorCode")]}, request=payload)
     if wanted and plan and cancel_inactivity_action(root, wanted, plan):
         return terminal_action(root, "stop-scheduler-operation", str(payload.get("operationId") or ""), str(payload.get("opId") or ""), "completed", "已取消处理中操作", {"matchedOperations": [wanted], "planFile": plan}, request=payload)
     if not wanted or not plan:
@@ -16183,7 +16298,8 @@ def stop_scheduler_operation(root, payload):
 
 def recent_operations(root, limit=100):
     rows = operation_journal_index(root)["rows"]
-    return rows[:max(1, int(limit or 100))]
+    retired = retired_operation_ids(root)
+    return [row for row in rows if str(row.get("operationId") or "") not in retired][:max(1, int(limit or 100))]
 
 def list_files(root, path_value):
     target = safe_project_path(root, path_value)
@@ -16884,7 +17000,8 @@ def serve_http(args):
                     return self.send_json(api_worker_availability(root))
                 return self.send_json(read_availability_cache(root, True))
             if route == "/api/worker/tasks":
-                return self.send_json(api_worker_tasks(root))
+                wanted = (parse_qs(parsed.query).get("retiredCommandIds") or [""])[0]
+                return self.send_json(api_worker_tasks(root, wanted.split(",") if wanted else []))
             if route == "/api/worker/commands":
                 params = parse_qs(parsed.query)
                 worker_id = (params.get("workerId") or [os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker"])[0]
@@ -17136,7 +17253,7 @@ def serve_http(args):
             route = urlparse(self.path).path
             if mode == "worker_telemetry":
                 worker_action = route.rsplit("/", 1)[-1] if route.startswith("/api/actions/") else ""
-                if route not in ("/api/actions/save-result-policy", "/api/actions/start-worker-task", "/api/actions/preflight-worker-task", "/api/actions/register-code-sync-proof", "/api/actions/rebuild-distributed-results", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan", "/api/actions/stop-scheduler-operation", "/api/actions/clear-cache", "/api/actions/clearCache", "/api/actions/preview-cache-cleanup", "/api/actions/delete-cache-candidates", "/api/tmux/kill-window", "/api/tensorboard/proxy", "/api/tensorboard/scalars/query") and not route.startswith(TENSORBOARD_BROWSER_PREFIX + "/") and route != TENSORBOARD_BROWSER_PREFIX and worker_action not in WORKER_RESULT_ACTIONS and worker_action not in WORKER_TENSORBOARD_ACTIONS and worker_action not in WORKER_ENV_ACTIONS:
+                if route not in ("/api/actions/save-result-policy", "/api/actions/finalize-worker-operation", "/api/actions/start-worker-task", "/api/actions/preflight-worker-task", "/api/actions/register-code-sync-proof", "/api/actions/rebuild-distributed-results", "/api/actions/retry-worker-task", "/api/actions/stop-worker-task", "/api/actions/delete-worker-artifacts", "/api/actions/archive-worker-artifacts", "/api/actions/validate-plan", "/api/actions/dry-run-plan", "/api/actions/run-plan", "/api/actions/reproduce-plan", "/api/actions/stop-scheduler-operation", "/api/actions/clear-cache", "/api/actions/clearCache", "/api/actions/preview-cache-cleanup", "/api/actions/delete-cache-candidates", "/api/tmux/kill-window", "/api/tensorboard/proxy", "/api/tensorboard/scalars/query") and not route.startswith(TENSORBOARD_BROWSER_PREFIX + "/") and route != TENSORBOARD_BROWSER_PREFIX and worker_action not in WORKER_RESULT_ACTIONS and worker_action not in WORKER_TENSORBOARD_ACTIONS and worker_action not in WORKER_ENV_ACTIONS:
                     return self.send_json({"error": "worker telemetry only accepts local worker actions"}, status=404)
             if route == "/api/tensorboard/proxy" or route == TENSORBOARD_BROWSER_PREFIX or route.startswith(TENSORBOARD_BROWSER_PREFIX + "/"):
                 return self.proxy_tensorboard(urlparse(self.path))
