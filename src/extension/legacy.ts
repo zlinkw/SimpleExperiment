@@ -13,7 +13,7 @@ import { atomicWriteText } from "../state/StateStore";
 import { LatestSnapshotWriter } from "../core/LatestSnapshotWriter";
 import { runProjectStaticCheck } from "../features/ProjectStaticCheck";
 import * as TmuxWindowIdentity from "../features/TmuxWindowIdentity";
-import { closeGpuTmuxSession } from "./GpuTmuxClose";
+import { closeGpuTmuxSession, closeTmuxSession } from "./GpuTmuxClose";
 import { callSftpWithProgress } from "../core/SimpleSftpProgressWait";
 import { deleteConfirmedScopeCopy } from "../features/SyncScopeDelete";
 import { SafeRequestRetry, RequestReplacedError, assertRetryRequestCurrent, retryRequestSignal } from "../core/SafeRequestRetry";
@@ -19285,22 +19285,24 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     }
     async killTmuxWindowFromUi(message: any) {
         const workerId = this.tmuxWorkerId(message);
-        if (message?.gpuSession) {
-            if (this.tmuxClearTaskTabsInFlight) throw new Error("正在关闭 GPU 窗口，请等待本次结束。");
+        if (message?.gpuSession || message?.closeSession) {
+            if (this.tmuxClearTaskTabsInFlight) throw new Error("正在关闭窗口，请等待本次结束。");
             this.tmuxClearTaskTabsInFlight = true;
             const prefix = () => {
                 const cfg = vscode.workspace.getConfiguration("simpleExperiment");
                 return AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix(this.setupConfig?.sessionPrefix || this.setupConfig?.remoteTmuxSessionPrefix || cfg.get("sessionPrefix") || cfg.get("tunnel.remoteTmuxSessionPrefix") || "simple");
             };
             try {
-                return await closeGpuTmuxSession({ prefix, read: () => this.readTmuxListAfterKill(workerId),
+                const close = message.gpuSession ? closeGpuTmuxSession : closeTmuxSession;
+                return await close({ prefix, read: () => this.readTmuxListAfterKill(workerId),
                     close: identity => this.performKillTmuxWindow(workerId, identity.target, identity),
                     confirm: async description => {
-                        const answer = await vscode.window.showWarningMessage(description, { modal: true }, "关闭上述 GPU 窗口");
-                        if (answer !== "关闭上述 GPU 窗口") throw new UiCommandCancelled("已取消关闭 GPU 窗口。");
+                        const label = message.gpuSession ? "关闭上述 GPU 窗口" : "关闭上述全部窗口";
+                        const answer = await vscode.window.showWarningMessage(description, { modal: true }, label);
+                        if (answer !== label) throw new UiCommandCancelled("已取消关闭窗口。");
                     }, progress: work => vscode.window.withProgress({ location: vscode.ProgressLocation.Notification,
-                        title: `关闭 ${workerId} · ${message.gpuSession}`, cancellable: false }, progress => work(message => progress.report({ message }))),
-                }, { workerId, gpuSession: String(message.gpuSession), identities: message.identities });
+                        title: `关闭 ${workerId} · ${message.gpuSession || message.closeSession}`, cancellable: false }, progress => work(message => progress.report({ message }))),
+                }, { workerId, gpuSession: String(message.gpuSession || ""), session: String(message.closeSession || ""), identities: message.identities });
             } finally {
                 this.tmuxClearTaskTabsInFlight = false;
                 await this.fetchOneTmuxListFromUi(workerId);

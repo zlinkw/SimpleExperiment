@@ -1,11 +1,11 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const { closeGpuTmuxSession, gpuTmuxSessionBatch } = require('../../dist/extension/GpuTmuxClose');
+const { closeGpuTmuxSession, closeTmuxSession, gpuTmuxSessionBatch } = require('../../dist/extension/GpuTmuxClose');
 const clone = value => JSON.parse(JSON.stringify(value));
 
-function fixture() {
+function fixture(sessionName) {
   let prefix = 'my-user';
-  const session = prefix + '-gpu-0', workerId = 'w3', calls = [], descriptions = [];
+  const session = sessionName || prefix + '-gpu-0', workerId = 'w3', calls = [], descriptions = [];
   let windows = [
     { index: '0', name: 'bash', windowId: '@10', panes: [{ id: '%10', command: 'bash' }] },
     { index: '1', name: 'run-123', windowId: '@11', panes: [{ id: '%11', command: 'python' }], task: { commandId: 'job-a', status: 'running' } },
@@ -85,6 +85,29 @@ test('GPU batch follows stable IDs after sibling indices are renumbered', async 
   assert.deepEqual(f.calls.map(row => row.target), ['my-user-gpu-0:0', 'my-user-gpu-0:0']);
 });
 
+test('ordinary session closes its complete explicit window batch with one confirmation, independent of the GPU prefix', async () => {
+  const { closeTmuxSession } = require('../../dist/extension/GpuTmuxClose');
+  const f = fixture('lwb-gpu-0');
+  const result = await closeTmuxSession(f.ports, {workerId:'w3', session:f.request.gpuSession, identities:f.request.identities});
+  assert.match(result, /lwb-gpu-0.*2 个窗口/);
+  assert.equal(f.descriptions.length, 1); assert.match(f.descriptions[0], /进程会终止/);
+  assert.deepEqual(f.calls.map(row => row.windowId), ['@10','@11']);
+  assert.equal(f.list().sessions[0].name, 'another-gpu-0');
+});
+
+test('ordinary session cancellation, new windows, wrong Worker and Agent sessions never close an unconfirmed target', async () => {
+  const { closeTmuxSession } = require('../../dist/extension/GpuTmuxClose');
+  for (const scenario of ['cancel','new-window','wrong-worker','agent']) {
+    const f = fixture(scenario === 'agent' ? 'zlk-worker-agent' : 'ordinary');
+    const request = {workerId:'w3', session:f.request.gpuSession, identities:f.request.identities};
+    if (scenario === 'cancel') f.ports.confirm = async () => {throw new Error('取消');};
+    if (scenario === 'new-window') f.ports.confirm = async () => f.windows().push({index:'2',windowId:'@12',name:'new',panes:[]});
+    if (scenario === 'wrong-worker') request.workerId = 'other';
+    await assert.rejects(closeTmuxSession(f.ports,request),/取消|变化|Worker|受保护/);
+    assert.equal(f.calls.length,0);
+  }
+});
+
 test('every read failure, ambiguous session and protected Agent window rejects the batch', () => {
   const f = fixture(), list = f.list();
   assert.throws(() => gpuTmuxSessionBatch({ ...list, ok: false }, 'w3', f.request.gpuSession, 'my-user', f.request.identities), /无法核实/);
@@ -102,7 +125,7 @@ test('panel host routes GPU card requests through exact confirmation, progress a
     compilerOptions: { target: ts.ScriptTarget.ES2022 },
   }).outputText;
   const f = fixture(), progress = [], refreshed = [], descriptions = [];
-  const context = vm.createContext({ closeGpuTmuxSession, AgentTmuxPolicy_1: require('../../dist/tunnel/AgentTmuxPolicy'),
+  const context = vm.createContext({ closeGpuTmuxSession, closeTmuxSession, AgentTmuxPolicy_1: require('../../dist/tunnel/AgentTmuxPolicy'),
     UiCommandCancelled: Error, vscode: { workspace: { getConfiguration: () => ({ get: () => 'my-user' }) },
       ProgressLocation: { Notification: 1 }, window: {
         showWarningMessage: async (text, options, answer) => { descriptions.push(text); assert.equal(options.modal, true); return answer; },
@@ -119,4 +142,9 @@ test('panel host routes GPU card requests through exact confirmation, progress a
   assert.equal(descriptions.length, 1); assert.match(descriptions[0], /my-user-gpu-0:0.*@10/);
   assert.equal(progress.length, 2); assert.equal(host.tmuxClearTaskTabsInFlight, false);
   assert.deepEqual(refreshed, ['w3']);
+  const ordinary = fixture('lwb');
+  host.readTmuxListAfterKill = ordinary.ports.read;
+  host.performKillTmuxWindow = async (_worker,_target,identity) => ordinary.ports.close(identity);
+  assert.match(await host.killTmuxWindowFromUi({workerId:'w3',closeSession:'lwb',identities:ordinary.request.identities}), /2 个窗口/);
+  assert.deepEqual(ordinary.calls.map(row=>row.windowId), ['@10','@11']);
 });

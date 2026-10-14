@@ -15,7 +15,7 @@ function harness() {
     { index: "0", name: "bash", windowId: "@" + (gpu * 2), panes: [{ id: "%" + (gpu * 2), command: "bash" }] },
     { index: "1", name: "run-" + gpu, windowId: "@" + (gpu * 2 + 1), task: { commandId: "job-" + gpu, case: "case-" + gpu, seed: 42, status: gpu ? "running" : "failed" }, panes: [{ id: "%" + (gpu * 2 + 1), command: "python" }] },
   ] }));
-  sessions.push({ name: "m1mechanism", windows: Array.from({ length: 17 }, (_, i) => ({ index: String(i), name: "mechanism-" + i, panes: [{ target: "m1mechanism:" + i + ".0", command: "bash" }] })) });
+  sessions.push({ name: "m1mechanism", windows: Array.from({ length: 17 }, (_, i) => ({ index: String(i), windowId:'@'+(100+i), name: "mechanism-" + i, panes: [{id:'%'+(100+i), target: "m1mechanism:" + i + ".0", command: "bash" }] })) });
   sessions.push({ name: "zlk-worker-agent", windows: [{ index: "0", name: "agent", panes: [] }] });
   const requests = [];
   const context = vm.createContext({
@@ -162,6 +162,23 @@ test("GPU selection retains job labels and a synthetic idle GPU stays visible", 
   assert.match(elements.tmuxOverview.innerHTML, /case-1 · seed 42 · 运行中/);
   assert.match(elements.tmuxOverview.innerHTML, /data-tmux-task-target="zlk-gpu-1:1"/);
   assert.doesNotMatch(elements.tmuxOverview.innerHTML, /m1mechanism/);
+});
+
+test('ordinary sessions expose one clearly labelled close-all action and never offer it for Agent sessions', () => {
+  const f = harness(); f.render();
+  assert.match(f.elements.tmuxOverview.innerHTML, /data-tmux-close-session="m1mechanism"/);
+  assert.match(f.elements.tmuxOverview.innerHTML, /关闭全部窗口/);
+  assert.doesNotMatch(f.elements.tmuxOverview.innerHTML, /data-tmux-close-session="zlk-worker-agent"/);
+  const html=renderPanelHtml(),start=html.indexOf('const sessionClose = event.target.closest("[data-tmux-close-session]");'),end=html.indexOf('const gpuSessionClose =',start);
+  f.context.pendingActionsById={}; f.context.createClientActionId=()=> 'ordinary-batch'; f.context.showToast=()=>{};
+  vm.runInContext('function closeOther(event) {'+html.slice(start,end)+'}',f.context);
+  const tag=f.elements.tmuxOverview.innerHTML.match(/<button[^>]+data-tmux-close-session="m1mechanism"[^>]*>/)[0];
+  const attrs=Object.fromEntries([...tag.matchAll(/([\w-]+)="([^"]*)"/g)].map(([,key,value])=>[key,value.replace(/&quot;/g,'"').replace(/&amp;/g,'&')]));
+  const button={disabled:false,getAttribute:key=>attrs[key]},event={target:{closest:()=>button},preventDefault(){},stopPropagation(){}};
+  f.context.closeOther(event);f.context.closeOther(event);
+  assert.equal(f.requests.length,1); assert.equal(f.requests[0].closeSession,'m1mechanism');
+  assert.equal(f.requests[0].workerId,'NWPU5');assert.equal(f.requests[0].identities.length,17);assert.equal(f.requests[0].confirm,undefined);
+  f.context.pendingActionsById={};f.context.tmuxSelectedWorkerId='another';f.context.closeOther(event);assert.equal(f.requests.length,1);
 });
 
 test("a Worker with only ordinary sessions still offers their windows without inventing GPU tasks", () => {

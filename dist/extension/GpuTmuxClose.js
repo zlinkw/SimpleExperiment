@@ -1,7 +1,9 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.gpuTmuxSessionBatch = gpuTmuxSessionBatch;
+exports.tmuxSessionBatch = tmuxSessionBatch;
 exports.closeGpuTmuxSession = closeGpuTmuxSession;
+exports.closeTmuxSession = closeTmuxSession;
 const TmuxWindowIdentity_1 = require("../features/TmuxWindowIdentity");
 /** A card represents a session, but authorization remains a frozen list of stable
  * window identities. Never kill-session, infer ownership, or follow new windows. */
@@ -9,6 +11,11 @@ function gpuTmuxSessionBatch(list, workerId, session, prefix, expected) {
     const gpu = session.slice(prefix.length + 5);
     if (!/^[a-z0-9][a-z0-9._-]*$/.test(prefix) || session !== prefix + "-gpu-" + gpu || !/^\d+$/.test(gpu) || String(Number(gpu)) !== gpu)
         throw new Error("GPU 会话不属于当前配置前缀，未关闭窗口。");
+    return tmuxSessionBatch(list, workerId, session, expected);
+}
+function tmuxSessionBatch(list, workerId, session, expected) {
+    if (!/^[A-Za-z0-9._-]+$/.test(session) || session.endsWith("-agent"))
+        throw new Error("会话名称无效或属于受保护的 Agent，未关闭窗口。");
     if (list?.workerId !== workerId || list?.ok === false || list?.available === false || !Array.isArray(list?.sessions))
         throw new Error("无法核实当前 Worker 的 GPU 窗口列表。");
     const found = list.sessions.filter((row) => row.name === session);
@@ -36,25 +43,30 @@ function gpuTmuxSessionBatch(list, workerId, session, prefix, expected) {
     return result;
 }
 async function closeGpuTmuxSession(ports, request) {
-    const { workerId, gpuSession: session } = request, prefix = ports.prefix();
-    const batch = gpuTmuxSessionBatch(await ports.read(), workerId, session, prefix, request.identities);
+    return closeTmuxSession(ports, { ...request, session: request.gpuSession }, true);
+}
+async function closeTmuxSession(ports, request, gpuOnly = false) {
+    const { workerId, session } = request, prefix = gpuOnly ? ports.prefix() : "";
+    const inspect = (list, expected) => gpuOnly
+        ? gpuTmuxSessionBatch(list, workerId, session, prefix, expected) : tmuxSessionBatch(list, workerId, session, expected);
+    const batch = inspect(await ports.read(), request.identities);
     if (!batch.length)
-        throw new Error("当前 GPU 会话没有可关闭的窗口，请刷新列表。");
-    await ports.confirm(`关闭 ${workerId} 的 GPU 会话 ${session}，窗口内的进程会终止。精确目标：\n`
+        throw new Error("当前会话没有可关闭的窗口，请刷新列表。");
+    await ports.confirm(`关闭 ${workerId} 的${gpuOnly ? " GPU" : ""}会话 ${session} 的全部窗口，窗口内的进程会终止。精确目标：\n`
         + batch.map(row => `${row.target}（${row.windowName}，${row.windowId}，${row.paneIds.join(",")}）`).join("\n"));
     return ports.progress(async (report) => {
         const closed = new Set();
         try {
             for (const identity of batch) {
-                if (ports.prefix() !== prefix)
+                if (gpuOnly && ports.prefix() !== prefix)
                     throw new Error("配置前缀已变化，原确认失效。");
-                const current = gpuTmuxSessionBatch(await ports.read(), workerId, session, prefix, batch.filter(row => !closed.has(row.windowId)))
+                const current = inspect(await ports.read(), batch.filter(row => !closed.has(row.windowId)))
                     .find(row => row.windowId === identity.windowId);
                 report(`正在关闭 ${closed.size + 1}/${batch.length} ${current.target}`);
                 await ports.close(current);
                 closed.add(identity.windowId);
             }
-            gpuTmuxSessionBatch(await ports.read(), workerId, session, prefix, []);
+            inspect(await ports.read(), []);
             return `已核实关闭 ${workerId} · ${session} 的 ${batch.length} 个窗口。`;
         }
         catch (error) {
