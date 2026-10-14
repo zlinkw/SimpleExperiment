@@ -15,6 +15,7 @@ import { runProjectStaticCheck } from "../features/ProjectStaticCheck";
 import * as TmuxWindowIdentity from "../features/TmuxWindowIdentity";
 import { closeGpuTmuxSession } from "./GpuTmuxClose";
 import { callSftpWithProgress } from "../core/SimpleSftpProgressWait";
+import { deleteConfirmedScopeCopy } from "../features/SyncScopeDelete";
 import { SafeRequestRetry, RequestReplacedError, assertRetryRequestCurrent, retryRequestSignal } from "../core/SafeRequestRetry";
 import { preparePlanSafeRetry } from "../features/PlanSafeRetry";
 import { staticEntrypointProbe } from "../features/StaticEntrypointProbe";
@@ -8528,11 +8529,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             const destination = this.sftpServerOptions(row);
             for (const directory of plan.directoryDeletes) {
                 report(`${row.id}：清理已确认目录 ${directory}`);
-                await this.simpleSftpApiCall("sync.deletePath", {
-                    target: destination, relativePath: directory,
-                    confirmedAbsolutePath: path.posix.join(destination.remotePath, directory),
-                    confirm: true, pathConfirmed: true, secondConfirmation: true,
-                });
+                await this.deleteSyncScopeRemoteCopy(row.id, destination, directory, true, report);
             }
             for (const group of plan.groups) {
                 const batchNote = group.batchCount > 1 ? ` · 批次 ${group.batch}/${group.batchCount}` : "";
@@ -8616,6 +8613,11 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         });
         return work.map((item) => item.path);
     }
+    async deleteSyncScopeRemoteCopy(id, server, relative, directory, report = (_stage: string) => {}) {
+        return deleteConfirmedScopeCopy((method, params) => this.simpleSftpApiCall(method, params),
+            { id, kind: "remote", host: server.host, user: server.user || server.username,
+                port: server.port, root: server.remotePath }, relative, directory, report);
+    }
     async removeSyncScopeCopies(root, targets, relative, endpointIds, directory, report = (_stage: string) => {}) {
         safeSyncPath(relative);
         if (!scopeInventoryPathAllowed(relative, directory) || directory && relative === "simple_cluster") throw new Error("机器状态路径不可删除。");
@@ -8647,17 +8649,13 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             report(`正在删除 ${copy.id} 的 ${relative}`);
             try {
                 if (copy.id === "local") await deleteLocalSyncPath(root, relative);
-                else await this.simpleSftpApiCall("sync.deletePath", { target: copy.server, relativePath: relative,
-                    confirmedAbsolutePath: copy.absolute, confirm: true, pathConfirmed: true, secondConfirmation: true });
+                else await this.deleteSyncScopeRemoteCopy(copy.id, copy.server, relative, directory, report);
                 completed.push(copy.id);
             } catch (error) {
                 try {
                     if (copy.id === "local") {
                         const info = await fs.lstat(copy.absolute).catch(e => { if (e.code === "ENOENT") return undefined; throw e; });
                         if (!info) { completed.push(copy.id); continue; }
-                    } else {
-                        const check = await this.simpleSftpApiCall("sync.projectTree", { source: copy.server, relativePath: path.posix.dirname(relative) });
-                        if (check.ok !== false && Array.isArray(check.entries) && !check.entries.some(row => row.path === relative)) { completed.push(copy.id); continue; }
                     }
                 } catch {}
                 throw new Error(`已删除 ${completed.join("、") || "无"}；${copy.id} 删除失败：${errorMessage(error)}。自动补回仍暂停。`);
@@ -8721,17 +8719,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             const codeOwned = isLocalCodeOwnedPath(relative, directory, config.get<string[]>("codeSync.includePaths", []), config.get<string[]>("codeSync.scopePaths"));
             report("正在保存自动同步暂停记录");
             await this.updateSyncScopeHolds(root, (holds) => { holds[relative] = { endpointId: "allWorkers", deletedAt: new Date().toISOString(), directory, codeOwned }; });
-            const completed = [];
-            for (const [index, { target, server }] of present.entries()) {
-                try {
-                    report(`正在删除 ${index + 1}/${present.length}：${target.id}`);
-                    await this.simpleSftpApiCall("sync.deletePath", { target: server, relativePath: relative,
-                        confirmedAbsolutePath: path.posix.join(server.remotePath, relative), confirm: true, pathConfirmed: true, secondConfirmation: true });
-                    completed.push(target.id);
-                } catch (error) {
-                    throw new Error(`已删除 ${completed.join("、") || "无"}；${target.id} 删除失败：${errorMessage(error)}。剩余 Worker 未处理，自动补回仍暂停。`);
-                }
-            }
+            await this.removeSyncScopeCopies(root, targets, relative, present.map(({ target }) => target.id), directory, report);
             return true;
         } finally { this.syncScopeMutationInFlight = false; }
     }
@@ -8784,8 +8772,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             if (endpointId === "local") {
                 if (directory) {
                     const destination = this.sftpServerOptions(row);
-                    await this.simpleSftpApiCall("sync.deletePath", { target: destination, relativePath: relative,
-                        confirmedAbsolutePath: path.posix.join(destination.remotePath, relative), confirm: true, pathConfirmed: true, secondConfirmation: true });
+                    await this.deleteSyncScopeRemoteCopy(row.id, destination, relative, true, report);
                 }
                 const files = directory ? sourceInventory : { [relative]: sourceInventory[relative] };
                 const manifest = Object.fromEntries(Object.entries(files).map(([file, info]: [string, any]) => [file, { size: info.size, sha256: info.sha256 }]));
@@ -8867,8 +8854,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                             sourceId: sourceRow.id, destinationId: target.id, detail: directory,
                         }) });
                 } else {
-                    await this.simpleSftpApiCall("sync.deletePath", { target: destination, relativePath: directory,
-                        confirmedAbsolutePath: absolute, confirm: true, pathConfirmed: true, secondConfirmation: true });
+                    await this.deleteSyncScopeRemoteCopy(target.id, destination, directory, true);
                     if (Object.keys(sourceFiles).length) {
                         const manifest = Object.fromEntries(Object.entries(sourceFiles).map(([file, info]: [string, any]) => [file, { sha256: info.sha256, size: info.size }]));
                         const result = await vscode.commands.executeCommand("simpleSftp.uploadWorkspace", { apiMode: true, confirm: true, pathConfirmed: true,
@@ -11762,8 +11748,7 @@ this.assertPlanTopologyReady("Plan 调度");
                 }),
                 remove: async (record) => {
                     await this.assertSshTransportIdentities([targets.get(record.workerId)]);
-                    await this.simpleSftpApiCall("sync.deletePath", { target: servers.get(record.workerId), relativePath: record.outputDir,
-                        confirmedAbsolutePath: record.inspection.absolutePath, confirm: true, pathConfirmed: true, secondConfirmation: true });
+                    await this.deleteSyncScopeRemoteCopy(record.workerId, servers.get(record.workerId), record.outputDir, true);
                 },
                 retired: async (candidate) => {
                     const latest = await this.loadDistributedQueue(root);

@@ -14,6 +14,16 @@ try:
     messages = json.loads(sys.argv[2]) if len(sys.argv) > 2 else [job(4), dict(job(5),dispatchPolicy='manual',gpuId='0'), dict(job(6),dispatchPolicy='manual',gpuId='0')]
     pathlib.Path(root, 'gpu-busy').write_text('synthetic GPU occupancy', encoding='utf-8')
     auto,manual_a,manual_b = messages
+    # Keep manual probes alive until the automatic admission assertion; wall-clock sleeps race with tmux/WSL latency.
+    release = pathlib.Path(root, 'release-manual-probes')
+    probe_source = probe.read_text(encoding='utf-8')
+    probe_source = probe_source.replace('time.sleep(1.2 if case=="slow" else 0.1)',
+        'if command in ' + repr((manual_a['commandId'], manual_b['commandId'])) + ':\n'
+        ' deadline=time.monotonic()+6\n'
+        ' while not pathlib.Path(root,"release-manual-probes").exists() and time.monotonic()<deadline: time.sleep(.02)\n'
+        ' if not pathlib.Path(root,"release-manual-probes").exists(): sys.exit(9)\n'
+        'else: time.sleep(.1)')
+    probe.write_text(probe_source, encoding='utf-8')
     agent['execute_worker_command'](root,auto,'worker')
     phase('auto_queued')
     for manual in (manual_a, manual_b):
@@ -33,6 +43,7 @@ try:
     wait_for(lambda: started(auto).exists())
     phase('auto_running')
     assert any(not row['dead'] for row in namespace['task_inventory'](root) if row['commandId'] in (manual_a['commandId'], manual_b['commandId']))
+    release.touch()
     wait_for(lambda: all(row['dead'] for row in namespace['task_inventory'](root)))
     print(json.dumps(dict(ok=True, realTmux=True, manualConcurrent=True, autoWithManual=True, exactStopIsolated=True)))
 finally:

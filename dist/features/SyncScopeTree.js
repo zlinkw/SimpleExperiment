@@ -88,8 +88,10 @@ function openSyncScopeTree(title, roots) {
                 let sequence = 0;
                 const report = (stage) => { void panel.webview.postMessage({ type: "actionProgress", id, rootId: root.id, path: "批量操作", stage, sequence: ++sequence }); };
                 const result = await root.batch(message.type === "batchSync" ? "sync" : "delete", selected, excluded, report, knownEntries);
+                if (result !== false && result.errors.length)
+                    console.error(`[SimpleExperiment SyncScope] ${message.type} ${root.id}: ${result.errors.join("；").slice(0, 8000)}`);
                 await panel.webview.postMessage({ type: result === false ? "actionCancelled" : "batchDone", id, rootId: root.id,
-                    completed: result === false ? [] : result.completed, errors: result === false ? [] : result.errors });
+                    completed: result === false ? [] : result.completed, affected: selected, errors: result === false ? [] : result.errors });
             }
             else if (message.type === "mergeLatest") {
                 if (root.id !== "workers" || !root.mergeLatest)
@@ -101,7 +103,7 @@ function openSyncScopeTree(title, roots) {
                 const report = (stage) => { void panel.webview.postMessage({ type: "actionProgress", id, rootId: root.id, path: relative, stage, sequence: ++sequence }); };
                 const result = await root.mergeLatest(relative, report);
                 await panel.webview.postMessage({ type: result === false ? "actionCancelled" : "batchDone", id, rootId: root.id,
-                    completed: result === false ? [] : result.completed, errors: result === false ? [] : result.errors });
+                    completed: result === false ? [] : result.completed, affected: [relative], errors: result === false ? [] : result.errors });
             }
             else if (message.type === "remove" || message.type === "removeAllWorkers" || message.type === "retain") {
                 const relative = String(message.path || "");
@@ -132,7 +134,10 @@ function openSyncScopeTree(title, roots) {
             }
         }
         catch (error) {
-            await panel.webview.postMessage({ type: "error", id, requestType: message?.type, rootId: root?.id, path: String(message?.path || "."), message: error instanceof Error ? error.message : String(error) });
+            const detail = error instanceof Error ? error.message : String(error);
+            console.error(`[SimpleExperiment SyncScope] ${String(message?.type)} ${root?.id || ""} ${String(message?.path || ".")}: ${detail}`);
+            await panel.webview.postMessage({ type: "error", id, requestType: message?.type, rootId: root?.id, path: String(message?.path || "."),
+                affected: Array.isArray(message?.paths) ? message.paths : [String(message?.path || ".")], message: detail });
         }
     });
     return panel;
@@ -235,8 +240,23 @@ function reconcileChildren(view,parent,entries){
 }
 function load(path,rootId=active.id){const view=views.get(rootId),id=String(++serial);view?.listRequests.set(path,id);vscode.postMessage({type:'list',id,rootId,path})}
 function enqueueRefresh(rootId,paths){const view=views.get(rootId);if(!view)return;for(const path of paths)if(!view.refreshQueue.includes(path))view.refreshQueue.push(path);pumpRefresh(rootId)}
-function pumpRefresh(rootId){const view=views.get(rootId);if(!view||view.pending.size||!view.refreshQueue.length)return;const path=view.refreshQueue.shift();view.pending.add(path);if(active?.id===rootId&&!view.busyAction)status.textContent='正在校验 '+path+' 的全部文件…';const id=String(++serial);view.refreshRequests.set(path,id);vscode.postMessage({type:'refresh',id,rootId,path})}
+function pumpRefresh(rootId){const view=views.get(rootId);if(!view||view.pending.size||!view.refreshQueue.length)return;const path=view.refreshQueue.shift();view.pending.add(path);if(active?.id===rootId&&!view.busyAction)status.textContent=(view.actionError?'部分路径处理失败：'+view.actionError+'；':'')+'正在校验 '+path+' 的全部文件…';const id=String(++serial);view.refreshRequests.set(path,id);vscode.postMessage({type:'refresh',id,rootId,path})}
 function refreshVisible(){if(!active)return;const view=state(),parents=new Set(['.',...view.children.keys(),...[...view.selected].filter(path=>path!=='.').map(parentPath)]);for(const parent of parents)load(parent);enqueueRefresh(active.id,['.'])}
+function reloadAfterMutation(message){
+  const affected=[...new Set([...(message.affected||[]),...(message.completed||[]),...(message.path?[message.path]:[])])];
+  for(const [rootId,view] of views){
+    if(rootId===message.rootId)view.busyAction=null;
+    // Old in-flight replies must not restore files removed by this operation, or keep refresh waiting forever.
+    view.statuses={};view.refreshRequests.clear();view.listRequests.clear();view.pending.clear();view.listPending.clear();
+    view.refreshedPaths.clear();view.refreshErrors.clear();view.refreshQueue=[];
+    const parents=new Set(affected.length?affected.map(path=>path==='.'?'.':parentPath(path)):['.']);
+    for(const expanded of view.expanded)if(affected.some(path=>path==='.'||expanded===path||expanded.startsWith(path+'/')))parents.add(expanded);
+    for(const key of [...view.children.keys()])if(affected.some(path=>path==='.'||key===path||key.startsWith(path+'/')))view.children.delete(key);
+    view.mutationParent=null;view.mutationParents=new Set(parents);
+    if(rootId===message.rootId)view.actionError=(message.errors||[]).join('；');
+    for(const parent of parents)load(parent,rootId);
+  }
+}
 document.getElementById('refresh').onclick=refreshVisible;
 function revealConflict(path){const view=state();view.focus=path;view.pendingFocusScroll=path;let parent=parentPath(path);while(parent!=='.'){view.expanded.add(parent);if(!view.children.has(parent)&&!view.listPending.has(parent)){view.listPending.add(parent);load(parent)}parent=parentPath(parent)}renderTree()}
 document.getElementById('nextConflict').onclick=()=>{if(!active)return;const view=state();const all=Object.keys(view.statuses).filter(path=>path!=='.'&&view.statuses[path].state==='different');const paths=all.filter(path=>!all.some(other=>other.startsWith(path+'/'))).sort();if(!paths.length){status.textContent='没有已校验的冲突；请点击刷新同步状态';return}const index=paths.findIndex(path=>path>String(view.focus||''));const next=paths[index<0?0:index];revealConflict(next);status.textContent='冲突位置：'+next};
@@ -274,7 +294,7 @@ window.addEventListener('message',event=>{
     view.refreshedPaths.add(message.path);view.refreshErrors.delete(message.path);
     for(const key of Object.keys(view.statuses))if(key===message.path||message.path==='.'||key.startsWith(message.path+'/'))delete view.statuses[key];
     Object.assign(view.statuses,message.statuses||{});
-    if(active?.id===message.rootId){if(!view.busyAction){status.className='';status.textContent='已校验 '+message.path+'：'+message.refreshedAt}renderTree()}
+    if(active?.id===message.rootId){if(!view.busyAction){status.className='';status.textContent=view.actionError?'部分路径处理失败：'+view.actionError:'已校验 '+message.path+'：'+message.refreshedAt}renderTree()}
     pumpRefresh(message.rootId);
   }else if(message.type==='saved'){
     const view=views.get(message.rootId);if(view){view.statuses={};view.refreshedPaths.clear();view.refreshErrors.clear();view.refreshQueue=[]}
@@ -286,26 +306,14 @@ window.addEventListener('message',event=>{
     const view=views.get(message.rootId);if(view)view.busyAction=null;
     if(active?.id===message.rootId){status.className='';status.textContent='操作已取消';renderTree()}
   }else if(message.type==='batchDone'||message.type==='actionDone'){
-    const changed=message.type==='batchDone'?(message.completed||[]):[message.path];
-    const reload=[];
-    for(const [rootId,view] of views){
-      if(rootId===message.rootId)view.busyAction=null;
-      const parents=new Set(changed.map(parentPath));
-      for(const path of changed){
-        for(let parent=parentPath(path);;parent=parentPath(parent)){delete view.statuses[parent];view.refreshedPaths.delete(parent);if(parent==='.')break}
-        for(const key of Object.keys(view.statuses))if(key===path||key.startsWith(path+'/'))delete view.statuses[key];
-        for(const key of [...view.children.keys()])if(key===path||key.startsWith(path+'/'))view.children.delete(key);
-        for(const key of [...view.listRequests.keys()])if(key===path||key.startsWith(path+'/'))view.listRequests.delete(key);
-        view.refreshRequests.clear();
-      }
-      for(const parent of parents){view.listPending.delete(parent);(view.mutationParents||=new Set()).add(parent);reload.push([rootId,parent])}
-    }
-    if(active?.id===message.rootId){status.className='';status.textContent=(message.errors||[]).length?'部分路径处理失败：'+message.errors.join('；'):'文件列表已更新';renderTree()}
-    for(const [rootId,parent] of reload)load(parent,rootId);
+    reloadAfterMutation(message);
+    if(active?.id===message.rootId){status.className='';status.textContent=(message.errors||[]).length?'部分路径处理失败：'+message.errors.join('；'):'处理完成，正在重新读取文件列表';renderTree()}
   }else if(message.type==='error'){
     const view=views.get(message.rootId);
     if(view){
-      if(['remove','removeAllWorkers','retain','batchSync','batchDelete','mergeLatest'].includes(message.requestType))view.busyAction=null;
+      if(message.id&&message.requestType==='list'&&view.listRequests.get(message.path)!==message.id)return;
+      if(message.id&&message.requestType==='refresh'&&view.refreshRequests.get(message.path)!==message.id)return;
+      if(['remove','removeAllWorkers','retain','batchSync','batchDelete','mergeLatest'].includes(message.requestType))reloadAfterMutation({...message,errors:[message.message]});
       if(message.requestType==='list')view.listPending.delete(message.path);
       if(message.requestType==='refresh'){view.pending.delete(message.path);view.refreshErrors.set(message.path,message.message)}
       if(message.requestType==='list'&&view.mutationParent===message.path){view.mutationParent=null;enqueueRefresh(message.rootId,[message.path])}

@@ -58,6 +58,7 @@ const ProjectStaticCheck_1 = require("../features/ProjectStaticCheck");
 const TmuxWindowIdentity = __importStar(require("../features/TmuxWindowIdentity"));
 const GpuTmuxClose_1 = require("./GpuTmuxClose");
 const SimpleSftpProgressWait_1 = require("../core/SimpleSftpProgressWait");
+const SyncScopeDelete_1 = require("../features/SyncScopeDelete");
 const SafeRequestRetry_1 = require("../core/SafeRequestRetry");
 const PlanSafeRetry_1 = require("../features/PlanSafeRetry");
 const StaticEntrypointProbe_1 = require("../features/StaticEntrypointProbe");
@@ -8872,11 +8873,7 @@ class RealtimeTunnelPanelProvider {
             const destination = this.sftpServerOptions(row);
             for (const directory of plan.directoryDeletes) {
                 report(`${row.id}：清理已确认目录 ${directory}`);
-                await this.simpleSftpApiCall("sync.deletePath", {
-                    target: destination, relativePath: directory,
-                    confirmedAbsolutePath: path.posix.join(destination.remotePath, directory),
-                    confirm: true, pathConfirmed: true, secondConfirmation: true,
-                });
+                await this.deleteSyncScopeRemoteCopy(row.id, destination, directory, true, report);
             }
             for (const group of plan.groups) {
                 const batchNote = group.batchCount > 1 ? ` · 批次 ${group.batch}/${group.batchCount}` : "";
@@ -8962,6 +8959,10 @@ class RealtimeTunnelPanelProvider {
         });
         return work.map((item) => item.path);
     }
+    async deleteSyncScopeRemoteCopy(id, server, relative, directory, report = (_stage) => { }) {
+        return (0, SyncScopeDelete_1.deleteConfirmedScopeCopy)((method, params) => this.simpleSftpApiCall(method, params), { id, kind: "remote", host: server.host, user: server.user || server.username,
+            port: server.port, root: server.remotePath }, relative, directory, report);
+    }
     async removeSyncScopeCopies(root, targets, relative, endpointIds, directory, report = (_stage) => { }) {
         (0, SyncResolution_1.safeSyncPath)(relative);
         if (!(0, SyncScopeStatus_1.scopeInventoryPathAllowed)(relative, directory) || directory && relative === "simple_cluster")
@@ -9005,8 +9006,7 @@ class RealtimeTunnelPanelProvider {
                 if (copy.id === "local")
                     await (0, SyncResolution_1.deleteLocalSyncPath)(root, relative);
                 else
-                    await this.simpleSftpApiCall("sync.deletePath", { target: copy.server, relativePath: relative,
-                        confirmedAbsolutePath: copy.absolute, confirm: true, pathConfirmed: true, secondConfirmation: true });
+                    await this.deleteSyncScopeRemoteCopy(copy.id, copy.server, relative, directory, report);
                 completed.push(copy.id);
             }
             catch (error) {
@@ -9015,13 +9015,6 @@ class RealtimeTunnelPanelProvider {
                         const info = await fs.lstat(copy.absolute).catch(e => { if (e.code === "ENOENT")
                             return undefined; throw e; });
                         if (!info) {
-                            completed.push(copy.id);
-                            continue;
-                        }
-                    }
-                    else {
-                        const check = await this.simpleSftpApiCall("sync.projectTree", { source: copy.server, relativePath: path.posix.dirname(relative) });
-                        if (check.ok !== false && Array.isArray(check.entries) && !check.entries.some(row => row.path === relative)) {
                             completed.push(copy.id);
                             continue;
                         }
@@ -9112,18 +9105,7 @@ class RealtimeTunnelPanelProvider {
             const codeOwned = isLocalCodeOwnedPath(relative, directory, config.get("codeSync.includePaths", []), config.get("codeSync.scopePaths"));
             report("正在保存自动同步暂停记录");
             await this.updateSyncScopeHolds(root, (holds) => { holds[relative] = { endpointId: "allWorkers", deletedAt: new Date().toISOString(), directory, codeOwned }; });
-            const completed = [];
-            for (const [index, { target, server }] of present.entries()) {
-                try {
-                    report(`正在删除 ${index + 1}/${present.length}：${target.id}`);
-                    await this.simpleSftpApiCall("sync.deletePath", { target: server, relativePath: relative,
-                        confirmedAbsolutePath: path.posix.join(server.remotePath, relative), confirm: true, pathConfirmed: true, secondConfirmation: true });
-                    completed.push(target.id);
-                }
-                catch (error) {
-                    throw new Error(`已删除 ${completed.join("、") || "无"}；${target.id} 删除失败：${errorMessage(error)}。剩余 Worker 未处理，自动补回仍暂停。`);
-                }
-            }
+            await this.removeSyncScopeCopies(root, targets, relative, present.map(({ target }) => target.id), directory, report);
             return true;
         }
         finally {
@@ -9193,8 +9175,7 @@ class RealtimeTunnelPanelProvider {
                 if (endpointId === "local") {
                     if (directory) {
                         const destination = this.sftpServerOptions(row);
-                        await this.simpleSftpApiCall("sync.deletePath", { target: destination, relativePath: relative,
-                            confirmedAbsolutePath: path.posix.join(destination.remotePath, relative), confirm: true, pathConfirmed: true, secondConfirmation: true });
+                        await this.deleteSyncScopeRemoteCopy(row.id, destination, relative, true, report);
                     }
                     const files = directory ? sourceInventory : { [relative]: sourceInventory[relative] };
                     const manifest = Object.fromEntries(Object.entries(files).map(([file, info]) => [file, { size: info.size, sha256: info.sha256 }]));
@@ -9288,8 +9269,7 @@ class RealtimeTunnelPanelProvider {
                         }) });
                 }
                 else {
-                    await this.simpleSftpApiCall("sync.deletePath", { target: destination, relativePath: directory,
-                        confirmedAbsolutePath: absolute, confirm: true, pathConfirmed: true, secondConfirmation: true });
+                    await this.deleteSyncScopeRemoteCopy(target.id, destination, directory, true);
                     if (Object.keys(sourceFiles).length) {
                         const manifest = Object.fromEntries(Object.entries(sourceFiles).map(([file, info]) => [file, { sha256: info.sha256, size: info.size }]));
                         const result = await vscode.commands.executeCommand("simpleSftp.uploadWorkspace", { apiMode: true, confirm: true, pathConfirmed: true,
@@ -12535,8 +12515,7 @@ class RealtimeTunnelPanelProvider {
                 }),
                 remove: async (record) => {
                     await this.assertSshTransportIdentities([targets.get(record.workerId)]);
-                    await this.simpleSftpApiCall("sync.deletePath", { target: servers.get(record.workerId), relativePath: record.outputDir,
-                        confirmedAbsolutePath: record.inspection.absolutePath, confirm: true, pathConfirmed: true, secondConfirmation: true });
+                    await this.deleteSyncScopeRemoteCopy(record.workerId, servers.get(record.workerId), record.outputDir, true);
                 },
                 retired: async (candidate) => {
                     const latest = await this.loadDistributedQueue(root);
