@@ -98,6 +98,7 @@ exports.scheduleAutomaticJobRetries = scheduleAutomaticJobRetries;
 exports.disableAutomaticJobRetries = disableAutomaticJobRetries;
 const node_crypto_1 = require("node:crypto");
 const path = __importStar(require("node:path"));
+const TaskLifecycle_1 = require("./TaskLifecycle");
 const QUEUE_BASE_DISK_SIGNATURE = Symbol("distributedQueueBaseDiskSignature");
 function distributedQueueDiskSignature(source) {
     return (0, node_crypto_1.createHash)("sha256").update(source, "utf8").digest("hex");
@@ -374,6 +375,31 @@ function reviewedTrainingCompletion(plan, job, task) {
 }
 /** Merge only fresh, capability-bearing server snapshots for this exact project. */
 function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now(), maxAgeMs = 180_000) {
+    const pulled = snapshots.filter(snapshot => snapshot.capabilities?.taskLifecycle === 2);
+    if (pulled.length) {
+        queue = { ...queue, plans: queue.plans.map(plan => ({ ...plan, jobs: plan.jobs.map(job => {
+                    const snapshot = pulled.find(row => row.workerId === job.workerId);
+                    if (!snapshot || !job.commandId || !job.workerId || !["dispatching", "queued", "running", "unknown", "failed", "completed"].includes(job.status))
+                        return job;
+                    const fresh = Date.parse(String(snapshot.fetchedAt || snapshot.generatedAt || ""));
+                    const task = (snapshot.tasks || []).find(row => row.commandId === job.commandId && row.projectId === projectId);
+                    const observation = task?.observation || { lifecycleProtocol: 2, commandId: job.commandId,
+                        projectId, workerId: job.workerId, observedAt: String(snapshot.generatedAt || ""),
+                        queryError: snapshot.error || (!Number.isFinite(fresh) || now - fresh > maxAgeMs ? "状态查询已过期" : undefined) };
+                    if (snapshot.error)
+                        observation.queryError = snapshot.error;
+                    if (!(0, TaskLifecycle_1.observationMatches)(observation, { commandId: job.commandId, workerId: job.workerId, projectId }))
+                        return job;
+                    const state = (0, TaskLifecycle_1.taskLifecycle)(observation);
+                    return { ...job, status: state.status, executionState: state.execution, resultState: state.result,
+                        statusQueryError: observation.queryError, lastObservedAt: observation.observedAt,
+                        blockReason: state.message, ...(task ? { gpuId: String(task.gpuId ?? job.gpuId ?? ""),
+                            tmuxPane: String(task.tmuxPane || ""), tmuxWindowId: String(task.tmuxWindowId || ""), tmuxSession: String(task.tmuxSession || "") } : {}) };
+                }) })) };
+        snapshots = snapshots.filter(snapshot => snapshot.capabilities?.taskLifecycle !== 2);
+        if (!snapshots.length)
+            return queue;
+    }
     const clearedJobs = Array.isArray(queue.clearedJobs) ? queue.clearedJobs.map(entry => ({ ...entry })) : [];
     const clearedByKey = new Map(clearedJobs.map(entry => [clearedJobIdentityKey(entry), entry]));
     const clearedKeys = new Set(clearedJobs.filter(entry => !entry.activeReceiptObservedAt).map(entry => clearedJobIdentityKey(entry)));
