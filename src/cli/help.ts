@@ -14,6 +14,7 @@ Domains:
   resource     available
   server       list
   artifact     list | download | inspect
+  task         dispatch --workflow ID --jobs 0,1 --worker ID --gpu 0 --confirm
 
 Other commands:
   simpleex api <method> [--json <params.json>]
@@ -51,6 +52,7 @@ Examples:
 
 export function domainHelp(domain: string): string {
   const rows: Record<string, string> = {
+    task: `Usage: simpleex task dispatch --workflow ID --jobs 0,1 --worker ID --gpu 0 --confirm [--stop-running] [--json]`,
     project: `Usage: simpleex project status [--json]`,
     experiment: `Usage:
   simpleex experiment list [--status <status>] [--type workflow|worker_run] [--limit <n>] [--json]

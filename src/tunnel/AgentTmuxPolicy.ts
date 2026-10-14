@@ -33,7 +33,7 @@ export function normalizeRemoteTmuxSessionPrefix(value?: string): string {
 
 export function defaultAgentTmuxSessionName(role: AgentTmuxRole, endpointId?: string, sessionPrefix?: string): string {
   const prefix = normalizeRemoteTmuxSessionPrefix(sessionPrefix);
-  if (role === "hub") return `${prefix}-hub-agent`;
+  if (role === "hub") throw new Error("HUB_REMOVED：请配置 Worker。");
   return `${prefix}-worker-${slug(endpointId || "worker")}-agent`;
 }
 
@@ -43,7 +43,8 @@ export function isValidRemoteTmuxSessionName(value: string): boolean {
 
 export function agentTmuxStartupCommand(options: AgentTmuxStartupOptions): string {
   const role = options.role;
-  const mode = role === "hub" ? "hub_control" : "worker_telemetry";
+  if (role !== "worker") throw new Error("HUB_REMOVED：请配置 Worker。");
+  const mode = "worker_telemetry";
   const port = options.port || 18765;
   const host = normalizeAgentBindHost(options.host);
   const sessionPrefix = normalizeRemoteTmuxSessionPrefix(options.sessionPrefix);

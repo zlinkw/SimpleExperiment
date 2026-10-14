@@ -6,62 +6,15 @@ exports.releaseEndpointAssignment = releaseEndpointAssignment;
 const TunnelPortConflict_1 = require("./TunnelPortConflict");
 function buildTunnelEndpointRegistry(config, probes = {}) {
     const assignments = new Map((config.ports?.assignments || []).map((assignment) => [assignment.endpointId, assignment]));
-    const hubAssignment = assignments.get("hub");
-    const hub = {
-        id: "hub",
-        role: "hub_control",
-        displayName: config.sshConfigAlias || config.hubHost || "Hub",
-        ssh: {
-            host: config.hubHost,
-            user: config.hubUser,
-            port: config.hubSshPort,
-            sshConfigAlias: config.sshConfigAlias,
-            privateKeyPath: config.privateKeyPath,
-        },
-        tunnel: {
-            localHost: hubAssignment?.localForwardHost || config.localForwardHost,
-            localPort: hubAssignment?.localForwardPort || config.localForwardPort || TunnelPortConflict_1.defaultTunnelPorts.hubLocalPort,
-            remoteHost: hubAssignment?.remoteBindHost || config.remoteAgentHost,
-            remotePort: hubAssignment?.remoteServicePort || config.remoteAgentPort || TunnelPortConflict_1.defaultTunnelPorts.defaultHubAgentPort,
-        },
-        api: {
-            mode: "hub_control",
-            expectedCapabilities: [
-                "endpoints.actions",
-                "endpoints.fileList",
-                "endpoints.fileDownload",
-                "endpoints.fileUploadChunk",
-                "endpoints.scheduler",
-                "endpoints.traces",
-                "endpoints.resultsSummary",
-            ],
-        },
-        enabled: true,
-        lastProbe: probes.hub,
-    };
     const workers = config.workerTunnels.map((worker) => workerEndpoint(worker, assignments.get(worker.id), probes[worker.id]));
     return {
-        endpoints: [hub, ...workers],
-        hub,
+        endpoints: workers,
         workers,
     };
 }
 function endpointAssignmentsFromConfig(config) {
     const assignedAt = new Date(0).toISOString();
     const fallback = [
-        {
-            endpointId: "hub",
-            role: "hub_control",
-            displayName: config.sshConfigAlias || config.hubHost || "Hub",
-            remoteHostLabel: config.hubHost || config.sshConfigAlias || "hub",
-            sshConfigAlias: config.sshConfigAlias,
-            localForwardHost: config.localForwardHost,
-            localForwardPort: config.localForwardPort || TunnelPortConflict_1.defaultTunnelPorts.hubLocalPort,
-            remoteBindHost: config.remoteAgentHost,
-            remoteServicePort: config.remoteAgentPort || TunnelPortConflict_1.defaultTunnelPorts.defaultHubAgentPort,
-            assignedAt,
-            source: "imported",
-        },
         ...config.workerTunnels.map((worker) => ({
             endpointId: worker.id,
             role: "worker_telemetry",
@@ -78,7 +31,7 @@ function endpointAssignmentsFromConfig(config) {
     ];
     if (!config.ports?.assignments?.length)
         return fallback;
-    const validIds = new Set(["hub", ...config.workerTunnels.map((worker) => worker.id)]);
+    const validIds = new Set(config.workerTunnels.map((worker) => worker.id));
     const byId = new Map(config.ports.assignments.filter((assignment) => validIds.has(assignment.endpointId)).map((assignment) => [assignment.endpointId, assignment]));
     return fallback.map((assignment) => {
         const existing = byId.get(assignment.endpointId);

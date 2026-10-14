@@ -13,13 +13,13 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 def now_iso(): return datetime.datetime.now(datetime.timezone.utc).isoformat()
 def collect_local_gpu(): return ([{"id":"0"},{"id":"1"}], "")
 def gpu_row_id(row): return row["id"]
-def gpu_row_busy(*args): return False
+def gpu_row_busy(*args): return pathlib.Path(os.environ["TMUX_TMPDIR"], "gpu-busy").exists()
 def fixed_gpu_window_name(prefix, gpu): return (prefix or "fixture")+"-gpu-"+gpu
 def execute_worker_command(root, job, worker):
     task_option(os.environ["TMUX_PANE"],"phase","running")
     identity=json.dumps({"workflowId":job["workflowId"],"commandId":job["commandId"]},ensure_ascii=False)
     probe=pathlib.Path(root)/"probe.py"
-    env=dict(os.environ,SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY=identity)
+    env=dict(os.environ,SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY=identity,CUDA_VISIBLE_DEVICES=str(job["gpuId"]))
     proc=subprocess.run([sys.executable,str(probe),root,job["commandId"],job["case"],job["outputDir"],job["collectionResultCsv"]],env=env)
     return {"status":"completed" if proc.returncode==0 else "failed","exitCode":proc.returncode}
 '''
@@ -34,6 +34,7 @@ probe.write_text('''import json,os,pathlib,sys,time
 root,command,case,output,csv=sys.argv[1:]
 identity=json.loads(os.environ["SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY"])
 assert identity["commandId"]==command
+pathlib.Path(root,"started-"+command).write_text(json.dumps({"at":time.monotonic(),"gpu":os.environ["CUDA_VISIBLE_DEVICES"]}),encoding="utf-8")
 time.sleep(1.2 if case=="slow" else 0.1)
 if case=="failure": sys.exit(7)
 out=pathlib.Path(root)/output;out.mkdir(parents=True,exist_ok=True)

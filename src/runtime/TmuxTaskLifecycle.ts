@@ -109,7 +109,7 @@ def task_public_observation(root, job, row=None):
         status = "completed"
     public = {key: job[key] for key in ("commandId", "projectId", "workerId", "workflowId", "globalJobId", "planFile", "planRevision", "codeFingerprint",
         "experimentIndex", "case", "seed", "outputDir", "collectionResultCsv", "resultPathPolicy", "planJobCount", "fullPlanJobCount", "enqueuedAt",
-        "executionMode", "mode", "checkpointSource", "lifecycleProtocol", "runKey") if key in job}
+        "executionMode", "mode", "checkpointSource", "lifecycleProtocol", "runKey", "dispatchPolicy") if key in job}
     actual_mode = "test" if job.get("checkpointTestOnly") and job.get("executionMode") == "train_test" else job.get("mode") or job.get("executionMode")
     return {**public, "actualExecutionMode": actual_mode, **({k: row[k] for k in ("tmuxWindowId", "tmuxPane", "tmuxSession", "gpuId", "exitCode")} if row else {}),
             "status": status, "logPath": row.get("logPath") if row else "", "observation": observed, "lifecycleProtocol": 2, "durableAccepted": True}
@@ -171,7 +171,7 @@ def task_query(root, queries=()):
     return {"schemaVersion": 1, "generatedAt": now_iso(), "tasks": tasks, "queryComplete": True, "cleanupExecutors": cleanup_executors,
             "activeOperations": active_cleanup_operations(root) if "active_cleanup_operations" in globals() else [],
             "capabilities": {"schemaVersion": 1, "durablePlanQueue": True, "declaredJobPaths": True,
-                             "idleGpuAdmission": True, "queuedJobRecall": True, "taskLifecycle": 2}}
+                             "idleGpuAdmission": True, "queuedJobRecall": True, "taskLifecycle": 2, "manualDispatch": 1}}
 
 def task_queue_session(root, worker_id):
     key = hashlib.sha256((os.path.realpath(root) + "\0" + worker_id).encode("utf-8")).hexdigest()[:16]
@@ -246,7 +246,7 @@ def task_queue_job(root, worker_id, command):
                "globalJobId", "experimentIndex", "case", "seed", "outputDir", "collectionResultCsv", "resultPathPolicy", "planJobCount",
                "fullPlanJobCount", "enqueuedAt", "workerId", "gpuId", "requireIdleGpu", "executionMode", "mode", "checkpointSource",
                "checkpointTestOnly", "condaEnv", "distributedResults", "codeSyncProofId", "codeManifest", "manifestDigest", "tmuxSessionPrefix", "maxConcurrentGpus",
-               "gpuIdleUtilThreshold", "gpuIdleMemThresholdMb", "schedulerPath", "defaultResultCsvDir", "lifecycleProtocol"}
+               "gpuIdleUtilThreshold", "gpuIdleMemThresholdMb", "schedulerPath", "defaultResultCsvDir", "lifecycleProtocol", "dispatchPolicy"}
     job = {key: command[key] for key in allowed if key in command}
     options = command.get("options") if isinstance(command.get("options"), dict) else {}
     job["options"] = {key: value for key, value in options.items() if key in allowed or key == "distributedResults"}
@@ -255,6 +255,10 @@ def task_queue_job(root, worker_id, command):
             job[key] = job["options"][key]
     if job.get("workerId") != worker_id or job.get("resultPathPolicy") != "declared":
         raise ValueError("TASK_OWNER_REQUIRED")
+    if job.get("dispatchPolicy", "automatic") not in ("manual", "automatic"):
+        raise ValueError("TASK_DISPATCH_POLICY_INVALID")
+    if job.get("dispatchPolicy") == "manual" and not str(job.get("gpuId") or "").strip():
+        raise ValueError("MANUAL_GPU_REQUIRED")
     if not re.fullmatch(r"[a-zA-Z0-9._:-]{1,128}", str(job.get("commandId") or "")):
         raise ValueError("TASK_COMMAND_ID_REQUIRED")
     for key in ("projectId", "workflowId", "planFile", "outputDir", "collectionResultCsv", "planRevision", "codeFingerprint", "globalJobId"):
@@ -291,6 +295,22 @@ def task_queue_accept(root, worker_id, command, window, prepared=None):
     for key, value in (("@simple_experiment_command", job["commandId"]), ("@simple_experiment_project", job["projectId"])):
         task_tmux(["set-option", "-w", "-t", pane, key, value])
     return job
+
+def task_admission_gpu(row, gpus, occupied):
+    options = row.get("options") or {}
+    pinned = str(row.get("gpuId") or "")
+    if row.get("dispatchPolicy") == "manual":
+        if not any(gpu_row_id(gpu) == pinned for gpu in gpus):
+            raise ValueError("MANUAL_GPU_NOT_VISIBLE: " + pinned)
+        return pinned
+    cap = max(1, int(row.get("maxConcurrentGpus") or options.get("maxConcurrentGpus") or len(gpus) or 1))
+    if len(occupied) >= min(cap, len(gpus)):
+        return None
+    pinned = pinned if row.get("requireIdleGpu") else ""
+    return next((gpu_row_id(gpu) for gpu in gpus if (not pinned or gpu_row_id(gpu) == pinned)
+        and gpu_row_id(gpu) not in occupied and not gpu_row_busy(gpu,
+            row.get("gpuIdleUtilThreshold", options.get("gpuIdleUtilThreshold")),
+            row.get("gpuIdleMemThresholdMb", options.get("gpuIdleMemThresholdMb")))), None)
 
 def task_queue_serve(root, worker_id):
     root = os.path.realpath(root)
@@ -370,21 +390,21 @@ def task_queue_serve(root, worker_id):
         try:
             with mutex:
                 rows = task_inventory(root)
-                occupied = {row["gpuId"] for row in rows if not row["dead"] and row["phase"] in ("admitted", "starting", "running") and row["gpuId"]}
-                queued = [row for row in rows if not row["dead"] and row["phase"] == "queued"]
+                occupied = {row["gpuId"] for row in rows if row.get("dispatchPolicy") != "manual" and not row["dead"] and row["phase"] in ("admitted", "starting", "running") and row["gpuId"]}
+                queued = sorted([row for row in rows if not row["dead"] and row["phase"] == "queued"], key=lambda row: row.get("dispatchPolicy") != "manual")
                 if queued:
                     gpus, error = collect_local_gpu()
-                    if not error:
+                    if gpus or not error:
                         for row in queued:
                             options = row.get("options") or {}
-                            cap = max(1, int(row.get("maxConcurrentGpus") or options.get("maxConcurrentGpus") or len(gpus) or 1))
-                            if len(occupied) >= min(cap, len(gpus)):
-                                break
-                            pinned = str(row.get("gpuId") or "") if row.get("requireIdleGpu") else ""
-                            chosen = next((gpu_row_id(gpu) for gpu in gpus if (not pinned or gpu_row_id(gpu) == pinned)
-                                and gpu_row_id(gpu) not in occupied and not gpu_row_busy(gpu,
-                                    row.get("gpuIdleUtilThreshold", options.get("gpuIdleUtilThreshold")),
-                                    row.get("gpuIdleMemThresholdMb", options.get("gpuIdleMemThresholdMb")))), None)
+                            if error and row.get("dispatchPolicy") != "manual":
+                                continue
+                            try:
+                                chosen = task_admission_gpu(row, gpus, occupied)
+                            except ValueError as exc:
+                                task_option(row["tmuxWindowId"], "error", str(exc))
+                                task_option(row["tmuxWindowId"], "phase", "rejected")
+                                continue
                             if chosen is None:
                                 continue
                             session = fixed_gpu_window_name(row.get("tmuxSessionPrefix") or options.get("tmuxSessionPrefix") or os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX"), chosen)
@@ -393,7 +413,8 @@ def task_queue_serve(root, worker_id):
                             task_tmux(["move-window", "-s", row["tmuxWindowId"], "-t", session + ":"])
                             task_option(row["tmuxWindowId"], "gpu", chosen)
                             task_option(row["tmuxWindowId"], "phase", "admitted")
-                            occupied.add(chosen)
+                            if row.get("dispatchPolicy") != "manual":
+                                occupied.add(chosen)
         except Exception as exc:
             print("[queue] " + str(exc), file=sys.stderr, flush=True)
         wake.wait(timeout=1 if queued else 5)
@@ -411,6 +432,8 @@ def task_runner(root, worker_id):
     if job.get("root") != os.path.realpath(root) or job.get("workerId") != worker_id or job.get("pane") != pane:
         raise ValueError("TASK_WINDOW_OWNER_MISMATCH")
     while task_option(pane, "phase") != "admitted":
+        if task_option(pane, "phase") == "rejected":
+            raise ValueError(task_option(pane, "error"))
         time.sleep(0.2)
     job["gpuId"] = task_option(pane, "gpu")
     job["_lifecycleRunner"] = True

@@ -56,7 +56,7 @@ export class PlanCleanupHost {
     this.assertWorkspace();
     if (id === "local") return { id, kind: "local" as const, root: this.root };
     const worker = (this.host.setupConfig.workerTunnels || []).find((row: any) => row.id === id);
-    const target = id === "hub" ? this.host.hubCodeSyncTarget() : worker && this.host.workerCodeSyncTarget(worker);
+    const target = worker && worker.enabled !== false && this.host.workerCodeSyncTarget(worker);
     if (!target) cleanupError("SERVER_IDENTITY_UNVERIFIED");
     return { id, kind: "remote" as const, host: target.host, user: target.user, port: target.port, root: target.remotePath };
   }
@@ -123,7 +123,7 @@ export class PlanCleanupHost {
     const registry = await json(path.join(this.root, "simple_cluster/results/project_table_registry.json"), undefined);
     const targets: any[] = [];
     // Include disabled Workers: historical ownership never disappears with the current selection.
-    for (const worker of this.host.setupConfig.workerTunnels || []) {
+    for (const worker of (this.host.setupConfig.workerTunnels || []).filter((row: any) => row.enabled !== false)) {
       try { targets.push(this.host.workerCodeSyncTarget(worker)); }
       catch { targets.push({ id: worker.id, error: "当前服务器身份或项目安全根未核实" }); }
     }
@@ -189,10 +189,6 @@ export class PlanCleanupHost {
     for (const worker of this.host.setupConfig.workerTunnels || []) {
       try { nodes.push({ ...this.currentNode(worker.id) }); }
       catch { nodes.push({ id: worker.id, kind: "remote", root: "", error: "当前服务器身份或安全根未核实" }); }
-    }
-    if (this.host.setupConfig.agentProjectDir && this.host.setupConfig.savedSessionPath) {
-      try { nodes.push({ ...this.currentNode("hub") }); }
-      catch { nodes.push({ id: "hub", kind: "remote", root: "", error: "当前 Hub 身份或安全根未核实" }); }
     }
     return nodes;
   }

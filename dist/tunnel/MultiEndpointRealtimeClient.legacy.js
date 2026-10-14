@@ -25,7 +25,7 @@ class MultiEndpointRealtimeClient {
     constructor(endpoints, budgetFactory, policy = RealtimeTunnelClient_1.defaultRealtimeRefreshPolicy, onState = () => undefined) {
         this.policy = policy;
         this.onState = onState;
-        this.endpoints = endpoints.map((endpoint) => ({ ...endpoint }));
+        this.endpoints = endpoints.filter(endpoint => endpoint.role === "worker").map((endpoint) => ({ ...endpoint }));
         this.endpointById = new Map(this.endpoints.map((endpoint) => [endpoint.id, endpoint]));
         let sharedCoordinator;
         for (const endpoint of this.endpoints) {
@@ -94,20 +94,11 @@ class MultiEndpointRealtimeClient {
                         return await client.getGpuHistory(query);
                     }
                     catch (error) {
-                        if (target.id !== "hub") {
-                            const hub = this.clients.get("hub");
-                            if (hub) {
-                                try {
-                                    return await hub.getGpuHistory(query);
-                                }
-                                catch { }
-                            }
-                        }
                         throw error;
                     }
                 }
             }
-            // target 为空时：尝试在 enabled workers 中模糊匹配首个 worker 直连，不再直接 hubClient() 抛 Hub not configured
+            // target 为空时：尝试在 enabled workers 中模糊匹配首个 worker 直连，不再直接 selectedWorkerClient() 抛 Hub not configured
             const lowerKey = serverId.toLowerCase();
             const enabled = this.endpoints;
             const fuzzyFallback = enabled.find((ep) => {
@@ -208,9 +199,6 @@ class MultiEndpointRealtimeClient {
         return experimentTraces;
     }
     async getResultsSummary(planFile = "", options = {}) {
-        const hub = this.clients.get("hub");
-        if (hub)
-            return hub.getResultsSummary(planFile, options);
         const workerEndpoints = this.endpoints.filter((endpoint) => endpoint.role === "worker");
         const entries = await Promise.allSettled(workerEndpoints.map(async (endpoint) => ({
             workerId: endpoint.id,
@@ -296,14 +284,14 @@ class MultiEndpointRealtimeClient {
         return client.getWorkerTasks(options);
     }
     async getRunEvidence(workerId, params) {
-        const client = workerId ? this.clients.get(workerId) : this.hubClient();
+        const client = workerId ? this.clients.get(workerId) : this.selectedWorkerClient();
         const endpoint = workerId ? this.endpointById.get(workerId) : undefined;
         if (!client || (workerId && endpoint?.role !== "worker"))
             throw new Error(`Agent endpoint not configured: ${workerId || "hub"}`);
         return client.getRunEvidence?.(params) ?? Promise.reject(new Error("Agent runtime does not expose run evidence."));
     }
     async getLiveOutput(runKey, since = 0, workerId, options = {}) {
-        const client = workerId ? this.clients.get(workerId) : this.hubClient();
+        const client = workerId ? this.clients.get(workerId) : this.selectedWorkerClient();
         const endpoint = workerId ? this.endpointById.get(workerId) : undefined;
         if (!client || (workerId && endpoint?.role !== "worker")) {
             throw new Error(`Worker Agent endpoint not configured: ${workerId}`);
@@ -331,47 +319,22 @@ class MultiEndpointRealtimeClient {
         return this.getAggregatedPostAction(action, body);
     }
     async getAggregatedPostAction(action, body) {
-        const isCacheClear = String(action || "").trim().toLowerCase().replace(/[-_]/g, "") === "clearcache";
-        const isWorkerAction = isCacheClear || (0, WorkerTelemetryApi_1.isWorkerTelemetryAction)(action) || isWorkerLocalSchedulerRequest(action, body) || isWorkerOwnedResultRequest(action, body);
-        if (isWorkerAction) {
-            // worker 型 action（含 clearCache/clear-cache 视为 worker 本地操作）聚合到 workers（失败单端忽略），单 worker 时走 worker 端点
-            const workers = this.endpoints.filter((ep) => ep.role === "worker");
-            const targets = isCacheClear
-                ? (this.endpoints.filter((ep) => ep.role === "worker").length ? this.endpoints.filter((ep) => ep.role === "worker") : this.aggregationTargets())
-                : (workers.length ? workers : this.aggregationTargets());
-            // clearCache 需要广播到所有可用端点（hub+workers）或仅 workers（hub 未配置时）；其他 worker action 保持原聚合
-            if (isCacheClear) {
-                const cacheTargets = this.endpoints.length ? this.endpoints : this.aggregationTargets();
-                // 若存在 hub 且 workers 为空，仍走 hub；否则优先 workers，hub 未配置时仅 workers 不抛 Hub not configured
-                const effectiveTargets = cacheTargets.filter((ep) => ep.role === "worker").length ? cacheTargets.filter((ep) => ep.role === "worker") : cacheTargets;
-                // 当为单 worker 拓扑（无 hub）时直接扇出到 workers
-                const hasHub = this.clients.has("hub");
-                const fanout = hasHub ? cacheTargets : effectiveTargets;
-                const results = await Promise.allSettled(fanout.map((ep) => this.clients.get(ep.id).postAction(action, body)));
-                const fulfilled = results.filter((r) => r.status === "fulfilled").map((r) => r.value);
-                if (fulfilled.length) {
-                    // 合并 deletedCount 以反映多端清除总量
-                    const merged = fulfilled[0];
-                    if (fulfilled.length > 1 && merged && typeof merged === "object") {
-                        const total = fulfilled.reduce((sum, v) => sum + Number(v?.deletedCount ?? 0), 0);
-                        merged.deletedCount = total;
-                        merged._aggregatedSources = fulfilled.length;
-                    }
-                    return merged;
-                }
-                const rejected = results.find((r) => r.status === "rejected");
-                throw rejected?.reason || new Error("No endpoint accepted clearCache.");
-            }
-            const results = await Promise.allSettled(targets.map((ep) => this.clients.get(ep.id).postAction(action, body)));
-            const fulfilled = results.filter((r) => r.status === "fulfilled").map((r) => r.value);
-            if (fulfilled.length)
-                return fulfilled[0];
-            const rejected = results.find((r) => r.status === "rejected");
-            throw rejected?.reason || new Error("No worker endpoint accepted action.");
-        }
-        // hub 型 action 保持 hub 单点（避免 workers 收到不支持的 Hub 控制 API），兼容既有测试
-        // 若 hub 未配置但为 clearCache 已在上方处理，此处仍抛 Hub not configured 以便上层回退
-        return this.hubClient().postAction(action, body);
+        const request = (body && typeof body === "object" ? body : {});
+        const options = request.options || {};
+        const id = request.workerId || options.workerId || request.schedulerOwnerWorkerId || options.schedulerOwnerWorkerId;
+        const allowed = (0, WorkerTelemetryApi_1.isWorkerTelemetryAction)(action) || isWorkerLocalSchedulerRequest(action, body) || isWorkerOwnedResultRequest(action, body) || String(action).replace(/-/g, "").toLowerCase() === "clearcache";
+        if (!allowed)
+            throw new Error("WORKER_ACTION_REQUIRED：请选择支持该操作的 Worker。");
+        const targets = id ? this.endpoints.filter(ep => ep.id === id) : this.aggregationTargets();
+        if (!targets.length)
+            throw new Error("没有配置目标 Worker。");
+        if (!id && targets.length > 1 && ["run-plan", "start-worker-task", "retry-worker-task"].includes(String(action)))
+            throw new Error("请选择目标 Worker，未广播启动任务。");
+        const rows = await Promise.allSettled(targets.map(ep => this.clients.get(ep.id).postAction(action, body)));
+        const good = rows.filter((row) => row.status === "fulfilled");
+        if (!good.length)
+            throw rows.find(row => row.status === "rejected")?.reason || new Error("Worker 请求失败");
+        return this.mergeGenericResponses(good.map(row => row.value));
     }
     async postWorkerAction(workerId, action, body, options = {}) {
         const isCacheClearWorker = String(action || "").trim().toLowerCase().replace(/[-_]/g, "") === "clearcache";
@@ -386,15 +349,13 @@ class MultiEndpointRealtimeClient {
         return client.postAction(action, body, options);
     }
     async postAvailabilityBatch(body) {
-        // postAvailabilityBatch 保持 hub 聚合（workers 先直连 HUB 再聚合），失败单端忽略；此处简化为 hub 直调以兼容既有 worker 隔离测试
-        // 若需多端聚合，可改为 fanout 到 workers + hub 并合并
-        return this.hubClient().postAvailabilityBatch(body);
+        throw new Error("AVAILABILITY_PUSH_RETIRED：使用 Worker 主动查询。");
     }
     async listRemoteFiles(remotePath) {
-        return this.hubClient().listRemoteFiles(remotePath);
+        return this.selectedWorkerClient().listRemoteFiles(remotePath);
     }
     async downloadFile(remotePath, localPath, options = {}) {
-        const task = await this.hubClient().downloadFile(remotePath, localPath, options);
+        const task = await this.selectedWorkerClient().downloadFile(remotePath, localPath, options);
         this.updateMergedState();
         return task;
     }
@@ -408,7 +369,7 @@ class MultiEndpointRealtimeClient {
         return task;
     }
     async uploadFile(localPath, remotePath) {
-        const task = await this.hubClient().uploadFile(localPath, remotePath);
+        const task = await this.selectedWorkerClient().uploadFile(localPath, remotePath);
         this.updateMergedState();
         return task;
     }
@@ -476,12 +437,7 @@ class MultiEndpointRealtimeClient {
         this.onState(this.mergedState);
     }
     aggregationTargets() {
-        const hubAllowed = this.clients.has("hub");
-        // 若 topology hubAllowed 则 workers->HUB 聚合（workers先直连HUB再聚合），否则直接聚合 workers；复用 getAggregatedGpuHistory 的 fanout+merge 模式
-        if (hubAllowed)
-            return this.endpoints;
-        const workers = this.endpoints.filter((ep) => ep.role === "worker");
-        return workers.length ? workers : this.endpoints;
+        return this.endpoints.filter(endpoint => endpoint.role === "worker");
     }
     mergeGenericResponses(values) {
         if (!values.length)
@@ -511,11 +467,11 @@ class MultiEndpointRealtimeClient {
             out._aggregatedSources = values.length;
         return out;
     }
-    hubClient() {
-        const hub = this.clients.get("hub");
-        if (!hub)
-            throw new Error("Hub realtime endpoint not configured for current topology.");
-        return hub;
+    selectedWorkerClient() {
+        const endpoints = this.endpoints.filter(row => row.role === "worker");
+        if (endpoints.length !== 1)
+            throw new Error("请选择目标 Worker。");
+        return this.clients.get(endpoints[0].id);
     }
 }
 exports.MultiEndpointRealtimeClient = MultiEndpointRealtimeClient;

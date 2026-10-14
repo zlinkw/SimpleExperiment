@@ -20,7 +20,8 @@ export function renderPanelHtml(): string {
       const renderer = new PanelHtmlRenderer(sections as any, escaper);
       const html = renderer.render(String(Date.now()));
       // 功能门禁：必须含握手三件套才视为可用，否则回退
-      if (html && html.includes("acquireVsCodeApi") && html.includes("requestInitialPanelState") && html.includes("handleIncomingWebviewMessage")) {
+      if (html && html.includes("data-manual-dispatch") && !html.includes('data-command="startHub"')
+        && html.includes("acquireVsCodeApi") && html.includes("requestInitialPanelState") && html.includes("handleIncomingWebviewMessage")) {
         // 额外 vm 校验
         new (require("vm").Script)(renderer.renderScript());
         return html;

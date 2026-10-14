@@ -963,7 +963,7 @@ function allocateAvailable(queue, workers, options = {}) {
             continue;
         if (!versioned && (!runnableFingerprint || plan.codeFingerprint !== runnableFingerprint))
             continue;
-        const pending = plan.jobs.filter((job) => job.status === "pending" && !job.recallRequested && !job.stopIntent
+        const pending = plan.jobs.filter((job) => !job.manualDispatch && job.status === "pending" && !job.recallRequested && !job.stopIntent
             && (!options.localIdleOnly || plan.schedulingMode !== "server_prequeue" || plan.localDispatchOverride === true || job.localQueueOnly === true));
         if (!pending.length)
             continue;
@@ -1135,7 +1135,7 @@ function releaseQueuedForReassignment(queue, planId, jobIndex, receipt, nextRunI
     const outputDir = nextAttemptOutputDir(job.outputDir, nextRunId);
     return { ...queue, plans: queue.plans.map((row) => row.id !== planId ? row : { ...row,
             jobs: row.jobs.map((item) => item.index !== jobIndex ? item : {
-                ...item, outputDir, attempt: 0, nextCommandId: nextRunId, workerId: undefined, commandId: undefined, runKey: undefined, gpuId: undefined,
+                ...item, outputDir, attempt: 0, nextCommandId: nextRunId, workerId: undefined, commandId: undefined, runKey: undefined, gpuId: undefined, manualDispatch: undefined,
                 status: "pending", projectId: item.projectId, localQueueOnly: true, recallRequested: undefined,
                 recallOperationId: undefined, reassignmentPending: undefined,
                 reassignmentWorkerId: item.reassignmentWorkerId,
@@ -1422,7 +1422,7 @@ function retryVerifiedJob(queue, planId, jobIndex, runId) {
     const outputDir = nextAttemptOutputDir(prefix, "");
     return { ...queue, plans: queue.plans.map((row) => row.id !== planId ? row : { ...row,
             jobs: row.jobs.map((item) => item.index !== jobIndex ? item : {
-                ...item, outputDir, attempt: 0, nextCommandId: runId, workerId: undefined, commandId: undefined, runKey: undefined, gpuId: undefined,
+                ...item, outputDir, attempt: 0, nextCommandId: runId, workerId: undefined, commandId: undefined, runKey: undefined, gpuId: undefined, manualDispatch: undefined,
                 trustedTerminalStatus: undefined, admissionRejection: undefined, error: undefined, finishedAt: undefined,
                 failureDiagnostic: undefined, formalConflictEvidence: undefined, blockReason: undefined, recoveryConflict: undefined,
                 stopReason: undefined, automaticRetry: undefined, dispatchAcknowledgedAt: undefined, lastDispatchAttemptAt: undefined,

@@ -108,9 +108,9 @@ export async function replacePlanOutputs(ports: ReplacementPorts, planFile: stri
             && cleanupDigest(other.rootIdentity) === cleanupDigest(row.rootIdentity)))));
       if (candidate.scope.candidates.length && !candidate.blockers.length
           && coversEveryTarget && candidate.rows.every(row => !["unverified"].includes(row.disposition))) { selected = candidate; break; }
-      reason = [...candidate.blockers.map(row => row.code + ": " + row.detail), ...candidate.rows.filter(row => ["protected", "unverified"].includes(row.disposition)).map(row => row.absolutePath + ": " + (row.protectedReason || row.error))].join("；");
+      reason = [...candidate.blockers.map(row => (row.nodeId || "") + " " + row.code + ": " + row.detail), ...candidate.rows.filter(row => ["protected", "unverified"].includes(row.disposition)).map(row => row.absolutePath + ": " + (row.protectedReason || row.error))].join("；");
     }
-    if (!selected) cleanupError("OUTPUT_REPLACEMENT_BLOCKED", "目标存在活动任务、共享依赖或缺少当前所有权；未删除任何产物。" + reason);
+    if (!selected) cleanupError("OUTPUT_REPLACEMENT_BLOCKED", "文件审核未通过，未删除任何产物。" + reason);
     if (selected.rows.some(row => row.disposition === "delete") && !previews.some(row => row.digest === selected!.digest)) previews.push(selected);
   }
   const exact = previews.flatMap(preview => preview.rows.filter(row => row.disposition === "delete").map(row => row.node.id + ":" + row.absolutePath));

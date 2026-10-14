@@ -20,6 +20,8 @@ export type QueuedJob = {
   attempt: number;
   status: JobState;
   lifecycleProtocol?: 2;
+  manualDispatch?: { workerId: string; gpuId: string; stage: "preparing" | "ready" | "sent" };
+  manualDispatchNotice?: string;
   executionState?: string;
   resultState?: string;
   statusQueryError?: string;
@@ -948,7 +950,7 @@ export function allocateAvailable(queue: DistributedQueue, workers: readonly Wor
     if (options.localIdleOnly && plan.schedulingMode === "server_prequeue" && plan.localDispatchOverride !== true
       && !plan.jobs.some((job) => job.status === "pending" && job.localQueueOnly === true && !job.recallRequested)) continue;
     if (!versioned && (!runnableFingerprint || plan.codeFingerprint !== runnableFingerprint)) continue;
-    const pending = plan.jobs.filter((job) => job.status === "pending" && !job.recallRequested && !job.stopIntent
+    const pending = plan.jobs.filter((job) => !job.manualDispatch && job.status === "pending" && !job.recallRequested && !job.stopIntent
       && (!options.localIdleOnly || plan.schedulingMode !== "server_prequeue" || plan.localDispatchOverride === true || job.localQueueOnly === true));
     if (!pending.length) continue;
     const eligibleWorkerIds = new Set(workers.filter(row => row.declaredJobPaths === true && (!versioned || row.codeFingerprint === plan.codeFingerprint)
@@ -1123,7 +1125,7 @@ export function releaseQueuedForReassignment(queue: DistributedQueue, planId: st
   const outputDir = nextAttemptOutputDir(job.outputDir, nextRunId);
   return { ...queue, plans: queue.plans.map((row) => row.id !== planId ? row : { ...row,
     jobs: row.jobs.map((item) => item.index !== jobIndex ? item : {
-      ...item, outputDir, attempt: 0, nextCommandId: nextRunId, workerId: undefined, commandId: undefined, runKey: undefined, gpuId: undefined,
+      ...item, outputDir, attempt: 0, nextCommandId: nextRunId, workerId: undefined, commandId: undefined, runKey: undefined, gpuId: undefined, manualDispatch: undefined,
       status: "pending" as const, projectId: item.projectId, localQueueOnly: true, recallRequested: undefined,
       recallOperationId: undefined, reassignmentPending: undefined,
       reassignmentWorkerId: item.reassignmentWorkerId,
@@ -1428,7 +1430,7 @@ export function retryVerifiedJob(queue: DistributedQueue, planId: string, jobInd
   const outputDir = nextAttemptOutputDir(prefix, "");
   return { ...queue, plans: queue.plans.map((row) => row.id !== planId ? row : { ...row,
     jobs: row.jobs.map((item) => item.index !== jobIndex ? item : {
-      ...item, outputDir, attempt: 0, nextCommandId: runId, workerId: undefined, commandId: undefined, runKey: undefined, gpuId: undefined,
+      ...item, outputDir, attempt: 0, nextCommandId: runId, workerId: undefined, commandId: undefined, runKey: undefined, gpuId: undefined, manualDispatch: undefined,
       trustedTerminalStatus: undefined, admissionRejection: undefined, error: undefined, finishedAt: undefined,
       failureDiagnostic: undefined, formalConflictEvidence: undefined, blockReason: undefined, recoveryConflict: undefined,
       stopReason: undefined, automaticRetry: undefined, dispatchAcknowledgedAt: undefined, lastDispatchAttemptAt: undefined,

@@ -2615,32 +2615,7 @@ def write_availability_batch(root, payload):
     return {"schemaVersion": SCHEMA_VERSION, "accepted": True, "updated": len(rows), "generatedAt": now}
 
 def write_worker_uplink_batch(root, payload):
-    events = payload.get("events") if isinstance(payload.get("events"), list) else []
-    availability = payload.get("availability") if isinstance(payload.get("availability"), dict) else None
-    worker_id = str(payload.get("workerId") or "").strip()
-    accepted_events = 0
-    if availability:
-        write_availability_batch(root, {
-            "schemaVersion": SCHEMA_VERSION,
-            "source": availability.get("source") or "worker_uplink",
-            "generatedAt": availability.get("updatedAt") or now_iso(),
-            "workers": [availability],
-        })
-    for event in events:
-        if not isinstance(event, dict):
-            continue
-        append_event(root, {
-            "type": str(event.get("type") or "worker_uplink_event"),
-            "source": event.get("source") or "worker_telemetry",
-            "workerId": event.get("workerId") or worker_id,
-            "operationId": event.get("operationId") or "",
-            "payload": event.get("payload") if isinstance(event.get("payload"), dict) else event,
-        })
-        accepted_events += 1
-    accepted_events += record_worker_command_results(root, worker_id, payload) if worker_id else 0
-    commands_since = int(payload.get("commandsSince") or 0)
-    commands = read_worker_commands(root, worker_id, commands_since, payload.get("commandsLimit") or 20) if worker_id else []
-    return {"schemaVersion": SCHEMA_VERSION, "accepted": True, "events": accepted_events, "availability": bool(availability), "commands": commands, "generatedAt": now_iso()}
+    raise ValueError("HUB_REMOVED: use Worker direct queries")
 
 def worker_task_snapshot_key(task):
     key = str(task.get("commandId") or task.get("operationId") or task.get("runKey") or "")
@@ -6396,58 +6371,7 @@ def post_json(url, payload, timeout=5):
         return json.loads(body or "{}")
 
 def start_worker_hub_uplink(root, hub_uplink_url="", worker_id="", availability_seconds=60, jitter_seconds=30, event_delay_ms=1000):
-    url = str(hub_uplink_url or os.environ.get("SIMPLE_EXPERIMENT_HUB_UPLINK_URL") or "").strip()
-    if not url:
-        return
-    worker_id = str(worker_id or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
-    availability_base = 0.5
-    jitter = 0.0
-    event_delay = 0.5
-    def loop():
-        last_seq = read_seq(root)
-        last_command_seq = 0
-        next_availability = time.time()
-        backoff = 1.0
-        while True:
-            try:
-                now_ts = time.time()
-                events = read_events_after_seq(root, last_seq, 100, "worker-uplink")
-                availability = None
-                if now_ts >= next_availability:
-                    availability = availability_from_gpu(worker_id, api_worker_gpu(root), "worker_uplink", 180)
-                    availability.update({"declaredJobPaths": formal_job_path_capable(root), "formalJobIdentityEnv": 1 if formal_job_path_capable(root) else 0, "runtimeVersion": RUNTIME_VERSION})
-                    next_availability = now_ts + availability_base + (random.random() * jitter if jitter else 0)
-                if events or availability:
-                    payload = {
-                        "schemaVersion": SCHEMA_VERSION,
-                        "workerId": worker_id,
-                        "generatedAt": now_iso(),
-                        "events": events,
-                        "availability": availability,
-                        "commandsSince": last_command_seq,
-                    }
-                    response = post_json(url, payload, timeout=5)
-                    if events:
-                        last_seq = max(int(event.get("seq") or last_seq) for event in events)
-                    command_results = []
-                    for command in response.get("commands") or []:
-                        if not isinstance(command, dict):
-                            continue
-                        last_command_seq = max(last_command_seq, int(command.get("queueSeq") or last_command_seq))
-                        # The old Hub inbox is retained for compatibility diagnostics only.
-                        # Control now arrives directly from the local plugin; replaying this JSON queue would resurrect old jobs.
-                        command_results.append({"commandId": command.get("commandId"), "status": "rejected",
-                                                "message": "HISTORICAL_HUB_QUEUE_READ_ONLY: use the native task lifecycle endpoint"})
-                    if command_results:
-                        post_json(url, {"schemaVersion": SCHEMA_VERSION, "workerId": worker_id, "generatedAt": now_iso(), "commandResults": command_results, "commandsSince": last_command_seq}, timeout=5)
-                    backoff = 1.0
-                time.sleep(event_delay)
-            except Exception as exc:
-                append_event(root, {"type": "worker_uplink_error", "source": "worker_telemetry", "payload": {"error": str(exc), "hubUplinkUrl": url}})
-                time.sleep(backoff + random.random() * min(backoff, 30.0))
-                backoff = min(backoff * 2, 60.0)
-    thread = threading.Thread(target=loop, daemon=True, name="worker-hub-uplink")
-    thread.start()
+    raise ValueError("HUB_REMOVED: use Worker direct queries")
 
 def start_worker_local_command_processor(root, worker_id, poll_seconds=5, jitter_seconds=2):
     """Single-worker (no-hub) command executor.
@@ -6627,40 +6551,7 @@ def start_worker_telemetry_sampler(root, poll_seconds=1, jitter_seconds=30):
     return thread
 
 def start_hub_control_sampler(root, poll_seconds=60, jitter_seconds=30):
-    interval = sampler_interval_seconds(poll_seconds, 60.0)
-    heartbeat_interval = max(60.0, interval)
-    def loop():
-        last_payloads = {}
-        last_heartbeat = 0.0
-        while True:
-            try:
-                scheduler = collect_scheduler(root)
-                traces = collect_traces(root, scheduler)
-                payloads = {
-                    "scheduler_snapshot": {"schedulerStates": scheduler},
-                    "experiment_trace": {"experimentTraces": traces},
-                }
-                for item in collect_live_output(scheduler, 120, root):
-                    payloads[f"log_tail:{item.get('runKey') or item.get('key')}"] = item
-                for name, payload in payloads.items():
-                    if payload_cache_changed(last_payloads, name, payload):
-                        typ = name.split(":", 1)[0]
-                        event = {"type": typ, "payload": payload}
-                        if typ == "log_tail":
-                            event["runKey"] = payload.get("runKey") or payload.get("key") or ""
-                        append_event(root, event)
-                if time.time() - last_heartbeat >= heartbeat_interval:
-                    append_event(root, {"type": "agent_heartbeat", "payload": {"status": "ok", "pollSeconds": interval, "agentVersion": AGENT_VERSION}})
-                    last_heartbeat = time.time()
-            except Exception as exc:
-                try:
-                    append_event(root, {"type": "diagnostics_updated", "payload": {"status": "degraded", "lastError": str(exc), "generatedAt": now_iso()}})
-                except Exception:
-                    pass
-            time.sleep(interval)
-    thread = threading.Thread(target=loop, name="simple-hub-control-sampler", daemon=True)
-    thread.start()
-    return thread
+    raise ValueError("HUB_REMOVED: use Worker direct queries")
 
 def write_snapshots(root, hub_id, workers, scheduler, traces, gpu, health, errors, ttl):
     generated = now_iso()
@@ -6826,7 +6717,7 @@ def api_snapshot(root):
     }
 
 def api_health(root, mode="realtime"):
-    serving = mode in ("worker_telemetry", "hub_control")
+    serving = mode == "worker_telemetry"
     snapshot_name = "gpu_snapshot.json" if mode == "worker_telemetry" else "cluster_snapshot.json"
     snapshot = read_runtime_json_cached(path_for(root, snapshot_name), {})
     health = inspect_agent(root)
@@ -6910,7 +6801,7 @@ def project_managed_validation_capable(root):
     except (OSError, TypeError):
         return False
 
-def api_capabilities(root, token_required=False, mode="hub_control"):
+def api_capabilities(root, token_required=False, mode="worker_telemetry"):
     if mode == "worker_telemetry":
         return {
             "schemaVersion": SCHEMA_VERSION,
@@ -6929,7 +6820,6 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
                 "gpu": True,
                 "gpuHistory": True,
                 "workerAvailability": True,
-                "workerHubUplink": True,
                 "workerTasks": True,
                 "taskLifecycle": 2,
                 "declaredJobPaths": formal_job_path_capable(root),
@@ -6944,6 +6834,7 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
                 "codeSyncProof": True,
                 "codeSyncProofAsync": True,
                 "idleGpuAdmission": True,
+                "manualDispatch": 1,
                 "queuedJobRecall": True,
                 "liveOutput": True,
                 "diagnostics": True,
@@ -6979,65 +6870,7 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
                 **{name: True for name in WORKER_ENV_ACTIONS},
             },
         }
-    return {
-        "schemaVersion": SCHEMA_VERSION,
-        "apiVersion": API_VERSION,
-        "agentVersion": AGENT_VERSION,
-        "runtimeVersion": RUNTIME_VERSION,
-        "pluginVersion": PLUGIN_VERSION,
-        "schedulerVersion": RUNTIME_VERSION,
-        "mode": "hub_control",
-        "actionApiVersion": 2,
-        "realActionRuntime": True,
-        "endpoints": {
-            "health": True,
-            "version": True,
-            "snapshot": True,
-            "gpu": True,
-            "gpuHistory": True,
-            "workerAvailability": True,
-            "workerHubUplink": True,
-            "scheduler": True,
-            "declaredJobPaths": formal_job_path_capable(root),
-            "formalJobIdentityEnv": 1 if formal_job_path_capable(root) else 0,
-            "executionShellPreflight": 1 if execution_shell_preflight_capable(root) else 0,
-            "taskShellEnvironment": 1 if task_shell_environment_capable(root) else 0,
-            "stagedJobPreflight": 1 if staged_job_preflight_capable(root) else 0,
-            "originalSourceHashDiagnostic": 1,
-            "projectManagedValidation": 1 if project_managed_validation_capable(root) else 0,
-            "completedOutputPreflight": 1 if project_managed_validation_capable(root) else 0,
-            "traces": True,
-            "liveOutput": True,
-            "diagnostics": True,
-            "auditTail": True,
-            "resultsSummary": True,
-            "openapi": True,
-            "websocketEvents": False,
-            "sseEvents": True,
-            "logsTail": True,
-            "fileList": True,
-            "fileStat": True,
-            "fileDownload": True,
-            "fileRangeDownload": True,
-            "fileUploadInit": True,
-            "fileUploadChunk": True,
-            "fileUploadComplete": True,
-            "fileUploadCancel": True,
-            "fileTransferStatus": True,
-            "actions": True,
-        },
-        "actionEndpoints": {name: True for name in ACTION_NAMES},
-        "limits": {
-            "maxUploadChunkBytes": 1024 * 1024,
-            "maxDownloadChunkBytes": 8 * 1024 * 1024,
-            "maxConcurrentTransfers": 1,
-            "maxPathLength": 4096,
-        },
-        "auth": {
-            "required": bool(token_required),
-            "scheme": "bearer" if token_required else "none",
-        },
-    }
+    raise ValueError("HUB_REMOVED: use Worker mode")
 
 def api_file_capabilities():
     return {
@@ -11698,8 +11531,8 @@ def create_debug_bundle_action(root, include_results=False, plan=None):
     statistics_path = plan_results_artifact_relpath(plan_norm, "statistics.json") if plan_norm else "simple_cluster/results/statistics.json"
     items = {
         "diagnostics.json": api_diagnostics(root),
-        "capabilities.json": api_capabilities(root, False, "hub_control"),
-        "health.json": api_health(root, "hub_control"),
+        "capabilities.json": api_capabilities(root, False, "worker_telemetry"),
+        "health.json": api_health(root, "worker_telemetry"),
         "results_summary.json": summary,
         "claim_evidence.json": read_json(safe_project_path(root, claim_path), {}),
         "quality_gate.json": read_json(safe_project_path(root, quality_path), {}),
@@ -14583,7 +14416,7 @@ def api_worker_tasks(root, retired_commands=(), queries=None):
             "retiredTasks": retired_tasks,
             "capabilities": {"controlStateRetirement": 1, "durablePlanQueue": True, "codeSyncProof": True, "idleGpuAdmission": True, "queuedJobRecall": True, "failedAttemptQuarantine": True, "declaredJobPaths": formal_job_path_capable(root), "schemaVersion": 1}, "generatedAt": now_iso()}
 
-def api_openapi(root, token_required=False, mode="hub_control"):
+def api_openapi(root, token_required=False, mode="worker_telemetry"):
     if mode == "worker_telemetry":
         paths = [
             "/api/health",
@@ -14626,45 +14459,7 @@ def api_openapi(root, token_required=False, mode="hub_control"):
             "paths": {path: {} for path in paths},
             "x-simple-capabilities": api_capabilities(root, token_required, mode),
         }
-    return {
-        "openapi": "3.0.0",
-        "info": {"title": "SimpleExperiment Hub Agent Realtime Gateway", "version": API_VERSION},
-        "paths": {path: {} for path in [
-            "/api/health",
-            "/api/version",
-            "/api/capabilities",
-            "/api/files/capabilities",
-            "/api/code-sync/inspect",
-            "/api/openapi.json",
-            "/api/snapshot",
-            "/api/gpu",
-            "/api/gpu/history",
-            "/api/scheduler",
-            "/api/traces",
-            "/api/live-output",
-            "/api/results/summary",
-            "/api/diagnostics",
-            "/api/audit/tail",
-            "/api/events",
-            "/api/events/sse",
-            "/api/operations/{id}",
-            "/api/logs/tail",
-            "/api/logs/stream",
-            "/api/files/list",
-            "/api/files/stat",
-            "/api/files/download",
-            "/api/files/download-range",
-            "/api/files/upload-init",
-            "/api/files/upload-chunk",
-            "/api/files/upload-complete",
-            "/api/files/upload-cancel",
-            "/api/files/transfer-status",
-            "/api/workers/uplink/events",
-            "/api/tensorboard/proxy",
-            "/api/tensorboard/ui/{path}",
-        ] + ACTION_PATHS},
-        "x-simple-capabilities": api_capabilities(root, token_required, mode),
-    }
+    raise ValueError("HUB_REMOVED: use Worker mode")
 
 def api_diagnostics(root, include_token=False):
     health = inspect_agent(root)
@@ -15838,15 +15633,7 @@ def kill_tmux_window_response(payload, mode, mgmt_env=""):
             if not _pfx:
                 _pfx = str(os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "simple").strip().lower() or "simple"
             _pfx = re.sub(r"[^a-z0-9._-]+", "-", _pfx.lower()).strip("-")[:32] or "simple"
-            if mode == "hub_control":
-                mgmt_target = _pfx + "-hub-agent"
-            else:
-                try:
-                    _wid = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip().lower() or "worker"
-                except Exception:
-                    _wid = "worker"
-                _wid = re.sub(r"[^a-z0-9._-]+", "-", _wid).strip("-") or "worker"
-                mgmt_target = _pfx + "-worker-" + _wid + "-agent"
+            pass
         except Exception:
             mgmt_target = ""
     if not mgmt_target:
@@ -15910,7 +15697,9 @@ def serve_http(args):
             raise RuntimeError("Agent --host IPv6 address is invalid") from exc
     root = args.project_dir
     token = args.token or os.environ.get("SIMPLE_EXPERIMENT_AGENT_TOKEN", "")
-    mode = args.mode or "hub_control"
+    mode = args.mode or "worker_telemetry"
+    if mode != "worker_telemetry":
+        raise ValueError("HUB_REMOVED: use Worker mode")
     # Keep the worker id used for availability reporting and the worker command queue path
     # consistent with the serve --worker-id. The scheduler dispatches to and matches
     # availability by this id (e.g. "worker-id"); without this the agent would default to the
@@ -15929,26 +15718,12 @@ def serve_http(args):
             start_gpu_log_tail_sampler(root, getattr(args, "gpu_poll_seconds", 60) or 60, getattr(args, "jitter_seconds", 30))
         except Exception:
             pass
-        hub_uplink_url = getattr(args, "hub_uplink_url", "") or os.environ.get("SIMPLE_EXPERIMENT_HUB_UPLINK_URL", "")
-        start_worker_hub_uplink(
-            root,
-            hub_uplink_url,
-            getattr(args, "worker_id", "") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID", ""),
-            getattr(args, "worker_availability_push_seconds", 60),
-            getattr(args, "jitter_seconds", 30),
-            getattr(args, "operation_event_max_delay_ms", 1000),
-        )
         # Single-worker (no hub) mode has no uplink driving command execution, so start a
         # local processor that polls the worker command queue and runs start-worker-task
         # commands (otherwise run-plan tasks would never launch).
         # Historical file queues are evidence only. New submissions are owned by
         # the independent tmux Scheduler and must not be replayed on Agent restart.
-    elif mode == "hub_control":
-        start_hub_control_sampler(root, getattr(args, "poll_seconds", 60), getattr(args, "jitter_seconds", 30))
-        try:
-            start_gpu_log_tail_sampler(root, getattr(args, "poll_seconds", 60) or 60, getattr(args, "jitter_seconds", 30))
-        except Exception:
-            pass
+    pass
 
     class BoundedThreadingHTTPServer(ThreadingHTTPServer):
         address_family = socket.AF_INET6 if ":" in bind_host else socket.AF_INET
@@ -17125,10 +16900,9 @@ def main():
     p.add_argument("--host", default="127.0.0.1")
     p.add_argument("--port", type=int, default=18765)
     p.add_argument("--token", default="")
-    p.add_argument("--mode", default="realtime")
+    p.add_argument("--mode", choices=("worker_telemetry",), default="worker_telemetry")
     p.add_argument("--gpu-poll-seconds", type=float, default=60.0)
     p.add_argument("--worker-id", default="")
-    p.add_argument("--hub-uplink-url", default="")
     p.add_argument("--worker-availability-push-seconds", type=float, default=60.0)
     p.add_argument("--jitter-seconds", type=float, default=30.0)
     p.add_argument("--operation-event-max-delay-ms", type=float, default=1000.0)

@@ -118,10 +118,10 @@ async function replacePlanOutputs(ports, planFile, groups) {
                 selected = candidate;
                 break;
             }
-            reason = [...candidate.blockers.map(row => row.code + ": " + row.detail), ...candidate.rows.filter(row => ["protected", "unverified"].includes(row.disposition)).map(row => row.absolutePath + ": " + (row.protectedReason || row.error))].join("；");
+            reason = [...candidate.blockers.map(row => (row.nodeId || "") + " " + row.code + ": " + row.detail), ...candidate.rows.filter(row => ["protected", "unverified"].includes(row.disposition)).map(row => row.absolutePath + ": " + (row.protectedReason || row.error))].join("；");
         }
         if (!selected)
-            (0, PlanCleanup_1.cleanupError)("OUTPUT_REPLACEMENT_BLOCKED", "目标存在活动任务、共享依赖或缺少当前所有权；未删除任何产物。" + reason);
+            (0, PlanCleanup_1.cleanupError)("OUTPUT_REPLACEMENT_BLOCKED", "文件审核未通过，未删除任何产物。" + reason);
         if (selected.rows.some(row => row.disposition === "delete") && !previews.some(row => row.digest === selected.digest))
             previews.push(selected);
     }

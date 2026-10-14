@@ -309,7 +309,7 @@ test("file transfer enforces the inspection size cap before streaming", () => {
   assert.match(realtimeClient, /downloadFile\(remotePath: string, localPath: string, options: DownloadOptions = \{\}\)/);
   assert.match(realtimeClient, /this\.files\.downloadFile\(remotePath, localPath, options\)/);
   assert.match(multiClient, /downloadFile\(remotePath: string, localPath: string, options: DownloadOptions = \{\}\)/);
-  assert.match(multiClient, /hubClient\(\)\.downloadFile\(remotePath, localPath, options\)/);
+  assert.match(multiClient, /selectedWorkerClient\(\)\.downloadFile\(remotePath, localPath, options\)/);
   assert.match(agent, /if int\(max_bytes or 0\) > 0 and size > int\(max_bytes\):/);
   assert.match(agent, /status=413/);
   assert.match(agent, /params\.get\("maxBytes"\)/);

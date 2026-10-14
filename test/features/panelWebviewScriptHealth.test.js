@@ -38,7 +38,7 @@ test("panel webview script parses and keeps config commands", () => {
   const script = scripts.join("\n");
   for (const command of [
     "configureSessions",
-    "saveHubConfig",
+    "saveAgentDefaults",
     "saveWorkerConfig",
     "addWorkerConfig",
     "deleteWorkerConfig",
@@ -114,4 +114,36 @@ test("training recovery clicks track each job and send a correlated status reque
   }
   assert.match(loading[0].key, /jobIndex=0/);
   assert.notEqual(loading[0].key, loading[1].key);
+});
+
+test("manual single and batch buttons send the selected job identities without a busy-card filter", () => {
+  const script = extractScripts(renderPanelHtml()).join("\n");
+  const parsed = ts.createSourceFile("manual-click.js", script, ts.ScriptTarget.ES2022, true, ts.ScriptKind.JS);
+  let click, change;
+  function visit(node) {
+    if (ts.isCallExpression(node) && node.expression.getText(parsed) === "document.addEventListener") {
+      const body=node.arguments[1]?.getText(parsed)||"";
+      if (node.arguments[0]?.text === "click" && body.includes('button[data-manual-dispatch]')) click=body;
+      if (node.arguments[0]?.text === "change" && body.includes('input[data-manual-job]')) change=body;
+    }
+    ts.forEachChild(node,visit);
+  }
+  visit(parsed);assert.ok(click);assert.ok(change);
+  const sent=[],sandbox={manualJobSelections:new Map(),hidePinContextMenu(){},vscode:{postMessage:p=>sent.push(p)}};
+  vm.createContext(sandbox);vm.runInContext('this.click='+click+';this.change='+change,sandbox);
+  const single={dataset:{planId:'run',jobIndex:'2',commandId:'old-command'}};
+  const event=target=>({preventDefault(){},stopPropagation(){},target:{closest:selector=>selector==='button[data-manual-dispatch]'?target:null}});
+  sandbox.click(event(single));
+  assert.equal(JSON.stringify(sent[0]),JSON.stringify({command:'dispatchJobs',planId:'run',indices:[2],expectedCommands:{2:'old-command'}}));
+  for(const i of [2,5])sandbox.change({target:{closest:()=>({checked:true,dataset:{planId:'run',manualJob:String(i),commandId:'c'+i}})}});
+  sandbox.click(event({dataset:{planId:'run'}}));
+  assert.equal(JSON.stringify(sent[1].indices),'[2,5]');assert.equal(sent[1].expectedCommands[5],'c5');
+});
+test("Agent defaults stay in the normal editable server configuration flow",()=>{
+ const script=extractScripts(renderPanelHtml()).join('\n'),tree=ts.createSourceFile('defaults.js',script,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);
+ let scope;
+ function visit(n){if(ts.isFunctionDeclaration(n)&&n.name?.text==='isServerConfigScope')scope=n.getText(tree);ts.forEachChild(n,visit);}visit(tree);
+ const isServerScope=vm.runInNewContext(scope+';isServerConfigScope;');
+ assert.equal(isServerScope('defaults'),true);assert.equal(isServerScope('worker:a'),true);assert.equal(isServerScope('hub'),false);
+ assert.match(script,/delete configDrafts\.defaults/);
 });

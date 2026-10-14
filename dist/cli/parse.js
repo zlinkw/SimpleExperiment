@@ -3,12 +3,20 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.parseArgv = parseArgv;
 exports.requirePositional = requirePositional;
 const errors_1 = require("./errors");
-const VALUE_FLAGS = new Set(["--status", "--limit", "--lines", "--experiment", "--format", "--seed", "--from", "--out", "--output", "--file", "--type"]);
+const VALUE_FLAGS = new Set(["--status", "--limit", "--lines", "--experiment", "--format", "--seed", "--from", "--out", "--output", "--file", "--type", "--workflow", "--jobs", "--worker", "--gpu"]);
 function parseArgv(argv) {
     const positionals = [];
     const flags = { json: false, compactJson: false, full: false, help: false, dryRun: false, check: false, watch: false };
     for (let i = 0; i < argv.length; i += 1) {
         const token = argv[i];
+        if (token === "--confirm") {
+            flags.confirm = true;
+            continue;
+        }
+        if (token === "--stop-running") {
+            flags["stop-running"] = true;
+            continue;
+        }
         if (token === "--") {
             positionals.push(...argv.slice(i + 1));
             break;
@@ -62,6 +70,10 @@ function parseArgv(argv) {
     return { positionals, flags };
 }
 function applyFlag(flags, name, value) {
+    if (["--workflow", "--jobs", "--worker", "--gpu"].includes(name)) {
+        flags[name.slice(2)] = value;
+        return;
+    }
     if (name === "--status")
         flags.status = value;
     else if (name === "--limit" || name === "--lines") {

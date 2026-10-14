@@ -440,6 +440,11 @@ export class LocalApiServer {
     response.once("close", onResponseClosed);
     try {
       const handler = this.methods[payload.method];
+      const requested = (payload.params || {}) as Record<string, unknown>;
+      if ([requested.topologyMode, requested.mode].some(value => ["hub_worker", "hub_control", "hub", "hub_available"].includes(String(value || "")))
+          || requested.hub || requested.hubConfig || Array.isArray(requested.serverIds) && requested.serverIds.includes("hub")
+          || payload.method === "config.set" && String(requested.key || "").endsWith("topologyMode") && String(requested.value || "").startsWith("hub"))
+        throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
       if (typeof handler !== "function") {
         sendJson(response, 200, rpcError(id, -32601, "Method not found"));
         return;
@@ -678,6 +683,8 @@ export class LocalApiServer {
           "tasks.preflight.cancel": { params: ["workerId", "operationId"], cancelsDiagnosticOnly: true },
         } : {}),
         ...(Object.keys(this.methods).includes("plans.cleanup.preview") ? {
+        "tasks.dispatch": { params: ["workflowId", "indices", "workerId", "gpuId", "confirm"], manualDispatch: 1,
+          sameGpuConcurrent: true, idleGpuRequired: false, pluginCapacityOverride: true, optionalParams: ["expectedCommands", "stopRunning"], startsTraining: true },
         "tasks.list": { readOnly: true, lifecycleProtocol: 2, activeQueries: ["scheduler", "tmux", "final_manifest"],
           pushRequired: false, receiptRequired: false, executionAndResultSeparate: true },
         "plans.cleanup.preview": { readOnly: true, zeroWrites: true, modes: ["move", "delete"], authorizationModes: ["associated", "confirmed_paths"], default: "move", historicalNodes: true,

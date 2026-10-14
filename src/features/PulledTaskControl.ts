@@ -47,7 +47,7 @@ export async function stopPulledTask(client: any, plan: any, job: any, operation
 export function returnPulledJobToLocal(queue: any, planId: string, index: number, commandId: string) {
   return { ...queue, plans: queue.plans.map((plan: any) => plan.id !== planId ? plan : { ...plan,
     jobs: plan.jobs.map((job: any) => job.index !== index ? job : { ...job, lifecycleProtocol: 2, status: "pending",
-      commandId: undefined, runKey: undefined, workerId: undefined, gpuId: undefined, localQueueOnly: true,
+      commandId: undefined, runKey: undefined, workerId: undefined, gpuId: undefined, manualDispatch: undefined, localQueueOnly: true,
       recallRequested: undefined, recallOperationId: undefined, reassignmentPending: undefined, stopIntent: undefined,
       executionState: undefined, resultState: undefined, statusQueryError: undefined, lastObservedAt: undefined,
       error: undefined, blockReason: undefined, trustedTerminalStatus: undefined,

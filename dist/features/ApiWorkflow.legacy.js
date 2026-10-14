@@ -328,7 +328,6 @@ function structuredMissingInventory(options) {
     const project = options.project && typeof options.project === "object" ? options.project : {};
     const plan = options.plan && typeof options.plan === "object" ? options.plan : {};
     const workers = Array.isArray(setup.workerTunnels) ? setup.workerTunnels.filter((worker) => worker && typeof worker === "object" && worker.enabled !== false) : [];
-    const hubConfigured = Boolean(String(setup.savedSessionPath || "").trim() && String(setup.agentProjectDir || "").trim());
     const requirePlan = options.requirePlan !== false;
     if (!workspace) {
         missing.push({
@@ -339,14 +338,12 @@ function structuredMissingInventory(options) {
         });
     }
     const workerCount = new Set(workers.map((worker) => String(worker.id || "").trim()).filter(Boolean)).size;
-    const mode = String(topology.mode || topology.configuredMode || "").trim();
-    if (workerCount < 1 || (String(topology.hubAllowed || topology.mode || "") === "hub_worker" && !hubConfigured)) {
+    const mode = "worker_pool";
+    if (workerCount < 1) {
         missing.push({
             step: "select_servers",
-            reason: hubConfigured
-                ? "需要至少一台启用的 Worker，当前 0 台。"
-                : "需要先配置 Hub 会话和项目父目录，或至少一台启用的 Worker。",
-            options: hubConfigured ? ["server.addWorker"] : ["config.server", "server.addWorker"],
+            reason: "需要至少一台启用的 Worker，当前 0 台。",
+            options: ["server.addWorker"],
             requiredConfirm: ["confirm"],
         });
     }
@@ -354,11 +351,11 @@ function structuredMissingInventory(options) {
     if (!valid) {
         const issueText = Array.isArray(topology.issues) && topology.issues.length
             ? topology.issues.join("；")
-            : "需要在单 Worker、仅多 Worker 或 Hub 可用模式中明确选择。";
+            : "请补全 Worker 配置。";
         missing.push({
             step: "select_mode",
             reason: issueText,
-            options: hubConfigured ? ["single_worker", "worker_pool", "hub_worker"] : ["single_worker", "worker_pool"],
+            options: ["worker_pool"],
             requiredConfirm: ["confirm"],
         });
     }
@@ -372,8 +369,6 @@ function structuredMissingInventory(options) {
     }
     else {
         const setupMissing = [];
-        if (mode === "hub_worker" && !hubConfigured)
-            setupMissing.push("Hub Xshell 会话和项目父目录");
         for (const worker of workers) {
             if (!String(worker.savedSessionPath || "").trim())
                 setupMissing.push(`${String(worker.displayName || worker.id || "Worker")} Xshell 会话`);

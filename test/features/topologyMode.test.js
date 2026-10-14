@@ -10,29 +10,29 @@ test("topology mode is a project-scoped explicit setting", () => {
   const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
   const setting = pkg.contributes.configuration.properties["simpleExperiment.topologyMode"];
   assert.equal(setting.scope, "resource");
-  assert.equal(setting.default, "");
-  assert.deepEqual(setting.enum, ["", "single_worker", "worker_pool", "hub_worker"]);
+  assert.equal(setting.default, "worker_pool");
+  assert.deepEqual(setting.enum, ["worker_pool"]);
 });
 
 test("topology modes validate endpoint counts and Hub exclusion", () => {
   assert.equal(assessProjectTopology("single_worker", { hubConfigured: false, enabledWorkerIds: ["w1"] }).valid, true);
   assert.equal(assessProjectTopology("worker_pool", { hubConfigured: false, enabledWorkerIds: ["w1", "w2"] }).valid, true);
   assert.equal(assessProjectTopology("hub_worker", { hubConfigured: true, enabledWorkerIds: ["w1"] }).valid, true);
-  assert.match(assessProjectTopology("single_worker", { hubConfigured: true, enabledWorkerIds: ["w1"] }).issues.join(" "), /不能启用 Hub/);
-  assert.match(assessProjectTopology("worker_pool", { hubConfigured: false, enabledWorkerIds: ["w1"] }).issues.join(" "), /至少两台/);
-  assert.match(assessProjectTopology("hub_worker", { hubConfigured: false, enabledWorkerIds: ["w1"] }).issues.join(" "), /需要配置 Hub/);
+  assert.equal(assessProjectTopology("single_worker", { hubConfigured: true, enabledWorkerIds: ["w1"] }).valid,true);
+  assert.equal(assessProjectTopology("worker_pool", { hubConfigured: false, enabledWorkerIds: ["w1"] }).valid,true);
+  assert.equal(assessProjectTopology("hub_worker", { hubConfigured: false, enabledWorkerIds: ["w1"] }).hubAllowed,false);
 });
 
 test("legacy Hub projects are inferred without confirming worker-only projects", () => {
   const legacyHub = assessProjectTopology("", { hubConfigured: true, enabledWorkerIds: ["w1"] });
-  assert.equal(legacyHub.mode, "hub_worker");
-  assert.equal(legacyHub.source, "legacy_hub_worker");
+  assert.equal(legacyHub.mode, "worker_pool");
+  assert.equal(legacyHub.source, "explicit");
   assert.equal(legacyHub.requiresConfirmation, false);
 
   const workerOnly = assessProjectTopology("", { hubConfigured: false, enabledWorkerIds: ["w1"] });
-  assert.equal(workerOnly.mode, undefined);
-  assert.equal(workerOnly.source, "unconfirmed");
-  assert.equal(workerOnly.requiresConfirmation, true);
+  assert.equal(workerOnly.mode, "worker_pool");
+  assert.equal(workerOnly.source, "explicit");
+  assert.equal(workerOnly.requiresConfirmation, false);
 });
 
 test("worker inventory is unique and invalid configured values stay blocked", () => {
@@ -47,11 +47,11 @@ test("worker inventory is unique and invalid configured values stay blocked", ()
 
 test("topology assessment exposes scheduler and state ownership", () => {
   const single = assessProjectTopology("single_worker", { hubConfigured: false, enabledWorkerCount: 1 });
-  assert.equal(single.schedulerOwner, "Worker 本机调度");
+  assert.equal(single.schedulerOwner, "各 Worker 独立调度");
   assert.equal(single.stateOwner, "Worker 本机项目目录");
   assert.equal(single.hubAllowed, false);
   const hub = assessProjectTopology("hub_worker", { hubConfigured: true, enabledWorkerCount: 1 });
-  assert.equal(hub.schedulerOwner, "Hub 全局调度");
-  assert.equal(hub.stateOwner, "Hub 汇总索引");
-  assert.equal(hub.hubAllowed, true);
+  assert.equal(hub.schedulerOwner, "各 Worker 独立调度");
+  assert.equal(hub.stateOwner, "Worker 本机项目目录");
+  assert.equal(hub.hubAllowed, false);
 });

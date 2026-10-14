@@ -11,7 +11,7 @@ const format_1 = require("./format");
 const help_1 = require("./help");
 const parse_1 = require("./parse");
 const LEGACY_COMMANDS = new Set(["status", "api", "self-check", "agent", "experiments", "metrics", "results", "run"]);
-const SIMPLE_DOMAINS = new Set(["project", "experiment", "plan", "result", "log", "metric", "compare", "gpu", "resource", "server", "artifact"]);
+const SIMPLE_DOMAINS = new Set(["project", "experiment", "plan", "result", "log", "metric", "compare", "gpu", "resource", "server", "artifact", "task"]);
 async function runSimpleCli(argv) {
     let parsed;
     try {
@@ -31,6 +31,17 @@ async function runSimpleCli(argv) {
         return errors_1.EXIT_OK;
     }
     await initializeProjectRoot();
+    if (domain === "task") {
+        if (action !== "dispatch")
+            throw (0, errors_1.usageError)("用法：simpleex task dispatch --workflow ID --jobs 0,1 --worker ID --gpu 0 --confirm [--stop-running]");
+        const jobs = String(flags.jobs || "").trim();
+        if (!/^\d+(?:,\d+)*$/.test(jobs))
+            throw (0, errors_1.usageError)("请用 --jobs 明确选择 job 索引，例如 --jobs 0,2。");
+        const result = await (0, api_1.callApi)("tasks.dispatch", { workflowId: String(flags.workflow || ""), indices: jobs.split(",").map(Number),
+            workerId: String(flags.worker || ""), gpuId: String(flags.gpu ?? ""), confirm: flags.confirm === true, stopRunning: flags["stop-running"] === true });
+        (0, format_1.writeJson)(result);
+        return errors_1.EXIT_OK;
+    }
     if (domain === "project") {
         if (action && action !== "status")
             throw (0, errors_1.usageError)(`unknown project action: ${action}`);

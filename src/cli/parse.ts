@@ -8,6 +8,12 @@ export interface CliFlags {
   dryRun: boolean;
   check: boolean;
   watch: boolean;
+  workflow?: string;
+  jobs?: string;
+  worker?: string;
+  gpu?: string;
+  confirm?: boolean;
+  "stop-running"?: boolean;
   status?: string;
   limit?: number;
   lines?: number;
@@ -25,13 +31,15 @@ export interface ParsedCli {
   flags: CliFlags;
 }
 
-const VALUE_FLAGS = new Set(["--status", "--limit", "--lines", "--experiment", "--format", "--seed", "--from", "--out", "--output", "--file", "--type"]);
+const VALUE_FLAGS = new Set(["--status", "--limit", "--lines", "--experiment", "--format", "--seed", "--from", "--out", "--output", "--file", "--type", "--workflow", "--jobs", "--worker", "--gpu"]);
 
 export function parseArgv(argv: string[]): ParsedCli {
   const positionals: string[] = [];
   const flags: CliFlags = { json: false, compactJson: false, full: false, help: false, dryRun: false, check: false, watch: false };
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i];
+    if (token === "--confirm") { flags.confirm = true; continue; }
+    if (token === "--stop-running") { flags["stop-running"] = true; continue; }
     if (token === "--") {
       positionals.push(...argv.slice(i + 1));
       break;
@@ -84,6 +92,7 @@ export function parseArgv(argv: string[]): ParsedCli {
 }
 
 function applyFlag(flags: CliFlags, name: string, value: string): void {
+  if (["--workflow", "--jobs", "--worker", "--gpu"].includes(name)) { flags[name.slice(2) as "workflow" | "jobs" | "worker" | "gpu"] = value; return; }
   if (name === "--status") flags.status = value;
   else if (name === "--limit" || name === "--lines") {
     const parsed = Number(value);

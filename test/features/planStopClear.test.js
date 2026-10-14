@@ -247,7 +247,7 @@ test("each execution plan row can stop and clear its own plan file", () => {
     normalizePlanSelectionKey: String,
     samePlanSelection: (left, right) => left === right,
     selectedExecutionPlanFile: "",
-    collapsedExecutionPlanKeys: new Set(),
+    collapsedExecutionPlanKeys: new Set(), manualJobSelections: new Map(),
     persistWebviewState: () => undefined,
     taskStatusToken: String,
     TASK_LIVE_STATUS_TOKENS: new Set(["running"]),
@@ -1005,7 +1005,7 @@ test("the plan card renders the persistent stop-clear reason beside the target p
     normalizePlanSelectionKey: String,
     samePlanSelection: (left, right) => left === right,
     selectedExecutionPlanFile: "",
-    collapsedExecutionPlanKeys: new Set(),
+    collapsedExecutionPlanKeys: new Set(), manualJobSelections: new Map(),
     persistWebviewState: () => undefined,
     taskStatusToken: String,
     TASK_LIVE_STATUS_TOKENS: new Set(["running"]),
@@ -1086,7 +1086,7 @@ test("completed stop-clear feedback does not invent a plan card and a newer run 
     normalizePlanSelectionKey: (value) => String(value || "").replaceAll("\\", "/").replace(/^\.\//, "").toLowerCase(),
     samePlanSelection: (left, right) => String(left).toLowerCase() === String(right).toLowerCase(),
     selectedExecutionPlanFile: "",
-    collapsedExecutionPlanKeys: new Set(),
+    collapsedExecutionPlanKeys: new Set(), manualJobSelections: new Map(),
     persistWebviewState: () => undefined,
     taskStatusToken: String,
     TASK_LIVE_STATUS_TOKENS: new Set(["running"]),
@@ -1301,7 +1301,7 @@ test("stop-clear and explicit job commands consume structured outcomes", async (
   const start = dist.indexOf("const guardedWork = work()");
   const end = dist.indexOf("const result = await guardedWork", start);
   const body = dist.slice(start, end);
-  assert.match(body, /\["stopAndClearPlan", "retryDistributedJob", "markJobUnavailable", "restoreJobAvailability"\]\.includes\(command\)/);
+  assert.match(body, /\["stopAndClearPlan", "retryDistributedJob", "dispatchJobs", "markJobUnavailable", "restoreJobAvailability"\]\.includes\(command\)/);
   const structured = { status: "failed", message: "未完成清除", planStopClear: { planFile: "plans/a.yaml" } };
   const run = async (command) => {
     const context = {

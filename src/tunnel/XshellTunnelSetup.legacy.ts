@@ -407,20 +407,6 @@ function normalizePortConfig(
     ? input.assignments.filter((assignment) => validIds.has(assignment.endpointId) && String(assignment.localForwardHost || "").trim() && String(assignment.remoteBindHost || "").trim())
     : [];
   const assignedAt = new Date(0).toISOString();
-  if (!assignments.some((assignment) => assignment.endpointId === "hub")) {
-    assignments.push({
-      endpointId: "hub",
-      role: "hub_control",
-      displayName: String(hubDisplayName || "").trim() || "Hub",
-      remoteHostLabel: "hub",
-      localForwardHost: String(hubLocalHost || "127.0.0.1").trim() || "127.0.0.1",
-      localForwardPort: normalizePort(hubLocalPort, defaultTunnelPorts.hubLocalPort),
-      remoteBindHost: String(hubRemoteHost || "127.0.0.1").trim() || "127.0.0.1",
-      remoteServicePort: normalizePort(hubRemotePort, defaultTunnelPorts.defaultHubAgentPort),
-      assignedAt,
-      source: "imported",
-    });
-  }
   for (const worker of workers) {
     if (assignments.some((assignment) => assignment.endpointId === worker.id)) continue;
     assignments.push({

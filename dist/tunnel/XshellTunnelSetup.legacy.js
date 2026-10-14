@@ -300,20 +300,6 @@ function normalizePortConfig(input, workers, hubLocalPort, hubRemotePort, hubDis
         ? input.assignments.filter((assignment) => validIds.has(assignment.endpointId) && String(assignment.localForwardHost || "").trim() && String(assignment.remoteBindHost || "").trim())
         : [];
     const assignedAt = new Date(0).toISOString();
-    if (!assignments.some((assignment) => assignment.endpointId === "hub")) {
-        assignments.push({
-            endpointId: "hub",
-            role: "hub_control",
-            displayName: String(hubDisplayName || "").trim() || "Hub",
-            remoteHostLabel: "hub",
-            localForwardHost: String(hubLocalHost || "127.0.0.1").trim() || "127.0.0.1",
-            localForwardPort: (0, TunnelGateway_1.normalizePort)(hubLocalPort, TunnelPortConflict_1.defaultTunnelPorts.hubLocalPort),
-            remoteBindHost: String(hubRemoteHost || "127.0.0.1").trim() || "127.0.0.1",
-            remoteServicePort: (0, TunnelGateway_1.normalizePort)(hubRemotePort, TunnelPortConflict_1.defaultTunnelPorts.defaultHubAgentPort),
-            assignedAt,
-            source: "imported",
-        });
-    }
     for (const worker of workers) {
         if (assignments.some((assignment) => assignment.endpointId === worker.id))
             continue;
