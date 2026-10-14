@@ -11241,6 +11241,9 @@ class RealtimeTunnelPanelProvider {
         const generation = this.distributedQueueGeneration;
         const workerConfig = this.enabledWorkerConfigs().find((worker) => worker.id === workerId);
         const schedulerSettings = this.schedulerSettings();
+        const settings = vscode.workspace.getConfiguration("simpleExperiment");
+        const tmuxSessionPrefix = AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix(this.setupConfig?.sessionPrefix
+            || this.setupConfig?.remoteTmuxSessionPrefix || settings.get("sessionPrefix") || settings.get("tunnel.remoteTmuxSessionPrefix") || "simple");
         const rawMaxConcurrentGpus = workerConfig?.maxConcurrentGpus;
         const maxConcurrentGpus = rawMaxConcurrentGpus === undefined || rawMaxConcurrentGpus === null || rawMaxConcurrentGpus === "auto"
             ? 0 : Number(rawMaxConcurrentGpus);
@@ -11271,7 +11274,7 @@ class RealtimeTunnelPanelProvider {
             case: job.case, seed: job.seed, outputDir: job.outputDir, mode: executionMode, executionMode,
             resultPathPolicy: "declared", globalJobId: job.globalJobId, collectionResultCsv: job.collectionResultCsv, checkpointSource: job.checkpointSource,
             planRevision: plan.revision, codeFingerprint: plan.codeFingerprint,
-            condaEnv: target.condaEnv, workflowId: plan.id,
+            condaEnv: target.condaEnv, workflowId: plan.id, tmuxSessionPrefix,
             overwriteExisting: plan.overwriteExisting === true,
             options: { workerId, distributedResults: true, durablePlanQueue: true, requireIdleGpu: !job.manualDispatch && gpuId !== undefined,
                 mode: executionMode, executionMode,
@@ -11280,7 +11283,7 @@ class RealtimeTunnelPanelProvider {
                 maxConcurrentGpus,
                 projectId: plan.projectId || DistributedPlanQueue.canonicalProjectId(workspaceRoot()),
                 planJobCount: Number(plan.planJobCount || plan.jobs.length), enqueuedAt: plan.enqueuedAt,
-                condaEnv: target.condaEnv,
+                condaEnv: target.condaEnv, tmuxSessionPrefix,
                 overwriteExisting: plan.overwriteExisting === true,
                 workerActionMinIntervalMs: this.schedulerSettings().workerActionMinIntervalMs },
         };

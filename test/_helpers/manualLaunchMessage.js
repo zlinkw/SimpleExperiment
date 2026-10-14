@@ -5,8 +5,9 @@ module.exports=async function launchMessages(){
  const send=cls.members.find(n=>n.name?.getText(ast)==='sendDistributedJob').getText(ast);
  const proof=ast.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='durableCodeProofRequestFields').getText(ast);
  const Provider=vm.runInNewContext(ts.transpileModule(proof+';class Provider{'+send+'};Provider;',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{
-  workspaceRoot:()=>root,PlanExecutionMode:require('../../dist/features/PlanExecutionMode'),DistributedSchedulingPolicy:require('../../dist/features/DistributedSchedulingPolicy')});
- const p=new Provider(),messages=[];Object.assign(p,{distributedQueueGeneration:0,distributedPlanStopEpoch:0,
+  workspaceRoot:()=>root,PlanExecutionMode:require('../../dist/features/PlanExecutionMode'),DistributedSchedulingPolicy:require('../../dist/features/DistributedSchedulingPolicy'),
+  vscode:{workspace:{getConfiguration:()=>({get:()=>undefined})}},AgentTmuxPolicy_1:require('../../dist/tunnel/AgentTmuxPolicy')});
+ const p=new Provider(),messages=[];Object.assign(p,{distributedQueueGeneration:0,distributedPlanStopEpoch:0,setupConfig:{sessionPrefix:'My-Tasks',remoteTmuxSessionPrefix:'obsolete'},
   client:{postWorkerAction:async(_worker,action,body)=>messages.push({...JSON.parse(JSON.stringify(body)),action})},
   enabledWorkerConfigs:()=>[{id:'worker',maxConcurrentGpus:1}],workerActionTargets:()=>[{id:'worker',condaEnv:'/fixture/env'}],schedulerSettings:()=>({}),
   lastWorkerProbes:{worker:{capabilities:{endpoints:{declaredJobPaths:true,formalJobIdentityEnv:1,taskShellEnvironment:1,projectManagedValidation:1},actionEndpoints:{'register-code-sync-proof':true}}}},
@@ -18,5 +19,7 @@ module.exports=async function launchMessages(){
    ...(index>4?{manualDispatch:{workerId:'worker',gpuId:'0',stage:'sent'}}:{})};
   await p.sendDistributedJob(plan,job,'worker','0','command-'+index);
  }
- assert.equal(messages.length,3);assert.equal(messages[1].requireIdleGpu,false);assert.equal(messages[1].options.requireIdleGpu,false);return messages;
+ assert.equal(messages.length,3);assert.equal(messages[1].requireIdleGpu,false);assert.equal(messages[1].options.requireIdleGpu,false);
+ assert.ok(messages.every(message=>message.tmuxSessionPrefix==='my-tasks' && message.options.tmuxSessionPrefix==='my-tasks'));
+ return messages;
 };

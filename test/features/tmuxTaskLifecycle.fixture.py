@@ -1,5 +1,5 @@
 """Only extracted lifecycle functions, real isolated tmux, stdlib CPU probes."""
-import ast, base64, datetime, hashlib, json, os, pathlib, re, shlex, subprocess, sys, tempfile, threading, time, urllib.request, uuid
+import ast, base64, datetime, hashlib, json, os, pathlib, re, shlex, subprocess, sys, tempfile, threading, time, urllib.request, urllib.parse, uuid, textwrap
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 runtime = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
@@ -89,7 +89,19 @@ try:
     observed=namespace["task_query"](root,[a,b])
     assert all(row["status"]=="completed" for row in observed["tasks"]),observed
     row=namespace["task_inventory"](root)[0]
+    # Execute only the actual HTTP capture branch against this private tmux server.
+    route_source = runtime.split('            if route == "/api/tmux/capture":', 1)[1].split('            if route == "/api/tmux/list":', 1)[0]
+    route_source = 'def capture(self, parsed):\n' + textwrap.indent(textwrap.dedent(route_source), '    ')
+    route_globals = dict(re=re, subprocess=subprocess, parse_qs=urllib.parse.parse_qs, SCHEMA_VERSION=1)
+    exec(route_source, route_globals)
+    class Response:
+        def send_json(self, data, status=200): return status, data
+    capture = lambda target: route_globals['capture'](Response(), urllib.parse.urlparse('/api/tmux/capture?window=' + urllib.parse.quote(target)))
+    status, data = capture(row['tmuxWindowId'])
+    assert status == 200 and data['ok'], (status, data)
+    assert capture('@1;echo bad')[0] == 400
     namespace["task_tmux"](["rename-window","-t",row["tmuxWindowId"],"manually renamed"])
+    assert capture(row['tmuxWindowId'])[1]['ok'], 'window log must remain readable after rename'
     namespace["task_tmux"](["kill-window","-t",row["tmuxWindowId"]])
     namespace["task_tmux"](["send-keys","-t",control,"C-c"])
     wait_for(lambda: namespace["task_tmux"](["display-message","-p","-t",control,"#{pane_dead}"])=="1")

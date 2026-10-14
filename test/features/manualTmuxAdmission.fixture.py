@@ -32,6 +32,8 @@ try:
     started = lambda row: pathlib.Path(root, 'started-' + row['commandId'])
     wait_for(lambda: started(manual_a).exists() and started(manual_b).exists())
     phase('manuals_running')
+    assert all(row['tmuxSession'] == 'my-tasks-gpu-0' for row in namespace['task_inventory'](root)
+               if row['commandId'] in (manual_a['commandId'], manual_b['commandId'])), 'Host-selected prefix must reach real task windows'
     assert not started(auto).exists(), 'busy automatic job must not block manual jobs'
     reports = [json.loads(started(row).read_text()) for row in (manual_a, manual_b)]
     assert all(row['gpu'] == '0' for row in reports) and abs(reports[0]['at'] - reports[1]['at']) < 0.8
@@ -42,6 +44,7 @@ try:
     pathlib.Path(root, 'gpu-busy').rename(pathlib.Path(root, 'gpu-free'))
     wait_for(lambda: started(auto).exists())
     phase('auto_running')
+    assert next(row for row in namespace['task_inventory'](root) if row['commandId'] == auto['commandId'])['tmuxSession'] == 'my-tasks-gpu-0'
     assert any(not row['dead'] for row in namespace['task_inventory'](root) if row['commandId'] in (manual_a['commandId'], manual_b['commandId']))
     release.touch()
     wait_for(lambda: all(row['dead'] for row in namespace['task_inventory'](root)))

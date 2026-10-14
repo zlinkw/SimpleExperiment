@@ -69,9 +69,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.317"
-RUNTIME_VERSION = "0.5.317"
-PLUGIN_VERSION = "0.5.317"
+AGENT_VERSION = "0.5.318"
+RUNTIME_VERSION = "0.5.318"
+PLUGIN_VERSION = "0.5.318"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -16889,8 +16889,8 @@ def serve_http(args):
                 window = (params.get("window") or params.get("session") or params.get("name") or [""])[0].strip()
                 if not window:
                     return self.send_json({"error": "window required"}, status=400)
-                # allow alnum, ._-:, %, dot and slash for pane target (pane id like %0, window like session:1, pane like session:1.2)
-                if not re.match(r"^[A-Za-z0-9._\-:./%]+$", window):
+                # Native window IDs survive moves and renames; names remain compatible.
+                if not (re.fullmatch(r"@\d+", window) or re.fullmatch(r"[A-Za-z0-9._\-:./%]+", window)):
                     return self.send_json({"error": "invalid window name"}, status=400)
                 try:
                     requested_lines = (params.get("lines") or ["all"])[0].strip().lower()

@@ -16223,8 +16223,8 @@ def serve_http(args):
                 window = (params.get("window") or params.get("session") or params.get("name") or [""])[0].strip()
                 if not window:
                     return self.send_json({"error": "window required"}, status=400)
-                # allow alnum, ._-:, %, dot and slash for pane target (pane id like %0, window like session:1, pane like session:1.2)
-                if not re.match(r"^[A-Za-z0-9._\-:./%]+$", window):
+                # Native window IDs survive moves and renames; names remain compatible.
+                if not (re.fullmatch(r"@\d+", window) or re.fullmatch(r"[A-Za-z0-9._\-:./%]+", window)):
                     return self.send_json({"error": "invalid window name"}, status=400)
                 try:
                     requested_lines = (params.get("lines") or ["all"])[0].strip().lower()
