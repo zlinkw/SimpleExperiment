@@ -26,9 +26,11 @@ export class PlanCleanupHost {
   constructor(private readonly host: any, readonly root: string) {
     const storage = host.context.globalStorageUri.fsPath;
     this.service = new PlanCleanup({ storageRoot: path.join(storage, "plan-cleanup", cleanupDigest(root)),
-      collect: (file, options) => this.collect(file, Boolean(options?.removedMetadata), options?.archivedFiles, options?.removedMetadata, options?.onProgress, options?.job, options?.nativeDeclarations),
+      collect: (file, options) => this.collect(file, Boolean(options?.removedMetadata), options?.archivedFiles, options?.removedMetadata, options?.onProgress, options?.job, options?.nativeDeclarations, options?.authorizationMode),
       sftp: async (method, params) => {
         const result = await host.simpleSftpApiCall(method, params);
+        if (method === "files.cleanup.preview" && params.authorizationMode === "confirmed_paths" && result.safety?.confirmedPathDeletion !== 1)
+          cleanupError("SFTP_CONFIRMED_PATH_DELETE_REQUIRED", "请更新 SimpleSFTP 后重载窗口，以使用按确认路径删除。");
         if (method === "files.cleanup.preview" && params.observationMode === "managed_tmux" && result.safety?.managedObservation !== 1)
           cleanupError("SFTP_MANAGED_OBSERVATION_REQUIRED", "请更新配套 SimpleSFTP；尚未执行清理。");
         if (method === "files.cleanup.preview" && (result.safety?.gitRepositoryAncestors !== true || result.safety?.readOnlyReceiptCheck !== true))
@@ -112,8 +114,8 @@ export class PlanCleanupHost {
     this.assertWorkspace();
     return replacementJobGroups(replacementEvidenceQueue(queue, snapshots, projectId), file, declarations, projectId, stablePlanId);
   }
-  async collect(file: string, allowMissing = false, archivedFiles?: Record<string, string>, removedMetadata?: CleanupRemovedMetadata, onProgress?: CleanupProgressSink, job?: CleanupJobSelection, nativeDeclarations?: ManifestDeclaration[]) {
-    if (this.host.taskLifecycleProtocol === 2) return this.collectManaged(file, allowMissing, archivedFiles, removedMetadata, onProgress, job, nativeDeclarations);
+  async collect(file: string, allowMissing = false, archivedFiles?: Record<string, string>, removedMetadata?: CleanupRemovedMetadata, onProgress?: CleanupProgressSink, job?: CleanupJobSelection, nativeDeclarations?: ManifestDeclaration[], authorizationMode?: "confirmed_paths") {
+    if (this.host.taskLifecycleProtocol === 2 || authorizationMode === "confirmed_paths") return this.collectManaged(file, allowMissing, archivedFiles, removedMetadata, onProgress, job, nativeDeclarations, authorizationMode);
     this.assertWorkspace();
     const storage = this.host.context.globalStorageUri.fsPath;
     const queue = await json(distributedQueuePath(storage, this.root), emptyDistributedQueue());
@@ -195,7 +197,7 @@ export class PlanCleanupHost {
     return nodes;
   }
   private async collectManaged(file: string, allowMissing: boolean, archivedFiles?: Record<string, string>, removedMetadata?: CleanupRemovedMetadata,
-    onProgress?: CleanupProgressSink, job?: CleanupJobSelection, nativeDeclarations?: ManifestDeclaration[]) {
+    onProgress?: CleanupProgressSink, job?: CleanupJobSelection, nativeDeclarations?: ManifestDeclaration[], authorizationMode?: "confirmed_paths") {
     this.assertWorkspace();
     const storage = this.host.context.globalStorageUri.fsPath;
     const queue = await json(distributedQueuePath(storage, this.root), emptyDistributedQueue());
@@ -212,12 +214,12 @@ export class PlanCleanupHost {
       declarations = [{ index: job.index, case: source.case, seed: source.seed, output_dir: source.outputDir, result_csv: source.collectionResultCsv }];
     }
     onProgress?.({ phase: "manifests", message: "读取声明目录内的产物清单…" });
-    const discovered = await discoverManifestCandidates(this.host, this.root, file, nodes, queue, declarations);
+    const discovered = await discoverManifestCandidates(this.host, this.root, file, nodes, queue, declarations, authorizationMode === "confirmed_paths");
     this.assertWorkspace();
     // Retain the original config/reference graph, without importing cached task activity.
     const scope = await collectPlanCleanupEvidence({ root: this.root, planFile: file, queue: emptyDistributedQueue(), ledger,
       registry, resultDir: this.host.resultCsvDirectory || "experiments/results", nodes, snapshots: [], operations: [],
-      allowMissing, archivedFiles, removedMetadata, activityMode: "managed_tmux" });
+      allowMissing: allowMissing || authorizationMode === "confirmed_paths", archivedFiles, removedMetadata, activityMode: "managed_tmux" });
     const configuration = scope.candidates.filter(row => ["PLAN 文件", "专用配置"].includes(row.category))
       .map(row => [row.relativePath, row.expectedSha256, row.dependencies, row.protectedReason]);
     scope.nodes = [...nodes, ...scope.nodes.filter(node => !nodes.some(row => row.id === node.id))];
@@ -233,6 +235,12 @@ export class PlanCleanupHost {
       scope.candidates.push(candidate); preserved.set(key, candidate);
     }
     scope.blockers.push(...discovered.blockers); scope.notices!.push(...discovered.notices);
+    if (authorizationMode === "confirmed_paths") {
+      scope.authorizationMode = authorizationMode;
+      const pathErrors = new Set(["UNSAFE_DECLARED_PATH", "NODE_UNREACHABLE", "OFFLINE_NODE"]);
+      scope.notices!.push(...scope.blockers.filter(row => !pathErrors.has(row.code)));
+      scope.blockers = scope.blockers.filter(row => pathErrors.has(row.code));
+    }
     scope.runIds = queue.plans.filter((plan: any) => plan.planFile === file).map((plan: any) => plan.id);
     scope.observationMode = "managed_tmux"; scope.nativeDeclarations = discovered.declarations;
     if (job) scope.job = { ...job, manifest: { declarations: discovered.declarations, replacement: true } };

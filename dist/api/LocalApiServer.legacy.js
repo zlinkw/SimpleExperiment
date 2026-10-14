@@ -714,7 +714,7 @@ class LocalApiServer {
                 ...(Object.keys(this.methods).includes("plans.cleanup.preview") ? {
                     "tasks.list": { readOnly: true, lifecycleProtocol: 2, activeQueries: ["scheduler", "tmux", "final_manifest"],
                         pushRequired: false, receiptRequired: false, executionAndResultSeparate: true },
-                    "plans.cleanup.preview": { readOnly: true, zeroWrites: true, modes: ["move", "delete"], default: "move", historicalNodes: true,
+                    "plans.cleanup.preview": { readOnly: true, zeroWrites: true, modes: ["move", "delete"], authorizationModes: ["associated", "confirmed_paths"], default: "move", historicalNodes: true,
                         lifecycleProtocol: 2, ownershipSource: "plan_declarations_and_artifact_manifests", observation: "active_tmux_and_filesystem_query",
                         optionalJob: { fields: ["workflowId", "index", "commandId", "purpose", "manifest"], failedFormalJobOnly: false,
                             default: "failed_review", replacementPurpose: "replace_outputs", replacementStates: ["failed", "completed"], excludesPlanAndConfig: true, neverRequeues: true } },

@@ -99,8 +99,8 @@ export async function replacePlanOutputs(ports: ReplacementPorts, planFile: stri
     for (const job of group) {
       ports.assertCurrent();
       ports.progress?.("核对 job " + job.index + " 的精确产物及全部关联节点…");
-      const candidate: CleanupPreview = await ports.service.preview({ planFile, action: "delete", verifiedOnly: false, job });
-      if (candidate.scope.planHash !== ports.planRevision) cleanupError("PLAN_REVISION_CHANGED");
+      const candidate: CleanupPreview = await ports.service.preview({ planFile, action: "delete", verifiedOnly: false, job, authorizationMode: "confirmed_paths" });
+      if (candidate.scope.authorizationMode !== "confirmed_paths" && candidate.scope.planHash !== ports.planRevision) cleanupError("PLAN_REVISION_CHANGED");
       const approved = candidate.rows.filter(row => row.disposition === "delete");
       const coversEveryTarget = candidate.scope.candidates.every(target => candidate.rows.some(row => row.nodeId === target.nodeId && row.relativePath === target.relativePath
         && (["delete", "absent"].includes(row.disposition) || row.disposition === "protected" && row.inode && row.fingerprint

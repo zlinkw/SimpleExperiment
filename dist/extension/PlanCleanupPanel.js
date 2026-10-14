@@ -88,9 +88,12 @@ async function openPlanCleanupPanel(host, planFile, initialOperationId = "", job
                 response = { type: "operation", operation };
             }
             else if (message.type === "preview") {
+                const exactPaths = message.action === "delete" ? preview?.rows.filter(row => row.nodeId !== "pluginState" && row.disposition === preview.action)
+                    .map(row => ({ nodeId: row.nodeId, relativePath: row.relativePath, type: row.type })) : undefined;
                 preview = undefined;
                 operationId = "";
-                preview = await host.service.preview({ planFile, action: message.action, verifiedOnly: message.verifiedOnly, job: selection }, progress);
+                preview = await host.service.preview({ planFile, action: message.action, verifiedOnly: message.verifiedOnly, job: selection,
+                    ...(message.action === "delete" ? { authorizationMode: "confirmed_paths", exactPaths } : {}) }, progress);
                 response = { type: "preview", preview };
             }
             else if (message.type === "continue") {
@@ -159,7 +162,7 @@ body{font:var(--vscode-font-size) var(--vscode-font-family);color:var(--vscode-f
 <select id="action" aria-label="处理方式"><option value="move">移入 clean_dir 文件夹（可恢复）</option><option value="delete">永久删除（不可恢复，需确认两次）</option></select>
 <label><input type="checkbox" id="partial">先处理可连接且审核通过的服务器（其余稍后处理）</label><button id="preview">审核文件</button>
 <p><select id="history" aria-label="清理记录"><option value="">选择清理记录</option></select><button id="load">查看这次清理</button></p><p id="status" role="status"></p><p id="progress" role="status" aria-live="polite"></p><div id="review"></div>
-<div class="actions"><button id="confirm" disabled>第一次确认上述完整路径</button><button id="execute" disabled>删除已确认文件</button><button id="cancel" disabled>暂停后续文件处理</button></div>
+<div class="actions"><p id="approvalHelp" role="status"></p><button id="confirm" disabled>第一次确认上述完整路径</button><button id="execute" disabled>删除已确认文件</button><button id="cancel" disabled>暂停后续文件处理</button></div>
 <details><summary>刷新、继续清理或恢复文件</summary><button id="recheck" disabled>刷新清理状态</button><button id="continue" disabled>重新审核剩余文件</button><button id="resume" disabled>继续处理剩余文件</button><button id="restore" disabled>审核可恢复文件</button></details>
 <script nonce="${nonce}">
 const api=acquireVsCodeApi();let model=null,operationId='',phase=0,busy=false,executing=false,sequence=0,requestId='',canConfirm=false,canExecute=false,canOperate=false,canContinue=false,canRestore=false,canResume=false,previewMessage='';
@@ -177,9 +180,10 @@ get('confirm').textContent=model?.action==='delete'?(phase===0?'第一次确认�
 get('execute').textContent=actionName(model?.action||get('action').value)+'已确认文件';get('resume').textContent='继续'+actionName(model?.action)+'剩余文件';
 get('load').title=busy?'正在处理，请稍候':'选择一条清理记录查看';get('confirm').title=busy?'正在审核，请稍候':canConfirm?'核对上方每个服务器和完整路径后确认':previewMessage||'请先审核文件';
 get('execute').title=canExecute?'仅处理上方已经确认的文件':previewMessage||'请先审核并确认完整路径';
+get('approvalHelp').textContent=busy?'正在检查路径，请稍候。':canExecute?'路径确认已完成，现在可以点击下方按钮。':canConfirm?'下一步：点击下方“'+get('confirm').textContent+'”。':previewMessage||'先点击“审核文件”，读取要删除的完整路径。';
 for(const id of ['cancel','recheck','continue','resume','restore'])get(id).title=get(id).disabled?'先查看已有清理操作；已完成的文件不会重复处理':'';
 }
-function invalidate(){model=null;operationId='';phase=0;executing=false;canConfirm=canExecute=canOperate=canContinue=canRestore=canResume=false;controls();}
+function invalidate(){model=null;operationId='';phase=0;executing=false;canConfirm=canExecute=canOperate=canContinue=canRestore=canResume=false;previewMessage='选择已变化，请点击“审核文件”重新检查路径。';get('review').innerHTML='';controls();}
 function send(type,extra){
 if(busy&&type!=='cancel')return;const id='request-'+(++sequence);
 if(type==='cancel'&&busy){get('status').textContent='已请求暂停，当前文件处理结束后不再处理下一个文件。';api.postMessage({type,requestId:id});return}

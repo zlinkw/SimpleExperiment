@@ -68,6 +68,7 @@ import * as PlanExecutionMode from "../features/PlanExecutionMode";
 import * as DistributedSchedulingPolicy from "../features/DistributedSchedulingPolicy";
 import * as GpuJobOwnership from "../features/GpuJobOwnership";
 import { changedManifestFiles, inventoryFilesByPath } from "../features/CodeSyncDelta";
+import { waitForCodeSyncProof } from "../features/CodeSyncProofWaiter";
 import { hashLocalCodeFiles, localCodeManifestCachePath } from "../features/LocalCodeManifestCache";
 import { distributedQueueOnlyClearable, mergeTrustedPlanOperations, planCleanupTargets, planRecoveryConflicts, planStopClearFeedback, planStopClearPreview, planStopClearUiResult, planStopIdentityConflictMessage, planStopMissingEvidenceMessage, terminalPlanHistorySelection, trustedRemotePlanOperations } from "../features/PlanStopClear";
 import { parseDistributedResultsFlag } from "../features/DistributedAdapterFlag";
@@ -9404,9 +9405,12 @@ export class RealtimeTunnelPanelProvider {
                 const workerProbeOk = this.lastWorkerProbes?.[target.id]?.status === "ok";
                 const workerVersion = async (refreshProof = false) => {
                     if (refreshProof) this.codeSyncAgentProofs.delete(warmProofKey);
-                    const proof = target.role === "worker" && hashCompare
-                        ? await this.ensureWorkerCodeSyncProof(target, root, fingerprint, manifest, includePaths, scopePaths, inventoryScopePaths, warmProofKey)
-                        : undefined;
+                    let proof;
+                    if (target.role === "worker" && hashCompare) {
+                        progressReport?.(`${target.label || target.id}：文件传输/比对已完成，正在登记同步结果…`);
+                        try { proof = await this.ensureWorkerCodeSyncProof(target, root, fingerprint, manifest, includePaths, scopePaths, inventoryScopePaths, warmProofKey, progressReport); }
+                        catch (error) { throw new Error(`文件传输/比对已完成，Agent 同步登记未完成：${errorMessage(error)}`); }
+                    }
                     return { fingerprint, files: Object.keys(manifest).sort(), syncedAt: new Date().toISOString(),
                         ...(proof ? { codeSyncProofId: proof.proofId, manifestDigest: proof.manifestDigest,
                             codeSyncScopeSignature: proof.scopeSignature, codeSyncProofVerifiedAt: proof.verifiedAt,
@@ -9558,7 +9562,7 @@ export class RealtimeTunnelPanelProvider {
             reconnectCount: Number(endpoint?.reconnectCount || 0), statusGeneration: Number(probe.statusGeneration || 0),
             probeStatus: String(probe.status || "unknown") });
     }
-    async ensureWorkerCodeSyncProof(target, root, fingerprint, manifest, includePaths, scopePaths, inventoryScopePaths, warmProofKey) {
+    async ensureWorkerCodeSyncProof(target, root, fingerprint, manifest, includePaths, scopePaths, inventoryScopePaths, warmProofKey, progressReport?) {
         const probe = this.lastWorkerProbes?.[target.id] || {};
         if (probe.capabilities?.actionEndpoints?.["register-code-sync-proof"] !== true) return undefined;
         const cached = this.codeSyncAgentProofs.get(warmProofKey);
@@ -9567,10 +9571,19 @@ export class RealtimeTunnelPanelProvider {
         const scopeSignature = sha256Text(JSON.stringify({ includePaths: [...(includePaths || [])].map(String).sort(),
             scopePaths: [...(scopePaths || [])].map(String).sort(), inventoryScopePaths: [...(inventoryScopePaths || [])].map(String).sort() }));
         const client = this.client;
-        const result: any = await client.postWorkerAction(target.id, "register-code-sync-proof", {
-            schemaVersion: 1, opId: makeOpId("code-sync-proof"), projectId, workerId: target.id,
+        const asynchronous = probe.capabilities?.endpoints?.codeSyncProofAsync === true;
+        const operationId = makeOpId("code-sync-proof");
+        const request = {
+            schemaVersion: 1, opId: operationId, projectId, workerId: target.id,
             codeFingerprint: fingerprint, manifestDigest: fingerprint, scopeSignature, codeManifest: manifest,
-        });
+            ...(asynchronous ? { async: true } : {}),
+        };
+        const result: any = asynchronous ? await waitForCodeSyncProof({
+            operationId, workerId: target.id, manifestDigest: fingerprint, scopeSignature,
+            submit: () => client.postWorkerAction(target.id, "register-code-sync-proof", request),
+            query: () => client.getWorkerOperation(target.id, operationId), progress: progressReport,
+            assertCurrent: () => { if (workspaceRoot() !== root || this.client !== client) throw new UiCommandCancelled("项目或连接已切换，同步登记查询已停止。"); },
+        }) : await client.postWorkerAction(target.id, "register-code-sync-proof", request);
         if (workspaceRoot() !== root || this.client !== client) throw new UiCommandCancelled("工作区或连接已切换，Worker 代码 proof 注册已取消。");
         const proofId = String(result?.proofId || "").trim();
         const runtimeGeneration = String(result?.runtimeGeneration || "").trim();

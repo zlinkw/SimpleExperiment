@@ -25,7 +25,7 @@ export function recordedDeclarations(queue: any, file: string): ManifestDeclarat
 
 /** Only frozen declarations and actual per-output manifests authorize candidates. */
 export async function discoverManifestCandidates(host: any, root: string, file: string, nodes: CleanupNode[], queue: any,
-  explicit: ManifestDeclaration[] = []) {
+  explicit: ManifestDeclaration[] = [], pathOnly = false) {
   const declarations = [...explicit, ...recordedDeclarations(queue, file)];
   const notices: any[] = [], blockers: any[] = [], candidates: CleanupCandidate[] = [];
   // Describe is the existing Scheduler's pure expansion; no sync, preview attempt, or project callback.
@@ -48,15 +48,21 @@ export async function discoverManifestCandidates(host: any, root: string, file: 
   for (const node of nodes) {
     if (node.error) { blockers.push({ code: "OFFLINE_NODE", nodeId: node.id, detail: node.error }); continue; }
     for (const declaration of selected) {
-      let output: string, csv: string;
-      try { output = relativeTo(node, declaration.output_dir); csv = relativeTo(node, declaration.result_csv); }
-      catch { blockers.push({ code: "UNSAFE_DECLARED_PATH", nodeId: node.id, detail: declaration.output_dir }); continue; }
+      let output: string, csv = "";
+      try { output = relativeTo(node, declaration.output_dir); }
+      catch { blockers.push({ code: "UNSAFE_DECLARED_PATH", nodeId: node.id, detail: "output_dir：" + declaration.output_dir }); continue; }
+      // Older cleared-job indexes only retained outputDir. An absent CSV is
+      // missing discovery information, not an unsafe output path on every node.
+      if (spelling(declaration.result_csv)) {
+        try { csv = relativeTo(node, declaration.result_csv); }
+        catch { blockers.push({ code: "UNSAFE_DECLARED_PATH", nodeId: node.id, detail: "result_csv：" + declaration.result_csv }); continue; }
+      }
       let info: any;
       try { info = await host.simpleSftpApiCall("files.cleanup.inspect", { node, target: { relativePath: output, type: "directory" }, manifestOnly: true, allowMissing: true }); }
       catch (error: any) { blockers.push({ code: "NODE_UNREACHABLE", nodeId: node.id, detail: String(error.message || error) }); continue; }
       if (info.target?.missing) continue;
       const records = info.target?.manifests || [];
-      const owner = records.find((record: any) => {
+      const linkedOwners = records.filter((record: any) => {
         const binding = record.binding || {};
         let ownedOutput = false;
         try { ownedOutput = relativeTo(node, binding.outputDir) === output; } catch {}
@@ -65,11 +71,38 @@ export async function discoverManifestCandidates(host: any, root: string, file: 
           || binding.case === declaration.case && Number(binding.seed) === Number(declaration.seed);
         return linked && ownedOutput && logical;
       });
-      if (!owner) {
+      if (!linkedOwners.length) {
+        if (pathOnly) {
+          notices.push({ code: "PATH_CONFIRMATION_REQUIRED", nodeId: node.id, detail: output + "：任务关联未核实，请直接核对服务器及完整路径后决定删除。" });
+          candidates.push({ nodeId: node.id, relativePath: output, type: "directory", category: "用户确认的任务输出目录",
+            owners: [planKey], evidence: ["PLAN/旧记录定位路径=" + declaration.output_dir], dependencies: [] });
+          if (csv && !csv.startsWith(output + "/")) candidates.push({ nodeId: node.id, relativePath: csv, type: "file", category: "用户确认的结果文件",
+            owners: [planKey], evidence: ["声明结果路径=" + declaration.result_csv], dependencies: [] });
+          continue;
+        }
         blockers.push({ code: "OWNERSHIP_UNVERIFIED", nodeId: node.id, detail: output + "：产物清单尚不能证明与所选 PLAN/job 的关联" });
         candidates.push({ nodeId: node.id, relativePath: output, type: "directory", category: "归属未核实产物",
           owners: [], evidence: ["PLAN 精确声明=" + declaration.output_dir], dependencies: [], protectedReason: "清单关联未核实，只报告" });
         continue;
+      }
+      const owner = linkedOwners.find((record: any) => spelling(record.binding?.resultCsv)) || linkedOwners[0];
+      if (!csv) {
+        const manifestResults = new Set<string>();
+        let unsafeResult = false;
+        for (const record of linkedOwners) if (spelling(record.binding?.resultCsv)) {
+          try { manifestResults.add(relativeTo(node, record.binding.resultCsv)); }
+          catch { unsafeResult = true; blockers.push({ code: "UNSAFE_MANIFEST_RESULT_PATH", nodeId: node.id,
+            detail: "产物清单中的结果路径无法安全解析：" + record.binding.resultCsv }); }
+        }
+        if (unsafeResult && !pathOnly) continue;
+        if (manifestResults.size > 1) {
+          blockers.push({ code: "RESULT_MANIFEST_LINK_UNVERIFIED", nodeId: node.id, detail: output + "：清单记录了不同的结果路径，需要核对" });
+          if (!pathOnly) continue;
+        }
+        csv = !unsafeResult && manifestResults.size <= 1 ? [...manifestResults][0] || "" : "";
+        notices.push({ code: "RESULT_PATH_FROM_MANIFEST", nodeId: node.id, detail: csv
+          ? "旧记录未保存结果路径，已从匹配该任务的产物清单取得：" + csv
+          : "旧记录和清单未提供独立结果路径；本次只审核已证明关联的输出目录，不推测其他结果文件。" });
       }
       const evidence = ["PLAN=" + file, "job=" + declaration.index + "/" + declaration.case + "/seed" + declaration.seed,
         "产物清单=" + owner.relativePath, "清单 SHA256=" + owner.sha256, "run=" + String(owner.binding?.runId || "清单已关联")];
@@ -82,10 +115,10 @@ export async function discoverManifestCandidates(host: any, root: string, file: 
         dependencies.push(String(record.binding.planFile));
       candidates.push({ nodeId: node.id, relativePath: output, type: "directory", category: "job 产物（清单关联）",
         owners: [planKey], evidence, dependencies: [...new Set(dependencies)] });
-      if (!csv.startsWith(output + "/")) {
+      if (csv && !csv.startsWith(output + "/")) {
         let boundCsv = "";
         try { boundCsv = relativeTo(node, owner.binding?.resultCsv); } catch {}
-        if (boundCsv !== csv) {
+        if (boundCsv !== csv && !pathOnly) {
           blockers.push({ code: "RESULT_MANIFEST_LINK_UNVERIFIED", nodeId: node.id, detail: csv });
         } else candidates.push({ nodeId: node.id, relativePath: csv, type: "file", category: "独立测试结果（清单关联）",
           owners: [planKey], evidence, dependencies: [...new Set(dependencies)] });

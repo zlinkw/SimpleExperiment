@@ -297,3 +297,16 @@ test('active queries finish the delete page when its execute response is lost, w
   assert.equal(f.element('execute').disabled, true);
   assert.equal(f.calls.filter(call => call === 'execute').length, 1);
 });
+
+test('both delete pages request path-based review and explain disabled buttons beside the action',async()=>{
+  for(const job of [undefined,{workflowId:'selected',index:5,commandId:'selected'}]){
+    const inputs=[];
+    const f=bridge({service:{async preview(input){inputs.push(input);const p=preview();p.action=input.action;p.scope.job=job;p.rows[0].disposition=input.action;return p;}}});
+    f.element('action').value='delete';await f.open(job);
+    assert.equal(inputs[0].authorizationMode,'confirmed_paths');
+    assert.match(f.element('approvalHelp').textContent,/下一步.*第一次确认/);
+    f.element('partial').checked=true;f.element('partial').onchange();
+    assert.equal(f.element('review').innerHTML,'');assert.match(f.element('approvalHelp').textContent,/重新检查路径/);
+    f.element('preview').onclick();await flush();assert.equal(f.element('confirm').disabled,false);
+  }
+});

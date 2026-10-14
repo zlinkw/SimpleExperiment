@@ -2907,7 +2907,7 @@ def _store_code_sync_proof(root, proof):
             proofs = dict(keep)
         atomic_write(path_for(root, "code_sync_proofs.json"), {"schemaVersion": 1, "proofs": proofs}, compact=True)
 
-def register_code_sync_proof(root, payload, worker_id):
+def register_code_sync_proof(root, payload, worker_id, on_progress=None):
     if not isinstance(payload, dict):
         raise ValueError("invalid code-sync proof request")
     project_id = str(payload.get("projectId") or "").strip()
@@ -2929,7 +2929,7 @@ def register_code_sync_proof(root, payload, worker_id):
     identity = {"projectId": project_id, "codeFingerprint": fingerprint, "manifestDigest": manifest_digest,
                 "codeSyncProofId": proof_id}
     existing = code_sync_proof_document(root).get("proofs", {}).get(proof_id)
-    if isinstance(existing, dict):
+    if isinstance(existing, dict) and on_progress is None:
         try:
             verify_code_sync_proof_record(root, existing, identity)
             return {"ok": True, "proofId": proof_id, "manifestDigest": manifest_digest,
@@ -2938,8 +2938,12 @@ def register_code_sync_proof(root, payload, worker_id):
         except Exception:
             pass
     files = []
+    processed_bytes = 0
     for relative, expected in manifest.items():
         files.append(_code_sync_stat_record(root, relative, expected, verify_content=False))
+        processed_bytes += int(expected.get("size") or 0)
+        if on_progress is not None:
+            on_progress(len(files), processed_bytes)
     if not files:
         raise ValueError("code-sync proof file inventory is empty")
     proof = {"schemaVersion": 1, "proofId": proof_id, **identity, "scopeSignature": scope_signature,
@@ -2950,6 +2954,57 @@ def register_code_sync_proof(root, payload, worker_id):
     return {"ok": True, "proofId": proof_id, "manifestDigest": manifest_digest,
             "fileCount": len(files), "scopeSignature": scope_signature,
             "verifiedAt": proof["verifiedAt"], "runtimeGeneration": runtime_generation, "reused": False}
+
+CODE_SYNC_REQUEST_LOCK = threading.RLock()
+CODE_SYNC_REQUESTS = {}
+
+def code_sync_request_state(root, worker_id, operation_id):
+    key = (os.path.abspath(root), str(worker_id), str(operation_id))
+    with CODE_SYNC_REQUEST_LOCK:
+        row = CODE_SYNC_REQUESTS.get(key)
+        return copy.deepcopy({name: value for name, value in row.items() if name != "requestDigest"}) if row else None
+
+def register_code_sync_proof_request(root, payload, worker_id):
+    operation_id = str(payload.get("opId") or "")
+    if not re.fullmatch(r"[a-zA-Z0-9._:-]{1,128}", operation_id):
+        raise ValueError("code-sync operationId is invalid")
+    if str(payload.get("workerId") or "") != str(worker_id):
+        raise ValueError("code-sync Worker owner mismatch")
+    manifest = payload.get("codeManifest")
+    if not isinstance(manifest, dict) or not manifest or len(manifest) > 100000:
+        raise ValueError("code-sync manifest is invalid")
+    request_digest = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).hexdigest()
+    key = (os.path.abspath(root), str(worker_id), operation_id)
+    with CODE_SYNC_REQUEST_LOCK:
+        existing = CODE_SYNC_REQUESTS.get(key)
+        if existing:
+            if existing["requestDigest"] != request_digest:
+                raise ValueError("code-sync operationId already belongs to different input")
+            return code_sync_request_state(root, worker_id, operation_id)
+        for old_key in list(CODE_SYNC_REQUESTS):
+            if len(CODE_SYNC_REQUESTS) < 128:
+                break
+            if CODE_SYNC_REQUESTS[old_key]["status"] in ("completed", "failed"):
+                del CODE_SYNC_REQUESTS[old_key]
+        if len(CODE_SYNC_REQUESTS) >= 128:
+            raise ValueError("too many active code-sync registrations")
+        CODE_SYNC_REQUESTS[key] = {"operationId": operation_id, "workerId": worker_id, "status": "running",
+            "manifestDigest": payload.get("manifestDigest"), "scopeSignature": payload.get("scopeSignature"),
+            "processedFiles": 0, "processedBytes": 0, "totalFiles": len(manifest), "requestDigest": request_digest}
+    frozen = copy.deepcopy(payload)
+    def progress(files, byte_count):
+        with CODE_SYNC_REQUEST_LOCK:
+            CODE_SYNC_REQUESTS[key].update(processedFiles=files, processedBytes=byte_count)
+    def run():
+        try:
+            result = register_code_sync_proof(root, frozen, worker_id, progress)
+            with CODE_SYNC_REQUEST_LOCK:
+                CODE_SYNC_REQUESTS[key].update(status="completed", result=result)
+        except Exception as exc:
+            with CODE_SYNC_REQUEST_LOCK:
+                CODE_SYNC_REQUESTS[key].update(status="failed", error=str(exc), traceback=traceback.format_exc()[-8000:])
+    threading.Thread(target=run, name="code-sync-proof", daemon=True).start()
+    return code_sync_request_state(root, worker_id, operation_id)
 
 def _legacy_durable_code_sync_proof(root, row, manifest):
     project_id = str(row.get("projectId") or "")
@@ -6890,6 +6945,7 @@ def api_capabilities(root, token_required=False, mode="hub_control"):
                 "completedOutputPreflight": 1 if project_managed_validation_capable(root) else 0,
                 "durablePlanQueue": True,
                 "codeSyncProof": True,
+                "codeSyncProofAsync": True,
                 "idleGpuAdmission": True,
                 "queuedJobRecall": True,
                 "liveOutput": True,
@@ -16329,6 +16385,10 @@ def serve_http(args):
                     return self.send_json({"error": str(exc)}, status=500)
             if operation_route:
                 operation_id = unquote(route[len("/api/operations/"):]).strip()
+                proof_worker = str(getattr(args, "worker_id", "") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip()
+                proof_request = code_sync_request_state(root, proof_worker, operation_id)
+                if proof_request is not None:
+                    return self.send_json(proof_request)
                 result = api_operation(root, operation_id)
                 return self.send_json(result, status=200 if result.get("eventCount") else 404)
             if route == "/api/files/capabilities":
@@ -16954,7 +17014,7 @@ def serve_http(args):
             if route == "/api/actions/register-code-sync-proof":
                 try:
                     worker_id = str(getattr(args, "worker_id", "") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip()
-                    result = register_code_sync_proof(root, payload, worker_id)
+                    result = register_code_sync_proof_request(root, payload, worker_id) if payload.get("async") is True else register_code_sync_proof(root, payload, worker_id)
                     return self.send_json(result)
                 except Exception as exc:
                     return self.send_json({"ok": False, "error": str(exc)}, status=409)
