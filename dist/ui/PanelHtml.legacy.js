@@ -3055,6 +3055,10 @@ function renderPanelHtml() {
     const CONFIG_PORT_BOUNDS = Object.freeze({ min: 1024, max: 65535, step: 1 });
     const CONFIG_GPU_CONCURRENCY_BOUNDS = Object.freeze({ min: 1, max: 16, step: 1 });
     const CONFIG_SCHEDULER_BOUNDS = Object.freeze({
+      gpuMemoryPerJobGb: Object.freeze({ min: 1, max: 1024, step: 0.5 }),
+      gpuMemoryMaxJobsPerGpu: Object.freeze({ min: 0, max: 1024, step: 1 }),
+      gpuMemoryReserveGb: Object.freeze({ min: 0, max: 1024, step: 0.5 }),
+      gpuMemoryTolerancePercent: Object.freeze({ min: 0, max: 5, step: 0.5 }),
       pollSeconds: Object.freeze({ min: 5, max: 3600, step: 0.5 }),
       jitterSeconds: Object.freeze({ min: 0, max: 1800, step: 1 }),
       gpuIdleUtilThreshold: Object.freeze({ min: 0, max: 100, step: 1 }),
@@ -9098,6 +9102,12 @@ function renderPanelHtml() {
           '</div></div>' +
           '<div class="configGrid">' +
             configSelect("scheduler", "dispatchMode", "Plan 调度模式", scheduler.dispatchMode || "local_idle", [["local_idle", "本机按空卡派发（默认）"], ["server_prequeue", "预派发到服务器队列（可关机）"]]) +
+            configSelect("scheduler", "gpuMemoryRatioEnabled", "按显存比例增加单卡任务数", String(scheduler.gpuMemoryRatioEnabled !== false), [["true", "启用"], ["false", "关闭：一卡一个自动任务"]]) +
+            configInput("scheduler", "gpuMemoryPerJobGb", "每个任务的显存基准（GiB）", scheduler.gpuMemoryPerJobGb ?? 24, "number") +
+            configInput("scheduler", "gpuMemoryMaxJobsPerGpu", "单卡自动任务数上限（0＝只按比例）", scheduler.gpuMemoryMaxJobsPerGpu ?? 0, "number") +
+            configInput("scheduler", "gpuMemoryReserveGb", "启动新任务时保留显存（GiB）", scheduler.gpuMemoryReserveGb ?? 0, "number") +
+            configInput("scheduler", "gpuMemoryTolerancePercent", "容量报告容差（%，最多 5）", scheduler.gpuMemoryTolerancePercent ?? 3, "number") +
+            '<div class="muted">默认每 24 GiB 一个自动任务：24/48/80/96 GiB 对应 1/2/3/4 个；实际显存不足暂停新增。容差仅处理驱动报告差异，不改变 GPU 显存。设置用于新派发；已接收队列沿用原设置。旧版 Agent 或调度控制进程保持一卡一任务，更新后生效。手动派发不受自动上限限制。</div>' +
             '<div class="muted">模式仅影响新提交的 Plan。预派发按空卡与本人占用卡计算比例；关机前确认所有任务已进入服务器队列。重连后读取所有服务器状态；指标文件仍需手动同步。</div>' +
             configInput("scheduler", "pollSeconds", "调度轮询基准(秒)", configDefault(scheduler.pollSeconds, 10), "number") +
             configInput("scheduler", "jitterSeconds", "正向随机抖动(秒)", configDefault(scheduler.jitterSeconds, 30), "number") +
@@ -9137,6 +9147,11 @@ function renderPanelHtml() {
             configInput(scope, "condaEnv", "Conda 环境绝对路径（可选，必填完整路径）", worker.condaEnv === undefined ? (setup.condaEnv || "") : worker.condaEnv) +
             configInput(scope, "agentProjectDir", "项目父目录", worker.agentProjectDir || "", "text", "wide") +
             configInput(scope, "maxConcurrentGpus", "并发占卡上限(auto=全部)", worker.maxConcurrentGpus ?? "auto", "text") +
+            configSelect(scope, "gpuMemoryRatioEnabled", "显存比例调度", worker.gpuMemoryRatioEnabled === undefined ? "" : String(worker.gpuMemoryRatioEnabled), [["", "跟随全局"], ["true", "启用"], ["false", "关闭：一卡一个自动任务"]]) +
+            configInput(scope, "gpuMemoryPerJobGb", "每任务显存基准 GiB（留空跟随全局）", worker.gpuMemoryPerJobGb ?? "", "number") +
+            configInput(scope, "gpuMemoryMaxJobsPerGpu", "单卡任务上限（留空跟随全局，0＝按比例）", worker.gpuMemoryMaxJobsPerGpu ?? "", "number") +
+            configInput(scope, "gpuMemoryReserveGb", "启动保留显存 GiB（留空跟随全局）", worker.gpuMemoryReserveGb ?? "", "number") +
+            configInput(scope, "gpuMemoryTolerancePercent", "容量容差 %（留空跟随全局）", worker.gpuMemoryTolerancePercent ?? "", "number") +
             '<div class="muted" style="grid-column: 1 / -1; padding: 6px 0 2px; font-size: 11px;">空卡识别阈值：利用率 &lt; 阈值 且 显存 &lt; 阈值 视为空卡（留空跟随全局 5% / 200MB）</div>' +
             '<div class="thresholdRow" title="' + escAttr(configHelp(scope, "gpuIdleUtilThreshold")) + '"><div class="label">空卡利用率阈值 %（利用率 &lt; 阈值 视为空闲）' + helpBadge(configHelp(scope, "gpuIdleUtilThreshold")) + '</div><div class="value"><input data-config-key="' + escAttr(scope + '.gpuIdleUtilThreshold') + '" data-endpoint-id="' + escAttr(worker.id) + '" value="' + escAttr(worker.gpuIdleUtilThreshold ?? "") + '" placeholder="默认 5（&lt;5% 空闲）" type="number" min="0" max="100" style="width:100%; min-width:120px; box-sizing:border-box;" title="' + escAttr(configHelp(scope, "gpuIdleUtilThreshold")) + '" /></div></div>' +
             '<div class="thresholdRow" title="' + escAttr(configHelp(scope, "gpuIdleMemThresholdMb")) + '"><div class="label">空卡显存阈值 MB（显存 &lt; 阈值 视为空闲）' + helpBadge(configHelp(scope, "gpuIdleMemThresholdMb")) + '</div><div class="value"><input data-config-key="' + escAttr(scope + '.gpuIdleMemThresholdMb') + '" data-endpoint-id="' + escAttr(worker.id) + '" value="' + escAttr(worker.gpuIdleMemThresholdMb ?? "") + '" placeholder="默认 200（&lt;200MB 空闲）" type="number" min="0" max="8192" style="width:100%; min-width:120px; box-sizing:border-box;" title="' + escAttr(configHelp(scope, "gpuIdleMemThresholdMb")) + '" /></div></div>' +
@@ -9692,6 +9707,7 @@ function renderPanelHtml() {
     }
 
     function configInputBounds(scope, key) {
+      if (String(key).indexOf("gpuMemory") === 0) return CONFIG_SCHEDULER_BOUNDS[key] || EMPTY_CONFIG_INPUT_BOUNDS;
       if (CONFIG_PORT_KEYS?.has(key)) return CONFIG_PORT_BOUNDS;
       if (key === "maxConcurrentGpus") return CONFIG_GPU_CONCURRENCY_BOUNDS;
       if (scope === "scheduler") return CONFIG_SCHEDULER_BOUNDS[key] || EMPTY_CONFIG_INPUT_BOUNDS;

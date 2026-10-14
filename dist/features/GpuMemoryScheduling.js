@@ -1,0 +1,78 @@
+"use strict";
+Object.defineProperty(exports, "__esModule", { value: true });
+exports.memorySchedulingDefaults = void 0;
+exports.memorySchedulingSettings = memorySchedulingSettings;
+exports.memorySchedulingOverrides = memorySchedulingOverrides;
+exports.gpuMemoryNumbers = gpuMemoryNumbers;
+exports.gpuMemoryJobLimit = gpuMemoryJobLimit;
+exports.gpuMemoryPlacement = gpuMemoryPlacement;
+/** Placement arithmetic only. Current GPU telemetry and live task windows remain authoritative. */
+exports.memorySchedulingDefaults = { gpuMemoryRatioEnabled: true, gpuMemoryPerJobGb: 24,
+    gpuMemoryMaxJobsPerGpu: 0, gpuMemoryReserveGb: 0, gpuMemoryTolerancePercent: 3 };
+const finite = (value) => value !== undefined && value !== null && value !== "" && Number.isFinite(Number(value));
+function memorySchedulingSettings(global = {}, worker = {}) {
+    const result = {};
+    for (const [key, fallback] of Object.entries(exports.memorySchedulingDefaults)) {
+        const value = worker[key] ?? global[key] ?? fallback;
+        result[key] = typeof fallback === "boolean" ? value === true || value === "true" : finite(value) ? Number(value) : fallback;
+    }
+    result.gpuMemoryPerJobGb = Math.max(1, Math.min(1024, result.gpuMemoryPerJobGb));
+    result.gpuMemoryMaxJobsPerGpu = Math.max(0, Math.min(1024, Math.floor(result.gpuMemoryMaxJobsPerGpu)));
+    result.gpuMemoryReserveGb = Math.max(0, Math.min(1024, result.gpuMemoryReserveGb));
+    result.gpuMemoryTolerancePercent = Math.max(0, Math.min(5, result.gpuMemoryTolerancePercent));
+    return result;
+}
+function memorySchedulingOverrides(input) {
+    const normalized = memorySchedulingSettings({}, input), result = {};
+    for (const key of Object.keys(exports.memorySchedulingDefaults))
+        result[key] = input[key] === undefined || input[key] === "" || input[key] === null ? undefined : normalized[key];
+    return result;
+}
+function gpuMemoryNumbers(row) {
+    const total = row.memoryTotalMb ?? row.memory_total_mb ?? row.memoryTotal ?? row.memory_total;
+    const used = row.memoryUsedMb ?? row.memory_used_mb ?? row.memoryUsed ?? row.memory_used;
+    return finite(total) && finite(used) && Number(total) > 0 && Number(used) >= 0 && Number(used) <= Number(total)
+        ? { total: Number(total), free: Number(total) - Number(used) } : undefined;
+}
+function gpuMemoryJobLimit(row, settings) {
+    const memory = gpuMemoryNumbers(row);
+    if (!settings.gpuMemoryRatioEnabled || !memory)
+        return 1;
+    const exact = memory.total / (settings.gpuMemoryPerJobGb * 1024), upper = Math.ceil(exact);
+    const ratio = Math.max(1, exact >= upper * (1 - settings.gpuMemoryTolerancePercent / 100) ? upper : Math.floor(exact));
+    return settings.gpuMemoryMaxJobsPerGpu > 0 ? Math.min(ratio, settings.gpuMemoryMaxJobsPerGpu) : ratio;
+}
+function gpuMemoryPlacement(rows, counts, idleIds, settings, maxCards = 0) {
+    const candidates = rows.map(row => ({ row, id: String(row.index ?? row.gpu_id ?? row.gpuId ?? row.id ?? "") }))
+        .filter(({ id }) => id && (idleIds.includes(id) || (counts.get(id) || 0) > 0));
+    // maxConcurrentGpus continues to count physical cards, not jobs sharing a card.
+    candidates.sort((a, b) => Number((counts.get(b.id) || 0) > 0) - Number((counts.get(a.id) || 0) > 0));
+    const allowed = maxCards > 0 ? candidates.slice(0, maxCards) : candidates;
+    const unique = [...new Map(allowed.map(item => [item.id, item])).values()];
+    const limits = {}, available = new Map();
+    let weight = 0;
+    for (const { row, id } of unique) {
+        const count = counts.get(id) || 0, cap = gpuMemoryJobLimit(row, settings), memory = gpuMemoryNumbers(row);
+        limits[id] = cap;
+        weight += cap;
+        let slots = Math.max(0, cap - count);
+        if (!settings.gpuMemoryRatioEnabled || !memory)
+            slots = idleIds.includes(id) && !count ? 1 : 0;
+        else {
+            const unit = Math.min(settings.gpuMemoryPerJobGb * 1024, memory.total) * (1 - settings.gpuMemoryTolerancePercent / 100);
+            const reserve = settings.gpuMemoryReserveGb * 1024;
+            // A newly admitted task may not have allocated VRAM yet. Keep its share
+            // across polls as well as checking the currently reported free memory.
+            slots = Math.min(slots, Math.max(0, Math.floor((memory.free - reserve) / unit)), Math.max(0, Math.floor((memory.total - reserve) / unit) - count));
+        }
+        available.set(id, slots);
+    }
+    const slots = [];
+    while ([...available.values()].some(count => count > 0))
+        for (const [id, count] of available)
+            if (count > 0) {
+                slots.push(id);
+                available.set(id, count - 1);
+            }
+    return { slots, weight, limits };
+}

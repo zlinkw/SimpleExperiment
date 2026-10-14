@@ -23,6 +23,7 @@ class Tmux:
         return subprocess.run(["tmux", "-L", socket, *args[1:]], **kwargs)
 
 ns = dict(subprocess=Tmux, os=os, re=re, base64=base64, json=json,
+          task_memory_scheduler_capability=lambda root: 0,
           now_iso=lambda: "2026-10-15T00:00:00Z", task_safe_path=lambda root, path: path,
           task_manifest_observation=lambda *_: None, task_queue_session=lambda *_: "controller",
           task_option=lambda *_: '["command"]')

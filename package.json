@@ -2,7 +2,7 @@
   "name": "simple-experiment",
   "displayName": "SimpleExperiment",
   "description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
-  "version": "0.5.321",
+  "version": "0.5.322",
   "publisher": "simple-local",
   "extensionKind": [
     "ui"
@@ -613,6 +613,34 @@
               },
               "workerSshPort": {
                 "type": "number"
+              },
+              "gpuMemoryRatioEnabled": {
+                "type": "boolean",
+                "description": "本 Worker 覆盖设置，未设置时跟随全局。按显存比例设置每张卡的自动任务上限。关闭时保持一卡一个自动任务；手动派发不受此上限限制。需要支持该功能的 Worker Agent 和 Scheduler。"
+              },
+              "gpuMemoryPerJobGb": {
+                "type": "number",
+                "minimum": 1,
+                "maximum": 1024,
+                "description": "本 Worker 覆盖设置，未设置时跟随全局。每任务显存基准，单位 GiB。单卡任务数按总显存除以该值向下取整，最低一个；默认 24 GiB。用于调度，不限制进程实际显存。"
+              },
+              "gpuMemoryMaxJobsPerGpu": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1024,
+                "description": "本 Worker 覆盖设置，未设置时跟随全局。单卡自动任务数的额外上限。0 表示仅按显存比例计算；手动派发可超过该值。"
+              },
+              "gpuMemoryReserveGb": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1024,
+                "description": "本 Worker 覆盖设置，未设置时跟随全局。启动新自动任务时额外保留的空闲显存，单位 GiB。数值过大可能暂停新任务。"
+              },
+              "gpuMemoryTolerancePercent": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 5,
+                "description": "本 Worker 覆盖设置，未设置时跟随全局。驱动报告容量与标称容量的容差百分比，默认 3%，最多 5%。用于避免 96 GiB 报告略低时误算为三个任务，也应用于启动显存门槛。"
               }
             }
           },
@@ -783,13 +811,51 @@
           "default": "preserve",
           "scope": "application",
           "description": "Agent 独立运行。preserve 保留原登录命令；managed 经用户确认维护独立启动段，并保留原登录行为。"
+        },
+        "simpleExperiment.scheduler.gpuMemoryRatioEnabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "按显存比例设置每张卡的自动任务上限。关闭时保持一卡一个自动任务；手动派发不受此上限限制。需要支持该功能的 Worker Agent 和 Scheduler。",
+          "scope": "application"
+        },
+        "simpleExperiment.scheduler.gpuMemoryPerJobGb": {
+          "type": "number",
+          "default": 24,
+          "minimum": 1,
+          "maximum": 1024,
+          "description": "每任务显存基准，单位 GiB。单卡任务数按总显存除以该值向下取整，最低一个；默认 24 GiB。用于调度，不限制进程实际显存。",
+          "scope": "application"
+        },
+        "simpleExperiment.scheduler.gpuMemoryMaxJobsPerGpu": {
+          "type": "integer",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 1024,
+          "description": "单卡自动任务数的额外上限。0 表示仅按显存比例计算；手动派发可超过该值。",
+          "scope": "application"
+        },
+        "simpleExperiment.scheduler.gpuMemoryReserveGb": {
+          "type": "number",
+          "default": 0,
+          "minimum": 0,
+          "maximum": 1024,
+          "description": "启动新自动任务时额外保留的空闲显存，单位 GiB。数值过大可能暂停新任务。",
+          "scope": "application"
+        },
+        "simpleExperiment.scheduler.gpuMemoryTolerancePercent": {
+          "type": "number",
+          "default": 3,
+          "minimum": 0,
+          "maximum": 5,
+          "description": "驱动报告容量与标称容量的容差百分比，默认 3%，最多 5%。用于避免 96 GiB 报告略低时误算为三个任务，也应用于启动显存门槛。",
+          "scope": "application"
         }
       }
     }
   },
   "scripts": {
     "build": "npm run compact:plan && npm run typecheck && node scripts/bundle-semver.js && node scripts/write-agent-runtime.js && node scripts/write-panel-build-manifest.js && node -c dist/extension.js && node -c dist/ui/PanelHtml.js && node --test --test-force-exit --test-timeout 20000 test/features/panelWebviewScriptHealth.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planCleanupPanelBridge.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/workerTelemetryApiContract.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/xshellPortProbe.test.js && node --test --test-force-exit --test-timeout 20000 test/features/completedPlanWorkerMirror.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobPreflightProgress.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobPreflightFailure.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobPreflightApi.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobRejectedRecovery.test.js && npm run test:preflight-stages && npm run test:execution-shell && npm run test:failed-job-review && npm run test:terminal-history && npm run test:agent-lifecycle && npm run test:tmux-lifecycle && npm run test:worker-mode && npm run test:plan-run && npm run test:latest-artifacts && npm run test:submission-truth",
-    "test:tmux-lifecycle": "node --test --test-force-exit --test-timeout 20000 test/features/taskLifecycle.test.js && node --test --test-force-exit --test-timeout 20000 test/features/tmuxTaskLifecycle.test.js && node --test --test-force-exit --test-timeout 20000 test/features/pulledTaskControl.test.js && node --test --test-force-exit --test-timeout 20000 test/features/manifestCleanup.test.js && node --test --test-force-exit --test-timeout 20000 test/features/nativeResultManifest.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobExecution.test.js && node --test --test-force-exit --test-timeout 20000 test/features/codeSyncProofWaiter.test.js && node --test --test-force-exit --test-timeout 20000 test/features/tmuxGpuSessionClose.test.js && node --test --test-force-exit --test-timeout 20000 test/ui/tmuxOtherSessionsDisclosure.test.js && node --test --test-force-exit --test-timeout 20000 test/agent/tmuxCloseRuntime.test.js && node --test --test-force-exit --test-timeout 20000 test/agent/tmuxCloseHttp.test.js && node --test --test-force-exit --test-timeout 20000 test/agent/tmuxSessionActions.test.js",
+    "test:tmux-lifecycle": "node --test --test-force-exit --test-timeout 20000 test/features/taskLifecycle.test.js && node --test --test-force-exit --test-timeout 20000 test/features/tmuxTaskLifecycle.test.js && node --test --test-force-exit --test-timeout 20000 test/features/pulledTaskControl.test.js && node --test --test-force-exit --test-timeout 20000 test/features/manifestCleanup.test.js && node --test --test-force-exit --test-timeout 20000 test/features/nativeResultManifest.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobExecution.test.js && node --test --test-force-exit --test-timeout 20000 test/features/codeSyncProofWaiter.test.js && node --test --test-force-exit --test-timeout 20000 test/features/tmuxGpuSessionClose.test.js && node --test --test-force-exit --test-timeout 20000 test/ui/tmuxOtherSessionsDisclosure.test.js && node --test --test-force-exit --test-timeout 20000 test/agent/tmuxCloseRuntime.test.js && node --test --test-force-exit --test-timeout 20000 test/agent/tmuxCloseHttp.test.js && node --test --test-force-exit --test-timeout 20000 test/agent/tmuxSessionActions.test.js && node --test --test-force-exit --test-timeout 20000 test/features/gpuMemoryScheduling.test.js && node --test --test-force-exit --test-timeout 20000 test/features/gpuMemoryAdmission.test.js",
     "test:preflight-stages": "node --test --test-force-exit --test-timeout 20000 test/features/preflightStages.test.js && node --test --test-force-exit --test-timeout 20000 test/features/preflightDispatchRejection.test.js",
     "test:failed-job-review": "node --test --test-force-exit --test-timeout 20000 test/features/failedJobCleanup.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planCleanup.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planCleanupReconnect.test.js && node --test --test-force-exit --test-timeout 20000 test/features/cleanupMissingTargets.test.js && npm run test:paired-update",
     "test:paired-update": "node --test --test-force-exit --test-timeout 20000 test/features/pairedUpdateTransaction.test.js && node --test --test-force-exit --test-timeout 20000 test/features/pairedUpdateClient.test.js && node --test --test-force-exit --test-timeout 20000 test/features/pairedUpdatePackage.test.js && node --test --test-force-exit --test-timeout 20000 test/features/pairedUpdateGate.test.js && node --test --test-force-exit --test-timeout 20000 test/features/pairedUpdateBootstrap.test.js && node --test --test-force-exit --test-timeout 20000 test/features/extensionUpdates.test.js && npm run test:mac-parity",

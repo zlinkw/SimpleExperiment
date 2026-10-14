@@ -1,4 +1,5 @@
 import { normalizePort } from "./TunnelGateway";
+import { memorySchedulingOverrides } from "../features/GpuMemoryScheduling";
 import {
   defaultTunnelPorts,
   normalizePortRange,
@@ -48,6 +49,11 @@ export interface XshellWorkerTunnelConfig {
   enabled: boolean;
   gpuIdleUtilThreshold?: number;
   gpuIdleMemThresholdMb?: number;
+  gpuMemoryRatioEnabled?: boolean;
+  gpuMemoryPerJobGb?: number;
+  gpuMemoryMaxJobsPerGpu?: number;
+  gpuMemoryReserveGb?: number;
+  gpuMemoryTolerancePercent?: number;
   sessionCheckMinSeconds?: number;
   workerStatusTtlSeconds?: number;
 }
@@ -235,6 +241,7 @@ export function normalizeXshellWorkerTunnelConfig(
     enabled: input.enabled !== false,
     gpuIdleUtilThreshold: normalizeIdleUtilThreshold((input as unknown as { gpuIdleUtilThreshold?: unknown }).gpuIdleUtilThreshold),
     gpuIdleMemThresholdMb: normalizeIdleMemThreshold((input as unknown as { gpuIdleMemThresholdMb?: unknown }).gpuIdleMemThresholdMb),
+    ...memorySchedulingOverrides(input),
     sessionCheckMinSeconds: normalizeSessionCheckSeconds((input as unknown as { sessionCheckMinSeconds?: unknown }).sessionCheckMinSeconds),
     workerStatusTtlSeconds: normalizeWorkerTtlSeconds((input as unknown as { workerStatusTtlSeconds?: unknown }).workerStatusTtlSeconds),
   };

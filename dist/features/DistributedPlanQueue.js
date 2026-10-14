@@ -935,7 +935,7 @@ function enqueuePlan(queue, plan, id, enqueuedAt = new Date().toISOString()) {
                 resultPathPolicy: "declared", automaticRetry: { enabledAt: enqueuedAt }, jobs }] };
 }
 function usableSlots(row) {
-    return row.online && [...new Set(row.idleGpuIds)].slice(0, Math.max(0, row.capacity ?? row.idleGpuIds.length)).length > 0;
+    return row.online && (row.gpuSlots ?? [...new Set(row.idleGpuIds)]).slice(0, Math.max(0, row.capacity ?? row.gpuSlots?.length ?? row.idleGpuIds.length)).length > 0;
 }
 function pinnedRetryPlanAllowed(plan) {
     return plan.resultPathPolicy === "declared" && !plan.executionModeBlocked && (plan.schedulingMode !== "server_prequeue" || plan.localDispatchOverride === true
@@ -984,7 +984,7 @@ function allocateAvailable(queue, workers, options = {}) {
             && (!options.requireIdleGpuAdmission || row.idleGpuAdmission === true) && row.codeFingerprint === plan.codeFingerprint)))?.codeFingerprint);
     const slots = new Map(workers.filter((row) => row.online && (!options.requireIdleGpuAdmission || row.idleGpuAdmission === true)
         && (!versioned || Boolean(row.codeFingerprint)))
-        .map((row) => [row.workerId, [...new Set(row.idleGpuIds)].slice(0, Math.max(0, row.capacity ?? row.idleGpuIds.length))]));
+        .map((row) => [row.workerId, (row.gpuSlots ?? [...new Set(row.idleGpuIds)]).slice(0, Math.max(0, row.capacity ?? row.gpuSlots?.length ?? row.idleGpuIds.length))]));
     for (const plan of plans) {
         if (plan.executionModeBlocked || plan.recoveryConflict)
             continue;

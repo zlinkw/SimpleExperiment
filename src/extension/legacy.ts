@@ -13,6 +13,7 @@ import { atomicWriteText } from "../state/StateStore";
 import { LatestSnapshotWriter } from "../core/LatestSnapshotWriter";
 import { runProjectStaticCheck } from "../features/ProjectStaticCheck";
 import * as TmuxWindowIdentity from "../features/TmuxWindowIdentity";
+import * as GpuMemoryScheduling from "../features/GpuMemoryScheduling";
 import { closeGpuTmuxSession, closeTmuxSession, manageTmuxSession } from "./GpuTmuxClose";
 import { callSftpWithProgress } from "../core/SimpleSftpProgressWait";
 import { deleteConfirmedScopeCopy } from "../features/SyncScopeDelete";
@@ -10609,6 +10610,9 @@ this.assertPlanTopologyReady("Plan 调度");
         const generation = this.distributedQueueGeneration;
         const workerConfig = this.enabledWorkerConfigs().find((worker) => worker.id === workerId);
         const schedulerSettings = this.schedulerSettings() as any;
+        const memoryScheduling = this.lastWorkerProbes?.[workerId]?.capabilities?.endpoints?.gpuMemoryRatioScheduling === 1
+            && this.lastWorkerTaskSnapshots?.get(root + "\u0000" + workerId)?.capabilities?.gpuMemoryRatioScheduling === 1
+            ? GpuMemoryScheduling.memorySchedulingSettings(schedulerSettings, workerConfig) : undefined;
         const settings = vscode.workspace.getConfiguration("simpleExperiment");
         const tmuxSessionPrefix = AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix(this.setupConfig?.sessionPrefix
             || this.setupConfig?.remoteTmuxSessionPrefix || settings.get("sessionPrefix") || settings.get("tunnel.remoteTmuxSessionPrefix") || "simple");
@@ -10649,6 +10653,7 @@ this.assertPlanTopologyReady("Plan 调度");
                 gpuIdleUtilThreshold: Number(workerConfig?.gpuIdleUtilThreshold ?? schedulerSettings.gpuIdleUtilThreshold ?? 5),
                 gpuIdleMemThresholdMb: Number(workerConfig?.gpuIdleMemThresholdMb ?? schedulerSettings.gpuIdleMemThresholdMb ?? 200),
                 maxConcurrentGpus,
+                ...memoryScheduling,
                 projectId: plan.projectId || DistributedPlanQueue.canonicalProjectId(workspaceRoot()),
                 planJobCount: Number(plan.planJobCount || plan.jobs.length), enqueuedAt: plan.enqueuedAt,
                 condaEnv: target.condaEnv, tmuxSessionPrefix,
@@ -10872,6 +10877,11 @@ this.assertPlanTopologyReady("Plan 调度");
                 queue = await this.loadDistributedQueue(root);
             }
             const scheduler = this.schedulerSettings() as any;
+            const memoryCounts = new Map<string, Map<string, number>>();
+            for (const p of queue.plans) for (const j of p.jobs) if (j.workerId && j.gpuId !== undefined && !j.manualDispatch && DistributedPlanQueue.jobHasLiveExecution(j)) {
+                const counts = memoryCounts.get(j.workerId) || new Map<string, number>();
+                counts.set(String(j.gpuId), (counts.get(String(j.gpuId)) || 0) + 1); memoryCounts.set(j.workerId, counts);
+            }
             const defaultUtil = Number(scheduler.gpuIdleUtilThreshold ?? 5);
             const defaultMem = Number(scheduler.gpuIdleMemThresholdMb ?? 200);
             const idleByWorker = new Map<string, string[]>();
@@ -11035,13 +11045,20 @@ this.assertPlanTopologyReady("Plan 调度");
                     && this.lastWorkerProbes[target.id]?.status === "ok");
                 const workerConfig = this.enabledWorkerConfigs().find((worker) => worker.id === target.id);
                 const configuredCapacity = Number(workerConfig?.maxConcurrentGpus);
+                const memoryPolicy = this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.gpuMemoryRatioScheduling === 1
+                    && snapshot?.capabilities?.gpuMemoryRatioScheduling === 1
+                    ? GpuMemoryScheduling.memorySchedulingSettings(scheduler, workerConfig) : undefined;
+                const memory = memoryPolicy?.gpuMemoryRatioEnabled && idleByWorker.has(target.id)
+                    ? GpuMemoryScheduling.gpuMemoryPlacement(dispatchGpuSnapshot?.[target.id] || [], memoryCounts.get(target.id) || new Map(),
+                        idleByWorker.get(target.id) || [], memoryPolicy, configuredCapacity) : undefined;
                 return { workerId: target.id, online: live, idleGpuAdmission: snapshot?.capabilities?.idleGpuAdmission === true,
+                    gpuSlots: memory?.slots, memoryWeight: memory?.weight,
                     declaredJobPaths: this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.declaredJobPaths === true
                         && this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.formalJobIdentityEnv === 1
                         && this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.taskShellEnvironment === 1,
                     codeFingerprint: workerFingerprint,
                     idleGpuIds: (idleByWorker.get(target.id) || []).filter((gpuId) => !occupiedGpuIds.has(`${target.id}:${gpuId}`)),
-                    capacity: Number.isInteger(configuredCapacity) && configuredCapacity > 0
+                    capacity: !memory && Number.isInteger(configuredCapacity) && configuredCapacity > 0
                         ? Math.max(0, configuredCapacity - (activeByWorker.get(target.id) || 0)) : undefined };
             });
             const ownedGpuSnapshot = GpuJobOwnership.projectGpuOwnership(dispatchGpuSnapshot || {},
@@ -11049,7 +11066,7 @@ this.assertPlanTopologyReady("Plan 调度");
                     Object.fromEntries(targets.map(target => [target.id, target.project_dir]))));
             const hosted = DistributedSchedulingPolicy.allocateServerPrequeue(queue, workers.map((worker) => {
                 const config = this.enabledWorkerConfigs().find((item) => item.id === worker.workerId);
-                return { ...worker, weight: DistributedSchedulingPolicy.prequeueGpuWeight(ownedGpuSnapshot[worker.workerId],
+                return { ...worker, weight: worker.memoryWeight ?? DistributedSchedulingPolicy.prequeueGpuWeight(ownedGpuSnapshot[worker.workerId],
                     Number(config?.gpuIdleUtilThreshold ?? defaultUtil), Number(config?.gpuIdleMemThresholdMb ?? defaultMem),
                     this.gpuOwnerConfig(), String(config?.workerUser || ""), Number(config?.maxConcurrentGpus)) };
             }));
@@ -12519,6 +12536,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const config = vscode.workspace.getConfiguration("simpleExperiment");
         const settings = this.schedulerSettings();
         const updates = [
+            ...Object.entries(GpuMemoryScheduling.memorySchedulingSettings({ ...settings, ...patch })).map(([key, value]) => config.update("scheduler." + key, value, vscode.ConfigurationTarget.Global)),
             config.update("scheduler.dispatchMode", DistributedSchedulingPolicy.schedulingMode(patch.dispatchMode ?? settings.dispatchMode), vscode.ConfigurationTarget.Global),
             config.update("scheduler.pollSeconds", numberRangePatch(patch, "pollSeconds", settings.pollSeconds, 5, 3600), vscode.ConfigurationTarget.Global),
             config.update("scheduler.jitterSeconds", numberRangePatch(patch, "jitterSeconds", settings.jitterSeconds, 0, 1800), vscode.ConfigurationTarget.Global),
@@ -12578,6 +12596,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 enabled: boolishPatch(patch, "enabled", worker.enabled !== false),
                 gpuIdleUtilThreshold: optionalNumberRangePatch(patch, "gpuIdleUtilThreshold", worker.gpuIdleUtilThreshold, 0, 100),
                 gpuIdleMemThresholdMb: optionalNumberRangePatch(patch, "gpuIdleMemThresholdMb", worker.gpuIdleMemThresholdMb, 0, 8192),
+                ...GpuMemoryScheduling.memorySchedulingOverrides({ ...worker, ...patch }),
                 sessionCheckMinSeconds: optionalNumberRangePatch(patch, "sessionCheckMinSeconds", worker.sessionCheckMinSeconds, 1, 60),
                 workerStatusTtlSeconds: optionalNumberRangePatch(patch, "workerStatusTtlSeconds", worker.workerStatusTtlSeconds, 10, 7200),
             };
@@ -20431,6 +20450,8 @@ return uniqueStrings(this.setupConfig.workerTunnels.flatMap(w=>[w.savedSessionPa
         const config = vscode.workspace.getConfiguration("simpleExperiment");
         return {
             dispatchMode: DistributedSchedulingPolicy.schedulingMode(config.get("scheduler.dispatchMode", "local_idle")),
+            ...GpuMemoryScheduling.memorySchedulingSettings(Object.fromEntries(Object.entries(GpuMemoryScheduling.memorySchedulingDefaults)
+                .map(([key, value]) => [key, config.get("scheduler." + key, value)]))),
             pollSeconds: Math.max(5, Math.min(3600, Number(config.get("scheduler.pollSeconds", 10)) || 10)),
             jitterSeconds: Math.max(0, Number(config.get("scheduler.jitterSeconds", 5)) || 0),
             gpuIdleUtilThreshold: Math.max(0, Math.min(100, Number(config.get("scheduler.gpuIdleUtilThreshold", 5)))),
@@ -25335,6 +25356,7 @@ function compactWorkerSetupForWebview(worker) {
         agentProjectDir: worker.agentProjectDir,
         condaEnv: worker.condaEnv,
         maxConcurrentGpus: worker.maxConcurrentGpus,
+        ...GpuMemoryScheduling.memorySchedulingOverrides(worker),
         enabled: worker.enabled,
     });
 }

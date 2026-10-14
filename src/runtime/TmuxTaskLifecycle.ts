@@ -203,7 +203,8 @@ def task_query(root, queries=()):
     return {"schemaVersion": 1, "generatedAt": now_iso(), "tasks": tasks, "queryComplete": True, "queryErrors": query_errors, "cleanupExecutors": cleanup_executors,
             "activeOperations": active_cleanup_operations(root) if "active_cleanup_operations" in globals() else [],
             "capabilities": {"schemaVersion": 1, "durablePlanQueue": True, "declaredJobPaths": True,
-                             "idleGpuAdmission": True, "queuedJobRecall": True, "taskLifecycle": 2, "manualDispatch": 1, "declaredResultQuery": 1}}
+                             "idleGpuAdmission": True, "queuedJobRecall": True, "taskLifecycle": 2, "manualDispatch": 1,
+                             "gpuMemoryRatioScheduling": task_memory_scheduler_capability(root), "declaredResultQuery": 1}}
 
 def task_queue_session(root, worker_id):
     key = hashlib.sha256((os.path.realpath(root) + "\0" + worker_id).encode("utf-8")).hexdigest()[:16]
@@ -227,6 +228,20 @@ def task_queue_endpoint(root, worker_id):
     if endpoint.get("root") != os.path.realpath(root) or endpoint.get("workerId") != worker_id:
         raise ValueError("SCHEDULER_OWNER_MISMATCH")
     return endpoint
+
+
+def task_memory_scheduler_capability(root):
+    worker_id = os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker"
+    session = task_queue_session(root, worker_id)
+    exists = subprocess.run(["tmux", "has-session", "-t", "=" + session], capture_output=True, timeout=3).returncode == 0
+    if not exists:
+        return 1  # The next accept starts the new controller.
+    try:
+        if task_tmux(["display-message", "-p", "-t", session + ":queue", "#{pane_dead}"]) == "1":
+            return 1  # A dead controller is already recovered by the existing bounded startup path.
+        return int(task_queue_endpoint(root, worker_id).get("gpuMemoryRatioScheduling") == 1)
+    except Exception:
+        return 0
 
 def task_queue_rpc(root, worker_id, action, payload, ensure=False):
     if ensure:
@@ -264,6 +279,8 @@ def task_queue_rpc(root, worker_id, action, payload, ensure=False):
                 time.sleep(0.05)
     else:
         endpoint = task_queue_endpoint(root, worker_id)
+    if action == "accept" and payload.get("dispatchPolicy") != "manual" and (payload.get("options") or {}).get("gpuMemoryRatioEnabled") is True and endpoint.get("gpuMemoryRatioScheduling") != 1:
+        raise RuntimeError("SCHEDULER_UPDATE_REQUIRED: restart this project's Scheduler control window to enable memory-ratio scheduling; task windows are preserved")
     body = json.dumps({"action": action, "payload": payload, "epoch": endpoint["epoch"]}, ensure_ascii=False).encode("utf-8")
     request = urllib.request.Request("http://" + endpoint["host"] + ":" + str(endpoint["port"]) + "/control", data=body,
                                     headers={"Content-Type": "application/json", "Authorization": "Bearer " + endpoint["secret"]})
@@ -278,7 +295,8 @@ def task_queue_job(root, worker_id, command):
                "globalJobId", "experimentIndex", "case", "seed", "outputDir", "collectionResultCsv", "resultPathPolicy", "planJobCount",
                "fullPlanJobCount", "enqueuedAt", "workerId", "gpuId", "requireIdleGpu", "executionMode", "mode", "checkpointSource",
                "checkpointTestOnly", "condaEnv", "distributedResults", "codeSyncProofId", "codeManifest", "manifestDigest", "tmuxSessionPrefix", "maxConcurrentGpus",
-               "gpuIdleUtilThreshold", "gpuIdleMemThresholdMb", "schedulerPath", "defaultResultCsvDir", "lifecycleProtocol", "dispatchPolicy"}
+               "gpuIdleUtilThreshold", "gpuIdleMemThresholdMb", "schedulerPath", "defaultResultCsvDir", "lifecycleProtocol", "dispatchPolicy",
+               "gpuMemoryRatioEnabled", "gpuMemoryPerJobGb", "gpuMemoryMaxJobsPerGpu", "gpuMemoryReserveGb", "gpuMemoryTolerancePercent"}
     job = {key: command[key] for key in allowed if key in command}
     options = command.get("options") if isinstance(command.get("options"), dict) else {}
     job["options"] = {key: value for key, value in options.items() if key in allowed or key == "distributedResults"}
@@ -328,6 +346,32 @@ def task_queue_accept(root, worker_id, command, window, prepared=None):
         task_tmux(["set-option", "-w", "-t", pane, key, value])
     return job
 
+def task_memory_info(gpu, options):
+    if options.get("gpuMemoryRatioEnabled") is not True:
+        return None
+    def number(value, default=None):
+        try:
+            parsed = float(value)
+            return parsed if parsed == parsed and abs(parsed) != float("inf") else default
+        except (ValueError, TypeError):
+            return default
+    total = number(next((gpu[key] for key in ("memoryTotalMb", "memory_total_mb", "memoryTotal", "memory_total") if gpu.get(key) is not None), None))
+    used = number(next((gpu[key] for key in ("memoryUsedMb", "memory_used_mb", "memoryUsed", "memory_used") if gpu.get(key) is not None), None))
+    if total is None or used is None or total <= 0 or used < 0 or used > total:
+        return None
+    base = max(1, min(1024, number(options.get("gpuMemoryPerJobGb"), 24))) * 1024
+    tolerance = max(0, min(5, number(options.get("gpuMemoryTolerancePercent"), 3))) / 100
+    ratio = total / base
+    upper = int(ratio) + int(ratio != int(ratio))
+    limit = max(1, upper if ratio >= upper * (1 - tolerance) else int(ratio))
+    ceiling = max(0, min(1024, int(number(options.get("gpuMemoryMaxJobsPerGpu"), 0))))
+    if ceiling:
+        limit = min(limit, ceiling)
+    reserve = max(0, min(1024, number(options.get("gpuMemoryReserveGb"), 0))) * 1024
+    return {"limit": limit, "unit": min(total, base) * (1 - tolerance), "budget": total - reserve,
+            "free": total - used - reserve - gpu.get("_se_reserved_mb", 0)}
+
+
 def task_admission_gpu(row, gpus, occupied):
     options = row.get("options") or {}
     pinned = str(row.get("gpuId") or "")
@@ -336,13 +380,28 @@ def task_admission_gpu(row, gpus, occupied):
             raise ValueError("MANUAL_GPU_NOT_VISIBLE: " + pinned)
         return pinned
     cap = max(1, int(row.get("maxConcurrentGpus") or options.get("maxConcurrentGpus") or len(gpus) or 1))
-    if len(occupied) >= min(cap, len(gpus)):
-        return None
     pinned = pinned if row.get("requireIdleGpu") else ""
-    return next((gpu_row_id(gpu) for gpu in gpus if (not pinned or gpu_row_id(gpu) == pinned)
-        and gpu_row_id(gpu) not in occupied and not gpu_row_busy(gpu,
-            row.get("gpuIdleUtilThreshold", options.get("gpuIdleUtilThreshold")),
-            row.get("gpuIdleMemThresholdMb", options.get("gpuIdleMemThresholdMb")))), None)
+    for gpu in gpus:
+        gpu_id = gpu_row_id(gpu)
+        if pinned and gpu_id != pinned:
+            continue
+        count = occupied.get(gpu_id, 0) if isinstance(occupied, dict) else int(gpu_id in occupied)
+        active_ids = [gpu_row_id(item) for item in gpus if gpu_row_id(item) in occupied]
+        if count and gpu_id not in active_ids[:cap]:
+            continue
+        memory = task_memory_info(gpu, options)
+        if count >= (memory["limit"] if memory else 1):
+            continue
+        if not count and len(occupied) >= min(cap, len(gpus)):
+            continue
+        if memory and (memory["free"] < memory["unit"] or memory["budget"] < (count + 1) * memory["unit"]):
+            continue
+        if (not count or not memory) and gpu_row_busy(gpu,
+                row.get("gpuIdleUtilThreshold", options.get("gpuIdleUtilThreshold")),
+                row.get("gpuIdleMemThresholdMb", options.get("gpuIdleMemThresholdMb"))):
+            continue
+        return gpu_id
+    return None
 
 def task_queue_serve(root, worker_id):
     root = os.path.realpath(root)
@@ -415,14 +474,17 @@ def task_queue_serve(root, worker_id):
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     task_option(controller, "endpoint", json.dumps({"host": server.server_address[0], "port": server.server_address[1],
         "secret": secret, "epoch": epoch, "root": root, "workerId": worker_id, "protocol": 2,
-        "runningVersion": globals().get("RUNTIME_VERSION", "fixture")}))
+        "runningVersion": globals().get("RUNTIME_VERSION", "fixture"), "gpuMemoryRatioScheduling": 1}))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     while True:
         queued = []
         try:
             with mutex:
                 rows = task_inventory(root)
-                occupied = {row["gpuId"] for row in rows if row.get("dispatchPolicy") != "manual" and not row["dead"] and row["phase"] in ("admitted", "starting", "running") and row["gpuId"]}
+                occupied = {}
+                for live in rows:
+                    if live.get("dispatchPolicy") != "manual" and not live["dead"] and live["phase"] in ("admitted", "starting", "running") and live["gpuId"]:
+                        occupied[live["gpuId"]] = occupied.get(live["gpuId"], 0) + 1
                 queued = sorted([row for row in rows if not row["dead"] and row["phase"] == "queued"], key=lambda row: row.get("dispatchPolicy") != "manual")
                 if queued:
                     gpus, error = collect_local_gpu()
@@ -446,7 +508,11 @@ def task_queue_serve(root, worker_id):
                             task_option(row["tmuxWindowId"], "gpu", chosen)
                             task_option(row["tmuxWindowId"], "phase", "admitted")
                             if row.get("dispatchPolicy") != "manual":
-                                occupied.add(chosen)
+                                occupied[chosen] = occupied.get(chosen, 0) + 1
+                                gpu = next(gpu for gpu in gpus if gpu_row_id(gpu) == chosen)
+                                memory = task_memory_info(gpu, options)
+                                if memory:
+                                    gpu["_se_reserved_mb"] = gpu.get("_se_reserved_mb", 0) + memory["unit"]
         except Exception as exc:
             print("[queue] " + str(exc), file=sys.stderr, flush=True)
         wake.wait(timeout=1 if queued else 5)

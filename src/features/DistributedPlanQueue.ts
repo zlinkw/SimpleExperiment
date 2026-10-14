@@ -244,10 +244,10 @@ export function workerTaskLogBinding(plan: Pick<QueuedPlan, "id">, job: Pick<Que
   return { logPath };
 }
 
-export type WorkerSlots = { workerId: string; idleGpuIds: string[]; online: boolean; capacity?: number; codeFingerprint?: string; idleGpuAdmission?: boolean; declaredJobPaths?: boolean };
+export type WorkerSlots = { workerId: string; idleGpuIds: string[]; gpuSlots?: string[]; online: boolean; capacity?: number; codeFingerprint?: string; idleGpuAdmission?: boolean; declaredJobPaths?: boolean };
 export type DurableWorkerSnapshot = {
   workerId: string;
-  capabilities?: { durablePlanQueue?: boolean; idleGpuAdmission?: boolean; queuedJobRecall?: boolean; declaredJobPaths?: boolean; schemaVersion?: number };
+  capabilities?: { durablePlanQueue?: boolean; idleGpuAdmission?: boolean; queuedJobRecall?: boolean; declaredJobPaths?: boolean; gpuMemoryRatioScheduling?: number; schemaVersion?: number };
   generatedAt?: string;
   fetchedAt?: string;
   error?: string;
@@ -925,7 +925,7 @@ export function enqueuePlan(queue: DistributedQueue, plan: Omit<QueuedPlan, "id"
 }
 
 function usableSlots(row: WorkerSlots) {
-  return row.online && [...new Set(row.idleGpuIds)].slice(0, Math.max(0, row.capacity ?? row.idleGpuIds.length)).length > 0;
+  return row.online && (row.gpuSlots ?? [...new Set(row.idleGpuIds)]).slice(0, Math.max(0, row.capacity ?? row.gpuSlots?.length ?? row.idleGpuIds.length)).length > 0;
 }
 
 export function pinnedRetryPlanAllowed(plan: QueuedPlan): boolean {
@@ -971,7 +971,7 @@ export function allocateAvailable(queue: DistributedQueue, workers: readonly Wor
       && (!options.requireIdleGpuAdmission || row.idleGpuAdmission === true) && row.codeFingerprint === plan.codeFingerprint)))?.codeFingerprint);
   const slots = new Map(workers.filter((row) => row.online && (!options.requireIdleGpuAdmission || row.idleGpuAdmission === true)
     && (!versioned || Boolean(row.codeFingerprint)))
-    .map((row) => [row.workerId, [...new Set(row.idleGpuIds)].slice(0, Math.max(0, row.capacity ?? row.idleGpuIds.length))]));
+    .map((row) => [row.workerId, (row.gpuSlots ?? [...new Set(row.idleGpuIds)]).slice(0, Math.max(0, row.capacity ?? row.gpuSlots?.length ?? row.idleGpuIds.length))]));
   for (const plan of plans) {
     if (plan.executionModeBlocked || plan.recoveryConflict) continue;
     if (plan.resultPathPolicy !== "declared") continue;

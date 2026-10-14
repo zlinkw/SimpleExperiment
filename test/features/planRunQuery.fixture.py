@@ -10,6 +10,7 @@ tree = ast.parse(python)
 query = next(node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name == "task_query")
 live = dict(projectId="project", commandId="live", workerId="worker", outputDir="work/live", dead=False)
 ns = dict(json=json, now_iso=lambda: "now", task_inventory=lambda root: [live],
+          task_memory_scheduler_capability=lambda root: 0,
           task_safe_path=lambda root, path: path, task_tmux=lambda args: "",
           task_option=lambda *args: "[]", task_queue_session=lambda *args: "queue",
           task_public_observation=lambda root, job, row: dict(commandId=job["commandId"], status="running" if row else "unknown", observation={}))

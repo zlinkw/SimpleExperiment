@@ -6756,6 +6756,7 @@ def api_capabilities(root, token_required=False, mode="worker_telemetry"):
                 "codeSyncProofAsync": True,
                 "idleGpuAdmission": True,
                 "manualDispatch": 1,
+                "gpuMemoryRatioScheduling": 1,
                 "queuedJobRecall": True,
                 "liveOutput": True,
                 "diagnostics": True,
