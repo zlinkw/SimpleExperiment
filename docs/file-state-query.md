@@ -14,3 +14,12 @@
 - “校验并提交运行”的真实 UI 路径将两个本机字段创建为只读，后续统一提交流程再次赋值，导致 TypeError。修正其可写属性，继续保持不可枚举及原 operationId。
 
 验证：先复现原 TypeError、删除后反复审核及旧删除误标记相同路径的新任务，再通过生产调用链回归。cleanupMissingTargets 10 项、planRunQueryRegression 6 项、planCleanupPanelBridge 19 项；配套 SimpleSFTP 真实隔离 tmux 检查存在/不存在及活动执行器。正式 package、发行与安装结果在交付时补充。未访问、同步或删除生产文件，未启动科研训练；真实窗口重载后的验收另行完成。
+
+交付结果：两插件完整 package 通过，包括串行回归、Windows 流程、运行依赖闭包。3 段实际渲染的面板脚本、Python 语法、UTF-8、VSIX 身份、平台和运行文件逐字节校验通过。旧的“删除完成后仍须确认元数据回执”测试按本轮明确规则替换为主动查询用例；普通移走/恢复及双确认保护继续通过。
+
+- [SimpleExperiment v0.5.311](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.311)：e33b2e127dcc449af364001e03dc253d5605b144；2779868 字节；SHA256 db520e2c5c641593e928f2deb91d37611ab419a2b9a7f6f00e827e08211fd93b。
+- [SimpleSFTP v0.2.85](https://github.com/zlinkw/SimpleSFTP/releases/tag/v0.2.85)：cebf5c94c16f9e22abb9b0c1fc52828a38e1d270；164047 字节；SHA256 edd45245e59fc4f95d8322133d0a50029355e41008ba700c5a68c6b050ecae3b。
+
+源码均普通推送并 fetch 核实。实际 Latest、tag 提交、稳定标志及两个精确包的 SHA256 已核对；使用原安装版 0.5.310 的更新客户端真实下载到内存，旧版能看到更新，远端资产与本机安装包完全同字节。
+
+两插件各执行一次 install:latest，已核对安装版本 0.5.311 / 0.2.85 和 simpleex 入口。安装后未操作现有面板。用户需 Developer: Reload Window，并通过插件更新启用 Worker 的 Agent/Scheduler 至 0.5.311；没有自动重派原失败 PLAN。真实服务器与重载后实际入口仍待验收。
