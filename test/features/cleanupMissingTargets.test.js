@@ -74,6 +74,13 @@ test('the real reconnect notification path stays silent once files are confirmed
  await ui.host.observeConnections([{id:'worker',streamStatus:'polling'},{id:'other',streamStatus:'polling'}]);
  assert.equal(ui.notices,0);assert.deepEqual(await f.service.list(),[]);assert.equal(f.indexed.length,1);
 });
+test('a failed startup query never announces that an old file still needs deletion',async()=>{
+ const f=await fixture({failed:['worker'],missing:['worker','other']}),ui=await hostFixture(f.root);ui.host.service=f.service;
+ await ui.host.observeConnections([{id:'worker',streamStatus:'polling'}]);assert.equal(ui.notices,0);
+ f.ports.sftp=async(method)=>{assert.equal(method,'files.cleanup.inspect');return {target:{missing:true,type:'directory'}};};
+ await ui.host.observeConnections([{id:'worker',streamStatus:'disconnected'}]);
+ await ui.host.observeConnections([{id:'worker',streamStatus:'polling'}]);assert.equal(ui.notices,0);assert.deepEqual(await f.service.list(),[]);
+});
 test('observed deletion does not require a retired job registry or remote state retirement acknowledgement',async()=>{
  const f=await fixture({missing:['worker','other']}),ui=await hostFixture(f.root);
  const operation=await f.service.status(f.id);operation.preview.scope.observationMode=undefined;

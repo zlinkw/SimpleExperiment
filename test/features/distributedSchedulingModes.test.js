@@ -12,9 +12,9 @@ const queue = require('../../src/features/DistributedPlanQueue.ts');
 const policy = require('../../src/features/DistributedSchedulingPolicy.ts');
 require.extensions['.ts'] = original;
 function plan(mode, id = 'plan', fingerprint = 'f', count = 20) {
-  return queue.enqueuePlan(queue.emptyDistributedQueue(), { schedulingMode: mode,
+  return queue.enqueuePlan(queue.emptyDistributedQueue(), { schedulingMode: mode, executionMode: 'train_test',
     projectId: 'project', planFile: `${id}.yaml`, revision: 'r', codeFingerprint: fingerprint,
-    jobs: Array.from({ length: count }, (_, index) => ({ index, case: 'bus', seed: index, outputDir: `runs/${id}/${index}` })) }, id);
+    jobs: Array.from({ length: count }, (_, index) => ({ index, case: 'bus', seed: index, outputDir: `runs/${id}/${index}`, collectionResultCsv: `runs/${id}/${index}/metrics.csv` })) }, id);
 }
 const gpu = (index, processes = [], util = processes.length ? 95 : 0) => ({ index, utilizationPercent: util,
   memoryUsedMb: processes.length ? 1500 : 7, processCount: processes.length, processes });
@@ -23,8 +23,8 @@ test('default local mode never preassigns occupied NWPU5 and reserves each idle 
   assert.equal(policy.schedulingMode(undefined), 'local_idle');
   assert.equal(policy.schedulingMode('bad'), 'local_idle');
   const input = plan('local_idle');
-  const workers = [{ workerId: 'nwpu3', online: true, codeFingerprint: 'f', idleGpuAdmission: true, idleGpuIds: ['0','1','2'] },
-    { workerId: 'nwpu5', online: true, codeFingerprint: 'f', idleGpuAdmission: true, idleGpuIds: [] }];
+  const workers = [{ workerId: 'nwpu3', online: true, declaredJobPaths: true, codeFingerprint: 'f', idleGpuAdmission: true, idleGpuIds: ['0','1','2'] },
+    { workerId: 'nwpu5', online: true, declaredJobPaths: true, codeFingerprint: 'f', idleGpuAdmission: true, idleGpuIds: [] }];
   const next = queue.allocateAvailable(input, workers, { requireIdleGpuAdmission: true, localIdleOnly: true });
   assert.equal(next.dispatches.length, 3);
   assert.ok(next.dispatches.every((row) => row.workerId === 'nwpu3'));
@@ -51,8 +51,8 @@ test('prequeue weights count idle plus own GPU once, excluding mixed or unknown 
 });
 
 test('hosted prequeue persists 3:2 ownership without GPUs; restart never duplicates or moves accepted identities', () => {
-  const workers = [{workerId:'nwpu3',online:true,weight:3,codeFingerprint:'f'},
-    {workerId:'nwpu5',online:true,weight:2,codeFingerprint:'f'}];
+  const workers = [{workerId:'nwpu3',online:true,declaredJobPaths:true,weight:3,codeFingerprint:'f'},
+    {workerId:'nwpu5',online:true,declaredJobPaths:true,weight:2,codeFingerprint:'f'}];
   const input = plan('server_prequeue');
   assert.equal(queue.allocateAvailable(input, [{workerId:'nwpu3',online:true,idleGpuAdmission:true,idleGpuIds:['0'],codeFingerprint:'f'}],
     {requireIdleGpuAdmission:true,localIdleOnly:true}).dispatches.length, 0);
@@ -73,12 +73,24 @@ test('hosted allocation gates online/fingerprint independently per Worker', () =
   const second = plan('server_prequeue', 'second', 'b', 1);
   const both = {...first,plans:[...first.plans,...second.plans]};
   assert.equal(policy.allocateServerPrequeue(first, [{workerId:'w',online:false,weight:3,codeFingerprint:'a'}]).dispatches.length, 0);
-  const result = policy.allocateServerPrequeue(both, [{workerId:'a',online:true,weight:3,codeFingerprint:'a'},
-    {workerId:'b',online:true,weight:3,codeFingerprint:'b'}]);
+  const result = policy.allocateServerPrequeue(both, [{workerId:'a',online:true,declaredJobPaths:true,weight:3,codeFingerprint:'a'},
+    {workerId:'b',online:true,declaredJobPaths:true,weight:3,codeFingerprint:'b'}]);
   assert.equal(result.dispatches.length, 2);
   assert.equal(result.dispatches[0].planId, 'first');
   assert.equal(result.queue.plans[1].jobs[0].workerId, 'b');
   const busy = {...both, plans: both.plans.map(row => ({...row, jobs: row.jobs.map(job => ({...job}))}))};
   Object.assign(busy.plans[0].jobs[0], {status:'running', workerId:'b', commandId:'old'});
   assert.equal(policy.allocateServerPrequeue(busy, [{workerId:'b',online:true,weight:3,codeFingerprint:'b'}]).dispatches.length, 0);
+});
+
+test('newly prepared servers join remaining prequeue work without moving already accepted jobs', () => {
+  const input = plan('server_prequeue');
+  for (const job of input.plans[0].jobs.slice(1)) job.localQueueOnly = true;
+  const first = policy.allocateServerPrequeue(input, [{workerId:'a',online:true,declaredJobPaths:true,weight:1,codeFingerprint:'f'}]);
+  assert.equal(first.dispatches.length, 1); const accepted = first.queue.plans[0].jobs[0].commandId;
+  first.queue.plans[0].jobs[1].localQueueOnly = false;
+  const next = policy.allocateServerPrequeue(first.queue, [{workerId:'a',online:true,declaredJobPaths:true,weight:1,codeFingerprint:'f'},
+    {workerId:'b',online:true,declaredJobPaths:true,weight:1,codeFingerprint:'f'}]);
+  assert.equal(next.dispatches.length, 1); assert.equal(next.dispatches[0].workerId, 'b');
+  assert.equal(next.queue.plans[0].jobs[0].commandId, accepted); assert.equal(next.queue.plans[0].jobs[0].workerId, 'a');
 });

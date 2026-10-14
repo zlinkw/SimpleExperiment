@@ -57,6 +57,9 @@ export class PlanRunHost {
       save: () => this.save(body),
       assertCurrent: () => { if (h.client !== client || h.projectContextGeneration !== generation) throw Error("工作区或连接已变化，未继续运行。"); },
       beforeDelete: async () => {
+        // Deletion still requires the complete batch check. Ordinary launch can
+        // already use ready Workers while the remaining servers prepare.
+        await body.awaitWorkerPreparationLocal?.();
         const current = { ...body }; await h.refreshLocalPlanMetadataForAction(current); h.stampPlanRevision(current);
         const fingerprint = await h.localDistributedCodeFingerprint(this.root);
         if (current.planRevision !== body.planRevision || fingerprint !== h.lastCodeSyncState?.fingerprint

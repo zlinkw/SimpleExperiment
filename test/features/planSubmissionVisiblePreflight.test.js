@@ -48,7 +48,7 @@ function functionSource(name) {
   throw new Error(`unclosed ${name}`);
 }
 
-const production = new Function("DistributedPlanQueue", "fs", "path", "crypto", "workspaceRoot", "pluginProjectAdapterRules", "actionErrorSuggestion", "UiCommandCancelled", "PlanRunHost", `
+const production = new Function("DistributedPlanQueue", "fs", "path", "crypto", "workspaceRoot", "pluginProjectAdapterRules", "actionErrorSuggestion", "UiCommandCancelled", "PlanRunHost", "WorkerPreparation", "errorMessage", `
   function stringField(message, key) { return String((message && message[key]) || ""); }
   function operationResultPlanFile(body) { return String((body && (body.planFile || body.selectedPlanId || (body.options && body.options.planFile))) || ""); }
   let opSeq = 0;
@@ -81,7 +81,7 @@ const production = new Function("DistributedPlanQueue", "fs", "path", "crypto", 
   };
 `)(DistributedPlanQueue, fs, path, crypto, () => root, () => ({ planDatasetMapping: {}, csvColumnMapping: {} }), (message) => String(message || ""), class UiCommandCancelled extends Error {
   constructor(message) { super(message); this.name = "UiCommandCancelled"; }
-}, class { async save() {} });
+}, class { async save() {} }, require('../../dist/features/WorkerPreparation.js').WorkerPreparation, error => error.message);
 
 function provider() {
   const host = Object.create(production);
@@ -115,7 +115,8 @@ function provider() {
   host.localDistributedCodeFingerprint = async () => "new-code";
   host.actionErrors = [];
   host.recordActionError = (error) => host.actionErrors.push(error);
-  host.ensureCodeReadyForRun = async () => { host.calls.push("sync"); host.lastCodeSyncState.workerVersions.w1.fingerprint = "new-code"; };
+  host.ensureCodeReadyForRun = async (_context, _bodies, _report, ready) => { host.calls.push("sync"); host.lastCodeSyncState.workerVersions.w1.fingerprint = "new-code"; ready?.('w1'); };
+  host.stampWorkerPoolManualTarget = () => {};
   host.runPlanPreflight = async () => { host.calls.push("preflight"); return validation(); };
   host.confirmDistributedPlanExistingOutputs = async (_plan, body) => {
     host.calls.push("confirm");

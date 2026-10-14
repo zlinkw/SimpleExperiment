@@ -51,7 +51,10 @@ export function allocateServerPrequeue(queue: DistributedQueue, workers: readonl
     const eligible = workers.filter((worker) => worker.declaredJobPaths === true && worker.online && worker.weight > 0
       && worker.codeFingerprint === plan.codeFingerprint && workerCodeVersionAvailable(next, worker.workerId, plan.codeFingerprint));
     if (!eligible.length) continue;
-    const weights = plan.prequeueWeights || Object.fromEntries(eligible.map((worker) => [worker.workerId, worker.weight]));
+    const weights = { ...(plan.prequeueWeights || {}) };
+    // Servers can finish preparation independently. Preserve accepted ownership
+    // and existing weights, while letting a newly ready server take new jobs.
+    for (const worker of eligible) if (!(worker.workerId in weights)) weights[worker.workerId] = worker.weight;
     plan.prequeueWeights = weights;
     const loads = new Map<string, number>();
     for (const job of plan.jobs) if (job.workerId)

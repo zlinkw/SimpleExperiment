@@ -101,7 +101,7 @@ test('each connection edge checks persisted signals; heartbeats and an unanswere
   const vscode={workspace:{workspaceFolders:[{uri:{fsPath:'C:/fixture'}}]},window:{showWarningMessage:()=>{notices++;return new Promise(()=>{});}}};
   vm.runInNewContext(await fs.readFile(modulePath,'utf8'),{exports,require:name=>name==='vscode'?vscode:name==='./PlanCleanupPanel'?{}:from(name)});
   const host=new exports.PlanCleanupHost({context:{globalStorageUri:{fsPath:os.tmpdir()}}},'C:/fixture');
-  host.service.recheckNode=async()=>{checks++;return [{operationId:'a'.repeat(48)}]};
+  host.service.recheckNode=async()=>{checks++;return [{operationId:'a'.repeat(48),state:'confirmation_required',targets:[{state:'pending'}]}]};
   const online={id:'worker',streamStatus:'polling',reconnectCount:0};
   await host.observeConnections([online]);await host.observeConnections([online]);assert.equal(checks,1);assert.equal(notices,1);
   await host.observeConnections([{...online,streamStatus:'disconnected'}]);await host.observeConnections([online]);assert.equal(checks,2);assert.equal(notices,1);

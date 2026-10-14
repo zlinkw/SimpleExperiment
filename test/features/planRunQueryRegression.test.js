@@ -32,10 +32,10 @@ test('closed native windows keep querying only current completed manifests, neve
  assert.deepEqual(workerTaskQueries({plans:[old,current]},'worker').map(row=>row.commandId),['new']);
 });
 test('Worker failure is checked before any existing-output replacement in the real submission method',async()=>{
- const finish=method('finishDistributedPlanSubmission',{PlanRunHost:require('../../src/extension/PlanRunHost.ts').PlanRunHost,WorkflowBinding:{bindWorkflowWorkspace:()=>({}),assertWorkflowWorkspace(){}},workspaceRoot:()=>'/fixture',stringField:(x,k)=>x[k]||'',planValidationFromResult:x=>x.validation,isUiCommandCancelled:()=>false,errorMessage:e=>e.message,DistributedPlanQueue:{distributedSubmissionProgress:()=>({status:'succeeded'})}});
+ const finish=method('finishDistributedPlanSubmission',{WorkerPreparation:require('../../src/features/WorkerPreparation.ts').WorkerPreparation,PlanRunHost:require('../../src/extension/PlanRunHost.ts').PlanRunHost,WorkflowBinding:{bindWorkflowWorkspace:()=>({}),assertWorkflowWorkspace(){}},workspaceRoot:()=>'/fixture',stringField:(x,k)=>x[k]||'',planValidationFromResult:x=>x.validation,isUiCommandCancelled:()=>false,errorMessage:e=>e.message,DistributedPlanQueue:{distributedSubmissionProgress:()=>({status:'succeeded'})}});
  const calls=[],host={planSubmissionOperationId:()=>'',submissionStillCurrent:()=>true,distributedCodeVersionHold:async()=>undefined,
  waitForPlanSubmission:async(_,fn)=>fn(),recordPlanSubmissionTiming(){},recordPlanSubmissionTimingByOperation(){},
- ensureCodeReadyForRun:async()=>calls.push('sync'),runPlanPreflight:async()=>({validation:{jobs:[{index:0,output_dir:'work/job'}]}}),workerActionTargets:()=>[],enabledWorkerConfigs:()=>[],localOperations:{},localDistributedCodeFingerprint:async()=>'code',planValidationCacheKey:()=>'',planSchedulerWorkerId:()=>'',
+ ensureCodeReadyForRun:async(_c,_b,_p,ready)=>{calls.push('sync');ready('fixture');},stampWorkerPoolManualTarget(){},runPlanPreflight:async()=>({validation:{jobs:[{index:0,output_dir:'work/job'}]}}),workerActionTargets:()=>[],enabledWorkerConfigs:()=>[],localOperations:{},localDistributedCodeFingerprint:async()=>'code',planValidationCacheKey:()=>'',planSchedulerWorkerId:()=>'',
  assertPlanSubmissionWorkers:async()=>{calls.push('workers');throw Error('nwpu3 unavailable');},
  confirmDistributedPlanExistingOutputs:async()=>calls.push('delete'),enqueueDistributedPlan:async()=>calls.push('enqueue'),assertExecutionCondaEnvReady(){},reportPlanStage(){},finishPlanSubmissionProgress(){}};
  await assert.rejects(finish.call(host,'runPlan',{}, {},{planFile:'plans/p.yaml'}),/nwpu3 unavailable/);
@@ -44,7 +44,7 @@ test('Worker failure is checked before any existing-output replacement in the re
 
 test('the real UI action passes its local submission context into the real distributed submission',async()=>{
  const root=fs.mkdtempSync(path.join(require('node:os').tmpdir(),'se-action-submit-')),calls=[],body={planFile:'plans/p.yaml'},plan={planFile:body.planFile};
- const globals={PlanRunHost:require('../../src/extension/PlanRunHost.ts').PlanRunHost,workspaceRoot:()=>root,
+ const globals={WorkerPreparation:require('../../src/features/WorkerPreparation.ts').WorkerPreparation,PlanRunHost:require('../../src/extension/PlanRunHost.ts').PlanRunHost,workspaceRoot:()=>root,
   WorkflowBinding:{bindWorkflowWorkspace:()=>({root}),assertWorkflowContext(){},assertPlanSeedContract(){},assertWorkflowWorkspace(){}},
   PLAN_SUBMISSION_COMMANDS:new Set(['runPlan','reproducePlan']),PLAN_PREFLIGHT_COMMANDS:new Set(),actionCommandMap:{runPlan:'run-plan',reproducePlan:'reproduce-plan'},directWorkerActionMap:{},
   assertSingleProjectWorkspace(){},pluginProjectAdapterRules:()=>({}),operationResultPlanFile:b=>b.planFile,projectOutputGateReason:()=>'',LENIENT_RUN:false,
@@ -57,7 +57,7 @@ test('the real UI action passes its local submission context into the real distr
   ensureSimpleSftpReadyForSetup:async()=>true,confirmPlanRunSubmission:async()=>{},recordRunGitProvenance:async()=>({}),
   planSubmissionOperationId:()=> 'plan-submit-original',submissionStillCurrent:()=>true,distributedCodeVersionHold:async()=>undefined,
   waitForPlanSubmission:async(_,fn)=>fn(),recordPlanSubmissionTiming(){},recordPlanSubmissionTimingByOperation(){},
-  ensureCodeReadyForRun:async()=>calls.push('sync'),runPlanPreflight:async()=>({validation:{jobs:[]}}),enabledWorkerConfigs:()=>[],
+  ensureCodeReadyForRun:async(_c,_b,_p,ready)=>{calls.push('sync');ready('fixture');},stampWorkerPoolManualTarget(){},workerActionTargets:()=>[],runPlanPreflight:async()=>({validation:{jobs:[]}}),enabledWorkerConfigs:()=>[],
   localDistributedCodeFingerprint:async()=>'code',planValidationCacheKey:()=>'',planSchedulerWorkerId:()=>'',
   assertPlanSubmissionWorkers:async()=>{calls.push('workers');throw Error('fixture Worker unavailable');},reportPlanStage(){},finishPlanSubmissionProgress(){},
   confirmDistributedPlanExistingOutputs:async()=>calls.push('delete'),enqueueDistributedPlan:async()=>calls.push('enqueue')};

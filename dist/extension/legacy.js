@@ -66,6 +66,7 @@ const FailedJobRecovery = __importStar(require("../features/FailedJobRecovery"))
 const PulledTaskControl = __importStar(require("../features/PulledTaskControl"));
 const WorkerTaskQuery = __importStar(require("../features/WorkerTaskQuery"));
 const PlanRunHost_1 = require("./PlanRunHost");
+const WorkerPreparation_1 = require("../features/WorkerPreparation");
 const CompletedJobSyncHost_1 = require("./CompletedJobSyncHost");
 const RunConfirmation_1 = require("./RunConfirmation");
 const NativeResultManifest_1 = require("../results/NativeResultManifest");
@@ -6098,7 +6099,7 @@ class RealtimeTunnelPanelProvider {
                 }
             }
             else {
-                this.assertExecutionWorkersReady(body.options?.workers);
+                this.assertExecutionWorkersReady(distributedPlan ? this.workerActionTargets().filter(row => row.id === this.planSchedulerWorkerId(body)) : body.options?.workers);
                 this.assertExecutionAgentProjectsReady(body);
             }
             const retryPlanFile = operationResultPlanFile(body) || plan?.planFile || plan?.file || plan?.planId || "";
@@ -9301,7 +9302,7 @@ class RealtimeTunnelPanelProvider {
             }
         }
     }
-    async ensureCodeReadyForRun(projectContext = this.captureProjectContext(), bodies = [], reportStage = (_text) => { }) {
+    async ensureCodeReadyForRun(projectContext = this.captureProjectContext(), bodies = [], reportStage = (_text) => { }, onTargetReady) {
         reportStage("正在准备运行前代码同步…");
         await this.prepareSftpTargets("ensureCodeReadyForRun", "simpleSftp.uploadWorkspace");
         if (!this.projectContextIsCurrent(projectContext))
@@ -9314,7 +9315,7 @@ class RealtimeTunnelPanelProvider {
         const selectedWorkerIds = uniqueStrings((Array.isArray(bodies) ? bodies : []).flatMap((body) => [this.planSchedulerWorkerId(body), ...(Array.isArray(body?.selectedWorkerIds) ? body.selectedWorkerIds : [])]).filter(Boolean));
         const targets = this.workerCodeSyncTargets();
         reportStage("正在同步运行所需代码…");
-        const syncedTargets = await this.syncCodeTargets(targets, "run", { projectContext, hashCompare: true, progressReport: (text) => reportStage(text) });
+        const syncedTargets = await this.syncCodeTargets(targets, "run", { projectContext, hashCompare: true, progressReport: (text) => reportStage(text), onTargetReady });
         if (topology.mode === "worker_pool" && syncedTargets?.length)
             for (const body of bodies) {
                 if (!syncedTargets.some((target) => target.id === this.planSchedulerWorkerId(body)))
@@ -9393,14 +9394,16 @@ class RealtimeTunnelPanelProvider {
             const fingerprint = fingerprintFromManifest(manifest);
             const expectedRelativeFiles = Object.keys(manifest).sort((a, b) => a.localeCompare(b)).slice(0, 8);
             let heldWorkers = [];
-            enabledTargets = await this.safeWorkerCodeSyncTargets(enabledTargets, root, fingerprint, scope, progressReport, {
-                allowLockedWorkerSkip: options.allowLockedWorkerSkip === true,
-                onHeldWorkers: (rows) => {
-                    heldWorkers = rows;
-                    if (typeof options.onHeldWorkers === "function")
-                        options.onHeldWorkers(rows);
-                },
-            });
+            const incremental = scope === "run" && typeof options.onTargetReady === "function";
+            if (!incremental)
+                enabledTargets = await this.safeWorkerCodeSyncTargets(enabledTargets, root, fingerprint, scope, progressReport, {
+                    allowLockedWorkerSkip: options.allowLockedWorkerSkip === true,
+                    onHeldWorkers: (rows) => {
+                        heldWorkers = rows;
+                        if (typeof options.onHeldWorkers === "function")
+                            options.onHeldWorkers(rows);
+                    },
+                });
             assertCurrent();
             const roleStatus = syncRoleStatus(enabledTargets, this.lastCodeSyncState, fingerprint);
             const workerStatus = (status) => heldWorkers.length
@@ -9443,6 +9446,8 @@ class RealtimeTunnelPanelProvider {
                 if (progressReport)
                     progressReport(`正在读取 ${target.label || target.id} 的远端清单（${index + 1}/${enabledTargets.length}）…`);
                 try {
+                    if (incremental)
+                        await this.safeWorkerCodeSyncTargets([target], root, fingerprint, scope, progressReport);
                     let uploadManifest = manifest;
                     let remoteFiles;
                     const warmProofKey = this.codeSyncWarmProofKey(target, root, fingerprint, includePaths, scopePaths);
@@ -9468,6 +9473,7 @@ class RealtimeTunnelPanelProvider {
                     if (hashCompare) {
                         if (target.role === "worker" && workerProbeOk && this.codeSyncWarmProofs?.get(warmProofKey) > Date.now()) {
                             workerVersions[target.id] = await workerVersion();
+                            options.onTargetReady?.(target.id);
                             if (progressReport)
                                 progressReport(`${target.label || target.id}：Extension Host 内近期远端核对凭据有效，跳过递归清单`);
                             return;
@@ -9492,6 +9498,7 @@ class RealtimeTunnelPanelProvider {
                                 progressReport(`${target.label || target.id} 内容未变化，未重传`, progressStep);
                             if (target.role === "worker") {
                                 workerVersions[target.id] = await workerVersion(true);
+                                options.onTargetReady?.(target.id);
                                 if (workerProbeOk)
                                     this.rememberCodeSyncWarmProof(warmProofKey);
                                 void this.persistProjectCodeSyncState().catch(() => undefined);
@@ -9542,6 +9549,7 @@ class RealtimeTunnelPanelProvider {
                     }
                     if (target.role === "worker") {
                         workerVersions[target.id] = await workerVersion(true);
+                        options.onTargetReady?.(target.id);
                         if (hashCompare && workerProbeOk)
                             this.rememberCodeSyncWarmProof(warmProofKey);
                         void this.persistProjectCodeSyncState().catch(() => undefined);
@@ -10237,8 +10245,34 @@ class RealtimeTunnelPanelProvider {
             const codeSyncStarted = Date.now();
             const currentCode = await this.localDistributedCodeFingerprint(root);
             if (body.runRecovery.syncFingerprint !== currentCode || this.lastCodeSyncState?.fingerprint !== currentCode
-                || !this.enabledWorkerConfigs().every(worker => this.lastCodeSyncState?.workerVersions?.[worker.id]?.fingerprint === currentCode))
-                await this.waitForPlanSubmission(message, () => this.ensureCodeReadyForRun(undefined, [body], (text) => this.reportPlanStage(message, text)));
+                || !this.enabledWorkerConfigs().every(worker => this.lastCodeSyncState?.workerVersions?.[worker.id]?.fingerprint === currentCode)) {
+                const previous = this.workerPreparation;
+                const reuse = previous?.root === root && previous.fingerprint === currentCode && !previous.preparation.settled;
+                if (previous && !previous.preparation.settled && !reuse)
+                    throw new Error("另一版本的代码仍在同步，请待该次同步完成后重试。");
+                const preparation = reuse ? previous.preparation : new WorkerPreparation_1.WorkerPreparation(ready => this.ensureCodeReadyForRun(undefined, [body], text => {
+                    if (!["succeeded", "failed", "cancelled", "queued"].includes(this.localOperations?.[operationId]?.status))
+                        this.reportPlanStage(message, text);
+                }, ready), () => {
+                    if (body.submissionWorkflowId && this.submissionStillCurrent(message, submissionEpoch, submissionRoot))
+                        void this.tickDistributedQueue().catch(error => this.recordActionError({ command: "workerPreparation", message: errorMessage(error) }));
+                });
+                const live = reuse ? previous : { root, fingerprint: currentCode, preparation };
+                this.workerPreparation = live;
+                body.workerPreparationPendingLocal = true;
+                body.awaitWorkerPreparationLocal = async () => { await preparation.all(); body.workerPreparationPendingLocal = false; };
+                void preparation.finished.then(() => {
+                    body.workerPreparationPendingLocal = Boolean(preparation.error);
+                    if (!preparation.error && this.workerPreparation === live)
+                        this.workerPreparation = undefined;
+                    if (preparation.error)
+                        this.recordActionError({ command: "workerPreparation", message: errorMessage(preparation.error) });
+                    if (body.submissionWorkflowId && this.submissionStillCurrent(message, submissionEpoch, submissionRoot))
+                        void this.tickDistributedQueue().catch(() => { });
+                });
+                const first = await this.waitForPlanSubmission(message, () => preparation.first());
+                this.stampWorkerPoolManualTarget(body, first);
+            }
             body.runRecovery.syncFingerprint = this.lastCodeSyncState?.fingerprint;
             await recoveryStore.save(body);
             assertCurrent();
@@ -10988,9 +11022,11 @@ class RealtimeTunnelPanelProvider {
     async assertPlanSubmissionWorkers(body, validated) {
         if (this.taskLifecycleProtocol !== 2)
             return;
-        this.assertExecutionWorkersReady(this.workerActionTargets());
-        this.assertExecutionCondaEnvReady(this.workerActionTargets());
-        const incompatible = this.workerActionTargets().filter(target => this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.declaredJobPaths !== true
+        const live = body.workerPreparationPendingLocal && this.workerPreparation?.root === workspaceRoot() ? this.workerPreparation : undefined;
+        const targets = this.workerActionTargets().filter(target => !live || live.preparation.ready.has(target.id));
+        this.assertExecutionWorkersReady(targets);
+        this.assertExecutionCondaEnvReady(targets);
+        const incompatible = targets.filter(target => this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.declaredJobPaths !== true
             || this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.formalJobIdentityEnv !== 1
             || this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.taskShellEnvironment !== 1
             || this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.projectManagedValidation !== 1);
@@ -10998,7 +11034,7 @@ class RealtimeTunnelPanelProvider {
             throw new Error("WORKER_PROTOCOL_INCOMPATIBLE：请更新 Agent/Scheduler：" + incompatible.map(target => target.id).join("、") + "；未删除或提交。");
         const validation = planValidationFromResult(validated);
         const declarations = (validation?.jobs || []).map(job => ({ ...job, mode: validation.execution_mode }));
-        const snapshots = await Promise.all(this.enabledWorkerConfigs().map(async (worker) => {
+        const snapshots = await Promise.all(targets.map(async (worker) => {
             try {
                 return await this.readWorkerTaskSnapshot(worker.id, { fresh: true, inventoryOnly: true, declarations,
                     signal: AbortSignal.timeout(8000) });
@@ -11020,10 +11056,11 @@ class RealtimeTunnelPanelProvider {
         if (body.overwriteExisting === true || body.overwrite === true
             || body.options?.overwriteExisting === true || body.options?.overwrite === true)
             throw new Error("FORMAL_JOB_CONFLICT：正式 job 禁止覆盖；请显式清理或修改 case/job 路径。");
-        const incompatible = this.workerActionTargets().filter(target => this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.declaredJobPaths !== true
+        const incompatible = this.workerActionTargets().filter(target => (!body.workerPreparationPendingLocal
+            || this.workerPreparation?.preparation.ready.has(target.id)) && (this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.declaredJobPaths !== true
             || this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.formalJobIdentityEnv !== 1
             || this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.taskShellEnvironment !== 1
-            || this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.projectManagedValidation !== 1);
+            || this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.projectManagedValidation !== 1));
         if (incompatible.length)
             throw new Error("WORKER_PROTOCOL_INCOMPATIBLE：请部署支持正式身份、taskShellEnvironment=1 与 projectManagedValidation=1 的匹配 Agent/Scheduler：" + incompatible.map(target => target.id).join("、"));
         const root = workspaceRoot();
@@ -11457,7 +11494,7 @@ class RealtimeTunnelPanelProvider {
         if (!queueWriteCurrent())
             return;
         // Code upload and new dispatch never mutate one Worker project root concurrently.
-        if (this.codeSyncInFlight) {
+        if (this.codeSyncInFlight && !(this.workerPreparation?.root === root && this.workerPreparation.preparation.ready.size)) {
             await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
             this.postState();
             return;
@@ -11474,7 +11511,9 @@ class RealtimeTunnelPanelProvider {
         const durableQueue = queue.plans.some((plan) => plan.projectId === projectId
             || plan.jobs.some((job) => job.recallRequested === true));
         if (durableQueue) {
-            const targets = this.workerActionTargets().slice().sort((a, b) => String(a.id).localeCompare(String(b.id)));
+            const targets = this.workerActionTargets().filter(target => this.workerPreparation?.root === root
+                ? this.workerPreparation.preparation.ready.has(target.id) : !this.codeSyncInFlight)
+                .sort((a, b) => String(a.id).localeCompare(String(b.id)));
             const snapshotsByWorker = new Map(taskSnapshots.map((snapshot, index) => [snapshot.workerId || snapshotWorkerIds[index], snapshot]));
             const recallTargets = queue.plans.flatMap((plan) => plan.jobs.filter((job) => job.recallRequested === true)
                 .map((job) => ({ planId: plan.id, jobIndex: job.index, workerId: job.workerId || "" })));
@@ -19111,24 +19150,30 @@ class RealtimeTunnelPanelProvider {
     }
     async simpleSftpCapability(method, timeoutMs = 0) {
         const discoveryFile = path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "SimpleSFTP", "api.json");
-        const discovery = JSON.parse(await fs.readFile(discoveryFile, "utf8"));
-        const endpoint = new URL(String(discovery.baseUrl || ""));
-        if (endpoint.protocol !== "http:" || !["127.0.0.1", "localhost", "::1"].includes(endpoint.hostname))
-            throw new Error("SimpleSFTP 本地 API 地址不安全。");
-        const headers = { Authorization: `Bearer ${String(discovery.token || "")}` };
-        const capabilityResponse = await fetch(new URL("/api/v1/capabilities", endpoint), { headers, signal: AbortSignal.timeout(30_000) });
-        if (!capabilityResponse.ok)
-            throw new Error(`SimpleSFTP capability 查询失败：HTTP ${capabilityResponse.status}`);
-        const capabilities = await capabilityResponse.json();
-        if (!Array.isArray(capabilities.methods) || !capabilities.methods.includes(method))
-            throw new Error(`SimpleSFTP 不支持 ${method}。`);
-        return {
-            endpoint,
-            headers,
-            instanceId: typeof capabilities.instanceId === "string" ? capabilities.instanceId : "",
-            features: capabilities.features && typeof capabilities.features === "object" ? capabilities.features : {},
-            methodOptions: capabilities.methodOptions || {},
-        };
+        for (let attempt = 0; attempt < 2; attempt++) {
+            const discovery = JSON.parse(await fs.readFile(discoveryFile, "utf8"));
+            const endpoint = new URL(String(discovery.baseUrl || ""));
+            if (endpoint.protocol !== "http:" || !["127.0.0.1", "localhost", "::1"].includes(endpoint.hostname))
+                throw new Error("SimpleSFTP 本地 API 地址不安全。");
+            const headers = { Authorization: `Bearer ${String(discovery.token || "")}` };
+            const capabilityResponse = await fetch(new URL("/api/v1/capabilities", endpoint), { headers, signal: AbortSignal.timeout(30_000) });
+            // Activation can replace a listener/token between discovery and this GET.
+            // Retry only discovery + this read; never replay a mutating RPC.
+            if (capabilityResponse.status === 401 && attempt === 0)
+                continue;
+            if (!capabilityResponse.ok)
+                throw new Error(`SimpleSFTP capability 查询失败：HTTP ${capabilityResponse.status}`);
+            const capabilities = await capabilityResponse.json();
+            if (!Array.isArray(capabilities.methods) || !capabilities.methods.includes(method))
+                throw new Error(`SimpleSFTP 不支持 ${method}。`);
+            return {
+                endpoint,
+                headers,
+                instanceId: typeof capabilities.instanceId === "string" ? capabilities.instanceId : "",
+                features: capabilities.features && typeof capabilities.features === "object" ? capabilities.features : {},
+                methodOptions: capabilities.methodOptions || {},
+            };
+        }
     }
     async simpleSftpApiCall(method, params, timeoutMs = 0, onProgress) {
         (0, SafeRequestRetry_1.assertRetryRequestCurrent)();

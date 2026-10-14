@@ -82,13 +82,17 @@ export class PlanCleanupHost {
         this.assertWorkspace();
         const reports = await this.service.recheckNode(nodeId);
         this.assertWorkspace();
-        if (!reports.length || this.notices.has(nodeId)) continue;
+        // A failed read says nothing about files being present. Surface query
+        // errors in the review page, never as a startup deletion reminder.
+        const actionable = reports.filter(report => report.state !== "blocked"
+          && report.targets.some(target => target.state === "pending"));
+        if (!actionable.length || this.notices.has(nodeId)) continue;
         this.notices.add(nodeId);
-        void Promise.resolve(vscode.window.showWarningMessage(`${nodeId} 已重连，${reports.length} 个 PLAN 的清理信号仍需审核确认。未自动移动或删除。`, "审核未完成清理", "稍后"))
+        void Promise.resolve(vscode.window.showWarningMessage(`${nodeId} 仍有 ${actionable.length} 个 PLAN 的文件尚未清除，可查看完整路径。`, "审核未完成清理", "稍后"))
           .then(async choice => {
             this.assertWorkspace();
             if (choice === "审核未完成清理") {
-              const operation = await this.service.status(reports[0].operationId);
+              const operation = await this.service.status(actionable[0].operationId);
               await this.open(operation.preview.scope.planFile, operation.id, operation.preview.scope.job);
             }
           }).catch(() => undefined).finally(() => this.notices.delete(nodeId));

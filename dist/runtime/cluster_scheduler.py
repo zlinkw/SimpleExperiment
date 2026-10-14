@@ -37,9 +37,9 @@ except ModuleNotFoundError as exc:
     yaml = None
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_scheduler.py 为准
-SCHEDULER_VERSION = "0.5.314"
-RUNTIME_VERSION = "0.5.314"
-PLUGIN_VERSION = "0.5.314"
+SCHEDULER_VERSION = "0.5.315"
+RUNTIME_VERSION = "0.5.315"
+PLUGIN_VERSION = "0.5.315"
 FORMAL_JOB_PATH_PROTOCOL = 1
 FORMAL_JOB_IDENTITY_ENV_PROTOCOL = 1
 EXECUTION_SHELL_PREFLIGHT_PROTOCOL = 1
@@ -685,54 +685,8 @@ TASK_SHELL_ENV_FIELDS = (
     "SIMPLE_EXPERIMENT_MANAGED_JOB", "SIMPLE_EXPERIMENT_CHECKPOINT_TEST_ONLY", "SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS",
     "SIMPLE_EXPERIMENT_TMUX_SESSION", "SIMPLE_EXPERIMENT_TMUX_LOG_DIR", "SIMPLE_EXPERIMENT_EXIT_CODE_PATH",
     "SIMPLE_EXPERIMENT_CONDA_ENV", "SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV", "CUDA_VISIBLE_DEVICES", "PYTHONUNBUFFERED",
-    "SIMPLE_EXPERIMENT_NVJITLINK_PROOF", "SIMPLE_EXPERIMENT_TASK_LIFECYCLE",
+    "SIMPLE_EXPERIMENT_TASK_LIFECYCLE",
 )
-
-TASK_LIBRARY_SETUP_CODE = r'''
-import hashlib, json, os, pathlib, shlex, sys, sysconfig
-prefix = pathlib.Path(sys.prefix).resolve()
-selected = sys.argv[1].strip().rstrip('/')
-if selected.endswith('/bin/python'): selected = selected[:-len('/bin/python')]
-if selected and pathlib.Path(selected).resolve() != prefix:
-    raise RuntimeError('EXECUTION_ENVIRONMENT_CHANGED: selected Python prefix')
-# Only this interpreter's environment is eligible; never search the machine or import torch here.
-directories = []
-for key in ('purelib', 'platlib'):
-    directory = pathlib.Path(sysconfig.get_paths()[key]) / 'nvidia/nvjitlink/lib'
-    if directory not in directories: directories.append(directory)
-directories.append(prefix / 'lib')
-proof = None
-for directory in directories:
-    if not directory.is_dir(): continue
-    candidates = sorted(directory.glob('libnvJitLink.so*'))
-    if not candidates: continue
-    files = {}
-    for candidate in candidates:
-        path = candidate.resolve(strict=True)
-        if not path.is_file() or not path.is_relative_to(prefix):
-            raise RuntimeError('NVJITLINK_ENVIRONMENT_ESCAPE: ' + str(candidate))
-        files[str(path)] = path
-    if len(files) != 1:
-        raise RuntimeError('NVJITLINK_AMBIGUOUS_ENVIRONMENT: ' + str(directory))
-    path = next(iter(files.values()))
-    digest = hashlib.sha256()
-    with path.open('rb') as stream:
-        for block in iter(lambda: stream.read(1048576), b''): digest.update(block)
-    proof = dict(python=os.path.abspath(sys.executable), prefix=str(prefix), library=str(path),
-                 directory=str(directory.resolve()), sha256=digest.hexdigest())
-    break
-previous = os.environ.get('SIMPLE_EXPERIMENT_NVJITLINK_PROOF')
-if previous and json.loads(previous) != proof:
-    raise RuntimeError('NVJITLINK_PROOF_CHANGED: interpreter/library fingerprint changed since preflight')
-values = dict(SIMPLE_EXPERIMENT_NVJITLINK_PROOF=json.dumps(proof,ensure_ascii=False,separators=(',',':')))
-if proof:
-    directories = [proof['directory']]
-    for entry in os.environ.get('LD_LIBRARY_PATH','').split(':'):
-        if entry and entry not in directories: directories.append(entry)
-    values['LD_LIBRARY_PATH'] = ':'.join(directories)
-values['PATH'] = str(pathlib.Path(sys.executable).parent) + ':' + os.environ.get('PATH','')
-for key, value in values.items(): print('export ' + key + '=' + shlex.quote(value) + ';')
-'''
 
 TASK_EXECUTION_PROBE_CODE = r'''
 import ctypes, hashlib, importlib.util, json, os, pathlib, sys
@@ -765,14 +719,13 @@ def task_shell_args(args, env, python):
     for key in TASK_SHELL_ENV_FIELDS:
         value = env.get(key)
         assignments.append("export " + key + "=" + shlex.quote(str(value)) if value not in (None, "") else "unset " + key)
-    resolve = shlex.join([str(python), "-I", "-B", "-X", "utf8", "-c", TASK_LIBRARY_SETUP_CODE,
-                          str(env.get("SIMPLE_EXPERIMENT_CONDA_ENV") or "")])
     # A renderer may already request a login shell. Execute its body in this prepared
     # login shell instead of starting another shell that could reset library/identity controls.
     nested = len(args) == 3 and str(args[1]) == "-lc" and str(args[0]) == str(shell)
     command = str(args[2]) if nested else "exec " + shlex.join([str(item) for item in args])
-    # No eval of project/user output: only the bounded, stdlib resolver emits quoted export assignments.
-    body = "; ".join(assignments) + "; " + "__simple_library_setup=$(" + resolve + ") && eval \"$__simple_library_setup\" && " + command
+    # Research libraries and loader configuration belong to the project. In
+    # particular, a proof inherited from an old tmux server must not gate launch.
+    body = "; ".join(assignments) + "; unset SIMPLE_EXPERIMENT_NVJITLINK_PROOF; " + command
     return [shell, "-lc", body]
 
 

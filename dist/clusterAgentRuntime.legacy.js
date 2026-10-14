@@ -785,13 +785,13 @@ def replace_with_retry(src, dst, attempts=ATOMIC_REPLACE_ATTEMPTS):
     raise last_error
 
 def atomic_write_file(path, writer):
-    """Write through one reusable sibling slot, serialized with bounded striped locks."""
+    """Keep each process/thread's staging slot private before atomic replacement."""
     path = os.fspath(path)
     parent = os.path.dirname(path) or "."
     os.makedirs(parent, exist_ok=True)
     normalized = os.path.normcase(os.path.abspath(path))
     stripe = int.from_bytes(hashlib.sha256(normalized.encode("utf-8", errors="surrogatepass")).digest()[:4], "big") % ATOMIC_WRITE_SLOT_COUNT
-    temporary = path + ".writing"
+    temporary = path + ".writing." + str(os.getpid()) + "." + str(threading.get_ident())
     with ATOMIC_WRITE_LOCKS[stripe]:
         try:
             previous = os.lstat(temporary)
@@ -1230,6 +1230,10 @@ def compact_terminal_event(event, original_bytes):
             "type": "operation_failed" if body.get("status") == "failed" else event["type"], "payload": body}
 
 def append_event(root, event):
+    if globals().get("NATIVE_TASK_RUNNER_CONTEXT"):
+        # Native task windows and final manifests are queried directly. A task
+        # process must never touch the Agent's obsolete shared event journal.
+        return {"schemaVersion": SCHEMA_VERSION, "generatedAt": now_iso(), **event}
     prune_runtime_memory_state()
     os.makedirs(agent_dir(root), exist_ok=True)
     # ThreadingHTTPServer serves concurrent actions, so allocating seq, appending the line and
@@ -5727,7 +5731,7 @@ def _execute_worker_command_unfenced(root, command, worker_id):
         return {"commandId": command_id, "status": "completed", "exitCode": 0,
                 "message": "Matching completion and output hashes verified; no process launched"}
     env["SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY"] = json.dumps(formal["identity"], ensure_ascii=False)
-    env["SIMPLE_EXPERIMENT_NVJITLINK_PROOF"] = json.dumps(formal.get("executionEnvironment", {}).get("nvJitLink"), ensure_ascii=False, separators=(",", ":"))
+    env.pop("SIMPLE_EXPERIMENT_NVJITLINK_PROOF", None)
     if command.get("checkpointTestOnly") is True:
         if formal.get("checkpointVerified") is not True:
             raise ValueError("FORMAL_CHECKPOINT_PROOF_REQUIRED")
