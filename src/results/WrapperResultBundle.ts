@@ -4,6 +4,7 @@ import * as fs from "node:fs/promises";
 import { readCsv, writeCsv, datasetPathKey, methodTableName, planDirectoryKey } from "./ProjectResultTables";
 import { boundCheckpointPath, validateFourStateMetricPair, type MetricJob, type MetricMemoryFile } from "./FourStateMetricBundle";
 import type { ProjectResultFile } from "./ProjectResultPublication";
+import { verifyNativeResult } from "./NativeResultManifest";
 
 export const isWrapperResultFile = (file: string): boolean => /\.[A-Za-z0-9]+$/.test(file)
   && !/\.(pt|pth|ckpt|safetensors|onnx|bin|py|pyc|js|ts|sh|exe|dll|lock|pid)$/i.test(file)
@@ -112,7 +113,11 @@ export function prepareWrapperJob(job: MetricJob, inputs: MetricMemoryFile[], en
     throw new Error("wrapper 结果缺少可信运行及作业身份");
   const byPath = new Map(inputs.map(file => [file.remotePath, file]));
   if (byPath.size !== inputs.length || requiredPaths.some(file => !byPath.has(file))) throw new Error("wrapper 必需结果缺失，保留原有完整结果：" + job.case + "/" + job.seed);
-  if (job.resultPathPolicy === "declared") {
+  if (job.lifecycleProtocol === 2) {
+    const proof = byPath.get(job.outputDir + "/artifact_manifest.json");
+    if (!proof) throw new Error("FINAL_MANIFEST_REQUIRED");
+    verifyNativeResult(proof.text, proof.sha256, job);
+  } else if (job.resultPathPolicy === "declared") {
     const proof = byPath.get(job.outputDir + "/formal_job_owner.json");
     if (!proof || resultHash(proof.text) !== proof.sha256.toLowerCase()) throw new Error("FORMAL_JOB_OWNER_PROOF_REQUIRED: SHA256");
     const owner = JSON.parse(proof.text);

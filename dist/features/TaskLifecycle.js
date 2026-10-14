@@ -24,7 +24,7 @@ function taskLifecycle(value) {
     const status = execution === "queued" ? "queued" : ["running", "starting"].includes(execution) ? "running"
         : execution === "failed" ? "failed" : result === "complete" ? "completed" : value.cancelled && !pane ? "cancelled"
             : execution === "missing" ? "unknown" : "unknown";
-    const message = execution === "missing" && result !== "complete" ? "远端未发现该任务；未自动重新派发"
+    const message = value.resultQueryError ? "产物核实失败：" + value.resultQueryError : execution === "missing" && result !== "complete" ? "远端未发现该任务；未自动重新派发"
         : execution === "exited" && result !== "complete" ? "执行已结束，产物尚未确认"
             : result === "conflict" ? "产物属于其他运行" : undefined;
     return { execution, result, status, message };

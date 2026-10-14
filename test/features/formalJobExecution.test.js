@@ -114,6 +114,7 @@ test('formal completion collector accepts exact declared CSV and retains SHA256 
   const selected = Freshness.selectLatestCompletePlanRun(queue,row.planFile,row.revision);
   assert.ok(selected);
   const job = {...selected.jobs[0],runId:row.id};
+  delete job.lifecycleProtocol; // Historical owner-file protocol stays readable; native manifests have a separate production-path test.
   const manifest = JSON.stringify({output_dir:job.outputDir,result_csv:job.collectionResultCsv});
   assert.ok(Wrapper.declaredWrapperResults(manifest,job.outputDir,job.collectionResultCsv).includes(job.collectionResultCsv));
   const csv = 'case,seed,metric,value,job_dir\ncase,42,accuracy,0.75,'+job.outputDir+'\n';

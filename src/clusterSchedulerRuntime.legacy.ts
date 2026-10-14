@@ -2291,6 +2291,26 @@ def formal_job_preflight(job: Job, identity: dict[str, Any], mode: str) -> dict[
     expected = {**{key: identity[key] for key in required}, "index": job.index, "case": job.case, "seed": job.seed,
                 "outputDir": job.output_dir, "collectionResultCsv": job.result_csv, "configHash": formal_job_config_hash(job)}
     formal_job_safe_path(job.result_csv)
+    if os.environ.get("SIMPLE_EXPERIMENT_TASK_LIFECYCLE") == "2":
+        directory = formal_job_safe_path(job.output_dir)
+        if job.config.get("runtime", {}).get("checkpoint_source"):
+            source = formal_checkpoint_source(job, identity, mode)
+            saved = load_yaml_file(Path(source["config_path"]))
+            manifest = directory / "artifact_manifest.json"
+            if manifest.is_file() and manifest.stat().st_size > 1024 * 1024:
+                raise ValueError("ARTIFACT_MANIFEST_TOO_LARGE")
+            report = json.loads(manifest.read_text(encoding="utf-8")).get("simpleExperiment", {}) if manifest.is_file() else {}
+            source_run = saved.get("runtime", {}).get("execution_provenance", {}).get("commandId")
+            if report.get("outputDir") == job.output_dir and report.get("runId") == source_run and source_run:
+                if mode == "train" and formal_resume_targets(job) or not Path(job.result_csv).exists():
+                    return {"identity": expected, "checkpointVerified": True}
+        existing = directory.exists() and any(directory.iterdir())
+        if existing or Path(job.result_csv).exists():
+            raise FormalJobConflictError("FORMAL_JOB_CONFLICT: declared output contains artifacts; review exact replacement or declare another job; output="
+                + job.output_dir + "; result=" + job.result_csv, {"outputDir": job.output_dir, "resultCsv": job.result_csv, "lifecycleProtocol": 2})
+        if mode == "test":
+            formal_checkpoint_source(job, identity, mode)
+        return {"identity": expected}
     owner_path = formal_job_safe_path(job.output_dir + "/formal_job_owner.json")
     if owner_path.is_file() and owner_path.stat().st_size > 65536:
         raise ValueError("FORMAL_JOB_OWNER_INVALID: owner metadata exceeds 64 KiB")
@@ -2328,7 +2348,7 @@ def formal_job_writer(job: Job, identity: dict[str, Any], mode: str):
     if os.environ.get("SIMPLE_EXPERIMENT_TASK_LIFECYCLE") == "2":
         admission = formal_job_preflight(job, identity, mode)
         Path(job.output_dir).mkdir(parents=True, exist_ok=True)
-        job._native_training = {}
+        object.__setattr__(job, "_native_training", {})
         outcome = "failed"
         try:
             yield admission
@@ -2394,6 +2414,10 @@ def formal_job_writer(job: Job, identity: dict[str, Any], mode: str):
                 fcntl.flock(lock.fileno(), fcntl.LOCK_UN)
 
 
+def native_file_stat(file):
+    info = file.stat()
+    return {"size": info.st_size, "mtimeNs": info.st_mtime_ns, "ctimeNs": info.st_ctime_ns, "inode": info.st_ino, "device": info.st_dev}
+
 def native_job_result(job: Job, identity: dict[str, Any], mode: str, outcome: str):
     directory = Path(job.output_dir)
     manifest = formal_job_safe_path(job.output_dir + "/artifact_manifest.json")
@@ -2402,12 +2426,22 @@ def native_job_result(job: Job, identity: dict[str, Any], mode: str, outcome: st
     document = json.loads(manifest.read_text(encoding="utf-8")) if manifest.is_file() else {}
     if not isinstance(document, dict):
         raise ValueError("ARTIFACT_MANIFEST_INVALID")
+    weights = sorted(file.as_posix() for file in directory.rglob("*") if file.is_file() and not file.is_symlink()
+                     and file.suffix in (".pt", ".pth", ".ckpt", ".safetensors"))
+    csv_path = formal_job_safe_path(job.result_csv)
+    file_stats = {file: native_file_stat(Path(file)) for file in weights}
+    file_stats.update(getattr(job, "_native_training", {}).get("checkpointStat", {}))
+    if csv_path.is_file():
+        file_stats[job.result_csv] = native_file_stat(csv_path)
     # Completion evidence is an output, not a mutable queue/owner snapshot.
     document["simpleExperiment"] = {"schemaVersion": 1, "runId": identity["commandId"], "status": outcome,
         "planFile": str(job.template_values.get("plan_file") or ""), "job": {"index": job.index, "case": job.case, "seed": job.seed},
         "mode": mode, "outputDir": job.output_dir, "resultCsv": job.result_csv,
-        "weights": sorted(file.as_posix() for file in directory.rglob("*") if file.is_file() and not file.is_symlink()
-                          and file.suffix in (".pt", ".pth", ".ckpt", ".safetensors"))}
+        "fileStats": file_stats,
+        "sha256": {**getattr(job, "_native_training", {}).get("checkpointSha256", {}),
+                   **getattr(job, "_native_training", {}).get("trainingConfigSha256", {}),
+                   **({job.result_csv: formal_job_file_hash(Path(job.result_csv))} if Path(job.result_csv).is_file() else {})},
+        "weights": weights}
     manifest.write_text(json.dumps(document, ensure_ascii=False, sort_keys=True), encoding="utf-8")
 
 def run_job(job: Job, args: argparse.Namespace) -> None:
@@ -2492,7 +2526,9 @@ def run_job_unlocked(job: Job, args: argparse.Namespace) -> None:
         owner.update({"trainingCompleted": True, "checkpointSha256": {file.as_posix(): formal_job_file_hash(file) for file in checkpoints},
                       "trainingConfigSha256": {file.as_posix(): formal_job_file_hash(file) for file in config_files}})
         if os.environ.get("SIMPLE_EXPERIMENT_TASK_LIFECYCLE") == "2":
-            job._native_training = owner
+            owner["checkpointStat"] = {file.as_posix(): native_file_stat(file) for file in checkpoints}
+        if os.environ.get("SIMPLE_EXPERIMENT_TASK_LIFECYCLE") == "2":
+            job._native_training.update(owner)
         else:
             owner_path.write_text(json.dumps(owner, ensure_ascii=False, sort_keys=True), encoding="utf-8")
     if args.mode in {"test", "train_test"}:
@@ -4066,6 +4102,7 @@ def main() -> None:
     parser.add_argument("--formal-job-structure-only", action="store_true")
     parser.add_argument("--check-execution-shell-json", action="store_true")
     parser.add_argument("--print-job-dir", action="store_true")
+    parser.add_argument("--describe-jobs", action="store_true")
     parser.add_argument("--validate-plan", action="store_true")
     parser.add_argument("--dry-run-plan", action="store_true")
     parser.add_argument("--resume", action="store_true")
@@ -4107,6 +4144,13 @@ def main() -> None:
     parser.add_argument("--default-result-csv-dir", default="experiments/results")
     parser.add_argument("--check-dependencies-json", action="store_true")
     args = parser.parse_args()
+    if args.describe_jobs:
+        plan = load_plan(args.plan)
+        _, jobs = build_jobs(plan, args.default_result_csv_dir)
+        print(json.dumps({"planFile": args.plan, "planHash": plan.get("_revision"), "jobs": [
+            {"index": job.index, "case": job.case, "seed": job.seed, "output_dir": job.output_dir, "result_csv": job.result_csv}
+            for job in jobs]}, ensure_ascii=False))
+        return
     if args.formal_job_structure_only and not args.formal_job_preflight:
         raise SystemExit("FORMAL_JOB_STRUCTURE_ONLY_REQUIRES_PREFLIGHT: execution always validates assets")
     _SCHEDULER_ARGS_FOR_GUARD = args

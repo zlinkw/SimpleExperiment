@@ -24,6 +24,9 @@ export type QueuedJob = {
   resultState?: string;
   statusQueryError?: string;
   lastObservedAt?: string;
+  tmuxPane?: string;
+  tmuxWindowId?: string;
+  tmuxSession?: string;
   /** Explicit local exclusion of this exact attempt; never a successful result. */
   unavailable?: { identity: string; reason: string; markedAt: string; previousStatus: JobState;
     previousFinishedAt?: string; previousTrustedTerminalStatus?: "completed" | "failed" | "cancelled" };
@@ -155,18 +158,24 @@ export function restoreFormalJobQueue(queue: DistributedQueue): DistributedQueue
   for (const plan of queue.plans || []) if (plan.resultPathPolicy === "declared") {
     for (const job of plan.jobs || []) {
       if (job.resultPathPolicy === "declared" && job.attempt === undefined) job.attempt = 0;
+      if (job.lifecycleProtocol === 2) clearNativeProjection(job);
       for (const record of job.history || []) if (record.attempt === undefined && !record.outputDir.split("/").includes("attempts")) record.attempt = 0;
     }
   }
   return queue;
 }
 
+function clearNativeProjection(job: QueuedJob) {
+  job.status = job.unavailable ? "cancelled" : job.commandId ? "unknown" : "pending";
+  for (const key of ["executionState", "resultState", "statusQueryError", "lastObservedAt", "trustedTerminalStatus", "error", "blockReason",
+    "tmuxPane", "tmuxWindowId", "tmuxSession", "logPath", "finishedAt"] as const) delete job[key];
+}
+
 export function serializeDistributedQueue(queue: DistributedQueue): string {
   const copy = cloneDistributedQueue(queue);
   for (const plan of copy.plans) if (plan.resultPathPolicy === "declared") for (const job of plan.jobs) {
     if (job.lifecycleProtocol === 2) {
-      job.status = job.commandId ? "unknown" : "pending";
-      for (const key of ["executionState", "resultState", "statusQueryError", "lastObservedAt", "trustedTerminalStatus", "error", "blockReason"] as const) delete job[key];
+      clearNativeProjection(job);
     }
     if (job.attempt === 0) delete (job as Partial<QueuedJob>).attempt;
     for (const record of job.history || []) if (record.attempt === 0) delete (record as { attempt?: number }).attempt;
@@ -419,19 +428,54 @@ function reviewedTrainingCompletion(plan: QueuedPlan, job: QueuedJob, task: Reco
 export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: readonly DurableWorkerSnapshot[], projectId: string,
   now = Date.now(), maxAgeMs = 180_000): DistributedQueue {
   const pulled = snapshots.filter(snapshot => (snapshot.capabilities as any)?.taskLifecycle === 2);
+  // Rebuild control inputs from authenticated live window bindings when a local card is absent.
+  // Never invent missing jobs or replay a saved Worker queue.
+  if (pulled.length) {
+    queue = cloneDistributedQueue(queue);
+    for (const snapshot of pulled) {
+      const fresh = Date.parse(String(snapshot.fetchedAt || snapshot.generatedAt || ""));
+      if (snapshot.error || !Number.isFinite(fresh) || now - fresh > maxAgeMs) continue;
+      for (const raw of snapshot.tasks || []) {
+        const task = raw as any, index = Number(task.experimentIndex);
+        if (!task.observation?.tmux || !observationMatches(task.observation, { commandId: task.commandId, workerId: snapshot.workerId, projectId })
+          || !task.workflowId || task.globalJobId !== task.workflowId + ":" + index || !Number.isInteger(index) || index < 0
+          || !task.planFile || !task.planRevision || !task.codeFingerprint || task.resultPathPolicy !== "declared"
+          || [task.outputDir, task.collectionResultCsv, task.planFile].some(value => typeof value !== "string" || !value || value.startsWith("/")
+            || /[:\\\x00-\x1f]/.test(value) || value.split("/").some(part => !part || part === "." || part === ".." || part === "attempts"))) continue;
+        let plan = queue.plans.find(row => row.id === task.workflowId);
+        if (!plan) {
+          plan = { id: task.workflowId, projectId, planFile: task.planFile, revision: task.planRevision, codeFingerprint: task.codeFingerprint,
+            enqueuedAt: task.enqueuedAt || task.observation.observedAt, resultPathPolicy: "declared", executionMode: task.executionMode || task.mode,
+            planJobCount: task.planJobCount, fullPlanJobCount: task.fullPlanJobCount, jobs: [] };
+          queue.plans.push(plan);
+        }
+        if (plan.projectId !== projectId || plan.jobs.some(job => job.index === index)) continue;
+        plan.jobs.push({ index, case: task.case, seed: Number(task.seed), attempt: 0, commandId: task.commandId, workerId: snapshot.workerId,
+          runKey: task.commandId, globalJobId: task.globalJobId, outputDir: task.outputDir, collectionResultCsv: task.collectionResultCsv,
+          resultPathPolicy: "declared", lifecycleProtocol: 2, status: "unknown", actualExecutionMode: task.mode,
+          checkpointSource: task.checkpointSource });
+      }
+    }
+  }
+  queue = { ...queue, plans: queue.plans.map(plan => ({ ...plan, jobs: plan.jobs.map(job =>
+    job.lifecycleProtocol === 2 && job.workerId && job.commandId && !pulled.some(row => row.workerId === job.workerId)
+      ? { ...job, status: "unknown" as const, executionState: "unknown" as const, resultState: "unverified" as const,
+          statusQueryError: "当前 Worker 主动查询不可用；原任务未重复派发", blockReason: "查询失败，可刷新或中止原任务" } : job) })) };
   if (pulled.length) {
     queue = { ...queue, plans: queue.plans.map(plan => ({ ...plan, jobs: plan.jobs.map(job => {
       const snapshot = pulled.find(row => row.workerId === job.workerId);
       if (!snapshot || !job.commandId || !job.workerId || !["dispatching", "queued", "running", "unknown", "failed", "completed"].includes(job.status)) return job;
       const fresh = Date.parse(String(snapshot.fetchedAt || snapshot.generatedAt || ""));
       const task = (snapshot.tasks || []).find(row => row.commandId === job.commandId && row.projectId === projectId);
-      const observation: TaskObservation = (task as any)?.observation || { lifecycleProtocol: 2, commandId: job.commandId,
+      const observation: TaskObservation = (task as any)?.observation ? { ...(task as any).observation } : { lifecycleProtocol: 2, commandId: job.commandId,
         projectId, workerId: job.workerId, observedAt: String(snapshot.generatedAt || ""),
         queryError: snapshot.error || (!Number.isFinite(fresh) || now - fresh > maxAgeMs ? "状态查询已过期" : undefined) };
-      if (snapshot.error) observation.queryError = snapshot.error;
+      if (snapshot.error || !Number.isFinite(fresh) || now - fresh > maxAgeMs) observation.queryError = snapshot.error || "状态查询已过期";
       if (!observationMatches(observation, { commandId: job.commandId, workerId: job.workerId, projectId })) return job;
       const state = taskLifecycle(observation);
       return { ...job, lifecycleProtocol: 2 as const, status: state.status, executionState: state.execution, resultState: state.result,
+        ...( ["train", "test", "train_test"].includes(String(task?.actualExecutionMode)) ? { actualExecutionMode: task!.actualExecutionMode as PlanExecutionMode } : {}),
+        recoveryConflict: undefined, trustedTerminalStatus: undefined,
         statusQueryError: observation.queryError, lastObservedAt: observation.observedAt,
         error: state.status === "failed" ? String(task?.error || `任务退出码 ${task?.exitCode ?? "未知"}`) : undefined,
         blockReason: state.message, ...(task ? { gpuId: String(task.gpuId ?? job.gpuId ?? ""),
@@ -462,6 +506,7 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
       if (task.durableAccepted === false && !preflightRejectionEvidence(task)) continue;
       const localPlan = queue.plans.find(plan => plan.id === task.workflowId);
       const localJob = localPlan?.jobs.find(job => job.index === Number(task.experimentIndex));
+      if (localJob?.lifecycleProtocol === 2) continue;
       if (preflightRejectionEvidence(task) && localPlan && localJob && !preflightRejectionMatchesJob(localPlan, localJob, task)) continue;
       if (!String(task.workflowId || "") || !String(task.planFile || "") || !String(task.planRevision || "")
         || !String(task.codeFingerprint || "") || !String(task.commandId || "") || !String(task.outputDir || "")
@@ -502,6 +547,7 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
     return jobs.length || !plan.jobs.length ? [{ ...plan, jobs }] : [];
   });
   const plans = retainedPlans.map((plan) => plan.projectId !== projectId ? plan : { ...plan, jobs: plan.jobs.map((job) => {
+    if (job.lifecycleProtocol === 2) return job;
     const legacy = legacyReceipt(plan, job);
     const legacyStatus = legacy && durableStatus(legacy.status);
     if (legacyStatus) {
@@ -763,7 +809,7 @@ export function queueOccupiesCodeVersion(queue: DistributedQueue, verifiedWorker
     : Object.values(verifiedWorkerFingerprints || {});
   const known = verified.filter(Boolean);
   return queue.plans.some((plan) => plan.jobs.some((job) => {
-    if (["dispatching", "queued", "running", "unknown"].includes(job.status)) return true;
+    if (jobHasLiveExecution(job)) return true;
     if (job.status !== "pending") return false;
     if (!known.length) return true;
     return known.includes(plan.codeFingerprint);
@@ -771,12 +817,20 @@ export function queueOccupiesCodeVersion(queue: DistributedQueue, verifiedWorker
 }
 export type Dispatch = { planId: string; jobIndex: number; workerId: string; gpuId: string; attempt: number; commandId: string };
 
+/** Native activity comes from a current window projection, never an old persisted job status. */
+export function jobHasLiveExecution(job: QueuedJob): boolean {
+  return job.lifecycleProtocol === 2 ? ["queued", "starting", "running"].includes(job.executionState || "")
+    || job.executionState === "unknown" && Boolean(job.statusQueryError)
+    || job.status === "dispatching" && !job.lastObservedAt
+    : ["dispatching", "queued", "running", "unknown"].includes(job.status);
+}
+
 /** A project root on one Worker may host only one live code version. Other Workers are independent. */
 export function workerCodeVersionAvailable(queue: DistributedQueue, workerId: string, fingerprint: string): boolean {
   return Boolean(workerId && fingerprint) && !queue.plans.some((plan) => {
-    if (plan.recoveryConflict && plan.codeFingerprint !== fingerprint) return true;
+    if (plan.recoveryConflict && plan.jobs.some(job => job.lifecycleProtocol !== 2) && plan.codeFingerprint !== fingerprint) return true;
     return plan.jobs.some((job) => {
-      if (!["dispatching", "queued", "running", "unknown"].includes(job.status)) return false;
+      if (!jobHasLiveExecution(job)) return false;
       if (job.workerId && job.workerId !== workerId) return false;
       return !plan.codeFingerprint || plan.codeFingerprint !== fingerprint;
     });
@@ -825,9 +879,13 @@ export function enqueuePlan(queue: DistributedQueue, plan: Omit<QueuedPlan, "id"
         && other.cleanup.operationId && !other.cleanup.pendingNodes?.length) && other.jobs.some(prior => !(prior.outputRetiredAt
         && ["completed", "failed", "cancelled"].includes(prior.status) && prior.cleanup && ["archived", "deleted"].includes(prior.cleanup.state)
         && prior.cleanup.operationId && prior.cleanup.completedTargets?.length && !prior.cleanup.pendingNodes?.length)
+        && prior.lifecycleProtocol === 2 && prior.status === "pending" && !prior.workerId && !prior.commandId
         && (prior.outputDir === job.outputDir || job.collectionResultCsv && prior.collectionResultCsv === job.collectionResultCsv))))
-      throw new Error("FORMAL_JOB_CONFLICT: this declared directory is already registered; review existing ownership before resubmitting.");
-    return { ...job, lifecycleProtocol: 2 as const, resultPathPolicy: "declared" as const, globalJobId: `${id}:${job.index}`, attempt: 0, status: "pending" as const };
+      throw new Error("FORMAL_JOB_CONFLICT: duplicate local pending job declarations; cancel the unsent duplicate first.");
+    return { index: job.index, case: job.case, seed: job.seed, outputDir: job.outputDir,
+      ...(job.collectionResultCsv ? { collectionResultCsv: job.collectionResultCsv } : {}),
+      ...(job.checkpointSource ? { checkpointSource: job.checkpointSource } : {}),
+      lifecycleProtocol: 2 as const, resultPathPolicy: "declared" as const, globalJobId: `${id}:${job.index}`, attempt: 0, status: "pending" as const };
   });
   if (!jobs.length) throw new Error("Plan has no jobs.");
   const planJobCount = Number(plan.planJobCount || plan.jobs.length);
@@ -858,7 +916,7 @@ function noteFingerprintMismatch(plans: QueuedPlan[], workers: readonly WorkerSl
   for (const plan of plans) {
     if (plan.resultPathPolicy !== "declared") continue; // Retain old queue records, never resume their execution.
     const matched = workers.some((row) => row.online && row.codeFingerprint === plan.codeFingerprint);
-    const held = plan.jobs.some((item) => ["dispatching", "queued", "running", "unknown"].includes(item.status));
+    const held = plan.jobs.some(jobHasLiveExecution);
     const waiting = matched && !workers.some((row) => row.online && row.codeFingerprint === plan.codeFingerprint
       && workerCodeVersionAvailable({ schemaVersion: 1, plans }, row.workerId, plan.codeFingerprint));
     for (const job of plan.jobs) {
@@ -874,7 +932,7 @@ export function allocateAvailable(queue: DistributedQueue, workers: readonly Wor
   const versioned = workers.some((row) => row.codeFingerprint);
   const plans = queue.plans.map((plan) => ({ ...plan, jobs: plan.jobs.map((job) => ({ ...job })) }));
   const dispatches: Dispatch[] = [];
-  const activeFingerprint = plans.find((plan) => plan.jobs.some((job) => ["dispatching", "queued", "running", "unknown"].includes(job.status)))?.codeFingerprint;
+  const activeFingerprint = plans.find((plan) => plan.jobs.some(jobHasLiveExecution))?.codeFingerprint;
   const runnableFingerprint = !versioned && (activeFingerprint || plans.find((plan) => (!options.localIdleOnly || plan.schedulingMode !== "server_prequeue" || plan.localDispatchOverride === true
     || plan.jobs.some((job) => job.status === "pending" && job.localQueueOnly === true && !job.recallRequested))
     && plan.jobs.some((job) => job.status === "pending" && !job.recallRequested

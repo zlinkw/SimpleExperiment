@@ -27,6 +27,13 @@ function productionMethod(name) {
 const eligible = productionMethod("distributedPlanEligible");
 const primary = productionMethod("selectDistributedPlanPrimary");
 const preflightTarget = productionMethod("ensureWorkerPoolPlanTarget");
+test('native lifecycle routes formal jobs in every configured topology through the same queue, independent of research prefixes',()=>{
+  for(const mode of ['single_worker','worker_pool','hub_worker']) {
+    const host=provider({distributedResults:false,distributed:{planPrefixes:['other/']}},mode);host.taskLifecycleProtocol=2;
+    assert.equal(eligible.call(host,'experiments/plans/formal.yaml'),true);
+    assert.equal(eligible.call(host,'../foreign.yaml'),false);
+  }
+});
 
 // Replay the actual submission branch, including its chooser and final routing.
 const submission = members.get("runActionCommandCore").body.statements.find(node =>
@@ -39,6 +46,7 @@ const routingStatements = submission.thenStatement.statements.filter(node => {
 });
 assert.equal(routingStatements.length, 3);
 const route = new Function("operationResultPlanFile", `return async function(command, body, plan, message) {
+  const workflowBinding = { workspace: body.workspace };
   ${routingStatements.map(node => node.getText(ast)).join("\n")}
 };`)(body => body.planFile || body.options?.planFile || "");
 
@@ -90,7 +98,7 @@ test("tuning Plan submission automatically validates on one Worker and allocates
       calls.push(body.schedulerOwnerWorkerId);
       const jobs = Array.from({ length: 36 }, (_, index) => ({ index, case: `case-${Math.floor(index / 3)}`, seed: 42 + index % 3, outputDir: `work_dirs/tuning/job-${index}` }));
       const pending = queue.enqueuePlan(queue.emptyDistributedQueue(), { planFile: body.planFile, revision: "revision", codeFingerprint: "code", jobs }, "run-tuning");
-      const allocation = queue.allocateAvailable(pending, availability.map(row => ({ workerId: row.workerId, idleGpuIds: row.availableGpuIds, online: true })));
+      const allocation = queue.allocateAvailable(pending, availability.map(row => ({ workerId: row.workerId, idleGpuIds: row.availableGpuIds, online: true, declaredJobPaths:true })));
       assert.equal(allocation.queue.plans[0].jobs.length, 36);
       assert.equal(allocation.dispatches.length, 4);
       assert.deepEqual(new Set(allocation.dispatches.map(job => job.workerId)), new Set(["worker-b", "worker-c"]));

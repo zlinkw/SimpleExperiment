@@ -50,7 +50,7 @@ test('exact declarations match historical owned revisions; prefixes and pending 
   assert.throws(() => replacementJobGroups({ plans: [plan] }, 'plans/p.yaml', [declaration], 'project'), /original-cleanup/);
 });
 
-test('capacity preview reaches output review; actual enqueue requires completed retirement and preserves old audit', () => {
+test('capacity preview suggests output review; historical retirement flags are not live writer authority', () => {
   const declaration = {projectId:'project',planFile:'plans/p.yaml',revision:'old',codeFingerprint:'code',executionMode:'train_test',jobs:[
     {index:0,case:'case',seed:42,outputDir:'work/job',collectionResultCsv:'tmp/result/job.csv'}]};
   const original = Queue.enqueuePlan(Queue.emptyDistributedQueue(),declaration,'old');
@@ -58,15 +58,14 @@ test('capacity preview reaches output review; actual enqueue requires completed 
   const before=JSON.stringify(original), current={...declaration,revision:'new'};
   const preview=Queue.previewAvailable(original,current,[{workerId:'worker',online:true,codeFingerprint:'code',declaredJobPaths:true,idleGpuIds:['0']}]);
   assert.deepEqual(preview.outputReviewIndices,[0]); assert.equal(JSON.stringify(original),before);
-  assert.throws(()=>Queue.enqueuePlan(original,current,'new'),/FORMAL_JOB_CONFLICT/);
+  assert.equal(Queue.enqueuePlan(original,current,'new').plans.length,2);
   for (const state of ['partial','deleted']) {
     const queue=structuredClone(original),job=queue.plans[0].jobs[0];
     job.outputRetiredAt='verified';job.cleanup={state,operationId:'cleanup',completedTargets:['worker:/safe/work/job','worker:/safe/tmp/result/job.csv'],pendingNodes:state==='partial'?['offline']:[]};
-    if(state==='partial')assert.throws(()=>Queue.enqueuePlan(queue,current,'new'),/FORMAL_JOB_CONFLICT/);
-    else {const next=Queue.enqueuePlan(queue,current,'new');assert.equal(next.plans.length,2);assert.deepEqual(next.plans[0],queue.plans[0]);}
+    const next=Queue.enqueuePlan(queue,current,'new');assert.equal(next.plans.length,2);assert.deepEqual(next.plans[0],queue.plans[0]);
   }
   const active=structuredClone(original);active.plans[0].jobs[0].status='running';
-  assert.throws(()=>Queue.previewAvailable(active,current,[]),/FORMAL_JOB_CONFLICT/);
+  assert.equal(Queue.previewAvailable(active,current,[]).totalJobs,1);
   active.plans[0].cleanup={state:'partial',operationId:'cleanup',pendingNodes:['offline']};
-  assert.throws(()=>Queue.enqueuePlan(active,current,'new'),/FORMAL_JOB_CONFLICT/);
+  assert.equal(Queue.enqueuePlan(active,current,'new').plans.length,2);
 });

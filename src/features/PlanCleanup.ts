@@ -4,12 +4,15 @@ import * as path from "node:path";
 import { atomicWriteText } from "../state/StateStore";
 
 export type CleanupNode = { id: string; kind: "local" | "remote"; root: string; host?: string; port?: number; user?: string; error?: string };
-export type CleanupJobSelection = { workflowId: string; index: number; commandId: string; purpose?: "replace_outputs" };
+export type CleanupJobSelection = { workflowId: string; index: number; commandId: string; purpose?: "replace_outputs";
+  manifest?: { declarations: Array<{ index: number; case: string; seed: number; output_dir: string; result_csv: string }>; replacement: boolean } };
 export type CleanupCandidate = { nodeId: string; relativePath: string; type: "file" | "directory"; category: string;
   owners: string[]; evidence: string[]; protectedReason?: string; dependencies: string[]; expectedSha256?: string;
   expectedOwner?: { workflowId: string; commandId: string; workerId: string; outputDir: string; attempt?: number; case: string; seed: number;
     resultPathPolicy?: "declared"; globalJobId?: string; planRevision?: string; codeFingerprint?: string; index?: number; collectionResultCsv?: string; expectedState?: string } };
 export type CleanupScope = { projectId: string; planKey: string; planFile: string; planHash: string; runIds: string[];
+  observationMode?: "managed_tmux";
+  nativeDeclarations?: Array<{ index: number; case: string; seed: number; output_dir: string; result_csv: string }>;
   revision: string; nodes: CleanupNode[]; candidates: CleanupCandidate[]; references?: Record<string, string[]>; job?: CleanupJobSelection;
   blockers: Array<{ code: string; nodeId?: string; detail: string }>;
   notices?: Array<{ code: string; nodeId?: string; detail: string }> };
@@ -29,11 +32,12 @@ export type CleanupNodeCheck = { operationId: string; nodeId: string; checkedAt:
   state: "confirmation_required" | "settlement_required" | "blocked";
   targets: Array<{ id: string; absolutePath: string; state: string; code?: string }> };
 export type CleanupOperation = { id: string; preview: CleanupPreview; state: "ready" | "running" | "paused" | "partial" | "completed" | "blocked";
+  executionRequestedAt?: string;
   targets: Record<string, { state: "pending" | "executing" | "completed"; receipt?: any; error?: string }>;
   pendingNodes: string[]; error?: string; updatedAt: string; indexed?: boolean; restoredBy?: string; continuedBy?: string;
   nodeChecks?: Record<string, CleanupNodeCheck>; retirementPendingNodes?: string[] };
 export type CleanupPorts = {
-  collect(planFile: string, options?: { archivedFiles: Record<string, string>; removedMetadata?: CleanupRemovedMetadata; onProgress?: CleanupProgressSink; job?: CleanupJobSelection }): Promise<CleanupScope>;
+  collect(planFile: string, options?: { archivedFiles: Record<string, string>; removedMetadata?: CleanupRemovedMetadata; onProgress?: CleanupProgressSink; job?: CleanupJobSelection; nativeDeclarations?: CleanupScope["nativeDeclarations"] }): Promise<CleanupScope>;
   sftp(method: string, params: any): Promise<any>;
   updateIndexes(operation: CleanupOperation, restore: boolean): Promise<void>;
   restoreGate(preview: CleanupPreview, operation?: CleanupOperation): Promise<void>;
@@ -71,6 +75,7 @@ export class PlanCleanup {
   private previews = new Map<string, CleanupPreview>();
   private busy = new Set<string>();
   private cancelled = new Set<string>();
+  private observing = new Map<string, Promise<CleanupOperation>>();
   constructor(private readonly ports: CleanupPorts) {}
   private file(id: string) { if (!/^[a-f0-9]{48}$/.test(id)) cleanupError("INVALID_OPERATION_ID"); return path.join(this.ports.storageRoot, id + ".json"); }
   private async save(operation: CleanupOperation) {
@@ -78,14 +83,104 @@ export class PlanCleanup {
     await atomicWriteText(this.file(operation.id), JSON.stringify(operation, null, 2));
   }
   async status(id: string): Promise<CleanupOperation> {
-    try { return JSON.parse(await fs.readFile(this.file(id), "utf8")); }
+    try {
+      const operation = JSON.parse(await fs.readFile(this.file(id), "utf8"));
+      if (operation.preview.scope.observationMode !== "managed_tmux" || !operation.executionRequestedAt) return operation;
+      if (!this.observing.has(id)) this.observing.set(id, this.observeManaged(operation).then(async observed => {
+        if (observed.state === "completed" && !observed.indexed) {
+          await this.ports.updateIndexes(observed, observed.preview.action === "restore"); observed.indexed = true;
+        }
+        await this.save(observed); return observed;
+      }).finally(() => this.observing.delete(id)));
+      return clone(await this.observing.get(id)!);
+    }
     catch (error: any) { if (error.code === "ENOENT") cleanupError("OPERATION_NOT_FOUND"); throw error; }
+  }
+  private async managedCheck(row: CleanupRow, timeoutMs = 10000): Promise<any> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    if (this.ports.currentNode && this.nodeIdentity(await this.ports.currentNode(row.node.id)) !== this.nodeIdentity(row.node))
+      cleanupError("SERVER_IDENTITY_CHANGED");
+    try { return await Promise.race([this.ports.sftp("files.cleanup.check", { token: row.backendToken, index: row.backendIndex }),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("CLEANUP_QUERY_TIMEOUT")), timeoutMs); })]); }
+    finally { if (timer) clearTimeout(timer); }
+  }
+  private async observeManaged(operation: CleanupOperation): Promise<CleanupOperation> {
+    let running = false, unresolved = false;
+    const deadline = Date.now() + 10000;
+    delete operation.error;
+    for (const row of operation.preview.rows.filter(row => operation.targets[row.id])) {
+      try {
+        if (Date.now() >= deadline) throw new Error("CLEANUP_QUERY_TIMEOUT");
+        const proof = await this.managedCheck(row, Math.max(1, deadline - Date.now()));
+        if (proof.state === "completed") {
+          operation.targets[row.id] = { state: "completed", receipt: { source: "active_query", verifiedBy: proof.verifiedBy, rootIdentity: proof.rootIdentity } };
+          if (proof.executor?.exitCode !== undefined && proof.executor.exitCode !== null && proof.executor.exitCode !== 0) {
+            unresolved = true; operation.error = "目标已清除，但执行器异常退出；请审核日志并重新预览剩余项。";
+          }
+        }
+        else if (proof.state === "executing") { running = true; operation.targets[row.id] = { state: "executing" }; }
+        else {
+          unresolved = true; operation.targets[row.id] = { state: "pending", receipt: operation.targets[row.id]?.receipt,
+            error: proof.state === "pending" ? undefined : proof.code || "CLEANUP_TARGET_CHANGED" };
+        }
+      } catch (error: any) { unresolved = true; operation.targets[row.id] = { state: "pending", receipt: operation.targets[row.id]?.receipt, error: String(error.message || error) };
+        operation.error = "清理查询失败，可重新查询：" + String(error.message || error); }
+    }
+    if (operation.state !== "paused" || !unresolved && !running && !operation.pendingNodes.length)
+      operation.state = running ? "running" : unresolved || operation.pendingNodes.length ? "partial" : "completed";
+    return operation;
+  }
+
+  private async executeManaged(operation: CleanupOperation): Promise<CleanupOperation> {
+    if (this.busy.has(operation.id)) return this.observeManaged(operation);
+    if (operation.preview.confirmations !== (operation.preview.action === "delete" ? 2 : 1)) cleanupError("CONFIRM_REQUIRED");
+    await this.preflightConfirmed(operation.id);
+    if (this.busy.has(operation.id)) return this.observeManaged(operation);
+    this.busy.add(operation.id); this.cancelled.delete(operation.id);
+    try {
+      operation.executionRequestedAt ||= new Date().toISOString();
+      // Standalone results precede their owning output directory and its manifest.
+      const metadata = (row: CleanupRow) => ["PLAN 文件", "专用配置"].includes(row.category);
+      const rows = operation.preview.rows.filter(row => operation.targets[row.id]).sort((a, b) =>
+        Number(metadata(a)) - Number(metadata(b)) || Number(a.type === "directory") - Number(b.type === "directory")
+        || Number(a.category === "PLAN 文件") - Number(b.category === "PLAN 文件"));
+      operation.state = "running"; await this.save(operation);
+      for (const row of rows) {
+        if (this.cancelled.has(operation.id)) { operation.state = "paused"; await this.save(operation); return operation; }
+        let proof = await this.managedCheck(row);
+        if (proof.state === "completed") { operation.targets[row.id] = { state: "completed", receipt: { source: "active_query" } }; continue; }
+        if (!["pending", "executing"].includes(proof.state)) throw new Error("CLEANUP_TARGET_CHANGED：剩余目标须重新预览");
+        if (proof.state === "pending") {
+          operation.targets[row.id] = { state: "executing" }; await this.save(operation);
+          // Do not wait for execute transport completion. The fixed capability makes retries idempotent.
+          void this.ports.sftp("files.cleanup.execute", { token: row.backendToken, digest: row.backendDigest, index: row.backendIndex }).catch(() => undefined);
+        }
+        const started = Date.now();
+        while (true) {
+          proof = await this.managedCheck(row);
+          if (proof.state === "completed") { operation.targets[row.id] = { state: "completed", receipt: { source: "active_query", verifiedBy: proof.verifiedBy } }; await this.save(operation);
+            if (proof.executor?.exitCode !== undefined && proof.executor.exitCode !== null && proof.executor.exitCode !== 0)
+              throw new Error("目标已清除，但执行器异常退出；已停止后续目标，请审核日志并重新预览剩余项。");
+            break; }
+          if (!["pending", "executing"].includes(proof.state)) throw new Error("CLEANUP_TARGET_CHANGED：未重复执行，剩余目标须重新预览");
+          if (proof.state === "pending" && Date.now() - started > 5000) throw new Error("未发现对应清理执行器，目标未变；可主动核查后恢复");
+          if (this.cancelled.has(operation.id)) { operation.state = "paused"; await this.save(operation); return operation; }
+          await new Promise(resolve => setTimeout(resolve, 500));
+        }
+      }
+      operation = await this.observeManaged(operation);
+      if (operation.state === "completed" && !operation.indexed) { await this.ports.updateIndexes(operation, operation.preview.action === "restore"); operation.indexed = true; }
+      await this.save(operation); return clone(operation);
+    } catch (error: any) {
+      operation.state = "partial"; operation.error = String(error.message || error); await this.save(operation); return clone(operation);
+    } finally { this.busy.delete(operation.id); }
   }
   async list(): Promise<Array<Pick<CleanupOperation, "id" | "state" | "updatedAt" | "pendingNodes" | "continuedBy" | "restoredBy" | "nodeChecks"> & { planFile: string; action: string; job?: CleanupJobSelection }>> {
     const names = await fs.readdir(this.ports.storageRoot).catch((error: any) => { if (error.code === "ENOENT") return []; throw error; });
     const rows = [];
     for (const name of names.filter(name => /^[a-f0-9]{48}\.json$/.test(name))) {
-      const operation = await this.status(name.slice(0, -5));
+      // History is a local index, not a request to scan every past remote operation.
+      const operation: CleanupOperation = JSON.parse(await fs.readFile(this.file(name.slice(0, -5)), "utf8"));
       rows.push({ id: operation.id, state: operation.state, updatedAt: operation.updatedAt, pendingNodes: [...new Set([...operation.pendingNodes, ...(operation.retirementPendingNodes || [])])],
         planFile: operation.preview.scope.planFile, action: operation.preview.action, job: operation.preview.scope.job,
         continuedBy: operation.continuedBy, restoredBy: operation.restoredBy, nodeChecks: operation.nodeChecks });
@@ -106,6 +201,10 @@ export class PlanCleanup {
     const completed = new Map<string, CleanupRow>();
     for (const operation of history) for (const row of operation.preview.rows) {
       const state = operation.targets[row.id]?.state;
+      if (operation.preview.scope.observationMode === "managed_tmux" && operation.targets[row.id]?.receipt?.source === "active_query" && state !== "completed") {
+        await this.ports.sftp("files.cleanup.verify", { token: row.backendToken, index: row.backendIndex });
+        cleanupError("SOURCE_RECREATED_OR_CHANGED");
+      }
       if (state === "completed") {
         await this.ports.sftp("files.cleanup.verify", { token: row.backendToken, index: row.backendIndex });
         completed.set(row.id, { ...row, disposition: "completed" });
@@ -143,6 +242,7 @@ export class PlanCleanup {
   async recheckNode(nodeId: string): Promise<CleanupNodeCheck[]> {
     const reports: CleanupNodeCheck[] = [];
     for (const item of await this.list()) {
+      if (item.state === "completed" && !item.pendingNodes.length) continue;
       const operation = await this.status(item.id);
       if (operation.continuedBy || operation.restoredBy || operation.preview.action === "restore" || this.busy.has(item.id)) continue;
       const rows = operation.preview.rows.filter(row => row.node.id === nodeId
@@ -229,7 +329,7 @@ export class PlanCleanup {
         notify({ ...progress, completed: index + 1, message: node.id + "：离线，保留未处理信号" }); continue; }
       if (!rows.length) { notify({ ...progress, completed: index + 1, message: node.id + "：无可处理的独占目标" }); continue; }
       try {
-        const backend = await this.ports.sftp("files.cleanup.preview", { node, action, targets: rows.map(row => ({ relativePath: row.relativePath, type: row.type,
+        const backend = await this.ports.sftp("files.cleanup.preview", { node, action, observationMode: scope.observationMode, targets: rows.map(row => ({ relativePath: row.relativePath, type: row.type,
           destination: row.destination, expectedSha256: row.expectedSha256, expectedOwner: row.expectedOwner, archiveBatch: row.archiveBatch })) });
         if (scope.job?.purpose === "replace_outputs" && !(Number(backend.safety?.batchPreviewCapacity) >= 4096))
           cleanupError("SFTP_BATCH_PREVIEW_UPGRADE_REQUIRED", "需要 SimpleSFTP 0.2.79 的批次预览保留能力");
@@ -258,7 +358,7 @@ export class PlanCleanup {
         // a new capability containing only the paths the user can approve here.
         const approved = rows.filter(row => row.disposition === action);
         if (approved.length && rows.some(row => row.disposition === "protected")) {
-          const exact = await this.ports.sftp("files.cleanup.preview", { node, action,
+          const exact = await this.ports.sftp("files.cleanup.preview", { node, action, observationMode: scope.observationMode,
             targets: approved.map(row => ({ relativePath: row.relativePath, type: row.type, destination: row.destination,
               expectedSha256: row.expectedSha256, expectedOwner: row.expectedOwner, archiveBatch: row.archiveBatch })) });
           if (cleanupDigest(exact.rootIdentity) !== cleanupDigest(backend.rootIdentity)
@@ -335,7 +435,10 @@ export class PlanCleanup {
     const completed = await this.completedHistory(prior);
     const archivedFiles = { ...(preview.action === "move" ? this.archivedMetadata(completed) : {}), ...Object.fromEntries(preview.rows.filter(row => row.node.kind === "local" && ["PLAN 文件", "专用配置"].includes(row.category)
       && operation?.targets[row.id]?.state === "completed" && preview.action === "move").map(row => [row.relativePath, row.destination])) };
-    const fresh = await this.ports.collect(preview.scope.planFile, { archivedFiles, removedMetadata: this.removedMetadata(prior, completed), job: preview.scope.job });
+    const ownCompleted = operation && preview.scope.observationMode === "managed_tmux"
+      ? preview.rows.filter(row => operation.targets[row.id]?.state === "completed") : [];
+    const fresh = await this.ports.collect(preview.scope.planFile, { archivedFiles, removedMetadata: this.removedMetadata(operation ? [operation, ...prior] : prior, [...completed, ...ownCompleted]), job: preview.scope.job,
+      nativeDeclarations: preview.scope.nativeDeclarations });
     if (fresh.revision !== preview.scope.revision || fresh.planHash !== preview.scope.planHash) cleanupError("PREVIEW_CHANGED");
     const allowedOffline = new Set(preview.verifiedOnly ? preview.blockers.filter(row => ["OFFLINE_NODE", "NODE_UNREACHABLE"].includes(row.code)).map(row => row.nodeId) : []);
     if (fresh.blockers.some(row => !allowedOffline.has(row.nodeId))) cleanupError("ACTIVE_OR_UNVERIFIED_NODE", JSON.stringify(fresh.blockers));
@@ -348,6 +451,8 @@ export class PlanCleanup {
     }
   }
   async execute(id: string): Promise<CleanupOperation> {
+    const current = await this.status(id);
+    if (current.preview.scope.observationMode === "managed_tmux") return this.executeManaged(current);
     if (this.busy.has(id)) cleanupError("OPERATION_BUSY");
     const operation = await this.status(id), preview = operation.preview;
     if (operation.continuedBy || operation.restoredBy) cleanupError("OPERATION_SUPERSEDED");
@@ -434,7 +539,7 @@ export class PlanCleanup {
     preview.blockers = [];
     preview.rows = [];
     for (const row of (await this.completedHistory(await this.history(id))).filter(row => row.fingerprint)) {
-      const backend = await this.ports.sftp("files.cleanup.preview", { node: row.node, action: "restore",
+      const backend = await this.ports.sftp("files.cleanup.preview", { node: row.node, action: "restore", observationMode: preview.scope.observationMode,
         targets: [{ relativePath: row.destination, type: row.type, destination: row.relativePath, archiveBatch: row.archiveBatch }] });
       if (backend.targets[0].contentFingerprint !== row.contentFingerprint || backend.targets[0].inode !== row.inode) cleanupError("CONTENT_CHANGED");
       preview.rows.push({ ...row, ...backend.targets[0], relativePath: row.destination, destination: row.relativePath, disposition: "restore",

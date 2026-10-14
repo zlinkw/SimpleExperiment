@@ -9,6 +9,7 @@ exports.assessPlanArtifactSync = assessPlanArtifactSync;
 const node_crypto_1 = require("node:crypto");
 const PlanArtifactSync_1 = require("./PlanArtifactSync");
 const DistributedJobArtifacts_1 = require("./DistributedJobArtifacts");
+const NativeResultManifest_1 = require("../results/NativeResultManifest");
 const planKey = (value) => String(value || "").replace(/\\/g, "/").toLowerCase();
 /** Completion is independent of a previous sync ledger; a same-revision rerun is a new generation. */
 function latestCompletePlansForSyncCheck(queue, metadata = []) {
@@ -42,7 +43,7 @@ function pendingCompletedPlanMirrors(queue, metadata, workerIds, now = Date.now(
                 || job.collectionResultCsv && !(0, PlanArtifactSync_1.safePlanArtifactPath)(job.collectionResultCsv)
                 || job.artifactRetryAfter && Date.parse(job.artifactRetryAfter) > now))
             return false;
-        return plan.jobs.some(job => !/^[a-f0-9]{64}$/i.test(job.artifacts?.[`${job.outputDir}/formal_job_owner.json`] || "")
+        return plan.jobs.some(job => !/^[a-f0-9]{64}$/i.test(job.artifacts?.[`${job.outputDir}/${(0, NativeResultManifest_1.jobEvidenceName)(job)}`] || "")
             || job.artifactError || workerIds.some(id => !job.mirroredWorkerIds?.includes(id)));
     });
 }
@@ -82,7 +83,7 @@ function assessPlanArtifactSync(plan, workerIds, inventories, requiredPaths, che
         const runScopedDirectory = job.outputDir.endsWith(`/attempts/${plan.id}`);
         const hasLegacyRunEvidence = requiredPaths.length > 0 && requiredPaths.every(file => known.some(([name, hash]) => name === `${job.outputDir}/${file}` && /^[a-f0-9]{64}$/i.test(hash)));
         const formalEvidence = job.resultPathPolicy === "declared" && job.globalJobId === `${plan.id}:${job.index}`
-            && known.some(([name, hash]) => name === `${job.outputDir}/formal_job_owner.json` && /^[a-f0-9]{64}$/i.test(hash));
+            && known.some(([name, hash]) => name === `${job.outputDir}/${(0, NativeResultManifest_1.jobEvidenceName)(job)}` && /^[a-f0-9]{64}$/i.test(hash));
         if (!(job.resultPathPolicy === "declared" ? formalEvidence : runScopedDirectory || hasLegacyRunEvidence) || !inventories.has(job.workerId) || !source.length
             || requiredPaths.some(file => !expected.has(`${job.outputDir}/${file}`))
             || known.some(([file, hash]) => expected.get(file)?.toLowerCase() !== hash.toLowerCase())) {

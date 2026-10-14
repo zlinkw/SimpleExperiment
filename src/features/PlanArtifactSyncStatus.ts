@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import type { DistributedQueue, QueuedPlan } from "./DistributedPlanQueue";
 import { safePlanArtifactPath } from "./PlanArtifactSync";
 import { collectDistributedJobArtifacts } from "./DistributedJobArtifacts";
+import { jobEvidenceName } from "../results/NativeResultManifest";
 
 export type PlanArtifactSyncStatus = {
   runId: string; revision: string; status: "checking" | "synced" | "partial" | "unknown";
@@ -40,7 +41,7 @@ export function pendingCompletedPlanMirrors(queue: DistributedQueue, metadata: a
         || !safePlanArtifactPath(job.outputDir) || job.outputDir.split("/").length < 2 || job.outputDir.split("/").includes("attempts")
         || job.collectionResultCsv && !safePlanArtifactPath(job.collectionResultCsv)
         || job.artifactRetryAfter && Date.parse(job.artifactRetryAfter) > now)) return false;
-    return plan.jobs.some(job => !/^[a-f0-9]{64}$/i.test(job.artifacts?.[`${job.outputDir}/formal_job_owner.json`] || "")
+    return plan.jobs.some(job => !/^[a-f0-9]{64}$/i.test(job.artifacts?.[`${job.outputDir}/${jobEvidenceName(job)}`] || "")
       || job.artifactError || workerIds.some(id => !job.mirroredWorkerIds?.includes(id)));
   });
 }
@@ -87,7 +88,7 @@ export function assessPlanArtifactSync(plan: QueuedPlan, workerIds: string[], in
     const hasLegacyRunEvidence = requiredPaths.length > 0 && requiredPaths.every(file => known.some(([name, hash]) =>
       name === `${job.outputDir}/${file}` && /^[a-f0-9]{64}$/i.test(hash)));
     const formalEvidence = job.resultPathPolicy === "declared" && job.globalJobId === `${plan.id}:${job.index}`
-      && known.some(([name, hash]) => name === `${job.outputDir}/formal_job_owner.json` && /^[a-f0-9]{64}$/i.test(hash));
+      && known.some(([name, hash]) => name === `${job.outputDir}/${jobEvidenceName(job)}` && /^[a-f0-9]{64}$/i.test(hash));
     if (!(job.resultPathPolicy === "declared" ? formalEvidence : runScopedDirectory || hasLegacyRunEvidence) || !inventories.has(job.workerId!) || !source.length
       || requiredPaths.some(file => !expected.has(`${job.outputDir}/${file}`))
       || known.some(([file, hash]) => expected.get(file)?.toLowerCase() !== hash.toLowerCase())) {

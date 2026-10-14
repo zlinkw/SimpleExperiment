@@ -10,7 +10,9 @@ function taskQuery(plan, job) {
         workflowId: plan.id, planFile: plan.planFile, planRevision: plan.revision, codeFingerprint: plan.codeFingerprint,
         globalJobId: job.globalJobId, experimentIndex: job.index, case: job.case, seed: job.seed, resultPathPolicy: "declared",
         runKey: job.commandId, planJobCount: plan.planJobCount || plan.jobs.length, enqueuedAt: plan.enqueuedAt,
-        outputDir: job.outputDir, collectionResultCsv: job.collectionResultCsv, executionMode: plan.executionMode };
+        outputDir: job.outputDir, collectionResultCsv: job.collectionResultCsv, executionMode: plan.executionMode,
+        mode: job.actualExecutionMode || plan.executionMode,
+        checkpointTestOnly: job.actualExecutionMode === "test" && plan.executionMode === "train_test" };
 }
 async function queryTask(client, plan, job, timeoutMs = 8000) {
     const controller = new AbortController();

@@ -1,4 +1,5 @@
 export type AuthoritativeJobIdentity = {
+  lifecycleProtocol?: 2;
   index: number;
   case: string;
   seed: number;
@@ -63,6 +64,7 @@ function authoritativeJob(plan: Record<string, any>, job: Record<string, any>, r
       planRevision: plan.revision, codeFingerprint: plan.codeFingerprint } : {}),
     commandId,
     artifactHashes,
+    ...(job.lifecycleProtocol === 2 ? { lifecycleProtocol: 2 as const } : {}),
   };
 }
 

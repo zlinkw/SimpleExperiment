@@ -16,6 +16,7 @@ const sameFile = (a: string, b: string) => process.platform === "win32" ? a.toLo
 export const cleanupStablePlanId = (text: string) => text.match(/^(?:plan_id|stable_plan_id):[ \t]*["']?([A-Za-z0-9._-]+)["']?[ \t]*$/m)?.[1];
 
 export type CleanupEvidenceInput = { root: string; planFile: string; queue: DistributedQueue; ledger: PlanSyncLedger;
+  activityMode?: "managed_tmux";
   nodes: CleanupNode[]; snapshots: Array<{ workerId: string; tasks?: any[]; activeOperations?: any[]; error?: string; generatedAt?: string; fetchedAt?: string }>;
   operations?: any[]; registry?: any; resultDir?: string; extraEvidence?: CleanupCandidate[]; allowMissing?: boolean; archivedFiles?: Record<string, string>; removedMetadata?: CleanupRemovedMetadata; job?: CleanupJobSelection };
 
@@ -313,6 +314,10 @@ export async function collectPlanCleanupEvidence(input: CleanupEvidenceInput): P
     scope.nodes.push({ id, kind: "remote", root: "", error: "历史关联节点缺少当前主机/端口/项目根配置" });
   }
   for (const node of scope.nodes.filter(node => node.kind === "remote")) {
+    if (input.activityMode === "managed_tmux") {
+      if (node.error) blockers.push({ code: "OFFLINE_NODE", nodeId: node.id, detail: node.error });
+      continue; // SimpleSFTP queries actual tmux/transfer activity at preview and mutation boundaries.
+    }
     const snapshot = input.snapshots.find(row => row.workerId === node.id);
     if (!snapshot || snapshot.error || !Number.isFinite(Date.parse(snapshot.generatedAt || "")) || Date.now() - Date.parse(snapshot.generatedAt || "") > 180000) {
       node.error ||= snapshot?.error || "当前任务/队列证据不可达或过期";
@@ -421,6 +426,7 @@ export async function collectPlanCleanupEvidence(input: CleanupEvidenceInput): P
   scope.nodes = scope.nodes.filter(node => node.id === "local" || associations.has(node.id));
   scope.blockers = blockers.filter(row => !row.nodeId || scope.nodes.some(node => node.id === row.nodeId));
   scope.references = Object.fromEntries([...configRefs].map(([config, owners]) => [config, [...owners]]));
+  for (const ref of externalAssetRefs) scope.references[ref.path] = [...new Set([...(scope.references[ref.path] || []), ref.owner])];
   // Exclude lifecycle markers and wall-clock freshness from the revision, retain every ownership/status field.
   scope.revision = cleanupDigest({ projectId, file, resultDir, planHash: scope.planHash, plans: plans.map(row => [row.file, planSha(row)]).sort(), configHashes: Object.fromEntries(Object.entries(configHashes).sort()),
     queue: input.queue.plans.map(plan => ({ ...plan, cleanup: undefined, jobs: plan.jobs.map(job => ({ ...job, cleanup: undefined, outputRetiredAt: undefined })) })), removedMetadata: removed, deferred: input.queue.deferred,

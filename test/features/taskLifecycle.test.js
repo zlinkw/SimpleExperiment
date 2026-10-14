@@ -33,3 +33,19 @@ test('the real queue merge consumes pulled evidence without a durable receipt or
   assert.equal(Q.mergeDurableWorkerSnapshots(queue,[snapshot],'p').plans[0].jobs[0].status,'unknown');
   assert.equal(queue.plans[0].jobs[0].status,'dispatching');
 });
+test('live windows rebuild missing local cards; old cached snapshots cannot revive native execution',()=>{
+  const Q=require('../../src/features/DistributedPlanQueue.ts'),now=new Date().toISOString();
+  const task={workflowId:'wf',globalJobId:'wf:0',experimentIndex:0,commandId:'c',projectId:'p',workerId:'w',planFile:'experiments/plans/p.yaml',
+    planRevision:'a'.repeat(64),codeFingerprint:'b'.repeat(64),case:'a',seed:42,outputDir:'work/job',collectionResultCsv:'tmp/result/job.csv',resultPathPolicy:'declared',
+    observation:{...base,observedAt:now,tmux:{windowId:'@2',paneId:'%3',dead:false,phase:'running'}}};
+  const live={workerId:'w',fetchedAt:now,generatedAt:now,capabilities:{taskLifecycle:2},tasks:[task]};
+  const recovered=Q.mergeDurableWorkerSnapshots(Q.emptyDistributedQueue(),[live],'p');
+  assert.equal(recovered.plans[0].jobs[0].status,'running');
+  const legacy={...live,capabilities:{durablePlanQueue:true,schemaVersion:1}};
+  assert.equal(Q.mergeDurableWorkerSnapshots(recovered,[legacy],'p').plans[0].jobs[0].status,'unknown');
+  assert.equal(Q.mergeDurableWorkerSnapshots(Q.emptyDistributedQueue(),[{...live,error:'offline'}],'p').plans.length,0);
+  const corrupted=JSON.parse(JSON.stringify(recovered));corrupted.plans[0].jobs[0].status='running';
+  assert.equal(Q.restoreFormalJobQueue(corrupted).plans[0].jobs[0].status,'unknown');
+  const missing=Q.mergeDurableWorkerSnapshots(recovered,[{...live,tasks:[{...task,observation:{...task.observation,tmux:undefined}}]}],'p');
+  assert.equal(Q.workerCodeVersionAvailable(missing,'w','new-code'),true);
+});

@@ -8,7 +8,7 @@ const queueApi = require('../../dist/features/DistributedPlanQueue.js');
 const hash = 'a'.repeat(64), root = 'C:/project';
 const turn = () => new Promise(resolve => setImmediate(resolve));
 
-function fixture() {
+function fixture(native = false) {
   const text = fs.readFileSync(path.join(__dirname, '../../src/extension/legacy.ts'), 'utf8');
   const ast = ts.createSourceFile('host.ts', text, ts.ScriptTarget.Latest, true);
   const host = ast.statements.find(node => ts.isClassDeclaration(node) && node.name?.text === 'RealtimeTunnelPanelProvider');
@@ -22,6 +22,7 @@ function fixture() {
     collectDistributedJobArtifacts: require('../../dist/features/DistributedJobArtifacts.js').collectDistributedJobArtifacts,
     workerFpsyncTaskLabel: () => 'Plan 完成产物同步', workspaceRoot: () => root,
     errorMessage: error => String(error.message || error),
+    ...require('../../dist/results/NativeResultManifest.js'),
     loadSyncHolds: async () => f.holds, isSyncHeld: require('../../dist/features/SyncResolution.js').isSyncHeld,
     mapLimited: async (rows, limit, work) => { for (const row of rows) await work(row); },
   };
@@ -36,6 +37,7 @@ function fixture() {
       workerId: `w${index + 1}`, status: 'completed', resultPathPolicy: 'declared', attempt: 0,
       outputDir: `work_dirs/formal/job${index}`, collectionResultCsv: `tmp/result/formal/job${index}.csv`,
       actualExecutionMode: 'train_test',
+      ...(native ? {lifecycleProtocol:2} : {}),
     })) };
   const state = { schemaVersion: 1, plans: [plan] }, inventory = { w1: {}, w2: {}, w3: {} }, owners = {};
   for (const job of plan.jobs) {
@@ -43,11 +45,15 @@ function fixture() {
       planRevision: plan.revision, codeFingerprint: plan.codeFingerprint, index: job.index, case: job.case, seed: job.seed,
       outputDir: job.outputDir, collectionResultCsv: job.collectionResultCsv, mode: 'train_test', state: 'completed' };
     owners[`${job.outputDir}/formal_job_owner.json`] = owner;
+    if(native) owners[`${job.outputDir}/artifact_manifest.json`]={simpleExperiment:{runId:job.commandId,status:'completed',mode:'train_test',
+      job:{index:job.index,case:job.case,seed:job.seed},outputDir:job.outputDir,resultCsv:job.collectionResultCsv,weights:[job.outputDir+'/best_model.pth']}};
     for (const file of ['formal_job_owner.json', 'config.yaml', 'metrics_summary.csv', 'best_model.pth', 'stdout.log']) {
       inventory[job.workerId][`${job.outputDir}/${file}`] = { sha256: hash };
     }
     inventory[job.workerId][job.collectionResultCsv] = { sha256: hash };
     inventory[job.workerId][`${job.outputDir}/worker.pid`] = { sha256: hash };
+    if(native){delete inventory[job.workerId][`${job.outputDir}/formal_job_owner.json`];
+      inventory[job.workerId][`${job.outputDir}/artifact_manifest.json`]={sha256:require('node:crypto').createHash('sha256').update(JSON.stringify(owners[`${job.outputDir}/artifact_manifest.json`])).digest('hex')};}
   }
   const f = { p, state, inventory, owners, holds: {}, transfers: [], reads: [], errors: [], checks: 0, changed: undefined };
   Object.assign(p, {
@@ -70,9 +76,9 @@ function fixture() {
         (scopePaths || [relativePath]).some(scope => file === scope || recursive && file.startsWith(scope + '/')))) };
     },
     downloadMetricMemoryBatch: async (_ctx, _client, batch) => ({ metricFiles: batch.entries.map(entry => {
-      assert.ok(entry.remotePath.endsWith('/formal_job_owner.json'), 'only bounded owner proof enters local memory');
-      assert.equal(entry.sha256, hash);
-      return { remotePath: entry.remotePath, sha256: hash, text: JSON.stringify(owners[entry.remotePath]) };
+      assert.ok(entry.remotePath.endsWith(native?'/artifact_manifest.json':'/formal_job_owner.json'), 'only bounded evidence enters local memory');
+      assert.equal(entry.sha256, native?inventory[batch.sourceId][entry.remotePath].sha256:hash);
+      return { remotePath: entry.remotePath, sha256: entry.sha256, text: JSON.stringify(owners[entry.remotePath]) };
     }) }),
     assertSshTransportIdentities: async () => { f.changed?.(); },
     simpleSftpApiCall: async (method, params) => {
@@ -114,6 +120,12 @@ test('a complete formal Plan mirrors all job outputs and declared CSVs between W
   await f.run();
   assert.equal(f.transfers.length, count); assert.equal(f.reads.length, reads);
   assert.deepEqual(f.errors, []);
+});
+
+test('native complete Plans retain automatic all-Worker mirroring using final manifests without owner state',async()=>{
+  const f=fixture(true);await f.p.syncCompletedPlanArtifacts(f.p.captureProjectContext());
+  assert.ok(f.transfers.length);assert.equal(f.errors.length,0);
+  assert.ok(f.transfers.every(row=>row.paths.some(file=>file.endsWith('/artifact_manifest.json'))&&!row.paths.some(file=>file.endsWith('/formal_job_owner.json'))));
 });
 
 test('one finished job, failed jobs and unavailable jobs do not trigger Plan mirroring', async () => {

@@ -75,6 +75,13 @@ try:
         assert "TASK_OUTPUT_BUSY" in str(exc)
     namespace["task_queue_rpc"](root,"worker","accept",c,ensure=True)
     wait_for(lambda: any(r["commandId"]==c["commandId"] and r["phase"]=="queued" for r in namespace["task_inventory"](root)))
+    control=namespace["task_queue_session"](root,"worker")+":queue"
+    epoch=namespace["task_queue_endpoint"](root,"worker")["epoch"]
+    namespace["task_tmux"](["send-keys","-t",control,"C-c"])
+    wait_for(lambda: namespace["task_tmux"](["display-message","-p","-t",control,"#{pane_dead}"])=="1")
+    # Existing queued/running tabs remain the queue across controller recovery.
+    namespace["task_queue_rpc"](root,"worker","accept",a,ensure=True)
+    assert namespace["task_queue_endpoint"](root,"worker")["epoch"]!=epoch
     stopped=namespace["task_stop"](root,{"targetCommandId":c["commandId"],"projectId":"project","workflowId":"workflow"},"worker")
     assert stopped["stoppedTasks"][0]["paneClosed"]
     wait_for(lambda: all(row["dead"] for row in namespace["task_inventory"](root)))
@@ -83,6 +90,13 @@ try:
     row=namespace["task_inventory"](root)[0]
     namespace["task_tmux"](["rename-window","-t",row["tmuxWindowId"],"manually renamed"])
     namespace["task_tmux"](["kill-window","-t",row["tmuxWindowId"]])
+    namespace["task_tmux"](["send-keys","-t",control,"C-c"])
+    wait_for(lambda: namespace["task_tmux"](["display-message","-p","-t",control,"#{pane_dead}"])=="1")
+    try:
+        namespace["task_queue_rpc"](root,"worker","accept",a if row["commandId"]==a["commandId"] else b,ensure=True)
+        raise AssertionError("manually closed accepted task must never be replayed")
+    except RuntimeError as exc:
+        assert "TASK_ALREADY_ACCEPTED_WINDOW_CLOSED" in str(exc)
     assert namespace["task_query"](root,[a,b])["tasks"][-1]["status"]=="completed"
     failure=job(3,"failure")
     namespace["task_queue_rpc"](root,"worker","accept",failure,ensure=True)

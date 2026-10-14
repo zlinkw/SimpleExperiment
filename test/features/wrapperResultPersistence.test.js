@@ -23,9 +23,10 @@ const publication = require('../../dist/results/ProjectResultPublication');
 const sha = data => crypto.createHash('sha256').update(data).digest('hex');
 const planFile = 'experiments/plans/comparison/anything.yaml';
 
-function fixture({ sameNamePlans = false, wrapperOnly = false, trainSummary = false, incomplete = false, retry = false, retryWorker = 'owner', formalJob = false,
+function fixture({ sameNamePlans = false, wrapperOnly = false, trainSummary = false, incomplete = false, retry = false, retryWorker = 'owner', formalJob = false, nativeJob = false,
   retryToken = 'distributed-attempt-1791468346173-xuw2sy' } = {}) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'simple-wrapper-results-'));
+  formalJob ||= nativeJob;
   const files = new Map(), calls = [];
   const makeRun = (id, value, done = 3) => ({ id, planFile, revision: 'same-revision', ...(formalJob && id === 'B' ? {resultPathPolicy:'declared',codeFingerprint:'fixture-code'} : {}), enqueuedAt: id === 'A' ? '2026-10-01T00:00:00Z' : '2026-10-02T00:00:00Z',
     jobs: [42, 43, 44].map((seed, index) => {
@@ -53,8 +54,11 @@ function fixture({ sameNamePlans = false, wrapperOnly = false, trainSummary = fa
       // Discovery must work with just a standard manifest, without metric hashes recorded in the queue.
       job.artifacts = {};
       if (formal) {
+        if(nativeJob){job.lifecycleProtocol=2;const manifest=JSON.parse(files.get(outputDir+'/artifact_manifest.json').toString());
+          manifest.simpleExperiment={runId:job.commandId,status:'completed',mode:'train_test',job:{index,case:job.case,seed},outputDir,
+            resultCsv:job.collectionResultCsv,weights:[checkpoint]};files.set(outputDir+'/artifact_manifest.json',Buffer.from(JSON.stringify(manifest)));}
         const hashes = Object.fromEntries([...files].filter(([file])=>file.startsWith(outputDir+'/') || file===job.collectionResultCsv).map(([file,bytes])=>[file,sha(bytes)]));
-        files.set(outputDir+'/formal_job_owner.json', Buffer.from(JSON.stringify({schemaVersion:1,state:'completed',workflowId:'B',globalJobId:job.globalJobId,
+        if(!nativeJob)files.set(outputDir+'/formal_job_owner.json', Buffer.from(JSON.stringify({schemaVersion:1,state:'completed',workflowId:'B',globalJobId:job.globalJobId,
           commandId:job.commandId,index,case:job.case,seed,outputDir,collectionResultCsv:job.collectionResultCsv,
           planRevision:'same-revision',codeFingerprint:'fixture-code',sha256:hashes})));
         job.artifacts = Object.fromEntries([...files].filter(([file])=>file.startsWith(outputDir+'/') || file===job.collectionResultCsv).map(([file,bytes])=>[file,sha(bytes)]));
@@ -126,6 +130,13 @@ test('same-named Plans publish separate summaries without persisting original fi
   f.calls.length = 0;
   await f.sync();
   assert.ok(f.calls.filter(call => call.method === 'sync.downloadMappedPaths').length > 0, 'each sync reads originals into memory');
+});
+
+test('native final manifests flow through Host collection and summaries without owner JSON or raw local files',async()=>{
+  const f=fixture({nativeJob:true});const report=await f.sync();
+  assert.equal(report.skipped?.length||0,0);assert.ok(f.registry().plans[planFile].wrapperEvidence);
+  assert.ok([...f.files.keys()].every(file=>!file.endsWith('/formal_job_owner.json')));
+  assert.ok(!fs.existsSync(path.join(f.root,'tmp/result/formal/seed42/metrics.csv')));
 });
 
 test('formal declared CSV survives Host discovery, four-state validation and local rebuild without borrowing historical attempts', async () => {

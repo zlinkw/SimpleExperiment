@@ -125,7 +125,7 @@ test('occupied failed output opens an exact-job read-only review, preserving the
   assert.deepEqual(h.stored(), before);
   assert.equal(h.ticks(), 0);
 });
-test('ownership changing during confirmation blocks requeue and duplicate workflow registration remains protected', async () => {
+test('ownership changing during confirmation blocks requeue; historical registration is not activity evidence', async () => {
   const h = host('empty'), before = structuredClone(h.stored());
   let reads = 0;
   h.p.loadDistributedQueue = async () => {
@@ -137,5 +137,7 @@ test('ownership changing during confirmation blocks requeue and duplicate workfl
   assert.deepEqual(h.stored(), before);
   assert.equal(h.ticks(), 0);
   const plan = before.plans[0];
-  assert.throws(() => Q.enqueuePlan(before, plan, 'another-workflow'), /FORMAL_JOB_CONFLICT/);
+  assert.equal(Q.enqueuePlan(before, plan, 'another-workflow').plans.length,2);
+  const pending=Q.enqueuePlan(Q.emptyDistributedQueue(),plan,'pending-workflow');
+  assert.throws(()=>Q.enqueuePlan(pending,plan,'another-workflow'),/FORMAL_JOB_CONFLICT/);
 });

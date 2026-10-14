@@ -1,4 +1,5 @@
 const { test } = require("node:test");
+require('../_helpers/registerTsRequire');
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const Module = require("node:module");
@@ -315,15 +316,17 @@ test("different verified Workers dispatch different versions while an older Plan
   assert.equal(input.plans[1].jobs[0].status, "pending");
 });
 
-test("a Worker remains version-locked for active or uncertain jobs, then releases on terminal receipt", () => {
+test("a Worker stays protected by current window/query evidence and releases after a fresh exit observation", () => {
   const old = plan("old", "old-code"), fresh = plan("fresh", "new-code");
   for (const status of ["dispatching", "queued", "running", "unknown"]) {
     const input = queue.enqueuePlan(queue.enqueuePlan(queue.emptyDistributedQueue(), old, "old"), fresh, "new");
     Object.assign(input.plans[0].jobs[0], { status, workerId: "worker-a", gpuId: "0", commandId: "old-command" });
-    const worker = { workerId: "worker-a", online: true, codeFingerprint: "new-code", idleGpuIds: ["1", "2", "3", "4", "5", "6"] };
+    Object.assign(input.plans[0].jobs[0], { executionState: status === 'dispatching' ? undefined : status, statusQueryError: status === 'unknown' ? 'offline' : undefined });
+    const worker = { workerId: "worker-a", online: true, codeFingerprint: "new-code", declaredJobPaths:true, idleGpuIds: ["1", "2", "3", "4", "5", "6"] };
     assert.equal(queue.workerCodeVersionAvailable(input, "worker-a", "new-code"), false);
     assert.equal(queue.allocateAvailable(input, [worker]).dispatches.length, 0);
     input.plans[0].jobs[0].status = "completed";
+    input.plans[0].jobs[0].executionState = "exited";delete input.plans[0].jobs[0].statusQueryError;
     const next = queue.allocateAvailable(input, [worker]);
     assert.equal(next.dispatches.length, fresh.jobs.length);
     assert.ok(next.dispatches.every(row => row.planId === "new"));

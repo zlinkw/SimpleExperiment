@@ -84,7 +84,7 @@ try:
         else:
             agent.start_simple_tmux_command(session, args, str(working), str(log), env, str(exit_file))
         deadline = time.monotonic() + 2
-        while time.monotonic() < deadline and (not exit_file.exists() or exit_file.read_text(encoding="utf-8").strip() == "pending"):
+        while time.monotonic() < deadline and (not exit_file.exists() or not exit_file.read_text(encoding="utf-8").strip().lstrip("-").isdigit()):
             time.sleep(0.02)
         rc = int(exit_file.read_text(encoding="utf-8"))
         capture = subprocess.run([str(tmux), "capture-pane", "-p", "-J", "-t", session + ":", "-S", "-100"], capture_output=True, text=True, timeout=2).stdout if mode == "ordinary" else log.read_text(encoding="utf-8")

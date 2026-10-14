@@ -46,6 +46,7 @@ function authoritativeJob(plan, job, requireArtifactHashes) {
             planRevision: plan.revision, codeFingerprint: plan.codeFingerprint } : {}),
         commandId,
         artifactHashes,
+        ...(job.lifecycleProtocol === 2 ? { lifecycleProtocol: 2 } : {}),
     };
 }
 /** Select the newest complete distributed run for a Plan/revision, never a shared result CSV. */

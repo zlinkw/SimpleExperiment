@@ -8,6 +8,7 @@ import sys
 import tempfile
 import types
 from contextlib import redirect_stdout
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -17,7 +18,7 @@ runtime = pathlib.Path(__file__).resolve().parents[2] / "dist/runtime"
 scheduler = extract_runtime_functions(str(runtime / "cluster_scheduler.py"),
     ["build_jobs", "load_plan", "formal_job_preflight_mode", "formal_job_writer", "run_job", "formal_source_fingerprint", "launch_experiment", "collect_tensorboard_metrics", "jobs_for_args", "wrapper_context"])
 agent = extract_runtime_functions(str(runtime / "cluster_agent.py"),
-    ["verified_formal_job_command", "accept_durable_plan_job", "prepare_draft_run_plan", "write_durable_plan_queue", "drain_durable_plan_queue_once", "requeue_durable_plan_job"])
+    ["verified_formal_job_command", "preflight_existing_worker_task", "accept_durable_plan_job", "prepare_draft_run_plan", "write_durable_plan_queue", "drain_durable_plan_queue_once", "requeue_durable_plan_job"])
 # Retain small isolated fixtures for inspection; no deletion executor is invoked.
 root = pathlib.Path(tempfile.mkdtemp(prefix="simple-formal-contract-")).resolve()
 os.chdir(root)
@@ -289,4 +290,56 @@ with patch.dict(os.environ, {}, clear=True), patch.object(scheduler, "run_job_un
         assert "SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY" not in os.environ
 assert [row["globalJobId"] for row in captured_identities] == ["local-workflow:"+str(job.index) for job in local_jobs]
 assert len({job.result_csv for job in local_jobs}) == 3
+native_plan = copy.deepcopy(plan)
+native_plan["naming"]["sweep_dir"] = "work_dirs/native"
+native_plan["paper"]["result_csv"] = "tmp/result/native/{case}/seed{seed}/metrics.csv"
+native_file = "experiments/plans/native.yaml"
+(root/native_file).write_text(scheduler.yaml.safe_dump(native_plan),encoding="utf-8")
+native_loaded = scheduler.load_plan(native_file)
+_, native_jobs = scheduler.build_jobs(native_loaded)
+native = native_jobs[0]
+native_identity = {**identity,"commandId":"native-command","planRevision":native_loaded["_revision"]}
+def native_cpu_writer(job,args):
+    out=root/job.output_dir
+    (out/"model.pth").write_bytes(b"CPU fixture only")
+    csv=root/job.result_csv;csv.parent.mkdir(parents=True,exist_ok=True);csv.write_text("metric,value\nacc,1\n",encoding="utf-8")
+    saved=copy.deepcopy(job.config);saved["runtime"]["output_dir"]=job.output_dir
+    saved["runtime"]["execution_provenance"]={"commandId":native_identity["commandId"]}
+    (out/"config_snapshot.yaml").write_text(scheduler.yaml.safe_dump(saved),encoding="utf-8")
+with patch.dict(os.environ,{"SIMPLE_EXPERIMENT_TASK_LIFECYCLE":"2","SIMPLE_EXPERIMENT_FORMAL_JOB_IDENTITY":json.dumps(native_identity)}), \
+     patch.object(scheduler,"run_job_unlocked",native_cpu_writer):
+    scheduler.run_job(native,SimpleNamespace(operation_id="native",mode="train_test"))
+    assert not (root/native.output_dir/".formal_job.lock").exists()
+    assert not (root/native.output_dir/"formal_job_owner.json").exists()
+    report=json.loads((root/native.output_dir/"artifact_manifest.json").read_text(encoding="utf-8"))["simpleExperiment"]
+    assert report["runId"]=="native-command" and report["status"]=="completed" and report["weights"]
+    assert "planRevision" not in report and "environment" not in report
+    assert report["fileStats"][native.result_csv]["size"] > 0
+    # Explicit test-only validates real checkpoint/config/PLAN hashes without needing an owner file.
+    only_test=replace(native,result_csv="tmp/result/native/only_test.csv",config=copy.deepcopy(native.config))
+    only_test.config["test"]["checkpoint"]=native.output_dir+"/model.pth"
+    source={"checkpoint_path":native.output_dir+"/model.pth","config_path":native.output_dir+"/config_snapshot.yaml",
+      "plan_file":native_file,"code_fingerprint":native_identity["codeFingerprint"],"plan_revision":native_loaded["_revision"]}
+    source["checkpoint_sha256"]=scheduler.formal_job_file_hash(root/source["checkpoint_path"])
+    source["config_sha256"]=scheduler.formal_job_file_hash(root/source["config_path"])
+    only_test.config["runtime"]["checkpoint_source"]=source
+    test_identity={**native_identity,"commandId":"explicit-native-test"}
+    assert scheduler.formal_job_preflight(only_test,test_identity,"test")["checkpointVerified"]
+    only_test.config["runtime"]["checkpoint_source"]["checkpoint_sha256"]="0"*64
+    try:
+        scheduler.formal_job_preflight(only_test,test_identity,"test")
+        raise AssertionError("changed checkpoint was admitted")
+    except ValueError as exc:
+        assert "CHECKPOINT_SOURCE_CHANGED" in str(exc)
+    native_input={**command,**native_identity,"lifecycleProtocol":2,"planFile":native_file,"outputDir":native.output_dir,
+      "collectionResultCsv":native.result_csv,"codeSyncProofId":"native-proof"}
+    def no_legacy_queue(*args): raise AssertionError("native preflight read an old queue")
+    verified=[]
+    with patch.object(agent,"TASK_LIFECYCLE_PROTOCOL",2,create=True), patch.object(agent,"task_inventory",lambda _:[]), \
+         patch.object(agent,"read_durable_plan_queue",no_legacy_queue), \
+         patch.object(agent,"code_sync_proof_document",lambda _:{"proofs":{"native-proof":{"runtimeGeneration":"fixture"}}}), \
+         patch.object(agent,"verify_code_sync_proof_record",lambda *a,**kw:verified.append(kw["verify_content"])), \
+         patch.object(agent,"verified_durable_execution_mode",lambda *a:"train_test"):
+        checked=agent.preflight_existing_worker_task(str(root),{"targetCommandId":"native-command","expectedIdentity":native_input,"completedOutputVerify":True},"worker")
+        assert checked["report"]["completed"] and checked["executionStarted"] is False and verified==[True]
 print(json.dumps({"ok": True, "fixture": str(root), "jobs": len(jobs)}))

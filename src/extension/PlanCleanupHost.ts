@@ -8,6 +8,7 @@ import { cleanupTaskEvidence, replacementEvidenceQueue, replacementJobGroups, re
 import { planSyncLedgerStoragePath, emptyPlanSyncLedger } from "../features/PlanArtifactSync";
 import { atomicWriteText } from "../state/StateStore";
 import { openPlanCleanupPanel } from "./PlanCleanupPanel";
+import { discoverManifestCandidates, recordedDeclarations, type ManifestDeclaration } from "../features/ManifestCleanup";
 
 async function json(file: string, fallback: any): Promise<any> {
   const text = await fs.readFile(file, "utf8").catch((error: any) => { if (error.code === "ENOENT") return ""; throw error; });
@@ -25,9 +26,11 @@ export class PlanCleanupHost {
   constructor(private readonly host: any, readonly root: string) {
     const storage = host.context.globalStorageUri.fsPath;
     this.service = new PlanCleanup({ storageRoot: path.join(storage, "plan-cleanup", cleanupDigest(root)),
-      collect: (file, options) => this.collect(file, Boolean(options?.removedMetadata), options?.archivedFiles, options?.removedMetadata, options?.onProgress, options?.job),
+      collect: (file, options) => this.collect(file, Boolean(options?.removedMetadata), options?.archivedFiles, options?.removedMetadata, options?.onProgress, options?.job, options?.nativeDeclarations),
       sftp: async (method, params) => {
         const result = await host.simpleSftpApiCall(method, params);
+        if (method === "files.cleanup.preview" && params.observationMode === "managed_tmux" && result.safety?.managedObservation !== 1)
+          cleanupError("SFTP_MANAGED_OBSERVATION_REQUIRED", "请更新配套 SimpleSFTP；尚未执行清理。");
         if (method === "files.cleanup.preview" && (result.safety?.gitRepositoryAncestors !== true || result.safety?.readOnlyReceiptCheck !== true))
           cleanupError("SFTP_SAFE_CLEANUP_UPGRADE_REQUIRED", "当前 SimpleSFTP 缺少 Git 祖先仓库预检或只读回执核查；请更新配套插件后重新预览。");
         if (method === "files.cleanup.preview" && params.targets?.some((target: any) => target.expectedOwner?.resultPathPolicy === "declared") && result.safety?.formalJobOwner !== true)
@@ -93,6 +96,11 @@ export class PlanCleanupHost {
   }
   async replacementGroups(queue: DistributedQueue, file: string, declarations: any[], projectId: string, stablePlanId: string) {
     this.assertWorkspace();
+    if (this.host.taskLifecycleProtocol === 2) return declarations.map(row => [{
+      workflowId: "manifest-" + cleanupDigest([file, row.output_dir]), index: Number(row.index),
+      commandId: "manifest-" + cleanupDigest([file, row.output_dir, row.result_csv]), purpose: "replace_outputs" as const,
+      manifest: { declarations: [row], replacement: true }
+    }]);
     const workers = [...new Set((queue.clearedJobs || []).filter(entry => entry.projectId === projectId && entry.resultPathPolicy === "declared"
       && declarations.some(job => job.output_dir === entry.outputDir && job.case === entry.case && Number(job.seed) === entry.seed))
       .map(entry => entry.workerId))];
@@ -104,7 +112,8 @@ export class PlanCleanupHost {
     this.assertWorkspace();
     return replacementJobGroups(replacementEvidenceQueue(queue, snapshots, projectId), file, declarations, projectId, stablePlanId);
   }
-  async collect(file: string, allowMissing = false, archivedFiles?: Record<string, string>, removedMetadata?: CleanupRemovedMetadata, onProgress?: CleanupProgressSink, job?: CleanupJobSelection) {
+  async collect(file: string, allowMissing = false, archivedFiles?: Record<string, string>, removedMetadata?: CleanupRemovedMetadata, onProgress?: CleanupProgressSink, job?: CleanupJobSelection, nativeDeclarations?: ManifestDeclaration[]) {
+    if (this.host.taskLifecycleProtocol === 2) return this.collectManaged(file, allowMissing, archivedFiles, removedMetadata, onProgress, job, nativeDeclarations);
     this.assertWorkspace();
     const storage = this.host.context.globalStorageUri.fsPath;
     const queue = await json(distributedQueuePath(storage, this.root), emptyDistributedQueue());
@@ -173,11 +182,74 @@ export class PlanCleanupHost {
     scope.revision = cleanupDigest([scope.revision, scope.nodes, scope.candidates.filter(row => row.nodeId === "pluginState")]);
     return scope;
   }
+  private managedNodes() {
+    const nodes: any[] = [{ id: "local", kind: "local", root: this.root }];
+    for (const worker of this.host.setupConfig.workerTunnels || []) {
+      try { nodes.push({ ...this.currentNode(worker.id) }); }
+      catch { nodes.push({ id: worker.id, kind: "remote", root: "", error: "当前服务器身份或安全根未核实" }); }
+    }
+    if (this.host.setupConfig.agentProjectDir && this.host.setupConfig.savedSessionPath) {
+      try { nodes.push({ ...this.currentNode("hub") }); }
+      catch { nodes.push({ id: "hub", kind: "remote", root: "", error: "当前 Hub 身份或安全根未核实" }); }
+    }
+    return nodes;
+  }
+  private async collectManaged(file: string, allowMissing: boolean, archivedFiles?: Record<string, string>, removedMetadata?: CleanupRemovedMetadata,
+    onProgress?: CleanupProgressSink, job?: CleanupJobSelection, nativeDeclarations?: ManifestDeclaration[]) {
+    this.assertWorkspace();
+    const storage = this.host.context.globalStorageUri.fsPath;
+    const queue = await json(distributedQueuePath(storage, this.root), emptyDistributedQueue());
+    const ledger = await json(planSyncLedgerStoragePath(storage, this.root), emptyPlanSyncLedger());
+    const registry = await json(path.join(this.root, "simple_cluster/results/project_table_registry.json"), undefined);
+    const nodes = this.managedNodes();
+    let declarations = nativeDeclarations || job?.manifest?.declarations;
+    if (job && !declarations) {
+      const plan = queue.plans.find((row: any) => row.id === job.workflowId);
+      const entry = plan?.jobs.find((row: any) => row.index === job.index && row.commandId === job.commandId);
+      const retired = queue.clearedJobs?.find((row: any) => row.workflowId === job.workflowId && row.commandId === job.commandId && row.experimentIndex === job.index);
+      const source = entry || retired;
+      if (!source) cleanupError("JOB_DECLARATIONS_UNVERIFIED");
+      declarations = [{ index: job.index, case: source.case, seed: source.seed, output_dir: source.outputDir, result_csv: source.collectionResultCsv }];
+    }
+    onProgress?.({ phase: "manifests", message: "读取声明目录内的产物清单…" });
+    const discovered = await discoverManifestCandidates(this.host, this.root, file, nodes, queue, declarations);
+    this.assertWorkspace();
+    // Retain the original config/reference graph, without importing cached task activity.
+    const scope = await collectPlanCleanupEvidence({ root: this.root, planFile: file, queue: emptyDistributedQueue(), ledger,
+      registry, resultDir: this.host.resultCsvDirectory || "experiments/results", nodes, snapshots: [], operations: [],
+      allowMissing, archivedFiles, removedMetadata, activityMode: "managed_tmux" });
+    const configuration = scope.candidates.filter(row => ["PLAN 文件", "专用配置"].includes(row.category))
+      .map(row => [row.relativePath, row.expectedSha256, row.dependencies, row.protectedReason]);
+    scope.nodes = [...nodes, ...scope.nodes.filter(node => !nodes.some(row => row.id === node.id))];
+    if (job) scope.candidates = [];
+    const preserved = new Map(scope.candidates.map(row => [row.nodeId + ":" + row.relativePath, row]));
+    for (const candidate of discovered.candidates) {
+      const key = candidate.nodeId + ":" + candidate.relativePath, existing = preserved.get(key);
+      if (existing) { existing.evidence.push(...candidate.evidence); continue; }
+      candidate.owners = candidate.owners.length ? [scope.planKey] : [];
+      for (const [reference, owners] of Object.entries(scope.references || {}))
+        if (owners.some(owner => owner !== scope.planKey) && (reference === candidate.relativePath || reference.startsWith(candidate.relativePath + "/")))
+          candidate.dependencies.push("其他 PLAN 引用：" + reference);
+      scope.candidates.push(candidate); preserved.set(key, candidate);
+    }
+    scope.blockers.push(...discovered.blockers); scope.notices!.push(...discovered.notices);
+    scope.runIds = queue.plans.filter((plan: any) => plan.planFile === file).map((plan: any) => plan.id);
+    scope.observationMode = "managed_tmux"; scope.nativeDeclarations = discovered.declarations;
+    if (job) scope.job = { ...job, manifest: { declarations: discovered.declarations, replacement: true } };
+    for (const document of vscode.workspace.textDocuments.filter(document => document.isDirty && document.uri.scheme === "file")) {
+      const relative = path.relative(this.root, document.uri.fsPath).replace(/\\/g, "/");
+      if (scope.candidates.some(row => row.nodeId === "local" && (row.relativePath === relative || relative.startsWith(row.relativePath + "/"))))
+        scope.blockers.push({ code: "DIRTY_EDITOR_TARGET", detail: document.uri.fsPath });
+    }
+    scope.revision = cleanupDigest([file, scope.planHash, configuration, discovered.declarations,
+      nodes.map(({ error, ...node }: any) => node)]);
+    return scope;
+  }
   private async restoreGate(preview: CleanupPreview, operation?: CleanupOperation) {
     const archivedFiles = Object.fromEntries(preview.rows.filter(row => row.node.kind === "local" && ["PLAN 文件", "专用配置"].includes(row.category)
       && operation?.targets[row.id]?.state !== "completed")
       .map(row => [row.destination, row.relativePath]));
-    const fresh = await this.collect(preview.scope.planFile, true, archivedFiles, undefined, undefined, preview.scope.job);
+    const fresh = await this.collect(preview.scope.planFile, true, archivedFiles, undefined, undefined, preview.scope.job, preview.scope.nativeDeclarations);
     if (fresh.blockers.length) cleanupError("RESTORE_PREFLIGHT_BLOCKED", JSON.stringify(fresh.blockers));
     for (const row of preview.rows) {
       const node = fresh.nodes.find(node => node.id === row.node.id);
@@ -196,7 +268,22 @@ export class PlanCleanupHost {
     const queue = await this.host.loadDistributedQueue(this.root);
     const ids = new Set(operation.preview.scope.runIds);
     const selection = operation.preview.scope.job;
-    if (selection) {
+    if (operation.preview.scope.observationMode === "managed_tmux") {
+      const declarations = operation.preview.scope.nativeDeclarations || [];
+      const matches = (record: any) => declarations.some(row => row.output_dir === record.outputDir
+        && row.result_csv === record.collectionResultCsv);
+      for (const plan of queue.plans) if (plan.planFile === operation.preview.scope.planFile) {
+        for (const record of plan.jobs.filter(matches)) {
+          if (restore) { if (restoreIds.has(record.cleanup?.operationId)) { delete record.cleanup; delete record.outputRetiredAt; } }
+          else {
+            record.cleanup = { operationId: operation.id, state: operation.pendingNodes.length ? "partial" : operation.preview.action === "delete" ? "deleted" : "archived",
+              completedTargets: operation.preview.rows.filter(row => operation.targets[row.id]?.state === "completed").map(row => row.node.id + ":" + row.absolutePath), pendingNodes: operation.pendingNodes };
+            record.outputRetiredAt = new Date().toISOString();
+          }
+        }
+      }
+      // Local lifecycle markers are audit only. No Worker acknowledgement or retired status file is required.
+    } else if (selection) {
       const plan = queue.plans.find((plan: any) => plan.id === selection.workflowId);
       const job = plan?.jobs.find((job: any) => job.index === selection.index && job.commandId === selection.commandId
         && (selection.purpose === "replace_outputs" ? ["failed", "completed"].includes(job.status) : job.status === "failed"));
@@ -246,6 +333,7 @@ export class PlanCleanupHost {
       const pending = this.host.distributedQueueTickPromise;
       if (pending) await pending;
       const operation = await this.service.status(id);
+      if (operation.preview.scope.observationMode === "managed_tmux") return await this.service.execute(id);
       if (operation.state === "completed" && operation.retirementPendingNodes?.length === 0
         && operation.preview.scope.job?.purpose === "replace_outputs") return operation;
       if (operation.preview.scope.job?.purpose === "replace_outputs") {

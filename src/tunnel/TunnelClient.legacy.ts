@@ -99,7 +99,7 @@ export interface TunnelClient {
   getDiagnostics(): Promise<unknown>;
   getAuditTail(): Promise<unknown>;
   getOperation(operationId: string): Promise<unknown>;
-  getWorkerTasks?(options?: { signal?: AbortSignal; retiredCommandIds?: string[]; queries?: any[] }): Promise<unknown>;
+  getWorkerTasks?(options?: { signal?: AbortSignal; retiredCommandIds?: string[]; queries?: any[]; discovery?: { planFile: string; condaEnv?: string } }): Promise<unknown>;
   getRunEvidence?(params: { operationId?: string; planFile?: string; pid?: number | string; tmuxSession?: string }): Promise<unknown>;
   postAction<T>(action: TunnelAction, body: unknown, options?: { signal?: AbortSignal }): Promise<T>;
   postAvailabilityBatch<T>(body: unknown): Promise<T>;
@@ -259,12 +259,16 @@ export class HttpTunnelClient implements TunnelClient {
     });
   }
 
-  getWorkerTasks(options: { signal?: AbortSignal; retiredCommandIds?: string[]; queries?: any[] } = {}): Promise<unknown> {
+  getWorkerTasks(options: { signal?: AbortSignal; retiredCommandIds?: string[]; queries?: any[]; discovery?: { planFile: string; condaEnv?: string } } = {}): Promise<unknown> {
     const ids = [...new Set(options.retiredCommandIds || [])].sort();
     if (ids.length > 500 || ids.some(id => !/^[A-Za-z0-9._:-]{1,128}$/.test(id))) throw new Error("INVALID_RETIRED_COMMAND_SELECTION");
+    if (options.queries?.length || options.discovery) return this.requestJson("/api/worker/tasks/query", "job_reconcile",
+      { queries: options.queries || [], discovery: options.discovery, retiredCommandIds: ids },
+      { method: "POST", userInitiated: true, signal: options.signal });
     const params = new URLSearchParams();
     if (ids.length) params.set("retiredCommandIds", ids.join(","));
     if (options.queries?.length) params.set("queries", JSON.stringify(options.queries));
+    if (options.discovery) params.set("discovery", JSON.stringify(options.discovery));
     const query = params.size ? "?" + params.toString() : "";
     return this.requestJson("/api/worker/tasks" + query, "job_reconcile", undefined, {
       method: "GET",
@@ -331,7 +335,7 @@ export class HttpTunnelClient implements TunnelClient {
     options: { method: "GET" | "POST"; userInitiated?: boolean; timeoutMs?: number; signal?: AbortSignal },
   ): Promise<T> {
     if (options.signal?.aborted) return Promise.reject(callerAbortError(options.signal));
-    const readKey = `${purpose}\0${options.userInitiated === true ? "user" : "background"}\0${apiPath}`;
+    const readKey = `${purpose}\0${options.userInitiated === true ? "user" : "background"}\0${apiPath}\0${options.method === "POST" ? JSON.stringify(body) : ""}`;
     let shared = this.reads.get(readKey);
     if (shared) {
       this.budget.noteCoalescedRequest();

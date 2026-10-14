@@ -349,9 +349,9 @@ export class RealtimeTunnelClient {
     return this.coalescedRead(`operation:${String(operationId)}`, undefined, () => this.http.getOperation(operationId));
   }
 
-  getWorkerTasks(options: { signal?: AbortSignal; retiredCommandIds?: string[]; queries?: any[] } = {}): Promise<unknown> {
+  getWorkerTasks(options: { signal?: AbortSignal; retiredCommandIds?: string[]; queries?: any[]; discovery?: { planFile: string; condaEnv?: string } } = {}): Promise<unknown> {
     if (this.requiresManualReconnect) return Promise.reject(new Error(this.lastError));
-    const selection = [...new Set(options.retiredCommandIds || [])].sort().join(",") + JSON.stringify(options.queries || []);
+    const selection = [...new Set(options.retiredCommandIds || [])].sort().join(",") + JSON.stringify(options.queries || []) + JSON.stringify(options.discovery || null);
     return this.coalescedRead("worker-tasks:" + selection, options, () => this.http.getWorkerTasks(options));
   }
 

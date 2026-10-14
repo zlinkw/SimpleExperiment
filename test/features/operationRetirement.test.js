@@ -80,7 +80,7 @@ test('retirement removes old payloads across all replay sources; current submiss
 test('retired ownership is requested by exact command; ordinary task refresh avoids historical payload and selectors do not coalesce',async()=>{
   function method(file){const source=fs.readFileSync(path.join(__dirname,'../../src/tunnel',file),'utf8'),ast=ts.createSourceFile(file,source,ts.ScriptTarget.Latest,true);let result;
     function visit(node){if(ts.isMethodDeclaration(node)&&node.name.getText(ast)==='getWorkerTasks')result=node.getText(ast);else ts.forEachChild(node,visit);}visit(ast);
-    return vm.runInNewContext(ts.transpileModule('class Client{'+result+'};Client;',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText);}
+    return vm.runInNewContext(ts.transpileModule('class Client{'+result+'};Client;',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{URLSearchParams});}
   const Http=method('TunnelClient.legacy.ts'),client=new Http(),urls=[];
   client.requestJson=async url=>{urls.push(url);return {}};
   await client.getWorkerTasks();await client.getWorkerTasks({retiredCommandIds:['b','a','b']});
