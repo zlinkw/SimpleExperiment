@@ -3,9 +3,12 @@ import { randomUUID } from "node:crypto";
 /** Only the pending exact payload can be answered, once. No persistent approval flag. */
 export class RunConfirmation {
   private pending?: { id: string; payload: any; resolve(value: string): void };
+  private opening = false;
   async ask(host: any, payload: any, signal?: AbortSignal): Promise<string> {
-    if (this.pending) throw new Error("已有路径确认窗口，请先完成或取消。");
-    await host.openPanelAt("execution", "execution-plan-list", { userInitiated: true });
+    if (this.pending || this.opening) throw new Error("已有路径确认窗口，请先完成或取消。");
+    this.opening = true;
+    try { await host.openPanelAt("execution", "execution-plan-list", { userInitiated: true }); }
+    finally { this.opening = false; }
     if (signal?.aborted) return "cancel";
     return new Promise(resolve => {
       const finish = (value: string) => { clearTimeout(timer); signal?.removeEventListener("abort", cancel); this.pending = undefined;

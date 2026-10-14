@@ -69,7 +69,7 @@ function domainHelp(domain) {
   simpleex experiment config <id> [--json]
   simpleex experiment results <id> [--json]
   simpleex experiment batch <plan> [--json]
-  simpleex experiment run <plan> [--seed <seed>] [--check] [--dry-run] [--json]
+  simpleex experiment run <plan> [--check] [--dry-run] [--operation <原提交ID>] [--json]
   simpleex experiment stop <id> [--json]
   simpleex experiment pause <id> [--json]
   simpleex experiment resume <id> [--from <stage>] [--json]

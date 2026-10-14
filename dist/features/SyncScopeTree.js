@@ -219,10 +219,24 @@ function row(entry,depth){
 }function renderTree(){if(!active)return;const view=state(),scrollTop=tree.scrollTop;view.issueTree=issueTree(view);view.scrollTarget=null;tree.replaceChildren();row({name:active.label,path:'.',directory:true,selectable:active.rootSelectable!==false},0);renderFilterControls();tree.scrollTop=scrollTop;if(view.scrollTarget){view.scrollTarget.scrollIntoView?.({block:'center'});view.scrollTarget=null}}
 function applyScopeSelected(message){const view=views.get(message.rootId);if(!view){pendingScopeSelected=message;return}view.selected=new Set(message.paths||[]);if(active?.id===message.rootId){status.className='';status.textContent=message.message||'默认同步范围已载入';renderTree()}}
 function renderTabs(){tabs.replaceChildren();document.getElementById('guide').textContent=active?.id==='workers'?'单击展开；仅比较和操作 Worker 上的文件。本机文件不会参与本模式的传输。状态通过刷新按钮更新。':'单击展开；勾选根目录可全选本机文件，再取消产物目录。点击“版本与操作”查看各副本。状态通过刷新按钮更新。';document.getElementById('scope-legend').hidden=active?.id==='workers';document.getElementById('remote-only-legend').hidden=active?.id==='workers';for(const root of roots){const button=document.createElement('button');button.textContent=root.label;button.className=root.id===active?.id?'active':'secondary';button.onclick=()=>{active=root;detail.textContent=root.detail;renderTabs();renderTree();if(!state().children.has('.'))load('.')};tabs.appendChild(button)}}
-function load(path,rootId=active.id){vscode.postMessage({type:'list',id:String(++serial),rootId,path})}
+function forgetPath(view,path){
+  const inside=value=>value===path||value.startsWith(path+'/');
+  for(const key of Object.keys(view.statuses))if(inside(key))delete view.statuses[key];
+  for(const [parent,children] of view.children){if(inside(parent))view.children.delete(parent);else view.children.set(parent,children.filter(entry=>!inside(entry.path)))}
+  for(const set of [view.selected,view.excluded,view.expanded,view.batchSelected,view.refreshedPaths,view.listPending,view.pending])for(const key of [...set])if(inside(key))set.delete(key);
+  for(const map of [view.refreshErrors,view.listRequests,view.refreshRequests])for(const key of [...map.keys()])if(inside(key))map.delete(key);
+  view.refreshQueue=view.refreshQueue.filter(key=>!inside(key));if(inside(view.detailPath||''))view.detailPath=null;if(inside(view.focus||''))view.focus=null;
+}
+function reconcileChildren(view,parent,entries){
+  const present=new Set(entries.map(entry=>entry.path)),known=new Set([...(view.children.get(parent)||[]).map(entry=>entry.path),...view.selected,...view.batchSelected,...Object.keys(view.statuses)]);
+  const prefix=parent==='.'?'':parent+'/';
+  for(const path of known){if(!path.startsWith(prefix)||path===parent||path==='.')continue;const child=prefix+path.slice(prefix.length).split('/')[0];if(!present.has(child))forgetPath(view,child)}
+  view.children.set(parent,entries);
+}
+function load(path,rootId=active.id){const view=views.get(rootId),id=String(++serial);view?.listRequests.set(path,id);vscode.postMessage({type:'list',id,rootId,path})}
 function enqueueRefresh(rootId,paths){const view=views.get(rootId);if(!view)return;for(const path of paths)if(!view.refreshQueue.includes(path))view.refreshQueue.push(path);pumpRefresh(rootId)}
-function pumpRefresh(rootId){const view=views.get(rootId);if(!view||view.pending.size||!view.refreshQueue.length)return;const path=view.refreshQueue.shift();view.pending.add(path);if(active?.id===rootId&&!view.busyAction)status.textContent='正在校验 '+path+' 的全部文件…';vscode.postMessage({type:'refresh',id:String(++serial),rootId,path})}
-function refreshVisible(){if(!active)return;enqueueRefresh(active.id,['.'])}
+function pumpRefresh(rootId){const view=views.get(rootId);if(!view||view.pending.size||!view.refreshQueue.length)return;const path=view.refreshQueue.shift();view.pending.add(path);if(active?.id===rootId&&!view.busyAction)status.textContent='正在校验 '+path+' 的全部文件…';const id=String(++serial);view.refreshRequests.set(path,id);vscode.postMessage({type:'refresh',id,rootId,path})}
+function refreshVisible(){if(!active)return;const view=state(),parents=new Set(['.',...view.children.keys(),...[...view.selected].filter(path=>path!=='.').map(parentPath)]);for(const parent of parents)load(parent);enqueueRefresh(active.id,['.'])}
 document.getElementById('refresh').onclick=refreshVisible;
 function revealConflict(path){const view=state();view.focus=path;view.pendingFocusScroll=path;let parent=parentPath(path);while(parent!=='.'){view.expanded.add(parent);if(!view.children.has(parent)&&!view.listPending.has(parent)){view.listPending.add(parent);load(parent)}parent=parentPath(parent)}renderTree()}
 document.getElementById('nextConflict').onclick=()=>{if(!active)return;const view=state();const all=Object.keys(view.statuses).filter(path=>path!=='.'&&view.statuses[path].state==='different');const paths=all.filter(path=>!all.some(other=>other.startsWith(path+'/'))).sort();if(!paths.length){status.textContent='没有已校验的冲突；请点击刷新同步状态';return}const index=paths.findIndex(path=>path>String(view.focus||''));const next=paths[index<0?0:index];revealConflict(next);status.textContent='冲突位置：'+next};
@@ -241,19 +255,21 @@ window.addEventListener('message',event=>{
     status.className='busy';status.textContent=message.message||'正在加载同步范围…';
   }else if(message.type==='init'){
     roots=message.roots;status.className='';status.textContent='范围已载入，展开目录后按需读取文件。';
-    for(const root of roots)views.set(root.id,{selected:new Set(root.selected),excluded:new Set(),expanded:new Set(['.']),children:new Map(),listPending:new Set(),pending:new Set(),refreshedPaths:new Set(),refreshErrors:new Map(),refreshQueue:[],mutationParent:null,focus:null,pendingFocusScroll:null,busyAction:null,statuses:{},issueFilterOn:false,issueSignature:null,batchSelected:new Set(),issueTree:null});
+    for(const root of roots)views.set(root.id,{selected:new Set(root.selected),excluded:new Set(),expanded:new Set(['.']),children:new Map(),listPending:new Set(),pending:new Set(),refreshedPaths:new Set(),refreshErrors:new Map(),listRequests:new Map(),refreshRequests:new Map(),refreshQueue:[],mutationParent:null,focus:null,pendingFocusScroll:null,busyAction:null,statuses:{},issueFilterOn:false,issueSignature:null,batchSelected:new Set(),issueTree:null});
     active=roots[0];renderTabs();detail.textContent=active.detail;renderTree();load('.');
     if(pendingScopeSelected){const queued=pendingScopeSelected;pendingScopeSelected=null;applyScopeSelected(queued)}
   }else if(message.type==='scopeSelected'){
     applyScopeSelected(message);
   }else if(message.type==='children'){
     const view=views.get(message.rootId);if(!view)return;
+    if(message.id&&view.listRequests.get(message.path)!==message.id)return;
     view.listPending.delete(message.path);
-    view.children.set(message.path,message.entries);
-    if(view.mutationParent===message.path){view.mutationParent=null;enqueueRefresh(message.rootId,[message.path])}
+    reconcileChildren(view,message.path,message.entries);
+    if(view.mutationParent===message.path||view.mutationParents?.delete(message.path)){view.mutationParent=null;enqueueRefresh(message.rootId,[message.path])}
     if(active?.id===message.rootId)renderTree();
   }else if(message.type==='status'){
     const view=views.get(message.rootId);if(!view)return;
+    if(message.id&&view.refreshRequests.get(message.path)!==message.id)return;
     view.pending.delete(message.path);
     view.refreshedPaths.add(message.path);view.refreshErrors.delete(message.path);
     for(const key of Object.keys(view.statuses))if(key===message.path||message.path==='.'||key.startsWith(message.path+'/'))delete view.statuses[key];
@@ -269,26 +285,23 @@ window.addEventListener('message',event=>{
   }else if(message.type==='actionCancelled'){
     const view=views.get(message.rootId);if(view)view.busyAction=null;
     if(active?.id===message.rootId){status.className='';status.textContent='操作已取消';renderTree()}
-  }else if(message.type==='batchDone'){
-    const reload=new Set();for(const [rootId,view] of views){if(rootId===message.rootId)view.busyAction=null;for(const path of message.completed||[]){for(const key of Object.keys(view.statuses))if(key===path||key.startsWith(path+'/'))delete view.statuses[key];let parent=parentPath(path);view.children.delete(parent);if(rootId===active?.id&&view.expanded.has(parent))reload.add(parent);for(;;){view.statuses[parent]={state:'unknown',detail:'目录内容已变化，点击刷新同步状态'};if(parent==='.')break;parent=parentPath(parent)}}}
-    if(active?.id===message.rootId){status.className='';status.textContent='完成 '+(message.completed||[]).length+' 项'+((message.errors||[]).length?'；失败 '+message.errors.length+' 项：'+message.errors.join('；'):'')+'。点击刷新同步状态查看最新版本';renderTree()}
-    for(const parent of reload)load(parent,active.id);
-  }else if(message.type==='actionDone'){
-    const operated=views.get(message.rootId);if(operated)operated.busyAction=null;
-    const parent=parentPath(message.path);
+  }else if(message.type==='batchDone'||message.type==='actionDone'){
+    const changed=message.type==='batchDone'?(message.completed||[]):[message.path];
+    const reload=[];
     for(const [rootId,view] of views){
-      for(const key of Object.keys(view.statuses))if(key===message.path||key.startsWith(message.path+'/'))delete view.statuses[key];
-      let ancestor=parent;
-      for(;;){view.statuses[ancestor]={state:'unknown',detail:'目录内容已变化，点击刷新同步状态'};if(ancestor==='.')break;ancestor=parentPath(ancestor)}
-      if(message.directory){
-        for(const path of [...view.children.keys()])if(path===message.path||path.startsWith(message.path+'/'))view.children.delete(path);
+      if(rootId===message.rootId)view.busyAction=null;
+      const parents=new Set(changed.map(parentPath));
+      for(const path of changed){
+        for(let parent=parentPath(path);;parent=parentPath(parent)){delete view.statuses[parent];view.refreshedPaths.delete(parent);if(parent==='.')break}
+        for(const key of Object.keys(view.statuses))if(key===path||key.startsWith(path+'/'))delete view.statuses[key];
+        for(const key of [...view.children.keys()])if(key===path||key.startsWith(path+'/'))view.children.delete(key);
+        for(const key of [...view.listRequests.keys()])if(key===path||key.startsWith(path+'/'))view.listRequests.delete(key);
+        view.refreshRequests.clear();
       }
-      if(rootId!==message.rootId)continue;
-      view.children.delete(parent);view.mutationParent=parent;
-      if(message.directory)for(const path of [...view.expanded])if(path===message.path||path.startsWith(message.path+'/'))load(path,rootId);
+      for(const parent of parents){view.listPending.delete(parent);(view.mutationParents||=new Set()).add(parent);reload.push([rootId,parent])}
     }
-    if(active?.id===message.rootId){status.className='busy';status.textContent='正在更新 '+parent+'…';renderTree()}
-    load(parent,message.rootId);
+    if(active?.id===message.rootId){status.className='';status.textContent=(message.errors||[]).length?'部分路径处理失败：'+message.errors.join('；'):'文件列表已更新';renderTree()}
+    for(const [rootId,parent] of reload)load(parent,rootId);
   }else if(message.type==='error'){
     const view=views.get(message.rootId);
     if(view){

@@ -2,7 +2,7 @@
   "name": "simple-experiment",
   "displayName": "SimpleExperiment",
   "description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
-  "version": "0.5.309",
+  "version": "0.5.310",
   "publisher": "simple-local",
   "extensionKind": [
     "ui"
@@ -405,12 +405,11 @@
         "simpleExperiment.results.planOutputRetention": {
           "type": "string",
           "enum": [
-            "latest-complete",
-            "keep-history"
+            "latest-only"
           ],
-          "default": "latest-complete",
+          "default": "latest-only",
           "scope": "resource",
-          "description": "分布式 Plan 产物保留方式。同代码与相同 Plan 配置的重复运行以最新完整结果替代；不同版本保留，超过5个代码/配置版本时提示前往审核清理。删除旧 attempt 仍须核对完整路径并两次确认；取消、失败、身份未知或仅补跑时保留旧结果。keep-history 不主动建议同版本替换，仍提示版本超限。"
+          "description": "产物只保留每个任务最新一轮，重跑前按两次确认删除精确旧目录；不生成 attempt、历史产物版本或 clean_dir 备份。旧设置值按本策略兼容读取，不自动清扫声明范围外的历史文件。"
         },
         "simpleExperiment.codeSync.includePaths": {
           "type": "array",
@@ -438,7 +437,7 @@
             "type": "string"
           },
           "scope": "resource",
-          "description": "Worker 之间同步的项目相对路径；默认整个项目，机器状态目录除外。在面板文件树中勾选。"
+          "description": "Worker 之间的同步范围。默认整个项目，包含完整 work_dirs（兼容 work_dir）；不沿用本机代码同步的产物排除。每个 job 完成后，只同步本任务产物与当前勾选范围的交集到所有已启用 Worker。"
         },
         "simpleExperiment.remote.allowedRoots": {
           "type": "array",
@@ -799,7 +798,7 @@
     }
   },
   "scripts": {
-    "build": "npm run compact:plan && npm run typecheck && node scripts/bundle-semver.js && node scripts/write-agent-runtime.js && node scripts/write-panel-build-manifest.js && node -c dist/extension.js && node -c dist/ui/PanelHtml.js && node --test --test-force-exit --test-timeout 20000 test/features/panelWebviewScriptHealth.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planCleanupPanelBridge.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/workerTelemetryApiContract.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/xshellPortProbe.test.js && node --test --test-force-exit --test-timeout 20000 test/features/completedPlanWorkerMirror.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobPreflightProgress.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobPreflightFailure.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobPreflightApi.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobRejectedRecovery.test.js && npm run test:preflight-stages && npm run test:execution-shell && npm run test:failed-job-review && npm run test:terminal-history && npm run test:agent-lifecycle && npm run test:tmux-lifecycle && npm run test:worker-mode && npm run test:plan-run",
+    "build": "npm run compact:plan && npm run typecheck && node scripts/bundle-semver.js && node scripts/write-agent-runtime.js && node scripts/write-panel-build-manifest.js && node -c dist/extension.js && node -c dist/ui/PanelHtml.js && node --test --test-force-exit --test-timeout 20000 test/features/panelWebviewScriptHealth.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planCleanupPanelBridge.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/workerTelemetryApiContract.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/xshellPortProbe.test.js && node --test --test-force-exit --test-timeout 20000 test/features/completedPlanWorkerMirror.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobPreflightProgress.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobPreflightFailure.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobPreflightApi.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobRejectedRecovery.test.js && npm run test:preflight-stages && npm run test:execution-shell && npm run test:failed-job-review && npm run test:terminal-history && npm run test:agent-lifecycle && npm run test:tmux-lifecycle && npm run test:worker-mode && npm run test:plan-run && npm run test:latest-artifacts",
     "test:tmux-lifecycle": "node --test --test-force-exit --test-timeout 20000 test/features/taskLifecycle.test.js && node --test --test-force-exit --test-timeout 20000 test/features/tmuxTaskLifecycle.test.js && node --test --test-force-exit --test-timeout 20000 test/features/pulledTaskControl.test.js && node --test --test-force-exit --test-timeout 20000 test/features/manifestCleanup.test.js && node --test --test-force-exit --test-timeout 20000 test/features/nativeResultManifest.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobExecution.test.js && node --test --test-force-exit --test-timeout 20000 test/features/codeSyncProofWaiter.test.js",
     "test:preflight-stages": "node --test --test-force-exit --test-timeout 20000 test/features/preflightStages.test.js && node --test --test-force-exit --test-timeout 20000 test/features/preflightDispatchRejection.test.js",
     "test:failed-job-review": "node --test --test-force-exit --test-timeout 20000 test/features/failedJobCleanup.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planCleanup.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planCleanupReconnect.test.js && npm run test:paired-update",
@@ -837,7 +836,8 @@
     "test:windows-flow": "node --test --test-force-exit --test-timeout 20000 test/features/projectManagedPreflight.test.js && node --test --test-force-exit --test-timeout 20000 test/features/staticEntrypointProbe.test.js && node --test --test-force-exit --test-timeout 20000 test/features/windowsWorkflowContract.test.js && node --test --test-force-exit --test-timeout 20000 test/features/localApiClientContract.test.js && node --test --test-force-exit --test-timeout 20000 test/features/resultOwnershipScope.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planOutputReplacement.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planOutputReplacementHost.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planCleanup.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planCleanupReconnect.test.js && node --test --test-force-exit --test-timeout 20000 test/features/metricsDownloadEndToEnd.test.js && npm run test:local-stop-control",
     "test:local-stop-control": "node --test --test-force-exit --test-timeout 20000 test/features/clearedOutputReplacement.test.js && node --test --test-force-exit --test-timeout 20000 test/features/cleanupActivity.test.js && node --test --test-force-exit --test-timeout 20000 test/features/localStopControl.test.js && node --test --test-force-exit --test-timeout 20000 test/features/operationRetirement.test.js",
     "test:worker-mode": "node --test --test-force-exit --test-timeout 20000 test/features/workerOnlyTopology.test.js && node --test --test-force-exit --test-timeout 20000 test/features/topologyMode.test.js && node --test --test-force-exit --test-timeout 20000 test/features/workerRouting.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/workerOnlyStateMerge.test.js && node --test --test-force-exit --test-timeout 20000 test/features/manualJobDispatch.test.js && node --test --test-force-exit --test-timeout 20000 test/features/manualDispatchHost.test.js && node --test --test-force-exit --test-timeout 20000 test/cli/manualDispatch.test.js && node --test --test-force-exit --test-timeout 20000 test/features/manualTmuxAdmission.test.js && node --test --test-force-exit --test-timeout 20000 test/features/hubRetirement.test.js",
-    "test:plan-run": "node --test --test-force-exit --test-timeout 20000 test/features/planRunQueryRegression.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planRunReplacement.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planRunRecovery.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planSubmissionVisiblePreflight.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planOutputReplacementHost.test.js"
+    "test:plan-run": "node --test --test-force-exit --test-timeout 20000 test/features/planRunQueryRegression.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planRunReplacement.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planRunRecovery.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planSubmissionVisiblePreflight.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planOutputReplacementHost.test.js",
+    "test:latest-artifacts": "node --test --test-force-exit --test-timeout 20000 test/features/latestJobArtifacts.test.js && node --test --test-force-exit --test-timeout 20000 test/features/completedJobLatestSync.test.js && node --test --test-force-exit --test-timeout 20000 test/features/syncScopeDeletionRefresh.test.js && node --test --test-force-exit --test-timeout 20000 test/features/syncScopeBatch.test.js && node --test --test-force-exit --test-timeout 20000 test/features/syncLatestMerge.test.js && node --test --test-force-exit --test-timeout 20000 test/features/sftpProgressWait.test.js && node --test --test-force-exit --test-timeout 20000 test/ui/syncScopeTree.test.js"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

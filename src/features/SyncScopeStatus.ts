@@ -147,7 +147,7 @@ export function scopeInventoryPathAllowed(relative: string, directory = false): 
   const parts = relative.toLowerCase().split("/");
   const basename = parts.at(-1) || "";
   if (!directory && (basename.endsWith(".writing") || basename.endsWith(".pending") || /\.tmp(?:\.|$)/.test(basename) || basename.includes(".upload."))) return false;
-  if (parts[0] === "tmp" || parts.some((part) => [".git", ".vscode", ".codex", ".agents", ".coding-tools", ".local-gpt", ".runtime", "clean_dir", "zlk_cluster", ".venv", "venv", "env", "node_modules", "__pycache__", ".cache", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox"].includes(part))) return false;
+  if (parts[0] === "tmp" && parts.length > 1 && parts[1] !== "result" || parts.some((part) => [".git", ".vscode", ".codex", ".agents", ".coding-tools", ".local-gpt", ".runtime", "clean_dir", "zlk_cluster", ".venv", "venv", "env", "node_modules", "__pycache__", ".cache", ".pytest_cache", ".mypy_cache", ".ruff_cache", ".tox"].includes(part))) return false;
   if (parts[0] === "experiments" && parts[1] === "results" && parts.at(-1)?.endsWith(".csv.lock")) return false;
   if (parts[0] === "work_dirs" && parts.at(-1) === ".tb_mean.lock") return false;
   if (parts.at(-1)?.startsWith(".env")) return false;

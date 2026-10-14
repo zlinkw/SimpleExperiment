@@ -136,7 +136,7 @@ class ManualDispatchHost {
         await h.assertPlanSubmissionWorkers(body, { validation });
         try {
             await new PlanRunHost_1.PlanRunHost(h, this.root).replace(plan, body, validation);
-            return true;
+            return body.assignedExperimentIndices;
         }
         catch (error) {
             if (error.apiData?.code === "REPLACEMENT_CANCELLED")

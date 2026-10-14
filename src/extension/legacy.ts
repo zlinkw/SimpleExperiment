@@ -23,6 +23,7 @@ import * as FailedJobRecovery from "../features/FailedJobRecovery";
 import * as PulledTaskControl from "../features/PulledTaskControl";
 import * as WorkerTaskQuery from "../features/WorkerTaskQuery";
 import { PlanRunHost } from "./PlanRunHost";
+import { CompletedJobSyncHost } from "./CompletedJobSyncHost";
 import { RunConfirmation } from "./RunConfirmation";
 import { jobEvidenceName, verifyNativeResult } from "../results/NativeResultManifest";
 import * as JobAvailability from "../features/JobAvailability";
@@ -6207,6 +6208,8 @@ return this.testTunnel(true);
         this.markLocalOperationsDirty();
     }
     submissionStillCurrent(message, epoch, root) {
+        // Deactivation releases pending UI waits; it is not a user cancellation.
+        if (this.activationAbortController?.signal.aborted) return false;
         const operationId = this.planSubmissionOperationId(message);
         if (!operationId) return workspaceRoot() === root;
         const record = this.localOperations?.[operationId];
@@ -8176,13 +8179,20 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const entries = new Map<string, ScopeEntry>(local.map((row) => [row.path, { ...row, selectable: true, locations: ["local"] }]));
         const results = await Promise.allSettled(targets.map((target) => this.simpleSftpApiCall("sync.projectTree", {
             source: this.sftpServerOptions(target), relativePath: relative,
-        }, 12000)));
+        }, 12000).catch(async error => {
+            if (!/超时|timeout|timed out|无真实进展|没有进展/i.test(errorMessage(error))) throw error;
+            try {
+                const state = await this.simpleSftpApiCall("sync.projectTreeState", { source: this.sftpServerOptions(target), relativePath: relative });
+                if (state.ok === true && (state.exists === false || state.exists === true && state.empty === true)) return { ok: true, entries: [], exists: state.exists };
+                throw new Error("轻量复查确认目录非空，原文件清单仍未读取成功");
+            } catch (probeError) { throw new Error(errorMessage(error) + "；目录存在性/空目录复查：" + errorMessage(probeError)); }
+        })));
         for (let index = 0; index < results.length; index++) {
           const result = results[index];
           if (result.status !== "fulfilled") {
-            if (strict) throw new Error(`${targets[index].id} 文件树读取失败：${errorMessage(result.reason)}`);
-            continue;
+            throw new Error(`${targets[index].id} 文件树读取失败：${errorMessage(result.reason)}`);
           }
+          if (result.value?.ok === false || !Array.isArray(result.value?.entries)) throw new Error(`${targets[index].id} 返回的文件树无效，未将其当作空目录。`);
           for (const row of Array.isArray(result.value?.entries) ? result.value.entries : []) {
             const key = String(row.path);
             const prior = entries.get(key);
@@ -8199,7 +8209,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             ? await collectLocalScopeInventory(root, relative, true, (file, reason) => { localUnverified[file] = reason; }, this.localScopeHashCacheFile(root)) : {};
         if (mode === "local-server" && Object.keys(localUnverified).length) unverified.local = localUnverified;
         const workers = {};
-        const configured = this.setupConfig.workerTunnels.map((worker) => worker.id).filter(Boolean);
+        const configured = this.enabledWorkerConfigs().map((worker) => worker.id).filter(Boolean);
         const offline = new Set(configured.filter((id) => !targets.some((target) => target.id === id)));
         for (const id of offline) workers[id] = {};
         const inventoryScope = mode === "server-server" && selectedPaths.length && !selectedPaths.includes(".") ? selectedPaths : undefined;
@@ -8240,7 +8250,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             : aggregate;
         return statuses;
     }
-    async mergeLatestWorkerVersions(root, targets, selectedPaths, relative, report = (_stage: string) => {}, options: { metricsOnly?: boolean; signal?: AbortSignal } = {}) {
+    async mergeLatestWorkerVersions(root, targets, selectedPaths, relative, report = (_stage: string) => {}, options: { metricsOnly?: boolean; signal?: AbortSignal; completedJob?: { sourceId: string }; assertCurrent?: () => Promise<void> } = {}) {
         const checkCancelled = () => { if (options.signal?.aborted) throw new UiCommandCancelled("同步服务器结果已取消，未下载指标文件。"); };
         checkCancelled();
         if (options.metricsOnly && !selectedPaths.length) return { completed: [], errors: [] };
@@ -8252,7 +8262,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         if (relative !== ".") safeSyncPath(relative);
         const bounded = relative === "." && selectedPaths.length && !selectedPaths.includes(".");
         for (const scope of bounded ? selectedPaths : []) safeSyncPath(scope);
-        const configured = this.setupConfig.workerTunnels.map((worker) => worker.id).filter(Boolean);
+        const configured = this.enabledWorkerConfigs().map((worker) => worker.id).filter(Boolean);
         if (configured.some((id) => !targets.some((target) => target.id === id))) throw new Error("有 Worker 未连接或未启用；请恢复连接后再合并最新版。");
         this.codeSyncWarmProofs?.clear();
         this.syncScopeMutationInFlight = true;
@@ -8265,11 +8275,12 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             const scoped = selectedPaths.includes(".")
                 ? statuses
                 : Object.fromEntries(Object.entries(statuses).filter(([file]) => selectedPaths.some((scope) => file === scope || file.startsWith(`${scope}/`)) || file === relative));
-            const planned = planLatestWorkerMerge(scoped, targets.map((target) => target.id));
+            const planned = planLatestWorkerMerge(scoped, targets.map((target) => target.id), options.completedJob?.sourceId);
             const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
             const holds = await loadSyncHolds(this.context.globalStorageUri.fsPath, root);
             const skipped = [...planned.skipped];
             const work = planned.items.filter((item) => {
+                if (!scopeInventoryPathAllowed(item.path, false) || /(?:\.lock|\.pid|\.exit_code)$/i.test(path.posix.basename(item.path))) return false;
                 if (holds[item.path]?.codeOwned || isLocalCodeOwnedPath(item.path, false,
                     config.get<string[]>("codeSync.includePaths", []), config.get<string[]>("codeSync.scopePaths"))) {
                     skipped.push(`${item.path}：代码以本机为准`);
@@ -8277,6 +8288,36 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 }
                 return true;
             });
+            if (options.completedJob) {
+                const sourceId = options.completedJob.sourceId;
+                const files = Object.fromEntries(Object.entries(scoped).filter(([file, value]: [string, any]) => !value.copies && value.versions?.[sourceId]?.sha256
+                    && scopeInventoryPathAllowed(file, false) && !/(?:\.lock|\.pid|\.exit_code)$/i.test(path.posix.basename(file))).map(([file, value]: [string, any]) => [file, value.versions[sourceId].sha256]));
+                if (skipped.length) throw new Error(skipped.join("；"));
+                const groups = new Map<string, string[]>();
+                for (const item of work) for (const id of item.destinationIds) {
+                    if (!groups.has(id)) groups.set(id, []); groups.get(id).push(item.path);
+                }
+                const source = targets.find(row => row.id === sourceId);
+                const completed = [];
+                for (const [id, paths] of groups) {
+                    const destination = targets.find(row => row.id === id);
+                    await options.assertCurrent?.();
+                    await this.assertSshTransportIdentities([source, destination]);
+                    for (let offset = 0; offset < paths.length; offset += 500) {
+                        await options.assertCurrent?.();
+                        const batch = paths.slice(offset, offset + 500);
+                        await this.simpleSftpApiCall("sync.serverToServerFpsync", { source: this.sftpServerOptions(source),
+                            destination: { ...this.sftpServerOptions(destination), host: this.sftpServerOptions(destination).networkHost || this.sftpServerOptions(destination).host },
+                            relativePaths: batch, confirm: true, pathConfirmed: true,
+                            taskLabel: workerFpsyncTaskLabel({ action: "同步任务最新产物", sourceId, destinationId: id, detail: String(batch.length) + " 个文件" }) });
+                        const checked = (await this.verifiedSftpProjectInventory({ source: this.sftpServerOptions(destination), relativePath: ".", scopePaths: batch })).files;
+                        for (const file of batch) if (checked[file]?.sha256?.toLowerCase() !== files[file]?.toLowerCase())
+                            throw new Error(id + " 文件内容与本次最新产物不符：" + file);
+                        completed.push(...batch);
+                    }
+                }
+                return { completed: [...new Set(completed)], errors: [], files };
+            }
             if (!work.length) return { completed: [], errors: skipped.length ? skipped : ["没有需要同步的 Worker 文件"] };
             const paths = work.flatMap((item) => [
                 { label: `${item.path} · 来源 ${item.sourceId}`, path: path.posix.join(this.sftpServerOptions(targets.find((target) => target.id === item.sourceId)).remotePath, item.path) },
@@ -8323,11 +8364,14 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         this.codeSyncWarmProofs?.clear();
         this.syncScopeMutationInFlight = true;
         try {
+        const absent = [];
         const entries = await expandSyncScopeBatchSelection(selected, excluded,
             (parent) => {
                 report(`正在读取 ${parent} 的文件树`);
                 return this.listSyncScopeUnion(root, targets, parent, localOnly, true);
-            }, (done, total) => report(`已核对 ${done}/${total} 条勾选路径`), knownEntries);
+            }, (done, total) => report(`已核对 ${done}/${total} 条勾选路径`), knownEntries,
+            action === "delete" ? { fresh: true, onMissing: file => absent.push(file) } : {});
+        if (!entries.length) return { completed: absent, errors: [] };
         const work = [];
         let destinationIds = [];
         if (action === "sync") {
@@ -8364,7 +8408,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             if (!picked) return false;
             for (const entry of entries) {
                 const endpointIds = picked.endpointIds.filter((id) => (entry.locations || []).includes(id));
-                if (!endpointIds.length) throw new Error(`${entry.path} 在 ${picked.label} 不存在；请调整勾选范围。`);
+                if (!endpointIds.length) { absent.push(entry.path); continue; }
                 work.push({ ...entry, endpointIds });
             }
         } else throw new Error("批量操作类型无效。");
@@ -8380,6 +8424,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                     ? path.resolve(root, ...item.path.split("/")) : path.posix.join(this.sftpServerOptions(targets.find((row) => row.id === id)).remotePath, item.path) });
             }
         }
+        if (!work.length) return { completed: absent, errors: [] };
         report(`等待核对 ${work.length} 条路径并两次确认`);
         if (!await confirmSyncScopePaths(action === "delete" ? "批量永久删除" : "批量同步到其他位置",
             action === "delete" ? `删除所选位置实际存在的 ${work.length} 条路径。每个目标执行前再次验证父目录；删除后暂停自动补回。`
@@ -8407,7 +8452,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 catch (error) { throw new Error(`${errorMessage(error)}；该路径自动同步仍暂停。`); }
             }, (done, total) => report(`已处理 ${done}/${total}`), 2,
                 (error) => /PARENT_CD_FAILED|不安全|符号链接|超出项目根目录|机器状态路径|目标类型已变化/.test(error));
-            return { completed: results.filter((row) => !row.error).map((row) => row.item.path),
+            return { completed: [...absent, ...results.filter((row) => !row.error).map((row) => row.item.path)],
                 errors: results.filter((row) => row.error).map((row) => `${row.item.path}：${row.error}`) };
         } finally { this.syncScopeMutationInFlight = false; }
     }
@@ -8584,19 +8629,24 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             const server = target && this.sftpServerOptions(target);
             return { id, server, absolute: id === "local" ? path.resolve(root, ...relative.split("/")) : path.posix.join(server.remotePath, relative) };
         });
+        const present = [];
         for (const copy of copies) {
             report(`正在复核 ${copy.id} 的删除目标`);
             if (copy.id === "local") {
-                const info = await fs.lstat(copy.absolute);
+                const info = await fs.lstat(copy.absolute).catch(error => { if (error.code === "ENOENT") return undefined; throw error; });
+                if (!info) continue;
                 if (info.isSymbolicLink() || info.isDirectory() !== directory) throw new Error("本机目标类型已变化或是符号链接；禁止删除。");
             } else {
                 const listing = await this.simpleSftpApiCall("sync.projectTree", { source: copy.server, relativePath: path.posix.dirname(relative) });
+                if (listing.ok === false || !Array.isArray(listing.entries)) throw new Error(`${copy.id} 文件树无效，无法确认目标是否存在。`);
                 const entry = listing.entries?.find((row) => row.path === relative);
-                if (!entry || Boolean(entry.directory) !== directory) throw new Error(`${copy.id} 目标已变化；禁止删除，请刷新文件树。`);
+                if (!entry) continue;
+                if (Boolean(entry.directory) !== directory) throw new Error(`${copy.id} 目标类型已变化；禁止删除，请刷新文件树。`);
             }
+            present.push(copy);
         }
         const completed = [];
-        for (const copy of copies) {
+        for (const copy of present) {
             report(`正在删除 ${copy.id} 的 ${relative}`);
             try {
                 if (copy.id === "local") await deleteLocalSyncPath(root, relative);
@@ -8604,6 +8654,15 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                     confirmedAbsolutePath: copy.absolute, confirm: true, pathConfirmed: true, secondConfirmation: true });
                 completed.push(copy.id);
             } catch (error) {
+                try {
+                    if (copy.id === "local") {
+                        const info = await fs.lstat(copy.absolute).catch(e => { if (e.code === "ENOENT") return undefined; throw e; });
+                        if (!info) { completed.push(copy.id); continue; }
+                    } else {
+                        const check = await this.simpleSftpApiCall("sync.projectTree", { source: copy.server, relativePath: path.posix.dirname(relative) });
+                        if (check.ok !== false && Array.isArray(check.entries) && !check.entries.some(row => row.path === relative)) { completed.push(copy.id); continue; }
+                    }
+                } catch {}
                 throw new Error(`已删除 ${completed.join("、") || "无"}；${copy.id} 删除失败：${errorMessage(error)}。自动补回仍暂停。`);
             }
         }
@@ -8623,23 +8682,13 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const location = endpointId === "local" ? "本机" : `${target.id} (${server.user}@${server.host}:${server.port})`;
         report("等待核对完整路径并两次确认");
         if (!batchApproved && !await confirmSyncScopePaths("删除同步路径", `永久删除${directory ? "整个目录及其内容" : "单个文件"}。删除后该路径暂停自动补回，直到手动选定保留版本。`, [{ label: location, path: absolute }], "永久删除此路径")) return false;
-        if (endpointId === "local") {
-            const info = await fs.lstat(absolute);
-            if (info.isSymbolicLink() || info.isDirectory() !== directory) throw new Error("本机目标类型已变化或是符号链接；禁止删除。");
-        } else {
-            const listing = await this.simpleSftpApiCall("sync.projectTree", { source: server, relativePath: path.posix.dirname(relative) });
-            const entry = listing.entries?.find((row) => row.path === relative);
-            if (!entry || Boolean(entry.directory) !== directory) throw new Error(`${target.id} 目标已变化；禁止删除，请刷新文件树。`);
-        }
         const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
         const codeOwned = isLocalCodeOwnedPath(relative, directory, config.get<string[]>("codeSync.includePaths", []), config.get<string[]>("codeSync.scopePaths"));
         report("正在保存自动同步暂停记录");
         await this.updateSyncScopeHolds(root, (holds) => { holds[relative] = { endpointId, deletedAt: new Date().toISOString(), directory, codeOwned }; });
         try {
             report(`正在删除 ${location}`);
-            if (endpointId === "local") await deleteLocalSyncPath(root, relative);
-            else await this.simpleSftpApiCall("sync.deletePath", { target: server, relativePath: relative, confirmedAbsolutePath: absolute,
-                confirm: true, pathConfirmed: true, secondConfirmation: true });
+            await this.removeSyncScopeCopies(root, targets, relative, [endpointId], directory, report);
         } catch (error) {
             void vscode.window.showWarningMessage("删除未完成，自动补回仍暂停。具体原因已显示在同步范围页面。");
             throw error;
@@ -8663,7 +8712,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             const listings = await Promise.all(targets.map(async (target) => ({ target, server: this.sftpServerOptions(target),
                 result: await this.simpleSftpApiCall("sync.projectTree", { source: this.sftpServerOptions(target), relativePath: parent }) })));
             const present = listings.filter(({ result }) => Array.isArray(result.entries) && result.entries.some((entry) => entry.path === relative));
-            if (!present.length) throw new Error("所有已启用 Worker 均无此路径；请刷新列表。");
+            if (!present.length) return true;
             for (const { result, target } of present) {
                 const entry = result.entries.find((row) => row.path === relative);
                 if (Boolean(entry.directory) !== directory) throw new Error(`${target.id} 的路径类型与界面不一致，请刷新列表。`);
@@ -9915,7 +9964,8 @@ this.assertPlanTopologyReady("Plan 调度");
             const publishDiskSnapshot = (source, signature, status, reason, error) => {
                 try {
                     const disk = parseDisk(source);
-                    this.distributedQueueCache = JSON.parse(JSON.stringify(disk));
+                    this.distributedQueueCache = DistributedPlanQueue.keepCurrentObservations(JSON.parse(JSON.stringify(disk)),
+                        (options.artifactMutation || options.publicationMutation) && this.distributedQueueRoot === root ? this.distributedQueueCache : undefined);
                     this.distributedQueueRoot = root;
                     this.distributedQueueDiskSignature = signature;
                     this.distributedQueueStorageDiagnostics = { status, updatedAt: new Date().toISOString(), reason,
@@ -9984,13 +10034,13 @@ this.assertPlanTopologyReady("Plan 调度");
                         const oldJobs = new Map((oldPlans.get(plan.id)?.jobs || []).map((job) => [job.index, job]));
                         return { ...plan, jobs: plan.jobs.map((job) => {
                             const old = oldJobs.get(job.index);
-                            if (!old || old.attempt !== job.attempt) return job;
+                            if (!old || old.attempt !== job.attempt || old.commandId !== job.commandId || old.nextCommandId !== job.nextCommandId) return job;
                             const terminal = ["completed", "failed", "cancelled"].includes(job.status);
                             const terminalLog = DistributedPlanQueue.terminalHistoryLogBinding(plan, job);
                             return { ...job, artifacts: old.artifacts, fragmentWorkerIds: old.fragmentWorkerIds,
                                 mirroredWorkerIds: old.mirroredWorkerIds,
                                 outputRetiredAt: old.outputRetiredAt,
-                                artifactError: old.artifactError, artifactRetryAfter: old.artifactRetryAfter,
+                                artifactError: old.artifactError, artifactRetryAfter: old.artifactRetryAfter, latestArtifactSync: old.latestArtifactSync,
                                 error: job.error || old.error,
                                 logPath: terminal ? (terminalLog?.logPath || "") : (job.logPath || old.logPath),
                                 ...(terminalLog ? { historyLogIdentity: terminalLog.historyLogIdentity }
@@ -10029,7 +10079,8 @@ this.assertPlanTopologyReady("Plan 调度");
                 throw error;
             }
             this.distributedQueueRoot = root;
-            this.distributedQueueCache = JSON.parse(JSON.stringify(queue));
+            this.distributedQueueCache = DistributedPlanQueue.keepCurrentObservations(JSON.parse(JSON.stringify(queue)),
+                (options.artifactMutation || options.publicationMutation) && this.distributedQueueRoot === root ? this.distributedQueueCache : undefined);
             this.distributedQueueDiskSignature = DistributedPlanQueue.distributedQueueDiskSignature(serialized);
             if (options.artifactMutation || options.publicationMutation) {
                 this.distributedQueueMetadataWrites = [...(this.distributedQueueMetadataWrites || []),
@@ -10048,13 +10099,13 @@ this.assertPlanTopologyReady("Plan 调度");
         await work;
     }
     async patchDistributedJob(root, planId, index, attempt, fields) {
-        const { replaceMirroredWorkerIds, replaceFragmentWorkerIds, ...updates } = fields;
+        const { replaceMirroredWorkerIds, replaceFragmentWorkerIds, expectedCommandId, ...updates } = fields;
         await this.saveDistributedQueue(root, undefined, { artifactMutation: true,
             mutateLatest: (latest) => {
                 let changed = false;
                 const plans = latest.plans.map((plan) => plan.id !== planId ? plan : { ...plan,
                 jobs: plan.jobs.map((job) => {
-                    if (job.index !== index || job.attempt !== attempt || job.outputRetiredAt) return job;
+                    if (job.index !== index || job.attempt !== attempt || job.outputRetiredAt || expectedCommandId && job.commandId !== expectedCommandId) return job;
                     const next = { ...job, ...updates,
                 mirroredWorkerIds: fields.mirroredWorkerIds
                     ? replaceMirroredWorkerIds ? fields.mirroredWorkerIds : [...new Set([...(job.mirroredWorkerIds || []), ...fields.mirroredWorkerIds])]
@@ -10108,6 +10159,10 @@ this.assertPlanTopologyReady("Plan 调度");
         const current = () => this.projectContextIsCurrent(context) && !this.panelDisposed && !this.distributedPlanStopEpoch
             && !this.planCleanupHosts?.get(root)?.executing && client === this.client && expectedTargets === targetsKey();
         if (!current()) return;
+        if (this.taskLifecycleProtocol === 2) {
+            const scopes = normalizeMirrorScopePaths(vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root)).get<string[]>("serverSync.paths", ["."]));
+            return new CompletedJobSyncHost(this, root, current).run(scopes);
+        }
         const workerIds = this.workerCodeSyncTargets().map(target => target.id);
         if (workerIds.length < 2) return;
         const queue = await this.loadDistributedQueue(root);
@@ -11216,9 +11271,9 @@ this.assertPlanTopologyReady("Plan 调度");
         const contract = this.distributedProjectContract();
         const targets = new Map(this.workerCodeSyncTargets().map((target) => [target.id, target]));
         const online = [...targets.keys()].filter((id) => this.lastWorkerProbes[id]?.status === "ok");
-        const selectedIds = new Set(PlanOutputRetention.plansForOutputSync(
-            PlanOutputRetention.withValidatedPlanJobCounts(queue, this.localPlanMetadata?.plans || [])).map((plan) => plan.id));
-        const plans = (automatic || this.planOutputRetentionMode(root) === "keep-history" ? queue.plans : queue.plans.filter((plan) => selectedIds.has(plan.id)))
+        const selectedPlans = PlanOutputRetention.plansForOutputSync(
+            PlanOutputRetention.withValidatedPlanJobCounts(queue, this.localPlanMetadata?.plans || []));
+        const plans = (automatic ? queue.plans : selectedPlans)
             .filter(plan => plan.resultPathPolicy === "declared"); // Historical attempts are display/collection sources only.
         const transfers = [];
         const failures = [];
@@ -11613,41 +11668,11 @@ this.assertPlanTopologyReady("Plan 调度");
             }
         }
     }
-    planOutputRetentionMode(root) {
-        return vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root)).get("results.planOutputRetention", "latest-complete");
+    planOutputRetentionMode(_root) {
+        return "latest-only";
     }
-    private notifyPlanOutputVersionReview(root, queue): void {
-        if (workspaceRoot() !== root || this.distributedQueueStorageDiagnostics?.status === "stale") return;
-        try {
-            const mode = this.planOutputRetentionMode(root);
-            const requiredPaths = this.distributedProjectContract().requiredPaths;
-            const pathsKey = JSON.stringify(requiredPaths);
-            const cache = this.planOutputReviewCache;
-            if (cache?.root === root && cache.queue === queue && cache.metadata === this.localPlanMetadata && cache.mode === mode && cache.requiredPaths === pathsKey) return;
-            const overflow = PlanOutputRetention.outputVersionReview(queue);
-            const completeIds = PlanArtifactSyncStatus.latestCompletePlansForSyncCheck(queue, this.localPlanMetadata?.plans || []).map(plan => plan.id);
-            const sameCode = mode === "keep-history" ? [] : PlanOutputRetention.outputRetirementCandidates(queue, completeIds, requiredPaths);
-            this.planOutputReviewCache = { root, queue, metadata: this.localPlanMetadata, mode, requiredPaths: pathsKey };
-            if (!overflow.length && !sameCode.length) return;
-            const signature = JSON.stringify([root, overflow.map(row => row.signature), PlanOutputRetention.retirementIdentity(sameCode)]);
-            const notices = this.planOutputReviewNotices ||= new Set<string>();
-            if (notices.has(signature)) return;
-            if (notices.size >= 128) notices.clear();
-            notices.add(signature);
-            const message = overflow.length
-                ? `Plan 历史产物超过 5 个代码/配置版本：${overflow.map(row => `${row.planFile}（${row.versionCount} 个）`).join("；")}。请前往审核和清理；当前及运行中的产物保留。`
-                : `有 ${sameCode.length} 个同代码旧任务目录可由最新完整结果替代。请审核完整路径；新结果未完成或校验未通过时保留旧结果。`;
-            void vscode.window.showWarningMessage(message, "审核和清理历史产物").then(async choice => {
-                if (choice !== "审核和清理历史产物" || workspaceRoot() !== root) return;
-                const latest = await this.loadPlanOutputRetentionQueue(root);
-                if (workspaceRoot() !== root) return;
-                const olderIds = PlanOutputRetention.outputVersionReview(latest).flatMap(row => row.olderRunIds);
-                const runIds = PlanArtifactSyncStatus.latestCompletePlansForSyncCheck(latest, this.localPlanMetadata?.plans || []).map(plan => plan.id);
-                await this.retainLatestDistributedPlanOutputs(root, runIds, olderIds, true);
-            }).then(undefined, error => this.recordActionError({ command: "planOutputRetention", message: errorMessage(error) }));
-        } catch (error) {
-            this.recordActionError?.({ command: "planOutputRetention", message: errorMessage(error) });
-        }
+    private notifyPlanOutputVersionReview(_root, _queue): void {
+        // History remains inspectable; new runs only keep their declared latest outputs.
     }
     async loadPlanOutputRetentionQueue(root) {
         return PlanOutputRetention.withValidatedPlanJobCounts(await this.loadDistributedQueue(root), this.localPlanMetadata?.plans || []);
@@ -18173,7 +18198,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             checked[target.id] = filterInventoryByScope(result.files, mirrorPaths);
         }
         const verified = planProjectMirror(checked, filterInventoryByScope(codeManifest, mirrorPaths), ledger, holds);
-        const configured = this.setupConfig.workerTunnels.map((worker) => worker.id).filter(Boolean);
+        const configured = this.enabledWorkerConfigs().map((worker) => worker.id).filter(Boolean);
         const disabled = configured.filter((id) => !targets.some((target) => target.id === id));
         const pendingPlans = PlanArtifactSync.pendingPlanSyncs(ledger).map((item) => item.destinationWorkerId);
         const state = {
@@ -21645,7 +21670,7 @@ return "历史服务器";
                     recallOperationId: job.recallOperationId || "",
                     commandId: job.commandId, logPath: job.logPath, finishedAt: job.finishedAt, outputRetiredAt: job.outputRetiredAt,
                     error: job.error, blockReason: job.blockReason, admissionRejection: job.admissionRejection, failureDiagnostic: job.failureDiagnostic, formalConflictEvidence: job.formalConflictEvidence,
-                    artifactError: job.artifactError, mirroredWorkerIds: job.mirroredWorkerIds || [] })) }));
+                    artifactError: job.artifactError, latestArtifactSync: job.latestArtifactSync, mirroredWorkerIds: job.mirroredWorkerIds || [] })) }));
         const summaryInputs = {
             plans: [
                 ...(Array.isArray(this.localPlanMetadata.plans) ? this.localPlanMetadata.plans : []),

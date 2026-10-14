@@ -128,6 +128,7 @@ async function callSftpWithProgress(method, params, discover, onProgress) {
     const { endpoint, headers } = discovery;
     (0, SafeRequestRetry_1.assertRetryRequestCurrent)();
     const operationId = `sftp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    const metadataRead = ["sync.projectInventory", "sync.projectTree", "sync.projectTreeState", "sync.projectFileStats"].includes(method);
     const fileOperation = /^(sync[.]|upload[.]|download[.]|remote[.])/.test(method);
     const requestAbort = new AbortController(), eventsAbort = new AbortController();
     const startedAt = Date.now();
@@ -136,6 +137,9 @@ async function callSftpWithProgress(method, params, discover, onProgress) {
     let cancellation, operationSent = false, operationNotStarted = false;
     let stopPending = false;
     function cancelRemote() {
+        // Closing a read cancels its request-scoped SSH child. No writer receipt or saved retry fence is needed.
+        if (metadataRead)
+            return Promise.resolve();
         if (cancellation)
             return cancellation;
         cancellation = cancelRemoteCore();
@@ -193,7 +197,7 @@ async function callSftpWithProgress(method, params, discover, onProgress) {
         }
     }
     const inactivity = new ProgressInactivity_1.ProgressInactivity(fileOperation ? 120_000 : 30_000, () => {
-        requestAbort.abort(new Error("无真实进展，执行结果待确认。连接中断时实时通道会自动重连；请刷新目标状态，勿重复执行。"));
+        requestAbort.abort(new Error(metadataRead ? "文件查询长时间没有进展，请重新刷新；未改变远端文件。" : "无真实进展，执行结果待确认。连接中断时实时通道会自动重连；请刷新目标状态，勿重复执行。"));
         void cancelRemote();
     });
     const onCancel = () => { requestAbort.abort(params.signal?.reason); void cancelRemote(); };
@@ -286,7 +290,7 @@ async function callSftpWithProgress(method, params, discover, onProgress) {
         requestAbort.signal.throwIfAborted();
         const recovery = { method, params, discover, onProgress };
         const registerStopCheck = () => (0, SafeRequestRetry_1.registerRetryStopCheck)(() => confirmSftpOperationStopped(operationId, discovery, recovery));
-        if (fileOperation)
+        if (fileOperation && !metadataRead)
             forgetStopCheck = registerStopCheck();
         const { signal: _signal, ...serializable } = params;
         const requestBody = JSON.stringify({ jsonrpc: "2.0", id: operationId, method, params: {
@@ -309,7 +313,8 @@ async function callSftpWithProgress(method, params, discover, onProgress) {
                     throw requestAbort.signal.reason || error;
                 const cause = error?.cause?.code || error?.code;
                 const detail = `${error instanceof Error ? error.message : String(error || "连接中断")}${cause ? ` [${String(cause).slice(0, 64)}]` : ""}`;
-                throw new Error(`SimpleSFTP ${method} 请求中断，旧传输结果未知，未重新传输；刷新目标状态并确认远端退出后再重试。${detail ? ` (${detail})` : ""}`);
+                throw new Error(metadataRead ? `SimpleSFTP ${method} 文件查询失败，可重新刷新。${detail}`
+                    : `SimpleSFTP ${method} 请求中断，旧传输结果未知，未重新传输；刷新目标状态并确认远端退出后再重试。${detail ? ` (${detail})` : ""}`);
             }
         };
         let response = await sendOperation();
@@ -319,7 +324,7 @@ async function callSftpWithProgress(method, params, discover, onProgress) {
         requestAbort.signal.throwIfAborted();
         const blocker = payload.error?.data;
         operationNotStarted = blocker?.notStarted === true;
-        if (fileOperation && blocker?.blockedOperationId && typeof blocker.operationInstanceId === "string") {
+        if (fileOperation && !metadataRead && blocker?.blockedOperationId && typeof blocker.operationInstanceId === "string") {
             // Only an explicit producer receipt proves that this new operation never
             // started. Do not retain a stop check for a nonexistent operation id.
             if (blocker.notStarted === true)

@@ -25,3 +25,21 @@ test('confirmation broker replays only the pending request, ignores stale clicks
  broker.cancel('other');broker.answer({requestId:id,choice:'delete_and_run'});assert.equal(await wait,'delete_and_run');broker.answer({requestId:id,choice:'delete_and_run'});assert.equal(sent.filter(m=>m.type==='planRunConfirmationClosed').length,1);
  const second=broker.ask(host,{...payload,operationId:'two'});await new Promise(r=>setImmediate(r));broker.cancel('two');assert.equal(await second,'cancel');
 });
+test('simultaneous requests cannot replace an opening confirmation panel',async()=>{
+ const {RunConfirmation}=require('../../src/extension/RunConfirmation.ts'),broker=new RunConfirmation();let release;
+ const host={openPanelAt:()=>new Promise(r=>release=r),view:{webview:{postMessage(){}}}},payload={operationId:'one',groups:[{value:'go'}]};
+ const first=broker.ask(host,payload);await assert.rejects(broker.ask(host,payload),/已有路径确认/);release();await new Promise(setImmediate);broker.cancel('one');assert.equal(await first,'cancel');
+});
+test('reload releases the confirmation without cancelling the saved original submission',async()=>{
+ const source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8'),ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true);let method;
+ function visit(n){if(ts.isMethodDeclaration(n)&&n.name.getText(ast)==='submissionStillCurrent')method=n;ts.forEachChild(n,visit);}visit(ast);
+ const isCurrent=vm.runInNewContext(ts.transpileModule('class Host{'+method.getText(ast)+'};Host.prototype.submissionStillCurrent',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{workspaceRoot:()=>'/project'});
+ const {RunConfirmation}=require('../../src/extension/RunConfirmation.ts'),broker=new RunConfirmation(),controller=new AbortController();
+ const host={activationAbortController:controller,planSubmissionOperationId:()=> 'original',localOperations:{original:{status:'running'}},distributedSubmissionEpochs:new Map(),openPanelAt:async()=>{},view:{webview:{postMessage(){}}}};
+ assert.equal(isCurrent.call(host,{},0,'/project'),true);
+ const pending=broker.ask(host,{operationId:'original',groups:[{value:'go'}]});await new Promise(setImmediate);
+ broker.cancel();controller.abort();assert.equal(await pending,'cancel');
+ assert.equal(isCurrent.call(host,{},0,'/project'),false);assert.equal(host.localOperations.original.status,'running');
+ const recovered={...host,activationAbortController:new AbortController()};assert.equal(isCurrent.call(recovered,{},0,'/project'),true);
+ recovered.localOperations.original.status='cancelled';assert.equal(isCurrent.call(recovered,{},0,'/project'),false);
+});

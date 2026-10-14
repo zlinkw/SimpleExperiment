@@ -39,6 +39,7 @@ exports.distributedQueueBaseSignature = distributedQueueBaseSignature;
 exports.setDistributedQueueBaseSignature = setDistributedQueueBaseSignature;
 exports.cloneDistributedQueue = cloneDistributedQueue;
 exports.restoreFormalJobQueue = restoreFormalJobQueue;
+exports.keepCurrentObservations = keepCurrentObservations;
 exports.serializeDistributedQueue = serializeDistributedQueue;
 exports.taskAttempt = taskAttempt;
 exports.queueMetadataAdvanceRecorded = queueMetadataAdvanceRecorded;
@@ -135,10 +136,27 @@ function restoreFormalJobQueue(queue) {
     return queue;
 }
 function clearNativeProjection(job) {
-    job.status = job.unavailable ? "cancelled" : job.commandId ? "unknown" : "pending";
+    job.status = job.unavailable || job.retainExistingOutputs ? "cancelled" : job.commandId ? "unknown" : "pending";
     for (const key of ["executionState", "resultState", "statusQueryError", "lastObservedAt", "trustedTerminalStatus", "error", "blockReason",
         "tmuxPane", "tmuxWindowId", "tmuxSession", "logPath", "finishedAt"])
         delete job[key];
+}
+/** Metadata writes keep the current in-memory observation; disk history never supplies runtime truth. */
+function keepCurrentObservations(queue, live, now = Date.now()) {
+    if (!live)
+        return queue;
+    const keys = ["status", "executionState", "resultState", "statusQueryError", "lastObservedAt", "error", "blockReason",
+        "tmuxPane", "tmuxWindowId", "tmuxSession", "logPath", "finishedAt"];
+    for (const plan of queue.plans)
+        for (const job of plan.jobs) {
+            const current = live.plans.find(row => row.id === plan.id && row.projectId === plan.projectId)?.jobs.find(row => row.index === job.index);
+            if (job.lifecycleProtocol !== 2 || !job.commandId || !current || current.commandId !== job.commandId || current.workerId !== job.workerId
+                || !current.lastObservedAt || now - Date.parse(current.lastObservedAt) > 30000 || !Number.isFinite(Date.parse(current.lastObservedAt)))
+                continue;
+            for (const key of keys)
+                job[key] = current[key];
+        }
+    return queue;
 }
 function serializeDistributedQueue(queue) {
     const copy = cloneDistributedQueue(queue);
@@ -1427,7 +1445,7 @@ function retryVerifiedJob(queue, planId, jobIndex, runId) {
                 failureDiagnostic: undefined, formalConflictEvidence: undefined, blockReason: undefined, recoveryConflict: undefined,
                 stopReason: undefined, automaticRetry: undefined, dispatchAcknowledgedAt: undefined, lastDispatchAttemptAt: undefined,
                 cleanup: undefined,
-                artifacts: undefined, artifactError: undefined, artifactRetryAfter: undefined, outputRetiredAt: undefined,
+                artifacts: undefined, artifactError: undefined, artifactRetryAfter: undefined, latestArtifactSync: undefined, outputRetiredAt: undefined,
                 historyLogIdentity: undefined, logPath: undefined,
                 status: "pending", history: [...(item.history || []), { attempt: item.attempt,
                         status: item.status, workerId: item.workerId, commandId: item.commandId, outputDir: item.outputDir,

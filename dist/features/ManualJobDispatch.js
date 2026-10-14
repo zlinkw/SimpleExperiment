@@ -51,8 +51,10 @@ async function dispatchManualJobs(ports, request) {
             }
         ports.assertCurrent();
         await ports.save(queue);
-        if (!await ports.review(plan, selected))
+        const reviewed = await ports.review(plan, selected);
+        if (reviewed === false)
             return { status: "cancelled", message: "文件审核已取消，未启动本批任务。" };
+        const accepted = Array.isArray(reviewed) ? selected.filter(job => reviewed.includes(job.index)) : selected;
         const online = ports.online(request.workerId);
         if (online) {
             if (!ports.supports(request.workerId))
@@ -62,7 +64,12 @@ async function dispatchManualJobs(ports, request) {
         const latest = await ports.load(), current = latest.plans.find(row => row.id === plan.id);
         if (!current || current.revision !== plan.revision)
             throw new Error("PLAN 已变化，未派发。");
-        for (const original of selected) {
+        for (const original of selected.filter(job => !accepted.includes(job))) {
+            const job = current.jobs.find(row => row.index === original.index);
+            if (job)
+                Object.assign(job, { manualDispatch: undefined, retainExistingOutputs: true, status: "cancelled", manualDispatchNotice: "保留已有完成产物，本次未派发。" });
+        }
+        for (const original of accepted) {
             const job = current.jobs.find(row => row.index === original.index);
             if (!job || (job.commandId || "") !== identities.get(job.index))
                 throw new Error("任务已变化，未派发。");
@@ -72,10 +79,10 @@ async function dispatchManualJobs(ports, request) {
                 runKey: undefined, status: "pending", lifecycleProtocol: 2, actualExecutionMode: current.executionMode,
                 executionState: undefined, resultState: undefined, finishedAt: undefined, error: undefined,
                 stopIntent: undefined, automaticRetry: undefined, recallRequested: undefined, reassignmentPending: undefined,
-                unavailable: undefined, cleanup: undefined, outputRetiredAt: undefined, trainingRecovery: undefined,
+                unavailable: undefined, cleanup: undefined, outputRetiredAt: undefined, trainingRecovery: undefined, retainExistingOutputs: undefined,
                 trustedTerminalStatus: undefined, admissionRejection: undefined, formalConflictEvidence: undefined, originalExecution: undefined,
                 statusQueryError: undefined, lastObservedAt: undefined, tmuxWindowId: undefined, tmuxPane: undefined, tmuxSession: undefined,
-                artifacts: undefined, artifactError: undefined, artifactRetryAfter: undefined, mirroredWorkerIds: undefined, fragmentWorkerIds: undefined,
+                artifacts: undefined, artifactError: undefined, artifactRetryAfter: undefined, latestArtifactSync: undefined, mirroredWorkerIds: undefined, fragmentWorkerIds: undefined,
                 manualDispatchNotice: online ? undefined : "目标服务器未连接，已回到自动派发队列。",
                 checkpointTestOnly: undefined, localQueueOnly: true, blockReason: online ? undefined : "目标服务器未连接，已回到自动派发队列。",
                 manualDispatch: online ? { workerId: request.workerId, gpuId: String(request.gpuId), stage: "ready" } : undefined });
@@ -84,7 +91,7 @@ async function dispatchManualJobs(ports, request) {
         committed = true;
         // A later disconnect before sending can still fall back. Once marked sent it can only be queried.
         await ports.tick();
-        return { status: "submitted", fallbackToAutomatic: !online, indices };
+        return { status: "submitted", fallbackToAutomatic: !online, indices: accepted.map(job => job.index) };
     }
     finally {
         if (!committed) {

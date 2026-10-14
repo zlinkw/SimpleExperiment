@@ -2,7 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.planLatestWorkerMerge = planLatestWorkerMerge;
 /** Plan/manual authority wins; otherwise use a unique newest Worker timestamp. */
-function planLatestWorkerMerge(statuses, workerIds) {
+function planLatestWorkerMerge(statuses, workerIds, completedSourceId) {
     const ids = [...new Set(workerIds)];
     const items = [];
     const skipped = [];
@@ -10,14 +10,14 @@ function planLatestWorkerMerge(statuses, workerIds) {
         if (path === "." || status.copies || status.state === "same" || status.detail === "当前同步范围外")
             continue;
         const versions = status.versions || {};
-        if (status.unverified || status.state === "unknown") {
+        if (status.unverified || status.state === "unknown" && !(completedSourceId && versions[completedSourceId]?.sha256)) {
             skipped.push(`${path}：版本未校验`);
             continue;
         }
         const choices = ids.filter((id) => versions[id]?.sha256 && ["manual", "plan", "candidate", "same"].includes(versions[id].latest || ""));
         const priority = { manual: 0, plan: 1, candidate: 2, same: 3 };
         choices.sort((a, b) => priority[versions[a].latest] - priority[versions[b].latest] || a.localeCompare(b));
-        const sourceId = choices[0];
+        const sourceId = completedSourceId ? versions[completedSourceId]?.sha256 ? completedSourceId : undefined : choices[0];
         if (!sourceId) {
             skipped.push(`${path}：没有可靠的最新版`);
             continue;

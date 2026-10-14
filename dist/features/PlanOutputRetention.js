@@ -46,6 +46,7 @@ const node_crypto_1 = require("node:crypto");
 const path = __importStar(require("node:path"));
 const DistributedPlanQueue_1 = require("./DistributedPlanQueue");
 const PlanRunFreshness_1 = require("../results/PlanRunFreshness");
+const LatestJobArtifacts_1 = require("./LatestJobArtifacts");
 const terminal = new Set(["completed", "failed", "cancelled"]);
 const normalizePlan = (value) => String(value || "").replace(/\\/g, "/").replace(/^\.\//, "").toLowerCase();
 const ordered = (plans) => plans.map((plan, index) => ({ plan, index }))
@@ -93,6 +94,15 @@ function withValidatedPlanJobCounts(queue, metadata = []) {
 }
 /** Only the complete authority and newer staging runs need artifact transfer. History is metadata. */
 function plansForOutputSync(queue) {
+    const native = (0, LatestJobArtifacts_1.newestJobOutputs)(queue).filter(row => row.job.lifecycleProtocol === 2);
+    const nativePlans = new Map();
+    for (const { plan, job } of native) {
+        if (!nativePlans.has(plan.id))
+            nativePlans.set(plan.id, { ...plan, jobs: [] });
+        nativePlans.get(plan.id).jobs.push(job);
+    }
+    const nativeIds = new Set(queue.plans.filter(plan => plan.jobs.some(job => job.lifecycleProtocol === 2)).map(plan => plan.id));
+    queue = { ...queue, plans: queue.plans.filter(plan => !nativeIds.has(plan.id)) };
     queue = { ...queue, plans: queue.plans.filter(plan => !plan.cleanup) };
     const keep = new Set();
     for (const file of new Set(queue.plans.map((plan) => normalizePlan(plan.planFile)))) {
@@ -107,7 +117,7 @@ function plansForOutputSync(queue) {
             if (plan.jobs.some((job) => !terminal.has(job.status)))
                 keep.add(plan.id);
     }
-    return queue.plans.filter((plan) => keep.has(plan.id));
+    return [...queue.plans.filter((plan) => keep.has(plan.id)), ...nativePlans.values()];
 }
 /** Only a single literal attempt leaf can ever be retired, never the Plan/job/project root. */
 function isAttemptOutputDir(value) {

@@ -3,12 +3,15 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.workerTaskQueries = workerTaskQueries;
 exports.assertLaunchObservations = assertLaunchObservations;
 const PulledTaskControl_1 = require("./PulledTaskControl");
+const LatestJobArtifacts_1 = require("./LatestJobArtifacts");
 /** History remains display-only. Never invent identities for a current query. */
 function workerTaskQueries(queue, workerId) {
     const queries = new Map();
+    const latest = new Set((0, LatestJobArtifacts_1.newestJobOutputs)(queue).map(row => row.plan.id + "\0" + row.job.index));
     for (const plan of queue.plans || [])
         for (const job of plan.jobs || []) {
-            if (job.workerId !== workerId || !["dispatching", "queued", "running", "unknown"].includes(job.status))
+            if (job.workerId !== workerId || !["dispatching", "queued", "running", "unknown"].includes(job.status)
+                && !(job.lifecycleProtocol === 2 && job.status === "completed" && latest.has(plan.id + "\0" + job.index)))
                 continue;
             if (![plan.projectId, job.workerId, job.commandId, job.outputDir].every(value => typeof value === "string" && value.trim()))
                 continue;

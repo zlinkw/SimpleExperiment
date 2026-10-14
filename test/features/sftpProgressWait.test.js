@@ -145,3 +145,18 @@ test('oversized SSE frames release their reader and do not interrupt the actual 
     assert.equal(cancelled, true);
   } finally { global.fetch = original; }
 });
+test('cancelled metadata reads permit a fresh refresh without waiting for a missing transfer receipt',async()=>{
+ const original=global.fetch,calls=[],controller=new AbortController();let first=true;
+ global.fetch=async(url,options)=>{
+  if(String(url).includes('/events'))return new Response(null,{status:204});
+  const req=JSON.parse(options.body);calls.push(req.method);
+  assert.ok(!['transfers.cancel','transfers.reconcile'].includes(req.method));
+  if(first){first=false;return new Promise((resolve,reject)=>options.signal.addEventListener('abort',()=>reject(options.signal.reason),{once:true}));}
+  return Response.json({result:{ok:true,entries:[],exists:true}});
+ };
+ try{
+  const discovery=async()=>({endpoint:new URL('http://127.0.0.1:1'),headers:{},instanceId:'fixture'});
+  const query=callSftpWithProgress('sync.projectTree',{signal:controller.signal},discovery);await new Promise(setImmediate);controller.abort(Error('user cancelled query'));
+  await assert.rejects(query,/cancelled query/);const next=await callSftpWithProgress('sync.projectTree',{},discovery);assert.deepEqual(next.entries,[]);assert.deepEqual(calls,['sync.projectTree','sync.projectTree']);
+ }finally{global.fetch=original;for(const wait of waits)wait.dispose();}
+});

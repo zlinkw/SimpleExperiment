@@ -8,9 +8,9 @@
 
 1. 查询隔离、逐项错误与提交检查前移：实现并验证完成。
 2. 共用两次确认、覆盖/补跑与提交恢复：实现并验证完成。
-3. 单 job 最新产物自动同步、最新一轮保留：待实施。
-4. 批量删除后文件树与空目录读取：待实施。删除或成功查询不存在的路径直接从文件索引、勾选及过滤列表移除，不建立“已删除”展示项；查询失败保留错误，不能当作空目录。
-5. 集成、真实隔离 tmux、发行与一次安装：待实施。
+3. 单 job 最新产物自动同步、最新一轮保留：实现，单文件回归通过。
+4. 批量删除后文件树与空目录读取：实现，单文件回归通过。删除或成功查询不存在的路径直接从文件索引、勾选及过滤列表移除，不建立“已删除”展示项；查询失败保留错误，不能当作空目录。
+5. 集成、真实隔离 tmux：本地通过；发行与一次安装在最终包验证后执行。
 
 失败基线：提交链路在替换后查询 Worker；全部历史记录混入请求，99 条缺少 projectId；错误被改成通用 unavailable。0.5.309 的原失败运行不自动重放。
 
@@ -27,3 +27,11 @@
 批次 1 提交：00f0fbeb6c49b9ea5ed0d336d0d65dfa46161fa1。
 
 批次 2 验证：planRunReplacement 5 项、planRunRecovery 3 项、planRunQueryRegression 4 项、planSubmissionVisiblePreflight 19 项、planOutputReplacementHost 2 项及 formalJobExecution 6 项通过。修正旧测试抽取范围及注入依赖；planStopClear 34 项通过。完整 npm run build 通过，所有实际渲染 script 与 PanelHtml.js 的 vm.Script 通过。确认弹窗沿用 CSP nonce；无未命名文档、第三次确认或自动环境导入。生产未部署。
+
+批次 2 提交：a83da8b94dc2467b8e29c97edfe11ccd7e4b92c0。
+
+补充规则：Worker 间默认范围包含整个 work_dirs/work_dir（默认 . 已包含），与本机代码范围分开。空目录读取超时追加单独的存在性/空目录轻量查询，成功证实为空才返回空列表；真实查询错误不假装为空。目录/stat 读取不排在大文件传输和哈希清单后。
+
+集成前验证：latestJobArtifacts 3 项、completedJobLatestSync 3 项、syncScopeDeletionRefresh 3 项、sftpProgressWait 9 项、manualJobDispatch 8 项通过；真实隔离 tmux CPU 启动约 7.5 秒通过，新增声明结果查询确认成功/失败。SimpleSFTP metadataTreeRead 4 项和 transferRecovery 32 项通过，完整 build 通过。所有路径均临时夹具或模拟节点，未访问生产产物。
+
+集成验证：SimpleExperiment 完整 package（含 build、串行回归、Windows 流程和运行闭包检查）通过，SimpleSFTP 0.2.84 package 通过。补充重载期间的确认中断回归，planRunRecovery 5 项通过：停用扩展释放确认等待不会被持久化成用户取消；显式取消仍不能恢复执行。运行包最终以相同源码重新构建、核对 SHA256 后发行。未测生产冷/热耗时、真实服务器文件交互和重载后的面板；这些留待用户重载并更新 Agent/Scheduler 后验收，不能以夹具耗时代替。

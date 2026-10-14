@@ -27,7 +27,7 @@ function syncScopeIssueSignature(status, endpoints) {
     const authority = endpoints.map((id) => versions[id]?.latest || "-").join("|");
     return `${parts.join("|")};${authority}`;
 }
-async function expandSyncScopeBatchSelection(selected, excluded, list, progress = () => { }, knownEntries = []) {
+async function expandSyncScopeBatchSelection(selected, excluded, list, progress = () => { }, knownEntries = [], options = {}) {
     const paths = [...new Set(selected)];
     const exclusions = [...new Set(excluded.map(SyncResolution_1.safeSyncPath))];
     if (!paths.length)
@@ -45,11 +45,16 @@ async function expandSyncScopeBatchSelection(selected, excluded, list, progress 
     const resolve = async (relative) => {
         if (relative === ".")
             return { name: ".", path: ".", directory: true };
-        if (known.has(relative))
+        if (!options.fresh && known.has(relative))
             return known.get(relative);
         const entry = (await children(parentOf(relative))).find((item) => item.path === relative);
-        if (!entry)
+        if (!entry) {
+            if (options.fresh && options.onMissing) {
+                options.onMissing(relative);
+                return undefined;
+            }
             throw new Error(`已勾选路径不存在，请刷新文件树：${relative}`);
+        }
         return entry;
     };
     const result = [];
@@ -76,16 +81,18 @@ async function expandSyncScopeBatchSelection(selected, excluded, list, progress 
     const topPaths = paths.filter((relative) => !paths.some((ancestor) => ancestor !== relative && (ancestor === "." || relative.startsWith(`${ancestor}/`))));
     let next = 0;
     let completed = 0;
-    await Promise.all(Array.from({ length: Math.min(8, topPaths.length) }, async () => {
+    await Promise.all(Array.from({ length: Math.min(options.fresh ? 2 : 8, topPaths.length) }, async () => {
         for (;;) {
             const index = next++;
             if (index >= topPaths.length)
                 return;
-            await expand(await resolve(topPaths[index]));
+            const entry = await resolve(topPaths[index]);
+            if (entry)
+                await expand(entry);
             progress(++completed, topPaths.length);
         }
     }));
-    if (!result.length)
+    if (!result.length && !options.fresh)
         throw new Error("所选范围内没有可操作的文件或目录。");
     return result.sort((a, b) => a.path.localeCompare(b.path));
 }

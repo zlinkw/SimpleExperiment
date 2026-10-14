@@ -14327,7 +14327,7 @@ export function renderPanelHtml(): string {
           const jobActive = ["pending", "dispatching", "queued", "running", ...(job.lifecycleProtocol === 2 ? [] : ["unknown"])].includes(status) && !blocked;
           const unavailable = job.unavailable && status === "cancelled";
           const preflightRejected = Boolean(job.admissionRejection && status === "failed");
-          const statusLabel = job.lifecycleProtocol === 2 && status === "unknown" ? (job.statusQueryError ? "查询失败，状态未知" : job.executionState === "exited" ? "执行结束，结果待确认" : "远端未发现该任务") : unavailable ? "不可用" : blocked ? (String(job.blockReason || "").indexOf("等待当前代码版本") === 0 ? "等待代码版本" : "代码版本不匹配") : retryView.label || ({ pending: "本机等待空卡", queued: "服务器排队", dispatching: "派发中", running: "运行中", completed: "已完成", failed: "失败", cancelled: "已中止", unknown: "待核实" }[status] || status);
+          const statusLabel = job.retainExistingOutputs ? "保留已有产物" : job.lifecycleProtocol === 2 && status === "unknown" ? (job.statusQueryError ? "查询失败，状态未知" : job.executionState === "exited" ? "执行结束，结果待确认" : "远端未发现该任务") : unavailable ? "不可用" : blocked ? (String(job.blockReason || "").indexOf("等待当前代码版本") === 0 ? "等待代码版本" : "代码版本不匹配") : retryView.label || ({ pending: "本机等待空卡", queued: "服务器排队", dispatching: "派发中", running: "运行中", completed: "已完成", failed: "失败", cancelled: "已中止", unknown: "待核实" }[status] || status);
           const placement = (job.workerId ? job.workerId + (preflightRejected ? " · 未启动" : job.gpuId == null || job.gpuId === "" ? "" : " · GPU " + job.gpuId) : "未派发") + (job.manualDispatch ? " · 手动指定" : "");
           const canJumpLog = Boolean(!preflightRejected && job.workerId && (job.commandId || job.outputDir));
           const logButton = '<button type="button" class="mini secondary" data-job-tmux-log="1" data-worker-id="' + escAttr(job.workerId || "") + '" data-command-id="' + escAttr(job.commandId || "") + '" data-output-dir="' + escAttr(job.outputDir || "") + '"' + (canJumpLog ? '' : ' disabled') + ' title="' + (canJumpLog ? '在 TMUX 区域选中该 Worker 的真实任务窗口标签' : '等待任务派发后定位对应的 TMUX 日志标签') + '">跳转到日志</button>';
@@ -14366,6 +14366,7 @@ export function renderPanelHtml(): string {
             + (failedCleanupNote ? '<div class="muted">' + esc(failedCleanupNote) + '</div>' : '')
             + (retryView.note ? '<div class="muted">' + esc(retryView.note) + '</div>' : '')
             + (job.manualDispatchNotice ? '<div class="muted">' + esc(job.manualDispatchNotice) + '</div>' : '')
+            + (job.latestArtifactSync ? '<div class="muted">最新产物同步：' + esc(job.latestArtifactSync.state === "synced" ? "已同步到全部启用服务器" : job.latestArtifactSync.state === "excluded" ? "不在当前勾选范围内" : "未完成，可刷新重试") + '</div>' : '')
             + (blockText ? '<div class="executionDistributedJobError">' + esc(blockText) + (blockAdvice ? '<div>下一步：' + esc(blockAdvice.replace(/^下一步：/, "")) + '</div>' : '') + '</div>' : '')
             + (errorText ? '<div class="executionDistributedJobError">' + esc(errorText) + jobNext + '</div>' : '') + '</div>';
         }).join("") + '</div>' : '';
@@ -14582,6 +14583,8 @@ export function renderPanelHtml(): string {
             trainLogPath: job.trainLogPath,
             error: job.error,
             artifactError: job.artifactError,
+            latestArtifactSync: job.latestArtifactSync,
+            retainExistingOutputs: job.retainExistingOutputs,
             automaticRetry: job.automaticRetry,
             recallRequested: job.recallRequested,
           })),

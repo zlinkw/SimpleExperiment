@@ -5,10 +5,17 @@ const node_crypto_1 = require("node:crypto");
 /** Only the pending exact payload can be answered, once. No persistent approval flag. */
 class RunConfirmation {
     pending;
+    opening = false;
     async ask(host, payload, signal) {
-        if (this.pending)
+        if (this.pending || this.opening)
             throw new Error("已有路径确认窗口，请先完成或取消。");
-        await host.openPanelAt("execution", "execution-plan-list", { userInitiated: true });
+        this.opening = true;
+        try {
+            await host.openPanelAt("execution", "execution-plan-list", { userInitiated: true });
+        }
+        finally {
+            this.opening = false;
+        }
         if (signal?.aborted)
             return "cancel";
         return new Promise(resolve => {

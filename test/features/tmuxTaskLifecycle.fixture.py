@@ -40,7 +40,7 @@ if case=="failure": sys.exit(7)
 out=pathlib.Path(root)/output;out.mkdir(parents=True,exist_ok=True)
 (out/"model.pth").write_bytes(b"cpu-fixture")
 metrics=pathlib.Path(root)/csv;metrics.parent.mkdir(parents=True,exist_ok=True);metrics.write_text("metric,value\\nacc,1\\n",encoding="utf-8")
-(out/"artifact_manifest.json").write_text(json.dumps({"simpleExperiment":{"runId":command,"status":"completed","mode":"train_test","outputDir":output,"weights":[output+"/model.pth"],"resultCsv":csv}}),encoding="utf-8")
+(out/"artifact_manifest.json").write_text(json.dumps({"simpleExperiment":{"runId":command,"status":"completed","mode":"train_test","job":{"index":int(command.split("-")[-1]),"case":case,"seed":42},"outputDir":output,"weights":[output+"/model.pth"],"resultCsv":csv}}),encoding="utf-8")
 ''',encoding="utf-8")
 namespace={"__file__":str(program)}
 exec(bootstrap+code,namespace)
@@ -104,6 +104,8 @@ try:
     wait_for(lambda: any(r["commandId"]==failure["commandId"] and r["dead"] for r in namespace["task_inventory"](root)))
     failed=next(row for row in namespace["task_query"](root,[failure])["tasks"] if row["commandId"]==failure["commandId"])
     assert failed["status"]=="failed" and failed["exitCode"]==7,failed
+    declarations=[dict(index=item["experimentIndex"],case=item["case"],seed=item["seed"],mode=item["mode"],output_dir=item["outputDir"],result_csv=item["collectionResultCsv"]) for item in (a,b,failure)]
+    assert [item["completed"] for item in namespace["task_declared_results"](root,declarations)]==[True,True,False]
     print(json.dumps(dict(ok=True,realTmux=True,callbacks=0,stateFilesRead=0)))
 finally:
     # This is the fixture's newly created server under its private TMUX_TMPDIR only.

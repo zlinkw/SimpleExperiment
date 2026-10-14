@@ -41,3 +41,8 @@ test("latest Worker merge uses distributed publication source for a conflicting 
     items: [{ path: file, sourceId: "w3", destinationIds: ["w2", "w5"] }], skipped: [],
   });
 });
+test('a freshly verified completed job supersedes an obsolete chosen hash without bypassing real unreadable files',()=>{
+ const row={state:'unknown',detail:'old chosen hash no longer exists',versions:{w1:{sha256:'a'.repeat(64)},w2:{sha256:'b'.repeat(64),latest:'manual'}}};
+ assert.deepEqual(planLatestWorkerMerge({'work_dirs/job/model.pth':row},['w1','w2'],'w1').items,[{path:'work_dirs/job/model.pth',sourceId:'w1',destinationIds:['w2']}]);
+ assert.equal(planLatestWorkerMerge({'work_dirs/job/model.pth':{...row,unverified:true}},['w1','w2'],'w1').items.length,0);
+});

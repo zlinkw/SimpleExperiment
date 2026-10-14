@@ -43,3 +43,9 @@ test('train, test and train_test keep their declared execution mode and checkpoi
   assert.equal(f.q.plans[0].jobs[0].actualExecutionMode,mode);assert.equal(f.q.plans[0].jobs[0].checkpointSource.path,'checkpoint/frozen.pt');
  }
 });
+test('missing-only confirmation dispatches only its selected subset, including after reload',async()=>{
+ const f=fixture();f.ports.review=async()=>[1];const result=await dispatchManualJobs(f.ports,request);
+ assert.deepEqual(result.indices,[1]);assert.equal(f.sends,1);assert.equal(f.q.plans[0].jobs[0].retainExistingOutputs,true);
+ const Queue=require('../../dist/features/DistributedPlanQueue');const restored=Queue.restoreFormalJobQueue(JSON.parse(Queue.serializeDistributedQueue(f.q)));
+ assert.equal(restored.plans[0].jobs[0].status,'cancelled');
+});

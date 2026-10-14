@@ -68,7 +68,7 @@ export class ManualDispatchHost {
       workerSubmissionSnapshots:[],runReplacement:{}};
     const validation={execution_mode:plan.executionMode,jobs:jobs.map(j=>({index:j.index,case:j.case,seed:j.seed,output_dir:j.outputDir,result_csv:j.collectionResultCsv}))};
     await h.assertPlanSubmissionWorkers(body,{validation});
-    try {await new PlanRunHost(h,this.root).replace(plan,body,validation);return true;}
+    try {await new PlanRunHost(h,this.root).replace(plan,body,validation);return (body as any).assignedExperimentIndices;}
     catch(error:any){if(error.apiData?.code==="REPLACEMENT_CANCELLED")return false;throw error;}
   }
 }

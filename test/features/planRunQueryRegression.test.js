@@ -25,6 +25,12 @@ test('actual refresh excludes invalid and finished history, preserves current qu
  host.client.getWorkerTasks=async()=>{throw Error('HTTP 400 /api/worker/tasks/query: TASK_QUERY_IDENTITY_REQUIRED');};
  const failed=await refresh.call(host,'worker','/fixture','cache');assert.match(failed.error,/HTTP 400.*TASK_QUERY_IDENTITY_REQUIRED/);
 });
+test('closed native windows keep querying only current completed manifests, never every historical run',()=>{
+ const {workerTaskQueries}=deps().WorkerTaskQuery;
+ const old={id:'old',projectId:'project',planFile:'p.yaml',enqueuedAt:'2026-10-14T00:00:00Z',jobs:[{index:0,case:'a',seed:42,workerId:'worker',commandId:'old',outputDir:'work/a',status:'completed',lifecycleProtocol:2}]};
+ const current={...old,id:'new',enqueuedAt:'2026-10-14T01:00:00Z',jobs:[{...old.jobs[0],commandId:'new'}]};
+ assert.deepEqual(workerTaskQueries({plans:[old,current]},'worker').map(row=>row.commandId),['new']);
+});
 test('Worker failure is checked before any existing-output replacement in the real submission method',async()=>{
  const finish=method('finishDistributedPlanSubmission',{PlanRunHost:require('../../src/extension/PlanRunHost.ts').PlanRunHost,WorkflowBinding:{bindWorkflowWorkspace:()=>({}),assertWorkflowWorkspace(){}},workspaceRoot:()=>'/fixture',stringField:(x,k)=>x[k]||'',planValidationFromResult:x=>x.validation,isUiCommandCancelled:()=>false,errorMessage:e=>e.message,DistributedPlanQueue:{distributedSubmissionProgress:()=>({status:'succeeded'})}});
  const calls=[],host={planSubmissionOperationId:()=>'',submissionStillCurrent:()=>true,distributedCodeVersionHold:async()=>undefined,
