@@ -22,6 +22,8 @@ async function queryTask(client, plan, job, timeoutMs = 8000) {
             new Promise((_, reject) => controller.signal.addEventListener("abort", () => reject(controller.signal.reason), { once: true }))]);
         if (snapshot?.capabilities?.taskLifecycle !== 2)
             throw new Error("TASK_LIFECYCLE_PROTOCOL_REQUIRED：请更新 Worker Agent/Scheduler；未派发任务");
+        if (snapshot.queryComplete !== true || snapshot.error)
+            throw new Error(String(snapshot.error || "Worker 实时任务查询未完成；未确认任务已停止"));
         const task = (snapshot.tasks || []).find((row) => (0, TaskLifecycle_1.observationMatches)(row.observation || {}, {
             commandId: job.commandId, projectId: plan.projectId, workerId: job.workerId
         }));

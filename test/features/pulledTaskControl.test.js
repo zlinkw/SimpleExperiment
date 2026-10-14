@@ -3,7 +3,7 @@ require('../_helpers/registerTsRequire');
 const P=require('../../src/features/PulledTaskControl.ts'),Q=require('../../src/features/DistributedPlanQueue.ts');
 const plan={id:'wf',projectId:'p',planFile:'plans/p.yaml',revision:'a',codeFingerprint:'b',jobs:[],enqueuedAt:new Date().toISOString()};
 const job={index:0,workerId:'w',commandId:'c',status:'running',outputDir:'work/job',collectionResultCsv:'tmp/result/job.csv',lifecycleProtocol:2};
-function snapshot(cancelled,live=false){return {capabilities:{taskLifecycle:2},tasks:[{observation:{lifecycleProtocol:2,commandId:'c',projectId:'p',workerId:'w',observedAt:new Date().toISOString(),cancelled,
+function snapshot(cancelled,live=false){return {queryComplete:true,capabilities:{taskLifecycle:2},tasks:[{observation:{lifecycleProtocol:2,commandId:'c',projectId:'p',workerId:'w',observedAt:new Date().toISOString(),cancelled,
   ...(live?{tmux:{dead:false,phase:'running'}}:{})}}]};}
 test('lost stop response and no pushed events still settle from a fresh native query',async()=>{
   let reads=0,posts=0;
@@ -16,6 +16,7 @@ test('a failed query ends this round; old protocols and foreign identities never
   await assert.rejects(P.queryTask({getWorkerTasks:()=>new Promise(()=>{})},plan,job,20),/查询超时/);
   await assert.rejects(P.queryTask({getWorkerTasks:async()=>{throw Error('offline');}},plan,job),/offline/);
   await assert.rejects(P.queryTask({getWorkerTasks:async()=>({capabilities:{}})},plan,job),/PROTOCOL_REQUIRED/);
+  await assert.rejects(P.queryTask({getWorkerTasks:async()=>({...snapshot(true),queryComplete:false})},plan,job),/查询未完成/);
   const foreign=snapshot(true);foreign.tasks[0].observation.projectId='other';
   await assert.rejects(P.queryTask({getWorkerTasks:async()=>foreign},plan,job),/commandId/);
 });

@@ -424,6 +424,89 @@ function installStopClearHost(sandbox) {
   return context;
 }
 
+function emptyLiveStopHost(snapshot) {
+  let queue = { schemaVersion: 1, plans: [] };
+  return installStopClearHost({
+    root: 'D:/project', answers: ['继续中止并清除', '确认中止并清除'],
+    planStopClearByFile: {}, distributedPlanStopEpoch: 0,
+    client: { getWorkerTasks: async () => snapshot }, isRealtimeMode: () => true,
+    enabledWorkerConfigs: () => [{ id: 'w' }], captureProjectContext: () => ({}), projectContextIsCurrent: () => true,
+    buildPlanRuntimeEvidenceState: () => ({ operations: {} }),
+    loadDistributedQueue: async () => queue, saveDistributedQueue: async (_, value) => { queue = value; },
+    postState() {}, context: { workspaceState: { get: () => [], update: async () => {} } },
+  });
+}
+
+test('successful empty live inventories finish repeated stop-clear instead of requiring a lost history record', async () => {
+  const host = emptyLiveStopHost({ queryComplete: true, tasks: [], capabilities: { taskLifecycle: 2 } });
+  const result = await host.provider.stopAndClearPlanFromUi({ planFile: 'plans/deleted.yaml' });
+  assert.equal(result.status, 'completed', result.message);
+  assert.equal(host.provider.planStopClearByFile['plans/deleted.yaml'].retained, 0);
+  assert.equal(host.notices.filter(text => /第二次确认/.test(text)).length, 1);
+});
+
+test('an incomplete live inventory never proves that a missing history task has stopped', async () => {
+  for (const snapshot of [{ tasks: [] }, { queryComplete: false, tasks: [], error: 'offline' }]) {
+    const host = emptyLiveStopHost(snapshot);
+    const result = await host.provider.stopAndClearPlanFromUi({ planFile: 'plans/deleted.yaml' });
+    assert.equal(result.status, 'failed');
+    assert.equal(host.notices.filter(text => /第二次确认/.test(text)).length, 0);
+  }
+});
+
+test('an empty plan is not cleared if the confirmation-time live query fails', async () => {
+  const host = emptyLiveStopHost({ queryComplete: true, tasks: [], capabilities: { taskLifecycle: 2 } });
+  let reads = 0;
+  host.provider.client.getWorkerTasks = async () => {
+    if (++reads > 1) throw Error('connection lost during confirmation');
+    return { queryComplete: true, tasks: [], capabilities: { taskLifecycle: 2 } };
+  };
+  const result = await host.provider.stopAndClearPlanFromUi({ planFile: 'plans/deleted.yaml' });
+  assert.equal(result.status, 'failed'); assert.equal(result.planStopClear.phase, 'inventory-changed');
+});
+
+test('an obsolete running operation cannot block cleanup after all current windows are absent', async () => {
+  const host = emptyLiveStopHost({ queryComplete: true, tasks: [], capabilities: { taskLifecycle: 2 } });
+  const operations = { stale: { operationId: 'stale', type: 'run-plan', status: 'running', planFile: 'plans/deleted.yaml',
+    workerId: 'w', tmuxSession: 'old-session', tmuxTarget: 'old-session:1' } };
+  host.provider.buildPlanRuntimeEvidenceState = () => ({ operations });
+  host.provider.runOperationWorkerId = row => row.workerId;
+  host.provider.stopExperimentRouted = () => assert.fail('stale history must not send a remote stop');
+  const result = await host.provider.stopAndClearPlanFromUi({ planFile: 'plans/deleted.yaml' });
+  assert.equal(result.status, 'completed', result.message);
+  assert.ok(host.provider.retiredLocalOperationCalls.includes('stale'));
+});
+
+test('a native job with no old scheduler operation is stopped using its live command binding', async () => {
+  const projectId = require('../../dist/features/DistributedPlanQueue.js').canonicalProjectId('D:/project');
+  const task = { lifecycleProtocol: 2, commandId: 'native-command', projectId, workerId: 'w', workflowId: 'native-workflow',
+    planFile: 'plans/native.yaml', outputDir: 'work/native', collectionResultCsv: 'tmp/result/native.csv', experimentIndex: 0,
+    observation: { lifecycleProtocol: 2, commandId: 'native-command', projectId, workerId: 'w', observedAt: new Date().toISOString(),
+      tmux: { paneId: '%23', windowId: '@7', dead: false, phase: 'running' } } };
+  const host = emptyLiveStopHost({ queryComplete: true, tasks: [task], capabilities: { taskLifecycle: 2 } });
+  for (const patch of [{ projectId: 'foreign' }, { outputDir: '../other' }, { commandId: 'different' }]) {
+    assert.throws(() => planner.nativePlanStopTargets({ queryComplete: true, capabilities: { taskLifecycle: 2 }, tasks: [{ ...task, ...patch }] },
+      'w', task.planFile, projectId), /窗口绑定不完整/);
+  }
+  assert.deepEqual(planner.nativePlanStopTargets({ queryComplete: true, capabilities: { taskLifecycle: 2 }, tasks: [task] },
+    'w', 'plans/other.yaml', projectId), []);
+  const oldOperations = { parent: { type: 'run-plan', operationId: 'old-parent', planFile: task.planFile, workerId: 'w', status: 'running' },
+    same: { type: 'run-plan', operationId: task.commandId, planFile: task.planFile, workerId: 'w', status: 'running' } };
+  host.provider.buildPlanRuntimeEvidenceState = () => ({ operations: oldOperations });
+  host.provider.runOperationWorkerId = row => row.workerId;
+  host.provider.stopExperimentRouted = () => assert.fail('use live native binding, not old parent operations');
+  let stops = 0;
+  host.provider.stopDistributedJobForClear = async (plan, job) => {
+    assert.equal(plan.id, task.workflowId); assert.equal(job.commandId, task.commandId);
+    assert.equal(job.lifecycleProtocol, 2); stops++;
+    return { stoppedTasks: [{ closedWindowIds: ['@7'] }] };
+  };
+  const result = await host.provider.stopAndClearPlanFromUi({ planFile: task.planFile });
+  assert.equal(result.status, 'completed', result.message); assert.equal(stops, 1);
+  assert.match(host.notices[0] + host.notices[1], /@7/);
+  assert.ok(host.provider.retiredLocalOperationCalls.includes('old-parent'));
+});
+
 test("production stop-clear removes a queue-only blocked plan without waiting on unrelated workers", async () => {
   const queueApi = require("../../dist/features/DistributedPlanQueue.js");
   const queued = enqueueStopFixture(enqueueStopFixture(queueApi.emptyDistributedQueue(), {

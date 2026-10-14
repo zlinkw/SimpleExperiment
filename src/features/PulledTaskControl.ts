@@ -17,6 +17,8 @@ export async function queryTask(client: any, plan: any, job: any, timeoutMs = 80
     const snapshot = await Promise.race([client.getWorkerTasks(job.workerId, { signal: controller.signal, queries: [taskQuery(plan, job)] }),
       new Promise<any>((_, reject) => controller.signal.addEventListener("abort", () => reject(controller.signal.reason), { once: true }))]);
     if (snapshot?.capabilities?.taskLifecycle !== 2) throw new Error("TASK_LIFECYCLE_PROTOCOL_REQUIRED：请更新 Worker Agent/Scheduler；未派发任务");
+    if (snapshot.queryComplete !== true || snapshot.error)
+      throw new Error(String(snapshot.error || "Worker 实时任务查询未完成；未确认任务已停止"));
     const task = (snapshot.tasks || []).find((row: any) => observationMatches(row.observation || {}, {
       commandId: job.commandId, projectId: plan.projectId, workerId: job.workerId }));
     if (!task) throw new Error("任务查询未返回所选 commandId 的证据");

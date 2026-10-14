@@ -5305,7 +5305,7 @@ def close_worker_task_pane(root, task):
         return {"paneClosed": False, "paneCloseError": str(exc)[-500:]}
 
 def local_stop_tmux_inventory(root):
-    listed = subprocess.run(["tmux", "list-panes", "-a", "-F", "#{pane_id}\t#{session_name}\t#{window_id}\t#{window_name}\t#{@simple_experiment_command}\t#{@simple_experiment_project}"],
+    listed = subprocess.run(["tmux", "list-panes", "-a", "-F", "#{pane_id}\t#{session_name}\t#{window_id}\t#{window_name}\t#{@simple_experiment_command}\t#{@simple_experiment_project}\t#{pane_dead}\t#{pane_dead_status}"],
                             capture_output=True, text=True, timeout=3, cwd=root)
     if listed.returncode:
         error = str(listed.stderr or "").strip()
@@ -5315,9 +5315,9 @@ def local_stop_tmux_inventory(root):
     rows = []
     for line in str(listed.stdout or "").splitlines():
         fields = line.split("\t")
-        if len(fields) != 6 or not re.fullmatch(r"%[0-9]+", fields[0]) or not re.fullmatch(r"@[0-9]+", fields[2]) or not fields[1]:
+        if len(fields) != 8 or not re.fullmatch(r"%[0-9]+", fields[0]) or not re.fullmatch(r"@[0-9]+", fields[2]) or not fields[1]:
             raise ValueError("TMUX_INVENTORY_INVALID")
-        rows.append(dict(zip(("pane", "session", "window", "name", "command", "project"), fields)))
+        rows.append(dict(zip(("pane", "session", "window", "name", "command", "project", "dead", "exitCode"), fields)))
     return rows
 
 def retirement_plan_file(value):

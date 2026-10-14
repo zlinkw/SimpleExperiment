@@ -69,9 +69,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.315"
-RUNTIME_VERSION = "0.5.315"
-PLUGIN_VERSION = "0.5.315"
+AGENT_VERSION = "0.5.316"
+RUNTIME_VERSION = "0.5.316"
+PLUGIN_VERSION = "0.5.316"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -5947,7 +5947,7 @@ def close_worker_task_pane(root, task):
         return {"paneClosed": False, "paneCloseError": str(exc)[-500:]}
 
 def local_stop_tmux_inventory(root):
-    listed = subprocess.run(["tmux", "list-panes", "-a", "-F", "#{pane_id}\t#{session_name}\t#{window_id}\t#{window_name}\t#{@simple_experiment_command}\t#{@simple_experiment_project}"],
+    listed = subprocess.run(["tmux", "list-panes", "-a", "-F", "#{pane_id}\t#{session_name}\t#{window_id}\t#{window_name}\t#{@simple_experiment_command}\t#{@simple_experiment_project}\t#{pane_dead}\t#{pane_dead_status}"],
                             capture_output=True, text=True, timeout=3, cwd=root)
     if listed.returncode:
         error = str(listed.stderr or "").strip()
@@ -5957,9 +5957,9 @@ def local_stop_tmux_inventory(root):
     rows = []
     for line in str(listed.stdout or "").splitlines():
         fields = line.split("\t")
-        if len(fields) != 6 or not re.fullmatch(r"%[0-9]+", fields[0]) or not re.fullmatch(r"@[0-9]+", fields[2]) or not fields[1]:
+        if len(fields) != 8 or not re.fullmatch(r"%[0-9]+", fields[0]) or not re.fullmatch(r"@[0-9]+", fields[2]) or not fields[1]:
             raise ValueError("TMUX_INVENTORY_INVALID")
-        rows.append(dict(zip(("pane", "session", "window", "name", "command", "project"), fields)))
+        rows.append(dict(zip(("pane", "session", "window", "name", "command", "project", "dead", "exitCode"), fields)))
     return rows
 
 def retirement_plan_file(value):
@@ -17663,9 +17663,8 @@ def task_query(root, queries=()):
                 continue
             for tab in legacy:
                 if tab["command"] == query.get("commandId") and tab["project"] == query.get("projectId") and not any(row["tmuxPane"] == tab["pane"] for row in rows):
-                    facts = task_tmux(["display-message", "-p", "-t", tab["pane"], "#{pane_dead}\t#{pane_dead_status}"]).split("\t")
                     rows.append({**query, "tmuxPane": tab["pane"], "tmuxWindowId": tab["window"], "tmuxSession": tab["session"],
-                        "dead": facts[0] == "1", "exitCode": int(facts[1]) if len(facts) > 1 and facts[1].isdigit() else None,
+                        "dead": tab["dead"] == "1", "exitCode": int(tab["exitCode"]) if re.fullmatch(r"-?\d+", tab["exitCode"]) else None,
                         "phase": "running", "gpuId": query.get("gpuId", ""), "logPath": ""})
     requested = {(item.get("projectId"), item.get("commandId")) for item in queries if isinstance(item, dict)}
     jobs = {(row["projectId"], row["commandId"]): row for row in rows if not queries or not row["dead"] or (row["projectId"], row["commandId"]) in requested}
@@ -17692,7 +17691,14 @@ def task_query(root, queries=()):
             except Exception:
                 pass
             if public["status"] == "failed" and row:
-                public["error"] = task_tmux(["capture-pane", "-p", "-t", row["tmuxPane"], "-S", "-80"])[-8000:]
+                try:
+                    public["error"] = task_tmux(["capture-pane", "-p", "-t", row["tmuxPane"], "-S", "-80"])[-8000:]
+                except RuntimeError as exc:
+                    # A user may close an exited tab between inventory and log capture.
+                    # A fresh inventory distinguishes disappearance from a broken tmux query.
+                    if any(item["tmuxPane"] == row["tmuxPane"] for item in task_inventory(root)):
+                        raise
+                    public["logQueryError"] = str(exc)
             tasks.append(public)
         except Exception as exc:
             tasks.append({**job, "status": "unknown", "lifecycleProtocol": 2, "observation": {

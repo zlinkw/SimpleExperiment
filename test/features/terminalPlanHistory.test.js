@@ -72,6 +72,7 @@ function fixture(kind = 'completed') {
     stopDistributedJobForClear: async () => assert.fail('history-only cleanup stopped a job'),
     revokePlanSubmissions() {}, planStopClearWaitMs: () => 1000,
     boundedPromise: async work => work(), markLocalOperationsDirty() {}, postState() {},
+    retireLocalOperationState: async ids => { calls.push('retire:' + ids.join(',')); for (const id of ids) delete operations[id]; },
     publishPlanStopClear(file, input) { this.planStopClearByFile[file] = Planner.planStopClearFeedback({ planFile: file, ...input }); },
     finishPlanStopClear(file, input) { this.publishPlanStopClear(file, input); return Planner.planStopClearUiResult(this.planStopClearByFile[file]); },
   });
@@ -97,10 +98,11 @@ test('failed validation with no generated jobs clears by exact full PLAN path wi
   const f = fixture('validation');
   const result = await f.run();
   assert.equal(result.status, 'completed', result.message);
-  assert.deepEqual(f.calls, []);
+  assert.deepEqual(f.calls, ['retire:validate-plan-failed']);
   assert.ok(f.state.get('hidden').includes('validate-plan-failed'));
   assert.ok(!f.state.get('hidden').includes('foreign'));
-  assert.equal(f.operations['validate-plan-failed'].status, 'failed');
+  assert.equal(f.operations['validate-plan-failed'], undefined);
+  assert.equal(f.operations.foreign.status, 'failed');
   assert.equal(f.queue().plans[0].id, 'unrelated');
 });
 

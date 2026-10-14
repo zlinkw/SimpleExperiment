@@ -78,7 +78,7 @@ import { waitForCodeSyncProof } from "../features/CodeSyncProofWaiter";
 import { ManualDispatchHost } from "./ManualDispatchHost";
 import { dispatchReadyManualJobs } from "../features/ManualJobDispatch";
 import { hashLocalCodeFiles, localCodeManifestCachePath } from "../features/LocalCodeManifestCache";
-import { distributedQueueOnlyClearable, mergeTrustedPlanOperations, planCleanupTargets, planRecoveryConflicts, planStopClearFeedback, planStopClearPreview, planStopClearUiResult, planStopIdentityConflictMessage, planStopMissingEvidenceMessage, terminalPlanHistorySelection, trustedRemotePlanOperations } from "../features/PlanStopClear";
+import { distributedQueueOnlyClearable, mergeTrustedPlanOperations, nativePlanStopTargets, planCleanupTargets, planRecoveryConflicts, planStopClearFeedback, planStopClearPreview, planStopClearUiResult, planStopIdentityConflictMessage, planStopMissingEvidenceMessage, terminalPlanHistorySelection, trustedRemotePlanOperations } from "../features/PlanStopClear";
 import { parseDistributedResultsFlag } from "../features/DistributedAdapterFlag";
 import { directPlanSyncPreview, transferPlanArtifacts, workerFpsyncTaskLabel } from "../features/PlanArtifactTransfer";
 import { planProjectMirror, normalizeMirrorScopePaths, filterInventoryByScope } from "../features/ProjectMirror";
@@ -13223,7 +13223,7 @@ this.assertActionAuthorityCurrent(options);this.assertPlanTopologyReady(options.
         }
     }
     async recoverPlanOperationsForStopClear(planFile, options: { workerIds?: string[]; timeoutMs?: number } = {}) {
-        const detail = { realtime: this.isRealtimeMode(), workersChecked: 0, failures: [] };
+        const detail = { realtime: this.isRealtimeMode(), workersChecked: 0, inventoryComplete: false, nativeTargets: [], failures: [] };
         if (!detail.realtime) return { recovered: [], ...detail };
         const projectContext = this.captureProjectContext();
         const client = this.client;
@@ -13250,6 +13250,13 @@ this.assertActionAuthorityCurrent(options);this.assertPlanTopologyReady(options.
                 detail.failures.push(`${workers[index]}: ${errorMessage(snapshot.reason)}`);
                 continue;
             }
+            if (snapshot.value?.queryComplete !== true || snapshot.value?.error || !Array.isArray(snapshot.value?.tasks)) {
+                detail.failures.push(`${workers[index]}: ${snapshot.value?.error || "实时任务查询未完成，不能据此确认没有任务"}`);
+            }
+            try {
+                detail.nativeTargets.push(...nativePlanStopTargets(snapshot.value, workers[index], planFile,
+                    DistributedPlanQueue.canonicalProjectId(workspaceRoot())));
+            } catch (error) { detail.failures.push(`${workers[index]}: ${errorMessage(error)}`); }
             const rows = trustedRemotePlanOperations(snapshot.value, workers[index], planFile);
             if (!rows.length) continue;
             const accepted = Object.fromEntries(recovered.map((row) => [row.operationId, {
@@ -13260,6 +13267,8 @@ this.assertActionAuthorityCurrent(options);this.assertPlanTopologyReady(options.
             conflicts.push(...planRecoveryConflicts(this.localOperations, rows), ...planRecoveryConflicts(evidence, rows), ...planRecoveryConflicts(accepted, rows));
             recovered.push(...rows);
         }
+        detail.inventoryComplete = workers.length > 0 && !detail.failures.length
+            && snapshots.every(item => item.status === "fulfilled" && item.value?.capabilities?.taskLifecycle === 2);
         if (conflicts.length) {
             detail.failures.push(planStopIdentityConflictMessage(planFile, conflicts));
             return { recovered: [], conflicts, ...detail };
@@ -16390,9 +16399,9 @@ this.assertActionAuthorityCurrent(options);this.assertPlanTopologyReady(options.
                 : `正在核对 ${recoverWorkers.length || "已启用"} 个相关 Worker 的调度身份，单次查询最长 8 秒。`,
             nextStep: "等待目标预览和两次确认；取消不会改队列。",
         });
-            recovered = queueOnly || distributed.length || remoteLocalTargets.length && remoteLocalTargets.every(target => target.workerId)
+            recovered = queueOnly || distributed.length
                 ? { recovered: [], conflicts: [], realtime: this.isRealtimeMode(), workersChecked: 0, failures: [] }
-                : await this.recoverPlanOperationsForStopClear(planFile, { workerIds: recoverWorkers, timeoutMs: this.planStopClearWaitMs() });
+                : await this.recoverPlanOperationsForStopClear(planFile, { timeoutMs: Math.min(8000, this.planStopClearWaitMs()) });
         }
         catch (error) {
             return this.finishPlanStopClear(planFile, {
@@ -16429,9 +16438,19 @@ this.assertActionAuthorityCurrent(options);this.assertPlanTopologyReady(options.
                 const row = operations[target.operationId] || Object.values(operations).find((item: any) => String(item?.operationId || item?.id || "") === target.operationId) || {};
                 const operationIdText = String(row.operationId || row.id || target.operationId || "");
                 const localSubmission = row.localSubmissionProgress === true || operationIdText.startsWith("plan-submit-");
+                // A legacy operation status cannot override a successful current inventory.
+                const liveAbsent = recovered.inventoryComplete
+                    && !recovered.recovered.some(row => row.operationId === target.operationId)
+                    && !recovered.nativeTargets.some(row => row.operationId === target.operationId && row.workerId === target.workerId);
+                if (liveAbsent) return { ...target, active: false, localSubmission, liveAbsent, tmuxSession: "", tmuxTarget: "" };
                 return { ...target, workerId: localSubmission ? "" : (this.runOperationWorkerId(row) || target.workerId), active: localSubmission ? false : target.active, localSubmission };
             });
-            if (!targets.length && !distributed.length) {
+            for (const target of recovered.nativeTargets || []) {
+                const index = targets.findIndex(row => row.operationId === target.operationId && row.workerId === target.workerId);
+                if (index >= 0) targets[index] = target;
+                else targets.push(target);
+            }
+            if (!targets.length && !distributed.length && !recovered.inventoryComplete) {
                 const text = planStopMissingEvidenceMessage(planFile, recovered);
                 void vscode.window.showInformationMessage(text);
                 return this.finishPlanStopClear(planFile, {
@@ -16449,6 +16468,8 @@ this.assertActionAuthorityCurrent(options);this.assertPlanTopologyReady(options.
             }));
             active = targets.filter((target) => target.active);
             preview = planStopClearPreview(planFile, targets, distributedLines);
+            if (!targets.length && !distributed.length)
+                preview += "\n全部启用 Worker 的实时查询已完成，未发现该 Plan 的任务窗口。确认后清除本机残留提示；不关闭其他窗口，不删除产物。";
         }
         catch (error) {
             return this.finishPlanStopClear(planFile, {
@@ -16478,6 +16499,16 @@ this.assertActionAuthorityCurrent(options);this.assertPlanTopologyReady(options.
                 message: root !== workspaceRoot() ? "第二次确认期间项目已切换，已取消。" : "第二次确认已取消，队列和运行进度都未改。",
                 nextStep: "需要清理时重新点该 Plan 卡片上的“终止并清理”。",
             });
+        }
+        if ((!targets.length || targets.every(target => target.liveAbsent)) && !distributed.length) {
+            const checked = await this.recoverPlanOperationsForStopClear(planFile, { timeoutMs: this.planStopClearWaitMs() });
+            const currentQueue = await this.loadDistributedQueue(root);
+            if (root !== workspaceRoot() || !checked.inventoryComplete || checked.recovered.length || checked.nativeTargets.length
+                || DistributedPlanQueue.distributedStopTargets(currentQueue, planFile).length) {
+                return this.finishPlanStopClear(planFile, { phase: "inventory-changed", outcome: "failed",
+                    message: "确认后任务状态已变化或查询失败，未把该 Plan 标为已清理。", failures: checked.failures,
+                    nextStep: "刷新后重新核对并确认这一张 Plan。" });
+            }
         }
         const stopEpoch = this.distributedPlanStopEpoch = (this.distributedPlanStopEpoch || 0) + 1;
         this.revokePlanSubmissions(planFile);
@@ -16534,10 +16565,20 @@ this.assertActionAuthorityCurrent(options);this.assertPlanTopologyReady(options.
             message: `正在按身份停止 ${active.length} 条活动进度和 ${distributed.filter((row) => row.active).length} 个活动 job。`,
             nextStep: "未确认停止或 tmux 未关闭的条目会保留在队列里。",
         });
-        for (const target of targets.filter(target => !target.localSubmission && target.workerId)) {
+        for (const target of targets.filter(target => !target.localSubmission && !target.liveAbsent && target.workerId)) {
             if (!clearStillHere()) break;
             if (target.localSubmission) continue;
             try {
+                if (target.nativeTask) {
+                    const task = target.nativeTask;
+                    await this.boundedPromise(() => this.stopDistributedJobForClear({ id: task.workflowId, projectId: task.projectId,
+                        planFile: task.planFile, jobs: [] }, { ...task, index: task.experimentIndex, lifecycleProtocol: 2 }, true),
+                        this.planStopClearWaitMs(), new Error(`Worker ${target.workerId} 尚未核实窗口关闭，原 commandId 保留。`));
+                    if (!clearStillHere()) break;
+                    stopped.add(target.operationId);
+                    closedTmux.add(target.operationId);
+                    continue;
+                }
                 const row = operations[target.operationId] || Object.values(operations).find((item: any) => String(item?.operationId || item?.id || "") === target.operationId) || {};
                 const workerId = this.runOperationWorkerId(row) || target.workerId;
                 if (!clearStillHere()) break;
@@ -16564,7 +16605,7 @@ this.assertActionAuthorityCurrent(options);this.assertPlanTopologyReady(options.
                 failures,
             });
         }
-        const stoppedOrEnded = targets.filter((target) => target.workerId && !target.localSubmission
+        const stoppedOrEnded = targets.filter((target) => target.workerId && !target.localSubmission && !target.liveAbsent
             ? stopped.has(target.operationId) : !target.active || stopped.has(target.operationId));
         const closeWindow = async (workerId, tmuxTarget, tmuxSession, label) => {
             if (!clearStillHere()) return false;
@@ -16806,6 +16847,7 @@ this.assertActionAuthorityCurrent(options);this.assertPlanTopologyReady(options.
             const hidden = this.context.workspaceState.get(keys.executionHistoryHiddenOperationIds, []);
             await this.context.workspaceState.update(keys.executionHistoryHiddenOperationIds,
                 uniqueStrings([...(Array.isArray(hidden) ? hidden : []), ...frozen.operationIds]));
+            await this.retireLocalOperationState?.(frozen.operationIds);
             if (!current()) throw new Error("历史状态保存后项目已切换，未报告全部完成");
             this.postState();
             return this.finishPlanStopClear(planFile, { phase: "history-cleared", outcome: "completed",
