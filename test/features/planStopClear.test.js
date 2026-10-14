@@ -18,6 +18,7 @@ function enqueueStopFixture(queue, plan, id) {
   const saved = api.enqueuePlan(queue, plan, id);
   for (const declaration of plan.jobs) {
     const job = saved.plans.at(-1).jobs.find(row => row.index === declaration.index);
+    delete job.lifecycleProtocol; // Persisted pre-protocol-2 execution fixture.
     Object.assign(job, declaration);
   }
   return saved;
@@ -1746,6 +1747,7 @@ test("the full formal stop-clear chain accepts no attempt field and never recrea
     revision: "frozen-revision", codeFingerprint: "frozen-code", executionMode: "train",
     jobs: [{ index: 0, case: "case", seed: 42, outputDir: "work_dirs/direct/job", collectionResultCsv: "tmp/result/direct/job.csv" }] }, "original-workflow");
   const plan = saved.plans[0], job = plan.jobs[0];
+  delete job.lifecycleProtocol; // Historical terminal receipt compatibility.
   Object.assign(job, { status: "failed", workerId: "worker", commandId: "original-command", runKey: "original-command", gpuId: "0" });
   Object.defineProperty(job, "attempt", { enumerable: false, configurable: true,
     get() { throw Error("formal stop-clear must not read attempt"); } });

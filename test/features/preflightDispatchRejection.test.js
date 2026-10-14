@@ -65,6 +65,7 @@ function fixture(initial = true) {
     resultPathPolicy: 'declared', schedulingMode: 'local_idle', jobs: [42, 43].map((seed, index) => ({ index, case: 'case', seed,
       outputDir: agentReceipt.outputDir.replace('seed42', 'seed' + seed),
       collectionResultCsv: agentReceipt.collectionResultCsv.replace('seed42', 'seed' + seed) })) }, agentReceipt.workflowId);
+  stored.plans[0].jobs.forEach(job => { delete job.lifecycleProtocol; }); // Legacy receipt recovery fixture.
   if (!initial) stored.plans[0].jobs.forEach((job, index) => Object.assign(job, {
     status: 'unknown', workerId: 'worker', gpuId: String(index), commandId: index ? 'second-command' : agentReceipt.commandId,
     runKey: index ? 'second-command' : agentReceipt.commandId,

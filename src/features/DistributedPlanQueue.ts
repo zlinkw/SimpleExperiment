@@ -19,6 +19,7 @@ export type QueuedJob = {
   /** Zero is the historical schema compatibility sentinel, never an execution version. */
   attempt: number;
   status: JobState;
+  lifecycleProtocol?: 2;
   executionState?: string;
   resultState?: string;
   statusQueryError?: string;
@@ -163,6 +164,10 @@ export function restoreFormalJobQueue(queue: DistributedQueue): DistributedQueue
 export function serializeDistributedQueue(queue: DistributedQueue): string {
   const copy = cloneDistributedQueue(queue);
   for (const plan of copy.plans) if (plan.resultPathPolicy === "declared") for (const job of plan.jobs) {
+    if (job.lifecycleProtocol === 2) {
+      job.status = job.commandId ? "unknown" : "pending";
+      for (const key of ["executionState", "resultState", "statusQueryError", "lastObservedAt", "trustedTerminalStatus", "error", "blockReason"] as const) delete job[key];
+    }
     if (job.attempt === 0) delete (job as Partial<QueuedJob>).attempt;
     for (const record of job.history || []) if (record.attempt === 0) delete (record as { attempt?: number }).attempt;
   }
@@ -426,8 +431,9 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
       if (snapshot.error) observation.queryError = snapshot.error;
       if (!observationMatches(observation, { commandId: job.commandId, workerId: job.workerId, projectId })) return job;
       const state = taskLifecycle(observation);
-      return { ...job, status: state.status, executionState: state.execution, resultState: state.result,
+      return { ...job, lifecycleProtocol: 2 as const, status: state.status, executionState: state.execution, resultState: state.result,
         statusQueryError: observation.queryError, lastObservedAt: observation.observedAt,
+        error: state.status === "failed" ? String(task?.error || `任务退出码 ${task?.exitCode ?? "未知"}`) : undefined,
         blockReason: state.message, ...(task ? { gpuId: String(task.gpuId ?? job.gpuId ?? ""),
           tmuxPane: String(task.tmuxPane || ""), tmuxWindowId: String(task.tmuxWindowId || ""), tmuxSession: String(task.tmuxSession || "") } : {}) };
     }) })) };
@@ -821,7 +827,7 @@ export function enqueuePlan(queue: DistributedQueue, plan: Omit<QueuedPlan, "id"
         && prior.cleanup.operationId && prior.cleanup.completedTargets?.length && !prior.cleanup.pendingNodes?.length)
         && (prior.outputDir === job.outputDir || job.collectionResultCsv && prior.collectionResultCsv === job.collectionResultCsv))))
       throw new Error("FORMAL_JOB_CONFLICT: this declared directory is already registered; review existing ownership before resubmitting.");
-    return { ...job, resultPathPolicy: "declared" as const, globalJobId: `${id}:${job.index}`, attempt: 0, status: "pending" as const };
+    return { ...job, lifecycleProtocol: 2 as const, resultPathPolicy: "declared" as const, globalJobId: `${id}:${job.index}`, attempt: 0, status: "pending" as const };
   });
   if (!jobs.length) throw new Error("Plan has no jobs.");
   const planJobCount = Number(plan.planJobCount || plan.jobs.length);
@@ -1421,6 +1427,7 @@ export function scheduleAutomaticJobRetries(queue: DistributedQueue, snapshots: 
     .find(task => remoteTaskMatchesJob(plan, job, task) && !task.identityConflict && !task.manualStopType
       && !task.stopReason && !job.stopReason && !job.recallRequested && !job.recoveryConflict);
   for (const original of latest.values()) {
+    if (original.jobs.some(job => job.lifecycleProtocol === 2)) continue;
     if (original.resultPathPolicy !== "declared") continue;
     if (hasUnresolvedPlanRecovery(original) || original.automaticRetry?.disabledAt
       || options.excludedPlanFiles?.some(file => samePlanFile(file, original.planFile))) continue;

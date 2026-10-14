@@ -22,7 +22,7 @@ function taskLifecycle(value) {
             : value.result.status === "completed" && value.result.present && value.result.verified ? "complete" : "incomplete";
     }
     const status = execution === "queued" ? "queued" : ["running", "starting"].includes(execution) ? "running"
-        : execution === "failed" ? "failed" : result === "complete" ? "completed"
+        : execution === "failed" ? "failed" : result === "complete" ? "completed" : value.cancelled && !pane ? "cancelled"
             : execution === "missing" ? "unknown" : "unknown";
     const message = execution === "missing" && result !== "complete" ? "远端未发现该任务；未自动重新派发"
         : execution === "exited" && result !== "complete" ? "执行已结束，产物尚未确认"

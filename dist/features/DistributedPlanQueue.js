@@ -136,6 +136,11 @@ function serializeDistributedQueue(queue) {
     for (const plan of copy.plans)
         if (plan.resultPathPolicy === "declared")
             for (const job of plan.jobs) {
+                if (job.lifecycleProtocol === 2) {
+                    job.status = job.commandId ? "unknown" : "pending";
+                    for (const key of ["executionState", "resultState", "statusQueryError", "lastObservedAt", "trustedTerminalStatus", "error", "blockReason"])
+                        delete job[key];
+                }
                 if (job.attempt === 0)
                     delete job.attempt;
                 for (const record of job.history || [])
@@ -391,8 +396,9 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
                     if (!(0, TaskLifecycle_1.observationMatches)(observation, { commandId: job.commandId, workerId: job.workerId, projectId }))
                         return job;
                     const state = (0, TaskLifecycle_1.taskLifecycle)(observation);
-                    return { ...job, status: state.status, executionState: state.execution, resultState: state.result,
+                    return { ...job, lifecycleProtocol: 2, status: state.status, executionState: state.execution, resultState: state.result,
                         statusQueryError: observation.queryError, lastObservedAt: observation.observedAt,
+                        error: state.status === "failed" ? String(task?.error || `任务退出码 ${task?.exitCode ?? "未知"}`) : undefined,
                         blockReason: state.message, ...(task ? { gpuId: String(task.gpuId ?? job.gpuId ?? ""),
                             tmuxPane: String(task.tmuxPane || ""), tmuxWindowId: String(task.tmuxWindowId || ""), tmuxSession: String(task.tmuxSession || "") } : {}) };
                 }) })) };
@@ -827,7 +833,7 @@ function enqueuePlan(queue, plan, id, enqueuedAt = new Date().toISOString()) {
                 && prior.cleanup.operationId && prior.cleanup.completedTargets?.length && !prior.cleanup.pendingNodes?.length)
                 && (prior.outputDir === job.outputDir || job.collectionResultCsv && prior.collectionResultCsv === job.collectionResultCsv))))
             throw new Error("FORMAL_JOB_CONFLICT: this declared directory is already registered; review existing ownership before resubmitting.");
-        return { ...job, resultPathPolicy: "declared", globalJobId: `${id}:${job.index}`, attempt: 0, status: "pending" };
+        return { ...job, lifecycleProtocol: 2, resultPathPolicy: "declared", globalJobId: `${id}:${job.index}`, attempt: 0, status: "pending" };
     });
     if (!jobs.length)
         throw new Error("Plan has no jobs.");
@@ -1413,6 +1419,8 @@ function scheduleAutomaticJobRetries(queue, snapshots, projectId, options) {
         .find(task => remoteTaskMatchesJob(plan, job, task) && !task.identityConflict && !task.manualStopType
         && !task.stopReason && !job.stopReason && !job.recallRequested && !job.recoveryConflict);
     for (const original of latest.values()) {
+        if (original.jobs.some(job => job.lifecycleProtocol === 2))
+            continue;
         if (original.resultPathPolicy !== "declared")
             continue;
         if (hasUnresolvedPlanRecovery(original) || original.automaticRetry?.disabledAt

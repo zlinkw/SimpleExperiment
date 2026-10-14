@@ -34,11 +34,11 @@ def task_safe_path(root, relative):
     return full
 
 def task_inventory(root):
-    fmt = "#{pane_id}\t#{window_id}\t#{session_name}\t#{pane_dead}\t#{pane_dead_status}\t#{@se_job}\t#{@se_phase}\t#{@se_gpu}"
+    fmt = "#{pane_id}\t#{window_id}\t#{session_name}\t#{pane_dead}\t#{pane_dead_status}\t#{@se_job}\t#{@se_phase}\t#{@se_gpu}\t#{@se_log}"
     rows = []
     for line in task_tmux(["list-panes", "-a", "-F", fmt]).splitlines():
         fields = line.split("\t")
-        if len(fields) != 8 or not fields[5]:
+        if len(fields) != 9 or not fields[5]:
             continue
         try:
             job = json.loads(base64.urlsafe_b64decode(fields[5]).decode("utf-8"))
@@ -49,7 +49,7 @@ def task_inventory(root):
         if job.get("pane") and job["pane"] != fields[0]:
             continue
         row = {**job, "tmuxPane": fields[0], "tmuxWindowId": fields[1], "tmuxSession": fields[2],
-               "dead": fields[3] == "1", "phase": fields[6], "gpuId": fields[7]}
+               "dead": fields[3] == "1", "phase": fields[6], "gpuId": fields[7] or job.get("gpuId", ""), "logPath": fields[8]}
         row["exitCode"] = int(fields[4]) if re.fullmatch(r"-?\d+", fields[4]) else None
         rows.append(row)
     return rows
@@ -94,12 +94,24 @@ def task_public_observation(root, job, row=None):
     elif result and result["runId"] == job["commandId"] and result["status"] == "completed" and result["verified"]:
         status = "completed"
     return {**job, **({k: row[k] for k in ("tmuxWindowId", "tmuxPane", "tmuxSession", "gpuId", "exitCode")} if row else {}),
-            "status": status, "observation": observed, "lifecycleProtocol": 2, "durableAccepted": True}
+            "status": status, "logPath": row.get("logPath") if row else "", "observation": observed, "lifecycleProtocol": 2, "durableAccepted": True}
 
 def task_query(root, queries=()):
     if not isinstance(queries, (list, tuple)) or len(queries) > 500:
         raise ValueError("TASK_QUERY_LIMIT")
     rows = task_inventory(root)
+    # Old managed tabs can be controlled by their real tmux markers, without a task snapshot.
+    if queries and "local_stop_tmux_inventory" in globals():
+        legacy = local_stop_tmux_inventory(root)
+        for query in queries:
+            if not isinstance(query, dict):
+                continue
+            for tab in legacy:
+                if tab["command"] == query.get("commandId") and tab["project"] == query.get("projectId") and not any(row["tmuxPane"] == tab["pane"] for row in rows):
+                    facts = task_tmux(["display-message", "-p", "-t", tab["pane"], "#{pane_dead}\t#{pane_dead_status}"]).split("\t")
+                    rows.append({**query, "tmuxPane": tab["pane"], "tmuxWindowId": tab["window"], "tmuxSession": tab["session"],
+                        "dead": facts[0] == "1", "exitCode": int(facts[1]) if len(facts) > 1 and facts[1].isdigit() else None,
+                        "phase": "running", "gpuId": query.get("gpuId", ""), "logPath": ""})
     jobs = {(row["projectId"], row["commandId"]): row for row in rows}
     for query in queries:
         if not isinstance(query, dict) or not query.get("commandId") or not query.get("projectId") or not query.get("workerId"):
@@ -109,10 +121,23 @@ def task_query(root, queries=()):
         if key not in jobs:
             jobs[key] = query
     tasks = []
+    cancelled_by_worker = {}
     for key, job in jobs.items():
         row = next((item for item in rows if (item["projectId"], item["commandId"]) == key), None)
         try:
-            tasks.append(task_public_observation(root, job, row))
+            public = task_public_observation(root, job, row)
+            try:
+                if job["workerId"] not in cancelled_by_worker:
+                    cancelled_by_worker[job["workerId"]] = json.loads(task_option(task_queue_session(root, job["workerId"]) + ":queue", "cancelled") or "[]")
+                cancelled = cancelled_by_worker[job["workerId"]]
+                public["observation"]["cancelled"] = job["commandId"] in cancelled
+                if not row and job["commandId"] in cancelled and public["status"] != "completed":
+                    public["status"] = "cancelled"
+            except Exception:
+                pass
+            if public["status"] == "failed" and row:
+                public["error"] = task_tmux(["capture-pane", "-p", "-t", row["tmuxPane"], "-S", "-80"])[-8000:]
+            tasks.append(public)
         except Exception as exc:
             tasks.append({**job, "status": "unknown", "lifecycleProtocol": 2, "observation": {
                 "lifecycleProtocol": 2, "commandId": job["commandId"], "projectId": job["projectId"], "workerId": job["workerId"],
@@ -211,6 +236,7 @@ def task_queue_serve(root, worker_id):
     controller = os.environ["TMUX_PANE"]
     secret, epoch = uuid.uuid4().hex, uuid.uuid4().hex
     mutex = threading.RLock()
+    wake = threading.Event()
     remembered = set(json.loads(task_option(controller, "cancelled") or "[]"))
     accepted = {row["commandId"] for row in task_inventory(root)}
     class Handler(BaseHTTPRequestHandler):
@@ -242,9 +268,12 @@ def task_queue_serve(root, worker_id):
                         else:
                             job = task_queue_accept(root, worker_id, payload, controller)
                             accepted.add(command_id)
+                            wake.set()
                             value = {**job, "status": "queued", "durableAccepted": True}
                     elif request["action"] == "cancel":
                         command_id = payload["targetCommandId"]
+                        if any(row["projectId"] != payload["projectId"] for row in task_inventory(root) if row["commandId"] == command_id):
+                            raise ValueError("TASK_OWNER_MISMATCH")
                         if len(remembered) >= 10000 and command_id not in remembered:
                             raise ValueError("CANCELLATION_CAPACITY")
                         remembered.add(command_id)
@@ -255,6 +284,7 @@ def task_queue_serve(root, worker_id):
                                     raise ValueError("TASK_OWNER_MISMATCH")
                                 task_tmux(["kill-window", "-t", row["tmuxWindowId"]])
                         value = {"cancelled": True}
+                        wake.set()
                     else:
                         raise ValueError("UNKNOWN_SCHEDULER_ACTION")
                 result = {"ok": True, "value": value}
@@ -265,9 +295,11 @@ def task_queue_serve(root, worker_id):
             self.wfile.write(body)
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     task_option(controller, "endpoint", json.dumps({"host": server.server_address[0], "port": server.server_address[1],
-        "secret": secret, "epoch": epoch, "root": root, "workerId": worker_id}))
+        "secret": secret, "epoch": epoch, "root": root, "workerId": worker_id, "protocol": 2,
+        "runningVersion": globals().get("RUNTIME_VERSION", "fixture")}))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     while True:
+        queued = []
         try:
             with mutex:
                 rows = task_inventory(root)
@@ -297,7 +329,8 @@ def task_queue_serve(root, worker_id):
                             occupied.add(chosen)
         except Exception as exc:
             print("[queue] " + str(exc), file=sys.stderr, flush=True)
-        time.sleep(0.5)
+        wake.wait(timeout=1 if queued else 5)
+        wake.clear()
 
 def task_runner(root, worker_id):
     pane = os.environ["TMUX_PANE"]
@@ -325,6 +358,9 @@ def task_stop(root, command, worker_id):
     if not target or not project:
         raise ValueError("TASK_STOP_IDENTITY_REQUIRED")
     rows = [row for row in task_inventory(root) if row["commandId"] == target]
+    legacy_tabs = [row for row in local_stop_tmux_inventory(root) if row["command"] == target] if "local_stop_tmux_inventory" in globals() else []
+    if any(row["project"] != project for row in legacy_tabs):
+        raise ValueError("TASK_OWNER_MISMATCH")
     if any(row["projectId"] != project or row["workerId"] != worker_id for row in rows):
         raise ValueError("TASK_OWNER_MISMATCH")
     try:
@@ -335,6 +371,11 @@ def task_stop(root, command, worker_id):
             raise
         for row in rows:
             task_tmux(["kill-window", "-t", row["tmuxWindowId"]])
+    for tab in legacy_tabs:
+        # Reused/renamed windows are rechecked through stable markers immediately before closure.
+        current = [row for row in local_stop_tmux_inventory(root) if row["window"] == tab["window"]]
+        if current and all(row["command"] == target and row["project"] == project for row in current):
+            task_tmux(["kill-window", "-t", tab["window"]])
     remaining = [row for row in task_inventory(root) if row["commandId"] == target and row["projectId"] == project]
     if remaining:
         raise RuntimeError("TASK_STOP_NOT_CONFIRMED")

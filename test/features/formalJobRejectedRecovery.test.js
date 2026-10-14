@@ -16,6 +16,8 @@ function queue() {
   Object.assign(q.plans[0].jobs[0], { status: 'failed', workerId: 'worker', commandId: 'original-command', runKey: 'original-command',
     trustedTerminalStatus: 'failed', error: 'FORMAL_JOB_PREFLIGHT_STALLED', finishedAt: new Date().toISOString(),
     admissionRejection: { code: 'FORMAL_JOB_PREFLIGHT_STALLED', message: 'no progress', rejectedAt: new Date().toISOString() } });
+  // Historical receipt protocol remains read-compatible; protocol 2 has its own pull-control regressions.
+  delete q.plans[0].jobs[0].lifecycleProtocol;
   return q;
 }
 test('rendered panel exposes explicit formal requeue without attempt and keeps running/history tasks protected', () => {

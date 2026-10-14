@@ -5934,6 +5934,8 @@ def _execute_worker_command_unfenced(root, command, worker_id):
 
 def execute_worker_command(root, command, worker_id):
     action = str(command.get("action") or "").strip()
+    if globals().get("TASK_LIFECYCLE_PROTOCOL") == 2 and command.get("resultPathPolicy") == "declared" and action in ("start-worker-task", "retry-worker-task", "stop-worker-task"):
+        command = {**command, "lifecycleProtocol": 2}
     if command.get("lifecycleProtocol") == 2:
         if action == "stop-worker-task":
             return task_stop(root, command, worker_id)
@@ -14419,8 +14421,8 @@ def active_cleanup_operations(root):
 
 
 def api_worker_tasks(root, retired_commands=(), queries=None):
-    if queries is not None:
-        return task_query(root, queries)
+    if queries is not None or globals().get("TASK_LIFECYCLE_PROTOCOL") == 2:
+        return task_query(root, queries or [])
     wanted = set(retired_commands)
     if len(wanted) > 500 or any(not re.match(r"^[A-Za-z0-9._:-]{1,128}$", value) for value in wanted):
         raise ValueError("INVALID_RETIRED_COMMAND_SELECTION")

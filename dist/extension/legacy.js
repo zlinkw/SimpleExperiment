@@ -63,6 +63,7 @@ const PlanSafeRetry_1 = require("../features/PlanSafeRetry");
 const StaticEntrypointProbe_1 = require("../features/StaticEntrypointProbe");
 const PlanOutputReplacement_1 = require("../features/PlanOutputReplacement");
 const FailedJobRecovery = __importStar(require("../features/FailedJobRecovery"));
+const PulledTaskControl = __importStar(require("../features/PulledTaskControl"));
 const JobAvailability = __importStar(require("../features/JobAvailability"));
 const CacheCleanupPanel_1 = require("./CacheCleanupPanel");
 const PlanCleanupHost_1 = require("./PlanCleanupHost");
@@ -1579,7 +1580,10 @@ class RealtimeTunnelPanelProvider {
         const cached = this.cachedWorkerTaskSnapshot(workerId, root, cacheKey);
         const client = this.client;
         try {
-            const value = await this.client.getWorkerTasks(workerId, { signal: options.signal });
+            const queue = await this.loadDistributedQueue(root);
+            const queries = queue.plans.flatMap(plan => plan.jobs.filter(job => job.workerId === workerId && job.commandId)
+                .map(job => PulledTaskControl.taskQuery(plan, job)));
+            const value = await this.client.getWorkerTasks(workerId, { signal: options.signal, queries });
             options.signal?.throwIfAborted();
             if (workspaceRoot() !== root || this.client !== client)
                 return { workerId, schemaVersion: 1, tasks: [], error: "Workspace changed during Worker task snapshot" };
@@ -1594,7 +1598,8 @@ class RealtimeTunnelPanelProvider {
             };
             this.storeWorkerTaskSnapshot(cacheKey, snapshot);
             this.postState();
-            this.queueWorkerTaskSnapshotPersistence(workerId, root, snapshot);
+            if (snapshot.capabilities?.taskLifecycle !== 2)
+                this.queueWorkerTaskSnapshotPersistence(workerId, root, snapshot);
             return workerTaskSnapshotPayload(snapshot);
         }
         catch (error) {
@@ -11564,7 +11569,7 @@ class RealtimeTunnelPanelProvider {
         if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
             throw new Error("提交已取消或项目已切换，未向 Worker 发送任务。");
         const request = {
-            schemaVersion: 1, opId: commandId, operationId: commandId, runKey: commandId,
+            schemaVersion: 1, lifecycleProtocol: 2, opId: commandId, operationId: commandId, runKey: commandId,
             durablePlanQueue: true, schedulingMode: DistributedSchedulingPolicy.schedulingMode(job.localQueueOnly === true || plan.localDispatchOverride === true ? "local_idle" : plan.schedulingMode),
             requireIdleGpu: gpuId !== undefined, ...codeProofFields, projectId: plan.projectId || DistributedPlanQueue.canonicalProjectId(root),
             planJobCount: Number(plan.planJobCount || plan.jobs.length), fullPlanJobCount: Number(plan.fullPlanJobCount || plan.planJobCount || plan.jobs.length), enqueuedAt: plan.enqueuedAt,
@@ -11585,11 +11590,20 @@ class RealtimeTunnelPanelProvider {
                 overwriteExisting: plan.overwriteExisting === true,
                 workerActionMinIntervalMs: this.schedulerSettings().workerActionMinIntervalMs },
         };
-        return this.withRemoteActionResource(workerId, "start-worker-task", request, () => {
+        const transfer = () => this.withRemoteActionResource(workerId, "start-worker-task", request, () => {
             if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
                 throw new Error("提交已取消或项目已切换，未向 Worker 发送任务。");
             return client.postWorkerAction(workerId, "start-worker-task", request);
         });
+        if (job.lifecycleProtocol === 2) {
+            const snapshot = this.lastWorkerTaskSnapshots?.get(`${root}\u0000${workerId}`);
+            if (snapshot?.capabilities?.taskLifecycle !== 2)
+                throw new Error(`TASK_LIFECYCLE_PROTOCOL_REQUIRED：Worker ${workerId} 需要更新 Agent/Scheduler；未派发`);
+            void client.postWorkerAction(workerId, "start-worker-task", request)
+                .catch(error => this.recordActionError({ command: "distributedSubmissionTransport", message: errorMessage(error) }));
+            return { lifecycleProtocol: 2, status: "unknown", commandId, message: "请求已发送；由主动查询核实远端任务" };
+        }
+        return transfer();
     }
     async tickDistributedQueueCore(generation = this.distributedQueueGeneration, signal) {
         const root = workspaceRoot();
@@ -11759,6 +11773,22 @@ class RealtimeTunnelPanelProvider {
                 }
             }
         }
+        const stopTargets = queue.plans.flatMap(plan => plan.jobs.filter(job => job.lifecycleProtocol === 2 && job.stopIntent
+            && job.workerId && job.commandId && verifiedWorkerIds.has(job.workerId)).map(job => ({ plan, job })));
+        for (const { plan, job } of stopTargets) {
+            try {
+                await this.stopDistributedJobForClear(plan, job, true);
+                if (!queueWriteCurrent())
+                    return;
+                const key = DistributedPlanQueue.distributedJobControlKey(plan, job);
+                queue = DistributedPlanQueue.removeConfirmedDistributedPlan(queue, plan.planFile, { jobKeys: new Set([key]), localControlJobKeys: new Set([key]), deferredIds: new Set() });
+            }
+            catch (error) {
+                job.blockReason = errorMessage(error);
+            }
+        }
+        if (stopTargets.length && queueWriteCurrent())
+            await this.saveDistributedQueue(root, queue, { queueGeneration: generation });
         const gpuSnapshotResult = await gpuSnapshotPromise;
         const dispatchGpuSnapshot = gpuSnapshotResult.value;
         for (const [, timing] of submissionPlansForTiming())
@@ -11843,6 +11873,8 @@ class RealtimeTunnelPanelProvider {
                     if (String(this.lastCodeSyncState?.workerVersions?.[job.workerId || ""]?.fingerprint || "") !== plan.codeFingerprint)
                         continue;
                     const snapshot = snapshotsByWorker.get(job.workerId || "");
+                    if (job.lifecycleProtocol === 2)
+                        continue;
                     const retry = DistributedPlanQueue.retryPinnedDispatch(queue, plan.id, job.index, snapshot, idleByWorker.get(job.workerId || "") || []);
                     if (!retry)
                         continue;
@@ -11935,6 +11967,8 @@ class RealtimeTunnelPanelProvider {
                     }
                     const ownerGpuRows = dispatchGpuSnapshot?.[job.workerId];
                     const ownerGpuKnown = Array.isArray(ownerGpuRows) && ownerGpuRows.some((row) => String(row.index ?? row.gpu_id ?? row.gpuId ?? row.id ?? "") === String(job.gpuId));
+                    if (job.lifecycleProtocol === 2)
+                        continue;
                     if (job.status !== "queued" || String(remote.status || "").toLowerCase() !== "queued"
                         || !ownerGpuKnown || !idleByWorker.has(job.workerId)
                         || (idleByWorker.get(job.workerId) || []).includes(String(job.gpuId)))
@@ -12009,7 +12043,7 @@ class RealtimeTunnelPanelProvider {
             const allocation = DistributedPlanQueue.allocateAvailable(queue, workers, { requireIdleGpuAdmission: true, localIdleOnly: true });
             queue = allocation.queue;
             const hostedRetries = queue.plans.flatMap((plan) => DistributedPlanQueue.hostedRetryCandidates(plan)
-                .filter((job) => job.workerId && job.commandId
+                .filter((job) => job.lifecycleProtocol !== 2 && job.workerId && job.commandId
                 && DistributedPlanQueue.hasFreshDurableSnapshot(snapshotsByWorker.get(job.workerId))
                 && String(this.lastCodeSyncState?.workerVersions?.[job.workerId]?.fingerprint || "") === plan.codeFingerprint
                 && !snapshotsByWorker.get(job.workerId)?.tasks?.some((row) => String(row.commandId || "") === job.commandId))
@@ -12072,6 +12106,11 @@ class RealtimeTunnelPanelProvider {
                         && item.commandId === dispatch.commandId && item.workerId === dispatch.workerId);
                     if (!plan || !job)
                         return;
+                    if (job.lifecycleProtocol === 2 && receipt?.lifecycleProtocol === 2) {
+                        job.status = "unknown";
+                        job.blockReason = "已发送；主动查询远端任务";
+                        return;
+                    }
                     try {
                         if (receiptError)
                             throw receiptError;
@@ -12243,6 +12282,10 @@ class RealtimeTunnelPanelProvider {
             const { dispatch, plan, job } = launch;
             if (!plan || !job)
                 continue;
+            if (job.lifecycleProtocol === 2) {
+                job.status = "unknown";
+                continue;
+            }
             try {
                 if ("error" in launch)
                     throw launch.error;
@@ -12957,6 +13000,8 @@ class RealtimeTunnelPanelProvider {
             throw new Error("任务 commandId 已变化；请刷新原 job 后重新确认，未重排。");
         if (plan.resultPathPolicy !== "declared")
             throw new Error("HISTORICAL_ATTEMPT_READ_ONLY：保留权重和日志，旧 attempt 不会恢复执行。");
+        if (job.lifecycleProtocol === 2)
+            return this.retryPulledJob(plan, job, root, isCurrent);
         if (job.cleanup?.state === "partial" || job.cleanup?.pendingNodes?.length)
             throw new Error("FAILED_JOB_CLEANUP_PENDING：该 job 尚有节点未完成人工清理审核；请先核对全部回执，未重排。");
         const fresh = await client.getWorkerTasks(job.workerId);
@@ -13002,6 +13047,38 @@ class RealtimeTunnelPanelProvider {
             return;
         }
     }
+    async retryPulledJob(plan, job, root, isCurrent) {
+        const currentPlan = await fs.readFile(path.join(root, plan.planFile), "utf8");
+        if (crypto.createHash("sha256").update(currentPlan, "utf8").digest("hex") !== plan.revision)
+            throw new Error("PLAN 已变化；请重新校验、预演并提交当前声明，旧卡片未重排。");
+        const { state } = await PulledTaskControl.queryTask(this.client, plan, job);
+        if (!isCurrent())
+            return;
+        if (["running", "starting", "queued"].includes(state.execution))
+            throw new Error("所选任务仍在服务器排队或运行；请先中止或明确召回。");
+        const source = this.workerCodeSyncTargets().find(row => row.id === job.workerId);
+        if (!source)
+            throw new Error("原 Worker 配置不可用；未重新派发。");
+        const inventory = await this.simpleSftpApiCall("sync.projectInventory", { source: this.sftpServerOptions(source),
+            relativePath: ".", scopePaths: [job.outputDir, ...(job.collectionResultCsv ? [job.collectionResultCsv] : [])] });
+        if (!inventory?.files || Object.keys(inventory.unverifiedFiles || {}).length)
+            throw new Error("所选产物路径尚未核实；可重新查询，未重新派发。");
+        if (Object.keys(inventory.files).some(file => file !== job.outputDir + "/.formal_job.lock")) {
+            await this.planCleanupHost().openJob(plan.planFile, { workflowId: plan.id, index: job.index, commandId: job.commandId, purpose: "replace_outputs" });
+            return { status: "blocked", code: "FORMAL_JOB_CONFLICT", message: "已有产物；已打开精确 job 清理预览，未重排。" };
+        }
+        const choice = await vscode.window.showWarningMessage(`重新排队 ${plan.planFile} / ${job.case} / seed ${job.seed}\n已主动核实原任务未运行、产物为空。`, { modal: true }, "重新排队");
+        if (choice !== "重新排队" || !isCurrent())
+            return;
+        await PulledTaskControl.stopPulledTask(this.client, plan, job, makeOpId("requeue-job"));
+        if (!isCurrent())
+            return;
+        const latest = await this.loadDistributedQueue(root);
+        if (latest.plans.find(row => row.id === plan.id)?.jobs.find(row => row.index === job.index)?.commandId !== job.commandId)
+            throw new Error("任务身份已变化；未重新派发。");
+        await this.saveDistributedQueue(root, PulledTaskControl.returnPulledJobToLocal(latest, plan.id, job.index, job.commandId));
+        await this.tickDistributedQueue();
+    }
     async recallPlanToLocalQueueFromUi(message) {
         const root = workspaceRoot();
         if (!root)
@@ -13021,6 +13098,24 @@ class RealtimeTunnelPanelProvider {
         const selected = singleJob ? plan.jobs.filter((job) => job.index === jobIndex) : plan.jobs;
         if (!selected.length)
             throw new Error("目标 job 已不存在。");
+        if (selected.every(job => job.lifecycleProtocol === 2)) {
+            const answer = await vscode.window.showWarningMessage(`召回 ${plan.planFile} 的 ${selected.length} 个 job 到本机待派队列；对应运行窗口会被关闭，权重和结果保留。`, { modal: true }, "确认召回");
+            if (answer !== "确认召回")
+                return;
+            let latest = await this.loadDistributedQueue(root);
+            for (const job of selected) {
+                if (job.workerId && job.commandId) {
+                    await PulledTaskControl.stopPulledTask(this.client, plan, job, makeOpId("recall-job"));
+                    latest = await this.loadDistributedQueue(root);
+                    if (latest.plans.find(row => row.id === plan.id)?.jobs.find(row => row.index === job.index)?.commandId !== job.commandId)
+                        throw new Error("召回期间任务已变化，保留其他任务。");
+                    latest = PulledTaskControl.returnPulledJobToLocal(latest, plan.id, job.index, job.commandId);
+                    await this.saveDistributedQueue(root, latest);
+                }
+            }
+            this.postState();
+            return { status: "completed", source: "pull" };
+        }
         let requestedCount = 0;
         const jobs = plan.jobs.map((job) => {
             if (singleJob && job.index !== jobIndex)
@@ -13074,6 +13169,18 @@ class RealtimeTunnelPanelProvider {
             let job = plan?.jobs.find((row) => row.index === jobIndex);
             if (!plan || !job || job.recallRequested !== true || !job.workerId || !job.commandId)
                 return;
+            if (job.lifecycleProtocol === 2) {
+                await PulledTaskControl.stopPulledTask(this.client, plan, job, job.recallOperationId || makeOpId("recall-job"));
+                if (workspaceRoot() !== root || generation !== this.distributedQueueGeneration)
+                    return;
+                const latest = await this.loadDistributedQueue(root);
+                const current = latest.plans.find(row => row.id === planId)?.jobs.find(row => row.index === jobIndex);
+                if (current?.commandId !== job.commandId)
+                    return;
+                await this.saveDistributedQueue(root, PulledTaskControl.returnPulledJobToLocal(latest, planId, jobIndex, job.commandId));
+                this.postState();
+                return;
+            }
             const snapshot = suppliedSnapshot || await this.readWorkerTaskSnapshot(job.workerId, { fresh: true });
             if (workspaceRoot() !== root || generation !== this.distributedQueueGeneration)
                 return;
@@ -17549,6 +17656,11 @@ class RealtimeTunnelPanelProvider {
                 && probe?.capabilities?.actionEndpoints?.["stop-worker-task-formal-no-attempt"] === true);
     }
     async stopDistributedJobForClear(plan, job, localControl = false) {
+        if (job.lifecycleProtocol === 2) {
+            const result = await PulledTaskControl.stopPulledTask(this.client, plan, job, makeOpId("stop-job"));
+            await this.retireLocalOperationState?.([job.commandId]);
+            return result;
+        }
         if (!job.workerId || !job.commandId)
             throw new Error("活动 job 缺少 Worker 或 commandId，未发送停止");
         const stopOperationId = makeOpId("stop-distributed-job");
