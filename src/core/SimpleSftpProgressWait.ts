@@ -33,6 +33,9 @@ export type SimpleSftpProgress = {
   totalFiles?: number;
   completedGroups?: number;
   totalGroups?: number;
+  writtenBytes?: number;
+  writtenFiles?: number;
+  stalled?: boolean;
   elapsedMs: number;
 };
 
@@ -154,17 +157,22 @@ export async function callSftpWithProgress(
   const { endpoint, headers } = discovery;
   assertRetryRequestCurrent();
   const operationId = `sftp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-  const metadataRead = ["sync.projectInventory", "sync.projectTree", "sync.projectTreeState", "sync.projectFileStats"].includes(method);
+  const cleanupOperation = method.startsWith("files.cleanup.");
+  const metadataRead = ["sync.projectInventory", "sync.projectTree", "sync.projectTreeState", "sync.projectFileStats",
+    "files.cleanup.inspect", "files.cleanup.preview", "files.cleanup.check", "files.cleanup.verify", "files.cleanup.status"].includes(method);
   const fileOperation = /^(sync[.]|upload[.]|download[.]|remote[.])/.test(method);
+  const progressOperation = fileOperation || cleanupOperation;
+  const liveTransfer = /^(upload[.]|download[.]|sync[.](?:serverToServer|fromRemote|download))/.test(method);
   const requestAbort = new AbortController(), eventsAbort = new AbortController();
   const startedAt = Date.now();
   let timer: NodeJS.Timeout | undefined, disposed = false;
   let forgetStopCheck = () => {};
   let cancellation: Promise<void> | undefined, operationSent = false, operationNotStarted = false;
   let stopPending = false;
+  let reportedStalled = false;
   function cancelRemote(): Promise<void> {
     // Closing a read cancels its request-scoped SSH child. No writer receipt or saved retry fence is needed.
-    if (metadataRead) return Promise.resolve();
+    if (metadataRead || cleanupOperation) return Promise.resolve();
     if (cancellation) return cancellation;
     cancellation = cancelRemoteCore();
     return cancellation;
@@ -201,10 +209,16 @@ export async function callSftpWithProgress(
       stopPending = true;
     } catch { stopPending = true; /* Outcome remains unknown; never replay a modifying operation. */ }
   }
-  const inactivity = new ProgressInactivity(fileOperation ? 120_000 : 30_000, () => {
-    requestAbort.abort(new Error(metadataRead ? "文件查询长时间没有进展，请重新刷新；未改变远端文件。" : "无真实进展，执行结果待确认。连接中断时实时通道会自动重连；请刷新目标状态，勿重复执行。"));
+  const inactivity = new ProgressInactivity(progressOperation ? 120_000 : 30_000, () => {
+    if (liveTransfer) {
+      try { onProgress?.({ phase: "stalled", elapsedMs: Date.now() - startedAt }); } catch {}
+      return;
+    }
+    requestAbort.abort(new Error(metadataRead ? `SimpleSFTP ${method} 查询长时间没有新进展，请刷新实际文件状态；本次查询未改变远端文件。`
+      : cleanupOperation ? `SimpleSFTP ${method} 清理请求没有新进展；请查询文件和清理窗口状态，不重复删除。`
+      : "无真实进展，执行结果待确认。连接中断时实时通道会自动重连；请刷新目标状态，勿重复执行。"));
     void cancelRemote();
-  });
+  }, Date.now, liveTransfer);
   const onCancel = () => { requestAbort.abort(params.signal?.reason); void cancelRemote(); };
   if (params.signal?.aborted) onCancel();
   else params.signal?.addEventListener("abort", onCancel, { once: true });
@@ -214,7 +228,9 @@ export async function callSftpWithProgress(
     const count = (value: unknown) => Number.isSafeInteger(value) && Number(value) >= 0 ? Number(value) : undefined;
     const processedBytes = count(item.processedBytes ?? item.transferredBytes), processedFiles = count(item.processedFiles);
     const changed = inactivity.update({ phase, scope: item.progressScope || item.id, processedBytes, processedFiles, status: item.status });
-    if (changed && onProgress) {
+    const newlyStalled = item.stalled === true && !reportedStalled;
+    reportedStalled = item.stalled === true;
+    if ((changed || newlyStalled) && onProgress) {
       const visiblePhase = ["packing", "transferring", "unpacking"].includes(phase) ? "streaming" : phase;
       try { onProgress({ phase: visiblePhase, processedBytes, processedFiles, transferredBytes: count(item.transferredBytes),
         comparedFiles: count(item.comparedFiles), changedFiles: count(item.changedFiles), totalBytes: count(item.totalBytes),
@@ -222,7 +238,9 @@ export async function callSftpWithProgress(
         cacheStatus: ["ready", "unavailable", "read-failed", "write-failed"].includes(item.cacheStatus) ? item.cacheStatus : undefined,
         missingFiles: count(item.missingFiles), differentFiles: count(item.differentFiles), unchangedFiles: count(item.unchangedFiles),
         completedFiles: count(item.completedFiles), totalFiles: count(item.totalFiles),
-        completedGroups: count(item.completedGroups), totalGroups: count(item.totalGroups), elapsedMs: Date.now() - startedAt }); }
+        completedGroups: count(item.completedGroups), totalGroups: count(item.totalGroups),
+        writtenBytes: count(item.writtenBytes), writtenFiles: count(item.writtenFiles), stalled: item.stalled === true,
+        elapsedMs: Date.now() - startedAt }); }
       catch { /* Notification failures cannot cancel a genuine transfer. */ }
     }
     if (item.status === "cancelled") requestAbort.abort(new Error(item.reason || "传输已取消"));
@@ -265,7 +283,7 @@ export async function callSftpWithProgress(
       }
     } catch { /* Keep fallback reads; no event reconnect. */ }
   }
-  if (fileOperation) { void readEvents(); timer = setTimeout(() => void poll(), 500); }
+  if (progressOperation) { void readEvents(); timer = setTimeout(() => void poll(), 500); }
   try {
     requestAbort.signal.throwIfAborted();
     const recovery = { method, params, discover, onProgress };

@@ -16,7 +16,7 @@ test('real single/batch deletion call chain never enters the legacy transfer-rec
  const remote=method('deleteSyncScopeRemoteCopy',{deleteConfirmedScopeCopy:async(rpc,node,relative,directory)=>{
    assert.equal(node.host,'worker.example');assert.equal(node.root,'/project');assert.equal(relative,'work_dirs/job');assert.equal(directory,true);
  }}),calls=[];
- const host={sftpServerOptions:row=>({host:'worker.example',remotePath:'/project',user:'user',port:22}),
+ const host={simpleSftpCapability:async()=>({methodOptions:{'files.cleanup.preview':{confirmedPathMetadata:1}}}),sftpServerOptions:row=>({host:'worker.example',remotePath:'/project',user:'user',port:22}),
    deleteSyncScopeRemoteCopy:async(...args)=>{calls.push(args);await remote.call(host,...args);},
    simpleSftpApiCall:async(name)=>{assert.equal(name,'sync.projectTree');return {ok:true,entries:[{path:'work_dirs/job',directory:true}]};}};
  const remove=method('removeSyncScopeCopies',{safeSyncPath:()=>{},scopeInventoryPathAllowed:()=>true,path,errorMessage:e=>e.message});

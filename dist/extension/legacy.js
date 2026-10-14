@@ -8781,7 +8781,7 @@ class RealtimeTunnelPanelProvider {
                 catch (error) {
                     throw new Error(`${errorMessage(error)}；该路径自动同步仍暂停。`);
                 }
-            }, (done, total) => report(`已处理 ${done}/${total}`), 2, (error) => /PARENT_CD_FAILED|不安全|符号链接|超出项目根目录|机器状态路径|目标类型已变化/.test(error));
+            }, (done, total) => report(`已处理 ${done}/${total}`), 2, (error) => /PARENT_CD_FAILED|不安全|符号链接|超出项目根目录|机器状态路径|目标类型已变化|files[.]cleanup[.](inspect|preview|check)/.test(error));
             return { completed: [...absent, ...results.filter((row) => !row.error).map((row) => row.item.path)],
                 errors: results.filter((row) => row.error).map((row) => `${row.item.path}：${row.error}`) };
         }
@@ -8960,7 +8960,10 @@ class RealtimeTunnelPanelProvider {
         return work.map((item) => item.path);
     }
     async deleteSyncScopeRemoteCopy(id, server, relative, directory, report = (_stage) => { }) {
-        return (0, SyncScopeDelete_1.deleteConfirmedScopeCopy)((method, params) => this.simpleSftpApiCall(method, params), { id, kind: "remote", host: server.host, user: server.user || server.username,
+        const capability = await this.simpleSftpCapability("files.cleanup.preview");
+        if (capability.methodOptions?.["files.cleanup.preview"]?.confirmedPathMetadata !== 1)
+            throw new Error("请先更新配套 SimpleSFTP 并重载窗口：当前版本不支持按路径读取元数据的删除流程。");
+        return (0, SyncScopeDelete_1.deleteConfirmedScopeCopy)((method, params) => this.simpleSftpApiCall(method, params, 0, snapshot => report(`${id}：已检查 ${snapshot.processedFiles || 0} 项文件元数据`)), { id, kind: "remote", host: server.host, user: server.user || server.username,
             port: server.port, root: server.remotePath }, relative, directory, report);
     }
     async removeSyncScopeCopies(root, targets, relative, endpointIds, directory, report = (_stage) => { }) {
@@ -9500,7 +9503,7 @@ class RealtimeTunnelPanelProvider {
                         progressReport(`正在传输 ${target.label || target.id} 的 ${Object.keys(uploadManifest).length} 个变化文件…`);
                     const transferStarted = Date.now();
                     syncStats.uploads += 1;
-                    const result = await vscode.commands.executeCommand("simpleSftp.uploadWorkspace", {
+                    const result = await this.simpleSftpApiCall("upload.workspace", {
                         apiMode: true,
                         confirm: true,
                         pathConfirmed: true,
@@ -9513,6 +9516,15 @@ class RealtimeTunnelPanelProvider {
                         transientManifest: hashCompare || Object.keys(holds).length > 0,
                         preComparedManifest: hashCompare,
                         server: this.sftpServerOptions(target),
+                    }, 0, snapshot => {
+                        if (!progressReport)
+                            return;
+                        if (snapshot.stalled || snapshot.phase === "stalled")
+                            progressReport(`${target.label || target.id}：暂未观察到新增写入，仍在查询；可手动取消`);
+                        else if (snapshot.writtenBytes !== undefined)
+                            progressReport(`${target.label || target.id}：远端已写入 ${snapshot.writtenBytes}/${snapshot.totalBytes || 0} 字节，${snapshot.writtenFiles || 0}/${snapshot.totalFiles || 0} 个文件；内容待核验`);
+                        else
+                            progressReport(`${target.label || target.id}：已处理 ${snapshot.processedFiles || 0} 个文件，${snapshot.processedBytes || 0} 字节`);
                     });
                     assertCurrent();
                     if (!sftpUploadSucceeded(result, hashCompare ? "" : fingerprint))

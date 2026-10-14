@@ -4,11 +4,11 @@ const Original=progressModule.ProgressInactivity;
 require('../../dist/core/ProgressRpcTransport').postProgressRpc = (url, options) => global.fetch(url, { method:'POST', ...options });
 let now=0, waits=[];
 progressModule.ProgressInactivity=class extends Original {
-  constructor(_idle,onIdle){super(120,onIdle,()=>now);waits.push(this);}
+  constructor(_idle,onIdle,_clock,notifyOnly){super(120,onIdle,()=>now,notifyOnly);waits.push(this);}
 };
 const {callSftpWithProgress}=require('../../dist/core/SimpleSftpProgressWait');
 
-async function fixture(run, onProgress) {
+async function fixture(run, onProgress, method = 'upload.files') {
   const original=global.fetch; let stream, operationId, finish, cancels=0;
   const discover=async()=>({endpoint:new URL('http://127.0.0.1:1'),headers:{}});
   global.fetch=async(url,options)=>{
@@ -20,7 +20,7 @@ async function fixture(run, onProgress) {
     return new Promise((resolve,reject)=>{finish=()=>resolve(Response.json({result:{ok:true,fileCount:1}})); options.signal.addEventListener('abort',()=>reject(options.signal.reason),{once:true});});
   };
   now=0;waits=[];
-  const work=callSftpWithProgress('upload.files',{},discover,onProgress);
+  const work=callSftpWithProgress(method,{},discover,onProgress);
   await new Promise(setImmediate);
   const emit=(data)=>stream.enqueue(new TextEncoder().encode('data: '+JSON.stringify({id:'transfer',operationId,...data})+'\n\n'));
   try {await run({work,finish,emit,get cancels(){return cancels;}});}
@@ -31,6 +31,13 @@ test('file RPC may exceed old duration while genuine event progress continues',a
     for(let i=1;i<=20;i++){now+=100;f.emit({phase:'transferring',processedBytes:i});await new Promise(setImmediate);assert.equal(waits[0].check(),false);}
     f.finish();assert.deepEqual(await f.work,{ok:true,fileCount:1});
   });
+});
+
+test('cleanup previews consume real progress instead of timing out as silent control requests',async()=>{
+  await fixture(async f=>{
+    for(let i=1;i<=5;i++){now+=100;f.emit({phase:'verifying',processedFiles:i});await new Promise(setImmediate);assert.equal(waits[0].check(),false);}
+    f.finish();await f.work;assert.equal(f.cancels,0);
+  },undefined,'files.cleanup.preview');
 });
 
 test('only current operation genuine progress reaches the caller; telemetry failure is isolated',async()=>{
@@ -102,14 +109,14 @@ test('poll fallback forwards current progress when the event stream is unavailab
     assert.equal(progress.length,1,'disposed requests must never keep notifying');
   } finally {for(const wait of waits)wait.dispose();global.fetch=original;}
 });
-test('repeated events expire; cancellation reaches known transfers and discards late result',async()=>{
+test('unchanged transfer observations report a stall without fixed-time cancellation; later real progress resumes',async()=>{
   await fixture(async f=>{
     f.emit({phase:'transferring',processedBytes:1});await new Promise(setImmediate);
     now=100;f.emit({phase:'transferring',processedBytes:1});await new Promise(setImmediate);
     now=121;assert.equal(waits[0].check(),true);
-    await assert.rejects(f.work,/执行结果待确认/);
-    await new Promise(setImmediate);assert.equal(f.cancels,1);
-    f.finish();
+    await new Promise(setImmediate);assert.equal(f.cancels,0);
+    now=140;f.emit({phase:'transferring',processedBytes:2});await new Promise(setImmediate);assert.equal(waits[0].check(),false);
+    f.finish();await f.work;
   });
 });
 
