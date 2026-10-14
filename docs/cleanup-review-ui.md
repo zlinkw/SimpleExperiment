@@ -15,3 +15,15 @@
 验证过程保留两项修正记录：首次 package 被编译 runtime 常量仍为旧版本的闭包检查拒绝，源常量同步后重新编译；随后一次既有 independentAgent 登录 shell 测试遇到本机 WSL 子进程 10 秒超时。最小 WSL 存活检查成功后，同一测试单文件复核 4 项通过，真实 shell 用例约 431 毫秒。未修改 Agent 生产逻辑、放宽超时或跳过该项检查。
 
 版本发布使用仓库的完整 package/build、面板脚本、串行回归与 VSIX 验证流程。未调用真实清理 API、修改科研文件、连接 Worker 或启动训练。安装后的实际插件界面仍需用户重载窗口后验收。此版本不修改 Agent/Scheduler 行为；runtime 只随包同步版本常量，不要求为本次界面修复单独更新远端。
+
+## 交付核实
+
+2026-10-14：最终 `npm run package` 完整通过，包含 build、windows-flow、Python 提取回归、面板渲染脚本检查及 230 个运行模块的打包闭包检查。额外 vm.Script、两份 Python runtime AST、VSIX 身份、文件哈希、凭据模式和暂存文件排除检查通过。未运行全量 `npm test`，未执行真实文件删除。
+
+- 运行代码提交：967fc55ba33ad4d343beef481d8a71613da88319，已普通推送并 fetch 核对 origin/master。
+- [稳定 Release v0.5.307](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.307) 绑定上述提交，Latest 可见，非草稿、非预发行。
+- `simple-experiment-0.5.307.vsix`：2765887 字节；SHA256 `f77fc47e018621f0815b90482340d8051fe8ca613dc4eb08351cfd9038161ac2`。同名 `.vsix.sha256` 已发布。生产 ReleaseClient 从 0.5.306 识别更新，远端下载包与本机验证包及 SHA256 清单完全一致。
+- SimpleSFTP 沿用既有 0.2.81；稳定发行及下载字节复核通过，没有重复安装配套插件。
+- 本机 0.5.307 只安装一次；VS Code 安装版本、simpleex 入口已核对。安装目录 229 个模块/运行文件与包字节一致，package 字段除 VS Code 添加的安装元数据外一致。
+
+安装后未再操作当前插件面板。用户执行 Developer: Reload Window 后重新打开审核页，实际项目界面与远端操作仍待验收；本次不自动更新远端或清理生产文件。
