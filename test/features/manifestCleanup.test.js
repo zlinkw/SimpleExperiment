@@ -31,7 +31,7 @@ async function fixture({retiredWithoutCsv=false}={}){
           planFile:file,runId:'no-retained-command-record',outputDir:declaration.output_dir,resultCsv:declaration.result_csv,index:declaration.index,case:declaration.case,seed:42}}]}};
       }
       if(method==='files.cleanup.preview'){
-        const targets=params.targets.map(row=>({...row,absolutePath:params.node.root+'/'+row.relativePath,
+        const targets=params.targets.map(row=>({...row,absolutePath:params.node.root+'/'+row.relativePath,...(!sources.has(row.relativePath)?{missing:true}:{}),
           fingerprint:'fp-'+row.relativePath,contentFingerprint:'fp-'+row.relativePath.replace(/^clean_dir\/(?:job-[a-f0-9]{48}\/)?/,''),inode:row.relativePath.replace(/^clean_dir\/(?:job-[a-f0-9]{48}\/)?/,''),device:'1',inventory:[],size:1}));
         if(params.action==='restore'&&params.targets.some(row=>sources.has(row.destination)))throw Error('DESTINATION_EXISTS');
         const result={token:cleanupDigest([calls.length,targets]).slice(0,48),digest:cleanupDigest(targets),node:params.node,targets,
@@ -72,8 +72,12 @@ test('PLAN and real manifests authorize exact multi-job replacement without reta
   await f.confirm(p);const result=await f.adapter.execute(p.token);assert.equal(result.state,'completed');assert.equal(f.mutations,4);
   assert.equal((await f.adapter.service.status(p.token)).state,'completed');await f.adapter.execute(p.token);assert.equal(f.mutations,4);
   assert.ok(f.calls.filter(row=>row.method==='files.cleanup.inspect').every(row=>row.params.manifestOnly));
-  f.fail(true);assert.equal((await f.adapter.service.status(p.token)).state,'partial');f.fail(false);
-  assert.equal((await f.adapter.service.status(p.token)).state,'completed');f.change();assert.equal((await f.adapter.service.status(p.token)).state,'partial');
+  const checked=f.calls.length;
+  f.fail(true);assert.equal((await f.adapter.service.status(p.token)).state,'completed');f.fail(false);
+  f.change();assert.equal((await f.adapter.service.status(p.token)).state,'completed');assert.equal(f.calls.length,checked);
+  f.sources.add('work/job0');const next=await f.preview();assert.equal(next.rows.filter(row=>row.disposition==='delete').length,1);
+  assert.ok(next.rows.filter(row=>row.disposition==='delete').every(row=>row.relativePath==='work/job0'));
+  assert.equal(f.mutations,4);assert.equal((await f.adapter.service.status(p.token)).state,'completed');
 });
 test('native move/restore uses frozen targets after manifests disappear; restore never overwrites a new job',async()=>{
   const f=await fixture(),p=await f.preview('move');await f.confirm(p);assert.equal((await f.adapter.execute(p.token)).state,'completed');

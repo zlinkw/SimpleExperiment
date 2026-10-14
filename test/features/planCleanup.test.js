@@ -32,7 +32,8 @@ async function fixture() {
       const token=cleanupDigest([params.node.id,targets,calls.length]).slice(0,48), row={token,digest:cleanupDigest(targets),rootIdentity:{path:params.node.root},targets,confirmations:0,node:params.node};
       records.set(token,row);return clone(row);
     }
-    if(method==='files.cleanup.inspect') return {target:{size:10,fingerprint:sources.get(params.node.id+':'+params.target.relativePath)||'protected'}};
+    if(method==='files.cleanup.inspect') return {target:{type:params.target.type,absolutePath:params.node.root+'/'+params.target.relativePath,
+      missing:!sources.has(params.node.id+':'+params.target.relativePath),size:10,fingerprint:sources.get(params.node.id+':'+params.target.relativePath)||'protected'}};
     const row=records.get(params.token);assert.ok(row,'known frozen backend capability');
     if(method==='files.cleanup.status') return clone(row);
     if(method==='files.cleanup.verify') return {ok:true};
@@ -74,7 +75,7 @@ test('partial proc visibility is shown in exact-path review without hiding real 
   assert.ok(p.rows.every(row=>row.evidence.some(text=>text.includes('/proc'))));
   assert.equal(p.confirmations,0);assert.equal(f.mutations,0);
 });
-test('metadata phase stays resumable after files complete, reconnect requests confirmation and completed deletion never repeats',async()=>{
+test('confirmed absent files finish deletion without remote metadata acknowledgement or another review',async()=>{
   const f=await fixture(),original=f.ports.sftp;
   f.scope.job={workflowId:'run',index:0,commandId:'old',purpose:'replace_outputs'};
   f.ports.sftp=async(method,params)=>{
@@ -86,9 +87,9 @@ test('metadata phase stays resumable after files complete, reconnect requests co
   await f.service.confirm({token:p.token,digest:p.digest,phase:2,confirm:true,exactTargets:p.rows.filter(row=>row.disposition==='delete').map(row=>row.node.id+':'+row.absolutePath)});
   await f.service.execute(first.id);assert.equal(f.mutations,2);
   await f.service.setStateRetirement(first.id,['w1'],'metadata connection lost');
-  assert.equal((await f.service.status(first.id)).state,'partial');
-  assert.ok((await f.service.list())[0].pendingNodes.includes('w1'));
-  assert.equal((await f.service.recheckNode('w1'))[0].state,'confirmation_required');
+  assert.equal((await f.service.status(first.id)).state,'completed');
+  assert.deepEqual(await f.service.list(),[]);
+  assert.deepEqual(await f.service.recheckNode('w1'),[]);
   await f.service.execute(first.id);assert.equal(f.mutations,2);
   await f.service.setStateRetirement(first.id,[]);
   assert.equal((await f.service.status(first.id)).state,'completed');assert.equal(f.indexed,1);

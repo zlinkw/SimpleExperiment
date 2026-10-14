@@ -41,3 +41,30 @@ test('Worker failure is checked before any existing-output replacement in the re
  await assert.rejects(finish.call(host,'runPlan',{}, {},{planFile:'plans/p.yaml'}),/nwpu3 unavailable/);
  assert.deepEqual(calls,['sync','workers']);
 });
+
+test('the real UI action passes its local submission context into the real distributed submission',async()=>{
+ const root=fs.mkdtempSync(path.join(require('node:os').tmpdir(),'se-action-submit-')),calls=[],body={planFile:'plans/p.yaml'},plan={planFile:body.planFile};
+ const globals={PlanRunHost:require('../../src/extension/PlanRunHost.ts').PlanRunHost,workspaceRoot:()=>root,
+  WorkflowBinding:{bindWorkflowWorkspace:()=>({root}),assertWorkflowContext(){},assertPlanSeedContract(){},assertWorkflowWorkspace(){}},
+  PLAN_SUBMISSION_COMMANDS:new Set(['runPlan','reproducePlan']),PLAN_PREFLIGHT_COMMANDS:new Set(),actionCommandMap:{runPlan:'run-plan',reproducePlan:'reproduce-plan'},directWorkerActionMap:{},
+  assertSingleProjectWorkspace(){},pluginProjectAdapterRules:()=>({}),operationResultPlanFile:b=>b.planFile,projectOutputGateReason:()=>'',LENIENT_RUN:false,
+  stringField:(x,k)=>x[k]||'',stringArrayField:()=>[],uniqueStrings:x=>x,usableSelectionKey:()=>'',preparePlanSafeRetry:async()=>false,makeOpId:()=> 'provenance',
+  isUiCommandCancelled:()=>false,errorMessage:e=>e.message,setTimeout};
+ const host={context:{globalStorageUri:{fsPath:root}},projectContextGeneration:1,localPlanMetadata:{detectedProject:{}},localOperations:{},
+  actionBody:()=>body,resolveWorkerEndpointId:()=>'',assertRetryPlanContext(){},refreshLocalPlanMetadataForAction:async()=>{},stampPlanRevision(){},ensureManualStopReason:async()=>{},
+  assertPlanTopologyReady(){},assertPlanLocalConfigFiles:async()=>{},localPlanForActionBody:()=>plan,distributedPlanEligible:()=>true,
+  selectDistributedPlanPrimary:async()=>{},assertExecutionWorkersReady(){},assertExecutionAgentProjectsReady(){},assertPlanNotAlreadyActive:async()=>{},
+  ensureSimpleSftpReadyForSetup:async()=>true,confirmPlanRunSubmission:async()=>{},recordRunGitProvenance:async()=>({}),
+  planSubmissionOperationId:()=> 'plan-submit-original',submissionStillCurrent:()=>true,distributedCodeVersionHold:async()=>undefined,
+  waitForPlanSubmission:async(_,fn)=>fn(),recordPlanSubmissionTiming(){},recordPlanSubmissionTimingByOperation(){},
+  ensureCodeReadyForRun:async()=>calls.push('sync'),runPlanPreflight:async()=>({validation:{jobs:[]}}),enabledWorkerConfigs:()=>[],
+  localDistributedCodeFingerprint:async()=>'code',planValidationCacheKey:()=>'',planSchedulerWorkerId:()=>'',
+  assertPlanSubmissionWorkers:async()=>{calls.push('workers');throw Error('fixture Worker unavailable');},reportPlanStage(){},finishPlanSubmissionProgress(){},
+  confirmDistributedPlanExistingOutputs:async()=>calls.push('delete'),enqueueDistributedPlan:async()=>calls.push('enqueue')};
+ host.finishDistributedPlanSubmission=method('finishDistributedPlanSubmission',{...globals});
+ await assert.rejects(method('runActionCommandCore',{...globals}).call(host,'runPlan',{clientActionId:'original'}),/fixture Worker unavailable/);
+ assert.deepEqual(calls,['sync','workers']);
+ for(const field of ['submissionOperationIdLocal','reportPlanStageLocal']){const descriptor=Object.getOwnPropertyDescriptor(body,field);assert.equal(descriptor.enumerable,false);assert.equal(descriptor.writable,true);}
+ assert.equal(body.submissionOperationIdLocal,'plan-submit-original');
+ const saved=await new globals.PlanRunHost(host,root).load('plan-submit-original');assert.equal(saved.recovery.lastError,'fixture Worker unavailable');
+});

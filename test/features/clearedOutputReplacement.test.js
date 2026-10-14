@@ -84,7 +84,7 @@ test('new history clears retain the full result binding and cleanup lifecycle',a
   assert.equal(cleared.plans.length,0);
 });
 
-test('actual cleanup Host joins cleared ownership and persists deletion on the audit without reviving cards',async()=>{
+test('actual cleanup Host uses current file observations without requiring retired remote control state',async()=>{
   const f=await fixture(),storage=await fs.mkdtemp(path.join(os.tmpdir(),'cleared-output-host-'));
   const source=await fs.readFile(path.join(__dirname,'../../src/extension/PlanCleanupHost.ts'),'utf8');
   const ast=ts.createSourceFile('host.ts',source,ts.ScriptTarget.Latest,true);
@@ -106,7 +106,7 @@ test('actual cleanup Host joins cleared ownership and persists deletion on the a
     }}),loadDistributedQueue:async()=>structuredClone(f.queue),
     hostOperationLease:{inspect:async options=>{assert.equal(options.excludeCurrent,true);return {records:[]};}},
     saveDistributedQueue:async(_,q)=>{saved=structuredClone(q);events.push('save');},postState(){},
-    retireReplacedJobState:async()=>{assert.equal(saved.clearedJobs[0].cleanup.state,'partial');saved.clearedJobs[0].cleanup.state='deleted';saved.clearedJobs[0].cleanup.pendingNodes=[];events.push('retire-state')},
+    retireReplacedJobState:async()=>assert.fail('confirmed deletion must not wait for old remote control records'),
     withHostOperationLease:async(_,__,work)=>work()};
   const cleanup=new Host(host,f.root);
   const groups=await cleanup.replacementGroups(f.queue,f.file,f.declarations,f.projectId,'');
@@ -129,13 +129,20 @@ test('actual cleanup Host joins cleared ownership and persists deletion on the a
   assert.ok(scope.candidates.every(row=>!row.relativePath.includes('attempts')));
   const rows=scope.candidates.map((row,index)=>({...row,id:String(index),node:{id:'w'},absolutePath:'/safe/project/'+row.relativePath}));
   const operation={id:'confirmed-operation',pendingNodes:[],preview:{action:'delete',scope,rows},targets:Object.fromEntries(rows.map(row=>[row.id,{state:'completed'}]))};
-  cleanup.service={status:async()=>operation,history:async()=>[],preflightConfirmed:async()=>events.push('preflight'),
-    setStateRetirement:async(_,nodes)=>{operation.retirementPendingNodes=nodes;operation.state=nodes.length?'partial':'completed'},
+  let applied=false;
+  cleanup.service={status:async()=>{
+      if(applied&&!operation.indexed){
+        events.push('active-query');operation.state='completed';operation.retirementPendingNodes=[];
+        for(const row of rows)operation.targets[row.id]={state:'completed',receipt:{source:'active_query',verifiedBy:'path_absence'}};
+        await cleanup.updateIndexes(operation,false);operation.indexed=true;
+      }return operation;
+    },history:async()=>[],preflightConfirmed:async()=>events.push('preflight'),
+    setStateRetirement:async()=>assert.fail('current file absence needs no old state acknowledgement'),
     execute:async()=>{events.push('delete');assert.equal(saved.plans.length,0);assert.equal(saved.clearedJobs[0].cleanup.state,'partial');
-      host.loadDistributedQueue=async()=>structuredClone(saved);await cleanup.updateIndexes(operation,false);return {state:'completed'};}};
+      applied=true;host.loadDistributedQueue=async()=>structuredClone(saved);return {state:'completed'};}};
   await cleanup.execute(operation.id);
   assert.ok(events.indexOf('save')<events.indexOf('delete'));
-  assert.ok(events.indexOf('delete')<events.indexOf('retire-state'));
+  assert.ok(events.indexOf('delete')<events.indexOf('active-query'));
   const callsAfterComplete=events.length;await cleanup.execute(operation.id);assert.equal(events.length,callsAfterComplete);
   assert.equal(saved.plans.length,0);assert.equal(saved.clearedJobs[0].cleanup.state,'deleted');
   assert.equal(saved.clearedJobs[0].commandId,f.audit.commandId);assert.equal(saved.clearedJobs[0].planRevision,f.audit.planRevision);

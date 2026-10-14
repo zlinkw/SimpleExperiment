@@ -310,3 +310,13 @@ test('both delete pages request path-based review and explain disabled buttons b
     f.element('preview').onclick();await flush();assert.equal(f.element('confirm').disabled,false);
   }
 });
+
+test('both review pages treat confirmed absence as nothing to clean and omit missing paths from the active table',async()=>{
+ for(const job of [undefined,{workflowId:'selected',index:5,commandId:'selected'}]){
+  const p=preview();p.action='delete';p.rows[0].disposition='absent';p.scope.job=job;
+  const f=bridge({service:{async preview(){return p;}}});await f.open(job);
+  assert.match(f.element('status').textContent,/已不存在.*无需清理/);assert.doesNotMatch(f.element('status').textContent,/重新审核|尚未核实|审核未通过/);
+  assert.doesNotMatch(f.element('review').innerHTML,/C:\/fixture\/experiments\/plans\/p.yaml/);
+  assert.equal(f.element('confirm').disabled,true);assert.equal(f.element('execute').disabled,true);assert.ok(!f.requests.some(row=>row.type==='confirm'||row.type==='execute'));
+ }
+});

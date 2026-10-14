@@ -86,21 +86,85 @@ export class PlanCleanup {
   private file(id: string) { if (!/^[a-f0-9]{48}$/.test(id)) cleanupError("INVALID_OPERATION_ID"); return path.join(this.ports.storageRoot, id + ".json"); }
   private async save(operation: CleanupOperation) {
     operation.updatedAt = new Date().toISOString();
-    await atomicWriteText(this.file(operation.id), JSON.stringify(operation, null, 2));
+    const record = clone(operation);
+    if (record.preview.action === "delete" && record.state === "completed" && !record.pendingNodes.length && !record.retirementPendingNodes?.length) {
+      // Keep only the consumed request identity. No deleted-file inventory, path
+      // cache or restore/audit payload survives completion of permanent deletion.
+      record.preview.rows = []; record.targets = {}; record.nodeChecks = {};
+      record.preview.scope.nodes = []; record.preview.scope.candidates = [];
+      record.preview.scope.references = {}; delete record.preview.scope.nativeDeclarations;
+      if (record.preview.scope.job) delete record.preview.scope.job.manifest;
+      record.preview.blockers = []; record.preview.scope.blockers = []; record.preview.scope.notices = [];
+      record.preview.digest = ""; record.preview.expiresAt = 0;
+      delete record.error; delete record.executionRequestedAt;
+    }
+    await atomicWriteText(this.file(operation.id), JSON.stringify(record, null, 2));
   }
   async status(id: string): Promise<CleanupOperation> {
     try {
       const operation = JSON.parse(await fs.readFile(this.file(id), "utf8"));
-      if (operation.preview.scope.observationMode !== "managed_tmux" || !operation.executionRequestedAt) return operation;
-      if (!this.observing.has(id)) this.observing.set(id, this.observeManaged(operation).then(async observed => {
+      const inspectDeletion = operation.preview.action === "delete" && operation.state !== "completed"
+        && !operation.continuedBy && !operation.restoredBy && !this.busy.has(id);
+      if (!inspectDeletion && (operation.preview.scope.observationMode !== "managed_tmux" || !operation.executionRequestedAt)) return operation;
+      if (!this.observing.has(id)) this.observing.set(id, (async () => {
+        let observed = inspectDeletion ? await this.observeDeletion(operation) : operation;
+        if (!inspectDeletion && observed.preview.scope.observationMode === "managed_tmux" && observed.executionRequestedAt)
+          observed = await this.observeManaged(observed);
         if (observed.state === "completed" && !observed.indexed) {
           await this.ports.updateIndexes(observed, observed.preview.action === "restore"); observed.indexed = true;
         }
         await this.save(observed); return observed;
-      }).finally(() => this.observing.delete(id)));
+      })().finally(() => this.observing.delete(id)));
       return clone(await this.observing.get(id)!);
     }
     catch (error: any) { if (error.code === "ENOENT") cleanupError("OPERATION_NOT_FOUND"); throw error; }
+  }
+  private async inspectPresence(row: CleanupRow, timeoutMs = 10000, observeExecutors = false): Promise<any> {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    if (this.ports.currentNode && this.nodeIdentity(await this.ports.currentNode(row.node.id)) !== this.nodeIdentity(row.node))
+      cleanupError("SERVER_IDENTITY_CHANGED");
+    try {
+      const proof: any = await Promise.race([this.ports.sftp("files.cleanup.inspect", { node: row.node,
+        target: { relativePath: row.relativePath, type: row.type }, allowMissing: true, manifestOnly: true, presenceOnly: true, observeExecutors }),
+        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("CLEANUP_QUERY_TIMEOUT")), timeoutMs); })]);
+      if (typeof proof?.target?.missing !== "boolean" && !(proof?.target?.type === row.type && typeof proof?.target?.absolutePath === "string"))
+        cleanupError("UNVERIFIED_RESPONSE");
+      return proof;
+    } finally { if (timer) clearTimeout(timer); }
+  }
+  /** A persisted deletion is an input to a fresh query, never proof that files still exist. */
+  private async observeDeletion(operation: CleanupOperation): Promise<CleanupOperation> {
+    const rows = operation.preview.rows.filter(row => row.nodeId !== "pluginState" && row.disposition !== "protected"), deadline = Date.now() + 10000;
+    let executing = false, queryFailed = false;
+    if (!rows.length) return operation;
+    for (const row of rows) {
+      try {
+        if (Date.now() >= deadline) throw new Error("CLEANUP_QUERY_TIMEOUT");
+        const proof = await this.inspectPresence(row, Math.max(1, deadline - Date.now()), Boolean(operation.executionRequestedAt));
+        if (operation.executionRequestedAt && (proof.executorsChecked !== true || !Array.isArray(proof.executors)))
+          cleanupError("CLEANUP_EXECUTOR_QUERY_UNVERIFIED");
+        const live = Boolean(proof.executors?.length); executing ||= live;
+        if (proof.target.missing === true && !live) operation.targets[row.id] = { state: "completed",
+          receipt: { source: "active_query", verifiedBy: "path_absence", rootIdentity: proof.rootIdentity } };
+        else if (operation.targets[row.id]) operation.targets[row.id] = { state: live ? "executing" : "pending",
+          ...(operation.targets[row.id]?.receipt?.verifiedBy === "path_absence" ? { error: "SOURCE_RECREATED_OR_CHANGED" } : {}) };
+      } catch (error: any) {
+        queryFailed = true;
+        if (operation.targets[row.id]) operation.targets[row.id] = { state: "pending", error: error.apiData?.code || String(error.message || error) };
+        operation.error = row.node.id + "：" + (error.apiData?.code || String(error.message || error));
+      }
+    }
+    const absent = (row: CleanupRow) => operation.targets[row.id]?.state === "completed"
+      && operation.targets[row.id]?.receipt?.verifiedBy === "path_absence";
+    const checkedNodes = operation.preview.scope.nodes.filter(node => rows.some(row => row.node.id === node.id)
+      && rows.filter(row => row.node.id === node.id).every(absent)).map(node => node.id);
+    operation.pendingNodes = operation.pendingNodes.filter(id => !checkedNodes.includes(id));
+    operation.retirementPendingNodes = operation.retirementPendingNodes?.filter(id => !checkedNodes.includes(id));
+    if (rows.every(absent) && !operation.pendingNodes.length && !operation.retirementPendingNodes?.length) {
+      operation.state = "completed"; delete operation.error;
+    } else if (executing) operation.state = "running";
+    else if (queryFailed || operation.state === "running") operation.state = "partial";
+    return operation;
   }
   private async managedCheck(row: CleanupRow, timeoutMs = 10000): Promise<any> {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -115,6 +179,7 @@ export class PlanCleanup {
     const deadline = Date.now() + 10000;
     delete operation.error;
     for (const row of operation.preview.rows.filter(row => operation.targets[row.id])) {
+      if (operation.preview.action === "delete" && operation.targets[row.id]?.receipt?.verifiedBy === "path_absence") continue;
       try {
         if (Date.now() >= deadline) throw new Error("CLEANUP_QUERY_TIMEOUT");
         const proof = await this.managedCheck(row, Math.max(1, deadline - Date.now()));
@@ -187,6 +252,7 @@ export class PlanCleanup {
     for (const name of names.filter(name => /^[a-f0-9]{48}\.json$/.test(name))) {
       // History is a local index, not a request to scan every past remote operation.
       const operation: CleanupOperation = JSON.parse(await fs.readFile(this.file(name.slice(0, -5)), "utf8"));
+      if (operation.preview.action === "delete" && operation.state === "completed" && !operation.pendingNodes.length) continue;
       rows.push({ id: operation.id, state: operation.state, updatedAt: operation.updatedAt, pendingNodes: [...new Set([...operation.pendingNodes, ...(operation.retirementPendingNodes || [])])],
         planFile: operation.preview.scope.planFile, action: operation.preview.action, job: operation.preview.scope.job,
         continuedBy: operation.continuedBy, restoredBy: operation.restoredBy, nodeChecks: operation.nodeChecks });
@@ -261,10 +327,10 @@ export class PlanCleanup {
         try {
           if (this.ports.currentNode && this.nodeIdentity(await this.ports.currentNode(nodeId)) !== this.nodeIdentity(row.node)) cleanupError("SERVER_IDENTITY_CHANGED");
           if (row.disposition === "protected") { report.targets.push({ id: row.id, absolutePath: row.absolutePath, state: "protected" }); continue; }
-          const proof = row.backendToken
+          const proof = operation.preview.action === "delete" ? await this.inspectPresence(row, 10000, Boolean(operation.executionRequestedAt)) : row.backendToken
             ? await this.ports.sftp("files.cleanup.check", { token: row.backendToken, index: row.backendIndex })
             : await this.ports.sftp("files.cleanup.inspect", { node: row.node, target: { relativePath: row.relativePath, type: row.type }, allowMissing: true });
-          const state = proof.state || (proof.target.missing ? "absent" : "pending");
+          const state = proof.executors?.length ? "executing" : proof.state || (proof.target.missing ? "absent" : "pending");
           report.targets.push({ id: row.id, absolutePath: row.absolutePath, state });
           if (state === "completed" && report.state !== "blocked") report.state = "settlement_required";
           if (state === "absent_unverified") { report.state = "blocked"; report.targets.at(-1)!.code = "DELETE_RECEIPT_UNCERTAIN"; }
@@ -272,6 +338,7 @@ export class PlanCleanup {
           report.state = "blocked"; report.targets.push({ id: row.id, absolutePath: row.absolutePath, state: "unverified", code: error.apiData?.code || error.code || "NODE_UNREACHABLE" });
         }
       }
+      if (operation.preview.action === "delete" && report.state !== "blocked" && report.targets.length && report.targets.every(row => ["absent", "completed", "executing"].includes(row.state))) continue;
       if (operation.retirementPendingNodes?.includes(nodeId) && report.state !== "blocked") report.state = "confirmation_required";
       const fresh = await this.status(item.id);
       if (this.busy.has(item.id) || fresh.continuedBy || fresh.restoredBy) continue;
@@ -482,6 +549,7 @@ export class PlanCleanup {
   }
   async execute(id: string): Promise<CleanupOperation> {
     const current = await this.status(id);
+    if (current.state === "completed") return current;
     if (current.preview.scope.observationMode === "managed_tmux") return this.executeManaged(current);
     if (this.busy.has(id)) cleanupError("OPERATION_BUSY");
     const operation = await this.status(id), preview = operation.preview;
@@ -510,7 +578,7 @@ export class PlanCleanup {
       for (const row of preview.rows.filter(row => operation.targets[row.id]?.state === "pending")) {
         const check = await this.ports.sftp("files.cleanup.preview", { node: row.node, action: preview.action,
           targets: [{ relativePath: row.relativePath, destination: row.destination, type: row.type, archiveBatch: row.archiveBatch, expectedOwner: row.expectedOwner }] });
-        if (check.targets[0].fingerprint !== row.fingerprint || cleanupDigest(check.rootIdentity) !== cleanupDigest(row.rootIdentity)) cleanupError("PREVIEW_CHANGED");
+        if (check.targets[0].fingerprint !== row.fingerprint || cleanupDigest(check.rootIdentity) !== cleanupDigest(row.rootIdentity)) cleanupError("PREVIEW_CHANGED", "PREVIEW_CHANGED：" + row.absolutePath + "：目标内容或安全根已变化，请重新核对路径");
       }
       if (preview.continuationOf) for (const previous of await this.history(preview.continuationOf)) {
         for (const row of previous.preview.rows.filter(row => previous.targets[row.id]?.state === "executing"
@@ -540,6 +608,7 @@ export class PlanCleanup {
   /** Batch replacement checks every confirmed operation before its first deletion. */
   async setStateRetirement(id: string, nodes: string[], error?: string): Promise<void> {
     const operation = await this.status(id);
+    if (operation.preview.action === "delete" && operation.state === "completed") return;
     if (operation.preview.action !== "delete" || operation.preview.scope.job?.purpose !== "replace_outputs"
       || operation.pendingNodes.length || Object.values(operation.targets).some(row => row.state !== "completed")
       || nodes.some(id => !operation.preview.scope.nodes.some(node => node.id === id && node.kind === "remote"))) cleanupError("INVALID_STATE_RETIREMENT_PHASE");

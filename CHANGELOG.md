@@ -310,6 +310,12 @@
 
 # Changelog
 
+## 0.5.311
+
+- Fix the actual UI submit path assigning to non-writable local submission fields. Preserve the original operation identity, non-enumerable local context and failure recovery.
+- Resolve pending permanent deletions from fresh filesystem and tmux queries, without old cleanup tokens, job registries or remote metadata acknowledgements. Confirmed-absent files leave both review pages and startup notifications. Completed deletions keep no file inventory or restore/audit payload.
+- Pair with SimpleSFTP 0.2.85 for lightweight presence and live cleanup-window queries. Existing files, connection failures, changed server identities and active executors remain distinct; no production cleanup or task dispatch is performed by this update.
+
 ## 0.4.45
 
 - 重构空卡判别：去掉 TTL/英文缩写，5秒内显卡平均利用率<5%判空；新增 GPU_UTIL_5S_WINDOW=5/GPU_IDLE_THRESHOLD=5、内存滑动窗口 _GPU_5S_HISTORY 与 _记录显卡利用率/_计算5秒平均利用率（样本<3返回None），collect_local_gpu 每秒采样写入 avgUtil5s/5秒平均利用率 字段，sampler_interval 默认1s；availability_from_gpu 去 ttlSeconds、reason 中文化为“可用/目前无空卡/暂无显卡数据”，gpu_row_busy 按5秒平均判忙，无历史时回退进程数。

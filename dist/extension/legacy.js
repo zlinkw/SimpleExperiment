@@ -5984,8 +5984,8 @@ class RealtimeTunnelPanelProvider {
         }
         this.assertRetryPlanContext(command, message);
         const body = this.actionBody(message);
-        Object.defineProperty(body, "reportPlanStageLocal", { configurable: true, value: (text) => this.reportPlanStage(message, text) });
-        Object.defineProperty(body, "submissionOperationIdLocal", { configurable: true, value: this.planSubmissionOperationId(message) });
+        Object.defineProperty(body, "reportPlanStageLocal", { configurable: true, writable: true, value: (text) => this.reportPlanStage(message, text) });
+        Object.defineProperty(body, "submissionOperationIdLocal", { configurable: true, writable: true, value: this.planSubmissionOperationId(message) });
         assertWorkflowCurrent();
         if (workflowBinding)
             body.workspace = workflowBinding.root;

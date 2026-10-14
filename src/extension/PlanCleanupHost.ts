@@ -272,11 +272,14 @@ export class PlanCleanupHost {
     const queue = await this.host.loadDistributedQueue(this.root);
     const ids = new Set(operation.preview.scope.runIds);
     const selection = operation.preview.scope.job;
+    const deletedRows = (operation.preview.rows || []).filter(row => row.nodeId !== "pluginState" && row.disposition !== "protected");
+    const absentDeletion = operation.preview.action === "delete" && deletedRows.length > 0 && deletedRows.every(row =>
+      operation.targets[row.id]?.state === "completed" && operation.targets[row.id]?.receipt?.verifiedBy === "path_absence");
     if (operation.preview.scope.observationMode === "managed_tmux") {
       const declarations = operation.preview.scope.nativeDeclarations || [];
       const matches = (record: any) => declarations.some(row => row.output_dir === record.outputDir
         && row.result_csv === record.collectionResultCsv);
-      for (const plan of queue.plans) if (plan.planFile === operation.preview.scope.planFile) {
+      for (const plan of queue.plans) if (plan.planFile === operation.preview.scope.planFile && (ids.has(plan.id) || selection?.workflowId === plan.id)) {
         for (const record of plan.jobs.filter(matches)) {
           if (restore) { if (restoreIds.has(record.cleanup?.operationId)) { delete record.cleanup; delete record.outputRetiredAt; } }
           else {
@@ -292,10 +295,10 @@ export class PlanCleanupHost {
       const job = plan?.jobs.find((job: any) => job.index === selection.index && job.commandId === selection.commandId
         && (selection.purpose === "replace_outputs" ? ["failed", "completed"].includes(job.status) : job.status === "failed"));
       const record = job || replacementLifecycleJob(queue, selection);
-      if (!record) cleanupError("JOB_SCOPE_CHANGED");
-      if (restore) { if (restoreIds.has(record.cleanup?.operationId)) { delete record.cleanup; delete record.outputRetiredAt; } }
-      else {
-        const retiringState = selection.purpose === "replace_outputs" && operation.preview.action === "delete";
+      if (!record && !absentDeletion) cleanupError("JOB_SCOPE_CHANGED");
+      if (record && restore) { if (restoreIds.has(record.cleanup?.operationId)) { delete record.cleanup; delete record.outputRetiredAt; } }
+      else if (record) {
+        const retiringState = !absentDeletion && selection.purpose === "replace_outputs" && operation.preview.action === "delete";
         const ownerWorker = job?.workerId || queue.clearedJobs?.find((row: any) => row.commandId === selection.commandId && row.workflowId === selection.workflowId)?.workerId;
         record.cleanup = { operationId: operation.id, state: operation.pendingNodes.length || retiringState ? "partial" : operation.preview.action === "delete" ? "deleted" : "archived",
           completedTargets: operation.preview.rows.filter(row => operation.targets[row.id]?.state === "completed").map(row => row.node.id + ":" + row.absolutePath),
@@ -337,9 +340,8 @@ export class PlanCleanupHost {
       const pending = this.host.distributedQueueTickPromise;
       if (pending) await pending;
       const operation = await this.service.status(id);
+      if (operation.state === "completed") return operation;
       if (operation.preview.scope.observationMode === "managed_tmux") return await this.service.execute(id);
-      if (operation.state === "completed" && operation.retirementPendingNodes?.length === 0
-        && operation.preview.scope.job?.purpose === "replace_outputs") return operation;
       if (operation.preview.scope.job?.purpose === "replace_outputs") {
         await this.service.preflightConfirmed(id);
         const selection = operation.preview.scope.job;
@@ -354,17 +356,7 @@ export class PlanCleanupHost {
       }
       const result = await this.host.withHostOperationLease("cleanupPlan", "清除 PLAN 及关联产物", () => this.service.execute(id),
         { resources: [{ server: "local", project: this.root, target: this.root }] });
-      if ((result.state === "completed" || result.retirementPendingNodes?.length && !result.pendingNodes.length
-        && Object.values(result.targets).every((row: any) => row.state === "completed"))
-        && operation.preview.action === "delete" && operation.preview.scope.job?.purpose === "replace_outputs") {
-        const pending = result.retirementPendingNodes || operation.retirementPendingNodes || operation.preview.scope.nodes.filter(node => node.kind === "remote").map(node => node.id);
-        await this.service.setStateRetirement(id, pending);
-        try {
-          await this.host.retireReplacedJobState(operation);
-          await this.service.setStateRetirement(id, []);
-        } catch (error: any) { await this.service.setStateRetirement(id, pending, String(error.message || error)); throw error; }
-        return await this.service.status(id);
-      }
+      if (operation.preview.action === "delete") return await this.service.status(id);
       return result;
     } finally { this.executing = false; void this.drainReconnects().catch(() => undefined); }
   }
