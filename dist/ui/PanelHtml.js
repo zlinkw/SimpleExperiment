@@ -6,6 +6,7 @@ exports.renderPanelHtml = renderPanelHtml;
  * 紧急回退：直接委托 legacy，确保握手 JS 完整
  * 工厂路径仅在显式开启时使用，待 JS 补全后再切回
  */
+const RunConfirmation_1 = require("./RunConfirmation");
 function renderPanelHtml() {
     let factoryFailure = "";
     let legacyFailure = "";
@@ -27,7 +28,7 @@ function renderPanelHtml() {
                 && html.includes("acquireVsCodeApi") && html.includes("requestInitialPanelState") && html.includes("handleIncomingWebviewMessage")) {
                 // 额外 vm 校验
                 new (require("vm").Script)(renderer.renderScript());
-                return html;
+                return (0, RunConfirmation_1.withRunConfirmation)(html);
             }
         }
     }
@@ -42,7 +43,7 @@ function renderPanelHtml() {
     try {
         const legacy = require("./PanelHtml.legacy");
         if (legacy && typeof legacy.renderPanelHtml === "function") {
-            return legacy.renderPanelHtml();
+            return (0, RunConfirmation_1.withRunConfirmation)(legacy.renderPanelHtml());
         }
     }
     catch (e) {

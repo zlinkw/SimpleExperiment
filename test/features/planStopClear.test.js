@@ -360,6 +360,7 @@ function installStopClearHost(sandbox) {
     planner: require("../../dist/features/PlanStopClear.js"),
     PlanStopClear_1: require("../../dist/features/PlanStopClear.js"),
     PlanExecutionMode: require("../../dist/features/PlanExecutionMode.js"),
+    PlanRunHost_1: { PlanRunHost: class { async save() {} } },
     PlanCleanupEvidence_1: require("../../dist/features/PlanCleanupEvidence.js"),
     OperationRetirement_1: require("../../dist/features/OperationRetirement.js"),
     fs: { readFile: async (file) => `id: fixture_${path.basename(file, ".yaml")}\n` },
@@ -403,6 +404,9 @@ function installStopClearHost(sandbox) {
   Object.assign(provider, sandbox);
   if (!provider.planCleanupHosts) provider.planCleanupHosts = new Map();
   if (!provider.schedulerSettings) provider.schedulerSettings = () => ({ dispatchMode: "local_idle" });
+  if (!provider.planValidationCacheKey) provider.planValidationCacheKey = () => "";
+  if (!provider.planSchedulerWorkerId) provider.planSchedulerWorkerId = () => "";
+  if (!provider.assertPlanSubmissionWorkers) provider.assertPlanSubmissionWorkers = async () => {};
   if (!provider.distributedSubmissionTimings) provider.distributedSubmissionTimings = new Map();
   if (sandbox.tickDistributedQueue) provider.tickDistributedQueue = sourceTick;
   provider.detachStaleDistributedTick = sourceDetach;
@@ -1571,6 +1575,7 @@ test("stopping during a hung fingerprint cancels that submission and a new one c
     context: { workspaceState: { get: () => [], update: async () => undefined }, globalStorageUri: { fsPath: "C:/tmp" } },
     distributedCodeVersionHold: (body) => new Promise((resolve) => { hashReleases.set(body.planFile, () => resolve(null)); }),
     localDistributedCodeFingerprint: async () => "code-1",
+    planSchedulerWorkerId: () => "",
     ensureCodeReadyForRun: async () => undefined,
     runPlanPreflight: async (body) => ({ validation: { execution_mode: "train_test", result_path_policy: "declared",
       jobs: [{ index: 0, case: "bus", seed: 1, output_dir: `work/${path.basename(body.planFile, ".yaml")}`,

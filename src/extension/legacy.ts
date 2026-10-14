@@ -22,6 +22,8 @@ import { replacePlanOutputs } from "../features/PlanOutputReplacement";
 import * as FailedJobRecovery from "../features/FailedJobRecovery";
 import * as PulledTaskControl from "../features/PulledTaskControl";
 import * as WorkerTaskQuery from "../features/WorkerTaskQuery";
+import { PlanRunHost } from "./PlanRunHost";
+import { RunConfirmation } from "./RunConfirmation";
 import { jobEvidenceName, verifyNativeResult } from "../results/NativeResultManifest";
 import * as JobAvailability from "../features/JobAvailability";
 import { openCacheCleanupPanel } from "./CacheCleanupPanel";
@@ -575,6 +577,7 @@ const uiActionCommands = new Set<WebviewActionCommand>([
     "abortScheduler",
 ]);
 const SAFE_WEBVIEW_COMMANDS = new Set([
+    "answerRunConfirmation", "retryPlanSubmission", "cancelPlanSubmission",
     "cleanupPlan",
     "markJobUnavailable", "restoreJobAvailability",
     "recallFailedJob",
@@ -908,6 +911,8 @@ export class RealtimeTunnelPanelProvider {
     client;
     lastHealth;
     lastSnapshot;
+    private runConfirmation = new RunConfirmation();
+    private resumedSubmissions = new Set<string>();
     lastWorkerTaskSnapshots = new Map();
     workerTaskRequests = new Map();
     lastRealtimeState;
@@ -1522,11 +1527,11 @@ export class RealtimeTunnelPanelProvider {
             summary: filtered || null,
         };
     }
-    async readWorkerTaskSnapshot(workerId, options: { signal?: AbortSignal; fresh?: boolean; inventoryOnly?: boolean } = {}) {
+    async readWorkerTaskSnapshot(workerId, options: { signal?: AbortSignal; fresh?: boolean; inventoryOnly?: boolean; declarations?: any[] } = {}) {
         const root = workspaceRoot();
         const cacheKey = `${root || ""}\u0000${workerId}`;
         if (options.signal?.aborted) throw options.signal.reason instanceof Error ? options.signal.reason : Object.assign(new Error("Worker task read cancelled."), { name: "AbortError" });
-        const requestKey = cacheKey + (options.inventoryOnly ? ":inventory" : ":tasks");
+        const requestKey = cacheKey + (options.inventoryOnly ? ":inventory" : ":tasks") + cleanupDigest(options.declarations || []);
         let shared = this.workerTaskRequests.get(requestKey);
         if (shared?.controller?.signal?.aborted) {
             await shared.promise.catch(() => undefined);
@@ -1538,7 +1543,7 @@ export class RealtimeTunnelPanelProvider {
             const request = { controller, subscribers: 0, settled: false, promise: Promise.resolve(undefined) as Promise<unknown> };
             const timeout = setTimeout(() => controller.abort(new Error("Worker task snapshot timed out.")), 4000);
             timeout.unref?.();
-            request.promise = this.refreshWorkerTaskSnapshot(workerId, root, cacheKey, { signal: controller.signal, inventoryOnly: options.inventoryOnly }).finally(() => {
+            request.promise = this.refreshWorkerTaskSnapshot(workerId, root, cacheKey, { signal: controller.signal, inventoryOnly: options.inventoryOnly, declarations: options.declarations }).finally(() => {
                 request.settled = true;
                 clearTimeout(timeout);
                 if (this.workerTaskRequests.get(requestKey) === request) this.workerTaskRequests.delete(requestKey);
@@ -1661,18 +1666,20 @@ export class RealtimeTunnelPanelProvider {
         this.progressRefreshPromise = request;
         return request;
     }
-    async refreshWorkerTaskSnapshot(workerId, root, cacheKey, options: { signal?: AbortSignal; inventoryOnly?: boolean } = {}) {
+    async refreshWorkerTaskSnapshot(workerId, root, cacheKey, options: { signal?: AbortSignal; inventoryOnly?: boolean; declarations?: any[] } = {}) {
         const cached = this.cachedWorkerTaskSnapshot(workerId, root, cacheKey);
         const client = this.client;
         try {
             const queue = await this.loadDistributedQueue(root);
             const queries = options.inventoryOnly ? [] : WorkerTaskQuery.workerTaskQueries(queue, workerId);
-            const batches = queries.length ? Array.from({ length: Math.ceil(queries.length / 500) }, (_, index) => queries.slice(index * 500, (index + 1) * 500)) : [[]];
+            const count = Math.max(queries.length, options.declarations?.length || 0);
+            const batches = count ? Array.from({ length: Math.ceil(count / 500) }, (_, index) => queries.slice(index * 500, (index + 1) * 500)) : [[]];
             const values = [];
-            for (const batch of batches) values.push(await this.client.getWorkerTasks(workerId, { signal: options.signal, queries: batch }));
+            for (const [index, batch] of batches.entries()) values.push(await this.client.getWorkerTasks(workerId, { signal: options.signal, queries: batch,
+                declarations: options.declarations?.slice(index * 500, (index + 1) * 500) }));
             const value = { ...values[0], queryComplete: values.every(row => row.queryComplete === true),
                 tasks: [...new Map(values.flatMap(row => row.tasks || []).map(row => [row.projectId + ":" + row.commandId, row])).values()],
-                queryErrors: values.flatMap(row => row.queryErrors || []) };
+                queryErrors: values.flatMap(row => row.queryErrors || []), declaredResults: values.flatMap(row => row.declaredResults || []) };
             options.signal?.throwIfAborted();
             if (workspaceRoot() !== root || this.client !== client) return { workerId, schemaVersion: 1, tasks: [], error: "Workspace changed during Worker task snapshot" };
             const record = value && typeof value === "object" ? value : {};
@@ -1683,6 +1690,7 @@ export class RealtimeTunnelPanelProvider {
                 capabilities: record.capabilities && typeof record.capabilities === "object" ? record.capabilities : undefined,
                 queryComplete: record.queryComplete === true,
                 queryErrors: Array.isArray(record.queryErrors) ? record.queryErrors : [],
+                declaredResults: Array.isArray(record.declaredResults) ? record.declaredResults : [],
                 ...(record.error ? { error: String(record.error) } : {}),
                 tasks: Array.isArray(record.tasks) ? record.tasks : [],
                 cleanupExecutors: Array.isArray(record.cleanupExecutors) ? record.cleanupExecutors : [],
@@ -2689,7 +2697,7 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
             ...filtered,
         };
     }
-    async apiWorkflowPlan(params = {}) {
+    async apiWorkflowPlan(params = {}, forRun = false) {
         const binding = WorkflowBinding.bindWorkflowWorkspace(params.workspace, workspaceRoot());
         WorkflowBinding.assertPlanSeedContract(params);
         const bindingGeneration = this.projectContextGeneration;
@@ -2740,7 +2748,7 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
             await this.apiProjectPrepare({ ...params, confirm: true });
             assertCurrent();
         }
-        const validation = await this.apiPlanValidate(planSelection.plan ? {
+        const validation = forRun ? { missing: [] } : await this.apiPlanValidate(planSelection.plan ? {
             planFile: String(planSelection.plan.planFile || planSelection.plan.file || ""),
             planId: String(planSelection.plan.planId || planSelection.plan.planFile || planSelection.plan.file || ""),
         } : params);
@@ -2799,7 +2807,8 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
     async apiWorkflowRun(params = {}) {
         const binding = WorkflowBinding.bindWorkflowWorkspace(params.workspace, workspaceRoot());
         WorkflowBinding.assertPlanSeedContract(params);
-        const route = await this.apiWorkflowPlan(params);
+        if (params.operationId) return this.resumePlanSubmission(String(params.operationId), params.planFile);
+        const route = await this.apiWorkflowPlan(params, true);
         WorkflowBinding.assertWorkflowWorkspace(binding, workspaceRoot());
         if (!route.ready) {
             return {
@@ -2835,19 +2844,21 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
         WorkflowBinding.assertWorkflowWorkspace(binding, workspaceRoot());
         const operationId = makeOpId("workflow-run");
         this.localOperations[operationId] = {
-            operationId, type: "workflow-run", status: "waiting_confirmation",
-            message: "请在 VS Code 弹窗中人工确认实验提交。", startedAt: new Date().toISOString(),
+            operationId, type: "workflow-run", status: "running",
+            message: "正在准备、同步并检查；存在旧产物时将在主面板确认路径。", startedAt: new Date().toISOString(),
             planFile: submittedPlanFile, planId: submittedPlanId, debugMode: params.debugMode === true,
         };
         this.markLocalOperationsDirty();
         this.postState();
+        this.localOperations[operationId].submissionOperationId = "plan-submit-" + operationId;
+        route.calls[0].params = { ...route.calls[0].params, clientActionId: operationId };
         void this.runApiWorkflowOperation(operationId, route, binding).catch(() => undefined);
         return {
             ok: true,
             started: true,
             operationId,
-            status: "waiting_confirmation",
-            confirmation: "vscode_modal",
+            status: "checking_workers",
+            confirmation: "main_panel_if_outputs_exist",
             plan: route.plan,
             nextAction: "operations.list",
             calls: [{ method: "operations.list", params: {} }],
@@ -2879,7 +2890,7 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
             this.localOperations[operationId] = {
                 ...(this.localOperations[operationId] || {}),
                 status: "running",
-                message: "正在执行标准 validate -> dry-run -> upload -> submit 路线。",
+                message: "正在执行准备、同步、校验预演、当前任务检查及提交。",
             };
             this.markLocalOperationsDirty();
             this.postState();
@@ -4068,6 +4079,7 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
         }
     }
     async dispose() {
+        this.runConfirmation.cancel();
         if (this.panelHostEventLoopTimer) clearInterval(this.panelHostEventLoopTimer);
         this.panelHostEventLoopTimer = undefined;
         this.panelHostEventLoopHistogram?.disable();
@@ -5158,6 +5170,9 @@ return this.testTunnel(true);
         await this.handleMessageCore(message, command);
     }
     async handleMessageCore(message, command = getSafeCommand(message)) {
+        if (command === "answerRunConfirmation") { this.runConfirmation.answer(message); return; }
+        if (command === "retryPlanSubmission") return this.resumePlanSubmission(String(message.operationId || ""));
+        if (command === "cancelPlanSubmission") return this.cancelPlanRunSubmission(String(message.operationId || ""));
         if (["webviewReady", "webviewBootstrapPhase", "webviewBootstrapError", "webviewRuntimeIncident", "webviewRenderError", "webviewHeartbeatAck", "webviewStateRendered", "webviewSectionInterest", "webviewSectionTelemetry", "webviewLayoutEvidence", "webviewVisibility"].includes(command)
             && !this.isCurrentPanelDocumentMessage(message, command)) return;
         if (this.extensionRuntimeVersionState().reloadRequired && command !== "reloadWindow") {
@@ -5172,6 +5187,7 @@ return this.testTunnel(true);
             case "webviewReady":
                 if (this.panelLifecycleState === "maintenance" || this.panelLifecycleState === "reload_required") return;
                 this.webviewReady = true;
+                this.runConfirmation.replay(this);
                 this.panelNeedsWebviewReset = false;
                 this.recordPanelIncident("lifecycle", "webview-ready");
                 this.transitionPanelLifecycle("ready", "webviewReady");
@@ -6575,77 +6591,41 @@ return this.testTunnel(true);
         body.overwrite = overwrite;
     }
     async confirmDeclaredPlanOutputs(plan, body, validation) {
-        const root = workspaceRoot();
-        if (!root || !Array.isArray(validation.jobs)) throw new Error("正式作业声明未核实");
-        const planFile = operationResultPlanFile(body) || plan?.planFile || plan?.file;
-        const binding = WorkflowBinding.bindWorkflowWorkspace(body.workspace, root);
-        const generation = this.projectContextGeneration;
-        const assertCurrent = () => {
-            assertRetryRequestCurrent();
-            WorkflowBinding.assertWorkflowContext(binding, workspaceRoot(), this.projectContextGeneration, generation);
-            WorkflowBinding.assertWorkflowWorkspace(binding, workspaceRoot());
-        };
-        const queue = await this.loadDistributedQueue(root);
-        const declared = validation.jobs;
-        const pendingRetirement = [...queue.plans.filter(row => row.planFile === planFile).flatMap(row => row.jobs),
-            ...(queue.clearedJobs || []).filter(row => row.planFile === planFile)]
-            .find(row => row.outputRetiredAt && row.cleanup?.state === "partial");
-        if (pendingRetirement && this.taskLifecycleProtocol !== 2) throw new Error("OUTPUT_REPLACEMENT_PENDING：请先继续清理操作 " + pendingRetirement.cleanup.operationId);
-        const indices = new Set(validation.existing.map(row => Number(row.index)));
-        for (const old of this.taskLifecycleProtocol === 2 ? [] : queue.plans) if (normalizePlanSelectionKey(old.planFile).toLowerCase() === normalizePlanSelectionKey(planFile).toLowerCase())
-            for (const job of old.jobs) if (!job.outputRetiredAt && !job.cleanup && ["completed", "failed"].includes(job.status)
-                && (job.status === "completed" || job.startedAt || Object.keys(job.artifacts || {}).length)) {
-                const current = declared.find(row => row.case === job.case && Number(row.seed) === job.seed
-                    && row.output_dir === job.outputDir && row.result_csv === job.collectionResultCsv);
-                if (current) indices.add(Number(current.index));
-            }
-        body.overwriteExisting = body.overwrite = false;
-        body.options = { ...(body.options || {}), overwriteExisting: false, overwrite: false };
-        body.existingOutputChoice = undefined;
-        body.existingOutputCount = indices.size;
-        if (!indices.size) return;
-        const affected = declared.filter(row => indices.has(Number(row.index)));
-        const cover = "覆盖并重跑", missing = "仅补跑缺失任务", keep = "保留已有产物，不运行";
-        const choice = await vscode.window.showWarningMessage(`PLAN：${planFile}；${affected.length}/${declared.length} 个 job 有产物登记。覆盖将预览全部精确路径并再次确认两次。`,
-            { modal: true }, cover, ...(affected.length < declared.length ? [missing] : []), keep, "取消");
-        assertCurrent();
-        if (!choice || choice === "取消") throw new UiCommandCancelled("已取消：未删除产物或提交任务。");
-        if (choice === keep) { body.existingOutputChoice = "keep_existing"; return; }
-        if (choice === missing) {
-            const verified = [];
-            for (const declaration of affected) {
-                const records = queue.plans.filter(old => old.planFile === planFile && old.revision === body.planRevision
-                    && old.codeFingerprint === this.lastCodeSyncState?.fingerprint).flatMap(old => old.jobs.filter(job => job.status === "completed" && !job.outputRetiredAt && !job.cleanup
-                    && job.case === declaration.case && job.seed === Number(declaration.seed) && job.outputDir === declaration.output_dir
-                    && job.collectionResultCsv === declaration.result_csv));
-                let accepted = false;
-                for (const job of records) {
-                    try {
-                        const diagnostic = await this.apiTaskPreflight({ workerId: job.workerId, commandId: job.commandId, completedOutputVerify: true }, "start", new AbortController().signal);
-                        const result = await this.waitForOperationTerminalResult("preflight-worker-task", diagnostic, "核实已有完成产物", 45_000, job.workerId);
-                        const report = result?.payload?.report || result?.report;
-                        if (report?.report?.completed === true || report?.completed === true) { accepted = true; break; }
-                    } catch (error) { if (isUiCommandRemotePending(error)) throw error; }
-                }
-                if (!accepted) throw new Error("FORMAL_JOB_CONFLICT：产物未被核实为当前声明的完整完成结果，请选择覆盖或取消：" + declaration.output_dir);
-                verified.push(Number(declaration.index));
-            }
-            assertCurrent(); body.distributedSkipJobIndices = verified;
-            body.assignedExperimentIndices = declared.map(row => Number(row.index)).filter(index => !verified.includes(index));
-            body.existingOutputChoice = "rerun_missing"; return;
-        }
-        const cleanup = this.planCleanupHost();
-        const stablePlanId = cleanupStablePlanId(await fs.readFile(path.join(root, planFile), "utf8"));
-        const groups = await cleanup.replacementGroups(queue, planFile, affected, DistributedPlanQueue.canonicalProjectId(root), stablePlanId);
-        body.outputReplacementOperationIds = await replacePlanOutputs({ service: cleanup.service, execute: id => cleanup.execute(id), assertCurrent,
-            planRevision: String(body.planRevision), progress: text => body.reportPlanStageLocal?.(text),
-            review: async detail => { const document = await vscode.workspace.openTextDocument({ language: "plaintext", content: detail });
-                await vscode.window.showTextDocument(document, { preview: false }); },
-            confirm: async (detail, phase) => await vscode.window.showWarningMessage(`第 ${phase} 次确认：永久替换上述精确产物`, { modal: true, detail }, "确认上述精确路径") === "确认上述精确路径",
-        }, planFile, groups);
-        assertCurrent(); body.distributedSkipJobIndices = []; body.existingOutputChoice = "rerun_all";
-        await this.retireLocalOperationState(endedPlanOperationIds(this.buildPlanRuntimeEvidenceState().operations || {}, planFile,
-            new Set([body.submissionOperationIdLocal].filter(Boolean))));
+        return new PlanRunHost(this, workspaceRoot()).replace(plan, body, validation);
+    }
+    async askRunConfirmation(payload, operationId = "") {
+        const signal = this.distributedSubmissionAborts?.get(operationId)?.signal;
+        return this.runConfirmation.ask(this, { ...payload, operationId }, signal);
+    }
+    async resumePlanSubmission(requestedId, requestedPlanFile = "") {
+        const id = this.localOperations[requestedId]?.submissionOperationId || requestedId;
+        if (!id.startsWith("plan-submit-") || this.resumedSubmissions.has(id)) throw new Error("这次提交正在处理，请勿重复点击。");
+        const root = workspaceRoot(), store = new PlanRunHost(this, root), saved = await store.load(id);
+        if (requestedPlanFile && normalizePlanSelectionKey(requestedPlanFile) !== normalizePlanSelectionKey(saved.input.planFile)) throw new Error("恢复记录属于其他 PLAN，未继续。");
+        if (saved.recovery.cancelled) throw new Error("这次提交已取消，请从 PLAN 发起新的运行。");
+        const body = { ...saved.input, workspace: root, submissionOperationIdLocal: id, runRecovery: saved.recovery, runReplacement: saved.replacement };
+        const expectedRevision = body.planRevision;
+        this.stampPlanRevision(body);
+        if (body.planRevision !== expectedRevision) throw new Error("PLAN 已变化，请重新提交当前 PLAN 并确认路径。");
+        const message = { command: "runPlan", planFile: body.planFile, clientActionId: id.slice("plan-submit-".length) };
+        this.distributedSubmissionEpochs.set(id, (this.distributedSubmissionEpochs.get(id) || 0) + 1);
+        this.distributedSubmissionAborts.set(id, new AbortController());
+        this.localOperations[id] = { ...this.localOperations[id], operationId: id, type: "run-plan", localSubmissionProgress: true,
+            planFile: body.planFile, status: "running", retryableSubmission: false, error: "", finishedAt: "", message: "正在重试失败步骤…" };
+        this.resumedSubmissions.add(id); this.markLocalOperationsDirty(); this.postState();
+        void this.finishDistributedPlanSubmission("runPlan", message, this.localPlanForActionBody(body), body)
+            .catch(error => this.recordActionError({ command: "runPlan", message: errorMessage(error) }))
+            .finally(() => this.resumedSubmissions.delete(id));
+        return { ok: true, operationId: id, status: "checking_workers", nextAction: "operations.list" };
+    }
+    async cancelPlanRunSubmission(id) {
+        const store = new PlanRunHost(this, workspaceRoot()), saved = await store.load(id);
+        saved.recovery.cancelled = true;
+        await store.save({ ...saved.input, submissionOperationIdLocal: id, runRecovery: saved.recovery, runReplacement: saved.replacement });
+        this.distributedSubmissionAborts.get(id)?.abort(new UiCommandCancelled("本次提交已取消。"));
+        this.runConfirmation.cancel(id);
+        this.finishPlanSubmissionProgress({ clientActionId: id.slice("plan-submit-".length) }, "cancelled", "本次提交已取消；已完成的文件处理不回滚，未发送的任务不再提交。");
+        return { status: "cancelled", operationId: id };
     }
     async confirmPlanRunSubmission(command, plan, debugMode = false, body) {
         const remoteTargets = this.planRunRemoteTargets(body);
@@ -9669,6 +9649,14 @@ this.assertPlanTopologyReady("Plan 调度");
         const operationId = this.planSubmissionOperationId(message);
         const submissionEpoch = operationId ? (this.distributedSubmissionEpochs?.get(operationId) || 0) : 0;
         const submissionRoot = workspaceRoot();
+        const recoveryStore = new PlanRunHost(this, submissionRoot);
+        body.submissionOperationIdLocal = operationId;
+        body.runRecovery ||= {};
+        body.reportPlanStageLocal = text => this.reportPlanStage(message, text);
+        await recoveryStore.save(body);
+        if (body.submissionWorkflowId && (await this.loadDistributedQueue(submissionRoot)).plans.some(row => row.id === body.submissionWorkflowId)) {
+            this.finishPlanSubmissionProgress(message, "succeeded", "原提交已在队列中，继续主动查询原任务；没有重复提交。"); return;
+        }
         if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot)) return;
         if (this.distributedPostprocessPromise || this.manualResultSyncCounts?.get(workspaceRoot()))
             this.assertPlanSubmissionNotDuringResultSync(message);
@@ -9696,12 +9684,19 @@ this.assertPlanTopologyReady("Plan 调度");
         }
         try {
             const codeSyncStarted = Date.now();
-            await this.waitForPlanSubmission(message, () => this.ensureCodeReadyForRun(undefined, [body], (text) => this.reportPlanStage(message, text)));
+            const currentCode = await this.localDistributedCodeFingerprint(root);
+            if (body.runRecovery.syncFingerprint !== currentCode || this.lastCodeSyncState?.fingerprint !== currentCode
+                || !this.enabledWorkerConfigs().every(worker => this.lastCodeSyncState?.workerVersions?.[worker.id]?.fingerprint === currentCode))
+                await this.waitForPlanSubmission(message, () => this.ensureCodeReadyForRun(undefined, [body], (text) => this.reportPlanStage(message, text)));
+            body.runRecovery.syncFingerprint = this.lastCodeSyncState?.fingerprint;
+            await recoveryStore.save(body);
             assertCurrent();
             this.recordPlanSubmissionTiming?.(message, "codeSyncMs", Date.now() - codeSyncStarted);
             if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot)) return;
             const validateStarted = Date.now();
-            const preflightOk = await this.waitForPlanSubmission(message, () => this.runPlanPreflight(body, "当前计划", {
+            const checkKey = this.planValidationCacheKey(body, this.planSchedulerWorkerId(body));
+            const preflightOk = checkKey && body.runRecovery.checkKey === checkKey && body.runRecovery.preflight
+                ? body.runRecovery.preflight : await this.waitForPlanSubmission(message, () => this.runPlanPreflight(body, "当前计划", {
                 reportStage: (text) => this.reportPlanStage(message, text),
                 recordTiming: (key, ms) => this.recordPlanSubmissionTimingByOperation(operationId, key, ms),
             }));
@@ -9712,6 +9707,8 @@ this.assertPlanTopologyReady("Plan 调度");
                 this.finishPlanSubmissionProgress(message, "failed", "校验或预演未通过，未提交运行。");
                 return;
             }
+            body.runRecovery.checkKey = checkKey; body.runRecovery.preflight = preflightOk;
+            await recoveryStore.save(body);
             await this.assertPlanSubmissionWorkers(body, preflightOk);
             this.reportPlanStage(message, "正在确认历史产物处理方式…");
             const historyChoiceStarted = Date.now();
@@ -9746,11 +9743,15 @@ this.assertPlanTopologyReady("Plan 调度");
             }
         } catch (error) {
             if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot)) return;
-            this.finishPlanSubmissionProgress(message, isUiCommandCancelled(error) ? "cancelled" : "failed", errorMessage(error));
+            body.runRecovery.lastError = errorMessage(error);
+            body.runRecovery.cancelled = isUiCommandCancelled(error) || error.apiData?.code === "REPLACEMENT_CANCELLED";
+            await recoveryStore.save(body);
+            if (this.localOperations[operationId]) this.localOperations[operationId].retryableSubmission = !body.runRecovery.cancelled;
+            this.finishPlanSubmissionProgress(message, body.runRecovery.cancelled ? "cancelled" : "failed", errorMessage(error));
             throw error;
         }
         if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot)) return;
-        this.finishPlanSubmissionProgress(message, "succeeded", "调度队列已接收；面板继续显示 Worker 回传的任务状态。");
+        this.finishPlanSubmissionProgress(message, "succeeded", "调度队列已保存；面板主动查询 Scheduler、任务窗口和最终产物。");
     }
     async activeDeferredForSubmission(root, body, fingerprint, deferredPlanId) {
         if (!root) return undefined;
@@ -10347,14 +10348,22 @@ this.assertPlanTopologyReady("Plan 调度");
         if (this.taskLifecycleProtocol !== 2) return;
         this.assertExecutionWorkersReady(this.workerActionTargets());
         this.assertExecutionCondaEnvReady(this.workerActionTargets());
+        const incompatible = this.workerActionTargets().filter(target => this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.declaredJobPaths !== true
+            || this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.formalJobIdentityEnv !== 1
+            || this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.taskShellEnvironment !== 1
+            || this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.projectManagedValidation !== 1);
+        if (incompatible.length) throw new Error("WORKER_PROTOCOL_INCOMPATIBLE：请更新 Agent/Scheduler：" + incompatible.map(target => target.id).join("、") + "；未删除或提交。");
+        const validation = planValidationFromResult(validated);
+        const declarations = (validation?.jobs || []).map(job => ({ ...job, mode: validation.execution_mode }));
         const snapshots = await Promise.all(this.enabledWorkerConfigs().map(async worker => {
-            try { return await this.readWorkerTaskSnapshot(worker.id, { fresh: true, inventoryOnly: true,
+            try { return await this.readWorkerTaskSnapshot(worker.id, { fresh: true, inventoryOnly: true, declarations,
                 signal: AbortSignal.timeout(8000) }); }
             catch (error) { return { workerId: worker.id, error: errorMessage(error) }; }
         }));
-        const validation = planValidationFromResult(validated);
         const skip = new Set(body.distributedSkipJobIndices || []);
         WorkerTaskQuery.assertLaunchObservations(snapshots, (validation?.jobs || []).filter(job => !skip.has(Number(job.index))));
+        for (const snapshot of snapshots) if (declarations.length && snapshot.capabilities?.declaredResultQuery !== 1)
+            throw new Error("Worker " + snapshot.workerId + "：需要更新 Agent/Scheduler 以查询当前声明的结果；未删除或提交。");
         body.workerSubmissionSnapshots = snapshots;
     }
     async enqueueDistributedPlan(body, validated, skipTick = false, supersededDeferredId = "", submissionEpoch = 0, submissionOperationId = "", binding?) {
@@ -10395,9 +10404,11 @@ this.assertPlanTopologyReady("Plan 调度");
         const planFile = operationResultPlanFile(body);
         const revision = String(body.planRevision || body.options?.planRevision || "");
         const codeFingerprint = String(this.lastCodeSyncState?.fingerprint || "");
-        const id = makeOpId("distributed-plan");
+        const id = body.submissionWorkflowId ||= makeOpId("distributed-plan");
+        if (body.submissionOperationIdLocal) await new PlanRunHost(this, root).save(body);
         const current = await this.loadDistributedQueue(root);
         if (!submissionCurrent()) return { enqueued: false, cancelled: true };
+        if (current.plans.some(row => row.id === id)) return { enqueued: true, localQueued: true, pendingCount: current.plans.find(row => row.id === id).jobs.filter(job => job.status === "pending").length };
         // Replacement already finished through the confirmed cleanup service. A new
         // formal writer must still reject occupied paths; never forward overwrite.
         const overwriteExisting = false;
@@ -11858,18 +11869,12 @@ this.assertPlanTopologyReady("Plan 调度");
         if (!isCurrent()) return;
         if (["running", "starting", "queued"].includes(state.execution))
             throw new Error("所选任务仍在服务器排队或运行；请先中止或明确召回。");
-        const source = this.workerCodeSyncTargets().find(row => row.id === job.workerId);
-        if (!source) throw new Error("原 Worker 配置不可用；未重新派发。");
-        const inventory = await this.simpleSftpApiCall("sync.projectInventory", { source: this.sftpServerOptions(source),
-            relativePath: ".", scopePaths: [job.outputDir, ...(job.collectionResultCsv ? [job.collectionResultCsv] : [])] });
-        if (!inventory?.files || Object.keys(inventory.unverifiedFiles || {}).length)
-            throw new Error("所选产物路径尚未核实；可重新查询，未重新派发。");
-        if (Object.keys(inventory.files).some(file => file !== job.outputDir + "/.formal_job.lock")) {
-            await this.planCleanupHost().openJob(plan.planFile, { workflowId: plan.id, index: job.index, commandId: job.commandId, purpose: "replace_outputs" });
-            return { status: "blocked", code: "FORMAL_JOB_CONFLICT", message: "已有产物；已打开精确 job 清理预览，未重排。" };
-        }
-        const choice = await vscode.window.showWarningMessage(`重新排队 ${plan.planFile} / ${job.case} / seed ${job.seed}\n已主动核实原任务未运行、产物为空。`, { modal: true }, "重新排队");
-        if (choice !== "重新排队" || !isCurrent()) return;
+        const body = { planFile: plan.planFile, planRevision: plan.revision, options: {}, workerSubmissionSnapshots: [], runReplacement: {} };
+        const validation = { execution_mode: plan.executionMode, jobs: [{ index: job.index, case: job.case, seed: job.seed,
+            output_dir: job.outputDir, result_csv: job.collectionResultCsv, checkpoint_source: job.checkpointSource }] };
+        await this.assertPlanSubmissionWorkers(body, { validation });
+        await new PlanRunHost(this, root).replace(plan, body, validation);
+        if (!isCurrent()) return;
         await PulledTaskControl.stopPulledTask(this.client, plan, job, makeOpId("requeue-job"));
         if (!isCurrent()) return;
         const latest = await this.loadDistributedQueue(root);
@@ -26570,6 +26575,7 @@ function workerTaskSnapshotPayload(snapshot) {
         capabilities: snapshot.capabilities,
         queryComplete: snapshot.queryComplete,
         queryErrors: snapshot.queryErrors || [],
+        declaredResults: snapshot.declaredResults || [],
         tasks: snapshot.tasks,
         cleanupExecutors: snapshot.cleanupExecutors || [],
         ...(snapshot.error ? { error: snapshot.error } : {}),

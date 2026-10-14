@@ -15020,6 +15020,7 @@ function renderPanelHtml() {
       const historySelectable = Boolean(historyActions) && !operationIsActive(status)
         && (operationIsFailureLike(status) || operationIsCancelled(status) || operationIsCompleted(status));
       const historyId = String(row.operationId || row.id || "");
+      const retrySubmission = row.retryableSubmission && historyId ? '<div class="operationActions"><button class="mini" data-command="retryPlanSubmission" data-operation-id="' + escAttr(historyId) + '">重试失败步骤</button><button class="mini secondary" data-command="cancelPlanSubmission" data-operation-id="' + escAttr(historyId) + '">取消本次提交</button></div>' : '';
       const historyCheckbox = historySelectable && historyId ? '<input type="checkbox" data-operation-history-select="' + escAttr(historyId) + '" aria-label="选择操作 ' + escAttr(historyId) + '"' + (selectedOperationHistoryIds.has(historyId) ? ' checked' : '') + '>' : '';
       const historyButton = historySelectable && historyId ? '<button class="mini history-clear" data-command="clearOperations" data-operation-id="' + escAttr(historyId) + '" title="仅从本机面板隐藏这条已结束操作；不影响当前 Plan、job 或远端文件">清理此条</button>' : '';
       const historyMarker = historySelectable ? '<span class="pill" title="这是一次已结束的操作记录；当前运行的 job 在上方 Plan 进度中单独显示">历史操作</span>' : '';
@@ -15060,7 +15061,7 @@ function renderPanelHtml() {
           fileActions +
           logWindow +
           '<div class="operationMeta"><span class="pill" data-operation-progress="true"' + (meaningfulValue(row.progress) ? '' : ' hidden') + '>' + (meaningfulValue(row.progress) ? '进度 ' + esc(row.progress) : '') + '</span><span class="pill" data-operation-time="true" title="' + escAttr(timestamp.label + "时间：" + timestamp.raw) + '">' + esc(timestamp.label + " " + timestamp.relative) + '</span>' + (!errorLine && row.error && row.error !== "-" ? '<span class="pill status-failed" title="' + escAttr(redactUiText(String(row.error))) + '">错误</span>' : '') + '</div>' +
-          (historyButton ? '<div class="operationActions">' + historyButton + '</div>' : '') + abortButton +
+          (historyButton ? '<div class="operationActions">' + historyButton + '</div>' : '') + abortButton + retrySubmission +
           tbLinkForRunning +
         '</div>' +
       '</div>';

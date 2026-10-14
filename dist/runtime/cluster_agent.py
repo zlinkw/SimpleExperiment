@@ -17146,6 +17146,8 @@ def serve_http(args):
                         raise ValueError("TASK_QUERY_LIMIT")
                     payload = json.loads(raw.decode("utf-8"))
                     value = task_query(root, payload.get("queries") or [])
+                    if payload.get("declarations") is not None:
+                        value["declaredResults"] = task_declared_results(root, payload["declarations"])
                     if payload.get("discovery"):
                         value["declaredJobs"] = task_describe_plan(root, payload["discovery"])
                     return self.send_json(value)
@@ -17718,7 +17720,7 @@ def task_manifest_observation(root, job):
     if mode in ("test", "train_test") and result_csv != job.get("collectionResultCsv"):
         present = False
     expected_mode = "test" if job.get("checkpointTestOnly") and job.get("executionMode") == "train_test" else job.get("mode") or job.get("executionMode")
-    return {"runId": report.get("runId"), "status": report.get("status"), "present": present,
+    return {"runId": report.get("runId"), "status": report.get("status"), "present": present, "job": report.get("job"),
             "verified": present and report.get("outputDir") == output and (not expected_mode or mode == expected_mode)}
 
 def task_public_observation(root, job, row=None):
@@ -17747,6 +17749,22 @@ def task_public_observation(root, job, row=None):
     actual_mode = "test" if job.get("checkpointTestOnly") and job.get("executionMode") == "train_test" else job.get("mode") or job.get("executionMode")
     return {**public, "actualExecutionMode": actual_mode, **({k: row[k] for k in ("tmuxWindowId", "tmuxPane", "tmuxSession", "gpuId", "exitCode")} if row else {}),
             "status": status, "logPath": row.get("logPath") if row else "", "observation": observed, "lifecycleProtocol": 2, "durableAccepted": True}
+
+
+def task_declared_results(root, declarations):
+    if not isinstance(declarations, list) or len(declarations) > 500:
+        raise ValueError("DECLARED_RESULT_QUERY_LIMIT")
+    results = []
+    for declaration in declarations:
+        try:
+            job = {"outputDir": declaration["output_dir"], "collectionResultCsv": declaration.get("result_csv"), "mode": declaration["mode"]}
+            result = task_manifest_observation(root, job)
+            expected = {"index": declaration["index"], "case": declaration["case"], "seed": declaration["seed"]}
+            results.append({"index": declaration["index"], **job, "completed": bool(result and result["status"] == "completed"
+                and result["verified"] and result.get("job") == expected), "runId": result.get("runId") if result else None})
+        except Exception as exc:
+            results.append({"index": declaration.get("index") if isinstance(declaration, dict) else None, "completed": False, "error": str(exc)})
+    return results
 
 def task_query(root, queries=()):
     if not isinstance(queries, (list, tuple)) or len(queries) > 500:
@@ -17815,7 +17833,7 @@ def task_query(root, queries=()):
     return {"schemaVersion": 1, "generatedAt": now_iso(), "tasks": tasks, "queryComplete": True, "queryErrors": query_errors, "cleanupExecutors": cleanup_executors,
             "activeOperations": active_cleanup_operations(root) if "active_cleanup_operations" in globals() else [],
             "capabilities": {"schemaVersion": 1, "durablePlanQueue": True, "declaredJobPaths": True,
-                             "idleGpuAdmission": True, "queuedJobRecall": True, "taskLifecycle": 2, "manualDispatch": 1}}
+                             "idleGpuAdmission": True, "queuedJobRecall": True, "taskLifecycle": 2, "manualDispatch": 1, "declaredResultQuery": 1}}
 
 def task_queue_session(root, worker_id):
     key = hashlib.sha256((os.path.realpath(root) + "\0" + worker_id).encode("utf-8")).hexdigest()[:16]

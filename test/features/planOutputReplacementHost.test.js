@@ -2,43 +2,16 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
-const os = require('node:os');
 const vm = require('node:vm');
 require('../_helpers/registerTsRequire');
 const {replacementLifecycleJob} = require('../../src/features/PlanOutputReplacement.ts');
 const source = fs.readFileSync(path.join(__dirname, '../../src/extension/legacy.ts'), 'utf8');
-function fixture(choice, verified = true) {
-  const start = source.indexOf('    async confirmDeclaredPlanOutputs('), end = source.indexOf('    async confirmPlanRunSubmission(', start);
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'replace-host-')), calls = [];
-  const job = { index: 0, case: 'a', seed: 42, outputDir: 'work/a', collectionResultCsv: 'tmp/result/a.csv', status: 'completed', workerId: 'w', commandId: 'c' };
-  const plan = { id: 'run', revision: 'revision', codeFingerprint: 'code', planFile: 'experiments/plans/p.yaml', jobs: [job] };
-  const host = { projectContextGeneration: 1, lastCodeSyncState: { fingerprint: 'code' }, loadDistributedQueue: async () => ({ plans: [plan] }),
-    apiTaskPreflight: async body => { calls.push(body); return {}; }, waitForOperationTerminalResult: async () => ({ payload: { report: { completed: verified } } }) };
-  const sandbox = { workspaceRoot: () => root, WorkflowBinding: { bindWorkflowWorkspace() { return {}; }, assertWorkflowContext() {}, assertWorkflowWorkspace() {} },
-    AbortController, isUiCommandRemotePending: () => false,
-    operationResultPlanFile: body => body.planFile, normalizePlanSelectionKey: x => x, assertRetryRequestCurrent() {},
-    vscode: { window: { showWarningMessage: async () => choice } }, UiCommandCancelled: Error };
-  const method = vm.runInNewContext('({' + source.slice(start, end) + '}).confirmDeclaredPlanOutputs', sandbox);
-  const body = { workspace: root, planFile: plan.planFile, planRevision: 'revision', overwrite: true, options: { overwriteExisting: true } };
-  const validation = { existing: [{ index: 0 }], jobs: [
-    { index: 0, case: 'a', seed: 42, output_dir: 'work/a', result_csv: 'tmp/result/a.csv' },
-    { index: 1, case: 'b', seed: 42, output_dir: 'work/b', result_csv: 'tmp/result/b.csv' }] };
-  return { calls, body, host, run: () => method.call(host, {}, body, validation) };
-}
-test('Windows dialog cancel and keep do not preflight, delete or request a new job', async () => {
-  for (const choice of ['取消', undefined, '保留已有产物，不运行']) {
-    const f = fixture(choice);
-    if (choice === '保留已有产物，不运行') { await f.run(); assert.equal(f.body.existingOutputChoice, 'keep_existing'); }
-    else await assert.rejects(f.run(), /未删除/);
-    assert.equal(f.calls.length, 0); assert.equal(f.body.overwrite, false); assert.equal(f.body.options.overwriteExisting, false);
-  }
-});
-test('missing-only checks actual completed Worker hashes and forwards only remaining indices to all Scheduler routes', async () => {
-  const f = fixture('仅补跑缺失任务'); await f.run();
-  assert.equal(f.calls[0].completedOutputVerify, true);
-  assert.deepEqual(Array.from(f.body.distributedSkipJobIndices), [0]); assert.deepEqual(Array.from(f.body.assignedExperimentIndices), [1]);
-  const bad = fixture('仅补跑缺失任务', false); await assert.rejects(bad.run(), /未被核实/);
-  const stale = fixture('仅补跑缺失任务'); stale.body.planRevision = 'new'; await assert.rejects(stale.run(), /未被核实/); assert.equal(stale.calls.length, 0);
+test('normal Windows run delegates to the same exact-target confirmation service as explicit retry and manual placement', async () => {
+  const ts=require('typescript'), ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true);let member;
+  function visit(n){if(ts.isMethodDeclaration(n)&&n.name.getText(ast)==='confirmDeclaredPlanOutputs')member=n;ts.forEachChild(n,visit);}visit(ast);
+  const calls=[],root='fixture';class PlanRunHost {constructor(h,r){assert.equal(r,root);} async replace(...args){calls.push(args);return 'continued';}}
+  const method=vm.runInNewContext(ts.transpileModule('class Host {'+member.getText(ast)+'};Host.prototype.confirmDeclaredPlanOutputs',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{PlanRunHost,workspaceRoot:()=>root});
+  const plan={},body={},validation={jobs:[]};assert.equal(await method.call({},plan,body,validation),'continued');assert.deepEqual(calls,[[plan,body,validation]]);
 });
 test('replacement fence persists before deletion and prevents re-mirroring after partial failure', async () => {
   const text = fs.readFileSync(path.join(__dirname, '../../src/extension/PlanCleanupHost.ts'), 'utf8');

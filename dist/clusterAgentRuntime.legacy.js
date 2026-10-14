@@ -16460,6 +16460,8 @@ def serve_http(args):
                         raise ValueError("TASK_QUERY_LIMIT")
                     payload = json.loads(raw.decode("utf-8"))
                     value = task_query(root, payload.get("queries") or [])
+                    if payload.get("declarations") is not None:
+                        value["declaredResults"] = task_declared_results(root, payload["declarations"])
                     if payload.get("discovery"):
                         value["declaredJobs"] = task_describe_plan(root, payload["discovery"])
                     return self.send_json(value)

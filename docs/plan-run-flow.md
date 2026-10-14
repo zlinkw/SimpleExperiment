@@ -7,8 +7,10 @@
 批次：
 
 1. 查询隔离、逐项错误与提交检查前移：实现并验证完成。
-2. 共用两次确认、覆盖/补跑与提交恢复：待实施。
-3. 集成、真实隔离 tmux、发行与一次安装：待实施。
+2. 共用两次确认、覆盖/补跑与提交恢复：实现并验证完成。
+3. 单 job 最新产物自动同步、最新一轮保留：待实施。
+4. 批量删除后文件树与空目录读取：待实施。删除或成功查询不存在的路径直接从文件索引、勾选及过滤列表移除，不建立“已删除”展示项；查询失败保留错误，不能当作空目录。
+5. 集成、真实隔离 tmux、发行与一次安装：待实施。
 
 失败基线：提交链路在替换后查询 Worker；全部历史记录混入请求，99 条缺少 projectId；错误被改成通用 unavailable。0.5.309 的原失败运行不自动重放。
 
@@ -16,8 +18,12 @@
 
 实际测试、失败及提交记录随批次补充。远端运行版本、生产入口和真实产物操作在用户重载及更新远端后另行验收。
 
-补充要求：同一 job 后续仅保留最新一轮产物，不生成 attempt/版本/clean_dir 备份；每个 job 完成后触发已有“同步最新版”流程，范围与当前配置一致，推送全部启用 Worker。既存范围外历史资产不自动清理。
+补充要求：同一 job 后续仅保留最新一轮产物，不生成 attempt/版本/clean_dir 备份；每个 job 完成后触发已有“同步最新版”流程，只处理该 job 最新产物与“项目同步范围与状态”勾选范围的交集，推送全部启用 Worker。既存范围外历史资产不自动清理。
 
 批次 1 验证：planRunQueryRegression 单文件先失败后通过，覆盖真实 Host 调用顺序、1201 条分批查询、原始 HTTP 错误，以及提取真实 Python 查询隔离 99 条缺失身份和 2 条非法数据。npm run build 最终通过。
 
 构建曾在既有 independentAgent 登录回归遇到单次 WSL 子进程 10 秒上限；将三次 WSL 冷启动合并为一次，并继续真实执行成功/失败登录与 API 输出检查，单文件约 3.6 秒通过；未放宽超时或修改 Agent 生产逻辑。随后完整 build 通过。提交记录由 Git 历史及后续批次记录核对。
+
+批次 1 提交：00f0fbeb6c49b9ea5ed0d336d0d65dfa46161fa1。
+
+批次 2 验证：planRunReplacement 5 项、planRunRecovery 3 项、planRunQueryRegression 4 项、planSubmissionVisiblePreflight 19 项、planOutputReplacementHost 2 项及 formalJobExecution 6 项通过。修正旧测试抽取范围及注入依赖；planStopClear 34 项通过。完整 npm run build 通过，所有实际渲染 script 与 PanelHtml.js 的 vm.Script 通过。确认弹窗沿用 CSP nonce；无未命名文档、第三次确认或自动环境导入。生产未部署。

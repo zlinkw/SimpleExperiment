@@ -26,10 +26,10 @@ test('actual refresh excludes invalid and finished history, preserves current qu
  const failed=await refresh.call(host,'worker','/fixture','cache');assert.match(failed.error,/HTTP 400.*TASK_QUERY_IDENTITY_REQUIRED/);
 });
 test('Worker failure is checked before any existing-output replacement in the real submission method',async()=>{
- const finish=method('finishDistributedPlanSubmission',{WorkflowBinding:{bindWorkflowWorkspace:()=>({}),assertWorkflowWorkspace(){}},workspaceRoot:()=>'/fixture',stringField:(x,k)=>x[k]||'',planValidationFromResult:x=>x.validation,isUiCommandCancelled:()=>false,errorMessage:e=>e.message,DistributedPlanQueue:{distributedSubmissionProgress:()=>({status:'succeeded'})}});
+ const finish=method('finishDistributedPlanSubmission',{PlanRunHost:require('../../src/extension/PlanRunHost.ts').PlanRunHost,WorkflowBinding:{bindWorkflowWorkspace:()=>({}),assertWorkflowWorkspace(){}},workspaceRoot:()=>'/fixture',stringField:(x,k)=>x[k]||'',planValidationFromResult:x=>x.validation,isUiCommandCancelled:()=>false,errorMessage:e=>e.message,DistributedPlanQueue:{distributedSubmissionProgress:()=>({status:'succeeded'})}});
  const calls=[],host={planSubmissionOperationId:()=>'',submissionStillCurrent:()=>true,distributedCodeVersionHold:async()=>undefined,
  waitForPlanSubmission:async(_,fn)=>fn(),recordPlanSubmissionTiming(){},recordPlanSubmissionTimingByOperation(){},
- ensureCodeReadyForRun:async()=>calls.push('sync'),runPlanPreflight:async()=>({validation:{jobs:[{index:0,output_dir:'work/job'}]}}),workerActionTargets:()=>[],
+ ensureCodeReadyForRun:async()=>calls.push('sync'),runPlanPreflight:async()=>({validation:{jobs:[{index:0,output_dir:'work/job'}]}}),workerActionTargets:()=>[],enabledWorkerConfigs:()=>[],localOperations:{},localDistributedCodeFingerprint:async()=>'code',planValidationCacheKey:()=>'',planSchedulerWorkerId:()=>'',
  assertPlanSubmissionWorkers:async()=>{calls.push('workers');throw Error('nwpu3 unavailable');},
  confirmDistributedPlanExistingOutputs:async()=>calls.push('delete'),enqueueDistributedPlan:async()=>calls.push('enqueue'),assertExecutionCondaEnvReady(){},reportPlanStage(){},finishPlanSubmissionProgress(){}};
  await assert.rejects(finish.call(host,'runPlan',{}, {},{planFile:'plans/p.yaml'}),/nwpu3 unavailable/);

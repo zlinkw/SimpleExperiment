@@ -705,7 +705,8 @@ class LocalApiServer {
                 ...(Object.keys(this.methods).includes("workflow.run") ? {
                     "workflow.plan": { requiresCurrentWorkspace: true, workspaceIdentityRechecked: true, seedOverride: false, startsTraining: false },
                     "workflow.run": { requiresCurrentWorkspace: true, workspaceIdentityRechecked: true, seedOverride: false,
-                        receipt: "waiting_confirmation", requiresUserApproval: true, receiptProvesSubmission: false },
+                        receipt: "checking_workers", requiresUserApproval: "two main-panel path confirmations only when replacing outputs", receiptProvesSubmission: false,
+                        optionalParams: { operationId: "Resume this original submission; preserves cleanup confirmations and command identities" } },
                 } : {}),
                 ...(Object.keys(this.methods).includes("tasks.preflight") ? {
                     "tasks.preflight": { params: ["workerId", "commandId"], researchFilesReadOnly: true, launchesTraining: false, changesQueue: false,

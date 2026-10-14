@@ -12,6 +12,10 @@ const panel = fs.readFileSync(path.join(root, "src/ui/PanelHtml.legacy.ts"), "ut
 const renderedPanel = require("../../dist/ui/PanelHtml.legacy.js").renderPanelHtml();
 const DistributedPlanQueue = require("../../dist/features/DistributedPlanQueue.js");
 const drf = "experiments/plans/comparison/drf.yaml";
+global.WorkflowBinding = require('../../dist/features/WorkflowWorkspaceBinding.js');
+global.PlanExecutionMode = require('../../dist/features/PlanExecutionMode.js');
+global.isUiCommandCancelled = error => error?.name === 'UiCommandCancelled';
+global.isUiCommandRemotePending = () => false;
 
 function method(name) {
   const lines = extension.split(/\r?\n/);
@@ -44,7 +48,7 @@ function functionSource(name) {
   throw new Error(`unclosed ${name}`);
 }
 
-const production = new Function("DistributedPlanQueue", "fs", "path", "crypto", "workspaceRoot", "pluginProjectAdapterRules", "actionErrorSuggestion", "UiCommandCancelled", `
+const production = new Function("DistributedPlanQueue", "fs", "path", "crypto", "workspaceRoot", "pluginProjectAdapterRules", "actionErrorSuggestion", "UiCommandCancelled", "PlanRunHost", `
   function stringField(message, key) { return String((message && message[key]) || ""); }
   function operationResultPlanFile(body) { return String((body && (body.planFile || body.selectedPlanId || (body.options && body.options.planFile))) || ""); }
   let opSeq = 0;
@@ -77,7 +81,7 @@ const production = new Function("DistributedPlanQueue", "fs", "path", "crypto", 
   };
 `)(DistributedPlanQueue, fs, path, crypto, () => root, () => ({ planDatasetMapping: {}, csvColumnMapping: {} }), (message) => String(message || ""), class UiCommandCancelled extends Error {
   constructor(message) { super(message); this.name = "UiCommandCancelled"; }
-});
+}, class { async save() {} });
 
 function provider() {
   const host = Object.create(production);
@@ -111,7 +115,7 @@ function provider() {
   host.localDistributedCodeFingerprint = async () => "new-code";
   host.actionErrors = [];
   host.recordActionError = (error) => host.actionErrors.push(error);
-  host.ensureCodeReadyForRun = async () => { host.calls.push("sync"); };
+  host.ensureCodeReadyForRun = async () => { host.calls.push("sync"); host.lastCodeSyncState.workerVersions.w1.fingerprint = "new-code"; };
   host.runPlanPreflight = async () => { host.calls.push("preflight"); return validation(); };
   host.confirmDistributedPlanExistingOutputs = async (_plan, body) => {
     host.calls.push("confirm");
@@ -126,6 +130,9 @@ function provider() {
     return { enqueued: true, localQueued: true, pendingCount: 0 };
   };
   host.assertExecutionCondaEnvReady = () => {};
+  host.assertPlanSubmissionWorkers = async () => {};
+  host.enabledWorkerConfigs = () => [{ id: "w1" }];
+  host.planSchedulerWorkerId = () => "w1";
   host.workerActionTargets = () => [];
   return host;
 }
@@ -133,7 +140,7 @@ function provider() {
 function validation() {
   return { ok: true, status: "completed", validation: { ok: true, jobs: [
     { index: 0, case: "bus", seed: 42, output_dir: "work/drf/bus" },
-  ], existing: [{ index: 0, case: "bus", seed: 42, output_dir: "work/drf/bus" }] } };
+  ], execution_mode: "train_test", existing: [{ index: 0, case: "bus", seed: 42, output_dir: "work/drf/bus" }] } };
 }
 
 function message() {
@@ -358,9 +365,8 @@ test("runPlan command reaches the real deferred lookup before preflight", async 
     .replace(/ as any/g, "")
     .replace(/\(this as any\)/g, "this");
   const run = new Function("PLAN_SUBMISSION_COMMANDS", "PLAN_PREFLIGHT_COMMANDS", "LENIENT_RUN", "DistributedPlanQueue", "operationResultPlanFile", "projectOutputGateReason", "makeOpId", "actionCommandMap", "assertSingleProjectWorkspace", "pluginProjectAdapterRules", "workspaceRoot", "stringField", "stringArrayField", "uniqueStrings", "usableSelectionKey", "directWorkerActionMap", "preparePlanSafeRetry", `
-    return async function(command, message) {
-      ${body}
-    };
+    ${ts.transpileModule('async function probe(command, message) { const workflowBinding = WorkflowBinding.bindWorkflowWorkspace(undefined, workspaceRoot()); const assertWorkflowCurrent = () => WorkflowBinding.assertWorkflowWorkspace(workflowBinding, workspaceRoot()); ' + body + ' }', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText}
+    return probe;
   `)(new Set(["runPlan", "reproducePlan"]), new Set(), false, DistributedPlanQueue,
     (record) => String((record && (record.planFile || record.selectedPlanId || (record.options && record.options.planFile))) || ""),
     () => "",
@@ -403,13 +409,13 @@ test("runPlan submission reuses only a matching active deferred row and still re
   host.calls = [];
   host.distributedQueueCache.deferred = [deferredRow()];
   await host.finishDistributedPlanSubmission("runPlan", { ...message(), deferredPlanId: "deferred-drf" }, { planFile: drf }, { ...body, deferredPlanId: "deferred-drf" });
-  assert.deepEqual(host.calls, ["sync", "preflight", "confirm", "enqueue:[0]"]);
+  assert.deepEqual(host.calls, ["confirm", "enqueue:[0]"]);
   assert.equal(host.distributedQueueCache.deferred[0].status, "pending");
 
   const blockedHost = commandHost();
   blockedHost.distributedQueueCache.deferred = [deferredRow({ id: "blocked-drf", status: "blocked" })];
   blockedHost.beginPlanSubmissionProgress({ ...message(), clientActionId: "click-blocked" }, { planFile: drf, planRevision: "rev-drf" });
-  await blockedHost.finishDistributedPlanSubmission("runPlan", { ...message(), clientActionId: "click-blocked" }, { planFile: drf }, body);
+  await blockedHost.finishDistributedPlanSubmission("runPlan", { ...message(), clientActionId: "click-blocked" }, { planFile: drf }, { ...body, runRecovery: undefined });
   assert.equal(blockedHost.calls[0], "sync");
   assert.equal(blockedHost.calls.includes("preflight"), true);
   assert.equal(blockedHost.distributedQueueCache.deferred[0].status, "blocked");
@@ -425,7 +431,7 @@ test("runPlan submission reuses only a matching active deferred row and still re
 
   const confirmed = commandHost();
   confirmed.distributedQueueCache.deferred = [deferredRow({ confirmedOutputChoice: true })];
-  await confirmed.finishDistributedPlanSubmission("runPlan", message(), { planFile: drf }, body);
+  await confirmed.finishDistributedPlanSubmission("runPlan", message(), { planFile: drf }, { ...body, runRecovery: undefined });
   assert.equal(confirmed.calls.includes("preflight"), true);
   assert.equal(confirmed.distributedQueueCache.deferred[0].confirmedOutputChoice, true);
   assert.equal(confirmed.distributedQueueCache.deferred[0].status, "pending");
@@ -556,6 +562,7 @@ test("missing explicit historical-output choice cannot skip every job or close a
   const host = {
     distributedQueueTickPromise: undefined,
     lastCodeSyncState: { fingerprint: "new-code" },
+    workerActionTargets: () => [],
     queue: { schemaVersion: 1, plans: [], deferred: [previous] },
     async loadDistributedQueue() { return this.queue; },
     async saveDistributedQueue(_root, next) { this.queue = next; },
@@ -590,7 +597,7 @@ function progressState(host) {
 }
 
 function renderExecution(state) {
-  return renderPanel(["distributedPlanRecoveryView", "executionPlanGroupKey", "executionCurrentDistributedJobs", "executionSubmissionLabel", "executionNewerSubmission", "executionDeferredView", "operationIsActive", "operationIsFailureLike", "operationHasDeadEvidence", "renderPlanTaskCards", "renderTaskCards", "renderExecutionPlanList"], state, ["executionPlanList"]);
+  return renderPanel(["distributedPlanRecoveryView", "executionPlanGroupKey", "executionCurrentDistributedJobs", "executionSubmissionLabel", "executionOperationWorkflowId", "executionNewerSubmission", "executionDeferredView", "operationIsActive", "operationIsFailureLike", "operationHasDeadEvidence", "renderPlanTaskCards", "renderTaskCards", "renderExecutionPlanList"], state, ["executionPlanList"]);
 }
 
 
@@ -608,6 +615,8 @@ test("Plan progress keeps tasks beyond twenty reachable without a global workben
 function renderPanel(names, state, ids) {
   const html = {};
   const sandbox = {
+    asArray: value => Array.isArray(value) ? value : [],
+    manualJobSelections: new Map(),
     executionHistoryRowsCacheState: null,
     executionHistoryRowsCacheValue: null,
     taskSectionViewCacheState: null,

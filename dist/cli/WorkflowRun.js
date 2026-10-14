@@ -62,7 +62,9 @@ async function requestWorkflowRun(root, planFile, flags) {
         }
     };
     await verify();
-    const params = { planFile, workspace: canonical, debugMode: false };
+    if (flags.operation && (flags.dryRun || flags.check))
+        throw (0, errors_1.businessError)("--operation cannot resume a read-only preview");
+    const params = { planFile, workspace: canonical, debugMode: false, ...(flags.operation ? { operationId: flags.operation } : {}) };
     const preview = Boolean(flags.dryRun || flags.check);
     // workflow.run already invokes the server's workflow.plan, including all normal preflight steps.
     const route = record(await (0, api_1.callApi)(preview ? "workflow.plan" : "workflow.run", params));
@@ -70,11 +72,12 @@ async function requestWorkflowRun(root, planFile, flags) {
     if (route.plan?.planFile && normalize(route.plan.planFile) !== normalize(planFile))
         throw (0, errors_1.businessError)("Workflow selected a different Plan; no further action requested");
     (0, WorkflowWorkspaceBinding_1.assertWorkflowWorkspace)(binding, canonical);
-    const base = { planFile, dryRun: flags.dryRun, submitted: false, requested: false, runner: "SimpleExperiment Local API", submitPath: "workflow.run", workflow: route, validation: "live_api", ready: route.ok === true && (preview ? route.ready === true : route.started === true) };
+    const accepted = route.started === true || !!flags.operation && typeof route.operationId === "string";
+    const base = { planFile, dryRun: flags.dryRun, submitted: false, requested: false, runner: "SimpleExperiment Local API", submitPath: "workflow.run", workflow: route, validation: "live_api", ready: route.ok === true && (preview ? route.ready === true : accepted) };
     if (!base.ready)
         return { code: 3, payload: { ...base, status: "blocked", blocker: route.blocker, nextAction: route.nextAction } };
     if (preview)
         return { code: 0, payload: { ...base, status: "preflight_ready" } };
-    const result = route, requested = result.ok === true && result.started === true && typeof result.operationId === "string" && Boolean(result.operationId);
+    const result = route, requested = result.ok === true && accepted && typeof result.operationId === "string" && Boolean(result.operationId);
     return { code: requested ? 0 : 3, payload: { ...base, requested, result, operationId: result.operationId, status: result.status || "blocked", confirmation: result.confirmation || "none", nextAction: result.nextAction || "operations.list" } };
 }

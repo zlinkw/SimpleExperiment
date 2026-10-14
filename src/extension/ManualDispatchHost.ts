@@ -2,6 +2,7 @@ import * as vscode from "vscode";
 import { randomUUID } from "node:crypto";
 import { dispatchManualJobs, dispatchReadyManualJobs, ManualDispatchRequest, ManualDispatchPorts } from "../features/ManualJobDispatch";
 import { stopPulledTask } from "../features/PulledTaskControl";
+import { PlanRunHost } from "./PlanRunHost";
 
 export class ManualDispatchHost {
   private gpuSnapshot: any;
@@ -63,17 +64,11 @@ export class ManualDispatchHost {
     finally{h.manualDispatchInFlight.delete(key);h.postState();void h.tickDistributedQueue();}
   }
   async review(plan:any,jobs:any[]){
-    const h=this.host,c=h.planCleanupHost(),ids=["local",...h.enabledWorkerConfigs().map((w:any)=>w.id)];
-    const exactPaths=ids.flatMap(nodeId=>jobs.flatMap(j=>[{nodeId,relativePath:j.outputDir,type:"directory"},...(j.collectionResultCsv&&!j.collectionResultCsv.startsWith(j.outputDir+"/")?[{nodeId,relativePath:j.collectionResultCsv,type:"file"}]:[])]));
-    const p=await c.service.preview({planFile:plan.planFile,action:"delete",authorizationMode:"confirmed_paths",exactPaths});
-    if(p.blockers.length)throw Error(p.blockers.map((r:any)=>r.nodeId+"："+r.code+" "+r.detail).join("\n"));
-    const rows=p.rows.filter((r:any)=>r.disposition==="delete");if(!rows.length)return true;
-    const detail=rows.map((r:any)=>r.nodeId+" "+(r.node.kind==="remote"?r.node.user+"@"+r.node.host+":"+r.node.port:"本机")+"\n"+r.absolutePath).join("\n\n");
-    await vscode.window.showTextDocument(await vscode.workspace.openTextDocument({language:"markdown",content:"# 重新执行前审核已有文件\n\n仅处理任务输出和独立指标；保留 PLAN、配置和本机汇总。\n\n"+detail}),{preview:false});
-    for(const phase of [1,2]){
-      if(await vscode.window.showWarningMessage((phase===1?"第一次确认完整路径":"第二次确认：永久删除这些文件")+"\n"+detail,{modal:true},"确认上述路径")!=="确认上述路径")return false;
-      await c.service.confirm({token:p.token,digest:p.digest,phase,confirm:true,exactTargets:rows.map((r:any)=>r.nodeId+":"+r.absolutePath)});
-    }
-    const result=await c.execute(p.token);if(result.state!=="completed")throw Error("文件尚未全部清除，请刷新清理状态；未派发新任务。");return true;
+    const h=this.host,body={planFile:plan.planFile,planRevision:plan.revision,options:{},distributedSkipJobIndices:[],
+      workerSubmissionSnapshots:[],runReplacement:{}};
+    const validation={execution_mode:plan.executionMode,jobs:jobs.map(j=>({index:j.index,case:j.case,seed:j.seed,output_dir:j.outputDir,result_csv:j.collectionResultCsv}))};
+    await h.assertPlanSubmissionWorkers(body,{validation});
+    try {await new PlanRunHost(h,this.root).replace(plan,body,validation);return true;}
+    catch(error:any){if(error.apiData?.code==="REPLACEMENT_CANCELLED")return false;throw error;}
   }
 }
