@@ -69,9 +69,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.311"
-RUNTIME_VERSION = "0.5.311"
-PLUGIN_VERSION = "0.5.311"
+AGENT_VERSION = "0.5.312"
+RUNTIME_VERSION = "0.5.312"
+PLUGIN_VERSION = "0.5.312"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -1817,7 +1817,7 @@ def compact_terminal_event(event, original_bytes):
             # An incomplete output list must never be advertised as a publishable completion.
             body.update(status="failed", message="终态输出清单超过回执上限，未确认发布；请检查操作详情")
     body.update(compacted=True, omittedBytes=original_bytes)
-    return {**{key: event[key] for key in ("schemaVersion", "seq", "generatedAt", "source", "hubId", "operationId") if key in event},
+    return {**{key: event[key] for key in ("schemaVersion", "seq", "generatedAt", "source", "workerId", "operationId") if key in event},
             "type": "operation_failed" if body.get("status") == "failed" else event["type"], "payload": body}
 
 def append_event(root, event):
@@ -1830,12 +1830,12 @@ def append_event(root, event):
     original_event = event
     with EVENT_APPEND_LOCK:
         seq = read_seq(root) + 1
-        event = {"schemaVersion": SCHEMA_VERSION, "seq": seq, "generatedAt": now_iso(), "source": "hub_agent", "hubId": event.get("hubId", "hub"), **event}
+        event = {"schemaVersion": SCHEMA_VERSION, "seq": seq, "generatedAt": now_iso(), "source": "worker_telemetry", "workerId": event.get("workerId") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID", ""), **event}
         encoded = json.dumps(event, ensure_ascii=False, separators=(",", ":"))
         encoded_bytes = len(encoded.encode("utf-8"))
         if encoded_bytes > MAX_AGENT_EVENT_RECORD_BYTES:
             terminal = compact_terminal_event(event, encoded_bytes)
-            event = terminal or {"schemaVersion": SCHEMA_VERSION, "seq": seq, "generatedAt": now_iso(), "source": "hub_agent", "hubId": event.get("hubId", "hub"),
+            event = terminal or {"schemaVersion": SCHEMA_VERSION, "seq": seq, "generatedAt": now_iso(), "source": "worker_telemetry", "workerId": event.get("workerId") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID", ""),
                      "type": "diagnostics_updated", "payload": {"code": "journal_gap", "reason": "event_record_exceeds_limit", "omittedType": str(event.get("type") or "event")[:96], "omittedBytes": encoded_bytes}}
             operation_id = str(original_event.get("operationId") or "").strip()[:160] if isinstance(original_event, dict) else ""
             if operation_id:
@@ -2266,7 +2266,7 @@ def collect_scheduler(root):
         if isinstance(source, dict):
             data = dict(source)
             data.setdefault("file", p)
-            data["source"] = "hub_agent"
+            data["source"] = "worker_telemetry"
             data["generatedAt"] = now_iso()
             states.append(data)
     return states
@@ -2392,7 +2392,7 @@ def collect_traces(root, scheduler=None):
     data = enrich_trace_review_state(root, data)
     for row in data:
         if isinstance(row, dict):
-            row.setdefault("source", "hub_agent")
+            row.setdefault("source", "worker_telemetry")
             row.setdefault("generatedAt", now_iso())
     return data
 
@@ -7040,7 +7040,7 @@ def read_events_after_seq(root, since, limit=100, cursor_id=""):
     if omitted_oversized:
         if len(events) >= requested_limit:
             events.popleft()
-        events.append({"schemaVersion": SCHEMA_VERSION, "seq": 0, "type": "diagnostics_updated", "generatedAt": now_iso(), "source": "hub_agent", "payload": {"code": "journal_gap", "reason": "oversized_journal_record", "resetSince": 0}})
+        events.append({"schemaVersion": SCHEMA_VERSION, "seq": 0, "type": "diagnostics_updated", "generatedAt": now_iso(), "source": "worker_telemetry", "payload": {"code": "journal_gap", "reason": "oversized_journal_record", "resetSince": 0}})
     with EVENT_CURSOR_LOCK:
         EVENT_CURSOR_CACHE[cache_key] = {
             "seq": current_seq,
@@ -7242,90 +7242,8 @@ def start_worker_telemetry_sampler(root, poll_seconds=1, jitter_seconds=30):
 def start_hub_control_sampler(root, poll_seconds=60, jitter_seconds=30):
     raise ValueError("HUB_REMOVED: use Worker direct queries")
 
-def write_snapshots(root, hub_id, workers, scheduler, traces, gpu, health, errors, ttl):
-    generated = now_iso()
-    expires = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() + ttl))
-    base = {
-        "schemaVersion": SCHEMA_VERSION,
-        "generatedAt": generated,
-        "expiresAt": expires,
-        "ttlSeconds": ttl,
-        "hubId": hub_id,
-        "workers": workers,
-        "errors": errors,
-        "partialFailure": bool(errors),
-        "source": "hub_agent_snapshot",
-        "agentVersion": AGENT_VERSION,
-    }
-    # TB健康入快照(2B)：供面板免轮询展示，端口默认6006，配置由扩展侧覆盖
-    tb_info = {}
-    try:
-        tb_prefix = _resolve_tmux_prefix(None, None, None)
-        tb_sess = tb_tmux_session_name(tb_prefix)
-        tb_port = 6006
-        tb_running = tmux_session_alive(tb_sess)
-        tb_listening = tb_port_listening(tb_port) if tb_running else False
-        tb_info = {"session": tb_sess, "port": tb_port, "running": tb_running, "listening": tb_listening, "checkedAt": generated}
-    except Exception:
-        tb_info = {}
-    gpu_payload = {**base, "gpu": gpu, "health": health}
-    try:
-        record_gpu_history(root, gpu, generated)
-    except Exception as exc:
-        gpu_payload["historyError"] = str(exc)
-    atomic_write(path_for(root, "cluster_snapshot.json"), {**base, "schedulerStates": scheduler, "tb": tb_info})
-    atomic_write(path_for(root, "gpu_snapshot.json"), gpu_payload)
-    atomic_write(path_for(root, "experiment_traces_snapshot.json"), {**base, "experimentTraces": traces})
-    atomic_write(path_for(root, "health_snapshot.json"), {**base, "health": health})
-
 def run_agent(args):
-    global MAX_EVENTS
-    MAX_EVENTS = max(100, int(getattr(args, "journal_max_events", MAX_EVENTS) or MAX_EVENTS))
-    run_id = uuid.uuid4().hex
-    if not acquire_pid(args.project_dir, run_id):
-        return 0
-    stop_path = path_for(args.project_dir, "stop")
-    workers = json.loads(args.workers_json or "[]")
-    poll_seconds = max(60, int(args.poll_seconds or 60))
-    ttl_seconds = max(60, int(args.ttl_seconds or 180))
-    atomic_write(path_for(args.project_dir, "agent.config.json"), {"hubId": args.hub_id, "workers": workers, "pollSeconds": poll_seconds, "ttlSeconds": ttl_seconds, "journalMaxEvents": MAX_EVENTS, "journalMaxBytes": MAX_JOURNAL_BYTES, "stateRetentionSeconds": STATE_RETENTION_SECONDS, "maxAgentStateBytes": MAX_AGENT_STATE_BYTES, "pid": os.getpid(), "runId": run_id, "agentVersion": AGENT_VERSION})
-    error_counts = {}
-    last_payloads = {}
-    while not agent_stop_requested(stop_path, os.getpid(), run_id):
-        errors, gpu, health = [], {}, {}
-        scheduler = collect_scheduler(args.project_dir)
-        traces = collect_traces(args.project_dir, scheduler)
-        for worker in workers:
-            wid = str(worker.get("id") or worker.get("name") or worker.get("target") or "")
-            gpus, err = collect_worker_gpu(worker)
-            if err:
-                error_counts[wid] = error_counts.get(wid, 0) + 1
-                errors.append(f"{wid}: {err}")
-                health[wid] = {"status": "degraded", "lastError": err, "errorCount": error_counts[wid], "generatedAt": now_iso()}
-            else:
-                error_counts[wid] = 0
-                gpu[wid] = gpus
-                health[wid] = {"status": "ok", "lastOkAt": now_iso(), "errorCount": 0, "generatedAt": now_iso()}
-        write_snapshots(args.project_dir, args.hub_id, workers, scheduler, traces, gpu, health, errors, ttl_seconds)
-        payloads = {
-            "scheduler_snapshot": {"schedulerStates": scheduler},
-            "experiment_trace": {"experimentTraces": traces},
-            "worker_health": {"health": health, "errors": errors},
-        }
-        for wid, gpus in gpu.items():
-            payloads[f"gpu_snapshot:{wid}"] = {"workerId": wid, "gpus": gpus}
-        for item in collect_live_output(scheduler):
-            payloads[f"log_tail:{item.get('key')}"] = item
-        for name, payload in payloads.items():
-            text = json.dumps(payload, sort_keys=True, ensure_ascii=False)
-            if last_payloads.get(name) != text or name == "health":
-                typ = name.split(":", 1)[0]
-                append_event(args.project_dir, {"type": typ, "workerId": payload.get("workerId", ""), "payload": payload, "partialFailure": bool(errors), "hubId": args.hub_id})
-                last_payloads[name] = text
-        append_event(args.project_dir, {"type": "agent_heartbeat", "payload": {"errors": errors, "partialFailure": bool(errors), "agentVersion": AGENT_VERSION}, "errors": [{"code": "worker_error", "message": e, "retryable": True} for e in errors], "partialFailure": bool(errors), "hubId": args.hub_id})
-        time.sleep(sampler_sleep_seconds(poll_seconds, getattr(args, "jitter_seconds", 30.0)))
-    append_event(args.project_dir, {"type": "worker_health", "payload": {"status": "stopped"}})
-    return 0
+    raise ValueError("HUB_REMOVED: use Worker Agent serve")
 
 def read_stream_event_batch(root, since, pos=0, journal_identity=None, warned_gap=False):
     journal = path_for(root, "events.jsonl")
@@ -7345,7 +7263,7 @@ def read_stream_event_batch(root, since, pos=0, journal_identity=None, warned_ga
                     try:
                         first = int(json.loads(first_line).get("seq", 0))
                         if since and since < first - 1:
-                            warning = {"schemaVersion": SCHEMA_VERSION, "seq": first, "type": "agent_warning", "generatedAt": now_iso(), "source": "hub_agent", "hubId": "hub", "payload": {"code": "journal_gap", "message": "journal gap; read snapshot"}}
+                            warning = {"schemaVersion": SCHEMA_VERSION, "seq": first, "type": "agent_warning", "generatedAt": now_iso(), "source": "worker_telemetry", "workerId": os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID", ""), "payload": {"code": "journal_gap", "message": "journal gap; read snapshot"}}
                     except Exception:
                         pass
                     warned_gap = True
@@ -15304,7 +15222,7 @@ def full_scan_events_after(journal, since, limit=200):
     if omitted_oversized:
         if len(events) >= bounded_limit:
             events.popleft()
-        events.append({"schemaVersion": SCHEMA_VERSION, "seq": 0, "type": "diagnostics_updated", "generatedAt": now_iso(), "source": "hub_agent", "payload": {"code": "journal_gap", "reason": "oversized_journal_record", "resetSince": 0}})
+        events.append({"schemaVersion": SCHEMA_VERSION, "seq": 0, "type": "diagnostics_updated", "generatedAt": now_iso(), "source": "worker_telemetry", "payload": {"code": "journal_gap", "reason": "oversized_journal_record", "resetSince": 0}})
     return list(events)
 
 def read_events_since(root, since, limit=200, cursor_id=""):
@@ -15312,14 +15230,14 @@ def read_events_since(root, since, limit=200, cursor_id=""):
     limit = max(1, int(limit or 200))
     effective_since = int(since or 0)
     if not os.path.isfile(journal):
-        return [{"schemaVersion": SCHEMA_VERSION, "seq": 0, "type": "diagnostics_updated", "generatedAt": now_iso(), "source": "hub_agent", "payload": {"code": "journal_gap", "message": "journal missing; pull snapshot", "resetSince": 0}}] if since else []
+        return [{"schemaVersion": SCHEMA_VERSION, "seq": 0, "type": "diagnostics_updated", "generatedAt": now_iso(), "source": "worker_telemetry", "payload": {"code": "journal_gap", "message": "journal missing; pull snapshot", "resetSince": 0}}] if since else []
     first = first_journal_seq(journal)
     last = last_journal_seq(root, journal)
     if since and first and since < first - 1:
-        return [{"schemaVersion": SCHEMA_VERSION, "seq": first, "type": "diagnostics_updated", "generatedAt": now_iso(), "source": "hub_agent", "payload": {"code": "journal_gap", "message": "journal gap; pull snapshot"}}]
+        return [{"schemaVersion": SCHEMA_VERSION, "seq": first, "type": "diagnostics_updated", "generatedAt": now_iso(), "source": "worker_telemetry", "payload": {"code": "journal_gap", "message": "journal gap; pull snapshot"}}]
     if since and last and since > last:
         effective_since = 0
-        gap = {"schemaVersion": SCHEMA_VERSION, "seq": 0, "type": "diagnostics_updated", "generatedAt": now_iso(), "source": "hub_agent", "payload": {"code": "journal_gap", "message": "journal reset; pull snapshot", "resetSince": 0}}
+        gap = {"schemaVersion": SCHEMA_VERSION, "seq": 0, "type": "diagnostics_updated", "generatedAt": now_iso(), "source": "worker_telemetry", "payload": {"code": "journal_gap", "message": "journal reset; pull snapshot", "resetSince": 0}}
         return [gap]
     if cursor_id:
         return read_events_after_seq(root, effective_since, limit, cursor_id)
@@ -16772,14 +16690,14 @@ def serve_http(args):
                         data = ("data: " + json.dumps(event, ensure_ascii=False, separators=(",", ":")) + "\n\n").encode("utf-8")
                         if len(data) > MAX_AGENT_SSE_EVENT_BYTES:
                             if not gap_sent:
-                                gap = {"schemaVersion": SCHEMA_VERSION, "seq": last, "type": "journal_gap", "generatedAt": now_iso(), "source": "hub_agent", "payload": {"code": "journal_gap", "reason": "event_exceeds_sse_limit", "maxBytes": MAX_AGENT_SSE_EVENT_BYTES}}
+                                gap = {"schemaVersion": SCHEMA_VERSION, "seq": last, "type": "journal_gap", "generatedAt": now_iso(), "source": "worker_telemetry", "payload": {"code": "journal_gap", "reason": "event_exceeds_sse_limit", "maxBytes": MAX_AGENT_SSE_EVENT_BYTES}}
                                 self.wfile.write(("data: " + json.dumps(gap, ensure_ascii=False, separators=(",", ":")) + "\n\n").encode("utf-8"))
                                 self.wfile.flush()
                                 gap_sent = True
                             continue
                         if batch_bytes + len(data) > MAX_AGENT_SSE_BATCH_BYTES:
                             if not gap_sent:
-                                gap = {"schemaVersion": SCHEMA_VERSION, "seq": last, "type": "journal_gap", "generatedAt": now_iso(), "source": "hub_agent", "payload": {"code": "journal_gap", "reason": "sse_batch_limit", "maxBytes": MAX_AGENT_SSE_BATCH_BYTES}}
+                                gap = {"schemaVersion": SCHEMA_VERSION, "seq": last, "type": "journal_gap", "generatedAt": now_iso(), "source": "worker_telemetry", "payload": {"code": "journal_gap", "reason": "sse_batch_limit", "maxBytes": MAX_AGENT_SSE_BATCH_BYTES}}
                                 self.wfile.write(("data: " + json.dumps(gap, ensure_ascii=False, separators=(",", ":")) + "\n\n").encode("utf-8"))
                                 self.wfile.flush()
                             last = read_seq(root)
@@ -16957,7 +16875,7 @@ def serve_http(args):
                 params = parse_qs(parsed.query)
                 run_key = (params.get("runKey") or [""])[0]
                 since = int((params.get("since") or ["0"])[0] or 0)
-                payload = {"schemaVersion": SCHEMA_VERSION, "seq": read_seq(root) + 1, "type": "log_tail", "generatedAt": now_iso(), "source": "hub_agent", "runKey": run_key, "payload": {"offset": since, "text": ""}}
+                payload = {"schemaVersion": SCHEMA_VERSION, "seq": read_seq(root) + 1, "type": "log_tail", "generatedAt": now_iso(), "source": "worker_telemetry", "runKey": run_key, "payload": {"offset": since, "text": ""}}
                 return self.send_sse([payload])
             if route == "/api/files/list":
                 try:

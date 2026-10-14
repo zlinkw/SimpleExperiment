@@ -24,7 +24,7 @@ function validateAgentEvent(value) {
     if (Number(item.schemaVersion) !== exports.AGENT_SCHEMA_VERSION) {
         return { ok: false, code: "incompatible_schema", message: `unsupported schemaVersion=${item.schemaVersion}`, event: item };
     }
-    if (!Number.isFinite(Number(item.seq)) || !item.type || !item.generatedAt || item.source !== "hub_agent") {
+    if (!Number.isFinite(Number(item.seq)) || !item.type || !item.generatedAt || !["worker_telemetry", "hub_agent"].includes(item.source)) {
         return { ok: false, code: "bad_schema", message: "missing required event fields", event: item };
     }
     if (!knownTypes.has(item.type))

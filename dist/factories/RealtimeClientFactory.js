@@ -143,6 +143,8 @@ class DefaultRealtimeClientFactory {
         return typeof handler === "function" ? handler : () => undefined;
     }
     assertEndpoint(value) {
+        if (value?.role === "hub")
+            throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         if (!value || typeof value !== "object" || !String(value.id || "").trim() || !["hub", "worker"].includes(value.role))
             throw new Error("Tunnel endpoint requires a stable id and supported role.");
         const localHost = String(value.localHost || "").trim();

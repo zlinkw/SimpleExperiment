@@ -46,9 +46,6 @@ const errors_1 = require("../errors");
 const format_1 = require("../format");
 const parse_1 = require("../parse");
 const experiment_1 = require("./experiment");
-const FileTransferClient_1 = require("../../tunnel/FileTransferClient");
-const RequestBudget_1 = require("../../tunnel/RequestBudget");
-const FileTransferTypes_1 = require("../../tunnel/FileTransferTypes");
 async function artifactCommand(action, rest, flags) {
     if (action === "list")
         return artifactList((0, parse_1.requirePositional)(rest, 0, "experiment id"), flags);
@@ -81,28 +78,7 @@ async function artifactDownload(id, flags) {
             (0, format_1.writeText)(`downloaded ${id} -> ${dest}`);
         return 0;
     }
-    if (!(0, api_1.hasApiDiscovery)())
-        throw (0, errors_1.envError)("artifact download requires Local API / tunnel. Open VS Code or copy a local artifact.");
-    const config = await (0, api_1.optionalApi)("config.list");
-    const endpoint = (0, api_1.tunnelEndpointFromConfig)(asRecord(asRecord(config).tunnel || asRecord(config).hub || config));
-    if (!endpoint)
-        throw (0, errors_1.envError)("tunnel endpoint missing from config.list; cannot download remotely.");
-    if (!(0, FileTransferTypes_1.isSafeRemotePath)(artifacts.path))
-        throw (0, errors_1.businessError)(`unsafe remote path: ${artifacts.path}`);
-    const client = new FileTransferClient_1.FileTransferClient({ localHost: endpoint.localHost, localPort: endpoint.localPort }, new RequestBudget_1.RequestBudget({
-        maxRequestsPerMinute: 60,
-        maxConcurrentRequests: 1,
-        pauseWhenHidden: false,
-        allowManualOverride: true,
-        minIntervalByPurpose: { file_transfer: 0 },
-    }));
-    const task = await client.download(artifacts.path, dest);
-    const payload = { id, path: dest, transferId: task.transferId, status: task.status, source: "tunnel" };
-    if (flags.json)
-        (0, format_1.writeJson)(payload, flags.compactJson);
-    else
-        (0, format_1.writeText)(`downloaded ${id} -> ${dest}`);
-    return 0;
+    throw (0, errors_1.envError)("旧中心节点文件中转已移除。请在插件对应 Worker 的结果行下载，或通过 SimpleSFTP 选择精确来源与目标路径。");
 }
 async function artifactInspect(id, flags) {
     const artifact = await findArtifact(id);

@@ -15,13 +15,10 @@ function endpointCapabilitiesFromProbe(probe) {
     return Array.isArray(capabilities) ? capabilities : capabilities && typeof capabilities === "object" ? capabilities : [];
 }
 function buildRealtimeEndpoints(deps) {
-    const registry = (0, TunnelEndpointRegistry_1.buildTunnelEndpointRegistry)(deps.setupConfig, {
-        hub: deps.lastProbe,
-        ...(deps.lastWorkerProbes || {}),
-    });
+    const registry = (0, TunnelEndpointRegistry_1.buildTunnelEndpointRegistry)(deps.setupConfig, deps.lastWorkerProbes || {});
     const token = String(deps.tunnelConfig?.token || "");
     return registry.endpoints
-        .filter((endpoint) => endpoint.enabled && (deps.topology.hubAllowed || endpoint.role !== "hub_control"))
+        .filter((endpoint) => endpoint.enabled && endpoint.role === "worker_telemetry")
         .map((endpoint) => {
         const localHost = String(endpoint.tunnel.localHost || "").trim();
         const remoteHost = String(endpoint.tunnel.remoteHost || "").trim();
@@ -33,7 +30,7 @@ function buildRealtimeEndpoints(deps) {
         }
         return {
             id: endpoint.id,
-            role: endpoint.role === "hub_control" ? "hub" : "worker",
+            role: "worker",
             displayName: endpoint.displayName,
             localHost,
             localPort,
@@ -48,18 +45,6 @@ function buildRealtimeEndpoints(deps) {
 function buildTunnelLaunchItems(deps) {
     const base = (0, XshellTunnelSetup_1.normalizeXshellSetupConfig)(deps.setupConfig);
     const items = [];
-    if (deps.topology.hubAllowed) {
-        items.push({
-            id: "hub",
-            role: "hub",
-            config: (0, XshellTunnelSetup_1.normalizeXshellSetupConfig)({
-                ...base,
-                workerRealtimeMode: "hub_only",
-                workerTelemetryMode: "hub_only",
-                workerTunnels: [],
-            }),
-        });
-    }
     for (const worker of base.workerTunnels) {
         if (worker.enabled === false)
             continue;
@@ -86,7 +71,7 @@ function buildRealtimeStateSnapshot(deps) {
         endpoints: buildRealtimeEndpoints(deps),
         launchItems: buildTunnelLaunchItems(deps),
         agentLaunchItems: buildAgentLaunchItems(deps),
-        hubAllowed: deps.topology.hubAllowed === true,
+        hubAllowed: false,
         topologyMode: String(deps.topology.mode || ""),
     };
 }

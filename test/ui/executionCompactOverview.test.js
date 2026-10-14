@@ -17,30 +17,30 @@ function executionPlanSource() {
   const end = panel.indexOf("function renderOperationSectionIfChanged(", helpers);
   assert.ok(helpers > 0 && end > helpers);
   const asArray = panel.slice(panel.indexOf("function asArray(")).split("\n")[0];
-  return asArray + "\n" + panel.slice(helpers, end).replaceAll("\\\\", "\\");
+  return asArray + "\nconst manualJobSelections = new Map();\n" + panel.slice(helpers, end).replaceAll("\\\\", "\\");
 }
 
-test("failed job recall is compact, scoped to the exact attempt, and redraws remote cleanup receipts", () => {
+test("failed formal job recall is scoped to the exact command and redraws cleanup progress", () => {
   const sandbox = clickSandbox();
   const state = { distributedPlans: [{ id: "failed-run", planFile: "plans/cpsc.yaml", failedAttemptRecoveries: [],
     jobs: ["failed", "running", "completed"].map((status, index) => ({ index, case: "case" + index, seed: 42,
-      status, workerId: "worker-a", commandId: "command-" + index, attempt: 1, outputDir: "work_dirs/a/attempts/old" })) }] };
+      status, workerId: "worker-a", commandId: "command-" + index, attempt: 0, resultPathPolicy:"declared", globalJobId:"failed-run:"+index, outputDir: "work_dirs/a/job-"+index })) }] };
   sandbox.render(state);
   assert.equal((sandbox.html.match(/data-command="recallFailedJob"/g) || []).length, 1);
-  assert.match(sandbox.html, /data-command="recallFailedJob"[^>]*data-plan-id="failed-run"[^>]*data-job-index="0"[^>]*data-attempt="1"[^>]*data-command-id="command-0"/);
+  assert.match(sandbox.html, /data-command="recallFailedJob"[^>]*data-plan-id="failed-run"[^>]*data-job-index="0"[^>]*data-command-id="command-0"/);
   const oldKey = sandbox.executionRenderKeysForState(state).planList;
   const updated = structuredClone(state);
   updated.distributedPlans[0].failedAttemptRecoveries = [{ jobIndex: 0, attempt: 1, status: "pending" }];
   updated.distributedPlans[0].jobs[0].attempt = 2;
   updated.distributedPlans[0].jobs[0].status = "pending";
   assert.notEqual(sandbox.executionRenderKeysForState(updated).planList, oldKey);
-  sandbox.render(updated); assert.match(sandbox.html, /原 Worker 恢复后自动核验并移走旧失败 attempt/);
+  sandbox.render(updated); assert.match(sandbox.html, /历史遗留清理记录需人工审核，不会自动移动或删除/);
   const final = structuredClone(updated);
   final.distributedPlans[0].failedAttemptRecoveries[0].status = "completed";
-  sandbox.render(final); assert.match(sandbox.html, /旧失败 attempt 已移入原 Worker 的 clean_dir/);
+  sandbox.render(final); assert.match(sandbox.html, /历史回执：失败目录已移入原 Worker 的 clean_dir/);
   const absent = structuredClone(final);
   absent.distributedPlans[0].failedAttemptRecoveries[0].alreadyAbsent = true;
-  sandbox.render(absent); assert.match(sandbox.html, /已核验不存在，无需移动/);
+  sandbox.render(absent); assert.match(sandbox.html, /历史失败目录已核验不存在/);
 });
 
 test("formal preflight rejection explains that training never started and disables nonexistent TMUX logs", () => {
@@ -715,4 +715,13 @@ test("completed history displays run-scoped global artifact verification without
   } });
   assert.doesNotMatch(sandbox.html, /已全局同步最新产物/);
   assert.match(sandbox.html, /全局同步待核验/);
+});
+
+test("queried absent historical windows are not shown as dispatched or waiting for verification", () => {
+  const sandbox=clickSandbox();
+  sandbox.render({distributedPlans:[{id:'old',planFile:'plans/old.yaml',enqueuedAt:'2026-09-01T00:00:00Z',jobs:[{
+    index:0,case:'old',seed:42,lifecycleProtocol:2,status:'unknown',executionState:'missing',resultState:'unverified',workerId:'w',commandId:'old'
+  }]}]});
+  assert.match(sandbox.html,/远端未发现执行窗口/);
+  assert.doesNotMatch(sandbox.html,/待核实 1|· 派发 1|· 排队 1|· 运行 1/);
 });

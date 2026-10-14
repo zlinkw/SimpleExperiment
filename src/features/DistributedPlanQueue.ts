@@ -844,6 +844,17 @@ export function jobHasLiveExecution(job: QueuedJob): boolean {
     : ["dispatching", "queued", "running", "unknown"].includes(job.status);
 }
 
+/** Reserve automatic slots from current execution evidence, never from historical unknown labels. */
+export function activeGpuReservations(queue: DistributedQueue) {
+  const activeByWorker = new Map<string, number>(), occupiedGpuIds = new Set<string>();
+  for (const plan of queue.plans) for (const job of plan.jobs) {
+    if (job.manualDispatch || !job.workerId || !jobHasLiveExecution(job)) continue;
+    activeByWorker.set(job.workerId, (activeByWorker.get(job.workerId) || 0) + 1);
+    if (job.gpuId !== undefined) occupiedGpuIds.add(`${job.workerId}:${job.gpuId}`);
+  }
+  return { activeByWorker, occupiedGpuIds };
+}
+
 /** A project root on one Worker may host only one live code version. Other Workers are independent. */
 export function workerCodeVersionAvailable(queue: DistributedQueue, workerId: string, fingerprint: string): boolean {
   return Boolean(workerId && fingerprint) && !queue.plans.some((plan) => {

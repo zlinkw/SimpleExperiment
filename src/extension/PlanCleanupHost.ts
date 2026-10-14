@@ -127,8 +127,6 @@ export class PlanCleanupHost {
       try { targets.push(this.host.workerCodeSyncTarget(worker)); }
       catch { targets.push({ id: worker.id, error: "当前服务器身份或项目安全根未核实" }); }
     }
-    try { if (this.host.setupConfig.agentProjectDir && this.host.setupConfig.savedSessionPath) targets.push(this.host.hubCodeSyncTarget()); }
-    catch { targets.push({ id: "hub", error: "当前 Hub 身份或安全根未核实" }); }
     const nodes: any[] = [{ id: "local", kind: "local", root: this.root }, ...targets.map(target => ({ id: target.id, kind: "remote",
       host: target.host, user: target.user, port: target.port, root: target.remotePath || "", ...(target.error ? { error: target.error } : {}) }))];
     const remoteNodes = nodes.filter(node => node.kind === "remote");

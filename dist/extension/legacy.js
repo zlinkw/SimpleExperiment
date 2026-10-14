@@ -5067,7 +5067,7 @@ class RealtimeTunnelPanelProvider {
             const capabilities = objectRecord(this.lastProbe?.capabilities);
             const endpoints = objectRecord(capabilities?.endpoints);
             if (endpoints && endpoints.gpuHistory !== true)
-                throw new Error("当前 Hub Agent 未声明 GPU 历史 capability，请部署最新版 Agent 后重试。");
+                throw new Error("当前 Worker Agent 未声明 GPU 历史 capability，请部署最新版 Agent 后重试。");
             return client.getGpuHistory(normalized);
         }, { force: Boolean(message && typeof message === "object" && message.force === true) });
         this.postState(true);
@@ -6026,7 +6026,7 @@ class RealtimeTunnelPanelProvider {
             if (!false && workerAction === "archive-worker-artifacts")
                 workerBody = this.stampNoHubResultOwnership(body, workerId);
             const missing = this.missingWorkerActionCapabilities(workerId, workerAction);
-            if (!missing.length || !this.canFallbackTaskActionToHub(command, body, missing)) {
+            {
                 const result = await this.postWorkerTunnelAction(workerId, workerAction, workerBody, {
                     title: command,
                     confirm: WORKER_ACTION_CONFIRM_COMMANDS.has(command),
@@ -6040,12 +6040,6 @@ class RealtimeTunnelPanelProvider {
                 }
                 return;
             }
-            body.options = {
-                ...(body.options || {}),
-                workerId,
-                workerActionFallback: "hub_project_state",
-                workerActionFallbackReason: missing.join(", "),
-            };
         }
         if (PLAN_PREFLIGHT_COMMANDS.has(command)) {
             this.planRunStageStartedAt = Date.now();
@@ -6921,6 +6915,10 @@ class RealtimeTunnelPanelProvider {
             assertAgentProjectProbeReady(this.lastWorkerProbes[worker.id], this.expectedWorkerAgentProjectRoot(worker.id), worker.displayName || worker.id);
     }
     async assertPlanNotAlreadyActive(planFile, plan) {
+        // Native submissions are checked against current window/output observations
+        // by assertPlanSubmissionWorkers before any deletion and before enqueue.
+        if (this.taskLifecycleProtocol === 2)
+            return;
         await this.reconcileStalePlanRunOperations({ reason: "duplicate_guard" });
         const selectedPlan = plan || (this.localPlanMetadata.plans || []).find((item) => samePlanSelection(item?.planFile || item?.file || item?.planId || "", planFile));
         const activity = activePlanRunEvidence(this.buildPlanRuntimeEvidenceState(), planFile, selectedPlan);
@@ -9453,7 +9451,7 @@ class RealtimeTunnelPanelProvider {
                 this.notifyLocalActionStarted(options.startedAction.title, options.startedAction.detail);
             const failures = [];
             const workerVersions = { ...(this.lastCodeSyncState.workerVersions || {}) };
-            this.lastCodeSyncState = { fingerprint, scope, hub: roleStatus.hubRunning, workers: roleStatus.workersRunning, workerVersions, updatedAt: new Date().toISOString() };
+            this.lastCodeSyncState = { fingerprint, scope, workers: roleStatus.workersRunning, workerVersions, updatedAt: new Date().toISOString() };
             void this.persistProjectCodeSyncState().catch(() => undefined);
             this.postState();
             const progressStep = progressReport ? Number(options.progressSpan || 0) / enabledTargets.length : 0;
@@ -11507,16 +11505,7 @@ class RealtimeTunnelPanelProvider {
                 if (evidence.complete)
                     idleByWorker.set(target.id, evidence.idleGpuIdsByWorker.get(target.id) || []);
             }
-            const activeByWorker = new Map();
-            const occupiedGpuIds = new Set();
-            for (const plan of queue.plans)
-                for (const job of plan.jobs) {
-                    if (job.manualDispatch || !job.workerId || !["dispatching", "queued", "running", "unknown"].includes(job.status))
-                        continue;
-                    activeByWorker.set(job.workerId, (activeByWorker.get(job.workerId) || 0) + 1);
-                    if (job.gpuId !== undefined)
-                        occupiedGpuIds.add(`${job.workerId}:${job.gpuId}`);
-                }
+            const { activeByWorker, occupiedGpuIds } = DistributedPlanQueue.activeGpuReservations(queue);
             const migrationReserved = new Map();
             const canReceive = (target, plan) => {
                 const snapshot = snapshotsByWorker.get(target.id);
@@ -11901,8 +11890,7 @@ class RealtimeTunnelPanelProvider {
             this.postState();
             return;
         }
-        const occupied = new Set(queue.plans.flatMap((plan) => plan.jobs.filter((job) => ["dispatching", "running", "unknown"].includes(job.status))
-            .map((job) => `${job.workerId}:${job.gpuId}`)));
+        const occupied = DistributedPlanQueue.activeGpuReservations(queue).occupiedGpuIds;
         const rows = snapshot ? this.localWorkerAvailabilityRows(this.availabilityPushTtlSeconds(this.schedulerSettings()), snapshot) : [];
         const workers = rows.map((row) => {
             const codeFingerprint = String(this.lastCodeSyncState.workerVersions?.[row.workerId]?.fingerprint || "");
@@ -13871,7 +13859,7 @@ class RealtimeTunnelPanelProvider {
             operationId: opId,
             type: action,
             status: "stalled",
-            message: `${workerId ? `Worker Agent ${workerId}` : "Hub Agent"} 未在 60s 内返回终态，UI 已恢复；请刷新或检查对应 Agent 日志。`,
+            message: `${workerId ? `Worker Agent ${workerId}` : "Worker Agent"} 未在 60s 内返回终态，UI 已恢复；请刷新或检查对应 Agent 日志。`,
             updatedAt: new Date().toISOString(),
         };
         this.markLocalOperationsDirty();
@@ -14584,6 +14572,7 @@ class RealtimeTunnelPanelProvider {
         return {
             schemaVersion: 1,
             opId: "",
+            planFile,
             selectedPlanId: selectedPlanId || undefined,
             runKey: runKey || undefined,
             experimentId: experimentId || undefined,
@@ -14752,7 +14741,7 @@ class RealtimeTunnelPanelProvider {
             this.recordActionError({
                 command: "selectLogRunKey",
                 message: errorMessage(error),
-                suggestion: resolvedWorkerId ? "请检测对应 Worker Agent，确认日志路径仍在项目目录内。" : "请检测 Hub Agent，确认日志路径仍在项目目录内。",
+                suggestion: resolvedWorkerId ? "请检测对应 Worker Agent，确认日志路径仍在项目目录内。" : "请检测 Worker Agent，确认日志路径仍在项目目录内。",
             });
             return undefined;
         }
@@ -17131,7 +17120,7 @@ class RealtimeTunnelPanelProvider {
     async stopDistributedJobForClear(plan, job, localControl = false) {
         if (job.lifecycleProtocol === 2) {
             const root = workspaceRoot(), generation = this.projectContextGeneration, client = this.client;
-            const result = await PulledTaskControl.stopPulledTask(client, plan, job, makeOpId("stop-job"));
+            const result = await PulledTaskControl.stopPulledTask(client, { ...plan, projectId: plan.projectId || DistributedPlanQueue.canonicalProjectId(root) }, job, makeOpId("stop-job"));
             if (workspaceRoot() === root && generation === this.projectContextGeneration && this.client === client)
                 await this.retireLocalOperationState?.([job.commandId]);
             return result;
@@ -17735,7 +17724,18 @@ class RealtimeTunnelPanelProvider {
             const bundleName = path.posix.basename(String(pathFromOps).replace(/\\/g, "/"));
             if (!bundleName || bundleName === "." || bundleName === "..")
                 throw new Error("调试包文件名不安全，已停止下载。");
-            const server = this.hubMappedDownloadServer();
+            const targets = this.workerCodeSyncTargets();
+            const owners = uniqueStrings(Object.values({ ...(this.lastRealtimeState?.operations || {}), ...this.localOperations })
+                .filter(row => findDebugBundlePath({ selected: row }) === pathFromOps)
+                .map(row => this.runOperationWorkerId(row)).filter(id => targets.some(target => target.id === id)));
+            let sourceWorker = owners.length === 1 ? owners[0] : "";
+            if (!sourceWorker) {
+                const selected = await vscode.window.showQuickPick(targets.map(target => ({ label: target.id, workerId: target.id })), { title: "选择调试包所在的 Worker", ignoreFocusOut: true });
+                if (!selected)
+                    throw new UiCommandCancelled("已取消调试包下载。");
+                sourceWorker = selected.workerId;
+            }
+            const server = this.mappedDownloadServerForSource(sourceWorker);
             const stagingRelative = path.posix.join("simple_cluster", "downloads", "debug_bundle", "latest.zip");
             const stagingPath = safeWorkspaceChildPath(root, stagingRelative);
             const existing = await fs.stat(stagingPath).catch(() => undefined);
@@ -17754,7 +17754,7 @@ class RealtimeTunnelPanelProvider {
                 pathConfirmed: true,
             });
             if (Number(result?.fileCount ?? result?.completedFiles ?? 0) !== 1)
-                throw new Error("调试包映射下载未写入预期文件。下一步：核对 Hub SSH 配置后重试这一次打包下载。");
+                throw new Error(`调试包映射下载未写入预期文件。请核对 Worker ${sourceWorker} 的连接和文件路径。`);
             await fs.mkdir(path.dirname(picked.fsPath), { recursive: true });
             await fs.copyFile(stagingPath, picked.fsPath);
             if (generation !== this.projectContextGeneration || root !== workspaceRoot() || client !== this.client)
@@ -17867,7 +17867,7 @@ class RealtimeTunnelPanelProvider {
                 await this.openWorkspaceFileForProjectContext(localRelative, projectContext, client);
                 return;
             }
-            throw new Error("Hub 来源没有可打包的 SFTP 目标。下一步：在服务器设置中填写 Hub 主机和项目目录后重试；未修改当前 Plan 选择。");
+            throw new Error("无法确定结果所属 Worker，请从对应 Worker 的结果行重试；未修改当前 Plan 选择。");
         }
         const downloadLabel = "临时读取并查看";
         const choices = hasLocalFile ? [downloadLabel, "打开现有本地文件"] : [downloadLabel];
@@ -18201,7 +18201,7 @@ class RealtimeTunnelPanelProvider {
             throw new Error("需要支持内存指标下载的 SimpleSFTP 版本；请安装最新版并重载窗口。未创建原始指标缓存。");
         if (capability.methodOptions?.["sync.downloadMappedPaths"]?.memoryWrapperResults !== true)
             throw new Error("汇总需要支持 wrapper 全格式内存接收的 SimpleSFTP；请更新并重载窗口。未下载或创建原始结果副本。");
-        const server = batch.sourceId === "hub" ? this.hubMappedDownloadServer() : this.mappedDownloadServerForSource(batch.workerId || batch.sourceId);
+        const server = this.mappedDownloadServerForSource(batch.workerId || batch.sourceId);
         const request = async (method, params, extraToken = token) => {
             const abort = new AbortController();
             const cancel = () => abort.abort(new UiCommandCancelled("指标下载已取消，保留现有表格。"));
@@ -18356,9 +18356,9 @@ class RealtimeTunnelPanelProvider {
                     throw new Error(`无法确定 ${remotePath} 所属 Worker，已阻止批量同步。`);
                 if (owner && availableWorkers.length && !workerId)
                     throw new Error(`结果所属 Worker ${owner} 未启用，已阻止批量同步。`);
-                if (!workerId && !(this.projectTopologyAssessment?.().hubAllowed && typeof this.hubCodeSyncTarget === "function"))
-                    throw new Error("Hub 来源没有可打包的 SFTP 目标。下一步：在服务器设置中填写 Hub 主机和项目目录后重试。");
-                const sourceId = workerId || "hub";
+                if (!workerId)
+                    throw new Error("无法确定结果所属 Worker；请从对应 Worker 的结果行重试，未下载文件。");
+                const sourceId = workerId;
                 const localRelative = methodResultArtifactLocalRelativePath(remotePath, planFile, summary, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, workerTables.length > 1 ? workerId : "");
                 const localPath = safeWorkspaceChildPath(root, localRelative);
                 const destinationKey = localRelative.toLowerCase();
@@ -18450,7 +18450,7 @@ class RealtimeTunnelPanelProvider {
     }
     mappedDownloadServerForSource(sourceId) {
         if (!sourceId || sourceId === "hub")
-            return null;
+            throw new Error("WORKER_SOURCE_REQUIRED：请选择当前启用的来源 Worker；历史来源不能用于下载。");
         const targets = typeof this.workerCodeSyncTargets === "function" ? this.workerCodeSyncTargets() : [];
         const target = targets.find((item) => String(item?.id || "").toLowerCase() === String(sourceId).toLowerCase());
         if (!target)
@@ -18501,9 +18501,7 @@ class RealtimeTunnelPanelProvider {
         await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title, cancellable: true }, async (progress, token) => {
             let statsServer;
             try {
-                statsServer = batch.sourceId === "hub"
-                    ? this.hubMappedDownloadServer()
-                    : this.mappedDownloadServerForSource(batch.workerId || batch.sourceId);
+                statsServer = this.mappedDownloadServerForSource(batch.workerId || batch.sourceId);
             }
             catch { /* The transfer path below reports an actionable source configuration error. */ }
             for (const transfer of transfers) {
@@ -18614,9 +18612,7 @@ class RealtimeTunnelPanelProvider {
                 const chunk = chunks[index];
                 progress.report({ message: `${batch.sourceId}：压缩打包 ${chunk.length} 个文件（${index + 1}/${chunks.length}）` });
                 try {
-                    const server = statsServer || (batch.sourceId === "hub"
-                        ? this.hubMappedDownloadServer()
-                        : this.mappedDownloadServerForSource(batch.workerId || batch.sourceId));
+                    const server = statsServer || (this.mappedDownloadServerForSource(batch.workerId || batch.sourceId));
                     const result = await this.simpleSftpApiCall("sync.downloadMappedPaths", {
                         localPath: root,
                         server,
@@ -20513,7 +20509,7 @@ class RealtimeTunnelPanelProvider {
         if (/agent 拒绝|requires confirm|invalid target|target required|localhost only|mgmt session/i.test(text)) {
             return false;
         }
-        return /ECONNREFUSED|ECONNRESET|ENOTFOUND|EHOSTUNREACH|ETIMEDOUT|socket hang up|timeout|aborted|fetch failed|network|Only Hub Agent API paths are allowed|API path not allowed|argument must be of type string/i.test(text);
+        return /ECONNREFUSED|ECONNRESET|ENOTFOUND|EHOSTUNREACH|ETIMEDOUT|socket hang up|timeout|aborted|fetch failed|network|Only Worker Agent API paths are allowed|API path not allowed|argument must be of type string/i.test(text);
     }
     async requestKillTmuxWindow(workerId, body) {
         const tryClient = this.client?.clients?.get(workerId);
@@ -20528,7 +20524,7 @@ class RealtimeTunnelPanelProvider {
                 transportError = errorMessage(error);
                 // A timeout/reset can occur after tmux has already killed the window.
                 // Never repeat a mutation against an index which may now belong to another task.
-                if (!/Only Hub Agent API paths are allowed|API path not allowed|argument must be of type string/i.test(transportError))
+                if (!/Only Worker Agent API paths are allowed|API path not allowed|argument must be of type string/i.test(transportError))
                     throw error;
             }
         }
@@ -22144,7 +22140,6 @@ class RealtimeTunnelPanelProvider {
             && this.agentSessionStateCacheValue) {
             return this.agentSessionStateCacheValue;
         }
-        const hubDirs = this.agentRuntimeDirs(this.setupConfig.agentProjectDir, this.setupConfig.agentInstallDir);
         const value = {
             mode: "xshell_saved_session_tmux",
             canWriteStartupCommands: this.agentStartupTargets().length > 0,
@@ -28957,15 +28952,11 @@ function noHubWorkerHealth(workerProbes) {
         state: ready ? "agent_ok" : "worker_unavailable",
         status: ready ? "agent_ok" : "worker_unavailable",
         checkedAt: new Date().toISOString(),
-        message: ready ? "无 Hub 拓扑的 Worker Agent 检测通过。" : "无 Hub 拓扑至少有一个 Worker Agent 未通过检测。",
+        message: ready ? "Worker Agent 检测通过。" : "至少有一个 Worker Agent 未通过检测。",
     };
 }
 function tunnelTestCompletion(setup, hubProbe, health, workerProbes, hubRequired = true) {
-    const hub = hubProbe && typeof hubProbe === "object" ? hubProbe : {};
-    const fallbackHealth = health && typeof health === "object" ? health : {};
     const probes = workerProbes && typeof workerProbes === "object" ? workerProbes : {};
-    const hubStatus = String(hub.status || fallbackHealth.state || "unknown").toLowerCase();
-    const hubReady = HUB_READY_STATUSES.has(hubStatus);
     const enabledWorkers = Array.isArray(setup?.workerTunnels)
         ? setup.workerTunnels.filter((worker) => worker && worker.enabled !== false)
         : [];
@@ -28976,7 +28967,7 @@ function tunnelTestCompletion(setup, hubProbe, health, workerProbes, hubRequired
         const status = String(probe.status || "未检测").toLowerCase();
         return { id, label, status, ready: status === "ok", probe };
     });
-    const dependencyIssues = [{ label: "Hub", probe: hub }, ...workers].filter((row) => hubRequired || row.label !== "Hub").flatMap((row) => {
+    const dependencyIssues = workers.flatMap((row) => {
         const dependency = row?.probe?.schedulerDependencies;
         if (!dependency || dependency.pending !== true && dependency.ok !== false)
             return [];
@@ -28985,7 +28976,6 @@ function tunnelTestCompletion(setup, hubProbe, health, workerProbes, hubRequired
         return [`${String(row.label || "端点")} Scheduler：${message}${install && !message.includes(install) ? `；安装命令：${install}` : ""}`];
     });
     const issues = [];
-    { }
     for (const worker of workers) {
         if (worker.ready)
             continue;
@@ -28997,10 +28987,10 @@ function tunnelTestCompletion(setup, hubProbe, health, workerProbes, hubRequired
         ? workers.map((worker) => `${worker.label}:${worker.status}`).join(", ")
         : "未配置 Worker";
     return {
-        ready: (!hubRequired || hubReady) && workers.every((worker) => worker.ready) && dependencyIssues.length === 0,
+        ready: workers.length > 0 && workers.every((worker) => worker.ready) && dependencyIssues.length === 0,
         hubReady: true,
         workerReady: workers.every((worker) => worker.ready),
-        message: `隧道检测完成。Hub:${"当前拓扑不使用"}; Worker:${workerSummary}`,
+        message: `隧道检测完成。Worker：${workerSummary}`,
         issues,
     };
 }
@@ -29009,7 +28999,7 @@ function initialServerSetupComplete(setup, hubRequired = true) {
 }
 function projectOnboardingCompletedFromCodeSync(codeSync, hubRequired = true) {
     const item = codeSync && typeof codeSync === "object" ? codeSync : {};
-    return (!hubRequired || successfulSyncStatus(item.hub)) && successfulSyncStatus(item.workers);
+    return successfulSyncStatus(item.workers);
 }
 const EMPTY_PROJECT_ONBOARDING_SOURCE = Object.freeze({});
 const projectOnboardingStateForWebviewCache = new WeakMap();
@@ -29169,13 +29159,9 @@ function projectBootstrapNewProjectPrerequisite(options) {
 }
 function projectBootstrapEndpointReadiness(options) {
     const item = options || {};
-    const hubRequired = item.hubRequired !== false;
-    const hubStatus = String(item.hubStatus || "").toLowerCase();
-    const hubReady = !hubRequired || HUB_READY_STATUSES.has(hubStatus);
     const workers = Array.isArray(item.workers) ? item.workers : [];
     const unavailableWorkers = workers.filter((worker) => String(worker?.status || "").toLowerCase() !== "ok");
-    const dependencyRows = [];
-    const dependencyIssues = [...dependencyRows, ...workers.map((worker) => ({ label: worker?.label, dependency: worker?.schedulerDependencies }))].flatMap((row) => {
+    const dependencyIssues = workers.map((worker) => ({ label: worker?.label, dependency: worker?.schedulerDependencies })).flatMap((row) => {
         const dependency = row?.dependency;
         if (!dependency || dependency.pending !== true && dependency.ok !== false)
             return [];
@@ -29183,9 +29169,9 @@ function projectBootstrapEndpointReadiness(options) {
         return [`${String(row.label || "端点")} Scheduler ${dependency.pending ? "依赖正在检查" : "依赖缺失"}${install ? `；安装命令：${install}` : ""}`];
     });
     return {
-        ready: (!hubRequired || hubReady) && unavailableWorkers.length === 0 && dependencyIssues.length === 0,
-        hubRequired,
-        hubReady,
+        ready: workers.length > 0 && unavailableWorkers.length === 0 && dependencyIssues.length === 0,
+        hubRequired: false,
+        hubReady: true,
         unavailableWorkers,
         dependencyIssues,
         missing: [
@@ -29956,42 +29942,8 @@ async function inspectLocalPlanArchiveEvidence(root, files) {
 async function materializePlanArchiveEvidenceFiles(client, root, bundleDir, files, mode) {
     const copied = [];
     const evidenceRoot = path.join(bundleDir, "evidence");
-    if (mode === "hub_download") {
-        const server = client?.hubMappedDownloadServer ? client.hubMappedDownloadServer() : null;
-        if (!server || typeof client.simpleSftpApiCall !== "function")
-            throw new Error("Hub 归档证据没有可打包的 SFTP 目标。下一步：恢复 Hub SSH 配置后重试一次映射下载，不要逐文件拉取。");
-        const transfers = files.map((relative) => {
-            const target = safeArchiveBundleChildPath(evidenceRoot, relative);
-            const localRelativePath = path.relative(root, target).replace(/\\/g, "/");
-            if (!localRelativePath || localRelativePath.startsWith("../") || path.posix.isAbsolute(localRelativePath))
-                throw new Error(`Plan 归档证据目标超出项目根目录：${relative}`);
-            return { remotePath: relative, localRelativePath, bytes: null };
-        });
-        const chunks = partitionMappedDownloadTransfers(transfers, MAPPED_RESULT_DOWNLOAD_MAX_ENTRIES, MAPPED_RESULT_DOWNLOAD_MAX_BATCH_BYTES, PLAN_ARCHIVE_EVIDENCE_MAX_BYTES);
-        for (const entries of chunks) {
-            const result = await client.simpleSftpApiCall("sync.downloadMappedPaths", {
-                localPath: root,
-                server,
-                entries,
-                maxFileBytes: PLAN_ARCHIVE_EVIDENCE_MAX_BYTES,
-                maxBatchBytes: MAPPED_RESULT_DOWNLOAD_MAX_BATCH_BYTES,
-                overwrite: true,
-                confirm: true,
-                pathConfirmed: true,
-            });
-            if (Number(result?.fileCount ?? result?.completedFiles ?? 0) !== entries.length)
-                throw new Error("Plan 归档证据映射下载数量与清单不一致。");
-            for (const entry of entries) {
-                const relative = entry.remotePath;
-                const target = safeArchiveBundleChildPath(evidenceRoot, relative);
-                const stat = await fs.stat(target);
-                if (!stat.isFile() || stat.size > PLAN_ARCHIVE_EVIDENCE_MAX_BYTES)
-                    throw new Error(`Plan 归档证据不可用：${relative}`);
-                copied.push(relative);
-            }
-        }
-        return copied;
-    }
+    if (mode !== "local")
+        throw new Error("HUB_REMOVED：远端归档中转已移除，请使用 Worker 结果同步。");
     for (const relative of files) {
         const target = safeArchiveBundleChildPath(evidenceRoot, relative);
         await fs.mkdir(path.dirname(target), { recursive: true });
@@ -31267,7 +31219,7 @@ function remoteActionConfirmationDetail(command, action, body) {
         ...(planFile ? [`Plan：${planFile}`] : []),
         `文件位置：${preview.paths.length} 个；任务标识：${preview.identifiers.length} 个`,
         "预期操作文件位置：",
-        ...(preview.visiblePaths.length ? preview.visiblePaths.map((value) => `- ${value}`) : ["- 未能从当前选择中展开文件位置，Hub Agent 将按下列任务标识解析"]),
+        ...(preview.visiblePaths.length ? preview.visiblePaths.map((value) => `- ${value}`) : ["- 未能从当前选择中展开文件位置，Worker Agent 将按下列任务标识解析"]),
         ...(preview.paths.length > preview.visiblePaths.length ? [`- 其余 ${preview.paths.length - preview.visiblePaths.length} 个文件位置未展开`] : []),
         ...(preview.visibleIdentifiers.length ? ["", "任务标识：", ...preview.visibleIdentifiers.map((value) => `- ${value}`)] : []),
         ...(preview.identifiers.length > preview.visibleIdentifiers.length ? [`- 其余 ${preview.identifiers.length - preview.visibleIdentifiers.length} 个任务标识未展开`] : []),
@@ -31277,7 +31229,7 @@ function remoteActionConfirmationDetail(command, action, body) {
         lines.push("此操作只检查目标并生成同步 manifest。", "不会上传、下载或移动文件，也不会把目标标记为已归档。", "完成后仍需通过实际文件同步流程传输产物，再运行“三方一致校验”。");
     }
     else {
-        lines.push(`${displayName} 将通过 Hub Agent 执行；请确认以上位置属于目标实验。`);
+        lines.push(`${displayName} 将通过 Worker Agent 执行；请确认以上位置属于目标实验。`);
     }
     return lines.join("\n");
 }
@@ -32843,11 +32795,11 @@ function actionErrorSuggestion(message) {
     if (/未提交|旧代码版本|代码版本|version hold|deferred|排队记录/i.test(text))
         return "本次没有提交，也不会自动接续。打开运行进度，点“刷新状态”和日志核实前序；确认前序已停后，才点前序 Plan 的“终止并清除该 Plan”。再到实验准备的 Plan 列表手动选中，点“校验并提交运行”。";
     if (/capability|endpoint|404|not found|缺少能力/i.test(text))
-        return "打开诊断与自检，查看能力项。需要升级 Hub Agent，或先点“检测全部”做真实对接检测，再重试原操作。";
+        return "打开诊断与自检，查看能力项。需要升级 Worker Agent，或先点“检测全部”做真实对接检测，再重试原操作。";
     if (/ECONNREFUSED|fetch failed|tunnel|AbortError|timedOut|timed_out|closed|网络/i.test(text))
         return "打开设置里的服务器，确认这条隧道已启动。回到运行进度点“刷新状态”；仍失败时点“检测全部”，不要据此清理 Plan。";
     if (/401|403|token|unauthorized|forbidden/i.test(text))
-        return "打开设置里的服务器，核对 Hub Agent token 后保存，再点“检测全部”。不要把 token 贴到错误说明里。";
+        return "打开设置里的服务器，核对 Worker Agent token 后保存，再点“检测全部”。不要把 token 贴到错误说明里。";
     if (/path|safe|允许|traversal|符号链接/i.test(text))
         return "回到实验准备，只选择当前项目允许根目录内的 Plan 或结果路径，然后重试。不要改用绝对路径或上级目录。";
     if (/代码同步|fingerprint|指纹|code sync/i.test(text))
@@ -33820,24 +33772,24 @@ function renderHtml() {
     <button data-command="configureSessions" title="选择 Xshell .xsh 会话文件，并从会话内读取本地端口转发。">选择 Xshell 会话</button>
     <button data-command="configure" title="填写 Xshell 路径、服务器 IP/域名、用户名和端口。每一步都会保存。">配置</button>
     <button data-command="start" title="用 Xshell 打开本地端口转发。插件不会自己 SSH。">启动 Xshell</button>
-    <button data-command="startAll" title="启动 Hub 和所有已启用 Worker 的 Xshell 本地隧道。">启动全部隧道</button>
-    <button data-command="test" title="检查已配置的本地隧道端点、Hub Agent 健康状态和文件 API。">检测隧道</button>
+    <button data-command="startAll" title="启动 所有已启用 Worker 的 Xshell 本地隧道。">启动全部隧道</button>
+    <button data-command="test" title="检查已配置的本地隧道端点、Worker Agent 健康状态和文件 API。">检测隧道</button>
     <button data-command="restart" title="重新连接实时事件通道，不会重启 Xshell。">重启实时流</button>
     <button data-command="pauseStream" class="secondary" title="暂停实时事件刷新，但不关闭 Xshell。">暂停实时流</button>
     <button data-command="resumeStream" class="secondary" title="恢复实时事件刷新。">恢复实时流</button>
     <button data-command="snapshot" class="secondary" title="手动读取一次当前状态。">手动快照</button>
     <button data-command="script" class="secondary" title="生成可手动运行的 Xshell 隧道脚本。">生成脚本</button>
-    <button data-command="realCheck" class="secondary" title="逐层检查 Xshell、端口、Hub Agent、实时通道和文件 API。">真实对接检测</button>
+    <button data-command="realCheck" class="secondary" title="逐层检查 Xshell、端口、Worker Agent、实时通道和文件 API。">真实对接检测</button>
     <button data-command="status" class="secondary" title="打开完整状态 JSON，便于排查问题。">状态详情</button>
     <button data-command="offline" class="secondary" title="不使用网络，导入离线结果包。">导入离线包</button>
   </div>
-  <h3 title="显示 Hub Agent 当前支持哪些功能。不可用时通常需要升级或重启 Hub Agent。">能力状态</h3>
+  <h3 title="显示 Worker Agent 当前支持哪些功能。不可用时通常需要升级或重启 Worker Agent。">能力状态</h3>
   <div id="capabilities"></div>
   <h3 title="轻量状态摘要。完整脱敏 JSON 请点击“状态详情”，避免实时刷新时反复序列化大对象。">状态摘要</h3>
   <pre id="details">等待状态...</pre>
   <h3 title="解释插件如何联网，以及哪些连接方式已被禁用。">连接策略</h3>
-  <pre>插件当前通过 Xshell 本地端口转发连接 Hub Agent。
-插件不会直接 SSH 到 Hub 或 Worker。
+  <pre>插件当前通过 Xshell 本地端口转发连接 Worker Agent。
+插件不会直接 SSH 到 Worker。
 实时状态、日志、文件传输按每台服务器保存的主机与端口访问。
 如果隧道不可用，请修复 Xshell 本地隧道，或改用 offline_import。</pre>
   <script nonce="${nonce}">
@@ -33852,15 +33804,15 @@ function renderHtml() {
       "SSH 端口号": "Xshell 会话登录服务器使用的端口，常见值是 22。它不是本地隧道端口。",
       "Xshell 登录别名": "仅用于显示和目标标识。插件通过已选 .xsh 会话建立隧道，并使用该端点配置的主机和端口。",
       "本地端点": "插件实际访问的本地转发主机和端口，以当前服务器配置为准。",
-      "服务器 Agent 端口": "服务器上 Hub Agent 监听的端口，要和 python cluster_agent.py serve --port 一致。",
-      "隧道健康": "检测 Xshell 本地隧道和 Hub Agent 是否可用。",
-      "实时流": "Hub Agent 推送状态变化的通道，优先 WebSocket，其次 SSE，再退到快照。",
-      "心跳": "Hub Agent 最近一次证明自己仍在线的时间。",
+      "服务器 Agent 端口": "服务器上 Worker Agent 监听的端口，要和 python cluster_agent.py serve --port 一致。",
+      "隧道健康": "检测 Xshell 本地隧道和 Worker Agent 是否可用。",
+      "实时流": "Worker Agent 推送状态变化的通道，优先 WebSocket，其次 SSE，再退到快照。",
+      "心跳": "Worker Agent 最近一次证明自己仍在线的时间。",
       "重连次数": "实时流断开后自动恢复连接的次数。",
-      "API 版本": "Hub Agent 接口版本。过旧会导致部分按钮禁用。",
+      "API 版本": "Worker Agent 接口版本。过旧会导致部分按钮禁用。",
       "网络状态": "只有手动暂停所有网络活动时才显示。",
       "最后错误": "最近一次隧道、Agent 或文件 API 错误。",
-      "健康检查": "Hub Agent /api/health 是否可用。",
+      "健康检查": "Worker Agent /api/health 是否可用。",
       "实时通道": "WebSocket/SSE/快照三种刷新方式。WebSocket 最实时。",
       "文件列表": "能否浏览服务器允许目录内的文件。",
       "下载": "能否通过 HTTP 从服务器下载文件。",
@@ -34754,15 +34706,11 @@ function resultError(result) {
 }
 const NON_SUCCESSFUL_SYNC_STATUSES = new Set(["-", "待同步", "pending", "unknown", "running", "已跳过", "未参与本次同步"]);
 function syncRoleStatus(targets, previous = {}, fingerprint = "") {
-    const hubCount = targets.filter((target) => target.role === "hub").length;
     const workerCount = targets.filter((target) => target.role === "worker").length;
     const sameFingerprint = Boolean(fingerprint) && String(previous?.fingerprint || "") === fingerprint;
-    const previousHub = sameFingerprint && successfulSyncStatus(previous?.hub) ? String(previous.hub) : "待同步";
     const previousWorkers = sameFingerprint && successfulSyncStatus(previous?.workers) ? String(previous.workers) : "待同步";
     return {
-        hubRunning: hubCount ? "running" : previousHub,
         workersRunning: workerCount ? "running" : previousWorkers,
-        hubSuccess: hubCount ? "已同步" : previousHub,
         workersSuccess: workerCount ? `已同步 ${workerCount} 台` : previousWorkers,
     };
 }

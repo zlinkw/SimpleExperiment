@@ -64,6 +64,7 @@ exports.distributedSubmissionProgress = distributedSubmissionProgress;
 exports.fingerprintStillMounted = fingerprintStillMounted;
 exports.queueOccupiesCodeVersion = queueOccupiesCodeVersion;
 exports.jobHasLiveExecution = jobHasLiveExecution;
+exports.activeGpuReservations = activeGpuReservations;
 exports.workerCodeVersionAvailable = workerCodeVersionAvailable;
 exports.completedJobOutputs = completedJobOutputs;
 exports.distributedQueuePath = distributedQueuePath;
@@ -846,6 +847,19 @@ function jobHasLiveExecution(job) {
         || job.executionState === "unknown" && Boolean(job.statusQueryError)
         || job.status === "dispatching" && !job.lastObservedAt
         : ["dispatching", "queued", "running", "unknown"].includes(job.status);
+}
+/** Reserve automatic slots from current execution evidence, never from historical unknown labels. */
+function activeGpuReservations(queue) {
+    const activeByWorker = new Map(), occupiedGpuIds = new Set();
+    for (const plan of queue.plans)
+        for (const job of plan.jobs) {
+            if (job.manualDispatch || !job.workerId || !jobHasLiveExecution(job))
+                continue;
+            activeByWorker.set(job.workerId, (activeByWorker.get(job.workerId) || 0) + 1);
+            if (job.gpuId !== undefined)
+                occupiedGpuIds.add(`${job.workerId}:${job.gpuId}`);
+        }
+    return { activeByWorker, occupiedGpuIds };
 }
 /** A project root on one Worker may host only one live code version. Other Workers are independent. */
 function workerCodeVersionAvailable(queue, workerId, fingerprint) {

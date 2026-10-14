@@ -1,7 +1,7 @@
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { atomicWriteText } from "../state/StateStore";
-import { cleanupDigest } from "../features/PlanCleanup";
+import { cleanupDigest, cleanupRelative } from "../features/PlanCleanup";
 import { replaceRunOutputs, runReplacementKey } from "../features/PlanRunReplacement";
 
 /** Local recoverable inputs, never authority for a remote process or a result. */
@@ -20,6 +20,7 @@ export class PlanRunHost {
     for (const key of ["workspace", "planFile", "selectedPlanId", "planRevision", "schedulerOwnerWorkerId", "gitProvenance", "options", "schedulingMode",
       "existingOutputCount", "existingOutputChoice", "distributedSkipJobIndices", "assignedExperimentIndices", "submissionWorkflowId"])
       if (body[key] !== undefined) input[key] = body[key];
+    input.planFile = cleanupRelative(body.planFile || body.options?.planFile);
     const safeInput = JSON.parse(JSON.stringify(input, (key, item) => /token|password|credential|privateKey|authorization/i.test(key) ? undefined : item));
     const value = { root: this.root, operationId: id, input: safeInput, recovery: body.runRecovery || {}, replacement: body.runReplacement || {} };
     // Cleanup preview tokens are opaque approvals; server credentials never enter the input.
@@ -28,6 +29,9 @@ export class PlanRunHost {
   }
   async replace(plan: any, body: any, validation: any) {
     const h = this.host, cleanup = h.planCleanupHost(), jobs = validation.jobs, client = h.client, generation = h.projectContextGeneration;
+    const planFile = cleanupRelative(body.planFile || body.options?.planFile || plan?.planFile || plan?.file);
+    if (body.options?.planFile && body.options.planFile !== planFile) throw Error("提交的 PLAN 路径不一致，未删除或提交。");
+    body.planFile = planFile;
     body.runReplacement ||= {};
     const completed = new Set<number>();
     for (const snapshot of body.workerSubmissionSnapshots || []) {

@@ -60,7 +60,7 @@ async function main(argv) {
         return 0;
     }
     if (cmd === "agent" && sub === "health") {
-        console.log(JSON.stringify({ status: "unknown", hint: "Use VS Code command for live Hub Agent status." }, null, 2));
+        console.log(JSON.stringify({ status: "unknown", hint: "Use VS Code command for live Worker Agent status." }, null, 2));
         return 0;
     }
     if (cmd === "self-check")

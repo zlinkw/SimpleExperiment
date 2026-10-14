@@ -2,7 +2,7 @@
   "name": "simple-experiment",
   "displayName": "SimpleExperiment",
   "description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
-  "version": "0.5.311",
+  "version": "0.5.312",
   "publisher": "simple-local",
   "extensionKind": [
     "ui"
@@ -446,7 +446,7 @@
             "type": "string"
           },
           "scope": "resource",
-          "description": "可选的远端项目父目录允许前缀。留空表示不按服务器名限制；配置后每个 Hub/Worker 必须使用列表内根目录或其子目录。"
+          "description": "可选的远端项目父目录允许前缀。留空表示不按服务器名限制；配置后每个 Worker 必须使用列表内根目录或其子目录。"
         },
         "simpleExperiment.remote.deniedRoots": {
           "type": "array",
@@ -493,13 +493,13 @@
           "minimum": 1024,
           "maximum": 65535,
           "scope": "application",
-          "description": "Hub 上 127.0.0.1 监听的 Hub Agent 端口。"
+          "description": "Worker Agent 监听的服务端口；每台服务器的端点配置优先。"
         },
         "simpleExperiment.tunnel.agentToken": {
           "type": "string",
           "default": "",
           "scope": "application",
-          "description": "可选 Hub Agent token。诊断信息会自动脱敏。"
+          "description": "可选的 Worker Agent token。诊断信息会自动脱敏。"
         },
         "simpleExperiment.tunnel.remoteTmuxSessionPrefix": {
           "type": "string",
@@ -534,16 +534,6 @@
           "scope": "application",
           "description": "远端 Agent 和计划任务使用的 Conda 环境。必须为绝对路径（精确到环境文件夹，如 /data/<user>/conda_envs/<env_name> 或 /usr/local/anaconda3/envs/<env_name>，可选以 /bin/python 结尾，以 / 开头）；留空时不激活 Conda，使用系统 Python。仅环境名（如 <env_name>）已废弃，请填写完整环境路径。"
         },
-        "simpleExperiment.tunnel.workerRealtimeMode": {
-          "type": "string",
-          "default": "hub_only",
-          "enum": [
-            "hub_only",
-            "hub_plus_workers"
-          ],
-          "scope": "application",
-          "description": "实时数据来源模式。hub_plus_workers 会同时连接已配置的 Worker 本地隧道。"
-        },
         "simpleExperiment.tunnel.workerTunnels": {
           "type": "array",
           "default": [],
@@ -556,15 +546,6 @@
               },
               "displayName": {
                 "type": "string"
-              },
-              "hubHost": {
-                "type": "string"
-              },
-              "hubUser": {
-                "type": "string"
-              },
-              "hubSshPort": {
-                "type": "number"
               },
               "localForwardPort": {
                 "type": "number"
@@ -623,6 +604,15 @@
                   "managed"
                 ],
                 "default": "preserve"
+              },
+              "workerHost": {
+                "type": "string"
+              },
+              "workerUser": {
+                "type": "string"
+              },
+              "workerSshPort": {
+                "type": "number"
               }
             }
           },
@@ -798,7 +788,7 @@
     }
   },
   "scripts": {
-    "build": "npm run compact:plan && npm run typecheck && node scripts/bundle-semver.js && node scripts/write-agent-runtime.js && node scripts/write-panel-build-manifest.js && node -c dist/extension.js && node -c dist/ui/PanelHtml.js && node --test --test-force-exit --test-timeout 20000 test/features/panelWebviewScriptHealth.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planCleanupPanelBridge.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/workerTelemetryApiContract.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/xshellPortProbe.test.js && node --test --test-force-exit --test-timeout 20000 test/features/completedPlanWorkerMirror.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobPreflightProgress.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobPreflightFailure.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobPreflightApi.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobRejectedRecovery.test.js && npm run test:preflight-stages && npm run test:execution-shell && npm run test:failed-job-review && npm run test:terminal-history && npm run test:agent-lifecycle && npm run test:tmux-lifecycle && npm run test:worker-mode && npm run test:plan-run && npm run test:latest-artifacts",
+    "build": "npm run compact:plan && npm run typecheck && node scripts/bundle-semver.js && node scripts/write-agent-runtime.js && node scripts/write-panel-build-manifest.js && node -c dist/extension.js && node -c dist/ui/PanelHtml.js && node --test --test-force-exit --test-timeout 20000 test/features/panelWebviewScriptHealth.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planCleanupPanelBridge.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/workerTelemetryApiContract.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/xshellPortProbe.test.js && node --test --test-force-exit --test-timeout 20000 test/features/completedPlanWorkerMirror.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobPreflightProgress.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobPreflightFailure.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobPreflightApi.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobRejectedRecovery.test.js && npm run test:preflight-stages && npm run test:execution-shell && npm run test:failed-job-review && npm run test:terminal-history && npm run test:agent-lifecycle && npm run test:tmux-lifecycle && npm run test:worker-mode && npm run test:plan-run && npm run test:latest-artifacts && npm run test:submission-truth",
     "test:tmux-lifecycle": "node --test --test-force-exit --test-timeout 20000 test/features/taskLifecycle.test.js && node --test --test-force-exit --test-timeout 20000 test/features/tmuxTaskLifecycle.test.js && node --test --test-force-exit --test-timeout 20000 test/features/pulledTaskControl.test.js && node --test --test-force-exit --test-timeout 20000 test/features/manifestCleanup.test.js && node --test --test-force-exit --test-timeout 20000 test/features/nativeResultManifest.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobExecution.test.js && node --test --test-force-exit --test-timeout 20000 test/features/codeSyncProofWaiter.test.js",
     "test:preflight-stages": "node --test --test-force-exit --test-timeout 20000 test/features/preflightStages.test.js && node --test --test-force-exit --test-timeout 20000 test/features/preflightDispatchRejection.test.js",
     "test:failed-job-review": "node --test --test-force-exit --test-timeout 20000 test/features/failedJobCleanup.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planCleanup.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planCleanupReconnect.test.js && node --test --test-force-exit --test-timeout 20000 test/features/cleanupMissingTargets.test.js && npm run test:paired-update",
@@ -837,7 +827,8 @@
     "test:local-stop-control": "node --test --test-force-exit --test-timeout 20000 test/features/clearedOutputReplacement.test.js && node --test --test-force-exit --test-timeout 20000 test/features/cleanupActivity.test.js && node --test --test-force-exit --test-timeout 20000 test/features/localStopControl.test.js && node --test --test-force-exit --test-timeout 20000 test/features/operationRetirement.test.js",
     "test:worker-mode": "node --test --test-force-exit --test-timeout 20000 test/features/workerOnlyTopology.test.js && node --test --test-force-exit --test-timeout 20000 test/features/topologyMode.test.js && node --test --test-force-exit --test-timeout 20000 test/features/workerRouting.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/workerOnlyStateMerge.test.js && node --test --test-force-exit --test-timeout 20000 test/features/manualJobDispatch.test.js && node --test --test-force-exit --test-timeout 20000 test/features/manualDispatchHost.test.js && node --test --test-force-exit --test-timeout 20000 test/cli/manualDispatch.test.js && node --test --test-force-exit --test-timeout 20000 test/features/manualTmuxAdmission.test.js && node --test --test-force-exit --test-timeout 20000 test/features/hubRetirement.test.js",
     "test:plan-run": "node --test --test-force-exit --test-timeout 20000 test/features/planRunQueryRegression.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planRunReplacement.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planRunRecovery.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planSubmissionVisiblePreflight.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planOutputReplacementHost.test.js",
-    "test:latest-artifacts": "node --test --test-force-exit --test-timeout 20000 test/features/latestJobArtifacts.test.js && node --test --test-force-exit --test-timeout 20000 test/features/completedJobLatestSync.test.js && node --test --test-force-exit --test-timeout 20000 test/features/syncScopeDeletionRefresh.test.js && node --test --test-force-exit --test-timeout 20000 test/features/syncScopeBatch.test.js && node --test --test-force-exit --test-timeout 20000 test/features/syncLatestMerge.test.js && node --test --test-force-exit --test-timeout 20000 test/features/sftpProgressWait.test.js && node --test --test-force-exit --test-timeout 20000 test/ui/syncScopeTree.test.js"
+    "test:latest-artifacts": "node --test --test-force-exit --test-timeout 20000 test/features/latestJobArtifacts.test.js && node --test --test-force-exit --test-timeout 20000 test/features/completedJobLatestSync.test.js && node --test --test-force-exit --test-timeout 20000 test/features/syncScopeDeletionRefresh.test.js && node --test --test-force-exit --test-timeout 20000 test/features/syncScopeBatch.test.js && node --test --test-force-exit --test-timeout 20000 test/features/syncLatestMerge.test.js && node --test --test-force-exit --test-timeout 20000 test/features/sftpProgressWait.test.js && node --test --test-force-exit --test-timeout 20000 test/ui/syncScopeTree.test.js",
+    "test:submission-truth": "node --test --test-force-exit --test-timeout 20000 test/features/currentSubmissionTruth.test.js && node --test --test-force-exit --test-timeout 20000 test/ui/executionCompactOverview.test.js && node --test --test-force-exit --test-timeout 20000 test/features/hubRuntimeRemoval.test.js && node --test --test-force-exit --test-timeout 20000 test/features/automaticSyncReadiness.test.js && node --test --test-force-exit --test-timeout 20000 test/features/projectCodeSyncState.test.js && node --test --test-force-exit --test-timeout 20000 test/features/tunnelTestCompletionClarity.test.js && node --test --test-force-exit --test-timeout 20000 test/features/nativePlanRetry.test.js"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -35,9 +35,12 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.preparePlanSafeRetry = preparePlanSafeRetry;
 const Queue = __importStar(require("./DistributedPlanQueue"));
+const NativePlanRetry_1 = require("./NativePlanRetry");
 const terminal = (status) => ["completed", "failed", "cancelled", "canceled", "stopped", "succeeded", "error", "operation_failed", "operation_completed"].includes(String(status || "").toLowerCase());
 /** Stop only the identities the user confirmed. Never clear output/history or bypass the final active guard. */
 async function preparePlanSafeRetry(host, planFile, confirm, cancelled, assertWorkspace = () => { }) {
+    if (host.taskLifecycleProtocol === 2)
+        return (0, NativePlanRetry_1.prepareNativePlanRetry)(host, planFile, confirm, cancelled, assertWorkspace);
     assertWorkspace();
     const context = host.captureProjectContext();
     const client = host.client;

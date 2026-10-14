@@ -1,10 +1,12 @@
 import * as Queue from "./DistributedPlanQueue";
+import { prepareNativePlanRetry } from "./NativePlanRetry";
 
 const terminal = (status: unknown) => ["completed", "failed", "cancelled", "canceled", "stopped", "succeeded", "error", "operation_failed", "operation_completed"].includes(String(status || "").toLowerCase());
 
 /** Stop only the identities the user confirmed. Never clear output/history or bypass the final active guard. */
 export async function preparePlanSafeRetry(host: any, planFile: string,
   confirm: (detail: string) => Promise<boolean>, cancelled: () => Error, assertWorkspace = () => {}): Promise<boolean> {
+  if (host.taskLifecycleProtocol === 2) return prepareNativePlanRetry(host, planFile, confirm, cancelled, assertWorkspace);
   assertWorkspace();
   const context = host.captureProjectContext();
   const client = host.client;

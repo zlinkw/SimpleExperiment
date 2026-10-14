@@ -31,7 +31,9 @@ class DefaultEndpointRegistry {
         const id = String(endpoint.id || "").trim();
         if (!id)
             throw new Error("Endpoint id is required");
-        if (endpoint.role !== "hub" && endpoint.role !== "worker")
+        if (endpoint.role === "hub")
+            throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
+        if (endpoint.role !== "worker")
             throw new Error(`Endpoint ${id} has an unsupported role.`);
         const localHost = String(endpoint.localHost || "").trim();
         const localPort = Number(endpoint.localPort);
@@ -117,7 +119,7 @@ class DefaultEndpointRegistryFactory {
             if (saved !== undefined && !Array.isArray(saved))
                 throw new Error("Saved tunnel endpoint settings are malformed; refusing to use an empty registry.");
             if (Array.isArray(saved))
-                persisted = [...persisted, ...saved];
+                persisted = [...persisted, ...saved.filter(endpoint => endpoint.role !== "hub")];
         }
         return this.create(persisted);
     }

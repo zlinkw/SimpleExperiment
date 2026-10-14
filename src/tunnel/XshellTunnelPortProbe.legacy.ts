@@ -122,7 +122,7 @@ export async function probeLocalTunnel(
       ...baseResult,
       status: "local_port_closed",
       message: `${host}:${config.localForwardPort} 未打开。`,
-      suggestion: `请启动 Xshell 隧道会话，并确认 Hub Agent 已在 ${host} 上运行（端口按每服务器隧道配置动态解析）。`,
+      suggestion: `请启动 Xshell 隧道会话，并确认 Worker Agent 已在 ${host} 上运行（端口按每服务器隧道配置动态解析）。`,
     };
   }
 
@@ -137,7 +137,7 @@ export async function probeLocalTunnel(
         status: "local_port_occupied_by_unknown",
         latencyMs: Date.now() - started,
         message: `/api/health 返回 HTTP ${healthResponse.status}。`,
-        suggestion: "请检查该本地端口是否真的转发到了 Hub Agent。",
+        suggestion: "请检查该本地端口是否真的转发到了 Worker Agent。",
       };
     }
     const health = await readProbeHealth(healthResponse, base, headers, started + timeoutMs);
@@ -147,8 +147,8 @@ export async function probeLocalTunnel(
         tcpOpen: true,
         status: "local_port_occupied_by_unknown",
         latencyMs: Date.now() - started,
-        message: "/api/health 返回格式不兼容 SimpleExperiment Hub Agent。",
-        suggestion: "请确认本地端口目标正确，并升级 Hub Agent runtime。",
+        message: "/api/health 返回格式不兼容 SimpleExperiment Worker Agent。",
+        suggestion: "请确认本地端口目标正确，并升级 Worker Agent runtime。",
       };
     }
     const projectRoot = String(health.projectRoot || "").trim();
@@ -203,7 +203,7 @@ export async function probeLocalTunnel(
         schedulerDependencies,
         capabilities,
         missingCapabilities: compatibility.missingEndpoints,
-        message: `Hub Agent API ${capabilities.apiVersion} 与插件不兼容。`,
+        message: `Worker Agent API ${capabilities.apiVersion} 与插件不兼容。`,
         suggestion: "请部署最新版 Agent 并重启 Agent 会话；如果暂不升级，请禁用不支持的功能。",
       };
     }
@@ -227,7 +227,7 @@ export async function probeLocalTunnel(
           schedulerDependencies,
           capabilities,
           message: "/api/files/capabilities 不可用。",
-          suggestion: "请启动较新的 Hub Agent，并确认文件网关已启用。",
+          suggestion: "请启动较新的 Worker Agent，并确认文件网关已启用。",
         };
       }
       const fileCaps = await fileCapsResponse.json();
@@ -245,7 +245,7 @@ export async function probeLocalTunnel(
           schedulerDependencies,
           capabilities,
           message: "文件 API 能力不完整。",
-          suggestion: "请升级 Hub Agent，或改用 offline_import 导入文件。",
+          suggestion: "请升级 Worker Agent，或改用 offline_import 导入文件。",
         };
       }
       fileCapabilities = fileCaps;
@@ -269,7 +269,7 @@ export async function probeLocalTunnel(
         capabilities,
         fileCapabilities,
         message: "实时流 API 不可用。",
-        suggestion: "请升级 Hub Agent，或使用快照备用刷新。",
+        suggestion: "请升级 Worker Agent，或使用快照备用刷新。",
       };
     }
 
@@ -289,7 +289,7 @@ export async function probeLocalTunnel(
       schedulerDependencies: health.schedulerDependencies,
       capabilities,
       fileCapabilities,
-      message: "Xshell 隧道和 Hub Agent API 可用。",
+      message: "Xshell 隧道和 Worker Agent API 可用。",
     };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
@@ -299,7 +299,7 @@ export async function probeLocalTunnel(
       status: /AbortError|timeout/i.test(message) ? "timeout" : "agent_unreachable",
       latencyMs: Date.now() - started,
       message,
-      suggestion: "请检查 Hub Agent 进程、token、远端端口和 Xshell 转发目标。",
+      suggestion: "请检查 Worker Agent 进程、token、远端端口和 Xshell 转发目标。",
     };
   }
 }
@@ -430,7 +430,7 @@ function tokenInvalid(
     remoteAgentPort: config.remoteAgentPort,
     tcpOpen: true,
     status: "agent_token_invalid",
-    message: "Hub Agent 拒绝了 token/session。",
-    suggestion: "请检查 simpleExperiment.tunnel.agentToken，或用匹配 token 重启 Hub Agent。",
+    message: "Worker Agent 拒绝了 token/session。",
+    suggestion: "请检查 simpleExperiment.tunnel.agentToken，或用匹配 token 重启 Worker Agent。",
   };
 }
