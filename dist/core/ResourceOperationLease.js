@@ -412,6 +412,10 @@ class ResourceOperationLeaseManager {
             return error.code !== "ESRCH";
         }
     }
-    async inspect() { return { records: (await this.rows()).flatMap(row => row.leases).filter(row => Date.parse(row.expiresAt) > this.now()) }; }
+    async inspect(options = {}) {
+        const own = new Set(options.excludeCurrent ? (contexts.getStore() || []).map(row => row.leaseId) : []);
+        return { records: (await this.rows()).flatMap(row => row.leases)
+                .filter(row => Date.parse(row.expiresAt) > this.now() && this.ownerAlive(row) && !own.has(row.leaseId)) };
+    }
 }
 exports.ResourceOperationLeaseManager = ResourceOperationLeaseManager;

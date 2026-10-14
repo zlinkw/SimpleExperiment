@@ -201,8 +201,23 @@ class PlanCleanupHost {
             }
         }));
         this.assertWorkspace();
-        const state = this.host.buildPlanRuntimeEvidenceState();
-        const operations = Object.values(state.operations || {});
+        // Panel/journal rows are history, not evidence that code is still executing.
+        // Use current Agent action registries and live cross-window resource leases.
+        // Excluding our async call's lease lineage prevents runPlan's replacement
+        // review from blocking itself; sibling/concurrent calls remain visible.
+        const operations = snapshots.flatMap(snapshot => snapshot.error ? [] : (snapshot.activeOperations || [])
+            .map((operation) => ({ ...operation, nodeId: snapshot.workerId })));
+        const leases = await this.host.hostOperationLease?.inspect({ excludeCurrent: true });
+        for (const lease of leases?.records || []) {
+            for (const node of nodes) {
+                const server = node.kind === "local" ? "local" : String(node.host).toLowerCase() + ":" + node.port;
+                const spelling = (value) => node.kind === "local" ? value.replace(/\\/g, "/").toLowerCase() : value;
+                const paths = (lease.resources || []).filter((resource) => String(resource.server).toLowerCase() === server
+                    && spelling(resource.project) === spelling(node.root)).map((resource) => ({ targetPath: resource.target || resource.project }));
+                if (paths.length)
+                    operations.push({ nodeId: node.id, operationId: lease.leaseId, commandId: lease.leaseId, status: "running", targets: paths });
+            }
+        }
         onProgress?.({ phase: "references", message: "核对 PLAN/attempt 所有权、共享引用与受保护资产…" });
         const evidenceQueue = job?.purpose === "replace_outputs" ? (0, PlanOutputReplacement_1.replacementEvidenceQueue)(queue, snapshots, (0, DistributedPlanQueue_1.canonicalProjectId)(this.root)) : queue;
         const scope = await (0, PlanCleanupEvidence_1.collectPlanCleanupEvidence)({ root: this.root, planFile: file, queue: evidenceQueue, ledger, registry,

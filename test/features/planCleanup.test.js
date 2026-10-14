@@ -64,6 +64,16 @@ test('replacement preview rejects an old backend that omits its batch capacity b
   assert.ok(p.blockers.some(row=>row.code==='SFTP_BATCH_PREVIEW_UPGRADE_REQUIRED'));
   assert.equal(f.mutations,0); assert.ok(p.rows.every(row=>row.disposition!=='delete'));
 });
+test('partial proc visibility is shown in exact-path review without hiding real blockers or authorizing deletion',async()=>{
+  const f=await fixture(),original=f.ports.sftp;
+  f.ports.sftp=async(method,params)=>{const result=await original(method,params);
+    if(method==='files.cleanup.preview')result.targets.forEach(row=>row.handleWarnings=[{code:'PROC_VISIBILITY_LIMIT',pid:'3525'}]);
+    return result;};
+  const p=await f.service.preview({planFile:f.scope.planFile});
+  assert.equal(p.scope.notices.filter(row=>row.code==='PROC_VISIBILITY_LIMIT').length,2);
+  assert.ok(p.rows.every(row=>row.evidence.some(text=>text.includes('/proc'))));
+  assert.equal(p.confirmations,0);assert.equal(f.mutations,0);
+});
 test('job review freezes archive layout, orders external CSV before its owner directory, and continuation cannot change job',async()=>{
   const f=await fixture(),job={workflowId:'run',index:1,commandId:'command'};f.scope.job=job;
   f.scope.candidates[0].type='directory';f.scope.candidates[0].relativePath='work_dirs/exact/owner';

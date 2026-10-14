@@ -286,5 +286,9 @@ export class ResourceOperationLeaseManager {
     try { process.kill(record.processId, 0); return true; }
     catch (error: any) { return error.code !== "ESRCH"; }
   }
-  async inspect(): Promise<any> { return { records: (await this.rows()).flatMap(row => row.leases).filter(row => Date.parse(row.expiresAt) > this.now()) }; }
+  async inspect(options: { excludeCurrent?: boolean } = {}): Promise<any> {
+    const own = new Set(options.excludeCurrent ? (contexts.getStore() || []).map(row => row.leaseId) : []);
+    return { records: (await this.rows()).flatMap(row => row.leases)
+      .filter(row => Date.parse(row.expiresAt) > this.now() && this.ownerAlive(row) && !own.has(row.leaseId)) };
+  }
 }

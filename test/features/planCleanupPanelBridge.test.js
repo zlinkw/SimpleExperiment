@@ -199,7 +199,8 @@ test('report-only config notices do not block other verified targets; protected-
     return p;
   } } }); await f.open();
   assert.equal(f.element('confirm').disabled, false);
-  assert.match(f.element('review').innerHTML, /相关配置保留/);
+  assert.match(f.element('review').innerHTML, /预检说明与受保护项/);
+  assert.match(f.element('review').innerHTML, /CONFIG_REFERENCE_UNVERIFIED/);
   assert.doesNotMatch(f.element('review').innerHTML, /undefined/);
   protectedOnly = true; f.element('preview').onclick(); await flush();
   assert.equal(f.element('confirm').disabled, true);

@@ -16,7 +16,7 @@ const sameFile = (a: string, b: string) => process.platform === "win32" ? a.toLo
 export const cleanupStablePlanId = (text: string) => text.match(/^(?:plan_id|stable_plan_id):[ \t]*["']?([A-Za-z0-9._-]+)["']?[ \t]*$/m)?.[1];
 
 export type CleanupEvidenceInput = { root: string; planFile: string; queue: DistributedQueue; ledger: PlanSyncLedger;
-  nodes: CleanupNode[]; snapshots: Array<{ workerId: string; tasks?: any[]; error?: string; generatedAt?: string; fetchedAt?: string }>;
+  nodes: CleanupNode[]; snapshots: Array<{ workerId: string; tasks?: any[]; activeOperations?: any[]; error?: string; generatedAt?: string; fetchedAt?: string }>;
   operations?: any[]; registry?: any; resultDir?: string; extraEvidence?: CleanupCandidate[]; allowMissing?: boolean; archivedFiles?: Record<string, string>; removedMetadata?: CleanupRemovedMetadata; job?: CleanupJobSelection };
 
 async function literalPlans(root: string): Promise<Array<{ file: string; text: string }>> {
@@ -318,6 +318,8 @@ export async function collectPlanCleanupEvidence(input: CleanupEvidenceInput): P
       node.error ||= snapshot?.error || "当前任务/队列证据不可达或过期";
       blockers.push({ code: "OFFLINE_NODE", nodeId: node.id, detail: node.error });
     } else {
+      if (!Array.isArray(snapshot.activeOperations)) notices.push({ code: "LEGACY_ACTIVITY_VISIBILITY", nodeId: node.id,
+        detail: "该 Agent 未提供实时操作表；当前核对任务、资源锁及可见文件句柄。更新 Agent 可补齐独立执行操作的实时证据；历史日志状态不作活动证明。" });
       if ((snapshot.tasks || []).some(task => !terminal.has(String(task.status).toLowerCase()) && (!selectedJob
           || !task.outputDir || candidates.some(candidate => candidate.nodeId === node.id
             && (ancestor(candidate.relativePath, normalized(task.outputDir)) || ancestor(normalized(task.outputDir), candidate.relativePath))))))
@@ -388,6 +390,7 @@ export async function collectPlanCleanupEvidence(input: CleanupEvidenceInput): P
     try { return cleanupRelative(rel); } catch { return; }
   };
   for (const operation of input.operations || []) if (["running", "queued", "pending", "accepted"].includes(operation.status)) {
+    if (operation.nodeId && !scope.nodes.some(node => node.id === operation.nodeId)) continue;
     const identities: string[] = [], paths: string[] = [];
     let unboundedPath = false;
     const inspect = (record: any, depth = 0) => {
@@ -411,7 +414,7 @@ export async function collectPlanCleanupEvidence(input: CleanupEvidenceInput): P
       return ancestor(a, b) || ancestor(b, a);
     }));
     if (matches || overlaps || !identities.length || !paths.length || unboundedPath)
-      blockers.push({ code: "ACTIVE_OPERATION", detail: String(operation.operationId || operation.id || operation.opId || operation.kind || "操作") });
+      blockers.push({ code: "ACTIVE_OPERATION", ...(operation.nodeId ? { nodeId: operation.nodeId } : {}), detail: String(operation.operationId || operation.id || operation.opId || operation.kind || "操作") });
   }
   candidates.forEach(candidate => { candidate.owners.sort(); candidate.dependencies.sort(); });
   candidates.sort((a, b) => Number(a.category === "PLAN 文件") - Number(b.category === "PLAN 文件") || a.nodeId.localeCompare(b.nodeId) || a.relativePath.localeCompare(b.relativePath));

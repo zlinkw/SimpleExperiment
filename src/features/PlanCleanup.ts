@@ -235,6 +235,11 @@ export class PlanCleanup {
           const info = backend.targets[index];
           Object.assign(row, { ...info, relativePath: row.relativePath, destination: row.destination,
             backendToken: backend.token, backendDigest: backend.digest, backendIndex: index, rootIdentity: backend.rootIdentity });
+          if (info.handleWarnings?.length) {
+            const detail = row.absolutePath + "：" + info.handleWarnings.length + " 个同用户进程的 /proc 不可读；句柄扫描覆盖可见进程，未证明这些进程访问目标。当前作业/传输与资源锁仍独立检查。";
+            row.evidence.push(detail);
+            (scope.notices ||= []).push({ code: "PROC_VISIBILITY_LIMIT", nodeId: node.id, detail });
+          }
           if (info.missing) { row.disposition = "absent"; return; }
           const key = cleanupDigest([backend.rootIdentity, info.device, info.inode]);
           const previous = physical.get(key);

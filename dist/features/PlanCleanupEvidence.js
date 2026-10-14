@@ -436,6 +436,9 @@ async function collectPlanCleanupEvidence(input) {
             blockers.push({ code: "OFFLINE_NODE", nodeId: node.id, detail: node.error });
         }
         else {
+            if (!Array.isArray(snapshot.activeOperations))
+                notices.push({ code: "LEGACY_ACTIVITY_VISIBILITY", nodeId: node.id,
+                    detail: "该 Agent 未提供实时操作表；当前核对任务、资源锁及可见文件句柄。更新 Agent 可补齐独立执行操作的实时证据；历史日志状态不作活动证明。" });
             if ((snapshot.tasks || []).some(task => !terminal.has(String(task.status).toLowerCase()) && (!selectedJob
                 || !task.outputDir || candidates.some(candidate => candidate.nodeId === node.id
                 && (ancestor(candidate.relativePath, normalized(task.outputDir)) || ancestor(normalized(task.outputDir), candidate.relativePath))))))
@@ -545,6 +548,8 @@ async function collectPlanCleanupEvidence(input) {
     };
     for (const operation of input.operations || [])
         if (["running", "queued", "pending", "accepted"].includes(operation.status)) {
+            if (operation.nodeId && !scope.nodes.some(node => node.id === operation.nodeId))
+                continue;
             const identities = [], paths = [];
             let unboundedPath = false;
             const inspect = (record, depth = 0) => {
@@ -578,7 +583,7 @@ async function collectPlanCleanupEvidence(input) {
                 return ancestor(a, b) || ancestor(b, a);
             }));
             if (matches || overlaps || !identities.length || !paths.length || unboundedPath)
-                blockers.push({ code: "ACTIVE_OPERATION", detail: String(operation.operationId || operation.id || operation.opId || operation.kind || "操作") });
+                blockers.push({ code: "ACTIVE_OPERATION", ...(operation.nodeId ? { nodeId: operation.nodeId } : {}), detail: String(operation.operationId || operation.id || operation.opId || operation.kind || "操作") });
         }
     candidates.forEach(candidate => { candidate.owners.sort(); candidate.dependencies.sort(); });
     candidates.sort((a, b) => Number(a.category === "PLAN 文件") - Number(b.category === "PLAN 文件") || a.nodeId.localeCompare(b.nodeId) || a.relativePath.localeCompare(b.relativePath));

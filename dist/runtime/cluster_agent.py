@@ -69,9 +69,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.303"
-RUNTIME_VERSION = "0.5.303"
-PLUGIN_VERSION = "0.5.303"
+AGENT_VERSION = "0.5.304"
+RUNTIME_VERSION = "0.5.304"
+PLUGIN_VERSION = "0.5.304"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -12221,6 +12221,7 @@ def create_debug_bundle_action(root, include_results=False, plan=None):
     }
 
 INACTIVITY_ACTIONS = {}
+LIVE_CLEANUP_ACTIONS = {}
 INACTIVITY_ACTIONS_LOCK = threading.Lock()
 INACTIVITY_ACTION_CONTEXT = threading.local()
 
@@ -14946,6 +14947,35 @@ def worker_task_failure_message(root, task, use_cache=True):
     except (OSError, ValueError):
         return ""
 
+def tracked_cleanup_action(root, action, payload, operation_id, op_id):
+    key = (os.path.abspath(root), str(operation_id))
+    entry = {"operationId": operation_id, "action": action, "payload": payload}
+    with INACTIVITY_ACTIONS_LOCK:
+        LIVE_CLEANUP_ACTIONS[key] = entry
+    try:
+        return handle_action(root, action, payload, operation_id, op_id)
+    finally:
+        with INACTIVITY_ACTIONS_LOCK:
+            if LIVE_CLEANUP_ACTIONS.get(key) is entry:
+                LIVE_CLEANUP_ACTIONS.pop(key, None)
+
+
+def active_cleanup_operations(root):
+    # Only this Agent's live executions, never persisted journal status. A restart
+    # leaves history intact without resurrecting old cleanup as an active writer.
+    with INACTIVITY_ACTIONS_LOCK:
+        entries = [dict(entry) for (directory, _), entry in INACTIVITY_ACTIONS.items()
+                   if directory == os.path.abspath(root) and not entry.get("result")]
+        entries += [dict(entry) for (directory, _), entry in LIVE_CLEANUP_ACTIONS.items()
+                    if directory == os.path.abspath(root)]
+    fields = ("planFile", "plan_file", "workflowId", "commandId", "targetCommandId",
+              "outputDir", "output_dir", "relativePath", "targetPath", "sourcePath", "destinationPath")
+    return [{"operationId": entry["operationId"], "status": "running", "type": entry["action"],
+             "payload": {key: value for key, value in entry.get("payload", {}).items()
+                         if key in fields and isinstance(value, str)}} for entry in entries
+            if entry["action"] not in ("validate-plan", "dry-run-plan", "preflight-worker-task")]
+
+
 def api_worker_tasks(root):
     try:
         reconcile_worker_task_exit_codes(root)
@@ -15005,6 +15035,7 @@ def api_worker_tasks(root):
                         entry["status"] = "unknown"
                     enriched[index] = entry
         _out["tasks"] = enriched
+        _out["activeOperations"] = active_cleanup_operations(root)
         _out["generatedAt"] = now_iso()
         _out["capabilities"] = {"durablePlanQueue": True, "codeSyncProof": True, "idleGpuAdmission": True, "queuedJobRecall": True, "failedAttemptQuarantine": True, "declaredJobPaths": formal_job_path_capable(root), "schemaVersion": 1}
         return _out
@@ -15015,7 +15046,7 @@ def api_worker_tasks(root):
         status = str(row.get("status") or "unknown").lower()
         if status in ("queued", "dispatching", "running", "unknown", "completed", "failed", "cancelled"):
             tasks.append(durable_plan_public_task(row))
-    return {"schemaVersion": SCHEMA_VERSION, "tasks": tasks,
+    return {"schemaVersion": SCHEMA_VERSION, "tasks": tasks, "activeOperations": active_cleanup_operations(root),
             "capabilities": {"durablePlanQueue": True, "codeSyncProof": True, "idleGpuAdmission": True, "queuedJobRecall": True, "failedAttemptQuarantine": True, "declaredJobPaths": formal_job_path_capable(root), "schemaVersion": 1}, "generatedAt": now_iso()}
 
 def api_openapi(root, token_required=False, mode="hub_control"):
@@ -17490,7 +17521,7 @@ def serve_http(args):
             try:
                 if mode == "worker_telemetry" and action in ("retry-worker-task", "stop-worker-task", "delete-worker-artifacts", "archive-worker-artifacts", "validate-plan", "dry-run-plan", "run-plan", "reproduce-plan"):
                     release_worker_action = acquire_worker_action_slot(root, selected_worker_id(payload) or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker", payload)
-                return self.send_json(handle_action(root, action, payload, operation_id, op_id))
+                return self.send_json(tracked_cleanup_action(root, action, payload, operation_id, op_id))
             except Exception as exc:
                 message = f"action failed: {exc}"
                 return self.send_json(terminal_action(root, action, operation_id, op_id, "failed", message, request=payload), status=500)

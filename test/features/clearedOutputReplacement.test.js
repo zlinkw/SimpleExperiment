@@ -100,13 +100,27 @@ test('actual cleanup Host joins cleared ownership and persists deletion on the a
   const host={context:{globalStorageUri:{fsPath:storage}},setupConfig:{workerTunnels:[{id:'w'}]},
     client:{getWorkerTasks:async id=>{assert.equal(id,'w');events.push('tasks');return f.snapshots[0];}},
     workerCodeSyncTarget:worker=>({id:worker.id,host:'configured-host',port:30022,user:'configured-user',remotePath:'/safe/project'}),
-    buildPlanRuntimeEvidenceState:()=>({operations:{}}),loadDistributedQueue:async()=>structuredClone(f.queue),
+    buildPlanRuntimeEvidenceState:()=>({operations:{
+      own:{operationId:'plan-submit-current',status:'running',planFile:f.file},
+      old:{operationId:'archive-worker-artifacts-failed-cleanup-old',status:'running'}
+    }}),loadDistributedQueue:async()=>structuredClone(f.queue),
+    hostOperationLease:{inspect:async options=>{assert.equal(options.excludeCurrent,true);return {records:[]};}},
     saveDistributedQueue:async(_,q)=>{saved=structuredClone(q);events.push('save');},postState(){},
     withHostOperationLease:async(_,__,work)=>work()};
   const cleanup=new Host(host,f.root);
   const groups=await cleanup.replacementGroups(f.queue,f.file,f.declarations,f.projectId,'');
   const scope=await cleanup.collect(f.file,false,undefined,undefined,undefined,groups[0][0]);
   assert.deepEqual(Array.from(scope.blockers),[]);
+  f.snapshots[0].activeOperations=[{operationId:'live-archive',status:'running',payload:{outputDir:f.audit.outputDir}}];
+  const busy=await cleanup.collect(f.file,false,undefined,undefined,undefined,groups[0][0]);
+  assert.ok(busy.blockers.some(row=>row.code==='ACTIVE_OPERATION'&&row.detail==='live-archive'));
+  delete f.snapshots[0].activeOperations;
+  host.hostOperationLease.inspect=async()=>({records:[{leaseId:'live-upload',resources:[{server:'configured-host:30022',project:'/safe/project',target:'/safe/project/'+f.audit.outputDir}]}]});
+  const transfer=await cleanup.collect(f.file,false,undefined,undefined,undefined,groups[0][0]);
+  assert.ok(transfer.blockers.some(row=>row.code==='ACTIVE_OPERATION'&&row.detail==='live-upload'));
+  host.hostOperationLease.inspect=async()=>({records:[{leaseId:'different-server',resources:[{server:'other-host:30022',project:'/safe/project',target:'/safe/project/'+f.audit.outputDir}]}]});
+  assert.deepEqual(Array.from((await cleanup.collect(f.file,false,undefined,undefined,undefined,groups[0][0])).blockers),[]);
+  host.hostOperationLease.inspect=async()=>({records:[]});
   assert.equal(await fs.readFile(queuePath,'utf8'),bytes);assert.equal(saved,undefined);
   assert.ok(scope.candidates.every(row=>!row.relativePath.includes('attempts')));
   const rows=scope.candidates.map((row,index)=>({...row,id:String(index),node:{id:'w'},absolutePath:'/safe/project/'+row.relativePath}));
