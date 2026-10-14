@@ -64,6 +64,7 @@ const StaticEntrypointProbe_1 = require("../features/StaticEntrypointProbe");
 const PlanOutputReplacement_1 = require("../features/PlanOutputReplacement");
 const FailedJobRecovery = __importStar(require("../features/FailedJobRecovery"));
 const PulledTaskControl = __importStar(require("../features/PulledTaskControl"));
+const WorkerTaskQuery = __importStar(require("../features/WorkerTaskQuery"));
 const NativeResultManifest_1 = require("../results/NativeResultManifest");
 const JobAvailability = __importStar(require("../features/JobAvailability"));
 const CacheCleanupPanel_1 = require("./CacheCleanupPanel");
@@ -1443,7 +1444,8 @@ class RealtimeTunnelPanelProvider {
         const cacheKey = `${root || ""}\u0000${workerId}`;
         if (options.signal?.aborted)
             throw options.signal.reason instanceof Error ? options.signal.reason : Object.assign(new Error("Worker task read cancelled."), { name: "AbortError" });
-        let shared = this.workerTaskRequests.get(cacheKey);
+        const requestKey = cacheKey + (options.inventoryOnly ? ":inventory" : ":tasks");
+        let shared = this.workerTaskRequests.get(requestKey);
         if (shared?.controller?.signal?.aborted) {
             await shared.promise.catch(() => undefined);
             if (options.signal?.aborted)
@@ -1455,14 +1457,14 @@ class RealtimeTunnelPanelProvider {
             const request = { controller, subscribers: 0, settled: false, promise: Promise.resolve(undefined) };
             const timeout = setTimeout(() => controller.abort(new Error("Worker task snapshot timed out.")), 4000);
             timeout.unref?.();
-            request.promise = this.refreshWorkerTaskSnapshot(workerId, root, cacheKey, { signal: controller.signal }).finally(() => {
+            request.promise = this.refreshWorkerTaskSnapshot(workerId, root, cacheKey, { signal: controller.signal, inventoryOnly: options.inventoryOnly }).finally(() => {
                 request.settled = true;
                 clearTimeout(timeout);
-                if (this.workerTaskRequests.get(cacheKey) === request)
-                    this.workerTaskRequests.delete(cacheKey);
+                if (this.workerTaskRequests.get(requestKey) === request)
+                    this.workerTaskRequests.delete(requestKey);
             });
             shared = request;
-            this.workerTaskRequests.set(cacheKey, shared);
+            this.workerTaskRequests.set(requestKey, shared);
         }
         return new Promise((resolve, reject) => {
             let finished = false;
@@ -1599,9 +1601,14 @@ class RealtimeTunnelPanelProvider {
         const client = this.client;
         try {
             const queue = await this.loadDistributedQueue(root);
-            const queries = queue.plans.flatMap(plan => plan.jobs.filter(job => job.workerId === workerId && job.commandId)
-                .map(job => PulledTaskControl.taskQuery(plan, job)));
-            const value = await this.client.getWorkerTasks(workerId, { signal: options.signal, queries });
+            const queries = options.inventoryOnly ? [] : WorkerTaskQuery.workerTaskQueries(queue, workerId);
+            const batches = queries.length ? Array.from({ length: Math.ceil(queries.length / 500) }, (_, index) => queries.slice(index * 500, (index + 1) * 500)) : [[]];
+            const values = [];
+            for (const batch of batches)
+                values.push(await this.client.getWorkerTasks(workerId, { signal: options.signal, queries: batch }));
+            const value = { ...values[0], queryComplete: values.every(row => row.queryComplete === true),
+                tasks: [...new Map(values.flatMap(row => row.tasks || []).map(row => [row.projectId + ":" + row.commandId, row])).values()],
+                queryErrors: values.flatMap(row => row.queryErrors || []) };
             options.signal?.throwIfAborted();
             if (workspaceRoot() !== root || this.client !== client)
                 return { workerId, schemaVersion: 1, tasks: [], error: "Workspace changed during Worker task snapshot" };
@@ -1611,6 +1618,9 @@ class RealtimeTunnelPanelProvider {
                 schemaVersion: Number(record.schemaVersion || 1),
                 generatedAt: String(record.generatedAt || ""),
                 capabilities: record.capabilities && typeof record.capabilities === "object" ? record.capabilities : undefined,
+                queryComplete: record.queryComplete === true,
+                queryErrors: Array.isArray(record.queryErrors) ? record.queryErrors : [],
+                ...(record.error ? { error: String(record.error) } : {}),
                 tasks: Array.isArray(record.tasks) ? record.tasks : [],
                 cleanupExecutors: Array.isArray(record.cleanupExecutors) ? record.cleanupExecutors : [],
                 fetchedAt: new Date().toISOString(),
@@ -1625,7 +1635,8 @@ class RealtimeTunnelPanelProvider {
             if (options.signal?.aborted)
                 throw error;
             const denied = error instanceof RequestBudget_1.RequestBudgetDeniedError ? error.decision.reason : "";
-            const failure = denied ? `Worker task snapshot ${denied}` : "Worker task snapshot unavailable";
+            const failure = "Worker " + workerId + " · /api/worker/tasks" + (options.inventoryOnly ? "" : "/query") + "："
+                + (denied || errorMessage(error));
             if (workspaceRoot() === root && this.client === client) {
                 this.storeWorkerTaskSnapshot(cacheKey, { ...cached, workerId, tasks: cached?.tasks || [], error: failure });
                 this.postState();
@@ -10202,6 +10213,7 @@ class RealtimeTunnelPanelProvider {
                 this.finishPlanSubmissionProgress(message, "failed", "校验或预演未通过，未提交运行。");
                 return;
             }
+            await this.assertPlanSubmissionWorkers(body, preflightOk);
             this.reportPlanStage(message, "正在确认历史产物处理方式…");
             const historyChoiceStarted = Date.now();
             await this.waitForPlanSubmission(message, () => this.confirmDistributedPlanExistingOutputs(plan, body, preflightOk));
@@ -10914,6 +10926,25 @@ class RealtimeTunnelPanelProvider {
             }
         }
     }
+    async assertPlanSubmissionWorkers(body, validated) {
+        if (this.taskLifecycleProtocol !== 2)
+            return;
+        this.assertExecutionWorkersReady(this.workerActionTargets());
+        this.assertExecutionCondaEnvReady(this.workerActionTargets());
+        const snapshots = await Promise.all(this.enabledWorkerConfigs().map(async (worker) => {
+            try {
+                return await this.readWorkerTaskSnapshot(worker.id, { fresh: true, inventoryOnly: true,
+                    signal: AbortSignal.timeout(8000) });
+            }
+            catch (error) {
+                return { workerId: worker.id, error: errorMessage(error) };
+            }
+        }));
+        const validation = planValidationFromResult(validated);
+        const skip = new Set(body.distributedSkipJobIndices || []);
+        WorkerTaskQuery.assertLaunchObservations(snapshots, (validation?.jobs || []).filter(job => !skip.has(Number(job.index))));
+        body.workerSubmissionSnapshots = snapshots;
+    }
     async enqueueDistributedPlan(body, validated, skipTick = false, supersededDeferredId = "", submissionEpoch = 0, submissionOperationId = "", binding) {
         const workflowBinding = binding || WorkflowBinding.bindWorkflowWorkspace(body.workspace, workspaceRoot());
         WorkflowBinding.assertPlanSeedContract(body);
@@ -10967,23 +10998,8 @@ class RealtimeTunnelPanelProvider {
         const overwriteExisting = false;
         const skipped = new Set(body.existingOutputChoice !== "rerun_missing" ? [] : (Array.isArray(body.distributedSkipJobIndices) ? body.distributedSkipJobIndices.map(Number) : []));
         const selectedJobs = validation.jobs.filter((job) => !skipped.has(Number(job.index)));
-        if (this.taskLifecycleProtocol === 2) {
-            const snapshots = await Promise.all(this.enabledWorkerConfigs().map(worker => this.boundedPromise(() => this.readWorkerTaskSnapshot(worker.id, { fresh: true, signal: AbortSignal.timeout(8000) }), 8000, new Error("TASK_LIFECYCLE_QUERY_TIMEOUT：" + worker.id))));
-            if (!submissionCurrent())
-                return { enqueued: false, cancelled: true };
-            const overlap = (a, b) => a && b && (a === b || a.startsWith(b + "/") || b.startsWith(a + "/"));
-            for (const snapshot of snapshots) {
-                if (snapshot.error || snapshot.capabilities?.taskLifecycle !== 2)
-                    throw new Error("TASK_LIFECYCLE_QUERY_REQUIRED：" + snapshot.workerId + " 当前任务查询未完成；未提交。");
-                for (const executor of snapshot.cleanupExecutors || [])
-                    if (selectedJobs.some(job => [job.output_dir, job.result_csv].some(target => [executor.relativePath, executor.destination].some(active => overlap(target, active)))))
-                        throw new Error("ACTIVE_CLEANUP_WINDOW：" + snapshot.workerId + " " + executor.windowId + "；实际清理仍在执行，未启动重跑。");
-                for (const task of snapshot.tasks || [])
-                    if (task.observation?.tmux && !task.observation.tmux.dead
-                        && selectedJobs.some(job => [job.output_dir, job.result_csv].some(target => [task.outputDir, task.collectionResultCsv].some(active => overlap(target, active)))))
-                        throw new Error("ACTIVE_TMUX_TASK：" + snapshot.workerId + " " + task.tmuxWindowId + "；请先中止对应窗口，未重复提交。");
-            }
-        }
+        if (this.taskLifecycleProtocol === 2 && !body.workerSubmissionSnapshots)
+            await this.assertPlanSubmissionWorkers(body, validated);
         if (!selectedJobs.length) {
             void vscode.window.showInformationMessage("此 Plan 的任务均已有完成产物，本次选择跳过；未提交新任务。");
             const supersededId = String(supersededDeferredId || "");
@@ -27997,6 +28013,8 @@ function workerTaskSnapshotPayload(snapshot) {
         generatedAt: snapshot.generatedAt,
         fetchedAt: snapshot.fetchedAt,
         capabilities: snapshot.capabilities,
+        queryComplete: snapshot.queryComplete,
+        queryErrors: snapshot.queryErrors || [],
         tasks: snapshot.tasks,
         cleanupExecutors: snapshot.cleanupExecutors || [],
         ...(snapshot.error ? { error: snapshot.error } : {}),

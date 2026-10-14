@@ -121,6 +121,16 @@ def task_query(root, queries=()):
     if not isinstance(queries, (list, tuple)) or len(queries) > 500:
         raise ValueError("TASK_QUERY_LIMIT")
     rows = task_inventory(root)
+    valid_queries, query_errors = [], []
+    for index, query in enumerate(queries):
+        try:
+            if not isinstance(query, dict) or not all(isinstance(query.get(key), str) and query[key].strip() for key in ("commandId", "projectId", "workerId", "outputDir")):
+                raise ValueError("TASK_QUERY_IDENTITY_REQUIRED")
+            task_safe_path(root, query["outputDir"])
+            valid_queries.append(query)
+        except Exception as exc:
+            query_errors.append({"index": index, "commandId": query.get("commandId") if isinstance(query, dict) else None, "error": str(exc)})
+    queries = valid_queries
     # Old managed tabs can be controlled by their real tmux markers, without a task snapshot.
     if queries and "local_stop_tmux_inventory" in globals():
         legacy = local_stop_tmux_inventory(root)
@@ -171,7 +181,7 @@ def task_query(root, queries=()):
             binding = json.loads(base64.urlsafe_b64decode(fields[3]).decode("utf-8"))
             if binding.get("root") == os.path.realpath(root):
                 cleanup_executors.append({"paneId": fields[1], "windowId": fields[2], "relativePath": binding["relativePath"], "destination": binding["destination"]})
-    return {"schemaVersion": 1, "generatedAt": now_iso(), "tasks": tasks, "queryComplete": True, "cleanupExecutors": cleanup_executors,
+    return {"schemaVersion": 1, "generatedAt": now_iso(), "tasks": tasks, "queryComplete": True, "queryErrors": query_errors, "cleanupExecutors": cleanup_executors,
             "activeOperations": active_cleanup_operations(root) if "active_cleanup_operations" in globals() else [],
             "capabilities": {"schemaVersion": 1, "durablePlanQueue": True, "declaredJobPaths": True,
                              "idleGpuAdmission": True, "queuedJobRecall": True, "taskLifecycle": 2, "manualDispatch": 1}}

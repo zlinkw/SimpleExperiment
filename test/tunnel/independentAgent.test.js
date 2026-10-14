@@ -64,19 +64,28 @@ test('actual login shell suppresses lifecycle JSON and diagnostics, preserving o
   const file=path.join(root,'worker.xsh');
   await fs.writeFile(file,'[CONNECTION]\r\nRemoteCommand='+original+'\r\nPort=23456\r\n','utf8');
   const command=agentTmuxStartupCommand({role:'worker',endpointId:'fixture',sessionPrefix:'zlk',installDir:shellPath(root),workDir:shellPath(root),port:23457});
+  const scripts=[];
   for(const startup of [command,command.replace('--config','--failed-config')]) {
     await updateXshellSessionLoginCommand(file,startup,{managedAgentLogin:true});
-    const login=getLoginCommand(await fs.readFile(file,'utf8')), script=path.join(root,'login.sh');
+    const login=getLoginCommand(await fs.readFile(file,'utf8')), script=path.join(root,'login-'+scripts.length+'.sh');
     await fs.writeFile(script,login+'\n','utf8');
-    const result=runShell(script);
-    assert.equal(result.stdout,'ORIGINAL_LOGIN\n登录保留\n');
-    assert.equal(result.stderr,'');
+    scripts.push(script);
     assert.ok(login.endsWith('; '+original));
   }
   // The same emitter still returns a structured receipt when invoked by the API transport.
   const apiScript=path.join(root,'api.sh');
   await fs.writeFile(apiScript,'python3 '+quote(shellPath(probe))+' --config fixture\n','utf8');
-  const api=runShell(apiScript);
+  scripts.push(apiScript);
+  // Enter WSL once. Repeated cold WSL/DrvFS startup is unrelated to the login
+  // boundary and used most of the bounded child budget on Windows.
+  const driver=path.join(root,'driver.py'),entry=path.join(root,'all.sh');
+  await fs.writeFile(driver,'import json,subprocess\nrows=[]\nfor file in '+JSON.stringify(scripts.map(shellPath))+':\n p=subprocess.run(["/bin/bash",file],capture_output=True,text=True,timeout=3)\n assert p.returncode==0,(p.returncode,p.stderr)\n rows.append(dict(stdout=p.stdout,stderr=p.stderr))\nprint(json.dumps(rows,ensure_ascii=False))\n','utf8');
+  await fs.writeFile(entry,'python3 '+quote(shellPath(driver))+'\n','utf8');
+  const outputs=JSON.parse(runShell(entry).stdout);
+  for(const result of outputs.slice(0,2)){
+    assert.equal(result.stdout,'ORIGINAL_LOGIN\n登录保留\n');assert.equal(result.stderr,'');
+  }
+  const api=outputs[2];
   assert.deepEqual(JSON.parse(api.stdout),receipt);
   assert.match(api.stderr,/LIFECYCLE_DIAGNOSTIC/);
 });
