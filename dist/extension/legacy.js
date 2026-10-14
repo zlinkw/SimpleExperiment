@@ -8782,7 +8782,7 @@ class RealtimeTunnelPanelProvider {
                 catch (error) {
                     throw new Error(`${errorMessage(error)}；该路径自动同步仍暂停。`);
                 }
-            }, (done, total) => report(`已处理 ${done}/${total}`), 2, (error) => /PARENT_CD_FAILED|不安全|符号链接|超出项目根目录|机器状态路径|目标类型已变化|files[.]cleanup[.](inspect|preview|check)/.test(error));
+            }, (done, total) => report(`已处理 ${done}/${total}`), 1, (error) => /PARENT_CD_FAILED|不安全|符号链接|超出项目根目录|机器状态路径|目标类型已变化|OPERATION_BUSY|清理窗口仍在处理|files[.]cleanup[.](inspect|preview|check)/.test(error));
             return { completed: [...absent, ...results.filter((row) => !row.error).map((row) => row.item.path)],
                 errors: results.filter((row) => row.error).map((row) => `${row.item.path}：${row.error}`) };
         }

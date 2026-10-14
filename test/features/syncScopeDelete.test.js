@@ -45,3 +45,30 @@ test('a live cleanup window prevents a second executor; missing files require no
     throw Error('unexpected mutation');
   }, node, 'work_dirs/job', true);
 });
+
+test('real deletion progress extends an inactivity budget and busy admission retries only the same approved target',async()=>{
+  let now=0,checks=0,starts=0;const requests=[];
+  const rpc=async(method,params)=>{
+    requests.push([method,params]);
+    if(method.endsWith('.inspect'))return {ok:true,executorsChecked:true,executors:[]};
+    if(method.endsWith('.preview'))return {token:'same',digest:'approved',targets:[{absolutePath:'/project/work_dirs/job',type:'directory'}]};
+    if(method.endsWith('.execute'))return {ok:true,state:++starts===1?'waiting':'requested'};
+    if(method.endsWith('.check'))return {ok:true,state:++checks===1?'pending':checks<7?'executing':'completed',progress:{removedEntries:checks-1,removedBytes:(checks-1)*100,totalEntries:7,totalBytes:700}};
+    return {ok:true};
+  };
+  await deleteConfirmedScopeCopy(rpc,node,'work_dirs/job',true,()=>{},{timeoutMs:15,now:()=>now,wait:async()=>{now+=10;}});
+  assert.ok(now>15);assert.equal(starts,2);assert.equal(checks,7);
+  assert.ok(requests.filter(([m])=>m.endsWith('.execute')).every(([,p])=>p.token==='same'&&p.digest==='approved'));
+});
+
+test('heartbeats without removed files or bytes end the wait without resending an uncertain execution',async()=>{
+  let now=0,starts=0;
+  await assert.rejects(deleteConfirmedScopeCopy(async m=>{
+    if(m.endsWith('.inspect'))return {ok:true,executorsChecked:true,executors:[]};
+    if(m.endsWith('.preview'))return {token:'same',digest:'approved',targets:[{absolutePath:'/project/work_dirs/job',type:'directory'}]};
+    if(m.endsWith('.execute')){starts++;throw Error('lost response');}
+    if(m.endsWith('.check'))return {ok:true,state:'executing',progress:{removedEntries:0,removedBytes:0},observedAt:now};
+    return {ok:true};
+  },node,'work_dirs/job',true,()=>{},{timeoutMs:15,now:()=>now,wait:async()=>{now+=10;}}),/清理窗口仍在处理/);
+  assert.equal(starts,1);
+});
