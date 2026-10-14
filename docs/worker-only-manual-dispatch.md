@@ -9,7 +9,7 @@
 1. Worker 模式统一、取消旧 Hub 自动目标、前后端路由和部署退役：已实现并通过单文件回归；全局 Scheduler 旧入口另外完成退出回归。
 2. SimpleSFTP 精确目标检查及诊断：build 通过，源码提交并推送 `1e1ef7a266c672b6e4a3ef37ad5bc9f22fe36272`。
 3. 手动派发服务、远端同卡准入、卡片/API/CLI：已实现并通过单文件及真实隔离 tmux 回归。
-4. 0.5.309 / 0.2.83 构建打包及字节验收通过；发行及安装结果在本记录补齐。
+4. 0.5.309 / 0.2.83 构建打包、稳定发行、旧客户端发现和本机安装字节验收通过；用户重载及远端运行版本验收待执行。
 
 验收：零/单/多 Worker 及数量变化；旧 Hub 字段不触发请求；精确路径审核；单/批量忙卡派发、同卡并发、优先级及自动共存；停止后重新执行；发送前离线回到自动队列，发送后未知不重复提交；重载恢复；当前发布源及安装字节核验。
 
@@ -54,4 +54,11 @@
 - SimpleSFTP VSIX：162,975 字节，SHA256 `2167ee8b3a5aa7403936ae44a6559dc3db1c70f13f97d67554b6546f7d5c0b6d`。
 - 补充审核：默认会话配置的编辑保护/保存已贯通；缺失或非法 CLI job 选择不再默认成 index0；不存在 Worker 或不可见 GPU 在停止原任务前拒绝；离线且从未发送的任务直接回到自动队列，不进行远端文件审核。
 
-GitHub 稳定发行、旧版本更新客户端校验和本机一次安装将在完成后追加；当前不把这些步骤标记为已完成。
+## 稳定发行与安装
+
+- SimpleExperiment 代码提交 `2761e438eb0b5d5014ada2e22ae7d5cbaabf57e0`；完整修改文件见该提交 diff。普通推送后 fetch 核对 upstream 相等。
+- 稳定 Release：[SimpleExperiment v0.5.309](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.309)、[SimpleSFTP v0.2.83](https://github.com/zlinkw/SimpleSFTP/releases/tag/v0.2.83)。各 tag 均绑定上述对应验证源码，非 draft、非 prerelease，真实 `/releases/latest` 可见；VSIX 和同名 SHA256 文件齐全。
+- 使用本机实际已安装的 **0.5.308** ReleaseClient，输入当前版本 0.5.308 / 0.2.82，确认两个新版本可发现。两个发布包仅取到内存，大小、GitHub digest、同名 SHA256 清单和本机确定包逐一一致。
+- 两个仓库分别执行一次 `npm run install:latest`，均成功且未 force。VS Code 登记版本为 0.5.309 / 0.2.83；安装后的 233 / 22 项运行文件与确定 VSIX 逐字节一致。
+- `simpleex` 入口为本机 npm shim，`simpleex task --help` 已显示新增派发语法。安装后未调用当前插件面板或业务 API；仅核对磁盘、扩展登记和 CLI 帮助，未把 Extension Host 运行版本冒充已重载。
+- 下一步由用户在 MultiModal 执行 **Developer: Reload Window**，再通过插件更新所需 Worker 的 Agent/Scheduler 至 0.5.309。实际服务器仅预检、只读任务/能力查询和界面验收在重载后进行；本轮不自动部署远端或重新派发任务。
