@@ -29,11 +29,13 @@ health_scope = dict(scheduler_dependency_health=forbidden_environment_probe,
     read_runtime_json_cached=lambda *args: {}, path_for=lambda *args:'fixture', inspect_agent=lambda root:{'running':True},
     iso_age_seconds=lambda value:0, now_iso=lambda:'fixture-time', agent_install_dir=lambda root:'runtime', agent_dir=lambda root:'state',
     SCHEMA_VERSION=1, AGENT_VERSION='fixture', API_VERSION='1', RUNTIME_VERSION='fixture', PLUGIN_VERSION='fixture',
-    AGENT_LIFECYCLE_IDENTITY={}, os=os)
+    AGENT_LIFECYCLE_IDENTITY={}, TASK_SCHEDULER_UPDATE_ERROR='',
+    task_scheduler_runtime_report=lambda root, worker: {'protocol': 1, 'status': 'absent', 'workerId': worker}, os=os)
 # Extract only the real health function; never import/execute the production module.
 exec('def api_health(root, mode="realtime"):'+health_source, health_scope)
 health = health_scope['api_health'](str(root), 'worker_telemetry')
 assert health['schedulerDependencies']['checked'] is False
+assert health['schedulerRuntime']['status'] == 'absent'
 assert 'ok' not in health['schedulerDependencies'], 'unchecked environment was claimed valid'
 project = root / 'project'
 project.mkdir()

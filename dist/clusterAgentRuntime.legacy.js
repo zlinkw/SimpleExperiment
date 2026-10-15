@@ -6664,6 +6664,8 @@ def api_health(root, mode="realtime"):
         "projectRoot": os.path.abspath(root),
         "agentIdentity": AGENT_LIFECYCLE_IDENTITY,
         "agentLifecycleProtocol": 1,
+        "schedulerRuntime": task_scheduler_runtime_report(root, os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker"),
+        "schedulerUpdateError": TASK_SCHEDULER_UPDATE_ERROR,
         "agentInstallDir": agent_install_dir(root),
         "agentStateDir": agent_dir(root),
         "status": "ok" if serving or health.get("running") is not False else "degraded",
@@ -6760,6 +6762,7 @@ def api_capabilities(root, token_required=False, mode="worker_telemetry"):
                 "idleGpuAdmission": True,
                 "manualDispatch": 1,
                 "gpuMemoryRatioScheduling": 1,
+                "schedulerRuntimeUpdate": 1,
                 "queuedJobRecall": True,
                 "liveOutput": True,
                 "diagnostics": True,
@@ -15677,7 +15680,7 @@ def manage_tmux_session_response(payload):
 
 
 def serve_http(args):
-    global AGENT_LIFECYCLE_LOCK, AGENT_LIFECYCLE_IDENTITY
+    global AGENT_LIFECYCLE_LOCK, AGENT_LIFECYCLE_IDENTITY, TASK_SCHEDULER_UPDATE_ERROR
     AGENT_LIFECYCLE_LOCK, AGENT_LIFECYCLE_IDENTITY = lifecycle_service_guard(args, RUNTIME_VERSION)
     bind_host = str(getattr(args, "host", "") or "127.0.0.1").strip()
     if bind_host.startswith("[") and bind_host.endswith("]"):
@@ -15701,6 +15704,12 @@ def serve_http(args):
     # rejected) and enqueued start-worker-task commands were written to a queue the agent
     # never reads.
     os.environ["SIMPLE_EXPERIMENT_WORKER_ID"] = str(getattr(args, "worker_id", "") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker")
+    try:
+        task_update_scheduler_runtime(root, os.environ["SIMPLE_EXPERIMENT_WORKER_ID"])
+    except Exception as exc:
+        # Keep the Agent available for diagnosis; deployment must not report Scheduler success.
+        TASK_SCHEDULER_UPDATE_ERROR = str(exc)
+        print("[scheduler-update] " + str(exc), file=sys.stderr, flush=True)
     prune_agent_state(root, force=True)
     if mode == "worker_telemetry":
         reconcile_worker_tasks_after_restart(root)

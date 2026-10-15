@@ -19,7 +19,9 @@ test("runtime verification overlaps Workers without dropping SHA256 or version c
       await new Promise(resolve => setTimeout(resolve, 10)); active--;
       return { ok: true, json: async () => url.includes("sha256")
         ? { ok: true, sha256: (mismatch && url.includes(':2/') ? 'b' : 'a').repeat(64) }
-        : { agentVersion: "v1", runtimeVersion: mismatch && url.includes(':3/') ? 'old' : "v1", pluginVersion: "v1" } };
+        : { agentVersion: "v1", runtimeVersion: mismatch && url.includes(':3/') ? 'old' : "v1", pluginVersion: "v1",
+            schedulerRuntime: { protocol: 1, status: 'current', runningVersion: 'v1',
+              runtimeFiles: { 'cluster_agent.py': 'a'.repeat(64), 'cluster_scheduler.py': 'a'.repeat(64) } } } };
     } };
   vm.createContext(sandbox);
   vm.runInContext("this.verify = ({" + source.slice(start, end) + "}).verifyDeployedAgentRuntime", sandbox);
@@ -36,4 +38,13 @@ test("runtime verification overlaps Workers without dropping SHA256 or version c
     { runtimeVersion: 'v1', pluginVersion: 'v1', files: { 'cluster_agent.py': 'a'.repeat(64), 'cluster_scheduler.py': 'a'.repeat(64) } });
   assert.ok(failures.fatal.some(message => message.includes('worker-2') && message.includes('sha256')));
   assert.ok([...failures.fatal, ...failures.warnings].some(message => message.includes('worker-3') && message.includes('版本')));
+  for (const schedulerRuntime of [undefined, { protocol: 1, status: 'update_required' },
+    { protocol: 1, status: 'current', runningVersion: 'old', runtimeFiles: {} },
+    { protocol: 1, status: 'current', runningVersion: 'v1', runtimeFiles: {} }]) {
+    sandbox.fetch = async () => ({ ok: true, json: async () => ({ ok: true, sha256: 'a'.repeat(64),
+      agentVersion: 'v1', runtimeVersion: 'v1', pluginVersion: 'v1', schedulerRuntime }) });
+    const rejected = await sandbox.verify.call({ tunnelConfig: {} }, targets.slice(0, 1),
+      { runtimeVersion: 'v1', files: { 'cluster_agent.py': 'a'.repeat(64), 'cluster_scheduler.py': 'a'.repeat(64) } });
+    assert.ok(rejected.fatal.some(message => message.includes('SCHEDULER_RUNTIME_UNVERIFIED')));
+  }
 });

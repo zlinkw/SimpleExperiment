@@ -7847,6 +7847,20 @@ class RealtimeTunnelPanelProvider {
             error.apiData = { code: result?.code || "AGENT_LIFECYCLE_FAILED", serverId: target.id, evidence: result?.evidence };
             throw error;
         }
+        if (action === "ensure" && result.reused === true && manifest) {
+            // Same-version Agent reuse must still reconcile an independently running old controller.
+            const base = tunnelHttpOrigin(String(target.localForwardHost || target.localHost || "127.0.0.1"), target.localForwardPort);
+            const response = await fetch(base + "/api/health", { signal: AbortSignal.timeout(6000),
+                headers: this.tunnelConfig?.token ? { "X-Simple-Agent-Token": String(this.tunnelConfig.token) } : undefined });
+            if (!response.ok)
+                throw new Error(`${target.id}: SCHEDULER_RUNTIME_UNVERIFIED: HTTP ${response.status}`);
+            const health = await response.json();
+            if (health.schedulerRuntime?.status === "update_required" || health.schedulerUpdateError) {
+                return this.agentLifecycleForTarget(target, "restart", manifest, confirmed);
+            }
+            if (health.schedulerRuntime?.protocol !== 1 || !["current", "absent"].includes(health.schedulerRuntime.status))
+                throw new Error(`${target.id}: SCHEDULER_RUNTIME_UNVERIFIED: ${health.schedulerRuntime?.error || "缺少独立调度器运行证据"}`);
+        }
         return result;
     }
     async verifyDeployedAgentRuntime(targets, manifest) {
@@ -7971,6 +7985,12 @@ class RealtimeTunnelPanelProvider {
                     const remoteRuntimeVersion = String(data.runtimeVersion || data.runtime_version || data.schedulerVersion || data.scheduler_version || "").trim();
                     const remotePluginVersion = String(data.pluginVersion || data.plugin_version || "").trim();
                     const remoteSchedulerVersion = String(data.schedulerVersion || data.scheduler_version || "").trim();
+                    const control = data.schedulerRuntime;
+                    if (control?.protocol !== 1 || !["current", "absent"].includes(control.status) || data.schedulerUpdateError
+                        || control.status === "current" && (control.runningVersion !== unifiedExpected
+                            || Object.entries(expectedFiles).some(([name, digest]) => control.runtimeFiles?.[name] !== digest))) {
+                        fatal.push(`${target.label}: SCHEDULER_RUNTIME_UNVERIFIED：独立调度器未完成更新或实际运行版本未核实；${data.schedulerUpdateError || control?.error || control?.status || "缺少运行证据"}`);
+                    }
                     const remotes = [
                         remoteAgentVersion && ["agentVersion", remoteAgentVersion],
                         remoteRuntimeVersion && ["runtimeVersion", remoteRuntimeVersion],

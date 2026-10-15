@@ -69,9 +69,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.324"
-RUNTIME_VERSION = "0.5.324"
-PLUGIN_VERSION = "0.5.324"
+AGENT_VERSION = "0.5.325"
+RUNTIME_VERSION = "0.5.325"
+PLUGIN_VERSION = "0.5.325"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -7327,6 +7327,8 @@ def api_health(root, mode="realtime"):
         "projectRoot": os.path.abspath(root),
         "agentIdentity": AGENT_LIFECYCLE_IDENTITY,
         "agentLifecycleProtocol": 1,
+        "schedulerRuntime": task_scheduler_runtime_report(root, os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker"),
+        "schedulerUpdateError": TASK_SCHEDULER_UPDATE_ERROR,
         "agentInstallDir": agent_install_dir(root),
         "agentStateDir": agent_dir(root),
         "status": "ok" if serving or health.get("running") is not False else "degraded",
@@ -7423,6 +7425,7 @@ def api_capabilities(root, token_required=False, mode="worker_telemetry"):
                 "idleGpuAdmission": True,
                 "manualDispatch": 1,
                 "gpuMemoryRatioScheduling": 1,
+                "schedulerRuntimeUpdate": 1,
                 "queuedJobRecall": True,
                 "liveOutput": True,
                 "diagnostics": True,
@@ -16340,7 +16343,7 @@ def manage_tmux_session_response(payload):
 
 
 def serve_http(args):
-    global AGENT_LIFECYCLE_LOCK, AGENT_LIFECYCLE_IDENTITY
+    global AGENT_LIFECYCLE_LOCK, AGENT_LIFECYCLE_IDENTITY, TASK_SCHEDULER_UPDATE_ERROR
     AGENT_LIFECYCLE_LOCK, AGENT_LIFECYCLE_IDENTITY = lifecycle_service_guard(args, RUNTIME_VERSION)
     bind_host = str(getattr(args, "host", "") or "127.0.0.1").strip()
     if bind_host.startswith("[") and bind_host.endswith("]"):
@@ -16364,6 +16367,12 @@ def serve_http(args):
     # rejected) and enqueued start-worker-task commands were written to a queue the agent
     # never reads.
     os.environ["SIMPLE_EXPERIMENT_WORKER_ID"] = str(getattr(args, "worker_id", "") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker")
+    try:
+        task_update_scheduler_runtime(root, os.environ["SIMPLE_EXPERIMENT_WORKER_ID"])
+    except Exception as exc:
+        # Keep the Agent available for diagnosis; deployment must not report Scheduler success.
+        TASK_SCHEDULER_UPDATE_ERROR = str(exc)
+        print("[scheduler-update] " + str(exc), file=sys.stderr, flush=True)
     prune_agent_state(root, force=True)
     if mode == "worker_telemetry":
         reconcile_worker_tasks_after_restart(root)
@@ -17611,6 +17620,7 @@ def main():
 
 TASK_LIFECYCLE_PROTOCOL = 2
 NATIVE_TASK_RUNNER_CONTEXT = None
+TASK_SCHEDULER_UPDATE_ERROR = ""
 
 def task_tmux(args, timeout=5):
     proc = subprocess.run(["tmux", *args], capture_output=True, text=True, timeout=timeout)
@@ -17838,6 +17848,68 @@ def task_queue_endpoint(root, worker_id):
     if endpoint.get("root") != os.path.realpath(root) or endpoint.get("workerId") != worker_id:
         raise ValueError("SCHEDULER_OWNER_MISMATCH")
     return endpoint
+
+
+def task_runtime_files(root):
+    identity = globals().get("AGENT_LIFECYCLE_IDENTITY") or {}
+    if identity.get("runtimeFiles"):
+        return dict(identity["runtimeFiles"])
+    paths = {"cluster_agent.py": os.path.abspath(__file__)}
+    if "cluster_scheduler_path" in globals():
+        paths["cluster_scheduler.py"] = cluster_scheduler_path(root)
+    return {name: hashlib.sha256(pathlib.Path(filename).read_bytes()).hexdigest() for name, filename in paths.items()}
+
+
+def task_scheduler_runtime_report(root, worker_id):
+    """Read the running controller's native binding; never expose its channel secret."""
+    session = task_queue_session(root, worker_id)
+    try:
+        found = subprocess.run(["tmux", "has-session", "-t", "=" + session], capture_output=True, text=True, timeout=3)
+        if found.returncode:
+            error = (found.stderr or "").lower()
+            if any(text in error for text in ("can't find session", "no server running", "no sessions")) or "error connecting" in error and "no such file or directory" in error:
+                return {"protocol": 1, "status": "absent", "workerId": worker_id}
+            raise RuntimeError("SCHEDULER_QUERY_FAILED: " + error[-500:])
+        fields = task_tmux(["display-message", "-p", "-t", session + ":queue",
+            "#{window_id}\t#{pane_id}\t#{pane_dead}\t#{window_panes}\t#{@se_job}"]).split("\t")
+        if len(fields) != 5 or not re.fullmatch(r"@\d+", fields[0]) or not re.fullmatch(r"%\d+", fields[1]) or fields[3] != "1" or fields[4]:
+            raise ValueError("SCHEDULER_CONTROL_WINDOW_UNVERIFIED")
+        endpoint = task_queue_endpoint(root, worker_id)
+        version = globals().get("RUNTIME_VERSION", "fixture")
+        current = fields[2] != "1" and endpoint.get("runningVersion") == version and endpoint.get("runtimeFiles") == task_runtime_files(root)
+        return {"protocol": 1, "status": "current" if current else "update_required", "workerId": worker_id,
+            "windowId": fields[0], "paneId": fields[1], "dead": fields[2] == "1", "epoch": endpoint["epoch"],
+            "runningVersion": endpoint.get("runningVersion"), "runtimeFiles": endpoint.get("runtimeFiles") or {},
+            "gpuMemoryRatioScheduling": endpoint.get("gpuMemoryRatioScheduling", 0)}
+    except Exception as exc:
+        return {"protocol": 1, "status": "unknown", "workerId": worker_id, "error": str(exc)}
+
+
+def task_update_scheduler_runtime(root, worker_id):
+    """Agent deployment replaces only the verified queue controller, retaining all task windows."""
+    before = task_scheduler_runtime_report(root, worker_id)
+    if before["status"] in ("absent", "current"):
+        return before
+    if before["status"] != "update_required":
+        raise RuntimeError("SCHEDULER_RUNTIME_UNVERIFIED: " + before.get("error", "unknown controller"))
+    pane = before["paneId"]
+    # Recheck the exact pane, window and epoch immediately before replacement.
+    if task_scheduler_runtime_report(root, worker_id) != before:
+        raise RuntimeError("SCHEDULER_CONTROL_CHANGED")
+    argv = [sys.executable, "-B", os.path.abspath(__file__), "task-queue", "--project-dir", os.path.realpath(root), "--worker-id", worker_id]
+    if "agent_dir" in globals():
+        argv.extend(["--state-dir", agent_dir(root)])
+    task_tmux(["set-option", "-w", "-t", before["windowId"], "remain-on-exit", "on"])
+    # -k replaces this controller process tree only. Queued/running tasks have independent windows.
+    task_tmux(["respawn-pane", "-k", "-t", pane, "-c", os.path.realpath(root), "exec " + shlex.join(argv)])
+    deadline = time.monotonic() + 4
+    while True:
+        report = task_scheduler_runtime_report(root, worker_id)
+        if report["status"] == "current" and report.get("epoch") != before["epoch"]:
+            return report
+        if time.monotonic() >= deadline:
+            raise RuntimeError("SCHEDULER_RESTART_UNCONFIRMED: " + json.dumps(report))
+        time.sleep(0.05)
 
 
 def task_memory_scheduler_capability(root):
@@ -18084,7 +18156,7 @@ def task_queue_serve(root, worker_id):
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     task_option(controller, "endpoint", json.dumps({"host": server.server_address[0], "port": server.server_address[1],
         "secret": secret, "epoch": epoch, "root": root, "workerId": worker_id, "protocol": 2,
-        "runningVersion": globals().get("RUNTIME_VERSION", "fixture"), "gpuMemoryRatioScheduling": 1}))
+        "runningVersion": globals().get("RUNTIME_VERSION", "fixture"), "runtimeFiles": task_runtime_files(root), "gpuMemoryRatioScheduling": 1}))
     threading.Thread(target=server.serve_forever, daemon=True).start()
     while True:
         queued = []

@@ -18,6 +18,8 @@ function fixture(state='absent', inspection) {
  let host;
  const Host=vm.runInNewContext(code,{require:specifier=>require(path.resolve(__dirname,'../../dist/extension',specifier)),console:{log(){},warn(){}},fs:fs.promises,path,__dirname:path.resolve(__dirname,'../../dist/extension'),
   AgentRuntimeScope_1:scope,RuntimeManifest_1:manifest,SIMPLE_SFTP_EXTENSION_ID:'simple-local.simple-sftp',
+  AbortSignal, tunnelHttpOrigin:(host,port)=>`http://${host}:${port}`,
+  fetch:async()=>({ok:true,json:async()=>({schedulerRuntime:{protocol:1,status:state==='healthy-stale-scheduler'?'update_required':'absent'}})}),
   AgentTmuxPolicy_1:require('../../dist/tunnel/AgentTmuxPolicy'),
   SshTransportIdentity_1:{...require('../../dist/tunnel/SshTransportIdentity'),inspectOpenSshAlias:async()=>inspection},
   sftpUploadFilesSucceeded:row=>row.ok===true,stringFromRecord:()=>'',errorMessage:e=>e.message,effectiveWorkerCondaEnv:row=>row.condaEnv,
@@ -29,10 +31,10 @@ function fixture(state='absent', inspection) {
      if(currentState.startsWith('legacy'))return {ok:false,code:'AGENT_LEGACY_STATE_UNVERIFIED',evidence:{migration:{digest:'a'.repeat(64),activeTasks:state==='legacy-busy'?['running-job','queued-job']:[],contract:{projectDir:'/srv/project',installDir:'/srv/agent',stateDir:'/srv/agent/state/projects/project.id'}}}};
      if(state==='foreign')return {ok:false,code:'AGENT_STATE_OWNER_CONFLICT'};
      const filehashes={};for(const name of ['cluster_agent.py','cluster_scheduler.py'])filehashes[name]=manifest.sha256Text(fs.readFileSync(path.join(__dirname,'../../dist/runtime',name),'utf8'));
-     return {ok:true,status:state==='healthy'||state==='busy'?'running':state==='unhealthy'?'unhealthy':'absent',activeTasks:state==='busy'?['running-job','queued-job']:[],runningVersion:state==='busy'?'old-version':manifest.CURRENT_RUNTIME_VERSION,files:filehashes};
+     return {ok:true,status:state.startsWith('healthy')||state==='busy'?'running':state==='unhealthy'?'unhealthy':'absent',activeTasks:state==='busy'?['running-job','queued-job']:[],runningVersion:state==='busy'?'old-version':manifest.CURRENT_RUNTIME_VERSION,files:filehashes};
    }
    if(params.action==='migrate'){currentState='absent';return {ok:true,status:'migrated'};}
-   return {ok:true,status:'running',runningVersion:manifest.CURRENT_RUNTIME_VERSION};
+   return {ok:true,status:'running',runningVersion:manifest.CURRENT_RUNTIME_VERSION,reused:params.action==='ensure'&&state.startsWith('healthy')};
   }}}});
  host=new Host();Object.assign(host,{context:{extension:{packageJSON:{version:manifest.CURRENT_RUNTIME_VERSION}}},setupConfig:{workerTunnels:[{id:'container',agentProjectDir:'/srv',agentInstallDir:'/srv/agent',condaEnv:'/srv/env',remoteAgentHost:'127.0.0.2',remoteAgentPort:23065}],remoteTmuxSessionPrefix:'user'},
   prepareSftpTargets:async()=>{},sftpSharedTargets:()=>[target],agentRuntimeUploadTargets:()=>[target],agentRuntimeDirs:()=>({workDir:'/srv/project',installDir:'/srv/agent'}),sftpServerOptions:()=>({host:'configured-host',port:23094,user:'user'}),tunnelConfig:{},
@@ -65,6 +67,12 @@ test('healthy preparation reuses service without uploading or restarting; foreig
  assert.deepEqual(healthy.calls.map(c=>c.params.action),['inspect','ensure']);
  const foreign=fixture('foreign');await assert.rejects(()=>foreign.host.deployLatestAgentRuntime(false,true,['container'],true),/AGENT_STATE_OWNER_CONFLICT/);
  assert.equal(foreign.calls.length,1);
+});
+test('deploying the latest Agent again automatically restarts a stale independent Scheduler through Agent startup',async()=>{
+ const f=fixture('healthy-stale-scheduler');
+ await f.host.deployLatestAgentRuntime(false,true,['container'],true);
+ assert.deepEqual(f.calls.map(c=>c.params.action),['inspect','ensure','restart']);
+ assert.ok(f.calls.at(-1).params.confirm);
 });
 test('active tasks do not block real preparation, upgrade or legacy migration API preview',async()=>{
  const busy=fixture('busy');await busy.host.deployLatestAgentRuntime(false,true,['container'],true);
