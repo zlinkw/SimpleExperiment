@@ -1,6 +1,7 @@
 // @ts-nocheck
 import * as vscode from "vscode";
 import { analyzeRuntimeLog, runtimeLogAnalysisMessage } from "./RuntimeLogAnalysisHost";
+import { runSelectedPlans } from "./SelectedPlanBatchHost";
 import * as fs from "fs/promises";
 import * as fsNode from "fs";
 import * as path from "path";
@@ -5504,6 +5505,7 @@ return this.testTunnel(true);
                 await this.restoreArchivedPlanFromUi(message);
                 break;
             case "runAllPlans":
+                if (message.selectionOnly === true || Object.prototype.hasOwnProperty.call(message, "planFiles")) return await runSelectedPlans(this, message);
                 await this.runAllPlansFromUi();
                 break;
             case "runDraftDebug":
@@ -5747,6 +5749,8 @@ return this.testTunnel(true);
             if (submission?.status === "failed") return { status: "failed", message: submission.message || "计划未提交。" };
             if (["recallFailedJob", "retryDistributedJob"].includes(command) && value?.status === "blocked")
                 return { status: "cancelled", message: String(value.message || "未提交重新排队；请先审核该 job 的遗留文件。") };
+            if (command === "runAllPlans" && value?.selectionOnly === true && ["completed", "failed", "cancelled"].includes(value.status))
+                return { status: value.status, message: String(value.message) };
             if (["stopAndClearPlan", "retryDistributedJob", "dispatchJobs", "markJobUnavailable", "restoreJobAvailability"].includes(command) && value && typeof value === "object" && (value.status === "completed" || value.status === "failed" || value.status === "cancelled" || value.status === "partial")) {
                 const outcome = value.status === "partial" ? "failed" : value.status;
                 return { status: outcome, message: String(value.message || outcome), planStopClear: value.planStopClear };

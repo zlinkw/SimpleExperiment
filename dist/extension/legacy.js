@@ -44,6 +44,7 @@ exports.__distributeMappedDownloadsForTest = __distributeMappedDownloadsForTest;
 // @ts-nocheck
 const vscode = __importStar(require("vscode"));
 const RuntimeLogAnalysisHost_1 = require("./RuntimeLogAnalysisHost");
+const SelectedPlanBatchHost_1 = require("./SelectedPlanBatchHost");
 const fs = __importStar(require("fs/promises"));
 const fsNode = __importStar(require("fs"));
 const path = __importStar(require("path"));
@@ -5552,6 +5553,8 @@ class RealtimeTunnelPanelProvider {
                 await this.restoreArchivedPlanFromUi(message);
                 break;
             case "runAllPlans":
+                if (message.selectionOnly === true || Object.prototype.hasOwnProperty.call(message, "planFiles"))
+                    return await (0, SelectedPlanBatchHost_1.runSelectedPlans)(this, message);
                 await this.runAllPlansFromUi();
                 break;
             case "runDraftDebug":
@@ -5797,6 +5800,8 @@ class RealtimeTunnelPanelProvider {
                 return { status: "failed", message: submission.message || "计划未提交。" };
             if (["recallFailedJob", "retryDistributedJob"].includes(command) && value?.status === "blocked")
                 return { status: "cancelled", message: String(value.message || "未提交重新排队；请先审核该 job 的遗留文件。") };
+            if (command === "runAllPlans" && value?.selectionOnly === true && ["completed", "failed", "cancelled"].includes(value.status))
+                return { status: value.status, message: String(value.message) };
             if (["stopAndClearPlan", "retryDistributedJob", "dispatchJobs", "markJobUnavailable", "restoreJobAvailability"].includes(command) && value && typeof value === "object" && (value.status === "completed" || value.status === "failed" || value.status === "cancelled" || value.status === "partial")) {
                 const outcome = value.status === "partial" ? "failed" : value.status;
                 return { status: outcome, message: String(value.message || outcome), planStopClear: value.planStopClear };

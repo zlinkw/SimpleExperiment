@@ -580,6 +580,13 @@ function renderPanelHtml() {
     #planCommandPhaseLine { width: 100%; max-width: 100%; min-width: 0; }
     .planQuickActions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; min-width: 0; }
     .planQuickActions > button { justify-self: start; width: auto; flex: 0 0 auto; }
+    .planBatchSelector { grid-column: 1 / -1; min-width: 0; border: 1px solid var(--border); border-radius: 7px; padding: 8px; }
+    .planBatchSelector summary { cursor: pointer; color: var(--muted); }
+    .planBatchFiles { max-height: 250px; overflow-y: auto; margin-top: 6px; }
+    .planBatchRow { display: flex; align-items: start; gap: 8px; padding: 6px; border-radius: 4px; cursor: pointer; }
+    .planBatchRow:hover { background: var(--subtle-bg); }
+    .planBatchRow input { width: auto; flex: 0 0 auto; margin-top: 3px; }
+    .planBatchRow span { min-width: 0; overflow-wrap: anywhere; }
     .runModeBar { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; min-width: 0; }
     .runModeSwitch { display: inline-flex; gap: 2px; padding: 2px; border: 1px solid var(--border); border-radius: 6px; background: var(--subtle-bg); }
     .runModeSwitch button { min-height: 26px; padding: 3px 9px; border-color: transparent; background: transparent; color: var(--muted); }
@@ -1431,10 +1438,16 @@ function renderPanelHtml() {
             <select id="planFileInput" class="wide" title="从已识别的实验计划中选择；列表来自工作区扫描结果"></select>
             <div id="planSelectorStatus" class="planSelectorStatus is-not-started" role="status" aria-live="polite"><span>未开始</span></div>
           </div>
+          <details class="planBatchSelector" data-details-key="plan-batch-selector" open>
+            <summary>批量选择 PLAN · <span id="planBatchCount" role="status" aria-live="polite">已选 0 个</span></summary>
+            <div class="toolbar"><button type="button" id="planBatchSelectVisible" class="mini secondary">全选筛选结果</button><button type="button" id="planBatchClear" class="mini secondary">清空选择</button></div>
+            <div id="planBatchFiles" class="planBatchFiles"></div>
+          </details>
           <div class="planQuickActions">
           <button data-command="validatePlan" title="校验实验计划，不会运行任务&#10;检查契约、输出接口与配置完整性&#10;未通过时列出缺失项与修复建议">校验</button>
           <button data-command="dryRunPlan" class="secondary" title="预演运行，不提交任务&#10;展开「用例 × 随机种子」的任务数、远端路径、Worker 与并发上限">预演</button>
           <button data-command="runPlan" title="同步代码、校验并预演；存在历史产物时选择补跑缺失任务、重跑全部或取消">校验并提交运行</button>
+          <button type="button" data-command="runAllPlans" data-plan-batch-run="selected" class="secondary" disabled title="只运行明确勾选的 PLAN；逐个复用校验、同步和覆盖确认；失败或取消后停止后续提交">运行所选计划</button>
           <button data-command="runAllPlans" data-confirm="true" class="secondary" title="按顺序提交当前实验计划目录下的全部计划&#10;每个计划仍会走完整的校验与预演门禁">运行全部计划</button>
           <button data-command="cleanupPlan" class="secondary" title="只读预览选中 PLAN 的本机及历史关联服务器产物，再核对精确路径">清除 PLAN 及关联产物</button>
           </div>
@@ -3824,6 +3837,25 @@ function renderPanelHtml() {
     el("planSelectorQuery").addEventListener("input", refreshPlanSelectorView);
     el("planSelectorStatusFilter").addEventListener("change", refreshPlanSelectorView);
     el("planSelectorSortOrder").addEventListener("change", refreshPlanSelectorView);
+    el("planBatchFiles").addEventListener("change", (event) => {
+      const file = event.target && event.target.dataset && event.target.dataset.planBatchFile;
+      if (!file) return;
+      selectedPlanBatchFiles(lastState || {});
+      if (event.target.checked) planBatchSelection.add(file); else planBatchSelection.delete(file);
+      refreshPlanSelectorView();
+      refreshPlanActionButtons(lastState || {}, el("planQuickGrid"));
+    });
+    el("planBatchSelectVisible").addEventListener("click", () => {
+      selectedPlanBatchFiles(lastState || {});
+      planBatchVisibleFiles.forEach(file => planBatchSelection.add(file));
+      refreshPlanSelectorView();
+      refreshPlanActionButtons(lastState || {}, el("planQuickGrid"));
+    });
+    el("planBatchClear").addEventListener("click", () => {
+      planBatchSelection.clear();
+      refreshPlanSelectorView();
+      refreshPlanActionButtons(lastState || {}, el("planQuickGrid"));
+    });
     el("layoutEditToggle").addEventListener("click", () => {
       if (!layoutEdit && currentMainView === "settings") switchMainView("workspace");
       layoutEdit = !layoutEdit;
@@ -6105,6 +6137,9 @@ function renderPanelHtml() {
         try {
           if (String(data.command || "") === "analyzeRuntimeLog" && data.message) {
             showToast(String(data.message).slice(0, 400), String(data.status).toLowerCase() === "completed" ? "info" : "warning");
+          }
+          if (String(data.command || "") === "runAllPlans" && data.message && data.message !== "completed") {
+            showToast(String(data.message).slice(0, 480), String(data.status).toLowerCase() === "completed" ? "info" : "warning");
           }
           if (String(data.command || "") === "killTmuxWindow" || String(data.command || "") === "clearTmuxTaskTabs") {
             if (String(data.command || "") === "clearTmuxTaskTabs" || String(data.command || "") === "killTmuxWindow") {
@@ -10061,6 +10096,31 @@ function renderPanelHtml() {
       var raw = String((sel && sel.value) || (state && (state.planFileInput || (state.selection && state.selection.selectedPlanId))) || "").trim();
       return raw.split(String.fromCharCode(92)).join("/");
     }
+    let planBatchSelection = new Set();
+    let planBatchWorkspace = "";
+    let planBatchVisibleFiles = [];
+    function selectedPlanBatchFiles(state) {
+      const workspace = (state || {}).workspace || {};
+      const key = String(workspace.root || workspace.hostPath || workspace.name || "");
+      if (key !== planBatchWorkspace) { planBatchSelection.clear(); planBatchWorkspace = key; }
+      const known = collectPlanFileDefaultOrder(state);
+      planBatchSelection.forEach(file => { if (!known.includes(file)) planBatchSelection.delete(file); });
+      return known.filter(file => planBatchSelection.has(file));
+    }
+    function renderPlanBatchPicker(state, entries, visible) {
+      const root = el("planBatchFiles");
+      if (!root) return;
+      const selected = selectedPlanBatchFiles(state);
+      planBatchVisibleFiles = visible.map(entry => entry.file);
+      const hidden = entries.filter(entry => selected.includes(entry.file) && !planBatchVisibleFiles.includes(entry.file));
+      const row = entry => '<label class="planBatchRow"><input type="checkbox" data-plan-batch-file="' + escAttr(entry.file) + '"' + (selected.includes(entry.file) ? ' checked' : '') + '><span>' + esc(planSelectorOptionLabel(entry.file, entry.summary, false)) + '</span></label>';
+      const html = visible.map(row).join("") + (hidden.length ? '<div class="muted">已选但不符合当前筛选（仍会运行）</div>' + hidden.map(row).join("") : "");
+      const focus = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.planBatchFile;
+      if (root.innerHTML !== html) root.innerHTML = html || '<div class="muted">没有匹配的 PLAN</div>';
+      if (focus) Array.from(root.querySelectorAll("input[data-plan-batch-file]")).find(input => input.dataset.planBatchFile === focus)?.focus({ preventScroll: true });
+      const count = el("planBatchCount");
+      if (count) count.textContent = "已选 " + selected.length + " 个" + (hidden.length ? " · 筛选外 " + hidden.length + " 个" : "");
+    }
     function matchPlanFileInOrder(current, defaultOrder) {
       if (!current) return "";
       if (defaultOrder.indexOf(current) !== -1) return current;
@@ -10280,6 +10340,7 @@ function renderPanelHtml() {
       const statusIndex = planSelectorStatusIndex(state);
       const entries = defaultOrder.map((file, index) => ({ file, index, summary: planSelectorRunSummary(state, file, statusIndex) }));
       const filtered = entries.filter((entry) => (!query || entry.file.toLowerCase().includes(query)) && planSelectorMatchesFilter(entry.summary, statusFilter));
+      renderPlanBatchPicker(state, entries, planSelectorSortEntries(filtered, sortOrder));
       let ordered = planSelectorSortEntries(filtered, sortOrder);
       const selectedEntry = selectedValue ? entries.find((entry) => entry.file === selectedValue) : null;
       if (selectedValue) {
@@ -10421,6 +10482,7 @@ function renderPanelHtml() {
         "plan",
         planInputValueForRefresh(),
         String((state && state.planFileInput) || ""),
+        typeof planBatchSelection === "undefined" ? "" : Array.from(planBatchSelection).join("|"),
         compactPlansForSignature((state && (state.plans || state.recentPlans)) || [])
       ].map((item) => typeof item === "string" ? item : stableSectionSignature(item)).join("::");
     }
@@ -10531,6 +10593,7 @@ function renderPanelHtml() {
       return "";
     }
     function planButtonDisableReason(state, command, button) {
+      if (button && button.dataset.planBatchRun === "selected" && !selectedPlanBatchFiles(state).length) return "请先勾选需要运行的 PLAN";
       const planFile = resolveButtonPlanFile(state, button);
       const context = button ? { planFile, planId: button.dataset.planId || "" } : { planFile: planFile || "" };
       const reason = disableReason(state, command, context);
@@ -17395,6 +17458,10 @@ function renderPanelHtml() {
     function payloadFromButton(button) {
       const payload = {};
       const command = button.dataset.command || "";
+      if (command === "runAllPlans" && button.dataset.planBatchRun === "selected") {
+        payload.selectionOnly = true;
+        payload.planFiles = selectedPlanBatchFiles(lastState || {});
+      }
       payload.debugMode = false;
       if (button.dataset.taskStatus) payload.taskStatus = button.dataset.taskStatus;
       if (button.dataset.endpointId) payload.endpointId = button.dataset.endpointId;

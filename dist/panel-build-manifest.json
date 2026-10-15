@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.339",
-  "buildId": "da3c2fad3dfc1ba474d444809253393940f1f5fa5a7da585cae5980c867e1636",
+  "version": "0.5.340",
+  "buildId": "a623fcd2b9623413f7fd3c9962013b5845fc57bfa9943a797aa8ae18f91bace3",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -193,7 +193,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "ff4c08a64fb03d2e0563ee97089a2a3f98289d5046248e7f0853265a88e8d1f2"
+      "sha256": "0106f7964038e1e55d153081ee353216237b68ba27e93b672ee0ae562a74719e"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -226,6 +226,10 @@
     {
       "path": "dist/extension/RuntimeLogAnalysisHost.js",
       "sha256": "1d8f0f4c4569aa35d7e4b87c273029be55ce12f77fc04acfa96be19b4e6f54a3"
+    },
+    {
+      "path": "dist/extension/SelectedPlanBatchHost.js",
+      "sha256": "ad806eb3a2f67ec918c1caac54394ea5a336601fc7c4f298fc8ed00e25ed5094"
     },
     {
       "path": "dist/factories/CommandFactory.js",
@@ -641,7 +645,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "13e3e273e73ab302105b02c3996d5cb3b55dbcc00216f4784b7c80381d47c3d3"
+      "sha256": "392ac151755811e89779bf7a7f7cb13da8344c0b2658e99afcc317dd1c32e7bd"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -865,7 +869,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "2234426e2f237bb81c51143c748a13edd85e4c0367b70d0672dc56694da2c45b"
+      "sha256": "3ea305d2136013e5eeef6d24117cc29f78854951513ebd7a86dda3b8c83a006c"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",
@@ -989,7 +993,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "b5edb2b3a742eb39d2bf0083e556b22f0a41e4188f3e43c2a0970ed89963d2bd"
+      "sha256": "741d5770c5bda64c226b0d95257dd346703558e55a087d26ac7a50575469f5a7"
     },
     {
       "path": "scripts/check-static.js",
