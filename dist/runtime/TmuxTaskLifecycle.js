@@ -506,7 +506,7 @@ def task_queue_job(root, worker_id, command):
     allowed = {"action", "commandId", "operationId", "runKey", "projectId", "workflowId", "planFile", "planRevision", "codeFingerprint",
                "globalJobId", "experimentIndex", "case", "seed", "outputDir", "collectionResultCsv", "resultPathPolicy", "planJobCount",
                "fullPlanJobCount", "enqueuedAt", "workerId", "gpuId", "requireIdleGpu", "executionMode", "mode", "checkpointSource",
-               "checkpointTestOnly", "condaEnv", "distributedResults", "codeSyncProofId", "codeManifest", "manifestDigest", "tmuxSessionPrefix", "maxConcurrentGpus",
+               "checkpointTestOnly", "condaEnv", "distributedResults", "codeSyncProofId", "codeManifest", "manifestDigest", "executionSource", "tmuxSessionPrefix", "maxConcurrentGpus",
                "gpuIdleUtilThreshold", "gpuIdleMemThresholdMb", "schedulerPath", "defaultResultCsvDir", "lifecycleProtocol", "dispatchPolicy",
                "gpuMemoryRatioEnabled", "gpuMemoryPerJobGb", "gpuMemoryMaxJobsPerGpu", "gpuMemoryReserveGb", "gpuMemoryTolerancePercent"}
     job = {key: command[key] for key in allowed if key in command}
@@ -533,6 +533,8 @@ def task_queue_job(root, worker_id, command):
         raise ValueError("TASK_GLOBAL_JOB_ID_MISMATCH")
     if "attempts" in job["outputDir"].split("/"):
         raise ValueError("HISTORICAL_ATTEMPT_READ_ONLY")
+    if job.get("executionSource"):
+        verify_plan_execution_source(root, job, job["executionSource"])
     job.update(root=os.path.realpath(root), lifecycleProtocol=2, runKey=job["commandId"], action="start-worker-task")
     overlap = lambda a, b: a == b or a.startswith(b + "/") or b.startswith(a + "/")
     if any(not row["dead"] and row["commandId"] != job["commandId"] and

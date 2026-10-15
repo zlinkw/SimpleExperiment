@@ -14,6 +14,7 @@ const Queue = require('../../src/features/DistributedPlanQueue.ts');
 const Policy = require('../../src/features/DistributedSchedulingPolicy.ts');
 const Ownership = require('../../src/features/GpuJobOwnership.ts');
 const Modes = require('../../src/features/PlanExecutionMode.ts');
+const PlanCodeScopeHost = require('../../src/extension/PlanCodeScopeHost.ts');
 require.extensions['.ts'] = original;
 const source = fs.readFileSync(path.join(root, 'src/extension/legacy.ts'), 'utf8');
 const ast = ts.createSourceFile('legacy.ts', source, ts.ScriptTarget.Latest, true);
@@ -34,7 +35,7 @@ test('real Scheduler conflict travels through Agent action, durable audit, snaps
 });
 
 function fixture(initial = true) {
-  const Provider = vm.runInNewContext(code, { DistributedPlanQueue: Queue, DistributedSchedulingPolicy: Policy,
+  const Provider = vm.runInNewContext(code, { DistributedPlanQueue: Queue, DistributedSchedulingPolicy: Policy, PlanCodeScopeHost,
     GpuJobOwnership: Ownership, PlanExecutionMode: Modes, workspaceRoot: () => root,
     mapLimited: async (rows, _limit, fn) => Promise.all(rows.map(fn)), errorMessage: error => error.message,
     makeOpId: () => 'generated-command', setInterval, clearInterval });

@@ -100,6 +100,7 @@ export interface TunnelClient {
   getAuditTail(): Promise<unknown>;
   getOperation(operationId: string): Promise<unknown>;
   getWorkerTasks?(options?: { signal?: AbortSignal; retiredCommandIds?: string[]; queries?: any[]; discovery?: { planFile: string; condaEnv?: string } }): Promise<unknown>;
+  getPlanCodeScope?(query: unknown, options?: { signal?: AbortSignal }): Promise<any>;
   getRunEvidence?(params: { operationId?: string; planFile?: string; pid?: number | string; tmuxSession?: string }): Promise<unknown>;
   postAction<T>(action: TunnelAction, body: unknown, options?: { signal?: AbortSignal }): Promise<T>;
   postAvailabilityBatch<T>(body: unknown): Promise<T>;
@@ -259,6 +260,10 @@ export class HttpTunnelClient implements TunnelClient {
     });
   }
 
+  getPlanCodeScope(query: unknown, options: { signal?: AbortSignal } = {}): Promise<any> {
+    return this.requestJson("/api/code-sync/plan-scope", "job_reconcile", query,
+      { method: "POST", userInitiated: true, signal: options.signal, timeoutMs: 15000 });
+  }
   getWorkerTasks(options: { signal?: AbortSignal; retiredCommandIds?: string[]; queries?: any[]; declarations?: any[]; discovery?: { planFile: string; condaEnv?: string } } = {}): Promise<unknown> {
     const ids = [...new Set(options.retiredCommandIds || [])].sort();
     if (ids.length > 500 || ids.some(id => !/^[A-Za-z0-9._:-]{1,128}$/.test(id))) throw new Error("INVALID_RETIRED_COMMAND_SELECTION");

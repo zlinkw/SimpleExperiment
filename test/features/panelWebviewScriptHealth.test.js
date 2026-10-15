@@ -153,3 +153,11 @@ test("Agent defaults stay in the normal editable server configuration flow",()=>
  assert.equal(isServerScope('defaults'),true);assert.equal(isServerScope('worker:a'),true);assert.equal(isServerScope('hub'),false);
  assert.match(script,/delete configDrafts\.defaults/);
 });
+test('an unassigned job renders an empty command identity all the way into the actual click payload',()=>{
+ const script=extractScripts(renderPanelHtml()).join('\n');
+ const line=script.split('\n').find(s=>s.includes('const manualControls=status'));
+ const esc=value=>String(value===undefined||value===null||value===''?'-':value).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+ const html=vm.runInNewContext(line+';manualControls',{status:'pending',job:{index:5},manualPlan:'p',manualSelection:new Map(),escAttr:esc});
+ const commands=[...html.matchAll(/data-command-id="([^"]*)"/g)].map(m=>m[1]);
+ assert.deepEqual(commands,['','']);
+});

@@ -14424,7 +14424,7 @@ export function renderPanelHtml(): string {
         getGroup(planFile);
       });
       const selected = taskSelectionSetsForState(state);
-      const fingerprintBlocked = (job) => String(job.blockReason || "").indexOf("代码指纹不匹配") === 0 || String(job.blockReason || "").indexOf("等待当前代码版本") === 0;
+      const fingerprintBlocked = (job) => String(job.blockReason || "").indexOf("代码指纹不匹配") === 0 || String(job.blockReason || "").indexOf("等待当前代码版本") === 0 || String(job.blockReason || "").indexOf("PLAN 所需源码待核实") === 0;
       const items = Array.from(groups.values()).map((group) => {
         const submission = executionNewerSubmission(group);
         const deferredCurrent = !submission && !!group.deferredStatus;
@@ -14521,14 +14521,14 @@ export function renderPanelHtml(): string {
           + '<div class="executionDistributedJobs">' + distributedRows.map((job) => {
           const status = String(job.status || "unknown");
           const manualPlan=job.planId||group.distributedPlanId||"",manualSelection=manualJobSelections.get(manualPlan);
-          const manualControls=status!=="completed"?'<input type="checkbox" aria-label="选择手动派发任务" data-manual-job="'+escAttr(String(job.index))+'" data-plan-id="'+escAttr(manualPlan)+'" data-command-id="'+escAttr(job.commandId||'')+'"'+(manualSelection&&manualSelection.has(job.index)&&manualSelection.get(job.index)===(job.commandId||'')?' checked':'')+'><button type="button" class="mini" data-manual-dispatch="single" data-plan-id="'+escAttr(manualPlan)+'" data-job-index="'+escAttr(String(job.index))+'" data-command-id="'+escAttr(job.commandId||'')+'">'+(['queued','running'].includes(status)?'停止后派发':'手动派发')+'</button>':'';
+          const manualControls=status!=="completed"?'<input type="checkbox" aria-label="选择手动派发任务" data-manual-job="'+escAttr(String(job.index))+'" data-plan-id="'+escAttr(manualPlan)+'" data-command-id="'+(job.commandId?escAttr(job.commandId):'')+'"'+(manualSelection&&manualSelection.has(job.index)&&manualSelection.get(job.index)===(job.commandId||'')?' checked':'')+'><button type="button" class="mini" data-manual-dispatch="single" data-plan-id="'+escAttr(manualPlan)+'" data-job-index="'+escAttr(String(job.index))+'" data-command-id="'+(job.commandId?escAttr(job.commandId):'')+'">'+(['queued','running'].includes(status)?'停止后派发':'手动派发')+'</button>':'';
           const retryView = automaticJobRetryView(job);
           const blocked = status === "pending" && fingerprintBlocked(job);
           const jobActive = ["pending", "dispatching", "queued", "running", ...(job.lifecycleProtocol === 2 ? [] : ["unknown"])].includes(status) && !blocked;
           const unavailable = job.unavailable && status === "cancelled";
           const preflightRejected = Boolean(job.admissionRejection && status === "failed");
           const needsReview = status === "completed" && job.completionState !== "verified";
-          const statusLabel = needsReview ? (job.completionState === "review_required" ? "完成但有异常，待复核" : "产物完整，运行日志待核实") : job.executionState === "starting" ? "正在启动命令" : job.retainExistingOutputs ? "保留已有产物" : job.lifecycleProtocol === 2 && status === "unknown" ? (job.statusQueryError ? "查询失败，状态未知" : job.executionState === "exited" ? "执行结束，结果待确认" : job.executionState === "missing" ? "远端未发现该任务" : "执行状态待核实") : unavailable ? "不可用" : blocked ? (String(job.blockReason || "").indexOf("等待当前代码版本") === 0 ? "等待代码版本" : "代码版本不匹配") : retryView.label || ({ pending: "本机等待空卡", queued: "服务器排队", dispatching: "派发中", running: "运行中", completed: "已完成", failed: "失败", cancelled: "已中止", unknown: "待核实" }[status] || status);
+          const statusLabel = needsReview ? (job.completionState === "review_required" ? "完成但有异常，待复核" : "产物完整，运行日志待核实") : job.executionState === "starting" ? "正在启动命令" : job.retainExistingOutputs ? "保留已有产物" : job.lifecycleProtocol === 2 && status === "unknown" ? (job.statusQueryError ? "查询失败，状态未知" : job.executionState === "exited" ? "执行结束，结果待确认" : job.executionState === "missing" ? "远端未发现该任务" : "执行状态待核实") : unavailable ? "不可用" : blocked ? (String(job.blockReason || "").indexOf("PLAN 所需源码待核实") === 0 ? "源码待核实" : String(job.blockReason || "").indexOf("等待当前代码版本") === 0 ? "等待代码版本" : "代码版本不匹配") : retryView.label || ({ pending: "本机等待空卡", queued: "服务器排队", dispatching: "派发中", running: "运行中", completed: "已完成", failed: "失败", cancelled: "已中止", unknown: "待核实" }[status] || status);
           const placement = (job.workerId ? job.workerId + (preflightRejected ? " · 未启动" : job.gpuId == null || job.gpuId === "" ? "" : " · GPU " + job.gpuId) : "未派发") + (job.manualDispatch ? " · 手动指定" : "");
           const canJumpLog = Boolean(!preflightRejected && job.workerId && (job.commandId || job.outputDir));
           const logButton = '<button type="button" class="mini secondary" data-job-tmux-log="1" data-worker-id="' + escAttr(job.workerId || "") + '" data-command-id="' + escAttr(job.commandId || "") + '" data-output-dir="' + escAttr(job.outputDir || "") + '"' + (canJumpLog ? '' : ' disabled') + ' title="' + (canJumpLog ? '在 TMUX 区域选中该 Worker 的真实任务窗口标签' : '等待任务派发后定位对应的 TMUX 日志标签') + '">查看窗口日志</button>';
@@ -14562,7 +14562,7 @@ export function renderPanelHtml(): string {
           const anomalyRerunButton = status === "completed" && job.completionState === "review_required" && job.lifecycleProtocol === 2 && job.workerId && job.commandId
             ? '<button type="button" class="mini secondary" data-command="retryDistributedJob" data-runtime-anomaly-rerun="true" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || '') + '" data-job-index="' + escAttr(String(job.index)) + '" data-command-id="' + escAttr(job.commandId) + '" title="仅重跑此 job；已有产物沿用完整路径双确认，保留其他任务。">覆盖产物并重跑此 job</button>' : '';
           const blockText = job.lifecycleProtocol === 2 ? String(job.statusQueryError || job.blockReason || "") : blocked ? String(job.blockReason || "") : "";
-          const blockAdvice = blocked ? (blockText.indexOf("等待当前代码版本") === 0 ? "这个已提交 job 保留排队；其他 Worker 可运行匹配版本。被占用的 Worker 收到旧任务结束回执后自动释放版本锁，无需再次提交。" : "下一步：空闲 GPU 不能运行这份旧代码。到实验准备的 Plan 列表手动选中，再点“校验并提交运行”；或恢复提交前的代码并重新同步 Worker。") : "";
+          const blockAdvice = blocked ? (blockText.indexOf("PLAN 所需源码待核实") === 0 ? "仅核实本 PLAN 的入口、配置与依赖；产物和缓存不参与。按具体路径处理源码变化，协议较旧时更新 Agent/Scheduler 后刷新即可，无需重新提交已在队列的 job。" : blockText.indexOf("等待当前代码版本") === 0 ? "这个已提交 job 保留排队；其他 Worker 可运行匹配版本。被占用的 Worker 收到旧任务结束回执后自动释放版本锁，无需再次提交。" : "下一步：空闲 GPU 不能运行这份旧代码。到实验准备的 Plan 列表手动选中，再点“校验并提交运行”；或恢复提交前的代码并重新同步 Worker。") : "";
           const jobNext = preflightRejected
             ? '<div class="muted">启动前预检已拒绝此 job，训练未开始，不会自动重派。请核对上面的输出与结果路径；保留已有权重和结果，显式处理冲突或修改正式 job 声明后再提交。</div>'
             : codeProofBlocked

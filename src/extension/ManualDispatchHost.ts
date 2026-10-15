@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { dispatchManualJobs, dispatchReadyManualJobs, ManualDispatchRequest, ManualDispatchPorts } from "../features/ManualJobDispatch";
 import { stopPulledTask } from "../features/PulledTaskControl";
 import { PlanRunHost } from "./PlanRunHost";
+import { supportsPlanCodeScope, verifyWorkerPlanSource, verifyLocalPlanSource } from "./PlanCodeScopeHost";
 
 export class ManualDispatchHost {
   private gpuSnapshot: any;
@@ -25,8 +26,13 @@ export class ManualDispatchHost {
           const p=j.manualDispatch!,rows=Array.isArray(gpu[p.workerId])?gpu[p.workerId]:[];
           if(!rows.some((r:any)=>String(r.index??r.gpu_id??r.gpuId??r.id)===p.gpuId))throw Error("目标 GPU 不可见："+p.workerId+" · GPU "+p.gpuId+"；未停止原任务或审核产物。");
         }
-        await h.ensureCodeReadyForRun(h.captureProjectContext(),[]);
-        if(h.lastCodeSyncState?.fingerprint!==plan.codeFingerprint)throw Error("代码已偏离当前 PLAN，请重新校验和预演当前声明。");
+        const placements=[...new Set<string>(plan.jobs.filter(j=>j.manualDispatch?.stage==="preparing").map(j=>j.manualDispatch!.workerId))];
+        if(placements.length&&placements.every(id=>supportsPlanCodeScope(h,id))){
+          for(const id of placements)await verifyLocalPlanSource(this.root,await verifyWorkerPlanSource(h,id,plan));
+        }else{
+          await h.ensureCodeReadyForRun(h.captureProjectContext(),[]);
+          if(h.lastCodeSyncState?.fingerprint!==plan.codeFingerprint)throw Error("需更新目标 Agent/Scheduler 按本 PLAN 依赖核实源码；项目整体版本变化不能证明本 job 的源码变化。");
+        }
         await Promise.all(h.enabledWorkerConfigs().map(async(w:any)=>{
           if(h.readWorkerTaskSnapshot)await h.readWorkerTaskSnapshot(w.id,{fresh:true});
           else h.lastWorkerTaskSnapshots.set(this.root+"\u0000"+w.id,{...await h.client.getWorkerTasks(w.id),fetchedAt:new Date().toISOString()});

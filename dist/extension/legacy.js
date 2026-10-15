@@ -45,6 +45,7 @@ exports.__distributeMappedDownloadsForTest = __distributeMappedDownloadsForTest;
 const vscode = __importStar(require("vscode"));
 const RuntimeLogAnalysisHost_1 = require("./RuntimeLogAnalysisHost");
 const SelectedPlanBatchHost_1 = require("./SelectedPlanBatchHost");
+const PlanCodeScopeHost = __importStar(require("./PlanCodeScopeHost"));
 const fs = __importStar(require("fs/promises"));
 const fsNode = __importStar(require("fs"));
 const path = __importStar(require("path"));
@@ -9434,6 +9435,7 @@ class RealtimeTunnelPanelProvider {
                 && submissionManifest.key === submissionManifestKey);
             const built = reuseSubmissionManifest ? { manifest: submissionManifest.manifest, stats: submissionManifest.stats }
                 : await buildLocalCodeManifest(root, includePaths, scopePaths, {
+                    executionOnly: ["run", "plan-check"].includes(scope),
                     cacheFile: this.localCodeManifestCacheFile(root),
                     onProgress: (stats) => {
                         if (progressReport)
@@ -9442,7 +9444,8 @@ class RealtimeTunnelPanelProvider {
                 });
             if (reuseSubmissionManifest)
                 this.pendingPlanSubmissionManifest = undefined;
-            const manifest = reuseSubmissionManifest ? built.manifest : (0, SyncResolution_1.filterHeldFiles)(built, holds);
+            const transferManifest = reuseSubmissionManifest ? built.manifest : (0, SyncResolution_1.filterHeldFiles)(built, holds);
+            const manifest = ["run", "plan-check"].includes(scope) ? PlanCodeScopeHost.runSourceManifest(transferManifest) : transferManifest;
             if (progressReport)
                 progressReport(`本地清单完成：${Object.keys(manifest).length} 个文件，哈希沿用 ${built.stats?.reused || 0}，重算 ${built.stats?.hashed || 0}（本段 ${Date.now() - localStarted} ms）`);
             const inventoryScopePaths = [...new Set(Object.keys(manifest).map((file) => file.split("/")[0]))].sort();
@@ -10177,8 +10180,8 @@ class RealtimeTunnelPanelProvider {
         const holds = await (0, SyncResolution_1.loadSyncHolds)(this.context.globalStorageUri.fsPath, root);
         const includePaths = config.get("codeSync.includePaths", []);
         const scopePaths = config.get("codeSync.scopePaths");
-        const built = await buildLocalCodeManifest(root, includePaths, scopePaths, { cacheFile: this.localCodeManifestCacheFile(root), signal });
-        const manifest = (0, SyncResolution_1.filterHeldFiles)(built, holds);
+        const built = await buildLocalCodeManifest(root, includePaths, scopePaths, { cacheFile: this.localCodeManifestCacheFile(root), signal, executionOnly: true });
+        const manifest = PlanCodeScopeHost.runSourceManifest((0, SyncResolution_1.filterHeldFiles)(built, holds));
         const fingerprint = fingerprintFromManifest(manifest);
         this.pendingPlanSubmissionManifest = { key: this.planSubmissionManifestKey(root, includePaths, scopePaths, holds),
             manifest, stats: built.stats || {}, fingerprint, expiresAt: Date.now() + 10_000 };
@@ -11205,7 +11208,8 @@ class RealtimeTunnelPanelProvider {
         const enqueued = DistributedPlanQueue.enqueuePlan(current, { projectId: DistributedPlanQueue.canonicalProjectId(root), stablePlanId,
             executionMode, executionModeSource: "validation",
             schedulingMode: DistributedSchedulingPolicy.schedulingMode(body.schedulingMode ?? this.schedulerSettings().dispatchMode),
-            planJobCount: selectedJobs.length, fullPlanJobCount: validation.jobs.length, planFile, revision, codeFingerprint, overwriteExisting, jobs: selectedJobs.map((job) => ({
+            planJobCount: selectedJobs.length, fullPlanJobCount: validation.jobs.length, planFile, revision, codeFingerprint,
+            executionSource: body.executionSource, overwriteExisting, jobs: selectedJobs.map((job) => ({
                 index: Number(job.index), case: String(job.case), seed: Number(job.seed),
                 outputDir: String(job.output_dir || "").replace(/\\/g, "/").replace(/\/$/, ""),
                 collectionResultCsv: String(job.result_csv || ""),
@@ -11302,7 +11306,7 @@ class RealtimeTunnelPanelProvider {
     async buildDistributedJobCodeManifest(root) {
         const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
         const holds = await (0, SyncResolution_1.loadSyncHolds)(this.context.globalStorageUri.fsPath, root);
-        return (0, SyncResolution_1.filterHeldFiles)(await buildLocalCodeManifest(root, config.get("codeSync.includePaths", []), config.get("codeSync.scopePaths"), { cacheFile: this.localCodeManifestCacheFile(root) }), holds);
+        return PlanCodeScopeHost.runSourceManifest((0, SyncResolution_1.filterHeldFiles)(await buildLocalCodeManifest(root, config.get("codeSync.includePaths", []), config.get("codeSync.scopePaths"), { cacheFile: this.localCodeManifestCacheFile(root), executionOnly: true }), holds));
     }
     async sendDistributedJob(plan, job, workerId, gpuId, commandId, sharedCodeManifest) {
         if (plan.resultPathPolicy !== "declared" || job.outputDir.split("/").includes("attempts"))
@@ -11334,7 +11338,11 @@ class RealtimeTunnelPanelProvider {
         const supportsCodeSyncProof = this.lastWorkerProbes?.[workerId]?.capabilities?.actionEndpoints?.["register-code-sync-proof"] === true;
         const workerVersion = this.lastCodeSyncState?.workerVersions?.[workerId] || {};
         let codeProofFields;
-        if (supportsCodeSyncProof && workerVersion.codeSyncProofId) {
+        if (PlanCodeScopeHost.supportsPlanCodeScope(this, workerId)) {
+            const executionSource = await PlanCodeScopeHost.verifyWorkerPlanSource(this, workerId, plan);
+            codeProofFields = { executionSource };
+        }
+        else if (supportsCodeSyncProof && workerVersion.codeSyncProofId) {
             // Agent verifies the persisted proof against its own code files before admission.
             // An unchanged Worker can finish an older Plan after the local workspace advances.
             codeProofFields = durableCodeProofRequestFields(true, workerVersion, plan.codeFingerprint, undefined, workerId);
@@ -11810,7 +11818,7 @@ class RealtimeTunnelPanelProvider {
             const workers = targets.map((target) => {
                 const snapshot = snapshotsByWorker.get(target.id);
                 const workerFingerprint = String(this.lastCodeSyncState?.workerVersions?.[target.id]?.fingerprint || "");
-                const live = Boolean(workerFingerprint && idleByWorker.has(target.id) && DistributedPlanQueue.hasFreshDurableSnapshot(snapshot)
+                const live = Boolean((workerFingerprint || PlanCodeScopeHost.supportsPlanCodeScope(this, target.id)) && idleByWorker.has(target.id) && DistributedPlanQueue.hasFreshDurableSnapshot(snapshot)
                     && snapshot?.capabilities?.idleGpuAdmission === true
                     && this.lastWorkerProbes[target.id]?.status === "ok");
                 const workerConfig = this.enabledWorkerConfigs().find((worker) => worker.id === target.id);
@@ -11830,6 +11838,9 @@ class RealtimeTunnelPanelProvider {
                     capacity: !memory && Number.isInteger(configuredCapacity) && configuredCapacity > 0
                         ? Math.max(0, configuredCapacity - (activeByWorker.get(target.id) || 0)) : undefined };
             });
+            await PlanCodeScopeHost.inspectPlanCodeSlots(this, queue, workers, signal);
+            if (!queueWriteCurrent())
+                return;
             const ownedGpuSnapshot = GpuJobOwnership.projectGpuOwnership(dispatchGpuSnapshot || {}, GpuJobOwnership.submittedGpuJobs(queue, taskSnapshots, DistributedPlanQueue.canonicalProjectId(root), Object.fromEntries(targets.map(target => [target.id, target.project_dir]))));
             const hosted = DistributedSchedulingPolicy.allocateServerPrequeue(queue, workers.map((worker) => {
                 const config = this.enabledWorkerConfigs().find((item) => item.id === worker.workerId);
@@ -11858,7 +11869,7 @@ class RealtimeTunnelPanelProvider {
                 }).filter(([id, plan]) => id && plan)).values()];
             const sharedManifests = new Map();
             await Promise.all(dispatchPlans.map(async (plan) => {
-                if (dispatches.filter((row) => row.planId === plan.id).every((row) => this.lastWorkerProbes?.[row.workerId]?.capabilities?.actionEndpoints?.["register-code-sync-proof"] === true
+                if (dispatches.filter((row) => row.planId === plan.id).every((row) => PlanCodeScopeHost.supportsPlanCodeScope(this, row.workerId) || this.lastWorkerProbes?.[row.workerId]?.capabilities?.actionEndpoints?.["register-code-sync-proof"] === true
                     && this.lastCodeSyncState?.workerVersions?.[row.workerId]?.codeSyncProofId))
                     return;
                 try {
@@ -12678,10 +12689,15 @@ class RealtimeTunnelPanelProvider {
         await PulledTaskControl.stopPulledTask(this.client, plan, job, makeOpId("requeue-job"));
         if (!isCurrent())
             return;
-        const latest = await this.loadDistributedQueue(root);
-        if (latest.plans.find(row => row.id === plan.id)?.jobs.find(row => row.index === job.index)?.commandId !== job.commandId)
-            throw new Error("任务身份已变化；未重新派发。");
-        await this.saveDistributedQueue(root, PulledTaskControl.returnPulledJobToLocal(latest, plan.id, job.index, job.commandId));
+        await this.saveDistributedQueue(root, undefined, { mutateLatest: (latest) => {
+                const current = latest.plans.find(row => row.id === plan.id);
+                if (current?.jobs.find(row => row.index === job.index)?.commandId !== job.commandId
+                    || current.revision !== plan.revision || current.codeFingerprint !== plan.codeFingerprint)
+                    throw new Error("任务身份已变化；未重新派发。");
+                if (body.executionSource)
+                    current.executionSource = body.executionSource;
+                return PulledTaskControl.returnPulledJobToLocal(latest, plan.id, job.index, job.commandId);
+            } });
         await this.tickDistributedQueue();
     }
     async recallPlanToLocalQueueFromUi(message) {
@@ -34118,7 +34134,8 @@ function samePath(a, b) {
     return path.resolve(a).toLowerCase() === path.resolve(b).toLowerCase();
 }
 async function buildLocalCodeManifest(root, includePaths = [], scopePaths, options = {}) {
-    const files = await listLocalCodePaths(root, includePaths, scopePaths);
+    const listed = await listLocalCodePaths(root, includePaths, scopePaths);
+    const files = options.executionOnly ? Object.keys(PlanCodeScopeHost.runSourceManifest(Object.fromEntries(listed.map(file => [file, true])))) : listed;
     const { manifest, stats } = await (0, LocalCodeManifestCache_1.hashLocalCodeFiles)(root, files, options.cacheFile, options.onProgress, options.signal);
     console.log(`[SimpleExperiment] local code manifest: listed=${stats.listed} reused=${stats.reused} hashed=${stats.hashed} pruned=${stats.pruned} cacheWriteSkipped=${stats.cacheWriteSkipped ? 1 : 0}`);
     Object.defineProperty(manifest, "stats", { value: stats, enumerable: false });

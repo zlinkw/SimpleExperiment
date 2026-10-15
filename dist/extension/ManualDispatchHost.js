@@ -39,6 +39,7 @@ const node_crypto_1 = require("node:crypto");
 const ManualJobDispatch_1 = require("../features/ManualJobDispatch");
 const PulledTaskControl_1 = require("../features/PulledTaskControl");
 const PlanRunHost_1 = require("./PlanRunHost");
+const PlanCodeScopeHost_1 = require("./PlanCodeScopeHost");
 class ManualDispatchHost {
     host;
     root;
@@ -67,9 +68,16 @@ class ManualDispatchHost {
                     if (!rows.some((r) => String(r.index ?? r.gpu_id ?? r.gpuId ?? r.id) === p.gpuId))
                         throw Error("目标 GPU 不可见：" + p.workerId + " · GPU " + p.gpuId + "；未停止原任务或审核产物。");
                 }
-                await h.ensureCodeReadyForRun(h.captureProjectContext(), []);
-                if (h.lastCodeSyncState?.fingerprint !== plan.codeFingerprint)
-                    throw Error("代码已偏离当前 PLAN，请重新校验和预演当前声明。");
+                const placements = [...new Set(plan.jobs.filter(j => j.manualDispatch?.stage === "preparing").map(j => j.manualDispatch.workerId))];
+                if (placements.length && placements.every(id => (0, PlanCodeScopeHost_1.supportsPlanCodeScope)(h, id))) {
+                    for (const id of placements)
+                        await (0, PlanCodeScopeHost_1.verifyLocalPlanSource)(this.root, await (0, PlanCodeScopeHost_1.verifyWorkerPlanSource)(h, id, plan));
+                }
+                else {
+                    await h.ensureCodeReadyForRun(h.captureProjectContext(), []);
+                    if (h.lastCodeSyncState?.fingerprint !== plan.codeFingerprint)
+                        throw Error("需更新目标 Agent/Scheduler 按本 PLAN 依赖核实源码；项目整体版本变化不能证明本 job 的源码变化。");
+                }
                 await Promise.all(h.enabledWorkerConfigs().map(async (w) => {
                     if (h.readWorkerTaskSnapshot)
                         await h.readWorkerTaskSnapshot(w.id, { fresh: true });

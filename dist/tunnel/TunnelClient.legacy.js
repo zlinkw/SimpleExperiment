@@ -167,6 +167,9 @@ class HttpTunnelClient {
             userInitiated: true,
         });
     }
+    getPlanCodeScope(query, options = {}) {
+        return this.requestJson("/api/code-sync/plan-scope", "job_reconcile", query, { method: "POST", userInitiated: true, signal: options.signal, timeoutMs: 15000 });
+    }
     getWorkerTasks(options = {}) {
         const ids = [...new Set(options.retiredCommandIds || [])].sort();
         if (ids.length > 500 || ids.some(id => !/^[A-Za-z0-9._:-]{1,128}$/.test(id)))

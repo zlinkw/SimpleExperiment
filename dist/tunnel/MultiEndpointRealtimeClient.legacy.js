@@ -276,6 +276,12 @@ class MultiEndpointRealtimeClient {
         }
         return client.getOperation(operationId);
     }
+    async getWorkerPlanCodeScope(workerId, query, options = {}) {
+        const client = this.clients.get(workerId);
+        if (!client || this.endpointById.get(workerId)?.role !== "worker")
+            throw new Error(`Worker Agent endpoint not configured: ${workerId}`);
+        return client.getPlanCodeScope(query, options);
+    }
     async getWorkerTasks(workerId, options = {}) {
         const client = this.clients.get(workerId);
         const endpoint = this.endpointById.get(workerId);

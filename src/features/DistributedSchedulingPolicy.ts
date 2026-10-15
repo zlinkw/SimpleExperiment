@@ -1,5 +1,5 @@
 import { DistributedQueue, QueuedPlan, DurableWorkerSnapshot, durableCommandId,
-  mergeDurableWorkerSnapshots, freshIdleGpuEvidence, hasUnresolvedPlanRecovery, workerCodeVersionAvailable } from "./DistributedPlanQueue";
+  mergeDurableWorkerSnapshots, freshIdleGpuEvidence, hasUnresolvedPlanRecovery, workerCodeVersionAvailable, workerCanRunPlan } from "./DistributedPlanQueue";
 import { newestJobOutputs } from "./LatestJobArtifacts";
 import { runtimeEvidence } from "./RuntimeDiagnostics";
 
@@ -55,7 +55,7 @@ export function prequeueGpuWeight(rows: unknown, idleUtil: number, idleMem: numb
   return Number.isInteger(capacity) && Number(capacity) > 0 ? Math.min(ids.size, Number(capacity)) : ids.size;
 }
 
-export type PrequeueWorker = { workerId: string; online: boolean; weight: number; codeFingerprint: string; declaredJobPaths?: boolean };
+export type PrequeueWorker = { workerId: string; online: boolean; weight: number; codeFingerprint: string; declaredJobPaths?: boolean; compatiblePlans?: string[]; codeScopeErrors?: Record<string,string> };
 export function allocateServerPrequeue(queue: DistributedQueue, workers: readonly PrequeueWorker[]) {
   const next: DistributedQueue = { ...queue, plans: queue.plans.map((plan) => ({ ...plan,
     jobs: plan.jobs.map((job) => ({ ...job })) })) };
@@ -64,7 +64,7 @@ export function allocateServerPrequeue(queue: DistributedQueue, workers: readonl
     if (plan.resultPathPolicy !== "declared") continue;
     if (plan.executionModeBlocked || schedulingMode(plan.schedulingMode) !== "server_prequeue" || plan.localDispatchOverride === true || plan.recoveryConflict) continue;
     const eligible = workers.filter((worker) => worker.declaredJobPaths === true && worker.online && worker.weight > 0
-      && worker.codeFingerprint === plan.codeFingerprint && workerCodeVersionAvailable(next, worker.workerId, plan.codeFingerprint));
+      && workerCanRunPlan(next, worker, plan));
     if (!eligible.length) continue;
     const weights = { ...(plan.prequeueWeights || {}) };
     // Servers can finish preparation independently. Preserve accepted ownership

@@ -40,6 +40,8 @@ const StateStore_1 = require("../state/StateStore");
 const PlanCleanup_1 = require("../features/PlanCleanup");
 const PlanRunReplacement_1 = require("../features/PlanRunReplacement");
 const TaskLifecycle_1 = require("../features/TaskLifecycle");
+const DistributedPlanQueue_1 = require("../features/DistributedPlanQueue");
+const PlanCodeScopeHost_1 = require("./PlanCodeScopeHost");
 /** Local recoverable inputs, never authority for a remote process or a result. */
 class PlanRunHost {
     host;
@@ -90,6 +92,14 @@ class PlanRunHost {
         if (body.options?.planFile && body.options.planFile !== planFile)
             throw Error("提交的 PLAN 路径不一致，未删除或提交。");
         body.planFile = planFile;
+        const sourcePlan = { ...plan, projectId: plan?.projectId || (0, DistributedPlanQueue_1.canonicalProjectId)(this.root), planFile: body.planFile,
+            revision: body.planRevision, codeFingerprint: plan?.codeFingerprint || h.lastCodeSyncState?.fingerprint };
+        const executionSource = body.executionSource || await (0, PlanCodeScopeHost_1.resolvePlanExecutionSource)(h, sourcePlan);
+        if (executionSource) {
+            await (0, PlanCodeScopeHost_1.verifyLocalPlanSource)(this.root, executionSource);
+            body.executionSource = executionSource;
+        }
+        const expectedFingerprint = executionSource?.digest || h.lastCodeSyncState?.fingerprint || "";
         body.runReplacement ||= {};
         const completed = new Set();
         const tasks = (body.workerSubmissionSnapshots || []).flatMap((snapshot) => snapshot.tasks || []);
@@ -116,7 +126,7 @@ class PlanRunHost {
                         completed.add(Number(declaration.index));
                 }
         }
-        const key = (0, PlanRunReplacement_1.runReplacementKey)(body.planFile, body.planRevision, h.lastCodeSyncState?.fingerprint || "", jobs, currentNodes());
+        const key = (0, PlanRunReplacement_1.runReplacementKey)(body.planFile, body.planRevision, expectedFingerprint, jobs, currentNodes());
         const result = await (0, PlanRunReplacement_1.replaceRunOutputs)({
             preview: (job) => cleanup.service.preview({ planFile: body.planFile, action: "delete", verifiedOnly: false, authorizationMode: "confirmed_paths",
                 job: { workflowId: "manifest-" + (0, PlanCleanup_1.cleanupDigest)([body.planFile, job.output_dir]), commandId: "manifest-" + (0, PlanCleanup_1.cleanupDigest)(job), index: Number(job.index),
@@ -132,8 +142,10 @@ class PlanRunHost {
                 const current = { ...body };
                 await h.refreshLocalPlanMetadataForAction(current);
                 h.stampPlanRevision(current);
-                const fingerprint = await h.localDistributedCodeFingerprint(this.root);
-                if (current.planRevision !== body.planRevision || fingerprint !== h.lastCodeSyncState?.fingerprint
+                if (executionSource)
+                    await (0, PlanCodeScopeHost_1.verifyLocalPlanSource)(this.root, executionSource);
+                const fingerprint = executionSource?.digest || await h.localDistributedCodeFingerprint(this.root);
+                if (current.planRevision !== body.planRevision || fingerprint !== (executionSource ? expectedFingerprint : h.lastCodeSyncState?.fingerprint)
                     || (0, PlanRunReplacement_1.runReplacementKey)(body.planFile, body.planRevision, fingerprint, jobs, currentNodes()) !== key)
                     throw Error("PLAN、代码或服务器配置已变化，请重新运行并确认路径；未删除。");
                 await h.assertPlanSubmissionWorkers(body, { validation });

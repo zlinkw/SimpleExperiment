@@ -349,6 +349,10 @@ export class RealtimeTunnelClient {
     return this.coalescedRead(`operation:${String(operationId)}`, undefined, () => this.http.getOperation(operationId));
   }
 
+  getPlanCodeScope(query: unknown, options: { signal?: AbortSignal } = {}): Promise<any> {
+    if (this.requiresManualReconnect) return Promise.reject(new Error(this.lastError));
+    return this.coalescedRead("plan-code-scope:" + JSON.stringify(query), options, () => this.http.getPlanCodeScope(query, options));
+  }
   getWorkerTasks(options: { signal?: AbortSignal; retiredCommandIds?: string[]; queries?: any[]; declarations?: any[]; discovery?: { planFile: string; condaEnv?: string } } = {}): Promise<unknown> {
     if (this.requiresManualReconnect) return Promise.reject(new Error(this.lastError));
     const selection = [...new Set(options.retiredCommandIds || [])].sort().join(",") + JSON.stringify(options.queries || []) + JSON.stringify(options.declarations || []) + JSON.stringify(options.discovery || null);

@@ -30,10 +30,10 @@ function compiled(name) {
 
 const manifestStart = distSource.indexOf("async function buildLocalCodeManifest(");
 const manifestEnd = distSource.indexOf("function isLocalCodeOwnedPath(", manifestStart);
-const manifestFactory = new Function("fs", "fsNode", "path", "crypto", "LocalCodeManifestCache_1", distSource.slice(manifestStart, manifestEnd) + "\nreturn { buildLocalCodeManifest };");
-const manifestApi = manifestFactory(require("node:fs").promises, require("node:fs"), path, crypto, require("../../dist/features/LocalCodeManifestCache.js"));
+const manifestFactory = new Function("fs", "fsNode", "path", "crypto", "LocalCodeManifestCache_1", "PlanCodeScopeHost", distSource.slice(manifestStart, manifestEnd) + "\nreturn { buildLocalCodeManifest };");
+const manifestApi = manifestFactory(require("node:fs").promises, require("node:fs"), path, crypto, require("../../dist/features/LocalCodeManifestCache.js"), require("../../dist/extension/PlanCodeScopeHost.js"));
 
-const apiFactory = new Function("SyncResolution_1", "CodeSyncDelta_1", "fingerprintFromManifest", "buildLocalCodeManifest", "vscode_1", "LocalCodeManifestCache_1", "SafeRequestRetry_1", "DistributedPlanQueue", "workspaceRoot", `
+const createApi = new Function("SyncResolution_1", "CodeSyncDelta_1", "fingerprintFromManifest", "buildLocalCodeManifest", "vscode_1", "LocalCodeManifestCache_1", "SafeRequestRetry_1", "DistributedPlanQueue", "workspaceRoot", "PlanCodeScopeHost", `
   function stringField(message, key) { return String((message && message[key]) || ""); }
   function operationResultPlanFile(body) { return String((body && (body.planFile || body.selectedPlanId || (body.options && body.options.planFile))) || ""); }
   function errorMessage(error) { return error && error.message ? error.message : String(error || ""); }
@@ -65,6 +65,7 @@ const apiFactory = new Function("SyncResolution_1", "CodeSyncDelta_1", "fingerpr
   ${compiled("trimPlanSubmissionEpochs")}
   return { syncCodeTargets, safeWorkerCodeSyncTargets, syncManualWorkerCode, uploadProjectToWorkers, distributeCodeToWorkers, publishToGitHub, reportPlanStage, planSubmissionOperationId, planSubmissionPlanFile, beginPlanSubmissionProgress, patchPlanSubmissionProgress, finishPlanSubmissionProgress, trimPlanSubmissionEpochs };
 `);
+function apiFactory(...args) { while(args.length<9)args.push(undefined);return createApi(...args,require("../../dist/extension/PlanCodeScopeHost.js")); }
 
 function sha(char) { return char.repeat(64); }
 

@@ -4,6 +4,7 @@ import { TASK_SHELL_ENVIRONMENT_PYTHON } from "./runtime/TaskShellEnvironment";
 import { AGENT_LIFECYCLE_PYTHON } from "./runtime/AgentLifecycle";
 import { TMUX_TASK_LIFECYCLE_PYTHON } from "./runtime/TmuxTaskLifecycle";
 import { RUNTIME_LOG_DIAGNOSTICS_PYTHON } from "./runtime/RuntimeLogDiagnostics";
+import { PLAN_CODE_SCOPE_PYTHON } from "./runtime/PlanCodeScope";
 export const CLUSTER_AGENT_RUNTIME = String.raw`#!/usr/bin/env python3
 from __future__ import annotations
 import argparse, base64, calendar, copy, csv, errno, fnmatch, glob, hashlib, http.client, importlib.util, io, ipaddress, json, math, os, pathlib, random, re, shutil, shlex, signal, socket, statistics, stat, struct, subprocess, sys, threading, time, traceback, urllib.request, uuid, zipfile
@@ -3038,6 +3039,12 @@ def renew_code_sync_proof_runtime(root, proof, row):
         return renewed
 
 def resolve_durable_code_sync_proof(root, row):
+    if row.get("executionSource"):
+        return verify_plan_execution_source(root, row, row["executionSource"])
+    if row.get("lifecycleProtocol") == 2 and row.get("planFile") and row.get("planRevision"):
+        source = inspect_plan_code_scope(root, row)["executionSource"]
+        row["executionSource"] = source
+        return verify_plan_execution_source(root, row, source)
     proof_id = str(row.get("codeSyncProofId") or "")
     if proof_id:
         proof = code_sync_proof_document(root).get("proofs", {}).get(proof_id)
@@ -6751,6 +6758,7 @@ def api_capabilities(root, token_required=False, mode="worker_telemetry"):
                 "durablePlanQueue": True,
                 "codeSyncProof": True,
                 "codeSyncProofAsync": True,
+                "planCodeScope": 1,
                 "idleGpuAdmission": True,
                 "manualDispatch": 1,
                 "gpuMemoryRatioScheduling": 1,
@@ -16451,6 +16459,16 @@ def serve_http(args):
             if self.reject_if_needed():
                 return
             route = urlparse(self.path).path
+            if route == "/api/code-sync/plan-scope":
+                raw = self.read_request_body(route)
+                if raw is None:
+                    return
+                try:
+                    if len(raw) > 1024 * 1024:
+                        raise ValueError("PLAN_SOURCE_QUERY_LIMIT")
+                    return self.send_json(inspect_plan_code_scope(root, json.loads(raw.decode("utf-8"))))
+                except Exception as exc:
+                    return self.send_json({"ok": False, "compatible": False, "readOnly": True, "error": str(exc)}, status=400)
             if route == "/api/worker/tasks/query":
                 raw = self.read_request_body(route)
                 if raw is None:
@@ -16951,6 +16969,7 @@ def main():
         return 0
 
 ${RUNTIME_LOG_DIAGNOSTICS_PYTHON}
+${PLAN_CODE_SCOPE_PYTHON}
 ${TMUX_TASK_LIFECYCLE_PYTHON}
 
 if __name__ == "__main__":

@@ -332,6 +332,11 @@ class RealtimeTunnelClient {
             return Promise.reject(new Error(this.lastError));
         return this.coalescedRead(`operation:${String(operationId)}`, undefined, () => this.http.getOperation(operationId));
     }
+    getPlanCodeScope(query, options = {}) {
+        if (this.requiresManualReconnect)
+            return Promise.reject(new Error(this.lastError));
+        return this.coalescedRead("plan-code-scope:" + JSON.stringify(query), options, () => this.http.getPlanCodeScope(query, options));
+    }
     getWorkerTasks(options = {}) {
         if (this.requiresManualReconnect)
             return Promise.reject(new Error(this.lastError));

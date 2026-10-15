@@ -90,7 +90,7 @@ test('native anomaly rerun checks fresh evidence, honors cancelled or skipped re
   PulledTaskControl:{queryTask:async()=>({state}),stopPulledTask:async(_c,p,j)=>{assert.equal(j.commandId,'c');events.push('fence');},returnPulledJobToLocal:P.returnPulledJobToLocal},
   PlanRunHost:class {async replace(p,body,validation){events.push('confirm');assert.equal(validation.jobs.length,1);assert.equal(validation.jobs[0].output_dir,'work/job');if(cancel)throw Error('REPLACEMENT_CANCELLED');body.assignedExperimentIndices=selected?[0]:[];}},makeOpId:()=> 'rerun'});
  const h={client:{},assertPlanSubmissionWorkers:async()=>events.push('query'),loadDistributedQueue:async()=>({plans:[plan]}),
-  saveDistributedQueue:async(_r,q)=>{stored=q;events.push('save');},tickDistributedQueue:async()=>events.push('tick')};
+  saveDistributedQueue:async(_r,q,options)=>{stored=options?.mutateLatest?options.mutateLatest(structuredClone({plans:[plan]})):q;events.push('save');},tickDistributedQueue:async()=>events.push('tick')};
  for(const variant of ['running','clear','cancel','skip','success']){
   events.length=0;stored=undefined;cancel=variant==='cancel';selected=variant!=='skip';
   state={execution:variant==='running'?'running':'exited',status:'completed',completionState:variant==='clear'?'verified':'review_required'};
@@ -113,4 +113,20 @@ test('actual analysis button returns a visible command message without opening a
  const dispatch=hostMethod('withUiCommandStatus',{localCommandReleasesAfterTrigger:()=>false,PLAN_SUBMISSION_COMMANDS:new Set(),OperationOutcome_1:{operationOutcomeFor:()=> 'completed'}});
  await dispatch.call(h,'action','analyzeRuntimeLog',{},()=>handler.call(h,{}));
  assert.equal(documents,0);assert.equal(statuses.at(-1)[1],'completed');assert.match(statuses.at(-1)[3],/完整日志未检出异常/);
+});
+test('native rerun commits against the latest queue without losing unrelated progress or replacing a new command',async()=>{
+ const crypto=require('node:crypto'),P=require('../../src/features/PulledTaskControl.ts');
+ const plan={id:'p',planFile:'plans/p.yaml',revision:crypto.createHash('sha256').update('plan').digest('hex'),codeFingerprint:'original',executionMode:'train_test',jobs:[
+  {index:0,commandId:'original-command',workerId:'w',status:'completed',outputDir:'work/a'},
+  {index:1,commandId:'other',workerId:'w',status:'running',outputDir:'work/b'}]};
+ let latest,starts=0;
+ const retry=hostMethod('retryPulledJob',{fs:{readFile:async()=> 'plan'},path,crypto,PulledTaskControl:{
+  queryTask:async()=>({state:{execution:'exited',status:'completed',completionState:'review_required'}}),stopPulledTask:async()=>{},returnPulledJobToLocal:P.returnPulledJobToLocal},
+  PlanRunHost:class{async replace(_p,body){body.assignedExperimentIndices=[0];}},makeOpId:()=> 'rerun'});
+ const h={client:{},assertPlanSubmissionWorkers:async()=>{},saveDistributedQueue:async(_root,q,options)=>{assert.equal(q,undefined);latest=options.mutateLatest(latest);},tickDistributedQueue:async()=>{starts++;}};
+ latest={plans:[structuredClone(plan)]};latest.plans[0].jobs[1].status='completed';
+ await retry.call(h,plan,plan.jobs[0],'/fixture',()=>true,true);
+ assert.equal(latest.plans[0].jobs[0].status,'pending');assert.equal(latest.plans[0].jobs[1].status,'completed');assert.equal(starts,1);
+ latest={plans:[structuredClone(plan)]};latest.plans[0].jobs[0].commandId='new-command';
+ await assert.rejects(retry.call(h,plan,plan.jobs[0],'/fixture',()=>true,true),/身份已变化/);assert.equal(starts,1);assert.equal(latest.plans[0].jobs[0].commandId,'new-command');
 });

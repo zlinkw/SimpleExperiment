@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.341",
-  "buildId": "3ecbfd2c080103dd22be3bff3a26594c6bf725920619fb865a47ca69a7dd8235",
+  "version": "0.5.342",
+  "buildId": "6ee6fe688d0fbd90232658c803a96de12945cdd0241304f01f39e3bed07a33f0",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -193,11 +193,11 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "14d19042797be2937a84aa408deab53b4bdfa1dd9cffe02e8c7f5fa76268b836"
+      "sha256": "fc6012a19b8074f9f03cfcac9fc15117f65e289a83425c6e8781c2beabc03572"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
-      "sha256": "72884d81e258e92fe9d70e66f106dee3e312a086fb07fac7ec9cfe584b3a1113"
+      "sha256": "b9a22d92235bf62b871a2bfc7f41c1efb64730fa89608c5135786807e99a1d23"
     },
     {
       "path": "dist/extension/PlanCleanupHost.js",
@@ -208,8 +208,12 @@
       "sha256": "4289ccec49898affa90e351913db5ecae18b5cde7323ff0c3a9ff8f1c9775ef8"
     },
     {
+      "path": "dist/extension/PlanCodeScopeHost.js",
+      "sha256": "9afabab7dcb1d699881ada5229fa6b82c0fd1b68d2300429b368e0fddfe8bff7"
+    },
+    {
       "path": "dist/extension/PlanRunHost.js",
-      "sha256": "2c64c84a2b827ba4f1452d12f882ef0b21853c2e299febb196a6e3dc23c5fe11"
+      "sha256": "63598014a61b40ab6f65cadb56a67db917f3d4c6a75a99dfddc1a999ba0e869d"
     },
     {
       "path": "dist/extension/ProviderCommands.js",
@@ -293,7 +297,7 @@
     },
     {
       "path": "dist/features/DistributedPlanQueue.js",
-      "sha256": "c175d55cb7941ac2b7de103b044bd32654e60aaedd9ffe362de6ec319b156447"
+      "sha256": "b90fd1d6bc84766fdaf0b28b20e911ade4626118ff4ea83f836843d5be8cac0b"
     },
     {
       "path": "dist/features/DistributedProjectContract.js",
@@ -301,7 +305,7 @@
     },
     {
       "path": "dist/features/DistributedSchedulingPolicy.js",
-      "sha256": "0b79fddd8e1a3f836ad7d36505fe5081525467ad0537e3f0faf29eca94ab2099"
+      "sha256": "8b36e889ffbe27c0a81ba22bed750d39b2755e15237272bcf89325abd986d260"
     },
     {
       "path": "dist/features/DraftPlans.js",
@@ -645,7 +649,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "0fc88ce1725f805d3ed2232c3351069ae7546e35588c117649e82e8845ae4fcb"
+      "sha256": "df9cbc9a47c8b41ff787642c8c4b1b9afe967e03d09351a758092dea798d22cf"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -725,7 +729,7 @@
     },
     {
       "path": "dist/tunnel/MultiEndpointRealtimeClient.legacy.js",
-      "sha256": "0d0fc6bd4db6967388627fa75f3108ee3f84c62484d8fbcaa4df3969c94d6b64"
+      "sha256": "8646cfca6d50ce0dab59dc387b6fcb88d557091b10840b04b0bbae5b59b2dcfe"
     },
     {
       "path": "dist/tunnel/OfflineImport.js",
@@ -749,7 +753,7 @@
     },
     {
       "path": "dist/tunnel/RealtimeTunnelClient.legacy.js",
-      "sha256": "4bcee41899d30d1df3827b177e54554ed1570489bdcb79757667034dcb019291"
+      "sha256": "5acc0fe4ad479a64b05643fe93cac0cf0b02fb4c19256e99abf3458b4443c586"
     },
     {
       "path": "dist/tunnel/RequestBudget.js",
@@ -765,7 +769,7 @@
     },
     {
       "path": "dist/tunnel/TunnelClient.legacy.js",
-      "sha256": "e5f109262adf2f917172635b0470356877423d1f288b14fe155a6cd4f7a4937d"
+      "sha256": "70ce5458900d6daa739a6f9e5fbcbef1d45a081b397832053fac2e8a0c9f9309"
     },
     {
       "path": "dist/tunnel/TunnelDiagnostics.js",
@@ -869,7 +873,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "9ae3780eff67330a58241dfb406edb37ce38e16b5a24f6cef92b534d7e37ad56"
+      "sha256": "6fbd194731d6ffd53983a3a53e0fd87291f58a06cac1cff35cffb0a1ebb517de"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",
@@ -993,7 +997,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "505d7178cf82e15eb3838d9c6ae06e4ce7444329a1ed83a84672a81935a74f9a"
+      "sha256": "a4cbeb5bb2697bc02257e2c3f46e1a4ceee7149162d46cbf3b2ef536194e478c"
     },
     {
       "path": "scripts/check-static.js",

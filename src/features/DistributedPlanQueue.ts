@@ -85,6 +85,7 @@ export type QueuedJob = {
   history?: Array<{ attempt: number; status: JobState; workerId?: string; commandId?: string; outputDir: string; finishedAt?: string; stopReason?: string; error?: string; outputRetiredAt?: string; admissionRejection?: QueuedJob["admissionRejection"]; cleanupOperationId?: string }>;
 };
 export type QueuedPlan = {
+  executionSource?: { digest: string; manifest: Record<string, { size: number; sha256: string }> };
   id: string;
   /** Explicit top-level PLAN identity, retained across a recorded rename. */
   stablePlanId?: string;
@@ -250,7 +251,12 @@ export function workerTaskLogBinding(plan: Pick<QueuedPlan, "id">, job: Pick<Que
   return { logPath };
 }
 
-export type WorkerSlots = { workerId: string; idleGpuIds: string[]; gpuSlots?: string[]; online: boolean; capacity?: number; codeFingerprint?: string; idleGpuAdmission?: boolean; declaredJobPaths?: boolean };
+export type WorkerSlots = { workerId: string; idleGpuIds: string[]; gpuSlots?: string[]; online: boolean; capacity?: number; codeFingerprint?: string; idleGpuAdmission?: boolean; declaredJobPaths?: boolean; compatiblePlans?: string[]; codeScopeErrors?: Record<string,string> };
+export function workerCanRunPlan(queue: DistributedQueue, worker: Pick<WorkerSlots,"workerId"|"codeFingerprint"|"compatiblePlans"|"codeScopeErrors">, plan: QueuedPlan): boolean {
+  if (worker.codeScopeErrors?.[plan.id]) return false;
+  return worker.compatiblePlans?.includes(plan.id) === true || worker.codeFingerprint === plan.codeFingerprint
+    && workerCodeVersionAvailable(queue, worker.workerId, plan.codeFingerprint);
+}
 export type DurableWorkerSnapshot = {
   workerId: string;
   capabilities?: { durablePlanQueue?: boolean; idleGpuAdmission?: boolean; queuedJobRecall?: boolean; declaredJobPaths?: boolean; gpuMemoryRatioScheduling?: number; schemaVersion?: number };
@@ -956,19 +962,21 @@ export function hostedRetryCandidates(plan: QueuedPlan, now = Date.now()): Queue
 }
 
 function noteFingerprintMismatch(plans: QueuedPlan[], workers: readonly WorkerSlots[]) {
-  if (!workers.some((row) => row.codeFingerprint)) return;
+  if (!workers.some((row) => row.codeFingerprint || row.codeScopeErrors || row.compatiblePlans?.length)) return;
   const anyOnline = workers.some((row) => row.online);
   for (const plan of plans) {
     if (plan.resultPathPolicy !== "declared") continue; // Retain old queue records, never resume their execution.
-    const matched = workers.some((row) => row.online && row.codeFingerprint === plan.codeFingerprint);
+    const matched = workers.some((row) => row.online && workerCanRunPlan({schemaVersion:1,plans},row,plan));
     const held = plan.jobs.some(jobHasLiveExecution);
-    const waiting = matched && !workers.some((row) => row.online && row.codeFingerprint === plan.codeFingerprint
-      && workerCodeVersionAvailable({ schemaVersion: 1, plans }, row.workerId, plan.codeFingerprint));
+    const waiting = !matched && workers.some(row => row.online && row.codeFingerprint === plan.codeFingerprint);
     for (const job of plan.jobs) {
       if (job.status !== "pending") continue;
+      const scopeErrors = workers.filter(row=>row.online).map(row=>row.codeScopeErrors?.[plan.id]).filter(Boolean);
+      if (!matched && scopeErrors.length) { job.blockReason = "PLAN 所需源码待核实：" + scopeErrors.slice(0,3).join("；"); continue; }
       if (waiting) job.blockReason = CODE_FINGERPRINT_WAITING;
       else if (anyOnline && !matched && !held) job.blockReason = CODE_FINGERPRINT_MISMATCH;
-      else if (job.blockReason === CODE_FINGERPRINT_MISMATCH || String(job.blockReason || "").startsWith("等待当前代码版本")) delete job.blockReason;
+      else if (job.blockReason === CODE_FINGERPRINT_MISMATCH || String(job.blockReason || "").startsWith("等待当前代码版本")
+        || matched && String(job.blockReason || "").startsWith("PLAN 所需源码待核实")) delete job.blockReason;
     }
   }
 }
@@ -985,19 +993,20 @@ export function allocateAvailable(queue: DistributedQueue, workers: readonly Wor
     && (!versioned || workers.some((row) => usableSlots(row)
       && (!options.requireIdleGpuAdmission || row.idleGpuAdmission === true) && row.codeFingerprint === plan.codeFingerprint)))?.codeFingerprint);
   const slots = new Map(workers.filter((row) => row.online && (!options.requireIdleGpuAdmission || row.idleGpuAdmission === true)
-    && (!versioned || Boolean(row.codeFingerprint)))
+    && (!versioned || Boolean(row.codeFingerprint) || Boolean(row.compatiblePlans?.length)))
     .map((row) => [row.workerId, (row.gpuSlots ?? [...new Set(row.idleGpuIds)]).slice(0, Math.max(0, row.capacity ?? row.gpuSlots?.length ?? row.idleGpuIds.length))]));
   for (const plan of plans) {
     if (plan.executionModeBlocked || plan.recoveryConflict) continue;
     if (plan.resultPathPolicy !== "declared") continue;
     if (options.localIdleOnly && plan.schedulingMode === "server_prequeue" && plan.localDispatchOverride !== true
       && !plan.jobs.some((job) => job.status === "pending" && job.localQueueOnly === true && !job.recallRequested)) continue;
-    if (!versioned && (!runnableFingerprint || plan.codeFingerprint !== runnableFingerprint)) continue;
+    if (!versioned && (!runnableFingerprint || plan.codeFingerprint !== runnableFingerprint)
+      && !workers.some(row=>row.online&&row.compatiblePlans?.includes(plan.id))) continue;
     const pending = plan.jobs.filter((job) => !job.manualDispatch && job.status === "pending" && !job.recallRequested && !job.stopIntent
       && (!options.localIdleOnly || plan.schedulingMode !== "server_prequeue" || plan.localDispatchOverride === true || job.localQueueOnly === true));
     if (!pending.length) continue;
-    const eligibleWorkerIds = new Set(workers.filter(row => row.declaredJobPaths === true && (!versioned || row.codeFingerprint === plan.codeFingerprint)
-      && workerCodeVersionAvailable({ ...queue, plans }, row.workerId, plan.codeFingerprint)).map(row => row.workerId));
+    const eligibleWorkerIds = new Set(workers.filter(row => row.declaredJobPaths === true
+      && !row.codeScopeErrors?.[plan.id] && (!versioned || workerCanRunPlan({ ...queue, plans }, row, plan))).map(row => row.workerId));
     const ranked = () => [...slots].filter(([id, gpuIds]) => gpuIds.length && eligibleWorkerIds.has(id))
       .sort((a, b) => b[1].length - a[1].length || a[0].localeCompare(b[0]));
     const assignedWorkerIds = [...new Set(plan.jobs.filter((job) => job.workerId).map((job) => job.workerId!))];
