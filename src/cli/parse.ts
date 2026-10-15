@@ -12,6 +12,8 @@ export interface CliFlags {
   operation?: string;
   jobs?: string;
   worker?: string;
+  index?: string;
+  command?: string;
   gpu?: string;
   confirm?: boolean;
   "stop-running"?: boolean;
@@ -32,7 +34,7 @@ export interface ParsedCli {
   flags: CliFlags;
 }
 
-const VALUE_FLAGS = new Set(["--status", "--limit", "--lines", "--experiment", "--format", "--seed", "--from", "--out", "--output", "--file", "--type", "--workflow", "--jobs", "--worker", "--gpu", "--operation"]);
+const VALUE_FLAGS = new Set(["--status", "--limit", "--lines", "--experiment", "--format", "--seed", "--from", "--out", "--output", "--file", "--type", "--workflow", "--jobs", "--worker", "--gpu", "--operation", "--index", "--command"]);
 
 export function parseArgv(argv: string[]): ParsedCli {
   const positionals: string[] = [];
@@ -93,6 +95,8 @@ export function parseArgv(argv: string[]): ParsedCli {
 }
 
 function applyFlag(flags: CliFlags, name: string, value: string): void {
+  if (name === "--index") { flags.index = value; return; }
+  if (name === "--command") { flags.command = value; return; }
   if (name === "--operation") { flags.operation = value; return; }
   if (["--workflow", "--jobs", "--worker", "--gpu"].includes(name)) { flags[name.slice(2) as "workflow" | "jobs" | "worker" | "gpu"] = value; return; }
   if (name === "--status") flags.status = value;

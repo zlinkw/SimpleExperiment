@@ -5,6 +5,27 @@ const { readSource } = require("../_helpers/sourceReader");
 
 const panel = readSource("src/ui/PanelHtml.ts");
 
+test('complete PLAN cards exclude anomalies and unverified logs from clean success and retain concise evidence',()=>{
+  for(const completionState of ['verified','review_required',undefined]){
+    const sandbox=clickSandbox(),diagnostics={schemaVersion:1,commandId:'c',runId:'c',state:completionState==='review_required'?'anomalous':'clear',
+      scanComplete:true,count:completionState==='review_required'?1:0,types:{AttributeError:1},phases:{train:1},
+      exceptions:[{summary:'Traceback (most recent call last):\n  File private.py\nAttributeError: callback split',logPath:'simple_cluster/tmux_logs/c.log',lineStart:3,lineEnd:7}]};
+    const state={distributedPlans:[{id:'wf',planFile:'plans/runtime.yaml',jobs:[{index:0,case:'a',seed:42,status:'completed',lifecycleProtocol:2,
+      executionState:'exited',resultState:'complete',exitCode:0,workerId:'w',commandId:'c',completionState,runtimeDiagnostics:completionState?diagnostics:undefined}]}]};
+    sandbox.render(state);
+    if(completionState==='verified')assert.match(sandbox.html,/成功 1\/1/);
+    else{assert.match(sandbox.html,/成功 0\/1/);assert.doesNotMatch(sandbox.html,/executionPlanRow completed/);assert.match(sandbox.html,/status-warning/);}
+    if(completionState==='review_required'){
+      assert.match(sandbox.html,/完成但有异常，待复核/);assert.match(sandbox.html,/退出码 0/);assert.match(sandbox.html,/异常 1 次 · AttributeError · 阶段 train/);
+      assert.match(sandbox.html,/AttributeError: callback split/);assert.match(sandbox.html,/行 3–7/);assert.doesNotMatch(sandbox.html,/Traceback|private.py/);
+      const prior=sandbox.executionRenderKeysForState(state).planList;
+      const changed=structuredClone(state);changed.distributedPlans[0].jobs[0].runtimeDiagnostics.count=2;
+      assert.notEqual(sandbox.executionRenderKeysForState(changed).planList,prior);
+    }
+    if(!completionState)assert.match(sandbox.html,/运行日志待核实/);
+  }
+});
+
 test('native cards display readable execution and result states independently', () => {
   for(const [executionState,resultState,status,executionLabel,resultLabel] of [
     ['failed','complete','failed','失败','完整'],['exited','incomplete','unknown','已结束','不完整'],
@@ -12,7 +33,7 @@ test('native cards display readable execution and result states independently', 
     const sandbox=clickSandbox();
     sandbox.render({distributedPlans:[{id:'wf',planFile:'plans/states.yaml',jobs:[{index:0,case:'a',seed:42,status,
       lifecycleProtocol:2,executionState,resultState,workerId:'w',commandId:'c',outputDir:'work/job'}]}]});
-    assert.match(sandbox.html,new RegExp('执行：'+executionLabel));assert.match(sandbox.html,new RegExp('结果：'+resultLabel));
+    assert.match(sandbox.html,new RegExp('执行：'+executionLabel));assert.match(sandbox.html,new RegExp('产物：'+resultLabel));
     assert.doesNotMatch(sandbox.html,/执行：(?:failed|exited|running|missing)|产物：(?:complete|incomplete|unverified)/);
   }
 });
@@ -28,7 +49,7 @@ test('production panel projection preserves independent states and redraws resul
   assert.equal(plans[0].jobs[0].lifecycleProtocol,2);assert.equal(plans[0].jobs[0].executionState,'failed');
   assert.equal(plans[0].jobs[0].resultState,'complete');
   const sandbox=clickSandbox(),state={distributedPlans:plans};sandbox.render(state);
-  assert.match(sandbox.html,/执行：失败/);assert.match(sandbox.html,/结果：完整/);
+  assert.match(sandbox.html,/执行：失败/);assert.match(sandbox.html,/产物：完整/);
   const changed=structuredClone(state);changed.distributedPlans[0].jobs[0].resultState='incomplete';
   assert.notEqual(sandbox.executionRenderKeysForState(state).planList,sandbox.executionRenderKeysForState(changed).planList);
 });
@@ -113,7 +134,7 @@ test("completed Plan history keeps explicit expansion across status refreshes, c
   const toggleEnd = panel.indexOf('const historyDetails =', toggleStart);
   vm.runInContext('this.toggleHistory = function(event) {' + panel.slice(toggleStart, toggleEnd) + '};', sandbox);
   const plan = { id: "completed-run", planFile: "plans/done.yaml", enqueuedAt: "2026-10-09T08:00:00Z",
-    jobs: [{ index: 0, case: "done", seed: 42, status: "completed", workerId: "worker-a", commandId: "done-command" }] };
+    jobs: [{ index: 0, case: "done", seed: 42, status: "completed", completionState: "verified", workerId: "worker-a", commandId: "done-command" }] };
   const render = (extra = []) => sandbox.render({ distributedPlans: [plan, ...extra] });
   const history = /<details class="executionPlanHistory" data-details-key="execution-plan-history"([^>]*)>/;
   render();
@@ -182,14 +203,14 @@ test("Plan overview keeps completed and failed Plans visible without routine val
     Map,
     Set,
     operationRowsForState: () => [
-      { planFile: "plans/done.yaml", status: "completed", updatedAt: "2026-09-20T10:00:00Z" },
+      { planFile: "plans/done.yaml", status: "completed", completionState: "verified", updatedAt: "2026-09-20T10:00:00Z" },
       { planFile: "plans/old-fail.yaml", status: "failed", finishedAt: "2026-09-20T11:00:00Z" },
       { planFile: "plans/new-fail.yaml", status: "failed", finishedAt: "2026-09-25T12:10:00Z" },
       { planFile: "plans/live.yaml", status: "running", updatedAt: "2026-09-20T09:00:00Z" },
-      { planFile: "plans/live.yaml", type: "validate-plan", status: "completed", updatedAt: "2026-09-20T08:00:00Z" },
+      { planFile: "plans/live.yaml", type: "validate-plan", status: "completed", completionState: "verified", updatedAt: "2026-09-20T08:00:00Z" },
     ],
     taskSectionViewModelForState: () => ({ allRows: [
-      { planFile: "plans/done.yaml", status: "completed" },
+      { planFile: "plans/done.yaml", status: "completed", completionState: "verified" },
       { planFile: "plans/live.yaml", status: "running" },
     ] }),
     taskPlanFile: (row) => row.planFile,
@@ -262,7 +283,7 @@ test("persisted distributed jobs keep their Plan live after restart despite old 
   sandbox.render({ sessionStartedAt: "2026-09-25T12:00:00Z", distributedPlans: [{
     id: "distributed-1", planFile: "plans/corim.yaml", enqueuedAt: "2026-09-24T10:00:00Z",
     jobs: [
-      { index: 0, case: "bus", seed: 42, status: "completed", workerId: "worker-a", gpuId: "0", commandId: "old-job" },
+      { index: 0, case: "bus", seed: 42, status: "completed", completionState: "verified", workerId: "worker-a", gpuId: "0", commandId: "old-job" },
       { index: 1, case: "pad", seed: 42, status: "running", workerId: "worker-b", gpuId: "1", commandId: "live-job" },
     ],
   }] });
@@ -297,7 +318,7 @@ test("latest distributed attempt determines completed or failed Plan display", (
   const failed = { id: "older", planFile: "plans/concatenation.yaml", enqueuedAt: "2026-09-24T10:00:00Z",
     jobs: [{ index: 0, case: "bus", seed: 42, status: "failed", workerId: "nwpu5", commandId: "failed-job" }] };
   const completed = { id: "newer", planFile: "plans/concatenation.yaml", enqueuedAt: "2026-09-25T10:00:00Z",
-    jobs: [{ index: 0, case: "bus", seed: 42, status: "completed", workerId: "nwpu2", commandId: "completed-job" }] };
+    jobs: [{ index: 0, case: "bus", seed: 42, status: "completed", completionState: "verified", workerId: "nwpu2", commandId: "completed-job" }] };
   sandbox.render({ sessionStartedAt: "2026-09-25T12:00:00Z", distributedPlans: [failed, completed] });
   assert.match(html, /executionPlanRow completed/);
   assert.match(html, /成功 1\/1 · 100%/);
@@ -340,7 +361,7 @@ test("clearing history hides terminal distributed Plans but keeps active jobs", 
   const active = { id: "active", planFile: "plans/active.yaml", enqueuedAt: "2026-09-20T10:00:00Z",
     jobs: [{ status: "running", case: "b", seed: 1 }] };
   const recent = { id: "recent", planFile: "plans/recent.yaml", enqueuedAt: "2026-09-25T12:00:00Z",
-    jobs: [{ status: "completed", case: "c", seed: 1 }] };
+    jobs: [{ status: "completed", completionState: "verified", case: "c", seed: 1 }] };
   sandbox.render({ executionHistoryCutoffs: { all: "2026-09-25T10:00:00Z" }, distributedPlans: [old, active, recent] });
   assert.doesNotMatch(html, /old.yaml/);
   assert.match(html, /active.yaml|recent.yaml/);
@@ -446,11 +467,11 @@ test("queue-only deferred Plan, current success counts, and manual fold survive 
     deferredPlans: [{ id: "wait-1", planFile: "plans/queued.yaml", status: "pending", reason: "等待当前代码版本" }],
     distributedPlans: [
       { id: "old-run", planFile: "plans/live.yaml", enqueuedAt: "2026-09-24T10:00:00Z", jobs: [
-        { index: 0, case: "old", seed: 1, status: "completed", commandId: "history-ok" },
+        { index: 0, case: "old", seed: 1, status: "completed", completionState: "verified", commandId: "history-ok" },
         { index: 1, case: "old", seed: 2, status: "failed", commandId: "history-fail" },
       ] },
       { id: "current-run", planFile: "plans/live.yaml", enqueuedAt: "2026-09-25T11:00:00Z", jobs: [
-        { index: 0, case: "bus", seed: 7, status: "completed", commandId: "current-ok" },
+        { index: 0, case: "bus", seed: 7, status: "completed", completionState: "verified", commandId: "current-ok" },
         { index: 1, case: "pad", seed: 7, status: "failed", commandId: "current-fail", artifactError: "missing metric" },
         { index: 2, case: "edge", seed: 7, status: "running", commandId: "current-run" },
       ] },
@@ -497,7 +518,7 @@ test("server unknown never renders running, hosted readiness requires all confir
   const sandbox = clickSandbox();
   const plan = { id: "server-plan", planFile: "plans/authority.yaml", schedulingMode: "server_prequeue",
     enqueuedAt: "2026-09-29T12:00:00Z", planJobCount: 2, remoteAcceptedJobCount: 2,
-    jobs: [{ index: 0, case: "bus", seed: 42, status: "completed", workerId: "nwpu3" },
+    jobs: [{ index: 0, case: "bus", seed: 42, status: "completed", completionState: "verified", workerId: "nwpu3" },
       { index: 1, case: "pad", seed: 42, status: "unknown", workerId: "nwpu5" }] };
   sandbox.render({ distributedPlans: [plan] });
   assert.match(sandbox.html, />待核实</); assert.match(sandbox.html, /尚未完整确认托管/);
@@ -517,14 +538,14 @@ test("newer active preflight replaces an older completed run until the new run e
     operationIsActive: (value) => value === "running" || value === "started",
   });
   const oldRun = { id: "old-run", planFile: "plans/live.yaml", enqueuedAt: "2026-09-25T10:00:00Z", jobs: [
-    { index: 0, case: "bus", seed: 1, status: "completed" },
-    { index: 1, case: "pad", seed: 1, status: "completed" },
+    { index: 0, case: "bus", seed: 1, status: "completed", completionState: "verified" },
+    { index: 1, case: "pad", seed: 1, status: "completed", completionState: "verified" },
   ] };
   sandbox.render({ distributedPlans: [oldRun] });
   assert.match(sandbox.html, /校验中 · 待生成 job/);
   assert.match(sandbox.html, />校验中</);
   assert.doesNotMatch(sandbox.html, /成功 2\/2|bus seed 1/);
-  preflight[0] = { ...preflight[0], status: "completed" };
+  preflight[0] = { ...preflight[0], status: "completed", completionState: "verified" };
   sandbox.render({
     distributedPlans: [oldRun, { id: "new-run", planFile: "plans/live.yaml", enqueuedAt: "2026-09-25T12:05:00Z", jobs: [
       { index: 0, case: "edge", seed: 3, status: "pending" },
@@ -539,7 +560,7 @@ test("background attempt recovery and result operations never hide restored Plan
   const plan = { id: "distributed-plan-1791608959184-9rrh9s",
     planFile: "experiments/plans/comparison_tuning/qmf.yaml", enqueuedAt: "2026-10-10T05:09:19.203Z",
     jobs: Array.from({ length: 18 }, (_, index) => ({ index, case: "qmf_pad_ufes_20_c00", seed: 42 + index,
-      status: index < 15 ? "completed" : "running", workerId: "nwpu2", commandId: "job-" + index })) };
+      status: index < 15 ? "completed" : "running", completionState: index < 15 ? "verified" : undefined, workerId: "nwpu2", commandId: "job-" + index })) };
   const operation = { planFile: plan.planFile, status: "running", startedAt: "2026-10-10T09:35:16Z",
     payload: { workflowId: plan.id } };
   const sandbox = clickSandbox({ operationRowsForState: () => [operation] });
@@ -631,7 +652,7 @@ test("production operation projection and normalization retain submission identi
 test("deferred status stays distinct and is not hidden by an older distributed run", () => {
   const sandbox = clickSandbox();
   sandbox.render({
-    distributedPlans: [{ id: "old", planFile: "plans/held.yaml", enqueuedAt: "2026-09-25T09:00:00Z", jobs: [{ status: "completed", case: "old", seed: 1 }] }],
+    distributedPlans: [{ id: "old", planFile: "plans/held.yaml", enqueuedAt: "2026-09-25T09:00:00Z", jobs: [{ status: "completed", completionState: "verified", case: "old", seed: 1 }] }],
     deferredPlans: [
       { id: "hold", planFile: "plans/held.yaml", status: "blocked", reason: "代码指纹不匹配" },
       { id: "work", planFile: "plans/work.yaml", status: "processing", error: "正在准备输出目录" },
@@ -658,7 +679,7 @@ test("plan cards follow submission order rather than running or failure priority
   const sandbox = clickSandbox();
   sandbox.render({
     distributedPlans: [
-      { id: "done", planFile: "plans/done.yaml", enqueuedAt: "2026-09-25T12:00:00Z", jobs: [{ status: "completed", case: "a", seed: 1 }] },
+      { id: "done", planFile: "plans/done.yaml", enqueuedAt: "2026-09-25T12:00:00Z", jobs: [{ status: "completed", completionState: "verified", case: "a", seed: 1 }] },
       { id: "bad", planFile: "plans/bad.yaml", enqueuedAt: "2026-09-25T12:01:00Z", jobs: [{ status: "failed", case: "b", seed: 1 }] },
       { id: "hold", planFile: "plans/hold.yaml", enqueuedAt: "2026-09-25T12:02:00Z", jobs: [{ status: "pending", case: "c", seed: 1, blockReason: "代码指纹不匹配：旧代码" }] },
       { id: "wait", planFile: "plans/wait.yaml", enqueuedAt: "2026-09-25T12:03:00Z", jobs: [{ status: "pending", case: "d", seed: 1 }] },
@@ -713,14 +734,14 @@ test("manual fold survives an empty snapshot and webview restore", () => {
   assert.equal(sandbox.collapsedExecutionPlanKeys.has("plans/live.yaml"), true);
   assert.equal(sandbox.persisted.some((patch) => patch.collapsedExecutionPlanKeys), false);
   sandbox.render({
-    distributedPlans: [{ id: "back", planFile: "plans/live.yaml", enqueuedAt: "2026-09-25T12:00:00Z", jobs: [{ status: "completed", case: "bus", seed: 1 }] }],
+    distributedPlans: [{ id: "back", planFile: "plans/live.yaml", enqueuedAt: "2026-09-25T12:00:00Z", jobs: [{ status: "completed", completionState: "verified", case: "bus", seed: 1 }] }],
   });
   assert.match(sandbox.html, /已折叠 Plan 1/);
   assert.match(sandbox.html, /恢复监控/);
   assert.doesNotMatch(sandbox.html, /data-execution-plan-key="plans\/live.yaml"/);
   const restored = clickSandbox({ collapsedExecutionPlanKeys: new Set(sandbox.collapsedExecutionPlanKeys) });
   restored.render({
-    distributedPlans: [{ id: "back", planFile: "plans/live.yaml", enqueuedAt: "2026-09-25T12:00:00Z", jobs: [{ status: "completed", case: "bus", seed: 1 }] }],
+    distributedPlans: [{ id: "back", planFile: "plans/live.yaml", enqueuedAt: "2026-09-25T12:00:00Z", jobs: [{ status: "completed", completionState: "verified", case: "bus", seed: 1 }] }],
   });
   assert.match(restored.html, /已折叠 Plan 1/);
   assert.match(restored.html, /成功 1\/1/);
@@ -747,7 +768,7 @@ test("exact operation cleanup hides only terminal records", () => {
 test("completed history displays run-scoped global artifact verification without expanding details", () => {
   const sandbox = clickSandbox();
   const completed = { id: "latest-run", planFile: "plans/ebmc.yaml", enqueuedAt: "2026-10-07T12:00:00Z",
-    jobs: [{ index: 0, case: "bus", seed: 42, status: "completed" }] };
+    jobs: [{ index: 0, case: "bus", seed: 42, status: "completed", completionState: "verified" }] };
   for (const [status, label] of [["checking", "正在核验全局同步"], ["synced", "已全局同步最新产物"],
     ["partial", "尚未全局同步"], ["unknown", "全局同步待核验"]]) {
     sandbox.render({ distributedPlans: [completed], planArtifactSyncStatuses: {

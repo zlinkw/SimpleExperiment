@@ -55,7 +55,9 @@ Examples:
 `;
 function domainHelp(domain) {
     const rows = {
-        task: `Usage: simpleex task dispatch --workflow ID --jobs 0,1 --worker ID --gpu 0 --confirm [--stop-running] [--json]`,
+        task: `Usage: simpleex task dispatch --workflow ID --jobs 0,1 --worker ID --gpu 0 --confirm [--stop-running] [--json]
+       simpleex task analyze --workflow ID --index 0 [--json]
+       simpleex task analyze --worker ID --command COMMAND_ID --output JOB_OUTPUT_DIR [--json]`,
         project: `Usage: simpleex project status [--json]`,
         experiment: `Usage:
   simpleex experiment list [--status <status>] [--type workflow|worker_run] [--limit <n>] [--json]

@@ -52,6 +52,7 @@ export function returnPulledJobToLocal(queue: any, planId: string, index: number
       commandId: undefined, runKey: undefined, workerId: undefined, gpuId: undefined, manualDispatch: undefined, localQueueOnly: true,
       recallRequested: undefined, recallOperationId: undefined, reassignmentPending: undefined, stopIntent: undefined,
       executionState: undefined, resultState: undefined, statusQueryError: undefined, lastObservedAt: undefined,
+      runtimeDiagnostics: undefined, completionState: undefined, exitCode: undefined,
       error: undefined, blockReason: undefined, trustedTerminalStatus: undefined,
       history: [...(job.history || []), { commandId, status: job.status, outputDir: job.outputDir, stopReason: "requeue" }] }) } ) };
 }

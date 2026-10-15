@@ -21,7 +21,9 @@ function fixture() {
       if (options.discovery) return { queryComplete: true, capabilities: { resultCollection: protocol }, declaredJobs: [declaration] };
       return { queryComplete: true, capabilities: { resultCollection: protocol }, tasks: [], declaredResults: gone
         ? [{ index: 0, outputDir: declaration.output_dir, completed: false, resultState: 'missing' }]
-        : [{ index: 0, outputDir: declaration.output_dir, completed: true, runId: 'command', files: Object.entries(raw).map(([remotePath, text]) => ({ remotePath, bytes: Buffer.byteLength(text), sha256: resultDigest(text) })) }] };
+        : [{ index: 0, outputDir: declaration.output_dir, completed: true, runId: 'command',
+          runtimeDiagnostics:{schemaVersion:1,commandId:'command',runId:'command',state:'clear',count:0,scanComplete:true},
+          files: Object.entries(raw).map(([remotePath, text]) => ({ remotePath, bytes: Buffer.byteLength(text), sha256: resultDigest(text) })) }] };
     } },
     simpleSftpCapability: async () => ({ methodOptions: { 'sync.downloadMappedPaths': { memoryOnly: true, memoryWrapperResults: true } } }),
     sftpServerOptions: row => row,

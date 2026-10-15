@@ -78,7 +78,7 @@ class ResultCollectionHost {
         const completed = (snapshot.tasks || []).filter((task) => task.observation?.result?.verified === true
             && task.observation.result.runId === task.commandId && task.observation.result.status === "completed"
             && (!task.observation.tmux || task.observation.tmux.dead === true));
-        const keys = completed.map((task) => scope + "\0" + snapshot.workerId + "\0" + task.commandId);
+        const keys = completed.map((task) => scope + "\0" + snapshot.workerId + "\0" + task.commandId + ":" + task.runtimeDiagnostics?.state + ":" + task.runtimeDiagnostics?.scanComplete + ":" + task.runtimeDiagnostics?.count);
         const fresh = keys.filter((key) => !this.seen.has(key));
         if (!fresh.length)
             return;
@@ -225,21 +225,28 @@ class ResultCollectionHost {
                 throw Error("PLAN 已变化，未发布过期结果。");
         }
         check();
-        const tables = (0, FreshResults_1.freshResultTables)(result, plans, h.resultAdapterRules().derivedMetric);
+        const tables = { ...(0, FreshResults_1.freshResultTables)(result, plans, h.resultAdapterRules().derivedMetric),
+            ...Object.fromEntries(Object.entries((0, FreshResults_1.freshResultTables)(result, plans, h.resultAdapterRules().derivedMetric, true)).map(([key, value]) => ["review/" + key, value])) };
         const directory = h.resultCsvDirectory || "experiments/results";
         const published = await (0, LatestResultExport_1.publishLatestResult)(root, directory, result, tables, current);
         check();
         const coverage = Object.fromEntries(inputs.map((plan) => [plan.planFile, {
                 expected: plans.find(row => row.planFile === plan.planFile)?.jobs.length || plan.jobCount || 0,
-                completed: result.jobs.filter(job => job.planFile === plan.planFile && job.state === "complete").length
+                completed: result.jobs.filter(job => job.planFile === plan.planFile && job.state === "complete" && job.completionState === "verified" && job.executionState !== "failed").length,
+                artifactsComplete: result.jobs.filter(job => job.planFile === plan.planFile && job.state === "complete").length,
+                reviewRequired: result.jobs.filter(job => job.planFile === plan.planFile && job.state === "complete" && (job.completionState !== "verified" || job.executionState === "failed")).length
             }]));
         const report = { source: "active_query", observedAt: result.observedAt, current: published, merged: published, downloaded: result.records.length > 0, planCoverage: coverage,
             plans: plans.map(plan => plan.planFile), discovered: inputs.length, included: [...new Set(result.records.map(row => row.planFile))],
             missing: result.jobs.filter(job => job.state !== "complete").map(job => job.planFile + " · " + job.case + "/" + job.seed + "：" + (job.error || job.state)),
-            skipped: result.errors, jobs: result.jobs, completed: result.jobs.filter(job => job.state === "complete").length, expected: Object.values(coverage).reduce((sum, row) => sum + row.expected, 0),
+            skipped: result.errors, jobs: result.jobs, completed: result.jobs.filter(job => job.state === "complete" && job.completionState === "verified" && job.executionState !== "failed").length,
+            reviewRequired: result.jobs.filter(job => job.state === "complete" && (job.completionState !== "verified" || job.executionState === "failed")).length,
+            artifactsComplete: result.jobs.filter(job => job.state === "complete").length, expected: Object.values(coverage).reduce((sum, row) => sum + row.expected, 0),
             tables: Object.values(tables).map(table => ({ tableKey: table.tableKey, dataset: table.dataset, relativePath: table.relativePath, markdownPath: table.markdownPath })),
             results: result.records.map(row => ({ planFile: row.planFile, workerId: row.workerId, runId: row.runId, dimensions: { case: row.case, seed: row.seed, method: row.method,
-                    dataset: row.dataset, rate_percent: row.rate, eval_protocol: row.endpoint }, metrics: row.metrics, sourceFiles: [{ path: row.jobDir }] })) };
+                    dataset: row.dataset, rate_percent: row.rate, eval_protocol: row.endpoint }, metrics: row.metrics, sourceFiles: [{ path: row.jobDir }],
+                completionState: result.jobs.find(job => job.commandId === row.runId)?.completionState,
+                runtimeDiagnostics: result.jobs.find(job => job.commandId === row.runId)?.runtimeDiagnostics })) };
         h.resultsSummary = report;
         const { results: _records, tables: _tables, jobs: _jobs, ...brief } = report;
         h.resultSyncReport = brief;

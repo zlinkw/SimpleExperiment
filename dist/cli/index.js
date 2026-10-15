@@ -32,6 +32,11 @@ async function runSimpleCli(argv) {
     }
     await initializeProjectRoot();
     if (domain === "task") {
+        if (action === "analyze") {
+            (0, format_1.writeJson)(await (0, api_1.callApi)("tasks.analyze", { workflowId: flags.workflow, index: flags.index, workerId: flags.worker,
+                commandId: flags.command, outputDir: flags.out }));
+            return errors_1.EXIT_OK;
+        }
         if (action !== "dispatch")
             throw (0, errors_1.usageError)("用法：simpleex task dispatch --workflow ID --jobs 0,1 --worker ID --gpu 0 --confirm [--stop-running]");
         const jobs = String(flags.jobs || "").trim();

@@ -1,5 +1,6 @@
 // @ts-nocheck
 import * as vscode from "vscode";
+import { analyzeRuntimeLog } from "./RuntimeLogAnalysisHost";
 import * as fs from "fs/promises";
 import * as fsNode from "fs";
 import * as path from "path";
@@ -583,6 +584,7 @@ const uiActionCommands = new Set<WebviewActionCommand>([
     "abortScheduler",
 ]);
 const SAFE_WEBVIEW_COMMANDS = new Set([
+    "analyzeRuntimeLog",
     "answerRunConfirmation", "retryPlanSubmission", "cancelPlanSubmission",
     "cleanupPlan",
     "markJobUnavailable", "restoreJobAvailability",
@@ -1401,6 +1403,7 @@ export class RealtimeTunnelPanelProvider {
                     preview: { workflowId: params.workflowId, indices: params.indices, workerId: params.workerId, gpuId: params.gpuId } });
                 return new ManualDispatchHost(this, workspaceRoot()).dispatch(params);
             },
+            "tasks.analyze": async (params, _server, context) => analyzeRuntimeLog(this, workspaceRoot(), params, context.signal),
             "tasks.list": async (_params, _server, context) => {
                 const state = this.buildState();
                 const workerIds = this.enabledWorkerConfigs().map((worker) => String(worker.id || "")).filter(Boolean);
@@ -1412,6 +1415,8 @@ export class RealtimeTunnelPanelProvider {
                     lifecycleProtocol: 2, stateSource: "active_query", jobLifecycle: live.plans.flatMap(plan => plan.jobs.map(job => ({
                         workflowId: plan.id, commandId: job.commandId, index: job.index, workerId: job.workerId,
                         status: job.status, executionState: job.executionState, resultState: job.resultState,
+                        completionState: job.completionState, runtimeDiagnostics: job.runtimeDiagnostics, exitCode: job.exitCode,
+                        successful: job.status === "completed" && job.completionState === "verified",
                         error: job.statusQueryError, message: job.blockReason }))),
                     schedulerStates: state.schedulerStates || [],
                     experimentTraces: state.experimentTraces || [],
@@ -5329,6 +5334,12 @@ return this.testTunnel(true);
                 return await this.retryDistributedJobFromUi(message);
             case "dispatchJobs":
                 return await new ManualDispatchHost(this, workspaceRoot()).dispatch(message, true);
+            case "analyzeRuntimeLog": {
+                const report = await analyzeRuntimeLog(this, workspaceRoot(), message);
+                const document = await vscode.workspace.openTextDocument({ language: "json", content: JSON.stringify(report, null, 2) });
+                await vscode.window.showTextDocument(document, { preview: true });
+                return report;
+            }
             case "recallFailedJob":
                 {
                     const queue = await this.loadDistributedQueue(workspaceRoot());
@@ -21398,6 +21409,7 @@ return "历史服务器";
                     unavailable: DistributedPlanQueue.jobIsUnavailable(plan, job) ? job.unavailable : undefined,
                     status: job.status, lifecycleProtocol: job.lifecycleProtocol, executionState: job.executionState,
                     resultState: job.resultState, statusQueryError: job.statusQueryError,
+                    completionState: job.completionState, runtimeDiagnostics: job.runtimeDiagnostics, exitCode: job.exitCode,
                     workerId: job.workerId, gpuId: job.gpuId, outputDir: job.outputDir,
                     localQueueOnly: job.localQueueOnly === true, recallRequested: job.recallRequested === true,
                     recallOperationId: job.recallOperationId || "",
@@ -24686,7 +24698,9 @@ function filterResultsSummaryForSelectedPlan(summary, selectedPlan, planRevision
         const jobs = (summary.jobs || []).filter(row => samePlanSelection(row.planFile, plan));
         const coverage = summary.planCoverage?.[plan] || {};
         return { ...summary, planFile: plan, jobs, results: (summary.results || []).filter(row => samePlanSelection(row.planFile, plan)),
-            completed: coverage.completed ?? jobs.filter(row => row.state === "complete").length, expected: coverage.expected ?? jobs.length };
+            completed: coverage.completed ?? jobs.filter(row => row.state === "complete" && row.completionState === "verified" && row.executionState !== "failed").length,
+            reviewRequired: coverage.reviewRequired ?? jobs.filter(row => row.state === "complete" && (row.completionState !== "verified" || row.executionState === "failed")).length,
+            expected: coverage.expected ?? jobs.length };
     }
     const summaryPlan = normalizePlanSelectionKey(summary.planFile || summary.plan_file || "");
     const summaryPlanMatches = Boolean(summaryPlan && samePlanSelection(summaryPlan, plan));
@@ -25966,6 +25980,7 @@ const HOST_OPERATION_LEASE_ACTION_LABELS = Object.freeze({
     killTmuxWindow: "关闭或清空 tmux 会话",
     clearTmuxTaskTabs: "清空任务标签页",
     dispatchJobs: "手动派发任务",
+    analyzeRuntimeLog: "重新分析运行日志",
     retryDistributedJob: "核验并恢复任务",
     recallFailedJob: "召回失败 job 到本机重跑",
     markJobUnavailable: "标记 job 不可用",

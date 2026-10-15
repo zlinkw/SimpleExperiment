@@ -27,7 +27,9 @@ test('unknown exit codes use this run manifest without inventing an execution fa
   const result={runId:'c',status:'completed',present:true,verified:true};
   for (const exitCode of [undefined,null]) {
     const tmux={windowId:'@102',paneId:'%102',dead:true,phase:'running',exitCode};
-    assert.deepEqual(taskLifecycle({...base,tmux,result}),{execution:'exited',result:'complete',status:'completed',message:undefined});
+    const observed=taskLifecycle({...base,tmux,result});
+    assert.equal(observed.execution,'exited'); assert.equal(observed.result,'complete'); assert.equal(observed.status,'completed');
+    assert.equal(observed.completionState,'unverified'); assert.equal(observed.exitCode,exitCode);
     for (const evidence of [undefined,{...result,runId:'old'},{...result,present:false},{...result,verified:false},{...result,status:'failed'}]) {
       const value=taskLifecycle({...base,tmux,result:evidence});
       assert.equal(value.execution,'exited');
@@ -37,6 +39,21 @@ test('unknown exit codes use this run manifest without inventing an execution fa
   }
   for (const exitCode of [1,7,-9])
     assert.equal(taskLifecycle({...base,result,tmux:{dead:true,exitCode}}).status,'failed');
+});
+test('process exit, result completeness and runtime health are independent; old logs never prove clean success',()=>{
+  const result={runId:'c',status:'completed',present:true,verified:true};
+  const clear={schemaVersion:1,commandId:'c',runId:'c',state:'clear',count:0,scanComplete:true};
+  const anomaly={...clear,state:'anomalous',count:1,types:{AttributeError:1},phases:{train:1}};
+  const clean=taskLifecycle({...base,result,runtimeDiagnostics:clear,tmux:{dead:true,exitCode:0}});
+  assert.equal(clean.completionState,'verified');assert.equal(clean.status,'completed');
+  const review=taskLifecycle({...base,result,runtimeDiagnostics:anomaly,tmux:{dead:true,exitCode:0}});
+  assert.equal(review.completionState,'review_required');assert.equal(review.exitCode,0);assert.equal(review.result,'complete');
+  assert.equal(review.runtimeDiagnostics.phases.train,1);
+  assert.equal(taskLifecycle({...base,result,runtimeDiagnostics:{...clear,commandId:'old'}}).completionState,'unverified');
+  assert.equal(taskLifecycle({...base,result:{...result,exitCode:7},runtimeDiagnostics:clear}).status,'failed');
+  assert.equal(taskLifecycle({...base,result:{...result,exitCode:7},runtimeDiagnostics:clear,tmux:{dead:true,exitCode:null}}).status,'failed');
+  const failed=taskLifecycle({...base,result:{...result,status:'failed',artifactsComplete:true,exitCode:7},runtimeDiagnostics:anomaly});
+  assert.equal(failed.status,'failed');assert.equal(failed.result,'complete');assert.equal(failed.completionState,'review_required');
 });
 test('queue refresh corrects the old Worker failure label using current tmux and manifest evidence', () => {
   const Q=require('../../src/features/DistributedPlanQueue.ts');

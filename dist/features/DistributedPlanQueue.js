@@ -138,7 +138,7 @@ function restoreFormalJobQueue(queue) {
 }
 function clearNativeProjection(job) {
     job.status = job.unavailable || job.retainExistingOutputs ? "cancelled" : job.commandId ? "unknown" : "pending";
-    for (const key of ["executionState", "resultState", "statusQueryError", "lastObservedAt", "trustedTerminalStatus", "error", "blockReason",
+    for (const key of ["executionState", "resultState", "completionState", "runtimeDiagnostics", "exitCode", "statusQueryError", "lastObservedAt", "trustedTerminalStatus", "error", "blockReason",
         "tmuxPane", "tmuxWindowId", "tmuxSession", "logPath", "finishedAt"])
         delete job[key];
 }
@@ -146,7 +146,7 @@ function clearNativeProjection(job) {
 function keepCurrentObservations(queue, live, now = Date.now()) {
     if (!live)
         return queue;
-    const keys = ["status", "executionState", "resultState", "statusQueryError", "lastObservedAt", "error", "blockReason",
+    const keys = ["status", "executionState", "resultState", "completionState", "runtimeDiagnostics", "exitCode", "statusQueryError", "lastObservedAt", "error", "blockReason",
         "tmuxPane", "tmuxWindowId", "tmuxSession", "logPath", "finishedAt"];
     for (const plan of queue.plans)
         for (const job of plan.jobs) {
@@ -458,6 +458,7 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
                         observation.queryError = "任务查询身份与当前任务不符；请刷新核实";
                     const state = (0, TaskLifecycle_1.taskLifecycle)(observation);
                     return { ...job, lifecycleProtocol: 2, status: state.status, executionState: state.execution, resultState: state.result,
+                        runtimeDiagnostics: state.runtimeDiagnostics, completionState: state.completionState, exitCode: state.exitCode,
                         startIntent: !observation.queryError && (observation.tmux || observation.cancelled || state.result === "complete") ? undefined : job.startIntent,
                         ...(["train", "test", "train_test"].includes(String(task?.actualExecutionMode)) ? { actualExecutionMode: task.actualExecutionMode } : {}),
                         recoveryConflict: undefined, trustedTerminalStatus: undefined,
@@ -1027,6 +1028,8 @@ function allocateAvailable(queue, workers, options = {}) {
                 if (gpuId === undefined)
                     break;
                 const commandId = durableCommandId(plan, job, chosen, gpuId);
+                if (commandId !== job.commandId)
+                    Object.assign(job, { runtimeDiagnostics: undefined, completionState: undefined, exitCode: undefined });
                 Object.assign(job, { status: "dispatching", workerId: chosen, gpuId, commandId, blockReason: undefined,
                     ...(job.lifecycleProtocol === 2 ? { startIntent: { commandId, workerId: chosen, gpuId } } : {}),
                     reassignmentWorkerId: undefined });
@@ -1173,6 +1176,7 @@ function releaseQueuedForReassignment(queue, planId, jobIndex, receipt, nextRunI
     return { ...queue, plans: queue.plans.map((row) => row.id !== planId ? row : { ...row,
             jobs: row.jobs.map((item) => item.index !== jobIndex ? item : {
                 ...item, outputDir, attempt: 0, nextCommandId: nextRunId, workerId: undefined, commandId: undefined, runKey: undefined, gpuId: undefined, manualDispatch: undefined,
+                runtimeDiagnostics: undefined, completionState: undefined, exitCode: undefined,
                 status: "pending", projectId: item.projectId, localQueueOnly: true, recallRequested: undefined,
                 recallOperationId: undefined, reassignmentPending: undefined,
                 reassignmentWorkerId: item.reassignmentWorkerId,
@@ -1460,6 +1464,7 @@ function retryVerifiedJob(queue, planId, jobIndex, runId) {
     return { ...queue, plans: queue.plans.map((row) => row.id !== planId ? row : { ...row,
             jobs: row.jobs.map((item) => item.index !== jobIndex ? item : {
                 ...item, outputDir, attempt: 0, nextCommandId: runId, workerId: undefined, commandId: undefined, runKey: undefined, gpuId: undefined, manualDispatch: undefined,
+                runtimeDiagnostics: undefined, completionState: undefined, exitCode: undefined,
                 trustedTerminalStatus: undefined, admissionRejection: undefined, error: undefined, finishedAt: undefined,
                 failureDiagnostic: undefined, formalConflictEvidence: undefined, blockReason: undefined, recoveryConflict: undefined,
                 stopReason: undefined, automaticRetry: undefined, dispatchAcknowledgedAt: undefined, lastDispatchAttemptAt: undefined,
@@ -1535,7 +1540,8 @@ function scheduleAutomaticJobRetries(queue, snapshots, projectId, options) {
         }
         const evidence = new Map(plan.jobs.map(job => [job.index, proof(plan, job)]));
         if (!plan.automaticRetry.healthyAt) {
-            const completed = plan.jobs.some(job => job.status === "completed" && evidence.get(job.index)?.status === "completed");
+            const completed = plan.jobs.some(job => job.status === "completed" && evidence.get(job.index)?.status === "completed"
+                && (job.lifecycleProtocol !== 2 || job.completionState === "verified"));
             const running = plan.jobs.filter(job => job.status === "running" && evidence.get(job.index)?.status === "running"
                 && !evidence.get(job.index)?.error).length;
             const total = Math.max(plan.jobs.length, Number(plan.fullPlanJobCount || plan.planJobCount || plan.jobs.length));

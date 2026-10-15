@@ -3,7 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.parseArgv = parseArgv;
 exports.requirePositional = requirePositional;
 const errors_1 = require("./errors");
-const VALUE_FLAGS = new Set(["--status", "--limit", "--lines", "--experiment", "--format", "--seed", "--from", "--out", "--output", "--file", "--type", "--workflow", "--jobs", "--worker", "--gpu", "--operation"]);
+const VALUE_FLAGS = new Set(["--status", "--limit", "--lines", "--experiment", "--format", "--seed", "--from", "--out", "--output", "--file", "--type", "--workflow", "--jobs", "--worker", "--gpu", "--operation", "--index", "--command"]);
 function parseArgv(argv) {
     const positionals = [];
     const flags = { json: false, compactJson: false, full: false, help: false, dryRun: false, check: false, watch: false };
@@ -70,6 +70,14 @@ function parseArgv(argv) {
     return { positionals, flags };
 }
 function applyFlag(flags, name, value) {
+    if (name === "--index") {
+        flags.index = value;
+        return;
+    }
+    if (name === "--command") {
+        flags.command = value;
+        return;
+    }
     if (name === "--operation") {
         flags.operation = value;
         return;

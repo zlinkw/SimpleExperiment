@@ -28,6 +28,10 @@ export async function runSimpleCli(argv: string[]): Promise<number> {
   }
   await initializeProjectRoot();
   if (domain === "task") {
+    if (action === "analyze") {
+      writeJson(await callApi("tasks.analyze", { workflowId: flags.workflow, index: flags.index, workerId: flags.worker,
+        commandId: flags.command, outputDir: flags.out })); return EXIT_OK;
+    }
     if (action !== "dispatch") throw usageError("用法：simpleex task dispatch --workflow ID --jobs 0,1 --worker ID --gpu 0 --confirm [--stop-running]");
     const jobs=String(flags.jobs||"").trim();
     if (!/^\d+(?:,\d+)*$/.test(jobs)) throw usageError("请用 --jobs 明确选择 job 索引，例如 --jobs 0,2。");

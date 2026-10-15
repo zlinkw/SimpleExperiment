@@ -40,6 +40,7 @@ exports.freshResultTables = freshResultTables;
 const node_crypto_1 = require("node:crypto");
 const NativeResultManifest_1 = require("./NativeResultManifest");
 const Tables = __importStar(require("./ProjectResultTables"));
+const RuntimeDiagnostics_1 = require("../features/RuntimeDiagnostics");
 function resultPath(value) {
     if (!value || value.startsWith("/") || /[:\\\x00-\x1f*?]/.test(value)
         || value.split("/").some(part => !part || [".", "..", ".git", "clean_dir"].includes(part)))
@@ -103,7 +104,7 @@ async function collectFreshResults(plans, snapshots, receive, parse, mappings = 
                     }
                     const manifest = files.find(file => file.remotePath === manifestPath);
                     const report = (0, NativeResultManifest_1.verifyNativeResult)(manifest.text, (0, exports.resultDigest)(manifest.text), { commandId: source.runId, index: job.index, case: job.case,
-                        seed: job.seed, outputDir: job.output_dir, collectionResultCsv: job.result_csv }, job.mode);
+                        seed: job.seed, outputDir: job.output_dir, collectionResultCsv: job.result_csv }, job.mode, true);
                     if (report.planFile && report.planFile !== job.planFile)
                         throw Error("RESULT_MANIFEST_PLAN_MISMATCH");
                     const metricProof = source.files.find((file) => file.remotePath === job.result_csv);
@@ -142,7 +143,24 @@ async function collectFreshResults(plans, snapshots, receive, parse, mappings = 
                     item.sources = source.files;
                     const panes = tasks.filter(task => task.commandId === source.runId).map(task => task.observation?.tmux).filter(Boolean);
                     item.executionState = panes.some(pane => pane.exitCode != null && pane.exitCode !== 0) ? "failed"
-                        : panes.some(pane => pane.exitCode === 0) ? "exited" : panes.length ? "unknown" : "missing";
+                        : panes.length ? "exited" : "missing";
+                    item.exitCode = panes.find(pane => pane.exitCode != null && pane.exitCode !== 0)?.exitCode ?? panes.find(pane => pane.exitCode != null)?.exitCode ?? source.exitCode;
+                    if (Number.isInteger(item.exitCode))
+                        item.executionState = item.exitCode === 0 ? "exited" : "failed";
+                    // Prefer positive anomaly evidence from any verified replica. A copied
+                    // manifest cannot certify that the source console log was inspected.
+                    const evidence = valid.map(row => (0, RuntimeDiagnostics_1.runtimeEvidence)(row.runtimeDiagnostics, source.runId));
+                    item.runtimeDiagnostics = evidence.find(row => row.count > 0) || evidence.find(row => row.state === "clear" && row.scanComplete)
+                        || (0, RuntimeDiagnostics_1.runtimeEvidence)(source.runtimeDiagnostics, source.runId);
+                    item.completionState = (0, RuntimeDiagnostics_1.completionState)(item.runtimeDiagnostics, source.runId);
+                    if (source.executionStatus === "failed" && item.exitCode == null) {
+                        if (item.completionState === "verified")
+                            item.completionState = "unverified";
+                        result.errors.push(plan.planFile + " · " + job.case + "/" + job.seed + "：原清单记录 failed，但未取得退出码；不判为非零失败，也不计入无异常成功，指标保留待复核。");
+                    }
+                    if (item.completionState !== "verified")
+                        result.errors.push(plan.planFile + " · " + job.case + "/" + job.seed + "：" +
+                            (item.completionState === "review_required" ? "完成但有异常，待复核" : "运行日志尚未完整核实") + "；指标保留在待复核表，不自动判为无效。");
                     if (item.executionState === "failed")
                         result.errors.push(plan.planFile + " · " + job.case + "/" + job.seed + "：执行以非零退出码结束；产物状态单独显示为完整。");
                     result.records.push(...records);
@@ -158,11 +176,22 @@ async function collectFreshResults(plans, snapshots, receive, parse, mappings = 
     return result;
 }
 /** Reuse the established metric aliases, grouping, derived metrics and sample standard deviation. */
-function freshResultTables(result, plans, derivedMetric) {
+function freshResultTables(result, plans, derivedMetric, review = false) {
     const registry = Tables.emptyTableRegistry();
     registry.derivedMetric = derivedMetric;
     for (const plan of plans)
         registry.plans[plan.planFile] = { revision: plan.revision, expectedSeeds: plan.seeds.length,
-            records: result.records.filter(row => row.planFile === plan.planFile) };
-    return Tables.buildTables(registry, { partial: true });
+            records: result.records.filter(row => row.planFile === plan.planFile && result.jobs.some(job => job.planFile === row.planFile
+                && job.commandId === row.runId && job.case === row.case && String(job.seed) === String(row.seed)
+                && (review ? job.completionState !== "verified" || job.executionState === "failed" : job.completionState === "verified" && job.executionState !== "failed"))) };
+    const tables = Tables.buildTables(registry, { partial: true });
+    if (review)
+        for (const table of Object.values(tables)) {
+            table.tableKey = "review/" + table.tableKey;
+            table.relativePath = "review/" + table.relativePath;
+            table.markdownPath = "review/" + table.markdownPath;
+            table.name = "待复核 · " + table.name;
+            table.markdown = "> 待复核结果：运行异常、执行失败或日志未核实。指标保留，不代表已判定无效；未计入正式无异常汇总。\n\n" + table.markdown;
+        }
+    return tables;
 }

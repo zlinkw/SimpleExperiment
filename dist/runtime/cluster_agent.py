@@ -69,9 +69,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.336"
-RUNTIME_VERSION = "0.5.336"
-PLUGIN_VERSION = "0.5.336"
+AGENT_VERSION = "0.5.337"
+RUNTIME_VERSION = "0.5.337"
+PLUGIN_VERSION = "0.5.337"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -4612,7 +4612,7 @@ TASK_SHELL_ENV_FIELDS = (
     "SIMPLE_EXPERIMENT_MANAGED_JOB", "SIMPLE_EXPERIMENT_CHECKPOINT_TEST_ONLY", "SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS",
     "SIMPLE_EXPERIMENT_TMUX_SESSION", "SIMPLE_EXPERIMENT_TMUX_LOG_DIR", "SIMPLE_EXPERIMENT_EXIT_CODE_PATH",
     "SIMPLE_EXPERIMENT_CONDA_ENV", "SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV", "CUDA_VISIBLE_DEVICES", "PYTHONUNBUFFERED",
-    "SIMPLE_EXPERIMENT_TASK_LIFECYCLE",
+    "SIMPLE_EXPERIMENT_TASK_LIFECYCLE", "SIMPLE_EXPERIMENT_RUNTIME_LOG_PATH",
 )
 
 TASK_EXECUTION_PROBE_CODE = r'''
@@ -6445,6 +6445,10 @@ def _execute_worker_command_unfenced(root, command, worker_id):
         args.extend(["--debug-mode", "--debug-run-id", debug_run_id or command_id, "--debug-output-dir", debug_output_dir])
     if command.get("_lifecycleRunner") is True:
         env["SIMPLE_EXPERIMENT_TASK_LIFECYCLE"] = "2"
+        env["SIMPLE_EXPERIMENT_RUNTIME_LOG_PATH"] = rel_log
+        # The original console log is command-bound; no diagnostics state file.
+        with open(log_path, "ab") as log_stream:
+            log_stream.write(("[simple-experiment-runtime-log] " + json.dumps({"commandId": command_id, "event": "begin", "phase": "prepare"}) + "\n").encode("utf-8"))
         env.pop("SIMPLE_EXPERIMENT_EXIT_CODE_PATH", None)
         pane = os.environ.get("TMUX_PANE")
         if not pane:
@@ -7402,6 +7406,7 @@ def api_capabilities(root, token_required=False, mode="worker_telemetry"):
                 "workerAvailability": True,
                 "workerTasks": True,
                 "taskLifecycle": 2,
+                "runtimeDiagnostics": 1,
                 "declaredJobPaths": formal_job_path_capable(root),
                 "formalJobIdentityEnv": 1 if formal_job_path_capable(root) else 0,
                 "executionShellPreflight": 1 if execution_shell_preflight_capable(root) else 0,
@@ -16999,7 +17004,7 @@ def serve_http(args):
                         if live.get("workerId") != (os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker"):
                             continue
                         phase = live.get("phase")
-                        status = ("failed" if live.get("exitCode") != 0 else "exited") if live.get("dead") else ("running" if phase == "running" else "queued")
+                        status = ("failed" if isinstance(live.get("exitCode"), int) and live["exitCode"] != 0 else "exited") if live.get("dead") else ("running" if phase == "running" else "queued")
                         task_rows.append({**live, "status": status})
                     tasks_by_pane = {}
                     for task_row in task_rows:
@@ -17613,6 +17618,167 @@ def main():
         return 0
 
 
+def task_log_new(command_id, log_path, legacy=False):
+    return {"commandId": command_id, "logPath": log_path, "active": bool(legacy), "begin": False,
+            "end": False, "phase": "unknown", "offset": 0, "cursor": 0, "line": 1, "buffer": b"",
+            "events": [], "count": 0, "types": {}, "phases": {}, "block": None}
+
+def task_log_close(state):
+    block = state.get("block")
+    if not block:
+        return
+    state["count"] += 1
+    for field, key in (("types", "type"), ("phases", "phase")):
+        value = block[key]
+        state[field][value] = state[field].get(value, 0) + 1
+    if len(state["events"]) < 100:
+        state["events"].append(block)
+    state["block"] = None
+
+def task_log_line(state, raw):
+    start, line = state["cursor"], state["line"]
+    state["cursor"] += len(raw)
+    state["line"] += 1
+    text = re.sub(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))", "", raw.decode("utf-8", errors="replace")).rstrip("\r\n")
+    marker = "[simple-experiment-runtime-log] "
+    if text.startswith(marker):
+        try:
+            item = json.loads(text[len(marker):])
+            task_log_close(state)
+            if item.get("commandId") != state["commandId"]:
+                state["active"] = False
+                return
+            if item.get("event") == "begin":
+                state["active"] = True
+                state["begin"] = True
+            state["phase"] = item.get("phase") or state["phase"]
+            if item.get("event") == "end":
+                state["end"] = True
+            return
+        except (ValueError, TypeError):
+            pass
+    if not state["active"]:
+        return
+    if text.startswith("[simple-experiment-runtime]"):
+        task_log_close(state)
+        if re.search(r"(?:^|[ /])train\.py(?:\s|$)", text): state["phase"] = "train"
+        elif re.search(r"(?:^|[ /])test\.py(?:\s|$)", text): state["phase"] = "test"
+        return
+    ignored = re.match(r"^Exception ignored (?:on calling ctypes callback function|in(?:\s*|\s+[^\r\n]*):)", text)
+    trace = re.match(r"^(?:\s*[+|]\s*)?Traceback \(most recent call last\):", text)
+    thread = re.match(r"^Exception in thread ", text)
+    terminal = re.match(r"^(?:\s*[+|]\s*)?([A-Za-z_][\w.]*(?:Error|Exception|Interrupt|Exit)|Exception|BaseException|ExceptionGroup|BaseExceptionGroup)(?::\s*(.*)|$)", text)
+    block = state.get("block")
+    if block and (ignored or thread or trace and block["complete"]):
+        task_log_close(state)
+        block = None
+    if block and block["complete"] and text and not text.startswith((" ", "\t", "|", "+")) and not terminal:
+        task_log_close(state)
+        block = None
+    if not block and (ignored or trace or thread or terminal):
+        key = state["commandId"] + ":" + state["logPath"] + ":" + str(start)
+        block = {"id": hashlib.sha256(key.encode("utf-8")).hexdigest(), "type": "ctypes_callback" if ignored and "ctypes" in text else "ignored_exception" if ignored else "unhandled_exception",
+                 "phase": state["phase"], "summary": "", "logPath": state["logPath"], "byteStart": start,
+                 "byteEnd": state["cursor"], "lineStart": line, "lineEnd": line, "complete": False}
+        state["block"] = block
+    if block:
+        block["byteEnd"], block["lineEnd"] = state["cursor"], line
+        block["summary"] = (block["summary"] + ("\n" if block["summary"] else "") + text)[:4000]
+        if terminal:
+            block["type"] = terminal.group(1)
+            block["complete"] = True
+
+def task_log_feed(state, data, final=False):
+    buffer = state["buffer"] + data
+    state["offset"] += len(data)
+    start = 0
+    for found in re.finditer(b"\r\n|\n|\r", buffer):
+        end = found.end()
+        if end == len(buffer) and buffer.endswith(b"\r") and not final: break
+        task_log_line(state, buffer[start:end])
+        start = end
+    state["buffer"] = buffer[start:]
+    if final and state["buffer"]:
+        task_log_line(state, state["buffer"])
+        state["buffer"] = b""
+    elif len(state["buffer"]) > 262144:
+        task_log_line(state, state["buffer"][:262144])
+        state["buffer"] = state["buffer"][262144:]
+    return state
+
+def task_log_report(state, terminal=False, complete=False, reason=""):
+    events = list(state["events"])
+    active = state.get("block")
+    types, phases = dict(state["types"]), dict(state["phases"])
+    count = state["count"] + bool(active)
+    if active:
+        events.append(active)
+        types[active["type"]] = types.get(active["type"], 0) + 1
+        phases[active["phase"]] = phases.get(active["phase"], 0) + 1
+    checked = bool(complete and terminal and state["logPath"] and state["active"] and (state["end"] or state.get("legacy")))
+    return {"schemaVersion": 1, "commandId": state["commandId"], "runId": state["commandId"],
+            "state": "anomalous" if count else "clear" if checked else "scanning" if state["active"] else "unverified",
+            "count": count, "types": types, "phases": phases, "scanComplete": checked,
+            "logPath": state["logPath"], "bytesRead": state["offset"], "exceptions": events[:100],
+            "truncatedExceptions": max(0, count - len(events[:100])),
+            "reason": reason or ("日志尚未完整核实" if not checked else "")}
+
+def task_log_marker(command_id, event, phase="unknown"):
+    print("[simple-experiment-runtime-log] " + json.dumps({"commandId": command_id, "event": event, "phase": phase}, ensure_ascii=False), flush=True)
+
+def task_log_diagnostics(root, job, row=None, terminal=False, binding=None):
+    command = str(job.get("commandId") or "")
+    unknown = {"schemaVersion": 1, "commandId": command, "runId": command, "state": "unverified", "count": 0, "scanComplete": False}
+    try:
+        binding = binding or {}
+        log_path = (row or {}).get("logPath") or binding.get("logPath") or ""
+        expected = worker_task_console_log(command) if "worker_task_console_log" in globals() else ""
+        if not log_path: log_path = expected
+        if log_path and os.path.isabs(log_path): log_path = os.path.relpath(log_path, root).replace("\\", "/")
+        if not log_path: return {**unknown, "reason": "未取得本次任务的原始日志"}
+        full = task_safe_path(root, log_path)
+        before = os.stat(full)
+        if not os.path.isfile(full): raise ValueError("原始日志不是普通文件")
+        authorizations = globals().setdefault("TASK_LOG_ANALYSIS_AUTHORIZATIONS", {})
+        authorization_key = (os.path.realpath(root), command)
+        if job.get("runtimeLogAnalysisId"):
+            authorizations[authorization_key] = str(job["runtimeLogAnalysisId"])
+        analysis = authorizations.get(authorization_key, "")
+        legacy = bool(analysis)
+        with open(full, "rb") as stream:
+            prefix = stream.read(4096)
+        native = b"[simple-experiment-runtime-log] " in prefix
+        if not native and not legacy: return {**unknown, "logPath": log_path, "reason": "旧任务日志尚未主动分析"}
+        if legacy and expected:
+            target = expected if os.path.isabs(expected) else os.path.join(root, expected)
+            if os.path.realpath(target) != os.path.realpath(full): raise ValueError("历史日志与原 commandId 路径不符")
+        cache = globals().setdefault("TASK_LOG_DIAGNOSTIC_CACHE", {})
+        lock = globals().setdefault("TASK_LOG_DIAGNOSTIC_LOCK", threading.RLock())
+        key = (os.path.realpath(root), command, os.path.realpath(full))
+        signature = (before.st_dev, before.st_ino, hashlib.sha256(prefix).hexdigest())
+        with lock:
+            entry = cache.get(key)
+            if not entry or entry["signature"] != signature or before.st_size < entry["state"]["offset"] or entry["analysis"] != analysis or (entry.get("complete") and entry.get("mtimeNs") != before.st_mtime_ns):
+                state = task_log_new(command, log_path, legacy and not native)
+                state["legacy"] = legacy and not native
+                entry = {"state": state, "signature": signature, "analysis": analysis}
+                cache[key] = entry
+            state = entry["state"]
+            with open(full, "rb") as stream:
+                stream.seek(state["offset"])
+                data = stream.read(4 * 1024 * 1024)
+            after = os.stat(full)
+            complete = after.st_size == state["offset"] + len(data) and before.st_mtime_ns == after.st_mtime_ns
+            task_log_feed(state, data, terminal and complete)
+            result = task_log_report(state, terminal, complete)
+            result["totalBytes"] = after.st_size
+            entry["mtimeNs"], entry["complete"] = after.st_mtime_ns, bool(terminal and complete)
+            while len(cache) > 256: cache.pop(next(iter(cache)))
+            return result
+    except Exception as exc:
+        return {**unknown, "reason": str(exc)}
+
+
 TASK_LIFECYCLE_PROTOCOL = 2
 NATIVE_TASK_RUNNER_CONTEXT = None
 TASK_SCHEDULER_UPDATE_ERROR = ""
@@ -17703,11 +17869,11 @@ def task_manifest_observation(root, job):
         present = False
     expected_mode = "test" if job.get("checkpointTestOnly") and job.get("executionMode") == "train_test" else job.get("mode") or job.get("executionMode")
     expected_job = {key: job[field] for key, field in (("index", "experimentIndex"), ("case", "case"), ("seed", "seed")) if field in job}
-    identity_matches = isinstance(report.get("runId"), str) and bool(report["runId"].strip()) and report.get("outputDir") == output and (not expected_mode or mode == expected_mode)
+    identity_matches = isinstance(report.get("runId"), str) and bool(report["runId"].strip()) and report.get("status") in ("completed", "failed") and report.get("outputDir") == output and (not expected_mode or mode == expected_mode)
     if expected_job:
         identity_matches = identity_matches and isinstance(report.get("job"), dict) and all(report["job"].get(key) == value for key, value in expected_job.items())
-    return {"runId": report.get("runId"), "status": report.get("status"), "present": present, "job": report.get("job"),
-            "identityMatches": bool(identity_matches), "verified": bool(present and identity_matches)}
+    return {"runId": report.get("runId"), "status": report.get("status"), "present": present, "job": report.get("job"), "runtimeDiagnostics": report.get("runtimeDiagnostics"), "exitCode": report.get("exitCode"),
+            "identityMatches": bool(identity_matches), "verified": bool(present and identity_matches), "artifactsComplete": bool(present and identity_matches)}
 
 def task_public_observation(root, job, row=None):
     result_error = ""
@@ -17728,7 +17894,20 @@ def task_public_observation(root, job, row=None):
             "queued" if row["phase"] in ("queued", "bound") else "starting" if row["phase"] in ("admitted", "starting") else "running" if row["phase"] == "running" else "unknown")
     result_state = "unverified" if result_error else "incomplete" if result is None else (
         "conflict" if result["runId"] != job["commandId"] or result.get("identityMatches") is False else
-        "complete" if result["status"] == "completed" and result["present"] and result["verified"] else "incomplete")
+        "complete" if result.get("artifactsComplete") and result["present"] and result["verified"] else "incomplete")
+    known_exit = row.get("exitCode") if row else None
+    if known_exit is None and result and result.get("runId") == job["commandId"] and result.get("identityMatches"):
+        known_exit = result.get("exitCode")
+    if (not row or row["dead"]) and isinstance(known_exit, int):
+        execution = "failed" if known_exit != 0 else "exited"
+        if row:
+            observed["tmux"]["exitCode"] = known_exit
+    binding = result.get("runtimeDiagnostics") if result and result.get("runId") == job["commandId"] else None
+    diagnostics = task_log_diagnostics(root, job, row, not row or row["dead"], binding) if "task_log_diagnostics" in globals() else None
+    observed["runtimeDiagnostics"] = diagnostics
+    completion = "review_required" if diagnostics and diagnostics.get("count", 0) else "verified" if diagnostics and diagnostics.get("state") == "clear" and diagnostics.get("scanComplete") else "unverified"
+    if completion == "verified" and known_exit is None and result and result.get("status") == "failed":
+        completion = "unverified"
     status = "queued" if execution in ("queued", "starting") else "running" if execution == "running" else (
         "failed" if execution == "failed" else "unknown" if execution == "unknown" else "completed" if result_state == "complete" else "unknown")
     public = {key: job[key] for key in ("commandId", "projectId", "workerId", "workflowId", "globalJobId", "planFile", "planRevision", "codeFingerprint",
@@ -17736,7 +17915,9 @@ def task_public_observation(root, job, row=None):
         "executionMode", "mode", "checkpointSource", "lifecycleProtocol", "runKey", "dispatchPolicy") if key in job}
     actual_mode = "test" if job.get("checkpointTestOnly") and job.get("executionMode") == "train_test" else job.get("mode") or job.get("executionMode")
     return {**public, "actualExecutionMode": actual_mode, **({k: row[k] for k in ("tmuxWindowId", "tmuxPane", "tmuxSession", "gpuId", "exitCode")} if row else {}),
-            "status": status, "executionState": execution, "resultState": result_state,
+            "status": status, "executionState": execution, "resultState": result_state, "runtimeDiagnostics": diagnostics, "completionState": completion,
+            "exitCode": known_exit,
+            "successful": status == "completed" and completion == "verified",
             "logPath": row.get("logPath") if row else "", "observation": observed, "lifecycleProtocol": 2, "durableAccepted": True}
 
 
@@ -17763,7 +17944,7 @@ def task_collection_result(root, declaration):
     text, proof = fingerprint(manifest_path)
     report = json.loads(text.decode("utf-8")).get("simpleExperiment") or {}
     mode = declaration["mode"]
-    if report.get("status") != "completed" or report.get("outputDir") != output or report.get("mode") != mode or not report.get("runId"):
+    if report.get("status") not in ("completed", "failed") or report.get("outputDir") != output or report.get("mode") != mode or not report.get("runId"):
         return result
     if report.get("job") != {key: declaration[key] for key in ("index", "case", "seed")}:
         raise ValueError("RESULT_MANIFEST_JOB_MISMATCH")
@@ -17788,7 +17969,8 @@ def task_collection_result(root, declaration):
         if (report.get("sha256") or {}).get(relative) and report["sha256"][relative] != metric["sha256"]:
             raise ValueError("RESULT_METRIC_HASH_CHANGED")
         files.append(metric)
-    return {**result, "completed": True, "resultState": "complete", "runId": report["runId"], "files": files}
+    diagnostics = task_log_diagnostics(root, {"commandId": report["runId"], "runtimeLogAnalysisId": declaration.get("runtimeLogAnalysisId")}, terminal=True, binding=report.get("runtimeDiagnostics")) if "task_log_diagnostics" in globals() else None
+    return {**result, "completed": True, "resultState": "complete", "runId": report["runId"], "files": files, "runtimeDiagnostics": diagnostics, "exitCode": report.get("exitCode"), "executionStatus": report.get("status")}
 
 def task_collection_query(root, declarations):
     if not isinstance(declarations, list) or len(declarations) > 500:
@@ -17799,7 +17981,7 @@ def task_collection_query(root, declarations):
         if row.get("outputDir") in outputs:
             tasks.append({"commandId": row.get("commandId"), "outputDir": row.get("outputDir"),
                           "observation": {"tmux": {"dead": row["dead"], "exitCode": row["exitCode"], "windowId": row["tmuxWindowId"]}}})
-    return {"queryComplete": True, "generatedAt": now_iso(), "capabilities": {"resultCollection": 1}, "tasks": tasks,
+    return {"queryComplete": True, "generatedAt": now_iso(), "capabilities": {"resultCollection": 1, "runtimeDiagnostics": 1}, "tasks": tasks,
             "declaredResults": task_declared_results(root, declarations)}
 
 def task_declared_results(root, declarations, tasks=()):
@@ -17867,6 +18049,8 @@ def task_query(root, queries=()):
         key = (query["projectId"], query["commandId"])
         if key not in jobs:
             jobs[key] = query
+        elif query.get("runtimeLogAnalysisId"):
+            jobs[key] = {**jobs[key], "runtimeLogAnalysisId": query["runtimeLogAnalysisId"]}
     tasks = []
     cancelled_by_worker = {}
     for key, job in jobs.items():
@@ -17906,7 +18090,7 @@ def task_query(root, queries=()):
     return {"schemaVersion": 1, "generatedAt": now_iso(), "tasks": tasks, "queryComplete": True, "queryErrors": query_errors, "cleanupExecutors": cleanup_executors,
             "activeOperations": active_cleanup_operations(root) if "active_cleanup_operations" in globals() else [],
             "capabilities": {"schemaVersion": 1, "durablePlanQueue": True, "declaredJobPaths": True,
-                             "idleGpuAdmission": True, "queuedJobRecall": True, "taskLifecycle": 2, "manualDispatch": 1,
+                             "idleGpuAdmission": True, "queuedJobRecall": True, "taskLifecycle": 2, "manualDispatch": 1, "runtimeDiagnostics": 1,
                              "gpuMemoryRatioScheduling": task_memory_scheduler_capability(root), "declaredResultQuery": 1, "resultCollection": 1}}
 
 def task_session_prefix():

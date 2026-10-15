@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.taskLifecycle = taskLifecycle;
 exports.observationMatches = observationMatches;
+const RuntimeDiagnostics_1 = require("./RuntimeDiagnostics");
 function taskLifecycle(value) {
     let execution = "missing", result = value.result === null ? "incomplete" : "unverified";
     if (value.queryError)
@@ -23,10 +24,13 @@ function taskLifecycle(value) {
     }
     if (value.result) {
         result = value.result.runId !== value.commandId || value.result.identityMatches === false ? "conflict"
-            : value.result.status === "completed" && value.result.present && value.result.verified ? "complete" : "incomplete";
+            : (value.result.artifactsComplete === true || value.result.status === "completed") && value.result.present && value.result.verified ? "complete" : "incomplete";
     }
     if (value.resultQueryError)
         result = "unverified";
+    const exitCode = pane?.exitCode ?? (value.result?.runId === value.commandId && value.result.identityMatches !== false ? value.result?.exitCode : undefined) ?? pane?.exitCode;
+    if ((!pane || pane.dead) && Number.isInteger(exitCode))
+        execution = exitCode !== 0 ? "failed" : "exited";
     const status = ["queued", "starting"].includes(execution) ? "queued" : execution === "running" ? "running"
         : execution === "failed" ? "failed" : execution === "unknown" ? "unknown" : result === "complete" ? "completed" : value.cancelled && !pane ? "cancelled"
             : execution === "missing" ? "unknown" : "unknown";
@@ -35,7 +39,12 @@ function taskLifecycle(value) {
             : result === "conflict" ? "产物清单与本次任务不符"
                 : execution === "exited" && result === "incomplete" ? "执行已结束，结果不完整"
                     : execution === "exited" && result !== "complete" ? "执行已结束，产物尚未确认" : undefined;
-    return { execution, result, status, message };
+    const evidence = (0, RuntimeDiagnostics_1.runtimeEvidence)(value.runtimeDiagnostics, value.commandId);
+    let completion = (0, RuntimeDiagnostics_1.completionState)(evidence, value.commandId);
+    if (completion === "verified" && exitCode == null && value.result?.status === "failed")
+        completion = "unverified";
+    return { execution, result, status, message, exitCode,
+        runtimeDiagnostics: evidence, completionState: completion };
 }
 /** Only stable control ownership is required for a live observation. */
 function observationMatches(value, expected) {

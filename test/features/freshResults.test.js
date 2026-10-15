@@ -10,14 +10,15 @@ const { collectFreshResults, freshResultTables, resultDigest } = require('../../
 const Tables = require('../../src/results/ProjectResultTables.ts');
 const job = { planFile: 'experiments/plans/demo.yaml', index: 0, case: 'alpha', seed: 42, output_dir: 'work_dirs/demo/alpha42', result_csv: 'work_dirs/demo/alpha42/metrics.csv', mode: 'test' };
 const plan = { planFile: job.planFile, revision: 'current', mode: 'test', seeds: [42, 43], jobs: [job] };
-function fixture(workerId = 'a', runId = 'cmd', metric = '0.4') {
+function fixture(workerId = 'a', runId = 'cmd', metric = '0.4', outcome = 'completed', exitCode) {
   const texts = {
-    [job.output_dir + '/artifact_manifest.json']: JSON.stringify({ simpleExperiment: { status: 'completed', runId, mode: 'test', outputDir: job.output_dir,
+    [job.output_dir + '/artifact_manifest.json']: JSON.stringify({ simpleExperiment: { status: outcome, runId, mode: 'test', outputDir: job.output_dir, exitCode,
       resultCsv: job.result_csv, weights: [], job: { index: 0, case: 'alpha', seed: 42 } } }),
     [job.result_csv]: metric,
   };
   const files = Object.entries(texts).map(([remotePath, text]) => ({ remotePath, bytes: Buffer.byteLength(text), sha256: resultDigest(text) }));
-  return { snapshot: { workerId, queryComplete: true, tasks: [], declaredResults: [{ index: 0, outputDir: job.output_dir, completed: true, runId, files }] },
+  return { snapshot: { workerId, queryComplete: true, tasks: [], declaredResults: [{ index: 0, outputDir: job.output_dir, completed: true, runId, files,
+    runtimeDiagnostics:{schemaVersion:1,commandId:runId,runId,state:'clear',count:0,scanComplete:true},executionStatus:outcome,exitCode }] },
     receive: async () => Object.entries(texts).map(([remotePath, text]) => ({ remotePath, text })) };
 }
 const parse = text => [{ dimensions: { case: 'alpha', seed: '42', method: 'demo', dataset: 'set' }, metrics: { auc: { value: Number(text) } } }];
@@ -27,6 +28,15 @@ test('live manifests collect without any queue, ledger, registry, inventory cach
   assert.equal(reads, 1); assert.equal(result.records.length, 1); assert.equal(result.jobs[0].state, 'complete');
   assert.equal(result.records[0].runId, 'cmd');
 });
+test('complete artifacts from a nonzero or unknown failed execution retain metrics for review without turning failures into clean success',async()=>{
+  for(const exitCode of [7,undefined]){
+    const a=fixture('a','cmd','0','failed',exitCode),result=await collectFreshResults([plan],[a.snapshot],a.receive,parse);
+    assert.equal(result.jobs[0].state,'complete');assert.equal(result.records[0].metrics.auc,0);
+    assert.equal(result.jobs[0].executionState,exitCode===7?'failed':'missing');
+    assert.equal(Object.values(freshResultTables(result,[plan])).flatMap(t=>t.rows).length,0);
+    assert.ok(Object.values(freshResultTables(result,[plan],undefined,true)).some(t=>t.rows.length));
+  }
+});
 test('partial tables compute observed means, leave single-seed SD blank, and match original formula on complete input', async () => {
   const a = fixture(); const result = await collectFreshResults([plan], [a.snapshot], a.receive, parse);
   const table = Object.values(freshResultTables(result, [plan])).find(table => table.kind === 'final');
@@ -34,8 +44,21 @@ test('partial tables compute observed means, leave single-seed SD blank, and mat
   assert.equal(table.rows[0][table.header.indexOf('roc_auc_mean')], .4);
   assert.equal(table.rows[0][table.header.indexOf('roc_auc_sd')], '');
   result.records.push({ ...result.records[0], seed: '43', metrics: { roc_auc: .6 } });
+  result.jobs.push({...result.jobs[0],seed:43,index:1});
   const registry = Tables.emptyTableRegistry(); registry.plans[plan.planFile] = { revision: 'current', expectedSeeds: 2, records: result.records };
   assert.deepEqual(freshResultTables(result, [plan]), Tables.buildTables(registry));
+});
+test('exit-zero anomalies and missing logs retain zero metrics in review tables, never silently formal success',async()=>{
+  for(const state of ['anomalous','unverified']){
+    const a=fixture('a','cmd','0');
+    a.snapshot.declaredResults[0].runtimeDiagnostics={schemaVersion:1,commandId:'cmd',runId:'cmd',state,count:state==='anomalous'?1:0,scanComplete:state==='anomalous',types:{AttributeError:1},phases:{train:1}};
+    const result=await collectFreshResults([plan],[a.snapshot],a.receive,parse);
+    assert.equal(result.jobs[0].state,'complete');assert.equal(result.records[0].metrics.auc,0);
+    assert.equal(result.jobs[0].completionState,state==='anomalous'?'review_required':'unverified');
+    assert.equal(Object.values(freshResultTables(result,[plan])).flatMap(t=>t.rows).length,0);
+    const review=Object.values(freshResultTables(result,[plan],undefined,true));
+    assert.ok(review.some(t=>t.rows.length));assert.ok(review.every(t=>t.relativePath.startsWith('review/')&&t.markdown.includes('待复核')));
+  }
 });
 test('deleted results vanish on the next query; offline is unknown and cannot reuse previous rows', async () => {
   const gone = { workerId: 'a', queryComplete: true, declaredResults: [{ index: 0, outputDir: job.output_dir, completed: false, resultState: 'missing' }] };
@@ -60,6 +83,6 @@ test('a live writer blocks stale completed replicas; nonzero exit remains distin
     a.snapshot.tasks = [{ commandId: 'cmd', outputDir: job.output_dir, observation: { tmux: { dead: true, exitCode: code } } }];
     const done = await collectFreshResults([plan], [a.snapshot], a.receive, parse);
     assert.equal(done.jobs[0].state, 'complete');
-    assert.equal(done.jobs[0].executionState, code == null ? 'unknown' : code ? 'failed' : 'exited');
+    assert.equal(done.jobs[0].executionState, code ? 'failed' : 'exited');
   }
 });

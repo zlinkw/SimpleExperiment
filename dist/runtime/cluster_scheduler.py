@@ -37,9 +37,9 @@ except ModuleNotFoundError as exc:
     yaml = None
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_scheduler.py 为准
-SCHEDULER_VERSION = "0.5.336"
-RUNTIME_VERSION = "0.5.336"
-PLUGIN_VERSION = "0.5.336"
+SCHEDULER_VERSION = "0.5.337"
+RUNTIME_VERSION = "0.5.337"
+PLUGIN_VERSION = "0.5.337"
 FORMAL_JOB_PATH_PROTOCOL = 1
 FORMAL_JOB_IDENTITY_ENV_PROTOCOL = 1
 EXECUTION_SHELL_PREFLIGHT_PROTOCOL = 1
@@ -685,7 +685,7 @@ TASK_SHELL_ENV_FIELDS = (
     "SIMPLE_EXPERIMENT_MANAGED_JOB", "SIMPLE_EXPERIMENT_CHECKPOINT_TEST_ONLY", "SIMPLE_EXPERIMENT_DISTRIBUTED_RESULTS",
     "SIMPLE_EXPERIMENT_TMUX_SESSION", "SIMPLE_EXPERIMENT_TMUX_LOG_DIR", "SIMPLE_EXPERIMENT_EXIT_CODE_PATH",
     "SIMPLE_EXPERIMENT_CONDA_ENV", "SIMPLE_EXPERIMENT_REQUIRE_CONDA_ENV", "CUDA_VISIBLE_DEVICES", "PYTHONUNBUFFERED",
-    "SIMPLE_EXPERIMENT_TASK_LIFECYCLE",
+    "SIMPLE_EXPERIMENT_TASK_LIFECYCLE", "SIMPLE_EXPERIMENT_RUNTIME_LOG_PATH",
 )
 
 TASK_EXECUTION_PROBE_CODE = r'''
@@ -752,6 +752,177 @@ def task_shell_args(args, env, python):
     body = "; ".join(assignments) + "; unset SIMPLE_EXPERIMENT_NVJITLINK_PROOF; " + command
     return [shell, "-lc", body]
 
+
+def task_log_new(command_id, log_path, legacy=False):
+    return {"commandId": command_id, "logPath": log_path, "active": bool(legacy), "begin": False,
+            "end": False, "phase": "unknown", "offset": 0, "cursor": 0, "line": 1, "buffer": b"",
+            "events": [], "count": 0, "types": {}, "phases": {}, "block": None}
+
+def task_log_close(state):
+    block = state.get("block")
+    if not block:
+        return
+    state["count"] += 1
+    for field, key in (("types", "type"), ("phases", "phase")):
+        value = block[key]
+        state[field][value] = state[field].get(value, 0) + 1
+    if len(state["events"]) < 100:
+        state["events"].append(block)
+    state["block"] = None
+
+def task_log_line(state, raw):
+    start, line = state["cursor"], state["line"]
+    state["cursor"] += len(raw)
+    state["line"] += 1
+    text = re.sub(r"\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07]*(?:\x07|\x1b\\))", "", raw.decode("utf-8", errors="replace")).rstrip("\r\n")
+    marker = "[simple-experiment-runtime-log] "
+    if text.startswith(marker):
+        try:
+            item = json.loads(text[len(marker):])
+            task_log_close(state)
+            if item.get("commandId") != state["commandId"]:
+                state["active"] = False
+                return
+            if item.get("event") == "begin":
+                state["active"] = True
+                state["begin"] = True
+            state["phase"] = item.get("phase") or state["phase"]
+            if item.get("event") == "end":
+                state["end"] = True
+            return
+        except (ValueError, TypeError):
+            pass
+    if not state["active"]:
+        return
+    if text.startswith("[simple-experiment-runtime]"):
+        task_log_close(state)
+        if re.search(r"(?:^|[ /])train\.py(?:\s|$)", text): state["phase"] = "train"
+        elif re.search(r"(?:^|[ /])test\.py(?:\s|$)", text): state["phase"] = "test"
+        return
+    ignored = re.match(r"^Exception ignored (?:on calling ctypes callback function|in(?:\s*|\s+[^\r\n]*):)", text)
+    trace = re.match(r"^(?:\s*[+|]\s*)?Traceback \(most recent call last\):", text)
+    thread = re.match(r"^Exception in thread ", text)
+    terminal = re.match(r"^(?:\s*[+|]\s*)?([A-Za-z_][\w.]*(?:Error|Exception|Interrupt|Exit)|Exception|BaseException|ExceptionGroup|BaseExceptionGroup)(?::\s*(.*)|$)", text)
+    block = state.get("block")
+    if block and (ignored or thread or trace and block["complete"]):
+        task_log_close(state)
+        block = None
+    if block and block["complete"] and text and not text.startswith((" ", "\t", "|", "+")) and not terminal:
+        task_log_close(state)
+        block = None
+    if not block and (ignored or trace or thread or terminal):
+        key = state["commandId"] + ":" + state["logPath"] + ":" + str(start)
+        block = {"id": hashlib.sha256(key.encode("utf-8")).hexdigest(), "type": "ctypes_callback" if ignored and "ctypes" in text else "ignored_exception" if ignored else "unhandled_exception",
+                 "phase": state["phase"], "summary": "", "logPath": state["logPath"], "byteStart": start,
+                 "byteEnd": state["cursor"], "lineStart": line, "lineEnd": line, "complete": False}
+        state["block"] = block
+    if block:
+        block["byteEnd"], block["lineEnd"] = state["cursor"], line
+        block["summary"] = (block["summary"] + ("\n" if block["summary"] else "") + text)[:4000]
+        if terminal:
+            block["type"] = terminal.group(1)
+            block["complete"] = True
+
+def task_log_feed(state, data, final=False):
+    buffer = state["buffer"] + data
+    state["offset"] += len(data)
+    start = 0
+    for found in re.finditer(b"\r\n|\n|\r", buffer):
+        end = found.end()
+        if end == len(buffer) and buffer.endswith(b"\r") and not final: break
+        task_log_line(state, buffer[start:end])
+        start = end
+    state["buffer"] = buffer[start:]
+    if final and state["buffer"]:
+        task_log_line(state, state["buffer"])
+        state["buffer"] = b""
+    elif len(state["buffer"]) > 262144:
+        task_log_line(state, state["buffer"][:262144])
+        state["buffer"] = state["buffer"][262144:]
+    return state
+
+def task_log_report(state, terminal=False, complete=False, reason=""):
+    events = list(state["events"])
+    active = state.get("block")
+    types, phases = dict(state["types"]), dict(state["phases"])
+    count = state["count"] + bool(active)
+    if active:
+        events.append(active)
+        types[active["type"]] = types.get(active["type"], 0) + 1
+        phases[active["phase"]] = phases.get(active["phase"], 0) + 1
+    checked = bool(complete and terminal and state["logPath"] and state["active"] and (state["end"] or state.get("legacy")))
+    return {"schemaVersion": 1, "commandId": state["commandId"], "runId": state["commandId"],
+            "state": "anomalous" if count else "clear" if checked else "scanning" if state["active"] else "unverified",
+            "count": count, "types": types, "phases": phases, "scanComplete": checked,
+            "logPath": state["logPath"], "bytesRead": state["offset"], "exceptions": events[:100],
+            "truncatedExceptions": max(0, count - len(events[:100])),
+            "reason": reason or ("日志尚未完整核实" if not checked else "")}
+
+def task_log_marker(command_id, event, phase="unknown"):
+    print("[simple-experiment-runtime-log] " + json.dumps({"commandId": command_id, "event": event, "phase": phase}, ensure_ascii=False), flush=True)
+
+def task_log_diagnostics(root, job, row=None, terminal=False, binding=None):
+    command = str(job.get("commandId") or "")
+    unknown = {"schemaVersion": 1, "commandId": command, "runId": command, "state": "unverified", "count": 0, "scanComplete": False}
+    try:
+        binding = binding or {}
+        log_path = (row or {}).get("logPath") or binding.get("logPath") or ""
+        expected = worker_task_console_log(command) if "worker_task_console_log" in globals() else ""
+        if not log_path: log_path = expected
+        if log_path and os.path.isabs(log_path): log_path = os.path.relpath(log_path, root).replace("\\", "/")
+        if not log_path: return {**unknown, "reason": "未取得本次任务的原始日志"}
+        full = task_safe_path(root, log_path)
+        before = os.stat(full)
+        if not os.path.isfile(full): raise ValueError("原始日志不是普通文件")
+        authorizations = globals().setdefault("TASK_LOG_ANALYSIS_AUTHORIZATIONS", {})
+        authorization_key = (os.path.realpath(root), command)
+        if job.get("runtimeLogAnalysisId"):
+            authorizations[authorization_key] = str(job["runtimeLogAnalysisId"])
+        analysis = authorizations.get(authorization_key, "")
+        legacy = bool(analysis)
+        with open(full, "rb") as stream:
+            prefix = stream.read(4096)
+        native = b"[simple-experiment-runtime-log] " in prefix
+        if not native and not legacy: return {**unknown, "logPath": log_path, "reason": "旧任务日志尚未主动分析"}
+        if legacy and expected:
+            target = expected if os.path.isabs(expected) else os.path.join(root, expected)
+            if os.path.realpath(target) != os.path.realpath(full): raise ValueError("历史日志与原 commandId 路径不符")
+        cache = globals().setdefault("TASK_LOG_DIAGNOSTIC_CACHE", {})
+        lock = globals().setdefault("TASK_LOG_DIAGNOSTIC_LOCK", threading.RLock())
+        key = (os.path.realpath(root), command, os.path.realpath(full))
+        signature = (before.st_dev, before.st_ino, hashlib.sha256(prefix).hexdigest())
+        with lock:
+            entry = cache.get(key)
+            if not entry or entry["signature"] != signature or before.st_size < entry["state"]["offset"] or entry["analysis"] != analysis or (entry.get("complete") and entry.get("mtimeNs") != before.st_mtime_ns):
+                state = task_log_new(command, log_path, legacy and not native)
+                state["legacy"] = legacy and not native
+                entry = {"state": state, "signature": signature, "analysis": analysis}
+                cache[key] = entry
+            state = entry["state"]
+            with open(full, "rb") as stream:
+                stream.seek(state["offset"])
+                data = stream.read(4 * 1024 * 1024)
+            after = os.stat(full)
+            complete = after.st_size == state["offset"] + len(data) and before.st_mtime_ns == after.st_mtime_ns
+            task_log_feed(state, data, terminal and complete)
+            result = task_log_report(state, terminal, complete)
+            result["totalBytes"] = after.st_size
+            entry["mtimeNs"], entry["complete"] = after.st_mtime_ns, bool(terminal and complete)
+            while len(cache) > 256: cache.pop(next(iter(cache)))
+            return result
+    except Exception as exc:
+        return {**unknown, "reason": str(exc)}
+
+
+NATIVE_RUNTIME_LOG_STATE = None
+
+def runtime_log_phase(phase):
+    state = NATIVE_RUNTIME_LOG_STATE
+    if state is not None:
+        task_log_close(state)
+        state["phase"] = phase
+        if state["logPath"]:
+            task_log_marker(state["commandId"], "phase", phase)
 
 
 def detect_existing_outputs(jobs: list[Job]) -> list[dict[str, Any]]:
@@ -1951,7 +2122,21 @@ def run_command(args: list[str], env: dict[str, str], working_directory: str = "
         raise RuntimeError(f"工作目录越出项目目录：{working_directory}") from None
     if not cwd.is_dir():
         raise RuntimeError(f"工作目录不存在：{working_directory}")
-    subprocess.run(simple_conda_wrapped_args(args, env), check=True, env=env, cwd=str(cwd))
+    if NATIVE_RUNTIME_LOG_STATE is None:
+        subprocess.run(simple_conda_wrapped_args(args, env), check=True, env=env, cwd=str(cwd))
+        return
+    # Keep one foreground process tree and the original merged console stream.
+    with subprocess.Popen(simple_conda_wrapped_args(args, env), env=env, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as child:
+        while True:
+            chunk = child.stdout.read1(65536)
+            if not chunk:
+                break
+            task_log_feed(NATIVE_RUNTIME_LOG_STATE, chunk)
+            sys.stdout.buffer.write(chunk)
+            sys.stdout.buffer.flush()
+        code = child.wait()
+    if code:
+        raise subprocess.CalledProcessError(code, args)
 
 
 def path_for_job_command(value: object, job: Job) -> str:
@@ -2445,16 +2630,32 @@ def formal_job_preflight(job: Job, identity: dict[str, Any], mode: str) -> dict[
 
 @contextmanager
 def formal_job_writer(job: Job, identity: dict[str, Any], mode: str):
+    global NATIVE_RUNTIME_LOG_STATE
     if os.environ.get("SIMPLE_EXPERIMENT_TASK_LIFECYCLE") == "2":
         admission = formal_job_preflight(job, identity, mode)
+        if admission.get("completed"):
+            yield admission
+            return
         Path(job.output_dir).mkdir(parents=True, exist_ok=True)
         object.__setattr__(job, "_native_training", {})
+        NATIVE_RUNTIME_LOG_STATE = task_log_new(identity["commandId"], os.environ.get("SIMPLE_EXPERIMENT_RUNTIME_LOG_PATH", ""), True)
+        NATIVE_RUNTIME_LOG_STATE["legacy"] = True
+        NATIVE_RUNTIME_LOG_STATE["phase"] = "prepare"
         outcome = "failed"
         try:
             yield admission
             outcome = "completed"
+        except BaseException as exc:
+            object.__setattr__(job, "_execution_exit_code", exc.code if isinstance(exc, SystemExit) and isinstance(exc.code, int) else 1)
+            raise
         finally:
+            task_log_feed(NATIVE_RUNTIME_LOG_STATE, b"", True)
+            task_log_close(NATIVE_RUNTIME_LOG_STATE)
+            if NATIVE_RUNTIME_LOG_STATE["logPath"]:
+                task_log_marker(identity["commandId"], "end", NATIVE_RUNTIME_LOG_STATE["phase"])
+            object.__setattr__(job, "_runtime_diagnostics", task_log_report(NATIVE_RUNTIME_LOG_STATE, True, True))
             native_job_result(job, identity, mode, outcome)
+            NATIVE_RUNTIME_LOG_STATE = None
         return
     admission = formal_job_preflight(job, identity, mode)
     directory = Path(job.output_dir)
@@ -2541,7 +2742,8 @@ def native_job_result(job: Job, identity: dict[str, Any], mode: str, outcome: st
         "sha256": {**getattr(job, "_native_training", {}).get("checkpointSha256", {}),
                    **getattr(job, "_native_training", {}).get("trainingConfigSha256", {}),
                    **({job.result_csv: formal_job_file_hash(Path(job.result_csv))} if Path(job.result_csv).is_file() else {})},
-        "weights": weights}
+        "weights": weights, "runtimeDiagnostics": getattr(job, "_runtime_diagnostics", None),
+        "exitCode": 0 if outcome == "completed" else getattr(job, "_execution_exit_code", None)}
     manifest.write_text(json.dumps(document, ensure_ascii=False, sort_keys=True), encoding="utf-8")
 
 def run_job(job: Job, args: argparse.Namespace) -> None:
@@ -2608,6 +2810,7 @@ def run_job_unlocked(job: Job, args: argparse.Namespace) -> None:
     if args.gpu_ids:
         env["CUDA_VISIBLE_DEVICES"] = str(args.gpu_ids)
     if args.mode in {"train", "train_test"}:
+        runtime_log_phase("train")
         command = render_command(job.train_command, job, config_path, args) if job.train_command else [runtime_python_command(env), "train.py", "--config", str(config_path), "--output-dir", job.output_dir, "--case", job.case, "--seed", str(job.seed), "--worker-id", str(args.worker_id or "local")]
         command = wrap_command(command, job, config_path, args, "train")
         log_offsets = original_log_offsets(job)
@@ -2632,6 +2835,7 @@ def run_job_unlocked(job: Job, args: argparse.Namespace) -> None:
         else:
             owner_path.write_text(json.dumps(owner, ensure_ascii=False, sort_keys=True), encoding="utf-8")
     if args.mode in {"test", "train_test"}:
+        runtime_log_phase("test")
         command = render_command(job.test_command, job, config_path, args) if job.test_command else [runtime_python_command(env), "test.py", "--config", str(config_path), "--output-dir", job.output_dir, "--case", job.case, "--seed", str(job.seed), "--suite", job.suite, "--result-csv", job.result_csv]
         command = wrap_command(command, job, config_path, args, "test")
         log_offsets = original_log_offsets(job)

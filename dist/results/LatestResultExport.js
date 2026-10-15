@@ -148,7 +148,7 @@ async function publishLatestResult(root, directory, result, tables, current = ()
         return false;
     return withResultWriter(root, directory, current, async () => {
         const value = { schemaVersion: 1, source: "active_query", observedAt: result.observedAt,
-            jobs: result.jobs, errors: result.errors, tables: Object.values(tables) };
+            jobs: result.jobs, errors: result.errors, tables: Object.values(tables), runtimeDiagnosticsProtocol: 1 };
         const file = await safeFile(root, directory, exports.LATEST_RESULT_FILE);
         await (0, StateStore_1.atomicWriteText)(file, JSON.stringify(value, null, 2) + "\n", { beforeRename: async () => {
                 if (!current())

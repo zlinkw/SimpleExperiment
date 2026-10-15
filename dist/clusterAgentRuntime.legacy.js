@@ -6,6 +6,7 @@ const PlanExistingArtifacts_1 = require("./runtime/PlanExistingArtifacts");
 const TaskShellEnvironment_1 = require("./runtime/TaskShellEnvironment");
 const AgentLifecycle_1 = require("./runtime/AgentLifecycle");
 const TmuxTaskLifecycle_1 = require("./runtime/TmuxTaskLifecycle");
+const RuntimeLogDiagnostics_1 = require("./runtime/RuntimeLogDiagnostics");
 exports.CLUSTER_AGENT_RUNTIME = String.raw `#!/usr/bin/env python3
 from __future__ import annotations
 import argparse, base64, calendar, copy, csv, errno, fnmatch, glob, hashlib, http.client, importlib.util, io, ipaddress, json, math, os, pathlib, random, re, shutil, shlex, signal, socket, statistics, stat, struct, subprocess, sys, threading, time, traceback, urllib.request, uuid, zipfile
@@ -5780,6 +5781,10 @@ def _execute_worker_command_unfenced(root, command, worker_id):
         args.extend(["--debug-mode", "--debug-run-id", debug_run_id or command_id, "--debug-output-dir", debug_output_dir])
     if command.get("_lifecycleRunner") is True:
         env["SIMPLE_EXPERIMENT_TASK_LIFECYCLE"] = "2"
+        env["SIMPLE_EXPERIMENT_RUNTIME_LOG_PATH"] = rel_log
+        # The original console log is command-bound; no diagnostics state file.
+        with open(log_path, "ab") as log_stream:
+            log_stream.write(("[simple-experiment-runtime-log] " + json.dumps({"commandId": command_id, "event": "begin", "phase": "prepare"}) + "\n").encode("utf-8"))
         env.pop("SIMPLE_EXPERIMENT_EXIT_CODE_PATH", None)
         pane = os.environ.get("TMUX_PANE")
         if not pane:
@@ -6737,6 +6742,7 @@ def api_capabilities(root, token_required=False, mode="worker_telemetry"):
                 "workerAvailability": True,
                 "workerTasks": True,
                 "taskLifecycle": 2,
+                "runtimeDiagnostics": 1,
                 "declaredJobPaths": formal_job_path_capable(root),
                 "formalJobIdentityEnv": 1 if formal_job_path_capable(root) else 0,
                 "executionShellPreflight": 1 if execution_shell_preflight_capable(root) else 0,
@@ -16334,7 +16340,7 @@ def serve_http(args):
                         if live.get("workerId") != (os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker"):
                             continue
                         phase = live.get("phase")
-                        status = ("failed" if live.get("exitCode") != 0 else "exited") if live.get("dead") else ("running" if phase == "running" else "queued")
+                        status = ("failed" if isinstance(live.get("exitCode"), int) and live["exitCode"] != 0 else "exited") if live.get("dead") else ("running" if phase == "running" else "queued")
                         task_rows.append({**live, "status": status})
                     tasks_by_pane = {}
                     for task_row in task_rows:
@@ -16947,6 +16953,7 @@ def main():
         print(json.dumps(inspect_agent(args.project_dir), ensure_ascii=False))
         return 0
 
+${RuntimeLogDiagnostics_1.RUNTIME_LOG_DIAGNOSTICS_PYTHON}
 ${TmuxTaskLifecycle_1.TMUX_TASK_LIFECYCLE_PYTHON}
 
 if __name__ == "__main__":

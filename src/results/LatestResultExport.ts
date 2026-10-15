@@ -6,7 +6,7 @@ import { writeCsv, type ResultTableArtifact } from "./ProjectResultTables";
 import { resultDigest, resultPath, type FreshResult } from "./FreshResults";
 
 export type LatestResultExport = { schemaVersion: 1; source: "active_query"; observedAt: string;
-  jobs: FreshResult["jobs"]; errors: string[]; tables: ResultTableArtifact[] };
+  jobs: FreshResult["jobs"]; errors: string[]; tables: ResultTableArtifact[]; runtimeDiagnosticsProtocol?: 1 };
 export const LATEST_RESULT_FILE = "latest-results.json";
 const writers = new Map<string, Promise<unknown>>();
 
@@ -85,7 +85,7 @@ export async function publishLatestResult(root: string, directory: string, resul
   if (!result.querySucceeded) return false;
   return withResultWriter(root, directory, current, async () => {
   const value: LatestResultExport = { schemaVersion: 1, source: "active_query", observedAt: result.observedAt,
-    jobs: result.jobs, errors: result.errors, tables: Object.values(tables) };
+    jobs: result.jobs, errors: result.errors, tables: Object.values(tables), runtimeDiagnosticsProtocol: 1 };
   const file = await safeFile(root, directory, LATEST_RESULT_FILE);
   await atomicWriteText(file, JSON.stringify(value, null, 2) + "\n", { beforeRename: async () => {
     if (!current()) throw Error("结果导出已取消或工作区已变化"); await safeFile(root, directory, LATEST_RESULT_FILE);

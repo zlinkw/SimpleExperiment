@@ -5,6 +5,17 @@ const { resultDigest } = require('../../src/results/FreshResults.ts');
 const { readLatestResultExport, latestResultCatalog, regenerateLatestResultTables } = require('../../src/results/LatestResultExport.ts');
 const { fixture, planFile, planText } = require('../_helpers/freshResultHost');
 function files(root) { return fs.readdirSync(root, { withFileTypes: true }).flatMap(row => row.isDirectory() ? files(path.join(root,row.name)).map(item => row.name+'/'+item) : [row.name]); }
+test('current runtime exceptions replace clean formal exports with marked review tables while preserving metrics and source bytes',async()=>{
+  const f=fixture();await f.service.update();
+  f.raw['work_dirs/alpha42/metrics.csv']='0';const original=JSON.stringify(f.raw),read=f.host.client.getWorkerTasks;
+  f.host.client.getWorkerTasks=async(...args)=>{const value=await read(...args);for(const job of value.declaredResults||[])job.runtimeDiagnostics={schemaVersion:1,commandId:'command',runId:'command',state:'anomalous',count:1,scanComplete:true,types:{AttributeError:1},phases:{train:1}};return value;};
+  const report=await f.service.update();assert.equal(report.completed,0);assert.equal(report.artifactsComplete,1);assert.equal(report.reviewRequired,1);
+  assert.equal(report.results[0].metrics.auc,0);assert.equal(report.results[0].completionState,'review_required');
+  const latest=await readLatestResultExport(f.root,'experiments/results');
+  assert.ok(latest.tables.length);assert.ok(latest.tables.every(table=>table.relativePath.startsWith('review/')&&table.markdown.includes('待复核')));
+  const catalog=await latestResultCatalog(f.root,'experiments/results');assert.ok(catalog.datasets.flatMap(row=>row.tables).every(table=>table.tableKey.startsWith('review/')));
+  assert.equal(JSON.stringify(f.raw),original);
+});
 test('production collection uses only live declarations and native files; saves one final JSON and CSV/Markdown; deletion replaces rows', async () => {
   const f = fixture(); let report = await f.service.update();
   assert.equal(report.current, true); assert.equal(report.completed, 1);

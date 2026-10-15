@@ -3261,6 +3261,7 @@ function renderPanelHtml() {
     const explicitPlanFileCommands = new Set(["openPlan", "archivePlan", "restoreArchivedPlan"]);
     const explicitSavePlanCommands = new Set(["savePlan"]);
     const webviewHandledCommands = new Set([
+      "analyzeRuntimeLog",
       "retryDistributedJob",
       "recallFailedJob",
       "markJobUnavailable", "restoreJobAvailability",
@@ -8622,7 +8623,7 @@ function renderPanelHtml() {
         if (status === "running" || status === "testing") stats.running += 1;
         else if (status === "queued" || status === "pending") stats.queued += 1;
         else if (taskFailureLikeStatus(status)) stats.failed += 1;
-        else if (status === "completed" || status === "done") stats.completed += 1;
+        else if ((status === "completed" || status === "done") && row.completionState === "verified") stats.completed += 1;
       });
       overviewTaskStatsCacheRows = rows;
       overviewTaskStatsCacheValue = stats;
@@ -13765,6 +13766,7 @@ function renderPanelHtml() {
       const checked = isTaskRowSelected(row, selected);
       const pending = taskActionPending(row);
       const pendingDelete = Boolean(taskActionPending(row, "deleteArtifacts"));
+      const analyzeAction = row.commandId && row.serverId && row.artifactPath ? '<button type="button" class="mini secondary" data-command="analyzeRuntimeLog" data-command-id="' + escAttr(row.commandId) + '" data-worker-id="' + escAttr(row.serverId) + '" data-artifact-path="' + escAttr(row.artifactPath) + '">重新分析运行日志</button>' : '';
       const actions = [
         ["停止", "stopExperiment", TASK_LIVE_STATUS_TOKENS?.has(row.status), true],
         ["重试", "retryExperiment", taskFailureLikeStatus(row.status), true],
@@ -13772,7 +13774,7 @@ function renderPanelHtml() {
         ["解析", "parseResults", true, false],
         ["打开日志", "selectLogRunKey", Boolean(key), false],
         ["隐藏残留", "clearLegacyTasks", !usableTaskKey(taskActionKey(row)), false]
-      ].map((item) => rowActionButton(item[0], item[1], row, item[2], item[3], item[4])).join("");
+      ].map((item) => rowActionButton(item[0], item[1], row, item[2], item[3], item[4])).join("") + analyzeAction;
       const pendingBadge = pending ? '<span class="taskActionPending">' + loadingPrefix(true) + esc(pendingLabel(pending)) + '</span>' : "";
       const taskTime = taskTimestampView(row);
       const titleBits = [
@@ -13785,10 +13787,10 @@ function renderPanelHtml() {
         row.duration && row.duration !== "-" ? "耗时 " + row.duration : "",
         row.progress && row.progress !== "-" ? "进度 " + row.progress : ""
       ].filter(Boolean).join(" · ");
-      return '<div class="task-card ' + taskCardClass(row.status) + (checked ? " selectedRow" : "") + (pendingDelete ? " delete-pending" : "") + '" data-task-render-key="' + escAttr(String(row.uiKey || key || row.experimentId || row.experimentName)) + '" data-anchor="' + escAttr(treeAnchorId("task", key || row.experimentId || row.experimentName)) + '" title="' + escAttr(titleBits) + '">' +
+      return '<div class="task-card ' + taskCardClass(['completed', 'done'].includes(row.status) && row.completionState !== 'verified' ? 'unknown' : row.status) + (checked ? " selectedRow" : "") + (pendingDelete ? " delete-pending" : "") + '" data-task-render-key="' + escAttr(String(row.uiKey || key || row.experimentId || row.experimentName)) + '" data-anchor="' + escAttr(treeAnchorId("task", key || row.experimentId || row.experimentName)) + '" title="' + escAttr(titleBits) + '">' +
         '<div class="taskCardHead">' +
           '<input class="taskSelectBox" type="checkbox" data-command="selectExperiment" data-task-ui-key="' + escAttr(row.uiKey) + '" data-run-key="' + escAttr(taskActionKey(row)) + '" data-action-key="' + escAttr(taskActionKey(row)) + '" data-experiment-id="' + escAttr(row.experimentId) + '" data-archive-key="' + escAttr(taskArchiveActionKey(row)) + '" data-worker-id="' + escAttr(resolveWorkerId(row.serverId)) + '" data-plan-file="' + escAttr(taskPlanFile(row)) + '" data-artifact-path="' + escAttr(row.artifactPath) + '" data-result-path="' + escAttr(row.resultPath) + '" data-log-path="' + escAttr(row.logPath) + '" data-debug-mode="' + (row.debugMode ? "true" : "false") + '"' + (checked ? " checked" : "") + '>' +
-          '<div class="taskTitle"><b title="' + escAttr(row.experimentName) + '">' + esc(compactText(row.experimentName, 52)) + '</b>' + planButton + '<span data-task-status-label="true" class="' + statusClass(row.status) + '" title="' + escAttr("原始状态：" + row.status) + '">' + esc(taskStatusLabel(row.status)) + '</span><span class="pill" data-task-time="true" title="' + escAttr(taskTime.label + "时间：" + taskTime.raw) + '">' + esc(taskTime.label + " " + taskTime.relative) + '</span>' + taskLivePills(row) + pendingBadge + '</div>' +
+          '<div class="taskTitle"><b title="' + escAttr(row.experimentName) + '">' + esc(compactText(row.experimentName, 52)) + '</b>' + planButton + '<span data-task-status-label="true" class="' + taskRowStatusClass(row) + '" title="' + escAttr("原始状态：" + row.status) + '">' + esc(taskRowStatusLabel(row)) + '</span><span class="pill" data-task-time="true" title="' + escAttr(taskTime.label + "时间：" + taskTime.raw) + '">' + esc(taskTime.label + " " + taskTime.relative) + '</span>' + taskLivePills(row) + pendingBadge + '</div>' +
           '<div class="taskActions">' + actions + '</div>' +
         '</div>' +
         renderTaskLogDetails(state, row) +
@@ -13884,7 +13886,7 @@ function renderPanelHtml() {
       const text = log || (isTerminalTask(row) ? "暂无最终日志。" : "暂无实时输出。点击“打开日志”后等待 Worker Agent /api/events 或 /api/live-output 回传。");
       const displayText = compactTaskLogText(terminalDisplayText(text));
       const meta = '<div class="taskLogMeta">' +
-        '<span class="pill" title="' + escAttr("原始状态：" + row.status) + '">' + esc(taskStatusLabel(row.status)) + '</span>' +
+        '<span class="pill" title="' + escAttr("原始状态：" + row.status) + '">' + esc(taskRowStatusLabel(row)) + '</span>' +
         '<span class="pill">Worker ' + esc(workerName(row.serverId)) + '</span>' +
         '<span class="pill">GPU ' + esc(arrayText(row.gpuIds)) + '</span>' +
         (displayText.length < String(text || "").length ? '<span class="pill status-warning" title="日志已截断">已截断</span>' : '') +
@@ -13939,7 +13941,7 @@ function renderPanelHtml() {
       const warning = row.workerTelemetryWarning ? '<div class="status-warning">' + esc(row.workerTelemetryWarning) + '</div>' : "";
       const live = row.workerLiveStatus && row.workerLiveStatus !== "-" ? '<span class="pill" title="原始 Worker 状态：' + escAttr(row.workerLiveStatus) + '">Worker ' + esc(labelStatus(row.workerLiveStatus)) + '</span>' : "";
       return '<div class="taskProgressCard">' +
-        '<div class="gpuServerHead"><b>' + esc(row.experimentName) + '</b><span class="' + statusClass(row.status) + '" title="' + escAttr("原始状态：" + row.status) + '">' + esc(taskStatusLabel(row.status)) + '</span></div>' +
+        '<div class="gpuServerHead"><b>' + esc(row.experimentName) + '</b><span class="' + taskRowStatusClass(row) + '" title="' + escAttr("原始状态：" + row.status) + '">' + esc(taskRowStatusLabel(row)) + '</span></div>' +
         '<div class="muted">' + clippedCell(row.plan, "wide", compactPath(row.plan)) + ' · ' + esc(workerName(row.serverId)) + ' · GPU ' + esc(arrayText(row.gpuIds)) + '</div>' +
         '<div class="progress-line"><div class="progress-bar"><div class="progress-fill busy" style="width:' + pct + '%"></div></div><span>' + esc(row.progress) + '</span></div>' +
         '<div class="summaryLine"><span class="pill">' + esc(row.duration) + '</span>' + live + '<button class="mini" data-command="selectLogRunKey" data-run-key="' + escAttr(taskLogActionKey(row)) + '" data-worker-id="' + escAttr(resolveWorkerId(row.serverId)) + '" title="选择要查看的日志来源（按运行记录切换）。">日志</button></div>' +
@@ -14038,7 +14040,7 @@ function renderPanelHtml() {
       const traceTime = relativeTimestampView(row.updatedAt, "更新");
       return '<div class="traceCard ' + traceClass(row) + ' ' + (checked ? "selectedRow" : "") + '">' +
         '<div class="traceCardHead">' +
-          '<div class="traceTitle"><span title="' + escAttr(row.id) + '">' + esc(compactIdentifier(row.id)) + '</span><span class="' + statusClass(row.executionStatus) + '" title="原始执行状态：' + escAttr(row.executionStatus) + '">执行 ' + esc(labelStatus(row.executionStatus)) + '</span><span class="' + statusClass(row.status) + '" title="原始归档状态：' + escAttr(row.status) + '">归档 ' + esc(labelStatus(row.status)) + '</span><span class="pill ' + statusClass(row.deleteStatus) + '" title="原始删除状态：' + escAttr(row.deleteStatus) + '">删除 ' + esc(labelStatus(row.deleteStatus)) + '</span></div>' +
+          '<div class="traceTitle"><span title="' + escAttr(row.id) + '">' + esc(compactIdentifier(row.id)) + '</span><span class="' + statusClass(row.executionStatus) + '" title="原始执行状态：' + escAttr(row.executionStatus) + '">执行 ' + esc(labelStatus(row.executionStatus)) + '</span><span class="' + taskRowStatusClass(row) + '" title="原始归档状态：' + escAttr(row.status) + '">归档 ' + esc(labelStatus(row.status)) + '</span><span class="pill ' + statusClass(row.deleteStatus) + '" title="原始删除状态：' + escAttr(row.deleteStatus) + '">删除 ' + esc(labelStatus(row.deleteStatus)) + '</span></div>' +
           '<button class="mini" data-command="selectExperiment" data-run-key="' + escAttr(row.id) + '" data-archive-key="' + escAttr(row.archiveKey || row.id) + '" title="打开该实验的详情面板&#10;查看它的运行记录、日志与结果">详情</button>' +
         '</div>' +
         '<div class="traceMetaGrid">' +
@@ -14083,7 +14085,7 @@ function renderPanelHtml() {
           taskDetailLine("版本", esc(row.planRevision || "未记录")) +
           taskDetailLine("Worker", esc(workerName(row.workerId || "-"))) +
           taskDetailLine("执行", '<span title="原始状态：' + escAttr(row.executionStatus) + '">' + esc(labelStatus(row.executionStatus)) + '</span>') +
-          taskDetailLine("归档", '<span class="' + statusClass(row.status) + '" title="原始状态：' + escAttr(row.status) + '">' + esc(labelStatus(row.status)) + '</span>') +
+          taskDetailLine("归档", '<span class="' + taskRowStatusClass(row) + '" title="原始状态：' + escAttr(row.status) + '">' + esc(labelStatus(row.status)) + '</span>') +
           taskDetailLine("结果取舍", '<span title="' + escAttr(row.reviewReason || "") + '">' + esc(reviewStateLabel(row.reviewState)) + '</span>') +
           taskDetailLine("删除", '<span title="原始状态：' + escAttr(row.deleteStatus) + '">' + esc(labelStatus(row.deleteStatus)) + '</span>') +
           taskDetailLine("解析", '<span title="原始状态：' + escAttr(row.resultStatus) + '">' + esc(labelStatus(row.resultStatus)) + '</span>') +
@@ -14379,17 +14381,19 @@ function renderPanelHtml() {
           : submission ? 0 : group.tasks.filter((row) => TASK_LIVE_STATUS_TOKENS?.has(taskStatusToken(row.status))).length;
         const deferredView = deferredCurrent ? executionDeferredView(group.deferredStatus) : null;
         const waitingSubmission = submission && submission.localSubmissionProgress === true && String(submission.status || "").toLowerCase() === "queued";
-        const tone = submission ? (waitingSubmission ? "blocked" : "queued") : deferredView ? deferredView.tone : unknown || recovery.unresolved ? "blocked" : running ? "running" : queued || dispatching ? "queued" : failed ? "failed" : blockedOnly ? "blocked" : active ? "blocked" : "completed";
-        const completed = currentJobs.length ? currentJobs.filter((job) => String(job.status || "") === "completed").length
+        const reviewJobs = (currentJobs.length ? currentJobs : group.tasks).filter(job => ["completed", "done"].includes(job.status) && job.completionState !== "verified").length;
+        const anomalyJobs = (currentJobs.length ? currentJobs : group.tasks).filter(job => ["completed", "done"].includes(job.status) && job.completionState === "review_required").length;
+        const tone = submission ? (waitingSubmission ? "blocked" : "queued") : deferredView ? deferredView.tone : unknown || recovery.unresolved ? "blocked" : running ? "running" : queued || dispatching ? "queued" : failed ? "failed" : reviewJobs || blockedOnly ? "blocked" : active ? "blocked" : "completed";
+        const completed = currentJobs.length ? currentJobs.filter((job) => String(job.status || "") === "completed" && job.completionState === "verified").length
           : submission || deferredCurrent ? 0
-          : group.tasks.filter((row) => TASK_TERMINAL_STATUSES?.has(taskStatusToken(row.status)) && !taskFailureLikeStatus(row.status)).length;
+          : group.tasks.filter((row) => TASK_TERMINAL_STATUSES?.has(taskStatusToken(row.status)) && !taskFailureLikeStatus(row.status) && row.completionState === "verified").length;
         const label = group.planFile ? planBaseName(group.planFile) : "未关联 Plan 的操作";
         const totalJobs = Math.max(currentJobs.length, !submission && !deferredCurrent ? recovery.expectedJobCount : 0) || (!submission && !deferredCurrent ? group.tasks.length : 0);
         const failedJobs = currentJobs.filter((job) => String(job.status || "") === "failed").length;
         const unavailableJobs = currentJobs.filter((job) => job.unavailable && job.status === "cancelled").length;
         const cancelledJobs = currentJobs.filter((job) => String(job.status || "") === "cancelled" && !job.unavailable).length;
         const successRate = totalJobs ? Math.round(completed * 100 / totalJobs) : 0;
-        const statusText = submission ? executionSubmissionLabel(submission) : deferredView ? deferredView.statusText : unknown || recovery.unresolved ? "待核实" : tone === "blocked" ? "阻塞" : tone === "queued" ? "排队" : running ? "运行中" : dispatching ? "派发中" : tone === "failed" ? "失败" : missingWindows ? "远端未发现执行窗口" : unavailableJobs ? "已结束（含不可用 job）" : cancelledJobs === totalJobs && totalJobs ? "已中止" : cancelledJobs ? "已结束" : currentJobs.length ? "已完成" : "已结束";
+        const statusText = submission ? executionSubmissionLabel(submission) : deferredView ? deferredView.statusText : unknown || recovery.unresolved ? "待核实" : tone === "blocked" ? (reviewJobs ? (anomalyJobs ? "完成但有异常，待复核" : "运行日志待核实") : "阻塞") : tone === "queued" ? "排队" : running ? "运行中" : dispatching ? "派发中" : tone === "failed" ? "失败" : missingWindows ? "远端未发现执行窗口" : unavailableJobs ? "已结束（含不可用 job）" : cancelledJobs === totalJobs && totalJobs ? "已中止" : cancelledJobs ? "已结束" : currentJobs.length ? "已完成" : "已结束";
         let countText = submission ? (statusText + " · 待生成 job") : deferredView ? deferredView.countText : totalJobs
           ? ("成功 " + completed + "/" + totalJobs + " · " + successRate + "%" + (running ? " · 运行 " + running : "") + (queued ? " · 排队 " + queued : "") + (blockedCount ? " · 阻塞 " + blockedCount : "") + (failedJobs ? " · 失败 " + failedJobs : "") + (recovery.missingCount ? " · 待核实 " + recovery.missingCount : "") + (recovery.conflict ? " · 服务器状态冲突" : ""))
           : ("操作 " + group.operations.length);
@@ -14399,6 +14403,7 @@ function renderPanelHtml() {
             ? " · 已托管，可关机" : " · 尚未完整确认托管";
         }
         if (dispatching) countText += " · 派发 " + dispatching;
+        if (reviewJobs) countText += " · 待复核 " + reviewJobs + (anomalyJobs ? "（异常 " + anomalyJobs + "）" : "");
         if (unavailableJobs) countText += " · 不可用 " + unavailableJobs;
         if (unknown > recovery.missingCount) countText += " · 待核实 " + unknown;
         if (missingWindows) countText += " · 未发现执行窗口 " + missingWindows;
@@ -14457,7 +14462,8 @@ function renderPanelHtml() {
           const jobActive = ["pending", "dispatching", "queued", "running", ...(job.lifecycleProtocol === 2 ? [] : ["unknown"])].includes(status) && !blocked;
           const unavailable = job.unavailable && status === "cancelled";
           const preflightRejected = Boolean(job.admissionRejection && status === "failed");
-          const statusLabel = job.executionState === "starting" ? "正在启动命令" : job.retainExistingOutputs ? "保留已有产物" : job.lifecycleProtocol === 2 && status === "unknown" ? (job.statusQueryError ? "查询失败，状态未知" : job.executionState === "exited" ? "执行结束，结果待确认" : job.executionState === "missing" ? "远端未发现该任务" : "执行状态待核实") : unavailable ? "不可用" : blocked ? (String(job.blockReason || "").indexOf("等待当前代码版本") === 0 ? "等待代码版本" : "代码版本不匹配") : retryView.label || ({ pending: "本机等待空卡", queued: "服务器排队", dispatching: "派发中", running: "运行中", completed: "已完成", failed: "失败", cancelled: "已中止", unknown: "待核实" }[status] || status);
+          const needsReview = status === "completed" && job.completionState !== "verified";
+          const statusLabel = needsReview ? (job.completionState === "review_required" ? "完成但有异常，待复核" : "产物完整，运行日志待核实") : job.executionState === "starting" ? "正在启动命令" : job.retainExistingOutputs ? "保留已有产物" : job.lifecycleProtocol === 2 && status === "unknown" ? (job.statusQueryError ? "查询失败，状态未知" : job.executionState === "exited" ? "执行结束，结果待确认" : job.executionState === "missing" ? "远端未发现该任务" : "执行状态待核实") : unavailable ? "不可用" : blocked ? (String(job.blockReason || "").indexOf("等待当前代码版本") === 0 ? "等待代码版本" : "代码版本不匹配") : retryView.label || ({ pending: "本机等待空卡", queued: "服务器排队", dispatching: "派发中", running: "运行中", completed: "已完成", failed: "失败", cancelled: "已中止", unknown: "待核实" }[status] || status);
           const placement = (job.workerId ? job.workerId + (preflightRejected ? " · 未启动" : job.gpuId == null || job.gpuId === "" ? "" : " · GPU " + job.gpuId) : "未派发") + (job.manualDispatch ? " · 手动指定" : "");
           const canJumpLog = Boolean(!preflightRejected && job.workerId && (job.commandId || job.outputDir));
           const logButton = '<button type="button" class="mini secondary" data-job-tmux-log="1" data-worker-id="' + escAttr(job.workerId || "") + '" data-command-id="' + escAttr(job.commandId || "") + '" data-output-dir="' + escAttr(job.outputDir || "") + '"' + (canJumpLog ? '' : ' disabled') + ' title="' + (canJumpLog ? '在 TMUX 区域选中该 Worker 的真实任务窗口标签' : '等待任务派发后定位对应的 TMUX 日志标签') + '">查看窗口日志</button>';
@@ -14482,7 +14488,12 @@ function renderPanelHtml() {
             : "历史遗留清理记录需人工审核，不会自动移动或删除。" + (failedCleanup.error ? " " + failedCleanup.error : "")) : "";
           const executionLabel = ({ queued:"服务器排队", starting:"正在启动", running:"运行中", exited:"已结束", failed:"失败", missing:"窗口不存在", unknown:"未知" })[job.executionState] || "尚未派发";
           const resultLabel = ({ complete:"完整", incomplete:"不完整", unverified:"待核实", conflict:"与本次任务不符" })[job.resultState] || "待核实";
-          const lifecycleStates = job.lifecycleProtocol === 2 ? '<div class="muted executionLifecycleStates"><span>执行：' + esc(executionLabel) + '</span> · <span>结果：' + esc(resultLabel) + '</span></div>' : '';
+          const diagnostic = job.runtimeDiagnostics && job.runtimeDiagnostics.commandId === job.commandId && job.runtimeDiagnostics.runId === job.commandId ? job.runtimeDiagnostics : {};
+          const diagnosticLabel = diagnostic.count > 0 ? ('异常 ' + diagnostic.count + ' 次 · ' + Object.keys(diagnostic.types || {}).join(', ') + ' · 阶段 ' + Object.keys(diagnostic.phases || {}).join(', ')) : diagnostic.state === "clear" && diagnostic.scanComplete ? "完整日志未检出异常" : "日志未核实";
+          const firstException = asArray(diagnostic.exceptions)[0];
+          const diagnosticSummary = firstException ? '<div class="muted">' + esc(String(firstException.summary || '').split(String.fromCharCode(10)).filter(Boolean).slice(-1)[0] || firstException.type).slice(0, 240) + ' · ' + esc(firstException.logPath || diagnostic.logPath || '') + ' · 行 ' + esc(String(firstException.lineStart || '?')) + '–' + esc(String(firstException.lineEnd || '?')) + '</div>' : '';
+          const lifecycleStates = '<div class="muted executionLifecycleStates"><span>执行：' + esc(executionLabel) + (job.exitCode == null ? '' : ' · 退出码 ' + esc(String(job.exitCode))) + '</span> · <span>产物：' + esc(resultLabel) + '</span> · <span>' + esc(diagnosticLabel) + '</span></div>';
+          const analyzeButton = job.commandId && job.workerId ? '<button type="button" class="mini secondary" data-command="analyzeRuntimeLog" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || '') + '" data-job-index="' + escAttr(String(job.index)) + '" data-command-id="' + escAttr(job.commandId) + '">重新分析运行日志</button>' : '';
           const blockText = job.lifecycleProtocol === 2 ? String(job.statusQueryError || job.blockReason || "") : blocked ? String(job.blockReason || "") : "";
           const blockAdvice = blocked ? (blockText.indexOf("等待当前代码版本") === 0 ? "这个已提交 job 保留排队；其他 Worker 可运行匹配版本。被占用的 Worker 收到旧任务结束回执后自动释放版本锁，无需再次提交。" : "下一步：空闲 GPU 不能运行这份旧代码。到实验准备的 Plan 列表手动选中，再点“校验并提交运行”；或恢复提交前的代码并重新同步 Worker。") : "";
           const jobNext = preflightRejected
@@ -14493,8 +14504,8 @@ function renderPanelHtml() {
             : errorText && !retryView.note && !unavailable
             ? '<div class="muted">下一步：点本行“跳转到日志”查看对应 TMUX 任务窗口。这是已提交 job 的失败，不会自动清理。确认需要停止后，再点本 Plan 的“终止并清除该 Plan”（两次确认）。</div><span class="errorRowLinks" style="display:flex;gap:6px;flex-wrap:wrap;"><button type="button" class="mini secondary" data-section-target="execution" data-anchor-target="execution-operations" title="跳到运行进度，查看本 Plan 的状态">运行进度</button><button type="button" class="mini secondary" data-command="snapshot" title="重新拉取调度状态与操作记录">刷新状态</button></span>'
             : "";
-          return '<div class="executionDistributedJob' + (blocked ? " is-blocked" : "") + '" title="' + escAttr(job.outputDir || "") + '">'+(manualControls?'<div class="executionManualDispatch">'+manualControls+'</div>':'')+'<span>' + loadingPrefix(jobActive) + esc(job.case || "job " + job.index) + ' seed ' + esc(String(job.seed)) + '</span><span class="' + (blocked || unavailable ? "status-warning" : statusClass(status)) + '">' + esc(statusLabel) + '</span><span>' + esc(blocked ? "阻塞" : placement) + '</span>' + recallButton + failedRecallButton + availabilityButton + logButton + trainingRecoveryButton
-            + lifecycleStates
+          return '<div class="executionDistributedJob' + (blocked ? " is-blocked" : "") + '" title="' + escAttr(job.outputDir || "") + '">'+(manualControls?'<div class="executionManualDispatch">'+manualControls+'</div>':'')+'<span>' + loadingPrefix(jobActive) + esc(job.case || "job " + job.index) + ' seed ' + esc(String(job.seed)) + '</span><span class="' + (needsReview || blocked || unavailable ? "status-warning" : statusClass(status)) + '">' + esc(statusLabel) + '</span><span>' + esc(blocked ? "阻塞" : placement) + '</span>' + recallButton + failedRecallButton + availabilityButton + logButton + trainingRecoveryButton
+            + lifecycleStates + diagnosticSummary + analyzeButton
             + (unavailable ? '<div class="muted">不可用原因：' + esc(job.unavailable.reason) + ' · ' + esc(job.unavailable.markedAt) + '</div>' : '')
             + (recallNote ? '<div class="muted">' + esc(recallNote) + '</div>' : '')
             + (failedCleanupNote ? '<div class="muted">' + esc(failedCleanupNote) + '</div>' : '')
@@ -14711,6 +14722,7 @@ function renderPanelHtml() {
             lifecycleProtocol: job.lifecycleProtocol,
             executionState: job.executionState,
             resultState: job.resultState,
+            completionState: job.completionState, runtimeDiagnostics: job.runtimeDiagnostics, exitCode: job.exitCode,
             statusQueryError: job.statusQueryError,
             workerId: job.workerId,
             gpuId: job.gpuId,
@@ -14856,7 +14868,7 @@ function renderPanelHtml() {
           const status = String(row.status || "");
           patchPanelProgressDom(node, {
             text: {
-              "[data-task-status-label]": taskStatusLabel(status),
+              "[data-task-status-label]": taskRowStatusLabel(row),
               "[data-task-time]": taskTime.label + " " + taskTime.relative,
               "[data-task-progress-value]": progress,
             },
@@ -15185,7 +15197,7 @@ function renderPanelHtml() {
         '<span class="operationDot" aria-hidden="true"></span>' +
         '<div class="operationBody">' +
           '<div class="operationHead">' + historyCheckbox +
-            '<div class="operationTitle"><span title="' + escAttr("原始操作：" + rawType) + '">' + esc(operationTypeLabel(rawType)) + '</span><span data-operation-status-label="true" class="' + statusClass(row.status) + '" title="' + escAttr("原始状态：" + (row.status || "-")) + '"><span data-operation-status-loading="true"' + (operationIsActive(row.status) ? '' : ' hidden') + '>' + loadingPrefix(operationIsActive(row.status)) + '</span><span data-operation-status-text="true">' + esc(operationStatusLabel(row.status)) + '</span></span>' + planButton + historyMarker + lenientBadge + '</div>' +
+            '<div class="operationTitle"><span title="' + escAttr("原始操作：" + rawType) + '">' + esc(operationTypeLabel(rawType)) + '</span><span data-operation-status-label="true" class="' + taskRowStatusClass(row) + '" title="' + escAttr("原始状态：" + (row.status || "-")) + '"><span data-operation-status-loading="true"' + (operationIsActive(row.status) ? '' : ' hidden') + '>' + loadingPrefix(operationIsActive(row.status)) + '</span><span data-operation-status-text="true">' + esc(operationStatusLabel(row.status)) + '</span></span>' + planButton + historyMarker + lenientBadge + '</div>' +
             '<span class="operationId" title="' + escAttr(row.operationId) + '">' + esc(compactIdentifier(row.operationId)) + '</span>' +
           '</div>' +
            '<div class="operationMessage" data-operation-message="true">' + esc(typeof redactUiText === "function" ? redactUiText(String(message || "")) : String(message || "")) + '</div>' +
@@ -15704,7 +15716,7 @@ function renderPanelHtml() {
         return '<tr><td>' + escapeHtml(String(row.experimentId || '历史记录')) + '</td><td>' + escapeHtml(JSON.stringify(row.dimensions || {})) + '</td><td>' + escapeHtml(JSON.stringify(row.metrics || {})) + '</td></tr>';
       }).join('') + '</tbody></table></details>' : '';
       const report = state.resultSyncReport || summary;
-      const coverage = report.source === "active_query" ? '<div class="notice ' + (report.current ? '' : 'warning') + '"><b>' + (report.current ? '本轮已核实 ' + Number(report.completed || 0) + '/' + Number(report.expected || 0) + ' 个 job' : '本轮查询失败，现有导出不是本轮结果') + '</b><span class="muted"> · ' + esc(report.observedAt || '') + '</span>' + ((report.missing || []).length || (report.skipped || []).length ? '<details><summary>查看缺项与查询原因</summary>' + asArray(report.missing).concat(asArray(report.skipped)).map(function(message) { return '<div>' + esc(String(message)) + '</div>'; }).join('') + '</details>' : '') + '</div>' : '';
+      const coverage = report.source === "active_query" ? '<div class="notice ' + (report.current && !report.reviewRequired ? '' : 'warning') + '"><b>' + (report.current ? '本轮无异常完成 ' + Number(report.completed || 0) + '/' + Number(report.expected || 0) + ' 个 job · 待复核 ' + Number(report.reviewRequired || 0) : '本轮查询失败，现有导出不是本轮结果') + '</b><span class="muted"> · ' + esc(report.observedAt || '') + '</span>' + ((report.missing || []).length || (report.skipped || []).length ? '<details><summary>查看缺项与查询原因</summary>' + asArray(report.missing).concat(asArray(report.skipped)).map(function(message) { return '<div>' + esc(String(message)) + '</div>'; }).join('') + '</details>' : '') + '</div>' : '';
       setHtmlIfChanged("resultSummary", coverage + renderWorkerResultAggregateWarning(summary) + historyPreview + renderResultEvidenceWorkbench(state, summary));
     }
 
@@ -17396,6 +17408,7 @@ function renderPanelHtml() {
       if (!payload.planFile && command === "archivePlan" && el("planFileInput")) payload.planFile = el("planFileInput").value;
       if (button.dataset.planId) payload.planId = button.dataset.planId;
       if (button.dataset.jobIndex !== undefined) payload.jobIndex = Number(button.dataset.jobIndex);
+      if (command === "analyzeRuntimeLog") payload.commandId = button.dataset.commandId || "";
       if (["recallFailedJob", "markJobUnavailable", "restoreJobAvailability"].includes(command)) {
         if (command !== "recallFailedJob" && button.dataset.attempt !== undefined)
           payload.attempt = Number(button.dataset.attempt);
@@ -18342,7 +18355,7 @@ function projectSectionNextAction(status, label, section, anchor) {
         "runKey", "run_key", "runId", "run_id", "jobId", "job_id", "taskId", "task_id",
         "id", "experimentId", "experiment_id", "archiveKey", "archive_key",
         "planFile", "plan_file", "plan", "suite", "case", "name", "workerId", "worker_id", "serverId",
-        "updatedAt", "updated_at", "progress", "epoch", "step"
+        "updatedAt", "updated_at", "progress", "epoch", "step", "completionState", "runtimeDiagnostics", "exitCode"
       ]));
       return { flat, signature: stableSectionSignature({ count: flat.length, rows }) };
     }
@@ -18401,6 +18414,7 @@ function projectSectionNextAction(status, label, section, anchor) {
       const rawPlanFile = firstPathLike(pick(row, ["planFile", "plan_file", "planPath", "plan_path", "file", "path"], ""), pick(row, ["plan", "planName", "plan_name"], ""));
       const normalized = {
         status,
+        commandId: row.commandId, completionState: row.completionState, runtimeDiagnostics: row.runtimeDiagnostics, exitCode: row.exitCode,
         plan: pick(row, ["planName", "plan_name", "plan", "suite", "file"], "-"),
         planFile: rawPlanFile || "-",
         planRevision: pick(row, ["planRevision", "plan_revision"], ""),
@@ -18819,6 +18833,13 @@ function projectSectionNextAction(status, label, section, anchor) {
       const raw = String(status || "").trim();
       if (!raw || raw === "-") return raw || "未知";
       return TASK_STATUS_LABELS[taskStatusToken(raw)] || raw;
+    }
+    function taskRowStatusLabel(row) {
+      return ["completed", "done"].includes(row.status) && row.completionState !== "verified"
+        ? row.completionState === "review_required" ? "完成但有异常，待复核" : "产物完整，运行日志待核实" : taskStatusLabel(row.status);
+    }
+    function taskRowStatusClass(row) {
+      return ["completed", "done"].includes(row.status) && row.completionState !== "verified" ? "status-warning" : statusClass(row.status);
     }
     function taskFailureLikeStatus(status) {
       return TASK_FAILURE_STATUSES?.has(taskStatusToken(status));

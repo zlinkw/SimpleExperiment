@@ -1,3 +1,4 @@
+import { completionState, runtimeEvidence, type RuntimeDiagnostics, type CompletionState } from "./RuntimeDiagnostics";
 /** Runtime truth comes from a bounded pull, never an event or a stored status. */
 export type TaskExecution = "queued" | "starting" | "running" | "exited" | "failed" | "missing" | "unknown";
 export type TaskResult = "complete" | "incomplete" | "unverified" | "conflict";
@@ -5,12 +6,14 @@ export type TaskObservation = {
   commandId: string; projectId: string; workerId: string; lifecycleProtocol: 2;
   observedAt: string; queryError?: string; schedulerPhase?: string;
   resultQueryError?: string;
+  runtimeDiagnostics?: RuntimeDiagnostics;
   cancelled?: boolean;
   tmux?: { windowId: string; paneId: string; dead: boolean; exitCode?: number | null; phase?: string };
-  result?: { runId: string; status: string; present: boolean; verified: boolean; identityMatches?: boolean } | null;
+  result?: { runId: string; status: string; present: boolean; verified: boolean; identityMatches?: boolean; artifactsComplete?: boolean; exitCode?: number | null } | null;
 };
 export function taskLifecycle(value: TaskObservation): { execution: TaskExecution; result: TaskResult;
-  status: "unknown" | "queued" | "running" | "failed" | "completed" | "cancelled"; message?: string } {
+  status: "unknown" | "queued" | "running" | "failed" | "completed" | "cancelled";
+  completionState?: CompletionState; runtimeDiagnostics?: RuntimeDiagnostics; exitCode?: number | null; message?: string } {
   let execution: TaskExecution = "missing", result: TaskResult = value.result === null ? "incomplete" : "unverified";
   if (value.queryError) return { execution: "unknown" as TaskExecution, result: "unverified", status: "unknown" as const, message: value.queryError };
   const pane = value.tmux;
@@ -25,9 +28,11 @@ export function taskLifecycle(value: TaskObservation): { execution: TaskExecutio
   }
   if (value.result) {
     result = value.result.runId !== value.commandId || value.result.identityMatches === false ? "conflict"
-      : value.result.status === "completed" && value.result.present && value.result.verified ? "complete" : "incomplete";
+      : (value.result.artifactsComplete === true || value.result.status === "completed") && value.result.present && value.result.verified ? "complete" : "incomplete";
   }
   if (value.resultQueryError) result = "unverified";
+  const exitCode = pane?.exitCode ?? (value.result?.runId === value.commandId && value.result.identityMatches !== false ? value.result?.exitCode : undefined) ?? pane?.exitCode;
+  if ((!pane || pane.dead) && Number.isInteger(exitCode)) execution = exitCode !== 0 ? "failed" : "exited";
   const status = ["queued", "starting"].includes(execution) ? "queued" : execution === "running" ? "running"
     : execution === "failed" ? "failed" : execution === "unknown" ? "unknown" : result === "complete" ? "completed" : value.cancelled && !pane ? "cancelled"
     : execution === "missing" ? "unknown" : "unknown";
@@ -36,7 +41,11 @@ export function taskLifecycle(value: TaskObservation): { execution: TaskExecutio
     : result === "conflict" ? "产物清单与本次任务不符"
     : execution === "exited" && result === "incomplete" ? "执行已结束，结果不完整"
     : execution === "exited" && result !== "complete" ? "执行已结束，产物尚未确认" : undefined;
-  return { execution, result, status, message };
+  const evidence = runtimeEvidence(value.runtimeDiagnostics, value.commandId);
+  let completion = completionState(evidence, value.commandId);
+  if (completion === "verified" && exitCode == null && value.result?.status === "failed") completion = "unverified";
+  return { execution, result, status, message, exitCode,
+    runtimeDiagnostics: evidence, completionState: completion };
 }
 
 /** Only stable control ownership is required for a live observation. */

@@ -1,12 +1,14 @@
 import { createHash } from "node:crypto";
 import { verifyNativeResult } from "./NativeResultManifest";
 import * as Tables from "./ProjectResultTables";
+import { runtimeEvidence, completionState, type RuntimeDiagnostics, type CompletionState } from "../features/RuntimeDiagnostics";
 
 export type ResultDeclaration = { planFile: string; index: number; case: string; seed: number; output_dir: string; result_csv: string; mode: string };
 export type ResultPlan = { planFile: string; revision: string; mode: string; seeds: number[]; jobs: ResultDeclaration[] };
 export type ResultSource = { remotePath: string; bytes: number; sha256: string };
 export type ResultJob = { planFile: string; index: number; case: string; seed: number; outputDir: string; state: string;
-  executionState?: string; commandId?: string; workerId?: string; sources?: ResultSource[]; error?: string };
+  executionState?: string; commandId?: string; workerId?: string; sources?: ResultSource[]; error?: string;
+  completionState?: CompletionState; runtimeDiagnostics?: RuntimeDiagnostics; exitCode?: number | null };
 export type FreshResult = { observedAt: string; jobs: ResultJob[]; records: Tables.SeedRecord[]; errors: string[]; querySucceeded: boolean };
 
 export function resultPath(value: string): string {
@@ -60,7 +62,7 @@ export async function collectFreshResults(plans: ResultPlan[], snapshots: any[],
         }
         const manifest = files.find(file => file.remotePath === manifestPath)!;
         const report = verifyNativeResult(manifest.text, resultDigest(manifest.text), { commandId: source.runId, index: job.index, case: job.case,
-          seed: job.seed, outputDir: job.output_dir, collectionResultCsv: job.result_csv }, job.mode);
+          seed: job.seed, outputDir: job.output_dir, collectionResultCsv: job.result_csv }, job.mode, true);
         if (report.planFile && report.planFile !== job.planFile) throw Error("RESULT_MANIFEST_PLAN_MISMATCH");
         const metricProof = source.files.find((file: ResultSource) => file.remotePath === job.result_csv);
         if (metricProof && report.sha256?.[job.result_csv] && report.sha256[job.result_csv] !== metricProof.sha256) throw Error("RESULT_METRIC_HASH_CHANGED");
@@ -91,7 +93,21 @@ export async function collectFreshResults(plans: ResultPlan[], snapshots: any[],
         item.state = "complete"; item.commandId = source.runId; item.workerId = source.workerId; item.sources = source.files;
         const panes = tasks.filter(task => task.commandId === source.runId).map(task => task.observation?.tmux).filter(Boolean);
         item.executionState = panes.some(pane => pane.exitCode != null && pane.exitCode !== 0) ? "failed"
-          : panes.some(pane => pane.exitCode === 0) ? "exited" : panes.length ? "unknown" : "missing";
+          : panes.length ? "exited" : "missing";
+        item.exitCode = panes.find(pane => pane.exitCode != null && pane.exitCode !== 0)?.exitCode ?? panes.find(pane => pane.exitCode != null)?.exitCode ?? source.exitCode;
+        if (Number.isInteger(item.exitCode)) item.executionState = item.exitCode === 0 ? "exited" : "failed";
+        // Prefer positive anomaly evidence from any verified replica. A copied
+        // manifest cannot certify that the source console log was inspected.
+        const evidence = valid.map(row => runtimeEvidence(row.runtimeDiagnostics, source.runId));
+        item.runtimeDiagnostics = evidence.find(row => row.count > 0) || evidence.find(row => row.state === "clear" && row.scanComplete)
+          || runtimeEvidence(source.runtimeDiagnostics, source.runId);
+        item.completionState = completionState(item.runtimeDiagnostics, source.runId);
+        if (source.executionStatus === "failed" && item.exitCode == null) {
+          if (item.completionState === "verified") item.completionState = "unverified";
+          result.errors.push(plan.planFile + " · " + job.case + "/" + job.seed + "：原清单记录 failed，但未取得退出码；不判为非零失败，也不计入无异常成功，指标保留待复核。");
+        }
+        if (item.completionState !== "verified") result.errors.push(plan.planFile + " · " + job.case + "/" + job.seed + "：" +
+          (item.completionState === "review_required" ? "完成但有异常，待复核" : "运行日志尚未完整核实") + "；指标保留在待复核表，不自动判为无效。");
         if (item.executionState === "failed") result.errors.push(plan.planFile + " · " + job.case + "/" + job.seed + "：执行以非零退出码结束；产物状态单独显示为完整。");
         result.records.push(...records); item.error = undefined; break;
       } catch (error: any) { item.state = "unknown"; item.error = source.workerId + "：" + String(error.message || error); }
@@ -101,9 +117,18 @@ export async function collectFreshResults(plans: ResultPlan[], snapshots: any[],
 }
 
 /** Reuse the established metric aliases, grouping, derived metrics and sample standard deviation. */
-export function freshResultTables(result: FreshResult, plans: ResultPlan[], derivedMetric?: Tables.DerivedMetric) {
+export function freshResultTables(result: FreshResult, plans: ResultPlan[], derivedMetric?: Tables.DerivedMetric, review = false) {
   const registry = Tables.emptyTableRegistry(); registry.derivedMetric = derivedMetric;
   for (const plan of plans) registry.plans[plan.planFile] = { revision: plan.revision, expectedSeeds: plan.seeds.length,
-    records: result.records.filter(row => row.planFile === plan.planFile) };
-  return Tables.buildTables(registry, { partial: true });
+    records: result.records.filter(row => row.planFile === plan.planFile && result.jobs.some(job => job.planFile === row.planFile
+      && job.commandId === row.runId && job.case === row.case && String(job.seed) === String(row.seed)
+      && (review ? job.completionState !== "verified" || job.executionState === "failed" : job.completionState === "verified" && job.executionState !== "failed"))) };
+  const tables = Tables.buildTables(registry, { partial: true });
+  if (review) for (const table of Object.values(tables)) {
+    table.tableKey = "review/" + table.tableKey;
+    table.relativePath = "review/" + table.relativePath; table.markdownPath = "review/" + table.markdownPath;
+    table.name = "待复核 · " + table.name;
+    table.markdown = "> 待复核结果：运行异常、执行失败或日志未核实。指标保留，不代表已判定无效；未计入正式无异常汇总。\n\n" + table.markdown;
+  }
+  return tables;
 }

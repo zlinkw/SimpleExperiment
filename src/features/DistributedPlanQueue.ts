@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import * as path from "node:path";
 import { PlanExecutionMode } from "./PlanExecutionMode";
 import { observationMatches, taskLifecycle, TaskObservation } from "./TaskLifecycle";
+import type { RuntimeDiagnostics, CompletionState } from "./RuntimeDiagnostics";
 
 export type JobState = "pending" | "dispatching" | "queued" | "running" | "completed" | "failed" | "cancelled" | "unknown";
 export type JobFailureClass = "deterministic" | "resource" | "transient" | "unknown";
@@ -25,6 +26,9 @@ export type QueuedJob = {
   retainExistingOutputs?: boolean;
   executionState?: string;
   resultState?: string;
+  runtimeDiagnostics?: RuntimeDiagnostics;
+  completionState?: CompletionState;
+  exitCode?: number | null;
   statusQueryError?: string;
   lastObservedAt?: string;
   tmuxPane?: string;
@@ -174,14 +178,14 @@ export function restoreFormalJobQueue(queue: DistributedQueue): DistributedQueue
 
 function clearNativeProjection(job: QueuedJob) {
   job.status = job.unavailable || job.retainExistingOutputs ? "cancelled" : job.commandId ? "unknown" : "pending";
-  for (const key of ["executionState", "resultState", "statusQueryError", "lastObservedAt", "trustedTerminalStatus", "error", "blockReason",
+  for (const key of ["executionState", "resultState", "completionState", "runtimeDiagnostics", "exitCode", "statusQueryError", "lastObservedAt", "trustedTerminalStatus", "error", "blockReason",
     "tmuxPane", "tmuxWindowId", "tmuxSession", "logPath", "finishedAt"] as const) delete job[key];
 }
 
 /** Metadata writes keep the current in-memory observation; disk history never supplies runtime truth. */
 export function keepCurrentObservations(queue: DistributedQueue, live: DistributedQueue | undefined, now = Date.now()): DistributedQueue {
   if (!live) return queue;
-  const keys = ["status", "executionState", "resultState", "statusQueryError", "lastObservedAt", "error", "blockReason",
+  const keys = ["status", "executionState", "resultState", "completionState", "runtimeDiagnostics", "exitCode", "statusQueryError", "lastObservedAt", "error", "blockReason",
     "tmuxPane", "tmuxWindowId", "tmuxSession", "logPath", "finishedAt"] as const;
   for (const plan of queue.plans) for (const job of plan.jobs) {
     const current = live.plans.find(row => row.id === plan.id && row.projectId === plan.projectId)?.jobs.find(row => row.index === job.index);
@@ -496,6 +500,7 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
         observation.queryError = "任务查询身份与当前任务不符；请刷新核实";
       const state = taskLifecycle(observation);
       return { ...job, lifecycleProtocol: 2 as const, status: state.status, executionState: state.execution, resultState: state.result,
+        runtimeDiagnostics: state.runtimeDiagnostics, completionState: state.completionState, exitCode: state.exitCode,
         startIntent: !observation.queryError && (observation.tmux || observation.cancelled || state.result === "complete") ? undefined : job.startIntent,
         ...( ["train", "test", "train_test"].includes(String(task?.actualExecutionMode)) ? { actualExecutionMode: task!.actualExecutionMode as PlanExecutionMode } : {}),
         recoveryConflict: undefined, trustedTerminalStatus: undefined,
@@ -1009,6 +1014,7 @@ export function allocateAvailable(queue: DistributedQueue, workers: readonly Wor
         const gpuId = slots.get(chosen)?.shift();
         if (gpuId === undefined) break;
         const commandId = durableCommandId(plan, job, chosen, gpuId);
+        if (commandId !== job.commandId) Object.assign(job, { runtimeDiagnostics: undefined, completionState: undefined, exitCode: undefined });
         Object.assign(job, { status: "dispatching", workerId: chosen, gpuId, commandId, blockReason: undefined,
           ...(job.lifecycleProtocol === 2 ? { startIntent: { commandId, workerId: chosen, gpuId } } : {}),
           reassignmentWorkerId: undefined });
@@ -1162,6 +1168,7 @@ export function releaseQueuedForReassignment(queue: DistributedQueue, planId: st
   return { ...queue, plans: queue.plans.map((row) => row.id !== planId ? row : { ...row,
     jobs: row.jobs.map((item) => item.index !== jobIndex ? item : {
       ...item, outputDir, attempt: 0, nextCommandId: nextRunId, workerId: undefined, commandId: undefined, runKey: undefined, gpuId: undefined, manualDispatch: undefined,
+      runtimeDiagnostics: undefined, completionState: undefined, exitCode: undefined,
       status: "pending" as const, projectId: item.projectId, localQueueOnly: true, recallRequested: undefined,
       recallOperationId: undefined, reassignmentPending: undefined,
       reassignmentWorkerId: item.reassignmentWorkerId,
@@ -1467,6 +1474,7 @@ export function retryVerifiedJob(queue: DistributedQueue, planId: string, jobInd
   return { ...queue, plans: queue.plans.map((row) => row.id !== planId ? row : { ...row,
     jobs: row.jobs.map((item) => item.index !== jobIndex ? item : {
       ...item, outputDir, attempt: 0, nextCommandId: runId, workerId: undefined, commandId: undefined, runKey: undefined, gpuId: undefined, manualDispatch: undefined,
+      runtimeDiagnostics: undefined, completionState: undefined, exitCode: undefined,
       trustedTerminalStatus: undefined, admissionRejection: undefined, error: undefined, finishedAt: undefined,
       failureDiagnostic: undefined, formalConflictEvidence: undefined, blockReason: undefined, recoveryConflict: undefined,
       stopReason: undefined, automaticRetry: undefined, dispatchAcknowledgedAt: undefined, lastDispatchAttemptAt: undefined,
@@ -1539,7 +1547,8 @@ export function scheduleAutomaticJobRetries(queue: DistributedQueue, snapshots: 
     }
     const evidence = new Map(plan.jobs.map(job => [job.index, proof(plan, job)]));
     if (!plan.automaticRetry.healthyAt) {
-      const completed = plan.jobs.some(job => job.status === "completed" && evidence.get(job.index)?.status === "completed");
+      const completed = plan.jobs.some(job => job.status === "completed" && evidence.get(job.index)?.status === "completed"
+        && (job.lifecycleProtocol !== 2 || job.completionState === "verified"));
       const running = plan.jobs.filter(job => job.status === "running" && evidence.get(job.index)?.status === "running"
         && !evidence.get(job.index)?.error).length;
       const total = Math.max(plan.jobs.length, Number(plan.fullPlanJobCount || plan.planJobCount || plan.jobs.length));

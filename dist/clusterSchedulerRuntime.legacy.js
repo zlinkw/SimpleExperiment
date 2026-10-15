@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.CLUSTER_SCHEDULER_RUNTIME = void 0;
 const PlanExistingArtifacts_1 = require("./runtime/PlanExistingArtifacts");
 const TaskShellEnvironment_1 = require("./runtime/TaskShellEnvironment");
+const RuntimeLogDiagnostics_1 = require("./runtime/RuntimeLogDiagnostics");
 exports.CLUSTER_SCHEDULER_RUNTIME = String.raw `from __future__ import annotations
 
 import argparse
@@ -655,6 +656,17 @@ RESULT_EXACT_PAIRS = {("experiments", "results.csv")}
 # 历史产物解耦：用于调度前检测 output_dir 是否已有产物的标记文件（与 RESULT_ROOT_FILES 交叉但聚焦关键产物）
 ${PlanExistingArtifacts_1.PLAN_EXISTING_ARTIFACTS_PYTHON}
 ${TaskShellEnvironment_1.TASK_SHELL_ENVIRONMENT_PYTHON}
+${RuntimeLogDiagnostics_1.RUNTIME_LOG_DIAGNOSTICS_PYTHON}
+
+NATIVE_RUNTIME_LOG_STATE = None
+
+def runtime_log_phase(phase):
+    state = NATIVE_RUNTIME_LOG_STATE
+    if state is not None:
+        task_log_close(state)
+        state["phase"] = phase
+        if state["logPath"]:
+            task_log_marker(state["commandId"], "phase", phase)
 
 
 def detect_existing_outputs(jobs: list[Job]) -> list[dict[str, Any]]:
@@ -1854,7 +1866,21 @@ def run_command(args: list[str], env: dict[str, str], working_directory: str = "
         raise RuntimeError(f"工作目录越出项目目录：{working_directory}") from None
     if not cwd.is_dir():
         raise RuntimeError(f"工作目录不存在：{working_directory}")
-    subprocess.run(simple_conda_wrapped_args(args, env), check=True, env=env, cwd=str(cwd))
+    if NATIVE_RUNTIME_LOG_STATE is None:
+        subprocess.run(simple_conda_wrapped_args(args, env), check=True, env=env, cwd=str(cwd))
+        return
+    # Keep one foreground process tree and the original merged console stream.
+    with subprocess.Popen(simple_conda_wrapped_args(args, env), env=env, cwd=str(cwd), stdout=subprocess.PIPE, stderr=subprocess.STDOUT) as child:
+        while True:
+            chunk = child.stdout.read1(65536)
+            if not chunk:
+                break
+            task_log_feed(NATIVE_RUNTIME_LOG_STATE, chunk)
+            sys.stdout.buffer.write(chunk)
+            sys.stdout.buffer.flush()
+        code = child.wait()
+    if code:
+        raise subprocess.CalledProcessError(code, args)
 
 
 def path_for_job_command(value: object, job: Job) -> str:
@@ -2348,16 +2374,32 @@ def formal_job_preflight(job: Job, identity: dict[str, Any], mode: str) -> dict[
 
 @contextmanager
 def formal_job_writer(job: Job, identity: dict[str, Any], mode: str):
+    global NATIVE_RUNTIME_LOG_STATE
     if os.environ.get("SIMPLE_EXPERIMENT_TASK_LIFECYCLE") == "2":
         admission = formal_job_preflight(job, identity, mode)
+        if admission.get("completed"):
+            yield admission
+            return
         Path(job.output_dir).mkdir(parents=True, exist_ok=True)
         object.__setattr__(job, "_native_training", {})
+        NATIVE_RUNTIME_LOG_STATE = task_log_new(identity["commandId"], os.environ.get("SIMPLE_EXPERIMENT_RUNTIME_LOG_PATH", ""), True)
+        NATIVE_RUNTIME_LOG_STATE["legacy"] = True
+        NATIVE_RUNTIME_LOG_STATE["phase"] = "prepare"
         outcome = "failed"
         try:
             yield admission
             outcome = "completed"
+        except BaseException as exc:
+            object.__setattr__(job, "_execution_exit_code", exc.code if isinstance(exc, SystemExit) and isinstance(exc.code, int) else 1)
+            raise
         finally:
+            task_log_feed(NATIVE_RUNTIME_LOG_STATE, b"", True)
+            task_log_close(NATIVE_RUNTIME_LOG_STATE)
+            if NATIVE_RUNTIME_LOG_STATE["logPath"]:
+                task_log_marker(identity["commandId"], "end", NATIVE_RUNTIME_LOG_STATE["phase"])
+            object.__setattr__(job, "_runtime_diagnostics", task_log_report(NATIVE_RUNTIME_LOG_STATE, True, True))
             native_job_result(job, identity, mode, outcome)
+            NATIVE_RUNTIME_LOG_STATE = None
         return
     admission = formal_job_preflight(job, identity, mode)
     directory = Path(job.output_dir)
@@ -2444,7 +2486,8 @@ def native_job_result(job: Job, identity: dict[str, Any], mode: str, outcome: st
         "sha256": {**getattr(job, "_native_training", {}).get("checkpointSha256", {}),
                    **getattr(job, "_native_training", {}).get("trainingConfigSha256", {}),
                    **({job.result_csv: formal_job_file_hash(Path(job.result_csv))} if Path(job.result_csv).is_file() else {})},
-        "weights": weights}
+        "weights": weights, "runtimeDiagnostics": getattr(job, "_runtime_diagnostics", None),
+        "exitCode": 0 if outcome == "completed" else getattr(job, "_execution_exit_code", None)}
     manifest.write_text(json.dumps(document, ensure_ascii=False, sort_keys=True), encoding="utf-8")
 
 def run_job(job: Job, args: argparse.Namespace) -> None:
@@ -2511,6 +2554,7 @@ def run_job_unlocked(job: Job, args: argparse.Namespace) -> None:
     if args.gpu_ids:
         env["CUDA_VISIBLE_DEVICES"] = str(args.gpu_ids)
     if args.mode in {"train", "train_test"}:
+        runtime_log_phase("train")
         command = render_command(job.train_command, job, config_path, args) if job.train_command else [runtime_python_command(env), "train.py", "--config", str(config_path), "--output-dir", job.output_dir, "--case", job.case, "--seed", str(job.seed), "--worker-id", str(args.worker_id or "local")]
         command = wrap_command(command, job, config_path, args, "train")
         log_offsets = original_log_offsets(job)
@@ -2535,6 +2579,7 @@ def run_job_unlocked(job: Job, args: argparse.Namespace) -> None:
         else:
             owner_path.write_text(json.dumps(owner, ensure_ascii=False, sort_keys=True), encoding="utf-8")
     if args.mode in {"test", "train_test"}:
+        runtime_log_phase("test")
         command = render_command(job.test_command, job, config_path, args) if job.test_command else [runtime_python_command(env), "test.py", "--config", str(config_path), "--output-dir", job.output_dir, "--case", job.case, "--seed", str(job.seed), "--suite", job.suite, "--result-csv", job.result_csv]
         command = wrap_command(command, job, config_path, args, "test")
         log_offsets = original_log_offsets(job)

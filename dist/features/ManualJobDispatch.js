@@ -83,6 +83,7 @@ async function dispatchManualJobs(ports, request) {
             Object.assign(job, { nextCommandId: ports.newCommandId(), commandId: undefined, workerId: undefined, gpuId: undefined,
                 runKey: undefined, status: "pending", lifecycleProtocol: 2, actualExecutionMode: current.executionMode,
                 executionState: undefined, resultState: undefined, finishedAt: undefined, error: undefined,
+                runtimeDiagnostics: undefined, completionState: undefined, exitCode: undefined,
                 stopIntent: undefined, automaticRetry: undefined, recallRequested: undefined, reassignmentPending: undefined,
                 unavailable: undefined, cleanup: undefined, outputRetiredAt: undefined, trainingRecovery: undefined, retainExistingOutputs: undefined,
                 trustedTerminalStatus: undefined, admissionRejection: undefined, formalConflictEvidence: undefined, originalExecution: undefined,
