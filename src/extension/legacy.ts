@@ -20320,8 +20320,6 @@ return uniqueStrings(this.setupConfig.workerTunnels.flatMap(w=>[w.savedSessionPa
             if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             const cleanupConnectionKey = client.diagnostics().endpoints.map((endpoint) => `${endpoint.id}:${endpoint.streamStatus}`).join("|");
-            if (workspaceRoot()) void this.planCleanupHost().observeConnections(client.diagnostics().endpoints)
-                .catch((error) => this.recordActionError({ command: "cleanupPlan.reconnect", message: errorMessage(error) }));
             if (cleanupConnectionKey !== this.cacheCleanupConnectionKey) {
                 this.cacheCleanupConnectionKey = cleanupConnectionKey;
                 this.cacheCleanupContextChanged.fire();

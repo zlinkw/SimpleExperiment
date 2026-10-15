@@ -69,17 +69,20 @@ async function hostFixture(root,extra={}){
  const host=new exports.PlanCleanupHost({context:{globalStorageUri:{fsPath:root}},loadDistributedQueue:async()=>({plans:[],clearedJobs:[]}),saveDistributedQueue:async()=>{},updatePlanSyncLedger:async()=>{},postState(){},...extra},root);
  return {host,get notices(){return notices;}};
 }
-test('the real reconnect notification path stays silent once files are confirmed absent',async()=>{
+test('connection does not inspect cleanup history; an explicit review retires confirmed absent targets',async()=>{
  const f=await fixture({missing:['worker','other']}),ui=await hostFixture(f.root);ui.host.service=f.service;
  await ui.host.observeConnections([{id:'worker',streamStatus:'polling'},{id:'other',streamStatus:'polling'}]);
- assert.equal(ui.notices,0);assert.deepEqual(await f.service.list(),[]);assert.equal(f.indexed.length,1);
+ assert.equal(ui.notices,0);assert.equal(f.calls.length,0);assert.equal(f.indexed.length,0);
+ assert.equal((await f.service.status(f.id)).state,'completed');
+ assert.deepEqual(await f.service.list(),[]);assert.equal(f.indexed.length,1);
 });
 test('a failed startup query never announces that an old file still needs deletion',async()=>{
  const f=await fixture({failed:['worker'],missing:['worker','other']}),ui=await hostFixture(f.root);ui.host.service=f.service;
- await ui.host.observeConnections([{id:'worker',streamStatus:'polling'}]);assert.equal(ui.notices,0);
+ await ui.host.observeConnections([{id:'worker',streamStatus:'polling'}]);assert.equal(ui.notices,0);assert.equal(f.calls.length,0);
  f.ports.sftp=async(method)=>{assert.equal(method,'files.cleanup.inspect');return {target:{missing:true,type:'directory'}};};
  await ui.host.observeConnections([{id:'worker',streamStatus:'disconnected'}]);
- await ui.host.observeConnections([{id:'worker',streamStatus:'polling'}]);assert.equal(ui.notices,0);assert.deepEqual(await f.service.list(),[]);
+ await ui.host.observeConnections([{id:'worker',streamStatus:'polling'}]);assert.equal(ui.notices,0);assert.equal(f.calls.length,0);
+ assert.equal((await f.service.status(f.id)).state,'completed');assert.deepEqual(await f.service.list(),[]);
 });
 test('observed deletion does not require a retired job registry or remote state retirement acknowledgement',async()=>{
  const f=await fixture({missing:['worker','other']}),ui=await hostFixture(f.root);

@@ -56,10 +56,6 @@ class PlanCleanupHost {
     root;
     service;
     executing = false;
-    connections = new Map();
-    pendingReconnects = new Set();
-    reconnectWork;
-    notices = new Set();
     constructor(host, root) {
         this.host = host;
         this.root = root;
@@ -118,53 +114,9 @@ class PlanCleanupHost {
             (0, PlanCleanup_1.cleanupError)("SERVER_IDENTITY_UNVERIFIED");
         return { id, kind: "remote", host: target.host, user: target.user, port: target.port, root: target.remotePath };
     }
-    /** Edge-triggered on initial connection/reconnection, never on ordinary telemetry heartbeats. */
-    observeConnections(endpoints) {
-        const present = new Set(endpoints.map(endpoint => endpoint.id));
-        for (const id of this.connections.keys())
-            if (!present.has(id))
-                this.connections.delete(id);
-        for (const endpoint of endpoints) {
-            const online = ["websocket", "sse", "polling"].includes(endpoint.streamStatus), count = endpoint.reconnectCount || 0;
-            const before = this.connections.get(endpoint.id);
-            this.connections.set(endpoint.id, { online, count });
-            if (online && (!before?.online || before.count !== count))
-                this.pendingReconnects.add(endpoint.id);
-        }
-        return this.drainReconnects();
-    }
-    drainReconnects() {
-        if (this.reconnectWork)
-            return this.reconnectWork;
-        if (this.executing)
-            return Promise.resolve();
-        this.reconnectWork = (async () => {
-            while (this.pendingReconnects.size && !this.executing) {
-                const nodeId = this.pendingReconnects.values().next().value;
-                this.pendingReconnects.delete(nodeId);
-                if (!this.connections.get(nodeId)?.online)
-                    continue;
-                this.assertWorkspace();
-                const reports = await this.service.recheckNode(nodeId);
-                this.assertWorkspace();
-                // A failed read says nothing about files being present. Surface query
-                // errors in the review page, never as a startup deletion reminder.
-                const actionable = reports.filter(report => report.state !== "blocked"
-                    && report.targets.some(target => target.state === "pending"));
-                if (!actionable.length || this.notices.has(nodeId))
-                    continue;
-                this.notices.add(nodeId);
-                void Promise.resolve(vscode.window.showWarningMessage(`${nodeId} 仍有 ${actionable.length} 个 PLAN 的文件尚未清除，可查看完整路径。`, "审核未完成清理", "稍后"))
-                    .then(async (choice) => {
-                    this.assertWorkspace();
-                    if (choice === "审核未完成清理") {
-                        const operation = await this.service.status(actionable[0].operationId);
-                        await this.open(operation.preview.scope.planFile, operation.id, operation.preview.scope.job);
-                    }
-                }).catch(() => undefined).finally(() => this.notices.delete(nodeId));
-            }
-        })().finally(() => { this.reconnectWork = undefined; });
-        return this.reconnectWork;
+    /** Retired compatibility hook. File review is explicitly requested, never triggered by a connection. */
+    observeConnections(_endpoints) {
+        return Promise.resolve();
     }
     async replacementGroups(queue, file, declarations, projectId, stablePlanId) {
         this.assertWorkspace();
@@ -510,7 +462,6 @@ class PlanCleanupHost {
         }
         finally {
             this.executing = false;
-            void this.drainReconnects().catch(() => undefined);
         }
     }
     open(file, operationId, job) { return (0, PlanCleanupPanel_1.openPlanCleanupPanel)(this, file, operationId, job); }

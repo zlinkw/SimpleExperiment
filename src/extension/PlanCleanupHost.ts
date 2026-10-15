@@ -19,10 +19,6 @@ async function json(file: string, fallback: any): Promise<any> {
 export class PlanCleanupHost {
   readonly service: PlanCleanup;
   executing = false;
-  private connections = new Map<string, { online: boolean; count: number }>();
-  private pendingReconnects = new Set<string>();
-  private reconnectWork?: Promise<void>;
-  private notices = new Set<string>();
   constructor(private readonly host: any, readonly root: string) {
     const storage = host.context.globalStorageUri.fsPath;
     this.service = new PlanCleanup({ storageRoot: path.join(storage, "plan-cleanup", cleanupDigest(root)),
@@ -74,45 +70,9 @@ export class PlanCleanupHost {
     if (!target) cleanupError("SERVER_IDENTITY_UNVERIFIED");
     return { id, kind: "remote" as const, host: target.host, user: target.user, port: target.port, root: target.remotePath };
   }
-  /** Edge-triggered on initial connection/reconnection, never on ordinary telemetry heartbeats. */
-  observeConnections(endpoints: Array<{ id: string; streamStatus: string; reconnectCount?: number }>): Promise<void> {
-    const present = new Set(endpoints.map(endpoint => endpoint.id));
-    for (const id of this.connections.keys()) if (!present.has(id)) this.connections.delete(id);
-    for (const endpoint of endpoints) {
-      const online = ["websocket", "sse", "polling"].includes(endpoint.streamStatus), count = endpoint.reconnectCount || 0;
-      const before = this.connections.get(endpoint.id);
-      this.connections.set(endpoint.id, { online, count });
-      if (online && (!before?.online || before.count !== count)) this.pendingReconnects.add(endpoint.id);
-    }
-    return this.drainReconnects();
-  }
-  private drainReconnects(): Promise<void> {
-    if (this.reconnectWork) return this.reconnectWork;
-    if (this.executing) return Promise.resolve();
-    this.reconnectWork = (async () => {
-      while (this.pendingReconnects.size && !this.executing) {
-        const nodeId = this.pendingReconnects.values().next().value!; this.pendingReconnects.delete(nodeId);
-        if (!this.connections.get(nodeId)?.online) continue;
-        this.assertWorkspace();
-        const reports = await this.service.recheckNode(nodeId);
-        this.assertWorkspace();
-        // A failed read says nothing about files being present. Surface query
-        // errors in the review page, never as a startup deletion reminder.
-        const actionable = reports.filter(report => report.state !== "blocked"
-          && report.targets.some(target => target.state === "pending"));
-        if (!actionable.length || this.notices.has(nodeId)) continue;
-        this.notices.add(nodeId);
-        void Promise.resolve(vscode.window.showWarningMessage(`${nodeId} 仍有 ${actionable.length} 个 PLAN 的文件尚未清除，可查看完整路径。`, "审核未完成清理", "稍后"))
-          .then(async choice => {
-            this.assertWorkspace();
-            if (choice === "审核未完成清理") {
-              const operation = await this.service.status(actionable[0].operationId);
-              await this.open(operation.preview.scope.planFile, operation.id, operation.preview.scope.job);
-            }
-          }).catch(() => undefined).finally(() => this.notices.delete(nodeId));
-      }
-    })().finally(() => { this.reconnectWork = undefined; });
-    return this.reconnectWork;
+  /** Retired compatibility hook. File review is explicitly requested, never triggered by a connection. */
+  observeConnections(_endpoints: Array<{ id: string; streamStatus: string; reconnectCount?: number }>): Promise<void> {
+    return Promise.resolve();
   }
   async replacementGroups(queue: DistributedQueue, file: string, declarations: any[], projectId: string, stablePlanId: string) {
     this.assertWorkspace();
@@ -386,7 +346,7 @@ export class PlanCleanupHost {
         { resources: [{ server: "local", project: this.root, target: this.root }] });
       if (operation.preview.action === "delete") return await this.service.status(id);
       return result;
-    } finally { this.executing = false; void this.drainReconnects().catch(() => undefined); }
+    } finally { this.executing = false; }
   }
   open(file: string, operationId?: string, job?: CleanupJobSelection) { return openPlanCleanupPanel(this, file, operationId, job); }
   openJob(file: string, job: CleanupJobSelection) { return this.open(file, undefined, job); }
