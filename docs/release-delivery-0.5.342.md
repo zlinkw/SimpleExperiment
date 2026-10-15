@@ -27,4 +27,16 @@
 
 既有非打包门禁 `workerCodeVersionIsolation.test.js` 的 10 处旧夹具失败已在未修改的 0.5.341 HEAD 单独复现：9 处使用已禁止的 attempts 目录，1 处依赖旧源码文本结构。本轮没有放宽正式路径保护来迁就旧夹具，也没有将该文件宣称通过；当前协议由新增源码范围回归覆盖。
 
-完整打包、发行与安装结果在交付后记录。
+最终 `npm run package` 的 116 次串行单文件执行共 768 项通过，零失败。日志为本机临时目录 `simpleex-0.5.342-package-verified2.log`。此前打包在三个提取式夹具缺少新增 Host 依赖时停止，补齐实际依赖后逐文件重验并完成整套门禁，没有更改生产逻辑来迁就夹具。
+
+TypeScript、实际渲染脚本、额外 vm.Script、8 个 Python AST、VSIX ZIP/身份/版本/universal 平台、370 个 dist 文件逐字节比对、250 个本地模块运行闭包和秘密排除通过。打包不安装扩展。包中交付文档是发行前快照；本记录的最终发行结果由随后文档提交补齐，包字节未重新生成。
+
+## 交付
+
+- 修复提交 `7456bf080dc7af1dbce37fcfadefd8ed44655e53` 已普通快进推送 origin/master，并 fetch 核对一致。
+- 稳定 Release：<https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.342>。重新读取真实 Latest，核对该 tag 和提交、draft=false、prerelease=false 及两个资产。
+- `simple-experiment-0.5.342.vsix`：2,961,760 字节；SHA256 `ef08860e2f316f737de9a0d67ba652fbaaf4cf9540f5e184cf5415f193a005c2`。同名 `.vsix.sha256` 绑定精确文件名。
+- 实际已安装 0.5.341 更新客户端识别 update_available，下载公开包与校验和，逐字节匹配本机已验证包；SimpleSFTP 0.2.90 同时核对一致，未修改或安装配套版本。验证文件保留于临时目录 `simpleex-0342-release-verify-WpOxIO`。
+- 显式执行一次 `npm run install:latest` 安装 0.5.342，无 force、无降级。已安装的 370 个 dist 文件与发布包一致，VS Code 版本及 `simpleex --help` 通过。安装后停止访问当前 SimpleExperiment 面板与 API。
+
+等待用户执行 Developer: Reload Window，再由插件更新对应 Agent/Scheduler，使 `planCodeScope=1` 生效。远端未部署、未修改环境，现有任务未被启动、停止、重跑或清理。尚未实机验证截图中的 pending job 在新远端协议下实际接收；合成分配通过不代表科研任务已经启动，不要求重建这些排队 PLAN。
