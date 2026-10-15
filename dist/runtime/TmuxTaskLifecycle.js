@@ -158,8 +158,9 @@ def task_query(root, queries=()):
                     rows.append({**query, "tmuxPane": tab["pane"], "tmuxWindowId": tab["window"], "tmuxSession": tab["session"],
                         "dead": tab["dead"] == "1", "exitCode": int(tab["exitCode"]) if re.fullmatch(r"-?\d+", tab["exitCode"]) else None,
                         "phase": "running", "gpuId": query.get("gpuId", ""), "logPath": ""})
-    requested = {(item.get("projectId"), item.get("commandId")) for item in queries if isinstance(item, dict)}
-    jobs = {(row["projectId"], row["commandId"]): row for row in rows if not queries or not row["dead"] or (row["projectId"], row["commandId"]) in requested}
+    # Selectors bound artifact reads for absent windows; they cannot hide a real
+    # exited pane just because another job was selected for a result query.
+    jobs = {(row["projectId"], row["commandId"]): row for row in rows}
     for query in queries:
         if not isinstance(query, dict) or not query.get("commandId") or not query.get("projectId") or not query.get("workerId"):
             raise ValueError("TASK_QUERY_IDENTITY_REQUIRED")

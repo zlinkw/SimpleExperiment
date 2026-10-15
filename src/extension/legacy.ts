@@ -1066,7 +1066,7 @@ export class RealtimeTunnelPanelProvider {
     private planOutputReviewNotices?: Set<string>;
     private planOutputReviewCache?: { root: string; queue: unknown; metadata: unknown; mode: string; requiredPaths: string };
     private panelPlanStatusSummaryCache?: { dependencies: unknown[]; revision: number; summaries: any[] };
-    private distributedPlanProgressCache?: { root: string; queue: unknown; snapshotRevision: number; targetsKey: string; value: any[] };
+    private distributedPlanProgressCache?: { root: string; queue: unknown; snapshotRevision: number; targetsKey: string; expiresAt: number; value: any[] };
     private panelPlanStatusSummaryRevision = 0;
     private workerTaskSnapshotRevision = 0;
     private gpuSubmittedJobsCache?: { root: string; queue: any; snapshotRevision: number; targetsKey: string;
@@ -1640,12 +1640,14 @@ export class RealtimeTunnelPanelProvider {
         const targetsKey = targets.map((target) => String(target.id || "")).join("\n");
         const cached = this.distributedPlanProgressCache;
         if (cached && cached.root === root && cached.queue === this.distributedQueueCache
-            && cached.snapshotRevision === this.workerTaskSnapshotRevision && cached.targetsKey === targetsKey) return cached.value;
+            && cached.snapshotRevision === this.workerTaskSnapshotRevision && cached.targetsKey === targetsKey && cached.expiresAt > Date.now()) return cached.value;
         const snapshots = targets.map((target) => this.cachedWorkerTaskSnapshot(target.id, root, `${root}\u0000${target.id}`))
             .filter(Boolean).map(workerTaskSnapshotPayload);
         const value = DistributedSchedulingPolicy.serverAuthoritativeProgress(this.distributedQueueCache, snapshots,
             DistributedPlanQueue.canonicalProjectId(root));
-        this.distributedPlanProgressCache = { root, queue: this.distributedQueueCache, snapshotRevision: this.workerTaskSnapshotRevision, targetsKey, value };
+        const expiresAt = Math.min(Date.now() + DistributedSchedulingPolicy.PROGRESS_FRESHNESS_MS,
+            ...snapshots.map(row => Date.parse(String(row.fetchedAt || row.generatedAt || "")) + DistributedSchedulingPolicy.PROGRESS_FRESHNESS_MS).filter(Number.isFinite));
+        this.distributedPlanProgressCache = { root, queue: this.distributedQueueCache, snapshotRevision: this.workerTaskSnapshotRevision, targetsKey, expiresAt, value };
         return value;
     }
     async refreshServerPlanProgress(options: { automatic?: boolean } = {}) {
@@ -1671,7 +1673,7 @@ export class RealtimeTunnelPanelProvider {
         return request;
     }
     async refreshWorkerTaskSnapshot(workerId, root, cacheKey, options: { signal?: AbortSignal; inventoryOnly?: boolean; declarations?: any[] } = {}) {
-        const cached = this.cachedWorkerTaskSnapshot(workerId, root, cacheKey);
+        const cached = options.inventoryOnly ? undefined : this.cachedWorkerTaskSnapshot(workerId, root, cacheKey);
         const client = this.client;
         try {
             const queue = await this.loadDistributedQueue(root);
@@ -1700,9 +1702,11 @@ export class RealtimeTunnelPanelProvider {
                 cleanupExecutors: Array.isArray(record.cleanupExecutors) ? record.cleanupExecutors : [],
                 fetchedAt: new Date().toISOString(),
             };
-            this.storeWorkerTaskSnapshot(cacheKey, snapshot);
-            this.postState();
-            if (snapshot.capabilities?.taskLifecycle !== 2) this.queueWorkerTaskSnapshotPersistence(workerId, root, snapshot);
+            if (!options.inventoryOnly) {
+                this.storeWorkerTaskSnapshot(cacheKey, snapshot);
+                this.postState();
+                if (snapshot.capabilities?.taskLifecycle !== 2) this.queueWorkerTaskSnapshotPersistence(workerId, root, snapshot);
+            }
             return workerTaskSnapshotPayload(snapshot);
         }
         catch (error) {
@@ -1710,7 +1714,7 @@ export class RealtimeTunnelPanelProvider {
             const denied = error instanceof RequestBudget_1.RequestBudgetDeniedError ? error.decision.reason : "";
             const failure = "Worker " + workerId + " · /api/worker/tasks" + (options.inventoryOnly ? "" : "/query") + "："
                 + (denied || errorMessage(error));
-            if (workspaceRoot() === root && this.client === client) {
+            if (!options.inventoryOnly && workspaceRoot() === root && this.client === client) {
                 this.storeWorkerTaskSnapshot(cacheKey, { ...cached, workerId, tasks: cached?.tasks || [], error: failure });
                 this.postState();
             }
@@ -1752,7 +1756,8 @@ export class RealtimeTunnelPanelProvider {
         this.noteWorkerTaskPlanStatus(cacheKey, snapshot);
     }
     private noteWorkerTaskPlanStatus(cacheKey: string, snapshot: any): void {
-        const signature = JSON.stringify((Array.isArray(snapshot?.tasks) ? snapshot.tasks : []).map((task) => [
+        const signature = JSON.stringify([snapshot?.error || "", snapshot?.capabilities, snapshot?.queryComplete, snapshot?.queryErrors,
+            (Array.isArray(snapshot?.tasks) ? snapshot.tasks : []).map((task) => [
             task?.commandId || "", task?.operationId || "", task?.runKey || "", task?.planFile || task?.plan || "",
             task?.case || task?.experimentCase || "", task?.seed ?? "", task?.status || task?.state || "",
             task?.startedAt || "", task?.finishedAt || "",
@@ -1764,7 +1769,9 @@ export class RealtimeTunnelPanelProvider {
             String(task?.error || task?.blockReason || task?.block_reason || "").slice(0, 320),
             task?.progress ?? task?.percent ?? task?.progressPercent ?? task?.progress_percent ?? "",
             task?.epoch ?? task?.currentEpoch ?? task?.current_epoch ?? "", task?.loss ?? task?.latestLoss ?? task?.latest_loss ?? "",
-        ]));
+            task?.observation?.tmux, task?.observation?.result, task?.observation?.cancelled,
+            task?.observation?.queryError, task?.observation?.resultQueryError,
+        ])]);
         if (this.workerTaskPlanStatusSignatures.get(cacheKey) === signature) return;
         this.workerTaskPlanStatusSignatures.delete(cacheKey);
         this.workerTaskPlanStatusSignatures.set(cacheKey, signature);

@@ -69,9 +69,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.322"
-RUNTIME_VERSION = "0.5.322"
-PLUGIN_VERSION = "0.5.322"
+AGENT_VERSION = "0.5.323"
+RUNTIME_VERSION = "0.5.323"
+PLUGIN_VERSION = "0.5.323"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -17764,8 +17764,9 @@ def task_query(root, queries=()):
                     rows.append({**query, "tmuxPane": tab["pane"], "tmuxWindowId": tab["window"], "tmuxSession": tab["session"],
                         "dead": tab["dead"] == "1", "exitCode": int(tab["exitCode"]) if re.fullmatch(r"-?\d+", tab["exitCode"]) else None,
                         "phase": "running", "gpuId": query.get("gpuId", ""), "logPath": ""})
-    requested = {(item.get("projectId"), item.get("commandId")) for item in queries if isinstance(item, dict)}
-    jobs = {(row["projectId"], row["commandId"]): row for row in rows if not queries or not row["dead"] or (row["projectId"], row["commandId"]) in requested}
+    # Selectors bound artifact reads for absent windows; they cannot hide a real
+    # exited pane just because another job was selected for a result query.
+    jobs = {(row["projectId"], row["commandId"]): row for row in rows}
     for query in queries:
         if not isinstance(query, dict) or not query.get("commandId") or not query.get("projectId") or not query.get("workerId"):
             raise ValueError("TASK_QUERY_IDENTITY_REQUIRED")

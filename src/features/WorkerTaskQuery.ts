@@ -7,7 +7,7 @@ export function workerTaskQueries(queue: any, workerId: string): any[] {
   const latest = new Set(newestJobOutputs(queue).map(row => row.plan.id + "\0" + row.job.index));
   for (const plan of queue.plans || []) for (const job of plan.jobs || []) {
     if (job.workerId !== workerId || !["dispatching", "queued", "running", "unknown"].includes(job.status)
-      && !(job.lifecycleProtocol === 2 && job.status === "completed" && latest.has(plan.id + "\0" + job.index))) continue;
+      && !(job.lifecycleProtocol === 2 && ["completed", "failed"].includes(job.status) && latest.has(plan.id + "\0" + job.index))) continue;
     if (![plan.projectId, job.workerId, job.commandId, job.outputDir].every(value => typeof value === "string" && value.trim())) continue;
     const query = taskQuery(plan, job);
     queries.set(query.projectId + "\0" + query.commandId, query);
