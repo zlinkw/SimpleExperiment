@@ -458,6 +458,7 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
                         return job;
                     const state = (0, TaskLifecycle_1.taskLifecycle)(observation);
                     return { ...job, lifecycleProtocol: 2, status: state.status, executionState: state.execution, resultState: state.result,
+                        startIntent: !observation.queryError && (observation.tmux || observation.cancelled || state.result === "complete") ? undefined : job.startIntent,
                         ...(["train", "test", "train_test"].includes(String(task?.actualExecutionMode)) ? { actualExecutionMode: task.actualExecutionMode } : {}),
                         recoveryConflict: undefined, trustedTerminalStatus: undefined,
                         statusQueryError: observation.queryError, lastObservedAt: observation.observedAt,
@@ -841,10 +842,13 @@ function queueOccupiesCodeVersion(queue, verifiedWorkerFingerprints) {
         return known.includes(plan.codeFingerprint);
     }));
 }
-/** Native activity comes from a current window projection, never an old persisted job status. */
+/** Current windows or an exact unresolved local start reserve capacity; history alone never does. */
 function jobHasLiveExecution(job) {
-    return job.lifecycleProtocol === 2 ? ["queued", "starting", "running"].includes(job.executionState || "")
-        || job.executionState === "unknown" && Boolean(job.statusQueryError)
+    const intent = job.startIntent;
+    const starting = Boolean(intent && ["dispatching", "unknown", "queued"].includes(job.status)
+        && intent.commandId === job.commandId && intent.workerId === job.workerId && intent.gpuId === job.gpuId);
+    return job.lifecycleProtocol === 2 ? starting || ["queued", "starting", "running"].includes(job.executionState || "")
+        || job.executionState === "unknown" && Boolean(job.statusQueryError || job.tmuxWindowId && job.tmuxPane)
         || job.status === "dispatching" && !job.lastObservedAt
         : ["dispatching", "queued", "running", "unknown"].includes(job.status);
 }
@@ -1024,6 +1028,7 @@ function allocateAvailable(queue, workers, options = {}) {
                     break;
                 const commandId = durableCommandId(plan, job, chosen, gpuId);
                 Object.assign(job, { status: "dispatching", workerId: chosen, gpuId, commandId, blockReason: undefined,
+                    ...(job.lifecycleProtocol === 2 ? { startIntent: { commandId, workerId: chosen, gpuId } } : {}),
                     reassignmentWorkerId: undefined });
                 dispatches.push({ planId: plan.id, jobIndex: job.index, workerId: chosen, gpuId, attempt: job.attempt, commandId });
             }
@@ -1090,7 +1095,7 @@ function hasLegacyOwnership(job) {
 function resetUnsentDispatch(queue, planId, jobIndex, commandId) {
     return { ...queue, plans: queue.plans.map((plan) => plan.id !== planId ? plan : { ...plan,
             jobs: plan.jobs.map((job) => job.index !== jobIndex || job.commandId !== commandId || job.status !== "dispatching"
-                ? job : { ...job, status: "pending", workerId: undefined, gpuId: undefined, commandId: undefined }) }) };
+                ? job : { ...job, status: "pending", workerId: undefined, gpuId: undefined, commandId: undefined, startIntent: undefined }) }) };
 }
 function resetBusyRejectedDispatch(queue, dispatch, receipt) {
     if (receipt?.durableAccepted !== false || receipt?.admissionRejected !== true || String(receipt?.status || "") !== "pending"
@@ -1105,7 +1110,7 @@ function resetBusyRejectedDispatch(queue, dispatch, receipt) {
             jobs: plan.jobs.map((job) => job.index !== dispatch.jobIndex || job.attempt !== dispatch.attempt
                 || job.commandId !== dispatch.commandId || job.workerId !== dispatch.workerId || job.gpuId !== dispatch.gpuId
                 || !["dispatching", "unknown"].includes(job.status) ? job : { ...job, status: "pending", workerId: undefined,
-                gpuId: undefined, commandId: undefined, runKey: undefined, lastDispatchAttemptAt: undefined, dispatchAcknowledgedAt: undefined,
+                gpuId: undefined, commandId: undefined, startIntent: undefined, runKey: undefined, lastDispatchAttemptAt: undefined, dispatchAcknowledgedAt: undefined,
                 blockReason: "Worker confirmed the requested GPU was busy; awaiting fresh availability." }) }) };
 }
 function preflightRejectionEvidence(receipt) {
@@ -1124,7 +1129,7 @@ function applyPreflightRejectedDispatch(queue, plan, job, receipt) {
     return { ...queue, plans: queue.plans.map(row => row.id !== plan.id ? row : { ...row,
             jobs: row.jobs.map(item => item.index !== job.index || item.commandId !== job.commandId ? item : {
                 ...item, status: "failed", trustedTerminalStatus: "failed", error: rejection.message,
-                admissionRejection: rejection, finishedAt: rejection.rejectedAt, blockReason: undefined,
+                admissionRejection: rejection, finishedAt: rejection.rejectedAt, blockReason: undefined, startIntent: undefined,
                 formalConflictEvidence: receipt.formalConflictEvidence,
                 dispatchAcknowledgedAt: new Date().toISOString(),
             }) }) };

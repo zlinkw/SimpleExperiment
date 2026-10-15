@@ -33,6 +33,51 @@ test('default local mode never preassigns occupied NWPU5 and reserves each idle 
   assert.equal(policy.allocateServerPrequeue(input, [{workerId:'nwpu5',online:true,weight:2,codeFingerprint:'f'}]).dispatches.length, 0);
 });
 
+test('unknown startup never frees a dispatched slot; later-ready H20 receives the remaining local jobs',()=>{
+  const input=plan('local_idle','startup','f',6),now=Date.now();
+  const fast={workerId:'fast',online:true,declaredJobPaths:true,codeFingerprint:'f',idleGpuAdmission:true,idleGpuIds:['0','1','2'],capacity:3};
+  const first=queue.allocateAvailable(input,[fast],{requireIdleGpuAdmission:true,localIdleOnly:true});
+  assert.equal(first.dispatches.length,3);
+  for(const job of first.queue.plans[0].jobs.filter(row=>row.commandId))job.status='unknown';
+  const waiting=queue.mergeDurableWorkerSnapshots(first.queue,[{workerId:'fast',schemaVersion:1,queryComplete:true,
+    generatedAt:new Date(now).toISOString(),fetchedAt:new Date(now).toISOString(),capabilities:{taskLifecycle:2},tasks:[]}],'project',now);
+  const occupied=queue.activeGpuReservations(waiting);
+  assert.equal(occupied.activeByWorker.get('fast'),3,'a query before window creation must not free sent GPU slots');
+  assert.ok(waiting.plans[0].jobs.filter(row=>row.commandId).every(row=>row.status==='unknown'),'do not label pending startup running');
+  const next=queue.allocateAvailable(waiting,[{...fast,idleGpuIds:fast.idleGpuIds.filter(id=>!occupied.occupiedGpuIds.has('fast:'+id)),capacity:0}],
+    {requireIdleGpuAdmission:true,localIdleOnly:true});
+  assert.equal(next.dispatches.length,0);
+  assert.equal(next.queue.plans[0].jobs.filter(row=>row.status==='pending'&&!row.workerId).length,3);
+  const h20={...fast,workerId:'h20',gpuSlots:Array.from({length:18},(_,index)=>String(index%3)),capacity:18};
+  const ready=queue.allocateAvailable(next.queue,[{...fast,idleGpuIds:[],capacity:0},h20],{requireIdleGpuAdmission:true,localIdleOnly:true});
+  assert.equal(ready.dispatches.length,3);assert.ok(ready.dispatches.every(row=>row.workerId==='h20'));
+  assert.deepEqual(ready.queue.plans[0].jobs.slice(0,3).map(row=>row.commandId),first.dispatches.map(row=>row.commandId));
+});
+
+test('an exact observed window replaces the local start input; confirmed cancellation releases it',()=>{
+  const first=queue.allocateAvailable(plan('local_idle','bound','f',1),[{workerId:'w',online:true,declaredJobPaths:true,
+    codeFingerprint:'f',idleGpuIds:['0']}]);
+  const job=first.queue.plans[0].jobs[0],now=Date.now();
+  const snapshot=observation=>({workerId:'w',schemaVersion:1,queryComplete:true,generatedAt:new Date(now).toISOString(),fetchedAt:new Date(now).toISOString(),
+    capabilities:{taskLifecycle:2},tasks:[{commandId:job.commandId,projectId:'project',
+      ...(observation.tmux?{tmuxWindowId:observation.tmux.windowId,tmuxPane:observation.tmux.paneId}:{}),observation:{lifecycleProtocol:2,
+      commandId:job.commandId,projectId:'project',workerId:'w',observedAt:new Date(now).toISOString(),...observation}}]});
+  const queued=queue.mergeDurableWorkerSnapshots(first.queue,[snapshot({tmux:{windowId:'@5',paneId:'%5',dead:false,phase:'queued'}})],'project',now);
+  assert.equal(queued.plans[0].jobs[0].startIntent,undefined);
+  assert.equal(queue.activeGpuReservations(queued).activeByWorker.get('w'),1);
+  const unreadable=snapshot({tmux:{windowId:'@5',paneId:'%5',dead:false,phase:'queued'}});unreadable.error='offline';
+  const failedQuery=queue.mergeDurableWorkerSnapshots(first.queue,[unreadable],'project',now);
+  assert.deepEqual(failedQuery.plans[0].jobs[0].startIntent,job.startIntent,'failed queries cannot consume the unresolved start input');
+  const binding=queue.mergeDurableWorkerSnapshots(first.queue,[snapshot({tmux:{windowId:'@5',paneId:'%5',dead:false,phase:''}})],'project',now);
+  assert.equal(binding.plans[0].jobs[0].status,'unknown');assert.equal(queue.activeGpuReservations(binding).activeByWorker.get('w'),1);
+  const cancelled=queue.mergeDurableWorkerSnapshots(first.queue,[snapshot({cancelled:true})],'project',now);
+  assert.equal(cancelled.plans[0].jobs[0].status,'cancelled');assert.equal(cancelled.plans[0].jobs[0].startIntent,undefined);
+  assert.equal(queue.activeGpuReservations(cancelled).activeByWorker.size,0);
+  const previous={...job,status:'unknown',executionState:'missing',lastObservedAt:new Date(now).toISOString(),startIntent:undefined};
+  assert.equal(queue.jobHasLiveExecution(previous),false);
+  assert.equal(queue.jobHasLiveExecution({...previous,startIntent:{...job.startIntent,commandId:'other'}}),false);
+});
+
 test('prequeue weights count idle plus own GPU once, excluding mixed or unknown owners and enforcing capacity', () => {
   const owner = { currentUser: 'alice', myProcessMatchMode: 'username' };
   const rows = [gpu(0), gpu(1,[{username:'alice',submittedByThisClient:true},{username:'alice',submittedByThisClient:true}]), gpu(2,[{username:'bob',pluginManaged:true}]),

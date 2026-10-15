@@ -45,6 +45,8 @@ export type QueuedJob = {
   workerId?: string;
   gpuId?: string;
   commandId?: string;
+  /** Local unresolved start input, never proof that the remote command is running. */
+  startIntent?: { commandId: string; workerId: string; gpuId: string };
   nextCommandId?: string;
   reassignmentPending?: boolean;
   /** The verified migration destination must survive the release RPC and a restart. */
@@ -493,6 +495,7 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
       if (!observationMatches(observation, { commandId: job.commandId, workerId: job.workerId, projectId })) return job;
       const state = taskLifecycle(observation);
       return { ...job, lifecycleProtocol: 2 as const, status: state.status, executionState: state.execution, resultState: state.result,
+        startIntent: !observation.queryError && (observation.tmux || observation.cancelled || state.result === "complete") ? undefined : job.startIntent,
         ...( ["train", "test", "train_test"].includes(String(task?.actualExecutionMode)) ? { actualExecutionMode: task!.actualExecutionMode as PlanExecutionMode } : {}),
         recoveryConflict: undefined, trustedTerminalStatus: undefined,
         statusQueryError: observation.queryError, lastObservedAt: observation.observedAt,
@@ -836,10 +839,13 @@ export function queueOccupiesCodeVersion(queue: DistributedQueue, verifiedWorker
 }
 export type Dispatch = { planId: string; jobIndex: number; workerId: string; gpuId: string; attempt: number; commandId: string };
 
-/** Native activity comes from a current window projection, never an old persisted job status. */
+/** Current windows or an exact unresolved local start reserve capacity; history alone never does. */
 export function jobHasLiveExecution(job: QueuedJob): boolean {
-  return job.lifecycleProtocol === 2 ? ["queued", "starting", "running"].includes(job.executionState || "")
-    || job.executionState === "unknown" && Boolean(job.statusQueryError)
+  const intent = job.startIntent;
+  const starting = Boolean(intent && ["dispatching", "unknown", "queued"].includes(job.status)
+    && intent.commandId === job.commandId && intent.workerId === job.workerId && intent.gpuId === job.gpuId);
+  return job.lifecycleProtocol === 2 ? starting || ["queued", "starting", "running"].includes(job.executionState || "")
+    || job.executionState === "unknown" && Boolean(job.statusQueryError || job.tmuxWindowId && job.tmuxPane)
     || job.status === "dispatching" && !job.lastObservedAt
     : ["dispatching", "queued", "running", "unknown"].includes(job.status);
 }
@@ -1003,6 +1009,7 @@ export function allocateAvailable(queue: DistributedQueue, workers: readonly Wor
         if (gpuId === undefined) break;
         const commandId = durableCommandId(plan, job, chosen, gpuId);
         Object.assign(job, { status: "dispatching", workerId: chosen, gpuId, commandId, blockReason: undefined,
+          ...(job.lifecycleProtocol === 2 ? { startIntent: { commandId, workerId: chosen, gpuId } } : {}),
           reassignmentWorkerId: undefined });
         dispatches.push({ planId: plan.id, jobIndex: job.index, workerId: chosen, gpuId, attempt: job.attempt, commandId });
       }
@@ -1071,7 +1078,7 @@ export function hasLegacyOwnership(job: QueuedJob): boolean {
 export function resetUnsentDispatch(queue: DistributedQueue, planId: string, jobIndex: number, commandId: string): DistributedQueue {
   return { ...queue, plans: queue.plans.map((plan) => plan.id !== planId ? plan : { ...plan,
     jobs: plan.jobs.map((job) => job.index !== jobIndex || job.commandId !== commandId || job.status !== "dispatching"
-      ? job : { ...job, status: "pending" as const, workerId: undefined, gpuId: undefined, commandId: undefined }) }) };
+      ? job : { ...job, status: "pending" as const, workerId: undefined, gpuId: undefined, commandId: undefined, startIntent: undefined }) }) };
 }
 
 export function resetBusyRejectedDispatch(queue: DistributedQueue, dispatch: Dispatch, receipt: Record<string, unknown>): DistributedQueue {
@@ -1085,7 +1092,7 @@ export function resetBusyRejectedDispatch(queue: DistributedQueue, dispatch: Dis
     jobs: plan.jobs.map((job) => job.index !== dispatch.jobIndex || job.attempt !== dispatch.attempt
       || job.commandId !== dispatch.commandId || job.workerId !== dispatch.workerId || job.gpuId !== dispatch.gpuId
       || !["dispatching", "unknown"].includes(job.status) ? job : { ...job, status: "pending" as const, workerId: undefined,
-        gpuId: undefined, commandId: undefined, runKey: undefined, lastDispatchAttemptAt: undefined, dispatchAcknowledgedAt: undefined,
+        gpuId: undefined, commandId: undefined, startIntent: undefined, runKey: undefined, lastDispatchAttemptAt: undefined, dispatchAcknowledgedAt: undefined,
         blockReason: "Worker confirmed the requested GPU was busy; awaiting fresh availability." }) }) };
 }
 
@@ -1106,7 +1113,7 @@ export function applyPreflightRejectedDispatch(queue: DistributedQueue, plan: Qu
   return { ...queue, plans: queue.plans.map(row => row.id !== plan.id ? row : { ...row,
     jobs: row.jobs.map(item => item.index !== job.index || item.commandId !== job.commandId ? item : {
       ...item, status: "failed" as const, trustedTerminalStatus: "failed" as const, error: rejection.message,
-      admissionRejection: rejection, finishedAt: rejection.rejectedAt, blockReason: undefined,
+      admissionRejection: rejection, finishedAt: rejection.rejectedAt, blockReason: undefined, startIntent: undefined,
       formalConflictEvidence: receipt.formalConflictEvidence as Record<string, unknown> | undefined,
       dispatchAcknowledgedAt: new Date().toISOString(),
     }) }) };
