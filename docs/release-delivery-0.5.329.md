@@ -18,4 +18,13 @@
 
 先验证上述回归在旧实现失败，再修复。覆盖请求结果未知、窗口尚未建立、慢 Worker 后续就绪、保留原任务身份、窗口接管名额、取消释放、无旧历史占位，以及显存比例和手动派发既有回归。
 
-完整打包、稳定发行及安装信息在实际核实后补齐。SimpleSFTP 沿用 0.2.90，无接口或删除协议变化；实际生产重新派发未执行。
+最终 `npm run package` 653/653 串行回归通过，包含完整构建、面板脚本、真实隔离 tmux、显存比例同卡六 job 和运行队列保留。Python AST、额外 `vm.Script`、VSIX 身份/版本/平台、运行闭包与秘密排除通过，361 个 dist 文件匹配构建。
+
+- 源码提交：`377e1e477fe1632ad6f2b158fe5d9ffa56121481`，普通推送后 fetch 核实与 `origin/master` 一致。
+- 稳定 Release：https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.329 ，绑定上述提交，非 draft/prerelease。
+- 资产：`simple-experiment-0.5.329.vsix`，2871704 字节，配套同名 `.vsix.sha256` 绑定精确文件名。
+- SHA256：`d93e4d9348be1e236b9e398c262584b257eaf7518ab74fe86bfc4a4496203e11`。
+- 使用已安装 0.5.328 的真实更新客户端确认 Latest 可见，并下载真实资产核验平台、版本、提交、大小、SHA256 和逐字节一致。SimpleSFTP 0.2.90 的原发行包也再次核实，无接口或删除协议变化。
+- 最后仅运行一次 `npm run install:latest`，核实已安装 SimpleExperiment 0.5.329、SimpleSFTP 0.2.90、关键安装文件字节与 `simpleex` 入口。安装后不再操作当前插件面板或 API，等待用户执行 **Developer: Reload Window**。
+
+本轮修复在本机调度侧生效，不要求停止当前任务。打包 runtime 同步为 0.5.329；后续正常“准备 Agent”可按既定流程更新，保留运行及已接收队列。已有远端队列没有自动召回，生产重新派发未执行；重载后的实际入口效果待用户验收。
