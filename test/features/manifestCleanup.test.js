@@ -66,6 +66,68 @@ async function fixture({retiredWithoutCsv=false}={}){
     exactTargets:p.rows.filter(row=>row.disposition===p.action).map(row=>row.node.id+':'+row.absolutePath)});};
   return {adapter,host,sources,declarations,calls,preview,confirm,fail:value=>queryFail=value,change:()=>changed=true,get mutations(){return mutations}};
 }
+
+test('PLAN cleanup retains PLAN and default/shared configs even with confirmed paths',async()=>{
+  const f=await fixture(),root=path.dirname(f.host.context.globalStorageUri.fsPath);
+  await fs.mkdir(path.join(root,'configs'),{recursive:true});
+  await fs.writeFile(path.join(root,'configs/default.yaml'),'lr: 0.1\n','utf8');
+  await fs.writeFile(path.join(root,'configs/p.yaml'),'_base_: default.yaml\nlr: 0.2\n','utf8');
+  await fs.appendFile(path.join(root,'experiments/plans/p.yaml'),'config: configs/p.yaml\n','utf8');
+  f.sources.add('configs/default.yaml');f.sources.add('configs/p.yaml');f.sources.add('experiments/plans/p.yaml');
+  const p=await f.preview('delete',true,true);
+  for(const name of ['configs/default.yaml','experiments/plans/p.yaml']){
+    assert.ok(p.rows.filter(row=>row.relativePath===name).length,name);
+    assert.ok(p.rows.filter(row=>row.relativePath===name).every(row=>row.disposition==='protected'),name);
+    assert.ok(!f.calls.some(call=>call.method==='files.cleanup.preview'&&call.params.targets.some(row=>row.relativePath===name)),name);
+  }
+  assert.ok(p.rows.some(row=>row.relativePath==='configs/p.yaml'&&row.disposition==='delete'));
+  const moved=await f.adapter.service.preview({planFile:p.scope.planFile,action:'move',reuseToken:p.token});
+  const again=await f.adapter.service.preview({planFile:p.scope.planFile,action:'delete',authorizationMode:'confirmed_paths',reuseToken:moved.token});
+  for(const review of [moved,again]) for(const name of ['configs/default.yaml','experiments/plans/p.yaml'])
+    assert.ok(review.rows.filter(row=>row.relativePath===name).every(row=>row.disposition==='protected'),name);
+});
+
+test('changing action reuses only in-memory discovery and resets confirmations',async()=>{
+  const f=await fixture(),p=await f.preview('move');
+  const inspected=f.calls.filter(call=>call.method==='files.cleanup.inspect').length;
+  const next=await f.adapter.service.preview({planFile:p.scope.planFile,job:p.scope.job,action:'delete',authorizationMode:'confirmed_paths',reuseToken:p.token});
+  assert.equal(f.calls.filter(call=>call.method==='files.cleanup.inspect').length,inspected);
+  assert.equal(next.confirmations,0);assert.notEqual(next.token,p.token);
+  assert.ok(next.rows.some(row=>row.disposition==='delete'));
+  assert.equal(f.mutations,0);
+});
+
+test('changing a confirmed review consumes its old approval without rediscovering manifests',async()=>{
+  const f=await fixture(),p=await f.preview('move');await f.confirm(p);
+  const inspected=f.calls.filter(call=>call.method==='files.cleanup.inspect').length;
+  const next=await f.adapter.service.preview({planFile:p.scope.planFile,job:p.scope.job,action:'delete',authorizationMode:'confirmed_paths',reuseToken:p.token});
+  assert.equal(next.confirmations,0);assert.equal(f.calls.filter(call=>call.method==='files.cleanup.inspect').length,inspected);
+  await assert.rejects(f.adapter.execute(p.token),/SUPERSEDED/);
+  assert.equal(f.mutations,0);
+});
+
+test('a config newly shared by another PLAN is retained before any deletion',async()=>{
+  const f=await fixture(),root=path.dirname(f.host.context.globalStorageUri.fsPath);
+  await fs.mkdir(path.join(root,'configs'),{recursive:true});await fs.writeFile(path.join(root,'configs/only.yaml'),'lr: 0.1\n','utf8');
+  await fs.appendFile(path.join(root,'experiments/plans/p.yaml'),'config: configs/only.yaml\n','utf8');f.sources.add('configs/only.yaml');
+  const p=await f.preview('delete',true,true);assert.ok(p.rows.some(row=>row.relativePath==='configs/only.yaml'&&row.disposition==='delete'));
+  await fs.writeFile(path.join(root,'experiments/plans/other.yaml'),'config: configs/only.yaml\n','utf8');
+  await assert.rejects(f.confirm(p),/配置已变化或已被其他 PLAN 引用/);assert.equal(f.mutations,0);
+});
+
+test('manifest discovery bounds concurrent reads, deduplicates outputs and ignores obsolete roots when expansion succeeds',async()=>{
+  const {discoverManifestCandidates}=require('../../dist/features/ManifestCleanup');
+  const nodes=[0,1,2].map(index=>({id:'w'+index,kind:'remote',root:'/p'}));
+  const declarations=[0,1,2].flatMap(index=>[0,1].map(csv=>({index,case:'a',seed:42,output_dir:'work/job'+index,result_csv:'result/'+index+csv+'.csv'})));
+  const calls=[],active=new Set();let peak=0;
+  const host={setupConfig:{workerTunnels:nodes},client:{getWorkerTasks:async()=>({declaredJobs:declarations})},
+    simpleSftpApiCall:async(_method,params)=>{const key=params.node.id+':'+params.target.relativePath;
+      assert.ok(!calls.includes(key));calls.push(key);active.add(key);peak=Math.max(peak,active.size);
+      await new Promise(resolve=>setImmediate(resolve));active.delete(key);return {target:{missing:true}};}};
+  const result=await discoverManifestCandidates(host,'/p','experiments/plans/p.yaml',nodes,{plans:[{planFile:'experiments/plans/p.yaml',jobs:[{outputDir:'obsolete/output'}]}]});
+  assert.equal(calls.length,9);assert.ok(peak>1&&peak<=4);assert.ok(!calls.some(key=>key.includes('obsolete')));
+  assert.equal(result.blockers.length,0);assert.equal(result.candidates.length,0);
+});
 test('PLAN and real manifests authorize exact multi-job replacement without retained job/receipt state',async()=>{
   const f=await fixture(),p=await f.preview();assert.deepEqual(Array.from(p.blockers),[]);assert.equal(p.rows.filter(row=>row.disposition==='delete').length,4);
   assert.equal(f.mutations,0);await assert.rejects(f.adapter.execute(p.token));
@@ -142,14 +204,15 @@ test('path-confirmed deletion in both pages is independent of missing ownership,
   }
 });
 
-test('explicit typed paths do not require PLAN, job history or collect callbacks to exist',async()=>{
+test('explicit typed PLAN paths cannot expand into PLAN or unrelated files',async()=>{
   const f=await fixture({retiredWithoutCsv:true}),p=await f.preview('delete',false,true);
-  f.adapter.service.ports.collect=async()=>assert.fail('explicit paths must not reload PLAN or historical state');
   const params={planFile:p.scope.planFile,action:'delete',authorizationMode:'confirmed_paths',job:p.scope.job,
     exactPaths:p.rows.filter(row=>row.disposition==='delete').map(row=>({nodeId:row.nodeId,relativePath:row.relativePath,type:row.type}))};
   const direct=await f.adapter.service.preview(params);assert.deepEqual(Array.from(direct.blockers),[]);
   await f.confirm(direct);assert.equal(f.mutations,0);
   await assert.rejects(f.adapter.service.preview({...params,exactPaths:[{nodeId:'worker',relativePath:'../outside',type:'directory'}]}),/UNSAFE_PATH/);
+  await assert.rejects(f.adapter.service.preview({...params,exactPaths:[{nodeId:'local',relativePath:p.scope.planFile,type:'file'}]}),/独占配置或关联产物/);
+  await assert.rejects(f.adapter.service.preview({...params,exactPaths:[{nodeId:'worker',relativePath:'configs/unrelated.yaml',type:'file'}]}),/独占配置或关联产物/);
 });
 
 test('stale conflicting manifest result paths cannot hide an explicitly reviewed output directory',async()=>{

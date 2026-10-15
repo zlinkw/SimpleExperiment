@@ -85,6 +85,22 @@ class PlanCleanupHost {
             },
             restoreGate: (preview, operation) => this.restoreGate(preview, operation),
             currentNode: async (id) => this.currentNode(id),
+            validateScope: async (scope) => {
+                this.assertWorkspace();
+                if (scope.candidates.some(row => row.category === "PLAN 文件" && !row.scopeProtectedReason))
+                    (0, PlanCleanup_1.cleanupError)("PLAN_CLEANUP_SCOPE_CHANGED", "旧审核包含 PLAN 文件，请重新审核；本次不会处理 PLAN 或共享配置。");
+                const configs = scope.candidates.filter(row => !row.scopeProtectedReason && ["专用配置", "远端配置同步副本"].includes(row.category));
+                if (!configs.length)
+                    return;
+                const fresh = await (0, PlanCleanupEvidence_1.collectPlanCleanupEvidence)({ root: this.root, planFile: scope.planFile, queue: (0, DistributedPlanQueue_1.emptyDistributedQueue)(),
+                    ledger: (0, PlanArtifactSync_1.emptyPlanSyncLedger)(), nodes: scope.nodes, snapshots: [], activityMode: "managed_tmux" });
+                for (const config of configs) {
+                    const proof = fresh.candidates.find(row => row.nodeId === "local" && row.relativePath === config.relativePath && row.category === "专用配置");
+                    if (!proof || proof.protectedReason || proof.dependencies.length || proof.owners.some(owner => owner !== fresh.planKey)
+                        || proof.expectedSha256 !== config.expectedSha256)
+                        (0, PlanCleanup_1.cleanupError)("CONFIG_SCOPE_CHANGED", config.relativePath + "：配置已变化或已被其他 PLAN 引用，请重新审核");
+                }
+            },
             updateIndexes: (operation, restore) => this.updateIndexes(operation, restore) });
     }
     assertWorkspace() {
@@ -259,6 +275,8 @@ class PlanCleanupHost {
     managedNodes() {
         const nodes = [{ id: "local", kind: "local", root: this.root }];
         for (const worker of this.host.setupConfig.workerTunnels || []) {
+            if (worker.enabled === false)
+                continue;
             try {
                 nodes.push({ ...this.currentNode(worker.id) });
             }
@@ -286,7 +304,7 @@ class PlanCleanupHost {
             declarations = [{ index: job.index, case: source.case, seed: source.seed, output_dir: source.outputDir, result_csv: source.collectionResultCsv }];
         }
         onProgress?.({ phase: "manifests", message: "读取声明目录内的产物清单…" });
-        const discovered = await (0, ManifestCleanup_1.discoverManifestCandidates)(this.host, this.root, file, nodes, queue, declarations, authorizationMode === "confirmed_paths");
+        const discovered = await (0, ManifestCleanup_1.discoverManifestCandidates)(this.host, this.root, file, nodes, queue, declarations, authorizationMode === "confirmed_paths", onProgress);
         this.assertWorkspace();
         // Retain the original config/reference graph, without importing cached task activity.
         const scope = await (0, PlanCleanupEvidence_1.collectPlanCleanupEvidence)({ root: this.root, planFile: file, queue: (0, DistributedPlanQueue_1.emptyDistributedQueue)(), ledger,
@@ -297,6 +315,14 @@ class PlanCleanupHost {
         scope.nodes = [...nodes, ...scope.nodes.filter(node => !nodes.some(row => row.id === node.id))];
         if (job)
             scope.candidates = [];
+        else
+            scope.candidates = scope.candidates.filter(row => ["PLAN 文件", "专用配置", "远端配置同步副本"].includes(row.category));
+        for (const candidate of scope.candidates) {
+            if (candidate.category === "PLAN 文件")
+                candidate.scopeProtectedReason = "保留 PLAN；仅清理独占配置与关联产物";
+            else if (candidate.protectedReason || candidate.dependencies.length || candidate.owners.some(owner => owner !== scope.planKey))
+                candidate.scopeProtectedReason = candidate.protectedReason || "共享配置，保留";
+        }
         const preserved = new Map(scope.candidates.map(row => [row.nodeId + ":" + row.relativePath, row]));
         for (const candidate of discovered.candidates) {
             const key = candidate.nodeId + ":" + candidate.relativePath, existing = preserved.get(key);
@@ -313,6 +339,7 @@ class PlanCleanupHost {
         }
         scope.blockers.push(...discovered.blockers);
         scope.notices.push(...discovered.notices);
+        scope.associationBlockers = [...scope.blockers];
         if (authorizationMode === "confirmed_paths") {
             scope.authorizationMode = authorizationMode;
             const pathErrors = new Set(["UNSAFE_DECLARED_PATH", "NODE_UNREACHABLE", "OFFLINE_NODE"]);
@@ -326,8 +353,11 @@ class PlanCleanupHost {
             scope.job = { ...job, manifest: { declarations: discovered.declarations, replacement: true } };
         for (const document of vscode.workspace.textDocuments.filter(document => document.isDirty && document.uri.scheme === "file")) {
             const relative = path.relative(this.root, document.uri.fsPath).replace(/\\/g, "/");
-            if (scope.candidates.some(row => row.nodeId === "local" && (row.relativePath === relative || relative.startsWith(row.relativePath + "/"))))
-                scope.blockers.push({ code: "DIRTY_EDITOR_TARGET", detail: document.uri.fsPath });
+            if (scope.candidates.some(row => !row.scopeProtectedReason && row.nodeId === "local" && (row.relativePath === relative || relative.startsWith(row.relativePath + "/")))) {
+                const blocker = { code: "DIRTY_EDITOR_TARGET", detail: document.uri.fsPath };
+                scope.blockers.push(blocker);
+                scope.associationBlockers.push(blocker);
+            }
         }
         scope.revision = (0, PlanCleanup_1.cleanupDigest)([file, scope.planHash, configuration, discovered.declarations,
             nodes.map(({ error, ...node }) => node)]);

@@ -126,6 +126,7 @@ export async function collectPlanCleanupEvidence(input: CleanupEvidenceInput): P
     candidates.find(row => row.relativePath === alias.file)!.expectedSha256 = removed?.hashes[alias.file] || sha(alias.text);
   }
   // The full graph includes config inheritance, not merely references of the selected PLAN.
+  const inheritedConfigs = new Set<string>();
   const configRefs = new Map<string, Set<string>>(), configHashes: Record<string, string> = {};
   const ownerPlans = new Map<string, Set<string>>();
   const resolveConfig = (value: string, parent?: string) => {
@@ -181,7 +182,7 @@ export async function collectPlanCleanupEvidence(input: CleanupEvidenceInput): P
     const refs = [...new Set([...planStaticConfigReferences(text), ...values.flatMap(value =>
       [...value.matchAll(/(?:["']([^"'\r\n]+\.(?:ya?ml|json))["']|(?:^|[\s\[,])([A-Za-z0-9_./\\:-]+\.(?:ya?ml|json))(?=$|[\s\],#]))/gmi)].map(match => match[1] || match[2]))])];
     for (const ref of refs) {
-      try { await configGraph(resolveConfig(ref, config), owner, visiting); }
+      try { const resolved = resolveConfig(ref, config); inheritedConfigs.add(resolved); await configGraph(resolved, owner, visiting); }
       catch { unknownConfigReferences = true; configNotice(ref, config); }
     }
   };
@@ -207,7 +208,7 @@ export async function collectPlanCleanupEvidence(input: CleanupEvidenceInput): P
     for (const owner of owners) configRefs.get(config)!.add(owner);
   }
   for (const [config, owners] of configRefs) if (owners.has(planKey)) {
-    const shared = owners.size > 1 || !/^(?:configs|tmp\/config)\//i.test(config) || /(?:^|\/)(?:base|_base_|defaults)(?:\/|\.)/i.test(config);
+    const shared = owners.size > 1 || inheritedConfigs.has(config) || !/^(?:configs|tmp\/config)\//i.test(config) || /(?:^|\/)(?:_?base_?|defaults?|common|shared)(?:[_.\/-]|$)/i.test(config);
     add("local", config, "file", "专用配置", ["PLAN 配置引用图（含继承/命令/规范路径）：" + [...owners].flatMap(owner => [...ownerPlans.get(owner) || [owner]]).join("；"), "配置 SHA256=" + configHashes[config]], [...owners], shared ? "共享或基础配置" : unknownConfigReferences ? "动态/缺失历史 PLAN 的配置引用无法证明独占" : undefined);
     candidates.find(row => row.relativePath === config)!.expectedSha256 = configHashes[config];
   }

@@ -31,8 +31,8 @@ function recordedDeclarations(queue, file) {
     return result;
 }
 /** Only frozen declarations and actual per-output manifests authorize candidates. */
-async function discoverManifestCandidates(host, root, file, nodes, queue, explicit = [], pathOnly = false) {
-    const declarations = [...explicit, ...recordedDeclarations(queue, file)];
+async function discoverManifestCandidates(host, root, file, nodes, queue, explicit = [], pathOnly = false, onProgress) {
+    const declarations = [...explicit];
     const notices = [], blockers = [], candidates = [];
     // Describe is the existing Scheduler's pure expansion; no sync, preview attempt, or project callback.
     await Promise.all(nodes.filter(node => !explicit.length && node.kind === "remote" && !node.error).map(async (node) => {
@@ -47,6 +47,10 @@ async function discoverManifestCandidates(host, root, file, nodes, queue, explic
             notices.push({ code: "DECLARATIONS_QUERY_NOTICE", nodeId: node.id, detail: String(error.message || error) });
         }
     }));
+    // Historical paths are locators only when current expansion is unavailable.
+    // They must not multiply a current PLAN review with every former output root.
+    if (!declarations.length)
+        declarations.push(...recordedDeclarations(queue, file));
     const unique = [...new Map(declarations.filter(row => row?.output_dir).map(row => [spelling(row.output_dir) + "\0" + spelling(row.result_csv), row])).values()]
         .sort((a, b) => spelling(a.output_dir).localeCompare(spelling(b.output_dir)) || spelling(a.result_csv).localeCompare(spelling(b.result_csv)));
     if (!unique.length && nodes.some(node => node.kind === "remote"))
@@ -54,6 +58,47 @@ async function discoverManifestCandidates(host, root, file, nodes, queue, explic
     const selected = explicit.length ? unique.filter(row => explicit.some(item => spelling(item.output_dir) === spelling(row.output_dir)
         && spelling(item.result_csv) === spelling(row.result_csv))) : unique;
     const planKey = (0, PlanCleanup_1.cleanupDigest)([root, file]);
+    // One bounded read per actual node/output, even if several result declarations
+    // refer to it. Process evidence below in a stable order, independent of latency.
+    const reads = new Map(), requests = [];
+    let completed = 0;
+    const keyFor = (node, output) => JSON.stringify([node.id, output]);
+    for (const node of nodes.filter(node => !node.error))
+        for (const declaration of selected) {
+            let output;
+            try {
+                output = relativeTo(node, declaration.output_dir);
+            }
+            catch {
+                continue;
+            }
+            const key = keyFor(node, output);
+            if (reads.has(key))
+                continue;
+            let resolve;
+            reads.set(key, new Promise(done => { resolve = done; }));
+            requests.push(async () => {
+                try {
+                    resolve({ info: await host.simpleSftpApiCall("files.cleanup.inspect", {
+                            node, target: { relativePath: output, type: "directory" }, manifestOnly: true, allowMissing: true
+                        }) });
+                }
+                catch (error) {
+                    resolve({ error: String(error.message || error) });
+                }
+                finally {
+                    try {
+                        onProgress?.({ phase: "manifests", message: node.id + "：已核对 " + output, completed: ++completed, total: requests.length });
+                    }
+                    catch { }
+                }
+            });
+        }
+    let cursor = 0;
+    await Promise.all(Array.from({ length: Math.min(4, requests.length) }, async () => {
+        while (cursor < requests.length)
+            await requests[cursor++]();
+    }));
     for (const node of nodes) {
         if (node.error) {
             blockers.push({ code: "OFFLINE_NODE", nodeId: node.id, detail: node.error });
@@ -79,14 +124,12 @@ async function discoverManifestCandidates(host, root, file, nodes, queue, explic
                     continue;
                 }
             }
-            let info;
-            try {
-                info = await host.simpleSftpApiCall("files.cleanup.inspect", { node, target: { relativePath: output, type: "directory" }, manifestOnly: true, allowMissing: true });
-            }
-            catch (error) {
-                blockers.push({ code: "NODE_UNREACHABLE", nodeId: node.id, detail: String(error.message || error) });
+            const observed = await reads.get(keyFor(node, output));
+            if (observed.error) {
+                blockers.push({ code: "NODE_UNREACHABLE", nodeId: node.id, detail: observed.error });
                 continue;
             }
+            const info = observed.info;
             if (info.target?.missing)
                 continue;
             const records = info.target?.manifests || [];

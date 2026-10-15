@@ -87,13 +87,13 @@ async function openPlanCleanupPanel(host, planFile, initialOperationId = "", job
                 preview = operation.preview;
                 response = { type: "operation", operation };
             }
-            else if (message.type === "preview") {
-                const exactPaths = message.action === "delete" ? preview?.rows.filter(row => row.nodeId !== "pluginState" && row.disposition === preview.action)
-                    .map(row => ({ nodeId: row.nodeId, relativePath: row.relativePath, type: row.type })) : undefined;
+            else if (message.type === "preview" || message.type === "changeMode") {
+                const reuseToken = message.type === "changeMode" ? preview?.token : undefined;
                 preview = undefined;
                 operationId = "";
                 preview = await host.service.preview({ planFile, action: message.action, verifiedOnly: message.verifiedOnly, job: selection,
-                    ...(message.action === "delete" ? { authorizationMode: "confirmed_paths", exactPaths } : {}) }, progress);
+                    ...(reuseToken ? { reuseToken } : {}),
+                    ...(message.action === "delete" ? { authorizationMode: "confirmed_paths" } : {}) }, progress);
                 response = { type: "preview", preview };
             }
             else if (message.type === "continue") {
@@ -157,7 +157,7 @@ async function openPlanCleanupPanel(host, planFile, initialOperationId = "", job
     panel.onDidDispose(() => subscription.dispose());
     panel.webview.html = `<!DOCTYPE html><html lang="zh"><head><meta charset="UTF-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}'"><style>
 body{font:var(--vscode-font-size) var(--vscode-font-family);color:var(--vscode-foreground);background:var(--vscode-editor-background);padding:16px}button,select{font:inherit;margin:4px;padding:8px}table{border-collapse:collapse;width:100%}td,th{border:1px solid var(--vscode-panel-border);padding:8px;text-align:left;overflow-wrap:anywhere}code{font-size:11px}summary{cursor:pointer}#status{white-space:pre-wrap}.warning{color:var(--vscode-editorWarning-foreground)}.actions{position:sticky;bottom:0;background:var(--vscode-editor-background);padding:8px 0;border-top:1px solid var(--vscode-panel-border)}#execute{background:var(--vscode-button-background);color:var(--vscode-button-foreground)}button:disabled{opacity:.5}.steps{font-weight:bold}details{margin:8px 0}.path{white-space:pre-wrap;font-weight:bold}
-</style></head><body><h2>${title}</h2><p>${selection ? "只处理选中失败任务的输出目录和指标文件，保留 PLAN、配置和其他任务文件。清理完成后回到任务卡片，点击重新排队；本页不会启动任务。" : "先审核要处理的文件。默认移入项目的 clean_dir 文件夹，可恢复；也可选择永久删除。运行中的任务须先停止，共享文件和历史结果保留。"}</p>
+</style></head><body><h2>${title}</h2><p>${selection ? "只处理选中失败任务的输出目录和指标文件，保留 PLAN、配置和其他任务文件。清理完成后回到任务卡片，点击重新排队；本页不会启动任务。" : "只处理当前 PLAN 的独占配置与关联产物。PLAN、共享默认配置、其他 PLAN 引用的配置和共享资产保留。可选择移入 clean_dir 或永久删除；切换方式复用本页路径，确认前会重新核对文件。"}</p>
 <p class="steps">1. 审核文件 → 2. 确认完整路径 → 3. 删除或移走文件</p>
 <select id="action" aria-label="处理方式"><option value="move">移入 clean_dir 文件夹（可恢复）</option><option value="delete">永久删除（不可恢复，需确认两次）</option></select>
 <label><input type="checkbox" id="partial">先处理可连接且审核通过的服务器（其余稍后处理）</label><button id="preview">审核文件</button>
@@ -187,9 +187,9 @@ function invalidate(){model=null;operationId='';phase=0;executing=false;canConfi
 function send(type,extra){
 if(busy&&type!=='cancel')return;const id='request-'+(++sequence);
 if(type==='cancel'&&busy){get('status').textContent='已请求暂停，当前文件处理结束后不再处理下一个文件。';api.postMessage({type,requestId:id});return}
-requestId=id;busy=true;startedAt=Date.now();progressCount='';if(['preview','continue','restore'].includes(type))invalidate();if(type==='execute'||type==='resume')executing=true;
+requestId=id;busy=true;startedAt=Date.now();progressCount='';if(['preview','changeMode','continue','restore'].includes(type))invalidate();if(type==='execute'||type==='resume')executing=true;
 const labels={history:'正在读取清理记录…',preview:'正在读取文件并审核全部服务器…',status:'正在查询实际清理状态…',continue:'正在重新审核剩余文件…',recheck:'正在查询服务器和文件状态…',confirm:'正在核对已确认的完整路径…',execute:'正在'+actionName(model?.action)+'已确认文件…',resume:'正在检查并继续处理剩余文件…',restore:'正在审核可恢复文件…',cancel:'已请求暂停…'};
-progressText=labels[type]||'正在处理…';get('status').textContent=progressText;renderProgress();controls();api.postMessage({type,requestId:id,action:get('action').value,verifiedOnly:get('partial').checked,...extra})}
+progressText=type==='changeMode'?'复用本页路径，核对处理方式…':labels[type]||'正在处理…';get('status').textContent=progressText;renderProgress();controls();api.postMessage({type,requestId:id,action:get('action').value,verifiedOnly:get('partial').checked,...extra})}
 const messages=rows=>[...new Set(rows.map(b=>[b.code,b.nodeId,b.detail].filter(Boolean).join('：')))].join(String.fromCharCode(10));
 function show(m){
 model=m;operationId='';phase=Number(m.confirmations)||0;if(['move','delete'].includes(m.action))get('action').value=m.action;get('partial').checked=Boolean(m.verifiedOnly);
@@ -220,7 +220,7 @@ get('continue').onclick=()=>send('continue');get('recheck').onclick=()=>send('re
 get('load').onclick=()=>{if(!get('history').value){get('status').textContent='尚无选中的清理记录，请选择一条记录或点击审核文件。';return}send('status',{operationId:get('history').value})};get('history').onchange=controls;
 setInterval(()=>{if(busy)renderProgress();if(executing&&operationId&&!polling){polling=true;api.postMessage({type:'poll',operationId,requestId:'poll-'+(++sequence)})}},1500);
 function normalizePoll(m){if(!String(m.requestId||'').startsWith('poll-'))return;polling=false;if(m.operationId&&m.operationId!==operationId)return;if(m.operation&&m.operation.id===operationId&&m.operation.preview.scope?.observationMode==='managed_tmux'&&['completed','partial','paused','blocked'].includes(m.operation.state)){m.type='operation';m.requestId=requestId}else if(m.type==='error'){m.requestId=requestId}}
-get('action').onchange=get('partial').onchange=()=>{invalidate();get('status').textContent='选择已变化，请重新审核文件。'};
+get('action').onchange=get('partial').onchange=()=>send('changeMode');
 window.addEventListener('message',event=>{
 const m=event.data;normalizePoll(m);
 if(m.type==='progress'){if(!busy&&!executing||(m.operationId?m.operationId!==operationId:m.requestId&&m.requestId!==requestId))return;const targets=Object.values(m.operation?.targets||{});progressText=m.operation?stateName(m.operation.state)+' · 已处理 '+targets.filter(t=>t.state==='completed').length+'/'+targets.length+' 项'+(m.operation.error?' · '+m.operation.error:''):m.message;progressCount=typeof m.total==='number'&&m.total>0?m.completed+'/'+m.total:'';get('status').textContent=progressText;renderProgress();return}

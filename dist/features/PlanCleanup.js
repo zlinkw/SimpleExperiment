@@ -61,6 +61,12 @@ const under = (base, file) => file === base || file.startsWith(base + "/");
 function classifyCleanupCandidates(scope) {
     return scope.candidates.map(input => {
         const row = clone(input), rel = cleanupRelative(row.relativePath);
+        // A PLAN review cannot expand into shared configuration or the PLAN itself.
+        // This restriction is separate from ownership warnings on exact artifact paths.
+        if (row.scopeProtectedReason) {
+            row.protectedReason = row.scopeProtectedReason;
+            return row;
+        }
         if (scope.authorizationMode === "confirmed_paths" && row.nodeId !== "pluginState") {
             if (row.protectedReason)
                 row.evidence.push("原关联提示（由用户核对路径后决定）：" + row.protectedReason);
@@ -107,6 +113,7 @@ class PlanCleanup {
             record.preview.blockers = [];
             record.preview.scope.blockers = [];
             record.preview.scope.notices = [];
+            delete record.preview.scope.associationBlockers;
             record.preview.digest = "";
             record.preview.expiresAt = 0;
             delete record.error;
@@ -468,7 +475,7 @@ class PlanCleanup {
             onProgress?.(progress);
         }
         catch { } };
-        notify({ phase: "discovery", message: "读取 PLAN、历史登记与完成回执…" });
+        notify({ phase: "discovery", message: params.reuseToken ? "复用本页路径，核对所选处理方式…" : "读取 PLAN 声明及实际产物清单…" });
         for (const [token, preview] of this.previews)
             if (Date.now() > preview.expiresAt)
                 this.previews.delete(token);
@@ -483,21 +490,55 @@ class PlanCleanup {
         if (history[0]?.continuedBy || history[0]?.restoredBy || history.some(row => row.preview.action !== action))
             cleanupError("NOT_CONTINUABLE");
         const completed = await this.completedHistory(history);
+        const token = (0, node_crypto_1.randomBytes)(24).toString("hex");
         let scope;
-        if (params.authorizationMode === "confirmed_paths" && params.exactPaths?.length) {
+        if (params.reuseToken) {
+            const previous = this.previews.get(params.reuseToken);
+            if (!previous || previous.scope.planFile !== params.planFile || previous.continuationOf || params.continuationOf
+                || (0, exports.cleanupJobKey)(previous.scope.job) !== (0, exports.cleanupJobKey)(params.job))
+                cleanupError("PREVIEW_CHANGED");
+            const prior = await fs.readFile(this.file(previous.token), "utf8").then(JSON.parse, (error) => {
+                if (error.code === "ENOENT")
+                    return undefined;
+                throw error;
+            });
+            if (prior && (prior.executionRequestedAt || prior.continuedBy || prior.restoredBy || this.busy.has(prior.id)
+                || Object.values(prior.targets).some(row => row.state !== "pending")))
+                cleanupError("PREVIEW_CHANGED", "已开始处理文件，请刷新实际状态。");
+            scope = clone(previous.scope);
+            if (this.ports.currentNode)
+                for (const node of scope.nodes) {
+                    if (!node.error && this.nodeIdentity(await this.ports.currentNode(node.id)) !== this.nodeIdentity(node))
+                        cleanupError("SERVER_IDENTITY_CHANGED");
+                }
+            scope.authorizationMode = params.authorizationMode;
+            scope.blockers = clone(scope.associationBlockers || scope.blockers);
+            if (scope.authorizationMode === "confirmed_paths")
+                scope.blockers = scope.blockers.filter(row => ["UNSAFE_DECLARED_PATH", "NODE_UNREACHABLE", "OFFLINE_NODE", "DIRTY_EDITOR_TARGET"].includes(row.code));
+            this.previews.delete(previous.token);
+            if (prior) {
+                prior.continuedBy = token;
+                prior.state = "blocked";
+                prior.error = "处理方式已变化，原确认失效";
+                await this.save(prior);
+            }
+        }
+        else if (params.authorizationMode === "confirmed_paths" && params.exactPaths?.length) {
             if (params.exactPaths.length > 500 || !this.ports.currentNode)
                 cleanupError("INVALID_EXACT_PATHS");
-            const local = await this.ports.currentNode("local"), file = cleanupRelative(params.planFile);
-            const nodes = await Promise.all([...new Set(params.exactPaths.map(row => row.nodeId))].map(id => this.ports.currentNode(id)));
-            const candidates = params.exactPaths.map(row => {
+            for (const row of params.exactPaths) {
                 if (!["file", "directory"].includes(row.type) || row.nodeId === "pluginState")
                     cleanupError("INVALID_EXACT_PATHS");
-                return { nodeId: row.nodeId, relativePath: cleanupRelative(row.relativePath), type: row.type, category: "用户确认的精确路径",
-                    owners: [], evidence: ["直接核对完整路径后删除；不依赖任务或 PLAN 登记"], dependencies: [] };
-            });
-            scope = { projectId: local.root, planKey: (0, exports.cleanupDigest)([local.root, file]), planFile: file, planHash: "", runIds: [],
-                revision: (0, exports.cleanupDigest)([nodes, candidates]), nodes, candidates, blockers: [], notices: [], job: params.job,
-                observationMode: "managed_tmux", authorizationMode: "confirmed_paths" };
+                cleanupRelative(row.relativePath);
+            }
+            scope = await this.ports.collect(cleanupRelative(params.planFile), { archivedFiles: {}, job: params.job, authorizationMode: params.authorizationMode });
+            const classified = classifyCleanupCandidates(scope);
+            for (const row of params.exactPaths)
+                if (!classified.some(candidate => candidate.nodeId === row.nodeId
+                    && candidate.relativePath === row.relativePath && candidate.type === row.type && !candidate.protectedReason))
+                    cleanupError("OUTSIDE_PLAN_CLEANUP_SCOPE", row.relativePath + "：不属于可清理的独占配置或关联产物");
+            scope.candidates = scope.candidates.filter(candidate => candidate.scopeProtectedReason || params.exactPaths.some(row => row.nodeId === candidate.nodeId
+                && row.relativePath === candidate.relativePath && row.type === candidate.type));
         }
         else
             scope = await this.ports.collect(cleanupRelative(params.planFile), { archivedFiles: action === "move" ? this.archivedMetadata(completed) : {},
@@ -512,7 +553,6 @@ class PlanCleanup {
             if (!current || this.nodeIdentity(current) !== this.nodeIdentity(original))
                 cleanupError("SERVER_IDENTITY_CHANGED");
         }
-        const token = (0, node_crypto_1.randomBytes)(24).toString("hex");
         const archiveBatch = scope.job ? history[0]?.preview.rows.find(row => row.archiveBatch)?.archiveBatch || "job-" + token : undefined;
         const result = { token, digest: "", action, scope, rows: [], blockers: clone(scope.blockers),
             verifiedOnly: params.verifiedOnly === true, expiresAt: Date.now() + 30 * 60 * 1000, confirmations: 0,
@@ -625,7 +665,7 @@ class PlanCleanup {
             }
         }
         // Shared/unknown targets remain visible, with hashes when read-only inspection is possible.
-        const protectedRows = result.rows.filter(row => row.disposition === "protected" && !row.fingerprint && row.node.root && !row.node.error);
+        const protectedRows = result.rows.filter(row => row.disposition === "protected" && !row.scopeProtectedReason && !row.fingerprint && row.node.root && !row.node.error);
         for (const [index, row] of protectedRows.entries()) {
             const progress = { phase: "protected", completed: index, total: protectedRows.length };
             notify({ ...progress, message: row.node.id + "：只读核对受保护条目，保持原样…" });
@@ -662,6 +702,13 @@ class PlanCleanup {
             preview = (await this.status(params.token)).preview;
         if (Date.now() > preview.expiresAt)
             cleanupError("PREVIEW_EXPIRED");
+        const prior = await fs.readFile(this.file(preview.token), "utf8").then(JSON.parse, (error) => {
+            if (error.code === "ENOENT")
+                return undefined;
+            throw error;
+        });
+        if (prior?.continuedBy || prior?.restoredBy)
+            cleanupError("OPERATION_SUPERSEDED");
         this.assertAllowed(preview);
         const exact = preview.rows.filter(row => row.disposition === preview.action).map(row => row.node.id + ":" + row.absolutePath);
         if (params.confirm !== true || params.digest !== preview.digest || (0, exports.cleanupDigest)(params.exactTargets) !== (0, exports.cleanupDigest)(exact)
@@ -695,6 +742,8 @@ class PlanCleanup {
             await this.ports.restoreGate(preview, operation);
             return;
         }
+        if (!operation?.executionRequestedAt)
+            await this.ports.validateScope?.(preview.scope);
         if (preview.scope.authorizationMode === "confirmed_paths") {
             // The user authorizes these frozen paths, not a historical PLAN/task revision.
             // Actual node/root/type/content checks remain in SimpleSFTP on this same batch.

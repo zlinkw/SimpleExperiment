@@ -69,9 +69,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.327"
-RUNTIME_VERSION = "0.5.327"
-PLUGIN_VERSION = "0.5.327"
+AGENT_VERSION = "0.5.328"
+RUNTIME_VERSION = "0.5.328"
+PLUGIN_VERSION = "0.5.328"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -17831,11 +17831,15 @@ def task_query(root, queries=()):
                              "idleGpuAdmission": True, "queuedJobRecall": True, "taskLifecycle": 2, "manualDispatch": 1,
                              "gpuMemoryRatioScheduling": task_memory_scheduler_capability(root), "declaredResultQuery": 1}}
 
-def task_queue_session(root, worker_id, refresh=False):
-    key = hashlib.sha256((os.path.realpath(root) + "\0" + worker_id).encode("utf-8")).hexdigest()[:16]
+def task_session_prefix():
     prefix = re.sub(r"[^a-z0-9._-]+", "-", str(os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "simple").strip().lower()).strip("-")[:32]
     if not re.match(r"^[a-z0-9]", prefix):
         prefix = "simple"
+    return prefix
+
+def task_queue_session(root, worker_id, refresh=False):
+    key = hashlib.sha256((os.path.realpath(root) + "\0" + worker_id).encode("utf-8")).hexdigest()[:16]
+    prefix = task_session_prefix()
     # Volatile address hints only. Every RPC/report still verifies the live
     # endpoint binding; no cached hint proves acceptance or execution.
     locators = globals().setdefault("_TASK_QUEUE_LOCATORS", {})
@@ -17871,7 +17875,11 @@ def task_describe_plan(root, discovery):
 
 def task_queue_endpoint(root, worker_id):
     session = task_queue_session(root, worker_id)
-    text = task_tmux(["display-message", "-p", "-t", session + ":queue", "#{@se_endpoint}"])
+    try:
+        text = task_tmux(["display-message", "-p", "-t", session + ":queue", "#{@se_endpoint}"])
+    except RuntimeError:
+        session = task_queue_session(root, worker_id, refresh=True)
+        text = task_tmux(["display-message", "-p", "-t", session + ":queue", "#{@se_endpoint}"])
     endpoint = json.loads(text)
     if endpoint.get("root") != os.path.realpath(root) or endpoint.get("workerId") != worker_id:
         raise ValueError("SCHEDULER_OWNER_MISMATCH")
@@ -17913,6 +17921,15 @@ def task_scheduler_runtime_report(root, worker_id):
         return {"protocol": 1, "status": "unknown", "workerId": worker_id, "error": str(exc)}
 
 
+def task_queue_command(root, worker_id):
+    argv = [sys.executable, "-B", os.path.abspath(__file__), "task-queue", "--project-dir", os.path.realpath(root), "--worker-id", worker_id]
+    if "agent_dir" in globals():
+        argv.extend(["--state-dir", agent_dir(root)])
+    # tmux children inherit the server's initial environment, not the Agent's.
+    # Carry the configured prefix explicitly for both startup and replacement.
+    return "exec env " + shlex.join(["SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX=" + task_session_prefix(), *argv])
+
+
 def task_update_scheduler_runtime(root, worker_id):
     """Agent deployment replaces only the verified queue controller, retaining all task windows."""
     before = task_scheduler_runtime_report(root, worker_id)
@@ -17924,12 +17941,9 @@ def task_update_scheduler_runtime(root, worker_id):
     # Recheck the exact pane, window and epoch immediately before replacement.
     if task_scheduler_runtime_report(root, worker_id) != before:
         raise RuntimeError("SCHEDULER_CONTROL_CHANGED")
-    argv = [sys.executable, "-B", os.path.abspath(__file__), "task-queue", "--project-dir", os.path.realpath(root), "--worker-id", worker_id]
-    if "agent_dir" in globals():
-        argv.extend(["--state-dir", agent_dir(root)])
     task_tmux(["set-option", "-w", "-t", before["windowId"], "remain-on-exit", "on"])
     # -k replaces this controller process tree only. Queued/running tasks have independent windows.
-    task_tmux(["respawn-pane", "-k", "-t", pane, "-c", os.path.realpath(root), "exec " + shlex.join(argv)])
+    task_tmux(["respawn-pane", "-k", "-t", pane, "-c", os.path.realpath(root), task_queue_command(root, worker_id)])
     deadline = time.monotonic() + 4
     while True:
         report = task_scheduler_runtime_report(root, worker_id)
@@ -17957,15 +17971,12 @@ def task_queue_rpc(root, worker_id, action, payload, ensure=False):
     if ensure:
         session = task_queue_session(root, worker_id)
         previous_epoch = None
-        exists = subprocess.run(["tmux", "has-session", "-t", session], capture_output=True, timeout=3).returncode == 0
+        exists = subprocess.run(["tmux", "has-session", "-t", "=" + session], capture_output=True, timeout=3).returncode == 0
         if not exists:
             # If an old controller disappeared, create with today's prefix.
             session = task_queue_session(root, worker_id, refresh=True)
-            exists = subprocess.run(["tmux", "has-session", "-t", session], capture_output=True, timeout=3).returncode == 0
-        argv = [sys.executable, "-B", os.path.abspath(__file__), "task-queue", "--project-dir", os.path.realpath(root), "--worker-id", worker_id]
-        if "agent_dir" in globals():
-            argv.extend(["--state-dir", agent_dir(root)])
-        shell = "exec " + shlex.join(argv)
+            exists = subprocess.run(["tmux", "has-session", "-t", "=" + session], capture_output=True, timeout=3).returncode == 0
+        shell = task_queue_command(root, worker_id)
         if not exists:
             made = subprocess.run(["tmux", "new-session", "-d", "-s", session, "-n", "queue", "-c", root,
                                    shell], capture_output=True, text=True, timeout=5)
@@ -18050,7 +18061,10 @@ def task_queue_accept(root, worker_id, command, window, prepared=None):
     runner = [sys.executable, "-B", os.path.abspath(__file__), "task-runner", "--project-dir", root, "--worker-id", worker_id]
     if "agent_dir" in globals():
         runner.extend(["--state-dir", agent_dir(root)])
-    pane = task_tmux(["new-window", "-d", "-t", task_queue_session(root, worker_id), "-n", title, "-c", root,
+    session = task_tmux(["display-message", "-p", "-t", window, "#{session_id}"])
+    if not re.fullmatch(r"\$\d+", session):
+        raise RuntimeError("SCHEDULER_SESSION_UNVERIFIED")
+    pane = task_tmux(["new-window", "-d", "-t", session + ":", "-n", title, "-c", root,
                       "-P", "-F", "#{pane_id}", "--", "sh", "-c", "exec " + shlex.join(runner)])
     job["pane"] = pane
     task_tmux(["set-option", "-w", "-t", pane, "remain-on-exit", "on"])
@@ -18216,9 +18230,10 @@ def task_queue_serve(root, worker_id):
                             if chosen is None:
                                 continue
                             session = fixed_gpu_window_name(row.get("tmuxSessionPrefix") or options.get("tmuxSessionPrefix") or os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX"), chosen)
-                            if subprocess.run(["tmux", "has-session", "-t", session], capture_output=True, timeout=3).returncode:
+                            if subprocess.run(["tmux", "has-session", "-t", "=" + session], capture_output=True, timeout=3).returncode:
                                 task_tmux(["new-session", "-d", "-s", session])
-                            task_tmux(["move-window", "-s", row["tmuxWindowId"], "-t", session + ":"])
+                            target = task_tmux(["display-message", "-p", "-t", session + ":", "#{session_id}"])
+                            task_tmux(["move-window", "-s", row["tmuxWindowId"], "-t", target + ":"])
                             task_option(row["tmuxWindowId"], "gpu", chosen)
                             task_option(row["tmuxWindowId"], "phase", "admitted")
                             if row.get("dispatchPolicy") != "manual":
