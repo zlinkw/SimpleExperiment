@@ -11,13 +11,16 @@ try:
     program.write_text(script, encoding='utf-8')
     namespace['RUNTIME_VERSION'] = 'fixture'
     os.environ['SIMPLE_EXPERIMENT_WORKER_ID'] = 'worker'
+    os.environ['SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX'] = 'simple'
     legacy = [dict(job(i), maxConcurrentGpus=1) for i in range(2)]
     for item in legacy:
         namespace['task_queue_rpc'](root, 'worker', 'accept', item, ensure=True)
     wait_for(lambda: pathlib.Path(root, 'started-command-0').is_file())
     before = {r['commandId']: (r['tmuxWindowId'], r['tmuxPane']) for r in namespace['task_inventory'](root)}
     assert sum(r['phase'] == 'queued' for r in namespace['task_inventory'](root)) == 1
+    os.environ['SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX'] = 'new-owner'
     control = namespace['task_queue_session'](root, 'worker') + ':queue'
+    assert control.startswith('simple-sch-'), 'existing pre-prefix queue must remain the original controller'
     endpoint = namespace['task_queue_endpoint'](root, 'worker')
     old_epoch = endpoint['epoch']
     endpoint['workerId'] = 'other-worker'
@@ -54,6 +57,8 @@ try:
     assert {json.loads(pathlib.Path(root, 'started-command-' + str(i)).read_text())['gpu'] for i in range(2, 8)} == {'0'}
     for i in range(2, 9):
         pathlib.Path(root, 'release-command-' + str(i)).touch()
+    namespace['task_tmux'](['kill-window', '-t', report['windowId']])
+    assert namespace['task_queue_session'](root, 'worker', refresh=True).startswith('new-owner-sch-')
     print(json.dumps(dict(ok=True, preservedTasks=2, sharedJobs=6, queuedJobs=1, idempotent=True)))
 finally:
     subprocess.run(['tmux', 'kill-server'], capture_output=True, timeout=2)

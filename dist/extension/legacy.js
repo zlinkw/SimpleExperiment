@@ -6454,7 +6454,7 @@ class RealtimeTunnelPanelProvider {
     planValidationCacheKey(body, workerId) {
         const root = workspaceRoot();
         const probe = this.lastWorkerProbes?.[workerId] || {};
-        const runtimeVersion = String(probe.agentVersion || probe.apiVersion || probe.runtimeVersion || probe.version || "");
+        const runtimeVersion = String(probe.capabilities?.agentVersion || probe.agentVersion || probe.apiVersion || probe.runtimeVersion || probe.version || "");
         if (!root || !runtimeVersion)
             return "";
         const topology = this.projectTopologyAssessment();
@@ -6584,6 +6584,11 @@ class RealtimeTunnelPanelProvider {
                     throw new Error("Agent 校验未返回逐 job 清单");
                 if (validationCacheKey && !this.planValidationCache?.has(validationCacheKey))
                     this.rememberPlanValidation(validationCacheKey, validated);
+                // validate-plan already expanded and checked every job/entrypoint.
+                // Only explicit previews need a resource allocation simulation;
+                // submission checks actual task/results next and GPU admission later.
+                if (authority.previewResources === false)
+                    return { ...validated, distributedPreview: { admissionDeferred: true, totalJobs: validation.jobs.length } };
                 const root = workspaceRoot();
                 if (!root)
                     throw new Error("没有当前项目目录");
@@ -9334,15 +9339,23 @@ class RealtimeTunnelPanelProvider {
         await this.prepareSftpTargets("ensureCodeReadyForRun", "simpleSftp.uploadWorkspace");
         if (!this.projectContextIsCurrent(projectContext))
             throw new UiCommandCancelled("工作区已切换，运行前代码同步已取消。");
-        try {
-            await this.ensureRemoteAgentVersionConsistent();
-        }
-        catch { }
         const topology = this.assertPlanTopologyReady("运行前代码同步");
         const selectedWorkerIds = uniqueStrings((Array.isArray(bodies) ? bodies : []).flatMap((body) => [this.planSchedulerWorkerId(body), ...(Array.isArray(body?.selectedWorkerIds) ? body.selectedWorkerIds : [])]).filter(Boolean));
         const targets = this.workerCodeSyncTargets();
+        // Read-only runtime checks overlap manifest/hash work and code transfer.
+        // A target is not released to validation/dispatch until both have finished.
+        const versionsReady = this.ensureRemoteAgentVersionConsistent().catch(() => undefined);
+        const targetReady = typeof onTargetReady === "function" ? async (...args) => {
+            await versionsReady;
+            if (!this.projectContextIsCurrent(projectContext))
+                throw new UiCommandCancelled("工作区已切换，运行前代码同步已取消。");
+            return onTargetReady(...args);
+        } : undefined;
         reportStage("正在同步运行所需代码…");
-        const syncedTargets = await this.syncCodeTargets(targets, "run", { projectContext, hashCompare: true, progressReport: (text) => reportStage(text), onTargetReady });
+        const [syncedTargets] = await Promise.all([
+            this.syncCodeTargets(targets, "run", { projectContext, hashCompare: true, progressReport: (text) => reportStage(text), onTargetReady: targetReady }),
+            versionsReady,
+        ]);
         if (topology.mode === "worker_pool" && syncedTargets?.length)
             for (const body of bodies) {
                 if (!syncedTargets.some((target) => target.id === this.planSchedulerWorkerId(body)))
@@ -9500,7 +9513,7 @@ class RealtimeTunnelPanelProvider {
                     if (hashCompare) {
                         if (target.role === "worker" && workerProbeOk && this.codeSyncWarmProofs?.get(warmProofKey) > Date.now()) {
                             workerVersions[target.id] = await workerVersion();
-                            options.onTargetReady?.(target.id);
+                            await options.onTargetReady?.(target.id);
                             if (progressReport)
                                 progressReport(`${target.label || target.id}：Extension Host 内近期远端核对凭据有效，跳过递归清单`);
                             return;
@@ -9525,7 +9538,7 @@ class RealtimeTunnelPanelProvider {
                                 progressReport(`${target.label || target.id} 内容未变化，未重传`, progressStep);
                             if (target.role === "worker") {
                                 workerVersions[target.id] = await workerVersion(true);
-                                options.onTargetReady?.(target.id);
+                                await options.onTargetReady?.(target.id);
                                 if (workerProbeOk)
                                     this.rememberCodeSyncWarmProof(warmProofKey);
                                 void this.persistProjectCodeSyncState().catch(() => undefined);
@@ -9576,7 +9589,7 @@ class RealtimeTunnelPanelProvider {
                     }
                     if (target.role === "worker") {
                         workerVersions[target.id] = await workerVersion(true);
-                        options.onTargetReady?.(target.id);
+                        await options.onTargetReady?.(target.id);
                         if (hashCompare && workerProbeOk)
                             this.rememberCodeSyncWarmProof(warmProofKey);
                         void this.persistProjectCodeSyncState().catch(() => undefined);
@@ -10312,6 +10325,7 @@ class RealtimeTunnelPanelProvider {
                 ? body.runRecovery.preflight : await this.waitForPlanSubmission(message, () => this.runPlanPreflight(body, "当前计划", {
                 reportStage: (text) => this.reportPlanStage(message, text),
                 recordTiming: (key, ms) => this.recordPlanSubmissionTimingByOperation(operationId, key, ms),
+                previewResources: false,
             }));
             assertCurrent();
             this.recordPlanSubmissionTiming?.(message, "validateMs", Date.now() - validateStarted);
@@ -19278,6 +19292,12 @@ class RealtimeTunnelPanelProvider {
     }
     async simpleSftpApiCall(method, params, timeoutMs = 0, onProgress) {
         (0, SafeRequestRetry_1.assertRetryRequestCurrent)();
+        if (method === "files.cleanup.preview" || method === "files.cleanup.execute") {
+            const settings = vscode.workspace.getConfiguration("simpleExperiment");
+            const tmuxSessionPrefix = AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix(this.setupConfig?.sessionPrefix
+                || this.setupConfig?.remoteTmuxSessionPrefix || settings.get("sessionPrefix") || settings.get("tunnel.remoteTmuxSessionPrefix") || "simple");
+            params = { ...(params || {}), tmuxSessionPrefix };
+        }
         return (0, SimpleSftpProgressWait_1.callSftpWithProgress)(method, params || {}, (name) => this.simpleSftpCapability(name), onProgress);
     }
     async syncPendingPlanArtifacts(onlyKey = "", knownSummary) {

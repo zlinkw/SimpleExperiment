@@ -121,6 +121,11 @@ function syncHost(remote) {
   host.planSubmissionManifestKey = (root, includePaths, scopePaths, holds) => JSON.stringify({ root, includePaths, scopePaths, holds });
   host.rememberCodeSyncWarmProof = (key) => host.codeSyncWarmProofs.set(key, Date.now() + 300000);
   host.ensureWorkerCodeSyncProof = async () => undefined;
+  host.simpleSftpApiCall = async (method, payload) => {
+    assert.equal(method, "upload.workspace");
+    host.uploads.push(Object.keys(payload.manifest)); host.uploadRequests.push(payload);
+    return { ok: true, status: "completed" };
+  };
   host.verifiedSftpProjectInventory = async (request) => {
     host.inventories.push(request);
     return typeof remote === "function" ? remote(request, host.inventories.length) : remote;
@@ -374,7 +379,7 @@ test("validate and dry-run publish their own stages and a failed result stays fa
     assertPlanLocalConfigFiles: async () => {},
     ensureWorkerPoolPlanTarget: async () => {},
     assertPlanSchedulerAgentReady: () => {},
-    ensureHubCodeReadyForPlanCheck: async (_body, report) => report("正在核对本地目录状态…"),
+    ensureWorkerCodeReadyForPlanCheck: async (_body, report) => report("正在核对本地目录状态…"),
     postNoHubResultAction: async () => undefined,
     throwIfRemoteActionPending: () => {},
     throwIfTerminalActionFailure: (_command, _action, status) => { if (String(status || "") === "failed") throw new Error("plan rejected"); },
@@ -413,7 +418,7 @@ test("a submitted validate stays queued with its operation id until the real ter
     assertPlanLocalConfigFiles: async () => {},
     ensureWorkerPoolPlanTarget: async () => {},
     assertPlanSchedulerAgentReady: () => {},
-    ensureHubCodeReadyForPlanCheck: async () => {},
+    ensureWorkerCodeReadyForPlanCheck: async () => {},
     postNoHubResultAction: async () => undefined,
     throwIfRemoteActionPending: (_command, _action, result) => { if (result.status === "submitted") throw new RemotePending("still submitted"); },
     throwIfTerminalActionFailure: () => {},

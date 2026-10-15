@@ -55,3 +55,36 @@ test('401 during activation rereads discovery once, before any RPC; persistent f
   globals.fetch = async () => ({ status: 401, ok: false }); reads = 0;
   await assert.rejects(method('simpleSftpCapability', globals).call({}, 'files.cleanup.inspect'), /HTTP 401/); assert.equal(reads, 2);
 });
+
+test('runtime reads overlap synchronization but readiness waits for both; workspace changes never release a target', async () => {
+  const version = deferred(), syncStarted = deferred(); const ready = [];
+  const host = { prepareSftpTargets: async () => {}, projectContextIsCurrent: () => true,
+    assertPlanTopologyReady: () => ({mode:'worker_pool'}), planSchedulerWorkerId: () => 'fast',
+    workerCodeSyncTargets: () => [{id:'fast'}, {id:'slow'}],
+    ensureRemoteAgentVersionConsistent: () => version.promise,
+    syncCodeTargets: async (targets, scope, options) => {
+      assert.equal(scope, 'run'); assert.equal(targets.length, 2); assert.equal(options.hashCompare, true);
+      syncStarted.resolve(); await options.onTargetReady('fast'); return targets;
+    } };
+  const run = method('ensureCodeReadyForRun', {uniqueStrings: rows => [...new Set(rows)], UiCommandCancelled: Error});
+  const work = run.call(host, {root:'fixture'}, [], () => {}, id => ready.push(id));
+  await syncStarted.promise; assert.deepEqual(ready, []);
+  version.resolve(); await work; assert.deepEqual(ready, ['fast']);
+  host.projectContextIsCurrent = () => false;
+  await assert.rejects(run.call(host, {root:'changed'}, [], () => {}, id => ready.push(id)), /工作区已切换/);
+  assert.deepEqual(ready, ['fast']);
+});
+
+test('both cleanup paths forward the configured prefix without changing target authorization or caller input', async () => {
+  const calls=[];
+  const run=method('simpleSftpApiCall',{assertRetryRequestCurrent(){},
+    vscode:{workspace:{getConfiguration:()=>({get:()=> 'global'})}},
+    AgentTmuxPolicy_1:require('../../src/tunnel/AgentTmuxPolicy.ts'),
+    callSftpWithProgress:async(name,params,capability)=>{await capability(name);calls.push({name,params});return {ok:true};}});
+  const host={setupConfig:{sessionPrefix:'Research'},simpleSftpCapability:async()=>({})};
+  const input={token:'original',index:0,confirm:false};
+  for(const name of ['files.cleanup.preview','files.cleanup.execute','files.cleanup.check'])await run.call(host,name,input);
+  assert.equal(calls[0].params.tmuxSessionPrefix,'research'); assert.equal(calls[1].params.tmuxSessionPrefix,'research');
+  assert.equal(calls[2].params,input); assert.equal(input.tmuxSessionPrefix,undefined);
+  assert.equal(calls[1].params.confirm,false);assert.equal(calls[1].params.token,'original');
+});

@@ -8,6 +8,7 @@ nodes = [node for node in tree.body if isinstance(node, ast.FunctionDef) and nod
 code = ast.unparse(ast.Module(body=nodes, type_ignores=[]))
 root = tempfile.mkdtemp(prefix="se-native-lifecycle-")
 os.environ["TMUX_TMPDIR"] = root
+os.environ["SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX"] = "fixture"
 bootstrap = '''import base64, datetime, hashlib, json, os, pathlib, re, shlex, subprocess, sys, threading, time, urllib.request, uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 def now_iso(): return datetime.datetime.now(datetime.timezone.utc).isoformat()
@@ -77,6 +78,7 @@ try:
     namespace["task_queue_rpc"](root,"worker","accept",c,ensure=True)
     wait_for(lambda: any(r["commandId"]==c["commandId"] and r["phase"]=="queued" for r in namespace["task_inventory"](root)))
     control=namespace["task_queue_session"](root,"worker")+":queue"
+    assert control.startswith("fixture-sch-"), control
     epoch=namespace["task_queue_endpoint"](root,"worker")["epoch"]
     namespace["task_tmux"](["send-keys","-t",control,"C-c"])
     wait_for(lambda: namespace["task_tmux"](["display-message","-p","-t",control,"#{pane_dead}"])=="1")
@@ -85,7 +87,9 @@ try:
     assert namespace["task_queue_endpoint"](root,"worker")["epoch"]!=epoch
     stopped=namespace["task_stop"](root,{"targetCommandId":c["commandId"],"projectId":"project","workflowId":"workflow"},"worker")
     assert stopped["stoppedTasks"][0]["paneClosed"]
-    wait_for(lambda: all(row["dead"] for row in namespace["task_inventory"](root)))
+    # tmux can expose pane_dead before publishing pane_dead_status. Observe a
+    # settled exit before asserting the result; do not race that native update.
+    wait_for(lambda: all(row["dead"] and row["exitCode"] is not None for row in namespace["task_inventory"](root)))
     observed=namespace["task_query"](root,[a,b])
     assert all(row["status"]=="completed" for row in observed["tasks"]),observed
     row=namespace["task_inventory"](root)[0]

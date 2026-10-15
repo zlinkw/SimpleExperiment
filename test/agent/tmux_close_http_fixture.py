@@ -112,6 +112,8 @@ def read_snapshot(path, default):
 namespace["read_runtime_json_cached"] = read_snapshot
 namespace["task_inventory"] = lambda root: [dict(tmuxPane='%10',tmuxWindowId='@10',workerId='fixture-worker',commandId='native-http-job',
     phase='running',dead=False,gpuId='0',case='native-case',seed=42)]
+controller = {"status": "absent"}
+namespace["task_scheduler_runtime_report"] = lambda root, worker: dict(controller)
 os.environ['SIMPLE_EXPERIMENT_WORKER_ID']='fixture-worker'
 os.environ["SIMPLE_EXPERIMENT_TMUX_SESSION"] = "fixture-worker-agent"
 
@@ -151,6 +153,13 @@ for mode in ("worker_telemetry", "hub_control"):
         native=next(row for row in listed['sessions'][0]['windows'] if row['windowId']=='@10')
         assert native['task']['commandId']=='native-http-job' and native['task']['status']=='running', listed
         assert listed['sessionActions']==['close','clear']
+        assert 'role' not in listed['sessions'][0]
+        controller.update(status='current', windowId='@0')
+        listed = get_list()
+        assert listed['sessions'][0]['role']=='scheduler' and listed['sessions'][0]['ownership']=='project', listed
+        controller['windowId']='@foreign'
+        assert 'role' not in get_list()['sessions'][0], 'another controller cannot claim this session'
+        controller.clear(); controller['status']='absent'
         assert all(win['panes'][0]['id'].startswith('%') for win in listed['sessions'][0]['windows']), listed
         behavior['list'] = 'failed'
         listed = get_list()

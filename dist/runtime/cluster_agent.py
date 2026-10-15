@@ -69,9 +69,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.325"
-RUNTIME_VERSION = "0.5.325"
-PLUGIN_VERSION = "0.5.325"
+AGENT_VERSION = "0.5.326"
+RUNTIME_VERSION = "0.5.326"
+PLUGIN_VERSION = "0.5.326"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -17030,6 +17030,7 @@ def serve_http(args):
                             gpu_ids.append(gpu_value)
                     sessions = []
                     list_errors = []
+                    scheduler_control = task_scheduler_runtime_report(root, os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker")
                     for line in (sess_proc.stdout or "").splitlines():
                         if not line.strip():
                             continue
@@ -17109,7 +17110,9 @@ def serve_http(args):
                                 list_errors.append(sess_name + ": " + (win_proc.stderr or "list-windows failed").strip()[-300:])
                         except Exception as exc:
                             list_errors.append(sess_name + ": " + str(exc)[-300:])
-                        sessions.append({"name": sess_name, "windowCount": sess_windows, "windows": windows})
+                        owned_scheduler = scheduler_control.get("status") in ("current", "update_required") and any(win["windowId"] == scheduler_control.get("windowId") for win in windows)
+                        sessions.append({"name": sess_name, "windowCount": sess_windows, "windows": windows,
+                            **({"ownership": "project", "role": "scheduler"} if owned_scheduler else {})})
                     return self.send_json({"schemaVersion": SCHEMA_VERSION, "ok": not list_errors, "available": True, "sessionActions": ["close", "clear"], "workerId": os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker", "gpuIds": gpu_ids, "sessions": sessions, "error": "; ".join(list_errors)})
                 except Exception as exc:
                     return self.send_json({"error": str(exc)}, status=500)
@@ -17826,9 +17829,32 @@ def task_query(root, queries=()):
                              "idleGpuAdmission": True, "queuedJobRecall": True, "taskLifecycle": 2, "manualDispatch": 1,
                              "gpuMemoryRatioScheduling": task_memory_scheduler_capability(root), "declaredResultQuery": 1}}
 
-def task_queue_session(root, worker_id):
+def task_queue_session(root, worker_id, refresh=False):
     key = hashlib.sha256((os.path.realpath(root) + "\0" + worker_id).encode("utf-8")).hexdigest()[:16]
-    return "simple-sch-" + key
+    prefix = re.sub(r"[^a-z0-9._-]+", "-", str(os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "simple").strip().lower()).strip("-")[:32]
+    if not re.match(r"^[a-z0-9]", prefix):
+        prefix = "simple"
+    # Volatile address hints only. Every RPC/report still verifies the live
+    # endpoint binding; no cached hint proves acceptance or execution.
+    locators = globals().setdefault("_TASK_QUEUE_LOCATORS", {})
+    scope = (os.path.realpath(root), worker_id, prefix)
+    if not refresh and scope in locators:
+        return locators[scope]
+    legacy = "simple-sch-" + key
+    if prefix != "simple":
+        # Locate an existing pre-prefix controller by its native root/Worker
+        # binding. Naming changes must never create a second queue for it.
+        found = subprocess.run(["tmux", "display-message", "-p", "-t", legacy + ":queue", "#{@se_endpoint}"], capture_output=True, text=True, timeout=3)
+        if found.returncode == 0 and (found.stdout or "").strip():
+            endpoint = json.loads(found.stdout)
+            if endpoint.get("root") != os.path.realpath(root) or endpoint.get("workerId") != worker_id:
+                raise ValueError("SCHEDULER_OWNER_MISMATCH")
+            locators[scope] = legacy
+            return legacy
+    if len(locators) >= 128:
+        locators.pop(next(iter(locators)))
+    locators[scope] = prefix + "-sch-" + key
+    return locators[scope]
 
 def task_describe_plan(root, discovery):
     plan = str(discovery.get("planFile") or "")
@@ -17862,8 +17888,8 @@ def task_runtime_files(root):
 
 def task_scheduler_runtime_report(root, worker_id):
     """Read the running controller's native binding; never expose its channel secret."""
-    session = task_queue_session(root, worker_id)
     try:
+        session = task_queue_session(root, worker_id)
         found = subprocess.run(["tmux", "has-session", "-t", "=" + session], capture_output=True, text=True, timeout=3)
         if found.returncode:
             error = (found.stderr or "").lower()
@@ -17930,6 +17956,10 @@ def task_queue_rpc(root, worker_id, action, payload, ensure=False):
         session = task_queue_session(root, worker_id)
         previous_epoch = None
         exists = subprocess.run(["tmux", "has-session", "-t", session], capture_output=True, timeout=3).returncode == 0
+        if not exists:
+            # If an old controller disappeared, create with today's prefix.
+            session = task_queue_session(root, worker_id, refresh=True)
+            exists = subprocess.run(["tmux", "has-session", "-t", session], capture_output=True, timeout=3).returncode == 0
         argv = [sys.executable, "-B", os.path.abspath(__file__), "task-queue", "--project-dir", os.path.realpath(root), "--worker-id", worker_id]
         if "agent_dir" in globals():
             argv.extend(["--state-dir", agent_dir(root)])

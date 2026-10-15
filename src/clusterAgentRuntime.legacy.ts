@@ -16364,6 +16364,7 @@ def serve_http(args):
                             gpu_ids.append(gpu_value)
                     sessions = []
                     list_errors = []
+                    scheduler_control = task_scheduler_runtime_report(root, os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker")
                     for line in (sess_proc.stdout or "").splitlines():
                         if not line.strip():
                             continue
@@ -16443,7 +16444,9 @@ def serve_http(args):
                                 list_errors.append(sess_name + ": " + (win_proc.stderr or "list-windows failed").strip()[-300:])
                         except Exception as exc:
                             list_errors.append(sess_name + ": " + str(exc)[-300:])
-                        sessions.append({"name": sess_name, "windowCount": sess_windows, "windows": windows})
+                        owned_scheduler = scheduler_control.get("status") in ("current", "update_required") and any(win["windowId"] == scheduler_control.get("windowId") for win in windows)
+                        sessions.append({"name": sess_name, "windowCount": sess_windows, "windows": windows,
+                            **({"ownership": "project", "role": "scheduler"} if owned_scheduler else {})})
                     return self.send_json({"schemaVersion": SCHEMA_VERSION, "ok": not list_errors, "available": True, "sessionActions": ["close", "clear"], "workerId": os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker", "gpuIds": gpu_ids, "sessions": sessions, "error": "; ".join(list_errors)})
                 except Exception as exc:
                     return self.send_json({"error": str(exc)}, status=500)

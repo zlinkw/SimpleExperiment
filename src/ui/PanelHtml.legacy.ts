@@ -527,6 +527,9 @@ export function renderPanelHtml(): string {
     .tmuxOverviewItem { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding: 6px 8px; border: 1px solid var(--border); border-radius: 6px; background: var(--vscode-editor-background); font-size: 12px; }
     .tmuxOverviewItem.is-active { border-color: var(--vscode-focusBorder); background: #EEF2FF; }
     .tmuxOverviewItem.missing { border-style: dashed; background: #F8FAFC; color: var(--muted); }
+    .tmuxSessionGroup > summary { padding: 7px 2px; color: var(--muted); cursor: pointer; }
+    .tmuxSessionGroup.foreign .tmuxOverviewItem { border-left: 3px solid #D97706; }
+    .tmuxSessionGroup.services .tmuxOverviewItem { border-left: 3px solid #64748B; }
     .tmuxTaskTabs { display: flex; flex-wrap: wrap; gap: 6px; width: 100%; margin-top: 4px; }
     .tmuxClearTaskTabs { margin-left: auto; border-radius: 8px; }
     .tmuxSessionActions { display: inline-flex; gap: 6px; margin-left: auto; }
@@ -1949,6 +1952,17 @@ export function renderPanelHtml(): string {
       if (n.indexOf("_tb") !== -1 || n.indexOf("tensorboard") !== -1) return "other";
       return "other";
     }
+    function tmuxSessionOwnership(session) {
+      const prefix = String(tmuxListCache.tmuxSessionPrefix || "");
+      const name = String(session.name || "");
+      if (session.ownership === "project" || (session.windows || []).some(function(win){ return win.task && win.task.commandId; })) return "mine";
+      return prefix && name.indexOf(prefix) === 0 ? "mine" : "foreign";
+    }
+    function tmuxSessionGroup(session) {
+      if (tmuxSessionOwnership(session) !== "mine") return "foreign";
+      const category = classifyTmuxWindow(session.name);
+      return session.role === "scheduler" || category === "scheduler" || category === "worker" ? "services" : "mine";
+    }
     function tmuxGpuIdFromSession(name) {
       const raw = String(name || "");
       const marker = "-gpu-";
@@ -2028,10 +2042,11 @@ export function renderPanelHtml(): string {
           seenGpuIds[gpuId] = 1;
           const workerLabel = String(tmuxListCache.workerId || "Worker");
           const paneCount = wins.reduce(function(sum, win){ return sum + (Array.isArray(win.panes) ? win.panes.length : 0); }, 0);
-          const runningCount = wins.filter(function(win){ return String((win.task || {}).status || "").toLowerCase() === "running"; }).length;
-          const failedCount = wins.filter(function(win){ return String((win.task || {}).status || "").toLowerCase() === "failed"; }).length;
+          const relatedWins = list.filter(function(row){ return tmuxCurrentGpuIdFromSession(row.name) === gpuId; }).flatMap(function(row){ return row.windows || []; });
+          const runningCount = relatedWins.filter(function(win){ return String((win.task || {}).status || "").toLowerCase() === "running"; }).length;
+          const failedCount = relatedWins.filter(function(win){ return String((win.task || {}).status || "").toLowerCase() === "failed"; }).length;
           seen[sessName] = 1;
-          out.push({ target: sessName, label: workerLabel + " · GPU " + gpuId, sessName: sessName, windowIndex: "", windowName: "", panes: paneCount, active: wins.some(function(win){ return !!win.active; }), category: "gpu", synthetic: false, gpuId: gpuId, windows: wins, runningCount: runningCount, failedCount: failedCount });
+          out.push({ target: sessName, label: workerLabel + " · GPU " + gpuId, sessName: sessName, windowIndex: "", windowName: "", panes: paneCount, active: wins.some(function(win){ return !!win.active; }), category: "gpu", synthetic: false, gpuId: gpuId, windows: wins, taskCount: relatedWins.filter(function(win){ return !!win.task; }).length, runningCount: runningCount, failedCount: failedCount });
           continue;
         }
         if (!wins.length) {
@@ -2091,7 +2106,7 @@ export function renderPanelHtml(): string {
         const miss = c.synthetic ? " missing" : "";
         const title = c.synthetic ? (c.label + "（当前空闲，尚未创建 tmux 会话）") : (c.category === "gpu" ? (c.label + "；运行中 " + c.runningCount + "；失败保留 " + c.failedCount) : (c.target + "  panes:" + c.panes + (c.active ? " *" : "")));
         const closeHtml = tmuxWindowCloseButton(c.window, c.sessName, "tmuxClose");
-        const summary = c.category === "gpu" ? (c.synthetic ? "空闲" : ("运行 " + c.runningCount + " · 失败 " + c.failedCount + " · 标签 " + c.windows.filter(function(win){ return !!win.task; }).length)) : c.target;
+        const summary = c.category === "gpu" ? (c.synthetic ? "空闲" : ("运行 " + c.runningCount + " · 失败 " + c.failedCount + " · 标签 " + c.taskCount)) : c.target;
         const card = '<div class="tmuxWindowWrap"><button type="button" class="tmuxWindowCard ' + escAttr(klass) + miss + (isActive ? ' is-active' : '') + '" data-tmux-filter="' + escAttr(c.target) + '" aria-pressed="' + (isActive ? "true" : "false") + '" title="' + escAttr(title) + '"><span>' + esc(c.label) + '</span><b>' + esc(summary) + '</b></button>' + (c.category === "gpu" ? tmuxGpuSessionCloseButton(c) : c.synthetic ? "" : closeHtml) + '</div>';
         if (c.category === "gpu") html += card;
       }
@@ -2143,37 +2158,43 @@ export function renderPanelHtml(): string {
       }
       const gpuCount = getTmuxWindowCandidates(list).filter(function(c){ return c.category === "gpu"; }).length;
       const taskCount = list.reduce(function(total, session){ return total + (session.windows || []).filter(function(win){ return !!win.task; }).length; }, 0);
-      const otherSessionCount = list.filter(function(session){ return classifyTmuxWindow(session.name || "") !== "gpu"; }).length;
-      meta.textContent = "GPU " + gpuCount + " 个 · 任务标签 " + taskCount + " 个 · 其他会话 " + otherSessionCount + " 个 @ " + (tmuxListCache.fetchedAt || new Date().toLocaleTimeString());
+      const ordinary = list.filter(function(session){ return !tmuxCurrentGpuIdFromSession(session.name); });
+      const ownedCount = ordinary.filter(function(session){ return tmuxSessionGroup(session) === "mine"; }).length;
+      const foreignCount = ordinary.filter(function(session){ return tmuxSessionGroup(session) === "foreign"; }).length;
+      meta.textContent = "GPU " + gpuCount + " 个 · 任务标签 " + taskCount + " 个 · 我的其他会话 " + ownedCount + " 个 · 其他前缀 " + foreignCount + " 个";
       renderTmuxFilterBar(list);
       const activeFilter = normalizeTmuxWindowFilter(tmuxWindowFilter);
       let grid = "";
       if (activeFilter === "all") {
-        let otherGrid = "";
-        for (let si = 0; si < list.length; si++) {
-          const sess = list[si] || {};
-          const badge = classifyTmuxWindow(sess.name || "");
-          let sessionGrid = '<div class="tmuxOverviewItem"><span class="pill">' + esc(badge) + '</span><b>' + esc(sess.name || "") + '</b><span class="muted">服务器窗口 ' + String(sess.windowCount || (sess.windows ? sess.windows.length : 0)) + '</span>';
+        const groups = { mine: "", services: "", foreign: "" }, counts = { mine: 0, services: 0, foreign: 0 };
+        for (let si = 0; si < ordinary.length; si++) {
+          const sess = ordinary[si] || {};
+          const group = tmuxSessionGroup(sess);
+          const badge = group === "foreign" ? "归属未核实" : sess.role === "scheduler" ? "调度服务" : classifyTmuxWindow(sess.name) === "worker" ? "Agent" : "我的会话";
+          let sessionGrid = '<div class="tmuxOverviewItem"><span class="pill">' + esc(badge) + '</span><b>' + esc(sess.name || "") + '</b><span class="muted">' + String((sess.windows || []).length) + ' 个窗口</span>';
           const wins = sess.windows || [];
-          if (badge !== "gpu") sessionGrid += tmuxSessionCloseButton(sess);
+          if (sess.role !== "scheduler") sessionGrid += tmuxSessionCloseButton(sess);
           sessionGrid += '<div class="tmuxServerTabs">';
-          let extraWindows = "";
           for (let wi = 0; wi < wins.length; wi++) {
             const w = wins[wi] || {};
-            const wLabel = (w.index || "") + ":" + (w.name || "") + (w.active ? " *" : "");
+            const wLabel = String(w.name || "") === String(sess.name || "") && wins.length === 1 ? "打开终端" : (w.index || "0") + ":" + (w.name || "终端");
             const target = (sess.name || "") + ":" + (w.index || "0");
             const isActive = activeFilter === target;
             let windowHtml = '<span class="tmuxServerTab"><button type="button" data-tmux-filter="' + escAttr(target) + '" title="查看日志 · ' + escAttr(target) + '" aria-pressed="' + (isActive ? 'true' : 'false') + '">' + esc(wLabel) + '</button>';
-            windowHtml += tmuxWindowCloseButton(w, sess.name || "", "tmuxTaskTabClose") + '</span>';
-            if (badge === "gpu" && !w.task) extraWindows += windowHtml;
-            else sessionGrid += windowHtml;
+            windowHtml += (sess.role === "scheduler" ? "" : tmuxWindowCloseButton(w, sess.name || "", "tmuxTaskTabClose")) + '</span>';
+            sessionGrid += windowHtml;
           }
-          if (extraWindows) otherGrid += '<div class="tmuxOverviewItem"><b>' + esc(sess.name) + '</b><span class="muted">未绑定任务的服务器窗口</span>' + extraWindows + '</div>';
           sessionGrid += '</div></div>';
-          if (badge === "gpu") { if (wins.some(function(win){ return !!win.task; })) grid += sessionGrid; }
-          else otherGrid += sessionGrid;
+          groups[group] += sessionGrid; counts[group]++;
         }
-        if (otherGrid) grid += '<details id="tmuxOtherOverview" class="tmuxOtherSessions"' + (el("tmuxOtherOverview")?.open ? ' open' : '') + '><summary>其他会话及未绑定窗口 · ' + otherSessionCount + ' 个其他会话</summary><div class="tmuxOverviewGrid">' + otherGrid + '</div></details>';
+        for (const group of ["mine", "services", "foreign"]) {
+          if (!groups[group]) continue;
+          const id = group === "mine" ? "tmuxMineOverview" : group === "services" ? "tmuxServicesOverview" : "tmuxOtherOverview";
+          const previous = document.getElementById ? document.getElementById(id) : el(id);
+          const open = previous ? previous.open : group === "mine";
+          const label = group === "mine" ? "我的其他会话" : group === "services" ? "插件服务" : "其他前缀会话（请核对归属）";
+          grid += '<details id="' + id + '" class="tmuxSessionGroup ' + group + '"' + (open ? ' open' : '') + '><summary>' + label + ' · ' + counts[group] + '</summary><div class="tmuxOverviewGrid">' + groups[group] + '</div></details>';
+        }
       } else {
         let found = null;
         let foundSess = null;
@@ -2208,21 +2229,28 @@ export function renderPanelHtml(): string {
             if (clearTargets.indexOf(taskTarget) < 0) clearTargets.push(taskTarget);
           }
           const clearHtml = taskWins.length ? '<button type="button" class="secondary tmuxClearTaskTabs" data-tmux-clear-task-tabs="1" data-tmux-clear-worker="' + escAttr(clearWorkerId) + '" data-tmux-clear-session="' + escAttr(foundSess.name || "") + '" data-tmux-clear-targets="' + escAttr(clearTargets.join(",")) + '"' + (tmuxClearTaskTabsBusy ? ' disabled' : '') + ' title="关闭当前 GPU 会话里的全部任务标签">' + (tmuxClearTaskTabsBusy ? "正在清理..." : "清理全部任务标签") + '</button>' : "";
-          grid += '<div class="tmuxOverviewItem is-active"><span class="pill status-running">GPU ' + esc(gpuId || "-") + '</span><b>' + esc(workerLabel + " · GPU " + (gpuId || "-")) + '</b><span class="muted">' + String(taskWins.length) + ' 个任务标签</span>' + clearHtml + '<div class="tmuxTaskTabs">';
-          if (!taskWins.length) grid += '<span class="muted">当前没有运行中或失败保留的任务</span>';
-          for (let wi = 0; wi < taskWins.length; wi++) {
-            const win = taskWins[wi] || {};
-            const target = String(win.target || ((foundSess.name || "") + ":" + (win.index || "0")));
+          grid += '<div class="tmuxOverviewItem is-active"><span class="muted">任务与终端</span>' + clearHtml + '<div class="tmuxTaskTabs">';
+          const displayWins = list.filter(function(session){ return tmuxCurrentGpuIdFromSession(session.name) === gpuId; }).flatMap(function(session){ return (session.windows || []).map(function(win){ return { session: session.name, win: win }; }); });
+          if (!displayWins.length) grid += '<span class="muted">当前没有任务或终端</span>';
+          for (let wi = 0; wi < displayWins.length; wi++) {
+            const win = displayWins[wi].win;
+            const sessionName = displayWins[wi].session;
+            const target = String(win.target || (sessionName + ":" + (win.index || "0")));
             const status = String((win.task || {}).status || "").toLowerCase() || "retained";
             const selected = tmuxSelectedTaskTarget === target || (!tmuxSelectedTaskTarget && !!win.active);
-            grid += '<span class="tmuxTaskTabWrap ' + escAttr(status) + '"><button type="button" class="tmuxTaskTab' + (selected ? ' is-active' : '') + '" data-tmux-task-target="' + escAttr(target) + '" title="查看 ' + escAttr(tmuxTaskWindowLabel(win)) + '">' + esc(tmuxTaskWindowLabel(win)) + '</button>' + tmuxWindowCloseButton(win, foundSess.name || "", "tmuxTaskTabClose") + '</span>';
+            grid += '<span class="tmuxTaskTabWrap ' + escAttr(status) + '"><button type="button" class="tmuxTaskTab' + (selected ? ' is-active' : '') + '" data-tmux-task-target="' + escAttr(target) + '" title="查看日志 · ' + escAttr(target) + '">' + esc(tmuxTaskWindowLabel(win)) + '</button>' + tmuxWindowCloseButton(win, sessionName, "tmuxTaskTabClose") + '</span>';
           }
           grid += '</div></div>';
         } else if (activeFilter.indexOf("gpu-slot:") === 0) {
           grid += '<div class="tmuxOverviewItem missing"><span class="pill">GPU ' + esc(activeFilter.slice(9)) + '</span><b>当前空闲</b><span class="muted">任务开始后会在这里出现标签页</span></div>';
         } else if (found && foundSess && foundWin) {
-          grid += '<div class="tmuxOverviewItem is-active"><b>' + esc(foundSess.name || "") + '</b>' + tmuxSessionCloseButton(foundSess) + '<div class="tmuxServerTabs">';
-          if (foundWin.panes) {
+          grid += '<div class="tmuxOverviewItem is-active"><b>' + esc(foundSess.name || "") + '</b>' + (foundSess.role === "scheduler" ? "" : tmuxSessionCloseButton(foundSess)) + '<div class="tmuxServerTabs">';
+          for (const win of foundSess.windows || []) {
+            const target = String(win.target || foundSess.name + ":" + win.index);
+            const label = win.name === foundSess.name && foundSess.windows.length === 1 ? "打开终端" : tmuxTaskWindowLabel(win);
+            grid += '<span class="tmuxServerTab"><button type="button" data-tmux-filter="' + escAttr(target) + '" aria-pressed="' + (target === found ? "true" : "false") + '">' + esc(label) + '</button>' + (foundSess.role === "scheduler" ? "" : tmuxWindowCloseButton(win, foundSess.name, "tmuxTaskTabClose")) + '</span>';
+          }
+          if (foundWin.panes && foundWin.panes.length > 1) {
             for (let pi = 0; pi < foundWin.panes.length; pi++) {
               const pane = foundWin.panes[pi] || {};
               const paneTarget = String(pane.target || "");
@@ -2473,9 +2501,11 @@ export function renderPanelHtml(): string {
         }
         if (classifyTmuxWindow(activeFilter) === "gpu") {
           const sessions = tmuxListCache.sessions || [];
-          const session = sessions.find(function(item){ return String(item.name || "") === activeFilter; });
-          const windows = session && Array.isArray(session.windows) ? session.windows : [];
-          if (tmuxSelectedTaskTarget && windows.some(function(win){ return !!win.task && String(win.target || (activeFilter + ":" + String(win.index || "0"))) === tmuxSelectedTaskTarget; })) return tmuxSelectedTaskTarget;
+          const gpuId = tmuxCurrentGpuIdFromSession(activeFilter);
+          const windows = sessions.filter(function(item){ return tmuxCurrentGpuIdFromSession(item.name) === gpuId; }).flatMap(function(item){
+            return (item.windows || []).map(function(win){ return Object.assign({}, win, { target: String(win.target || (item.name + ":" + String(win.index || "0"))) }); });
+          });
+          if (tmuxSelectedTaskTarget && windows.some(function(win){ return win.target === tmuxSelectedTaskTarget; })) return tmuxSelectedTaskTarget;
           const preferred = windows.find(function(win){ return String((win.task || {}).status || "").toLowerCase() === "running"; }) || windows.slice().reverse().find(function(win){ return !!win.task; });
           if (preferred) {
             tmuxSelectedTaskTarget = String(preferred.target || (activeFilter + ":" + String(preferred.index || "0")));
