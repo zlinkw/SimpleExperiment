@@ -71,4 +71,30 @@ assert historical['count']==1 and historical['scanComplete']
 file.write_text(marker('old','begin')+callback+marker('old','end')+normal,encoding='utf8')
 isolated=ns['task_log_diagnostics'](root,{**job,'runtimeLogAnalysisId':'explicit-new-scan'}, {'logPath':'raw.log'},True)
 assert isolated['state']=='clear' and isolated['count']==0
+# A current terminal query can verify a legacy command's own original log without
+# a manual authorization, including after Agent restart. Arbitrary paths cannot.
+ns['worker_task_console_log']=lambda command: hashlib.sha256(command.encode('utf8')).hexdigest()+'.console.log'
+legacy_path=ns['worker_task_console_log']('legacy')
+legacy_file=pathlib.Path(root,legacy_path)
+legacy_file.write_text('WARNING: normal warning\nfinished\n',encoding='utf8')
+legacy_job={'commandId':'legacy'}
+automatic=ns['task_log_diagnostics'](root,legacy_job,terminal=True)
+assert automatic['state']=='clear' and automatic['scanComplete'],automatic
+ns.pop('TASK_LOG_DIAGNOSTIC_CACHE')
+ns.pop('TASK_LOG_ANALYSIS_AUTHORIZATIONS',None)
+assert ns['task_log_diagnostics'](root,legacy_job,terminal=True)['state']=='clear'
+legacy_file.write_text('[simple-experiment-runtime] python train.py\n'+callback+'epoch 300/300\n[simple-experiment-runtime] python test.py\ntest succeeded\n',encoding='utf8')
+anomalous=ns['task_log_diagnostics'](root,legacy_job,terminal=True)
+assert anomalous['count']==1 and anomalous['phases']=={'train':1} and anomalous['scanComplete'],anomalous
+legacy_file.write_text(callback+('epoch 300/300\n'*400000),encoding='utf8')
+partial=ns['task_log_diagnostics'](root,legacy_job,terminal=True)
+assert partial['count']==1 and not partial['scanComplete']
+complete=ns['task_log_diagnostics'](root,legacy_job,terminal=True)
+assert complete['count']==1 and complete['scanComplete']
+assert ns['task_log_diagnostics'](root,legacy_job,{'logPath':'raw.log'},True)['state']=='unverified'
+assert ns['task_log_diagnostics'](root,{'commandId':'different'},terminal=True)['state']=='unverified'
+assert ns['task_log_diagnostics'](root,{'commandId':''}, {'logPath':legacy_path},True)['state']=='unverified'
+assert ns['task_log_diagnostics'](root,legacy_job,terminal=False)['scanComplete'] is False
+legacy_file.write_text(marker('old','begin')+callback+marker('old','end'),encoding='utf8')
+assert ns['task_log_diagnostics'](root,legacy_job,terminal=True)['state']=='unverified'
 print(json.dumps({'ok':True,'scenarios':12,'originalLogsRetained':True}))

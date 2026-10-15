@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.337",
-  "buildId": "7497dcd228fbbc0e833b0162eaf7111c061828dcd4bb54ddd5b97f0b1439837f",
+  "version": "0.5.338",
+  "buildId": "6f2a09ae0779a0c44833d100026556ba1521a983456ac37b5a10acace20e6abb",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -641,7 +641,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "3c041b8c4279825a619d1804adea34b5f2c7262177cb6b51afd80347d79cb622"
+      "sha256": "1640379a70ef3f1de2222357c641ad9b5f73bb786efd6676e966aebbf84e9e47"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -989,7 +989,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "c32c175c34fcbb4f0e09dbc7edef1a8715cbea5826dfe0b56f5dfac8dc2cf782"
+      "sha256": "c8305f8832b40ff79b7a5b2e54aa857af1a1532f3acc6d68f009c2655c05d16f"
     },
     {
       "path": "scripts/check-static.js",

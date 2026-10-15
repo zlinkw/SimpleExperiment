@@ -69,9 +69,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.337"
-RUNTIME_VERSION = "0.5.337"
-PLUGIN_VERSION = "0.5.337"
+AGENT_VERSION = "0.5.338"
+RUNTIME_VERSION = "0.5.338"
+PLUGIN_VERSION = "0.5.338"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -17730,6 +17730,7 @@ def task_log_diagnostics(root, job, row=None, terminal=False, binding=None):
     command = str(job.get("commandId") or "")
     unknown = {"schemaVersion": 1, "commandId": command, "runId": command, "state": "unverified", "count": 0, "scanComplete": False}
     try:
+        if not command: return {**unknown, "reason": "缺少本次任务的 commandId"}
         binding = binding or {}
         log_path = (row or {}).get("logPath") or binding.get("logPath") or ""
         expected = worker_task_console_log(command) if "worker_task_console_log" in globals() else ""
@@ -17744,11 +17745,15 @@ def task_log_diagnostics(root, job, row=None, terminal=False, binding=None):
         if job.get("runtimeLogAnalysisId"):
             authorizations[authorization_key] = str(job["runtimeLogAnalysisId"])
         analysis = authorizations.get(authorization_key, "")
-        legacy = bool(analysis)
+        expected_full = (expected if os.path.isabs(expected) else os.path.join(root, expected)) if expected else ""
+        # A terminal task's deterministic commandId log is current evidence, not
+        # a historical status record. Ordinary active queries must scan it too.
+        automatic_legacy = bool(terminal and expected_full and os.path.realpath(expected_full) == os.path.realpath(full))
+        legacy = bool(analysis) or automatic_legacy
         with open(full, "rb") as stream:
             prefix = stream.read(4096)
         native = b"[simple-experiment-runtime-log] " in prefix
-        if not native and not legacy: return {**unknown, "logPath": log_path, "reason": "旧任务日志尚未主动分析"}
+        if not native and not legacy: return {**unknown, "logPath": log_path, "reason": "日志尚无本次执行标记或精确终态绑定"}
         if legacy and expected:
             target = expected if os.path.isabs(expected) else os.path.join(root, expected)
             if os.path.realpath(target) != os.path.realpath(full): raise ValueError("历史日志与原 commandId 路径不符")
