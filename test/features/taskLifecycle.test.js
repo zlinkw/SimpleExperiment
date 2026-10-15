@@ -23,6 +23,31 @@ test('closed window recovers from result; failures and foreign results are not h
   assert.equal(taskLifecycle({...base,queryError:'offline',result}).execution,'unknown');
   assert.equal(taskLifecycle(base).status,'unknown');
 });
+test('unknown exit codes use this run manifest without inventing an execution failure', () => {
+  const result={runId:'c',status:'completed',present:true,verified:true};
+  for (const exitCode of [undefined,null]) {
+    const tmux={windowId:'@102',paneId:'%102',dead:true,phase:'running',exitCode};
+    assert.deepEqual(taskLifecycle({...base,tmux,result}),{execution:'exited',result:'complete',status:'completed',message:undefined});
+    for (const evidence of [undefined,{...result,runId:'old'},{...result,present:false},{...result,verified:false},{...result,status:'failed'}]) {
+      const value=taskLifecycle({...base,tmux,result:evidence});
+      assert.equal(value.execution,'exited');
+      assert.equal(value.status,'unknown');
+    }
+    assert.equal(taskLifecycle({...base,tmux,result,queryError:'offline'}).status,'unknown');
+  }
+  for (const exitCode of [1,7,-9])
+    assert.equal(taskLifecycle({...base,result,tmux:{dead:true,exitCode}}).status,'failed');
+});
+test('queue refresh corrects the old Worker failure label using current tmux and manifest evidence', () => {
+  const Q=require('../../src/features/DistributedPlanQueue.ts');
+  const queue={schemaVersion:1,plans:[{id:'wf',projectId:'p',revision:'current',jobs:[{index:0,workerId:'w',commandId:'c',status:'failed'}]}]};
+  const snapshot={workerId:'w',fetchedAt:base.observedAt,generatedAt:base.observedAt,capabilities:{taskLifecycle:2},tasks:[{
+    commandId:'c',projectId:'p',status:'failed',observation:{...base,tmux:{windowId:'@102',paneId:'%102',dead:true,exitCode:null},
+      result:{runId:'c',status:'completed',present:true,verified:true}}}]};
+  assert.equal(Q.mergeDurableWorkerSnapshots(queue,[snapshot],'p').plans[0].jobs[0].status,'completed');
+  snapshot.tasks[0].observation.tmux.exitCode=7;
+  assert.equal(Q.mergeDurableWorkerSnapshots(queue,[snapshot],'p').plans[0].jobs[0].status,'failed');
+});
 test('live control matching ignores old revision but never another project or command', () => {
   assert.equal(observationMatches(base,base),true);
   assert.equal(observationMatches(base,{...base,projectId:'other'}),false);

@@ -88,3 +88,54 @@ test('both cleanup paths forward the configured prefix without changing target a
   assert.equal(calls[2].params,input); assert.equal(input.tmuxSessionPrefix,undefined);
   assert.equal(calls[1].params.confirm,false);assert.equal(calls[1].params.token,'original');
 });
+
+test('submission rechecks only unavailable capabilities and freezes the successful response for this boundary', async () => {
+  const endpoints={taskLifecycle:2,declaredJobPaths:true,formalJobIdentityEnv:1,taskShellEnvironment:1,projectManagedValidation:1};
+  const healthy=()=>({status:'ok',capabilities:{endpoints:{...endpoints}}});
+  let calls=0,reply=healthy(),root='project';
+  const host={client:{},projectContextGeneration:1,lastWorkerProbes:{fast:healthy(),h20:{status:'timeout',message:'health query aborted'}},
+    tunnelConfig:{token:'fixture'},tunnelLaunchItems:()=>[{id:'h20',role:'worker',config:{localForwardPort:23456}}],
+    expectedWorkerAgentProjectRoot:()=>'/project',stampWorkerProbeGeneration:(_,p)=>p};
+  const globals={workspaceRoot:()=>root,enforceExpectedAgentProjectRoot:p=>p,
+    XshellTunnelPortProbe_1:{probeWorkerTelemetryTunnel:async(config,options)=>{
+      calls++;assert.equal(config.localForwardPort,23456);assert.equal(options.timeoutMs,8000);return reply;
+    }}};
+  host.submissionWorkerProbes=method('submissionWorkerProbes',globals);
+  const targets=[{id:'fast'},{id:'h20'}];
+  const observed=await host.submissionWorkerProbes(targets);
+  assert.equal(calls,1);assert.equal(observed.h20.capabilities.endpoints.taskShellEnvironment,1);
+  host.lastWorkerProbes.h20={status:'timeout'};
+  assert.equal(observed.h20.status,'ok','a later background timeout cannot erase this observation');
+  reply={status:'timeout',message:'GET /api/health timed out'};
+  await assert.rejects(host.submissionWorkerProbes(targets),e=>e.retryableSubmission===true
+    && e.workerId==='h20' && /GET \/api\/health timed out/.test(e.message) && !/PROTOCOL_INCOMPATIBLE/.test(e.message));
+  host.lastWorkerProbes.h20={status:'timeout'};reply=healthy();delete reply.capabilities.endpoints.taskShellEnvironment;
+  const unsupported=await host.submissionWorkerProbes(targets);
+  assert.equal(unsupported.h20.capabilities.endpoints.taskShellEnvironment,undefined,'do not invent a missing protocol');
+  reply=healthy();globals.XshellTunnelPortProbe_1.probeWorkerTelemetryTunnel=async()=>{root='other';return reply;};
+  await assert.rejects(host.submissionWorkerProbes(targets),/工作区或连接已变化/);
+});
+
+test('real enqueue rechecks H20 after background probe loss but still rejects an explicitly missing protocol', async () => {
+  const endpoints={taskLifecycle:2,declaredJobPaths:true,formalJobIdentityEnv:1,taskShellEnvironment:1,projectManagedValidation:1};
+  let reply={status:'ok',capabilities:{endpoints}};
+  const host={client:{},projectContextGeneration:1,taskLifecycleProtocol:2,lastWorkerProbes:{h20:{status:'timeout'}},
+    tunnelConfig:{},tunnelLaunchItems:()=>[{id:'h20',role:'worker',config:{}}],workerActionTargets:()=>[{id:'h20'}],
+    expectedWorkerAgentProjectRoot:()=>'/project',stampWorkerProbeGeneration:(_,p)=>p};
+  const globals={workspaceRoot:()=> 'project',enforceExpectedAgentProjectRoot:p=>p,
+    XshellTunnelPortProbe_1:{probeWorkerTelemetryTunnel:async()=>reply},
+    WorkflowBinding:{bindWorkflowWorkspace:()=>({}),assertPlanSeedContract(){},assertWorkflowWorkspace(){}},planValidationFromResult:r=>r};
+  host.submissionWorkerProbes=method('submissionWorkerProbes',globals);
+  const enqueue=method('enqueueDistributedPlan',globals);
+  await assert.rejects(enqueue.call(host,{},{}),/Agent 校验未返回逐 job 清单/);
+  host.lastWorkerProbes.h20={status:'timeout'};
+  reply={status:'ok',capabilities:{endpoints:{...endpoints,taskShellEnvironment:0}}};
+  await assert.rejects(enqueue.call(host,{},{}),/WORKER_PROTOCOL_INCOMPATIBLE.*h20/);
+});
+
+test('stopping or replacing the queue during a capability recheck cannot send a task', async () => {
+  const host={taskLifecycleProtocol:2,client:{},distributedQueueGeneration:1,
+    submissionWorkerProbes:async()=>{host.distributedQueueGeneration++;return {};}};
+  const send=method('sendDistributedJob',{workspaceRoot:()=> 'project'});
+  await assert.rejects(send.call(host,{resultPathPolicy:'declared'},{outputDir:'work/job'},'h20','0','original'),/派发上下文已变化.*未发送/);
+});

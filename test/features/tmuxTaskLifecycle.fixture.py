@@ -92,6 +92,31 @@ try:
     wait_for(lambda: all(row["dead"] and row["exitCode"] is not None for row in namespace["task_inventory"](root)))
     observed=namespace["task_query"](root,[a,b])
     assert all(row["status"]=="completed" for row in observed["tasks"]),observed
+    # Some live tmux builds return an empty status for retained dead panes.
+    # Keep the real inventory/windows/manifests; omit only the unavailable field.
+    real_tmux=namespace["task_tmux"]
+    def missing_exit_status(args, timeout=5):
+        text=real_tmux(args, timeout)
+        if args[0]=="list-panes" and "#{pane_dead_status}" in args[-1]:
+            lines=[]
+            for line in text.splitlines():
+                fields=line.split("\t")
+                if len(fields)==9 and fields[3]=="1": fields[4]=""
+                lines.append("\t".join(fields))
+            return "\n".join(lines)
+        return text
+    namespace["task_tmux"]=missing_exit_status
+    try:
+        unknown_exit=namespace["task_query"](root,[a,b])["tasks"]
+        assert all(row["status"]=="completed" and row["exitCode"] is None for row in unknown_exit),unknown_exit
+        ended=namespace["task_inventory"](root)[0]
+        manifest=namespace["task_manifest_observation"](root,ended)
+        assert manifest["runId"]==ended["commandId"] and manifest["verified"]
+        assert namespace["task_public_observation"](root,{**ended,"commandId":"new-run"},ended)["status"]=="unknown"
+        assert namespace["task_public_observation"](root,{**ended,"outputDir":"work/not-produced"},ended)["status"]=="unknown"
+        assert namespace["task_public_observation"](root,ended,{**ended,"exitCode":7})["status"]=="failed"
+    finally:
+        namespace["task_tmux"]=real_tmux
     row=namespace["task_inventory"](root)[0]
     # Execute only the actual HTTP capture branch against this private tmux server.
     route_source = runtime.split('            if route == "/api/tmux/capture":', 1)[1].split('            if route == "/api/tmux/list":', 1)[0]

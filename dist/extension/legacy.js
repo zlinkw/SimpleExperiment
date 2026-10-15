@@ -6880,11 +6880,11 @@ class RealtimeTunnelPanelProvider {
             }),
         ];
     }
-    assertExecutionWorkersReady(workers = this.workerActionTargets()) {
+    assertExecutionWorkersReady(workers = this.workerActionTargets(), probes = this.lastWorkerProbes) {
         if (!Array.isArray(workers) || !workers.length)
             throw new Error("至少需要配置并启用一个 Worker 才能运行实验。请在“设置 > 服务器”添加 Worker 的 Xshell 会话和项目父目录。");
         if (this.taskLifecycleProtocol === 2) {
-            const incompatible = workers.filter(worker => this.lastWorkerProbes[String(worker.id || worker.workerId)]?.capabilities?.endpoints?.taskLifecycle !== 2);
+            const incompatible = workers.filter(worker => probes[String(worker.id || worker.workerId)]?.capabilities?.endpoints?.taskLifecycle !== 2);
             if (incompatible.length)
                 throw new Error("TASK_LIFECYCLE_PROTOCOL_REQUIRED：请先更新并准备全部启用 Worker 的 Agent/Scheduler："
                     + incompatible.map(worker => worker.id || worker.workerId).join("、") + "；未提交任务。");
@@ -11056,17 +11056,48 @@ class RealtimeTunnelPanelProvider {
             }
         }
     }
+    async submissionWorkerProbes(targets) {
+        const root = workspaceRoot(), client = this.client, generation = this.projectContextGeneration;
+        const probes = { ...this.lastWorkerProbes };
+        const required = { taskLifecycle: 2, declaredJobPaths: true, formalJobIdentityEnv: 1,
+            taskShellEnvironment: 1, projectManagedValidation: 1 };
+        const retry = targets.filter(target => {
+            const probe = probes[target.id];
+            return probe?.status !== "ok" || Object.entries(required).some(([key, value]) => probe.capabilities?.endpoints?.[key] !== value);
+        });
+        const items = retry.length ? this.tunnelLaunchItems().filter(item => item.role === "worker") : [];
+        const refreshed = await Promise.all(retry.map(async (target) => {
+            const item = items.find(item => item.id === target.id);
+            if (!item)
+                throw new Error("Worker " + target.id + "：当前连接配置已变化；尚未提交。");
+            const probe = enforceExpectedAgentProjectRoot(await (0, XshellTunnelPortProbe_1.probeWorkerTelemetryTunnel)({ ...item.config, token: this.tunnelConfig.token }, { timeoutMs: 8000 }), this.expectedWorkerAgentProjectRoot(item.id), item.label || item.id);
+            return { id: target.id, probe };
+        }));
+        if (workspaceRoot() !== root || this.client !== client || this.projectContextGeneration !== generation)
+            throw new Error("工作区或连接已变化；尚未提交。");
+        for (const { id, probe } of refreshed) {
+            probes[id] = probe;
+            this.lastWorkerProbes = { ...this.lastWorkerProbes, [id]: this.stampWorkerProbeGeneration(id, probe) };
+            if (probe.status !== "ok")
+                throw Object.assign(new Error("Worker " + id + " · 提交前连接检查："
+                    + probe.status + "：" + probe.message + "；尚未提交，可重试失败步骤。"), { retryableSubmission: true, workerId: id, stage: "checking_workers", cause: probe.message });
+        }
+        // One operation consumes one observed capability response. A background
+        // telemetry timeout cannot erase it between validation and enqueue.
+        return probes;
+    }
     async assertPlanSubmissionWorkers(body, validated) {
         if (this.taskLifecycleProtocol !== 2)
             return;
         const live = body.workerPreparationPendingLocal && this.workerPreparation?.root === workspaceRoot() ? this.workerPreparation : undefined;
         const targets = this.workerActionTargets().filter(target => !live || live.preparation.ready.has(target.id));
-        this.assertExecutionWorkersReady(targets);
+        const probes = await this.submissionWorkerProbes(targets);
+        this.assertExecutionWorkersReady(targets, probes);
         this.assertExecutionCondaEnvReady(targets);
-        const incompatible = targets.filter(target => this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.declaredJobPaths !== true
-            || this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.formalJobIdentityEnv !== 1
-            || this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.taskShellEnvironment !== 1
-            || this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.projectManagedValidation !== 1);
+        const incompatible = targets.filter(target => probes[target.id]?.capabilities?.endpoints?.declaredJobPaths !== true
+            || probes[target.id]?.capabilities?.endpoints?.formalJobIdentityEnv !== 1
+            || probes[target.id]?.capabilities?.endpoints?.taskShellEnvironment !== 1
+            || probes[target.id]?.capabilities?.endpoints?.projectManagedValidation !== 1);
         if (incompatible.length)
             throw new Error("WORKER_PROTOCOL_INCOMPATIBLE：请更新 Agent/Scheduler：" + incompatible.map(target => target.id).join("、") + "；未删除或提交。");
         const validation = planValidationFromResult(validated);
@@ -11093,11 +11124,13 @@ class RealtimeTunnelPanelProvider {
         if (body.overwriteExisting === true || body.overwrite === true
             || body.options?.overwriteExisting === true || body.options?.overwrite === true)
             throw new Error("FORMAL_JOB_CONFLICT：正式 job 禁止覆盖；请显式清理或修改 case/job 路径。");
-        const incompatible = this.workerActionTargets().filter(target => (!body.workerPreparationPendingLocal
-            || this.workerPreparation?.preparation.ready.has(target.id)) && (this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.declaredJobPaths !== true
-            || this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.formalJobIdentityEnv !== 1
-            || this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.taskShellEnvironment !== 1
-            || this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.projectManagedValidation !== 1));
+        const targets = this.workerActionTargets().filter(target => !body.workerPreparationPendingLocal
+            || this.workerPreparation?.preparation.ready.has(target.id));
+        const probes = this.taskLifecycleProtocol === 2 ? await this.submissionWorkerProbes(targets) : this.lastWorkerProbes;
+        const incompatible = targets.filter(target => probes?.[target.id]?.capabilities?.endpoints?.declaredJobPaths !== true
+            || probes?.[target.id]?.capabilities?.endpoints?.formalJobIdentityEnv !== 1
+            || probes?.[target.id]?.capabilities?.endpoints?.taskShellEnvironment !== 1
+            || probes?.[target.id]?.capabilities?.endpoints?.projectManagedValidation !== 1);
         if (incompatible.length)
             throw new Error("WORKER_PROTOCOL_INCOMPATIBLE：请部署支持正式身份、taskShellEnvironment=1 与 projectManagedValidation=1 的匹配 Agent/Scheduler：" + incompatible.map(target => target.id).join("、"));
         const root = workspaceRoot();
@@ -11264,18 +11297,19 @@ class RealtimeTunnelPanelProvider {
     async sendDistributedJob(plan, job, workerId, gpuId, commandId, sharedCodeManifest) {
         if (plan.resultPathPolicy !== "declared" || job.outputDir.split("/").includes("attempts"))
             throw new Error("HISTORICAL_ATTEMPT_READ_ONLY：旧队列仅供查看，不会重启既有任务。");
-        if (this.lastWorkerProbes?.[workerId]?.capabilities?.endpoints?.declaredJobPaths !== true
-            || this.lastWorkerProbes?.[workerId]?.capabilities?.endpoints?.formalJobIdentityEnv !== 1
-            || this.lastWorkerProbes?.[workerId]?.capabilities?.endpoints?.taskShellEnvironment !== 1
-            || this.lastWorkerProbes?.[workerId]?.capabilities?.endpoints?.projectManagedValidation !== 1)
+        const root = workspaceRoot(), client = this.client, generation = this.distributedQueueGeneration;
+        const probes = this.taskLifecycleProtocol === 2 ? await this.submissionWorkerProbes([{ id: workerId }]) : this.lastWorkerProbes;
+        if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
+            throw new Error("派发上下文已变化；未发送任务。");
+        if (probes?.[workerId]?.capabilities?.endpoints?.declaredJobPaths !== true
+            || probes?.[workerId]?.capabilities?.endpoints?.formalJobIdentityEnv !== 1
+            || probes?.[workerId]?.capabilities?.endpoints?.taskShellEnvironment !== 1
+            || probes?.[workerId]?.capabilities?.endpoints?.projectManagedValidation !== 1)
             throw new Error(`WORKER_PROTOCOL_INCOMPATIBLE：${workerId} 未声明正式身份与登录 shell 环境协议；请部署匹配的 Scheduler 和 Agent。`);
         const executionMode = PlanExecutionMode.requirePlanExecutionMode(plan.executionMode);
         const target = this.workerActionTargets().find((item) => item.id === workerId);
         if (!target)
             throw new Error(`Worker ${workerId} 配置已失效`);
-        const root = workspaceRoot();
-        const client = this.client;
-        const generation = this.distributedQueueGeneration;
         const workerConfig = this.enabledWorkerConfigs().find((worker) => worker.id === workerId);
         const schedulerSettings = this.schedulerSettings();
         const memoryScheduling = this.lastWorkerProbes?.[workerId]?.capabilities?.endpoints?.gpuMemoryRatioScheduling === 1

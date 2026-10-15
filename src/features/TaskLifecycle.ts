@@ -6,7 +6,7 @@ export type TaskObservation = {
   observedAt: string; queryError?: string; schedulerPhase?: string;
   resultQueryError?: string;
   cancelled?: boolean;
-  tmux?: { windowId: string; paneId: string; dead: boolean; exitCode?: number; phase?: string };
+  tmux?: { windowId: string; paneId: string; dead: boolean; exitCode?: number | null; phase?: string };
   result?: { runId: string; status: string; present: boolean; verified: boolean };
 };
 export function taskLifecycle(value: TaskObservation): { execution: TaskExecution; result: TaskResult;
@@ -15,7 +15,9 @@ export function taskLifecycle(value: TaskObservation): { execution: TaskExecutio
   if (value.queryError) return { execution: "unknown" as TaskExecution, result, status: "unknown" as const, message: value.queryError };
   const pane = value.tmux;
   if (pane) {
-    if (pane.dead) execution = pane.exitCode === 0 ? "exited" : "failed";
+    // An absent native exit code is not evidence of failure. The current
+    // command's verified manifest still decides whether an ended run completed.
+    if (pane.dead) execution = Number.isInteger(pane.exitCode) && pane.exitCode !== 0 ? "failed" : "exited";
     else if (["queued", "bound"].includes(pane.phase || "")) execution = "queued";
     else if (["admitted", "starting"].includes(pane.phase || "")) execution = "starting";
     else if (pane.phase === "running") execution = "running";

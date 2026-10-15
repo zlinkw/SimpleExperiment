@@ -8,8 +8,10 @@ function taskLifecycle(value) {
         return { execution: "unknown", result, status: "unknown", message: value.queryError };
     const pane = value.tmux;
     if (pane) {
+        // An absent native exit code is not evidence of failure. The current
+        // command's verified manifest still decides whether an ended run completed.
         if (pane.dead)
-            execution = pane.exitCode === 0 ? "exited" : "failed";
+            execution = Number.isInteger(pane.exitCode) && pane.exitCode !== 0 ? "failed" : "exited";
         else if (["queued", "bound"].includes(pane.phase || ""))
             execution = "queued";
         else if (["admitted", "starting"].includes(pane.phase || ""))

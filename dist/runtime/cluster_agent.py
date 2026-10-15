@@ -69,9 +69,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.329"
-RUNTIME_VERSION = "0.5.329"
-PLUGIN_VERSION = "0.5.329"
+AGENT_VERSION = "0.5.330"
+RUNTIME_VERSION = "0.5.330"
+PLUGIN_VERSION = "0.5.330"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -17727,7 +17727,7 @@ def task_public_observation(root, job, row=None):
     status = "unknown"
     if row and not row["dead"]:
         status = "queued" if row["phase"] in ("queued", "bound", "admitted", "starting") else "running" if row["phase"] == "running" else "unknown"
-    elif row and row["exitCode"] != 0:
+    elif row and row["exitCode"] is not None and row["exitCode"] != 0:
         status = "failed"
     elif result and result["runId"] == job["commandId"] and result["status"] == "completed" and result["verified"]:
         status = "completed"
