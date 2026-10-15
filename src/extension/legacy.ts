@@ -1,6 +1,6 @@
 // @ts-nocheck
 import * as vscode from "vscode";
-import { analyzeRuntimeLog } from "./RuntimeLogAnalysisHost";
+import { analyzeRuntimeLog, runtimeLogAnalysisMessage } from "./RuntimeLogAnalysisHost";
 import * as fs from "fs/promises";
 import * as fsNode from "fs";
 import * as path from "path";
@@ -1666,7 +1666,8 @@ export class RealtimeTunnelPanelProvider {
             || this.lastHealth?.state === "paused" || this.lastHealth?.status === "paused") return;
         const configuredIds = this.workerActionTargets().map((target) => target.id);
         const workerIds = options.automatic
-            ? DistributedSchedulingPolicy.progressRefreshWorkerIds(this.distributedQueueCache, configuredIds) : configuredIds;
+            ? DistributedSchedulingPolicy.progressRefreshWorkerIds(this.distributedQueueCache, configuredIds,
+                configuredIds.map(id => this.cachedWorkerTaskSnapshot?.(id, root, `${root}\u0000${id}`)).filter(Boolean)) : configuredIds;
         if (!workerIds.length) return;
         const abort = new AbortController();
         this.progressRefreshAbort = abort;
@@ -1780,6 +1781,8 @@ export class RealtimeTunnelPanelProvider {
             task?.epoch ?? task?.currentEpoch ?? task?.current_epoch ?? "", task?.loss ?? task?.latestLoss ?? task?.latest_loss ?? "",
             task?.observation?.tmux, task?.observation?.result, task?.observation?.cancelled,
             task?.observation?.queryError, task?.observation?.resultQueryError,
+            task?.executionState, task?.resultState, task?.exitCode, task?.completionState,
+            task?.runtimeDiagnostics, task?.observation?.runtimeDiagnostics,
         ])]);
         if (this.workerTaskPlanStatusSignatures.get(cacheKey) === signature) return;
         this.workerTaskPlanStatusSignatures.delete(cacheKey);
@@ -5336,9 +5339,7 @@ return this.testTunnel(true);
                 return await new ManualDispatchHost(this, workspaceRoot()).dispatch(message, true);
             case "analyzeRuntimeLog": {
                 const report = await analyzeRuntimeLog(this, workspaceRoot(), message);
-                const document = await vscode.workspace.openTextDocument({ language: "json", content: JSON.stringify(report, null, 2) });
-                await vscode.window.showTextDocument(document, { preview: true });
-                return report;
+                return runtimeLogAnalysisMessage(report);
             }
             case "recallFailedJob":
                 {
@@ -5752,7 +5753,7 @@ return this.testTunnel(true);
             }
             const completedMessage = command === "syncAllResultArtifacts" && value && typeof value === "object"
                 ? `结果文件同步完成：${Number(value.completed || 0)}/${Number(value.selected || 0)}，跳过已有 ${Number(value.skippedExisting || 0)} 个。`
-                : (command === "clearTmuxTaskTabs" || command === "killTmuxWindow") && typeof value === "string" && value.trim()
+                : (command === "clearTmuxTaskTabs" || command === "killTmuxWindow" || command === "analyzeRuntimeLog") && typeof value === "string" && value.trim()
                 ? value.trim()
                 : (isLocalTrigger ? "已触发本地 VS Code 操作" : "completed");
             return {
@@ -11818,12 +11819,13 @@ this.assertPlanTopologyReady("Plan 调度");
         const queue = await this.loadDistributedQueue(root);
         const plan = queue.plans.find((row) => row.id === String(message.planId || ""));
         const job = plan?.jobs.find((row) => row.index === Number(message.jobIndex));
-        if (!plan || !job || !job.workerId || !job.commandId || !["failed", "unknown"].includes(job.status))
+        if (!plan || !job || !job.workerId || !job.commandId || !["failed", "unknown"].includes(job.status)
+            && !(job.lifecycleProtocol === 2 && job.status === "completed" && message.runtimeAnomalyRerun === true))
             throw new Error("目标 job 当前不能恢复");
         if (String(message.commandId || "") !== job.commandId)
             throw new Error("任务 commandId 已变化；请刷新原 job 后重新确认，未重排。");
         if (plan.resultPathPolicy !== "declared") throw new Error("HISTORICAL_ATTEMPT_READ_ONLY：保留权重和日志，旧 attempt 不会恢复执行。");
-        if (job.lifecycleProtocol === 2) return this.retryPulledJob(plan, job, root, isCurrent);
+        if (job.lifecycleProtocol === 2) return this.retryPulledJob(plan, job, root, isCurrent, message.runtimeAnomalyRerun === true);
         if (job.cleanup?.state === "partial" || job.cleanup?.pendingNodes?.length)
             throw new Error("FAILED_JOB_CLEANUP_PENDING：该 job 尚有节点未完成人工清理审核；请先核对全部回执，未重排。");
         const fresh: any = await client.getWorkerTasks(job.workerId);
@@ -11865,7 +11867,7 @@ this.assertPlanTopologyReady("Plan 调度");
             return;
         }
     }
-    async retryPulledJob(plan, job, root, isCurrent) {
+    async retryPulledJob(plan, job, root, isCurrent, anomalyOnly = false) {
         const currentPlan = await fs.readFile(path.join(root, plan.planFile), "utf8");
         if (crypto.createHash("sha256").update(currentPlan, "utf8").digest("hex") !== plan.revision)
             throw new Error("PLAN 已变化；请重新校验、预演并提交当前声明，旧卡片未重排。");
@@ -11873,12 +11875,16 @@ this.assertPlanTopologyReady("Plan 调度");
         if (!isCurrent()) return;
         if (["running", "starting", "queued"].includes(state.execution))
             throw new Error("所选任务仍在服务器排队或运行；请先中止或明确召回。");
-        const body = { planFile: plan.planFile, planRevision: plan.revision, options: {}, workerSubmissionSnapshots: [], runReplacement: {} };
+        if (anomalyOnly && (state.status !== "completed" || state.completionState !== "review_required"))
+            throw new Error("本轮查询未确认该 job 已完成且存在运行异常；未删除或重跑。");
+        const body: any = { planFile: plan.planFile, planRevision: plan.revision, options: {}, workerSubmissionSnapshots: [], runReplacement: {} };
         const validation = { execution_mode: plan.executionMode, jobs: [{ index: job.index, case: job.case, seed: job.seed,
             output_dir: job.outputDir, result_csv: job.collectionResultCsv, checkpoint_source: job.checkpointSource }] };
         await this.assertPlanSubmissionWorkers(body, { validation });
         await new PlanRunHost(this, root).replace(plan, body, validation);
         if (!isCurrent()) return;
+        if (Array.isArray(body.assignedExperimentIndices) && !body.assignedExperimentIndices.includes(job.index))
+            return { status: "cancelled", message: "本轮未选择该 job；未重新派发。" };
         await PulledTaskControl.stopPulledTask(this.client, plan, job, makeOpId("requeue-job"));
         if (!isCurrent()) return;
         const latest = await this.loadDistributedQueue(root);

@@ -7,9 +7,11 @@ exports.prequeueGpuWeight = prequeueGpuWeight;
 exports.allocateServerPrequeue = allocateServerPrequeue;
 exports.serverAuthoritativeProgress = serverAuthoritativeProgress;
 const DistributedPlanQueue_1 = require("./DistributedPlanQueue");
+const LatestJobArtifacts_1 = require("./LatestJobArtifacts");
+const RuntimeDiagnostics_1 = require("./RuntimeDiagnostics");
 exports.PROGRESS_FRESHNESS_MS = 5_000;
 /** Historical completion is stable; background telemetry only follows unresolved ownership. */
-function progressRefreshWorkerIds(queue, configuredIds) {
+function progressRefreshWorkerIds(queue, configuredIds, snapshots) {
     const needed = new Set();
     for (const plan of queue.plans) {
         if ((0, DistributedPlanQueue_1.hasUnresolvedPlanRecovery)(plan))
@@ -23,6 +25,16 @@ function progressRefreshWorkerIds(queue, configuredIds) {
                 return [...new Set(configuredIds)];
         }
     }
+    if (snapshots)
+        for (const { plan, job } of (0, LatestJobArtifacts_1.newestJobOutputs)(queue)) {
+            if (job.lifecycleProtocol !== 2 || job.status !== "completed" || !plan.projectId || !job.commandId || !job.workerId || !job.outputDir)
+                continue;
+            const snapshot = snapshots.find(row => row.workerId === job.workerId);
+            const task = snapshot?.tasks?.find((row) => row.projectId === plan.projectId && row.commandId === job.commandId);
+            if (snapshot?.error || snapshot?.queryComplete !== true
+                || !(0, RuntimeDiagnostics_1.runtimeEvidence)(task?.runtimeDiagnostics || task?.observation?.runtimeDiagnostics, job.commandId).scanComplete)
+                needed.add(job.workerId);
+        }
     return [...new Set(configuredIds)].filter(id => needed.has(id));
 }
 function schedulingMode(value) {

@@ -16,12 +16,14 @@ test('complete PLAN cards exclude anomalies and unverified logs from clean succe
     if(completionState==='verified')assert.match(sandbox.html,/成功 1\/1/);
     else{assert.match(sandbox.html,/成功 0\/1/);assert.doesNotMatch(sandbox.html,/executionPlanRow completed/);assert.match(sandbox.html,/status-warning/);}
     if(completionState==='review_required'){
+      assert.match(sandbox.html,/data-runtime-anomaly-rerun="true"/);assert.match(sandbox.html,/覆盖产物并重跑此 job/);
       assert.match(sandbox.html,/完成但有异常，待复核/);assert.match(sandbox.html,/退出码 0/);assert.match(sandbox.html,/异常 1 次 · AttributeError · 阶段 train/);
       assert.match(sandbox.html,/AttributeError: callback split/);assert.match(sandbox.html,/行 3–7/);assert.doesNotMatch(sandbox.html,/Traceback|private.py/);
       const prior=sandbox.executionRenderKeysForState(state).planList;
       const changed=structuredClone(state);changed.distributedPlans[0].jobs[0].runtimeDiagnostics.count=2;
       assert.notEqual(sandbox.executionRenderKeysForState(changed).planList,prior);
     }
+    else assert.doesNotMatch(sandbox.html,/data-runtime-anomaly-rerun="true"/);
     if(!completionState)assert.match(sandbox.html,/运行日志待核实/);
   }
 });

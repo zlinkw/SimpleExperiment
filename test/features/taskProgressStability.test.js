@@ -30,6 +30,16 @@ test('projection expiry is checked even without a new queue or task signature',(
  assert.equal(fn.call(host)[0].jobs[0].status,'failed');assert.equal(fn.call(host)[0].jobs[0].status,'failed');assert.equal(calls,1);
  now+=5001;assert.equal(fn.call(host)[0].jobs[0].status,'unknown');assert.equal(calls,2);
 });
+test('log analysis and completion evidence invalidate cards without changing process or artifact status',()=>{
+ const fn=method('noteWorkerTaskPlanStatus'),host={workerTaskPlanStatusSignatures:new Map(),workerTaskSnapshotRevision:0};
+ const task={commandId:'c',status:'completed',executionState:'exited',resultState:'complete',exitCode:0,completionState:'unverified'};
+ const snapshot={queryComplete:true,tasks:[task]};fn.call(host,'key',snapshot);const first=host.workerTaskSnapshotRevision;
+ task.completionState='verified';fn.call(host,'key',snapshot);assert.equal(host.workerTaskSnapshotRevision,first+1);
+ task.runtimeDiagnostics={commandId:'c',runId:'c',state:'anomalous',count:1,scanComplete:true};
+ task.completionState='review_required';fn.call(host,'key',snapshot);assert.equal(host.workerTaskSnapshotRevision,first+2);
+ task.runtimeDiagnostics.count=2;fn.call(host,'key',snapshot);assert.equal(host.workerTaskSnapshotRevision,first+3);
+ fn.call(host,'key',{...snapshot,fetchedAt:'later'});assert.equal(host.workerTaskSnapshotRevision,first+3);
+});
 test('submission-only inventory cannot overwrite the independently queried progress snapshot',async()=>{
  let stored=0;const snapshot={queryComplete:true,capabilities:{taskLifecycle:2},tasks:[]};
  const globals={workspaceRoot:()=>'/fixture',workerTaskSnapshotPayload:x=>x,WorkerTaskQuery:W,errorMessage:e=>e.message,RequestBudget_1:{RequestBudgetDeniedError:class extends Error{}}};

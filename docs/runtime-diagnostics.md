@@ -32,6 +32,10 @@ Agent 在既有 commandId 专属 console.log 写入开始标记；Scheduler 在�
 
 用户仍可点击 job 的“重新分析运行日志”，或调用只读 `tasks.analyze` / `simpleex task analyze`：
 
+0.5.339 起，面板按钮直接显示分析摘要并更新任务卡片，不再打开未命名 JSON 文档。异常次数、阶段和日志位置留在卡片及对应窗口日志中；API/CLI 仍返回原结构化结果。只有日志证据变化时，也会使卡片和 PLAN 计数重新计算。当前已结束 job 的日志尚未读完时继续主动查询，完整后停止此项轮询；不补查已被新提交替代的历史 job。
+
+已完成且检出异常的正式 job 提供“覆盖产物并重跑此 job”。点击后先主动核实原命令确实已结束且仍有异常，只把此 job 的声明输出交给既有双确认覆盖流程；取消任一次确认或未选择该 job 都不重新派发。明确确认后才关闭原精确结束窗口、设置原命令取消围栏并回到本机队列。其他 job、共享文件和任务不变。此按钮不代表插件建议重跑或自动否定指标。
+
 ```
 simpleex task analyze --workflow WORKFLOW_ID --index 0 --json
 simpleex task analyze --worker WORKER_ID --command COMMAND_ID --output work_dirs/job --json

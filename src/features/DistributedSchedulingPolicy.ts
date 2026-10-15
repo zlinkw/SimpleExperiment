@@ -1,10 +1,12 @@
 import { DistributedQueue, QueuedPlan, DurableWorkerSnapshot, durableCommandId,
   mergeDurableWorkerSnapshots, freshIdleGpuEvidence, hasUnresolvedPlanRecovery, workerCodeVersionAvailable } from "./DistributedPlanQueue";
+import { newestJobOutputs } from "./LatestJobArtifacts";
+import { runtimeEvidence } from "./RuntimeDiagnostics";
 
 export type SchedulingMode = "local_idle" | "server_prequeue";
 export const PROGRESS_FRESHNESS_MS = 5_000;
 /** Historical completion is stable; background telemetry only follows unresolved ownership. */
-export function progressRefreshWorkerIds(queue: DistributedQueue, configuredIds: string[]): string[] {
+export function progressRefreshWorkerIds(queue: DistributedQueue, configuredIds: string[], snapshots?: readonly any[]): string[] {
   const needed = new Set<string>();
   for (const plan of queue.plans) {
     if (hasUnresolvedPlanRecovery(plan)) return [...new Set(configuredIds)];
@@ -13,6 +15,13 @@ export function progressRefreshWorkerIds(queue: DistributedQueue, configuredIds:
       if (job.workerId) needed.add(job.workerId);
       else if (job.status !== "pending") return [...new Set(configuredIds)];
     }
+  }
+  if (snapshots) for (const { plan, job } of newestJobOutputs(queue)) {
+    if (job.lifecycleProtocol !== 2 || job.status !== "completed" || !plan.projectId || !job.commandId || !job.workerId || !job.outputDir) continue;
+    const snapshot = snapshots.find(row => row.workerId === job.workerId);
+    const task = snapshot?.tasks?.find((row: any) => row.projectId === plan.projectId && row.commandId === job.commandId);
+    if (snapshot?.error || snapshot?.queryComplete !== true
+      || !runtimeEvidence(task?.runtimeDiagnostics || task?.observation?.runtimeDiagnostics, job.commandId).scanComplete) needed.add(job.workerId);
   }
   return [...new Set(configuredIds)].filter(id => needed.has(id));
 }

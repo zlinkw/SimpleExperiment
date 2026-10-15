@@ -1,9 +1,22 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.runtimeLogAnalysisMessage = runtimeLogAnalysisMessage;
 exports.analyzeRuntimeLog = analyzeRuntimeLog;
 const node_crypto_1 = require("node:crypto");
 const DistributedPlanQueue_1 = require("../features/DistributedPlanQueue");
 const RuntimeDiagnostics_1 = require("../features/RuntimeDiagnostics");
+function runtimeLogAnalysisMessage(report) {
+    const evidence = report.runtimeDiagnostics || {};
+    const exit = report.exitCode == null ? "退出码未知" : "退出码 " + report.exitCode;
+    if (report.executionState === "failed" || report.exitCode != null && report.exitCode !== 0)
+        return "日志分析完成：执行失败，" + exit + "；详见任务卡片及窗口日志。";
+    if (report.completionState === "review_required")
+        return "日志分析完成：检出异常 " + evidence.count + " 次 · " + Object.keys(evidence.types || {}).join(", ")
+            + " · 阶段 " + Object.keys(evidence.phases || {}).join(", ") + "；" + exit + "。详见任务卡片及窗口日志。";
+    if (report.completionState === "verified")
+        return "日志分析完成：完整日志未检出异常，" + exit + "。";
+    return "日志仍待核实：" + (evidence.reason || "尚未读取完整日志") + "；" + exit + "。";
+}
 /** Explicit, read-only historical analysis. Nothing is written back to task history. */
 async function analyzeRuntimeLog(h, root, params, signal) {
     signal = signal ? AbortSignal.any([signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000);
@@ -36,7 +49,7 @@ async function analyzeRuntimeLog(h, root, params, signal) {
             break;
     }
     await h.readWorkerTaskSnapshot?.(workerId, { fresh: true, signal });
-    h.postState?.();
+    h.postState?.(true);
     return { commandId, workerId, executionState: task.executionState, resultState: task.resultState, exitCode: task.exitCode,
         completionState: (0, RuntimeDiagnostics_1.completionState)(task.runtimeDiagnostics, commandId), runtimeDiagnostics: (0, RuntimeDiagnostics_1.runtimeEvidence)(task.runtimeDiagnostics, commandId),
         readOnly: true, historyRewritten: false };

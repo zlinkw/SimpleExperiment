@@ -1,6 +1,11 @@
 const test=require('node:test'),assert=require('node:assert/strict'),os=require('node:os'),path=require('node:path'),fs=require('node:fs'),vm=require('node:vm'),ts=require('typescript');
 require('../_helpers/registerTsRequire');
 const {analyzeRuntimeLog}=require('../../src/extension/RuntimeLogAnalysisHost.ts');
+function hostMethod(name,globals={}){
+ const text=fs.readFileSync(path.join(__dirname,'../../src/extension/legacy.ts'),'utf8'),ast=ts.createSourceFile('host.ts',text,ts.ScriptTarget.Latest,true);let member;
+ function visit(n){if(ts.isMethodDeclaration(n)&&n.name.getText(ast)===name)member=n;ts.forEachChild(n,visit)}visit(ast);assert.ok(member,name);
+ return vm.runInNewContext(ts.transpileModule('class Host{'+member.getText(ast)+'};Host.prototype.'+name,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,globals);
+}
 function fixture(){
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'se-explicit-log-review-')),context={root};let calls=0,ids=[];
  const job={index:0,commandId:'old-command',workerId:'w',outputDir:'work/job',status:'completed'},queue={plans:[{id:'wf',jobs:[job]}]},before=JSON.stringify(queue);
@@ -39,4 +44,73 @@ test('rendered panel labels and counts never paint an exit-zero anomaly or unver
  const payload=ctx.payloadFromButton({dataset:{command:'analyzeRuntimeLog',commandId:'original-command',planId:'wf',jobIndex:'0'}});
  assert.equal(payload.commandId,'original-command');assert.equal(payload.planId,'wf');assert.equal(payload.jobIndex,0);
  assert.match(html,/重新分析运行日志/);
+ const rerun=ctx.payloadFromButton({dataset:{command:'retryDistributedJob',commandId:'original-command',planId:'wf',jobIndex:'0',runtimeAnomalyRerun:'true'}});
+ assert.equal(rerun.commandId,'original-command');assert.equal(rerun.runtimeAnomalyRerun,true);
+});
+test('analysis feedback describes findings without opening an editor or changing execution',()=>{
+ const {runtimeLogAnalysisMessage}=require('../../src/extension/RuntimeLogAnalysisHost.ts');
+ assert.equal(typeof runtimeLogAnalysisMessage,'function');
+ assert.match(runtimeLogAnalysisMessage({completionState:'verified',exitCode:0,runtimeDiagnostics:{scanComplete:true,count:0}}),/未检出异常/);
+ assert.match(runtimeLogAnalysisMessage({completionState:'review_required',exitCode:0,runtimeDiagnostics:{count:4,types:{AttributeError:4},phases:{train:2,test:2}}}),/4.*AttributeError.*train.*test/);
+ assert.match(runtimeLogAnalysisMessage({completionState:'unverified',runtimeDiagnostics:{reason:'offline'}}),/offline/);
+ const text=fs.readFileSync(path.join(__dirname,'../../src/extension/legacy.ts'),'utf8');
+ const handler=text.slice(text.indexOf('case "analyzeRuntimeLog":'),text.indexOf('case "recallFailedJob":',text.indexOf('case "analyzeRuntimeLog":')));
+ assert.doesNotMatch(handler,/openTextDocument|showTextDocument|JSON\.stringify/);
+});
+test('anomalous completed rerun uses exact current command and the existing native confirmation flow',async()=>{
+ const job={index:0,lifecycleProtocol:2,status:'completed',workerId:'w',commandId:'c'},plan={id:'wf',resultPathPolicy:'declared',jobs:[job]};let called=0;
+ const h={captureProjectContext:()=>({}),projectContextIsCurrent:()=>true,loadDistributedQueue:async()=>({plans:[plan]}),client:{},
+  retryPulledJob:async(p,j,r,current,anomalyOnly)=>{called++;assert.equal(p,plan);assert.equal(j,job);assert.equal(anomalyOnly,true);assert.ok(current());}};
+ const retry=hostMethod('retryDistributedJobFromUi',{workspaceRoot:()=>'/fixture'});
+ await retry.call(h,{planId:'wf',jobIndex:0,commandId:'c',runtimeAnomalyRerun:true});assert.equal(called,1);
+ await assert.rejects(retry.call(h,{planId:'wf',jobIndex:0,commandId:'old',runtimeAnomalyRerun:true}),/commandId/);
+ await assert.rejects(retry.call(h,{planId:'wf',jobIndex:0,commandId:'c'}),/不能恢复/);
+});
+test('automatic refresh follows current completed jobs until logs settle, ignoring superseded history',()=>{
+ const {progressRefreshWorkerIds}=require('../../src/features/DistributedSchedulingPolicy.ts');
+ const job={index:0,case:'a',seed:42,lifecycleProtocol:2,status:'completed',workerId:'w',commandId:'c',outputDir:'work/job'};
+ const plan={id:'wf',projectId:'project',planFile:'p.yaml',enqueuedAt:'2026-10-16T00:00:00Z',jobs:[job]};
+ const queue={plans:[{...plan,id:'old',enqueuedAt:'2026-10-15T00:00:00Z',jobs:[{...job,workerId:'old',commandId:'old-c'}]},plan]};
+ assert.deepEqual(progressRefreshWorkerIds(queue,['w','old'],[]),['w']);
+ const evidence={schemaVersion:1,commandId:'c',runId:'c',state:'scanning',count:0,scanComplete:false};
+ const snapshots=[{workerId:'w',queryComplete:true,tasks:[{projectId:'project',commandId:'c',runtimeDiagnostics:evidence}]}];
+ assert.deepEqual(progressRefreshWorkerIds(queue,['w','old'],snapshots),['w']);
+ for(const state of ['clear','anomalous']){
+  evidence.state=state;evidence.count=state==='anomalous'?1:0;evidence.scanComplete=true;
+  assert.deepEqual(progressRefreshWorkerIds(queue,['w','old'],snapshots),[]);
+ }
+});
+test('native anomaly rerun checks fresh evidence, honors cancelled or skipped replacement and changes only one job',async()=>{
+ const crypto=require('node:crypto'),P=require('../../src/features/PulledTaskControl.ts'),events=[];
+ const job={index:0,lifecycleProtocol:2,status:'completed',workerId:'w',commandId:'c',outputDir:'work/job',case:'a',seed:42};
+ const other={...job,index:1,commandId:'other',status:'running',outputDir:'work/other'};
+ const plan={id:'wf',planFile:'plans/p.yaml',revision:crypto.createHash('sha256').update('plan').digest('hex'),executionMode:'train_test',jobs:[job,other]};
+ let selected=true,cancel=false,state={execution:'exited',status:'completed',completionState:'review_required'},stored;
+ const retry=hostMethod('retryPulledJob',{fs:{readFile:async()=> 'plan'},path,crypto,
+  PulledTaskControl:{queryTask:async()=>({state}),stopPulledTask:async(_c,p,j)=>{assert.equal(j.commandId,'c');events.push('fence');},returnPulledJobToLocal:P.returnPulledJobToLocal},
+  PlanRunHost:class {async replace(p,body,validation){events.push('confirm');assert.equal(validation.jobs.length,1);assert.equal(validation.jobs[0].output_dir,'work/job');if(cancel)throw Error('REPLACEMENT_CANCELLED');body.assignedExperimentIndices=selected?[0]:[];}},makeOpId:()=> 'rerun'});
+ const h={client:{},assertPlanSubmissionWorkers:async()=>events.push('query'),loadDistributedQueue:async()=>({plans:[plan]}),
+  saveDistributedQueue:async(_r,q)=>{stored=q;events.push('save');},tickDistributedQueue:async()=>events.push('tick')};
+ for(const variant of ['running','clear','cancel','skip','success']){
+  events.length=0;stored=undefined;cancel=variant==='cancel';selected=variant!=='skip';
+  state={execution:variant==='running'?'running':'exited',status:'completed',completionState:variant==='clear'?'verified':'review_required'};
+  if(['running','clear','cancel'].includes(variant))await assert.rejects(retry.call(h,plan,job,'/fixture',()=>true,true),/运行|异常|CANCELLED/);
+  else await retry.call(h,plan,job,'/fixture',()=>true,true);
+  if(variant==='success'){
+   assert.deepEqual(events,['query','confirm','fence','save','tick']);assert.equal(stored.plans[0].jobs[0].status,'pending');
+   assert.equal(stored.plans[0].jobs[0].runtimeDiagnostics,undefined);assert.deepEqual(stored.plans[0].jobs[1],other);
+  }else{assert.equal(stored,undefined);assert.ok(!events.includes('fence')&&!events.includes('tick'));}
+ }
+});
+test('actual analysis button returns a visible command message without opening any document',async()=>{
+ const text=fs.readFileSync(path.join(__dirname,'../../src/extension/legacy.ts'),'utf8'),ast=ts.createSourceFile('host.ts',text,ts.ScriptTarget.Latest,true);let clause;
+ function visit(n){if(ts.isCaseClause(n)&&n.expression.getText(ast)==='"analyzeRuntimeLog"')clause=n;ts.forEachChild(n,visit)}visit(ast);assert.ok(clause);
+ const {runtimeLogAnalysisMessage}=require('../../src/extension/RuntimeLogAnalysisHost.ts');let documents=0;
+ const handler=vm.runInNewContext(ts.transpileModule('async function run(message){'+clause.statements.map(n=>n.getText(ast)).join('\n')+'};run;',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,
+  {workspaceRoot:()=>'/fixture',analyzeRuntimeLog:async()=>({completionState:'verified',exitCode:0}),runtimeLogAnalysisMessage,
+   vscode:{workspace:{openTextDocument(){documents++;}},window:{showTextDocument(){documents++;}}}});
+ const statuses=[],h={postUiCommandStatus:(...args)=>statuses.push(args)};
+ const dispatch=hostMethod('withUiCommandStatus',{localCommandReleasesAfterTrigger:()=>false,PLAN_SUBMISSION_COMMANDS:new Set(),OperationOutcome_1:{operationOutcomeFor:()=> 'completed'}});
+ await dispatch.call(h,'action','analyzeRuntimeLog',{},()=>handler.call(h,{}));
+ assert.equal(documents,0);assert.equal(statuses.at(-1)[1],'completed');assert.match(statuses.at(-1)[3],/完整日志未检出异常/);
 });
