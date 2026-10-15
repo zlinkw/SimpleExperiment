@@ -49,3 +49,35 @@ test('missing-only confirmation dispatches only its selected subset, including a
  const Queue=require('../../dist/features/DistributedPlanQueue');const restored=Queue.restoreFormalJobQueue(JSON.parse(Queue.serializeDistributedQueue(f.q)));
  assert.equal(restored.plans[0].jobs[0].status,'cancelled');
 });
+
+test('explicit stop-then-dispatch fences uncertain original requests before review or a new launch',async()=>{
+ for(const status of ['dispatching','unknown']){
+  const f=fixture(),q=await f.ports.load();Object.assign(q.plans[0].jobs[0],{status,workerId:'old',commandId:'old-command'});await f.ports.save(q);
+  let release,entered,reviewed=false;
+  const stopping=new Promise(resolve=>{entered=resolve;});
+  f.ports.stop=async(plan,job)=>{assert.equal(job.commandId,'old-command');assert.equal(job.workerId,'old');entered();await new Promise(resolve=>{release=resolve;});};
+  f.ports.review=async()=>{reviewed=true;return true;};
+  const pending=dispatchManualJobs(f.ports,{...request,indices:[0],expectedCommands:{0:'old-command'}});
+  await stopping;assert.equal(f.sends,0);assert.equal(reviewed,false);assert.equal(f.q.plans[0].jobs[0].commandId,'old-command');
+  release();await pending;
+  assert.equal(reviewed,true);assert.equal(f.sends,1);assert.notEqual(f.q.plans[0].jobs[0].commandId,'old-command');
+ }
+});
+
+test('uncertain requests cannot be replaced without explicit stop or when the exact stop is unverified',async()=>{
+ const f=fixture(),q=await f.ports.load();Object.assign(q.plans[0].jobs[0],{status:'unknown',workerId:'old',commandId:'old-command'});await f.ports.save(q);
+ const selected={...request,indices:[0],expectedCommands:{0:'old-command'}};
+ await assert.rejects(dispatchManualJobs(f.ports,{...selected,stopRunning:false}),/尚未核实/);assert.equal(f.sends,0);assert.equal(f.preparations,0);
+ f.ports.stop=async()=>{throw Error('ORIGINAL_WORKER_QUERY_FAILED');};
+ f.ports.review=async()=>assert.fail('unverified stop cannot proceed to output review');
+ await assert.rejects(dispatchManualJobs(f.ports,selected),/ORIGINAL_WORKER_QUERY_FAILED/);
+ assert.equal(f.sends,0);assert.equal(f.q.plans[0].jobs[0].commandId,'old-command');assert.equal(f.q.plans[0].jobs[0].manualDispatch,undefined);
+});
+
+test('missing original command or server identity cannot authorize a replacement launch',async()=>{
+ for(const status of ['dispatching','running','queued','unknown'])for(const missing of ['workerId','commandId']){
+  const f=fixture(),q=await f.ports.load();Object.assign(q.plans[0].jobs[0],{status,workerId:'old',commandId:'old-command'});delete q.plans[0].jobs[0][missing];await f.ports.save(q);
+  await assert.rejects(dispatchManualJobs(f.ports,{...request,indices:[0],expectedCommands:{0:q.plans[0].jobs[0].commandId||''}}),/身份缺失/);
+  assert.equal(f.sends,0);assert.equal(f.stops,0);assert.equal(f.preparations,0);
+ }
+});

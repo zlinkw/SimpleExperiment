@@ -34,8 +34,13 @@ export async function dispatchManualJobs(ports: ManualDispatchPorts, request: Ma
   const identities = new Map(selected.map(job => [job.index, job.commandId || ""]));
   for (const job of selected) {
     if (request.expectedCommands && request.expectedCommands[job.index] !== (job.commandId || "")) throw new Error("任务已变化，请刷新后重新选择；未重复派发。");
-    if (job.status === "dispatching" || job.status === "unknown" && job.commandId && !["missing", "failed", "exited"].includes(job.executionState || ""))
-      throw new Error("原请求接收情况尚未核实；请刷新原任务，不能另行派发。");
+    const uncertain = job.status === "dispatching" || job.status === "unknown" && job.commandId && !["missing", "failed", "exited"].includes(job.executionState || "");
+    if (uncertain && !request.stopRunning)
+      throw new Error("原请求接收情况尚未核实；请使用“停止后派发”，先核实原任务已撤出再派发。");
+    const originalExpected = Boolean(job.commandId) || ["dispatching", "queued", "running"].includes(job.status)
+      || job.status === "unknown" && job.localQueueOnly !== true;
+    if (originalExpected && (!job.commandId || !job.workerId))
+      throw new Error("原任务的请求或服务器身份缺失，无法核实精确停止；未另行派发。");
     if (["running", "queued"].includes(job.status) && !request.stopRunning) throw new Error("请使用“停止后派发”撤出原任务。");
   }
   for (const job of selected) job.manualDispatch = { workerId: request.workerId, gpuId: String(request.gpuId), stage: "preparing" };

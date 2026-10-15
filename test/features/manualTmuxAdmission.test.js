@@ -7,5 +7,5 @@ test('real Host launch messages reach Agent and tmux Scheduler; manual jobs shar
  const args=process.platform==='win32'?['--distribution',process.env.SIMPLE_TEST_WSL_DISTRO||'Ubuntu-Codex','--exec','python3',linux(script),linux(runtime),messages]:[script,runtime,messages];
  const result=spawnSync(process.platform==='win32'?'wsl.exe':'python3',args,{encoding:'utf8',timeout:10000,windowsHide:true});
  assert.equal(result.status,0,result.stderr||result.stdout);
- assert.deepEqual(JSON.parse(result.stdout),{ok:true,realTmux:true,manualConcurrent:true,autoWithManual:true,exactStopIsolated:true});
+ assert.deepEqual(JSON.parse(result.stdout),{ok:true,realTmux:true,manualConcurrent:true,autoWithManual:true,exactStopIsolated:true,unknownRequestFenced:true});
 });

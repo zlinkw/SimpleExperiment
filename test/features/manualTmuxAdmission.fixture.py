@@ -26,6 +26,19 @@ try:
     probe.write_text(probe_source, encoding='utf-8')
     agent['execute_worker_command'](root,auto,'worker')
     phase('auto_queued')
+    # An uncertain original request may not have reached this Scheduler at all.
+    # Cancel its exact identity first: a late accept must remain fenced out.
+    uncertain = job(3)
+    namespace['task_stop'](root, {'targetCommandId': uncertain['commandId'], 'projectId': 'project'}, 'worker')
+    observed = next(row['observation'] for row in namespace['task_query'](root, [uncertain])['tasks']
+                    if row['observation']['commandId'] == uncertain['commandId'])
+    assert observed['cancelled'] and not observed.get('tmux')
+    try:
+        namespace['task_queue_rpc'](root, 'worker', 'accept', uncertain, ensure=True)
+        raise AssertionError('late original request must not launch after exact cancellation')
+    except RuntimeError as exc:
+        assert 'TASK_CANCELLED' in str(exc), str(exc)
+    assert not any(row['commandId'] == uncertain['commandId'] for row in namespace['task_inventory'](root))
     for manual in (manual_a, manual_b):
         agent['execute_worker_command'](root,manual,'worker')
     phase('manuals_queued')
@@ -48,7 +61,7 @@ try:
     assert any(not row['dead'] for row in namespace['task_inventory'](root) if row['commandId'] in (manual_a['commandId'], manual_b['commandId']))
     release.touch()
     wait_for(lambda: all(row['dead'] for row in namespace['task_inventory'](root)))
-    print(json.dumps(dict(ok=True, realTmux=True, manualConcurrent=True, autoWithManual=True, exactStopIsolated=True)))
+    print(json.dumps(dict(ok=True, realTmux=True, manualConcurrent=True, autoWithManual=True, exactStopIsolated=True, unknownRequestFenced=True)))
 finally:
     # Fixture-owned server under this newly created private TMUX_TMPDIR only.
     subprocess.run(['tmux', 'kill-server'], capture_output=True, timeout=2)
