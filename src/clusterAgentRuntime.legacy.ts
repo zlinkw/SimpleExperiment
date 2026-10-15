@@ -16464,8 +16464,9 @@ def serve_http(args):
                     if len(raw) > 1024 * 1024:
                         raise ValueError("TASK_QUERY_LIMIT")
                     payload = json.loads(raw.decode("utf-8"))
-                    value = task_query(root, payload.get("queries") or [])
-                    if payload.get("declarations") is not None:
+                    collection = bool((payload.get("discovery") or {}).get("collect")) or any(isinstance(item, dict) and item.get("collect") is True for item in payload.get("declarations") or [])
+                    value = task_collection_query(root, payload.get("declarations") or []) if collection else task_query(root, payload.get("queries") or [])
+                    if payload.get("declarations") is not None and not collection:
                         value["declaredResults"] = task_declared_results(root, payload["declarations"], value["tasks"])
                     if payload.get("discovery"):
                         value["declaredJobs"] = task_describe_plan(root, payload["discovery"])

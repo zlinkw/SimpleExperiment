@@ -114,145 +114,41 @@ function seedRegistry() {
   }, planFile, 1);
 }
 
-test("production metrics-only SFTP mapping retains provenance in the registry without raw cache, with alias-normalized mean and sample SD", async () => {
-  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "p6-metrics-chain-"));
-  try {
-    const provider = providerFor(workspace, csvFor([
-      { seed: 42, metric: "AUC", value: 0.4 }, { seed: 42, metric: "roc_auc", value: 0.4 },
-      { seed: 42, metric: "ECE", value: 0.1 }, { seed: 42, metric: "ece", value: 0.1 },
-      { seed: 43, metric: "auc", value: 0.6 }, { seed: 43, metric: "ECE", value: 0.3 },
-    ]));
-    const report = await __syncPendingResultMetricsForTest(provider);
-    assert.equal(report.downloaded, true);
-    assert.equal(report.included.length, 1);
-    const call = provider.calls.find(([method]) => method === "sync.downloadMappedPaths");
-    assert.ok(call);
-    assert.equal(call[0], "sync.downloadMappedPaths");
-    assert.equal(call[1].metricsOnly, true);
-    assert.equal(call[1].memoryOnly, true);
-    assert.equal(call[1].confirm, true);
-    assert.equal(call[1].pathConfirmed, true);
-    assert.equal(call[1].server.id, "worker-a");
-    assert.equal(call[1].server.host, "worker-a.example", "the mapped transfer follows the configured Worker endpoint");
-    assert.equal(call[1].server.remotePath, "/project");
-    assert.equal(provider.calls.filter(([method]) => method === "sync.downloadMappedPaths").length, 1,
-      "the cross test uses the mapped metrics transport seam once");
-    assert.deepEqual(call[1].entries.map((entry) => entry.remotePath), [remoteCsv]);
-    assert.ok(call[1].entries.every((entry) => !/weight|checkpoint|\.log$/i.test(entry.remotePath)));
-    const localMetricFiles = [];
-    const visit = (directory) => {
-      for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
-        const full = path.join(directory, entry.name);
-        if (entry.isDirectory()) visit(full);
-        else if (entry.isFile() && full.includes(localCsvPattern)) localMetricFiles.push(full);
-      }
-    };
-    visit(workspace);
-    assert.equal(localMetricFiles.length, 0, "raw metric bytes are parsed in memory, never saved as local cache");
-    const outputRoot = path.join(workspace, "experiments", "results", "set", "final");
-    const csv = fs.readFileSync(path.join(outputRoot, "final.csv"), "utf8");
-    const markdown = fs.readFileSync(path.join(outputRoot, "final.md"), "utf8");
-    const table = tablesModule.exports.readCsv(csv);
-    assert.equal(table.header.filter((column) => column === "roc_auc_mean").length, 1);
-    assert.equal(table.rows[0][table.header.indexOf("roc_auc_mean")], "0.5");
-    assert.ok(Math.abs(Number(table.rows[0][table.header.indexOf("roc_auc_sd")]) - Math.sqrt(0.02)) < 1e-12);
-    assert.equal(table.rows[0][table.header.indexOf("ece_mean")], "0.2");
-    assert.ok(Math.abs(Number(table.rows[0][table.header.indexOf("ece_sd")]) - Math.sqrt(0.02)) < 1e-12);
-    assert.match(markdown, /0\.5000 ± 0\.1414/);
-    const registry = JSON.parse(fs.readFileSync(path.join(workspace, "simple_cluster", "results", "project_table_registry.json"), "utf8"));
-    assert.deepEqual(Object.keys(registry.plans[planFile].records[0].metrics).sort(), ["AUC", "ECE", "ece", "roc_auc"].sort());
-    assert.equal(registry.plans[planFile].records[0].runId, "run-complete");
-    assert.ok(registry.plans[planFile].records.every(record=>record.runId==="run-complete"));
-  } finally {
-    vscode.workspace.workspaceFolders = [];
-  }
+const {fixture}=require('../_helpers/freshResultHost');
+test("actual UI entry reads native manifests and alias metrics into memory without a result registry", async()=>{
+  const f=fixture();f.raw['work_dirs/alpha42/metrics.csv']=csvFor([{seed:42,metric:'AUC',value:.4},{seed:42,metric:'roc_auc',value:.4},{seed:42,metric:'ECE',value:.1}]);
+  f.host.parseFreshResultMetric=RealtimeTunnelPanelProvider.prototype.parseFreshResultMetric;
+  const report=await __syncPendingResultMetricsForTest(f.host);
+  assert.equal(report.current,true,JSON.stringify(report.skipped));assert.equal(report.included.length,1);
+  const table=tablesModule.exports.readCsv(fs.readFileSync(path.join(f.root,'experiments/results/set/final/final.csv'),'utf8'));
+  assert.equal(table.rows[0][table.header.indexOf('roc_auc_mean')],'0.4');
+  assert.equal(fs.existsSync(path.join(f.root,'simple_cluster/results/project_table_registry.json')),false);
+  assert.ok(f.calls.filter(call=>call[0]==='sync.downloadMappedPaths').every(call=>call[1].memoryOnly));
 });
-
-test("conflicting raw aliases retain the previous published CSV and Markdown", async () => {
-  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "p6-metrics-conflict-"));
-  try {
-    const oldRegistry = seedRegistry();
-    const prior = tablesModule.exports.buildTables(oldRegistry)["set/final"];
-    const outputRoot = path.join(workspace, "experiments", "results", "set", "final");
-    fs.mkdirSync(outputRoot, { recursive: true });
-    fs.writeFileSync(path.join(outputRoot, "final.csv"), tablesModule.exports.writeCsv(prior.header, prior.rows), "utf8");
-    fs.writeFileSync(path.join(outputRoot, "final.md"), prior.markdown, "utf8");
-    const beforeCsv = fs.readFileSync(path.join(outputRoot, "final.csv"), "utf8");
-    const beforeMd = fs.readFileSync(path.join(outputRoot, "final.md"), "utf8");
-    const provider = providerFor(workspace, csvFor([
-      { seed: 42, metric: "AUC", value: 0.4 }, { seed: 42, metric: "roc_auc", value: 0.8 },
-      { seed: 43, metric: "AUC", value: 0.6 },
-    ]), oldRegistry);
-    const report = await __syncPendingResultMetricsForTest(provider);
-    assert.ok(report.skipped.some(issue=>/等价指标值冲突/.test(issue)), "the conflict stays visible in the partial-sync report");
-    assert.equal(report.included.length, 0);
-    assert.equal(provider.calls.find(([method]) => method === "sync.downloadMappedPaths")[1].metricsOnly, true);
-    assert.equal(fs.readFileSync(path.join(outputRoot, "final.csv"), "utf8"), beforeCsv);
-    assert.equal(fs.readFileSync(path.join(outputRoot, "final.md"), "utf8"), beforeMd);
-  } finally {
-    vscode.workspace.workspaceFolders = [];
-  }
+test("conflicting aliases remain visible as an unknown job and do not borrow the previous export",async()=>{
+  const f=fixture();f.host.parseFreshResultMetric=RealtimeTunnelPanelProvider.prototype.parseFreshResultMetric;
+  f.raw['work_dirs/alpha42/metrics.csv']=csvFor([{seed:42,metric:'AUC',value:.4}]);
+  await __syncPendingResultMetricsForTest(f.host);
+  f.raw['work_dirs/alpha42/metrics.csv']=csvFor([{seed:42,metric:'AUC',value:.4},{seed:42,metric:'roc_auc',value:.8}]);
+  const report=await __syncPendingResultMetricsForTest(f.host);
+  assert.equal(report.results.length,0);assert.equal(report.jobs[0].state,'unknown');assert.match(report.missing.join(' '),/指标.*冲突/);
 });
-
-test("completed plans stay untouched until manual metrics sync downloads and publishes their results", async () => {
-  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "p6-postprocess-chain-"));
-  try {
-    vscode.workspace.workspaceFolders = [{ uri: { scheme: "file", path: workspace.replace(/\\/g, "/"),
-      fsPath: workspace, toString: () => "file://" + workspace.replace(/\\/g, "/") } }];
-    const provider = providerFor(workspace, csvFor([
-      { seed: 42, metric: "AUC", value: 0.4 }, { seed: 43, metric: "AUC", value: 0.6 },
-    ]));
-    provider.testSummary.results = [42, 43].map((seed) => ({
-      workerId: "worker-a", runId: "run-complete", attempt: "1", planRevision: "rev-1",
-      dimensions: { case: "alpha", seed: String(seed), method: "demo", dataset: "set" },
-      metrics: { AUC: { value: seed === 42 ? 0.4 : 0.6 } }, sourceFiles: [{ path: remoteCsv }],
-    }));
-    let queue = { schemaVersion: 1, publishedSignature: "published-v1", previewSignature: "preview-v1",
-      plans: [{ id: "demo", planFile, revision: "rev-1", planJobCount: 1, recoveryMissingCount: 0,
-        jobs: [{ index: 0, attempt: 1, commandId: "command-1", status: "completed", workerId: "worker-a" }] }] };
-    provider.loadDistributedQueue = async () => queue;
-    provider.saveDistributedQueue = async (_root, next, options) => {
-      queue = options?.mutateLatest ? options.mutateLatest(queue) : next;
-    };
-    provider.distributedQueueWritePromise = Promise.resolve();
-    const stages = [];
-    provider.syncDistributedJobArtifacts = async (_root, _queue, stage) => { stages.push(stage); };
-    provider.rebuildDistributedResults = async (_root, _queue, preview) => { stages.push(preview ? "preview-rebuild" : "final-rebuild"); };
-    provider.recordActionError = (action) => { throw new Error("unexpected postprocess error: " + action.message); };
-    const host = Object.assign(Object.create(RealtimeTunnelPanelProvider.prototype), provider);
-    const confirmations = [];
-    const confirmDownloads = host.confirmMappedResultDownloads;
-    host.confirmMappedResultDownloads = async (...args) => {
-      confirmations.push(args[4]);
-      return confirmDownloads.apply(host, args);
-    };
-    const warningCount = uiNotices.filter(([kind]) => kind === "warning").length;
-    host.scheduleDistributedPostprocess(workspace, true);
-    await Promise.resolve();
-    assert.deepEqual(stages, [], "completion must not trigger result postprocessing");
-    assert.equal(provider.calls.length, 0, "completion must not download metric files");
-    await host.syncPendingResultMetricsFromUi();
-
-    assert.deepEqual(stages, [], "manual metric sync builds local tables without remote mirroring or rebuilding");
-    assert.equal(provider.calls.filter(([method]) => method === "sync.downloadMappedPaths").length, 1, "manual sync reaches mapped SFTP transport once");
-    const [method, params] = provider.calls.find(([method]) => method === "sync.downloadMappedPaths");
-    assert.equal(method, "sync.downloadMappedPaths");
-    assert.equal(params.metricsOnly, true);
-    assert.equal(params.memoryOnly, true);
-    assert.equal(confirmations.length, 0, "memory-only parsing does not request an unrelated local raw-file overwrite");
-    assert.deepEqual(params.entries.map((entry) => entry.remotePath), [remoteCsv]);
-    const registry = JSON.parse(fs.readFileSync(path.join(workspace, "simple_cluster/results/project_table_registry.json"), "utf8"));
-    assert.ok(registry.plans[planFile].records.every(record=>record.runId==="run-complete"), "publication records the downloaded result generation");
-    assert.equal(uiNotices.filter(([kind]) => kind === "warning").length, warningCount, "new metric files do not require overwrite confirmation");
-    assert.ok(fs.existsSync(path.join(workspace, "experiments", "results", "set", "final", "final.csv")));
-    assert.ok(fs.existsSync(path.join(workspace, "experiments", "results", "set", "final", "final.md")));
-
-    host.scheduleDistributedPostprocess(workspace, true);
-    await Promise.resolve();
-    assert.equal(provider.calls.filter(([method]) => method === "sync.downloadMappedPaths").length, 1, "later queue ticks do not repeat the manual download");
-  } finally {
-    vscode.workspace.workspaceFolders = [];
-  }
+test("pulled completion automatically updates results without mirroring, remote aggregation or persisted completion marks",async()=>{
+  const f=fixture();const {resultCollectionHost}=require('../../src/extension/ResultCollectionHost.ts');
+  const service=resultCollectionHost(f.host);
+  await new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(Error('automatic summary did not complete')),3000);
+    f.host.postState=()=>{clearTimeout(timer);resolve();};
+    service.observe({workerId:'a',queryComplete:true,capabilities:{resultCollection:1},tasks:[{commandId:'command',observation:{result:{verified:true,runId:'command',status:'completed'},tmux:{dead:true,exitCode:0}}}]});
+  });
+  assert.equal(f.host.resultsSummary.current,true,JSON.stringify(f.host.resultsSummary.skipped));assert.equal(f.host.resultsSummary.completed,1);
+  assert.ok(!f.calls.some(call=>/merge|rebuild|serverToServer/.test(call[0])));
+});
+test("API and legacy parse entry use the same fresh collection as UI",async()=>{
+  const f=fixture();
+  const report=await RealtimeTunnelPanelProvider.prototype.apiResultsList.call(f.host,{planFile});
+  assert.equal(report.source,'active_query');assert.equal(report.results.length,1);
+  const parsed=await RealtimeTunnelPanelProvider.prototype.runActionCommandCore.call(f.host,'parseResults',{});
+  assert.equal(parsed.source,'active_query');assert.equal(parsed.completed,1);
 });
 
 test("late local lock ACK is fenced before the captured Worker client can send", async () => {

@@ -69,9 +69,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.332"
-RUNTIME_VERSION = "0.5.332"
-PLUGIN_VERSION = "0.5.332"
+AGENT_VERSION = "0.5.333"
+RUNTIME_VERSION = "0.5.333"
+PLUGIN_VERSION = "0.5.333"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -17132,8 +17132,9 @@ def serve_http(args):
                     if len(raw) > 1024 * 1024:
                         raise ValueError("TASK_QUERY_LIMIT")
                     payload = json.loads(raw.decode("utf-8"))
-                    value = task_query(root, payload.get("queries") or [])
-                    if payload.get("declarations") is not None:
+                    collection = bool((payload.get("discovery") or {}).get("collect")) or any(isinstance(item, dict) and item.get("collect") is True for item in payload.get("declarations") or [])
+                    value = task_collection_query(root, payload.get("declarations") or []) if collection else task_query(root, payload.get("queries") or [])
+                    if payload.get("declarations") is not None and not collection:
                         value["declaredResults"] = task_declared_results(root, payload["declarations"], value["tasks"])
                     if payload.get("discovery"):
                         value["declaredJobs"] = task_describe_plan(root, payload["discovery"])
@@ -17750,12 +17751,77 @@ def task_public_observation(root, job, row=None):
             "logPath": row.get("logPath") if row else "", "observation": observed, "lifecycleProtocol": 2, "durableAccepted": True}
 
 
+def task_collection_result(root, declaration):
+    """Bounded live metadata for memory-only collection; never use an owner, queue or hash database."""
+    output = declaration["output_dir"]
+    manifest_path = output + "/artifact_manifest.json"
+    manifest = task_safe_path(root, manifest_path)
+    result = {"index": declaration["index"], "outputDir": output, "completed": False, "resultState": "missing"}
+    if not os.path.isfile(manifest):
+        return result
+    result["resultState"] = "incomplete"
+    def fingerprint(relative):
+        full = task_safe_path(root, relative)
+        before = os.stat(full)
+        if not os.path.isfile(full) or before.st_size <= 0 or before.st_size > 4 * 1024 * 1024:
+            raise ValueError("RESULT_FILE_SIZE_INVALID: " + relative)
+        with open(full, "rb") as handle:
+            text = handle.read(4 * 1024 * 1024 + 1)
+        after = os.stat(full)
+        if (before.st_ino, before.st_size, before.st_mtime_ns, before.st_ctime_ns) != (after.st_ino, after.st_size, after.st_mtime_ns, after.st_ctime_ns) or len(text) != before.st_size:
+            raise ValueError("RESULT_FILE_CHANGED: " + relative)
+        return text, {"remotePath": relative, "bytes": len(text), "sha256": hashlib.sha256(text).hexdigest()}
+    text, proof = fingerprint(manifest_path)
+    report = json.loads(text.decode("utf-8")).get("simpleExperiment") or {}
+    mode = declaration["mode"]
+    if report.get("status") != "completed" or report.get("outputDir") != output or report.get("mode") != mode or not report.get("runId"):
+        return result
+    if report.get("job") != {key: declaration[key] for key in ("index", "case", "seed")}:
+        raise ValueError("RESULT_MANIFEST_JOB_MISMATCH")
+    if report.get("planFile") and declaration.get("planFile") and report["planFile"] != declaration["planFile"]:
+        raise ValueError("RESULT_MANIFEST_PLAN_MISMATCH")
+    weights = report.get("weights") or []
+    if not isinstance(weights, list) or mode != "test" and not weights:
+        return result
+    for relative in weights:
+        if not isinstance(relative, str) or not relative.startswith(output + "/"):
+            raise ValueError("RESULT_WEIGHT_PATH_INVALID")
+        full = task_safe_path(root, relative)
+        expected = (report.get("fileStats") or {}).get(relative) or {}
+        if not os.path.isfile(full) or os.path.getsize(full) <= 0 or expected.get("size") is not None and os.path.getsize(full) != expected["size"]:
+            return result
+    files = [proof]
+    if mode != "train":
+        relative = declaration["result_csv"]
+        if report.get("resultCsv") != relative:
+            raise ValueError("RESULT_METRIC_PATH_MISMATCH")
+        _, metric = fingerprint(relative)
+        if (report.get("sha256") or {}).get(relative) and report["sha256"][relative] != metric["sha256"]:
+            raise ValueError("RESULT_METRIC_HASH_CHANGED")
+        files.append(metric)
+    return {**result, "completed": True, "resultState": "complete", "runId": report["runId"], "files": files}
+
+def task_collection_query(root, declarations):
+    if not isinstance(declarations, list) or len(declarations) > 500:
+        raise ValueError("DECLARED_RESULT_QUERY_LIMIT")
+    outputs = {item.get("output_dir") for item in declarations if isinstance(item, dict)}
+    tasks = []
+    for row in task_inventory(root):
+        if row.get("outputDir") in outputs:
+            tasks.append({"commandId": row.get("commandId"), "outputDir": row.get("outputDir"),
+                          "observation": {"tmux": {"dead": row["dead"], "exitCode": row["exitCode"], "windowId": row["tmuxWindowId"]}}})
+    return {"queryComplete": True, "generatedAt": now_iso(), "capabilities": {"resultCollection": 1}, "tasks": tasks,
+            "declaredResults": task_declared_results(root, declarations)}
+
 def task_declared_results(root, declarations, tasks=()):
     if not isinstance(declarations, list) or len(declarations) > 500:
         raise ValueError("DECLARED_RESULT_QUERY_LIMIT")
     results = []
     for declaration in declarations:
         try:
+            if declaration.get("collect") is True:
+                results.append(task_collection_result(root, declaration))
+                continue
             job = {"outputDir": declaration["output_dir"], "collectionResultCsv": declaration.get("result_csv"), "mode": declaration["mode"]}
             result = task_manifest_observation(root, job)
             expected = {"index": declaration["index"], "case": declaration["case"], "seed": declaration["seed"]}
@@ -17773,7 +17839,8 @@ def task_declared_results(root, declarations, tasks=()):
                 and isinstance(result.get("runId"), str) and result["runId"].strip() and result["verified"] and result.get("job") == expected
                 and not execution_blocks), "runId": result.get("runId") if result else None})
         except Exception as exc:
-            results.append({"index": declaration.get("index") if isinstance(declaration, dict) else None, "completed": False, "error": str(exc)})
+            results.append({"index": declaration.get("index") if isinstance(declaration, dict) else None,
+                            "outputDir": declaration.get("output_dir") if isinstance(declaration, dict) else None, "completed": False, "error": str(exc)})
     return results
 
 def task_query(root, queries=()):
@@ -17851,7 +17918,7 @@ def task_query(root, queries=()):
             "activeOperations": active_cleanup_operations(root) if "active_cleanup_operations" in globals() else [],
             "capabilities": {"schemaVersion": 1, "durablePlanQueue": True, "declaredJobPaths": True,
                              "idleGpuAdmission": True, "queuedJobRecall": True, "taskLifecycle": 2, "manualDispatch": 1,
-                             "gpuMemoryRatioScheduling": task_memory_scheduler_capability(root), "declaredResultQuery": 1}}
+                             "gpuMemoryRatioScheduling": task_memory_scheduler_capability(root), "declaredResultQuery": 1, "resultCollection": 1}}
 
 def task_session_prefix():
     prefix = re.sub(r"[^a-z0-9._-]+", "-", str(os.environ.get("SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX") or "simple").strip().lower()).strip("-")[:32]
@@ -17893,7 +17960,8 @@ def task_describe_plan(root, discovery):
     proc = subprocess.run(args, cwd=root, env=env, capture_output=True, text=True, timeout=8)
     if proc.returncode or len(proc.stdout) > 2 * 1024 * 1024:
         raise RuntimeError("PLAN_DECLARATIONS_QUERY_FAILED: " + (proc.stderr or "")[-1000:])
-    return json.loads(proc.stdout)["jobs"]
+    document = json.loads(proc.stdout)
+    return [{**job, "planHash": document.get("planHash")} for job in document["jobs"]]
 
 def task_queue_endpoint(root, worker_id):
     session = task_queue_session(root, worker_id)

@@ -69,6 +69,8 @@ const WorkerTaskQuery = __importStar(require("../features/WorkerTaskQuery"));
 const PlanRunHost_1 = require("./PlanRunHost");
 const WorkerPreparation_1 = require("../features/WorkerPreparation");
 const CompletedJobSyncHost_1 = require("./CompletedJobSyncHost");
+const ResultCollectionHost_1 = require("./ResultCollectionHost");
+const LatestResultExport_1 = require("../results/LatestResultExport");
 const RunConfirmation_1 = require("./RunConfirmation");
 const NativeResultManifest_1 = require("../results/NativeResultManifest");
 const JobAvailability = __importStar(require("../features/JobAvailability"));
@@ -103,10 +105,8 @@ const DistributedProjectContract_1 = require("../features/DistributedProjectCont
 const DistributedJobArtifacts_1 = require("../features/DistributedJobArtifacts");
 const ScalarAggregation_1 = require("../tensorboard/ScalarAggregation");
 const ProjectResultTables = __importStar(require("../results/ProjectResultTables"));
-const ProjectResultPublication = __importStar(require("../results/ProjectResultPublication"));
 const WrapperResultBundle = __importStar(require("../results/WrapperResultBundle"));
 const PlanVersionComparison = __importStar(require("../results/PlanVersionComparison"));
-const FourStateMetricBundle_1 = require("../results/FourStateMetricBundle");
 const PlanRunFreshness = __importStar(require("../results/PlanRunFreshness"));
 const PlanArtifactSyncStatus = __importStar(require("../features/PlanArtifactSyncStatus"));
 const PlanOutputRetention = __importStar(require("../features/PlanOutputRetention"));
@@ -1427,26 +1427,30 @@ class RealtimeTunnelPanelProvider {
             invoke: async (params) => this.invokeApi(params),
         };
     }
+    async currentResultPlanInputs() {
+        const root = workspaceRoot();
+        if (!root)
+            throw new Error("请先打开当前实验项目。");
+        const dir = planDirSafe();
+        const files = (await walkYaml(path.join(root, dir))).filter(file => !isArchivedPlanFile(root, dir, file));
+        if (files.length > 500)
+            throw new Error("结果查询最多支持 500 个当前 PLAN，请缩小项目范围。");
+        return mapLimited(files, 4, async (file) => {
+            const relative = path.relative(root, file).replace(/\\/g, "/");
+            const safe = safeWorkspacePlanPath(root, relative, dir);
+            const stat = await fs.lstat(safe);
+            if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 2 * 1024 * 1024)
+                throw new Error("PLAN 文件不是普通文件或超过 2 MiB：" + relative);
+            return parseLocalPlanText(relative, await fs.readFile(safe, "utf8"));
+        });
+    }
+    resultAdapterRules() { return pluginProjectAdapterRules(workspaceRoot()); }
+    parseFreshResultMetric(text, job) { return parseDownloadedMetricCsv(text, this.resultAdapterRules().csvColumnMapping || {}, job); }
     async apiResultsList(params = {}, signal) {
-        const selectedPlan = stringField(params, "planFile") || stringField(params, "planId") || this.planFileInput || this.selectedPlanId || "";
-        const summary = selectedPlan
-            ? await this.client.getResultsSummary(selectedPlan, { userInitiated: true, signal })
-            : this.resultsSummary;
-        signal?.throwIfAborted();
-        const filtered = selectedPlan ? this.filterResultsSummaryForPlan(summary, selectedPlan) : compactResultsSummaryForWebview(summary);
-        const rows = Array.isArray(filtered?.results)
-            ? filtered.results
-            : Array.isArray(filtered?.finalResults)
-                ? filtered.finalResults
-                : Array.isArray(filtered?.final_results)
-                    ? filtered.final_results
-                    : [];
-        return {
-            source: summary ? "resultsSummary" : "none",
-            planFile: selectedPlan,
-            results: rows.slice(0, 200),
-            summary: filtered || null,
-        };
+        const report = await (0, ResultCollectionHost_1.resultCollectionHost)(this).update(signal);
+        const selected = stringField(params, "planFile") || stringField(params, "planId") || "";
+        const results = (report.results || []).filter(row => !selected || samePlanSelection(row.planFile, selected));
+        return { source: "active_query", planFile: selected, results: results.slice(0, 200), summary: { ...report, results } };
     }
     async readWorkerTaskSnapshot(workerId, options = {}) {
         const root = workspaceRoot();
@@ -4218,6 +4222,8 @@ class RealtimeTunnelPanelProvider {
     async withHostOperationLease(actionType, actionLabel, operation, options = {}) {
         if (actionType !== "installPluginUpdates")
             require("../updates/Bootstrap").assertBusinessAllowed();
+        if (["rebuildProjectResultTables", "syncAllResultArtifacts", "syncPendingPlanArtifacts", "refreshLocalResults", "openLocalResultTable"].includes(actionType))
+            return operation();
         // Preflight, reads, transfer orchestration and cancellation use their target-level guards.
         if (/^(runPlan|reproducePlan|runAllPlans|validatePlan|dryRunPlan|parseResults|stop|abort|cancel|kill|clearTmux|sync|upload|download|distribute|prepareAgents|deploy|refresh|fetch|get|check|plot|startPpt)/i.test(actionType))
             return operation();
@@ -5919,36 +5925,8 @@ class RealtimeTunnelPanelProvider {
             this.reportPlanStage(message, "已收到校验并提交运行，正在准备计划与插件接入规则…");
             await new Promise((resolve) => setTimeout(resolve, 0));
         }
-        if (RESULT_PARSE_COMMANDS.has(command)) {
-            const key = this.resultParseIdempotencyKey(command, message);
-            message.resultParseKey = key;
-            const active = this.activeResultParseOperation(key) || this.resultParseInFlight.get(key);
-            if (active) {
-                const record = active && typeof active === "object" && active.operationId ? active : {};
-                return { ...record, ok: true, merged: true, operationId: String(record.operationId || ""), resultParseKey: key };
-            }
-            const execution = (async () => await this.runActionCommandLeased(command, message, { suppressConflictUi: true }))();
-            this.resultParseInFlight.set(key, execution);
-            try {
-                return await execution;
-            }
-            catch (error) {
-                if (!(error instanceof HostOperationLease_1.HostOperationLeaseConflictError))
-                    throw error;
-                for (let attempt = 0; attempt < 12; attempt += 1) {
-                    await sleep(250);
-                    await this.loadProjectLocalOperationsState().catch(() => undefined);
-                    const merged = this.activeResultParseOperation(key);
-                    if (merged)
-                        return { ...merged, ok: true, merged: true, resultParseKey: key };
-                }
-                throw new Error("相同结果解析仍在其他窗口执行；已等待 3 秒仍未合并。");
-            }
-            finally {
-                if (this.resultParseInFlight.get(key) === execution)
-                    this.resultParseInFlight.delete(key);
-            }
-        }
+        if (RESULT_PARSE_COMMANDS.has(command))
+            return this.rebuildProjectResultTablesFromUi({ title: "更新结果汇总" });
         if (!PLAN_SUBMISSION_COMMANDS.has(command))
             return await this.runActionCommandLeased(command, message);
         const key = `${workspaceRoot()}\0${normalizePlanSelectionKey(operationResultPlanFile(this.actionBody(message))).toLowerCase()}`;
@@ -5968,6 +5946,8 @@ class RealtimeTunnelPanelProvider {
         return this.runActionCommandCore(command, message);
     }
     async runActionCommandCore(command, message) {
+        if (command === "parseResults" || command === "refreshResults")
+            return (0, ResultCollectionHost_1.resultCollectionHost)(this).update();
         const workflowBinding = PLAN_SUBMISSION_COMMANDS.has(command)
             ? WorkflowBinding.bindWorkflowWorkspace(this.actionBody(message).workspace, workspaceRoot()) : undefined;
         const bindingGeneration = this.projectContextGeneration;
@@ -10173,23 +10153,11 @@ class RealtimeTunnelPanelProvider {
         throw new Error(detail);
     }
     async withManualResultSync(work) {
-        const root = workspaceRoot();
-        const counts = this.manualResultSyncCounts;
-        counts.set(root, (counts.get(root) || 0) + 1);
-        try {
-            return await work();
-        }
-        finally {
-            const remaining = (counts.get(root) || 1) - 1;
-            if (remaining)
-                counts.set(root, remaining);
-            else {
-                counts.delete(root);
-                this.queuePlanArtifactSyncStatusCheck(true);
-            }
-        }
+        return work();
     }
     async withSafeTransferRetry(command, message, work) {
+        if (["rebuildProjectResultTables", "syncAllResultArtifacts", "syncPendingPlanArtifacts"].includes(command))
+            return work();
         if (!SAFE_TRANSFER_RETRY_COMMANDS.has(command))
             return work();
         const projectContext = this.captureProjectContext();
@@ -12403,157 +12371,8 @@ class RealtimeTunnelPanelProvider {
         return hashes;
     }
     async rebuildDistributedResults(root, queue, previewOnly, verifyAll = false) {
-        queue = PlanOutputRetention.withValidatedPlanJobCounts(queue, this.localPlanMetadata?.plans || []);
-        const contract = this.distributedProjectContract();
-        const targets = new Map(this.workerCodeSyncTargets().map((target) => [target.id, target]));
-        const online = [...targets.keys()].filter((id) => this.lastWorkerProbes[id]?.status === "ok");
-        const planFiles = uniqueStrings((queue.plans || []).map((plan) => String(plan.planFile || "")).filter(Boolean));
-        const selected = planFiles.flatMap((planFile) => {
-            const completed = PlanRunFreshness.selectLatestCompletePlanRun(queue, planFile);
-            if (completed)
-                return [completed.plan];
-            if (!previewOnly)
-                return [];
-            return [...(queue.plans || [])].filter((plan) => samePlanSelection(plan.planFile, planFile))
-                .sort((left, right) => Date.parse(String(right.enqueuedAt || "")) - Date.parse(String(left.enqueuedAt || "")))[0] || [];
-        });
-        if (!selected.length)
-            return;
-        const available = online.find((id) => selected.every((plan) => plan.jobs.filter((job) => job.status === "completed" && job.artifacts)
-            .every((job) => (previewOnly ? job.fragmentWorkerIds : job.mirroredWorkerIds)?.includes(id))));
-        if (!available)
-            return;
-        const manifest = { schemaVersion: 1, plans: selected.map((plan) => ({ runId: plan.id, planFile: plan.planFile, revision: plan.revision,
-                projectId: plan.projectId, codeFingerprint: plan.codeFingerprint,
-                expectedJobCount: Number(plan.fullPlanJobCount || plan.planJobCount || plan.jobs.length), recoveryMissingCount: Number(plan.recoveryMissingCount || 0),
-                expectedJobs: plan.jobs.map((job) => ({ case: job.case, seed: job.seed })),
-                jobStates: plan.jobs.map((job) => ({ runId: plan.id, case: job.case, seed: job.seed,
-                    ...(plan.resultPathPolicy === "declared" ? { globalJobId: job.globalJobId, commandId: job.commandId } : { attempt: job.attempt }),
-                    unavailable: DistributedPlanQueue.jobIsUnavailable(plan, job) ? { reason: job.unavailable.reason, markedAt: job.unavailable.markedAt } : undefined,
-                    status: job.status, workerId: job.workerId, finishedAt: job.finishedAt })),
-                jobs: plan.jobs.filter((job) => job.status === "completed" && job.artifacts).map((job) => ({
-                    runId: plan.id, case: job.case, seed: job.seed, outputDir: job.outputDir,
-                    ...(plan.resultPathPolicy === "declared" ? { resultPathPolicy: "declared", globalJobId: job.globalJobId,
-                        index: job.index, collectionResultCsv: job.collectionResultCsv, planRevision: plan.revision,
-                        lifecycleProtocol: job.lifecycleProtocol, ownerSha256: job.artifacts[`${job.outputDir}/${(0, NativeResultManifest_1.jobEvidenceName)(job)}`], resultCsvSha256: job.artifacts[job.collectionResultCsv] } : { attempt: job.attempt }),
-                    commandId: job.commandId,
-                    sourceWorkerId: job.workerId, codeFingerprint: plan.codeFingerprint,
-                    artifacts: Object.fromEntries([...new Set([...contract.fragmentPaths, ...contract.requiredPaths])]
-                        .filter((name) => job.artifacts[`${job.outputDir}/${name}`])
-                        .map((name) => [name, job.artifacts[`${job.outputDir}/${name}`]])),
-                    configSha256: job.artifacts[`${job.outputDir}/${contract.configPath}`],
-                    checkpointSha256: job.artifacts[`${job.outputDir}/${contract.checkpointPath}`],
-                    resultRowsSha256: job.artifacts[`${job.outputDir}/${contract.resultRowsPath}`],
-                    fourStateSha256: job.artifacts[`${job.outputDir}/${contract.fourStatePath}`],
-                })) })) };
-        const signature = crypto.createHash("sha256").update(JSON.stringify(manifest)).digest("hex");
-        const publish = !previewOnly && selected.every((plan) => !plan.recoveryConflict && !plan.recoveryMissingCount
-            && Number(plan.fullPlanJobCount || plan.planJobCount || plan.jobs.length) === plan.jobs.length && plan.jobs.every((job) => job.status === "completed"
-            && contract.requiredPaths.every((name) => Boolean(job.artifacts?.[`${job.outputDir}/${name}`])) && Boolean(job.mirroredWorkerIds?.length)));
-        const mirroredSources = publish ? queue.publishedWorkerIds : queue.previewWorkerIds;
-        const reusableSource = mirroredSources?.find((id) => online.includes(id))
-            || (publish ? queue.publishedWorkerId : queue.previewWorkerId);
-        const alreadyBuilt = publish
-            ? queue.publishedSignature === signature && Boolean(queue.publishedPaths?.length) && Boolean(reusableSource && online.includes(reusableSource))
-            : queue.previewSignature === signature && Boolean(queue.previewPaths?.length) && Boolean(reusableSource && online.includes(reusableSource));
-        let paths = alreadyBuilt ? (publish ? queue.publishedPaths : queue.previewPaths) || [] : [];
-        let sourceWorkerId = alreadyBuilt ? reusableSource : available;
-        if (!alreadyBuilt) {
-            const target = targets.get(available);
-            const operationId = makeOpId("distributed-merge");
-            const submitted = await this.client.postWorkerAction(available, "rebuild-distributed-results", {
-                opId: operationId, operationId,
-                condaEnv: target.condaEnv, manifest, publish, mergeModule: contract.mergeModule
-            });
-            const response = remoteActionPendingStatus(resultStatus(submitted)) ? await this.waitForOperationTerminalResult("rebuild-distributed-results", submitted, "结果重建", 0, available) : submitted;
-            if (response?.status !== "completed")
-                throw new Error(String(response?.message || "分布式结果重建失败"));
-            paths = Array.isArray(response.outputPaths) ? response.outputPaths : [];
-            if (!paths.length)
-                throw new Error("结果重建未返回输出文件清单");
-            sourceWorkerId = available;
-            if (publish) {
-                queue.publishedSignature = signature;
-                queue.publishedWorkerId = available;
-                queue.publishedWorkerIds = [available];
-                queue.publishedPaths = paths;
-            }
-            else {
-                queue.previewSignature = signature;
-                queue.previewWorkerId = available;
-                queue.previewWorkerIds = [available];
-                queue.previewPaths = paths;
-            }
-            await this.patchDistributedPublication(root, publish ? {
-                publishedSignature: queue.publishedSignature, publishedWorkerId: queue.publishedWorkerId,
-                publishedWorkerIds: queue.publishedWorkerIds, publishedPaths: queue.publishedPaths
-            } : { previewSignature: queue.previewSignature, previewWorkerId: queue.previewWorkerId,
-                previewWorkerIds: queue.previewWorkerIds, previewPaths: queue.previewPaths });
-        }
-        if (!sourceWorkerId || !paths.length)
-            return;
-        const sourceRow = targets.get(sourceWorkerId);
-        if (!sourceRow || !online.includes(sourceWorkerId))
-            return;
-        const source = this.sftpServerOptions(sourceRow);
-        const sourceHashes = verifyAll && alreadyBuilt ? await this.distributedOutputHashes(source, paths) : undefined;
-        if (sourceHashes && paths.some((file) => !sourceHashes[file]))
-            throw new Error(`${previewOnly ? "增量预览" : "正式结果"}来源缺少已发布文件，需重新生成`);
-        for (const workerId of online) {
-            if (workspaceRoot() !== root)
-                return;
-            const recorded = (publish ? queue.publishedWorkerIds : queue.previewWorkerIds)?.includes(workerId);
-            if (recorded && (!verifyAll || !alreadyBuilt))
-                continue;
-            const destinationRow = targets.get(workerId);
-            const destination = this.sftpServerOptions(destinationRow);
-            if (recorded) {
-                let matches = false;
-                try {
-                    const hashes = await this.distributedOutputHashes(destination, paths);
-                    matches = paths.every((file) => hashes[file] && hashes[file] === sourceHashes?.[file]);
-                }
-                catch { /* Recopy and verify below. */ }
-                if (matches)
-                    continue;
-                const field = publish ? "publishedWorkerIds" : "previewWorkerIds";
-                queue[field] = (queue[field] || []).filter((id) => id !== workerId);
-                await this.patchDistributedPublication(root, { [field]: queue[field] });
-            }
-            try {
-                await this.assertSshTransportIdentities([sourceRow, destinationRow]);
-                const batchSize = 5000;
-                const batchCount = Math.ceil(paths.length / batchSize) || 1;
-                for (let offset = 0; offset < paths.length; offset += batchSize) {
-                    const relativePaths = paths.slice(offset, offset + batchSize);
-                    await this.simpleSftpApiCall("sync.serverToServerFpsync", { source,
-                        destination: { ...destination, host: destination.networkHost || destination.host },
-                        relativePaths, confirm: true, pathConfirmed: true,
-                        taskLabel: (0, PlanArtifactTransfer_1.workerFpsyncTaskLabel)({
-                            action: publish ? "发布正式共享结果" : "发布增量预览结果",
-                            sourceId: sourceWorkerId, destinationId: workerId,
-                            detail: `${selected.map((plan) => plan.planFile).filter(Boolean).slice(0, 3).join("、") || "共享结果"}（${relativePaths.length} 个文件）`,
-                            batch: offset / batchSize + 1, batchCount,
-                        }) });
-                }
-                const [sourceAfter, destinationAfter] = await Promise.all([
-                    this.distributedOutputHashes(source, paths), this.distributedOutputHashes(destination, paths),
-                ]);
-                if (paths.some((file) => !sourceAfter[file] || sourceAfter[file] !== destinationAfter[file]))
-                    throw new Error("共享结果内容校验失败");
-                if (publish) {
-                    queue.publishedWorkerIds = [...new Set([...(queue.publishedWorkerIds || []), workerId])];
-                    await this.patchDistributedPublication(root, { publishedWorkerIds: queue.publishedWorkerIds });
-                }
-                else {
-                    queue.previewWorkerIds = [...new Set([...(queue.previewWorkerIds || []), workerId])];
-                    await this.patchDistributedPublication(root, { previewWorkerIds: queue.previewWorkerIds });
-                }
-            }
-            catch (error) {
-                this.recordActionError({ command: "distributedResultMirror", message: `${workerId} ${publish ? "正式结果" : "逐 job 状态"}：${errorMessage(error)}` });
-            }
-        }
+        // Result aggregation is local and memory-only. No remote merge action or publication ledger.
+        return;
     }
     planOutputRetentionMode(_root) {
         return "latest-only";
@@ -18080,9 +17899,7 @@ class RealtimeTunnelPanelProvider {
         return this.rebuildProjectResultTablesFromUi({ planFiles: [planFile], title: "更新当前 Plan 指标表" });
     }
     async syncPendingResultMetricsFromUi(options = {}) {
-        if (options.background)
-            return { merged: false, downloaded: false, reason: "manual-only", plans: [], discovered: 0, included: [], missing: [], skipped: [] };
-        return this.rebuildProjectResultTablesFromUi({ planFiles: options.planFiles, title: "同步服务器结果并更新总表" });
+        return options.background ? (0, ResultCollectionHost_1.resultCollectionHost)(this).update() : this.rebuildProjectResultTablesFromUi(options);
     }
     async summaryForMetricDownload(client, planFile) {
         const summary = typeof client?.getResultsSummary === "function"
@@ -19068,121 +18885,25 @@ class RealtimeTunnelPanelProvider {
         };
     }
     async loadProjectTableRegistry(root) {
-        await this.recoverProjectResultPublicationIfNeeded(root);
-        const file = safeWorkspaceChildPath(root, "simple_cluster/results/project_table_registry.json");
-        const source = await fs.readFile(file, "utf8").catch((error) => {
-            if (error?.code === "ENOENT")
-                return "";
-            throw error;
-        });
-        if (!source)
-            return ProjectResultTables.emptyTableRegistry();
-        const parsed = JSON.parse(source);
-        if (parsed?.schemaVersion !== 1 || !parsed.plans || typeof parsed.plans !== "object")
-            throw new Error("全项目结果注册表格式不支持，请检查 simple_cluster/results/project_table_registry.json。");
-        return parsed;
+        // Compatibility only. Historical registries never supply current result rows.
+        return ProjectResultTables.emptyTableRegistry();
     }
     async withProjectResultPublicationLease(root, resultDir, work) {
-        if (!this.hostOperationLease)
-            return work();
-        const resultTarget = path.resolve(root, resultDir);
-        const registryTarget = path.resolve(root, "simple_cluster/results/project_table_registry.json");
-        return this.hostOperationLease.run({ pluginId: "simple-local.simple-experiment", workspaceUri: String(root),
-            hostProjectPath: root, actionType: "result-table-publication", actionLabel: "发布全项目结果表", waitForConflict: true,
-            resources: [{ server: "local", project: root, target: resultTarget }, { server: "local", project: root, target: registryTarget }] }, work);
+        return work();
     }
     async recoverProjectResultPublicationIfNeeded(root, resultDir = this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR) {
-        const journal = ProjectResultPublication.projectResultPublicationJournalPath(root);
-        if (!fsNode.existsSync(journal))
-            return "clean";
-        return this.withProjectResultPublicationLease(root, resultDir, async () => {
-            const status = await ProjectResultPublication.recoverProjectResultPublication(root, resultDir);
-            if (status !== "clean")
-                this.invalidateResultCatalogCache("resultPublicationRecovery");
-            return status;
-        });
+        return "clean";
     }
     async readProjectResultCatalog(root, mappings = {}, resultDir = this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, options = {}) {
-        return this.withProjectResultPublicationLease(root, resultDir, async () => {
-            const status = await ProjectResultPublication.recoverProjectResultPublication(root, resultDir);
-            if (status !== "clean")
-                this.invalidateResultCatalogCache("resultPublicationRecovery");
-            if (options.worker)
-                return new Promise((resolve, reject) => {
-                    const worker = new worker_threads_1.Worker(path.join(__dirname, "..", "results", "ProjectResultCatalogWorker.js"));
-                    let settled = false;
-                    const finish = (error, catalog) => {
-                        if (settled)
-                            return;
-                        settled = true;
-                        clearTimeout(timeout);
-                        void worker.terminate().catch(() => undefined);
-                        if (error)
-                            reject(error);
-                        else
-                            resolve(catalog);
-                    };
-                    const timeout = setTimeout(() => finish(new Error("本地结果目录读取超时，已有结果保持不变。")), 15_000);
-                    worker.once("message", message => {
-                        if (message?.error)
-                            finish(new Error(String(message.error)));
-                        else if (message?.id !== 1 || !Array.isArray(message?.catalog?.datasets))
-                            finish(new Error("本地结果目录读取回执无效。"));
-                        else
-                            finish(undefined, message.catalog);
-                    });
-                    worker.once("error", error => finish(error));
-                    worker.once("exit", code => finish(new Error(`本地结果目录读取线程提前退出（${code}）。`)));
-                    try {
-                        worker.postMessage({ id: 1, root, resultDir, mappings });
-                    }
-                    catch (error) {
-                        finish(error);
-                    }
-                });
-            return ProjectResultTables.resultCatalog(root, resultDir, mappings || {});
-        });
+        return (0, LatestResultExport_1.latestResultCatalog)(root, resultDir);
     }
     async readProjectResultTableCatalog(root, resultDir = this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR) {
-        return this.withProjectResultPublicationLease(root, resultDir, async () => {
-            const status = await ProjectResultPublication.recoverProjectResultPublication(root, resultDir);
-            if (status !== "clean")
-                this.invalidateResultCatalogCache("resultPublicationRecovery");
-            return ProjectResultTables.tableCatalog(root, resultDir);
-        });
+        const catalog = await (0, LatestResultExport_1.latestResultCatalog)(root, resultDir);
+        return catalog.datasets.flatMap(dataset => dataset.tables);
     }
     async writeProjectTableRegistry(root, registry, resultDir = this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, wrapperFiles = []) {
-        return this.withProjectResultPublicationLease(root, resultDir, async () => {
-            await ProjectResultPublication.recoverProjectResultPublication(root, resultDir);
-            await ProjectResultPublication.assertProjectResultPublicationBaseGeneration(root, registry?.publicationGeneration);
-            const tables = ProjectResultTables.buildTables(registry);
-            if (!Object.keys(tables).length && !wrapperFiles.length)
-                throw new Error("尚无可写入的逐 seed 结果。");
-            const catalog = ProjectResultTables.resultCatalog(root, resultDir);
-            const immutable = wrapperFiles.filter(file => file.immutable || /\/plans\/[^/]+\/(?:raw|trace)\//.test(file.relativePath)
-                && !/\/preview__/.test(file.relativePath) && !file.relativePath.endsWith('.provenance.json'));
-            await (0, FourStateMetricBundle_1.assertImmutableMetricFiles)(root, immutable);
-            await WrapperResultBundle.assertWrapperProvenance(root, wrapperFiles);
-            const outputs = [...wrapperFiles];
-            const datasets = new Map();
-            for (const table of Object.values(tables)) {
-                const previous = catalog.datasets.find((item) => item.datasetKey.toLowerCase() === table.datasetKey.toLowerCase());
-                if (previous?.dataset && previous.dataset !== table.dataset)
-                    throw new Error("数据集目录冲突，已保留旧结果：目录 " + table.datasetKey + " 的本地数据集为“" + previous.dataset + "”，新结果为“" + table.dataset + "”。");
-                datasets.set(table.datasetKey, table.dataset);
-                outputs.push({ relativePath: path.posix.join(resultDir, table.relativePath), contents: ProjectResultTables.writeCsv(table.header, table.rows) });
-                outputs.push({ relativePath: path.posix.join(resultDir, table.markdownPath), contents: table.markdown });
-            }
-            for (const [datasetKey, dataset] of datasets)
-                outputs.push({ relativePath: path.posix.join(resultDir, datasetKey, ".dataset.json"), contents: JSON.stringify({ dataset, datasetKey }) + "\n" });
-            const generationId = crypto.randomUUID();
-            const publishedRegistry = { ...registry, publicationGeneration: generationId };
-            outputs.push({ relativePath: "simple_cluster/results/project_table_registry.json", contents: JSON.stringify(publishedRegistry, null, 2) + "\n" });
-            await ProjectResultPublication.publishProjectResultFiles(root, resultDir, outputs, { generationId });
-            registry.publicationGeneration = generationId;
-            this.invalidateResultCatalogCache("resultRegistryWrite");
-            return tables;
-        });
+        // Retained entry point: old callers must actively query instead of publishing cached rows.
+        return (0, ResultCollectionHost_1.resultCollectionHost)(this).update();
     }
     async loadPlanSyncLedger(root) {
         const file = PlanArtifactSync.planSyncLedgerStoragePath(this.context.globalStorageUri.fsPath, root);
@@ -19487,236 +19208,28 @@ class RealtimeTunnelPanelProvider {
             throw new Error(`项目同步未完成：${verified.conflicts.length} 个内容冲突、${verified.copies.length} 个缺失文件、${verified.protectedDifferences.length} 个代码或 Plan 产物差异；详情见 ${file}。`);
     }
     async updateProjectResultTablesFromSummary(summary, planFile) {
-        const root = workspaceRoot();
-        if (!root || !planFile)
-            return;
-        const registry = await this.loadProjectTableRegistry(root);
-        const metadata = (this.localPlanMetadata.plans || []).find((item) => samePlanSelection(item.planFile || item.file, planFile));
-        const ledger = await this.loadPlanSyncLedger(root);
-        const latest = PlanArtifactSync.latestPlanSyncEntry(ledger, planFile);
-        const queue = await this.loadDistributedQueue(root);
-        const runAuthority = PlanRunFreshness.selectLatestCompletePlanRunIdentity(queue, planFile, String(metadata?.revision || summary?.planRevision || latest?.revision || ""));
-        if (runAuthority && !PlanRunFreshness.summaryProvesRun(summary, runAuthority))
-            return;
-        if (!ProjectResultTables.summaryMatchesPlanRevision(summary, metadata))
-            return;
-        const expected = Array.isArray(metadata?.seeds) ? metadata.seeds.length : 0;
-        const chosen = !runAuthority && latest?.runId && latest.runId !== "historic" ? ProjectResultTables.summaryForWorker(summary, latest.sourceWorkerId) : summary;
-        if (!chosen)
-            return;
-        const next = ProjectResultTables.updateRegistry(registry, chosen, planFile, expected, pluginProjectAdapterRules(root).planDatasetMapping || {});
-        next.derivedMetric = pluginProjectAdapterRules(root).derivedMetric || undefined;
-        if (JSON.stringify(next.plans[planFile]) === JSON.stringify(registry.plans[planFile]) && JSON.stringify(next.derivedMetric) === JSON.stringify(registry.derivedMetric))
-            return;
-        await this.writeProjectTableRegistry(root, next);
+        return (0, ResultCollectionHost_1.resultCollectionHost)(this).update();
     }
     async rebuildProjectResultTablesFromUi(options = {}) {
-        const context = this.captureProjectContext();
-        const root = context.root;
-        const client = this.client;
-        if (!root)
-            throw new Error("请先打开当前实验项目。");
-        if (this.effectiveConnectionMode() === "offline_import")
-            throw new Error("离线模式无法跨 Worker 重新汇总指标。");
-        await this.refreshLocalPlanMetadataForAction(this.actionBody({}), { allPlans: true });
-        if (!this.projectContextIsCurrent(context) || client !== this.client)
-            return;
-        const syncLedger = await this.loadPlanSyncLedger(root);
-        const queue = await this.loadDistributedQueue(root);
-        const planFiles = (await completedResultPlanFiles(this, syncLedger, root)).filter(file => !options.planFiles || options.planFiles.some(selected => samePlanSelection(selected, file))).slice(0, 500);
-        const plans = planFiles.map((planFile) => {
-            const metadata = (this.localPlanMetadata.plans || []).find((item) => samePlanSelection(item.planFile || item.file, planFile)) || { planFile };
-            const authority = PlanArtifactSync.latestPlanSyncEntry(syncLedger, planFile);
-            const runAuthority = PlanRunFreshness.selectLatestCompletePlanRunIdentity(queue, planFile, String(metadata?.revision || authority?.revision || ""));
-            return { ...metadata, planFile, authority, runAuthority };
-        });
-        let registry = await this.loadProjectTableRegistry(root);
-        const originalPlans = JSON.stringify(registry.plans || {});
-        let included = 0;
-        const issues = [];
-        const pending = [];
-        const missing = [];
-        const registeredPlans = new Set();
-        const refreshedSummaries = [];
-        const allDownloads = [];
-        const wrapperFiles = [];
-        const previews = [];
-        await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: options.title || "下载指标并重新汇总", cancellable: true }, async (progress, token) => {
-            const isCurrent = () => !(0, SafeRequestRetry_1.retryRequestSignal)()?.aborted && this.projectContextIsCurrent(context) && client === this.client;
-            const ready = [];
-            for (const [index, plan] of plans.entries()) {
-                if (token.isCancellationRequested || !this.projectContextIsCurrent(context) || client !== this.client)
-                    throw new UiCommandCancelled("重新汇总指标已取消，未覆盖现有表格。");
-                const planFile = String(plan.planFile);
-                progress.report({ message: (index + 1) + "/" + plans.length + " " + planFile });
-                const preview = PlanRunFreshness.selectLatestPlanRunPreview(queue, planFile, String(plan.revision || ""));
-                if (preview)
-                    ready.push({ planFile, metadata: plan, runAuthority: preview, previewOnly: true,
-                        summary: PlanRunFreshness.summaryForRunRecovery({}, planFile, preview) });
-                if (preview && !plan.runAuthority)
-                    continue;
-                let summary;
-                try {
-                    summary = plan.runAuthority ? PlanRunFreshness.summaryForRunRecovery({}, planFile, plan.runAuthority)
-                        : await this.summaryForMetricDownloadWithBudget(client, planFile, index, plans.length, isCurrent, token, progress);
-                }
-                catch (error) {
-                    if (error instanceof UiCommandCancelled)
-                        throw error;
-                    issues.push(planFile + "：服务器摘要失败（" + errorMessage(error) + "），保留旧表。下一步：恢复该 Worker 后重试。");
-                    continue;
-                }
-                ready.push({ planFile, metadata: plan, authority: plan.authority, runAuthority: plan.runAuthority,
-                    summary: filterCompletedResultSummaryForPlan(summary, planFile) });
+        const result = await vscode.window.withProgress({ location: vscode.ProgressLocation.Notification, title: "更新结果汇总", cancellable: true }, async (progress, token) => {
+            const abort = new AbortController();
+            const listener = token.onCancellationRequested?.(() => abort.abort());
+            try {
+                progress.report({ message: "主动查询 PLAN 声明和服务器实际产物…" });
+                return await (0, ResultCollectionHost_1.resultCollectionHost)(this).update(abort.signal);
             }
-            await this.recoverCompletedJobMetricFiles(context, ready, isCurrent, token);
-            for (const item of ready) {
-                if (item.previewOnly) {
-                    item.acceptedRunId = item.runAuthority.runId;
-                    item.candidates = resultMetricDownloadCandidates(item.summary, item.planFile);
-                    continue;
-                }
-                const acceptance = acceptedCompletedRevision(item, item.summary);
-                if (!acceptance.ok) {
-                    item.downloadFailed = true;
-                    issues.push(item.planFile + "：" + acceptance.reason);
-                    continue;
-                }
-                item.acceptedRunId = acceptance.runId;
-                item.candidates = resultMetricDownloadCandidates(item.summary, item.planFile);
-                if (item.metricDiscoveryError)
-                    issues.push(item.planFile + "：" + item.metricDiscoveryError);
-            }
-            const downloads = await this.downloadMetricPlanItems(context, client, ready.filter((item) => !item.downloadFailed), isCurrent, token, "下载指标并重新汇总", issues, progress);
-            allDownloads.push(...downloads);
-            const memoryMetricFiles = new Map(downloads.flatMap(download => (download.metricFiles || []).map(file => [download.sourceId + "\0" + file.remotePath, file])));
-            const downloadedSources = new Set(downloads.filter(verifiedDownload).map((item) => String(item.sourceId || "hub")));
-            const failedSources = new Set(downloads.filter((item) => !verifiedDownload(item)).map((item) => String(item.sourceId || "hub")));
-            for (const item of ready) {
-                if (!isCurrent() || token.isCancellationRequested)
-                    throw new UiCommandCancelled("重新汇总指标已取消，未覆盖现有表格。");
-                if (item.downloadFailed)
-                    continue;
-                const plan = item.metadata;
-                const planFile = item.planFile;
-                let summary;
-                const serverSummary = summaryWithoutSources(item.summary, failedSources);
-                let localSummary;
-                try {
-                    localSummary = await this.summaryFromLocalMetricFiles(root, planFile, serverSummary, { downloadedSources, memoryMetricFiles,
-                        completedRunId: reportedCompletedRunIds(serverSummary).includes(item.acceptedRunId) ? item.acceptedRunId : "" });
-                }
-                catch (error) {
-                    issues.push(planFile + "：本地指标无法解析（" + errorMessage(error) + "），保留旧表。");
-                    continue;
-                }
-                if (item.previewOnly) {
-                    if (localSummary?._wrapperFiles?.length) {
-                        wrapperFiles.push(...localSummary._wrapperFiles);
-                        previews.push({ planFile, runId: item.acceptedRunId, completedJobs: localSummary.wrapperEvidence.jobs.length,
-                            expectedJobs: localSummary.wrapperEvidence.expectedJobs.length,
-                            paths: localSummary._wrapperFiles.filter(file => /\/preview__/.test(file.relativePath)).map(file => file.relativePath) });
-                    }
-                    continue;
-                }
-                // This path accepts downloaded raw rows only, never old remotely rebuilt tables.
-                summary = localSummary || { ...serverSummary, results: [] };
-                const authority = PlanArtifactSync.latestPlanSyncEntry(syncLedger, planFile);
-                let useRegistered = false;
-                if (!trustedCompletedResultSummary(summary)) {
-                    const registered = ProjectResultTables.registeredPlanSummary(registry, planFile);
-                    if (registered) {
-                        const reportedRevision = String(serverSummary?.planRevision || "");
-                        const reportedRuns = reportedCompletedRunIds(serverSummary);
-                        const registeredRuns = reportedCompletedRunIds(registered);
-                        const conflict = serverSummary?.mixedPlanRevision || (reportedRevision && reportedRevision !== registered.planRevision)
-                            || reportedRuns.some((runId) => !registeredRuns.includes(runId));
-                        if (conflict) {
-                            issues.push(planFile + "：服务器 revision 或 run 身份与本机已收录记录不一致，保留旧表。");
-                            continue;
-                        }
-                        summary = registered;
-                        useRegistered = true;
-                    }
-                }
-                const acceptance = acceptedCompletedRevision({ metadata: useRegistered ? { ...plan, revision: summary.planRevision } : plan,
-                    authority, runAuthority: item.runAuthority }, useRegistered ? summary : serverSummary);
-                if (!acceptance.ok) {
-                    issues.push(planFile + "：" + acceptance.reason);
-                    continue;
-                }
-                summary = { ...summary, planRevision: acceptance.revision };
-                if (acceptance.runId && reportedCompletedRunIds(summary).length)
-                    summary.completedRunId = acceptance.runId;
-                else if (acceptance.runId)
-                    issues.push(planFile + "：同步记录有完成运行 " + acceptance.runId + "，服务器摘要没有 run 身份，按 revision " + acceptance.revision + " 收录，不标记为该次运行。");
-                if (acceptance.note)
-                    issues.push(planFile + "：" + acceptance.note);
-                if (!trustedCompletedResultSummary(summary) || summary.wrapperEvidence?.status !== "formal" && !(summary?.results || []).some((row) => Object.values(row?.metrics || {}).some((metric) => Number.isFinite(Number(metric?.value ?? metric))))) {
-                    const detail = planFile + "：尚无可收录的逐 seed 指标。" + (item.completedMetricFilesMissing?.length ? "已完成 job 的指标文件不存在或校验失败：" + item.completedMetricFilesMissing.slice(0, 3).join("；") : "服务器摘要尚未收录可解析的 CSV，请核对已完成 job 的结果文件。");
-                    if (item.completedJobRunId || authority?.runId && authority.runId !== "historic")
-                        missing.push(detail);
-                    else
-                        pending.push(detail);
-                    continue;
-                }
-                if (serverSummary.completedMetricFilesMissing?.length)
-                    missing.push(planFile + "：部分已完成 job 缺少可验证的指标文件：" + serverSummary.completedMetricFilesMissing.slice(0, 3).join("；"));
-                try {
-                    const next = ProjectResultTables.mergeAvailableWorkerResults(registry, summary, planFile, Array.isArray(plan.seeds) ? plan.seeds.length : 0, pluginProjectAdapterRules(root).planDatasetMapping || {});
-                    ProjectResultTables.buildTables(next);
-                    if (next !== registry) {
-                        registry = next;
-                        included++;
-                    }
-                    wrapperFiles.push(...(summary._wrapperFiles || []));
-                    delete summary._wrapperFiles;
-                    refreshedSummaries.push(summary);
-                    if (useRegistered)
-                        registeredPlans.add(planFile);
-                    if (summary.unavailableWorkerIds?.length)
-                        issues.push(planFile + "：已收录已验证 Worker，缺少 " + summary.unavailableWorkerIds.join("、") + "。下一步：恢复缺少的 Worker 后再次汇总。");
-                }
-                catch (error) {
-                    issues.push(planFile + "：" + errorMessage(error) + "，保留旧表。下一步：核对该 Plan 的 seed 身份后重试。");
-                }
+            finally {
+                listener?.dispose();
             }
         });
-        if (!this.projectContextIsCurrent(context) || client !== this.client)
-            return;
-        const currentPlan = this.resolveSelectedPlanFile(this.planFileInput || this.selectedPlanId || "");
-        const visible = refreshedSummaries.find((summary) => !currentPlan || samePlanSelection(summary.planFile, currentPlan)) || refreshedSummaries[0];
-        const retained = Object.keys(registry.plans || {}).length;
-        if (!retained && !wrapperFiles.length)
-            throw new Error("没有可用的逐 seed 结果；" + (issues.length ? issues.slice(0, 3).join("；") : "请检查各 Worker 的结果 CSV 与列映射。"));
-        if (refreshedSummaries.length || wrapperFiles.length || JSON.stringify(registry.plans || {}) !== originalPlans) {
-            registry.derivedMetric = pluginProjectAdapterRules(root).derivedMetric || undefined;
-            await this.writeProjectTableRegistry(root, registry, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, wrapperFiles);
-        }
-        if (visible)
-            this.resultsSummary = visible;
-        const report = {
-            plans: planFiles, merged: true, downloaded: allDownloads.some(download => (download.networkFiles ?? download.completed) > 0),
-            downloads: allDownloads.map(({ sourceId, completed, selected, failures, cancelled, reusedFiles, networkFiles, networkBytes }) => ({ sourceId, completed, selected, failures, cancelled, reusedFiles, networkFiles, networkBytes, memoryOnly: true })),
-            discovered: plans.length,
-            included: registry.plans ? Object.keys(registry.plans).filter((planFile) => refreshedSummaries.some((summary) => samePlanSelection(summary.planFile, planFile))).map((planFile) => planFile + (registeredPlans.has(planFile) ? "：已按已收录的本机逐 seed 记录重算" : "：已按服务器摘要与本地指标重算")) : [],
-            missing,
-            pending,
-            skipped: issues,
-            previews,
-            notificationShown: true,
-        };
-        if (!report.included.length)
-            report.included = Array.from({ length: included }, (_, index) => "已重算 " + (index + 1));
-        this.resultSyncReport = report;
-        await this.refreshLocalResultCatalogForProject(context);
-        this.notifyPlanOutputVersionReview?.(root, await this.loadPlanOutputRetentionQueue(root));
-        const message = formatResultSyncReport(report, options.title || "下载指标并重新汇总");
-        if (issues.length || missing.length)
-            void vscode.window.showWarningMessage(message);
-        else
+        const message = result.current ? "结果已更新：" + result.completed + "/" + result.expected + " 个 job；缺项 " + result.missing.length + "。"
+            : "本轮无法核实服务器结果；保留原导出文件，它不是本轮查询结果。";
+        if (result.current && !result.skipped.length && !result.missing.length)
             void vscode.window.showInformationMessage(message);
-        return report;
+        else
+            void vscode.window.showWarningMessage(message);
+        result.notificationShown = true;
+        return result;
     }
     async openLocalResultTableFromUi(message) {
         const context = this.captureProjectContext();
@@ -19737,6 +19250,13 @@ class RealtimeTunnelPanelProvider {
         const table = catalog.datasets.flatMap(item => item.tables).find(row => row.tableKey === key);
         if (!table)
             throw new Error("结果表不存在，请先按数据集重新汇总。");
+        const directory = this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR;
+        await this.withProjectResultPublicationLease(context.root, directory, async () => {
+            const exported = await (0, LatestResultExport_1.readLatestResultExport)(context.root, directory);
+            if (!exported?.tables.some(row => row.tableKey === key))
+                throw new Error("结果表已变化，请刷新后重试。");
+            await (0, LatestResultExport_1.regenerateLatestResultTables)(context.root, directory, exported, () => this.projectContextIsCurrent(context));
+        });
         await this.openWorkspaceFileForProjectContext(format === "md" ? table.markdownPath : table.path, context, this.client);
     }
     async splitProjectResultTableFromUi(message) {
@@ -20882,54 +20402,18 @@ class RealtimeTunnelPanelProvider {
         });
     }
     async refreshResultsSummary(planHint = "", manualRetry = false) {
-        if (!manualRetry)
-            this.resultsSummaryRefreshRetryCount = 0;
-        const requestedPlan = usableSelectionKey(String(planHint || "").trim().replace(/\\/g, "/"));
-        if (requestedPlan && !this.shouldRefreshResultsSummaryForDirtyPlan(requestedPlan))
-            return;
         if (this.effectiveConnectionMode() === "offline_import") {
             this.applyOfflineResultsSummaryFromBundle(this.offlineBundle);
-            this.lastError = undefined;
-            this.lastResultsSummaryRealtimeErrorKey = "";
-            this.lastResultsSummaryCapabilityWarningKey = "";
             this.postState();
             return;
         }
-        if (!this.hasResultsSummaryEndpointCapability()) {
-            this.recordResultsSummaryCapabilitySkip("refreshResults", "手动刷新结果");
-            this.postState();
-            return;
-        }
-        if (this.resultsSummaryRefreshInFlight) {
-            this.pendingResultsSummaryDirtyKey = `manual:${Date.now()}`;
-            this.pendingResultsSummaryDirtyPlanFile = requestedPlan || this.planFileInput || this.selectedPlanId || "";
-            this.scheduleResultsSummaryTimer("manual_refresh_inflight", this.pendingResultsSummaryDirtyKey, 500);
-            return;
-        }
-        const generation = this.projectContextGeneration;
-        const client = this.client;
         try {
-            this.resultsSummaryRefreshInFlight = true;
-            const planFile = this.resolveSelectedPlanFile(requestedPlan || this.planFileInput || this.selectedPlanId || "");
-            const summary = await client.getResultsSummary(planFile, { userInitiated: true });
-            if (generation !== this.projectContextGeneration || client !== this.client)
-                return;
-            this.resultsSummary = summary;
-            if (planFile && summary?.workerResultTables?.some?.((row) => row.aggregateStatus === "ready"))
-                await this.updateProjectResultTablesFromSummary(summary, planFile).catch((error) => this.recordActionError({ command: "refreshResults", message: "数据集总表未更新：" + errorMessage(error), suggestion: "请核对原始结果的 case、seed 与 Worker 完整性。" }));
+            await (0, ResultCollectionHost_1.resultCollectionHost)(this).update();
             this.lastError = undefined;
-            this.lastResultsSummaryRealtimeErrorKey = "";
-            this.lastResultsSummaryCapabilityWarningKey = "";
         }
         catch (error) {
-            if (generation !== this.projectContextGeneration || client !== this.client)
-                return;
             this.lastError = errorMessage(error);
-            this.recordActionError({ command: "refreshResults", message: this.lastError, suggestion: actionErrorSuggestion(this.lastError) });
-        }
-        finally {
-            if (generation === this.projectContextGeneration && client === this.client)
-                this.resultsSummaryRefreshInFlight = false;
+            this.recordActionError({ command: "refreshResults", message: this.lastError });
         }
         this.postState();
     }
@@ -22584,26 +22068,12 @@ class RealtimeTunnelPanelProvider {
         const context = this.captureProjectContext();
         if (!context.root)
             throw new Error("请先打开本地项目工作区。");
-        this.cancelResultCatalogRefresh();
-        this.resultCatalogRefreshError = "";
-        const registry = await this.loadProjectTableRegistry(context.root);
-        if (!this.projectContextIsCurrent(context))
-            throw new UiCommandCancelled("项目已切换，未重建旧项目的结果表。");
-        const tables = ProjectResultTables.buildTables(registry);
-        const resultDir = this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR;
-        const outputs = Object.values(tables).flatMap(table => [
-            [table.relativePath, ProjectResultTables.writeCsv(table.header, table.rows)], [table.markdownPath, table.markdown],
-        ]);
-        const differs = await mapLimited(outputs, 8, async ([relative, expected]) => {
-            const file = safeWorkspaceChildPath(context.root, path.posix.join(resultDir, relative));
-            const current = await fs.readFile(file, "utf8").catch(error => { if (error?.code === "ENOENT")
-                return undefined; throw error; });
-            return current !== expected;
+        const directory = this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR;
+        await this.withProjectResultPublicationLease(context.root, directory, async () => {
+            const exported = await (0, LatestResultExport_1.readLatestResultExport)(context.root, directory);
+            if (exported)
+                await (0, LatestResultExport_1.regenerateLatestResultTables)(context.root, directory, exported, () => this.projectContextIsCurrent(context));
         });
-        if (!this.projectContextIsCurrent(context))
-            throw new UiCommandCancelled("项目已切换，未重建旧项目的结果表。");
-        if (differs.some(Boolean))
-            await this.writeProjectTableRegistry(context.root, registry, resultDir);
         await this.refreshLocalResultCatalogForProject(context);
     }
     async refreshLocalResultCatalogForProject(context) {
@@ -22713,6 +22183,8 @@ class RealtimeTunnelPanelProvider {
         const root = workspaceRoot();
         if (!root || !this.panelSectionInterest || !PanelStateProjection_1.panelInterestedSections(this.panelSectionInterest).has("results"))
             return;
+        if (this.taskLifecycleProtocol === 2 && this.isRealtimeMode() && this.client?.getWorkerTasks && this.workerCodeSyncTargets().length)
+            (0, ResultCollectionHost_1.resultCollectionHost)(this).refreshOnVisible();
         const mappings = pluginProjectAdapterRules(root).planDatasetMapping || {};
         const key = this.resultCatalogKey(root, mappings);
         if (this.resultCatalogCache?.key === key && this.resultCatalogCache.expiresAt > Date.now()) {
@@ -22740,31 +22212,13 @@ class RealtimeTunnelPanelProvider {
         this.resultCatalogRefreshTimer.unref?.();
     }
     async inspectResultCatalogInputs(root) {
-        const signature = async (file) => {
-            try {
-                const stat = await fs.stat(file);
-                return `${stat.dev}:${stat.ino}:${stat.size}:${stat.mtimeMs}:${stat.ctimeMs}`;
-            }
-            catch (error) {
-                if (error?.code === "ENOENT")
-                    return "missing";
-                throw error;
-            }
-        };
-        const registryPath = path.join(root, "simple_cluster", "results", "project_table_registry.json");
-        const journalPath = ProjectResultPublication.projectResultPublicationJournalPath(root);
-        const [registryStat, journalStat] = await Promise.all([signature(registryPath), signature(journalPath)]);
-        let publicationPending = false;
-        if (journalStat !== "missing") {
-            // The last settled receipt is retained for recovery. Existence is not an active publication.
-            if (Number(journalStat.split(":")[2]) > ProjectResultPublication.MAX_PROJECT_RESULT_JOURNAL_BYTES)
-                throw new Error("结果发布事务记录过大，拒绝读取结果目录。");
-            const journal = JSON.parse(await fs.readFile(journalPath, "utf8"));
-            if (journal?.schemaVersion !== 1 || !["preparing", "publishing", "committed", "rolled-back"].includes(journal.status))
-                throw new Error("结果发布事务状态无效，保留已有结果。");
-            publicationPending = journal.status === "preparing" || journal.status === "publishing";
-        }
-        return { registryStat, publicationPending, signature: `${registryStat}\n${journalStat}` };
+        const file = safeWorkspaceChildPath(root, path.posix.join(this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, "latest-results.json"));
+        const stat = await fs.lstat(file).catch(error => { if (error.code === "ENOENT")
+            return undefined; throw error; });
+        if (stat && (!stat.isFile() || stat.isSymbolicLink()))
+            throw new Error("汇总导出不是普通文件。");
+        const signature = stat ? [stat.dev, stat.ino, stat.size, stat.mtimeMs, stat.ctimeMs].join(":") : "missing";
+        return { registryStat: signature, publicationPending: false, signature };
     }
     scheduleResultCatalogRefresh(request) {
         if (this.resultCatalogRefreshWorker) {
@@ -26570,6 +26024,12 @@ function filterResultsSummaryForSelectedPlan(summary, selectedPlan, planRevision
     const plan = usableSelectionKey(String(selectedPlan || "").trim().replace(/\\/g, "/"));
     if (!summary || typeof summary !== "object" || Array.isArray(summary) || !plan)
         return summary;
+    if (summary.source === "active_query") {
+        const jobs = (summary.jobs || []).filter(row => samePlanSelection(row.planFile, plan));
+        const coverage = summary.planCoverage?.[plan] || {};
+        return { ...summary, planFile: plan, jobs, results: (summary.results || []).filter(row => samePlanSelection(row.planFile, plan)),
+            completed: coverage.completed ?? jobs.filter(row => row.state === "complete").length, expected: coverage.expected ?? jobs.length };
+    }
     const summaryPlan = normalizePlanSelectionKey(summary.planFile || summary.plan_file || "");
     const summaryPlanMatches = Boolean(summaryPlan && samePlanSelection(summaryPlan, plan));
     const planVersion = String(planRevision || "").trim();
@@ -33812,6 +33272,14 @@ function preferServerMetricSummary(serverSummary, localSummary, options = {}) {
 function resultSyncCommandOutcome(report) {
     if (!report || !Array.isArray(report.included) || !Array.isArray(report.skipped) || !Array.isArray(report.missing))
         return undefined;
+    if (report.source === "active_query") {
+        const partial = Boolean(report.missing.length || report.skipped.length);
+        return { status: report.current ? "completed" : "failed", notificationShown: report.notificationShown === true,
+            message: report.current ? "本轮已核实 " + report.completed + "/" + report.expected + " 个 job；仅使用本轮实际结果。"
+                : "本轮查询失败，原导出文件不是本轮结果；可重新查询。",
+            resultSync: { outcome: report.current ? partial ? "partial" : "completed" : "failed", partial,
+                included: report.included.length, missing: report.missing.length, skipped: report.skipped.length } };
+    }
     const included = report.included.length;
     const missing = report.missing.length;
     const skipped = report.skipped.length;

@@ -448,7 +448,7 @@ function canonicalMetricValues(metrics) {
     }
     return values;
 }
-function buildDatasetTables(registry) {
+function buildDatasetTables(registry, options = {}) {
     const grouped = new Map();
     for (const plan of Object.values(registry.plans || {}))
         for (const record of plan.records) {
@@ -519,14 +519,14 @@ function buildDatasetTables(registry) {
             const row = [group.record.method, ...(showPlan ? [group.record.planFile] : []), group.record.dataset, group.record.rate, group.record.endpoint, ...(showCase ? [group.record.case] : []), jobs === expected ? String(jobs) : String(jobs) + "/" + expected];
             for (const name of metrics) {
                 const values = seeds.map((seed) => seed[name]).filter(Number.isFinite);
-                const complete = values.length === expected;
+                const complete = options.partial ? values.length > 0 : values.length === expected;
                 const mean = complete ? values.reduce((a, b) => a + b, 0) / values.length : "";
                 const sd = complete && values.length > 1 ? Math.sqrt(values.reduce((sum, value) => sum + (value - Number(mean)) ** 2, 0) / (values.length - 1)) : "";
                 row.push(mean, sd);
             }
             if (derivedName) {
                 const values = group.derived || [];
-                const complete = values.length === expected;
+                const complete = options.partial ? values.length > 0 : values.length === expected;
                 const mean = complete ? values.reduce((a, b) => a + b, 0) / values.length : "";
                 const sd = complete && values.length > 1 ? Math.sqrt(values.reduce((sum, value) => sum + (value - Number(mean)) ** 2, 0) / (values.length - 1)) : "";
                 row.push(mean, sd);
@@ -553,12 +553,12 @@ function buildDatasetTables(registry) {
         out[method] = make(groups.filter((group) => methodTableName(group.record.method) === method));
     return out;
 }
-function buildTables(registry) {
+function buildTables(registry, options = {}) {
     const datasets = (0, ResultLayout_1.datasetPartitions)(Object.values(registry.plans || {}).flatMap(plan => plan.records.map(row => row.dataset)));
     const output = {};
     for (const { dataset, datasetKey } of datasets) {
         const plans = Object.fromEntries(Object.entries(registry.plans || {}).map(([file, plan]) => [file, { ...plan, records: plan.records.filter(row => String(row.dataset || "").trim() === dataset).map(row => ({ ...row, dataset })) }]));
-        for (const [name, table] of Object.entries(buildDatasetTables({ ...registry, plans }))) {
+        for (const [name, table] of Object.entries(buildDatasetTables({ ...registry, plans }, options))) {
             const kind = name === "final" ? "final" : "method";
             const artifact = { ...table, dataset, datasetKey, name, kind, ...(0, ResultLayout_1.tablePaths)(datasetKey, name, kind) };
             output[artifact.tableKey] = artifact;
