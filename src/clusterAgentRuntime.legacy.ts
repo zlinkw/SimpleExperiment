@@ -16466,7 +16466,7 @@ def serve_http(args):
                     payload = json.loads(raw.decode("utf-8"))
                     value = task_query(root, payload.get("queries") or [])
                     if payload.get("declarations") is not None:
-                        value["declaredResults"] = task_declared_results(root, payload["declarations"])
+                        value["declaredResults"] = task_declared_results(root, payload["declarations"], value["tasks"])
                     if payload.get("discovery"):
                         value["declaredJobs"] = task_describe_plan(root, payload["discovery"])
                     return self.send_json(value)

@@ -481,7 +481,7 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
   queue = { ...queue, plans: queue.plans.map(plan => ({ ...plan, jobs: plan.jobs.map(job =>
     job.lifecycleProtocol === 2 && job.workerId && job.commandId && !pulled.some(row => row.workerId === job.workerId)
       ? { ...job, status: "unknown" as const, executionState: "unknown" as const, resultState: "unverified" as const,
-          statusQueryError: "当前 Worker 主动查询不可用；原任务未重复派发", blockReason: "查询失败，可刷新或中止原任务" } : job) })) };
+          error: undefined, statusQueryError: "当前 Worker 主动查询不可用；原任务未重复派发", blockReason: "查询失败，可刷新或中止原任务" } : job) })) };
   if (pulled.length) {
     queue = { ...queue, plans: queue.plans.map(plan => ({ ...plan, jobs: plan.jobs.map(job => {
       const snapshot = pulled.find(row => row.workerId === job.workerId);
@@ -492,7 +492,8 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
         projectId, workerId: job.workerId, observedAt: String(snapshot.generatedAt || ""),
         queryError: snapshot.error || (!Number.isFinite(fresh) || now - fresh > maxAgeMs ? "状态查询已过期" : undefined) };
       if (snapshot.error || !Number.isFinite(fresh) || now - fresh > maxAgeMs) observation.queryError = snapshot.error || "状态查询已过期";
-      if (!observationMatches(observation, { commandId: job.commandId, workerId: job.workerId, projectId })) return job;
+      if (!observationMatches(observation, { commandId: job.commandId, workerId: job.workerId, projectId }))
+        observation.queryError = "任务查询身份与当前任务不符；请刷新核实";
       const state = taskLifecycle(observation);
       return { ...job, lifecycleProtocol: 2 as const, status: state.status, executionState: state.execution, resultState: state.result,
         startIntent: !observation.queryError && (observation.tmux || observation.cancelled || state.result === "complete") ? undefined : job.startIntent,

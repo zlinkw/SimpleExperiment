@@ -431,6 +431,7 @@ function renderPanelHtml() {
     .executionDistributedFailure, .executionDistributedJobError { color: var(--danger); overflow-wrap: anywhere; }
     .executionDistributedFailure { margin: 0 0 8px; }
     .executionDistributedJobError { grid-column: 1 / -1; }
+    .executionLifecycleStates { grid-column: 1 / -1; }
     .executionPlanRow > summary { display: grid; grid-template-columns: 12px minmax(0, 1fr) auto auto auto; gap: 10px; align-items: center; padding: 8px 11px; cursor: pointer; list-style: none; }
     .executionPlanSelect { min-width: 66px; white-space: nowrap; }
     .executionPlanSelect.is-active { background: var(--vscode-focusBorder); border-color: var(--vscode-focusBorder); color: #FFFFFF; font-weight: 700; }
@@ -14479,7 +14480,10 @@ function renderPanelHtml() {
           const failedCleanupNote = failedCleanup ? (failedCleanup.status === "completed"
             ? failedCleanup.alreadyAbsent ? "历史失败目录已核验不存在。" : "历史回执：失败目录已移入原 Worker 的 clean_dir。"
             : "历史遗留清理记录需人工审核，不会自动移动或删除。" + (failedCleanup.error ? " " + failedCleanup.error : "")) : "";
-          const blockText = job.lifecycleProtocol === 2 ? [job.statusQueryError || job.blockReason || "", "执行：" + String(job.executionState || "尚未派发") + "；产物：" + String(job.resultState || "未核实")].filter(Boolean).join(" · ") : blocked ? String(job.blockReason || "") : "";
+          const executionLabel = ({ queued:"服务器排队", starting:"正在启动", running:"运行中", exited:"已结束", failed:"失败", missing:"窗口不存在", unknown:"未知" })[job.executionState] || "尚未派发";
+          const resultLabel = ({ complete:"完整", incomplete:"不完整", unverified:"待核实", conflict:"与本次任务不符" })[job.resultState] || "待核实";
+          const lifecycleStates = job.lifecycleProtocol === 2 ? '<div class="muted executionLifecycleStates"><span>执行：' + esc(executionLabel) + '</span> · <span>结果：' + esc(resultLabel) + '</span></div>' : '';
+          const blockText = job.lifecycleProtocol === 2 ? String(job.statusQueryError || job.blockReason || "") : blocked ? String(job.blockReason || "") : "";
           const blockAdvice = blocked ? (blockText.indexOf("等待当前代码版本") === 0 ? "这个已提交 job 保留排队；其他 Worker 可运行匹配版本。被占用的 Worker 收到旧任务结束回执后自动释放版本锁，无需再次提交。" : "下一步：空闲 GPU 不能运行这份旧代码。到实验准备的 Plan 列表手动选中，再点“校验并提交运行”；或恢复提交前的代码并重新同步 Worker。") : "";
           const jobNext = preflightRejected
             ? '<div class="muted">启动前预检已拒绝此 job，训练未开始，不会自动重派。请核对上面的输出与结果路径；保留已有权重和结果，显式处理冲突或修改正式 job 声明后再提交。</div>'
@@ -14490,6 +14494,7 @@ function renderPanelHtml() {
             ? '<div class="muted">下一步：点本行“跳转到日志”查看对应 TMUX 任务窗口。这是已提交 job 的失败，不会自动清理。确认需要停止后，再点本 Plan 的“终止并清除该 Plan”（两次确认）。</div><span class="errorRowLinks" style="display:flex;gap:6px;flex-wrap:wrap;"><button type="button" class="mini secondary" data-section-target="execution" data-anchor-target="execution-operations" title="跳到运行进度，查看本 Plan 的状态">运行进度</button><button type="button" class="mini secondary" data-command="snapshot" title="重新拉取调度状态与操作记录">刷新状态</button></span>'
             : "";
           return '<div class="executionDistributedJob' + (blocked ? " is-blocked" : "") + '" title="' + escAttr(job.outputDir || "") + '">'+(manualControls?'<div class="executionManualDispatch">'+manualControls+'</div>':'')+'<span>' + loadingPrefix(jobActive) + esc(job.case || "job " + job.index) + ' seed ' + esc(String(job.seed)) + '</span><span class="' + (blocked || unavailable ? "status-warning" : statusClass(status)) + '">' + esc(statusLabel) + '</span><span>' + esc(blocked ? "阻塞" : placement) + '</span>' + recallButton + failedRecallButton + availabilityButton + logButton + trainingRecoveryButton
+            + lifecycleStates
             + (unavailable ? '<div class="muted">不可用原因：' + esc(job.unavailable.reason) + ' · ' + esc(job.unavailable.markedAt) + '</div>' : '')
             + (recallNote ? '<div class="muted">' + esc(recallNote) + '</div>' : '')
             + (failedCleanupNote ? '<div class="muted">' + esc(failedCleanupNote) + '</div>' : '')
@@ -14703,6 +14708,10 @@ function renderPanelHtml() {
             resultPathPolicy: job.resultPathPolicy,
             globalJobId: job.globalJobId,
             status: job.status,
+            lifecycleProtocol: job.lifecycleProtocol,
+            executionState: job.executionState,
+            resultState: job.resultState,
+            statusQueryError: job.statusQueryError,
             workerId: job.workerId,
             gpuId: job.gpuId,
             commandId: job.commandId,

@@ -3,6 +3,7 @@ import * as path from "node:path";
 import { atomicWriteText } from "../state/StateStore";
 import { cleanupDigest, cleanupRelative } from "../features/PlanCleanup";
 import { replaceRunOutputs, runReplacementKey } from "../features/PlanRunReplacement";
+import { observationMatches, taskLifecycle } from "../features/TaskLifecycle";
 
 /** Local recoverable inputs, never authority for a remote process or a result. */
 export class PlanRunHost {
@@ -34,13 +35,21 @@ export class PlanRunHost {
     body.planFile = planFile;
     body.runReplacement ||= {};
     const completed = new Set<number>();
+    const tasks = (body.workerSubmissionSnapshots || []).flatMap((snapshot: any) => snapshot.tasks || []);
+    const executionAllowsCompletion = (output: string, runId: string) => !tasks.some((task: any) => {
+      if (task.outputDir !== output || !task.observation) return false;
+      const observed = task.observation, state = taskLifecycle(observed);
+      return !!observed.queryError || !!observed.tmux && !observed.tmux.dead
+        || task.commandId === runId && ["failed", "unknown"].includes(state.execution);
+    });
     for (const snapshot of body.workerSubmissionSnapshots || []) {
-      for (const result of snapshot.declaredResults || []) if (result.completed === true) {
+      for (const result of snapshot.declaredResults || []) if (result.completed === true && executionAllowsCompletion(result.outputDir, result.runId)) {
         const declaration = jobs.find((row: any) => Number(row.index) === result.index && row.output_dir === result.outputDir && row.result_csv === result.collectionResultCsv);
         if (declaration) completed.add(result.index);
       }
-      for (const task of snapshot.tasks || []) if (task.status === "completed" && task.observation?.result?.verified
-        && task.observation.result.runId === task.commandId) {
+      for (const task of snapshot.tasks || []) if (task.observation && observationMatches(task.observation,
+        { commandId: task.commandId, workerId: snapshot.workerId, projectId: task.projectId })
+        && taskLifecycle(task.observation).status === "completed" && executionAllowsCompletion(task.outputDir, task.commandId)) {
         const declaration = jobs.find((row: any) => row.case === task.case && Number(row.seed) === Number(task.seed)
           && row.output_dir === task.outputDir && row.result_csv === task.collectionResultCsv);
         if (declaration) completed.add(Number(declaration.index));

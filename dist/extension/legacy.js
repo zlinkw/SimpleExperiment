@@ -1326,7 +1326,8 @@ class RealtimeTunnelPanelProvider {
                 return {
                     lifecycleProtocol: 2, stateSource: "active_query", jobLifecycle: live.plans.flatMap(plan => plan.jobs.map(job => ({
                         workflowId: plan.id, commandId: job.commandId, index: job.index, workerId: job.workerId,
-                        status: job.status, executionState: job.executionState, resultState: job.resultState, error: job.statusQueryError
+                        status: job.status, executionState: job.executionState, resultState: job.resultState,
+                        error: job.statusQueryError, message: job.blockReason
                     }))),
                     schedulerStates: state.schedulerStates || [],
                     experimentTraces: state.experimentTraces || [],
@@ -23200,7 +23201,9 @@ class RealtimeTunnelPanelProvider {
             jobs: plan.jobs.map((job) => ({ index: job.index, case: job.case, seed: job.seed, attempt: job.attempt,
                 resultPathPolicy: plan.resultPathPolicy, globalJobId: job.globalJobId,
                 unavailable: DistributedPlanQueue.jobIsUnavailable(plan, job) ? job.unavailable : undefined,
-                status: job.status, workerId: job.workerId, gpuId: job.gpuId, outputDir: job.outputDir,
+                status: job.status, lifecycleProtocol: job.lifecycleProtocol, executionState: job.executionState,
+                resultState: job.resultState, statusQueryError: job.statusQueryError,
+                workerId: job.workerId, gpuId: job.gpuId, outputDir: job.outputDir,
                 localQueueOnly: job.localQueueOnly === true, recallRequested: job.recallRequested === true,
                 recallOperationId: job.recallOperationId || "",
                 commandId: job.commandId, logPath: job.logPath, finishedAt: job.finishedAt, outputRetiredAt: job.outputRetiredAt,

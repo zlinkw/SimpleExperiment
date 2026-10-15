@@ -67,12 +67,16 @@ def task_manifest_observation(root, job):
     report = document.get("simpleExperiment") or {}
     if not report:
         return None  # Historical project evidence remains available to manual result inspection.
-    files = list(report.get("weights") or [])
+    weights = report.get("weights") or []
+    if not isinstance(weights, list) or any(not isinstance(file, str) or not file.startswith(output + "/") for file in weights):
+        raise ValueError("TASK_MANIFEST_WEIGHT_PATH_INVALID")
+    files = list(weights)
     mode = report.get("mode")
     result_csv = report.get("resultCsv")
     if mode in ("test", "train_test") and result_csv:
         files.append(result_csv)
-    present = bool(files) and all(os.path.isfile(task_safe_path(root, file)) for file in files)
+    present = mode in ("train", "test", "train_test") and bool(files) and all(
+        os.path.isfile(task_safe_path(root, file)) and os.path.getsize(task_safe_path(root, file)) > 0 for file in files)
     for file in files:
         expected = (report.get("fileStats") or {}).get(file)
         if expected and os.path.isfile(task_safe_path(root, file)):
@@ -82,11 +86,15 @@ def task_manifest_observation(root, job):
                 present = False
     if mode in ("train", "train_test") and not report.get("weights"):
         present = False
-    if mode in ("test", "train_test") and result_csv != job.get("collectionResultCsv"):
+    if mode in ("test", "train_test") and (not result_csv or result_csv != job.get("collectionResultCsv")):
         present = False
     expected_mode = "test" if job.get("checkpointTestOnly") and job.get("executionMode") == "train_test" else job.get("mode") or job.get("executionMode")
+    expected_job = {key: job[field] for key, field in (("index", "experimentIndex"), ("case", "case"), ("seed", "seed")) if field in job}
+    identity_matches = isinstance(report.get("runId"), str) and bool(report["runId"].strip()) and report.get("outputDir") == output and (not expected_mode or mode == expected_mode)
+    if expected_job:
+        identity_matches = identity_matches and isinstance(report.get("job"), dict) and all(report["job"].get(key) == value for key, value in expected_job.items())
     return {"runId": report.get("runId"), "status": report.get("status"), "present": present, "job": report.get("job"),
-            "verified": present and report.get("outputDir") == output and (not expected_mode or mode == expected_mode)}
+            "identityMatches": bool(identity_matches), "verified": bool(present and identity_matches)}
 
 def task_public_observation(root, job, row=None):
     result_error = ""
@@ -101,22 +109,25 @@ def task_public_observation(root, job, row=None):
     if row:
         observed["tmux"] = {"windowId": row["tmuxWindowId"], "paneId": row["tmuxPane"], "dead": row["dead"],
                             "exitCode": row["exitCode"], "phase": row["phase"]}
-    status = "unknown"
-    if row and not row["dead"]:
-        status = "queued" if row["phase"] in ("queued", "bound", "admitted", "starting") else "running" if row["phase"] == "running" else "unknown"
-    elif row and row["exitCode"] is not None and row["exitCode"] != 0:
-        status = "failed"
-    elif result and result["runId"] == job["commandId"] and result["status"] == "completed" and result["verified"]:
-        status = "completed"
+    execution = "missing"
+    if row:
+        execution = ("failed" if row["exitCode"] is not None and row["exitCode"] != 0 else "exited") if row["dead"] else (
+            "queued" if row["phase"] in ("queued", "bound") else "starting" if row["phase"] in ("admitted", "starting") else "running" if row["phase"] == "running" else "unknown")
+    result_state = "unverified" if result_error else "incomplete" if result is None else (
+        "conflict" if result["runId"] != job["commandId"] or result.get("identityMatches") is False else
+        "complete" if result["status"] == "completed" and result["present"] and result["verified"] else "incomplete")
+    status = "queued" if execution in ("queued", "starting") else "running" if execution == "running" else (
+        "failed" if execution == "failed" else "unknown" if execution == "unknown" else "completed" if result_state == "complete" else "unknown")
     public = {key: job[key] for key in ("commandId", "projectId", "workerId", "workflowId", "globalJobId", "planFile", "planRevision", "codeFingerprint",
         "experimentIndex", "case", "seed", "outputDir", "collectionResultCsv", "resultPathPolicy", "planJobCount", "fullPlanJobCount", "enqueuedAt",
         "executionMode", "mode", "checkpointSource", "lifecycleProtocol", "runKey", "dispatchPolicy") if key in job}
     actual_mode = "test" if job.get("checkpointTestOnly") and job.get("executionMode") == "train_test" else job.get("mode") or job.get("executionMode")
     return {**public, "actualExecutionMode": actual_mode, **({k: row[k] for k in ("tmuxWindowId", "tmuxPane", "tmuxSession", "gpuId", "exitCode")} if row else {}),
-            "status": status, "logPath": row.get("logPath") if row else "", "observation": observed, "lifecycleProtocol": 2, "durableAccepted": True}
+            "status": status, "executionState": execution, "resultState": result_state,
+            "logPath": row.get("logPath") if row else "", "observation": observed, "lifecycleProtocol": 2, "durableAccepted": True}
 
 
-def task_declared_results(root, declarations):
+def task_declared_results(root, declarations, tasks=()):
     if not isinstance(declarations, list) or len(declarations) > 500:
         raise ValueError("DECLARED_RESULT_QUERY_LIMIT")
     results = []
@@ -125,8 +136,19 @@ def task_declared_results(root, declarations):
             job = {"outputDir": declaration["output_dir"], "collectionResultCsv": declaration.get("result_csv"), "mode": declaration["mode"]}
             result = task_manifest_observation(root, job)
             expected = {"index": declaration["index"], "case": declaration["case"], "seed": declaration["seed"]}
+            execution_blocks = False
+            for task in tasks:
+                if task.get("outputDir") != job["outputDir"]:
+                    continue
+                observed = task.get("observation") or {}
+                pane = observed.get("tmux")
+                if observed.get("queryError") or pane and not pane.get("dead"):
+                    execution_blocks = True
+                if result and task.get("commandId") == result.get("runId") and pane and pane.get("dead") and pane.get("exitCode") is not None and pane["exitCode"] != 0:
+                    execution_blocks = True
             results.append({"index": declaration["index"], **job, "completed": bool(result and result["status"] == "completed"
-                and result["verified"] and result.get("job") == expected), "runId": result.get("runId") if result else None})
+                and isinstance(result.get("runId"), str) and result["runId"].strip() and result["verified"] and result.get("job") == expected
+                and not execution_blocks), "runId": result.get("runId") if result else None})
         except Exception as exc:
             results.append({"index": declaration.get("index") if isinstance(declaration, dict) else None, "completed": False, "error": str(exc)})
     return results

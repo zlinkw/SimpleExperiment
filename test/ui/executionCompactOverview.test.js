@@ -5,6 +5,34 @@ const { readSource } = require("../_helpers/sourceReader");
 
 const panel = readSource("src/ui/PanelHtml.ts");
 
+test('native cards display readable execution and result states independently', () => {
+  for(const [executionState,resultState,status,executionLabel,resultLabel] of [
+    ['failed','complete','failed','失败','完整'],['exited','incomplete','unknown','已结束','不完整'],
+    ['running','unverified','running','运行中','待核实'],['missing','complete','completed','窗口不存在','完整']]) {
+    const sandbox=clickSandbox();
+    sandbox.render({distributedPlans:[{id:'wf',planFile:'plans/states.yaml',jobs:[{index:0,case:'a',seed:42,status,
+      lifecycleProtocol:2,executionState,resultState,workerId:'w',commandId:'c',outputDir:'work/job'}]}]});
+    assert.match(sandbox.html,new RegExp('执行：'+executionLabel));assert.match(sandbox.html,new RegExp('结果：'+resultLabel));
+    assert.doesNotMatch(sandbox.html,/执行：(?:failed|exited|running|missing)|产物：(?:complete|incomplete|unverified)/);
+  }
+});
+test('production panel projection preserves independent states and redraws result-only changes', () => {
+  const source=readSource('src/extension/legacy.ts');
+  const start=source.indexOf('const distributedPlans = visibleDistributedPlanProgress.map(');
+  const end=source.indexOf('const summaryInputs =',start);
+  assert.ok(start>0&&end>start);
+  const rows=[{id:'wf',planFile:'plans/states.yaml',jobs:[{index:0,case:'a',seed:42,status:'failed',lifecycleProtocol:2,
+    executionState:'failed',resultState:'complete',statusQueryError:undefined,workerId:'w',commandId:'c',outputDir:'work/job'}]}];
+  const plans=vm.runInNewContext(source.slice(start,end)+'distributedPlans;',{visibleDistributedPlanProgress:rows,
+    DistributedPlanQueue:{jobIsUnavailable:()=>false}});
+  assert.equal(plans[0].jobs[0].lifecycleProtocol,2);assert.equal(plans[0].jobs[0].executionState,'failed');
+  assert.equal(plans[0].jobs[0].resultState,'complete');
+  const sandbox=clickSandbox(),state={distributedPlans:plans};sandbox.render(state);
+  assert.match(sandbox.html,/执行：失败/);assert.match(sandbox.html,/结果：完整/);
+  const changed=structuredClone(state);changed.distributedPlans[0].jobs[0].resultState='incomplete';
+  assert.notEqual(sandbox.executionRenderKeysForState(state).planList,sandbox.executionRenderKeysForState(changed).planList);
+});
+
 test('failed jobs show a short error and a window-log button instead of embedding the terminal', () => {
   const sandbox = clickSandbox();
   const error = 'FULL_COMMAND_AND_CONFIG_DO_NOT_RENDER '.repeat(200) + '\nTraceback (most recent call last):\n  File "private.py", line 8\nModuleNotFoundError: No module named torch\nPane is dead (status 1)';

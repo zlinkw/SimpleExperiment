@@ -29,4 +29,15 @@ declarations = [dict(index=0, case="a", seed=42, mode="train_test", output_dir="
 results = ns["task_declared_results"]("/fixture", declarations)
 assert [row["completed"] for row in results] == [True, False, False]
 assert results[2]["error"]
+for dead, exit_code, expected in [(False, None, False), (True, 7, False), (True, None, True), (True, 0, True)]:
+    task = dict(outputDir="work/a", commandId="done", observation=dict(tmux=dict(dead=dead, exitCode=exit_code)))
+    assert ns["task_declared_results"]("/fixture", declarations[:1], [task])[0]["completed"] is expected
+active_new = dict(outputDir="work/a", commandId="new", observation=dict(tmux=dict(dead=False, exitCode=None)))
+assert ns["task_declared_results"]("/fixture", declarations[:1], [active_new])[0]["completed"] is False
+uncertain = dict(outputDir="work/a", commandId="done", observation=dict(queryError="unreachable"))
+assert ns["task_declared_results"]("/fixture", declarations[:1], [uncertain])[0]["completed"] is False
+unrelated = dict(outputDir="work/b", commandId="other", observation=dict(tmux=dict(dead=True, exitCode=7)))
+assert ns["task_declared_results"]("/fixture", declarations[:1], [unrelated])[0]["completed"] is True
+ns["task_manifest_observation"] = lambda root, job: dict(status="completed", verified=True, runId="", job=dict(index=0, case="a", seed=42))
+assert ns["task_declared_results"]("/fixture", declarations[:1])[0]["completed"] is False
 print(json.dumps(dict(ok=True, invalidHistoryIsolated=101, livePreserved=True)))

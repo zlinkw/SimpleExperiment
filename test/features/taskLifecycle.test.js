@@ -53,6 +53,37 @@ test('live control matching ignores old revision but never another project or co
   assert.equal(observationMatches(base,{...base,projectId:'other'}),false);
   assert.equal(observationMatches(base,{...base,commandId:'other'}),false);
 });
+test('execution and results remain independent for live, missing, unreadable and conflicting evidence', () => {
+  const result={runId:'c',status:'completed',present:true,verified:true};
+  const live=taskLifecycle({...base,result,tmux:{dead:false,phase:'unrecognized'}});
+  assert.equal(live.execution,'unknown');assert.equal(live.result,'complete');assert.equal(live.status,'unknown');
+  const absent=taskLifecycle({...base,result:null,tmux:{dead:true,exitCode:0}});
+  assert.equal(absent.result,'incomplete');assert.equal(absent.status,'unknown');
+  assert.equal(taskLifecycle({...base,result:null,queryError:'offline'}).result,'unverified');
+  const unreadable=taskLifecycle({...base,result,resultQueryError:'read failed',tmux:{dead:true,exitCode:0}});
+  assert.equal(unreadable.result,'unverified');assert.equal(unreadable.status,'unknown');
+  assert.equal(taskLifecycle({...base,result:{...result,identityMatches:false}}).result,'conflict');
+});
+test('mismatched live observations cannot preserve an old completed card', () => {
+  const Q=require('../../src/features/DistributedPlanQueue.ts');
+  const queue={schemaVersion:1,plans:[{id:'wf',projectId:'p',jobs:[{index:0,workerId:'w',commandId:'c',lifecycleProtocol:2,
+    status:'completed',executionState:'exited',resultState:'complete'}]}]};
+  const snapshot={workerId:'w',fetchedAt:base.observedAt,generatedAt:base.observedAt,capabilities:{taskLifecycle:2},tasks:[{
+    commandId:'c',projectId:'p',observation:{...base,workerId:'other',result:{runId:'c',status:'completed',present:true,verified:true}}}]};
+  const job=Q.mergeDurableWorkerSnapshots(queue,[snapshot],'p').plans[0].jobs[0];
+  assert.equal(job.status,'unknown');assert.equal(job.executionState,'unknown');assert.equal(job.resultState,'unverified');
+});
+test('real manifest queries and client projection agree for every task mode and changed filesystem evidence', () => {
+  const path=require('node:path'),{spawnSync}=require('node:child_process');
+  const proc=spawnSync(process.platform==='win32'?'python':'python3',['-B','-X','utf8',
+    path.join(__dirname,'taskManifestEvidence.fixture.py'),path.join(__dirname,'../../src/runtime/TmuxTaskLifecycle.ts')],
+    {encoding:'utf8',timeout:10000,windowsHide:true});
+  assert.equal(proc.status,0,proc.stderr||proc.stdout);
+  const cases=JSON.parse(proc.stdout);
+  for(const item of cases){const state=taskLifecycle(item.observation);
+    assert.deepEqual({executionState:state.execution,resultState:state.result,status:state.status},item.expected,item.name);}
+  assert.ok(cases.length>=14);
+});
 test('the real queue merge consumes pulled evidence without a durable receipt or a matching old revision', () => {
   const Q=require('../../src/features/DistributedPlanQueue.ts');
   const queue={schemaVersion:1,plans:[{id:'wf',projectId:'p',revision:'current',jobs:[{index:0,workerId:'w',commandId:'c',status:'dispatching'}]}]};

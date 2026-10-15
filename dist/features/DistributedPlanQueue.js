@@ -441,7 +441,7 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
     }
     queue = { ...queue, plans: queue.plans.map(plan => ({ ...plan, jobs: plan.jobs.map(job => job.lifecycleProtocol === 2 && job.workerId && job.commandId && !pulled.some(row => row.workerId === job.workerId)
                 ? { ...job, status: "unknown", executionState: "unknown", resultState: "unverified",
-                    statusQueryError: "当前 Worker 主动查询不可用；原任务未重复派发", blockReason: "查询失败，可刷新或中止原任务" } : job) })) };
+                    error: undefined, statusQueryError: "当前 Worker 主动查询不可用；原任务未重复派发", blockReason: "查询失败，可刷新或中止原任务" } : job) })) };
     if (pulled.length) {
         queue = { ...queue, plans: queue.plans.map(plan => ({ ...plan, jobs: plan.jobs.map(job => {
                     const snapshot = pulled.find(row => row.workerId === job.workerId);
@@ -455,7 +455,7 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
                     if (snapshot.error || !Number.isFinite(fresh) || now - fresh > maxAgeMs)
                         observation.queryError = snapshot.error || "状态查询已过期";
                     if (!(0, TaskLifecycle_1.observationMatches)(observation, { commandId: job.commandId, workerId: job.workerId, projectId }))
-                        return job;
+                        observation.queryError = "任务查询身份与当前任务不符；请刷新核实";
                     const state = (0, TaskLifecycle_1.taskLifecycle)(observation);
                     return { ...job, lifecycleProtocol: 2, status: state.status, executionState: state.execution, resultState: state.result,
                         startIntent: !observation.queryError && (observation.tmux || observation.cancelled || state.result === "complete") ? undefined : job.startIntent,
