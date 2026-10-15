@@ -36,3 +36,25 @@ test('lost transfer response keeps training completed and retries only remaining
  const f=fixture();f.setLost();await f.run();assert.equal(f.jobs[0].status,'completed');assert.equal(f.jobs[0].latestArtifactSync.state,'partial');
  f.jobs[0].latestArtifactSync.retryAfter='';await f.run();assert.equal(f.jobs[0].latestArtifactSync.state,'synced');assert.equal(f.transfers.length,2,'the already copied destination needs no repeated transfer');
 });
+
+test('artifact transfer and code upload have independent activity while exact artifact paths remain protected',async()=>{
+ const f=fixture();
+ f.h.codeSyncInFlight=1;
+ let release,started;
+ const active=new Promise(resolve=>{started=resolve;});
+ const transfer=f.h.simpleSftpApiCall;
+ f.h.simpleSftpApiCall=async(...args)=>{started();await new Promise(resolve=>{release=resolve;});f.h.simpleSftpApiCall=transfer;return transfer(...args);};
+ const mirror=f.run();await active;
+ assert.equal(f.h.syncScopeMutationInFlight,undefined,'artifact copy must not take the project code mutation gate');
+ assert.equal(f.h.codeSyncInFlight,1);
+ assert.equal(f.h.activeArtifactSyncScopes.size,1);
+ const ts=require('typescript'),ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true);let member;
+ function visit(n){if(ts.isMethodDeclaration(n)&&n.name.getText(ast)==='assertArtifactSyncPathsIdle')member=n;ts.forEachChild(n,visit);}visit(ast);
+ const check=vm.runInNewContext(ts.transpileModule('class H{'+member.getText(ast)+'};H.prototype.assertArtifactSyncPathsIdle',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText);
+ assert.doesNotThrow(()=>check.call(f.h,f.root,['work_dirs/another-job']));
+ assert.throws(()=>check.call(f.h,f.root,['work_dirs/p/job0']),/精确产物路径仍在同步/);
+ assert.throws(()=>check.call(f.h,f.root,['work_dirs']),/精确产物路径仍在同步/);
+ release();await mirror;
+ assert.equal(f.h.activeArtifactSyncScopes.size,0);
+ assert.equal(f.jobs[0].latestArtifactSync.state,'synced');
+});

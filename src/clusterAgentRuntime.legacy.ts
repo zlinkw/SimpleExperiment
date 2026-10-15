@@ -277,6 +277,8 @@ DISTRIBUTED_GPU_RESERVATIONS = {}
 OPERATION_JOURNAL_CACHE = {}
 OPERATION_JOURNAL_CACHE_LOCK = threading.Lock()
 RUNTIME_JSON_CACHE = {}
+WORKER_GPU_SAMPLE_LOCK = threading.Lock()
+WORKER_GPU_SAMPLE_CACHE = {}
 RUNTIME_JSON_CACHE_LOCK = threading.Lock()
 RUNTIME_FILE_INDEX_CACHE = {}
 RUNTIME_FILE_INDEX_CACHE_LOCK = threading.Lock()
@@ -2349,18 +2351,18 @@ def query_gpu_history(root, server_id="", gpu_id="", start=None, end=None, max_p
     }
 
 def api_worker_gpu(root):
-    cached = read_runtime_json_cached(path_for(root, "gpu_snapshot.json"), {})
-    if cached:
-        return cached
-    return {
-        "schemaVersion": SCHEMA_VERSION,
-        "generatedAt": now_iso(),
-        "source": "worker_telemetry",
-        "gpu": [],
-        "gpus": [],
-        "status": "pending",
-        "message": "Worker GPU telemetry sampler has not produced a snapshot yet.",
-    }
+    # One device sample per second, shared by HTTP and the stream sampler.
+    # Disk snapshots and old PLAN/task registrations never determine freshness.
+    with WORKER_GPU_SAMPLE_LOCK:
+        cached = WORKER_GPU_SAMPLE_CACHE.get("sample")
+        if cached and 0 <= time.monotonic() - cached[0] < 1.0:
+            return copy.deepcopy(cached[1])
+        gpus, err = collect_local_gpu()
+        payload = {"schemaVersion": SCHEMA_VERSION, "generatedAt": now_iso(),
+                   "source": "worker_telemetry", "gpu": gpus, "gpus": gpus,
+                   "status": "ok" if not err else "degraded", "error": err}
+        WORKER_GPU_SAMPLE_CACHE["sample"] = (time.monotonic(), payload)
+        return copy.deepcopy(payload)
 
 def gpu_row_id(row):
     # 修复 index==0 时因 Python falsy 被 or 跳过取到 uuid：显式判 None 且优先 index 数字 0-3 返回 "0"；UUID 仅作后缀忽略，规范化为数字 0..63
@@ -6423,19 +6425,13 @@ def start_worker_local_command_processor(root, worker_id, poll_seconds=5, jitter
     threading.Thread(target=loop, daemon=True, name="worker-local-command-processor").start()
 
 def write_worker_gpu_snapshot(root):
-    gpus, err = collect_local_gpu()
-    payload = {
-        "schemaVersion": SCHEMA_VERSION,
-        "generatedAt": now_iso(),
-        "source": "worker_telemetry",
-        "gpu": gpus,
-        "gpus": gpus,
-        "status": "ok" if not err else "degraded",
-        "error": err,
-    }
+    payload = api_worker_gpu(root)
+    gpus = payload["gpus"]
     worker_id = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
     try:
-        record_gpu_history(root, {worker_id: gpus}, payload["generatedAt"])
+        if time.monotonic() - WORKER_GPU_SAMPLE_CACHE.get("historyAt", -60.0) >= 60.0:
+            record_gpu_history(root, {worker_id: gpus}, payload["generatedAt"])
+            WORKER_GPU_SAMPLE_CACHE["historyAt"] = time.monotonic()
     except Exception as exc:
         payload["historyError"] = str(exc)
     atomic_write(path_for(root, "gpu_snapshot.json"), payload)
@@ -6449,24 +6445,10 @@ def sampler_sleep_seconds(interval, jitter_seconds=30.0):
     return interval + (random.random() * jitter if jitter else 0.0)
 
 def worker_gpu_sample_delay(interval, jitter_seconds, has_plan):
-    if has_plan:
-        return min(5.0, sampler_interval_seconds(interval, 5.0))
-    return sampler_sleep_seconds(interval, jitter_seconds)
+    return min(1.0, sampler_interval_seconds(interval, 1.0))
 
 def wait_for_worker_gpu_sample(root, interval, jitter_seconds, has_plan):
-    delay = worker_gpu_sample_delay(interval, jitter_seconds, has_plan)
-    if has_plan:
-        time.sleep(delay)
-        return
-    # Check local task state every five seconds, but avoid GPU queries and snapshot writes
-    # while idle. A newly-started plan wakes the next loop immediately.
-    remaining = delay
-    while remaining > 0:
-        sleep_for = min(5.0, remaining)
-        time.sleep(sleep_for)
-        remaining -= sleep_for
-        if has_running_plan(root):
-            return
+    time.sleep(worker_gpu_sample_delay(interval, jitter_seconds, has_plan))
 
 def has_running_plan(root):
     # 计划未接入时返回 False，调用方应 30s 休眠且不探活；有运行中任务/调度态时返回 True
@@ -6514,15 +6496,14 @@ def payload_cache_changed(cache, key, payload):
     cache[key] = payload
     return True
 
-def start_worker_telemetry_sampler(root, poll_seconds=1, jitter_seconds=30):
-    interval = sampler_interval_seconds(poll_seconds, 60.0)
+def start_worker_telemetry_sampler(root, poll_seconds=1, jitter_seconds=0):
+    interval = worker_gpu_sample_delay(poll_seconds, 0, False)
     heartbeat_interval = max(60.0, interval)
     worker_id_local = str(os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip() or "worker"
     def loop():
         last_payloads = {}
         last_heartbeat = 0.0
         while True:
-            has_plan = has_running_plan(root)
             try:
                 payload = write_worker_gpu_snapshot(root)
                 # 单机 worker_telemetry 模式自刷新 worker_availability.json 避免调度停滞
@@ -6531,15 +6512,12 @@ def start_worker_telemetry_sampler(root, poll_seconds=1, jitter_seconds=30):
                     write_availability_batch(root, {"schemaVersion": SCHEMA_VERSION, "source": "worker_agent_direct", "generatedAt": avail.get("updatedAt"), "workers": [avail]})
                 except Exception:
                     pass
-                gpu_event = {"gpus": payload.get("gpus") or [], "status": payload.get("status"), "error": payload.get("error") or ""}
+                gpu_event = {"gpus": payload.get("gpus") or [], "status": payload.get("status"), "error": payload.get("error") or "", "generatedAt": payload.get("generatedAt")}
                 if payload_cache_changed(last_payloads, "gpu", gpu_event):
                     append_event(root, {"type": "gpu_snapshot", "source": "worker_telemetry", "payload": gpu_event})
                 health_payload = {"status": payload.get("status"), "lastError": payload.get("error") or "", "generatedAt": payload.get("generatedAt"), "gpuCount": len(payload.get("gpus") or [])}
                 if payload_cache_changed(last_payloads, "health", health_payload):
                     append_event(root, {"type": "worker_health", "source": "worker_telemetry", "payload": health_payload})
-                tasks_payload = api_worker_tasks(root)
-                if payload_cache_changed(last_payloads, "tasks", tasks_payload):
-                    append_event(root, {"type": "worker_task_snapshot", "source": "worker_telemetry", "payload": tasks_payload})
                 if time.time() - last_heartbeat >= heartbeat_interval:
                     append_event(root, {"type": "agent_heartbeat", "source": "worker_telemetry", "payload": {"status": payload.get("status"), "gpuPollSeconds": interval, "agentVersion": AGENT_VERSION}})
                     last_heartbeat = time.time()
@@ -6548,7 +6526,18 @@ def start_worker_telemetry_sampler(root, poll_seconds=1, jitter_seconds=30):
                     append_event(root, {"type": "worker_health", "source": "worker_telemetry", "payload": {"status": "degraded", "lastError": str(exc), "generatedAt": now_iso()}})
                 except Exception:
                     pass
-            wait_for_worker_gpu_sample(root, interval, jitter_seconds, has_plan)
+            wait_for_worker_gpu_sample(root, interval, 0, False)
+    def task_loop():
+        last_payloads = {}
+        while True:
+            try:
+                tasks_payload = api_worker_tasks(root)
+                if payload_cache_changed(last_payloads, "tasks", tasks_payload):
+                    append_event(root, {"type": "worker_task_snapshot", "source": "worker_telemetry", "payload": tasks_payload})
+            except Exception:
+                pass
+            time.sleep(5.0)
+    threading.Thread(target=task_loop, name="simple-worker-task-telemetry-sampler", daemon=True).start()
     thread = threading.Thread(target=loop, name="simple-worker-telemetry-sampler", daemon=True)
     thread.start()
     return thread
@@ -15712,7 +15701,7 @@ def serve_http(args):
         reconcile_worker_tasks_after_restart(root)
     atomic_write(path_for(root, "agent.session.json"), {"tokenConfigured": bool(token), "startedAt": now_iso(), "agentVersion": AGENT_VERSION, "agentInstallDir": agent_install_dir(root), "agentStateDir": agent_dir(root), "stateRetentionSeconds": STATE_RETENTION_SECONDS, "maxAgentStateBytes": MAX_AGENT_STATE_BYTES})
     if mode == "worker_telemetry":
-        start_worker_telemetry_sampler(root, getattr(args, "gpu_poll_seconds", 60), getattr(args, "jitter_seconds", 30))
+        start_worker_telemetry_sampler(root, getattr(args, "gpu_poll_seconds", 1), 0)
         # P0: worker_telemetry 与 hub_control 均启动 gpu_log_tail 采样，与 GPU 采样同频 60s，写入 live_output/{gid}.json + append_event log_tail
         try:
             start_gpu_log_tail_sampler(root, getattr(args, "gpu_poll_seconds", 60) or 60, getattr(args, "jitter_seconds", 30))
@@ -16912,7 +16901,7 @@ def main():
     p.add_argument("--port", type=int, default=18765)
     p.add_argument("--token", default="")
     p.add_argument("--mode", choices=("worker_telemetry",), default="worker_telemetry")
-    p.add_argument("--gpu-poll-seconds", type=float, default=60.0)
+    p.add_argument("--gpu-poll-seconds", type=float, default=1.0)
     p.add_argument("--worker-id", default="")
     p.add_argument("--worker-availability-push-seconds", type=float, default=60.0)
     p.add_argument("--jitter-seconds", type=float, default=30.0)

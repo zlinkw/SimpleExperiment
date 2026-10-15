@@ -5958,9 +5958,6 @@ class RealtimeTunnelPanelProvider {
         const action = actionCommandMap[command];
         if (!action)
             return;
-        if (PLAN_SUBMISSION_COMMANDS.has(command)
-            && (this.distributedPostprocessPromise || this.manualResultSyncCounts?.get(workspaceRoot())))
-            this.assertPlanSubmissionNotDuringResultSync(message);
         assertSingleProjectWorkspace("远端实验操作");
         if (["runPlan", "reproducePlan", "parseResults"].includes(command)) {
             const root = workspaceRoot();
@@ -8566,8 +8563,11 @@ class RealtimeTunnelPanelProvider {
             return { completed: [], errors: [] };
         if (options.metricsOnly && selectedPaths.some((file) => !isResultMetricFile(file)))
             throw new Error("结果版本校验必须限定到摘要中的具体指标文件。");
-        if (this.syncScopeMutationInFlight || this.planSyncInFlight || this.codeSyncInFlight)
+        const artifactCopy = Boolean(options.completedJob && relative === "." && selectedPaths.length && !selectedPaths.includes("."));
+        if (this.syncScopeMutationInFlight || this.planSyncInFlight || !artifactCopy && this.codeSyncInFlight)
             throw new Error("同步或文件树操作进行中，请完成后重试。");
+        if (artifactCopy && this.planCleanupHosts?.get(root)?.executing)
+            throw new Error("产物路径正在清理，稍后重新核实并同步。");
         if (targets.length < 2)
             throw new Error("至少需要两台已启用 Worker。");
         if (relative !== ".")
@@ -8578,8 +8578,18 @@ class RealtimeTunnelPanelProvider {
         const configured = this.enabledWorkerConfigs().map((worker) => worker.id).filter(Boolean);
         if (configured.some((id) => !targets.some((target) => target.id === id)))
             throw new Error("有 Worker 未连接或未启用；请恢复连接后再合并最新版。");
-        this.codeSyncWarmProofs?.clear();
-        this.syncScopeMutationInFlight = true;
+        const copyScope = {};
+        if (artifactCopy) {
+            const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
+            if (selectedPaths.some(file => isLocalCodeOwnedPath(file, true, config.get("codeSync.includePaths", []), config.get("codeSync.scopePaths"))))
+                throw new Error("产物同步路径与本机代码范围重叠，请先调整同步范围。");
+            this.activeArtifactSyncScopes ||= new Map();
+            this.activeArtifactSyncScopes.set(copyScope, { root, paths: [...selectedPaths] });
+        }
+        else {
+            this.codeSyncWarmProofs?.clear();
+            this.syncScopeMutationInFlight = true;
+        }
         try {
             report(`正在校验 ${targets.length} 台 Worker 的 ${selectedPaths.length} 条结果或目录路径`);
             const statuses = await this.refreshSyncScopeStatus(root, targets, "server-server", selectedPaths, relative, options.signal);
@@ -8656,7 +8666,10 @@ class RealtimeTunnelPanelProvider {
                 errors: [...skipped, ...results.filter((item) => item.error).map((item) => `${item.item.path}：${item.error}`)] };
         }
         finally {
-            this.syncScopeMutationInFlight = false;
+            if (artifactCopy)
+                this.activeArtifactSyncScopes.delete(copyScope);
+            else
+                this.syncScopeMutationInFlight = false;
         }
     }
     async verifiedSftpProjectInventory(options) {
@@ -8696,6 +8709,7 @@ class RealtimeTunnelPanelProvider {
             }, (done, total) => report(`已核对 ${done}/${total} 条勾选路径`), knownEntries, action === "delete" ? { fresh: true, onMissing: file => absent.push(file) } : {});
             if (!entries.length)
                 return { completed: absent, errors: [] };
+            this.assertArtifactSyncPathsIdle?.(root, entries.map(entry => entry.path));
             const work = [];
             let destinationIds = [];
             if (action === "sync") {
@@ -8977,6 +8991,7 @@ class RealtimeTunnelPanelProvider {
             port: server.port, root: server.remotePath }, relative, directory, report);
     }
     async removeSyncScopeCopies(root, targets, relative, endpointIds, directory, report = (_stage) => { }) {
+        this.assertArtifactSyncPathsIdle?.(root, [relative]);
         (0, SyncResolution_1.safeSyncPath)(relative);
         if (!(0, SyncScopeStatus_1.scopeInventoryPathAllowed)(relative, directory) || directory && relative === "simple_cluster")
             throw new Error("机器状态路径不可删除。");
@@ -9041,6 +9056,7 @@ class RealtimeTunnelPanelProvider {
     }
     async removeSyncScopePath(root, targets, relative, endpointId, directory, report = (_stage) => { }, batchApproved = false) {
         (0, SyncResolution_1.safeSyncPath)(relative);
+        this.assertArtifactSyncPathsIdle?.(root, [relative]);
         if (!(0, SyncScopeStatus_1.scopeInventoryPathAllowed)(relative, directory) || directory && relative === "simple_cluster")
             throw new Error("机器状态路径不可删除。");
         if ((!batchApproved && this.syncScopeMutationInFlight) || this.planSyncInFlight || this.codeSyncInFlight)
@@ -9126,6 +9142,7 @@ class RealtimeTunnelPanelProvider {
         }
     }
     async retainSyncScopeVersion(root, targets, relative, endpointId, directory = false, report = (_stage) => { }, batchApproved = false, destinationIds = undefined) {
+        this.assertArtifactSyncPathsIdle?.(root, [relative]);
         (0, SyncResolution_1.safeSyncPath)(relative);
         if (!(0, SyncScopeStatus_1.scopeInventoryPathAllowed)(relative, directory) || directory && relative === "simple_cluster")
             throw new Error("机器状态路径不可选为保留版本。");
@@ -10146,11 +10163,15 @@ class RealtimeTunnelPanelProvider {
         return fingerprint;
     }
     assertPlanSubmissionNotDuringResultSync(message) {
-        if (!this.distributedPostprocessPromise && !this.manualResultSyncCounts?.get(workspaceRoot()))
-            return;
-        const detail = "服务器产物同步正在进行，当前 Plan 尚未提交。同步将继续，不会被本次运行请求中断。请待同步完成后再运行；无需终止或清除历史 Plan。";
-        this.finishPlanSubmissionProgress(message, "failed", detail);
-        throw new Error(detail);
+        // Compatibility entry. Artifact copies do not own the PLAN or its code upload.
+        // Exact output mutations check activeArtifactSyncScopes at their execution boundary.
+    }
+    assertArtifactSyncPathsIdle(root, paths) {
+        const overlaps = (a, b) => a === b || a.startsWith(b + "/") || b.startsWith(a + "/");
+        for (const scope of this.activeArtifactSyncScopes?.values() || []) {
+            if (scope.root === root && paths.some(file => scope.paths.some(other => overlaps(file, other))))
+                throw new Error("这些精确产物路径仍在同步，请待该批传输结束后重试路径操作；其他 PLAN 可正常提交。");
+        }
     }
     async withManualResultSync(work) {
         return work();
@@ -10220,8 +10241,6 @@ class RealtimeTunnelPanelProvider {
         }
         if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot))
             return;
-        if (this.distributedPostprocessPromise || this.manualResultSyncCounts?.get(workspaceRoot()))
-            this.assertPlanSubmissionNotDuringResultSync(message);
         const fingerprintStarted = Date.now();
         const versionHold = await this.waitForPlanSubmission(message, () => this.distributedCodeVersionHold(body, this.distributedSubmissionAborts?.get(operationId)?.signal));
         if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot))
@@ -34300,6 +34319,7 @@ const protectedCodeSyncTopLevelDirs = new Set([
     "pretrained_ckpt",
     "runs",
     "work_dirs",
+    "work_dir",
     "wandb",
     "tensorboard",
     "logs",

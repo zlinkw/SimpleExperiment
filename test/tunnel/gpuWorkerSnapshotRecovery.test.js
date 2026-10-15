@@ -16,12 +16,14 @@ async function fixture(fn) {
   let taskFailure = false;
   let gpuFailurePort = "";
   let useSse = false;
+  let sseController;
   const previousFetch = global.fetch;
   global.fetch = async (url, options) => {
     const parsed = new URL(url), route = parsed.pathname;
     requested.push(route);
     if (route === "/api/events/sse" && useSse) {
       const stream = new ReadableStream({ start(controller) {
+        sseController = controller;
         controller.enqueue(new TextEncoder().encode("data: " + JSON.stringify(event(1, "agent_heartbeat")) + "\n\n"));
         options.signal.addEventListener("abort", () => controller.close(), { once: true });
       } });
@@ -35,7 +37,8 @@ async function fixture(fn) {
   };
   const endpoint = { id: "nwpu3", role: "worker", localHost: "localhost", localPort: 12345 };
   try { await fn({ endpoint, requested, setGpu: value => { payload = value; }, failTasks: () => { taskFailure = true; },
-    enableSse: () => { useSse = true; }, failGpu: port => { gpuFailurePort = String(port); } }); }
+    enableSse: () => { useSse = true; }, failGpu: port => { gpuFailurePort = String(port); },
+    pushEvent: value => sseController.enqueue(new TextEncoder().encode("data: " + JSON.stringify(value) + "\n\n")) }); }
   finally { global.fetch = previousFetch; }
 }
 
@@ -150,4 +153,39 @@ test("a late GPU response from a disconnected generation does not mutate current
   finish(gpu(4));
   await pending;
   assert.deepEqual(client.currentState().gpu, {});
+});
+
+test("late publication cannot make an older device sample newer than a direct tunnel read", async () => {
+  await fixture(async ({ endpoint, setGpu }) => {
+    setGpu({ ...gpu(1, "actual"), generatedAt: "2026-10-15T04:30:00Z" });
+    const client = new RealtimeTunnelClient(endpoint, budget(), policy);
+    try {
+      await client.getGpu();
+      client.acceptEvent(event(1, "gpu_snapshot", { gpus: [{ index: 0, name: "old" }], generatedAt: "2026-10-15T04:29:00Z" }, "2026-10-15T04:31:00Z"));
+      assert.equal(client.currentState().gpu.nwpu3[0].name, "actual");
+      client.acceptEvent(event(2, "gpu_snapshot", { gpus: [{ index: 0, name: "new" }], generatedAt: "2026-10-15T04:32:00Z" }, "2026-10-15T04:33:00Z"));
+      assert.equal(client.currentState().gpu.nwpu3[0].name, "new");
+      assert.equal(client.currentState().workerHealth.nwpu3.updatedAt, "2026-10-15T04:32:00Z");
+    } finally { await client.disconnect(); }
+  });
+});
+
+test("a connected tunnel stream updates GPU memory, utilization and process ownership without a full snapshot refresh", async () => {
+  await fixture(async ({ endpoint, enableSse, pushEvent, requested }) => {
+    enableSse();
+    const states=[];
+    const client=new RealtimeTunnelClient(endpoint,budget(),{...policy,fallbackToSse:true},state=>states.push(state));
+    try {
+      await client.connect();
+      const reads=requested.filter(route=>route==='/api/gpu').length;
+      pushEvent(event(2,'gpu_snapshot',{gpus:[{index:0,memoryUsedMb:24000,utilizationPercent:97,
+        processes:[{pid:'123',user:'u',pluginManaged:true}]}],generatedAt:'2099-01-01T00:00:00Z'}));
+      await new Promise(resolve=>setImmediate(resolve));
+      const actual=client.currentState().gpu.nwpu3[0];
+      assert.equal(actual.memoryUsedMb,24000);assert.equal(actual.utilizationPercent,97);
+      assert.equal(actual.processes[0].pluginManaged,true);
+      assert.equal(states.at(-1).gpu.nwpu3[0],actual);
+      assert.equal(requested.filter(route=>route==='/api/gpu').length,reads);
+    } finally { await client.disconnect(); }
+  });
 });

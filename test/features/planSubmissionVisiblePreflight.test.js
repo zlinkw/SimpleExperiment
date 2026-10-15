@@ -452,6 +452,16 @@ test("direct distributed submission confirms once and enqueues once", async () =
   assert.equal(host.localOperations.other.status, "queued");
 });
 
+test("an active artifact mirror does not block code preparation or the selected PLAN submission", async () => {
+  const host = commandHost();
+  const mirror = new Promise(() => {});
+  host.distributedPostprocessPromise = mirror;
+  await submit(host, message());
+  assert.deepEqual(host.calls, ["sync", "preflight", "confirm", "enqueue:[0]"]);
+  assert.equal(host.distributedPostprocessPromise, mirror, "submission must not cancel or replace the mirror");
+  assert.equal(host.localOperations["plan-submit-click-drf"].status, "succeeded");
+});
+
 test("direct submission confirms once and enqueues once", async () => {
   const host = provider();
   const body = { planFile: drf, options: {} };

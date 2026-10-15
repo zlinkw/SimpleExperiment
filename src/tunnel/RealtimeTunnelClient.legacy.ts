@@ -594,7 +594,8 @@ export class RealtimeTunnelClient {
     this.state = applyRealtimeEvent(this.state, raw, { protectedLogKeys: this.protectedLogKeys });
     if (this.isWorkerTelemetryEndpoint() && event && typeof event === "object"
       && (event as RealtimeEvent).type === "gpu_snapshot" && this.state.lastSeq > before) {
-      const sampledAt = Date.parse((event as RealtimeEvent).generatedAt);
+      const payload = objectRecord((event as RealtimeEvent).payload) || {};
+      const sampledAt = Date.parse(String(payload.generatedAt || (event as RealtimeEvent).generatedAt));
       if (Number.isFinite(sampledAt) && sampledAt < this.workerGpuUpdatedAt) {
         // Advance replay cursor without letting an old journal sample undo HTTP refresh.
         this.state = { ...this.state, gpu: beforeState.gpu,
@@ -602,10 +603,9 @@ export class RealtimeTunnelClient {
       } else {
         if (Number.isFinite(sampledAt)) this.workerGpuUpdatedAt = sampledAt;
         const gpu = { [this.workerEndpointId()]: this.state.gpu[(event as RealtimeEvent).workerId || (event as RealtimeEvent).serverId || "hub"] || [] };
-        const payload = objectRecord((event as RealtimeEvent).payload) || {};
         this.state = { ...this.state, gpu,
           workerHealth: { ...(this.state.workerHealth || {}), [this.workerEndpointId()]: {
-            status: payload.status || "ok", lastError: payload.error || "", updatedAt: (event as RealtimeEvent).generatedAt,
+            status: payload.status || "ok", lastError: payload.error || "", updatedAt: payload.generatedAt || (event as RealtimeEvent).generatedAt,
           } }, lastKnownGood: { ...(this.state.lastKnownGood || {}), gpu } };
       }
     }
