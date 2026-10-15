@@ -942,8 +942,7 @@ export class RealtimeTunnelPanelProvider {
     distributedQueueGeneration = 0;
     distributedRecallInFlight = new Set<string>();
     private distributedTickAbort?: AbortController;
-    private progressRefreshPromise?: Promise<void>;
-    private progressRefreshAbort?: AbortController;
+    private progressRefreshRequests = new Map<string, { controller: AbortController; promise?: Promise<any> }>();
     planStopClearByFile: Record<string, any> = {};
     distributedNextProbeAt = 0;
     distributedNextFailureDetailAt = 0;
@@ -1294,7 +1293,8 @@ export class RealtimeTunnelPanelProvider {
             void this.refreshServerPlanProgress({ automatic: true });
         }, 2000);
         progressTimer.unref?.();
-        this.context.subscriptions.push({ dispose: () => { clearInterval(progressTimer); this.progressRefreshAbort?.abort(); } });
+        this.context.subscriptions.push({ dispose: () => { clearInterval(progressTimer);
+            for (const request of this.progressRefreshRequests?.values() || []) request.controller.abort(); } });
     }
     refreshStoredPluginUpdateStatus(plan) {
         if (!plan || typeof plan !== "object" || !["update_available", "reload_required"].includes(String(plan.status)))
@@ -1555,7 +1555,7 @@ export class RealtimeTunnelPanelProvider {
         if (!shared) {
             const controller = new AbortController();
             const request = { controller, subscribers: 0, settled: false, promise: Promise.resolve(undefined) as Promise<unknown> };
-            const timeout = setTimeout(() => controller.abort(new Error("Worker task snapshot timed out.")), 4000);
+            const timeout = setTimeout(() => controller.abort(Object.assign(new Error("Worker task snapshot timed out (15s)."), { code: "TASK_QUERY_TIMEOUT" })), 15000);
             timeout.unref?.();
             request.promise = this.refreshWorkerTaskSnapshot(workerId, root, cacheKey, { signal: controller.signal, inventoryOnly: options.inventoryOnly, declarations: options.declarations }).finally(() => {
                 request.settled = true;
@@ -1623,7 +1623,7 @@ export class RealtimeTunnelPanelProvider {
             snapshots.set(workerId, cached?.workerId === workerId && DistributedPlanQueue.hasFreshDurableSnapshot(
                 cached, Date.now(), DistributedSchedulingPolicy.PROGRESS_FRESHNESS_MS)
                 ? { ...cached, refreshPending: true }
-                : { workerId, schemaVersion: 1, tasks: [], pending: true, error: "Worker task snapshot still pending" });
+                : cached?.error ? cached : { workerId, schemaVersion: 1, tasks: [], pending: true });
         }
         return ids.map((workerId) => snapshots.get(workerId));
     }
@@ -1661,7 +1661,6 @@ export class RealtimeTunnelPanelProvider {
         return value;
     }
     async refreshServerPlanProgress(options: { automatic?: boolean } = {}) {
-        if (this.progressRefreshPromise) return this.progressRefreshPromise;
         const root = workspaceRoot();
         if (!root || this.distributedQueueRoot !== root || !this.distributedQueueCache?.plans.length || !this.isRealtimeMode()
             || this.lastHealth?.state === "paused" || this.lastHealth?.status === "paused") return;
@@ -1670,18 +1669,21 @@ export class RealtimeTunnelPanelProvider {
             ? DistributedSchedulingPolicy.progressRefreshWorkerIds(this.distributedQueueCache, configuredIds,
                 configuredIds.map(id => this.cachedWorkerTaskSnapshot?.(id, root, `${root}\u0000${id}`)).filter(Boolean)) : configuredIds;
         if (!workerIds.length) return;
-        const abort = new AbortController();
-        this.progressRefreshAbort = abort;
-        const request = mapLimited(workerIds, 3,
-            (workerId) => this.readWorkerTaskSnapshot(workerId, { fresh: true, signal: abort.signal }))
-            .then(() => { if (workspaceRoot() === root) this.postState(); })
-            .catch(() => {})
-            .finally(() => {
-                if (this.progressRefreshPromise === request) this.progressRefreshPromise = undefined;
-                if (this.progressRefreshAbort === abort) this.progressRefreshAbort = undefined;
-            });
-        this.progressRefreshPromise = request;
-        return request;
+        this.progressRefreshRequests ||= new Map();
+        const requests = workerIds.map(workerId => {
+            const key = root + "\u0000" + workerId;
+            const active = this.progressRefreshRequests.get(key);
+            if (active) return active.promise;
+            const controller = new AbortController();
+            const request = { controller, promise: undefined as Promise<any> | undefined };
+            request.promise = this.readWorkerTaskSnapshot(workerId, { fresh: true, signal: controller.signal })
+                .then(() => { if (workspaceRoot() === root) this.postState(); })
+                .catch(() => {})
+                .finally(() => { if (this.progressRefreshRequests.get(key) === request) this.progressRefreshRequests.delete(key); });
+            this.progressRefreshRequests.set(key, request);
+            return request.promise;
+        });
+        return Promise.allSettled(requests);
     }
     async refreshWorkerTaskSnapshot(workerId, root, cacheKey, options: { signal?: AbortSignal; inventoryOnly?: boolean; declarations?: any[] } = {}) {
         const cached = options.inventoryOnly ? undefined : this.cachedWorkerTaskSnapshot(workerId, root, cacheKey);
@@ -1721,7 +1723,7 @@ export class RealtimeTunnelPanelProvider {
             return workerTaskSnapshotPayload(snapshot);
         }
         catch (error) {
-            if (options.signal?.aborted) throw error;
+            if (options.signal?.aborted && options.signal.reason?.code !== "TASK_QUERY_TIMEOUT") throw error;
             const denied = error instanceof RequestBudget_1.RequestBudgetDeniedError ? error.decision.reason : "";
             const failure = "Worker " + workerId + " · /api/worker/tasks" + (options.inventoryOnly ? "" : "/query") + "："
                 + (denied || errorMessage(error));
@@ -4112,7 +4114,7 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
         this.activationAbortController.abort();
         this.projectContextAbortController.abort(new UiCommandCancelled("扩展正在停用，项目请求已取消。"));
         this.distributedTickAbort?.abort();
-        this.progressRefreshAbort?.abort();
+        for (const request of this.progressRefreshRequests.values()) request.controller.abort();
         if (this.localOperationsPersistTimer) clearTimeout(this.localOperationsPersistTimer);
         this.localOperationsPersistTimer = undefined;
         if (this.localOperationsDirty) {
@@ -10936,8 +10938,8 @@ this.assertPlanTopologyReady("Plan 调度");
         const durableQueue = queue.plans.some((plan) => plan.projectId === projectId
             || plan.jobs.some((job) => job.recallRequested === true));
         if (durableQueue) {
-            const targets = this.workerActionTargets().filter(target => this.workerPreparation?.root === root
-                ? this.workerPreparation.preparation.ready.has(target.id) : !this.codeSyncInFlight)
+            const targets = this.workerActionTargets().filter(target => DistributedSchedulingPolicy.dispatchPreparationAllowsWorker(
+                target.id, root, this.workerPreparation, this.codeSyncInFlight))
                 .sort((a, b) => String(a.id).localeCompare(String(b.id)));
             const snapshotsByWorker = new Map(taskSnapshots.map((snapshot, index) => [snapshot.workerId || snapshotWorkerIds[index], snapshot]));
             const recallTargets = queue.plans.flatMap((plan) => plan.jobs.filter((job) => job.recallRequested === true)

@@ -4,7 +4,12 @@ import { newestJobOutputs } from "./LatestJobArtifacts";
 import { runtimeEvidence } from "./RuntimeDiagnostics";
 
 export type SchedulingMode = "local_idle" | "server_prequeue";
-export const PROGRESS_FRESHNESS_MS = 5_000;
+// The live pull is bounded at 15s; a 2s polling interval must not expire it mid-query.
+export const PROGRESS_FRESHNESS_MS = 20_000;
+/** Preparation restricts writers only while the current upload is in flight. */
+export function dispatchPreparationAllowsWorker(workerId: string, root: string, preparation: any, uploads: number): boolean {
+  return !uploads || preparation?.root === root && preparation.preparation.ready.has(workerId);
+}
 /** Historical completion is stable; background telemetry only follows unresolved ownership. */
 export function progressRefreshWorkerIds(queue: DistributedQueue, configuredIds: string[], snapshots?: readonly any[]): string[] {
   const needed = new Set<string>();
@@ -19,8 +24,9 @@ export function progressRefreshWorkerIds(queue: DistributedQueue, configuredIds:
   if (snapshots) for (const { plan, job } of newestJobOutputs(queue)) {
     if (job.lifecycleProtocol !== 2 || job.status !== "completed" || !plan.projectId || !job.commandId || !job.workerId || !job.outputDir) continue;
     const snapshot = snapshots.find(row => row.workerId === job.workerId);
+    const received = Date.parse(String(snapshot?.fetchedAt || ""));
     const task = snapshot?.tasks?.find((row: any) => row.projectId === plan.projectId && row.commandId === job.commandId);
-    if (snapshot?.error || snapshot?.queryComplete !== true
+    if (snapshot?.error || snapshot?.queryComplete !== true || Number.isFinite(received) && Date.now() - received >= PROGRESS_FRESHNESS_MS - 4_000
       || !runtimeEvidence(task?.runtimeDiagnostics || task?.observation?.runtimeDiagnostics, job.commandId).scanComplete) needed.add(job.workerId);
   }
   return [...new Set(configuredIds)].filter(id => needed.has(id));

@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PROGRESS_FRESHNESS_MS = void 0;
+exports.dispatchPreparationAllowsWorker = dispatchPreparationAllowsWorker;
 exports.progressRefreshWorkerIds = progressRefreshWorkerIds;
 exports.schedulingMode = schedulingMode;
 exports.prequeueGpuWeight = prequeueGpuWeight;
@@ -9,7 +10,12 @@ exports.serverAuthoritativeProgress = serverAuthoritativeProgress;
 const DistributedPlanQueue_1 = require("./DistributedPlanQueue");
 const LatestJobArtifacts_1 = require("./LatestJobArtifacts");
 const RuntimeDiagnostics_1 = require("./RuntimeDiagnostics");
-exports.PROGRESS_FRESHNESS_MS = 5_000;
+// The live pull is bounded at 15s; a 2s polling interval must not expire it mid-query.
+exports.PROGRESS_FRESHNESS_MS = 20_000;
+/** Preparation restricts writers only while the current upload is in flight. */
+function dispatchPreparationAllowsWorker(workerId, root, preparation, uploads) {
+    return !uploads || preparation?.root === root && preparation.preparation.ready.has(workerId);
+}
 /** Historical completion is stable; background telemetry only follows unresolved ownership. */
 function progressRefreshWorkerIds(queue, configuredIds, snapshots) {
     const needed = new Set();
@@ -30,8 +36,9 @@ function progressRefreshWorkerIds(queue, configuredIds, snapshots) {
             if (job.lifecycleProtocol !== 2 || job.status !== "completed" || !plan.projectId || !job.commandId || !job.workerId || !job.outputDir)
                 continue;
             const snapshot = snapshots.find(row => row.workerId === job.workerId);
+            const received = Date.parse(String(snapshot?.fetchedAt || ""));
             const task = snapshot?.tasks?.find((row) => row.projectId === plan.projectId && row.commandId === job.commandId);
-            if (snapshot?.error || snapshot?.queryComplete !== true
+            if (snapshot?.error || snapshot?.queryComplete !== true || Number.isFinite(received) && Date.now() - received >= exports.PROGRESS_FRESHNESS_MS - 4_000
                 || !(0, RuntimeDiagnostics_1.runtimeEvidence)(task?.runtimeDiagnostics || task?.observation?.runtimeDiagnostics, job.commandId).scanComplete)
                 needed.add(job.workerId);
         }

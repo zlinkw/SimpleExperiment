@@ -2645,9 +2645,15 @@ export function renderPanelHtml(): string {
     const DIAGNOSTIC_AGENT_WORKER_CARD_LIMIT = 8;
     let lastState = {};
     const manualJobSelections = new Map();
+    function currentManualJobSelection(planId, selected, state) {
+      const plan = asArray(state && state.distributedPlans).find(row => row.id === planId);
+      const jobs = asArray(plan && plan.jobs);
+      return new Map(Array.from(selected || []).filter(([index, command]) => jobs.some(job =>
+        Number(job.index) === Number(index) && job.status !== "completed" && (job.commandId || "") === command)));
+    }
     document.addEventListener("change", function(event) {
       const box=event.target.closest("input[data-manual-job]");if(!box)return;
-      const key=box.dataset.planId, selected=manualJobSelections.get(key)||new Map();
+      const key=box.dataset.planId, selected=currentManualJobSelection(key,manualJobSelections.get(key),lastState);
       if(box.checked)selected.set(Number(box.dataset.manualJob),box.dataset.commandId||"");else selected.delete(Number(box.dataset.manualJob));
       manualJobSelections.set(key,selected);
     });
@@ -3510,8 +3516,10 @@ export function renderPanelHtml(): string {
       const manualButton=event.target.closest("button[data-manual-dispatch]");
       if(manualButton){
         event.preventDefault();event.stopPropagation();
-        const planId=manualButton.dataset.planId,selected=manualButton.dataset.jobIndex===undefined
+        const planId=manualButton.dataset.planId,requested=manualButton.dataset.jobIndex===undefined
           ?manualJobSelections.get(planId)||new Map():new Map([[Number(manualButton.dataset.jobIndex),manualButton.dataset.commandId||""]]);
+        const selected=currentManualJobSelection(planId,requested,lastState);
+        if(selected.size!==requested.size){manualJobSelections.set(planId,selected);showToast("任务身份已更新，请勾选当前任务；无需重新运行 PLAN。","info");return;}
         if(!selected.size){manualButton.title="请先勾选要派发的 job";return;}
         vscode.postMessage({command:"dispatchJobs",planId,indices:Array.from(selected.keys()),expectedCommands:Object.fromEntries(selected)});return;
       }

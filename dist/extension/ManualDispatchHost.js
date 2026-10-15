@@ -48,10 +48,12 @@ class ManualDispatchHost {
         this.root = root;
     }
     ports() {
-        const h = this.host, client = h.client, stopEpoch = h.distributedPlanStopEpoch;
+        const h = this.host, stopEpoch = h.distributedPlanStopEpoch;
+        const targets = () => JSON.stringify([h.effectiveConnectionMode?.(), h.workerActionTargets().map((w) => [w.id, w.host, w.port, w.user, w.project_dir, w.local_agent_url, w.agent_runtime_dir, w.conda_env])]);
+        const targetKey = targets();
         return {
             load: () => h.loadDistributedQueue(this.root), save: async (q) => { await h.saveDistributedQueue(this.root, q); h.postState(); },
-            assertCurrent: () => { if (h.client !== client || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath !== this.root || h.distributedPlanStopEpoch !== stopEpoch)
+            assertCurrent: () => { if (targets() !== targetKey || vscode.workspace.workspaceFolders?.[0]?.uri.fsPath !== this.root || h.distributedPlanStopEpoch !== stopEpoch)
                 throw Error("项目、连接或停止请求已变化，未继续派发。"); },
             online: id => h.enabledWorkerConfigs().some((w) => w.id === id) && h.lastWorkerProbes?.[id]?.status === "ok",
             supports: id => h.lastWorkerProbes?.[id]?.capabilities?.endpoints?.manualDispatch === 1,
@@ -59,7 +61,7 @@ class ManualDispatchHost {
             prepare: async (plan) => {
                 h.assertExecutionWorkersReady();
                 h.assertExecutionAgentProjectsReady({ options: { workers: h.workerActionTargets() } });
-                const gpu = this.gpuSnapshot || await client.getGpu({ userInitiated: true });
+                const gpu = this.gpuSnapshot || await h.client.getGpu({ userInitiated: true });
                 for (const j of plan.jobs.filter(j => j.manualDispatch?.stage === "preparing")) {
                     const p = j.manualDispatch, rows = Array.isArray(gpu[p.workerId]) ? gpu[p.workerId] : [];
                     if (!rows.some((r) => String(r.index ?? r.gpu_id ?? r.gpuId ?? r.id) === p.gpuId))
@@ -68,10 +70,14 @@ class ManualDispatchHost {
                 await h.ensureCodeReadyForRun(h.captureProjectContext(), []);
                 if (h.lastCodeSyncState?.fingerprint !== plan.codeFingerprint)
                     throw Error("代码已偏离当前 PLAN，请重新校验和预演当前声明。");
-                for (const w of h.enabledWorkerConfigs())
-                    h.lastWorkerTaskSnapshots.set(this.root + "\u0000" + w.id, await client.getWorkerTasks(w.id));
+                await Promise.all(h.enabledWorkerConfigs().map(async (w) => {
+                    if (h.readWorkerTaskSnapshot)
+                        await h.readWorkerTaskSnapshot(w.id, { fresh: true });
+                    else
+                        h.lastWorkerTaskSnapshots.set(this.root + "\u0000" + w.id, { ...await h.client.getWorkerTasks(w.id), fetchedAt: new Date().toISOString() });
+                }));
             },
-            stop: async (p, j) => { await (0, PulledTaskControl_1.stopPulledTask)(client, p, j, (0, node_crypto_1.randomUUID)().replace(/-/g, "")); },
+            stop: async (p, j) => { await (0, PulledTaskControl_1.stopPulledTask)(h.client, p, j, (0, node_crypto_1.randomUUID)().replace(/-/g, "")); },
             review: (p, j) => this.review(p, j), send: (p, j) => h.sendDistributedJob(p, j, j.workerId, j.gpuId, j.commandId),
             tick: () => (0, ManualJobDispatch_1.dispatchReadyManualJobs)(this.ports()),
         };

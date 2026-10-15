@@ -263,6 +263,8 @@ export type DurableWorkerSnapshot = {
 export function hasFreshDurableSnapshot(snapshot: DurableWorkerSnapshot | undefined, now = Date.now(), maxAgeMs = 180_000): boolean {
   const generatedAt = Date.parse(String(snapshot?.generatedAt || ""));
   const fetchedAt = Date.parse(String(snapshot?.fetchedAt || ""));
+  if ((snapshot?.capabilities as any)?.taskLifecycle === 2) return Boolean(snapshot && !snapshot.error && !(snapshot as any).pending
+    && (snapshot as any).queryComplete === true && Number.isFinite(fetchedAt) && now - fetchedAt <= maxAgeMs && fetchedAt <= now + 30_000);
   return Boolean(snapshot && !snapshot.error && snapshot.capabilities?.durablePlanQueue === true
     && snapshot.capabilities.schemaVersion === 1 && Number.isFinite(generatedAt) && Number.isFinite(fetchedAt)
     && now - generatedAt <= maxAgeMs && now - fetchedAt <= maxAgeMs
@@ -484,12 +486,13 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
   }
   queue = { ...queue, plans: queue.plans.map(plan => ({ ...plan, jobs: plan.jobs.map(job =>
     job.lifecycleProtocol === 2 && job.workerId && job.commandId && !pulled.some(row => row.workerId === job.workerId)
+      && !snapshots.some(row => row.workerId === job.workerId && (row as any).pending === true)
       ? { ...job, status: "unknown" as const, executionState: "unknown" as const, resultState: "unverified" as const,
           error: undefined, statusQueryError: "当前 Worker 主动查询不可用；原任务未重复派发", blockReason: "查询失败，可刷新或中止原任务" } : job) })) };
   if (pulled.length) {
     queue = { ...queue, plans: queue.plans.map(plan => ({ ...plan, jobs: plan.jobs.map(job => {
       const snapshot = pulled.find(row => row.workerId === job.workerId);
-      if (!snapshot || !job.commandId || !job.workerId || !["dispatching", "queued", "running", "unknown", "failed", "completed"].includes(job.status)) return job;
+      if (!snapshot || (snapshot as any).pending === true || !job.commandId || !job.workerId || !["dispatching", "queued", "running", "unknown", "failed", "completed"].includes(job.status)) return job;
       const fresh = Date.parse(String(snapshot.fetchedAt || snapshot.generatedAt || ""));
       const task = (snapshot.tasks || []).find(row => row.commandId === job.commandId && row.projectId === projectId);
       const observation: TaskObservation = (task as any)?.observation ? { ...(task as any).observation } : { lifecycleProtocol: 2, commandId: job.commandId,
@@ -504,7 +507,7 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
         startIntent: !observation.queryError && (observation.tmux || observation.cancelled || state.result === "complete") ? undefined : job.startIntent,
         ...( ["train", "test", "train_test"].includes(String(task?.actualExecutionMode)) ? { actualExecutionMode: task!.actualExecutionMode as PlanExecutionMode } : {}),
         recoveryConflict: undefined, trustedTerminalStatus: undefined,
-        statusQueryError: observation.queryError, lastObservedAt: observation.observedAt,
+        statusQueryError: observation.queryError, lastObservedAt: snapshot.fetchedAt || observation.observedAt,
         error: state.status === "failed" ? String(task?.error || `任务退出码 ${task?.exitCode ?? "未知"}`) : undefined,
         blockReason: state.message, ...(task ? { gpuId: String(task.gpuId ?? job.gpuId ?? ""),
           tmuxPane: String(task.tmuxPane || ""), tmuxWindowId: String(task.tmuxWindowId || ""), tmuxSession: String(task.tmuxSession || "") } : {}) };

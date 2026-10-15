@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.340",
-  "buildId": "a623fcd2b9623413f7fd3c9962013b5845fc57bfa9943a797aa8ae18f91bace3",
+  "version": "0.5.341",
+  "buildId": "3ecbfd2c080103dd22be3bff3a26594c6bf725920619fb865a47ca69a7dd8235",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -193,11 +193,11 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "0106f7964038e1e55d153081ee353216237b68ba27e93b672ee0ae562a74719e"
+      "sha256": "14d19042797be2937a84aa408deab53b4bdfa1dd9cffe02e8c7f5fa76268b836"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
-      "sha256": "e1ce3cbd8ff4cd12953f0e958119cd693dd7bcf3e7f3584a918be7fc4861bdfc"
+      "sha256": "72884d81e258e92fe9d70e66f106dee3e312a086fb07fac7ec9cfe584b3a1113"
     },
     {
       "path": "dist/extension/PlanCleanupHost.js",
@@ -293,7 +293,7 @@
     },
     {
       "path": "dist/features/DistributedPlanQueue.js",
-      "sha256": "2a509cb29e6194195352b2e1813ad54ef537e4650fe492c7f4bdc4fcd02b741a"
+      "sha256": "c175d55cb7941ac2b7de103b044bd32654e60aaedd9ffe362de6ec319b156447"
     },
     {
       "path": "dist/features/DistributedProjectContract.js",
@@ -301,7 +301,7 @@
     },
     {
       "path": "dist/features/DistributedSchedulingPolicy.js",
-      "sha256": "50a6865e30b4d82ec4abe64a36500b8d19ac5656d734d0981a55c74f1e63e7cd"
+      "sha256": "0b79fddd8e1a3f836ad7d36505fe5081525467ad0537e3f0faf29eca94ab2099"
     },
     {
       "path": "dist/features/DraftPlans.js",
@@ -645,7 +645,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "392ac151755811e89779bf7a7f7cb13da8344c0b2658e99afcc317dd1c32e7bd"
+      "sha256": "0fc88ce1725f805d3ed2232c3351069ae7546e35588c117649e82e8845ae4fcb"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -869,7 +869,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "3ea305d2136013e5eeef6d24117cc29f78854951513ebd7a86dda3b8c83a006c"
+      "sha256": "9ae3780eff67330a58241dfb406edb37ce38e16b5a24f6cef92b534d7e37ad56"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",
@@ -993,7 +993,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "741d5770c5bda64c226b0d95257dd346703558e55a087d26ac7a50575469f5a7"
+      "sha256": "505d7178cf82e15eb3838d9c6ae06e4ce7444329a1ed83a84672a81935a74f9a"
     },
     {
       "path": "scripts/check-static.js",

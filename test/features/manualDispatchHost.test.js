@@ -18,6 +18,17 @@ test('manual selection pauses automatic dispatch before opening pickers and resu
  const result=await f.host.dispatch({workflowId:'p',indices:[0],expectedCommands:{0:''}},true);
  assert.equal(result.status,'cancelled');assert.equal(f.h.manualDispatchInFlight.size,0);
 });
+test('health client replacement is harmless, but an actual endpoint change still cancels manual dispatch',()=>{
+ const f=fixture();let target={id:'w',local_agent_url:'http://configured:1234',project_dir:'/project'};
+ f.h.workerActionTargets=()=>[target];const ports=f.host.ports();
+ f.h.client={};assert.doesNotThrow(()=>ports.assertCurrent());
+ target={...target,local_agent_url:'http://changed:2345'};assert.throws(()=>ports.assertCurrent(),/连接/);
+});
+test('manual preparation uses the shared actively queried snapshot instead of overwriting it with an undated response',async()=>{
+ const f=fixture();let reads=0;f.h.readWorkerTaskSnapshot=async(id,options)=>{assert.equal(options.fresh,true);reads++;};
+ await f.host.ports().prepare({codeFingerprint:'hash',jobs:[{manualDispatch:{workerId:'w',gpuId:'0',stage:'preparing'}}]});
+ assert.equal(reads,2);assert.equal(f.queries,0);assert.equal(f.h.lastWorkerTaskSnapshots.size,0);
+});
 test('unknown Worker and invisible GPU fail before sync, stopping or deletion',async()=>{
  const f=fixture();await assert.rejects(f.host.dispatch({confirm:true,workflowId:'p',indices:[0],workerId:'missing',gpuId:'0'}),/未启用|不存在/);
  await assert.rejects(f.host.ports().prepare({jobs:[{manualDispatch:{workerId:'w',gpuId:'99',stage:'preparing'}}]}),/GPU 不可见/);assert.equal(f.sync,0);assert.equal(f.queries,0);
