@@ -69,9 +69,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.326"
-RUNTIME_VERSION = "0.5.326"
-PLUGIN_VERSION = "0.5.326"
+AGENT_VERSION = "0.5.327"
+RUNTIME_VERSION = "0.5.327"
+PLUGIN_VERSION = "0.5.327"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -520,7 +520,9 @@ def lifecycle_inspect(params):
         lifecycle_verify_running(contract, health, {})
     active = lifecycle_active_tasks(contract["stateDir"])
     return {"ok": True, "status": "running" if health else "unhealthy" if window else "absent", "contract": contract, "tmuxWindow": window, "activeTasks": active, "activeTasksBlockRestart": False,
-            "identity": health.get("agentIdentity"), "runningVersion": health.get("runtimeVersion"), "files": files}
+            "identity": health.get("agentIdentity"), "runningVersion": health.get("runtimeVersion"), "files": files,
+            "schedulerRuntime": {key: health["schedulerRuntime"][key] for key in ("protocol", "status", "workerId", "windowId", "paneId", "dead", "runningVersion", "runtimeFiles", "error") if key in health["schedulerRuntime"]} if isinstance(health.get("schedulerRuntime"), dict) else None,
+            "schedulerUpdateError": str(health.get("schedulerUpdateError") or "")[:500]}
 
 
 def lifecycle_control(params):

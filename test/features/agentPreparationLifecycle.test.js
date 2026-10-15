@@ -11,7 +11,7 @@ const tree=ts.createSourceFile('provider.ts',source,ts.ScriptTarget.Latest,true)
 const cls=tree.statements.find(n=>ts.isClassDeclaration(n)&&n.name?.text==='RealtimeTunnelPanelProvider');
 const names=['deployLatestAgentRuntime','apiAgentLifecycle','agentLifecycleForTarget','agentLifecycleServer','writeXshellAgentStartupCommands'];
 const code=ts.transpileModule(`class Host {${cls.members.filter(n=>names.includes(n.name?.getText(tree))).map(n=>n.getText(tree)).join('\n')}};Host;`,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
-function fixture(state='absent', inspection) {
+function fixture(state='absent', inspection, options={}) {
  let currentState=state;
  const calls=[];
  const target={id:'container',label:'container',host:'configured-host',port:23094,remotePath:'/srv/agent/simple_cluster/runtime',localForwardPort:23069};
@@ -19,7 +19,7 @@ function fixture(state='absent', inspection) {
  const Host=vm.runInNewContext(code,{require:specifier=>require(path.resolve(__dirname,'../../dist/extension',specifier)),console:{log(){},warn(){}},fs:fs.promises,path,__dirname:path.resolve(__dirname,'../../dist/extension'),
   AgentRuntimeScope_1:scope,RuntimeManifest_1:manifest,SIMPLE_SFTP_EXTENSION_ID:'simple-local.simple-sftp',
   AbortSignal, tunnelHttpOrigin:(host,port)=>`http://${host}:${port}`,
-  fetch:async()=>({ok:true,json:async()=>({schedulerRuntime:{protocol:1,status:state==='healthy-stale-scheduler'?'update_required':'absent'}})}),
+  fetch:async()=>{if(options.closedTunnel)throw new TypeError('fetch failed');return {ok:true,json:async()=>({schedulerRuntime:{protocol:1,status:state==='healthy-stale-scheduler'?'update_required':'absent'}})};},
   AgentTmuxPolicy_1:require('../../dist/tunnel/AgentTmuxPolicy'),
   SshTransportIdentity_1:{...require('../../dist/tunnel/SshTransportIdentity'),inspectOpenSshAlias:async()=>inspection},
   sftpUploadFilesSucceeded:row=>row.ok===true,stringFromRecord:()=>'',errorMessage:e=>e.message,effectiveWorkerCondaEnv:row=>row.condaEnv,
@@ -34,7 +34,8 @@ function fixture(state='absent', inspection) {
      return {ok:true,status:state.startsWith('healthy')||state==='busy'?'running':state==='unhealthy'?'unhealthy':'absent',activeTasks:state==='busy'?['running-job','queued-job']:[],runningVersion:state==='busy'?'old-version':manifest.CURRENT_RUNTIME_VERSION,files:filehashes};
    }
    if(params.action==='migrate'){currentState='absent';return {ok:true,status:'migrated'};}
-   return {ok:true,status:'running',runningVersion:manifest.CURRENT_RUNTIME_VERSION,reused:params.action==='ensure'&&state.startsWith('healthy')};
+   return {ok:true,status:'running',runningVersion:manifest.CURRENT_RUNTIME_VERSION,reused:params.action==='ensure'&&state.startsWith('healthy'),
+     ...(options.missingEvidence?{}:{schedulerRuntime:{protocol:1,status:state==='healthy-stale-scheduler'?'update_required':'absent'}})};
   }}}});
  host=new Host();Object.assign(host,{context:{extension:{packageJSON:{version:manifest.CURRENT_RUNTIME_VERSION}}},setupConfig:{workerTunnels:[{id:'container',agentProjectDir:'/srv',agentInstallDir:'/srv/agent',condaEnv:'/srv/env',remoteAgentHost:'127.0.0.2',remoteAgentPort:23065}],remoteTmuxSessionPrefix:'user'},
   prepareSftpTargets:async()=>{},sftpSharedTargets:()=>[target],agentRuntimeUploadTargets:()=>[target],agentRuntimeDirs:()=>({workDir:'/srv/project',installDir:'/srv/agent'}),sftpServerOptions:()=>({host:'configured-host',port:23094,user:'user'}),tunnelConfig:{},
@@ -73,6 +74,16 @@ test('deploying the latest Agent again automatically restarts a stale independen
  await f.host.deployLatestAgentRuntime(false,true,['container'],true);
  assert.deepEqual(f.calls.map(c=>c.params.action),['inspect','ensure','restart']);
  assert.ok(f.calls.at(-1).params.confirm);
+});
+test('deployment before opening local tunnels reuses healthy Agent and reconciles old Scheduler through the deployment channel',async()=>{
+ for(const state of ['healthy','healthy-stale-scheduler']){
+  const f=fixture(state,undefined,{closedTunnel:true});
+  await f.host.deployLatestAgentRuntime(false,true,['container'],true);
+  assert.deepEqual(f.calls.map(c=>c.params.action),state==='healthy'?['inspect','ensure']:['inspect','ensure','restart']);
+ }
+ const unsupported=fixture('healthy',undefined,{closedTunnel:true,missingEvidence:true});
+ await assert.rejects(()=>unsupported.host.deployLatestAgentRuntime(false,true,['container'],true),/SCHEDULER_RUNTIME_UNVERIFIED/);
+ assert.deepEqual(unsupported.calls.map(c=>c.params.action),['inspect','ensure']);
 });
 test('active tasks do not block real preparation, upgrade or legacy migration API preview',async()=>{
  const busy=fixture('busy');await busy.host.deployLatestAgentRuntime(false,true,['container'],true);

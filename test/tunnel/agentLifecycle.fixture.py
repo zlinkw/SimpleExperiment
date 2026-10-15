@@ -51,7 +51,7 @@ lock,identity=l.lifecycle_service_guard(a,"fixture-v1")
 class H(BaseHTTPRequestHandler):
  def do_GET(self):
   if self.headers.get("X-Simple-Agent-Token","")!=os.environ.get("SIMPLE_EXPERIMENT_AGENT_TOKEN",""):self.send_response(403);self.end_headers();return
-  body=json.dumps({"schemaVersion":1,"runtimeVersion":"fixture-v1","agentLifecycleProtocol":1,"agentIdentity":identity}).encode();self.send_response(200);self.end_headers();self.wfile.write(body)
+  body=json.dumps({"schemaVersion":1,"runtimeVersion":"fixture-v1","agentLifecycleProtocol":1,"agentIdentity":identity,"schedulerRuntime":{"protocol":1,"status":"absent","workerId":a.worker_id,"secret":"must-not-leak","port":45678}}).encode();self.send_response(200);self.end_headers();self.wfile.write(body)
  def log_message(self,*args):pass
 HTTPServer((a.host,a.port),H).serve_forever()
 ''' % str(source)
@@ -114,6 +114,8 @@ try:
     assert first['reused'] is False
     again = module.lifecycle_control(dict(params,action='ensure'))
     assert again['reused'] is True and again['identity']['pid']==agent
+    assert again['schedulerRuntime']=={'protocol':1,'status':'absent','workerId':'container-gpu'}
+    assert 'must-not-leak' not in json.dumps(again)
     changed_env = module.lifecycle_control(dict(params,action='ensure',condaEnv='another-task-environment'))
     assert changed_env['reused'] is True and changed_env['identity']['pid']==agent
     before = (pathlib.Path(first['contract']['stateDir'])/'agent.owner.json').read_bytes()

@@ -7681,17 +7681,14 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             throw error;
         }
         if (action === "ensure" && result.reused === true && manifest) {
-            // Same-version Agent reuse must still reconcile an independently running old controller.
-            const base = tunnelHttpOrigin(String(target.localForwardHost || target.localHost || "127.0.0.1"), target.localForwardPort);
-            const response = await fetch(base + "/api/health", { signal: AbortSignal.timeout(6000),
-                headers: this.tunnelConfig?.token ? { "X-Simple-Agent-Token": String(this.tunnelConfig.token) } : undefined });
-            if (!response.ok) throw new Error(`${target.id}: SCHEDULER_RUNTIME_UNVERIFIED: HTTP ${response.status}`);
-            const health: any = await response.json();
+            // Deployment precedes opening local tunnels. The lifecycle transport
+            // already queried and verified server-local health over the SSH channel.
+            const health: any = result;
             if (health.schedulerRuntime?.status === "update_required" || health.schedulerUpdateError) {
                 return this.agentLifecycleForTarget(target, "restart", manifest, confirmed);
             }
             if (health.schedulerRuntime?.protocol !== 1 || !["current", "absent"].includes(health.schedulerRuntime.status))
-                throw new Error(`${target.id}: SCHEDULER_RUNTIME_UNVERIFIED: ${health.schedulerRuntime?.error || "缺少独立调度器运行证据"}`);
+                throw new Error(`${target.id}: SCHEDULER_RUNTIME_UNVERIFIED: ${health.schedulerRuntime?.error || "部署通道未返回独立调度器证据，请更新配套 SimpleSFTP 至 0.2.90 或更高版本"}`);
         }
         return result;
     }
