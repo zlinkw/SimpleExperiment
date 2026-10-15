@@ -40,8 +40,10 @@ test('the UI-shaped nested PLAN reaches real replacement discovery before an emp
   const {cleanupRelative}=require('../../src/features/PlanCleanup.ts');
   const root=fs.mkdtempSync(require('node:path').join(require('node:os').tmpdir(),'se-ui-replace-'));
   const paths=[],job={index:0,case:'x',seed:42,output_dir:'work_dirs/x',result_csv:'work_dirs/x/test.csv'};
-  const h={context:{globalStorageUri:{fsPath:root}},workerActionTargets:()=>[],lastCodeSyncState:{fingerprint:'code'},
-    planCleanupHost:()=>({service:{preview:async request=>{paths.push(cleanupRelative(request.planFile));return {rows:[],blockers:[]};}}})};
+  const h=host(['captureProjectContext','projectContextIsCurrent'],{workspaceRoot:()=>root});
+  Object.assign(h,{context:{globalStorageUri:{fsPath:root}},projectContextGeneration:1,projectContextAbortController:new AbortController(),
+    effectiveConnectionMode:()=> 'xshell_tunnel_realtime',workerActionTargets:()=>[],lastCodeSyncState:{fingerprint:'code'},
+    planCleanupHost:()=>({service:{preview:async request=>{paths.push(cleanupRelative(request.planFile));return {rows:[],blockers:[]};}}})});
   const body={submissionOperationIdLocal:'original',options:{planFile:'plans/current.yaml'},planRevision:'rev'};
   const store=new PlanRunHost(h,root);await store.save(body);
   assert.equal((await store.load('original')).input.planFile,'plans/current.yaml');

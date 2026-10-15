@@ -48,6 +48,9 @@ export type CleanupPorts = {
   storageRoot: string;
 };
 const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
+// SimpleSFTP bounds each local/SSH cleanup read at 60 seconds. Let that
+// transport finish instead of racing it with a shorter independent deadline.
+const CLEANUP_QUERY_TIMEOUT_MS = 65_000;
 export const cleanupDigest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 export const cleanupJobKey = (job?: CleanupJobSelection) => cleanupDigest(job ? [job.workflowId, job.index, job.commandId, job.purpose || "failed_review"] : null);
 export function cleanupError(code: string, detail = code): never {
@@ -125,28 +128,41 @@ export class PlanCleanup {
     }
     catch (error: any) { if (error.code === "ENOENT") cleanupError("OPERATION_NOT_FOUND"); throw error; }
   }
-  private async inspectPresence(row: CleanupRow, timeoutMs = 10000, observeExecutors = false): Promise<any> {
+  private async query(row: CleanupRow, method: string, params: any, timeoutMs = CLEANUP_QUERY_TIMEOUT_MS): Promise<any> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     if (this.ports.currentNode && this.nodeIdentity(await this.ports.currentNode(row.node.id)) !== this.nodeIdentity(row.node))
       cleanupError("SERVER_IDENTITY_CHANGED");
     try {
-      const proof: any = await Promise.race([this.ports.sftp("files.cleanup.inspect", { node: row.node,
-        target: { relativePath: row.relativePath, type: row.type }, allowMissing: true, manifestOnly: true, presenceOnly: true, observeExecutors }),
-        new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("CLEANUP_QUERY_TIMEOUT")), timeoutMs); })]);
-      if (typeof proof?.target?.missing !== "boolean" && !(proof?.target?.type === row.type && typeof proof?.target?.absolutePath === "string"))
-        cleanupError("UNVERIFIED_RESPONSE");
-      return proof;
+      return await Promise.race([this.ports.sftp(method, params), new Promise((_, reject) => {
+        timer = setTimeout(() => reject(Object.assign(new Error(row.node.id + "：核实 " + row.absolutePath
+          + " 超时；请重试查询，未重新执行文件操作。"), { apiData: { code: "CLEANUP_QUERY_TIMEOUT", nodeId: row.node.id, path: row.absolutePath, method } })), timeoutMs);
+      })]);
     } finally { if (timer) clearTimeout(timer); }
+  }
+  /** Independent nodes query together; each node has only one read in flight. */
+  private async queryRows(rows: CleanupRow[], read: (row: CleanupRow) => Promise<void>) {
+    const nodes = new Map<string, CleanupRow[]>();
+    for (const row of rows) { const group = nodes.get(row.node.id) || []; group.push(row); nodes.set(row.node.id, group); }
+    const groups = [...nodes.values()];
+    for (let offset = 0; offset < groups.length; offset += 4)
+      await Promise.all(groups.slice(offset, offset + 4).map(async group => { for (const row of group) await read(row); }));
+  }
+  private async inspectPresence(row: CleanupRow, timeoutMs = CLEANUP_QUERY_TIMEOUT_MS, observeExecutors = false): Promise<any> {
+    const proof: any = await this.query(row, "files.cleanup.inspect", { node: row.node,
+      target: { relativePath: row.relativePath, type: row.type }, allowMissing: true, manifestOnly: true, presenceOnly: true, observeExecutors }, timeoutMs);
+    if (typeof proof?.target?.missing !== "boolean" && !(proof?.target?.type === row.type && typeof proof?.target?.absolutePath === "string"))
+      cleanupError("UNVERIFIED_RESPONSE");
+    return proof;
   }
   /** A persisted deletion is an input to a fresh query, never proof that files still exist. */
   private async observeDeletion(operation: CleanupOperation): Promise<CleanupOperation> {
-    const rows = operation.preview.rows.filter(row => row.nodeId !== "pluginState" && row.disposition !== "protected"), deadline = Date.now() + 10000;
+    const rows = operation.preview.rows.filter(row => row.nodeId !== "pluginState" && row.disposition !== "protected");
     let executing = false, queryFailed = false;
+    delete operation.error;
     if (!rows.length) return operation;
-    for (const row of rows) {
+    await this.queryRows(rows, async row => {
       try {
-        if (Date.now() >= deadline) throw new Error("CLEANUP_QUERY_TIMEOUT");
-        const proof = await this.inspectPresence(row, Math.max(1, deadline - Date.now()), Boolean(operation.executionRequestedAt));
+        const proof = await this.inspectPresence(row, CLEANUP_QUERY_TIMEOUT_MS, Boolean(operation.executionRequestedAt));
         if (operation.executionRequestedAt && (proof.executorsChecked !== true || !Array.isArray(proof.executors)))
           cleanupError("CLEANUP_EXECUTOR_QUERY_UNVERIFIED");
         const live = Boolean(proof.executors?.length); executing ||= live;
@@ -156,10 +172,10 @@ export class PlanCleanup {
           ...(operation.targets[row.id]?.receipt?.verifiedBy === "path_absence" ? { error: "SOURCE_RECREATED_OR_CHANGED" } : {}) };
       } catch (error: any) {
         queryFailed = true;
-        if (operation.targets[row.id]) operation.targets[row.id] = { state: "pending", error: error.apiData?.code || String(error.message || error) };
-        operation.error = row.node.id + "：" + (error.apiData?.code || String(error.message || error));
+        if (operation.targets[row.id]) operation.targets[row.id] = { state: "pending", error: String(error.message || error) };
+        operation.error ||= row.node.id + "：" + String(error.message || error);
       }
-    }
+    });
     const absent = (row: CleanupRow) => operation.targets[row.id]?.state === "completed"
       && operation.targets[row.id]?.receipt?.verifiedBy === "path_absence";
     const checkedNodes = operation.preview.scope.nodes.filter(node => rows.some(row => row.node.id === node.id)
@@ -172,23 +188,16 @@ export class PlanCleanup {
     else if (queryFailed || operation.state === "running") operation.state = "partial";
     return operation;
   }
-  private async managedCheck(row: CleanupRow, timeoutMs = 10000): Promise<any> {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    if (this.ports.currentNode && this.nodeIdentity(await this.ports.currentNode(row.node.id)) !== this.nodeIdentity(row.node))
-      cleanupError("SERVER_IDENTITY_CHANGED");
-    try { return await Promise.race([this.ports.sftp("files.cleanup.check", { token: row.backendToken, index: row.backendIndex }),
-      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error("CLEANUP_QUERY_TIMEOUT")), timeoutMs); })]); }
-    finally { if (timer) clearTimeout(timer); }
+  private async managedCheck(row: CleanupRow): Promise<any> {
+    return this.query(row, "files.cleanup.check", { token: row.backendToken, index: row.backendIndex });
   }
   private async observeManaged(operation: CleanupOperation): Promise<CleanupOperation> {
     let running = false, unresolved = false;
-    const deadline = Date.now() + 10000;
     delete operation.error;
-    for (const row of operation.preview.rows.filter(row => operation.targets[row.id])) {
-      if (operation.preview.action === "delete" && operation.targets[row.id]?.receipt?.verifiedBy === "path_absence") continue;
+    await this.queryRows(operation.preview.rows.filter(row => operation.targets[row.id]), async row => {
+      if (operation.preview.action === "delete" && operation.targets[row.id]?.receipt?.verifiedBy === "path_absence") return;
       try {
-        if (Date.now() >= deadline) throw new Error("CLEANUP_QUERY_TIMEOUT");
-        const proof = await this.managedCheck(row, Math.max(1, deadline - Date.now()));
+        const proof = await this.managedCheck(row);
         if (proof.state === "completed") {
           operation.targets[row.id] = { state: "completed", receipt: { source: "active_query", verifiedBy: proof.verifiedBy, rootIdentity: proof.rootIdentity } };
           if (proof.executor?.exitCode !== undefined && proof.executor.exitCode !== null && proof.executor.exitCode !== 0) {
@@ -202,7 +211,7 @@ export class PlanCleanup {
         }
       } catch (error: any) { unresolved = true; operation.targets[row.id] = { state: "pending", receipt: operation.targets[row.id]?.receipt, error: String(error.message || error) };
         operation.error = "清理查询失败，可重新查询：" + String(error.message || error); }
-    }
+    });
     if (operation.state !== "paused" || !unresolved && !running && !operation.pendingNodes.length)
       operation.state = running ? "running" : unresolved || operation.pendingNodes.length ? "partial" : "completed";
     return operation;
@@ -333,7 +342,7 @@ export class PlanCleanup {
         try {
           if (this.ports.currentNode && this.nodeIdentity(await this.ports.currentNode(nodeId)) !== this.nodeIdentity(row.node)) cleanupError("SERVER_IDENTITY_CHANGED");
           if (row.disposition === "protected") { report.targets.push({ id: row.id, absolutePath: row.absolutePath, state: "protected" }); continue; }
-          const proof = operation.preview.action === "delete" ? await this.inspectPresence(row, 10000, Boolean(operation.executionRequestedAt)) : row.backendToken
+          const proof = operation.preview.action === "delete" ? await this.inspectPresence(row, CLEANUP_QUERY_TIMEOUT_MS, Boolean(operation.executionRequestedAt)) : row.backendToken
             ? await this.ports.sftp("files.cleanup.check", { token: row.backendToken, index: row.backendIndex })
             : await this.ports.sftp("files.cleanup.inspect", { node: row.node, target: { relativePath: row.relativePath, type: row.type }, allowMissing: true });
           const state = proof.executors?.length ? "executing" : proof.state || (proof.target.missing ? "absent" : "pending");
@@ -553,10 +562,10 @@ export class PlanCleanup {
     if (preview.scope.authorizationMode === "confirmed_paths") {
       // The user authorizes these frozen paths, not a historical PLAN/task revision.
       // Actual node/root/type/content checks remain in SimpleSFTP on this same batch.
-      for (const row of preview.rows.filter(row => row.disposition === "delete")) {
+      await this.queryRows(preview.rows.filter(row => row.disposition === "delete"), async row => {
         const proof = await this.managedCheck(row);
         if (!["pending", "executing", "completed"].includes(proof.state)) cleanupError("CLEANUP_TARGET_CHANGED", row.absolutePath + "：文件已变化，请重新核对路径");
-      }
+      });
       return;
     }
     const prior = preview.continuationOf ? await this.history(preview.continuationOf) : [];

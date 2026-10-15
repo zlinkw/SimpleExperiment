@@ -29,7 +29,17 @@ export class PlanRunHost {
     await atomicWriteText(this.file(id), JSON.stringify(value));
   }
   async replace(plan: any, body: any, validation: any) {
-    const h = this.host, cleanup = h.planCleanupHost(), jobs = validation.jobs, client = h.client, generation = h.projectContextGeneration;
+    const h = this.host, cleanup = h.planCleanupHost(), jobs = validation.jobs, context = h.captureProjectContext();
+    const currentNodes = () => h.workerActionTargets().map((row: any) => [row.id, row.host, row.port, row.user, row.project_dir]);
+    // Health checks rebuild the client even when its physical targets stay the
+    // same. Bind confirmation to the project and actual configured endpoints.
+    const connectionKey = () => cleanupDigest([h.effectiveConnectionMode(), h.workerActionTargets().map((row: any) =>
+      [row.id, row.host, row.port, row.user, row.project_dir, row.local_agent_url, row.agent_runtime_dir, row.conda_env])]);
+    const connection = connectionKey();
+    const assertCurrent = () => {
+      if (context.root !== this.root || !h.projectContextIsCurrent(context) || connectionKey() !== connection)
+        throw Error("工作区或服务器连接配置已变化，未继续运行。");
+    };
     const planFile = cleanupRelative(body.planFile || body.options?.planFile || plan?.planFile || plan?.file);
     if (body.options?.planFile && body.options.planFile !== planFile) throw Error("提交的 PLAN 路径不一致，未删除或提交。");
     body.planFile = planFile;
@@ -55,8 +65,7 @@ export class PlanRunHost {
         if (declaration) completed.add(Number(declaration.index));
       }
     }
-    const nodes = h.workerActionTargets().map((row: any) => [row.id, row.host, row.port, row.user, row.project_dir]);
-    const key = runReplacementKey(body.planFile, body.planRevision, h.lastCodeSyncState?.fingerprint || "", jobs, nodes);
+    const key = runReplacementKey(body.planFile, body.planRevision, h.lastCodeSyncState?.fingerprint || "", jobs, currentNodes());
     const result = await replaceRunOutputs({
       preview: (job: any) => cleanup.service.preview({ planFile: body.planFile, action: "delete", verifiedOnly: false, authorizationMode: "confirmed_paths",
         job: { workflowId: "manifest-" + cleanupDigest([body.planFile, job.output_dir]), commandId: "manifest-" + cleanupDigest(job), index: Number(job.index),
@@ -64,7 +73,7 @@ export class PlanRunHost {
       service: cleanup.service, execute: (id: string) => cleanup.execute(id),
       ask: (payload: any) => h.askRunConfirmation(payload, body.submissionOperationIdLocal),
       save: () => this.save(body),
-      assertCurrent: () => { if (h.client !== client || h.projectContextGeneration !== generation) throw Error("工作区或连接已变化，未继续运行。"); },
+      assertCurrent,
       beforeDelete: async () => {
         // Deletion still requires the complete batch check. Ordinary launch can
         // already use ready Workers while the remaining servers prepare.
@@ -72,8 +81,7 @@ export class PlanRunHost {
         const current = { ...body }; await h.refreshLocalPlanMetadataForAction(current); h.stampPlanRevision(current);
         const fingerprint = await h.localDistributedCodeFingerprint(this.root);
         if (current.planRevision !== body.planRevision || fingerprint !== h.lastCodeSyncState?.fingerprint
-          || runReplacementKey(body.planFile, body.planRevision, fingerprint, jobs,
-            h.workerActionTargets().map((row: any) => [row.id, row.host, row.port, row.user, row.project_dir])) !== key)
+          || runReplacementKey(body.planFile, body.planRevision, fingerprint, jobs, currentNodes()) !== key)
           throw Error("PLAN、代码或服务器配置已变化，请重新运行并确认路径；未删除。");
         await h.assertPlanSubmissionWorkers(body, { validation });
       },

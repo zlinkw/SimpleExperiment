@@ -151,3 +151,57 @@ test('restoring an interrupted continuation clears only its own ancestor lifecyc
   assert.equal(queue.plans[0].cleanup,undefined);assert.equal(ledger.entries.ours.cleanupOperationId,undefined);
   assert.equal(queue.plans[1].cleanup.operationId,'unrelated');assert.equal(ledger.entries.other.cleanupOperationId,'unrelated');
 });
+
+function activeQueryFixture(sftp) {
+  require('../_helpers/registerTsRequire');
+  const {PlanCleanup}=require('../../src/features/PlanCleanup.ts');
+  const rows=Array.from({length:4},(_,index)=>({id:'target'+index,nodeId:'w'+index,
+    node:{id:'w'+index,kind:'remote',root:'/safe',host:'host'+index,user:'u',port:22},relativePath:'work/job'+index,
+    absolutePath:'/safe/work/job'+index,type:'directory',disposition:'delete',backendToken:'token'+index,backendIndex:0}));
+  const service=new PlanCleanup({storageRoot:'/unused',sftp,collect:async()=>{},restoreGate:async()=>{},updateIndexes:async()=>{},
+    currentNode:async id=>rows.find(row=>row.node.id===id).node});
+  const operation={id:'fixture',state:'ready',preview:{action:'delete',rows,scope:{nodes:rows.map(row=>row.node)}},
+    targets:Object.fromEntries(rows.map(row=>[row.id,{state:'pending'}])),pendingNodes:[]};
+  return {service,rows,operation};
+}
+
+test('cleanup queries allow a valid read beyond ten seconds within the underlying transport deadline',async t=>{
+  t.mock.timers.enable({apis:['setTimeout','Date'],now:0});
+  const calls=[],f=activeQueryFixture(async(method,params)=>{calls.push(method);return new Promise(resolve=>setTimeout(()=>resolve({state:'pending',
+    target:{type:'directory',absolutePath:'/safe/work/job0',missing:false}}),12000));});
+  const check=f.service.managedCheck(f.rows[0]),presence=f.service.inspectPresence(f.rows[0]);
+  const observed=Promise.all([check,presence]);observed.catch(()=>{});
+  await new Promise(setImmediate);t.mock.timers.tick(12000);
+  const values=await observed;assert.equal(values[0].state,'pending');assert.equal(values[1].target.missing,false);
+  assert.deepEqual(calls.sort(),['files.cleanup.check','files.cleanup.inspect']);
+});
+
+test('each node is actually queried instead of exhausting one shared ten-second batch budget',async t=>{
+  t.mock.timers.enable({apis:['setTimeout','Date'],now:0});
+  const called=[],f=activeQueryFixture(async(method,params)=>{assert.equal(method,'files.cleanup.inspect');called.push(params.node.id);
+    t.mock.timers.setTime(Date.now()+4000);return {target:{missing:true}};});
+  await f.service.observeDeletion(f.operation);assert.deepEqual(called.sort(),['w0','w1','w2','w3']);
+  assert.equal(f.operation.state,'completed');assert.equal(f.operation.error,undefined);
+});
+
+test('a real stalled cleanup query reports its node and path and the next read can recover without deleting',async t=>{
+  t.mock.timers.enable({apis:['setTimeout','Date'],now:0});let stalled=true;
+  const f=activeQueryFixture(async method=>{assert.ok(['files.cleanup.check','files.cleanup.inspect'].includes(method));
+    return stalled?new Promise(()=>{}):{state:'pending',target:{missing:false}};});
+  const pending=f.service.managedCheck(f.rows[0]);pending.catch(()=>{});await new Promise(setImmediate);
+  t.mock.timers.tick(65001);await assert.rejects(pending,error=>/w0/.test(error.message)&&/work\/job0/.test(error.message));
+  stalled=false;assert.equal((await f.service.managedCheck(f.rows[0])).state,'pending');
+});
+
+test('read-only preflight overlaps different nodes, serializes each node and still rejects changed content',async()=>{
+  const active=new Map(),calls=[];let simultaneous=0,maximum=0,changed=false;
+  const f=activeQueryFixture(async method=>{assert.equal(method,'files.cleanup.check');return {state:changed?'changed':'pending'};});
+  const rows=f.rows.flatMap(row=>[row,{...row,id:row.id+'b',relativePath:row.relativePath+'b'}]);
+  await f.service.queryRows(rows,async row=>{
+    assert.equal(active.get(row.node.id)||0,0);active.set(row.node.id,1);calls.push(row.id);maximum=Math.max(maximum,++simultaneous);
+    await new Promise(setImmediate);simultaneous--;active.set(row.node.id,0);
+  });
+  assert.equal(calls.length,8);assert.equal(maximum,4);
+  const preview={action:'delete',rows:f.rows,scope:{authorizationMode:'confirmed_paths'}};
+  await f.service.revalidate(preview);changed=true;await assert.rejects(f.service.revalidate(preview),/文件已变化/);
+});
