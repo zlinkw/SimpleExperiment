@@ -34,6 +34,26 @@ export function gpuMemoryJobLimit(row: any, settings: MemorySchedulingSettings):
   return settings.gpuMemoryMaxJobsPerGpu > 0 ? Math.min(ratio, settings.gpuMemoryMaxJobsPerGpu) : ratio;
 }
 
+/** Read-only settings preview; reuse admission arithmetic, never reserve or start tasks. */
+export function gpuMemorySchedulingPreview(global: any, workers: any[], gpu: any) {
+  const previewJobs = (row: any, settings: MemorySchedulingSettings) =>
+    gpuMemoryPlacement([{ ...row, index: 0, memoryUsedMb: 0 }], new Map(), ["0"], settings).slots.length;
+  const describe = (settings: MemorySchedulingSettings, rows: any[]) => ({
+    perJobGb: settings.gpuMemoryPerJobGb, enabled: settings.gpuMemoryRatioEnabled,
+    customLimits: settings.gpuMemoryMaxJobsPerGpu > 0 || settings.gpuMemoryReserveGb > 0 || settings.gpuMemoryTolerancePercent !== 3,
+    cards: rows.filter(row => gpuMemoryNumbers(row)).map(row => ({
+      gpuId: String(row.index ?? row.gpu_id ?? row.gpuId ?? row.id ?? ""), jobs: previewJobs(row, settings),
+    })),
+  });
+  const settings = memorySchedulingSettings(global);
+  return {
+    global: { ...describe(settings, []), examples: [24, 48, 80, 96].map(gb => ({ gb,
+      jobs: previewJobs({ memoryTotalMb: gb * 1024, memoryUsedMb: 0 }, settings) })) },
+    workers: Object.fromEntries(workers.map(worker => [worker.id, describe(memorySchedulingSettings(global, worker),
+      gpu?.[worker.id]?.status === "ok" && Array.isArray(gpu[worker.id].gpus) ? gpu[worker.id].gpus : [])])),
+  };
+}
+
 export function gpuMemoryPlacement(rows: any[], counts: Map<string, number>, idleIds: string[],
   settings: MemorySchedulingSettings, maxCards = 0): { slots: string[]; weight: number; limits: Record<string, number> } {
   const candidates = rows.map(row => ({ row, id: String(row.index ?? row.gpu_id ?? row.gpuId ?? row.id ?? "") }))

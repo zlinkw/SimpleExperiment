@@ -69,9 +69,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.323"
-RUNTIME_VERSION = "0.5.323"
-PLUGIN_VERSION = "0.5.323"
+AGENT_VERSION = "0.5.324"
+RUNTIME_VERSION = "0.5.324"
+PLUGIN_VERSION = "0.5.324"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib

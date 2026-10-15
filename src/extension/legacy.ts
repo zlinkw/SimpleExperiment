@@ -21810,11 +21810,12 @@ return "历史服务器";
         const actionErrorRevision = (Array.isArray(this.actionErrors) ? this.actionErrors : []).slice(0, 8).map((item: any) => `${item?.timestamp || ""}:${item?.command || ""}:${item?.message || ""}`).join("|");
         const remoteRootPolicy = remoteRootPolicyConfig();
         const remoteRootPolicyRevision = sha256Text(JSON.stringify(remoteRootPolicy));
+        const gpuMemorySchedulingPreview = GpuMemoryScheduling.gpuMemorySchedulingPreview(schedulerConfig, this.setupConfig?.workerTunnels || [], gpu);
         const sectionRevisions = this.panelSectionRevisionTracker.update({
             settings: [this.setupConfig, schedulerConfigRevision, this.localPlanMetadata.detectedProject, this.localPlanMetadata.plans, this.resultCsvDirectory,
                 projectAdapterRulesRevision, this.resultCatalogDirtyGeneration, pptPlotConfigRevision, remoteRootPolicyRevision,
                 this.pluginUpdateStatus, this.lastProbe, this.lastWorkerProbes, realtimeState?.health, endpointRegistryState.registry,
-                this.confirmedRemotePaths, this.confirmedPptPaths],
+                this.confirmedRemotePaths, this.confirmedPptPaths, JSON.stringify(gpuMemorySchedulingPreview)],
             sync: [this.setupConfig, this.lastCodeSyncState, this.lastProbe, this.lastWorkerProbes, endpointRegistryState.registry, realtimeState?.health],
             plans: [this.localPlanMetadata.plans, this.localPlanMetadata.archivedPlans, recentPlansRevision, this.planFileInput, this.selectedPlanId, this.draftPlanState,
                 this.resultsSummary, planStopClearRevision, realtimeState?.operations, snapshot?.operations, offlineSnapshot?.operations,
@@ -21838,6 +21839,7 @@ return "历史服务器";
             topology,
             setup: compactXshellSetupForWebview(this.setupConfig),
             schedulerConfig,
+            gpuMemorySchedulingPreview,
             remoteRootPolicy,
             pluginUpdate: require("../updates/Bootstrap").getUpdater() ? require("../updates/Bootstrap").getUpdateStatus() : this.pluginUpdateStatus || { status: "unknown", message: "尚未检查配套更新。", checkedAt: "" },
             pptPlotConfig,

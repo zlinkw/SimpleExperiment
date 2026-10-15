@@ -8,6 +8,17 @@ test('24/48/80/96 GiB capacities, reporting tolerance and explicit caps share on
  assert.equal(M.gpuMemoryJobLimit(gpu(96),M.memorySchedulingSettings({}, {gpuMemoryMaxJobsPerGpu:2})),2);
  assert.equal(M.gpuMemoryJobLimit(gpu(96),M.memorySchedulingSettings({gpuMemoryRatioEnabled:false})),1);
 });
+test('settings previews reuse actual GPU capacity arithmetic, inherit the single number and do not invent offline cards',()=>{
+ const workers=[{id:'h20'},{id:'override',gpuMemoryPerJobGb:12},{id:'offline'},{id:'limited',gpuMemoryMaxJobsPerGpu:2}];
+ const telemetry={h20:{status:'ok',gpus:[gpu(96)]},override:{status:'ok',gpus:[gpu(48)]},offline:{status:'offline',gpus:[gpu(96)]},limited:{status:'ok',gpus:[gpu(96)]}};
+ const result=M.gpuMemorySchedulingPreview({},workers,telemetry);
+ assert.deepEqual(result.global.examples.map(row=>row.jobs),[1,2,3,4]);
+ assert.equal(result.workers.h20.perJobGb,24);assert.equal(result.workers.h20.cards[0].jobs,4);
+ assert.equal(result.workers.override.perJobGb,12);assert.equal(result.workers.override.cards[0].jobs,4);
+ assert.deepEqual(result.workers.offline.cards,[]);assert.equal(result.workers.limited.cards[0].jobs,2);assert.equal(result.workers.limited.customLimits,true);
+ assert.equal(M.gpuMemorySchedulingPreview({gpuMemoryPerJobGb:48},[workers[0]],telemetry).workers.h20.cards[0].jobs,2);
+ assert.equal(M.gpuMemorySchedulingPreview({gpuMemoryReserveGb:24},[workers[0]],telemetry).workers.h20.cards[0].jobs,3);
+});
 test('busy owned cards offer remaining slots, low memory pauses growth and unknown cards stay exclusive',()=>{
  assert.deepEqual(M.gpuMemoryPlacement([gpu(96,20)],new Map([['0',1]]),[],cfg).slots,['0','0','0']);
  assert.deepEqual(M.gpuMemoryPlacement([gpu(96,80)],new Map([['0',1]]),[],cfg).slots,[]);
@@ -72,7 +83,7 @@ test('the rendered settings form restores global values, explicit Worker overrid
   sessionForPath:()=>({}),asArray:value=>value,esc:String,escAttr:String,configDefault:(value,fallback)=>value??fallback,
   configInput:(scope,key,_label,value)=>{fields.set(scope+'.'+key,value);return '';},
   configSelect:(scope,key,_label,value)=>{fields.set(scope+'.'+key,value);return '';},
-  treeAnchorId:(_group,id)=>id,formatTunnelAddress:()=>'',tunnelHost:value=>value,
+  treeAnchorId:(_group,id)=>id,formatTunnelAddress:()=>'',tunnelHost:value=>value,detailsOpenAttr:()=>'',
   configHelp:()=>'',helpBadge:()=>'',sessionStatusCell:()=>'',configSessionSelect:()=>'',configPortPair:()=>'',
   renderServerDestinationPreview:()=>'',renderSchedulerDependencyStatus:()=>'',renderSchedulerGlossary:()=>'',
   renderXshellSessionBudgetNote:()=>'',renderServerChainOverview:()=>'',setHtmlIfChanged:(id,value)=>output.set(id,value)};

@@ -990,6 +990,8 @@ export function renderPanelHtml(): string {
     .configBoundsError { color: var(--danger); font-size: var(--simple-font-sm); overflow-wrap: anywhere; }
     .field.is-invalid > input { border-color: var(--danger); }
     .field.wide { grid-column: 1 / -1; }
+    .field.gpuMemoryInput { grid-column: 1 / -1; max-width: 360px; }
+    .gpuMemorySummary { grid-column: 1 / -1; }
     .field label { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; color: var(--vscode-descriptionForeground); }
     .helpBadge { display: inline-flex; align-items: center; justify-content: center; width: 14px; height: 14px; border: 1px solid var(--border); border-radius: 999px; color: var(--muted); font-size: 10px; font-weight: 700; line-height: 1; cursor: help; }
     .field input, .field select { width: 100%; box-sizing: border-box; }
@@ -9057,6 +9059,14 @@ export function renderPanelHtml(): string {
       const topology = state.topology || {};
       const hubParticipates = false;
       const scheduler = state.schedulerConfig || {};
+      const memoryPreview = state.gpuMemorySchedulingPreview || {};
+      const memoryDescription = (preview) => {
+        if (!preview) return "保存后，按服务器实际显存显示每张卡的 job 数量。";
+        const limits = preview.cards || [];
+        return (preview.enabled === false ? "当前已关闭显存比例调度；可在高级选项中开启。 " : "") +
+          (limits.length ? limits.map(card => "GPU " + esc(card.gpuId) + "：最多 " + esc(card.jobs) + " 个 job").join("；") : "连接服务器后显示每张卡的 job 数量。") +
+          (preview.customLimits ? " 已使用高级选项中的自定义限制。" : "");
+      };
       const agent = state.agentSessions || {};
       const indexes = serverStatusIndexesForState(state);
       const conflicts = indexes.conflicts;
@@ -9093,12 +9103,16 @@ export function renderPanelHtml(): string {
           '</div></div>' +
           '<div class="configGrid">' +
             configSelect("scheduler", "dispatchMode", "Plan 调度模式", scheduler.dispatchMode || "local_idle", [["local_idle", "本机按空卡派发（默认）"], ["server_prequeue", "预派发到服务器队列（可关机）"]]) +
-            configSelect("scheduler", "gpuMemoryRatioEnabled", "按显存比例增加单卡任务数", String(scheduler.gpuMemoryRatioEnabled !== false), [["true", "启用"], ["false", "关闭：一卡一个自动任务"]]) +
-            configInput("scheduler", "gpuMemoryPerJobGb", "每个任务的显存基准（GiB）", scheduler.gpuMemoryPerJobGb ?? 24, "number") +
+            configInput("scheduler", "gpuMemoryPerJobGb", "每个 job 按多少 G 显存计算", scheduler.gpuMemoryPerJobGb ?? 24, "number", "gpuMemoryInput") +
+            '<div class="muted gpuMemorySummary">单卡 job 数量按显卡总显存除以上面的数值计算，向下取整，最少 1 个。实际显存不足时等待，不继续增加任务。</div>' +
+            '<div class="muted gpuMemorySummary">' + ((memoryPreview.global && memoryPreview.global.examples) || []).map(item => esc(item.gb) + 'G 显卡：' + esc(item.jobs) + ' 个 job').join('；') + '</div>' +
+            (memoryPreview.global && (memoryPreview.global.enabled === false || memoryPreview.global.customLimits) ? '<div class="muted gpuMemorySummary">当前使用了高级选项，计算结果已包含相应限制。</div>' : '') +
+            '<details class="wide gpuMemoryAdvanced" data-details-key="scheduler-advanced"' + detailsOpenAttr("scheduler-advanced", false) + ' style="grid-column:1 / -1"><summary>高级调度选项（一般不用修改）</summary><div class="configGrid">' +
+            configSelect("scheduler", "gpuMemoryRatioEnabled", "按显存比例分配任务", String(scheduler.gpuMemoryRatioEnabled !== false), [["true", "启用"], ["false", "关闭：一卡一个自动任务"]]) +
             configInput("scheduler", "gpuMemoryMaxJobsPerGpu", "单卡自动任务数上限（0＝只按比例）", scheduler.gpuMemoryMaxJobsPerGpu ?? 0, "number") +
             configInput("scheduler", "gpuMemoryReserveGb", "启动新任务时保留显存（GiB）", scheduler.gpuMemoryReserveGb ?? 0, "number") +
             configInput("scheduler", "gpuMemoryTolerancePercent", "容量报告容差（%，最多 5）", scheduler.gpuMemoryTolerancePercent ?? 3, "number") +
-            '<div class="muted">默认每 24 GiB 一个自动任务：24/48/80/96 GiB 对应 1/2/3/4 个；实际显存不足暂停新增。容差仅处理驱动报告差异，不改变 GPU 显存。设置用于新派发；已接收队列沿用原设置。旧版 Agent 或调度控制进程保持一卡一任务，更新后生效。手动派发不受自动上限限制。</div>' +
+            '<div class="muted">设置用于新派发；已接收队列沿用原设置。旧版 Agent 或调度控制进程保持一卡一任务，更新后生效。手动派发不受自动上限限制。</div>' +
             '<div class="muted">模式仅影响新提交的 Plan。预派发按空卡与本人占用卡计算比例；关机前确认所有任务已进入服务器队列。重连后读取所有服务器状态；指标文件仍需手动同步。</div>' +
             configInput("scheduler", "pollSeconds", "调度轮询基准(秒)", configDefault(scheduler.pollSeconds, 10), "number") +
             configInput("scheduler", "jitterSeconds", "正向随机抖动(秒)", configDefault(scheduler.jitterSeconds, 30), "number") +
@@ -9107,13 +9121,12 @@ export function renderPanelHtml(): string {
             configInput("scheduler", "workerAvailabilityPushSeconds", "Worker 上报间隔(秒)", configDefault(scheduler.workerAvailabilityPushSeconds, 10), "number") +
             configInput("scheduler", "operationEventMaxDelayMs", "实时事件最多等待(毫秒)", configDefault(scheduler.operationEventMaxDelayMs, 1000), "number") +
             '<div class="muted">请求限流已关闭。旧版操作间隔和请求并发设置不再限制操作；GPU 任务并发仍按调度策略执行。</div>' +
+            '</div>' + renderSchedulerGlossary() + '</details>' +
           '</div>' +
-          renderSchedulerGlossary() +
           '<div class="toolbar">' +
             '<button data-command="saveSchedulerConfig" data-config-scope="scheduler" title="保存调度策略&#10;写入并发上限、GPU 空闲阈值与上报周期">保存策略</button>' +
             '<button data-command="snapshot" class="secondary" title="刷新识别：重新扫描工作区&#10;更新实验计划列表与项目接入状态&#10;不会修改任何文件">刷新数据</button>' +
           '</div>' +
-          '<div class="muted">所有自动轮询和可用性上报都使用正向随机抖动。TTL 表示本地缓存有效期，不是轮询频率。实时事件延迟只影响停止、删除、归档和任务状态推送聚合。</div>' +
         '</div>'
       );
 
@@ -9123,6 +9136,7 @@ export function renderPanelHtml(): string {
         const workerAgent = indexes.agentWorkerById?.get(String(worker.id)) || {};
         const scope = "worker:" + String(worker.id);
         const workerSession = sessionForPath(worker.savedSessionPath);
+        const workerMemory = (memoryPreview.workers || {})[worker.id];
         cards.push(
           '<div class="server-card" data-anchor="' + escAttr(treeAnchorId("servers-worker", worker.id || worker.displayName)) + '">' +
             '<div class="serverHead"><div class="serverTitle"><h3>' + esc(worker.displayName || worker.id) + '</h3><div class="muted">Worker 实时观测 · ' + esc(worker.id) + '</div></div>' +
@@ -9137,9 +9151,12 @@ export function renderPanelHtml(): string {
             configInput(scope, "workerUser", "登录用户", worker.workerUser || worker.hubUser || "") +
             configInput(scope, "condaEnv", "Conda 环境绝对路径（可选，必填完整路径）", worker.condaEnv === undefined ? (setup.condaEnv || "") : worker.condaEnv) +
             configInput(scope, "agentProjectDir", "项目父目录", worker.agentProjectDir || "", "text", "wide") +
-            configInput(scope, "maxConcurrentGpus", "并发占卡上限(auto=全部)", worker.maxConcurrentGpus ?? "auto", "text") +
-            configSelect(scope, "gpuMemoryRatioEnabled", "显存比例调度", worker.gpuMemoryRatioEnabled === undefined ? "" : String(worker.gpuMemoryRatioEnabled), [["", "跟随全局"], ["true", "启用"], ["false", "关闭：一卡一个自动任务"]]) +
-            configInput(scope, "gpuMemoryPerJobGb", "每任务显存基准 GiB（留空跟随全局）", worker.gpuMemoryPerJobGb ?? "", "number") +
+            configInput(scope, "gpuMemoryPerJobGb", "每个 job 按多少 G 显存计算", worker.gpuMemoryPerJobGb ?? "", "number", "gpuMemoryInput") +
+            '<div class="muted gpuMemorySummary">不填时使用统一设置（当前 ' + esc(scheduler.gpuMemoryPerJobGb ?? 24) + 'G）。例如填写 24，96G 显卡可同时运行 4 个 job。</div>' +
+            '<div class="muted gpuMemorySummary">按已保存设置计算：' + memoryDescription(workerMemory) + '</div>' +
+            '<details class="wide gpuMemoryAdvanced" data-details-key="' + escAttr("worker-advanced-" + worker.id) + '"' + detailsOpenAttr("worker-advanced-" + worker.id, false) + ' style="grid-column:1 / -1"><summary>高级调度选项（一般不用修改）</summary><div class="configGrid">' +
+            configInput(scope, "maxConcurrentGpus", "最多同时使用几张显卡（留空使用全部）", worker.maxConcurrentGpus ?? "", "text") +
+            configSelect(scope, "gpuMemoryRatioEnabled", "按显存比例分配任务", worker.gpuMemoryRatioEnabled === undefined ? "" : String(worker.gpuMemoryRatioEnabled), [["", "使用统一设置"], ["true", "启用"], ["false", "关闭：一卡一个自动任务"]]) +
             configInput(scope, "gpuMemoryMaxJobsPerGpu", "单卡任务上限（留空跟随全局，0＝按比例）", worker.gpuMemoryMaxJobsPerGpu ?? "", "number") +
             configInput(scope, "gpuMemoryReserveGb", "启动保留显存 GiB（留空跟随全局）", worker.gpuMemoryReserveGb ?? "", "number") +
             configInput(scope, "gpuMemoryTolerancePercent", "容量容差 %（留空跟随全局）", worker.gpuMemoryTolerancePercent ?? "", "number") +
@@ -9147,6 +9164,7 @@ export function renderPanelHtml(): string {
             '<div class="thresholdRow" title="' + escAttr(configHelp(scope, "gpuIdleUtilThreshold")) + '"><div class="label">空卡利用率阈值 %（利用率 &lt; 阈值 视为空闲）' + helpBadge(configHelp(scope, "gpuIdleUtilThreshold")) + '</div><div class="value"><input data-config-key="' + escAttr(scope + '.gpuIdleUtilThreshold') + '" data-endpoint-id="' + escAttr(worker.id) + '" value="' + escAttr(worker.gpuIdleUtilThreshold ?? "") + '" placeholder="默认 5（&lt;5% 空闲）" type="number" min="0" max="100" style="width:100%; min-width:120px; box-sizing:border-box;" title="' + escAttr(configHelp(scope, "gpuIdleUtilThreshold")) + '" /></div></div>' +
             '<div class="thresholdRow" title="' + escAttr(configHelp(scope, "gpuIdleMemThresholdMb")) + '"><div class="label">空卡显存阈值 MB（显存 &lt; 阈值 视为空闲）' + helpBadge(configHelp(scope, "gpuIdleMemThresholdMb")) + '</div><div class="value"><input data-config-key="' + escAttr(scope + '.gpuIdleMemThresholdMb') + '" data-endpoint-id="' + escAttr(worker.id) + '" value="' + escAttr(worker.gpuIdleMemThresholdMb ?? "") + '" placeholder="默认 200（&lt;200MB 空闲）" type="number" min="0" max="8192" style="width:100%; min-width:120px; box-sizing:border-box;" title="' + escAttr(configHelp(scope, "gpuIdleMemThresholdMb")) + '" /></div></div>' +
             '<div class="thresholdRow" title="' + escAttr(configHelp(scope, "sessionCheckMinSeconds")) + '"><div class="label">会话检测最小间隔 秒' + helpBadge(configHelp(scope, "sessionCheckMinSeconds")) + '</div><div class="value"><input data-config-key="' + escAttr(scope + '.sessionCheckMinSeconds') + '" data-endpoint-id="' + escAttr(worker.id) + '" value="' + escAttr(worker.sessionCheckMinSeconds ?? "") + '" placeholder="默认 5" type="number" min="1" max="60" style="width:100%; min-width:120px; box-sizing:border-box;" title="' + escAttr(configHelp(scope, "sessionCheckMinSeconds")) + '" /></div></div>' +
+            '</div></details>' +
             configSessionSelect(scope, "savedSessionPath", "Xshell 隧道会话", worker.savedSessionPath || "") +
             configPortPair(scope, "隧道端口对", "localForwardPort", "remoteTelemetryPort", worker.localForwardPort || assignment.localForwardPort || "", worker.remoteTelemetryPort || worker.remoteAgentPort || assignment.remoteServicePort || "", workerSession, "savedSessionForwardIndex", worker.savedSessionForwardIndex, tunnelHost(worker.localForwardHost || assignment.localForwardHost || setup.localForwardHost), tunnelHost(worker.remoteAgentHost || assignment.remoteBindHost || setup.remoteAgentHost)) +
             configSelect(scope, "enabled", "启用状态", worker.enabled === false ? "false" : "true", [["true", "启用"], ["false", "禁用"]]) +
@@ -9159,7 +9177,7 @@ export function renderPanelHtml(): string {
             '<button data-command="saveWorkerConfig" data-endpoint-id="' + escAttr(worker.id) + '" data-config-scope="' + escAttr(scope) + '" title="保存该 Worker 的配置&#10;含远端路径、Conda 环境与并发占卡上限">保存服务器</button>' +
             '<button data-command="startTunnelEndpoint" data-endpoint-id="' + escAttr(worker.id) + '" data-confirm="true" class="secondary" title="启动该端点的隧道&#10;建立本机到服务器的端口转发">启动隧道</button>' +
             '<button data-command="deleteWorkerConfig" data-endpoint-id="' + escAttr(worker.id) + '" data-danger="true" class="secondary" title="删除该 Worker 配置&#10;已上传到远端的文件不会被删除">删除</button>' +
-            '</div><div class="muted">并发占卡上限留空或 auto 表示占用全部显卡；显式值限制同时占用的卡数，不限制排队总量。四态：可用/目前无空卡/暂无显卡数据/GPU查询失败。</div>' +
+            '</div><div class="muted">保存后按新数值分配尚未派发的任务；不会停止或重跑当前任务。</div>' +
           '</div>'
         );
       });
@@ -9593,7 +9611,7 @@ export function renderPanelHtml(): string {
       const violation = condaViolation || boundsViolation;
       const hintHtml = hint ? '<span class="configBoundsHint" title="' + escAttr(hint) + '">' + esc(hint) + '</span>' : "";
       const violationHtml = violation ? '<span class="configBoundsError" title="' + escAttr(label + "：" + violation) + '">' + esc(violation) + '</span>' : "";
-      const placeholders = { condaEnv: "/path/to/conda_envs/<env_name>", hubHost: "例如 compute.example.org", workerHost: "例如 compute.example.org", agentProjectDir: "例如 /srv/projects" };
+      const placeholders = { gpuMemoryPerJobGb: "例如 24", condaEnv: "/path/to/conda_envs/<env_name>", hubHost: "例如 compute.example.org", workerHost: "例如 compute.example.org", agentProjectDir: "例如 /srv/projects" };
       const placeholder = placeholders[key] ? ' placeholder="' + escAttr(placeholders[key]) + '"' : "";
       return '<div class="field ' + escAttr(cls || "") + (violation ? " is-invalid" : "") + '"' + title + '><label' + title + '>' + esc(label) + helpBadge(help) + hintHtml + '</label><input' + title + configBoundsAttrs(bounds) + placeholder + ' data-config-input="' + escAttr(scope) + '" data-key="' + escAttr(key) + '" type="' + escAttr(type || "text") + '" value="' + escAttr(displayValue(value)) + '"' + (violation ? ' aria-invalid="true"' : "") + '>' + violationHtml + '</div>';
     }
@@ -9776,6 +9794,7 @@ export function renderPanelHtml(): string {
         mode: "选择调度架构：单 Worker 由一台执行服务器运行；仅多 Worker 由多台执行服务器运行；Hub 可用时由 Hub 统一调度。切换后需保存。"
       };
       const schedulerHelp = {
+        gpuMemoryPerJobGb: "只需填写每个 job 按多少 G 显存计算。例如填 24，96G 显卡可同时运行 4 个 job；实际显存不足时等待。",
         dispatchMode: "选择新提交 Plan 的任务进入方式：本机按空闲 GPU 派发会在任务启动时连接 Worker；预派发到服务器队列会先把任务写入各服务器的持久队列，适合确认已入队后关机。",
         pollSeconds: "Worker 两次常规调度检查之间的基准间隔，单位秒；数值越小检查越频繁。",
         jitterSeconds: "每轮调度额外增加 0 到此值的随机等待，单位秒；用于错开多台机器的请求。",
@@ -9790,6 +9809,7 @@ export function renderPanelHtml(): string {
         sessionCheckMinSeconds: "全局会话检测最小间隔（秒，默认 5）"
       };
       const workerHelp = {
+        gpuMemoryPerJobGb: "仅设置这台服务器每个 job 按多少 G 显存计算；不填时使用上面的统一设置。例如填 24，96G 显卡可同时运行 4 个 job。",
         displayName: "仅用于界面展示和识别该 Worker，不用于网络连接。",
         workerHost: "填写该 Worker 的 IP 地址或可直接解析的域名，例如 compute.example.org；SSH 登录和 SFTP 文件传输共用此地址。这里不是文件路径，也不读取其他 SSH 配置文件。",
         workerUser: "登录该 Worker 的 SSH 用户名；SFTP 使用同一用户。",

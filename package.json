@@ -2,7 +2,7 @@
   "name": "simple-experiment",
   "displayName": "SimpleExperiment",
   "description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
-  "version": "0.5.323",
+  "version": "0.5.324",
   "publisher": "simple-local",
   "extensionKind": [
     "ui"
@@ -622,7 +622,7 @@
                 "type": "number",
                 "minimum": 1,
                 "maximum": 1024,
-                "description": "本 Worker 覆盖设置，未设置时跟随全局。每任务显存基准，单位 GiB。单卡任务数按总显存除以该值向下取整，最低一个；默认 24 GiB。用于调度，不限制进程实际显存。"
+                "description": "这台服务器每个 job 按多少 G 显存计算。不填使用统一设置。例：填 24，96G 显卡最多同时运行 4 个 job；实际显存不足时等待。"
               },
               "gpuMemoryMaxJobsPerGpu": {
                 "type": "integer",
@@ -823,7 +823,7 @@
           "default": 24,
           "minimum": 1,
           "maximum": 1024,
-          "description": "每任务显存基准，单位 GiB。单卡任务数按总显存除以该值向下取整，最低一个；默认 24 GiB。用于调度，不限制进程实际显存。",
+          "description": "每个 job 按多少 G 显存计算，默认 24。例：24G 显卡一个、48G 两个、96G 四个 job；实际显存不足时等待。单台服务器可以单独设置。",
           "scope": "application"
         },
         "simpleExperiment.scheduler.gpuMemoryMaxJobsPerGpu": {
