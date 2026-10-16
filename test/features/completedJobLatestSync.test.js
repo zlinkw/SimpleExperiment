@@ -3,6 +3,12 @@ require('../_helpers/registerTsRequire');
 const {CompletedJobSyncHost}=require('../../src/extension/CompletedJobSyncHost.ts'),{canonicalProjectId}=require('../../src/features/DistributedPlanQueue.ts');
 const {buildScopeStatuses,scopeInventoryPathAllowed}=require('../../src/features/SyncScopeStatus.ts');
 const {planLatestWorkerMerge}=require('../../src/features/SyncLatestMerge.ts'),{runSyncScopeBatch}=require('../../src/features/SyncScopeBatch.ts');
+test('completed-job result verification does not inspect unrelated panes while broad discovery stays complete',()=>{
+ const {spawnSync}=require('node:child_process');
+ const result=spawnSync('python',['-X','utf8',path.join(__dirname,'selectedTaskQuery.fixture.py'),path.join(__dirname,'../../src/runtime/TmuxTaskLifecycle.ts')],{encoding:'utf8',timeout:10000,windowsHide:true});
+ assert.equal(result.status,0,result.stderr||result.stdout);
+ assert.deepEqual(JSON.parse(result.stdout),{ok:true,selected:1,discovered:180});
+});
 const source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8'),ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true);let member;function visit(n){if(ts.isMethodDeclaration(n)&&n.name.getText(ast)==='mergeLatestWorkerVersions')member=n;ts.forEachChild(n,visit);}visit(ast);
 function fixture(){
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'se-job-latest-')),targets=['a','b','c'].map(id=>({id,host:id+'.invalid',port:2222,user:'u',remotePath:'/safe/project'}));
@@ -26,6 +32,12 @@ test('first completed job merges latest files to every Worker while its sibling 
  const f=fixture();await f.run();assert.equal(f.transfers.length,2);assert.ok(f.transfers.every(p=>p.relativePaths.every(file=>file.includes('job0'))));
  assert.equal(f.inventory.b['work_dirs/p/job0/model.pth'].sha256,'a'.repeat(64));assert.equal(f.jobs[0].latestArtifactSync.state,'synced');assert.equal(f.jobs[1].latestArtifactSync,undefined);
  const queries=f.queries.length;await f.run();assert.equal(f.transfers.length,2);assert.equal(f.queries.length,queries);assert.deepEqual(f.errors,[]);
+});
+test('source verification failure is distinguished from a transfer failure and repeated diagnostics are coalesced',async()=>{
+ const f=fixture();f.h.client.getWorkerTasks=async(_,options)=>{assert.equal(options.selectedOnly,true);assert.notEqual(options.executionOnly,true);throw Error('任务状态查询超时');};
+ await f.run();assert.equal(f.transfers.length,0);assert.equal(f.jobs[0].status,'completed');
+ assert.match(f.jobs[0].artifactError,/来源任务核实未完成/);assert.equal(f.errors.length,1);
+ f.jobs[0].latestArtifactSync.retryAfter='';await f.run();assert.equal(f.errors.length,1);
 });
 test('checkbox scope limits transfers; excluded jobs do not expand scope, a changed selection permits their results',async()=>{
  const f=fixture();await f.run(['work_dirs']);assert.ok(f.transfers.every(p=>p.relativePaths.every(file=>file.startsWith('work_dirs/'))));assert.equal(f.inventory.b['tmp/result/job0.csv'],undefined);

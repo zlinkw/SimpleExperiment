@@ -17,6 +17,9 @@ test('window-only requests pass through all client layers with a distinct read i
  const client={coalescedRead:(key,options,work)=>{keys.push(key);return work();},http:{getWorkerTasks:options=>http.call(raw,options)}};
  const outer={clients:new Map([['w',{getWorkerTasks:options=>realtime.call(client,options)}]]),endpointById:new Map([['w',{role:'worker'}]])};
  await multi.call(outer,'w',{executionOnly:true,queries:[]});await multi.call(outer,'w',{queries:[]});
+ await multi.call(outer,'w',{selectedOnly:true,queries:[{commandId:'c'}]});
+ assert.equal(requests[2][2].selectedOnly,true);assert.notEqual(keys[1],keys[2]);
+ await multi.call(outer,'w',{queries:[{commandId:'c'}]});assert.notEqual(keys[2],keys[3]);
  assert.equal(requests[0][0],'/api/worker/tasks/query');assert.equal(requests[0][2].executionOnly,true);
  assert.equal(requests[1][0],'/api/worker/tasks');assert.notEqual(keys[0],keys[1]);
 });

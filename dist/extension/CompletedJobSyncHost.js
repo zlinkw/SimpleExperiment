@@ -29,6 +29,7 @@ class CompletedJobSyncHost {
             const key = (0, LatestJobArtifacts_1.latestJobSyncKey)(plan, job, scopes, targets), previous = job.latestArtifactSync;
             if (previous?.key === key && (["synced", "excluded"].includes(previous.state) || Date.parse(previous.retryAfter || "") > Date.now()))
                 continue;
+            let verificationError = "";
             const assertCurrent = async () => {
                 if (!this.current())
                     throw Error("同步已停止：项目、连接或清理操作已变化。");
@@ -41,9 +42,15 @@ class CompletedJobSyncHost {
                 if (Object.entries(holds).some(([file, hold]) => hold.status !== "resolved"
                     && Date.parse(hold.deletedAt || "") >= (Date.parse(plan.enqueuedAt) || 0) && scopes.some(scope => overlap(scope, file))))
                     throw Error("这些文件在本次运行后被用户删除或暂停同步，未自动补回。");
-                const { task, snapshot, state } = await (0, PulledTaskControl_1.queryTask)(h.client, plan, job);
-                if (snapshot.queryComplete !== true || state.status !== "completed")
-                    throw Error("来源 Worker 尚未主动核实这项任务的完整产物：" + (snapshot.error || task?.observation?.resultQueryError || job.workerId));
+                try {
+                    const { task, snapshot, state } = await (0, PulledTaskControl_1.queryTask)(h.client, plan, job);
+                    if (snapshot.queryComplete !== true || state.status !== "completed")
+                        throw Error(snapshot.error || task?.observation?.resultQueryError || job.workerId);
+                }
+                catch (error) {
+                    verificationError = "来源任务核实未完成，未确认本轮同步：" + String(error.message || error);
+                    throw Error(verificationError);
+                }
             };
             const patch = (fields) => h.patchDistributedJob(this.root, plan.id, job.index, job.attempt, { expectedCommandId: job.commandId, ...fields });
             if (!scopes.length) {
@@ -68,8 +75,9 @@ class CompletedJobSyncHost {
                     return;
                 const detail = String(error.message || error), retryAfter = new Date(Date.now() + 30000).toISOString();
                 await patch({ latestArtifactSync: { key, state: "partial", scopes, error: detail, retryAfter, checkedAt: new Date().toISOString() },
-                    artifactError: "最新产物同步未完成：" + detail, artifactRetryAfter: retryAfter });
-                h.recordActionError({ command: "completedJobLatestSync", message: plan.planFile + " job " + job.index + "：" + detail });
+                    artifactError: verificationError || "最新产物同步未完成：" + detail, artifactRetryAfter: retryAfter });
+                if (previous?.key !== key || previous.error !== detail)
+                    h.recordActionError({ command: "completedJobLatestSync", message: plan.planFile + " job " + job.index + "：" + detail });
             }
         }
     }

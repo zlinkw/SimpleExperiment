@@ -20,7 +20,7 @@ async function queryTask(client, plan, job, timeoutMs = 8000, options = {}) {
     const timer = setTimeout(() => controller.abort(new Error((options.executionOnly ? "停止核实查询超时" : "任务状态查询超时")
         + `（Worker ${job.workerId}，commandId ${job.commandId}）`)), timeoutMs);
     try {
-        const request = { signal: controller.signal, queries: [taskQuery(plan, job)], ...(options.executionOnly ? { executionOnly: true } : {}) };
+        const request = { signal: controller.signal, queries: [taskQuery(plan, job)], ...(options.executionOnly ? { executionOnly: true } : { selectedOnly: true }) };
         const read = Promise.resolve().then(() => client.getWorkerTasks(job.workerId, request)).catch(error => {
             // 0.5.348 supports only an unselected execution inventory. This explicit
             // rejection may fall back to a read, never repeat the stop POST.

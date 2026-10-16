@@ -69,9 +69,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.349"
-RUNTIME_VERSION = "0.5.349"
-PLUGIN_VERSION = "0.5.349"
+AGENT_VERSION = "0.5.350"
+RUNTIME_VERSION = "0.5.350"
+PLUGIN_VERSION = "0.5.350"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -17148,6 +17148,10 @@ def serve_http(args):
                         if payload.get("declarations") is not None or payload.get("discovery"):
                             raise ValueError("EXECUTION_INVENTORY_SELECTION_INVALID")
                         return self.send_json(task_execution_inventory(root, payload.get("queries") or []))
+                    if payload.get("selectedOnly") is True:
+                        if payload.get("executionOnly") or payload.get("declarations") is not None or payload.get("discovery"):
+                            raise ValueError("TASK_QUERY_SELECTION_INVALID")
+                        return self.send_json(task_query(root, payload.get("queries") or [], selected_only=True))
                     value = task_collection_query(root, payload.get("declarations") or []) if collection else task_query(root, payload.get("queries") or [])
                     if payload.get("declarations") is not None and not collection:
                         value["declaredResults"] = task_declared_results(root, payload["declarations"], value["tasks"])
@@ -18343,10 +18347,10 @@ def task_declared_results(root, declarations, tasks=()):
                             "outputDir": declaration.get("output_dir") if isinstance(declaration, dict) else None, "completed": False, "error": str(exc)})
     return results
 
-def task_query(root, queries=()):
+def task_query(root, queries=(), selected_only=False):
     if not isinstance(queries, (list, tuple)) or len(queries) > 500:
         raise ValueError("TASK_QUERY_LIMIT")
-    rows = task_inventory(root)
+    rows = task_inventory(root, execution_only=True) if selected_only else task_inventory(root)
     valid_queries, query_errors = [], []
     for index, query in enumerate(queries):
         try:
@@ -18357,6 +18361,19 @@ def task_query(root, queries=()):
         except Exception as exc:
             query_errors.append({"index": index, "commandId": query.get("commandId") if isinstance(query, dict) else None, "error": str(exc)})
     queries = valid_queries
+    if selected_only:
+        if not queries or query_errors:
+            raise ValueError("TASK_QUERY_SELECTION_INVALID")
+        for query in queries:
+            if any(row["commandId"] == query["commandId"] and (row["projectId"] != query["projectId"] or row["workerId"] != query["workerId"]) for row in rows):
+                raise ValueError("TASK_OWNER_MISMATCH")
+        wanted = {(query["projectId"], query["commandId"]) for query in queries}
+        rows = [row for row in rows if (row["projectId"], row["commandId"]) in wanted]
+        for index, row in enumerate(rows):
+            payload = task_read_job(row["tmuxPane"])
+            if any(payload.get(key) != row.get(key) for key in ("root", "projectId", "workerId", "commandId", "outputDir", "pane")):
+                raise ValueError("TASK_WINDOW_PAYLOAD_IDENTITY_MISMATCH")
+            rows[index] = {**payload, **row}
     # Old managed tabs can be controlled by their real tmux markers, without a task snapshot.
     if queries and "local_stop_tmux_inventory" in globals():
         legacy = local_stop_tmux_inventory(root)

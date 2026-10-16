@@ -85,4 +85,13 @@ value, status = ns["handle"](Request(dict(executionOnly=True, queries=[queries[1
 assert status == 200 and value["tasks"][0]["observation"]["cancelled"]
 value, status = ns["handle"](Request(dict(executionOnly=True, queries=queries, declarations=[])))
 assert status == 400 and value["error"] == "EXECUTION_INVENTORY_SELECTION_INVALID"
+selected_calls = []
+def selected_query(root, queries, selected_only=False):
+    selected_calls.append((queries, selected_only))
+    return {"queryComplete": True, "tasks": []}
+ns["task_query"] = selected_query
+value, status = ns["handle"](Request(dict(selectedOnly=True, queries=[queries[0]])))
+assert status == 200 and selected_calls == [([queries[0]], True)]
+value, status = ns["handle"](Request(dict(selectedOnly=True, queries=queries, declarations=[])))
+assert status == 400 and value["error"] == "TASK_QUERY_SELECTION_INVALID"
 print(json.dumps(dict(ok=True, panes=179, tmuxCalls=initial_calls)))
