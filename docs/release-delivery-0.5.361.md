@@ -37,4 +37,18 @@
 
 本轮新增及修改的目标回归已覆盖元数据部分成功/超时但日志仍完成、跨多块自动扫描、连续 24 次刷新去重、公平轮转、无进展停止、连接换代、身份字段保留、异常详情精简、SSE 初始连接、慢 GPU 与真实认证失败的区别、独立执行刷新及失败后的产物隔离。原有新鲜度、固定完成、异常分析与非零退出回归继续适用。
 
-发行、包指纹、安装与现场验收状态在完成对应操作后补记。发布与本机安装不等于远端 0.5.361 已部署；未完成重载、Worker 更新和连续状态验收前，不宣称现场问题解决。
+最终完整 `npm run package` 串行门禁退出码 0；build、类型检查、内置真实面板脚本检查、额外 vm.Script、lint、运行闭包与包检查通过。另串行通过 RequestBudget、WebSocket、SSE、snapshot fallback、reconnect 与禁止直连 SSH 共 6 个目标文件。新增队列回归 9 项，原有新鲜度文件扩至 20 项，均通过。首次门禁暴露旧 HTTP fixture 未接受新增 compact 参数，已补齐真实路由双端点断言并单独验证；之后修复异步状态变化引起的 TypeScript 窄化检查，再重新运行完整门禁，未降低任何断言。
+
+回归样本中，保留异常计数、身份和原始日志路径后，异常进度响应从 47172 字节缩至 659 字节；读取 640086 字节日志的一次有界扫描检出了旧 256KiB 边界之后的异常并到达 EOF。这是本机抽取函数回归结果，不是 H20 新版现场网络耗时或带宽验收。
+
+确定包 `simple-experiment-0.5.361.vsix` 为 3057393 字节、531 个 ZIP 条目、376 个 dist 文件。身份 simple-local.simple-experiment、版本 0.5.361、universal 平台、VS Code engine、256 个本地模块运行闭包、8 份 Python AST、已构建运行字节一致性及秘密排除均通过。逐包清单 97 字节，精确绑定文件名。
+
+SHA256：`51a35bf267258b859dc640e59d96fa9197c180113f33e536820a858639a81501`。
+
+运行源码提交 `53b7ff824f390a5e231383ed28e8ea98902226a1` 已普通 fast-forward 推送 origin/master，fetch 核对一致。真实稳定 Latest 为 https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.361，tag 与 target_commitish 均绑定该提交，draft=false、prerelease=false。VSIX 与同名 `.vsix.sha256` 资产名、大小、GitHub digest、清单和实际下载 SHA256 均一致，没有覆盖历史 tag 或资产。
+
+使用实际安装的旧版 0.5.360 ReleaseClient 从真实公开 Latest 识别 Windows 更新，并实际下载 0.5.361 与未改动的配套 SimpleSFTP 0.2.91 和各自清单。旧版解析、平台选择、扩展身份、字节数与 SHA256 均通过；下载的 Experiment 包与本机确定包逐字节一致。隔离验证目录为 `C:/Users/ZLK/AppData/Local/Temp/simpleex-0361-release-verify-4fd278bb1eca4e7980005cecce4fca94`，验证文件保留。SimpleSFTP 为 169109 字节、SHA256 `e483156ad117fd8c3aaeb81d01fc0285ad6ce7c698827b589ad16596a9ea453e`，未修改或重复安装。
+
+显式执行且仅执行一次 `npm run install:latest`，安装 0.5.361，无 force 或降级。VS Code 安装版本、simpleex --help 和全部 376 个已安装 dist 文件与发行包逐字节一致。随后停止当前 SimpleExperiment 面板、API 及服务器操作；最后核对的 Extension Host 运行版本仍为安装前的 0.5.360，未用磁盘安装版本冒充已重载。
+
+现场验收待完成：用户需 Developer: Reload Window，并按原入口更新 Worker Agent/Scheduler 后，核验连续刷新下执行状态、日志 bytesRead 到 EOF、已确认完成固定事实与 PLAN 计数；compact 服务器响应和单次较大扫描窗口需要新 Agent。此次未自动部署远端，未启动、停止、重跑、重新派发科研任务，未修改项目、科研环境、指标、日志或权重，未清理旧文件。源码、发行与本机安装已完成，现场问题尚不能宣称解决。本节为交付后的文档补记，不改 tag 绑定的运行提交或已验证 VSIX 字节。
