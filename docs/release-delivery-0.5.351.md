@@ -22,4 +22,12 @@
 
 npm run package 的串行门禁共 116 个测试文件执行、788 项通过、0 失败；包括实际隔离 tmux、显存并行上限、召回与本机派发、日志分块及异常判定。构建语法门禁及 vm.Script 编译模块和三个真实渲染脚本通过，业务代码无禁止的硬编码隧道端口。
 
-simple-experiment-0.5.351.vsix 为 2,997,231 字节；SHA256 为 baa1f57ed3d21d4002823025a6636d3f365a6a6787e02be2df537b1b246cde6d。515 个 ZIP 条目、370 个 dist 文件与本机构建字节、8 个 Python 语法、扩展身份/平台/runtime/运行闭包及秘密排除均通过；同名 SHA 清单绑定精确包名。发行与一次安装结果在交付结束后补记。
+simple-experiment-0.5.351.vsix 为 2,997,231 字节；SHA256 为 baa1f57ed3d21d4002823025a6636d3f365a6a6787e02be2df537b1b246cde6d。515 个 ZIP 条目、370 个 dist 文件与本机构建字节、8 个 Python 语法、扩展身份/平台/runtime/运行闭包及秘密排除均通过；同名 SHA 清单绑定精确包名。
+
+## 实际交付
+
+- 源码提交 10f679eedc1ad400a2181dd68a58939f3dcf2b24 已普通 fast-forward 推送 origin/master，并 fetch 确认一致。
+- 稳定 Latest 为 https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.351 ，tag 绑定上述提交；draft=false、prerelease=false。真实远端包与同名 SHA 清单的名称、大小和 digest 均核实。
+- 使用已安装 0.5.350 的实际 ReleaseClient 识别 update_available，下载真实公开包到系统临时目录 simpleex-0351-release-verify-sFrNVm；扩展身份、平台、SHA 和全部包字节与本机一致。配套 SimpleSFTP 0.2.90（168,173 字节，SHA256 d7fcbc0df6eb606d52146e28c30cb1f75851da01e29042a403127f3ffeb4eb65）同样通过真实下载核验。
+- npm run install:latest 显式执行一次，安装 0.5.351，无 force、无降级。code 确认已安装版本，370 个安装 dist 文件与精确 VSIX 字节一致，simpleex --help 正常。
+- 安装后未再操作 SimpleExperiment 面板或调用 API。等待用户 Developer: Reload Window，再经插件更新 Worker Agent/Scheduler 后验收真实派发和进度；未自动更新服务器，未影响现有科研任务。
