@@ -19,3 +19,11 @@
 最终 npm run package 完成 121 个串行测试文件，830 项通过、0 失败。包含本次真实方法连接连续性/手动恢复/查询合并身份回归、Agent 后台采样、GPU 不等待任务以及批量结果查询。额外旧测试三条既有失败按上述单独记录，不属于本次新增失败。
 
 编译 PanelHtml 和三个实际渲染脚本的 vm.Script、253 模块运行闭包、8 个 Python AST、禁止固定端口及秘密排除检查通过。确定包 simple-experiment-0.5.358.vsix 为 3,031,431 字节、525 条 ZIP 记录；373 个 dist 文件与本机构建逐字节一致。SHA256 为 245f9c332195300ebb2f59f0b67546ca12ad25c5dec34af82e5470db6e5af551，同名 .vsix.sha256 绑定精确文件名。包内本文为构建补记前版本，补记不更换已验证字节。
+
+## 实际交付
+
+源码提交 a938bb48a85f87edda67c85fc84afae96c5e23db 已普通推送 origin/master，fetch 确认一致。真实稳定 Latest 为 https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.358，tag 和 target_commitish 均绑定该源码提交，draft=false、prerelease=false，资产大小、GitHub digest 及 98 字节校验清单与确定包一致。
+
+已安装旧版 0.5.357 的实际 ReleaseClient 识别更新，并实际下载 Experiment 0.5.358 和现有 SimpleSFTP 0.2.91 及校验清单；身份、版本、平台、文件名、大小、SHA256、GitHub digest 与本机包字节一致。隔离验证目录 C:/Users/ZLK/AppData/Local/Temp/simpleex-0358-release-verify-itquxe。SFTP 复用包 169,109 字节，SHA256 e483156ad117fd8c3aaeb81d01fc0285ad6ce7c698827b589ad16596a9ea453e，未修改、未重复安装。
+
+仅执行一次 npm run install:latest，本机安装为 0.5.358；373 个安装 dist 文件与确定包一致，simpleex --help 正常。安装后停止当前面板/API 操作。没有自动部署远端；用户重载并通过原入口更新 Agent/Scheduler 后，才能核实本次后台采样修复及 H20 的真实完成计数恢复情况，不能用合成测试代替现场验收。
