@@ -126,6 +126,42 @@ function makeHost() {
   };
 }
 
+test('missing-only append preserves five original native jobs and admits only the absent sixth job of the same PLAN',async()=>{
+  memoryFiles.clear();
+  const declarations=Array.from({length:6},(_,index)=>({index,case:index<3?'bus':'pad',seed:42+index%3,
+    outputDir:'work/qa/'+index,collectionResultCsv:'work/qa/'+index+'/metrics.csv'}));
+  const spec={projectId,planFile:'plans/qa_moe.yaml',revision:'r',codeFingerprint:'code',executionMode:'train_test'};
+  const initial=queueApi.enqueuePlan(queueApi.emptyDistributedQueue(),{...spec,planJobCount:6,jobs:declarations.slice(0,5)},'original');
+  initial.plans[0].jobs.forEach((job,index)=>Object.assign(job,{status:'completed',workerId:'w',commandId:'completed-'+index}));
+  memoryFiles.set(file,queueApi.serializeDistributedQueue(initial));
+  const host=makeHost(),current=await host.loadDistributedQueue(root);
+  assert.ok(current.plans[0].jobs.every(job=>job.status==='unknown'),'disk terminal labels are not current server truth');
+  const missing=queueApi.enqueuePlan(current,{...spec,planJobCount:1,fullPlanJobCount:6,jobs:[declarations[5]]},'missing');
+  await host.saveDistributedQueue(root,missing,{appendPlanId:'missing'});
+  const disk=JSON.parse(memoryFiles.get(file));
+  assert.deepEqual(disk.plans[0].jobs.map(job=>job.commandId),initial.plans[0].jobs.map(job=>job.commandId));
+  assert.deepEqual(disk.plans.find(p=>p.id==='missing').jobs.map(job=>job.index),[5]);
+  const allocated=queueApi.allocateAvailable(queueApi.restoreFormalJobQueue(disk),[{workerId:'w',online:true,
+    codeFingerprint:'code',declaredJobPaths:true,idleGpuAdmission:true,idleGpuIds:['0']}],{requireIdleGpuAdmission:true,localIdleOnly:true});
+  assert.equal(allocated.dispatches.length,1);assert.equal(allocated.dispatches[0].planId,'missing');assert.equal(allocated.dispatches[0].jobIndex,5);
+});
+
+test('same-PLAN append still rejects overlapping output, metric and ancestor paths even at a different job index',async()=>{
+  for(const paths of [{outputDir:'work/shared',collectionResultCsv:'tmp/new.csv'},
+    {outputDir:'work/other',collectionResultCsv:'tmp/shared.csv'},
+    {outputDir:'work/shared/child',collectionResultCsv:'tmp/new.csv'}]){
+    memoryFiles.clear();
+    const spec={projectId,planFile:'plans/qa_moe.yaml',revision:'r',codeFingerprint:'code',executionMode:'train_test'};
+    const old=queueApi.enqueuePlan(queueApi.emptyDistributedQueue(),{...spec,jobs:[{index:0,case:'bus',seed:42,
+      outputDir:'work/shared',collectionResultCsv:'tmp/shared.csv'}]},'original');
+    Object.assign(old.plans[0].jobs[0],{workerId:'w',commandId:'old',status:'running'});
+    const before=queueApi.serializeDistributedQueue(old);memoryFiles.set(file,before);
+    const duplicate=queueApi.enqueuePlan(queueApi.emptyDistributedQueue(),{...spec,jobs:[{index:5,case:'pad',seed:44,...paths}]},'duplicate');
+    await assert.rejects(makeHost().saveDistributedQueue(root,duplicate,{appendPlanId:'duplicate'}),/阻止重复提交/);
+    assert.equal(memoryFiles.get(file),before);
+  }
+});
+
 test("confirmed clear markers survive the production atomic writer, a new Host and repeated recovery", async () => {
   memoryFiles.clear();
   const initial = makeQueue(2);

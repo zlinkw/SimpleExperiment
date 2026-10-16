@@ -10647,9 +10647,20 @@ class RealtimeTunnelPanelProvider {
                 const appended = queue.plans.find((plan) => plan.id === options.appendPlanId);
                 if (!appended)
                     throw new Error("提交缺少待入队 Plan，未写入队列");
-                if (current.plans.some(plan => plan.id !== appended.id && plan.planFile === appended.planFile &&
-                    plan.jobs.some(job => !["completed", "failed", "cancelled"].includes(job.status)))) {
-                    throw new UiCommandRemotePending("该 Plan 已由其他提交入队，已阻止重复提交。请点击刷新运行状态核对；需要重跑时先终止并清理对应 Plan。");
+                const declaredPaths = job => [job.outputDir, job.collectionResultCsv].filter(value => typeof value === "string" && value)
+                    .map(value => value.replace(/\\/g, "/").replace(/\/+$/, "")).filter(Boolean);
+                const overlapsSelected = job => {
+                    const existing = declaredPaths(job);
+                    return appended.jobs.some(selected => {
+                        const incoming = declaredPaths(selected);
+                        return !existing.length || !incoming.length || existing.some(a => incoming.some(b => a === b || a.startsWith(b + "/") || b.startsWith(a + "/")));
+                    });
+                };
+                // Native disk status is deliberately unknown after reload. An
+                // older run of this PLAN cannot reserve unrelated job paths.
+                if (current.plans.some(plan => plan.id !== appended.id && DistributedPlanQueue.sameDistributedPlanFile(plan.planFile, appended.planFile) &&
+                    plan.jobs.some(job => !["completed", "failed", "cancelled"].includes(job.status) && overlapsSelected(job)))) {
+                    throw new UiCommandRemotePending("该 Plan 的所选 job 已由其他提交入队，已阻止重复提交。请刷新核对对应 job；其他 job 和产物保持不变。");
                 }
                 queue = { ...current, plans: [...current.plans.filter((plan) => plan.id !== appended.id), appended],
                     deferred: (current.deferred || []).map((row) => row.id === options.supersededDeferredId
