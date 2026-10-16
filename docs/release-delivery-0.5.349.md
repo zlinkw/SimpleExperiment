@@ -28,4 +28,10 @@ Scheduler 的启动身份集合、重复接收检查、取消检查和占卡计�
 
 ## 交付
 
-已验证包 `simple-experiment-0.5.349.vsix` 为 2,991,117 字节；SHA256 为 `cc1e867a34cc1aeced5f74c7806c0e955cd61a2ad182d88cd9e3bc62d2372edc`，同名 `.vsix.sha256` 绑定精确文件名。源码推送、稳定发行实际下载验收和一次安装完成后补记。包内本文为发行前快照，真实入口待用户重载和远端更新后验收。
+- 源码提交 `9f07d87fb03aaad7f6006c8eda99698b850942fc` 已普通快进推送 origin/master，fetch 核对一致。本文仅补记交付，不重建包。
+- 稳定发行：<https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.349>。真实 Latest、tag、绑定源码提交一致，draft=false、prerelease=false。
+- `simple-experiment-0.5.349.vsix` 为 2,991,117 字节；SHA256 为 `cc1e867a34cc1aeced5f74c7806c0e955cd61a2ad182d88cd9e3bc62d2372edc`。同名 `.vsix.sha256` 绑定精确文件名；公开大小、GitHub digest、实际下载及本机确定包一致。
+- 已安装 0.5.348 的更新客户端从真实公开 Latest 识别 update_available，实际下载并校验上述包和 SHA 文件。配套 SimpleSFTP 0.2.90 公开包及指纹一致，未重复安装；验证文件保留于临时目录 `simpleex-0349-release-verify-LSL8Wa`。
+- 显式执行一次 `npm run install:latest` 成功，没有 force。VS Code 显示 0.5.349，370 个已安装 dist 文件与上述包逐字节一致，`simpleex --help` 正常。安装后停止调用当前 SimpleExperiment 面板和 API。
+- 当前 Extension Host 待用户 Developer: Reload Window；远端本轮读取为 0.5.348，未自动部署、重启或停止任何科研任务。精确轻量控制查询和 Scheduler 优化须部署 0.5.349 Agent/Scheduler 后实机验收。
+- 前三项已提交不重跑；重载和远端更新后只重新选择 TMDC。旧请求取消、真实窗口消失、产物覆盖确认与新 job 派发仍须由实际入口完成，合成回归不冒充该实机验收。
