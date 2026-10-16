@@ -26,4 +26,16 @@ Host 回归覆盖其他 Worker 上已完成产物保留、只确认未完成 job
 
 原预约测试把成功查询返回空列表也当作永久占卡，这与本轮服务器真实状态规则冲突。测试现区分查询失败与已确认 missing：前者仍保留名额，后者允许同 Worker 的后续 job 使用空卡，原 missing commandId 不会自动重发。最终 GPU 准入仍由远端 Scheduler 核实，未知回执不能代替真实空闲判断。
 
-完整打包、发行指纹和安装记录将在交付完成后补记。实际科研启动与界面点击等待用户重载及更新对应 Agent/Scheduler 后验收。
+最终 `npm run package` 完成 116 次串行单文件执行，774 项通过、零失败。日志保留在临时目录 `simpleex-0.5.344-package-verified.log`。此前打包由夹具缺少新函数依赖及旧预约语义断言拦截，完成对应修正和单文件回归后重新执行全部门禁，没有跳过失败文件。
+
+TypeScript/build、实际渲染脚本及额外 vm.Script、8 个 Python AST、运行闭包、ZIP、身份/版本/universal 平台、370 个 dist 文件逐字节比对和秘密排除均通过。包内本文为发行前快照，本次仅补记真实交付，未重建或替换包。
+
+## 已完成交付
+
+- 源码提交 `2019ef28e129f76bd6e9c11763872ea93cb39145` 已普通快进推送 origin/master，并 fetch 确认一致。
+- 稳定 Release：<https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.344>。重新查询真实 Latest 和 tag，确认绑定上述提交，draft=false、prerelease=false。
+- `simple-experiment-0.5.344.vsix`：2,971,528 字节；SHA256 `b242d7a21087611ad7785ef41ab18101080e8c3346ec6a28ba39366d351ee735`。逐包 `.vsix.sha256` 绑定精确文件名；公开资产大小、GitHub digest 及实际下载 SHA256 一致。
+- 使用已安装的 0.5.343 更新客户端，真实解析 Latest 为 update_available，并下载公开 VSIX/校验和，与本机已验证包逐字节一致。SimpleSFTP 0.2.90 的公开包和校验和也与已验证本机包一致，未重复安装。验证文件保留于临时目录 `simpleex-0344-release-verify-8ozC09`。
+- 显式执行一次 `npm run install:latest` 安装 0.5.344，无 force、无降级。VS Code 已安装版本、370 个 dist 文件字节、包身份和 simpleex 入口核对通过。安装后停止访问当前插件面板与 API。
+
+实际科研启动与界面点击等待用户 Developer: Reload Window，并通过插件更新对应 Agent/Scheduler 后验收。没有自动更新远端、重跑、关闭任务窗口或删除产物；没有从旧记录补造 QA MOE 缺失的执行输入。旧失败或 missing 请求需用户主动点击单 job 重跑；其他本机待派任务在重载并查询后使用真实可用名额。
