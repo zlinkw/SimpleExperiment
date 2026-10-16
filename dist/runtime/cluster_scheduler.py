@@ -37,9 +37,9 @@ except ModuleNotFoundError as exc:
     yaml = None
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_scheduler.py 为准
-SCHEDULER_VERSION = "0.5.344"
-RUNTIME_VERSION = "0.5.344"
-PLUGIN_VERSION = "0.5.344"
+SCHEDULER_VERSION = "0.5.345"
+RUNTIME_VERSION = "0.5.345"
+PLUGIN_VERSION = "0.5.345"
 FORMAL_JOB_PATH_PROTOCOL = 1
 FORMAL_JOB_IDENTITY_ENV_PROTOCOL = 1
 EXECUTION_SHELL_PREFLIGHT_PROTOCOL = 1

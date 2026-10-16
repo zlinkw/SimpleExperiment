@@ -83,6 +83,46 @@ test('missing native windows and startup failures offer exact one-job rerun, but
  }
 });
 
+test('rendered rerun buttons carry the original command through the shared payload into the real Host guard',async()=>{
+  require('../_helpers/registerTsRequire');
+  const ts=require('typescript'),fs=require('node:fs');
+  const html=require('../../src/ui/PanelHtml.ts').renderPanelHtml();
+  const script=[...html.matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)].map(m=>m[1]).join('\n');
+  const ast=ts.createSourceFile('panel.js',script,ts.ScriptTarget.Latest,true,ts.ScriptKind.JS);
+  let payloadSource;
+  function visit(n){if(ts.isFunctionDeclaration(n)&&n.name?.text==='payloadFromButton')payloadSource=n.getText(ast);ts.forEachChild(n,visit);}visit(ast);
+  assert.ok(payloadSource);
+  const payloadContext=vm.createContext({RESTORABLE_PLAN_FILE_PAYLOAD_COMMANDS:new Set(),ARTIFACT_SCOPE_COMMANDS:new Set()});
+  vm.runInContext(payloadSource,payloadContext);
+  const hostText=fs.readFileSync('src/extension/legacy.ts','utf8'),hostAst=ts.createSourceFile('host.ts',hostText,ts.ScriptTarget.Latest,true);
+  let hostSource;
+  function findHost(n){if(ts.isMethodDeclaration(n)&&n.name.getText(hostAst)==='retryDistributedJobFromUi')hostSource=n.getText(hostAst);ts.forEachChild(n,findHost);}findHost(hostAst);
+  const retry=vm.runInNewContext(ts.transpileModule('class Host{'+hostSource+'};Host.prototype.retryDistributedJobFromUi',
+    {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{workspaceRoot:()=>'/fixture'});
+  for(const kind of ['missing','failed','anomaly','legacy']){
+    const job={index:2,case:'a',seed:42,workerId:'w',commandId:'original-'+kind,outputDir:'work/a',
+      lifecycleProtocol:kind==='legacy'?1:2,status:kind==='missing'?'unknown':kind==='anomaly'?'completed':'failed',
+      executionState:kind==='missing'?'missing':'exited',completionState:kind==='anomaly'?'review_required':undefined,
+      error:kind==='legacy'?'Validation-only tuning cannot access test patients':undefined};
+    const plan={id:'wf',planFile:'plans/p.yaml',resultPathPolicy:'declared',jobs:[job]},sandbox=clickSandbox();
+    sandbox.render({distributedPlans:[plan]});
+    const button=sandbox.html.match(/<button\b[^>]*data-command="retryDistributedJob"[^>]*>/)?.[0];assert.ok(button,kind);
+    const dataset={};for(const m of button.matchAll(/data-([a-z-]+)="([^"]*)"/g))dataset[m[1].replace(/-([a-z])/g,(_,c)=>c.toUpperCase())]=m[2];
+    const payload=payloadContext.payloadFromButton({dataset});
+    assert.equal(payload.commandId,job.commandId,kind+' must not lose the rendered command identity');
+    assert.equal(payload.planId,'wf');assert.equal(payload.jobIndex,2);
+    assert.equal(payload.runtimeAnomalyRerun===true,kind==='anomaly');
+    if(kind==='legacy')continue;
+    let calls=0;
+    const h={captureProjectContext:()=>({}),projectContextIsCurrent:()=>true,workerActionTargets:()=>[{id:'w',host:'fixture'}],
+      client:{},loadDistributedQueue:async()=>({plans:[plan]}),retryPulledJob:async(p,j,_r,current,anomalyOnly)=>{
+        calls++;assert.equal(p,plan);assert.equal(j,job);assert.ok(current());assert.equal(anomalyOnly,kind==='anomaly');}};
+    await retry.call(h,payload);assert.equal(calls,1);
+    job.commandId='superseding-command';
+    await assert.rejects(retry.call(h,payload),/commandId.*变化/);assert.equal(calls,1,'a truly replaced command must remain protected');
+  }
+});
+
 test('a six-job declaration with five available inputs cannot render five-of-five success or hide the missing input',()=>{
   const sandbox=clickSandbox();
   const jobs=Array.from({length:5},(_,index)=>({index,case:'a',seed:42+index,status:'completed',completionState:'verified'}));

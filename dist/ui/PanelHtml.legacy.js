@@ -14548,7 +14548,7 @@ function renderPanelHtml() {
           const trainingRecoveryButton = nativeRerun
             ? '<button type="button" class="mini secondary" data-command="retryDistributedJob" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-plan-file="' + escAttr(group.planFile || "") + '" data-distributed-retry="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-job-index="' + escAttr(String(job.index)) + '" data-command-id="' + escAttr(job.commandId) + '" title="核实并撤出原请求，只审核此 job 的产物；已有文件仍需完整路径双确认。">重跑此 job</button>'
             : status === "failed" && errorText.indexOf("Validation-only tuning cannot access test patients") >= 0
-            ? '<button type="button" class="mini secondary" data-command="retryDistributedJob" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-plan-file="' + escAttr(group.planFile || "") + '" data-distributed-retry="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-job-index="' + escAttr(String(job.index)) + '">核验并恢复训练完成</button>' : "";
+            ? '<button type="button" class="mini secondary" data-command="retryDistributedJob" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-plan-file="' + escAttr(group.planFile || "") + '" data-distributed-retry="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-job-index="' + escAttr(String(job.index)) + '" data-command-id="' + escAttr(job.commandId || "") + '">核验并恢复训练完成</button>' : "";
           const codeProofBlocked = status === "queued" && errorText.indexOf("code-sync proof") >= 0;
           const recallButton = status === "queued" || job.recallRequested === true
             ? '<button type="button" class="mini secondary" data-command="recallPlanToLocalQueue" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-plan-file="' + escAttr(group.planFile || "") + '" data-job-index="' + escAttr(String(job.index)) + '" title="只召回此排队 job；运行中、已结束或状态不明的任务保持原 Worker。">' + (job.recallRequested ? "重试召回" : "召回到本机") + '</button>' : "";
@@ -17494,9 +17494,9 @@ function renderPanelHtml() {
       if (button.dataset.planId) payload.planId = button.dataset.planId;
       if (button.dataset.jobIndex !== undefined) payload.jobIndex = Number(button.dataset.jobIndex);
       if (command === "analyzeRuntimeLog") payload.commandId = button.dataset.commandId || "";
-      if (command === "retryDistributedJob" && button.dataset.runtimeAnomalyRerun === "true") {
+      if (command === "retryDistributedJob") {
         payload.commandId = button.dataset.commandId || "";
-        payload.runtimeAnomalyRerun = true;
+        if (button.dataset.runtimeAnomalyRerun === "true") payload.runtimeAnomalyRerun = true;
       }
       if (["recallFailedJob", "markJobUnavailable", "restoreJobAvailability"].includes(command)) {
         if (command !== "recallFailedJob" && button.dataset.attempt !== undefined)
