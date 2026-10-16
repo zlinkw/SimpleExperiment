@@ -1734,6 +1734,7 @@ export class RealtimeTunnelPanelProvider {
             const batches = count ? Array.from({ length: Math.ceil(count / 500) }, (_, index) => queries.slice(index * 500, (index + 1) * 500)) : [[]];
             const values = [];
             for (const [index, batch] of batches.entries()) values.push(await this.client.getWorkerTasks(workerId, { signal: options.signal, queries: batch,
+                declarationOnly: options.inventoryOnly === true,
                 declarations: options.declarations?.slice(index * 500, (index + 1) * 500) }));
             const value = { ...values[0], queryComplete: values.every(row => row.queryComplete === true),
                 tasks: [...new Map(values.flatMap(row => row.tasks || []).map(row => [row.projectId + ":" + row.commandId, row])).values()],
@@ -9257,7 +9258,8 @@ reportStage("正在准备校验所需代码…");
             const target = workers[index], snapshot = snapshots[index];
             const fresh = snapshot?.workerId === target.id && DistributedPlanQueue.hasFreshDurableSnapshot(snapshot);
             const conflicting = (snapshot?.tasks || []).some((task) =>
-                !["completed", "succeeded", "failed", "cancelled", "canceled"].includes(String(task.status || "").toLowerCase())
+                (task.lifecycleProtocol === 2 ? !task.observation || !!task.observation.queryError || !!task.observation.tmux && !task.observation.tmux.dead
+                    : !["completed", "succeeded", "failed", "cancelled", "canceled"].includes(String(task.status || "").toLowerCase()))
                 && String(task.codeFingerprint || "") !== fingerprint);
             if (fresh && !conflicting && DistributedPlanQueue.workerCodeVersionAvailable(merged, target.id, fingerprint)) safe.add(target.id);
             else blocked.push(`${target.label || target.id}：${fresh ? "旧代码版本仍有活动或待核实任务" : "未获得新鲜任务快照"}`);
@@ -26453,6 +26455,7 @@ function workerTaskSnapshotPayload(snapshot) {
         tasks: snapshot.tasks,
         cleanupExecutors: snapshot.cleanupExecutors || [],
         ...(snapshot.executionOnly ? { executionOnly: true } : {}),
+        ...(snapshot.controlIncomplete ? { controlIncomplete: true } : {}),
         ...(snapshot.resultQueryError ? { resultQueryError: snapshot.resultQueryError } : {}),
         ...(snapshot.error ? { error: snapshot.error } : {}),
     };

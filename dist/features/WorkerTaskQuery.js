@@ -23,7 +23,7 @@ function workerTaskQueries(queue, workerId) {
 function assertLaunchObservations(snapshots, jobs) {
     const overlap = (a, b) => a && b && (a === b || a.startsWith(b + "/") || b.startsWith(a + "/"));
     for (const snapshot of snapshots) {
-        if (snapshot.error || snapshot.executionOnly || snapshot.queryComplete !== true || snapshot.capabilities?.taskLifecycle !== 2) {
+        if (snapshot.error || snapshot.executionOnly || snapshot.controlIncomplete || snapshot.queryComplete !== true || snapshot.capabilities?.taskLifecycle !== 2) {
             const reason = snapshot.error || (snapshot.capabilities?.taskLifecycle !== 2 ? "TASK_LIFECYCLE_PROTOCOL_REQUIRED" : "TASK_QUERY_INCOMPLETE");
             throw Object.assign(new Error("Worker " + snapshot.workerId + " · 当前任务检查：" + reason + "；尚未提交，可重试失败步骤。"), { retryableSubmission: true, workerId: snapshot.workerId, stage: "checking_workers", cause: snapshot.error });
         }

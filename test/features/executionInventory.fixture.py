@@ -93,7 +93,15 @@ ns["task_query"] = selected_query
 value, status = ns["handle"](Request(dict(selectedOnly=True, queries=[queries[0]])))
 assert status == 200 and selected_calls == [([queries[0]], True, False)]
 value, status = ns["handle"](Request(dict(selectedOnly=True, observationOnly=True, queries=[queries[0]])))
-assert status == 200 and selected_calls[-1] == ([queries[0]], True, True)
+assert status == 400 # Result-only route cannot silently fall back to the full control query.
+result_calls=[]
+ns["task_result_query"]=lambda root, queries: result_calls.append(queries) or {"resultsOnly":True}
+value, status = ns["handle"](Request(dict(selectedOnly=True, observationOnly=True, queries=[queries[0]])))
+assert status == 200 and value["resultsOnly"] and result_calls==[[queries[0]]]
+declaration_calls=[]
+ns["task_declaration_query"]=lambda root,declarations:declaration_calls.append(declarations) or {"declarationOnly":True}
+value,status=ns["handle"](Request(dict(declarationOnly=True,declarations=[])))
+assert status==200 and value["declarationOnly"] and declaration_calls==[[]]
 value, status = ns["handle"](Request(dict(selectedOnly=True, queries=queries, declarations=[])))
 assert status == 400 and value["error"] == "TASK_QUERY_SELECTION_INVALID"
 print(json.dumps(dict(ok=True, panes=179, tmuxCalls=initial_calls)))

@@ -1,6 +1,33 @@
 const test=require('node:test'),assert=require('node:assert/strict');
 require('../_helpers/registerTsRequire');
 const {queryWorkerProgress}=require('../../src/features/WorkerProgressQuery.ts');
+test('result and launch declaration queries avoid all historical task work',()=>{
+ const path=require('node:path');const r=require('node:child_process').spawnSync(process.platform==='win32'?'python':'python3',['-B','-X','utf8',path.join(__dirname,'lightweightResultQueries.fixture.py'),path.join(__dirname,'../../src/runtime/TmuxTaskLifecycle.ts')],{encoding:'utf8',timeout:10000,windowsHide:true});assert.equal(r.status,0,r.stderr||r.stdout);
+});
+
+test('ended native panes do not lock code merely because their result status is unknown',async()=>{
+ const fs=require('node:fs'),ts=require('typescript'),vm=require('node:vm');
+ const source=fs.readFileSync('src/extension/legacy.ts','utf8'),ast=ts.createSourceFile('host.ts',source,ts.ScriptTarget.Latest,true);let method;
+ function visit(node){if(ts.isMethodDeclaration(node)&&node.name.getText(ast)==='safeWorkerCodeSyncTargets')method=node;ts.forEachChild(node,visit);}visit(ast);
+ const fn=vm.runInNewContext(ts.transpileModule('class H{'+method.getText(ast)+'};H.prototype.safeWorkerCodeSyncTargets',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{workspaceRoot:()=>'/project',mapLimited:(rows,n,fn)=>Promise.all(rows.map(fn)),UiCommandCancelled:class extends Error{},DistributedPlanQueue:{canonicalProjectId:()=> 'project',mergeDurableWorkerSnapshots:()=>({}),hasFreshDurableSnapshot:()=>true,workerCodeVersionAvailable:()=>true}});
+ const task={lifecycleProtocol:2,codeFingerprint:'old',status:'unknown',observation:{tmux:{dead:true}}},target={role:'worker',id:'w'};
+ const host={client:{},readWorkerTaskSnapshot:async()=>({workerId:'w',tasks:[task]}),loadDistributedQueue:async()=>({plans:[]}),projectTopologyAssessment:()=>({mode:'single_worker'})};
+ assert.equal((await fn.call(host,[target],'/project','new','workers')).length,1);
+ task.observation.tmux.dead=false;
+ await assert.rejects(fn.call(host,[target],'/project','new','workers'),/未覆盖运行中代码/);
+});
+
+test('results-only metadata combines with actual execution and cannot override a nonzero exit',async()=>{
+ const q={commandId:'c',projectId:'p',workerId:'w',outputDir:'work/c'};
+ const read={...q,observation:{lifecycleProtocol:2,commandId:'c',projectId:'p',workerId:'w',result:{runId:'c',status:'completed',present:true,verified:true,artifactsComplete:true},runtimeDiagnostics:{schemaVersion:1,commandId:'c',runId:'c',state:'clear',count:0,scanComplete:true}}};
+ const client={getWorkerTasks:async()=>({resultsOnly:true,queryComplete:true,capabilities:{taskLifecycle:2},tasks:[read]})};
+ for(const exitCode of [0,7]){
+  const task={...q,observation:{lifecycleProtocol:2,commandId:'c',projectId:'p',workerId:'w',tmux:{dead:true,exitCode,phase:'running',windowId:'@1',paneId:'%1'}}};
+  const result=await queryWorkerProgress(client,'w',[q],{queryComplete:true,capabilities:{taskLifecycle:2},tasks:[task]});
+  assert.equal(result.tasks[0].status,exitCode===0?'completed':'failed');assert.equal(result.tasks[0].exitCode,exitCode);
+  assert.equal(result.controlIncomplete,true,'result observations cannot authorize launch without cleanup-window checks');
+ }
+});
 test('result observation uses the bounded normal pool, leaving execution/stop emergency slots available',async()=>{
  const fs=require('node:fs'),ts=require('typescript'),vm=require('node:vm');
  const source=fs.readFileSync('src/tunnel/TunnelClient.legacy.ts','utf8'),ast=ts.createSourceFile('client.ts',source,ts.ScriptTarget.Latest,true);let method;
@@ -8,7 +35,9 @@ test('result observation uses the bounded normal pool, leaving execution/stop em
  const fn=vm.runInNewContext(ts.transpileModule('class C{'+method.getText(ast)+'};C.prototype.getWorkerTasks',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{});
  const purposes=[],host={requestJson:async(_path,purpose,body)=>{purposes.push(purpose);return body;}};
  const body=await fn.call(host,{selectedOnly:true,observationOnly:true,queries:[{commandId:'c'}]});assert.equal(body.observationOnly,true);
- await fn.call(host,{executionOnly:true});assert.deepEqual(purposes,['manual_refresh','job_reconcile']);
+ await fn.call(host,{executionOnly:true});
+ const launch=await fn.call(host,{declarationOnly:true,declarations:[]});assert.equal(launch.declarationOnly,true);
+ assert.deepEqual(purposes,['manual_refresh','job_reconcile','manual_refresh']);
 });
 test('valid synchronized copies remain complete without reading weight contents',()=>{
  const path=require('node:path');const r=require('node:child_process').spawnSync(process.platform==='win32'?'python':'python3',['-B','-X','utf8',path.join(__dirname,'portableManifest.fixture.py'),path.join(__dirname,'../../src/runtime/TmuxTaskLifecycle.ts')],{encoding:'utf8',timeout:10000,windowsHide:true});assert.equal(r.status,0,r.stderr||r.stdout);

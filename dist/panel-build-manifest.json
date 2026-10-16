@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.356",
-  "buildId": "7dbd340b56f5022b125948f8cbea1ec909a4d7ace07b99d5474c484b39ebeab1",
+  "version": "0.5.357",
+  "buildId": "7e9b9e86bd6f9214e7f23b5e19ed51f2d53190d9d10aa0440b02d269e42424ab",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -197,7 +197,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "61d5a0d59b8af751c8ddf73d0d75b491a7f9bb565346ff23f205ea0e797f4b48"
+      "sha256": "20859573215258121518c049d1e5fd899221c8cfeac1ea59a093530d7b35c347"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -601,11 +601,11 @@
     },
     {
       "path": "dist/features/WorkerProgressQuery.js",
-      "sha256": "45a1d13a92a92c6522dd267b436ce71f85f6b270a255e46922b6b6d343368846"
+      "sha256": "2c770967b82b604b8c27b277d194443bfee14fd0e4263e1aa253b85523d99a9d"
     },
     {
       "path": "dist/features/WorkerTaskQuery.js",
-      "sha256": "5509fc7709859a6063b0338aaf7d8ebe4f9107082fc8ce91dc578ca1b5afe3d6"
+      "sha256": "1337e6c8d2ed8506a04eb2d634cf8dcb2b4f18ffa81f6876987ce97369c0ea4b"
     },
     {
       "path": "dist/features/WorkflowWorkspaceBinding.js",
@@ -661,7 +661,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "12a026c6e5aa54637208187062d2b07253f9621985109d0a184c66762f546ba2"
+      "sha256": "1b3d3adf148004cad45c459188c8b7df428a3f85c1f555a9bbb21a6fec6f394d"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -781,7 +781,7 @@
     },
     {
       "path": "dist/tunnel/TunnelClient.legacy.js",
-      "sha256": "bb73a7456c73ff7d841a068c30c1c388abd9973f3489addaa445aa18f2c4f13a"
+      "sha256": "7886dbb8eeec5a840cccb866e72058788a033b0756145dab082229213fa97755"
     },
     {
       "path": "dist/tunnel/TunnelDiagnostics.js",
@@ -1009,7 +1009,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "91f3c1c69446136a772afee164b6bfbaff5043dd0000ebc4b39e3752bc3f03ca"
+      "sha256": "ff7454305efe50464eb44e3e668caa1924dda376e8229d250aac4a2a17ba4852"
     },
     {
       "path": "scripts/check-static.js",

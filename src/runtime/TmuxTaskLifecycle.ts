@@ -127,7 +127,7 @@ def task_execution_inventory(root, queries=()):
     for row in rows:
         public = {key: row[key] for key in ("commandId", "projectId", "workerId", "workflowId", "globalJobId", "planFile", "planRevision", "codeFingerprint",
                   "experimentIndex", "outputDir", "collectionResultCsv", "resultPathPolicy", "planJobCount", "fullPlanJobCount", "enqueuedAt",
-                  "executionMode", "mode", "runKey", "case", "seed", "configPath", "tmuxPane", "tmuxWindowId", "tmuxSession", "gpuId") if key in row}
+                  "executionMode", "mode", "checkpointTestOnly", "runKey", "case", "seed", "configPath", "tmuxPane", "tmuxWindowId", "tmuxSession", "gpuId") if key in row}
         observed = {
             "lifecycleProtocol": 2, "commandId": row["commandId"], "projectId": row["projectId"], "workerId": row["workerId"],
             "observedAt": now_iso()}
@@ -149,7 +149,12 @@ def task_execution_inventory(root, queries=()):
         tasks.append({**public, "lifecycleProtocol": 2, "observation": observed, "executionState": execution,
                       "status": "queued" if execution in ("queued", "starting") else execution if execution in ("running", "failed") else "unknown"})
     return {"schemaVersion": 1, "queryComplete": True, "executionOnly": True, "generatedAt": now_iso(),
-            "capabilities": {"taskLifecycle": 2}, "tasks": tasks}
+            # Agent protocol support is static; do not query Scheduler windows
+            # for every progress refresh. Admission still checks live capacity.
+            "capabilities": {"schemaVersion": 1, "durablePlanQueue": True, "declaredJobPaths": True,
+                "idleGpuAdmission": True, "queuedJobRecall": True, "taskLifecycle": 2, "manualDispatch": 1,
+                "runtimeDiagnostics": 1, "gpuQuotaScheduling": 1, "gpuCardQuotaScheduling": 1,
+                "gpuCardLimitScheduling": 1, "declaredResultQuery": 1, "resultCollection": 1}, "tasks": tasks}
 
 def task_manifest_observation(root, job):
     output = str(job.get("outputDir") or "")
@@ -344,6 +349,52 @@ def task_declared_results(root, declarations, tasks=()):
             results.append({"index": declaration.get("index") if isinstance(declaration, dict) else None,
                             "outputDir": declaration.get("output_dir") if isinstance(declaration, dict) else None, "completed": False, "error": str(exc)})
     return results
+
+def task_result_query(root, queries):
+    """Filesystem/log evidence only. Execution is queried separately, once per round."""
+    if not isinstance(queries, list) or not queries or len(queries) > 500:
+        raise ValueError("TASK_QUERY_SELECTION_INVALID")
+    tasks = []
+    for job in queries:
+        if not isinstance(job, dict) or not all(isinstance(job.get(key), str) and job[key].strip() for key in ("commandId", "projectId", "workerId", "outputDir")):
+            raise ValueError("TASK_QUERY_IDENTITY_REQUIRED")
+        task_safe_path(root, job["outputDir"])
+        public = {key: job[key] for key in ("commandId", "projectId", "workerId", "workflowId", "globalJobId", "planFile", "planRevision", "codeFingerprint",
+            "experimentIndex", "case", "seed", "outputDir", "collectionResultCsv", "resultPathPolicy", "planJobCount", "fullPlanJobCount", "enqueuedAt",
+            "executionMode", "mode", "runKey", "gpuId") if key in job}
+        observed = {"lifecycleProtocol": 2, "commandId": job["commandId"], "projectId": job["projectId"], "workerId": job["workerId"], "observedAt": now_iso()}
+        try:
+            result = task_manifest_observation(root, job)
+            observed["result"] = result
+            terminal = bool(result and result.get("runId") == job["commandId"] and result.get("identityMatches") and result.get("status") in ("completed", "failed"))
+            if "task_log_diagnostics" in globals():
+                observed["runtimeDiagnostics"] = task_log_diagnostics(root, job, terminal=terminal,
+                    binding=result.get("runtimeDiagnostics") if terminal else None)
+        except Exception as exc:
+            observed["resultQueryError"] = str(exc)
+        tasks.append({**public, "lifecycleProtocol": 2, "observation": observed})
+    return {"schemaVersion": 1, "generatedAt": now_iso(), "queryComplete": True, "resultsOnly": True,
+            "capabilities": {"taskLifecycle": 2, "runtimeDiagnostics": 1}, "tasks": tasks}
+
+
+def task_declaration_query(root, declarations):
+    """Launch checks need current panes/cleanup and this PLAN's manifests, never history logs."""
+    if not isinstance(declarations, list) or len(declarations) > 500:
+        raise ValueError("DECLARED_RESULT_QUERY_LIMIT")
+    value = task_execution_inventory(root)
+    value.pop("executionOnly", None)
+    cleanup = []
+    for line in task_tmux(["list-panes", "-a", "-F", "#{pane_dead}\t#{pane_id}\t#{window_id}\t#{@sftp_cleanup_target}"]).splitlines():
+        fields = line.split("\t")
+        if len(fields) == 4 and fields[0] != "1" and fields[3]:
+            binding = json.loads(base64.urlsafe_b64decode(fields[3]).decode("utf-8"))
+            if binding.get("root") == os.path.realpath(root):
+                cleanup.append({"paneId": fields[1], "windowId": fields[2], "relativePath": binding["relativePath"], "destination": binding["destination"]})
+    value.update(declarationOnly=True, cleanupExecutors=cleanup,
+                 declaredResults=task_declared_results(root, declarations, value["tasks"]))
+    value["capabilities"]["declaredResultQuery"] = 1
+    return value
+
 
 def task_query(root, queries=(), selected_only=False, observation_only=False):
     if not isinstance(queries, (list, tuple)) or len(queries) > 500:
