@@ -17,6 +17,7 @@ def gpu_row_id(row): return row["id"]
 def gpu_row_busy(*args): return pathlib.Path(os.environ["TMUX_TMPDIR"], "gpu-busy").exists()
 def fixed_gpu_window_name(prefix, gpu): return (prefix or "fixture")+"-gpu-"+gpu
 def execute_worker_command(root, job, worker):
+    if job["commandId"] == "command-0" and "codeManifest" in job: assert len(job["codeManifest"]) == 180
     task_option(os.environ["TMUX_PANE"],"phase","running")
     identity=json.dumps({"workflowId":job["workflowId"],"commandId":job["commandId"]},ensure_ascii=False)
     probe=pathlib.Path(root)/"probe.py"
@@ -64,7 +65,11 @@ try:
     for name in ("worker_task_snapshot.json","distributed_plan_queue.json","worker_start_claims.json"):
         (pathlib.Path(root)/name).write_text("corrupt legacy state",encoding="utf-8")
     a,b,c=job(0),job(1),job(2,"failure")
+    a["codeManifest"] = {"source/module_" + str(i) + ".py": {"size": i, "sha256": hashlib.sha256(str(i).encode()).hexdigest()} for i in range(180)}
+    a["distributedResults"] = {"label": "中文 'quoted' $literal \\ value\n" * 1200}
     namespace["task_queue_rpc"](root,"worker","accept",a,ensure=True)
+    assert next(row for row in namespace["task_inventory"](root) if row["commandId"] == a["commandId"])["codeManifest"] == a["codeManifest"]
+    assert next(row for row in namespace["task_inventory"](root) if row["commandId"] == a["commandId"])["distributedResults"] == a["distributedResults"]
     namespace["task_queue_rpc"](root,"worker","accept",b,ensure=True)
     first=wait_for(lambda: len([r for r in namespace["task_inventory"](root) if r["phase"]=="running" and not r["dead"]])==2)
     duplicate=namespace["task_queue_rpc"](root,"worker","accept",a,ensure=True)
@@ -147,6 +152,22 @@ try:
     assert failed["status"]=="failed" and failed["exitCode"]==7,failed
     declarations=[dict(index=item["experimentIndex"],case=item["case"],seed=item["seed"],mode=item["mode"],output_dir=item["outputDir"],result_csv=item["collectionResultCsv"]) for item in (a,b,failure)]
     assert [item["completed"] for item in namespace["task_declared_results"](root,declarations)]==[True,True,False]
+    option = namespace["task_option"]
+    damaged = job(4)
+    damaged["codeManifest"] = a["codeManifest"]
+    prepared = namespace["task_queue_job"](root,"worker",damaged)
+    def interrupted(target,key,value=None):
+        if key == "job" and value and len(value)>4096: raise RuntimeError("synthetic metadata channel failure")
+        return option(target,key,value)
+    namespace["task_option"] = interrupted
+    try:
+        namespace["task_queue_accept"](root,"worker",damaged,control,prepared=prepared)
+        raise AssertionError("injected metadata failure accepted")
+    except RuntimeError as exc: assert "synthetic metadata" in str(exc)
+    finally: namespace["task_option"] = option
+    rejected = wait_for(lambda: next((row for row in namespace["task_inventory"](root) if row["commandId"] == damaged["commandId"] and row["dead"]),None))
+    assert rejected["phase"] == "rejected" and rejected["exitCode"] != 0
+    assert not pathlib.Path(root,"started-command-4").exists()
     print(json.dumps(dict(ok=True,realTmux=True,callbacks=0,stateFilesRead=0)))
 finally:
     # This is the fixture's newly created server under its private TMUX_TMPDIR only.

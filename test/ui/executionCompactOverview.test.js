@@ -75,6 +75,16 @@ test('a starting task window stays in the queue and does not add a running job',
   assert.doesNotMatch(sandbox.html, />运行中<| · 运行 1/);
 });
 
+test('a six-job declaration with five available inputs cannot render five-of-five success or hide the missing input',()=>{
+  const sandbox=clickSandbox();
+  const jobs=Array.from({length:5},(_,index)=>({index,case:'a',seed:42+index,status:'completed',completionState:'verified'}));
+  sandbox.render({distributedPlans:[{id:'six',planFile:'plans/six.yaml',planJobCount:6,jobs}]});
+  assert.match(sandbox.html,/当前 job · 成功 5\/6/);
+  assert.match(sandbox.html,/缺少 1 个 job 的任务输入/);
+  assert.match(sandbox.html,/data-execution-plan-select="plans\/six.yaml"/);
+  assert.doesNotMatch(sandbox.html,/当前 job · 成功 5\/5/);
+});
+
 function extract(startName, endName) {
   const start = panel.indexOf(`function ${startName}(`);
   const end = panel.indexOf(`function ${endName}(`, start + 1);

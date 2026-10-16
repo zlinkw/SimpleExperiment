@@ -69,9 +69,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.342"
-RUNTIME_VERSION = "0.5.342"
-PLUGIN_VERSION = "0.5.342"
+AGENT_VERSION = "0.5.343"
+RUNTIME_VERSION = "0.5.343"
+PLUGIN_VERSION = "0.5.343"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -18018,8 +18018,9 @@ TASK_LIFECYCLE_PROTOCOL = 2
 NATIVE_TASK_RUNNER_CONTEXT = None
 TASK_SCHEDULER_UPDATE_ERROR = ""
 
-def task_tmux(args, timeout=5):
-    proc = subprocess.run(["tmux", *args], capture_output=True, text=True, timeout=timeout)
+def task_tmux(args, timeout=5, input_text=None):
+    proc = subprocess.run(["tmux", *args], capture_output=True, text=True, timeout=timeout,
+                          **({"input": input_text} if input_text is not None else {}))
     if proc.returncode:
         low = (proc.stderr or "").lower()
         absent = "no server running" in low or "no sessions" in low or "error connecting" in low and any(text in low for text in ("no such file or directory", "connection refused"))
@@ -18031,7 +18032,13 @@ def task_tmux(args, timeout=5):
 def task_option(target, key, value=None):
     if value is None:
         return task_tmux(["display-message", "-p", "-t", target, "#{@se_" + key + "}"])
-    task_tmux(["set-option", "-w", "-t", target, "@se_" + key, str(value)])
+    command = ["set-option", "-w", "-t", target, "@se_" + key, str(value)]
+    if key == "job" and re.fullmatch(r"[A-Za-z0-9_=-]+", str(value)) and sum(len(part.encode("utf-8")) + 1 for part in command) > 4096:
+        # The tmux client command packet is bounded. Stream one quoted command
+        # through stdin; the option remains atomic and no state file is created.
+        task_tmux(["source-file", "-"], input_text=shlex.join(command) + "\n")
+    else:
+        task_tmux(command)
 
 def task_safe_path(root, relative):
     value = str(relative or "").replace("\\", "/")
@@ -18568,7 +18575,15 @@ def task_queue_accept(root, worker_id, command, window, prepared=None):
                       "-P", "-F", "#{pane_id}", "--", "sh", "-c", "exec " + shlex.join(runner)])
     job["pane"] = pane
     task_tmux(["set-option", "-w", "-t", pane, "remain-on-exit", "on"])
-    task_option(pane, "job", base64.urlsafe_b64encode(json.dumps(job, ensure_ascii=False).encode("utf-8")).decode("ascii"))
+    core = {key: value for key, value in job.items() if key not in ("codeManifest", "executionSource", "options", "distributedResults")}
+    task_option(pane, "phase", "binding")
+    task_option(pane, "job", base64.urlsafe_b64encode(json.dumps(core, ensure_ascii=False).encode("utf-8")).decode("ascii"))
+    try:
+        task_option(pane, "job", base64.urlsafe_b64encode(json.dumps(job, ensure_ascii=False).encode("utf-8")).decode("ascii"))
+    except Exception as exc:
+        task_option(pane, "error", "TASK_WINDOW_BINDING_FAILED: " + str(exc)[:1000])
+        task_option(pane, "phase", "rejected")
+        raise
     task_option(pane, "phase", "queued")
     for key, value in (("@simple_experiment_command", job["commandId"]), ("@simple_experiment_project", job["projectId"])):
         task_tmux(["set-option", "-w", "-t", pane, key, value])
@@ -18754,6 +18769,10 @@ def task_runner(root, worker_id):
     while not task_option(pane, "job"):
         if time.monotonic() > deadline:
             raise RuntimeError("TASK_WINDOW_BINDING_MISSING")
+        time.sleep(0.05)
+    while task_option(pane, "phase") in ("", "binding"):
+        if time.monotonic() > deadline:
+            raise RuntimeError("TASK_WINDOW_BINDING_INCOMPLETE")
         time.sleep(0.05)
     job = json.loads(base64.urlsafe_b64decode(task_option(pane, "job")).decode("utf-8"))
     if job.get("root") != os.path.realpath(root) or job.get("workerId") != worker_id or job.get("pane") != pane:
