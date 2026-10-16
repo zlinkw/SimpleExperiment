@@ -19,3 +19,11 @@ PLAN 列表和前端回退逻辑新增“待核实”，不再把查询未知混
 最终 npm run package 完成 120 个串行测试文件，822 项通过、0 失败；包含真实原生 tmux、异常退出链路、内存汇总及本次回归。大日志夹具按有界字节游标持续核实，保留早期异常、不提前判无异常；夹具轮询有明确上限。跨工作区迟到结果不能发布，等待结果不刷新旧执行证据的接收时间。三个实际渲染脚本和编译模块 vm.Script、253 个模块运行闭包、秘密排除及 8 个 Python AST 验证通过，无禁止固定端口。
 
 确定包 simple-experiment-0.5.356.vsix 为 3,023,103 字节，523 条 ZIP 记录；373 个 dist 文件与本机构建逐字节一致。SHA256 为 04515faa0664bc7f0e2de0c2d2fc6e78e3bb8fa699526b979f2367fa738d323e，同名 .vsix.sha256 绑定精确文件名。包内为验证补记前的本文，补记不更换已经验证的安装包。
+
+## 实际交付
+
+源码提交 a77bf5358203aae7fe566f8eaee1feb553fc0ff9 已普通推送 origin/master，fetch 确认一致。真实稳定 Latest 为 https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.356，tag 与 target_commitish 均绑定该源码提交，draft=false、prerelease=false，资产大小、GitHub digest、98 字节的逐包校验清单与上述确定包一致。
+
+已安装旧版 0.5.355 的实际 ReleaseClient 从公开 Latest 识别更新，实际下载新 Experiment 与现有 SimpleSFTP 0.2.91 两个包及校验清单，身份、平台、版本、文件名、大小、SHA256、GitHub digest 及本机包逐字节一致。隔离验证目录 C:/Users/ZLK/AppData/Local/Temp/simpleex-0356-release-verify-OBTgCe。复用的 SFTP 包仍为 169,109 字节，SHA256 e483156ad117fd8c3aaeb81d01fc0285ad6ce7c698827b589ad16596a9ea453e，未改动或重复安装。
+
+本机仅执行一次 npm run install:latest，已安装 SimpleExperiment 0.5.356；373 个安装 dist 文件与 VSIX 一致，simpleex --help 正常。随后停止访问当前面板/API，等待用户 Developer: Reload Window 及原入口更新 Agent/Scheduler；现场任务状态是否恢复完成、实际 H20 查询速度和 UI 仍待该步骤验收。没有自动部署远端，没有停止、重发或重跑任务，没有更改科研项目、环境及产物。
