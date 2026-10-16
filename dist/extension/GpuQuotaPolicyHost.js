@@ -10,6 +10,8 @@ async function syncGpuQuotaPolicies(h, root) {
             return;
         const configured = h.enabledWorkerConfigs().find((row) => row.id === worker.id);
         const policy = (0, GpuQuotaScheduling_1.quotaSettings)(h.schedulerSettings(), configured, h.lastRealtimeState?.gpu?.[worker.id] || []);
+        if (policy.gpuCardOverrides && h.lastWorkerProbes?.[worker.id]?.capabilities?.endpoints?.gpuCardQuotaScheduling !== 1)
+            return;
         const key = JSON.stringify([root, worker.id, worker.project_dir]);
         const signature = JSON.stringify(policy);
         const prior = entries.get(key);

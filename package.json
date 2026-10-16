@@ -2,7 +2,7 @@
   "name": "simple-experiment",
   "displayName": "SimpleExperiment",
   "description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
-  "version": "0.5.352",
+  "version": "0.5.353",
   "publisher": "simple-local",
   "extensionKind": [
     "ui"
@@ -661,6 +661,31 @@
                 "minimum": 0,
                 "maximum": 1024,
                 "description": "该卡可派发最低总剩余显存 GiB，未设置跟随全局 22。"
+              },
+              "gpuCardOverrides": {
+                "type": "object",
+                "description": "按实际 GPU 编号逐卡覆盖；留空继承服务器默认值。单卡 job 配额 0 暂停后续派发。",
+                "patternProperties": {
+                  "^(0|[1-9][0-9]*)$": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "properties": {
+                      "gpuJobsPerCard": {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 1024,
+                        "description": "该卡最大并行 job 数；0 暂停后续派发。"
+                      },
+                      "gpuMinFreeMemoryGb": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1024,
+                        "description": "该卡可派发最低总剩余显存 GiB。"
+                      }
+                    }
+                  }
+                },
+                "additionalProperties": false
               }
             }
           },

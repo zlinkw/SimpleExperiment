@@ -24,7 +24,18 @@ else:
     raise AssertionError("unknown manual GPU was left silently queued")
 assert choose(row, [dict(gpus[0], memoryUsedMb=118*1024)], {}) == "0"
 assert choose(row, [dict(gpus[0], memoryTotalMb=None)], {}) is None
-for invalid in [dict(gpuJobsPerCard=0), dict(gpuJobsPerCard=2.5), dict(gpuMinFreeMemoryGb=-1)]:
+per_card = dict(row, options={**row["options"], "gpuCardOverrides": {
+    "0": {"gpuJobsPerCard": 2, "gpuMinFreeMemoryGb": 35},
+    "1": {"gpuJobsPerCard": 3, "gpuMinFreeMemoryGb": 22},
+    "2": {"gpuJobsPerCard": 0}, "9": {"gpuJobsPerCard": 100}}})
+assert choose(per_card, gpus, {}) == "1", "card 0 must use its own 35 GiB gate"
+assert choose(per_card, gpus, {"1": 3}) is None, "card 2 disabled, absent card 9 ignored"
+assert choose(dict(per_card, dispatchPolicy="manual"), gpus, {}) is None
+assert choose(dict(per_card, dispatchPolicy="manual", gpuId="1"), gpus, {"1": 2}) == "1"
+assert ns["task_gpu_quota_policy"](per_card["options"], [])["gpuCardOverrides"]["2"]["gpuJobsPerCard"] == 0
+for invalid in [dict(gpuJobsPerCard=0), dict(gpuJobsPerCard=2.5), dict(gpuMinFreeMemoryGb=-1),
+                dict(gpuCardOverrides={"0": {"gpuJobsPerCard": 1.5}}), dict(gpuCardOverrides={"../0": {}}),
+                dict(gpuCardOverrides={"0": {"gpuMinFreeMemoryGb": -1}})]:
     try:
         ns["task_gpu_quota_policy"]({**row["options"], **invalid}, [])
     except ValueError:
@@ -48,8 +59,9 @@ class Request:
     def __init__(self, payload): self.payload = payload
     def read_request_body(self, route): return json.dumps(self.payload).encode("utf-8")
     def send_json(self, value, status=200): return value, status
-value, status = ns["handle"](Request(dict(workerId="w", gpuJobsPerCard=6, gpuMinFreeMemoryGb=22)))
+value, status = ns["handle"](Request(dict(workerId="w", **per_card["options"])))
 assert status == 200 and value["ok"] and calls[0][0:2] == ("w", "configure") and calls[0][3] is False
+assert calls[0][2]["gpuCardOverrides"]["1"]["gpuJobsPerCard"] == 3
 value, status = ns["handle"](Request(dict(workerId="w", gpuJobsPerCard=0)))
 assert status == 400 and len(calls) == 1
 print(json.dumps({"ok": True, "quota": 6, "minimumFreeGb": 22}))

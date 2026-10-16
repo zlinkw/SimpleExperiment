@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.352",
-  "buildId": "dcf9ca328c90812e4f4ace0dea8ab5c5eb20c3a2ed352c7a0140cf1809848eb3",
+  "version": "0.5.353",
+  "buildId": "df498e8772a5875b5763663730ac16985be7aff21ea21cf9295a902ce2a7628e",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -189,7 +189,7 @@
     },
     {
       "path": "dist/extension/GpuQuotaPolicyHost.js",
-      "sha256": "faec7bf29c39729f1dcfe638885f00ca9f3803318a34677bdc28a1cf0b2cec00"
+      "sha256": "1c4fbdfc2ced591f75e44ed8990a4ad2d00c7ebff03a524b10640dcadf9bfa61"
     },
     {
       "path": "dist/extension/GpuTmuxClose.js",
@@ -197,7 +197,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "c31755f948c68a02395c2cde5139d98e9b588e9266f2a6a5baeaaeeceaeb7b2d"
+      "sha256": "1f38d8167454f4785e4646966d180c72dd66715172aeb54cd6fd85a8ab86c4e3"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -353,7 +353,7 @@
     },
     {
       "path": "dist/features/GpuQuotaScheduling.js",
-      "sha256": "a292fdb00e8bedb4bf566113483d490b016b34df9c11a49cea02108664191919"
+      "sha256": "6a05cc193112f4ff85e38975d3bbb0d32abc999808708fb18fa2842293749d4b"
     },
     {
       "path": "dist/features/JobAvailability.js",
@@ -657,7 +657,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "d5bdb73b49e36b482779695122cc38a520b0a93371e4ec0096f781b559a4ef4f"
+      "sha256": "bf7348cf2e122bff64b5cc167b76a2beace9203b90fa3071155acc3514aef905"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -881,7 +881,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "1b067273fcb454a3dac11a881688ef485bb030a74dfb27fb5ace30440f3307c7"
+      "sha256": "95d0bfd548a4be1e7007928452f05630250199eee789dd76476fe4065a43d147"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",
@@ -1005,7 +1005,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "577d083f724802bad8c5df96f0c9a2ce31d47f04d4277a5f02d4dcb67361a76f"
+      "sha256": "b7a4b703071b11b7b9bbea83d3890a7c3bc07742518e37e1f2e618db247b075a"
     },
     {
       "path": "scripts/check-static.js",

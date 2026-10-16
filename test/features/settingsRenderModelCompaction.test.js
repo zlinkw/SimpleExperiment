@@ -69,6 +69,8 @@ test("settings model changes for topology scheduler and result directory updates
   assert.notEqual(JSON.stringify(model), JSON.stringify(plain(sandbox.model({ ...base, resultOutputConfig: { csvDirectory: "results/final" } }))));
   for (const change of [
     { schedulerConfig: { dispatchMode: "server_prequeue" } },
+    { schedulerConfig: { gpuJobsPerCard: 6, gpuMinFreeMemoryGb: 22 } },
+    { gpuMemorySchedulingPreview: { workers: { w: { cards: [{ gpuId: '1', jobs: 3, minimumFreeGb: 30 }] } } } },
     { remoteRootPolicy: { allowedRoots: ["/srv/projects"] } },
     { pluginUpdate: { status: "update_available" } },
     { resultOutputConfig: { adapterRules: { primaryMetric: "F1" } } },

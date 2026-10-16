@@ -4984,7 +4984,7 @@ export function renderPanelHtml(): string {
 
     function sectionDependencyKey(data, section) {
       if (section === "servers") return refListKey(data.topology, data.schedulerConfig, data.setup, data.agentSessions, data.xshellSessions, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetry, data.workerTelemetryStatus, data.capabilities, data.realtimeDiagnostics, data.remotePathConfirmations, data.pptPathConfirmations);
-      if (section === "settings") return refListKey(data.topology, data.schedulerConfig, data.setup, data.agentSessions, data.xshellSessions, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetryStatus, data.remotePathConfirmations, data.pptPathConfirmations, data.resultOutputConfig, data.detectedProject, data.remoteRootPolicy, data.pluginUpdate);
+      if (section === "settings") return refListKey(data.topology, data.schedulerConfig, data.setup, data.gpuMemorySchedulingPreview, data.agentSessions, data.xshellSessions, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetryStatus, data.remotePathConfirmations, data.pptPathConfirmations, data.resultOutputConfig, data.detectedProject, data.remoteRootPolicy, data.pluginUpdate);
       if (section === "plans") return refListKey(data.planFileInput, data.selection, data.selectedPlan, data.plans, data.localPlans, data.detectedProject, data.planStatusSummaries, data.projectConfig, data.adapterRules, data.integrations, data.setup, data.agentSessions, data.health, data.probe, data.workerProbes, data.codeSync, data.operations, data.resultsSummary, data.schedulerStates, data.capabilities, data.extensionVersion);
       if (section === "results") return refListKey(data.planFileInput, data.plans, data.resultsSummary, data.operations, data.schedulerStates, data.experimentTraces, data.selection, data.planArchive, data.pptPlotConfig, data.pptAutomation, data.resultOutputConfig?.tables, data.resultOutputConfig?.catalog);
       if (section === "sync") return refListKey(data.topology, data.schedulerConfig, data.codeSync, data.capabilities, data.setup, data.agentSessions, data.xshellSessions, data.endpointRegistry, data.tunnelPortAssignments, data.tunnelPortConflicts, data.health, data.probe, data.workerProbes, data.workerTelemetry, data.workerTelemetryStatus, data.realtimeDiagnostics);
@@ -5266,7 +5266,8 @@ export function renderPanelHtml(): string {
       return {
         revision: data.sectionRevisions && data.sectionRevisions.settings,
         topology: compactSettingsTopologyForSignature(data.topology),
-        schedulerConfig: compactRecordForSignature(data.schedulerConfig || {}, ["dispatchMode", "pollSeconds", "jitterSeconds", "workerStatusTtlSeconds", "localAvailabilityPushSeconds", "workerAvailabilityPushSeconds", "operationEventMaxDelayMs", "workerActionMinIntervalMs", "workerActionMaxConcurrent"]),
+        schedulerConfig: compactRecordForSignature(data.schedulerConfig || {}, ["dispatchMode", "gpuJobsPerCard", "gpuMinFreeMemoryGb", "pollSeconds", "jitterSeconds", "workerStatusTtlSeconds", "localAvailabilityPushSeconds", "workerAvailabilityPushSeconds", "operationEventMaxDelayMs", "workerActionMinIntervalMs", "workerActionMaxConcurrent"]),
+        gpuQuotaPreview: compactObjectMapForSignature((data.gpuMemorySchedulingPreview || {}).workers, SECTION_SIGNATURE_ROW_LIMIT, ["gpuJobsPerCard", "gpuMinFreeMemoryGb", "gpuCardOverrides", "cards"]),
         setup: compactSetupForSignature(data.setup),
         agentDestinations: compactAgentDestinationsForSignature(data.agentSessions),
         xshellSessions: compactXshellSessionsForSignature(data.xshellSessions),
@@ -5505,7 +5506,7 @@ export function renderPanelHtml(): string {
         localForwardPort: item.localForwardPort,
         remoteAgentPort: item.remoteAgentPort,
         hub: compactRecordForSignature(item.hub || {}, ["enabled", "displayName", "host", "workerHost", "localForwardPort", "remoteForwardPort", "agentProjectDir", "savedSessionPath"]),
-        workers: compactRowsForSignature(item.workerTunnels || item.workers, SECTION_SIGNATURE_ROW_LIMIT, ["id", "enabled", "displayName", "host", "workerHost", "hubHost", "transferHost", "workerUser", "hubUser", "condaEnv", "sshConfigAlias", "localForwardPort", "remoteForwardPort", "remoteAgentPort", "remoteTelemetryPort", "agentProjectDir", "savedSessionPath", "savedSessionForwardIndex", "maxConcurrentGpus", "allowedGpuIds", "gpuJobsPerCard", "gpuMinFreeMemoryGb"])
+        workers: compactRowsForSignature(item.workerTunnels || item.workers, SECTION_SIGNATURE_ROW_LIMIT, ["id", "enabled", "displayName", "host", "workerHost", "hubHost", "transferHost", "workerUser", "hubUser", "condaEnv", "sshConfigAlias", "localForwardPort", "remoteForwardPort", "remoteAgentPort", "remoteTelemetryPort", "agentProjectDir", "savedSessionPath", "savedSessionForwardIndex", "maxConcurrentGpus", "allowedGpuIds", "gpuJobsPerCard", "gpuMinFreeMemoryGb", "gpuCardOverrides"])
       };
     }
 
@@ -9142,7 +9143,19 @@ export function renderPanelHtml(): string {
       const memoryPreview = state.gpuMemorySchedulingPreview || {};
       const memoryDescription = (preview) => {
         const cards = preview && preview.cards || [];
-        return cards.length ? cards.map(card => "GPU " + esc(card.gpuId) + "：最多 " + esc(card.jobs) + " 个 job，剩余 " + esc(Number(card.freeGb || 0).toFixed(1)) + " GiB").join("；") : "连接服务器后显示实际卡数。";
+        return cards.length ? cards.map(card => "GPU " + esc(card.gpuId) + "：最多 " + esc(card.jobs) + " 个 job，门槛 " + esc(card.minimumFreeGb ?? preview.gpuMinFreeMemoryGb ?? 22) + " GiB，当前剩余 " + esc(card.freeGb === undefined ? "未知" : Number(card.freeGb).toFixed(1) + " GiB")).join("；") : "连接服务器后显示实际卡数。";
+      };
+      const cardQuotaInputs = (worker, preview, scope) => {
+        const configured = worker.gpuCardOverrides || {};
+        const observed = new Map((preview.cards || []).map(card => [String(card.gpuId), card]));
+        const ids = [...new Set([...observed.keys(), ...Object.keys(configured)])].sort((a, b) => Number(a) - Number(b));
+        return '<div class="wide" style="grid-column:1 / -1"><b>逐卡配置</b><div class="muted">留空使用服务器默认值；并行数填 0 暂停该卡后续派发。最低余量是整张卡的总剩余显存。</div>' +
+          (ids.length ? ids.map(id => {
+            const card = observed.get(id), values = configured[id] || {};
+            return '<div class="server-card"><b>GPU ' + esc(id) + '</b><span class="muted"> · ' + (card ? '当前剩余 ' + esc(card.freeGb === undefined ? "未知" : Number(card.freeGb).toFixed(1) + " GiB") : '当前未检测到，保留配置') + '</span><div class="configGrid">' +
+              configInput(scope, "gpuCardOverrides." + id + ".gpuJobsPerCard", "最大并行 job 数（默认 " + String(preview.gpuJobsPerCard ?? scheduler.gpuJobsPerCard ?? 1) + "）", values.gpuJobsPerCard ?? "", "number") +
+              configInput(scope, "gpuCardOverrides." + id + ".gpuMinFreeMemoryGb", "可派发最低总剩余显存 GiB（默认 " + String(preview.gpuMinFreeMemoryGb ?? scheduler.gpuMinFreeMemoryGb ?? 22) + "）", values.gpuMinFreeMemoryGb ?? "", "number") + '</div></div>';
+          }).join("") : '<div class="muted">连接并刷新后，按实际 GPU 编号逐卡设置。</div>') + '</div>';
       };
       const agent = state.agentSessions || {};
       const indexes = serverStatusIndexesForState(state);
@@ -9221,9 +9234,10 @@ export function renderPanelHtml(): string {
             configInput(scope, "workerUser", "登录用户", worker.workerUser || worker.hubUser || "") +
             configInput(scope, "condaEnv", "Conda 环境绝对路径（可选，必填完整路径）", worker.condaEnv === undefined ? (setup.condaEnv || "") : worker.condaEnv) +
             configInput(scope, "agentProjectDir", "项目父目录", worker.agentProjectDir || "", "text", "wide") +
-            configInput(scope, "gpuJobsPerCard", "每卡最大并行 job 数（留空跟随全局）", worker.gpuJobsPerCard ?? (worker.gpuQuotaConfigured ? "" : workerMemory.gpuJobsPerCard ?? ""), "number") +
-            configInput(scope, "gpuMinFreeMemoryGb", "可派发最低总剩余显存 GiB（留空跟随全局）", worker.gpuMinFreeMemoryGb ?? "", "number") +
-            '<div class="muted gpuMemorySummary">自动识别全部显卡；总余量门槛为 ' + esc(workerMemory.gpuMinFreeMemoryGb ?? scheduler.gpuMinFreeMemoryGb ?? 22) + ' GiB。' + memoryDescription(workerMemory) + '</div>' +
+            configInput(scope, "gpuJobsPerCard", "服务器默认并行 job 数（留空跟随全局）", worker.gpuJobsPerCard ?? (worker.gpuQuotaConfigured ? "" : workerMemory.gpuJobsPerCard ?? ""), "number") +
+            configInput(scope, "gpuMinFreeMemoryGb", "服务器默认最低总剩余显存 GiB（留空跟随全局）", worker.gpuMinFreeMemoryGb ?? "", "number") +
+            '<div class="muted gpuMemorySummary">自动识别全部显卡。' + memoryDescription(workerMemory) + '</div>' +
+            cardQuotaInputs(worker, workerMemory, scope) +
             '<details class="wide" data-details-key="' + escAttr("worker-advanced-" + worker.id) + '"' + detailsOpenAttr("worker-advanced-" + worker.id, false) + ' style="grid-column:1 / -1"><summary>连接状态刷新</summary><div class="configGrid">' +
             '<div class="thresholdRow" title="' + escAttr(configHelp(scope, "sessionCheckMinSeconds")) + '"><div class="label">会话检测最小间隔 秒' + helpBadge(configHelp(scope, "sessionCheckMinSeconds")) + '</div><div class="value"><input data-config-key="' + escAttr(scope + '.sessionCheckMinSeconds') + '" data-endpoint-id="' + escAttr(worker.id) + '" value="' + escAttr(worker.sessionCheckMinSeconds ?? "") + '" placeholder="默认 5" type="number" min="1" max="60" style="width:100%; min-width:120px; box-sizing:border-box;" title="' + escAttr(configHelp(scope, "sessionCheckMinSeconds")) + '" /></div></div>' +
             '</div></details>' +
@@ -9778,6 +9792,10 @@ export function renderPanelHtml(): string {
     }
 
     function configInputBounds(scope, key) {
+      if (String(key).startsWith("gpuCardOverrides.")) {
+        const field = String(key).split(".").pop();
+        return field === "gpuJobsPerCard" ? { min: 0, max: 1024, step: 1 } : CONFIG_SCHEDULER_BOUNDS[field] || EMPTY_CONFIG_INPUT_BOUNDS;
+      }
       if (String(key).indexOf("gpu") === 0) return CONFIG_SCHEDULER_BOUNDS[key] || EMPTY_CONFIG_INPUT_BOUNDS;
       if (CONFIG_PORT_KEYS?.has(key)) return CONFIG_PORT_BOUNDS;
       if (key === "maxConcurrentGpus") return CONFIG_GPU_CONCURRENCY_BOUNDS;
@@ -9852,6 +9870,9 @@ export function renderPanelHtml(): string {
     }
 
     function configHelp(scope, key) {
+      if (String(key).startsWith("gpuCardOverrides.")) return String(key).endsWith(".gpuJobsPerCard")
+        ? "仅覆盖这张卡的最大并行 job 数；0 暂停后续派发，留空继承服务器默认值，不停止当前任务。"
+        : "仅覆盖这张卡可继续派发所需的总剩余显存 GiB；留空继承服务器默认值。";
       const topologyHelp = {
         mode: "选择调度架构：单 Worker 由一台执行服务器运行；仅多 Worker 由多台执行服务器运行；Hub 可用时由 Hub 统一调度。切换后需保存。"
       };

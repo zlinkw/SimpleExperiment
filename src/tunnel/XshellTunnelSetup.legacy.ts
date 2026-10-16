@@ -57,6 +57,7 @@ export interface XshellWorkerTunnelConfig {
   gpuMemoryTolerancePercent?: number;
   gpuJobsPerCard?: number;
   gpuMinFreeMemoryGb?: number;
+  gpuCardOverrides?: import("../features/GpuQuotaScheduling").GpuCardOverrides;
   gpuQuotaConfigured?: boolean;
   sessionCheckMinSeconds?: number;
   workerStatusTtlSeconds?: number;

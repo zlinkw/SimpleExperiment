@@ -88,10 +88,16 @@ test('the rendered settings form restores global values, explicit Worker overrid
   renderServerDestinationPreview:()=>'',renderSchedulerDependencyStatus:()=>'',renderSchedulerGlossary:()=>'',
   renderXshellSessionBudgetNote:()=>'',renderServerChainOverview:()=>'',setHtmlIfChanged:(id,value)=>output.set(id,value)};
  vm.runInNewContext(renderer+';renderServerCardsV2(state);',{...context,state:{schedulerConfig:{gpuJobsPerCard:2,gpuMinFreeMemoryGb:22,gpuMemoryRatioEnabled:false,gpuMemoryPerJobGb:12,gpuMemoryMaxJobsPerGpu:0,gpuMemoryReserveGb:2,gpuMemoryTolerancePercent:0},
-  setup:{workerTunnels:[{id:'h20',gpuJobsPerCard:6,gpuMinFreeMemoryGb:24,gpuMemoryRatioEnabled:true,gpuMemoryPerJobGb:24,gpuMemoryMaxJobsPerGpu:0,gpuMemoryReserveGb:0,gpuMemoryTolerancePercent:0},{id:'inherit'}]}}});
+  gpuMemorySchedulingPreview:{workers:{h20:{gpuJobsPerCard:6,gpuMinFreeMemoryGb:24,cards:[{gpuId:'0',freeGb:34,jobs:2,minimumFreeGb:30},{gpuId:'1',freeGb:40,jobs:6,minimumFreeGb:24}]}}},
+  setup:{workerTunnels:[{id:'h20',gpuJobsPerCard:6,gpuMinFreeMemoryGb:24,gpuCardOverrides:{'0':{gpuJobsPerCard:2,gpuMinFreeMemoryGb:30},'7':{gpuJobsPerCard:0}},gpuMemoryRatioEnabled:true,gpuMemoryPerJobGb:24,gpuMemoryMaxJobsPerGpu:0,gpuMemoryReserveGb:0,gpuMemoryTolerancePercent:0},{id:'inherit'}]}}});
  assert.equal(fields.get('scheduler.gpuJobsPerCard'),2);assert.equal(fields.get('scheduler.gpuMinFreeMemoryGb'),22);
  assert.equal(fields.get('worker:h20.gpuJobsPerCard'),6);assert.equal(fields.get('worker:h20.gpuMinFreeMemoryGb'),24);
  assert.equal(fields.get('worker:inherit.gpuJobsPerCard'),'');assert.equal(fields.get('worker:inherit.gpuMinFreeMemoryGb'),'');
+ assert.equal(fields.get('worker:h20.gpuCardOverrides.0.gpuJobsPerCard'),2);
+ assert.equal(fields.get('worker:h20.gpuCardOverrides.0.gpuMinFreeMemoryGb'),30);
+ assert.equal(fields.get('worker:h20.gpuCardOverrides.1.gpuJobsPerCard'),'');
+ assert.equal(fields.get('worker:h20.gpuCardOverrides.7.gpuJobsPerCard'),0);
+ assert.match(output.get('serverSettingsCards'),/当前未检测到，保留配置/);
  assert.equal(fields.has('scheduler.gpuMemoryPerJobGb'),false);assert.equal(fields.has('worker:h20.gpuIdleUtilThreshold'),false);
  assert.match(output.get('serverSettingsCards'),/保存策略/);assert.match(output.get('serverSettingsCards'),/保存服务器/);
 });

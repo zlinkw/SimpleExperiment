@@ -8,6 +8,15 @@ try:
     probe.write_text(original, encoding='utf-8')
     script = program.read_text(encoding='utf-8').replace('return ([{"id":"0"},{"id":"1"}], "")',
         'return ([{"id":"0","index":"0","memoryTotalMb":143771,"memoryUsedMb":0}], "")')
+    observer = '''
+_fixture_admit = task_admission_gpu
+def task_admission_gpu(row, gpus, occupied):
+    chosen = _fixture_admit(row, gpus, occupied)
+    if row.get("commandId") == "command-8":
+        pathlib.Path(os.environ["TMUX_TMPDIR"], "last-admission").write_text(json.dumps({"chosen": chosen, "occupied": occupied, "options": row.get("options")}), encoding="utf-8")
+    return chosen
+'''
+    script = script.replace('if __name__=="__main__":', observer + '\nif __name__=="__main__":')
     program.write_text(script, encoding='utf-8')
     namespace['RUNTIME_VERSION'] = 'fixture'
     os.environ['SIMPLE_EXPERIMENT_WORKER_ID'] = 'worker'
@@ -46,7 +55,16 @@ try:
     wait_for(lambda: pathlib.Path(root, 'started-command-1').is_file())
     pathlib.Path(root, 'release-command-1').touch()
     wait_for(lambda: all(r['dead'] for r in namespace['task_inventory'](root)))
-    settings = dict(gpuQuotaScheduling=1, gpuJobsPerCard=6, gpuMinFreeMemoryGb=22)
+    settings = dict(gpuQuotaScheduling=1, gpuJobsPerCard=1, gpuMinFreeMemoryGb=100,
+                    gpuCardOverrides={"0": {"gpuJobsPerCard": 6, "gpuMinFreeMemoryGb": 22}})
+    current_endpoint = namespace['task_queue_endpoint'](root, 'worker')
+    namespace['task_option'](control, 'endpoint', json.dumps({k: v for k, v in current_endpoint.items() if k != 'gpuCardQuotaScheduling'}))
+    try:
+        namespace['task_queue_rpc'](root, 'worker', 'configure', settings)
+        raise AssertionError('old Scheduler must not silently ignore per-card settings')
+    except RuntimeError as failure:
+        assert 'SCHEDULER_UPDATE_REQUIRED' in str(failure)
+    namespace['task_option'](control, 'endpoint', json.dumps(current_endpoint))
     for i in range(2, 9):
         namespace['task_queue_rpc'](root, 'worker', 'accept', dict(job(i), maxConcurrentGpus=1, options=settings), ensure=True)
     wait_for(lambda: len([r for r in namespace['task_inventory'](root) if r['phase'] == 'running' and not r['dead']]) == 6)
@@ -54,6 +72,22 @@ try:
     rows = namespace['task_inventory'](root)
     assert sum(r['phase'] == 'queued' for r in rows) == 1
     assert {json.loads(pathlib.Path(root, 'started-command-' + str(i)).read_text())['gpu'] for i in range(2, 8)} == {'0'}
+    identities = {r['commandId']: r['tmuxWindowId'] for r in rows}
+    namespace['task_queue_rpc'](root, 'worker', 'configure', {**settings,
+        'gpuCardOverrides': {'0': {'gpuJobsPerCard': 0, 'gpuMinFreeMemoryGb': 22}}})
+    assert identities == {r['commandId']: r['tmuxWindowId'] for r in namespace['task_inventory'](root)}
+    assert sum(not r['dead'] and r['phase'] == 'running' for r in namespace['task_inventory'](root)) == 6
+    namespace['task_queue_rpc'](root, 'worker', 'configure', dict(gpuJobsPerCard=1, gpuMinFreeMemoryGb=22))
+    for i in range(2, 7):
+        pathlib.Path(root, 'release-command-' + str(i)).touch()
+    wait_for(lambda: sum(not r['dead'] and r['phase'] == 'running' for r in namespace['task_inventory'](root)) == 1)
+    def cleared_policy_observed():
+        observed = json.loads(pathlib.Path(root, 'last-admission').read_text(encoding='utf-8'))
+        return observed['options'].get('gpuCardOverrides') == {} and observed['options']['gpuJobsPerCard'] == 1 and observed['occupied'].get('0') == 1 and observed['chosen'] is None
+    wait_for(cleared_policy_observed)
+    assert next(r for r in namespace['task_inventory'](root) if r['commandId'] == 'command-8')['phase'] == 'queued', 'cleared per-card override must not leak from original job options'
+    namespace['task_queue_rpc'](root, 'worker', 'configure', settings)
+    wait_for(lambda: pathlib.Path(root, 'started-command-8').is_file())
     for i in range(2, 9):
         pathlib.Path(root, 'release-command-' + str(i)).touch()
     namespace['task_tmux'](['kill-window', '-t', report['windowId']])

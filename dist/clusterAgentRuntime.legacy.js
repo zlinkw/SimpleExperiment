@@ -6767,6 +6767,7 @@ def api_capabilities(root, token_required=False, mode="worker_telemetry"):
                 "manualDispatch": 1,
                 "gpuMemoryRatioScheduling": 1,
                 "gpuQuotaScheduling": 1,
+                "gpuCardQuotaScheduling": 1,
                 "schedulerRuntimeUpdate": 1,
                 "queuedJobRecall": True,
                 "liveOutput": True,
@@ -16480,7 +16481,7 @@ def serve_http(args):
                 if raw is None:
                     return
                 try:
-                    if len(raw) > 4096:
+                    if len(raw) > 65536:
                         raise ValueError("GPU_QUOTA_SETTINGS_INVALID")
                     policy = json.loads(raw.decode("utf-8"))
                     value = task_queue_rpc(root, policy["workerId"], "configure", task_gpu_quota_policy(policy, []), ensure=False)

@@ -50,3 +50,27 @@ test('overlapping quota saves are serialized and the newest configuration wins',
  const first=syncGpuQuotaPolicies(h,'root');await ready;limit=3;const second=syncGpuQuotaPolicies(h,'root');limit=6;const third=syncGpuQuotaPolicies(h,'root');
  release();await Promise.all([first,second,third]);assert.deepEqual(values,[6,6]);
 });
+test('different GPU overrides are independent, survive normalization, and clear back to server defaults',()=>{
+ const raw={gpuJobsPerCard:6,gpuMinFreeMemoryGb:22,gpuCardOverrides:{'0':{gpuJobsPerCard:2,gpuMinFreeMemoryGb:35},'1':{gpuJobsPerCard:3,gpuMinFreeMemoryGb:22},'2':{gpuJobsPerCard:0},'9':{gpuJobsPerCard:100}}};
+ const saved=Q.quotaOverrides(raw),cfg=Q.quotaSettings({},saved),rows=[gpu('0',140,106),gpu('1',140,118),gpu('2',140,100)];
+ assert.deepEqual(Q.quotaPlacement(rows,new Map([['1',1]]),cfg),{slots:['1','1'],limits:{'0':2,'1':3,'2':0},weight:5});
+ const cleared=Q.quotaOverrides({...raw,'gpuCardOverrides.0.gpuJobsPerCard':'','gpuCardOverrides.0.gpuMinFreeMemoryGb':''});
+ assert.equal(cleared.gpuCardOverrides['0'],undefined);assert.equal(cleared.gpuCardOverrides['9'].gpuJobsPerCard,100);
+ assert.equal(Q.cardSettings(Q.quotaSettings({},cleared),'0').gpuJobsPerCard,6);
+ assert.throws(()=>Q.quotaOverrides({...raw,'gpuCardOverrides.1.gpuJobsPerCard':1.5}),/GPU_CARD_SETTINGS_INVALID/);
+ const {normalizeXshellWorkerTunnelConfig}=require('../../src/tunnel/XshellTunnelSetup.legacy.ts');
+ assert.deepEqual(normalizeXshellWorkerTunnelConfig({...raw,id:'w'},0).gpuCardOverrides,saved.gpuCardOverrides);
+});
+test('policy update carries per-card settings and never silently sends them to a legacy Agent',async()=>{
+ const {syncGpuQuotaPolicies}=require('../../src/extension/GpuQuotaPolicyHost.ts');let calls=[];
+ const h={workerActionTargets:()=>[{id:'w'}],enabledWorkerConfigs:()=>[{id:'w',gpuCardOverrides:{'0':{gpuJobsPerCard:2},'1':{gpuMinFreeMemoryGb:30}}}],schedulerSettings:()=>({}),
+  lastWorkerProbes:{w:{capabilities:{endpoints:{gpuQuotaScheduling:1}}}},client:{postWorkerAction:async(_,action,body)=>calls.push(body)}};
+ await syncGpuQuotaPolicies(h,'root');assert.equal(calls.length,0);
+ h.lastWorkerProbes.w.capabilities.endpoints.gpuCardQuotaScheduling=1;
+ await syncGpuQuotaPolicies(h,'root');assert.deepEqual(calls[0].gpuCardOverrides,{'0':{gpuJobsPerCard:2},'1':{gpuMinFreeMemoryGb:30}});
+});
+test('actual automatic and manual Host submissions retain all independent card overrides',async()=>{
+ const cards={'0':{gpuJobsPerCard:2,gpuMinFreeMemoryGb:24},'1':{gpuJobsPerCard:5,gpuMinFreeMemoryGb:30}};
+ const messages=await require('../_helpers/manualLaunchMessage')({gpuJobsPerCard:6,gpuMinFreeMemoryGb:22},{gpuCardOverrides:cards});
+ for(const message of messages)assert.deepEqual(message.options.gpuCardOverrides,cards);
+});
