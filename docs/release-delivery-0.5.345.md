@@ -21,4 +21,14 @@
 
 目标 UI 34 项、运行日志 Host 9 项、旧正式任务恢复 5 项单文件测试通过。测试使用合成输入与隔离 Host，不启动科研任务或操作用户产物。
 
-完整打包与发行安装记录在交付后补记。实际点击验收等待用户重载窗口；不以合成链路通过冒充已经重跑用户任务。
+最终 `npm run package` 完成 116 次串行单文件执行，775 项通过、零失败，日志为临时目录 `simpleex-0.5.345-package.log`。TypeScript/build、额外 vm.Script 模块及 3 段实际渲染脚本、8 个 Python AST、运行闭包、ZIP、身份/版本/universal 平台、370 个 dist 文件逐字节比对和秘密排除均通过。包内本文为发行前快照，本次仅补记交付，不重建或替换包。
+
+## 已完成交付
+
+- 源码提交 `ff63f0488bea4465f78bede9d32386bf0abaf47d` 已普通快进推送 origin/master，并 fetch 确认一致。
+- 稳定 Release：<https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.345>。重新查询真实 Latest、tag 和绑定提交，确认 draft=false、prerelease=false。
+- `simple-experiment-0.5.345.vsix`：2,974,396 字节；SHA256 `d32cc4c30771a4b009d4e6a73e384bc8a7294386948b50bfae5e4e94787897c8`。逐包 `.vsix.sha256` 绑定精确文件名；公开资产大小、GitHub digest 和实际下载字节全部一致。
+- 使用已安装的 0.5.344 更新客户端，真实解析公开 Latest 为 update_available，下载 VSIX 与校验和，与本机已验证包逐字节一致。SimpleSFTP 0.2.90 公开配套包及指纹也核对一致，未重复安装；验证目录为临时目录 `simpleex-0345-release-verify-nKcuKc`。
+- 显式执行一次 `npm run install:latest` 安装 0.5.345，无 force、无降级。VS Code 已安装版本、370 个 dist 文件、包身份和 simpleex 入口核对通过。安装后停止访问当前插件面板与 API。
+
+本次只需用户 Developer: Reload Window，再验收原单 job 重跑按钮；没有新增远端协议要求，无需为此修复重新部署 Agent/Scheduler。未重跑、停止或删除现有任务和产物，未修改科研代码或环境。实际点击验收仍待用户重载，不以合成链路通过冒充已经重跑用户任务。
