@@ -69,9 +69,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.358"
-RUNTIME_VERSION = "0.5.358"
-PLUGIN_VERSION = "0.5.358"
+AGENT_VERSION = "0.5.359"
+RUNTIME_VERSION = "0.5.359"
+PLUGIN_VERSION = "0.5.359"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -16464,6 +16464,8 @@ def serve_http(args):
                 self._request_slots.release()
 
         def classify_request(self, method, route):
+            if route == "/api/worker/tasks/diagnostics":
+                return "read"  # Log I/O cannot occupy task-control/probe slots.
             if method == "GET" and route in (
                 "/api/health", "/health", "/api/version", "/version",
                 "/api/capabilities", "/api/openapi.json",
@@ -17153,6 +17155,17 @@ def serve_http(args):
                     return self.send_json({"ok": True, "policy": value})
                 except Exception as exc:
                     return self.send_json({"error": str(exc)}, status=400)
+            if route == "/api/worker/tasks/diagnostics":
+                raw = self.read_request_body(route)
+                if raw is None:
+                    return
+                try:
+                    if len(raw) > 1024 * 1024:
+                        raise ValueError("TASK_QUERY_LIMIT")
+                    payload = json.loads(raw.decode("utf-8"))
+                    return self.send_json(task_result_query(root, payload.get("queries") or [], diagnostics_only=True))
+                except Exception as exc:
+                    return self.send_json({"error": str(exc)}, status=400)
             if route == "/api/worker/tasks/query":
                 raw = self.read_request_body(route)
                 if raw is None:
@@ -17174,7 +17187,7 @@ def serve_http(args):
                         if payload.get("executionOnly") or payload.get("declarations") is not None or payload.get("discovery"):
                             raise ValueError("TASK_QUERY_SELECTION_INVALID")
                         if payload.get("observationOnly") is True:
-                            return self.send_json(task_result_query(root, payload.get("queries") or []))
+                            return self.send_json(task_result_query(root, payload.get("queries") or [], diagnostics_only=payload.get("diagnosticsOnly") is True))
                         return self.send_json(task_query(root, payload.get("queries") or [], selected_only=True))
                     value = task_collection_query(root, payload.get("declarations") or []) if collection else task_query(root, payload.get("queries") or [])
                     if payload.get("declarations") is not None and not collection:
@@ -17812,25 +17825,39 @@ def task_log_diagnostics(root, job, row=None, terminal=False, binding=None):
         signature = (before.st_dev, before.st_ino, hashlib.sha256(prefix).hexdigest())
         with lock:
             entry = cache.get(key)
-            if not entry or entry["signature"] != signature or before.st_size < entry["state"]["offset"] or entry["analysis"] != analysis or (entry.get("complete") and entry.get("mtimeNs") != before.st_mtime_ns):
-                state = task_log_new(command, log_path, legacy and not native)
-                state["legacy"] = legacy and not native
-                entry = {"state": state, "signature": signature, "analysis": analysis}
+            if entry is None:
+                entry = {"lock": threading.RLock(), "users": 0}
                 cache[key] = entry
-            state = entry["state"]
-            with open(full, "rb") as stream:
-                stream.seek(state["offset"])
-                # Keep one observation bounded. Large early logs continue at
-                # their in-memory byte cursor without blocking sibling jobs.
-                data = stream.read(256 * 1024)
-            after = os.stat(full)
-            complete = after.st_size == state["offset"] + len(data) and before.st_mtime_ns == after.st_mtime_ns
-            task_log_feed(state, data, terminal and complete)
-            result = task_log_report(state, terminal, complete)
-            result["totalBytes"] = after.st_size
-            entry["mtimeNs"], entry["complete"] = after.st_mtime_ns, bool(terminal and complete)
-            while len(cache) > 256: cache.pop(next(iter(cache)))
-            return result
+            entry["users"] += 1
+        try:
+            # Only this exact run/log is serialized. A slow NFS read must not
+            # hold the cache mutex while unrelated jobs verify their logs.
+            if not entry["lock"].acquire(blocking=False):
+                return {**unknown, "logPath": log_path, "reason": "该任务日志正在读取，请稍后刷新"}
+            try:
+                if entry.get("signature") != signature or before.st_size < entry["state"]["offset"] or entry["analysis"] != analysis or (entry.get("complete") and entry.get("mtimeNs") != before.st_mtime_ns):
+                    state = task_log_new(command, log_path, legacy and not native)
+                    state["legacy"] = legacy and not native
+                    entry.update(state=state, signature=signature, analysis=analysis)
+                state = entry["state"]
+                with open(full, "rb") as stream:
+                    stream.seek(state["offset"])
+                    data = stream.read(256 * 1024)
+                after = os.stat(full)
+                complete = after.st_size == state["offset"] + len(data) and before.st_mtime_ns == after.st_mtime_ns
+                task_log_feed(state, data, terminal and complete)
+                result = task_log_report(state, terminal, complete)
+                result["totalBytes"] = after.st_size
+                entry["mtimeNs"], entry["complete"] = after.st_mtime_ns, bool(terminal and complete)
+                return result
+            finally:
+                entry["lock"].release()
+        finally:
+            with lock:
+                entry["users"] -= 1
+                for cached_key in list(cache):
+                    if len(cache) <= 256: break
+                    if not cache[cached_key]["users"]: cache.pop(cached_key)
     except Exception as exc:
         return {**unknown, "reason": str(exc)}
 
@@ -18205,6 +18232,7 @@ def task_execution_inventory(root, queries=()):
                 "gpuCardLimitScheduling": 1, "declaredResultQuery": 1, "resultCollection": 1}, "tasks": tasks}
 
 def task_manifest_observation(root, job):
+    import stat as statmod
     output = str(job.get("outputDir") or "")
     manifest = task_safe_path(root, output + "/artifact_manifest.json")
     if not os.path.isfile(manifest):
@@ -18224,20 +18252,29 @@ def task_manifest_observation(root, job):
     result_csv = report.get("resultCsv")
     if mode in ("test", "train_test") and result_csv:
         files.append(result_csv)
+    # Resolve each exact path once in this query. Repeated component checks
+    # multiply NFS metadata calls; never cache path evidence across queries.
+    paths = {file: task_safe_path(root, file) for file in files}
+    infos = {}
+    for file, full in paths.items():
+        try:
+            infos[file] = os.stat(full)
+        except FileNotFoundError:
+            infos[file] = None
     present = mode in ("train", "test", "train_test") and bool(files) and all(
-        os.path.isfile(task_safe_path(root, file)) and os.path.getsize(task_safe_path(root, file)) > 0 for file in files)
+        infos[file] and statmod.S_ISREG(infos[file].st_mode) and infos[file].st_size > 0 for file in files)
     for file in files:
         expected = (report.get("fileStats") or {}).get(file)
-        if expected and os.path.isfile(task_safe_path(root, file)):
-            info = os.stat(task_safe_path(root, file))
+        if expected and infos[file]:
+            info = infos[file]
             # inode/device/ctime belong to the writer filesystem, not a copied
             # artifact. Verify portable content evidence on every current query.
             if expected.get("size") is not None and info.st_size != expected["size"]:
                 present = False
     metric_hash = (report.get("sha256") or {}).get(result_csv)
     if present and result_csv and metric_hash:
-        full = task_safe_path(root, result_csv)
-        if os.path.getsize(full) > 4 * 1024 * 1024:
+        full = paths[result_csv]
+        if infos[result_csv].st_size > 4 * 1024 * 1024:
             raise ValueError("TASK_METRIC_TOO_LARGE")
         before = os.stat(full)
         with open(full, "rb") as handle:
@@ -18398,7 +18435,7 @@ def task_declared_results(root, declarations, tasks=()):
                             "outputDir": declaration.get("output_dir") if isinstance(declaration, dict) else None, "completed": False, "error": str(exc)})
     return results
 
-def task_result_query(root, queries):
+def task_result_query(root, queries, diagnostics_only=False):
     """Filesystem/log evidence only. Execution is queried separately, once per round."""
     if not isinstance(queries, list) or not queries or len(queries) > 500:
         raise ValueError("TASK_QUERY_SELECTION_INVALID")
@@ -18415,13 +18452,14 @@ def task_result_query(root, queries):
             result = task_manifest_observation(root, job)
             observed["result"] = result
             terminal = bool(result and result.get("runId") == job["commandId"] and result.get("identityMatches") and result.get("status") in ("completed", "failed"))
-            if "task_log_diagnostics" in globals():
+            if diagnostics_only and "task_log_diagnostics" in globals():
                 observed["runtimeDiagnostics"] = task_log_diagnostics(root, job, terminal=terminal,
                     binding=result.get("runtimeDiagnostics") if terminal else None)
         except Exception as exc:
-            observed["resultQueryError"] = str(exc)
+            observed["runtimeQueryError" if diagnostics_only else "resultQueryError"] = str(exc)
         tasks.append({**public, "lifecycleProtocol": 2, "observation": observed})
     return {"schemaVersion": 1, "generatedAt": now_iso(), "queryComplete": True, "resultsOnly": True,
+            "diagnosticsOnly" if diagnostics_only else "metadataOnly": True,
             "capabilities": {"taskLifecycle": 2, "runtimeDiagnostics": 1}, "tasks": tasks}
 
 

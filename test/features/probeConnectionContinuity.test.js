@@ -18,8 +18,8 @@ test('coalescing cannot substitute result metadata for a control or declaration 
  c.http.getWorkerTasks=async options=>{reads.push(options);return options;};
  try {
   const q={queries:[{commandId:'c'}],selectedOnly:true};
-  const values=await Promise.all([c.getWorkerTasks({...q,observationOnly:true}),c.getWorkerTasks(q),c.getWorkerTasks({declarations:[],declarationOnly:true}),c.getWorkerTasks({declarations:[]})]);
-  assert.equal(reads.length,4);assert.equal(values[0].observationOnly,true);assert.equal(values[1].observationOnly,undefined);assert.equal(values[2].declarationOnly,true);assert.equal(values[3].declarationOnly,undefined);
+  const values=await Promise.all([c.getWorkerTasks({...q,observationOnly:true}),c.getWorkerTasks(q),c.getWorkerTasks({declarations:[],declarationOnly:true}),c.getWorkerTasks({declarations:[]}),c.getWorkerTasks({...q,observationOnly:true,diagnosticsOnly:true})]);
+  assert.equal(reads.length,5);assert.equal(values[0].observationOnly,true);assert.equal(values[1].observationOnly,undefined);assert.equal(values[2].declarationOnly,true);assert.equal(values[3].declarationOnly,undefined);assert.equal(values[4].diagnosticsOnly,true);
  }finally{await c.disconnect();}
 });
 

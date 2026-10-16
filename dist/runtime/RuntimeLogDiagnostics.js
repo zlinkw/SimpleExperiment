@@ -148,25 +148,39 @@ def task_log_diagnostics(root, job, row=None, terminal=False, binding=None):
         signature = (before.st_dev, before.st_ino, hashlib.sha256(prefix).hexdigest())
         with lock:
             entry = cache.get(key)
-            if not entry or entry["signature"] != signature or before.st_size < entry["state"]["offset"] or entry["analysis"] != analysis or (entry.get("complete") and entry.get("mtimeNs") != before.st_mtime_ns):
-                state = task_log_new(command, log_path, legacy and not native)
-                state["legacy"] = legacy and not native
-                entry = {"state": state, "signature": signature, "analysis": analysis}
+            if entry is None:
+                entry = {"lock": threading.RLock(), "users": 0}
                 cache[key] = entry
-            state = entry["state"]
-            with open(full, "rb") as stream:
-                stream.seek(state["offset"])
-                # Keep one observation bounded. Large early logs continue at
-                # their in-memory byte cursor without blocking sibling jobs.
-                data = stream.read(256 * 1024)
-            after = os.stat(full)
-            complete = after.st_size == state["offset"] + len(data) and before.st_mtime_ns == after.st_mtime_ns
-            task_log_feed(state, data, terminal and complete)
-            result = task_log_report(state, terminal, complete)
-            result["totalBytes"] = after.st_size
-            entry["mtimeNs"], entry["complete"] = after.st_mtime_ns, bool(terminal and complete)
-            while len(cache) > 256: cache.pop(next(iter(cache)))
-            return result
+            entry["users"] += 1
+        try:
+            # Only this exact run/log is serialized. A slow NFS read must not
+            # hold the cache mutex while unrelated jobs verify their logs.
+            if not entry["lock"].acquire(blocking=False):
+                return {**unknown, "logPath": log_path, "reason": "该任务日志正在读取，请稍后刷新"}
+            try:
+                if entry.get("signature") != signature or before.st_size < entry["state"]["offset"] or entry["analysis"] != analysis or (entry.get("complete") and entry.get("mtimeNs") != before.st_mtime_ns):
+                    state = task_log_new(command, log_path, legacy and not native)
+                    state["legacy"] = legacy and not native
+                    entry.update(state=state, signature=signature, analysis=analysis)
+                state = entry["state"]
+                with open(full, "rb") as stream:
+                    stream.seek(state["offset"])
+                    data = stream.read(256 * 1024)
+                after = os.stat(full)
+                complete = after.st_size == state["offset"] + len(data) and before.st_mtime_ns == after.st_mtime_ns
+                task_log_feed(state, data, terminal and complete)
+                result = task_log_report(state, terminal, complete)
+                result["totalBytes"] = after.st_size
+                entry["mtimeNs"], entry["complete"] = after.st_mtime_ns, bool(terminal and complete)
+                return result
+            finally:
+                entry["lock"].release()
+        finally:
+            with lock:
+                entry["users"] -= 1
+                for cached_key in list(cache):
+                    if len(cache) <= 256: break
+                    if not cache[cached_key]["users"]: cache.pop(cached_key)
     except Exception as exc:
         return {**unknown, "reason": str(exc)}
 `;

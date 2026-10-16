@@ -1658,7 +1658,7 @@ class RealtimeTunnelPanelProvider {
                     signal: options.signal, onSnapshot: snapshot => {
                         if (workspaceRoot() !== root || this.client !== client)
                             return;
-                        if (snapshot.executionOnly && cached?.queryComplete && !cached.error && !cached.executionOnly && !options.signal?.aborted)
+                        if ((snapshot.executionOnly || snapshot.diagnosticsPending) && cached?.queryComplete && !cached.error && !cached.executionOnly && !options.signal?.aborted)
                             return;
                         this.storeWorkerTaskSnapshot(cacheKey, snapshot);
                         this.postState();
@@ -27871,6 +27871,8 @@ function workerTaskSnapshotPayload(snapshot) {
         ...(snapshot.executionOnly ? { executionOnly: true } : {}),
         ...(snapshot.controlIncomplete ? { controlIncomplete: true } : {}),
         ...(snapshot.resultQueryError ? { resultQueryError: snapshot.resultQueryError } : {}),
+        ...(snapshot.runtimeQueryError ? { runtimeQueryError: snapshot.runtimeQueryError } : {}),
+        ...(snapshot.diagnosticsPending ? { diagnosticsPending: true } : {}),
         ...(snapshot.error ? { error: snapshot.error } : {}),
     };
 }

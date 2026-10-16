@@ -19,6 +19,11 @@ exec(compile(ast.Module(body=nodes,type_ignores=[]),"lightweight-queries","exec"
 result=ns["task_result_query"]("/project",[q])
 assert result["resultsOnly"] and result["queryComplete"] and result["tasks"][0]["observation"]["result"]["verified"]
 assert "tmux" not in result["tasks"][0]["observation"] and "executionState" not in result["tasks"][0]
+assert calls==[("manifest","work/job")],"artifact receipt must never wait for raw logs: "+str(calls)
+assert result["metadataOnly"] and "runtimeDiagnostics" not in result["tasks"][0]["observation"]
+calls.clear()
+result=ns["task_result_query"]("/project",[q],diagnostics_only=True)
+assert result["diagnosticsOnly"] and result["tasks"][0]["observation"]["runtimeDiagnostics"]["scanComplete"]
 assert calls==[("manifest","work/job"),("logs",True)],calls
 calls.clear()
 ns["task_log_diagnostics"]=forbidden

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.358",
-  "buildId": "4f9f21f212ceeee626d812c6a026b95a73f101fe61ff6cca0b67f317d8b6ca0b",
+  "version": "0.5.359",
+  "buildId": "9cd718d80fad2d66738e664e690b76fd6fd386183a8737390d79914c66bc5cc9",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -197,7 +197,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "db316953106ed08c8c5ab090cd764f0a5bc64bb2f6f57990ed7f5a7f21abbdab"
+      "sha256": "cc38d8304e2bee0024feb39ca6c6df261bc3a0979e9b2bfb2e07b990ac0c62bc"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -601,7 +601,7 @@
     },
     {
       "path": "dist/features/WorkerProgressQuery.js",
-      "sha256": "15065b8d5609a13c8e5925bb6cc45d1ac76feb2fe1533027b329c71779e79f24"
+      "sha256": "1e30c4fbee770f08b480b43c578a6ac37d1a06cb0f39e8dd29c7453b745cf436"
     },
     {
       "path": "dist/features/WorkerTaskQuery.js",
@@ -661,7 +661,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "fa40ec7418e083c1009258c399252f8a8c2f3a2610a95cbf8b313f94186b5902"
+      "sha256": "72a0fa8111e411964f4caccf2f2bc52ed65d5c8836145060b9dcce405ea2ad3f"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -765,7 +765,7 @@
     },
     {
       "path": "dist/tunnel/RealtimeTunnelClient.legacy.js",
-      "sha256": "2b0448e6a06aae30e1c9a2e36c8ae8c452f60780b1523346044f31e03f0fae8a"
+      "sha256": "ba5d2dc83612cc248b07c7a431fb935eafa16fae7c221af1268915e9e38132d6"
     },
     {
       "path": "dist/tunnel/RequestBudget.js",
@@ -781,7 +781,7 @@
     },
     {
       "path": "dist/tunnel/TunnelClient.legacy.js",
-      "sha256": "7886dbb8eeec5a840cccb866e72058788a033b0756145dab082229213fa97755"
+      "sha256": "79a1dc679cd22c158fa61f03a57a3d1809041b018a27a021df3b35155e82b27b"
     },
     {
       "path": "dist/tunnel/TunnelDiagnostics.js",
@@ -1009,7 +1009,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "6f3ed834981132debe9607dc99b08a772de21b2e380add12d4d5062e76cb7ca2"
+      "sha256": "55b99253b84341578bf72f3f579d3635e6e3cd17b1770922135f74caca8cf248"
     },
     {
       "path": "scripts/check-static.js",

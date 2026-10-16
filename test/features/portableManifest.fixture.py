@@ -13,7 +13,7 @@ def opened(name,mode="r",**kwargs):
     assert name=="tmp/job.csv", "weight contents must never be scanned"
     return io.BytesIO(metric)
 path=types.SimpleNamespace(isfile=lambda n:True,getsize=lambda n:sizes.get(n,100))
-os=types.SimpleNamespace(path=path,stat=lambda n:types.SimpleNamespace(st_size=sizes[n],st_mtime_ns=1,st_ctime_ns=2,st_ino=3,st_dev=4))
+os=types.SimpleNamespace(path=path,stat=lambda n:types.SimpleNamespace(st_mode=0o100644,st_size=sizes[n],st_mtime_ns=1,st_ctime_ns=2,st_ino=3,st_dev=4))
 ns=dict(os=os,open=opened,json=json,hashlib=hashlib,task_safe_path=lambda root,name:name)
 exec(compile(ast.Module(body=[node],type_ignores=[]),"manifest-query","exec"),ns)
 job=dict(commandId="command",outputDir="work/job",collectionResultCsv="tmp/job.csv",experimentIndex=0,case="case",seed=42)

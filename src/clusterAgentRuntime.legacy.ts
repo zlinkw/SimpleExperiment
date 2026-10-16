@@ -15798,6 +15798,8 @@ def serve_http(args):
                 self._request_slots.release()
 
         def classify_request(self, method, route):
+            if route == "/api/worker/tasks/diagnostics":
+                return "read"  # Log I/O cannot occupy task-control/probe slots.
             if method == "GET" and route in (
                 "/api/health", "/health", "/api/version", "/version",
                 "/api/capabilities", "/api/openapi.json",
@@ -16487,6 +16489,17 @@ def serve_http(args):
                     return self.send_json({"ok": True, "policy": value})
                 except Exception as exc:
                     return self.send_json({"error": str(exc)}, status=400)
+            if route == "/api/worker/tasks/diagnostics":
+                raw = self.read_request_body(route)
+                if raw is None:
+                    return
+                try:
+                    if len(raw) > 1024 * 1024:
+                        raise ValueError("TASK_QUERY_LIMIT")
+                    payload = json.loads(raw.decode("utf-8"))
+                    return self.send_json(task_result_query(root, payload.get("queries") or [], diagnostics_only=True))
+                except Exception as exc:
+                    return self.send_json({"error": str(exc)}, status=400)
             if route == "/api/worker/tasks/query":
                 raw = self.read_request_body(route)
                 if raw is None:
@@ -16508,7 +16521,7 @@ def serve_http(args):
                         if payload.get("executionOnly") or payload.get("declarations") is not None or payload.get("discovery"):
                             raise ValueError("TASK_QUERY_SELECTION_INVALID")
                         if payload.get("observationOnly") is True:
-                            return self.send_json(task_result_query(root, payload.get("queries") or []))
+                            return self.send_json(task_result_query(root, payload.get("queries") or [], diagnostics_only=payload.get("diagnosticsOnly") is True))
                         return self.send_json(task_query(root, payload.get("queries") or [], selected_only=True))
                     value = task_collection_query(root, payload.get("declarations") or []) if collection else task_query(root, payload.get("queries") or [])
                     if payload.get("declarations") is not None and not collection:

@@ -157,6 +157,7 @@ def task_execution_inventory(root, queries=()):
                 "gpuCardLimitScheduling": 1, "declaredResultQuery": 1, "resultCollection": 1}, "tasks": tasks}
 
 def task_manifest_observation(root, job):
+    import stat as statmod
     output = str(job.get("outputDir") or "")
     manifest = task_safe_path(root, output + "/artifact_manifest.json")
     if not os.path.isfile(manifest):
@@ -176,20 +177,29 @@ def task_manifest_observation(root, job):
     result_csv = report.get("resultCsv")
     if mode in ("test", "train_test") and result_csv:
         files.append(result_csv)
+    # Resolve each exact path once in this query. Repeated component checks
+    # multiply NFS metadata calls; never cache path evidence across queries.
+    paths = {file: task_safe_path(root, file) for file in files}
+    infos = {}
+    for file, full in paths.items():
+        try:
+            infos[file] = os.stat(full)
+        except FileNotFoundError:
+            infos[file] = None
     present = mode in ("train", "test", "train_test") and bool(files) and all(
-        os.path.isfile(task_safe_path(root, file)) and os.path.getsize(task_safe_path(root, file)) > 0 for file in files)
+        infos[file] and statmod.S_ISREG(infos[file].st_mode) and infos[file].st_size > 0 for file in files)
     for file in files:
         expected = (report.get("fileStats") or {}).get(file)
-        if expected and os.path.isfile(task_safe_path(root, file)):
-            info = os.stat(task_safe_path(root, file))
+        if expected and infos[file]:
+            info = infos[file]
             # inode/device/ctime belong to the writer filesystem, not a copied
             # artifact. Verify portable content evidence on every current query.
             if expected.get("size") is not None and info.st_size != expected["size"]:
                 present = False
     metric_hash = (report.get("sha256") or {}).get(result_csv)
     if present and result_csv and metric_hash:
-        full = task_safe_path(root, result_csv)
-        if os.path.getsize(full) > 4 * 1024 * 1024:
+        full = paths[result_csv]
+        if infos[result_csv].st_size > 4 * 1024 * 1024:
             raise ValueError("TASK_METRIC_TOO_LARGE")
         before = os.stat(full)
         with open(full, "rb") as handle:
@@ -350,7 +360,7 @@ def task_declared_results(root, declarations, tasks=()):
                             "outputDir": declaration.get("output_dir") if isinstance(declaration, dict) else None, "completed": False, "error": str(exc)})
     return results
 
-def task_result_query(root, queries):
+def task_result_query(root, queries, diagnostics_only=False):
     """Filesystem/log evidence only. Execution is queried separately, once per round."""
     if not isinstance(queries, list) or not queries or len(queries) > 500:
         raise ValueError("TASK_QUERY_SELECTION_INVALID")
@@ -367,13 +377,14 @@ def task_result_query(root, queries):
             result = task_manifest_observation(root, job)
             observed["result"] = result
             terminal = bool(result and result.get("runId") == job["commandId"] and result.get("identityMatches") and result.get("status") in ("completed", "failed"))
-            if "task_log_diagnostics" in globals():
+            if diagnostics_only and "task_log_diagnostics" in globals():
                 observed["runtimeDiagnostics"] = task_log_diagnostics(root, job, terminal=terminal,
                     binding=result.get("runtimeDiagnostics") if terminal else None)
         except Exception as exc:
-            observed["resultQueryError"] = str(exc)
+            observed["runtimeQueryError" if diagnostics_only else "resultQueryError"] = str(exc)
         tasks.append({**public, "lifecycleProtocol": 2, "observation": observed})
     return {"schemaVersion": 1, "generatedAt": now_iso(), "queryComplete": True, "resultsOnly": True,
+            "diagnosticsOnly" if diagnostics_only else "metadataOnly": True,
             "capabilities": {"taskLifecycle": 2, "runtimeDiagnostics": 1}, "tasks": tasks}
 
 

@@ -353,9 +353,9 @@ export class RealtimeTunnelClient {
     if (this.requiresManualReconnect) return Promise.reject(new Error(this.lastError));
     return this.coalescedRead("plan-code-scope:" + JSON.stringify(query), options, () => this.http.getPlanCodeScope(query, options));
   }
-  getWorkerTasks(options: { signal?: AbortSignal; executionOnly?: boolean; selectedOnly?: boolean; observationOnly?: boolean; declarationOnly?: boolean; retiredCommandIds?: string[]; queries?: any[]; declarations?: any[]; discovery?: { planFile: string; condaEnv?: string } } = {}): Promise<unknown> {
+  getWorkerTasks(options: { signal?: AbortSignal; executionOnly?: boolean; selectedOnly?: boolean; observationOnly?: boolean; diagnosticsOnly?: boolean; declarationOnly?: boolean; retiredCommandIds?: string[]; queries?: any[]; declarations?: any[]; discovery?: { planFile: string; condaEnv?: string } } = {}): Promise<unknown> {
     if (this.requiresManualReconnect) return Promise.reject(new Error(this.lastError));
-    const selection = [...new Set(options.retiredCommandIds || [])].sort().join(",") + JSON.stringify(options.queries || []) + JSON.stringify(options.declarations || []) + JSON.stringify(options.discovery || null) + ":execution=" + (options.executionOnly === true) + ":selected=" + (options.selectedOnly === true) + ":observation=" + (options.observationOnly === true) + ":declaration=" + (options.declarationOnly === true);
+    const selection = [...new Set(options.retiredCommandIds || [])].sort().join(",") + JSON.stringify(options.queries || []) + JSON.stringify(options.declarations || []) + JSON.stringify(options.discovery || null) + ":execution=" + (options.executionOnly === true) + ":selected=" + (options.selectedOnly === true) + ":observation=" + (options.observationOnly === true) + ":declaration=" + (options.declarationOnly === true) + ":diagnostics=" + (options.diagnosticsOnly === true);
     return this.coalescedRead("worker-tasks:" + selection, options, () => this.http.getWorkerTasks(options));
   }
 

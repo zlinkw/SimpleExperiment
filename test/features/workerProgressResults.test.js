@@ -5,6 +5,10 @@ test('result and launch declaration queries avoid all historical task work',()=>
  const path=require('node:path');const r=require('node:child_process').spawnSync(process.platform==='win32'?'python':'python3',['-B','-X','utf8',path.join(__dirname,'lightweightResultQueries.fixture.py'),path.join(__dirname,'../../src/runtime/TmuxTaskLifecycle.ts')],{encoding:'utf8',timeout:10000,windowsHide:true});assert.equal(r.status,0,r.stderr||r.stdout);
 });
 
+test('one blocked NFS log read cannot hold the parser lock for other jobs',()=>{
+ const path=require('node:path');const r=require('node:child_process').spawnSync(process.platform==='win32'?'python':'python3',['-B','-X','utf8',path.join(__dirname,'logReadIsolation.fixture.py'),path.join(__dirname,'../../src/runtime/RuntimeLogDiagnostics.ts')],{encoding:'utf8',timeout:10000,windowsHide:true});assert.equal(r.status,0,r.stderr||r.stdout);
+});
+
 test('ended native panes do not lock code merely because their result status is unknown',async()=>{
  const fs=require('node:fs'),ts=require('typescript'),vm=require('node:vm');
  const source=fs.readFileSync('src/extension/legacy.ts','utf8'),ast=ts.createSourceFile('host.ts',source,ts.ScriptTarget.Latest,true);let method;
@@ -33,11 +37,13 @@ test('result observation uses the bounded normal pool, leaving execution/stop em
  const source=fs.readFileSync('src/tunnel/TunnelClient.legacy.ts','utf8'),ast=ts.createSourceFile('client.ts',source,ts.ScriptTarget.Latest,true);let method;
  function visit(node){if(ts.isMethodDeclaration(node)&&node.name.getText(ast)==='getWorkerTasks')method=node;ts.forEachChild(node,visit);}visit(ast);assert.ok(method);
  const fn=vm.runInNewContext(ts.transpileModule('class C{'+method.getText(ast)+'};C.prototype.getWorkerTasks',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{});
- const purposes=[],host={requestJson:async(_path,purpose,body)=>{purposes.push(purpose);return body;}};
+ const purposes=[],paths=[],host={requestJson:async(_path,purpose,body)=>{paths.push(_path);purposes.push(purpose);return body;}};
  const body=await fn.call(host,{selectedOnly:true,observationOnly:true,queries:[{commandId:'c'}]});assert.equal(body.observationOnly,true);
  await fn.call(host,{executionOnly:true});
  const launch=await fn.call(host,{declarationOnly:true,declarations:[]});assert.equal(launch.declarationOnly,true);
  assert.deepEqual(purposes,['manual_refresh','job_reconcile','manual_refresh']);
+ await fn.call(host,{selectedOnly:true,observationOnly:true,diagnosticsOnly:true,queries:[{commandId:'c'}]});
+ assert.equal(paths.at(-1),'/api/worker/tasks/diagnostics');
 });
 test('valid synchronized copies remain complete without reading weight contents',()=>{
  const path=require('node:path');const r=require('node:child_process').spawnSync(process.platform==='win32'?'python':'python3',['-B','-X','utf8',path.join(__dirname,'portableManifest.fixture.py'),path.join(__dirname,'../../src/runtime/TmuxTaskLifecycle.ts')],{encoding:'utf8',timeout:10000,windowsHide:true});assert.equal(r.status,0,r.stderr||r.stdout);
@@ -79,4 +85,32 @@ test('43 current jobs use at most 11 bounded result requests, rather than one ro
  const client={getWorkerTasks:async(_,o)=>{reads++;assert.ok(o.queries.length<=4);return {queryComplete:true,capabilities:{taskLifecycle:2},cleanupExecutors:[],tasks:o.queries.map(t=>({...t,status:'completed'}))};}};
  const result=await queryWorkerProgress(client,'w',tasks,{tasks,capabilities:{taskLifecycle:2},queryComplete:true});
  assert.equal(reads,11);assert.equal(result.tasks.filter(t=>t.status==='completed').length,43);
+});
+
+test('blocked log analysis cannot erase already verified artifacts from any job',async()=>{
+ const tasks=Array.from({length:6},(_,i)=>({commandId:'c'+i,projectId:'p',workerId:'w',outputDir:'work/'+i,observation:{lifecycleProtocol:2,commandId:'c'+i,projectId:'p',workerId:'w',tmux:{dead:true,exitCode:0,phase:'running'}}}));
+ const controller=new AbortController(),requests=[],published=[];let release;
+ const slow=new Promise(resolve=>{release=resolve;});
+ const client={getWorkerTasks:async(_,options)=>{requests.push(options);if(options.diagnosticsOnly)return slow;return {metadataOnly:true,resultsOnly:true,queryComplete:true,capabilities:{taskLifecycle:2},tasks:options.queries.map(t=>({...t,observation:{lifecycleProtocol:2,commandId:t.commandId,projectId:'p',workerId:'w',result:{runId:t.commandId,status:'completed',present:true,verified:true,identityMatches:true,artifactsComplete:true}}}))};}};
+ const pending=queryWorkerProgress(client,'w',tasks,{queryComplete:true,capabilities:{taskLifecycle:2},tasks},{signal:controller.signal,onSnapshot:s=>published.push(s)});
+ await new Promise(setImmediate);
+ assert.ok(requests.some(o=>o.diagnosticsOnly),'logs must use a distinct request phase');
+ assert.equal(published.at(-1).tasks.filter(t=>t.resultState==='complete').length,6);
+ controller.abort(Object.assign(Error('log wait expired'),{code:'TASK_QUERY_TIMEOUT'}));
+ const result=await pending;
+ assert.equal(result.tasks.filter(t=>t.status==='completed'&&t.resultState==='complete').length,6);
+ assert.ok(result.tasks.every(t=>t.completionState==='unverified'));
+ assert.equal(result.executionOnly,undefined);assert.match(result.runtimeQueryError,/log/);
+ const count=published.length;release({queryComplete:true,tasks:[]});await new Promise(setImmediate);assert.equal(published.length,count);
+});
+
+test('separate log reads preserve per-job errors, explicit nonzero exits and anomaly review',async()=>{
+ const tasks=Array.from({length:4},(_,i)=>({commandId:'c'+i,projectId:'p',workerId:'w',outputDir:'work/'+i,observation:{lifecycleProtocol:2,commandId:'c'+i,projectId:'p',workerId:'w',tmux:{dead:true,exitCode:i===3?7:0,phase:'running'}}}));
+ const client={getWorkerTasks:async(_,o)=>({queryComplete:true,resultsOnly:true,metadataOnly:!o.diagnosticsOnly,capabilities:{taskLifecycle:2},tasks:o.queries.map(t=>({...t,observation:o.diagnosticsOnly?(t.commandId==='c1'?{runtimeQueryError:'one log offline'}:{runtimeDiagnostics:{schemaVersion:1,commandId:t.commandId,runId:t.commandId,scanComplete:true,state:t.commandId==='c2'?'anomalous':'clear',count:t.commandId==='c2'?1:0}}):{lifecycleProtocol:2,commandId:t.commandId,projectId:'p',workerId:'w',result:{runId:t.commandId,status:'completed',present:true,verified:true,artifactsComplete:true}}}))})};
+ const result=await queryWorkerProgress(client,'w',tasks,{queryComplete:true,tasks,capabilities:{taskLifecycle:2}});
+ assert.ok(result.tasks.every(t=>t.resultState==='complete'));
+ assert.deepEqual(result.tasks.map(t=>t.completionState),['verified','unverified','review_required','verified']);
+ assert.deepEqual(result.tasks.map(t=>t.status),['completed','completed','completed','failed']);
+ assert.equal(result.tasks[3].exitCode,7);assert.match(result.tasks[1].runtimeDiagnostics.reason,/offline/);
+ assert.equal(result.tasks[0].successful,true);assert.equal(result.tasks[2].successful,false);
 });

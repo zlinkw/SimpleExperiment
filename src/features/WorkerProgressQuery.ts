@@ -9,6 +9,7 @@ export async function queryWorkerProgress(client: any, workerId: string, queries
     if (task.commandId && task.projectId && task.workerId === workerId && task.outputDir) selected.set(key(task), { ...selected.get(key(task)), ...task });
   const rows = new Map<string, any>((execution.tasks || []).map((task: any) => [key(task), task]));
   const selection = [...selected.values()], checked = new Set<string>(), errors = new Map<string, string>();
+  const needsDiagnostics = new Set<string>(), diagnosticsChecked = new Set<string>(), runtimeErrors = new Map<string, string>();
   let cursors = progressCursors.get(client);
   if (!cursors) { cursors = new Map(); progressCursors.set(client, cursors); }
   const scope = workerId + ":" + [...new Set(selection.map(task => task.projectId))].sort().join(",");
@@ -23,6 +24,9 @@ export async function queryWorkerProgress(client: any, workerId: string, queries
     return { ...base, workerId, fetchedAt: execution.fetchedAt || new Date().toISOString(), capabilities,
       ...(partial ? { executionOnly: true, resultQueryError: reason || [...errors.values()].join("; ") || "部分产物仍在核实" } : {}),
       ...(controlIncomplete ? { controlIncomplete: true } : {}),
+      ...(needsDiagnostics.size > diagnosticsChecked.size ? { diagnosticsPending: true,
+        ...(reason ? { runtimeQueryError: reason } : {}) } : {}),
+      ...(runtimeErrors.size ? { runtimeQueryError: [...runtimeErrors.values()].join("; ") } : {}),
       tasks: [...rows.values()], cleanupExecutors: [...cleanup.values()] };
   };
   const publish = () => { if (!closed) options.onSnapshot?.(snapshot()); };
@@ -30,6 +34,16 @@ export async function queryWorkerProgress(client: any, workerId: string, queries
     const id = key(query), prior = rows.get(id) || query;
     errors.set(id, message);
     rows.set(id, { ...prior, observation: { ...(prior.observation || {}), resultQueryError: message } });
+  };
+  const runtimeFailure = (query: any, message: string) => {
+    const id = key(query), prior = rows.get(id);
+    runtimeErrors.set(id, message);
+    if (prior) {
+      const evidence = { schemaVersion: 1, commandId: query.commandId, runId: query.commandId,
+        state: "unverified", count: 0, scanComplete: false, reason: message };
+      rows.set(id, { ...prior, runtimeDiagnostics: evidence, completionState: "unverified", successful: false,
+        observation: { ...prior.observation, runtimeDiagnostics: evidence } });
+    }
   };
   const lane = async () => {
     while (!closed && !options.signal?.aborted && index < entries.length) {
@@ -66,6 +80,7 @@ export async function queryWorkerProgress(client: any, workerId: string, queries
               exitCode: state.exitCode, successful: state.status === "completed" && state.completionState === "verified" });
           } else rows.set(id, task);
           checked.add(id);
+          if (value.metadataOnly === true) needsDiagnostics.add(id);
         }
       } catch (error) {
         if (closed || options.signal?.aborted) return;
@@ -75,6 +90,46 @@ export async function queryWorkerProgress(client: any, workerId: string, queries
       publish();
     }
   };
+  const read = async () => {
+    await Promise.all(Array.from({ length: Math.min(4, entries.length) }, lane));
+    if (closed || options.signal?.aborted || !needsDiagnostics.size) return;
+    // Every artifact receipt is published before any raw log request. A log
+    // timeout changes only runtime evidence, never the verified result state.
+    const jobs = selection.filter(query => needsDiagnostics.has(key(query)));
+    const logScope = scope + ":logs", start = (cursors!.get(logScope) || 0) % jobs.length;
+    const logs = [...jobs.slice(start), ...jobs.slice(0, start)];
+    let next = 0;
+    const logLane = async () => {
+      while (!closed && !options.signal?.aborted && next < logs.length) {
+        const batch = logs.slice(next, next + 4); next += batch.length;
+        cursors!.set(logScope, (start + next) % jobs.length);
+        try {
+          const value: any = await client.getWorkerTasks(workerId, { signal: options.signal,
+            selectedOnly: true, observationOnly: true, diagnosticsOnly: true, queries: batch });
+          if (closed || options.signal?.aborted) return;
+          if (value?.queryComplete !== true || value?.error) throw Error(value?.error || "运行日志核实未完成");
+          for (const query of batch) {
+            const id = key(query), prior = rows.get(id), task = value.tasks?.find((task: any) => key(task) === id && task.workerId === workerId);
+            const evidence = task?.observation?.runtimeDiagnostics;
+            if (!evidence || task.observation.runtimeQueryError || task.observation.queryError) {
+              runtimeFailure(query, task?.observation?.runtimeQueryError || task?.observation?.queryError || "未取得本次运行日志");
+              continue;
+            }
+            const observation = { ...prior.observation, runtimeDiagnostics: observationDiagnostics(prior.observation, evidence) };
+            const state = taskLifecycle(observation);
+            rows.set(id, { ...prior, observation, runtimeDiagnostics: state.runtimeDiagnostics, completionState: state.completionState,
+              successful: state.status === "completed" && state.completionState === "verified" });
+            diagnosticsChecked.add(id);
+          }
+        } catch (error) {
+          if (closed || options.signal?.aborted) return;
+          for (const query of batch) runtimeFailure(query, error instanceof Error ? error.message : String(error));
+        }
+        publish();
+      }
+    };
+    await Promise.all(Array.from({ length: Math.min(4, Math.ceil(logs.length / 4)) }, logLane));
+  };
   let abort: (() => void) | undefined;
   const interrupted = new Promise<void>(resolve => {
     abort = resolve;
@@ -82,7 +137,7 @@ export async function queryWorkerProgress(client: any, workerId: string, queries
     if (options.signal?.aborted) resolve();
   });
   try {
-    await Promise.race([Promise.all(Array.from({ length: Math.min(4, entries.length) }, lane)), interrupted]);
+    await Promise.race([read(), interrupted]);
     if (options.signal?.aborted && options.signal.reason?.code !== "TASK_QUERY_TIMEOUT") throw options.signal.reason;
     const result = snapshot(options.signal?.aborted ? String(options.signal.reason?.message || "部分产物查询超时") : undefined);
     options.onSnapshot?.(result);
@@ -91,4 +146,9 @@ export async function queryWorkerProgress(client: any, workerId: string, queries
     closed = true;
     if (abort) options.signal?.removeEventListener("abort", abort);
   }
+}
+
+function observationDiagnostics(observation: any, evidence: any) {
+  return observation?.tmux && !observation.tmux.dead
+    ? { ...evidence, scanComplete: false, state: evidence.count ? "anomalous" : "scanning" } : evidence;
 }
