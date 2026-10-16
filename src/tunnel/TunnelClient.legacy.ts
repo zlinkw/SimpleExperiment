@@ -15,6 +15,7 @@ export const tunnelActions = [
   "inspect-dataset", "export-plotting-contract", "infer-config-from-run", "recover-plan-from-run", "diagnose-result-anomaly", "compare-with-best-config",
   "start-worker-task", "register-code-sync-proof", "stop-worker-task", "retry-worker-task", "delete-worker-artifacts", "archive-worker-artifacts", "finalize-worker-operation",
   "rebuild-distributed-results",
+  "configure-gpu-quota",
   "start-tensorboard", "stop-tensorboard", "get-tensorboard-status",
   "preview-cache-cleanup", "delete-cache-candidates",
 ] as const;
@@ -121,6 +122,7 @@ const getPurposeByPath = new Map<string, TunnelRequestPurpose>([
 ]);
 
 const actionPurpose: Partial<Record<TunnelAction, TunnelRequestPurpose>> = {
+  "configure-gpu-quota": "manual_refresh",
   "validate-plan": "run_plan",
   "preflight-worker-task": "manual_refresh",
   "dry-run-plan": "run_plan",

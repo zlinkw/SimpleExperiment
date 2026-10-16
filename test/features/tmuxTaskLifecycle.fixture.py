@@ -24,6 +24,13 @@ def now_iso(): return datetime.datetime.now(datetime.timezone.utc).isoformat()
 def collect_local_gpu(): return ([{"id":"0"},{"id":"1"}], "")
 def gpu_row_id(row): return row["id"]
 def gpu_row_busy(*args): return pathlib.Path(os.environ["TMUX_TMPDIR"], "gpu-busy").exists()
+_fixture_collect_local_gpu = collect_local_gpu
+def collect_local_gpu():
+    rows, error = _fixture_collect_local_gpu()
+    for row in rows:
+        row.setdefault("memoryTotalMb", 24576)
+        row.setdefault("memoryUsedMb", 24576 if gpu_row_busy(row) else 0)
+    return rows, error
 def fixed_gpu_window_name(prefix, gpu): return (prefix or "fixture")+"-gpu-"+gpu
 def execute_worker_command(root, job, worker):
     if job["commandId"] == "command-0" and "codeManifest" in job: assert len(job["codeManifest"]) == 180

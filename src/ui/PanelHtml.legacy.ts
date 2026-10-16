@@ -3098,6 +3098,8 @@ export function renderPanelHtml(): string {
     const CONFIG_PORT_BOUNDS = Object.freeze({ min: 1024, max: 65535, step: 1 });
     const CONFIG_GPU_CONCURRENCY_BOUNDS = Object.freeze({ min: 1, max: 16, step: 1 });
     const CONFIG_SCHEDULER_BOUNDS = Object.freeze({
+      gpuJobsPerCard: Object.freeze({ min: 1, max: 1024, step: 1 }),
+      gpuMinFreeMemoryGb: Object.freeze({ min: 0, max: 1024, step: 0.5 }),
       gpuMemoryPerJobGb: Object.freeze({ min: 1, max: 1024, step: 0.5 }),
       gpuMemoryMaxJobsPerGpu: Object.freeze({ min: 0, max: 1024, step: 1 }),
       gpuMemoryReserveGb: Object.freeze({ min: 0, max: 1024, step: 0.5 }),
@@ -5503,7 +5505,7 @@ export function renderPanelHtml(): string {
         localForwardPort: item.localForwardPort,
         remoteAgentPort: item.remoteAgentPort,
         hub: compactRecordForSignature(item.hub || {}, ["enabled", "displayName", "host", "workerHost", "localForwardPort", "remoteForwardPort", "agentProjectDir", "savedSessionPath"]),
-        workers: compactRowsForSignature(item.workerTunnels || item.workers, SECTION_SIGNATURE_ROW_LIMIT, ["id", "enabled", "displayName", "host", "workerHost", "hubHost", "transferHost", "workerUser", "hubUser", "condaEnv", "sshConfigAlias", "localForwardPort", "remoteForwardPort", "remoteAgentPort", "remoteTelemetryPort", "agentProjectDir", "savedSessionPath", "savedSessionForwardIndex", "maxConcurrentGpus", "allowedGpuIds"])
+        workers: compactRowsForSignature(item.workerTunnels || item.workers, SECTION_SIGNATURE_ROW_LIMIT, ["id", "enabled", "displayName", "host", "workerHost", "hubHost", "transferHost", "workerUser", "hubUser", "condaEnv", "sshConfigAlias", "localForwardPort", "remoteForwardPort", "remoteAgentPort", "remoteTelemetryPort", "agentProjectDir", "savedSessionPath", "savedSessionForwardIndex", "maxConcurrentGpus", "allowedGpuIds", "gpuJobsPerCard", "gpuMinFreeMemoryGb"])
       };
     }
 
@@ -8887,7 +8889,7 @@ export function renderPanelHtml(): string {
         const remotePort = worker.remoteTelemetryPort || worker.remoteAgentPort || assignment.remoteServicePort || "-";
         const localHost = tunnelHost(worker.localForwardHost || assignment.localForwardHost || setup.localForwardHost);
         const remoteHost = tunnelHost(worker.remoteAgentHost || assignment.remoteBindHost || setup.remoteAgentHost);
-        const capLabel = (worker.maxConcurrentGpus === undefined || worker.maxConcurrentGpus === null || worker.maxConcurrentGpus === "auto" || worker.maxConcurrentGpus === 0) ? "全部" : String(worker.maxConcurrentGpus);
+        const capLabel = "自动识别";
         cards.push(serverObjectCard({
           kind: "worker",
           role: "Worker 对象",
@@ -9139,11 +9141,8 @@ export function renderPanelHtml(): string {
       const scheduler = state.schedulerConfig || {};
       const memoryPreview = state.gpuMemorySchedulingPreview || {};
       const memoryDescription = (preview) => {
-        if (!preview) return "保存后，按服务器实际显存显示每张卡的 job 数量。";
-        const limits = preview.cards || [];
-        return (preview.enabled === false ? "当前已关闭显存比例调度；可在高级选项中开启。 " : "") +
-          (limits.length ? limits.map(card => "GPU " + esc(card.gpuId) + "：最多 " + esc(card.jobs) + " 个 job").join("；") : "连接服务器后显示每张卡的 job 数量。") +
-          (preview.customLimits ? " 已使用高级选项中的自定义限制。" : "");
+        const cards = preview && preview.cards || [];
+        return cards.length ? cards.map(card => "GPU " + esc(card.gpuId) + "：最多 " + esc(card.jobs) + " 个 job，剩余 " + esc(Number(card.freeGb || 0).toFixed(1)) + " GiB").join("；") : "连接服务器后显示实际卡数。";
       };
       const agent = state.agentSessions || {};
       const indexes = serverStatusIndexesForState(state);
@@ -9181,17 +9180,10 @@ export function renderPanelHtml(): string {
           '</div></div>' +
           '<div class="configGrid">' +
             configSelect("scheduler", "dispatchMode", "Plan 调度模式", scheduler.dispatchMode || "local_idle", [["local_idle", "本机按空卡派发（默认）"], ["server_prequeue", "预派发到服务器队列（可关机）"]]) +
-            configInput("scheduler", "gpuMemoryPerJobGb", "每个 job 按多少 G 显存计算", scheduler.gpuMemoryPerJobGb ?? 24, "number", "gpuMemoryInput") +
-            '<div class="muted gpuMemorySummary">单卡 job 数量按显卡总显存除以上面的数值计算，向下取整，最少 1 个。实际显存不足时等待，不继续增加任务。</div>' +
-            '<div class="muted gpuMemorySummary">' + ((memoryPreview.global && memoryPreview.global.examples) || []).map(item => esc(item.gb) + 'G 显卡：' + esc(item.jobs) + ' 个 job').join('；') + '</div>' +
-            (memoryPreview.global && (memoryPreview.global.enabled === false || memoryPreview.global.customLimits) ? '<div class="muted gpuMemorySummary">当前使用了高级选项，计算结果已包含相应限制。</div>' : '') +
-            '<details class="wide gpuMemoryAdvanced" data-details-key="scheduler-advanced"' + detailsOpenAttr("scheduler-advanced", false) + ' style="grid-column:1 / -1"><summary>高级调度选项（一般不用修改）</summary><div class="configGrid">' +
-            configSelect("scheduler", "gpuMemoryRatioEnabled", "按显存比例分配任务", String(scheduler.gpuMemoryRatioEnabled !== false), [["true", "启用"], ["false", "关闭：一卡一个自动任务"]]) +
-            configInput("scheduler", "gpuMemoryMaxJobsPerGpu", "单卡自动任务数上限（0＝只按比例）", scheduler.gpuMemoryMaxJobsPerGpu ?? 0, "number") +
-            configInput("scheduler", "gpuMemoryReserveGb", "启动新任务时保留显存（GiB）", scheduler.gpuMemoryReserveGb ?? 0, "number") +
-            configInput("scheduler", "gpuMemoryTolerancePercent", "容量报告容差（%，最多 5）", scheduler.gpuMemoryTolerancePercent ?? 3, "number") +
-            '<div class="muted">设置用于新派发；已接收队列沿用原设置。旧版 Agent 或调度控制进程保持一卡一任务，更新后生效。手动派发不受自动上限限制。</div>' +
-            '<div class="muted">模式仅影响新提交的 Plan。预派发按空卡与本人占用卡计算比例；关机前确认所有任务已进入服务器队列。重连后读取所有服务器状态；指标文件仍需手动同步。</div>' +
+            configInput("scheduler", "gpuJobsPerCard", "每卡最大并行 job 数", scheduler.gpuJobsPerCard ?? 1, "number") +
+            configInput("scheduler", "gpuMinFreeMemoryGb", "可派发最低总剩余显存（GiB）", scheduler.gpuMinFreeMemoryGb ?? 22, "number") +
+            '<div class="muted gpuMemorySummary">自动识别服务器全部显卡。每张卡未达到 job 配额，且该卡总剩余显存达到门槛时可派发。不按每个 job 预估显存，不以利用率或其他进程阻断。</div>' +
+            '<details class="wide" data-details-key="scheduler-advanced"' + detailsOpenAttr("scheduler-advanced", false) + ' style="grid-column:1 / -1"><summary>刷新与连接选项</summary><div class="configGrid">' +
             configInput("scheduler", "pollSeconds", "调度轮询基准(秒)", configDefault(scheduler.pollSeconds, 10), "number") +
             configInput("scheduler", "jitterSeconds", "正向随机抖动(秒)", configDefault(scheduler.jitterSeconds, 30), "number") +
             configInput("scheduler", "workerStatusTtlSeconds", "可用性缓存 TTL(秒)", configDefault(scheduler.workerStatusTtlSeconds, 45), "number") +
@@ -9214,7 +9206,7 @@ export function renderPanelHtml(): string {
         const workerAgent = indexes.agentWorkerById?.get(String(worker.id)) || {};
         const scope = "worker:" + String(worker.id);
         const workerSession = sessionForPath(worker.savedSessionPath);
-        const workerMemory = (memoryPreview.workers || {})[worker.id];
+        const workerMemory = (memoryPreview.workers || {})[worker.id] || {};
         cards.push(
           '<div class="server-card" data-anchor="' + escAttr(treeAnchorId("servers-worker", worker.id || worker.displayName)) + '">' +
             '<div class="serverHead"><div class="serverTitle"><h3>' + esc(worker.displayName || worker.id) + '</h3><div class="muted">Worker 实时观测 · ' + esc(worker.id) + '</div></div>' +
@@ -9229,18 +9221,10 @@ export function renderPanelHtml(): string {
             configInput(scope, "workerUser", "登录用户", worker.workerUser || worker.hubUser || "") +
             configInput(scope, "condaEnv", "Conda 环境绝对路径（可选，必填完整路径）", worker.condaEnv === undefined ? (setup.condaEnv || "") : worker.condaEnv) +
             configInput(scope, "agentProjectDir", "项目父目录", worker.agentProjectDir || "", "text", "wide") +
-            configInput(scope, "gpuMemoryPerJobGb", "每个 job 按多少 G 显存计算", worker.gpuMemoryPerJobGb ?? "", "number", "gpuMemoryInput") +
-            '<div class="muted gpuMemorySummary">不填时使用统一设置（当前 ' + esc(scheduler.gpuMemoryPerJobGb ?? 24) + 'G）。例如填写 24，96G 显卡可同时运行 4 个 job。</div>' +
-            '<div class="muted gpuMemorySummary">按已保存设置计算：' + memoryDescription(workerMemory) + '</div>' +
-            '<details class="wide gpuMemoryAdvanced" data-details-key="' + escAttr("worker-advanced-" + worker.id) + '"' + detailsOpenAttr("worker-advanced-" + worker.id, false) + ' style="grid-column:1 / -1"><summary>高级调度选项（一般不用修改）</summary><div class="configGrid">' +
-            configInput(scope, "maxConcurrentGpus", "最多同时使用几张显卡（留空使用全部）", worker.maxConcurrentGpus ?? "", "text") +
-            configSelect(scope, "gpuMemoryRatioEnabled", "按显存比例分配任务", worker.gpuMemoryRatioEnabled === undefined ? "" : String(worker.gpuMemoryRatioEnabled), [["", "使用统一设置"], ["true", "启用"], ["false", "关闭：一卡一个自动任务"]]) +
-            configInput(scope, "gpuMemoryMaxJobsPerGpu", "单卡任务上限（留空跟随全局，0＝按比例）", worker.gpuMemoryMaxJobsPerGpu ?? "", "number") +
-            configInput(scope, "gpuMemoryReserveGb", "启动保留显存 GiB（留空跟随全局）", worker.gpuMemoryReserveGb ?? "", "number") +
-            configInput(scope, "gpuMemoryTolerancePercent", "容量容差 %（留空跟随全局）", worker.gpuMemoryTolerancePercent ?? "", "number") +
-            '<div class="muted" style="grid-column: 1 / -1; padding: 6px 0 2px; font-size: 11px;">空卡识别阈值：利用率 &lt; 阈值 且 显存 &lt; 阈值 视为空卡（留空跟随全局 5% / 200MB）</div>' +
-            '<div class="thresholdRow" title="' + escAttr(configHelp(scope, "gpuIdleUtilThreshold")) + '"><div class="label">空卡利用率阈值 %（利用率 &lt; 阈值 视为空闲）' + helpBadge(configHelp(scope, "gpuIdleUtilThreshold")) + '</div><div class="value"><input data-config-key="' + escAttr(scope + '.gpuIdleUtilThreshold') + '" data-endpoint-id="' + escAttr(worker.id) + '" value="' + escAttr(worker.gpuIdleUtilThreshold ?? "") + '" placeholder="默认 5（&lt;5% 空闲）" type="number" min="0" max="100" style="width:100%; min-width:120px; box-sizing:border-box;" title="' + escAttr(configHelp(scope, "gpuIdleUtilThreshold")) + '" /></div></div>' +
-            '<div class="thresholdRow" title="' + escAttr(configHelp(scope, "gpuIdleMemThresholdMb")) + '"><div class="label">空卡显存阈值 MB（显存 &lt; 阈值 视为空闲）' + helpBadge(configHelp(scope, "gpuIdleMemThresholdMb")) + '</div><div class="value"><input data-config-key="' + escAttr(scope + '.gpuIdleMemThresholdMb') + '" data-endpoint-id="' + escAttr(worker.id) + '" value="' + escAttr(worker.gpuIdleMemThresholdMb ?? "") + '" placeholder="默认 200（&lt;200MB 空闲）" type="number" min="0" max="8192" style="width:100%; min-width:120px; box-sizing:border-box;" title="' + escAttr(configHelp(scope, "gpuIdleMemThresholdMb")) + '" /></div></div>' +
+            configInput(scope, "gpuJobsPerCard", "每卡最大并行 job 数（留空跟随全局）", worker.gpuJobsPerCard ?? (worker.gpuQuotaConfigured ? "" : workerMemory.gpuJobsPerCard ?? ""), "number") +
+            configInput(scope, "gpuMinFreeMemoryGb", "可派发最低总剩余显存 GiB（留空跟随全局）", worker.gpuMinFreeMemoryGb ?? "", "number") +
+            '<div class="muted gpuMemorySummary">自动识别全部显卡；总余量门槛为 ' + esc(workerMemory.gpuMinFreeMemoryGb ?? scheduler.gpuMinFreeMemoryGb ?? 22) + ' GiB。' + memoryDescription(workerMemory) + '</div>' +
+            '<details class="wide" data-details-key="' + escAttr("worker-advanced-" + worker.id) + '"' + detailsOpenAttr("worker-advanced-" + worker.id, false) + ' style="grid-column:1 / -1"><summary>连接状态刷新</summary><div class="configGrid">' +
             '<div class="thresholdRow" title="' + escAttr(configHelp(scope, "sessionCheckMinSeconds")) + '"><div class="label">会话检测最小间隔 秒' + helpBadge(configHelp(scope, "sessionCheckMinSeconds")) + '</div><div class="value"><input data-config-key="' + escAttr(scope + '.sessionCheckMinSeconds') + '" data-endpoint-id="' + escAttr(worker.id) + '" value="' + escAttr(worker.sessionCheckMinSeconds ?? "") + '" placeholder="默认 5" type="number" min="1" max="60" style="width:100%; min-width:120px; box-sizing:border-box;" title="' + escAttr(configHelp(scope, "sessionCheckMinSeconds")) + '" /></div></div>' +
             '</div></details>' +
             configSessionSelect(scope, "savedSessionPath", "Xshell 隧道会话", worker.savedSessionPath || "") +
@@ -9342,7 +9326,7 @@ export function renderPanelHtml(): string {
         const remotePort = worker.remoteTelemetryPort || worker.remoteAgentPort || assignment.remoteServicePort || "-";
         const localHost = tunnelHost(worker.localForwardHost || assignment.localForwardHost || setup.localForwardHost);
         const remoteHost = tunnelHost(worker.remoteAgentHost || assignment.remoteBindHost || setup.remoteAgentHost);
-        const capLabel = (worker.maxConcurrentGpus === undefined || worker.maxConcurrentGpus === null || worker.maxConcurrentGpus === "auto" || worker.maxConcurrentGpus === 0) ? "全部" : String(worker.maxConcurrentGpus);
+        const capLabel = "自动识别";
         const tbHtml = tensorBoardOverviewStatValue(String(worker.id), localPort);
         return '<div class="workerDenseWorker ' + escAttr(statusClassValue) + '" title="Worker ' + escAttr(worker.displayName || worker.id) + '">' +
           '<b class="wname">' + esc(worker.displayName || worker.id) + '</b>' +
@@ -9794,7 +9778,7 @@ export function renderPanelHtml(): string {
     }
 
     function configInputBounds(scope, key) {
-      if (String(key).indexOf("gpuMemory") === 0) return CONFIG_SCHEDULER_BOUNDS[key] || EMPTY_CONFIG_INPUT_BOUNDS;
+      if (String(key).indexOf("gpu") === 0) return CONFIG_SCHEDULER_BOUNDS[key] || EMPTY_CONFIG_INPUT_BOUNDS;
       if (CONFIG_PORT_KEYS?.has(key)) return CONFIG_PORT_BOUNDS;
       if (key === "maxConcurrentGpus") return CONFIG_GPU_CONCURRENCY_BOUNDS;
       if (scope === "scheduler") return CONFIG_SCHEDULER_BOUNDS[key] || EMPTY_CONFIG_INPUT_BOUNDS;
@@ -9872,6 +9856,7 @@ export function renderPanelHtml(): string {
         mode: "选择调度架构：单 Worker 由一台执行服务器运行；仅多 Worker 由多台执行服务器运行；Hub 可用时由 Hub 统一调度。切换后需保存。"
       };
       const schedulerHelp = {
+        gpuJobsPerCard: "本项目每张实际显卡最多并行多少个 job。", gpuMinFreeMemoryGb: "显卡总剩余显存达到该值才可继续派发；不按每个 job 预估。",
         gpuMemoryPerJobGb: "只需填写每个 job 按多少 G 显存计算。例如填 24，96G 显卡可同时运行 4 个 job；实际显存不足时等待。",
         dispatchMode: "选择新提交 Plan 的任务进入方式：本机按空闲 GPU 派发会在任务启动时连接 Worker；预派发到服务器队列会先把任务写入各服务器的持久队列，适合确认已入队后关机。",
         pollSeconds: "Worker 两次常规调度检查之间的基准间隔，单位秒；数值越小检查越频繁。",

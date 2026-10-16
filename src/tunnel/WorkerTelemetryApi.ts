@@ -30,6 +30,7 @@ export const workerTelemetryActionNames = [
   "start-worker-task",
   "preflight-worker-task",
   "register-code-sync-proof",
+  "configure-gpu-quota",
   "rebuild-distributed-results",
   "retry-worker-task",
   "stop-worker-task",

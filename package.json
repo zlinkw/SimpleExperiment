@@ -2,7 +2,7 @@
   "name": "simple-experiment",
   "displayName": "SimpleExperiment",
   "description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
-  "version": "0.5.351",
+  "version": "0.5.352",
   "publisher": "simple-local",
   "extensionKind": [
     "ui"
@@ -561,7 +561,8 @@
                   "number",
                   "string"
                 ],
-                "default": "auto"
+                "default": "auto",
+                "deprecationMessage": "已弃用：使用自动识别卡数、每卡并行配额和总剩余显存门槛。"
               },
               "privateKeyPath": {
                 "type": "string"
@@ -580,12 +581,14 @@
               "gpuIdleUtilThreshold": {
                 "type": "number",
                 "minimum": 0,
-                "maximum": 100
+                "maximum": 100,
+                "deprecationMessage": "已弃用：使用自动识别卡数、每卡并行配额和总剩余显存门槛。"
               },
               "gpuIdleMemThresholdMb": {
                 "type": "number",
                 "minimum": 0,
-                "maximum": 8192
+                "maximum": 8192,
+                "deprecationMessage": "已弃用：使用自动识别卡数、每卡并行配额和总剩余显存门槛。"
               },
               "sessionCheckMinSeconds": {
                 "type": "number",
@@ -616,31 +619,48 @@
               },
               "gpuMemoryRatioEnabled": {
                 "type": "boolean",
-                "description": "本 Worker 覆盖设置，未设置时跟随全局。按显存比例设置每张卡的自动任务上限。关闭时保持一卡一个自动任务；手动派发不受此上限限制。需要支持该功能的 Worker Agent 和 Scheduler。"
+                "description": "本 Worker 覆盖设置，未设置时跟随全局。按显存比例设置每张卡的自动任务上限。关闭时保持一卡一个自动任务；手动派发不受此上限限制。需要支持该功能的 Worker Agent 和 Scheduler。",
+                "deprecationMessage": "已弃用：使用自动识别卡数、每卡并行配额和总剩余显存门槛。"
               },
               "gpuMemoryPerJobGb": {
                 "type": "number",
                 "minimum": 1,
                 "maximum": 1024,
-                "description": "这台服务器每个 job 按多少 G 显存计算。不填使用统一设置。例：填 24，96G 显卡最多同时运行 4 个 job；实际显存不足时等待。"
+                "description": "这台服务器每个 job 按多少 G 显存计算。不填使用统一设置。例：填 24，96G 显卡最多同时运行 4 个 job；实际显存不足时等待。",
+                "deprecationMessage": "已弃用：使用自动识别卡数、每卡并行配额和总剩余显存门槛。"
               },
               "gpuMemoryMaxJobsPerGpu": {
                 "type": "integer",
                 "minimum": 0,
                 "maximum": 1024,
-                "description": "本 Worker 覆盖设置，未设置时跟随全局。单卡自动任务数的额外上限。0 表示仅按显存比例计算；手动派发可超过该值。"
+                "description": "本 Worker 覆盖设置，未设置时跟随全局。单卡自动任务数的额外上限。0 表示仅按显存比例计算；手动派发可超过该值。",
+                "deprecationMessage": "已弃用：使用自动识别卡数、每卡并行配额和总剩余显存门槛。"
               },
               "gpuMemoryReserveGb": {
                 "type": "number",
                 "minimum": 0,
                 "maximum": 1024,
-                "description": "本 Worker 覆盖设置，未设置时跟随全局。启动新自动任务时额外保留的空闲显存，单位 GiB。数值过大可能暂停新任务。"
+                "description": "本 Worker 覆盖设置，未设置时跟随全局。启动新自动任务时额外保留的空闲显存，单位 GiB。数值过大可能暂停新任务。",
+                "deprecationMessage": "已弃用：使用自动识别卡数、每卡并行配额和总剩余显存门槛。"
               },
               "gpuMemoryTolerancePercent": {
                 "type": "number",
                 "minimum": 0,
                 "maximum": 5,
-                "description": "本 Worker 覆盖设置，未设置时跟随全局。驱动报告容量与标称容量的容差百分比，默认 3%，最多 5%。用于避免 96 GiB 报告略低时误算为三个任务，也应用于启动显存门槛。"
+                "description": "本 Worker 覆盖设置，未设置时跟随全局。驱动报告容量与标称容量的容差百分比，默认 3%，最多 5%。用于避免 96 GiB 报告略低时误算为三个任务，也应用于启动显存门槛。",
+                "deprecationMessage": "已弃用：使用自动识别卡数、每卡并行配额和总剩余显存门槛。"
+              },
+              "gpuJobsPerCard": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 1024,
+                "description": "每卡最大并行 job 数，未设置跟随全局；旧比例仅作迁移。"
+              },
+              "gpuMinFreeMemoryGb": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1024,
+                "description": "该卡可派发最低总剩余显存 GiB，未设置跟随全局 22。"
               }
             }
           },
@@ -679,7 +699,8 @@
           "minimum": 0,
           "maximum": 100,
           "scope": "application",
-          "description": "空卡判据（利用率）：GPU 利用率 < 该阈值（%）且 显存 < 显存阈值 时判为空卡/空闲，默认 5%，范围 0-100。与显存阈值为且关系，任一 ≥ 阈值即判为忙。"
+          "description": "空卡判据（利用率）：GPU 利用率 < 该阈值（%）且 显存 < 显存阈值 时判为空卡/空闲，默认 5%，范围 0-100。与显存阈值为且关系，任一 ≥ 阈值即判为忙。",
+          "deprecationMessage": "已弃用：新调度仅使用每卡并行 job 配额和总剩余显存门槛。"
         },
         "simpleExperiment.scheduler.gpuIdleMemThresholdMb": {
           "type": "number",
@@ -687,7 +708,8 @@
           "minimum": 0,
           "maximum": 8192,
           "scope": "application",
-          "description": "空卡判据（显存）：GPU 显存占用 < 该阈值（MB）且 利用率 < 利用率阈值 时判为空卡/空闲，默认 200MB，范围 0-8192。与利用率阈值为且关系，任一 ≥ 阈值即判为忙。"
+          "description": "空卡判据（显存）：GPU 显存占用 < 该阈值（MB）且 利用率 < 利用率阈值 时判为空卡/空闲，默认 200MB，范围 0-8192。与利用率阈值为且关系，任一 ≥ 阈值即判为忙。",
+          "deprecationMessage": "已弃用：新调度仅使用每卡并行 job 配额和总剩余显存门槛。"
         },
         "simpleExperiment.scheduler.sessionCheckMinSeconds": {
           "type": "number",
@@ -816,7 +838,8 @@
           "type": "boolean",
           "default": true,
           "description": "按显存比例设置每张卡的自动任务上限。关闭时保持一卡一个自动任务；手动派发不受此上限限制。需要支持该功能的 Worker Agent 和 Scheduler。",
-          "scope": "application"
+          "scope": "application",
+          "deprecationMessage": "已弃用：新调度仅使用每卡并行 job 配额和总剩余显存门槛。"
         },
         "simpleExperiment.scheduler.gpuMemoryPerJobGb": {
           "type": "number",
@@ -824,7 +847,8 @@
           "minimum": 1,
           "maximum": 1024,
           "description": "每个 job 按多少 G 显存计算，默认 24。例：24G 显卡一个、48G 两个、96G 四个 job；实际显存不足时等待。单台服务器可以单独设置。",
-          "scope": "application"
+          "scope": "application",
+          "deprecationMessage": "已弃用：新调度仅使用每卡并行 job 配额和总剩余显存门槛。"
         },
         "simpleExperiment.scheduler.gpuMemoryMaxJobsPerGpu": {
           "type": "integer",
@@ -832,7 +856,8 @@
           "minimum": 0,
           "maximum": 1024,
           "description": "单卡自动任务数的额外上限。0 表示仅按显存比例计算；手动派发可超过该值。",
-          "scope": "application"
+          "scope": "application",
+          "deprecationMessage": "已弃用：新调度仅使用每卡并行 job 配额和总剩余显存门槛。"
         },
         "simpleExperiment.scheduler.gpuMemoryReserveGb": {
           "type": "number",
@@ -840,7 +865,8 @@
           "minimum": 0,
           "maximum": 1024,
           "description": "启动新自动任务时额外保留的空闲显存，单位 GiB。数值过大可能暂停新任务。",
-          "scope": "application"
+          "scope": "application",
+          "deprecationMessage": "已弃用：新调度仅使用每卡并行 job 配额和总剩余显存门槛。"
         },
         "simpleExperiment.scheduler.gpuMemoryTolerancePercent": {
           "type": "number",
@@ -848,14 +874,29 @@
           "minimum": 0,
           "maximum": 5,
           "description": "驱动报告容量与标称容量的容差百分比，默认 3%，最多 5%。用于避免 96 GiB 报告略低时误算为三个任务，也应用于启动显存门槛。",
-          "scope": "application"
+          "scope": "application",
+          "deprecationMessage": "已弃用：新调度仅使用每卡并行 job 配额和总剩余显存门槛。"
+        },
+        "simpleExperiment.scheduler.gpuJobsPerCard": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 1024,
+          "default": 1,
+          "description": "每张实际显卡最多并行的 job 数；服务器可单独覆盖。"
+        },
+        "simpleExperiment.scheduler.gpuMinFreeMemoryGb": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1024,
+          "default": 22,
+          "description": "可继续派发所需的单卡总剩余显存，单位 GiB；含边界，不按每个 job 预估。"
         }
       }
     }
   },
   "scripts": {
     "build": "npm run compact:plan && npm run typecheck && node scripts/bundle-semver.js && node scripts/write-agent-runtime.js && node scripts/write-panel-build-manifest.js && node -c dist/extension.js && node -c dist/ui/PanelHtml.js && node --test --test-force-exit --test-timeout 20000 test/features/panelWebviewScriptHealth.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planCleanupPanelBridge.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/workerTelemetryApiContract.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/xshellPortProbe.test.js && node --test --test-force-exit --test-timeout 20000 test/features/completedPlanWorkerMirror.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobPreflightProgress.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobPreflightFailure.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobPreflightApi.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobRejectedRecovery.test.js && npm run test:preflight-stages && npm run test:execution-shell && npm run test:failed-job-review && npm run test:terminal-history && npm run test:agent-lifecycle && npm run test:tmux-lifecycle && npm run test:worker-mode && npm run test:plan-run && npm run test:latest-artifacts && npm run test:submission-truth && npm run test:fresh-results && npm run test:sync-gpu && npm run test:runtime-diagnostics && npm run test:plan-code-scope",
-    "test:tmux-lifecycle": "node --test --test-force-exit --test-timeout 20000 test/features/taskLifecycle.test.js && node --test --test-force-exit --test-timeout 20000 test/features/tmuxTaskLifecycle.test.js && node --test --test-force-exit --test-timeout 20000 test/features/pulledTaskControl.test.js && node --test --test-force-exit --test-timeout 20000 test/features/manifestCleanup.test.js && node --test --test-force-exit --test-timeout 20000 test/features/nativeResultManifest.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobExecution.test.js && node --test --test-force-exit --test-timeout 20000 test/features/codeSyncProofWaiter.test.js && node --test --test-force-exit --test-timeout 20000 test/features/tmuxGpuSessionClose.test.js && node --test --test-force-exit --test-timeout 20000 test/ui/tmuxOtherSessionsDisclosure.test.js && node --test --test-force-exit --test-timeout 20000 test/agent/tmuxCloseRuntime.test.js && node --test --test-force-exit --test-timeout 20000 test/agent/tmuxCloseHttp.test.js && node --test --test-force-exit --test-timeout 20000 test/agent/tmuxSessionActions.test.js && node --test --test-force-exit --test-timeout 20000 test/features/gpuMemoryScheduling.test.js && node --test --test-force-exit --test-timeout 20000 test/features/gpuMemoryAdmission.test.js && node --test --test-force-exit --test-timeout 20000 test/features/schedulerRuntimeUpdate.test.js",
+    "test:tmux-lifecycle": "node --test --test-force-exit --test-timeout 20000 test/features/taskLifecycle.test.js && node --test --test-force-exit --test-timeout 20000 test/features/tmuxTaskLifecycle.test.js && node --test --test-force-exit --test-timeout 20000 test/features/pulledTaskControl.test.js && node --test --test-force-exit --test-timeout 20000 test/features/manifestCleanup.test.js && node --test --test-force-exit --test-timeout 20000 test/features/nativeResultManifest.test.js && node --test --test-force-exit --test-timeout 20000 test/features/formalJobExecution.test.js && node --test --test-force-exit --test-timeout 20000 test/features/codeSyncProofWaiter.test.js && node --test --test-force-exit --test-timeout 20000 test/features/tmuxGpuSessionClose.test.js && node --test --test-force-exit --test-timeout 20000 test/ui/tmuxOtherSessionsDisclosure.test.js && node --test --test-force-exit --test-timeout 20000 test/agent/tmuxCloseRuntime.test.js && node --test --test-force-exit --test-timeout 20000 test/agent/tmuxCloseHttp.test.js && node --test --test-force-exit --test-timeout 20000 test/agent/tmuxSessionActions.test.js && node --test --test-force-exit --test-timeout 20000 test/features/gpuMemoryScheduling.test.js && node --test --test-force-exit --test-timeout 20000 test/features/gpuMemoryAdmission.test.js && node --test --test-force-exit --test-timeout 20000 test/features/schedulerRuntimeUpdate.test.js && node --test --test-force-exit --test-timeout 20000 test/features/gpuQuotaScheduling.test.js",
     "test:preflight-stages": "node --test --test-force-exit --test-timeout 20000 test/features/preflightStages.test.js && node --test --test-force-exit --test-timeout 20000 test/features/preflightDispatchRejection.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planStructuralValidationCache.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planPreflightProgressSpeed.test.js",
     "test:failed-job-review": "node --test --test-force-exit --test-timeout 20000 test/features/failedJobCleanup.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planCleanup.test.js && node --test --test-force-exit --test-timeout 20000 test/features/planCleanupReconnect.test.js && node --test --test-force-exit --test-timeout 20000 test/features/cleanupMissingTargets.test.js && npm run test:paired-update",
     "test:paired-update": "node --test --test-force-exit --test-timeout 20000 test/features/pairedUpdateTransaction.test.js && node --test --test-force-exit --test-timeout 20000 test/features/pairedUpdateClient.test.js && node --test --test-force-exit --test-timeout 20000 test/features/pairedUpdatePackage.test.js && node --test --test-force-exit --test-timeout 20000 test/features/pairedUpdateGate.test.js && node --test --test-force-exit --test-timeout 20000 test/features/pairedUpdateBootstrap.test.js && node --test --test-force-exit --test-timeout 20000 test/features/extensionUpdates.test.js && npm run test:mac-parity",

@@ -64,6 +64,7 @@ test("worker telemetry permits bounded worker controls plus local scheduler acti
   assert.ok(workerTelemetryRequiredEndpoints.includes("/api/worker/tasks"));
   assert.ok(workerTelemetryRequiredEndpoints.includes("/api/results/summary"));
   assert.deepEqual([...workerTelemetryAllowedActions].sort(), [
+    "POST /api/actions/configure-gpu-quota",
     "POST /api/actions/start-worker-task",
     "POST /api/actions/preflight-worker-task",
     "POST /api/actions/register-code-sync-proof",

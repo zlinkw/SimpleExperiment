@@ -9,6 +9,7 @@ exports.xshellExecutablePath = xshellExecutablePath;
 exports.publicXshellSetupSummary = publicXshellSetupSummary;
 const TunnelGateway_1 = require("./TunnelGateway");
 const GpuMemoryScheduling_1 = require("../features/GpuMemoryScheduling");
+const GpuQuotaScheduling_1 = require("../features/GpuQuotaScheduling");
 const TunnelPortConflict_1 = require("./TunnelPortConflict");
 const WorkerTelemetryApi_1 = require("./WorkerTelemetryApi");
 exports.defaultXshellTunnelSetupConfig = {
@@ -138,6 +139,7 @@ function normalizeXshellWorkerTunnelConfig(input = {}, index = 0, fallbackRemote
         gpuIdleUtilThreshold: normalizeIdleUtilThreshold(input.gpuIdleUtilThreshold),
         gpuIdleMemThresholdMb: normalizeIdleMemThreshold(input.gpuIdleMemThresholdMb),
         ...(0, GpuMemoryScheduling_1.memorySchedulingOverrides)(input),
+        ...(0, GpuQuotaScheduling_1.quotaOverrides)(input),
         sessionCheckMinSeconds: normalizeSessionCheckSeconds(input.sessionCheckMinSeconds),
         workerStatusTtlSeconds: normalizeWorkerTtlSeconds(input.workerStatusTtlSeconds),
     };

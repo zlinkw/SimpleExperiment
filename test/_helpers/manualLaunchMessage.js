@@ -6,11 +6,11 @@ module.exports=async function launchMessages(memory){
  const proof=ast.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='durableCodeProofRequestFields').getText(ast);
  const Provider=vm.runInNewContext(ts.transpileModule(proof+';class Provider{'+send+'};Provider;',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{
   workspaceRoot:()=>root,PlanExecutionMode:require('../../dist/features/PlanExecutionMode'),DistributedSchedulingPolicy:require('../../dist/features/DistributedSchedulingPolicy'),
-  GpuMemoryScheduling:require('../../dist/features/GpuMemoryScheduling'),PlanCodeScopeHost:require('../../dist/extension/PlanCodeScopeHost'),vscode:{workspace:{getConfiguration:()=>({get:()=>undefined})}},AgentTmuxPolicy_1:require('../../dist/tunnel/AgentTmuxPolicy')});
+  GpuQuotaScheduling:require('../../dist/features/GpuQuotaScheduling'),GpuMemoryScheduling:require('../../dist/features/GpuMemoryScheduling'),PlanCodeScopeHost:require('../../dist/extension/PlanCodeScopeHost'),vscode:{workspace:{getConfiguration:()=>({get:()=>undefined})}},AgentTmuxPolicy_1:require('../../dist/tunnel/AgentTmuxPolicy')});
  const p=new Provider(),messages=[];Object.assign(p,{distributedQueueGeneration:0,distributedPlanStopEpoch:0,setupConfig:{sessionPrefix:'My-Tasks',remoteTmuxSessionPrefix:'obsolete'},
   client:{postWorkerAction:async(_worker,action,body)=>messages.push({...JSON.parse(JSON.stringify(body)),action})},
   enabledWorkerConfigs:()=>[{id:'worker',maxConcurrentGpus:1}],workerActionTargets:()=>[{id:'worker',condaEnv:'/fixture/env'}],schedulerSettings:()=>memory||{},
-  lastWorkerProbes:{worker:{capabilities:{endpoints:{gpuMemoryRatioScheduling:memory?1:undefined,declaredJobPaths:true,formalJobIdentityEnv:1,taskShellEnvironment:1,projectManagedValidation:1},actionEndpoints:{'register-code-sync-proof':true}}}},
+  lastWorkerProbes:{worker:{capabilities:{endpoints:{gpuQuotaScheduling:1,gpuMemoryRatioScheduling:memory?1:undefined,declaredJobPaths:true,formalJobIdentityEnv:1,taskShellEnvironment:1,projectManagedValidation:1},actionEndpoints:{'register-code-sync-proof':true}}}},
   lastCodeSyncState:{workerVersions:{worker:{codeSyncProofId:'proof',manifestDigest:'b'.repeat(64),fingerprint:'b'.repeat(64)}}},
   lastWorkerTaskSnapshots:new Map([[root+'\0worker',{capabilities:{taskLifecycle:2,gpuMemoryRatioScheduling:memory?1:undefined}}]])});
  const plan={id:'workflow',projectId:'project',planFile:'experiments/plans/中文 plan.yaml',revision:'a'.repeat(64),codeFingerprint:'b'.repeat(64),resultPathPolicy:'declared',executionMode:'train_test',planJobCount:7,jobs:[]};

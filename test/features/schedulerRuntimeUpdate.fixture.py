@@ -46,8 +46,7 @@ try:
     wait_for(lambda: pathlib.Path(root, 'started-command-1').is_file())
     pathlib.Path(root, 'release-command-1').touch()
     wait_for(lambda: all(r['dead'] for r in namespace['task_inventory'](root)))
-    settings = dict(gpuMemoryRatioEnabled=True, gpuMemoryPerJobGb=22, gpuMemoryReserveGb=0,
-                    gpuMemoryTolerancePercent=3, gpuMemoryMaxJobsPerGpu=0)
+    settings = dict(gpuQuotaScheduling=1, gpuJobsPerCard=6, gpuMinFreeMemoryGb=22)
     for i in range(2, 9):
         namespace['task_queue_rpc'](root, 'worker', 'accept', dict(job(i), maxConcurrentGpus=1, options=settings), ensure=True)
     wait_for(lambda: len([r for r in namespace['task_inventory'](root) if r['phase'] == 'running' and not r['dead']]) == 6)

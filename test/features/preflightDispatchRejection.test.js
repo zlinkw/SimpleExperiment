@@ -35,7 +35,7 @@ test('real Scheduler conflict travels through Agent action, durable audit, snaps
 });
 
 function fixture(initial = true) {
-  const Provider = vm.runInNewContext(code, { DistributedPlanQueue: Queue, DistributedSchedulingPolicy: Policy, PlanCodeScopeHost,
+  const Provider = vm.runInNewContext(code, { GpuQuotaScheduling: require('../../dist/features/GpuQuotaScheduling'), DistributedPlanQueue: Queue, DistributedSchedulingPolicy: Policy, PlanCodeScopeHost,
     GpuJobOwnership: Ownership, PlanExecutionMode: Modes, workspaceRoot: () => root,
     mapLimited: async (rows, _limit, fn) => Promise.all(rows.map(fn)), errorMessage: error => error.message,
     makeOpId: () => 'generated-command', setInterval, clearInterval });
@@ -60,7 +60,7 @@ function fixture(initial = true) {
   p.readWorkerTaskSnapshotBatch = async () => [{ workerId: 'worker', generatedAt: new Date().toISOString(), fetchedAt: new Date().toISOString(),
     capabilities: { durablePlanQueue: true, idleGpuAdmission: true, schemaVersion: 1 }, tasks: [] }];
   p.client = { getGpu: async () => ({ worker: [0, 1].map(index => ({ index: String(index), utilizationPercent: 0,
-    memoryUsedMb: 7, processes: [] })) }) };
+    memoryUsedMb: 7, memoryTotalMb: 24576, processes: [] })) }) };
   let stored = Queue.enqueuePlan(Queue.emptyDistributedQueue(), { projectId, planFile: agentReceipt.planFile,
     revision: agentReceipt.planRevision, codeFingerprint: agentReceipt.codeFingerprint, executionMode: 'train_test',
     resultPathPolicy: 'declared', schedulingMode: 'local_idle', jobs: [42, 43].map((seed, index) => ({ index, case: 'case', seed,

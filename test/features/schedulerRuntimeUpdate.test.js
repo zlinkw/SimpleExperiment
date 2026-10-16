@@ -5,10 +5,9 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 
 test('Agent update replaces the independent controller while preserving running and queued windows; new H20 jobs share six slots', async () => {
-  const messages = await require('../_helpers/manualLaunchMessage')({ gpuMemoryRatioEnabled: true, gpuMemoryPerJobGb: 22,
-    gpuMemoryReserveGb: 0, gpuMemoryTolerancePercent: 3, gpuMemoryMaxJobsPerGpu: 0 });
-  assert.equal(messages[0].options.gpuMemoryPerJobGb, 22);
-  assert.equal(messages[0].options.gpuMemoryRatioEnabled, true);
+  const messages = await require('../_helpers/manualLaunchMessage')({ gpuJobsPerCard: 6, gpuMinFreeMemoryGb: 22 });
+  assert.equal(messages[0].options.gpuJobsPerCard, 6);
+  assert.equal(messages[0].options.gpuQuotaScheduling, 1);
   const linux = p => '/mnt/' + p[0].toLowerCase() + p.slice(2).replace(/\\/g, '/');
   const fixture = path.resolve(__dirname, 'schedulerRuntimeUpdate.fixture.py');
   const runtime = path.resolve(__dirname, '../../dist/runtime/cluster_agent.py');

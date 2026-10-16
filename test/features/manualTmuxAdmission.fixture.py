@@ -12,7 +12,9 @@ try:
     exec(compile(ast.Module(body=[entry], type_ignores=[]), 'agent_entry', 'exec'), agent)
     phase('entry_ready')
     messages = json.loads(sys.argv[2]) if len(sys.argv) > 2 else [job(4), dict(job(5),dispatchPolicy='manual',gpuId='0'), dict(job(6),dispatchPolicy='manual',gpuId='0')]
-    pathlib.Path(root, 'gpu-busy').write_text('synthetic GPU occupancy', encoding='utf-8')
+    script = program.read_text(encoding='utf-8').replace('return ([{"id":"0"},{"id":"1"}], "")',
+        'return ([{"id":"0","memoryTotalMb":24576,"memoryUsedMb":0},{"id":"1","memoryTotalMb":24576,"memoryUsedMb":24576}], "")')
+    program.write_text(script, encoding='utf-8')
     auto,manual_a,manual_b = messages
     # Keep manual probes alive until the automatic admission assertion; wall-clock sleeps race with tmux/WSL latency.
     release = pathlib.Path(root, 'release-manual-probes')
@@ -24,8 +26,6 @@ try:
         ' if not pathlib.Path(root,"release-manual-probes").exists(): sys.exit(9)\n'
         'else: time.sleep(.1)')
     probe.write_text(probe_source, encoding='utf-8')
-    agent['execute_worker_command'](root,auto,'worker')
-    phase('auto_queued')
     # An uncertain original request may not have reached this Scheduler at all.
     # Cancel its exact identity first: a late accept must remain fenced out.
     uncertain = job(3)
@@ -45,16 +45,17 @@ try:
     started = lambda row: pathlib.Path(root, 'started-' + row['commandId'])
     wait_for(lambda: started(manual_a).exists() and started(manual_b).exists())
     phase('manuals_running')
+    agent['execute_worker_command'](root,auto,'worker')
+    phase('auto_queued')
     assert all(row['tmuxSession'] == 'my-tasks-gpu-0' for row in namespace['task_inventory'](root)
                if row['commandId'] in (manual_a['commandId'], manual_b['commandId'])), 'Host-selected prefix must reach real task windows'
-    assert not started(auto).exists(), 'busy automatic job must not block manual jobs'
+    assert not started(auto).exists(), 'the two manual jobs fill the card quota'
     reports = [json.loads(started(row).read_text()) for row in (manual_a, manual_b)]
     assert all(row['gpu'] == '0' for row in reports) and abs(reports[0]['at'] - reports[1]['at']) < 0.8
     stopped = namespace['task_stop'](root, {'targetCommandId': manual_a['commandId'], 'projectId':'project'}, 'worker')
     assert stopped['status'] == 'completed'
     assert any(row['commandId'] == manual_b['commandId'] and not row['dead'] for row in namespace['task_inventory'](root)), 'closing one task must preserve its same-GPU neighbor'
-    # Only simulated hardware input changes; there is no production state or task status file.
-    pathlib.Path(root, 'gpu-busy').rename(pathlib.Path(root, 'gpu-free'))
+    # The exact stop releases one real slot; no hardware or task-state file is rewritten.
     wait_for(lambda: started(auto).exists())
     phase('auto_running')
     assert next(row for row in namespace['task_inventory'](root) if row['commandId'] == auto['commandId'])['tmuxSession'] == 'my-tasks-gpu-0'

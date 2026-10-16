@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.351",
-  "buildId": "38025446db345adddd6c2c7c7a7a9f2c0406b9a685caad36da7d0c417a39facc",
+  "version": "0.5.352",
+  "buildId": "dcf9ca328c90812e4f4ace0dea8ab5c5eb20c3a2ed352c7a0140cf1809848eb3",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -188,12 +188,16 @@
       "sha256": "6438a83ce501a79cba26a8b49dbab295609e4570f1c41d9d9ecdfacdfcef6117"
     },
     {
+      "path": "dist/extension/GpuQuotaPolicyHost.js",
+      "sha256": "faec7bf29c39729f1dcfe638885f00ca9f3803318a34677bdc28a1cf0b2cec00"
+    },
+    {
       "path": "dist/extension/GpuTmuxClose.js",
       "sha256": "e4c04bdfeedc840e3a5dfb0ca1b08c1085142421db6e66f745cbc6ec8ad0d8f3"
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "a007c8ace3bc66e368a55e9eb1304ceb6f6172a8882524059f476a964e621ac5"
+      "sha256": "c31755f948c68a02395c2cde5139d98e9b588e9266f2a6a5baeaaeeceaeb7b2d"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -346,6 +350,10 @@
     {
       "path": "dist/features/GpuMemoryScheduling.js",
       "sha256": "7de1342518cddff79b68f0d9aafbb3eb00489ed90bff2d46f592885bdc3c50db"
+    },
+    {
+      "path": "dist/features/GpuQuotaScheduling.js",
+      "sha256": "a292fdb00e8bedb4bf566113483d490b016b34df9c11a49cea02108664191919"
     },
     {
       "path": "dist/features/JobAvailability.js",
@@ -649,7 +657,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "6e062c003940d55a46c9d270730adfc76b52388593d8d074df94f250c172b38b"
+      "sha256": "d5bdb73b49e36b482779695122cc38a520b0a93371e4ec0096f781b559a4ef4f"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -769,7 +777,7 @@
     },
     {
       "path": "dist/tunnel/TunnelClient.legacy.js",
-      "sha256": "a52b6e636fff2c358d91e19b8317e1a6483e509fcab8daf073c621cda8af228d"
+      "sha256": "f67fc8ca88fe21bccd3c1a991b820cf3a564f738ad4f85eafa7021b1ec318166"
     },
     {
       "path": "dist/tunnel/TunnelDiagnostics.js",
@@ -805,7 +813,7 @@
     },
     {
       "path": "dist/tunnel/WorkerTelemetryApi.js",
-      "sha256": "3e5346beadea473670632789c19328a247bd6b1233d70b7046dafcf41cbc9518"
+      "sha256": "e44c472f3925ef7df828f165f39bd711f8a592804dfc0f0ebdc7fe0a64e1f889"
     },
     {
       "path": "dist/tunnel/XshellProcessLauncher.js",
@@ -857,7 +865,7 @@
     },
     {
       "path": "dist/tunnel/XshellTunnelSetup.legacy.js",
-      "sha256": "96fb817054e0711e167f8dff634800cd3d01669b9b290f7f5671fb6471a2406d"
+      "sha256": "b65a8cdc9eb027126d9bcf332a53eee05654b0e05e741257d98d4f3cdc97c9e9"
     },
     {
       "path": "dist/ui/OperationPayload.js",
@@ -873,7 +881,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "1d0e750eec6b023be10c9fcd006790b21462a3b5f9a2fe9ca99c6d65d65b263f"
+      "sha256": "1b067273fcb454a3dac11a881688ef485bb030a74dfb27fb5ace30440f3307c7"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",
@@ -997,7 +1005,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "00aa9919a7b7584d5e180cefd716402887c70096ec5038377f8e669393451c51"
+      "sha256": "577d083f724802bad8c5df96f0c9a2ce31d47f04d4277a5f02d4dcb67361a76f"
     },
     {
       "path": "scripts/check-static.js",

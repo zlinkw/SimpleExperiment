@@ -47,9 +47,9 @@ test('Worker overrides survive normalization, including zero/false and clearing 
  assert.equal(cleared.gpuMemoryRatioEnabled,undefined);assert.equal(cleared.gpuMemoryPerJobGb,undefined);
  assert.equal(M.memorySchedulingSettings({gpuMemoryPerJobGb:24},cleared).gpuMemoryPerJobGb,24);
 });
-test('real Host messages carry effective memory settings without changing manual placement',async()=>{
- const messages=await require('../_helpers/manualLaunchMessage')({gpuMemoryPerJobGb:24,gpuMemoryMaxJobsPerGpu:4,gpuMemoryReserveGb:1,gpuMemoryTolerancePercent:2,gpuMemoryRatioEnabled:true});
- for(const message of messages){assert.equal(message.options.gpuMemoryPerJobGb,24);assert.equal(message.options.gpuMemoryMaxJobsPerGpu,4);assert.equal(message.options.gpuMemoryReserveGb,1);}
+test('real Host messages carry per-card quota and free-memory gate for automatic and manual placement',async()=>{
+ const messages=await require('../_helpers/manualLaunchMessage')({gpuJobsPerCard:6,gpuMinFreeMemoryGb:22});
+ for(const message of messages){assert.equal(message.options.gpuJobsPerCard,6);assert.equal(message.options.gpuMinFreeMemoryGb,22);assert.equal(message.options.gpuQuotaScheduling,1);assert.equal(message.options.gpuMemoryPerJobGb,undefined);}
  assert.equal(messages[1].dispatchPolicy,'manual');assert.equal(messages[1].gpuId,'0');assert.equal(messages[1].requireIdleGpu,false);
 });
 test('prequeue weighting assigns four times as much work to a 96 GiB card without moving existing assignments',()=>{
@@ -59,18 +59,18 @@ test('prequeue weighting assigns four times as much work to a 96 GiB card withou
  const result=P.allocateServerPrequeue({schemaVersion:1,plans:[plan]},workers);
  assert.equal(result.dispatches.filter(row=>row.workerId==='h20').length,8);assert.equal(result.dispatches.filter(row=>row.workerId==='ordinary').length,2);
 });
-test('settings save persists all five parameters, including false and zero, through the actual Host handler',async()=>{
+test('settings save persists the two quota parameters through the actual Host handler',async()=>{
  const fs=require('node:fs'),vm=require('node:vm'),ts=require('typescript');
  const source=fs.readFileSync(require('node:path').resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
  const tree=ts.createSourceFile('host.ts',source,ts.ScriptTarget.Latest,true),cls=tree.statements.find(node=>ts.isClassDeclaration(node)&&node.name?.text==='RealtimeTunnelPanelProvider');
  const method=cls.members.find(node=>node.name?.getText(tree)==='saveSchedulerConfigFromUi').getText(tree);
- const updates=new Map(),context=vm.createContext({GpuMemoryScheduling:M,recordField:(message,key)=>message[key],numberRangePatch:(patch,key,fallback)=>patch[key]??fallback,
+ const updates=new Map(),context=vm.createContext({GpuQuotaScheduling:require('../../dist/features/GpuQuotaScheduling'),GpuMemoryScheduling:M,recordField:(message,key)=>message[key],numberRangePatch:(patch,key,fallback)=>patch[key]??fallback,
   DistributedSchedulingPolicy:{schedulingMode:value=>value},vscode:{ConfigurationTarget:{Global:1},workspace:{getConfiguration:()=>({update:async(key,value)=>updates.set(key,value)})},window:{showInformationMessage(){}}}});
  vm.runInContext(ts.transpileModule('class Host{'+method+'}this.Host=Host;',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,context);
  const host=new context.Host();Object.assign(host,{schedulerSettings:()=>cfg,startAvailabilityPushLoop(){},postState(){}});
- await host.saveSchedulerConfigFromUi({patch:{gpuMemoryRatioEnabled:'false',gpuMemoryPerJobGb:12,gpuMemoryMaxJobsPerGpu:0,gpuMemoryReserveGb:2,gpuMemoryTolerancePercent:0}});
- assert.equal(updates.get('scheduler.gpuMemoryRatioEnabled'),false);assert.equal(updates.get('scheduler.gpuMemoryPerJobGb'),12);
- assert.equal(updates.get('scheduler.gpuMemoryMaxJobsPerGpu'),0);assert.equal(updates.get('scheduler.gpuMemoryReserveGb'),2);assert.equal(updates.get('scheduler.gpuMemoryTolerancePercent'),0);
+ await host.saveSchedulerConfigFromUi({patch:{gpuJobsPerCard:6,gpuMinFreeMemoryGb:22}});
+ assert.equal(updates.get('scheduler.gpuJobsPerCard'),6);assert.equal(updates.get('scheduler.gpuMinFreeMemoryGb'),22);
+ assert.equal(updates.has('scheduler.gpuMemoryPerJobGb'),false);
 });
 test('the rendered settings form restores global values, explicit Worker overrides and empty inheritance',()=>{
  const vm=require('node:vm'),ts=require('typescript');
@@ -87,11 +87,11 @@ test('the rendered settings form restores global values, explicit Worker overrid
   configHelp:()=>'',helpBadge:()=>'',sessionStatusCell:()=>'',configSessionSelect:()=>'',configPortPair:()=>'',
   renderServerDestinationPreview:()=>'',renderSchedulerDependencyStatus:()=>'',renderSchedulerGlossary:()=>'',
   renderXshellSessionBudgetNote:()=>'',renderServerChainOverview:()=>'',setHtmlIfChanged:(id,value)=>output.set(id,value)};
- vm.runInNewContext(renderer+';renderServerCardsV2(state);',{...context,state:{schedulerConfig:{gpuMemoryRatioEnabled:false,gpuMemoryPerJobGb:12,gpuMemoryMaxJobsPerGpu:0,gpuMemoryReserveGb:2,gpuMemoryTolerancePercent:0},
-  setup:{workerTunnels:[{id:'h20',gpuMemoryRatioEnabled:true,gpuMemoryPerJobGb:24,gpuMemoryMaxJobsPerGpu:0,gpuMemoryReserveGb:0,gpuMemoryTolerancePercent:0},{id:'inherit'}]}}});
- assert.equal(fields.get('scheduler.gpuMemoryRatioEnabled'),'false');assert.equal(fields.get('scheduler.gpuMemoryPerJobGb'),12);
- assert.equal(fields.get('scheduler.gpuMemoryMaxJobsPerGpu'),0);assert.equal(fields.get('scheduler.gpuMemoryReserveGb'),2);assert.equal(fields.get('scheduler.gpuMemoryTolerancePercent'),0);
- assert.equal(fields.get('worker:h20.gpuMemoryRatioEnabled'),'true');assert.equal(fields.get('worker:h20.gpuMemoryMaxJobsPerGpu'),0);
- assert.equal(fields.get('worker:inherit.gpuMemoryRatioEnabled'),'');assert.equal(fields.get('worker:inherit.gpuMemoryPerJobGb'),'');
+ vm.runInNewContext(renderer+';renderServerCardsV2(state);',{...context,state:{schedulerConfig:{gpuJobsPerCard:2,gpuMinFreeMemoryGb:22,gpuMemoryRatioEnabled:false,gpuMemoryPerJobGb:12,gpuMemoryMaxJobsPerGpu:0,gpuMemoryReserveGb:2,gpuMemoryTolerancePercent:0},
+  setup:{workerTunnels:[{id:'h20',gpuJobsPerCard:6,gpuMinFreeMemoryGb:24,gpuMemoryRatioEnabled:true,gpuMemoryPerJobGb:24,gpuMemoryMaxJobsPerGpu:0,gpuMemoryReserveGb:0,gpuMemoryTolerancePercent:0},{id:'inherit'}]}}});
+ assert.equal(fields.get('scheduler.gpuJobsPerCard'),2);assert.equal(fields.get('scheduler.gpuMinFreeMemoryGb'),22);
+ assert.equal(fields.get('worker:h20.gpuJobsPerCard'),6);assert.equal(fields.get('worker:h20.gpuMinFreeMemoryGb'),24);
+ assert.equal(fields.get('worker:inherit.gpuJobsPerCard'),'');assert.equal(fields.get('worker:inherit.gpuMinFreeMemoryGb'),'');
+ assert.equal(fields.has('scheduler.gpuMemoryPerJobGb'),false);assert.equal(fields.has('worker:h20.gpuIdleUtilThreshold'),false);
  assert.match(output.get('serverSettingsCards'),/保存策略/);assert.match(output.get('serverSettingsCards'),/保存服务器/);
 });

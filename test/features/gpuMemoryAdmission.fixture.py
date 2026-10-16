@@ -49,6 +49,10 @@ try:
     finally:
         namespace['task_option'](control,'endpoint',endpoint)
     assert namespace['task_memory_scheduler_capability'](root)==1
+    before = {row['commandId'] for row in namespace['task_inventory'](root)}
+    namespace['task_queue_rpc'](root,'worker','configure',dict(gpuJobsPerCard=4,gpuMinFreeMemoryGb=22),ensure=False)
+    assert {row['commandId'] for row in namespace['task_inventory'](root)} == before
+    assert json.loads(namespace['task_option'](control,'gpu_policy'))['gpuJobsPerCard']==4
     namespace['task_tmux'](['send-keys','-t',control,'C-c'])
     wait_for(lambda: namespace['task_tmux'](['display-message','-p','-t',control,'#{pane_dead}'])=='1')
     namespace['task_queue_rpc'](root,'worker','accept',entries[4],ensure=True)

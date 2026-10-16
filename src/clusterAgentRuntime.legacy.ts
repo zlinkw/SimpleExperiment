@@ -248,6 +248,7 @@ ACTION_PATHS = [
     "/api/actions/preflight-worker-task",
     "/api/actions/register-code-sync-proof",
     "/api/actions/rebuild-distributed-results",
+    "/api/actions/configure-gpu-quota",
     "/api/actions/retry-worker-task",
     "/api/actions/stop-worker-task",
     "/api/actions/delete-worker-artifacts",
@@ -6762,6 +6763,7 @@ def api_capabilities(root, token_required=False, mode="worker_telemetry"):
                 "idleGpuAdmission": True,
                 "manualDispatch": 1,
                 "gpuMemoryRatioScheduling": 1,
+                "gpuQuotaScheduling": 1,
                 "schedulerRuntimeUpdate": 1,
                 "queuedJobRecall": True,
                 "liveOutput": True,
@@ -6776,6 +6778,7 @@ def api_capabilities(root, token_required=False, mode="worker_telemetry"):
             },
             "actionEndpoints": {
                 "start-worker-task": True,
+                "configure-gpu-quota": True,
                 "preflight-worker-task": True,
                 "register-code-sync-proof": True,
                 "rebuild-distributed-results": True,
@@ -16469,6 +16472,18 @@ def serve_http(args):
                     return self.send_json(inspect_plan_code_scope(root, json.loads(raw.decode("utf-8"))))
                 except Exception as exc:
                     return self.send_json({"ok": False, "compatible": False, "readOnly": True, "error": str(exc)}, status=400)
+            if route == "/api/actions/configure-gpu-quota":
+                raw = self.read_request_body(route)
+                if raw is None:
+                    return
+                try:
+                    if len(raw) > 4096:
+                        raise ValueError("GPU_QUOTA_SETTINGS_INVALID")
+                    policy = json.loads(raw.decode("utf-8"))
+                    value = task_queue_rpc(root, policy["workerId"], "configure", task_gpu_quota_policy(policy, []), ensure=False)
+                    return self.send_json({"ok": True, "policy": value})
+                except Exception as exc:
+                    return self.send_json({"error": str(exc)}, status=400)
             if route == "/api/worker/tasks/query":
                 raw = self.read_request_body(route)
                 if raw is None:

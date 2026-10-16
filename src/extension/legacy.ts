@@ -17,6 +17,8 @@ import { LatestSnapshotWriter } from "../core/LatestSnapshotWriter";
 import { runProjectStaticCheck } from "../features/ProjectStaticCheck";
 import * as TmuxWindowIdentity from "../features/TmuxWindowIdentity";
 import * as GpuMemoryScheduling from "../features/GpuMemoryScheduling";
+import * as GpuQuotaScheduling from "../features/GpuQuotaScheduling";
+import { syncGpuQuotaPolicies } from "./GpuQuotaPolicyHost";
 import { closeGpuTmuxSession, closeTmuxSession, manageTmuxSession } from "./GpuTmuxClose";
 import { callSftpWithProgress } from "../core/SimpleSftpProgressWait";
 import { deleteConfirmedScopeCopy } from "../features/SyncScopeDelete";
@@ -10657,6 +10659,7 @@ this.assertPlanTopologyReady("Plan 调度");
         if (this.planCleanupHosts.get(workspaceRoot())?.executing) return;
         if (this.distributedQueueTickPromise) return this.distributedQueueTickPromise;
         if (this.distributedPlanStopEpoch) return;
+        if (this.taskLifecycleProtocol === 2) void syncGpuQuotaPolicies(this, workspaceRoot()).catch(() => {});
         const generation = this.distributedQueueGeneration;
         const abort = new AbortController();
         this.distributedTickAbort = abort;
@@ -10707,9 +10710,8 @@ this.assertPlanTopologyReady("Plan 调度");
         if (!target) throw new Error(`Worker ${workerId} 配置已失效`);
         const workerConfig = this.enabledWorkerConfigs().find((worker) => worker.id === workerId);
         const schedulerSettings = this.schedulerSettings() as any;
-        const memoryScheduling = this.lastWorkerProbes?.[workerId]?.capabilities?.endpoints?.gpuMemoryRatioScheduling === 1
-            && this.lastWorkerTaskSnapshots?.get(root + "\u0000" + workerId)?.capabilities?.gpuMemoryRatioScheduling === 1
-            ? GpuMemoryScheduling.memorySchedulingSettings(schedulerSettings, workerConfig) : undefined;
+        if (probes?.[workerId]?.capabilities?.endpoints?.gpuQuotaScheduling !== 1) throw new Error("GPU_QUOTA_PROTOCOL_REQUIRED：请更新 Worker Agent/Scheduler，未发送任务。");
+        const memoryScheduling = { ...GpuQuotaScheduling.quotaSettings(schedulerSettings, workerConfig, this.lastRealtimeState?.gpu?.[workerId] || []), gpuQuotaScheduling: 1 };
         const settings = vscode.workspace.getConfiguration("simpleExperiment");
         const tmuxSessionPrefix = AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix(this.setupConfig?.sessionPrefix
             || this.setupConfig?.remoteTmuxSessionPrefix || settings.get("sessionPrefix") || settings.get("tunnel.remoteTmuxSessionPrefix") || "simple");
@@ -10750,9 +10752,7 @@ this.assertPlanTopologyReady("Plan 调度");
             overwriteExisting: plan.overwriteExisting === true,
             options: { workerId, distributedResults: true, durablePlanQueue: true, requireIdleGpu: !job.manualDispatch && gpuId !== undefined,
                 mode: executionMode, executionMode,
-                gpuIdleUtilThreshold: Number(workerConfig?.gpuIdleUtilThreshold ?? schedulerSettings.gpuIdleUtilThreshold ?? 5),
-                gpuIdleMemThresholdMb: Number(workerConfig?.gpuIdleMemThresholdMb ?? schedulerSettings.gpuIdleMemThresholdMb ?? 200),
-                maxConcurrentGpus,
+                maxConcurrentGpus: 0,
                 ...memoryScheduling,
                 projectId: plan.projectId || DistributedPlanQueue.canonicalProjectId(workspaceRoot()),
                 planJobCount: Number(plan.planJobCount || plan.jobs.length), enqueuedAt: plan.enqueuedAt,
@@ -10996,7 +10996,7 @@ this.assertPlanTopologyReady("Plan 调度");
             }
             const scheduler = this.schedulerSettings() as any;
             const memoryCounts = new Map<string, Map<string, number>>();
-            for (const p of queue.plans) for (const j of p.jobs) if (j.workerId && j.gpuId !== undefined && !j.manualDispatch && DistributedPlanQueue.jobHasLiveExecution(j)) {
+            for (const p of queue.plans) for (const j of p.jobs) if (j.workerId && j.gpuId !== undefined && j.executionState !== "queued" && DistributedPlanQueue.jobHasLiveExecution(j)) {
                 const counts = memoryCounts.get(j.workerId) || new Map<string, number>();
                 counts.set(String(j.gpuId), (counts.get(String(j.gpuId)) || 0) + 1); memoryCounts.set(j.workerId, counts);
             }
@@ -11005,16 +11005,18 @@ this.assertPlanTopologyReady("Plan 调度");
             const idleByWorker = new Map<string, string[]>();
             for (const target of targets) {
                 const config = this.enabledWorkerConfigs().find((worker) => worker.id === target.id);
-                const evidence = DistributedPlanQueue.freshIdleGpuEvidence(dispatchGpuSnapshot || {}, [target.id],
-                    Number(config?.gpuIdleUtilThreshold ?? defaultUtil), Number(config?.gpuIdleMemThresholdMb ?? defaultMem));
-                if (evidence.complete) idleByWorker.set(target.id, evidence.idleGpuIdsByWorker.get(target.id) || []);
+                const rows = dispatchGpuSnapshot?.[target.id];
+                if (Array.isArray(rows) && rows.length) {
+                    const policy = GpuQuotaScheduling.quotaSettings(scheduler, config, rows);
+                    idleByWorker.set(target.id, [...new Set(GpuQuotaScheduling.quotaPlacement(rows, new Map(), policy).slots)]);
+                }
             }
             const { activeByWorker, occupiedGpuIds } = DistributedPlanQueue.activeGpuReservations(queue);
             const migrationReserved = new Map<string, number>();
             const canReceive = (target: any, plan: any) => {
                 const snapshot = snapshotsByWorker.get(target.id);
                 const workerConfig = this.enabledWorkerConfigs().find((worker) => worker.id === target.id);
-                const configuredCapacity = Number(workerConfig?.maxConcurrentGpus);
+                const configuredCapacity = 0; // Physical cards are discovered from current telemetry.
                 const freeGpuIds = (idleByWorker.get(target.id) || []).filter((gpuId) => !occupiedGpuIds.has(`${target.id}:${gpuId}`));
                 const remainingGpuCount = freeGpuIds.length - (migrationReserved.get(target.id) || 0);
                 const capacityRemaining = Number.isInteger(configuredCapacity) && configuredCapacity > 0
@@ -11162,13 +11164,9 @@ this.assertPlanTopologyReady("Plan 调度");
                     && snapshot?.capabilities?.idleGpuAdmission === true
                     && this.lastWorkerProbes[target.id]?.status === "ok");
                 const workerConfig = this.enabledWorkerConfigs().find((worker) => worker.id === target.id);
-                const configuredCapacity = Number(workerConfig?.maxConcurrentGpus);
-                const memoryPolicy = this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.gpuMemoryRatioScheduling === 1
-                    && snapshot?.capabilities?.gpuMemoryRatioScheduling === 1
-                    ? GpuMemoryScheduling.memorySchedulingSettings(scheduler, workerConfig) : undefined;
-                const memory = memoryPolicy?.gpuMemoryRatioEnabled && idleByWorker.has(target.id)
-                    ? GpuMemoryScheduling.gpuMemoryPlacement(dispatchGpuSnapshot?.[target.id] || [], memoryCounts.get(target.id) || new Map(),
-                        idleByWorker.get(target.id) || [], memoryPolicy, configuredCapacity) : undefined;
+                const configuredCapacity = 0; // Physical cards are discovered from current telemetry.
+                const memoryPolicy = GpuQuotaScheduling.quotaSettings(scheduler, workerConfig, dispatchGpuSnapshot?.[target.id] || []);
+                const memory = GpuQuotaScheduling.quotaPlacement(dispatchGpuSnapshot?.[target.id] || [], memoryCounts.get(target.id) || new Map(), memoryPolicy);
                 return { workerId: target.id, online: live, idleGpuAdmission: snapshot?.capabilities?.idleGpuAdmission === true,
                     gpuSlots: memory?.slots, memoryWeight: memory?.weight,
                     declaredJobPaths: this.lastWorkerProbes?.[target.id]?.capabilities?.endpoints?.declaredJobPaths === true
@@ -11186,9 +11184,7 @@ this.assertPlanTopologyReady("Plan 调度");
                     Object.fromEntries(targets.map(target => [target.id, target.project_dir]))));
             const hosted = DistributedSchedulingPolicy.allocateServerPrequeue(queue, workers.map((worker) => {
                 const config = this.enabledWorkerConfigs().find((item) => item.id === worker.workerId);
-                return { ...worker, weight: worker.memoryWeight ?? DistributedSchedulingPolicy.prequeueGpuWeight(ownedGpuSnapshot[worker.workerId],
-                    Number(config?.gpuIdleUtilThreshold ?? defaultUtil), Number(config?.gpuIdleMemThresholdMb ?? defaultMem),
-                    this.gpuOwnerConfig(), String(config?.workerUser || ""), Number(config?.maxConcurrentGpus)) };
+                return { ...worker, weight: worker.memoryWeight ?? 0 };
             }));
             queue = hosted.queue;
             const allocation = DistributedPlanQueue.allocateAvailable(queue, workers, { requireIdleGpuAdmission: true, localIdleOnly: true });
@@ -12546,7 +12542,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const config = vscode.workspace.getConfiguration("simpleExperiment");
         const settings = this.schedulerSettings();
         const updates = [
-            ...Object.entries(GpuMemoryScheduling.memorySchedulingSettings({ ...settings, ...patch })).map(([key, value]) => config.update("scheduler." + key, value, vscode.ConfigurationTarget.Global)),
+            ...Object.entries(GpuQuotaScheduling.quotaSettings({ ...settings, ...patch })).map(([key, value]) => config.update("scheduler." + key, value, vscode.ConfigurationTarget.Global)),
             config.update("scheduler.dispatchMode", DistributedSchedulingPolicy.schedulingMode(patch.dispatchMode ?? settings.dispatchMode), vscode.ConfigurationTarget.Global),
             config.update("scheduler.pollSeconds", numberRangePatch(patch, "pollSeconds", settings.pollSeconds, 5, 3600), vscode.ConfigurationTarget.Global),
             config.update("scheduler.jitterSeconds", numberRangePatch(patch, "jitterSeconds", settings.jitterSeconds, 0, 1800), vscode.ConfigurationTarget.Global),
@@ -12607,6 +12603,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 gpuIdleUtilThreshold: optionalNumberRangePatch(patch, "gpuIdleUtilThreshold", worker.gpuIdleUtilThreshold, 0, 100),
                 gpuIdleMemThresholdMb: optionalNumberRangePatch(patch, "gpuIdleMemThresholdMb", worker.gpuIdleMemThresholdMb, 0, 8192),
                 ...GpuMemoryScheduling.memorySchedulingOverrides({ ...worker, ...patch }),
+                ...GpuQuotaScheduling.quotaOverrides({ ...worker, ...patch }),
                 sessionCheckMinSeconds: optionalNumberRangePatch(patch, "sessionCheckMinSeconds", worker.sessionCheckMinSeconds, 1, 60),
                 workerStatusTtlSeconds: optionalNumberRangePatch(patch, "workerStatusTtlSeconds", worker.workerStatusTtlSeconds, 10, 7200),
             };
@@ -13875,11 +13872,9 @@ this.assertActionAuthorityCurrent(options);this.assertPlanTopologyReady(options.
                 worker_name: worker.label,
                 project_dir: worker.remotePath,
                 agent_runtime_dir: dirs.installDir,
-                max_concurrent_gpus: config?.maxConcurrentGpus ?? "auto",
-                gpuIdleUtilThreshold: config?.gpuIdleUtilThreshold ?? globalUtil,
-                gpu_idle_util_threshold: config?.gpuIdleUtilThreshold ?? globalUtil,
-                gpuIdleMemThresholdMb: config?.gpuIdleMemThresholdMb ?? globalMem,
-                gpu_idle_mem_threshold: config?.gpuIdleMemThresholdMb ?? globalMem,
+                max_concurrent_gpus: "auto",
+                ...GpuQuotaScheduling.quotaSettings(sched, config, this.lastRealtimeState?.gpu?.[worker.id] || []),
+                gpuQuotaScheduling: 1,
                 sessionCheckMinSeconds: config?.sessionCheckMinSeconds ?? globalSession,
                 session_check_min_seconds: config?.sessionCheckMinSeconds ?? globalSession,
                 workerStatusTtlSeconds: config?.workerStatusTtlSeconds ?? globalTtl,
@@ -20182,6 +20177,7 @@ return uniqueStrings(this.setupConfig.workerTunnels.flatMap(w=>[w.savedSessionPa
         const config = vscode.workspace.getConfiguration("simpleExperiment");
         return {
             dispatchMode: DistributedSchedulingPolicy.schedulingMode(config.get("scheduler.dispatchMode", "local_idle")),
+            ...GpuQuotaScheduling.quotaSettings(Object.fromEntries(Object.entries(GpuQuotaScheduling.quotaDefaults).map(([key, value]) => [key, config.get("scheduler." + key, value)]))),
             ...GpuMemoryScheduling.memorySchedulingSettings(Object.fromEntries(Object.entries(GpuMemoryScheduling.memorySchedulingDefaults)
                 .map(([key, value]) => [key, config.get("scheduler." + key, value)]))),
             pollSeconds: Math.max(5, Math.min(3600, Number(config.get("scheduler.pollSeconds", 10)) || 10)),
@@ -20269,55 +20265,24 @@ return uniqueStrings(this.setupConfig.workerTunnels.flatMap(w=>[w.savedSessionPa
         finally { this.availabilityPushInFlight = false; }
     }
     private localWorkerAvailabilityRows(ttlSeconds, gpuSnapshot = this.lastRealtimeState?.gpu || {}) {
-        const gpu = gpuSnapshot || {};
-        const sched = this.schedulerSettings() as unknown as { gpuIdleUtilThreshold?: number; gpuIdleMemThresholdMb?: number };
-        const defUtil = Number(sched.gpuIdleUtilThreshold ?? 5);
-        const defMem = Number(sched.gpuIdleMemThresholdMb ?? 200);
-        return this.enabledWorkerConfigs().map((worker) => {
-            const rows = Array.isArray(gpu[worker.id]) ? gpu[worker.id] : [];
-            const thrU = Number(worker.gpuIdleUtilThreshold ?? defUtil);
-            const thrM = Number(worker.gpuIdleMemThresholdMb ?? defMem);
-            const availableGpuIds: string[] = [];
-            const busyGpuIds: string[] = [];
-            for (const row of rows) {
-                const item = row && typeof row === "object" ? row : {};
-                const gpuId = String(item.index ?? item.gpu_id ?? item.gpuId ?? item.id ?? "").trim();
-                if (!gpuId)
-                    continue;
-                const utilRaw = item.utilizationPercent ?? item.utilization ?? item.gpu_util;
-                const memRaw = item.memoryUsedMb ?? item.memory_used_mb ?? item.memoryUsed;
-                const util = Number(utilRaw);
-                const mem = Number(memRaw);
-                const processes = Array.isArray(item.processes) ? item.processes : Array.isArray(item.procs) ? item.procs : undefined;
-                const processCountRaw = item.processCount ?? item.process_count ?? processes?.length;
-                const processCount = Number(processCountRaw);
-                const busy = utilRaw == null || memRaw == null || processCountRaw == null
-                    || typeof utilRaw === "string" && !utilRaw.trim() || typeof memRaw === "string" && !memRaw.trim()
-                    || typeof processCountRaw === "string" && !processCountRaw.trim()
-                    || !Number.isFinite(util) || util < 0 || !Number.isFinite(mem) || mem < 0
-                    || !Number.isInteger(processCount) || processCount < 0 || Boolean(processes?.length)
-                    || processCount !== 0 || util >= thrU || mem >= thrM;
-                if (busy)
-                    busyGpuIds.push(gpuId);
-                else
-                    availableGpuIds.push(gpuId);
+        return this.enabledWorkerConfigs().map(worker => {
+            const rows = Array.isArray(gpuSnapshot[worker.id]) ? gpuSnapshot[worker.id] : [];
+            const policy = GpuQuotaScheduling.quotaSettings(this.schedulerSettings(), worker, rows);
+            const counts = new Map<string, number>();
+            const current = this.lastWorkerTaskSnapshots?.get((workspaceRoot() || "") + "\u0000" + worker.id);
+            const fresh = DistributedPlanQueue.hasFreshDurableSnapshot(current, Date.now(), DistributedSchedulingPolicy.PROGRESS_FRESHNESS_MS);
+            for (const task of fresh ? current.tasks || [] : []) {
+                const pane = task.observation?.tmux;
+                if (pane && !pane.dead && ["admitted", "starting", "running"].includes(pane.phase) && task.gpuId !== undefined)
+                    counts.set(String(task.gpuId), (counts.get(String(task.gpuId)) || 0) + 1);
             }
-            return {
-                workerId: worker.id,
-                available: availableGpuIds.length > 0,
-                availableGpuIds,
-                busyGpuIds,
-                reason: availableGpuIds.length ? "可用" : (rows.length ? "目前无空卡" : "暂无显卡数据"),
-                source: "local_aggregator",
-                updatedAt: new Date().toISOString(),
-                ttlSeconds,
-                capacityLimit: worker.maxConcurrentGpus ?? "auto",
-                capacitySource: (worker.maxConcurrentGpus === undefined || worker.maxConcurrentGpus === null || worker.maxConcurrentGpus === "auto") ? "auto" : "explicit",
-                totalGpus: availableGpuIds.length + busyGpuIds.length,
-                gpuError: "",
-                gpuIdleUtilThreshold: thrU,
-                gpuIdleMemThresholdMb: thrM,
-            };
+            const availableGpuIds = fresh ? [...new Set(GpuQuotaScheduling.quotaPlacement(rows, counts, policy).slots)] : [];
+            const ids = rows.map(row => String(row.index ?? row.gpu_id ?? row.gpuId ?? row.id ?? ""));
+            return { workerId: worker.id, available: availableGpuIds.length > 0, availableGpuIds,
+                busyGpuIds: ids.filter(id => !availableGpuIds.includes(id)),
+                reason: !fresh ? "任务并行数待核实" : availableGpuIds.length ? "配额与显存余量满足" : rows.length ? "配额已满或显存余量不足/未知" : "暂无显卡数据",
+                source: "local_aggregator", updatedAt: new Date().toISOString(), ttlSeconds,
+                capacityLimit: "auto", capacitySource: "auto", totalGpus: ids.length, gpuError: "", ...policy };
         });
     }
     private resetClient() {
@@ -21509,7 +21474,7 @@ return "历史服务器";
         const actionErrorRevision = (Array.isArray(this.actionErrors) ? this.actionErrors : []).slice(0, 8).map((item: any) => `${item?.timestamp || ""}:${item?.command || ""}:${item?.message || ""}`).join("|");
         const remoteRootPolicy = remoteRootPolicyConfig();
         const remoteRootPolicyRevision = sha256Text(JSON.stringify(remoteRootPolicy));
-        const gpuMemorySchedulingPreview = GpuMemoryScheduling.gpuMemorySchedulingPreview(schedulerConfig, this.setupConfig?.workerTunnels || [], gpu);
+        const gpuMemorySchedulingPreview = GpuQuotaScheduling.quotaPreview(schedulerConfig, this.setupConfig?.workerTunnels || [], gpu);
         const sectionRevisions = this.panelSectionRevisionTracker.update({
             settings: [this.setupConfig, schedulerConfigRevision, this.localPlanMetadata.detectedProject, this.localPlanMetadata.plans, this.resultCsvDirectory,
                 projectAdapterRulesRevision, this.resultCatalogDirtyGeneration, pptPlotConfigRevision, remoteRootPolicyRevision,
@@ -25073,6 +25038,7 @@ function compactWorkerSetupForWebview(worker) {
         condaEnv: worker.condaEnv,
         maxConcurrentGpus: worker.maxConcurrentGpus,
         ...GpuMemoryScheduling.memorySchedulingOverrides(worker),
+        ...GpuQuotaScheduling.quotaOverrides(worker),
         enabled: worker.enabled,
     });
 }
