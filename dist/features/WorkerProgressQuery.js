@@ -34,46 +34,58 @@ async function queryWorkerProgress(client, workerId, queries, execution, options
     };
     const publish = () => { if (!closed)
         options.onSnapshot?.(snapshot()); };
+    const fail = (query, message) => {
+        const id = key(query), prior = rows.get(id) || query;
+        errors.set(id, message);
+        rows.set(id, { ...prior, observation: { ...(prior.observation || {}), resultQueryError: message } });
+    };
     const lane = async () => {
         while (!closed && !options.signal?.aborted && index < entries.length) {
-            const query = entries[index++], id = key(query);
+            const batch = entries.slice(index, index + 4);
+            index += batch.length;
             cursors.set(scope, (start + index) % entries.length);
             try {
                 const value = await client.getWorkerTasks(workerId, { signal: options.signal,
-                    selectedOnly: true, observationOnly: true, queries: [query] });
+                    selectedOnly: true, observationOnly: true, queries: batch });
                 if (closed || options.signal?.aborted)
                     return;
-                const task = value?.tasks?.find((task) => key(task) === id && task.workerId === workerId);
-                if (value.error || value.queryComplete !== true || value.capabilities?.taskLifecycle !== 2
-                    || value.resultsOnly !== true && !Array.isArray(value.cleanupExecutors) || !task || task.observation?.queryError)
-                    throw new Error(value.error || task?.observation?.queryError || "所选任务的产物查询未完成");
-                if (value.resultsOnly === true) {
-                    controlIncomplete = true;
-                    const prior = rows.get(id) || query;
-                    const observation = { ...task.observation, ...(prior.observation?.tmux ? { tmux: prior.observation.tmux } : {}) };
-                    if (observation.tmux && !observation.tmux.dead && observation.runtimeDiagnostics) {
-                        observation.runtimeDiagnostics = { ...observation.runtimeDiagnostics, scanComplete: false,
-                            state: observation.runtimeDiagnostics.count ? "anomalous" : "scanning" };
-                    }
-                    const state = (0, TaskLifecycle_1.taskLifecycle)(observation);
-                    rows.set(id, { ...prior, ...task, observation, status: state.status, executionState: state.execution,
-                        resultState: state.result, completionState: state.completionState, runtimeDiagnostics: state.runtimeDiagnostics,
-                        exitCode: state.exitCode, successful: state.status === "completed" && state.completionState === "verified" });
-                }
-                else
-                    rows.set(id, task);
-                checked.add(id);
+                if (value?.error || value?.queryComplete !== true || value?.capabilities?.taskLifecycle !== 2
+                    || value?.resultsOnly !== true && !Array.isArray(value?.cleanupExecutors))
+                    throw new Error(value?.error || "所选任务的产物查询未完成");
                 capabilities = { ...capabilities, ...value.capabilities };
                 for (const item of value.cleanupExecutors || [])
                     cleanup.set(JSON.stringify(item), item);
+                for (const query of batch) {
+                    const id = key(query);
+                    const task = value?.tasks?.find((task) => key(task) === id && task.workerId === workerId);
+                    if (!task || task.observation?.queryError) {
+                        fail(query, task?.observation?.queryError || "所选任务的产物查询未完成");
+                        continue;
+                    }
+                    if (value.resultsOnly === true) {
+                        controlIncomplete = true;
+                        const prior = rows.get(id) || query;
+                        const observation = { ...task.observation, ...(prior.observation?.tmux ? { tmux: prior.observation.tmux } : {}) };
+                        if (observation.tmux && !observation.tmux.dead && observation.runtimeDiagnostics) {
+                            observation.runtimeDiagnostics = { ...observation.runtimeDiagnostics, scanComplete: false,
+                                state: observation.runtimeDiagnostics.count ? "anomalous" : "scanning" };
+                        }
+                        const state = (0, TaskLifecycle_1.taskLifecycle)(observation);
+                        rows.set(id, { ...prior, ...task, observation, status: state.status, executionState: state.execution,
+                            resultState: state.result, completionState: state.completionState, runtimeDiagnostics: state.runtimeDiagnostics,
+                            exitCode: state.exitCode, successful: state.status === "completed" && state.completionState === "verified" });
+                    }
+                    else
+                        rows.set(id, task);
+                    checked.add(id);
+                }
             }
             catch (error) {
                 if (closed || options.signal?.aborted)
                     return;
                 const message = error instanceof Error ? error.message : String(error);
-                errors.set(id, message);
-                const prior = rows.get(id) || query;
-                rows.set(id, { ...prior, observation: { ...(prior.observation || {}), resultQueryError: message } });
+                for (const query of batch)
+                    fail(query, message);
             }
             publish();
         }

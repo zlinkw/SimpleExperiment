@@ -69,6 +69,11 @@ try: threads_by_name['simple-worker-telemetry-sampler']()
 except StopLoop: pass
 assert any(e['type']=='gpu_snapshot' and e['payload']['generatedAt']=='sample-time' for e in events)
 assert 'simple-worker-task-telemetry-sampler' in threads_by_name
+ns['task_execution_inventory']=lambda root: {'executionOnly':True,'tasks':[]}
+ns['time']=type('Clock',(),{'sleep':staticmethod(lambda seconds:(_ for _ in ()).throw(StopLoop()))})
+try: threads_by_name['simple-worker-task-telemetry-sampler']()
+except StopLoop: pass
+assert any(e['type']=='worker_task_snapshot' and e['payload'].get('executionOnly') for e in events), 'background telemetry must not analyze results/history'
 print('fresh GPU passed')
 `, 'utf8');
   const result = spawnSync('python', ['-X', 'utf8', script], { cwd: path.join(__dirname, '../..'), timeout: 10000, windowsHide: true, encoding: 'utf8' });

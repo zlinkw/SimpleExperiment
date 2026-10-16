@@ -46,11 +46,11 @@ test('one failed result read cannot discard completed jobs or execution evidence
  const tasks=Array.from({length:6},(_,i)=>({commandId:'c'+i,projectId:'p',workerId:'w',outputDir:'work/'+i,observation:{lifecycleProtocol:2,commandId:'c'+i,projectId:'p',workerId:'w',tmux:{dead:true,exitCode:0,phase:'running'}}}));
  const execution={executionOnly:true,queryComplete:true,fetchedAt:'2026-10-16T00:00:00Z',capabilities:{taskLifecycle:2},tasks},published=[];
  let active=0,max=0;
- const client={getWorkerTasks:async(_,o)=>{assert.equal(o.selectedOnly,true);assert.equal(o.observationOnly,true);assert.equal(o.queries.length,1);max=Math.max(max,++active);await new Promise(setImmediate);active--;const task=o.queries[0];if(task.commandId==='c2')throw Error('result offline');return {queryComplete:true,capabilities:{taskLifecycle:2},cleanupExecutors:[],tasks:[{...task,status:'completed',observation:{...task.observation,result:{runId:task.commandId,present:true,verified:true,artifactsComplete:true,status:'completed'}}}]};}};
+ const client={getWorkerTasks:async(_,o)=>{assert.equal(o.selectedOnly,true);assert.equal(o.observationOnly,true);assert.ok(o.queries.length<=4);max=Math.max(max,++active);await new Promise(setImmediate);active--;return {queryComplete:true,capabilities:{taskLifecycle:2},cleanupExecutors:[],tasks:o.queries.map(task=>task.commandId==='c2'?{...task,observation:{...task.observation,queryError:'result offline'}}:{...task,status:'completed',observation:{...task.observation,result:{runId:task.commandId,present:true,verified:true,artifactsComplete:true,status:'completed'}}})};}};
  const result=await queryWorkerProgress(client,'w',tasks,execution,{onSnapshot:s=>published.push(s)});
  assert.ok(max<=4);assert.equal(result.tasks.filter(t=>t.status==='completed').length,5);
  assert.equal(result.tasks[2].observation.tmux.exitCode,0);assert.match(result.tasks[2].observation.resultQueryError,/result offline/);
- assert.equal(result.tasks[2].observation.result,undefined);assert.ok(published.length>=5);
+ assert.equal(result.tasks[2].observation.result,undefined);assert.ok(published.length>=2);
  assert.equal(result.executionOnly,true,'partial observations cannot authorize launch/cleanup checks');
  assert.equal(result.fetchedAt,execution.fetchedAt,'result waits must not relabel older execution observations as newly received');
 });
@@ -61,15 +61,22 @@ test('all selected current results finish without requiring other Workers or syn
 });
 
 test('timeout preserves already verified results and rotates past slow jobs on the next round',async()=>{
- const tasks=Array.from({length:8},(_,i)=>({commandId:'c'+i,projectId:'p',workerId:'w',outputDir:'work/'+i}));
+ const tasks=Array.from({length:24},(_,i)=>({commandId:'c'+i,projectId:'p',workerId:'w',outputDir:'work/'+i}));
  const seen=[];let resolveLate;const blocked=new Promise(resolve=>{resolveLate=resolve;});
- const client={getWorkerTasks:async(_,o)=>{const t=o.queries[0];seen.push(t.commandId);if(t.commandId!=='c1')return blocked;return {queryComplete:true,capabilities:{taskLifecycle:2},cleanupExecutors:[],tasks:[{...t,status:'completed'}]};}};
+ const client={getWorkerTasks:async(_,o)=>{const t=o.queries[0];seen.push(t.commandId);if(t.commandId!=='c4')return blocked;return {queryComplete:true,capabilities:{taskLifecycle:2},cleanupExecutors:[],tasks:o.queries.map(t=>({...t,status:'completed'}))};}};
  const controller=new AbortController(),published=[];
  const pending=queryWorkerProgress(client,'w',tasks,{tasks,capabilities:{taskLifecycle:2},queryComplete:true},{signal:controller.signal,onSnapshot:s=>published.push(s)});
  await new Promise(setImmediate);controller.abort(Object.assign(Error('bounded result wait'),{code:'TASK_QUERY_TIMEOUT'}));
- const result=await pending;assert.equal(result.tasks.find(t=>t.commandId==='c1').status,'completed');
+ const result=await pending;assert.equal(result.tasks.find(t=>t.commandId==='c4').status,'completed');
  const length=published.length;resolveLate({queryComplete:true,tasks:[]});await new Promise(setImmediate);assert.equal(published.length,length,'late reads cannot overwrite the next snapshot');
  const old=seen.length,c2=new AbortController();const second=queryWorkerProgress(client,'w',tasks,{tasks,capabilities:{taskLifecycle:2},queryComplete:true},{signal:c2.signal});
  await new Promise(setImmediate);c2.abort(Object.assign(Error('bounded result wait'),{code:'TASK_QUERY_TIMEOUT'}));await second;
- assert.equal(seen[old],'c5','the same slow first jobs cannot starve later results');
+ assert.equal(seen[old],'c20','the same slow first jobs cannot starve later results');
+});
+
+test('43 current jobs use at most 11 bounded result requests, rather than one round trip per job',async()=>{
+ const tasks=Array.from({length:43},(_,i)=>({commandId:'c'+i,projectId:'p',workerId:'w',outputDir:'work/'+i}));let reads=0;
+ const client={getWorkerTasks:async(_,o)=>{reads++;assert.ok(o.queries.length<=4);return {queryComplete:true,capabilities:{taskLifecycle:2},cleanupExecutors:[],tasks:o.queries.map(t=>({...t,status:'completed'}))};}};
+ const result=await queryWorkerProgress(client,'w',tasks,{tasks,capabilities:{taskLifecycle:2},queryComplete:true});
+ assert.equal(reads,11);assert.equal(result.tasks.filter(t=>t.status==='completed').length,43);
 });

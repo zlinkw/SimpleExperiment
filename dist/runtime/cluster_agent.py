@@ -69,9 +69,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.357"
-RUNTIME_VERSION = "0.5.357"
-PLUGIN_VERSION = "0.5.357"
+AGENT_VERSION = "0.5.358"
+RUNTIME_VERSION = "0.5.358"
+PLUGIN_VERSION = "0.5.358"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -7210,7 +7210,9 @@ def start_worker_telemetry_sampler(root, poll_seconds=1, jitter_seconds=0):
         last_payloads = {}
         while True:
             try:
-                tasks_payload = api_worker_tasks(root)
+                # Push is telemetry only. Never repeatedly inspect historical
+                # manifests, logs or multipart launch payloads in the sampler.
+                tasks_payload = task_execution_inventory(root)
                 if payload_cache_changed(last_payloads, "tasks", tasks_payload):
                     append_event(root, {"type": "worker_task_snapshot", "source": "worker_telemetry", "payload": tasks_payload})
             except Exception:

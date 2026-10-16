@@ -353,9 +353,9 @@ export class RealtimeTunnelClient {
     if (this.requiresManualReconnect) return Promise.reject(new Error(this.lastError));
     return this.coalescedRead("plan-code-scope:" + JSON.stringify(query), options, () => this.http.getPlanCodeScope(query, options));
   }
-  getWorkerTasks(options: { signal?: AbortSignal; executionOnly?: boolean; selectedOnly?: boolean; retiredCommandIds?: string[]; queries?: any[]; declarations?: any[]; discovery?: { planFile: string; condaEnv?: string } } = {}): Promise<unknown> {
+  getWorkerTasks(options: { signal?: AbortSignal; executionOnly?: boolean; selectedOnly?: boolean; observationOnly?: boolean; declarationOnly?: boolean; retiredCommandIds?: string[]; queries?: any[]; declarations?: any[]; discovery?: { planFile: string; condaEnv?: string } } = {}): Promise<unknown> {
     if (this.requiresManualReconnect) return Promise.reject(new Error(this.lastError));
-    const selection = [...new Set(options.retiredCommandIds || [])].sort().join(",") + JSON.stringify(options.queries || []) + JSON.stringify(options.declarations || []) + JSON.stringify(options.discovery || null) + ":execution=" + (options.executionOnly === true) + ":selected=" + (options.selectedOnly === true);
+    const selection = [...new Set(options.retiredCommandIds || [])].sort().join(",") + JSON.stringify(options.queries || []) + JSON.stringify(options.declarations || []) + JSON.stringify(options.discovery || null) + ":execution=" + (options.executionOnly === true) + ":selected=" + (options.selectedOnly === true) + ":observation=" + (options.observationOnly === true) + ":declaration=" + (options.declarationOnly === true);
     return this.coalescedRead("worker-tasks:" + selection, options, () => this.http.getWorkerTasks(options));
   }
 
@@ -542,20 +542,12 @@ export class RealtimeTunnelClient {
         if (this.isWorkerTelemetryEndpoint()) {
           // Worker telemetry deliberately has no Hub /api/snapshot. Bootstrap
           // from current snapshots even when no GPU change is in the SSE replay.
-          const [gpuResult, tasksResult] = await Promise.allSettled([
-            this.http.getGpu(), this.http.getWorkerTasks({ signal: abort.signal }),
-          ]);
-          if (gpuResult.status === "rejected") throw gpuResult.reason;
+          // GPU telemetry has its own current read. Task/result observations
+          // belong to the Host's shared progress query, never this stream boot.
+          const gpuResult = await this.http.getGpu();
           if (generation !== this.connectionGeneration || this.disposed) return { gpu: {} };
-          this.acceptWorkerGpuSample(gpuResult.value);
-          if (tasksResult.status === "fulfilled") {
-            const tasks = objectRecord(tasksResult.value) || {};
-            const rows = Array.isArray(tasksResult.value) ? tasksResult.value : tasks.tasks || tasks.workerTasks || tasks.rows;
-            if (Array.isArray(rows)) this.state = compactRealtimeState({ ...this.state,
-              workerTasks: { ...(this.state.workerTasks || {}), [this.workerEndpointId()]: rows },
-            }, { protectedLogKeys: this.protectedLogKeys });
-          }
-          snapshot = { generatedAt: objectRecord(gpuResult.value)?.generatedAt, gpu: this.state.gpu };
+          this.acceptWorkerGpuSample(gpuResult);
+          snapshot = { generatedAt: objectRecord(gpuResult)?.generatedAt, gpu: this.state.gpu };
         } else snapshot = await this.http.getSnapshot({ manual, signal: abort.signal });
       } catch (error) {
         if (generation === this.connectionGeneration && !(error instanceof RequestBudgetDeniedError)) this.connectionLost(message(error));

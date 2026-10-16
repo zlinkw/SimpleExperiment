@@ -6544,7 +6544,9 @@ def start_worker_telemetry_sampler(root, poll_seconds=1, jitter_seconds=0):
         last_payloads = {}
         while True:
             try:
-                tasks_payload = api_worker_tasks(root)
+                # Push is telemetry only. Never repeatedly inspect historical
+                # manifests, logs or multipart launch payloads in the sampler.
+                tasks_payload = task_execution_inventory(root)
                 if payload_cache_changed(last_payloads, "tasks", tasks_payload):
                     append_event(root, {"type": "worker_task_snapshot", "source": "worker_telemetry", "payload": tasks_payload})
             except Exception:

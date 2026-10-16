@@ -10,6 +10,15 @@ const policy = { ...defaultRealtimeRefreshPolicy, preferWebSocket: false, fallba
 const gpu = (count, name = "current") => ({ generatedAt: new Date().toISOString(), status: "ok", gpus: Array.from({ length: count }, (_, index) => ({ index, name })) });
 const event = (seq, type, payload = {}, generatedAt = new Date().toISOString()) => ({ schemaVersion: 1, seq, type, source: "worker_telemetry", generatedAt, payload });
 
+test('Worker GPU bootstrap never waits for task/result queries', async () => {
+  const client=new RealtimeTunnelClient({id:'w',role:'worker',localHost:'localhost',localPort:1},budget(),policy);
+  let taskReads=0;
+  client.http.getGpu=async()=>gpu(3);
+  client.http.getWorkerTasks=async()=>{taskReads++;throw Error('history read must not run');};
+  try { await client.getSnapshot(); assert.equal(taskReads,0);assert.equal(client.currentState().gpu.w.length,3); }
+  finally {await client.disconnect();}
+});
+
 async function fixture(fn) {
   const requested = [];
   let payload = gpu(4);
@@ -93,7 +102,8 @@ test("Worker polling bootstraps all GPU rows without requesting the Hub snapshot
     try {
       await client.connect();
       assert.equal(client.currentState().gpu.nwpu3?.length, 4);
-      assert.equal(client.currentState().workerTasks.nwpu3?.[0].commandId, "running-1");
+      assert.equal(client.currentState().workerTasks.nwpu3, undefined, 'Host owns the shared current task query');
+      assert.ok(!requested.includes('/api/worker/tasks'), 'GPU bootstrap cannot start a hidden full result scan');
       assert.ok(requested.includes("/api/gpu"));
       assert.ok(!requested.includes("/api/snapshot"));
       assert.equal(client.diagnostics().lastError, undefined);

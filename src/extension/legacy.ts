@@ -4283,7 +4283,7 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
         if (this.budget.isPaused())
             return;
         try {
-            await client.connect(undefined, { manual: ["resume stream", "resume network", "xshell launched", "xshell launched all", "xshell sessions launched"].includes(_reason) });
+            await client.connect(undefined, { manual: ["resume stream", "resume network", "xshell launched", "xshell launched all", "xshell sessions launched", "tunnel test ok"].includes(_reason) });
             if (generation !== this.projectContextGeneration || client !== this.client)
                 return;
             void this.projectBootstrapPromise.then(async () => {
@@ -4880,10 +4880,11 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             this.lastHealth = noHubWorkerHealth(nextWorkerProbes);
             this.lastWorkerProbes = nextWorkerProbes;
             this.lastFullEndpointProbeAt = Date.now();
-            this.resetClient();
+            // A probe does not change endpoint configuration. Replacing the
+            // client here aborts in-flight result reads and healthy peers.
             this.lastError = undefined;
-            if (AGENT_READY_HEALTH_STATES.has(this.lastHealth.state)) {
-                void this.ensureRealtimeConnected("tunnel test ok");
+            if (Object.values(nextWorkerProbes).some((probe: any) => probe?.status === "ok")) {
+                void this.ensureRealtimeConnected(userInitiated ? "tunnel test ok" : "tunnel probe ok");
             }
         }
         catch (error) {
