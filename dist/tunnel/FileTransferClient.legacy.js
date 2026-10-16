@@ -39,6 +39,7 @@ const fs = __importStar(require("fs/promises"));
 const fsNode = __importStar(require("node:fs"));
 const path = __importStar(require("path"));
 const ProgressInactivity_1 = require("../core/ProgressInactivity");
+const ProgressRpcTransport_1 = require("../core/ProgressRpcTransport");
 const BoundedResponse_1 = require("./BoundedResponse");
 const TunnelGateway_1 = require("./TunnelGateway");
 const FileTransferTypes_1 = require("./FileTransferTypes");
@@ -209,7 +210,7 @@ class FileTransferClient {
         task.error = undefined;
         task.finishedAt = undefined;
         task.transferredBytes = 0;
-        record.inactivity = new ProgressInactivity_1.ProgressInactivity(120_000, () => record.abort.abort(new Error("文件步骤 120 秒无真实进展，已取消。")));
+        record.inactivity = this.observeInactivity(record);
         const tmpPath = `${task.localPath}.simple-transfer.pending`;
         const maxBytes = Number(options.maxBytes || 0);
         let checkpointSizeBeforeRange;
@@ -232,8 +233,8 @@ class FileTransferClient {
                 if (rangeEnd !== undefined)
                     query.set("end", String(rangeEnd));
             }
-            const response = await this.budget.run("file_transfer", () => fetch(`${(0, TunnelGateway_1.localBaseUrl)(this.config)}${apiPath}?${query.toString()}`, {
-                headers: this.headers(),
+            const response = await this.budget.run("file_transfer", () => (0, ProgressRpcTransport_1.postProgressRpc)(new URL(`${(0, TunnelGateway_1.localBaseUrl)(this.config)}${apiPath}?${query.toString()}`), {
+                method: "GET", headers: this.headers(),
                 signal: record.abort.signal,
             }), { userInitiated: true, signal: record.abort.signal });
             if (!response.ok) {
@@ -305,7 +306,7 @@ class FileTransferClient {
         task.error = undefined;
         task.finishedAt = undefined;
         task.transferredBytes = 0;
-        record.inactivity = new ProgressInactivity_1.ProgressInactivity(120_000, () => record.abort.abort(new Error("文件步骤 120 秒无真实进展，已取消。")));
+        record.inactivity = this.observeInactivity(record);
         try {
             record.lease = await this.acquireFileLease(record);
             const sourcePath = task.localPath || "";
@@ -439,17 +440,28 @@ class FileTransferClient {
     }
     async requestJson(apiPath, method, body, signal, contentType = "application/json", purpose = "file_transfer") {
         return this.budget.run(purpose, async () => {
-            const response = await fetch(`${(0, TunnelGateway_1.localBaseUrl)(this.config)}${apiPath}`, {
+            const options = {
                 method,
                 headers: this.headers(body !== undefined, contentType),
                 body: body === undefined ? undefined : (contentType === "application/json" ? JSON.stringify(body) : body),
-                signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
-            });
+                signal: signal || AbortSignal.timeout(30_000),
+            };
+            const url = new URL(`${(0, TunnelGateway_1.localBaseUrl)(this.config)}${apiPath}`);
+            const response = signal ? await (0, ProgressRpcTransport_1.postProgressRpc)(url, options) : await fetch(url, { ...options, body: options.body });
             const text = await (0, BoundedResponse_1.readBoundedResponseText)(response, () => undefined, 4 * 1024 * 1024);
             if (!response.ok)
                 throw new Error(`file API ${response.status}: ${text.slice(0, 200)}`);
             return text.trim() ? JSON.parse(text) : {};
         }, { userInitiated: true, signal });
+    }
+    observeInactivity(record) {
+        return new ProgressInactivity_1.ProgressInactivity(120_000, () => {
+            try {
+                this.onProgress({ transferId: record.task.transferId, transferredBytes: record.task.transferredBytes,
+                    totalBytes: record.task.size, stalled: true });
+            }
+            catch { /* Telemetry does not cancel a file operation. */ }
+        }, Date.now, true);
     }
     async confirmRemoteUploadSettlement(record, timeoutMs = TRANSFER_CANCEL_SETTLEMENT_TIMEOUT_MS) {
         if (this.config.fileCapabilities?.supportsUploadCancel !== true) {

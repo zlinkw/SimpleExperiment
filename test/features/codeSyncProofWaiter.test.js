@@ -8,11 +8,17 @@ test('real progress outlasts the old total deadline and a lost POST response nev
     query:async()=>({...identity,status:++reads===6?'completed':'running',processedFiles:reads,processedBytes:reads*10,totalFiles:6,result:{ok:true}})});
   assert.equal(result.ok,true);assert.equal(submits,1);assert.ok(Date.now()-started>120);
 });
-test('unchanged counts and heartbeat responses cannot keep the registration pending forever',async()=>{
+test('query failure ends an unchanged file verification as unknown without repeating registration',async()=>{
   let submits=0;
   await assert.rejects(waitForCodeSyncProof({...identity,idleMs:50,pollMs:5,assertCurrent(){},submit:async()=>{submits++;throw Error('lost response');},
-    query:async()=>({...identity,status:'running',processedFiles:1,processedBytes:1,heartbeat:Date.now()})}),/same-operation.*未重复上传/);
+    query:async()=>{throw Error('read disconnected');}}),/same-operation.*未重复上传/);
   assert.equal(submits,1);
+});
+test('slow unchanged filesystem observations remain pending until actual proof completes',async()=>{
+ let reads=0,submits=0;const messages=[];
+ const result=await waitForCodeSyncProof({...identity,idleMs:30,pollMs:15,assertCurrent(){},progress:text=>messages.push(text),submit:async()=>{submits++;},
+  query:async()=>({...identity,status:++reads===7?'completed':'running',processedFiles:1,processedBytes:1,result:{ok:true}})});
+ assert.equal(result.ok,true);assert.equal(submits,1);assert.ok(messages.some(text=>text.includes('暂未取得新进展')));
 });
 test('failed or mismatched active query evidence rejects the original operation',async()=>{
   for(const result of [{...identity,status:'failed',error:'mounted file changed'},{...identity,workerId:'other',status:'completed'}]){

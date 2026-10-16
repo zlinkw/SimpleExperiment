@@ -127,13 +127,18 @@ async function hashLocalCodeFiles(root, files, cacheFile, onProgress, signal) {
         onAbort();
     else
         signal?.addEventListener("abort", onAbort, { once: true });
-    const idle = new ProgressInactivity_1.ProgressInactivity(120_000, () => abort.abort(new Error("本地哈希 120 秒无真实进展。请检查文件是否可读，再重试。")));
+    const stats = { listed: files.length, reused: 0, hashed: 0, pruned: 0 };
+    const idle = new ProgressInactivity_1.ProgressInactivity(120_000, () => {
+        try {
+            onProgress?.({ ...stats, stalled: true });
+        }
+        catch { /* Progress is advisory. */ }
+    }, Date.now, true);
     try {
         abort.signal.throwIfAborted();
         const cache = cacheFile ? await readCache(cacheFile) : { schemaVersion: CACHE_SCHEMA_VERSION, files: {} };
         const manifest = {};
         const nextFiles = {};
-        const stats = { listed: files.length, reused: 0, hashed: 0, pruned: 0 };
         const concurrency = 12;
         let nextIndex = 0;
         let completed = 0;

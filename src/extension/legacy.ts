@@ -9116,7 +9116,8 @@ reportStage("正在准备校验所需代码…");
                 executionOnly: ["run", "plan-check"].includes(scope),
                 cacheFile: this.localCodeManifestCacheFile(root),
                 onProgress: (stats) => {
-                    if (progressReport) progressReport(`本地清单 ${stats.listed} 个文件：缓存命中 ${stats.reused}，重新哈希 ${stats.hashed}${stats.cacheWriteSkipped ? "，缓存未改写" : ""}`);
+                    if (progressReport) progressReport(stats.stalled ? "本地文件读取暂未取得新进展，继续等待；可手动取消"
+                        : `本地清单 ${stats.listed} 个文件：缓存命中 ${stats.reused}，重新哈希 ${stats.hashed}${stats.cacheWriteSkipped ? "，缓存未改写" : ""}`);
                 },
             });
         if (reuseSubmissionManifest) this.pendingPlanSubmissionManifest = undefined;
@@ -9205,7 +9206,10 @@ reportStage("正在准备校验所需代码…");
                     const inventoryStarted = Date.now();
                     const inventory = await this.verifiedSftpProjectInventory({
                         source: this.sftpServerOptions(target), relativePath: ".", recursive: true,
-                        scopePaths: inventoryScopePaths, timeoutMs: 120000,
+                        scopePaths: inventoryScopePaths,
+                        onProgress: progressReport ? snapshot => progressReport(snapshot.stalled || snapshot.phase === "stalled"
+                            ? `${target.label || target.id}：文件核实暂未取得新进展，仍在查询；可手动取消`
+                            : `${target.label || target.id}：${snapshot.phase === "preparing" ? "已枚举" : "已核实"} ${snapshot.processedFiles || 0} 项${snapshot.processedBytes === undefined ? "" : `，已读取 ${snapshot.processedBytes} 字节`}`) : undefined,
                     });
                     remoteFiles = inventoryFilesByPath(inventory);
                     if (progressReport) progressReport(`${target.label || target.id} 远端清单已返回（本段 ${Date.now() - inventoryStarted} ms）`);
@@ -10559,7 +10563,7 @@ this.assertPlanTopologyReady("Plan 调度");
                     ? ` · 缓存${({ unavailable: "不可用", "read-failed": "读取失败", "write-failed": "写入失败" })[detail.cacheStatus] || "异常"}，正在完整校验` : "";
                 const elapsed = detail.elapsedMs === undefined ? "" : ` · 本步已耗时 ${Math.floor(detail.elapsedMs / 1000)} 秒`;
                 const labels = { preparing: "准备清单", hashing: "SHA256 校验", packing: "压缩打包", transferring: "压缩传输",
-                    unpacking: "解包", verifying: "内容复核", publishing: "发布文件", recording: "记录校验结果", reconciling: "核实旧传输退出" };
+                    unpacking: "解包", verifying: "内容复核", publishing: "发布文件", recording: "记录校验结果", reconciling: "核实旧传输退出", stalled: "等待实际文件状态，可手动取消" };
                 const label = labels[detail.phase] || "处理产物";
                 const scope = detail.planFile ? ` · ${detail.planFile} job ${detail.jobIndex}`
                     : detail.batch ? ` · 第 ${detail.batch}${detail.batchCount ? `/${detail.batchCount}` : ""} 批` : "";
@@ -13148,6 +13152,9 @@ this.assertActionAuthorityCurrent(options);this.assertPlanTopologyReady(options.
         let stalled = false;
         const progress = new ProgressInactivity(/file|sync|archive|results|parse/.test(action) ? 120_000 : 30_000, () => {
             stalled = true;
+            // A bounded UI wait may become unknown; it must not cancel a file
+            // executor merely because a filesystem call has not returned yet.
+            if (/file|sync|archive|results|parse/.test(action)) return;
             const pending = this.localOperations[opId] || record;
             const planFile = operationResultPlanFile(pending);
             const request = { opId: makeOpId("cancel-operation"), targetOperationId: opId, planFile };

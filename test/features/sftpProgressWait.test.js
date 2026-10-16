@@ -120,6 +120,56 @@ test('unchanged transfer observations report a stall without fixed-time cancella
   });
 });
 
+test('all file methods survive silent enumeration and capacity queuing without manufacturing progress or cancelling',async()=>{
+ for(const method of ['sync.projectInventory','sync.projectTree','sync.projectTreeState','sync.projectFileStats','sync.planLogPaths','remote.listDirs',
+  'files.cleanup.preview','files.cleanup.check','files.cleanup.execute']){
+  const snapshots=[];
+  await fixture(async f=>{
+   now=121;assert.equal(waits[0].check(),true);await new Promise(setImmediate);assert.equal(f.cancels,0,method);
+   assert.deepEqual(snapshots.map(x=>x.phase),['stalled']);assert.equal(snapshots[0].processedFiles,undefined);
+   now=150;f.emit({phase:'preparing',processedFiles:2});await new Promise(setImmediate);
+   assert.equal(waits[0].lastProgressAt,150);
+   now=300;waits[0].check();assert.equal(f.cancels,0);
+   f.finish();assert.equal((await f.work).ok,true);
+  },row=>snapshots.push(row),method);
+ }
+});
+
+test('a transient progress poll failure resumes observing the same operation without replay',async()=>{
+ const original=global.fetch;let operationId,finish,polls=0,starts=0;const reports=[];
+ global.fetch=async(url,options)=>{
+  if(String(url).includes('/events'))return new Response(null,{status:204});
+  const request=JSON.parse(options.body);
+  if(request.method==='transfers.list'){
+   if(++polls===1)throw Error('temporary observation failure');
+   return Response.json({result:{instanceId:'active',transfers:[{operationId,phase:'preparing',processedFiles:4}]}});
+  }
+  starts++;operationId=request.params._operationId;return new Promise(resolve=>finish=()=>resolve(Response.json({result:{ok:true}})));
+ };
+ now=0;waits=[];
+ try{
+  const work=callSftpWithProgress('sync.projectInventory',{},async()=>({endpoint:new URL('http://127.0.0.1:1'),headers:{},instanceId:'active'}),row=>reports.push(row));
+  await new Promise(resolve=>setTimeout(resolve,1700));finish();await work;
+  assert.ok(polls>=2);assert.equal(starts,1);assert.equal(reports.at(-1).processedFiles,4);
+ }finally{global.fetch=original;for(const wait of waits)wait.dispose();}
+});
+
+test('a changed plugin instance ends a metadata read as unknown and rejects late success',async()=>{
+ const original=global.fetch;let starts=0,cancels=0,finish;
+ global.fetch=async(url,options)=>{
+  if(String(url).includes('/events'))return new Response(null,{status:204});
+  const req=JSON.parse(options.body);
+  if(req.method==='transfers.list')return Response.json({result:{instanceId:'replacement',transfers:[]}});
+  if(req.method==='transfers.cancel'){cancels++;return Response.json({result:{}});}
+  starts++;return new Promise((resolve,reject)=>{finish=()=>resolve(Response.json({result:{ok:true}}));options.signal.addEventListener('abort',()=>reject(options.signal.reason),{once:true});});
+ };
+ now=0;waits=[];
+ try{
+  await assert.rejects(callSftpWithProgress('sync.projectInventory',{},async()=>({endpoint:new URL('http://127.0.0.1:1'),headers:{},instanceId:'original'})),/实例已变化.*结果未知/);
+  finish();assert.equal(starts,1);assert.equal(cancels,0);
+ }finally{global.fetch=original;for(const wait of waits)wait.dispose();}
+});
+
 test('oversized RPC responses are bounded and their stream is cancelled', async () => {
   const original = global.fetch;
   let cancelled = false;
@@ -152,7 +202,8 @@ test('oversized SSE frames release their reader and do not interrupt the actual 
     assert.equal(cancelled, true);
   } finally { global.fetch = original; }
 });
-test('cancelled metadata reads permit a fresh refresh without waiting for a missing transfer receipt',async()=>{
+for(const [readMethod,readParams] of [['sync.projectTree',{}],['sync.downloadMappedPaths',{memoryOnly:true}]])
+test('cancelled '+readMethod+' reads permit a fresh refresh without waiting for a missing transfer receipt',async()=>{
  const original=global.fetch,calls=[],controller=new AbortController();let first=true;
  global.fetch=async(url,options)=>{
   if(String(url).includes('/events'))return new Response(null,{status:204});
@@ -163,7 +214,7 @@ test('cancelled metadata reads permit a fresh refresh without waiting for a miss
  };
  try{
   const discovery=async()=>({endpoint:new URL('http://127.0.0.1:1'),headers:{},instanceId:'fixture'});
-  const query=callSftpWithProgress('sync.projectTree',{signal:controller.signal},discovery);await new Promise(setImmediate);controller.abort(Error('user cancelled query'));
-  await assert.rejects(query,/cancelled query/);const next=await callSftpWithProgress('sync.projectTree',{},discovery);assert.deepEqual(next.entries,[]);assert.deepEqual(calls,['sync.projectTree','sync.projectTree']);
+  const query=callSftpWithProgress(readMethod,{...readParams,signal:controller.signal},discovery);await new Promise(setImmediate);controller.abort(Error('user cancelled query'));
+  await assert.rejects(query,/cancelled query/);const next=await callSftpWithProgress(readMethod,readParams,discovery);assert.deepEqual(next.entries,[]);assert.deepEqual(calls,[readMethod,readMethod]);
  }finally{global.fetch=original;for(const wait of waits)wait.dispose();}
 });

@@ -100,7 +100,7 @@ export async function deleteLocalSyncPath(root: string, relative: string): Promi
   const recheck = await fs.lstat(full, { bigint: true });
   if (recheck.dev !== target.dev || recheck.ino !== target.ino || recheck.size !== target.size || recheck.mtimeMs !== target.mtimeMs
     || recheck.mtimeNs !== target.mtimeNs || recheck.isSymbolicLink() || recheck.isDirectory() !== (targetType === "directory") || (targetType === "file" && recheck.nlink > 1n)) throw new Error("删除目标身份在执行前发生变化；禁止删除。");
-  try { await promisify(execFile)("pwsh.exe", ["-NoProfile", "-NonInteractive", "-Command", localDeleteScript(rootReal, relative, { type: targetType, size: target.size.toString(), modifiedTicks })], { cwd: parentReal, windowsHide: true, timeout: 30000 }); }
+  try { await promisify(execFile)("pwsh.exe", ["-NoProfile", "-NonInteractive", "-Command", localDeleteScript(rootReal, relative, { type: targetType, size: target.size.toString(), modifiedTicks })], { cwd: parentReal, windowsHide: true, timeout: 0 }); }
   catch (error) {
     const detail = `${String(error)} ${String((error as NodeJS.ErrnoException & { stderr?: string }).stderr || "")}`;
     if (detail.includes("PARENT_CD_FAILED")) throw new Error(`PARENT_CD_FAILED：无法进入父目录 ${parentReal}；禁止删除。`);

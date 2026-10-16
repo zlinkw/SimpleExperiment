@@ -188,11 +188,12 @@ test('each node is actually queried instead of exhausting one shared ten-second 
 });
 
 test('a real stalled cleanup query reports its node and path and the next read can recover without deleting',async t=>{
-  t.mock.timers.enable({apis:['setTimeout','Date'],now:0});let stalled=true;
-  const f=activeQueryFixture(async method=>{assert.ok(['files.cleanup.check','files.cleanup.inspect'].includes(method));
+  t.mock.timers.enable({apis:['setTimeout','Date'],now:0});let stalled=true,signal;
+  const f=activeQueryFixture(async (method,params)=>{assert.ok(['files.cleanup.check','files.cleanup.inspect'].includes(method));signal=params.signal;
     return stalled?new Promise(()=>{}):{state:'pending',target:{missing:false}};});
   const pending=f.service.managedCheck(f.rows[0]);pending.catch(()=>{});await new Promise(setImmediate);
   t.mock.timers.tick(65001);await assert.rejects(pending,error=>/w0/.test(error.message)&&/work\/job0/.test(error.message));
+  assert.equal(signal.aborted,true,'only the timed-out read is cancelled; no abandoned SSH query accumulates');
   stalled=false;assert.equal((await f.service.managedCheck(f.rows[0])).state,'pending');
 });
 

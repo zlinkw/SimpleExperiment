@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.361",
-  "buildId": "a749c536ffe6d1350156aa0b87018db1f14ad0f0807ab07fb39798971904820b",
+  "version": "0.5.362",
+  "buildId": "8e64571ab59c34311b5ee1114be4c416a19e9c559216e65e627f16146e70eb9c",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -141,7 +141,7 @@
     },
     {
       "path": "dist/core/ProgressRpcTransport.js",
-      "sha256": "4427444e33e43f7eff71ce9b3766af0728b5be35feff86610c4fc82e7bb12ed9"
+      "sha256": "a597600d78e93341d54d3581475798cd3a719352f4c6e489cf847139117175d0"
     },
     {
       "path": "dist/core/ResourceOperationLease.js",
@@ -157,7 +157,7 @@
     },
     {
       "path": "dist/core/SimpleSftpProgressWait.js",
-      "sha256": "95ea577275d955f0521ea52efbc80049681e4c2ed6c0898c5a5e91c0a7880127"
+      "sha256": "893b4c06b446bbf3fdd6f31672a935b66288ad784ca47436081a03616df737d6"
     },
     {
       "path": "dist/core/WorkspacePathMapper.js",
@@ -197,7 +197,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "d481d2510344cf150161149aeb4ee5b3999d9eec6dc8a8d659f3f31e42a768f0"
+      "sha256": "abf3526da2ddf2fd03536df0ea3df541e5f071f5f08039f10bfe1be270af7bed"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -289,7 +289,7 @@
     },
     {
       "path": "dist/features/CodeSyncProofWaiter.js",
-      "sha256": "52446df67c9de2352e8d6f01bbf536df1fc5630689b4c85a6f3af1ea3edfd3f1"
+      "sha256": "cc4512408d2eb28ce87fedcde4c0a5b04df42eb601373f61e796b054b809c5c4"
     },
     {
       "path": "dist/features/DistributedAdapterFlag.js",
@@ -369,7 +369,7 @@
     },
     {
       "path": "dist/features/LocalCodeManifestCache.js",
-      "sha256": "7daa1c409def1f1cbfb8fa035c38ff904a89bd8d3b539adaf3873f5ed33f5aa9"
+      "sha256": "5346f0d8329f7e6023781c824f11e6c5d4fa9c002ba4a90b2e584f528e556aa5"
     },
     {
       "path": "dist/features/ManifestCleanup.js",
@@ -461,7 +461,7 @@
     },
     {
       "path": "dist/features/PlanCleanup.js",
-      "sha256": "56634bae7544d1f353c2735842200623fef03e04996573a17eef095be13c581a"
+      "sha256": "09be129fc3cad0ab8fe0eea3d97d67fae68aea7e048e9610a5ff549f4037cde1"
     },
     {
       "path": "dist/features/PlanCleanupEvidence.js",
@@ -549,7 +549,7 @@
     },
     {
       "path": "dist/features/SyncResolution.js",
-      "sha256": "d46f71123499b6555e4291673c1ebe26afb7113e277685dd37991ce0124afca3"
+      "sha256": "e0e6be86b6408eff27aeaf1c5641ce9e193eb30638e75d3751c7944539d26b43"
     },
     {
       "path": "dist/features/SyncScopeBatch.js",
@@ -561,7 +561,7 @@
     },
     {
       "path": "dist/features/SyncScopeDelete.js",
-      "sha256": "39bc7605add115140cdd49f1e21b6a66acbf0f3d85d8e83f2ea29c11c3bff2af"
+      "sha256": "aead470ca52ab486eb265878fd41bff96bb59e823d6bce00866e503b40b9de7f"
     },
     {
       "path": "dist/features/SyncScopeLocalMirror.js",
@@ -673,7 +673,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "184fa26e4ff7b0d2a5e91eb5fe0d82f7feffbc2319157e1f3990963705698ad3"
+      "sha256": "a918f91474ead0691c50b60141f7ceded1bc17955482ee2acad7973ba182e05a"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -733,7 +733,7 @@
     },
     {
       "path": "dist/tunnel/FileTransferClient.legacy.js",
-      "sha256": "f037cb06250d67b5ad983bf007ddc5d52c2d88834b62d496167a4597ca5c24d7"
+      "sha256": "16c851b8988df26f1dda4df4b09b26169586b3b4f03f954936239889dad0d76f"
     },
     {
       "path": "dist/tunnel/FileTransferTypes.js",
@@ -1021,7 +1021,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "c333213f56a0767384513524583ef9c214f0e6614c588952b201c15aeac83d1c"
+      "sha256": "e59ea7c186c89e241f88987c42ed6345376efceb4720967267bbc048615a888e"
     },
     {
       "path": "scripts/check-static.js",

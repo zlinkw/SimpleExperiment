@@ -45,7 +45,7 @@ function postProgressRpc(url, options) {
         return Promise.reject(new Error("Progress RPC requires a loopback endpoint"));
     return new Promise((resolve, reject) => {
         const transport = url.protocol === "https:" ? https : http;
-        const request = transport.request(url, { method: "POST", headers: options.headers, signal: options.signal,
+        const request = transport.request(url, { method: options.method || "POST", headers: options.headers, signal: options.signal,
             agent: false, timeout: 0 }, (incoming) => {
             const headers = new Headers();
             for (const [name, value] of Object.entries(incoming.headers)) {

@@ -61,14 +61,14 @@ test('real deletion progress extends an inactivity budget and busy admission ret
   assert.ok(requests.filter(([m])=>m.endsWith('.execute')).every(([,p])=>p.token==='same'&&p.digest==='approved'));
 });
 
-test('heartbeats without removed files or bytes end the wait without resending an uncertain execution',async()=>{
-  let now=0,starts=0;
-  await assert.rejects(deleteConfirmedScopeCopy(async m=>{
+test('a live slow executor does not time out or resend an uncertain deletion',async()=>{
+  let now=0,starts=0,checks=0;
+  await deleteConfirmedScopeCopy(async m=>{
     if(m.endsWith('.inspect'))return {ok:true,executorsChecked:true,executors:[]};
     if(m.endsWith('.preview'))return {token:'same',digest:'approved',targets:[{absolutePath:'/project/work_dirs/job',type:'directory'}]};
     if(m.endsWith('.execute')){starts++;throw Error('lost response');}
-    if(m.endsWith('.check'))return {ok:true,state:'executing',progress:{removedEntries:0,removedBytes:0},observedAt:now};
+    if(m.endsWith('.check'))return {ok:true,state:++checks===7?'completed':'executing',progress:{removedEntries:0,removedBytes:0},observedAt:now};
     return {ok:true};
-  },node,'work_dirs/job',true,()=>{},{timeoutMs:15,now:()=>now,wait:async()=>{now+=10;}}),/清理窗口仍在处理/);
-  assert.equal(starts,1);
+  },node,'work_dirs/job',true,()=>{},{timeoutMs:15,now:()=>now,wait:async()=>{now+=10;}});
+  assert.equal(starts,1);assert.ok(now>15);assert.equal(checks,7);
 });

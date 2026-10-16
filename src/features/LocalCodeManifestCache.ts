@@ -8,7 +8,7 @@ import * as path from "path";
 
 export type LocalCodeManifestEntry = { size: number; sha256: string };
 export type LocalCodeManifest = Record<string, LocalCodeManifestEntry>;
-export type LocalCodeManifestStats = { listed: number; reused: number; hashed: number; pruned: number; cacheWriteSkipped?: number };
+export type LocalCodeManifestStats = { listed: number; reused: number; hashed: number; pruned: number; cacheWriteSkipped?: number; stalled?: boolean };
 
 type CacheIdentity = { dev: string; ino: string; size: number; mtimeMs: number; ctimeMs: number; birthtimeMs: number };
 type CacheRow = CacheIdentity & { sha256: string };
@@ -102,13 +102,15 @@ export async function hashLocalCodeFiles(
   const abort = new AbortController();
   const onAbort = () => abort.abort(signal?.reason);
   if (signal?.aborted) onAbort(); else signal?.addEventListener("abort", onAbort, { once: true });
-  const idle = new ProgressInactivity(120_000, () => abort.abort(new Error("本地哈希 120 秒无真实进展。请检查文件是否可读，再重试。")));
+  const stats: LocalCodeManifestStats = { listed: files.length, reused: 0, hashed: 0, pruned: 0 };
+  const idle = new ProgressInactivity(120_000, () => {
+    try { onProgress?.({ ...stats, stalled: true }); } catch { /* Progress is advisory. */ }
+  }, Date.now, true);
   try {
   abort.signal.throwIfAborted();
   const cache: CacheDocument = cacheFile ? await readCache(cacheFile) : { schemaVersion: CACHE_SCHEMA_VERSION, files: {} };
   const manifest: LocalCodeManifest = {};
   const nextFiles: Record<string, CacheRow> = {};
-  const stats: LocalCodeManifestStats = { listed: files.length, reused: 0, hashed: 0, pruned: 0 };
   const concurrency = 12;
   let nextIndex = 0;
   let completed = 0;

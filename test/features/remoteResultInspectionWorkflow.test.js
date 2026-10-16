@@ -315,23 +315,25 @@ test("file transfer enforces the inspection size cap before streaming", () => {
   assert.match(agent, /params\.get\("maxBytes"\)/);
 });
 
-test("file transfer sends maxBytes to the Hub file API", async () => {
-  const previousFetch = global.fetch;
+test("file transfer sends maxBytes to an isolated loopback file API", async () => {
+  const http = require('node:http');
   let requestedUrl = "";
-  global.fetch = async (url) => {
-    requestedUrl = String(url);
-    return new Response('{"error":"file exceeds requested maxBytes"}', { status: 413, headers: { "content-type": "application/json" } });
-  };
+  const server = http.createServer((request,response) => {
+    requestedUrl = request.url;
+    response.writeHead(413, { 'content-type': 'application/json' });
+    response.end('{"error":"file exceeds requested maxBytes"}');
+  });
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   try {
     const budget = { run: async (_kind, work) => work() };
-    const client = new FileTransferClient({ localHost: "127.0.0.1", localPort: 18765 }, budget);
+    const client = new FileTransferClient({ localHost: "127.0.0.1", localPort: server.address().port }, budget);
     await assert.rejects(
       client.downloadFile("work_dirs/smoke/metrics_summary.csv", path.join(root, "simple_cluster", "tmp", "unused.csv"), { maxBytes: 12345 }),
       /HTTP 413/
     );
     assert.match(requestedUrl, /maxBytes=12345/);
   } finally {
-    global.fetch = previousFetch;
+    server.closeAllConnections(); await new Promise(resolve => server.close(resolve));
   }
 });
 

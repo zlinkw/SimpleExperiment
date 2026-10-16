@@ -130,12 +130,16 @@ export class PlanCleanup {
   }
   private async query(row: CleanupRow, method: string, params: any, timeoutMs = CLEANUP_QUERY_TIMEOUT_MS): Promise<any> {
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const read = new AbortController();
     if (this.ports.currentNode && this.nodeIdentity(await this.ports.currentNode(row.node.id)) !== this.nodeIdentity(row.node))
       cleanupError("SERVER_IDENTITY_CHANGED");
     try {
-      return await Promise.race([this.ports.sftp(method, params), new Promise((_, reject) => {
-        timer = setTimeout(() => reject(Object.assign(new Error(row.node.id + "：核实 " + row.absolutePath
-          + " 超时；请重试查询，未重新执行文件操作。"), { apiData: { code: "CLEANUP_QUERY_TIMEOUT", nodeId: row.node.id, path: row.absolutePath, method } })), timeoutMs);
+      return await Promise.race([this.ports.sftp(method, { ...params, signal: params.signal ? AbortSignal.any([params.signal, read.signal]) : read.signal }), new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          const error = Object.assign(new Error(row.node.id + "：核实 " + row.absolutePath
+          + " 超时；请重试查询，未重新执行文件操作。"), { apiData: { code: "CLEANUP_QUERY_TIMEOUT", nodeId: row.node.id, path: row.absolutePath, method } });
+          read.abort(error); reject(error);
+        }, timeoutMs);
       })]);
     } finally { if (timer) clearTimeout(timer); }
   }

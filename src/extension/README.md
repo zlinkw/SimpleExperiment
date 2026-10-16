@@ -58,5 +58,5 @@ await activateExtension(context, factory);
 
 ## P0 约束
 
-- 禁止硬编码 `10890` / `127.0.0.1:18765`，隧道端口由 `TunnelFactory.resolveEndpointUrl()` 动态解析
+- 禁止硬编码隧道地址或端口，实际端点由 `TunnelFactory.resolveEndpointUrl()` 动态解析
 - 所有新文件带 `// @ts-nocheck`，避免全量类型检查阻塞增量重构

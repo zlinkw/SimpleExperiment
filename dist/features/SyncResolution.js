@@ -145,7 +145,7 @@ async function deleteLocalSyncPath(root, relative) {
         || recheck.mtimeNs !== target.mtimeNs || recheck.isSymbolicLink() || recheck.isDirectory() !== (targetType === "directory") || (targetType === "file" && recheck.nlink > 1n))
         throw new Error("删除目标身份在执行前发生变化；禁止删除。");
     try {
-        await (0, node_util_1.promisify)(node_child_process_1.execFile)("pwsh.exe", ["-NoProfile", "-NonInteractive", "-Command", localDeleteScript(rootReal, relative, { type: targetType, size: target.size.toString(), modifiedTicks })], { cwd: parentReal, windowsHide: true, timeout: 30000 });
+        await (0, node_util_1.promisify)(node_child_process_1.execFile)("pwsh.exe", ["-NoProfile", "-NonInteractive", "-Command", localDeleteScript(rootReal, relative, { type: targetType, size: target.size.toString(), modifiedTicks })], { cwd: parentReal, windowsHide: true, timeout: 0 });
     }
     catch (error) {
         const detail = `${String(error)} ${String(error.stderr || "")}`;

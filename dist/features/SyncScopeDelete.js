@@ -67,9 +67,13 @@ async function deleteConfirmedScopeCopy(rpc, node, relativePath, directory, repo
             }
             report(`正在删除：已清除 ${removedEntries} 项、${removedBytes} 字节`);
         }
-        if (now() >= deadline)
+        // An observed live executor is authoritative even while one filesystem
+        // removal blocks. Silence cannot turn it into a failed or replayable delete.
+        if (now() >= deadline && !admissionWaiting)
+            report('清理窗口仍在处理，等待实际文件状态；不会重复删除');
+        if (now() >= deadline && admissionWaiting)
             break;
         await (timing.wait || (() => new Promise(resolve => setTimeout(resolve, 500))))();
-    } while (now() < deadline);
+    } while (true);
     throw new Error('清理窗口仍在处理；本轮等待已结束，请刷新文件列表，不重复删除。');
 }
