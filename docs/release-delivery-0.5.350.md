@@ -22,4 +22,12 @@ targeted tests 与 typecheck 通过；npm run package 全部串行门禁为 116 
 
 包为 simple-experiment-0.5.350.vsix，2,993,989 字节；SHA256 为 dff1035a3bf38ede12a6a883eeb0b07cb5dd484d3aabcceaee7034834d8e99a3。已验证 514 个 ZIP 条目、370 个 dist 文件与本机字节一致、8 个 Python 语法、扩展身份/平台/runtime/秘密排除和运行闭包。对应 SHA 清单绑定精确包名。
 
-发行与安装结果在交付结束后补记。远端原现场未自动更新和执行同步，不能将本机合成验证表述为现场同步已恢复。
+## 实际交付
+
+- 源码提交 4f4e30327e83a91108ac67b613bc4931e2d5f76b 已普通 fast-forward 推送 origin/master，fetch 确认一致。
+- 稳定 Latest 为 https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.350 ，tag 绑定上述提交，draft=false、prerelease=false。VSIX 资产和同名 SHA 清单的文件名、大小、GitHub digest 与本机包一致。
+- 0.5.349 的实际 ReleaseClient 首轮网络下载失败；只读重试成功，实际 Latest 解析为 update_available。真实下载至系统临时目录 simpleex-0350-release-verify-BAyZZk，扩展身份/平台/SHA/字节与已验证本机包一致。配套 SimpleSFTP 0.2.90 为 168,173 字节，SHA256 d7fcbc0df6eb606d52146e28c30cb1f75851da01e29042a403127f3ffeb4eb65，同样通过真实下载核验。
+- npm run install:latest 仅显式执行一次，成功安装 0.5.350，无 force、无降级；code 列表确认版本，370 个安装 dist 文件与精确 VSIX 一致，simpleex --help 入口正常。
+- 安装后未再操作 SimpleExperiment 面板或调用其 API。等待用户 Developer: Reload Window；需再经插件更新 Worker Agent 以启用远端定向完整查询，未自动部署 Agent/Scheduler。
+
+未启动、停止、重跑科研任务，未删除或覆盖科研产物。远端原现场未自动更新和执行同步，不能将本机合成验证表述为现场同步已恢复。
