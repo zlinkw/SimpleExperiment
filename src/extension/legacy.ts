@@ -946,7 +946,7 @@ export class RealtimeTunnelPanelProvider {
     distributedQueueGeneration = 0;
     distributedRecallInFlight = new Set<string>();
     private distributedTickAbort?: AbortController;
-    private progressRefreshRequests = new Map<string, { controller: AbortController; promise?: Promise<any> }>();
+    private progressRefreshRequests = new Map<string, { controller: AbortController; client: any; promise?: Promise<any> }>();
     planStopClearByFile: Record<string, any> = {};
     distributedNextProbeAt = 0;
     distributedNextFailureDetailAt = 0;
@@ -1415,12 +1415,14 @@ export class RealtimeTunnelPanelProvider {
                 const workerTasks = await Promise.all(workerIds.map((workerId) => this.readWorkerTaskSnapshot(workerId, { fresh: true, signal: context.signal })));
                 context.signal.throwIfAborted();
                 const queue = await this.loadDistributedQueue(workspaceRoot());
-                const live = DistributedPlanQueue.mergeDurableWorkerSnapshots(queue, workerTasks, DistributedPlanQueue.canonicalProjectId(workspaceRoot()));
+                const live = DistributedPlanQueue.mergeDurableWorkerSnapshots(queue, workerTasks, DistributedPlanQueue.canonicalProjectId(workspaceRoot()),
+                    Date.now(), DistributedSchedulingPolicy.PROGRESS_FRESHNESS_MS);
                 return {
                     lifecycleProtocol: 2, stateSource: "active_query", jobLifecycle: live.plans.flatMap(plan => plan.jobs.map(job => ({
                         workflowId: plan.id, commandId: job.commandId, index: job.index, workerId: job.workerId,
                         status: job.status, executionState: job.executionState, resultState: job.resultState,
                         completionState: job.completionState, runtimeDiagnostics: job.runtimeDiagnostics, exitCode: job.exitCode,
+                        verifiedCompletion: job.verifiedCompletion, verificationQueryError: job.verificationQueryError,
                         successful: job.status === "completed" && job.completionState === "verified",
                         error: job.statusQueryError, message: job.blockReason }))),
                     schedulerStates: state.schedulerStates || [],
@@ -1549,8 +1551,14 @@ export class RealtimeTunnelPanelProvider {
         const root = workspaceRoot();
         const cacheKey = `${root || ""}\u0000${workerId}`;
         if (options.signal?.aborted) throw options.signal.reason instanceof Error ? options.signal.reason : Object.assign(new Error("Worker task read cancelled."), { name: "AbortError" });
-        const requestKey = cacheKey + (options.inventoryOnly ? ":inventory" : ":tasks") + cleanupDigest(options.declarations || []);
+        const generation = this.client?.clients?.get(workerId)?.progressGeneration ?? 0;
+        const requestKey = cacheKey + (options.inventoryOnly ? ":inventory" : ":tasks") + generation + cleanupDigest(options.declarations || []);
         let shared = this.workerTaskRequests.get(requestKey);
+        if (shared && shared.client !== this.client) {
+            shared.controller.abort();
+            this.workerTaskRequests.delete(requestKey);
+            shared = undefined;
+        }
         if (shared?.controller?.signal?.aborted) {
             await shared.promise.catch(() => undefined);
             if (options.signal?.aborted) throw options.signal.reason instanceof Error ? options.signal.reason : Object.assign(new Error("Worker task read cancelled."), { name: "AbortError" });
@@ -1558,7 +1566,7 @@ export class RealtimeTunnelPanelProvider {
         }
         if (!shared) {
             const controller = new AbortController();
-            const request = { controller, subscribers: 0, settled: false, promise: Promise.resolve(undefined) as Promise<unknown> };
+            const request = { controller, client: this.client, subscribers: 0, settled: false, promise: Promise.resolve(undefined) as Promise<unknown> };
             const timeout = setTimeout(() => controller.abort(Object.assign(new Error("Worker task snapshot timed out (15s)."), { code: "TASK_QUERY_TIMEOUT" })), 15000);
             timeout.unref?.();
             request.promise = this.refreshWorkerTaskSnapshot(workerId, root, cacheKey, { signal: controller.signal, inventoryOnly: options.inventoryOnly, declarations: options.declarations }).finally(() => {
@@ -1659,8 +1667,12 @@ export class RealtimeTunnelPanelProvider {
             .filter(Boolean).map(workerTaskSnapshotPayload);
         const value = DistributedSchedulingPolicy.serverAuthoritativeProgress(this.distributedQueueCache, snapshots,
             DistributedPlanQueue.canonicalProjectId(root));
-        const expiresAt = Math.min(Date.now() + DistributedSchedulingPolicy.PROGRESS_FRESHNESS_MS,
-            ...snapshots.map(row => Date.parse(String(row.fetchedAt || row.generatedAt || "")) + DistributedSchedulingPolicy.PROGRESS_FRESHNESS_MS).filter(Number.isFinite));
+        const now = Date.now();
+        const expiresAt = Math.min(now + DistributedSchedulingPolicy.PROGRESS_FRESHNESS_MS,
+            ...snapshots.flatMap(row => [row.fetchedAt, ...(row.tasks || []).flatMap(task =>
+                Object.values(task.observation?.evidence || {}).map((timing: any) => timing.networkStartedAt))])
+                .map(at => Date.parse(String(at || "")) + DistributedSchedulingPolicy.PROGRESS_FRESHNESS_MS)
+                .filter(at => Number.isFinite(at) && at > now));
         this.distributedPlanProgressCache = { root, queue: this.distributedQueueCache, snapshotRevision: this.workerTaskSnapshotRevision, targetsKey, expiresAt, value };
         return value;
     }
@@ -1675,11 +1687,12 @@ export class RealtimeTunnelPanelProvider {
         if (!workerIds.length) return;
         this.progressRefreshRequests ||= new Map();
         const requests = workerIds.map(workerId => {
-            const key = root + "\u0000" + workerId;
+            const key = root + "\u0000" + workerId + ":" + (this.client?.clients?.get(workerId)?.progressGeneration ?? 0);
             const active = this.progressRefreshRequests.get(key);
-            if (active) return active.promise;
+            if (active && active.client === this.client) return active.promise;
+            active?.controller.abort();
             const controller = new AbortController();
-            const request = { controller, promise: undefined as Promise<any> | undefined };
+            const request = { controller, client: this.client, promise: undefined as Promise<any> | undefined };
             request.promise = this.readWorkerTaskSnapshot(workerId, { fresh: true, signal: controller.signal })
                 .then(() => { if (workspaceRoot() === root) this.postState(); })
                 .catch(() => {})
@@ -1690,8 +1703,12 @@ export class RealtimeTunnelPanelProvider {
         return Promise.allSettled(requests);
     }
     async refreshWorkerTaskSnapshot(workerId, root, cacheKey, options: { signal?: AbortSignal; inventoryOnly?: boolean; declarations?: any[] } = {}) {
+        const progressRequestStartedAt = new Date().toISOString();
         const cached = options.inventoryOnly ? undefined : this.cachedWorkerTaskSnapshot(workerId, root, cacheKey);
         const client = this.client;
+        const generation = client?.clients?.get(workerId)?.progressGeneration;
+        const current = () => workspaceRoot() === root && this.client === client
+            && client?.clients?.get(workerId)?.progressGeneration === generation;
         let executionSnapshot: any;
         try {
             const queue = await this.loadDistributedQueue(root);
@@ -1703,9 +1720,9 @@ export class RealtimeTunnelPanelProvider {
                     // analysis and the multi-part launch payload. Never replay work.
                     const live: any = await client.getWorkerTasks(workerId, { signal: options.signal, executionOnly: true });
                     if (live?.executionOnly === true && live.queryComplete === true && !live.error && live.capabilities?.taskLifecycle === 2
-                        && workspaceRoot() === root && this.client === client) {
-                        executionSnapshot = { ...live, workerId, fetchedAt: new Date().toISOString() };
-                        if (!cached || cached.error || cached.executionOnly) {
+                        && current()) {
+                        executionSnapshot = WorkerProgressQuery.executionProgressSnapshot({ ...live, workerId, progressRequestStartedAt }, cached, progressRequestStartedAt);
+                        {
                             this.storeWorkerTaskSnapshot(cacheKey, executionSnapshot);
                             this.postState();
                         }
@@ -1718,29 +1735,31 @@ export class RealtimeTunnelPanelProvider {
             }
             if (executionSnapshot && !options.declarations && (queries.length || executionSnapshot.tasks?.length)) {
                 const snapshot = await WorkerProgressQuery.queryWorkerProgress(client, workerId, queries, executionSnapshot, {
-                    signal: options.signal, onSnapshot: snapshot => {
-                        if (workspaceRoot() !== root || this.client !== client) return;
-                        if ((snapshot.executionOnly || snapshot.diagnosticsPending) && cached?.queryComplete && !cached.error && !cached.executionOnly && !options.signal?.aborted) return;
-                        this.storeWorkerTaskSnapshot(cacheKey, snapshot);
+                    signal: options.signal, deferDiagnostics: true, onSnapshot: snapshot => {
+                        if (!current()) return;
+                        this.storeWorkerTaskSnapshot(cacheKey, WorkerProgressQuery.mergeProgressSnapshot(this.cachedWorkerTaskSnapshot(workerId, root, cacheKey), snapshot));
                         this.postState();
                     },
                 });
-                if (workspaceRoot() !== root || this.client !== client) return { workerId, schemaVersion: 1, tasks: [], error: "Workspace changed during Worker task snapshot" };
-                this.storeWorkerTaskSnapshot(cacheKey, snapshot);
+                if (!current()) return { workerId, schemaVersion: 1, tasks: [], error: "Workspace changed during Worker task snapshot" };
+                this.storeWorkerTaskSnapshot(cacheKey, WorkerProgressQuery.mergeProgressSnapshot(this.cachedWorkerTaskSnapshot(workerId, root, cacheKey), snapshot));
                 this.postState();
                 return workerTaskSnapshotPayload(snapshot);
             }
             const count = Math.max(queries.length, options.declarations?.length || 0);
             const batches = count ? Array.from({ length: Math.ceil(count / 500) }, (_, index) => queries.slice(index * 500, (index + 1) * 500)) : [[]];
             const values = [];
-            for (const [index, batch] of batches.entries()) values.push(await this.client.getWorkerTasks(workerId, { signal: options.signal, queries: batch,
+            for (const [index, batch] of batches.entries()) {
+                const startedAt = new Date().toISOString();
+                values.push(WorkerProgressQuery.completeProgressSnapshot(await client.getWorkerTasks(workerId, { signal: options.signal, queries: batch,
                 declarationOnly: options.inventoryOnly === true,
-                declarations: options.declarations?.slice(index * 500, (index + 1) * 500) }));
+                declarations: options.declarations?.slice(index * 500, (index + 1) * 500) }), startedAt));
+            }
             const value = { ...values[0], queryComplete: values.every(row => row.queryComplete === true),
                 tasks: [...new Map(values.flatMap(row => row.tasks || []).map(row => [row.projectId + ":" + row.commandId, row])).values()],
                 queryErrors: values.flatMap(row => row.queryErrors || []), declaredResults: values.flatMap(row => row.declaredResults || []) };
             options.signal?.throwIfAborted();
-            if (workspaceRoot() !== root || this.client !== client) return { workerId, schemaVersion: 1, tasks: [], error: "Workspace changed during Worker task snapshot" };
+            if (!current()) return { workerId, schemaVersion: 1, tasks: [], error: "Workspace changed during Worker task snapshot" };
             const record = value && typeof value === "object" ? value : {};
             const snapshot = {
                 workerId,
@@ -1767,7 +1786,7 @@ export class RealtimeTunnelPanelProvider {
             const denied = error instanceof RequestBudget_1.RequestBudgetDeniedError ? error.decision.reason : "";
             const failure = "Worker " + workerId + " · /api/worker/tasks" + (options.inventoryOnly ? "" : "/query") + "："
                 + (denied || errorMessage(error));
-            if (executionSnapshot && workspaceRoot() === root && this.client === client) {
+            if (executionSnapshot && current()) {
                 // Current execution remains authoritative when only result/log
                 // verification is slow. No cached result is relabelled as fresh.
                 const snapshot = { ...executionSnapshot, resultQueryError: failure };
@@ -1775,8 +1794,8 @@ export class RealtimeTunnelPanelProvider {
                 this.postState();
                 return workerTaskSnapshotPayload(snapshot);
             }
-            if (!options.inventoryOnly && workspaceRoot() === root && this.client === client) {
-                this.storeWorkerTaskSnapshot(cacheKey, { ...cached, workerId, tasks: cached?.tasks || [], error: failure });
+            if (!options.inventoryOnly && current()) {
+                this.storeWorkerTaskSnapshot(cacheKey, { ...cached, workerId, progressRequestStartedAt, tasks: cached?.tasks || [], error: failure });
                 this.postState();
             }
             if (!cached) return { workerId, schemaVersion: 1, tasks: [], error: failure };
@@ -1809,12 +1828,29 @@ export class RealtimeTunnelPanelProvider {
         return snapshot;
     }
     private storeWorkerTaskSnapshot(cacheKey: string, snapshot: any): void {
+        const publishedAt = new Date().toISOString();
+        const previous = new Map((this.lastWorkerTaskSnapshots.get(cacheKey)?.tasks || []).map(task => [task.projectId + ":" + task.commandId, task]));
+        snapshot = { ...snapshot, publishedAt, tasks: (snapshot.tasks || []).map(task => {
+            const before: any = previous.get(task.projectId + ":" + task.commandId);
+            if (!task.observation?.evidence) return task;
+            const evidence = Object.fromEntries(Object.entries(task.observation.evidence).map(([lane, timing]: [string, any]) => {
+                const prior = before?.observation?.evidence?.[lane];
+                return [lane, { ...timing, publishedAt: prior?.networkStartedAt === timing.networkStartedAt
+                    && prior?.receivedAt === timing.receivedAt ? prior.publishedAt || publishedAt : publishedAt }];
+            }));
+            return { ...task, observation: { ...task.observation, evidence } };
+        }) };
         this.workerTaskSnapshotDiskCache.delete(cacheKey);
         this.lastWorkerTaskSnapshots.delete(cacheKey);
         this.lastWorkerTaskSnapshots.set(cacheKey, snapshot);
         while (this.lastWorkerTaskSnapshots.size > 64)
             this.lastWorkerTaskSnapshots.delete(this.lastWorkerTaskSnapshots.keys().next().value);
         this.noteWorkerTaskPlanStatus(cacheKey, snapshot);
+        const [root, workerId] = cacheKey.split("\u0000");
+        if (root && workerId && this.distributedQueueRoot === root && this.distributedQueueCache
+            && snapshot.capabilities?.taskLifecycle === 2 && DistributedPlanQueue.updateVerifiedCompletions(this.distributedQueueCache,
+                snapshot, DistributedPlanQueue.canonicalProjectId(root)))
+            this.queueWorkerTaskSnapshotPersistence(workerId, root, snapshot);
     }
     private noteWorkerTaskPlanStatus(cacheKey: string, snapshot: any): void {
         const signature = JSON.stringify([snapshot?.error || "", snapshot?.capabilities, snapshot?.queryComplete, snapshot?.queryErrors,
@@ -1831,7 +1867,7 @@ export class RealtimeTunnelPanelProvider {
             task?.progress ?? task?.percent ?? task?.progressPercent ?? task?.progress_percent ?? "",
             task?.epoch ?? task?.currentEpoch ?? task?.current_epoch ?? "", task?.loss ?? task?.latestLoss ?? task?.latest_loss ?? "",
             task?.observation?.tmux, task?.observation?.result, task?.observation?.cancelled,
-            task?.observation?.queryError, task?.observation?.resultQueryError,
+            task?.observation?.queryError, task?.observation?.resultQueryError, task?.observation?.executionQueryError, task?.observation?.evidence,
             task?.executionState, task?.resultState, task?.exitCode, task?.completionState,
             task?.runtimeDiagnostics, task?.observation?.runtimeDiagnostics,
         ])]);
@@ -1867,6 +1903,10 @@ export class RealtimeTunnelPanelProvider {
     }
     async writeWorkerTaskSnapshot(workerId, root, snapshot) {
         if (!root) return;
+        if (snapshot.capabilities?.taskLifecycle === 2) {
+            return this.saveDistributedQueue(root, undefined, { controlMutation: true, mutateLatest: latest =>
+                DistributedPlanQueue.updateVerifiedCompletions(latest, snapshot, DistributedPlanQueue.canonicalProjectId(root)) });
+        }
         const fullPath = workerTaskSnapshotPath(root, workerId);
         const payload = JSON.stringify({
             ...snapshot,
@@ -19751,6 +19791,8 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         return {
             lifecycle: this.panelLifecycleState,
             visualMode: this.panelLowEffectsMode ? "low-effects" : "standard",
+            progressEvidence: WorkerProgressQuery.progressEvidenceReport([...this.lastWorkerTaskSnapshots.values()],
+                Date.now(), DistributedSchedulingPolicy.PROGRESS_FRESHNESS_MS),
             runningVersion: String(identity.runningVersion || this.runningBuildIdentity?.version || ""),
             installedVersion: String(identity.installedVersion || ""),
             runningBuildId: String(identity.runningBuildId || this.runningBuildIdentity?.buildId || ""),
@@ -21500,6 +21542,7 @@ return "历史服务器";
                     unavailable: DistributedPlanQueue.jobIsUnavailable(plan, job) ? job.unavailable : undefined,
                     status: job.status, lifecycleProtocol: job.lifecycleProtocol, executionState: job.executionState,
                     resultState: job.resultState, statusQueryError: job.statusQueryError,
+                    verifiedCompletion: job.verifiedCompletion, verificationQueryError: job.verificationQueryError,
                     completionState: job.completionState, runtimeDiagnostics: job.runtimeDiagnostics, exitCode: job.exitCode,
                     workerId: job.workerId, gpuId: job.gpuId, outputDir: job.outputDir,
                     localQueueOnly: job.localQueueOnly === true, recallRequested: job.recallRequested === true,

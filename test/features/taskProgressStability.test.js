@@ -73,13 +73,14 @@ test('slow result verification publishes fresh execution first and cannot erase 
 
 test('normal complete observations are not flashed to unverified during the execution-first refresh',async()=>{
  let finish,stored=[];const full=new Promise(resolve=>{finish=resolve;});
- const old={queryComplete:true,capabilities:{taskLifecycle:2},tasks:[{commandId:'ended',status:'completed'}]};
+ const now=new Date().toISOString(),timing={networkStartedAt:now,receivedAt:now};
+ const old={workerId:'worker',fetchedAt:now,queryComplete:true,capabilities:{taskLifecycle:2},tasks:[{commandId:'ended',projectId:'project',workerId:'worker',outputDir:'work/ended',status:'completed',observation:{lifecycleProtocol:2,commandId:'ended',projectId:'project',workerId:'worker',result:{runId:'ended',status:'completed',present:true,verified:true,artifactsComplete:true},runtimeDiagnostics:{schemaVersion:1,commandId:'ended',runId:'ended',state:'clear',scanComplete:true,count:0},evidence:{execution:timing,artifacts:timing,logs:timing}}}]};
  const live={executionOnly:true,queryComplete:true,capabilities:{taskLifecycle:2},tasks:[]};
  const globals={workspaceRoot:()=>'/fixture',workerTaskSnapshotPayload:x=>x,WorkerTaskQuery:W,WorkerProgressQuery:require('../../src/features/WorkerProgressQuery.ts'),errorMessage:e=>e.message,RequestBudget_1:{RequestBudgetDeniedError:class extends Error{}}};
  const host={client:{getWorkerTasks:async(_,options)=>options.executionOnly?live:full},loadDistributedQueue:async()=>({plans:[]}),cachedWorkerTaskSnapshot:()=>old,storeWorkerTaskSnapshot(_,value){stored.push(value);},postState(){}};
  const pending=method('refreshWorkerTaskSnapshot',globals).call(host,'worker','/fixture','key');
- await new Promise(setImmediate);assert.equal(stored.length,0);
- finish(old);const result=await pending;assert.equal(result.tasks[0].status,'completed');assert.equal(stored.length,1);
+ await new Promise(setImmediate);assert.ok(stored.length>0);assert.ok(stored.every(s=>s.tasks[0].status==='completed'));
+ finish(old);const result=await pending;assert.equal(result.tasks[0].status,'completed');assert.equal(result.tasks[0].completionState,'verified');
 });
 
 test('native execution inventory stays independent of result files, logs and launch payloads',()=>{
@@ -89,7 +90,7 @@ test('native execution inventory stays independent of result files, logs and lau
 
 test('changing workspace during selected result queries cannot publish or return old project evidence',async()=>{
  let root='/fixture',stored=0;const live={executionOnly:true,queryComplete:true,capabilities:{taskLifecycle:2},tasks:[]};
- const globals={workspaceRoot:()=>root,workerTaskSnapshotPayload:x=>x,WorkerTaskQuery:W,WorkerProgressQuery:{queryWorkerProgress:async()=>{root='/other';return live;}},errorMessage:e=>e.message,RequestBudget_1:{RequestBudgetDeniedError:class extends Error{}}};
+ const globals={workspaceRoot:()=>root,workerTaskSnapshotPayload:x=>x,WorkerTaskQuery:W,WorkerProgressQuery:{...require('../../src/features/WorkerProgressQuery.ts'),queryWorkerProgress:async()=>{root='/other';return live;}},errorMessage:e=>e.message,RequestBudget_1:{RequestBudgetDeniedError:class extends Error{}}};
  const host={client:{getWorkerTasks:async()=>live},loadDistributedQueue:async()=>({plans:[{projectId:'project',jobs:[{lifecycleProtocol:2,workerId:'worker',commandId:'live',outputDir:'work/live',status:'unknown'}]}]}),cachedWorkerTaskSnapshot:()=>undefined,storeWorkerTaskSnapshot(){stored++;},postState(){}};
  const result=await method('refreshWorkerTaskSnapshot',globals).call(host,'worker','/fixture','key');
  assert.match(result.error,/Workspace changed/);assert.equal(stored,1,'only the initial observation before changing workspace may be stored');

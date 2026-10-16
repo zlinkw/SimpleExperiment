@@ -7,7 +7,7 @@ report=dict(runId="command",status="completed",outputDir="work/job",mode="train_
             weights=["work/job/best.pt"],resultCsv="tmp/job.csv",
             sha256={"tmp/job.csv":hashlib.sha256(metric).hexdigest()},
             fileStats={"work/job/best.pt":dict(size=10,mtimeNs=99,ctimeNs=88,inode=77,device=66)})
-sizes={"work/job/best.pt":10,"tmp/job.csv":len(metric)}
+sizes={"work/job/artifact_manifest.json":100,"work/job/best.pt":10,"tmp/job.csv":len(metric)}
 def opened(name,mode="r",**kwargs):
     if name.endswith("artifact_manifest.json"):return io.StringIO(json.dumps(dict(simpleExperiment=report)))
     assert name=="tmp/job.csv", "weight contents must never be scanned"
@@ -22,4 +22,21 @@ metric=b"value\n0.0\n"
 assert not ns["task_manifest_observation"]("root",job)["artifactsComplete"], "same-length corrupted metrics must not pass"
 metric=b"value\n0.5\n";sizes["work/job/best.pt"]=9
 assert not ns["task_manifest_observation"]("root",job)["artifactsComplete"], "truncated weights must not pass"
+query_node=next(n for n in ast.parse(source).body if isinstance(n,ast.FunctionDef) and n.name=="task_result_query")
+ns["now_iso"]=lambda:"now"
+exec(compile(ast.Module(body=[query_node],type_ignores=[]),"result-query","exec"),ns)
+q=dict(job,projectId="project",workerId="worker")
+original_stat=os.stat
+def inaccessible(name):
+    if name.endswith("artifact_manifest.json"):raise PermissionError("NFS observation unavailable")
+    return original_stat(name)
+os.stat=inaccessible
+observation=ns["task_result_query"]("root",[q])["tasks"][0]["observation"]
+assert "resultQueryError" in observation and "artifactIssue" not in observation, "I/O failure is not proof of missing artifacts"
+def missing(name):
+    if name.endswith("artifact_manifest.json"):raise FileNotFoundError(name)
+    return original_stat(name)
+os.stat=missing
+observation=ns["task_result_query"]("root",[q])["tasks"][0]["observation"]
+assert observation["result"] is None and observation["artifactIssue"]=="missing_or_invalid_manifest"
 print("portable manifest identity, metric hash and weight size verified")

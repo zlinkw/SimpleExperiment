@@ -10,6 +10,7 @@ export type TunnelRequestPurpose =
   | "stop"
   | "parse_results"
   | "diagnostics"
+  | "task_diagnostics"
   | "events"
   | "file_transfer"
   | "tensorboard_scalar";
@@ -100,7 +101,7 @@ export const defaultRequestBudgetConfig: RequestBudgetConfig = {
   minIntervalByPurpose: {},
 };
 
-type RequestPool = "control" | "transfer" | "emergency";
+type RequestPool = "control" | "transfer" | "emergency" | "logs";
 
 interface RequestBudgetLimits {
   maxConcurrentRequestsPerWorker: number;
@@ -138,10 +139,10 @@ function abortError(): Error {
 
 /** Shared scheduler for all endpoint budgets belonging to one realtime client. */
 export class RequestBudgetCoordinator {
-  private readonly queues: Record<RequestPool, QueueRequest[]> = { emergency: [], control: [], transfer: [] };
-  private readonly activeByPool: Record<RequestPool, number> = { emergency: 0, control: 0, transfer: 0 };
+  private readonly queues: Record<RequestPool, QueueRequest[]> = { emergency: [], control: [], transfer: [], logs: [] };
+  private readonly activeByPool: Record<RequestPool, number> = { emergency: 0, control: 0, transfer: 0, logs: 0 };
   private readonly activeByScope: Record<RequestPool, Map<string, number>> = {
-    emergency: new Map(), control: new Map(), transfer: new Map(),
+    emergency: new Map(), control: new Map(), transfer: new Map(), logs: new Map(),
   };
   private dispatching = false;
   private dispatchAgain = false;
@@ -161,7 +162,7 @@ export class RequestBudgetCoordinator {
     };
   }
 
-  get queued(): number { return this.queues.emergency.length + this.queues.control.length + this.queues.transfer.length; }
+  get queued(): number { return this.queues.emergency.length + this.queues.control.length + this.queues.transfer.length + this.queues.logs.length; }
   get maxQueueDepth(): number { return this.observedMaxQueueDepth; }
   get globalInFlight(): number { return this.activeByPool.control; }
   get transferInFlight(): number { return this.activeByPool.transfer; }
@@ -212,7 +213,7 @@ export class RequestBudgetCoordinator {
     try {
       do {
         this.dispatchAgain = false;
-        for (const pool of ["emergency", "control", "transfer"] as const) {
+        for (const pool of ["emergency", "control", "transfer", "logs"] as const) {
           const queue = this.queues[pool];
           for (let index = queue.length - 1; index >= 0; index -= 1) {
             const item = queue[index];
@@ -241,7 +242,7 @@ export class RequestBudgetCoordinator {
           const regularOrder: readonly ("control" | "transfer")[] = this.nextRegularPool === "control"
             ? ["control", "transfer"]
             : ["transfer", "control"];
-          for (const pool of ["emergency", ...regularOrder] as const) {
+          for (const pool of ["emergency", ...regularOrder, "logs"] as const) {
             const index = this.queues[pool].findIndex((item) => this.canStart(item));
             if (index < 0) continue;
             const [item] = this.queues[pool].splice(index, 1);
@@ -270,6 +271,9 @@ export class RequestBudgetCoordinator {
     const activeGlobal = this.activeByPool[pool];
     const activeScope = this.activeByScope[pool].get(scopeKey) || 0;
     if (pool === "emergency") return activeGlobal < this.limits.maxConcurrentEmergencyRequests && activeScope < this.limits.maxConcurrentEmergencyRequests;
+    // Raw NFS log reads cannot consume execution/metadata/stop slots, even
+    // when the user's ordinary per-worker concurrency is one.
+    if (pool === "logs") return activeGlobal < 2 && activeScope < 1;
     if (pool === "transfer") return activeGlobal < this.limits.maxConcurrentTransfersGlobal && activeScope < this.limits.maxConcurrentTransfersPerWorker;
     return activeGlobal < this.limits.maxConcurrentRequestsGlobal && activeScope < this.limits.maxConcurrentRequestsPerWorker;
   }
@@ -510,6 +514,7 @@ export class RequestBudget {
 }
 
 function requestPool(purpose: TunnelRequestPurpose, options: RequestBudgetRunOptions): RequestPool {
+  if (purpose === "task_diagnostics") return "logs";
   if (purpose === "file_transfer") return "transfer";
   if (purpose === "stop" || purpose === "job_reconcile" || (purpose === "health" && options.userInitiated)) return "emergency";
   return "control";

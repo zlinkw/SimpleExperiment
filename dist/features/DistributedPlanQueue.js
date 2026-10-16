@@ -41,6 +41,7 @@ exports.cloneDistributedQueue = cloneDistributedQueue;
 exports.restoreFormalJobQueue = restoreFormalJobQueue;
 exports.keepCurrentObservations = keepCurrentObservations;
 exports.serializeDistributedQueue = serializeDistributedQueue;
+exports.updateVerifiedCompletions = updateVerifiedCompletions;
 exports.taskAttempt = taskAttempt;
 exports.queueMetadataAdvanceRecorded = queueMetadataAdvanceRecorded;
 exports.terminalHistoryLogBinding = terminalHistoryLogBinding;
@@ -103,6 +104,8 @@ exports.disableAutomaticJobRetries = disableAutomaticJobRetries;
 const node_crypto_1 = require("node:crypto");
 const path = __importStar(require("node:path"));
 const TaskLifecycle_1 = require("./TaskLifecycle");
+const WorkerProgressEvidence_1 = require("./WorkerProgressEvidence");
+const VerifiedCompletion_1 = require("./VerifiedCompletion");
 const QUEUE_BASE_DISK_SIGNATURE = Symbol("distributedQueueBaseDiskSignature");
 function distributedQueueDiskSignature(source) {
     return (0, node_crypto_1.createHash)("sha256").update(source, "utf8").digest("hex");
@@ -129,7 +132,7 @@ function restoreFormalJobQueue(queue) {
                 if (job.resultPathPolicy === "declared" && job.attempt === undefined)
                     job.attempt = 0;
                 if (job.lifecycleProtocol === 2)
-                    clearNativeProjection(job);
+                    clearNativeProjection(job, plan);
                 for (const record of job.history || [])
                     if (record.attempt === undefined && !record.outputDir.split("/").includes("attempts"))
                         record.attempt = 0;
@@ -137,11 +140,15 @@ function restoreFormalJobQueue(queue) {
         }
     return queue;
 }
-function clearNativeProjection(job) {
+function clearNativeProjection(job, plan) {
     job.status = job.unavailable || job.retainExistingOutputs ? "cancelled" : job.commandId ? "unknown" : "pending";
-    for (const key of ["executionState", "resultState", "completionState", "runtimeDiagnostics", "exitCode", "statusQueryError", "lastObservedAt", "trustedTerminalStatus", "error", "blockReason",
+    for (const key of ["executionState", "resultState", "completionState", "runtimeDiagnostics", "exitCode", "statusQueryError", "verificationQueryError", "lastObservedAt", "trustedTerminalStatus", "error", "blockReason",
         "tmuxPane", "tmuxWindowId", "tmuxSession", "logPath", "finishedAt"])
         delete job[key];
+    if ((0, VerifiedCompletion_1.hasVerifiedCompletion)(plan, job))
+        Object.assign(job, (0, VerifiedCompletion_1.verifiedCompletionProjection)(plan, job));
+    else
+        delete job.verifiedCompletion;
 }
 /** Metadata writes keep the current in-memory observation; disk history never supplies runtime truth. */
 function keepCurrentObservations(queue, live, now = Date.now()) {
@@ -157,6 +164,7 @@ function keepCurrentObservations(queue, live, now = Date.now()) {
                 continue;
             for (const key of keys)
                 job[key] = current[key];
+            Object.assign(job, (0, VerifiedCompletion_1.verifiedCompletionProjection)(plan, job));
         }
     return queue;
 }
@@ -166,7 +174,7 @@ function serializeDistributedQueue(queue) {
         if (plan.resultPathPolicy === "declared")
             for (const job of plan.jobs) {
                 if (job.lifecycleProtocol === 2) {
-                    clearNativeProjection(job);
+                    clearNativeProjection(job, plan);
                 }
                 if (job.attempt === 0)
                     delete job.attempt;
@@ -175,6 +183,22 @@ function serializeDistributedQueue(queue) {
                         delete record.attempt;
             }
     return JSON.stringify(copy, null, 2) + "\n";
+}
+/** Persist only compact confirmed facts into the existing queue, never raw
+ * observations, log text, metrics or a replayable remote task registration. */
+function updateVerifiedCompletions(queue, snapshot, projectId, now = Date.now(), maxAgeMs = 20_000) {
+    const projected = mergeDurableWorkerSnapshots(queue, [snapshot], projectId, now, maxAgeMs);
+    let changed = false;
+    const next = { ...queue, plans: queue.plans.map(plan => ({ ...plan, jobs: plan.jobs.map(job => {
+                if (plan.projectId !== projectId || job.workerId !== snapshot.workerId || job.lifecycleProtocol !== 2)
+                    return job;
+                const observed = projected.plans.find(row => row.id === plan.id)?.jobs.find(row => row.index === job.index && row.commandId === job.commandId);
+                if (!observed || JSON.stringify(observed.verifiedCompletion) === JSON.stringify(job.verifiedCompletion))
+                    return job;
+                changed = true;
+                return { ...job, verifiedCompletion: observed.verifiedCompletion, ...(0, VerifiedCompletion_1.verifiedCompletionProjection)(plan, observed) };
+            }) })) };
+    return changed ? next : undefined;
 }
 function taskAttempt(task) {
     return task.resultPathPolicy === "declared" && task.globalJobId === `${task.workflowId}:${task.experimentIndex}`
@@ -449,7 +473,7 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
             }
         }
     }
-    queue = { ...queue, plans: queue.plans.map(plan => ({ ...plan, jobs: plan.jobs.map(job => job.lifecycleProtocol === 2 && job.workerId && job.commandId && !pulled.some(row => row.workerId === job.workerId)
+    queue = { ...queue, plans: queue.plans.map(plan => ({ ...plan, jobs: plan.jobs.map(job => job.lifecycleProtocol === 2 && !(0, VerifiedCompletion_1.hasVerifiedCompletion)(plan, job) && job.workerId && job.commandId && !pulled.some(row => row.workerId === job.workerId)
                 && !snapshots.some(row => row.workerId === job.workerId && row.pending === true)
                 ? { ...job, status: "unknown", executionState: "unknown", resultState: "unverified",
                     error: undefined, statusQueryError: "当前 Worker 主动查询不可用；原任务未重复派发", blockReason: "查询失败，可刷新或中止原任务" } : job) })) };
@@ -460,22 +484,27 @@ function mergeDurableWorkerSnapshots(queue, snapshots, projectId, now = Date.now
                         return job;
                     const fresh = Date.parse(String(snapshot.fetchedAt || snapshot.generatedAt || ""));
                     const task = (snapshot.tasks || []).find(row => row.commandId === job.commandId && row.projectId === projectId);
-                    const observation = task?.observation ? { ...task.observation } : { lifecycleProtocol: 2, commandId: job.commandId,
+                    const observation = (0, WorkerProgressEvidence_1.freshTaskObservation)(snapshot, task, { lifecycleProtocol: 2, commandId: job.commandId,
                         projectId, workerId: job.workerId, observedAt: String(snapshot.generatedAt || ""),
-                        queryError: snapshot.error || (!Number.isFinite(fresh) || now - fresh > maxAgeMs ? "状态查询已过期" : undefined) };
-                    if (snapshot.error || !Number.isFinite(fresh) || now - fresh > maxAgeMs)
-                        observation.queryError = snapshot.error || "状态查询已过期";
+                        queryError: snapshot.error || (!Number.isFinite(fresh) || now - fresh > maxAgeMs ? "状态查询已过期" : undefined) }, now, maxAgeMs);
                     if (!(0, TaskLifecycle_1.observationMatches)(observation, { commandId: job.commandId, workerId: job.workerId, projectId }))
                         observation.queryError = "任务查询身份与当前任务不符；请刷新核实";
+                    if (task && ["outputDir", "collectionResultCsv"].some(field => typeof task[field] === "string"
+                        && typeof job[field] === "string" && task[field] !== job[field]))
+                        observation.queryError = "任务产物路径与当前任务不符；请刷新核实";
                     const state = (0, TaskLifecycle_1.taskLifecycle)(observation);
+                    const verifiedCompletion = (0, VerifiedCompletion_1.nextVerifiedCompletion)(plan, job, observation, state, now);
+                    const fixed = (0, VerifiedCompletion_1.verifiedCompletionProjection)(plan, { ...job, verifiedCompletion });
                     return { ...job, lifecycleProtocol: 2, status: state.status, executionState: state.execution, resultState: state.result,
                         runtimeDiagnostics: state.runtimeDiagnostics, completionState: state.completionState, exitCode: state.exitCode,
-                        startIntent: !observation.queryError && (observation.tmux || observation.cancelled || state.result === "complete") ? undefined : job.startIntent,
+                        startIntent: !observation.queryError && !observation.executionQueryError && (observation.tmux || observation.cancelled || state.result === "complete") ? undefined : job.startIntent,
                         ...(["train", "test", "train_test"].includes(String(task?.actualExecutionMode)) ? { actualExecutionMode: task.actualExecutionMode } : {}),
                         recoveryConflict: undefined, trustedTerminalStatus: undefined,
-                        statusQueryError: observation.queryError, lastObservedAt: snapshot.fetchedAt || observation.observedAt,
+                        statusQueryError: observation.queryError || observation.executionQueryError, lastObservedAt: snapshot.fetchedAt || observation.observedAt,
                         error: state.status === "failed" ? String(task?.error || `任务退出码 ${task?.exitCode ?? "未知"}`) : undefined,
-                        blockReason: state.message, ...(task ? { gpuId: String(task.gpuId ?? job.gpuId ?? ""),
+                        blockReason: state.message, verifiedCompletion,
+                        verificationQueryError: verifiedCompletion ? observation.queryError || observation.executionQueryError || observation.resultQueryError || observation.runtimeQueryError : undefined,
+                        ...fixed, ...(task ? { gpuId: String(task.gpuId ?? job.gpuId ?? ""),
                             tmuxPane: String(task.tmuxPane || ""), tmuxWindowId: String(task.tmuxWindowId || ""), tmuxSession: String(task.tmuxSession || "") } : {}) };
                 }) })) };
         snapshots = snapshots.filter(snapshot => snapshot.capabilities?.taskLifecycle !== 2);

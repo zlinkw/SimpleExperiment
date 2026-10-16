@@ -160,8 +160,12 @@ def task_manifest_observation(root, job):
     import stat as statmod
     output = str(job.get("outputDir") or "")
     manifest = task_safe_path(root, output + "/artifact_manifest.json")
-    if not os.path.isfile(manifest):
+    try:
+        manifest_stat = os.stat(manifest)
+    except FileNotFoundError:
         return None
+    if not statmod.S_ISREG(manifest_stat.st_mode):
+        raise ValueError("TASK_MANIFEST_NOT_REGULAR")
     if os.path.getsize(manifest) > 1024 * 1024:
         raise ValueError("TASK_MANIFEST_TOO_LARGE")
     with open(manifest, encoding="utf-8") as handle:
@@ -376,6 +380,11 @@ def task_result_query(root, queries, diagnostics_only=False):
         try:
             result = task_manifest_observation(root, job)
             observed["result"] = result
+            if not diagnostics_only:
+                if result is None:
+                    observed["artifactIssue"] = "missing_or_invalid_manifest"
+                elif not result.get("present") or not result.get("verified") or result.get("runId") != job["commandId"]:
+                    observed["artifactIssue"] = "artifact_verification_failed"
             terminal = bool(result and result.get("runId") == job["commandId"] and result.get("identityMatches") and result.get("status") in ("completed", "failed"))
             if diagnostics_only and "task_log_diagnostics" in globals():
                 observed["runtimeDiagnostics"] = task_log_diagnostics(root, job, terminal=terminal,

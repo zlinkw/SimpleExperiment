@@ -269,7 +269,7 @@ export class HttpTunnelClient implements TunnelClient {
   getWorkerTasks(options: { signal?: AbortSignal; executionOnly?: boolean; selectedOnly?: boolean; observationOnly?: boolean; diagnosticsOnly?: boolean; declarationOnly?: boolean; retiredCommandIds?: string[]; queries?: any[]; declarations?: any[]; discovery?: { planFile: string; condaEnv?: string } } = {}): Promise<unknown> {
     const ids = [...new Set(options.retiredCommandIds || [])].sort();
     if (ids.length > 500 || ids.some(id => !/^[A-Za-z0-9._:-]{1,128}$/.test(id))) throw new Error("INVALID_RETIRED_COMMAND_SELECTION");
-    if (options.executionOnly || options.selectedOnly || options.diagnosticsOnly || options.declarationOnly || options.queries?.length || options.declarations || options.discovery) return this.requestJson(options.diagnosticsOnly ? "/api/worker/tasks/diagnostics" : "/api/worker/tasks/query", options.observationOnly || options.diagnosticsOnly || options.declarationOnly ? "manual_refresh" : "job_reconcile",
+    if (options.executionOnly || options.selectedOnly || options.diagnosticsOnly || options.declarationOnly || options.queries?.length || options.declarations || options.discovery) return this.requestJson(options.diagnosticsOnly ? "/api/worker/tasks/diagnostics" : "/api/worker/tasks/query", options.diagnosticsOnly ? "task_diagnostics" : options.observationOnly || options.declarationOnly ? "manual_refresh" : "job_reconcile",
       { queries: options.queries || [], executionOnly: options.executionOnly, selectedOnly: options.selectedOnly, observationOnly: options.observationOnly, diagnosticsOnly: options.diagnosticsOnly, declarationOnly: options.declarationOnly, declarations: options.declarations, discovery: options.discovery, retiredCommandIds: ids },
       { method: "POST", userInitiated: true, signal: options.signal });
     const params = new URLSearchParams();
@@ -394,9 +394,11 @@ export class HttpTunnelClient implements TunnelClient {
   ): Promise<T> {
     if (!apiPath.startsWith("/api/")) throw new Error("Only Hub Agent API paths are allowed.");
     const base = localBaseUrl(this.endpoint);
+    const requestedAt = new Date().toISOString();
     return this.budget.run(
         purpose,
         async () => {
+          const networkStartedAt = new Date().toISOString();
           const controller = new AbortController();
           const configuredTimeoutMs = Number(options.timeoutMs ?? this.endpoint.timeoutMs ?? 30_000);
           const timeoutMs = Number.isFinite(configuredTimeoutMs) ? Math.max(1, configuredTimeoutMs) : 30_000;
@@ -425,7 +427,10 @@ export class HttpTunnelClient implements TunnelClient {
               throw new Error(`Worker Agent HTTP ${response.status}: ${detail.slice(0, 2000)}`);
             }
             if (!text.trim()) return {} as T;
-            return JSON.parse(text) as T;
+            const value = JSON.parse(text);
+            if (apiPath.startsWith("/api/worker/tasks") && value && typeof value === "object")
+              value.localQueryTiming = { requestedAt, networkStartedAt, receivedAt: new Date().toISOString() };
+            return value as T;
           } finally {
             inactivity.dispose();
             options.signal?.removeEventListener("abort", abortFromCaller);

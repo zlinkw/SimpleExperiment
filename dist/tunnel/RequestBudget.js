@@ -26,10 +26,10 @@ function abortError() {
 }
 /** Shared scheduler for all endpoint budgets belonging to one realtime client. */
 class RequestBudgetCoordinator {
-    queues = { emergency: [], control: [], transfer: [] };
-    activeByPool = { emergency: 0, control: 0, transfer: 0 };
+    queues = { emergency: [], control: [], transfer: [], logs: [] };
+    activeByPool = { emergency: 0, control: 0, transfer: 0, logs: 0 };
     activeByScope = {
-        emergency: new Map(), control: new Map(), transfer: new Map(),
+        emergency: new Map(), control: new Map(), transfer: new Map(), logs: new Map(),
     };
     dispatching = false;
     dispatchAgain = false;
@@ -46,7 +46,7 @@ class RequestBudgetCoordinator {
             maxQueuedRequests: positiveLimit(config.maxQueuedRequests, 256),
         };
     }
-    get queued() { return this.queues.emergency.length + this.queues.control.length + this.queues.transfer.length; }
+    get queued() { return this.queues.emergency.length + this.queues.control.length + this.queues.transfer.length + this.queues.logs.length; }
     get maxQueueDepth() { return this.observedMaxQueueDepth; }
     get globalInFlight() { return this.activeByPool.control; }
     get transferInFlight() { return this.activeByPool.transfer; }
@@ -93,7 +93,7 @@ class RequestBudgetCoordinator {
         try {
             do {
                 this.dispatchAgain = false;
-                for (const pool of ["emergency", "control", "transfer"]) {
+                for (const pool of ["emergency", "control", "transfer", "logs"]) {
                     const queue = this.queues[pool];
                     for (let index = queue.length - 1; index >= 0; index -= 1) {
                         const item = queue[index];
@@ -124,7 +124,7 @@ class RequestBudgetCoordinator {
                     const regularOrder = this.nextRegularPool === "control"
                         ? ["control", "transfer"]
                         : ["transfer", "control"];
-                    for (const pool of ["emergency", ...regularOrder]) {
+                    for (const pool of ["emergency", ...regularOrder, "logs"]) {
                         const index = this.queues[pool].findIndex((item) => this.canStart(item));
                         if (index < 0)
                             continue;
@@ -158,6 +158,10 @@ class RequestBudgetCoordinator {
         const activeScope = this.activeByScope[pool].get(scopeKey) || 0;
         if (pool === "emergency")
             return activeGlobal < this.limits.maxConcurrentEmergencyRequests && activeScope < this.limits.maxConcurrentEmergencyRequests;
+        // Raw NFS log reads cannot consume execution/metadata/stop slots, even
+        // when the user's ordinary per-worker concurrency is one.
+        if (pool === "logs")
+            return activeGlobal < 2 && activeScope < 1;
         if (pool === "transfer")
             return activeGlobal < this.limits.maxConcurrentTransfersGlobal && activeScope < this.limits.maxConcurrentTransfersPerWorker;
         return activeGlobal < this.limits.maxConcurrentRequestsGlobal && activeScope < this.limits.maxConcurrentRequestsPerWorker;
@@ -390,6 +394,8 @@ class RequestBudget {
 }
 exports.RequestBudget = RequestBudget;
 function requestPool(purpose, options) {
+    if (purpose === "task_diagnostics")
+        return "logs";
     if (purpose === "file_transfer")
         return "transfer";
     if (purpose === "stop" || purpose === "job_reconcile" || (purpose === "health" && options.userInitiated))

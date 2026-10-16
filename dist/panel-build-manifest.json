@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.359",
-  "buildId": "9cd718d80fad2d66738e664e690b76fd6fd386183a8737390d79914c66bc5cc9",
+  "version": "0.5.360",
+  "buildId": "6b1e8074b857380bafb8e8c203a06d6679773412dd93cc2e8cc069886bc7103c",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -197,7 +197,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "cc38d8304e2bee0024feb39ca6c6df261bc3a0979e9b2bfb2e07b990ac0c62bc"
+      "sha256": "b241884bdd8836c6cc0c80ae7a5d05d796dd199ed3dedb952f060f44af4c449d"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -301,7 +301,7 @@
     },
     {
       "path": "dist/features/DistributedPlanQueue.js",
-      "sha256": "b6e6a5c7879be551c94fd29c7993233e8a81e20625854b93f12214b366d3b2c6"
+      "sha256": "ee789ba2577341f55aa5901ea9955b6b3a3b93ff192f0fd5cc2796f5bddf9f79"
     },
     {
       "path": "dist/features/DistributedProjectContract.js",
@@ -309,7 +309,7 @@
     },
     {
       "path": "dist/features/DistributedSchedulingPolicy.js",
-      "sha256": "8b36e889ffbe27c0a81ba22bed750d39b2755e15237272bcf89325abd986d260"
+      "sha256": "21bdca3c439d5ae0016d15bc0e9d713bf7ed37428413cea569067897c86a7b06"
     },
     {
       "path": "dist/features/DraftPlans.js",
@@ -581,7 +581,7 @@
     },
     {
       "path": "dist/features/TaskLifecycle.js",
-      "sha256": "32c39a17b8414b1c7ab50aad07c01e8cf963ed1b097903fe3c9e59e43e675780"
+      "sha256": "cfffa5c8e8099d7c9cf2139453c28a3b931fc80417349546280ee3c04735ed6e"
     },
     {
       "path": "dist/features/TmuxWindowIdentity.js",
@@ -592,6 +592,10 @@
       "sha256": "351466c16385f058c58eac7cfdd1c68d91bfca3a2c92715f0c2b9c1218be2474"
     },
     {
+      "path": "dist/features/VerifiedCompletion.js",
+      "sha256": "d2c37028213036590c16287616b38d93107b528f9fc9506106295dfb7d66d4df"
+    },
+    {
       "path": "dist/features/WorkerPlanSharding.js",
       "sha256": "33b3506e9db64848b24382d198d66cd276328b3f5a45cbc4483390ee116fdf93"
     },
@@ -600,8 +604,12 @@
       "sha256": "c70c9844269adb030112dd3f12e86ee5cd57e4943334e135edcce8083a27bf4c"
     },
     {
+      "path": "dist/features/WorkerProgressEvidence.js",
+      "sha256": "67dac51272f814c0e83127367039a9b205eebbd7a9366e038bab41cd4ddc77df"
+    },
+    {
       "path": "dist/features/WorkerProgressQuery.js",
-      "sha256": "1e30c4fbee770f08b480b43c578a6ac37d1a06cb0f39e8dd29c7453b745cf436"
+      "sha256": "79bfc05c715512c1c677a741bf9beaa151bc32d02bbeb4f181ca5bcb8eb14905"
     },
     {
       "path": "dist/features/WorkerTaskQuery.js",
@@ -661,7 +669,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "72a0fa8111e411964f4caccf2f2bc52ed65d5c8836145060b9dcce405ea2ad3f"
+      "sha256": "96fe6add70eef357818b514e101eb328c863ebb331fc2c2cc22229685f24346c"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -765,11 +773,11 @@
     },
     {
       "path": "dist/tunnel/RealtimeTunnelClient.legacy.js",
-      "sha256": "ba5d2dc83612cc248b07c7a431fb935eafa16fae7c221af1268915e9e38132d6"
+      "sha256": "243cad3e7a3b1d28750bc1bd86d861bb67a6130d590f149654db64e6cc3569b3"
     },
     {
       "path": "dist/tunnel/RequestBudget.js",
-      "sha256": "32b49c4bd21855136486af9a3a432dc8c7e9483524a801a92e7ca5863c0853db"
+      "sha256": "641bcba6522c3b14efba5ac28bb9eb1955dc34066a43a0352b7c33d77035489d"
     },
     {
       "path": "dist/tunnel/SshTransportIdentity.js",
@@ -781,7 +789,7 @@
     },
     {
       "path": "dist/tunnel/TunnelClient.legacy.js",
-      "sha256": "79a1dc679cd22c158fa61f03a57a3d1809041b018a27a021df3b35155e82b27b"
+      "sha256": "a0386d2aadfb6052ba505f1908ffd3d5e90b735e30dcb3d0962cf8c8e57518ed"
     },
     {
       "path": "dist/tunnel/TunnelDiagnostics.js",
@@ -1009,7 +1017,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "55b99253b84341578bf72f3f579d3635e6e3cd17b1770922135f74caca8cf248"
+      "sha256": "8eb8418577a69c3067b39899d267bb13c0bb229e55a296401752e5f298a045f8"
     },
     {
       "path": "scripts/check-static.js",

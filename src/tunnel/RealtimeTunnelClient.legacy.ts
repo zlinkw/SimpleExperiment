@@ -82,6 +82,7 @@ export class RealtimeTunnelClient {
   private readonly sharedReads = new SharedReadCoalescer(64);
   private requiresManualReconnect = false;
   private connectionGeneration = 0;
+  get progressGeneration(): number { return this.connectionGeneration; }
   private disposed = false;
   private workerGpuUpdatedAt = 0;
 
@@ -356,7 +357,12 @@ export class RealtimeTunnelClient {
   getWorkerTasks(options: { signal?: AbortSignal; executionOnly?: boolean; selectedOnly?: boolean; observationOnly?: boolean; diagnosticsOnly?: boolean; declarationOnly?: boolean; retiredCommandIds?: string[]; queries?: any[]; declarations?: any[]; discovery?: { planFile: string; condaEnv?: string } } = {}): Promise<unknown> {
     if (this.requiresManualReconnect) return Promise.reject(new Error(this.lastError));
     const selection = [...new Set(options.retiredCommandIds || [])].sort().join(",") + JSON.stringify(options.queries || []) + JSON.stringify(options.declarations || []) + JSON.stringify(options.discovery || null) + ":execution=" + (options.executionOnly === true) + ":selected=" + (options.selectedOnly === true) + ":observation=" + (options.observationOnly === true) + ":declaration=" + (options.declarationOnly === true) + ":diagnostics=" + (options.diagnosticsOnly === true);
-    return this.coalescedRead("worker-tasks:" + selection, options, () => this.http.getWorkerTasks(options));
+    const generation = this.connectionGeneration;
+    return this.coalescedRead("worker-tasks:" + selection, options, () => this.http.getWorkerTasks(options)).then(value => {
+      if (generation !== this.connectionGeneration || this.disposed)
+        throw Object.assign(new Error("Worker connection changed during query"), { code: "CONNECTION_GENERATION_CHANGED" });
+      return value;
+    });
   }
 
   getRunEvidence(params: { operationId?: string; planFile?: string; pid?: number | string; tmuxSession?: string }): Promise<unknown> {

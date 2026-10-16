@@ -3,6 +3,8 @@ import * as path from "node:path";
 import { PlanExecutionMode } from "./PlanExecutionMode";
 import { observationMatches, taskLifecycle, TaskObservation } from "./TaskLifecycle";
 import type { RuntimeDiagnostics, CompletionState } from "./RuntimeDiagnostics";
+import { freshTaskObservation } from "./WorkerProgressEvidence";
+import { hasVerifiedCompletion, nextVerifiedCompletion, verifiedCompletionProjection, type VerifiedCompletion } from "./VerifiedCompletion";
 
 export type JobState = "pending" | "dispatching" | "queued" | "running" | "completed" | "failed" | "cancelled" | "unknown";
 export type JobFailureClass = "deterministic" | "resource" | "transient" | "unknown";
@@ -28,6 +30,8 @@ export type QueuedJob = {
   resultState?: string;
   runtimeDiagnostics?: RuntimeDiagnostics;
   completionState?: CompletionState;
+  verifiedCompletion?: VerifiedCompletion;
+  verificationQueryError?: string;
   exitCode?: number | null;
   statusQueryError?: string;
   lastObservedAt?: string;
@@ -170,17 +174,19 @@ export function restoreFormalJobQueue(queue: DistributedQueue): DistributedQueue
   for (const plan of queue.plans || []) if (plan.resultPathPolicy === "declared") {
     for (const job of plan.jobs || []) {
       if (job.resultPathPolicy === "declared" && job.attempt === undefined) job.attempt = 0;
-      if (job.lifecycleProtocol === 2) clearNativeProjection(job);
+      if (job.lifecycleProtocol === 2) clearNativeProjection(job, plan);
       for (const record of job.history || []) if (record.attempt === undefined && !record.outputDir.split("/").includes("attempts")) record.attempt = 0;
     }
   }
   return queue;
 }
 
-function clearNativeProjection(job: QueuedJob) {
+function clearNativeProjection(job: QueuedJob, plan: QueuedPlan) {
   job.status = job.unavailable || job.retainExistingOutputs ? "cancelled" : job.commandId ? "unknown" : "pending";
-  for (const key of ["executionState", "resultState", "completionState", "runtimeDiagnostics", "exitCode", "statusQueryError", "lastObservedAt", "trustedTerminalStatus", "error", "blockReason",
+  for (const key of ["executionState", "resultState", "completionState", "runtimeDiagnostics", "exitCode", "statusQueryError", "verificationQueryError", "lastObservedAt", "trustedTerminalStatus", "error", "blockReason",
     "tmuxPane", "tmuxWindowId", "tmuxSession", "logPath", "finishedAt"] as const) delete job[key];
+  if (hasVerifiedCompletion(plan, job)) Object.assign(job, verifiedCompletionProjection(plan, job));
+  else delete job.verifiedCompletion;
 }
 
 /** Metadata writes keep the current in-memory observation; disk history never supplies runtime truth. */
@@ -193,6 +199,7 @@ export function keepCurrentObservations(queue: DistributedQueue, live: Distribut
     if (job.lifecycleProtocol !== 2 || !job.commandId || !current || current.commandId !== job.commandId || current.workerId !== job.workerId
       || !current.lastObservedAt || now - Date.parse(current.lastObservedAt) > 30000 || !Number.isFinite(Date.parse(current.lastObservedAt))) continue;
     for (const key of keys) (job as any)[key] = current[key];
+    Object.assign(job, verifiedCompletionProjection(plan, job));
   }
   return queue;
 }
@@ -201,12 +208,27 @@ export function serializeDistributedQueue(queue: DistributedQueue): string {
   const copy = cloneDistributedQueue(queue);
   for (const plan of copy.plans) if (plan.resultPathPolicy === "declared") for (const job of plan.jobs) {
     if (job.lifecycleProtocol === 2) {
-      clearNativeProjection(job);
+      clearNativeProjection(job, plan);
     }
     if (job.attempt === 0) delete (job as Partial<QueuedJob>).attempt;
     for (const record of job.history || []) if (record.attempt === 0) delete (record as { attempt?: number }).attempt;
   }
   return JSON.stringify(copy, null, 2) + "\n";
+}
+
+/** Persist only compact confirmed facts into the existing queue, never raw
+ * observations, log text, metrics or a replayable remote task registration. */
+export function updateVerifiedCompletions(queue: DistributedQueue, snapshot: any, projectId: string, now = Date.now(), maxAgeMs = 20_000): DistributedQueue | undefined {
+  const projected = mergeDurableWorkerSnapshots(queue, [snapshot], projectId, now, maxAgeMs);
+  let changed = false;
+  const next = { ...queue, plans: queue.plans.map(plan => ({ ...plan, jobs: plan.jobs.map(job => {
+    if (plan.projectId !== projectId || job.workerId !== snapshot.workerId || job.lifecycleProtocol !== 2) return job;
+    const observed = projected.plans.find(row => row.id === plan.id)?.jobs.find(row => row.index === job.index && row.commandId === job.commandId);
+    if (!observed || JSON.stringify(observed.verifiedCompletion) === JSON.stringify(job.verifiedCompletion)) return job;
+    changed = true;
+    return { ...job, verifiedCompletion: observed.verifiedCompletion, ...verifiedCompletionProjection(plan, observed) };
+  }) })) };
+  return changed ? next : undefined;
 }
 
 export function taskAttempt(task: Record<string, unknown>): number {
@@ -491,7 +513,7 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
     }
   }
   queue = { ...queue, plans: queue.plans.map(plan => ({ ...plan, jobs: plan.jobs.map(job =>
-    job.lifecycleProtocol === 2 && job.workerId && job.commandId && !pulled.some(row => row.workerId === job.workerId)
+    job.lifecycleProtocol === 2 && !hasVerifiedCompletion(plan, job) && job.workerId && job.commandId && !pulled.some(row => row.workerId === job.workerId)
       && !snapshots.some(row => row.workerId === job.workerId && (row as any).pending === true)
       ? { ...job, status: "unknown" as const, executionState: "unknown" as const, resultState: "unverified" as const,
           error: undefined, statusQueryError: "当前 Worker 主动查询不可用；原任务未重复派发", blockReason: "查询失败，可刷新或中止原任务" } : job) })) };
@@ -501,21 +523,27 @@ export function mergeDurableWorkerSnapshots(queue: DistributedQueue, snapshots: 
       if (!snapshot || (snapshot as any).pending === true || !job.commandId || !job.workerId || !["dispatching", "queued", "running", "unknown", "failed", "completed"].includes(job.status)) return job;
       const fresh = Date.parse(String(snapshot.fetchedAt || snapshot.generatedAt || ""));
       const task = (snapshot.tasks || []).find(row => row.commandId === job.commandId && row.projectId === projectId);
-      const observation: TaskObservation = (task as any)?.observation ? { ...(task as any).observation } : { lifecycleProtocol: 2, commandId: job.commandId,
+      const observation: TaskObservation = freshTaskObservation(snapshot, task, { lifecycleProtocol: 2, commandId: job.commandId,
         projectId, workerId: job.workerId, observedAt: String(snapshot.generatedAt || ""),
-        queryError: snapshot.error || (!Number.isFinite(fresh) || now - fresh > maxAgeMs ? "状态查询已过期" : undefined) };
-      if (snapshot.error || !Number.isFinite(fresh) || now - fresh > maxAgeMs) observation.queryError = snapshot.error || "状态查询已过期";
+        queryError: snapshot.error || (!Number.isFinite(fresh) || now - fresh > maxAgeMs ? "状态查询已过期" : undefined) }, now, maxAgeMs);
       if (!observationMatches(observation, { commandId: job.commandId, workerId: job.workerId, projectId }))
         observation.queryError = "任务查询身份与当前任务不符；请刷新核实";
+      if (task && ["outputDir", "collectionResultCsv"].some(field => typeof (task as any)[field] === "string"
+        && typeof (job as any)[field] === "string" && (task as any)[field] !== (job as any)[field]))
+        observation.queryError = "任务产物路径与当前任务不符；请刷新核实";
       const state = taskLifecycle(observation);
+      const verifiedCompletion = nextVerifiedCompletion(plan, job, observation, state, now);
+      const fixed = verifiedCompletionProjection(plan, { ...job, verifiedCompletion });
       return { ...job, lifecycleProtocol: 2 as const, status: state.status, executionState: state.execution, resultState: state.result,
         runtimeDiagnostics: state.runtimeDiagnostics, completionState: state.completionState, exitCode: state.exitCode,
-        startIntent: !observation.queryError && (observation.tmux || observation.cancelled || state.result === "complete") ? undefined : job.startIntent,
+        startIntent: !observation.queryError && !observation.executionQueryError && (observation.tmux || observation.cancelled || state.result === "complete") ? undefined : job.startIntent,
         ...( ["train", "test", "train_test"].includes(String(task?.actualExecutionMode)) ? { actualExecutionMode: task!.actualExecutionMode as PlanExecutionMode } : {}),
         recoveryConflict: undefined, trustedTerminalStatus: undefined,
-        statusQueryError: observation.queryError, lastObservedAt: snapshot.fetchedAt || observation.observedAt,
+        statusQueryError: observation.queryError || observation.executionQueryError, lastObservedAt: snapshot.fetchedAt || observation.observedAt,
         error: state.status === "failed" ? String(task?.error || `任务退出码 ${task?.exitCode ?? "未知"}`) : undefined,
-        blockReason: state.message, ...(task ? { gpuId: String(task.gpuId ?? job.gpuId ?? ""),
+        blockReason: state.message, verifiedCompletion,
+        verificationQueryError: verifiedCompletion ? observation.queryError || observation.executionQueryError || observation.resultQueryError || observation.runtimeQueryError : undefined,
+        ...fixed, ...(task ? { gpuId: String(task.gpuId ?? job.gpuId ?? ""),
           tmuxPane: String(task.tmuxPane || ""), tmuxWindowId: String(task.tmuxWindowId || ""), tmuxSession: String(task.tmuxSession || "") } : {}) };
     }) })) };
     snapshots = snapshots.filter(snapshot => (snapshot.capabilities as any)?.taskLifecycle !== 2);

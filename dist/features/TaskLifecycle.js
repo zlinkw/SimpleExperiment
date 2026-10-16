@@ -7,7 +7,9 @@ function taskLifecycle(value) {
     let execution = "missing", result = value.result === null ? "incomplete" : "unverified";
     if (value.queryError)
         return { execution: "unknown", result: "unverified", status: "unknown", message: value.queryError };
-    const pane = value.tmux;
+    const pane = value.executionQueryError ? undefined : value.tmux;
+    if (value.executionQueryError)
+        execution = "unknown";
     if (pane) {
         // An absent native exit code is not evidence of failure. The current
         // command's verified manifest still decides whether an ended run completed.
@@ -29,16 +31,16 @@ function taskLifecycle(value) {
     if (value.resultQueryError)
         result = "unverified";
     const exitCode = pane?.exitCode ?? (value.result?.runId === value.commandId && value.result.identityMatches !== false ? value.result?.exitCode : undefined) ?? pane?.exitCode;
-    if ((!pane || pane.dead) && Number.isInteger(exitCode))
+    if ((!pane || pane.dead) && Number.isInteger(exitCode) && !value.resultQueryError && !value.executionQueryError)
         execution = exitCode !== 0 ? "failed" : "exited";
     const status = ["queued", "starting"].includes(execution) ? "queued" : execution === "running" ? "running"
         : execution === "failed" ? "failed" : execution === "unknown" ? "unknown" : result === "complete" ? "completed" : value.cancelled && !pane ? "cancelled"
             : execution === "missing" ? "unknown" : "unknown";
-    const message = value.resultQueryError ? "产物核实失败：" + value.resultQueryError : execution === "starting" ? "任务窗口已建立，正在启动命令"
+    const message = value.executionQueryError || (value.resultQueryError ? "产物核实失败：" + value.resultQueryError : execution === "starting" ? "任务窗口已建立，正在启动命令"
         : execution === "unknown" ? "窗口执行阶段尚未核实" : execution === "missing" && result !== "complete" ? "远端未发现该任务；未自动重新派发"
             : result === "conflict" ? "产物清单与本次任务不符"
                 : execution === "exited" && result === "incomplete" ? "执行已结束，结果不完整"
-                    : execution === "exited" && result !== "complete" ? "执行已结束，产物尚未确认" : undefined;
+                    : execution === "exited" && result !== "complete" ? "执行已结束，产物尚未确认" : undefined);
     const evidence = (0, RuntimeDiagnostics_1.runtimeEvidence)(value.runtimeDiagnostics, value.commandId);
     let completion = (0, RuntimeDiagnostics_1.completionState)(evidence, value.commandId);
     if (completion === "verified" && exitCode == null && value.result?.status === "failed")

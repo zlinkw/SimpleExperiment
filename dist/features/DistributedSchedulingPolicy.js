@@ -10,7 +10,8 @@ exports.serverAuthoritativeProgress = serverAuthoritativeProgress;
 const DistributedPlanQueue_1 = require("./DistributedPlanQueue");
 const LatestJobArtifacts_1 = require("./LatestJobArtifacts");
 const RuntimeDiagnostics_1 = require("./RuntimeDiagnostics");
-// The live pull is bounded at 15s; a 2s polling interval must not expire it mid-query.
+// Local execution, artifact and log observations each retain their own age.
+// Log work has a separate budget and never extends these twenty seconds.
 exports.PROGRESS_FRESHNESS_MS = 20_000;
 /** Preparation restricts writers only while the current upload is in flight. */
 function dispatchPreparationAllowsWorker(workerId, root, preparation, uploads) {

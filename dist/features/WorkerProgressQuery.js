@@ -1,8 +1,53 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.mergeProgressSnapshot = void 0;
+exports.executionProgressSnapshot = executionProgressSnapshot;
+exports.completeProgressSnapshot = completeProgressSnapshot;
 exports.queryWorkerProgress = queryWorkerProgress;
+exports.progressEvidenceReport = progressEvidenceReport;
 const TaskLifecycle_1 = require("./TaskLifecycle");
+const WorkerProgressEvidence_1 = require("./WorkerProgressEvidence");
+var WorkerProgressEvidence_2 = require("./WorkerProgressEvidence");
+Object.defineProperty(exports, "mergeProgressSnapshot", { enumerable: true, get: function () { return WorkerProgressEvidence_2.mergeProgressSnapshot; } });
 const progressCursors = new WeakMap();
+const diagnosticReads = new WeakMap();
+function executionProgressSnapshot(live, previous, startedAt) {
+    const timing = (0, WorkerProgressEvidence_1.observationTiming)(live, startedAt);
+    const key = (task) => task.projectId + ":" + task.commandId;
+    const rows = new Map((live.tasks || []).map((task) => [key(task), task]));
+    for (const task of previous?.tasks || [])
+        if (!rows.has(key(task)))
+            rows.set(key(task), { ...task,
+                observation: { lifecycleProtocol: 2, commandId: task.commandId, projectId: task.projectId, workerId: task.workerId,
+                    observedAt: live.generatedAt } });
+    const incoming = { ...live, fetchedAt: timing.receivedAt, tasks: [...rows.values()].map((task) => ({ ...task,
+            observation: { ...task.observation, evidence: { execution: timing } } })) };
+    return (0, WorkerProgressEvidence_1.mergeProgressSnapshot)(previous, incoming);
+}
+function completeProgressSnapshot(value, startedAt) {
+    const timing = (0, WorkerProgressEvidence_1.observationTiming)(value, startedAt);
+    return { ...value, localQueryTiming: timing, tasks: (value.tasks || []).map((task) => ({ ...task,
+            ...(task.observation ? { observation: { ...task.observation, evidence: { execution: timing, artifacts: timing,
+                        ...(task.observation.runtimeDiagnostics ? { logs: timing } : {}) } } } : {}) })) };
+}
+function sharedDiagnostics(client, workerId, queries) {
+    let reads = diagnosticReads.get(client);
+    if (!reads) {
+        reads = new Map();
+        diagnosticReads.set(client, reads);
+    }
+    const key = JSON.stringify([workerId, queries.map(q => [q.projectId, q.commandId, q.outputDir, q.collectionResultCsv])]);
+    let promise = reads.get(key);
+    if (!promise) {
+        const startedAt = new Date().toISOString();
+        promise = client.getWorkerTasks(workerId, { signal: AbortSignal.timeout(15000), selectedOnly: true,
+            observationOnly: true, diagnosticsOnly: true, queries }).then((value) => ({ value, timing: (0, WorkerProgressEvidence_1.observationTiming)(value, startedAt) }))
+            .finally(() => { if (reads.get(key) === promise)
+            reads.delete(key); });
+        reads.set(key, promise);
+    }
+    return promise;
+}
 /** Current-round observations only. One slow result cannot discard its siblings. */
 async function queryWorkerProgress(client, workerId, queries, execution, options = {}) {
     const key = (task) => task.projectId + ":" + task.commandId;
@@ -11,8 +56,15 @@ async function queryWorkerProgress(client, workerId, queries, execution, options
         if (task.commandId && task.projectId && task.workerId === workerId && task.outputDir)
             selected.set(key(task), { ...selected.get(key(task)), ...task });
     const rows = new Map((execution.tasks || []).map((task) => [key(task), task]));
+    for (const [id, query] of selected)
+        if (!rows.has(id))
+            rows.set(id, { ...query, observation: {
+                    lifecycleProtocol: 2, commandId: query.commandId, projectId: query.projectId, workerId,
+                    observedAt: execution.generatedAt, evidence: { execution: (0, WorkerProgressEvidence_1.observationTiming)(execution, execution.progressRequestStartedAt || execution.fetchedAt || new Date().toISOString()) }
+                } });
     const selection = [...selected.values()], checked = new Set(), errors = new Map();
     const needsDiagnostics = new Set(), diagnosticsChecked = new Set(), runtimeErrors = new Map();
+    const artifactAttempts = new Map();
     let cursors = progressCursors.get(client);
     if (!cursors) {
         cursors = new Map();
@@ -24,7 +76,8 @@ async function queryWorkerProgress(client, workerId, queries, execution, options
     if (cursors.size > 64)
         cursors.delete(cursors.keys().next().value);
     const cleanup = new Map();
-    let index = 0, closed = false, controlIncomplete = false, capabilities = execution.capabilities;
+    let index = 0, closed = false, detached = false, controlIncomplete = false, capabilities = execution.capabilities;
+    const cancelled = () => !detached && options.signal?.aborted;
     const snapshot = (reason) => {
         const partial = !entries.length || checked.size !== entries.length || errors.size > 0;
         const { executionOnly: _, ...base } = execution;
@@ -38,19 +91,24 @@ async function queryWorkerProgress(client, workerId, queries, execution, options
     };
     const publish = () => { if (!closed)
         options.onSnapshot?.(snapshot()); };
-    const fail = (query, message) => {
+    const fail = (query, message, startedAt) => {
         const id = key(query), prior = rows.get(id) || query;
         errors.set(id, message);
-        rows.set(id, { ...prior, observation: { ...(prior.observation || {}), resultQueryError: message } });
+        rows.set(id, { ...prior, observation: { ...(prior.observation || {}), resultQueryError: message,
+                evidence: { ...prior.observation?.evidence, artifacts: { requestedAt: startedAt, receivedAt: new Date().toISOString(), failed: true } } } });
     };
-    const runtimeFailure = (query, message) => {
+    const runtimeFailure = (query, message, startedAt) => {
         const id = key(query), prior = rows.get(id);
         runtimeErrors.set(id, message);
         if (prior) {
-            const evidence = { schemaVersion: 1, commandId: query.commandId, runId: query.commandId,
-                state: "unverified", count: 0, scanComplete: false, reason: message };
-            rows.set(id, { ...prior, runtimeDiagnostics: evidence, completionState: "unverified", successful: false,
-                observation: { ...prior.observation, runtimeDiagnostics: evidence } });
+            const known = prior.observation?.runtimeDiagnostics;
+            const evidence = known?.commandId === query.commandId && known?.runId === query.commandId && known.count > 0
+                ? { ...known, scanComplete: false, reason: message }
+                : { schemaVersion: 1, commandId: query.commandId, runId: query.commandId,
+                    state: "unverified", count: 0, scanComplete: false, reason: message };
+            rows.set(id, { ...prior, runtimeDiagnostics: evidence, completionState: evidence.count > 0 ? "review_required" : "unverified", successful: false,
+                observation: { ...prior.observation, runtimeDiagnostics: evidence, runtimeQueryError: message,
+                    evidence: { ...prior.observation?.evidence, logs: { requestedAt: startedAt, receivedAt: new Date().toISOString(), failed: true } } } });
         }
     };
     const lane = async () => {
@@ -58,6 +116,9 @@ async function queryWorkerProgress(client, workerId, queries, execution, options
             const batch = entries.slice(index, index + 4);
             index += batch.length;
             cursors.set(scope, (start + index) % entries.length);
+            const startedAt = new Date().toISOString();
+            for (const query of batch)
+                artifactAttempts.set(key(query), startedAt);
             try {
                 const value = await client.getWorkerTasks(workerId, { signal: options.signal,
                     selectedOnly: true, observationOnly: true, queries: batch });
@@ -73,13 +134,15 @@ async function queryWorkerProgress(client, workerId, queries, execution, options
                     const id = key(query);
                     const task = value?.tasks?.find((task) => key(task) === id && task.workerId === workerId);
                     if (!task || task.observation?.queryError) {
-                        fail(query, task?.observation?.queryError || "所选任务的产物查询未完成");
+                        fail(query, task?.observation?.queryError || "所选任务的产物查询未完成", startedAt);
                         continue;
                     }
                     if (value.resultsOnly === true) {
                         controlIncomplete = true;
                         const prior = rows.get(id) || query;
-                        const observation = { ...task.observation, ...(prior.observation?.tmux ? { tmux: prior.observation.tmux } : {}) };
+                        const observation = { ...task.observation, ...(prior.observation?.tmux ? { tmux: prior.observation.tmux } : {}),
+                            runtimeDiagnostics: value.metadataOnly ? prior.observation?.runtimeDiagnostics : task.observation?.runtimeDiagnostics,
+                            evidence: { ...prior.observation?.evidence, artifacts: (0, WorkerProgressEvidence_1.observationTiming)(value, startedAt) } };
                         if (observation.tmux && !observation.tmux.dead && observation.runtimeDiagnostics) {
                             observation.runtimeDiagnostics = { ...observation.runtimeDiagnostics, scanComplete: false,
                                 state: observation.runtimeDiagnostics.count ? "anomalous" : "scanning" };
@@ -90,7 +153,9 @@ async function queryWorkerProgress(client, workerId, queries, execution, options
                             exitCode: state.exitCode, successful: state.status === "completed" && state.completionState === "verified" });
                     }
                     else
-                        rows.set(id, task);
+                        rows.set(id, { ...task, observation: { ...task.observation,
+                                evidence: { execution: (0, WorkerProgressEvidence_1.observationTiming)(value, startedAt), artifacts: (0, WorkerProgressEvidence_1.observationTiming)(value, startedAt),
+                                    ...(task.observation?.runtimeDiagnostics ? { logs: (0, WorkerProgressEvidence_1.observationTiming)(value, startedAt) } : {}) } } });
                     checked.add(id);
                     if (value.metadataOnly === true)
                         needsDiagnostics.add(id);
@@ -101,30 +166,31 @@ async function queryWorkerProgress(client, workerId, queries, execution, options
                     return;
                 const message = error instanceof Error ? error.message : String(error);
                 for (const query of batch)
-                    fail(query, message);
+                    fail(query, message, startedAt);
             }
             publish();
         }
     };
-    const read = async () => {
-        await Promise.all(Array.from({ length: Math.min(4, entries.length) }, lane));
-        if (closed || options.signal?.aborted || !needsDiagnostics.size)
+    const readLogs = async () => {
+        if (closed || cancelled() || !needsDiagnostics.size)
             return;
         // Every artifact receipt is published before any raw log request. A log
         // timeout changes only runtime evidence, never the verified result state.
-        const jobs = selection.filter(query => needsDiagnostics.has(key(query)));
-        const logScope = scope + ":logs", start = (cursors.get(logScope) || 0) % jobs.length;
+        const jobs = selection.filter(query => needsDiagnostics.has(key(query))).sort((a, b) => key(a).localeCompare(key(b)));
+        const logScope = scope + ":logs", start = detached ? 0 : (cursors.get(logScope) || 0) % jobs.length;
         const logs = [...jobs.slice(start), ...jobs.slice(0, start)];
         let next = 0;
         const logLane = async () => {
-            while (!closed && !options.signal?.aborted && next < logs.length) {
+            while (!closed && !cancelled() && next < logs.length) {
                 const batch = logs.slice(next, next + 4);
                 next += batch.length;
                 cursors.set(logScope, (start + next) % jobs.length);
+                const startedAt = new Date().toISOString();
                 try {
-                    const value = await client.getWorkerTasks(workerId, { signal: options.signal,
+                    const response = detached ? await sharedDiagnostics(client, workerId, batch) : undefined;
+                    const value = response?.value || await client.getWorkerTasks(workerId, { signal: options.signal,
                         selectedOnly: true, observationOnly: true, diagnosticsOnly: true, queries: batch });
-                    if (closed || options.signal?.aborted)
+                    if (closed || cancelled())
                         return;
                     if (value?.queryComplete !== true || value?.error)
                         throw Error(value?.error || "运行日志核实未完成");
@@ -132,10 +198,11 @@ async function queryWorkerProgress(client, workerId, queries, execution, options
                         const id = key(query), prior = rows.get(id), task = value.tasks?.find((task) => key(task) === id && task.workerId === workerId);
                         const evidence = task?.observation?.runtimeDiagnostics;
                         if (!evidence || task.observation.runtimeQueryError || task.observation.queryError) {
-                            runtimeFailure(query, task?.observation?.runtimeQueryError || task?.observation?.queryError || "未取得本次运行日志");
+                            runtimeFailure(query, task?.observation?.runtimeQueryError || task?.observation?.queryError || "未取得本次运行日志", startedAt);
                             continue;
                         }
-                        const observation = { ...prior.observation, runtimeDiagnostics: observationDiagnostics(prior.observation, evidence) };
+                        const observation = { ...prior.observation, runtimeDiagnostics: observationDiagnostics(prior.observation, evidence), runtimeQueryError: undefined,
+                            evidence: { ...prior.observation?.evidence, logs: response?.timing || (0, WorkerProgressEvidence_1.observationTiming)(value, startedAt) } };
                         const state = (0, TaskLifecycle_1.taskLifecycle)(observation);
                         rows.set(id, { ...prior, observation, runtimeDiagnostics: state.runtimeDiagnostics, completionState: state.completionState,
                             successful: state.status === "completed" && state.completionState === "verified" });
@@ -143,15 +210,26 @@ async function queryWorkerProgress(client, workerId, queries, execution, options
                     }
                 }
                 catch (error) {
-                    if (closed || options.signal?.aborted)
+                    if (closed || cancelled())
                         return;
                     for (const query of batch)
-                        runtimeFailure(query, error instanceof Error ? error.message : String(error));
+                        runtimeFailure(query, error instanceof Error ? error.message : String(error), startedAt);
                 }
                 publish();
             }
         };
         await Promise.all(Array.from({ length: Math.min(4, Math.ceil(logs.length / 4)) }, logLane));
+    };
+    const read = async () => {
+        await Promise.all(Array.from({ length: Math.min(4, entries.length) }, lane));
+        if (closed || options.signal?.aborted)
+            return;
+        if (options.deferDiagnostics && needsDiagnostics.size) {
+            detached = true;
+            void readLogs().catch(() => undefined).finally(() => { closed = true; });
+        }
+        else
+            await readLogs();
     };
     let abort;
     const interrupted = new Promise(resolve => {
@@ -164,12 +242,17 @@ async function queryWorkerProgress(client, workerId, queries, execution, options
         await Promise.race([read(), interrupted]);
         if (options.signal?.aborted && options.signal.reason?.code !== "TASK_QUERY_TIMEOUT")
             throw options.signal.reason;
+        if (options.signal?.aborted)
+            for (const query of entries)
+                if (!checked.has(key(query)))
+                    fail(query, String(options.signal.reason?.message || "产物查询未完成"), artifactAttempts.get(key(query)) || execution.progressRequestStartedAt || execution.fetchedAt || new Date().toISOString());
         const result = snapshot(options.signal?.aborted ? String(options.signal.reason?.message || "部分产物查询超时") : undefined);
         options.onSnapshot?.(result);
         return result;
     }
     finally {
-        closed = true;
+        if (!detached)
+            closed = true;
         if (abort)
             options.signal?.removeEventListener("abort", abort);
     }
@@ -177,4 +260,20 @@ async function queryWorkerProgress(client, workerId, queries, execution, options
 function observationDiagnostics(observation, evidence) {
     return observation?.tmux && !observation.tmux.dead
         ? { ...evidence, scanComplete: false, state: evidence.count ? "anomalous" : "scanning" } : evidence;
+}
+/** Bounded, memory-only timing evidence; excludes tokens, paths and log text. */
+function progressEvidenceReport(snapshots, now, maxAgeMs) {
+    return snapshots.flatMap(snapshot => (snapshot.tasks || []).slice(0, 128).map((task) => ({
+        workerId: snapshot.workerId, projectId: task.projectId, commandId: task.commandId,
+        requestedAt: snapshot.progressRequestStartedAt, publishedAt: snapshot.publishedAt,
+        remoteObservedAt: task.observation?.observedAt, fetchedAt: snapshot.fetchedAt,
+        evaluatedAt: new Date(now).toISOString(), maxAgeMs,
+        evidence: Object.fromEntries(["execution", "artifacts", "logs"].map(lane => {
+            const timing = task.observation?.evidence?.[lane];
+            const ageMs = now - Date.parse(timing?.failed ? "" : timing?.networkStartedAt || snapshot.fetchedAt || "");
+            return [lane, { ...timing, available: Boolean(timing && !timing.failed), source: timing?.failed ? "query_failed" : timing ? "local_network_observation" : "legacy_snapshot",
+                    ageMs: Number.isFinite(ageMs) ? ageMs : null,
+                    expired: !timing && Boolean(task.observation?.evidence) || !Number.isFinite(ageMs) || ageMs > maxAgeMs || ageMs < -30000 }];
+        })),
+    }))).slice(0, 256);
 }

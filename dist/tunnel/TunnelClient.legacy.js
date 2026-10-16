@@ -177,7 +177,7 @@ class HttpTunnelClient {
         if (ids.length > 500 || ids.some(id => !/^[A-Za-z0-9._:-]{1,128}$/.test(id)))
             throw new Error("INVALID_RETIRED_COMMAND_SELECTION");
         if (options.executionOnly || options.selectedOnly || options.diagnosticsOnly || options.declarationOnly || options.queries?.length || options.declarations || options.discovery)
-            return this.requestJson(options.diagnosticsOnly ? "/api/worker/tasks/diagnostics" : "/api/worker/tasks/query", options.observationOnly || options.diagnosticsOnly || options.declarationOnly ? "manual_refresh" : "job_reconcile", { queries: options.queries || [], executionOnly: options.executionOnly, selectedOnly: options.selectedOnly, observationOnly: options.observationOnly, diagnosticsOnly: options.diagnosticsOnly, declarationOnly: options.declarationOnly, declarations: options.declarations, discovery: options.discovery, retiredCommandIds: ids }, { method: "POST", userInitiated: true, signal: options.signal });
+            return this.requestJson(options.diagnosticsOnly ? "/api/worker/tasks/diagnostics" : "/api/worker/tasks/query", options.diagnosticsOnly ? "task_diagnostics" : options.observationOnly || options.declarationOnly ? "manual_refresh" : "job_reconcile", { queries: options.queries || [], executionOnly: options.executionOnly, selectedOnly: options.selectedOnly, observationOnly: options.observationOnly, diagnosticsOnly: options.diagnosticsOnly, declarationOnly: options.declarationOnly, declarations: options.declarations, discovery: options.discovery, retiredCommandIds: ids }, { method: "POST", userInitiated: true, signal: options.signal });
         const params = new URLSearchParams();
         if (ids.length)
             params.set("retiredCommandIds", ids.join(","));
@@ -293,7 +293,9 @@ class HttpTunnelClient {
         if (!apiPath.startsWith("/api/"))
             throw new Error("Only Hub Agent API paths are allowed.");
         const base = (0, TunnelGateway_1.localBaseUrl)(this.endpoint);
+        const requestedAt = new Date().toISOString();
         return this.budget.run(purpose, async () => {
+            const networkStartedAt = new Date().toISOString();
             const controller = new AbortController();
             const configuredTimeoutMs = Number(options.timeoutMs ?? this.endpoint.timeoutMs ?? 30_000);
             const timeoutMs = Number.isFinite(configuredTimeoutMs) ? Math.max(1, configuredTimeoutMs) : 30_000;
@@ -327,7 +329,10 @@ class HttpTunnelClient {
                 }
                 if (!text.trim())
                     return {};
-                return JSON.parse(text);
+                const value = JSON.parse(text);
+                if (apiPath.startsWith("/api/worker/tasks") && value && typeof value === "object")
+                    value.localQueryTiming = { requestedAt, networkStartedAt, receivedAt: new Date().toISOString() };
+                return value;
             }
             finally {
                 inactivity.dispose();

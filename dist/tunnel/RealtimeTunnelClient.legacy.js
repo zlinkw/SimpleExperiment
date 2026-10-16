@@ -53,6 +53,7 @@ class RealtimeTunnelClient {
     sharedReads = new SharedReadCoalescer_1.SharedReadCoalescer(64);
     requiresManualReconnect = false;
     connectionGeneration = 0;
+    get progressGeneration() { return this.connectionGeneration; }
     disposed = false;
     workerGpuUpdatedAt = 0;
     constructor(endpoint, budget, policy = exports.defaultRealtimeRefreshPolicy, onState = () => undefined) {
@@ -341,7 +342,12 @@ class RealtimeTunnelClient {
         if (this.requiresManualReconnect)
             return Promise.reject(new Error(this.lastError));
         const selection = [...new Set(options.retiredCommandIds || [])].sort().join(",") + JSON.stringify(options.queries || []) + JSON.stringify(options.declarations || []) + JSON.stringify(options.discovery || null) + ":execution=" + (options.executionOnly === true) + ":selected=" + (options.selectedOnly === true) + ":observation=" + (options.observationOnly === true) + ":declaration=" + (options.declarationOnly === true) + ":diagnostics=" + (options.diagnosticsOnly === true);
-        return this.coalescedRead("worker-tasks:" + selection, options, () => this.http.getWorkerTasks(options));
+        const generation = this.connectionGeneration;
+        return this.coalescedRead("worker-tasks:" + selection, options, () => this.http.getWorkerTasks(options)).then(value => {
+            if (generation !== this.connectionGeneration || this.disposed)
+                throw Object.assign(new Error("Worker connection changed during query"), { code: "CONNECTION_GENERATION_CHANGED" });
+            return value;
+        });
     }
     getRunEvidence(params) {
         if (this.requiresManualReconnect)
