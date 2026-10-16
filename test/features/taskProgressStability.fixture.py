@@ -11,7 +11,7 @@ failed = dict(projectId="project", commandId="failed", workerId="worker", output
 running = dict(projectId="project", commandId="running", workerId="worker", outputDir="work/running", dead=False, tmuxPane="%2")
 def observe(root, job, row):
     return dict(commandId=job["commandId"], projectId=job["projectId"], status="failed" if row and row["dead"] else "running" if row else "unknown", observation={})
-ns = dict(json=json, now_iso=lambda: "now", task_inventory=lambda root: [failed, running],
+ns = dict(json=json, now_iso=lambda: "now", task_inventory=lambda root, **kwargs: [failed, running],
           task_memory_scheduler_capability=lambda root: 0, task_safe_path=lambda root, path: path,
           task_tmux=lambda args: "ValueError: project configuration mismatch" if args[0] == "capture-pane" else "",
           task_option=lambda *args: "[]", task_queue_session=lambda *args: "queue", task_public_observation=observe)

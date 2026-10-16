@@ -17,6 +17,7 @@ headers = [dict(root=root, lifecycleProtocol=2, commandId=str(i), projectId="pro
 reads, observations = [], []
 exit_code = "0"
 diagnostics = {"state": "clear", "scanComplete": True, "count": 0}
+expect_full = True
 def tmux(args):
     if args[0] == "capture-pane":
         return "synthetic nonzero exit"
@@ -31,7 +32,7 @@ def read_job(pane, encoded=None):
     return {**h, "options": {"fullPayload": True}}
 def observe(root, job, row=None):
     observations.append(job["commandId"])
-    if row:
+    if row and expect_full:
         assert job["options"]["fullPayload"], "selected result must retain the verified full payload"
     return real_observe(root, job, row)
 ns = dict(os=os, base64=base64, json=json, re=re, task_tmux=tmux, task_read_job=read_job,
@@ -54,8 +55,9 @@ assert ns["task_query"](root, [query], selected_only=True)["tasks"][0]["status"]
 exit_code = "0"
 diagnostics = {"state": "clear", "scanComplete": True, "count": 0}
 reads.clear(); observations.clear()
+expect_full = False
 result = ns["task_query"](root, [query])
-assert len(result["tasks"]) == 180 and len(reads) == 180, "normal discovery must retain all real panes"
+assert len(result["tasks"]) == 180 and not reads, "progress discovery must retain all panes without reading launch source chunks"
 try:
     ns["task_query"](root, [dict(query, workerId="other")], selected_only=True)
 except ValueError as exc:

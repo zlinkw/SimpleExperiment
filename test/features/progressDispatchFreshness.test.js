@@ -1,6 +1,11 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),vm=require('node:vm'),ts=require('typescript');
 require('../_helpers/registerTsRequire');
 const Q=require('../../src/features/DistributedPlanQueue.ts'),P=require('../../src/features/DistributedSchedulingPolicy.ts');
+test('automatic queued tasks use another idle GPU while manual placement and capacity remain exact',()=>{
+ const path=require('node:path'),{spawnSync}=require('node:child_process');
+ const r=spawnSync('python',['-X','utf8',path.join(__dirname,'dispatchGpuPreference.fixture.py'),path.join(__dirname,'../../src/runtime/TmuxTaskLifecycle.ts')],{encoding:'utf8',timeout:10000,windowsHide:true});
+ assert.equal(r.status,0,r.stderr||r.stdout);assert.deepEqual(JSON.parse(r.stdout),{ok:true,fallback:'1',manual:'0'});
+});
 const source=fs.readFileSync('src/extension/legacy.ts','utf8'),ast=ts.createSourceFile('host.ts',source,ts.ScriptTarget.Latest,true);
 function method(name,globals={}){let found;function visit(n){if(ts.isMethodDeclaration(n)&&n.name.getText(ast)===name)found=n;ts.forEachChild(n,visit);}visit(ast);assert.ok(found,name);return vm.runInNewContext(ts.transpileModule('class Host{'+found.getText(ast)+'};Host.prototype.'+name,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{AbortController,...globals});}
 test('a freshly missing original command keeps its fence input but releases the GPU for other jobs',()=>{

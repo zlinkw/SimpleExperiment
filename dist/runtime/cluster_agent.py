@@ -69,9 +69,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.350"
-RUNTIME_VERSION = "0.5.350"
-PLUGIN_VERSION = "0.5.350"
+AGENT_VERSION = "0.5.351"
+RUNTIME_VERSION = "0.5.351"
+PLUGIN_VERSION = "0.5.351"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -18350,7 +18350,9 @@ def task_declared_results(root, declarations, tasks=()):
 def task_query(root, queries=(), selected_only=False):
     if not isinstance(queries, (list, tuple)) or len(queries) > 500:
         raise ValueError("TASK_QUERY_LIMIT")
-    rows = task_inventory(root, execution_only=True) if selected_only else task_inventory(root)
+    # Observations need the published identity and current pane, not every
+    # job's multi-part launch source. Launch/admission still verify that payload.
+    rows = task_inventory(root, execution_only=True)
     valid_queries, query_errors = [], []
     for index, query in enumerate(queries):
         try:
@@ -18418,7 +18420,7 @@ def task_query(root, queries=(), selected_only=False):
                 except RuntimeError as exc:
                     # A user may close an exited tab between inventory and log capture.
                     # A fresh inventory distinguishes disappearance from a broken tmux query.
-                    if any(item["tmuxPane"] == row["tmuxPane"] for item in task_inventory(root)):
+                    if any(item["tmuxPane"] == row["tmuxPane"] for item in task_inventory(root, execution_only=True)):
                         raise
                     public["logQueryError"] = str(exc)
             tasks.append(public)
@@ -18728,10 +18730,10 @@ def task_admission_gpu(row, gpus, occupied):
         return pinned
     cap = max(1, int(row.get("maxConcurrentGpus") or options.get("maxConcurrentGpus") or len(gpus) or 1))
     pinned = pinned if row.get("requireIdleGpu") else ""
-    for gpu in gpus:
+    # Automatic placement is a preference. A queued job must follow currently
+    # available capacity when its original card filled before admission.
+    for gpu in sorted(gpus, key=lambda item: gpu_row_id(item) != pinned):
         gpu_id = gpu_row_id(gpu)
-        if pinned and gpu_id != pinned:
-            continue
         count = occupied.get(gpu_id, 0) if isinstance(occupied, dict) else int(gpu_id in occupied)
         active_ids = [gpu_row_id(item) for item in gpus if gpu_row_id(item) in occupied]
         if count and gpu_id not in active_ids[:cap]:
