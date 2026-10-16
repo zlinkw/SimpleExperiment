@@ -50,3 +50,39 @@ test('submission-only inventory cannot overwrite the independently queried progr
  const failed=await method('refreshWorkerTaskSnapshot',globals).call(host,'worker','/fixture','key',{inventoryOnly:true});
  assert.match(failed.error,/inventory offline/);assert.equal(stored,0);
 });
+
+test('slow result verification publishes fresh execution first and cannot erase it on timeout',async()=>{
+ let finish,stored=[],calls=[];const slow=new Promise((_,reject)=>{finish=reject;});
+ const observation={lifecycleProtocol:2,commandId:'live',projectId:'project',workerId:'worker',observedAt:new Date().toISOString(),tmux:{paneId:'%1',windowId:'@1',dead:false,phase:'starting'}};
+ const execution={executionOnly:true,queryComplete:true,capabilities:{taskLifecycle:2},tasks:[{commandId:'live',projectId:'project',observation}]};
+ const globals={workspaceRoot:()=>'/fixture',workerTaskSnapshotPayload:x=>x,WorkerTaskQuery:W,errorMessage:e=>e.message,RequestBudget_1:{RequestBudgetDeniedError:class extends Error{}}};
+ const host={client:{getWorkerTasks:async(_,options)=>{calls.push(options);return options.executionOnly?execution:slow;}},loadDistributedQueue:async()=>({plans:[{projectId:'project',jobs:[{lifecycleProtocol:2,workerId:'worker',commandId:'live',outputDir:'work/live',status:'unknown'}]}]}),cachedWorkerTaskSnapshot:()=>undefined,storeWorkerTaskSnapshot(_,value){stored.push(value);},postState(){}};
+ const pending=method('refreshWorkerTaskSnapshot',globals).call(host,'worker','/fixture','key');
+ for(let i=0;i<5&&calls.length<2;i++)await new Promise(setImmediate);
+ assert.equal(stored.length,1,'execution is visible before the slow result query finishes');
+ assert.equal(Q.mergeDurableWorkerSnapshots({plans:[{projectId:'project',jobs:[{lifecycleProtocol:2,workerId:'worker',commandId:'live',status:'unknown'}]}]},stored,'project').plans[0].jobs[0].executionState,'starting');
+ finish(Object.assign(Error('result query timed out'),{code:'TASK_QUERY_TIMEOUT'}));
+ const result=await pending;assert.equal(result.error,undefined);assert.equal(result.executionOnly,true);
+ assert.match(result.resultQueryError,/result query timed out/);assert.equal(result.tasks[0].observation.tmux.phase,'starting');
+ assert.equal(result.tasks[0].observation.result,undefined,'no stale result is promoted to fresh evidence');
+ const {assertLaunchObservations}=W;
+ assert.throws(()=>assertLaunchObservations([result],[]),/TASK_QUERY_INCOMPLETE/,'execution-only evidence cannot authorize overwriting outputs or skip cleanup checks');
+ host.client.getWorkerTasks=async()=>{throw Error('execution offline');};
+ const failed=await method('refreshWorkerTaskSnapshot',globals).call(host,'worker','/fixture','key');assert.match(failed.error,/execution offline/);
+});
+
+test('normal complete observations are not flashed to unverified during the execution-first refresh',async()=>{
+ let finish,stored=[];const full=new Promise(resolve=>{finish=resolve;});
+ const old={queryComplete:true,capabilities:{taskLifecycle:2},tasks:[{commandId:'ended',status:'completed'}]};
+ const live={executionOnly:true,queryComplete:true,capabilities:{taskLifecycle:2},tasks:[]};
+ const globals={workspaceRoot:()=>'/fixture',workerTaskSnapshotPayload:x=>x,WorkerTaskQuery:W,errorMessage:e=>e.message,RequestBudget_1:{RequestBudgetDeniedError:class extends Error{}}};
+ const host={client:{getWorkerTasks:async(_,options)=>options.executionOnly?live:full},loadDistributedQueue:async()=>({plans:[]}),cachedWorkerTaskSnapshot:()=>old,storeWorkerTaskSnapshot(_,value){stored.push(value);},postState(){}};
+ const pending=method('refreshWorkerTaskSnapshot',globals).call(host,'worker','/fixture','key');
+ await new Promise(setImmediate);assert.equal(stored.length,0);
+ finish(old);const result=await pending;assert.equal(result.tasks[0].status,'completed');assert.equal(stored.length,1);
+});
+
+test('native execution inventory stays independent of result files, logs and launch payloads',()=>{
+ const r=require('node:child_process').spawnSync(process.platform==='win32'?'python':'python3',['-B','-X','utf8',path.join(__dirname,'slowWorkerExecution.fixture.py'),path.resolve(__dirname,'../../src/runtime/TmuxTaskLifecycle.ts')],{encoding:'utf8',timeout:10000,windowsHide:true});
+ assert.equal(r.status,0,r.stderr||r.stdout);
+});

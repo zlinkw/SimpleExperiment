@@ -1691,9 +1691,30 @@ export class RealtimeTunnelPanelProvider {
     async refreshWorkerTaskSnapshot(workerId, root, cacheKey, options: { signal?: AbortSignal; inventoryOnly?: boolean; declarations?: any[] } = {}) {
         const cached = options.inventoryOnly ? undefined : this.cachedWorkerTaskSnapshot(workerId, root, cacheKey);
         const client = this.client;
+        let executionSnapshot: any;
         try {
             const queue = await this.loadDistributedQueue(root);
             const queries = options.inventoryOnly ? [] : WorkerTaskQuery.workerTaskQueries(queue, workerId);
+            if (!options.inventoryOnly && (cached?.capabilities?.taskLifecycle === 2 || queue.plans?.some(plan =>
+                plan.jobs?.some(job => job.workerId === workerId && job.lifecycleProtocol === 2)))) {
+                try {
+                    // One tmux inventory, independent of result metadata, raw log
+                    // analysis and the multi-part launch payload. Never replay work.
+                    const live: any = await client.getWorkerTasks(workerId, { signal: options.signal, executionOnly: true });
+                    if (live?.executionOnly === true && live.queryComplete === true && !live.error && live.capabilities?.taskLifecycle === 2
+                        && workspaceRoot() === root && this.client === client) {
+                        executionSnapshot = { ...live, workerId, fetchedAt: new Date().toISOString() };
+                        if (!cached || cached.error || cached.executionOnly) {
+                            this.storeWorkerTaskSnapshot(cacheKey, executionSnapshot);
+                            this.postState();
+                        }
+                    }
+                } catch (error) {
+                    if (options.signal?.aborted) throw error;
+                    // Older agents may not provide the lightweight inventory;
+                    // a genuine full query can still establish current truth.
+                }
+            }
             const count = Math.max(queries.length, options.declarations?.length || 0);
             const batches = count ? Array.from({ length: Math.ceil(count / 500) }, (_, index) => queries.slice(index * 500, (index + 1) * 500)) : [[]];
             const values = [];
@@ -1730,6 +1751,14 @@ export class RealtimeTunnelPanelProvider {
             const denied = error instanceof RequestBudget_1.RequestBudgetDeniedError ? error.decision.reason : "";
             const failure = "Worker " + workerId + " · /api/worker/tasks" + (options.inventoryOnly ? "" : "/query") + "："
                 + (denied || errorMessage(error));
+            if (executionSnapshot && workspaceRoot() === root && this.client === client) {
+                // Current execution remains authoritative when only result/log
+                // verification is slow. No cached result is relabelled as fresh.
+                const snapshot = { ...executionSnapshot, resultQueryError: failure };
+                this.storeWorkerTaskSnapshot(cacheKey, snapshot);
+                this.postState();
+                return workerTaskSnapshotPayload(snapshot);
+            }
             if (!options.inventoryOnly && workspaceRoot() === root && this.client === client) {
                 this.storeWorkerTaskSnapshot(cacheKey, { ...cached, workerId, tasks: cached?.tasks || [], error: failure });
                 this.postState();
@@ -26408,6 +26437,8 @@ function workerTaskSnapshotPayload(snapshot) {
         declaredResults: snapshot.declaredResults || [],
         tasks: snapshot.tasks,
         cleanupExecutors: snapshot.cleanupExecutors || [],
+        ...(snapshot.executionOnly ? { executionOnly: true } : {}),
+        ...(snapshot.resultQueryError ? { resultQueryError: snapshot.resultQueryError } : {}),
         ...(snapshot.error ? { error: snapshot.error } : {}),
     };
 }

@@ -69,9 +69,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.354"
-RUNTIME_VERSION = "0.5.354"
-PLUGIN_VERSION = "0.5.354"
+AGENT_VERSION = "0.5.355"
+RUNTIME_VERSION = "0.5.355"
+PLUGIN_VERSION = "0.5.355"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -18163,8 +18163,9 @@ def task_execution_inventory(root, queries=()):
     tasks = []
     cancelled_by_worker = {}
     for row in rows:
-        public = {key: row[key] for key in ("commandId", "projectId", "workerId", "workflowId", "planFile", "experimentIndex",
-                  "outputDir", "collectionResultCsv", "case", "seed", "tmuxPane", "tmuxWindowId", "tmuxSession", "gpuId") if key in row}
+        public = {key: row[key] for key in ("commandId", "projectId", "workerId", "workflowId", "globalJobId", "planFile", "planRevision", "codeFingerprint",
+                  "experimentIndex", "outputDir", "collectionResultCsv", "resultPathPolicy", "planJobCount", "fullPlanJobCount", "enqueuedAt",
+                  "executionMode", "mode", "runKey", "case", "seed", "configPath", "tmuxPane", "tmuxWindowId", "tmuxSession", "gpuId") if key in row}
         observed = {
             "lifecycleProtocol": 2, "commandId": row["commandId"], "projectId": row["projectId"], "workerId": row["workerId"],
             "observedAt": now_iso()}
@@ -18179,7 +18180,12 @@ def task_execution_inventory(root, queries=()):
                     raise ValueError("TASK_CANCEL_FENCE_INVALID")
                 cancelled_by_worker[worker] = set(cancelled)
             observed["cancelled"] = row["commandId"] in cancelled_by_worker[worker]
-        tasks.append({**public, "lifecycleProtocol": 2, "observation": observed})
+        execution = "missing" if not row.get("tmuxPane") else (
+            "failed" if row["dead"] and row["exitCode"] is not None and row["exitCode"] != 0 else "exited" if row["dead"] else
+            "queued" if row["phase"] in ("queued", "bound") else "starting" if row["phase"] in ("admitted", "starting") else
+            "running" if row["phase"] == "running" else "unknown")
+        tasks.append({**public, "lifecycleProtocol": 2, "observation": observed, "executionState": execution,
+                      "status": "queued" if execution in ("queued", "starting") else execution if execution in ("running", "failed") else "unknown"})
     return {"schemaVersion": 1, "queryComplete": True, "executionOnly": True, "generatedAt": now_iso(),
             "capabilities": {"taskLifecycle": 2}, "tasks": tasks}
 
@@ -18423,11 +18429,15 @@ def task_query(root, queries=(), selected_only=False):
             public = task_public_observation(root, job, row)
             try:
                 if job["workerId"] not in cancelled_by_worker:
+                    # A missing/slow controller is one failed read, not N serial
+                    # tmux timeouts for N historical jobs. None proves no cancellation.
+                    cancelled_by_worker[job["workerId"]] = None
                     cancelled_by_worker[job["workerId"]] = json.loads(task_option(task_queue_session(root, job["workerId"]) + ":queue", "cancelled") or "[]")
                 cancelled = cancelled_by_worker[job["workerId"]]
-                public["observation"]["cancelled"] = job["commandId"] in cancelled
-                if not row and job["commandId"] in cancelled and public["status"] != "completed":
-                    public["status"] = "cancelled"
+                if cancelled is not None:
+                    public["observation"]["cancelled"] = job["commandId"] in cancelled
+                    if not row and job["commandId"] in cancelled and public["status"] != "completed":
+                        public["status"] = "cancelled"
             except Exception:
                 pass
             if public["status"] == "failed" and row:

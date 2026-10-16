@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.submittedGpuJobs = submittedGpuJobs;
 exports.projectGpuOwnership = projectGpuOwnership;
+const TaskLifecycle_1 = require("./TaskLifecycle");
 const DistributedPlanQueue_1 = require("./DistributedPlanQueue");
 /** Only a locally recorded dispatch and its matching Worker receipt establish ownership.
  * Remote recovery, a Plan name, a login user and MANAGED_JOB are never ownership evidence. */
@@ -17,7 +18,8 @@ function submittedGpuJobs(queue, snapshots, projectId, projectDirs = {}, now = D
                 continue;
             const receipts = snapshots.filter(s => s.workerId === job.workerId && (0, DistributedPlanQueue_1.hasFreshDurableSnapshot)(s, now))
                 .flatMap(s => s.tasks || []).filter(task => (0, DistributedPlanQueue_1.remoteTaskMatchesJob)(plan, job, task)
-                && task.status === "running" && !task.identityConflict && !task.stale);
+                && task.status === "running" && !task.identityConflict && !task.stale
+                && (safelyNativeRunning(task, plan, job) || task.lifecycleProtocol !== 2));
             if (receipts.length !== 1)
                 continue;
             const task = receipts[0];
@@ -29,6 +31,12 @@ function submittedGpuJobs(queue, snapshots, projectId, projectDirs = {}, now = D
         }
     }
     return result;
+}
+function safelyNativeRunning(task, plan, job) {
+    const observation = task.observation;
+    return (0, TaskLifecycle_1.observationMatches)(observation || {}, { commandId: job.commandId, projectId: plan.projectId, workerId: job.workerId })
+        && !observation.queryError && observation.tmux?.dead === false && observation.tmux.phase === "running"
+        && Boolean(observation.tmux.paneId && observation.tmux.windowId);
 }
 function cliValues(command, option) {
     // Read literal argv values; never execute a command. Reject duplicated identity options.
@@ -58,7 +66,10 @@ function matchesProcess(process, binding) {
     const seeds = cliValues(command, "--seed");
     const exactPath = (value, relative) => value === relative
         || Boolean(projectDir && value === `${projectDir.replace(/\/$/, "")}/${relative}`);
-    const config = String(task.configPath || "");
+    // Protocol 2 generates this exact config within the declared output. Old
+    // running children may lack the newer command/project environment variables.
+    // Only a currently verified native running pane permits this compatibility.
+    const config = String(task.configPath || (safelyNativeRunning(task, plan, job) ? output + "/job_config.yaml" : ""));
     return outputs.length === 1 && exactPath(outputs[0], output)
         && config.startsWith(output + "/") && configs.length === 1 && exactPath(configs[0], config)
         && cases.length === 1 && cases[0] === job.case && seeds.length === 1 && seeds[0] === String(job.seed);

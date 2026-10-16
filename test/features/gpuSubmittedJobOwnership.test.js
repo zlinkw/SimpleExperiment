@@ -88,6 +88,16 @@ test('new process identity handles arbitrary wrapper commands and rejects foreig
   assert.equal(project(f).w[0].processes[0].submittedByThisClient, false);
 });
 
+test('fresh native execution inventory owns legacy process argv even while result verification is unavailable',()=>{
+ const f=fixture();f.snapshot.capabilities={taskLifecycle:2};f.snapshot.queryComplete=true;f.snapshot.executionOnly=true;
+ for(const task of f.snapshot.tasks){task.lifecycleProtocol=2;task.observation={lifecycleProtocol:2,commandId:task.commandId,projectId,workerId:'w',tmux:{dead:false,phase:'running',paneId:'%1',windowId:'@1'}};delete task.configPath;}
+ assert.deepEqual(project(f).w.map(row=>row.processes[0].submittedByThisClient),[true,true,true,false]);
+ f.snapshot.tasks[0].observation.tmux.dead=true;
+ assert.equal(project(f).w[0].processes[0].submittedByThisClient,false,'a dead pane never owns a newly reused output path');
+ f.snapshot.tasks[1].observation.tmux.phase='starting';
+ assert.equal(project(f).w[1].processes[0].submittedByThisClient,false,'a window waiting for launch does not establish process ownership');
+});
+
 test('legacy jobs match exact argv values, accepting quoted paths but rejecting prefix and duplicated options', () => {
   const f = fixture(); const p = f.gpu.w[0].processes[0];
   p.command = p.command.replace('--output-dir runs/0/attempts/workflow-A', '--output-dir="runs/0/attempts/workflow-A"');

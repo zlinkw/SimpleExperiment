@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.354",
-  "buildId": "3e6878faf9e98742ef44f03958e5848ddb8a7295aadc20c3672995d5bd9a132e",
+  "version": "0.5.355",
+  "buildId": "58dcde5673d91f30f79ea7fe0ae0544fab7ebaa1647b61d5ac49babe10551d45",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -197,7 +197,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "d993f1572fca6eb1c995fa23c389dcef6b5592fbe6a4fbe58ae97a06e6c26cca"
+      "sha256": "55d835a0cb62236c4ee09ae322e476c54dc5523ec2df274964e587a14d405abf"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -345,7 +345,7 @@
     },
     {
       "path": "dist/features/GpuJobOwnership.js",
-      "sha256": "8e2e6aa2ffe89b887c3b478264315206b206e963bf625cd056f64e8bbc60a2b1"
+      "sha256": "bcf82ea7a758b075f98647842fc23dea0395865806533fa127f385cdfa3d9f43"
     },
     {
       "path": "dist/features/GpuMemoryScheduling.js",
@@ -601,7 +601,7 @@
     },
     {
       "path": "dist/features/WorkerTaskQuery.js",
-      "sha256": "a9052d3c1ef91a4fdd89c98579f33e485954fd23a2515e4c9c95aa438abc7006"
+      "sha256": "5509fc7709859a6063b0338aaf7d8ebe4f9107082fc8ce91dc578ca1b5afe3d6"
     },
     {
       "path": "dist/features/WorkflowWorkspaceBinding.js",
@@ -657,7 +657,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "b903014978c257f79fc86444cabae9e151cc026b6e4cdf86acb604b14d370a9f"
+      "sha256": "1955cffd69b34999d3e03180a502ae05570e5ba6aac4a5fb49d99a9cf431aa11"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1005,7 +1005,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "7d920d1f8ff65b79b41c5e0fae9c5ac497869a2bfa6c023628d5181079ca6e54"
+      "sha256": "90273f100f0e21e7aed3b8f4bde9e053c7db1df70666d79936ccc930f18f9e1b"
     },
     {
       "path": "scripts/check-static.js",
