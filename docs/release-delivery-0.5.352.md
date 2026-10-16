@@ -27,4 +27,12 @@
 
 npm run package 最终完成全部串行门禁：117 个测试文件执行、794 项通过、0 失败；构建语法检查和 vm.Script 的编译模块及三个真实渲染脚本均通过。VSIX 共 518 条 ZIP 记录，372 个 dist 文件与本机已验证构建字节一致，8 个 Python AST、扩展身份/版本/平台、runtime 版本、运行闭包与秘密排除均通过；业务源码/编译 runtime 无禁止的硬编码隧道端口。
 
-simple-experiment-0.5.352.vsix 为 3,004,463 字节；SHA256 为 18ecb9f84f3935bc3b72e907ccea618aed1b180fd7ac14eb187e20584f62c1c6。同名 .vsix.sha256 清单绑定该精确资产。发行与一次安装结果在交付结束后补记。实际远端新机制尚待用户重载并更新 Agent/Scheduler 验收。
+simple-experiment-0.5.352.vsix 为 3,004,463 字节；SHA256 为 18ecb9f84f3935bc3b72e907ccea618aed1b180fd7ac14eb187e20584f62c1c6。同名 .vsix.sha256 清单绑定该精确资产。
+
+## 实际交付
+
+源码提交为 97318ef7dd9e1cb0c6080b18ad4b6392317e8822，已普通推送 origin/master 并 fetch 核对一致。稳定发行 https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.352 绑定该提交，实际 Latest 为 v0.5.352，draft=false、prerelease=false。VSIX 资产名、3,004,463 字节、GitHub SHA256 digest 和逐包校验文件均与上述本机构建一致，tag 远端提交一致。
+
+使用已安装 0.5.351 的实际 ReleaseClient 读取公开 Latest，识别 update_available，再下载 SimpleExperiment 0.5.352 和未修改的 SimpleSFTP 0.2.90，核对身份、平台、大小、文件名绑定 SHA256、GitHub digest，并与各自已验证本机包逐字节比对。隔离验证目录为 C:/Users/ZLK/AppData/Local/Temp/simpleex-0352-release-verify-DasAt9。SimpleSFTP 包为 168,173 字节，SHA256 为 d7fcbc0df6eb606d52146e28c30cb1f75851da01e29042a403127f3ffeb4eb65。
+
+显式执行一次 npm run install:latest，成功安装 0.5.352；code 列表确认为 SimpleExperiment 0.5.352、SimpleSFTP 0.2.90。安装目录的 372 个 dist 文件与该 VSIX 字节一致，package 身份一致；simpleex --help 正常。安装后不再操作当前插件面板或 API，等待用户 Developer: Reload Window。未自动更新远端 Agent/Scheduler，未启动、停止、召回或重跑任何科研任务；实际远端新机制尚待用户重载并通过原入口更新 Agent/Scheduler 验收。
