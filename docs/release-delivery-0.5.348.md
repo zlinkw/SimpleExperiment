@@ -28,4 +28,10 @@
 
 ## 交付
 
-已验证包 `simple-experiment-0.5.348.vsix` 为 2,986,569 字节，SHA256 为 `e4a6f73e7c50035cf0183bbdb7dcd409141c447bc47feb176eaa867edd3363af`。同名 `.vsix.sha256` 绑定精确文件名。源码推送、真实稳定发行及一次安装完成后补记；此处不冒充实际入口已验收。
+- 源码提交 `0ef7a1feb566dad8bd54191c57f3110bd84ab94b` 已普通快进推送 origin/master，并 fetch 核对一致。本次仅追加交付记录，不重建包。
+- 稳定发行：<https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.348>。真实 Latest、tag 与源码提交一致，draft=false、prerelease=false。
+- `simple-experiment-0.5.348.vsix` 为 2,986,569 字节，SHA256 为 `e4a6f73e7c50035cf0183bbdb7dcd409141c447bc47feb176eaa867edd3363af`。同名 `.vsix.sha256` 绑定精确文件名；公开大小、GitHub digest、实际下载与本机确定包相符。
+- 已安装 0.5.347 的更新客户端从真实公开 Latest 解析到 update_available，实际下载包与校验文件逐字节通过；配套 SimpleSFTP 0.2.90 公开包亦核对一致，未重复安装。验证文件保留于临时目录 `simpleex-0348-release-verify-Op19Oy`。
+- 显式执行一次 `npm run install:latest` 成功，不 force。VS Code 显示 0.5.348，370 个已安装 dist 文件与上述确定包逐字节一致；`simpleex --help` 正常。安装后不再调用当前 SimpleExperiment 面板或 API。
+- 当前 Extension Host 尚待用户 Developer: Reload Window。轻量窗口分支需要用户更新远端 Agent/Scheduler；旧 Agent 继续兼容完整查询。没有自动部署、重启或操作现有科研任务，实际入口仍待重载验收。
+- 既有缺失 commandId 不因这次修复自动重发。重载后仅对缺失 job 主动重跑；QMF 和后三个未提交 PLAN 可重新选择提交，不重跑已经运行的整个 CORIM。
