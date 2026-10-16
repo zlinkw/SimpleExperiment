@@ -5515,7 +5515,7 @@ function renderPanelHtml() {
         localForwardPort: item.localForwardPort,
         remoteAgentPort: item.remoteAgentPort,
         hub: compactRecordForSignature(item.hub || {}, ["enabled", "displayName", "host", "workerHost", "localForwardPort", "remoteForwardPort", "agentProjectDir", "savedSessionPath"]),
-        workers: compactRowsForSignature(item.workerTunnels || item.workers, SECTION_SIGNATURE_ROW_LIMIT, ["id", "enabled", "displayName", "host", "workerHost", "hubHost", "transferHost", "workerUser", "hubUser", "condaEnv", "sshConfigAlias", "localForwardPort", "remoteForwardPort", "remoteAgentPort", "remoteTelemetryPort", "agentProjectDir", "savedSessionPath", "savedSessionForwardIndex", "maxConcurrentGpus", "allowedGpuIds", "gpuJobsPerCard", "gpuMinFreeMemoryGb", "gpuCardOverrides"])
+        workers: compactRowsForSignature(item.workerTunnels || item.workers, SECTION_SIGNATURE_ROW_LIMIT, ["id", "enabled", "displayName", "host", "workerHost", "hubHost", "transferHost", "workerUser", "hubUser", "condaEnv", "sshConfigAlias", "localForwardPort", "remoteForwardPort", "remoteAgentPort", "remoteTelemetryPort", "agentProjectDir", "savedSessionPath", "savedSessionForwardIndex", "maxConcurrentGpus", "allowedGpuIds", "gpuJobsPerCard", "gpuMinFreeMemoryGb", "gpuCardOverrides", "gpuMaxConcurrentCards"])
       };
     }
 
@@ -9243,6 +9243,8 @@ function renderPanelHtml() {
             configInput(scope, "workerUser", "登录用户", worker.workerUser || worker.hubUser || "") +
             configInput(scope, "condaEnv", "Conda 环境绝对路径（可选，必填完整路径）", worker.condaEnv === undefined ? (setup.condaEnv || "") : worker.condaEnv) +
             configInput(scope, "agentProjectDir", "项目父目录", worker.agentProjectDir || "", "text", "wide") +
+            configInput(scope, "gpuMaxConcurrentCards", "服务器最高占卡上限（留空不限，0 暂停）", worker.gpuMaxConcurrentCards ?? "", "number", "wide") +
+            '<div class="muted wide" style="grid-column:1 / -1">最高优先级：所有 PLAN 合计同时使用的显卡不能超过此上限；在上限内再按逐卡 job 数和总显存余量派发。已占用的卡计入上限，降低上限不停止现有任务。</div>' +
             configInput(scope, "gpuJobsPerCard", "服务器默认并行 job 数（留空跟随全局）", worker.gpuJobsPerCard ?? (worker.gpuQuotaConfigured ? "" : workerMemory.gpuJobsPerCard ?? ""), "number") +
             configInput(scope, "gpuMinFreeMemoryGb", "服务器默认最低总剩余显存 GiB（留空跟随全局）", worker.gpuMinFreeMemoryGb ?? "", "number") +
             '<div class="muted gpuMemorySummary">自动识别全部显卡。' + memoryDescription(workerMemory) + '</div>' +
@@ -9801,6 +9803,7 @@ function renderPanelHtml() {
     }
 
     function configInputBounds(scope, key) {
+      if (key === "gpuMaxConcurrentCards") return { min: 0, max: 256, step: 1 };
       if (String(key).startsWith("gpuCardOverrides.")) {
         const field = String(key).split(".").pop();
         return field === "gpuJobsPerCard" ? { min: 0, max: 1024, step: 1 } : CONFIG_SCHEDULER_BOUNDS[field] || EMPTY_CONFIG_INPUT_BOUNDS;
@@ -9879,6 +9882,7 @@ function renderPanelHtml() {
     }
 
     function configHelp(scope, key) {
+      if (key === "gpuMaxConcurrentCards") return "本服务器所有 PLAN 的最高并发占卡数量，按实际执行中的不同 GPU 计数；手动派发也不能绕过。留空不限，0 暂停新任务；降低上限不停止现有任务。";
       if (String(key).startsWith("gpuCardOverrides.")) return String(key).endsWith(".gpuJobsPerCard")
         ? "仅覆盖这张卡的最大并行 job 数；0 暂停后续派发，留空继承服务器默认值，不停止当前任务。"
         : "仅覆盖这张卡可继续派发所需的总剩余显存 GiB；留空继承服务器默认值。";

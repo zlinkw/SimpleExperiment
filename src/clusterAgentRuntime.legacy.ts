@@ -6764,7 +6764,7 @@ def api_capabilities(root, token_required=False, mode="worker_telemetry"):
                 "manualDispatch": 1,
                 "gpuMemoryRatioScheduling": 1,
                 "gpuQuotaScheduling": 1,
-                "gpuCardQuotaScheduling": 1,
+                "gpuCardQuotaScheduling": 1, "gpuCardLimitScheduling": 1,
                 "schedulerRuntimeUpdate": 1,
                 "queuedJobRecall": True,
                 "liveOutput": True,

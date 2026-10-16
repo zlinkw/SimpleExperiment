@@ -89,9 +89,10 @@ test('the rendered settings form restores global values, explicit Worker overrid
   renderXshellSessionBudgetNote:()=>'',renderServerChainOverview:()=>'',setHtmlIfChanged:(id,value)=>output.set(id,value)};
  vm.runInNewContext(renderer+';renderServerCardsV2(state);',{...context,state:{schedulerConfig:{gpuJobsPerCard:2,gpuMinFreeMemoryGb:22,gpuMemoryRatioEnabled:false,gpuMemoryPerJobGb:12,gpuMemoryMaxJobsPerGpu:0,gpuMemoryReserveGb:2,gpuMemoryTolerancePercent:0},
   gpuMemorySchedulingPreview:{workers:{h20:{gpuJobsPerCard:6,gpuMinFreeMemoryGb:24,cards:[{gpuId:'0',freeGb:34,jobs:2,minimumFreeGb:30},{gpuId:'1',freeGb:40,jobs:6,minimumFreeGb:24}]}}},
-  setup:{workerTunnels:[{id:'h20',gpuJobsPerCard:6,gpuMinFreeMemoryGb:24,gpuCardOverrides:{'0':{gpuJobsPerCard:2,gpuMinFreeMemoryGb:30},'7':{gpuJobsPerCard:0}},gpuMemoryRatioEnabled:true,gpuMemoryPerJobGb:24,gpuMemoryMaxJobsPerGpu:0,gpuMemoryReserveGb:0,gpuMemoryTolerancePercent:0},{id:'inherit'}]}}});
+  setup:{workerTunnels:[{id:'h20',gpuMaxConcurrentCards:2,gpuJobsPerCard:6,gpuMinFreeMemoryGb:24,gpuCardOverrides:{'0':{gpuJobsPerCard:2,gpuMinFreeMemoryGb:30},'7':{gpuJobsPerCard:0}},gpuMemoryRatioEnabled:true,gpuMemoryPerJobGb:24,gpuMemoryMaxJobsPerGpu:0,gpuMemoryReserveGb:0,gpuMemoryTolerancePercent:0},{id:'inherit'}]}}});
  assert.equal(fields.get('scheduler.gpuJobsPerCard'),2);assert.equal(fields.get('scheduler.gpuMinFreeMemoryGb'),22);
  assert.equal(fields.get('worker:h20.gpuJobsPerCard'),6);assert.equal(fields.get('worker:h20.gpuMinFreeMemoryGb'),24);
+ assert.equal(fields.get('worker:h20.gpuMaxConcurrentCards'),2);assert.equal(fields.get('worker:inherit.gpuMaxConcurrentCards'),'');
  assert.equal(fields.get('worker:inherit.gpuJobsPerCard'),'');assert.equal(fields.get('worker:inherit.gpuMinFreeMemoryGb'),'');
  assert.equal(fields.get('worker:h20.gpuCardOverrides.0.gpuJobsPerCard'),2);
  assert.equal(fields.get('worker:h20.gpuCardOverrides.0.gpuMinFreeMemoryGb'),30);

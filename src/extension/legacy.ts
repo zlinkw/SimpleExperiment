@@ -10713,6 +10713,7 @@ this.assertPlanTopologyReady("Plan 调度");
         if (probes?.[workerId]?.capabilities?.endpoints?.gpuQuotaScheduling !== 1) throw new Error("GPU_QUOTA_PROTOCOL_REQUIRED：请更新 Worker Agent/Scheduler，未发送任务。");
         const memoryScheduling = { ...GpuQuotaScheduling.quotaSettings(schedulerSettings, workerConfig, this.lastRealtimeState?.gpu?.[workerId] || []), gpuQuotaScheduling: 1 };
         if (memoryScheduling.gpuCardOverrides && probes?.[workerId]?.capabilities?.endpoints?.gpuCardQuotaScheduling !== 1) throw new Error("GPU_CARD_QUOTA_PROTOCOL_REQUIRED：逐卡配置需要更新 Worker Agent/Scheduler，未发送任务。");
+        if (memoryScheduling.gpuMaxConcurrentCards !== undefined && probes?.[workerId]?.capabilities?.endpoints?.gpuCardLimitScheduling !== 1) throw new Error("GPU_CARD_LIMIT_PROTOCOL_REQUIRED：服务器占卡上限需要更新 Worker Agent/Scheduler，未发送任务。");
         const settings = vscode.workspace.getConfiguration("simpleExperiment");
         const tmuxSessionPrefix = AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix(this.setupConfig?.sessionPrefix
             || this.setupConfig?.remoteTmuxSessionPrefix || settings.get("sessionPrefix") || settings.get("tunnel.remoteTmuxSessionPrefix") || "simple");
@@ -11009,7 +11010,9 @@ this.assertPlanTopologyReady("Plan 调度");
                 const rows = dispatchGpuSnapshot?.[target.id];
                 if (Array.isArray(rows) && rows.length) {
                     const policy = GpuQuotaScheduling.quotaSettings(scheduler, config, rows);
-                    idleByWorker.set(target.id, [...new Set(GpuQuotaScheduling.quotaPlacement(rows, new Map(), policy).slots)]);
+                    // Evidence lookup must not be blocked by a full server cap.
+                    // New allocations below use live counts and the full policy.
+                    idleByWorker.set(target.id, [...new Set(GpuQuotaScheduling.quotaPlacement(rows, new Map(), { ...policy, gpuMaxConcurrentCards: undefined }).slots)]);
                 }
             }
             const { activeByWorker, occupiedGpuIds } = DistributedPlanQueue.activeGpuReservations(queue);
@@ -11018,7 +11021,9 @@ this.assertPlanTopologyReady("Plan 调度");
                 const snapshot = snapshotsByWorker.get(target.id);
                 const workerConfig = this.enabledWorkerConfigs().find((worker) => worker.id === target.id);
                 const configuredCapacity = 0; // Physical cards are discovered from current telemetry.
-                const freeGpuIds = (idleByWorker.get(target.id) || []).filter((gpuId) => !occupiedGpuIds.has(`${target.id}:${gpuId}`));
+                const policy = GpuQuotaScheduling.quotaSettings(scheduler, workerConfig, dispatchGpuSnapshot?.[target.id] || []);
+                const freeGpuIds = [...new Set(GpuQuotaScheduling.quotaPlacement(dispatchGpuSnapshot?.[target.id] || [], memoryCounts.get(target.id) || new Map(), policy).slots)]
+                    .filter((gpuId) => !occupiedGpuIds.has(`${target.id}:${gpuId}`));
                 const remainingGpuCount = freeGpuIds.length - (migrationReserved.get(target.id) || 0);
                 const capacityRemaining = Number.isInteger(configuredCapacity) && configuredCapacity > 0
                     ? configuredCapacity - (activeByWorker.get(target.id) || 0) - (migrationReserved.get(target.id) || 0)
@@ -12203,7 +12208,7 @@ this.assertPlanTopologyReady("Plan 调度");
             return {
                 label: worker.displayName || worker.id,
                 description: `${worker.id} · 已检测在线`,
-                detail: `项目父目录：${worker.agentProjectDir || "未配置"} · 并发占卡上限 ${worker.maxConcurrentGpus || 1}`,
+                detail: `项目父目录：${worker.agentProjectDir || "未配置"} · 最高占卡上限 ${worker.gpuMaxConcurrentCards ?? "不限"}`,
                 workerId: worker.id,
                 picked: probe.status === "ok",
             };
@@ -20283,7 +20288,7 @@ return uniqueStrings(this.setupConfig.workerTunnels.flatMap(w=>[w.savedSessionPa
                 busyGpuIds: ids.filter(id => !availableGpuIds.includes(id)),
                 reason: !fresh ? "任务并行数待核实" : availableGpuIds.length ? "配额与显存余量满足" : rows.length ? "配额已满或显存余量不足/未知" : "暂无显卡数据",
                 source: "local_aggregator", updatedAt: new Date().toISOString(), ttlSeconds,
-                capacityLimit: "auto", capacitySource: "auto", totalGpus: ids.length, gpuError: "", ...policy };
+                capacityLimit: policy.gpuMaxConcurrentCards ?? "auto", capacitySource: policy.gpuMaxConcurrentCards === undefined ? "auto" : "configured", totalGpus: ids.length, gpuError: "", ...policy };
         });
     }
     private resetClient() {

@@ -207,7 +207,10 @@ try:
     rerun={**b,"commandId":"rerun-command-1"}
     namespace["task_queue_rpc"](root,"worker","accept",rerun,ensure=True)
     wait_for(lambda:pathlib.Path(root,"started-rerun-command-1").exists())
-    wait_for(lambda:any(row["commandId"]==rerun["commandId"] and row["dead"] and row["exitCode"]==0 for row in namespace["task_inventory"](root)))
+    # Retained dead panes may omit pane_dead_status on this tmux build (also
+    # exercised above). Require real exit plus current-run completion evidence;
+    # an explicit nonzero exit still fails the query below.
+    wait_for(lambda:any(row["commandId"]==rerun["commandId"] and row["dead"] and row["exitCode"] in (None, 0) for row in namespace["task_inventory"](root)))
     rerun_observed=next(row for row in namespace["task_query"](root,[rerun])["tasks"] if row["commandId"]==rerun["commandId"])
     assert rerun_observed["status"]=="completed", rerun_observed
     print(json.dumps(dict(ok=True,realTmux=True,callbacks=0,stateFilesRead=0)))

@@ -71,6 +71,28 @@ test('policy update carries per-card settings and never silently sends them to a
 });
 test('actual automatic and manual Host submissions retain all independent card overrides',async()=>{
  const cards={'0':{gpuJobsPerCard:2,gpuMinFreeMemoryGb:24},'1':{gpuJobsPerCard:5,gpuMinFreeMemoryGb:30}};
- const messages=await require('../_helpers/manualLaunchMessage')({gpuJobsPerCard:6,gpuMinFreeMemoryGb:22},{gpuCardOverrides:cards});
- for(const message of messages)assert.deepEqual(message.options.gpuCardOverrides,cards);
+ const messages=await require('../_helpers/manualLaunchMessage')({gpuJobsPerCard:6,gpuMinFreeMemoryGb:22},{gpuCardOverrides:cards,gpuMaxConcurrentCards:2});
+ for(const message of messages){assert.deepEqual(message.options.gpuCardOverrides,cards);assert.equal(message.options.gpuMaxConcurrentCards,2);}
+});
+test('server card ceiling takes priority over individual slots and follows active cards, not first N indices',()=>{
+ const rows=[gpu('0',140,106),gpu('1',140,106),gpu('2',140,106)],cfg=Q.quotaSettings({}, {gpuJobsPerCard:6,gpuMaxConcurrentCards:1});
+ assert.deepEqual(Q.quotaPlacement(rows,new Map([['2',2]]),cfg).slots,['2','2','2','2']);
+ assert.deepEqual(Q.quotaPlacement(rows,new Map([['1',6]]),cfg).slots,[]);
+ assert.deepEqual(Q.quotaPlacement(rows,new Map([['1',1],['2',1]]),cfg).slots,[],'lowered ceiling blocks all new starts without stopping existing jobs');
+ assert.deepEqual(Q.quotaPlacement(rows,new Map(),{...cfg,gpuMaxConcurrentCards:0}).slots,[]);
+ const freeLater=[gpu('0',140,130),...rows.slice(1)];
+ assert.deepEqual(Q.quotaPlacement(freeLater,new Map(),cfg).slots,Array(6).fill('1'));
+ assert.equal(Q.quotaPlacement(rows,new Map(),cfg).weight,6);
+ assert.equal(Q.quotaOverrides({gpuMaxConcurrentCards:2}).gpuMaxConcurrentCards,2);
+ assert.equal(Q.quotaOverrides({gpuMaxConcurrentCards:''}).gpuMaxConcurrentCards,undefined);
+ assert.throws(()=>Q.quotaSettings({}, {gpuMaxConcurrentCards:1.5}),/GPU_CARD_LIMIT_INVALID/);
+});
+test('real native controller counts manual and automatic jobs toward one server card ceiling',()=>{
+ const path=require('node:path'),{spawnSync}=require('node:child_process');
+ const linux=p=>'/mnt/'+p[0].toLowerCase()+p.slice(2).replace(/\\/g,'/');
+ const fixture=path.resolve(__dirname,'gpuCardLimit.fixture.py'),runtime=path.resolve(__dirname,'../../dist/runtime/cluster_agent.py');
+ const args=process.platform==='win32'?['--distribution',process.env.SIMPLE_TEST_WSL_DISTRO||'Ubuntu-Codex','--exec','python3',linux(fixture),linux(runtime)]:[fixture,runtime];
+ const result=spawnSync(process.platform==='win32'?'wsl.exe':'python3',args,{encoding:'utf8',timeout:10000,windowsHide:true});
+ assert.equal(result.status,0,result.stderr||result.stdout||result.error?.message);
+ assert.deepEqual(JSON.parse(result.stdout),{ok:true,concurrentCards:1,jobsOnCard:2,pausedWithoutStopping:true});
 });

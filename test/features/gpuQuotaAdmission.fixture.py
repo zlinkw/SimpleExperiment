@@ -24,6 +24,12 @@ else:
     raise AssertionError("unknown manual GPU was left silently queued")
 assert choose(row, [dict(gpus[0], memoryUsedMb=118*1024)], {}) == "0"
 assert choose(row, [dict(gpus[0], memoryTotalMb=None)], {}) is None
+limited = dict(row, options={**row['options'], 'gpuMaxConcurrentCards': 1})
+assert choose(limited, gpus, {'1': 2}) == '1', 'active card 1 must win over preferred new card 0'
+assert choose(limited, gpus, {'1': 6}) is None
+assert choose(limited, gpus, {'0': 1, '1': 1}) is None
+assert choose(dict(limited, dispatchPolicy='manual'), gpus, {'1': 1}) is None
+assert choose(dict(row, options={**row['options'], 'gpuMaxConcurrentCards': 0}), gpus, {}) is None
 per_card = dict(row, options={**row["options"], "gpuCardOverrides": {
     "0": {"gpuJobsPerCard": 2, "gpuMinFreeMemoryGb": 35},
     "1": {"gpuJobsPerCard": 3, "gpuMinFreeMemoryGb": 22},
