@@ -16482,9 +16482,9 @@ def serve_http(args):
                     payload = json.loads(raw.decode("utf-8"))
                     collection = bool((payload.get("discovery") or {}).get("collect")) or any(isinstance(item, dict) and item.get("collect") is True for item in payload.get("declarations") or [])
                     if payload.get("executionOnly") is True:
-                        if payload.get("queries") or payload.get("declarations") is not None or payload.get("discovery"):
+                        if payload.get("declarations") is not None or payload.get("discovery"):
                             raise ValueError("EXECUTION_INVENTORY_SELECTION_INVALID")
-                        return self.send_json(task_execution_inventory(root))
+                        return self.send_json(task_execution_inventory(root, payload.get("queries") or []))
                     value = task_collection_query(root, payload.get("declarations") or []) if collection else task_query(root, payload.get("queries") or [])
                     if payload.get("declarations") is not None and not collection:
                         value["declaredResults"] = task_declared_results(root, payload["declarations"], value["tasks"])

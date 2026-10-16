@@ -28,6 +28,30 @@ test('five new PLAN submissions check every Worker window without waiting for un
  assert.equal(report.status,'completed');assert.deepEqual(f.calls.map(row=>row.planFile),files);
  assert.equal(reads.length,10);assert.equal(reads.filter(id=>id==='many-finished-jobs').length,5);
 });
+test('the fourth PLAN can retire six missing original inputs without pulling unrelated logs or replaying the first three PLANs',async()=>{
+ const f=fixture(),files=['a','b','c','tmdc'].map(name=>'plans/'+name+'.yaml'),cancelled=new Set(),posts=[];
+ f.host.localPlanMetadata.plans=files.map(planFile=>({planFile}));
+ let queue={schemaVersion:1,plans:[{id:'old-tmdc',planFile:files[3],jobs:Array.from({length:6},(_,index)=>({index,workerId:index<3?'w1':'w2',
+  commandId:'old-'+index,status:'unknown',lifecycleProtocol:2,outputDir:'work/tmdc/'+index}))},
+  {id:'other-live',planFile:'plans/other.yaml',jobs:[{index:0,status:'running',commandId:'other',workerId:'w1'}]}]};
+ Object.assign(f.host,{taskLifecycleProtocol:2,distributedQueueGeneration:0,distributedPlanStopEpoch:0,
+  workerActionTargets:()=>[{id:'w1'},{id:'w2'}],loadDistributedQueue:async()=>structuredClone(queue),
+  saveDistributedQueue:async(_,value,options)=>{queue=options.mutateLatest(queue);},detachStaleDistributedTick(){},postState(){},client:{
+   postWorkerAction:async(_,action,request)=>{assert.equal(action,'stop-worker-task');posts.push(request.targetCommandId);cancelled.add(request.targetCommandId);return new Promise(()=>{});},
+   getWorkerTasks:async(worker,options)=>{
+    if(!options.executionOnly)throw Error('任务状态查询超时：unrelated historical analysis');
+    return {queryComplete:true,capabilities:{taskLifecycle:2},tasks:options.queries.map(query=>({observation:{...query,observedAt:'now',cancelled:cancelled.has(query.commandId)}}))};
+   }}});
+ const run=f.host.runActionCommand;
+ f.host.runActionCommand=async(command,message)=>{
+  await preparePlanSafeRetry(f.host,message.planFile,()=>assert.fail('no active windows to stop'),()=>Error('cancelled'));
+  await run(command,message);
+ };
+ const result=await runSelectedPlans(f.host,{planFiles:files});
+ assert.equal(result.status,'completed');assert.deepEqual(f.calls.map(row=>row.planFile),files);
+ assert.deepEqual([...new Set(posts)].sort(),Array.from({length:6},(_,i)=>'old-'+i));assert.equal(posts.length,6);
+ assert.deepEqual(queue.plans.map(row=>row.id),['other-live']);assert.equal(queue.plans[0].jobs[0].commandId,'other');
+});
 test('only explicitly selected canonical files use the ordinary single-plan workflow, with unique operation identities',async()=>{
  const {host,calls}=fixture();const report=await runSelectedPlans(host,{planFiles:['plans/c.yaml','plans/a.yaml','plans/c.yaml']});
  assert.equal(report.status,'completed');assert.deepEqual(calls.map(x=>x.planFile),['plans/c.yaml','plans/a.yaml']);

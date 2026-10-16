@@ -3,7 +3,7 @@ require('../_helpers/registerTsRequire');
 const {preparePlanSafeRetry}=require('../../src/features/PlanSafeRetry.ts'),Q=require('../../src/features/DistributedPlanQueue.ts');
 test('large execution inventories do not analyze historical logs, results or source payloads',()=>{
  const path=require('node:path'),{spawnSync}=require('node:child_process');
- const r=spawnSync('python',['-X','utf8',path.join(__dirname,'executionInventory.fixture.py'),path.join(__dirname,'../../src/runtime/TmuxTaskLifecycle.ts')],
+ const r=spawnSync('python',['-X','utf8',path.join(__dirname,'executionInventory.fixture.py'),path.join(__dirname,'../../src/runtime/TmuxTaskLifecycle.ts'),path.join(__dirname,'../../dist/runtime/cluster_agent.py')],
   {encoding:'utf8',timeout:10000,windowsHide:true});
  assert.equal(r.status,0,r.stderr||r.stdout);assert.deepEqual(JSON.parse(r.stdout),{ok:true,panes:179,tmuxCalls:1});
 });

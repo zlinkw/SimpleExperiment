@@ -8,9 +8,18 @@ function snapshot(cancelled,live=false){return {queryComplete:true,capabilities:
 test('lost stop response and no pushed events still settle from a fresh native query',async()=>{
   let reads=0,posts=0;
   const client={postWorkerAction(){posts++;return new Promise(()=>{});},async getWorkerTasks(worker,options){
-    assert.equal(worker,'w');assert.equal(options.queries[0].commandId,'c');return snapshot(++reads>1,reads===1);}};
+    assert.equal(worker,'w');assert.equal(options.queries[0].commandId,'c');assert.equal(options.executionOnly,true);
+    return snapshot(++reads>1,reads===1);}};
   const result=await P.stopPulledTask(client,plan,job,'stop-one');
   assert.equal(result.status,'completed');assert.equal(result.source,'pull');assert.equal(posts,1);assert.equal(reads,2);
+});
+test('result observations keep full verification while stop verification falls back only on an explicit old endpoint rejection',async()=>{
+ let reads=0,posts=0;
+ const client={postWorkerAction:async()=>{posts++;},getWorkerTasks:async(_,options)=>{
+  reads++;if(options.executionOnly)throw Error('EXECUTION_INVENTORY_SELECTION_INVALID');return snapshot(true);
+ }};
+ await P.queryTask(client,plan,job);assert.equal(reads,1);
+ await P.stopPulledTask(client,plan,job,'original-stop');assert.equal(reads,3);assert.equal(posts,1);
 });
 test('a failed query ends this round; old protocols and foreign identities never release a job',async()=>{
   await assert.rejects(P.queryTask({getWorkerTasks:()=>new Promise(()=>{})},plan,job,20),/查询超时/);

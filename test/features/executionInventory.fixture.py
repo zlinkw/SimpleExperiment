@@ -8,7 +8,7 @@ import re
 import sys
 
 source = Path(sys.argv[1]).read_text(encoding="utf-8").split("String.raw`", 1)[1].rsplit("`", 1)[0]
-names = {"task_inventory", "task_execution_inventory"}
+names = {"task_inventory", "task_execution_inventory", "task_safe_path"}
 nodes = [n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef) and n.name in names]
 assert len(nodes) == len(names)
 root = os.path.realpath("/synthetic-project")
@@ -36,5 +36,53 @@ result = ns["task_execution_inventory"](root)
 assert result["queryComplete"] and result["executionOnly"] and len(result["tasks"]) == 179
 assert sum(not task["observation"]["tmux"]["dead"] for task in result["tasks"]) == 3
 assert len(calls) == 1
+initial_calls = len(calls)
 assert all(not ({"runtimeDiagnostics", "successful", "resultState", "_se_payload", "executionSource"} & task.keys()) for task in result["tasks"])
-print(json.dumps(dict(ok=True, panes=179, tmuxCalls=len(calls))))
+ns["task_queue_session"] = lambda *args: "mine-scheduler"
+ns["task_option"] = lambda target, key: '["missing-old"]' if (target, key) == ("mine-scheduler:queue", "cancelled") else forbidden()
+queries = [dict(commandId="command-0", projectId="project", workerId="w", outputDir="work/0"),
+           dict(commandId="missing-old", projectId="project", workerId="w", outputDir="work/missing")]
+selected = ns["task_execution_inventory"](root, queries)
+assert len(selected["tasks"]) == 2
+assert selected["tasks"][0]["observation"]["tmux"]["paneId"] == "%0"
+assert selected["tasks"][1]["observation"]["cancelled"] and "tmux" not in selected["tasks"][1]["observation"]
+assert all("result" not in task["observation"] for task in selected["tasks"])
+ns["local_stop_tmux_inventory"] = lambda root: [dict(command="missing-old", project="project", pane="%legacy", window="@legacy", session="mine", dead="0", exitCode="")]
+legacy = ns["task_execution_inventory"](root, [queries[1]])["tasks"][0]["observation"]
+assert legacy["cancelled"] and legacy["tmux"]["paneId"] == "%legacy", "a cancel fence cannot conceal a still-live legacy tab"
+ns["local_stop_tmux_inventory"] = lambda root: []
+for invalid in [dict(queries[0], workerId="other"), dict(queries[0], outputDir="../outside")]:
+    try:
+        ns["task_execution_inventory"](root, [invalid])
+    except ValueError:
+        pass
+    else:
+        raise AssertionError("foreign worker or escaping control path accepted")
+ns["task_option"] = lambda *args: forbidden()
+try:
+    ns["task_execution_inventory"](root, [queries[1]])
+except AssertionError:
+    pass
+else:
+    raise AssertionError("a failed fence query was reported as confirmed absence")
+ns["task_option"] = lambda target, key: '["missing-old"]' if (target, key) == ("mine-scheduler:queue", "cancelled") else forbidden()
+# Exercise the actual HTTP branch, extracting its AST without importing or
+# executing the Agent module, starting a server, or reading a project log.
+agent = ast.parse(Path(sys.argv[2]).read_text(encoding="utf-8"))
+branch = next(node for node in ast.walk(agent) if isinstance(node, ast.If) and isinstance(node.test, ast.Compare)
+              and isinstance(node.test.left, ast.Name) and node.test.left.id == "route"
+              and len(node.test.comparators) == 1 and isinstance(node.test.comparators[0], ast.Constant)
+              and node.test.comparators[0].value == "/api/worker/tasks/query" and any(isinstance(item, ast.Call) and isinstance(item.func, ast.Attribute) and item.func.attr == "read_request_body" for item in ast.walk(node)))
+handler = ast.parse("def handle(self): pass").body[0]
+handler.body = [branch]
+ns.update(root=root, route="/api/worker/tasks/query", task_query=forbidden, task_collection_query=forbidden, task_declared_results=forbidden)
+exec(compile(ast.fix_missing_locations(ast.Module(body=[handler], type_ignores=[])), "http_inventory", "exec"), ns)
+class Request:
+    def __init__(self, payload): self.payload = payload
+    def read_request_body(self, route): return json.dumps(self.payload).encode("utf-8")
+    def send_json(self, value, status=200): return value, status
+value, status = ns["handle"](Request(dict(executionOnly=True, queries=[queries[1]])))
+assert status == 200 and value["tasks"][0]["observation"]["cancelled"]
+value, status = ns["handle"](Request(dict(executionOnly=True, queries=queries, declarations=[])))
+assert status == 400 and value["error"] == "EXECUTION_INVENTORY_SELECTION_INVALID"
+print(json.dumps(dict(ok=True, panes=179, tmuxCalls=initial_calls)))

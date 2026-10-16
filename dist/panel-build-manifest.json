@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.348",
-  "buildId": "0dee7e42a859a0a41eaf70cbf8c2e3302e176c1030b9bf06ee8756d429aad716",
+  "version": "0.5.349",
+  "buildId": "c27a0f62c43e9498d87f19b8e84837e22fa3d5a20eb4bc56ee680af1b9e18035",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -501,7 +501,7 @@
     },
     {
       "path": "dist/features/PulledTaskControl.js",
-      "sha256": "a95389a58dd0b721b081060f1876bb1f6e2826c1a6faa5029be94bcd20a1442d"
+      "sha256": "fcb9428b2dd02700e0a89c41c6d41625cb1c112be64d20531ae82b3bc113d8a4"
     },
     {
       "path": "dist/features/Quality.js",
@@ -649,7 +649,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "da8964f82756d95c28e87bf35eac0787414b8e9595e5753de04fcaa95993d614"
+      "sha256": "65de3209b05a738dac67ff8fbe635fd7a3c046c50c7f80de117b83d9cd1d997f"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -997,7 +997,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "0d7acec8c02e305df75017035e6cb163ac65afc710a604cebafbe32f93999392"
+      "sha256": "aa7cb4dda95286e8ea8180f8cc4a5a75ec46670aaa1486a4fe935af07de72959"
     },
     {
       "path": "scripts/check-static.js",

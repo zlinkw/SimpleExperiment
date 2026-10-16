@@ -69,9 +69,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.348"
-RUNTIME_VERSION = "0.5.348"
-PLUGIN_VERSION = "0.5.348"
+AGENT_VERSION = "0.5.349"
+RUNTIME_VERSION = "0.5.349"
+PLUGIN_VERSION = "0.5.349"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -17145,9 +17145,9 @@ def serve_http(args):
                     payload = json.loads(raw.decode("utf-8"))
                     collection = bool((payload.get("discovery") or {}).get("collect")) or any(isinstance(item, dict) and item.get("collect") is True for item in payload.get("declarations") or [])
                     if payload.get("executionOnly") is True:
-                        if payload.get("queries") or payload.get("declarations") is not None or payload.get("discovery"):
+                        if payload.get("declarations") is not None or payload.get("discovery"):
                             raise ValueError("EXECUTION_INVENTORY_SELECTION_INVALID")
-                        return self.send_json(task_execution_inventory(root))
+                        return self.send_json(task_execution_inventory(root, payload.get("queries") or []))
                     value = task_collection_query(root, payload.get("declarations") or []) if collection else task_query(root, payload.get("queries") or [])
                     if payload.get("declarations") is not None and not collection:
                         value["declaredResults"] = task_declared_results(root, payload["declarations"], value["tasks"])
@@ -18116,16 +18116,50 @@ def task_inventory(root, execution_only=False):
         rows.append(row)
     return rows
 
-def task_execution_inventory(root):
+def task_execution_inventory(root, queries=()):
     """Current tmux bindings only; makes no assertion about results or clean logs."""
+    if not isinstance(queries, (list, tuple)) or len(queries) > 500:
+        raise ValueError("TASK_QUERY_LIMIT")
+    for query in queries:
+        if not isinstance(query, dict) or not all(isinstance(query.get(key), str) and query[key].strip() for key in ("commandId", "projectId", "workerId", "outputDir")):
+            raise ValueError("TASK_QUERY_IDENTITY_REQUIRED")
+        task_safe_path(root, query["outputDir"])
+    rows = task_inventory(root, execution_only=True)
+    if queries:
+        legacy = local_stop_tmux_inventory(root) if "local_stop_tmux_inventory" in globals() else []
+        for query in queries:
+            if any(row["commandId"] == query["commandId"] and (row["projectId"] != query["projectId"] or row["workerId"] != query["workerId"]) for row in rows):
+                raise ValueError("TASK_OWNER_MISMATCH")
+            if any(tab["command"] == query["commandId"] and tab["project"] != query["projectId"] for tab in legacy):
+                raise ValueError("TASK_OWNER_MISMATCH")
+            for tab in legacy:
+                if tab["command"] == query["commandId"] and tab["project"] == query["projectId"] and not any(row["tmuxPane"] == tab["pane"] for row in rows):
+                    rows.append({**query, "tmuxPane": tab["pane"], "tmuxWindowId": tab["window"], "tmuxSession": tab["session"],
+                        "dead": tab["dead"] == "1", "exitCode": int(tab["exitCode"]) if re.fullmatch(r"-?\d+", tab["exitCode"]) else None,
+                        "phase": "running", "gpuId": query.get("gpuId", "")})
+        wanted = {(query["projectId"], query["commandId"]) for query in queries}
+        rows = [row for row in rows if (row["projectId"], row["commandId"]) in wanted]
+        rows += [query for query in queries if not any(row["projectId"] == query["projectId"] and row["commandId"] == query["commandId"] for row in rows)]
     tasks = []
-    for row in task_inventory(root, execution_only=True):
+    cancelled_by_worker = {}
+    for row in rows:
         public = {key: row[key] for key in ("commandId", "projectId", "workerId", "workflowId", "planFile", "experimentIndex",
                   "outputDir", "collectionResultCsv", "case", "seed", "tmuxPane", "tmuxWindowId", "tmuxSession", "gpuId") if key in row}
-        tasks.append({**public, "lifecycleProtocol": 2, "observation": {
+        observed = {
             "lifecycleProtocol": 2, "commandId": row["commandId"], "projectId": row["projectId"], "workerId": row["workerId"],
-            "observedAt": now_iso(), "tmux": {"windowId": row["tmuxWindowId"], "paneId": row["tmuxPane"],
-            "dead": row["dead"], "exitCode": row["exitCode"], "phase": row["phase"]}}})
+            "observedAt": now_iso()}
+        if row.get("tmuxPane"):
+            observed["tmux"] = {"windowId": row["tmuxWindowId"], "paneId": row["tmuxPane"],
+                                "dead": row["dead"], "exitCode": row["exitCode"], "phase": row["phase"]}
+        if queries:
+            worker = row["workerId"]
+            if worker not in cancelled_by_worker:
+                cancelled = json.loads(task_option(task_queue_session(root, worker) + ":queue", "cancelled") or "[]")
+                if not isinstance(cancelled, list) or any(not isinstance(value, str) for value in cancelled):
+                    raise ValueError("TASK_CANCEL_FENCE_INVALID")
+                cancelled_by_worker[worker] = set(cancelled)
+            observed["cancelled"] = row["commandId"] in cancelled_by_worker[worker]
+        tasks.append({**public, "lifecycleProtocol": 2, "observation": observed})
     return {"schemaVersion": 1, "queryComplete": True, "executionOnly": True, "generatedAt": now_iso(),
             "capabilities": {"taskLifecycle": 2}, "tasks": tasks}
 
@@ -18706,7 +18740,7 @@ def task_queue_serve(root, worker_id):
     mutex = threading.RLock()
     wake = threading.Event()
     remembered = set(json.loads(task_option(controller, "cancelled") or "[]"))
-    accepted = set(json.loads(task_option(controller, "accepted") or "[]")) | {row["commandId"] for row in task_inventory(root)}
+    accepted = set(json.loads(task_option(controller, "accepted") or "[]")) | {row["commandId"] for row in task_inventory(root, execution_only=True)}
     class Handler(BaseHTTPRequestHandler):
         def log_message(self, *_):
             pass
@@ -18726,7 +18760,7 @@ def task_queue_serve(root, worker_id):
                         command_id = payload.get("commandId")
                         if command_id in remembered:
                             raise ValueError("TASK_CANCELLED")
-                        found = next((row for row in task_inventory(root) if row["commandId"] == command_id), None)
+                        found = next((row for row in task_inventory(root, execution_only=True) if row["commandId"] == command_id), None)
                         if found:
                             if any(found.get(key) != payload.get(key) for key in ("projectId", "workflowId", "outputDir")):
                                 raise ValueError("TASK_COMMAND_ID_CONFLICT")
@@ -18746,13 +18780,13 @@ def task_queue_serve(root, worker_id):
                             value = {**job, "status": "queued", "durableAccepted": True}
                     elif request["action"] == "cancel":
                         command_id = payload["targetCommandId"]
-                        if any(row["projectId"] != payload["projectId"] for row in task_inventory(root) if row["commandId"] == command_id):
+                        if any(row["projectId"] != payload["projectId"] for row in task_inventory(root, execution_only=True) if row["commandId"] == command_id):
                             raise ValueError("TASK_OWNER_MISMATCH")
                         if len(remembered) >= 10000 and command_id not in remembered:
                             raise ValueError("CANCELLATION_CAPACITY")
                         remembered.add(command_id)
                         task_option(controller, "cancelled", json.dumps(sorted(remembered)))
-                        for row in task_inventory(root):
+                        for row in task_inventory(root, execution_only=True):
                             if row["commandId"] == command_id:
                                 if row["projectId"] != payload["projectId"]:
                                     raise ValueError("TASK_OWNER_MISMATCH")
@@ -18776,7 +18810,7 @@ def task_queue_serve(root, worker_id):
         queued = []
         try:
             with mutex:
-                rows = task_inventory(root)
+                rows = task_inventory(root, execution_only=True)
                 occupied = {}
                 for live in rows:
                     if live.get("dispatchPolicy") != "manual" and not live["dead"] and live["phase"] in ("admitted", "starting", "running") and live["gpuId"]:
@@ -18786,6 +18820,12 @@ def task_queue_serve(root, worker_id):
                     gpus, error = collect_local_gpu()
                     if gpus or not error:
                         for row in queued:
+                            # Occupancy and cancellation need only live headers;
+                            # load the full, hash-checked launch input for queued jobs.
+                            job = task_read_job(row["tmuxPane"])
+                            if any(job.get(key) != row.get(key) for key in ("commandId", "projectId", "workerId", "workflowId", "outputDir")):
+                                raise ValueError("TASK_WINDOW_PAYLOAD_IDENTITY_MISMATCH")
+                            row = {**job, **row}
                             options = row.get("options") or {}
                             if error and row.get("dispatchPolicy") != "manual":
                                 continue
@@ -18850,7 +18890,7 @@ def task_stop(root, command, worker_id):
     project = str(command.get("projectId") or "")
     if not target or not project:
         raise ValueError("TASK_STOP_IDENTITY_REQUIRED")
-    rows = [row for row in task_inventory(root) if row["commandId"] == target]
+    rows = [row for row in task_inventory(root, execution_only=True) if row["commandId"] == target]
     legacy_tabs = [row for row in local_stop_tmux_inventory(root) if row["command"] == target] if "local_stop_tmux_inventory" in globals() else []
     if any(row["project"] != project for row in legacy_tabs):
         raise ValueError("TASK_OWNER_MISMATCH")
@@ -18869,7 +18909,7 @@ def task_stop(root, command, worker_id):
         current = [row for row in local_stop_tmux_inventory(root) if row["window"] == tab["window"]]
         if current and all(row["command"] == target and row["project"] == project for row in current):
             task_tmux(["kill-window", "-t", tab["window"]])
-    remaining = [row for row in task_inventory(root) if row["commandId"] == target and row["projectId"] == project]
+    remaining = [row for row in task_inventory(root, execution_only=True) if row["commandId"] == target and row["projectId"] == project]
     if remaining:
         raise RuntimeError("TASK_STOP_NOT_CONFIRMED")
     return {"status": "completed", "stoppedTasks": [{"commandId": target, "projectId": project, "workerId": worker_id,

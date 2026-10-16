@@ -15,11 +15,20 @@ function taskQuery(plan, job) {
         mode: job.actualExecutionMode || plan.executionMode,
         checkpointTestOnly: job.actualExecutionMode === "test" && plan.executionMode === "train_test" };
 }
-async function queryTask(client, plan, job, timeoutMs = 8000) {
+async function queryTask(client, plan, job, timeoutMs = 8000, options = {}) {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(new Error("任务状态查询超时")), timeoutMs);
+    const timer = setTimeout(() => controller.abort(new Error((options.executionOnly ? "停止核实查询超时" : "任务状态查询超时")
+        + `（Worker ${job.workerId}，commandId ${job.commandId}）`)), timeoutMs);
     try {
-        const snapshot = await Promise.race([client.getWorkerTasks(job.workerId, { signal: controller.signal, queries: [taskQuery(plan, job)] }),
+        const request = { signal: controller.signal, queries: [taskQuery(plan, job)], ...(options.executionOnly ? { executionOnly: true } : {}) };
+        const read = Promise.resolve().then(() => client.getWorkerTasks(job.workerId, request)).catch(error => {
+            // 0.5.348 supports only an unselected execution inventory. This explicit
+            // rejection may fall back to a read, never repeat the stop POST.
+            if (options.executionOnly && String(error.message || error).includes("EXECUTION_INVENTORY_SELECTION_INVALID"))
+                return client.getWorkerTasks(job.workerId, { signal: controller.signal, queries: request.queries });
+            throw error;
+        });
+        const snapshot = await Promise.race([read,
             new Promise((_, reject) => controller.signal.addEventListener("abort", () => reject(controller.signal.reason), { once: true }))]);
         if (snapshot?.capabilities?.taskLifecycle !== 2)
             throw new Error("TASK_LIFECYCLE_PROTOCOL_REQUIRED：请更新 Worker Agent/Scheduler；未派发任务");
@@ -47,7 +56,7 @@ async function stopPulledTask(client, plan, job, operationId) {
         .catch(error => { transportError = error; });
     const deadline = Date.now() + 8500;
     do {
-        const { task } = await queryTask(client, plan, job);
+        const { task } = await queryTask(client, plan, job, 8000, { executionOnly: true });
         if (task.observation.cancelled === true && !task.observation.tmux) {
             return { status: "completed", source: "pull", stoppedTasks: [{ ...taskQuery(plan, job),
                         commandId: job.commandId, stopBoundary: "local_command", paneClosed: true, cacheRetired: true }], stoppedPids: [] };
