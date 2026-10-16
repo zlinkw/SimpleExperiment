@@ -1,4 +1,5 @@
 import { observationMatches, taskLifecycle } from "./TaskLifecycle";
+import { randomUUID } from "node:crypto";
 
 export function taskQuery(plan: any, job: any) {
   return { lifecycleProtocol: 2, commandId: job.commandId, projectId: plan.projectId, workerId: job.workerId,
@@ -47,12 +48,20 @@ export async function stopPulledTask(client: any, plan: any, job: any, operation
 }
 
 export function returnPulledJobToLocal(queue: any, planId: string, index: number, commandId: string) {
+  const current = queue.plans.find((plan: any) => plan.id === planId)?.jobs.find((job: any) => job.index === index);
+  if (!commandId || current?.commandId !== commandId) throw new Error("任务身份已变化；未重新派发。");
+  // Explicit cancellation/requeue starts a new execution. Reusing the stable
+  // original allocation hash would hit the Scheduler's original cancel fence.
+  const nextCommandId = randomUUID().replace(/-/g, "");
   return { ...queue, plans: queue.plans.map((plan: any) => plan.id !== planId ? plan : { ...plan,
     jobs: plan.jobs.map((job: any) => job.index !== index ? job : { ...job, lifecycleProtocol: 2, status: "pending",
-      commandId: undefined, runKey: undefined, workerId: undefined, gpuId: undefined, manualDispatch: undefined, localQueueOnly: true,
+      commandId: undefined, nextCommandId, startIntent: undefined, runKey: undefined, workerId: undefined, gpuId: undefined, manualDispatch: undefined, localQueueOnly: true,
       recallRequested: undefined, recallOperationId: undefined, reassignmentPending: undefined, stopIntent: undefined,
       executionState: undefined, resultState: undefined, statusQueryError: undefined, lastObservedAt: undefined,
       runtimeDiagnostics: undefined, completionState: undefined, exitCode: undefined,
+      tmuxPane: undefined, tmuxWindowId: undefined, tmuxSession: undefined, logPath: undefined, historyLogIdentity: undefined,
+      finishedAt: undefined, actualExecutionMode: undefined, admissionRejection: undefined, dispatchAcknowledgedAt: undefined, lastDispatchAttemptAt: undefined,
       error: undefined, blockReason: undefined, trustedTerminalStatus: undefined,
-      history: [...(job.history || []), { commandId, status: job.status, outputDir: job.outputDir, stopReason: "requeue" }] }) } ) };
+      history: [...(job.history || []), { commandId, status: job.status, outputDir: job.outputDir, stopReason: "requeue",
+        workerId: job.workerId, logPath: job.logPath, historyLogIdentity: job.historyLogIdentity }] }) } ) };
 }

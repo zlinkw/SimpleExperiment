@@ -189,6 +189,20 @@ try:
     except RuntimeError as exc: assert "TASK_WINDOW_PAYLOAD_INCOMPLETE" in str(exc)
     option(rejected["tmuxPane"],key,saved)
     assert namespace["task_read_job"](rejected["tmuxPane"]) == prepared
+    # An explicit rerun keeps the declared job/path but uses a new command;
+    # the old command remains cancelled even if a delayed original POST arrives.
+    namespace["task_stop"](root,{"targetCommandId":b["commandId"],"projectId":b["projectId"],"workflowId":b["workflowId"]},"worker")
+    try:
+        namespace["task_queue_rpc"](root,"worker","accept",b,ensure=True)
+        raise AssertionError("cancelled original request accepted again")
+    except RuntimeError as exc:
+        assert "CANCELLED" in str(exc), str(exc)
+    rerun={**b,"commandId":"rerun-command-1"}
+    namespace["task_queue_rpc"](root,"worker","accept",rerun,ensure=True)
+    wait_for(lambda:pathlib.Path(root,"started-rerun-command-1").exists())
+    wait_for(lambda:any(row["commandId"]==rerun["commandId"] and row["dead"] and row["exitCode"]==0 for row in namespace["task_inventory"](root)))
+    rerun_observed=next(row for row in namespace["task_query"](root,[rerun])["tasks"] if row["commandId"]==rerun["commandId"])
+    assert rerun_observed["status"]=="completed", rerun_observed
     print(json.dumps(dict(ok=True,realTmux=True,callbacks=0,stateFilesRead=0)))
 finally:
     # This is the fixture's newly created server under its private TMUX_TMPDIR only.

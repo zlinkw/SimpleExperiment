@@ -249,6 +249,23 @@ test("an intervening business-state write cannot be rebased as artifact metadata
   assert.equal(JSON.parse(memoryFiles.get(file)).plans[1].jobs[0].status, "failed");
 });
 
+test('a committed control delta fences an older tick and preserves unrelated latest queue changes',async()=>{
+  memoryFiles.clear();memoryFiles.set(file,JSON.stringify(makeQueue(2)));
+  const host=makeHost(),other=makeHost(),stale=await host.loadDistributedQueue(root);
+  const changed=await other.loadDistributedQueue(root);changed.plans[1].jobs[0].status='failed';
+  await other.saveDistributedQueue(root,changed);
+  let aborted=0,detached=0;
+  host.distributedTickAbort={abort(){aborted++;}};
+  host.distributedQueueTickPromise=Promise.resolve();
+  host.detachStaleDistributedTick=task=>{assert.equal(task,host.distributedQueueTickPromise);detached++;host.distributedQueueTickPromise=undefined;};
+  await host.saveDistributedQueue(root,undefined,{controlMutation:true,mutateLatest:latest=>({...latest,plans:latest.plans.map((p,index)=>index?p:
+    {...p,jobs:p.jobs.map(j=>({...j,status:'pending',commandId:undefined,workerId:undefined,nextCommandId:'explicit-new'}))})})});
+  assert.equal(host.distributedQueueGeneration,1);assert.equal(aborted,1);assert.equal(detached,1);
+  assert.equal(JSON.parse(memoryFiles.get(file)).plans[1].jobs[0].status,'failed');
+  await assert.rejects(host.saveDistributedQueue(root,stale,{queueGeneration:0}),/过期调度轮次/);
+  assert.equal(JSON.parse(memoryFiles.get(file)).plans[0].jobs[0].nextCommandId,'explicit-new');
+});
+
 test("terminal task logs remain bound to their attempt over ten repeated Worker snapshots", async () => {
   memoryFiles.clear();
   const initial = makeQueue(1, { logPath: "tmp/tmux_logs/gpu-0.log" });

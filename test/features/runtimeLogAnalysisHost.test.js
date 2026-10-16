@@ -133,3 +133,28 @@ test('native rerun commits against the latest queue without losing unrelated pro
  latest={plans:[structuredClone(plan)]};latest.plans[0].jobs[0].commandId='new-command';
  await assert.rejects(retry.call(h,plan,plan.jobs[0],'/fixture',()=>true,true),/身份已变化/);assert.equal(starts,1);assert.equal(latest.plans[0].jobs[0].commandId,'new-command');
 });
+
+test('a committed one-job rerun remains queued when the next scheduler tick fails',async()=>{
+ const crypto=require('node:crypto'),P=require('../../src/features/PulledTaskControl.ts');
+ const job={index:0,workerId:'w',commandId:'old',status:'unknown',lifecycleProtocol:2,outputDir:'work/a'},
+  plan={id:'p',planFile:'p.yaml',revision:crypto.createHash('sha256').update('plan').digest('hex'),codeFingerprint:'code',jobs:[job]};
+ let latest={plans:[plan]},optionsSeen,errors=[];
+ const retry=hostMethod('retryPulledJob',{fs:{readFile:async()=> 'plan'},path,crypto,PulledTaskControl:{
+  queryTask:async()=>({state:{execution:'missing',status:'unknown'}}),stopPulledTask:async()=>{},returnPulledJobToLocal:P.returnPulledJobToLocal},
+  PlanRunHost:class{async replace(_p,body){body.assignedExperimentIndices=[0];}},makeOpId:()=> 'rerun',errorMessage:e=>e.message});
+ const h={client:{},assertPlanSubmissionWorkers:async()=>{},saveDistributedQueue:async(_root,_queue,options)=>{optionsSeen=options;latest=options.mutateLatest(latest);},
+  tickDistributedQueue:async()=>{throw Error('另一窗口已更新该项目队列');},postState(){},recordActionError:e=>errors.push(e)};
+ const result=await retry.call(h,plan,job,'/fixture',()=>true);
+ await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(result.status,'queued');assert.equal(optionsSeen.controlMutation,true);
+ assert.equal(latest.plans[0].jobs[0].status,'pending');assert.ok(latest.plans[0].jobs[0].nextCommandId);
+ assert.equal(errors.length,1);assert.match(errors[0].message,/已重新排队/);
+});
+
+test('the retry command acknowledges local requeue explicitly without claiming the job is running',async()=>{
+ const statuses=[],run=hostMethod('withUiCommandStatus',{localCommandReleasesAfterTrigger:()=>false,PLAN_SUBMISSION_COMMANDS:new Set(),
+  OperationOutcome_1:{operationOutcomeFor:()=>({})},isUiCommandRemotePending:()=>false,isUiCommandCancelled:()=>false});
+ const h={postUiCommandStatus:(_id,status,_command,message)=>statuses.push({status,message})};
+ await run.call(h,'click','retryDistributedJob',{},async()=>({status:'queued',source:'local',message:'此 job 已重新进入本机待派队列；实际执行状态由远端查询确认。'}));
+ assert.equal(statuses.at(-1).status,'completed');assert.match(statuses.at(-1).message,/本机待派队列/);assert.doesNotMatch(statuses.at(-1).message,/运行中/);
+});

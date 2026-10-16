@@ -5807,6 +5807,8 @@ class RealtimeTunnelPanelProvider {
                 return { status: "failed", message: submission.message || "计划未提交。" };
             if (["recallFailedJob", "retryDistributedJob"].includes(command) && value?.status === "blocked")
                 return { status: "cancelled", message: String(value.message || "未提交重新排队；请先审核该 job 的遗留文件。") };
+            if (command === "retryDistributedJob" && value?.status === "queued" && value.source === "local")
+                return { status: "completed", message: String(value.message) };
             if (command === "runAllPlans" && value?.selectionOnly === true && ["completed", "failed", "cancelled"].includes(value.status))
                 return { status: value.status, message: String(value.message) };
             if (["stopAndClearPlan", "retryDistributedJob", "dispatchJobs", "markJobUnavailable", "restoreJobAvailability"].includes(command) && value && typeof value === "object" && (value.status === "completed" || value.status === "failed" || value.status === "cancelled" || value.status === "partial")) {
@@ -10584,7 +10586,7 @@ class RealtimeTunnelPanelProvider {
             const publishDiskSnapshot = (source, signature, status, reason, error) => {
                 try {
                     const disk = parseDisk(source);
-                    this.distributedQueueCache = DistributedPlanQueue.keepCurrentObservations(JSON.parse(JSON.stringify(disk)), (options.artifactMutation || options.publicationMutation) && this.distributedQueueRoot === root ? this.distributedQueueCache : undefined);
+                    this.distributedQueueCache = DistributedPlanQueue.keepCurrentObservations(JSON.parse(JSON.stringify(disk)), (options.artifactMutation || options.publicationMutation || options.controlMutation) && this.distributedQueueRoot === root ? this.distributedQueueCache : undefined);
                     this.distributedQueueRoot = root;
                     this.distributedQueueDiskSignature = signature;
                     this.distributedQueueStorageDiagnostics = { status, updatedAt: new Date().toISOString(), reason,
@@ -10708,7 +10710,7 @@ class RealtimeTunnelPanelProvider {
                 throw error;
             }
             this.distributedQueueRoot = root;
-            this.distributedQueueCache = DistributedPlanQueue.keepCurrentObservations(JSON.parse(JSON.stringify(queue)), (options.artifactMutation || options.publicationMutation) && this.distributedQueueRoot === root ? this.distributedQueueCache : undefined);
+            this.distributedQueueCache = DistributedPlanQueue.keepCurrentObservations(JSON.parse(JSON.stringify(queue)), (options.artifactMutation || options.publicationMutation || options.controlMutation) && this.distributedQueueRoot === root ? this.distributedQueueCache : undefined);
             this.distributedQueueDiskSignature = DistributedPlanQueue.distributedQueueDiskSignature(serialized);
             if (options.artifactMutation || options.publicationMutation) {
                 this.distributedQueueMetadataWrites = [...(this.distributedQueueMetadataWrites || []),
@@ -10718,7 +10720,7 @@ class RealtimeTunnelPanelProvider {
             if (workingQueue && workingQueue !== queue)
                 DistributedPlanQueue.setDistributedQueueBaseSignature(workingQueue, this.distributedQueueDiskSignature);
             this.distributedQueueStorageDiagnostics = { status: "ready" };
-            if (options.appendPlanId) {
+            if (options.appendPlanId || options.controlMutation) {
                 this.distributedQueueGeneration = (this.distributedQueueGeneration || 0) + 1;
                 this.distributedTickAbort?.abort();
                 this.detachStaleDistributedTick(this.distributedQueueTickPromise);
@@ -12693,7 +12695,9 @@ class RealtimeTunnelPanelProvider {
             return;
         if (Array.isArray(body.assignedExperimentIndices) && !body.assignedExperimentIndices.includes(job.index))
             return { status: "cancelled", message: "本轮未选择该 job；未重新派发。" };
-        await this.saveDistributedQueue(root, undefined, { mutateLatest: (latest) => {
+        await this.saveDistributedQueue(root, undefined, { controlMutation: true, mutateLatest: (latest) => {
+                if (!isCurrent())
+                    throw new Error("工作区或服务器连接已变化，未重新派发。");
                 const current = latest.plans.find(row => row.id === plan.id);
                 if (current?.jobs.find(row => row.index === job.index)?.commandId !== job.commandId
                     || current.revision !== plan.revision || current.codeFingerprint !== plan.codeFingerprint)
@@ -12702,7 +12706,12 @@ class RealtimeTunnelPanelProvider {
                     current.executionSource = body.executionSource;
                 return PulledTaskControl.returnPulledJobToLocal(latest, plan.id, job.index, job.commandId);
             } });
-        await this.tickDistributedQueue();
+        this.postState?.();
+        // The local intent is already committed. Dispatch is a separate phase;
+        // an older/failing tick cannot turn this successful requeue into failure.
+        void this.tickDistributedQueue().catch(error => this.recordActionError({ command: "distributedPlanDispatch",
+            message: `${plan.planFile} job ${job.index} 已重新排队，派发待核实：${errorMessage(error)}` }));
+        return { status: "queued", source: "local", message: "此 job 已重新进入本机待派队列；实际执行状态由远端查询确认。" };
     }
     async recallPlanToLocalQueueFromUi(message) {
         const root = workspaceRoot();

@@ -28,3 +28,23 @@ test('return to local scheduling does not download files or increment an attempt
   assert.equal(disk.plans[0].jobs[0].status,'unknown');assert.equal(disk.plans[0].jobs[0].executionState,undefined);
   assert.equal(disk.plans[0].jobs[0].error,undefined);
 });
+
+test('explicit native rerun gets one new command even when allocated back to the same Worker and GPU',()=>{
+  let queue=Q.enqueuePlan(Q.emptyDistributedQueue(),{projectId:'p',planFile:'plans/p.yaml',revision:'r',codeFingerprint:'code',executionMode:'train_test',
+    jobs:[{index:0,case:'a',seed:42,outputDir:'work/a',collectionResultCsv:'tmp/a.csv'}]},'wf');
+  const worker={workerId:'w',online:true,declaredJobPaths:true,codeFingerprint:'code',idleGpuIds:['0']};
+  queue=Q.allocateAvailable(queue,[worker]).queue;
+  const old=queue.plans[0].jobs[0].commandId;
+  Object.assign(queue.plans[0].jobs[0],{status:'unknown',executionState:'missing',tmuxWindowId:'@old',tmuxPane:'%old',logPath:'old.log'});
+  const retry=P.returnPulledJobToLocal(queue,'wf',0,old),input=retry.plans[0].jobs[0];
+  assert.ok(input.nextCommandId);assert.notEqual(input.nextCommandId,old);
+  assert.equal(input.startIntent,undefined);assert.equal(input.tmuxWindowId,undefined);assert.equal(input.logPath,undefined);
+  const restored=Q.restoreFormalJobQueue(JSON.parse(Q.serializeDistributedQueue(retry)));
+  const next=Q.allocateAvailable(restored,[worker]);
+  assert.equal(next.dispatches.length,1);assert.equal(next.dispatches[0].commandId,input.nextCommandId);
+  assert.notEqual(next.dispatches[0].commandId,old,'the old Scheduler cancellation fence must not reject the new explicit run');
+  assert.equal(input.history.at(-1).commandId,old);assert.equal(input.outputDir,'work/a');
+  assert.equal(Q.durableCommandId(restored.plans[0],restored.plans[0].jobs[0],'w','1'),input.nextCommandId,'allocation does not regenerate a saved request identity');
+  assert.equal(input.history.at(-1).logPath,'old.log');
+  assert.throws(()=>P.returnPulledJobToLocal(next.queue,'wf',0,old),/身份已变化/);
+});

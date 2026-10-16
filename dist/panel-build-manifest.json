@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.345",
-  "buildId": "2bd8a33065a6d55ff6cb33802ea7f6fdc23ba573ca54c8840f74acef4a9265b0",
+  "version": "0.5.346",
+  "buildId": "39bd0125d738a4d131ceb6c8247cf2baa8be5150f2b094a4e7f4634047f61a4c",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -193,7 +193,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "ac54d1a495287b70c2278735f10963313f676be3f95374f5c57452e5ca4f2501"
+      "sha256": "89c8b88a5b8a5da9e3253e66b21c3adbb009472854413d8efeef9796aefd4d05"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -501,7 +501,7 @@
     },
     {
       "path": "dist/features/PulledTaskControl.js",
-      "sha256": "a9599935f5537c4b979a5716d86e255a1f84ef3bd2df0a899f74bcbafd4a688e"
+      "sha256": "a95389a58dd0b721b081060f1876bb1f6e2826c1a6faa5029be94bcd20a1442d"
     },
     {
       "path": "dist/features/Quality.js",
@@ -649,7 +649,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "9a15d93e5fbdc87dd4d7bcf8ac2a5b1659693a53cf12e75d90911b288885c3c7"
+      "sha256": "b1d209a542d6542670e601229a4c129657fcd37e77d59e6792f2ed422686a237"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -997,7 +997,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "f8f28b7a235b784c185d3137d6c3c69cc0c41cb465ec213012be9b9681c19466"
+      "sha256": "2be719a441a37d0265ebad688da001c687dda90cf80a73d9bc1f97837ac27980"
     },
     {
       "path": "scripts/check-static.js",
