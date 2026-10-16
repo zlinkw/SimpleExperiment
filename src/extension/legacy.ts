@@ -29,6 +29,7 @@ import { replacePlanOutputs } from "../features/PlanOutputReplacement";
 import * as FailedJobRecovery from "../features/FailedJobRecovery";
 import * as PulledTaskControl from "../features/PulledTaskControl";
 import * as WorkerTaskQuery from "../features/WorkerTaskQuery";
+import * as WorkerProgressQuery from "../features/WorkerProgressQuery";
 import { PlanRunHost } from "./PlanRunHost";
 import { WorkerPreparation } from "../features/WorkerPreparation";
 import { CompletedJobSyncHost } from "./CompletedJobSyncHost";
@@ -1714,6 +1715,20 @@ export class RealtimeTunnelPanelProvider {
                     // Older agents may not provide the lightweight inventory;
                     // a genuine full query can still establish current truth.
                 }
+            }
+            if (executionSnapshot && !options.declarations && (queries.length || executionSnapshot.tasks?.length)) {
+                const snapshot = await WorkerProgressQuery.queryWorkerProgress(client, workerId, queries, executionSnapshot, {
+                    signal: options.signal, onSnapshot: snapshot => {
+                        if (workspaceRoot() !== root || this.client !== client) return;
+                        if (snapshot.executionOnly && cached?.queryComplete && !cached.error && !cached.executionOnly && !options.signal?.aborted) return;
+                        this.storeWorkerTaskSnapshot(cacheKey, snapshot);
+                        this.postState();
+                    },
+                });
+                if (workspaceRoot() !== root || this.client !== client) return { workerId, schemaVersion: 1, tasks: [], error: "Workspace changed during Worker task snapshot" };
+                this.storeWorkerTaskSnapshot(cacheKey, snapshot);
+                this.postState();
+                return workerTaskSnapshotPayload(snapshot);
             }
             const count = Math.max(queries.length, options.declarations?.length || 0);
             const batches = count ? Array.from({ length: Math.ceil(count / 500) }, (_, index) => queries.slice(index * 500, (index + 1) * 500)) : [[]];

@@ -156,7 +156,9 @@ def task_log_diagnostics(root, job, row=None, terminal=False, binding=None):
             state = entry["state"]
             with open(full, "rb") as stream:
                 stream.seek(state["offset"])
-                data = stream.read(4 * 1024 * 1024)
+                # Keep one observation bounded. Large early logs continue at
+                # their in-memory byte cursor without blocking sibling jobs.
+                data = stream.read(256 * 1024)
             after = os.stat(full)
             complete = after.st_size == state["offset"] + len(data) and before.st_mtime_ns == after.st_mtime_ns
             task_log_feed(state, data, terminal and complete)

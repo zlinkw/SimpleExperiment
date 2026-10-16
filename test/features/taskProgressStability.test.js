@@ -42,7 +42,7 @@ test('log analysis and completion evidence invalidate cards without changing pro
 });
 test('submission-only inventory cannot overwrite the independently queried progress snapshot',async()=>{
  let stored=0;const snapshot={queryComplete:true,capabilities:{taskLifecycle:2},tasks:[]};
- const globals={workspaceRoot:()=>'/fixture',workerTaskSnapshotPayload:x=>x,WorkerTaskQuery:W,errorMessage:e=>e.message,RequestBudget_1:{RequestBudgetDeniedError:class extends Error{}}};
+ const globals={workspaceRoot:()=>'/fixture',workerTaskSnapshotPayload:x=>x,WorkerTaskQuery:W,WorkerProgressQuery:require('../../src/features/WorkerProgressQuery.ts'),errorMessage:e=>e.message,RequestBudget_1:{RequestBudgetDeniedError:class extends Error{}}};
  const host={client:{getWorkerTasks:async()=>snapshot},loadDistributedQueue:async()=>({plans:[]}),cachedWorkerTaskSnapshot:()=>undefined,storeWorkerTaskSnapshot(){stored++;},postState(){}};
  const result=await method('refreshWorkerTaskSnapshot',globals).call(host,'worker','/fixture','key',{inventoryOnly:true});
  assert.equal(result.queryComplete,true);assert.equal(stored,0);
@@ -55,7 +55,7 @@ test('slow result verification publishes fresh execution first and cannot erase 
  let finish,stored=[],calls=[];const slow=new Promise((_,reject)=>{finish=reject;});
  const observation={lifecycleProtocol:2,commandId:'live',projectId:'project',workerId:'worker',observedAt:new Date().toISOString(),tmux:{paneId:'%1',windowId:'@1',dead:false,phase:'starting'}};
  const execution={executionOnly:true,queryComplete:true,capabilities:{taskLifecycle:2},tasks:[{commandId:'live',projectId:'project',observation}]};
- const globals={workspaceRoot:()=>'/fixture',workerTaskSnapshotPayload:x=>x,WorkerTaskQuery:W,errorMessage:e=>e.message,RequestBudget_1:{RequestBudgetDeniedError:class extends Error{}}};
+ const globals={workspaceRoot:()=>'/fixture',workerTaskSnapshotPayload:x=>x,WorkerTaskQuery:W,WorkerProgressQuery:require('../../src/features/WorkerProgressQuery.ts'),errorMessage:e=>e.message,RequestBudget_1:{RequestBudgetDeniedError:class extends Error{}}};
  const host={client:{getWorkerTasks:async(_,options)=>{calls.push(options);return options.executionOnly?execution:slow;}},loadDistributedQueue:async()=>({plans:[{projectId:'project',jobs:[{lifecycleProtocol:2,workerId:'worker',commandId:'live',outputDir:'work/live',status:'unknown'}]}]}),cachedWorkerTaskSnapshot:()=>undefined,storeWorkerTaskSnapshot(_,value){stored.push(value);},postState(){}};
  const pending=method('refreshWorkerTaskSnapshot',globals).call(host,'worker','/fixture','key');
  for(let i=0;i<5&&calls.length<2;i++)await new Promise(setImmediate);
@@ -75,7 +75,7 @@ test('normal complete observations are not flashed to unverified during the exec
  let finish,stored=[];const full=new Promise(resolve=>{finish=resolve;});
  const old={queryComplete:true,capabilities:{taskLifecycle:2},tasks:[{commandId:'ended',status:'completed'}]};
  const live={executionOnly:true,queryComplete:true,capabilities:{taskLifecycle:2},tasks:[]};
- const globals={workspaceRoot:()=>'/fixture',workerTaskSnapshotPayload:x=>x,WorkerTaskQuery:W,errorMessage:e=>e.message,RequestBudget_1:{RequestBudgetDeniedError:class extends Error{}}};
+ const globals={workspaceRoot:()=>'/fixture',workerTaskSnapshotPayload:x=>x,WorkerTaskQuery:W,WorkerProgressQuery:require('../../src/features/WorkerProgressQuery.ts'),errorMessage:e=>e.message,RequestBudget_1:{RequestBudgetDeniedError:class extends Error{}}};
  const host={client:{getWorkerTasks:async(_,options)=>options.executionOnly?live:full},loadDistributedQueue:async()=>({plans:[]}),cachedWorkerTaskSnapshot:()=>old,storeWorkerTaskSnapshot(_,value){stored.push(value);},postState(){}};
  const pending=method('refreshWorkerTaskSnapshot',globals).call(host,'worker','/fixture','key');
  await new Promise(setImmediate);assert.equal(stored.length,0);
@@ -85,4 +85,12 @@ test('normal complete observations are not flashed to unverified during the exec
 test('native execution inventory stays independent of result files, logs and launch payloads',()=>{
  const r=require('node:child_process').spawnSync(process.platform==='win32'?'python':'python3',['-B','-X','utf8',path.join(__dirname,'slowWorkerExecution.fixture.py'),path.resolve(__dirname,'../../src/runtime/TmuxTaskLifecycle.ts')],{encoding:'utf8',timeout:10000,windowsHide:true});
  assert.equal(r.status,0,r.stderr||r.stdout);
+});
+
+test('changing workspace during selected result queries cannot publish or return old project evidence',async()=>{
+ let root='/fixture',stored=0;const live={executionOnly:true,queryComplete:true,capabilities:{taskLifecycle:2},tasks:[]};
+ const globals={workspaceRoot:()=>root,workerTaskSnapshotPayload:x=>x,WorkerTaskQuery:W,WorkerProgressQuery:{queryWorkerProgress:async()=>{root='/other';return live;}},errorMessage:e=>e.message,RequestBudget_1:{RequestBudgetDeniedError:class extends Error{}}};
+ const host={client:{getWorkerTasks:async()=>live},loadDistributedQueue:async()=>({plans:[{projectId:'project',jobs:[{lifecycleProtocol:2,workerId:'worker',commandId:'live',outputDir:'work/live',status:'unknown'}]}]}),cachedWorkerTaskSnapshot:()=>undefined,storeWorkerTaskSnapshot(){stored++;},postState(){}};
+ const result=await method('refreshWorkerTaskSnapshot',globals).call(host,'worker','/fixture','key');
+ assert.match(result.error,/Workspace changed/);assert.equal(stored,1,'only the initial observation before changing workspace may be stored');
 });

@@ -149,6 +149,8 @@ function summarizeEntry(entry) {
         status = "queued";
     else if (allTasksCompleted)
         status = "completed";
+    else if (countRows.some(row => row.lifecycleProtocol === 2 && (row.status === "unknown" || row.resultState === "unverified")))
+        status = "unknown";
     else if (countRows.length || runOperations.length)
         status = "partial";
     const updatedAt = firstText(entry.plan.updatedAt);

@@ -16501,7 +16501,7 @@ def serve_http(args):
                     if payload.get("selectedOnly") is True:
                         if payload.get("executionOnly") or payload.get("declarations") is not None or payload.get("discovery"):
                             raise ValueError("TASK_QUERY_SELECTION_INVALID")
-                        return self.send_json(task_query(root, payload.get("queries") or [], selected_only=True))
+                        return self.send_json(task_query(root, payload.get("queries") or [], selected_only=True, observation_only=payload.get("observationOnly") is True))
                     value = task_collection_query(root, payload.get("declarations") or []) if collection else task_query(root, payload.get("queries") or [])
                     if payload.get("declarations") is not None and not collection:
                         value["declaredResults"] = task_declared_results(root, payload["declarations"], value["tasks"])

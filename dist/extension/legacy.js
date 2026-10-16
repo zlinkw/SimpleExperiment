@@ -71,6 +71,7 @@ const StaticEntrypointProbe_1 = require("../features/StaticEntrypointProbe");
 const FailedJobRecovery = __importStar(require("../features/FailedJobRecovery"));
 const PulledTaskControl = __importStar(require("../features/PulledTaskControl"));
 const WorkerTaskQuery = __importStar(require("../features/WorkerTaskQuery"));
+const WorkerProgressQuery = __importStar(require("../features/WorkerProgressQuery"));
 const PlanRunHost_1 = require("./PlanRunHost");
 const WorkerPreparation_1 = require("../features/WorkerPreparation");
 const CompletedJobSyncHost_1 = require("./CompletedJobSyncHost");
@@ -1651,6 +1652,23 @@ class RealtimeTunnelPanelProvider {
                     // Older agents may not provide the lightweight inventory;
                     // a genuine full query can still establish current truth.
                 }
+            }
+            if (executionSnapshot && !options.declarations && (queries.length || executionSnapshot.tasks?.length)) {
+                const snapshot = await WorkerProgressQuery.queryWorkerProgress(client, workerId, queries, executionSnapshot, {
+                    signal: options.signal, onSnapshot: snapshot => {
+                        if (workspaceRoot() !== root || this.client !== client)
+                            return;
+                        if (snapshot.executionOnly && cached?.queryComplete && !cached.error && !cached.executionOnly && !options.signal?.aborted)
+                            return;
+                        this.storeWorkerTaskSnapshot(cacheKey, snapshot);
+                        this.postState();
+                    },
+                });
+                if (workspaceRoot() !== root || this.client !== client)
+                    return { workerId, schemaVersion: 1, tasks: [], error: "Workspace changed during Worker task snapshot" };
+                this.storeWorkerTaskSnapshot(cacheKey, snapshot);
+                this.postState();
+                return workerTaskSnapshotPayload(snapshot);
             }
             const count = Math.max(queries.length, options.declarations?.length || 0);
             const batches = count ? Array.from({ length: Math.ceil(count / 500) }, (_, index) => queries.slice(index * 500, (index + 1) * 500)) : [[]];

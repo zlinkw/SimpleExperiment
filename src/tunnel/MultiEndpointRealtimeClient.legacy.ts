@@ -301,7 +301,7 @@ export class MultiEndpointRealtimeClient {
     if (!client || this.endpointById.get(workerId)?.role !== "worker") throw new Error(`Worker Agent endpoint not configured: ${workerId}`);
     return client.getPlanCodeScope(query, options);
   }
-  async getWorkerTasks(workerId: string, options: { signal?: AbortSignal; executionOnly?: boolean; selectedOnly?: boolean; retiredCommandIds?: string[]; queries?: any[]; declarations?: any[]; discovery?: { planFile: string; condaEnv?: string } } = {}): Promise<unknown> {
+  async getWorkerTasks(workerId: string, options: { signal?: AbortSignal; executionOnly?: boolean; selectedOnly?: boolean; observationOnly?: boolean; retiredCommandIds?: string[]; queries?: any[]; declarations?: any[]; discovery?: { planFile: string; condaEnv?: string } } = {}): Promise<unknown> {
     const client = this.clients.get(workerId);
     const endpoint = this.endpointById.get(workerId);
     if (!client || endpoint?.role !== "worker") throw new Error(`Worker Agent endpoint not configured: ${workerId}`);

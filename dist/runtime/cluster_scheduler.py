@@ -37,9 +37,9 @@ except ModuleNotFoundError as exc:
     yaml = None
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_scheduler.py 为准
-SCHEDULER_VERSION = "0.5.355"
-RUNTIME_VERSION = "0.5.355"
-PLUGIN_VERSION = "0.5.355"
+SCHEDULER_VERSION = "0.5.356"
+RUNTIME_VERSION = "0.5.356"
+PLUGIN_VERSION = "0.5.356"
 FORMAL_JOB_PATH_PROTOCOL = 1
 FORMAL_JOB_IDENTITY_ENV_PROTOCOL = 1
 EXECUTION_SHELL_PREFLIGHT_PROTOCOL = 1
@@ -906,7 +906,9 @@ def task_log_diagnostics(root, job, row=None, terminal=False, binding=None):
             state = entry["state"]
             with open(full, "rb") as stream:
                 stream.seek(state["offset"])
-                data = stream.read(4 * 1024 * 1024)
+                # Keep one observation bounded. Large early logs continue at
+                # their in-memory byte cursor without blocking sibling jobs.
+                data = stream.read(256 * 1024)
             after = os.stat(full)
             complete = after.st_size == state["offset"] + len(data) and before.st_mtime_ns == after.st_mtime_ns
             task_log_feed(state, data, terminal and complete)

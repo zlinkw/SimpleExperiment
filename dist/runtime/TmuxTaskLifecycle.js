@@ -180,9 +180,23 @@ def task_manifest_observation(root, job):
         expected = (report.get("fileStats") or {}).get(file)
         if expected and os.path.isfile(task_safe_path(root, file)):
             info = os.stat(task_safe_path(root, file))
-            actual = {"size": info.st_size, "mtimeNs": info.st_mtime_ns, "ctimeNs": info.st_ctime_ns, "inode": info.st_ino, "device": info.st_dev}
-            if actual != expected:
+            # inode/device/ctime belong to the writer filesystem, not a copied
+            # artifact. Verify portable content evidence on every current query.
+            if expected.get("size") is not None and info.st_size != expected["size"]:
                 present = False
+    metric_hash = (report.get("sha256") or {}).get(result_csv)
+    if present and result_csv and metric_hash:
+        full = task_safe_path(root, result_csv)
+        if os.path.getsize(full) > 4 * 1024 * 1024:
+            raise ValueError("TASK_METRIC_TOO_LARGE")
+        before = os.stat(full)
+        with open(full, "rb") as handle:
+            content = handle.read(4 * 1024 * 1024 + 1)
+        after = os.stat(full)
+        if (before.st_size, before.st_mtime_ns, before.st_ctime_ns, before.st_ino, before.st_dev) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns, after.st_ino, after.st_dev):
+            raise ValueError("TASK_METRIC_CHANGED_DURING_QUERY")
+        if len(content) != after.st_size or hashlib.sha256(content).hexdigest() != metric_hash:
+            present = False
     if mode in ("train", "train_test") and not report.get("weights"):
         present = False
     if mode in ("test", "train_test") and (not result_csv or result_csv != job.get("collectionResultCsv")):
@@ -334,7 +348,7 @@ def task_declared_results(root, declarations, tasks=()):
                             "outputDir": declaration.get("output_dir") if isinstance(declaration, dict) else None, "completed": False, "error": str(exc)})
     return results
 
-def task_query(root, queries=(), selected_only=False):
+def task_query(root, queries=(), selected_only=False, observation_only=False):
     if not isinstance(queries, (list, tuple)) or len(queries) > 500:
         raise ValueError("TASK_QUERY_LIMIT")
     # Observations need the published identity and current pane, not every
@@ -358,7 +372,7 @@ def task_query(root, queries=(), selected_only=False):
                 raise ValueError("TASK_OWNER_MISMATCH")
         wanted = {(query["projectId"], query["commandId"]) for query in queries}
         rows = [row for row in rows if (row["projectId"], row["commandId"]) in wanted]
-        for index, row in enumerate(rows):
+        for index, row in enumerate(rows if not observation_only else []):
             payload = task_read_job(row["tmuxPane"])
             if any(payload.get(key) != row.get(key) for key in ("root", "projectId", "workerId", "commandId", "outputDir", "pane")):
                 raise ValueError("TASK_WINDOW_PAYLOAD_IDENTITY_MISMATCH")

@@ -569,6 +569,7 @@ function renderPanelHtml() {
     .planSelectorStatus { display: flex; align-items: center; gap: 8px; min-height: 24px; margin-top: 4px; padding: 2px 7px; border-left: 4px solid var(--task-status-color, #64748B); color: var(--vscode-descriptionForeground); font-size: 11px; }
     .planSelectorStatus.is-not-started { --task-status-color: #64748B; }
     .planSelectorStatus.is-partial { --task-status-color: #D97706; }
+    .planSelectorStatus.is-unknown { --task-status-color: #64748B; }
     .planSelectorStatus.is-running { --task-status-color: #2563EB; }
     .planSelectorStatus.is-completed { --task-status-color: #16A34A; }
     .planSelectorStatus.is-failed { --task-status-color: #DC2626; }
@@ -1430,7 +1431,7 @@ function renderPanelHtml() {
         <div id="planQuickGrid" class="planQuickGrid" data-anchor="plans-actions">
           <div class="planSelectorControls" aria-label="计划筛选与排序">
             <div class="field"><label for="planSelectorQuery">搜索计划</label><input id="planSelectorQuery" type="search" placeholder="筛选文件名或路径" autocomplete="off"></div>
-            <div class="field"><label for="planSelectorStatusFilter">状态</label><select id="planSelectorStatusFilter"><option value="all">全部状态</option><option value="remaining">未完成</option><option value="not-started">未开始</option><option value="partial">部分完成</option><option value="submitting">准备提交中</option><option value="queued">排队中</option><option value="running">运行中</option><option value="completed">已完成</option><option value="failed">失败</option></select></div>
+            <div class="field"><label for="planSelectorStatusFilter">状态</label><select id="planSelectorStatusFilter"><option value="all">全部状态</option><option value="remaining">未完成</option><option value="not-started">未开始</option><option value="partial">部分完成</option><option value="unknown">待核实</option><option value="submitting">准备提交中</option><option value="queued">排队中</option><option value="running">运行中</option><option value="completed">已完成</option><option value="failed">失败</option></select></div>
             <div class="field"><label for="planSelectorSortOrder">排序</label><select id="planSelectorSortOrder"><option value="scan">扫描顺序</option><option value="progress-desc">进度从高到低</option><option value="progress-asc">进度从低到高</option><option value="name">名称</option></select></div>
           </div>
           <div class="field wide">
@@ -10147,7 +10148,7 @@ function renderPanelHtml() {
       }
       return "";
     }
-    const PLAN_SELECTOR_STATUS_LABELS = Object.freeze({ "not-started": "未开始", partial: "部分完成", submitting: "准备提交中", queued: "排队中", running: "运行中", completed: "已完成", failed: "失败" });
+    const PLAN_SELECTOR_STATUS_LABELS = Object.freeze({ "not-started": "未开始", partial: "部分完成", unknown: "待核实", submitting: "准备提交中", queued: "排队中", running: "运行中", completed: "已完成", failed: "失败" });
     let planSelectorStatusIndexState = null;
     let planSelectorStatusIndexValue = null;
     function planSelectorTrustedSummary(state, planFile, plan) {
@@ -10317,6 +10318,7 @@ function renderPanelHtml() {
       else if (pendingOperation) status = "submitting";
       else if (shownQueuedCount && !shownCompletedCount) status = "queued";
       else if (allTasksCompleted) status = "completed";
+      else if (countRows.some(row => row.lifecycleProtocol === 2 && (row.status === "unknown" || row.resultState === "unverified"))) status = "unknown";
       else if (countRows.length || runOperations.length) status = "partial";
       const shownCompleted = status === "completed" && !shownCompletedCount && totalCount ? totalCount : shownCompletedCount;
       return { status, statusLabel: PLAN_SELECTOR_STATUS_LABELS[status], completedCount: shownCompleted, unavailableCount: distributedUnavailable, totalCount, taskCount: countRows.length, revision };

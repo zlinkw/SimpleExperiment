@@ -177,7 +177,7 @@ class HttpTunnelClient {
         if (ids.length > 500 || ids.some(id => !/^[A-Za-z0-9._:-]{1,128}$/.test(id)))
             throw new Error("INVALID_RETIRED_COMMAND_SELECTION");
         if (options.executionOnly || options.selectedOnly || options.queries?.length || options.declarations || options.discovery)
-            return this.requestJson("/api/worker/tasks/query", "job_reconcile", { queries: options.queries || [], executionOnly: options.executionOnly, selectedOnly: options.selectedOnly, declarations: options.declarations, discovery: options.discovery, retiredCommandIds: ids }, { method: "POST", userInitiated: true, signal: options.signal });
+            return this.requestJson("/api/worker/tasks/query", options.observationOnly ? "manual_refresh" : "job_reconcile", { queries: options.queries || [], executionOnly: options.executionOnly, selectedOnly: options.selectedOnly, observationOnly: options.observationOnly, declarations: options.declarations, discovery: options.discovery, retiredCommandIds: ids }, { method: "POST", userInitiated: true, signal: options.signal });
         const params = new URLSearchParams();
         if (ids.length)
             params.set("retiredCommandIds", ids.join(","));

@@ -1,6 +1,6 @@
 import { jobIsUnavailable, QueuedPlan, QueuedJob } from "./DistributedPlanQueue";
 
-export type PlanSelectorStatus = "not-started" | "partial" | "submitting" | "queued" | "running" | "completed" | "failed";
+export type PlanSelectorStatus = "not-started" | "partial" | "unknown" | "submitting" | "queued" | "running" | "completed" | "failed";
 
 export interface PanelPlanStatusSummary {
   planFile: string;
@@ -183,6 +183,7 @@ function summarizeEntry(entry: PlanEntry): PanelPlanStatusSummary {
   else if (pendingOperation) status = "submitting";
   else if (displayedCounts.queuedCount && !displayedCounts.completedCount) status = "queued";
   else if (allTasksCompleted) status = "completed";
+  else if (countRows.some(row => row.lifecycleProtocol === 2 && (row.status === "unknown" || row.resultState === "unverified"))) status = "unknown";
   else if (countRows.length || runOperations.length) status = "partial";
 
   const updatedAt = firstText(entry.plan.updatedAt);

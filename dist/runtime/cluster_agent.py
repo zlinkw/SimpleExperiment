@@ -69,9 +69,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.355"
-RUNTIME_VERSION = "0.5.355"
-PLUGIN_VERSION = "0.5.355"
+AGENT_VERSION = "0.5.356"
+RUNTIME_VERSION = "0.5.356"
+PLUGIN_VERSION = "0.5.356"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -17167,7 +17167,7 @@ def serve_http(args):
                     if payload.get("selectedOnly") is True:
                         if payload.get("executionOnly") or payload.get("declarations") is not None or payload.get("discovery"):
                             raise ValueError("TASK_QUERY_SELECTION_INVALID")
-                        return self.send_json(task_query(root, payload.get("queries") or [], selected_only=True))
+                        return self.send_json(task_query(root, payload.get("queries") or [], selected_only=True, observation_only=payload.get("observationOnly") is True))
                     value = task_collection_query(root, payload.get("declarations") or []) if collection else task_query(root, payload.get("queries") or [])
                     if payload.get("declarations") is not None and not collection:
                         value["declaredResults"] = task_declared_results(root, payload["declarations"], value["tasks"])
@@ -17812,7 +17812,9 @@ def task_log_diagnostics(root, job, row=None, terminal=False, binding=None):
             state = entry["state"]
             with open(full, "rb") as stream:
                 stream.seek(state["offset"])
-                data = stream.read(4 * 1024 * 1024)
+                # Keep one observation bounded. Large early logs continue at
+                # their in-memory byte cursor without blocking sibling jobs.
+                data = stream.read(256 * 1024)
             after = os.stat(full)
             complete = after.st_size == state["offset"] + len(data) and before.st_mtime_ns == after.st_mtime_ns
             task_log_feed(state, data, terminal and complete)
@@ -18215,9 +18217,23 @@ def task_manifest_observation(root, job):
         expected = (report.get("fileStats") or {}).get(file)
         if expected and os.path.isfile(task_safe_path(root, file)):
             info = os.stat(task_safe_path(root, file))
-            actual = {"size": info.st_size, "mtimeNs": info.st_mtime_ns, "ctimeNs": info.st_ctime_ns, "inode": info.st_ino, "device": info.st_dev}
-            if actual != expected:
+            # inode/device/ctime belong to the writer filesystem, not a copied
+            # artifact. Verify portable content evidence on every current query.
+            if expected.get("size") is not None and info.st_size != expected["size"]:
                 present = False
+    metric_hash = (report.get("sha256") or {}).get(result_csv)
+    if present and result_csv and metric_hash:
+        full = task_safe_path(root, result_csv)
+        if os.path.getsize(full) > 4 * 1024 * 1024:
+            raise ValueError("TASK_METRIC_TOO_LARGE")
+        before = os.stat(full)
+        with open(full, "rb") as handle:
+            content = handle.read(4 * 1024 * 1024 + 1)
+        after = os.stat(full)
+        if (before.st_size, before.st_mtime_ns, before.st_ctime_ns, before.st_ino, before.st_dev) != (after.st_size, after.st_mtime_ns, after.st_ctime_ns, after.st_ino, after.st_dev):
+            raise ValueError("TASK_METRIC_CHANGED_DURING_QUERY")
+        if len(content) != after.st_size or hashlib.sha256(content).hexdigest() != metric_hash:
+            present = False
     if mode in ("train", "train_test") and not report.get("weights"):
         present = False
     if mode in ("test", "train_test") and (not result_csv or result_csv != job.get("collectionResultCsv")):
@@ -18369,7 +18385,7 @@ def task_declared_results(root, declarations, tasks=()):
                             "outputDir": declaration.get("output_dir") if isinstance(declaration, dict) else None, "completed": False, "error": str(exc)})
     return results
 
-def task_query(root, queries=(), selected_only=False):
+def task_query(root, queries=(), selected_only=False, observation_only=False):
     if not isinstance(queries, (list, tuple)) or len(queries) > 500:
         raise ValueError("TASK_QUERY_LIMIT")
     # Observations need the published identity and current pane, not every
@@ -18393,7 +18409,7 @@ def task_query(root, queries=(), selected_only=False):
                 raise ValueError("TASK_OWNER_MISMATCH")
         wanted = {(query["projectId"], query["commandId"]) for query in queries}
         rows = [row for row in rows if (row["projectId"], row["commandId"]) in wanted]
-        for index, row in enumerate(rows):
+        for index, row in enumerate(rows if not observation_only else []):
             payload = task_read_job(row["tmuxPane"])
             if any(payload.get(key) != row.get(key) for key in ("root", "projectId", "workerId", "commandId", "outputDir", "pane")):
                 raise ValueError("TASK_WINDOW_PAYLOAD_IDENTITY_MISMATCH")

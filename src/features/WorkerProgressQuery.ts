@@ -1,0 +1,67 @@
+const progressCursors = new WeakMap<object, Map<string, number>>();
+/** Current-round observations only. One slow result cannot discard its siblings. */
+export async function queryWorkerProgress(client: any, workerId: string, queries: any[], execution: any,
+  options: { signal?: AbortSignal; onSnapshot?: (snapshot: any) => void } = {}) {
+  const key = (task: any) => task.projectId + ":" + task.commandId;
+  const selected = new Map<string, any>();
+  for (const task of [...queries, ...(execution.tasks || [])])
+    if (task.commandId && task.projectId && task.workerId === workerId && task.outputDir) selected.set(key(task), task);
+  const rows = new Map<string, any>((execution.tasks || []).map((task: any) => [key(task), task]));
+  const selection = [...selected.values()], checked = new Set<string>(), errors = new Map<string, string>();
+  let cursors = progressCursors.get(client);
+  if (!cursors) { cursors = new Map(); progressCursors.set(client, cursors); }
+  const scope = workerId + ":" + [...new Set(selection.map(task => task.projectId))].sort().join(",");
+  const start = (cursors.get(scope) || 0) % Math.max(1, selection.length);
+  const entries = [...selection.slice(start), ...selection.slice(0, start)];
+  if (cursors.size > 64) cursors.delete(cursors.keys().next().value!);
+  const cleanup = new Map<string, any>();
+  let index = 0, closed = false, capabilities = execution.capabilities;
+  const snapshot = (reason?: string) => {
+    const partial = !entries.length || checked.size !== entries.length || errors.size > 0;
+    const { executionOnly: _, ...base } = execution;
+    return { ...base, workerId, fetchedAt: execution.fetchedAt || new Date().toISOString(), capabilities,
+      ...(partial ? { executionOnly: true, resultQueryError: reason || [...errors.values()].join("; ") || "部分产物仍在核实" } : {}),
+      tasks: [...rows.values()], cleanupExecutors: [...cleanup.values()] };
+  };
+  const publish = () => { if (!closed) options.onSnapshot?.(snapshot()); };
+  const lane = async () => {
+    while (!closed && !options.signal?.aborted && index < entries.length) {
+      const query = entries[index++], id = key(query);
+      cursors!.set(scope, (start + index) % entries.length);
+      try {
+        const value: any = await client.getWorkerTasks(workerId, { signal: options.signal,
+          selectedOnly: true, observationOnly: true, queries: [query] });
+        if (closed || options.signal?.aborted) return;
+        const task = value?.tasks?.find((task: any) => key(task) === id && task.workerId === workerId);
+        if (value.error || value.queryComplete !== true || value.capabilities?.taskLifecycle !== 2
+          || !Array.isArray(value.cleanupExecutors) || !task || task.observation?.queryError)
+          throw new Error(value.error || task?.observation?.queryError || "所选任务的产物查询未完成");
+        rows.set(id, task); checked.add(id); capabilities = { ...capabilities, ...value.capabilities };
+        for (const item of value.cleanupExecutors || []) cleanup.set(JSON.stringify(item), item);
+      } catch (error) {
+        if (closed || options.signal?.aborted) return;
+        const message = error instanceof Error ? error.message : String(error);
+        errors.set(id, message);
+        const prior = rows.get(id) || query;
+        rows.set(id, { ...prior, observation: { ...(prior.observation || {}), resultQueryError: message } });
+      }
+      publish();
+    }
+  };
+  let abort: (() => void) | undefined;
+  const interrupted = new Promise<void>(resolve => {
+    abort = resolve;
+    options.signal?.addEventListener("abort", abort, { once: true });
+    if (options.signal?.aborted) resolve();
+  });
+  try {
+    await Promise.race([Promise.all(Array.from({ length: Math.min(4, entries.length) }, lane)), interrupted]);
+    if (options.signal?.aborted && options.signal.reason?.code !== "TASK_QUERY_TIMEOUT") throw options.signal.reason;
+    const result = snapshot(options.signal?.aborted ? String(options.signal.reason?.message || "部分产物查询超时") : undefined);
+    options.onSnapshot?.(result);
+    return result;
+  } finally {
+    closed = true;
+    if (abort) options.signal?.removeEventListener("abort", abort);
+  }
+}

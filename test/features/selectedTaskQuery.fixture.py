@@ -56,6 +56,9 @@ exit_code = "0"
 diagnostics = {"state": "clear", "scanComplete": True, "count": 0}
 reads.clear(); observations.clear()
 expect_full = False
+result = ns["task_query"](root, [query], selected_only=True, observation_only=True)
+assert len(result["tasks"]) == 1 and not reads and observations == ["0"], "result progress must not load any launch payload"
+reads.clear(); observations.clear()
 result = ns["task_query"](root, [query])
 assert len(result["tasks"]) == 180 and not reads, "progress discovery must retain all panes without reading launch source chunks"
 try:

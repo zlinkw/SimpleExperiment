@@ -43,14 +43,22 @@ ns['task_safe_path']=lambda root,relative:str(pathlib.Path(root,relative))
 job={'commandId':'command'}
 first=ns['task_log_diagnostics'](root,job,{'logPath':'raw.log'},True)
 assert first['count']==1 and not first['scanComplete']
-last=ns['task_log_diagnostics'](root,job,{'logPath':'raw.log'},True)
+last=first
+for _ in range(64):
+    if last['scanComplete']:break
+    previous=last['bytesRead']
+    last=ns['task_log_diagnostics'](root,job,{'logPath':'raw.log'},True)
+    assert 0 < last['bytesRead']-previous <= 256*1024
 assert last['count']==1 and last['scanComplete']
 again=ns['task_log_diagnostics'](root,job,{'logPath':'raw.log'},True)
 assert again==last
 # Rewriting the tail with unchanged inode/length invalidates a previously complete scan.
 data=file.read_bytes();file.write_bytes(data.replace(b'AttributeError',b'AssertionError'))
 changed=ns['task_log_diagnostics'](root,job,{'logPath':'raw.log'},True)
-while not changed['scanComplete']:changed=ns['task_log_diagnostics'](root,job,{'logPath':'raw.log'},True)
+for _ in range(64):
+    if changed['scanComplete']:break
+    changed=ns['task_log_diagnostics'](root,job,{'logPath':'raw.log'},True)
+assert changed['scanComplete']
 assert changed['types']=={'AssertionError':1}
 file.write_bytes(data)
 ns.pop('TASK_LOG_DIAGNOSTIC_CACHE')
@@ -89,7 +97,10 @@ assert anomalous['count']==1 and anomalous['phases']=={'train':1} and anomalous[
 legacy_file.write_text(callback+('epoch 300/300\n'*400000),encoding='utf8')
 partial=ns['task_log_diagnostics'](root,legacy_job,terminal=True)
 assert partial['count']==1 and not partial['scanComplete']
-complete=ns['task_log_diagnostics'](root,legacy_job,terminal=True)
+complete=partial
+for _ in range(64):
+    if complete['scanComplete']:break
+    complete=ns['task_log_diagnostics'](root,legacy_job,terminal=True)
 assert complete['count']==1 and complete['scanComplete']
 assert ns['task_log_diagnostics'](root,legacy_job,{'logPath':'raw.log'},True)['state']=='unverified'
 assert ns['task_log_diagnostics'](root,{'commandId':'different'},terminal=True)['state']=='unverified'
