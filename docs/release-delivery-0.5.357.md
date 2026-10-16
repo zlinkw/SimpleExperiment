@@ -19,3 +19,11 @@
 确定包 simple-experiment-0.5.357.vsix 为 3,027,542 字节、524 条 ZIP 记录；373 个 dist 文件与本机构建逐字节一致。SHA256 为 3485a68ff99fef0472e743f2e66656152e3b23eb7af0a5e741cbdd240a4bb176，同名 .vsix.sha256 绑定精确文件名。包内本文是构建补记前版本，补记不更换已验证安装包。
 
 现场任务与列表恢复情况仅代表本次只读查询结果，不构成新版远端验收。实际入口和 H20 查询速度等待用户重载并更新 Agent/Scheduler 后核实；本次不自动部署或提交科研任务。
+
+## 实际交付
+
+源码提交 bb70e75e4a4110f7c314fe267579ebf0b6fa5a7a 已普通推送 origin/master，fetch 确认一致。稳定 Latest 为 https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.357，tag 与 target_commitish 均绑定该提交，draft=false、prerelease=false。VSIX 大小、GitHub digest 及 98 字节逐包校验清单与上述确定包一致。
+
+已安装旧版 0.5.356 的实际 ReleaseClient 识别此更新并实际下载 Experiment 0.5.357 与现有 SimpleSFTP 0.2.91 及各自校验清单；身份、平台、大小、SHA256、GitHub digest 与本机包逐字节一致。隔离验证目录 C:/Users/ZLK/AppData/Local/Temp/simpleex-0357-release-verify-80yvol。SFTP 未改动、未重复安装，复用包 169,109 字节，SHA256 e483156ad117fd8c3aaeb81d01fc0285ad6ce7c698827b589ad16596a9ea453e。
+
+仅执行一次 npm run install:latest，本机 SimpleExperiment 已为 0.5.357，373 个安装 dist 文件与确定包一致，simpleex --help 正常。安装后停止访问当前面板/API，等待用户 Developer: Reload Window 并由原入口更新 Agent/Scheduler。没有自动远端部署、科研任务重跑、停止、重发、文件清理或环境变更；不能宣称新版现场状态及计数已验收。
