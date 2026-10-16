@@ -21,3 +21,11 @@
 最终 npm run package 完成 121 个串行测试文件，833 项通过、0 失败。每次 Python 回归只提取目标函数；阻塞夹具在 finally 中解除并回收线程，同一日志重入直接返回待核实。编译 PanelHtml 及三个实际渲染脚本的 vm.Script、253 模块运行闭包、8 个 Python AST、禁止固定端口和秘密排除检查通过。
 
 确定包 simple-experiment-0.5.359.vsix 为 3,036,704 字节、526 条 ZIP 记录；373 个 dist 文件与本机构建逐字节一致。SHA256 为 eb092f9914ec92b586a3b049943e6393d976e9a25ff933e1270227f863d410c2，同名 .vsix.sha256 绑定精确文件名。包内本文为构建补记前版本，补记不更换已验证字节。此前已记录的额外旧 workspace 正则断言问题不在本批修复范围，未据此更改生产保护。
+
+## 实际交付
+
+源码提交 88aa92d6e6fdb689da965977782317613a4a4263 已普通推送 origin/master，fetch 确认一致。真实稳定 Latest 为 https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.359，tag 与 target_commitish 均绑定该源码提交，draft=false、prerelease=false；VSIX 大小、GitHub digest 及 98 字节逐包 SHA256 清单与确定包一致。
+
+已安装旧版 0.5.358 的实际 ReleaseClient 识别更新，并实际下载 Experiment 0.5.359 与现有 SimpleSFTP 0.2.91 及各自校验清单；身份、平台、版本、文件名、大小、SHA256、GitHub digest 与本机确定包字节一致。隔离验证目录 C:/Users/ZLK/AppData/Local/Temp/simpleex-0359-release-verify-U6O8gB。SFTP 复用包 169,109 字节，SHA256 e483156ad117fd8c3aaeb81d01fc0285ad6ce7c698827b589ad16596a9ea453e，未修改、未重复安装。
+
+仅执行一次 npm run install:latest，本机为 0.5.359；373 个安装 dist 文件与包一致，simpleex --help 正常。安装后停止当前面板/API 操作，也不再继续 SSH。未部署远端 Agent/Scheduler；用户重载并通过原入口更新后再验收正式 UI/API。旧运行时不会自动拥有新的元数据/日志隔离协议；H20 本次只读函数验证及合成回归均不能替代新版部署后的正式入口验收。
