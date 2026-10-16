@@ -1,6 +1,7 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),ts=require('typescript');
 require('../_helpers/registerTsRequire');
 const {runSelectedPlans}=require('../../src/extension/SelectedPlanBatchHost.ts');
+const {preparePlanSafeRetry}=require('../../src/features/PlanSafeRetry.ts');
 function fixture(){
  const calls=[],context={root:'/fixture'},host={client:{},localOperations:{},localPlanMetadata:{plans:['a','b','c'].map(name=>({planFile:'plans/'+name+'.yaml'}))},
   captureProjectContext:()=>context,projectContextIsCurrent:c=>c===context&&!host.changed,refreshLocalPlanMetadataForAction:async()=>{},
@@ -9,6 +10,24 @@ function fixture(){
   finishPlanSubmissionProgress(m,status,message){host.localOperations[host.planSubmissionOperationId(m)]={status,message};}};
  return {host,calls};
 }
+test('five new PLAN submissions check every Worker window without waiting for unrelated result or log analysis',async()=>{
+ const f=fixture(),reads=[];
+ const files=['a','b','c','d','e'].map(name=>'plans/'+name+'.yaml');
+ f.host.localPlanMetadata.plans=files.map(planFile=>({planFile}));
+ Object.assign(f.host,{taskLifecycleProtocol:2,loadDistributedQueue:async()=>({schemaVersion:1,plans:[]}),
+  workerActionTargets:()=>[{id:'fast'},{id:'many-finished-jobs'}],client:{getWorkerTasks:async(worker,options)=>{
+   reads.push(worker);assert.equal(options.executionOnly,true);
+   return {queryComplete:true,executionOnly:true,capabilities:{taskLifecycle:2},tasks:[]};
+  }}});
+ const submit=f.host.runActionCommand;
+ f.host.runActionCommand=async(command,message)=>{
+  await preparePlanSafeRetry(f.host,message.planFile,()=>assert.fail('no live tasks to stop'),()=>Error('cancelled'));
+  await submit(command,message);
+ };
+ const report=await runSelectedPlans(f.host,{planFiles:files});
+ assert.equal(report.status,'completed');assert.deepEqual(f.calls.map(row=>row.planFile),files);
+ assert.equal(reads.length,10);assert.equal(reads.filter(id=>id==='many-finished-jobs').length,5);
+});
 test('only explicitly selected canonical files use the ordinary single-plan workflow, with unique operation identities',async()=>{
  const {host,calls}=fixture();const report=await runSelectedPlans(host,{planFiles:['plans/c.yaml','plans/a.yaml','plans/c.yaml']});
  assert.equal(report.status,'completed');assert.deepEqual(calls.map(x=>x.planFile),['plans/c.yaml','plans/a.yaml']);

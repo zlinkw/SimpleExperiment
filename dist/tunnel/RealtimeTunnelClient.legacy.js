@@ -340,7 +340,7 @@ class RealtimeTunnelClient {
     getWorkerTasks(options = {}) {
         if (this.requiresManualReconnect)
             return Promise.reject(new Error(this.lastError));
-        const selection = [...new Set(options.retiredCommandIds || [])].sort().join(",") + JSON.stringify(options.queries || []) + JSON.stringify(options.declarations || []) + JSON.stringify(options.discovery || null);
+        const selection = [...new Set(options.retiredCommandIds || [])].sort().join(",") + JSON.stringify(options.queries || []) + JSON.stringify(options.declarations || []) + JSON.stringify(options.discovery || null) + ":execution=" + (options.executionOnly === true);
         return this.coalescedRead("worker-tasks:" + selection, options, () => this.http.getWorkerTasks(options));
     }
     getRunEvidence(params) {

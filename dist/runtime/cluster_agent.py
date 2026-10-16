@@ -69,9 +69,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.347"
-RUNTIME_VERSION = "0.5.347"
-PLUGIN_VERSION = "0.5.347"
+AGENT_VERSION = "0.5.348"
+RUNTIME_VERSION = "0.5.348"
+PLUGIN_VERSION = "0.5.348"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -17144,6 +17144,10 @@ def serve_http(args):
                         raise ValueError("TASK_QUERY_LIMIT")
                     payload = json.loads(raw.decode("utf-8"))
                     collection = bool((payload.get("discovery") or {}).get("collect")) or any(isinstance(item, dict) and item.get("collect") is True for item in payload.get("declarations") or [])
+                    if payload.get("executionOnly") is True:
+                        if payload.get("queries") or payload.get("declarations") is not None or payload.get("discovery"):
+                            raise ValueError("EXECUTION_INVENTORY_SELECTION_INVALID")
+                        return self.send_json(task_execution_inventory(root))
                     value = task_collection_query(root, payload.get("declarations") or []) if collection else task_query(root, payload.get("queries") or [])
                     if payload.get("declarations") is not None and not collection:
                         value["declaredResults"] = task_declared_results(root, payload["declarations"], value["tasks"])
@@ -18089,7 +18093,7 @@ def task_safe_path(root, relative):
         raise ValueError("UNSAFE_TASK_PATH")
     return full
 
-def task_inventory(root):
+def task_inventory(root, execution_only=False):
     fmt = "#{pane_id}\t#{window_id}\t#{session_name}\t#{pane_dead}\t#{pane_dead_status}\t#{@se_job}\t#{@se_phase}\t#{@se_gpu}\t#{@se_log}"
     rows = []
     for line in task_tmux(["list-panes", "-a", "-F", fmt]).splitlines():
@@ -18097,7 +18101,9 @@ def task_inventory(root):
         if len(fields) != 9 or not fields[5]:
             continue
         try:
-            job = task_read_job(fields[0], fields[5])
+            # The published header already carries the execution identity. A
+            # window-only query must not read its full source/config payload.
+            job = json.loads(base64.urlsafe_b64decode(fields[5]).decode("utf-8")) if execution_only else task_read_job(fields[0], fields[5])
         except (ValueError, UnicodeError):
             continue
         if job.get("root") != os.path.realpath(root) or job.get("lifecycleProtocol") != 2:
@@ -18109,6 +18115,19 @@ def task_inventory(root):
         row["exitCode"] = int(fields[4]) if re.fullmatch(r"-?\d+", fields[4]) else None
         rows.append(row)
     return rows
+
+def task_execution_inventory(root):
+    """Current tmux bindings only; makes no assertion about results or clean logs."""
+    tasks = []
+    for row in task_inventory(root, execution_only=True):
+        public = {key: row[key] for key in ("commandId", "projectId", "workerId", "workflowId", "planFile", "experimentIndex",
+                  "outputDir", "collectionResultCsv", "case", "seed", "tmuxPane", "tmuxWindowId", "tmuxSession", "gpuId") if key in row}
+        tasks.append({**public, "lifecycleProtocol": 2, "observation": {
+            "lifecycleProtocol": 2, "commandId": row["commandId"], "projectId": row["projectId"], "workerId": row["workerId"],
+            "observedAt": now_iso(), "tmux": {"windowId": row["tmuxWindowId"], "paneId": row["tmuxPane"],
+            "dead": row["dead"], "exitCode": row["exitCode"], "phase": row["phase"]}}})
+    return {"schemaVersion": 1, "queryComplete": True, "executionOnly": True, "generatedAt": now_iso(),
+            "capabilities": {"taskLifecycle": 2}, "tasks": tasks}
 
 def task_manifest_observation(root, job):
     output = str(job.get("outputDir") or "")

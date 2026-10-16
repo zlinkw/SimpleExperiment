@@ -1095,10 +1095,16 @@ export function hasLegacyOwnership(job: QueuedJob): boolean {
   return job.legacyOwnership === true && Boolean(job.workerId && job.commandId);
 }
 
-export function resetUnsentDispatch(queue: DistributedQueue, planId: string, jobIndex: number, commandId: string): DistributedQueue {
+export function resetUnsentDispatch(queue: DistributedQueue, planId: string, jobIndex: number, commandId: string, reason?: string): DistributedQueue {
+  const plan = queue.plans.find(row => row.id === planId), job = plan?.jobs.find(row => row.index === jobIndex && row.commandId === commandId);
+  if (!job || job.status !== "dispatching" && !(job.lifecycleProtocol === 2 && job.status === "unknown" && job.startIntent?.commandId === commandId)
+    || job.stopIntent || job.recallRequested || job.dispatchAcknowledgedAt || job.executionState && job.executionState !== "missing") return queue;
   return { ...queue, plans: queue.plans.map((plan) => plan.id !== planId ? plan : { ...plan,
-    jobs: plan.jobs.map((job) => job.index !== jobIndex || job.commandId !== commandId || job.status !== "dispatching"
-      ? job : { ...job, status: "pending" as const, workerId: undefined, gpuId: undefined, commandId: undefined, startIntent: undefined }) }) };
+    jobs: plan.jobs.map((row) => row !== job ? row : { ...row, status: "pending" as const, workerId: undefined, gpuId: undefined,
+      commandId: undefined, startIntent: undefined, runKey: undefined, lastDispatchAttemptAt: undefined,
+      executionState: undefined, statusQueryError: undefined, lastObservedAt: undefined,
+      ...(row.lifecycleProtocol === 2 ? { nextCommandId: commandId } : {}),
+      blockReason: reason ? "尚未发送，等待重新核实：" + reason : undefined }) }) };
 }
 
 export function resetBusyRejectedDispatch(queue: DistributedQueue, dispatch: Dispatch, receipt: Record<string, unknown>): DistributedQueue {

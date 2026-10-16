@@ -11322,91 +11322,113 @@ class RealtimeTunnelPanelProvider {
         return PlanCodeScopeHost.runSourceManifest((0, SyncResolution_1.filterHeldFiles)(await buildLocalCodeManifest(root, config.get("codeSync.includePaths", []), config.get("codeSync.scopePaths"), { cacheFile: this.localCodeManifestCacheFile(root), executionOnly: true }), holds));
     }
     async sendDistributedJob(plan, job, workerId, gpuId, commandId, sharedCodeManifest) {
-        if (plan.resultPathPolicy !== "declared" || job.outputDir.split("/").includes("attempts"))
-            throw new Error("HISTORICAL_ATTEMPT_READ_ONLY：旧队列仅供查看，不会重启既有任务。");
-        const root = workspaceRoot(), client = this.client, generation = this.distributedQueueGeneration;
-        const probes = this.taskLifecycleProtocol === 2 ? await this.submissionWorkerProbes([{ id: workerId }]) : this.lastWorkerProbes;
-        if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
-            throw new Error("派发上下文已变化；未发送任务。");
-        if (probes?.[workerId]?.capabilities?.endpoints?.declaredJobPaths !== true
-            || probes?.[workerId]?.capabilities?.endpoints?.formalJobIdentityEnv !== 1
-            || probes?.[workerId]?.capabilities?.endpoints?.taskShellEnvironment !== 1
-            || probes?.[workerId]?.capabilities?.endpoints?.projectManagedValidation !== 1)
-            throw new Error(`WORKER_PROTOCOL_INCOMPATIBLE：${workerId} 未声明正式身份与登录 shell 环境协议；请部署匹配的 Scheduler 和 Agent。`);
-        const executionMode = PlanExecutionMode.requirePlanExecutionMode(plan.executionMode);
-        const target = this.workerActionTargets().find((item) => item.id === workerId);
-        if (!target)
-            throw new Error(`Worker ${workerId} 配置已失效`);
-        const workerConfig = this.enabledWorkerConfigs().find((worker) => worker.id === workerId);
-        const schedulerSettings = this.schedulerSettings();
-        const memoryScheduling = this.lastWorkerProbes?.[workerId]?.capabilities?.endpoints?.gpuMemoryRatioScheduling === 1
-            && this.lastWorkerTaskSnapshots?.get(root + "\u0000" + workerId)?.capabilities?.gpuMemoryRatioScheduling === 1
-            ? GpuMemoryScheduling.memorySchedulingSettings(schedulerSettings, workerConfig) : undefined;
-        const settings = vscode.workspace.getConfiguration("simpleExperiment");
-        const tmuxSessionPrefix = AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix(this.setupConfig?.sessionPrefix
-            || this.setupConfig?.remoteTmuxSessionPrefix || settings.get("sessionPrefix") || settings.get("tunnel.remoteTmuxSessionPrefix") || "simple");
-        const rawMaxConcurrentGpus = workerConfig?.maxConcurrentGpus;
-        const maxConcurrentGpus = rawMaxConcurrentGpus === undefined || rawMaxConcurrentGpus === null || rawMaxConcurrentGpus === "auto"
-            ? 0 : Number(rawMaxConcurrentGpus);
-        const supportsCodeSyncProof = this.lastWorkerProbes?.[workerId]?.capabilities?.actionEndpoints?.["register-code-sync-proof"] === true;
-        const workerVersion = this.lastCodeSyncState?.workerVersions?.[workerId] || {};
-        let codeProofFields;
-        if (PlanCodeScopeHost.supportsPlanCodeScope(this, workerId)) {
-            const executionSource = await PlanCodeScopeHost.verifyWorkerPlanSource(this, workerId, plan);
-            codeProofFields = { executionSource };
-        }
-        else if (supportsCodeSyncProof && workerVersion.codeSyncProofId) {
-            // Agent verifies the persisted proof against its own code files before admission.
-            // An unchanged Worker can finish an older Plan after the local workspace advances.
-            codeProofFields = durableCodeProofRequestFields(true, workerVersion, plan.codeFingerprint, undefined, workerId);
-        }
-        else {
-            // Pre-migration Host caches may contain the fingerprint but no proof id.
-            // The Agent can validate a matching full manifest without copying code or resubmitting the Plan.
-            const codeManifest = sharedCodeManifest || await this.buildDistributedJobCodeManifest(root);
-            if (fingerprintFromManifest(codeManifest) !== plan.codeFingerprint)
-                throw new Error("本机代码已偏离 Plan 的代码指纹，持久队列提交已暂停；请恢复该版本或重新提交计划。");
-            codeProofFields = durableCodeProofRequestFields(false, workerVersion, plan.codeFingerprint, codeManifest, workerId);
-        }
-        if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
-            throw new Error("提交已取消或项目已切换，未向 Worker 发送任务。");
-        const request = {
-            schemaVersion: 1, lifecycleProtocol: 2, commandId, opId: commandId, operationId: commandId, runKey: commandId,
-            durablePlanQueue: true, schedulingMode: DistributedSchedulingPolicy.schedulingMode(job.localQueueOnly === true || plan.localDispatchOverride === true ? "local_idle" : plan.schedulingMode),
-            requireIdleGpu: !job.manualDispatch && gpuId !== undefined, dispatchPolicy: job.manualDispatch ? "manual" : "automatic", ...codeProofFields, projectId: plan.projectId || DistributedPlanQueue.canonicalProjectId(root),
-            planJobCount: Number(plan.planJobCount || plan.jobs.length), fullPlanJobCount: Number(plan.fullPlanJobCount || plan.planJobCount || plan.jobs.length), enqueuedAt: plan.enqueuedAt,
-            planFile: plan.planFile, experimentIndex: job.index, ...(gpuId !== undefined ? { gpuId } : {}),
-            case: job.case, seed: job.seed, outputDir: job.outputDir, mode: executionMode, executionMode,
-            resultPathPolicy: "declared", globalJobId: job.globalJobId, collectionResultCsv: job.collectionResultCsv, checkpointSource: job.checkpointSource,
-            planRevision: plan.revision, codeFingerprint: plan.codeFingerprint,
-            condaEnv: target.condaEnv, workflowId: plan.id, tmuxSessionPrefix,
-            overwriteExisting: plan.overwriteExisting === true,
-            options: { workerId, distributedResults: true, durablePlanQueue: true, requireIdleGpu: !job.manualDispatch && gpuId !== undefined,
-                mode: executionMode, executionMode,
-                gpuIdleUtilThreshold: Number(workerConfig?.gpuIdleUtilThreshold ?? schedulerSettings.gpuIdleUtilThreshold ?? 5),
-                gpuIdleMemThresholdMb: Number(workerConfig?.gpuIdleMemThresholdMb ?? schedulerSettings.gpuIdleMemThresholdMb ?? 200),
-                maxConcurrentGpus,
-                ...memoryScheduling,
-                projectId: plan.projectId || DistributedPlanQueue.canonicalProjectId(workspaceRoot()),
-                planJobCount: Number(plan.planJobCount || plan.jobs.length), enqueuedAt: plan.enqueuedAt,
-                condaEnv: target.condaEnv, tmuxSessionPrefix,
-                overwriteExisting: plan.overwriteExisting === true,
-                workerActionMinIntervalMs: this.schedulerSettings().workerActionMinIntervalMs },
-        };
-        const transfer = () => this.withRemoteActionResource(workerId, "start-worker-task", request, () => {
+        let transmissionStarted = false;
+        try {
+            if (plan.resultPathPolicy !== "declared" || job.outputDir.split("/").includes("attempts"))
+                throw new Error("HISTORICAL_ATTEMPT_READ_ONLY：旧队列仅供查看，不会重启既有任务。");
+            const root = workspaceRoot(), client = this.client, generation = this.distributedQueueGeneration;
+            const probes = this.taskLifecycleProtocol === 2 ? await this.submissionWorkerProbes([{ id: workerId }]) : this.lastWorkerProbes;
+            if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
+                throw new Error("派发上下文已变化；未发送任务。");
+            if (probes?.[workerId]?.capabilities?.endpoints?.declaredJobPaths !== true
+                || probes?.[workerId]?.capabilities?.endpoints?.formalJobIdentityEnv !== 1
+                || probes?.[workerId]?.capabilities?.endpoints?.taskShellEnvironment !== 1
+                || probes?.[workerId]?.capabilities?.endpoints?.projectManagedValidation !== 1)
+                throw new Error(`WORKER_PROTOCOL_INCOMPATIBLE：${workerId} 未声明正式身份与登录 shell 环境协议；请部署匹配的 Scheduler 和 Agent。`);
+            const executionMode = PlanExecutionMode.requirePlanExecutionMode(plan.executionMode);
+            const target = this.workerActionTargets().find((item) => item.id === workerId);
+            if (!target)
+                throw new Error(`Worker ${workerId} 配置已失效`);
+            const workerConfig = this.enabledWorkerConfigs().find((worker) => worker.id === workerId);
+            const schedulerSettings = this.schedulerSettings();
+            const memoryScheduling = this.lastWorkerProbes?.[workerId]?.capabilities?.endpoints?.gpuMemoryRatioScheduling === 1
+                && this.lastWorkerTaskSnapshots?.get(root + "\u0000" + workerId)?.capabilities?.gpuMemoryRatioScheduling === 1
+                ? GpuMemoryScheduling.memorySchedulingSettings(schedulerSettings, workerConfig) : undefined;
+            const settings = vscode.workspace.getConfiguration("simpleExperiment");
+            const tmuxSessionPrefix = AgentTmuxPolicy_1.normalizeRemoteTmuxSessionPrefix(this.setupConfig?.sessionPrefix
+                || this.setupConfig?.remoteTmuxSessionPrefix || settings.get("sessionPrefix") || settings.get("tunnel.remoteTmuxSessionPrefix") || "simple");
+            const rawMaxConcurrentGpus = workerConfig?.maxConcurrentGpus;
+            const maxConcurrentGpus = rawMaxConcurrentGpus === undefined || rawMaxConcurrentGpus === null || rawMaxConcurrentGpus === "auto"
+                ? 0 : Number(rawMaxConcurrentGpus);
+            const supportsCodeSyncProof = this.lastWorkerProbes?.[workerId]?.capabilities?.actionEndpoints?.["register-code-sync-proof"] === true;
+            const workerVersion = this.lastCodeSyncState?.workerVersions?.[workerId] || {};
+            let codeProofFields;
+            if (PlanCodeScopeHost.supportsPlanCodeScope(this, workerId)) {
+                const executionSource = await PlanCodeScopeHost.verifyWorkerPlanSource(this, workerId, plan);
+                codeProofFields = { executionSource };
+            }
+            else if (supportsCodeSyncProof && workerVersion.codeSyncProofId) {
+                // Agent verifies the persisted proof against its own code files before admission.
+                // An unchanged Worker can finish an older Plan after the local workspace advances.
+                codeProofFields = durableCodeProofRequestFields(true, workerVersion, plan.codeFingerprint, undefined, workerId);
+            }
+            else {
+                // Pre-migration Host caches may contain the fingerprint but no proof id.
+                // The Agent can validate a matching full manifest without copying code or resubmitting the Plan.
+                const codeManifest = sharedCodeManifest || await this.buildDistributedJobCodeManifest(root);
+                if (fingerprintFromManifest(codeManifest) !== plan.codeFingerprint)
+                    throw new Error("本机代码已偏离 Plan 的代码指纹，持久队列提交已暂停；请恢复该版本或重新提交计划。");
+                codeProofFields = durableCodeProofRequestFields(false, workerVersion, plan.codeFingerprint, codeManifest, workerId);
+            }
             if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
                 throw new Error("提交已取消或项目已切换，未向 Worker 发送任务。");
-            return client.postWorkerAction(workerId, "start-worker-task", request);
-        });
-        if (job.lifecycleProtocol === 2) {
-            const snapshot = this.lastWorkerTaskSnapshots?.get(`${root}\u0000${workerId}`);
-            if (snapshot?.capabilities?.taskLifecycle !== 2)
-                throw new Error(`TASK_LIFECYCLE_PROTOCOL_REQUIRED：Worker ${workerId} 需要更新 Agent/Scheduler；未派发`);
-            void client.postWorkerAction(workerId, "start-worker-task", request)
-                .catch(error => this.recordActionError({ command: "distributedSubmissionTransport", message: errorMessage(error) }));
-            return { lifecycleProtocol: 2, status: "unknown", commandId, message: "请求已发送；由主动查询核实远端任务" };
+            const request = {
+                schemaVersion: 1, lifecycleProtocol: 2, commandId, opId: commandId, operationId: commandId, runKey: commandId,
+                durablePlanQueue: true, schedulingMode: DistributedSchedulingPolicy.schedulingMode(job.localQueueOnly === true || plan.localDispatchOverride === true ? "local_idle" : plan.schedulingMode),
+                requireIdleGpu: !job.manualDispatch && gpuId !== undefined, dispatchPolicy: job.manualDispatch ? "manual" : "automatic", ...codeProofFields, projectId: plan.projectId || DistributedPlanQueue.canonicalProjectId(root),
+                planJobCount: Number(plan.planJobCount || plan.jobs.length), fullPlanJobCount: Number(plan.fullPlanJobCount || plan.planJobCount || plan.jobs.length), enqueuedAt: plan.enqueuedAt,
+                planFile: plan.planFile, experimentIndex: job.index, ...(gpuId !== undefined ? { gpuId } : {}),
+                case: job.case, seed: job.seed, outputDir: job.outputDir, mode: executionMode, executionMode,
+                resultPathPolicy: "declared", globalJobId: job.globalJobId, collectionResultCsv: job.collectionResultCsv, checkpointSource: job.checkpointSource,
+                planRevision: plan.revision, codeFingerprint: plan.codeFingerprint,
+                condaEnv: target.condaEnv, workflowId: plan.id, tmuxSessionPrefix,
+                overwriteExisting: plan.overwriteExisting === true,
+                options: { workerId, distributedResults: true, durablePlanQueue: true, requireIdleGpu: !job.manualDispatch && gpuId !== undefined,
+                    mode: executionMode, executionMode,
+                    gpuIdleUtilThreshold: Number(workerConfig?.gpuIdleUtilThreshold ?? schedulerSettings.gpuIdleUtilThreshold ?? 5),
+                    gpuIdleMemThresholdMb: Number(workerConfig?.gpuIdleMemThresholdMb ?? schedulerSettings.gpuIdleMemThresholdMb ?? 200),
+                    maxConcurrentGpus,
+                    ...memoryScheduling,
+                    projectId: plan.projectId || DistributedPlanQueue.canonicalProjectId(workspaceRoot()),
+                    planJobCount: Number(plan.planJobCount || plan.jobs.length), enqueuedAt: plan.enqueuedAt,
+                    condaEnv: target.condaEnv, tmuxSessionPrefix,
+                    overwriteExisting: plan.overwriteExisting === true,
+                    workerActionMinIntervalMs: this.schedulerSettings().workerActionMinIntervalMs },
+            };
+            const transfer = () => this.withRemoteActionResource(workerId, "start-worker-task", request, () => {
+                if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
+                    throw new Error("提交已取消或项目已切换，未向 Worker 发送任务。");
+                transmissionStarted = true;
+                return client.postWorkerAction(workerId, "start-worker-task", request);
+            });
+            if (job.lifecycleProtocol === 2) {
+                const snapshot = this.lastWorkerTaskSnapshots?.get(`${root}\u0000${workerId}`);
+                if (snapshot?.capabilities?.taskLifecycle !== 2)
+                    throw new Error(`TASK_LIFECYCLE_PROTOCOL_REQUIRED：Worker ${workerId} 需要更新 Agent/Scheduler；未派发`);
+                transmissionStarted = true;
+                void client.postWorkerAction(workerId, "start-worker-task", request)
+                    .catch(error => this.recordActionError({ command: "distributedSubmissionTransport", message: errorMessage(error) }));
+                return { lifecycleProtocol: 2, status: "unknown", commandId, message: "请求已发送；由主动查询核实远端任务" };
+            }
+            return await transfer();
         }
-        return transfer();
+        catch (error) {
+            if (!transmissionStarted)
+                throw Object.assign(new Error(String(error?.message || error)), { dispatchNotSent: true, cause: error });
+            throw error;
+        }
+    }
+    async releaseUnsentDistributedJob(root, plan, job, error) {
+        if (error?.dispatchNotSent !== true || job.lifecycleProtocol !== 2 || workspaceRoot() !== root)
+            return;
+        // This proof comes from the local transport boundary, never a timeout or
+        // a missing remote row. Rebase only the original unsent intent, even if
+        // another PLAN append has fenced its tick while preparation was pending.
+        await this.saveDistributedQueue(root, undefined, { controlMutation: true, mutateLatest: latest => {
+                const current = latest.plans.find(row => row.id === plan.id && row.projectId === plan.projectId)?.jobs.find(row => row.index === job.index && row.attempt === job.attempt && row.workerId === job.workerId && row.gpuId === job.gpuId);
+                return current ? DistributedPlanQueue.resetUnsentDispatch(latest, plan.id, job.index, job.commandId, String(error.message || error)) : latest;
+            } });
+        this.postState();
     }
     async tickDistributedQueueCore(generation = this.distributedQueueGeneration, signal) {
         const root = workspaceRoot();
@@ -11909,11 +11931,19 @@ class RealtimeTunnelPanelProvider {
                 try {
                     const sharedManifest = sharedManifests.get(plan.id);
                     if (sharedManifest instanceof Error)
-                        throw sharedManifest;
+                        throw Object.assign(sharedManifest, { dispatchNotSent: true });
                     receipt = await this.sendDistributedJob(plan, job, dispatch.workerId, gpuId, dispatch.commandId, sharedManifest);
                 }
                 catch (error) {
                     receiptError = error;
+                    if (error?.dispatchNotSent === true) {
+                        try {
+                            await this.releaseUnsentDistributedJob(root, plan, job, error);
+                        }
+                        catch (releaseError) {
+                            receiptCommitError ||= releaseError;
+                        }
+                    }
                 }
                 const receivedAt = Date.now();
                 // RPCs remain parallel; each completed receipt commits independently in arrival order.

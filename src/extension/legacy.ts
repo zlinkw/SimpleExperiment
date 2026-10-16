@@ -10689,6 +10689,8 @@ this.assertPlanTopologyReady("Plan 调度");
             { cacheFile: this.localCodeManifestCacheFile(root), executionOnly: true }), holds));
     }
     async sendDistributedJob(plan, job, workerId, gpuId, commandId, sharedCodeManifest?) {
+        let transmissionStarted = false;
+        try {
         if (plan.resultPathPolicy !== "declared" || job.outputDir.split("/").includes("attempts"))
             throw new Error("HISTORICAL_ATTEMPT_READ_ONLY：旧队列仅供查看，不会重启既有任务。");
         const root = workspaceRoot(), client = this.client, generation = this.distributedQueueGeneration;
@@ -10761,17 +10763,35 @@ this.assertPlanTopologyReady("Plan 调度");
         const transfer = () => this.withRemoteActionResource(workerId, "start-worker-task", request, () => {
             if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
                 throw new Error("提交已取消或项目已切换，未向 Worker 发送任务。");
+            transmissionStarted = true;
             return client.postWorkerAction(workerId, "start-worker-task", request);
         });
         if (job.lifecycleProtocol === 2) {
             const snapshot = this.lastWorkerTaskSnapshots?.get(`${root}\u0000${workerId}`);
             if (snapshot?.capabilities?.taskLifecycle !== 2)
                 throw new Error(`TASK_LIFECYCLE_PROTOCOL_REQUIRED：Worker ${workerId} 需要更新 Agent/Scheduler；未派发`);
+            transmissionStarted = true;
             void client.postWorkerAction(workerId, "start-worker-task", request)
                 .catch(error => this.recordActionError({ command: "distributedSubmissionTransport", message: errorMessage(error) }));
             return { lifecycleProtocol: 2, status: "unknown", commandId, message: "请求已发送；由主动查询核实远端任务" };
         }
-        return transfer();
+        return await transfer();
+        } catch (error) {
+            if (!transmissionStarted) throw Object.assign(new Error(String(error?.message || error)), { dispatchNotSent: true, cause: error });
+            throw error;
+        }
+    }
+    async releaseUnsentDistributedJob(root, plan, job, error) {
+        if (error?.dispatchNotSent !== true || job.lifecycleProtocol !== 2 || workspaceRoot() !== root) return;
+        // This proof comes from the local transport boundary, never a timeout or
+        // a missing remote row. Rebase only the original unsent intent, even if
+        // another PLAN append has fenced its tick while preparation was pending.
+        await this.saveDistributedQueue(root, undefined, { controlMutation: true, mutateLatest: latest => {
+            const current = latest.plans.find(row => row.id === plan.id && row.projectId === plan.projectId)?.jobs.find(row =>
+                row.index === job.index && row.attempt === job.attempt && row.workerId === job.workerId && row.gpuId === job.gpuId);
+            return current ? DistributedPlanQueue.resetUnsentDispatch(latest, plan.id, job.index, job.commandId, String(error.message || error)) : latest;
+        } });
+        this.postState();
     }
     async tickDistributedQueueCore(generation = this.distributedQueueGeneration, signal?: AbortSignal) {
         const root = workspaceRoot();
@@ -11214,10 +11234,14 @@ this.assertPlanTopologyReady("Plan 调度");
                 let receiptError: unknown;
                 try {
                     const sharedManifest = sharedManifests.get(plan.id);
-                    if (sharedManifest instanceof Error) throw sharedManifest;
+                    if (sharedManifest instanceof Error) throw Object.assign(sharedManifest, { dispatchNotSent: true });
                     receipt = await this.sendDistributedJob(plan, job, dispatch.workerId, gpuId, dispatch.commandId, sharedManifest);
                 } catch (error) {
                     receiptError = error;
+                    if (error?.dispatchNotSent === true) {
+                        try { await this.releaseUnsentDistributedJob(root, plan, job, error); }
+                        catch (releaseError) { receiptCommitError ||= releaseError; }
+                    }
                 }
                 const receivedAt = Date.now();
                 // RPCs remain parallel; each completed receipt commits independently in arrival order.

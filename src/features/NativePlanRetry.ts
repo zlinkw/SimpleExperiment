@@ -18,7 +18,8 @@ export async function prepareNativePlanRetry(host: any, planFile: string,
   const deferred = (queue.deferred || []).filter(row => row.status !== "superseded" && Queue.sameDistributedPlanFile(row.planFile, planFile));
   const targets = host.workerActionTargets();
   const snapshots = await Promise.all(targets.map(async (worker: any) => {
-    const value = await client.getWorkerTasks(worker.id, { queries: [], signal: AbortSignal.timeout(8000) });
+    const value = await client.getWorkerTasks(worker.id, { queries: [], executionOnly: true, signal: AbortSignal.timeout(8000) })
+      .catch((error: any) => { throw Error(`Worker ${worker.id}：当前窗口查询失败：${String(error.message || error)}；未重新运行。`); });
     if (value.queryComplete !== true || value.capabilities?.taskLifecycle !== 2 || value.error)
       throw Error(`Worker ${worker.id}：${value.error || "实时窗口查询未完成"}；未重新运行。`);
     return { ...value, workerId: worker.id };
