@@ -26,4 +26,16 @@
 
 过程中任意长普通选项的美元符号实验不属于 job base64 协议，最终将流式入口限定为实际使用的 base64 job，并按真实 JSON 往返验证。共享 bootstrap 的新断言曾错误影响独立前缀夹具，已将断言限定于含大清单的合成任务，未提高等待上限或改变生产调度来迁就测试。
 
-完整打包、发行与安装结果在交付后记录。
+最终 `npm run package` 完成 116 次串行单文件执行，769 项通过，零失败；日志为临时目录 `simpleex-0.5.343-package-final.log`。首次打包在既有运行闭包门禁被拦截：自动同步后的 runtime TS 版本为 0.5.343，先前编译的 JS 仍为 0.5.342。完成版本对齐后重新执行整套构建和打包，没有跳过门禁或发布首个包。
+
+TypeScript、实际渲染脚本、额外 vm.Script、8 个 Python AST、VSIX ZIP/身份/版本/universal 平台、370 个 dist 文件逐字节比对、运行闭包和秘密排除通过；额外核对包内 RuntimeManifest.js、Python 与 package 的版本全部一致。包中本文是发行前快照，本次文档更新仅记录实际交付，未重建或更换包。
+
+## 交付
+
+- 源码提交 `d365656213bed11ce7a4b54cb1bb418ea5837691` 已普通快进推送 origin/master 并 fetch 核对一致。
+- 稳定 Release：<https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.343>；真实 Latest、tag 提交、draft=false、prerelease=false 和两个资产均重新查询确认。
+- `simple-experiment-0.5.343.vsix`：2,966,119 字节；SHA256 `27cde8393d8b215d8a9c25a2eb5fa19d03c83919819fe7dfbe83bd17bdd611e9`。同名 `.vsix.sha256` 精确匹配文件名和实际包字节。
+- 使用已安装的 0.5.342 更新客户端确认 update_available，并下载公开 VSIX/校验和，和本机包逐字节匹配。SimpleSFTP 0.2.90 同时核对一致，未修改或重复安装；验证文件保留于临时目录 `simpleex-0343-release-verify-365MZA`。
+- 显式运行一次 `npm run install:latest` 安装 0.5.343，无 force、无降级。已安装 370 个 dist 文件与发布包一致，VS Code 版本及 simpleex 入口核对通过。安装后停止访问当前 SimpleExperiment 面板与 API。
+
+待用户 Developer: Reload Window，并通过插件更新对应 Agent/Scheduler 后验收实际启动。现有任务、远端服务和环境未被操作；旧失败请求未自动重发，QA MOE 缺项未从历史恢复成可执行任务，当前真实缺项仍须由用户通过 PLAN 的正常补跑流程处理。现场真实科研启动及最终界面点击待验证，不以合成任务通过冒充现场已经恢复运行。
