@@ -20,4 +20,16 @@
 
 先用真实队列恢复、enqueuePlan、Host 原子写入与内存文件系统复现“旧五项恢复为 unknown，第六项补入被整 Plan 拒绝”。修复后保存完整保留旧五个 commandId，只增加索引 5；真实分配器在合成空卡上仅派发该一项。额外覆盖不同索引但相同输出、指标及父子路径，继续拒绝且磁盘内容不变。
 
-队列存储 16 项、真实跨窗口租约/写入 2 项目标测试通过。完整打包、发行及安装结果将在交付后补记。没有启动正式科研任务；用户重载后的实际点击待验收。本次没有新增远端协议要求，不需要为此修复重新部署 Agent/Scheduler。
+最终 `npm run package` 完成 116 次串行单文件执行，778 项通过、零失败，日志为临时目录 `simpleex-0.5.347-package.log`。最终编译后再核对队列存储 16 项、真实跨窗口租约/写入 2 项，全部通过。没有启动正式科研任务。
+
+TypeScript/build、额外 vm.Script 模块及 3 段实际渲染脚本、8 个 Python AST、运行闭包、ZIP、身份/版本/universal 平台、370 个 dist 文件逐字节比对和秘密排除均通过。包内本文为发行前快照，本次仅补记交付，未重建或替换包。
+
+## 已完成交付
+
+- 源码提交 `cccab395cba34166c7ae9cd18f8c722f9f846c99` 已普通快进推送 origin/master，并 fetch 核对一致。
+- 稳定 Release：<https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.347>。重新查询真实 Latest、tag 与绑定提交，确认 draft=false、prerelease=false。
+- `simple-experiment-0.5.347.vsix`：2,981,432 字节；SHA256 `0e178bbdf32a67b84a019c59394c87678f81677811b0963803bc3b09adce4496`。逐包 `.vsix.sha256` 绑定精确文件名；公开大小、GitHub digest、下载内容均与本机已验证包一致。
+- 使用已安装 0.5.346 的更新客户端，真实解析 Latest 为 update_available，下载 VSIX/校验和并逐字节核对。SimpleSFTP 0.2.90 的公开配套包及指纹也一致，未重复安装；验证文件保留于临时目录 `simpleex-0347-release-verify-Y1PGwa`。
+- 显式执行一次 `npm run install:latest` 安装 0.5.347，无 force、无降级。VS Code 已安装版本、370 个 dist 文件字节、包身份和 simpleex 入口核对通过。安装后停止访问当前插件面板与 API。
+
+用户 Developer: Reload Window 后，再对 qa_moe 执行校验并提交运行并选择仅补跑未完成任务，实际点击仍待验收。没有新增远端协议要求，无需为此修复重新部署 Agent/Scheduler。没有自动补造或派发用户任务、改写实际队列或清理已有五项产物。
