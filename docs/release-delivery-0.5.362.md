@@ -32,8 +32,19 @@ SimpleSFTP 全量串行回归曾在 `test/mappedBatchDownload.test.js` 的“API
 
 ## 发行与现场状态
 
-两个仓库本批均已通过适用的代码验证和包检查，源码、稳定发行、真实更新解析及安装分别验收。
+两个仓库本批均已通过适用的代码验证和包检查。SimpleExperiment 实现提交 `62ef6031b519e51aa1b0f26c2a262fd2e858ef2f`、SimpleSFTP 实现提交 `7a8d361f0d6577f146efab4bf1be638af7e1bee4` 已分别普通 fast-forward 推送各自 origin/master，fetch 核对 HEAD 一致，未包含原有 pyc、脚本、运行目录或历史包清单改动。
 
-本节初次打包验收时，两个新版本尚未创建稳定 Release 或安装；不能用已生成 VSIX 或源码推送冒充发行成功。具体源码、发行及安装回执在完成后补记。此次不自动部署远端 Agent/Scheduler。
+真实稳定 Latest 已重新读取核对：
 
-交付顺序为源码推送、两个稳定 Latest 资产与真实更新解析核验，最后每版本显式安装一次。安装后等待用户 Reload Window，再只读验收 H20 连续文件扫描/核实、取消恢复及 PLAN 提交计数；不自动补交原失败 PLAN。当前没有新版现场验收结论。
+- [SimpleExperiment v0.5.362](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.362)，tag 和 target_commitish 绑定 `62ef6031b519e51aa1b0f26c2a262fd2e858ef2f`。
+- [SimpleSFTP v0.2.92](https://github.com/zlinkw/SimpleSFTP/releases/tag/v0.2.92)，tag 和 target_commitish 绑定 `7a8d361f0d6577f146efab4bf1be638af7e1bee4`。
+
+两项均 draft=false、prerelease=false；包含表中相同字节的 VSIX 与同名 SHA256 清单，清单分别 97、90 字节。资产名、大小、GitHub digest、实际下载 SHA256 与精确清单文件名一致；未覆盖任何历史 tag 或资产。
+
+使用实际已安装旧版 0.5.361 的 ReleaseClient，从真实公开 Latest 识别 0.5.362 / 0.2.92 Windows 更新，实际下载两包和清单，并核实身份、版本、平台和字节与本机确定包一致。隔离验证目录 `C:/Users/ZLK/AppData/Local/Temp/simpleex-0362-release-verify-MjlXCD` 保留。
+
+发行验收后分别显式运行一次两个仓库的 `npm run install:latest`，无 force、无降级、无重复安装。VS Code 列表为 simple-local.simple-experiment@0.5.362、simple-local.simple-sftp@0.2.92，simpleex --help 和两个 CLI 入口核对通过。已安装 Experiment 全部 376 个 dist 文件、SFTP 全部 21 个 JS/Python 运行文件与确定包所用当前文件逐字节一致。
+
+安装前最后主动核对的 Extension Host 仍为 Experiment 0.5.361、SFTP 0.2.91；19:15:49.735Z 的 SFTP 查询只有正在 hashing 的只读 inventory，2394 个文件，未见当前写入传输。安装后立即停止当前面板、API 及服务器操作，没有用磁盘新版本冒充已重载。此次未自动部署远端 Agent/Scheduler。
+
+源码、稳定发行和本机一次安装均已完成。等待用户 Reload Window 后，再只读验收 H20 连续文件扫描/核实、取消恢复及 PLAN 提交计数；不自动补交原失败 PLAN。当前没有新版现场验收结论，不能宣称现场问题已经解决。本节为交付后的文档补记，不更改 tag、发行包或安装字节。
