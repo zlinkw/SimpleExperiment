@@ -23,4 +23,16 @@
 
 真实隔离 tmux 合成任务验证原请求取消后晚到 POST 被拒绝，新 commandId 的同一声明 job 能在原路径真正启动、退出 0 并产生本次清单；没有运行科研任务。新增断言起初错误读取查询数组首项，改为按精确 commandId 选取目标后通过，未放宽生产逻辑或等待上限。测试启动中一次手动目标测试与尚未退出的 build 测试重叠；已等待全部结束后独立复验，最终交付只采纳后续完整串行门禁。
 
-目标任务控制 4 项、重排/日志 Host 11 项、队列存储 14 项及隔离 tmux 3 项通过。完整打包、发行及安装结果将在交付完成后补记；实际界面点击仍待用户重载验收。
+目标任务控制 4 项、重排/日志 Host 11 项、队列存储 14 项及隔离 tmux 3 项通过。最终 `npm run package` 完成 116 次串行单文件执行，778 项通过、零失败；另行串行运行的队列存储 14 项通过。最终日志为临时目录 `simpleex-0.5.346-package.log`。
+
+TypeScript/build、额外 vm.Script 模块及 3 段实际渲染脚本、8 个 Python AST、运行闭包、ZIP、身份/版本/universal 平台、370 个 dist 文件逐字节比对和秘密排除均通过。包内本文为发行前快照，本次只补记交付，未重建或替换包。
+
+## 已完成交付
+
+- 源码提交 `7be451a706e34718dda7692e436cd0a819abe477` 已普通快进推送 origin/master，并 fetch 核对一致。
+- 稳定 Release：<https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.346>。重新查询真实 Latest、tag 与绑定提交，确认 draft=false、prerelease=false。
+- `simple-experiment-0.5.346.vsix`：2,978,233 字节；SHA256 `68d7880ec31fad6ad844dfbc12fa8bd98e968d9aae40c20245d1eab9a4350110`。逐包 `.vsix.sha256` 绑定精确文件名；公开资产大小、GitHub digest、下载内容与本机已验证包完全一致。
+- 使用已安装 0.5.345 的更新客户端，真实解析公开 Latest 为 update_available，下载 VSIX/校验和并逐字节比对。SimpleSFTP 0.2.90 的公开配套包和指纹也核对一致，未重复安装；验证目录为临时目录 `simpleex-0346-release-verify-z2N5rr`。
+- 显式执行一次 `npm run install:latest` 安装 0.5.346，无 force、无降级。VS Code 已安装版本、370 个 dist 文件字节、包身份和 simpleex 入口核对通过。安装后停止访问当前插件面板与 API。
+
+实际界面点击仍待用户 Developer: Reload Window 后验收。本次没有新增远端协议要求，不需要为此修复重新部署 Agent/Scheduler；没有自动重跑、停止、清理或修改现有任务、环境与产物。若现场仍有真正的离线、源码变化或其他窗口冲突，保留明确错误，不以本机入队当作远端已经运行。
