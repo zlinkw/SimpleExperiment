@@ -59,3 +59,13 @@ Agent 的清单探测改用显式 stat 区分 FileNotFoundError 与权限/NFS I/
 确定包 simple-experiment-0.5.360.vsix 为 3,048,982 字节、529 条 ZIP 记录；375 个 dist 文件与本机构建逐字节一致。SHA256 为 1e9ac719ae4e45c4ccc676b64951e9f4c9eb70f15011f47322c48a49011275a8，同名 .vsix.sha256 绑定精确文件名。包内本文为最终发行补记前版本，后续纯文档补记不更换此包字节。
 
 未更新远端 Agent/Scheduler。新版尚未在 Extension Host 重载并通过真实 UI/API 验收，不能宣称现场问题已解决。
+
+## 实际交付
+
+源码提交 5cd837762115dd2f179a2d773a9bfa3b5c5d1624 已普通推送 origin/master，fetch 核对一致。真实稳定 Latest 为 https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.360，tag 与 target_commitish 均绑定该已验证源码提交，draft=false、prerelease=false。资产为 simple-experiment-0.5.360.vsix 和同名 .vsix.sha256；VSIX 大小、GitHub digest、实际下载 SHA256 与上述确定包一致，97 字节清单精确绑定文件名。
+
+使用实际安装的 0.5.359 ReleaseClient 从真实公开 Latest 识别 Windows 更新，并实际下载 Experiment 0.5.360、现有配套 SimpleSFTP 0.2.91 与各自校验清单。身份、版本、平台选择、文件名、字节大小、SHA256、GitHub digest 及 Experiment 与本机确定包的逐字节一致性均通过。隔离验证目录 C:/Users/ZLK/AppData/Local/Temp/simpleex-0360-release-verify-5bNlkj，验证文件保留。SimpleSFTP 包仍为 169109 字节、SHA256 e483156ad117fd8c3aaeb81d01fc0285ad6ce7c698827b589ad16596a9ea453e；未修改或重复安装配套插件。
+
+仅执行一次 npm run install:latest，实际安装 SimpleExperiment 0.5.360，未 force 或降级。375 个已安装 dist 文件与确定包/本机构建逐字节一致，SimpleSFTP 安装版本保持 0.2.91，simpleex --help 正常。安装后停止当前 SimpleExperiment 面板及 API 操作，未再发起远端检查。
+
+用户需执行 Developer: Reload Window，再按原入口更新远端运行时并验收。最后一次已核对的运行中 Extension Host 为旧版 0.5.359；安装新包不等于它已重载。H20 本轮 unhealthy 的实际运行版本仍未证实，不能拿文件哈希推定版本一致。未启动、停止、重跑、重新派发科研任务，未修改科研项目、环境、指标、日志或权重，也没有清理旧文件。此节为发行与安装完成后的纯文档补记，源码包绑定的运行提交和已验证 VSIX 字节不变。
