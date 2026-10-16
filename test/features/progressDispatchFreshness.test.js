@@ -49,7 +49,7 @@ test('a slow Worker does not hold up the next observation of a ready Worker',asy
  let release,slow=0,fast=0;const slowPromise=new Promise(resolve=>release=resolve);
  const host={distributedQueueRoot:'project',distributedQueueCache:{plans:[{}]},isRealtimeMode:()=>true,
   workerActionTargets:()=>[{id:'slow'},{id:'fast'}],cachedWorkerTaskSnapshot:()=>undefined,postState(){},
-  readWorkerTaskSnapshot:async id=>{if(id==='slow'){slow++;return slowPromise;}fast++;return {};}};
+  readWorkerTaskSnapshot:async (id,o)=>{if(o?.executionOnly)return {};if(id==='slow'){slow++;return slowPromise;}fast++;return {};}};
  const fn=method('refreshServerPlanProgress',{workspaceRoot:()=> 'project',DistributedSchedulingPolicy:P,mapLimited:async(rows,limit,work)=>Promise.all(rows.map(work))});
  const first=fn.call(host);await new Promise(resolve=>setImmediate(resolve));
  const second=fn.call(host);await new Promise(resolve=>setImmediate(resolve));

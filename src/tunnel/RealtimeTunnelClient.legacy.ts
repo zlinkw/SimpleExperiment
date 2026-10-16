@@ -130,6 +130,7 @@ export class RealtimeTunnelClient {
           this.connectionLost(this.lastError);
           return;
         }
+        if (["websocket"].includes(this.status)) return;
       }
     }
     if (this.shouldUseSse()) {
@@ -145,6 +146,7 @@ export class RealtimeTunnelClient {
           this.connectionLost(this.lastError);
           return;
         }
+        if (["sse"].includes(this.status)) return;
       }
     }
     if (this.policy.fallbackToPolling) {
@@ -556,7 +558,12 @@ export class RealtimeTunnelClient {
           snapshot = { generatedAt: objectRecord(gpuResult)?.generatedAt, gpu: this.state.gpu };
         } else snapshot = await this.http.getSnapshot({ manual, signal: abort.signal });
       } catch (error) {
-        if (generation === this.connectionGeneration && !(error instanceof RequestBudgetDeniedError)) this.connectionLost(message(error));
+        if (generation === this.connectionGeneration && !(error instanceof RequestBudgetDeniedError)) {
+          // A slow GPU snapshot does not invalidate an independently open
+          // event stream. Authentication errors still fence the connection.
+          if (isHardConnectionError(error) || !["sse", "websocket"].includes(this.status)) this.connectionLost(message(error));
+          else this.lastError = "遥测查询待核实：" + message(error);
+        }
         throw error;
       }
       if (generation !== this.connectionGeneration) return snapshot;
@@ -623,6 +630,10 @@ export class RealtimeTunnelClient {
   private shouldUseWebSocket(): boolean {
     if (!this.policy.preferWebSocket || typeof WebSocket === "undefined") return false;
     const endpoints = capabilityEndpoints(this.endpoint.capabilities);
+    // Worker Agents publish SSE. Before the first probe there are no cached
+    // capabilities; trying an unadvertised WebSocket used to return success
+    // before its asynchronous rejection, bypassing SSE fallback entirely.
+    if (this.isWorkerTelemetryEndpoint() && endpoints?.websocketEvents !== true) return false;
     return endpoints ? endpoints.websocketEvents !== false : true;
   }
 

@@ -127,7 +127,7 @@ test('blocked raw logs cannot queue metadata or execution even with ordinary con
 test('actual transport records time after queue admission and never trusts remote timing fields', async () => {
  let now = Date.now(), admit;
  const queued = new Promise(resolve => { admit = resolve; });
- const globals = { Date: class extends Date { constructor(...args) { super(...(args.length ? args : [now])); } static now() { return now; } }, AbortController,
+ const globals = { Date: class extends Date { constructor(...args) { super(...(args.length ? args : [now])); } static now() { return now; } }, AbortController, Buffer,
   localBaseUrl: () => 'http://localhost', ProgressInactivity: class { dispose() {} },
   readBoundedResponseText: async () => JSON.stringify({ queryComplete: true, localQueryTiming: { networkStartedAt: 'forged' } }),
   fetch: async () => ({ ok: true }) };
@@ -138,6 +138,8 @@ test('actual transport records time after queue admission and never trusts remot
  assert.equal(Date.parse(result.localQueryTiming.requestedAt), started);
  assert.equal(Date.parse(result.localQueryTiming.networkStartedAt), now);
  assert.equal(Date.parse(result.localQueryTiming.receivedAt), now);
+ assert.equal(result.localQueryTiming.requestBytes, 2);
+ assert.ok(result.localQueryTiming.responseBytes > 0);
 });
 test('an old connection successful response is rejected after reconnect', async () => {
  const fn = method('getWorkerTasks', {}, 'src/tunnel/RealtimeTunnelClient.legacy.ts');
@@ -241,4 +243,38 @@ test('publication timing is stable for reused evidence and changes only for new 
  const next = structuredClone(f.snapshot); next.tasks[0].observation.evidence.execution.publishedAt = 'forged';
  store.call(host, 'key', next);
  assert.equal(host.lastWorkerTaskSnapshots.get('key').tasks[0].observation.evidence.execution.publishedAt, first);
+});
+
+test('continuous execution polling is not coalesced behind a blocked metadata round', async () => {
+ let release, inventories = 0, metadata = 0;
+ const blocked = new Promise(resolve => { release = resolve; });
+ const host = { distributedQueueRoot: 'project', distributedQueueCache: { plans: [{}] }, isRealtimeMode: () => true,
+  workerActionTargets: () => [{ id: 'w' }], postState() {}, readWorkerTaskSnapshot: async (_, options) => {
+   if (options.executionOnly) { inventories++; return {}; }
+   metadata++; return blocked;
+  } };
+ const refresh = method('refreshServerPlanProgress', { AbortController, workspaceRoot: () => 'project', DistributedSchedulingPolicy: P });
+ const first = refresh.call(host); await new Promise(setImmediate);
+ const second = refresh.call(host); await new Promise(setImmediate);
+ assert.equal(metadata, 1); assert.equal(inventories, 2);
+ release({}); await Promise.all([first, second]);
+});
+
+test('failed execution-only observations keep independently verified artifact and log lanes', async () => {
+ const f = fixture(Date.now()), stamp = { networkStartedAt: at(Date.now()), receivedAt: at(Date.now()) };
+ f.snapshot.tasks[0].observation.evidence = { execution: stamp, artifacts: stamp, logs: stamp };
+ f.snapshot.tasks[0].observation.result = { runId: commandId, status: 'completed', present: true, verified: true, artifactsComplete: true };
+ f.snapshot.tasks[0].observation.runtimeDiagnostics = { schemaVersion: 1, commandId, runId: commandId, state: 'clear', count: 0, scanComplete: true };
+ let stored;
+ const host = { client: { getWorkerTasks: async () => { throw Error('execution request unavailable'); } },
+  loadDistributedQueue: async () => f.queue, cachedWorkerTaskSnapshot: () => f.snapshot,
+  storeWorkerTaskSnapshot: (_, s) => { stored = s; }, postState() {} };
+ await method('refreshWorkerTaskSnapshot', { workspaceRoot: () => '/project', WorkerProgressQuery: W,
+  workerTaskSnapshotPayload: x => x, errorMessage: e => e.message, RequestBudget_1: { RequestBudgetDeniedError: class extends Error {} } })
+  .call(host, 'w', '/project', 'key', { executionOnly: true });
+ const obs = require('../../src/features/WorkerProgressEvidence.ts').freshTaskObservation(stored, stored.tasks[0], {}, Date.now(), 20000);
+ const state = require('../../src/features/TaskLifecycle.ts').taskLifecycle(obs);
+ assert.equal(state.execution, 'unknown'); assert.equal(state.result, 'complete'); assert.equal(state.completionState, 'verified');
+ assert.equal(stored.tasks[0].observation.evidence.execution.failed, true);
+ assert.equal(stored.tasks[0].observation.evidence.artifacts.networkStartedAt, stamp.networkStartedAt);
 });

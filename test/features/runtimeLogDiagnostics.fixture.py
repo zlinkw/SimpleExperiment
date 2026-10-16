@@ -41,6 +41,15 @@ file=pathlib.Path(root,'raw.log')
 file.write_text(marker('command','begin')+callback+('epoch 300/300\n'*400000)+marker('command','end'),encoding='utf8')
 ns['task_safe_path']=lambda root,relative:str(pathlib.Path(root,relative))
 job={'commandId':'command'}
+# Make the elapsed-time slice deterministic even on fast local storage.
+import itertools
+from unittest.mock import patch
+reader = ns['task_log_diagnostics']
+clock = itertools.count(0, 2)
+def sliced_reader(*args, **kwargs):
+    with patch('time.monotonic', side_effect=lambda: next(clock)):
+        return reader(*args, **kwargs)
+ns['task_log_diagnostics'] = sliced_reader
 first=ns['task_log_diagnostics'](root,job,{'logPath':'raw.log'},True)
 assert first['count']==1 and not first['scanComplete']
 last=first

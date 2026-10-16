@@ -364,7 +364,7 @@ def task_declared_results(root, declarations, tasks=()):
                             "outputDir": declaration.get("output_dir") if isinstance(declaration, dict) else None, "completed": False, "error": str(exc)})
     return results
 
-def task_result_query(root, queries, diagnostics_only=False):
+def task_result_query(root, queries, diagnostics_only=False, compact=False):
     """Filesystem/log evidence only. Execution is queried separately, once per round."""
     if not isinstance(queries, list) or not queries or len(queries) > 500:
         raise ValueError("TASK_QUERY_SELECTION_INVALID")
@@ -391,6 +391,19 @@ def task_result_query(root, queries, diagnostics_only=False):
                     binding=result.get("runtimeDiagnostics") if terminal else None)
         except Exception as exc:
             observed["runtimeQueryError" if diagnostics_only else "resultQueryError"] = str(exc)
+        if compact:
+            # UI polling needs identity, verdicts and scan progress. Explicit
+            # anomaly inspection retains the full exception report elsewhere.
+            public = {key: job[key] for key in ("commandId", "projectId", "workerId")}
+            if diagnostics_only:
+                observed.pop("result", None)
+                diagnostics = observed.get("runtimeDiagnostics")
+                if diagnostics:
+                    observed["runtimeDiagnostics"] = {key: diagnostics[key] for key in ("schemaVersion", "commandId", "runId",
+                        "state", "count", "scanComplete", "bytesRead", "totalBytes", "types", "phases", "reason", "logPath") if key in diagnostics}
+            elif observed.get("result"):
+                observed["result"] = {key: observed["result"][key] for key in ("runId", "status", "present", "verified",
+                    "identityMatches", "artifactsComplete", "exitCode") if key in observed["result"]}
         tasks.append({**public, "lifecycleProtocol": 2, "observation": observed})
     return {"schemaVersion": 1, "generatedAt": now_iso(), "queryComplete": True, "resultsOnly": True,
             "diagnosticsOnly" if diagnostics_only else "metadataOnly": True,

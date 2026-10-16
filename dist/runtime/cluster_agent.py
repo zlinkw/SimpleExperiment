@@ -69,9 +69,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.360"
-RUNTIME_VERSION = "0.5.360"
-PLUGIN_VERSION = "0.5.360"
+AGENT_VERSION = "0.5.361"
+RUNTIME_VERSION = "0.5.361"
+PLUGIN_VERSION = "0.5.361"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -17163,7 +17163,7 @@ def serve_http(args):
                     if len(raw) > 1024 * 1024:
                         raise ValueError("TASK_QUERY_LIMIT")
                     payload = json.loads(raw.decode("utf-8"))
-                    return self.send_json(task_result_query(root, payload.get("queries") or [], diagnostics_only=True))
+                    return self.send_json(task_result_query(root, payload.get("queries") or [], diagnostics_only=True, compact=payload.get("compact") is True))
                 except Exception as exc:
                     return self.send_json({"error": str(exc)}, status=400)
             if route == "/api/worker/tasks/query":
@@ -17187,7 +17187,7 @@ def serve_http(args):
                         if payload.get("executionOnly") or payload.get("declarations") is not None or payload.get("discovery"):
                             raise ValueError("TASK_QUERY_SELECTION_INVALID")
                         if payload.get("observationOnly") is True:
-                            return self.send_json(task_result_query(root, payload.get("queries") or [], diagnostics_only=payload.get("diagnosticsOnly") is True))
+                            return self.send_json(task_result_query(root, payload.get("queries") or [], diagnostics_only=payload.get("diagnosticsOnly") is True, compact=payload.get("compact") is True))
                         return self.send_json(task_query(root, payload.get("queries") or [], selected_only=True))
                     value = task_collection_query(root, payload.get("declarations") or []) if collection else task_query(root, payload.get("queries") or [])
                     if payload.get("declarations") is not None and not collection:
@@ -17789,6 +17789,7 @@ def task_log_marker(command_id, event, phase="unknown"):
     print("[simple-experiment-runtime-log] " + json.dumps({"commandId": command_id, "event": event, "phase": phase}, ensure_ascii=False), flush=True)
 
 def task_log_diagnostics(root, job, row=None, terminal=False, binding=None):
+    import time as log_time
     command = str(job.get("commandId") or "")
     unknown = {"schemaVersion": 1, "commandId": command, "runId": command, "state": "unverified", "count": 0, "scanComplete": False}
     try:
@@ -17835,17 +17836,25 @@ def task_log_diagnostics(root, job, row=None, terminal=False, binding=None):
             if not entry["lock"].acquire(blocking=False):
                 return {**unknown, "logPath": log_path, "reason": "该任务日志正在读取，请稍后刷新"}
             try:
-                if entry.get("signature") != signature or before.st_size < entry["state"]["offset"] or entry["analysis"] != analysis or (entry.get("complete") and entry.get("mtimeNs") != before.st_mtime_ns):
+                if entry.get("signature") != signature or before.st_size < entry["state"]["offset"] or entry["analysis"] != analysis or (entry.get("mtimeNs") is not None and (terminal or entry.get("complete")) and entry["mtimeNs"] != before.st_mtime_ns):
                     state = task_log_new(command, log_path, legacy and not native)
                     state["legacy"] = legacy and not native
                     entry.update(state=state, signature=signature, analysis=analysis)
                 state = entry["state"]
+                # Scan locally in bounded slices, returning only a summary.
+                # A large finished log must not need dozens of metadata rounds.
+                deadline, scanned = log_time.monotonic() + 1.0, 0
                 with open(full, "rb") as stream:
                     stream.seek(state["offset"])
-                    data = stream.read(256 * 1024)
+                    while scanned < 8 * 1024 * 1024:
+                        data = stream.read(256 * 1024)
+                        task_log_feed(state, data)
+                        scanned += len(data)
+                        if len(data) < 256 * 1024 or log_time.monotonic() >= deadline:
+                            break
                 after = os.stat(full)
-                complete = after.st_size == state["offset"] + len(data) and before.st_mtime_ns == after.st_mtime_ns
-                task_log_feed(state, data, terminal and complete)
+                complete = after.st_size == state["offset"] and before.st_mtime_ns == after.st_mtime_ns
+                task_log_feed(state, b"", terminal and complete)
                 result = task_log_report(state, terminal, complete)
                 result["totalBytes"] = after.st_size
                 entry["mtimeNs"], entry["complete"] = after.st_mtime_ns, bool(terminal and complete)
@@ -18439,7 +18448,7 @@ def task_declared_results(root, declarations, tasks=()):
                             "outputDir": declaration.get("output_dir") if isinstance(declaration, dict) else None, "completed": False, "error": str(exc)})
     return results
 
-def task_result_query(root, queries, diagnostics_only=False):
+def task_result_query(root, queries, diagnostics_only=False, compact=False):
     """Filesystem/log evidence only. Execution is queried separately, once per round."""
     if not isinstance(queries, list) or not queries or len(queries) > 500:
         raise ValueError("TASK_QUERY_SELECTION_INVALID")
@@ -18466,6 +18475,19 @@ def task_result_query(root, queries, diagnostics_only=False):
                     binding=result.get("runtimeDiagnostics") if terminal else None)
         except Exception as exc:
             observed["runtimeQueryError" if diagnostics_only else "resultQueryError"] = str(exc)
+        if compact:
+            # UI polling needs identity, verdicts and scan progress. Explicit
+            # anomaly inspection retains the full exception report elsewhere.
+            public = {key: job[key] for key in ("commandId", "projectId", "workerId")}
+            if diagnostics_only:
+                observed.pop("result", None)
+                diagnostics = observed.get("runtimeDiagnostics")
+                if diagnostics:
+                    observed["runtimeDiagnostics"] = {key: diagnostics[key] for key in ("schemaVersion", "commandId", "runId",
+                        "state", "count", "scanComplete", "bytesRead", "totalBytes", "types", "phases", "reason", "logPath") if key in diagnostics}
+            elif observed.get("result"):
+                observed["result"] = {key: observed["result"][key] for key in ("runId", "status", "present", "verified",
+                    "identityMatches", "artifactsComplete", "exitCode") if key in observed["result"]}
         tasks.append({**public, "lifecycleProtocol": 2, "observation": observed})
     return {"schemaVersion": 1, "generatedAt": now_iso(), "queryComplete": True, "resultsOnly": True,
             "diagnosticsOnly" if diagnostics_only else "metadataOnly": True,

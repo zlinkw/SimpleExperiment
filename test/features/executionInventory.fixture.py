@@ -95,11 +95,13 @@ assert status == 200 and selected_calls == [([queries[0]], True, False)]
 value, status = ns["handle"](Request(dict(selectedOnly=True, observationOnly=True, queries=[queries[0]])))
 assert status == 400 # Result-only route cannot silently fall back to the full control query.
 result_calls=[]
-ns["task_result_query"]=lambda root, queries,diagnostics_only=False: result_calls.append((queries,diagnostics_only)) or {"resultsOnly":True}
+ns["task_result_query"]=lambda root, queries,diagnostics_only=False,compact=False: result_calls.append((queries,diagnostics_only,compact)) or {"resultsOnly":True}
 value, status = ns["handle"](Request(dict(selectedOnly=True, observationOnly=True, queries=[queries[0]])))
-assert status == 200 and value["resultsOnly"] and result_calls==[([queries[0]],False)]
+assert status == 200 and value["resultsOnly"] and result_calls==[([queries[0]],False,False)]
 value,status=ns["handle"](Request(dict(selectedOnly=True,observationOnly=True,diagnosticsOnly=True,queries=[queries[0]])))
-assert status==200 and result_calls[-1]==([queries[0]],True)
+assert status==200 and result_calls[-1]==([queries[0]],True,False)
+value,status=ns['handle'](Request(dict(selectedOnly=True,observationOnly=True,compact=True,queries=[queries[0]])))
+assert status==200 and result_calls[-1]==([queries[0]],False,True)
 declaration_calls=[]
 ns["task_declaration_query"]=lambda root,declarations:declaration_calls.append(declarations) or {"declarationOnly":True}
 value,status=ns["handle"](Request(dict(declarationOnly=True,declarations=[])))
@@ -113,7 +115,9 @@ diagnostic_branch=next(node for node in ast.walk(agent) if isinstance(node,ast.I
 handler.body=[diagnostic_branch];ns['route']='/api/worker/tasks/diagnostics'
 exec(compile(ast.fix_missing_locations(ast.Module(body=[handler],type_ignores=[])),'http_diagnostics','exec'),ns)
 value,status=ns['handle'](Request(dict(queries=[queries[0]])))
-assert status==200 and result_calls[-1]==([queries[0]],True)
+assert status==200 and result_calls[-1]==([queries[0]],True,False)
+value,status=ns['handle'](Request(dict(queries=[queries[0]],compact=True)))
+assert status==200 and result_calls[-1]==([queries[0]],True,True)
 classifier=next(node for node in ast.walk(agent) if isinstance(node,ast.FunctionDef) and node.name=='classify_request')
 exec(compile(ast.fix_missing_locations(ast.Module(body=[classifier],type_ignores=[])),'http_class','exec'),ns)
 assert ns['classify_request'](None,'POST','/api/worker/tasks/diagnostics')=='read','log reads must leave control/probe slots free'

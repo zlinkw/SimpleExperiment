@@ -7,10 +7,10 @@ exports.queryWorkerProgress = queryWorkerProgress;
 exports.progressEvidenceReport = progressEvidenceReport;
 const TaskLifecycle_1 = require("./TaskLifecycle");
 const WorkerProgressEvidence_1 = require("./WorkerProgressEvidence");
+const WorkerProgressDiagnostics_1 = require("./WorkerProgressDiagnostics");
 var WorkerProgressEvidence_2 = require("./WorkerProgressEvidence");
 Object.defineProperty(exports, "mergeProgressSnapshot", { enumerable: true, get: function () { return WorkerProgressEvidence_2.mergeProgressSnapshot; } });
 const progressCursors = new WeakMap();
-const diagnosticReads = new WeakMap();
 function executionProgressSnapshot(live, previous, startedAt) {
     const timing = (0, WorkerProgressEvidence_1.observationTiming)(live, startedAt);
     const key = (task) => task.projectId + ":" + task.commandId;
@@ -29,24 +29,6 @@ function completeProgressSnapshot(value, startedAt) {
     return { ...value, localQueryTiming: timing, tasks: (value.tasks || []).map((task) => ({ ...task,
             ...(task.observation ? { observation: { ...task.observation, evidence: { execution: timing, artifacts: timing,
                         ...(task.observation.runtimeDiagnostics ? { logs: timing } : {}) } } } : {}) })) };
-}
-function sharedDiagnostics(client, workerId, queries) {
-    let reads = diagnosticReads.get(client);
-    if (!reads) {
-        reads = new Map();
-        diagnosticReads.set(client, reads);
-    }
-    const key = JSON.stringify([workerId, queries.map(q => [q.projectId, q.commandId, q.outputDir, q.collectionResultCsv])]);
-    let promise = reads.get(key);
-    if (!promise) {
-        const startedAt = new Date().toISOString();
-        promise = client.getWorkerTasks(workerId, { signal: AbortSignal.timeout(15000), selectedOnly: true,
-            observationOnly: true, diagnosticsOnly: true, queries }).then((value) => ({ value, timing: (0, WorkerProgressEvidence_1.observationTiming)(value, startedAt) }))
-            .finally(() => { if (reads.get(key) === promise)
-            reads.delete(key); });
-        reads.set(key, promise);
-    }
-    return promise;
 }
 /** Current-round observations only. One slow result cannot discard its siblings. */
 async function queryWorkerProgress(client, workerId, queries, execution, options = {}) {
@@ -121,7 +103,7 @@ async function queryWorkerProgress(client, workerId, queries, execution, options
                 artifactAttempts.set(key(query), startedAt);
             try {
                 const value = await client.getWorkerTasks(workerId, { signal: options.signal,
-                    selectedOnly: true, observationOnly: true, queries: batch });
+                    selectedOnly: true, observationOnly: true, queries: batch.map(WorkerProgressDiagnostics_1.progressQuery) });
                 if (closed || options.signal?.aborted)
                     return;
                 if (value?.error || value?.queryComplete !== true || value?.capabilities?.taskLifecycle !== 2
@@ -169,6 +151,33 @@ async function queryWorkerProgress(client, workerId, queries, execution, options
                     fail(query, message, startedAt);
             }
             publish();
+            if (options.deferDiagnostics)
+                for (const query of batch)
+                    if (needsDiagnostics.has(key(query))) {
+                        detached = true;
+                        (0, WorkerProgressDiagnostics_1.enqueueProgressDiagnostics)(client, workerId, query, (value, timing, error) => {
+                            if (closed || options.signal?.aborted && options.signal.reason?.code !== "TASK_QUERY_TIMEOUT")
+                                return;
+                            const id = key(query), prior = rows.get(id);
+                            const task = value?.tasks?.find((t) => key(t) === id && t.workerId === workerId);
+                            const evidence = task?.observation?.runtimeDiagnostics;
+                            if (error || !evidence || task.observation.runtimeQueryError || task.observation.queryError) {
+                                runtimeFailure(query, error instanceof Error ? error.message : String(error || task?.observation?.runtimeQueryError
+                                    || task?.observation?.queryError || "未取得本次运行日志"), timing?.requestedAt || new Date().toISOString());
+                            }
+                            else {
+                                const observation = { ...prior.observation, runtimeDiagnostics: observationDiagnostics(prior.observation, evidence), runtimeQueryError: undefined,
+                                    evidence: { ...prior.observation?.evidence, logs: timing } };
+                                const state = (0, TaskLifecycle_1.taskLifecycle)(observation);
+                                rows.set(id, { ...prior, observation, runtimeDiagnostics: state.runtimeDiagnostics, completionState: state.completionState,
+                                    successful: state.status === "completed" && state.completionState === "verified" });
+                                runtimeErrors.delete(id);
+                                if (evidence.scanComplete)
+                                    diagnosticsChecked.add(id);
+                            }
+                            publish();
+                        });
+                    }
         }
     };
     const readLogs = async () => {
@@ -187,9 +196,8 @@ async function queryWorkerProgress(client, workerId, queries, execution, options
                 cursors.set(logScope, (start + next) % jobs.length);
                 const startedAt = new Date().toISOString();
                 try {
-                    const response = detached ? await sharedDiagnostics(client, workerId, batch) : undefined;
-                    const value = response?.value || await client.getWorkerTasks(workerId, { signal: options.signal,
-                        selectedOnly: true, observationOnly: true, diagnosticsOnly: true, queries: batch });
+                    const value = await client.getWorkerTasks(workerId, { signal: options.signal,
+                        selectedOnly: true, observationOnly: true, diagnosticsOnly: true, queries: batch.map(WorkerProgressDiagnostics_1.progressQuery) });
                     if (closed || cancelled())
                         return;
                     if (value?.queryComplete !== true || value?.error)
@@ -202,7 +210,7 @@ async function queryWorkerProgress(client, workerId, queries, execution, options
                             continue;
                         }
                         const observation = { ...prior.observation, runtimeDiagnostics: observationDiagnostics(prior.observation, evidence), runtimeQueryError: undefined,
-                            evidence: { ...prior.observation?.evidence, logs: response?.timing || (0, WorkerProgressEvidence_1.observationTiming)(value, startedAt) } };
+                            evidence: { ...prior.observation?.evidence, logs: (0, WorkerProgressEvidence_1.observationTiming)(value, startedAt) } };
                         const state = (0, TaskLifecycle_1.taskLifecycle)(observation);
                         rows.set(id, { ...prior, observation, runtimeDiagnostics: state.runtimeDiagnostics, completionState: state.completionState,
                             successful: state.status === "completed" && state.completionState === "verified" });
@@ -224,11 +232,7 @@ async function queryWorkerProgress(client, workerId, queries, execution, options
         await Promise.all(Array.from({ length: Math.min(4, entries.length) }, lane));
         if (closed || options.signal?.aborted)
             return;
-        if (options.deferDiagnostics && needsDiagnostics.size) {
-            detached = true;
-            void readLogs().catch(() => undefined).finally(() => { closed = true; });
-        }
-        else
+        if (!options.deferDiagnostics)
             await readLogs();
     };
     let abort;

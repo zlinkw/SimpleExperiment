@@ -1472,7 +1472,7 @@ class RealtimeTunnelPanelProvider {
         if (options.signal?.aborted)
             throw options.signal.reason instanceof Error ? options.signal.reason : Object.assign(new Error("Worker task read cancelled."), { name: "AbortError" });
         const generation = this.client?.clients?.get(workerId)?.progressGeneration ?? 0;
-        const requestKey = cacheKey + (options.inventoryOnly ? ":inventory" : ":tasks") + generation + (0, PlanCleanup_1.cleanupDigest)(options.declarations || []);
+        const requestKey = cacheKey + (options.executionOnly ? ":execution" : options.inventoryOnly ? ":inventory" : ":tasks") + generation + (0, PlanCleanup_1.cleanupDigest)(options.declarations || []);
         let shared = this.workerTaskRequests.get(requestKey);
         if (shared && shared.client !== this.client) {
             shared.controller.abort();
@@ -1490,7 +1490,7 @@ class RealtimeTunnelPanelProvider {
             const request = { controller, client: this.client, subscribers: 0, settled: false, promise: Promise.resolve(undefined) };
             const timeout = setTimeout(() => controller.abort(Object.assign(new Error("Worker task snapshot timed out (15s)."), { code: "TASK_QUERY_TIMEOUT" })), 15000);
             timeout.unref?.();
-            request.promise = this.refreshWorkerTaskSnapshot(workerId, root, cacheKey, { signal: controller.signal, inventoryOnly: options.inventoryOnly, declarations: options.declarations }).finally(() => {
+            request.promise = this.refreshWorkerTaskSnapshot(workerId, root, cacheKey, { signal: controller.signal, inventoryOnly: options.inventoryOnly, executionOnly: options.executionOnly, declarations: options.declarations }).finally(() => {
                 request.settled = true;
                 clearTimeout(timeout);
                 if (this.workerTaskRequests.get(requestKey) === request)
@@ -1617,6 +1617,8 @@ class RealtimeTunnelPanelProvider {
         if (!workerIds.length)
             return;
         this.progressRefreshRequests ||= new Map();
+        const executionRequests = workerIds.map(workerId => this.readWorkerTaskSnapshot(workerId, { fresh: true, executionOnly: true })
+            .catch(() => undefined));
         const requests = workerIds.map(workerId => {
             const key = root + "\u0000" + workerId + ":" + (this.client?.clients?.get(workerId)?.progressGeneration ?? 0);
             const active = this.progressRefreshRequests.get(key);
@@ -1634,7 +1636,7 @@ class RealtimeTunnelPanelProvider {
             this.progressRefreshRequests.set(key, request);
             return request.promise;
         });
-        return Promise.allSettled(requests);
+        return Promise.allSettled([...executionRequests, ...requests]);
     }
     async refreshWorkerTaskSnapshot(workerId, root, cacheKey, options = {}) {
         const progressRequestStartedAt = new Date().toISOString();
@@ -1646,17 +1648,21 @@ class RealtimeTunnelPanelProvider {
         let executionSnapshot;
         try {
             const queue = await this.loadDistributedQueue(root);
-            const queries = options.inventoryOnly ? [] : WorkerTaskQuery.workerTaskQueries(queue, workerId);
-            if (!options.inventoryOnly && (cached?.capabilities?.taskLifecycle === 2 || queue.plans?.some(plan => plan.jobs?.some(job => job.workerId === workerId && job.lifecycleProtocol === 2)))) {
+            const queries = options.inventoryOnly || options.executionOnly ? [] : WorkerTaskQuery.workerTaskQueries(queue, workerId);
+            if (options.executionOnly || !options.inventoryOnly && (cached?.capabilities?.taskLifecycle === 2 || queue.plans?.some(plan => plan.jobs?.some(job => job.workerId === workerId && job.lifecycleProtocol === 2)))) {
                 try {
                     // One tmux inventory, independent of result metadata, raw log
                     // analysis and the multi-part launch payload. Never replay work.
-                    const live = await client.getWorkerTasks(workerId, { signal: options.signal, executionOnly: true });
+                    const sharedExecution = !options.executionOnly && typeof this.readWorkerTaskSnapshot === "function";
+                    const live = sharedExecution
+                        ? await this.readWorkerTaskSnapshot(workerId, { signal: options.signal, executionOnly: true, fresh: true })
+                        : await client.getWorkerTasks(workerId, { signal: options.signal, executionOnly: true });
                     if (live?.executionOnly === true && live.queryComplete === true && !live.error && live.capabilities?.taskLifecycle === 2
                         && current()) {
-                        executionSnapshot = WorkerProgressQuery.executionProgressSnapshot({ ...live, workerId, progressRequestStartedAt }, cached, progressRequestStartedAt);
-                        {
-                            this.storeWorkerTaskSnapshot(cacheKey, executionSnapshot);
+                        executionSnapshot = sharedExecution ? { ...live, workerId, progressRequestStartedAt }
+                            : WorkerProgressQuery.executionProgressSnapshot({ ...live, workerId, progressRequestStartedAt }, cached, progressRequestStartedAt);
+                        if (!sharedExecution) {
+                            this.storeWorkerTaskSnapshot(cacheKey, WorkerProgressQuery.mergeProgressSnapshot(this.cachedWorkerTaskSnapshot(workerId, root, cacheKey), executionSnapshot));
                             this.postState();
                         }
                     }
@@ -1664,9 +1670,16 @@ class RealtimeTunnelPanelProvider {
                 catch (error) {
                     if (options.signal?.aborted)
                         throw error;
+                    if (options.executionOnly)
+                        throw error;
                     // Older agents may not provide the lightweight inventory;
                     // a genuine full query can still establish current truth.
                 }
+            }
+            if (options.executionOnly) {
+                if (!executionSnapshot)
+                    throw new Error("本轮未取得执行库存");
+                return workerTaskSnapshotPayload(executionSnapshot);
             }
             if (executionSnapshot && !options.declarations && (queries.length || executionSnapshot.tasks?.length)) {
                 const snapshot = await WorkerProgressQuery.queryWorkerProgress(client, workerId, queries, executionSnapshot, {
@@ -1726,6 +1739,16 @@ class RealtimeTunnelPanelProvider {
             const denied = error instanceof RequestBudget_1.RequestBudgetDeniedError ? error.decision.reason : "";
             const failure = "Worker " + workerId + " · /api/worker/tasks" + (options.inventoryOnly ? "" : "/query") + "："
                 + (denied || errorMessage(error));
+            if (options.executionOnly && current()) {
+                const prior = this.cachedWorkerTaskSnapshot(workerId, root, cacheKey);
+                const snapshot = WorkerProgressQuery.mergeProgressSnapshot(prior, { ...prior, workerId, progressRequestStartedAt,
+                    tasks: (prior?.tasks || []).map(task => ({ ...task, observation: { ...task.observation,
+                            executionQueryError: failure, evidence: { ...task.observation?.evidence,
+                                execution: { requestedAt: progressRequestStartedAt, receivedAt: new Date().toISOString(), failed: true } } } })) });
+                this.storeWorkerTaskSnapshot(cacheKey, snapshot);
+                this.postState();
+                return workerTaskSnapshotPayload(snapshot);
+            }
             if (executionSnapshot && current()) {
                 // Current execution remains authoritative when only result/log
                 // verification is slow. No cached result is relabelled as fresh.
@@ -1735,7 +1758,7 @@ class RealtimeTunnelPanelProvider {
                 return workerTaskSnapshotPayload(snapshot);
             }
             if (!options.inventoryOnly && current()) {
-                this.storeWorkerTaskSnapshot(cacheKey, { ...cached, workerId, progressRequestStartedAt, tasks: cached?.tasks || [], error: failure });
+                this.storeWorkerTaskSnapshot(cacheKey, WorkerProgressQuery.mergeProgressSnapshot(this.cachedWorkerTaskSnapshot(workerId, root, cacheKey), { ...cached, workerId, progressRequestStartedAt, tasks: cached?.tasks || [], error: failure }));
                 this.postState();
             }
             if (!cached)

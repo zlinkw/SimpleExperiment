@@ -16500,7 +16500,7 @@ def serve_http(args):
                     if len(raw) > 1024 * 1024:
                         raise ValueError("TASK_QUERY_LIMIT")
                     payload = json.loads(raw.decode("utf-8"))
-                    return self.send_json(task_result_query(root, payload.get("queries") or [], diagnostics_only=True))
+                    return self.send_json(task_result_query(root, payload.get("queries") or [], diagnostics_only=True, compact=payload.get("compact") is True))
                 except Exception as exc:
                     return self.send_json({"error": str(exc)}, status=400)
             if route == "/api/worker/tasks/query":
@@ -16524,7 +16524,7 @@ def serve_http(args):
                         if payload.get("executionOnly") or payload.get("declarations") is not None or payload.get("discovery"):
                             raise ValueError("TASK_QUERY_SELECTION_INVALID")
                         if payload.get("observationOnly") is True:
-                            return self.send_json(task_result_query(root, payload.get("queries") or [], diagnostics_only=payload.get("diagnosticsOnly") is True))
+                            return self.send_json(task_result_query(root, payload.get("queries") or [], diagnostics_only=payload.get("diagnosticsOnly") is True, compact=payload.get("compact") is True))
                         return self.send_json(task_query(root, payload.get("queries") or [], selected_only=True))
                     value = task_collection_query(root, payload.get("declarations") or []) if collection else task_query(root, payload.get("queries") or [])
                     if payload.get("declarations") is not None and not collection:

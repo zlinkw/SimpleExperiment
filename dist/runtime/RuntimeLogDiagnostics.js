@@ -112,6 +112,7 @@ def task_log_marker(command_id, event, phase="unknown"):
     print("[simple-experiment-runtime-log] " + json.dumps({"commandId": command_id, "event": event, "phase": phase}, ensure_ascii=False), flush=True)
 
 def task_log_diagnostics(root, job, row=None, terminal=False, binding=None):
+    import time as log_time
     command = str(job.get("commandId") or "")
     unknown = {"schemaVersion": 1, "commandId": command, "runId": command, "state": "unverified", "count": 0, "scanComplete": False}
     try:
@@ -158,17 +159,25 @@ def task_log_diagnostics(root, job, row=None, terminal=False, binding=None):
             if not entry["lock"].acquire(blocking=False):
                 return {**unknown, "logPath": log_path, "reason": "该任务日志正在读取，请稍后刷新"}
             try:
-                if entry.get("signature") != signature or before.st_size < entry["state"]["offset"] or entry["analysis"] != analysis or (entry.get("complete") and entry.get("mtimeNs") != before.st_mtime_ns):
+                if entry.get("signature") != signature or before.st_size < entry["state"]["offset"] or entry["analysis"] != analysis or (entry.get("mtimeNs") is not None and (terminal or entry.get("complete")) and entry["mtimeNs"] != before.st_mtime_ns):
                     state = task_log_new(command, log_path, legacy and not native)
                     state["legacy"] = legacy and not native
                     entry.update(state=state, signature=signature, analysis=analysis)
                 state = entry["state"]
+                # Scan locally in bounded slices, returning only a summary.
+                # A large finished log must not need dozens of metadata rounds.
+                deadline, scanned = log_time.monotonic() + 1.0, 0
                 with open(full, "rb") as stream:
                     stream.seek(state["offset"])
-                    data = stream.read(256 * 1024)
+                    while scanned < 8 * 1024 * 1024:
+                        data = stream.read(256 * 1024)
+                        task_log_feed(state, data)
+                        scanned += len(data)
+                        if len(data) < 256 * 1024 or log_time.monotonic() >= deadline:
+                            break
                 after = os.stat(full)
-                complete = after.st_size == state["offset"] + len(data) and before.st_mtime_ns == after.st_mtime_ns
-                task_log_feed(state, data, terminal and complete)
+                complete = after.st_size == state["offset"] and before.st_mtime_ns == after.st_mtime_ns
+                task_log_feed(state, b"", terminal and complete)
                 result = task_log_report(state, terminal, complete)
                 result["totalBytes"] = after.st_size
                 entry["mtimeNs"], entry["complete"] = after.st_mtime_ns, bool(terminal and complete)

@@ -270,7 +270,7 @@ export class HttpTunnelClient implements TunnelClient {
     const ids = [...new Set(options.retiredCommandIds || [])].sort();
     if (ids.length > 500 || ids.some(id => !/^[A-Za-z0-9._:-]{1,128}$/.test(id))) throw new Error("INVALID_RETIRED_COMMAND_SELECTION");
     if (options.executionOnly || options.selectedOnly || options.diagnosticsOnly || options.declarationOnly || options.queries?.length || options.declarations || options.discovery) return this.requestJson(options.diagnosticsOnly ? "/api/worker/tasks/diagnostics" : "/api/worker/tasks/query", options.diagnosticsOnly ? "task_diagnostics" : options.observationOnly || options.declarationOnly ? "manual_refresh" : "job_reconcile",
-      { queries: options.queries || [], executionOnly: options.executionOnly, selectedOnly: options.selectedOnly, observationOnly: options.observationOnly, diagnosticsOnly: options.diagnosticsOnly, declarationOnly: options.declarationOnly, declarations: options.declarations, discovery: options.discovery, retiredCommandIds: ids },
+      { queries: options.queries || [], executionOnly: options.executionOnly, selectedOnly: options.selectedOnly, observationOnly: options.observationOnly, diagnosticsOnly: options.diagnosticsOnly, ...(options.observationOnly ? { compact: true } : {}), declarationOnly: options.declarationOnly, declarations: options.declarations, discovery: options.discovery, retiredCommandIds: ids },
       { method: "POST", userInitiated: true, signal: options.signal });
     const params = new URLSearchParams();
     if (ids.length) params.set("retiredCommandIds", ids.join(","));
@@ -429,7 +429,8 @@ export class HttpTunnelClient implements TunnelClient {
             if (!text.trim()) return {} as T;
             const value = JSON.parse(text);
             if (apiPath.startsWith("/api/worker/tasks") && value && typeof value === "object")
-              value.localQueryTiming = { requestedAt, networkStartedAt, receivedAt: new Date().toISOString() };
+              value.localQueryTiming = { requestedAt, networkStartedAt, receivedAt: new Date().toISOString(),
+                requestBytes: body === undefined ? 0 : Buffer.byteLength(JSON.stringify(body), "utf8"), responseBytes: Buffer.byteLength(text, "utf8") };
             return value as T;
           } finally {
             inactivity.dispose();
