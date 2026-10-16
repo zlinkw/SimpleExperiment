@@ -856,6 +856,8 @@ function queueOccupiesCodeVersion(queue, verifiedWorkerFingerprints) {
 }
 /** Current windows or an exact unresolved local start reserve capacity; history alone never does. */
 function jobHasLiveExecution(job) {
+    if (job.lifecycleProtocol === 2 && job.executionState === "missing" && !job.statusQueryError)
+        return false;
     const intent = job.startIntent;
     const starting = Boolean(intent && ["dispatching", "unknown", "queued"].includes(job.status)
         && intent.commandId === job.commandId && intent.workerId === job.workerId && intent.gpuId === job.gpuId);

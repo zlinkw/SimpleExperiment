@@ -59,8 +59,10 @@ test('analysis feedback describes findings without opening an editor or changing
 });
 test('anomalous completed rerun uses exact current command and the existing native confirmation flow',async()=>{
  const job={index:0,lifecycleProtocol:2,status:'completed',workerId:'w',commandId:'c'},plan={id:'wf',resultPathPolicy:'declared',jobs:[job]};let called=0;
- const h={captureProjectContext:()=>({}),projectContextIsCurrent:()=>true,loadDistributedQueue:async()=>({plans:[plan]}),client:{},
-  retryPulledJob:async(p,j,r,current,anomalyOnly)=>{called++;assert.equal(p,plan);assert.equal(j,job);assert.equal(anomalyOnly,true);assert.ok(current());}};
+ const target={id:'w',host:'server'};
+ const h={captureProjectContext:()=>({}),projectContextIsCurrent:()=>true,workerActionTargets:()=>[target],loadDistributedQueue:async()=>({plans:[plan]}),client:{},
+  retryPulledJob:async(p,j,r,current,anomalyOnly)=>{called++;assert.equal(p,plan);assert.equal(j,job);assert.equal(anomalyOnly,true);assert.ok(current());
+   h.client={};assert.ok(current());target.host='changed';assert.equal(current(),false);target.host='server';}};
  const retry=hostMethod('retryDistributedJobFromUi',{workspaceRoot:()=>'/fixture'});
  await retry.call(h,{planId:'wf',jobIndex:0,commandId:'c',runtimeAnomalyRerun:true});assert.equal(called,1);
  await assert.rejects(retry.call(h,{planId:'wf',jobIndex:0,commandId:'old',runtimeAnomalyRerun:true}),/commandId/);
@@ -91,15 +93,16 @@ test('native anomaly rerun checks fresh evidence, honors cancelled or skipped re
   PlanRunHost:class {async replace(p,body,validation){events.push('confirm');assert.equal(validation.jobs.length,1);assert.equal(validation.jobs[0].output_dir,'work/job');if(cancel)throw Error('REPLACEMENT_CANCELLED');body.assignedExperimentIndices=selected?[0]:[];}},makeOpId:()=> 'rerun'});
  const h={client:{},assertPlanSubmissionWorkers:async()=>events.push('query'),loadDistributedQueue:async()=>({plans:[plan]}),
   saveDistributedQueue:async(_r,q,options)=>{stored=options?.mutateLatest?options.mutateLatest(structuredClone({plans:[plan]})):q;events.push('save');},tickDistributedQueue:async()=>events.push('tick')};
- for(const variant of ['running','clear','cancel','skip','success']){
+ for(const variant of ['running','clear','cancel','skip','success','missing']){
   events.length=0;stored=undefined;cancel=variant==='cancel';selected=variant!=='skip';
-  state={execution:variant==='running'?'running':'exited',status:'completed',completionState:variant==='clear'?'verified':'review_required'};
+  state={execution:variant==='running'?'running':variant==='missing'?'missing':'exited',status:variant==='missing'?'unknown':'completed',completionState:variant==='clear'?'verified':'review_required'};
   if(['running','clear','cancel'].includes(variant))await assert.rejects(retry.call(h,plan,job,'/fixture',()=>true,true),/运行|异常|CANCELLED/);
-  else await retry.call(h,plan,job,'/fixture',()=>true,true);
-  if(variant==='success'){
-   assert.deepEqual(events,['query','confirm','fence','save','tick']);assert.equal(stored.plans[0].jobs[0].status,'pending');
+  else await retry.call(h,plan,job,'/fixture',()=>true,variant!=='missing');
+  if(variant==='success'||variant==='missing'){
+   assert.deepEqual(events,['fence','query','confirm','save','tick']);assert.equal(stored.plans[0].jobs[0].status,'pending');
    assert.equal(stored.plans[0].jobs[0].runtimeDiagnostics,undefined);assert.deepEqual(stored.plans[0].jobs[1],other);
-  }else{assert.equal(stored,undefined);assert.ok(!events.includes('fence')&&!events.includes('tick'));}
+  }else{assert.equal(stored,undefined);assert.ok(!events.includes('tick'));
+   assert.equal(events.includes('fence'),variant==='cancel'||variant==='skip');}
  }
 });
 test('actual analysis button returns a visible command message without opening any document',async()=>{

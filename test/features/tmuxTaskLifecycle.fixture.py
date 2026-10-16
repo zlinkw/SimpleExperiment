@@ -6,6 +6,15 @@ runtime = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
 tree = ast.parse(runtime)
 nodes = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name.startswith("task_")]
 code = ast.unparse(ast.Module(body=nodes, type_ignores=[]))
+code += '''
+_modern_task_tmux = task_tmux
+def task_tmux(args, timeout=5, **kwargs):
+    # Emulate the deployed older tmux protocol, while all accepted commands still
+    # run against a real isolated tmux server.
+    if args[:2] == ["source-file", "-"]: raise RuntimeError("TMUX_QUERY_FAILED: -: No such file or directory")
+    if sum(len(str(arg).encode("utf-8")) + 1 for arg in args) > 4096: raise RuntimeError("TMUX_QUERY_FAILED: command too long")
+    return _modern_task_tmux(args, timeout=timeout, **kwargs)
+'''
 root = tempfile.mkdtemp(prefix="se-native-lifecycle-")
 os.environ["TMUX_TMPDIR"] = root
 os.environ["SIMPLE_EXPERIMENT_REMOTE_TMUX_SESSION_PREFIX"] = "fixture"
@@ -66,7 +75,7 @@ try:
         (pathlib.Path(root)/name).write_text("corrupt legacy state",encoding="utf-8")
     a,b,c=job(0),job(1),job(2,"failure")
     a["codeManifest"] = {"source/module_" + str(i) + ".py": {"size": i, "sha256": hashlib.sha256(str(i).encode()).hexdigest()} for i in range(180)}
-    a["distributedResults"] = {"label": "中文 'quoted' $literal \\ value\n" * 1200}
+    a["distributedResults"] = {"label": "中文 'quoted' $literal \\ value\n" * 12}
     namespace["task_queue_rpc"](root,"worker","accept",a,ensure=True)
     assert next(row for row in namespace["task_inventory"](root) if row["commandId"] == a["commandId"])["codeManifest"] == a["codeManifest"]
     assert next(row for row in namespace["task_inventory"](root) if row["commandId"] == a["commandId"])["distributedResults"] == a["distributedResults"]
@@ -157,7 +166,7 @@ try:
     damaged["codeManifest"] = a["codeManifest"]
     prepared = namespace["task_queue_job"](root,"worker",damaged)
     def interrupted(target,key,value=None):
-        if key == "job" and value and len(value)>4096: raise RuntimeError("synthetic metadata channel failure")
+        if key.startswith("job_") and value: raise RuntimeError("synthetic metadata channel failure")
         return option(target,key,value)
     namespace["task_option"] = interrupted
     try:
@@ -168,6 +177,18 @@ try:
     rejected = wait_for(lambda: next((row for row in namespace["task_inventory"](root) if row["commandId"] == damaged["commandId"] and row["dead"]),None))
     assert rejected["phase"] == "rejected" and rejected["exitCode"] != 0
     assert not pathlib.Path(root,"started-command-4").exists()
+    namespace["task_write_job"](rejected["tmuxPane"],prepared)
+    assert namespace["task_read_job"](rejected["tmuxPane"]) == prepared
+    header=json.loads(base64.urlsafe_b64decode(option(rejected["tmuxPane"],"job")))
+    key="job_"+header["_se_payload"]["sha256"][:16]+"_0"
+    saved=option(rejected["tmuxPane"],key)
+    option(rejected["tmuxPane"],key,"corrupt")
+    try:
+        namespace["task_read_job"](rejected["tmuxPane"])
+        raise AssertionError("incomplete payload accepted")
+    except RuntimeError as exc: assert "TASK_WINDOW_PAYLOAD_INCOMPLETE" in str(exc)
+    option(rejected["tmuxPane"],key,saved)
+    assert namespace["task_read_job"](rejected["tmuxPane"]) == prepared
     print(json.dumps(dict(ok=True,realTmux=True,callbacks=0,stateFilesRead=0)))
 finally:
     # This is the fixture's newly created server under its private TMUX_TMPDIR only.

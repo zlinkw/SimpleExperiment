@@ -14543,7 +14543,11 @@ function renderPanelHtml() {
           const canJumpLog = Boolean(!preflightRejected && job.workerId && (job.commandId || job.outputDir));
           const logButton = '<button type="button" class="mini secondary" data-job-tmux-log="1" data-worker-id="' + escAttr(job.workerId || "") + '" data-command-id="' + escAttr(job.commandId || "") + '" data-output-dir="' + escAttr(job.outputDir || "") + '"' + (canJumpLog ? '' : ' disabled') + ' title="' + (canJumpLog ? '在 TMUX 区域选中该 Worker 的真实任务窗口标签' : '等待任务派发后定位对应的 TMUX 日志标签') + '">查看窗口日志</button>';
           const errorText = String(job.artifactError || job.error || "").trim();
-          const trainingRecoveryButton = status === "failed" && errorText.indexOf("Validation-only tuning cannot access test patients") >= 0
+          const nativeRerun = job.lifecycleProtocol === 2 && job.workerId && job.commandId && !job.statusQueryError
+            && (status === "failed" || status === "unknown" && job.executionState === "missing");
+          const trainingRecoveryButton = nativeRerun
+            ? '<button type="button" class="mini secondary" data-command="retryDistributedJob" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-plan-file="' + escAttr(group.planFile || "") + '" data-distributed-retry="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-job-index="' + escAttr(String(job.index)) + '" data-command-id="' + escAttr(job.commandId) + '" title="核实并撤出原请求，只审核此 job 的产物；已有文件仍需完整路径双确认。">重跑此 job</button>'
+            : status === "failed" && errorText.indexOf("Validation-only tuning cannot access test patients") >= 0
             ? '<button type="button" class="mini secondary" data-command="retryDistributedJob" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-plan-file="' + escAttr(group.planFile || "") + '" data-distributed-retry="' + escAttr(job.planId || group.distributedPlanId || "") + '" data-job-index="' + escAttr(String(job.index)) + '">核验并恢复训练完成</button>' : "";
           const codeProofBlocked = status === "queued" && errorText.indexOf("code-sync proof") >= 0;
           const recallButton = status === "queued" || job.recallRequested === true

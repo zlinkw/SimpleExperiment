@@ -91,6 +91,7 @@ function host(variant) {
   p.saveDistributedQueue = async (_root, next) => { stored = next; };
   p.tickDistributedQueue = async () => { ticks++; }; // No production training/GPU/network.
   p.workerCodeSyncTargets = () => [{ id: 'worker' }];
+  p.workerActionTargets = p.workerCodeSyncTargets;
   p.sftpServerOptions = () => ({ host: 'fixture', user: 'fixture', port: 22, remotePath: '/fixture' });
   p.planCleanupHost = () => ({ openJob: async (...args) => { reviews.push(args); } });
   p.simpleSftpApiCall = async () => ({ files: variant === 'artifacts' ? { 'work_dirs/aoept/bus_seed44/model.pth': 'hash' } : {}, unverifiedFiles: {} });

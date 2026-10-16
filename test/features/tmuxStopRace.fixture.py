@@ -1,6 +1,7 @@
 """Extracted production queries against an isolated tmux; no project state files."""
 import ast
 import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -10,7 +11,7 @@ import sys
 import tempfile
 
 tree = ast.parse(Path(sys.argv[1]).read_text(encoding="utf-8"))
-names = {"task_tmux", "task_inventory", "task_query", "task_public_observation", "local_stop_tmux_inventory"}
+names = {"task_tmux", "task_inventory", "task_read_job", "task_query", "task_public_observation", "local_stop_tmux_inventory"}
 nodes = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in names]
 assert len(nodes) == len(names)
 root = tempfile.mkdtemp(prefix="se-stop-race-")
@@ -22,7 +23,7 @@ class Tmux:
         assert args[0] == "tmux" and "kill-server" not in args and "kill-session" not in args
         return subprocess.run(["tmux", "-L", socket, *args[1:]], **kwargs)
 
-ns = dict(subprocess=Tmux, os=os, re=re, base64=base64, json=json,
+ns = dict(subprocess=Tmux, os=os, re=re, base64=base64, json=json, hashlib=hashlib,
           task_memory_scheduler_capability=lambda root: 0,
           now_iso=lambda: "2026-10-15T00:00:00Z", task_safe_path=lambda root, path: path,
           task_manifest_observation=lambda *_: None, task_queue_session=lambda *_: "controller",

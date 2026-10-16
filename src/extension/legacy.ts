@@ -11830,7 +11830,9 @@ this.assertPlanTopologyReady("Plan 调度");
         if (!root) throw new Error("没有当前项目目录");
         const projectContext = this.captureProjectContext();
         const client = this.client;
-        const isCurrent = () => this.projectContextIsCurrent(projectContext) && this.client === client;
+        const targets = () => JSON.stringify(this.workerActionTargets().map(row => [row.id,row.host,row.port,row.user,row.project_dir,row.local_agent_url,row.agent_runtime_dir,row.conda_env]));
+        const targetKey = targets();
+        const isCurrent = () => this.projectContextIsCurrent(projectContext) && targets() === targetKey;
         const queue = await this.loadDistributedQueue(root);
         const plan = queue.plans.find((row) => row.id === String(message.planId || ""));
         const job = plan?.jobs.find((row) => row.index === Number(message.jobIndex));
@@ -11892,6 +11894,10 @@ this.assertPlanTopologyReady("Plan 调度");
             throw new Error("所选任务仍在服务器排队或运行；请先中止或明确召回。");
         if (anomalyOnly && (state.status !== "completed" || state.completionState !== "review_required"))
             throw new Error("本轮查询未确认该 job 已完成且存在运行异常；未删除或重跑。");
+        // Fence the exact original request before reviewing/removing its outputs.
+        // A lost old POST must not start while the user confirms a new run.
+        await PulledTaskControl.stopPulledTask(this.client, plan, job, makeOpId("requeue-job"));
+        if (!isCurrent()) return;
         const body: any = { planFile: plan.planFile, planRevision: plan.revision, options: {}, workerSubmissionSnapshots: [], runReplacement: {} };
         const validation = { execution_mode: plan.executionMode, jobs: [{ index: job.index, case: job.case, seed: job.seed,
             output_dir: job.outputDir, result_csv: job.collectionResultCsv, checkpoint_source: job.checkpointSource }] };
@@ -11900,8 +11906,6 @@ this.assertPlanTopologyReady("Plan 调度");
         if (!isCurrent()) return;
         if (Array.isArray(body.assignedExperimentIndices) && !body.assignedExperimentIndices.includes(job.index))
             return { status: "cancelled", message: "本轮未选择该 job；未重新派发。" };
-        await PulledTaskControl.stopPulledTask(this.client, plan, job, makeOpId("requeue-job"));
-        if (!isCurrent()) return;
         await this.saveDistributedQueue(root, undefined, { mutateLatest: (latest) => {
             const current = latest.plans.find(row => row.id === plan.id);
             if (current?.jobs.find(row => row.index === job.index)?.commandId !== job.commandId

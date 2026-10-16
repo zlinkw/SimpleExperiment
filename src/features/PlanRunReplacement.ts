@@ -40,6 +40,9 @@ export async function replaceRunOutputs(ports: RunReplacementPorts, state: RunRe
     await ports.save();
   }
   const all = jobs.map(job => Number(job.index)), missing = all.filter(index => !completedIndices.includes(index));
+  if (state.choice === "rerun_missing" && state.selectedIndices && (state.selectedIndices.length !== missing.length
+    || state.selectedIndices.some(index => !missing.includes(index))))
+    cleanupError("RUN_SELECTION_CHANGED", "本轮未完成任务范围已变化；请取消后重新确认精确 job 路径，未继续删除。");
   if (!targets(state.previews).length && !state.choice) state.choice = "rerun_all";
   if (!state.choice) {
     ports.progress("等待选择运行范围并第一次确认完整路径…");

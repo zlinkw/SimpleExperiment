@@ -1,6 +1,7 @@
 """Extract production functions only; never contact a user tmux server."""
 import ast
 import base64
+import hashlib
 import json
 import os
 import pathlib
@@ -12,7 +13,7 @@ import uuid
 
 source = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
 nodes = [node for node in ast.parse(source).body if isinstance(node, ast.FunctionDef) and
-         (node.name in ("kill_tmux_window_response", "manage_tmux_session_response", "task_inventory", "task_tmux"))]
+         (node.name in ("kill_tmux_window_response", "manage_tmux_session_response", "task_inventory", "task_tmux", "task_read_job"))]
 socket = "se-controls-" + uuid.uuid4().hex
 actual_run = subprocess.run
 calls = []
@@ -21,7 +22,7 @@ def isolated(args, **kwargs):
     calls.append(args)
     return actual_run(["tmux", "-L", socket] + args[1:], **kwargs)
 subprocess.run = isolated
-scope = dict(subprocess=subprocess, os=os, re=re, json=json, base64=base64, SCHEMA_VERSION=1)
+scope = dict(subprocess=subprocess, os=os, re=re, json=json, base64=base64, hashlib=hashlib, SCHEMA_VERSION=1)
 exec(compile(ast.Module(body=nodes, type_ignores=[]), "production-controls", "exec"), scope)
 def tmux(*args):
     result = isolated(["tmux", *args], capture_output=True, text=True, timeout=2)

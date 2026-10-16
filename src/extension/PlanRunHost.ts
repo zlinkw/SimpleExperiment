@@ -51,6 +51,25 @@ export class PlanRunHost {
     if (executionSource) { await verifyLocalPlanSource(this.root, executionSource); body.executionSource = executionSource; }
     const expectedFingerprint = executionSource?.digest || h.lastCodeSyncState?.fingerprint || "";
     body.runReplacement ||= {};
+    // A launch-ready subset cannot prove other servers' outputs absent. Query
+    // every enabled Worker before deriving the missing-only deletion scope.
+    if (typeof h.readWorkerTaskSnapshot === "function") {
+      const declarations = jobs.map((job: any) => ({ ...job, mode: validation.execution_mode }));
+      const snapshots = await Promise.all(h.workerActionTargets().map(async (worker: any) => {
+        try {
+          const snapshot = await h.readWorkerTaskSnapshot(worker.id, { fresh: true, inventoryOnly: true, declarations, signal: AbortSignal.timeout(15000) });
+          if (!snapshot || snapshot.queryComplete !== true || snapshot.error || snapshot.pending)
+            throw Error(snapshot?.error || "查询未完成");
+          if ((snapshot.declaredResults || []).some((row: any) => row.error)) throw Error("声明产物查询失败");
+          if (!declarations.every((job: any) => (snapshot.declaredResults || []).some((row: any) =>
+            Number(row.index) === Number(job.index) && row.outputDir === job.output_dir && row.collectionResultCsv === job.result_csv)))
+            throw Error("声明产物查询不完整");
+          return snapshot;
+        } catch (error: any) { throw Error(worker.id + "：产物状态未核实；未生成删除清单。" + String(error.message || error)); }
+      }));
+      assertCurrent();
+      body.workerSubmissionSnapshots = snapshots;
+    }
     const completed = new Set<number>();
     const tasks = (body.workerSubmissionSnapshots || []).flatMap((snapshot: any) => snapshot.tasks || []);
     const executionAllowsCompletion = (output: string, runId: string) => !tasks.some((task: any) => {

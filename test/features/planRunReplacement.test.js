@@ -19,6 +19,11 @@ test('two clicks clear every selected job directory including stale extra files,
 test('missing-only keeps complete job, replaces incomplete job, and starts absent job',async()=>{
  const f=fixture();f.set({choice:'rerun_missing'});const r=await f.run();assert.deepEqual(r.selectedIndices,[1,2]);assert.ok(f.files.has('job0/model.pth'));assert.ok(!f.files.has('job1/failed.log'));
 });
+
+test('missing-only resumption cannot silently retain an older broader deletion selection',async()=>{
+ const f=fixture();f.state.choice='rerun_missing';f.state.selectedIndices=[0,1,2];f.state.phase=2;
+ await assert.rejects(f.run(),/范围已变化/);assert.ok(!f.events.some(e=>e.startsWith('delete')));assert.equal(f.files.size,3);
+});
 test('cancel either prompt and failed all-Worker recheck never delete; retry retains the same confirmed batch',async()=>{
  for(const phase of [1,2]){const f=fixture();f.set({cancel:phase});await assert.rejects(f.run(),/已取消/);assert.ok(!f.events.some(e=>e.startsWith('delete')));}
  const f=fixture();f.set({fail:true});await assert.rejects(f.run(),/nwpu3/);assert.ok(!f.events.some(e=>e.startsWith('delete')));

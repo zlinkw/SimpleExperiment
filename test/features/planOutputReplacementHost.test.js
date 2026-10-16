@@ -78,6 +78,20 @@ function runReplacementHostFixture(change = () => {}) {
   return {host,nodes,body,events,files,run:()=>new PlanRunHost(host,root).replace({},body,{jobs})};
 }
 
+test('missing-only queries every enabled Worker instead of treating the partial ready subset as missing outputs',async()=>{
+ const f=runReplacementHostFixture(),reads=[],prompts=[];
+ f.body.workerSubmissionSnapshots=[{workerId:'w',queryComplete:true,tasks:[],declaredResults:[]}];
+ f.host.readWorkerTaskSnapshot=async(id,options)=>{reads.push(id);assert.equal(options.fresh,true);assert.equal(options.inventoryOnly,true);
+  return {workerId:id,queryComplete:true,tasks:[],declaredResults:options.declarations.map(job=>({index:job.index,
+   completed:id==='v'&&job.index===0,outputDir:job.output_dir,collectionResultCsv:job.result_csv,runId:'original'}))};};
+ f.host.askRunConfirmation=async p=>{prompts.push(p);return p.phase===1?'rerun_missing':'delete_and_run';};
+ await f.run();assert.deepEqual(reads.sort(),['v','w']);assert.deepEqual(f.body.assignedExperimentIndices,[1]);
+ assert.ok(f.files.has('work/a'));assert.ok(!f.files.has('work/b'));
+ assert.ok(prompts.at(-1).groups[0].targets.every(row=>row.path.endsWith('/work/b')));
+ const offline=runReplacementHostFixture();offline.host.readWorkerTaskSnapshot=async()=>({queryComplete:false,error:'offline'});
+ await assert.rejects(offline.run(),/产物.*未核实/);assert.equal(offline.files.size,2);assert.ok(!offline.events.some(x=>x.startsWith('delete')));
+});
+
 test('the real overwrite flow tolerates a same-target client rebuild during confirmation and between deletes',async()=>{
   const f=runReplacementHostFixture((stage,host)=>{if(['ask2','workers','delete0'].includes(stage))host.client={};});
   await f.run();assert.equal(f.files.size,0);assert.equal(f.body.runReplacement.done,true);

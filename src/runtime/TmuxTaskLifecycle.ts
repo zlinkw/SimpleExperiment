@@ -4,9 +4,8 @@ TASK_LIFECYCLE_PROTOCOL = 2
 NATIVE_TASK_RUNNER_CONTEXT = None
 TASK_SCHEDULER_UPDATE_ERROR = ""
 
-def task_tmux(args, timeout=5, input_text=None):
-    proc = subprocess.run(["tmux", *args], capture_output=True, text=True, timeout=timeout,
-                          **({"input": input_text} if input_text is not None else {}))
+def task_tmux(args, timeout=5):
+    proc = subprocess.run(["tmux", *args], capture_output=True, text=True, timeout=timeout)
     if proc.returncode:
         low = (proc.stderr or "").lower()
         absent = "no server running" in low or "no sessions" in low or "error connecting" in low and any(text in low for text in ("no such file or directory", "connection refused"))
@@ -19,12 +18,47 @@ def task_option(target, key, value=None):
     if value is None:
         return task_tmux(["display-message", "-p", "-t", target, "#{@se_" + key + "}"])
     command = ["set-option", "-w", "-t", target, "@se_" + key, str(value)]
-    if key == "job" and re.fullmatch(r"[A-Za-z0-9_=-]+", str(value)) and sum(len(part.encode("utf-8")) + 1 for part in command) > 4096:
-        # The tmux client command packet is bounded. Stream one quoted command
-        # through stdin; the option remains atomic and no state file is created.
-        task_tmux(["source-file", "-"], input_text=shlex.join(command) + "\n")
-    else:
-        task_tmux(command)
+    task_tmux(command)
+
+def task_write_job(target, job):
+    encoded = base64.urlsafe_b64encode(json.dumps(job, ensure_ascii=False).encode("utf-8")).decode("ascii")
+    if len(encoded) <= 2048:
+        return task_option(target, "job", encoded)
+    parts = [encoded[index:index + 2048] for index in range(0, len(encoded), 2048)]
+    if len(parts) > 1024:
+        raise ValueError("TASK_WINDOW_PAYLOAD_LIMIT")
+    digest = hashlib.sha256(encoded.encode("ascii")).hexdigest()
+    prefix = "job_" + digest[:16] + "_"
+    for index, value in enumerate(parts):
+        task_option(target, prefix + str(index), value)
+    header = {key: value for key, value in job.items() if key not in ("codeManifest", "executionSource", "options", "distributedResults", "checkpointSource")}
+    header["_se_payload"] = {"version": 1, "parts": len(parts), "bytes": len(encoded), "sha256": digest}
+    wrapper = base64.urlsafe_b64encode(json.dumps(header, ensure_ascii=False).encode("utf-8")).decode("ascii")
+    if len(wrapper) > 3072:
+        raise ValueError("TASK_WINDOW_IDENTITY_LIMIT")
+    # Publish only after every bounded native option exists. Older tmux needs
+    # neither source-file stdin nor a filesystem spool.
+    task_option(target, "job", wrapper)
+
+def task_read_job(target, encoded=None):
+    header = json.loads(base64.urlsafe_b64decode(encoded or task_option(target, "job")).decode("utf-8"))
+    binding = header.get("_se_payload")
+    if binding is None:
+        return header
+    if not isinstance(binding, dict) or binding.get("version") != 1 or type(binding.get("parts")) is not int or not 1 <= binding["parts"] <= 1024 or not re.fullmatch(r"[a-f0-9]{64}", str(binding.get("sha256") or "")):
+        raise RuntimeError("TASK_WINDOW_PAYLOAD_INVALID")
+    prefix = "job_" + binding["sha256"][:16] + "_"
+    pieces = []
+    for start in range(0, binding["parts"], 32):
+        fmt = "".join("#{@se_" + prefix + str(index) + "}" for index in range(start, min(start + 32, binding["parts"])))
+        pieces.append(task_tmux(["display-message", "-p", "-t", target, fmt]))
+    payload = "".join(pieces)
+    if len(payload) != binding.get("bytes") or len(payload) > 2097152 or hashlib.sha256(payload.encode("ascii")).hexdigest() != binding["sha256"]:
+        raise RuntimeError("TASK_WINDOW_PAYLOAD_INCOMPLETE")
+    job = json.loads(base64.urlsafe_b64decode(payload).decode("utf-8"))
+    if any(job.get(key) != value for key, value in header.items() if key != "_se_payload"):
+        raise RuntimeError("TASK_WINDOW_PAYLOAD_IDENTITY_MISMATCH")
+    return job
 
 def task_safe_path(root, relative):
     value = str(relative or "").replace("\\", "/")
@@ -49,7 +83,7 @@ def task_inventory(root):
         if len(fields) != 9 or not fields[5]:
             continue
         try:
-            job = json.loads(base64.urlsafe_b64decode(fields[5]).decode("utf-8"))
+            job = task_read_job(fields[0], fields[5])
         except (ValueError, UnicodeError):
             continue
         if job.get("root") != os.path.realpath(root) or job.get("lifecycleProtocol") != 2:
@@ -565,7 +599,7 @@ def task_queue_accept(root, worker_id, command, window, prepared=None):
     task_option(pane, "phase", "binding")
     task_option(pane, "job", base64.urlsafe_b64encode(json.dumps(core, ensure_ascii=False).encode("utf-8")).decode("ascii"))
     try:
-        task_option(pane, "job", base64.urlsafe_b64encode(json.dumps(job, ensure_ascii=False).encode("utf-8")).decode("ascii"))
+        task_write_job(pane, job)
     except Exception as exc:
         task_option(pane, "error", "TASK_WINDOW_BINDING_FAILED: " + str(exc)[:1000])
         task_option(pane, "phase", "rejected")
@@ -760,7 +794,7 @@ def task_runner(root, worker_id):
         if time.monotonic() > deadline:
             raise RuntimeError("TASK_WINDOW_BINDING_INCOMPLETE")
         time.sleep(0.05)
-    job = json.loads(base64.urlsafe_b64decode(task_option(pane, "job")).decode("utf-8"))
+    job = task_read_job(pane)
     if job.get("root") != os.path.realpath(root) or job.get("workerId") != worker_id or job.get("pane") != pane:
         raise ValueError("TASK_WINDOW_OWNER_MISMATCH")
     while task_option(pane, "phase") != "admitted":

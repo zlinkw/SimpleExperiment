@@ -33,16 +33,16 @@ test('default local mode never preassigns occupied NWPU5 and reserves each idle 
   assert.equal(policy.allocateServerPrequeue(input, [{workerId:'nwpu5',online:true,weight:2,codeFingerprint:'f'}]).dispatches.length, 0);
 });
 
-test('unknown startup never frees a dispatched slot; later-ready H20 receives the remaining local jobs',()=>{
+test('an unavailable startup query keeps its dispatched slot; later-ready H20 receives the remaining local jobs',()=>{
   const input=plan('local_idle','startup','f',6),now=Date.now();
   const fast={workerId:'fast',online:true,declaredJobPaths:true,codeFingerprint:'f',idleGpuAdmission:true,idleGpuIds:['0','1','2'],capacity:3};
   const first=queue.allocateAvailable(input,[fast],{requireIdleGpuAdmission:true,localIdleOnly:true});
   assert.equal(first.dispatches.length,3);
   for(const job of first.queue.plans[0].jobs.filter(row=>row.commandId))job.status='unknown';
   const waiting=queue.mergeDurableWorkerSnapshots(first.queue,[{workerId:'fast',schemaVersion:1,queryComplete:true,
-    generatedAt:new Date(now).toISOString(),fetchedAt:new Date(now).toISOString(),capabilities:{taskLifecycle:2},tasks:[]}],'project',now);
+    generatedAt:new Date(now).toISOString(),fetchedAt:new Date(now).toISOString(),capabilities:{taskLifecycle:2},tasks:[],error:'offline'}],'project',now);
   const occupied=queue.activeGpuReservations(waiting);
-  assert.equal(occupied.activeByWorker.get('fast'),3,'a query before window creation must not free sent GPU slots');
+  assert.equal(occupied.activeByWorker.get('fast'),3,'a failed query cannot prove the sent request absent');
   assert.ok(waiting.plans[0].jobs.filter(row=>row.commandId).every(row=>row.status==='unknown'),'do not label pending startup running');
   const next=queue.allocateAvailable(waiting,[{...fast,idleGpuIds:fast.idleGpuIds.filter(id=>!occupied.occupiedGpuIds.has('fast:'+id)),capacity:0}],
     {requireIdleGpuAdmission:true,localIdleOnly:true});

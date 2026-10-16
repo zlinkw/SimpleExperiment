@@ -75,6 +75,14 @@ test('a starting task window stays in the queue and does not add a running job',
   assert.doesNotMatch(sandbox.html, />运行中<| · 运行 1/);
 });
 
+test('missing native windows and startup failures offer exact one-job rerun, but query failures do not',()=>{
+ for(const [status,executionState,query,expected] of [['unknown','missing',undefined,true],['failed','failed',undefined,true],['unknown','unknown','offline',false]]){
+  const sandbox=clickSandbox();sandbox.render({distributedPlans:[{id:'wf',planFile:'plans/p.yaml',jobs:[{index:2,case:'a',seed:42,
+   status,executionState,statusQueryError:query,lifecycleProtocol:2,workerId:'w',commandId:'exact',outputDir:'work/a'}]}]});
+  assert.equal(/data-distributed-retry="wf"[^>]*data-command-id="exact"[^>]*>重跑此 job/.test(sandbox.html),expected);
+ }
+});
+
 test('a six-job declaration with five available inputs cannot render five-of-five success or hide the missing input',()=>{
   const sandbox=clickSandbox();
   const jobs=Array.from({length:5},(_,index)=>({index,case:'a',seed:42+index,status:'completed',completionState:'verified'}));

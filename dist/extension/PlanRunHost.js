@@ -101,6 +101,28 @@ class PlanRunHost {
         }
         const expectedFingerprint = executionSource?.digest || h.lastCodeSyncState?.fingerprint || "";
         body.runReplacement ||= {};
+        // A launch-ready subset cannot prove other servers' outputs absent. Query
+        // every enabled Worker before deriving the missing-only deletion scope.
+        if (typeof h.readWorkerTaskSnapshot === "function") {
+            const declarations = jobs.map((job) => ({ ...job, mode: validation.execution_mode }));
+            const snapshots = await Promise.all(h.workerActionTargets().map(async (worker) => {
+                try {
+                    const snapshot = await h.readWorkerTaskSnapshot(worker.id, { fresh: true, inventoryOnly: true, declarations, signal: AbortSignal.timeout(15000) });
+                    if (!snapshot || snapshot.queryComplete !== true || snapshot.error || snapshot.pending)
+                        throw Error(snapshot?.error || "查询未完成");
+                    if ((snapshot.declaredResults || []).some((row) => row.error))
+                        throw Error("声明产物查询失败");
+                    if (!declarations.every((job) => (snapshot.declaredResults || []).some((row) => Number(row.index) === Number(job.index) && row.outputDir === job.output_dir && row.collectionResultCsv === job.result_csv)))
+                        throw Error("声明产物查询不完整");
+                    return snapshot;
+                }
+                catch (error) {
+                    throw Error(worker.id + "：产物状态未核实；未生成删除清单。" + String(error.message || error));
+                }
+            }));
+            assertCurrent();
+            body.workerSubmissionSnapshots = snapshots;
+        }
         const completed = new Set();
         const tasks = (body.workerSubmissionSnapshots || []).flatMap((snapshot) => snapshot.tasks || []);
         const executionAllowsCompletion = (output, runId) => !tasks.some((task) => {

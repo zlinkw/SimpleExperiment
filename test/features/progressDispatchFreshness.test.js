@@ -3,6 +3,25 @@ require('../_helpers/registerTsRequire');
 const Q=require('../../src/features/DistributedPlanQueue.ts'),P=require('../../src/features/DistributedSchedulingPolicy.ts');
 const source=fs.readFileSync('src/extension/legacy.ts','utf8'),ast=ts.createSourceFile('host.ts',source,ts.ScriptTarget.Latest,true);
 function method(name,globals={}){let found;function visit(n){if(ts.isMethodDeclaration(n)&&n.name.getText(ast)===name)found=n;ts.forEachChild(n,visit);}visit(ast);assert.ok(found,name);return vm.runInNewContext(ts.transpileModule('class Host{'+found.getText(ast)+'};Host.prototype.'+name,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{AbortController,...globals});}
+test('a freshly missing original command keeps its fence input but releases the GPU for other jobs',()=>{
+ const job={index:0,lifecycleProtocol:2,status:'unknown',executionState:'missing',workerId:'w',gpuId:'0',commandId:'original',
+  startIntent:{workerId:'w',gpuId:'0',commandId:'original'}};
+ const q={schemaVersion:1,plans:[{id:'p',jobs:[job]}]};
+ assert.equal(Q.jobHasLiveExecution(job),false);
+ assert.equal(Q.activeGpuReservations(q).occupiedGpuIds.size,0);
+ assert.equal(job.startIntent.commandId,'original');
+ assert.equal(Q.jobHasLiveExecution({...job,executionState:'unknown',statusQueryError:'offline'}),true);
+ const input=Q.enqueuePlan(Q.emptyDistributedQueue(),{projectId:'project',planFile:'p.yaml',revision:'r',codeFingerprint:'code',executionMode:'train_test',
+  jobs:[{index:0,case:'a',seed:42,outputDir:'work/a',collectionResultCsv:'tmp/a.csv'},
+   {index:1,case:'b',seed:43,outputDir:'work/b',collectionResultCsv:'tmp/b.csv'}]},'p');
+ Object.assign(input.plans[0].jobs[0],job);
+ const reservations=Q.activeGpuReservations(input);
+ const result=Q.allocateAvailable(input,[{workerId:'w',online:true,idleGpuAdmission:true,declaredJobPaths:true,codeFingerprint:'code',
+  idleGpuIds:['0'].filter(id=>!reservations.occupiedGpuIds.has('w:'+id))}],{requireIdleGpuAdmission:true,localIdleOnly:true});
+ assert.equal(result.dispatches.length,1);assert.equal(result.dispatches[0].jobIndex,1);assert.equal(result.dispatches[0].gpuId,'0');
+ assert.equal(result.queue.plans[0].jobs[0].commandId,'original','a missing original request is never automatically resent');
+});
+
 test('finished partial preparation cannot exclude an idle Worker from a later retry',()=>{
  const preparation={root:'project',preparation:{ready:new Set(['fast'])}};
  assert.equal(P.dispatchPreparationAllowsWorker('idle','project',preparation,0),true);
