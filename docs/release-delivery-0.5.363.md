@@ -36,3 +36,16 @@ Experiment 最终 `npm run package` 退出 0，完整执行 build、串行回归
 两包均 universal，身份、版本、源 package-lock 一致；实际 ZIP 中 Experiment 376 个 dist 文件、SFTP 21 个 JS/Python 文件与当前运行源码逐字节一致，未包含当前真实 discovery token、机器状态或依赖缓存。逐包清单精确绑定文件名。VSCE 默认不打入 package-lock，锁版本在源码检查，未假称锁文件存在于 ZIP。包在交付回执补记前生成，后续文档补记不改变已验证运行文件或包字节。
 
 稳定发行及一次安装须独立验收；重载后的新代码清单耗时仍待现场只读核验，不能用本机隔离测试宣称 H20 已加速。
+
+## 发行、安装回执
+
+实现提交 Experiment `6d1b56a506399f6cbf4d98655ec57d8db14e05ab`、SFTP `e75af6b0de826e2e8752c302b8a00b23545b1150` 已分别普通推送各自 origin/master，fetch 确认一致。未提交原有 pyc、未跟踪脚本、运行目录或历史 SHA 清单。
+
+- [Experiment 稳定 v0.5.363](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.363)，tag 和 target_commitish 均绑定上述 Experiment 实现提交。
+- [SFTP 稳定 v0.2.93](https://github.com/zlinkw/SimpleSFTP/releases/tag/v0.2.93)，tag 和 target_commitish 均绑定上述 SFTP 实现提交。
+
+真实 Latest 重读通过，均 draft=false、prerelease=false，资产为表中精确 VSIX 和逐包同名 SHA256 清单。包大小、GitHub digest 和真实下载 SHA256 一致，没有覆盖历史资产。使用实际已安装旧版 Experiment 0.5.362 的 ReleaseClient 从公开 Latest 识别 Windows win32-x64 的两项更新，并通过其真实下载入口取得 VSIX 与清单；清单精确文件名、身份、universal 平台、版本及与本机确定包的全部字节核对通过。验证文件保留于 `C:/Users/ZLK/AppData/Local/Temp/simpleex-0363-release-verify-zs0Gwf`。
+
+各仓库显式执行一次 `npm run install:latest`，分别安装 SFTP 0.2.93 和 Experiment 0.5.363，无 force、无降级、无重复安装。VS Code 安装列表及 simpleex / simple-sftp-api 入口、simpleex --help 核对通过；已安装 Experiment 376 个 dist 文件、SFTP 21 个 JS/Python 文件与已发布包逐字节一致。
+
+安装前最后只读核对在 03:33:28Z：运行 Host 仍为 Experiment 0.5.362、SFTP 0.2.92，无活动 SFTP 文件操作。安装后停止当前面板、插件 API 和服务器操作，没有把安装版本冒充已重载运行版本。等待用户 Developer: Reload Window 后，再通过只读查询验收新清单和容量时间；不重新提交或重跑任务。本次未升级远端 Agent/Scheduler，未改动项目、环境、指标、日志或权重，未执行清理。现场加速结论仍待新版实际运行后确认。本节为文档回执补记，不改变 tag、确定包或安装字节。
