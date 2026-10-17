@@ -68,10 +68,26 @@ export async function readLatestResultExport(root: string, directory: string): P
   return value;
 }
 async function writeTables(root: string, directory: string, value: LatestResultExport, current: () => boolean) {
-  for (const table of value.tables) for (const [relative, text] of [[table.relativePath, writeCsv(table.header, table.rows)], [table.markdownPath, table.markdown]]) {
-    if (!current()) throw Error("结果导出已取消或工作区已变化");
-    const file = await safeFile(root, directory, relative);
-    await atomicWriteText(file, text, { beforeRename: async () => { if (!current()) throw Error("结果导出已取消或工作区已变化"); await safeFile(root, directory, relative); } });
+  const entries = value.tables.flatMap(table => [[table.relativePath, writeCsv(table.header, table.rows)], [table.markdownPath, table.markdown]]);
+  if (new Set(entries.map(([relative]) => relative)).size !== entries.length) throw Error("RESULT_EXPORT_DUPLICATE_PATH");
+  for (let offset = 0; offset < entries.length; offset += 4) {
+    const settled = await Promise.allSettled(entries.slice(offset, offset + 4).map(async ([relative, text]) => {
+      if (!current()) throw Error("结果导出已取消或工作区已变化");
+      const file = await safeFile(root, directory, relative);
+      // Read actual bytes, never timestamps: unchanged tables need no durable flush/rename.
+      const expected = Buffer.from(text, "utf8");
+      const stat = await fs.stat(file).catch(error => error?.code === "ENOENT" ? undefined : Promise.reject(error));
+      const existing = stat?.size === expected.length ? await fs.readFile(file) : undefined;
+      if (existing?.equals(expected)) {
+        await safeFile(root, directory, relative);
+        if (!current()) throw Error("结果导出已取消或工作区已变化");
+        return;
+      }
+      await atomicWriteText(file, text, { beforeRename: async () => { if (!current()) throw Error("结果导出已取消或工作区已变化"); await safeFile(root, directory, relative); } });
+    }));
+    // Keep the writer until all concurrent writes have drained, including on error.
+    const failed = settled.find(row => row.status === "rejected");
+    if (failed?.status === "rejected") throw failed.reason;
   }
 }
 export async function regenerateLatestResultTables(root: string, directory: string, _value: LatestResultExport, current = () => true) {

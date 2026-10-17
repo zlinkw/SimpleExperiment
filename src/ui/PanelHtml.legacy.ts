@@ -14452,7 +14452,7 @@ export function renderPanelHtml(): string {
         const blockedOnly = currentJobs.length > 0 && blockedCount === currentJobs.filter((job) => String(job.status || "") === "pending" || ["dispatching", "queued", "running", "unknown"].includes(String(job.status || ""))).length && blockedCount > 0 && !currentJobs.some((job) => ["dispatching", "queued", "running", "unknown", "failed"].includes(String(job.status || "")));
         const queued = currentJobs.filter((job) => ["pending", "queued"].includes(String(job.status || "")) && !fingerprintBlocked(job)).length;
         const missingWindows = currentJobs.filter((job) => job.lifecycleProtocol === 2 && job.executionState === "missing" && !job.statusQueryError).length;
-        const unknown = currentJobs.filter((job) => String(job.status || "") === "unknown" && distributedJobIsActive(job)).length;
+        const unknown = currentJobs.filter((job) => String(job.status || "") === "unknown").length;
         const dispatching = currentJobs.filter((job) => String(job.status || "") === "dispatching").length;
         const running = currentJobs.length ? currentJobs.filter((job) => String(job.status || "") === "running").length
           : submission ? 0 : group.tasks.filter((row) => TASK_LIVE_STATUS_TOKENS?.has(taskStatusToken(row.status))).length;
@@ -14635,7 +14635,7 @@ export function renderPanelHtml(): string {
       const openItems = items.filter((item) => !collapsedExecutionPlanKeys.has(item.key));
       const quietCompleted = (item) => {
         const stopClear = stopClearForPlan(item.planFile);
-        return item.tone === "completed" && (!stopClear || stopClearNewerThan(item, stopClear)
+        return item.tone === "completed" && item.totalJobs > 0 && item.completed === item.totalJobs && (!stopClear || stopClearNewerThan(item, stopClear)
           || String(stopClear.outcome || "") === "completed");
       };
       const completedHistory = openItems.filter(quietCompleted);

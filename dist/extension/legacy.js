@@ -12843,6 +12843,14 @@ class RealtimeTunnelPanelProvider {
         const currentPlan = await fs.readFile(path.join(root, plan.planFile), "utf8");
         if (crypto.createHash("sha256").update(currentPlan, "utf8").digest("hex") !== plan.revision)
             throw new Error("PLAN 已变化；请重新校验、预演并提交当前声明，旧卡片未重排。");
+        // Check deterministic source conflicts before any network wait or stop
+        // intent. A retry cannot cancel the original and only then discover that
+        // its immutable config/source no longer exists locally.
+        const originalSource = await PlanCodeScopeHost.resolvePlanExecutionSource(this, plan);
+        if (originalSource)
+            await PlanCodeScopeHost.verifyLocalPlanSource(root, originalSource);
+        if (!isCurrent())
+            return;
         const { state } = await PulledTaskControl.queryTask(this.client, plan, job);
         if (!isCurrent())
             return;
@@ -32688,6 +32696,8 @@ function escapeRegex(value) {
 }
 function actionErrorSuggestion(message) {
     const text = String(message || "");
+    if (/PLAN_SOURCE_CHANGED|PLAN_SOURCE_BASELINE|PLAN_SOURCE_LINK/i.test(text))
+        return "原任务绑定的源码或配置与本机文件不一致，刷新状态不能消除此冲突。先核对提示的文件和版本；若要使用当前代码，请重新校验当前 PLAN 并仅选择需要的 job 提交，保留其他任务和产物。";
     if (/未提交|旧代码版本|代码版本|version hold|deferred|排队记录/i.test(text))
         return "本次没有提交，也不会自动接续。打开运行进度，点“刷新状态”和日志核实前序；确认前序已停后，才点前序 Plan 的“终止并清除该 Plan”。再到实验准备的 Plan 列表手动选中，点“校验并提交运行”。";
     if (/capability|endpoint|404|not found|缺少能力/i.test(text))

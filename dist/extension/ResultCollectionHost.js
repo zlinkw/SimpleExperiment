@@ -101,14 +101,8 @@ class ResultCollectionHost {
     async update(signal) {
         if (this.request)
             return this.request;
-        const run = (async () => {
-            let value;
-            do {
-                this.again = false;
-                value = await this.collect(signal);
-            } while (this.again && !signal?.aborted && !this.h.panelDisposed);
-            return value;
-        })();
+        this.again = false;
+        const run = this.collect(signal);
         this.request = run;
         try {
             return await run;
@@ -116,6 +110,20 @@ class ResultCollectionHost {
         finally {
             if (this.request === run)
                 this.request = undefined;
+            // New completions request a separate refresh; they cannot keep the current
+            // user's request open through an unbounded sequence of full collections.
+            if (this.again && !this.timer && !signal?.aborted && !this.h.panelDisposed) {
+                this.timer = setTimeout(() => {
+                    this.timer = undefined;
+                    if (this.h.panelDisposed)
+                        return;
+                    void this.update().catch((error) => {
+                        this.seen.clear();
+                        this.h.recordActionError?.({ command: "updateResultSummary", message: String(error.message || error) });
+                    });
+                }, 250);
+                this.timer.unref?.();
+            }
         }
     }
     async collect(signal) {
@@ -124,19 +132,36 @@ class ResultCollectionHost {
             throw Error("请先打开当前实验项目。");
         const targets = h.workerCodeSyncTargets();
         const key = () => JSON.stringify(h.workerCodeSyncTargets().map((row) => [row.id, row.host, row.user, row.port, row.remotePath, row.condaEnv]));
-        const binding = key(), client = h.client;
+        const binding = key();
         const current = () => !signal?.aborted && h.projectContextIsCurrent(context) && key() === binding;
         const check = () => { if (!current())
             throw Error("结果查询已取消或项目/服务器配置已变化。"); };
+        const started = Date.now(), timing = {};
         const inputs = await h.currentResultPlanInputs();
         check();
+        timing.localPlansMs = Date.now() - started;
+        const discoveryStarted = Date.now();
         const plans = [], declarationErrors = [];
-        for (const plan of inputs) {
+        // A transport failure belongs to this refresh, not to each of its PLANs.
+        // Do not quarantine declaration mismatches: another PLAN on this Worker may be valid.
+        const unavailable = new Map();
+        const discover = async (plan) => {
             let jobs;
             for (const worker of targets) {
+                if (unavailable.has(worker.id))
+                    continue;
                 try {
-                    const response = await client.getWorkerTasks(worker.id, { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000),
-                        discovery: { planFile: plan.planFile, condaEnv: worker.condaEnv || "", collect: true } });
+                    let response;
+                    try {
+                        response = await h.client.getWorkerTasks(worker.id, { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000),
+                            discovery: { planFile: plan.planFile, condaEnv: worker.condaEnv || "", collect: true } });
+                    }
+                    catch (error) {
+                        const message = String(error.message || error);
+                        if (error.name === "TimeoutError" || /fetch failed|ECONNREFUSED|ECONNRESET|EHOSTUNREACH|ENETUNREACH|ENOTFOUND|ETIMEDOUT|socket hang up|network error/i.test(message))
+                            unavailable.set(worker.id, message);
+                        throw error;
+                    }
                     check();
                     if (response.queryComplete !== true || response.capabilities?.resultCollection !== 1)
                         throw Error("请更新此 Worker 的 Agent/Scheduler，以支持直接结果读取");
@@ -150,19 +175,33 @@ class ResultCollectionHost {
                 }
             }
             if (!jobs)
-                continue;
+                return undefined;
             const declared = jobs.map((job) => ({ planFile: (0, FreshResults_1.resultPath)(plan.planFile), index: Number(job.index), case: String(job.case), seed: Number(job.seed),
                 output_dir: (0, FreshResults_1.resultPath)(job.output_dir), result_csv: job.result_csv ? (0, FreshResults_1.resultPath)(job.result_csv) : "", mode: plan.mode }));
             if (declared.some((job) => !Number.isInteger(job.index) || !Number.isInteger(job.seed) || !job.case || !["train", "test", "train_test"].includes(job.mode)))
                 throw Error("PLAN_JOB_DECLARATION_INVALID");
-            plans.push({ ...plan, jobs: declared });
+            return { ...plan, jobs: declared };
+        };
+        // Bound pressure on slow tunnels and preserve PLAN order. All enabled Workers
+        // still receive the complete declarations/file verification below.
+        for (let offset = 0; offset < inputs.length; offset += 4) {
+            const settled = await Promise.allSettled(inputs.slice(offset, offset + 4).map(discover));
+            const failed = settled.find(row => row.status === "rejected");
+            if (failed?.status === "rejected")
+                throw failed.reason;
+            for (const row of settled)
+                if (row.status === "fulfilled" && row.value)
+                    plans.push(row.value);
+            check();
         }
+        timing.declarationsMs = Date.now() - discoveryStarted;
+        const observationStarted = Date.now();
         const declarations = plans.flatMap(plan => plan.jobs.map(job => ({ ...job, collect: true })));
         const snapshots = await Promise.all(targets.map(async (worker) => {
             const values = [];
             try {
                 for (let offset = 0; offset < Math.max(1, declarations.length); offset += 500) {
-                    const value = await client.getWorkerTasks(worker.id, { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000),
+                    const value = await h.client.getWorkerTasks(worker.id, { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30000)]) : AbortSignal.timeout(30000),
                         queries: [], declarations: declarations.slice(offset, offset + 500) });
                     check();
                     if (value.queryComplete !== true || value.capabilities?.resultCollection !== 1)
@@ -176,6 +215,9 @@ class ResultCollectionHost {
             }
         }));
         check();
+        timing.observationsMs = Date.now() - observationStarted;
+        const receiveStarted = Date.now();
+        let memoryRequests = 0, memoryFiles = 0;
         const receive = async (workerId, files) => {
             const capability = await h.simpleSftpCapability("sync.downloadMappedPaths");
             check();
@@ -193,6 +235,8 @@ class ResultCollectionHost {
                     batches.push([file]);
             }
             for (const batch of batches) {
+                memoryRequests++;
+                memoryFiles += batch.length;
                 const response = await h.simpleSftpApiCall("sync.downloadMappedPaths", { server, localPath: root,
                     entries: batch.map(file => ({ ...file, localRelativePath: file.remotePath })), memoryOnly: true, metricsOnly: true, wrapperResults: true,
                     maxFileBytes: 4 * 1024 * 1024, maxBatchBytes: 4 * 1024 * 1024, confirm: true, pathConfirmed: true, signal });
@@ -213,6 +257,7 @@ class ResultCollectionHost {
         };
         const result = await (0, FreshResults_1.collectFreshResults)(plans, snapshots, receive, (text, job) => h.parseFreshResultMetric(text, job), h.resultAdapterRules().planDatasetMapping || {}, current);
         check();
+        timing.metricsMs = Date.now() - receiveStarted;
         // A failed declaration cannot make an entire PLAN silently disappear from a new export.
         result.errors.push(...declarationErrors);
         for (const plan of inputs.filter((row) => !plans.some(item => item.planFile === row.planFile))) {
@@ -225,11 +270,13 @@ class ResultCollectionHost {
                 throw Error("PLAN 已变化，未发布过期结果。");
         }
         check();
+        const publicationStarted = Date.now();
         const tables = { ...(0, FreshResults_1.freshResultTables)(result, plans, h.resultAdapterRules().derivedMetric),
             ...Object.fromEntries(Object.entries((0, FreshResults_1.freshResultTables)(result, plans, h.resultAdapterRules().derivedMetric, true)).map(([key, value]) => ["review/" + key, value])) };
         const directory = h.resultCsvDirectory || "experiments/results";
         const published = await (0, LatestResultExport_1.publishLatestResult)(root, directory, result, tables, current);
         check();
+        timing.publicationMs = Date.now() - publicationStarted;
         const coverage = Object.fromEntries(inputs.map((plan) => [plan.planFile, {
                 expected: plans.find(row => row.planFile === plan.planFile)?.jobs.length || plan.jobCount || 0,
                 completed: result.jobs.filter(job => job.planFile === plan.planFile && job.state === "complete" && job.completionState === "verified" && job.executionState !== "failed").length,
@@ -237,6 +284,7 @@ class ResultCollectionHost {
                 reviewRequired: result.jobs.filter(job => job.planFile === plan.planFile && job.state === "complete" && (job.completionState !== "verified" || job.executionState === "failed")).length
             }]));
         const report = { source: "active_query", observedAt: result.observedAt, current: published, merged: published, downloaded: result.records.length > 0, planCoverage: coverage,
+            queryTiming: timing, memoryRequests, memoryFiles,
             plans: plans.map(plan => plan.planFile), discovered: inputs.length, included: [...new Set(result.records.map(row => row.planFile))],
             missing: result.jobs.filter(job => job.state !== "complete").map(job => job.planFile + " · " + job.case + "/" + job.seed + "：" + (job.error || job.state)),
             skipped: result.errors, jobs: result.jobs, completed: result.jobs.filter(job => job.state === "complete" && job.completionState === "verified" && job.executionState !== "failed").length,
@@ -252,6 +300,7 @@ class ResultCollectionHost {
         h.resultSyncReport = brief;
         if (published)
             await h.refreshLocalResultCatalogForProject(context);
+        timing.totalMs = Date.now() - started;
         h.postState?.();
         return report;
     }

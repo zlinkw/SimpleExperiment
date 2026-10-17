@@ -2,10 +2,28 @@ const test=require('node:test'),assert=require('node:assert/strict'),os=require(
 require('../_helpers/registerTsRequire');
 const {analyzeRuntimeLog}=require('../../src/extension/RuntimeLogAnalysisHost.ts');
 function hostMethod(name,globals={}){
- const text=fs.readFileSync(path.join(__dirname,'../../src/extension/legacy.ts'),'utf8'),ast=ts.createSourceFile('host.ts',text,ts.ScriptTarget.Latest,true);let member;
+ let text=fs.readFileSync(path.join(__dirname,'../../src/extension/legacy.ts'),'utf8');
+ if(process.env.SIMPLE_RETRY_BASELINE==='1'){
+  const read=require('node:child_process').spawnSync('git',['show','789c9144037ffd57a658cd7118121e694fcce960:src/extension/legacy.ts'],{encoding:'utf8',maxBuffer:8*1024*1024,timeout:10000,windowsHide:true});
+  assert.equal(read.status,0);text=read.stdout;
+ }
+ const ast=ts.createSourceFile('host.ts',text,ts.ScriptTarget.Latest,true);let member;
  function visit(n){if(ts.isMethodDeclaration(n)&&n.name.getText(ast)===name)member=n;ts.forEachChild(n,visit)}visit(ast);assert.ok(member,name);
- return vm.runInNewContext(ts.transpileModule('class Host{'+member.getText(ast)+'};Host.prototype.'+name,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,globals);
+ return vm.runInNewContext(ts.transpileModule('class Host{'+member.getText(ast)+'};Host.prototype.'+name,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,
+  {PlanCodeScopeHost:{resolvePlanExecutionSource:async()=>undefined},...globals});
 }
+test('changed original source rejects rerun before remote queries, stop fences, cleanup or queue mutation',async()=>{
+ const crypto=require('node:crypto'),scope=require('../../src/extension/PlanCodeScopeHost.ts');
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'se-retry-source-'));fs.mkdirSync(path.join(root,'configs'));
+ fs.writeFileSync(path.join(root,'plan.yaml'),'plan','utf8');fs.writeFileSync(path.join(root,'configs/base.yaml'),'changed config','utf8');
+ const original='original config',revision=crypto.createHash('sha256').update('plan').digest('hex');
+ const manifest={'plan.yaml':{size:4,sha256:revision},'configs/base.yaml':{size:Buffer.byteLength(original),sha256:crypto.createHash('sha256').update(original).digest('hex')}};
+ const plan={planFile:'plan.yaml',revision,executionSource:{manifest,digest:crypto.createHash('sha256').update(JSON.stringify(Object.keys(manifest).sort().map(key=>[key,manifest[key]]))).digest('hex')}};
+ const retry=hostMethod('retryPulledJob',{fs:require('node:fs/promises'),path,crypto,PlanCodeScopeHost:scope,
+  PulledTaskControl:{queryTask:()=>assert.fail('must reject before querying'),stopPulledTask:()=>assert.fail('must not cancel')},
+  PlanRunHost:class{constructor(){assert.fail('must not review/delete');}}});
+ for(let i=0;i<3;i++)await assert.rejects(retry.call({client:{},saveDistributedQueue:()=>assert.fail('must not requeue')},plan,{},root,()=>true),/PLAN_SOURCE_CHANGED: configs\/base.yaml/);
+});
 function fixture(){
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'se-explicit-log-review-')),context={root};let calls=0,ids=[];
  const job={index:0,commandId:'old-command',workerId:'w',outputDir:'work/job',status:'completed'},queue={plans:[{id:'wf',jobs:[job]}]},before=JSON.stringify(queue);

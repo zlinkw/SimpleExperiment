@@ -5,6 +5,24 @@ const { readSource } = require("../_helpers/sourceReader");
 
 const panel = readSource("src/ui/PanelHtml.ts");
 
+test('five confirmed jobs plus one missing seed remain outside completed PLAN history through refreshes',()=>{
+  const sandbox=clickSandbox(),jobs=Array.from({length:6},(_,index)=>({index,case:'corim_pad_p100',seed:42+index,
+    status:index===5?'unknown':'completed',completionState:index===5?'unverified':'verified',lifecycleProtocol:2,
+    executionState:index===5?'missing':'exited',resultState:index===5?'incomplete':'complete',
+    commandId:'command'+index,workerId:'h20',outputDir:'work/job'+index}));
+  const state={distributedPlans:[{id:'wf',planFile:'plans/corim.yaml',jobs}]};
+  for(let i=0;i<3;i++){
+    sandbox.render(structuredClone(state));
+    assert.match(sandbox.html,/成功 5\/6/);
+    assert.doesNotMatch(sandbox.html,/已完成 Plan 历史/);
+    assert.match(sandbox.html,/executionPlanRow blocked/);
+    assert.match(sandbox.html,/待核实/);
+  }
+  const done=structuredClone(state);Object.assign(done.distributedPlans[0].jobs[5],{status:'completed',completionState:'verified',resultState:'complete'});
+  sandbox.render(done);assert.match(sandbox.html,/已完成 Plan 历史 1/);
+  sandbox.render(state);assert.doesNotMatch(sandbox.html,/已完成 Plan 历史/);
+});
+
 test('complete PLAN cards exclude anomalies and unverified logs from clean success and retain concise evidence',()=>{
   for(const completionState of ['verified','review_required',undefined]){
     const sandbox=clickSandbox(),diagnostics={schemaVersion:1,commandId:'c',runId:'c',state:completionState==='review_required'?'anomalous':'clear',
@@ -845,11 +863,12 @@ test("completed history displays run-scoped global artifact verification without
   assert.match(sandbox.html, /全局同步待核验/);
 });
 
-test("queried absent historical windows are not shown as dispatched or waiting for verification", () => {
+test("queried absent historical windows reserve no active slot and never count as a completed PLAN", () => {
   const sandbox=clickSandbox();
   sandbox.render({distributedPlans:[{id:'old',planFile:'plans/old.yaml',enqueuedAt:'2026-09-01T00:00:00Z',jobs:[{
     index:0,case:'old',seed:42,lifecycleProtocol:2,status:'unknown',executionState:'missing',resultState:'unverified',workerId:'w',commandId:'old'
   }]}]});
-  assert.match(sandbox.html,/远端未发现执行窗口/);
-  assert.doesNotMatch(sandbox.html,/待核实 1|· 派发 1|· 排队 1|· 运行 1/);
+  assert.match(sandbox.html,/未发现执行窗口 1/);
+  assert.match(sandbox.html,/待核实 1/);
+  assert.doesNotMatch(sandbox.html,/已完成 Plan 历史|· 派发 1|· 排队 1|· 运行 1/);
 });

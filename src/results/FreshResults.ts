@@ -18,6 +18,44 @@ export function resultPath(value: string): string {
 }
 export const resultDigest = (text: string) => createHash("sha256").update(text, "utf8").digest("hex");
 
+/** Coalesce only simultaneous reads in this invocation; failed batches are isolated per job.
+ * No cached bytes survive a chunk, and every consumer still verifies its own exact proof. */
+function batchResultReads(receive: (worker: string, files: ResultSource[]) => Promise<any[]>, current: () => boolean) {
+  let pending: { worker: string; files: ResultSource[]; resolve: (value: any[]) => void; reject: (error: unknown) => void }[] = [];
+  return (worker: string, files: ResultSource[]) => new Promise<any[]>((resolve, reject) => {
+    pending.push({ worker, files, resolve, reject });
+    if (pending.length !== 1) return;
+    queueMicrotask(() => {
+      const requests = pending; pending = [];
+      const groups = new Map<string, typeof requests>();
+      for (const request of requests) { const group = groups.get(request.worker) || []; group.push(request); groups.set(request.worker, group); }
+      for (const [id, group] of groups) void (async () => {
+        const batches: typeof requests[] = []; let bytes = 0;
+        for (const request of group) {
+          const size = request.files.reduce((sum, file) => sum + file.bytes, 0);
+          if (!batches.length || bytes + size > 4 * 1024 * 1024) { batches.push([]); bytes = 0; }
+          batches[batches.length - 1].push(request); bytes += size;
+        }
+        for (const batch of batches) {
+          try {
+            if (!current()) throw Error("结果查询已取消或工作区已变化");
+            const values = await receive(id, batch.flatMap(request => request.files));
+            // Exact membership/count is checked per consumer; never hide duplicates or undeclared files.
+            const expected = new Set(batch.flatMap(request => request.files.map(file => file.remotePath)));
+            if (values.some(value => !expected.has(value.remotePath))) throw Error("RESULT_MEMORY_READ_UNDECLARED");
+            for (const request of batch) request.resolve(values.filter(value => request.files.some(file => file.remotePath === value.remotePath)));
+          } catch (error) {
+            for (const request of batch) {
+              if (batch.length === 1 || !current()) { request.reject(error); continue; }
+              try { request.resolve(await receive(id, request.files)); } catch (isolated) { request.reject(isolated); }
+            }
+          }
+        }
+      })().catch(error => group.forEach(request => request.reject(error)));
+    });
+  });
+}
+
 /** Each invocation owns its inputs. No disk registry, previous rows, or queue can fill a missing result. */
 export async function collectFreshResults(plans: ResultPlan[], snapshots: any[], receive: (workerId: string, files: ResultSource[]) => Promise<any[]>,
   parse: (text: string, job: ResultDeclaration) => any[], mappings: Record<string, any> = {}, current = () => true): Promise<FreshResult> {
@@ -25,14 +63,19 @@ export async function collectFreshResults(plans: ResultPlan[], snapshots: any[],
   const online = snapshots.filter(row => row.queryComplete === true && !row.error);
   result.errors = snapshots.filter(row => !online.includes(row)).map(row => row.workerId + "：" + (row.error || "实时查询未完成"));
   result.querySucceeded = online.length > 0;
-  for (const plan of plans) for (const job of plan.jobs) {
+  const read = batchResultReads(receive, current);
+  const entries = plans.flatMap(plan => plan.jobs.map(job => ({ plan, job })));
+  // At most sixteen jobs retain raw bytes at once; preserve declaration order after joining.
+  for (let offset = 0; offset < entries.length; offset += 16) {
+    const settled = await Promise.allSettled(entries.slice(offset, offset + 16).map(async ({ plan, job }) => {
+    const result: FreshResult = { observedAt: "", jobs: [], records: [], errors: [], querySucceeded: true };
     if (!current()) throw Error("结果查询已取消或工作区已变化");
     resultPath(job.output_dir); if (job.result_csv) resultPath(job.result_csv);
     const item: ResultJob = { planFile: plan.planFile, index: job.index, case: job.case, seed: job.seed, outputDir: job.output_dir, state: "unknown" };
     result.jobs.push(item);
     const tasks = online.flatMap(snapshot => (snapshot.tasks || []).filter((task: any) => task.outputDir === job.output_dir));
     if (tasks.some(task => task.observation?.queryError || task.observation?.tmux && !task.observation.tmux.dead)) {
-      item.state = "incomplete"; item.executionState = tasks.some(task => task.observation?.queryError) ? "unknown" : "running"; continue;
+      item.state = "incomplete"; item.executionState = tasks.some(task => task.observation?.queryError) ? "unknown" : "running"; return result;
     }
     const candidates = online.flatMap(snapshot => (snapshot.declaredResults || [])
       .filter((row: any) => row.outputDir === job.output_dir && row.index === job.index)
@@ -42,10 +85,10 @@ export async function collectFreshResults(plans: ResultPlan[], snapshots: any[],
       const issues = candidates.filter(row => row.error);
       item.state = issues.length || candidates.length < snapshots.length ? "unknown"
         : candidates.every(row => row.resultState === "missing") ? "missing" : "incomplete";
-      item.error = issues.map(row => row.workerId + "：" + row.error).join("；") || undefined; continue;
+      item.error = issues.map(row => row.workerId + "：" + row.error).join("；") || undefined; return result;
     }
     const signatures = new Set(valid.map(row => JSON.stringify([row.runId, row.files.map((file: ResultSource) => [file.remotePath, file.bytes, file.sha256])])));
-    if (signatures.size !== 1) { item.state = "conflict"; item.error = "服务器副本的执行身份或指标内容冲突"; continue; }
+    if (signatures.size !== 1) { item.state = "conflict"; item.error = "服务器副本的执行身份或指标内容冲突"; return result; }
     for (const source of valid) {
       try {
         const manifestPath = job.output_dir + "/artifact_manifest.json";
@@ -53,7 +96,7 @@ export async function collectFreshResults(plans: ResultPlan[], snapshots: any[],
         if (source.files.length !== needed.length || source.files.some((file: ResultSource) => !needed.includes(resultPath(file.remotePath))
           || !Number.isSafeInteger(file.bytes) || file.bytes <= 0 || file.bytes > 4 * 1024 * 1024 || !/^[a-f0-9]{64}$/.test(file.sha256)))
           throw Error("RESULT_FILES_INVALID");
-        const files = await receive(source.workerId, source.files);
+        const files = await read(source.workerId, source.files);
         if (files.length !== needed.length || new Set(files.map(file => file.remotePath)).size !== needed.length) throw Error("RESULT_FILES_INCOMPLETE");
         for (const file of files) {
           const expected = source.files.find((row: ResultSource) => row.remotePath === file.remotePath);
@@ -111,6 +154,15 @@ export async function collectFreshResults(plans: ResultPlan[], snapshots: any[],
         if (item.executionState === "failed") result.errors.push(plan.planFile + " · " + job.case + "/" + job.seed + "：执行以非零退出码结束；产物状态单独显示为完整。");
         result.records.push(...records); item.error = undefined; break;
       } catch (error: any) { item.state = "unknown"; item.error = source.workerId + "：" + String(error.message || error); }
+    }
+    if (!current()) throw Error("结果查询已取消或工作区已变化");
+    return result;
+    }));
+    // Drain every in-flight read before cancellation/publication can release its owner.
+    const failed = settled.find(row => row.status === "rejected");
+    if (failed?.status === "rejected") throw failed.reason;
+    for (const row of settled) if (row.status === "fulfilled") {
+      result.jobs.push(...row.value.jobs); result.records.push(...row.value.records); result.errors.push(...row.value.errors);
     }
   }
   return result;
