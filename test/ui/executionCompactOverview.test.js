@@ -93,6 +93,28 @@ test('production panel projection preserves independent states and redraws resul
   const changed=structuredClone(state);changed.distributedPlans[0].jobs[0].resultState='incomplete';
   assert.notEqual(sandbox.executionRenderKeysForState(state).planList,sandbox.executionRenderKeysForState(changed).planList);
 });
+test('real panel projection and rendered PLAN/job labels share the current synchronization confirmation',()=>{
+ const feature=require('../../dist/features/PlanArtifactSyncStatus.js'),{latestJobSyncKey}=require('../../dist/features/LatestJobArtifacts.js');
+ const {completionIdentity}=require('../../dist/features/VerifiedCompletion.js');
+ const root='d:/project',targets=['a','b','c','d'].map(id=>({id,host:id,port:22,user:'u',remotePath:'/project'}));
+ const plan={id:'wf',projectId:root,planFile:'plans/sync.yaml',revision:'r',planJobCount:1,fullPlanJobCount:1,executionMode:'test',resultPathPolicy:'declared',jobs:[]};
+ const job={index:0,case:'a',seed:42,status:'completed',completionState:'verified',lifecycleProtocol:2,executionState:'exited',resultState:'complete',exitCode:0,
+  workerId:'a',commandId:'command',globalJobId:'wf:0',outputDir:'work/job',collectionResultCsv:'work/job/metrics.csv'};
+ plan.jobs=[job];job.verifiedCompletion={schemaVersion:1,exitCode:0,verifiedAt:'2026-10-15T00:00:00Z',identity:completionIdentity(plan,job)};
+ job.latestArtifactSync={state:'synced',scopes:[job.outputDir],workerIds:targets.map(t=>t.id),checkedAt:'2026-10-15T01:00:00Z',key:latestJobSyncKey(plan,job,[job.outputDir],targets)};
+ const source=readSource('src/extension/legacy.ts'),start=source.indexOf('const distributedPlans = visibleDistributedPlanProgress.map('),end=source.indexOf('const summaryInputs =',start);
+ for(const changed of [false,true]){
+  const configured=structuredClone(targets);if(changed)configured[0].host='replacement-server';
+  const projected=vm.runInNewContext(source.slice(start,end)+'distributedPlans;',{
+   visibleDistributedPlanProgress:[plan],DistributedPlanQueue:{jobIsUnavailable:()=>false},PlanArtifactSyncStatus:feature,
+   workerCodeSyncTargets:()=>configured,workspaceRoot:()=>root,normalizeMirrorScopePaths:x=>x,
+   vscode:{workspace:{getConfiguration:()=>({get:()=>['.']})},Uri:{file:x=>x}}});
+  const sync=feature.confirmedPlanArtifactSync(plan,configured,['.']),sandbox=clickSandbox();
+  sandbox.render({distributedPlans:projected,planArtifactSyncStatuses:sync?{wf:sync}:{}});
+  if(!changed){assert.match(sandbox.html,/已全局同步最新产物/);assert.match(sandbox.html,/4\/4 Worker/);assert.match(sandbox.html,/已同步到全部启用服务器/);assert.doesNotMatch(sandbox.html,/正在核验全局同步|全局同步待核验/);}
+  else{assert.doesNotMatch(sandbox.html,/已同步到全部启用服务器|已全局同步最新产物/);assert.match(sandbox.html,/未完成，可刷新重试/);}
+ }
+});
 
 test('failed jobs show a short error and a window-log button instead of embedding the terminal', () => {
   const sandbox = clickSandbox();

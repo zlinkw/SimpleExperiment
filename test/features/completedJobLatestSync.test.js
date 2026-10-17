@@ -33,6 +33,14 @@ test('first completed job merges latest files to every Worker while its sibling 
  assert.equal(f.inventory.b['work_dirs/p/job0/model.pth'].sha256,'a'.repeat(64));assert.equal(f.jobs[0].latestArtifactSync.state,'synced');assert.equal(f.jobs[1].latestArtifactSync,undefined);
  const queries=f.queries.length;await f.run();assert.equal(f.transfers.length,2);assert.equal(f.queries.length,queries);assert.deepEqual(f.errors,[]);
 });
+test('newly observed artifact hashes invalidate the old content confirmation without rerunning the task',async()=>{
+ const f=fixture();await f.run();const receipt=structuredClone(f.jobs[0].latestArtifactSync),file='work_dirs/p/job0/model.pth';
+ assert.equal(typeof receipt.artifactDigest,'string');f.inventory.a[file].sha256='c'.repeat(64);f.jobs[0].artifacts[file]='c'.repeat(64);
+ await f.run();assert.equal(f.jobs[0].status,'completed');assert.equal(f.jobs[0].commandId,'command0');
+ assert.equal(f.inventory.b[file].sha256,'c'.repeat(64));assert.equal(f.inventory.c[file].sha256,'c'.repeat(64));
+ assert.notEqual(f.jobs[0].latestArtifactSync.artifactDigest,receipt.artifactDigest);
+ assert.equal(f.jobs[0].latestArtifactSync.state,'synced');
+});
 test('source verification failure is distinguished from a transfer failure and repeated diagnostics are coalesced',async()=>{
  const f=fixture();f.h.client.getWorkerTasks=async(_,options)=>{assert.equal(options.selectedOnly,true);assert.notEqual(options.executionOnly,true);throw Error('任务状态查询超时');};
  await f.run();assert.equal(f.transfers.length,0);assert.equal(f.jobs[0].status,'completed');

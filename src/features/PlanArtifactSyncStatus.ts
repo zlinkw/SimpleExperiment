@@ -4,13 +4,56 @@ import { safePlanArtifactPath } from "./PlanArtifactSync";
 import { collectDistributedJobArtifacts } from "./DistributedJobArtifacts";
 import { jobEvidenceName } from "../results/NativeResultManifest";
 import { composeLogicalPlans } from "./LogicalPlanProgress";
+import { jobArtifactScopes, latestJobSyncKey } from "./LatestJobArtifacts";
+import { hasVerifiedCompletion } from "./VerifiedCompletion";
 
 export type PlanArtifactSyncStatus = {
   runId: string; revision: string; status: "checking" | "synced" | "partial" | "unknown";
   checkedAt: string; targetCount: number; syncedCount: number;
   pendingWorkerIds: string[]; unavailableWorkerIds: string[]; detail: string;
+  source?: "job_confirmations" | "filesystem" | "combined";
 };
 const planKey = (value: unknown) => String(value || "").replace(/\\/g, "/").toLowerCase();
+export const jobArtifactSyncDigest = (job: any): string => createHash("sha256").update(JSON.stringify(
+  Object.entries(job.artifacts || {}).sort(([a], [b]) => a.localeCompare(b)))).digest("hex");
+
+/** Reuse a confirmed transfer, never its timestamp as a new remote observation. */
+export function reusableJobArtifactSync(plan: any, job: any, targets: any[], selected: string[], holds: Record<string, any> = {}): boolean {
+  const receipt = job.latestArtifactSync, owner = { ...plan, id: job.sourcePlanId || plan.id };
+  if (!receipt || receipt.state !== "synced" || !Number.isFinite(Date.parse(receipt.checkedAt)) || !targets.length
+    || job.status !== "completed" || job.cleanup || plan.cleanup || job.outputRetiredAt || job.unavailable
+    || job.lifecycleProtocol === 2 && (!hasVerifiedCompletion(owner, job) || job.globalJobId !== `${owner.id}:${job.index}`)
+    || receipt.artifactDigest && receipt.artifactDigest !== jobArtifactSyncDigest(job)
+    || ["missing", "incomplete", "conflict"].includes(job.resultState)) return false;
+  try {
+    const scopes = jobArtifactScopes({ ...job, executionMode: plan.executionMode }, selected);
+    const csv = (job.actualExecutionMode || plan.executionMode) === "train" ? "" : job.collectionResultCsv;
+    if (!scopes.includes(job.outputDir) || csv && !scopes.some(scope => csv === scope || csv.startsWith(scope + "/"))
+      || receipt.key !== latestJobSyncKey(owner, job, scopes, targets)
+      || !Array.isArray(receipt.scopes) || JSON.stringify(receipt.scopes.slice().sort()) !== JSON.stringify(scopes)
+      || targets.some(target => !receipt.workerIds?.includes(target.id))) return false;
+    const overlaps = (a: string, b: string) => a === b || a.startsWith(b + "/") || b.startsWith(a + "/");
+    return !Object.entries(holds).some(([file, hold]) => hold.endpointId !== "local"
+      && Date.parse(hold.deletedAt || "") >= Date.parse(receipt.checkedAt) && scopes.some(scope => overlaps(scope, file)));
+  } catch { return false; }
+}
+
+export function confirmedPlanArtifactSync(plan: any, targets: any[], selected: string[], holds: Record<string, any> = {}): PlanArtifactSyncStatus | undefined {
+  const expected = Number(plan.fullPlanJobCount || plan.planJobCount || plan.jobs.length);
+  if (!expected || plan.jobs.length !== expected || plan.recoveryConflict || plan.recoveryMissingCount > 0
+    || new Set(plan.jobs.map((job: any) => job.index)).size !== expected
+    || !plan.jobs.every((job: any) => reusableJobArtifactSync(plan, job, targets, selected, holds))) return undefined;
+  const checkedAt = plan.jobs.map((job: any) => job.latestArtifactSync.checkedAt).sort()[0];
+  return { runId: plan.id, revision: plan.revision, status: "synced", checkedAt, targetCount: targets.length, syncedCount: targets.length,
+    pendingWorkerIds: [], unavailableWorkerIds: [], source: "job_confirmations",
+    detail: "复用全部 job 对当前服务器和完整产物范围的同步确认；保留原核实时间，未重复扫描目录。" };
+}
+
+/** The job label uses the same context guard as its PLAN. Keep the saved receipt untouched. */
+export function projectJobArtifactSync(plan: any, job: any, targets: any[], selected: string[], holds: Record<string, any> = {}) {
+  if (job.latestArtifactSync?.state !== "synced" || reusableJobArtifactSync(plan, job, targets, selected, holds)) return job.latestArtifactSync;
+  return { ...job.latestArtifactSync, state: "partial", error: "原同步确认不覆盖当前任务、服务器或完整勾选范围，需要重新核实。" };
+}
 
 /** Completion is independent of a previous sync ledger; a same-revision rerun is a new generation. */
 export function latestCompletePlansForSyncCheck(queue: DistributedQueue, metadata: any[] = []): QueuedPlan[] {

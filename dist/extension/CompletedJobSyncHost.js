@@ -5,6 +5,7 @@ const LatestJobArtifacts_1 = require("../features/LatestJobArtifacts");
 const PulledTaskControl_1 = require("../features/PulledTaskControl");
 const DistributedPlanQueue_1 = require("../features/DistributedPlanQueue");
 const SyncResolution_1 = require("../features/SyncResolution");
+const PlanArtifactSyncStatus_1 = require("../features/PlanArtifactSyncStatus");
 /** Per-job completion publication reuses the file tree's newest-version merge, never the whole PLAN gate. */
 class CompletedJobSyncHost {
     h;
@@ -27,7 +28,8 @@ class CompletedJobSyncHost {
                 return;
             const scopes = (0, LatestJobArtifacts_1.jobArtifactScopes)({ ...job, executionMode: plan.executionMode }, selected);
             const key = (0, LatestJobArtifacts_1.latestJobSyncKey)(plan, job, scopes, targets), previous = job.latestArtifactSync;
-            if (previous?.key === key && (["synced", "excluded"].includes(previous.state) || Date.parse(previous.retryAfter || "") > Date.now()))
+            if (previous?.key === key && (previous.state === "excluded" || previous.state === "synced"
+                && (!previous.artifactDigest || previous.artifactDigest === (0, PlanArtifactSyncStatus_1.jobArtifactSyncDigest)(job)) || Date.parse(previous.retryAfter || "") > Date.now()))
                 continue;
             let verificationError = "";
             const assertCurrent = async () => {
@@ -65,7 +67,8 @@ class CompletedJobSyncHost {
                 if (!result || result.errors.length)
                     throw Error(result?.errors?.join("；") || "同步未完成");
                 await assertCurrent();
-                await patch({ latestArtifactSync: { key, state: "synced", scopes, workerIds: targets.map((row) => row.id), checkedAt: new Date().toISOString() },
+                await patch({ latestArtifactSync: { key, state: "synced", scopes, workerIds: targets.map((row) => row.id), checkedAt: new Date().toISOString(),
+                        artifactDigest: (0, PlanArtifactSyncStatus_1.jobArtifactSyncDigest)({ artifacts: { ...job.artifacts, ...result.files } }) },
                     artifactError: undefined, artifactRetryAfter: undefined, artifacts: { ...job.artifacts, ...result.files },
                     ...(scopes.includes(job.outputDir) && (!job.collectionResultCsv || job.actualExecutionMode === "train" || scopes.includes(job.collectionResultCsv))
                         ? { mirroredWorkerIds: targets.map((row) => row.id), replaceMirroredWorkerIds: true } : {}) });

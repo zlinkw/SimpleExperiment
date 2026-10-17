@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.366",
-  "buildId": "5584b790e6a014353a572c7441087dd202e307a33c3397ecb8d2e345c2b82551",
+  "version": "0.5.367",
+  "buildId": "b81b29e8c46bc6e7b9a8916aa6b22f48fa446fa9805466fd2521d68471225126",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -177,7 +177,7 @@
     },
     {
       "path": "dist/extension/CompletedJobSyncHost.js",
-      "sha256": "5b41246a643df1154d1e6ede04f1b23e440d945b6276824d18103c6591f04993"
+      "sha256": "8c7bf8110f395e367d249f14e2271181d80ca6ad11d21c34f6245cbf055f1868"
     },
     {
       "path": "dist/extension/ExtensionContext.js",
@@ -197,7 +197,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "88077612265631179fee8e5a5dae76c1cbfafd859877dabddb3bce573e1def7f"
+      "sha256": "8027a515da40754d6b312ad6d8bdb2acbe757c0123bbbaa0b69faa67a3c5776d"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -445,7 +445,7 @@
     },
     {
       "path": "dist/features/PlanArtifactSyncStatus.js",
-      "sha256": "ae769bd89a5e6cea2508d79093980c3bc2de4f76092b9fe85af146124905ea9c"
+      "sha256": "4bf6a98b61e227eeaacea8d7a58f8c71b32875678de2502519b4944b91ddfd2c"
     },
     {
       "path": "dist/features/PlanArtifactTransfer.js",
@@ -677,7 +677,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "2f4fa1fd0d96872106daaf6fa32ee13cde9c159ccef7268864a4f51138170f1e"
+      "sha256": "a5f0ebdc4f6e73f641bc2b45daa235b375ca652d2be1595f022b2f71ca19da9a"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1025,7 +1025,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "396e0a04635863f8e77e99e39a60fa991d6ac738d6a100355cc9e46a6faab69e"
+      "sha256": "e10e20cf8c0e50cc3c64d68fb5c03ac149823893b7a85c99d4cd78042fed6f22"
     },
     {
       "path": "scripts/check-static.js",

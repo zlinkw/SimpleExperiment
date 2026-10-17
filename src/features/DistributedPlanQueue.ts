@@ -78,7 +78,7 @@ export type QueuedJob = {
   artifactError?: string;
   artifactRetryAfter?: string;
   latestArtifactSync?: { key: string; state: "synced" | "partial" | "excluded"; scopes: string[]; checkedAt: string;
-    workerIds?: string[]; error?: string; retryAfter?: string };
+    workerIds?: string[]; error?: string; retryAfter?: string; artifactDigest?: string };
   outputRetiredAt?: string;
   reconciliationAttempts?: number;
   lastReconciliationAt?: string;

@@ -2,6 +2,7 @@ import { newestJobOutputs, jobArtifactScopes, latestJobSyncKey } from "../featur
 import { queryTask } from "../features/PulledTaskControl";
 import { canonicalProjectId } from "../features/DistributedPlanQueue";
 import { loadSyncHolds } from "../features/SyncResolution";
+import { jobArtifactSyncDigest } from "../features/PlanArtifactSyncStatus";
 
 /** Per-job completion publication reuses the file tree's newest-version merge, never the whole PLAN gate. */
 export class CompletedJobSyncHost {
@@ -16,7 +17,8 @@ export class CompletedJobSyncHost {
       if (!this.current()) return;
       const scopes = jobArtifactScopes({ ...job, executionMode: plan.executionMode }, selected);
       const key = latestJobSyncKey(plan, job, scopes, targets), previous = job.latestArtifactSync;
-      if (previous?.key === key && (["synced", "excluded"].includes(previous.state) || Date.parse(previous.retryAfter || "") > Date.now())) continue;
+      if (previous?.key === key && (previous.state === "excluded" || previous.state === "synced"
+        && (!previous.artifactDigest || previous.artifactDigest === jobArtifactSyncDigest(job)) || Date.parse(previous.retryAfter || "") > Date.now())) continue;
       let verificationError = "";
       const assertCurrent = async () => {
         if (!this.current()) throw Error("同步已停止：项目、连接或清理操作已变化。");
@@ -47,7 +49,8 @@ export class CompletedJobSyncHost {
         });
         if (!result || result.errors.length) throw Error(result?.errors?.join("；") || "同步未完成");
         await assertCurrent();
-        await patch({ latestArtifactSync: { key, state: "synced", scopes, workerIds: targets.map((row: any) => row.id), checkedAt: new Date().toISOString() },
+        await patch({ latestArtifactSync: { key, state: "synced", scopes, workerIds: targets.map((row: any) => row.id), checkedAt: new Date().toISOString(),
+          artifactDigest: jobArtifactSyncDigest({ artifacts: { ...job.artifacts, ...result.files } }) },
           artifactError: undefined, artifactRetryAfter: undefined, artifacts: { ...job.artifacts, ...result.files },
           ...(scopes.includes(job.outputDir) && (!job.collectionResultCsv || job.actualExecutionMode === "train" || scopes.includes(job.collectionResultCsv))
             ? { mirroredWorkerIds: targets.map((row: any) => row.id), replaceMirroredWorkerIds: true } : {}) });

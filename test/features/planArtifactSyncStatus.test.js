@@ -18,6 +18,8 @@ const hash = "a".repeat(64);
 const otherHash = "b".repeat(64);
 const workers = ["worker-a", "worker-b", "worker-c"];
 const required = ["best_model.pth", "test_results/formal_result_rows.csv"];
+const {latestJobSyncKey,jobArtifactScopes}=require('../../dist/features/LatestJobArtifacts.js');
+const {completionIdentity}=require('../../dist/features/VerifiedCompletion.js');
 function plan(id = "B", enqueuedAt = "2026-10-07T10:00:00Z") {
   return { id, planFile: "experiments/plans/comparison/ebmc.yaml", revision: "r1", enqueuedAt, fullPlanJobCount: 6,
     jobs: Array.from({ length: 6 }, (_, index) => ({ index, case: index < 3 ? "bus" : "pad", seed: 42 + index % 3,
@@ -93,11 +95,13 @@ function hostFixture() {
   const members = provider.members.filter(node => methods.has(node.name?.getText(ast))
     || node.name?.getText(ast).startsWith("planArtifactSyncStatus"));
   const clock = { now: Date.now() };
-  const scope = { root: "D:/MultiModal", reads: [], posts: 0, active: 0, peak: 0 };
+  const scope = { root: "D:/MultiModal", reads: [], posts: 0, active: 0, peak: 0, selected:['.'], holds:{} };
   const Host = compile(`export class Host { ${members.map(node => node.getText(ast)).join("\n")} }`, {
     PlanArtifactSyncStatus: feature, workspaceRoot: () => scope.root,
     Date: class extends Date { static now() { return clock.now; } },
     errorMessage: error => String(error.message || error), console,
+    vscode:{workspace:{getConfiguration:()=>({get:()=>scope.selected})},Uri:{file:x=>x}},
+    normalizeMirrorScopePaths:x=>x,loadSyncHolds:async()=>scope.holds,
     mapLimited: async (items, limit, work) => {
       let index = 0;
       await Promise.all(Array.from({ length: Math.min(limit, items.length) }, async () => {
@@ -108,6 +112,7 @@ function hostFixture() {
   const host = new Host();
   Object.assign(host, {
     distributedQueueRoot: scope.root, distributedQueueCache: { plans: [plan()] }, projectContextGeneration: 1, client: {},
+    context:{globalStorageUri:{fsPath:'/plugin-state'}},
     localPlanMetadata: { plans: metadata }, manualResultSyncCounts: new Map(), cacheCleanupConnectionKey: "connected",
     lastWorkerProbes: Object.fromEntries(workers.map(id => [id, { status: "ok" }])),
     isRealtimeMode: () => true, workerCodeSyncTargets: () => workers.map(id => ({ id, remotePath: "/project" })),
@@ -121,6 +126,92 @@ function hostFixture() {
   });
   return { host, scope, clock };
 }
+function confirmedFixture(){
+ const f=hostFixture(),run=f.host.distributedQueueCache.plans[0],targets=f.host.workerCodeSyncTargets();
+ run.projectId='d:/multimodal';run.executionMode='train_test';run.resultPathPolicy='declared';
+ for(const job of run.jobs){job.lifecycleProtocol=2;job.globalJobId=run.id+':'+job.index;job.resultPathPolicy='declared';
+  job.verifiedCompletion={schemaVersion:1,exitCode:0,verifiedAt:'2026-10-08T00:00:00Z',identity:completionIdentity(run,job)};
+  const scopes=jobArtifactScopes({...job,executionMode:run.executionMode},f.scope.selected);
+  job.latestArtifactSync={key:latestJobSyncKey(run,job,scopes,targets),state:'synced',scopes,workerIds:[...workers],checkedAt:'2026-10-08T01:00:00Z'};
+ }
+ return {...f,run};
+}
+test('PLAN reuses all exact job confirmations through force, offline probes and repeated refresh without filesystem reads or timestamp renewal',async()=>{
+ const {host,scope,run,clock}=confirmedFixture(),checkedAt=run.jobs[0].latestArtifactSync.checkedAt;
+ await host.refreshPlanArtifactSyncStatus();
+ assert.equal(host.planArtifactSyncStatuses.B.status,'synced');assert.equal(host.planArtifactSyncStatuses.B.syncedCount,3);
+ assert.equal(host.planArtifactSyncStatuses.B.checkedAt,checkedAt);assert.equal(scope.reads.length,0);
+ for(let i=0;i<5;i++){clock.now+=86400000*365;host.client={};host.lastWorkerProbes['worker-a'].status='timeout';
+  host.distributedQueueCache={plans:[structuredClone(run)]};await host.refreshPlanArtifactSyncStatus(true);
+  assert.equal(host.planArtifactSyncStatuses.B.status,'synced');assert.equal(host.planArtifactSyncStatuses.B.checkedAt,checkedAt);
+ }
+ assert.equal(scope.reads.length,0);
+});
+test('an unrelated active mirror or manual transfer cannot postpone already confirmed PLAN status',async()=>{
+ for(const kind of ['automatic','manual']){
+  const {host,scope}=confirmedFixture();
+  if(kind==='automatic')host.distributedPostprocessPromise=Promise.resolve();else host.manualResultSyncCounts.set(scope.root,1);
+  await host.refreshPlanArtifactSyncStatus(true);
+  assert.equal(host.planArtifactSyncStatuses.B.status,'synced');assert.equal(scope.reads.length,0);
+ }
+});
+test('only the unconfirmed job is scanned; other completed PLANs never wait for its slow inventory',async()=>{
+ const {host,scope,run}=confirmedFixture();
+ const other=structuredClone(run);other.id='other';other.planFile='plans/other.yaml';
+ for(const job of other.jobs){job.globalJobId=other.id+':'+job.index;job.commandId='other-'+job.index;job.outputDir='work/other/'+job.index;
+  job.verifiedCompletion.identity=completionIdentity(other,job);const scopes=jobArtifactScopes(job,['.']);job.latestArtifactSync={...job.latestArtifactSync,scopes,key:latestJobSyncKey(other,job,scopes,host.workerCodeSyncTargets())};}
+ host.distributedQueueCache={plans:[run,other]};run.jobs[0].latestArtifactSync.state='partial';
+ let release;const gate=new Promise(resolve=>release=resolve),read=host.distributedOutputHashes;
+ host.distributedOutputHashes=async(...args)=>{await gate;return read(...args);};
+ const request=host.refreshPlanArtifactSyncStatus();await new Promise(resolve=>setImmediate(resolve));
+ assert.equal(host.planArtifactSyncStatuses.other.status,'synced');
+ release();await request;assert.ok(scope.reads.every(row=>row.paths.length===1&&row.paths[0]===run.jobs[0].outputDir));
+});
+test('exact task, source workflow, targets, full scope and newer path changes invalidate both PLAN and job labels',()=>{
+ const {host,scope,run}=confirmedFixture(),targets=host.workerCodeSyncTargets(),job=run.jobs[0];
+ assert.equal(feature.confirmedPlanArtifactSync(run,targets,scope.selected).status,'synced');
+ const mutations=[r=>r.projectId='other',r=>r.id='new-run',r=>r.jobs[0].commandId='new-command',r=>r.jobs[0].workerId='other',
+  r=>r.jobs[0].index=7,r=>r.jobs[0].outputDir='other/output',r=>r.jobs[0].collectionResultCsv='tmp/new.csv',r=>r.jobs[0].outputRetiredAt='now',
+  r=>r.jobs[0].resultState='incomplete',r=>r.jobs[0].latestArtifactSync.workerIds.pop()];
+ for(const mutate of mutations){const copy=structuredClone(run);mutate(copy);assert.equal(feature.confirmedPlanArtifactSync(copy,targets,scope.selected),undefined);
+  assert.equal(feature.projectJobArtifactSync(copy,copy.jobs[0],targets,scope.selected).state,'partial');}
+ for(const field of ['host','port','user','remotePath']){const changed=structuredClone(targets);changed[0][field]='different';
+  assert.equal(feature.confirmedPlanArtifactSync(run,changed,scope.selected),undefined);}
+ assert.equal(feature.confirmedPlanArtifactSync(run,targets,[job.outputDir+'/only-a-subdirectory']),undefined);
+ const holds={[job.outputDir+'/weight.pth']:{endpointId:'worker-a',deletedAt:'2026-10-09T00:00:00Z'}};
+ assert.equal(feature.confirmedPlanArtifactSync(run,targets,scope.selected,holds),undefined);
+ assert.equal(job.latestArtifactSync.state,'synced','projection must not rewrite original proof');
+ job.latestArtifactSync.artifactDigest=feature.jobArtifactSyncDigest(job);job.artifacts={newfile:otherHash};
+ assert.equal(feature.confirmedPlanArtifactSync(run,targets,scope.selected),undefined);
+});
+test('new confirmations during an older slow scan publish immediately and cannot be overwritten by its late failure',async()=>{
+ const {host,scope,run}=confirmedFixture(),receipt=structuredClone(run.jobs[0].latestArtifactSync);
+ run.jobs[0].latestArtifactSync.state='partial';let release;
+ const gate=new Promise(resolve=>release=resolve);
+ host.distributedOutputHashes=async()=>{await gate;throw Error('slow query failed');};
+ const first=host.refreshPlanArtifactSyncStatus();await new Promise(resolve=>setImmediate(resolve));
+ const priorView=host.planArtifactSyncStatuses;
+ run.jobs[0].latestArtifactSync=receipt;host.distributedQueueCache={plans:[structuredClone(run)]};
+ await host.refreshPlanArtifactSyncStatus(true);const immediate=host.planArtifactSyncStatuses.B.status;
+ assert.notEqual(host.planArtifactSyncStatuses,priorView);assert.equal(priorView.B.status,'checking');
+ release();await first;await host.planArtifactSyncStatusPromise;
+ assert.equal(immediate,'synced');assert.equal(host.planArtifactSyncStatuses.B.status,'synced');
+ assert.equal(host.planArtifactSyncStatuses.B.checkedAt,receipt.checkedAt);
+});
+test('mixed-workflow supplemental jobs reuse their original synchronization identities',()=>{
+ const {host,scope,run}=confirmedFixture();run.planJobCount=6;
+ const supplement=structuredClone(run);supplement.id='supplement';supplement.enqueuedAt='2026-10-10T00:00:00Z';supplement.planJobCount=1;
+ supplement.jobs=[supplement.jobs[5]];const job=supplement.jobs[0];job.commandId='new-command';job.globalJobId='supplement:5';
+ job.verifiedCompletion.identity=completionIdentity(supplement,job);job.latestArtifactSync.key=latestJobSyncKey(supplement,job,jobArtifactScopes(job,scope.selected),host.workerCodeSyncTargets());
+ run.jobs=run.jobs.slice(0,5);
+ const combined=feature.latestCompletePlansForSyncCheck({plans:[run,supplement]},metadata)[0];
+ assert.equal(feature.confirmedPlanArtifactSync(combined,host.workerCodeSyncTargets(),scope.selected).syncedCount,3);
+ assert.equal(combined.jobs[0].sourcePlanId,'B');assert.equal(combined.jobs[5].sourcePlanId,'supplement');
+});
+test('a changed checkbox scope invalidates the cached view without a force flag',async()=>{
+ const {host,scope}=confirmedFixture();await host.refreshPlanArtifactSyncStatus();scope.selected=['unrelated'];
+ await host.refreshPlanArtifactSyncStatus();assert.notEqual(host.planArtifactSyncStatuses.B.source,'job_confirmations');assert.ok(scope.reads.length);
+});
 
 test("startup reads once per Worker, progress ticks reuse it, rerun completion and revision/config changes refresh it", async () => {
   const { host, scope } = hostFixture();

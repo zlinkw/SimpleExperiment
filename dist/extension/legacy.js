@@ -1156,6 +1156,8 @@ class RealtimeTunnelPanelProvider {
     cacheCleanupContextChanged = new vscode.EventEmitter();
     cacheCleanupConnectionKey = "";
     planArtifactSyncStatuses = {};
+    planArtifactSyncReceiptHolds = {};
+    planArtifactSyncReceiptHoldsRoot = "";
     planArtifactSyncStatusRoot = "";
     planArtifactSyncStatusKey = "";
     planArtifactSyncStatusQueue;
@@ -8860,6 +8862,8 @@ class RealtimeTunnelPanelProvider {
                 mutate(holds);
                 recordCount = Object.keys(holds).length;
                 await (0, SyncResolution_1.saveSyncHolds)(this.context.globalStorageUri.fsPath, root, holds);
+                this.planArtifactSyncReceiptHolds = holds;
+                this.planArtifactSyncReceiptHoldsRoot = root;
             });
             const elapsed = Date.now() - started;
             if (elapsed > 1000)
@@ -8867,6 +8871,7 @@ class RealtimeTunnelPanelProvider {
         });
         this.syncScopeHoldsWriteQueue = current;
         await current;
+        this.queuePlanArtifactSyncStatusCheck?.(true);
     }
     async runSyncScopeTreeBatch(root, targets, localOnly, action, selected, excluded, report = (_stage) => { }, knownEntries = []) {
         if (this.syncScopeMutationInFlight || this.planSyncInFlight || this.codeSyncInFlight)
@@ -11049,17 +11054,14 @@ class RealtimeTunnelPanelProvider {
         if (!root || this.distributedQueueRoot !== root || !queue || !this.isRealtimeMode())
             return;
         this.notifyPlanOutputVersionReview?.(root, queue);
-        if (this.distributedPostprocessPromise || this.manualResultSyncCounts?.get(root)) {
-            this.planArtifactSyncStatusForcePending ||= force;
-            return;
-        }
         force ||= this.planArtifactSyncStatusForcePending;
         this.planArtifactSyncStatusForcePending = false;
         force ||= this.planArtifactSyncStatusRetryAt > 0 && Date.now() >= this.planArtifactSyncStatusRetryAt;
         const targets = this.workerCodeSyncTargets();
         const online = targets.filter(target => this.lastWorkerProbes[target.id]?.status === "ok");
         const queueStale = this.distributedQueueStorageDiagnostics?.status === "stale";
-        const connectionKey = JSON.stringify([root, this.projectContextGeneration, this.cacheCleanupConnectionKey, queueStale,
+        const selected = (0, ProjectMirror_1.normalizeMirrorScopePaths)(vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root)).get("serverSync.paths", ["."]));
+        const connectionKey = JSON.stringify([root, this.projectContextGeneration, this.cacheCleanupConnectionKey, queueStale, selected,
             targets.map(target => [target.id, target.host, target.port, target.user, target.remotePath, this.lastWorkerProbes[target.id]?.status || "unknown"])]);
         const metadata = this.localPlanMetadata;
         if (!force && queue === this.planArtifactSyncStatusQueue && metadata === this.planArtifactSyncStatusMetadata
@@ -11068,12 +11070,22 @@ class RealtimeTunnelPanelProvider {
         if (this.planArtifactSyncStatusPromise) {
             this.planArtifactSyncStatusPending = true;
             this.planArtifactSyncStatusForcePending ||= force;
+            if (!queueStale && this.planArtifactSyncReceiptHoldsRoot === root) {
+                const confirmedStatuses = {};
+                for (const plan of PlanArtifactSyncStatus.latestCompletePlansForSyncCheck(queue, metadata?.plans || [])) {
+                    const confirmed = PlanArtifactSyncStatus.confirmedPlanArtifactSync(plan, targets, selected, this.planArtifactSyncReceiptHolds);
+                    if (confirmed)
+                        confirmedStatuses[plan.id] = confirmed;
+                }
+                this.planArtifactSyncStatuses = { ...this.planArtifactSyncStatuses, ...confirmedStatuses };
+                this.postState();
+            }
             return;
         }
         const plans = PlanArtifactSyncStatus.latestCompletePlansForSyncCheck(queue, metadata?.plans || []);
         const workerIds = targets.map(target => target.id);
         const requiredPaths = this.distributedProjectContract().requiredPaths;
-        const key = `${connectionKey}:${JSON.stringify(requiredPaths)}:${PlanArtifactSyncStatus.planArtifactSyncCheckKey(plans, workerIds, online.map(target => target.id))}`;
+        const key = `${connectionKey}:${JSON.stringify([requiredPaths, selected, plans.map(plan => plan.jobs.map(job => job.latestArtifactSync))])}:${PlanArtifactSyncStatus.planArtifactSyncCheckKey(plans, workerIds, online.map(target => target.id))}`;
         this.planArtifactSyncStatusQueue = queue;
         this.planArtifactSyncStatusMetadata = metadata;
         this.planArtifactSyncStatusConnectionKey = connectionKey;
@@ -11087,16 +11099,46 @@ class RealtimeTunnelPanelProvider {
         const generation = this.projectContextGeneration;
         const client = this.client;
         const targetBinding = JSON.stringify(targets);
+        const planBinding = (rows) => JSON.stringify(rows.map(plan => [plan.id, plan.projectId, plan.revision,
+            plan.jobs.map(job => [job.index, job.commandId, job.workerId, job.outputDir, job.collectionResultCsv, job.globalJobId,
+                job.verifiedCompletion?.identity, PlanArtifactSyncStatus.jobArtifactSyncDigest(job)])]));
+        const originalPlans = planBinding(plans);
+        let holdBinding;
         const isCurrent = () => workspaceRoot() === root && generation === this.projectContextGeneration
-            && targetBinding === JSON.stringify(this.workerCodeSyncTargets());
-        this.planArtifactSyncStatuses = Object.fromEntries(plans.map(plan => [plan.id, {
-                runId: plan.id, revision: plan.revision, status: "checking", checkedAt: "", targetCount: targets.length, syncedCount: 0,
-                pendingWorkerIds: [], unavailableWorkerIds: [], detail: "只读核验最新运行目录，复用 SHA256 缓存；不会自动传输。",
-            }]));
-        this.postState();
+            && targetBinding === JSON.stringify(this.workerCodeSyncTargets())
+            && (holdBinding === undefined || holdBinding === JSON.stringify(this.planArtifactSyncReceiptHolds))
+            && originalPlans === planBinding(PlanArtifactSyncStatus.latestCompletePlansForSyncCheck(this.distributedQueueCache, this.localPlanMetadata?.plans || []))
+            && JSON.stringify(selected) === JSON.stringify((0, ProjectMirror_1.normalizeMirrorScopePaths)(vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root)).get("serverSync.paths", ["."])));
+        const confirmations = new Map();
         const work = async () => {
+            const holds = await (0, SyncResolution_1.loadSyncHolds)(this.context.globalStorageUri.fsPath, root);
+            if (!isCurrent()) {
+                this.planArtifactSyncStatusKey = "";
+                return;
+            }
+            this.planArtifactSyncReceiptHolds = holds;
+            this.planArtifactSyncReceiptHoldsRoot = root;
+            holdBinding = JSON.stringify(holds);
+            for (const plan of plans)
+                if (!queueStale)
+                    confirmations.set(plan.id, PlanArtifactSyncStatus.confirmedPlanArtifactSync(plan, targets, selected, holds));
+            const unchecked = plans.filter(plan => !confirmations.get(plan.id)).map(plan => ({ ...plan,
+                jobs: queueStale ? plan.jobs : plan.jobs.filter(job => !PlanArtifactSyncStatus.reusableJobArtifactSync(plan, job, targets, selected, holds)) }));
+            this.planArtifactSyncStatuses = Object.fromEntries(plans.map(plan => [plan.id, confirmations.get(plan.id) || {
+                    runId: plan.id, revision: plan.revision, status: "checking", checkedAt: "", targetCount: targets.length, syncedCount: 0,
+                    pendingWorkerIds: [], unavailableWorkerIds: [], detail: "只读核验最新运行目录，复用 SHA256 缓存；不会自动传输。",
+                }]));
+            this.postState();
+            if (!unchecked.length)
+                return;
+            if (this.distributedPostprocessPromise || this.manualResultSyncCounts?.get(root)) {
+                this.planArtifactSyncStatusForcePending ||= force;
+                return;
+            }
             const inventories = new Map();
-            const paths = [...new Set(plans.flatMap(plan => plan.jobs.map(job => job.outputDir)))];
+            const paths = [...new Set(unchecked.flatMap(plan => plan.jobs.flatMap(job => [job.outputDir,
+                    ...((job.actualExecutionMode || plan.executionMode) !== "train" && job.collectionResultCsv
+                        && !job.collectionResultCsv.startsWith(job.outputDir + "/") ? [job.collectionResultCsv] : [])])))];
             await mapLimited(queueStale ? [] : online, 2, async (target) => {
                 if (!isCurrent() || !paths.length)
                     return;
@@ -11109,8 +11151,22 @@ class RealtimeTunnelPanelProvider {
                 this.planArtifactSyncStatusKey = "";
                 return;
             }
-            this.planArtifactSyncStatuses = Object.fromEntries(plans.map(plan => [plan.id,
-                PlanArtifactSyncStatus.assessPlanArtifactSync(plan, workerIds, inventories, requiredPaths)]));
+            this.planArtifactSyncStatuses = Object.fromEntries(plans.map(plan => {
+                const latest = PlanArtifactSyncStatus.latestCompletePlansForSyncCheck(this.distributedQueueCache, this.localPlanMetadata?.plans || []).find(row => row.id === plan.id);
+                const confirmed = !queueStale && latest && PlanArtifactSyncStatus.confirmedPlanArtifactSync(latest, targets, selected, this.planArtifactSyncReceiptHolds);
+                if (confirmed)
+                    return [plan.id, confirmed];
+                const pending = unchecked.find(row => row.id === plan.id);
+                if (!pending) {
+                    this.planArtifactSyncStatusPending = true;
+                    return [plan.id, { runId: plan.id, revision: plan.revision, status: "unknown", checkedAt: "",
+                            targetCount: targets.length, syncedCount: 0, pendingWorkerIds: workerIds, unavailableWorkerIds: [],
+                            detail: "同步确认已变化，等待重新核实；未借用旧扫描结果。" }];
+                }
+                const status = PlanArtifactSyncStatus.assessPlanArtifactSync(pending, workerIds, inventories, requiredPaths);
+                const times = plan.jobs.filter(job => !pending.jobs.includes(job)).map(job => job.latestArtifactSync.checkedAt);
+                return [plan.id, { ...status, source: times.length ? "combined" : "filesystem", checkedAt: [...times, status.checkedAt].sort()[0] }];
+            }));
             this.postState();
         };
         const promise = work();
@@ -11120,8 +11176,12 @@ class RealtimeTunnelPanelProvider {
         }
         catch (error) {
             if (isCurrent()) {
-                this.planArtifactSyncStatuses = Object.fromEntries(Object.entries(this.planArtifactSyncStatuses).map(([id, row]) => [id, {
-                        ...row, status: "unknown", checkedAt: new Date().toISOString(), detail: `检测未完成：${errorMessage(error).slice(0, 200)}`,
+                const currentPlans = PlanArtifactSyncStatus.latestCompletePlansForSyncCheck(this.distributedQueueCache, this.localPlanMetadata?.plans || []);
+                this.planArtifactSyncStatuses = Object.fromEntries(plans.map(plan => [plan.id, (!queueStale
+                        && currentPlans.find(row => row.id === plan.id) && PlanArtifactSyncStatus.confirmedPlanArtifactSync(currentPlans.find(row => row.id === plan.id), targets, selected, this.planArtifactSyncReceiptHolds)) || {
+                        runId: plan.id, revision: plan.revision, status: "unknown", checkedAt: "", targetCount: targets.length,
+                        syncedCount: 0, pendingWorkerIds: [], unavailableWorkerIds: workerIds,
+                        detail: `检测未完成：${errorMessage(error).slice(0, 200)}`,
                     }]));
                 this.postState();
             }
@@ -23046,7 +23106,7 @@ class RealtimeTunnelPanelProvider {
                 recallOperationId: job.recallOperationId || "",
                 commandId: job.commandId, logPath: job.logPath, finishedAt: job.finishedAt, outputRetiredAt: job.outputRetiredAt,
                 error: job.error, blockReason: job.blockReason, admissionRejection: job.admissionRejection, failureDiagnostic: job.failureDiagnostic, formalConflictEvidence: job.formalConflictEvidence,
-                artifactError: job.artifactError, latestArtifactSync: job.latestArtifactSync, mirroredWorkerIds: job.mirroredWorkerIds || [] })) }));
+                artifactError: job.artifactError, latestArtifactSync: job.latestArtifactSync ? PlanArtifactSyncStatus.projectJobArtifactSync(plan, job, this.workerCodeSyncTargets(), (0, ProjectMirror_1.normalizeMirrorScopePaths)(vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(workspaceRoot())).get("serverSync.paths", ["."])), this.planArtifactSyncReceiptHoldsRoot === workspaceRoot() ? this.planArtifactSyncReceiptHolds : {}) : undefined, mirroredWorkerIds: job.mirroredWorkerIds || [] })) }));
         const summaryInputs = {
             plans: [
                 ...(Array.isArray(this.localPlanMetadata.plans) ? this.localPlanMetadata.plans : []),
