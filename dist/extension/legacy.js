@@ -8584,8 +8584,8 @@ class RealtimeTunnelPanelProvider {
         const scopePanel = (0, SyncScopeTree_1.openSyncScopeTree)("项目同步范围与状态", [{
                 id: "local", label: "本机 ↔ Worker", detail: "可在根目录全选本机文件，再取消产物和预训练权重目录。文件夹显示整棵子树的汇总状态。", rootSelectable: true, excludable: true,
                 selected: localSelected,
-                list: async (relative) => this.listSyncScopeUnion(root, targets, relative, true),
-                refresh: async (relative) => this.refreshSyncScopeStatus(root, targets, "local-server", localSelected, relative),
+                list: async (relative, signal) => this.listSyncScopeUnion(root, targets, relative, true, false, signal),
+                refresh: async (relative, signal, report) => this.refreshSyncScopeStatus(root, targets, "local-server", localSelected, relative, signal, report),
                 remove: async (relative, endpointId, directory, report) => this.removeSyncScopePath(root, targets, relative, endpointId, directory, report),
                 removeAllWorkers: async (relative, directory, report) => this.removeSyncScopePathFromAllWorkers(root, targets, relative, directory, report),
                 retain: async (relative, endpointId, directory, report) => this.retainSyncScopeVersion(root, targets, relative, endpointId, directory, report),
@@ -8603,8 +8603,8 @@ class RealtimeTunnelPanelProvider {
             }, {
                 id: "workers", label: "Worker ↔ Worker", detail: "默认同步整个项目，机器状态除外；文件夹显示整棵子树的汇总状态。",
                 selected: serverSelected,
-                list: async (relative) => this.listSyncScopeUnion(root, targets, relative, false),
-                refresh: async (relative) => this.refreshSyncScopeStatus(root, targets, "server-server", serverSelected, relative),
+                list: async (relative, signal) => this.listSyncScopeUnion(root, targets, relative, false, false, signal),
+                refresh: async (relative, signal, report) => this.refreshSyncScopeStatus(root, targets, "server-server", serverSelected, relative, signal, report),
                 remove: async (relative, endpointId, directory, report) => {
                     if (endpointId === "local")
                         throw new Error("Worker ↔ Worker 模式不能操作本机文件。");
@@ -8638,16 +8638,18 @@ class RealtimeTunnelPanelProvider {
     async configureServerSyncScope() {
         await this.configureCodeSyncIncludes();
     }
-    async listSyncScopeUnion(root, targets, relative, localOnly, strict = false) {
+    async listSyncScopeUnion(root, targets, relative, localOnly, strict = false, signal) {
+        signal?.throwIfAborted();
         const local = localOnly ? await listLocalSyncScope(root, relative) : [];
         const entries = new Map(local.map((row) => [row.path, { ...row, selectable: true, locations: ["local"] }]));
         const results = await Promise.allSettled(targets.map((target) => this.simpleSftpApiCall("sync.projectTree", {
-            source: this.sftpServerOptions(target), relativePath: relative,
+            source: this.sftpServerOptions(target), relativePath: relative, ...(signal ? { signal } : {}),
         }, 12000).catch(async (error) => {
             if (!/超时|timeout|timed out|无真实进展|没有进展/i.test(errorMessage(error)))
                 throw error;
             try {
-                const state = await this.simpleSftpApiCall("sync.projectTreeState", { source: this.sftpServerOptions(target), relativePath: relative });
+                signal?.throwIfAborted();
+                const state = await this.simpleSftpApiCall("sync.projectTreeState", { source: this.sftpServerOptions(target), relativePath: relative, ...(signal ? { signal } : {}) });
                 if (state.ok === true && (state.exists === false || state.exists === true && state.empty === true))
                     return { ok: true, entries: [], exists: state.exists };
                 throw new Error("轻量复查确认目录非空，原文件清单仍未读取成功");
@@ -8656,40 +8658,53 @@ class RealtimeTunnelPanelProvider {
                 throw new Error(errorMessage(error) + "；目录存在性/空目录复查：" + errorMessage(probeError));
             }
         })));
+        signal?.throwIfAborted();
+        const queryErrors = [];
         for (let index = 0; index < results.length; index++) {
             const result = results[index];
             if (result.status !== "fulfilled") {
-                throw new Error(`${targets[index].id} 文件树读取失败：${errorMessage(result.reason)}`);
+                queryErrors.push(`${targets[index].id} 文件树读取失败：${errorMessage(result.reason)}`);
+                continue;
             }
-            if (result.value?.ok === false || !Array.isArray(result.value?.entries))
-                throw new Error(`${targets[index].id} 返回的文件树无效，未将其当作空目录。`);
+            if (result.value?.ok === false || !Array.isArray(result.value?.entries)) {
+                queryErrors.push(`${targets[index].id} 返回的文件树无效，未将其当作空目录。`);
+                continue;
+            }
             for (const row of Array.isArray(result.value?.entries) ? result.value.entries : []) {
                 const key = String(row.path);
                 const prior = entries.get(key);
                 entries.set(key, { name: String(row.name), path: key, directory: Boolean(row.directory) || Boolean(prior?.directory), selectable: !localOnly || Boolean(prior), locations: [...new Set([...(prior?.locations || []), targets[index].id])] });
             }
         }
+        if (queryErrors.length && (strict || queryErrors.length === targets.length))
+            throw new Error(queryErrors.join("；"));
         const holds = await (0, SyncResolution_1.loadSyncHolds)(this.context.globalStorageUri.fsPath, root);
-        return [...entries.values()].map((row) => ({ ...row, held: (0, SyncResolution_1.isSyncHeld)(row.path, holds) })).sort((a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name));
+        return Object.assign([...entries.values()].map((row) => ({ ...row, held: (0, SyncResolution_1.isSyncHeld)(row.path, holds) })).sort((a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name)), { queryErrors });
     }
-    async refreshSyncScopeStatus(root, targets, mode, selectedPaths, relative = ".", signal) {
+    async refreshSyncScopeStatus(root, targets, mode, selectedPaths, relative = ".", signal, report = (_stage) => { }) {
+        signal?.throwIfAborted();
         const unverified = {};
         const localUnverified = {};
-        const local = mode === "local-server"
-            ? await (0, SyncScopeStatus_1.collectLocalScopeInventory)(root, relative, true, (file, reason) => { localUnverified[file] = reason; }, this.localScopeHashCacheFile(root)) : {};
-        if (mode === "local-server" && Object.keys(localUnverified).length)
-            unverified.local = localUnverified;
+        const localRead = mode === "local-server"
+            ? (0, SyncScopeStatus_1.collectLocalScopeInventory)(root, relative, true, (file, reason) => { localUnverified[file] = reason; }, this.localScopeHashCacheFile(root)) : Promise.resolve({});
         const workers = {};
         const configured = this.enabledWorkerConfigs().map((worker) => worker.id).filter(Boolean);
         const offline = new Set(configured.filter((id) => !targets.some((target) => target.id === id)));
         for (const id of offline)
             workers[id] = {};
         const inventoryScope = mode === "server-server" && selectedPaths.length && !selectedPaths.includes(".") ? selectedPaths : undefined;
-        const results = await Promise.allSettled(targets.map((target) => this.simpleSftpApiCall("sync.projectInventory", {
-            source: this.sftpServerOptions(target), relativePath: relative, recursive: true, timeoutMs: 120000,
-            ...(signal ? { signal } : {}),
-            ...(mode === "local-server" || inventoryScope ? { scopePaths: inventoryScope || selectedPaths } : {}),
-        })));
+        const [local, results] = await Promise.all([localRead, Promise.allSettled(targets.map(async (target) => {
+                report(`${target.id}：等待文件校验`);
+                const result = await this.simpleSftpApiCall("sync.projectInventory", {
+                    source: this.sftpServerOptions(target), relativePath: relative, recursive: true, timeoutMs: 120000,
+                    ...(signal ? { signal } : {}),
+                    ...(mode === "local-server" || inventoryScope ? { scopePaths: inventoryScope || selectedPaths } : {}),
+                }, 0, (progress) => report(`${target.id}：${progress.capacityState === "queued" ? "排队等待" : progress.stalled ? "文件系统响应较慢，继续等待或关闭页面取消" : "正在核验文件"}${Number.isFinite(progress.processedFiles) ? ` · 本阶段已处理 ${progress.processedFiles} 个文件` : ""}`));
+                report(`${target.id}：文件校验已返回 · ${Object.keys(result.files || {}).length} 个文件`);
+                return result;
+            }))]);
+        if (mode === "local-server" && Object.keys(localUnverified).length)
+            unverified.local = localUnverified;
         if (signal?.aborted)
             throw new UiCommandCancelled("同步服务器结果已取消，未下载指标文件。");
         const errors = [];
@@ -15609,8 +15624,8 @@ class RealtimeTunnelPanelProvider {
         const enabledWorkers = this.enabledWorkerConfigs().map((worker) => String(worker.id || "")).filter(Boolean);
         const owningWorkers = Array.isArray(summary?.availableWorkerIds) ? summary.availableWorkerIds.map(String) : [];
         const workers = owningWorkers.length ? enabledWorkers.filter((id) => owningWorkers.some((owner) => owner.toLowerCase() === id.toLowerCase())) : enabledWorkers;
-        if (!workers.length || typeof client.downloadWorkerFile !== "function")
-            throw new Error("没有可用的 Worker 隧道，无法保存远端和本地双份归档。");
+        if (!workers.length)
+            throw new Error("没有可用的 Worker，无法保存远端和本地双份归档。");
         for (const workerId of workers) {
             const missing = this.missingWorkerActionCapabilities(workerId, "archive-plan-copy");
             if (missing.length)
@@ -18318,7 +18333,7 @@ class RealtimeTunnelPanelProvider {
         const availableWorkers = this.enabledWorkerConfigs().map((worker) => String(worker.id || "")).filter(Boolean);
         const owner = String(requestedWorkerId || summary?.resultOwnerWorkerId || summary?.workerId || "").trim();
         const workerId = availableWorkers.find((id) => id.toLowerCase() === owner.toLowerCase()) || (availableWorkers.length === 1 ? availableWorkers[0] : "");
-        const useWorker = Boolean(workerId && typeof client.downloadWorkerFile === "function");
+        const useWorker = Boolean(workerId);
         const localRelative = methodResultArtifactLocalRelativePath(artifactPath, planFile, summary, this.resultCsvDirectory || DEFAULT_RESULT_CSV_DIR, workerTables.length > 1 ? workerId : "");
         const localArtifactPath = safeWorkspaceChildPath(root, localRelative);
         const localStat = await fs.stat(localArtifactPath).catch(() => undefined);

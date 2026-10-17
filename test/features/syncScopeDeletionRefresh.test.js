@@ -2,13 +2,13 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 require('../_helpers/registerTsRequire');
 const {expandSyncScopeBatchSelection}=require('../../src/features/SyncScopeBatch.ts');
 const source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
-function webview(){
- let html;const original=Module._load;Module._load=function(name,...args){return name==='vscode'?{ViewColumn:{Active:1},window:{createWebviewPanel:()=>({webview:{set html(value){html=value;},onDidReceiveMessage(){}}})}}:original.call(this,name,...args);};
- try{delete require.cache[require.resolve('../../src/features/SyncScopeTree.ts')];require('../../src/features/SyncScopeTree.ts').openSyncScopeTree('fixture',[]);}finally{Module._load=original;}
+function webview(roots=[]){
+ let html,host,dispose;const original=Module._load;Module._load=function(name,...args){return name==='vscode'?{ViewColumn:{Active:1},window:{createWebviewPanel:()=>({onDidDispose(fn){dispose=fn;},webview:{set html(value){html=value;},postMessage:async()=>{},onDidReceiveMessage(fn){host=fn;}}})}}:original.call(this,name,...args);};
+ try{delete require.cache[require.resolve('../../src/features/SyncScopeTree.ts')];require('../../src/features/SyncScopeTree.ts').openSyncScopeTree('fixture',roots);}finally{Module._load=original;}
  const element=()=>({children:[],style:{},scrollTop:0,appendChild(c){this.children.push(c);},replaceChildren(...c){this.children=c;}}),nodes=new Map(),sent=[];let receive;
  const ctx=vm.createContext({acquireVsCodeApi:()=>({postMessage:m=>sent.push(m)}),document:{createElement:element,getElementById(id){if(!nodes.has(id))nodes.set(id,element());return nodes.get(id);}},window:{addEventListener:(_,fn)=>receive=fn}});
  vm.runInContext(html.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/)[1],ctx);
- return {ctx,nodes,sent,send:data=>receive({data})};
+ return {ctx,nodes,sent,send:data=>receive({data}),host,dispose};
 }
 function method(name,globals){const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true);let member;function visit(n){if(ts.isMethodDeclaration(n)&&n.name.getText(ast)===name)member=n;ts.forEachChild(n,visit);}visit(ast);return vm.runInNewContext(ts.transpileModule('class Host{'+member.getText(ast)+'};Host.prototype.'+name,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,globals);}
 
@@ -81,4 +81,79 @@ test('root batch refresh reloads expanded descendants instead of leaving them re
  sent.length=0;
  send({type:'batchDone',rootId:'workers',affected:['.'],completed:[],errors:[]});
  assert.ok(sent.some(m=>m.type==='list'&&m.path==='work_dirs'));
+});
+
+test('refresh bounds and coalesces directory requests, skips collapsed and merely selected parents',()=>{
+ const {ctx,sent,send}=webview();
+ send({type:'init',roots:[{id:'workers',label:'Workers',selected:['not/open/file']}]});
+ vm.runInContext("state().children.set('collapsed',[]);state().expanded.add('a');state().expanded.add('b');refreshVisible();refreshVisible()",ctx);
+ const lists=()=>sent.filter(m=>m.type==='list');
+ assert.equal(lists().length,2);
+ assert.deepEqual(lists().map(m=>m.path),['.','a']);
+ const first=lists()[0];
+ send({...first,type:'children',entries:[]});
+ assert.equal(lists().length,3);assert.equal(lists()[2].path,'b');
+ assert.ok(!lists().some(m=>m.path==='collapsed'||m.path==='not/open'));
+ vm.runInContext("load('b');load('b')",ctx);assert.equal(lists().length,3);
+});
+
+test('partial directory evidence preserves selections; strict action enumeration still rejects failed Workers',async()=>{
+ const list=method('listSyncScopeUnion',{loadSyncHolds:async()=>({}),isSyncHeld:()=>false,errorMessage:e=>e.message});
+ const host={context:{globalStorageUri:{fsPath:'fixture'}},sftpServerOptions:t=>t,simpleSftpApiCall:async(_name,p)=>{
+  if(p.source.id==='w2')throw Error('API_CAPACITY_EXCEEDED');
+  return {ok:true,entries:[{name:'ok',path:'ok',directory:false}]};
+ }};
+ const rows=await list.call(host,'fixture',[{id:'w1'},{id:'w2'}],'.',false);
+ assert.equal(rows[0].path,'ok');assert.match(rows.queryErrors[0],/w2.*API_CAPACITY_EXCEEDED/);
+ await assert.rejects(list.call(host,'fixture',[{id:'w1'},{id:'w2'}],'.',false,true),/w2/);
+ const {ctx,send}=webview();send({type:'init',roots:[{id:'workers',label:'Workers',selected:['old']}]});
+ send({type:'children',rootId:'workers',path:'.',entries:[{path:'old',name:'old',directory:false,locations:['w2']}]});
+ send({type:'children',rootId:'workers',path:'.',entries:rows,queryErrors:rows.queryErrors});
+ assert.equal(vm.runInContext("state().selected.has('old')",ctx),true);
+ assert.equal(vm.runInContext("state().statuses['.'].state",ctx),'unknown');
+ assert.equal(vm.runInContext("state().children.get('.').find(e=>e.path==='old').locations.length",ctx),0);
+});
+
+test('local hashing and complete Worker inventory start together; partial failure stays unknown',async()=>{
+ let release,started=0;
+ const local=new Promise(resolve=>release=resolve);
+ const refresh=method('refreshSyncScopeStatus',{collectLocalScopeInventory:()=>local,loadSyncHolds:async()=>({}),
+  buildScopeStatuses:(data,_mode,_selected,_unused,_ledger,offline)=>{
+   assert.equal(data.local['file'].sha256,'local');assert.equal(data.workers.w1.file.sha256,'remote');assert.ok(offline.has('w2'));
+   return {'.':{state:'unknown',detail:'w2 未核实'}};
+  }});
+ const host={localScopeHashCacheFile:()=>'',enabledWorkerConfigs:()=>[{id:'w1'},{id:'w2'}],sftpServerOptions:t=>t,
+  simpleSftpApiCall:async(name,p)=>{started++;assert.equal(name,'sync.projectInventory');assert.equal(p.recursive,true);assert.deepEqual([...p.scopePaths],['.']);if(p.source.id==='w2')throw Error('network failed');return {files:{file:{sha256:'remote'}}};},
+  loadPlanSyncLedger:async()=>({}),context:{globalStorageUri:{fsPath:'fixture'}}};
+ const pending=refresh.call(host,'fixture',[{id:'w1'},{id:'w2'}],'local-server',['.']);
+ assert.equal(started,2,'remote reads must not wait for slow local hashing');release({file:{sha256:'local'}});
+ assert.equal((await pending)['.'].state,'unknown');
+});
+
+test('closing the page cancels only its read requests; saving retires stale refresh responses',async()=>{
+ let captured;
+ const f=webview([{id:'workers',selected:[],list:async(_path,signal)=>{
+  captured=signal;return new Promise((_resolve,reject)=>signal.addEventListener('abort',()=>reject(Error('fixture read cancelled')),{once:true}));
+ }}]);
+ const read=f.host({type:'list',id:'read',rootId:'workers',path:'.'});
+ assert.equal(captured.aborted,false);f.dispose();await read;assert.equal(captured.aborted,true);
+ f.send({type:'init',roots:[{id:'workers',selected:[]}]});
+ vm.runInContext("state().refreshRequests.set('.','old');state().pending.add('.')",f.ctx);
+ f.send({type:'saved',rootId:'workers'});
+ f.send({type:'status',rootId:'workers',id:'old',path:'.',statuses:{bad:{state:'same'}}});
+ assert.equal(vm.runInContext("Boolean(state().statuses.bad)",f.ctx),false);
+ assert.equal(vm.runInContext("state().pending.size",f.ctx),0);
+});
+
+test('read progress is correlated and cannot replace a completed or superseded refresh; recovered listings clear old connection errors',()=>{
+ const {ctx,nodes,send}=webview();send({type:'init',roots:[{id:'workers',selected:[]}]});
+ vm.runInContext("state().refreshRequests.set('.','now');state().pending.add('.')",ctx);
+ send({type:'readProgress',rootId:'workers',path:'.',id:'now',stage:'H20 正在核验 14 个文件'});
+ assert.match(nodes.get('status').textContent,/14/);
+ send({type:'readProgress',rootId:'workers',path:'.',id:'old',stage:'stale'});assert.doesNotMatch(nodes.get('status').textContent,/stale/);
+ send({type:'status',rootId:'workers',path:'.',id:'now',statuses:{},refreshedAt:'done'});
+ send({type:'readProgress',rootId:'workers',path:'.',id:'now',stage:'late'});assert.doesNotMatch(nodes.get('status').textContent,/late/);
+ send({type:'error',rootId:'workers',path:'.',requestType:'list',message:'HTTP 503'});
+ send({type:'children',rootId:'workers',path:'.',entries:[]});
+ assert.doesNotMatch(nodes.get('status').textContent,/503/);assert.equal(vm.runInContext("state().statuses['.'].state",ctx),'unknown');
 });
