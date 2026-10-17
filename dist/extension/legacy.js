@@ -19741,8 +19741,8 @@ class RealtimeTunnelPanelProvider {
         if (!endpointId || !projectRoot)
             return undefined;
         const connection = source ? crypto.createHash("sha256").update(JSON.stringify({ session: this.fileIndexSession,
-            host: source?.host, port: source?.port, user: source?.user, networkHost: source?.networkHost,
-            localForwardHost: source?.localForwardHost, localForwardPort: source?.localForwardPort })).digest("hex") : "local:" + process.pid;
+            host: String(source.networkHost || source.host || "").trim().toLowerCase(), port: Number(source.port || source.sshPort || 22),
+            user: String(source.user || source.username || "").trim() })).digest("hex") : "local:" + process.pid;
         const index = (0, ProjectFileIndex_1.projectFileIndex)({ workspace: root, endpointId, projectRoot, connection }, storage);
         this.projectFileIndexes.add(index);
         return index;

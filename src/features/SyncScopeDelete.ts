@@ -12,6 +12,12 @@ export async function deleteConfirmedScopeCopy(
     catch (error: any) { throw Object.assign(new Error(`${method}：${error?.message || String(error)}`), { apiCode: error?.apiCode, apiData: error?.apiData }); }
   };
   const target = { relativePath, type: directory ? 'directory' : 'file' };
+  const refreshDeletedTarget = async () => {
+    const observed = await call('files.cleanup.inspect', { node, target, presenceOnly: true, allowMissing: true, observeExecutors: true });
+    if (observed?.ok !== true || observed.executorsChecked !== true || !Array.isArray(observed.executors)
+      || observed.executors.length || observed.target?.missing !== true)
+      throw new Error('删除后的文件状态未核实：目标仍存在、已重新创建或查询未完成；请刷新，不会自动重复删除。');
+  };
   const presence = await call('files.cleanup.inspect', { node, target, presenceOnly: true, allowMissing: true, observeExecutors: true });
   if (presence?.ok !== true || presence.executorsChecked !== true || !Array.isArray(presence.executors))
     throw new Error('删除查询失败：未取得实际文件和清理窗口状态。');
@@ -20,7 +26,7 @@ export async function deleteConfirmedScopeCopy(
   const preview = await call('files.cleanup.preview', { node, action: 'delete', authorizationMode: 'confirmed_paths',
     observationMode: 'managed_tmux', targets: [{ ...target, destination: 'clean_dir/' + relativePath }] });
   if (preview.targets?.length !== 1) throw new Error('删除未核实：返回的目标数量不正确。');
-  if (preview.targets[0].missing === true) return;
+  if (preview.targets[0].missing === true) { await refreshDeletedTarget(); return; }
   const absolutePath = node.root.replace(/\/$/, '') + '/' + relativePath;
   if (preview.targets[0].absolutePath !== absolutePath || preview.targets[0].type !== target.type)
     throw new Error('删除未核实：目标路径或类型已变化，请重新确认。');
@@ -36,7 +42,7 @@ export async function deleteConfirmedScopeCopy(
   do {
     const proof = await call('files.cleanup.check', { token: preview.token, index: 0 });
     if (proof?.ok !== true) throw new Error('删除查询失败：无法核实目标状态。');
-    if (proof.state === 'completed') return;
+    if (proof.state === 'completed') { await refreshDeletedTarget(); return; }
     if (proof.state === 'pending' && admissionWaiting) {
       // Only an explicit not-started admission response permits another start
       // request. Lost responses never enter this branch.

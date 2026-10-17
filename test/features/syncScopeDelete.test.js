@@ -8,7 +8,7 @@ test('confirmed tree deletion uses managed cleanup and actively verifies lost ex
   const calls = []; let checks = 0;
   const rpc = async (method, params) => {
     calls.push([method, params]);
-    if (method === 'files.cleanup.inspect') return { ok: true, executorsChecked: true, executors: [] };
+    if (method === 'files.cleanup.inspect') return { ok: true, executorsChecked: true, executors: [], target:{missing:checks===2} };
     if (method === 'files.cleanup.preview') return { token: 'token', digest: 'digest', targets: [{ absolutePath: '/project/work_dirs/job', type: 'directory' }] };
     if (method === 'files.cleanup.execute') throw Error('response lost');
     if (method === 'files.cleanup.check') return { ok: true, state: ++checks === 1 ? 'executing' : 'completed' };
@@ -18,6 +18,8 @@ test('confirmed tree deletion uses managed cleanup and actively verifies lost ex
   assert.deepEqual(calls.filter(([m]) => m === 'files.cleanup.confirm').map(([,p]) => p.phase), [1,2]);
   assert.equal(calls.filter(([m]) => m === 'files.cleanup.execute').length, 1);
   assert.equal(checks, 2);
+  assert.equal(calls.filter(([m])=>m==='files.cleanup.inspect').length,2,'completion refreshes the exact target into the index');
+  assert.equal(calls.at(-1)[0],'files.cleanup.inspect');
   assert.ok(!calls.some(([m]) => /transfers|sync.deletePath/.test(m)));
 });
 
@@ -33,14 +35,14 @@ test('a response is never proof of deletion; unchanged or unknown filesystem fai
 });
 
 test('a live cleanup window prevents a second executor; missing files require no delete', async () => {
-  let starts = 0;
+  let starts = 0,inspections=0;
   await assert.rejects(deleteConfirmedScopeCopy(async m => {
     if (m.endsWith('.inspect')) return { ok: true, executorsChecked: true, executors: [{windowId:'@7'}] };
     starts++;
   }, node, 'work_dirs/job', true), /仍在处理/);
   assert.equal(starts, 0);
   await deleteConfirmedScopeCopy(async m => {
-    if (m.endsWith('.inspect')) return { ok: true, executorsChecked: true, executors: [] };
+    if (m.endsWith('.inspect')) return { ok: true, executorsChecked: true, executors: [], target:{missing:++inspections>1} };
     if (m.endsWith('.preview')) return { targets: [{ missing: true }] };
     throw Error('unexpected mutation');
   }, node, 'work_dirs/job', true);
@@ -50,7 +52,7 @@ test('real deletion progress extends an inactivity budget and busy admission ret
   let now=0,checks=0,starts=0;const requests=[];
   const rpc=async(method,params)=>{
     requests.push([method,params]);
-    if(method.endsWith('.inspect'))return {ok:true,executorsChecked:true,executors:[]};
+    if(method.endsWith('.inspect'))return {ok:true,executorsChecked:true,executors:[],target:{missing:checks===7}};
     if(method.endsWith('.preview'))return {token:'same',digest:'approved',targets:[{absolutePath:'/project/work_dirs/job',type:'directory'}]};
     if(method.endsWith('.execute'))return {ok:true,state:++starts===1?'waiting':'requested'};
     if(method.endsWith('.check'))return {ok:true,state:++checks===1?'pending':checks<7?'executing':'completed',progress:{removedEntries:checks-1,removedBytes:(checks-1)*100,totalEntries:7,totalBytes:700}};
@@ -64,11 +66,26 @@ test('real deletion progress extends an inactivity budget and busy admission ret
 test('a live slow executor does not time out or resend an uncertain deletion',async()=>{
   let now=0,starts=0,checks=0;
   await deleteConfirmedScopeCopy(async m=>{
-    if(m.endsWith('.inspect'))return {ok:true,executorsChecked:true,executors:[]};
+    if(m.endsWith('.inspect'))return {ok:true,executorsChecked:true,executors:[],target:{missing:checks===7}};
     if(m.endsWith('.preview'))return {token:'same',digest:'approved',targets:[{absolutePath:'/project/work_dirs/job',type:'directory'}]};
     if(m.endsWith('.execute')){starts++;throw Error('lost response');}
     if(m.endsWith('.check'))return {ok:true,state:++checks===7?'completed':'executing',progress:{removedEntries:0,removedBytes:0},observedAt:now};
     return {ok:true};
   },node,'work_dirs/job',true,()=>{},{timeoutMs:15,now:()=>now,wait:async()=>{now+=10;}});
   assert.equal(starts,1);assert.ok(now>15);assert.equal(checks,7);
+});
+
+test('a completed executor is not retried when the post-operation index query fails or observes a recreated target',async()=>{
+ for(const fail of [false,true]){
+  let starts=0,inspects=0;
+  const rpc=async m=>{
+   if(m.endsWith('.inspect')){if(++inspects>1&&fail)throw Error('offline');return {ok:true,executorsChecked:true,executors:[],target:{missing:false}};}
+   if(m.endsWith('.preview'))return {token:'same',digest:'approved',targets:[{absolutePath:'/project/work_dirs/job',type:'directory'}]};
+   if(m.endsWith('.execute'))starts++;
+   if(m.endsWith('.check'))return {ok:true,state:'completed'};
+   return {ok:true};
+  };
+  await assert.rejects(deleteConfirmedScopeCopy(rpc,node,'work_dirs/job',true),/offline|删除后.*核实/);
+  assert.equal(inspects,2);assert.equal(starts,1);
+ }
 });

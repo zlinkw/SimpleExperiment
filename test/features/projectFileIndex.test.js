@@ -109,3 +109,46 @@ test('actual operation preflight batches exact scopes, includes both servers and
  calls.length=0;await run.call(host,'files.cleanup.execute',{token:'not-persisted'});assert.equal(calls.length,0,'token-only execution uses existing live inspection and frozen authorization');
  assert.deepEqual(fileOperationIndexPaths({entries:[{remotePath:'data/a',localRelativePath:'data/b'}]},true),['data/b']);
 });
+
+test('production host keeps one index for a server DTO and its cleanup node projection',async()=>{
+ const ts=require('typescript'),vm=require('node:vm'),crypto=require('node:crypto'),source=await fs.readFile(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
+ const ast=ts.createSourceFile('host.ts',source,ts.ScriptTarget.Latest,true);let method;function visit(n){if(ts.isMethodDeclaration(n)&&n.name.getText(ast)==='projectFileObservationIndex')method=n;ts.forEachChild(n,visit);}visit(ast);
+ const {storage,identity}=await fixture(),{projectFileIndex}=require('../../src/features/ProjectFileIndex.ts');
+ const run=vm.runInNewContext(ts.transpileModule('class Host{'+method.getText(ast)+'};Host.prototype.projectFileObservationIndex',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,
+  {workspaceRoot:()=>identity.workspace,crypto,process,projectFileIndex});
+ const host={client:{},context:{globalStorageUri:{fsPath:storage}}},server={id:'worker',host:'10.0.0.1',networkHost:'10.0.0.1',user:'user',port:22,remotePath:'/project'};
+ const page=run.call(host,server),node=run.call(host,{id:server.id,host:server.host,user:server.user,port:String(server.port),root:server.remotePath,kind:'remote'});
+ assert.equal(page,node,'deletion projection must not steal the page index owner');
+ await page.read({method:'agent.metadata',recursive:true},async()=>payload());
+ const another=run.call(host,{...server,host:'10.0.0.2',networkHost:'10.0.0.2'});assert.notEqual(another,page);
+ await assert.rejects(page.read({method:'agent.metadata',round:'old'},async()=>payload()),/CONNECTION_REPLACED/);
+ const returned=run.call(host,server);assert.notEqual(returned,page,'returning to an old configuration creates a fresh owner, never revives in-flight old evidence');
+ await returned.read({method:'agent.metadata'},async()=>payload(3));
+});
+
+test('live deletion inspection without a relativePath records exact directory absence and removes descendant counts',async()=>{
+ const {storage,identity}=await fixture(),index=new ProjectFileIndex(identity,storage);
+ await index.read({method:'agent.metadata',recursive:true,metadataOnly:true},async()=>({files:{'data/a':{size:4}},directories:{data:{modifiedAtMs:1}}}));
+ await index.read(sftpFileIndexQuery('files.cleanup.inspect',{target:{relativePath:'data',type:'directory'}}),async()=>({ok:true,executorsChecked:true,executors:[],target:{missing:true,type:'directory',absolutePath:'/project/data'}}));
+ assert.equal(index.snapshot().entries.data.presence,'absent');assert.equal(index.snapshot().entries['data/a'].presence,'absent');
+ const disk=JSON.parse(await fs.readFile(index.directoryFile('.'),'utf8'));assert.equal(disk.summary.files,0);assert.equal(disk.summary.bytes,0);
+ await index.read(sftpFileIndexQuery('sync.projectTreeState',{relativePath:'data'}),async()=>({ok:true,relativePath:'data',exists:false}));assert.equal(index.snapshot().entries.data.presence,'absent');
+});
+
+test('a complete narrower inventory updates removed files after historical observation retention expires; failed reads never prove absence',async()=>{
+ const {storage,identity}=await fixture(),index=new ProjectFileIndex(identity,storage);
+ await index.read({method:'sync.projectInventory',recursive:true,metadataOnly:true},async()=>payload());
+ for(let n=0;n<66;n++)await index.read({method:'other',relativePath:'unrelated',binding:{n}},async()=>({files:{}}));
+ const q={method:'sync.projectInventory',relativePath:'data',recursive:true,metadataOnly:true};
+ await index.read(q,async()=>({ok:false,error:'offline',files:{}}));assert.notEqual(index.snapshot().entries['data/a'].presence,'absent');
+ await index.read(q,async()=>({files:{}}));assert.equal(index.snapshot().entries['data/a'].presence,'absent');
+});
+
+test('a success envelope without the required list or existence field cannot turn old entries into confirmed missing',async()=>{
+ const {storage,identity}=await fixture(),index=new ProjectFileIndex(identity,storage),q={method:'sync.projectInventory',recursive:true,metadataOnly:true};
+ await index.read(q,async()=>payload());await index.read(q,async()=>({ok:true}));
+ assert.equal(index.snapshot().observations.at(-1).state,'failed');assert.notEqual(index.snapshot().entries['data/a'].presence,'absent');
+ const tree=sftpFileIndexQuery('sync.projectTreeState',{relativePath:'data'});
+ await index.read(tree,async()=>({ok:true,exists:true}));await index.read(tree,async()=>({ok:true}));
+ assert.equal(index.snapshot().observations.at(-1).state,'failed');assert.notEqual(index.snapshot().entries.data.presence,'absent');
+});

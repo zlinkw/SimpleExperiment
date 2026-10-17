@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.372",
-  "buildId": "f6c502e3676fdbf039a08f71fc53504770c76d271d01b082044cc147c2cf0a1b",
+  "version": "0.5.373",
+  "buildId": "5b6474beb5359cb7408fe864a4dfdae165af90ad7d3eb9096dacd95866532db2",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -197,7 +197,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "5419cb7a64df8e33faf9c5e5b57b6d43ae859179af681cbd70a0d794cdf2a439"
+      "sha256": "f08d0f17014e513f42c2065d6573165f61b85185eef38d8932f4b7a568888ab6"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -505,7 +505,7 @@
     },
     {
       "path": "dist/features/ProjectFileIndex.js",
-      "sha256": "cf53ab74dda4467a077f66755691e5203d4b63e4d83cafd831838979d4b1dbb1"
+      "sha256": "146ebb8d5e04c3c4c9ec1eb1138134648d441e3cfff8b37ec88648f77a28823a"
     },
     {
       "path": "dist/features/ProjectMirror.js",
@@ -573,7 +573,7 @@
     },
     {
       "path": "dist/features/SyncScopeDelete.js",
-      "sha256": "aead470ca52ab486eb265878fd41bff96bb59e823d6bce00866e503b40b9de7f"
+      "sha256": "4cb44b551a09de63055a112832ee2d59bfa5316d610c06eb6c00e2a04f584f58"
     },
     {
       "path": "dist/features/SyncScopeLocalIndex.js",
@@ -693,7 +693,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "f46f0b3c0132c7efdfff0e77c9f915738ac7940c558a8310c2211d08b7da3d08"
+      "sha256": "1a0ae2c440cdc6031403b9b7e8810f626b300ece245d22b45b7edff42b9689f8"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1041,7 +1041,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "f9dd1ea28cf694fee6c8a7f252b67f38db9aa9f9fb71bff819fb27bb4a667a14"
+      "sha256": "e3e45955a380f4751571e033f13477082d9f0c8078c4d1b4ea1955d69c272be5"
     },
     {
       "path": "scripts/check-static.js",

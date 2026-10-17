@@ -5,7 +5,7 @@ import { atomicWriteText } from "../state/StateStore";
 
 export type FileIndexIdentity = { workspace: string; endpointId: string; projectRoot: string; connection: string };
 export type FileIndexQuery = { method: string; relativePath?: string; paths?: string[]; recursive?: boolean; metadataOnly?: boolean;
-  round?: string; binding?: Record<string, string | number>; signal?: AbortSignal };
+  round?: string; binding?: Record<string, string | number>; signal?: AbortSignal; targetType?: "file" | "directory" };
 export type IndexedFileFact = { path: string; type: "file" | "directory"; presence: "present" | "absent" | "unknown";
   size?: number; modifiedAtMs?: number; sha256?: string; error?: string; observedAt: string; observationId: string;
   device?: string; inode?: string; changedAtMs?: number };
@@ -26,6 +26,7 @@ export class ProjectFileIndex {
   private generation = 0;
   private entries = new Map<string, IndexedFileFact>();
   private entryGenerations = new Map<string, number>();
+  private entryScopes = new Map<string, { method: string; scope: { relativePath: string; paths: string[]; recursive: boolean } }>();
   private observations = new Map<string, Observation>();
   private reads = new Map<string, { at: number; epoch: number; promise: Promise<any> }>();
   private invalidatedAt = "";
@@ -44,13 +45,14 @@ export class ProjectFileIndex {
 
   async read<T>(query: FileIndexQuery, load: () => Promise<T>): Promise<T> {
     query.signal?.throwIfAborted();
+    if (owners.get(this.file) !== this) throw Error("FILE_INDEX_CONNECTION_REPLACED");
     const round = query.round?.slice(0, 4096) || randomUUID();
     const scope = { relativePath: query.relativePath || ".", paths: [...new Set(query.paths || [])].sort(), recursive: query.recursive === true };
     if (scope.relativePath !== "." && !safe(scope.relativePath) || scope.paths.some(name => name !== "." && !safe(name))) throw Error("FILE_INDEX_PATH_INVALID");
     const binding = Object.fromEntries(Object.entries(query.binding || {}).slice(0, 32).filter(([key, value]) => !/token|password|secret|credential|authorization|privatekey/i.test(key)
       && (typeof value === "number" && Number.isFinite(value) || typeof value === "string" && value.length <= 4096)));
     const basis = query.metadataOnly ? "metadata" : "sha256";
-    const key = hash([round, scope, query.method, basis, binding]);
+    const key = hash([round, scope, query.method, basis, binding, query.targetType]);
     const active = this.reads.get(key);
     // A cancelled consumer never shares another consumer's cancellation lifetime.
     if (!query.signal && query.round && active?.epoch === this.epoch && this.now() - active.at <= 2000) return active.promise;
@@ -72,7 +74,9 @@ export class ProjectFileIndex {
         if (epoch !== this.epoch && (epoch < (this.invalidations[0]?.epoch || 1) - 1 || this.invalidations.some(row => row.epoch > epoch && overlaps(row.paths))))
           throw Error("FILE_INDEX_INVALIDATED_DURING_READ");
         const observedAt = new Date(this.now()).toISOString();
-        const normalized = normalizeFileIndexResult(value, observedAt, observationId);
+        const normalized = normalizeFileIndexResult(value, observedAt, observationId, query);
+        for (const fact of normalized.facts) if (fact.presence === "absent" && this.entries.get(fact.path)?.type === "directory"
+          && query.method !== "sync.projectFileStats" && query.targetType !== "file") fact.type = "directory";
         const observation: Observation = { observationId, generation, epoch: this.epoch, round, method: query.method, scope, basis, binding, startedAt, observedAt,
           reusableUntil: new Date(this.now() + 2000).toISOString(), state: normalized.state, error: normalized.error,
           sourceObservedAt: typeof (value as any)?.observedAt === "string" ? (value as any).observedAt : undefined,
@@ -82,22 +86,31 @@ export class ProjectFileIndex {
           unknown: normalized.facts.filter(row => row.presence === "unknown").length };
         if (owners.get(this.file) !== this) throw Error("FILE_INDEX_CONNECTION_REPLACED");
         const currentPaths = new Set(normalized.facts.map(row => row.path));
+        const absentDirectories = normalized.facts.filter(row => row.type === "directory" && row.presence === "absent").map(row => row.path);
+        const completeKinds = query.method === "sync.projectInventory" ? ["file"]
+          : ["agent.metadata", "local.metadata", "sync.projectTree"].includes(query.method) ? ["file", "directory"] : [];
         const covered = (name: string) => {
           const roots = scope.paths.length ? scope.paths : [scope.relativePath];
           return roots.some(root => name === root || (root === "." || name.startsWith(root + "/"))
             && (scope.recursive || !name.slice(root === "." ? 0 : root.length + 1).includes("/")));
         };
-        for (const [name, old] of this.entries) if (!currentPaths.has(name) && covered(name)) {
-          const previous = [...this.observations.values()].find(row => row.observationId === old.observationId);
-          if (!previous || (this.entryGenerations.get(name) || 0) > generation || previous.method !== query.method || JSON.stringify(previous.scope) !== JSON.stringify(scope)) continue;
-          this.entries.set(name, { path: name, type: old.type, presence: normalized.state === "complete" ? "absent" : "unknown",
-            error: normalized.state === "complete" ? undefined : normalized.error || "本轮清单不完整", observedAt, observationId });
+        for (const [name, old] of this.entries) if (!currentPaths.has(name)) {
+          const missingAncestor = absentDirectories.some(root => root === "." || name.startsWith(root + "/"));
+          const previous = this.entryScopes.get(name);
+          const enumerated = covered(name) && (completeKinds.includes(old.type) || previous?.method === query.method && JSON.stringify(previous.scope) === JSON.stringify(scope));
+          if ((this.entryGenerations.get(name) || 0) > generation || !missingAncestor && !enumerated) continue;
+          const absent = missingAncestor || normalized.state === "complete";
+          this.entries.set(name, { path: name, type: old.type, presence: absent ? "absent" : "unknown",
+            error: absent ? undefined : normalized.error || "本轮清单不完整", observedAt, observationId });
           this.entryGenerations.set(name, generation);
+          this.entryScopes.set(name, { method: query.method, scope });
         }
         if ((this.observations.get(key)?.generation || 0) <= generation) this.observations.set(key, observation);
         // Older overlapping reads cannot overwrite more recent evidence, including negative facts.
         for (const fact of normalized.facts) {
-          if ((this.entryGenerations.get(fact.path) || 0) <= generation) { this.entries.set(fact.path, fact); this.entryGenerations.set(fact.path, generation); }
+          if ((this.entryGenerations.get(fact.path) || 0) <= generation) {
+            this.entries.set(fact.path, fact); this.entryGenerations.set(fact.path, generation); this.entryScopes.set(fact.path, { method: query.method, scope });
+          }
         }
         if (normalized.state !== "complete") this.reads.delete(key);
         this.trim(); await this.persist();
@@ -139,7 +152,7 @@ export class ProjectFileIndex {
   }
 
   private trim() {
-    while (this.entries.size > 60000) { const name = this.entries.keys().next().value!; this.entries.delete(name); this.entryGenerations.delete(name); }
+    while (this.entries.size > 60000) { const name = this.entries.keys().next().value!; this.entries.delete(name); this.entryGenerations.delete(name); this.entryScopes.delete(name); }
     while (this.observations.size > 64) this.observations.delete(this.observations.keys().next().value!);
     for (const [key, read] of this.reads) if (this.now() - read.at > 2000) this.reads.delete(key);
     while (this.reads.size > 64) this.reads.delete(this.reads.keys().next().value!);
@@ -239,11 +252,17 @@ export class ProjectFileIndex {
   }
 }
 
-export function normalizeFileIndexResult(value: any, observedAt: string, observationId: string) {
+export function normalizeFileIndexResult(value: any, observedAt: string, observationId: string, query?: FileIndexQuery) {
   const facts: IndexedFileFact[] = [];
   let error = typeof value?.error === "string" ? value.error.slice(0, 1000) : "";
   if (!value || value.ok === false || error || value.status === "unknown") return { facts, state: "failed" as const, error: error || "文件查询失败" };
   if (value.executionSource?.manifest) value = { ...value, files: value.executionSource.manifest };
+  const method = query?.method || "";
+  if (["sync.projectInventory", "sync.projectFileStats", "agent.metadata", "local.metadata", "local.before-operation", "local.code-manifest"].includes(method) && value.files === undefined
+    || method === "sync.projectTree" && value.exists !== false && !Array.isArray(value.entries)
+    || method === "sync.projectTreeState" && typeof value.exists !== "boolean"
+    || method === "files.cleanup.inspect" && (!value.target || typeof value.target !== "object"))
+    return { facts, state: "failed" as const, error: "文件查询未返回所需清单或存在性，状态未知" };
   let partial = value.complete === false || value.truncated === true;
   if (value.files !== undefined && (!value.files || typeof value.files !== "object" || Array.isArray(value.files))
     || value.entries !== undefined && !Array.isArray(value.entries)
@@ -262,7 +281,15 @@ export function normalizeFileIndexResult(value: any, observedAt: string, observa
       changedAtMs: Number.isFinite(row?.changedAtMs) ? row.changedAtMs : undefined });
   };
   if (value.files && typeof value.files === "object" && !Array.isArray(value.files)) for (const [name, row] of Object.entries(value.files)) add(name, row);
-  if (value.target?.relativePath) add(value.target.relativePath, value.target, value.target.type === "directory");
+  if (query?.method === "files.cleanup.inspect" && value.target) {
+    const name = query.paths?.length === 1 ? query.paths[0] : undefined;
+    const absolute = String(value.target.absolutePath || "").replaceAll(String.fromCharCode(92), "/");
+    if (name && (value.target.relativePath === name || absolute.endsWith("/" + name)))
+      add(name, value.target, value.target.type === "directory" || query.targetType === "directory");
+    else { partial = true; error = "删除目标观察与查询范围不一致"; }
+  } else if (value.target?.relativePath) add(value.target.relativePath, value.target, value.target.type === "directory");
+  if (["sync.projectTree", "sync.projectTreeState"].includes(query?.method || "") && typeof value.exists === "boolean")
+    add(query?.relativePath || ".", { ...value, directory: true }, true);
   if (value.directories && typeof value.directories === "object") for (const [name, row] of Object.entries(value.directories)) add(name, row, true);
   for (const row of Array.isArray(value.entries) ? value.entries : []) add(row.path, row, row.directory === true);
   for (const [name, reason] of Object.entries(value.unverifiedFiles || {})) { add(name, { status: "unknown", error: reason }); partial = true; }
@@ -275,7 +302,7 @@ const indexes = new Map<string, ProjectFileIndex>();
 export function projectFileIndex(identity: FileIndexIdentity, storageRoot: string): ProjectFileIndex {
   const key = hash([storageRoot, identity]);
   let index = indexes.get(key);
-  if (!index) { index = new ProjectFileIndex(identity, storageRoot); indexes.set(key, index); }
+  if (!index || owners.get(index.file) !== index) { index = new ProjectFileIndex(identity, storageRoot); indexes.set(key, index); }
   // No disk snapshot is loaded as live evidence after process or connection restart.
   while (indexes.size > 128) indexes.delete(indexes.keys().next().value!);
   return index;
@@ -284,7 +311,7 @@ export function sftpFileIndexQuery(method: string, params: any): FileIndexQuery 
   if (!READS.has(method)) return undefined;
   return { method, relativePath: params.relativePath || ".", paths: params.scopePaths || params.paths || (params.target?.relativePath ? [params.target.relativePath] : []), recursive: method === "sync.projectInventory" ? params.recursive !== false : params.recursive === true,
     metadataOnly: method !== "sync.projectInventory" || params.metadataOnly === true, signal: params.signal,
-    round: params.fileIndexRound, binding: { purpose: params.inventoryPurpose || (params.metadataOnly === true || method !== "sync.projectInventory" ? "file-status" : "artifact-or-code-confirmation"), ...params.fileIndexBinding } };
+    round: params.fileIndexRound, targetType: params.target?.type, binding: { purpose: params.inventoryPurpose || (params.metadataOnly === true || method !== "sync.projectInventory" ? "file-status" : "artifact-or-code-confirmation"), ...params.fileIndexBinding } };
 }
 
 /** Exact paths only. An unspecified transfer scope requests a shallow root observation, never a full scan. */
