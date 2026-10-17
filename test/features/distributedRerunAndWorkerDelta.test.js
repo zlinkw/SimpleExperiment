@@ -74,7 +74,7 @@ test("publish reports each pre-upload stage and transfers only changed files", (
   const localAt = sync.indexOf("正在建立本地代码清单并核对文件哈希");
   const remoteAt = sync.indexOf("正在比对");
   const transferAt = sync.indexOf("正在传输");
-  const uploadAt = sync.indexOf('executeCommand("simpleSftp.uploadWorkspace"');
+  const uploadAt = sync.indexOf('simpleSftpApiCall("upload.workspace"');
   assert.ok(localAt >= 0 && remoteAt > localAt && transferAt > remoteAt && uploadAt > transferAt);
   assert.match(sync, /缓存命中 \$\{stats\.reused\}，重新哈希 \$\{stats\.hashed\}/);
   assert.match(sync, /个未变化文件不传输/);
@@ -100,7 +100,8 @@ test("publish upload compares complete remote hashes and transfers only changed 
   const sync = extension.slice(extension.indexOf("async syncCodeTargets("), extension.indexOf("async inspectCodeSyncTarget("));
   assert.match(sync, /verifiedSftpProjectInventory/);
   assert.match(sync, /const inventoryScopePaths = \[\.\.\.new Set\(Object\.keys\(manifest\)\.map/);
-  assert.equal((sync.match(/scopePaths: inventoryScopePaths/g) || []).length, 1);
+  assert.match(sync, /codeInventoryBatches\(manifest\)/);
+  assert.match(sync, /scopePaths: exactPaths/);
   assert.doesNotMatch(sync, /ensureRemoteAgentVersionConsistent/);
   assert.match(sync, /changedManifestFiles\(manifest, remoteFiles\)/);
   assert.match(sync, /manifest: uploadManifest/);
@@ -126,6 +127,7 @@ test("distributed job exposes one identity-bound tmux log jump and no inline log
     asArray: value => Array.isArray(value) ? value : [],
     selectedExecutionPlanFile: "",
     collapsedExecutionPlanKeys: new Set(),
+    manualJobSelections: new Map(),
     persistWebviewState: () => undefined,
     operationRowsForState: () => [],
     taskSectionViewModelForState: () => ({ allRows: [] }),
@@ -157,7 +159,7 @@ test("distributed job exposes one identity-bound tmux log jump and no inline log
   assert.match(html, /data-job-tmux-log="1"/);
   assert.match(html, /data-command-id="command-123"/);
   assert.match(html, /data-output-dir="work_dirs\/bus\/attempts\/new"/);
-  assert.equal((html.match(/>跳转到日志</g) || []).length, 1);
+  assert.equal((html.match(/data-job-tmux-log="1"/g) || []).length, 1);
   assert.doesNotMatch(html, /data-run-key=|训练日志|终端日志|epoch 3\/20/);
   assert.match(html, /loading-spinner/);
   state.selectedLogRunKey = "work_dirs/bus/attempts/new/train.log";

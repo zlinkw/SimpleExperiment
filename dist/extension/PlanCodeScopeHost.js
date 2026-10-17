@@ -35,6 +35,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.supportsPlanCodeScope = void 0;
 exports.runSourceManifest = runSourceManifest;
+exports.codeInventoryBatches = codeInventoryBatches;
 exports.resolvePlanExecutionSource = resolvePlanExecutionSource;
 exports.verifyWorkerPlanSource = verifyWorkerPlanSource;
 exports.verifyLocalPlanSource = verifyLocalPlanSource;
@@ -53,6 +54,26 @@ function runSourceManifest(manifest) {
         const parts = file.toLowerCase().split("/");
         return !parts.slice(0, -1).some(p => generated.has(p)) && !/\.(?:pyc|pyo|log|pending|writing)$/.test(file.toLowerCase());
     }));
+}
+/** Verify every manifest file without widening a file into its top-level directory. */
+function codeInventoryBatches(manifest) {
+    const batches = [];
+    let batch = [], bytes = 2;
+    for (const file of Object.keys(manifest).sort()) {
+        const size = Buffer.byteLength(JSON.stringify(file), "utf8") + 1;
+        if (size + 2 > 1048576)
+            throw Error("CODE_INVENTORY_PATH_TOO_LARGE");
+        if (batch.length && (batch.length >= 5000 || bytes + size > 1048576)) {
+            batches.push(batch);
+            batch = [];
+            bytes = 2;
+        }
+        batch.push(file);
+        bytes += size;
+    }
+    if (batch.length)
+        batches.push(batch);
+    return batches;
 }
 function query(plan, source) {
     return { projectId: plan.projectId, planFile: plan.planFile, planRevision: plan.revision, codeFingerprint: plan.codeFingerprint,

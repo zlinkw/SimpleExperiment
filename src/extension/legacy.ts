@@ -9202,16 +9202,22 @@ reportStage("正在准备校验所需代码…");
                         return;
                     }
                     if (progressReport) progressReport(`正在比对 ${target.label || target.id} 的远端哈希…`);
-                    syncStats.inventoryCalls += 1;
                     const inventoryStarted = Date.now();
-                    const inventory = await this.verifiedSftpProjectInventory({
-                        source: this.sftpServerOptions(target), relativePath: ".", recursive: true,
-                        scopePaths: inventoryScopePaths,
-                        onProgress: progressReport ? snapshot => progressReport(snapshot.stalled || snapshot.phase === "stalled"
-                            ? `${target.label || target.id}：文件核实暂未取得新进展，仍在查询；可手动取消`
-                            : `${target.label || target.id}：${snapshot.phase === "preparing" ? "已枚举" : "已核实"} ${snapshot.processedFiles || 0} 项${snapshot.processedBytes === undefined ? "" : `，已读取 ${snapshot.processedBytes} 字节`}`) : undefined,
-                    });
-                    remoteFiles = inventoryFilesByPath(inventory);
+                    remoteFiles = {};
+                    for (const exactPaths of PlanCodeScopeHost.codeInventoryBatches(manifest)) {
+                        syncStats.inventoryCalls += 1;
+                        const inventory = await this.verifiedSftpProjectInventory({
+                            source: this.sftpServerOptions(target), relativePath: ".", recursive: true,
+                            scopePaths: exactPaths,
+                            ...(["run", "plan-check"].includes(scope) ? { inventoryPurpose: "code-sync" } : {}),
+                            onProgress: progressReport ? snapshot => progressReport(snapshot.stalled || snapshot.phase === "stalled"
+                                ? `${target.label || target.id}：文件核实暂未取得新进展，仍在查询；可手动取消`
+                                : snapshot.capacityState === "queued" ? `${target.label || target.id}：文件核实等待同服务器容量，尚未进入远端读取`
+                                : `${target.label || target.id}：${snapshot.phase === "preparing" ? "已枚举" : "已核实"} ${snapshot.processedFiles || 0} 项${snapshot.processedBytes === undefined ? "" : `，已读取 ${snapshot.processedBytes} 字节`}`) : undefined,
+                        });
+                        Object.assign(remoteFiles, inventoryFilesByPath(inventory));
+                        assertCurrent();
+                    }
                     if (progressReport) progressReport(`${target.label || target.id} 远端清单已返回（本段 ${Date.now() - inventoryStarted} ms）`);
                     uploadManifest = changedManifestFiles(manifest, remoteFiles);
                     const skipped = Object.keys(manifest).length - Object.keys(uploadManifest).length;

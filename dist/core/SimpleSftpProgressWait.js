@@ -145,6 +145,7 @@ async function callSftpWithProgress(method, params, discover, onProgress) {
     let cancellation, operationSent = false, operationNotStarted = false;
     let stopPending = false;
     let reportedStalled = false;
+    let reportedCapacity = "";
     function cancelRemote() {
         // Closing a read cancels its request-scoped SSH child. No writer receipt or saved retry fence is needed.
         if (metadataRead || cleanupOperation)
@@ -230,7 +231,11 @@ async function callSftpWithProgress(method, params, discover, onProgress) {
         const changed = inactivity.update({ phase, scope: item.progressScope || item.id, processedBytes, processedFiles, status: item.status });
         const newlyStalled = item.stalled === true && !reportedStalled;
         reportedStalled = item.stalled === true;
-        if ((changed || newlyStalled) && onProgress) {
+        const capacityState = ["queued", "running"].includes(item.capacityState) ? item.capacityState : undefined;
+        const capacityChanged = Boolean(capacityState && capacityState !== reportedCapacity);
+        if (capacityState)
+            reportedCapacity = capacityState;
+        if ((changed || newlyStalled || capacityChanged) && onProgress) {
             const visiblePhase = ["packing", "transferring", "unpacking"].includes(phase) ? "streaming" : phase;
             try {
                 onProgress({ phase: visiblePhase, processedBytes, processedFiles, transferredBytes: count(item.transferredBytes),
@@ -241,6 +246,9 @@ async function callSftpWithProgress(method, params, discover, onProgress) {
                     completedFiles: count(item.completedFiles), totalFiles: count(item.totalFiles),
                     completedGroups: count(item.completedGroups), totalGroups: count(item.totalGroups),
                     writtenBytes: count(item.writtenBytes), writtenFiles: count(item.writtenFiles), stalled: item.stalled === true,
+                    capacityState, capacityWaitMs: count(item.capacityWaitMs),
+                    capacityQueuedAt: typeof item.capacityQueuedAt === "string" ? item.capacityQueuedAt : undefined,
+                    capacityGrantedAt: typeof item.capacityGrantedAt === "string" ? item.capacityGrantedAt : undefined,
                     elapsedMs: Date.now() - startedAt });
             }
             catch { /* Notification failures cannot cancel a genuine transfer. */ }

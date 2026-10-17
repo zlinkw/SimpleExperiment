@@ -306,6 +306,33 @@ test("run code sync consumes the current Plan submission manifest once", async (
   assert.equal(host.lastCodeSyncStats.hashReused, 1);
 });
 
+test('every enabled Worker verifies every exact source file without expanding to its top-level directory', async () => {
+  const host = syncHost({ files: {} });
+  fs.mkdirSync(path.join(host.project, 'src', 'nested'));
+  fs.writeFileSync(path.join(host.project, 'src', 'nested', 'model.py'), 'model', 'utf8');
+  const other = { ...host.target, id: 'worker-b' };
+  host.lastWorkerProbes['worker-b'] = { status: 'ok' };
+  await host.syncCodeTargets([host.target, other], 'run', { hashCompare: true });
+  assert.equal(host.inventories.length, 2);
+  assert.deepEqual(host.inventories.map(r => r.source.id), ['worker-a', 'worker-b']);
+  for (const request of host.inventories) {
+    assert.deepEqual(request.scopePaths, ['src/nested/model.py', 'src/train.py']);
+    assert.equal(request.inventoryPurpose, 'code-sync');
+  }
+  assert.equal(host.uploadRequests.length, 2);
+  for (const request of host.uploadRequests) assert.deepEqual(Object.keys(request.manifest).sort(), ['src/nested/model.py', 'src/train.py']);
+});
+
+test('large code inventories partition complete file scopes within producer path and byte limits', () => {
+  const { codeInventoryBatches } = require('../../dist/extension/PlanCodeScopeHost.js');
+  const manifest = Object.fromEntries(Array.from({ length: 5003 }, (_, i) => [`src/模型${String(i).padStart(5, '0')}.py`, {}]));
+  const batches = codeInventoryBatches(manifest);
+  assert.equal(batches.length, 2);
+  assert.deepEqual(batches.flat(), Object.keys(manifest).sort());
+  for (const batch of batches) { assert.ok(batch.length <= 5000); assert.ok(Buffer.byteLength(JSON.stringify(batch), 'utf8') <= 1048576); }
+  assert.deepEqual(codeInventoryBatches({}), []);
+});
+
 test("a changed file is hashed and uploaded, and a new file is not hidden by the previous listing", async () => {
   const digest = crypto.createHash("sha256").update("same").digest("hex");
   const host = syncHost({ files: { "src/train.py": { size: 4, sha256: digest } } });

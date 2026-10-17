@@ -33,6 +33,18 @@ test('file RPC may exceed old duration while genuine event progress continues',a
   });
 });
 
+test('capacity transitions reach the caller without inventing file or byte progress',async()=>{
+ const reports=[];
+ await fixture(async f=>{
+  f.emit({phase:'preparing',capacityState:'queued',capacityQueuedAt:'2026-10-17T01:00:00Z'});await new Promise(setImmediate);
+  f.emit({phase:'preparing',capacityState:'running',capacityGrantedAt:'2026-10-17T01:00:02Z',capacityWaitMs:2000});await new Promise(setImmediate);
+  f.finish();await f.work;
+ },row=>reports.push(row),'sync.projectInventory');
+ assert.deepEqual(reports.map(r=>r.capacityState),['queued','running']);
+ assert.equal(reports[1].capacityWaitMs,2000);
+ for(const r of reports){assert.equal(r.processedFiles,undefined);assert.equal(r.processedBytes,undefined);}
+});
+
 test('cleanup previews consume real progress instead of timing out as silent control requests',async()=>{
   await fixture(async f=>{
     for(let i=1;i<=5;i++){now+=100;f.emit({phase:'verifying',processedFiles:i});await new Promise(setImmediate);assert.equal(waits[0].check(),false);}

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.362",
-  "buildId": "8e64571ab59c34311b5ee1114be4c416a19e9c559216e65e627f16146e70eb9c",
+  "version": "0.5.363",
+  "buildId": "283ffdeb507d06b08b751a0d7db8856fd321a3704f2c55c8251edb84d03c88c3",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -157,7 +157,7 @@
     },
     {
       "path": "dist/core/SimpleSftpProgressWait.js",
-      "sha256": "893b4c06b446bbf3fdd6f31672a935b66288ad784ca47436081a03616df737d6"
+      "sha256": "5da1a780342e7ee07ad3eac5156d0ce565f682d3341f84e541bf82045c6b42a4"
     },
     {
       "path": "dist/core/WorkspacePathMapper.js",
@@ -197,7 +197,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "abf3526da2ddf2fd03536df0ea3df541e5f071f5f08039f10bfe1be270af7bed"
+      "sha256": "e1b983f41be6f95e692bb74f86c12b798077a3a4eb82b0da51b397d5972c16b4"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -213,7 +213,7 @@
     },
     {
       "path": "dist/extension/PlanCodeScopeHost.js",
-      "sha256": "9afabab7dcb1d699881ada5229fa6b82c0fd1b68d2300429b368e0fddfe8bff7"
+      "sha256": "41b5f9b4a632bf402ae8fd8b592175472713d0d893d3b2138ba83597ff92d744"
     },
     {
       "path": "dist/extension/PlanRunHost.js",
@@ -673,7 +673,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "a918f91474ead0691c50b60141f7ceded1bc17955482ee2acad7973ba182e05a"
+      "sha256": "d13c21041a847931fa60bc2229415a6ba1d741e750083600ff387e1761f801fe"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1021,7 +1021,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "e59ea7c186c89e241f88987c42ed6345376efceb4720967267bbc048615a888e"
+      "sha256": "b9ee458b60d2e67e75f51eab84cbd4cdbcdf8b823f17625f3b88e14ea39624d4"
     },
     {
       "path": "scripts/check-static.js",
