@@ -19,9 +19,9 @@ test("scope Webview renders collapsible checkboxes, status colors and refresh", 
   openSyncScopeTree("范围", [{ id: "workers", label: "Workers", detail: "完整项目", selected: ["."], list: async () => [{ name: "data", path: "data", directory: true }], refresh: async (relative) => { refreshed = relative; return { data: { state: "same", detail: "一致" } }; }, save: async (paths) => { saved = paths; } }]);
   assert.match(panel.webview.html, /type='checkbox'/);
   assert.match(panel.webview.html, /paddingLeft=\(depth\*18\)/);
-  assert.match(panel.webview.html, /刷新同步状态/);
+  assert.match(panel.webview.html, /刷新文件状态/);
   assert.doesNotMatch(panel.webview.html, /setInterval/);
-  assert.match(panel.webview.html, /单击展开/);
+  assert.match(panel.webview.html, /展开即读取/);
   assert.match(panel.webview.html, /\.different\{/);
   assert.match(panel.webview.html, /\.remote-only\{/);
   const script = panel.webview.html.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/);
@@ -73,6 +73,9 @@ test("scope Webview requests visible-file status and replaces waiting badges", (
   assert.equal(messages.at(-1).type, "list");
   assert.equal(typeof elements.get("tree").children[1].children.find((child) => child.textContent === "📁 data").onclick, "function");
   elements.get("refresh").onclick();
+  assert.equal(messages.at(-1).type, "list");
+  assert.ok(!messages.some(message => message.type === "refresh"));
+  elements.get("compare").onclick();
   assert.equal(messages.at(-1).type, "refresh");
   assert.equal(messages.at(-1).path, ".");
   const hash = "a".repeat(64);
@@ -164,7 +167,8 @@ test("deleting one nested file keeps folders expanded and refreshes only its par
   onMessage({ data: { type: "actionDone", rootId: "workers", path: "results/old.bin", action: "remove", directory: false } });
   assert.deepEqual({ type: messages.at(-1).type, path: messages.at(-1).path }, { type: "list", path: "results" });
   onMessage({ data: { type: "children", rootId: "workers", path: "results", entries: [] } });
-  assert.deepEqual({ type: messages.at(-1).type, path: messages.at(-1).path }, { type: "refresh", path: "results" });
+  assert.deepEqual({ type: messages.at(-1).type, path: messages.at(-1).path }, { type: "list", path: "results" });
+  assert.ok(!messages.some(message => message.type === "refresh"));
   const expanded = elements.get("tree").children[1].children[0];
   assert.equal(expanded.textContent, "▾");
   onMessage({ data: { type: "status", rootId: "workers", path: "results", statuses: { results: { state: "same", detail: "目录为空" } }, refreshedAt: "now" } });

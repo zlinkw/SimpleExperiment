@@ -66,7 +66,7 @@ test('partial deletion refreshes attempted parents and retires pre-delete reques
  assert.ok(sent.some(m=>m.type==='list'&&m.path==='work_dirs'),'failed/partially deleted targets must also be re-read');
  const list=sent.findLast(m=>m.type==='list'&&m.path==='work_dirs');
  send({type:'children',id:list.id,rootId:'workers',path:'work_dirs',entries:[]});
- assert.ok(sent.some(m=>m.type==='refresh'),'stale pending request must not stall refresh');
+ assert.ok(!sent.some(m=>m.type==='refresh'),'file actions reload actual listings without starting a second recursive content comparison');
  send({type:'status',id:'old',rootId:'workers',path:'.',statuses:{[gone]:{state:'different',detail:'stale'}}});
  send({type:'error',id:'old-list',rootId:'workers',path:'work_dirs',requestType:'list',message:'old failure'});
  assert.equal(vm.runInContext("Boolean(state().statuses['work_dirs/job'])",ctx),false);
@@ -156,4 +156,49 @@ test('read progress is correlated and cannot replace a completed or superseded r
  send({type:'error',rootId:'workers',path:'.',requestType:'list',message:'HTTP 503'});
  send({type:'children',rootId:'workers',path:'.',entries:[]});
  assert.doesNotMatch(nodes.get('status').textContent,/503/);assert.equal(vm.runInContext("state().statuses['.'].state",ctx),'unknown');
+});
+
+test('directory listing preserves actual per-location file facts without content inventory',async()=>{
+ const list=method('listSyncScopeUnion',{loadSyncHolds:async()=>({}),isSyncHeld:()=>false,errorMessage:e=>e.message,
+  listLocalSyncScope:async()=>Object.assign([{name:'local.py',path:'local.py',directory:false,size:13,modifiedAtMs:1700000000000}],{observation:{status:'present',directory:true}})});
+ const host={context:{globalStorageUri:{fsPath:'fixture'}},sftpServerOptions:t=>t,simpleSftpApiCall:async(name,p)=>{
+  assert.equal(name,'sync.projectTree');if(p.source.id==='slow')throw Error('read unavailable');
+  return {ok:true,exists:true,entries:p.source.id==='w1'?[{path:'a.py',name:'a.py',directory:false,size:12,modifiedAtMs:1700000000000}]:[]};
+ }};
+ const rows=await list.call(host,'fixture',[{id:'w1'},{id:'w2'},{id:'slow'}],'.',false);
+ assert.equal(rows[0].observations.w1.size,12);assert.equal(rows[0].observations.w1.modifiedAtMs,1700000000000);
+ assert.equal(rows[0].observations.w2.status,'not-listed');assert.equal(rows[0].observations.slow.status,'unknown');
+ assert.equal(rows.observations.w1.status,'present');
+ host.simpleSftpApiCall=async()=>{throw Error('disconnected');};
+ const local=await list.call(host,'fixture',[{id:'w1'},{id:'w2'}],'.',true);
+ assert.equal(local[0].observations.local.size,13);assert.equal(local[0].observations.w1.status,'unknown');assert.equal(local[0].observations.w2.status,'unknown');
+});
+
+test('actual listed files show facts and permit choosing a source immediately, with no separate verification action',()=>{
+ const {ctx,nodes,sent,send}=webview();send({type:'init',roots:[{id:'local',label:'Local',selected:['.']}]});
+ const observations={local:{status:'present',directory:false,size:12,modifiedAtMs:1700000000000},w1:{status:'present',directory:false,size:10,modifiedAtMs:1700000001000},w2:{status:'unknown',error:'read unavailable'}};
+ send({type:'children',rootId:'local',path:'.',entries:[{path:'a.py',name:'a.py',directory:false,locations:['local','w1'],observations}],observations:{local:{status:'present',directory:true},w1:{status:'present',directory:true}}});
+ let file=nodes.get('tree').children[1];assert.match(file.children.find(n=>String(n.className).startsWith('badge')).textContent,/12 B/);
+ file.children.find(n=>n.textContent==='版本与操作').onclick();
+ const copies=nodes.get('tree').children[2].children;
+ assert.match(copies[0].textContent,/本机.*存在.*12 B/);assert.doesNotMatch(copies[0].textContent,/尚未校验|待核验/);
+ const retain=copies[0].children.find(n=>n.textContent==='以此版同步到其他位置');assert.equal(retain.disabled,false);
+ assert.equal(copies.find(n=>n.textContent.startsWith('w2')).children.length,0);
+ retain.onclick();assert.equal(sent.at(-1).type,'retain');assert.equal(sent.at(-1).endpointId,'local');
+ assert.ok(!sent.some(m=>m.type==='refresh'));
+ send({type:'error',rootId:'local',path:'.',requestType:'list',message:'new read failed'});
+ assert.match(nodes.get('tree').children[1].children.find(n=>String(n.className).startsWith('badge')).textContent,/查询失败/);
+ assert.doesNotMatch(nodes.get('tree').children[1].children.find(n=>String(n.className).startsWith('badge')).textContent,/12 B/);
+});
+
+test('real local directory reader returns stat facts without reading file contents',async()=>{
+ const root=fs.mkdtempSync(path.join(require('node:os').tmpdir(),'scope-list-facts-'));
+ fs.writeFileSync(path.join(root,'a.py'),'print(42)\n','utf8');fs.mkdirSync(path.join(root,'empty'));
+ const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true);const fn=ast.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='listLocalSyncScope');
+ const read=vm.runInNewContext(ts.transpileModule(fn.getText(ast)+';listLocalSyncScope',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,
+  {fs:{lstat:fs.promises.lstat,readdir:fs.promises.readdir},path,errorMessage:e=>e.message,blockedExplicitCodePath:()=>false,scopeInventoryPathAllowed:()=>true,
+   mapLimited:async(rows,limit,work)=>{assert.equal(limit,8);return Promise.all(rows.map(work));}});
+ const entries=await read(root,'.'),actual=fs.statSync(path.join(root,'a.py'));
+ assert.equal(entries.find(e=>e.name==='a.py').size,actual.size);assert.equal(entries.find(e=>e.name==='a.py').modifiedAtMs,actual.mtimeMs);
+ assert.equal(entries.observation.status,'present');assert.equal(entries.find(e=>e.name==='empty').directory,true);
 });

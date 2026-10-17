@@ -91,7 +91,7 @@ import { distributedQueueOnlyClearable, mergeTrustedPlanOperations, nativePlanSt
 import { parseDistributedResultsFlag } from "../features/DistributedAdapterFlag";
 import { directPlanSyncPreview, transferPlanArtifacts, workerFpsyncTaskLabel } from "../features/PlanArtifactTransfer";
 import { planProjectMirror, normalizeMirrorScopePaths, filterInventoryByScope } from "../features/ProjectMirror";
-import { openSyncScopeTree, ScopeEntry } from "../features/SyncScopeTree";
+import { openSyncScopeTree, ScopeEntry, ScopeObservation } from "../features/SyncScopeTree";
 import { confirmSyncScopePaths, reviewPlanVersionResults } from "../features/SyncScopeConfirmation";
 import { expandSyncScopeBatchSelection, runSyncScopeBatch, syncScopeIssueSignature } from "../features/SyncScopeBatch";
 import { batchSyncScopeInventoryPaths, planSyncScopeTransferGroups, scopeInventorySnapshot } from "../features/SyncScopeTransferBatch";
@@ -8283,7 +8283,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const serverSelected = normalizeMirrorScopePaths(config.get<string[]>("serverSync.paths", ["."]));
         const targets = this.workerCodeSyncTargets();
         const scopePanel = openSyncScopeTree("项目同步范围与状态", [{
-            id: "local", label: "本机 ↔ Worker", detail: "可在根目录全选本机文件，再取消产物和预训练权重目录。文件夹显示整棵子树的汇总状态。", rootSelectable: true, excludable: true,
+            id: "local", label: "本机 ↔ Worker", detail: "展开即读取本机和各 Worker 的文件信息；文件夹显示目录本身，内容比较按需执行。", rootSelectable: true, excludable: true,
             selected: localSelected,
             list: async (relative, signal) => this.listSyncScopeUnion(root, targets, relative, true, false, signal),
             refresh: async (relative, signal, report) => this.refreshSyncScopeStatus(root, targets, "local-server", localSelected, relative, signal, report),
@@ -8300,7 +8300,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 void vscode.window.showInformationMessage(`本机与服务器同步范围已保存：${normalized.length} 条路径。`);
             },
         }, {
-            id: "workers", label: "Worker ↔ Worker", detail: "默认同步整个项目，机器状态除外；文件夹显示整棵子树的汇总状态。",
+            id: "workers", label: "Worker ↔ Worker", detail: "展开即读取各 Worker 的文件信息；默认同步整个项目，机器状态除外。内容比较按需执行。",
             selected: serverSelected,
             list: async (relative, signal) => this.listSyncScopeUnion(root, targets, relative, false, false, signal),
             refresh: async (relative, signal, report) => this.refreshSyncScopeStatus(root, targets, "server-server", serverSelected, relative, signal, report),
@@ -8337,8 +8337,14 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     }
     async listSyncScopeUnion(root, targets, relative, localOnly, strict = false, signal?: AbortSignal) {
         signal?.throwIfAborted();
-        const local = localOnly ? await listLocalSyncScope(root, relative) : [];
+        const local: ScopeEntry[] & { observation?: ScopeObservation } = localOnly ? await listLocalSyncScope(root, relative) : [];
         const entries = new Map<string, ScopeEntry>(local.map((row) => [row.path, { ...row, selectable: true, locations: ["local"] }]));
+        const observations: Record<string, ScopeObservation> = {};
+        if (localOnly) {
+            observations.local = local.observation || { status: "present", directory: true };
+            for (const row of entries.values()) row.observations = { local: { status: row.metadataError ? "unknown" : "present", directory: row.directory,
+                size: row.size, modifiedAtMs: row.modifiedAtMs, observedAt: observations.local.observedAt, error: row.metadataError } };
+        }
         const results = await Promise.allSettled(targets.map((target) => this.simpleSftpApiCall("sync.projectTree", {
             source: this.sftpServerOptions(target), relativePath: relative, ...(signal ? { signal } : {}),
         }, 12000).catch(async error => {
@@ -8349,28 +8355,37 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 if (state.ok === true && (state.exists === false || state.exists === true && state.empty === true)) return { ok: true, entries: [], exists: state.exists };
                 throw new Error("轻量复查确认目录非空，原文件清单仍未读取成功");
             } catch (probeError) { throw new Error(errorMessage(error) + "；目录存在性/空目录复查：" + errorMessage(probeError)); }
-        })));
+        }).then(result => ({ ...result, observedAt: new Date().toISOString() }))));
         signal?.throwIfAborted();
         const queryErrors: string[] = [];
         for (let index = 0; index < results.length; index++) {
           const result = results[index];
           if (result.status !== "fulfilled") {
             queryErrors.push(`${targets[index].id} 文件树读取失败：${errorMessage(result.reason)}`);
+            observations[targets[index].id] = { status: "unknown", error: errorMessage(result.reason).slice(0, 400) };
             continue;
           }
           if (result.value?.ok === false || !Array.isArray(result.value?.entries)) {
             queryErrors.push(`${targets[index].id} 返回的文件树无效，未将其当作空目录。`);
+            observations[targets[index].id] = { status: "unknown", error: "文件列表无效" };
             continue;
           }
+          observations[targets[index].id] = { status: result.value.exists === false ? "absent" : "present", directory: true, observedAt: result.value.observedAt };
           for (const row of Array.isArray(result.value?.entries) ? result.value.entries : []) {
             const key = String(row.path);
             const prior = entries.get(key);
-            entries.set(key, { name: String(row.name), path: key, directory: Boolean(row.directory) || Boolean(prior?.directory), selectable: !localOnly || Boolean(prior), locations: [...new Set([...(prior?.locations || []), targets[index].id])] });
+            entries.set(key, { ...prior, name: String(row.name), path: key, directory: Boolean(row.directory) || Boolean(prior?.directory), selectable: !localOnly || Boolean(prior?.locations?.includes("local")), locations: [...new Set([...(prior?.locations || []), targets[index].id])],
+                observations: { ...prior?.observations, [targets[index].id]: { status: "present", directory: Boolean(row.directory), size: typeof row.size === "number" ? row.size : undefined,
+                    modifiedAtMs: typeof row.modifiedAtMs === "number" ? row.modifiedAtMs : undefined, observedAt: result.value.observedAt } } });
           }
         }
-        if (queryErrors.length && (strict || queryErrors.length === targets.length)) throw new Error(queryErrors.join("；"));
+        if (queryErrors.length && (strict || !localOnly && queryErrors.length === targets.length)) throw new Error(queryErrors.join("；"));
+        for (const row of entries.values()) for (const [id, observation] of Object.entries(observations)) {
+            row.observations ||= {};
+            row.observations[id] ||= observation.status === "unknown" ? observation : { status: "not-listed", observedAt: observation.observedAt };
+        }
         const holds = await loadSyncHolds(this.context.globalStorageUri.fsPath, root);
-        return Object.assign([...entries.values()].map((row) => ({ ...row, held: isSyncHeld(row.path, holds) })).sort((a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name)), { queryErrors });
+        return Object.assign([...entries.values()].map((row) => ({ ...row, held: isSyncHeld(row.path, holds) })).sort((a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name)), { queryErrors, observations });
     }
     async refreshSyncScopeStatus(root, targets, mode, selectedPaths, relative = ".", signal?: AbortSignal, report = (_stage: string) => {}) {
         signal?.throwIfAborted();
@@ -33111,20 +33126,29 @@ async function collectExplicitCodeFiles(root: string, includePaths: string[]): P
     }
     return [...files];
 }
-async function listLocalSyncScope(root: string, relative: string): Promise<ScopeEntry[]> {
+async function listLocalSyncScope(root: string, relative: string): Promise<ScopeEntry[] & { observation?: ScopeObservation }> {
     const full = relative === "." ? root : normalizedExplicitCodePath(root, relative).full;
     const info = await fs.lstat(full).catch((error) => {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") return undefined;
         throw error;
     });
-    if (!info) return [];
+    if (!info) return Object.assign([], { observation: { status: "absent" as const, observedAt: new Date().toISOString() } });
     if (!info.isDirectory() || info.isSymbolicLink()) throw new Error(`同步目录不可浏览：${relative}`);
     const entries = await fs.readdir(full, { withFileTypes: true });
-    return entries.flatMap((entry) => {
+    const rows = await mapLimited(entries, 8, async (entry) => {
         const child = relative === "." ? entry.name : `${relative}/${entry.name}`;
         if (entry.isSymbolicLink() || !entry.isDirectory() && !entry.isFile() || blockedExplicitCodePath(child) || !scopeInventoryPathAllowed(child, entry.isDirectory()) || entry.name.toLowerCase().startsWith(".env")) return [];
-        return [{ name: entry.name, path: child, directory: entry.isDirectory() }];
-    }).sort((a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name));
+        try {
+            const stat = await fs.lstat(path.join(full, entry.name));
+            if (stat.isSymbolicLink() || !stat.isDirectory() && !stat.isFile()) return [];
+            return [{ name: entry.name, path: child, directory: stat.isDirectory(), size: stat.isFile() ? stat.size : undefined, modifiedAtMs: stat.mtimeMs }];
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+            return [{ name: entry.name, path: child, directory: entry.isDirectory(), metadataError: errorMessage(error) }];
+        }
+    });
+    return Object.assign(rows.flat().sort((a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name)),
+        { observation: { status: "present" as const, directory: true, modifiedAtMs: info.mtimeMs, observedAt: new Date().toISOString() } });
 }
 async function expandSelectedLocalScope(root: string, selected: string[], excluded: string[]): Promise<string[]> {
     const exclusions = [...new Set(excluded.map((value) => normalizedExplicitCodePath(root, value).relative))];
