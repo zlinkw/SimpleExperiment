@@ -34,4 +34,10 @@ HTTP 就绪前原先强制 prune_agent_state 和 reconcile_worker_tasks_after_re
 
 ## 源码、稳定发行与安装
 
-待显式推送、真实 Latest 验证和一次安装后补记；源码 push、远端发行、本机安装与现场验收分别记录。
+源码实现提交 320c76014967de449299255888b479cdea2f2cbb 已普通 fast-forward 推送 origin/master，fetch 后 HEAD 与 origin/master 相等。未提交预先存在的两个 pyc、未跟踪迁移脚本、历史校验清单或缓存。
+
+稳定 [v0.5.365](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.365) 已发布。真实 /releases/latest 为该版本，draft=false、prerelease=false，target_commitish 与 tag 实际 commit 均为上述已验证提交；精确资产 simple-experiment-0.5.365.vsix（3087211 字节）和同名 .vsix.sha256（97 字节），GitHub digest 与本机冻结包一致。没有覆盖历史 tag 或资产。
+
+使用实际安装旧版 0.5.364 的 ReleaseClient，在 win32-x64 上识别 0.5.365 更新及既有 0.2.94 配套包；通过其真实 request 入口下载两个 VSIX 和清单，逐字节、SHA256、精确清单文件名、扩展身份、版本和 universal 平台均通过。读取的发行包保留在 C:/Users/ZLK/AppData/Local/Temp/simpleex-0365-release-lE9mSY，未删除验证或历史文件。
+
+显式 npm run install:latest 仅执行一次，安装 0.5.365 成功，无 force、无降级；SimpleSFTP 0.2.94 未重复安装。立即核对 code --list-extensions --show-versions、simpleex 入口与 simpleex --help；已安装 376 个 dist 文件逐字节等于真实发行包与本机冻结包。随后停止插件 API、面板和服务器操作，等待用户 Developer: Reload Window。0.5.365 远端 Agent/Scheduler 尚未部署，现场验收仍待完成。本段是后续文档回执，不修改运行字节、包或 Release。
