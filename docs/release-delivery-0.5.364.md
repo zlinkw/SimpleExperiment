@@ -47,3 +47,16 @@ CORIM 后端 PLAN 摘要本来就是 unknown、5/6；UI 将 missing 窗口排除
 确定包 `simple-experiment-0.5.364.vsix`：3082475 字节，SHA256 `eaa33995043788c6df99f993541a4fcd4b149d1a9e533e52c3758fb96d0590dc`，535 个 ZIP 条目、376 个 dist 文件，全部运行字节与当前源码构建一致。publisher/name/version、universal 平台、源 package-lock、实际 discovery token 排除、无机器状态/依赖缓存检查通过。同名 SHA256 清单精确绑定文件名。包已冻结，后续文档回执不改变运行字节，不重新打包或替换发行资产。
 
 配套 SimpleSFTP 0.2.94 进一步将不超过 4 MiB 的内存指标读取与同服务器大清单/落盘传输隔离；API 外层与实际下载内层使用相同有界通道，避免只改外层后仍在内部排队。完整哈希、单服务器容量、取消、文件白名单和磁盘写入保护保留。其独立验证及发行记录见 SimpleSFTP 仓库 `docs/release-delivery-0.2.94.md`。Experiment 的既有内存协议仍兼容 0.2.93，本次最终交付配套 0.2.94 才包含此容量优化。
+
+## 稳定发行与一次安装回执
+
+实现提交 Experiment `ebe6922cb843dc5c0ba4721e5d97d2033d442877`、SFTP `8d273049f3686be487a13d5dcdc4606c9e10172f` 已各自普通 fast-forward 推送 origin/master，fetch 核对一致。原有 pyc、未跟踪脚本、历史校验清单和运行目录均未提交。
+
+- [Experiment 稳定 v0.5.364](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.364)，精确资产 `simple-experiment-0.5.364.vsix` 3082475 字节及同名 `.sha256`，指纹见上节。
+- [SFTP 稳定 v0.2.94](https://github.com/zlinkw/SimpleSFTP/releases/tag/v0.2.94)，精确资产 `simple-sftp-0.2.94.vsix` 170860 字节，SHA256 `1452a52b9da84a89f760154b162d299cc79ff2496a945d67840450a75988aa92`，以及同名 `.sha256`。
+
+真实 Latest 均 draft=false、prerelease=false，tag 与 target_commitish 绑定各自实现提交，资产名称、大小、GitHub digest 与本机冻结包一致。使用实际已安装旧版 Experiment 0.5.363 的 ReleaseClient 为 Windows win32-x64 识别两项更新，通过其实际下载入口取得两份 VSIX 和清单；逐字节、SHA256、身份、universal 平台、版本和清单精确文件名均通过。下载验证文件保留在 `C:/Users/ZLK/AppData/Local/Temp/simpleex-0364-release-MqEC0q`，没有覆盖或清理历史资产。
+
+各仓库显式执行且仅一次 `npm run install:latest`，安装 SFTP 0.2.94 与 Experiment 0.5.364，无 force、无降级。VS Code 安装列表、simpleex/simple-sftp-api 入口和 simpleex --help 核对通过；已安装 Experiment 376 个 dist、SFTP 21 个 JS/Python 运行文件与稳定发行包逐字节一致。
+
+安装前最后 API 只读核对仍为运行 Host 0.5.363、CORIM 5/6、原 commandId 不变、seed44=unknown。安装后停止插件 API、面板和服务器操作。等待用户 Developer: Reload Window 后再验收实际运行版本、H20 端到端耗时和错误分组；当前不宣称现场已修复。没有重提、重跑、停止科研任务，没有改动配置、产物、指标、日志或权重，也未升级远端 Agent/Scheduler。本节为文档回执，不改变冻结包或 tag。
