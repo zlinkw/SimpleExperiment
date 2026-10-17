@@ -8,6 +8,7 @@ const AgentLifecycle_1 = require("./runtime/AgentLifecycle");
 const TmuxTaskLifecycle_1 = require("./runtime/TmuxTaskLifecycle");
 const RuntimeLogDiagnostics_1 = require("./runtime/RuntimeLogDiagnostics");
 const PlanCodeScope_1 = require("./runtime/PlanCodeScope");
+const SyncScopeIndex_1 = require("./runtime/SyncScopeIndex");
 exports.CLUSTER_AGENT_RUNTIME = String.raw `#!/usr/bin/env python3
 from __future__ import annotations
 import argparse, base64, calendar, copy, csv, errno, fnmatch, glob, hashlib, http.client, importlib.util, io, ipaddress, json, math, os, pathlib, random, re, shutil, shlex, signal, socket, statistics, stat, struct, subprocess, sys, threading, time, traceback, urllib.request, uuid, zipfile
@@ -17,6 +18,7 @@ from urllib.parse import urlparse, parse_qs, unquote
 
 ${ResultLayout_1.RESULT_LAYOUT_PYTHON}
 ${PlanExistingArtifacts_1.PLAN_EXISTING_ARTIFACTS_PYTHON}
+${SyncScopeIndex_1.SYNC_SCOPE_INDEX_PYTHON}
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
@@ -6765,6 +6767,7 @@ def api_capabilities(root, token_required=False, mode="worker_telemetry"):
                 "codeSyncProof": True,
                 "codeSyncProofAsync": True,
                 "planCodeScope": 1,
+                "syncScopeIndex": 1,
                 "idleGpuAdmission": True,
                 "manualDispatch": 1,
                 "gpuMemoryRatioScheduling": 1,
@@ -14363,6 +14366,7 @@ def api_openapi(root, token_required=False, mode="worker_telemetry"):
             "/api/gpu/history",
             "/api/worker/availability",
             "/api/worker/tasks",
+            "/api/sync-scope/index",
             "/api/worker/commands",
             "/api/workers/uplink/commands/sse",
             "/api/live-output",
@@ -15763,6 +15767,8 @@ def serve_http(args):
             self._request_slots = threading.BoundedSemaphore(self.max_request_threads)
             self._class_slots = {name: threading.BoundedSemaphore(limit) for name, limit in self.request_class_limits.items()}
             self._capacity_lock = threading.Lock()
+            self.sync_scope_index = None  # Only the sync-scope view starts metadata work.
+            self.sync_scope_index_guard = threading.Lock()
             self._active_requests = 0
             self._active_by_class = {name: 0 for name in self.request_class_limits}
             self._rejected_requests = 0
@@ -15801,6 +15807,8 @@ def serve_http(args):
                 self._request_slots.release()
 
         def classify_request(self, method, route):
+            if route == "/api/sync-scope/index":
+                return "read"  # Only short tickets/deltas; filesystem work has its own thread/lock.
             if route == "/api/worker/tasks/diagnostics":
                 return "read"  # Log I/O cannot occupy task-control/probe slots.
             if method == "GET" and route in (
@@ -16470,6 +16478,23 @@ def serve_http(args):
             if self.reject_if_needed():
                 return
             route = urlparse(self.path).path
+            if route == "/api/sync-scope/index":
+                raw = self.read_request_body(route)
+                if raw is None:
+                    return
+                try:
+                    if len(raw) > 4096:
+                        raise ValueError("SCOPE_INDEX_REQUEST_LIMIT")
+                    payload = json.loads(raw.decode("utf-8"))
+                    # The view marker is validated before creating any index or scanning.
+                    if payload.get("feature") != "project-sync-scope":
+                        raise ValueError("SCOPE_INDEX_VIEW_REQUIRED")
+                    with self.server.sync_scope_index_guard:
+                        if self.server.sync_scope_index is None:
+                            self.server.sync_scope_index = SyncScopeIndex(root)
+                    return self.send_json(self.server.sync_scope_index.query(payload))
+                except Exception as exc:
+                    return self.send_json({"ok": False, "status": "unknown", "error": str(exc)}, status=400)
             if route == "/api/code-sync/plan-scope":
                 raw = self.read_request_body(route)
                 if raw is None:

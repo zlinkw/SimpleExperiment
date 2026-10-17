@@ -3,6 +3,14 @@ const test = require("node:test");
 const path = require("node:path");
 const { collectLocalRuntimeClosure } = require("../../scripts/runtime-closure");
 const { createPanelBuildManifest } = require("../../scripts/panel-build-manifest");
+test("a held existing manifest is updated in place as UTF-8 and unchanged builds do not rewrite it", () => {
+  const fs=require('node:fs'),os=require('node:os'),{writePanelBuildManifest}=require('../../scripts/panel-build-manifest');
+  const folder=fs.mkdtempSync(path.join(os.tmpdir(),'panel-manifest-write-')),file=path.join(folder,'manifest.json');
+  fs.writeFileSync(file,'{"old":"longer previous bytes"}\n','utf8');const before=fs.statSync(file);let opens=0;
+  const held={...fs,openSync(name,flag){opens++;if(flag!=='r+')throw Object.assign(Error('Windows CREATE_ALWAYS rejected'),{code:'UNKNOWN'});return fs.openSync(name,flag);}};
+  const content='{"状态":"新"}\n';writePanelBuildManifest(file,content,held);assert.equal(fs.readFileSync(file,'utf8'),content);assert.equal(fs.statSync(file).ino,before.ino);
+  writePanelBuildManifest(file,content,held);assert.equal(opens,1);
+});
 
 const root = path.resolve("C:/panel-manifest-fixture");
 const baseFiles = {

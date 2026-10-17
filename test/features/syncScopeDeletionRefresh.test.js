@@ -12,6 +12,53 @@ function webview(roots=[]){
 }
 function method(name,globals){const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true);let member;function visit(n){if(ts.isMethodDeclaration(n)&&n.name.getText(ast)===name)member=n;ts.forEachChild(n,visit);}visit(ast);return vm.runInNewContext(ts.transpileModule('class Host{'+member.getText(ast)+'};Host.prototype.'+name,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,globals);}
 
+test('collapsed folders automatically request recursive summaries and show counts alongside observed copies',()=>{
+ const {nodes,sent,send,ctx}=webview();
+ send({type:'init',roots:[{id:'local',label:'Local',selected:[],summary:true}]});
+ send({type:'children',rootId:'local',path:'.',entries:[{name:'configs',path:'configs',directory:true,locations:['local','w1'],observations:{local:{status:'present',directory:true},w1:{status:'present',directory:true}}}]});
+ const query=sent.find(m=>m.type==='summary');assert.ok(query,'automatic recursive summary without expanding configs');
+ send({type:'status',id:query.id,rootId:'local',path:'.',complete:false,statuses:{configs:{state:'different',basis:'metadata',detail:'递归文件信息：缺失 2 · 差异 1',copies:{local:{present:3,missing:0,needsSync:0,conflict:0,unverified:0,modifiedAtMs:1000},w1:{present:1,missing:2,needsSync:1,conflict:0,unverified:0,modifiedAtMs:1000}}}}});
+ const folder=nodes.get('tree').children[1],badge=folder.children.find(n=>n.className==='badge different');
+ assert.match(badge?.textContent,/缺失 2/);assert.match(badge?.textContent,/差异 1/);
+ assert.equal(vm.runInContext('state().pending.size',ctx),1,'partial reply must keep slow Worker pending');
+ assert.ok(!sent.some(m=>m.type==='list'&&m.path==='configs'),'collapsed subtree need not be expanded');
+ const old=query.id;nodes.get('refresh').onclick();send({type:'status',id:old,rootId:'local',path:'.',statuses:{configs:{state:'same',detail:'old'}}});
+ assert.notEqual(vm.runInContext("state().statuses.configs?.detail",ctx),'old','late summary cannot overwrite refresh');
+});
+
+test('hash comparison counts are not hidden by direct metadata; metadata differences remain filterable and actionable',()=>{
+ const {nodes,sent,send,ctx}=webview();send({type:'init',roots:[{id:'local',label:'Local',selected:[]}]});
+ send({type:'children',rootId:'local',path:'.',entries:[{name:'data',path:'data',directory:true,locations:['local','w1'],observations:{local:{status:'present',directory:true},w1:{status:'present',directory:true}}}]});
+ send({type:'status',rootId:'local',path:'.',statuses:{data:{state:'different',detail:'同步范围内 3 个文件 · 1 一致 · 2 待更新或冲突',copies:{local:{present:3,missing:0,needsSync:0,conflict:0,unverified:0},w1:{present:1,missing:2,needsSync:1,conflict:0,unverified:0}}}}});
+ assert.match(nodes.get('tree').children[1].children.find(n=>n.className==='badge different')?.textContent,/缺失 2/);
+ send({type:'status',rootId:'local',path:'.',statuses:{'data/deep/file':{basis:'metadata',state:'different',detail:'缺失：w1 · 内容未比较',issueSignature:'metadata-missing',metadata:{local:{status:'present',directory:false,size:3,modifiedAtMs:1000},w1:{status:'absent'}}}}});
+ nodes.get('filterIssues').onclick();assert.equal(vm.runInContext('state().issueTree.files.length',ctx),1);
+ const row=nodes.get('tree').children.find(n=>n.children.some(x=>x.textContent==='📄 file'));assert.ok(row);row.children.find(n=>n.textContent==='版本与操作').onclick();
+ const action=nodes.get('tree').children.flatMap(n=>n.children).flatMap(n=>n.children||[]).find(n=>n.textContent==='以此版同步到其他位置');assert.equal(action.disabled,false);action.onclick();assert.equal(sent.at(-1).endpointId,'local');assert.equal(sent.at(-1).path,'data/deep/file');
+});
+
+test('real metadata host checks companion capability and includes every enabled Worker, independently of transfer scope',async()=>{
+ const {queryScopeMetadata}=require('../../src/features/SyncScopeMetadata.ts');const calls=[],updates=[];
+ const refresh=method('refreshSyncScopeMetadata',{queryScopeMetadata,collectLocalScopeMetadata:async()=>({files:{'unselected/deep/file':{size:3,modifiedAtMs:1000}}})});
+ const host={enabledWorkerConfigs:()=>[{id:'w1'},{id:'w2'}],simpleSftpCapability:async method=>{assert.equal(method,'sync.projectInventory');return {methodOptions:{'sync.projectInventory':{metadataOnly:1}}};},sftpServerOptions:row=>row,simpleSftpApiCall:async(method,params)=>{calls.push(params);return {comparisonBasis:'metadata',files:{}};}};
+ const rows=await refresh.call(host,'fixture',[{id:'w1'}],true,'.',undefined,()=>{},row=>updates.push(row));
+ assert.equal(calls.length,1);assert.equal(calls[0].metadataOnly,true);assert.equal(calls[0].scopePaths,undefined);assert.equal(rows.unselected.copies.w1.missing,1);assert.equal(rows.unselected.copies.w2.missing,0);assert.equal(rows.unselected.copies.w2.unverified,1);assert.ok(updates.length>=2);
+ host.simpleSftpCapability=async()=>({methodOptions:{}});calls.length=0;await refresh.call(host,'fixture',[{id:'w1'}],false,'.');assert.equal(calls.length,0,'old companion must never silently hash the whole project');
+});
+
+test('only the sync-scope view reuses its freshly requested Agent generation for listings and counts',async()=>{
+ const {queryScopeMetadata}=require('../../src/features/SyncScopeMetadata.ts'),{scopeIndexUnsupported}=require('../../src/features/SyncScopeAgentIndex.ts');
+ const indexRead=async()=>({ok:true,exists:true,observedAt:'actual-index-scan',entries:[{name:'file',path:'dir/file',directory:false,size:2,modifiedAtMs:1000}]}),
+ list=method('listSyncScopeUnion',{loadSyncHolds:async()=>({}),isSyncHeld:()=>false,errorMessage:e=>e.message,scopeIndexUnsupported});
+ const host={context:{globalStorageUri:{fsPath:'fixture'}},sftpServerOptions:t=>t,enabledWorkerConfigs:()=>[{id:'w1'}],simpleSftpApiCall:()=>assert.fail('new Agent directory index needs no SSH directory process')};
+ const entries=await list.call(host,'fixture',[{id:'w1'}],'dir',false,false,undefined,indexRead);assert.equal(entries[0].observations.w1.observedAt,'actual-index-scan');
+ const summary=method('refreshSyncScopeMetadata',{queryScopeMetadata,scopeIndexUnsupported});
+ const rows=await summary.call(host,'fixture',[{id:'w1'}],false,'.',undefined,()=>{},()=>{},async()=>({files:{'dir/file':{size:2,modifiedAtMs:1000}}}));assert.equal(rows.dir.copies.w1.present,1);
+ host.simpleSftpApiCall=async()=>({ok:true,exists:true,entries:[]});
+ assert.equal((await list.call(host,'fixture',[{id:'w1'}],'.',false,false,undefined,async()=>{throw Error('Worker Agent HTTP 404: old runtime');})).length,0);
+ await assert.rejects(list.call(host,'fixture',[{id:'w1'}],'.',false,false,undefined,async()=>{throw Error('SCOPE_INDEX_QUERY_FAILED');}),/SCOPE_INDEX_QUERY_FAILED/);
+});
+
 test('real single/batch deletion call chain never enters the legacy transfer-receipt API',async()=>{
  const remote=method('deleteSyncScopeRemoteCopy',{deleteConfirmedScopeCopy:async(rpc,node,relative,directory)=>{
    assert.equal(node.host,'worker.example');assert.equal(node.root,'/project');assert.equal(relative,'work_dirs/job');assert.equal(directory,true);
@@ -92,9 +139,11 @@ test('refresh bounds and coalesces directory requests, skips collapsed and merel
  assert.deepEqual(lists().map(m=>m.path),['.','a']);
  const first=lists()[0];
  send({...first,type:'children',entries:[]});
- assert.equal(lists().length,3);assert.equal(lists()[2].path,'b');
+ assert.equal(lists().length,3);assert.equal(lists()[2].path,'.');
+ assert.notEqual(lists()[2].roundId,first.roundId,'old directory response cannot stand in for the requested index generation');
  assert.ok(!lists().some(m=>m.path==='collapsed'||m.path==='not/open'));
  vm.runInContext("load('b');load('b')",ctx);assert.equal(lists().length,3);
+ send({...lists()[2],type:'children',entries:[]});assert.equal(lists()[3].path,'b');
 });
 
 test('partial directory evidence preserves selections; strict action enumeration still rejects failed Workers',async()=>{

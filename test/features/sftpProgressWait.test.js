@@ -7,6 +7,11 @@ progressModule.ProgressInactivity=class extends Original {
   constructor(_idle,onIdle,_clock,notifyOnly){super(120,onIdle,()=>now,notifyOnly);waits.push(this);}
 };
 const {callSftpWithProgress}=require('../../dist/core/SimpleSftpProgressWait');
+test('fresh discovery rejects unsupported metadata mode before any remote or progress request',async()=>{
+ const original=global.fetch;global.fetch=()=>assert.fail('unsupported metadata must never become an implicit full hash inventory');
+ try{await assert.rejects(callSftpWithProgress('sync.projectInventory',{metadataOnly:true},async()=>({endpoint:new URL('http://127.0.0.1:1'),headers:{},methodOptions:{}})),/不支持递归文件信息/);}
+ finally{global.fetch=original;}
+});
 
 async function fixture(run, onProgress, method = 'upload.files') {
   const original=global.fetch; let stream, operationId, finish, cancels=0;

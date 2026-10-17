@@ -102,6 +102,7 @@ export interface TunnelClient {
   getOperation(operationId: string): Promise<unknown>;
   getWorkerTasks?(options?: { signal?: AbortSignal; executionOnly?: boolean; selectedOnly?: boolean; retiredCommandIds?: string[]; queries?: any[]; discovery?: { planFile: string; condaEnv?: string } }): Promise<unknown>;
   getPlanCodeScope?(query: unknown, options?: { signal?: AbortSignal }): Promise<any>;
+  getSyncScopeIndex?(query: unknown, options?: { signal?: AbortSignal }): Promise<any>;
   getRunEvidence?(params: { operationId?: string; planFile?: string; pid?: number | string; tmuxSession?: string }): Promise<unknown>;
   postAction<T>(action: TunnelAction, body: unknown, options?: { signal?: AbortSignal }): Promise<T>;
   postAvailabilityBatch<T>(body: unknown): Promise<T>;
@@ -265,6 +266,10 @@ export class HttpTunnelClient implements TunnelClient {
   getPlanCodeScope(query: unknown, options: { signal?: AbortSignal } = {}): Promise<any> {
     return this.requestJson("/api/code-sync/plan-scope", "job_reconcile", query,
       { method: "POST", userInitiated: true, signal: options.signal, timeoutMs: 15000 });
+  }
+  getSyncScopeIndex(query: unknown, options: { signal?: AbortSignal } = {}): Promise<any> {
+    return this.requestJson("/api/sync-scope/index", "manual_refresh", query,
+      { method: "POST", userInitiated: true, signal: options.signal, timeoutMs: 5000 });
   }
   getWorkerTasks(options: { signal?: AbortSignal; executionOnly?: boolean; selectedOnly?: boolean; observationOnly?: boolean; diagnosticsOnly?: boolean; declarationOnly?: boolean; retiredCommandIds?: string[]; queries?: any[]; declarations?: any[]; discovery?: { planFile: string; condaEnv?: string } } = {}): Promise<unknown> {
     const ids = [...new Set(options.retiredCommandIds || [])].sort();

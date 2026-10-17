@@ -353,6 +353,18 @@ class RealtimeTunnelClient {
             return value;
         });
     }
+    getSyncScopeIndex(query, options = {}) {
+        if (this.requiresManualReconnect)
+            return Promise.reject(new Error(this.lastError));
+        if (!this.http.getSyncScopeIndex)
+            return Promise.reject(new Error("SCOPE_INDEX_UNSUPPORTED"));
+        const generation = this.connectionGeneration;
+        return this.http.getSyncScopeIndex(query, options).then(value => {
+            if (generation !== this.connectionGeneration || this.disposed)
+                throw new Error("CONNECTION_GENERATION_CHANGED");
+            return value;
+        });
+    }
     getRunEvidence(params) {
         if (this.requiresManualReconnect)
             return Promise.reject(new Error(this.lastError));

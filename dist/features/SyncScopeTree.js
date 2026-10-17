@@ -44,44 +44,54 @@ function openSyncScopeTree(title, roots) {
     const refreshReads = new Set();
     const cancelReads = () => { for (const controller of reads)
         controller.abort(); };
-    panel.onDidDispose?.(cancelReads);
+    panel.onDidDispose?.(() => { cancelReads(); for (const root of roots)
+        root.dispose?.(); });
     panel.webview.onDidReceiveMessage(async (message) => {
         const id = String(message?.id || "");
         const root = roots.find((item) => item.id === message?.rootId);
-        const read = ["list", "refresh"].includes(message?.type) ? new AbortController() : undefined;
+        const read = ["list", "refresh", "summary"].includes(message?.type) ? new AbortController() : undefined;
         if (read)
             reads.add(read);
-        if (read && message?.type === "refresh")
+        if (read && ["refresh", "summary"].includes(message?.type))
             refreshReads.add(read);
         if (["save", "remove", "removeAllWorkers", "retain", "batchSync", "batchDelete", "mergeLatest"].includes(message?.type))
             cancelReads();
         try {
             if (message?.type === "ready") {
-                await panel.webview.postMessage({ type: "init", roots: roots.map(({ id, label, detail, selected, rootSelectable, excludable }) => ({ id, label, detail, selected, rootSelectable, excludable })) });
+                await panel.webview.postMessage({ type: "init", roots: roots.map(({ id, label, detail, selected, rootSelectable, excludable, summary }) => ({ id, label, detail, selected, rootSelectable, excludable, summary: Boolean(summary) })) });
                 return;
             }
             if (!root)
                 throw new Error("同步范围目标已失效。");
             if (message.type === "cancelRefresh") {
-                for (const controller of refreshReads)
-                    controller.abort();
+                if (message.cancelReads)
+                    cancelReads();
+                else
+                    for (const controller of refreshReads)
+                        controller.abort();
                 return;
             }
             if (message.type === "list") {
                 const relative = String(message.path || ".");
                 if (relative !== "." && (relative.startsWith("/") || relative.split("/").some((part) => !part || part === "." || part === "..")))
                     throw new Error("目录路径不安全。");
-                const entries = await root.list(relative, read?.signal);
+                const entries = await root.list(relative, read?.signal, String(message.roundId || "0"));
                 await panel.webview.postMessage({ type: "children", id, rootId: root.id, path: relative, entries, queryErrors: entries.queryErrors || [], observations: entries.observations });
             }
-            else if (message.type === "refresh") {
+            else if (message.type === "refresh" || message.type === "summary") {
                 const relative = String(message.path || ".");
                 if (relative !== "." && (relative.startsWith("/") || relative.split("/").some((part) => !part || part === "." || part === "..")))
                     throw new Error("校验目录路径不安全。");
                 let sequence = 0;
                 const report = (stage) => { if (!read?.signal.aborted)
                     void panel.webview.postMessage({ type: "readProgress", id, rootId: root.id, path: relative, stage, sequence: ++sequence }); };
-                await panel.webview.postMessage({ type: "status", id, rootId: root.id, path: relative, statuses: await root.refresh(relative, read?.signal, report), refreshedAt: new Date().toISOString() });
+                const publish = (statuses) => { if (!read?.signal.aborted)
+                    void panel.webview.postMessage({ type: "status", id, rootId: root.id, path: relative, statuses, complete: false }); };
+                if (message.type === "summary" && !root.summary)
+                    throw new Error("当前范围不支持递归文件信息");
+                const statuses = message.type === "summary" ? await root.summary(relative, read?.signal, report, publish, String(message.roundId || "0")) : await root.refresh(relative, read?.signal, report);
+                read?.signal.throwIfAborted();
+                await panel.webview.postMessage({ type: "status", id, rootId: root.id, path: relative, statuses, complete: true, refreshedAt: new Date().toISOString() });
             }
             else if (message.type === "save") {
                 const paths = Array.isArray(message.paths) ? message.paths.map(String) : [];
@@ -186,7 +196,7 @@ button.secondary{color:var(--vscode-foreground);background:var(--vscode-button-s
 .row label{cursor:pointer;min-width:150px;max-width:32%;overflow:hidden;text-overflow:ellipsis}.row .name.same{color:var(--vscode-testing-iconPassed,#43a047)}.row .name.different{color:var(--vscode-testing-iconFailed,#e53935)}.row .name.remote-only{color:var(--vscode-editorWarning-foreground,#d9822b)}.row .name.unknown{color:var(--vscode-descriptionForeground)}.row input{accent-color:var(--vscode-focusBorder)}.twisty{width:21px;min-width:21px;text-align:center;padding:0;background:transparent;color:var(--vscode-foreground)}.row-detail{display:flex;gap:6px;flex-wrap:wrap;padding:7px 8px;background:var(--vscode-editorWidget-background);border-left:2px solid var(--vscode-focusBorder)}.version{border:1px solid var(--vscode-panel-border);padding:3px 6px;overflow-wrap:anywhere;max-width:360px;font-size:11px}.version button{font-size:11px;padding:2px 5px;margin-left:4px}.more{margin-left:auto;white-space:nowrap;font-size:11px;padding:3px 7px}.candidate{color:var(--vscode-editorWarning-foreground,#d9822b)}.held{color:var(--vscode-editorWarning-foreground,#d9822b);font-size:11px}
 .filterbar{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin:8px 0}.filterbar button{font-size:12px}.filterbar .muted{margin:0}
 #status{min-height:20px;margin:8px 0;color:var(--vscode-descriptionForeground);white-space:pre-wrap;overflow-wrap:anywhere}#status.busy::before{content:'◌';display:inline-block;margin-right:7px;animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}#save{margin-top:8px}.badge{margin-left:8px;font-size:12px;white-space:pre-line;overflow-wrap:anywhere;max-width:60%;min-width:0}.badge.same{display:none}.badge span{display:block;white-space:normal;overflow-wrap:anywhere;max-width:100%}.same{color:var(--vscode-testing-iconPassed,#43a047)}.different{color:var(--vscode-testing-iconFailed,#e53935)}.remote-only{color:var(--vscode-editorWarning-foreground,#d9822b)}.unknown{color:var(--vscode-descriptionForeground)}.focus-conflict{outline:1px solid var(--vscode-focusBorder);background:var(--vscode-list-focusBackground)}
-</style></head><body><h2>同步范围</h2><div id="guide" class="muted">展开即读取文件位置、大小和修改时间；点击“版本与操作”选择副本。刷新重新读取目录，内容比较为可选操作。</div><div class="muted"><span class="same">绿色：同版</span>　<span id="remote-only-legend" class="remote-only">橙色：仅 Worker 同版</span>　<span class="different">红色：待更新或冲突</span>　<span id="scope-legend" class="scope-legend">浅色圆角背景：本机 ↔ Worker 传输范围</span></div><div id="tabs"></div><div id="detail" class="muted"></div><button id="refresh" class="secondary">刷新文件状态</button> <button id="compare" class="secondary">比较文件内容（可选）</button> <button id="nextConflict" class="secondary">定位下一个冲突</button><div class="filterbar"><button id="filterIssues" class="secondary">仅显示异常（已校验）</button><button id="clearIssueFilter" class="secondary" hidden>显示全部</button><button id="selectFiltered" class="secondary" hidden>勾选当前结果</button><button id="unselectFiltered" class="secondary" hidden>取消勾选当前结果</button><span id="filterDetail" class="muted"></span></div><div id="tree"></div><div id="status" role="status"></div><button id="save">保存当前范围</button> <button id="batchSync" class="secondary">批量同步勾选项</button> <button id="batchDelete" class="secondary">批量删除勾选项</button>
+</style></head><body><h2>同步范围</h2><div id="guide" class="muted">展开即读取副本信息；文件夹自动汇总整个子树的缺失、大小或修改时间差异，内容比较按需执行。</div><div class="muted"><span class="same">绿色：当前比较项相同</span>　<span id="remote-only-legend" class="remote-only">橙色：仅 Worker 内容同版</span>　<span class="different">红色：差异或缺失</span>　<span id="scope-legend" class="scope-legend">浅色圆角背景：本机 ↔ Worker 传输范围</span></div><div id="tabs"></div><div id="detail" class="muted"></div><button id="refresh" class="secondary">刷新文件状态</button> <button id="compare" class="secondary">比较文件内容（可选）</button> <button id="nextConflict" class="secondary">定位下一个冲突</button><div class="filterbar"><button id="filterIssues" class="secondary">仅显示缺失和差异</button><button id="clearIssueFilter" class="secondary" hidden>显示全部</button><button id="selectFiltered" class="secondary" hidden>勾选当前结果</button><button id="unselectFiltered" class="secondary" hidden>取消勾选当前结果</button><span id="filterDetail" class="muted"></span></div><div id="tree"></div><div id="status" role="status"></div><button id="save">保存当前范围</button> <button id="batchSync" class="secondary">批量同步勾选项</button> <button id="batchDelete" class="secondary">批量删除勾选项</button>
 <script nonce="${nonce}">
 const vscode=acquireVsCodeApi();let roots=[],active=null,serial=0,pendingScopeSelected=null;const views=new Map();
 const listQueue=[],listRunning=new Map();
@@ -220,26 +230,28 @@ function hasExcludedChild(path){return [...state().excluded].some(item=>item.sta
 function setSelection(path,checked){const view=state();if(view.issueFilterOn){for(const file of view.issueTree?.files||[])if(path==='.'||file===path||file.startsWith(path+'/')){if(checked)view.batchSelected.add(file);else view.batchSelected.delete(file)}renderTree();return}const set=view.selected,excluded=view.excluded;if(path==='.') {set.clear();excluded.clear();if(checked){if(!active.excludable)set.add('.');else for(const item of view.children.get('.')||[])if(item.selectable!==false)set.add(item.path)}}else if(checked){for(const item of [...excluded])if(item===path||item.startsWith(path+'/'))excluded.delete(item);if(!selected(path)){for(const item of [...set])if(item.startsWith(path+'/'))set.delete(item);set.add(path)}}else{for(const item of [...set])if(item===path||item.startsWith(path+'/'))set.delete(item);if([...set].some(item=>item==='.'||path.startsWith(item+'/')))excluded.add(path);else for(const item of [...excluded])if(item===path||item.startsWith(path+'/'))excluded.delete(item)}renderTree()}
 function versionTime(version){if(!version?.modifiedAtMs)return '时间未知';const date=new Date(version.modifiedAtMs);if(Number.isNaN(date.getTime()))return '时间未知';const two=value=>String(value).padStart(2,'0');return date.getFullYear()+'-'+two(date.getMonth()+1)+'-'+two(date.getDate())+' '+two(date.getHours())+':'+two(date.getMinutes())+':'+two(date.getSeconds())}
 function versionRole(version){return version?.latest==='plan'?'Plan 最新运行':version?.latest==='manual'?'手动选定':version?.latest==='local'?'本机基准':version?.latest==='candidate'?'时间最新候选':version?.latest==='same'?'与其他 Worker 同内容':''}
-function folderCopyText(id,copy,present){const name=id==='local'?'本机':id;if(!present)return name+' 全部缺失';const issues=[copy.missing?'缺失 '+copy.missing:'',copy.needsSync?'需同步 '+copy.needsSync:'',copy.conflict?'内容冲突 '+copy.conflict:'',copy.unverified?'未校验 '+copy.unverified:''].filter(Boolean);return name+' '+versionTime(copy)+(issues.length?' · '+issues.join(' · '):'')}
+function folderCopyText(id,copy,present){const name=id==='local'?'本机':id;if(!present&&!copy.present&&!copy.unverified)return name+' 全部缺失'+(copy.missing?' '+copy.missing:'');const issues=[copy.missing?'缺失 '+copy.missing:'',copy.needsSync?'差异 '+copy.needsSync:'',copy.conflict?'内容冲突 '+copy.conflict:'',copy.unverified?'未知 '+copy.unverified:''].filter(Boolean);return name+' '+versionTime(copy)+(issues.length?' · '+issues.join(' · '):'')}
 function observedSize(value){if(!Number.isFinite(value)||value<0)return '';if(value<1024)return value+' B';let size=value,unit=0;const units=['B','KB','MB','GB','TB'];while(size>=1024&&unit<units.length-1){size/=1024;unit++}return size.toFixed(1)+' '+units[unit]}
 function observedText(id,copy,detail=false){const name=id==='local'?'本机':id;if(copy.status==='unknown')return name+' 查询失败'+(detail&&copy.error?'：'+copy.error:'');if(copy.status==='not-listed')return name+' 本轮未列出';if(copy.status==='absent')return name+' 不存在';return name+' '+(copy.directory?'目录存在':'文件存在')+(!copy.directory&&observedSize(copy.size)?' · '+observedSize(copy.size):'')+(detail&&Number.isFinite(copy.modifiedAtMs)?' · 修改于 '+versionTime(copy):'')}
 function paintStatus(badge,health,directory,locations){if(!health){badge.textContent='尚未读取文件信息';return}if(health.state==='same')return;if(directory){const copies=Object.entries(health.copies||{});if(copies.length){const fullMissing=copies.some(([id])=>locations&&!locations.includes(id));const summary=[];if(!fullMissing)for(const part of health.detail.split(' · ')){const count=Number(part.match(/^([0-9]+) /)?.[1]||0);if(!count)continue;if(part.includes('待更新或冲突'))summary.push(count+' 个文件内容不同或缺失');else if(part.includes('仅 Worker 一致'))summary.push(count+' 个文件本机缺失或不同');else if(part.includes('未确认'))summary.push(count+' 个文件未完成校验')}badge.textContent=[...summary,...copies.map(([id,copy])=>folderCopyText(id,copy,!locations||locations.includes(id)))].join(String.fromCharCode(10));return}badge.textContent=health.detail;return}for(const part of health.detail.split(' · ')){if(part==='Worker 内容基准'||part.startsWith('Plan 归属：'))continue;let text=part;const copy=part.match(/^(本机|[^ ]+) (最新版|同版|缺失|不同版|待更新|冲突|未校验(?:，待核对)?)$/);if(copy){const id=copy[1],version=health.versions?.[id==='本机'?'local':id],role=versionRole(version);const issue=copy[2]==='缺失'||!version&&copy[2]==='待更新'?'缺失':copy[2]==='待更新'||copy[2]==='不同版'?'需同步':copy[2]==='冲突'?'内容冲突':copy[2].startsWith('未校验')?'未校验':'';text=id+(version?' '+versionTime(version):'')+(role?' · '+role:'')+(issue?' · '+issue:'')}else if(part==='内容冲突，无法判定最新版')text='最新版未确定';const item=document.createElement('span');item.textContent=text;badge.appendChild(item)}}
-function folderHealth(path){const view=state();if(view.statuses[path])return view.statuses[path];if(active.id==='local'&&!selected(path)&&!childSelected(path))return {state:'unknown',detail:'当前同步范围外'};const failed=[...view.refreshErrors.entries()].find(([root])=>root==='.'||path===root||path.startsWith(root+'/'));if(failed)return {state:'unknown',detail:'清单校验失败：'+failed[1]};const checked=[...view.refreshedPaths].find(root=>root==='.'||path===root||path.startsWith(root+'/'));if(checked){const parent=view.statuses[checked];if(parent?.detail?.includes('清单校验失败'))return {state:'unknown',detail:parent.detail};return {state:'unknown',detail:'目录内无可校验文件'}}return {state:'unknown',detail:'尚未读取目录信息'}}
+function folderHealth(path){const view=state();if(view.statuses[path])return view.statuses[path];const failed=[...view.refreshErrors.entries()].find(([root])=>root==='.'||path===root||path.startsWith(root+'/'));if(failed)return {state:'unknown',detail:'清单校验失败：'+failed[1]};const checked=[...view.refreshedPaths].find(root=>root==='.'||path===root||path.startsWith(root+'/'));if(checked){const parent=view.statuses[checked];if(parent?.detail?.includes('清单校验失败'))return {state:'unknown',detail:parent.detail};return {state:'unknown',detail:'目录内无可校验文件'}}return {state:'unknown',detail:'尚未读取目录信息'}}
 function row(entry,depth){
   const view=state(),el=document.createElement('div');el.className='row';el.style.paddingLeft=(depth*18)+'px';
   if(entry.path==='.'&&view.directoryObservations?.get('.'))entry={...entry,observations:view.directoryObservations.get('.')};
   if(active.id==='local'&&!view.issueFilterOn&&entry.path!=='.'&&selected(entry.path))el.className+=' transfer-scope';
   const toggle=document.createElement('button');toggle.className='twisty';toggle.textContent=entry.directory?(view.expanded.has(entry.path)?'▾':'▸'):' ';toggle.disabled=!entry.directory;
-  toggle.onclick=()=>{if(view.expanded.has(entry.path)){view.expanded.delete(entry.path);renderTree()}else{view.expanded.add(entry.path);renderTree();if(!view.issueFilterOn)load(entry.path)}};el.appendChild(toggle);
+  toggle.onclick=()=>{if(view.expanded.has(entry.path)){view.expanded.delete(entry.path);renderTree()}else{view.expanded.add(entry.path);summaryChildren(view);renderTree();if(!view.issueFilterOn){if(active.summary)refreshVisible();else load(entry.path)}}};el.appendChild(toggle);
   const box=document.createElement('input');box.type='checkbox';
   if(view.issueFilterOn){const total=view.issueTree?.counts.get(entry.path)||0,count=view.issueTree?.checked.get(entry.path)||0;box.checked=total>0&&count===total;box.indeterminate=count>0&&!box.checked;box.disabled=!total}
   else if(entry.path==='.') {const eligible=(view.children.get('.')||[]).filter(item=>item.selectable!==false);const count=eligible.filter(item=>selected(item.path)).length;box.checked=active.excludable?eligible.length>0&&count===eligible.length&&!eligible.some(item=>hasExcludedChild(item.path)):view.selected.has('.');box.indeterminate=active.excludable&&count>0&&!box.checked;box.disabled=entry.selectable===false||active.excludable&&!eligible.length}
   else{box.checked=selected(entry.path)&&!hasExcludedChild(entry.path);box.indeterminate=!box.checked&&childSelected(entry.path);box.disabled=entry.selectable===false||!active.excludable&&[...view.selected].some(item=>item==='.'||item!==entry.path&&entry.path.startsWith(item+'/'))}
   box.onchange=()=>setSelection(entry.path,box.checked);el.appendChild(box);
   const health=entry.directory?folderHealth(entry.path):view.statuses[entry.path]||(active.id==='local'&&!selected(entry.path)?{state:'unknown',detail:'当前同步范围外'}:undefined);
+  if(!entry.directory&&health?.metadata)entry={...entry,observations:health.metadata,locations:Object.entries(health.metadata).filter(([,copy])=>copy.status==='present').map(([id])=>id)};
   const label=document.createElement('label');label.className='name '+(health?.state||'unknown');label.textContent=(entry.directory?'📁 ':'📄 ')+entry.name;label.title=entry.path+(health?.state!=='same'&&health?.detail?' · '+health.detail:'');label.onclick=()=>entry.directory&&toggle.click();el.appendChild(label);
   if(!entry.directory&&health?.issueSignature){const filter=document.createElement('button');filter.className='secondary';filter.textContent='筛选同类';filter.title='仅显示缺失位置和内容版本关系相同的异常文件';filter.onclick=()=>{showIssueFilter(view,health.issueSignature);status.textContent='已按 '+entry.path+' 的差异情况筛选'};el.appendChild(filter)}
-  const badge=document.createElement('span');badge.className='badge '+(entry.observations?'unknown':health?.state||'unknown');if(entry.observations){badge.textContent=Object.entries(entry.observations).map(([id,copy])=>observedText(id,copy)).join(' · ');badge.title=Object.entries(entry.observations).map(([id,copy])=>observedText(id,copy,true)+(copy.observedAt?' · 读取于 '+copy.observedAt:'')).join(String.fromCharCode(10))}else{paintStatus(badge,health,entry.directory,entry.locations);badge.title=badge.textContent||health?.detail||'待刷新'}el.appendChild(badge);
+  const badge=document.createElement('span');const compared=health?.copies||health?.versions||health?.basis;badge.className='badge '+(compared?health.state:entry.observations?'unknown':health?.state||'unknown');if(compared){if(health.basis==='metadata'){badge.textContent=health.detail+(entry.directory?String.fromCharCode(10)+Object.entries(health.copies||{}).map(([id,copy])=>folderCopyText(id,copy,copy.present>0||entry.locations?.includes(id))).join(String.fromCharCode(10)):'')}else paintStatus(badge,health,entry.directory,entry.locations);badge.title=badge.textContent||health.detail}else if(entry.observations){badge.textContent=Object.entries(entry.observations).map(([id,copy])=>observedText(id,copy)).join(' · ');badge.title=Object.entries(entry.observations).map(([id,copy])=>observedText(id,copy,true)+(copy.observedAt?' · 读取于 '+copy.observedAt:'')).join(String.fromCharCode(10))}else{paintStatus(badge,health,entry.directory,entry.locations);badge.title=badge.textContent||health?.detail||'待刷新'}el.appendChild(badge);
+  if(health?.basis==='metadata')badge.style.display='inline';
   if(health?.held||entry.held){const mark=document.createElement('span');mark.className='held';mark.textContent='同步暂停';el.appendChild(mark)}
   if(entry.path!=='.'){
     const more=document.createElement('button');more.className='secondary more';more.textContent=view.detailPath===entry.path?'收起':'版本与操作';more.onclick=()=>{view.detailPath=view.detailPath===entry.path?null:entry.path;renderTree()};el.appendChild(more);
@@ -251,6 +263,7 @@ function row(entry,depth){
     const actions=document.createElement('div');actions.className='row-detail';actions.style.paddingLeft=(depth*18+48)+'px';
     const locations=entry.observations?Object.keys(entry.observations):entry.directory&&health?.copies?[...new Set([...(entry.locations||[]),...Object.keys(health.copies)])]:entry.locations||Object.keys(health?.versions||{});
     for(const id of locations){const observed=entry.observations?.[id],v=health?.versions?.[id],copy=entry.directory?health?.copies?.[id]:null,item=document.createElement('span');item.className='version '+(v?.latest==='candidate'?'candidate':v?.latest?'same':'');if(!observed&&entry.directory&&copy&&!(entry.locations||[]).includes(id)){item.textContent=(id==='local'?'本机':id)+' · 全部缺失';actions.appendChild(item);continue}item.textContent=observed?observedText(id,observed,true):id+(copy?' · '+versionTime(copy)+(copy.missing?' · 缺失 '+copy.missing:'')+(copy.needsSync?' · 需同步 '+copy.needsSync:'')+(copy.conflict?' · 内容冲突 '+copy.conflict:'')+(copy.unverified?' · 未校验 '+copy.unverified:''):v?' · '+versionTime(v)+(versionRole(v)?' · '+versionRole(v):''):entry.directory&&health&&health.state!=='unknown'?' · 目录内容已校验':' · 尚未读取文件信息');
+      if(observed&&entry.directory&&copy)item.textContent+=' · '+folderCopyText(id,copy,observed.status==='present');
       if(observed&&observed.status!=='present'){actions.appendChild(item);continue}
       const actionEntry=observed?{...entry,directory:observed.directory===true}:entry;
       const retain=document.createElement('button');retain.className='secondary';retain.textContent='以此版同步到其他位置';retain.disabled=Boolean(view.busyAction)||(!observed&&((!v&&!entry.directory)||!health||health.state==='unknown'||health.unverified===true));retain.title=observed?'选择此来源，随后显示完整路径并核实实际文件':retain.disabled?'请先完成此路径的内容校验':id==='local'?'同步到所有已启用 Worker 并逐台校验内容':active.id==='workers'?'仅同步到其他 Worker 并逐台校验内容':'同步到其他已启用 Worker 和本机，并逐处校验内容';retain.onclick=()=>sendAction('retain',actionEntry,id);item.appendChild(retain);
@@ -261,7 +274,7 @@ function row(entry,depth){
   if(entry.directory&&view.expanded.has(entry.path)){const children=shownChildren(entry.path);if(children)children.forEach(child=>row(child,depth+1));else{const wait=document.createElement('div');wait.className='muted';wait.style.paddingLeft=((depth+1)*18)+'px';wait.textContent='读取中…';tree.appendChild(wait)}}
 }function renderTree(){if(!active)return;const view=state(),scrollTop=tree.scrollTop;view.issueTree=issueTree(view);view.scrollTarget=null;tree.replaceChildren();row({name:active.label,path:'.',directory:true,selectable:active.rootSelectable!==false},0);renderFilterControls();tree.scrollTop=scrollTop;if(view.scrollTarget){view.scrollTarget.scrollIntoView?.({block:'center'});view.scrollTarget=null}}
 function applyScopeSelected(message){const view=views.get(message.rootId);if(!view){pendingScopeSelected=message;return}view.selected=new Set(message.paths||[]);if(active?.id===message.rootId){status.className='';status.textContent=message.message||'默认同步范围已载入';renderTree()}}
-function renderTabs(){tabs.replaceChildren();document.getElementById('guide').textContent=active?.id==='workers'?'展开即读取各 Worker 文件位置、大小和修改时间。刷新重新读取目录，内容比较为可选操作。':'展开即读取文件位置、大小和修改时间；点击“版本与操作”选择副本。刷新重新读取目录，内容比较为可选操作。';document.getElementById('scope-legend').hidden=active?.id==='workers';document.getElementById('remote-only-legend').hidden=active?.id==='workers';for(const root of roots){const button=document.createElement('button');button.textContent=root.label;button.className=root.id===active?.id?'active':'secondary';button.onclick=()=>{active=root;detail.textContent=root.detail;renderTabs();renderTree();if(!state().children.has('.'))load('.')};tabs.appendChild(button)}}
+function renderTabs(){tabs.replaceChildren();document.getElementById('guide').textContent='展开即读取副本信息；文件夹自动汇总整个子树的缺失、大小或修改时间差异。计数不受传输勾选范围限制；精确内容比较可主动执行。';document.getElementById('filterIssues').textContent='仅显示缺失和差异';document.getElementById('scope-legend').hidden=active?.id==='workers';document.getElementById('remote-only-legend').hidden=active?.id==='workers';for(const root of roots){const button=document.createElement('button');button.textContent=root.label;button.className=root.id===active?.id?'active':'secondary';button.onclick=()=>{active=root;detail.textContent=root.detail;renderTabs();renderTree();refreshVisible()};tabs.appendChild(button)}}
 function forgetPath(view,path){
   const inside=value=>value===path||value.startsWith(path+'/');
   if(view.directoryObservations)for(const key of [...view.directoryObservations.keys()])if(inside(key))view.directoryObservations.delete(key);
@@ -278,15 +291,18 @@ function reconcileChildren(view,parent,entries,complete=true,observations){
   for(const path of known){if(!path.startsWith(prefix)||path===parent||path==='.')continue;const child=prefix+path.slice(prefix.length).split('/')[0];if(!present.has(child))forgetPath(view,child)}
   view.children.set(parent,entries);
 }
-function pumpLists(){while(listRunning.size<2&&listQueue.length){const ticket=listQueue.shift(),view=views.get(ticket.rootId);if(view?.listRequests.get(ticket.path)!==ticket.id)continue;listRunning.set(ticket.id,ticket);vscode.postMessage(ticket)}}
+function pumpLists(){for(let index=listQueue.length-1;index>=0;index--){const ticket=listQueue[index];if(views.get(ticket.rootId)?.listRequests.get(ticket.path)!==ticket.id)listQueue.splice(index,1)}while(listRunning.size<2&&listQueue.length){const index=listQueue.findIndex(ticket=>![...listRunning.values()].some(active=>active.rootId===ticket.rootId&&active.path===ticket.path));if(index<0)return;const ticket=listQueue.splice(index,1)[0];listRunning.set(ticket.id,ticket);vscode.postMessage(ticket)}}
 function finishList(message){for(const [id,ticket] of listRunning)if(ticket.rootId===message.rootId&&ticket.path===message.path&&(!message.id||message.id===id))listRunning.delete(id);pumpLists()}
-function load(path,rootId=active.id){const view=views.get(rootId);if(!view)return;const prior=view.listRequests.get(path);if([...listRunning.values(),...listQueue].some(ticket=>ticket.id===prior))return;const id=String(++serial);view.listPending.add(path);view.listRequests.set(path,id);listQueue.push({type:'list',id,rootId,path});pumpLists()}
+function load(path,rootId=active.id){const view=views.get(rootId);if(!view)return;const prior=view.listRequests.get(path);if([...listRunning.values(),...listQueue].some(ticket=>ticket.id===prior))return;const id=String(++serial);view.listPending.add(path);view.listRequests.set(path,id);listQueue.push({type:'list',id,rootId,path,roundId:rootId+'-'+(view.roundId||0)});pumpLists()}
 function enqueueRefresh(rootId,paths){const view=views.get(rootId);if(!view)return;for(const path of paths)if(![...view.pending,...view.refreshQueue].some(parent=>parent==='.'||parent===path||path.startsWith(parent+'/')))view.refreshQueue.push(path);pumpRefresh(rootId)}
+function summarize(rootId){const view=views.get(rootId),root=roots.find(root=>root.id===rootId);if(!view||!root?.summary||view.pending.size||view.refreshedPaths.has('.'))return;const id=String(++serial);view.pending.add('.');view.refreshRequests.set('.',id);vscode.postMessage({type:'summary',id,rootId,path:'.',roundId:rootId+'-'+(view.roundId||0)})}
+function summaryChildren(view){for(const parent of new Set(['.',...view.expanded])){const known=new Map((view.children.get(parent)||[]).map(entry=>[entry.path,entry])),before=known.size;for(const [path,health] of Object.entries(view.statuses)){if(path==='.'||parentPath(path)!==parent||known.has(path)||health.basis!=='metadata')continue;const directory=Boolean(health.copies),observations=directory?Object.fromEntries(Object.entries(health.copies).map(([id,copy])=>[id,{status:copy.present?'present':'unknown',directory:true}])):health.metadata;known.set(path,{name:path.slice(path.lastIndexOf('/')+1),path,directory,selectable:true,observations,locations:Object.entries(observations||{}).filter(([,copy])=>copy.status==='present').map(([id])=>id)})}if(known.size!==before)view.children.set(parent,[...known.values()].sort((a,b)=>Number(b.directory)-Number(a.directory)||a.name.localeCompare(b.name)))}}
 function pumpRefresh(rootId){const view=views.get(rootId);if(!view||view.pending.size||!view.refreshQueue.length)return;const path=view.refreshQueue.shift();view.pending.add(path);if(active?.id===rootId&&!view.busyAction)status.textContent=(view.actionError?'部分路径处理失败：'+view.actionError+'；':'')+'正在校验 '+path+' 的全部文件…';const id=String(++serial);view.refreshRequests.set(path,id);vscode.postMessage({type:'refresh',id,rootId,path})}
-function refreshVisible(){if(!active)return;const view=state();view.refreshRequests.clear();view.pending.clear();view.refreshQueue=[];view.statuses={};view.refreshedPaths.clear();view.refreshErrors.clear();vscode.postMessage({type:'cancelRefresh',rootId:active.id});const parents=new Set(['.',...view.expanded]);for(const parent of parents)load(parent)}
+function refreshVisible(){if(!active)return;const view=state();view.roundId=(view.roundId||0)+1;view.listRequests.clear();view.listPending.clear();view.refreshRequests.clear();view.pending.clear();view.refreshQueue=[];view.statuses={};view.refreshedPaths.clear();view.refreshErrors.clear();vscode.postMessage({type:'cancelRefresh',rootId:active.id,cancelReads:true});const parents=new Set(['.',...view.expanded]);for(const parent of parents)load(parent);summarize(active.id)}
 function reloadAfterMutation(message){
   const affected=[...new Set([...(message.affected||[]),...(message.completed||[]),...(message.path?[message.path]:[])])];
   for(const [rootId,view] of views){
+    view.roundId=(view.roundId||0)+1;
     if(rootId===message.rootId)view.busyAction=null;
     // Old in-flight replies must not restore files removed by this operation, or keep refresh waiting forever.
     view.statuses={};view.refreshRequests.clear();view.listRequests.clear();view.pending.clear();view.listPending.clear();
@@ -300,7 +316,7 @@ function reloadAfterMutation(message){
   }
 }
 document.getElementById('refresh').onclick=refreshVisible;
-document.getElementById('compare').onclick=()=>{if(active)enqueueRefresh(active.id,['.'])};
+document.getElementById('compare').onclick=()=>{if(active){const view=state();view.refreshRequests.clear();view.pending.clear();view.refreshQueue=[];vscode.postMessage({type:'cancelRefresh',rootId:active.id});enqueueRefresh(active.id,['.'])}};
 function revealConflict(path){const view=state();view.focus=path;view.pendingFocusScroll=path;let parent=parentPath(path);while(parent!=='.'){view.expanded.add(parent);if(!view.children.has(parent)&&!view.listPending.has(parent)){view.listPending.add(parent);load(parent)}parent=parentPath(parent)}renderTree()}
 document.getElementById('nextConflict').onclick=()=>{if(!active)return;const view=state();const all=Object.keys(view.statuses).filter(path=>path!=='.'&&view.statuses[path].state==='different');const paths=all.filter(path=>!all.some(other=>other.startsWith(path+'/'))).sort();if(!paths.length){status.textContent='尚无文件内容比较结果；可点击“比较文件内容”';return}const index=paths.findIndex(path=>path>String(view.focus||''));const next=paths[index<0?0:index];revealConflict(next);status.textContent='冲突位置：'+next};
 document.getElementById('filterIssues').onclick=()=>{const view=state();view.batchSelected=new Set();showIssueFilter(view,null);if(!view.issueTree?.files.length)status.textContent='尚无文件内容比较结果；可点击“比较文件内容”'};
@@ -319,7 +335,7 @@ window.addEventListener('message',event=>{
   }else if(message.type==='init'){
     roots=message.roots;status.className='';status.textContent='范围已载入，展开目录后按需读取文件。';
     for(const root of roots)views.set(root.id,{selected:new Set(root.selected),excluded:new Set(),expanded:new Set(['.']),children:new Map(),listPending:new Set(),pending:new Set(),refreshedPaths:new Set(),refreshErrors:new Map(),listRequests:new Map(),refreshRequests:new Map(),refreshQueue:[],mutationParent:null,focus:null,pendingFocusScroll:null,busyAction:null,statuses:{},issueFilterOn:false,issueSignature:null,batchSelected:new Set(),issueTree:null});
-    active=roots[0];renderTabs();detail.textContent=active.detail;renderTree();load('.');
+    active=roots[0];renderTabs();detail.textContent=active.detail;renderTree();load('.');summarize(active.id);
     if(pendingScopeSelected){const queued=pendingScopeSelected;pendingScopeSelected=null;applyScopeSelected(queued)}
   }else if(message.type==='scopeSelected'){
     applyScopeSelected(message);
@@ -327,7 +343,7 @@ window.addEventListener('message',event=>{
     if(message.requestType==='list')finishList(message);
     const view=views.get(message.rootId);if(!view)return;
     if(message.requestType==='list'&&view.listRequests.get(message.path)===message.id)view.listPending.delete(message.path);
-    if(message.requestType==='refresh'&&view.refreshRequests.get(message.path)===message.id)view.pending.delete(message.path);
+    if(['refresh','summary'].includes(message.requestType)&&view.refreshRequests.get(message.path)===message.id)view.pending.delete(message.path);
   }else if(message.type==='readProgress'){
     const view=views.get(message.rootId);if(!view||view.refreshRequests.get(message.path)!==message.id||!view.pending.has(message.path)||view.busyAction)return;
     if(active?.id===message.rootId){status.className='busy';status.textContent=message.stage+' · '+message.path}
@@ -340,20 +356,21 @@ window.addEventListener('message',event=>{
     view.directoryObservations ||= new Map();if(message.observations)view.directoryObservations.set(message.path,message.observations);
     reconcileChildren(view,message.path,message.entries,complete,message.observations);
     if(complete&&view.statuses[message.path]?.listingError){view.statuses[message.path]={state:'unknown',detail:'目录信息已读取'};if(active?.id===message.rootId&&!view.busyAction&&!view.pending.size){status.className='';status.textContent='目录信息已读取'}}
-    if(!complete){for(const key of Object.keys(view.statuses))if(key===message.path||message.path==='.'||key.startsWith(message.path+'/'))view.statuses[key]={state:'unknown',detail:'部分服务器清单未核实'};view.statuses[message.path]={state:'unknown',listingError:true,detail:'部分服务器清单未核实：'+message.queryErrors.join('；')};if(active?.id===message.rootId)status.textContent=view.statuses[message.path].detail}
+    if(!complete&&!view.statuses[message.path]?.basis){for(const key of Object.keys(view.statuses))if(key===message.path||message.path==='.'||key.startsWith(message.path+'/'))view.statuses[key]={state:'unknown',detail:'部分服务器清单未核实'};view.statuses[message.path]={state:'unknown',listingError:true,detail:'部分服务器清单未核实：'+message.queryErrors.join('；')};if(active?.id===message.rootId)status.textContent=view.statuses[message.path].detail}
     if(view.mutationParent===message.path||view.mutationParents?.delete(message.path))view.mutationParent=null;
     if(active?.id===message.rootId)renderTree();
+    summarize(message.rootId);
   }else if(message.type==='status'){
     const view=views.get(message.rootId);if(!view)return;
     if(message.id&&view.refreshRequests.get(message.path)!==message.id)return;
-    view.pending.delete(message.path);
-    view.refreshedPaths.add(message.path);view.refreshErrors.delete(message.path);
+    if(message.complete!==false){view.pending.delete(message.path);view.refreshRequests.delete(message.path);view.refreshedPaths.add(message.path)}view.refreshErrors.delete(message.path);
     for(const key of Object.keys(view.statuses))if(key===message.path||message.path==='.'||key.startsWith(message.path+'/'))delete view.statuses[key];
     Object.assign(view.statuses,message.statuses||{});
-    if(active?.id===message.rootId){if(!view.busyAction){status.className='';status.textContent=view.actionError?'部分路径处理失败：'+view.actionError:'已校验 '+message.path+'：'+message.refreshedAt}renderTree()}
-    pumpRefresh(message.rootId);
+    if(Object.values(message.statuses||{}).some(row=>row.basis==='metadata'))summaryChildren(view);
+    if(active?.id===message.rootId){if(!view.busyAction){status.className=message.complete===false?'busy':'';status.textContent=view.actionError?'部分路径处理失败：'+view.actionError:message.complete===false?'已更新部分位置的目录计数，其余位置仍在读取':(Object.values(message.statuses||{}).some(row=>row.basis==='metadata')?'已读取 ':'已校验 ')+message.path+'：'+message.refreshedAt}renderTree()}
+    if(message.complete!==false)pumpRefresh(message.rootId);
   }else if(message.type==='saved'){
-    const view=views.get(message.rootId);if(view){view.statuses={};view.refreshRequests.clear();view.pending.clear();view.refreshedPaths.clear();view.refreshErrors.clear();view.refreshQueue=[]}
+    const view=views.get(message.rootId);if(view){view.refreshRequests.clear();view.pending.clear();view.refreshQueue=[]}
     if(active?.id===message.rootId){status.textContent='范围已保存；点击刷新文件状态可重新读取';renderTree()}
   }else if(message.type==='actionProgress'){
     const view=views.get(message.rootId);if(!view?.busyAction||view.busyAction.id!==message.id||Number(message.sequence)<=view.busyAction.sequence)return;view.busyAction.sequence=Number(message.sequence);
@@ -369,15 +386,15 @@ window.addEventListener('message',event=>{
     const view=views.get(message.rootId);
     if(view){
       if(message.id&&message.requestType==='list'&&view.listRequests.get(message.path)!==message.id)return;
-      if(message.id&&message.requestType==='refresh'&&view.refreshRequests.get(message.path)!==message.id)return;
+      if(message.id&&['refresh','summary'].includes(message.requestType)&&view.refreshRequests.get(message.path)!==message.id)return;
       if(['remove','removeAllWorkers','retain','batchSync','batchDelete','mergeLatest'].includes(message.requestType))reloadAfterMutation({...message,errors:[message.message]});
       if(message.requestType==='list'){view.listPending.delete(message.path);const entries=view.children.get(message.path)||[],ids=new Set([...Object.keys(view.directoryObservations?.get(message.path)||{}),...entries.flatMap(entry=>Object.keys(entry.observations||{}))]);if(ids.size){const observations=Object.fromEntries([...ids].map(id=>[id,{status:'unknown',error:message.message}]));view.directoryObservations ||= new Map();view.directoryObservations.set(message.path,observations);view.children.set(message.path,entries.map(entry=>({...entry,locations:[],observations})))}}
-      if(message.requestType==='refresh'){view.pending.delete(message.path);view.refreshErrors.set(message.path,message.message)}
+      if(['refresh','summary'].includes(message.requestType)){view.pending.delete(message.path);view.refreshErrors.set(message.path,message.message)}
       if(message.requestType==='list'&&view.mutationParent===message.path)view.mutationParent=null;
-      view.statuses[message.path]={state:'unknown',listingError:message.requestType==='list',detail:'清单校验失败：'+message.message};
+      if(message.requestType!=='list'||!view.statuses[message.path]?.basis)view.statuses[message.path]={state:'unknown',listingError:message.requestType==='list',detail:'清单校验失败：'+message.message};
     }
     if(active?.id===message.rootId){status.className='';status.textContent='操作失败 '+message.path+'：'+message.message;renderTree()}
-    if(message.requestType==='refresh')pumpRefresh(message.rootId);
+    if(['refresh','summary'].includes(message.requestType))pumpRefresh(message.rootId);
   }
 });vscode.postMessage({type:'ready'});
 </script></body></html>`;

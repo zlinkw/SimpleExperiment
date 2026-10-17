@@ -249,6 +249,7 @@ async function verifyLocalScopeEntry(
 async function listLocalScopeFileNames(
   rootPath: string, relative: string, recursive = true, onUnverified?: (relative: string, reason: string) => void,
   budget: LocalScopeScanBudget = { directories: 0, entries: 0, files: 0 },
+  signal?: AbortSignal,
 ): Promise<string[]> {
   const root = await resolveLocalScopeRoot(rootPath);
   const start = normalizeLocalScopeRelative(relative);
@@ -259,6 +260,7 @@ async function listLocalScopeFileNames(
     onUnverified(child || ".", reason);
   };
   while (pending.length) {
+    signal?.throwIfAborted();
     const current = pending.pop()!;
     const currentPath = current || ".";
     const candidate = path.join(root.realPath, ...current.split("/").filter(Boolean));
@@ -285,6 +287,7 @@ async function listLocalScopeFileNames(
     const directory = await fs.opendir(candidate, { bufferSize: 32 });
     try {
       for await (const entry of directory) {
+        signal?.throwIfAborted();
         if (++budget.entries > LOCAL_SCOPE_MAX_ENTRIES) throw new Error(`本机清单超过目录项上限 ${LOCAL_SCOPE_MAX_ENTRIES}，拒绝生成不完整清单。`);
         const child = current ? `${current}/${entry.name}` : entry.name;
         let safeChild: string;
@@ -317,6 +320,27 @@ async function listLocalScopeFileNames(
       throw new Error(`本机目录在清单扫描期间发生变化：${currentPath}`);
   }
   return names;
+}
+
+/** Browsing reads stat facts only; never opens content or writes the hash cache. */
+export async function collectLocalScopeMetadata(root: string, relative: string, signal?: AbortSignal) {
+  const rootInfo = await resolveLocalScopeRoot(root);
+  const unverifiedFiles: Record<string, string> = {};
+  const files: Record<string, { size: number; modifiedAtMs: number }> = {};
+  const names = await listLocalScopeFileNames(root, relative, true, (name, reason) => { unverifiedFiles[name] = reason; }, undefined, signal);
+  let next = 0;
+  await Promise.all(Array.from({ length: Math.min(8, names.length) }, async () => {
+    while (next < names.length) {
+      signal?.throwIfAborted();
+      const name = names[next++];
+      try {
+        const { stat } = await verifyLocalScopeEntry(rootInfo, name, "file");
+        files[name] = { size: stat.size, modifiedAtMs: Math.floor(stat.mtimeMs) };
+      } catch (error) { unverifiedFiles[name] = error instanceof Error ? error.message : String(error); }
+    }
+  }));
+  signal?.throwIfAborted();
+  return { files, unverifiedFiles };
 }
 
 export async function hashLocalScopeNames(

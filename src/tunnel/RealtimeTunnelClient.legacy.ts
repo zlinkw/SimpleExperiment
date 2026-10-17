@@ -367,6 +367,16 @@ export class RealtimeTunnelClient {
     });
   }
 
+  getSyncScopeIndex(query: unknown, options: { signal?: AbortSignal } = {}): Promise<any> {
+    if (this.requiresManualReconnect) return Promise.reject(new Error(this.lastError));
+    if (!this.http.getSyncScopeIndex) return Promise.reject(new Error("SCOPE_INDEX_UNSUPPORTED"));
+    const generation = this.connectionGeneration;
+    return this.http.getSyncScopeIndex(query, options).then(value => {
+      if (generation !== this.connectionGeneration || this.disposed) throw new Error("CONNECTION_GENERATION_CHANGED");
+      return value;
+    });
+  }
+
   getRunEvidence(params: { operationId?: string; planFile?: string; pid?: number | string; tmuxSession?: string }): Promise<unknown> {
     if (this.requiresManualReconnect) return Promise.reject(new Error(this.lastError));
     if (!this.http.getRunEvidence) return Promise.reject(new Error("Agent runtime does not expose run evidence."));

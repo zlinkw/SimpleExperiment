@@ -13,6 +13,7 @@ export type SimpleSftpDiscovery = {
   headers: Record<string, string>;
   instanceId?: string;
   features?: Record<string, unknown>;
+  methodOptions?: Record<string, Record<string, unknown>>;
 };
 
 export type SimpleSftpProgress = {
@@ -158,6 +159,8 @@ export async function callSftpWithProgress(
   const scopedSignal = retryRequestSignal();
   if (scopedSignal) params = { ...params, signal: params.signal ? AbortSignal.any([params.signal, scopedSignal]) : scopedSignal };
   const discovery = await discover(method);
+  if (method === "sync.projectInventory" && params.metadataOnly === true && discovery.methodOptions?.[method]?.metadataOnly !== 1)
+    throw new Error("SimpleSFTP 当前实例不支持递归文件信息；请更新并重载，未发送内容哈希请求。");
   const { endpoint, headers } = discovery;
   assertRetryRequestCurrent();
   const operationId = `sftp-${process.pid}-${Date.now()}-${Math.random().toString(36).slice(2)}`;

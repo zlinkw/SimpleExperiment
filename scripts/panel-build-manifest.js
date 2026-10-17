@@ -15,4 +15,16 @@ function createPanelBuildManifest(version, entries) {
   return { manifest, text, manifestHash };
 }
 
-module.exports = { createPanelBuildManifest };
+function writePanelBuildManifest(file, text, fsApi = require("node:fs")) {
+  const exists = fsApi.existsSync(file);
+  if (exists && fsApi.readFileSync(file, "utf8") === text) return;
+  // Keep the existing file identity: Windows readers can deny CREATE_ALWAYS
+  // while allowing in-place writes, as in the Agent runtime writer.
+  const descriptor = fsApi.openSync(file, exists ? "r+" : "w");
+  try {
+    fsApi.writeFileSync(descriptor, text, "utf8");
+    fsApi.ftruncateSync(descriptor, Buffer.byteLength(text, "utf8"));
+  } finally { fsApi.closeSync(descriptor); }
+}
+
+module.exports = { createPanelBuildManifest, writePanelBuildManifest };

@@ -92,6 +92,9 @@ import { parseDistributedResultsFlag } from "../features/DistributedAdapterFlag"
 import { directPlanSyncPreview, transferPlanArtifacts, workerFpsyncTaskLabel } from "../features/PlanArtifactTransfer";
 import { planProjectMirror, normalizeMirrorScopePaths, filterInventoryByScope } from "../features/ProjectMirror";
 import { openSyncScopeTree, ScopeEntry, ScopeObservation } from "../features/SyncScopeTree";
+import { queryScopeMetadata } from "../features/SyncScopeMetadata";
+import { SyncScopeAgentIndexReader, scopeIndexUnsupported } from "../features/SyncScopeAgentIndex";
+import { collectLocalScopeMetadata } from "../features/SyncScopeStatus";
 import { confirmSyncScopePaths, reviewPlanVersionResults } from "../features/SyncScopeConfirmation";
 import { expandSyncScopeBatchSelection, runSyncScopeBatch, syncScopeIssueSignature } from "../features/SyncScopeBatch";
 import { batchSyncScopeInventoryPaths, planSyncScopeTransferGroups, scopeInventorySnapshot } from "../features/SyncScopeTransferBatch";
@@ -8282,11 +8285,25 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const localSelected = [...new Set(Array.isArray(savedScope) ? savedScope : legacyExtra)].sort();
         const serverSelected = normalizeMirrorScopePaths(config.get<string[]>("serverSync.paths", ["."]));
         const targets = this.workerCodeSyncTargets();
+        const scopeClient = this.client;
+        const scopeIndexReaders = new Map(targets.map(target => [target.id, new SyncScopeAgentIndexReader(async (query, options) => {
+            if (workspaceRoot() !== root || this.client !== scopeClient) throw new Error("SCOPE_INDEX_WORKSPACE_CHANGED");
+            if (!scopeClient?.getWorkerSyncScopeIndex) throw new Error("SCOPE_INDEX_UNSUPPORTED");
+            const projectRoot = this.sftpServerOptions(target).remotePath;
+            const value = await scopeClient.getWorkerSyncScopeIndex(target.id, { ...query, projectRoot }, options);
+            if (workspaceRoot() !== root || this.client !== scopeClient) throw new Error("SCOPE_INDEX_WORKSPACE_CHANGED");
+            if (!value?.projectRoot || value.requestedProjectRoot !== projectRoot) throw new Error("SCOPE_INDEX_PROJECT_MISMATCH");
+            return value;
+        })]));
         const scopePanel = openSyncScopeTree("项目同步范围与状态", [{
-            id: "local", label: "本机 ↔ Worker", detail: "展开即读取本机和各 Worker 的文件信息；文件夹显示目录本身，内容比较按需执行。", rootSelectable: true, excludable: true,
+            id: "local", label: "本机 ↔ Worker", detail: "自动汇总所有子目录的缺失和文件信息差异；勾选仅决定传输范围，范围外仍可管理。内容比较按需执行。", rootSelectable: true, excludable: true,
             selected: localSelected,
-            list: async (relative, signal) => this.listSyncScopeUnion(root, targets, relative, true, false, signal),
-            refresh: async (relative, signal, report) => this.refreshSyncScopeStatus(root, targets, "local-server", localSelected, relative, signal, report),
+            list: async (relative, signal, round) => this.listSyncScopeUnion(root, targets, relative, true, false, signal,
+                target => scopeIndexReaders.get(target.id)!.list(relative, round || "local-0", signal)),
+            refresh: async (relative, signal, report) => this.refreshSyncScopeStatus(root, targets, "local-server", ["."], relative, signal, report),
+            summary: async (relative, signal, report, publish, round) => this.refreshSyncScopeMetadata(root, targets, true, relative, signal, report, publish,
+                (id, signal, report) => scopeIndexReaders.get(id)!.inventory(round || "local-0", signal, report)),
+            dispose: () => { for (const reader of scopeIndexReaders.values()) reader.dispose(); },
             remove: async (relative, endpointId, directory, report) => this.removeSyncScopePath(root, targets, relative, endpointId, directory, report),
             removeAllWorkers: async (relative, directory, report) => this.removeSyncScopePathFromAllWorkers(root, targets, relative, directory, report),
             retain: async (relative, endpointId, directory, report) => this.retainSyncScopeVersion(root, targets, relative, endpointId, directory, report),
@@ -8300,10 +8317,13 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 void vscode.window.showInformationMessage(`本机与服务器同步范围已保存：${normalized.length} 条路径。`);
             },
         }, {
-            id: "workers", label: "Worker ↔ Worker", detail: "展开即读取各 Worker 的文件信息；默认同步整个项目，机器状态除外。内容比较按需执行。",
+            id: "workers", label: "Worker ↔ Worker", detail: "自动汇总所有子目录的缺失和文件信息差异；默认同步整个项目，机器状态除外。内容比较按需执行。",
             selected: serverSelected,
-            list: async (relative, signal) => this.listSyncScopeUnion(root, targets, relative, false, false, signal),
-            refresh: async (relative, signal, report) => this.refreshSyncScopeStatus(root, targets, "server-server", serverSelected, relative, signal, report),
+            list: async (relative, signal, round) => this.listSyncScopeUnion(root, targets, relative, false, false, signal,
+                target => scopeIndexReaders.get(target.id)!.list(relative, round || "workers-0", signal)),
+            refresh: async (relative, signal, report) => this.refreshSyncScopeStatus(root, targets, "server-server", ["."], relative, signal, report),
+            summary: async (relative, signal, report, publish, round) => this.refreshSyncScopeMetadata(root, targets, false, relative, signal, report, publish,
+                (id, signal, report) => scopeIndexReaders.get(id)!.inventory(round || "workers-0", signal, report)),
             remove: async (relative, endpointId, directory, report) => {
                 if (endpointId === "local") throw new Error("Worker ↔ Worker 模式不能操作本机文件。");
                 return this.removeSyncScopePath(root, targets, relative, endpointId, directory, report);
@@ -8335,7 +8355,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     async configureServerSyncScope() {
         await this.configureCodeSyncIncludes();
     }
-    async listSyncScopeUnion(root, targets, relative, localOnly, strict = false, signal?: AbortSignal) {
+    async listSyncScopeUnion(root, targets, relative, localOnly, strict = false, signal?: AbortSignal, indexRead?) {
         signal?.throwIfAborted();
         const local: ScopeEntry[] & { observation?: ScopeObservation } = localOnly ? await listLocalSyncScope(root, relative) : [];
         const entries = new Map<string, ScopeEntry>(local.map((row) => [row.path, { ...row, selectable: true, locations: ["local"] }]));
@@ -8345,9 +8365,13 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             for (const row of entries.values()) row.observations = { local: { status: row.metadataError ? "unknown" : "present", directory: row.directory,
                 size: row.size, modifiedAtMs: row.modifiedAtMs, observedAt: observations.local.observedAt, error: row.metadataError } };
         }
-        const results = await Promise.allSettled(targets.map((target) => this.simpleSftpApiCall("sync.projectTree", {
+        const readTree = async (target) => {
+            if (indexRead) try { return await indexRead(target); } catch (error) { if (!scopeIndexUnsupported(error)) throw error; }
+            return this.simpleSftpApiCall("sync.projectTree", {
             source: this.sftpServerOptions(target), relativePath: relative, ...(signal ? { signal } : {}),
-        }, 12000).catch(async error => {
+            }, 12000);
+        };
+        const results = await Promise.allSettled(targets.map((target) => readTree(target).catch(async error => {
             if (!/超时|timeout|timed out|无真实进展|没有进展/i.test(errorMessage(error))) throw error;
             try {
                 signal?.throwIfAborted();
@@ -8355,7 +8379,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 if (state.ok === true && (state.exists === false || state.exists === true && state.empty === true)) return { ok: true, entries: [], exists: state.exists };
                 throw new Error("轻量复查确认目录非空，原文件清单仍未读取成功");
             } catch (probeError) { throw new Error(errorMessage(error) + "；目录存在性/空目录复查：" + errorMessage(probeError)); }
-        }).then(result => ({ ...result, observedAt: new Date().toISOString() }))));
+        }).then(result => ({ ...result, observedAt: result.observedAt || new Date().toISOString() }))));
         signal?.throwIfAborted();
         const queryErrors: string[] = [];
         for (let index = 0; index < results.length; index++) {
@@ -8386,6 +8410,26 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         }
         const holds = await loadSyncHolds(this.context.globalStorageUri.fsPath, root);
         return Object.assign([...entries.values()].map((row) => ({ ...row, held: isSyncHeld(row.path, holds) })).sort((a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name)), { queryErrors, observations });
+    }
+    async refreshSyncScopeMetadata(root, targets, includeLocal, relative = ".", signal?: AbortSignal, report = (_stage: string) => {}, publish = (_statuses: any) => {}, indexRead?) {
+        const configured = this.enabledWorkerConfigs().map((row) => String(row.id || "")).filter(Boolean);
+        const endpoints = configured.map((id) => ({ id, read: async () => {
+            const target = targets.find((row) => row.id === id);
+            if (!target) throw new Error("Worker 尚未配置文件连接");
+            if (indexRead) try { return await indexRead(id, signal, stage => report(`${id}：${stage}`)); }
+                catch (error) { if (!scopeIndexUnsupported(error)) throw error; }
+            const capability = await this.simpleSftpCapability("sync.projectInventory");
+            if (capability?.methodOptions?.["sync.projectInventory"]?.metadataOnly !== 1)
+                throw new Error("需要 SimpleSFTP 0.2.97 或以上版本读取递归文件信息");
+            const result = await this.simpleSftpApiCall("sync.projectInventory", {
+                source: this.sftpServerOptions(target), relativePath: relative, recursive: true, metadataOnly: true,
+                timeoutMs: 120000, ...(signal ? { signal } : {}),
+            }, 0, (progress) => report(`${id}：已读取 ${Number(progress.processedFiles || 0)} 个目录项`));
+            if (result.comparisonBasis !== "metadata") throw new Error("文件信息响应协议不一致");
+            return result;
+        } }));
+        if (includeLocal) endpoints.unshift({ id: "local", read: () => collectLocalScopeMetadata(root, relative, signal) });
+        return queryScopeMetadata(endpoints, signal, report, publish);
     }
     async refreshSyncScopeStatus(root, targets, mode, selectedPaths, relative = ".", signal?: AbortSignal, report = (_stage: string) => {}) {
         signal?.throwIfAborted();

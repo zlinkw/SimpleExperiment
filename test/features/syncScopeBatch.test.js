@@ -87,7 +87,7 @@ test("sync scope webview batch controls parse as JavaScript", () => {
   new vm.Script(script);
   assert.match(panel.webview.html, /批量同步勾选项/);
   assert.match(panel.webview.html, /批量删除勾选项/);
-  assert.match(panel.webview.html, /仅显示异常/);
+  assert.match(panel.webview.html, /仅显示缺失和差异/);
   assert.match(panel.webview.html, /筛选同类/);
 });
 

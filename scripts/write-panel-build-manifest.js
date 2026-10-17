@@ -1,7 +1,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const { collectLocalRuntimeClosure } = require("./runtime-closure");
-const { createPanelBuildManifest } = require("./panel-build-manifest");
+const { createPanelBuildManifest, writePanelBuildManifest } = require("./panel-build-manifest");
 
 const root = path.resolve(__dirname, "..");
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
@@ -29,5 +29,5 @@ const { manifest, text: manifestText } = createPanelBuildManifest(packageJson.ve
   content: fs.readFileSync(path.join(root, file)),
 })));
 const manifestPath = path.join(root, "dist", "panel-build-manifest.json");
-fs.writeFileSync(manifestPath, manifestText, "utf8");
+writePanelBuildManifest(manifestPath, manifestText);
 process.stdout.write(`[panel-build-manifest] ${manifest.files.length} runtime files, buildId=${manifest.buildId.slice(0, 12)}\n`);
