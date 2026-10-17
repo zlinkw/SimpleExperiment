@@ -71,7 +71,7 @@ class ManualDispatchHost {
                 const placements = [...new Set(plan.jobs.filter(j => j.manualDispatch?.stage === "preparing").map(j => j.manualDispatch.workerId))];
                 if (placements.length && placements.every(id => (0, PlanCodeScopeHost_1.supportsPlanCodeScope)(h, id))) {
                     for (const id of placements)
-                        await (0, PlanCodeScopeHost_1.verifyLocalPlanSource)(this.root, await (0, PlanCodeScopeHost_1.verifyWorkerPlanSource)(h, id, plan));
+                        await (0, PlanCodeScopeHost_1.verifyLocalPlanSource)(this.root, await (0, PlanCodeScopeHost_1.verifyWorkerPlanSource)(h, id, plan), h.projectFileObservationIndex?.());
                 }
                 else {
                     await h.ensureCodeReadyForRun(h.captureProjectContext(), []);

@@ -48,7 +48,7 @@ export class PlanRunHost {
     const sourcePlan = { ...plan, projectId: plan?.projectId || canonicalProjectId(this.root), planFile: body.planFile,
       revision: body.planRevision, codeFingerprint: plan?.codeFingerprint || h.lastCodeSyncState?.fingerprint };
     const executionSource = body.executionSource || await resolvePlanExecutionSource(h, sourcePlan);
-    if (executionSource) { await verifyLocalPlanSource(this.root, executionSource); body.executionSource = executionSource; }
+    if (executionSource) { await verifyLocalPlanSource(this.root, executionSource, h.projectFileObservationIndex?.()); body.executionSource = executionSource; }
     const expectedFingerprint = executionSource?.digest || h.lastCodeSyncState?.fingerprint || "";
     body.runReplacement ||= {};
     // A launch-ready subset cannot prove other servers' outputs absent. Query
@@ -105,7 +105,7 @@ export class PlanRunHost {
         // already use ready Workers while the remaining servers prepare.
         await body.awaitWorkerPreparationLocal?.();
         const current = { ...body }; await h.refreshLocalPlanMetadataForAction(current); h.stampPlanRevision(current);
-        if (executionSource) await verifyLocalPlanSource(this.root, executionSource);
+        if (executionSource) await verifyLocalPlanSource(this.root, executionSource, h.projectFileObservationIndex?.());
         const fingerprint = executionSource?.digest || await h.localDistributedCodeFingerprint(this.root);
         if (current.planRevision !== body.planRevision || fingerprint !== (executionSource ? expectedFingerprint : h.lastCodeSyncState?.fingerprint)
           || runReplacementKey(body.planFile, body.planRevision, fingerprint, jobs, currentNodes()) !== key)

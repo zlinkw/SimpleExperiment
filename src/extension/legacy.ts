@@ -95,6 +95,8 @@ import { openSyncScopeTree, ScopeEntry, ScopeObservation } from "../features/Syn
 import { queryScopeMetadata } from "../features/SyncScopeMetadata";
 import { SyncScopeAgentIndexReader, scopeIndexUnsupported } from "../features/SyncScopeAgentIndex";
 import { collectLocalScopeMetadata } from "../features/SyncScopeStatus";
+import { SyncScopeLocalIndexReader } from "../features/SyncScopeLocalIndex";
+import { projectFileIndex, sftpFileIndexQuery, fileOperationIndexPaths, readLocalFileIndexPaths } from "../features/ProjectFileIndex";
 import { confirmSyncScopePaths, reviewPlanVersionResults } from "../features/SyncScopeConfirmation";
 import { expandSyncScopeBatchSelection, runSyncScopeBatch, syncScopeIssueSignature } from "../features/SyncScopeBatch";
 import { batchSyncScopeInventoryPaths, planSyncScopeTransferGroups, scopeInventorySnapshot } from "../features/SyncScopeTransferBatch";
@@ -1856,7 +1858,14 @@ export class RealtimeTunnelPanelProvider {
     }
     private storeWorkerTaskSnapshot(cacheKey: string, snapshot: any): void {
         const publishedAt = new Date().toISOString();
+        const previousSnapshot = this.lastWorkerTaskSnapshots.get(cacheKey);
         const previous = new Map((this.lastWorkerTaskSnapshots.get(cacheKey)?.tasks || []).map(task => [task.projectId + ":" + task.commandId, task]));
+        const changedFileTasks = previousSnapshot && snapshot.queryComplete === true && !snapshot.error ? (snapshot.tasks || []).filter(task => {
+            const before = previous.get(task.projectId + ":" + task.commandId);
+            return !before || ["status", "resultState", "outputDir", "artifacts"].some(key => JSON.stringify(before[key]) !== JSON.stringify(task[key]));
+        }) : [];
+        const changedFilePaths = [...new Set(changedFileTasks.flatMap(task => [task.outputDir, task.collectionResultCsv, ...Object.keys(task.artifacts || {})]).filter(Boolean))];
+        if (changedFilePaths.length) void this.invalidateProjectFileIndexes?.("主动查询确认作业执行或产物状态变化，文件索引需刷新", changedFilePaths);
         snapshot = { ...snapshot, publishedAt, tasks: (snapshot.tasks || []).map(task => {
             const before: any = previous.get(task.projectId + ":" + task.commandId);
             if (!task.observation?.evidence) return task;
@@ -7650,7 +7659,11 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             if (before.status === "running" && before.runningVersion === runtimeVersion
                 && Object.entries(manifest.files).every(([name, digest]) => before.files?.[name] === digest)) return;
             console.log("[diag] simpleSftp.uploadFiles invoke", target.id, target.remotePath);
-            const result = await vscode.commands.executeCommand("simpleSftp.uploadFiles", {
+            const result = await (async () => {
+                await this.refreshProjectFileIndexesBeforeOperation?.("simpleSftp.uploadFiles", { localBase: runtimeDir,
+                    server: { ...await this.agentLifecycleServer(target), id: target.id, remotePath: target.remotePath }, paths: ["cluster_agent.py", "cluster_scheduler.py"] });
+                await this.invalidateProjectFileIndexes?.("文件操作开始：simpleSftp.uploadFiles");
+                try { return await vscode.commands.executeCommand("simpleSftp.uploadFiles", {
                 apiMode: true,
                 confirm: true,
                 pathConfirmed: true,
@@ -7664,7 +7677,9 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                     { localPath: schedulerPath, remoteName: "cluster_scheduler.py" },
                 ],
                 manifest: { ...manifest, targetId: target.id, targetRole: target.role, targetLabel: target.label },
-            });
+            }); }
+                finally { await this.invalidateProjectFileIndexes?.("文件操作结束，需重新查询：simpleSftp.uploadFiles"); }
+            })();
             console.log("[diag] simpleSftp.uploadFiles result", JSON.stringify(result)?.slice(0,500));
             const record = result && typeof result === "object" ? result : {};
             if (!sftpUploadFilesSucceeded(record))
@@ -7793,7 +7808,9 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const config = target.id === "hub" ? this.setupConfig : this.setupConfig.workerTunnels.find(row => row.id === target.id);
         if (!config) throw new Error(`AGENT_CONFIG_MISSING: ${target.id}`);
         const dirs = this.agentRuntimeDirs(config.agentProjectDir, config.agentInstallDir);
-        const result: any = await vscode.commands.executeCommand("simpleSftp.agentLifecycle", {
+        const result: any = await (async () => {
+                await this.invalidateProjectFileIndexes?.("文件操作开始：simpleSftp.agentLifecycle");
+                try { return await vscode.commands.executeCommand("simpleSftp.agentLifecycle", {
             action, server: await this.agentLifecycleServer(target), projectDir: dirs.workDir, installDir: dirs.installDir,
             mode: "worker_telemetry", workerId: target.id,
             condaEnv: target.id === "hub" ? config.condaEnv : effectiveWorkerCondaEnv(config, this.setupConfig.condaEnv),
@@ -7805,7 +7822,9 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             expectedVersion: manifest?.runtimeVersion || RuntimeManifest_1.CURRENT_RUNTIME_VERSION, files: manifest?.files,
             migrationDigest,
             confirm: confirmed, pathConfirmed: confirmed,
-        });
+        }); }
+                finally { await this.invalidateProjectFileIndexes?.("文件操作结束，需重新查询：simpleSftp.agentLifecycle"); }
+            })();
         if (result?.ok !== true) {
             if (action === "inspect" && result?.code === "AGENT_LEGACY_STATE_UNVERIFIED" && /^[a-f0-9]{64}$/.test(result.evidence?.migration?.digest || "")) {
                 const proof = result.evidence.migration;
@@ -8286,7 +8305,9 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const serverSelected = normalizeMirrorScopePaths(config.get<string[]>("serverSync.paths", ["."]));
         const targets = this.workerCodeSyncTargets();
         const scopeClient = this.client;
-        const scopeIndexReaders = new Map(targets.map(target => [target.id, new SyncScopeAgentIndexReader(async (query, options) => {
+        const scopeViewId = crypto.randomUUID();
+        const localScopeIndex = new SyncScopeLocalIndexReader(root, 30_000, this.projectFileObservationIndex());
+        const scopeIndexReaders = new Map(targets.flatMap(target => ["local", "workers"].map(mode => [mode + ":" + target.id, new SyncScopeAgentIndexReader(async (query, options) => {
             if (workspaceRoot() !== root || this.client !== scopeClient) throw new Error("SCOPE_INDEX_WORKSPACE_CHANGED");
             if (!scopeClient?.getWorkerSyncScopeIndex) throw new Error("SCOPE_INDEX_UNSUPPORTED");
             const projectRoot = this.sftpServerOptions(target).remotePath;
@@ -8294,15 +8315,23 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             if (workspaceRoot() !== root || this.client !== scopeClient) throw new Error("SCOPE_INDEX_WORKSPACE_CHANGED");
             if (!value?.projectRoot || value.requestedProjectRoot !== projectRoot) throw new Error("SCOPE_INDEX_PROJECT_MISMATCH");
             return value;
-        })]));
+        }, undefined, this.projectFileObservationIndex(this.sftpServerOptions(target)))] as const)));
         const scopePanel = openSyncScopeTree("项目同步范围与状态", [{
             id: "local", label: "本机 ↔ Worker", detail: "自动汇总所有子目录的缺失和文件信息差异；勾选仅决定传输范围，范围外仍可管理。内容比较按需执行。", rootSelectable: true, excludable: true,
             selected: localSelected,
+            indexLocations: [{ id: "local", label: "本机" }, ...this.enabledWorkerConfigs().map(row => ({ id: row.id, label: row.id }))],
+            watch: invalidate => {
+                const indexes = [this.projectFileObservationIndex(), ...targets.map(target => this.projectFileObservationIndex(this.sftpServerOptions(target)))].filter(Boolean);
+                const subscriptions = indexes.map(index => index.subscribe(invalidate));
+                return () => { for (const unsubscribe of subscriptions) unsubscribe(); };
+            },
             list: async (relative, signal, round) => this.listSyncScopeUnion(root, targets, relative, true, false, signal,
-                target => scopeIndexReaders.get(target.id)!.list(relative, round || "local-0", signal)),
+                target => scopeIndexReaders.get("local:" + target.id)!.list(relative, round || "local-0", signal),
+                () => localScopeIndex.list(relative, scopeViewId + ":" + (round || "local-0"), signal)),
             refresh: async (relative, signal, report) => this.refreshSyncScopeStatus(root, targets, "local-server", ["."], relative, signal, report),
             summary: async (relative, signal, report, publish, round) => this.refreshSyncScopeMetadata(root, targets, true, relative, signal, report, publish,
-                (id, signal, report) => scopeIndexReaders.get(id)!.inventory(round || "local-0", signal, report)),
+                (id, signal, report) => scopeIndexReaders.get("local:" + id)!.inventory(round || "local-0", signal, report),
+                progress => localScopeIndex.read(scopeViewId + ":" + (round || "local-0"), signal, progress)),
             dispose: () => { for (const reader of scopeIndexReaders.values()) reader.dispose(); },
             remove: async (relative, endpointId, directory, report) => this.removeSyncScopePath(root, targets, relative, endpointId, directory, report),
             removeAllWorkers: async (relative, directory, report) => this.removeSyncScopePathFromAllWorkers(root, targets, relative, directory, report),
@@ -8319,11 +8348,12 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         }, {
             id: "workers", label: "Worker ↔ Worker", detail: "自动汇总所有子目录的缺失和文件信息差异；默认同步整个项目，机器状态除外。内容比较按需执行。",
             selected: serverSelected,
+            indexLocations: this.enabledWorkerConfigs().map(row => ({ id: row.id, label: row.id })),
             list: async (relative, signal, round) => this.listSyncScopeUnion(root, targets, relative, false, false, signal,
-                target => scopeIndexReaders.get(target.id)!.list(relative, round || "workers-0", signal)),
+                target => scopeIndexReaders.get("workers:" + target.id)!.list(relative, round || "workers-0", signal)),
             refresh: async (relative, signal, report) => this.refreshSyncScopeStatus(root, targets, "server-server", ["."], relative, signal, report),
             summary: async (relative, signal, report, publish, round) => this.refreshSyncScopeMetadata(root, targets, false, relative, signal, report, publish,
-                (id, signal, report) => scopeIndexReaders.get(id)!.inventory(round || "workers-0", signal, report)),
+                (id, signal, report) => scopeIndexReaders.get("workers:" + id)!.inventory(round || "workers-0", signal, report)),
             remove: async (relative, endpointId, directory, report) => {
                 if (endpointId === "local") throw new Error("Worker ↔ Worker 模式不能操作本机文件。");
                 return this.removeSyncScopePath(root, targets, relative, endpointId, directory, report);
@@ -8355,9 +8385,12 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
     async configureServerSyncScope() {
         await this.configureCodeSyncIncludes();
     }
-    async listSyncScopeUnion(root, targets, relative, localOnly, strict = false, signal?: AbortSignal, indexRead?) {
+    async listSyncScopeUnion(root, targets, relative, localOnly, strict = false, signal?: AbortSignal, indexRead?, localIndexRead?) {
         signal?.throwIfAborted();
-        const local: ScopeEntry[] & { observation?: ScopeObservation } = localOnly ? await listLocalSyncScope(root, relative) : [];
+        const local: ScopeEntry[] & { observation?: ScopeObservation } = localOnly ? await (localIndexRead ? localIndexRead() : listLocalSyncScope(root, relative)).catch(error => {
+            signal?.throwIfAborted();
+            return Object.assign([], { observation: { status: "unknown", error: errorMessage(error) } });
+        }) : [];
         const entries = new Map<string, ScopeEntry>(local.map((row) => [row.path, { ...row, selectable: true, locations: ["local"] }]));
         const observations: Record<string, ScopeObservation> = {};
         if (localOnly) {
@@ -8382,6 +8415,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         }).then(result => ({ ...result, observedAt: result.observedAt || new Date().toISOString() }))));
         signal?.throwIfAborted();
         const queryErrors: string[] = [];
+        if (localOnly && observations.local.status === "unknown") queryErrors.push(`本机文件树读取失败：${observations.local.error || "状态未知"}`);
         for (let index = 0; index < results.length; index++) {
           const result = results[index];
           if (result.status !== "fulfilled") {
@@ -8411,12 +8445,12 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const holds = await loadSyncHolds(this.context.globalStorageUri.fsPath, root);
         return Object.assign([...entries.values()].map((row) => ({ ...row, held: isSyncHeld(row.path, holds) })).sort((a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name)), { queryErrors, observations });
     }
-    async refreshSyncScopeMetadata(root, targets, includeLocal, relative = ".", signal?: AbortSignal, report = (_stage: string) => {}, publish = (_statuses: any) => {}, indexRead?) {
+    async refreshSyncScopeMetadata(root, targets, includeLocal, relative = ".", signal?: AbortSignal, report = (_stage: string) => {}, publish = (_statuses: any) => {}, indexRead?, localIndexRead?) {
         const configured = this.enabledWorkerConfigs().map((row) => String(row.id || "")).filter(Boolean);
-        const endpoints = configured.map((id) => ({ id, read: async () => {
+        const endpoints = configured.map((id) => ({ id, read: async (progress: (stage: string) => void) => {
             const target = targets.find((row) => row.id === id);
             if (!target) throw new Error("Worker 尚未配置文件连接");
-            if (indexRead) try { return await indexRead(id, signal, stage => report(`${id}：${stage}`)); }
+            if (indexRead) try { return await indexRead(id, signal, progress); }
                 catch (error) { if (!scopeIndexUnsupported(error)) throw error; }
             const capability = await this.simpleSftpCapability("sync.projectInventory");
             if (capability?.methodOptions?.["sync.projectInventory"]?.metadataOnly !== 1)
@@ -8424,11 +8458,11 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             const result = await this.simpleSftpApiCall("sync.projectInventory", {
                 source: this.sftpServerOptions(target), relativePath: relative, recursive: true, metadataOnly: true,
                 timeoutMs: 120000, ...(signal ? { signal } : {}),
-            }, 0, (progress) => report(`${id}：已读取 ${Number(progress.processedFiles || 0)} 个目录项`));
+            }, 0, (update) => progress(`已读取 ${Number(update.processedFiles || 0)} 个目录项`));
             if (result.comparisonBasis !== "metadata") throw new Error("文件信息响应协议不一致");
             return result;
         } }));
-        if (includeLocal) endpoints.unshift({ id: "local", read: () => collectLocalScopeMetadata(root, relative, signal) });
+        if (includeLocal) endpoints.unshift({ id: "local", read: progress => localIndexRead ? localIndexRead(progress) : collectLocalScopeMetadata(root, relative, signal, progress) });
         return queryScopeMetadata(endpoints, signal, report, publish);
     }
     async refreshSyncScopeStatus(root, targets, mode, selectedPaths, relative = ".", signal?: AbortSignal, report = (_stage: string) => {}) {
@@ -8593,6 +8627,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         return requireCompleteScopeInventory(result, `Worker ${options.source?.id || options.source?.host || "未知"}`);
     }
     async updateSyncScopeHolds(root, mutate) {
+        await this.invalidateProjectFileIndexes?.("同步范围或删除保留版本发生变化，需重新核实");
         const previous = this.syncScopeHoldsWriteQueue || Promise.resolve();
         const current = previous.catch(() => undefined).then(async () => {
             const started = Date.now();
@@ -8793,12 +8828,17 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 const batchNote = group.batchCount > 1 ? ` · 批次 ${group.batch}/${group.batchCount}` : "";
                 report(`${row.id}：打包传输 ${group.files.length} 个文件${batchNote}`);
                 if (endpointId === "local") {
-                    const result = await vscode.commands.executeCommand("simpleSftp.uploadWorkspace", {
+                    const result = await (async () => {
+                await this.refreshProjectFileIndexesBeforeOperation?.("simpleSftp.uploadWorkspace", { localPath: root, server: destination, manifest: group.manifest });
+                await this.invalidateProjectFileIndexes?.("文件操作开始：simpleSftp.uploadWorkspace");
+                try { return await vscode.commands.executeCommand("simpleSftp.uploadWorkspace", {
                         apiMode: true, confirm: true, pathConfirmed: true,
                         localPath: root, targetId: row.id, targetRole: row.role, stateFileMode: "virtual",
                         manifest: group.manifest, transientManifest: true, preComparedManifest: true,
                         server: destination,
-                    });
+                    }); }
+                finally { await this.invalidateProjectFileIndexes?.("文件操作结束，需重新查询：simpleSftp.uploadWorkspace"); }
+            })();
                     if (!result || result.ok === false) throw new Error(`上传 ${row.id} 失败：${resultError(result)}`);
                 } else {
                     await this.assertSshTransportIdentities([sourceRow, row]);
@@ -9041,9 +9081,14 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 }
                 const files = directory ? sourceInventory : { [relative]: sourceInventory[relative] };
                 const manifest = Object.fromEntries(Object.entries(files).map(([file, info]: [string, any]) => [file, { size: info.size, sha256: info.sha256 }]));
-                const result = await vscode.commands.executeCommand("simpleSftp.uploadWorkspace", { apiMode: true, confirm: true, pathConfirmed: true,
+                const result = await (async () => {
+                await this.refreshProjectFileIndexesBeforeOperation?.("simpleSftp.uploadWorkspace", { localPath: root, server: this.sftpServerOptions(row), manifest });
+                await this.invalidateProjectFileIndexes?.("文件操作开始：simpleSftp.uploadWorkspace");
+                try { return await vscode.commands.executeCommand("simpleSftp.uploadWorkspace", { apiMode: true, confirm: true, pathConfirmed: true,
                     localPath: root, targetId: row.id, targetRole: row.role, stateFileMode: "virtual",
-                    manifest, transientManifest: true, server: this.sftpServerOptions(row) });
+                    manifest, transientManifest: true, server: this.sftpServerOptions(row) }); }
+                finally { await this.invalidateProjectFileIndexes?.("文件操作结束，需重新查询：simpleSftp.uploadWorkspace"); }
+            })();
                 if (!result || result.ok === false) throw new Error(`上传 ${row.id} 失败：${resultError(result)}`);
             } else {
                 await this.assertSshTransportIdentities([sourceRow, row]);
@@ -9122,9 +9167,14 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                     await this.deleteSyncScopeRemoteCopy(target.id, destination, directory, true);
                     if (Object.keys(sourceFiles).length) {
                         const manifest = Object.fromEntries(Object.entries(sourceFiles).map(([file, info]: [string, any]) => [file, { sha256: info.sha256, size: info.size }]));
-                        const result = await vscode.commands.executeCommand("simpleSftp.uploadWorkspace", { apiMode: true, confirm: true, pathConfirmed: true,
+                        const result = await (async () => {
+                await this.refreshProjectFileIndexesBeforeOperation?.("simpleSftp.uploadWorkspace", { localPath: root, server: destination, manifest });
+                await this.invalidateProjectFileIndexes?.("文件操作开始：simpleSftp.uploadWorkspace");
+                try { return await vscode.commands.executeCommand("simpleSftp.uploadWorkspace", { apiMode: true, confirm: true, pathConfirmed: true,
                             localPath: root, targetId: target.id, targetRole: target.role, stateFileMode: "virtual", transientManifest: true,
-                            manifest, server: destination });
+                            manifest, server: destination }); }
+                finally { await this.invalidateProjectFileIndexes?.("文件操作结束，需重新查询：simpleSftp.uploadWorkspace"); }
+            })();
                         if (!result || result.ok === false) throw new Error(`上传 ${target.id} 失败：${resultError(result)}`);
                     }
                 }
@@ -10413,6 +10463,8 @@ this.assertPlanTopologyReady("Plan 调度");
         await work;
     }
     async patchDistributedJob(root, planId, index, attempt, fields) {
+        let fileFactsChanged = false;
+        const changedFilePaths = new Set<string>();
         const { replaceMirroredWorkerIds, replaceFragmentWorkerIds, expectedCommandId, ...updates } = fields;
         await this.saveDistributedQueue(root, undefined, { artifactMutation: true,
             mutateLatest: (latest) => {
@@ -10428,11 +10480,14 @@ this.assertPlanTopologyReady("Plan 调度");
                     ? replaceFragmentWorkerIds ? fields.fragmentWorkerIds : [...new Set([...(job.fragmentWorkerIds || []), ...fields.fragmentWorkerIds])]
                     : job.fragmentWorkerIds };
                     if (Object.keys(next).every((key) => JSON.stringify(next[key]) === JSON.stringify(job[key]))) return job;
+                    fileFactsChanged ||= ["status", "resultState", "artifacts", "outputRetiredAt"].some(key => JSON.stringify(next[key]) !== JSON.stringify(job[key]));
+                    if (fileFactsChanged) for (const file of [job.outputDir, job.collectionResultCsv, ...Object.keys(fields.artifacts || {})].filter(Boolean)) changedFilePaths.add(file);
                     changed = true;
                     return next;
                 }) });
                 return changed ? { ...latest, plans } : latest;
             } });
+        if (fileFactsChanged && changedFilePaths.size) await this.invalidateProjectFileIndexes?.("作业或产物记录发生实际变化，需重新核实文件", [...changedFilePaths]);
     }
     async patchDistributedPublication(root, fields) {
         await this.saveDistributedQueue(root, undefined, { publicationMutation: true,
@@ -12205,7 +12260,7 @@ this.assertPlanTopologyReady("Plan 调度");
         let sourceChange = crypto.createHash("sha256").update(currentPlan, "utf8").digest("hex") !== plan.revision ? "PLAN 声明已变化" : "";
         if (!sourceChange) {
             const originalSource = await PlanCodeScopeHost.resolvePlanExecutionSource(this, plan);
-            if (originalSource) try { await PlanCodeScopeHost.verifyLocalPlanSource(root, originalSource); }
+            if (originalSource) try { await PlanCodeScopeHost.verifyLocalPlanSource(root, originalSource, this.projectFileObservationIndex?.()); }
             catch (error) {
                 // A changed input is a user decision, not proof of task failure.
                 // Unknown ownership, unsafe paths and invalid baselines still fail closed.
@@ -12319,12 +12374,12 @@ this.assertPlanTopologyReady("Plan 调度");
             const sourcePlan = { ...plan, revision: body.planRevision, codeFingerprint: this.lastCodeSyncState?.fingerprint, executionSource: undefined };
             body.executionSource = await PlanCodeScopeHost.resolvePlanExecutionSource(this, sourcePlan);
             if (!body.executionSource) throw new Error("PLAN_SOURCE_ORIGINAL_HASH_UNAVAILABLE：当前源码未核实，未重跑。");
-            await PlanCodeScopeHost.verifyLocalPlanSource(root, body.executionSource);
+            await PlanCodeScopeHost.verifyLocalPlanSource(root, body.executionSource, this.projectFileObservationIndex?.());
             await assertOriginalCommands();
             await this.assertPlanSubmissionWorkers(body, { validation: scoped });
             await new PlanRunHost(this, root).replace(sourcePlan, body, scoped);
             await assertOriginalCommands();
-            await PlanCodeScopeHost.verifyLocalPlanSource(root, body.executionSource);
+            await PlanCodeScopeHost.verifyLocalPlanSource(root, body.executionSource, this.projectFileObservationIndex?.());
             if (this.lastCodeSyncState?.fingerprint !== sourcePlan.codeFingerprint)
                 throw new Error("同步版本在确认期间已变化；未重新派发。");
             if (!body.assignedExperimentIndices?.length || body.existingOutputChoice === "keep_existing")
@@ -14664,7 +14719,10 @@ this.assertActionAuthorityCurrent(options);this.assertPlanTopologyReady(options.
         await this.writeSftpManagerServerProfiles(enabledTargets.map((target) => target.id));
         const failures = [];
         for (const target of enabledTargets) {
-            const result = await vscode.commands.executeCommand("simpleSftp.uploadFiles", {
+            const result = await (async () => {
+                await this.refreshProjectFileIndexesBeforeOperation?.("simpleSftp.uploadFiles", { localBase: root, server: this.sftpServerOptions(target), files });
+                await this.invalidateProjectFileIndexes?.("文件操作开始：simpleSftp.uploadFiles");
+                try { return await vscode.commands.executeCommand("simpleSftp.uploadFiles", {
                 apiMode: true,
                 confirm: true,
                 pathConfirmed: true,
@@ -14674,7 +14732,9 @@ this.assertActionAuthorityCurrent(options);this.assertPlanTopologyReady(options.
                 server: this.sftpServerOptions(target),
                 files,
                 manifest: { schemaVersion: 1, kind: "simple-experiment-draft", files: relativeFiles },
-            });
+            }); }
+                finally { await this.invalidateProjectFileIndexes?.("文件操作结束，需重新查询：simpleSftp.uploadFiles"); }
+            })();
             const item = result && typeof result === "object" ? result : {};
             if (!sftpUploadFilesSucceeded(item))
                 failures.push(`${target.label}: ${stringFromRecord(item, ["error", "message"]) || "上传失败"}`);
@@ -18497,7 +18557,72 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 || this.setupConfig?.remoteTmuxSessionPrefix || settings.get("sessionPrefix") || settings.get("tunnel.remoteTmuxSessionPrefix") || "simple");
             params = { ...(params || {}), tmuxSessionPrefix };
         }
-        return callSftpWithProgress(method, params || {}, (name) => this.simpleSftpCapability(name), onProgress);
+        const { fileIndexRound, fileIndexBinding, ...plainRequest } = params || {};
+        const request = fileIndexRound !== undefined || fileIndexBinding !== undefined ? plainRequest : params || {};
+        const query = sftpFileIndexQuery(method, params || {});
+        const index = query && this.projectFileObservationIndex?.(request.node?.kind === "local" ? undefined : request.source || request.server || request.node);
+        const load = () => callSftpWithProgress(method, request, (name) => this.simpleSftpCapability(name), onProgress);
+        if (index) return index.read(query, load);
+        const mutation = /^(sync\.(?:serverToServerFpsync|download|upload)|upload\.|files\.cleanup\.execute|files\.(?:delete|move|write|mkdir|rename))/.test(method);
+        if (mutation) await this.refreshProjectFileIndexesBeforeOperation?.(method, request);
+        if (mutation) await this.invalidateProjectFileIndexes?.("文件写入或清理开始：" + method);
+        try { return await load(); }
+        finally { if (mutation) await this.invalidateProjectFileIndexes?.("文件写入或清理结束，需重新查询：" + method); }
+    }
+    projectFileObservationIndex(source?) {
+        const root = workspaceRoot(), storage = this.context?.globalStorageUri?.fsPath;
+        if (!root || !storage) return undefined;
+        if (this.fileIndexClient !== this.client || !this.fileIndexSession) {
+            this.fileIndexClient = this.client; this.fileIndexSession = crypto.randomUUID(); this.projectFileIndexes = new Set();
+        }
+        const endpointId = source ? String(source.id || source.targetId || source.host || "") : "local";
+        const projectRoot = source ? String(source.remotePath || source.root || "") : root;
+        if (!endpointId || !projectRoot) return undefined;
+        const connection = source ? crypto.createHash("sha256").update(JSON.stringify({ session: this.fileIndexSession,
+            host: source?.host, port: source?.port, user: source?.user, networkHost: source?.networkHost,
+            localForwardHost: source?.localForwardHost, localForwardPort: source?.localForwardPort })).digest("hex") : "local:" + process.pid;
+        const index = projectFileIndex({ workspace: root, endpointId, projectRoot, connection }, storage);
+        this.projectFileIndexes.add(index); return index;
+    }
+    async invalidateProjectFileIndexes(reason, paths?) {
+        await Promise.all([...(this.projectFileIndexes || [])].map(index => index.invalidate(reason, paths)));
+    }
+    async refreshProjectFileIndexesBeforeOperation(method, request) {
+        const root = workspaceRoot();
+        if (!root) return;
+        const paths = fileOperationIndexPaths(request), localPaths = fileOperationIndexPaths(request, true);
+        const reads = [];
+        // Token-only cleanup execution has already performed a live inspect/preview; never reconstruct authorization from an index.
+        if (method === "files.cleanup.execute") return;
+        if ((!request.localBase || path.resolve(request.localBase) === path.resolve(root))
+            && (!request.localPath || path.resolve(request.localPath) === path.resolve(root))) {
+            const index = this.projectFileObservationIndex?.();
+            if (index) reads.push(index.read({ method: "local.before-operation", paths: localPaths.length ? localPaths : ["."],
+                metadataOnly: true, binding: { operation: method } }, () => readLocalFileIndexPaths(root, localPaths)));
+        }
+        const sources = [request.source, request.destination, request.server, request.node].filter(Boolean);
+        const seen = new Set();
+        for (const source of sources) {
+            const index = this.projectFileObservationIndex?.(source);
+            if (!index || seen.has(index.file)) continue;
+            seen.add(index.file);
+            // A single metadata inventory batches exact file/subdirectory scopes. No implicit whole-project recursion.
+            const batches = paths.length ? Array.from({ length: Math.ceil(paths.length / 5000) }, (_, n) => paths.slice(n * 5000, (n + 1) * 5000)) : [[]];
+            reads.push((async () => {
+                for (const scopePaths of batches) {
+                    const queryMethod = scopePaths.length ? "sync.projectInventory" : "sync.projectTree";
+                    const params = { source, relativePath: ".", ...(scopePaths.length ? { scopePaths, metadataOnly: true, recursive: true } : {}) };
+                    await index.read({ ...sftpFileIndexQuery(queryMethod, params), binding: { purpose: "before-operation", operation: method } }, async () => {
+                        const capability = await this.simpleSftpCapability(queryMethod);
+                        if (scopePaths.length && capability.methodOptions?.[queryMethod]?.metadataOnly !== 1)
+                            throw Error("FILE_INDEX_METADATA_CAPABILITY_REQUIRED");
+                        return callSftpWithProgress(queryMethod, params, name => this.simpleSftpCapability(name));
+                    });
+                }
+            })());
+        }
+        // Failed refresh is recorded as unknown. The operation retains its own authoritative path/content/safety checks.
+        await Promise.allSettled(reads);
     }
     async syncPendingPlanArtifacts(onlyKey = "", knownSummary?) {
         if (this.syncScopeMutationInFlight) throw new Error("文件树操作进行中，Plan 同步稍后重试。");

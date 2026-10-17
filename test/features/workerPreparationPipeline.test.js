@@ -78,6 +78,7 @@ test('runtime reads overlap synchronization but readiness waits for both; worksp
 test('both cleanup paths forward the configured prefix without changing target authorization or caller input', async () => {
   const calls=[];
   const run=method('simpleSftpApiCall',{assertRetryRequestCurrent(){},
+    sftpFileIndexQuery:require('../../src/features/ProjectFileIndex.ts').sftpFileIndexQuery,
     vscode:{workspace:{getConfiguration:()=>({get:()=> 'global'})}},
     AgentTmuxPolicy_1:require('../../src/tunnel/AgentTmuxPolicy.ts'),
     callSftpWithProgress:async(name,params,capability)=>{await capability(name);calls.push({name,params});return {ok:true};}});

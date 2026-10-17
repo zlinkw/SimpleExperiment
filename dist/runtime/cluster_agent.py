@@ -102,7 +102,7 @@ def scan_sync_scope_metadata(project, progress, cancelled):
         directories.append((full, before))
         if len(directories) > 10000:
             raise ValueError('SCOPE_INDEX_DIRECTORY_LIMIT')
-        entries[relative] = {'p': relative, 'd': True, 'm': before.st_mtime_ns // 1000000, 'n': 0, 'b': 0}
+        entries[relative] = {'p': relative, 'd': True, 'm': before.st_mtime_ns // 1000000, 'c': before.st_ctime_ns // 1000000, 'v': str(before.st_dev), 'i': str(before.st_ino), 'n': 0, 'b': 0}
         with os.scandir(full) as children:
             for child in children:
                 if cancelled():
@@ -125,7 +125,7 @@ def scan_sync_scope_metadata(project, progress, cancelled):
                 if directory:
                     pending.append((path, child.path))
                 elif stat.S_ISREG(info.st_mode):
-                    entries[path] = {'p': path, 'd': False, 's': info.st_size, 'm': info.st_mtime_ns // 1000000}
+                    entries[path] = {'p': path, 'd': False, 's': info.st_size, 'm': info.st_mtime_ns // 1000000, 'c': info.st_ctime_ns // 1000000, 'v': str(info.st_dev), 'i': str(info.st_ino)}
                 else:
                     raise ValueError('SCOPE_INDEX_UNSUPPORTED_TYPE')
                 if inspected % 128 == 0:
@@ -261,9 +261,9 @@ class SyncScopeIndex:
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.371"
-RUNTIME_VERSION = "0.5.371"
-PLUGIN_VERSION = "0.5.371"
+AGENT_VERSION = "0.5.372"
+RUNTIME_VERSION = "0.5.372"
+PLUGIN_VERSION = "0.5.372"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib

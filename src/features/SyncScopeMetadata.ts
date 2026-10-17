@@ -1,17 +1,19 @@
 import type { ScopeObservation, ScopeStatus } from "./SyncScopeTree";
 
 export type MetadataInventory = { ok?: boolean; error?: string; status?: string; complete?: boolean; truncated?: boolean; files: Record<string, { size: number; modifiedAtMs: number }>; unverifiedFiles?: Record<string, string> };
-type Endpoint = { id: string; read: () => Promise<MetadataInventory> };
+export type ScopeIndexProgress = { endpointId: string; state: "reading" | "complete" | "partial" | "failed"; detail: string; files?: number };
+type Endpoint = { id: string; read: (report: (stage: string) => void) => Promise<MetadataInventory> };
 
 /** Each completed endpoint publishes independently; pending/failed endpoints never prove absence. */
 export async function queryScopeMetadata(endpoints: Endpoint[], signal?: AbortSignal,
-  report: (stage: string) => void = () => {}, publish: (statuses: Record<string, ScopeStatus>) => void = () => {}) {
+  report: (stage: string, progress?: ScopeIndexProgress) => void = () => {}, publish: (statuses: Record<string, ScopeStatus>) => void = () => {}) {
   const inventories: Record<string, MetadataInventory> = {}, unavailable = new Map(endpoints.map(({ id }) => [id, "正在读取"]));
   const build = () => buildScopeMetadataStatuses(endpoints.map(({ id }) => id), inventories, unavailable);
   await Promise.all(endpoints.map(async ({ id, read }) => {
     try {
-      report(`${id}：正在读取递归文件信息`);
-      const inventory = await read();
+      const reading = (detail: string) => { if (!signal?.aborted) report(`${id}：${detail}`, { endpointId: id, state: "reading", detail }); };
+      reading("正在读取递归文件信息");
+      const inventory = await read(reading);
       signal?.throwIfAborted();
       if (inventory?.ok === false || inventory?.error || inventory?.status === "unknown") throw new Error(inventory.error || "文件信息查询失败");
       if (inventory.complete === false || inventory.truncated === true) throw new Error("文件清单未完整读取，不能确认文件缺失");
@@ -23,10 +25,14 @@ export async function queryScopeMetadata(endpoints: Endpoint[], signal?: AbortSi
       if (inventory.unverifiedFiles && (typeof inventory.unverifiedFiles !== "object" || Array.isArray(inventory.unverifiedFiles)
         || Object.values(inventory.unverifiedFiles).some(reason => typeof reason !== "string" || !reason))) throw new Error("未读取路径清单无效");
       inventories[id] = inventory; unavailable.delete(id);
-      report(`${id}：已读取 ${Object.keys(inventory.files).length} 个文件`);
+      const files = Object.keys(inventory.files).length, unread = Object.keys(inventory.unverifiedFiles || {}).length;
+      const detail = `已读取 ${files} 个文件${unread ? ` · ${unread} 处未核实` : " · 索引完成"}`;
+      report(`${id}：${detail}`, { endpointId: id, state: unread ? "partial" : "complete", detail, files });
     } catch (error) {
       signal?.throwIfAborted();
       unavailable.set(id, error instanceof Error ? error.message : String(error));
+      const detail = unavailable.get(id)!;
+      report(`${id}：${detail}`, { endpointId: id, state: "failed", detail });
     }
     if (!signal?.aborted) publish(build());
   }));
@@ -55,7 +61,8 @@ export function buildScopeMetadataStatuses(ids: string[], inventories: Record<st
       }
     }
     const different = groups.size > 1;
-    const detail = [missing.length ? `缺失：${missing.join("、")}` : "", different ? "大小或修改时间不同" : "", unknown.length ? `查询未完成或失败：${unknown.join("、")}` : "", "仅比较文件信息，内容未比较"].filter(Boolean).join(" · ");
+    const reading = unknown.filter(id => metadata[id].error === "正在读取"), failed = unknown.filter(id => metadata[id].error !== "正在读取");
+    const detail = [missing.length ? `确认缺失：${missing.join("、")}` : "", different ? "大小或修改时间不同" : "", reading.length ? `索引未完成：${reading.join("、")}` : "", failed.length ? `查询失败或未核实：${failed.join("、")}` : "", "仅比较文件信息，内容未比较"].filter(Boolean).join(" · ");
     statuses[name] = { basis: "metadata", state: missing.length || different ? "different" : unknown.length || ids.length < 2 ? "unknown" : "same", detail, metadata,
       issueSignature: missing.length || different || unknown.length ? JSON.stringify({ basis: "metadata", missing, groups: [...groups.values()].sort((a, b) => a.join().localeCompare(b.join())), unknown }) : undefined };
     const parents = [".", ...name.split("/").slice(0, -1).map((_, i, parts) => parts.slice(0, i + 1).join("/"))];
@@ -72,9 +79,12 @@ export function buildScopeMetadataStatuses(ids: string[], inventories: Record<st
     }
   }
   if (!folders.size) folders.set(".", { total: 0, different: 0, missing: 0, unknown: 0, copies: {} });
+  const reading = [...unavailable].filter(([, reason]) => reason === "正在读取").map(([id]) => id);
+  const failed = [...unavailable].filter(([, reason]) => reason !== "正在读取").map(([id]) => id);
+  const unavailableDetail = [reading.length ? "索引未完成：" + reading.join("、") : "", failed.length ? "查询失败：" + failed.join("、") : ""].filter(Boolean).join("；");
   for (const [folder, row] of folders) statuses[folder] = {
     basis: "metadata", state: row.missing || row.different ? "different" : unavailable.size || row.unknown || ids.length < 2 ? "unknown" : "same",
-    detail: `递归文件信息${unavailable.size ? "（查询未完成或失败：" + [...unavailable.keys()].join("、") + "，仅汇总已读结果）" : ""}：${row.total} 个文件 · 缺失 ${row.missing} · 差异 ${row.different} · 未知 ${row.unknown} · 内容未比较${unavailable.size ? " · " + [...unavailable].map(([id, error]) => id + "：" + error).join("；") : ""}`,
+    detail: `递归文件信息${unavailable.size ? "（" + unavailableDetail + "，仅汇总已读结果）" : ""}：${row.total} 个文件 · 缺失 ${row.missing} · 差异 ${row.different} · 未知 ${row.unknown} · 内容未比较${unavailable.size ? " · " + [...unavailable].map(([id, error]) => id + "：" + error).join("；") : ""}`,
     copies: row.copies, unverified: unavailable.size > 0 || row.unknown > 0,
   };
   return statuses;

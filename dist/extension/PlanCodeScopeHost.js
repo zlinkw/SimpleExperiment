@@ -91,7 +91,16 @@ function response(plan, value) {
 }
 async function inspect(h, workerId, plan, source, signal) {
     const options = { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000) };
-    return response(plan, await h.client.getWorkerPlanCodeScope(workerId, query(plan, source), options));
+    const target = h.workerActionTargets?.().find((row) => row.id === workerId);
+    const index = target && h.projectFileObservationIndex?.(h.sftpServerOptions?.(target));
+    const load = async () => {
+        const value = await h.client.getWorkerPlanCodeScope(workerId, query(plan, source), options);
+        response(plan, value); // Invalid identity or digest is never published into the shared index.
+        return value;
+    };
+    const value = index ? await index.read({ method: "plan.source", paths: source ? Object.keys(source.manifest) : [plan.planFile],
+        binding: { projectId: plan.projectId, runId: plan.id || "", revision: plan.revision, sourceDigest: source?.digest || "" }, signal: options.signal }, load) : await load();
+    return response(plan, value);
 }
 /** Frozen source hashes are execution inputs. All destination observations are queried again. */
 async function resolvePlanExecutionSource(h, plan, signal) {
@@ -133,22 +142,29 @@ async function verifyWorkerPlanSource(h, workerId, plan, signal) {
         throw Error("PLAN_SOURCE_BASELINE_CHANGED");
     return source;
 }
-async function verifyLocalPlanSource(root, source) {
-    const canonical = await fs.realpath(root);
-    for (const [relative, expected] of Object.entries(source.manifest)) {
-        if (!relative || relative.startsWith("/") || /[:\\\x00-\x1f]/.test(relative) || relative.split("/").some(p => !p || p === "." || p === ".."))
-            throw Error("PLAN_SOURCE_PATH_INVALID");
-        let file = canonical;
-        for (const part of relative.split("/")) {
-            file = path.join(file, part);
-            if ((await fs.lstat(file)).isSymbolicLink())
-                throw Error("PLAN_SOURCE_LINK: " + relative);
+async function verifyLocalPlanSource(root, source, index) {
+    const load = async () => {
+        const canonical = await fs.realpath(root);
+        for (const [relative, expected] of Object.entries(source.manifest)) {
+            if (!relative || relative.startsWith("/") || /[:\\\x00-\x1f]/.test(relative) || relative.split("/").some(p => !p || p === "." || p === ".."))
+                throw Error("PLAN_SOURCE_PATH_INVALID");
+            let file = canonical;
+            for (const part of relative.split("/")) {
+                file = path.join(file, part);
+                if ((await fs.lstat(file)).isSymbolicLink())
+                    throw Error("PLAN_SOURCE_LINK: " + relative);
+            }
+            const stat = await fs.stat(file);
+            if (!stat.isFile() || stat.size !== expected.size || stat.size > 2 * 1024 * 1024
+                || (0, node_crypto_1.createHash)("sha256").update(await fs.readFile(file)).digest("hex") !== expected.sha256)
+                throw Error("PLAN_SOURCE_CHANGED: " + relative + "；仅核实本 PLAN 所需源码和配置，未删除或派发。");
         }
-        const stat = await fs.stat(file);
-        if (!stat.isFile() || stat.size !== expected.size || stat.size > 2 * 1024 * 1024
-            || (0, node_crypto_1.createHash)("sha256").update(await fs.readFile(file)).digest("hex") !== expected.sha256)
-            throw Error("PLAN_SOURCE_CHANGED: " + relative + "；仅核实本 PLAN 所需源码和配置，未删除或派发。");
-    }
+        return { files: source.manifest };
+    };
+    if (index)
+        await index.read({ method: "plan.local-source", paths: Object.keys(source.manifest), binding: { sourceDigest: source.digest } }, load);
+    else
+        await load();
 }
 /** Admission checks cannot turn transfer inventory changes into execution version conflicts. */
 async function inspectPlanCodeSlots(h, queue, workers, signal) {

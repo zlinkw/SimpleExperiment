@@ -147,14 +147,14 @@ test("all SimpleExperiment SFTP write paths pass through the strong confirmation
   const prepareSftp = source.slice(source.indexOf("async prepareSftpTargets"), source.indexOf("    sftpServerOptions"));
 
   assert.ok(preparation.indexOf("confirmRemoteWriteTargets") < preparation.indexOf("writeXshellAgentStartupCommands"));
-  assert.match(preparation, /deployLatestAgentRuntime\(false, true, \[\], true\)/);
+  assert.match(preparation, /deployLatestAgentRuntime\(false, true, \[\], true(?:,|\))/);
   assert.ok(startup.indexOf("confirmRemoteWriteTargets") < startup.indexOf("updateXshellSessionLoginCommand"));
   assert.match(startup, /写入 Agent 自启动路径/);
   assert.match(startup, /agentStartupWriteConfirmationDetail\(targets, runtimeTargets, false\)/);
   assert.match(preparation, /agentStartupWriteConfirmationDetail\(targets, runtimeTargets, true\)/);
   assert.ok(deploy.indexOf("confirmRemoteWriteTargets") < deploy.indexOf('executeCommand("simpleSftp.uploadFiles"'));
   assert.ok(downloadScope.indexOf("confirmRemoteWriteTargets") < downloadScope.indexOf('executeCommand("simpleSftp.configureDownloadScope"'));
-  assert.ok(sync.indexOf("confirmRemoteWriteTargets") < sync.indexOf('executeCommand("simpleSftp.uploadWorkspace"'));
+  assert.ok(sync.indexOf("confirmRemoteWriteTargets") < sync.indexOf('simpleSftpApiCall("upload.workspace"'));
   assert.match(confirm, /showWarningMessage\(remoteWriteConfirmationDetail\(operation, normalized, localProjectRoot\), \{ modal: true \}/);
   assert.match(confirm, /assertSingleProjectWorkspace\(operation\)/);
   assert.match(prepareSftp, /assertSingleProjectWorkspace\("SFTP 上传或目录配置"\)/);
@@ -163,7 +163,7 @@ test("all SimpleExperiment SFTP write paths pass through the strong confirmation
   assert.match(confirm, /persistProjectRemotePathConfirmationsState\(\)/);
   assert.match(prepareSftp, /assertSingleProjectWorkspace\("SFTP 上传或目录配置"\)[\s\S]{0,180}ensureSimpleSftpReadyForSetup\("文件传输"\)/);
   assert.match(source, /loadProjectRemotePathConfirmationsState\(\)\.catch\(\(\) => undefined\)/);
-  assert.equal([...source.matchAll(/executeCommand\("simpleSftp\.(?:uploadWorkspace|uploadFiles)"/g)].length, 6);
+  assert.equal([...source.matchAll(/executeCommand\("simpleSftp\.(?:uploadWorkspace|uploadFiles)"|simpleSftpApiCall\("upload.workspace"/g)].length, 6);
   assert.equal([...source.matchAll(/executeCommand\("simpleSftp\.configureDownloadScope"/g)].length, 1);
   assert.match(legacyNotes, /所有由 SimpleExperiment 发起的项目代码和 Agent runtime SFTP 上传都会先经过强制路径确认窗口/);
   assert.match(legacyNotes, /simple_cluster\/ui\/remote_path_confirmations\.json/);
@@ -184,12 +184,12 @@ test("path confirmation precedes profile writes and upload-start state", () => {
   assert.ok(downloadScope.indexOf("writeSftpManagerServerProfiles(") < downloadScope.indexOf('executeCommand("simpleSftp.configureDownloadScope"'));
   assert.ok(sync.indexOf("confirmRemoteWriteTargets") < sync.indexOf("writeSftpManagerServerProfiles("));
   assert.ok(sync.indexOf("writeSftpManagerServerProfiles(") < sync.indexOf("notifyLocalActionStarted"));
-  assert.ok(sync.indexOf("notifyLocalActionStarted") < sync.indexOf('executeCommand("simpleSftp.uploadWorkspace"'));
+  assert.ok(sync.indexOf("notifyLocalActionStarted") < sync.indexOf('simpleSftpApiCall("upload.workspace"'));
   assert.doesNotMatch(prepareSftp, /writeSftpManagerServerProfiles/);
   assert.ok(prepareSftp.indexOf('ensureSimpleSftpReadyForSetup("文件传输")') < prepareSftp.indexOf("ensureSftpManagerCommand"));
   assert.doesNotMatch(prepareSftp, /syncXshellConfigBeforeNetwork|writeSftpManagerServerProfiles/);
   assert.ok(prepareSftp.indexOf("ensureSftpManagerCommand") < prepareSftp.indexOf("assertTopologyActualWorkRoots"));
-  assert.match(source, /writeSftpManagerServerProfiles\(targetIds\)[\s\S]{0,300}requestedIds\.has\(target\.id\)/);
+  assert.match(source, /writeSftpManagerServerProfiles\(targetIds\)[\s\S]{0,600}requestedIds\.has\(target\.id\)/);
   assert.match(legacyNotes, /操作确认前不会更新对应 SimpleSFTP 共享目标或显示上传已开始/);
   assert.match(legacyNotes, /操作确认前不会更新对应 SimpleSFTP 共享目标、修改 `\.xsh` 或显示上传已开始/);
 });

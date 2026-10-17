@@ -28,7 +28,7 @@ export class ManualDispatchHost {
         }
         const placements=[...new Set<string>(plan.jobs.filter(j=>j.manualDispatch?.stage==="preparing").map(j=>j.manualDispatch!.workerId))];
         if(placements.length&&placements.every(id=>supportsPlanCodeScope(h,id))){
-          for(const id of placements)await verifyLocalPlanSource(this.root,await verifyWorkerPlanSource(h,id,plan));
+          for(const id of placements)await verifyLocalPlanSource(this.root,await verifyWorkerPlanSource(h,id,plan),h.projectFileObservationIndex?.());
         }else{
           await h.ensureCodeReadyForRun(h.captureProjectContext(),[]);
           if(h.lastCodeSyncState?.fingerprint!==plan.codeFingerprint)throw Error("需更新目标 Agent/Scheduler 按本 PLAN 依赖核实源码；项目整体版本变化不能证明本 job 的源码变化。");

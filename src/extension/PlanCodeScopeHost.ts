@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import type { ProjectFileIndex } from "../features/ProjectFileIndex";
 
 export type PlanExecutionSource = { digest: string; manifest: Record<string, { size: number; sha256: string }> };
 const resolving = new WeakMap<object, Promise<PlanExecutionSource | undefined>>();
@@ -45,7 +46,16 @@ function response(plan: any, value: any): PlanExecutionSource {
 }
 async function inspect(h: any, workerId: string, plan: any, source?: PlanExecutionSource, signal?: AbortSignal) {
   const options = { signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(15000)]) : AbortSignal.timeout(15000) };
-  return response(plan, await h.client.getWorkerPlanCodeScope(workerId, query(plan, source), options));
+  const target = h.workerActionTargets?.().find((row: any) => row.id === workerId);
+  const index = target && h.projectFileObservationIndex?.(h.sftpServerOptions?.(target));
+  const load = async () => {
+    const value = await h.client.getWorkerPlanCodeScope(workerId, query(plan, source), options);
+    response(plan, value); // Invalid identity or digest is never published into the shared index.
+    return value;
+  };
+  const value = index ? await index.read({ method: "plan.source", paths: source ? Object.keys(source.manifest) : [plan.planFile],
+    binding: { projectId: plan.projectId, runId: plan.id || "", revision: plan.revision, sourceDigest: source?.digest || "" }, signal: options.signal }, load) : await load();
+  return response(plan, value);
 }
 /** Frozen source hashes are execution inputs. All destination observations are queried again. */
 export async function resolvePlanExecutionSource(h: any, plan: any, signal?: AbortSignal): Promise<PlanExecutionSource | undefined> {
@@ -75,7 +85,8 @@ export async function verifyWorkerPlanSource(h: any, workerId: string, plan: any
   if (checked.digest !== source.digest) throw Error("PLAN_SOURCE_BASELINE_CHANGED");
   return source;
 }
-export async function verifyLocalPlanSource(root: string, source: PlanExecutionSource) {
+export async function verifyLocalPlanSource(root: string, source: PlanExecutionSource, index?: ProjectFileIndex) {
+  const load = async () => {
   const canonical = await fs.realpath(root);
   for (const [relative, expected] of Object.entries(source.manifest)) {
     if (!relative || relative.startsWith("/") || /[:\\\x00-\x1f]/.test(relative) || relative.split("/").some(p => !p || p === "." || p === "..")) throw Error("PLAN_SOURCE_PATH_INVALID");
@@ -89,6 +100,10 @@ export async function verifyLocalPlanSource(root: string, source: PlanExecutionS
       || createHash("sha256").update(await fs.readFile(file)).digest("hex") !== expected.sha256)
       throw Error("PLAN_SOURCE_CHANGED: " + relative + "；仅核实本 PLAN 所需源码和配置，未删除或派发。");
   }
+  return { files: source.manifest };
+  };
+  if (index) await index.read({ method: "plan.local-source", paths: Object.keys(source.manifest), binding: { sourceDigest: source.digest } }, load);
+  else await load();
 }
 /** Admission checks cannot turn transfer inventory changes into execution version conflicts. */
 export async function inspectPlanCodeSlots(h: any, queue: any, workers: any[], signal?: AbortSignal) {

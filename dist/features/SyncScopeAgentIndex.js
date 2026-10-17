@@ -11,25 +11,38 @@ function scopeIndexUnsupported(error) {
 class SyncScopeAgentIndexReader {
     rpc;
     viewId;
+    index;
     snapshot;
     request;
+    directorySnapshot;
+    directories = new Map();
     disposed = false;
-    constructor(rpc, viewId = (0, node_crypto_1.randomUUID)().replaceAll("-", "")) {
+    constructor(rpc, viewId = (0, node_crypto_1.randomUUID)().replaceAll("-", ""), index) {
         this.rpc = rpc;
         this.viewId = viewId;
+        this.index = index;
     }
-    read(round, signal, report = (_stage) => { }) {
+    read(round, signal, report) {
         if (this.disposed)
             return Promise.reject(new Error("SCOPE_INDEX_VIEW_CLOSED"));
-        if (this.request?.round === round)
+        if (this.request?.round === round) {
+            if (report)
+                this.request.reports.add(report);
+            if (this.request.stage)
+                report?.(this.request.stage);
             return this.request.promise;
-        const request = { round, id: (0, node_crypto_1.randomUUID)().replaceAll("-", ""), promise: undefined };
+        }
+        const request = { round, id: (0, node_crypto_1.randomUUID)().replaceAll("-", ""), promise: undefined, reports: new Set(report ? [report] : []), stage: "" };
         this.request = request;
         const cancel = () => { void this.rpc({ feature: "project-sync-scope", viewId: this.viewId, requestId: request.id, op: "release" }, {}).catch(() => { }); };
         signal?.addEventListener("abort", cancel, { once: true });
         if (signal?.aborted)
             cancel();
-        request.promise = this.load(request, signal, report).finally(() => signal?.removeEventListener("abort", cancel));
+        request.promise = this.load(request, signal, stage => {
+            request.stage = stage;
+            for (const listener of request.reports)
+                listener(stage);
+        }).finally(() => { signal?.removeEventListener("abort", cancel); request.reports.clear(); });
         return request.promise;
     }
     async load(request, signal, report = (_stage) => { }) {
@@ -81,10 +94,13 @@ class SyncScopeAgentIndexReader {
                 }
                 if (typeof row.d !== "boolean" || !Number.isFinite(row.m) || !row.d && (!Number.isSafeInteger(row.s) || row.s < 0))
                     throw new Error("SCOPE_INDEX_ENTRY_INVALID");
+                if (row.c !== undefined && !Number.isFinite(row.c) || [row.v, row.i].some(value => value !== undefined && (typeof value !== "string" || !/^[0-9]{1,64}$/.test(value))))
+                    throw new Error("SCOPE_INDEX_ENTRY_IDENTITY_INVALID");
                 entries.set(name, row);
             }
             if (entries.size > 60000)
                 throw new Error("SCOPE_INDEX_ENTRY_LIMIT");
+            report(`正在接收目录索引 · 已处理 ${offset + response.entries.length} 项`);
             if (response.nextCursor === null)
                 break;
             if (!Number.isSafeInteger(response.nextCursor) || response.nextCursor !== offset + response.entries.length || response.nextCursor <= offset || response.nextCursor > 120000)
@@ -103,11 +119,17 @@ class SyncScopeAgentIndexReader {
             }
         const value = { instanceId, generation, entries, observedAt: String(response.observedAt || "") };
         this.snapshot = value;
+        report(`目录索引已接收 · ${entries.size} 项`);
         return value;
     }
     async inventory(round, signal, report) {
         const snapshot = await this.read(round, signal, report);
-        return { files: Object.fromEntries([...snapshot.entries].filter(([, row]) => !row.d).map(([name, row]) => [name, { size: row.s, modifiedAtMs: row.m }])), unverifiedFiles: {} };
+        const identity = (row) => ({ modifiedAtMs: row.m, changedAtMs: row.c, device: row.v, inode: row.i });
+        const load = async () => ({ files: Object.fromEntries([...snapshot.entries].filter(([, row]) => !row.d).map(([name, row]) => [name, { size: row.s, ...identity(row) }])),
+            directories: Object.fromEntries([...snapshot.entries].filter(([, row]) => row.d).map(([name, row]) => [name, identity(row)])),
+            unverifiedFiles: {}, observedAt: snapshot.observedAt, agentInstanceId: snapshot.instanceId, indexGeneration: snapshot.generation });
+        return this.index ? this.index.read({ method: "agent.metadata", metadataOnly: true, recursive: true, round: this.viewId + ":" + round, signal,
+            binding: { agentInstanceId: snapshot.instanceId, indexGeneration: snapshot.generation } }, load) : load();
     }
     async list(relative, round, signal) {
         const snapshot = await this.read(round, signal);
@@ -117,8 +139,19 @@ class SyncScopeAgentIndexReader {
         if (!parent.d)
             throw new Error("SCOPE_INDEX_TARGET_NOT_DIRECTORY");
         const prefix = relative === "." ? "" : relative + "/";
+        if (this.directorySnapshot !== snapshot) {
+            this.directories.clear();
+            for (const row of snapshot.entries.values())
+                if (row.p !== ".") {
+                    const parent = row.p.includes("/") ? row.p.slice(0, row.p.lastIndexOf("/")) : ".";
+                    const children = this.directories.get(parent) || [];
+                    children.push(row);
+                    this.directories.set(parent, children);
+                }
+            this.directorySnapshot = snapshot;
+        }
         return { ok: true, exists: true, observedAt: snapshot.observedAt,
-            entries: [...snapshot.entries.values()].filter(row => row.p !== "." && row.p.startsWith(prefix) && !row.p.slice(prefix.length).includes("/"))
+            entries: (this.directories.get(relative) || [])
                 .map(row => ({ name: row.p.slice(prefix.length), path: row.p, directory: row.d, size: row.s, modifiedAtMs: row.m })) };
     }
     dispose() {
@@ -126,6 +159,8 @@ class SyncScopeAgentIndexReader {
             return;
         this.disposed = true;
         this.snapshot = undefined;
+        this.directorySnapshot = undefined;
+        this.directories.clear();
         if (this.request)
             void this.rpc({ feature: "project-sync-scope", viewId: this.viewId, requestId: this.request.id, op: "release" }, {}).catch(() => { });
     }

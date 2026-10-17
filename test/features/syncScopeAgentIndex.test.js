@@ -2,6 +2,15 @@ const test=require('node:test'),assert=require('node:assert/strict'),fs=require(
 require('../_helpers/registerTsRequire');
 const {SYNC_SCOPE_INDEX_PYTHON}=require('../../src/runtime/SyncScopeIndex.ts');
 const {SyncScopeAgentIndexReader}=require('../../src/features/SyncScopeAgentIndex.ts');
+test('summary subscribes to progress even when a directory listing started the shared index request',async()=>{
+ let release,query;const stages=[];let refreshes=0;
+ const reader=new SyncScopeAgentIndexReader(async q=>{query=q;refreshes++;return new Promise(resolve=>release=resolve);});
+ const listing=reader.list('.','round');
+ const summary=reader.inventory('round',undefined,stage=>stages.push(stage));
+ release({ok:true,status:'ready',instanceId:'fixture',requestId:query.requestId,generation:1,reset:true,entries:[{p:'.',d:true,m:1},{p:'dir',d:true,m:1},{p:'dir/file',d:false,s:2,m:1}],nextCursor:null});
+ assert.equal((await listing).entries[0].path,'dir');assert.equal((await summary).files['dir/file'].size,2);assert.equal(refreshes,1);assert.ok(stages.some(stage=>stage.includes('已接收')));
+ const child=await reader.list('dir','round');assert.equal(child.entries[0].path,'dir/file');assert.equal(refreshes,1);
+});
 test('real tunnel adapters retain dynamic Worker routing and reject responses crossing a connection generation',async()=>{
  const ts=require('typescript'),vm=require('node:vm');
  function method(relative,name){const source=fs.readFileSync(path.resolve(__dirname,'../../src/tunnel',relative),'utf8'),ast=ts.createSourceFile('client.ts',source,ts.ScriptTarget.Latest,true);let member;function visit(node){if(ts.isMethodDeclaration(node)&&node.name.getText(ast)===name)member=node;ts.forEachChild(node,visit);}visit(ast);return vm.runInNewContext(ts.transpileModule('class Host{'+member.getText(ast)+'};Host.prototype.'+name,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{});}

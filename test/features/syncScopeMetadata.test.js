@@ -18,7 +18,7 @@ test('malformed metadata payloads cannot prove absence, including a failed respo
 });
 test('all failed queries name unavailable locations even with no discoverable file names',async()=>{
  const rows=await queryScopeMetadata(['nwpu2','nwpu3'].map(id=>({id,read:async()=>{throw Error('HTTP 503');}})));
- assert.equal(rows['.'].state,'unknown');assert.match(rows['.'].detail,/查询未完成或失败：nwpu2、nwpu3/);
+ assert.equal(rows['.'].state,'unknown');assert.match(rows['.'].detail,/查询失败：nwpu2、nwpu3/);assert.doesNotMatch(rows['.'].detail,/索引未完成/);
  assert.equal(Object.values(rows['.'].copies).reduce((n,c)=>n+c.missing,0),0);
 });
 test('all ancestors aggregate missing/difference counts outside selected transfer folders without fabricating hashes',()=>{
@@ -47,4 +47,29 @@ test('real local recursive metadata reads all nested file stat facts without ope
  const read=fs.readFile,open=fs.open,write=fs.writeFile;fs.readFile=fs.open=fs.writeFile=()=>assert.fail('metadata browsing cannot read/write contents');
  try{const result=await collectLocalScopeMetadata(root,'.');assert.equal(result.files['a/b/actual.bin'].size,4096);assert.ok(result.files['a/b/actual.bin'].modifiedAtMs>0);assert.deepEqual(result.unverifiedFiles,{});}
  finally{fs.readFile=read;fs.open=open;fs.writeFile=write;}
+});
+
+test('per-location progress retains completed, partial and failed states while another endpoint reads',async()=>{
+ let release;const progress=[];
+ const pending=queryScopeMetadata([
+  {id:'fast',read:async report=>{report('索引接收中');return {files:{a:file(1)}};}},
+  {id:'partial',read:async()=>({files:{},unverifiedFiles:{private:'PermissionError'}})},
+  {id:'failed',read:async()=>{throw Error('offline');}},
+  {id:'slow',read:()=>new Promise(resolve=>release=resolve)},
+ ],undefined,(_stage,row)=>progress.push(row));
+ await new Promise(setImmediate);
+ const latest=id=>progress.filter(row=>row.endpointId===id).at(-1);
+ assert.equal(latest('fast').state,'complete');assert.equal(latest('fast').files,1);
+ assert.equal(latest('partial').state,'partial');assert.equal(latest('failed').state,'failed');assert.equal(latest('slow').state,'reading');
+ release({files:{}});await pending;assert.equal(latest('slow').state,'complete');assert.equal(latest('slow').files,0);
+});
+
+test('local metadata reuses guarded walk stats and reports progress without a second ancestor walk',async()=>{
+ const root=await fs.mkdtemp(path.join(os.tmpdir(),'scope-metadata-speed-'));
+ await fs.mkdir(path.join(root,'deep','nested'),{recursive:true});
+ for(let i=0;i<130;i++)await fs.writeFile(path.join(root,'deep','nested',`f${i}`),'x');
+ const original=fs.lstat;let calls=0;const progress=[];
+ fs.lstat=async(...args)=>{calls++;return original(...args);};
+ try{const result=await collectLocalScopeMetadata(root,'.',undefined,stage=>progress.push(stage));assert.equal(Object.keys(result.files).length,130);assert.ok(progress.some(stage=>stage.includes('目录项')));assert.ok(calls<150,`expected one guarded traversal, got ${calls} stats`);}
+ finally{fs.lstat=original;}
 });

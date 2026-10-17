@@ -286,11 +286,12 @@ async function verifyLocalScopeEntry(root, relative, expected) {
         throw new Error(`本机清单目标类型发生变化：${normalized}`);
     return { fullPath: current, stat: finalStat };
 }
-async function listLocalScopeFileNames(rootPath, relative, recursive = true, onUnverified, budget = { directories: 0, entries: 0, files: 0 }, signal) {
+async function listLocalScopeFileNames(rootPath, relative, recursive = true, onUnverified, budget = { directories: 0, entries: 0, files: 0 }, signal, metadata) {
     const root = await resolveLocalScopeRoot(rootPath);
     const start = normalizeLocalScopeRelative(relative);
     const names = [];
     const pending = [start];
+    let nextReport = 0;
     const unverified = (child, reason) => {
         if (!onUnverified)
             throw new Error(`本机清单无法完整验证（${child || "."}）：${reason}`);
@@ -300,6 +301,10 @@ async function listLocalScopeFileNames(rootPath, relative, recursive = true, onU
         signal?.throwIfAborted();
         const current = pending.pop();
         const currentPath = current || ".";
+        if (metadata && Date.now() >= nextReport) {
+            metadata.report(`正在索引 ${currentPath} · ${budget.entries} 个目录项 · ${budget.files} 个文件`);
+            nextReport = Date.now() + 250;
+        }
         const candidate = path.join(root.realPath, ...current.split("/").filter(Boolean));
         const initial = await fs.lstat(candidate).catch((error) => {
             if (error.code === "ENOENT" && current) {
@@ -315,8 +320,10 @@ async function listLocalScopeFileNames(rootPath, relative, recursive = true, onU
             continue;
         }
         if (initial.isFile()) {
-            if (current && scopeInventoryPathAllowed(current, false))
+            if (current && scopeInventoryPathAllowed(current, false)) {
                 names.push(current);
+                metadata?.file(current, initial);
+            }
             continue;
         }
         if (!initial.isDirectory()) {
@@ -330,12 +337,17 @@ async function listLocalScopeFileNames(rootPath, relative, recursive = true, onU
             unverified(currentPath, "目录解析后越出所选根目录");
             continue;
         }
+        metadata?.directory(currentPath, initial);
         const directory = await fs.opendir(candidate, { bufferSize: 32 });
         try {
             for await (const entry of directory) {
                 signal?.throwIfAborted();
                 if (++budget.entries > LOCAL_SCOPE_MAX_ENTRIES)
                     throw new Error(`本机清单超过目录项上限 ${LOCAL_SCOPE_MAX_ENTRIES}，拒绝生成不完整清单。`);
+                if (metadata && (budget.entries % 128 === 0 || Date.now() >= nextReport)) {
+                    metadata.report(`正在索引 ${currentPath} · 已读取 ${budget.entries} 个目录项 · ${budget.files} 个文件`);
+                    nextReport = Date.now() + 250;
+                }
                 const child = current ? `${current}/${entry.name}` : entry.name;
                 let safeChild;
                 try {
@@ -366,6 +378,7 @@ async function listLocalScopeFileNames(rootPath, relative, recursive = true, onU
                     if (++budget.files > LOCAL_SCOPE_MAX_FILES)
                         throw new Error(`本机清单超过文件上限 ${LOCAL_SCOPE_MAX_FILES}，拒绝生成不完整清单。`);
                     names.push(safeChild);
+                    metadata?.file(safeChild, childStat);
                 }
                 else
                     unverified(safeChild, "路径不是普通文件或目录");
@@ -383,27 +396,17 @@ async function listLocalScopeFileNames(rootPath, relative, recursive = true, onU
     return names;
 }
 /** Browsing reads stat facts only; never opens content or writes the hash cache. */
-async function collectLocalScopeMetadata(root, relative, signal) {
-    const rootInfo = await resolveLocalScopeRoot(root);
+async function collectLocalScopeMetadata(root, relative, signal, report = (_stage) => { }) {
     const unverifiedFiles = {};
     const files = {};
-    const names = await listLocalScopeFileNames(root, relative, true, (name, reason) => { unverifiedFiles[name] = reason; }, undefined, signal);
-    let next = 0;
-    await Promise.all(Array.from({ length: Math.min(8, names.length) }, async () => {
-        while (next < names.length) {
-            signal?.throwIfAborted();
-            const name = names[next++];
-            try {
-                const { stat } = await verifyLocalScopeEntry(rootInfo, name, "file");
-                files[name] = { size: stat.size, modifiedAtMs: Math.floor(stat.mtimeMs) };
-            }
-            catch (error) {
-                unverifiedFiles[name] = error instanceof Error ? error.message : String(error);
-            }
-        }
-    }));
+    const directories = {};
+    const identity = (stat) => ({ modifiedAtMs: Math.floor(stat.mtimeMs), changedAtMs: stat.ctimeMs, device: String(stat.dev), inode: String(stat.ino) });
+    // The guarded walk already verifies each entry and rechecks its directory.
+    // Reuse those stat facts instead of walking every file's ancestors a second time.
+    await listLocalScopeFileNames(root, relative, true, (name, reason) => { unverifiedFiles[name] = reason; }, undefined, signal, { file: (name, stat) => { files[name] = { size: stat.size, ...identity(stat) }; },
+        directory: (name, stat) => { directories[name] = identity(stat); }, report });
     signal?.throwIfAborted();
-    return { files, unverifiedFiles };
+    return { files, directories, unverifiedFiles };
 }
 async function hashLocalScopeNames(root, names, onUnverified, cacheFile) {
     if (names.length > LOCAL_SCOPE_MAX_ENTRIES)

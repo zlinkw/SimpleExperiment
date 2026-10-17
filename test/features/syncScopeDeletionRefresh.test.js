@@ -12,6 +12,57 @@ function webview(roots=[]){
 }
 function method(name,globals){const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true);let member;function visit(n){if(ts.isMethodDeclaration(n)&&n.name.getText(ast)===name)member=n;ts.forEachChild(n,visit);}visit(ast);return vm.runInNewContext(ts.transpileModule('class Host{'+member.getText(ast)+'};Host.prototype.'+name,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,globals);}
 
+test('index status remains above the tree, persists per location and ignores stale generations',()=>{
+ const f=webview();f.send({type:'init',roots:[{id:'workers',label:'Workers',selected:[],summary:true,indexLocations:[{id:'w1',label:'Worker 1'},{id:'w2',label:'Worker 2'}]}]});
+ const query=f.sent.find(m=>m.type==='summary');
+ const progress=(id,endpointId,state,detail)=>f.send({type:'readProgress',rootId:'workers',path:'.',id,stage:detail,progress:{endpointId,state,detail}});
+ progress(query.id,'w1','complete','已读取 10 个文件 · 索引完成');progress(query.id,'w2','reading','已读取 300 项');
+ const text=()=>f.nodes.get('indexProgress').children.map(n=>n.textContent).join(' ');
+ assert.match(text(),/1\/2.*尚未全部完成/);assert.match(text(),/Worker 1.*索引完成/);assert.match(text(),/Worker 2.*300/);
+ progress('old','w2','complete','stale');assert.doesNotMatch(text(),/stale/);
+ progress(query.id,'w2','failed','连接失败');assert.match(text(),/连接失败/);assert.match(text(),/1\/2/);
+ f.send({type:'status',rootId:'workers',path:'.',id:query.id,statuses:{},refreshedAt:'now'});assert.match(text(),/连接失败/);
+ f.nodes.get('refresh').onclick();assert.match(text(),/0\/2/);assert.doesNotMatch(text(),/连接失败/);
+ const fresh=f.sent.filter(m=>m.type==='summary').at(-1);progress(fresh.id,'w1','complete','索引完成');progress(fresh.id,'w2','complete','索引完成');assert.match(text(),/2\/2 · 全部完成/);
+});
+
+test('expanding folders reuses in-flight index generation; direct delete binds just that file or folder',()=>{
+ const f=webview();f.send({type:'init',roots:[{id:'local',label:'Local',selected:['a.txt','dir'],summary:true}]});
+ const folders=[{path:'dir',name:'dir',directory:true,locations:['w1'],selectable:false},{path:'a.txt',name:'a.txt',directory:false,locations:['w1']}];
+ f.send({type:'children',rootId:'local',path:'.',entries:folders});
+ const row=name=>f.nodes.get('tree').children.find(n=>n.children.some(x=>x.textContent===name));
+ row('📁 dir').children[0].onclick();
+ assert.equal(f.sent.filter(m=>m.type==='summary').length,1);assert.equal(f.sent.filter(m=>m.type==='cancelRefresh').length,0);assert.equal(f.sent.at(-1).path,'dir');
+ row('📁 dir').children.find(n=>n.textContent==='一键删除').onclick();assert.equal(f.sent.at(-1).type,'batchDelete');assert.deepEqual([...f.sent.at(-1).paths],['dir']);assert.deepEqual([...f.sent.at(-1).excluded],[]);
+ f.send({type:'actionCancelled',rootId:'local'});row('📄 a.txt').children.find(n=>n.textContent==='一键删除').onclick();assert.deepEqual([...f.sent.at(-1).paths],['a.txt']);assert.equal(f.sent.at(-1).entries[0].directory,false);
+ f.send({type:'actionCancelled',rootId:'local'});f.nodes.get('batchDelete').onclick();assert.deepEqual([...f.sent.at(-1).paths],['a.txt','dir']);
+});
+
+test('delete multiselect includes server-only files and folders without changing transfer selections',()=>{
+ const f=webview();f.send({type:'init',roots:[{id:'local',label:'Local',selected:['code'],excludable:true}]});
+ f.send({type:'children',rootId:'local',path:'.',entries:[{path:'code',name:'code',directory:true,locations:['local']},{path:'remote',name:'remote',directory:true,locations:['w1'],selectable:false},{path:'remote.txt',name:'remote.txt',directory:false,locations:['w1'],selectable:false}]});
+ f.nodes.get('deleteSelection').onclick();
+ for(const name of ['📁 remote','📄 remote.txt']){const row=f.nodes.get('tree').children.find(n=>n.children.some(x=>x.textContent===name));assert.equal(row.children[1].disabled,false);row.children[1].checked=true;row.children[1].onchange();}
+ f.nodes.get('batchDelete').onclick();assert.deepEqual([...f.sent.at(-1).paths],['remote','remote.txt']);assert.deepEqual([...vm.runInContext('[...state().selected]',f.ctx)],['code']);
+ assert.equal(f.sent.at(-1).entries.find(e=>e.path==='remote').directory,true);
+});
+
+test('expired view facts become unknown and expanding starts a new round instead of reusing stale absence',()=>{
+ const f=webview();f.send({type:'init',roots:[{id:'local',label:'Local',selected:[],summary:true,indexLocations:[{id:'local',label:'本机'}]}]});
+ f.send({type:'children',rootId:'local',path:'.',entries:[{name:'data',path:'data',directory:true,locations:['local'],observations:{local:{status:'present',directory:true}}}]});
+ vm.runInContext("state().statuses.data={state:'different',basis:'metadata',detail:'确认缺失',metadata:{local:{status:'absent'}}};state().indexProgress.get('local').state='complete';expireIndexView(state())",f.ctx);
+ assert.equal(vm.runInContext("state().statuses.data.metadata.local.status",f.ctx),'unknown');assert.match(f.nodes.get('indexProgress').children.map(n=>n.textContent).join(' '),/已过期/);
+ f.nodes.get('tree').children[1].children[0].onclick();assert.equal(f.sent.filter(m=>m.type==='summary').length,2);assert.equal(vm.runInContext('state().indexExpired',f.ctx),false);
+});
+
+test('mutation invalidation retires in-flight messages rather than restoring obsolete absence',()=>{
+ const f=webview();f.send({type:'init',roots:[{id:'local',label:'Local',selected:[],summary:true}]});const query=f.sent.find(m=>m.type==='summary');
+ f.send({type:'indexInvalidated',reason:'upload completed'});
+ f.send({type:'status',rootId:'local',path:'.',id:query.id,statuses:{'old.bin':{state:'different',detail:'stale absence'}}});
+ assert.equal(vm.runInContext("state().statuses['old.bin']",f.ctx),undefined);assert.equal(vm.runInContext('state().indexExpired',f.ctx),true);
+ assert.match(f.nodes.get('status').textContent,/upload completed/);
+});
+
 test('default scope view hides consistent files, groups equal copies, and keeps failed queries distinct from confirmed absence',()=>{
  const {buildScopeMetadataStatuses}=require('../../src/features/SyncScopeMetadata.ts');
  const {nodes,sent,send,ctx}=webview();send({type:'init',roots:[{id:'local',label:'Local',selected:['.'],summary:true}]});

@@ -43,6 +43,7 @@ const crypto = __importStar(require("crypto"));
 const fs = __importStar(require("fs/promises"));
 const fsNode = __importStar(require("fs"));
 const path = __importStar(require("path"));
+const ProjectFileIndex_1 = require("./ProjectFileIndex");
 const CACHE_SCHEMA_VERSION = 1;
 const cacheWrites = new Map();
 function bigintString(value) {
@@ -196,6 +197,10 @@ async function hashLocalCodeFiles(root, files, cacheFile, onProgress, signal) {
                     console.warn(`[SimpleExperiment] local code manifest cache write failed: ${error instanceof Error ? error.message : String(error)}`);
                 }
             }
+        }
+        if (cacheFile && path.basename(path.dirname(cacheFile)) === "code-manifest-cache") {
+            const index = (0, ProjectFileIndex_1.projectFileIndex)({ workspace: root, endpointId: "local", projectRoot: root, connection: "local:" + process.pid }, path.dirname(path.dirname(cacheFile)));
+            await index.read({ method: "local.code-manifest", paths: files, signal }, async () => ({ files: Object.fromEntries(Object.entries(manifest).map(([name, row]) => [name, { ...row, modifiedAtMs: nextFiles[name]?.mtimeMs, changedAtMs: nextFiles[name]?.ctimeMs, device: nextFiles[name]?.dev, inode: nextFiles[name]?.ino }])) }));
         }
         return { manifest, stats };
     }

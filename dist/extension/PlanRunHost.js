@@ -96,7 +96,7 @@ class PlanRunHost {
             revision: body.planRevision, codeFingerprint: plan?.codeFingerprint || h.lastCodeSyncState?.fingerprint };
         const executionSource = body.executionSource || await (0, PlanCodeScopeHost_1.resolvePlanExecutionSource)(h, sourcePlan);
         if (executionSource) {
-            await (0, PlanCodeScopeHost_1.verifyLocalPlanSource)(this.root, executionSource);
+            await (0, PlanCodeScopeHost_1.verifyLocalPlanSource)(this.root, executionSource, h.projectFileObservationIndex?.());
             body.executionSource = executionSource;
         }
         const expectedFingerprint = executionSource?.digest || h.lastCodeSyncState?.fingerprint || "";
@@ -165,7 +165,7 @@ class PlanRunHost {
                 await h.refreshLocalPlanMetadataForAction(current);
                 h.stampPlanRevision(current);
                 if (executionSource)
-                    await (0, PlanCodeScopeHost_1.verifyLocalPlanSource)(this.root, executionSource);
+                    await (0, PlanCodeScopeHost_1.verifyLocalPlanSource)(this.root, executionSource, h.projectFileObservationIndex?.());
                 const fingerprint = executionSource?.digest || await h.localDistributedCodeFingerprint(this.root);
                 if (current.planRevision !== body.planRevision || fingerprint !== (executionSource ? expectedFingerprint : h.lastCodeSyncState?.fingerprint)
                     || (0, PlanRunReplacement_1.runReplacementKey)(body.planFile, body.planRevision, fingerprint, jobs, currentNodes()) !== key)
