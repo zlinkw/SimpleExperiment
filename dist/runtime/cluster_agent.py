@@ -69,9 +69,9 @@ def has_existing_artifacts(output_dir):
 
 # 版本由 build 动态注入（单源：package.json#version -> PLUGIN_VERSION，src/runtime/RuntimeManifest.ts#CURRENT_RUNTIME_VERSION -> 其他），禁止手改；占位值仅用于类型检查，落盘以 dist/runtime/cluster_agent.py 为准
 SCHEMA_VERSION = 1
-AGENT_VERSION = "0.5.364"
-RUNTIME_VERSION = "0.5.364"
-PLUGIN_VERSION = "0.5.364"
+AGENT_VERSION = "0.5.365"
+RUNTIME_VERSION = "0.5.365"
+PLUGIN_VERSION = "0.5.365"
 """Agent lifecycle in the user's assigned tmux window. Never signals PIDs."""
 import contextlib
 import hashlib
@@ -16382,9 +16382,9 @@ def serve_http(args):
         # Keep the Agent available for diagnosis; deployment must not report Scheduler success.
         TASK_SCHEDULER_UPDATE_ERROR = str(exc)
         print("[scheduler-update] " + str(exc), file=sys.stderr, flush=True)
-    prune_agent_state(root, force=True)
-    if mode == "worker_telemetry":
-        reconcile_worker_tasks_after_restart(root)
+    # HTTP readiness must not scan/prune historical machine files or reconcile
+    # legacy task queues. Protocol 2 execution is owned by the independent tmux
+    # Scheduler, which rebuilds from actual windows rather than replaying history.
     atomic_write(path_for(root, "agent.session.json"), {"tokenConfigured": bool(token), "startedAt": now_iso(), "agentVersion": AGENT_VERSION, "agentInstallDir": agent_install_dir(root), "agentStateDir": agent_dir(root), "stateRetentionSeconds": STATE_RETENTION_SECONDS, "maxAgentStateBytes": MAX_AGENT_STATE_BYTES})
     if mode == "worker_telemetry":
         start_worker_telemetry_sampler(root, getattr(args, "gpu_poll_seconds", 1), 0)

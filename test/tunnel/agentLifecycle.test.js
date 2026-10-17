@@ -20,7 +20,8 @@ test('Agent and transport share the exact lifecycle protocol and serve claims ow
   assert.doesNotMatch(vendor,/pidfd_open|pidfd_send_signal|os\.kill\(|kill-session|kill-server/);
   const source=fs.readFileSync(path.resolve(__dirname,'../../src/clusterAgentRuntime.legacy.ts'),'utf8');
   const serve=source.slice(source.indexOf('def serve_http(args):'),source.indexOf('class BoundedThreadingHTTPServer'));
-  assert.ok(serve.indexOf('lifecycle_service_guard')<serve.indexOf('prune_agent_state'));
+  assert.ok(serve.indexOf('lifecycle_service_guard')<serve.indexOf('atomic_write'));
+  assert.doesNotMatch(serve,/prune_agent_state\(|reconcile_worker_tasks_after_restart\(/);
   const transport=require('../../../simple-sftp/agent-lifecycle');
   assert.throws(()=>transport.agentPayload({action:'kill',projectDir:'/srv/p',installDir:'/srv/a'}),/AGENT_ACTION_INVALID/);
   assert.throws(()=>transport.agentPayload({action:'inspect',projectDir:'/srv/../p',installDir:'/srv/a'}),/AGENT_PATH_INVALID/);

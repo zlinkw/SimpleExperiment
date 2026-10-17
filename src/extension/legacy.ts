@@ -4687,7 +4687,7 @@ return this.configureWorkerTunnels();
             if (blocked.length)
                 throw new Error(`Agent 自启动命令未就绪，尚未部署远端 runtime：${blocked.map((item) => item.summary).join("；")}`);
             progress.report({ message: "部署 runtime" });
-            const deployed = await this.deployLatestAgentRuntime(false, true, [], true, { promptLegacyMigration: true });
+            const deployed = await this.deployLatestAgentRuntime(false, true, [], true, { promptLegacyMigration: true, reportStage: message => progress.report({ message }) });
             progress.report({ message: "启动 Xshell 会话" });
             await this.startAllXshellConnections(false, false);
             const deadline = Date.now() + 60000;
@@ -7575,16 +7575,39 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             "cluster_scheduler.py": RuntimeManifest_1.sha256Text(schedulerText),
         };
         (manifest as any).deployedAt = new Date().toISOString();
+        const timings: any[] = [];
+        // Different physical servers may progress independently; requests sharing
+        // a server remain serial. Drain every phase before returning an error.
+        const phase = async (label, work) => {
+            const groups = new Map<string, any[]>();
+            for (const target of targets) {
+                const key = JSON.stringify([target.networkHost || target.host, target.port, target.user]);
+                if (!groups.has(key)) groups.set(key, []);
+                groups.get(key).push(target);
+            }
+            const errors: any[] = [];
+            await mapLimited([...groups.values()], 2, async group => {
+                for (const target of group) {
+                    const startedAt = Date.now();
+                    migrationOptions.reportStage?.(target.id + "：" + label);
+                    try { await work(target); }
+                    catch (error) { errors.push(error); }
+                    finally { timings.push({ serverId: target.id, stage: label, startedAt, durationMs: Date.now() - startedAt }); }
+                }
+            });
+            if (errors.length === 1) throw errors[0];
+            if (errors.length) throw new Error(errors.map(error => String(error.message || error)).join("；"));
+        };
         // Read-only ownership/health inspection precedes every remote overwrite.
         const inspections = new Map();
-        for (const target of targets) {
+        await phase("核对运行版本与来源", async target => {
             const before = await this.agentLifecycleForTarget(target, "inspect", manifest);
             if (before.status === "running" && before.runningVersion === runtimeVersion
                 && (Object.entries(manifest.files).some(([name, digest]) => before.files?.[name] !== digest)
                     || before.identity?.runtimeFiles && Object.entries(manifest.files).some(([name, digest]) => before.identity.runtimeFiles[name] !== digest)))
                 throw new Error(`${target.id}: AGENT_RUNTIME_VERSION_REUSED: 同版本字节已改变，未覆盖或重启`);
             inspections.set(target.id, before);
-        }
+        });
         const legacyTargets = targets.filter(target => inspections.get(target.id)?.status === "legacy");
         if (legacyTargets.length) {
             const preview = legacyTargets.map(target => ({ serverId: target.id, host: target.host, port: target.port, user: target.user,
@@ -7617,10 +7640,10 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             await this.writeSftpManagerServerProfiles(targets.map((target) => target.id));
         }
         const failures = [];
-        for (const target of targets) {
+        await phase("上传 runtime", async target => {
             const before: any = inspections.get(target.id);
             if (before.status === "running" && before.runningVersion === runtimeVersion
-                && Object.entries(manifest.files).every(([name, digest]) => before.files?.[name] === digest)) continue;
+                && Object.entries(manifest.files).every(([name, digest]) => before.files?.[name] === digest)) return;
             console.log("[diag] simpleSftp.uploadFiles invoke", target.id, target.remotePath);
             const result = await vscode.commands.executeCommand("simpleSftp.uploadFiles", {
                 apiMode: true,
@@ -7641,14 +7664,18 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             const record = result && typeof result === "object" ? result : {};
             if (!sftpUploadFilesSucceeded(record))
                 failures.push(`${target.label}（id=${target.id}, host=${target.host}, networkHost=${target.networkHost || target.displayHost || "-"}）: ${stringFromRecord(record, ["error", "message", "status"]) || "上传失败"}`);
-        }
+        });
         if (failures.length)
             throw new Error(`Agent runtime 部署失败：${failures.join("; ")}`);
-        for (const target of targets) {
+        await phase("启动并核实 Agent/Scheduler", async target => {
             const before: any = inspections.get(target.id);
+            const scheduler = before.schedulerRuntime;
+            if (before.status === "running" && before.runningVersion === runtimeVersion
+                && Object.entries(manifest.files).every(([name, digest]) => before.files?.[name] === digest && before.identity?.runtimeFiles?.[name] === digest)
+                && scheduler?.protocol === 1 && ["current", "absent"].includes(scheduler.status) && !scheduler.error && !before.schedulerUpdateError) return;
             await this.agentLifecycleForTarget(target, before.status === "unhealthy" || before.status === "running" && before.runningVersion !== runtimeVersion ? "restart" : "ensure", manifest, true);
-        }
-        if (deferVerification) return { targets, manifest };
+        });
+        if (deferVerification) return { targets, manifest, timings };
         // 手动触发(showMessage=true)：单次 verify 立即返回，避免 fetch failed/ECONNREFUSED 无意义延迟；仅自动触发(showMessage=false)才轮询重试
         let verifyIssues: any;
         let _verifyOk: boolean;
@@ -12045,13 +12072,18 @@ this.assertPlanTopologyReady("Plan 调度");
     }
     async retryPulledJob(plan, job, root, isCurrent, anomalyOnly = false) {
         const currentPlan = await fs.readFile(path.join(root, plan.planFile), "utf8");
-        if (crypto.createHash("sha256").update(currentPlan, "utf8").digest("hex") !== plan.revision)
-            throw new Error("PLAN 已变化；请重新校验、预演并提交当前声明，旧卡片未重排。");
-        // Check deterministic source conflicts before any network wait or stop
-        // intent. A retry cannot cancel the original and only then discover that
-        // its immutable config/source no longer exists locally.
-        const originalSource = await PlanCodeScopeHost.resolvePlanExecutionSource(this, plan);
-        if (originalSource) await PlanCodeScopeHost.verifyLocalPlanSource(root, originalSource);
+        let sourceChange = crypto.createHash("sha256").update(currentPlan, "utf8").digest("hex") !== plan.revision ? "PLAN 声明已变化" : "";
+        if (!sourceChange) {
+            const originalSource = await PlanCodeScopeHost.resolvePlanExecutionSource(this, plan);
+            if (originalSource) try { await PlanCodeScopeHost.verifyLocalPlanSource(root, originalSource); }
+            catch (error) {
+                // A changed input is a user decision, not proof of task failure.
+                // Unknown ownership, unsafe paths and invalid baselines still fail closed.
+                if (!String(error.message || error).startsWith("PLAN_SOURCE_CHANGED:") && error.code !== "ENOENT") throw error;
+                sourceChange = String(error.message || error);
+            }
+        }
+        if (sourceChange) return this.retryChangedSourceJobs(plan, job, root, isCurrent, sourceChange);
         if (!isCurrent()) return;
         const { state } = await PulledTaskControl.queryTask(this.client, plan, job);
         if (!isCurrent()) return;
@@ -12086,6 +12118,107 @@ this.assertPlanTopologyReady("Plan 调度");
         void this.tickDistributedQueue().catch(error => this.recordActionError({ command: "distributedPlanDispatch",
             message: `${plan.planFile} job ${job.index} 已重新排队，派发待核实：${errorMessage(error)}` }));
         return { status: "queued", source: "local", message: "此 job 已重新进入本机待派队列；实际执行状态由远端查询确认。" };
+    }
+    async retryChangedSourceJobs(plan, job, root, isCurrent, sourceChange) {
+        const acceptedRevision = crypto.createHash("sha256").update(await fs.readFile(path.join(root, plan.planFile), "utf8"), "utf8").digest("hex");
+        const acceptedFingerprint = await this.localDistributedCodeFingerprint(root);
+        const answer = await vscode.window.showWarningMessage(
+            `重跑使用当前源码和配置\n${plan.planFile} / ${job.case} / seed ${job.seed}\n${sourceChange}\n\n请选择范围。仅重跑当前 job 会保留其他 job 的旧版本结果；重跑全部 job 使用当前 PLAN 的全部声明。所选旧任务必须已停止，已有产物仍需完整核实并两次确认删除。取消不会停止、同步或派发任务。`,
+            { modal: true }, "仅重跑当前 job", "重跑全部 job");
+        if (!["仅重跑当前 job", "重跑全部 job"].includes(answer) || !isCurrent())
+            return { status: "cancelled", message: "已取消重跑，原任务与产物保留。" };
+        const guardKey = `${root}\0${plan.id}\0source-rerun`;
+        if (this.manualDispatchInFlight.has(guardKey)) throw new Error("此 PLAN 正在确认重跑，请完成当前操作。");
+        this.manualDispatchInFlight.add(guardKey);
+        try {
+            const assertCurrent = () => { if (!isCurrent()) throw new UiCommandCancelled("工作区或服务器配置已变化，未继续重跑。"); };
+            const all = answer === "重跑全部 job";
+            const selectedOld = all ? plan.jobs : [job];
+            const rerunWorkflowId = "distributed-plan-rerun-" + crypto.createHash("sha256").update(JSON.stringify([
+                plan.id, selectedOld.map(old => [old.index, old.commandId || ""]), all, acceptedRevision, acceptedFingerprint])).digest("hex");
+            if ((await this.loadDistributedQueue(root)).plans.some(row => row.id === rerunWorkflowId))
+                return { status: "queued", source: "local", message: "该范围已创建重跑批次；请刷新查看原提交，未重复提交。" };
+            const assertOriginalCommands = async () => {
+                assertCurrent();
+                const latest = (await this.loadDistributedQueue(root)).plans.find(row => row.id === plan.id);
+                if (!latest || latest.revision !== plan.revision || latest.codeFingerprint !== plan.codeFingerprint
+                    || selectedOld.some(old => latest.jobs.find(row => row.index === old.index)?.commandId !== old.commandId))
+                    throw new Error("原任务身份已变化；未继续重跑。");
+                assertCurrent();
+            };
+            await assertOriginalCommands();
+            // Check each chosen command, never stop a PLAN/session by name. Do not
+            // synchronize new inputs while any chosen old task is still executing.
+            for (const old of selectedOld) if (old.commandId && old.workerId) {
+                const { state } = await PulledTaskControl.queryTask(this.client, plan, old, 8000, { executionOnly: true });
+                assertCurrent();
+                if (["running", "starting", "queued"].includes(state.execution))
+                    throw new Error("所选范围仍有服务器排队或运行的任务；请先中止或召回这些任务，再确认重跑范围。");
+            }
+            const body: any = { planFile: plan.planFile, options: {}, runReplacement: {}, submissionWorkflowId: rerunWorkflowId };
+            await this.refreshLocalPlanMetadataForAction(body);
+            this.stampPlanRevision(body);
+            if (body.planRevision !== acceptedRevision) throw new Error("PLAN 在确认期间已变化，请重新选择重跑范围。");
+            await this.assertPlanLocalConfigFiles(body);
+            await this.selectDistributedPlanPrimary(body);
+            assertCurrent();
+            // Fence old in-flight starts before uploading changed inputs. An
+            // earlier missing-window observation alone cannot prevent a late POST.
+            await assertOriginalCommands();
+            for (const old of selectedOld) if (old.commandId && old.workerId) {
+                await PulledTaskControl.stopPulledTask(this.client, plan, old, makeOpId("requeue-job"));
+                assertCurrent();
+            }
+            // Preserve full synchronization of every enabled Worker and the normal
+            // static command/config validation and dry run, even for a one-job rerun.
+            await this.ensureCodeReadyForRun(this.captureProjectContext(), [body]);
+            assertCurrent();
+            const unsynced = this.workerCodeSyncTargets().filter(worker =>
+                this.lastCodeSyncState?.workerVersions?.[worker.id]?.fingerprint !== acceptedFingerprint);
+            if (unsynced.length) throw new Error("全部启用 Worker 尚未完成当前版本同步：" + unsynced.map(worker => worker.id).join("、") + "；未删除或派发。");
+            if (await this.localDistributedCodeFingerprint(root) !== acceptedFingerprint || this.lastCodeSyncState?.fingerprint !== acceptedFingerprint)
+                throw new Error("源码或配置在确认期间已变化，请重新选择重跑范围；未删除或派发。");
+            const preflight = await this.runPlanPreflight(body, "重跑任务");
+            if (!preflight) return { status: "cancelled", message: "校验或预演未通过，未重跑。" };
+            const validation = planValidationFromResult(preflight);
+            if (validation?.result_path_policy !== "declared") throw new Error("当前 PLAN 必须声明逐 job 产物路径；未重跑。");
+            const jobs = all ? validation?.jobs : validation?.jobs?.filter(row => row.case === job.case && Number(row.seed) === Number(job.seed)
+                && row.output_dir === job.outputDir && String(row.result_csv || "") === String(job.collectionResultCsv || ""));
+            if (!jobs?.length || !all && jobs.length !== 1) throw new Error("当前 PLAN 无法唯一匹配原 job 的 case、seed 和产物路径；请从当前 PLAN 选择任务。");
+            const scoped = { ...validation, jobs, existing: (validation.existing || []).filter(row => jobs.some(j => Number(j.index) === Number(row.index))) };
+            const sourcePlan = { ...plan, revision: body.planRevision, codeFingerprint: this.lastCodeSyncState?.fingerprint, executionSource: undefined };
+            body.executionSource = await PlanCodeScopeHost.resolvePlanExecutionSource(this, sourcePlan);
+            if (!body.executionSource) throw new Error("PLAN_SOURCE_ORIGINAL_HASH_UNAVAILABLE：当前源码未核实，未重跑。");
+            await PlanCodeScopeHost.verifyLocalPlanSource(root, body.executionSource);
+            await assertOriginalCommands();
+            await this.assertPlanSubmissionWorkers(body, { validation: scoped });
+            await new PlanRunHost(this, root).replace(sourcePlan, body, scoped);
+            await assertOriginalCommands();
+            await PlanCodeScopeHost.verifyLocalPlanSource(root, body.executionSource);
+            if (this.lastCodeSyncState?.fingerprint !== sourcePlan.codeFingerprint)
+                throw new Error("同步版本在确认期间已变化；未重新派发。");
+            if (!body.assignedExperimentIndices?.length || body.existingOutputChoice === "keep_existing")
+                return { status: "cancelled", message: "未选择重跑任务，未重新派发。" };
+            await this.saveDistributedQueue(root, undefined, { controlMutation: true, mutateLatest: latest => {
+                assertCurrent();
+                const original = latest.plans.find(row => row.id === plan.id);
+                if (!original || selectedOld.some(old => original.jobs.find(row => row.index === old.index)?.commandId !== old.commandId))
+                    throw new Error("原任务身份已变化；未重新派发。");
+                return { ...latest, plans: latest.plans.map(row => row.id !== plan.id ? row : { ...row, jobs: row.jobs.map(old =>
+                    !old.commandId && old.status === "pending" && jobs.some(j => body.assignedExperimentIndices.includes(Number(j.index))
+                        && j.output_dir === old.outputDir && j.result_csv === old.collectionResultCsv)
+                        ? { ...old, status: "cancelled", blockReason: "用户已选择按当前源码创建新的重跑批次。" } : old) }) };
+            } });
+            // New source => new workflow identity. Do not rewrite the old PLAN's
+            // revision/fingerprint or transfer completion facts to a different run.
+            const result = await this.enqueueDistributedPlan(body, { validation: scoped }, true);
+            assertCurrent();
+            if (result?.enqueued !== true) return result;
+            // Release the local admission fence before the separate dispatch tick.
+            this.manualDispatchInFlight.delete(guardKey);
+            void this.tickDistributedQueue().catch(error => this.recordActionError({ command: "distributedPlanDispatch", message: errorMessage(error) }));
+            return { status: "queued", source: "local", message: `已按当前源码将${all ? "所选 PLAN 全部 job" : "当前 job"}加入新的本机待派队列；旧版本记录保留，执行以远端查询为准。` };
+        } finally { this.manualDispatchInFlight.delete(guardKey); }
     }
     async recallPlanToLocalQueueFromUi(message) {
         const root = workspaceRoot();
@@ -31255,7 +31388,7 @@ function escapeRegex(value) {
 function actionErrorSuggestion(message) {
     const text = String(message || "");
     if (/PLAN_SOURCE_CHANGED|PLAN_SOURCE_BASELINE|PLAN_SOURCE_LINK/i.test(text))
-        return "原任务绑定的源码或配置与本机文件不一致，刷新状态不能消除此冲突。先核对提示的文件和版本；若要使用当前代码，请重新校验当前 PLAN 并仅选择需要的 job 提交，保留其他任务和产物。";
+        return "请核对提示的源码或配置变更；重跑入口会让你选择仅当前 job 或全部 job，使用当前源码重新校验。其他旧版本结果保留；删除已有产物仍需两次确认。";
     if (/未提交|旧代码版本|代码版本|version hold|deferred|排队记录/i.test(text))
         return "本次没有提交，也不会自动接续。打开运行进度，点“刷新状态”和日志核实前序；确认前序已停后，才点前序 Plan 的“终止并清除该 Plan”。再到实验准备的 Plan 列表手动选中，点“校验并提交运行”。";
     if (/capability|endpoint|404|not found|缺少能力/i.test(text))

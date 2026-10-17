@@ -24,7 +24,7 @@ test("first-run Agent preparation confirms once and preserves operation order", 
   const blocked = flow.indexOf("Agent 自启动命令未就绪");
   const profiles = flow.indexOf("writeSftpManagerServerProfiles(");
   const pathConfirm = flow.indexOf("confirmRemoteWriteTargets");
-  const deploy = flow.indexOf("deployLatestAgentRuntime(false, true, [], true)");
+  const deploy = flow.indexOf("deployLatestAgentRuntime(false, true, [], true,");
   const launch = flow.indexOf("startAllXshellConnections(false, false)");
   const detect = flow.indexOf("this.testTunnel(false)");
   assert.ok(sftp >= 0 && sftp < workspace && workspace < sync);
@@ -41,7 +41,8 @@ test("first-run Agent preparation confirms once and preserves operation order", 
   assert.match(extension, /const AGENT_STARTUP_BLOCKED_SKIP_REASONS = new Set\(\["non_simple_remote_command", "different_simple_agent_session"\]\)/);
   assert.match(flow, /AGENT_STARTUP_BLOCKED_SKIP_REASONS\??\.has\(item\.skippedReason\)/);
   assert.doesNotMatch(flow, /\["non_simple_remote_command", "different_simple_agent_session"\]\.includes/);
-  assert.match(flow, /tunnelTestCompletion\(this\.setupConfig, this\.lastProbe, this\.lastHealth, this\.lastWorkerProbes, topology\.hubAllowed\)/);
+  assert.match(flow, /tunnelTestCompletion\(this\.setupConfig, this\.lastProbe, this\.lastHealth, this\.lastWorkerProbes, false\)/);
+  assert.match(flow, /reportStage: message => progress\.report\(\{ message \}\)/);
   assert.match(flow, /当前拓扑端点健康检测未通过/);
   assert.match(flow, /if \(showMessage\) \{[\s\S]{0,420}"识别工作区", "打开面板"/);
   assert.doesNotMatch(flow, /const next = await vscode\.window\.showInformationMessage\(`Agent 首次准备完成/);
@@ -100,7 +101,7 @@ test("quick setup and main UI expose preparation while connection keeps literal 
   assert.match(extension, /async quickSetup\(showAgentCompletion = true\)/);
   assert.match(extension, /async writeXshellAgentStartupCommands\(showMessage = true, requireConfirm = true, serverIds = \[\]\)/);
   assert.match(extension, /async startAllXshellConnections\(requireConfirm = true, scheduleAutoTest = true, serverIds = \[\]\)/);
-  assert.equal((extension.match(/this\.schedulePostLaunchAutoTest\(\)/g) || []).length, 3);
+  assert.equal((extension.match(/this\.schedulePostLaunchAutoTest\(\)/g) || []).length, 2);
   assert.doesNotMatch(extension, /setTimeout\(\(\) => void this\.testTunnel\(true\), 2500\)/);
   assert.match(extension, /private postLaunchAutoTestTimer\?: ReturnType<typeof setTimeout>/);
   assert.match(extension, /private postLaunchAutoTestGeneration = 0/);

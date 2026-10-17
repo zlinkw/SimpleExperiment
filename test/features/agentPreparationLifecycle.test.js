@@ -10,7 +10,8 @@ const source=fs.readFileSync(path.join(__dirname,'../../src/extension/legacy.ts'
 const tree=ts.createSourceFile('provider.ts',source,ts.ScriptTarget.Latest,true);
 const cls=tree.statements.find(n=>ts.isClassDeclaration(n)&&n.name?.text==='RealtimeTunnelPanelProvider');
 const names=['deployLatestAgentRuntime','apiAgentLifecycle','agentLifecycleForTarget','agentLifecycleServer','writeXshellAgentStartupCommands'];
-const code=ts.transpileModule(`class Host {${cls.members.filter(n=>names.includes(n.name?.getText(tree))).map(n=>n.getText(tree)).join('\n')}};Host;`,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
+const code=ts.transpileModule(`${tree.statements.find(n=>ts.isFunctionDeclaration(n)&&n.name?.text==='mapLimited').getText(tree)}
+class Host {${cls.members.filter(n=>names.includes(n.name?.getText(tree))).map(n=>n.getText(tree)).join('\n')}};Host;`,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.CommonJS}}).outputText;
 function fixture(state='absent', inspection, options={}) {
  let currentState=state;
  const calls=[];
@@ -31,7 +32,8 @@ function fixture(state='absent', inspection, options={}) {
      if(currentState.startsWith('legacy'))return {ok:false,code:'AGENT_LEGACY_STATE_UNVERIFIED',evidence:{migration:{digest:'a'.repeat(64),activeTasks:state==='legacy-busy'?['running-job','queued-job']:[],contract:{projectDir:'/srv/project',installDir:'/srv/agent',stateDir:'/srv/agent/state/projects/project.id'}}}};
      if(state==='foreign')return {ok:false,code:'AGENT_STATE_OWNER_CONFLICT'};
      const filehashes={};for(const name of ['cluster_agent.py','cluster_scheduler.py'])filehashes[name]=manifest.sha256Text(fs.readFileSync(path.join(__dirname,'../../dist/runtime',name),'utf8'));
-     return {ok:true,status:state.startsWith('healthy')||state==='busy'?'running':state==='unhealthy'?'unhealthy':'absent',activeTasks:state==='busy'?['running-job','queued-job']:[],runningVersion:state==='busy'?'old-version':manifest.CURRENT_RUNTIME_VERSION,files:filehashes};
+     return {ok:true,status:state.startsWith('healthy')||state==='busy'?'running':state==='unhealthy'?'unhealthy':'absent',activeTasks:state==='busy'?['running-job','queued-job']:[],runningVersion:state==='busy'?'old-version':manifest.CURRENT_RUNTIME_VERSION,files:filehashes,
+       ...(options.proven?{identity:{runtimeFiles:filehashes},schedulerRuntime:{protocol:1,status:'current'}}:{})};
    }
    if(params.action==='migrate'){currentState='absent';return {ok:true,status:'migrated'};}
    return {ok:true,status:'running',runningVersion:manifest.CURRENT_RUNTIME_VERSION,reused:params.action==='ensure'&&state.startsWith('healthy'),
@@ -68,6 +70,28 @@ test('healthy preparation reuses service without uploading or restarting; foreig
  assert.deepEqual(healthy.calls.map(c=>c.params.action),['inspect','ensure']);
  const foreign=fixture('foreign');await assert.rejects(()=>foreign.host.deployLatestAgentRuntime(false,true,['container'],true),/AGENT_STATE_OWNER_CONFLICT/);
  assert.equal(foreign.calls.length,1);
+});
+
+test('fresh full running-byte and Scheduler proof removes the redundant ensure SSH round trip',async()=>{
+ const f=fixture('healthy',undefined,{proven:true}),stages=[];
+ const result=await f.host.deployLatestAgentRuntime(false,true,['container'],true,{reportStage:s=>stages.push(s)});
+ assert.deepEqual(f.calls.map(c=>c.params.action),['inspect']);
+ assert.equal(result.timings.length,3);assert.ok(result.timings.every(t=>t.durationMs>=0&&t.serverId==='container'));
+ assert.equal(stages.length,3);
+});
+
+test('deployment overlaps distinct servers, serializes one server, drains failures before any write',async()=>{
+ const f=fixture(),base=f.host.agentRuntimeUploadTargets()[0];
+ const targets=[{...base,id:'a',host:'one'},{...base,id:'b',host:'one'},{...base,id:'c',host:'two'}];
+ f.host.agentRuntimeUploadTargets=()=>targets;
+ let active=0,max=0,done=0;const hosts=new Set();
+ f.host.agentLifecycleForTarget=async(target,action)=>{
+  assert.equal(action,'inspect');assert.ok(!hosts.has(target.host));hosts.add(target.host);active++;max=Math.max(max,active);
+  await new Promise(resolve=>setTimeout(resolve,15));active--;hosts.delete(target.host);done++;
+  throw Error(target.id+': read failed');
+ };
+ await assert.rejects(f.host.deployLatestAgentRuntime(false,true,[],true),/read failed/);
+ assert.equal(done,3);assert.equal(active,0);assert.equal(max,2);assert.equal(f.calls.length,0);
 });
 test('deploying the latest Agent again automatically restarts a stale independent Scheduler through Agent startup',async()=>{
  const f=fixture('healthy-stale-scheduler');

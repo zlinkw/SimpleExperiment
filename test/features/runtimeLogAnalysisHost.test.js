@@ -12,17 +12,19 @@ function hostMethod(name,globals={}){
  return vm.runInNewContext(ts.transpileModule('class Host{'+member.getText(ast)+'};Host.prototype.'+name,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,
   {PlanCodeScopeHost:{resolvePlanExecutionSource:async()=>undefined},...globals});
 }
-test('changed original source rejects rerun before remote queries, stop fences, cleanup or queue mutation',async()=>{
+test('changed original source becomes a scope warning before remote queries or stop fences',async()=>{
  const crypto=require('node:crypto'),scope=require('../../src/extension/PlanCodeScopeHost.ts');
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'se-retry-source-'));fs.mkdirSync(path.join(root,'configs'));
  fs.writeFileSync(path.join(root,'plan.yaml'),'plan','utf8');fs.writeFileSync(path.join(root,'configs/base.yaml'),'changed config','utf8');
  const original='original config',revision=crypto.createHash('sha256').update('plan').digest('hex');
  const manifest={'plan.yaml':{size:4,sha256:revision},'configs/base.yaml':{size:Buffer.byteLength(original),sha256:crypto.createHash('sha256').update(original).digest('hex')}};
  const plan={planFile:'plan.yaml',revision,executionSource:{manifest,digest:crypto.createHash('sha256').update(JSON.stringify(Object.keys(manifest).sort().map(key=>[key,manifest[key]]))).digest('hex')}};
+ let warnings=0;
  const retry=hostMethod('retryPulledJob',{fs:require('node:fs/promises'),path,crypto,PlanCodeScopeHost:scope,
-  PulledTaskControl:{queryTask:()=>assert.fail('must reject before querying'),stopPulledTask:()=>assert.fail('must not cancel')},
-  PlanRunHost:class{constructor(){assert.fail('must not review/delete');}}});
- for(let i=0;i<3;i++)await assert.rejects(retry.call({client:{},saveDistributedQueue:()=>assert.fail('must not requeue')},plan,{},root,()=>true),/PLAN_SOURCE_CHANGED: configs\/base.yaml/);
+  PulledTaskControl:{queryTask:()=>assert.fail('must choose first'),stopPulledTask:()=>assert.fail('must not cancel')},
+  });
+ const result=await retry.call({client:{},retryChangedSourceJobs:async(p,j,r,current,reason)=>{warnings++;assert.match(reason,/PLAN_SOURCE_CHANGED/);return {status:'cancelled'};},saveDistributedQueue:()=>assert.fail('must not requeue')},plan,{},root,()=>true);
+ assert.equal(result.status,'cancelled');assert.equal(warnings,1);
 });
 function fixture(){
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'se-explicit-log-review-')),context={root};let calls=0,ids=[];
@@ -175,4 +177,76 @@ test('the retry command acknowledges local requeue explicitly without claiming t
  const h={postUiCommandStatus:(_id,status,_command,message)=>statuses.push({status,message})};
  await run.call(h,'click','retryDistributedJob',{},async()=>({status:'queued',source:'local',message:'此 job 已重新进入本机待派队列；实际执行状态由远端查询确认。'}));
  assert.equal(statuses.at(-1).status,'completed');assert.match(statuses.at(-1).message,/本机待派队列/);assert.doesNotMatch(statuses.at(-1).message,/运行中/);
+});
+
+function changedSourceFixture(choice, options={}) {
+ const crypto=require('node:crypto'),events=[],revision=crypto.createHash('sha256').update('current plan').digest('hex');
+ const a={index:5,case:'pad',seed:44,workerId:'h20',commandId:'old-pad',status:'unknown',outputDir:'work/pad',collectionResultCsv:'results/pad.csv'},
+  b={index:0,case:'other',seed:42,workerId:'other',commandId:'old-other',status:'completed',outputDir:'work/other',collectionResultCsv:'results/other.csv',verifiedCompletion:{original:true}};
+ const plan={id:'original-workflow',projectId:'project',planFile:'p.yaml',revision:'old-revision',codeFingerprint:'old-fingerprint',executionSource:{digest:'old-source'},jobs:[a,b]};
+ const before=JSON.stringify(plan),source={digest:'new-source'},selected=choice==='重跑全部 job'?[7,0]:[7];
+ let stored={plans:[structuredClone(plan)]},enqueued;
+ const jobs=[{index:7,case:'pad',seed:44,output_dir:'work/pad',result_csv:'results/pad.csv'},
+  {index:0,case:'other',seed:42,output_dir:'work/other',result_csv:'results/other.csv'}];
+ const h={client:{},manualDispatchInFlight:new Set(),captureProjectContext:()=>({root:'/fixture'}),
+  localDistributedCodeFingerprint:async()=>options.changedDuringSync&&events.includes('sync')?'changed-again':'new-fingerprint',
+  lastCodeSyncState:{fingerprint:'new-fingerprint',workerVersions:{h20:{fingerprint:'new-fingerprint'},other:{fingerprint:options.partialSync?'old-fingerprint':'new-fingerprint'}}},
+  workerCodeSyncTargets:()=>[{id:'h20'},{id:'other'}],loadDistributedQueue:async()=>stored,
+  refreshLocalPlanMetadataForAction:async()=>events.push('metadata'),stampPlanRevision:body=>body.planRevision=revision,
+  assertPlanLocalConfigFiles:async()=>events.push('config'),selectDistributedPlanPrimary:async()=>events.push('primary'),
+  ensureCodeReadyForRun:async()=>events.push('sync'),runPlanPreflight:async()=>({validation:{execution_mode:'train_test',result_path_policy:'declared',jobs,existing:[]}}),
+  assertPlanSubmissionWorkers:async(_body,v)=>{events.push('workers');assert.deepEqual([...v.validation.jobs.map(j=>j.index)],selected);},
+  saveDistributedQueue:async(_root,_queue,opts)=>{stored=opts.mutateLatest(stored);events.push('save');},
+  enqueueDistributedPlan:async(body,v,skip)=>{events.push('enqueue');assert.equal(skip,true);assert.equal(body.executionSource,source);assert.equal(body.planRevision,revision);
+   assert.deepEqual([...v.validation.jobs.map(j=>j.index)],selected);enqueued={body,v};stored.plans.push({id:body.submissionWorkflowId,jobs:[]});return {enqueued:true};},
+  tickDistributedQueue:async()=>{assert.equal(h.manualDispatchInFlight.size,0);events.push('tick');},recordActionError:e=>{throw e;}};
+ const run=hostMethod('retryChangedSourceJobs',{fs:{readFile:async()=> 'current plan'},path,crypto,UiCommandCancelled:class extends Error{},
+  vscode:{window:{showWarningMessage:async(text,_opts,...buttons)=>{events.push('choose');assert.match(text,/保留其他 job 的旧版本结果/);assert.deepEqual(buttons,['仅重跑当前 job','重跑全部 job']);return choice;}}},
+  PulledTaskControl:{queryTask:async(_c,_p,j,_timeout,query)=>{assert.equal(query?.executionOnly,true);events.push('query:'+j.commandId);return {state:{execution:options.running?'running':'missing'}};},
+   stopPulledTask:async(_c,p,j)=>{assert.equal(p.id,'original-workflow');events.push('fence:'+j.commandId);}},
+  PlanCodeScopeHost:{resolvePlanExecutionSource:async(_h,p)=>{assert.equal(p.executionSource,undefined);assert.equal(p.revision,revision);return source;},
+   verifyLocalPlanSource:async()=>events.push('source')},
+  planValidationFromResult:r=>r.validation,makeOpId:()=> 'op',errorMessage:e=>e.message,
+  PlanRunHost:class{async replace(p,body,v){events.push('confirm-paths');assert.equal(p.codeFingerprint,'new-fingerprint');
+   assert.deepEqual([...v.jobs.map(j=>j.index)],selected);if(options.cancelPaths)throw Error('REPLACEMENT_CANCELLED');
+   body.assignedExperimentIndices=selected;body.existingOutputChoice='rerun_all';
+   if(options.replacedCommand)stored.plans[0].jobs[0].commandId='different-command';}}});
+ return {run:()=>run.call(h,plan,a,'/fixture',()=>true,'PLAN_SOURCE_CHANGED: configs/base.yaml'),h,events,plan,before,get stored(){return stored},get enqueued(){return enqueued}};
+}
+test('source warning cancellation performs no network, stop, sync, cleanup or queue writes',async()=>{
+ const f=changedSourceFixture(undefined);assert.equal((await f.run()).status,'cancelled');assert.deepEqual(f.events,['choose']);assert.equal(JSON.stringify(f.plan),f.before);
+});
+test('current-only source rerun resolves current declarations and keeps other source/completion identities',async()=>{
+ const f=changedSourceFixture('仅重跑当前 job');assert.equal((await f.run()).status,'queued');
+ assert.ok(f.enqueued);assert.equal(JSON.stringify(f.plan),f.before);assert.equal(JSON.stringify(f.stored.plans[0]),f.before);
+ assert.deepEqual(f.events.filter(e=>e.startsWith('fence:')),['fence:old-pad']);
+ assert.ok(f.events.indexOf('fence:old-pad')<f.events.indexOf('sync'),'fence late old submissions before uploading changed inputs');
+ assert.ok(f.events.indexOf('sync')<f.events.indexOf('confirm-paths'));assert.ok(f.events.includes('workers'));assert.equal(f.h.manualDispatchInFlight.size,0);
+});
+test('all-job source rerun requires the explicit all choice and fences each selected original command',async()=>{
+ const f=changedSourceFixture('重跑全部 job');await f.run();assert.ok(f.enqueued);
+ assert.deepEqual(f.events.filter(e=>e.startsWith('fence:')),['fence:old-pad','fence:old-other']);assert.equal(JSON.stringify(f.plan),f.before);
+});
+test('running tasks and sources changed during sync prevent deletion and new submission',async()=>{
+ for(const opts of [{running:true},{changedDuringSync:true}]){
+  const f=changedSourceFixture('仅重跑当前 job',opts);await assert.rejects(f.run(),/运行|确认期间已变化/);
+  assert.equal(f.enqueued,undefined);assert.ok(!f.events.includes('confirm-paths'));
+  assert.equal(f.events.some(e=>e.startsWith('fence:')),!opts.running);assert.equal(f.h.manualDispatchInFlight.size,0);
+ }
+});
+test('path cancellation and concurrent command replacement never enqueue a source rerun',async()=>{
+ for(const opts of [{cancelPaths:true},{replacedCommand:true}]){
+  const f=changedSourceFixture('仅重跑当前 job',opts);await assert.rejects(f.run(),/CANCELLED|身份已变化/);
+  assert.equal(f.enqueued,undefined);assert.equal(f.h.manualDispatchInFlight.size,0);
+ }
+});
+test('a partially synced Worker set cannot enter replacement or current-source admission',async()=>{
+ const f=changedSourceFixture('仅重跑当前 job',{partialSync:true});
+ await assert.rejects(f.run(),/全部启用 Worker/);assert.equal(f.enqueued,undefined);
+ assert.ok(!f.events.includes('confirm-paths'));assert.equal(f.h.manualDispatchInFlight.size,0);
+});
+test('repeated confirmation of the same old card and accepted inputs never repeats sync, fences, deletion or enqueue',async()=>{
+ const f=changedSourceFixture('仅重跑当前 job');await f.run();const count=f.events.length;
+ const repeated=await f.run();assert.equal(repeated.status,'queued');
+ assert.deepEqual(f.events.slice(count),['choose']);assert.equal(f.stored.plans.length,2);
 });

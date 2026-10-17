@@ -15719,9 +15719,9 @@ def serve_http(args):
         # Keep the Agent available for diagnosis; deployment must not report Scheduler success.
         TASK_SCHEDULER_UPDATE_ERROR = str(exc)
         print("[scheduler-update] " + str(exc), file=sys.stderr, flush=True)
-    prune_agent_state(root, force=True)
-    if mode == "worker_telemetry":
-        reconcile_worker_tasks_after_restart(root)
+    # HTTP readiness must not scan/prune historical machine files or reconcile
+    # legacy task queues. Protocol 2 execution is owned by the independent tmux
+    # Scheduler, which rebuilds from actual windows rather than replaying history.
     atomic_write(path_for(root, "agent.session.json"), {"tokenConfigured": bool(token), "startedAt": now_iso(), "agentVersion": AGENT_VERSION, "agentInstallDir": agent_install_dir(root), "agentStateDir": agent_dir(root), "stateRetentionSeconds": STATE_RETENTION_SECONDS, "maxAgentStateBytes": MAX_AGENT_STATE_BYTES})
     if mode == "worker_telemetry":
         start_worker_telemetry_sampler(root, getattr(args, "gpu_poll_seconds", 1), 0)
