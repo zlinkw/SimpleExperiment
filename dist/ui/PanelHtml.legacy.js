@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.renderPanelHtml = renderPanelHtml;
 // @ts-nocheck
 const PanelProgressDom_1 = require("../features/PanelProgressDom");
+const LogicalPlanProgress_1 = require("../features/LogicalPlanProgress");
 function renderPanelHtml() {
     const nonce = String(Date.now());
     const PLUGIN_VERSION = (() => { try {
@@ -13,6 +14,7 @@ function renderPanelHtml() {
         return "unknown";
     } })();
     const panelProgressDomPatchSource = "(" + PanelProgressDom_1.patchPanelProgressDom.toString() + ")";
+    const logicalPlansSource = "(" + LogicalPlanProgress_1.composeLogicalPlans.toString() + ")";
     return `<!doctype html>
 <html lang="zh-CN">
 <head>
@@ -14309,6 +14311,7 @@ function renderPanelHtml() {
 
     function executionCurrentDistributedJobs(group) {
       const jobs = group.distributedJobs || [];
+      if (group.logicalMerged) return jobs;
       if (!jobs.length) return jobs;
       const newest = jobs.reduce((best, job) => String(job.enqueuedAt || "") >= String(best.enqueuedAt || "") ? job : best, jobs[0]);
       const newestAttempt = String(newest.enqueuedAt || newest.planId || "");
@@ -14397,7 +14400,7 @@ function renderPanelHtml() {
         if (planFile) getGroup(planFile).operations.push(row);
       });
       taskSectionViewModelForState(state).allRows.forEach((row) => getGroup(taskPlanFile(row)).tasks.push(row));
-      (Array.isArray(state && state.distributedPlans) ? state.distributedPlans : []).forEach((plan) => {
+      ${logicalPlansSource}(Array.isArray(state && state.distributedPlans) ? state.distributedPlans : []).forEach((plan) => {
         if (!plan.planFile) return;
         const jobs = Array.isArray(plan.jobs) ? plan.jobs : [];
         const recovery = distributedPlanRecoveryView(plan);
@@ -14413,9 +14416,11 @@ function renderPanelHtml() {
         group.schedulingMode = plan.schedulingMode || "local_idle";
         group.localDispatchOverride = plan.localDispatchOverride === true;
         group.distributedPlanId = String(plan.id || "");
+        group.logicalMerged = plan.logicalMerged === true;
+        group.mixedVersions = plan.mixedVersions === true;
         group.remoteAcceptedJobCount = Number(plan.remoteAcceptedJobCount || 0);
         group.failedAttemptRecoveries = asArray(plan.failedAttemptRecoveries);
-        jobs.forEach((job) => group.distributedJobs.push({ ...job, enqueuedAt: plan.enqueuedAt, planId: plan.id }));
+        jobs.forEach((job) => group.distributedJobs.push({ ...job, enqueuedAt: job.enqueuedAt || plan.enqueuedAt, planId: job.sourcePlanId || plan.id }));
       });
       (Array.isArray(state && state.deferredPlans) ? state.deferredPlans : []).forEach((plan) => {
         if (!plan.planFile) return;
@@ -14539,7 +14544,8 @@ function renderPanelHtml() {
         const distributedHtml = distributedRows.length ? '<h3>' + loadingPrefix(group.distributedActive) + '当前 job · 成功 ' + group.completed + '/' + group.totalJobs + '</h3>'
           + (group.missingInputs ? '<div class="executionDistributedFailure" role="status">缺少 ' + group.missingInputs + ' 个 job 的任务输入（声明 ' + group.totalJobs + '，当前 ' + distributedRows.length + '）。缺项不计入完成；选中对应 PLAN 后，可校验并选择“仅补跑未完成任务”。</div>' : '')
           + (group.failedJobs ? '<div class="executionDistributedFailure">' + group.failedJobs + ' 个当前 job 失败，未计入成功。打开对应日志查看原因。</div>' : '')
-          + '<button type="button" class="mini" data-manual-dispatch="batch" data-plan-id="'+escAttr(group.distributedPlanId||(distributedRows[0]||{}).planId||'')+'" title="运行中的选中任务会先停止；已有文件另行审核">停止原任务并派发所选 job</button>'
+          + (group.logicalMerged ? '<div class="muted">补跑已合并 · ' + (group.mixedVersions ? '混合源码版本；逐 job 保留原始来源' : '保留逐 job 原始来源') + '</div>' : '')
+          + Array.from(new Set(distributedRows.map(job => job.planId || group.distributedPlanId))).map(id => '<button type="button" class="mini" data-manual-dispatch="batch" data-plan-id="'+escAttr(id||'')+'" title="仅处理同一原始提交内的选中 job；已有文件另行审核">停止原任务并派发所选 job</button>').join('')
           + '<div class="executionDistributedJobs">' + distributedRows.map((job) => {
           const status = String(job.status || "unknown");
           const manualPlan=job.planId||group.distributedPlanId||"",manualSelection=manualJobSelections.get(manualPlan);
@@ -14599,6 +14605,7 @@ function renderPanelHtml() {
             : "";
           return '<div class="executionDistributedJob' + (blocked ? " is-blocked" : "") + '" title="' + escAttr(job.outputDir || "") + '">'+(manualControls?'<div class="executionManualDispatch">'+manualControls+'</div>':'')+'<span>' + loadingPrefix(jobActive) + esc(job.case || "job " + job.index) + ' seed ' + esc(String(job.seed)) + '</span><span class="' + (needsReview || blocked || unavailable ? "status-warning" : statusClass(status)) + '">' + esc(statusLabel) + '</span><span>' + esc(blocked ? "阻塞" : placement) + '</span>' + recallButton + failedRecallButton + availabilityButton + logButton + trainingRecoveryButton
             + lifecycleStates + diagnosticSummary + analyzeButton + anomalyRerunButton
+            + (job.sourceCodeFingerprint ? '<div class="muted" title="' + escAttr(job.planId + ' · ' + job.sourceRevision + ' · ' + job.sourceCodeFingerprint) + '">源码版本：' + esc(job.sourceCodeFingerprint.slice(0, 12)) + ' · commandId ' + esc(job.commandId || '') + '</div>' : '')
             + (unavailable ? '<div class="muted">不可用原因：' + esc(job.unavailable.reason) + ' · ' + esc(job.unavailable.markedAt) + '</div>' : '')
             + (recallNote ? '<div class="muted">' + esc(recallNote) + '</div>' : '')
             + (failedCleanupNote ? '<div class="muted">' + esc(failedCleanupNote) + '</div>' : '')
@@ -14799,6 +14806,7 @@ function renderPanelHtml() {
         tasks: compactTaskRowsForRenderStructureSignature(view.allRows, view.allRows.length),
         taskSubmissions: view.allRows.map((row) => [row.enqueuedAt, row.createdAt, row.startedAt]),
         distributedPlans: asArray(data.distributedPlans).map((plan) => ({
+          fullPlanJobCount: plan.fullPlanJobCount, codeFingerprint: plan.codeFingerprint, projectId: plan.projectId, revision: plan.revision,
           id: plan.id,
           planFile: plan.planFile,
           enqueuedAt: plan.enqueuedAt,
@@ -14823,6 +14831,7 @@ function renderPanelHtml() {
             blockReason: job.blockReason,
             admissionRejection: job.admissionRejection,
             outputDir: job.outputDir,
+            collectionResultCsv: job.collectionResultCsv,
             logPath: job.logPath,
             outputRetiredAt: job.outputRetiredAt,
             trainLogPath: job.trainLogPath,
@@ -15809,7 +15818,7 @@ function renderPanelHtml() {
         return '<tr><td>' + escapeHtml(String(row.experimentId || '历史记录')) + '</td><td>' + escapeHtml(JSON.stringify(row.dimensions || {})) + '</td><td>' + escapeHtml(JSON.stringify(row.metrics || {})) + '</td></tr>';
       }).join('') + '</tbody></table></details>' : '';
       const report = state.resultSyncReport || summary;
-      const coverage = report.source === "active_query" ? '<div class="notice ' + (report.current && !report.reviewRequired ? '' : 'warning') + '"><b>' + (report.current ? '本轮无异常完成 ' + Number(report.completed || 0) + '/' + Number(report.expected || 0) + ' 个 job · 待复核 ' + Number(report.reviewRequired || 0) : '本轮查询失败，现有导出不是本轮结果') + '</b><span class="muted"> · ' + esc(report.observedAt || '') + '</span>' + ((report.missing || []).length || (report.skipped || []).length ? '<details><summary>查看缺项与查询原因</summary>' + asArray(report.missing).concat(asArray(report.skipped)).map(function(message) { return '<div>' + esc(String(message)) + '</div>'; }).join('') + '</details>' : '') + '</div>' : '';
+      const coverage = report.source === "active_query" ? '<div class="notice ' + (report.current && !report.reviewRequired && !(report.missing || []).length ? '' : 'warning') + '"><b>' + (report.current ? '本轮产物可汇总 ' + Number(report.completed || 0) + '/' + Number(report.expected || 0) + ' 个 job · 产物待复核 ' + Number(report.reviewRequired || 0) : '本轮查询失败，现有导出不是本轮结果') + '</b><span class="muted"> · ' + esc(report.observedAt || '') + '</span>' + (report.unobservedDeclarations ? '<div class="muted">另有 ' + Number(report.unobservedDeclarations) + ' 项声明尚未发现运行记录，未纳入本轮汇总分母；查询未知不代表未运行。</div>' : '') + ((report.missing || []).length || (report.skipped || []).length ? '<details><summary>查看缺项与查询原因</summary>' + asArray(report.missing).concat(asArray(report.skipped)).map(function(message) { return '<div>' + esc(String(message)) + '</div>'; }).join('') + '</details>' : '') + '</div>' : '';
       setHtmlIfChanged("resultSummary", coverage + renderWorkerResultAggregateWarning(summary) + historyPreview + renderResultEvidenceWorkbench(state, summary));
     }
 

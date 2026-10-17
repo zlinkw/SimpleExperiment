@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.summarizePlanStatuses = summarizePlanStatuses;
 const DistributedPlanQueue_1 = require("./DistributedPlanQueue");
+const LogicalPlanProgress_1 = require("./LogicalPlanProgress");
 const SCHEDULER_BUCKETS = {
     running_experiments: "running",
     testing_experiments: "testing",
@@ -61,7 +62,7 @@ function summarizePlanStatuses(input = {}) {
                 entry.operations.push(operation);
         }
     }
-    for (const distributedPlan of array(input.distributedPlans)) {
+    for (const distributedPlan of (0, LogicalPlanProgress_1.composeLogicalPlans)(array(input.distributedPlans))) {
         const file = firstText(distributedPlan.planFile, distributedPlan.plan_file);
         const versionedPlan = {
             ...distributedPlan,

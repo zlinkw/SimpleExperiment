@@ -453,7 +453,8 @@ function buildDatasetTables(registry, options = {}) {
     for (const plan of Object.values(registry.plans || {}))
         for (const record of plan.records) {
             const identity = JSON.stringify([record.planFile, record.method, record.dataset, record.rate, record.endpoint, record.case]);
-            const group = grouped.get(identity) || { record, expected: 0, seeds: new Map() };
+            const group = grouped.get(identity) || { record, expected: 0, seeds: new Map(), sources: new Map() };
+            group.sources.set(record.seed, record);
             group.expected = Math.max(group.expected, plan.expectedSeeds);
             const values = group.seeds.get(record.seed) || {};
             for (const [name, value] of Object.entries(canonicalMetricValues(record.metrics))) {
@@ -509,7 +510,10 @@ function buildDatasetTables(registry, options = {}) {
         if (derivedName && labels.includes(derivedName))
             throw new Error("派生指标输出列名与原始指标冲突。");
         const showPlan = true;
+        const provenance = chosen.some(group => [...group.sources.values()].some(row => row.codeFingerprint));
         const header = ["result_family", ...(showPlan ? ["plan_file"] : []), "dataset", "rate_percent", "eval_protocol", ...(showCase ? ["case"] : []), "jobs", ...labels.flatMap((name) => [name + "_mean", name + "_sd"]), ...(derivedName ? [derivedName + "_mean", derivedName + "_sd"] : [])];
+        if (provenance)
+            header.push("mixed_versions", "job_versions");
         const ordered = [...chosen].sort((a, b) => a.record.method.localeCompare(b.record.method) || a.record.dataset.localeCompare(b.record.dataset) || Number(a.record.rate) - Number(b.record.rate) || a.record.endpoint.localeCompare(b.record.endpoint) || a.record.case.localeCompare(b.record.case));
         const rows = ordered.map((group) => {
             const seeds = [...group.seeds.values()];
@@ -530,6 +534,11 @@ function buildDatasetTables(registry, options = {}) {
                 const mean = complete ? values.reduce((a, b) => a + b, 0) / values.length : "";
                 const sd = complete && values.length > 1 ? Math.sqrt(values.reduce((sum, value) => sum + (value - Number(mean)) ** 2, 0) / (values.length - 1)) : "";
                 row.push(mean, sd);
+            }
+            if (provenance) {
+                const sources = [...group.sources.values()].sort((a, b) => a.seed.localeCompare(b.seed));
+                const versions = new Set(sources.map(source => source.codeFingerprint).filter(Boolean));
+                row.push(versions.size > 1 ? "true" : sources.every(source => source.codeFingerprint) ? "false" : "unknown", sources.map(source => source.case + "/" + source.seed + ":" + (source.codeFingerprint || "unknown") + "@" + (source.executionWorkerId || "unknown") + ":" + (source.runId || "unknown")).join("; "));
             }
             return row;
         });

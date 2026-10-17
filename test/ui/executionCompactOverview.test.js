@@ -2,8 +2,28 @@ const assert = require("node:assert/strict");
 const test = require("node:test");
 const vm = require("node:vm");
 const { readSource } = require("../_helpers/sourceReader");
+require('../_helpers/registerTsRequire');
+const {composeLogicalPlans}=require('../../src/features/LogicalPlanProgress.ts');
 
-const panel = readSource("src/ui/PanelHtml.ts");
+const panel = readSource("src/ui/PanelHtml.ts").replace('${logicalPlansSource}', '('+composeLogicalPlans.toString()+')');
+
+test('supplemental mixed-source job fills the original six-job PLAN and preserves exact control identities',()=>{
+  const make=(id,indices,time,version,count)=>({id,projectId:'project',revision:'same-plan',codeFingerprint:version,fullPlanJobCount:6,
+    planJobCount:count,enqueuedAt:time,planFile:'plans/corim.yaml',jobs:indices.map(index=>({index,case:'case'+index,seed:42,
+      outputDir:'work/job'+index,collectionResultCsv:'work/job'+index+'/metrics.csv',status:'completed',completionState:'verified',
+      workerId:'worker',commandId:id+'cmd'+index,lifecycleProtocol:2,executionState:'exited',resultState:'complete'}))});
+  const old=make('original',[0,1,2,3,4],'2026-10-16T00:00:00Z','old-source',6),newer=make('supplement',[5],'2026-10-17T00:00:00Z','new-source',1);
+  const sandbox=clickSandbox();
+  for(let i=0;i<3;i++){
+    sandbox.render({distributedPlans:[structuredClone(newer),structuredClone(old)]});
+    assert.match(sandbox.html,/成功 6\/6/);assert.match(sandbox.html,/补跑已合并/);assert.match(sandbox.html,/混合源码版本/);
+    assert.match(sandbox.html,/originalcmd0/);assert.match(sandbox.html,/supplementcmd5/);
+    assert.match(sandbox.html,/data-manual-dispatch="batch" data-plan-id="original"/);
+    assert.match(sandbox.html,/data-manual-dispatch="batch" data-plan-id="supplement"/);
+  }
+  newer.jobs[0].status='unknown';newer.jobs[0].completionState='unverified';newer.jobs[0].executionState='missing';
+  sandbox.render({distributedPlans:[old,newer]});assert.match(sandbox.html,/成功 5\/6/);assert.doesNotMatch(sandbox.html,/已完成 Plan 历史/);
+});
 
 test('five confirmed jobs plus one missing seed remain outside completed PLAN history through refreshes',()=>{
   const sandbox=clickSandbox(),jobs=Array.from({length:6},(_,index)=>({index,case:'corim_pad_p100',seed:42+index,

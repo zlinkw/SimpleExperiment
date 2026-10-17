@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.365",
-  "buildId": "b7b30154ad32905c5f3abccfccaedefc16ac89513d5854b56ec13688768fd95f",
+  "version": "0.5.366",
+  "buildId": "5584b790e6a014353a572c7441087dd202e307a33c3397ecb8d2e345c2b82551",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -197,7 +197,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "827c49e8ee5e0597c685a3a47379d24d7c9da1f034e936a6fcbda952770c5cbb"
+      "sha256": "88077612265631179fee8e5a5dae76c1cbfafd859877dabddb3bce573e1def7f"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -225,7 +225,7 @@
     },
     {
       "path": "dist/extension/ResultCollectionHost.js",
-      "sha256": "ed8b27a267063cf1ce55df8ba1181a819bdde30170418ea43d9a4b8a6a5e4c7f"
+      "sha256": "e6a1ffc0a664a69a5ec86433f167ba0465fc222ef245171a23a40c7c8ecd576c"
     },
     {
       "path": "dist/extension/RunConfirmation.js",
@@ -372,6 +372,10 @@
       "sha256": "5346f0d8329f7e6023781c824f11e6c5d4fa9c002ba4a90b2e584f528e556aa5"
     },
     {
+      "path": "dist/features/LogicalPlanProgress.js",
+      "sha256": "35ec551b473d6aa801078d23a69fe9fe1790cfc50e4d4577352fa8ab481f0c5c"
+    },
+    {
       "path": "dist/features/ManifestCleanup.js",
       "sha256": "8836498c73a2f5a0a6b5512014514f97900b6be7ee3a4a2448f3328a082b54ae"
     },
@@ -401,7 +405,7 @@
     },
     {
       "path": "dist/features/PanelPlanStatusSummary.js",
-      "sha256": "4b5129b8ac77bbbba446cc8b5fca2c6ae8e0f4ff2641ab94279a1af196dd2b6d"
+      "sha256": "f28e8b9fc980ae80b8b69cb4dda5fca05d507cfe07d62d6ab8544bd62454ecf0"
     },
     {
       "path": "dist/features/PanelProgressDom.js",
@@ -441,7 +445,7 @@
     },
     {
       "path": "dist/features/PlanArtifactSyncStatus.js",
-      "sha256": "a5c2e0db21b74023139e719fbe4a39c4265e33f68670e845c833947a6d62130b"
+      "sha256": "ae769bd89a5e6cea2508d79093980c3bc2de4f76092b9fe85af146124905ea9c"
     },
     {
       "path": "dist/features/PlanArtifactTransfer.js",
@@ -637,7 +641,7 @@
     },
     {
       "path": "dist/results/FreshResults.js",
-      "sha256": "36c9b0412eb3e55fc2457ef0fdfc564385615bb4dd8da570ef08d0e60869552f"
+      "sha256": "565b761a18e6fb54011cb58cdc00b6e94a8ed0f6895c1e25197ee730ad6fbaf1"
     },
     {
       "path": "dist/results/LatestResultExport.js",
@@ -657,7 +661,7 @@
     },
     {
       "path": "dist/results/ProjectResultTables.js",
-      "sha256": "107e4dc4681bd6e1ca1844595ba0764e07da2ddf40dcc47ccfb3fa96618bbc23"
+      "sha256": "4d633a774f398da6902ef8868f690c5feb7b619d65b12c90815758b7b1af5608"
     },
     {
       "path": "dist/results/ResultLayout.js",
@@ -673,7 +677,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "fb64aa38d5a8abeb4b1a23ef15d0311ed692e28b0cbe5920c1cf5e066f362c89"
+      "sha256": "2f4fa1fd0d96872106daaf6fa32ee13cde9c159ccef7268864a4f51138170f1e"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -897,7 +901,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "42e3066249cfa955fa848493fb6774551cd47bbc2ccb467c0a2588e76780bad7"
+      "sha256": "e2284c29e32228bc1530837cbf130f27341031397a7158848a8ef85f880750ec"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",
@@ -1021,7 +1025,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "2ea1d3ebae6ee34b80862b06afab7db6ed939b1782ebed98844aa1c47221ddaa"
+      "sha256": "396e0a04635863f8e77e99e39a60fa991d6ac738d6a100355cc9e46a6faab69e"
     },
     {
       "path": "scripts/check-static.js",

@@ -8,7 +8,10 @@ export type ResultPlan = { planFile: string; revision: string; mode: string; see
 export type ResultSource = { remotePath: string; bytes: number; sha256: string };
 export type ResultJob = { planFile: string; index: number; case: string; seed: number; outputDir: string; state: string;
   executionState?: string; commandId?: string; workerId?: string; sources?: ResultSource[]; error?: string;
-  completionState?: CompletionState; runtimeDiagnostics?: RuntimeDiagnostics; exitCode?: number | null };
+  completionState?: CompletionState; runtimeDiagnostics?: RuntimeDiagnostics; exitCode?: number | null;
+  aggregationState?: "eligible" | "review_required"; workflowId?: string; codeFingerprint?: string; revision?: string; executionWorkerId?: string };
+export type ResultRunBinding = { planFile: string; index: number; case: string; seed: number; outputDir: string; collectionResultCsv?: string;
+  commandId: string; workerId: string; workflowId: string; revision: string; codeFingerprint: string };
 export type FreshResult = { observedAt: string; jobs: ResultJob[]; records: Tables.SeedRecord[]; errors: string[]; querySucceeded: boolean };
 
 export function resultPath(value: string): string {
@@ -58,7 +61,7 @@ function batchResultReads(receive: (worker: string, files: ResultSource[]) => Pr
 
 /** Each invocation owns its inputs. No disk registry, previous rows, or queue can fill a missing result. */
 export async function collectFreshResults(plans: ResultPlan[], snapshots: any[], receive: (workerId: string, files: ResultSource[]) => Promise<any[]>,
-  parse: (text: string, job: ResultDeclaration) => any[], mappings: Record<string, any> = {}, current = () => true): Promise<FreshResult> {
+  parse: (text: string, job: ResultDeclaration) => any[], mappings: Record<string, any> = {}, current = () => true, bindings: ResultRunBinding[] = []): Promise<FreshResult> {
   const result: FreshResult = { observedAt: new Date().toISOString(), jobs: [], records: [], errors: [], querySucceeded: false };
   const online = snapshots.filter(row => row.queryComplete === true && !row.error);
   result.errors = snapshots.filter(row => !online.includes(row)).map(row => row.workerId + "：" + (row.error || "实时查询未完成"));
@@ -81,6 +84,8 @@ export async function collectFreshResults(plans: ResultPlan[], snapshots: any[],
       .filter((row: any) => row.outputDir === job.output_dir && row.index === job.index)
       .map((row: any) => ({ ...row, workerId: snapshot.workerId })));
     const valid = candidates.filter(row => row.completed === true && row.runId && Array.isArray(row.files) && row.files.length);
+    const owner = bindings.find(row => row.planFile === plan.planFile && row.index === job.index && row.case === job.case
+      && row.seed === job.seed && row.outputDir === job.output_dir && (row.collectionResultCsv || "") === job.result_csv);
     if (!valid.length) {
       const issues = candidates.filter(row => row.error);
       item.state = issues.length || candidates.length < snapshots.length ? "unknown"
@@ -89,6 +94,9 @@ export async function collectFreshResults(plans: ResultPlan[], snapshots: any[],
     }
     const signatures = new Set(valid.map(row => JSON.stringify([row.runId, row.files.map((file: ResultSource) => [file.remotePath, file.bytes, file.sha256])])));
     if (signatures.size !== 1) { item.state = "conflict"; item.error = "服务器副本的执行身份或指标内容冲突"; return result; }
+    if (owner && valid.some(row => row.runId !== owner.commandId)) {
+      item.state = "conflict"; item.error = "产物不属于当前 job 的最新执行；未借用旧结果"; return result;
+    }
     for (const source of valid) {
       try {
         const manifestPath = job.output_dir + "/artifact_manifest.json";
@@ -126,7 +134,9 @@ export async function collectFreshResults(plans: ResultPlan[], snapshots: any[],
           return { planFile: plan.planFile, workerId: source.workerId, case: job.case, seed: String(job.seed),
             method: dims.method || plan.planFile.split("/").pop()!.replace(/\.ya?ml$/i, ""),
             dataset: dims.dataset || (mapped?.length === 1 ? mapped[0] : ""), rate, endpoint: dims.eval_protocol || dims.split || "",
-            metrics, runId: source.runId, revision: plan.revision, jobDir: job.output_dir };
+            metrics, runId: source.runId, revision: owner?.revision || report.planRevision || "", jobDir: job.output_dir,
+            workflowId: owner?.workflowId, codeFingerprint: owner?.codeFingerprint || report.codeFingerprint,
+            executionWorkerId: owner?.workerId };
         });
         if (records.length) {
           const check = Tables.emptyTableRegistry();
@@ -134,6 +144,8 @@ export async function collectFreshResults(plans: ResultPlan[], snapshots: any[],
           Tables.buildTables(check, { partial: true });
         }
         item.state = "complete"; item.commandId = source.runId; item.workerId = source.workerId; item.sources = source.files;
+        item.workflowId = owner?.workflowId; item.codeFingerprint = owner?.codeFingerprint || report.codeFingerprint;
+        item.revision = owner?.revision || report.planRevision || ""; item.executionWorkerId = owner?.workerId;
         const panes = tasks.filter(task => task.commandId === source.runId).map(task => task.observation?.tmux).filter(Boolean);
         item.executionState = panes.some(pane => pane.exitCode != null && pane.exitCode !== 0) ? "failed"
           : panes.length ? "exited" : "missing";
@@ -145,12 +157,11 @@ export async function collectFreshResults(plans: ResultPlan[], snapshots: any[],
         item.runtimeDiagnostics = evidence.find(row => row.count > 0) || evidence.find(row => row.state === "clear" && row.scanComplete)
           || runtimeEvidence(source.runtimeDiagnostics, source.runId);
         item.completionState = completionState(item.runtimeDiagnostics, source.runId);
-        if (source.executionStatus === "failed" && item.exitCode == null) {
-          if (item.completionState === "verified") item.completionState = "unverified";
-          result.errors.push(plan.planFile + " · " + job.case + "/" + job.seed + "：原清单记录 failed，但未取得退出码；不判为非零失败，也不计入无异常成功，指标保留待复核。");
-        }
-        if (item.completionState !== "verified") result.errors.push(plan.planFile + " · " + job.case + "/" + job.seed + "：" +
-          (item.completionState === "review_required" ? "完成但有异常，待复核" : "运行日志尚未完整核实") + "；指标保留在待复核表，不自动判为无效。");
+        // Aggregation certifies fresh artifacts, independently of task/log completion.
+        // Closing a console or losing its copied log cannot invalidate result files.
+        item.aggregationState = item.executionState === "failed" || report.status === "failed" || source.executionStatus === "failed"
+          ? "review_required" : "eligible";
+        if (item.aggregationState === "review_required") result.errors.push(plan.planFile + " · " + job.case + "/" + job.seed + "：产物清单或当前执行记录失败；指标保留待复核。");
         if (item.executionState === "failed") result.errors.push(plan.planFile + " · " + job.case + "/" + job.seed + "：执行以非零退出码结束；产物状态单独显示为完整。");
         result.records.push(...records); item.error = undefined; break;
       } catch (error: any) { item.state = "unknown"; item.error = source.workerId + "：" + String(error.message || error); }
@@ -174,13 +185,13 @@ export function freshResultTables(result: FreshResult, plans: ResultPlan[], deri
   for (const plan of plans) registry.plans[plan.planFile] = { revision: plan.revision, expectedSeeds: plan.seeds.length,
     records: result.records.filter(row => row.planFile === plan.planFile && result.jobs.some(job => job.planFile === row.planFile
       && job.commandId === row.runId && job.case === row.case && String(job.seed) === String(row.seed)
-      && (review ? job.completionState !== "verified" || job.executionState === "failed" : job.completionState === "verified" && job.executionState !== "failed"))) };
+      && (review ? job.aggregationState === "review_required" : job.state === "complete" && job.aggregationState === "eligible"))) };
   const tables = Tables.buildTables(registry, { partial: true });
   if (review) for (const table of Object.values(tables)) {
     table.tableKey = "review/" + table.tableKey;
     table.relativePath = "review/" + table.relativePath; table.markdownPath = "review/" + table.markdownPath;
     table.name = "待复核 · " + table.name;
-    table.markdown = "> 待复核结果：运行异常、执行失败或日志未核实。指标保留，不代表已判定无效；未计入正式无异常汇总。\n\n" + table.markdown;
+    table.markdown = "> 待复核结果：产物清单或当前执行记录失败。指标保留，不代表已判定无效；控制台日志不作为结果合并门禁。\n\n" + table.markdown;
   }
   return tables;
 }

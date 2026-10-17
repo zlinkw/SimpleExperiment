@@ -48,17 +48,34 @@ test('partial tables compute observed means, leave single-seed SD blank, and mat
   const registry = Tables.emptyTableRegistry(); registry.plans[plan.planFile] = { revision: 'current', expectedSeeds: 2, records: result.records };
   assert.deepEqual(freshResultTables(result, [plan]), Tables.buildTables(registry));
 });
-test('exit-zero anomalies and missing logs retain zero metrics in review tables, never silently formal success',async()=>{
-  for(const state of ['anomalous','unverified']){
+test('artifact aggregation does not require console logs, including closed windows and copied manifests',async()=>{
+  for(const state of ['anomalous','unverified',undefined]){
     const a=fixture('a','cmd','0');
     a.snapshot.declaredResults[0].runtimeDiagnostics={schemaVersion:1,commandId:'cmd',runId:'cmd',state,count:state==='anomalous'?1:0,scanComplete:state==='anomalous',types:{AttributeError:1},phases:{train:1}};
     const result=await collectFreshResults([plan],[a.snapshot],a.receive,parse);
     assert.equal(result.jobs[0].state,'complete');assert.equal(result.records[0].metrics.auc,0);
     assert.equal(result.jobs[0].completionState,state==='anomalous'?'review_required':'unverified');
-    assert.equal(Object.values(freshResultTables(result,[plan])).flatMap(t=>t.rows).length,0);
+    assert.equal(result.jobs[0].aggregationState,'eligible');
+    assert.ok(Object.values(freshResultTables(result,[plan])).some(t=>t.rows.length));
     const review=Object.values(freshResultTables(result,[plan],undefined,true));
-    assert.ok(review.some(t=>t.rows.length));assert.ok(review.every(t=>t.relativePath.startsWith('review/')&&t.markdown.includes('待复核')));
+    assert.equal(review.length,0);
   }
+});
+test('mixed versions aggregate fresh artifact bytes and preserve each original command and source version',async()=>{
+  const a=fixture(),binding={planFile:plan.planFile,index:0,case:'alpha',seed:42,outputDir:job.output_dir,collectionResultCsv:job.result_csv,
+    commandId:'cmd',workerId:'original',workflowId:'original-workflow',revision:'original-revision',codeFingerprint:'a'.repeat(64)};
+  const result=await collectFreshResults([plan],[a.snapshot],a.receive,parse,{},()=>true,[binding]);
+  assert.equal(result.records[0].workerId,'a');assert.equal(result.records[0].executionWorkerId,'original');
+  assert.equal(result.records[0].revision,'original-revision');assert.equal(result.records[0].workflowId,'original-workflow');
+  result.records.push({...result.records[0],seed:'43',runId:'new-command',codeFingerprint:'b'.repeat(64),workflowId:'new-workflow'});
+  result.jobs.push({...result.jobs[0],seed:43,commandId:'new-command'});
+  const table=Object.values(freshResultTables(result,[plan])).find(row=>row.kind==='final');
+  assert.equal(table.rows[0][table.header.indexOf('mixed_versions')],'true');
+  assert.match(table.rows[0][table.header.indexOf('job_versions')],/alpha\/42:a{64}@original:cmd/);
+  assert.match(table.rows[0][table.header.indexOf('job_versions')],/alpha\/43:b{64}@original:new-command/);
+  binding.commandId='newest-pending';
+  const superseded=await collectFreshResults([plan],[a.snapshot],()=>assert.fail('old artifacts cannot replace newest command'),parse,{},()=>true,[binding]);
+  assert.equal(superseded.jobs[0].state,'conflict');assert.equal(superseded.records.length,0);
 });
 test('deleted results vanish on the next query; offline is unknown and cannot reuse previous rows', async () => {
   const gone = { workerId: 'a', queryComplete: true, declaredResults: [{ index: 0, outputDir: job.output_dir, completed: false, resultState: 'missing' }] };

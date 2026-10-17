@@ -1,4 +1,5 @@
 import { jobIsUnavailable, QueuedPlan, QueuedJob } from "./DistributedPlanQueue";
+import { composeLogicalPlans } from "./LogicalPlanProgress";
 
 export type PlanSelectorStatus = "not-started" | "partial" | "unknown" | "submitting" | "queued" | "running" | "completed" | "failed";
 
@@ -97,7 +98,7 @@ export function summarizePlanStatuses(input: PanelPlanStatusSummaryInput = {}): 
     }
   }
 
-  for (const distributedPlan of array(input.distributedPlans)) {
+  for (const distributedPlan of composeLogicalPlans(array(input.distributedPlans))) {
     const file = firstText(distributedPlan.planFile, distributedPlan.plan_file);
     const versionedPlan = {
       ...distributedPlan,

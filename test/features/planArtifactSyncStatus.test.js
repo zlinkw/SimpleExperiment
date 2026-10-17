@@ -8,7 +8,7 @@ const ts = require("typescript");
 function compile(source, globals = {}) {
   const loaded = { exports: {} };
   const code = ts.transpileModule(source, { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText;
-  const resolve = name => require(name.startsWith("./") ? path.join(__dirname, "../../dist/features", name) : name);
+  const resolve = name => require(name.startsWith(".") ? path.join(__dirname, "../../dist/features", name) : name);
   vm.runInNewContext(code, { module: loaded, exports: loaded.exports, require: resolve, ...globals });
   return loaded.exports;
 }
@@ -150,7 +150,7 @@ test("startup reads once per Worker, progress ticks reuse it, rerun completion a
   assert.equal(host.planArtifactSyncStatuses.C.status, "unknown");
 });
 
-test("a forced refresh during a read or manual sync is retained and deferred until that work ends", async () => {
+test("a forced refresh during a read or an explicitly marked transfer is retained until that work ends", async () => {
   const { host, scope } = hostFixture();
   let release;
   const gate = new Promise(resolve => { release = resolve; });
@@ -161,12 +161,22 @@ test("a forced refresh during a read or manual sync is retained and deferred unt
   release(); await first;
   await host.planArtifactSyncStatusPromise;
   assert.equal(scope.reads.length, 6, "one forced follow-up after the first check");
+  host.manualResultSyncCounts.set(scope.root, 1);
   await host.withManualResultSync(async () => {
     await host.refreshPlanArtifactSyncStatus(true);
     assert.equal(scope.reads.length, 6, "no competing scan while transfer is active");
   });
+  host.manualResultSyncCounts.delete(scope.root);
+  host.queuePlanArtifactSyncStatusCheck();
   await host.planArtifactSyncStatusPromise;
   assert.equal(scope.reads.length, 9);
+});
+test('client reconstruction preserves full directory verification, but a changed target rejects late inventory',async()=>{
+  const {host}=hostFixture(),read=host.distributedOutputHashes;
+  host.distributedOutputHashes=async(...args)=>{host.client={};return read(...args);};
+  await host.refreshPlanArtifactSyncStatus();assert.equal(host.planArtifactSyncStatuses.B.status,'synced');
+  host.distributedOutputHashes=async(...args)=>{host.workerCodeSyncTargets=()=>workers.map(id=>({id,remotePath:'/other'}));return read(...args);};
+  await host.refreshPlanArtifactSyncStatus(true);assert.notEqual(host.planArtifactSyncStatuses.B.status,'synced');
 });
 
 test("transient inventory failures use bounded backoff; stale project reads cannot publish", async () => {

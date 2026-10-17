@@ -14,6 +14,9 @@ names = {"task_safe_path", "task_collection_result", "task_collection_query", "t
 selected = [node for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in names]
 assert len(selected) == len(names)
 space = dict(os=os, json=json, hashlib=hashlib, now_iso=lambda: "now", task_inventory=lambda root: [])
+def forbidden_log_scan(*args, **kwargs):
+    raise AssertionError("artifact aggregation must not inspect console logs")
+space["task_log_diagnostics"] = forbidden_log_scan
 exec(compile(ast.Module(body=selected, type_ignores=[]), "collection-functions", "exec"), space)
 root = pathlib.Path(tempfile.mkdtemp(prefix="simple-collection-functions-"))
 job = dict(index=0, case="alpha", seed=42, mode="train_test", planFile="experiments/plans/a.yaml", output_dir="work_dirs/alpha42", result_csv="work_dirs/alpha42/metrics.csv", collect=True)

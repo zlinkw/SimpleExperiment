@@ -3,6 +3,7 @@ import type { DistributedQueue, QueuedPlan } from "./DistributedPlanQueue";
 import { safePlanArtifactPath } from "./PlanArtifactSync";
 import { collectDistributedJobArtifacts } from "./DistributedJobArtifacts";
 import { jobEvidenceName } from "../results/NativeResultManifest";
+import { composeLogicalPlans } from "./LogicalPlanProgress";
 
 export type PlanArtifactSyncStatus = {
   runId: string; revision: string; status: "checking" | "synced" | "partial" | "unknown";
@@ -15,7 +16,7 @@ const planKey = (value: unknown) => String(value || "").replace(/\\/g, "/").toLo
 export function latestCompletePlansForSyncCheck(queue: DistributedQueue, metadata: any[] = []): QueuedPlan[] {
   const current = new Map(metadata.map(plan => [planKey(plan.file || plan.planFile), plan]));
   const latest = new Map<string, QueuedPlan>();
-  for (const plan of queue.plans) {
+  for (const plan of composeLogicalPlans(queue.plans) as QueuedPlan[]) {
     const config = current.get(planKey(plan.planFile));
     const configuredCount = config?.cases?.length && config?.seeds?.length ? config.cases.length * config.seeds.length : Number(config?.jobCount);
     const expected = configuredCount > 0 ? configuredCount : Number(plan.fullPlanJobCount || plan.planJobCount || plan.jobs.length);
@@ -87,7 +88,7 @@ export function assessPlanArtifactSync(plan: QueuedPlan, workerIds: string[], in
     const runScopedDirectory = job.outputDir.endsWith(`/attempts/${plan.id}`);
     const hasLegacyRunEvidence = requiredPaths.length > 0 && requiredPaths.every(file => known.some(([name, hash]) =>
       name === `${job.outputDir}/${file}` && /^[a-f0-9]{64}$/i.test(hash)));
-    const formalEvidence = job.resultPathPolicy === "declared" && job.globalJobId === `${plan.id}:${job.index}`
+    const formalEvidence = job.resultPathPolicy === "declared" && job.globalJobId === `${(job as any).sourcePlanId || plan.id}:${job.index}`
       && known.some(([name, hash]) => name === `${job.outputDir}/${jobEvidenceName(job)}` && /^[a-f0-9]{64}$/i.test(hash));
     if (!(job.resultPathPolicy === "declared" ? formalEvidence : runScopedDirectory || hasLegacyRunEvidence) || !inventories.has(job.workerId!) || !source.length
       || requiredPaths.some(file => !expected.has(`${job.outputDir}/${file}`))

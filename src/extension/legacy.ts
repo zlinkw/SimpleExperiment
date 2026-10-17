@@ -10390,7 +10390,7 @@ this.assertPlanTopologyReady("Plan 调度");
         const targetsKey = () => JSON.stringify(this.workerCodeSyncTargets().map(row => [row.id, row.host, row.port, row.user, row.remotePath]));
         const expectedTargets = targetsKey();
         const current = () => this.projectContextIsCurrent(context) && !this.panelDisposed && !this.distributedPlanStopEpoch
-            && !this.planCleanupHosts?.get(root)?.executing && client === this.client && expectedTargets === targetsKey();
+            && !this.planCleanupHosts?.get(root)?.executing && expectedTargets === targetsKey();
         if (!current()) return;
         if (this.taskLifecycleProtocol === 2) {
             const scopes = normalizeMirrorScopePaths(vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root)).get<string[]>("serverSync.paths", ["."]));
@@ -10503,7 +10503,9 @@ this.assertPlanTopologyReady("Plan 调度");
         this.planArtifactSyncStatusRoot = root;
         const generation = this.projectContextGeneration;
         const client = this.client;
-        const isCurrent = () => workspaceRoot() === root && generation === this.projectContextGeneration && client === this.client;
+        const targetBinding = JSON.stringify(targets);
+        const isCurrent = () => workspaceRoot() === root && generation === this.projectContextGeneration
+            && targetBinding === JSON.stringify(this.workerCodeSyncTargets());
         this.planArtifactSyncStatuses = Object.fromEntries(plans.map(plan => [plan.id, {
             runId: plan.id, revision: plan.revision, status: "checking", checkedAt: "", targetCount: targets.length, syncedCount: 0,
             pendingWorkerIds: [], unavailableWorkerIds: [], detail: "只读核验最新运行目录，复用 SHA256 缓存；不会自动传输。",
@@ -10754,7 +10756,7 @@ this.assertPlanTopologyReady("Plan 调度");
         const enqueued = DistributedPlanQueue.enqueuePlan(current, { projectId: DistributedPlanQueue.canonicalProjectId(root), stablePlanId,
             executionMode, executionModeSource: "validation",
             schedulingMode: DistributedSchedulingPolicy.schedulingMode(body.schedulingMode ?? this.schedulerSettings().dispatchMode),
-            planJobCount: selectedJobs.length, fullPlanJobCount: validation.jobs.length, planFile, revision, codeFingerprint,
+            planJobCount: selectedJobs.length, fullPlanJobCount: validation.fullPlanJobCount || validation.jobs.length, planFile, revision, codeFingerprint,
             executionSource: body.executionSource, overwriteExisting, jobs: selectedJobs.map((job) => ({
             index: Number(job.index), case: String(job.case), seed: Number(job.seed),
             outputDir: String(job.output_dir || "").replace(/\\/g, "/").replace(/\/$/, ""),
@@ -12185,7 +12187,7 @@ this.assertPlanTopologyReady("Plan 调度");
             const jobs = all ? validation?.jobs : validation?.jobs?.filter(row => row.case === job.case && Number(row.seed) === Number(job.seed)
                 && row.output_dir === job.outputDir && String(row.result_csv || "") === String(job.collectionResultCsv || ""));
             if (!jobs?.length || !all && jobs.length !== 1) throw new Error("当前 PLAN 无法唯一匹配原 job 的 case、seed 和产物路径；请从当前 PLAN 选择任务。");
-            const scoped = { ...validation, jobs, existing: (validation.existing || []).filter(row => jobs.some(j => Number(j.index) === Number(row.index))) };
+            const scoped = { ...validation, fullPlanJobCount: validation.jobs.length, jobs, existing: (validation.existing || []).filter(row => jobs.some(j => Number(j.index) === Number(row.index))) };
             const sourcePlan = { ...plan, revision: body.planRevision, codeFingerprint: this.lastCodeSyncState?.fingerprint, executionSource: undefined };
             body.executionSource = await PlanCodeScopeHost.resolvePlanExecutionSource(this, sourcePlan);
             if (!body.executionSource) throw new Error("PLAN_SOURCE_ORIGINAL_HASH_UNAVAILABLE：当前源码未核实，未重跑。");
@@ -21705,7 +21707,7 @@ return "历史服务器";
             });
         const distributedPlans = visibleDistributedPlanProgress.map((plan) => ({ id: plan.id, projectId: plan.projectId, schedulingMode: plan.schedulingMode,
                 localDispatchOverride: plan.localDispatchOverride === true,
-                planJobCount: plan.planJobCount, recoveryMissingCount: plan.recoveryMissingCount, remoteAcceptedJobCount: plan.remoteAcceptedJobCount,
+                planJobCount: plan.planJobCount, fullPlanJobCount: plan.fullPlanJobCount, recoveryMissingCount: plan.recoveryMissingCount, remoteAcceptedJobCount: plan.remoteAcceptedJobCount,
                 recoveryConflict: plan.recoveryConflict, planFile: plan.planFile,
                 revision: plan.revision, codeFingerprint: plan.codeFingerprint, enqueuedAt: plan.enqueuedAt,
                 failedAttemptRecoveries: (this.distributedQueueCache?.failedAttemptRecoveries || []).filter(row => row.plan.id === plan.id)
@@ -21718,7 +21720,7 @@ return "历史服务器";
                     resultState: job.resultState, statusQueryError: job.statusQueryError,
                     verifiedCompletion: job.verifiedCompletion, verificationQueryError: job.verificationQueryError,
                     completionState: job.completionState, runtimeDiagnostics: job.runtimeDiagnostics, exitCode: job.exitCode,
-                    workerId: job.workerId, gpuId: job.gpuId, outputDir: job.outputDir,
+                    workerId: job.workerId, gpuId: job.gpuId, outputDir: job.outputDir, collectionResultCsv: job.collectionResultCsv,
                     localQueueOnly: job.localQueueOnly === true, recallRequested: job.recallRequested === true,
                     recallOperationId: job.recallOperationId || "",
                     commandId: job.commandId, logPath: job.logPath, finishedAt: job.finishedAt, outputRetiredAt: job.outputRetiredAt,
@@ -25006,8 +25008,8 @@ function filterResultsSummaryForSelectedPlan(summary, selectedPlan, planRevision
         const jobs = (summary.jobs || []).filter(row => samePlanSelection(row.planFile, plan));
         const coverage = summary.planCoverage?.[plan] || {};
         return { ...summary, planFile: plan, jobs, results: (summary.results || []).filter(row => samePlanSelection(row.planFile, plan)),
-            completed: coverage.completed ?? jobs.filter(row => row.state === "complete" && row.completionState === "verified" && row.executionState !== "failed").length,
-            reviewRequired: coverage.reviewRequired ?? jobs.filter(row => row.state === "complete" && (row.completionState !== "verified" || row.executionState === "failed")).length,
+            completed: coverage.completed ?? jobs.filter(row => row.state === "complete" && row.aggregationState === "eligible").length,
+            reviewRequired: coverage.reviewRequired ?? jobs.filter(row => row.state === "complete" && row.aggregationState === "review_required").length,
             expected: coverage.expected ?? jobs.length };
     }
     const summaryPlan = normalizePlanSelectionKey(summary.planFile || summary.plan_file || "");

@@ -319,8 +319,8 @@ def task_collection_result(root, declaration):
         if (report.get("sha256") or {}).get(relative) and report["sha256"][relative] != metric["sha256"]:
             raise ValueError("RESULT_METRIC_HASH_CHANGED")
         files.append(metric)
-    diagnostics = task_log_diagnostics(root, {"commandId": report["runId"], "runtimeLogAnalysisId": declaration.get("runtimeLogAnalysisId")}, terminal=True, binding=report.get("runtimeDiagnostics")) if "task_log_diagnostics" in globals() else None
-    return {**result, "completed": True, "resultState": "complete", "runId": report["runId"], "files": files, "runtimeDiagnostics": diagnostics, "exitCode": report.get("exitCode"), "executionStatus": report.get("status")}
+    # Result aggregation verifies artifacts only. Task diagnostics use their own endpoint.
+    return {**result, "completed": True, "resultState": "complete", "runId": report["runId"], "files": files, "exitCode": report.get("exitCode"), "executionStatus": report.get("status")}
 
 def task_collection_query(root, declarations):
     if not isinstance(declarations, list) or len(declarations) > 500:

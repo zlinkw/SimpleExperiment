@@ -39,6 +39,7 @@ const fs = __importStar(require("node:fs/promises"));
 const path = __importStar(require("node:path"));
 const FreshResults_1 = require("../results/FreshResults");
 const LatestResultExport_1 = require("../results/LatestResultExport");
+const LatestJobArtifacts_1 = require("../features/LatestJobArtifacts");
 const hosts = new WeakMap();
 function resultCollectionHost(host) {
     let service = hosts.get(host);
@@ -131,9 +132,21 @@ class ResultCollectionHost {
         if (!root)
             throw Error("请先打开当前实验项目。");
         const targets = h.workerCodeSyncTargets();
+        const projectKey = (value) => {
+            const normalized = String(value || "").replaceAll("\\", "/");
+            return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+        };
+        const queuedPlans = () => (h.distributedQueueCache?.plans || []).filter((plan) => projectKey(plan.projectId) === projectKey(root));
+        const runBindings = () => (0, LatestJobArtifacts_1.newestJobOutputs)({ plans: queuedPlans() }).map(({ plan, job }) => ({
+            planFile: plan.planFile, workflowId: plan.id, revision: plan.revision, codeFingerprint: plan.codeFingerprint,
+            index: job.index, case: job.case, seed: job.seed, outputDir: job.outputDir, collectionResultCsv: job.collectionResultCsv,
+            commandId: job.commandId, workerId: job.workerId
+        }));
+        let owners;
         const key = () => JSON.stringify(h.workerCodeSyncTargets().map((row) => [row.id, row.host, row.user, row.port, row.remotePath, row.condaEnv]));
         const binding = key();
-        const current = () => !signal?.aborted && h.projectContextIsCurrent(context) && key() === binding;
+        const current = () => !signal?.aborted && h.projectContextIsCurrent(context) && key() === binding
+            && (owners === undefined || owners === JSON.stringify(runBindings()));
         const check = () => { if (!current())
             throw Error("结果查询已取消或项目/服务器配置已变化。"); };
         const started = Date.now(), timing = {};
@@ -255,7 +268,10 @@ class ResultCollectionHost {
             }
             return output;
         };
-        const result = await (0, FreshResults_1.collectFreshResults)(plans, snapshots, receive, (text, job) => h.parseFreshResultMetric(text, job), h.resultAdapterRules().planDatasetMapping || {}, current);
+        // Queue metadata supplies provenance/ownership only, never result bytes or proof.
+        const queued = queuedPlans(), bindings = runBindings();
+        owners = JSON.stringify(bindings);
+        const result = await (0, FreshResults_1.collectFreshResults)(plans, snapshots, receive, (text, job) => h.parseFreshResultMetric(text, job), h.resultAdapterRules().planDatasetMapping || {}, current, bindings);
         check();
         timing.metricsMs = Date.now() - receiveStarted;
         // A failed declaration cannot make an entire PLAN silently disappear from a new export.
@@ -277,22 +293,29 @@ class ResultCollectionHost {
         const published = await (0, LatestResultExport_1.publishLatestResult)(root, directory, result, tables, current);
         check();
         timing.publicationMs = Date.now() - publicationStarted;
+        const participating = new Set([...queued.map((plan) => plan.planFile),
+            ...result.jobs.filter(job => job.state !== "missing" && (job.commandId || job.error || job.state === "conflict" || job.executionState === "running")).map(job => job.planFile)]);
         const coverage = Object.fromEntries(inputs.map((plan) => [plan.planFile, {
+                included: participating.has(plan.planFile),
                 expected: plans.find(row => row.planFile === plan.planFile)?.jobs.length || plan.jobCount || 0,
-                completed: result.jobs.filter(job => job.planFile === plan.planFile && job.state === "complete" && job.completionState === "verified" && job.executionState !== "failed").length,
+                completed: result.jobs.filter(job => job.planFile === plan.planFile && job.state === "complete" && job.aggregationState === "eligible").length,
                 artifactsComplete: result.jobs.filter(job => job.planFile === plan.planFile && job.state === "complete").length,
-                reviewRequired: result.jobs.filter(job => job.planFile === plan.planFile && job.state === "complete" && (job.completionState !== "verified" || job.executionState === "failed")).length
+                reviewRequired: result.jobs.filter(job => job.planFile === plan.planFile && job.state === "complete" && job.aggregationState === "review_required").length
             }]));
         const report = { source: "active_query", observedAt: result.observedAt, current: published, merged: published, downloaded: result.records.length > 0, planCoverage: coverage,
             queryTiming: timing, memoryRequests, memoryFiles,
             plans: plans.map(plan => plan.planFile), discovered: inputs.length, included: [...new Set(result.records.map(row => row.planFile))],
-            missing: result.jobs.filter(job => job.state !== "complete").map(job => job.planFile + " · " + job.case + "/" + job.seed + "：" + (job.error || job.state)),
-            skipped: result.errors, jobs: result.jobs, completed: result.jobs.filter(job => job.state === "complete" && job.completionState === "verified" && job.executionState !== "failed").length,
-            reviewRequired: result.jobs.filter(job => job.state === "complete" && (job.completionState !== "verified" || job.executionState === "failed")).length,
-            artifactsComplete: result.jobs.filter(job => job.state === "complete").length, expected: Object.values(coverage).reduce((sum, row) => sum + row.expected, 0),
+            missing: result.jobs.filter(job => participating.has(job.planFile) && job.state !== "complete").map(job => job.planFile + " · " + job.case + "/" + job.seed + "：" + (job.error || job.state)),
+            skipped: result.errors, jobs: result.jobs, completed: result.jobs.filter(job => job.state === "complete" && job.aggregationState === "eligible").length,
+            reviewRequired: result.jobs.filter(job => job.state === "complete" && job.aggregationState === "review_required").length,
+            artifactsComplete: result.jobs.filter(job => job.state === "complete").length, expected: Object.values(coverage).filter(row => row.included).reduce((sum, row) => sum + row.expected, 0),
+            catalogExpected: Object.values(coverage).reduce((sum, row) => sum + row.expected, 0),
+            unobservedDeclarations: Object.values(coverage).filter(row => !row.included).reduce((sum, row) => sum + row.expected, 0),
             tables: Object.values(tables).map(table => ({ tableKey: table.tableKey, dataset: table.dataset, relativePath: table.relativePath, markdownPath: table.markdownPath })),
             results: result.records.map(row => ({ planFile: row.planFile, workerId: row.workerId, runId: row.runId, dimensions: { case: row.case, seed: row.seed, method: row.method,
                     dataset: row.dataset, rate_percent: row.rate, eval_protocol: row.endpoint }, metrics: row.metrics, sourceFiles: [{ path: row.jobDir }],
+                aggregationState: result.jobs.find(job => job.commandId === row.runId)?.aggregationState,
+                workflowId: row.workflowId, revision: row.revision, codeFingerprint: row.codeFingerprint, executionWorkerId: row.executionWorkerId,
                 completionState: result.jobs.find(job => job.commandId === row.runId)?.completionState,
                 runtimeDiagnostics: result.jobs.find(job => job.commandId === row.runId)?.runtimeDiagnostics })) };
         h.resultsSummary = report;
