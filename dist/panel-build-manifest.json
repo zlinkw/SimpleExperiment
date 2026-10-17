@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.370",
-  "buildId": "bc796375cd303a816b15b13b597f9efa76cad04c89730086b9bf0e4a247c122b",
+  "version": "0.5.371",
+  "buildId": "dafe88f8222ce63a663c48219b0bf9b822dd214bab20db52f664b879638b88bc",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -197,7 +197,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "d4263fb4b55d01d41af58fb4c3e36d23aee23dcd0568a043c3129d03898e6832"
+      "sha256": "6c82f6b1fb12da15d073fab363e12168332fe7f3e5d85a8dea964ac0c4f54fd3"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -577,7 +577,7 @@
     },
     {
       "path": "dist/features/SyncScopeMetadata.js",
-      "sha256": "f761a00a55c17c16150cb1018c83e7b02fdf5915ecfa63df2c9605e720d6fe16"
+      "sha256": "4316b0c44e2f466815067e639b68a280ccc849da185db63c5a7b71adcf0a4bbd"
     },
     {
       "path": "dist/features/SyncScopeStatus.js",
@@ -589,7 +589,7 @@
     },
     {
       "path": "dist/features/SyncScopeTree.js",
-      "sha256": "4ed746167b7c6000821b4d8f75c328b048f231b4d48ec350b83d88075946862f"
+      "sha256": "0d3ba4475fd3950ec6f0afad220b1ff550585bf1f7ce36fdbf90c47b23b6acf4"
     },
     {
       "path": "dist/features/TaskLifecycle.js",
@@ -685,7 +685,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "a3918c357c98631105bd01f0b20692be8ce98e32b78950b3b892aa699019dff8"
+      "sha256": "e35182f7f1e64edc8ec61190283f6eb47d2a8f2bd9ac6e60e1f8efda93bdd0f0"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1033,7 +1033,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "e60b94a1c535557ff6872f58472ca5c3a4f761f5cf7b9f91a78b2ae328ef3503"
+      "sha256": "7b3cc911bc74a3c2b9fcf7b9a3c001a2ce2709d115b11059e8f9f2d19573d648"
     },
     {
       "path": "scripts/check-static.js",

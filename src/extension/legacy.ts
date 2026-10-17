@@ -8449,7 +8449,9 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             ...(signal ? { signal } : {}),
             ...(mode === "local-server" || inventoryScope ? { scopePaths: inventoryScope || selectedPaths } : {}),
           }, 0, (progress) => report(`${target.id}：${progress.capacityState === "queued" ? "排队等待" : progress.stalled ? "文件系统响应较慢，继续等待或关闭页面取消" : "正在核验文件"}${Number.isFinite(progress.processedFiles) ? ` · 本阶段已处理 ${progress.processedFiles} 个文件` : ""}`));
-          report(`${target.id}：文件校验已返回 · ${Object.keys(result.files || {}).length} 个文件`);
+          if (result?.ok === false || result?.error || result?.status === "unknown" || result?.complete === false || result?.truncated === true || !result?.files || typeof result.files !== "object" || Array.isArray(result.files))
+              throw new Error(result?.error || "文件内容清单查询失败，不能确认文件缺失");
+          report(`${target.id}：文件校验已返回 · ${Object.keys(result.files).length} 个文件`);
           return result;
         }))]);
         if (mode === "local-server" && Object.keys(localUnverified).length) unverified.local = localUnverified;

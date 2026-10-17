@@ -108,13 +108,14 @@ test("scope Webview requests visible-file status and replaces waiting badges", (
   assert.equal(elements.get("tree").children[1].children.find((child) => child.textContent === "📁 data")?.className, "name remote-only");
   assert.match(elements.get("tree").children[1].children.find((child) => child.className === "badge remote-only")?.textContent, /本机 全部缺失 1\nw1 1970-01-01 [0-9]{2}:[0-9]{2}:[0-9]{2}/);
   assert.equal(elements.get("tree").children[2].children.find((child) => child.textContent === "📄 README.md")?.className, "name different");
-  const copies = elements.get("tree").children[2].children.find((child) => child.className === "badge different")?.children.map((child) => child.textContent).join(" · ");
-  assert.match(copies, /w1 .*1970.*Plan 最新运行/);
-  assert.match(copies, /w2 .*1970.*需同步/);
+  const versionBadge = elements.get("tree").children[2].children.find((child) => child.className === "badge different"), copies = versionBadge?.textContent;
+  assert.match(copies, /w1 .*1970.*SHA256 a{12}/);
+  assert.match(copies, /w2 .*1970.*SHA256 b{12}/);
+  assert.match(versionBadge.title, /Plan 归属：w1/);
   assert.doesNotMatch(copies, new RegExp(hash));
   elements.get("tree").children[1].children.find((child) => child.textContent === "版本与操作").onclick();
   assert.equal(elements.get("tree").children[2].children.find((child) => child.textContent === "删除所有 Worker 副本")?.textContent, "删除所有 Worker 副本");
-  assert.equal(elements.get("tree").children[2].children.find((child) => child.textContent === "本机 · 全部缺失")?.children.length, 0);
+  assert.equal(elements.get("tree").children[2].children.find((child) => child.textContent === "本机 · 全部缺失 1")?.children.length, 0);
   elements.get("tree").children[1].children.find((child) => child.textContent === "收起").onclick();
   onMessage({ data: { type: "status", rootId: "workers", path: ".", statuses: { "data": { state: "unknown", detail: "1 未确认", unverified: true } }, refreshedAt: "now" } });
   onMessage({ data: { type: "children", rootId: "workers", path: ".", entries: [{ name: "data", path: "data", directory: true, locations: ["w1"] }, { name: "README.md", path: "README.md", directory: false }, { name: "giml", path: "giml", directory: true, locations: ["local", "w1"] }] } });

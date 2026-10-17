@@ -12,6 +12,25 @@ function webview(roots=[]){
 }
 function method(name,globals){const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true);let member;function visit(n){if(ts.isMethodDeclaration(n)&&n.name.getText(ast)===name)member=n;ts.forEachChild(n,visit);}visit(ast);return vm.runInNewContext(ts.transpileModule('class Host{'+member.getText(ast)+'};Host.prototype.'+name,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,globals);}
 
+test('default scope view hides consistent files, groups equal copies, and keeps failed queries distinct from confirmed absence',()=>{
+ const {buildScopeMetadataStatuses}=require('../../src/features/SyncScopeMetadata.ts');
+ const {nodes,sent,send,ctx}=webview();send({type:'init',roots:[{id:'local',label:'Local',selected:['.'],summary:true}]});
+ const statuses=buildScopeMetadataStatuses(['local','nwpu2','nwpu3','empty','failed'],{local:{files:{'same':{size:2,modifiedAtMs:1000},'different':{size:3,modifiedAtMs:2000}}},nwpu2:{files:{same:{size:2,modifiedAtMs:1000},different:{size:4,modifiedAtMs:3000}}},nwpu3:{files:{same:{size:2,modifiedAtMs:1000},different:{size:4,modifiedAtMs:3000}}},empty:{files:{same:{size:2,modifiedAtMs:1000}}},failed:{files:{same:{size:2,modifiedAtMs:1000}},unverifiedFiles:{different:'HTTP 503'}}},new Map());
+ const query=sent.find(m=>m.type==='summary');send({type:'status',id:query.id,rootId:'local',path:'.',statuses});
+ const labels=()=>nodes.get('tree').children.flatMap(n=>n.children).map(n=>n.textContent||'');
+ assert.ok(!labels().includes('📄 same'),'same observed metadata is hidden by default');assert.ok(labels().includes('📄 different'));
+ const row=nodes.get('tree').children.find(n=>n.children.some(x=>x.textContent==='📄 different'));
+ const badge=row.children.find(n=>n.className==='badge different');assert.match(badge.textContent,/nwpu2、nwpu3/);assert.match(badge.textContent,/empty.*确认缺失/);assert.match(badge.textContent,/failed.*查询失败/);
+ row.children.find(n=>n.textContent==='版本与操作').onclick();
+ const cards=nodes.get('tree').children.find(n=>n.className==='row-detail').children;assert.equal(cards.length,4,'one card for the shared version, plus local, absent and unknown');
+ const shared=cards.find(n=>n.textContent.startsWith('nwpu2、nwpu3'));assert.ok(shared);assert.match(shared.textContent,/4 B/);
+ const source=shared.children.find(n=>n.title?.startsWith('nwpu3：')).children.find(n=>n.textContent==='以此版同步到其他位置');source.onclick();assert.equal(sent.at(-1).endpointId,'nwpu3');
+ vm.runInContext('state().busyAction=null',ctx);nodes.get('showSame').onclick();assert.ok(labels().includes('📄 same'));assert.equal(vm.runInContext("state().selected.has('.')",ctx),true,'visibility must not change transfer scope');
+ nodes.get('filterIssues').onclick();assert.equal(vm.runInContext('state().issueTree.files.length',ctx),1);assert.equal(vm.runInContext("state().statuses.different.metadata.failed.status",ctx),'unknown');
+ nodes.get('showSame').onclick();assert.ok(labels().includes('📄 same'));assert.equal(vm.runInContext('state().issueFilterOn',ctx),false,'show consistent items exits the narrower issue filter');
+ nodes.get('filterIssues').onclick();nodes.get('clearIssueFilter').onclick();assert.ok(labels().includes('📄 same'),'show all clears both visibility filters');
+});
+
 test('collapsed folders automatically request recursive summaries and show counts alongside observed copies',()=>{
  const {nodes,sent,send,ctx}=webview();
  send({type:'init',roots:[{id:'local',label:'Local',selected:[],summary:true}]});
@@ -24,6 +43,19 @@ test('collapsed folders automatically request recursive summaries and show count
  assert.ok(!sent.some(m=>m.type==='list'&&m.path==='configs'),'collapsed subtree need not be expanded');
  const old=query.id;nodes.get('refresh').onclick();send({type:'status',id:old,rootId:'local',path:'.',statuses:{configs:{state:'same',detail:'old'}}});
  assert.notEqual(vm.runInContext("state().statuses.configs?.detail",ctx),'old','late summary cannot overwrite refresh');
+});
+
+test('unknown-only files remain visible and selectable when consistent folders are hidden; reconnect replaces unknown with current facts',()=>{
+ const {buildScopeMetadataStatuses}=require('../../src/features/SyncScopeMetadata.ts'),f=webview();f.send({type:'init',roots:[{id:'workers',label:'Workers',selected:['.'],summary:true}]});
+ const make=failed=>buildScopeMetadataStatuses(['w1','w2'],{w1:{files:{'clean/same':{size:1,modifiedAtMs:1000},'uncertain/a':{size:2,modifiedAtMs:1000}}},w2:{files:{'clean/same':{size:1,modifiedAtMs:1000},...(!failed?{'uncertain/a':{size:2,modifiedAtMs:1000}}:{})},unverifiedFiles:failed?{uncertain:'PermissionError'}:{}}},new Map());
+ const query=f.sent.find(m=>m.type==='summary');f.send({type:'status',id:query.id,rootId:'workers',path:'.',statuses:make(true)});
+ assert.ok(!f.nodes.get('tree').children.some(n=>n.children.some(x=>x.textContent==='📁 clean')));
+ assert.ok(f.nodes.get('tree').children.some(n=>n.children.some(x=>x.textContent==='📁 uncertain')));
+ f.nodes.get('filterIssues').onclick();assert.equal(vm.runInContext('state().issueTree.files.length',f.ctx),1);
+ const file=f.nodes.get('tree').children.find(n=>n.children.some(x=>x.textContent==='📄 a'));assert.ok(file);assert.match(file.children.find(n=>n.className==='badge unknown').textContent,/w2.*查询失败/);
+ f.nodes.get('selectFiltered').onclick();assert.equal(vm.runInContext("state().batchSelected.has('uncertain/a')",f.ctx),true);
+ f.nodes.get('refresh').onclick();const fresh=f.sent.filter(m=>m.type==='summary').at(-1);f.send({type:'status',id:fresh.id,rootId:'workers',path:'.',statuses:make(false)});
+ assert.equal(vm.runInContext('state().issueTree.files.length',f.ctx),0);f.send({type:'status',id:query.id,rootId:'workers',path:'.',statuses:make(true)});assert.equal(vm.runInContext('state().issueTree.files.length',f.ctx),0);
 });
 
 test('hash comparison counts are not hidden by direct metadata; metadata differences remain filterable and actionable',()=>{
@@ -172,7 +204,7 @@ test('local hashing and complete Worker inventory start together; partial failur
    return {'.':{state:'unknown',detail:'w2 未核实'}};
   }});
  const host={localScopeHashCacheFile:()=>'',enabledWorkerConfigs:()=>[{id:'w1'},{id:'w2'}],sftpServerOptions:t=>t,
-  simpleSftpApiCall:async(name,p)=>{started++;assert.equal(name,'sync.projectInventory');assert.equal(p.recursive,true);assert.deepEqual([...p.scopePaths],['.']);if(p.source.id==='w2')throw Error('network failed');return {files:{file:{sha256:'remote'}}};},
+  simpleSftpApiCall:async(name,p)=>{started++;assert.equal(name,'sync.projectInventory');assert.equal(p.recursive,true);assert.deepEqual([...p.scopePaths],['.']);if(p.source.id==='w2')return {ok:false,error:'network failed',files:{}};return {files:{file:{sha256:'remote'}}};},
   loadPlanSyncLedger:async()=>({}),context:{globalStorageUri:{fsPath:'fixture'}}};
  const pending=refresh.call(host,'fixture',[{id:'w1'},{id:'w2'}],'local-server',['.']);
  assert.equal(started,2,'remote reads must not wait for slow local hashing');release({file:{sha256:'local'}});

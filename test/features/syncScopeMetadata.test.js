@@ -3,6 +3,24 @@ require('../_helpers/registerTsRequire');
 const {buildScopeMetadataStatuses,queryScopeMetadata}=require('../../src/features/SyncScopeMetadata.ts');
 const {collectLocalScopeMetadata}=require('../../src/features/SyncScopeStatus.ts');
 const file=(size,time=1000)=>({size,modifiedAtMs:time});
+test('failure envelopes and absent inventories cannot prove a file is missing',async()=>{
+ const rows=await queryScopeMetadata([{id:'good',read:async()=>({files:{'dir/a':file(1)}})},{id:'failed',read:async()=>({ok:false,error:'HTTP 503',files:{}})},{id:'empty',read:async()=>({files:{}})}]);
+ assert.equal(rows['dir/a'].metadata.failed.status,'unknown');assert.equal(rows['dir/a'].metadata.empty.status,'absent');
+ assert.equal(rows.dir.copies.failed.missing,0);assert.equal(rows.dir.copies.failed.unverified,1);
+ const partial=buildScopeMetadataStatuses(['good','no-response'],{good:{files:{a:file(1)}}},new Map());
+ assert.equal(partial.a.metadata['no-response'].status,'unknown');assert.ok(partial.a.issueSignature,'unknown files remain in the issue view');
+});
+test('malformed metadata payloads cannot prove absence, including a failed response with an empty file map',async()=>{
+ for(const bad of [{files:'empty'},{files:[]},{files:{},unverifiedFiles:[]},{files:{},status:'unknown'},{files:{},complete:false},{files:{},truncated:true},{files:{'C:/escape':file(1)}}]){
+  const rows=await queryScopeMetadata([{id:'good',read:async()=>({files:{a:file(1)}})},{id:'bad',read:async()=>bad}]);
+  assert.equal(rows.a.metadata.bad.status,'unknown');assert.equal(rows['.'].copies.bad.missing,0);
+ }
+});
+test('all failed queries name unavailable locations even with no discoverable file names',async()=>{
+ const rows=await queryScopeMetadata(['nwpu2','nwpu3'].map(id=>({id,read:async()=>{throw Error('HTTP 503');}})));
+ assert.equal(rows['.'].state,'unknown');assert.match(rows['.'].detail,/查询未完成或失败：nwpu2、nwpu3/);
+ assert.equal(Object.values(rows['.'].copies).reduce((n,c)=>n+c.missing,0),0);
+});
 test('all ancestors aggregate missing/difference counts outside selected transfer folders without fabricating hashes',()=>{
  const rows=buildScopeMetadataStatuses(['local','w1','w2'],{local:{files:{'data/nested/a':file(2),'data/nested/b':file(4),'data/nested/c':file(5)}},w1:{files:{'data/nested/a':file(3)}},w2:{files:{'data/nested/a':file(2),'data/nested/b':file(4)}}},new Map());
  for(const name of ['.','data','data/nested']){assert.equal(rows[name].copies.w1.missing,2);assert.equal(rows[name].copies.w1.needsSync,1);assert.equal(rows[name].copies.w2.missing,1);assert.match(rows[name].detail,/缺失 2 · 差异 1/);}
