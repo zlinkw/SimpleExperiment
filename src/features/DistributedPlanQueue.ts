@@ -23,7 +23,7 @@ export type QueuedJob = {
   attempt: number;
   status: JobState;
   lifecycleProtocol?: 2;
-  manualDispatch?: { workerId: string; gpuId: string; stage: "preparing" | "ready" | "sent" };
+  manualDispatch?: { workerId: string; gpuId: string; stage: "preparing" | "ready" | "sent"; origin?: "server_queue"; batchId?: string };
   manualDispatchNotice?: string;
   retainExistingOutputs?: boolean;
   executionState?: string;

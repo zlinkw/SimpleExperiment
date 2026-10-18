@@ -13,6 +13,14 @@ function parseArgv(argv) {
             flags.confirm = true;
             continue;
         }
+        if (token === "--remaining") {
+            flags.remaining = true;
+            continue;
+        }
+        if (token === "--all") {
+            flags.all = true;
+            continue;
+        }
         if (token === "--stop-running") {
             flags["stop-running"] = true;
             continue;

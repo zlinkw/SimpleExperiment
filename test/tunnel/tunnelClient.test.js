@@ -160,6 +160,39 @@ test("closing cache review aborts its read-only preview POST without replaying i
   }
 });
 
+test("identical read-only task POSTs share one queued request and one caller cannot cancel the other subscribers", async () => {
+  let calls=0,started,release;
+  const firstStarted=new Promise(resolve=>started=resolve),gate=new Promise(resolve=>release=resolve);
+  const server=http.createServer((req,res)=>{let body="";req.setEncoding("utf8");req.on("data",chunk=>body+=chunk);req.on("end",async()=>{
+    calls++;JSON.parse(body);if(calls===1){started();await gate;}if(!res.destroyed)res.end(JSON.stringify({queryComplete:true,tasks:[]}));
+  })});await listen(server);
+  const budget=new RequestBudget({...defaultRequestBudgetConfig,minIntervalByPurpose:{},disabledPurposes:[]});
+  const client=new HttpTunnelClient({localHost:"127.0.0.1",localPort:server.address().port,timeoutMs:1500},budget);
+  try{
+    const controller=new AbortController();
+    const first=client.getWorkerTasks({executionOnly:true,queries:[],signal:controller.signal});
+    const others=[0,1,2].map(()=>client.getWorkerTasks({executionOnly:true,queries:[],signal:AbortSignal.timeout(2000)}));
+    await firstStarted;controller.abort();await assert.rejects(first,error=>error.name==="AbortError");release();
+    const values=await Promise.all(others);assert.ok(values.every(value=>value.queryComplete));assert.equal(calls,1);
+    await client.getWorkerTasks({executionOnly:true,queries:[]});assert.equal(calls,2,"completed values are never reused as current window evidence");
+    await Promise.all([client.getWorkerTasks({executionOnly:true,queries:[{commandId:"a"}]}),client.getWorkerTasks({executionOnly:true,queries:[{commandId:"b"}]})]);assert.equal(calls,4,"different job identities never merge");
+    await Promise.all([client.postAction("start-worker-task",{opId:"same",commandId:"same"}),client.postAction("start-worker-task",{opId:"same",commandId:"same"})]);assert.equal(calls,6,"mutation POSTs never coalesce or retry");
+  }finally{release();server.closeAllConnections();server.close()}
+});
+
 function listen(server) {
   return new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 }
+
+test("slow artifact reads cannot occupy the reserved live-window query lane", async()=>{
+ let release,ready,started=0;const gate=new Promise(r=>release=r),both=new Promise(r=>ready=r);
+ const server=http.createServer((req,res)=>{let body='';req.setEncoding('utf8');req.on('data',s=>body+=s);req.on('end',async()=>{
+  const query=JSON.parse(body);if(!query.executionOnly){if(++started===2)ready();await gate;}res.end(JSON.stringify({queryComplete:true,tasks:[]}));
+ })});await listen(server);
+ const client=new HttpTunnelClient({localHost:'127.0.0.1',localPort:server.address().port,timeoutMs:1500},new RequestBudget({...defaultRequestBudgetConfig,minIntervalByPurpose:{},disabledPurposes:[]}));
+ const artifacts=[0,1].map(index=>client.getWorkerTasks({queries:[{commandId:'result-'+index}]}));
+ let timer;try{await both;
+  const fast=await Promise.race([client.getWorkerTasks({executionOnly:true}),new Promise(r=>timer=setTimeout(()=>r(undefined),300))]);
+  assert.equal(fast?.queryComplete,true,'current-window detection must start before unrelated artifact reads finish');
+ }finally{clearTimeout(timer);release();await Promise.all(artifacts);server.closeAllConnections();server.close()}
+});

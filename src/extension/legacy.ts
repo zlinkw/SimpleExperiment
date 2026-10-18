@@ -87,6 +87,8 @@ import * as GpuJobOwnership from "../features/GpuJobOwnership";
 import { changedManifestFiles, inventoryFilesByPath } from "../features/CodeSyncDelta";
 import { waitForCodeSyncProof } from "../features/CodeSyncProofWaiter";
 import { ManualDispatchHost } from "./ManualDispatchHost";
+import { ServerQueueHost } from "./ServerQueueHost";
+import { ownExecutionExited } from "../features/DispatchWake";
 import { dispatchReadyManualJobs } from "../features/ManualJobDispatch";
 import { hashLocalCodeFiles, localCodeManifestCachePath } from "../features/LocalCodeManifestCache";
 import { distributedQueueOnlyClearable, mergeTrustedPlanOperations, nativePlanStopTargets, planCleanupTargets, planRecoveryConflicts, planStopClearFeedback, planStopClearPreview, planStopClearUiResult, planStopIdentityConflictMessage, planStopMissingEvidenceMessage, terminalPlanHistorySelection, trustedRemotePlanOperations } from "../features/PlanStopClear";
@@ -602,7 +604,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "cleanupPlan",
     "markJobUnavailable", "restoreJobAvailability",
     "recallFailedJob",
-    "retryDistributedJob", "dispatchJobs",
+    "retryDistributedJob", "dispatchJobs", "queueRemainingJobs",
     "stopAllPlans",
     "stopAndClearPlan",
     "stopAndClearPlans",
@@ -640,7 +642,7 @@ const UI_BUTTON_ACTION_COMMANDS = new Set([
     "cleanupPlan",
     "markJobUnavailable", "restoreJobAvailability",
     "recallFailedJob",
-    "retryDistributedJob", "dispatchJobs",
+    "retryDistributedJob", "dispatchJobs", "queueRemainingJobs",
     "testAll", "snapshot", "startAllConnections", "runPlan", "parseResults", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope",
     ...uiActionCommands,
     "quickSetup", "openSetupGuide", "configureSessions", "configureAgentSessions", "writeAgentCommands",
@@ -951,6 +953,7 @@ export class RealtimeTunnelPanelProvider {
     private projectStaticCheckAbort?: AbortController;
     distributedQueueStorageDiagnostics = { status: "ready" };
     distributedQueueTickPromise;
+    distributedQueueRefreshRequested = false;
     distributedPlanStopEpoch = 0;
     distributedQueueGeneration = 0;
     distributedRecallInFlight = new Set<string>();
@@ -1416,7 +1419,8 @@ export class RealtimeTunnelPanelProvider {
             "results.list": async (params, _server, context) => this.apiResultsList(params, context.signal),
             "tasks.dispatch": async (params) => {
                 if (params.confirm !== true) throw confirmationRequired({ operation: "tasks.dispatch", requires: ["confirm"],
-                    preview: { workflowId: params.workflowId, indices: params.indices, workerId: params.workerId, gpuId: params.gpuId } });
+                    preview: { workflowId: params.workflowId, workflowIds: params.workflowIds, all: params.all, distribution: params.distribution, indices: params.indices, workerId: params.workerId, gpuId: params.gpuId } });
+                if(params.distribution === "quota_remaining")return new ServerQueueHost(this,workspaceRoot()).dispatch(params);
                 return new ManualDispatchHost(this, workspaceRoot()).dispatch(params);
             },
             "tasks.analyze": async (params, _server, context) => analyzeRuntimeLog(this, workspaceRoot(), params, context.signal),
@@ -1617,10 +1621,10 @@ export class RealtimeTunnelPanelProvider {
             });
         });
     }
-    async readWorkerTaskSnapshotBatch(workerIds: string[], options: { signal?: AbortSignal; graceMs?: number } = {}) {
+    async readWorkerTaskSnapshotBatch(workerIds: string[], options: { signal?: AbortSignal; graceMs?: number; executionOnly?: boolean } = {}) {
         const ids = [...new Set(workerIds.map((workerId) => String(workerId || "")).filter(Boolean))];
         const pending = new Map(ids.map((workerId) => [workerId, Promise.resolve()
-            .then(() => this.readWorkerTaskSnapshot(workerId, { signal: options.signal, fresh: true }))
+            .then(() => this.readWorkerTaskSnapshot(workerId, { signal: options.signal, fresh: true, executionOnly: options.executionOnly }))
             .then((snapshot) => ({ workerId, snapshot }), (error) => ({ workerId, snapshot: {
                 workerId, schemaVersion: 1, tasks: [], error: errorMessage(error),
             } }))]));
@@ -1887,6 +1891,9 @@ export class RealtimeTunnelPanelProvider {
             this.lastWorkerTaskSnapshots.delete(this.lastWorkerTaskSnapshots.keys().next().value);
         this.noteWorkerTaskPlanStatus(cacheKey, snapshot);
         const [root, workerId] = cacheKey.split("\u0000");
+        if (workerId && this.distributedQueueRoot === root && root === workspaceRoot()
+            && ownExecutionExited(previousSnapshot, snapshot, this.distributedQueueCache, DistributedPlanQueue.canonicalProjectId(root)))
+            this.requestDistributedQueueRefresh();
         if (root && workerId && this.distributedQueueRoot === root && this.distributedQueueCache
             && snapshot.capabilities?.taskLifecycle === 2 && DistributedPlanQueue.updateVerifiedCompletions(this.distributedQueueCache,
                 snapshot, DistributedPlanQueue.canonicalProjectId(root)))
@@ -5469,6 +5476,8 @@ return this.testTunnel(true);
                 return await this.retryDistributedJobFromUi(message);
             case "dispatchJobs":
                 return await new ManualDispatchHost(this, workspaceRoot()).dispatch(message, true);
+            case "queueRemainingJobs":
+                return await new ServerQueueHost(this, workspaceRoot()).dispatch(message, true);
             case "analyzeRuntimeLog": {
                 const report = await analyzeRuntimeLog(this, workspaceRoot(), message);
                 return runtimeLogAnalysisMessage(report);
@@ -5884,6 +5893,8 @@ return this.testTunnel(true);
                 return { status: "completed", message: String(value.message) };
             if (command === "runAllPlans" && typeof value?.selectionOnly === "boolean" && ["completed", "failed", "cancelled"].includes(value.status))
                 return { status: value.status, message: String(value.message) };
+            if (command === "queueRemainingJobs" && value && ["completed","submitted","failed","cancelled"].includes(value.status))
+                return {status:value.status,message:String(value.message||value.status)};
             if (["stopAndClearPlan", "stopAndClearPlans", "stopAllPlans", "retryDistributedJob", "dispatchJobs", "markJobUnavailable", "restoreJobAvailability"].includes(command) && value && typeof value === "object" && (value.status === "completed" || value.status === "failed" || value.status === "cancelled" || value.status === "partial")) {
                 const outcome = value.status === "partial" ? "failed" : value.status;
                 return { status: outcome, message: String(value.message || outcome), planStopClear: value.planStopClear };
@@ -11064,7 +11075,7 @@ this.assertPlanTopologyReady("Plan 调度");
         const stablePlanId = cleanupStablePlanId(await fs.readFile(path.join(root, planFile), "utf8"));
         const enqueued = DistributedPlanQueue.enqueuePlan(current, { projectId: DistributedPlanQueue.canonicalProjectId(root), stablePlanId,
             executionMode, executionModeSource: "validation",
-            schedulingMode: DistributedSchedulingPolicy.schedulingMode(body.schedulingMode ?? this.schedulerSettings().dispatchMode),
+            schedulingMode: DistributedSchedulingPolicy.schedulingMode("local_idle"),
             planJobCount: selectedJobs.length, fullPlanJobCount: validation.fullPlanJobCount || validation.jobs.length, planFile, revision, codeFingerprint,
             executionSource: body.executionSource, overwriteExisting, jobs: selectedJobs.map((job) => ({
             index: Number(job.index), case: String(job.case), seed: Number(job.seed),
@@ -11110,12 +11121,17 @@ this.assertPlanTopologyReady("Plan 调度");
         this.distributedQueueTickPromise = undefined;
         void Promise.resolve(task).then(() => undefined, () => undefined);
     }
+    requestDistributedQueueRefresh() {
+        this.distributedQueueRefreshRequested = true;
+        void this.tickDistributedQueue().catch(error => this.recordActionError({ command: "distributedPlanQueue", message: errorMessage(error) }));
+    }
     async tickDistributedQueue() {
         if (this.manualDispatchInFlight?.size) return;
         if (require("../updates/Bootstrap").getUpdater()?.blocked) return;
         if (this.planCleanupHosts.get(workspaceRoot())?.executing) return;
         if (this.distributedQueueTickPromise) return this.distributedQueueTickPromise;
         if (this.distributedPlanStopEpoch) return;
+        this.distributedQueueRefreshRequested = false;
         if (this.taskLifecycleProtocol === 2) void syncGpuQuotaPolicies(this, workspaceRoot()).catch(() => {});
         const generation = this.distributedQueueGeneration;
         const abort = new AbortController();
@@ -11125,7 +11141,11 @@ this.assertPlanTopologyReady("Plan 调度");
         try { await task; }
         finally {
             if (this.distributedTickAbort === abort) this.distributedTickAbort = undefined;
-            if (this.distributedQueueTickPromise === task) this.distributedQueueTickPromise = undefined;
+            if (this.distributedQueueTickPromise === task) {
+                this.distributedQueueTickPromise = undefined;
+                if (this.distributedQueueRefreshRequested && generation === this.distributedQueueGeneration && !this.distributedPlanStopEpoch)
+                    this.requestDistributedQueueRefresh();
+            }
         }
     }
     refreshSelectedDistributedLog(queue, newTerminal = false) {
@@ -11200,7 +11220,7 @@ this.assertPlanTopologyReady("Plan 调度");
         const request = {
             schemaVersion: 1, lifecycleProtocol: 2, commandId, opId: commandId, operationId: commandId, runKey: commandId,
             durablePlanQueue: true, schedulingMode: DistributedSchedulingPolicy.schedulingMode(
-                job.localQueueOnly === true || plan.localDispatchOverride === true ? "local_idle" : plan.schedulingMode),
+                job.manualDispatch?.origin === "server_queue" ? "server_prequeue" : job.localQueueOnly === true || plan.localDispatchOverride === true ? "local_idle" : plan.schedulingMode),
             requireIdleGpu: !job.manualDispatch && gpuId !== undefined, dispatchPolicy: job.manualDispatch ? "manual" : "automatic", ...codeProofFields, projectId: plan.projectId || DistributedPlanQueue.canonicalProjectId(root),
             planJobCount: Number(plan.planJobCount || plan.jobs.length), fullPlanJobCount: Number(plan.fullPlanJobCount || plan.planJobCount || plan.jobs.length), enqueuedAt: plan.enqueuedAt,
             planFile: plan.planFile, experimentIndex: job.index, ...(gpuId !== undefined ? { gpuId } : {}),
@@ -11300,7 +11320,8 @@ this.assertPlanTopologyReady("Plan 调度");
         const probeTask = this.distributedQueueTickPromise;
         let probeWatch;
         const snapshotsStartedAt = Date.now();
-        const probes = this.readWorkerTaskSnapshotBatch(snapshotWorkerIds, { signal });
+        // Scheduling needs current windows, not slow artifact/log verification.
+        const probes = this.readWorkerTaskSnapshotBatch(snapshotWorkerIds, { signal, executionOnly: this.taskLifecycleProtocol === 2 });
         const submissionPlansForTiming = () => [...(this.distributedSubmissionTimings?.entries?.() || [])]
             .filter(([planId]) => queue.plans.some((plan) => plan.id === planId));
         const gpuSnapshotPromise = Promise.resolve().then(() => this.client.getGpu({ dispatch: true })).then(
@@ -11645,10 +11666,7 @@ this.assertPlanTopologyReady("Plan 调度");
             const ownedGpuSnapshot = GpuJobOwnership.projectGpuOwnership(dispatchGpuSnapshot || {},
                 GpuJobOwnership.submittedGpuJobs(queue, taskSnapshots, DistributedPlanQueue.canonicalProjectId(root),
                     Object.fromEntries(targets.map(target => [target.id, target.project_dir]))));
-            const hosted = DistributedSchedulingPolicy.allocateServerPrequeue(queue, workers.map((worker) => {
-                const config = this.enabledWorkerConfigs().find((item) => item.id === worker.workerId);
-                return { ...worker, weight: worker.memoryWeight ?? 0 };
-            }));
+            const hosted = { queue: DistributedSchedulingPolicy.localSchedulingQueue(queue), dispatches: [] };
             queue = hosted.queue;
             const allocation = DistributedPlanQueue.allocateAvailable(queue, workers, { requireIdleGpuAdmission: true, localIdleOnly: true });
             queue = allocation.queue;
@@ -13118,7 +13136,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const settings = this.schedulerSettings();
         const updates = [
             ...Object.entries(GpuQuotaScheduling.quotaSettings({ ...settings, ...patch })).map(([key, value]) => config.update("scheduler." + key, value, vscode.ConfigurationTarget.Global)),
-            config.update("scheduler.dispatchMode", DistributedSchedulingPolicy.schedulingMode(patch.dispatchMode ?? settings.dispatchMode), vscode.ConfigurationTarget.Global),
+            config.update("scheduler.dispatchMode", "local_idle", vscode.ConfigurationTarget.Global),
             config.update("scheduler.pollSeconds", numberRangePatch(patch, "pollSeconds", settings.pollSeconds, 5, 3600), vscode.ConfigurationTarget.Global),
             config.update("scheduler.jitterSeconds", numberRangePatch(patch, "jitterSeconds", settings.jitterSeconds, 0, 1800), vscode.ConfigurationTarget.Global),
             config.update("scheduler.workerStatusTtlSeconds", numberRangePatch(patch, "workerStatusTtlSeconds", settings.workerStatusTtlSeconds, 10, 7200), vscode.ConfigurationTarget.Global),
@@ -20853,7 +20871,7 @@ return uniqueStrings(this.setupConfig.workerTunnels.flatMap(w=>[w.savedSessionPa
     schedulerSettings() {
         const config = vscode.workspace.getConfiguration("simpleExperiment");
         return {
-            dispatchMode: DistributedSchedulingPolicy.schedulingMode(config.get("scheduler.dispatchMode", "local_idle")),
+            dispatchMode: "local_idle",
             ...GpuQuotaScheduling.quotaSettings(Object.fromEntries(Object.entries(GpuQuotaScheduling.quotaDefaults).map(([key, value]) => [key, config.get("scheduler." + key, value)]))),
             ...GpuMemoryScheduling.memorySchedulingSettings(Object.fromEntries(Object.entries(GpuMemoryScheduling.memorySchedulingDefaults)
                 .map(([key, value]) => [key, config.get("scheduler." + key, value)]))),
@@ -26699,6 +26717,7 @@ const HOST_OPERATION_LEASE_ACTION_LABELS = Object.freeze({
     killTmuxWindow: "关闭或清空 tmux 会话",
     clearTmuxTaskTabs: "清空任务标签页",
     dispatchJobs: "手动派发任务",
+    queueRemainingJobs: "按配额派发剩余 job 到服务器队列",
     analyzeRuntimeLog: "重新分析运行日志",
     retryDistributedJob: "核验并恢复任务",
     recallFailedJob: "召回失败 job 到本机重跑",

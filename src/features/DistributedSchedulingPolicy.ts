@@ -37,6 +37,12 @@ export function schedulingMode(value: unknown): SchedulingMode {
   return value === "server_prequeue" ? "server_prequeue" : "local_idle";
 }
 
+/** Old persisted prequeue settings never authorize offloading more unassigned jobs. */
+export function localSchedulingQueue(queue: DistributedQueue): DistributedQueue {
+  return { ...queue, plans: queue.plans.map(plan => plan.schedulingMode === "server_prequeue" && plan.localDispatchOverride !== true
+    ? { ...plan, localDispatchOverride: true } : plan) };
+}
+
 /** A GPU counts once. Other users' processes never increase the hosted share. */
 export function prequeueGpuWeight(rows: unknown, idleUtil: number, idleMem: number,
   owner: { currentUser?: string; currentUserAliases?: string[]; myCommandKeywords?: string[];

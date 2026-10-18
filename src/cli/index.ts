@@ -33,6 +33,10 @@ export async function runSimpleCli(argv: string[]): Promise<number> {
         commandId: flags.command, outputDir: flags.out })); return EXIT_OK;
     }
     if (action !== "dispatch") throw usageError("用法：simpleex task dispatch --workflow ID --jobs 0,1 --worker ID --gpu 0 --confirm [--stop-running]");
+    if(flags.remaining===true){
+      if(flags.all!==true&&!flags.workflow)throw usageError("请指定 --workflow ID 或 --all；仅选择尚未派发的剩余 job。");
+      writeJson(await callApi("tasks.dispatch",{distribution:"quota_remaining",workflowId:flags.workflow,all:flags.all===true,confirm:flags.confirm===true}));return EXIT_OK;
+    }
     const jobs=String(flags.jobs||"").trim();
     if (!/^\d+(?:,\d+)*$/.test(jobs)) throw usageError("请用 --jobs 明确选择 job 索引，例如 --jobs 0,2。");
     const result=await callApi("tasks.dispatch",{workflowId:String(flags.workflow||""),indices:jobs.split(",").map(Number),

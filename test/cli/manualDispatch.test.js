@@ -14,3 +14,13 @@ test('CLI cannot infer job zero from absent or malformed selection',async()=>{
   await runSimpleCli(['task','dispatch','--workflow','w','--worker','a','--gpu','0','--confirm','--jobs','0,2']);assert.equal(calls,1);
  }finally{[api.optionalApi,api.callApi,format.writeJson]=old;}
 });
+test('remaining queue CLI passes an explicit frozen scope without a Worker picker',async()=>{
+ const api=require('../../dist/cli/api'),format=require('../../dist/cli/format'),{runSimpleCli}=require('../../dist/cli/index');
+ const old=[api.optionalApi,api.callApi,format.writeJson],calls=[];
+ api.optionalApi=async()=>undefined;api.callApi=async(method,params)=>{calls.push({method,params});return {status:'submitted'}};format.writeJson=()=>{};
+ try{await assert.rejects(runSimpleCli(['task','dispatch','--remaining','--confirm']),/workflow|all/);assert.equal(calls.length,0);
+  await runSimpleCli(['task','dispatch','--remaining','--all','--confirm']);
+  await runSimpleCli(['task','dispatch','--remaining','--workflow','p','--confirm']);
+  assert.equal(calls.length,2);assert.equal(calls[0].method,'tasks.dispatch');assert.equal(calls[0].params.distribution,'quota_remaining');assert.equal(calls[0].params.all,true);assert.equal(calls[1].params.workflowId,'p');
+ }finally{[api.optionalApi,api.callApi,format.writeJson]=old;}
+});

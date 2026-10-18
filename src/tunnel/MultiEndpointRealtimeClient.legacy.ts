@@ -35,6 +35,8 @@ export class MultiEndpointRealtimeClient {
   private readonly endpoints: NamedTunnelEndpointConfig[];
   private readonly endpointById: ReadonlyMap<string, NamedTunnelEndpointConfig>;
   private readonly clients = new Map<string, RealtimeTunnelClient>();
+  private readonly dispatchGpuReads = new Map<string, { client: RealtimeTunnelClient; generation: number; settledAt?: number;
+    promise: Promise<PromiseSettledResult<{ endpoint: NamedTunnelEndpointConfig; value: unknown }>> }>();
   private readonly budgets = new Map<string, RequestBudget>();
   private readonly requestBudgetCoordinator: RequestBudgetCoordinator;
   private mergedState: RealtimeState = createRealtimeState();
@@ -95,12 +97,13 @@ export class MultiEndpointRealtimeClient {
   }
 
   async getGpu(options: { dispatch?: boolean } = {}): Promise<Record<string, unknown[]>> {
-    const entries = await Promise.allSettled(this.endpoints.map(async (endpoint) => {
+    const entries = options.dispatch ? await this.readDispatchGpu() : await Promise.allSettled(this.endpoints.map(async (endpoint) => {
       const value = await this.clients.get(endpoint.id)?.getGpu(options);
       return { endpoint, value };
     }));
     const fulfilled = entries.filter((entry): entry is PromiseFulfilledResult<{ endpoint: NamedTunnelEndpointConfig; value: unknown }> => entry.status === "fulfilled");
     if (!fulfilled.length) {
+      if (options.dispatch && !entries.length) return {};
       const rejected = entries.find((entry): entry is PromiseRejectedResult => entry.status === "rejected");
       throw rejected?.reason || new Error("No realtime endpoint returned GPU state.");
     }
@@ -109,6 +112,36 @@ export class MultiEndpointRealtimeClient {
     // cache so another heartbeat cannot restore pre-refresh GPU rows.
     this.updateMergedState();
     return gpu;
+  }
+
+  private async readDispatchGpu() {
+    const completed = new Map<string, PromiseSettledResult<{ endpoint: NamedTunnelEndpointConfig; value: unknown }>>();
+    const reads = this.endpoints.map(endpoint => {
+      const client = this.clients.get(endpoint.id)!;
+      let read = this.dispatchGpuReads.get(endpoint.id);
+      if (!read || read.client !== client || read.generation !== client.progressGeneration
+          || read.settledAt && Date.now() - read.settledAt > 1000) {
+        read = { client, generation: client.progressGeneration,
+          promise: Promise.resolve().then(() => client.getGpu({ dispatch: true })).then(
+            value => ({ status: "fulfilled" as const, value: { endpoint, value } }),
+            reason => ({ status: "rejected" as const, reason })).then(result => { read!.settledAt = Date.now(); return result; }) };
+        this.dispatchGpuReads.set(endpoint.id, read);
+      }
+      return { endpoint, read };
+    });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([Promise.all(reads.map(async ({endpoint,read}) => {
+        const result = await read.promise;
+        if (read.generation === read.client.progressGeneration) completed.set(endpoint.id, result);
+      })), new Promise(resolve => { timer = setTimeout(resolve, 350); })]);
+    } finally { if (timer) clearTimeout(timer); }
+    for (const {endpoint,read} of reads) if (completed.has(endpoint.id) && this.dispatchGpuReads.get(endpoint.id) === read)
+      this.dispatchGpuReads.delete(endpoint.id);
+    // A late read stays pending until one following round consumes it. Receipt
+    // age is bounded above; a slow endpoint cannot starve faster Workers or
+    // repeatedly restart its own completed request before any round uses it.
+    return [...completed.values()];
   }
 
   async getGpuHistory(query: GpuHistoryQuery = {}): Promise<GpuHistoryResponse> {

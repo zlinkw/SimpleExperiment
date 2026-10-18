@@ -4,6 +4,7 @@ exports.PROGRESS_FRESHNESS_MS = void 0;
 exports.dispatchPreparationAllowsWorker = dispatchPreparationAllowsWorker;
 exports.progressRefreshWorkerIds = progressRefreshWorkerIds;
 exports.schedulingMode = schedulingMode;
+exports.localSchedulingQueue = localSchedulingQueue;
 exports.prequeueGpuWeight = prequeueGpuWeight;
 exports.allocateServerPrequeue = allocateServerPrequeue;
 exports.serverAuthoritativeProgress = serverAuthoritativeProgress;
@@ -47,6 +48,11 @@ function progressRefreshWorkerIds(queue, configuredIds, snapshots) {
 }
 function schedulingMode(value) {
     return value === "server_prequeue" ? "server_prequeue" : "local_idle";
+}
+/** Old persisted prequeue settings never authorize offloading more unassigned jobs. */
+function localSchedulingQueue(queue) {
+    return { ...queue, plans: queue.plans.map(plan => plan.schedulingMode === "server_prequeue" && plan.localDispatchOverride !== true
+            ? { ...plan, localDispatchOverride: true } : plan) };
 }
 /** A GPU counts once. Other users' processes never increase the hosted share. */
 function prequeueGpuWeight(rows, idleUtil, idleMem, owner, fallbackUser = "", capacity) {

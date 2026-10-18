@@ -16,6 +16,7 @@ class MultiEndpointRealtimeClient {
     endpoints;
     endpointById;
     clients = new Map();
+    dispatchGpuReads = new Map();
     budgets = new Map();
     requestBudgetCoordinator;
     mergedState = (0, RealtimeEventReducer_1.createRealtimeState)();
@@ -68,12 +69,14 @@ class MultiEndpointRealtimeClient {
         return snapshot;
     }
     async getGpu(options = {}) {
-        const entries = await Promise.allSettled(this.endpoints.map(async (endpoint) => {
+        const entries = options.dispatch ? await this.readDispatchGpu() : await Promise.allSettled(this.endpoints.map(async (endpoint) => {
             const value = await this.clients.get(endpoint.id)?.getGpu(options);
             return { endpoint, value };
         }));
         const fulfilled = entries.filter((entry) => entry.status === "fulfilled");
         if (!fulfilled.length) {
+            if (options.dispatch && !entries.length)
+                return {};
             const rejected = entries.find((entry) => entry.status === "rejected");
             throw rejected?.reason || new Error("No realtime endpoint returned GPU state.");
         }
@@ -82,6 +85,39 @@ class MultiEndpointRealtimeClient {
         // cache so another heartbeat cannot restore pre-refresh GPU rows.
         this.updateMergedState();
         return gpu;
+    }
+    async readDispatchGpu() {
+        const completed = new Map();
+        const reads = this.endpoints.map(endpoint => {
+            const client = this.clients.get(endpoint.id);
+            let read = this.dispatchGpuReads.get(endpoint.id);
+            if (!read || read.client !== client || read.generation !== client.progressGeneration
+                || read.settledAt && Date.now() - read.settledAt > 1000) {
+                read = { client, generation: client.progressGeneration,
+                    promise: Promise.resolve().then(() => client.getGpu({ dispatch: true })).then(value => ({ status: "fulfilled", value: { endpoint, value } }), reason => ({ status: "rejected", reason })).then(result => { read.settledAt = Date.now(); return result; }) };
+                this.dispatchGpuReads.set(endpoint.id, read);
+            }
+            return { endpoint, read };
+        });
+        let timer;
+        try {
+            await Promise.race([Promise.all(reads.map(async ({ endpoint, read }) => {
+                    const result = await read.promise;
+                    if (read.generation === read.client.progressGeneration)
+                        completed.set(endpoint.id, result);
+                })), new Promise(resolve => { timer = setTimeout(resolve, 350); })]);
+        }
+        finally {
+            if (timer)
+                clearTimeout(timer);
+        }
+        for (const { endpoint, read } of reads)
+            if (completed.has(endpoint.id) && this.dispatchGpuReads.get(endpoint.id) === read)
+                this.dispatchGpuReads.delete(endpoint.id);
+        // A late read stays pending until one following round consumes it. Receipt
+        // age is bounded above; a slow endpoint cannot starve faster Workers or
+        // repeatedly restart its own completed request before any round uses it.
+        return [...completed.values()];
     }
     async getGpuHistory(query = {}) {
         const serverId = String(query.serverId || "").trim();

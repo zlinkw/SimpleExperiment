@@ -16,6 +16,8 @@ export interface CliFlags {
   command?: string;
   gpu?: string;
   confirm?: boolean;
+  remaining?: boolean;
+  all?: boolean;
   "stop-running"?: boolean;
   status?: string;
   limit?: number;
@@ -42,6 +44,8 @@ export function parseArgv(argv: string[]): ParsedCli {
   for (let i = 0; i < argv.length; i += 1) {
     const token = argv[i];
     if (token === "--confirm") { flags.confirm = true; continue; }
+    if (token === "--remaining") { flags.remaining = true; continue; }
+    if (token === "--all") { flags.all = true; continue; }
     if (token === "--stop-running") { flags["stop-running"] = true; continue; }
     if (token === "--") {
       positionals.push(...argv.slice(i + 1));

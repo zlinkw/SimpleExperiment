@@ -9208,7 +9208,7 @@ export function renderPanelHtml(): string {
             '<span class="pill">TTL ' + esc(configDefault(scheduler.workerStatusTtlSeconds, 45)) + 's</span>' +
           '</div></div>' +
           '<div class="configGrid">' +
-            configSelect("scheduler", "dispatchMode", "Plan 调度模式", scheduler.dispatchMode || "local_idle", [["local_idle", "本机按空卡派发（默认）"], ["server_prequeue", "预派发到服务器队列（可关机）"]]) +
+            '<div class="muted">默认由本机按逐卡配额派发；仅点击运行进度中的“剩余 job 入服务器队列”才会预排队。</div>' +
             configInput("scheduler", "gpuJobsPerCard", "每卡最大并行 job 数", scheduler.gpuJobsPerCard ?? 1, "number") +
             configInput("scheduler", "gpuMinFreeMemoryGb", "可派发最低总剩余显存（GiB）", scheduler.gpuMinFreeMemoryGb ?? 22, "number") +
             '<div class="muted gpuMemorySummary">自动识别服务器全部显卡。每张卡未达到 job 配额，且该卡总剩余显存达到门槛时可派发。不按每个 job 预估显存，不以利用率或其他进程阻断。</div>' +
@@ -9899,7 +9899,7 @@ export function renderPanelHtml(): string {
       const schedulerHelp = {
         gpuJobsPerCard: "本项目每张实际显卡最多并行多少个 job。", gpuMinFreeMemoryGb: "显卡总剩余显存达到该值才可继续派发；不按每个 job 预估。",
         gpuMemoryPerJobGb: "只需填写每个 job 按多少 G 显存计算。例如填 24，96G 显卡可同时运行 4 个 job；实际显存不足时等待。",
-        dispatchMode: "选择新提交 Plan 的任务进入方式：本机按空闲 GPU 派发会在任务启动时连接 Worker；预派发到服务器队列会先把任务写入各服务器的持久队列，适合确认已入队后关机。",
+        dispatchMode: "默认全部由本机按逐卡配额派发；旧预排队设置不再自动生效，仅通过运行进度按钮将剩余 job 按配额放入服务器队列。",
         pollSeconds: "Worker 两次常规调度检查之间的基准间隔，单位秒；数值越小检查越频繁。",
         jitterSeconds: "每轮调度额外增加 0 到此值的随机等待，单位秒；用于错开多台机器的请求。",
         workerStatusTtlSeconds: "Worker 可用性信息可被沿用的最长时间，单位秒；过期时暂停向该 Worker 派发新任务。",
@@ -14636,7 +14636,9 @@ export function renderPanelHtml(): string {
         const recallPlanIds = Array.from(new Set(currentJobs.map((job) => String(job.planId || "")).filter(Boolean)));
         const recallPlanButton = recallPlanIds.length === 1 && currentJobs.some((job) => String(job.status || "") === "queued" || job.recallRequested === true)
           ? '<button type="button" class="mini secondary" data-command="recallPlanToLocalQueue" data-plan-id="' + escAttr(recallPlanIds[0]) + '" data-plan-file="' + escAttr(group.planFile || "") + '" title="召回此 Plan 当前所有服务器排队任务到本机空闲 GPU；运行中和已结束任务保持原状态。">召回 Plan 到本机</button>' : '';
-        const actions = '<div class="executionPlanActions">' + resumeButton + recallPlanButton + stopButton + foldButton + '</div>';
+        const queuePlanButton = recallPlanIds.length === 1 && currentJobs.some(job => job.status === "pending" && !job.workerId && !job.commandId && !job.manualDispatch)
+          ? '<button type="button" class="mini secondary" data-command="queueRemainingJobs" data-plan-id="' + escAttr(recallPlanIds[0]) + '" title="仅将此 Plan 尚未派发的 job 按各卡配置的 job 配额比例放入服务器队列；运行中和已排队任务保持原状">剩余 job 入服务器队列</button>' : '';
+        const actions = '<div class="executionPlanActions">' + resumeButton + queuePlanButton + recallPlanButton + stopButton + foldButton + '</div>';
         const detailsBody = stopClearDetail + phaseNote + dangerActions + distributedHtml + opHtml + taskHtml + more;
         const reportedSync = ((state || {}).planArtifactSyncStatuses || {})[group.distributedPlanId] || {};
         const syncState = reportedSync.runId === group.distributedPlanId ? reportedSync : {};
@@ -14743,6 +14745,7 @@ export function renderPanelHtml(): string {
         '<button class="mini history-clear" data-command="clearOperations" data-plan-file="' + escAttr(selectedExecutionPlanFile) + '" ' + (selectedExecutionPlanFile ? '' : 'disabled') + ' title="清除选中 Plan 的本机已结束运行历史；保留远端审计和产物">清除所选 Plan 历史</button>' +
         '<button class="mini history-clear" data-command="clearOperations" title="清除全部 Plan 在本机的已结束运行历史；保留远端审计、日志和产物">清除所有历史</button>' +
         '<button id="clearSelectedOperationHistory" class="mini history-clear" data-command="clearOperations" data-operation-history-selected="true" ' + (selectedOperationHistoryIds.size ? '' : 'disabled') + ' title="仅从本机面板隐藏勾选的已结束操作；不影响正在运行的 Plan 或 job">清理选中记录' + (selectedOperationHistoryIds.size ? ' (' + selectedOperationHistoryIds.size + ')' : '') + '</button>' +
+        '<button class="mini secondary" data-command="queueRemainingJobs" data-queue-all="true" title="仅在本次点击时，将全部 Plan 尚未派发的剩余 job 按逐卡 job 配额比例放入服务器队列">全部剩余 job 入服务器队列</button>' +
         '<button class="mini secondary" data-command="snapshot" title="重新拉取调度状态与操作记录">刷新状态</button>');
       const advancedActions = '<div class="executionControls"><button class="mini secondary" data-command="abortScheduler" data-operation-id="' + escAttr(abortOpId) + '" data-plan-file="' + escAttr(abortPlan) + '" data-confirm="true" ' + (abortEnabled ? '' : 'disabled') + ' title="强制中止当前 Plan 的调度器">备用清理</button></div>';
       const transferHtml = renderFileTransferProgress(state && state.fileTransfers);
@@ -17506,6 +17509,7 @@ export function renderPanelHtml(): string {
     function payloadFromButton(button) {
       const payload = {};
       const command = button.dataset.command || "";
+      if(command === "queueRemainingJobs" && button.dataset.queueAll === "true")payload.all=true;
       if (command === "stopAndClearPlans") payload.planFiles = button.dataset.executionPlanBatch === 'all' ? executionPlanFiles.slice() : Array.from(selectedExecutionPlanFiles);
       if (command === "runAllPlans" && button.dataset.planBatchRun === "selected") {
         payload.selectionOnly = true;

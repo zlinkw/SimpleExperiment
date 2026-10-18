@@ -170,7 +170,7 @@ class HttpTunnelClient {
         });
     }
     getPlanCodeScope(query, options = {}) {
-        return this.requestJson("/api/code-sync/plan-scope", "job_reconcile", query, { method: "POST", userInitiated: true, signal: options.signal, timeoutMs: 15000 });
+        return this.requestJson("/api/code-sync/plan-scope", "manual_refresh", query, { method: "POST", userInitiated: true, signal: options.signal, timeoutMs: 15000 });
     }
     getSyncScopeIndex(query, options = {}) {
         return this.requestJson("/api/sync-scope/index", "manual_refresh", query, { method: "POST", userInitiated: true, signal: options.signal, timeoutMs: 5000 });
@@ -180,7 +180,7 @@ class HttpTunnelClient {
         if (ids.length > 500 || ids.some(id => !/^[A-Za-z0-9._:-]{1,128}$/.test(id)))
             throw new Error("INVALID_RETIRED_COMMAND_SELECTION");
         if (options.executionOnly || options.selectedOnly || options.diagnosticsOnly || options.declarationOnly || options.queries?.length || options.declarations || options.discovery)
-            return this.requestJson(options.diagnosticsOnly ? "/api/worker/tasks/diagnostics" : "/api/worker/tasks/query", options.diagnosticsOnly ? "task_diagnostics" : options.observationOnly || options.declarationOnly ? "manual_refresh" : "job_reconcile", { queries: options.queries || [], executionOnly: options.executionOnly, selectedOnly: options.selectedOnly, observationOnly: options.observationOnly, diagnosticsOnly: options.diagnosticsOnly, ...(options.observationOnly ? { compact: true } : {}), declarationOnly: options.declarationOnly, declarations: options.declarations, discovery: options.discovery, retiredCommandIds: ids }, { method: "POST", userInitiated: true, signal: options.signal });
+            return this.requestJson(options.diagnosticsOnly ? "/api/worker/tasks/diagnostics" : "/api/worker/tasks/query", options.diagnosticsOnly ? "task_diagnostics" : options.executionOnly ? "job_reconcile" : "manual_refresh", { queries: options.queries || [], executionOnly: options.executionOnly, selectedOnly: options.selectedOnly, observationOnly: options.observationOnly, diagnosticsOnly: options.diagnosticsOnly, ...(options.observationOnly ? { compact: true } : {}), declarationOnly: options.declarationOnly, declarations: options.declarations, discovery: options.discovery, retiredCommandIds: ids }, { method: "POST", userInitiated: true, signal: options.signal });
         const params = new URLSearchParams();
         if (ids.length)
             params.set("retiredCommandIds", ids.join(","));
@@ -189,7 +189,7 @@ class HttpTunnelClient {
         if (options.discovery)
             params.set("discovery", JSON.stringify(options.discovery));
         const query = params.size ? "?" + params.toString() : "";
-        return this.requestJson("/api/worker/tasks" + query, "job_reconcile", undefined, {
+        return this.requestJson("/api/worker/tasks" + query, "manual_refresh", undefined, {
             method: "GET",
             userInitiated: true,
             signal: options.signal,
@@ -234,7 +234,7 @@ class HttpTunnelClient {
         return this.requestJson(path, purpose, undefined, { method: "GET" });
     }
     async requestJson(apiPath, purpose, body, options) {
-        if (options.method === "GET")
+        if (options.method === "GET" || options.method === "POST" && ["/api/worker/tasks/query", "/api/worker/tasks/diagnostics", "/api/code-sync/plan-scope"].includes(apiPath))
             return this.subscribeRead(apiPath, purpose, body, options);
         return this.executeRequestJson(apiPath, purpose, body, options);
     }

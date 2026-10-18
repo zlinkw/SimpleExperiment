@@ -39,6 +39,12 @@ async function runSimpleCli(argv) {
         }
         if (action !== "dispatch")
             throw (0, errors_1.usageError)("用法：simpleex task dispatch --workflow ID --jobs 0,1 --worker ID --gpu 0 --confirm [--stop-running]");
+        if (flags.remaining === true) {
+            if (flags.all !== true && !flags.workflow)
+                throw (0, errors_1.usageError)("请指定 --workflow ID 或 --all；仅选择尚未派发的剩余 job。");
+            (0, format_1.writeJson)(await (0, api_1.callApi)("tasks.dispatch", { distribution: "quota_remaining", workflowId: flags.workflow, all: flags.all === true, confirm: flags.confirm === true }));
+            return errors_1.EXIT_OK;
+        }
         const jobs = String(flags.jobs || "").trim();
         if (!/^\d+(?:,\d+)*$/.test(jobs))
             throw (0, errors_1.usageError)("请用 --jobs 明确选择 job 索引，例如 --jobs 0,2。");

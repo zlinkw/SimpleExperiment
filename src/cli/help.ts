@@ -53,6 +53,7 @@ Examples:
 export function domainHelp(domain: string): string {
   const rows: Record<string, string> = {
     task: `Usage: simpleex task dispatch --workflow ID --jobs 0,1 --worker ID --gpu 0 --confirm [--stop-running] [--json]
+       simpleex task dispatch --remaining (--workflow ID | --all) --confirm [--json]
        simpleex task analyze --workflow ID --index 0 [--json]
        simpleex task analyze --worker ID --command COMMAND_ID --output JOB_OUTPUT_DIR [--json]`,
     project: `Usage: simpleex project status [--json]`,

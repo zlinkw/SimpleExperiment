@@ -6,6 +6,37 @@ const { RealtimeTunnelClient, defaultRealtimeRefreshPolicy } = require("../../sr
 const { RequestBudget, defaultRequestBudgetConfig } = require("../../src/tunnel/RequestBudget.ts");
 
 const budget = () => new RequestBudget({ ...defaultRequestBudgetConfig, minIntervalByPurpose: {} });
+
+test("a slow GPU server cannot delay dispatch to a ready server; its late fresh read is consumed on the next tick", async()=>{
+  const client=new MultiEndpointRealtimeClient(['fast','slow'].map((id,index)=>({id,role:'worker',localHost:'localhost',localPort:23000+index})),budget,defaultRealtimeRefreshPolicy);
+  let release,slowReads=0,fastReads=0,timer;
+  const blocked=new Promise(resolve=>release=resolve);
+  client.clients.get('slow').getGpu=async()=>{slowReads++;await blocked;return gpu(1,'late-live')};
+  client.clients.get('fast').getGpu=async()=>gpu(1,'fast-'+(++fastReads));
+  const pending=client.getGpu({dispatch:true});
+  try{
+    const first=await Promise.race([pending,new Promise(resolve=>timer=setTimeout(()=>resolve(undefined),1000))]);
+    assert.equal(first?.fast?.length,1,'ready GPU must be usable while another endpoint is still pending');
+    assert.equal(first.slow,undefined,'unfinished queries never borrow historical GPU rows');
+    release();await new Promise(setImmediate);
+    const second=await client.getGpu({dispatch:true});assert.equal(second.slow[0].name,'late-live');assert.equal(slowReads,1,'a late current read is not discarded and restarted before use');
+    assert.equal(second.fast[0].name,'fast-2','consumed results are sampled anew');
+    await client.getGpu({dispatch:true});assert.equal(slowReads,2);
+  }finally{clearTimeout(timer);release();await pending;await client.disconnect()}
+});
+
+test("an expired or disconnected late GPU response cannot authorize dispatch",async()=>{
+  for(const changed of ['age','connection']){
+    const endpoint={id:'slow',role:'worker',localHost:'localhost',localPort:23002},client=new MultiEndpointRealtimeClient([endpoint],budget,defaultRealtimeRefreshPolicy);
+    let release,calls=0;const gate=new Promise(resolve=>release=resolve),worker=client.clients.get('slow');
+    worker.getGpu=async()=>{if(++calls===1){await gate;return gpu(1,'old')}return gpu(1,'fresh')};
+    try{assert.deepEqual(await client.getGpu({dispatch:true}),{});release();await new Promise(setImmediate);
+      if(changed==='age')client.dispatchGpuReads.get('slow').settledAt=Date.now()-1001;
+      else await worker.disconnect('generation changed');
+      assert.equal((await client.getGpu({dispatch:true})).slow[0].name,'fresh');assert.equal(calls,2);
+    }finally{release();await client.disconnect()}
+  }
+});
 const policy = { ...defaultRealtimeRefreshPolicy, preferWebSocket: false, fallbackToSse: false, snapshotFallbackIntervalSeconds: 60 };
 const gpu = (count, name = "current") => ({ generatedAt: new Date().toISOString(), status: "ok", gpus: Array.from({ length: count }, (_, index) => ({ index, name })) });
 const event = (seq, type, payload = {}, generatedAt = new Date().toISOString()) => ({ schemaVersion: 1, seq, type, source: "worker_telemetry", generatedAt, payload });
