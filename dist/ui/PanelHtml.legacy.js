@@ -442,6 +442,7 @@ function renderPanelHtml() {
     .executionPlanRow[open] > summary::before { content: "▾"; }
     .executionPlanRow > summary:hover { background: color-mix(in srgb, var(--vscode-focusBorder) 6%, transparent); }
     .executionPlanName { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 750; }
+    .executionPlanCheckbox { margin-right: 6px !important; }
     .executionPlanCount { color: var(--muted); font-variant-numeric: tabular-nums; white-space: nowrap; }
     .executionPlanDetails { display: grid; gap: 5px; padding: 6px 9px 8px; border-top: 1px solid var(--border); }
     .executionPlanDetails h3 { margin: 3px 0; font-size: 12px; }
@@ -2926,6 +2927,8 @@ function renderPanelHtml() {
     let configParamFilterTimer = 0;
     let configParamFilterGeneration = 0;
     let selectedExecutionPlanFile = String(restoredWebviewState.selectedExecutionPlanFile || "");
+    let selectedExecutionPlanFiles = new Set(Array.isArray(restoredWebviewState.selectedExecutionPlanFiles) ? restoredWebviewState.selectedExecutionPlanFiles.map(String) : selectedExecutionPlanFile ? [selectedExecutionPlanFile] : []);
+    let executionPlanFiles = [];
     let collapsedExecutionPlanKeys = new Set(Array.isArray(restoredWebviewState.collapsedExecutionPlanKeys) ? restoredWebviewState.collapsedExecutionPlanKeys.map((key) => String(key || "")).filter(Boolean) : []);
     const selectedOperationHistoryIds = new Set();
     let tracePlanScope = normalizePlanViewScope(restoredWebviewState.tracePlanScope);
@@ -3290,7 +3293,7 @@ function renderPanelHtml() {
       "recallFailedJob",
       "markJobUnavailable", "restoreJobAvailability",
       "stopAllPlans",
-      "stopAndClearPlan", "reloadWindow", "webviewHeartbeatAck", "webviewVisibility",
+      "stopAndClearPlan", "stopAndClearPlans", "reloadWindow", "webviewHeartbeatAck", "webviewVisibility",
       "quickSetup", "openSetupGuide", "openAdvancedCommandsSetting", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveAgentDefaults", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "reassignWorkerTask", "recallPlanToLocalQueue", "prepareAgents",
       "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure",  "startWorker", "start", "startAll", "startAgents", "startAllConnections",
       "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot",
@@ -4062,6 +4065,15 @@ function renderPanelHtml() {
       if (isPlanPreviewEditor(input)) persistTransientPanelState();
     });
     document.addEventListener("change", (event) => {
+      const planBox = event.target.closest && event.target.closest('input[data-execution-plan-check],input[data-execution-plan-all]');
+      if (planBox) {
+        const targets = planBox.hasAttribute('data-execution-plan-all') ? executionPlanFiles : [String(planBox.dataset.executionPlanCheck || '')];
+        for (const file of targets) if (file) { if (planBox.checked) selectedExecutionPlanFiles.add(file); else selectedExecutionPlanFiles.delete(file); }
+        selectedExecutionPlanFile = selectedExecutionPlanFiles.size === 1 ? Array.from(selectedExecutionPlanFiles)[0] : '';
+        persistWebviewState({ selectedExecutionPlanFile, selectedExecutionPlanFiles: Array.from(selectedExecutionPlanFiles) });
+        renderExecutionPlanListIfChanged(lastState || {}, true); renderOperationSectionIfChanged(lastState || {}, true);
+        return;
+      }
       if (event.target?.id === "resultSplitTable") {
         resultSplitTableKey = String(event.target.value || "");
         resultSplitFieldName = "";
@@ -14509,13 +14521,15 @@ function renderPanelHtml() {
         return { ...group, currentJobs, totalJobs, missingInputs: Math.max(0, recovery.expectedJobCount-currentJobs.length), tone, active, distributedActive, blockedOnly, blockedCount, queued, completed, running, submitting: !!submission, waitingSubmission, deferredCurrent, statusText, countText, failedJobs, unavailableJobs, label, stamp };
       });
       items.sort((a, b) => a.stamp - b.stamp || a.key.localeCompare(b.key));
+      if (typeof executionPlanFiles !== 'undefined') executionPlanFiles = Array.from(new Set(items.map(item => item.planFile).filter(Boolean)));
+      if (typeof selectedExecutionPlanFiles !== 'undefined') for (const file of selectedExecutionPlanFiles) if (!items.some(item => item.planFile && samePlanSelection(item.planFile, file))) selectedExecutionPlanFiles.delete(file);
       if (selectedExecutionPlanFile && !items.some((item) => item.planFile && samePlanSelection(item.planFile, selectedExecutionPlanFile))) {
         selectedExecutionPlanFile = "";
         persistWebviewState({ selectedExecutionPlanFile });
       }
       const renderPlan = (group) => {
         const detailKey = "execution-plan-" + encodeURIComponent(group.key);
-        const isSelected = !!group.planFile && samePlanSelection(group.planFile, selectedExecutionPlanFile);
+        const isSelected = !!group.planFile && (typeof selectedExecutionPlanFiles !== 'undefined' ? selectedExecutionPlanFiles.has(group.planFile) : samePlanSelection(group.planFile, selectedExecutionPlanFile));
         const currentJobs = group.currentJobs || [];
         const statusText = group.statusText;
         const count = group.countText;
@@ -14538,8 +14552,8 @@ function renderPanelHtml() {
         const stopClearSummary = stopClear ? '<div class="executionPlanStopClear' + (stopClearBusy ? " is-busy" : stopClearOutcome === "completed" ? " is-done" : stopClearOutcome === "cancelled" ? " is-cancelled" : " is-failed") + '" data-plan-stop-clear="' + escAttr(group.planFile) + '" data-plan-stop-phase="' + escAttr(stopClear.phase || "") + '" data-plan-stop-outcome="' + escAttr(stopClearOutcome) + '"><b>' + (stopClearBusy ? loadingPrefix(true) : "") + esc(stopClearTitle) + '</b><div>' + esc(stopClear.message || "") + '</div>' + (stopClearCounts ? '<div>' + esc(stopClearCounts) + '</div>' : '') + (stopClear.nextStep ? '<div>下一步：' + esc(stopClear.nextStep) + '</div>' : '') + '</div>' : '';
         const stopClearDetail = stopClear && Array.isArray(stopClear.failures) && stopClear.failures.length ? '<div class="executionDistributedJobError">' + stopClear.failures.map((item) => esc(item)).join("<br>") + '</div>' : '';
         const foldButton = '<button type="button" class="mini secondary" data-execution-plan-fold="' + escAttr(group.key) + '" title="只收起这张卡片，不停止调度、不清除历史">折叠此 Plan</button>';
-        const selectButton = group.planFile ? '<button type="button" class="mini executionPlanSelect' + (isSelected ? ' is-active' : '') + '" data-execution-plan-select="' + escAttr(group.planFile) + '" aria-pressed="' + (isSelected ? 'true' : 'false') + '" title="选中整个 Plan，供上方按 Plan 清理历史">' + (isSelected ? '已选中' : '选中 Plan') + '</button>' : '';
-        const dangerActions = group.planFile ? '<div class="executionPlanActions"><button class="mini history-clear" data-command="clearOperations" data-plan-file="' + escAttr(group.planFile) + '" title="仅清除这个 Plan 在本机的已结束运行历史；保留远端审计、日志和产物">清除历史</button>' + selectButton + '</div>' : '';
+        const selectBox = group.planFile ? '<input type="checkbox" class="executionPlanCheckbox" data-execution-plan-check="' + escAttr(group.planFile) + '" aria-label="勾选 ' + escAttr(group.label || group.planFile) + '"' + (isSelected ? ' checked' : '') + '>' : '';
+        const dangerActions = group.planFile ? '<div class="executionPlanActions"><button class="mini history-clear" data-command="clearOperations" data-plan-file="' + escAttr(group.planFile) + '" title="仅清除这个 Plan 在本机的已结束运行历史；保留远端审计、日志和产物">清除历史</button></div>' : '';
         const statusBadge = '<b class="' + (group.tone === "blocked" || group.tone === "queued" ? "status-warning" : statusClass(group.tone)) + '">' + esc(statusText) + '</b>';
         const distributedHtml = distributedRows.length ? '<h3>' + loadingPrefix(group.distributedActive) + '当前 job · 成功 ' + group.completed + '/' + group.totalJobs + '</h3>'
           + (group.missingInputs ? '<div class="executionDistributedFailure" role="status">缺少 ' + group.missingInputs + ' 个 job 的任务输入（声明 ' + group.totalJobs + '，当前 ' + distributedRows.length + '）。缺项不计入完成；选中对应 PLAN 后，可校验并选择“仅补跑未完成任务”。</div>' : '')
@@ -14639,7 +14653,7 @@ function renderPanelHtml() {
           : "全局同步待核验";
         const syncBadge = group.tone === "completed" ? '<div class="executionPlanSyncStatus" title="' + escAttr([syncState.detail || "启动后连接就绪、Plan 完成及同步/下载结束时自动只读核验。", syncState.checkedAt || ""].join(" · ")) + '"><span class="pill ' + (syncState.status === "synced" ? "status-completed" : "status-warning") + '">' + esc(syncLabel) + (Number(syncState.targetCount) > 0 ? ' · ' + Number(syncState.syncedCount || 0) + '/' + Number(syncState.targetCount) + ' Worker' : '') + '</span></div>' : '';
         return '<article class="executionPlanCard executionPlanRow ' + group.tone + (isSelected ? ' is-selected' : '') + '" data-execution-plan-key="' + escAttr(group.key) + '">' +
-          '<div class="executionPlanHead" title="' + escAttr(group.planFile || group.label) + '"><span class="executionPlanName">' + loadingPrefix((group.active && !group.waitingSubmission && !group.deferredCurrent) || group.distributedActive) + esc(group.label) + '</span>' + statusBadge + '</div>' +
+          '<div class="executionPlanHead" title="' + escAttr(group.planFile || group.label) + '"><label class="executionPlanName">' + selectBox + loadingPrefix((group.active && !group.waitingSubmission && !group.deferredCurrent) || group.distributedActive) + esc(group.label) + '</label>' + statusBadge + '</div>' +
           '<div class="executionPlanMeta"><span class="executionPlanCount">' + esc(count) + '</span><span title="' + escAttr(group.planFile || group.label) + '">' + esc(group.planFile || "未关联 Plan") + '</span></div>' +
           syncBadge +
           stopClearSummary +
@@ -14664,7 +14678,9 @@ function renderPanelHtml() {
         const foldClear = foldRaw && !stopClearNewerThan(group, foldRaw) && String(foldRaw.outcome || "") !== "completed" ? foldRaw : null;
         const foldOutcome = String(foldClear && foldClear.outcome || "");
         const foldClearLabel = foldOutcome === "failed" ? "清理失败" : foldOutcome === "partial" ? "清理未完成" : foldOutcome === "running" ? "正在清理" : foldOutcome === "cancelled" ? "清理已取消" : "";
-        return '<div class="executionPlanFoldRow ' + group.tone + '"><span class="executionPlanName">' + esc(group.label) + '</span><span class="executionPlanCount">' + esc(count) + '</span><b class="' + (group.tone === "blocked" || group.tone === "queued" ? "status-warning" : statusClass(group.tone)) + '">' + esc(statusText) + '</b>' + (foldClearLabel ? '<b class="status-warning" data-plan-stop-fold="' + escAttr(foldOutcome) + '">' + esc(foldClearLabel) + '</b>' : '') + '<button type="button" class="mini secondary" data-execution-plan-fold="' + escAttr(group.key) + '" title="把这张 Plan 放回主视图。不改变调度。">恢复监控</button></div>';
+        const checked = typeof selectedExecutionPlanFiles !== 'undefined' ? selectedExecutionPlanFiles.has(group.planFile) : samePlanSelection(group.planFile, selectedExecutionPlanFile);
+        const selectBox = group.planFile ? '<input type="checkbox" class="executionPlanCheckbox" data-execution-plan-check="' + escAttr(group.planFile) + '" aria-label="勾选 ' + escAttr(group.label || group.planFile) + '"' + (checked ? ' checked' : '') + '>' : '';
+        return '<div class="executionPlanFoldRow ' + group.tone + '"><label class="executionPlanName">' + selectBox + esc(group.label) + '</label><span class="executionPlanCount">' + esc(count) + '</span><b class="' + (group.tone === "blocked" || group.tone === "queued" ? "status-warning" : statusClass(group.tone)) + '">' + esc(statusText) + '</b>' + (foldClearLabel ? '<b class="status-warning" data-plan-stop-fold="' + escAttr(foldOutcome) + '">' + esc(foldClearLabel) + '</b>' : '') + '<button type="button" class="mini secondary" data-execution-plan-fold="' + escAttr(group.key) + '" title="把这张 Plan 放回主视图。不改变调度。">恢复监控</button></div>';
       };
       const foldHtml = folded.length
         ? '<details class="executionPlanFold" data-details-key="execution-plan-fold" open><summary>已折叠 Plan ' + folded.length + '</summary>' + folded.map(foldRow).join("") + '</details>'
@@ -14724,9 +14740,14 @@ function renderPanelHtml() {
       const topStopCommand = selectedDistributedPlan ? "stopAndClearPlan" : "stopExperiment";
       const topStopPlan = selectedDistributedPlan ? selectedExecutionPlanFile : abortPlan;
       const topStopEnabled = selectedDistributedPlan ? !!selectedExecutionPlanFile : abortEnabled;
+      const batchPlans = typeof selectedExecutionPlanFiles !== 'undefined' ? Array.from(selectedExecutionPlanFiles) : selectedExecutionPlanFile ? [selectedExecutionPlanFile] : [];
+      const allPlans = typeof executionPlanFiles !== 'undefined' ? executionPlanFiles : Array.from(new Set(distributedPlanPaths.concat(deferredPlanPaths, ops.map(op => String(op.planFile || '')).filter(Boolean))));
       setHtmlIfChanged("executionControls", '<button class="mini danger" data-command="' + topStopCommand + '" data-operation-id="' + escAttr(selectedDistributedPlan ? "" : abortOpId) + '" data-plan-file="' + escAttr(topStopPlan) + '" data-confirm="true" ' + (topStopEnabled ? '' : 'disabled') + ' title="' + (selectedDistributedPlan ? "终止并清除已选中的分布式 Plan：停止调度和 job，关闭对应 tmux 标签，并清除本机队列记录。只作用于已选中的 Plan。" : "中止当前选中 Plan 的本地运行任务") + '">' + (selectedDistributedPlan ? "终止并清除已选 Plan" : "中止当前 Plan") + '</button>' +
         '<button class="mini danger" data-command="stopAndClearPlan" data-plan-file="' + escAttr(stopClearPlan) + '" data-confirm="true" ' + (stopClearPlan ? '' : 'disabled') + ' title="终止并清除已选中的 Plan：停止调度和分布式 job，关闭对应 tmux 标签，并清除本机队列记录。未选中时不会使用正在编辑的 Plan。">一键中止并清除 Plan</button>' +
-        '<button class="mini danger" data-command="stopAllPlans" ' + (anyActivePlan ? '' : 'disabled') + ' title="手动中止全部运行中的 Plan；逐个向 Worker 发送停止命令">中止所有 Plan</button>' +
+        '<button class="mini danger" data-command="stopAllPlans" ' + (anyActivePlan || distributedPlanPaths.length || deferredPlanPaths.length ? '' : 'disabled') + ' title="中止本机及分布式队列中的 Plan，逐个核对精确任务；分布式记录清理仍需确认">中止所有 Plan</button>' +
+        '<label class="mini"><input type="checkbox" data-execution-plan-all="true"' + (allPlans.length && batchPlans.length === allPlans.length ? ' checked' : '') + '>全选 Plan</label>' +
+        '<button class="mini danger" data-command="stopAndClearPlans" data-execution-plan-batch="selected" ' + (batchPlans.length ? '' : 'disabled') + '>中止并清理勾选 Plan (' + batchPlans.length + ')</button>' +
+        '<button class="mini danger" data-command="stopAndClearPlans" data-execution-plan-batch="all" ' + (allPlans.length ? '' : 'disabled') + '>中止并清理所有 Plan</button>' +
         '<button class="mini history-clear" data-command="clearOperations" data-plan-file="' + escAttr(selectedExecutionPlanFile) + '" ' + (selectedExecutionPlanFile ? '' : 'disabled') + ' title="清除选中 Plan 的本机已结束运行历史；保留远端审计和产物">清除所选 Plan 历史</button>' +
         '<button class="mini history-clear" data-command="clearOperations" title="清除全部 Plan 在本机的已结束运行历史；保留远端审计、日志和产物">清除所有历史</button>' +
         '<button id="clearSelectedOperationHistory" class="mini history-clear" data-command="clearOperations" data-operation-history-selected="true" ' + (selectedOperationHistoryIds.size ? '' : 'disabled') + ' title="仅从本机面板隐藏勾选的已结束操作；不影响正在运行的 Plan 或 job">清理选中记录' + (selectedOperationHistoryIds.size ? ' (' + selectedOperationHistoryIds.size + ')' : '') + '</button>' +
@@ -14772,6 +14793,7 @@ function renderPanelHtml() {
       const data = state || {};
       const localSignature = stableSectionSignature({
         selectedExecutionPlanFile,
+        selectedExecutionPlanFiles: typeof selectedExecutionPlanFiles !== 'undefined' ? Array.from(selectedExecutionPlanFiles).sort() : [],
         collapsedExecutionPlanKeys: Array.from(collapsedExecutionPlanKeys).sort(),
         operationStatusFilter,
         selectedOperationHistoryIds: Array.from(selectedOperationHistoryIds).sort(),
@@ -17492,6 +17514,7 @@ function renderPanelHtml() {
     function payloadFromButton(button) {
       const payload = {};
       const command = button.dataset.command || "";
+      if (command === "stopAndClearPlans") payload.planFiles = button.dataset.executionPlanBatch === 'all' ? executionPlanFiles.slice() : Array.from(selectedExecutionPlanFiles);
       if (command === "runAllPlans" && button.dataset.planBatchRun === "selected") {
         payload.selectionOnly = true;
         payload.planFiles = selectedPlanBatchFiles(lastState || {});

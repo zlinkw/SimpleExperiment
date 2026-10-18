@@ -189,7 +189,7 @@ test('a six-job declaration with five available inputs cannot render five-of-fiv
   sandbox.render({distributedPlans:[{id:'six',planFile:'plans/six.yaml',planJobCount:6,jobs}]});
   assert.match(sandbox.html,/当前 job · 成功 5\/6/);
   assert.match(sandbox.html,/缺少 1 个 job 的任务输入/);
-  assert.match(sandbox.html,/data-execution-plan-select="plans\/six.yaml"/);
+  assert.match(sandbox.html,/data-execution-plan-check="plans\/six.yaml"/);
   assert.doesNotMatch(sandbox.html,/当前 job · 成功 5\/5/);
 });
 
@@ -207,6 +207,20 @@ function executionPlanSource() {
   const asArray = panel.slice(panel.indexOf("function asArray(")).split("\n")[0];
   return asArray + "\nconst manualJobSelections = new Map();\n" + panel.slice(helpers, end).replaceAll("\\\\", "\\");
 }
+
+test('Plan cards expose checkboxes directly and distributed-only state enables all-Plan cleanup',()=>{
+ const sandbox=clickSandbox({selectedExecutionPlanFiles:new Set(),executionPlanFiles:[]});
+ const state={distributedPlans:[{id:'a',planFile:'plans/a.yaml',jobs:[{index:0,status:'pending',case:'a',seed:1}]},{id:'b',planFile:'plans/b.yaml',jobs:[{index:0,status:'unknown',case:'b',seed:1}]}]};
+ sandbox.render(state);assert.match(sandbox.html,/type="checkbox"[^>]*data-execution-plan-check="plans\/a.yaml"/);assert.match(sandbox.html,/data-execution-plan-check="plans\/b.yaml"/);assert.doesNotMatch(sandbox.html,/executionPlanSelect|>选中 Plan</);
+ sandbox.operationViewModelForState=()=>({rows:[],visibleRows:[],statusCounts:{}});sandbox.renderFileTransferProgress=()=>'';sandbox.setHtmlIfChanged=(id,html)=>{sandbox[id]=html;};
+ sandbox.renderOperationSection(state);const all=sandbox.executionControls.match(/<button[^>]*data-command="stopAndClearPlans"[^>]*data-execution-plan-batch="all"[^>]*>/)[0];assert.doesNotMatch(all,/disabled/);
+ const stop=sandbox.executionControls.match(/<button[^>]*data-command="stopAllPlans"[^>]*>/)[0];assert.doesNotMatch(stop,/disabled/);
+ const start=panel.indexOf('const planBox = event.target.closest'),end=panel.indexOf('if (event.target?.id === "resultSplitTable")',start);
+ vm.runInContext('this.changePlan = function(event){'+panel.slice(start,end)+'};',sandbox);
+ sandbox.lastState=state;sandbox.renderOperationSectionIfChanged=()=>sandbox.renderOperationSection(state);
+ sandbox.changePlan({target:{closest(){return this;},hasAttribute:()=>true,checked:true,dataset:{}}});assert.equal(sandbox.selectedExecutionPlanFiles.size,2);assert.match(sandbox.executionControls,/中止并清理勾选 Plan \(2\)/);
+ sandbox.changePlan({target:{closest(){return this;},hasAttribute:()=>false,checked:false,dataset:{executionPlanCheck:'plans/a.yaml'}}});assert.deepEqual([...sandbox.selectedExecutionPlanFiles],['plans/b.yaml']);assert.equal(sandbox.selectedExecutionPlanFile,'plans/b.yaml');
+});
 
 test("failed formal job recall is scoped to the exact command and redraws cleanup progress", () => {
   const sandbox = clickSandbox();
@@ -366,7 +380,7 @@ test("Plan overview keeps completed and failed Plans visible without routine val
   assert.doesNotMatch(html, /历史 Plan|validate-plan/);
   assert.match(html, /详情与日志/);
   assert.match(html, /data-command="clearOperations" data-plan-file="plans\/live.yaml"/);
-  assert.match(html, /data-execution-plan-select="plans\/live.yaml" aria-pressed="true"/);
+  assert.match(html, /data-execution-plan-check="plans\/live.yaml"[^>]*checked/);
 });
 
 test("persisted distributed jobs keep their Plan live after restart despite old failed operations", () => {
@@ -865,6 +879,7 @@ test("manual fold survives an empty snapshot and webview restore", () => {
   });
   assert.match(restored.html, /已折叠 Plan 1/);
   assert.match(restored.html, /成功 1\/1/);
+  assert.match(restored.html, /data-execution-plan-check="plans\/live.yaml"/);
 });
 
 test("exact operation cleanup hides only terminal records", () => {

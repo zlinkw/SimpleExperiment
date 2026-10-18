@@ -3,7 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.queryScopeMetadata = queryScopeMetadata;
 exports.buildScopeMetadataStatuses = buildScopeMetadataStatuses;
 /** Each completed endpoint publishes independently; pending/failed endpoints never prove absence. */
-async function queryScopeMetadata(endpoints, signal, report = () => { }, publish = () => { }) {
+async function queryScopeMetadata(endpoints, signal, report = () => { }, publish = () => { }, receive = () => { }) {
     const inventories = {}, unavailable = new Map(endpoints.map(({ id }) => [id, "正在读取"]));
     const build = () => buildScopeMetadataStatuses(endpoints.map(({ id }) => id), inventories, unavailable);
     await Promise.all(endpoints.map(async ({ id, read }) => {
@@ -29,6 +29,7 @@ async function queryScopeMetadata(endpoints, signal, report = () => { }, publish
                 throw new Error("未读取路径清单无效");
             inventories[id] = inventory;
             unavailable.delete(id);
+            receive(id, inventory);
             const files = Object.keys(inventory.files).length, unread = Object.keys(inventory.unverifiedFiles || {}).length;
             const detail = `已读取 ${files} 个文件${unread ? ` · ${unread} 处未核实` : " · 索引完成"}`;
             report(`${id}：${detail}`, { endpointId: id, state: unread ? "partial" : "complete", detail, files });
@@ -36,6 +37,7 @@ async function queryScopeMetadata(endpoints, signal, report = () => { }, publish
         catch (error) {
             signal?.throwIfAborted();
             unavailable.set(id, error instanceof Error ? error.message : String(error));
+            receive(id, undefined, unavailable.get(id));
             const detail = unavailable.get(id);
             report(`${id}：${detail}`, { endpointId: id, state: "failed", detail });
         }

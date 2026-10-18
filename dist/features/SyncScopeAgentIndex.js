@@ -108,7 +108,7 @@ class SyncScopeAgentIndexReader {
                     throw new Error("SCOPE_INDEX_ENTRY_INVALID");
                 if (row.c !== undefined && !Number.isFinite(row.c) || [row.v, row.i].some(value => value !== undefined && (typeof value !== "string" || !/^[0-9]{1,64}$/.test(value))))
                     throw new Error("SCOPE_INDEX_ENTRY_IDENTITY_INVALID");
-                entries.set(name, row);
+                entries.set(name, { ...row, verificationRevision: generation });
             }
             if (entries.size > 60000)
                 throw new Error("SCOPE_INDEX_ENTRY_LIMIT");
@@ -138,7 +138,8 @@ class SyncScopeAgentIndexReader {
     }
     async inventory(round, signal, report, binding = {}) {
         const snapshot = await this.read(round, signal, report);
-        const identity = (row) => ({ modifiedAtMs: row.m, changedAtMs: row.c, device: row.v, inode: row.i });
+        const identity = (row) => ({ modifiedAtMs: row.m, changedAtMs: row.c, device: row.v, inode: row.i,
+            contentRevision: row.verificationRevision === undefined ? undefined : snapshot.instanceId + ":" + row.verificationRevision });
         const load = async () => ({ files: Object.fromEntries([...snapshot.entries].filter(([, row]) => !row.d).map(([name, row]) => [name, { size: row.s, ...identity(row) }])),
             directories: Object.fromEntries([...snapshot.entries].filter(([, row]) => row.d).map(([name, row]) => [name, identity(row)])),
             unverifiedFiles: {}, observedAt: snapshot.observedAt, agentInstanceId: snapshot.instanceId, indexGeneration: snapshot.generation, acceleration: snapshot.acceleration });

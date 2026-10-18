@@ -92,7 +92,8 @@ import { parseDistributedResultsFlag } from "../features/DistributedAdapterFlag"
 import { directPlanSyncPreview, transferPlanArtifacts, workerFpsyncTaskLabel } from "../features/PlanArtifactTransfer";
 import { planProjectMirror, normalizeMirrorScopePaths, filterInventoryByScope } from "../features/ProjectMirror";
 import { openSyncScopeTree, ScopeEntry, ScopeObservation } from "../features/SyncScopeTree";
-import { queryScopeMetadata } from "../features/SyncScopeMetadata";
+import { queryScopeMetadata, MetadataInventory } from "../features/SyncScopeMetadata";
+import { AutomaticScopeContent, ContentEndpoint } from "../features/AutomaticScopeContent";
 import { SyncScopeAgentIndexReader, scopeIndexUnsupported } from "../features/SyncScopeAgentIndex";
 import { collectLocalScopeMetadata } from "../features/SyncScopeStatus";
 import { SyncScopeLocalIndexReader } from "../features/SyncScopeLocalIndex";
@@ -602,6 +603,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "retryDistributedJob", "dispatchJobs",
     "stopAllPlans",
     "stopAndClearPlan",
+    "stopAndClearPlans",
     "refreshLocalResults",
     "webviewReady", "webviewHeartbeatAck", "webviewStateRendered", "webviewSectionInterest", "webviewSectionTelemetry", "webviewLayoutEvidence", "webviewBootstrapPhase", "webviewBootstrapError", "webviewRuntimeIncident", "webviewRenderError", "webviewVisibility", "copyPanelDiagnostics", "reloadPanel", "reloadPanelLowEffects", "reloadWindow", "recallPlanToLocalQueue", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveAgentDefaults", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
     "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "reassignWorkerTask", "openSetupGuide", "openAdvancedCommandsSetting", "applyPlanDatasetMapping", "autoMatchPlanDatasets",
@@ -5714,10 +5716,11 @@ return this.testTunnel(true);
                 await this.clearOperationHistoryFromUi(message);
                 break;
             case "stopAllPlans":
-                await this.stopAllPlansFromUi();
-                break;
+                return await this.stopAllPlansFromUi();
             case "stopAndClearPlan":
                 return await this.stopAndClearPlanFromUi(message);
+            case "stopAndClearPlans":
+                return await this.stopAndClearPlansFromUi(message);
             case "clearCache":
                 await this.clearCacheFromUi();
                 break;
@@ -5880,7 +5883,7 @@ return this.testTunnel(true);
                 return { status: "completed", message: String(value.message) };
             if (command === "runAllPlans" && value?.selectionOnly === true && ["completed", "failed", "cancelled"].includes(value.status))
                 return { status: value.status, message: String(value.message) };
-            if (["stopAndClearPlan", "retryDistributedJob", "dispatchJobs", "markJobUnavailable", "restoreJobAvailability"].includes(command) && value && typeof value === "object" && (value.status === "completed" || value.status === "failed" || value.status === "cancelled" || value.status === "partial")) {
+            if (["stopAndClearPlan", "stopAndClearPlans", "stopAllPlans", "retryDistributedJob", "dispatchJobs", "markJobUnavailable", "restoreJobAvailability"].includes(command) && value && typeof value === "object" && (value.status === "completed" || value.status === "failed" || value.status === "cancelled" || value.status === "partial")) {
                 const outcome = value.status === "partial" ? "failed" : value.status;
                 return { status: outcome, message: String(value.message || outcome), planStopClear: value.planStopClear };
             }
@@ -8310,6 +8313,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const targets = this.workerCodeSyncTargets();
         const scopeClient = this.client;
         const scopeViewId = crypto.randomUUID();
+        const automaticContent = { local: new AutomaticScopeContent(), workers: new AutomaticScopeContent() };
         const localScopeIndex = new SyncScopeLocalIndexReader(root, 30_000, this.projectFileObservationIndex());
         const scopeIndexReaders = new Map(targets.flatMap(target => ["local", "workers"].map(mode => [mode + ":" + target.id, new SyncScopeAgentIndexReader(async (query, options) => {
             if (workspaceRoot() !== root || this.client !== scopeClient) throw new Error("SCOPE_INDEX_WORKSPACE_CHANGED");
@@ -8321,7 +8325,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             return value;
         }, undefined, this.projectFileObservationIndex(this.sftpServerOptions(target)))] as const)));
         const scopePanel = openSyncScopeTree("项目同步范围与状态", [{
-            id: "local", label: "本机 ↔ Worker", detail: "默认勾选用于批量同步或删除，范围外和同步暂停项也可管理；自动传输范围请点击“编辑同步范围”后保存。内容比较按需执行。", rootSelectable: true, excludable: true,
+            id: "local", label: "本机 ↔ Worker", detail: "默认勾选用于批量同步或删除，范围外和同步暂停项也可管理；自动传输范围请点击“编辑同步范围”后保存。自动校验内容，未变化文件复用哈希。", rootSelectable: true, excludable: true,
             selected: localSelected,
             indexLocations: [{ id: "local", label: "本机" }, ...this.enabledWorkerConfigs().map(row => ({ id: row.id, label: row.id }))],
             watch: invalidate => {
@@ -8335,7 +8339,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             refresh: async (relative, signal, report) => this.refreshSyncScopeStatus(root, targets, "local-server", ["."], relative, signal, report),
             summary: async (relative, signal, report, publish, round) => this.refreshSyncScopeMetadata(root, targets, true, relative, signal, report, publish,
                 (id, signal, report) => scopeIndexReaders.get("local:" + id)!.inventory(round || "local-0", signal, report),
-                progress => localScopeIndex.read(scopeViewId + ":" + (round || "local-0"), signal, progress)),
+                progress => localScopeIndex.read(scopeViewId + ":" + (round || "local-0"), signal, progress), automaticContent.local),
             dispose: () => { for (const reader of scopeIndexReaders.values()) reader.dispose(); },
             remove: async (relative, endpointId, directory, report) => this.removeSyncScopePath(root, targets, relative, endpointId, directory, report),
             removeAllWorkers: async (relative, directory, report) => this.removeSyncScopePathFromAllWorkers(root, targets, relative, directory, report),
@@ -8350,14 +8354,14 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 void vscode.window.showInformationMessage(`本机与服务器同步范围已保存：${normalized.length} 条路径。`);
             },
         }, {
-            id: "workers", label: "Worker ↔ Worker", detail: "默认勾选用于批量同步或删除；自动传输范围请点击“编辑同步范围”后保存，默认整个项目，机器状态除外。内容比较按需执行。",
+            id: "workers", label: "Worker ↔ Worker", detail: "默认勾选用于批量同步或删除；自动传输范围请点击“编辑同步范围”后保存，默认整个项目，机器状态除外。自动校验内容，未变化文件复用哈希。",
             selected: serverSelected,
             indexLocations: this.enabledWorkerConfigs().map(row => ({ id: row.id, label: row.id })),
             list: async (relative, signal, round) => this.listSyncScopeUnion(root, targets, relative, false, false, signal,
                 target => scopeIndexReaders.get("workers:" + target.id)!.list(relative, round || "workers-0", signal)),
             refresh: async (relative, signal, report) => this.refreshSyncScopeStatus(root, targets, "server-server", ["."], relative, signal, report),
             summary: async (relative, signal, report, publish, round) => this.refreshSyncScopeMetadata(root, targets, false, relative, signal, report, publish,
-                (id, signal, report) => scopeIndexReaders.get("workers:" + id)!.inventory(round || "workers-0", signal, report)),
+                (id, signal, report) => scopeIndexReaders.get("workers:" + id)!.inventory(round || "workers-0", signal, report), undefined, automaticContent.workers),
             remove: async (relative, endpointId, directory, report) => {
                 if (endpointId === "local") throw new Error("Worker ↔ Worker 模式不能操作本机文件。");
                 return this.removeSyncScopePath(root, targets, relative, endpointId, directory, report);
@@ -8449,7 +8453,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const holds = await loadSyncHolds(this.context.globalStorageUri.fsPath, root);
         return Object.assign([...entries.values()].map((row) => ({ ...row, held: isSyncHeld(row.path, holds) })).sort((a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name)), { queryErrors, observations });
     }
-    async refreshSyncScopeMetadata(root, targets, includeLocal, relative = ".", signal?: AbortSignal, report = (_stage: string) => {}, publish = (_statuses: any) => {}, indexRead?, localIndexRead?) {
+    async refreshSyncScopeMetadata(root, targets, includeLocal, relative = ".", signal?: AbortSignal, report = (_stage: string) => {}, publish = (_statuses: any) => {}, indexRead?, localIndexRead?, automatic?: AutomaticScopeContent) {
         const configured = this.enabledWorkerConfigs().map((row) => String(row.id || "")).filter(Boolean);
         const endpoints = configured.map((id) => ({ id, read: async (progress: (stage: string) => void) => {
             const target = targets.find((row) => row.id === id);
@@ -8467,7 +8471,46 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             return result;
         } }));
         if (includeLocal) endpoints.unshift({ id: "local", read: progress => localIndexRead ? localIndexRead(progress) : collectLocalScopeMetadata(root, relative, signal, progress) });
-        return queryScopeMetadata(endpoints, signal, report, publish);
+        const inventories: Record<string, MetadataInventory> = {}, unavailable = new Map<string, string>();
+        const interim = rows => publish(automatic ? Object.fromEntries(Object.entries(rows).map(([name, value]: [string, any]) => [name,
+            value.state === "same" ? { ...value, state: "unknown", detail: "文件索引已读取，正在自动校验内容" } : value])) : rows);
+        const metadata = await queryScopeMetadata(endpoints, signal, report, interim, (id, value, error) => {
+            if (value) inventories[id] = value; else unavailable.set(id, error || "文件索引未核实");
+        });
+        if (!automatic) return metadata;
+        signal?.throwIfAborted();
+        const [ledger, holds] = await Promise.all([this.loadPlanSyncLedger(root), loadSyncHolds(this.context.globalStorageUri.fsPath, root)]);
+        const mode = includeLocal ? "local-server" : "server-server";
+        const contentEndpoints: ContentEndpoint[] = configured.map(id => {
+            const target = targets.find(row => row.id === id), server = target && this.sftpServerOptions(target);
+            return { id, binding: JSON.stringify([root, id, server, (inventories[id] as any)?.agentInstanceId]),
+                hash: async (paths, contentSignal) => {
+                    const capability = await this.simpleSftpCapability("sync.projectInventory");
+                    if (capability?.methodOptions?.["sync.projectInventory"]?.contentIdentity !== 1)
+                        throw new Error("请更新配套 SimpleSFTP 至 0.2.101 并重载窗口后自动校验内容。");
+                    return this.verifiedSftpProjectInventory({ source: server, relativePath: ".", recursive: true, scopePaths: paths,
+                        timeoutMs: 120000, ...(contentSignal ? { signal: contentSignal } : {}),
+                        onProgress: progress => report(`${id}：自动内容校验 · 缓存复用 ${Number(progress.cacheHits || 0)} · 新校验 ${Number(progress.cacheRehash || 0)}`) });
+                } };
+        });
+        if (includeLocal) contentEndpoints.unshift({ id: "local", binding: JSON.stringify([root, "local"]), hash: async (paths, contentSignal, accept) => {
+            const unverifiedFiles = {};
+            const files = await hashLocalScopeNames(root, paths, (name, reason) => { unverifiedFiles[name] = reason; accept(name, undefined, reason); }, this.localScopeHashCacheFile(root), {
+                signal: contentSignal, concurrency: 2, onFile: (name, file) => accept(name, { ...file, modifiedAtMs: Number(file.modifiedAtMs) }),
+            });
+            return { files: files as any, unverifiedFiles };
+        } });
+        const build = value => {
+            const rows = buildScopeStatuses(value, mode, ["."], new Set(), ledger, new Set(unavailable.keys()), holds);
+            for (const [name, row] of Object.entries(rows)) {
+                row.basis = "content";
+                if (!row.copies) { row.metadata = metadata[name]?.metadata; row.issueSignature = syncScopeIssueSignature(row, contentEndpoints.map(node => node.id)); }
+            }
+            rows["."] ||= metadata["."];
+            return rows;
+        };
+        const value = await automatic.verify(contentEndpoints, inventories, unavailable, signal, value => publish(build(value)), report);
+        return build(value);
     }
     async refreshSyncScopeStatus(root, targets, mode, selectedPaths, relative = ".", signal?: AbortSignal, report = (_stage: string) => {}) {
         signal?.throwIfAborted();
@@ -16798,28 +16841,42 @@ this.assertActionAuthorityCurrent(options);this.assertPlanTopologyReady(options.
     }
     async stopAllPlansFromUi() {
         const runs = this.longRunningPlanRunOperations().filter((row: any) => row && operationResultPlanFile(row));
-        if (!runs.length) {
+        const root = workspaceRoot();
+        const generation = this.projectContextGeneration;
+        const queue = typeof this.loadDistributedQueue === "function" && root ? await this.loadDistributedQueue(root) : { plans: [], deferred: [] };
+        const distributed = uniqueStrings([...(queue.plans || []).filter(plan => (plan.jobs || []).some(job => ["pending", "dispatching", "queued", "running", "unknown"].includes(job.status))).map(plan => plan.planFile),
+            ...(queue.deferred || []).filter(row => row.status !== "superseded").map(row => row.planFile)]);
+        if (!runs.length && !distributed.length) {
             void vscode.window.showInformationMessage("当前没有可中止的运行中 Plan。");
-            return;
+            return { status: "completed", message: "当前没有可中止的运行中 Plan。" };
         }
         const confirmed = await vscode.window.showWarningMessage(
-            `中止 ${runs.length} 个运行中的 Plan？这会向各自 Worker 发送手动中止命令。`,
+            `中止 ${uniqueStrings([...runs.map(operationResultPlanFile), ...distributed]).length} 个活动或排队 Plan？分布式 Plan 将逐个预览精确停止和记录清理目标，仍需确认；训练产物保留。`,
             { modal: true }, "中止所有 Plan", "取消",
         );
-        if (confirmed !== "中止所有 Plan") return;
+        if (confirmed !== "中止所有 Plan") return { status: "cancelled", message: "已取消中止所有 Plan。" };
         const failures: string[] = [];
         for (const row of runs) {
+            if (root !== workspaceRoot() || generation !== this.projectContextGeneration) return { status: "partial", message: "项目已切换，停止后续批次。" };
             const operationId = String((row as any).operationId || (row as any).id || "");
             const planFile = operationResultPlanFile(row);
             if (!operationId || !planFile) continue;
+            if (distributed.some(file => samePlanSelection(file, planFile))) continue;
             try {
                 await this.stopExperimentRouted({ operationId, planFile, workerId: this.runOperationWorkerId(row), manualStopType: "scheduler_aborted" });
             } catch (error) {
                 failures.push(`${planFile}: ${errorMessage(error)}`);
             }
         }
+        for (const planFile of distributed) {
+            if (root !== workspaceRoot() || generation !== this.projectContextGeneration) return { status: "partial", message: "项目已切换，停止后续批次。" };
+            const result = await this.stopAndClearPlanFromUi({ planFile });
+            if (result?.status === "cancelled") return { status: "cancelled", message: result.message || "已取消后续 Plan。" };
+            if (result?.status !== "completed") { failures.push(`${planFile}: ${result?.message || "未完成"}`); break; }
+        }
         this.postState();
         if (failures.length) void vscode.window.showErrorMessage(`部分 Plan 未能中止：${failures.join("；")}`);
+        return { status: failures.length ? "failed" : "completed", message: failures.length ? `部分 Plan 未能中止：${failures.join("；")}` : "所有所选活动 Plan 已中止；训练产物保留。" };
     }
     workerSupportsExactPaneStop(workerId) {
         const probe = this.lastWorkerProbes?.[workerId];
@@ -16897,6 +16954,21 @@ this.assertActionAuthorityCurrent(options);this.assertPlanTopologyReady(options.
         if (!DistributedPlanQueue.stopIdentityMatchesJob(plan, job, task) && !DistributedPlanQueue.remoteTaskMatchesJob(plan, job, task))
             throw new Error("停止后快照身份与队列不一致，队列保留");
         return result;
+    }
+    async stopAndClearPlansFromUi(message) {
+        const root = workspaceRoot();
+        const generation = this.projectContextGeneration;
+        const planFiles = uniqueStrings(stringArrayField(message, "planFiles").map(file => file.trim()).filter(Boolean));
+        if (!root || !planFiles.length || planFiles.length > 1000) throw new Error("请勾选本项目要中止并清理的 Plan，最多 1000 条。");
+        let completed = 0;
+        for (const planFile of planFiles) {
+            if (root !== workspaceRoot() || generation !== this.projectContextGeneration) return { status: "partial", message: "项目已切换，停止后续批次。" };
+            const result = await this.stopAndClearPlanFromUi({ planFile });
+            if (!result || result.status !== "completed") return { status: result?.status || "cancelled",
+                message: `已完成 ${completed}/${planFiles.length}；${planFile}：${result?.message || "已取消后续批次"}` };
+            completed++;
+        }
+        return { status: "completed", message: `已中止并清理 ${completed} 个 Plan 的队列和进度记录；产物保留。` };
     }
     async stopAndClearPlanFromUi(message) {
         const root = workspaceRoot();

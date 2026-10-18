@@ -133,6 +133,7 @@ const PlanArtifactTransfer_1 = require("../features/PlanArtifactTransfer");
 const ProjectMirror_1 = require("../features/ProjectMirror");
 const SyncScopeTree_1 = require("../features/SyncScopeTree");
 const SyncScopeMetadata_1 = require("../features/SyncScopeMetadata");
+const AutomaticScopeContent_1 = require("../features/AutomaticScopeContent");
 const SyncScopeAgentIndex_1 = require("../features/SyncScopeAgentIndex");
 const SyncScopeStatus_1 = require("../features/SyncScopeStatus");
 const SyncScopeLocalIndex_1 = require("../features/SyncScopeLocalIndex");
@@ -549,6 +550,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "retryDistributedJob", "dispatchJobs",
     "stopAllPlans",
     "stopAndClearPlan",
+    "stopAndClearPlans",
     "refreshLocalResults",
     "webviewReady", "webviewHeartbeatAck", "webviewStateRendered", "webviewSectionInterest", "webviewSectionTelemetry", "webviewLayoutEvidence", "webviewBootstrapPhase", "webviewBootstrapError", "webviewRuntimeIncident", "webviewRenderError", "webviewVisibility", "copyPanelDiagnostics", "reloadPanel", "reloadPanelLowEffects", "reloadWindow", "recallPlanToLocalQueue", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveAgentDefaults", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
     "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "reassignWorkerTask", "openSetupGuide", "openAdvancedCommandsSetting", "applyPlanDatasetMapping", "autoMatchPlanDatasets",
@@ -5768,10 +5770,11 @@ class RealtimeTunnelPanelProvider {
                 await this.clearOperationHistoryFromUi(message);
                 break;
             case "stopAllPlans":
-                await this.stopAllPlansFromUi();
-                break;
+                return await this.stopAllPlansFromUi();
             case "stopAndClearPlan":
                 return await this.stopAndClearPlanFromUi(message);
+            case "stopAndClearPlans":
+                return await this.stopAndClearPlansFromUi(message);
             case "clearCache":
                 await this.clearCacheFromUi();
                 break;
@@ -5936,7 +5939,7 @@ class RealtimeTunnelPanelProvider {
                 return { status: "completed", message: String(value.message) };
             if (command === "runAllPlans" && value?.selectionOnly === true && ["completed", "failed", "cancelled"].includes(value.status))
                 return { status: value.status, message: String(value.message) };
-            if (["stopAndClearPlan", "retryDistributedJob", "dispatchJobs", "markJobUnavailable", "restoreJobAvailability"].includes(command) && value && typeof value === "object" && (value.status === "completed" || value.status === "failed" || value.status === "cancelled" || value.status === "partial")) {
+            if (["stopAndClearPlan", "stopAndClearPlans", "stopAllPlans", "retryDistributedJob", "dispatchJobs", "markJobUnavailable", "restoreJobAvailability"].includes(command) && value && typeof value === "object" && (value.status === "completed" || value.status === "failed" || value.status === "cancelled" || value.status === "partial")) {
                 const outcome = value.status === "partial" ? "failed" : value.status;
                 return { status: outcome, message: String(value.message || outcome), planStopClear: value.planStopClear };
             }
@@ -8616,6 +8619,7 @@ class RealtimeTunnelPanelProvider {
         const targets = this.workerCodeSyncTargets();
         const scopeClient = this.client;
         const scopeViewId = crypto.randomUUID();
+        const automaticContent = { local: new AutomaticScopeContent_1.AutomaticScopeContent(), workers: new AutomaticScopeContent_1.AutomaticScopeContent() };
         const localScopeIndex = new SyncScopeLocalIndex_1.SyncScopeLocalIndexReader(root, 30_000, this.projectFileObservationIndex());
         const scopeIndexReaders = new Map(targets.flatMap(target => ["local", "workers"].map(mode => [mode + ":" + target.id, new SyncScopeAgentIndex_1.SyncScopeAgentIndexReader(async (query, options) => {
                 if (workspaceRoot() !== root || this.client !== scopeClient)
@@ -8631,7 +8635,7 @@ class RealtimeTunnelPanelProvider {
                 return value;
             }, undefined, this.projectFileObservationIndex(this.sftpServerOptions(target)))])));
         const scopePanel = (0, SyncScopeTree_1.openSyncScopeTree)("项目同步范围与状态", [{
-                id: "local", label: "本机 ↔ Worker", detail: "默认勾选用于批量同步或删除，范围外和同步暂停项也可管理；自动传输范围请点击“编辑同步范围”后保存。内容比较按需执行。", rootSelectable: true, excludable: true,
+                id: "local", label: "本机 ↔ Worker", detail: "默认勾选用于批量同步或删除，范围外和同步暂停项也可管理；自动传输范围请点击“编辑同步范围”后保存。自动校验内容，未变化文件复用哈希。", rootSelectable: true, excludable: true,
                 selected: localSelected,
                 indexLocations: [{ id: "local", label: "本机" }, ...this.enabledWorkerConfigs().map(row => ({ id: row.id, label: row.id }))],
                 watch: invalidate => {
@@ -8642,7 +8646,7 @@ class RealtimeTunnelPanelProvider {
                 },
                 list: async (relative, signal, round) => this.listSyncScopeUnion(root, targets, relative, true, false, signal, target => scopeIndexReaders.get("local:" + target.id).list(relative, round || "local-0", signal), () => localScopeIndex.list(relative, scopeViewId + ":" + (round || "local-0"), signal)),
                 refresh: async (relative, signal, report) => this.refreshSyncScopeStatus(root, targets, "local-server", ["."], relative, signal, report),
-                summary: async (relative, signal, report, publish, round) => this.refreshSyncScopeMetadata(root, targets, true, relative, signal, report, publish, (id, signal, report) => scopeIndexReaders.get("local:" + id).inventory(round || "local-0", signal, report), progress => localScopeIndex.read(scopeViewId + ":" + (round || "local-0"), signal, progress)),
+                summary: async (relative, signal, report, publish, round) => this.refreshSyncScopeMetadata(root, targets, true, relative, signal, report, publish, (id, signal, report) => scopeIndexReaders.get("local:" + id).inventory(round || "local-0", signal, report), progress => localScopeIndex.read(scopeViewId + ":" + (round || "local-0"), signal, progress), automaticContent.local),
                 dispose: () => { for (const reader of scopeIndexReaders.values())
                     reader.dispose(); },
                 remove: async (relative, endpointId, directory, report) => this.removeSyncScopePath(root, targets, relative, endpointId, directory, report),
@@ -8660,12 +8664,12 @@ class RealtimeTunnelPanelProvider {
                     void vscode.window.showInformationMessage(`本机与服务器同步范围已保存：${normalized.length} 条路径。`);
                 },
             }, {
-                id: "workers", label: "Worker ↔ Worker", detail: "默认勾选用于批量同步或删除；自动传输范围请点击“编辑同步范围”后保存，默认整个项目，机器状态除外。内容比较按需执行。",
+                id: "workers", label: "Worker ↔ Worker", detail: "默认勾选用于批量同步或删除；自动传输范围请点击“编辑同步范围”后保存，默认整个项目，机器状态除外。自动校验内容，未变化文件复用哈希。",
                 selected: serverSelected,
                 indexLocations: this.enabledWorkerConfigs().map(row => ({ id: row.id, label: row.id })),
                 list: async (relative, signal, round) => this.listSyncScopeUnion(root, targets, relative, false, false, signal, target => scopeIndexReaders.get("workers:" + target.id).list(relative, round || "workers-0", signal)),
                 refresh: async (relative, signal, report) => this.refreshSyncScopeStatus(root, targets, "server-server", ["."], relative, signal, report),
-                summary: async (relative, signal, report, publish, round) => this.refreshSyncScopeMetadata(root, targets, false, relative, signal, report, publish, (id, signal, report) => scopeIndexReaders.get("workers:" + id).inventory(round || "workers-0", signal, report)),
+                summary: async (relative, signal, report, publish, round) => this.refreshSyncScopeMetadata(root, targets, false, relative, signal, report, publish, (id, signal, report) => scopeIndexReaders.get("workers:" + id).inventory(round || "workers-0", signal, report), undefined, automaticContent.workers),
                 remove: async (relative, endpointId, directory, report) => {
                     if (endpointId === "local")
                         throw new Error("Worker ↔ Worker 模式不能操作本机文件。");
@@ -8775,7 +8779,7 @@ class RealtimeTunnelPanelProvider {
         const holds = await (0, SyncResolution_1.loadSyncHolds)(this.context.globalStorageUri.fsPath, root);
         return Object.assign([...entries.values()].map((row) => ({ ...row, held: (0, SyncResolution_1.isSyncHeld)(row.path, holds) })).sort((a, b) => Number(b.directory) - Number(a.directory) || a.name.localeCompare(b.name)), { queryErrors, observations });
     }
-    async refreshSyncScopeMetadata(root, targets, includeLocal, relative = ".", signal, report = (_stage) => { }, publish = (_statuses) => { }, indexRead, localIndexRead) {
+    async refreshSyncScopeMetadata(root, targets, includeLocal, relative = ".", signal, report = (_stage) => { }, publish = (_statuses) => { }, indexRead, localIndexRead, automatic) {
         const configured = this.enabledWorkerConfigs().map((row) => String(row.id || "")).filter(Boolean);
         const endpoints = configured.map((id) => ({ id, read: async (progress) => {
                 const target = targets.find((row) => row.id === id);
@@ -8802,7 +8806,54 @@ class RealtimeTunnelPanelProvider {
             } }));
         if (includeLocal)
             endpoints.unshift({ id: "local", read: progress => localIndexRead ? localIndexRead(progress) : (0, SyncScopeStatus_1.collectLocalScopeMetadata)(root, relative, signal, progress) });
-        return (0, SyncScopeMetadata_1.queryScopeMetadata)(endpoints, signal, report, publish);
+        const inventories = {}, unavailable = new Map();
+        const interim = rows => publish(automatic ? Object.fromEntries(Object.entries(rows).map(([name, value]) => [name,
+            value.state === "same" ? { ...value, state: "unknown", detail: "文件索引已读取，正在自动校验内容" } : value])) : rows);
+        const metadata = await (0, SyncScopeMetadata_1.queryScopeMetadata)(endpoints, signal, report, interim, (id, value, error) => {
+            if (value)
+                inventories[id] = value;
+            else
+                unavailable.set(id, error || "文件索引未核实");
+        });
+        if (!automatic)
+            return metadata;
+        signal?.throwIfAborted();
+        const [ledger, holds] = await Promise.all([this.loadPlanSyncLedger(root), (0, SyncResolution_1.loadSyncHolds)(this.context.globalStorageUri.fsPath, root)]);
+        const mode = includeLocal ? "local-server" : "server-server";
+        const contentEndpoints = configured.map(id => {
+            const target = targets.find(row => row.id === id), server = target && this.sftpServerOptions(target);
+            return { id, binding: JSON.stringify([root, id, server, inventories[id]?.agentInstanceId]),
+                hash: async (paths, contentSignal) => {
+                    const capability = await this.simpleSftpCapability("sync.projectInventory");
+                    if (capability?.methodOptions?.["sync.projectInventory"]?.contentIdentity !== 1)
+                        throw new Error("请更新配套 SimpleSFTP 至 0.2.101 并重载窗口后自动校验内容。");
+                    return this.verifiedSftpProjectInventory({ source: server, relativePath: ".", recursive: true, scopePaths: paths,
+                        timeoutMs: 120000, ...(contentSignal ? { signal: contentSignal } : {}),
+                        onProgress: progress => report(`${id}：自动内容校验 · 缓存复用 ${Number(progress.cacheHits || 0)} · 新校验 ${Number(progress.cacheRehash || 0)}`) });
+                } };
+        });
+        if (includeLocal)
+            contentEndpoints.unshift({ id: "local", binding: JSON.stringify([root, "local"]), hash: async (paths, contentSignal, accept) => {
+                    const unverifiedFiles = {};
+                    const files = await (0, SyncScopeStatus_2.hashLocalScopeNames)(root, paths, (name, reason) => { unverifiedFiles[name] = reason; accept(name, undefined, reason); }, this.localScopeHashCacheFile(root), {
+                        signal: contentSignal, concurrency: 2, onFile: (name, file) => accept(name, { ...file, modifiedAtMs: Number(file.modifiedAtMs) }),
+                    });
+                    return { files: files, unverifiedFiles };
+                } });
+        const build = value => {
+            const rows = (0, SyncScopeStatus_2.buildScopeStatuses)(value, mode, ["."], new Set(), ledger, new Set(unavailable.keys()), holds);
+            for (const [name, row] of Object.entries(rows)) {
+                row.basis = "content";
+                if (!row.copies) {
+                    row.metadata = metadata[name]?.metadata;
+                    row.issueSignature = (0, SyncScopeBatch_1.syncScopeIssueSignature)(row, contentEndpoints.map(node => node.id));
+                }
+            }
+            rows["."] ||= metadata["."];
+            return rows;
+        };
+        const value = await automatic.verify(contentEndpoints, inventories, unavailable, signal, value => publish(build(value)), report);
+        return build(value);
     }
     async refreshSyncScopeStatus(root, targets, mode, selectedPaths, relative = ".", signal, report = (_stage) => { }) {
         signal?.throwIfAborted();
@@ -17754,18 +17805,27 @@ class RealtimeTunnelPanelProvider {
     }
     async stopAllPlansFromUi() {
         const runs = this.longRunningPlanRunOperations().filter((row) => row && operationResultPlanFile(row));
-        if (!runs.length) {
+        const root = workspaceRoot();
+        const generation = this.projectContextGeneration;
+        const queue = typeof this.loadDistributedQueue === "function" && root ? await this.loadDistributedQueue(root) : { plans: [], deferred: [] };
+        const distributed = uniqueStrings([...(queue.plans || []).filter(plan => (plan.jobs || []).some(job => ["pending", "dispatching", "queued", "running", "unknown"].includes(job.status))).map(plan => plan.planFile),
+            ...(queue.deferred || []).filter(row => row.status !== "superseded").map(row => row.planFile)]);
+        if (!runs.length && !distributed.length) {
             void vscode.window.showInformationMessage("当前没有可中止的运行中 Plan。");
-            return;
+            return { status: "completed", message: "当前没有可中止的运行中 Plan。" };
         }
-        const confirmed = await vscode.window.showWarningMessage(`中止 ${runs.length} 个运行中的 Plan？这会向各自 Worker 发送手动中止命令。`, { modal: true }, "中止所有 Plan", "取消");
+        const confirmed = await vscode.window.showWarningMessage(`中止 ${uniqueStrings([...runs.map(operationResultPlanFile), ...distributed]).length} 个活动或排队 Plan？分布式 Plan 将逐个预览精确停止和记录清理目标，仍需确认；训练产物保留。`, { modal: true }, "中止所有 Plan", "取消");
         if (confirmed !== "中止所有 Plan")
-            return;
+            return { status: "cancelled", message: "已取消中止所有 Plan。" };
         const failures = [];
         for (const row of runs) {
+            if (root !== workspaceRoot() || generation !== this.projectContextGeneration)
+                return { status: "partial", message: "项目已切换，停止后续批次。" };
             const operationId = String(row.operationId || row.id || "");
             const planFile = operationResultPlanFile(row);
             if (!operationId || !planFile)
+                continue;
+            if (distributed.some(file => samePlanSelection(file, planFile)))
                 continue;
             try {
                 await this.stopExperimentRouted({ operationId, planFile, workerId: this.runOperationWorkerId(row), manualStopType: "scheduler_aborted" });
@@ -17774,9 +17834,21 @@ class RealtimeTunnelPanelProvider {
                 failures.push(`${planFile}: ${errorMessage(error)}`);
             }
         }
+        for (const planFile of distributed) {
+            if (root !== workspaceRoot() || generation !== this.projectContextGeneration)
+                return { status: "partial", message: "项目已切换，停止后续批次。" };
+            const result = await this.stopAndClearPlanFromUi({ planFile });
+            if (result?.status === "cancelled")
+                return { status: "cancelled", message: result.message || "已取消后续 Plan。" };
+            if (result?.status !== "completed") {
+                failures.push(`${planFile}: ${result?.message || "未完成"}`);
+                break;
+            }
+        }
         this.postState();
         if (failures.length)
             void vscode.window.showErrorMessage(`部分 Plan 未能中止：${failures.join("；")}`);
+        return { status: failures.length ? "failed" : "completed", message: failures.length ? `部分 Plan 未能中止：${failures.join("；")}` : "所有所选活动 Plan 已中止；训练产物保留。" };
     }
     workerSupportsExactPaneStop(workerId) {
         const probe = this.lastWorkerProbes?.[workerId];
@@ -17854,6 +17926,24 @@ class RealtimeTunnelPanelProvider {
         if (!DistributedPlanQueue.stopIdentityMatchesJob(plan, job, task) && !DistributedPlanQueue.remoteTaskMatchesJob(plan, job, task))
             throw new Error("停止后快照身份与队列不一致，队列保留");
         return result;
+    }
+    async stopAndClearPlansFromUi(message) {
+        const root = workspaceRoot();
+        const generation = this.projectContextGeneration;
+        const planFiles = uniqueStrings(stringArrayField(message, "planFiles").map(file => file.trim()).filter(Boolean));
+        if (!root || !planFiles.length || planFiles.length > 1000)
+            throw new Error("请勾选本项目要中止并清理的 Plan，最多 1000 条。");
+        let completed = 0;
+        for (const planFile of planFiles) {
+            if (root !== workspaceRoot() || generation !== this.projectContextGeneration)
+                return { status: "partial", message: "项目已切换，停止后续批次。" };
+            const result = await this.stopAndClearPlanFromUi({ planFile });
+            if (!result || result.status !== "completed")
+                return { status: result?.status || "cancelled",
+                    message: `已完成 ${completed}/${planFiles.length}；${planFile}：${result?.message || "已取消后续批次"}` };
+            completed++;
+        }
+        return { status: "completed", message: `已中止并清理 ${completed} 个 Plan 的队列和进度记录；产物保留。` };
     }
     async stopAndClearPlanFromUi(message) {
         const root = workspaceRoot();

@@ -1389,7 +1389,7 @@ test("stop-clear and explicit job commands consume structured outcomes", async (
   const start = dist.indexOf("const guardedWork = work()");
   const end = dist.indexOf("const result = await guardedWork", start);
   const body = dist.slice(start, end);
-  assert.match(body, /\["stopAndClearPlan", "retryDistributedJob", "dispatchJobs", "markJobUnavailable", "restoreJobAvailability"\]\.includes\(command\)/);
+  assert.match(body, /\["stopAndClearPlan", "stopAndClearPlans", "stopAllPlans", "retryDistributedJob", "dispatchJobs", "markJobUnavailable", "restoreJobAvailability"\]\.includes\(command\)/);
   const structured = { status: "failed", message: "未完成清除", planStopClear: { planFile: "plans/a.yaml" } };
   const run = async (command) => {
     const context = {

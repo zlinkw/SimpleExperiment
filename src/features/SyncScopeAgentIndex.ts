@@ -3,7 +3,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import type { MetadataInventory } from "./SyncScopeMetadata";
 import type { ProjectFileIndex } from "./ProjectFileIndex";
 
-type IndexEntry = { p: string; d: boolean; m: number; s?: number; n?: number; b?: number; c?: number; v?: string; i?: string };
+type IndexEntry = { p: string; d: boolean; m: number; s?: number; n?: number; b?: number; c?: number; v?: string; i?: string; verificationRevision?: number };
 type Snapshot = { instanceId: string; generation: number; entries: Map<string, IndexEntry>; observedAt: string; acceleration?: Record<string, any> };
 type Rpc = (query: Record<string, unknown>, options: { signal?: AbortSignal }) => Promise<any>;
 
@@ -90,7 +90,7 @@ export class SyncScopeAgentIndexReader {
           throw new Error("SCOPE_INDEX_ENTRY_INVALID");
         if (row.c !== undefined && !Number.isFinite(row.c) || [row.v, row.i].some(value => value !== undefined && (typeof value !== "string" || !/^[0-9]{1,64}$/.test(value))))
           throw new Error("SCOPE_INDEX_ENTRY_IDENTITY_INVALID");
-        entries.set(name, row);
+        entries.set(name, { ...row, verificationRevision: generation });
       }
       if (entries.size > 60000) throw new Error("SCOPE_INDEX_ENTRY_LIMIT");
       report(`正在接收目录索引 · 已处理 ${offset + response.entries.length} 项`);
@@ -116,7 +116,8 @@ export class SyncScopeAgentIndexReader {
 
   async inventory(round: string, signal?: AbortSignal, report?: (stage: string) => void, binding: Record<string, string> = {}): Promise<MetadataInventory> {
     const snapshot = await this.read(round, signal, report);
-    const identity = (row: IndexEntry) => ({ modifiedAtMs: row.m, changedAtMs: row.c, device: row.v, inode: row.i });
+    const identity = (row: IndexEntry) => ({ modifiedAtMs: row.m, changedAtMs: row.c, device: row.v, inode: row.i,
+      contentRevision: row.verificationRevision === undefined ? undefined : snapshot.instanceId + ":" + row.verificationRevision });
     const load = async () => ({ files: Object.fromEntries([...snapshot.entries].filter(([, row]) => !row.d).map(([name, row]) => [name, { size: row.s!, ...identity(row) }])),
       directories: Object.fromEntries([...snapshot.entries].filter(([, row]) => row.d).map(([name, row]) => [name, identity(row)])),
       unverifiedFiles: {}, observedAt: snapshot.observedAt, agentInstanceId: snapshot.instanceId, indexGeneration: snapshot.generation, acceleration: snapshot.acceleration });

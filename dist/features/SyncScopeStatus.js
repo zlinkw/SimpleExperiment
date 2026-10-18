@@ -408,7 +408,7 @@ async function collectLocalScopeMetadata(root, relative, signal, report = (_stag
     signal?.throwIfAborted();
     return { files, directories, unverifiedFiles };
 }
-async function hashLocalScopeNames(root, names, onUnverified, cacheFile) {
+async function hashLocalScopeNames(root, names, onUnverified, cacheFile, options = {}) {
     if (names.length > LOCAL_SCOPE_MAX_ENTRIES)
         throw new Error(`本机哈希清单超过输入上限 ${LOCAL_SCOPE_MAX_ENTRIES}。`);
     const normalizedNames = [...new Set(names.map(normalizeLocalScopeRelative))];
@@ -422,12 +422,15 @@ async function hashLocalScopeNames(root, names, onUnverified, cacheFile) {
     let next = 0;
     let failed = false;
     let fatalError;
-    await Promise.all(Array.from({ length: Math.min(8, Math.max(1, normalizedNames.length)) }, async () => {
+    let completed = 0;
+    options.signal?.throwIfAborted();
+    await Promise.all(Array.from({ length: Math.min(Math.max(1, Math.min(8, options.concurrency || 8)), Math.max(1, normalizedNames.length)) }, async () => {
         for (;;) {
             const index = next++;
             if (index >= normalizedNames.length || fatalError)
                 break;
             const relative = normalizedNames[index];
+            options.signal?.throwIfAborted();
             let full = path.join(rootInfo.realPath, ...relative.split("/"));
             try {
                 if (!scopeInventoryPathAllowed(relative, false))
@@ -450,7 +453,8 @@ async function hashLocalScopeNames(root, names, onUnverified, cacheFile) {
                     const confirmed = scopeHashIdentity(await fs.lstat(full));
                     if (!confirmed || !sameScopeHashIdentity({ ...before, sha256: reusable.sha256 }, confirmed))
                         throw new Error(`本机文件在复用哈希前发生变化：${relative}`);
-                    files[relative] = reusable;
+                    files[relative] = { ...reusable, changedAtMs: confirmed.ctimeMs, device: confirmed.dev, inode: confirmed.ino };
+                    options.onFile?.(relative, files[relative]);
                     activeRows[relative] = { ...confirmed, sha256: reusable.sha256, modifiedAtMs: reusable.modifiedAtMs };
                     rememberLocalScopeHash(full, identity, reusable);
                     continue;
@@ -465,6 +469,7 @@ async function hashLocalScopeNames(root, names, onUnverified, cacheFile) {
                     const buffer = Buffer.allocUnsafe(1024 * 1024);
                     let remaining = beforeStat.size;
                     while (remaining > 0) {
+                        options.signal?.throwIfAborted();
                         const { bytesRead } = await handle.read(buffer, 0, Math.min(buffer.length, remaining), null);
                         if (!bytesRead)
                             throw new Error(`本机文件在校验期间被截断：${relative}`);
@@ -479,12 +484,15 @@ async function hashLocalScopeNames(root, names, onUnverified, cacheFile) {
                 const after = scopeHashIdentity(afterStat);
                 if (!afterStat.isFile() || afterStat.isSymbolicLink() || bigintString(afterStat.dev) !== rootInfo.device || !after || !sameScopeHashIdentity({ ...before, sha256: "0".repeat(64) }, after))
                     throw new Error(`本机文件在校验时变更：${relative}`);
-                const file = { sha256: hash.digest("hex"), size: after.size, modifiedAtMs: afterStat.mtimeMs };
+                const file = { sha256: hash.digest("hex"), size: after.size, modifiedAtMs: afterStat.mtimeMs,
+                    changedAtMs: after.ctimeMs, device: after.dev, inode: after.ino };
                 rememberLocalScopeHash(full, identity, file);
                 activeRows[relative] = { ...after, sha256: file.sha256, modifiedAtMs: file.modifiedAtMs };
                 files[relative] = file;
+                options.onFile?.(relative, file);
             }
             catch (error) {
+                options.signal?.throwIfAborted();
                 const missing = error?.code === "ENOENT";
                 if (missing)
                     localHashCache.delete(full);
@@ -501,10 +509,14 @@ async function hashLocalScopeNames(root, names, onUnverified, cacheFile) {
                     fatalError ??= callbackError;
                 }
             }
+            finally {
+                options.onProgress?.(++completed, normalizedNames.length);
+            }
         }
     }));
     if (fatalError)
         throw fatalError;
+    options.signal?.throwIfAborted();
     if (cacheFile && !failed) {
         try {
             await writeScopeHashCache(cacheFile, { schemaVersion: SCOPE_HASH_SCHEMA_VERSION, files: boundedScopeHashRows(activeRows, persisted.files, requestedNames) });

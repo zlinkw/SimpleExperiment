@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.385",
-  "buildId": "cf75e9db30ed7b3a0385702b1658687f2125b7bf9020745a7750d2cd060d2934",
+  "version": "0.5.386",
+  "buildId": "f704aa25739f6609867ea5dac5a7dfa2ad9a3f35b6aae8a301721b9125a8ce08",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -197,7 +197,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "726f3d22fef6417bcd0d188f8813921e9ff9421d8a6cc98f93d7354c6f88d962"
+      "sha256": "e8f16952862026ec9792c4c559baa194dcc7d88a236a3477efdee943d19456cb"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -278,6 +278,10 @@
     {
       "path": "dist/features/ApiWorkflow.legacy.js",
       "sha256": "588d36b7f6d1d3e759b99b489ceb417a726a3d885e157a7f10ba28316eb4409b"
+    },
+    {
+      "path": "dist/features/AutomaticScopeContent.js",
+      "sha256": "c02fda57db28a3c583632bb36ff284bba00cd771c498742f66c831f79471febc"
     },
     {
       "path": "dist/features/Checkpoint.js",
@@ -569,7 +573,7 @@
     },
     {
       "path": "dist/features/SyncScopeAgentIndex.js",
-      "sha256": "387c314dff1674fc6102e635d5b7636cebcecdd5b20028579f9323961feeb477"
+      "sha256": "2ffbbdcd483e5a5162f4b500c5aec4b133b2439955233992bb4af540e2946034"
     },
     {
       "path": "dist/features/SyncScopeBatch.js",
@@ -593,11 +597,11 @@
     },
     {
       "path": "dist/features/SyncScopeMetadata.js",
-      "sha256": "583c756e316aadda8db1b3a7d394628108017596bf963b254b6b853d50803d89"
+      "sha256": "717ae296e683673b9558f27c41aa9cc4ad27f89eceba8bdf8456c770c8e6c76d"
     },
     {
       "path": "dist/features/SyncScopeStatus.js",
-      "sha256": "c27d190be0d10c3a1c78a9f5d9712d702621a8ef4696cbfd03ec27e1a05213c6"
+      "sha256": "0630a1bba8d89d5c0fd719ee7fe534a41a61b5c3548b398769ad448f972473ca"
     },
     {
       "path": "dist/features/SyncScopeTransferBatch.js",
@@ -605,7 +609,7 @@
     },
     {
       "path": "dist/features/SyncScopeTree.js",
-      "sha256": "444b1411fe7619dcd63462e5d329a1cf9daa96f085999b157d2ae0bd345003f3"
+      "sha256": "f007e07e6e79962ca2111b4dc246711e6c4fcd4e3ffcc7082ed4c6570a5b247e"
     },
     {
       "path": "dist/features/TaskLifecycle.js",
@@ -701,7 +705,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "6539565e0e27d5513599a4bc4139bc9ab7a81626bef844996c2958ff6f8c2042"
+      "sha256": "33b4c31033ed80c558268ce7a1352f175ee9b46c2c829ddc9727816d50e8cd09"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -925,7 +929,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "e2284c29e32228bc1530837cbf130f27341031397a7158848a8ef85f880750ec"
+      "sha256": "fa426f089c2ac77c3a7f881e98b45f1cc7d670eba8be0798c548dc20fa3f2fba"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",
@@ -1049,7 +1053,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "601403c039ec9c77ccb6c4009051d60c5475a1cc1b102b80e1694cfb5e66490c"
+      "sha256": "4032a02c50e88f0eb20a4de497f45c1f3d99eb94803bef06ead7c0c16a210d1a"
     },
     {
       "path": "scripts/check-static.js",

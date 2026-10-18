@@ -39,7 +39,8 @@ test("scope Webview renders collapsible checkboxes, status colors and refresh", 
   assert.ok(panel.webview.html.indexOf('<div id="status"') < panel.webview.html.indexOf('<div id="tree"'));
   assert.ok(panel.webview.html.indexOf('<div id="indexProgress"') < panel.webview.html.indexOf('<div id="tree"'));
   assert.doesNotMatch(panel.webview.html, /setInterval/);
-  assert.match(panel.webview.html, /展开即读取/);
+  assert.match(panel.webview.html, /自动读取索引并校验内容/);
+  assert.match(panel.webview.html, /比较文件内容（重新校验）/);
   assert.match(panel.webview.html, /\.different\{/);
   assert.match(panel.webview.html, /\.remote-only\{/);
   const script = panel.webview.html.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/);

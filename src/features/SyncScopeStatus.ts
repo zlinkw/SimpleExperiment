@@ -9,7 +9,7 @@ import { SyncHolds, chosenSyncHash, isSyncHeld, safeSyncPath } from "./SyncResol
 import { HostOperationLeaseManager } from "../core/HostOperationLease";
 import { atomicWriteText } from "../state/StateStore";
 
-type File = { sha256: string; size: number; modifiedAtMs?: number };
+type File = { sha256: string; size: number; modifiedAtMs?: number; changedAtMs?: number; device?: string; inode?: string };
 type ScopeHashIdentity = { dev: string; ino: string; size: number; mtimeMs: number; ctimeMs: number; birthtimeMs: number };
 type ScopeHashRow = ScopeHashIdentity & { sha256: string; modifiedAtMs?: number };
 type ScopeHashDocument = { schemaVersion: 1; files: Record<string, ScopeHashRow> };
@@ -351,6 +351,7 @@ export async function collectLocalScopeMetadata(root: string, relative: string, 
 
 export async function hashLocalScopeNames(
   root: string, names: string[], onUnverified?: (relative: string, reason: string) => void, cacheFile?: string,
+  options: { signal?: AbortSignal; concurrency?: number; onFile?: (name: string, file: File) => void; onProgress?: (done: number, total: number) => void } = {},
 ): Promise<Record<string, File>> {
   if (names.length > LOCAL_SCOPE_MAX_ENTRIES) throw new Error(`本机哈希清单超过输入上限 ${LOCAL_SCOPE_MAX_ENTRIES}。`);
   const normalizedNames = [...new Set(names.map(normalizeLocalScopeRelative))];
@@ -363,11 +364,14 @@ export async function hashLocalScopeNames(
   let next = 0;
   let failed = false;
   let fatalError: unknown;
-  await Promise.all(Array.from({ length: Math.min(8, Math.max(1, normalizedNames.length)) }, async () => {
+  let completed = 0;
+  options.signal?.throwIfAborted();
+  await Promise.all(Array.from({ length: Math.min(Math.max(1, Math.min(8, options.concurrency || 8)), Math.max(1, normalizedNames.length)) }, async () => {
     for (;;) {
       const index = next++;
       if (index >= normalizedNames.length || fatalError) break;
       const relative = normalizedNames[index];
+      options.signal?.throwIfAborted();
       let full = path.join(rootInfo.realPath, ...relative.split("/"));
       try {
       if (!scopeInventoryPathAllowed(relative, false)) throw new Error(`本机清单路径属于排除项：${relative}`);
@@ -388,7 +392,8 @@ export async function hashLocalScopeNames(
         const confirmed = scopeHashIdentity(await fs.lstat(full));
         if (!confirmed || !sameScopeHashIdentity({ ...before, sha256: reusable.sha256 }, confirmed))
           throw new Error(`本机文件在复用哈希前发生变化：${relative}`);
-        files[relative] = reusable;
+        files[relative] = { ...reusable, changedAtMs: confirmed.ctimeMs, device: confirmed.dev, inode: confirmed.ino };
+        options.onFile?.(relative, files[relative]);
         activeRows[relative] = { ...confirmed, sha256: reusable.sha256, modifiedAtMs: reusable.modifiedAtMs };
         rememberLocalScopeHash(full, identity, reusable);
         continue;
@@ -403,6 +408,7 @@ export async function hashLocalScopeNames(
         const buffer = Buffer.allocUnsafe(1024 * 1024);
         let remaining = beforeStat.size;
         while (remaining > 0) {
+          options.signal?.throwIfAborted();
           const { bytesRead } = await handle.read(buffer, 0, Math.min(buffer.length, remaining), null);
           if (!bytesRead) throw new Error(`本机文件在校验期间被截断：${relative}`);
           hash.update(buffer.subarray(0, bytesRead));
@@ -413,21 +419,25 @@ export async function hashLocalScopeNames(
       const after = scopeHashIdentity(afterStat);
       if (!afterStat.isFile() || afterStat.isSymbolicLink() || bigintString(afterStat.dev) !== rootInfo.device || !after || !sameScopeHashIdentity({ ...before, sha256: "0".repeat(64) }, after))
         throw new Error(`本机文件在校验时变更：${relative}`);
-      const file = { sha256: hash.digest("hex"), size: after.size, modifiedAtMs: afterStat.mtimeMs };
+      const file = { sha256: hash.digest("hex"), size: after.size, modifiedAtMs: afterStat.mtimeMs,
+        changedAtMs: after.ctimeMs, device: after.dev, inode: after.ino };
       rememberLocalScopeHash(full, identity, file);
       activeRows[relative] = { ...after, sha256: file.sha256, modifiedAtMs: file.modifiedAtMs };
       files[relative] = file;
+      options.onFile?.(relative, file);
       } catch (error) {
+        options.signal?.throwIfAborted();
         const missing = (error as NodeJS.ErrnoException)?.code === "ENOENT";
         if (missing) localHashCache.delete(full);
         else failed = true;
         if (!onUnverified) { fatalError ??= error; continue; }
         try { onUnverified(relative, error instanceof Error ? error.message : String(error)); }
         catch (callbackError) { fatalError ??= callbackError; }
-      }
+      } finally { options.onProgress?.(++completed, normalizedNames.length); }
     }
   }));
   if (fatalError) throw fatalError;
+  options.signal?.throwIfAborted();
   if (cacheFile && !failed) {
     try {
       await writeScopeHashCache(cacheFile, { schemaVersion: SCOPE_HASH_SCHEMA_VERSION, files: boundedScopeHashRows(activeRows, persisted.files, requestedNames) });

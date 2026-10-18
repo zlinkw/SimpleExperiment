@@ -1,12 +1,14 @@
 import type { ScopeObservation, ScopeStatus } from "./SyncScopeTree";
 
-export type MetadataInventory = { ok?: boolean; error?: string; status?: string; complete?: boolean; truncated?: boolean; files: Record<string, { size: number; modifiedAtMs: number }>; unverifiedFiles?: Record<string, string> };
+export type MetadataFile = { size: number; modifiedAtMs: number; changedAtMs?: number; device?: string; inode?: string; contentRevision?: string };
+export type MetadataInventory = { ok?: boolean; error?: string; status?: string; complete?: boolean; truncated?: boolean; files: Record<string, MetadataFile>; unverifiedFiles?: Record<string, string> };
 export type ScopeIndexProgress = { endpointId: string; state: "reading" | "complete" | "partial" | "failed"; detail: string; files?: number };
 type Endpoint = { id: string; read: (report: (stage: string) => void) => Promise<MetadataInventory> };
 
 /** Each completed endpoint publishes independently; pending/failed endpoints never prove absence. */
 export async function queryScopeMetadata(endpoints: Endpoint[], signal?: AbortSignal,
-  report: (stage: string, progress?: ScopeIndexProgress) => void = () => {}, publish: (statuses: Record<string, ScopeStatus>) => void = () => {}) {
+  report: (stage: string, progress?: ScopeIndexProgress) => void = () => {}, publish: (statuses: Record<string, ScopeStatus>) => void = () => {},
+  receive: (id: string, inventory?: MetadataInventory, error?: string) => void = () => {}) {
   const inventories: Record<string, MetadataInventory> = {}, unavailable = new Map(endpoints.map(({ id }) => [id, "正在读取"]));
   const build = () => buildScopeMetadataStatuses(endpoints.map(({ id }) => id), inventories, unavailable);
   await Promise.all(endpoints.map(async ({ id, read }) => {
@@ -25,12 +27,14 @@ export async function queryScopeMetadata(endpoints: Endpoint[], signal?: AbortSi
       if (inventory.unverifiedFiles && (typeof inventory.unverifiedFiles !== "object" || Array.isArray(inventory.unverifiedFiles)
         || Object.values(inventory.unverifiedFiles).some(reason => typeof reason !== "string" || !reason))) throw new Error("未读取路径清单无效");
       inventories[id] = inventory; unavailable.delete(id);
+      receive(id, inventory);
       const files = Object.keys(inventory.files).length, unread = Object.keys(inventory.unverifiedFiles || {}).length;
       const detail = `已读取 ${files} 个文件${unread ? ` · ${unread} 处未核实` : " · 索引完成"}`;
       report(`${id}：${detail}`, { endpointId: id, state: unread ? "partial" : "complete", detail, files });
     } catch (error) {
       signal?.throwIfAborted();
       unavailable.set(id, error instanceof Error ? error.message : String(error));
+      receive(id, undefined, unavailable.get(id));
       const detail = unavailable.get(id)!;
       report(`${id}：${detail}`, { endpointId: id, state: "failed", detail });
     }
