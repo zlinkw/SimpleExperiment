@@ -4,6 +4,35 @@ require('../_helpers/registerTsRequire');
 const { deleteConfirmedScopeCopy } = require('../../src/features/SyncScopeDelete.ts');
 const node = { id: 'worker', kind: 'remote', host: 'fixture', user: 'user', port: 22, root: '/project' };
 
+test('local whole-subdirectory deletion permits a repository but direct git/archive/root targets remain protected',()=>{
+ const {localDeleteScript}=require('../../src/features/SyncResolution.ts');
+ assert.match(localDeleteScript('D:/project','comparison_methods/_repos/cpsc'),/Remove-Item -LiteralPath '.\/cpsc'/);
+ for(const rel of ['.git','.git/config','comparison_methods/_repos/cpsc/.git','clean_dir','clean_dir/file'])assert.throws(()=>localDeleteScript('D:/project',rel),/PROTECTED_PATH.*阻拦路径/);
+ for(const rel of ['.','../',''])assert.throws(()=>localDeleteScript('D:/project',rel),/不安全/);
+});
+
+test('cleanup failure displays the exact blocking descendant and reason through the tree deletion chain',async()=>{
+ const { cleanupApiErrorMessage }=require('../../src/core/SimpleSftpProgressWait.ts');
+ const payload={message:'/project/repos/cpsc/clean_dir',data:{code:'PROTECTED_DESCENDANT',blockingPath:'/project/repos/cpsc/clean_dir',reason:'归档区受保护，不能随父目录删除'}};
+ let mutations=0;
+ await assert.rejects(deleteConfirmedScopeCopy(async method=>{
+  if(method.endsWith('.inspect'))return {ok:true,executorsChecked:true,executors:[],target:{missing:false}};
+  if(method.endsWith('.preview'))throw Object.assign(Error(cleanupApiErrorMessage('files.cleanup.preview',payload)),{apiData:payload.data});
+  mutations++;
+ },node,'repos/cpsc',true),error=>{assert.match(error.message,/PROTECTED_DESCENDANT/);assert.match(error.message,/归档区受保护/);assert.match(error.message,/阻拦路径：\/project\/repos\/cpsc\/clean_dir/);assert.equal(error.apiData.blockingPath,payload.data.blockingPath);return true;});
+ assert.equal(mutations,0);
+ assert.match(cleanupApiErrorMessage('files.cleanup.preview',{message:'/old/parent',data:{code:'PROTECTED_DESCENDANT'}}),/PROTECTED_DESCENDANT.*受保护.*\/old\/parent/);
+});
+
+test('actual cleanup RPC parser publishes guard evidence and retains structured failure data',async()=>{
+ const transport=require('../../src/core/ProgressRpcTransport.ts'),originalPost=transport.postProgressRpc,originalFetch=global.fetch;
+ const data={code:'PROTECTED_DESCENDANT',blockingPath:'/project/repos/cpsc/clean_dir',reason:'归档区受保护'};
+ transport.postProgressRpc=async()=>Response.json({error:{code:2010,message:'/project/repos/cpsc/clean_dir',data}});
+ global.fetch=async()=>new Response(null,{status:204});
+ try{await assert.rejects(require('../../src/core/SimpleSftpProgressWait.ts').callSftpWithProgress('files.cleanup.preview',{},async()=>({endpoint:new URL('http://127.0.0.1:1'),headers:{}})),error=>{assert.match(error.message,/PROTECTED_DESCENDANT.*归档区受保护.*阻拦路径/);assert.deepEqual(error.apiData,data);return true;});}
+ finally{transport.postProgressRpc=originalPost;global.fetch=originalFetch;}
+});
+
 test('confirmed tree deletion uses managed cleanup and actively verifies lost execution responses', async () => {
   const calls = []; let checks = 0;
   const rpc = async (method, params) => {

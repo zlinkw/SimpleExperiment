@@ -63,8 +63,14 @@ export async function saveSyncHolds(storageRoot: string, projectRoot: string, ho
 
 function psLiteral(value: string): string { return `'${value.replace(/'/g, "''")}'`; }
 
-export function localDeleteScript(root: string, relative: string, expected?: { type: "file" | "directory"; size: string; modifiedTicks: string }): string {
+function checkLocalDeleteTarget(root: string, relative: string): void {
   safeSyncPath(relative);
+  if (relative.replace(/\\/g, "/").split("/").some(part => [".git", "clean_dir"].includes(part.toLowerCase())))
+    throw new Error(`PROTECTED_PATH：仓库元数据或归档区不可作为独立删除目标；阻拦路径：${path.resolve(root, ...relative.replace(/\\/g, "/").split("/"))}`);
+}
+
+export function localDeleteScript(root: string, relative: string, expected?: { type: "file" | "directory"; size: string; modifiedTicks: string }): string {
+  checkLocalDeleteTarget(root, relative);
   const full = path.resolve(root, ...relative.split("/"));
   const parent = path.dirname(full);
   const leaf = `./${path.basename(full)}`;
@@ -76,7 +82,7 @@ export function localDeleteScript(root: string, relative: string, expected?: { t
 }
 
 export async function deleteLocalSyncPath(root: string, relative: string): Promise<string> {
-  safeSyncPath(relative);
+  checkLocalDeleteTarget(root, relative);
   const full = path.resolve(root, ...relative.split("/"));
   const rootStat = await fs.lstat(root).catch((error: NodeJS.ErrnoException) => { throw new Error(`PARENT_CD_FAILED：无法核验项目根目录：${error.message}`); });
   if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) throw new Error("PARENT_CD_FAILED：项目根目录不是普通目录；禁止删除。");

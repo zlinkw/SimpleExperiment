@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.cleanupApiErrorMessage = cleanupApiErrorMessage;
 exports.confirmSftpOperationStopped = confirmSftpOperationStopped;
 exports.callSftpWithProgress = callSftpWithProgress;
 const node_crypto_1 = require("node:crypto");
@@ -7,6 +8,23 @@ const ProgressInactivity_1 = require("./ProgressInactivity");
 const SafeRequestRetry_1 = require("./SafeRequestRetry");
 const BoundedResponse_1 = require("../tunnel/BoundedResponse");
 const ProgressRpcTransport_1 = require("./ProgressRpcTransport");
+/** Keep cleanup guard evidence visible even when an older companion returns only a path. */
+function cleanupApiErrorMessage(method, error) {
+    const data = error?.data || {}, code = typeof data.code === "string" ? data.code.slice(0, 100) : "";
+    const reasons = {
+        PROTECTED_DESCENDANT: "目标包含受保护的子项", PROTECTED_PATH: "目标路径受保护",
+        LINK_OR_REPARSE_POINT: "目标包含符号链接或重解析点", MOUNT_ESCAPE: "目标跨越文件系统或挂载边界",
+        PATH_ESCAPE: "目标超出安全根目录", UNSAFE_ROOT: "项目根目录或系统根目录不可删除",
+        PARENT_CD_FAILED: "无法核实或进入目标的直接父目录", PREVIEW_CHANGED: "目标在确认后发生变化，需要重新确认",
+    };
+    const reason = typeof data.reason === "string" && data.reason ? data.reason.slice(0, 4096) : reasons[code] || "";
+    const blockingPath = typeof data.blockingPath === "string" ? data.blockingPath.slice(0, 4096) : "";
+    const message = String(error?.message || "未知错误").slice(0, 4096);
+    const details = [code ? `[${code}]` : "", reason, blockingPath ? `阻拦路径：${blockingPath}` : ""];
+    if (message !== reason && message !== blockingPath && message !== code)
+        details.push(message);
+    return `SimpleSFTP ${method}：${details.filter(Boolean).join("；")}`;
+}
 async function readSftpJson(response) {
     return JSON.parse(await (0, BoundedResponse_1.readBoundedResponseText)(response, () => { }));
 }
@@ -386,7 +404,8 @@ async function callSftpWithProgress(method, params, discover, onProgress) {
             // modifying transfer; the current error response alone may not prove
             // that all remote writers have exited.
             if (payload.error) {
-                const error = new Error(`SimpleSFTP ${method}：${payload.error.message || "未知错误"}`);
+                const error = new Error(method.startsWith("files.cleanup.") ? cleanupApiErrorMessage(method, payload.error)
+                    : `SimpleSFTP ${method}：${payload.error.message || "未知错误"}`);
                 if (method.startsWith("files.cleanup."))
                     Object.assign(error, { apiCode: payload.error.code, apiData: payload.error.data,
                         code: payload.error.data?.code });

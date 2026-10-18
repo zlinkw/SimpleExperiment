@@ -9323,6 +9323,8 @@ class RealtimeTunnelPanelProvider {
         const capability = await this.simpleSftpCapability("files.cleanup.preview");
         if (capability.methodOptions?.["files.cleanup.preview"]?.confirmedPathMetadata !== 1)
             throw new Error("请先更新配套 SimpleSFTP 并重载窗口：当前版本不支持按路径读取元数据的删除流程。");
+        if (directory && capability.methodOptions?.["files.cleanup.preview"]?.confirmedPathNestedRepositories !== 1)
+            throw new Error("请更新 SimpleSFTP 至 0.2.98 或以上并重载窗口：整目录删除需要子仓库元数据保护协议。");
         return (0, SyncScopeDelete_1.deleteConfirmedScopeCopy)((method, params) => this.simpleSftpApiCall(method, params, 0, snapshot => report(`${id}：已检查 ${snapshot.processedFiles || 0} 项文件元数据`)), { id, kind: "remote", host: server.host, user: server.user || server.username,
             port: server.port, root: server.remotePath }, relative, directory, report);
     }

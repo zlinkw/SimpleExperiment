@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.377",
-  "buildId": "8516f8522b1d68fd7ffa4b3047ed5bf02c9a66565dcdf3dce7d0d0efcd81d645",
+  "version": "0.5.378",
+  "buildId": "0367144bf0fd4a00904ad04c24f3d0228eb72b8c7e5d496c0af5d2683da66a91",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -157,7 +157,7 @@
     },
     {
       "path": "dist/core/SimpleSftpProgressWait.js",
-      "sha256": "fb6d980bde8e420a5070d8c0c931974d6f3877790b7b2929fc55b0bef450be6c"
+      "sha256": "d16ddecadc164ba729e73e7a4502315eab62e68f619a28814b9e958f63d7f6ee"
     },
     {
       "path": "dist/core/WorkspacePathMapper.js",
@@ -197,7 +197,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "2f99206131a64ca1cd16e218e84e7b36de13ebdeb1c4ab1252d29eb6ffd9de06"
+      "sha256": "2f7078eb85c217c8e62850c64dae0e944e247188e3b98a6ad578867dcb3947ad"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -561,7 +561,7 @@
     },
     {
       "path": "dist/features/SyncResolution.js",
-      "sha256": "e0e6be86b6408eff27aeaf1c5641ce9e193eb30638e75d3751c7944539d26b43"
+      "sha256": "ac1067a64ddcd12a474a41e0ab533870e48439745e286eed86a7bbbaa305ae74"
     },
     {
       "path": "dist/features/SyncScopeAgentIndex.js",
@@ -697,7 +697,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "4da755be362ff17fda2f105fca852e64fdd8157944236355ee779b99d856f2d6"
+      "sha256": "73455a6561a8d424f04801b8b5fd5cb0abe3a5435ba4bdabdad4ca202c147828"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1045,7 +1045,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "cfca354f5c7346622c0071cbd59eda2ff72ccb5391ba6d4144cb07af3d8c435f"
+      "sha256": "4f6466c10483b9cf96d251ee7899a5385c90a2c202e19ca365f36dab60562f53"
     },
     {
       "path": "scripts/check-static.js",

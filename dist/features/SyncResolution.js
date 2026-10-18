@@ -102,8 +102,13 @@ async function saveSyncHolds(storageRoot, projectRoot, holds) {
     await (0, StateStore_1.atomicWriteText)(file, JSON.stringify(holds, null, 2) + "\n");
 }
 function psLiteral(value) { return `'${value.replace(/'/g, "''")}'`; }
-function localDeleteScript(root, relative, expected) {
+function checkLocalDeleteTarget(root, relative) {
     safeSyncPath(relative);
+    if (relative.replace(/\\/g, "/").split("/").some(part => [".git", "clean_dir"].includes(part.toLowerCase())))
+        throw new Error(`PROTECTED_PATH：仓库元数据或归档区不可作为独立删除目标；阻拦路径：${path.resolve(root, ...relative.replace(/\\/g, "/").split("/"))}`);
+}
+function localDeleteScript(root, relative, expected) {
+    checkLocalDeleteTarget(root, relative);
     const full = path.resolve(root, ...relative.split("/"));
     const parent = path.dirname(full);
     const leaf = `./${path.basename(full)}`;
@@ -115,7 +120,7 @@ function localDeleteScript(root, relative, expected) {
     return `$ErrorActionPreference = 'Stop'; try { Set-Location -LiteralPath ${psLiteral(parent)}; $cwd=[IO.Path]::GetFullPath((Get-Location).ProviderPath).TrimEnd('\\'); if (-not [string]::Equals($cwd, ${psLiteral(parent)}, [StringComparison]::OrdinalIgnoreCase)) { throw 'PARENT_CD_FAILED' } } catch { [Console]::Error.WriteLine('PARENT_CD_FAILED'); exit 75 }; ${identity}Remove-Item -LiteralPath ${psLiteral(leaf)} -Recurse -Force -ErrorAction Stop`;
 }
 async function deleteLocalSyncPath(root, relative) {
-    safeSyncPath(relative);
+    checkLocalDeleteTarget(root, relative);
     const full = path.resolve(root, ...relative.split("/"));
     const rootStat = await fs.lstat(root).catch((error) => { throw new Error(`PARENT_CD_FAILED：无法核验项目根目录：${error.message}`); });
     if (!rootStat.isDirectory() || rootStat.isSymbolicLink())
