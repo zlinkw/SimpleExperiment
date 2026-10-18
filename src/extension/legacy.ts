@@ -8660,19 +8660,52 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         await current;
         this.queuePlanArtifactSyncStatusCheck?.(true);
     }
+    createSyncScopeBatchIndex(root, targets, localOnly, report = (_stage: string) => {}) {
+        if (!localOnly && !targets.length) throw new Error("没有可查询的已启用 Worker，文件状态未知，未执行批量操作。");
+        const client = this.client, round = "scope-operation:" + crypto.randomUUID();
+        const local = new SyncScopeLocalIndexReader(root, 30_000, this.projectFileObservationIndex());
+        const readers = new Map(targets.map(target => [target.id, new SyncScopeAgentIndexReader(async (query, options) => {
+            if (workspaceRoot() !== root || this.client !== client) throw new Error("SCOPE_INDEX_WORKSPACE_CHANGED");
+            if (!client?.getWorkerSyncScopeIndex) throw new Error("SCOPE_INDEX_UNSUPPORTED");
+            const projectRoot = this.sftpServerOptions(target).remotePath;
+            const value = await client.getWorkerSyncScopeIndex(target.id, { ...query, projectRoot }, options);
+            if (workspaceRoot() !== root || this.client !== client) throw new Error("SCOPE_INDEX_WORKSPACE_CHANGED");
+            if (!value?.projectRoot || value.requestedProjectRoot !== projectRoot) throw new Error("SCOPE_INDEX_PROJECT_MISMATCH");
+            return value;
+        }, undefined, this.projectFileObservationIndex(this.sftpServerOptions(target)))]));
+        const lists = new Map(), ready = new Map();
+        let localReady;
+        return {
+            list: (parent) => {
+                if (!lists.has(parent)) lists.set(parent, this.listSyncScopeUnion(root, targets, parent, localOnly, true, undefined,
+                    target => {
+                        const reader = readers.get(target.id)!;
+                        if (!ready.has(target.id)) ready.set(target.id, reader.read(round, undefined, stage => report(`${target.id}：${stage}`)));
+                        return ready.get(target.id).then(() => reader.list(parent, round));
+                    }, () => {
+                        localReady ||= local.read(round, undefined, stage => report(`本机：${stage}`));
+                        return localReady.then(() => local.list(parent, round));
+                    }));
+                return lists.get(parent);
+            },
+            dispose: () => { for (const reader of readers.values()) reader.dispose(); },
+        };
+    }
     async runSyncScopeTreeBatch(root, targets, localOnly, action, selected, excluded, report = (_stage: string) => {}, knownEntries: ScopeEntry[] = []) {
         if (this.syncScopeMutationInFlight || this.planSyncInFlight || this.codeSyncInFlight)
             throw new Error("同步或文件树操作进行中，请完成后重试。");
         this.codeSyncWarmProofs?.clear();
         this.syncScopeMutationInFlight = true;
+        let operationIndex;
         try {
+        operationIndex = this.createSyncScopeBatchIndex(root, targets, localOnly, report);
         const absent = [];
         const entries = await expandSyncScopeBatchSelection(selected, excluded,
             (parent) => {
-                report(`正在读取 ${parent} 的文件树`);
-                return this.listSyncScopeUnion(root, targets, parent, localOnly, true);
+                report(`正在使用本轮增量索引核对 ${parent} 的文件树`);
+                return operationIndex.list(parent);
             }, (done, total) => report(`已核对 ${done}/${total} 条勾选路径`), knownEntries,
-            action === "delete" ? { fresh: true, onMissing: file => absent.push(file) } : {});
+            action === "delete" ? { fresh: true, onMissing: file => absent.push(file) } : { fresh: true });
         if (!entries.length) return { completed: absent, errors: [] };
         this.assertArtifactSyncPathsIdle?.(root, entries.map(entry => entry.path));
         const work = [];
@@ -8757,7 +8790,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 (error) => /PARENT_CD_FAILED|不安全|符号链接|超出项目根目录|机器状态路径|目标类型已变化|OPERATION_BUSY|清理窗口仍在处理|files[.]cleanup[.](inspect|preview|check)/.test(error));
             return { completed: [...absent, ...results.filter((row) => !row.error).map((row) => row.item.path)],
                 errors: results.filter((row) => row.error).map((row) => `${row.item.path}：${row.error}`) };
-        } finally { this.syncScopeMutationInFlight = false; }
+        } finally { operationIndex?.dispose(); this.syncScopeMutationInFlight = false; }
     }
     async readScopedProjectInventory(server, scopePaths) {
         const files = {};
@@ -18589,7 +18622,8 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const index = query && this.projectFileObservationIndex?.(request.node?.kind === "local" ? undefined : request.source || request.server || request.node);
         const load = () => callSftpWithProgress(method, request, (name) => this.simpleSftpCapability(name), onProgress);
         if (index) return index.read(query, load);
-        const mutation = /^(sync\.(?:serverToServerFpsync|download|upload)|upload\.|files\.cleanup\.execute|files\.(?:delete|move|write|mkdir|rename))/.test(method);
+        const mutation = /^(sync\.(?:serverToServerFpsync|download|upload)|upload\.|files\.cleanup\.execute|files\.(?:delete|move|write|mkdir|rename))/.test(method)
+            && !(method === "sync.downloadMappedPaths" && request.memoryOnly === true);
         if (mutation) await this.refreshProjectFileIndexesBeforeOperation?.(method, request);
         const changedPaths = fileOperationIndexPaths(request);
         if (mutation) await this.invalidateProjectFileIndexes?.("文件写入或清理开始：" + method, changedPaths);
@@ -18627,7 +18661,8 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const reads = [];
         // Token-only cleanup execution has already performed a live inspect/preview; never reconstruct authorization from an index.
         if (method === "files.cleanup.execute") return;
-        if ((!request.localBase || path.resolve(request.localBase) === path.resolve(root))
+        const involvesLocal = !!(request.localPath || request.localBase || request.node?.kind === "local") || /upload|download/i.test(method) && request.memoryOnly !== true;
+        if (involvesLocal && (!request.localBase || path.resolve(request.localBase) === path.resolve(root))
             && (!request.localPath || path.resolve(request.localPath) === path.resolve(root))) {
             const index = this.projectFileObservationIndex?.();
             if (index) reads.push(index.read({ method: "local.before-operation", paths: localPaths.length ? localPaths : ["."],
@@ -18639,9 +18674,9 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             const index = this.projectFileObservationIndex?.(source);
             if (!index || seen.has(index.file)) continue;
             seen.add(index.file);
-            // A single metadata inventory batches exact file/subdirectory scopes. No implicit whole-project recursion.
-            const batches = paths.length ? Array.from({ length: Math.ceil(paths.length / 5000) }, (_, n) => paths.slice(n * 5000, (n + 1) * 5000)) : [[]];
-            reads.push((async () => {
+            // Legacy shallow mode cannot resolve arbitrary nested scopePaths. Preserve its full coverage.
+            const legacyRead = async () => {
+                const batches = paths.length ? Array.from({ length: Math.ceil(paths.length / 5000) }, (_, n) => paths.slice(n * 5000, (n + 1) * 5000)) : [[]];
                 for (const scopePaths of batches) {
                     const queryMethod = scopePaths.length ? "sync.projectInventory" : "sync.projectTree";
                     const params = { source, relativePath: ".", ...(scopePaths.length ? { scopePaths, metadataOnly: true, recursive: true } : {}) };
@@ -18652,7 +18687,35 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                         return callSftpWithProgress(queryMethod, params, name => this.simpleSftpCapability(name));
                     });
                 }
-            })());
+            };
+            const workerId = String(source.id || source.targetId || ""), client = this.client;
+            const indexedWorker = client?.getWorkerSyncScopeIndex && workerId && source.remotePath
+                && (!this.enabledWorkerConfigs || this.enabledWorkerConfigs().some(worker => worker.id === workerId));
+            if (indexedWorker) {
+                reads.push((async () => {
+                    // Reuse an established native baseline, never implicitly build a global index for
+                    // a small standalone transfer or a filesystem that requires full reconciliation.
+                    const saved = await index.readBaseline();
+                    if (!paths.length || saved?.acceleration?.mode !== "native-directory-deltas") { await legacyRead(); return; }
+                    const reader = new SyncScopeAgentIndexReader(async (query, options) => {
+                        if (workspaceRoot() !== root || this.client !== client) throw new Error("SCOPE_INDEX_WORKSPACE_CHANGED");
+                        const value = await client.getWorkerSyncScopeIndex(workerId, { ...query, projectRoot: source.remotePath }, options);
+                        if (workspaceRoot() !== root || this.client !== client) throw new Error("SCOPE_INDEX_WORKSPACE_CHANGED");
+                        if (!value?.projectRoot || value.requestedProjectRoot !== source.remotePath) throw new Error("SCOPE_INDEX_PROJECT_MISMATCH");
+                        return value;
+                    }, undefined, index);
+                    try {
+                        await reader.inventory("file-operation:" + crypto.randomUUID(), undefined, undefined, { purpose: phase, operation: method });
+                    } catch (error) {
+                        if (scopeIndexUnsupported(error)) { await legacyRead(); return; }
+                        // A failed live query is unknown, never an empty inventory or an accepted saved cursor.
+                        await index.read({ method: "agent.metadata", metadataOnly: true, recursive: true,
+                            backgroundPersistence: true, binding: { purpose: phase, operation: method } }, () => Promise.reject(error));
+                    } finally { reader.dispose(); }
+                })());
+                continue;
+            }
+            reads.push(legacyRead());
         }
         // Failed refresh is recorded as unknown. The operation retains its own authoritative path/content/safety checks.
         await Promise.allSettled(reads);

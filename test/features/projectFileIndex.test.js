@@ -87,7 +87,7 @@ test('query persists reading before touching the filesystem; explicit missing st
  assert.equal(index.snapshot().entries['data/a'].presence,'absent');
 });
 
-test('actual operation preflight batches exact scopes, includes both servers and local destination, and records a failed refresh without authorizing or blocking deletion',async()=>{
+test('legacy operation preflight keeps nested scope coverage, observes actual local endpoints, and records a failed refresh without authorizing or blocking deletion',async()=>{
  const {fileOperationIndexPaths,readLocalFileIndexPaths}=require('../../src/features/ProjectFileIndex.ts');
  const ts=require('typescript'),vm=require('node:vm'),source=await fs.readFile(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
  const ast=ts.createSourceFile('host.ts',source,ts.ScriptTarget.Latest,true);let method;function visit(n){if(ts.isMethodDeclaration(n)&&n.name.getText(ast)==='refreshProjectFileIndexesBeforeOperation')method=n;ts.forEachChild(n,visit);}visit(ast);
@@ -101,10 +101,11 @@ test('actual operation preflight batches exact scopes, includes both servers and
  }};
  const params={source:{id:'one'},destination:{id:'two'},relativePaths:['data/a']};
  await run.call(host,'sync.serverToServerFpsync',params);assert.equal(calls.length,2);
- for(const {name,params:request}of calls){assert.equal(name,'sync.projectInventory');assert.deepEqual(Array.from(request.scopePaths),['data/a']);assert.equal(request.metadataOnly,true);}
- assert.equal(indexes.get('local').snapshot().entries['data/a'].size,3);
+ for(const {name,params:request}of calls){assert.equal(name,'sync.projectInventory');assert.deepEqual(Array.from(request.scopePaths),['data/a']);assert.equal(request.metadataOnly,true);assert.equal(request.recursive,true,'legacy shallow mode cannot resolve nested scopes');}
+ assert.equal(indexes.has('local'),false,'remote-only transfers do not read unrelated local paths');
  calls.length=0;await run.call(host,'upload.workspace',{server:{id:'one'}});assert.equal(calls[0].name,'sync.projectTree');assert.equal(calls[0].params.recursive,undefined,'unspecified scope is shallow');
  fail=true;await run.call(host,'upload.workspace',{server:{id:'one'},manifest:{'data/a':{size:3}}});
+ assert.equal(indexes.get('local').snapshot().entries['data/a'].size,3);
  assert.equal(indexes.get('one').snapshot().observations.at(-1).state,'failed');
  calls.length=0;await run.call(host,'files.cleanup.execute',{token:'not-persisted'});assert.equal(calls.length,0,'token-only execution uses existing live inspection and frozen authorization');
  assert.deepEqual(fileOperationIndexPaths({entries:[{remotePath:'data/a',localRelativePath:'data/b'}]},true),['data/b']);

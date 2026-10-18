@@ -7,7 +7,7 @@ const promises_1 = require("node:timers/promises");
 function scopeIndexUnsupported(error) {
     return /HTTP 404|SCOPE_INDEX_UNSUPPORTED/.test(error instanceof Error ? error.message : String(error));
 }
-/** Private to one sync-scope page. A complete, requested generation is the only publishable snapshot. */
+/** One page or operation owns its requested generation. A saved cursor needs a live refresh before use. */
 class SyncScopeAgentIndexReader {
     rpc;
     viewId;
@@ -17,7 +17,6 @@ class SyncScopeAgentIndexReader {
     directorySnapshot;
     directories = new Map();
     disposed = false;
-    restored = false;
     constructor(rpc, viewId = (0, node_crypto_1.randomUUID)().replaceAll("-", ""), index) {
         this.rpc = rpc;
         this.viewId = viewId;
@@ -47,14 +46,16 @@ class SyncScopeAgentIndexReader {
         return request.promise;
     }
     async load(request, signal, report = (_stage) => { }) {
-        if (!this.restored && this.index) {
-            this.restored = true;
+        if (this.index) {
             const saved = await this.index?.readBaseline();
             signal?.throwIfAborted();
             if (this.disposed || this.request !== request)
                 throw new Error("SCOPE_INDEX_REQUEST_SUPERSEDED");
+            // Another page or operation may have advanced this shared cursor. Prefer its newer baseline
+            // as a transport hint; the next live refresh still has to acknowledge it before any facts are used.
             if (saved && typeof saved.instanceId === "string" && Number.isSafeInteger(saved.generation) && saved.generation > 0
-                && Array.isArray(saved.entries) && saved.entries.length <= 60000)
+                && Array.isArray(saved.entries) && saved.entries.length <= 60000
+                && (!this.snapshot || saved.instanceId === this.snapshot.instanceId && saved.generation > this.snapshot.generation))
                 this.snapshot = { ...saved, entries: new Map(saved.entries) };
         }
         const previous = this.snapshot;
@@ -135,14 +136,14 @@ class SyncScopeAgentIndexReader {
         report(`目录索引已接收 · ${entries.size} 项`);
         return value;
     }
-    async inventory(round, signal, report) {
+    async inventory(round, signal, report, binding = {}) {
         const snapshot = await this.read(round, signal, report);
         const identity = (row) => ({ modifiedAtMs: row.m, changedAtMs: row.c, device: row.v, inode: row.i });
         const load = async () => ({ files: Object.fromEntries([...snapshot.entries].filter(([, row]) => !row.d).map(([name, row]) => [name, { size: row.s, ...identity(row) }])),
             directories: Object.fromEntries([...snapshot.entries].filter(([, row]) => row.d).map(([name, row]) => [name, identity(row)])),
             unverifiedFiles: {}, observedAt: snapshot.observedAt, agentInstanceId: snapshot.instanceId, indexGeneration: snapshot.generation, acceleration: snapshot.acceleration });
         return this.index ? this.index.read({ method: "agent.metadata", metadataOnly: true, recursive: true, backgroundPersistence: true, round: this.viewId + ":" + round, signal,
-            binding: { agentInstanceId: snapshot.instanceId, indexGeneration: snapshot.generation } }, load) : load();
+            binding: { ...binding, agentInstanceId: snapshot.instanceId, indexGeneration: snapshot.generation } }, load) : load();
     }
     async list(relative, round, signal) {
         const snapshot = await this.read(round, signal);
