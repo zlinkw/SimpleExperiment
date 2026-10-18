@@ -8966,7 +8966,8 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         if (directory && capability.methodOptions?.["files.cleanup.preview"]?.confirmedPathNestedRepositories !== 1)
             throw new Error("请更新 SimpleSFTP 至 0.2.98 或以上并重载窗口：整目录删除需要子仓库元数据保护协议。");
         return deleteConfirmedScopeCopy((method, params) => this.simpleSftpApiCall(method, params, 0,
-            snapshot => report(`${id}：已检查 ${snapshot.processedFiles || 0} 项文件元数据`)),
+            snapshot => report(`${id}：已检查 ${snapshot.processedFiles || 0} 项文件元数据`),
+            ["files.cleanup.inspect", "files.cleanup.execute"].includes(method) ? { source: { ...server, id }, relativePath: relative } : undefined),
             { id, kind: "remote", host: server.host, user: server.user || server.username,
                 port: server.port, root: server.remotePath }, relative, directory, report);
     }
@@ -18608,7 +18609,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         };
         }
     }
-    async simpleSftpApiCall(method, params, timeoutMs = 0, onProgress?) {
+    async simpleSftpApiCall(method, params, timeoutMs = 0, onProgress?, cleanupObservation?: { source: any; relativePath: string }) {
         assertRetryRequestCurrent();
         if (method === "files.cleanup.preview" || method === "files.cleanup.execute") {
             const settings = vscode.workspace.getConfiguration("simpleExperiment");
@@ -18619,17 +18620,26 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const { fileIndexRound, fileIndexBinding, ...plainRequest } = params || {};
         const request = fileIndexRound !== undefined || fileIndexBinding !== undefined ? plainRequest : params || {};
         const query = sftpFileIndexQuery(method, params || {});
-        const index = query && this.projectFileObservationIndex?.(request.node?.kind === "local" ? undefined : request.source || request.server || request.node);
+        // The cleanup node carries the SSH alias; the full source also carries
+        // its configured network identity. Keep the page/read/mutation owner stable.
+        const observationSource = method === "files.cleanup.inspect" && cleanupObservation ? cleanupObservation.source
+            : request.node?.kind === "local" ? undefined : request.source || request.server || request.node;
+        const index = query && this.projectFileObservationIndex?.(observationSource);
         const load = () => callSftpWithProgress(method, request, (name) => this.simpleSftpCapability(name), onProgress);
         if (index) return index.read(query, load);
         const mutation = /^(sync\.(?:serverToServerFpsync|download|upload)|upload\.|files\.cleanup\.execute|files\.(?:delete|move|write|mkdir|rename))/.test(method)
             && !(method === "sync.downloadMappedPaths" && request.memoryOnly === true);
         if (mutation) await this.refreshProjectFileIndexesBeforeOperation?.(method, request);
-        const changedPaths = fileOperationIndexPaths(request);
-        if (mutation) await this.invalidateProjectFileIndexes?.("文件写入或清理开始：" + method, changedPaths);
+        // Cleanup's transport request is token-only. Keep its known endpoint/path
+        // here, outside the RPC, rather than invalidating every Worker and subtree.
+        const mutationIndex = method === "files.cleanup.execute" && cleanupObservation
+            ? this.projectFileObservationIndex?.(cleanupObservation.source) : undefined;
+        const changedPaths = mutationIndex ? [safeSyncPath(cleanupObservation!.relativePath)] : fileOperationIndexPaths(request);
+        const invalidate = reason => mutationIndex ? mutationIndex.invalidate(reason, changedPaths) : this.invalidateProjectFileIndexes?.(reason, changedPaths);
+        if (mutation) await invalidate("文件写入或清理开始：" + method);
         try { return await load(); }
         finally { if (mutation) {
-            await this.invalidateProjectFileIndexes?.("文件写入或清理结束，需重新查询：" + method, changedPaths);
+            await invalidate("文件写入或清理结束，需重新查询：" + method);
             await this.refreshProjectFileIndexesBeforeOperation?.(method, request, "after-operation");
         } }
     }

@@ -4,6 +4,49 @@ require('../_helpers/registerTsRequire');
 const { deleteConfirmedScopeCopy } = require('../../src/features/SyncScopeDelete.ts');
 const node = { id: 'worker', kind: 'remote', host: 'fixture', user: 'user', port: 22, root: '/project' };
 
+test('fresh presence reads recover from index invalidation before and after one large deletion without replaying its executor',async()=>{
+ const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os');
+ const {ProjectFileIndex,sftpFileIndexQuery}=require('../../src/features/ProjectFileIndex.ts');
+ const storage=await fs.mkdtemp(path.join(os.tmpdir(),'cleanup-index-race-'));
+ const index=new ProjectFileIndex({workspace:storage,endpointId:'worker',projectRoot:'/project',connection:'fixture'},storage);
+ let inspections=0,starts=0,checks=0,waits=0;const stages=[];
+ await deleteConfirmedScopeCopy(async(method,params)=>{
+  if(method.endsWith('.inspect'))return index.read(sftpFileIndexQuery(method,params),async()=>{
+   const n=++inspections;if(n===1||n===3)await index.invalidate('live job observation changed',['work_dirs/job']);
+   return {ok:true,executorsChecked:true,executors:[],target:{relativePath:params.target.relativePath,type:'directory',missing:starts===1}};
+  });
+  if(method.endsWith('.preview'))return {token:'same',digest:'approved',targets:[{absolutePath:'/project/work_dirs/job',type:'directory'}]};
+  if(method.endsWith('.execute')){starts++;return {ok:true,state:'requested'};}
+  if(method.endsWith('.check'))return {ok:true,state:++checks===3?'completed':'executing',progress:{removedEntries:checks*100000,removedBytes:checks*2**42}};
+  return {ok:true};
+ },node,'work_dirs/job',true,stage=>stages.push(stage),{wait:async()=>{waits++;}});
+ assert.equal(inspections,4);assert.equal(starts,1);assert.equal(checks,3);assert.equal(waits,4);
+ assert.equal(index.snapshot().entries['work_dirs/job'].presence,'absent');assert.ok(stages.some(stage=>/重新.*核实|重新.*读取/.test(stage)));
+});
+
+test('index retries are bounded and inspect-only; connection failures and recreated targets never restart a completed deletion',async()=>{
+ for(const [kind,after,expectedInspections] of [['invalidated',false,3],['invalidated',true,4],['offline',true,2],['FILE_INDEX_CONNECTION_REPLACED',false,1],['recreated',true,3]]){
+  let starts=0,inspections=0;
+  await assert.rejects(deleteConfirmedScopeCopy(async method=>{
+   if(method.endsWith('.inspect')){
+    inspections++;
+    if(!after||starts){if(kind!=='recreated'||inspections===2)throw Error(kind==='invalidated'||kind==='recreated'?'FILE_INDEX_INVALIDATED_DURING_READ':kind);}
+    return {ok:true,executorsChecked:true,executors:[],target:{missing:false}};
+   }
+   if(method.endsWith('.preview'))return {token:'same',digest:'approved',targets:[{absolutePath:'/project/work_dirs/job',type:'directory'}]};
+   if(method.endsWith('.execute')){starts++;return {ok:true};}
+   return {ok:true,state:'completed'};
+  },node,'work_dirs/job',true,()=>{},{wait:async()=>{}}),/INVALIDATED|offline|CONNECTION_REPLACED|删除后.*核实/);
+  assert.equal(starts,after?1:0);assert.equal(inspections,expectedInspections);
+ }
+ let inspections=0,starts=0;
+ await assert.rejects(deleteConfirmedScopeCopy(async method=>{
+  if(method.endsWith('.inspect')){inspections++;return {ok:true,executorsChecked:true,executors:[],target:{missing:false}};}
+  if(method.endsWith('.preview'))throw Error('FILE_INDEX_INVALIDATED_DURING_READ');starts++;
+ },node,'work_dirs/job',true,()=>{},{wait:async()=>{}}),/INVALIDATED/);
+ assert.equal(inspections,1);assert.equal(starts,0);
+});
+
 test('local whole-subdirectory deletion permits a repository but direct git/archive/root targets remain protected',()=>{
  const {localDeleteScript}=require('../../src/features/SyncResolution.ts');
  assert.match(localDeleteScript('D:/project','comparison_methods/_repos/cpsc'),/Remove-Item -LiteralPath '.\/cpsc'/);

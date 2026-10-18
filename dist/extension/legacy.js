@@ -9366,7 +9366,7 @@ class RealtimeTunnelPanelProvider {
             throw new Error("请先更新配套 SimpleSFTP 并重载窗口：当前版本不支持按路径读取元数据的删除流程。");
         if (directory && capability.methodOptions?.["files.cleanup.preview"]?.confirmedPathNestedRepositories !== 1)
             throw new Error("请更新 SimpleSFTP 至 0.2.98 或以上并重载窗口：整目录删除需要子仓库元数据保护协议。");
-        return (0, SyncScopeDelete_1.deleteConfirmedScopeCopy)((method, params) => this.simpleSftpApiCall(method, params, 0, snapshot => report(`${id}：已检查 ${snapshot.processedFiles || 0} 项文件元数据`)), { id, kind: "remote", host: server.host, user: server.user || server.username,
+        return (0, SyncScopeDelete_1.deleteConfirmedScopeCopy)((method, params) => this.simpleSftpApiCall(method, params, 0, snapshot => report(`${id}：已检查 ${snapshot.processedFiles || 0} 项文件元数据`), ["files.cleanup.inspect", "files.cleanup.execute"].includes(method) ? { source: { ...server, id }, relativePath: relative } : undefined), { id, kind: "remote", host: server.host, user: server.user || server.username,
             port: server.port, root: server.remotePath }, relative, directory, report);
     }
     async removeSyncScopeCopies(root, targets, relative, endpointIds, directory, report = (_stage) => { }) {
@@ -19756,7 +19756,7 @@ class RealtimeTunnelPanelProvider {
             };
         }
     }
-    async simpleSftpApiCall(method, params, timeoutMs = 0, onProgress) {
+    async simpleSftpApiCall(method, params, timeoutMs = 0, onProgress, cleanupObservation) {
         (0, SafeRequestRetry_1.assertRetryRequestCurrent)();
         if (method === "files.cleanup.preview" || method === "files.cleanup.execute") {
             const settings = vscode.workspace.getConfiguration("simpleExperiment");
@@ -19767,7 +19767,11 @@ class RealtimeTunnelPanelProvider {
         const { fileIndexRound, fileIndexBinding, ...plainRequest } = params || {};
         const request = fileIndexRound !== undefined || fileIndexBinding !== undefined ? plainRequest : params || {};
         const query = (0, ProjectFileIndex_1.sftpFileIndexQuery)(method, params || {});
-        const index = query && this.projectFileObservationIndex?.(request.node?.kind === "local" ? undefined : request.source || request.server || request.node);
+        // The cleanup node carries the SSH alias; the full source also carries
+        // its configured network identity. Keep the page/read/mutation owner stable.
+        const observationSource = method === "files.cleanup.inspect" && cleanupObservation ? cleanupObservation.source
+            : request.node?.kind === "local" ? undefined : request.source || request.server || request.node;
+        const index = query && this.projectFileObservationIndex?.(observationSource);
         const load = () => (0, SimpleSftpProgressWait_1.callSftpWithProgress)(method, request, (name) => this.simpleSftpCapability(name), onProgress);
         if (index)
             return index.read(query, load);
@@ -19775,15 +19779,20 @@ class RealtimeTunnelPanelProvider {
             && !(method === "sync.downloadMappedPaths" && request.memoryOnly === true);
         if (mutation)
             await this.refreshProjectFileIndexesBeforeOperation?.(method, request);
-        const changedPaths = (0, ProjectFileIndex_1.fileOperationIndexPaths)(request);
+        // Cleanup's transport request is token-only. Keep its known endpoint/path
+        // here, outside the RPC, rather than invalidating every Worker and subtree.
+        const mutationIndex = method === "files.cleanup.execute" && cleanupObservation
+            ? this.projectFileObservationIndex?.(cleanupObservation.source) : undefined;
+        const changedPaths = mutationIndex ? [(0, SyncResolution_1.safeSyncPath)(cleanupObservation.relativePath)] : (0, ProjectFileIndex_1.fileOperationIndexPaths)(request);
+        const invalidate = reason => mutationIndex ? mutationIndex.invalidate(reason, changedPaths) : this.invalidateProjectFileIndexes?.(reason, changedPaths);
         if (mutation)
-            await this.invalidateProjectFileIndexes?.("文件写入或清理开始：" + method, changedPaths);
+            await invalidate("文件写入或清理开始：" + method);
         try {
             return await load();
         }
         finally {
             if (mutation) {
-                await this.invalidateProjectFileIndexes?.("文件写入或清理结束，需重新查询：" + method, changedPaths);
+                await invalidate("文件写入或清理结束，需重新查询：" + method);
                 await this.refreshProjectFileIndexesBeforeOperation?.(method, request, "after-operation");
             }
         }

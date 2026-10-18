@@ -169,3 +169,36 @@ test('actual mutation wrapper refreshes exact scopes before and after the write 
  assert.deepEqual(calls.map(c=>c.method),['sync.projectInventory','sync.serverToServerFpsync','sync.projectInventory']);
  assert.equal(index.snapshot().entries['data/a'].presence,'absent');assert.equal(index.snapshot().observations.at(-1).binding.purpose,'after-operation');
 });
+
+test('real tree cleanup invalidates only its Worker and exact subtree, leaving another Worker and sibling reads intact',async()=>{
+ const ts=require('typescript'),vm=require('node:vm'),source=await fs.readFile(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
+ const ast=ts.createSourceFile('host.ts',source,ts.ScriptTarget.Latest,true),members=[];
+ function visit(n){if(ts.isMethodDeclaration(n)&&['simpleSftpApiCall','deleteSyncScopeRemoteCopy','projectFileObservationIndex','invalidateProjectFileIndexes'].includes(n.name.getText(ast)))members.push(n.getText(ast));ts.forEachChild(n,visit);}visit(ast);
+ const {storage}=await fixture();
+ let starts=0;const requests=[];
+ const Host=vm.runInNewContext(ts.transpileModule('class Host{'+members.join('\n')+'};Host',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{
+  assertRetryRequestCurrent(){},sftpFileIndexQuery,fileOperationIndexPaths,safeSyncPath:require('../../src/features/SyncResolution.ts').safeSyncPath,
+  workspaceRoot:()=>storage,projectFileIndex:require('../../src/features/ProjectFileIndex.ts').projectFileIndex,crypto:require('node:crypto'),process,
+  deleteConfirmedScopeCopy:require('../../src/features/SyncScopeDelete.ts').deleteConfirmedScopeCopy,
+  vscode:{workspace:{getConfiguration:()=>({get:()=> 'simple'})}},AgentTmuxPolicy_1:require('../../src/tunnel/AgentTmuxPolicy.ts'),
+  callSftpWithProgress:async(method,params)=>{
+   requests.push({method,params});if(method.endsWith('.inspect'))return {ok:true,executorsChecked:true,executors:[],target:{relativePath:params.target.relativePath,type:'directory',missing:starts===1}};
+   if(method.endsWith('.preview'))return {token:'fixed',digest:'approved',targets:[{absolutePath:'/project/work_dirs/job',type:'directory'}]};
+   if(method.endsWith('.execute')){starts++;return {ok:true};}return {ok:true,state:'completed'};
+  },
+ });
+ const host=new Host();host.simpleSftpCapability=async()=>({methodOptions:{'files.cleanup.preview':{confirmedPathMetadata:1,confirmedPathNestedRepositories:1}}});
+ host.context={globalStorageUri:{fsPath:storage}};host.client={};
+ const server={id:'w1',remotePath:'/project',host:'configured-alias',networkHost:'10.0.0.1',user:'user',port:22};
+ const a=host.projectFileObservationIndex(server),b=host.projectFileObservationIndex({...server,id:'w2',host:'other-alias',networkHost:'10.0.0.2'}),pending=[];
+ for(const [index,relative]of [[b,'work_dirs/job'],[a,'work_dirs/sibling'],[a,'work_dirs/job']]){
+  let release;const result=index.read(sftpFileIndexQuery('files.cleanup.inspect',{target:{relativePath:relative,type:'directory'}}),()=>new Promise(resolve=>release=resolve)).then(value=>({value}),error=>({error}));
+  await until(()=>release);pending.push({result,release});
+ }
+ await host.deleteSyncScopeRemoteCopy('w1',server,'work_dirs/job',true);
+ for(const row of pending)row.release({ok:true,executorsChecked:true,executors:[],target:{missing:false}});
+ const [other,sibling,same]=await Promise.all(pending.map(row=>row.result));
+ assert.equal(other.error,undefined,'a deletion on w1 must not retire a live w2 presence check');assert.equal(sibling.error,undefined);
+ assert.match(same.error.message,/INVALIDATED/);assert.equal(starts,1);assert.equal(a.snapshot().entries['work_dirs/job'].presence,'absent');
+ const execute=requests.find(row=>row.method.endsWith('.execute'));assert.deepEqual(Object.keys(execute.params).sort(),['digest','index','tmuxSessionPrefix','token']);
+});

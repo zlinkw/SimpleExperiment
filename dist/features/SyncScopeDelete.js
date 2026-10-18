@@ -4,12 +4,21 @@ exports.deleteConfirmedScopeCopy = deleteConfirmedScopeCopy;
 /** Called only after the tree's two exact-path confirmations. No transfer-ledger recovery. */
 async function deleteConfirmedScopeCopy(rpc, node, relativePath, directory, report = () => { }, timing = {}) {
     const call = async (method, params) => {
-        report(`正在执行 ${method}：${relativePath}`);
-        try {
-            return await rpc(method, params);
-        }
-        catch (error) {
-            throw Object.assign(new Error(`${method}：${error?.message || String(error)}`), { apiCode: error?.apiCode, apiData: error?.apiData });
+        for (let attempt = 0;; attempt++) {
+            report(`正在执行 ${method}：${relativePath}`);
+            try {
+                return await rpc(method, params);
+            }
+            catch (error) {
+                const detail = error?.message || String(error);
+                // Only retire and repeat a read whose evidence was invalidated. Never replay
+                // previews, confirmations, execute/check requests, or a changed connection.
+                const invalidated = method === 'files.cleanup.inspect' && /\bFILE_INDEX_INVALIDATED_DURING_READ\b/.test(detail);
+                if (!invalidated || attempt >= 2)
+                    throw Object.assign(new Error(`${method}：${detail}${invalidated ? '；三次实时读取期间状态持续变化，本轮尚未核实，不会自动重复删除。' : ''}`), { apiCode: error?.apiCode, apiData: error?.apiData });
+                report(`文件状态同时发生变化，正在重新读取并核实 ${relativePath}（${attempt + 2}/3）`);
+                await (timing.wait || (() => new Promise(resolve => setTimeout(resolve, 250))))();
+            }
         }
     };
     const target = { relativePath, type: directory ? 'directory' : 'file' };
