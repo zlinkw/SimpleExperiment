@@ -13,11 +13,23 @@ export class PlanSubmissionBatch {
   private closed = false;
   private code?: string;
   private revisions: Map<string, string>;
+  private workerAssignments = new Map<string, string>();
   constructor(private host: any, private context: any, plans: any[], private current: () => void,
     private report: (text: string) => void = () => {}) {
     this.revisions = new Map(plans.map(plan => [String(plan.planFile || plan.file).replaceAll("\\", "/"), String(plan.revision || "")]));
   }
   bind(message: object) { this.check(); bindings.set(message, this); }
+  selectWorker(body: any, candidates: string[]): string {
+    this.check();
+    const file = String(body.planFile || body.options?.planFile || "");
+    const assigned = this.workerAssignments.get(file);
+    if (assigned && candidates.includes(assigned)) return assigned;
+    const ordered = [...new Set(candidates)].sort((a, b) =>
+      [...this.workerAssignments.values()].filter(id => id === a).length - [...this.workerAssignments.values()].filter(id => id === b).length);
+    if (!ordered.length) throw Error("没有可校验本批 PLAN 的 Worker。");
+    this.workerAssignments.set(file, ordered[0]);
+    return ordered[0];
+  }
   async start() { this.code = await this.verify(); }
   check() { this.current(); if (this.closed) throw Error("本批提交已结束，不能复用准备结果。"); }
   private memo<T>(map: Map<string, Promise<any>>, key: string, work: () => Promise<T>): Promise<T> {
@@ -74,6 +86,6 @@ export class PlanSubmissionBatch {
   async close() {
     this.closed = true;
     await Promise.allSettled([...new Set([...this.shared.values(), ...this.active.values(), ...this.lanes.values()])]);
-    this.shared.clear(); this.active.clear(); this.lanes.clear();
+    this.shared.clear(); this.active.clear(); this.lanes.clear(); this.workerAssignments.clear();
   }
 }

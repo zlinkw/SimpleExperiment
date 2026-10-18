@@ -1106,7 +1106,7 @@ export class RealtimeTunnelPanelProvider {
     private lastStateBuildErrorSignature = "";
     private lastStatePostErrorSignature = "";
     private readonly statePostBatchMs = 100;
-    private readonly statePostMinimumIntervalMs = 200;
+    private readonly statePostMinimumIntervalMs = 1000;
     private readonly statePostRetryMax = 3;
     private readonly statePostRetryBaseMs = 500;
     private panelHeartbeatTimer?: ReturnType<typeof setTimeout>;
@@ -5965,7 +5965,7 @@ return this.testTunnel(true);
                 return { status: "cancelled", message: String(value.message || "未提交重新排队；请先审核该 job 的遗留文件。") };
             if (command === "retryDistributedJob" && value?.status === "queued" && value.source === "local")
                 return { status: "completed", message: String(value.message) };
-            if (command === "runAllPlans" && typeof value?.selectionOnly === "boolean" && ["completed", "failed", "cancelled"].includes(value.status))
+            if (command === "runAllPlans" && typeof value?.selectionOnly === "boolean" && ["completed", "submitted", "failed", "cancelled"].includes(value.status))
                 return { status: value.status, message: String(value.message) };
             if (["queueRemainingJobs", "refreshJobArtifacts", "retryJobArtifactSync"].includes(command) && value && ["completed","submitted","failed","cancelled"].includes(value.status))
                 return {status:value.status,message:String(value.message||value.status)};
@@ -6823,6 +6823,14 @@ return this.testTunnel(true);
     async askRunConfirmation(payload, operationId = "") {
         const signal = this.distributedSubmissionAborts?.get(operationId)?.signal;
         return this.runConfirmation.ask(this, { ...payload, operationId }, signal);
+    }
+    async showNativeRunConfirmation(payload) {
+        const groups = (payload.groups || []).filter(group => !group.disabled);
+        const detail = [String(payload.planFile || ""), ...groups.map(group => String(group.label || group.value) + "：" + "\n"
+            + (group.targets || []).map(target => `${target.server} · ${target.connection} · ${target.type}\n${target.path}`).join("\n\n"))].join("\n\n");
+        const buttons = groups.map(group => ({ title: String(group.label || group.value), choice: group.value }));
+        const answer = await vscode.window.showWarningMessage(String(payload.title || "确认运行范围"), { modal: true, detail }, ...buttons);
+        return answer?.choice || "cancel";
     }
     async resumePlanSubmission(requestedId, requestedPlanFile = "") {
         const id = this.localOperations[requestedId]?.submissionOperationId || requestedId;
@@ -10434,7 +10442,7 @@ this.assertPlanTopologyReady("Plan 调度");
     async selectDistributedPlanPrimary(body, candidateWorkerIds?: string[]) {
         const allowed = candidateWorkerIds ? new Set(candidateWorkerIds) : undefined;
         let snapshot;
-        try { snapshot = await this.client.getGpu(); }
+        try { snapshot = body.submissionBatchLocal ? await body.submissionBatchLocal.once("validation-gpu-ranking", () => this.client.getGpu()) : await this.client.getGpu(); }
         catch (error) {
             if (!(error instanceof RequestBudget_1.RequestBudgetDeniedError)) throw error;
             snapshot = this.lastRealtimeState?.gpu || {};
@@ -10447,8 +10455,9 @@ this.assertPlanTopologyReady("Plan 调度");
                 if (this.lastWorkerProbes[worker.id]?.status === "ok" && (!allowed || allowed.has(worker.id))) ranked.push({ workerId: worker.id, availableGpuIds: [] });
         }
         if (!ranked.length) throw new Error("没有已连接的 Worker，无法校验分布式 Plan。");
-        this.stampWorkerPoolManualTarget(body, ranked[0].workerId);
-        return ranked[0].workerId;
+        const selected = body.submissionBatchLocal?.selectWorker(body, ranked.map(row => row.workerId)) || ranked[0].workerId;
+        this.stampWorkerPoolManualTarget(body, selected);
+        return selected;
     }
     async loadDistributedQueue(root) {
         const file = DistributedPlanQueue.distributedQueuePath(this.context.globalStorageUri.fsPath, root);

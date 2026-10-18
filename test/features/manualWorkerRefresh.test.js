@@ -3,6 +3,10 @@ const source=fs.readFileSync(require('node:path').join(__dirname,'../../src/exte
 const ast=ts.createSourceFile('host.ts',source,ts.ScriptTarget.Latest,true),members=new Map();
 function visit(n){if(ts.isMethodDeclaration(n))members.set(n.name.getText(ast),n.getText(ast));ts.forEachChild(n,visit);}visit(ast);
 const terminal=row=>['completed','failed','stalled','cancelled'].includes(row?.status);
+test('real Agent operation lookup consumes journal append deltas and detects rotation and incomplete writes',()=>{
+ const result=require('node:child_process').spawnSync('python',['-B','-X','utf8',require('node:path').join(__dirname,'operationJournalIncremental.fixture.py')],{encoding:'utf8',timeout:10000,windowsHide:true});
+ assert.equal(result.status,0,result.stderr||result.stdout);assert.equal(JSON.parse(result.stdout).ok,true);
+});
 function proto(names,globals={}){return vm.runInNewContext(ts.transpileModule('class Host{'+names.map(n=>members.get(n)).join('\n')+'};Host.prototype', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{workspaceRoot:()=>'/project',errorMessage:e=>e.message||String(e),planSubmitProgress:{isLocal:r=>r.localSubmissionProgress===true},operationTerminal:terminal,resultStatus:r=>r?.status,stringFromRecord:(r,keys)=>keys.map(k=>r[k]).find(Boolean)||'',planCheckAccepted:r=>r.status==='completed',...globals});}
 test('manual refresh queries real Workers and original pending operations, never the retired scheduler count',async()=>{
  const messages=[],calls=[];const p=proto(['manualSnapshot'],{vscode:{window:{showInformationMessage:t=>messages.push(t),showWarningMessage:t=>messages.push(t)}}});

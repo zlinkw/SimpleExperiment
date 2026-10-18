@@ -4,6 +4,13 @@ const assert = require("node:assert/strict");
 const { RequestBudget, RequestBudgetCoordinator, RequestBudgetDeniedError, defaultRequestBudgetConfig } = require("../../dist/tunnel/RequestBudget.js");
 const { defaultTunnelGatewayConfig, normalizeTunnelGatewayConfig, refreshProfiles, requestBudgetConfigFromTunnel } = require("../../dist/tunnel/TunnelGateway.js");
 
+test('operation status and idle-GPU dispatch stay responsive while artifact metadata fills ordinary capacity',async()=>{
+ const budget=new RequestBudget({...defaultRequestBudgetConfig,maxConcurrentRequestsGlobal:1,maxConcurrentRequestsPerWorker:1});
+ let release,entered=false;const heavy=budget.run('manual_refresh',()=>new Promise(resolve=>release=resolve));await new Promise(setImmediate);
+ const read=budget.run('operation_status',async()=>{entered=true;return 'original operation';});await new Promise(setImmediate);const responsive=entered;
+ release();await Promise.all([heavy,read]);assert.equal(responsive,true);
+});
+
 test("legacy quotas and cooldowns no longer reject requests; explicit pause and hidden remain", async () => {
   const budget = new RequestBudget({
     ...defaultRequestBudgetConfig,

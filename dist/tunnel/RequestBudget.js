@@ -26,10 +26,10 @@ function abortError() {
 }
 /** Shared scheduler for all endpoint budgets belonging to one realtime client. */
 class RequestBudgetCoordinator {
-    queues = { emergency: [], control: [], transfer: [], logs: [] };
-    activeByPool = { emergency: 0, control: 0, transfer: 0, logs: 0 };
+    queues = { emergency: [], control: [], transfer: [], logs: [], status: [] };
+    activeByPool = { emergency: 0, control: 0, transfer: 0, logs: 0, status: 0 };
     activeByScope = {
-        emergency: new Map(), control: new Map(), transfer: new Map(), logs: new Map(),
+        emergency: new Map(), control: new Map(), transfer: new Map(), logs: new Map(), status: new Map(),
     };
     dispatching = false;
     dispatchAgain = false;
@@ -46,7 +46,9 @@ class RequestBudgetCoordinator {
             maxQueuedRequests: positiveLimit(config.maxQueuedRequests, 256),
         };
     }
-    get queued() { return this.queues.emergency.length + this.queues.control.length + this.queues.transfer.length + this.queues.logs.length; }
+    get queued() { return this.queues.emergency.length + this.queues.control.length + this.queues.transfer.length + this.queues.logs.length + this.queues.status.length; }
+    get statusInFlight() { return this.activeByPool.status; }
+    get statusQueued() { return this.queues.status.length; }
     get maxQueueDepth() { return this.observedMaxQueueDepth; }
     get globalInFlight() { return this.activeByPool.control; }
     get transferInFlight() { return this.activeByPool.transfer; }
@@ -93,7 +95,7 @@ class RequestBudgetCoordinator {
         try {
             do {
                 this.dispatchAgain = false;
-                for (const pool of ["emergency", "control", "transfer", "logs"]) {
+                for (const pool of ["emergency", "status", "control", "transfer", "logs"]) {
                     const queue = this.queues[pool];
                     for (let index = queue.length - 1; index >= 0; index -= 1) {
                         const item = queue[index];
@@ -124,7 +126,7 @@ class RequestBudgetCoordinator {
                     const regularOrder = this.nextRegularPool === "control"
                         ? ["control", "transfer"]
                         : ["transfer", "control"];
-                    for (const pool of ["emergency", ...regularOrder, "logs"]) {
+                    for (const pool of ["emergency", "status", ...regularOrder, "logs"]) {
                         const index = this.queues[pool].findIndex((item) => this.canStart(item));
                         if (index < 0)
                             continue;
@@ -158,6 +160,10 @@ class RequestBudgetCoordinator {
         const activeScope = this.activeByScope[pool].get(scopeKey) || 0;
         if (pool === "emergency")
             return activeGlobal < this.limits.maxConcurrentEmergencyRequests && activeScope < this.limits.maxConcurrentEmergencyRequests;
+        // Tiny operation receipts and idle-GPU/dispatch requests never queue behind
+        // directory inventories. Stops retain their own separate reserved slots.
+        if (pool === "status")
+            return activeGlobal < 2 && activeScope < 2;
         // Raw NFS log reads cannot consume execution/metadata/stop slots, even
         // when the user's ordinary per-worker concurrency is one.
         if (pool === "logs")
@@ -327,6 +333,8 @@ class RequestBudget {
             emergencyInFlight: this.coordinator.emergencyInFlight,
             ...this.coordinator.limits,
             queueWaitMsLast: this.queueWaitMsLast,
+            statusInFlight: this.coordinator.statusInFlight,
+            statusQueued: this.coordinator.statusQueued,
             maxQueueDepth: this.coordinator.maxQueueDepth,
             coalescedRequests: this.coalescedRequests,
             retries: this.retries,
@@ -394,6 +402,8 @@ class RequestBudget {
 }
 exports.RequestBudget = RequestBudget;
 function requestPool(purpose, options) {
+    if (purpose === "operation_status" || purpose === "job_dispatch")
+        return "status";
     if (purpose === "task_diagnostics")
         return "logs";
     if (purpose === "file_transfer")

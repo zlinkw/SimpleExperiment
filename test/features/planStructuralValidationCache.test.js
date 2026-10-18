@@ -85,18 +85,14 @@ test('real capability version enables structural reuse and every relevant change
   host.lastWorkerProbes.w = {}; assert.equal(key.call(host,body,'w'),'');
 });
 
-test("warm inline response keeps Worker identity guard and cold/legacy asynchronous fallback", () => {
+test("warm and cold validation both return the original async identity before filesystem work", () => {
   const agent = require("../../dist/clusterAgentRuntime.legacy.js").CLUSTER_AGENT_RUNTIME;
   const post = agent.slice(agent.indexOf("        def do_POST(self):"));
-  const warm = post.indexOf('if action == "validate-plan" and not action_debug_mode(payload):');
-  assert.ok(warm > post.indexOf('"local worker scheduler identity mismatch"'));
-  const next = post.indexOf('if action in ("validate-plan", "dry-run-plan", "preflight-worker-task", "rebuild-distributed-results")', warm);
-  assert.ok(next > warm);
-  const block = post.slice(warm, next);
-  assert.match(block, /cached_scheduler_validation/);
-  assert.match(block, /if validation is not None:[\s\S]*terminal_action/);
+  const next = post.indexOf('if action in ("validate-plan", "dry-run-plan", "preflight-worker-task", "rebuild-distributed-results")');
+  assert.ok(next > post.indexOf('"local worker scheduler identity mismatch"'));
+  const block = post.slice(0, next);
+  assert.doesNotMatch(block, /cached_scheduler_validation\(root/);
   assert.match(post.slice(next), /start_inactivity_action/);
-  assert.doesNotMatch(block, /run-plan|start_worker_task|overwriteExisting/);
 });
 
 test("both explicit validation and run preflight send only current proof identities without mutating the request", async () => {

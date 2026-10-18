@@ -448,6 +448,14 @@ export class PlanCleanup {
       row.disposition = "protected"; row.protectedReason = "由同批精确父目录处理（保留逐项证据）";
     }
     const physical = new Map<string, CleanupRow>();
+    const backendReads = await Promise.allSettled(scope.nodes.map(async node => {
+      const rows = result.rows.filter(row => row.node.id === node.id && row.disposition === action);
+      if (node.error || !rows.length) return undefined;
+      notify({ phase: "nodes", message: node.id + "：只读预检 " + rows.length + " 个精确目标…", total: scope.nodes.length });
+      return this.ports.sftp("files.cleanup.preview", { node, action, observationMode: scope.observationMode, authorizationMode: scope.authorizationMode,
+        targets: rows.map(row => ({ relativePath: row.relativePath, type: row.type, destination: row.destination,
+          expectedSha256: row.expectedSha256, expectedOwner: row.expectedOwner, archiveBatch: row.archiveBatch })) });
+    }));
     for (const [index, node] of scope.nodes.entries()) {
       const rows = result.rows.filter(row => row.node.id === node.id && row.disposition === action);
       const progress = { phase: "nodes", completed: index, total: scope.nodes.length };
@@ -456,8 +464,9 @@ export class PlanCleanup {
         notify({ ...progress, completed: index + 1, message: node.id + "：离线，保留未处理信号" }); continue; }
       if (!rows.length) { notify({ ...progress, completed: index + 1, message: node.id + "：无可处理的独占目标" }); continue; }
       try {
-        const backend = await this.ports.sftp("files.cleanup.preview", { node, action, observationMode: scope.observationMode, authorizationMode: scope.authorizationMode, targets: rows.map(row => ({ relativePath: row.relativePath, type: row.type,
-          destination: row.destination, expectedSha256: row.expectedSha256, expectedOwner: row.expectedOwner, archiveBatch: row.archiveBatch })) });
+        const read = backendReads[index];
+        if (read.status === "rejected") throw read.reason;
+        const backend = read.value!;
         if (scope.job?.purpose === "replace_outputs" && !(Number(backend.safety?.batchPreviewCapacity) >= 4096))
           cleanupError("SFTP_BATCH_PREVIEW_UPGRADE_REQUIRED", "需要 SimpleSFTP 0.2.79 的批次预览保留能力");
         rows.forEach((row, index) => {

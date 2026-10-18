@@ -91,7 +91,7 @@ test('empty selection, removed files and invalid paths never fall back to all pl
   const f=fixture();await assert.rejects(runSelectedPlans(f.host,{planFiles}));assert.equal(f.calls.length,0);
  }
 });
-test('failure, cancellation, missing outcome and lost receipt stop later plans without repeating accepted inputs',async()=>{
+test('failures stop unstarted work while unknown original receipts preserve independent authorized inputs without replay',async()=>{
  for(const kind of ['failed','cancelled','unknown','lost']){
   const f=fixture(),files=['a','b','c','d','e','f'].map(name=>'plans/'+name+'.yaml');
   f.host.localPlanMetadata.plans=files.map(planFile=>({planFile}));f.host.runActionCommand=async(command,m)=>{
@@ -101,8 +101,10 @@ test('failure, cancellation, missing outcome and lost receipt stop later plans w
    if(kind!=='unknown')f.host.localOperations[operation]={status:kind,message:'fixture '+kind};
   };
   const r=await runSelectedPlans(f.host,{planFiles:files});
-  assert.equal(r.status,kind==='cancelled'?'cancelled':'failed');assert.deepEqual(f.calls.map(x=>x.planFile),files.slice(0,4));
-  assert.deepEqual(r.remaining,files.slice(4));assert.equal(r.rows[0].status,'queued');
+  assert.equal(r.status,kind==='cancelled'?'cancelled':['unknown','lost'].includes(kind)?'submitted':'failed');
+  assert.deepEqual(f.calls.map(x=>x.planFile),files.slice(0,f.calls.length));assert.equal(new Set(f.calls.map(x=>x.planFile)).size,f.calls.length);
+  assert.deepEqual(r.remaining,files.slice(f.calls.length));assert.equal(r.rows[0].status,'queued');
+  if(['unknown','lost'].includes(kind))assert.equal(f.calls.length,files.length);
   if(kind==='lost'){assert.equal(r.rows[1].status,'unknown');assert.equal(f.host.localOperations[r.rows[1].operationId],undefined);}
  }
 });

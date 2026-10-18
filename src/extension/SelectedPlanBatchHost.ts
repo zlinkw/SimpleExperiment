@@ -66,30 +66,44 @@ async function runPlanBatch(host: any, params: any, allPlans: boolean) {
         const progress = host.localOperations?.[operationId];
         const code = (error as any)?.apiData?.code || (error as any)?.code;
         status = progress?.status === "cancelled" || ["REPLACEMENT_CANCELLED", "USER_CANCELLED"].includes(code) || (error as any)?.name === "UiCommandCancelled" ? "cancelled"
-          : code === "REMOTE_OUTCOME_UNKNOWN" || (error as any)?.outcomeUnknown ? "unknown" : "failed";
+          : code === "REMOTE_OUTCOME_UNKNOWN" || (error as any)?.outcomeUnknown || (error as any)?.name === "UiCommandRemotePending" ? "unknown" : "failed";
         detail = error instanceof Error ? error.message : String(error);
         if (status !== "unknown" && host.projectContextIsCurrent(context) && targetKey() === targets)
           host.finishPlanSubmissionProgress?.(message, status, detail);
       }
       return { planFile, operationId, status, message: detail };
     };
-    let dispatchNote = "";
-    for (let offset = 0; offset < files.length; offset += 4) {
-      current();
-      const wave = await Promise.all(files.slice(offset, offset + 4).map((file, index) => submit(file, offset + index).catch(error =>
-        ({ planFile: file, operationId: "", status: "failed", message: error instanceof Error ? error.message : String(error) }))));
-      rows.push(...wave);
-      if (wave.some(row => ["succeeded", "queued", "submitted"].includes(row.status)) && host.tickDistributedQueue) {
-        try { current(); await host.tickDistributedQueue(); }
-        catch (error) { dispatchNote = "队列已保留，本轮派发查询未完成：" + (error instanceof Error ? error.message : String(error)); }
+    let dispatchNote = "", dispatchTask: Promise<void> | undefined, dispatchDirty = false;
+    const dispatch = () => {
+      if (!host.tickDistributedQueue) return;
+      dispatchDirty = true;
+      if (dispatchTask) return;
+      dispatchTask = Promise.resolve().then(async () => {
+        while (dispatchDirty) {
+          dispatchDirty = false;
+          try { current(); await host.tickDistributedQueue(); }
+          catch (error) { dispatchNote = "队列已保留，本轮派发查询未完成：" + (error instanceof Error ? error.message : String(error)); }
+        }
+      }).finally(() => { dispatchTask = undefined; });
+    };
+    let next = 0, stopped = false;
+    const lane = async () => {
+      while (!stopped && next < files.length) {
+        current();
+        const index = next++, file = files[index];
+        const row = await submit(file, index).catch(error => ({ planFile: file, operationId: "", status: "failed", message: error instanceof Error ? error.message : String(error) }));
+        rows.push(row);
+        if (["succeeded", "queued", "submitted"].includes(row.status)) dispatch();
+        if (["failed", "cancelled"].includes(row.status)) stopped = true;
       }
-      if (wave.some(row => !["succeeded", "queued", "submitted"].includes(row.status))) break;
-    }
+    };
+    await Promise.all(Array.from({ length: Math.min(4, files.length) }, lane));
+    rows.sort((a, b) => files.indexOf(a.planFile) - files.indexOf(b.planFile));
     const processed = rows.filter(row => ["succeeded", "queued", "submitted"].includes(row.status)).length;
-    const last = rows.find(row => !["succeeded", "queued", "submitted"].includes(row.status)), complete = processed === files.length;
-    return { status: complete ? "completed" : last?.status === "cancelled" ? "cancelled" : "failed",
-      message: `${label} 已完成并发排队提交流程 ${processed}/${files.length}。` + (complete ? "运行状态以任务卡片的实时查询为准。"
-        : `${last?.planFile || ""}：${last?.message || "结果未知"}；已发起项已等待本轮结果，后续 ${files.length - rows.length} 个未提交，已处理项保留，不自动回滚或重复提交。`) + dispatchNote,
-      selectionOnly: !allPlans, rows, remaining: files.slice(rows.length) };
+    const last = rows.find(row => ["failed", "cancelled"].includes(row.status)), pending = rows.filter(row => row.status === "unknown").length, complete = processed === files.length;
+    return { status: complete ? "completed" : last?.status === "cancelled" ? "cancelled" : last ? "failed" : "submitted",
+      message: `${label} 已完成并发排队提交流程 ${processed}/${files.length}。` + (complete ? "空卡检测在后台继续；运行状态以任务卡片的实时查询为准。"
+        : `${pending} 项原校验结果待确认；${last ? last.planFile + "：" + last.message + "；" : ""}后续 ${files.length - rows.length} 个未提交，已处理项保留，不自动回滚或重复提交。`) + dispatchNote,
+      selectionOnly: !allPlans, rows, remaining: files.slice(next) };
   } finally { await batch?.close(); running.delete(host); }
 }

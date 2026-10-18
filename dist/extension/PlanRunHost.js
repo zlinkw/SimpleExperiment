@@ -152,7 +152,7 @@ class PlanRunHost {
         const result = await (0, PlanRunReplacement_1.replaceRunOutputs)({
             preview: (job) => cleanup.service.preview({ planFile: body.planFile, action: "delete", verifiedOnly: false, authorizationMode: "confirmed_paths",
                 job: { workflowId: "manifest-" + (0, PlanCleanup_1.cleanupDigest)([body.planFile, job.output_dir]), commandId: "manifest-" + (0, PlanCleanup_1.cleanupDigest)(job), index: Number(job.index),
-                    purpose: "replace_outputs", manifest: { declarations: [job], replacement: true } } }),
+                    purpose: "replace_outputs", manifest: { declarations: [job], replacement: true } } }, (progress) => body.reportPlanStageLocal?.("任务 " + job.index + " · " + progress.message)),
             service: cleanup.service, execute: (id) => cleanup.execute(id),
             ask: (payload) => h.askRunConfirmation(payload, body.submissionOperationIdLocal),
             save: () => this.save(body),

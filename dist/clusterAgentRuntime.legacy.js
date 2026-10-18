@@ -2851,7 +2851,8 @@ def verify_code_sync_proof_record(root, proof, row, runtime_generation=None, ver
         if (len(manifest) != len(files) or durable_code_manifest_digest(manifest) != expected_digest
                 or set(manifest) != {str(item.get("path") or "") for item in files if isinstance(item, dict)}):
             raise ValueError("CODE_SYNC_ORIGINAL_HASH_UNAVAILABLE: cannot verify the original manifest; no proof was renewed")
-    for item in files:
+    entry = getattr(globals().get("INACTIVITY_ACTION_CONTEXT"), "entry", None)
+    for position, item in enumerate(files):
         if not isinstance(item, dict):
             raise ValueError("code-sync proof file inventory is invalid")
         relative = str(item.get("path") or "").replace("\\", "/")
@@ -2881,6 +2882,11 @@ def verify_code_sync_proof_record(root, proof, row, runtime_generation=None, ver
             continue  # Diagnostics accept changed metadata only after the original SHA matches.
         if int(stat.st_size) != int(item.get("size", -1)) or actual_mtime != int(item.get("mtime_ns", -1)):
             raise ValueError("code-sync proof stale; stat changed: " + relative)
+        if entry and entry.get("action") in ("validate-plan", "dry-run-plan") and ((position + 1) % 64 == 0 or position + 1 == len(files)):
+            count = min(64, (position % 64) + 1)
+            entry["verifiedSourceEntries"] = int(entry.get("verifiedSourceEntries") or 0) + count
+            progress_action(root, entry["action"], entry["operationId"], entry["opId"], "running", "正在核对源码元数据", {
+                "phase": "source-metadata", "processedFiles": entry["verifiedSourceEntries"]}, request=entry["payload"])
     return proof
 
 def _store_code_sync_proof(root, proof):
@@ -14669,22 +14675,44 @@ def operation_journal_index(root):
         if cached and cached.get("signature") == signature:
             cached["lastUsedAt"] = now_value
             return cached
-    groups = {}
-    with open(journal, "r", encoding="utf-8") as f:
-        for line in f:
-            event = parse_event_line(line)
-            if not event:
-                continue
-            keys = event_operation_keys(event)
-            if keys:
-                groups.setdefault(keys[0], []).append(event)
-    rows = [operation_summary_from_events(key, events) for key, events in groups.items()]
-    rows.sort(key=lambda row: row.get("updatedAt") or "", reverse=True)
-    entry = {"signature": signature, "groups": groups, "rows": rows, "lastUsedAt": now_value}
-    with OPERATION_JOURNAL_CACHE_LOCK:
+        # One reader consumes append deltas. Other HTTP requests must not each
+        # parse the whole journal whenever unrelated telemetry appends a line.
+        with open(journal, "rb") as f:
+            info = os.fstat(f.fileno())
+            signature = (info.st_dev, info.st_ino, info.st_size, getattr(info, "st_mtime_ns", int(info.st_mtime * 1000000000)))
+            offset = int((cached or {}).get("offset") or 0)
+            prior = (cached or {}).get("signature")
+            incremental = bool(cached and prior and prior[:2] == signature[:2] and 0 < offset <= signature[2])
+            if incremental:
+                f.seek(max(0, offset - 64))
+                incremental = f.read(min(offset, 64)) == cached.get("guard")
+            if not incremental:
+                offset = 0
+            groups = cached["groups"] if incremental else {}
+            summaries = dict(cached.get("summaries") or {}) if incremental else {}
+            f.seek(offset)
+            data = f.read(max(0, signature[2] - offset))
+            end = data.rfind(b"\n") + 1
+            changed = set()
+            for line in data[:end].splitlines():
+                event = parse_event_line(line.decode("utf-8", errors="replace"))
+                if not event:
+                    continue
+                keys = event_operation_keys(event)
+                if keys:
+                    groups.setdefault(keys[0], []).append(event)
+                    changed.add(keys[0])
+            offset += end
+            f.seek(max(0, offset - 64))
+            guard = f.read(min(offset, 64))
+        for key in changed:
+            summaries[key] = operation_summary_from_events(key, groups[key])
+        rows = sorted(summaries.values(), key=lambda row: row.get("updatedAt") or "", reverse=True)
+        entry = {"signature": signature, "groups": groups, "rows": rows, "summaries": summaries,
+                 "offset": offset, "guard": guard, "lastUsedAt": now_value}
         OPERATION_JOURNAL_CACHE[journal] = entry
         prune_operation_journal_cache(now_value, journal)
-    return entry
+        return entry
 
 def read_operation_events(root, operation_id, limit=200):
     wanted = str(operation_id or "").strip()
@@ -16922,21 +16950,8 @@ def serve_http(args):
                 current_worker = str(getattr(args, "worker_id", "") or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker").strip()
                 if topology_mode not in ("single_worker", "worker_pool") or not owner or owner != current_worker or options.get("automaticBackup") is not False:
                     return self.send_json({"error": "worker result ownership mismatch"}, status=403)
-            if action == "validate-plan" and not action_debug_mode(payload):
-                # A warm, verified template only needs fresh artifact stats, so no background action/poll wait.
-                try:
-                    plan = action_plan_file(payload)
-                    scheduler = cluster_scheduler_path(root)
-                    options = action_options(payload)
-                    result_dir = str(options.get("defaultResultCsvDir") or options.get("default_result_csv_dir") or "experiments/results")
-                    validation = cached_scheduler_validation(root, scheduler, plan, result_dir, options) if plan and scheduler else None
-                    if validation is not None:
-                        return self.send_json(terminal_action(root, action, operation_id, op_id, "completed",
-                            f"配置检查已复用，已有产物已刷新：{validation.get('existingCount', 0)}/{len(validation.get('jobs') or [])}",
-                            {"validation": validation, "jobCount": len(validation.get("jobs") or []),
-                             "executionMode": validation.get("execution_mode") or "train_test"}, request=payload))
-                except Exception as exc:
-                    return self.send_json(terminal_action(root, action, operation_id, op_id, "failed", str(exc), request=payload))
+            # Warm structural reuse still runs in the original asynchronous
+            # operation: NFS source/output stats must not hold the HTTP accept.
             if action in ("validate-plan", "dry-run-plan", "preflight-worker-task", "rebuild-distributed-results") or (action == "preview-cache-cleanup" and "planOutputPaths" in payload) or (action == "archive-worker-artifacts" and payload.get("quarantineFailedAttempt") is True):
                 worker = (selected_worker_id(payload) or os.environ.get("SIMPLE_EXPERIMENT_WORKER_ID") or "worker") if mode == "worker_telemetry" and action in ("validate-plan", "dry-run-plan", "preflight-worker-task") else ""
                 return self.send_json(start_inactivity_action(root, action, payload, operation_id, op_id, worker), status=202)

@@ -1,6 +1,25 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),os=require('node:os'),path=require('node:path'),vm=require('node:vm'),ts=require('typescript');
 require('../_helpers/registerTsRequire');
 const {PlanRunHost}=require('../../src/extension/PlanRunHost.ts');
+test('production confirmations use native modal dialogs and show every full path in both phases',async()=>{
+ const source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8'),ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true);let method;
+ function visit(n){if(ts.isMethodDeclaration(n)&&n.name.getText(ast)==='showNativeRunConfirmation')method=n;ts.forEachChild(n,visit);}visit(ast);
+ const calls=[],modal=vm.runInNewContext(ts.transpileModule('class Host{'+method.getText(ast)+'};Host.prototype.showNativeRunConfirmation',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,
+  {vscode:{window:{showWarningMessage:async(...args)=>{calls.push(args);return args[2];}}}});
+ const targets=Array.from({length:200},(_,i)=>({server:'w'+i,connection:'user@host',type:'directory',path:'/project/'+('目录/'.repeat(40))+i}));
+ for(const phase of [1,2])assert.equal(await modal({phase,planFile:'plans/a.yaml',title:'确认完整路径',groups:[{value:'delete_and_run',label:'永久删除并重跑',targets}]}),'delete_and_run');
+ assert.equal(calls.length,2);for(const [title,options,button] of calls){assert.equal(options.modal,true);assert.ok(options.detail.includes('plans/a.yaml'));for(const target of targets)assert.ok(options.detail.includes(target.path));assert.equal(button.choice,'delete_and_run');}
+});
+test('native confirmation queues concurrent callers, freezes full paths and ignores obsolete webview approvals',async()=>{
+ const {RunConfirmation}=require('../../src/extension/RunConfirmation.ts'),broker=new RunConfirmation(),calls=[];let release;
+ const long='/safe/'+('中文 long directory/'.repeat(80))+'model';
+ const host={showNativeRunConfirmation:async payload=>{calls.push(payload);return new Promise(resolve=>release=resolve)},openPanelAt:()=>assert.fail('native confirmation must not open the plugin panel')};
+ const payload={operationId:'first',groups:[{value:'delete_and_run',label:'删除',targets:[{path:long,type:'directory',server:'w'}]}]};
+ const a=broker.ask(host,payload),b=broker.ask(host,{...payload,operationId:'second'});await new Promise(setImmediate);
+ assert.equal(calls.length,1);payload.groups[0].targets[0].path='changed';assert.equal(calls[0].groups[0].targets[0].path,long);
+ broker.answer({requestId:'old',choice:'delete_and_run'});release('delete_and_run');assert.equal(await a,'delete_and_run');await new Promise(setImmediate);
+ assert.equal(calls.length,2);broker.cancel('second');release('delete_and_run');assert.equal(await b,'cancel');
+});
 test('recovery persists exact confirmed targets but excludes server credentials and Agent environment',async()=>{
  const root=fs.mkdtempSync(path.join(os.tmpdir(),'se-run-recovery-')),host={context:{globalStorageUri:{fsPath:root}}},store=new PlanRunHost(host,root);
  const body={submissionOperationIdLocal:'plan-submit-one',planFile:'plans/p.yaml',options:{workers:[{token:'secret'}],agentToken:'secret',env:{PASSWORD:'secret'},nested:{password:'secret',normal:1}},runRecovery:{stage:'checking_workers'},

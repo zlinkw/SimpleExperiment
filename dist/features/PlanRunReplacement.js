@@ -14,14 +14,27 @@ async function replaceRunOutputs(ports, state, planFile, jobs, completedIndices,
     state.key = key;
     if (!state.previews) {
         const previews = [];
-        for (const job of jobs) {
-            ports.progress("正在定位任务 " + job.index + " 的已有文件…");
-            const preview = await ports.preview(job);
-            if (preview.blockers.length || preview.rows.some(row => !["delete", "absent"].includes(row.disposition)))
-                (0, PlanCleanup_1.cleanupError)("OUTPUT_REPLACEMENT_BLOCKED", [...preview.blockers.map(row => (row.nodeId || "") + "：" + row.code + " " + row.detail),
-                    ...preview.rows.filter(row => !["delete", "absent"].includes(row.disposition)).map(row => row.absolutePath + "：" + (row.error || row.protectedReason))].join("\n"));
-            previews.push({ index: Number(job.index), preview });
-        }
+        let next = 0, failure;
+        const read = async () => {
+            while (next < jobs.length && !failure) {
+                const position = next++, job = jobs[position];
+                try {
+                    ports.assertCurrent();
+                    ports.progress("正在定位任务 " + job.index + " 的已有文件…");
+                    const preview = await ports.preview(job);
+                    if (preview.blockers.length || preview.rows.some(row => !["delete", "absent"].includes(row.disposition)))
+                        (0, PlanCleanup_1.cleanupError)("OUTPUT_REPLACEMENT_BLOCKED", [...preview.blockers.map(row => (row.nodeId || "") + "：" + row.code + " " + row.detail),
+                            ...preview.rows.filter(row => !["delete", "absent"].includes(row.disposition)).map(row => row.absolutePath + "：" + (row.error || row.protectedReason))].join("\n"));
+                    previews[position] = { index: Number(job.index), preview };
+                }
+                catch (error) {
+                    failure ||= error;
+                }
+            }
+        };
+        await Promise.all(Array.from({ length: Math.min(2, jobs.length) }, read));
+        if (failure)
+            throw failure;
         const exact = targets(previews).map(row => row.server + ":" + row.path);
         if (new Set(exact).size !== exact.length)
             (0, PlanCleanup_1.cleanupError)("OUTPUT_REPLACEMENT_OVERLAP");

@@ -95,7 +95,8 @@ export class PlanRunHost {
     const result = await replaceRunOutputs({
       preview: (job: any) => cleanup.service.preview({ planFile: body.planFile, action: "delete", verifiedOnly: false, authorizationMode: "confirmed_paths",
         job: { workflowId: "manifest-" + cleanupDigest([body.planFile, job.output_dir]), commandId: "manifest-" + cleanupDigest(job), index: Number(job.index),
-          purpose: "replace_outputs", manifest: { declarations: [job], replacement: true } } }),
+          purpose: "replace_outputs", manifest: { declarations: [job], replacement: true } } },
+        (progress: any) => body.reportPlanStageLocal?.("任务 " + job.index + " · " + progress.message)),
       service: cleanup.service, execute: (id: string) => cleanup.execute(id),
       ask: (payload: any) => h.askRunConfirmation(payload, body.submissionOperationIdLocal),
       save: () => this.save(body),

@@ -25,15 +25,22 @@ export async function replaceRunOutputs(ports: RunReplacementPorts, state: RunRe
   if (state.key && state.key !== key) cleanupError("RUN_DECLARATION_CHANGED", "本次任务或服务器配置已变化，请重新提交并确认路径。");
   state.key = key;
   if (!state.previews) {
-    const previews = [];
-    for (const job of jobs) {
-      ports.progress("正在定位任务 " + job.index + " 的已有文件…");
-      const preview = await ports.preview(job);
-      if (preview.blockers.length || preview.rows.some(row => !["delete", "absent"].includes(row.disposition)))
-        cleanupError("OUTPUT_REPLACEMENT_BLOCKED", [...preview.blockers.map(row => (row.nodeId || "") + "：" + row.code + " " + row.detail),
-          ...preview.rows.filter(row => !["delete", "absent"].includes(row.disposition)).map(row => row.absolutePath + "：" + (row.error || row.protectedReason))].join("\n"));
-      previews.push({ index: Number(job.index), preview });
-    }
+    const previews: Array<{ index: number; preview: CleanupPreview }> = [];
+    let next = 0, failure: any;
+    const read = async () => { while (next < jobs.length && !failure) {
+      const position = next++, job = jobs[position];
+      try {
+        ports.assertCurrent();
+        ports.progress("正在定位任务 " + job.index + " 的已有文件…");
+        const preview = await ports.preview(job);
+        if (preview.blockers.length || preview.rows.some(row => !["delete", "absent"].includes(row.disposition)))
+          cleanupError("OUTPUT_REPLACEMENT_BLOCKED", [...preview.blockers.map(row => (row.nodeId || "") + "：" + row.code + " " + row.detail),
+            ...preview.rows.filter(row => !["delete", "absent"].includes(row.disposition)).map(row => row.absolutePath + "：" + (row.error || row.protectedReason))].join("\n"));
+        previews[position] = { index: Number(job.index), preview };
+      } catch (error) { failure ||= error; }
+    } };
+    await Promise.all(Array.from({ length: Math.min(2, jobs.length) }, read));
+    if (failure) throw failure;
     const exact = targets(previews).map(row => row.server + ":" + row.path);
     if (new Set(exact).size !== exact.length) cleanupError("OUTPUT_REPLACEMENT_OVERLAP");
     state.previews = previews;

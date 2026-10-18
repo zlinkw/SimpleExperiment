@@ -16,6 +16,12 @@ test('two clicks clear every selected job directory including stale extra files,
  const f=fixture(),r=await f.run();assert.deepEqual(r.selectedIndices,[0,1,2]);assert.equal(f.files.size,0);
  assert.deepEqual(f.events.filter(e=>e.startsWith('ask')),['ask1','ask2']);assert.ok(f.events.indexOf('workers')<f.events.indexOf('deleteop0'));assert.equal(f.state.done,true);
 });
+test('independent job previews overlap with a bound of two and no confirmation or deletion begins before all finish',async()=>{
+ const f=fixture(),preview=f.ports.preview,started=[];let release,active=0,max=0;const gate=new Promise(resolve=>release=resolve);
+ f.ports.preview=async job=>{started.push(job.index);max=Math.max(max,++active);if(job.index===0)await gate;const result=await preview(job);active--;return result;};
+ const pending=f.run();await new Promise(setImmediate);const advanced=started.includes(1);assert.equal(f.events.some(e=>e.startsWith('ask')||e.startsWith('delete')),false);release();await pending;
+ assert.equal(advanced,true);assert.equal(max,2);assert.deepEqual(f.state.previews.map(row=>row.index),[0,1,2]);
+});
 test('missing-only keeps complete job, replaces incomplete job, and starts absent job',async()=>{
  const f=fixture();f.set({choice:'rerun_missing'});const r=await f.run();assert.deepEqual(r.selectedIndices,[1,2]);assert.ok(f.files.has('job0/model.pth'));assert.ok(!f.files.has('job1/failed.log'));
 });

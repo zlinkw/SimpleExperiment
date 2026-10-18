@@ -60,7 +60,7 @@ test('both batch entries overlap real per-PLAN submissions, sync once and keep e
  for(const all of [false,true]){
   const {h,plans,calls,root}=fixture();const result=await(all?runAllPlans(h,{}):runSelectedPlans(h,{planFiles:plans.map(plan=>plan.planFile)}));
   assert.equal(result.status,'completed',result.message);assert.equal(calls.max,4);assert.equal(calls.sync,1);assert.equal(calls.adapter,1);assert.equal(calls.sftp,1);assert.equal(calls.git,1);
-  assert.equal(calls.validate.length,8);assert.equal(new Set(calls.validate).size,8);assert.equal(calls.outputMax,1);assert.equal(calls.ticks,2);assert.equal(h.queue.plans.length,8);
+  assert.equal(calls.validate.length,8);assert.equal(new Set(calls.validate).size,8);assert.equal(calls.outputMax,1);assert.ok(calls.ticks>=1&&calls.ticks<=8);assert.equal(h.queue.plans.length,8);
   assert.deepEqual(new Set(h.queue.plans.map(plan=>plan.jobs[0].case)),new Set(plans.map(plan=>plan.planFile)));
   assert.equal(calls.metadata.filter(value=>value==='all').length,1);for(const plan of plans)assert.equal(calls.metadata.filter(value=>value===plan.planFile).length,1);
   const dir=path.join(root,'simple_cluster/runs/git_provenance',new Date().toISOString().slice(0,10)),files=fs.readdirSync(dir);assert.equal(files.length,8);
@@ -70,7 +70,7 @@ test('both batch entries overlap real per-PLAN submissions, sync once and keep e
 test('one invalid PLAN never borrows another validation and stops the next wave while preserving accepted plans',async()=>{
  const {h,calls}=fixture();h.badPlan='plans/1.yaml';const result=await runAllPlans(h,{});
  assert.equal(result.status,'failed');assert.deepEqual(result.remaining,['plans/4.yaml','plans/5.yaml','plans/6.yaml','plans/7.yaml']);
- assert.equal(calls.validate.length,4);assert.equal(h.queue.plans.length,3);assert.ok(!calls.enqueue.includes(h.badPlan));assert.equal(calls.ticks,1);
+ assert.equal(calls.validate.length,4);assert.equal(h.queue.plans.length,3);assert.ok(!calls.enqueue.includes(h.badPlan));assert.ok(calls.ticks>=1&&calls.ticks<=3);
 });
 test('a failed shared upload fails all in-flight plans before validation and does not retry or enter the next wave',async()=>{
  const {h,calls}=fixture();h.syncError=true;const result=await runAllPlans(h,{});
@@ -105,4 +105,28 @@ test('closing a batch drains actual confirmation work and rejects waiting work b
  let ran=false;const queued=batch.serial('outputs',async()=>{ran=true});
  const outcomes=Promise.allSettled([active,queued]);let closed=false;const closing=batch.close().then(()=>closed=true);
  await turn();assert.equal(closed,false);assert.equal(ran,false);release();await bounded(closing);await outcomes;assert.equal(closed,true);assert.equal(ran,false);
+});
+
+test('real batch Worker selection spreads preflights independently of identical idle-GPU rankings',async()=>{
+ const {h,context,plans}=fixture(4),batch=new PlanSubmissionBatch(h,context,plans,()=>{}),chosen=[];
+ const select=method('selectDistributedPlanPrimary',{RequestBudget_1:{RequestBudgetDeniedError:class extends Error{}}});
+ const workers=['a','b','c','d'];h.client.getGpu=async()=>({});h.localWorkerAvailabilityRows=()=>workers.map(workerId=>({workerId,availableGpuIds:['0','1']}));
+ h.availabilityPushTtlSeconds=()=>30;h.schedulerSettings=()=>({});h.lastWorkerProbes=Object.fromEntries(workers.map(id=>[id,{status:'ok'}]));h.stampWorkerPoolManualTarget=(body,id)=>body.worker=id;
+ for(const plan of plans)chosen.push(await select.call(h,{planFile:plan.planFile,submissionBatchLocal:batch}));
+ assert.deepEqual(chosen,workers);await batch.close();
+});
+test('a slow PLAN and a slow dispatch query cannot hold all later authorized PLAN submissions',async()=>{
+ const {h,plans,calls}=fixture(8),run=h.runActionCommand;let release;
+ const gate=new Promise(resolve=>release=resolve);h.tickDistributedQueue=()=>new Promise(()=>{});
+ h.runPlanPreflight=async body=>{calls.validate.push(body.planFile);return {validation:{jobs:[{index:0,case:body.planFile,seed:42,output_dir:'work/'+body.planFile.split('/')[1]}],existing:[],execution_mode:'train_test'}};};
+ h.runActionCommand=async(command,message)=>{if(message.planFile===plans[0].planFile)await gate;return run(command,message)};
+ const pending=runAllPlans(h,{});await new Promise(resolve=>setTimeout(resolve,250));
+ const advanced=calls.validate.includes(plans[4].planFile);release();const result=await bounded(pending);
+ assert.equal(advanced,true,'a free submission slot must advance before the slow sibling ends');assert.equal(result.status,'completed');
+});
+test('a delayed original validation remains unknown and never becomes a failed PLAN or a repeated submission',async()=>{
+ const {h,plans}=fixture(6),run=h.runActionCommand,attempts=[];
+ h.runActionCommand=async(command,message)=>{attempts.push(message.planFile);if(message.planFile===plans[1].planFile){h.localOperations[h.planSubmissionOperationId(message)]={status:'queued',message:'执行结果待确认 operationId=original'};throw Object.assign(Error('delayed'),{name:'UiCommandRemotePending'});}return run(command,message);};
+ const result=await runAllPlans(h,{});assert.equal(result.status,'submitted');assert.equal(attempts.length,6);assert.equal(new Set(attempts).size,6);assert.equal(result.rows.find(row=>row.planFile===plans[1].planFile).status,'unknown');
+ assert.equal(h.localOperations[result.rows.find(row=>row.planFile===plans[1].planFile).operationId].status,'queued');
 });

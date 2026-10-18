@@ -59,6 +59,12 @@ test('preview performs no journal writes, no mutation, keeps exact evidence and 
   assert.ok(f.calls.every(row=>['files.cleanup.preview','files.cleanup.inspect'].includes(row.method)));
   p.rows[0].relativePath='foreign.csv';const operation=await f.confirm(p);assert.notEqual(operation.preview.rows[0].relativePath,'foreign.csv');
 });
+test('node preview reads overlap while deterministic target ordering and zero mutations are preserved',async()=>{
+  const f=await fixture(),original=f.ports.sftp,started=[];let release,enter;const gate=new Promise(resolve=>release=resolve),entered=new Promise(resolve=>enter=resolve);
+  f.ports.sftp=async(method,params)=>{if(method==='files.cleanup.preview'){started.push(params.node.id);if(params.node.id==='local'){enter();await gate;}}return original(method,params);};
+  const pending=f.service.preview({planFile:f.scope.planFile});await entered;await new Promise(setImmediate);const parallel=started.includes('w1');release();const p=await pending;
+  assert.equal(parallel,true);assert.equal(f.mutations,0);assert.deepEqual(p.rows.map(row=>row.node.id),['local','w1']);
+});
 test('replacement preview rejects an old backend that omits its batch capacity before either confirmation',async()=>{
   const f=await fixture(); f.scope.job={workflowId:'run-A',index:0,commandId:'command',purpose:'replace_outputs'};
   const p=await f.service.preview({planFile:f.scope.planFile,action:'delete',job:f.scope.job});

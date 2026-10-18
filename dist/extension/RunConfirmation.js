@@ -6,7 +6,11 @@ const node_crypto_1 = require("node:crypto");
 class RunConfirmation {
     pending;
     opening = false;
+    nativeTail = Promise.resolve();
+    nativeRequests = new Set();
     async ask(host, payload, signal) {
+        if (typeof host.showNativeRunConfirmation === "function")
+            return this.askNative(host, payload, signal);
         if (this.pending || this.opening)
             throw new Error("已有路径确认窗口，请先完成或取消。");
         this.opening = true;
@@ -34,6 +38,27 @@ class RunConfirmation {
             this.replay(host);
         });
     }
+    askNative(host, payload, signal) {
+        const frozen = JSON.parse(JSON.stringify(payload));
+        let cancelled = false, resolveResult;
+        const result = new Promise(resolve => { resolveResult = resolve; });
+        const request = { operationId: frozen.operationId, cancel: () => { cancelled = true; resolveResult("cancel"); } };
+        this.nativeRequests.add(request);
+        signal?.addEventListener("abort", request.cancel, { once: true });
+        if (signal?.aborted)
+            request.cancel();
+        this.nativeTail = this.nativeTail.catch(() => { }).then(async () => {
+            if (cancelled)
+                return;
+            const answer = await host.showNativeRunConfirmation(frozen);
+            if (!cancelled)
+                resolveResult(frozen.groups.some((group) => !group.disabled && group.value === answer) ? answer : "cancel");
+        }).catch(() => resolveResult("cancel")).finally(() => {
+            this.nativeRequests.delete(request);
+            signal?.removeEventListener("abort", request.cancel);
+        });
+        return result;
+    }
     replay(host) {
         if (this.pending)
             void host.view?.webview.postMessage({ type: "planRunConfirmation", requestId: this.pending.id, payload: this.pending.payload });
@@ -48,6 +73,9 @@ class RunConfirmation {
         pending.resolve(choice);
     }
     cancel(operationId) {
+        for (const request of this.nativeRequests)
+            if (!operationId || request.operationId === operationId)
+                request.cancel();
         if (!operationId || this.pending?.payload.operationId === operationId)
             this.pending?.resolve("cancel");
     }

@@ -257,7 +257,7 @@ export class HttpTunnelClient implements TunnelClient {
   getOperation(operationId: string): Promise<unknown> {
     const id = String(operationId || "").trim();
     if (!id) throw new Error("operationId is required.");
-    return this.requestJson(`/api/operations/${encodeURIComponent(id)}`, "diagnostics", undefined, {
+    return this.requestJson(`/api/operations/${encodeURIComponent(id)}`, "operation_status", undefined, {
       method: "GET",
       userInitiated: true,
     });
