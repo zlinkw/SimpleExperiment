@@ -1,8 +1,9 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),ts=require('typescript');
 require('../_helpers/registerTsRequire');
 const {safeSyncPath}=require('../../src/features/SyncResolution.ts');
-const {scopeInventoryPathAllowed}=require('../../src/features/SyncScopeStatus.ts');
-const {expandSyncScopeBatchSelection,runSyncScopeBatch}=require('../../src/features/SyncScopeBatch.ts');
+const {scopeInventoryPathAllowed,buildScopeStatuses}=require('../../src/features/SyncScopeStatus.ts');
+const {expandSyncScopeBatchSelection,runSyncScopeBatch,syncScopeIssueSignature}=require('../../src/features/SyncScopeBatch.ts');
+const {planLatestWorkerMerge}=require('../../src/features/SyncLatestMerge.ts');
 const {planSyncScopeTransferGroups,batchSyncScopeInventoryPaths,scopeInventorySnapshot}=require('../../src/features/SyncScopeTransferBatch.ts');
 const ast=ts.createSourceFile('legacy.ts',fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8'),ts.ScriptTarget.Latest,true);
 const targets=[{id:'w1'},{id:'w2'}],file='configs/model.yaml',sha='a'.repeat(64),files={[file]:{sha256:sha,size:3}};
@@ -62,4 +63,45 @@ test('manual latest-Worker merge does not discard files solely because local cod
  h.retainSyncScopeVersion=async(_root,_targets,relative,source,directory,report,approved,destinations)=>{retained++;assert.equal(relative,file);assert.equal(source,'w1');assert.equal(approved,true);assert.deepEqual([...destinations],['w2']);};
  const run=method('mergeLatestWorkerVersions',{planLatestWorkerMerge:()=>({items:[{path:file,sourceId:'w1',destinationIds:['w2']}],skipped:[]}),confirmSyncScopePaths:async()=>true});
  const result=await run.call(h,'local-root',targets,['.'],'.');assert.equal(retained,1);assert.deepEqual([...result.completed],[file]);assert.equal(result.errors.length,0);
+});
+
+function latestDirectoryFixture(mode='normal'){
+ const h=host(),queries=[],transfers=[],confirmations=[],relative='artifacts',artifact=relative+'/report.json';
+ h.enabledWorkerConfigs=()=>targets;h.loadPlanSyncLedger=async()=>({schemaVersion:2,entries:{}});h.loadDistributedQueue=async()=>({});
+ h.simpleSftpApiCall=async(name,p)=>{
+  assert.equal(name,'sync.projectInventory');queries.push(p);if(mode==='offline'&&p.source.id==='w2')throw Error('worker offline');
+  const candidates=[artifact,'work_dirs/run/report.json','artifacts-other/outside.json'];
+  const allowed=file=>(p.relativePath==='.'||file===p.relativePath||file.startsWith(p.relativePath+'/'))&&(!p.scopePaths||p.scopePaths.some(scope=>scope==='.'||file===scope||file.startsWith(scope+'/')));
+  if(mode==='empty')return {ok:true,files:{}};
+  if(mode==='unverified')return {ok:true,files:{},unverifiedFiles:{[artifact]:'PermissionError'}};
+  return {ok:true,files:Object.fromEntries(candidates.filter(allowed).map(file=>[file,{sha256:(p.source.id==='w1'?'a':'b').repeat(64),size:3,modifiedAtMs:p.source.id==='w1'?200:100}]))};
+ };
+ h.refreshSyncScopeStatus=method('refreshSyncScopeStatus',{buildScopeStatuses,syncScopeIssueSignature,loadSyncHolds:async()=>({}),UiCommandCancelled:Error});
+ h.retainSyncScopeVersion=async(_root,_targets,file,source,directory,report,approved,destinations)=>transfers.push({file,source,approved,destinations:[...destinations]});
+ const run=method('mergeLatestWorkerVersions',{planLatestWorkerMerge,confirmSyncScopePaths:async(...args)=>{confirmations.push(args);return mode!=='cancel';},UiCommandCancelled:Error});
+ return {h,run,queries,transfers,confirmations,relative,artifact};
+}
+
+test('latest directory merge queries the clicked directory outside automatic scope through real refresh and planning',async()=>{
+ const f=latestDirectoryFixture(),result=await f.run.call(f.h,'local-root',targets,['work_dirs/run'],f.relative);
+ assert.deepEqual([...result.errors],[],'the clicked folder must not become an unverified synthetic file');assert.deepEqual([...result.completed],[f.artifact]);
+ assert.equal(f.queries.length,2);for(const q of f.queries){assert.equal(q.relativePath,f.relative);assert.deepEqual([...q.scopePaths],[f.relative]);}
+ assert.deepEqual(f.transfers,[{file:f.artifact,source:'w1',approved:true,destinations:['w2']}]);assert.equal(f.confirmations.length,1);
+});
+
+test('an actively queried empty directory is a no-op rather than an unverified file',async()=>{
+ const f=latestDirectoryFixture('empty'),result=await f.run.call(f.h,'local-root',targets,['work_dirs/run'],f.relative);
+ assert.deepEqual([...result.completed],[]);assert.deepEqual([...result.errors],[]);assert.equal(f.transfers.length,0);assert.equal(f.confirmations.length,0);
+});
+
+test('real unreadable files and failed Worker queries cannot become successful empty-directory merges',async()=>{
+ const unknown=latestDirectoryFixture('unverified'),result=await unknown.run.call(unknown.h,'local-root',targets,['.'],unknown.relative);
+ assert.equal(result.completed.length,0);assert.match(result.errors.join(';'),/artifacts\/report.json.*PermissionError/);assert.equal(unknown.transfers.length,0);
+ const offline=latestDirectoryFixture('offline');await assert.rejects(offline.run.call(offline.h,'local-root',targets,['.'],offline.relative),/清单校验失败.*worker offline/);assert.equal(offline.transfers.length,0);
+});
+
+test('root latest merge retains its declared scope and cancelling directory confirmation starts no transfer',async()=>{
+ const root=latestDirectoryFixture(),result=await root.run.call(root.h,'local-root',targets,['work_dirs/run'],'.');
+ assert.deepEqual([...result.completed],['work_dirs/run/report.json']);for(const q of root.queries)assert.deepEqual([...q.scopePaths],['work_dirs/run']);
+ const cancel=latestDirectoryFixture('cancel');assert.equal(await cancel.run.call(cancel.h,'local-root',targets,['work_dirs/run'],cancel.relative),false);assert.equal(cancel.transfers.length,0);
 });

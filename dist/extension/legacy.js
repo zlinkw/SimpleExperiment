@@ -8863,7 +8863,7 @@ class RealtimeTunnelPanelProvider {
         const endpoints = mode === "local-server" ? ["local", ...configured.sort()] : configured.sort();
         for (const row of Object.values(statuses))
             row.issueSignature = offline.size ? undefined : (0, SyncScopeBatch_1.syncScopeIssueSignature)(row, endpoints);
-        const aggregate = statuses[relative] || { state: "unknown", detail: "目录为空或当前同步范围外" };
+        const aggregate = statuses[relative] || { state: "unknown", detail: "目录为空或当前同步范围外", copies: {} };
         statuses[relative] = errors.length
             ? { ...aggregate, state: aggregate.state === "different" ? "different" : "unknown", detail: `${aggregate.detail} · 清单校验失败：${errors.join("；")}` }
             : aggregate;
@@ -8886,8 +8886,10 @@ class RealtimeTunnelPanelProvider {
             throw new Error("至少需要两台已启用 Worker。");
         if (relative !== ".")
             (0, SyncResolution_1.safeSyncPath)(relative);
-        const bounded = relative === "." && selectedPaths.length && !selectedPaths.includes(".");
-        for (const scope of bounded ? selectedPaths : [])
+        // A clicked directory is an explicit manual scope, independent of automatic mirror settings.
+        const mergePaths = relative !== "." && !options.completedJob && !options.metricsOnly ? [relative] : selectedPaths;
+        const bounded = relative === "." && mergePaths.length && !mergePaths.includes(".");
+        for (const scope of bounded ? mergePaths : [])
             (0, SyncResolution_1.safeSyncPath)(scope);
         const configured = this.enabledWorkerConfigs().map((worker) => worker.id).filter(Boolean);
         if (configured.some((id) => !targets.some((target) => target.id === id)))
@@ -8905,15 +8907,15 @@ class RealtimeTunnelPanelProvider {
             this.syncScopeMutationInFlight = true;
         }
         try {
-            report(`正在校验 ${targets.length} 台 Worker 的 ${selectedPaths.length} 条结果或目录路径`);
-            const statuses = await this.refreshSyncScopeStatus(root, targets, "server-server", selectedPaths, relative, options.signal);
+            report(`正在校验 ${targets.length} 台 Worker 的 ${mergePaths.length} 条结果或目录路径`);
+            const statuses = await this.refreshSyncScopeStatus(root, targets, "server-server", mergePaths, relative, options.signal);
             checkCancelled();
-            const failedInventory = [relative, ...(bounded ? selectedPaths : [])].map((scope) => statuses[scope]).find((row) => row?.detail?.includes("清单校验失败"));
+            const failedInventory = [relative, ...(bounded ? mergePaths : [])].map((scope) => statuses[scope]).find((row) => row?.detail?.includes("清单校验失败"));
             if (failedInventory)
                 throw new Error(failedInventory.detail);
-            const scoped = selectedPaths.includes(".")
+            const scoped = mergePaths.includes(".")
                 ? statuses
-                : Object.fromEntries(Object.entries(statuses).filter(([file]) => selectedPaths.some((scope) => file === scope || file.startsWith(`${scope}/`)) || file === relative));
+                : Object.fromEntries(Object.entries(statuses).filter(([file]) => mergePaths.some((scope) => file === scope || file.startsWith(`${scope}/`)) || file === relative));
             const planned = (0, SyncLatestMerge_1.planLatestWorkerMerge)(scoped, targets.map((target) => target.id), options.completedJob?.sourceId);
             const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
             const holds = await (0, SyncResolution_1.loadSyncHolds)(this.context.globalStorageUri.fsPath, root);
@@ -8963,7 +8965,7 @@ class RealtimeTunnelPanelProvider {
                 return { completed: [...new Set(completed)], errors: [], files };
             }
             if (!work.length)
-                return { completed: [], errors: skipped.length ? skipped : ["没有需要同步的 Worker 文件"] };
+                return { completed: [], errors: skipped };
             const paths = work.flatMap((item) => [
                 { label: `${item.path} · 来源 ${item.sourceId}`, path: path.posix.join(this.sftpServerOptions(targets.find((target) => target.id === item.sourceId)).remotePath, item.path) },
                 ...item.destinationIds.map((id) => ({ label: `${item.path} · 目标 ${id}`, path: path.posix.join(this.sftpServerOptions(targets.find((target) => target.id === id)).remotePath, item.path) })),

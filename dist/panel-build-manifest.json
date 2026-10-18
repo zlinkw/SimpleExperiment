@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.383",
-  "buildId": "a5f3e1de5589bd66b4063417e62477a3922b2e092776e834663ccb5417cd6191",
+  "version": "0.5.384",
+  "buildId": "de0456a018a50b0d5db1af6980630fd705f8a854c93eb4d4be43f19a79d4deb7",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -197,7 +197,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "6e28c937434f2772302fa4a916b2c22bf33ae68f30ae86699e323d7875bcbaf8"
+      "sha256": "726f3d22fef6417bcd0d188f8813921e9ff9421d8a6cc98f93d7354c6f88d962"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -561,7 +561,7 @@
     },
     {
       "path": "dist/features/SyncLatestMerge.js",
-      "sha256": "5fdc7d368fad36887de916359cb54ac76cde845b5be127886e57245b0e5bba63"
+      "sha256": "ca688bc6027f7a0a5e598c1125d6aa8127904668a0ad3e32ec688d16ec338936"
     },
     {
       "path": "dist/features/SyncResolution.js",
@@ -701,7 +701,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "50b1e80ffc9db769751e967bbef78c930cb8fd5e652f3b47f2b32eac4c5d1ae6"
+      "sha256": "0a18b11fb391bacfaa9fca804f261871e860ccf8bcc9dfe381aec481a99e853f"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1049,7 +1049,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "a48cca8bde2043acc8063042db741d004a349216f4949cb934f68898c8f21763"
+      "sha256": "381f749fcd26c085d37b3d3a765dde91de878cfa3a6bc9f50b78cab6887b6691"
     },
     {
       "path": "scripts/check-static.js",

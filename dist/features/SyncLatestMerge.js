@@ -11,7 +11,7 @@ function planLatestWorkerMerge(statuses, workerIds, completedSourceId) {
             continue;
         const versions = status.versions || {};
         if (status.unverified || status.state === "unknown" && !(completedSourceId && versions[completedSourceId]?.sha256)) {
-            skipped.push(`${path}：版本未校验`);
+            skipped.push(`${path}：版本未校验${status.detail ? `（${status.detail.slice(0, 1024)}）` : ""}`);
             continue;
         }
         const choices = ids.filter((id) => versions[id]?.sha256 && ["manual", "plan", "candidate", "same"].includes(versions[id].latest || ""));
