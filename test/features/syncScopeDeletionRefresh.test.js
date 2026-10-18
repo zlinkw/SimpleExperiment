@@ -26,6 +26,23 @@ test('index status remains above the tree, persists per location and ignores sta
  const fresh=f.sent.filter(m=>m.type==='summary').at(-1);progress(fresh.id,'w1','complete','索引完成');progress(fresh.id,'w2','complete','索引完成');assert.match(text(),/2\/2 · 全部完成/);
 });
 
+test('completed index survives elapsed wall time; an explicit later browse revalidates the observation',()=>{
+ const f=webview(),timers=[];let now=1000;
+ f.ctx.setTimeout=(fn,ms)=>{timers.push({fn,ms});return timers.length;};
+ f.ctx.Date={now:()=>now};
+ f.send({type:'init',roots:[{id:'local',label:'Local',selected:[],summary:true,indexLocations:[{id:'local',label:'本机'}]}]});
+ const query=f.sent.find(m=>m.type==='summary');
+ f.send({type:'children',rootId:'local',path:'.',entries:[{name:'data',path:'data',directory:true,locations:['local']}]});
+ f.send({type:'readProgress',rootId:'local',path:'.',id:query.id,stage:'done',progress:{endpointId:'local',state:'complete',detail:'索引完成'}});
+ f.send({type:'status',rootId:'local',path:'.',id:query.id,complete:true,refreshedAt:'observed once',statuses:{'.':{state:'unknown',basis:'metadata',detail:'observed'}}});
+ now+=300000;for(const timer of timers)timer.fn();
+ assert.equal(vm.runInContext("state().indexProgress.get('local').state",f.ctx),'complete');
+ assert.equal(vm.runInContext('Boolean(state().indexExpired)',f.ctx),false);
+ assert.doesNotMatch(f.nodes.get('indexProgress').children.map(n=>n.textContent).join(' '),/已过期/);
+ f.nodes.get('tree').children[1].children[0].onclick();
+ assert.equal(f.sent.filter(m=>m.type==='summary').length,2,'later browsing requests a new live round without a timer clearing completion');
+});
+
 test('expanding folders reuses in-flight index generation; direct delete binds just that file or folder',()=>{
  const f=webview();f.send({type:'init',roots:[{id:'local',label:'Local',selected:['a.txt','dir'],summary:true}]});
  const folders=[{path:'dir',name:'dir',directory:true,locations:['w1'],selectable:false},{path:'a.txt',name:'a.txt',directory:false,locations:['w1']}];

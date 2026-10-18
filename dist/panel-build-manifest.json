@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.374",
-  "buildId": "50927df7f7e09f97d08c606dab57536719c073efa82480c4c1846c2171953964",
+  "version": "0.5.375",
+  "buildId": "56613365ba14a15647d482e048a2e0bf2d43c7723f049129e153b673d85a097a",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -509,7 +509,7 @@
     },
     {
       "path": "dist/features/ProjectFileIndex.js",
-      "sha256": "33a23d7ce6413e6faf8e4750cf4fde9f4d1c29b74a0b6bec986c5a3c05b20b27"
+      "sha256": "2ab0fc70403a0e413c0f54c1d279f7467636fde7b9114401841b6c371cbad340"
     },
     {
       "path": "dist/features/ProjectMirror.js",
@@ -565,7 +565,7 @@
     },
     {
       "path": "dist/features/SyncScopeAgentIndex.js",
-      "sha256": "b1e537600129ae8284dfadce45b448c3a3024aa9d7584ca85c95af296a6ecf57"
+      "sha256": "7956957d606978c1837e75acf93d8b9d232b53fc59be2612f14a29f5a7bb2359"
     },
     {
       "path": "dist/features/SyncScopeBatch.js",
@@ -581,7 +581,7 @@
     },
     {
       "path": "dist/features/SyncScopeLocalIndex.js",
-      "sha256": "3556213505f07c66e62dcc2325bb1943accb5cb28cf4fbea5632ac640a4a94b8"
+      "sha256": "833b9a22dc62ca9fe011c54a5769e73daa68bc03266cd50a1330e1020fbebd2d"
     },
     {
       "path": "dist/features/SyncScopeLocalMirror.js",
@@ -601,7 +601,7 @@
     },
     {
       "path": "dist/features/SyncScopeTree.js",
-      "sha256": "cf43fed093aa3d8131e826122b4871c9bcd363f856be319a492481b1b1de510a"
+      "sha256": "5a870c7a03bf09cd0000a5e69d5dff0b4d0a6e25e50a19d90db82930ad483e84"
     },
     {
       "path": "dist/features/TaskLifecycle.js",
@@ -697,7 +697,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "08967437b7cc047e7b7934ba53520b3227bc020962d18e958be1c495588c4765"
+      "sha256": "c110c8eb69792070eed7b353c6eb88be567d87dcf6906d4a0d39ad5c56c93953"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1045,7 +1045,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "68b4d0977f77f00d2e962ba07517962480381571a340a2efc6b5069203b3630a"
+      "sha256": "71d7ddac2d9cb0170ace171320eb6f3f6e6247eb3ec153b297641f93d63ad137"
     },
     {
       "path": "scripts/check-static.js",

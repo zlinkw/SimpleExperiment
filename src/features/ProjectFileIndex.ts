@@ -5,7 +5,7 @@ import { atomicWriteText } from "../state/StateStore";
 
 export type FileIndexIdentity = { workspace: string; endpointId: string; projectRoot: string; connection: string; endpointBinding?: string };
 export type FileIndexQuery = { method: string; relativePath?: string; paths?: string[]; recursive?: boolean; metadataOnly?: boolean;
-  round?: string; binding?: Record<string, string | number>; signal?: AbortSignal; targetType?: "file" | "directory" };
+  round?: string; binding?: Record<string, string | number>; signal?: AbortSignal; targetType?: "file" | "directory"; backgroundPersistence?: boolean };
 export type IndexedFileFact = { path: string; type: "file" | "directory"; presence: "present" | "absent" | "unknown";
   size?: number; modifiedAtMs?: number; sha256?: string; error?: string; observedAt: string; observationId: string;
   device?: string; inode?: string; changedAtMs?: number };
@@ -50,6 +50,10 @@ export class ProjectFileIndex {
   async read<T>(query: FileIndexQuery, load: () => Promise<T>): Promise<T> {
     query.signal?.throwIfAborted();
     if (owners.get(this.file) !== this) throw Error("FILE_INDEX_CONNECTION_REPLACED");
+    // View metadata already comes from an actively verified baseline. Diagnostic JSON is not its proof.
+    // Confirmation/operation readers keep their existing durable observation boundary.
+    const background = query.backgroundPersistence === true && query.metadataOnly === true && ["local.metadata", "agent.metadata"].includes(query.method);
+    const record = (observationOnly = false) => { const pending = this.persist(observationOnly); return background ? Promise.resolve() : pending; };
     const round = query.round?.slice(0, 4096) || randomUUID();
     const scope = { relativePath: query.relativePath || ".", paths: [...new Set(query.paths || [])].sort(), recursive: query.recursive === true };
     if (scope.relativePath !== "." && !safe(scope.relativePath) || scope.paths.some(name => name !== "." && !safe(name))) throw Error("FILE_INDEX_PATH_INVALID");
@@ -70,7 +74,7 @@ export class ProjectFileIndex {
         if (previous) { this.observations.delete(key); this.observations.set(key + ":" + previous.observationId, previous); }
         this.observations.set(key, { observationId, generation, epoch, round, method: query.method, scope, basis, binding, startedAt,
           observedAt: startedAt, reusableUntil: startedAt, state: "reading", files: 0, directories: 0, unknown: 0 });
-        this.trim(); await this.persist(true);
+        this.trim(); await record(true);
         query.signal?.throwIfAborted();
         if (owners.get(this.file) !== this) throw Error("FILE_INDEX_CONNECTION_REPLACED");
         const value = await load();
@@ -118,7 +122,7 @@ export class ProjectFileIndex {
           }
         }
         if (normalized.state !== "complete") this.reads.delete(key);
-        this.trim(); await this.persist();
+        this.trim(); await record();
         return value;
       } catch (error) {
         this.reads.delete(key);
@@ -128,7 +132,7 @@ export class ProjectFileIndex {
         for (const previous of this.observations.values()) if (previous.method === query.method && previous.generation <= generation
           && JSON.stringify(previous.scope) === JSON.stringify(scope)) previous.state = "invalidated";
         if ((this.observations.get(key)?.generation || 0) <= generation) this.observations.set(key, observation);
-        this.trim(); await this.persist();
+        this.trim(); await record();
         throw error;
       }
     })();
@@ -151,6 +155,8 @@ export class ProjectFileIndex {
     await this.persist();
   }
   subscribe(listener: (reason: string) => void): () => void { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
+  /** Explicit diagnostic flush; normal view publication never waits for directory shard I/O. */
+  async flush(): Promise<void> { await this.writing; }
   /** A baseline is an acceleration input, never a completed observation. Its remote cursor must be revalidated. */
   async readBaseline(): Promise<any | undefined> {
     try {
@@ -279,7 +285,7 @@ export class ProjectFileIndex {
           if (owners.get(this.file) !== this) throw Error("FILE_INDEX_CONNECTION_REPLACED");
         } });
       }
-      catch { console.warn("[SimpleExperiment] 文件索引未能持久化；本轮仍只采用实际查询结果。"); }
+      catch { if (owners.get(this.file) === this) console.warn("[SimpleExperiment] 文件索引未能持久化；本轮仍只采用实际查询结果。"); }
     });
     return this.writing;
   }

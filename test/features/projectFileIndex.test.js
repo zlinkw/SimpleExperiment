@@ -79,7 +79,7 @@ test('directory files contain only direct children and child summaries; unchange
 
 test('query persists reading before touching the filesystem; explicit missing stats never become a pending absence',async()=>{
  const {storage,identity}=await fixture(),index=new ProjectFileIndex(identity,storage);
- const q={method:'sync.projectFileStats',paths:['data/a'],metadataOnly:true};await index.read(q,async()=>payload());
+ const q={method:'sync.projectFileStats',paths:['data/a'],metadataOnly:true,backgroundPersistence:true};await index.read(q,async()=>payload());
  await index.read(q,async()=>{
   const disk=JSON.parse(await fs.readFile(index.file,'utf8'));assert.equal(disk.observations.at(-1).state,'reading');
   assert.equal(index.snapshot().entries['data/a'].validity,'historical-only');return {ok:true,files:{},missing:['data/a']};

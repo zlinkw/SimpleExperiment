@@ -119,7 +119,7 @@ export class SyncScopeAgentIndexReader {
     const load = async () => ({ files: Object.fromEntries([...snapshot.entries].filter(([, row]) => !row.d).map(([name, row]) => [name, { size: row.s!, ...identity(row) }])),
       directories: Object.fromEntries([...snapshot.entries].filter(([, row]) => row.d).map(([name, row]) => [name, identity(row)])),
       unverifiedFiles: {}, observedAt: snapshot.observedAt, agentInstanceId: snapshot.instanceId, indexGeneration: snapshot.generation, acceleration: snapshot.acceleration });
-    return this.index ? this.index.read({ method: "agent.metadata", metadataOnly: true, recursive: true, round: this.viewId + ":" + round, signal,
+    return this.index ? this.index.read({ method: "agent.metadata", metadataOnly: true, recursive: true, backgroundPersistence: true, round: this.viewId + ":" + round, signal,
       binding: { agentInstanceId: snapshot.instanceId, indexGeneration: snapshot.generation } }, load) : load();
   }
 

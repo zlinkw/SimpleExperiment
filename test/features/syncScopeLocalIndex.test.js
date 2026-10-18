@@ -27,3 +27,17 @@ test('a local scan with no progress ends unknown and a later explicit round can 
  await new Promise(setImmediate);
  assert.equal((await reader.read('retry')).directories['.'].modifiedAtMs>0,true);
 });
+
+test('verified local status publishes before slow diagnostic directory persistence finishes',async()=>{
+ const {ProjectFileIndex}=require('../../src/features/ProjectFileIndex.ts');
+ const storage=await fs.mkdtemp(path.join(os.tmpdir(),'local-index-persist-')),root=path.join(storage,'project');
+ await fs.mkdir(root);await fs.writeFile(path.join(root,'a'),'abc','utf8');
+ const index=new ProjectFileIndex({workspace:root,endpointId:'local',projectRoot:root,connection:'fixture'},storage);
+ const original=index.persistDirectories;let release,published=false;
+ index.persistDirectories=async function(...args){await new Promise(resolve=>release=resolve);return original.apply(this,args);};
+ const reader=new SyncScopeLocalIndexReader(root,30000,index),reading=reader.read('round').then(value=>{published=true;return value;});
+ const deadline=Date.now()+2000;while(!release){assert.ok(Date.now()<deadline);await new Promise(setImmediate);}
+ await new Promise(setImmediate);
+ try{assert.equal(published,true,'view status must not wait for thousands of diagnostic shard writes');}
+ finally{release();await reading;await index.flush();}
+});

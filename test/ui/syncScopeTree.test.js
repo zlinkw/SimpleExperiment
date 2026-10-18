@@ -82,7 +82,7 @@ test("scope Webview requests visible-file status and replaces waiting badges", (
   assert.equal(messages.at(-1).path, ".");
   const hash = "a".repeat(64);
   onMessage({ data: { type: "status", rootId: "workers", path: ".", statuses: { ".": { state: "same", detail: "共 2 个文件 · 2 一致" }, "data": { state: "same", detail: "共 1 个文件 · 1 一致" }, "README.md": { state: "same", detail: "本机 同版 · w1 最新版", versions: { w1: { sha256: hash, modifiedAtMs: 1000, latest: "candidate" } } } }, refreshedAt: "now" } });
-  assert.match(elements.get("status").textContent, /已校验/);
+  assert.match(elements.get("status").textContent, /上次校验.*now/);
   const folderBadge = elements.get("tree").children[1].children.find((child) => child.className === "badge same");
   assert.equal(folderBadge?.textContent, "");
   assert.equal(elements.get("tree").children[1].children.find((child) => child.textContent === "📁 data")?.className, "name same");

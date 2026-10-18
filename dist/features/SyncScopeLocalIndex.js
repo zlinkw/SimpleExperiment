@@ -48,7 +48,7 @@ class SyncScopeLocalIndexReader {
             for (const listener of request.reports)
                 listener(stage);
         });
-        const scan = (this.index ? this.index.read({ method: "local.metadata", metadataOnly: true, recursive: true, round, signal: controller.signal }, load) : load()).then(inventory => {
+        const scan = (this.index ? this.index.read({ method: "local.metadata", metadataOnly: true, recursive: true, backgroundPersistence: true, round, signal: controller.signal }, load) : load()).then(inventory => {
             controller.signal.throwIfAborted();
             const children = new Map();
             for (const [directory, rows] of [[true, inventory.directories], [false, inventory.files]])

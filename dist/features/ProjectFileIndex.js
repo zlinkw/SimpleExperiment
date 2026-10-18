@@ -83,6 +83,10 @@ class ProjectFileIndex {
         query.signal?.throwIfAborted();
         if (owners.get(this.file) !== this)
             throw Error("FILE_INDEX_CONNECTION_REPLACED");
+        // View metadata already comes from an actively verified baseline. Diagnostic JSON is not its proof.
+        // Confirmation/operation readers keep their existing durable observation boundary.
+        const background = query.backgroundPersistence === true && query.metadataOnly === true && ["local.metadata", "agent.metadata"].includes(query.method);
+        const record = (observationOnly = false) => { const pending = this.persist(observationOnly); return background ? Promise.resolve() : pending; };
         const round = query.round?.slice(0, 4096) || (0, node_crypto_1.randomUUID)();
         const scope = { relativePath: query.relativePath || ".", paths: [...new Set(query.paths || [])].sort(), recursive: query.recursive === true };
         if (scope.relativePath !== "." && !safe(scope.relativePath) || scope.paths.some(name => name !== "." && !safe(name)))
@@ -111,7 +115,7 @@ class ProjectFileIndex {
                 this.observations.set(key, { observationId, generation, epoch, round, method: query.method, scope, basis, binding, startedAt,
                     observedAt: startedAt, reusableUntil: startedAt, state: "reading", files: 0, directories: 0, unknown: 0 });
                 this.trim();
-                await this.persist(true);
+                await record(true);
                 query.signal?.throwIfAborted();
                 if (owners.get(this.file) !== this)
                     throw Error("FILE_INDEX_CONNECTION_REPLACED");
@@ -170,7 +174,7 @@ class ProjectFileIndex {
                 if (normalized.state !== "complete")
                     this.reads.delete(key);
                 this.trim();
-                await this.persist();
+                await record();
                 return value;
             }
             catch (error) {
@@ -185,7 +189,7 @@ class ProjectFileIndex {
                 if ((this.observations.get(key)?.generation || 0) <= generation)
                     this.observations.set(key, observation);
                 this.trim();
-                await this.persist();
+                await record();
                 throw error;
             }
         })();
@@ -217,6 +221,8 @@ class ProjectFileIndex {
         await this.persist();
     }
     subscribe(listener) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
+    /** Explicit diagnostic flush; normal view publication never waits for directory shard I/O. */
+    async flush() { await this.writing; }
     /** A baseline is an acceleration input, never a completed observation. Its remote cursor must be revalidated. */
     async readBaseline() {
         try {
@@ -396,7 +402,8 @@ class ProjectFileIndex {
                     } });
             }
             catch {
-                console.warn("[SimpleExperiment] 文件索引未能持久化；本轮仍只采用实际查询结果。");
+                if (owners.get(this.file) === this)
+                    console.warn("[SimpleExperiment] 文件索引未能持久化；本轮仍只采用实际查询结果。");
             }
         });
         return this.writing;
