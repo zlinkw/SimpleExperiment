@@ -10,4 +10,6 @@ npm run package 退出 0，串行 build 与 Windows flow 共 996 项检查通过
 
 冻结包 simple-experiment-0.5.376.vsix 为 3191355 字节，SHA256 dd0f73e8fb99717b74c90a4286c979f87b07509789b70b85b2edf49d3dd51d27，包含精确文件名绑定的 .vsix.sha256。验收记录、完整日志及冻结字节位于 C:/Users/ZLK/AppData/Local/Temp/simpleex-0376-acceptance-20261018。配套仍使用既有 SimpleSFTP 0.2.97。
 
-发行和安装状态在完成后补记。本记录验收信息于打包后补充，不改变冻结包；真实窗口验收不能用隔离消息桥回归冒充。
+源码提交 805ec4a2c806e7de063472d9376872eae3a7246a 已普通 fast-forward 推送 origin/master，fetch 核对一致。[稳定 v0.5.376](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.376) 的 tag 和 targetCommitish 均绑定该提交，draft=false、prerelease=false。真实 0.5.375 ReleaseClient 识别更新并从 Latest 下载主包和配套包及各自 SHA256 清单，大小、身份、平台、精确文件名及字节摘要均与冻结包一致。主包指纹见上；配套 SimpleSFTP 0.2.97 未改变，未重复安装。
+
+显式执行一次 npm run install:latest，0.5.376 安装成功，无 force、无降级；核对 VS Code 已安装版本、384 个 dist 文件、simpleex.cmd 以及 simpleex --help，均通过。安装后停止操作当前 SimpleExperiment API 和面板，等待用户 Developer: Reload Window 后进行真实窗口验收。本轮未部署或重启远端 Agent，未启动科研作业。本记录验收信息于打包后补充，不改变冻结包；真实窗口验收不能用隔离消息桥回归冒充。
