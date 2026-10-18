@@ -22,7 +22,13 @@ Agent 的 /api/sync-scope/index 只接收带 project-sync-scope 标记的页面�
 
 现有“比较文件内容”继续以主动验证的 SHA256 判定，忽略时间差：同内容在本机 ↔ Worker 和 Worker ↔ Worker 中均一致，最新版合并不安排传输；同大小但内容不同仍判差异。目录汇总区分“待比较内容”与真正读取未知，页面提示和文件徽标同步调整。快速索引不增加文件内容读取、额外全量哈希或网络轮询；PLAN/产物确认与删除授权不使用元数据相同替代内容证据。
 
-先复现仅时间不同被误判，再通过 12 项元数据/真实文件字节夹具回归、6 项实际 Webview 脚本和 DOM 回归；包含不同内容但等长、确认缺失、离线/权限失败和完整索引进度。测试仅在自建本机夹具内写入内容和时间，不对用户项目或服务器执行同步、覆盖或删除。打包与交付回执完成后补记。
+先复现仅时间不同被误判，再通过 12 项元数据/真实文件字节夹具回归、6 项实际 Webview 脚本和 DOM 回归；包含不同内容但等长、确认缺失、离线/权限失败和完整索引进度。`npm run package` 的 1027 项串行构建/打包检查及 PanelHtml vm.Script 通过。测试仅在自建本机夹具内写入内容和时间，不对用户项目或服务器执行同步、覆盖或删除。
+
+源码 `0fd9de09b64bcff54cef89f47662b0a2c6bc0d86` 已普通推送至既有 `origin/master`，fetch 后一致。[稳定 Release v0.5.385](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.385) 绑定该提交，非 draft、非 prerelease；Latest 包含 `simple-experiment-0.5.385.vsix`（3,215,157 bytes）和精确文件名绑定 `.vsix.sha256`。SHA256 `a755116acd4dc8849b0a39e5e25295f1aa089c4ddfd4a20d9b9fbd73acdd2eb8`。559 ZIP 项、385 个 dist 文件及 263 个运行闭包模块的身份/版本/平台/engine、源字节与秘密排除通过。
+
+已安装 0.5.384 的真实更新解析器读取匿名公开 Latest，识别 0.5.385 更新，实际下载主插件与既有 SimpleSFTP 0.2.100 的 VSIX/逐包校验文件，核对源提交、大小、指纹及冻结字节一致。显式安装一次主插件 0.5.385，无 force、无降级；385 个安装 dist 文件与冻结源字节一致，VS Code 确认配套仍为 0.2.100，CLI 入口和已安装 simpleex 的离线 help 通过。
+
+安装后停止插件 API/面板操作，等待用户 Developer: Reload Window 后现场验收；只读索引中仅时间不同仍待比较内容，点击“比较文件内容”后才按 SHA256 确认一致。未操作用户项目/服务器文件或部署远端 Agent。冻结包、下载及验证回执位于 `C:/Users/ZLK/AppData/Local/Temp/simpleex-0385-acceptance-20261018`。本次追加回执不重打包或重装。
 
 ## 0.5.384 手动目录合并与自动范围隔离
 
