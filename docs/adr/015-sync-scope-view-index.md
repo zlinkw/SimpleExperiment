@@ -28,6 +28,13 @@ Agent 的 /api/sync-scope/index 只接收带 project-sync-scope 标记的页面�
 
 回归使用真实 ProjectFileIndex 与真实主机包装器复现两处竞态，覆盖其他 Worker/兄弟目录读取不受影响、同一目标旧读取拒绝、删除前后重新读取、持续失效有界、离线与换连接不重试、重建目标不再删除，以及大条目数/字节进度下执行请求仍只发一次。条目和字节进度为协议夹具，不是生产 TB 级删除性能实测；未执行用户真实项目删除。
 
+交付验收（2026-10-18）：
+
+- 运行源码提交 `599c72a6041da5926ee80d7faac30f8ea189a83e` 已普通推送并 fetch 核对与 `origin/master` 一致；最终 `npm run package` 1,014 项通过。PanelHtml 语法及 vm.Script、VSIX 身份/平台/运行闭包、秘密排除通过；559 个 ZIP 项、385 个 dist 文件、263 个运行模块。
+- [稳定 Release v0.5.382](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.382) 绑定上述运行源码，包含 `simple-experiment-0.5.382.vsix`（3,210,569 bytes）及精确文件名绑定的 `.vsix.sha256`。SHA256 `952a013f6e7c02c65302592117e34987801bcd7deb19244b2e2ddfbc3faead76`。
+- GitHub 匿名 API 当时限流至 UTC 09:43:44。通过已有 GitHub 授权访问同一公开 Latest，真实 0.5.381 更新解析器识别 0.5.382；两仓库均已核对公开。VSIX 及校验文件仍匿名下载，重新取得的字节、大小、SHA256、tag、绑定提交及非 draft/非 prerelease 状态与冻结包一致。配套 SimpleSFTP 0.2.98 的公开包和校验文件同样核对一致，继续复用。
+- 显式安装一次 0.5.382，385 个安装后 dist 文件与验证包一致，已安装 SimpleSFTP 仍为 0.2.98，`simpleex` 入口及 `--help` 通过。随后停止当前插件面板/API 操作，等待用户 Reload Window 后现场验收。未执行用户真实目录删除、科研运行或远端 Agent/Scheduler 部署。此回执为后续纯文档提交，不重打包或重复安装。
+
 ## 0.5.381 范围勾选与操作勾选
 
 此前普通复选框编辑自动传输范围，同时又被批量操作直接作为目标：本机模式中仅服务器存在的条目带 `selectable=false`，Worker 模式中根范围 `.` 已选时后代复选框禁用；独立删除多选只供删除使用，批量同步仍读取传输范围。暂停标记本身没有禁用复选框，实际限制来自范围资格和祖先勾选。批量展开还会按范围资格跳过远端独有条目，导致根选择或带排除目录的操作漏项。
