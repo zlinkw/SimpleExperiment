@@ -16,6 +16,16 @@ Agent 的 /api/sync-scope/index 只接收带 project-sync-scope 标记的页面�
 
 主动刷新和文件操作结束请求新一轮；文件操作结束同时使相关页面的旧读取失效。同轮展开目录复用已请求的索引，切换模式保留各自状态，不反复取消全项目扫描。由其他程序造成的新增、删除或修改在下一次主动查询核实。不引入全局轮询或 NFS 目录 mtime 永远不变的假设。目录读取前后身份变化会使本轮未知；目录时间不作为文件内容未变的证明。本机变化监听的范围和回退见下节。
 
+## SimpleSFTP 0.2.100 大清单请求
+
+`experiments/results/_unassigned` 大目录删除在 `files.cleanup.check` 报 `REQUEST_TOO_LARGE`，根因是冻结元数据清单超过原 1 MiB stdin 限制，开始执行、独立子执行器和进度查询都重传完整清单。配套 SimpleSFTP 将携带清单的生命周期请求限定为最多 32 MiB、50,000 条，普通请求保留 1 MiB；执行后查询仅传精确目标摘要和 SHA256，从既有不可变输入核对身份再查询真实文件系统及 tmux。丢失启动响应不重发，输入缺失或变化不能伪报完成；双确认、安全根、物理直接父目录及 `./直接子项` 保护保留。
+
+本批主插件无运行代码变化，继续复用 SimpleExperiment 0.5.382。SimpleSFTP 源码 `c802dbb5134a610b7f02f32356a5f6bd5cc63e4b` 已普通推送并 fetch 核对；45 文件、287 项回归及 90 项打包门禁通过，包含 Windows/Linux 超过 1 MiB 的真实 stdin、managed-start 子执行器及冻结输入变更夹具，底层删除使用隔离归档替身，未删除用户文件。
+
+[稳定 Release v0.2.100](https://github.com/zlinkw/SimpleSFTP/releases/tag/v0.2.100) 绑定该源码，资产 `simple-sftp-0.2.100.vsix`（174,253 bytes）与精确文件名绑定的 `.vsix.sha256`；SHA256 `4285df21f7c5bdf489401522ba715d8aa666c60d629fa123e2910fcccef59506`。包身份、平台、26 ZIP 项、23 个运行文件闭包及秘密排除通过；真实 0.5.382 更新解析器读取匿名 Latest 并实际下载两个配套发行包及校验文件，与冻结字节一致。
+
+已显式安装一次 SimpleSFTP 0.2.100，23 个安装文件与发行包一致；SimpleExperiment 仍为 0.5.382，两 CLI 入口存在。安装后停止插件 API/面板操作，待用户 Reload Window 后重新预览并双确认剩余目标，不自动重放旧删除批次，不部署远端 Agent。完整回执见配套仓库 `docs/release-delivery-0.2.100.md`；本节仅文档，不重打包或重装主插件。
+
 ## SimpleSFTP 0.2.99 根目录直属项
 
 `runtime_manifest.json` 位于项目根目录时，配套 SimpleSFTP 的存在性检查、预览及实际删除父目录进入函数，误把父目录等于项目根当作 `UNSAFE_PARENT`。现允许目标的直接父目录等于已验证项目根；目标本身仍须为根的严格后代，根目录、主仓库 `.git`、链接、挂载、类型变化和父目录进入失败继续受保护。实际执行仍核对物理直接父目录并仅操作 `./直接子项`，父目录错误附具体路径和原因。
