@@ -28,3 +28,12 @@
 旧版真实更新解析器读取实际 Latest，识别主插件更新、配套 SimpleSFTP 0.2.101 无需更新，并实际下载两个 VSIX/校验文件，核对提交、大小、SHA256 和冻结字节。匿名公开 API 与下载。主插件仅显式安装一次，无 force 或降级，VS Code 版本、387 个安装 dist 文件与 simpleex 入口核对通过。配套已安装 0.2.101 复用，未重复安装；其发行源码 `1151f5e5b7ae58be9edff0a346299ee321d378ba`，指纹 `2f62c2833bfddafdefcf79d8599580b859306923c8bb550f338619a61f66be2c`。
 
 首次完整打包在隔离 tmux 夹具的五秒退出观测断言失败；该文件单独运行 3 项通过，随后完整 1101 项通过，首次日志保留；未为此修改生产 runtime。安装后未再操作当前面板/API，等待用户 Developer: Reload Window 后现场 UI 验收。实际用户 Plan 未运行或停止，科研文件未修改；远端 Agent 未自动部署。
+
+
+### 0.5.389 交付回执
+
+串行构建/打包 1110 项检查、PanelHtml 模板/内层脚本及 vm.Script 通过，包含真实普通提交/分布式提交链路的四路并发、共享同步、逐 Plan 校验、旧代码和旧 Plan 拦截、重叠输出保护与取消收尾验证。源码 `53aa4583f7713a43daffe92d0214e2ef00da1046` 已普通推送并 fetch 与 origin/master 核对一致。[稳定发行 v0.5.389](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.389) 绑定该提交。资产 `simple-experiment-0.5.389.vsix`（3231416 bytes），SHA256 `92508e0dc6706ddd7f40f76301d16a330c1e9d67bace56661b0b0a6870d67a33`，配套精确文件名绑定 .vsix.sha256；563 ZIP 条目、388 个 dist 文件、266 个运行闭包模块的身份、版本、universal 平台、engine、源字节和秘密排除通过。
+
+旧版真实更新解析器读取实际 Latest，识别主插件更新、配套 SimpleSFTP 0.2.101 无需更新，并实际下载两个 VSIX/校验文件，核对提交、大小、SHA256 和冻结字节。匿名公开 API 与下载。主插件仅显式安装一次，无 force 或降级，VS Code 版本、388 个安装 dist 文件与 simpleex 入口核对通过。配套已安装 0.2.101 复用，未重复安装；其发行源码 `1151f5e5b7ae58be9edff0a346299ee321d378ba`，指纹 `2f62c2833bfddafdefcf79d8599580b859306923c8bb550f338619a61f66be2c`。
+
+首次完整门禁发现旧片段测试夹具缺少新批次局部上下文；补齐后该文件 18 项通过，随后完整 1110 项通过，首次日志保留。安装后未再操作当前面板/API，等待用户 Developer: Reload Window 后现场 UI 验收。实际用户 Plan 未运行或停止，科研文件未修改；远端 Agent 未自动部署。
