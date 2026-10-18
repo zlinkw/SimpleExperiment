@@ -12,4 +12,6 @@
 
 冻结包 simple-experiment-0.5.377.vsix 为 3193959 字节，SHA256 ce4add3c66fbf894837105c7c7eeb5c5ccc7dfa847ac653efef68dc8a0ffecef，身份 simple-local.simple-experiment，universal，engine ^1.100.0。557 条 ZIP 记录、384 个 dist 文件与最终构建字节一致，262 模块/2 入口闭包、秘密及机器状态排除核验通过。精确文件名绑定的 .vsix.sha256 和冻结包、日志位于 C:/Users/ZLK/AppData/Local/Temp/simpleex-0377-acceptance-20261018。配套仍为 SimpleSFTP 0.2.97。
 
-发行和安装状态在完成后补记。本记录验收信息于打包后补充，不改变冻结包；真实面板验收等待用户重载窗口。
+源码提交 08fd8029257b92d8ab470dbcb67290c5aa8d6d13 已普通 fast-forward 推送 origin/master，fetch 核对一致。[稳定 v0.5.377](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.377) 的 tag 和 targetCommitish 均绑定该提交，draft=false、prerelease=false。实际 0.5.376 ReleaseClient 识别更新并从真实 Latest 下载主包、配套包及各自清单，身份、平台、精确文件名、大小和 SHA256 与冻结字节一致。配套仍为既有 SimpleSFTP 0.2.97，未重复安装。
+
+显式执行一次 npm run install:latest 安装 0.5.377，无 force、无降级；核对已安装版本、384 个 dist 文件、simpleex.cmd 与 simpleex --help，均通过。安装后停止操作当前 SimpleExperiment API 和面板，等待用户 Developer: Reload Window 后现场验收。本轮未部署或重启远端 Agent，未执行新的永久删除或科研作业。本记录验收信息于打包后补充，不改变冻结包；真实面板验收等待用户重载窗口。
