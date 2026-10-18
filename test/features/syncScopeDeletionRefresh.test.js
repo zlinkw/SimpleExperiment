@@ -86,16 +86,43 @@ test('expanding folders reuses in-flight index generation; direct delete binds j
  assert.equal(f.sent.filter(m=>m.type==='summary').length,1);assert.equal(f.sent.filter(m=>m.type==='cancelRefresh').length,0);assert.equal(f.sent.at(-1).path,'dir');
  row('📁 dir').children.find(n=>n.textContent==='一键删除').onclick();assert.equal(f.sent.at(-1).type,'batchDelete');assert.deepEqual([...f.sent.at(-1).paths],['dir']);assert.deepEqual([...f.sent.at(-1).excluded],[]);
  f.send({type:'actionCancelled',rootId:'local'});row('📄 a.txt').children.find(n=>n.textContent==='一键删除').onclick();assert.deepEqual([...f.sent.at(-1).paths],['a.txt']);assert.equal(f.sent.at(-1).entries[0].directory,false);
- f.send({type:'actionCancelled',rootId:'local'});f.nodes.get('batchDelete').onclick();assert.deepEqual([...f.sent.at(-1).paths],['a.txt','dir']);
+ f.send({type:'actionCancelled',rootId:'local'});const box=f.nodes.get('tree').children[0].children[1];box.checked=true;box.onchange();f.nodes.get('batchDelete').onclick();assert.deepEqual([...f.sent.at(-1).paths],['a.txt','dir']);
 });
 
-test('delete multiselect includes server-only files and folders without changing transfer selections',()=>{
+test('default operation selection includes held, out-of-scope and server-only paths for both actions without changing saved scope',()=>{
  const f=webview();f.send({type:'init',roots:[{id:'local',label:'Local',selected:['code'],excludable:true}]});
- f.send({type:'children',rootId:'local',path:'.',entries:[{path:'code',name:'code',directory:true,locations:['local']},{path:'remote',name:'remote',directory:true,locations:['w1'],selectable:false},{path:'remote.txt',name:'remote.txt',directory:false,locations:['w1'],selectable:false}]});
+ f.send({type:'children',rootId:'local',path:'.',entries:[{path:'code',name:'code',directory:true,locations:['local']},{path:'remote',name:'remote',directory:true,locations:['w1'],selectable:false,held:true},{path:'remote.txt',name:'remote.txt',directory:false,locations:['w1'],selectable:false},{path:'outside',name:'outside',directory:true,locations:['local','w1'],held:true}]});
+ const row=name=>f.nodes.get('tree').children.find(n=>n.children.some(x=>x.textContent===name));
+ for(const name of ['📁 remote','📄 remote.txt','📁 outside']){const box=row(name).children[1];assert.equal(box.disabled,false);box.checked=true;box.onchange();}
+ assert.equal(f.nodes.get('save').disabled,true,'operation selections cannot be saved as automatic scope');
+ f.nodes.get('batchSync').onclick();assert.deepEqual([...f.sent.at(-1).paths],['outside','remote','remote.txt']);
+ f.send({type:'actionCancelled',rootId:'local'});
  f.nodes.get('deleteSelection').onclick();
- for(const name of ['📁 remote','📄 remote.txt']){const row=f.nodes.get('tree').children.find(n=>n.children.some(x=>x.textContent===name));assert.equal(row.children[1].disabled,false);row.children[1].checked=true;row.children[1].onchange();}
- f.nodes.get('batchDelete').onclick();assert.deepEqual([...f.sent.at(-1).paths],['remote','remote.txt']);assert.deepEqual([...vm.runInContext('[...state().selected]',f.ctx)],['code']);
+ assert.equal(row('📁 remote').children[1].checked,true,'legacy delete entry preserves operation selection');
+ f.nodes.get('editScope').onclick();assert.equal(row('📁 remote').children[1].disabled,true);assert.equal(row('📁 code').children[1].checked,true);
+ const prior=f.sent.filter(m=>m.type==='batchDelete').length;f.nodes.get('batchDelete').onclick();assert.equal(f.sent.filter(m=>m.type==='batchDelete').length,prior,'scope edits cannot silently become management targets');
+ f.nodes.get('save').onclick();assert.deepEqual([...f.sent.at(-1).paths],['code']);
+ f.nodes.get('operationSelection').onclick();assert.equal(row('📁 remote').children[1].checked,true);
+ f.nodes.get('batchDelete').onclick();assert.deepEqual([...f.sent.at(-1).paths],['outside','remote','remote.txt']);assert.deepEqual([...vm.runInContext('[...state().selected]',f.ctx)],['code']);
  assert.equal(f.sent.at(-1).entries.find(e=>e.path==='remote').directory,true);
+ f.send({type:'actionCancelled',rootId:'local'});f.nodes.get('filterIssues').onclick();f.nodes.get('showSame').onclick();
+ assert.equal(row('📁 remote').children[1].disabled,false,'showing all after filtering restores management mode');
+ assert.equal(row('📁 remote').children[1].checked,true);
+});
+
+test('Worker root scope does not disable descendant operation checkboxes; exclusions apply to management only',()=>{
+ const f=webview();f.send({type:'init',roots:[{id:'workers',label:'Workers',selected:['.']} ]});
+ f.send({type:'children',rootId:'workers',path:'.',entries:[{name:'held',path:'held',directory:true,held:true,locations:['w1']} ]});
+ f.send({type:'children',rootId:'workers',path:'held',entries:[{name:'keep',path:'held/keep',directory:false,locations:['w1']},{name:'drop',path:'held/drop',directory:false,locations:['w1']}]});
+ vm.runInContext("state().expanded.add('held');renderTree()",f.ctx);
+ const row=name=>f.nodes.get('tree').children.find(n=>n.children.some(x=>x.textContent===name));
+ for(const name of ['📁 held','📄 keep','📄 drop'])assert.equal(row(name).children[1].disabled,false);
+ row('📁 held').children[1].checked=true;row('📁 held').children[1].onchange();
+ row('📄 keep').children[1].checked=false;row('📄 keep').children[1].onchange();
+ assert.equal(f.nodes.get('tree').children[0].children[1].indeterminate,true);
+ assert.equal(row('📁 held').children[1].indeterminate,true);
+ f.nodes.get('batchDelete').onclick();assert.deepEqual([...f.sent.at(-1).paths],['held']);assert.deepEqual([...f.sent.at(-1).excluded],['held/keep']);
+ assert.deepEqual([...vm.runInContext('[...state().selected]',f.ctx)],['.']);
 });
 
 test('expired view facts become unknown and expanding starts a new round instead of reusing stale absence',()=>{
@@ -299,10 +326,10 @@ test('actual Webview removes absent paths from cached children, status filter an
  send({type:'init',roots:[{id:'workers',label:'Workers',selected:[gone]}]});send({type:'children',rootId:'workers',path:'.',entries:[{name:'work_dirs',path:'work_dirs',directory:true}]});
  send({type:'children',rootId:'workers',path:'work_dirs',entries:[{name:'concatenation',path:gone,directory:true}]});
  send({type:'status',rootId:'workers',path:'.',statuses:{[gone]:{state:'different',detail:'old'},[gone+'/old.bin']:{state:'different',detail:'old',issueSignature:'old'}},refreshedAt:'old'});
- vm.runInContext("state().batchSelected.add('work_dirs/concatenation/old.bin');state().expanded.add('work_dirs/concatenation')",ctx);
+ vm.runInContext("state().batchSelected.add('work_dirs/concatenation/old.bin');state().operationSelected.add('work_dirs/concatenation');state().expanded.add('work_dirs/concatenation')",ctx);
  send({type:'children',rootId:'workers',path:'work_dirs',entries:[]});
- const result=JSON.parse(vm.runInContext('JSON.stringify({selected:[...state().selected],batch:[...state().batchSelected],statuses:state().statuses,expanded:[...state().expanded]})',ctx));
- assert.deepEqual(result.selected,[]);assert.deepEqual(result.batch,[]);assert.ok(!Object.keys(result.statuses).some(p=>p.startsWith(gone)));assert.ok(!result.expanded.includes(gone));
+ const result=JSON.parse(vm.runInContext('JSON.stringify({selected:[...state().selected],operation:[...state().operationSelected],batch:[...state().batchSelected],statuses:state().statuses,expanded:[...state().expanded]})',ctx));
+ assert.deepEqual(result.selected,[]);assert.deepEqual(result.operation,[]);assert.deepEqual(result.batch,[]);assert.ok(!Object.keys(result.statuses).some(p=>p.startsWith(gone)));assert.ok(!result.expanded.includes(gone));
 });
 
 test('partial deletion refreshes attempted parents and retires pre-delete requests including errors',()=>{

@@ -43,6 +43,16 @@ test("visible selected files reach batch review without repeating remote directo
   assert.equal(result.length, 500);
 });
 
+test("manual root and excluded-folder selections retain remote-only and paused children", async () => {
+  const tree = {
+    '.': [{name:'remote',path:'remote',directory:true,selectable:false,held:true,locations:['w1']},{name:'only.txt',path:'only.txt',directory:false,selectable:false,locations:['w1']}],
+    remote: [{name:'keep',path:'remote/keep',directory:false,selectable:false,locations:['w1']},{name:'drop',path:'remote/drop',directory:false,selectable:false,held:true,locations:['w1']}],
+  };
+  const rows = await expandSyncScopeBatchSelection(['.'], ['remote/keep'], async parent => tree[parent], undefined, [], {fresh:true});
+  assert.deepEqual(rows.map(row=>row.path), ['only.txt','remote/drop']);
+  await assert.rejects(expandSyncScopeBatchSelection(['.'],[], async()=>[{name:'escape',path:'../escape',directory:true,selectable:false}],undefined,[],{fresh:true}), /不安全|非法/);
+});
+
 test("batch runner keeps at most two paths in flight and reports failures", async () => {
   let active = 0;
   let maxActive = 0;

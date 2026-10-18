@@ -8631,7 +8631,7 @@ class RealtimeTunnelPanelProvider {
                 return value;
             }, undefined, this.projectFileObservationIndex(this.sftpServerOptions(target)))])));
         const scopePanel = (0, SyncScopeTree_1.openSyncScopeTree)("项目同步范围与状态", [{
-                id: "local", label: "本机 ↔ Worker", detail: "自动汇总所有子目录的缺失和文件信息差异；勾选仅决定传输范围，范围外仍可管理。内容比较按需执行。", rootSelectable: true, excludable: true,
+                id: "local", label: "本机 ↔ Worker", detail: "默认勾选用于批量同步或删除，范围外和同步暂停项也可管理；自动传输范围请点击“编辑同步范围”后保存。内容比较按需执行。", rootSelectable: true, excludable: true,
                 selected: localSelected,
                 indexLocations: [{ id: "local", label: "本机" }, ...this.enabledWorkerConfigs().map(row => ({ id: row.id, label: row.id }))],
                 watch: invalidate => {
@@ -8660,7 +8660,7 @@ class RealtimeTunnelPanelProvider {
                     void vscode.window.showInformationMessage(`本机与服务器同步范围已保存：${normalized.length} 条路径。`);
                 },
             }, {
-                id: "workers", label: "Worker ↔ Worker", detail: "自动汇总所有子目录的缺失和文件信息差异；默认同步整个项目，机器状态除外。内容比较按需执行。",
+                id: "workers", label: "Worker ↔ Worker", detail: "默认勾选用于批量同步或删除；自动传输范围请点击“编辑同步范围”后保存，默认整个项目，机器状态除外。内容比较按需执行。",
                 selected: serverSelected,
                 indexLocations: this.enabledWorkerConfigs().map(row => ({ id: row.id, label: row.id })),
                 list: async (relative, signal, round) => this.listSyncScopeUnion(root, targets, relative, false, false, signal, target => scopeIndexReaders.get("workers:" + target.id).list(relative, round || "workers-0", signal)),

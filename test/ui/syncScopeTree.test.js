@@ -236,6 +236,7 @@ test("local root select all allows excluding a nested artifact directory", () =>
   });
   onMessage({ data: { type: "init", roots: [{ id: "local", label: "本机", detail: "", selected: [], rootSelectable: true, excludable: true }] } });
   onMessage({ data: { type: "children", rootId: "local", path: ".", entries: [{ name: "configs", path: "configs", directory: true, selectable: true }, { name: "artifacts", path: "artifacts", directory: true, selectable: true }] } });
+  elements.get("editScope").onclick();
   const rootBox = elements.get("tree").children[0].children[1];
   rootBox.checked = true;
   rootBox.onchange();

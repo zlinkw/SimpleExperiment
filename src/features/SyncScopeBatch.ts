@@ -59,7 +59,7 @@ export async function expandSyncScopeBatchSelection(
     if (relative === "." || hasExcludedChild) {
       if (!entry.directory) throw new Error(`文件下不能设置排除项：${relative}`);
       for (const child of await children(relative)) {
-        if (child.selectable === false) continue;
+        // selectable describes automatic transfer scope eligibility, not manual management.
         safeSyncPath(child.path);
         if (parentOf(child.path) !== relative) throw new Error(`文件树返回了越级路径：${child.path}`);
         await expand(child);
