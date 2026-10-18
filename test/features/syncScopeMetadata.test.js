@@ -1,8 +1,37 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs/promises'),os=require('node:os'),path=require('node:path');
 require('../_helpers/registerTsRequire');
 const {buildScopeMetadataStatuses,queryScopeMetadata}=require('../../src/features/SyncScopeMetadata.ts');
-const {collectLocalScopeMetadata}=require('../../src/features/SyncScopeStatus.ts');
+const {collectLocalScopeMetadata,collectLocalScopeInventory,buildScopeStatuses}=require('../../src/features/SyncScopeStatus.ts');
+const {planLatestWorkerMerge}=require('../../src/features/SyncLatestMerge.ts');
 const file=(size,time=1000)=>({size,modifiedAtMs:time});
+
+test('timestamp-only changes are pending content comparison, never a difference or an indexing failure',async()=>{
+ const rows=await queryScopeMetadata(['local','w1','w2'].map((id,i)=>({id,read:async()=>({files:{'dir/a':file(12,1000+i*1000)}})})));
+ assert.equal(rows['dir/a'].state,'unknown');assert.match(rows['dir/a'].detail,/仅修改时间不同.*内容待比较/);
+ assert.equal(rows['dir/a'].versions,undefined,'metadata does not invent a content digest');
+ for(const name of ['.','dir']){assert.equal(rows[name].state,'unknown');assert.match(rows[name].detail,/差异 0.*未知 0.*待比较内容 1/);assert.equal(rows[name].unverified,false);
+  for(const copy of Object.values(rows[name].copies)){assert.equal(copy.needsSync,0);assert.equal(copy.unverified,0);assert.equal(copy.missing,0);}}
+ assert.equal(rows['dir/a'].metadata.w1.status,'present');
+});
+
+test('size differences, actual absence and failed reads remain distinct from timestamp-only hints',()=>{
+ const rows=buildScopeMetadataStatuses(['local','w1','w2'],{local:{files:{'dir/a':file(12,1000),'dir/b':file(12,1000)}},w1:{files:{'dir/a':file(13,2000)}},w2:{files:{'dir/a':file(12,3000),'dir/b':file(12,3000)}}},new Map());
+ assert.equal(rows['dir/a'].state,'different');assert.match(rows['dir/a'].detail,/文件大小不同/);assert.equal(rows['dir/b'].state,'different');assert.match(rows['dir/b'].detail,/确认缺失：w1/);
+ const failed=buildScopeMetadataStatuses(['local','w1'],{local:{files:{a:file(12)}}},new Map([['w1','offline']]));
+ assert.equal(failed.a.state,'unknown');assert.match(failed.a.detail,/查询失败/);assert.equal(failed['.'].unverified,true);assert.equal(failed['.'].copies.w1.missing,0);
+});
+
+test('actual equal bytes at different times become identical after hashing; equal sizes with different bytes stay different',async()=>{
+ const root=await fs.mkdtemp(path.join(os.tmpdir(),'scope-content-time-')),roots={};
+ for(const [i,id]of ['local','w1','w2'].entries()){roots[id]=path.join(root,id);await fs.mkdir(path.join(roots[id],'dir'),{recursive:true});const name=path.join(roots[id],'dir','a');await fs.writeFile(name,'same','utf8');await fs.utimes(name,1700000000+i*100,1700000000+i*100);}
+ const inventories={};for(const [id,dir]of Object.entries(roots))inventories[id]=await collectLocalScopeMetadata(dir,'.');
+ const metadata=buildScopeMetadataStatuses(Object.keys(roots),inventories,new Map());assert.equal(metadata['dir/a'].state,'unknown');assert.match(metadata.dir.detail,/差异 0/);
+ const contents={};for(const [id,dir]of Object.entries(roots))contents[id]=await collectLocalScopeInventory(dir,'.');
+ const input={local:contents.local,workers:{w1:contents.w1,w2:contents.w2}},ledger={schemaVersion:2,entries:{}};
+ for(const mode of ['local-server','server-server']){const statuses=buildScopeStatuses(input,mode,['.'],new Set(),ledger);assert.equal(statuses['dir/a'].state,'same');assert.equal(statuses.dir.state,'same');assert.equal(statuses.dir.copies.w2.needsSync,0);if(mode==='server-server')assert.deepEqual(planLatestWorkerMerge(statuses,['w1','w2']),{items:[],skipped:[]});}
+ await fs.writeFile(path.join(roots.w2,'dir','a'),'diff','utf8');await fs.utimes(path.join(roots.w2,'dir','a'),1700001000,1700001000);input.workers.w2=await collectLocalScopeInventory(roots.w2,'.');
+ for(const mode of ['local-server','server-server']){const statuses=buildScopeStatuses(input,mode,['.'],new Set(),ledger);assert.equal(statuses['dir/a'].state,'different');assert.equal(statuses.dir.state,'different');}
+});
 test('failure envelopes and absent inventories cannot prove a file is missing',async()=>{
  const rows=await queryScopeMetadata([{id:'good',read:async()=>({files:{'dir/a':file(1)}})},{id:'failed',read:async()=>({ok:false,error:'HTTP 503',files:{}})},{id:'empty',read:async()=>({files:{}})}]);
  assert.equal(rows['dir/a'].metadata.failed.status,'unknown');assert.equal(rows['dir/a'].metadata.empty.status,'absent');

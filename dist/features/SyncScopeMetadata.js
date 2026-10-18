@@ -71,18 +71,21 @@ function buildScopeMetadataStatuses(ids, inventories, unavailable) {
             else {
                 present.push(id);
                 metadata[id] = { status: "present", directory: false, ...file };
-                const key = `${file.size}:${file.modifiedAtMs}`;
+                const key = String(file.size);
                 groups.set(key, [...(groups.get(key) || []), id]);
             }
         }
         const different = groups.size > 1;
+        // Timestamps are hints, never evidence that bytes differ or that equal sizes mean equal contents.
+        const timeOnly = !different && new Set(present.map(id => metadata[id].modifiedAtMs)).size > 1;
+        const contentPending = timeOnly && !missing.length && !unknown.length;
         const reading = unknown.filter(id => metadata[id].error === "正在读取"), failed = unknown.filter(id => metadata[id].error !== "正在读取");
-        const detail = [missing.length ? `确认缺失：${missing.join("、")}` : "", different ? "大小或修改时间不同" : "", reading.length ? `索引未完成：${reading.join("、")}` : "", failed.length ? `查询失败或未核实：${failed.join("、")}` : "", "仅比较文件信息，内容未比较"].filter(Boolean).join(" · ");
-        statuses[name] = { basis: "metadata", state: missing.length || different ? "different" : unknown.length || ids.length < 2 ? "unknown" : "same", detail, metadata,
+        const detail = [missing.length ? `确认缺失：${missing.join("、")}` : "", different ? "文件大小不同" : "", timeOnly ? "仅修改时间不同，内容待比较" : "", reading.length ? `索引未完成：${reading.join("、")}` : "", failed.length ? `查询失败或未核实：${failed.join("、")}` : "", "仅比较文件信息，内容未比较"].filter(Boolean).join(" · ");
+        statuses[name] = { basis: "metadata", state: missing.length || different ? "different" : unknown.length || contentPending || ids.length < 2 ? "unknown" : "same", detail, metadata,
             issueSignature: missing.length || different || unknown.length ? JSON.stringify({ basis: "metadata", missing, groups: [...groups.values()].sort((a, b) => a.join().localeCompare(b.join())), unknown }) : undefined };
         const parents = [".", ...name.split("/").slice(0, -1).map((_, i, parts) => parts.slice(0, i + 1).join("/"))];
         for (const parent of parents) {
-            const row = folders.get(parent) || { total: 0, different: 0, missing: 0, unknown: 0, copies: {} };
+            const row = folders.get(parent) || { total: 0, different: 0, missing: 0, unknown: 0, pending: 0, copies: {} };
             row.total++;
             if (different)
                 row.different++;
@@ -90,6 +93,8 @@ function buildScopeMetadataStatuses(ids, inventories, unavailable) {
                 row.missing++;
             if (unknown.length)
                 row.unknown++;
+            if (contentPending)
+                row.pending++;
             for (const id of ids) {
                 const copy = row.copies[id] ||= { modifiedAtMs: 0, present: 0, missing: 0, needsSync: 0, conflict: 0, unverified: 0 };
                 if (unknown.includes(id))
@@ -107,14 +112,14 @@ function buildScopeMetadataStatuses(ids, inventories, unavailable) {
         }
     }
     if (!folders.size)
-        folders.set(".", { total: 0, different: 0, missing: 0, unknown: 0, copies: {} });
+        folders.set(".", { total: 0, different: 0, missing: 0, unknown: 0, pending: 0, copies: {} });
     const reading = [...unavailable].filter(([, reason]) => reason === "正在读取").map(([id]) => id);
     const failed = [...unavailable].filter(([, reason]) => reason !== "正在读取").map(([id]) => id);
     const unavailableDetail = [reading.length ? "索引未完成：" + reading.join("、") : "", failed.length ? "查询失败：" + failed.join("、") : ""].filter(Boolean).join("；");
     for (const [folder, row] of folders)
         statuses[folder] = {
-            basis: "metadata", state: row.missing || row.different ? "different" : unavailable.size || row.unknown || ids.length < 2 ? "unknown" : "same",
-            detail: `递归文件信息${unavailable.size ? "（" + unavailableDetail + "，仅汇总已读结果）" : ""}：${row.total} 个文件 · 缺失 ${row.missing} · 差异 ${row.different} · 未知 ${row.unknown} · 内容未比较${unavailable.size ? " · " + [...unavailable].map(([id, error]) => id + "：" + error).join("；") : ""}`,
+            basis: "metadata", state: row.missing || row.different ? "different" : unavailable.size || row.unknown || row.pending || ids.length < 2 ? "unknown" : "same",
+            detail: `递归文件信息${unavailable.size ? "（" + unavailableDetail + "，仅汇总已读结果）" : ""}：${row.total} 个文件 · 缺失 ${row.missing} · 差异 ${row.different} · 未知 ${row.unknown}${row.pending ? " · 待比较内容 " + row.pending : ""} · 内容未比较${unavailable.size ? " · " + [...unavailable].map(([id, error]) => id + "：" + error).join("；") : ""}`,
             copies: row.copies, unverified: unavailable.size > 0 || row.unknown > 0,
         };
     return statuses;

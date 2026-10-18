@@ -13,6 +13,22 @@ Module._load = function (name, ...args) {
 const { openSyncScopeTree } = require("../../dist/features/SyncScopeTree.js");
 Module._load = original;
 
+test('rendered metadata timestamps show pending content without red differences or an unfinished index',()=>{
+ const {buildScopeMetadataStatuses}=require('../../dist/features/SyncScopeMetadata.js');
+ openSyncScopeTree('test',[{id:'workers',label:'Workers',selected:[],list:async()=>[],refresh:async()=>({})}]);
+ const script=panel.webview.html.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/)[1],elements=new Map();
+ const element=()=>({children:[],style:{},textContent:'',appendChild(child){this.children.push(child);return child;},replaceChildren(...children){this.children=children;}});
+ const document={getElementById(id){if(!elements.has(id))elements.set(id,element());return elements.get(id);},createElement:element};let onMessage;
+ vm.runInNewContext(script,{document,window:{addEventListener(_type,fn){onMessage=fn;}},acquireVsCodeApi:()=>({postMessage(){}})});
+ const send=data=>onMessage({data});send({type:'init',roots:[{id:'workers',label:'Workers',selected:[]}]});
+ send({type:'children',rootId:'workers',path:'.',entries:[{name:'a',path:'a',directory:false,locations:['w1','w2']}]});
+ const statuses=buildScopeMetadataStatuses(['w1','w2'],{w1:{files:{a:{size:4,modifiedAtMs:1000}}},w2:{files:{a:{size:4,modifiedAtMs:2000}}}},new Map());
+ send({type:'status',rootId:'workers',path:'.',statuses,refreshedAt:'now'});
+ const cells=elements.get('tree').children.flatMap(row=>row.children),text=cells.map(cell=>cell.textContent).join(' ');
+ assert.match(text,/仅修改时间不同，内容待比较/);assert.match(text,/待比较内容 1/);assert.doesNotMatch(text,/差异 1|未知 1|索引未完成/);
+ assert.equal(cells.filter(cell=>cell.className==='name different').length,0);assert.ok(cells.some(cell=>cell.className==='name unknown'&&cell.textContent==='📄 a'));
+});
+
 test("scope Webview renders collapsible checkboxes, status colors and refresh", async () => {
   let saved;
   let refreshed;
