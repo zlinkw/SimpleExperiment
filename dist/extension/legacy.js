@@ -8992,7 +8992,6 @@ class RealtimeTunnelPanelProvider {
         return (0, SyncScopeStatus_2.requireCompleteScopeInventory)(result, `Worker ${options.source?.id || options.source?.host || "未知"}`);
     }
     async updateSyncScopeHolds(root, mutate) {
-        await this.invalidateProjectFileIndexes?.("同步范围或删除保留版本发生变化，需重新核实");
         const previous = this.syncScopeHoldsWriteQueue || Promise.resolve();
         const current = previous.catch(() => undefined).then(async () => {
             const started = Date.now();
@@ -9000,11 +8999,20 @@ class RealtimeTunnelPanelProvider {
             const file = SyncResolution.syncHoldsStoragePath(this.context.globalStorageUri.fsPath, root);
             await this.withPluginStateFileLease(root, file, "sync-holds", "更新同步版本选择记录", async () => {
                 const holds = await (0, SyncResolution_1.loadSyncHolds)(this.context.globalStorageUri.fsPath, root);
+                const before = Object.fromEntries(Object.entries(holds).map(([name, value]) => [name, JSON.stringify(value)]));
                 mutate(holds);
+                const changedPaths = [...new Set([...Object.keys(before), ...Object.keys(holds)])]
+                    .filter(name => before[name] !== JSON.stringify(holds[name]));
+                if (!changedPaths.length) {
+                    this.planArtifactSyncReceiptHolds = holds;
+                    this.planArtifactSyncReceiptHoldsRoot = root;
+                    return;
+                }
                 recordCount = Object.keys(holds).length;
                 await (0, SyncResolution_1.saveSyncHolds)(this.context.globalStorageUri.fsPath, root, holds);
                 this.planArtifactSyncReceiptHolds = holds;
                 this.planArtifactSyncReceiptHoldsRoot = root;
+                await this.invalidateProjectFileIndexes?.("同步版本选择记录已变化，自动核实相关路径", changedPaths);
             });
             const elapsed = Date.now() - started;
             if (elapsed > 1000)

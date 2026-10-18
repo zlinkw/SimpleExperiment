@@ -3,12 +3,13 @@ require('../_helpers/registerTsRequire');
 const {expandSyncScopeBatchSelection}=require('../../src/features/SyncScopeBatch.ts');
 const source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
 function webview(roots=[]){
- let html,host,dispose;const original=Module._load;Module._load=function(name,...args){return name==='vscode'?{ViewColumn:{Active:1},window:{createWebviewPanel:()=>({onDidDispose(fn){dispose=fn;},webview:{set html(value){html=value;},postMessage:async()=>{},onDidReceiveMessage(fn){host=fn;}}})}}:original.call(this,name,...args);};
+ let html,host,dispose;const hostMessages=[];const original=Module._load;Module._load=function(name,...args){return name==='vscode'?{ViewColumn:{Active:1},window:{createWebviewPanel:()=>({onDidDispose(fn){dispose=fn;},webview:{set html(value){html=value;},postMessage:async m=>{hostMessages.push(m);},onDidReceiveMessage(fn){host=fn;}}})}}:original.call(this,name,...args);};
  try{delete require.cache[require.resolve('../../src/features/SyncScopeTree.ts')];require('../../src/features/SyncScopeTree.ts').openSyncScopeTree('fixture',roots);}finally{Module._load=original;}
  const element=()=>({children:[],style:{},scrollTop:0,appendChild(c){this.children.push(c);},replaceChildren(...c){this.children=c;}}),nodes=new Map(),sent=[];let receive;
- const ctx=vm.createContext({acquireVsCodeApi:()=>({postMessage:m=>sent.push(m)}),document:{createElement:element,getElementById(id){if(!nodes.has(id))nodes.set(id,element());return nodes.get(id);}},window:{addEventListener:(_,fn)=>receive=fn}});
+ const timers=[];
+ const ctx=vm.createContext({setTimeout(fn){timers.push(fn);return timers.length;},acquireVsCodeApi:()=>({postMessage:m=>sent.push(m)}),document:{createElement:element,getElementById(id){if(!nodes.has(id))nodes.set(id,element());return nodes.get(id);}},window:{addEventListener:(_,fn)=>receive=fn}});
  vm.runInContext(html.match(/<script nonce="[^"]+">([\s\S]*?)<\/script>/)[1],ctx);
- return {ctx,nodes,sent,send:data=>receive({data}),host,dispose};
+ return {ctx,nodes,sent,send:data=>receive({data}),host,hostMessages,dispose,flushTimers:()=>{for(const fn of timers.splice(0))fn();}};
 }
 function method(name,globals){const ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true);let member;function visit(n){if(ts.isMethodDeclaration(n)&&n.name.getText(ast)===name)member=n;ts.forEachChild(n,visit);}visit(ast);return vm.runInNewContext(ts.transpileModule('class Host{'+member.getText(ast)+'};Host.prototype.'+name,{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,globals);}
 
@@ -68,8 +69,76 @@ test('expired view facts become unknown and expanding starts a new round instead
  const f=webview();f.send({type:'init',roots:[{id:'local',label:'Local',selected:[],summary:true,indexLocations:[{id:'local',label:'本机'}]}]});
  f.send({type:'children',rootId:'local',path:'.',entries:[{name:'data',path:'data',directory:true,locations:['local'],observations:{local:{status:'present',directory:true}}}]});
  vm.runInContext("state().statuses.data={state:'different',basis:'metadata',detail:'确认缺失',metadata:{local:{status:'absent'}}};state().indexProgress.get('local').state='complete';expireIndexView(state())",f.ctx);
- assert.equal(vm.runInContext("state().statuses.data.metadata.local.status",f.ctx),'unknown');assert.match(f.nodes.get('indexProgress').children.map(n=>n.textContent).join(' '),/已过期/);
+ assert.equal(vm.runInContext("state().statuses.data.metadata.local.status",f.ctx),'unknown');assert.match(f.nodes.get('indexProgress').children.map(n=>n.textContent).join(' '),/等待增量核实/);
  f.nodes.get('tree').children[1].children[0].onclick();assert.equal(f.sent.filter(m=>m.type==='summary').length,2);assert.equal(vm.runInContext('state().indexExpired',f.ctx),false);
+});
+
+test('completed view automatically coalesces invalidation bursts, rejects old absence and converges without a manual refresh',()=>{
+ const f=webview();f.send({type:'init',roots:[{id:'local',label:'Local',selected:[],summary:true,indexLocations:[{id:'local',label:'本机'}]}]});
+ const first=f.sent.find(m=>m.type==='summary');
+ f.send({type:'readProgress',rootId:'local',path:'.',id:first.id,stage:'done',progress:{endpointId:'local',state:'complete',detail:'索引完成'}});
+ f.send({type:'status',rootId:'local',path:'.',id:first.id,statuses:{file:{state:'different',basis:'metadata',detail:'缺失',metadata:{local:{status:'absent'}}}}});
+ for(let i=0;i<5;i++)f.send({type:'indexInvalidated',reason:'sync holds changed'});
+ assert.equal(vm.runInContext('state().statuses.file.metadata.local.status',f.ctx),'unknown');
+ f.flushTimers();
+ assert.equal(f.sent.filter(m=>m.type==='summary').length,2,'one new live round for all endpoint notifications');
+ const next=f.sent.filter(m=>m.type==='summary').at(-1);assert.notEqual(next.roundId,first.roundId);
+ f.send({type:'status',rootId:'local',path:'.',id:first.id,statuses:{bad:{state:'different',detail:'old absence'}}});
+ assert.equal(vm.runInContext('Boolean(state().statuses.bad)',f.ctx),false);
+ f.send({type:'readProgress',rootId:'local',path:'.',id:next.id,stage:'done',progress:{endpointId:'local',state:'complete',detail:'索引完成'}});
+ f.send({type:'status',rootId:'local',path:'.',id:next.id,statuses:{file:{state:'same',basis:'metadata',detail:'已读取',metadata:{local:{status:'present'}}}},refreshedAt:'fresh'});
+ assert.equal(vm.runInContext('state().statuses.file.metadata.local.status',f.ctx),'present');
+ assert.match(f.nodes.get('indexProgress').children.map(n=>n.textContent).join(' '),/1\/1 · 全部完成/);
+ assert.doesNotMatch(f.nodes.get('status').textContent,/过期|请刷新/);
+});
+
+test('invalidation waits for an active operation; cancellation resumes one live check',()=>{
+ const f=webview();f.send({type:'init',roots:[{id:'local',label:'Local',selected:[],summary:true}]});
+ vm.runInContext("state().busyAction={id:'action',sequence:0}",f.ctx);
+ f.send({type:'indexInvalidated',reason:'operation started'});f.flushTimers();
+ assert.equal(f.sent.filter(m=>m.type==='summary').length,1);
+ f.send({type:'actionCancelled',rootId:'local',id:'action'});f.flushTimers();
+ assert.equal(f.sent.filter(m=>m.type==='summary').length,2);
+});
+
+test('unchanged sync holds do not invalidate file indexes; actual changes notify precise paths after persistence',async()=>{
+ let holds={data:{endpointId:'w1'}},saved=0;const events=[];
+ const update=method('updateSyncScopeHolds',{SyncResolution:{syncHoldsStoragePath:()=>'/storage/holds'},loadSyncHolds:async()=>structuredClone(holds),saveSyncHolds:async(_storage,_root,value)=>{saved++;holds=value;}});
+ const host={context:{globalStorageUri:{fsPath:'/storage'}},withPluginStateFileLease:async(_root,_file,_kind,_title,work)=>work(),invalidateProjectFileIndexes:async(reason,paths)=>events.push({reason,paths:[...paths],saved})};
+ await update.call(host,'/project',()=>{});assert.equal(events.length,0);assert.equal(saved,0);
+ await update.call(host,'/project',value=>{value.data.endpointId='w2';value.new={endpointId:'local'};});
+ assert.equal(events.length,1);assert.equal(events[0].saved,1);assert.deepEqual(events[0].paths.sort(),['data','new']);
+});
+
+test('actual watcher, host bridge and incremental filesystem reader converge after path disappearance; failed reads remain unknown',async()=>{
+ const {ProjectFileIndex}=require('../../src/features/ProjectFileIndex.ts');
+ const {SyncScopeLocalIndexReader}=require('../../src/features/SyncScopeLocalIndex.ts');
+ const {queryScopeMetadata}=require('../../src/features/SyncScopeMetadata.ts');
+ const temp=fs.mkdtempSync(path.join(require('node:os').tmpdir(),'scope-auto-refresh-')),root=path.join(temp,'project');fs.mkdirSync(root);
+ fs.writeFileSync(path.join(root,'file.txt'),'fixture','utf8');
+ const index=new ProjectFileIndex({workspace:root,endpointId:'local',projectRoot:root,connection:'fixture'},path.join(temp,'storage'));
+ const reader=new SyncScopeLocalIndexReader(root,5000,index);let offline=false;
+ const f=webview([{id:'local',label:'Local',selected:[],indexLocations:[{id:'local',label:'本机'},{id:'w1',label:'Worker'}],
+  watch:invalidate=>index.subscribe(invalidate),
+  list:async(relative,signal,round)=>{const entries=await reader.list(relative,round,signal);return entries.map(entry=>({...entry,locations:['local'],observations:{local:{status:'present',directory:entry.directory}}}));},
+  summary:(_relative,signal,report,publish,round)=>queryScopeMetadata([{id:'local',read:async progress=>{if(offline)throw Error('fixture disconnected');return reader.read(round,signal,progress);}},{id:'w1',read:async()=>({files:{'file.txt':{size:7,modifiedAtMs:1000}}})}],signal,report,publish)
+ }]);
+ let cursor=0;
+ const drain=async()=>{for(let n=0;n<30;n++){while(cursor<f.sent.length)await f.host(f.sent[cursor++]);while(f.hostMessages.length)f.send(f.hostMessages.shift());f.flushTimers();if(cursor===f.sent.length&&!f.hostMessages.length)return;}assert.fail('bridge did not converge');};
+ try{
+  await drain();assert.equal(vm.runInContext("state().indexProgress.get('local').state",f.ctx),'complete');
+  assert.equal(vm.runInContext("state().statuses['file.txt'].metadata.local.status",f.ctx),'present');
+  fs.mkdirSync(path.join(root,'clean_dir'));fs.renameSync(path.join(root,'file.txt'),path.join(root,'clean_dir','file.txt'));
+  await index.invalidate('fixture path changed',['file.txt']);await drain();
+  assert.equal(vm.runInContext("state().statuses['file.txt'].metadata.local.status",f.ctx),'absent');
+  assert.equal(vm.runInContext("state().indexProgress.get('local').state",f.ctx),'complete');
+  offline=true;await index.invalidate('fixture connection changed',['file.txt']);await drain();
+  assert.equal(vm.runInContext("state().statuses['file.txt'].metadata.local.status",f.ctx),'unknown');
+  assert.equal(vm.runInContext("state().indexProgress.get('local').state",f.ctx),'failed');
+  offline=false;await index.invalidate('fixture reconnected',['file.txt']);await drain();
+  assert.equal(vm.runInContext("state().indexProgress.get('local').state",f.ctx),'complete');
+  assert.doesNotMatch(f.nodes.get('status').textContent,/过期|请刷新/);
+ }finally{f.dispose();await index.flush();}
 });
 
 test('mutation invalidation retires in-flight messages rather than restoring obsolete absence',()=>{
