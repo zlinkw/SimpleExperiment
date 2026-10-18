@@ -2,7 +2,7 @@
 import * as vscode from "vscode";
 import { runPlanStopClearBatch, planStopBatchSignature } from "./PlanStopClearBatchHost";
 import { analyzeRuntimeLog, runtimeLogAnalysisMessage } from "./RuntimeLogAnalysisHost";
-import { runSelectedPlans } from "./SelectedPlanBatchHost";
+import { runAllPlans, runSelectedPlans } from "./SelectedPlanBatchHost";
 import * as PlanCodeScopeHost from "./PlanCodeScopeHost";
 import * as fs from "fs/promises";
 import * as fsNode from "fs";
@@ -5636,8 +5636,7 @@ return this.testTunnel(true);
                 break;
             case "runAllPlans":
                 if (message.selectionOnly === true || Object.prototype.hasOwnProperty.call(message, "planFiles")) return await runSelectedPlans(this, message);
-                await this.runAllPlansFromUi();
-                break;
+                return await this.runAllPlansFromUi(message);
             case "runDraftDebug":
                 throw new Error("Debug 运行模式已移除，请使用正式 Plan 运行。");
             case "promoteDraft":
@@ -5882,7 +5881,7 @@ return this.testTunnel(true);
                 return { status: "cancelled", message: String(value.message || "未提交重新排队；请先审核该 job 的遗留文件。") };
             if (command === "retryDistributedJob" && value?.status === "queued" && value.source === "local")
                 return { status: "completed", message: String(value.message) };
-            if (command === "runAllPlans" && value?.selectionOnly === true && ["completed", "failed", "cancelled"].includes(value.status))
+            if (command === "runAllPlans" && typeof value?.selectionOnly === "boolean" && ["completed", "failed", "cancelled"].includes(value.status))
                 return { status: value.status, message: String(value.message) };
             if (["stopAndClearPlan", "stopAndClearPlans", "stopAllPlans", "retryDistributedJob", "dispatchJobs", "markJobUnavailable", "restoreJobAvailability"].includes(command) && value && typeof value === "object" && (value.status === "completed" || value.status === "failed" || value.status === "cancelled" || value.status === "partial")) {
                 const outcome = value.status === "partial" ? "failed" : value.status;
@@ -15466,89 +15465,8 @@ this.assertActionAuthorityCurrent(options);this.assertPlanTopologyReady(options.
         this.postState();
         void vscode.window.showInformationMessage(`Plan 已恢复为独立版本 v${planVersion}：${restoredFile}；输出使用 ${outputNamespace} 命名空间，结果写入独立 Plan 范围。已恢复配置 ${restoredConfigs} 个、环境清单 ${restoredEnvironmentFiles.length} 个、参数资料 ${restoredParameterFiles.length} 个；缺失配置 ${missingConfigs} 个、环境清单 ${missingEnvironmentFiles} 个、参数资料 ${missingParameterFiles} 个。已自动切换到 Plan 工作台，可先检查恢复内容，再执行“校验并提交运行”。`);
     }
-    async runAllPlansFromUi() {
-        const projectContext = this.captureProjectContext();
-        const client = this.client;
-        const authority = { projectContext, authorityClient: client };
-        const assertCurrent = () => this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，运行全部 Plan 已取消。");
-        assertCurrent();
-        const topology = this.assertPlanTopologyReady("批量运行计划");
-        const schedulerWorkerId = undefined;
-        await this.refreshLocalPlanMetadataForAction(undefined, { allPlans: true });
-        assertCurrent();
-        const plans = this.localPlanMetadata.plans || [];
-        if (!plans.length)
-            throw new Error("没有可运行的计划文件。");
-        this.assertExecutionWorkersReady();
-        const blocked = plans
-            .map((plan) => ({ plan, reason: projectOutputGateReason(this.localPlanMetadata.detectedProject, plan) }))
-            .filter((item) => item.reason);
-        if (blocked.length) {
-            throw new Error(`有 ${blocked.length} 个计划缺少可用结果捕获规则，已阻止运行全部计划。` + blocked.slice(0, 5).map((item) => `${item.plan.planFile}: ${item.reason}`).join("；"));
-        }
-        const candidatePlans = [];
-        for (const plan of plans) {
-            const planFile = plan.planFile || plan.file;
-            if (!planFile)
-                throw new Error("计划元数据缺少 planFile，已停止批量运行；请刷新识别后重试。");
-            const body = this.actionBody({ planFile, planId: plan.planId || planFile, selectedPlanId: plan.planId || planFile });
-            this.stampPlanRevision(body, plan);
-            await this.selectPlanSubmissionWorker(body, planFile);
-            assertCurrent();
-            await this.assertPlanLocalConfigFiles(body);
-            assertCurrent();
-            candidatePlans.push({ planFile, body, plan });
-        }
-        for (const candidate of candidatePlans)
-            this.assertExecutionAgentProjectsReady(candidate.body);
-        const currentState = this.buildPlanRuntimeEvidenceState();
-        const activePlans = candidatePlans
-            .map((candidate) => ({ planFile: candidate.planFile, activity: activePlanRunEvidence(currentState, candidate.planFile, candidate.plan) }))
-            .filter((item) => item.activity.active);
-        if (activePlans.length)
-            throw new Error(`有 ${activePlans.length} 个 Plan 仍在排队或运行，已阻止重复批量提交：${activePlans.slice(0, 5).map((item) => `${item.planFile}${item.activity.historicalOnly ? "（旧 revision 仍活跃）" : ""}`).join("、")}。请先在“任务运行状态”处理。`);
-        if (!await this.ensureSimpleSftpReadyForSetup("批量运行")) {
-            assertCurrent();
-            return;
-        }
-        assertCurrent();
-        await this.confirmPlanBatchRunSubmission(candidatePlans);
-        assertCurrent();
-        await this.ensureCodeReadyForRun(projectContext, candidatePlans.map((candidate) => candidate.body));
-        assertCurrent();
-        const preparedPlans = [];
-        for (const candidate of candidatePlans) {
-            const { planFile, body } = candidate;
-            assertCurrent();
-            if (!await this.runPlanPreflight(body, `计划 ${planFile}`, authority))
-                throw new Error(`计划 ${planFile} 的校验或预演未返回有效结果，已停止整批提交。`);
-            this.assertExecutionCondaEnvReady(this.workerActionTargets());
-            assertCurrent();
-            preparedPlans.push({ planFile, body });
-        }
-        let submitted = 0;
-        let pendingSubmitted = 0;
-        for (const prepared of preparedPlans) {
-            const { planFile, body } = prepared;
-            assertCurrent();
-            const result = await this.postPlanSchedulerAction("run-plan", body, {
-                title: `运行计划 ${planFile}`,
-                confirm: false,
-                danger: false,
-                requiresCapability: capabilityForAction("run-plan"),
-                ...authority,
-            });
-            assertCurrent();
-            if (remoteActionPendingStatus(resultStatus(result)))
-                pendingSubmitted += 1;
-            submitted += 1;
-        }
-        const schedulerLabel = "人工选择的 Worker 独立调度队列";
-        assertCurrent();
-        void vscode.window.showInformationMessage(`全部 ${preparedPlans.length} 个计划已通过校验与预演，并提交 ${submitted}/${preparedPlans.length} 个到 ${schedulerLabel}；${pendingSubmitted} 个正在后台调度。`);
-        this.postState();
-        if (pendingSubmitted)
-            throw new UiCommandRemotePending(`已提交 ${pendingSubmitted}/${submitted} 个计划到 ${schedulerLabel} 并进入后台调度；按钮已恢复，可在“任务”查看排队、运行与日志。`);
+    async runAllPlansFromUi(message = {}) {
+        return runAllPlans(this, message);
     }
     async generatePlanGuideFromUi(openAfterCreate = true) {
         const projectContext = this.captureProjectContext();

@@ -1451,8 +1451,8 @@ function renderPanelHtml() {
           <button data-command="validatePlan" title="校验实验计划，不会运行任务&#10;检查契约、输出接口与配置完整性&#10;未通过时列出缺失项与修复建议">校验</button>
           <button data-command="dryRunPlan" class="secondary" title="预演运行，不提交任务&#10;展开「用例 × 随机种子」的任务数、远端路径、Worker 与并发上限">预演</button>
           <button data-command="runPlan" title="同步代码、校验并预演；存在历史产物时选择补跑缺失任务、重跑全部或取消">校验并提交运行</button>
-          <button type="button" data-command="runAllPlans" data-plan-batch-run="selected" class="secondary" disabled title="只运行明确勾选的 PLAN；逐个复用校验、同步和覆盖确认；失败或取消后停止后续提交">运行所选计划</button>
-          <button data-command="runAllPlans" data-confirm="true" class="secondary" title="按顺序提交当前实验计划目录下的全部计划&#10;每个计划仍会走完整的校验与预演门禁">运行全部计划</button>
+          <button type="button" data-command="runAllPlans" data-plan-batch-run="selected" class="secondary" disabled title="所选 PLAN 自动排队，无需指定服务器；保留校验、同步和覆盖确认；失败或取消后停止后续提交">运行所选计划</button>
+          <button data-command="runAllPlans" data-confirm="true" class="secondary" title="全部 PLAN 自动排队，无需指定服务器；按资源情况调度到已启用 Worker&#10;每个计划仍会走完整的校验、同步与预演门禁；失败或取消后停止后续提交">运行全部计划</button>
           <button data-command="cleanupPlan" class="secondary" title="只读预览选中 PLAN 的本机及历史关联服务器产物，再核对精确路径">清除 PLAN 及关联产物</button>
           </div>
         </div>

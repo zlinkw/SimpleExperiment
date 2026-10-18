@@ -5,6 +5,7 @@ const ts = require("typescript");
 require("../_helpers/registerTsRequire");
 const { normalizeDistributedProjectContract } = require("../../src/features/DistributedProjectContract.ts");
 const queue = require("../../src/features/DistributedPlanQueue.ts");
+const { runAllPlans } = require("../../src/extension/SelectedPlanBatchHost.ts");
 
 const source = fs.readFileSync(require.resolve("../../src/extension/legacy.ts"), "utf8");
 const ast = ts.createSourceFile("extension.ts", source, ts.ScriptTarget.Latest, true);
@@ -107,6 +108,39 @@ test("tuning Plan submission automatically validates on one Worker and allocates
   });
   await route.call(host, "runPlan", { planFile: "experiments/plans/comparison_tuning/method.yaml" }, {}, {});
   assert.deepEqual(calls, ["worker-b"]);
+});
+
+test("run all uses the production automatic route with zero idle GPUs and later allocates across enabled Workers", async () => {
+  const host = provider({}, "worker_pool"), context = { root: "/fixture" };
+  let pending = queue.emptyDistributedQueue(), inputs = 0;
+  Object.assign(host, {
+    taskLifecycleProtocol: 2, localOperations: {},
+    localPlanMetadata: { plans: ["a", "b"].map(id => ({ planFile: `experiments/plans/${id}.yaml` })) },
+    captureProjectContext: () => context, projectContextIsCurrent: value => value === context,
+    refreshLocalPlanMetadataForAction: async () => {},
+    workerActionTargets: () => [{ id: "worker-a" }, { id: "worker-b" }],
+    lastWorkerProbes: { "worker-a": { status: "ok" }, "worker-b": { status: "ok" } },
+    client: { getGpu: async () => ({}) }, schedulerSettings: () => ({}), availabilityPushTtlSeconds: () => 45,
+    localWorkerAvailabilityRows: () => ["worker-a", "worker-b"].map(workerId => ({ workerId, availableGpuIds: [] })),
+    stampWorkerPoolManualTarget: (body, workerId) => { body.schedulerOwnerWorkerId = workerId; },
+    selectDistributedPlanPrimary: primary,
+    selectPlanSubmissionWorker: async () => assert.fail("manual Worker chooser"),
+    planSubmissionOperationId: message => message.clientActionId,
+    runActionCommand: async (command, message) => route.call(host, command, { planFile: message.planFile }, {}, message),
+    finishDistributedPlanSubmission: async (_command, message, _plan, body) => {
+      inputs++;
+      pending = queue.enqueuePlan(pending, { planFile: body.planFile, revision: "revision", codeFingerprint: "code",
+        jobs: [0, 1].map(index => ({ index, case: "case", seed: 42 + index, outputDir: `work/${inputs}/${index}` })) }, `run-${inputs}`);
+      host.localOperations[message.clientActionId] = { status: "queued", message: "local queue accepted" };
+    },
+  });
+  assert.equal((await runAllPlans(host, {})).status, "completed");
+  assert.equal(inputs, 2); assert.equal(pending.plans.length, 2);
+  assert.equal(pending.plans.flatMap(plan => plan.jobs).filter(job => job.status === "pending").length, 4);
+  const availability = ["worker-a", "worker-b"].map(workerId => ({ workerId, online: true, idleGpuIds: ["0"], declaredJobPaths: true }));
+  const assigned = queue.allocateAvailable(pending, availability);
+  assert.equal(assigned.dispatches.length, 2);
+  assert.deepEqual(new Set(assigned.dispatches.map(job => job.workerId)), new Set(["worker-a", "worker-b"]));
 });
 
 test("standalone validation and dry-run use automatic primary selection for a distributed Plan", async () => {

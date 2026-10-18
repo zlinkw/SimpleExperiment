@@ -92,12 +92,14 @@ test("Hub-only checks and execution checks use different endpoint scopes", () =>
   assert.ok(handlerStart >= 0 && validateStart > handlerStart && runStart > validateStart);
   const validateGuard = extension.slice(validateStart, runStart);
   const runGuard = extension.slice(runStart, runStart + 5000);
-  const runAll = extension.slice(extension.indexOf("async runAllPlansFromUi()"), extension.indexOf("async generatePlanGuideFromUi("));
+  const runAll = extension.slice(extension.indexOf("async runAllPlansFromUi("), extension.indexOf("async generatePlanGuideFromUi("));
   assert.match(validateGuard, /assertPlanSchedulerAgentReady\(command,\s*body\)/);
   assert.doesNotMatch(validateGuard, /assertExecutionAgentProjectsReady\(\)/);
   assert.match(runGuard, /assertExecutionAgentProjectsReady\(body\)/);
-  assert.match(runAll, /assertExecutionAgentProjectsReady\(candidate\.body\)/);
-  assert.ok(runAll.indexOf("assertExecutionAgentProjectsReady(candidate.body)") < runAll.indexOf("confirmPlanBatchRunSubmission"));
+  assert.match(runAll, /return runAllPlans\(this, message\)/);
+  const batch = fs.readFileSync(path.join(__dirname, "../../src/extension/SelectedPlanBatchHost.ts"), "utf8");
+  assert.match(batch, /await host\.runActionCommand\("runPlan", message\)/);
+  assert.ok(runGuard.indexOf("assertExecutionAgentProjectsReady(body)") < runGuard.indexOf("ensureSimpleSftpReadyForSetup"));
   const applySetup = extension.slice(extension.indexOf("async applySetupDraft(patch, options = {})"), extension.indexOf("currentUiLayoutState()"));
   assert.match(applySetup, /enforceExpectedAgentProjectRoot\(this\.lastProbe/);
   assert.match(applySetup, /enforceExpectedAgentProjectRoot\(this\.lastWorkerProbes\[worker\.id\]/);

@@ -1,15 +1,42 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),vm=require('node:vm'),ts=require('typescript');
 require('../_helpers/registerTsRequire');
-const {runSelectedPlans}=require('../../src/extension/SelectedPlanBatchHost.ts');
+const {runSelectedPlans,runAllPlans}=require('../../src/extension/SelectedPlanBatchHost.ts');
 const {preparePlanSafeRetry}=require('../../src/features/PlanSafeRetry.ts');
 function fixture(){
  const calls=[],context={root:'/fixture'},host={client:{},localOperations:{},localPlanMetadata:{plans:['a','b','c'].map(name=>({planFile:'plans/'+name+'.yaml'}))},
   captureProjectContext:()=>context,projectContextIsCurrent:c=>c===context&&!host.changed,refreshLocalPlanMetadataForAction:async()=>{},
+  distributedPlanEligible:()=>true,
   workerActionTargets:()=>[{id:'w',host:'host',user:'u',port:22,project_dir:'/project'}],planSubmissionOperationId:m=>'plan-submit-'+m.clientActionId,
   runActionCommand:async(command,m)=>{calls.push({command,...m});host.localOperations[host.planSubmissionOperationId(m)]={status:'succeeded',message:'queue saved'};},
   finishPlanSubmissionProgress(m,status,message){host.localOperations[host.planSubmissionOperationId(m)]={status,message};}};
  return {host,calls};
 }
+test('run all snapshots current disk plans and uses automatic queue submission without forwarding a manual Worker',async()=>{
+ const f=fixture();let refreshed=0;
+ f.host.refreshLocalPlanMetadataForAction=async()=>{refreshed++;f.host.localPlanMetadata.plans=[{file:'plans/c.yaml'},{planFile:'plans/a.yaml'},{planFile:'plans/c.yaml'}];};
+ f.host.selectPlanSubmissionWorker=()=>assert.fail('manual Worker chooser');
+ f.host.postPlanSchedulerAction=()=>assert.fail('legacy whole-Plan scheduler');
+ const report=await runAllPlans(f.host,{workerId:'obsolete-worker',selectedWorkerIds:['obsolete-worker'],planFiles:['plans/b.yaml']});
+ assert.equal(refreshed,1);assert.equal(report.status,'completed');assert.equal(report.selectionOnly,false);
+ assert.deepEqual(f.calls.map(row=>row.planFile),['plans/c.yaml','plans/a.yaml']);
+ assert.ok(f.calls.every(row=>!row.workerId&&!row.selectedWorkerIds));assert.match(report.message,/全部 PLAN/);
+});
+test('all plans never opens a manual chooser when queue support or plan metadata is missing',async()=>{
+ for(const kind of ['empty','invalid','unsupported']){
+  const f=fixture();if(kind==='empty')f.host.localPlanMetadata.plans=[];
+  if(kind==='invalid')f.host.localPlanMetadata.plans.push({});
+  if(kind==='unsupported')f.host.distributedPlanEligible=file=>file!=='plans/c.yaml';
+  await assert.rejects(runAllPlans(f.host,{}));assert.equal(f.calls.length,0);
+ }
+});
+test('all and selected batches share one submission lock, and all-plan failures retain later inputs without replay',async()=>{
+ const f=fixture();let release,entered;const gate=new Promise(r=>release=r),started=new Promise(r=>entered=r),run=f.host.runActionCommand;
+ f.host.runActionCommand=async(c,m)=>{entered();await gate;if(m.planFile==='plans/b.yaml')throw Error('validation failed');await run(c,m);};
+ const first=runAllPlans(f.host,{});await started;
+ await assert.rejects(runSelectedPlans(f.host,{planFiles:['plans/c.yaml']}),/已有一批/);release();
+ const report=await first;assert.equal(report.status,'failed');assert.equal(report.selectionOnly,false);
+ assert.deepEqual(report.remaining,['plans/c.yaml']);assert.deepEqual(f.calls.map(row=>row.planFile),['plans/a.yaml']);
+});
 test('five new PLAN submissions check every Worker window without waiting for unrelated result or log analysis',async()=>{
  const f=fixture(),reads=[];
  const files=['a','b','c','d','e'].map(name=>'plans/'+name+'.yaml');
@@ -127,14 +154,20 @@ test('rendered batch selection survives filtering, exposes hidden selections, an
  assert.match(html,/全选筛选结果/);assert.match(html,/运行所选计划/);assert.match(html,/运行全部计划/);
 });
 test('the real run-all handler routes explicit subsets, including empty arrays, without widening scope',async()=>{
- const text=fs.readFileSync(path.join(__dirname,'../../src/extension/legacy.ts'),'utf8'),ast=ts.createSourceFile('host.ts',text,ts.ScriptTarget.Latest,true);let clause;
- function visit(n){if(ts.isCaseClause(n)&&n.expression.getText(ast)==='"runAllPlans"')clause=n;ts.forEachChild(n,visit)}visit(ast);
+ const text=fs.readFileSync(path.join(__dirname,'../../src/extension/legacy.ts'),'utf8'),ast=ts.createSourceFile('host.ts',text,ts.ScriptTarget.Latest,true);let clause,allMethod;
+ function visit(n){if(ts.isCaseClause(n)&&n.expression.getText(ast)==='"runAllPlans"')clause=n;if(ts.isMethodDeclaration(n)&&n.name.getText(ast)==='runAllPlansFromUi')allMethod=n;ts.forEachChild(n,visit)}visit(ast);
  const block=clause.statements.filter(n=>!ts.isBreakStatement(n)).map(n=>n.getText(ast)).join('\n');
  const handler=vm.runInNewContext(ts.transpileModule('async function run(message){'+block+'};run;',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{runSelectedPlans});
  const f=fixture();let all=0;f.host.runAllPlansFromUi=async()=>all++;
  await assert.rejects(handler.call(f.host,{planFiles:[]}));assert.equal(all,0);
  await handler.call(f.host,{planFiles:['plans/b.yaml']});assert.deepEqual(f.calls.map(x=>x.planFile),['plans/b.yaml']);assert.equal(all,0);
  await handler.call(f.host,{});assert.equal(all,1);
+ f.host.runAllPlansFromUi=vm.runInNewContext(ts.transpileModule('class Host{'+allMethod.getText(ast)+'};Host.prototype.runAllPlansFromUi;',
+  {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,{runAllPlans});
+ const result=await handler.call(f.host,{workerId:'old-selection'});
+ assert.equal(result.status,'completed');assert.equal(result.selectionOnly,false);
+ assert.deepEqual(f.calls.slice(1).map(row=>row.planFile),['plans/a.yaml','plans/b.yaml','plans/c.yaml']);
+ assert.ok(f.calls.slice(1).every(row=>!row.workerId));
 });
 test('the real command wrapper preserves batch success, cancellation and partial-failure messages',async()=>{
  const text=fs.readFileSync(path.join(__dirname,'../../src/extension/legacy.ts'),'utf8'),ast=ts.createSourceFile('host.ts',text,ts.ScriptTarget.Latest,true);let method;
@@ -142,9 +175,9 @@ test('the real command wrapper preserves batch success, cancellation and partial
  const fn=vm.runInNewContext(ts.transpileModule('class Host{'+method.getText(ast)+'};Host.prototype.withUiCommandStatus;',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,
   {localCommandReleasesAfterTrigger:()=>false,PLAN_SUBMISSION_COMMANDS:new Set(),OperationOutcome_1:{operationOutcomeFor:()=>({})},isResultSyncCommand:()=>false,
    hostOperationLeaseActionLabel:()=>'',actionErrorSuggestion:()=>'',compactSensitiveText:s=>s,vscode:{window:{showInformationMessage(){},showErrorMessage:async()=>{}}}});
- for(const status of ['completed','failed','cancelled']){
+ for(const selectionOnly of [true,false])for(const status of ['completed','failed','cancelled']){
   const sent=[],h={postUiCommandStatus:(...args)=>sent.push(args),finishPlanSubmissionProgress(){},recordActionError(){},postState(){}};
-  await fn.call(h,'batch','runAllPlans',{},async()=>({selectionOnly:true,status,message:'batch '+status}));
+  await fn.call(h,'batch','runAllPlans',{},async()=>({selectionOnly,status,message:'batch '+status}));
   assert.equal(sent.at(-1)[1],status);assert.equal(sent.at(-1)[3],'batch '+status);
  }
 });
