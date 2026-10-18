@@ -24,4 +24,12 @@ Worker 在既有 Agent 状态目录内保存 SQLite WAL 事务基线。已识别
 
 现场证据和日志保存在 C:/Users/ZLK/AppData/Local/Temp/simpleex-0374-acceptance-20261018；discovery token 未写入证据或提交。配套复用 SimpleSFTP v0.2.97，当前稳定更新源及已有 SHA256 已核对，无需变更或降级。
 
-发行与安装结果在完成实际发布和安装后追加。重载和远端精确目标确认仍按项目交付规范办理。
+## 发行与安装
+
+源码提交 2549fac9c66a63f6e617dd7288ecbe814853eeb3 普通 fast-forward 推送 origin/master，fetch 核对一致。[稳定 v0.5.374](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.374) 和 tag 均绑定该提交。真实 Latest 为 draft=false、prerelease=false，资产名、大小及摘要与冻结包一致；刚发布时有一次旧 CDN 回应，随后实际 0.5.373 ReleaseClient 重新查询通过，识别 0.5.374 更新，并下载真实主包、配套包及各自清单，验证精确字节、SHA256 和身份。
+
+主包为 simple-experiment-0.5.374.vsix 与 simple-experiment-0.5.374.vsix.sha256。配套 SimpleSFTP v0.2.97，提交 f9cef011a375df1d09c4727e76ec0ee34a4d9d61，171731 字节，SHA256 1dfe226df01ef0d0a9a770d5ec6e9eb8d8a5deb6f0688ab982e54e61b2126af3，真实 Latest 下载及清单一致，未重复安装或修改配套插件。
+
+显式执行一次 npm run install:latest，0.5.374 安装成功，无 force 或降级。立即核对 VS Code 已安装主插件 0.5.374、SimpleSFTP 0.2.97，384 个 dist 文件和 simpleex.cmd 与发行字节一致，simpleex --help 通过。安装后停止当前插件 API 与面板操作，等待用户 Developer: Reload Window。
+
+远端 Agent 仍为现场 inspect 取得的 0.5.373。新服务器加速器的实际部署、部署后冷/热读取及重载后的真实面板验收尚未执行；需重载并按实际节点、运行目录和指定 tmux 窗口确认远端更新，不能将隔离回归或旧版服务器元数据查询冒充部署验收。此交付记录在打包后补充，不改变已冻结、发布及安装的 VSIX。
