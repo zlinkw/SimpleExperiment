@@ -43,6 +43,7 @@ exports.__handleResultUiCommandForTest = __handleResultUiCommandForTest;
 exports.__distributeMappedDownloadsForTest = __distributeMappedDownloadsForTest;
 // @ts-nocheck
 const vscode = __importStar(require("vscode"));
+const PlanStopClearBatchHost_1 = require("./PlanStopClearBatchHost");
 const RuntimeLogAnalysisHost_1 = require("./RuntimeLogAnalysisHost");
 const SelectedPlanBatchHost_1 = require("./SelectedPlanBatchHost");
 const PlanCodeScopeHost = __importStar(require("./PlanCodeScopeHost"));
@@ -11005,6 +11006,12 @@ class RealtimeTunnelPanelProvider {
     async saveDistributedQueue(root, queue, options = {}) {
         const workingQueue = queue;
         const work = this.distributedQueueWritePromise.catch(() => undefined).then(async () => this.withQueueWriteResource(root, async () => {
+            const assertStopBatch = () => {
+                if (options.stopBatchEpoch !== undefined && (this.distributedPlanStopEpoch !== options.stopBatchEpoch
+                    || this.planStopClearBatchLease !== options.stopBatchLease || !options.stopBatchCurrent?.()))
+                    throw new Error("中止清理批次已变化，未写入队列。");
+            };
+            assertStopBatch();
             if (!options.appendPlanId && options.queueGeneration !== undefined && options.queueGeneration !== this.distributedQueueGeneration) {
                 throw new Error("过期调度轮次，已拒绝写入队列");
             }
@@ -11140,6 +11147,7 @@ class RealtimeTunnelPanelProvider {
             let publicationConflict = false;
             try {
                 await (0, StateStore_1.atomicWriteText)(file, serialized, { beforeRename: async () => {
+                        assertStopBatch();
                         if (!options.appendPlanId && options.queueGeneration !== undefined && options.queueGeneration !== this.distributedQueueGeneration)
                             throw new Error("过期调度轮次，已拒绝写入队列");
                         if (options.submissionOperationId && ((this.distributedSubmissionEpochs?.get(options.submissionOperationId) || 0) !== options.submissionEpoch || workspaceRoot() !== root))
@@ -11170,7 +11178,7 @@ class RealtimeTunnelPanelProvider {
             if (workingQueue && workingQueue !== queue)
                 DistributedPlanQueue.setDistributedQueueBaseSignature(workingQueue, this.distributedQueueDiskSignature);
             this.distributedQueueStorageDiagnostics = { status: "ready" };
-            if (options.appendPlanId || options.controlMutation) {
+            if (options.appendPlanId || options.controlMutation && options.stopBatchEpoch === undefined) {
                 this.distributedQueueGeneration = (this.distributedQueueGeneration || 0) + 1;
                 this.distributedTickAbort?.abort();
                 this.detachStaleDistributedTick(this.distributedQueueTickPromise);
@@ -17804,51 +17812,15 @@ class RealtimeTunnelPanelProvider {
         void vscode.window.showInformationMessage(`已清除 ${label} 的本机历史视图；远端审计和产物保留。`);
     }
     async stopAllPlansFromUi() {
-        const runs = this.longRunningPlanRunOperations().filter((row) => row && operationResultPlanFile(row));
         const root = workspaceRoot();
-        const generation = this.projectContextGeneration;
         const queue = typeof this.loadDistributedQueue === "function" && root ? await this.loadDistributedQueue(root) : { plans: [], deferred: [] };
-        const distributed = uniqueStrings([...(queue.plans || []).filter(plan => (plan.jobs || []).some(job => ["pending", "dispatching", "queued", "running", "unknown"].includes(job.status))).map(plan => plan.planFile),
+        const runs = this.longRunningPlanRunOperations().filter(row => row && operationResultPlanFile(row));
+        const planFiles = uniqueStrings([...runs.map(operationResultPlanFile),
+            ...(queue.plans || []).filter(plan => (plan.jobs || []).some(job => ["pending", "dispatching", "queued", "running", "unknown"].includes(job.status))).map(plan => plan.planFile),
             ...(queue.deferred || []).filter(row => row.status !== "superseded").map(row => row.planFile)]);
-        if (!runs.length && !distributed.length) {
-            void vscode.window.showInformationMessage("当前没有可中止的运行中 Plan。");
+        if (!planFiles.length)
             return { status: "completed", message: "当前没有可中止的运行中 Plan。" };
-        }
-        const confirmed = await vscode.window.showWarningMessage(`中止 ${uniqueStrings([...runs.map(operationResultPlanFile), ...distributed]).length} 个活动或排队 Plan？分布式 Plan 将逐个预览精确停止和记录清理目标，仍需确认；训练产物保留。`, { modal: true }, "中止所有 Plan", "取消");
-        if (confirmed !== "中止所有 Plan")
-            return { status: "cancelled", message: "已取消中止所有 Plan。" };
-        const failures = [];
-        for (const row of runs) {
-            if (root !== workspaceRoot() || generation !== this.projectContextGeneration)
-                return { status: "partial", message: "项目已切换，停止后续批次。" };
-            const operationId = String(row.operationId || row.id || "");
-            const planFile = operationResultPlanFile(row);
-            if (!operationId || !planFile)
-                continue;
-            if (distributed.some(file => samePlanSelection(file, planFile)))
-                continue;
-            try {
-                await this.stopExperimentRouted({ operationId, planFile, workerId: this.runOperationWorkerId(row), manualStopType: "scheduler_aborted" });
-            }
-            catch (error) {
-                failures.push(`${planFile}: ${errorMessage(error)}`);
-            }
-        }
-        for (const planFile of distributed) {
-            if (root !== workspaceRoot() || generation !== this.projectContextGeneration)
-                return { status: "partial", message: "项目已切换，停止后续批次。" };
-            const result = await this.stopAndClearPlanFromUi({ planFile });
-            if (result?.status === "cancelled")
-                return { status: "cancelled", message: result.message || "已取消后续 Plan。" };
-            if (result?.status !== "completed") {
-                failures.push(`${planFile}: ${result?.message || "未完成"}`);
-                break;
-            }
-        }
-        this.postState();
-        if (failures.length)
-            void vscode.window.showErrorMessage(`部分 Plan 未能中止：${failures.join("；")}`);
-        return { status: failures.length ? "failed" : "completed", message: failures.length ? `部分 Plan 未能中止：${failures.join("；")}` : "所有所选活动 Plan 已中止；训练产物保留。" };
+        return this.stopAndClearPlansFromUi({ planFiles });
     }
     workerSupportsExactPaneStop(workerId) {
         const probe = this.lastWorkerProbes?.[workerId];
@@ -17929,23 +17901,16 @@ class RealtimeTunnelPanelProvider {
     }
     async stopAndClearPlansFromUi(message) {
         const root = workspaceRoot();
-        const generation = this.projectContextGeneration;
-        const planFiles = uniqueStrings(stringArrayField(message, "planFiles").map(file => file.trim()).filter(Boolean));
-        if (!root || !planFiles.length || planFiles.length > 1000)
-            throw new Error("请勾选本项目要中止并清理的 Plan，最多 1000 条。");
-        let completed = 0;
-        for (const planFile of planFiles) {
-            if (root !== workspaceRoot() || generation !== this.projectContextGeneration)
-                return { status: "partial", message: "项目已切换，停止后续批次。" };
-            const result = await this.stopAndClearPlanFromUi({ planFile });
-            if (!result || result.status !== "completed")
-                return { status: result?.status || "cancelled",
-                    message: `已完成 ${completed}/${planFiles.length}；${planFile}：${result?.message || "已取消后续批次"}` };
-            completed++;
-        }
-        return { status: "completed", message: `已中止并清理 ${completed} 个 Plan 的队列和进度记录；产物保留。` };
+        const planFiles = [];
+        for (const file of stringArrayField(message, "planFiles").map(file => file.trim()).filter(Boolean))
+            if (!planFiles.some(selected => samePlanSelection(selected, file)))
+                planFiles.push(file);
+        return (0, PlanStopClearBatchHost_1.runPlanStopClearBatch)(this, planFiles, root, async (preview) => await vscode.window.showWarningMessage(preview, { modal: true }, "确认整个批次") === "确认整个批次", workspaceRoot);
     }
     async stopAndClearPlanFromUi(message) {
+        const preparation = arguments[1];
+        if (this.planStopClearBatchLease && preparation?.lease !== this.planStopClearBatchLease)
+            throw new Error("已有批量中止清理正在处理，请等待本次结果。");
         const root = workspaceRoot();
         if (!root)
             throw new Error("请先打开当前实验项目。");
@@ -17974,7 +17939,7 @@ class RealtimeTunnelPanelProvider {
             const history = (0, PlanStopClear_1.terminalPlanHistorySelection)(localOperations, distributed, planFile, operationTerminal);
             if (history && stringField(message, "clearMode") !== "remote" && (stringField(message, "clearMode") === "history"
                 || !distributed.length && !(0, PlanStopClear_1.planCleanupTargets)(localOperations, planFile, operationTerminal).length))
-                return await this.clearEndedPlanHistoryFromUi(message, root, planFile, history);
+                return await this.clearEndedPlanHistoryFromUi(message, root, planFile, history, preparation);
             const localTargets = (0, PlanStopClear_1.planCleanupTargets)(localOperations, planFile, (row) => operationTerminal(row));
             const localSubmissionTarget = (target) => {
                 const row = localOperations[target.operationId] || {};
@@ -17994,7 +17959,7 @@ class RealtimeTunnelPanelProvider {
                 message: queueOnly
                     ? "只确认清除本机未派发队列，未核查远端 Worker。正在准备目标预览。"
                     : `正在核对 ${recoverWorkers.length || "已启用"} 个相关 Worker 的调度身份，单次查询最长 8 秒。`,
-                nextStep: "等待目标预览和两次确认；取消不会改队列。",
+                nextStep: preparation?.prepare ? "等待完整批次预览与一次确认；取消不会改队列。" : "等待目标预览和两次确认；取消不会改队列。",
             });
             recovered = queueOnly || distributed.length
                 ? { recovered: [], conflicts: [], realtime: this.isRealtimeMode(), workersChecked: 0, failures: [] }
@@ -18050,6 +18015,10 @@ class RealtimeTunnelPanelProvider {
                 else
                     targets.push(target);
             }
+            if (preparation?.prepare)
+                for (const target of targets.filter(row => row.workerId && row.tmuxTarget && !row.nativeTask && !row.localSubmission && !row.liveAbsent)) {
+                    target.frozenTmuxIdentity = TmuxWindowIdentity.resolveTmuxWindowIdentity(await this.readTmuxListAfterKill(target.workerId), target.tmuxTarget);
+                }
             if (!targets.length && !distributed.length && !recovered.inventoryComplete) {
                 const text = (0, PlanStopClear_1.planStopMissingEvidenceMessage)(planFile, recovered);
                 void vscode.window.showInformationMessage(text);
@@ -18079,346 +18048,392 @@ class RealtimeTunnelPanelProvider {
                 failures: [errorMessage(error)],
             });
         }
-        this.publishPlanStopClear(planFile, {
-            phase: "confirm", outcome: "running",
-            message: "目标预览已就绪，正在等待两次确认。",
-            nextStep: "在弹窗中核对 Plan 路径、job 和 tmux 目标；取消不会改队列。",
-        });
-        const first = await vscode.window.showWarningMessage(preview, { modal: true }, "继续中止并清除");
-        if (first !== "继续中止并清除" || root !== workspaceRoot()) {
-            return this.finishPlanStopClear(planFile, {
-                phase: "confirm-cancelled", outcome: "cancelled",
-                message: root !== workspaceRoot() ? "第一次确认期间项目已切换，已取消。" : "第一次确认已取消，队列和运行进度都未改。",
-                nextStep: "需要清理时重新点该 Plan 卡片上的“终止并清理”。",
-            });
-        }
-        const second = await vscode.window.showWarningMessage(`第二次确认：\n${preview}`, { modal: true }, "确认中止并清除");
-        if (second !== "确认中止并清除" || root !== workspaceRoot()) {
-            return this.finishPlanStopClear(planFile, {
-                phase: "confirm-cancelled", outcome: "cancelled",
-                message: root !== workspaceRoot() ? "第二次确认期间项目已切换，已取消。" : "第二次确认已取消，队列和运行进度都未改。",
-                nextStep: "需要清理时重新点该 Plan 卡片上的“终止并清理”。",
-            });
-        }
-        if ((!targets.length || targets.every(target => target.liveAbsent)) && !distributed.length) {
-            const checked = await this.recoverPlanOperationsForStopClear(planFile, { timeoutMs: this.planStopClearWaitMs() });
-            const currentQueue = await this.loadDistributedQueue(root);
-            if (root !== workspaceRoot() || !checked.inventoryComplete || checked.recovered.length || checked.nativeTargets.length
-                || DistributedPlanQueue.distributedStopTargets(currentQueue, planFile).length) {
-                return this.finishPlanStopClear(planFile, { phase: "inventory-changed", outcome: "failed",
-                    message: "确认后任务状态已变化或查询失败，未把该 Plan 标为已清理。", failures: checked.failures,
-                    nextStep: "刷新后重新核对并确认这一张 Plan。" });
-            }
-        }
-        const stopEpoch = this.distributedPlanStopEpoch = (this.distributedPlanStopEpoch || 0) + 1;
-        this.revokePlanSubmissions(planFile);
-        this.distributedQueueGeneration = (this.distributedQueueGeneration || 0) + 1;
-        const clearGeneration = this.distributedQueueGeneration;
-        this.distributedTickAbort?.abort();
-        const recoverFailures = queueOnly ? [] : (recovered.failures || []).map((item) => String(item || "").trim()).filter(Boolean);
-        const failedRecoverWorkers = new Set(recoverFailures.map((item) => item.split(":")[0].trim().toLowerCase()).filter((item) => item && !item.includes(" ")));
-        const failures = [];
-        const stopped = new Set();
-        let confirmedJobs = new Set();
-        let confirmedDeferred = new Set();
-        let clearable = [];
-        let closedTmux = new Set();
-        try {
-            this.publishPlanStopClear(planFile, {
-                phase: "pause-scheduler", outcome: "running",
-                message: queueOnly
-                    ? "已暂停新派发。未派发队列不依赖卡住的 Worker 查询，正在等待已有队列写入结束。"
-                    : "已暂停新派发。卡住的 Worker 查询已与本轮隔离；未派发记录在队列写入结束后清除，有远端身份的记录仍要精确停止。",
-                nextStep: "队列写入最长等 8 秒。未派发记录可在旧调度查询仍挂起时清除；有远端身份的记录超时后保留。",
-            });
-            const pendingTick = this.distributedQueueTickPromise;
-            if (pendingTick)
-                this.detachStaleDistributedTick(pendingTick);
-            if (this.distributedQueueWritePromise) {
-                const writeSettled = await this.boundedPromise(() => Promise.resolve(this.distributedQueueWritePromise).then(() => true, () => true), this.planStopClearWaitMs(), new Error("队列写入等待超时")).catch(() => false);
-                if (!writeSettled) {
-                    failures.push("已有队列写入在 8 秒内没有结束，未派发记录未删除");
+        const frozenTargets = (0, PlanStopClearBatchHost_1.planStopBatchSignature)(distributed, (0, PlanStopClear_1.planCleanupTargets)(localOperations, planFile, operationTerminal));
+        const validate = async () => root === workspaceRoot() && frozenTargets === (0, PlanStopClearBatchHost_1.planStopBatchSignature)(DistributedPlanQueue.distributedStopTargets(await this.loadDistributedQueue(root), planFile), (0, PlanStopClear_1.planCleanupTargets)(this.buildPlanRuntimeEvidenceState().operations || {}, planFile, operationTerminal));
+        const execute = async (batch) => {
+            if (batch ? !batch.current() || !await validate() : this.planStopClearBatchLease)
+                return this.finishPlanStopClear(planFile, { phase: "batch-changed", outcome: "failed", message: "项目、批次或目标已变化，未执行本 Plan。", nextStep: "刷新后重新确认。" });
+            const guardQueue = latest => {
+                if (batch && (0, PlanStopClearBatchHost_1.planStopBatchSignature)(distributed) !== (0, PlanStopClearBatchHost_1.planStopBatchSignature)(DistributedPlanQueue.distributedStopTargets(latest, planFile)))
+                    throw new Error("本 Plan 的精确目标已变化，未扩大批次；请刷新后重新确认。");
+                return latest;
+            };
+            if (!batch) {
+                this.publishPlanStopClear(planFile, {
+                    phase: "confirm", outcome: "running",
+                    message: "目标预览已就绪，正在等待两次确认。",
+                    nextStep: "在弹窗中核对 Plan 路径、job 和 tmux 目标；取消不会改队列。",
+                });
+                const first = await vscode.window.showWarningMessage(preview, { modal: true }, "继续中止并清除");
+                if (first !== "继续中止并清除" || root !== workspaceRoot()) {
                     return this.finishPlanStopClear(planFile, {
-                        phase: "queue-write", outcome: "failed",
-                        message: `${planFile} 的本机队列文件仍在写入，本次没有删除未派发记录。`,
-                        nextStep: "新派发保持暂停。等本机队列写入结束后重新点“终止并清理”；卡住的 Worker 查询不会阻止这次清除。",
-                        failures, retained: distributed.length,
+                        phase: "confirm-cancelled", outcome: "cancelled",
+                        message: root !== workspaceRoot() ? "第一次确认期间项目已切换，已取消。" : "第一次确认已取消，队列和运行进度都未改。",
+                        nextStep: "需要清理时重新点该 Plan 卡片上的“终止并清理”。",
+                    });
+                }
+                const second = await vscode.window.showWarningMessage(`第二次确认：\n${preview}`, { modal: true }, "确认中止并清除");
+                if (second !== "确认中止并清除" || root !== workspaceRoot()) {
+                    return this.finishPlanStopClear(planFile, {
+                        phase: "confirm-cancelled", outcome: "cancelled",
+                        message: root !== workspaceRoot() ? "第二次确认期间项目已切换，已取消。" : "第二次确认已取消，队列和运行进度都未改。",
+                        nextStep: "需要清理时重新点该 Plan 卡片上的“终止并清理”。",
                     });
                 }
             }
-            const clearStillHere = () => root === workspaceRoot() && this.distributedPlanStopEpoch === stopEpoch;
-            if (!clearStillHere()) {
-                return this.finishPlanStopClear(planFile, {
-                    phase: "project-switch", outcome: "failed",
-                    message: "确认后项目或清理批次已变化，已停止写队列。",
-                    nextStep: "回到原项目后重新确认这一张 Plan。",
+            if (!batch && this.planStopClearBatchLease)
+                return this.finishPlanStopClear(planFile, { phase: "batch-busy", outcome: "failed", message: "整批中止清理已开始，本次单项操作未执行。", nextStep: "等待批次结束后再核对。" });
+            if ((!targets.length || targets.every(target => target.liveAbsent)) && !distributed.length) {
+                const checked = await this.recoverPlanOperationsForStopClear(planFile, { timeoutMs: this.planStopClearWaitMs() });
+                const currentQueue = await this.loadDistributedQueue(root);
+                if (root !== workspaceRoot() || !checked.inventoryComplete || checked.recovered.length || checked.nativeTargets.length
+                    || DistributedPlanQueue.distributedStopTargets(currentQueue, planFile).length) {
+                    return this.finishPlanStopClear(planFile, { phase: "inventory-changed", outcome: "failed",
+                        message: "确认后任务状态已变化或查询失败，未把该 Plan 标为已清理。", failures: checked.failures,
+                        nextStep: "刷新后重新核对并确认这一张 Plan。" });
+                }
+            }
+            if (batch ? !batch.current() : this.planStopClearBatchLease)
+                return this.finishPlanStopClear(planFile, { phase: "batch-busy", outcome: "failed", message: "查询期间项目或清理批次已变化，未执行本 Plan。", nextStep: "等待当前批次结束后再核对。" });
+            const stopEpoch = batch?.epoch ?? (this.distributedPlanStopEpoch = (this.distributedPlanStopEpoch || 0) + 1);
+            this.revokePlanSubmissions(planFile);
+            if (!batch)
+                this.distributedQueueGeneration = (this.distributedQueueGeneration || 0) + 1;
+            const clearGeneration = batch?.queueGeneration ?? this.distributedQueueGeneration;
+            this.distributedTickAbort?.abort();
+            const recoverFailures = queueOnly ? [] : (recovered.failures || []).map((item) => String(item || "").trim()).filter(Boolean);
+            const failedRecoverWorkers = new Set(recoverFailures.map((item) => item.split(":")[0].trim().toLowerCase()).filter((item) => item && !item.includes(" ")));
+            const failures = [];
+            const stopped = new Set();
+            let confirmedJobs = new Set();
+            let confirmedDeferred = new Set();
+            let clearable = [];
+            let closedTmux = new Set();
+            try {
+                this.publishPlanStopClear(planFile, {
+                    phase: "pause-scheduler", outcome: "running",
+                    message: queueOnly
+                        ? "已暂停新派发。未派发队列不依赖卡住的 Worker 查询，正在等待已有队列写入结束。"
+                        : "已暂停新派发。卡住的 Worker 查询已与本轮隔离；未派发记录在队列写入结束后清除，有远端身份的记录仍要精确停止。",
+                    nextStep: "队列写入最长等 8 秒。未派发记录可在旧调度查询仍挂起时清除；有远端身份的记录超时后保留。",
                 });
-            }
-            const retryQueue = await this.loadDistributedQueue(root);
-            if (!clearStillHere())
-                return;
-            if (retryQueue.plans.some((plan) => DistributedPlanQueue.sameDistributedPlanFile(plan.planFile, planFile))) {
-                await this.saveDistributedQueue(root, DistributedPlanQueue.disableAutomaticJobRetries(retryQueue, planFile), { queueGeneration: clearGeneration });
-                if (!clearStillHere())
-                    return;
-            }
-            this.publishPlanStopClear(planFile, {
-                phase: "stop-targets", outcome: "running",
-                message: `正在按身份停止 ${active.length} 条活动进度和 ${distributed.filter((row) => row.active).length} 个活动 job。`,
-                nextStep: "未确认停止或 tmux 未关闭的条目会保留在队列里。",
-            });
-            for (const target of targets.filter(target => !target.localSubmission && !target.liveAbsent && target.workerId)) {
-                if (!clearStillHere())
-                    break;
-                if (target.localSubmission)
-                    continue;
-                try {
-                    if (target.nativeTask) {
-                        const task = target.nativeTask;
-                        await this.boundedPromise(() => this.stopDistributedJobForClear({ id: task.workflowId, projectId: task.projectId,
-                            planFile: task.planFile, jobs: [] }, { ...task, index: task.experimentIndex, lifecycleProtocol: 2 }, true), this.planStopClearWaitMs(), new Error(`Worker ${target.workerId} 尚未核实窗口关闭，原 commandId 保留。`));
-                        if (!clearStillHere())
-                            break;
-                        stopped.add(target.operationId);
-                        closedTmux.add(target.operationId);
-                        continue;
+                const pendingTick = this.distributedQueueTickPromise;
+                if (pendingTick)
+                    this.detachStaleDistributedTick(pendingTick);
+                if (this.distributedQueueWritePromise) {
+                    const writeSettled = await this.boundedPromise(() => Promise.resolve(this.distributedQueueWritePromise).then(() => true, () => true), this.planStopClearWaitMs(), new Error("队列写入等待超时")).catch(() => false);
+                    if (!writeSettled) {
+                        failures.push("已有队列写入在 8 秒内没有结束，未派发记录未删除");
+                        return this.finishPlanStopClear(planFile, {
+                            phase: "queue-write", outcome: "failed",
+                            message: `${planFile} 的本机队列文件仍在写入，本次没有删除未派发记录。`,
+                            nextStep: "新派发保持暂停。等本机队列写入结束后重新点“终止并清理”；卡住的 Worker 查询不会阻止这次清除。",
+                            failures, retained: distributed.length,
+                        });
                     }
-                    const row = operations[target.operationId] || Object.values(operations).find((item) => String(item?.operationId || item?.id || "") === target.operationId) || {};
-                    const workerId = this.runOperationWorkerId(row) || target.workerId;
-                    if (!clearStillHere())
-                        break;
-                    const result = await this.boundedPromise(() => this.stopExperimentRouted({
-                        operationId: target.operationId,
-                        planFile: target.planFile,
-                        workerId,
-                        manualStopType: "scheduler_aborted",
-                    }), this.planStopClearWaitMs(), new Error(`停止 ${target.operationId} 30 秒无有效响应，晚到回执不会当作已清除。下一步：核对 Worker ${workerId || "未知"} 隧道后重试这一条。`));
-                    if (!clearStillHere())
-                        break;
-                    stopped.add(target.operationId);
-                    if (result?.localStopConfirmed?.includes(target.operationId))
-                        closedTmux.add(target.operationId);
                 }
-                catch (error) {
-                    if (!clearStillHere())
-                        break;
-                    failures.push(`${target.planFile} ${target.operationId}: ${errorMessage(error)}`);
-                }
-            }
-            if (!clearStillHere()) {
-                return this.finishPlanStopClear(planFile, {
-                    phase: "project-switch", outcome: "failed",
-                    message: "停止活动进度期间项目或清理批次已变化，已停止关闭 tmux 和写队列。",
-                    nextStep: "回到原项目后重新确认这一张 Plan。已发出但未确认的停止不会当作已清除。",
-                    failures,
-                });
-            }
-            const stoppedOrEnded = targets.filter((target) => target.workerId && !target.localSubmission && !target.liveAbsent
-                ? stopped.has(target.operationId) : !target.active || stopped.has(target.operationId));
-            const closeWindow = async (workerId, tmuxTarget, tmuxSession, label) => {
-                if (!clearStillHere())
-                    return false;
-                if (!tmuxTarget) {
-                    if (tmuxSession)
-                        failures.push(`${label}: tmux 仅有会话名 ${tmuxSession}，无法确认对应窗口，进度保留`);
-                    return false;
-                }
-                if (!workerId) {
-                    failures.push(`${label}: tmux 窗口缺少 Worker，进度保留`);
-                    return false;
-                }
-                try {
-                    await this.boundedPromise(() => this.performKillTmuxWindow(workerId, tmuxTarget), this.planStopClearWaitMs(), new Error(`关闭 tmux ${tmuxTarget} 30 秒无有效响应，未确认关闭，进度保留。下一步：到 Worker ${workerId} 核对这个标签后再重试。`));
-                    return clearStillHere();
-                }
-                catch (error) {
-                    if (clearStillHere())
-                        failures.push(`${label} ${tmuxTarget}: ${errorMessage(error)}`);
-                    return false;
-                }
-            };
-            for (const target of stoppedOrEnded) {
-                if (!clearStillHere())
-                    break;
-                if (closedTmux.has(target.operationId))
-                    continue;
-                if (!target.tmuxSession && !target.tmuxTarget)
-                    continue;
-                if (await closeWindow(target.workerId, target.tmuxTarget, target.tmuxSession, target.operationId))
-                    closedTmux.add(target.operationId);
-            }
-            clearable = stoppedOrEnded.filter((target) => {
-                if ((target.tmuxSession || target.tmuxTarget) && !closedTmux.has(target.operationId))
-                    return false;
-                const workerKey = String(target.workerId || "").trim().toLowerCase();
-                if (!queueOnly && workerKey && failedRecoverWorkers.has(workerKey) && !stopped.has(target.operationId)) {
-                    failures.push(`${target.planFile} ${target.operationId}: Worker ${target.workerId} 查询失败，没有后续精确停止回执，本条进度保留。下一步：恢复该 Worker 隧道后点刷新状态，再重新终止并清理。`);
-                    return false;
-                }
-                return true;
-            });
-            confirmedJobs = new Set();
-            confirmedDeferred = new Set();
-            const latest = await this.loadDistributedQueue(root);
-            if (!clearStillHere()) {
-                return this.finishPlanStopClear(planFile, {
-                    phase: "project-switch", outcome: "failed",
-                    message: "读取队列时项目或清理批次已变化，已停止后续远端停止。",
-                    nextStep: "回到原项目后重新确认这一张 Plan。",
-                    failures,
-                });
-            }
-            for (const row of DistributedPlanQueue.distributedStopTargets(latest, planFile)) {
-                if (!clearStillHere())
-                    break;
-                const plan = latest.plans.find((item) => item.id === row.planId);
-                const job = plan?.jobs.find((item) => DistributedPlanQueue.distributedJobControlKey(plan, item) === row.jobKey);
-                if (row.kind === "deferred") {
-                    confirmedDeferred.add(row.planId);
-                    continue;
-                }
-                if (!plan || !job)
-                    continue;
-                const launchKey = DistributedPlanQueue.distributedJobControlKey(plan, job);
-                if (this.distributedLaunchInFlight?.has(launchKey) && (!job.workerId || !job.commandId)) {
-                    failures.push(`${row.planFile} ${row.planId} job ${row.jobIndex}: 正在向 Worker 发起启动，远端身份尚未回写，不能按未派发清除。下一步：等这一次启动回执落地后再点“终止并清理”。`);
-                    continue;
-                }
-                const remoteIdentity = Boolean(job.workerId && job.commandId);
-                const needsRemoteStop = ["dispatching", "queued", "running", "unknown"].includes(job.status) || remoteIdentity;
-                if (!needsRemoteStop) {
-                    if (DistributedPlanQueue.jobClearableWithoutRemoteReceipt(job)) {
-                        confirmedJobs.add(launchKey);
-                        continue;
-                    }
-                    failures.push(`${row.planFile} ${row.planId} job ${row.jobIndex}: 终态 job 没有 Worker 身份，无法确认没有残留 tmux 标签，队列保留`);
-                    continue;
-                }
-                if (!clearStillHere())
-                    break;
-                try {
-                    job.stopIntent ||= { commandId: job.commandId, workerId: job.workerId, requestedAt: new Date().toISOString(), state: "pending" };
-                    await this.saveDistributedQueue(root, latest, { queueGeneration: clearGeneration });
-                    if (!clearStillHere())
-                        break;
-                    const result = await this.boundedPromise(() => this.stopDistributedJobForClear(plan, job, true), this.planStopClearWaitMs(), new Error(`Worker ${job.workerId} job ${row.jobIndex} 尚未确认标签页关闭，停止意图与原 commandId 保留；重连后可重试同一停止操作。`));
-                    for (const receipt of result?.stoppedTasks || [])
-                        for (const window of receipt.closedWindowIds || [])
-                            closedTmux.add(job.workerId + ":" + window);
-                }
-                catch (error) {
-                    if (!clearStillHere())
-                        break;
-                    failures.push(`${row.planFile} ${row.planId} job ${row.jobIndex}: ${errorMessage(error)}`);
-                    continue;
-                }
-                if (!clearStillHere())
-                    break;
-                confirmedJobs.add(launchKey);
-            }
-            if (!clearStillHere()) {
-                return this.finishPlanStopClear(planFile, {
-                    phase: "project-switch", outcome: "failed",
-                    message: "停止期间项目或清理批次已变化，已停止写队列和后续远端操作。",
-                    nextStep: "回到原项目后重新确认这一张 Plan。已发出但未确认的停止不会当作已清除。",
-                    failures,
-                });
-            }
-            if (confirmedJobs.size || confirmedDeferred.size) {
-                const current = await this.loadDistributedQueue(root);
+                const clearStillHere = () => root === workspaceRoot() && this.distributedPlanStopEpoch === stopEpoch && (!batch || batch.current());
                 if (!clearStillHere()) {
                     return this.finishPlanStopClear(planFile, {
                         phase: "project-switch", outcome: "failed",
-                        message: "重读队列后项目或清理批次已变化，已停止写队列。",
+                        message: "确认后项目或清理批次已变化，已停止写队列。",
+                        nextStep: "回到原项目后重新确认这一张 Plan。",
+                    });
+                }
+                const retryQueue = await this.loadDistributedQueue(root);
+                if (!clearStillHere())
+                    return;
+                if (retryQueue.plans.some((plan) => DistributedPlanQueue.sameDistributedPlanFile(plan.planFile, planFile))) {
+                    if (batch)
+                        await batch.mutate(latest => DistributedPlanQueue.disableAutomaticJobRetries(guardQueue(latest), planFile));
+                    else
+                        await this.saveDistributedQueue(root, DistributedPlanQueue.disableAutomaticJobRetries(retryQueue, planFile), { queueGeneration: clearGeneration });
+                    if (!clearStillHere())
+                        return;
+                }
+                this.publishPlanStopClear(planFile, {
+                    phase: "stop-targets", outcome: "running",
+                    message: `正在按身份停止 ${active.length} 条活动进度和 ${distributed.filter((row) => row.active).length} 个活动 job。`,
+                    nextStep: "未确认停止或 tmux 未关闭的条目会保留在队列里。",
+                });
+                for (const target of targets.filter(target => !target.localSubmission && !target.liveAbsent && target.workerId)) {
+                    if (!clearStillHere())
+                        break;
+                    if (target.localSubmission)
+                        continue;
+                    try {
+                        if (target.nativeTask) {
+                            const task = target.nativeTask;
+                            await this.boundedPromise(() => this.stopDistributedJobForClear({ id: task.workflowId, projectId: task.projectId,
+                                planFile: task.planFile, jobs: [] }, { ...task, index: task.experimentIndex, lifecycleProtocol: 2 }, true), this.planStopClearWaitMs(), new Error(`Worker ${target.workerId} 尚未核实窗口关闭，原 commandId 保留。`));
+                            if (!clearStillHere())
+                                break;
+                            stopped.add(target.operationId);
+                            closedTmux.add(target.operationId);
+                            continue;
+                        }
+                        const row = operations[target.operationId] || Object.values(operations).find((item) => String(item?.operationId || item?.id || "") === target.operationId) || {};
+                        const workerId = this.runOperationWorkerId(row) || target.workerId;
+                        if (!clearStillHere())
+                            break;
+                        const result = await this.boundedPromise(() => this.stopExperimentRouted({
+                            operationId: target.operationId,
+                            planFile: target.planFile,
+                            workerId,
+                            manualStopType: "scheduler_aborted",
+                        }), this.planStopClearWaitMs(), new Error(`停止 ${target.operationId} 30 秒无有效响应，晚到回执不会当作已清除。下一步：核对 Worker ${workerId || "未知"} 隧道后重试这一条。`));
+                        if (!clearStillHere())
+                            break;
+                        stopped.add(target.operationId);
+                        if (result?.localStopConfirmed?.includes(target.operationId))
+                            closedTmux.add(target.operationId);
+                    }
+                    catch (error) {
+                        if (!clearStillHere())
+                            break;
+                        failures.push(`${target.planFile} ${target.operationId}: ${errorMessage(error)}`);
+                    }
+                }
+                if (!clearStillHere()) {
+                    return this.finishPlanStopClear(planFile, {
+                        phase: "project-switch", outcome: "failed",
+                        message: "停止活动进度期间项目或清理批次已变化，已停止关闭 tmux 和写队列。",
                         nextStep: "回到原项目后重新确认这一张 Plan。已发出但未确认的停止不会当作已清除。",
                         failures,
                     });
                 }
-                const next = DistributedPlanQueue.removeConfirmedDistributedPlan(current, planFile, {
-                    jobKeys: confirmedJobs, deferredIds: confirmedDeferred, projectId: DistributedPlanQueue.canonicalProjectId(root),
-                    localControlJobKeys: confirmedJobs,
-                });
-                await this.saveDistributedQueue(root, next, { queueGeneration: clearGeneration });
-            }
-            if (!clearStillHere()) {
-                return this.finishPlanStopClear(planFile, {
-                    phase: "project-switch", outcome: "failed",
-                    message: "写队列期间项目或清理批次已变化，已停止隐藏进度和提交状态。",
-                    nextStep: "回到原项目后核对这一张 Plan，再重新确认。",
-                    failures,
-                });
-            }
-            const saved = this.context.workspaceState.get(keys.executionHistoryHiddenOperationIds, []);
-            const hidden = uniqueStrings([...(Array.isArray(saved) ? saved : []), ...clearable.map((target) => target.operationId)]);
-            await this.context.workspaceState.update(keys.executionHistoryHiddenOperationIds, hidden);
-            const queueCleared = DistributedPlanQueue.distributedStopTargets(await this.loadDistributedQueue(root), planFile).length === 0;
-            if (clearable.length === targets.length && queueCleared && clearStillHere()) {
-                const savedCutoffs = this.context.workspaceState.get(keys.executionHistoryCutoffs, {});
-                const cutoffs = savedCutoffs && typeof savedCutoffs === "object" && !Array.isArray(savedCutoffs) ? { ...savedCutoffs } : {};
-                cutoffs[normalizePlanSelectionKey(planFile).toLowerCase()] = new Date().toISOString();
-                await this.context.workspaceState.update(keys.executionHistoryCutoffs, cutoffs);
-            }
-            const clearedSomething = clearable.length || confirmedJobs.size || confirmedDeferred.size;
-            if (!failures.length && clearedSomething && clearStillHere()) {
-                for (const [operationId, record] of Object.entries(this.localOperations || {})) {
-                    if (!record || typeof record !== "object")
+                const stoppedOrEnded = targets.filter((target) => target.workerId && !target.localSubmission && !target.liveAbsent
+                    ? stopped.has(target.operationId) : !target.active || stopped.has(target.operationId));
+                const closeWindow = async (workerId, tmuxTarget, tmuxSession, label, expected = undefined) => {
+                    if (!clearStillHere())
+                        return false;
+                    if (!tmuxTarget) {
+                        if (tmuxSession)
+                            failures.push(`${label}: tmux 仅有会话名 ${tmuxSession}，无法确认对应窗口，进度保留`);
+                        return false;
+                    }
+                    if (!workerId) {
+                        failures.push(`${label}: tmux 窗口缺少 Worker，进度保留`);
+                        return false;
+                    }
+                    try {
+                        await this.boundedPromise(() => this.performKillTmuxWindow(workerId, tmuxTarget, expected), this.planStopClearWaitMs(), new Error(`关闭 tmux ${tmuxTarget} 30 秒无有效响应，未确认关闭，进度保留。下一步：到 Worker ${workerId} 核对这个标签后再重试。`));
+                        return clearStillHere();
+                    }
+                    catch (error) {
+                        if (clearStillHere())
+                            failures.push(`${label} ${tmuxTarget}: ${errorMessage(error)}`);
+                        return false;
+                    }
+                };
+                for (const target of stoppedOrEnded) {
+                    if (!clearStillHere())
+                        break;
+                    if (closedTmux.has(target.operationId))
                         continue;
-                    const operationIdText = String(record.operationId || record.opId || record.id || "");
-                    if (record.localSubmissionProgress !== true && !operationIdText.startsWith("plan-submit-"))
+                    if (!target.tmuxSession && !target.tmuxTarget)
                         continue;
-                    if (normalizePlanSelectionKey(String(record.planFile || "")).toLowerCase() !== normalizePlanSelectionKey(planFile).toLowerCase())
-                        continue;
-                    this.localOperations[operationId] = {
-                        ...record,
-                        status: "cancelled",
-                        message: "已终止并清理，提交进度已清除。",
-                        error: "",
-                        stage: "cleared",
-                        updatedAt: new Date().toISOString(),
-                        finishedAt: new Date().toISOString(),
-                        reconcileEvidenceActive: false,
-                    };
+                    if (await closeWindow(target.workerId, target.tmuxTarget, target.tmuxSession, target.operationId, target.frozenTmuxIdentity))
+                        closedTmux.add(target.operationId);
                 }
-                this.markLocalOperationsDirty();
+                clearable = stoppedOrEnded.filter((target) => {
+                    if ((target.tmuxSession || target.tmuxTarget) && !closedTmux.has(target.operationId))
+                        return false;
+                    const workerKey = String(target.workerId || "").trim().toLowerCase();
+                    if (!queueOnly && workerKey && failedRecoverWorkers.has(workerKey) && !stopped.has(target.operationId)) {
+                        failures.push(`${target.planFile} ${target.operationId}: Worker ${target.workerId} 查询失败，没有后续精确停止回执，本条进度保留。下一步：恢复该 Worker 隧道后点刷新状态，再重新终止并清理。`);
+                        return false;
+                    }
+                    return true;
+                });
+                confirmedJobs = new Set();
+                confirmedDeferred = new Set();
+                const latest = await this.loadDistributedQueue(root);
+                if (!clearStillHere()) {
+                    return this.finishPlanStopClear(planFile, {
+                        phase: "project-switch", outcome: "failed",
+                        message: "读取队列时项目或清理批次已变化，已停止后续远端停止。",
+                        nextStep: "回到原项目后重新确认这一张 Plan。",
+                        failures,
+                    });
+                }
+                guardQueue(latest);
+                for (const row of DistributedPlanQueue.distributedStopTargets(latest, planFile)) {
+                    if (!clearStillHere())
+                        break;
+                    const plan = latest.plans.find((item) => item.id === row.planId);
+                    const job = plan?.jobs.find((item) => DistributedPlanQueue.distributedJobControlKey(plan, item) === row.jobKey);
+                    if (row.kind === "deferred") {
+                        confirmedDeferred.add(row.planId);
+                        continue;
+                    }
+                    if (!plan || !job)
+                        continue;
+                    const launchKey = DistributedPlanQueue.distributedJobControlKey(plan, job);
+                    if (this.distributedLaunchInFlight?.has(launchKey) && (!job.workerId || !job.commandId)) {
+                        failures.push(`${row.planFile} ${row.planId} job ${row.jobIndex}: 正在向 Worker 发起启动，远端身份尚未回写，不能按未派发清除。下一步：等这一次启动回执落地后再点“终止并清理”。`);
+                        continue;
+                    }
+                    const remoteIdentity = Boolean(job.workerId && job.commandId);
+                    const needsRemoteStop = ["dispatching", "queued", "running", "unknown"].includes(job.status) || remoteIdentity;
+                    if (!needsRemoteStop) {
+                        if (DistributedPlanQueue.jobClearableWithoutRemoteReceipt(job)) {
+                            confirmedJobs.add(launchKey);
+                            continue;
+                        }
+                        failures.push(`${row.planFile} ${row.planId} job ${row.jobIndex}: 终态 job 没有 Worker 身份，无法确认没有残留 tmux 标签，队列保留`);
+                        continue;
+                    }
+                    if (!clearStillHere())
+                        break;
+                    try {
+                        job.stopIntent ||= { commandId: job.commandId, workerId: job.workerId, requestedAt: new Date().toISOString(), state: "pending" };
+                        if (batch)
+                            await batch.mutate(current => {
+                                guardQueue(current);
+                                const currentPlan = current.plans.find(item => item.id === plan.id);
+                                const currentJob = currentPlan?.jobs.find(item => item.index === job.index && item.commandId === job.commandId && item.workerId === job.workerId);
+                                if (!currentJob)
+                                    throw new Error("精确 job 身份已变化，停止意图未写入。");
+                                currentJob.stopIntent = job.stopIntent;
+                                return { ...current };
+                            });
+                        else
+                            await this.saveDistributedQueue(root, latest, { queueGeneration: clearGeneration });
+                        if (!clearStillHere())
+                            break;
+                        const result = await this.boundedPromise(() => this.stopDistributedJobForClear(plan, job, true), this.planStopClearWaitMs(), new Error(`Worker ${job.workerId} job ${row.jobIndex} 尚未确认标签页关闭，停止意图与原 commandId 保留；重连后可重试同一停止操作。`));
+                        for (const receipt of result?.stoppedTasks || [])
+                            for (const window of receipt.closedWindowIds || [])
+                                closedTmux.add(job.workerId + ":" + window);
+                    }
+                    catch (error) {
+                        if (!clearStillHere())
+                            break;
+                        failures.push(`${row.planFile} ${row.planId} job ${row.jobIndex}: ${errorMessage(error)}`);
+                        continue;
+                    }
+                    if (!clearStillHere())
+                        break;
+                    confirmedJobs.add(launchKey);
+                }
+                if (!clearStillHere()) {
+                    return this.finishPlanStopClear(planFile, {
+                        phase: "project-switch", outcome: "failed",
+                        message: "停止期间项目或清理批次已变化，已停止写队列和后续远端操作。",
+                        nextStep: "回到原项目后重新确认这一张 Plan。已发出但未确认的停止不会当作已清除。",
+                        failures,
+                    });
+                }
+                if (confirmedJobs.size || confirmedDeferred.size) {
+                    const current = await this.loadDistributedQueue(root);
+                    if (!clearStillHere()) {
+                        return this.finishPlanStopClear(planFile, {
+                            phase: "project-switch", outcome: "failed",
+                            message: "重读队列后项目或清理批次已变化，已停止写队列。",
+                            nextStep: "回到原项目后重新确认这一张 Plan。已发出但未确认的停止不会当作已清除。",
+                            failures,
+                        });
+                    }
+                    const next = DistributedPlanQueue.removeConfirmedDistributedPlan(current, planFile, {
+                        jobKeys: confirmedJobs, deferredIds: confirmedDeferred, projectId: DistributedPlanQueue.canonicalProjectId(root),
+                        localControlJobKeys: confirmedJobs,
+                    });
+                    if (batch)
+                        await batch.mutate(latest => DistributedPlanQueue.removeConfirmedDistributedPlan(guardQueue(latest), planFile, {
+                            jobKeys: confirmedJobs, deferredIds: confirmedDeferred, projectId: DistributedPlanQueue.canonicalProjectId(root), localControlJobKeys: confirmedJobs
+                        }));
+                    else
+                        await this.saveDistributedQueue(root, next, { queueGeneration: clearGeneration });
+                }
+                if (!clearStillHere()) {
+                    return this.finishPlanStopClear(planFile, {
+                        phase: "project-switch", outcome: "failed",
+                        message: "写队列期间项目或清理批次已变化，已停止隐藏进度和提交状态。",
+                        nextStep: "回到原项目后核对这一张 Plan，再重新确认。",
+                        failures,
+                    });
+                }
+                const finishLocal = async () => {
+                    const saved = this.context.workspaceState.get(keys.executionHistoryHiddenOperationIds, []);
+                    const hidden = uniqueStrings([...(Array.isArray(saved) ? saved : []), ...clearable.map((target) => target.operationId)]);
+                    await this.context.workspaceState.update(keys.executionHistoryHiddenOperationIds, hidden);
+                    const queueCleared = DistributedPlanQueue.distributedStopTargets(await this.loadDistributedQueue(root), planFile).length === 0;
+                    if (clearable.length === targets.length && queueCleared && clearStillHere()) {
+                        const savedCutoffs = this.context.workspaceState.get(keys.executionHistoryCutoffs, {});
+                        const cutoffs = savedCutoffs && typeof savedCutoffs === "object" && !Array.isArray(savedCutoffs) ? { ...savedCutoffs } : {};
+                        cutoffs[normalizePlanSelectionKey(planFile).toLowerCase()] = new Date().toISOString();
+                        await this.context.workspaceState.update(keys.executionHistoryCutoffs, cutoffs);
+                    }
+                    const clearedSomething = clearable.length || confirmedJobs.size || confirmedDeferred.size;
+                    if (!failures.length && clearedSomething && clearStillHere()) {
+                        for (const [operationId, record] of Object.entries(this.localOperations || {})) {
+                            if (!record || typeof record !== "object")
+                                continue;
+                            const operationIdText = String(record.operationId || record.opId || record.id || "");
+                            if (record.localSubmissionProgress !== true && !operationIdText.startsWith("plan-submit-"))
+                                continue;
+                            if (normalizePlanSelectionKey(String(record.planFile || "")).toLowerCase() !== normalizePlanSelectionKey(planFile).toLowerCase())
+                                continue;
+                            this.localOperations[operationId] = {
+                                ...record,
+                                status: "cancelled",
+                                message: "已终止并清理，提交进度已清除。",
+                                error: "",
+                                stage: "cleared",
+                                updatedAt: new Date().toISOString(),
+                                finishedAt: new Date().toISOString(),
+                                reconcileEvidenceActive: false,
+                            };
+                        }
+                        this.markLocalOperationsDirty();
+                    }
+                    await this.retireLocalOperationState?.([...clearable.map(target => target.operationId),
+                        ...(!failures.length ? (0, OperationRetirement_1.endedPlanOperationIds)(this.buildPlanRuntimeEvidenceState().operations || {}, planFile) : [])]);
+                    if (clearStillHere())
+                        this.postState();
+                    const retained = DistributedPlanQueue.distributedStopTargets(await this.loadDistributedQueue(root), planFile).length + (targets.length - clearable.length);
+                    const summary = [`已清除 ${clearable.length} 条运行进度、${confirmedJobs.size} 个分布式 job、${confirmedDeferred.size} 条等待提交，停止 ${stopped.size} 条，关闭 tmux ${closedTmux.size} 个。`, ...failures].join("\n");
+                    const outcome = failures.length ? (clearable.length || confirmedJobs.size || confirmedDeferred.size ? "partial" : "failed") : "completed";
+                    const nextStep = failures.length
+                        ? "停止意图与原 commandId 保留；恢复对应 Worker 连接后再点“终止并清理”。只有实际无法关闭或标签页属于其他任务时保留，不需要修改 PLAN/revision 或科研环境。"
+                        : "本 Plan 已确认的队列条目已清除。其他 Plan 未改。";
+                    if (!batch && failures.length)
+                        void vscode.window.showWarningMessage(`${summary} 未完成：${failures.join("；")}`);
+                    else if (!batch)
+                        void vscode.window.showInformationMessage(`${summary}${retained ? " 仍未确认的条目保持可见。" : " 该 Plan 已无待停止或待提交条目。"}`);
+                    return this.finishPlanStopClear(planFile, {
+                        phase: outcome === "completed" ? "cleared" : "partial-clear",
+                        outcome, message: summary, nextStep, failures,
+                        clearedOperations: clearable.length, clearedJobs: confirmedJobs.size, clearedDeferred: confirmedDeferred.size,
+                        stopped: stopped.size, closedTmux: closedTmux.size, retained,
+                    });
+                };
+                return batch ? await batch.local(finishLocal) : await finishLocal();
             }
-            await this.retireLocalOperationState?.([...clearable.map(target => target.operationId),
-                ...(!failures.length ? (0, OperationRetirement_1.endedPlanOperationIds)(this.buildPlanRuntimeEvidenceState().operations || {}, planFile) : [])]);
-            if (clearStillHere())
-                this.postState();
-            const retained = DistributedPlanQueue.distributedStopTargets(await this.loadDistributedQueue(root), planFile).length + (targets.length - clearable.length);
-            const summary = [`已清除 ${clearable.length} 条运行进度、${confirmedJobs.size} 个分布式 job、${confirmedDeferred.size} 条等待提交，停止 ${stopped.size} 条，关闭 tmux ${closedTmux.size} 个。`, ...failures].join("\n");
-            const outcome = failures.length ? (clearable.length || confirmedJobs.size || confirmedDeferred.size ? "partial" : "failed") : "completed";
-            const nextStep = failures.length
-                ? "停止意图与原 commandId 保留；恢复对应 Worker 连接后再点“终止并清理”。只有实际无法关闭或标签页属于其他任务时保留，不需要修改 PLAN/revision 或科研环境。"
-                : "本 Plan 已确认的队列条目已清除。其他 Plan 未改。";
-            if (failures.length)
-                void vscode.window.showWarningMessage(`${summary} 未完成：${failures.join("；")}`);
-            else
-                void vscode.window.showInformationMessage(`${summary}${retained ? " 仍未确认的条目保持可见。" : " 该 Plan 已无待停止或待提交条目。"}`);
-            return this.finishPlanStopClear(planFile, {
-                phase: outcome === "completed" ? "cleared" : "partial-clear",
-                outcome, message: summary, nextStep, failures,
-                clearedOperations: clearable.length, clearedJobs: confirmedJobs.size, clearedDeferred: confirmedDeferred.size,
-                stopped: stopped.size, closedTmux: closedTmux.size, retained,
-            });
-        }
-        catch (error) {
-            return this.finishPlanStopClear(planFile, {
-                phase: "stop-clear-error", outcome: "failed",
-                message: `${planFile} 清理中断：${errorMessage(error)}`,
-                nextStep: "未确认条目仍留在这一张 Plan。核对失败阶段后重新点“终止并清理”。",
-                failures: [errorMessage(error)],
-            });
-        }
-        finally {
-            if (this.distributedPlanStopEpoch === stopEpoch) {
-                if (this.distributedQueueTickPromise)
-                    this.detachStaleDistributedTick(this.distributedQueueTickPromise);
-                this.distributedPlanStopEpoch = 0;
+            catch (error) {
+                return this.finishPlanStopClear(planFile, {
+                    phase: "stop-clear-error", outcome: "failed",
+                    message: `${planFile} 清理中断：${errorMessage(error)}`,
+                    nextStep: "未确认条目仍留在这一张 Plan。核对失败阶段后重新点“终止并清理”。",
+                    failures: [errorMessage(error)],
+                });
             }
-        }
+            finally {
+                if (!batch && this.distributedPlanStopEpoch === stopEpoch) {
+                    if (this.distributedQueueTickPromise)
+                        this.detachStaleDistributedTick(this.distributedQueueTickPromise);
+                    this.distributedPlanStopEpoch = 0;
+                }
+            }
+        };
+        if (preparation?.prepare)
+            return { planFile, preview: [preview, ...distributed.map(row => `${row.planFile} · ${row.planId} · ${row.kind} ${row.jobIndex ?? ""} · Worker ${row.workerId || "本机未派发"} · commandId ${row.commandId || "无"} · ${row.outputDir || "无产物路径"}`),
+                    ...targets.filter(row => row.frozenTmuxIdentity).map(row => `${row.workerId} · ${row.operationId} · ${row.frozenTmuxIdentity.target} · ${row.frozenTmuxIdentity.windowId} · ${row.frozenTmuxIdentity.paneIds.join("、")}`)].join("\n"), validate, run: execute };
+        return execute();
     }
     async clearEndedPlanHistoryFromUi(message, root, planFile, frozen) {
+        const preparation = arguments[4];
         const generation = this.projectContextGeneration;
         const current = () => root === workspaceRoot() && generation === this.projectContextGeneration;
         const preview = [`仅清除 ${planFile} 的本机已结束记录`,
@@ -18428,79 +18443,105 @@ class RealtimeTunnelPanelProvider {
             ...frozen.jobs.map(row => `${row.planId} · job ${row.jobIndex} · ${row.status} · ${row.workerId || "本机"} · ${row.commandId || "未派发"} · ${row.outputDir || ""}`)].join("\n");
         this.publishPlanStopClear(planFile, { phase: "history-preview", outcome: "running", message: preview,
             nextStep: "确认只清除本机历史；需要关闭窗口时选择核实远端窗口。" });
-        const first = await vscode.window.showWarningMessage(preview, { modal: true }, "继续清除本机历史", "核实并关闭远端窗口");
-        if (first === "核实并关闭远端窗口" && current())
-            return await this.stopAndClearPlanFromUi({ ...message, clearMode: "remote" });
-        if (first !== "继续清除本机历史" || !current())
-            return this.finishPlanStopClear(planFile, { phase: "confirm-cancelled", outcome: "cancelled", message: "本机历史清除已取消，记录和远端任务未改。", nextStep: "需要时重新选择。" });
-        const second = await vscode.window.showWarningMessage(`第二次确认：\n${preview}`, { modal: true }, "确认清除本机历史");
-        if (second !== "确认清除本机历史" || !current())
-            return this.finishPlanStopClear(planFile, { phase: "confirm-cancelled", outcome: "cancelled", message: "确认期间取消或工作区已变化，未清除记录。", nextStep: "回到原项目重新选择。" });
-        const warnings = [];
-        const workers = [...new Set(frozen.jobs.map(row => String(row.workerId || "")).filter(Boolean))];
-        this.publishPlanStopClear(planFile, { phase: "history-check", outcome: "running", message: "只读核对相关 Worker 的当前活动状态。", nextStep: "不会发送停止或文件操作命令。" });
-        const snapshots = await Promise.allSettled(workers.map(worker => this.boundedPromise(() => this.client.getWorkerTasks(worker), this.planStopClearWaitMs(), new Error(`Worker ${worker} 未响应；仅清除本机历史，远端状态未核实`))));
-        for (let index = 0; index < snapshots.length; index++) {
-            const item = snapshots[index];
-            if (item.status === "rejected" || !Array.isArray(item.value?.tasks)) {
-                warnings.push(`Worker ${workers[index]} 状态未核实，保留远端窗口与产物。`);
-                continue;
+        const validate = async () => current() && (0, PlanStopClear_1.terminalPlanHistorySelection)(this.buildPlanRuntimeEvidenceState().operations || {}, DistributedPlanQueue.distributedStopTargets(await this.loadDistributedQueue(root), planFile), planFile, operationTerminal)?.signature === frozen.signature;
+        const execute = async (batch) => {
+            if (batch ? !batch.current() || !await validate() : this.planStopClearBatchLease)
+                return this.finishPlanStopClear(planFile, { phase: "batch-changed", outcome: "failed", message: "本机历史目标已变化，未清除。", nextStep: "刷新后重新确认。" });
+            if (!batch) {
+                const first = await vscode.window.showWarningMessage(preview, { modal: true }, "继续清除本机历史", "核实并关闭远端窗口");
+                if (first === "核实并关闭远端窗口" && current())
+                    return await this.stopAndClearPlanFromUi({ ...message, clearMode: "remote" });
+                if (first !== "继续清除本机历史" || !current())
+                    return this.finishPlanStopClear(planFile, { phase: "confirm-cancelled", outcome: "cancelled", message: "本机历史清除已取消，记录和远端任务未改。", nextStep: "需要时重新选择。" });
+                const second = await vscode.window.showWarningMessage(`第二次确认：\n${preview}`, { modal: true }, "确认清除本机历史");
+                if (second !== "确认清除本机历史" || !current())
+                    return this.finishPlanStopClear(planFile, { phase: "confirm-cancelled", outcome: "cancelled", message: "确认期间取消或工作区已变化，未清除记录。", nextStep: "回到原项目重新选择。" });
             }
-            const conflict = item.value.tasks.find(task => frozen.jobs.some(row => row.workerId === workers[index]
-                && row.commandId && String(task.commandId || "") === row.commandId)
-                && !["completed", "failed", "cancelled", "canceled", "stopped"].includes(String(task.status || "").toLowerCase()));
-            if (conflict)
-                return this.finishPlanStopClear(planFile, { phase: "history-active", outcome: "failed",
-                    message: `${workers[index]} 仍报告 commandId=${conflict.commandId} 为 ${conflict.status}，不能当已结束历史清除。`, nextStep: "先核对并中止对应任务；未清除记录。" });
-        }
-        if (!current())
-            return this.finishPlanStopClear(planFile, { phase: "project-switch", outcome: "failed", message: "工作区已变化，未清除记录。", nextStep: "重新选择。" });
-        const latest = await this.loadDistributedQueue(root);
-        const checked = (0, PlanStopClear_1.terminalPlanHistorySelection)(this.buildPlanRuntimeEvidenceState().operations || {}, DistributedPlanQueue.distributedStopTargets(latest, planFile), planFile, operationTerminal);
-        if (!current() || !checked || checked.signature !== frozen.signature
-            || frozen.jobs.some(row => this.distributedLaunchInFlight?.has(row.jobKey)))
-            return this.finishPlanStopClear(planFile, { phase: "history-changed", outcome: "failed", message: "确认后作业身份、状态或历史范围已变化，未清除记录。", nextStep: "刷新后重新确认。" });
-        const stopEpoch = this.distributedPlanStopEpoch = (this.distributedPlanStopEpoch || 0) + 1;
-        this.distributedQueueGeneration = (this.distributedQueueGeneration || 0) + 1;
-        const queueGeneration = this.distributedQueueGeneration;
-        this.distributedTickAbort?.abort();
-        let queueSaved = false;
-        try {
-            const jobKeys = new Set(frozen.jobs.map(row => String(row.jobKey)));
-            if (jobKeys.size || frozen.deferredIds.length) {
-                const next = DistributedPlanQueue.removeConfirmedDistributedPlan(latest, planFile, {
-                    jobKeys, deferredIds: new Set(frozen.deferredIds),
-                    historyOnlyJobKeys: jobKeys, projectId: DistributedPlanQueue.canonicalProjectId(root)
-                });
-                await this.saveDistributedQueue(root, next, { queueGeneration });
-                queueSaved = true;
+            if (!batch && this.planStopClearBatchLease)
+                return this.finishPlanStopClear(planFile, { phase: "batch-busy", outcome: "failed", message: "整批中止清理已开始，本次单项历史清理未执行。", nextStep: "等待批次结束后再核对。" });
+            const warnings = [];
+            const workers = [...new Set(frozen.jobs.map(row => String(row.workerId || "")).filter(Boolean))];
+            this.publishPlanStopClear(planFile, { phase: "history-check", outcome: "running", message: "只读核对相关 Worker 的当前活动状态。", nextStep: "不会发送停止或文件操作命令。" });
+            const snapshots = await Promise.allSettled(workers.map(worker => this.boundedPromise(() => this.client.getWorkerTasks(worker), this.planStopClearWaitMs(), new Error(`Worker ${worker} 未响应；仅清除本机历史，远端状态未核实`))));
+            for (let index = 0; index < snapshots.length; index++) {
+                const item = snapshots[index];
+                if (item.status === "rejected" || !Array.isArray(item.value?.tasks)) {
+                    warnings.push(`Worker ${workers[index]} 状态未核实，保留远端窗口与产物。`);
+                    continue;
+                }
+                const conflict = item.value.tasks.find(task => frozen.jobs.some(row => row.workerId === workers[index]
+                    && row.commandId && String(task.commandId || "") === row.commandId)
+                    && !["completed", "failed", "cancelled", "canceled", "stopped"].includes(String(task.status || "").toLowerCase()));
+                if (conflict)
+                    return this.finishPlanStopClear(planFile, { phase: "history-active", outcome: "failed",
+                        message: `${workers[index]} 仍报告 commandId=${conflict.commandId} 为 ${conflict.status}，不能当已结束历史清除。`, nextStep: "先核对并中止对应任务；未清除记录。" });
             }
             if (!current())
-                throw new Error("项目已切换，停止后续历史状态写入");
-            const hidden = this.context.workspaceState.get(keys.executionHistoryHiddenOperationIds, []);
-            await this.context.workspaceState.update(keys.executionHistoryHiddenOperationIds, uniqueStrings([...(Array.isArray(hidden) ? hidden : []), ...frozen.operationIds]));
-            await this.retireLocalOperationState?.(frozen.operationIds);
-            if (!current())
-                throw new Error("历史状态保存后项目已切换，未报告全部完成");
-            this.postState();
-            return this.finishPlanStopClear(planFile, { phase: "history-cleared", outcome: "completed",
-                message: `已清除 ${frozen.operationIds.length} 条本机历史、${frozen.jobs.length} 个队列记录。未停止远端任务，未关闭 tmux；日志、权重及结果保留。${warnings.join(" ")}`,
-                nextStep: "旧窗口需要另行核实后关闭；本机记录清除不等于远端窗口已关闭。",
-                clearedOperations: frozen.operationIds.length, clearedJobs: frozen.jobs.length, clearedDeferred: frozen.deferredIds.length,
-                stopped: 0, closedTmux: 0, retained: 0 });
-        }
-        catch (error) {
-            return this.finishPlanStopClear(planFile, { phase: "history-save", outcome: queueSaved ? "partial" : "failed",
-                message: `本机历史保存未全部完成：${errorMessage(error)}`, nextStep: "刷新后重试剩余记录；远端未操作。",
-                clearedJobs: queueSaved ? frozen.jobs.length : 0, stopped: 0, closedTmux: 0 });
-        }
-        finally {
-            if (this.distributedPlanStopEpoch === stopEpoch) {
-                if (this.distributedQueueTickPromise)
-                    this.detachStaleDistributedTick(this.distributedQueueTickPromise);
-                this.distributedPlanStopEpoch = 0;
+                return this.finishPlanStopClear(planFile, { phase: "project-switch", outcome: "failed", message: "工作区已变化，未清除记录。", nextStep: "重新选择。" });
+            const latest = await this.loadDistributedQueue(root);
+            const checked = (0, PlanStopClear_1.terminalPlanHistorySelection)(this.buildPlanRuntimeEvidenceState().operations || {}, DistributedPlanQueue.distributedStopTargets(latest, planFile), planFile, operationTerminal);
+            if (!current() || !checked || checked.signature !== frozen.signature
+                || frozen.jobs.some(row => this.distributedLaunchInFlight?.has(row.jobKey)))
+                return this.finishPlanStopClear(planFile, { phase: "history-changed", outcome: "failed", message: "确认后作业身份、状态或历史范围已变化，未清除记录。", nextStep: "刷新后重新确认。" });
+            if (batch ? !batch.current() : this.planStopClearBatchLease)
+                return this.finishPlanStopClear(planFile, { phase: "batch-busy", outcome: "failed", message: "查询期间项目或清理批次已变化，未清除本机历史。", nextStep: "等待当前批次结束后再核对。" });
+            const stopEpoch = batch?.epoch ?? (this.distributedPlanStopEpoch = (this.distributedPlanStopEpoch || 0) + 1);
+            if (!batch)
+                this.distributedQueueGeneration = (this.distributedQueueGeneration || 0) + 1;
+            const queueGeneration = batch?.queueGeneration ?? this.distributedQueueGeneration;
+            this.distributedTickAbort?.abort();
+            let queueSaved = false;
+            try {
+                const jobKeys = new Set(frozen.jobs.map(row => String(row.jobKey)));
+                if (jobKeys.size || frozen.deferredIds.length) {
+                    const next = DistributedPlanQueue.removeConfirmedDistributedPlan(latest, planFile, {
+                        jobKeys, deferredIds: new Set(frozen.deferredIds),
+                        historyOnlyJobKeys: jobKeys, projectId: DistributedPlanQueue.canonicalProjectId(root)
+                    });
+                    if (batch)
+                        await batch.mutate(currentQueue => {
+                            const history = (0, PlanStopClear_1.terminalPlanHistorySelection)(this.buildPlanRuntimeEvidenceState().operations || {}, DistributedPlanQueue.distributedStopTargets(currentQueue, planFile), planFile, operationTerminal);
+                            if (history?.signature !== frozen.signature)
+                                throw new Error("本机历史目标已变化，未清除。");
+                            return DistributedPlanQueue.removeConfirmedDistributedPlan(currentQueue, planFile, { jobKeys, deferredIds: new Set(frozen.deferredIds), historyOnlyJobKeys: jobKeys, projectId: DistributedPlanQueue.canonicalProjectId(root) });
+                        });
+                    else
+                        await this.saveDistributedQueue(root, next, { queueGeneration });
+                    queueSaved = true;
+                }
+                if (!current())
+                    throw new Error("项目已切换，停止后续历史状态写入");
+                const finishLocal = async () => {
+                    const hidden = this.context.workspaceState.get(keys.executionHistoryHiddenOperationIds, []);
+                    await this.context.workspaceState.update(keys.executionHistoryHiddenOperationIds, uniqueStrings([...(Array.isArray(hidden) ? hidden : []), ...frozen.operationIds]));
+                    await this.retireLocalOperationState?.(frozen.operationIds);
+                    if (!current())
+                        throw new Error("历史状态保存后项目已切换，未报告全部完成");
+                    this.postState();
+                    return this.finishPlanStopClear(planFile, { phase: "history-cleared", outcome: "completed",
+                        message: `已清除 ${frozen.operationIds.length} 条本机历史、${frozen.jobs.length} 个队列记录。未停止远端任务，未关闭 tmux；日志、权重及结果保留。${warnings.join(" ")}`,
+                        nextStep: "旧窗口需要另行核实后关闭；本机记录清除不等于远端窗口已关闭。",
+                        clearedOperations: frozen.operationIds.length, clearedJobs: frozen.jobs.length, clearedDeferred: frozen.deferredIds.length,
+                        stopped: 0, closedTmux: 0, retained: 0 });
+                };
+                return batch ? await batch.local(finishLocal) : await finishLocal();
             }
-        }
+            catch (error) {
+                return this.finishPlanStopClear(planFile, { phase: "history-save", outcome: queueSaved ? "partial" : "failed",
+                    message: `本机历史保存未全部完成：${errorMessage(error)}`, nextStep: "刷新后重试剩余记录；远端未操作。",
+                    clearedJobs: queueSaved ? frozen.jobs.length : 0, stopped: 0, closedTmux: 0 });
+            }
+            finally {
+                if (!batch && this.distributedPlanStopEpoch === stopEpoch) {
+                    if (this.distributedQueueTickPromise)
+                        this.detachStaleDistributedTick(this.distributedQueueTickPromise);
+                    this.distributedPlanStopEpoch = 0;
+                }
+            }
+        };
+        if (preparation?.prepare)
+            return { planFile, preview, validate, run: execute };
+        return execute();
     }
     async downloadDebugBundle() {
         const generation = this.projectContextGeneration;

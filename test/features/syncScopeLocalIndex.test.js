@@ -17,13 +17,19 @@ test('local listings and summaries share one fresh scan; absent, empty and unver
 });
 
 test('a local scan with no progress ends unknown and a later explicit round can recover',async()=>{
- const root=await fs.mkdtemp(path.join(os.tmpdir(),'scope-local-idle-')),original=fs.opendir;let release;
- fs.opendir=()=>new Promise(resolve=>release=resolve);
- const reader=new SyncScopeLocalIndexReader(root,10),updates=[];
+ const root=await fs.mkdtemp(path.join(os.tmpdir(),'scope-local-idle-')),original=fs.opendir;let release,entered;
+ const blocked=new Promise(resolve=>entered=resolve),realTimeout=setTimeout,realClear=clearTimeout;
+ fs.opendir=()=>new Promise(resolve=>{release=resolve;entered();});
+ const reader=new SyncScopeLocalIndexReader(root,30000),updates=[],idleTimers=new Set();
+ // Control only the reader's idle deadline; native change-notification settling keeps its real 5 ms timers.
+ global.setTimeout=(callback,delay,...args)=>{if(delay!==30000)return realTimeout(callback,delay,...args);const timer={active:true,fire:()=>callback(...args)};idleTimers.add(timer);return timer;};
+ global.clearTimeout=timer=>{if(idleTimers.has(timer))timer.active=false;else realClear(timer);};
  try{
-  const rows=await queryScopeMetadata([{id:'local',read:report=>reader.read('stalled',undefined,report)},{id:'worker',read:async()=>({files:{remote:{size:1,modifiedAtMs:1}}})}],undefined,(_stage,progress)=>updates.push(progress));
+  const pending=queryScopeMetadata([{id:'local',read:report=>reader.read('stalled',undefined,report)},{id:'worker',read:async()=>({files:{remote:{size:1,modifiedAtMs:1}}})}],undefined,(_stage,progress)=>updates.push(progress));
+  let timer;try{await Promise.race([blocked,new Promise((_,reject)=>{timer=realTimeout(()=>reject(Error('fixture scan did not reach blocked opendir')),2000);})]);}finally{realClear(timer);}
+  assert.ok([...idleTimers].some(timer=>timer.active));for(const timer of idleTimers)if(timer.active)timer.fire();const rows=await pending;
   assert.equal(updates.filter(r=>r.endpointId==='local').at(-1).state,'failed');assert.equal(rows.remote.metadata.local.status,'unknown');assert.equal(rows['.'].copies.local.missing,0);
- }finally{fs.opendir=original;if(release)release(await original(root));}
+ }finally{global.setTimeout=realTimeout;global.clearTimeout=realClear;fs.opendir=original;if(release)release(await original(root));}
  await new Promise(setImmediate);
  assert.equal((await reader.read('retry')).directories['.'].modifiedAtMs>0,true);
 });

@@ -126,6 +126,25 @@ function makeHost() {
   };
 }
 
+test('parallel stop deltas share one live batch fence and merge every fresh disk update without advancing each other away',async()=>{
+  memoryFiles.clear();memoryFiles.set(file,JSON.stringify(makeQueue(8)));
+  const host=makeHost(),lease={};host.distributedPlanStopEpoch=7;host.planStopClearBatchLease=lease;host.distributedQueueGeneration=4;
+  await Promise.all(Array.from({length:8},(_,index)=>host.saveDistributedQueue(root,undefined,{controlMutation:true,
+    stopBatchEpoch:7,stopBatchLease:lease,stopBatchCurrent:()=>true,
+    mutateLatest:latest=>({...latest,plans:latest.plans.filter(plan=>plan.id!=='plan-'+index)})})));
+  assert.equal(JSON.parse(memoryFiles.get(file)).plans.length,0);assert.equal(host.distributedQueueGeneration,4);
+  assert.equal(host.distributedPlanStopEpoch,7);
+});
+
+test('revoking the stop batch during an atomic rename retry prevents its pending publication',async()=>{
+  memoryFiles.clear();const original=JSON.stringify(makeQueue(2));memoryFiles.set(file,original);
+  const host=makeHost(),lease={},rename=memoryFs.rename;host.distributedPlanStopEpoch=7;host.planStopClearBatchLease=lease;
+  memoryFs.rename=async()=>{host.planStopClearBatchLease=undefined;throw Object.assign(new Error('sharing violation'),{code:'EPERM'});};
+  try {await assert.rejects(host.saveDistributedQueue(root,undefined,{controlMutation:true,stopBatchEpoch:7,stopBatchLease:lease,
+    stopBatchCurrent:()=>true,mutateLatest:latest=>({...latest,plans:[]})}),/批次已变化/);assert.equal(memoryFiles.get(file),original);}
+  finally {memoryFs.rename=rename;}
+});
+
 test('missing-only append preserves five original native jobs and admits only the absent sixth job of the same PLAN',async()=>{
   memoryFiles.clear();
   const declarations=Array.from({length:6},(_,index)=>({index,case:index<3?'bus':'pad',seed:42+index%3,

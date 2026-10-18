@@ -7047,6 +7047,7 @@ export function renderPanelHtml(): string {
         startWorker: "启动 Worker",
         abortScheduler: "中止调度器",
         stopAndClearPlan: "一键中止并清除 Plan",
+        stopAndClearPlans: "批量并行中止并清理 Plan",
         openTensorBoard: "打开 TensorBoard",
         copyTensorBoardUrl: "复制 TensorBoard 链接",
         openTensorBoardUrl: "打开 TensorBoard 链接",
@@ -14737,8 +14738,8 @@ export function renderPanelHtml(): string {
         '<button class="mini danger" data-command="stopAndClearPlan" data-plan-file="' + escAttr(stopClearPlan) + '" data-confirm="true" ' + (stopClearPlan ? '' : 'disabled') + ' title="终止并清除已选中的 Plan：停止调度和分布式 job，关闭对应 tmux 标签，并清除本机队列记录。未选中时不会使用正在编辑的 Plan。">一键中止并清除 Plan</button>' +
         '<button class="mini danger" data-command="stopAllPlans" ' + (anyActivePlan || distributedPlanPaths.length || deferredPlanPaths.length ? '' : 'disabled') + ' title="中止本机及分布式队列中的 Plan，逐个核对精确任务；分布式记录清理仍需确认">中止所有 Plan</button>' +
         '<label class="mini"><input type="checkbox" data-execution-plan-all="true"' + (allPlans.length && batchPlans.length === allPlans.length ? ' checked' : '') + '>全选 Plan</label>' +
-        '<button class="mini danger" data-command="stopAndClearPlans" data-execution-plan-batch="selected" ' + (batchPlans.length ? '' : 'disabled') + '>中止并清理勾选 Plan (' + batchPlans.length + ')</button>' +
-        '<button class="mini danger" data-command="stopAndClearPlans" data-execution-plan-batch="all" ' + (allPlans.length ? '' : 'disabled') + '>中止并清理所有 Plan</button>' +
+        '<button class="mini danger" data-command="stopAndClearPlans" data-execution-plan-batch="selected" ' + (batchPlans.length ? '' : 'disabled') + ' title="完整批次只确认一次，最多 4 个 Plan 并行；保留训练产物">中止并清理勾选 Plan (' + batchPlans.length + ')</button>' +
+        '<button class="mini danger" data-command="stopAndClearPlans" data-execution-plan-batch="all" ' + (allPlans.length ? '' : 'disabled') + ' title="完整批次只确认一次，最多 4 个 Plan 并行；保留训练产物">中止并清理所有 Plan</button>' +
         '<button class="mini history-clear" data-command="clearOperations" data-plan-file="' + escAttr(selectedExecutionPlanFile) + '" ' + (selectedExecutionPlanFile ? '' : 'disabled') + ' title="清除选中 Plan 的本机已结束运行历史；保留远端审计和产物">清除所选 Plan 历史</button>' +
         '<button class="mini history-clear" data-command="clearOperations" title="清除全部 Plan 在本机的已结束运行历史；保留远端审计、日志和产物">清除所有历史</button>' +
         '<button id="clearSelectedOperationHistory" class="mini history-clear" data-command="clearOperations" data-operation-history-selected="true" ' + (selectedOperationHistoryIds.size ? '' : 'disabled') + ' title="仅从本机面板隐藏勾选的已结束操作；不影响正在运行的 Plan 或 job">清理选中记录' + (selectedOperationHistoryIds.size ? ' (' + selectedOperationHistoryIds.size + ')' : '') + '</button>' +

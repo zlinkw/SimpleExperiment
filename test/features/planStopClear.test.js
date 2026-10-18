@@ -182,7 +182,7 @@ test("queued-only plan clears without a worker stop and a mixed failure keeps th
     saveDistributedQueue: async (_root, next) => { saved = next; },
   };
   const AsyncFunction = Object.getPrototypeOf(async function () {}).constructor;
-  const run = new AsyncFunction("queueApi", "root", `const { failures, confirmedJobs, confirmedDeferred, loadDistributedQueue, getWorkerTasks, stopDistributedJobForClear, saveDistributedQueue, planFile } = this;\nconst errorMessage = (error) => String(error && error.message || error);\nconst clearStillHere = () => true;\nconst boundedPromise = async (work, timeoutMs, timeoutError) => {\n  let timer;\n  const timed = new Promise((_, reject) => { timer = setTimeout(() => reject(timeoutError), timeoutMs || 8000); });\n  try { return await Promise.race([Promise.resolve().then(work), timed]); }\n  finally { clearTimeout(timer); }\n};\n${body}\nif (clearStillHere() && (confirmedJobs.size || confirmedDeferred.size)) {\n  const current = await loadDistributedQueue();\n  const next = queueApi.removeConfirmedDistributedPlan(current, planFile, { jobKeys: confirmedJobs, deferredIds: confirmedDeferred });\n  await saveDistributedQueue(root, next);\n}`);
+  const run = new AsyncFunction("queueApi", "root", `const { failures, confirmedJobs, confirmedDeferred, loadDistributedQueue, getWorkerTasks, stopDistributedJobForClear, saveDistributedQueue, planFile } = this;\nconst batch=undefined; const guardQueue=value=>value; const errorMessage = (error) => String(error && error.message || error);\nconst clearStillHere = () => true;\nconst boundedPromise = async (work, timeoutMs, timeoutError) => {\n  let timer;\n  const timed = new Promise((_, reject) => { timer = setTimeout(() => reject(timeoutError), timeoutMs || 8000); });\n  try { return await Promise.race([Promise.resolve().then(work), timed]); }\n  finally { clearTimeout(timer); }\n};\n${body}\nif (clearStillHere() && (confirmedJobs.size || confirmedDeferred.size)) {\n  const current = await loadDistributedQueue();\n  const next = queueApi.removeConfirmedDistributedPlan(current, planFile, { jobKeys: confirmedJobs, deferredIds: confirmedDeferred });\n  await saveDistributedQueue(root, next);\n}`);
   await run.call(sandbox, queue, "root");
   assert.equal(sandbox.failures.length, 0, sandbox.failures.join(";"));
   assert.equal(saved.plans.some((plan) => plan.id === "plan-ebmc"), false);
@@ -359,6 +359,7 @@ function installStopClearHost(sandbox) {
     queueApi: require("../../dist/features/DistributedPlanQueue.js"),
     planner: require("../../dist/features/PlanStopClear.js"),
     PlanStopClear_1: require("../../dist/features/PlanStopClear.js"),
+    PlanStopClearBatchHost_1: require("../../dist/extension/PlanStopClearBatchHost.js"),
     PlanExecutionMode: require("../../dist/features/PlanExecutionMode.js"),
     PlanRunHost_1: { PlanRunHost: class { async save() {} } },
     WorkerPreparation_1: require('../../dist/features/WorkerPreparation.js'),
@@ -1822,7 +1823,7 @@ test("plugin refuses exact pane stop unless the live worker probe advertises it"
   const agent = fs.readFileSync(path.join(__dirname, "../../src/clusterAgentRuntime.legacy.ts"), "utf8");
   const capabilities = agent.slice(agent.indexOf("def api_capabilities"), agent.indexOf("def api_file_capabilities"));
   assert.match(capabilities, /"stop-worker-task-exact-pane": True/);
-  const clear = extension.slice(extension.indexOf("const stopEpoch = this.distributedPlanStopEpoch"), extension.indexOf("async downloadDebugBundle("));
+  const clear = extension.slice(extension.indexOf("const stopEpoch = batch?.epoch"), extension.indexOf("async downloadDebugBundle("));
   const arm = clear.indexOf("this.distributedPlanStopEpoch = (this.distributedPlanStopEpoch || 0) + 1");
   const wait = clear.indexOf("distributedQueueTickPromise");
   const restore = clear.lastIndexOf("this.distributedPlanStopEpoch = 0");
