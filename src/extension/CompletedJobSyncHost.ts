@@ -7,17 +7,42 @@ import { jobArtifactSyncDigest } from "../features/PlanArtifactSyncStatus";
 /** Per-job completion publication reuses the file tree's newest-version merge, never the whole PLAN gate. */
 export class CompletedJobSyncHost {
   constructor(private readonly h: any, private readonly root: string, private readonly current: () => boolean) {}
-  async run(selected: string[]): Promise<void> {
+  async run(selected: string[], options: { force?: boolean; verifyOnly?: boolean; jobs?: { planId: string; index: number; commandId: string }[] } = {}): Promise<{ synced: number; excluded: number; errors: string[] }> {
+    const runs = this.h.completedJobSyncRuns ||= new Map();
+    const key = JSON.stringify([selected, options.verifyOnly === true, options.jobs || null]);
+    const active = runs.get(this.root);
+    if (active) {
+      if (active.key === key || !options.force) return active.promise;
+      await active.promise;
+      if (!this.current()) throw Error("项目或连接已变化，未继续产物操作。");
+      return this.run(selected, options);
+    }
+    const entry = { key, promise: undefined as any };
+    entry.promise = this.runCore(selected, options).finally(() => { if (runs.get(this.root) === entry) runs.delete(this.root); });
+    runs.set(this.root, entry);
+    return entry.promise;
+  }
+  private async runCore(selected: string[], options: { force?: boolean; verifyOnly?: boolean; jobs?: { planId: string; index: number; commandId: string }[] }) {
+    const report = { synced: 0, excluded: 0, errors: [] as string[] };
     const h = this.h, targets = h.workerCodeSyncTargets();
-    if (targets.length < 2) return;
+    if (targets.length < 2) {
+      if (options.force) throw Error("至少需要两台已启用 Worker 核对产物同步。");
+      return report;
+    }
     const queue = await h.loadDistributedQueue(this.root);
-    const pending = newestJobOutputs(queue).filter(({ plan, job }) => plan.projectId === canonicalProjectId(this.root)
+    let pending = newestJobOutputs(queue).filter(({ plan, job }) => plan.projectId === canonicalProjectId(this.root)
       && job.lifecycleProtocol === 2 && job.status === "completed" && !job.unavailable && !!job.workerId && !!job.commandId);
+    if (options.jobs) {
+      if (!options.jobs.length || options.jobs.some(selection => !pending.some(({ plan, job }) => plan.id === selection.planId
+        && job.index === selection.index && job.commandId === selection.commandId))) throw Error("所选任务未完成或身份已变化，未同步其他任务。");
+      pending = pending.filter(({ plan, job }) => options.jobs!.some(selection => plan.id === selection.planId
+        && job.index === selection.index && job.commandId === selection.commandId));
+    }
     for (const { plan, job } of pending) {
-      if (!this.current()) return;
+      if (!this.current()) throw Error("项目或连接已变化，产物操作已停止。");
       const scopes = jobArtifactScopes({ ...job, executionMode: plan.executionMode }, selected);
       const key = latestJobSyncKey(plan, job, scopes, targets), previous = job.latestArtifactSync;
-      if (previous?.key === key && (previous.state === "excluded" || previous.state === "synced"
+      if (!options.force && previous?.key === key && (previous.state === "excluded" || previous.state === "synced"
         && (!previous.artifactDigest || previous.artifactDigest === jobArtifactSyncDigest(job)) || Date.parse(previous.retryAfter || "") > Date.now())) continue;
       let verificationError = "";
       const assertCurrent = async () => {
@@ -31,7 +56,7 @@ export class CompletedJobSyncHost {
           && Date.parse(hold.deletedAt || "") >= (Date.parse(plan.enqueuedAt) || 0) && scopes.some(scope => overlap(scope, file))))
           throw Error("这些文件在本次运行后被用户删除或暂停同步，未自动补回。");
         try {
-          const { task, snapshot, state } = await queryTask(h.client, plan, job);
+          const { task, snapshot, state } = await queryTask(h.client, plan, job, options.force ? 30000 : 8000);
           if (snapshot.queryComplete !== true || state.status !== "completed")
             throw Error(snapshot.error || task?.observation?.resultQueryError || job.workerId);
         } catch (error: any) {
@@ -41,11 +66,11 @@ export class CompletedJobSyncHost {
       };
       const patch = (fields: any) => h.patchDistributedJob(this.root, plan.id, job.index, job.attempt,
         { expectedCommandId: job.commandId, ...fields });
-      if (!scopes.length) { await patch({ latestArtifactSync: { key, state: "excluded", scopes, checkedAt: new Date().toISOString() } }); continue; }
+      if (!scopes.length) { await patch({ latestArtifactSync: { key, state: "excluded", scopes, checkedAt: new Date().toISOString() }, artifactError: undefined, artifactRetryAfter: undefined }); report.excluded++; continue; }
       try {
         await assertCurrent();
         const result = await h.mergeLatestWorkerVersions(this.root, targets, scopes, ".", () => {}, {
-          completedJob: { sourceId: job.workerId }, assertCurrent,
+          completedJob: { sourceId: job.workerId }, assertCurrent, verifyOnly: options.verifyOnly,
         });
         if (!result || result.errors.length) throw Error(result?.errors?.join("；") || "同步未完成");
         await assertCurrent();
@@ -54,14 +79,17 @@ export class CompletedJobSyncHost {
           artifactError: undefined, artifactRetryAfter: undefined, artifacts: { ...job.artifacts, ...result.files },
           ...(scopes.includes(job.outputDir) && (!job.collectionResultCsv || job.actualExecutionMode === "train" || scopes.includes(job.collectionResultCsv))
             ? { mirroredWorkerIds: targets.map((row: any) => row.id), replaceMirroredWorkerIds: true } : {}) });
+        report.synced++;
       } catch (error: any) {
-        if (!this.current()) return;
+        if (!this.current()) throw error;
         const detail = String(error.message || error), retryAfter = new Date(Date.now() + 30000).toISOString();
+        report.errors.push(plan.planFile + " job " + job.index + "：" + detail);
         await patch({ latestArtifactSync: { key, state: "partial", scopes, error: detail, retryAfter, checkedAt: new Date().toISOString() },
           artifactError: verificationError || "最新产物同步未完成：" + detail, artifactRetryAfter: retryAfter });
         if (previous?.key !== key || previous.error !== detail)
           h.recordActionError({ command: "completedJobLatestSync", message: plan.planFile + " job " + job.index + "：" + detail });
       }
     }
+    return report;
   }
 }

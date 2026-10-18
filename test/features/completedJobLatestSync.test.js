@@ -78,3 +78,33 @@ test('artifact transfer and code upload have independent activity while exact ar
  assert.equal(f.h.activeArtifactSyncScopes.size,0);
  assert.equal(f.jobs[0].latestArtifactSync.state,'synced');
 });
+
+test('manual retry bypasses a stale success receipt and cooldown, copying only the selected completed job delta',async()=>{
+ const f=fixture();await f.run();const identity=f.jobs[0].commandId;
+ delete f.inventory.b['work_dirs/p/job0/model.pth'];f.jobs[0].artifactError='FILE_INDEX_INVALIDATED_DURING_READ';
+ f.jobs[0].latestArtifactSync.retryAfter=new Date(Date.now()+60000).toISOString();f.jobs[1].status='completed';
+ const report=await new CompletedJobSyncHost(f.h,f.root,()=>true).run(['.'],{force:true,jobs:[{planId:'plan',index:0,commandId:identity}]});
+ assert.equal(f.transfers.length,3);assert.deepEqual(Array.from(f.transfers[2].relativePaths),['work_dirs/p/job0/model.pth']);
+ assert.equal(f.jobs[0].artifactError,undefined);assert.equal(f.jobs[0].commandId,identity);assert.equal(f.jobs[0].status,'completed');assert.equal(f.jobs[1].latestArtifactSync,undefined);
+ assert.equal(report.synced,1);assert.deepEqual(report.errors,[]);
+});
+test('manual refresh reports remaining differences without transfers, and clears a stale sync error when content already agrees',async()=>{
+ const f=fixture(),options={force:true,verifyOnly:true,jobs:[{planId:'plan',index:0,commandId:'command0'}]};
+ const first=await new CompletedJobSyncHost(f.h,f.root,()=>true).run(['.'],options);
+ assert.equal(f.transfers.length,0);assert.equal(first.errors.length,1);assert.equal(f.jobs[0].latestArtifactSync.state,'partial');
+ for(const id of ['b','c'])f.inventory[id]=structuredClone(f.inventory.a);
+ const last=await new CompletedJobSyncHost(f.h,f.root,()=>true).run(['.'],options);
+ assert.equal(f.transfers.length,0);assert.equal(last.synced,1);assert.equal(f.jobs[0].artifactError,undefined);assert.equal(f.jobs[0].status,'completed');
+});
+test('manual stale or running job selections never widen to another job or launch work',async()=>{
+ for(const selection of [{planId:'plan',index:0,commandId:'old-command'},{planId:'plan',index:1,commandId:'command1'}]){
+  const f=fixture();await assert.rejects(new CompletedJobSyncHost(f.h,f.root,()=>true).run(['.'],{force:true,jobs:[selection]}),/所选|完成|变化/);assert.equal(f.transfers.length,0);
+ }
+});
+test('duplicate manual retries share the current job transfer instead of copying twice',async()=>{
+ const f=fixture(),merge=f.h.mergeLatestWorkerVersions;let release,entered,calls=0;const gate=new Promise(r=>release=r),started=new Promise(r=>entered=r);
+ f.h.mergeLatestWorkerVersions=async(...args)=>{calls++;entered();await gate;return merge.call(f.h,...args)};
+ const options={force:true,jobs:[{planId:'plan',index:0,commandId:'command0'}]},a=new CompletedJobSyncHost(f.h,f.root,()=>true).run(['.'],options);
+ await started;const b=new CompletedJobSyncHost(f.h,f.root,()=>true).run(['.'],options);release();await Promise.all([a,b]);
+ assert.equal(calls,1);assert.equal(f.transfers.length,2);assert.equal(f.h.completedJobSyncRuns.size,0);
+});

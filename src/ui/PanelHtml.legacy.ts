@@ -14597,6 +14597,8 @@ export function renderPanelHtml(): string {
           const diagnosticSummary = firstException ? '<div class="muted">' + esc(String(firstException.summary || '').split(String.fromCharCode(10)).filter(Boolean).slice(-1)[0] || firstException.type).slice(0, 240) + ' · ' + esc(firstException.logPath || diagnostic.logPath || '') + ' · 行 ' + esc(String(firstException.lineStart || '?')) + '–' + esc(String(firstException.lineEnd || '?')) + '</div>' : '';
           const lifecycleStates = '<div class="muted executionLifecycleStates"><span>执行：' + esc(executionLabel) + (job.exitCode == null ? '' : ' · 退出码 ' + esc(String(job.exitCode))) + '</span> · <span>产物：' + esc(resultLabel) + '</span> · <span>' + esc(diagnosticLabel) + '</span></div>';
           const analyzeButton = job.commandId && job.workerId ? '<button type="button" class="mini secondary" data-command="analyzeRuntimeLog" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || '') + '" data-job-index="' + escAttr(String(job.index)) + '" data-command-id="' + escAttr(job.commandId) + '">重新分析运行日志</button>' : '';
+          const artifactButtons = status === "completed" && job.lifecycleProtocol === 2 && job.workerId && job.commandId && !unavailable
+            ? ['refreshJobArtifacts', 'retryJobArtifactSync'].map((command, index) => '<button type="button" class="mini secondary" data-command="' + command + '" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || '') + '" data-job-index="' + escAttr(String(job.index)) + '" data-command-id="' + escAttr(job.commandId) + '" title="只核对或增量同步此 job 当前勾选范围的产物，保留训练完成状态。">' + (index ? '重试产物同步' : '刷新产物状态') + '</button>').join('') : '';
           const anomalyRerunButton = status === "completed" && job.completionState === "review_required" && job.lifecycleProtocol === 2 && job.workerId && job.commandId
             ? '<button type="button" class="mini secondary" data-command="retryDistributedJob" data-runtime-anomaly-rerun="true" data-plan-id="' + escAttr(job.planId || group.distributedPlanId || '') + '" data-job-index="' + escAttr(String(job.index)) + '" data-command-id="' + escAttr(job.commandId) + '" title="仅重跑此 job；已有产物沿用完整路径双确认，保留其他任务。">覆盖产物并重跑此 job</button>' : '';
           const blockText = job.lifecycleProtocol === 2 ? String(job.statusQueryError || job.blockReason || "") : blocked ? String(job.blockReason || "") : "";
@@ -14610,7 +14612,7 @@ export function renderPanelHtml(): string {
             ? '<div class="muted">下一步：点本行“跳转到日志”查看对应 TMUX 任务窗口。这是已提交 job 的失败，不会自动清理。确认需要停止后，再点本 Plan 的“终止并清除该 Plan”（两次确认）。</div><span class="errorRowLinks" style="display:flex;gap:6px;flex-wrap:wrap;"><button type="button" class="mini secondary" data-section-target="execution" data-anchor-target="execution-operations" title="跳到运行进度，查看本 Plan 的状态">运行进度</button><button type="button" class="mini secondary" data-command="snapshot" title="重新拉取调度状态与操作记录">刷新状态</button></span>'
             : "";
           return '<div class="executionDistributedJob' + (blocked ? " is-blocked" : "") + '" title="' + escAttr(job.outputDir || "") + '">'+(manualControls?'<div class="executionManualDispatch">'+manualControls+'</div>':'')+'<span>' + loadingPrefix(jobActive) + esc(job.case || "job " + job.index) + ' seed ' + esc(String(job.seed)) + '</span><span class="' + (needsReview || blocked || unavailable ? "status-warning" : statusClass(status)) + '">' + esc(statusLabel) + '</span><span>' + esc(blocked ? "阻塞" : placement) + '</span>' + recallButton + failedRecallButton + availabilityButton + logButton + trainingRecoveryButton
-            + lifecycleStates + diagnosticSummary + analyzeButton + anomalyRerunButton
+            + lifecycleStates + diagnosticSummary + analyzeButton + anomalyRerunButton + artifactButtons
             + (job.sourceCodeFingerprint ? '<div class="muted" title="' + escAttr(job.planId + ' · ' + job.sourceRevision + ' · ' + job.sourceCodeFingerprint) + '">源码版本：' + esc(job.sourceCodeFingerprint.slice(0, 12)) + ' · commandId ' + esc(job.commandId || '') + '</div>' : '')
             + (unavailable ? '<div class="muted">不可用原因：' + esc(job.unavailable.reason) + ' · ' + esc(job.unavailable.markedAt) + '</div>' : '')
             + (recallNote ? '<div class="muted">' + esc(recallNote) + '</div>' : '')
@@ -14619,7 +14621,7 @@ export function renderPanelHtml(): string {
             + (job.manualDispatchNotice ? '<div class="muted">' + esc(job.manualDispatchNotice) + '</div>' : '')
             + (job.latestArtifactSync ? '<div class="muted">最新产物同步：' + esc(job.latestArtifactSync.state === "synced" ? "已同步到全部启用服务器" : job.latestArtifactSync.state === "excluded" ? "不在当前勾选范围内" : "未完成，可刷新重试") + '</div>' : '')
             + (blockText ? '<div class="executionDistributedJobError">' + esc(blockText) + (blockAdvice ? '<div>下一步：' + esc(blockAdvice.replace(/^下一步：/, "")) + '</div>' : '') + '</div>' : '')
-            + (errorText ? '<div class="executionDistributedJobError">' + esc(executionJobErrorSummary(errorText)) + (preflightRejected || codeProofBlocked ? jobNext : '<div class="muted">点击“查看窗口日志”查看完整输出。</div>') + '</div>' : '') + '</div>';
+            + (errorText ? '<div class="executionDistributedJobError">' + esc(executionJobErrorSummary(errorText)) + (job.artifactError && artifactButtons ? '<div class="muted">点“刷新产物状态”核对；需要补传时点“重试产物同步”，无需重跑训练。</div>' : preflightRejected || codeProofBlocked ? jobNext : '<div class="muted">点击“查看窗口日志”查看完整输出。</div>') + '</div>' : '') + '</div>';
         }).join("") + '</div>' : '';
         const opHtml = opRows.length ? '<h3>最近操作</h3><div class="operationTimeline">' + opRows.map(renderOperationItem).join("") + '</div>' : "";
         const taskHtml = taskRows.length ? '<h3>任务与日志</h3>' + renderPlanTaskCards(state, sortedTasks, selected, group.key) : "";
@@ -14638,7 +14640,9 @@ export function renderPanelHtml(): string {
           ? '<button type="button" class="mini secondary" data-command="recallPlanToLocalQueue" data-plan-id="' + escAttr(recallPlanIds[0]) + '" data-plan-file="' + escAttr(group.planFile || "") + '" title="召回此 Plan 当前所有服务器排队任务到本机空闲 GPU；运行中和已结束任务保持原状态。">召回 Plan 到本机</button>' : '';
         const queuePlanButton = recallPlanIds.length === 1 && currentJobs.some(job => job.status === "pending" && !job.workerId && !job.commandId && !job.manualDispatch)
           ? '<button type="button" class="mini secondary" data-command="queueRemainingJobs" data-plan-id="' + escAttr(recallPlanIds[0]) + '" title="仅将此 Plan 尚未派发的 job 按各卡配置的 job 配额比例放入服务器队列；运行中和已排队任务保持原状">剩余 job 入服务器队列</button>' : '';
-        const actions = '<div class="executionPlanActions">' + resumeButton + queuePlanButton + recallPlanButton + stopButton + foldButton + '</div>';
+        const artifactPlanIds = Array.from(new Set(currentJobs.filter(job => job.status === 'completed' && job.lifecycleProtocol === 2 && job.workerId && job.commandId && !job.unavailable).map(job => String(job.planId || group.distributedPlanId || '')).filter(Boolean)));
+        const planArtifactButtons = artifactPlanIds.length ? ['refreshJobArtifacts', 'retryJobArtifactSync'].map((command, index) => '<button type="button" class="mini secondary" data-command="' + command + '" data-plan-ids="' + escAttr(JSON.stringify(artifactPlanIds)) + '" title="仅处理此 PLAN 已完成 job；运行中任务保持原状。">' + (index ? '重试 Plan 产物同步' : '刷新 Plan 产物状态') + '</button>').join('') : '';
+        const actions = '<div class="executionPlanActions">' + resumeButton + queuePlanButton + recallPlanButton + planArtifactButtons + stopButton + foldButton + '</div>';
         const detailsBody = stopClearDetail + phaseNote + dangerActions + distributedHtml + opHtml + taskHtml + more;
         const reportedSync = ((state || {}).planArtifactSyncStatuses || {})[group.distributedPlanId] || {};
         const syncState = reportedSync.runId === group.distributedPlanId ? reportedSync : {};
@@ -17532,6 +17536,10 @@ export function renderPanelHtml(): string {
       else if (planCommand && el("planFileInput")) payload.planFile = el("planFileInput").value;
       if (!payload.planFile && command === "archivePlan" && el("planFileInput")) payload.planFile = el("planFileInput").value;
       if (button.dataset.planId) payload.planId = button.dataset.planId;
+      if (["refreshJobArtifacts", "retryJobArtifactSync"].includes(command)) {
+        if (button.dataset.planIds) { try { payload.planIds = JSON.parse(button.dataset.planIds); } catch {} }
+        if (button.dataset.commandId) payload.commandId = button.dataset.commandId;
+      }
       if (button.dataset.jobIndex !== undefined) payload.jobIndex = Number(button.dataset.jobIndex);
       if (command === "analyzeRuntimeLog") payload.commandId = button.dataset.commandId || "";
       if (command === "retryDistributedJob") {

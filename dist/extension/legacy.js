@@ -546,6 +546,7 @@ const uiActionCommands = new Set([
     "abortScheduler",
 ]);
 const SAFE_WEBVIEW_COMMANDS = new Set([
+    "refreshJobArtifacts", "retryJobArtifactSync",
     "analyzeRuntimeLog",
     "answerRunConfirmation", "retryPlanSubmission", "cancelPlanSubmission",
     "cleanupPlan",
@@ -586,6 +587,7 @@ const DEBUG_MODE_BLOCKED_UI_COMMANDS = new Set([
 ]);
 const UI_LAYOUT_SECTION_KEYS = new Set(defaultUiSectionOrder);
 const UI_BUTTON_ACTION_COMMANDS = new Set([
+    "refreshJobArtifacts", "retryJobArtifactSync",
     "cleanupPlan",
     "markJobUnavailable", "restoreJobAvailability",
     "recallFailedJob",
@@ -668,6 +670,7 @@ const IMMEDIATE_RESULT_SUMMARY_REFRESH_COMMANDS = new Set([
 const TUNNEL_ACTION_CONFIRM_COMMANDS = new Set(["stopExperiment", "retryExperiment", ...NO_HUB_RESULT_CONFIRM_COMMANDS, "deleteArtifacts", "reconcileDeletions"]);
 const API_PARAMETERIZED_CONNECTION_COMMANDS = new Set(["prepareAgents", "startAllConnections"]);
 const API_CONFIRM_COMMANDS = new Set([
+    "retryJobArtifactSync",
     ...PLAN_SUBMISSION_COMMANDS,
     ...WORKER_ACTION_CONFIRM_COMMANDS,
     ...NO_HUB_RESULT_CONFIRM_COMMANDS,
@@ -5130,6 +5133,51 @@ class RealtimeTunnelPanelProvider {
         void this.ensureRealtimeConnected("resume network");
         this.postState();
     }
+    async refreshPendingWorkerOperations() {
+        const client = this.client, generation = this.projectContextGeneration;
+        const workerIds = new Set(this.workerActionTargets().map(target => target.id));
+        const rows = Object.entries(this.localOperations || {}).filter(([id, row]) => workerIds.has(row.workerId)
+            && !planSubmitProgress.isLocal(row) && (!operationTerminal(row) || row.outcomePending === true
+            || row.status === "stalled" && String(row.message || "").includes("未在 60s 内返回终态")));
+        const report = { checked: 0, errors: [] };
+        for (let offset = 0; offset < rows.length; offset += 4) {
+            await Promise.all(rows.slice(offset, offset + 4).map(async ([id, row]) => {
+                const ok = await this.refreshOperationStatus(id, row.type || row.action, row.workerId, 0, client, true);
+                if (generation !== this.projectContextGeneration || client !== this.client)
+                    return;
+                if (ok)
+                    report.checked++;
+                else
+                    report.errors.push(`${row.workerId} 原操作 ${id} 尚未核实`);
+            }));
+            if (generation !== this.projectContextGeneration || client !== this.client)
+                return report;
+        }
+        // Repair interrupted submission cards using their original check only.
+        // This never submits the next stage or treats validation as a running job.
+        for (const [id, parent] of Object.entries(this.localOperations || {})) {
+            if (!planSubmitProgress.isLocal(parent) || !["failed", "queued", "outcome_pending"].includes(parent.status)
+                || !(parent.pendingRemoteOperationId && parent.outcomePending || /执行结果待确认|未在 60s 内返回终态/.test(String(parent.message || ""))))
+                continue;
+            const explicit = parent.pendingRemoteOperationId || /operationId=([a-zA-Z0-9_-]+)/.exec(parent.message || "")?.[1];
+            const candidates = Object.entries(this.localOperations || {}).filter(([key, child]) => workerIds.has(child.workerId)
+                && ["validate-plan", "dry-run-plan"].includes(child.type)
+                && (explicit ? key === explicit : child.planFile === parent.planFile
+                    && Math.abs(Date.parse(child.startedAt) - Date.parse(parent.startedAt)) < 120000));
+            if (candidates.length !== 1)
+                continue;
+            const [remoteId, child] = candidates[0];
+            const terminal = operationTerminal(child) && !child.outcomePending;
+            const accepted = terminal && planCheckAccepted(child);
+            const text = terminal ? accepted ? "原计划校验已通过；本次提交已中断，尚未派发。点“继续提交”重新核实当前代码及产物后接续。"
+                : "原计划校验未通过：" + String(child.error || child.message || child.status)
+                : `原计划校验仍待确认 operationId=${remoteId}；可刷新核对，勿重复提交。`;
+            this.localOperations[id] = { ...parent, status: terminal && !accepted ? "failed" : "queued", outcomePending: !terminal,
+                pendingRemoteOperationId: remoteId, message: text, error: terminal && !accepted ? text : "", updatedAt: new Date().toISOString() };
+            this.markLocalOperationsDirty();
+        }
+        return report;
+    }
     async manualSnapshot() {
         const generation = this.projectContextGeneration;
         await this.refreshLocalPlanMetadata({ post: false, force: true }).catch((error) => {
@@ -5142,6 +5190,40 @@ class RealtimeTunnelPanelProvider {
         if (this.effectiveConnectionMode() === "offline_import") {
             void vscode.window.showInformationMessage("离线模式不会访问网络。请导入离线 bundle。");
             this.postState();
+            return;
+        }
+        if (this.taskLifecycleProtocol === 2 && this.client) {
+            const client = this.client, root = workspaceRoot();
+            const current = () => generation === this.projectContextGeneration && client === this.client && root === workspaceRoot();
+            const targets = this.workerActionTargets();
+            const reads = targets.map(async (target) => {
+                const snapshot = await this.readWorkerTaskSnapshot(target.id, { fresh: true });
+                if (snapshot?.error || snapshot?.queryComplete !== true)
+                    throw new Error(target.id + "：" + (snapshot?.error || "本轮仍有状态待核实"));
+                return { workerId: target.id, tasks: snapshot.tasks?.length || 0 };
+            });
+            const [workers, operations, gpu] = await Promise.all([
+                Promise.allSettled(reads), this.refreshPendingWorkerOperations(),
+                client.getGpu({ dispatch: true }).then(() => "", error => errorMessage(error)),
+            ]);
+            if (!current())
+                return;
+            const good = workers.filter(result => result.status === "fulfilled");
+            const errors = workers.filter(result => result.status === "rejected").map(result => errorMessage(result.reason));
+            if (gpu)
+                errors.push("GPU：" + gpu);
+            errors.push(...operations.errors);
+            const tasks = good.reduce((sum, result) => sum + result.value.tasks, 0);
+            this.lastSnapshotAt = new Date().toISOString();
+            this.lastError = errors.length ? errors.join("；") : undefined;
+            const text = `已查询 ${good.length}/${targets.length} 台 Worker、${tasks} 个任务，核对 ${operations.checked} 项原操作${errors.length ? "；部分未知：" + errors.join("；") : "。"}`;
+            if (errors.length)
+                void vscode.window.showWarningMessage(text);
+            else
+                void vscode.window.showInformationMessage(text);
+            this.postState();
+            if (current())
+                void this.tickDistributedQueue().catch(error => this.recordActionError({ command: "distributedPlanQueue", message: errorMessage(error) }));
             return;
         }
         await this.testTunnel(false).catch((error) => { this.lastError = errorMessage(error); });
@@ -5852,6 +5934,9 @@ class RealtimeTunnelPanelProvider {
                 return this.refreshLocalResultsFromUi();
             case "syncPendingPlanArtifacts":
                 return this.withManualResultSync(() => this.syncPendingResultMetricsFromUi());
+            case "refreshJobArtifacts":
+            case "retryJobArtifactSync":
+                return this.withManualResultSync(() => this.artifactSyncFromUi(message, command === "refreshJobArtifacts"));
             case "splitProjectResultTable":
                 await this.splitProjectResultTableFromUi(message);
                 break;
@@ -5951,7 +6036,7 @@ class RealtimeTunnelPanelProvider {
                 return { status: "completed", message: String(value.message) };
             if (command === "runAllPlans" && typeof value?.selectionOnly === "boolean" && ["completed", "failed", "cancelled"].includes(value.status))
                 return { status: value.status, message: String(value.message) };
-            if (command === "queueRemainingJobs" && value && ["completed", "submitted", "failed", "cancelled"].includes(value.status))
+            if (["queueRemainingJobs", "refreshJobArtifacts", "retryJobArtifactSync"].includes(command) && value && ["completed", "submitted", "failed", "cancelled"].includes(value.status))
                 return { status: value.status, message: String(value.message || value.status) };
             if (["stopAndClearPlan", "stopAndClearPlans", "stopAllPlans", "retryDistributedJob", "dispatchJobs", "markJobUnavailable", "restoreJobAvailability"].includes(command) && value && typeof value === "object" && (value.status === "completed" || value.status === "failed" || value.status === "cancelled" || value.status === "partial")) {
                 const outcome = value.status === "partial" ? "failed" : value.status;
@@ -6295,7 +6380,7 @@ class RealtimeTunnelPanelProvider {
             }
             await this.ensureCodeReadyForRun(undefined, [body], (text) => this.reportPlanStage(message, text));
             assertWorkflowCurrent();
-            const preflightOk = await this.runPlanPreflight(body, "当前计划", { reportStage: (text) => this.reportPlanStage(message, text) });
+            const preflightOk = await this.runPlanPreflight(body, "当前计划", { submissionOperationId: this.planSubmissionOperationId(message), reportStage: (text) => this.reportPlanStage(message, text) });
             assertWorkflowCurrent();
             if (!preflightOk) {
                 if (LENIENT_RUN) {
@@ -9019,6 +9104,8 @@ class RealtimeTunnelPanelProvider {
                             groups.set(id, []);
                         groups.get(id).push(item.path);
                     }
+                if (options.verifyOnly)
+                    return { completed: [], files, errors: work.length ? [`仍有 ${work.length} 个文件待同步；请点“重试产物同步”。`] : [] };
                 const source = targets.find(row => row.id === sourceId);
                 const completed = [];
                 for (const [id, paths] of groups) {
@@ -10802,6 +10889,7 @@ class RealtimeTunnelPanelProvider {
             const checkKey = this.planValidationCacheKey(body, this.planSchedulerWorkerId(body));
             const preflightOk = checkKey && body.runRecovery.checkKey === checkKey && body.runRecovery.preflight
                 ? body.runRecovery.preflight : await this.waitForPlanSubmission(message, () => this.runPlanPreflight(body, "当前计划", {
+                submissionOperationId: operationId,
                 reportStage: (text) => this.reportPlanStage(message, text),
                 recordTiming: (key, ms) => this.recordPlanSubmissionTimingByOperation(operationId, key, ms),
                 previewResources: false,
@@ -10865,7 +10953,7 @@ class RealtimeTunnelPanelProvider {
             await recoveryStore.save(body);
             if (this.localOperations[operationId])
                 this.localOperations[operationId].retryableSubmission = !body.runRecovery.cancelled;
-            this.finishPlanSubmissionProgress(message, body.runRecovery.cancelled ? "cancelled" : "failed", errorMessage(error));
+            this.finishPlanSubmissionProgress(message, body.runRecovery.cancelled ? "cancelled" : error?.name === "UiCommandRemotePending" ? "queued" : "failed", errorMessage(error));
             throw error;
         }
         if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot))
@@ -11286,6 +11374,36 @@ class RealtimeTunnelPanelProvider {
                 this.scheduleDistributedPostprocess(root);
             }
         });
+    }
+    async artifactSyncFromUi(message, verifyOnly = false) {
+        const root = workspaceRoot(), client = this.client, generation = this.projectContextGeneration;
+        if (!root || !client)
+            throw new Error("请连接当前项目的 Worker 后重试。");
+        const planIds = Array.isArray(message.planIds) ? message.planIds.map(String) : [String(message.planId || "")];
+        if (!planIds.length || planIds.some(id => !id))
+            throw new Error("产物操作缺少精确 PLAN 身份。");
+        const queue = await this.loadDistributedQueue(root);
+        const rows = queue.plans.filter(plan => planIds.includes(plan.id));
+        if (rows.length !== new Set(planIds).size)
+            throw new Error("所选 PLAN 身份已变化，请刷新后重试。");
+        const jobOnly = message.jobIndex !== undefined;
+        if (jobOnly && (!Number.isInteger(message.jobIndex) || !String(message.commandId || "") || planIds.length !== 1))
+            throw new Error("所选 job 身份不完整，未执行产物操作。");
+        const jobs = rows.flatMap(plan => plan.jobs.filter(job => jobOnly ? job.index === message.jobIndex && job.commandId === message.commandId
+            : job.status === "completed" && job.lifecycleProtocol === 2 && job.commandId && job.workerId && !job.unavailable)
+            .map(job => ({ planId: plan.id, index: job.index, commandId: job.commandId })));
+        if (!jobs.length)
+            throw new Error("没有所选的已完成 job；未读取运行中任务的产物。");
+        const targets = JSON.stringify(this.workerCodeSyncTargets()), stopEpoch = this.distributedPlanStopEpoch;
+        const selectedPaths = () => (0, ProjectMirror_1.normalizeMirrorScopePaths)(vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root)).get("serverSync.paths", ["."]));
+        const selected = selectedPaths();
+        const current = () => workspaceRoot() === root && this.client === client && this.projectContextGeneration === generation
+            && this.distributedPlanStopEpoch === stopEpoch && JSON.stringify(this.workerCodeSyncTargets()) === targets
+            && JSON.stringify(selectedPaths()) === JSON.stringify(selected) && !this.planCleanupHosts?.get(root)?.executing;
+        const report = await new CompletedJobSyncHost_1.CompletedJobSyncHost(this, root, current).run(selected, { force: true, verifyOnly, jobs });
+        this.queuePlanArtifactSyncStatusCheck?.(true);
+        this.postState();
+        return { status: report.errors.length ? "failed" : "completed", message: `${verifyOnly ? "产物状态核对" : "产物增量同步"}：${report.synced} 个 job 已一致，${report.excluded} 个不在勾选范围，${report.errors.length} 个未完成${report.errors.length ? "。" + report.errors.join("；") : "。"}` };
     }
     async syncCompletedPlanArtifacts(context) {
         const root = context.root;
@@ -14312,6 +14430,10 @@ class RealtimeTunnelPanelProvider {
             },
         };
         request.operationId = request.opId;
+        const submission = this.localOperations[options.submissionOperationId];
+        if (submission?.localSubmissionProgress === true) {
+            this.localOperations[options.submissionOperationId] = { ...submission, pendingRemoteOperationId: request.opId };
+        }
         this.localOperations[request.opId] = {
             operationId: request.opId,
             type: action,
@@ -14371,6 +14493,8 @@ class RealtimeTunnelPanelProvider {
             this.postState();
             if (cancelled)
                 throw error;
+            if (communicationOutcomeUnknown(error))
+                throw new UiCommandRemotePending(`执行结果待确认 operationId=${request.opId}；请刷新核对原操作，勿重复提交。`);
             throw new Error(message);
         }
         finally {
@@ -14386,7 +14510,8 @@ class RealtimeTunnelPanelProvider {
             const item = value;
             if (String(item.workerActionKey || "") !== workerActionKey)
                 continue;
-            if (operationTerminal(item))
+            if (operationTerminal(item) && item.outcomePending !== true
+                && !(item.status === "stalled" && String(item.message || "").includes("未在 60s 内返回终态")))
                 continue;
             return {
                 operationId: stringFromRecord(item, ["operationId", "opId", "id"]) || operationId,
@@ -14548,10 +14673,10 @@ class RealtimeTunnelPanelProvider {
         this.operationProbeTimers.set(opId, timer);
     }
     operationStatusProbeDelayMs(attempt = 1) {
-        return 500;
+        return Math.min(5000, 1000 * Math.max(1, attempt));
     }
     operationManualWaitDelayMs(attempt = 1) {
-        return 500;
+        return Math.min(3000, 500 * Math.max(1, attempt));
     }
     async waitForOperationTerminalResult(action, result, title, timeoutMs, workerId, authority = {}) {
         this.assertActionAuthorityCurrent(authority, "工作区或连接已切换，等待 Agent 操作终态已取消。");
@@ -14562,6 +14687,7 @@ class RealtimeTunnelPanelProvider {
         const opId = stringFromRecord(record, ["operationId", "opId", "id"]);
         if (!opId)
             return result;
+        this.clearOperationStatusProbe?.(opId);
         let stalled = false;
         const progress = new ProgressInactivity_1.ProgressInactivity(/file|sync|archive|results|parse/.test(action) ? 120_000 : 30_000, () => {
             stalled = true;
@@ -14569,13 +14695,8 @@ class RealtimeTunnelPanelProvider {
             // executor merely because a filesystem call has not returned yet.
             if (/file|sync|archive|results|parse/.test(action))
                 return;
-            const pending = this.localOperations[opId] || record;
-            const planFile = operationResultPlanFile(pending);
-            const request = { opId: makeOpId("cancel-operation"), targetOperationId: opId, planFile };
-            if (workerId && planFile)
-                void (authority.authorityClient || this.client).postWorkerAction(workerId, "stop-scheduler-operation", request).catch(() => undefined);
-            else if (!workerId)
-                void (authority.authorityClient || this.client).postAction("cancel-operation", request).catch(() => undefined);
+            // Silence ends this foreground wait, never the remote operation.
+            // Only an explicit user stop may send a cancellation request.
         });
         progress.update({ phase: "accepted" });
         let attempt = 1;
@@ -14602,6 +14723,8 @@ class RealtimeTunnelPanelProvider {
         }
         finally {
             progress.dispose();
+            if (!operationTerminal(this.localOperations[opId]))
+                this.scheduleOperationStatusProbe?.(opId, action, workerId);
         }
         this.localOperations[opId] = { ...this.localOperations[opId], status: "outcome_pending", outcomePending: true, message: "执行结果待确认。实时连接会自动重试；请刷新运行状态核对，勿重复提交。" };
         throw new UiCommandRemotePending(`${title || action} 执行结果待确认 operationId=${opId}。实时连接会自动重试，请刷新运行状态核对；勿重复提交。`);
@@ -14626,8 +14749,9 @@ class RealtimeTunnelPanelProvider {
             ...(current || {}),
             operationId: opId,
             type: action,
-            status: "stalled",
-            message: `${workerId ? `Worker Agent ${workerId}` : "Worker Agent"} 未在 60s 内返回终态，UI 已恢复；请刷新或检查对应 Agent 日志。`,
+            status: "outcome_pending",
+            outcomePending: true,
+            message: `${workerId ? `Worker Agent ${workerId}` : "Worker Agent"} 本轮尚未返回终态；原操作保留，刷新状态将按原 operationId 核对。`,
             updatedAt: new Date().toISOString(),
         };
         this.markLocalOperationsDirty();
@@ -14639,7 +14763,8 @@ class RealtimeTunnelPanelProvider {
         if (authorityClient !== this.client)
             return false;
         const current = this.localOperations[opId];
-        if (operationTerminal(current)) {
+        if (operationTerminal(current) && current?.outcomePending !== true
+            && !(current?.status === "stalled" && String(current.message || "").includes("未在 60s 内返回终态"))) {
             this.clearOperationStatusProbe(opId);
             return true;
         }
@@ -14656,6 +14781,7 @@ class RealtimeTunnelPanelProvider {
                 operationId: opId,
                 type: action,
                 status: status || stringFromRecord(result || {}, ["status", "state"]) || "running",
+                error: result && typeof result === "object" ? result.error : undefined,
                 outcomePending: false,
                 updatedAt: new Date().toISOString(),
             };
@@ -19878,8 +20004,22 @@ class RealtimeTunnelPanelProvider {
             : request.node?.kind === "local" ? undefined : request.source || request.server || request.node;
         const index = query && this.projectFileObservationIndex?.(observationSource);
         const load = () => (0, SimpleSftpProgressWait_1.callSftpWithProgress)(method, request, (name) => this.simpleSftpCapability(name), onProgress);
-        if (index)
-            return index.read(query, load);
+        if (index) {
+            const client = this.client, root = workspaceRoot();
+            for (let attempt = 0;; attempt++) {
+                try {
+                    return await index.read(query, load);
+                }
+                catch (error) {
+                    if (method !== "sync.projectInventory" || attempt >= 2 || !errorMessage(error).includes("FILE_INDEX_INVALIDATED_DURING_READ"))
+                        throw error;
+                    (0, SafeRequestRetry_1.assertRetryRequestCurrent)();
+                    if (request.signal?.aborted || this.client !== client || workspaceRoot() !== root)
+                        throw error;
+                    // Only repeat this read against the new observation generation. Never replay a transfer.
+                }
+            }
+        }
         const mutation = /^(sync\.(?:serverToServerFpsync|download|upload)|upload\.|files\.cleanup\.execute|files\.(?:delete|move|write|mkdir|rename))/.test(method)
             && !(method === "sync.downloadMappedPaths" && request.memoryOnly === true);
         if (mutation)
@@ -28245,6 +28385,8 @@ function hostOperationLeaseActionForUiCommand(command) {
     return hostOperationUiCommands.has(command) ? command : "";
 }
 const HOST_OPERATION_LEASE_ACTION_LABELS = Object.freeze({
+    refreshJobArtifacts: "刷新产物状态",
+    retryJobArtifactSync: "重试产物同步",
     killTmuxWindow: "关闭或清空 tmux 会话",
     clearTmuxTaskTabs: "清空任务标签页",
     dispatchJobs: "手动派发任务",

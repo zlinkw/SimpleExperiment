@@ -7,6 +7,18 @@ const {composeLogicalPlans}=require('../../src/features/LogicalPlanProgress.ts')
 
 const panel = readSource("src/ui/PanelHtml.ts").replace('${logicalPlansSource}', '('+composeLogicalPlans.toString()+')');
 
+test('completed job and PLAN expose independent artifact refresh and delta retry while siblings run',()=>{
+  const sandbox=clickSandbox();
+  sandbox.render({distributedPlans:[{id:'wf',planFile:'plans/corim.yaml',jobs:[
+    {index:0,case:'done',seed:43,status:'completed',completionState:'verified',lifecycleProtocol:2,workerId:'jqg_zlk',commandId:'done-command',artifactError:'FILE_INDEX_INVALIDATED_DURING_READ',latestArtifactSync:{state:'partial'}},
+    {index:1,case:'live',seed:44,status:'running',lifecycleProtocol:2,workerId:'jqg_zlk',commandId:'running-command'},
+  ]}]});
+  assert.match(sandbox.html,/data-command="refreshJobArtifacts" data-plan-id="wf" data-job-index="0" data-command-id="done-command"/);
+  assert.match(sandbox.html,/data-command="retryJobArtifactSync" data-plan-id="wf" data-job-index="0" data-command-id="done-command"/);
+  assert.match(sandbox.html,/刷新 Plan 产物状态/);assert.match(sandbox.html,/重试 Plan 产物同步/);assert.match(sandbox.html,/无需重跑训练/);
+  assert.doesNotMatch(sandbox.html,/data-command="retryJobArtifactSync"[^>]*running-command/);
+});
+
 test('supplemental mixed-source job fills the original six-job PLAN and preserves exact control identities',()=>{
   const make=(id,indices,time,version,count)=>({id,projectId:'project',revision:'same-plan',codeFingerprint:version,fullPlanJobCount:6,
     planJobCount:count,enqueuedAt:time,planFile:'plans/corim.yaml',jobs:indices.map(index=>({index,case:'case'+index,seed:42,

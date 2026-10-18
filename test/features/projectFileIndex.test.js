@@ -58,7 +58,7 @@ test('real SFTP entry shares only an explicit read round, strips internal hints 
  const ast=ts.createSourceFile('host.ts',source,ts.ScriptTarget.Latest,true);let method;function visit(n){if(ts.isMethodDeclaration(n)&&n.name.getText(ast)==='simpleSftpApiCall')method=n;ts.forEachChild(n,visit);}visit(ast);
  const {storage,identity}=await fixture(),index=new ProjectFileIndex(identity,storage);let calls=0;const invalidations=[];
  const run=vm.runInNewContext(ts.transpileModule('class Host{'+method.getText(ast)+'};Host.prototype.simpleSftpApiCall',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,
-  {assertRetryRequestCurrent(){},sftpFileIndexQuery,fileOperationIndexPaths,vscode:{workspace:{getConfiguration:()=>({get:()=> 'simple'})}},AgentTmuxPolicy_1:require('../../src/tunnel/AgentTmuxPolicy.ts'),
+  {workspaceRoot:()=>identity.workspace,assertRetryRequestCurrent(){},sftpFileIndexQuery,fileOperationIndexPaths,vscode:{workspace:{getConfiguration:()=>({get:()=> 'simple'})}},AgentTmuxPolicy_1:require('../../src/tunnel/AgentTmuxPolicy.ts'),
    callSftpWithProgress:async(name,params,discover)=>{calls++;await discover(name);assert.equal(params.fileIndexRound,undefined);return payload();}});
  const h={simpleSftpCapability:async()=>({}),projectFileObservationIndex:()=>index,invalidateProjectFileIndexes:async reason=>{invalidations.push(reason);await index.invalidate(reason);}};
  const params={source:{id:'worker',remotePath:'/project'},metadataOnly:true,recursive:true,fileIndexRound:'one'};
