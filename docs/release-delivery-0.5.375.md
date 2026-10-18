@@ -21,4 +21,12 @@ simple-experiment-0.5.375.vsix 为 3186470 字节，SHA256 792eb961939886e807fec
 
 证据、失败复现、前后测量及最终打包日志位于 C:/Users/ZLK/AppData/Local/Temp/simpleex-0375-acceptance-20261018。仅通过当前本地 API 只读确认运行版本 0.5.374 和消费项目根；未上传服务器、修改消费项目文件、运行科研任务或执行新的永久删除。配套继续使用已发布的 SimpleSFTP v0.2.97。本次是本机扩展的页面与诊断发布修复，不自动重启远端 Agent。
 
-发行、安装及重载状态在实际操作后追加。本记录在打包后补充，不修改已冻结的安装包。
+## 发行与安装
+
+源码提交 40271ae48fbf0fadab096c778bc11e2741b23a93 已普通 fast-forward 推送 origin/master，fetch 核对一致。[稳定 v0.5.375](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.375) 和 tag 绑定该提交。真实 Latest 的 draft=false、prerelease=false，资产为上述 VSIX 及同名 .vsix.sha256，大小与摘要均符合冻结包。
+
+实际 0.5.374 ReleaseClient 识别 0.5.375 更新，下载主包、配套包及各自清单，身份、平台、精确文件名、大小、SHA256 与冻结字节一致。一次发布前辅助 GitHub 查询遇到 EOF，后续真实 Latest、tag 和下载核验均恢复并通过。配套 SimpleSFTP v0.2.97 为 171731 字节，SHA256 1dfe226df01ef0d0a9a770d5ec6e9eb8d8a5deb6f0688ab982e54e61b2126af3，清单一致，未重复安装。
+
+显式执行一次 npm run install:latest，0.5.375 安装成功，无 force、无降级。立即核对 VS Code 已安装版本、384 个 dist 文件、simpleex.cmd 及 simpleex --help，均与发行字节一致。安装后停止当前插件 API 和面板操作，等待用户 Developer: Reload Window；新版本真实窗口行为不能用隔离 Webview 回归冒充已经现场验收。本轮未部署或重启远端 Agent。
+
+本记录在打包后补充，不修改已冻结、发布或安装的包。
