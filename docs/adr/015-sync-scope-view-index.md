@@ -234,3 +234,12 @@ PLAN 源码、产物确认和代码/产物内容清单继续走原主动 stat、
 ## 验证
 
 隔离测试执行真实扫描器和从生产 runtime 提取的 POST 方法，不导入或运行整个 Agent。覆盖增删改、无变化空增量、首次全量、实例重启、分页换代、迟到响应、权限失败、页面释放及读取槽位分类。所有 Python 子进程有 10 秒上限，单文件 node:test 串行且有 20 秒上限。
+
+
+### 0.5.386 交付回执
+
+主插件串行构建/打包 1041 项检查通过，包含生产摘要自动比较、真实本机新进程哈希缓存、Plan 复选框/批次停止及 PanelHtml 内层脚本检查。源码 `ebb5d2a63d8638c4fd6906f63efa59c1d8c2808d` 普通推送并 fetch 核对与 origin/master 一致。[稳定发行 v0.5.386](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.386) 绑定该提交；冻结资产 `simple-experiment-0.5.386.vsix`，3220958 bytes，SHA256 `1366f770b455920c49572b8229e4af84bb92408cd74b3867fbe1b0c5a653b7a9`，配套精确文件名绑定 .vsix.sha256。560 ZIP 项、386 dist 文件和 264 个运行闭包模块的身份、universal 平台、版本、engine、源字节和秘密排除通过。
+
+配套 SimpleSFTP 0.2.101 源码 `1151f5e5b7ae58be9edff0a346299ee321d378ba`，[稳定发行](https://github.com/zlinkw/SimpleSFTP/releases/tag/v0.2.101) 资产 `simple-sftp-0.2.101.vsix`，174409 bytes，SHA256 `2f62c2833bfddafdefcf79d8599580b859306923c8bb550f338619a61f66be2c`。旧版真实更新解析器读取两个真实 Latest，确认均非 draft/prerelease、提交及资产一致，实际下载 VSIX/校验文件并逐字节比对。匿名公开更新源和下载。
+
+两个版本均显式安装一次，无 force、无降级。VS Code 安装版本、主插件 386 个 dist 文件、simpleex 入口及配套 23 个文件/CLI 核对通过。安装后不再操作当前面板/API，等待用户 Developer: Reload Window 后现场 UI 验收。本批不停止用户任务、不修改训练产物，不自动部署远端 Agent；索引与缓存速度证据来自隔离夹具。
