@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.378",
-  "buildId": "0367144bf0fd4a00904ad04c24f3d0228eb72b8c7e5d496c0af5d2683da66a91",
+  "version": "0.5.379",
+  "buildId": "b32bdf787c42c2f825f914703951edf9d0c98f8a659a5aa28b128e12a07baebc",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -357,7 +357,7 @@
     },
     {
       "path": "dist/features/IncrementalLocalMetadata.js",
-      "sha256": "a50d87f79d015037346db512fc42aadaeb7ebc9c77a83d156361c4e32370e04d"
+      "sha256": "402d1c4f2e2c3271b6c2d3793cbe8323eabfb0183266b608038a0ef1a3a7278b"
     },
     {
       "path": "dist/features/JobAvailability.js",
@@ -374,6 +374,10 @@
     {
       "path": "dist/features/LocalCodeManifestCache.js",
       "sha256": "097cd935c1acb670068f9ec4caaef5e84b4201ce7f1ba07a2901923cf5500cc3"
+    },
+    {
+      "path": "dist/features/LocalMetadataChanges.js",
+      "sha256": "51c0cced8dfa158dbf39abf6ff109748145d1aa69354f9421ccdff59e7628779"
     },
     {
       "path": "dist/features/LogicalPlanProgress.js",
@@ -581,7 +585,7 @@
     },
     {
       "path": "dist/features/SyncScopeLocalIndex.js",
-      "sha256": "833b9a22dc62ca9fe011c54a5769e73daa68bc03266cd50a1330e1020fbebd2d"
+      "sha256": "a21c15ea2705af577d72475991222a065aaf6d91f871909d742033ce515f4de3"
     },
     {
       "path": "dist/features/SyncScopeLocalMirror.js",
@@ -697,7 +701,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "73455a6561a8d424f04801b8b5fd5cb0abe3a5435ba4bdabdad4ca202c147828"
+      "sha256": "0164987f589c74571d597181e66c0e85a62810c77f596460a85a08cde691651d"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1045,7 +1049,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "4f6466c10483b9cf96d251ee7899a5385c90a2c202e19ca365f36dab60562f53"
+      "sha256": "5b93614227221a33f45a17c4b6abbe98e74a3719d9f9329794250edefa531063"
     },
     {
       "path": "scripts/check-static.js",

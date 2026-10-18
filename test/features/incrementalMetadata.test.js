@@ -23,7 +23,7 @@ test('local warm and restarted indexes reuse directory enumeration but revalidat
 });
 
 test('local lookup failure stays unknown, cannot publish stale missing facts, then recovers; truncated cache rebuilds',async()=>{
- const {root,file}=await fixture(),reader=new IncrementalLocalMetadata(root,file);await reader.read();
+ const {root,file}=await fixture(),reader=new IncrementalLocalMetadata(root,file);await reader.read();reader.invalidate();
  const original=fs.lstat;fs.lstat=async name=>{if(String(name).endsWith(path.join('deep','a')))throw Object.assign(Error('denied'),{code:'EACCES'});return original(name);};
  try{const status=await queryScopeMetadata([{id:'local',read:()=>reader.read()},{id:'worker',read:async()=>({files:{'data/deep/a':{size:3,modifiedAtMs:1}}})}]);assert.equal(status['data/deep/a'].metadata.local.status,'unknown');assert.equal(status['.'].copies.local.missing,0);}finally{fs.lstat=original;}
  assert.equal((await reader.read()).files['data/deep/a'].size,3);

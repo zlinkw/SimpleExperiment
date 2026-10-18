@@ -41,7 +41,9 @@ const node_crypto_1 = require("node:crypto");
 const node_fs_1 = require("node:fs");
 const StateStore_1 = require("../state/StateStore");
 const SyncScopeStatus_1 = require("./SyncScopeStatus");
-const signature = (row) => JSON.stringify(row);
+const LocalMetadataChanges_1 = require("./LocalMetadataChanges");
+const same = (a, b) => !!a && a.directory === b.directory && a.size === b.size
+    && a.modifiedAtMs === b.modifiedAtMs && a.changedAtMs === b.changedAtMs && a.device === b.device && a.inode === b.inode;
 const digest = (value) => (0, node_crypto_1.createHash)("sha256").update(JSON.stringify(value)).digest("hex");
 const parent = (name) => name.includes("/") ? name.slice(0, name.lastIndexOf("/")) : ".";
 const safe = (name) => name === "." || !/[\\:\x00-\x1f]/.test(name) && name.length <= 4096 && name.split("/").every(p => p && p !== "." && p !== "..");
@@ -57,8 +59,8 @@ async function parallel(values, run) {
     if (failure)
         throw failure.reason;
 }
-/** Notifications alone cannot prove freshness on Windows/network mounts. Revalidate saved identities,
- * enumerate only changed directories, and batch file stats. No persisted negative is authoritative. */
+/** Local Windows volumes use a live notification cursor between bounded reconciliations.
+ * Reloads, gaps and unsupported filesystems revalidate saved identities. Saved negatives are never proof. */
 class IncrementalLocalMetadata {
     root;
     file;
@@ -67,12 +69,26 @@ class IncrementalLocalMetadata {
     sequence = 0;
     journalBytes = 0;
     queue = Promise.resolve();
+    changes = new LocalMetadataChanges_1.LocalMetadataChanges();
+    published;
     constructor(root, file) {
         this.root = root;
         this.file = file;
     }
+    invalidate() { this.changes.invalidate(); }
+    dispose() { this.changes.close(); }
     read(signal, report = (_stage) => { }) {
-        const result = this.queue.catch(() => { }).then(() => this.scan(signal, report)).catch(error => {
+        const result = this.queue.catch(() => { }).then(async () => {
+            for (let attempt = 0;; attempt++)
+                try {
+                    return await this.scan(signal, report);
+                }
+                catch (error) {
+                    if (attempt >= 2 || signal?.aborted || !String(error).includes("LOCAL_INDEX_DIRECTORY_CHANGED"))
+                        throw error;
+                }
+        }).catch(error => {
+            this.changes.invalidate();
             this.rows.clear();
             this.sequence = 0;
             this.journalBytes = 0;
@@ -87,6 +103,8 @@ class IncrementalLocalMetadata {
         if (rootStat.isSymbolicLink() || !rootStat.isDirectory() || path.resolve(root).toLowerCase() !== path.resolve(this.root).toLowerCase())
             throw Error("LOCAL_INDEX_ROOT_UNSAFE");
         const identity = { root, device: String(rootStat.dev), inode: String(rootStat.ino), policy: 1 };
+        await this.changes.start(root, JSON.stringify(identity), identity.device);
+        const cursor = await this.changes.snapshot();
         let restored = false;
         if (!this.loaded) {
             this.loaded = true;
@@ -132,14 +150,36 @@ class IncrementalLocalMetadata {
                 }
         }
         const before = this.rows, rows = new Map(before), validated = new Map();
+        const native = cursor.native && before.size > 0;
+        if (native && !cursor.dirty.size && this.published && same(before.get("."), fact(rootStat))) {
+            await this.changes.complete(cursor, false);
+            signal?.throwIfAborted();
+            report(`原生增量校验 · 已复用 ${before.size} 项 · 校验 1 项 · 读取 0 个变化目录`);
+            return { ...this.published, observedAt: new Date().toISOString(), acceleration: { restored, reusedEntries: before.size,
+                    statCalls: 1, enumeratedDirectories: 0, changedEntries: 0, mode: "native-directory-deltas" } };
+        }
         const childDirectories = new Map();
+        const childrenByParent = new Map();
         for (const [name, row] of before)
-            if (name !== "." && row.directory) {
-                const list = childDirectories.get(parent(name)) || [];
-                list.push(name);
-                childDirectories.set(parent(name), list);
+            if (name !== ".") {
+                const p = parent(name), children = childrenByParent.get(p) || new Set();
+                children.add(name);
+                childrenByParent.set(p, children);
+                if (row.directory) {
+                    const list = childDirectories.get(p) || [];
+                    list.push(name);
+                    childDirectories.set(p, list);
+                }
             }
         let statCalls = 0, enumeratedDirectories = 0, reusedEntries = 0, listedEntries = 0;
+        let lastReport = -Infinity;
+        const mode = native ? "原生增量校验" : before.size ? "实时身份复核" : "首次建立索引";
+        const progress = (force = false) => {
+            if (force || performance.now() - lastReport >= 100) {
+                lastReport = performance.now();
+                report(`${mode} · 已复用 ${reusedEntries} 项 · 校验 ${statCalls} 项 · 读取 ${enumeratedDirectories} 个变化目录`);
+            }
+        };
         const full = (name) => name === "." ? root : path.join(root, ...name.split("/"));
         const check = async (name) => {
             signal?.throwIfAborted();
@@ -156,10 +196,33 @@ class IncrementalLocalMetadata {
                 throw error;
             }
         };
-        const remove = (name) => { for (const key of rows.keys())
-            if (key === name || key.startsWith(name + "/"))
-                rows.delete(key); };
-        const pending = ["."];
+        const remove = (name) => {
+            for (const child of childrenByParent.get(name) || [])
+                remove(child);
+            childrenByParent.delete(name);
+            childrenByParent.get(parent(name))?.delete(name);
+            rows.delete(name);
+        };
+        const forced = new Set();
+        const nativePaths = new Set(["."]);
+        if (native)
+            for (const name of cursor.dirty) {
+                let p = parent(name);
+                forced.add(p);
+                nativePaths.add(p);
+                if (before.get(name)?.directory) {
+                    forced.add(name);
+                    nativePaths.add(name);
+                }
+                while (p !== ".") {
+                    p = parent(p);
+                    nativePaths.add(p);
+                }
+            }
+        if (native)
+            reusedEntries = before.size;
+        const pending = native ? [...nativePaths].sort((a, b) => a.split("/").length - b.split("/").length) : ["."];
+        progress(true);
         const visited = new Set();
         const checkedFiles = new Set();
         while (pending.length) {
@@ -184,7 +247,7 @@ class IncrementalLocalMetadata {
                     throw Error("LOCAL_INDEX_DIRECTORY_UNSAFE: " + name);
                 validated.set(name, current);
                 rows.set(name, current);
-                if (!old?.directory || signature(old) !== signature(current)) {
+                if (!old?.directory || !same(old, current) || forced.has(name)) {
                     enumeratedDirectories++;
                     const found = new Set();
                     const directory = await fs.opendir(full(name), { bufferSize: 128 });
@@ -197,17 +260,23 @@ class IncrementalLocalMetadata {
                             if (!safe(child))
                                 throw Error("LOCAL_INDEX_PATH_INVALID");
                             if ((0, SyncScopeStatus_1.scopeInventoryPathAllowed)(child, entry.isDirectory()))
-                                children.push(child);
+                                children.push([child, entry]);
                         }
-                        await parallel(children, async (child) => {
-                            const row = await check(child);
+                        await parallel(children, async ([child, entry]) => {
+                            const saved = before.get(child);
+                            const reusable = native && saved && !cursor.dirty.has(child) && saved.directory === entry.isDirectory()
+                                && (entry.isDirectory() || entry.isFile()) && !entry.isSymbolicLink();
+                            const row = reusable ? saved : await check(child);
                             if (!row)
                                 throw Error("LOCAL_INDEX_DIRECTORY_CHANGED: " + name);
                             found.add(child);
                             if (rows.get(child)?.directory && !row.directory)
                                 remove(child);
                             rows.set(child, row);
-                            if (row.directory)
+                            const siblings = childrenByParent.get(name) || new Set();
+                            siblings.add(child);
+                            childrenByParent.set(name, siblings);
+                            if (row.directory && (!native || !same(before.get(child), row)))
                                 pending.push(child);
                             else
                                 checkedFiles.add(child);
@@ -216,50 +285,59 @@ class IncrementalLocalMetadata {
                     finally {
                         await directory.close().catch(() => { });
                     }
-                    for (const child of rows.keys())
-                        if (child !== "." && parent(child) === name && !found.has(child))
+                    for (const child of childrenByParent.get(name) || [])
+                        if (!found.has(child))
                             remove(child);
                 }
                 else {
-                    reusedEntries++;
-                    pending.push(...(childDirectories.get(name) || []));
+                    if (!native) {
+                        reusedEntries++;
+                        pending.push(...(childDirectories.get(name) || []));
+                    }
                 }
-                report(`增量校验 · ${statCalls} 项 · 读取 ${enumeratedDirectories} 个变化目录`);
+                progress();
             });
         }
         // A directory mtime does not detect edits to existing files, nor changes made while the host was closed.
         // Fresh batched stats are mandatory without a durable, continuous filesystem journal.
-        await parallel([...before].filter(([name, row]) => !row.directory && rows.has(name) && !checkedFiles.has(name)).map(([name]) => name), async (name) => {
-            const row = await check(name);
-            if (!row)
-                rows.delete(name);
-            else if (row.directory)
-                throw Error("LOCAL_INDEX_TYPE_CHANGED: " + name);
-            else {
-                if (signature(row) === signature(before.get(name)))
-                    reusedEntries++;
-                rows.set(name, row);
-            }
-            if (statCalls % 128 === 0)
-                report(`增量校验 · ${statCalls} 项 · 读取 ${enumeratedDirectories} 个变化目录`);
-        });
+        if (!native)
+            await parallel([...before].filter(([name, row]) => !row.directory && rows.has(name) && !checkedFiles.has(name)).map(([name]) => name), async (name) => {
+                const row = await check(name);
+                if (!row)
+                    rows.delete(name);
+                else if (row.directory)
+                    throw Error("LOCAL_INDEX_TYPE_CHANGED: " + name);
+                else {
+                    if (same(before.get(name), row))
+                        reusedEntries++;
+                    rows.set(name, row);
+                }
+                progress();
+            });
         await parallel([...validated], async ([name, row]) => {
             const current = await check(name);
-            if (!current || signature(row) !== signature(current))
+            if (!current || !same(row, current))
                 throw Error("LOCAL_INDEX_DIRECTORY_CHANGED: " + name);
         });
         signal?.throwIfAborted();
+        await this.changes.complete(cursor, !native);
         if (rows.size > 60000)
             throw Error("LOCAL_INDEX_ENTRY_LIMIT");
         if ([...rows.values()].filter(row => !row.directory).length > 50000)
             throw Error("LOCAL_INDEX_FILE_LIMIT");
         const changes = [];
         for (const [name, row] of rows)
-            if (!before.has(name) || signature(before.get(name)) !== signature(row))
+            if (!same(before.get(name), row)) {
                 changes.push([name, row]);
+                if (native && before.has(name))
+                    reusedEntries--;
+            }
         for (const name of before.keys())
-            if (!rows.has(name))
+            if (!rows.has(name)) {
                 changes.push([name, null]);
+                if (native)
+                    reusedEntries--;
+            }
         this.rows = rows;
         if (this.file && (changes.length || !this.sequence))
             try {
@@ -291,8 +369,11 @@ class IncrementalLocalMetadata {
         const files = {}, directories = {};
         for (const [name, { directory, ...row }] of rows)
             (directory ? directories : files)[name] = { ...row, modifiedAtMs: Math.floor(row.modifiedAtMs) };
-        return { files, directories, unverifiedFiles: {}, observedAt: new Date().toISOString(),
-            acceleration: { restored, reusedEntries, statCalls, enumeratedDirectories, changedEntries: changes.length, mode: "live-stat-with-directory-deltas" } };
+        this.published = { files, directories, unverifiedFiles: {} };
+        progress(true);
+        return { ...this.published, observedAt: new Date().toISOString(),
+            acceleration: { restored, reusedEntries, statCalls, enumeratedDirectories, changedEntries: changes.length,
+                mode: native ? "native-directory-deltas" : "live-stat-reconciliation" } };
     }
 }
 exports.IncrementalLocalMetadata = IncrementalLocalMetadata;
@@ -304,7 +385,10 @@ function incrementalLocalMetadata(root, file) {
         index = new IncrementalLocalMetadata(root, file);
         indexes.set(key, index);
     }
-    while (indexes.size > 32)
-        indexes.delete(indexes.keys().next().value);
+    while (indexes.size > 32) {
+        const key = indexes.keys().next().value;
+        indexes.get(key).dispose();
+        indexes.delete(key);
+    }
     return index;
 }

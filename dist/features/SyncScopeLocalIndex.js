@@ -8,6 +8,7 @@ class SyncScopeLocalIndexReader {
     idleMs;
     index;
     request;
+    listing;
     constructor(root, idleMs = 30_000, index) {
         this.root = root;
         this.idleMs = idleMs;
@@ -50,6 +51,8 @@ class SyncScopeLocalIndexReader {
         });
         const scan = (this.index ? this.index.read({ method: "local.metadata", metadataOnly: true, recursive: true, backgroundPersistence: true, round, signal: controller.signal }, load) : load()).then(inventory => {
             controller.signal.throwIfAborted();
+            if (this.listing?.files === inventory.files && this.listing.directories === inventory.directories)
+                return { ...inventory, children: this.listing.children, observedAt: new Date().toISOString() };
             const children = new Map();
             for (const [directory, rows] of [[true, inventory.directories], [false, inventory.files]])
                 for (const [relative, facts] of Object.entries(rows)) {
@@ -60,6 +63,7 @@ class SyncScopeLocalIndexReader {
                     entries.push({ name: relative.slice(relative.lastIndexOf("/") + 1), path: relative, directory, ...facts });
                     children.set(parent, entries);
                 }
+            this.listing = { files: inventory.files, directories: inventory.directories, children };
             return { ...inventory, children, observedAt: new Date().toISOString() };
         });
         request.promise = Promise.race([scan, expired]).finally(() => {
