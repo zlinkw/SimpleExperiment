@@ -34,3 +34,12 @@ CLI 对应 `simpleex task dispatch --remaining --workflow ID --confirm` 和 `sim
 两台服务器的保存入口按顺序处理完整意图。每次在上一项保存完成后读取当前服务器数组，防止异步加载 Xshell 会话让后完成的旧数组覆盖先保存的服务器设置。单项加载失败不堵塞后续项。
 
 回归通过真实 Host 的保存、配置变更回调及重新加载链路，覆盖显式上限、0 暂停、清空不限、逐卡配置保持、存储写入间回调、两台并发保存和失败后继续。用户明确指定上限为 nwpu3=3、nwpu2=3、nwpu5=2、jqg_zlk=3；通过当前插件 API 只改这四个字段并重新读取核对，其他配置与修改前一致。未手工停止、重新提交或清理既有任务。
+
+
+## 0.5.391 交付回执
+
+串行构建/打包 1139 项检查、PanelHtml 模板/内层脚本及 vm.Script 通过。保存回调、两次存储写入之间的回调以及两台服务器同时保存三个场景均先复现旧上限覆盖，修复后连同清空、不限、0 暂停、逐卡设置和失败后继续通过。源码 `47acf05beaf38a5615836c20b49359bbe94a5a9f` 已普通推送并 fetch 与 origin/master 核对一致。[稳定发行 v0.5.391](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.391) 绑定该提交。资产 `simple-experiment-0.5.391.vsix`（3243527 bytes），SHA256 `16d1351e6399263c9917ee410ed698a37ceab380a6aeb965af1b7a504fb9b441`；567 ZIP 条目、391 个 dist 文件、269 个运行闭包模块的身份、版本、universal 平台、engine、字节和秘密排除通过。
+
+旧版真实更新客户端读取公开 Latest，实际下载主插件及 SimpleSFTP 0.2.101 的 VSIX 和逐包校验文件，核对源码提交、大小、SHA256 及冻结字节。主插件显式安装一次，无 force 或降级；VS Code 版本、391 个安装 dist 文件、simpleex 入口及配套 23 个文件通过。SimpleSFTP 0.2.101 复用原包与安装，源码 `1151f5e5b7ae58be9edff0a346299ee321d378ba`，SHA256 `2f62c2833bfddafdefcf79d8599580b859306923c8bb550f338619a61f66be2c`。
+
+按用户指定，通过安装前运行中的 API 将 nwpu3、nwpu2、nwpu5、jqg_zlk 的上限设为 3、3、2、3，并在写入后重新读取确认。打包期间当前 API 监听离线，无法在安装前追加现场复查。修改时比对完整配置，除这四个字段外保持一致。没有手工停止、重新提交或清理旧任务；原队列依当前配额继续调度。未自动部署远端 Agent。安装后不再操作当前面板/API，等待 Developer: Reload Window 后核对重载现场。
