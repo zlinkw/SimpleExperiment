@@ -931,6 +931,7 @@ export class RealtimeTunnelPanelProvider {
     view;
     tunnelConfig;
     setupConfig;
+    private workerConfigSavePromise?: Promise<void>;
     budget;
     client;
     lastHealth;
@@ -13152,6 +13153,14 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         void vscode.window.showInformationMessage("调度与上报策略已保存。");
     }
     async saveWorkerConfigFromUi(message) {
+        // Capture each intent only after the preceding save has persisted.
+        // Session loading can otherwise let two full Worker arrays race.
+        const task = (this.workerConfigSavePromise || Promise.resolve()).catch(() => {}).then(() => this.saveWorkerConfigCore(message));
+        this.workerConfigSavePromise = task;
+        try { await task; }
+        finally { if (this.workerConfigSavePromise === task) this.workerConfigSavePromise = undefined; }
+    }
+    private async saveWorkerConfigCore(message) {
         const endpointId = stringField(message, "endpointId");
         const patch = recordField(message, "patch");
         const currentWorker = this.setupConfig.workerTunnels.find((worker) => worker.id === endpointId);
@@ -20667,19 +20676,23 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             refreshProfile: "realtime",
         });
         const configuration = vscode.workspace.getConfiguration("simpleExperiment");
+        // These updates raise handleConfigurationChanged, which reloads the
+        // global setup. Persist the new Worker settings before that reentry.
+        await this.saveState();
         await Promise.all([
             configuration.update("tunnel.remoteTmuxSessionPrefix", next.remoteTmuxSessionPrefix, vscode.ConfigurationTarget.Global),
             configuration.update("tunnel.condaEnv", next.condaEnv, vscode.ConfigurationTarget.Global),
             configuration.update("tunnel.agentLoginPolicy", next.agentLoginPolicy || "preserve", vscode.ConfigurationTarget.Global),
         ]);
-        await this.saveState();
         await this.context.globalState.update(keys.setupConfigurationSignature, this.sessionDefaultConfigurationSignature());
         this.resetClient();
         this.postState();
     }
     async saveState() {
-        await this.context.globalState.update(keys.tunnelConfig, persistedTunnelGatewayConfig(this.tunnelConfig));
-        await this.context.globalState.update(keys.setupConfig, persistedXshellSetupConfig(this.setupConfig));
+        const tunnel = persistedTunnelGatewayConfig(this.tunnelConfig);
+        const setup = persistedXshellSetupConfig(this.setupConfig);
+        await this.context.globalState.update(keys.tunnelConfig, tunnel);
+        await this.context.globalState.update(keys.setupConfig, setup);
     }
     async refreshLocalSshConfig(force = false) {
         const fingerprint = localMetadataFingerprint([LocalSshConfig_1.defaultSshConfigPath()]);

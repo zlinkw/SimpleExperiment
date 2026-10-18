@@ -2,7 +2,7 @@
   "name": "simple-experiment",
   "displayName": "SimpleExperiment",
   "description": "面向科研实验的 Xshell 本地隧道实时集群编排面板。",
-  "version": "0.5.390",
+  "version": "0.5.391",
   "publisher": "simple-local",
   "extensionKind": [
     "ui"
@@ -971,7 +971,7 @@
     "test:sync-gpu": "node --test --test-force-exit --test-timeout 20000 test/features/freshGpuTelemetry.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/gpuWorkerSnapshotRecovery.test.js && node --test --test-force-exit --test-timeout 20000 test/features/resultSyncFailureVisibility.test.js",
     "test:runtime-diagnostics": "node --test --test-force-exit --test-timeout 20000 test/features/runtimeLogDiagnostics.test.js && node --test --test-force-exit --test-timeout 20000 test/features/runtimeAnomalyLifecycle.test.js && node --test --test-force-exit --test-timeout 20000 test/features/runtimeLogAnalysisHost.test.js",
     "test:plan-code-scope": "node --test --test-force-exit --test-timeout 20000 test/features/planCodeScope.test.js",
-    "test:local-dispatch": "node --test --test-force-exit --test-timeout 20000 test/features/serverQueueDispatch.test.js && node --test --test-force-exit --test-timeout 20000 test/features/dispatchWake.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/tunnelClient.test.js"
+    "test:local-dispatch": "node --test --test-force-exit --test-timeout 20000 test/features/serverQueueDispatch.test.js && node --test --test-force-exit --test-timeout 20000 test/features/dispatchWake.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/tunnelClient.test.js && node --test --test-force-exit --test-timeout 20000 test/features/serverQuotaPersistence.test.js && node --test --test-force-exit --test-timeout 20000 test/tunnel/globalConfigPersistence.test.js"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

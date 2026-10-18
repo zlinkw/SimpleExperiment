@@ -6,7 +6,8 @@ const { readSource } = require("../_helpers/sourceReader");
 test("tunnel setup is persisted globally instead of per workspace", () => {
   const source = readSource("src/extension.ts");
   assert.match(source, /globalState\.get\(keys\.setupConfig\)/);
-  assert.match(source, /globalState\.update\(keys\.setupConfig, persistedXshellSetupConfig\(this\.setupConfig\)\)/);
+  assert.match(source, /const setup = persistedXshellSetupConfig\(this\.setupConfig\)/);
+  assert.match(source, /globalState\.update\(keys\.setupConfig, setup\)/);
   assert.doesNotMatch(source, /workspaceState\.get\([^)]*setupConfig/);
 });
 
@@ -18,5 +19,7 @@ test("session defaults keep the last panel save unless a non-default user settin
   assert.match(source, /!hasStoredSignature && explicit === fallback && savedValue !== undefined && savedValue !== fallback\s*\?\s*savedValue\s*:\s*explicit/);
   assert.match(source, /configuration\.update\("tunnel\.remoteTmuxSessionPrefix", next\.remoteTmuxSessionPrefix, vscode\.ConfigurationTarget\.Global\)/);
   assert.match(source, /configuration\.update\("tunnel\.condaEnv", next\.condaEnv, vscode\.ConfigurationTarget\.Global\)/);
-  assert.match(source, /await this\.saveState\(\);\s*await this\.context\.globalState\.update\(keys\.setupConfigurationSignature, this\.sessionDefaultConfigurationSignature\(\)\)/);
+  const save = source.slice(source.indexOf('async applySetupDraft('), source.indexOf('async saveState('));
+  assert.ok(save.indexOf('await this.saveState()') < save.indexOf('configuration.update('));
+  assert.match(save, /await this\.context\.globalState\.update\(keys\.setupConfigurationSignature, this\.sessionDefaultConfigurationSignature\(\)\)/);
 });
