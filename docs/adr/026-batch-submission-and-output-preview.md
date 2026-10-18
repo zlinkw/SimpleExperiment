@@ -23,3 +23,13 @@
 不执行现场删除、训练、同步或远端 Agent 更新；本机回归不能冒充现场端到端提速。原生 modal 通过生产方法与 VS Code API 替身验证完整长路径及两个阶段，不弹出真实删除确认。Agent 端优化需部署新 runtime 后生效，本机提交、请求调度和原生确认需重载扩展后生效。
 
 测试覆盖滚动提交、均衡校验、未知结果保留、控制通道隔离、日志追加/半行/轮换、并行只读预览和失败阻断、原生双确认与旧回复隔离；打包门禁继续覆盖新鲜产物、PLAN 源码、删除安全、索引增量、生成面板脚本和运行闭包。
+
+## 0.5.393 交付回执
+
+串行 package 门禁 1170 项检查通过；包含 build、生成面板脚本解析及额外 vm.Script 校验。源码提交 `baada499ea2c447bd5a3f8380d3673bbaff1f5f8` 已普通推送，fetch 后确认等于 origin/master。未提交原有 Python 缓存或无关脚本。
+
+[稳定发行 v0.5.393](https://github.com/zlinkw/SimpleExperiment/releases/tag/v0.5.393) 绑定该源码提交，非 draft/prerelease。资产 `simple-experiment-0.5.393.vsix` 为 3255605 bytes，SHA256 `ceb8ada25a30724bc711e9142e59701aa3f06cccd82f7d99bc652692ba264caf`，另附绑定精确文件名的 `.vsix.sha256`。569 个 ZIP 条目、391 个 dist 文件、269 个运行闭包模块的身份、版本、universal 平台、engine、字节与秘密排除检查通过。
+
+实际 0.5.392 更新客户端从公开 Latest 发现更新，重新下载主插件及 SimpleSFTP 0.2.101 的真实 VSIX/校验文件，核对稳定状态、tag、提交、资产名、大小、SHA256 与冻结包字节。SimpleSFTP 复用既有一致版本，源码 `1151f5e5b7ae58be9edff0a346299ee321d378ba`，SHA256 `2f62c2833bfddafdefcf79d8599580b859306923c8bb550f338619a61f66be2c`，未修改或重装。
+
+显式安装主插件一次，无 force 或降级。VS Code 已安装 0.5.393；391 个安装 dist 文件、simpleex 入口及配套 SimpleSFTP 23 个文件核验通过。安装后停止调用当前面板/API，等待用户 Developer: Reload Window；服务器 Agent 未更新，本次未进行真实删除或重跑操作，也未声明现场端到端速度已验证。验收原始日志、只读样本、冻结包与实际下载包保存在本机独立临时验收目录，不进入源码或 VSIX。
