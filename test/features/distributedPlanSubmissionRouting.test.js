@@ -114,7 +114,7 @@ test("run all uses the production automatic route with zero idle GPUs and later 
   const host = provider({}, "worker_pool"), context = { root: "/fixture" };
   let pending = queue.emptyDistributedQueue(), inputs = 0;
   Object.assign(host, {
-    taskLifecycleProtocol: 2, localOperations: {},
+    taskLifecycleProtocol: 2, localOperations: {}, localDistributedCodeFingerprint: async () => "code",
     localPlanMetadata: { plans: ["a", "b"].map(id => ({ planFile: `experiments/plans/${id}.yaml` })) },
     captureProjectContext: () => context, projectContextIsCurrent: value => value === context,
     refreshLocalPlanMetadataForAction: async () => {},

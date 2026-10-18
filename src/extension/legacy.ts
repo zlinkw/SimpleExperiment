@@ -3,6 +3,7 @@ import * as vscode from "vscode";
 import { runPlanStopClearBatch, planStopBatchSignature } from "./PlanStopClearBatchHost";
 import { analyzeRuntimeLog, runtimeLogAnalysisMessage } from "./RuntimeLogAnalysisHost";
 import { runAllPlans, runSelectedPlans } from "./SelectedPlanBatchHost";
+import { planSubmissionBatchFor } from "../features/PlanSubmissionBatch";
 import * as PlanCodeScopeHost from "./PlanCodeScopeHost";
 import * as fs from "fs/promises";
 import * as fsNode from "fs";
@@ -6001,6 +6002,7 @@ return this.testTunnel(true);
         }
         return undefined;
     }
+    planSubmissionBatchFor(message) { return planSubmissionBatchFor(message); }
     async runActionCommand(command, message) {
         require("../updates/Bootstrap").assertBusinessAllowed();
         if (PLAN_SUBMISSION_COMMANDS.has(command)) {
@@ -6022,6 +6024,7 @@ return this.testTunnel(true);
         return this.runActionCommandCore(command, message);
     }
     async runActionCommandCore(command, message) {
+        const batch = this.planSubmissionBatchFor?.(message);
         if (command === "parseResults" || command === "refreshResults") return resultCollectionHost(this).update();
         const workflowBinding = PLAN_SUBMISSION_COMMANDS.has(command)
             ? WorkflowBinding.bindWorkflowWorkspace(this.actionBody(message).workspace, workspaceRoot()) : undefined;
@@ -6036,7 +6039,7 @@ return this.testTunnel(true);
             const root = workspaceRoot();
             const rules = root ? pluginProjectAdapterRules(root) : {};
             if (Object.keys(rules).length) {
-                const errors = await this.syncProjectAdapterRulesToAgents(rules);
+                const errors = await (batch ? batch.once("adapter-rules", () => this.syncProjectAdapterRulesToAgents(rules)) : this.syncProjectAdapterRulesToAgents(rules));
                 assertWorkflowCurrent();
                 if (errors.length)
                     throw new Error(`插件接入规则尚未同步到 Agent：${errors.join("；")}。请检查隧道和 Agent 版本。`);
@@ -6044,13 +6047,15 @@ return this.testTunnel(true);
         }
         this.assertRetryPlanContext(command, message);
         const body = this.actionBody(message);
+        if (batch) Object.defineProperty(body, "submissionBatchLocal", { value: batch });
         Object.defineProperty(body, "reportPlanStageLocal", { configurable: true, writable: true, value: (text: string) => this.reportPlanStage(message, text) });
         Object.defineProperty(body, "submissionOperationIdLocal", { configurable: true, writable: true, value: this.planSubmissionOperationId(message) });
         assertWorkflowCurrent();
         if (workflowBinding) body.workspace = workflowBinding.root;
         const actionPlanFile = operationResultPlanFile(body) || body?.options?.planFile || body?.planFile || body?.selectedPlanId || "";
         if (actionPlanFile && command !== "runAllPlans") {
-            await this.refreshLocalPlanMetadataForAction(body);
+            if (batch) await batch.once("metadata:" + actionPlanFile, () => this.refreshLocalPlanMetadataForAction(body));
+            else await this.refreshLocalPlanMetadataForAction(body);
             assertWorkflowCurrent();
             this.stampPlanRevision(body);
         }
@@ -6117,7 +6122,8 @@ return this.testTunnel(true);
             await new Promise((resolve) => setTimeout(resolve, 0));
             assertWorkflowCurrent();
             this.assertPlanTopologyReady(command);
-            await this.refreshLocalPlanMetadataForAction(body);
+            if (batch) await batch.once("metadata:" + actionPlanFile, () => this.refreshLocalPlanMetadataForAction(body));
+            else await this.refreshLocalPlanMetadataForAction(body);
             assertWorkflowCurrent();
             this.stampPlanRevision(body);
             await this.assertPlanLocalConfigFiles(body);
@@ -6146,9 +6152,10 @@ return this.testTunnel(true);
                 this.assertExecutionAgentProjectsReady(body);
             }
             const retryPlanFile = operationResultPlanFile(body) || plan?.planFile || plan?.file || plan?.planId || "";
-            const restarted = await preparePlanSafeRetry(this, retryPlanFile, async (detail) =>
+            const prepareRetry = () => preparePlanSafeRetry(this, retryPlanFile, async (detail) =>
                 await vscode.window.showWarningMessage("停止当前 Plan 并重新运行？", { modal: true, detail }, "停止并重新运行") === "停止并重新运行",
                 () => new UiCommandCancelled("已取消重新运行，旧运行保持原状态。"));
+            const restarted = await (batch ? batch.serial("retry", prepareRetry) : prepareRetry());
             assertWorkflowCurrent();
             if (restarted) { delete message.deferredPlanId; delete body.deferredPlanId; }
             await this.assertPlanNotAlreadyActive(retryPlanFile, plan);
@@ -6156,7 +6163,8 @@ return this.testTunnel(true);
             if (body.debugMode === true)
                 throw new Error("Debug 运行模式已移除，请使用正式 Plan 运行。");
             this.reportPlanStage(message, "正在确认 SimpleSFTP 与提交信息…");
-            if (!await this.ensureSimpleSftpReadyForSetup(command === "reproducePlan" ? "复现实验" : "运行计划"))
+            const ensureSftp = () => this.ensureSimpleSftpReadyForSetup(command === "reproducePlan" ? "复现实验" : "运行计划");
+            if (!await (batch ? batch.once("sftp", ensureSftp) : ensureSftp()))
                 return;
             assertWorkflowCurrent();
             if (command !== "runPlan")
@@ -6168,6 +6176,7 @@ return this.testTunnel(true);
                 planFileForProvenance,
                 String(body.planRevision || plan?.revision || ""),
                 makeOpId(command),
+                batch,
             );
             assertWorkflowCurrent();
             body.options = { ...(body.options || {}), gitProvenance: body.gitProvenance };
@@ -6443,7 +6452,7 @@ return this.testTunnel(true);
         const queue = await this.loadDistributedQueue(root);
         const occupied = queue.plans.filter((item) => item.jobs.some((job) => ["pending", "dispatching", "queued", "running", "unknown"].includes(job.status)));
         if (!occupied.length) return undefined;
-        const fingerprint = await this.localDistributedCodeFingerprint(root, signal);
+        const fingerprint = body.submissionBatchLocal ? await body.submissionBatchLocal.verify(body) : await this.localDistributedCodeFingerprint(root, signal);
         const workerFingerprints = Object.values(this.lastCodeSyncState?.workerVersions || {})
             .map((row: any) => String(row?.fingerprint || "")).filter(Boolean);
         const held = occupied.some((item) => item.codeFingerprint !== fingerprint
@@ -6798,11 +6807,11 @@ return this.testTunnel(true);
         };
     }
 
-    async recordRunGitProvenance(planFile, planRevision = "", operationId = "") {
+    async recordRunGitProvenance(planFile, planRevision = "", operationId = "", batch?) {
         const root = workspaceRoot();
         if (!root)
             throw new Error("记录 Git 版本前需要打开实验项目工作区。");
-        const git = await this.collectRunGitProvenance(root);
+        const git = await (batch ? batch.once("git-provenance", () => this.collectRunGitProvenance(root)) : this.collectRunGitProvenance(root));
         const provenance = {
             schemaVersion: 1,
             recordedAt: new Date().toISOString(),
@@ -6817,7 +6826,7 @@ return this.testTunnel(true);
         };
         const shortCommit = String(provenance.localCommit || "").slice(0, 12) || "unknown";
         const relativeDir = `simple_cluster/runs/git_provenance/${new Date().toISOString().slice(0, 10)}`;
-        const targetPath = path.join(root, relativeDir, `${Date.now()}-${shortCommit}.json`);
+        const targetPath = path.join(root, relativeDir, `${Date.now()}-${shortCommit}-${crypto.randomUUID()}.json`);
         await atomicWriteText(targetPath, `${JSON.stringify(provenance, null, 2)}\n`);
         return {
             ...provenance,
@@ -10161,7 +10170,9 @@ this.assertPlanTopologyReady("Plan 调度");
         }
         try {
             const codeSyncStarted = Date.now();
-            const currentCode = await this.localDistributedCodeFingerprint(root);
+            const batch = body.submissionBatchLocal;
+            const currentCode = batch ? await batch.prepareCode(body) : await this.localDistributedCodeFingerprint(root);
+            if (batch) body.runRecovery.syncFingerprint = currentCode;
             if (body.runRecovery.syncFingerprint !== currentCode || this.lastCodeSyncState?.fingerprint !== currentCode
                 || !this.enabledWorkerConfigs().every(worker => this.lastCodeSyncState?.workerVersions?.[worker.id]?.fingerprint === currentCode))
             {
@@ -10216,7 +10227,9 @@ this.assertPlanTopologyReady("Plan 调度");
             await this.assertPlanSubmissionWorkers(body, preflightOk);
             this.reportPlanStage(message, "正在确认历史产物处理方式…");
             const historyChoiceStarted = Date.now();
-            await this.waitForPlanSubmission(message, () => this.confirmDistributedPlanExistingOutputs(plan, body, preflightOk));
+            const confirmOutputs = () => this.submissionStillCurrent(message, submissionEpoch, submissionRoot)
+                ? this.confirmDistributedPlanExistingOutputs(plan, body, preflightOk) : undefined;
+            await this.waitForPlanSubmission(message, () => batch ? batch.serial("outputs", confirmOutputs) : confirmOutputs());
             assertCurrent();
             this.recordPlanSubmissionTiming?.(message, "historyChoiceMs", Date.now() - historyChoiceStarted);
             if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot)) return;
@@ -10226,7 +10239,10 @@ this.assertPlanTopologyReady("Plan 调度");
             }
             this.assertExecutionCondaEnvReady(this.workerActionTargets());
             this.reportPlanStage(message, "预演通过，正在开启调度…");
-            const submission = await this.enqueueDistributedPlan(body, preflightOk, false, "", submissionEpoch, operationId, workflowBinding);
+            const enqueue = () => batch
+                ? this.enqueueDistributedPlan(body, preflightOk, true, "", submissionEpoch, operationId, workflowBinding)
+                : this.enqueueDistributedPlan(body, preflightOk, false, "", submissionEpoch, operationId, workflowBinding);
+            const submission = batch ? await batch.serial("enqueue", async () => { await batch.verify(body); return enqueue(); }) : await enqueue();
             if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot) || submission?.cancelled) return;
             const submissionProgress = DistributedPlanQueue.distributedSubmissionProgress(submission);
             if (submissionProgress.status === "failed") {

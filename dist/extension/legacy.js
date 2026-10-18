@@ -46,6 +46,7 @@ const vscode = __importStar(require("vscode"));
 const PlanStopClearBatchHost_1 = require("./PlanStopClearBatchHost");
 const RuntimeLogAnalysisHost_1 = require("./RuntimeLogAnalysisHost");
 const SelectedPlanBatchHost_1 = require("./SelectedPlanBatchHost");
+const PlanSubmissionBatch_1 = require("../features/PlanSubmissionBatch");
 const PlanCodeScopeHost = __importStar(require("./PlanCodeScopeHost"));
 const fs = __importStar(require("fs/promises"));
 const fsNode = __importStar(require("fs"));
@@ -6070,6 +6071,7 @@ class RealtimeTunnelPanelProvider {
         }
         return undefined;
     }
+    planSubmissionBatchFor(message) { return (0, PlanSubmissionBatch_1.planSubmissionBatchFor)(message); }
     async runActionCommand(command, message) {
         require("../updates/Bootstrap").assertBusinessAllowed();
         if (PLAN_SUBMISSION_COMMANDS.has(command)) {
@@ -6099,6 +6101,7 @@ class RealtimeTunnelPanelProvider {
         return this.runActionCommandCore(command, message);
     }
     async runActionCommandCore(command, message) {
+        const batch = this.planSubmissionBatchFor?.(message);
         if (command === "parseResults" || command === "refreshResults")
             return (0, ResultCollectionHost_1.resultCollectionHost)(this).update();
         const workflowBinding = PLAN_SUBMISSION_COMMANDS.has(command)
@@ -6116,7 +6119,7 @@ class RealtimeTunnelPanelProvider {
             const root = workspaceRoot();
             const rules = root ? pluginProjectAdapterRules(root) : {};
             if (Object.keys(rules).length) {
-                const errors = await this.syncProjectAdapterRulesToAgents(rules);
+                const errors = await (batch ? batch.once("adapter-rules", () => this.syncProjectAdapterRulesToAgents(rules)) : this.syncProjectAdapterRulesToAgents(rules));
                 assertWorkflowCurrent();
                 if (errors.length)
                     throw new Error(`插件接入规则尚未同步到 Agent：${errors.join("；")}。请检查隧道和 Agent 版本。`);
@@ -6124,6 +6127,8 @@ class RealtimeTunnelPanelProvider {
         }
         this.assertRetryPlanContext(command, message);
         const body = this.actionBody(message);
+        if (batch)
+            Object.defineProperty(body, "submissionBatchLocal", { value: batch });
         Object.defineProperty(body, "reportPlanStageLocal", { configurable: true, writable: true, value: (text) => this.reportPlanStage(message, text) });
         Object.defineProperty(body, "submissionOperationIdLocal", { configurable: true, writable: true, value: this.planSubmissionOperationId(message) });
         assertWorkflowCurrent();
@@ -6131,7 +6136,10 @@ class RealtimeTunnelPanelProvider {
             body.workspace = workflowBinding.root;
         const actionPlanFile = operationResultPlanFile(body) || body?.options?.planFile || body?.planFile || body?.selectedPlanId || "";
         if (actionPlanFile && command !== "runAllPlans") {
-            await this.refreshLocalPlanMetadataForAction(body);
+            if (batch)
+                await batch.once("metadata:" + actionPlanFile, () => this.refreshLocalPlanMetadataForAction(body));
+            else
+                await this.refreshLocalPlanMetadataForAction(body);
             assertWorkflowCurrent();
             this.stampPlanRevision(body);
         }
@@ -6198,7 +6206,10 @@ class RealtimeTunnelPanelProvider {
             await new Promise((resolve) => setTimeout(resolve, 0));
             assertWorkflowCurrent();
             this.assertPlanTopologyReady(command);
-            await this.refreshLocalPlanMetadataForAction(body);
+            if (batch)
+                await batch.once("metadata:" + actionPlanFile, () => this.refreshLocalPlanMetadataForAction(body));
+            else
+                await this.refreshLocalPlanMetadataForAction(body);
             assertWorkflowCurrent();
             this.stampPlanRevision(body);
             await this.assertPlanLocalConfigFiles(body);
@@ -6241,7 +6252,8 @@ class RealtimeTunnelPanelProvider {
                 this.assertExecutionAgentProjectsReady(body);
             }
             const retryPlanFile = operationResultPlanFile(body) || plan?.planFile || plan?.file || plan?.planId || "";
-            const restarted = await (0, PlanSafeRetry_1.preparePlanSafeRetry)(this, retryPlanFile, async (detail) => await vscode.window.showWarningMessage("停止当前 Plan 并重新运行？", { modal: true, detail }, "停止并重新运行") === "停止并重新运行", () => new UiCommandCancelled("已取消重新运行，旧运行保持原状态。"));
+            const prepareRetry = () => (0, PlanSafeRetry_1.preparePlanSafeRetry)(this, retryPlanFile, async (detail) => await vscode.window.showWarningMessage("停止当前 Plan 并重新运行？", { modal: true, detail }, "停止并重新运行") === "停止并重新运行", () => new UiCommandCancelled("已取消重新运行，旧运行保持原状态。"));
+            const restarted = await (batch ? batch.serial("retry", prepareRetry) : prepareRetry());
             assertWorkflowCurrent();
             if (restarted) {
                 delete message.deferredPlanId;
@@ -6252,7 +6264,8 @@ class RealtimeTunnelPanelProvider {
             if (body.debugMode === true)
                 throw new Error("Debug 运行模式已移除，请使用正式 Plan 运行。");
             this.reportPlanStage(message, "正在确认 SimpleSFTP 与提交信息…");
-            if (!await this.ensureSimpleSftpReadyForSetup(command === "reproducePlan" ? "复现实验" : "运行计划"))
+            const ensureSftp = () => this.ensureSimpleSftpReadyForSetup(command === "reproducePlan" ? "复现实验" : "运行计划");
+            if (!await (batch ? batch.once("sftp", ensureSftp) : ensureSftp()))
                 return;
             assertWorkflowCurrent();
             if (command !== "runPlan")
@@ -6260,7 +6273,7 @@ class RealtimeTunnelPanelProvider {
             assertWorkflowCurrent();
             WorkflowBinding.assertWorkflowWorkspace(workflowBinding, workspaceRoot());
             const planFileForProvenance = operationResultPlanFile(body) || plan?.planFile || plan?.file || "";
-            body.gitProvenance = await this.recordRunGitProvenance(planFileForProvenance, String(body.planRevision || plan?.revision || ""), makeOpId(command));
+            body.gitProvenance = await this.recordRunGitProvenance(planFileForProvenance, String(body.planRevision || plan?.revision || ""), makeOpId(command), batch);
             assertWorkflowCurrent();
             body.options = { ...(body.options || {}), gitProvenance: body.gitProvenance };
             if (distributedPlan) {
@@ -6569,7 +6582,7 @@ class RealtimeTunnelPanelProvider {
         const occupied = queue.plans.filter((item) => item.jobs.some((job) => ["pending", "dispatching", "queued", "running", "unknown"].includes(job.status)));
         if (!occupied.length)
             return undefined;
-        const fingerprint = await this.localDistributedCodeFingerprint(root, signal);
+        const fingerprint = body.submissionBatchLocal ? await body.submissionBatchLocal.verify(body) : await this.localDistributedCodeFingerprint(root, signal);
         const workerFingerprints = Object.values(this.lastCodeSyncState?.workerVersions || {})
             .map((row) => String(row?.fingerprint || "")).filter(Boolean);
         const held = occupied.some((item) => item.codeFingerprint !== fingerprint
@@ -6948,11 +6961,11 @@ class RealtimeTunnelPanelProvider {
             originUrl: String(remote?.pushUrl || remote?.fetchUrl || ""),
         };
     }
-    async recordRunGitProvenance(planFile, planRevision = "", operationId = "") {
+    async recordRunGitProvenance(planFile, planRevision = "", operationId = "", batch) {
         const root = workspaceRoot();
         if (!root)
             throw new Error("记录 Git 版本前需要打开实验项目工作区。");
-        const git = await this.collectRunGitProvenance(root);
+        const git = await (batch ? batch.once("git-provenance", () => this.collectRunGitProvenance(root)) : this.collectRunGitProvenance(root));
         const provenance = {
             schemaVersion: 1,
             recordedAt: new Date().toISOString(),
@@ -6967,7 +6980,7 @@ class RealtimeTunnelPanelProvider {
         };
         const shortCommit = String(provenance.localCommit || "").slice(0, 12) || "unknown";
         const relativeDir = `simple_cluster/runs/git_provenance/${new Date().toISOString().slice(0, 10)}`;
-        const targetPath = path.join(root, relativeDir, `${Date.now()}-${shortCommit}.json`);
+        const targetPath = path.join(root, relativeDir, `${Date.now()}-${shortCommit}-${crypto.randomUUID()}.json`);
         await (0, StateStore_1.atomicWriteText)(targetPath, `${JSON.stringify(provenance, null, 2)}\n`);
         return {
             ...provenance,
@@ -10733,7 +10746,10 @@ class RealtimeTunnelPanelProvider {
         }
         try {
             const codeSyncStarted = Date.now();
-            const currentCode = await this.localDistributedCodeFingerprint(root);
+            const batch = body.submissionBatchLocal;
+            const currentCode = batch ? await batch.prepareCode(body) : await this.localDistributedCodeFingerprint(root);
+            if (batch)
+                body.runRecovery.syncFingerprint = currentCode;
             if (body.runRecovery.syncFingerprint !== currentCode || this.lastCodeSyncState?.fingerprint !== currentCode
                 || !this.enabledWorkerConfigs().every(worker => this.lastCodeSyncState?.workerVersions?.[worker.id]?.fingerprint === currentCode)) {
                 const previous = this.workerPreparation;
@@ -10791,7 +10807,9 @@ class RealtimeTunnelPanelProvider {
             await this.assertPlanSubmissionWorkers(body, preflightOk);
             this.reportPlanStage(message, "正在确认历史产物处理方式…");
             const historyChoiceStarted = Date.now();
-            await this.waitForPlanSubmission(message, () => this.confirmDistributedPlanExistingOutputs(plan, body, preflightOk));
+            const confirmOutputs = () => this.submissionStillCurrent(message, submissionEpoch, submissionRoot)
+                ? this.confirmDistributedPlanExistingOutputs(plan, body, preflightOk) : undefined;
+            await this.waitForPlanSubmission(message, () => batch ? batch.serial("outputs", confirmOutputs) : confirmOutputs());
             assertCurrent();
             this.recordPlanSubmissionTiming?.(message, "historyChoiceMs", Date.now() - historyChoiceStarted);
             if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot))
@@ -10802,7 +10820,10 @@ class RealtimeTunnelPanelProvider {
             }
             this.assertExecutionCondaEnvReady(this.workerActionTargets());
             this.reportPlanStage(message, "预演通过，正在开启调度…");
-            const submission = await this.enqueueDistributedPlan(body, preflightOk, false, "", submissionEpoch, operationId, workflowBinding);
+            const enqueue = () => batch
+                ? this.enqueueDistributedPlan(body, preflightOk, true, "", submissionEpoch, operationId, workflowBinding)
+                : this.enqueueDistributedPlan(body, preflightOk, false, "", submissionEpoch, operationId, workflowBinding);
+            const submission = batch ? await batch.serial("enqueue", async () => { await batch.verify(body); return enqueue(); }) : await enqueue();
             if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot) || submission?.cancelled)
                 return;
             const submissionProgress = DistributedPlanQueue.distributedSubmissionProgress(submission);

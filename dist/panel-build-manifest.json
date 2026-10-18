@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.388",
-  "buildId": "48e58542d1940785c1be439e95aba4a7ce22ddcc79d6ddaead076b9fd39d3ff8",
+  "version": "0.5.389",
+  "buildId": "69acc222cfb411474c2ea804923b85ecd943056852566845b2dbf7be0e96061b",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -197,7 +197,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "097b8ea21d04c6a7318d7b75b2c945ba7f2a2a06c61cfb63bf4791e1d2f1c658"
+      "sha256": "5269c3eb84bf5cd2868ce3dacb59e3bc5319ae7aaa167b4a171e04f95e9bcd26"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -241,7 +241,7 @@
     },
     {
       "path": "dist/extension/SelectedPlanBatchHost.js",
-      "sha256": "834a3494cccc0b66542850fb861afae264a8bec61a3c28632ca369982a27dc06"
+      "sha256": "15803b70d555825f6dbcd18cb4d1253625d894575cf51adc4c21ba617bdd37a8"
     },
     {
       "path": "dist/factories/CommandFactory.js",
@@ -512,6 +512,10 @@
       "sha256": "447a654a282317c773317cae9532732a8ec728ba94561887edec7eea34da8615"
     },
     {
+      "path": "dist/features/PlanSubmissionBatch.js",
+      "sha256": "e336002eb5a4b743ca0bb86b682a3e0588257d3e686d62f33fcc9a1045e1c063"
+    },
+    {
       "path": "dist/features/PlanWorkerAffinity.js",
       "sha256": "b48e2b9a28cc037c4434e47d84cfef8d42512e528474c07d2f06b49cb91faf3a"
     },
@@ -709,7 +713,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "42967530f0bb238bf3a97c0aafb0bb74ef459844fa027ffd7c56641495084f2f"
+      "sha256": "a68ad429fb91b21352cb185b3feda69e7fb2e34d57208cecc9777210932b2676"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -933,7 +937,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "6dbbdb3d21a1dd83b50d137bec0b135ccd728d8d0af81defc1b6566a70546f53"
+      "sha256": "db5c432400e4d92bddd472d72becccd937e6345a6389443155de4c255102352b"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",
@@ -1057,7 +1061,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "ca43b203d2cfd0cf672f12700755d59742374b3d730df4edb98f717eaa8f6cc5"
+      "sha256": "7779dc0602d0331a297f0e01fc8f7022b75377db996bff88adc42ceb5129339f"
     },
     {
       "path": "scripts/check-static.js",

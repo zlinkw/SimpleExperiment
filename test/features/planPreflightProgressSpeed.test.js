@@ -377,6 +377,7 @@ function commandRunner() {
   const body = legacySource.slice(start, end).replace(/: any\[\]/g, "").replace(/: any/g, "").replace(/ as any/g, "").replace(/<string\[\]>/g, "").replace(/text: string/g, "text");
   return new Function("PLAN_SUBMISSION_COMMANDS", "PLAN_PREFLIGHT_COMMANDS", "PLAN_SCHEDULER_COMMANDS", "LENIENT_RUN", "operationResultPlanFile", "stringField", "stringArrayField", "uniqueStrings", "usableSelectionKey", "resultStatus", "planCheckAccepted", "remoteActionPendingStatus", "stringFromRecord", "isUiCommandRemotePending", "actionCommandMap", "assertSingleProjectWorkspace", "pluginProjectAdapterRules", "workspaceRoot", "directWorkerActionMap", "WORKER_ACTION_CONFIRM_COMMANDS", "NO_HUB_RESULT_CONFIRM_COMMANDS", "TUNNEL_ACTION_CONFIRM_COMMANDS", "IMMEDIATE_RESULT_SUMMARY_REFRESH_COMMANDS", "RESULT_PARSE_COMMANDS", "actionAffectsResultsSummary", "capabilityForUiCommand", `
     return async function(command, message) {
+      const batch = this.planSubmissionBatchFor?.(message);
       const generation = this.projectContextGeneration;
       const workflowBinding = undefined;
       const assertWorkflowCurrent = () => { if (generation !== this.projectContextGeneration) throw new Error('project switched'); };

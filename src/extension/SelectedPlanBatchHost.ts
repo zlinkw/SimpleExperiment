@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { cleanupRelative } from "../features/PlanCleanup";
+import { PlanSubmissionBatch } from "../features/PlanSubmissionBatch";
 
 const running = new WeakSet<object>();
 
@@ -32,6 +33,7 @@ async function runPlanBatch(host: any, params: any, allPlans: boolean) {
     if (!host.projectContextIsCurrent(context) || targetKey() !== targets) throw Error("工作区或连接已变化；后续 PLAN 未提交。");
   };
   const rows: any[] = [];
+  let batch: PlanSubmissionBatch | undefined;
   try {
     current();
     await host.refreshLocalPlanMetadataForAction(undefined, { allPlans: true });
@@ -43,14 +45,18 @@ async function runPlanBatch(host: any, params: any, allPlans: boolean) {
     if (missing.length) throw Error("所选 PLAN 已不在当前工作区扫描结果中；整批未提交：" + missing.join("、"));
     const unsupported = files.filter(file => !host.distributedPlanEligible(file));
     if (unsupported.length) throw Error("以下 PLAN 不支持自动排队；整批未提交，请检查运行协议与项目配置：" + unsupported.join("、"));
-    for (const [index, planFile] of files.entries()) {
+    batch = new PlanSubmissionBatch(host, context, host.localPlanMetadata.plans, current, text =>
+      host.postUiCommandStatus?.(params.clientActionId, "running", "runAllPlans", text));
+    await batch.start();
+    const submit = async (planFile: string, index: number) => {
       const message = { command: "runPlan", planFile, planId: planFile, selectedPlanId: planFile,
         debugMode: false, clientActionId: "selected-plan-" + randomUUID() };
+      batch!.bind(message);
       const operationId = host.planSubmissionOperationId(message);
       let status = "unknown", detail = "";
       try {
         current();
-        host.postUiCommandStatus?.(params.clientActionId, "running", "runAllPlans", `${label} 自动排队 ${index + 1}/${files.length}：${planFile}`);
+        host.postUiCommandStatus?.(params.clientActionId, "running", "runAllPlans", `${label} 并发提交 ${index + 1}/${files.length}：${planFile}`);
         await host.runActionCommand("runPlan", message);
         current();
         const progress = host.localOperations?.[operationId];
@@ -65,14 +71,25 @@ async function runPlanBatch(host: any, params: any, allPlans: boolean) {
         if (status !== "unknown" && host.projectContextIsCurrent(context) && targetKey() === targets)
           host.finishPlanSubmissionProgress?.(message, status, detail);
       }
-      rows.push({ planFile, operationId, status, message: detail });
-      if (!["succeeded", "queued", "submitted"].includes(status)) break;
+      return { planFile, operationId, status, message: detail };
+    };
+    let dispatchNote = "";
+    for (let offset = 0; offset < files.length; offset += 4) {
+      current();
+      const wave = await Promise.all(files.slice(offset, offset + 4).map((file, index) => submit(file, offset + index).catch(error =>
+        ({ planFile: file, operationId: "", status: "failed", message: error instanceof Error ? error.message : String(error) }))));
+      rows.push(...wave);
+      if (wave.some(row => ["succeeded", "queued", "submitted"].includes(row.status)) && host.tickDistributedQueue) {
+        try { current(); await host.tickDistributedQueue(); }
+        catch (error) { dispatchNote = "队列已保留，本轮派发查询未完成：" + (error instanceof Error ? error.message : String(error)); }
+      }
+      if (wave.some(row => !["succeeded", "queued", "submitted"].includes(row.status))) break;
     }
     const processed = rows.filter(row => ["succeeded", "queued", "submitted"].includes(row.status)).length;
-    const last = rows.at(-1), complete = processed === files.length;
+    const last = rows.find(row => !["succeeded", "queued", "submitted"].includes(row.status)), complete = processed === files.length;
     return { status: complete ? "completed" : last?.status === "cancelled" ? "cancelled" : "failed",
-      message: `${label} 已完成自动排队提交流程 ${processed}/${files.length}。` + (complete ? "运行状态以任务卡片的实时查询为准。"
-        : `${last?.planFile || ""}：${last?.message || "结果未知"}；后续 ${files.length - rows.length} 个未提交，已处理项保留，不自动回滚或重复提交。`),
+      message: `${label} 已完成并发排队提交流程 ${processed}/${files.length}。` + (complete ? "运行状态以任务卡片的实时查询为准。"
+        : `${last?.planFile || ""}：${last?.message || "结果未知"}；已发起项已等待本轮结果，后续 ${files.length - rows.length} 个未提交，已处理项保留，不自动回滚或重复提交。`) + dispatchNote,
       selectionOnly: !allPlans, rows, remaining: files.slice(rows.length) };
-  } finally { running.delete(host); }
+  } finally { await batch?.close(); running.delete(host); }
 }

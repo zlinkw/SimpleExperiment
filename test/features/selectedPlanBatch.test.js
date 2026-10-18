@@ -5,7 +5,7 @@ const {preparePlanSafeRetry}=require('../../src/features/PlanSafeRetry.ts');
 function fixture(){
  const calls=[],context={root:'/fixture'},host={client:{},localOperations:{},localPlanMetadata:{plans:['a','b','c'].map(name=>({planFile:'plans/'+name+'.yaml'}))},
   captureProjectContext:()=>context,projectContextIsCurrent:c=>c===context&&!host.changed,refreshLocalPlanMetadataForAction:async()=>{},
-  distributedPlanEligible:()=>true,
+  distributedPlanEligible:()=>true,localDistributedCodeFingerprint:async()=>"code",
   workerActionTargets:()=>[{id:'w',host:'host',user:'u',port:22,project_dir:'/project'}],planSubmissionOperationId:m=>'plan-submit-'+m.clientActionId,
   runActionCommand:async(command,m)=>{calls.push({command,...m});host.localOperations[host.planSubmissionOperationId(m)]={status:'succeeded',message:'queue saved'};},
   finishPlanSubmissionProgress(m,status,message){host.localOperations[host.planSubmissionOperationId(m)]={status,message};}};
@@ -31,11 +31,12 @@ test('all plans never opens a manual chooser when queue support or plan metadata
 });
 test('all and selected batches share one submission lock, and all-plan failures retain later inputs without replay',async()=>{
  const f=fixture();let release,entered;const gate=new Promise(r=>release=r),started=new Promise(r=>entered=r),run=f.host.runActionCommand;
+ f.host.localPlanMetadata.plans=['a','b','c','d','e','f'].map(name=>({planFile:'plans/'+name+'.yaml'}));
  f.host.runActionCommand=async(c,m)=>{entered();await gate;if(m.planFile==='plans/b.yaml')throw Error('validation failed');await run(c,m);};
  const first=runAllPlans(f.host,{});await started;
  await assert.rejects(runSelectedPlans(f.host,{planFiles:['plans/c.yaml']}),/已有一批/);release();
  const report=await first;assert.equal(report.status,'failed');assert.equal(report.selectionOnly,false);
- assert.deepEqual(report.remaining,['plans/c.yaml']);assert.deepEqual(f.calls.map(row=>row.planFile),['plans/a.yaml']);
+ assert.deepEqual(report.remaining,['plans/e.yaml','plans/f.yaml']);assert.deepEqual(f.calls.map(row=>row.planFile),['plans/a.yaml','plans/c.yaml','plans/d.yaml']);
 });
 test('five new PLAN submissions check every Worker window without waiting for unrelated result or log analysis',async()=>{
  const f=fixture(),reads=[];
@@ -92,15 +93,16 @@ test('empty selection, removed files and invalid paths never fall back to all pl
 });
 test('failure, cancellation, missing outcome and lost receipt stop later plans without repeating accepted inputs',async()=>{
  for(const kind of ['failed','cancelled','unknown','lost']){
-  const f=fixture();f.host.runActionCommand=async(command,m)=>{
+  const f=fixture(),files=['a','b','c','d','e','f'].map(name=>'plans/'+name+'.yaml');
+  f.host.localPlanMetadata.plans=files.map(planFile=>({planFile}));f.host.runActionCommand=async(command,m)=>{
    f.calls.push(m);const operation=f.host.planSubmissionOperationId(m);
-   if(f.calls.length===1){f.host.localOperations[operation]={status:'queued',message:'local queue accepted'};return;}
+   if(m.planFile!=='plans/b.yaml'){f.host.localOperations[operation]={status:'queued',message:'local queue accepted'};return;}
    if(kind==='lost')throw Object.assign(Error('original request outcome unknown'),{code:'REMOTE_OUTCOME_UNKNOWN',outcomeUnknown:true});
    if(kind!=='unknown')f.host.localOperations[operation]={status:kind,message:'fixture '+kind};
   };
-  const r=await runSelectedPlans(f.host,{planFiles:['plans/a.yaml','plans/b.yaml','plans/c.yaml']});
-  assert.equal(r.status,kind==='cancelled'?'cancelled':'failed');assert.deepEqual(f.calls.map(x=>x.planFile),['plans/a.yaml','plans/b.yaml']);
-  assert.deepEqual(r.remaining,['plans/c.yaml']);assert.equal(r.rows[0].status,'queued');
+  const r=await runSelectedPlans(f.host,{planFiles:files});
+  assert.equal(r.status,kind==='cancelled'?'cancelled':'failed');assert.deepEqual(f.calls.map(x=>x.planFile),files.slice(0,4));
+  assert.deepEqual(r.remaining,files.slice(4));assert.equal(r.rows[0].status,'queued');
   if(kind==='lost'){assert.equal(r.rows[1].status,'unknown');assert.equal(f.host.localOperations[r.rows[1].operationId],undefined);}
  }
 });
@@ -114,8 +116,9 @@ test('duplicate clicks share no new submission, and stable endpoint client rebui
 test('workspace or endpoint changes stop the remaining batch and release its in-memory lock',async()=>{
  for(const kind of ['workspace','endpoint']){
   const f=fixture(),run=f.host.runActionCommand;
+  const files=['a','b','c','d','e','f'].map(name=>'plans/'+name+'.yaml');f.host.localPlanMetadata.plans=files.map(planFile=>({planFile}));
   f.host.runActionCommand=async(c,m)=>{await run(c,m);if(kind==='workspace')f.host.changed=true;else f.host.workerActionTargets=()=>[{id:'other'}];};
-  const report=await runSelectedPlans(f.host,{planFiles:['plans/a.yaml','plans/b.yaml']});assert.equal(report.status,'failed');assert.equal(f.calls.length,1);
+  const report=await runSelectedPlans(f.host,{planFiles:files});assert.equal(report.status,'failed');assert.equal(f.calls.length,4);assert.deepEqual(report.remaining,files.slice(4));
   f.host.changed=false;f.host.runActionCommand=run;assert.equal((await runSelectedPlans(f.host,{planFiles:['plans/c.yaml']})).status,'completed');
  }
 });

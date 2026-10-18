@@ -367,7 +367,7 @@ test("runPlan command reaches the real deferred lookup before preflight", async 
     .replace(/ as any/g, "")
     .replace(/\(this as any\)/g, "this");
   const run = new Function("PLAN_SUBMISSION_COMMANDS", "PLAN_PREFLIGHT_COMMANDS", "LENIENT_RUN", "DistributedPlanQueue", "operationResultPlanFile", "projectOutputGateReason", "makeOpId", "actionCommandMap", "assertSingleProjectWorkspace", "pluginProjectAdapterRules", "workspaceRoot", "stringField", "stringArrayField", "uniqueStrings", "usableSelectionKey", "directWorkerActionMap", "preparePlanSafeRetry", `
-    ${ts.transpileModule('async function probe(command, message) { const workflowBinding = WorkflowBinding.bindWorkflowWorkspace(undefined, workspaceRoot()); const assertWorkflowCurrent = () => WorkflowBinding.assertWorkflowWorkspace(workflowBinding, workspaceRoot()); ' + body + ' }', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText}
+    ${ts.transpileModule('async function probe(command, message) { const batch = undefined; const workflowBinding = WorkflowBinding.bindWorkflowWorkspace(undefined, workspaceRoot()); const assertWorkflowCurrent = () => WorkflowBinding.assertWorkflowWorkspace(workflowBinding, workspaceRoot()); ' + body + ' }', {compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText}
     return probe;
   `)(new Set(["runPlan", "reproducePlan"]), new Set(), false, DistributedPlanQueue,
     (record) => String((record && (record.planFile || record.selectedPlanId || (record.options && record.options.planFile))) || ""),
