@@ -8568,8 +8568,8 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             const skipped = [...planned.skipped];
             const work = planned.items.filter((item) => {
                 if (!scopeInventoryPathAllowed(item.path, false) || /(?:\.lock|\.pid|\.exit_code)$/i.test(path.posix.basename(item.path))) return false;
-                if (holds[item.path]?.codeOwned || isLocalCodeOwnedPath(item.path, false,
-                    config.get<string[]>("codeSync.includePaths", []), config.get<string[]>("codeSync.scopePaths"))) {
+                if (options.completedJob && (holds[item.path]?.codeOwned || isLocalCodeOwnedPath(item.path, false,
+                    config.get<string[]>("codeSync.includePaths", []), config.get<string[]>("codeSync.scopePaths")))) {
                     skipped.push(`${item.path}：代码以本机为准`);
                     return false;
                 }
@@ -8718,7 +8718,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             for (const entry of entries) {
                 const codeOwned = holds[entry.path]?.codeOwned || isLocalCodeOwnedPath(entry.path, entry.directory,
                     config.get<string[]>("codeSync.includePaths", []), config.get<string[]>("codeSync.scopePaths"));
-                const sources = (entry.locations || []).filter((endpointId) => localOnly ? endpointId === "local" || !codeOwned : endpointId !== "local" && !codeOwned);
+                const sources = (entry.locations || []).filter((endpointId) => localOnly ? endpointId === "local" || !codeOwned : endpointId !== "local");
                 commonSources = commonSources === undefined ? new Set(sources) : new Set(sources.filter((id) => commonSources.has(id)));
                 work.push({ ...entry });
             }
@@ -8829,7 +8829,8 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             const ancestorHold = Object.entries(holds).find(([held, row]) => row.directory && item.path.startsWith(`${held}/`));
             if (ancestorHold) throw new Error(`请先在目录 ${ancestorHold[0]} 选定保留版本。`);
             const codeOwned = holds[item.path]?.codeOwned || isLocalCodeOwnedPath(item.path, item.directory, includes, scopes);
-            if (endpointId !== "local" && codeOwned) throw new Error("代码以本机为准；请选择本机版本。");
+            // Local code authority protects local destinations, not an explicit Worker-only copy.
+            if (mirrorLocal && codeOwned) throw new Error("代码以本机为准；请选择本机版本。");
             if (item.directory && endpointId === "local") {
                 const info = await fs.lstat(path.resolve(root, ...item.path.split("/")));
                 if (!info.isDirectory() || info.isSymbolicLink()) throw new Error("本机来源目录不存在或是符号链接。");
@@ -9095,7 +9096,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         if (mirrorLocal) await this.simpleSftpCapability("sync.downloadPaths");
         const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
         const codeOwned = isLocalCodeOwnedPath(relative, directory, config.get<string[]>("codeSync.includePaths", []), config.get<string[]>("codeSync.scopePaths"));
-        if (endpointId !== "local" && (holds[relative]?.codeOwned || codeOwned)) throw new Error("代码以本机为准；请选择本机版本。");
+        if (mirrorLocal && (holds[relative]?.codeOwned || codeOwned)) throw new Error("代码以本机为准；请选择本机版本。");
         if (directory) {
             if (endpointId === "local") {
                 const info = await fs.lstat(path.resolve(root, ...relative.split("/")));

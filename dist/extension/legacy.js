@@ -8921,7 +8921,7 @@ class RealtimeTunnelPanelProvider {
             const work = planned.items.filter((item) => {
                 if (!(0, SyncScopeStatus_2.scopeInventoryPathAllowed)(item.path, false) || /(?:\.lock|\.pid|\.exit_code)$/i.test(path.posix.basename(item.path)))
                     return false;
-                if (holds[item.path]?.codeOwned || isLocalCodeOwnedPath(item.path, false, config.get("codeSync.includePaths", []), config.get("codeSync.scopePaths"))) {
+                if (options.completedJob && (holds[item.path]?.codeOwned || isLocalCodeOwnedPath(item.path, false, config.get("codeSync.includePaths", []), config.get("codeSync.scopePaths")))) {
                     skipped.push(`${item.path}：代码以本机为准`);
                     return false;
                 }
@@ -9086,7 +9086,7 @@ class RealtimeTunnelPanelProvider {
                 let commonSources;
                 for (const entry of entries) {
                     const codeOwned = holds[entry.path]?.codeOwned || isLocalCodeOwnedPath(entry.path, entry.directory, config.get("codeSync.includePaths", []), config.get("codeSync.scopePaths"));
-                    const sources = (entry.locations || []).filter((endpointId) => localOnly ? endpointId === "local" || !codeOwned : endpointId !== "local" && !codeOwned);
+                    const sources = (entry.locations || []).filter((endpointId) => localOnly ? endpointId === "local" || !codeOwned : endpointId !== "local");
                     commonSources = commonSources === undefined ? new Set(sources) : new Set(sources.filter((id) => commonSources.has(id)));
                     work.push({ ...entry });
                 }
@@ -9224,7 +9224,8 @@ class RealtimeTunnelPanelProvider {
             if (ancestorHold)
                 throw new Error(`请先在目录 ${ancestorHold[0]} 选定保留版本。`);
             const codeOwned = holds[item.path]?.codeOwned || isLocalCodeOwnedPath(item.path, item.directory, includes, scopes);
-            if (endpointId !== "local" && codeOwned)
+            // Local code authority protects local destinations, not an explicit Worker-only copy.
+            if (mirrorLocal && codeOwned)
                 throw new Error("代码以本机为准；请选择本机版本。");
             if (item.directory && endpointId === "local") {
                 const info = await fs.lstat(path.resolve(root, ...item.path.split("/")));
@@ -9545,7 +9546,7 @@ class RealtimeTunnelPanelProvider {
                 await this.simpleSftpCapability("sync.downloadPaths");
             const config = vscode.workspace.getConfiguration("simpleExperiment", vscode.Uri.file(root));
             const codeOwned = isLocalCodeOwnedPath(relative, directory, config.get("codeSync.includePaths", []), config.get("codeSync.scopePaths"));
-            if (endpointId !== "local" && (holds[relative]?.codeOwned || codeOwned))
+            if (mirrorLocal && (holds[relative]?.codeOwned || codeOwned))
                 throw new Error("代码以本机为准；请选择本机版本。");
             if (directory) {
                 if (endpointId === "local") {
