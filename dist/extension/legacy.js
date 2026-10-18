@@ -7853,7 +7853,9 @@ class RealtimeTunnelPanelProvider {
                     });
                 }
                 finally {
-                    await this.invalidateProjectFileIndexes?.("文件操作结束，需重新查询：simpleSftp.uploadFiles");
+                    await this.invalidateProjectFileIndexes?.("文件操作结束，需重新查询：simpleSftp.uploadFiles", ["cluster_agent.py", "cluster_scheduler.py"]);
+                    await this.refreshProjectFileIndexesBeforeOperation?.("simpleSftp.uploadFiles", { localBase: runtimeDir,
+                        server: { ...await this.agentLifecycleServer(target), id: target.id, remotePath: target.remotePath }, paths: ["cluster_agent.py", "cluster_scheduler.py"] }, "after-operation");
                 }
             })();
             console.log("[diag] simpleSftp.uploadFiles result", JSON.stringify(result)?.slice(0, 500));
@@ -9231,7 +9233,8 @@ class RealtimeTunnelPanelProvider {
                             });
                         }
                         finally {
-                            await this.invalidateProjectFileIndexes?.("文件操作结束，需重新查询：simpleSftp.uploadWorkspace");
+                            await this.invalidateProjectFileIndexes?.("文件操作结束，需重新查询：simpleSftp.uploadWorkspace", Object.keys(group.manifest));
+                            await this.refreshProjectFileIndexesBeforeOperation?.("simpleSftp.uploadWorkspace", { localPath: root, server: destination, manifest: group.manifest }, "after-operation");
                         }
                     })();
                     if (!result || result.ok === false)
@@ -9543,7 +9546,8 @@ class RealtimeTunnelPanelProvider {
                                 manifest, transientManifest: true, server: this.sftpServerOptions(row) });
                         }
                         finally {
-                            await this.invalidateProjectFileIndexes?.("文件操作结束，需重新查询：simpleSftp.uploadWorkspace");
+                            await this.invalidateProjectFileIndexes?.("文件操作结束，需重新查询：simpleSftp.uploadWorkspace", Object.keys(manifest));
+                            await this.refreshProjectFileIndexesBeforeOperation?.("simpleSftp.uploadWorkspace", { localPath: root, server: this.sftpServerOptions(row), manifest }, "after-operation");
                         }
                     })();
                     if (!result || result.ok === false)
@@ -9645,7 +9649,8 @@ class RealtimeTunnelPanelProvider {
                                     manifest, server: destination });
                             }
                             finally {
-                                await this.invalidateProjectFileIndexes?.("文件操作结束，需重新查询：simpleSftp.uploadWorkspace");
+                                await this.invalidateProjectFileIndexes?.("文件操作结束，需重新查询：simpleSftp.uploadWorkspace", Object.keys(manifest));
+                                await this.refreshProjectFileIndexesBeforeOperation?.("simpleSftp.uploadWorkspace", { localPath: root, server: destination, manifest }, "after-operation");
                             }
                         })();
                         if (!result || result.ok === false)
@@ -15677,7 +15682,8 @@ class RealtimeTunnelPanelProvider {
                     });
                 }
                 finally {
-                    await this.invalidateProjectFileIndexes?.("文件操作结束，需重新查询：simpleSftp.uploadFiles");
+                    await this.invalidateProjectFileIndexes?.("文件操作结束，需重新查询：simpleSftp.uploadFiles", relativeFiles);
+                    await this.refreshProjectFileIndexesBeforeOperation?.("simpleSftp.uploadFiles", { localBase: root, server: this.sftpServerOptions(target), files }, "after-operation");
                 }
             })();
             const item = result && typeof result === "object" ? result : {};
@@ -19717,14 +19723,17 @@ class RealtimeTunnelPanelProvider {
         const mutation = /^(sync\.(?:serverToServerFpsync|download|upload)|upload\.|files\.cleanup\.execute|files\.(?:delete|move|write|mkdir|rename))/.test(method);
         if (mutation)
             await this.refreshProjectFileIndexesBeforeOperation?.(method, request);
+        const changedPaths = (0, ProjectFileIndex_1.fileOperationIndexPaths)(request);
         if (mutation)
-            await this.invalidateProjectFileIndexes?.("文件写入或清理开始：" + method);
+            await this.invalidateProjectFileIndexes?.("文件写入或清理开始：" + method, changedPaths);
         try {
             return await load();
         }
         finally {
-            if (mutation)
-                await this.invalidateProjectFileIndexes?.("文件写入或清理结束，需重新查询：" + method);
+            if (mutation) {
+                await this.invalidateProjectFileIndexes?.("文件写入或清理结束，需重新查询：" + method, changedPaths);
+                await this.refreshProjectFileIndexesBeforeOperation?.(method, request, "after-operation");
+            }
         }
     }
     projectFileObservationIndex(source) {
@@ -19743,14 +19752,18 @@ class RealtimeTunnelPanelProvider {
         const connection = source ? crypto.createHash("sha256").update(JSON.stringify({ session: this.fileIndexSession,
             host: String(source.networkHost || source.host || "").trim().toLowerCase(), port: Number(source.port || source.sshPort || 22),
             user: String(source.user || source.username || "").trim() })).digest("hex") : "local:" + process.pid;
-        const index = (0, ProjectFileIndex_1.projectFileIndex)({ workspace: root, endpointId, projectRoot, connection }, storage);
+        const endpointBinding = source ? crypto.createHash("sha256").update(JSON.stringify({
+            host: String(source.networkHost || source.host || "").trim().toLowerCase(), port: Number(source.port || source.sshPort || 22),
+            user: String(source.user || source.username || "").trim()
+        })).digest("hex") : "local";
+        const index = (0, ProjectFileIndex_1.projectFileIndex)({ workspace: root, endpointId, projectRoot, connection, endpointBinding }, storage);
         this.projectFileIndexes.add(index);
         return index;
     }
     async invalidateProjectFileIndexes(reason, paths) {
         await Promise.all([...(this.projectFileIndexes || [])].map(index => index.invalidate(reason, paths)));
     }
-    async refreshProjectFileIndexesBeforeOperation(method, request) {
+    async refreshProjectFileIndexesBeforeOperation(method, request, phase = "before-operation") {
         const root = workspaceRoot();
         if (!root)
             return;
@@ -19764,7 +19777,7 @@ class RealtimeTunnelPanelProvider {
             const index = this.projectFileObservationIndex?.();
             if (index)
                 reads.push(index.read({ method: "local.before-operation", paths: localPaths.length ? localPaths : ["."],
-                    metadataOnly: true, binding: { operation: method } }, () => (0, ProjectFileIndex_1.readLocalFileIndexPaths)(root, localPaths)));
+                    metadataOnly: true, binding: { operation: method, purpose: phase } }, () => (0, ProjectFileIndex_1.readLocalFileIndexPaths)(root, localPaths)));
         }
         const sources = [request.source, request.destination, request.server, request.node].filter(Boolean);
         const seen = new Set();
@@ -19779,7 +19792,7 @@ class RealtimeTunnelPanelProvider {
                 for (const scopePaths of batches) {
                     const queryMethod = scopePaths.length ? "sync.projectInventory" : "sync.projectTree";
                     const params = { source, relativePath: ".", ...(scopePaths.length ? { scopePaths, metadataOnly: true, recursive: true } : {}) };
-                    await index.read({ ...(0, ProjectFileIndex_1.sftpFileIndexQuery)(queryMethod, params), binding: { purpose: "before-operation", operation: method } }, async () => {
+                    await index.read({ ...(0, ProjectFileIndex_1.sftpFileIndexQuery)(queryMethod, params), binding: { purpose: phase, operation: method } }, async () => {
                         const capability = await this.simpleSftpCapability(queryMethod);
                         if (scopePaths.length && capability.methodOptions?.[queryMethod]?.metadataOnly !== 1)
                             throw Error("FILE_INDEX_METADATA_CAPABILITY_REQUIRED");

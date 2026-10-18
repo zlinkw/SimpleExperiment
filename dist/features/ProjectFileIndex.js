@@ -64,6 +64,10 @@ class ProjectFileIndex {
     invalidations = [];
     writing = Promise.resolve();
     directoryDigests = new Map();
+    directoryGroups = new Map([[".", {}]]);
+    directoryChildren = new Map();
+    directoryRefs = new Map();
+    dirtyDirectories = new Set(["."]);
     directoryPublication = {};
     listeners = new Set();
     file;
@@ -131,7 +135,8 @@ class ProjectFileIndex {
                 if (owners.get(this.file) !== this)
                     throw Error("FILE_INDEX_CONNECTION_REPLACED");
                 const currentPaths = new Set(normalized.facts.map(row => row.path));
-                const absentDirectories = normalized.facts.filter(row => row.type === "directory" && row.presence === "absent").map(row => row.path);
+                const absentDirectories = normalized.facts.filter(row => row.type === "directory" && row.presence === "absent"
+                    || row.type === "file" && row.presence === "present" && this.entries.get(row.path)?.type === "directory").map(row => row.path);
                 const completeKinds = query.method === "sync.projectInventory" ? ["file"]
                     : ["agent.metadata", "local.metadata", "sync.projectTree"].includes(query.method) ? ["file", "directory"] : [];
                 const covered = (name) => {
@@ -147,7 +152,7 @@ class ProjectFileIndex {
                         if ((this.entryGenerations.get(name) || 0) > generation || !missingAncestor && !enumerated)
                             continue;
                         const absent = missingAncestor || normalized.state === "complete";
-                        this.entries.set(name, { path: name, type: old.type, presence: absent ? "absent" : "unknown",
+                        this.putFact(name, { path: name, type: old.type, presence: absent ? "absent" : "unknown",
                             error: absent ? undefined : normalized.error || "本轮清单不完整", observedAt, observationId });
                         this.entryGenerations.set(name, generation);
                         this.entryScopes.set(name, { method: query.method, scope });
@@ -157,7 +162,7 @@ class ProjectFileIndex {
                 // Older overlapping reads cannot overwrite more recent evidence, including negative facts.
                 for (const fact of normalized.facts) {
                     if ((this.entryGenerations.get(fact.path) || 0) <= generation) {
-                        this.entries.set(fact.path, fact);
+                        this.putFact(fact.path, fact);
                         this.entryGenerations.set(fact.path, generation);
                         this.entryScopes.set(fact.path, { method: query.method, scope });
                     }
@@ -212,6 +217,35 @@ class ProjectFileIndex {
         await this.persist();
     }
     subscribe(listener) { this.listeners.add(listener); return () => { this.listeners.delete(listener); }; }
+    /** A baseline is an acceleration input, never a completed observation. Its remote cursor must be revalidated. */
+    async readBaseline() {
+        try {
+            const file = this.file + ".scope-baseline", stat = await fs.lstat(file);
+            if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 16 * 1024 * 1024)
+                return;
+            const { checksum, ...record } = JSON.parse(await fs.readFile(file, "utf8"));
+            if (record.schemaVersion !== 1 || checksum !== hash(record) || record.identity !== this.baselineIdentity())
+                return;
+            return record.value;
+        }
+        catch {
+            return;
+        }
+    }
+    async writeBaseline(value) {
+        const record = { schemaVersion: 1, identity: this.baselineIdentity(), value };
+        const text = JSON.stringify({ ...record, checksum: hash(record) });
+        if (Buffer.byteLength(text) > 16 * 1024 * 1024)
+            return;
+        try {
+            await (0, StateStore_1.atomicWriteText)(this.file + ".scope-baseline", text, { beforeRename: async () => {
+                    if (owners.get(this.file) !== this)
+                        throw Error("FILE_INDEX_CONNECTION_REPLACED");
+                } });
+        }
+        catch { /* Next query can always request a reset from the live server. */ }
+    }
+    baselineIdentity() { return hash([this.identity.workspace, this.identity.endpointId, this.identity.projectRoot, this.identity.endpointBinding || this.identity.connection]); }
     directoryFile(relative) {
         if (relative !== "." && !safe(relative))
             throw Error("FILE_INDEX_PATH_INVALID");
@@ -220,7 +254,7 @@ class ProjectFileIndex {
     trim() {
         while (this.entries.size > 60000) {
             const name = this.entries.keys().next().value;
-            this.entries.delete(name);
+            this.putFact(name, undefined);
             this.entryGenerations.delete(name);
             this.entryScopes.delete(name);
         }
@@ -231,6 +265,43 @@ class ProjectFileIndex {
                 this.reads.delete(key);
         while (this.reads.size > 64)
             this.reads.delete(this.reads.keys().next().value);
+    }
+    content(fact) {
+        if (!fact)
+            return {};
+        const { observedAt, observationId, ...value } = fact;
+        return value;
+    }
+    putFact(name, fact) {
+        const old = this.entries.get(name);
+        if (fact)
+            this.entries.set(name, fact);
+        else
+            this.entries.delete(name);
+        if (JSON.stringify(this.content(old)) === JSON.stringify(this.content(fact)))
+            return;
+        const parent = name.includes("/") ? name.slice(0, name.lastIndexOf("/")) : ".";
+        if (!this.directoryGroups.has(parent))
+            this.directoryGroups.set(parent, {});
+        if (name !== ".") {
+            if (fact)
+                this.directoryGroups.get(parent)[name] = this.content(fact);
+            else
+                delete this.directoryGroups.get(parent)[name];
+        }
+        let current = fact?.type === "directory" || old?.type === "directory" ? name : parent;
+        while (true) {
+            if (!this.directoryGroups.has(current))
+                this.directoryGroups.set(current, {});
+            this.dirtyDirectories.add(current);
+            if (current === ".")
+                break;
+            const ancestor = current.includes("/") ? current.slice(0, current.lastIndexOf("/")) : ".";
+            const children = this.directoryChildren.get(ancestor) || new Set();
+            children.add(current);
+            this.directoryChildren.set(ancestor, children);
+            current = ancestor;
+        }
     }
     snapshot(includeEntries = true) {
         const observations = [...this.observations.values()], byId = new Map(observations.map(row => [row.observationId, row]));
@@ -245,32 +316,12 @@ class ProjectFileIndex {
             })) };
     }
     async persistDirectories(snapshot) {
-        const groups = new Map([[".", {}]]);
-        for (const [name, fact] of Object.entries(snapshot.entries)) {
-            if (name === ".")
-                continue;
-            const parent = name.includes("/") ? name.slice(0, name.lastIndexOf("/")) : ".";
-            if (!groups.has(parent))
-                groups.set(parent, {});
-            const { observedAt, observationId, validity, ...content } = fact;
-            groups.get(parent)[name] = content;
-            for (let current = fact.type === "directory" ? name : parent; current !== ".";) {
-                if (!groups.has(current))
-                    groups.set(current, {});
-                current = current.includes("/") ? current.slice(0, current.lastIndexOf("/")) : ".";
-            }
-        }
-        const refs = new Map(), writes = [];
-        const children = new Map();
-        for (const directory of groups.keys())
-            if (directory !== ".") {
-                const parent = directory.includes("/") ? directory.slice(0, directory.lastIndexOf("/")) : ".";
-                const list = children.get(parent) || [];
-                list.push(directory);
-                children.set(parent, list);
-            }
-        for (const relative of [...groups.keys()].sort((a, b) => (b === "." ? 0 : b.split("/").length) - (a === "." ? 0 : a.split("/").length) || b.length - a.length)) {
-            const entries = groups.get(relative), childRefs = Object.fromEntries((children.get(relative) || []).sort().map(child => [child, refs.get(child)]));
+        const groups = this.directoryGroups, refs = this.directoryRefs;
+        const dirty = [...this.dirtyDirectories];
+        this.dirtyDirectories.clear();
+        const writes = [];
+        for (const relative of dirty.sort((a, b) => (b === "." ? 0 : b.split("/").length) - (a === "." ? 0 : a.split("/").length) || b.length - a.length)) {
+            const entries = groups.get(relative), childRefs = Object.fromEntries([...(this.directoryChildren.get(relative) || [])].sort().map(child => [child, refs.get(child)]));
             const facts = Object.values(entries);
             const summary = { files: facts.filter(row => row.type === "file" && row.presence === "present").length,
                 bytes: facts.reduce((total, row) => total + (row.type === "file" && row.presence === "present" ? row.size || 0 : 0), 0),
@@ -280,7 +331,7 @@ class ProjectFileIndex {
                 summary.bytes += child.summary.bytes;
                 summary.unknown += child.summary.unknown;
             }
-            const { observedAt: _at, observationId: _id, validity: _validity, ...directory } = snapshot.entries[relative] || {};
+            const directory = this.content(this.entries.get(relative));
             const content = { relativeDirectory: relative, directory, entries, children: childRefs, summary };
             const fingerprint = hash(content), file = this.directoryFile(relative);
             refs.set(relative, { file: path.basename(file), fingerprint, summary });
@@ -302,11 +353,14 @@ class ProjectFileIndex {
             }
         }));
         const failure = results.find(row => row.status === "rejected");
-        if (failure)
+        if (failure) {
+            for (const name of dirty)
+                this.dirtyDirectories.add(name);
             throw failure.reason;
+        }
         const { entries, ...header } = snapshot;
         this.directoryPublication = { layout: { kind: "direct-children-with-child-summaries", directoryRoot: path.basename(path.dirname(this.directoryFile("."))), root: refs.get(".") },
-            directoryCount: refs.size, directoryFilesWritten: writes.length };
+            directoryCount: refs.size, directoryFilesWritten: writes.length, directorySummariesRecomputed: dirty.length };
         return { ...header, ...this.directoryPublication };
     }
     persist(observationOnly = false) {
@@ -315,8 +369,8 @@ class ProjectFileIndex {
             try {
                 if (owners.get(this.file) !== this)
                     return;
-                const { entries, ...header } = this.snapshot(!observationOnly);
-                const snapshot = observationOnly ? { ...header, ...this.directoryPublication } : await this.persistDirectories({ ...header, entries });
+                const { entries, ...header } = this.snapshot(false);
+                const snapshot = observationOnly ? { ...header, ...this.directoryPublication } : await this.persistDirectories(header);
                 let serialized = JSON.stringify(snapshot);
                 // Keep diagnostic storage bounded without truncating the actual read returned to its consumer.
                 while (Buffer.byteLength(serialized, "utf8") > 16 * 1024 * 1024 && Object.keys(snapshot.entries || {}).length) {
@@ -449,22 +503,27 @@ function fileOperationIndexPaths(params, local = false) {
 }
 async function readLocalFileIndexPaths(root, paths) {
     const canonical = await fs.realpath(root), files = {};
-    for (const relative of paths.length ? paths : ["."]) {
-        if (relative !== "." && !safe(relative))
-            throw Error("FILE_INDEX_PATH_INVALID");
-        try {
-            const full = path.resolve(canonical, relative), physical = await fs.realpath(full), rel = path.relative(canonical, physical);
-            if (rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel))
-                throw Error("FILE_INDEX_PATH_OUTSIDE_ROOT");
-            const stat = await fs.lstat(full);
-            if (stat.isSymbolicLink() || !stat.isFile() && !stat.isDirectory())
-                throw Error("FILE_INDEX_TYPE_UNSUPPORTED");
-            files[relative] = { directory: stat.isDirectory(), size: stat.size, modifiedAtMs: stat.mtimeMs, changedAtMs: stat.ctimeMs,
-                device: String(stat.dev), inode: String(stat.ino) };
+    const names = paths.length ? [...new Set(paths)] : ["."];
+    if (names.some(relative => relative !== "." && !safe(relative)))
+        throw Error("FILE_INDEX_PATH_INVALID");
+    let next = 0;
+    await Promise.all(Array.from({ length: Math.min(8, names.length) }, async () => {
+        while (next < names.length) {
+            const relative = names[next++];
+            try {
+                const full = path.resolve(canonical, relative), physical = await fs.realpath(full), rel = path.relative(canonical, physical);
+                if (rel === ".." || rel.startsWith(".." + path.sep) || path.isAbsolute(rel))
+                    throw Error("FILE_INDEX_PATH_OUTSIDE_ROOT");
+                const stat = await fs.lstat(full);
+                if (stat.isSymbolicLink() || !stat.isFile() && !stat.isDirectory())
+                    throw Error("FILE_INDEX_TYPE_UNSUPPORTED");
+                files[relative] = { directory: stat.isDirectory(), size: stat.size, modifiedAtMs: stat.mtimeMs, changedAtMs: stat.ctimeMs,
+                    device: String(stat.dev), inode: String(stat.ino) };
+            }
+            catch (error) {
+                files[relative] = error?.code === "ENOENT" ? { exists: false } : { status: "unknown", error: error?.message || "文件属性读取失败" };
+            }
         }
-        catch (error) {
-            files[relative] = error?.code === "ENOENT" ? { exists: false } : { status: "unknown", error: error?.message || "文件属性读取失败" };
-        }
-    }
+    }));
     return { ok: true, files };
 }

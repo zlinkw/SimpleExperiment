@@ -1,6 +1,7 @@
 import { collectLocalScopeMetadata } from "./SyncScopeStatus";
 import type { ScopeEntry, ScopeObservation } from "./SyncScopeTree";
 import type { ProjectFileIndex } from "./ProjectFileIndex";
+import { incrementalLocalMetadata } from "./IncrementalLocalMetadata";
 
 /** One fresh local scan per page round, shared by directory browsing and summaries. */
 export class SyncScopeLocalIndexReader {
@@ -30,7 +31,7 @@ export class SyncScopeLocalIndexReader {
       };
       request.reports.add(reset); reset();
     });
-    const load = () => collectLocalScopeMetadata(this.root, ".", controller.signal, stage => {
+    const load = () => incrementalLocalMetadata(this.root, this.index ? this.index.file + ".baseline" : undefined).read(controller.signal, stage => {
       if (controller.signal.aborted || this.request !== request) return;
       request.stage = stage;
       for (const listener of request.reports) listener(stage);

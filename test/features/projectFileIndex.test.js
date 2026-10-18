@@ -1,6 +1,6 @@
 const test=require('node:test'),assert=require('node:assert/strict'),fs=require('node:fs/promises'),os=require('node:os'),path=require('node:path');
 require('../_helpers/registerTsRequire');
-const {ProjectFileIndex,normalizeFileIndexResult,sftpFileIndexQuery}=require('../../src/features/ProjectFileIndex.ts');
+const {ProjectFileIndex,normalizeFileIndexResult,sftpFileIndexQuery,fileOperationIndexPaths,readLocalFileIndexPaths}=require('../../src/features/ProjectFileIndex.ts');
 const fixture=async(connection='one')=>{const storage=await fs.mkdtemp(path.join(os.tmpdir(),'project-file-index-'));return {storage,identity:{workspace:storage,endpointId:'worker',projectRoot:'/project',connection}};};
 const payload=(n=1)=>({ok:true,files:{'data/a':{size:n,modifiedAtMs:1000,sha256:'a'.repeat(64)}}});
 const until=async ready=>{const end=Date.now()+3000;while(!ready()){assert.ok(Date.now()<end,'read did not start');await new Promise(resolve=>setImmediate(resolve));}};
@@ -58,7 +58,7 @@ test('real SFTP entry shares only an explicit read round, strips internal hints 
  const ast=ts.createSourceFile('host.ts',source,ts.ScriptTarget.Latest,true);let method;function visit(n){if(ts.isMethodDeclaration(n)&&n.name.getText(ast)==='simpleSftpApiCall')method=n;ts.forEachChild(n,visit);}visit(ast);
  const {storage,identity}=await fixture(),index=new ProjectFileIndex(identity,storage);let calls=0;const invalidations=[];
  const run=vm.runInNewContext(ts.transpileModule('class Host{'+method.getText(ast)+'};Host.prototype.simpleSftpApiCall',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,
-  {assertRetryRequestCurrent(){},sftpFileIndexQuery,vscode:{workspace:{getConfiguration:()=>({get:()=> 'simple'})}},AgentTmuxPolicy_1:require('../../src/tunnel/AgentTmuxPolicy.ts'),
+  {assertRetryRequestCurrent(){},sftpFileIndexQuery,fileOperationIndexPaths,vscode:{workspace:{getConfiguration:()=>({get:()=> 'simple'})}},AgentTmuxPolicy_1:require('../../src/tunnel/AgentTmuxPolicy.ts'),
    callSftpWithProgress:async(name,params,discover)=>{calls++;await discover(name);assert.equal(params.fileIndexRound,undefined);return payload();}});
  const h={simpleSftpCapability:async()=>({}),projectFileObservationIndex:()=>index,invalidateProjectFileIndexes:async reason=>{invalidations.push(reason);await index.invalidate(reason);}};
  const params={source:{id:'worker',remotePath:'/project'},metadataOnly:true,recursive:true,fileIndexRound:'one'};
@@ -151,4 +151,20 @@ test('a success envelope without the required list or existence field cannot tur
  const tree=sftpFileIndexQuery('sync.projectTreeState',{relativePath:'data'});
  await index.read(tree,async()=>({ok:true,exists:true}));await index.read(tree,async()=>({ok:true}));
  assert.equal(index.snapshot().observations.at(-1).state,'failed');assert.notEqual(index.snapshot().entries.data.presence,'absent');
+});
+
+test('actual mutation wrapper refreshes exact scopes before and after the write and records final absence',async()=>{
+ const ts=require('typescript'),vm=require('node:vm'),source=await fs.readFile(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8');
+ const ast=ts.createSourceFile('host.ts',source,ts.ScriptTarget.Latest,true),names=['simpleSftpApiCall','refreshProjectFileIndexesBeforeOperation'],members=[];
+ function visit(n){if(ts.isMethodDeclaration(n)&&names.includes(n.name.getText(ast)))members.push(n.getText(ast));ts.forEachChild(n,visit);}visit(ast);
+ const {storage,identity}=await fixture(),index=new ProjectFileIndex(identity,storage);let present=true;const calls=[];
+ const Host=vm.runInNewContext(ts.transpileModule('class Host{'+members.join('\n')+'};Host',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,
+ {workspaceRoot:()=>storage,path,fileOperationIndexPaths,readLocalFileIndexPaths,sftpFileIndexQuery,assertRetryRequestCurrent(){},
+  callSftpWithProgress:async(method,request)=>{calls.push({method,paths:request.scopePaths});if(method==='sync.serverToServerFpsync'){assert.equal(index.snapshot().entries['data/a'].presence,'present');present=false;return {ok:true};}return {ok:true,files:present?{'data/a':{size:3,modifiedAtMs:1}}:{}};}});
+ const h=new Host();h.projectFileObservationIndex=node=>node?index:undefined;
+ h.simpleSftpCapability=async()=>({methodOptions:{'sync.projectInventory':{metadataOnly:1}}});
+ h.invalidateProjectFileIndexes=async(reason,paths)=>{assert.deepEqual([...paths],['data/a']);await index.invalidate(reason,paths);};
+ await h.simpleSftpApiCall('sync.serverToServerFpsync',{source:{id:'worker'},relativePaths:['data/a']});
+ assert.deepEqual(calls.map(c=>c.method),['sync.projectInventory','sync.serverToServerFpsync','sync.projectInventory']);
+ assert.equal(index.snapshot().entries['data/a'].presence,'absent');assert.equal(index.snapshot().observations.at(-1).binding.purpose,'after-operation');
 });

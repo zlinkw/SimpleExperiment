@@ -7678,7 +7678,11 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 ],
                 manifest: { ...manifest, targetId: target.id, targetRole: target.role, targetLabel: target.label },
             }); }
-                finally { await this.invalidateProjectFileIndexes?.("文件操作结束，需重新查询：simpleSftp.uploadFiles"); }
+                finally {
+                    await this.invalidateProjectFileIndexes?.("文件操作结束，需重新查询：simpleSftp.uploadFiles", ["cluster_agent.py", "cluster_scheduler.py"]);
+                    await this.refreshProjectFileIndexesBeforeOperation?.("simpleSftp.uploadFiles", { localBase: runtimeDir,
+                        server: { ...await this.agentLifecycleServer(target), id: target.id, remotePath: target.remotePath }, paths: ["cluster_agent.py", "cluster_scheduler.py"] }, "after-operation");
+                }
             })();
             console.log("[diag] simpleSftp.uploadFiles result", JSON.stringify(result)?.slice(0,500));
             const record = result && typeof result === "object" ? result : {};
@@ -8837,7 +8841,10 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                         manifest: group.manifest, transientManifest: true, preComparedManifest: true,
                         server: destination,
                     }); }
-                finally { await this.invalidateProjectFileIndexes?.("文件操作结束，需重新查询：simpleSftp.uploadWorkspace"); }
+                finally {
+                    await this.invalidateProjectFileIndexes?.("文件操作结束，需重新查询：simpleSftp.uploadWorkspace", Object.keys(group.manifest));
+                    await this.refreshProjectFileIndexesBeforeOperation?.("simpleSftp.uploadWorkspace", { localPath: root, server: destination, manifest: group.manifest }, "after-operation");
+                }
             })();
                     if (!result || result.ok === false) throw new Error(`上传 ${row.id} 失败：${resultError(result)}`);
                 } else {
@@ -9087,7 +9094,10 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 try { return await vscode.commands.executeCommand("simpleSftp.uploadWorkspace", { apiMode: true, confirm: true, pathConfirmed: true,
                     localPath: root, targetId: row.id, targetRole: row.role, stateFileMode: "virtual",
                     manifest, transientManifest: true, server: this.sftpServerOptions(row) }); }
-                finally { await this.invalidateProjectFileIndexes?.("文件操作结束，需重新查询：simpleSftp.uploadWorkspace"); }
+                finally {
+                    await this.invalidateProjectFileIndexes?.("文件操作结束，需重新查询：simpleSftp.uploadWorkspace", Object.keys(manifest));
+                    await this.refreshProjectFileIndexesBeforeOperation?.("simpleSftp.uploadWorkspace", { localPath: root, server: this.sftpServerOptions(row), manifest }, "after-operation");
+                }
             })();
                 if (!result || result.ok === false) throw new Error(`上传 ${row.id} 失败：${resultError(result)}`);
             } else {
@@ -9173,7 +9183,10 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 try { return await vscode.commands.executeCommand("simpleSftp.uploadWorkspace", { apiMode: true, confirm: true, pathConfirmed: true,
                             localPath: root, targetId: target.id, targetRole: target.role, stateFileMode: "virtual", transientManifest: true,
                             manifest, server: destination }); }
-                finally { await this.invalidateProjectFileIndexes?.("文件操作结束，需重新查询：simpleSftp.uploadWorkspace"); }
+                finally {
+                    await this.invalidateProjectFileIndexes?.("文件操作结束，需重新查询：simpleSftp.uploadWorkspace", Object.keys(manifest));
+                    await this.refreshProjectFileIndexesBeforeOperation?.("simpleSftp.uploadWorkspace", { localPath: root, server: destination, manifest }, "after-operation");
+                }
             })();
                         if (!result || result.ok === false) throw new Error(`上传 ${target.id} 失败：${resultError(result)}`);
                     }
@@ -14733,7 +14746,10 @@ this.assertActionAuthorityCurrent(options);this.assertPlanTopologyReady(options.
                 files,
                 manifest: { schemaVersion: 1, kind: "simple-experiment-draft", files: relativeFiles },
             }); }
-                finally { await this.invalidateProjectFileIndexes?.("文件操作结束，需重新查询：simpleSftp.uploadFiles"); }
+                finally {
+                    await this.invalidateProjectFileIndexes?.("文件操作结束，需重新查询：simpleSftp.uploadFiles", relativeFiles);
+                    await this.refreshProjectFileIndexesBeforeOperation?.("simpleSftp.uploadFiles", { localBase: root, server: this.sftpServerOptions(target), files }, "after-operation");
+                }
             })();
             const item = result && typeof result === "object" ? result : {};
             if (!sftpUploadFilesSucceeded(item))
@@ -18565,9 +18581,13 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         if (index) return index.read(query, load);
         const mutation = /^(sync\.(?:serverToServerFpsync|download|upload)|upload\.|files\.cleanup\.execute|files\.(?:delete|move|write|mkdir|rename))/.test(method);
         if (mutation) await this.refreshProjectFileIndexesBeforeOperation?.(method, request);
-        if (mutation) await this.invalidateProjectFileIndexes?.("文件写入或清理开始：" + method);
+        const changedPaths = fileOperationIndexPaths(request);
+        if (mutation) await this.invalidateProjectFileIndexes?.("文件写入或清理开始：" + method, changedPaths);
         try { return await load(); }
-        finally { if (mutation) await this.invalidateProjectFileIndexes?.("文件写入或清理结束，需重新查询：" + method); }
+        finally { if (mutation) {
+            await this.invalidateProjectFileIndexes?.("文件写入或清理结束，需重新查询：" + method, changedPaths);
+            await this.refreshProjectFileIndexesBeforeOperation?.(method, request, "after-operation");
+        } }
     }
     projectFileObservationIndex(source?) {
         const root = workspaceRoot(), storage = this.context?.globalStorageUri?.fsPath;
@@ -18581,13 +18601,16 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const connection = source ? crypto.createHash("sha256").update(JSON.stringify({ session: this.fileIndexSession,
             host: String(source.networkHost || source.host || "").trim().toLowerCase(), port: Number(source.port || source.sshPort || 22),
             user: String(source.user || source.username || "").trim() })).digest("hex") : "local:" + process.pid;
-        const index = projectFileIndex({ workspace: root, endpointId, projectRoot, connection }, storage);
+        const endpointBinding = source ? crypto.createHash("sha256").update(JSON.stringify({
+            host: String(source.networkHost || source.host || "").trim().toLowerCase(), port: Number(source.port || source.sshPort || 22),
+            user: String(source.user || source.username || "").trim() })).digest("hex") : "local";
+        const index = projectFileIndex({ workspace: root, endpointId, projectRoot, connection, endpointBinding }, storage);
         this.projectFileIndexes.add(index); return index;
     }
     async invalidateProjectFileIndexes(reason, paths?) {
         await Promise.all([...(this.projectFileIndexes || [])].map(index => index.invalidate(reason, paths)));
     }
-    async refreshProjectFileIndexesBeforeOperation(method, request) {
+    async refreshProjectFileIndexesBeforeOperation(method, request, phase = "before-operation") {
         const root = workspaceRoot();
         if (!root) return;
         const paths = fileOperationIndexPaths(request), localPaths = fileOperationIndexPaths(request, true);
@@ -18598,7 +18621,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             && (!request.localPath || path.resolve(request.localPath) === path.resolve(root))) {
             const index = this.projectFileObservationIndex?.();
             if (index) reads.push(index.read({ method: "local.before-operation", paths: localPaths.length ? localPaths : ["."],
-                metadataOnly: true, binding: { operation: method } }, () => readLocalFileIndexPaths(root, localPaths)));
+                metadataOnly: true, binding: { operation: method, purpose: phase } }, () => readLocalFileIndexPaths(root, localPaths)));
         }
         const sources = [request.source, request.destination, request.server, request.node].filter(Boolean);
         const seen = new Set();
@@ -18612,7 +18635,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 for (const scopePaths of batches) {
                     const queryMethod = scopePaths.length ? "sync.projectInventory" : "sync.projectTree";
                     const params = { source, relativePath: ".", ...(scopePaths.length ? { scopePaths, metadataOnly: true, recursive: true } : {}) };
-                    await index.read({ ...sftpFileIndexQuery(queryMethod, params), binding: { purpose: "before-operation", operation: method } }, async () => {
+                    await index.read({ ...sftpFileIndexQuery(queryMethod, params), binding: { purpose: phase, operation: method } }, async () => {
                         const capability = await this.simpleSftpCapability(queryMethod);
                         if (scopePaths.length && capability.methodOptions?.[queryMethod]?.metadataOnly !== 1)
                             throw Error("FILE_INDEX_METADATA_CAPABILITY_REQUIRED");

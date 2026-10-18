@@ -1,7 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SyncScopeLocalIndexReader = void 0;
-const SyncScopeStatus_1 = require("./SyncScopeStatus");
+const IncrementalLocalMetadata_1 = require("./IncrementalLocalMetadata");
 /** One fresh local scan per page round, shared by directory browsing and summaries. */
 class SyncScopeLocalIndexReader {
     root;
@@ -41,7 +41,7 @@ class SyncScopeLocalIndexReader {
             request.reports.add(reset);
             reset();
         });
-        const load = () => (0, SyncScopeStatus_1.collectLocalScopeMetadata)(this.root, ".", controller.signal, stage => {
+        const load = () => (0, IncrementalLocalMetadata_1.incrementalLocalMetadata)(this.root, this.index ? this.index.file + ".baseline" : undefined).read(controller.signal, stage => {
             if (controller.signal.aborted || this.request !== request)
                 return;
             request.stage = stage;

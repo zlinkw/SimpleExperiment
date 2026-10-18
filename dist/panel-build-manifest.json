@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.373",
-  "buildId": "5b6474beb5359cb7408fe864a4dfdae165af90ad7d3eb9096dacd95866532db2",
+  "version": "0.5.374",
+  "buildId": "50927df7f7e09f97d08c606dab57536719c073efa82480c4c1846c2171953964",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -197,7 +197,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "f08d0f17014e513f42c2065d6573165f61b85185eef38d8932f4b7a568888ab6"
+      "sha256": "0611eed38875ecbeececbd32dd44f99b5a91d083361455a69f7861e31735cc98"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -356,6 +356,10 @@
       "sha256": "9b97c20f531d01d0e04b19d77f446aaf90e3868dd438664e24b0fd03493d8926"
     },
     {
+      "path": "dist/features/IncrementalLocalMetadata.js",
+      "sha256": "a50d87f79d015037346db512fc42aadaeb7ebc9c77a83d156361c4e32370e04d"
+    },
+    {
       "path": "dist/features/JobAvailability.js",
       "sha256": "7c60c7a2dac52a5b446e0c9a1fc44cbcda7099c1e1afb59d5b1327b9904f9b35"
     },
@@ -505,7 +509,7 @@
     },
     {
       "path": "dist/features/ProjectFileIndex.js",
-      "sha256": "146ebb8d5e04c3c4c9ec1eb1138134648d441e3cfff8b37ec88648f77a28823a"
+      "sha256": "33a23d7ce6413e6faf8e4750cf4fde9f4d1c29b74a0b6bec986c5a3c05b20b27"
     },
     {
       "path": "dist/features/ProjectMirror.js",
@@ -561,7 +565,7 @@
     },
     {
       "path": "dist/features/SyncScopeAgentIndex.js",
-      "sha256": "869b1fd82127757aaf1859ef00f37d693efce4af8ab2d8e293ab9ea9e717a90c"
+      "sha256": "b1e537600129ae8284dfadce45b448c3a3024aa9d7584ca85c95af296a6ecf57"
     },
     {
       "path": "dist/features/SyncScopeBatch.js",
@@ -577,7 +581,7 @@
     },
     {
       "path": "dist/features/SyncScopeLocalIndex.js",
-      "sha256": "a26ffde18bfc106ba666692c98d8a0e6c5664ec0c100479861fdefda9b714426"
+      "sha256": "3556213505f07c66e62dcc2325bb1943accb5cb28cf4fbea5632ac640a4a94b8"
     },
     {
       "path": "dist/features/SyncScopeLocalMirror.js",
@@ -693,7 +697,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "1a0ae2c440cdc6031403b9b7e8810f626b300ece245d22b45b7edff42b9689f8"
+      "sha256": "08967437b7cc047e7b7934ba53520b3227bc020962d18e958be1c495588c4765"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1041,7 +1045,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "e3e45955a380f4751571e033f13477082d9f0c8078c4d1b4ea1955d69c272be5"
+      "sha256": "68b4d0977f77f00d2e962ba07517962480381571a340a2efc6b5069203b3630a"
     },
     {
       "path": "scripts/check-static.js",

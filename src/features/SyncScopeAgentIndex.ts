@@ -4,7 +4,7 @@ import type { MetadataInventory } from "./SyncScopeMetadata";
 import type { ProjectFileIndex } from "./ProjectFileIndex";
 
 type IndexEntry = { p: string; d: boolean; m: number; s?: number; n?: number; b?: number; c?: number; v?: string; i?: string };
-type Snapshot = { instanceId: string; generation: number; entries: Map<string, IndexEntry>; observedAt: string };
+type Snapshot = { instanceId: string; generation: number; entries: Map<string, IndexEntry>; observedAt: string; acceleration?: Record<string, any> };
 type Rpc = (query: Record<string, unknown>, options: { signal?: AbortSignal }) => Promise<any>;
 
 export function scopeIndexUnsupported(error: unknown): boolean {
@@ -18,6 +18,7 @@ export class SyncScopeAgentIndexReader {
   private directorySnapshot?: Snapshot;
   private directories = new Map<string, IndexEntry[]>();
   private disposed = false;
+  private restored = false;
   constructor(private readonly rpc: Rpc, readonly viewId: string = randomUUID().replaceAll("-", ""), private readonly index?: ProjectFileIndex) {}
 
   read(round: string, signal?: AbortSignal, report?: (stage: string) => void): Promise<Snapshot> {
@@ -40,6 +41,15 @@ export class SyncScopeAgentIndexReader {
   }
 
   private async load(request: { id: string }, signal?: AbortSignal, report = (_stage: string) => {}): Promise<Snapshot> {
+    if (!this.restored && this.index) {
+      this.restored = true;
+      const saved = await this.index?.readBaseline();
+      signal?.throwIfAborted();
+      if (this.disposed || this.request !== request) throw new Error("SCOPE_INDEX_REQUEST_SUPERSEDED");
+      if (saved && typeof saved.instanceId === "string" && Number.isSafeInteger(saved.generation) && saved.generation > 0
+        && Array.isArray(saved.entries) && saved.entries.length <= 60000)
+        this.snapshot = { ...saved, entries: new Map(saved.entries) };
+    }
     const previous = this.snapshot;
     const identity = { feature: "project-sync-scope", viewId: this.viewId, requestId: request.id };
     const current = () => {
@@ -95,8 +105,10 @@ export class SyncScopeAgentIndexReader {
       const parent = name.includes("/") ? name.slice(0, name.lastIndexOf("/")) : ".";
       if (!entries.get(parent)?.d) throw new Error("SCOPE_INDEX_PARENT_MISSING");
     }
-    const value = { instanceId, generation, entries, observedAt: String(response.observedAt || "") };
+    const value = { instanceId, generation, entries, observedAt: String(response.observedAt || ""), acceleration: response.acceleration };
     this.snapshot = value;
+    await this.index?.writeBaseline({ ...value, entries: [...entries] });
+    current();
     report(`目录索引已接收 · ${entries.size} 项`);
     return value;
   }
@@ -106,7 +118,7 @@ export class SyncScopeAgentIndexReader {
     const identity = (row: IndexEntry) => ({ modifiedAtMs: row.m, changedAtMs: row.c, device: row.v, inode: row.i });
     const load = async () => ({ files: Object.fromEntries([...snapshot.entries].filter(([, row]) => !row.d).map(([name, row]) => [name, { size: row.s!, ...identity(row) }])),
       directories: Object.fromEntries([...snapshot.entries].filter(([, row]) => row.d).map(([name, row]) => [name, identity(row)])),
-      unverifiedFiles: {}, observedAt: snapshot.observedAt, agentInstanceId: snapshot.instanceId, indexGeneration: snapshot.generation });
+      unverifiedFiles: {}, observedAt: snapshot.observedAt, agentInstanceId: snapshot.instanceId, indexGeneration: snapshot.generation, acceleration: snapshot.acceleration });
     return this.index ? this.index.read({ method: "agent.metadata", metadataOnly: true, recursive: true, round: this.viewId + ":" + round, signal,
       binding: { agentInstanceId: snapshot.instanceId, indexGeneration: snapshot.generation } }, load) : load();
   }

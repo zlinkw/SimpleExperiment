@@ -1,8 +1,10 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.SYNC_SCOPE_INDEX_PYTHON = void 0;
-/** Only the project-sync-scope view activates this in-memory, metadata-only index. */
+const IncrementalScopeMetadata_1 = require("./IncrementalScopeMetadata");
+/** Requested metadata generations share a durable baseline, never authoritative artifact evidence. */
 exports.SYNC_SCOPE_INDEX_PYTHON = String.raw `
+${IncrementalScopeMetadata_1.INCREMENTAL_SCOPE_METADATA_PYTHON}
 def sync_scope_path_allowed(relative, directory=False):
     parts = relative.lower().split('/')
     blocked = {'.git', '.vscode', '.codex', '.agents', '.coding-tools', '.local-gpt', '.runtime', 'clean_dir', 'zlk_cluster', '.venv', 'venv', 'env', 'node_modules', '__pycache__', '.cache', '.pytest_cache', '.mypy_cache', '.ruff_cache', '.tox'}
@@ -87,7 +89,8 @@ class SyncScopeIndex:
     def __init__(self, project, scanner=None, clock=None):
         self.configured_project = os.path.abspath(project)
         self.project = os.path.realpath(project)
-        self.scanner = scanner or scan_sync_scope_metadata
+        cache = os.path.join(agent_dir(project), 'scope-metadata.sqlite3') if 'agent_dir' in globals() else None
+        self.scanner = scanner or IncrementalScopeMetadata(self.project, cache)
         self.clock = clock or time.monotonic
         self.instance = uuid.uuid4().hex
         self.lock = threading.Lock()
@@ -114,14 +117,10 @@ class SyncScopeIndex:
             for key, old in list(self.sessions.items()):
                 if now - old['touched'] > 120:
                     self.sessions.pop(key, None)
-            if not self.sessions and not self.running:
-                self.snapshots.clear()
             if operation == 'release':
                 released = bool(self.sessions.get(view) and self.sessions[view]['requestId'] == request)
                 if released:
                     self.sessions.pop(view, None)
-                if not self.sessions and not self.running:
-                    self.snapshots.clear()
                 return {'ok': True, 'released': released, 'instanceId': self.instance, 'projectRoot': self.project, 'requestedProjectRoot': requested_root}
             current = self.sessions.get(view)
             if operation == 'refresh' and (not current or current['requestId'] != request):
@@ -156,6 +155,7 @@ class SyncScopeIndex:
                         break
                     batch.append(entry); batch_bytes += size
                 result.update({'generation': current['generation'], 'reset': current['reset'],
+                               'acceleration': current.get('acceleration', {}),
                                'observedAt': current['observedAt'], 'entries': batch,
                                'nextCursor': cursor + len(batch) if cursor + len(batch) < len(current['changes']) else None})
             return result
@@ -166,8 +166,6 @@ class SyncScopeIndex:
                 job = next(((view, row) for view, row in self.sessions.items() if row['status'] == 'queued'), None)
                 if job is None:
                     self.running = False
-                    if not self.sessions:
-                        self.snapshots.clear()
                     return
                 view, row = job; row['status'] = 'scanning'
                 base = self.snapshots.get(row['base'])
@@ -178,7 +176,13 @@ class SyncScopeIndex:
                 with self.lock:
                     row['processed'] = count
             try:
-                entries = self.scanner(self.project, progress, cancelled)
+                # Retry only a read raced by changes; a failed retry remains unknown.
+                for attempt in range(3):
+                    try:
+                        entries = self.scanner(self.project, progress, cancelled)
+                        break
+                    except ValueError as exc:
+                        if attempt == 2 or str(exc) not in ('SCOPE_INDEX_CHANGED_DURING_REFRESH', 'SCOPE_INDEX_DIRECTORY_CHANGED'): raise
                 changes = [entry for path, entry in entries.items() if base is None or base.get(path) != entry]
                 if base is not None:
                     changes.extend({'p': path, 'x': True} for path in base if path not in entries)
@@ -189,8 +193,10 @@ class SyncScopeIndex:
                     self.snapshots[self.generation] = entries
                     self.snapshots = {key: value for key, value in self.snapshots.items() if key >= self.generation - 1}
                     row.update({'status': 'ready', 'generation': self.generation, 'reset': base is None,
+                                'acceleration': getattr(self.scanner, 'metrics', {}),
                                 'changes': changes, 'observedAt': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())})
             except Exception as exc:
+                if isinstance(self.scanner, IncrementalScopeMetadata): self.scanner.gap = True
                 with self.lock:
                     row.update({'status': 'unknown', 'error': str(exc)[:1000]})
 `;

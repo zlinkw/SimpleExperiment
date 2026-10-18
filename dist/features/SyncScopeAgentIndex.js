@@ -17,6 +17,7 @@ class SyncScopeAgentIndexReader {
     directorySnapshot;
     directories = new Map();
     disposed = false;
+    restored = false;
     constructor(rpc, viewId = (0, node_crypto_1.randomUUID)().replaceAll("-", ""), index) {
         this.rpc = rpc;
         this.viewId = viewId;
@@ -46,6 +47,16 @@ class SyncScopeAgentIndexReader {
         return request.promise;
     }
     async load(request, signal, report = (_stage) => { }) {
+        if (!this.restored && this.index) {
+            this.restored = true;
+            const saved = await this.index?.readBaseline();
+            signal?.throwIfAborted();
+            if (this.disposed || this.request !== request)
+                throw new Error("SCOPE_INDEX_REQUEST_SUPERSEDED");
+            if (saved && typeof saved.instanceId === "string" && Number.isSafeInteger(saved.generation) && saved.generation > 0
+                && Array.isArray(saved.entries) && saved.entries.length <= 60000)
+                this.snapshot = { ...saved, entries: new Map(saved.entries) };
+        }
         const previous = this.snapshot;
         const identity = { feature: "project-sync-scope", viewId: this.viewId, requestId: request.id };
         const current = () => {
@@ -117,8 +128,10 @@ class SyncScopeAgentIndexReader {
                 if (!entries.get(parent)?.d)
                     throw new Error("SCOPE_INDEX_PARENT_MISSING");
             }
-        const value = { instanceId, generation, entries, observedAt: String(response.observedAt || "") };
+        const value = { instanceId, generation, entries, observedAt: String(response.observedAt || ""), acceleration: response.acceleration };
         this.snapshot = value;
+        await this.index?.writeBaseline({ ...value, entries: [...entries] });
+        current();
         report(`目录索引已接收 · ${entries.size} 项`);
         return value;
     }
@@ -127,7 +140,7 @@ class SyncScopeAgentIndexReader {
         const identity = (row) => ({ modifiedAtMs: row.m, changedAtMs: row.c, device: row.v, inode: row.i });
         const load = async () => ({ files: Object.fromEntries([...snapshot.entries].filter(([, row]) => !row.d).map(([name, row]) => [name, { size: row.s, ...identity(row) }])),
             directories: Object.fromEntries([...snapshot.entries].filter(([, row]) => row.d).map(([name, row]) => [name, identity(row)])),
-            unverifiedFiles: {}, observedAt: snapshot.observedAt, agentInstanceId: snapshot.instanceId, indexGeneration: snapshot.generation });
+            unverifiedFiles: {}, observedAt: snapshot.observedAt, agentInstanceId: snapshot.instanceId, indexGeneration: snapshot.generation, acceleration: snapshot.acceleration });
         return this.index ? this.index.read({ method: "agent.metadata", metadataOnly: true, recursive: true, round: this.viewId + ":" + round, signal,
             binding: { agentInstanceId: snapshot.instanceId, indexGeneration: snapshot.generation } }, load) : load();
     }
