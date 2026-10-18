@@ -334,21 +334,21 @@ function summarize(rootId){const view=views.get(rootId),root=roots.find(root=>ro
 function summaryChildren(view){for(const parent of new Set(['.',...view.expanded])){const known=new Map((view.children.get(parent)||[]).map(entry=>[entry.path,entry])),before=known.size;for(const [path,health] of Object.entries(view.statuses)){if(path==='.'||parentPath(path)!==parent||known.has(path)||health.basis!=='metadata')continue;const directory=Boolean(health.copies),observations=directory?Object.fromEntries(Object.entries(health.copies).map(([id,copy])=>[id,{status:copy.present?'present':'unknown',directory:true}])):health.metadata;known.set(path,{name:path.slice(path.lastIndexOf('/')+1),path,directory,selectable:true,observations,locations:Object.entries(observations||{}).filter(([,copy])=>copy.status==='present').map(([id])=>id)})}if(known.size!==before)view.children.set(parent,[...known.values()].sort((a,b)=>Number(b.directory)-Number(a.directory)||a.name.localeCompare(b.name)))}}
 function pumpRefresh(rootId){const view=views.get(rootId);if(!view||view.pending.size||!view.refreshQueue.length)return;const path=view.refreshQueue.shift();view.pending.add(path);if(active?.id===rootId&&!view.busyAction)status.textContent=(view.actionError?'部分路径处理失败：'+view.actionError+'；':'')+'正在校验 '+path+' 的全部文件…';const id=String(++serial);view.refreshRequests.set(path,id);vscode.postMessage({type:'refresh',id,rootId,path})}
 function scheduleInvalidatedRefresh(){if(!active)return;const view=state();if(!view.indexExpired||view.invalidationTicket||view.busyAction)return;const ticket={};view.invalidationTicket=ticket;setTimeout(()=>{if(view.invalidationTicket!==ticket)return;view.invalidationTicket=null;if(active&&state()===view&&view.indexExpired&&!view.busyAction)refreshVisible()},200)}
-function refreshVisible(){if(!active)return;const view=state();view.invalidationTicket=null;view.indexExpired=false;view.expiryTicket=null;view.checkedAt=undefined;resetIndexProgress(view);view.roundId=(view.roundId||0)+1;view.listRequests.clear();view.listPending.clear();view.refreshRequests.clear();view.pending.clear();view.refreshQueue=[];view.statuses={};view.refreshedPaths.clear();view.refreshErrors.clear();vscode.postMessage({type:'cancelRefresh',rootId:active.id,cancelReads:true});const parents=new Set(['.',...view.expanded]);for(const parent of parents)load(parent);summarize(active.id)}
+function indexReadText(view,text){return(view.actionError?'部分路径处理失败：'+view.actionError+'；':'')+text}
+function beginIndexRefresh(rootId,parents){const view=views.get(rootId);if(!view)return;view.invalidationTicket=null;view.indexExpired=false;view.expiryTicket=null;view.checkedAt=undefined;resetIndexProgress(view);view.roundId=(view.roundId||0)+1;view.listRequests.clear();view.listPending.clear();view.refreshRequests.clear();view.pending.clear();view.refreshQueue=[];view.statuses={};view.refreshedPaths.clear();view.refreshErrors.clear();view.readStage=roots.find(root=>root.id===rootId)?.summary?'正在索引文件…':'正在读取文件列表…';if(active?.id===rootId&&!view.busyAction){status.className='busy';status.textContent=indexReadText(view,view.readStage)}for(const parent of parents)load(parent,rootId);summarize(rootId)}
+function refreshVisible(){if(!active)return;vscode.postMessage({type:'cancelRefresh',rootId:active.id,cancelReads:true});beginIndexRefresh(active.id,new Set(['.',...state().expanded]))}
 function reloadAfterMutation(message){
   const affected=[...new Set([...(message.affected||[]),...(message.completed||[]),...(message.path?[message.path]:[])])];
+  vscode.postMessage({type:'cancelRefresh',rootId:message.rootId,cancelReads:true});
   for(const [rootId,view] of views){
-    view.invalidationTicket=null;view.roundId=(view.roundId||0)+1;resetIndexProgress(view);
     if(rootId===message.rootId)view.busyAction=null;
     // Old in-flight replies must not restore files removed by this operation, or keep refresh waiting forever.
-    view.statuses={};view.refreshRequests.clear();view.listRequests.clear();view.pending.clear();view.listPending.clear();
-    view.refreshedPaths.clear();view.refreshErrors.clear();view.refreshQueue=[];
     const parents=new Set(affected.length?affected.map(path=>path==='.'?'.':parentPath(path)):['.']);
     for(const expanded of view.expanded)if(affected.some(path=>path==='.'||expanded===path||expanded.startsWith(path+'/')))parents.add(expanded);
     for(const key of [...view.children.keys()])if(affected.some(path=>path==='.'||key===path||key.startsWith(path+'/')))view.children.delete(key);
     view.mutationParent=null;view.mutationParents=new Set(parents);
     if(rootId===message.rootId)view.actionError=(message.errors||[]).join('；');
-    for(const parent of parents)load(parent,rootId);
+    beginIndexRefresh(rootId,parents);
   }
 }
 document.getElementById('refresh').onclick=refreshVisible;
@@ -386,7 +386,8 @@ window.addEventListener('message',event=>{
   }else if(message.type==='readProgress'){
     const view=views.get(message.rootId);if(!view||view.refreshRequests.get(message.path)!==message.id||!view.pending.has(message.path)||view.busyAction)return;
     if(message.progress){view.indexProgress.set(message.progress.endpointId,{...message.progress,label:view.indexLocations.find(row=>row.id===message.progress.endpointId)?.label});if(active?.id===message.rootId)renderIndexProgress()}
-    if(active?.id===message.rootId){status.className='busy';status.textContent=message.stage+' · '+message.path}
+    view.readStage=message.stage+' · '+message.path;
+    if(active?.id===message.rootId){status.className='busy';status.textContent=indexReadText(view,view.readStage)}
   }else if(message.type==='children'){
     finishList(message);
     const view=views.get(message.rootId);if(!view)return;
@@ -407,7 +408,7 @@ window.addEventListener('message',event=>{
     for(const key of Object.keys(view.statuses))if(key===message.path||message.path==='.'||key.startsWith(message.path+'/'))delete view.statuses[key];
     Object.assign(view.statuses,message.statuses||{});
     if(Object.values(message.statuses||{}).some(row=>row.basis==='metadata'))summaryChildren(view);
-    if(active?.id===message.rootId){if(!view.busyAction){status.className=message.complete===false?'busy':'';status.textContent=view.actionError?'部分路径处理失败：'+view.actionError:message.complete===false?'已更新部分位置的目录计数，其余位置仍在读取':(Object.values(message.statuses||{}).some(row=>row.basis==='metadata')?'上次读取 ':'上次校验 ')+message.path+'：'+message.refreshedAt}renderTree()}
+    if(active?.id===message.rootId){if(!view.busyAction){status.className=message.complete===false?'busy':'';status.textContent=indexReadText(view,message.complete===false?view.readStage||'正在索引文件…':(Object.values(message.statuses||{}).some(row=>row.basis==='metadata')?'上次读取 ':'上次校验 ')+message.path+'：'+message.refreshedAt)}renderTree()}
     if(message.complete!==false){scheduleIndexExpiry(view);pumpRefresh(message.rootId);}
   }else if(message.type==='saved'){
     const view=views.get(message.rootId);if(view){view.refreshRequests.clear();view.pending.clear();view.refreshQueue=[]}
@@ -420,7 +421,7 @@ window.addEventListener('message',event=>{
     if(active?.id===message.rootId){status.className='';status.textContent='操作已取消';renderTree();scheduleInvalidatedRefresh()}
   }else if(message.type==='batchDone'||message.type==='actionDone'){
     reloadAfterMutation(message);
-    if(active?.id===message.rootId){status.className='';status.textContent=(message.errors||[]).length?'部分路径处理失败：'+message.errors.join('；'):'处理完成，正在重新读取文件列表';renderTree()}
+    if(active?.id===message.rootId)renderTree();
   }else if(message.type==='error'){
     if(message.requestType==='list')finishList(message);
     const view=views.get(message.rootId);
@@ -433,7 +434,7 @@ window.addEventListener('message',event=>{
       if(message.requestType==='list'&&view.mutationParent===message.path)view.mutationParent=null;
       if(message.requestType!=='list'||!view.statuses[message.path]?.basis)view.statuses[message.path]={state:'unknown',listingError:message.requestType==='list',detail:'清单校验失败：'+message.message};
     }
-    if(active?.id===message.rootId){status.className='';status.textContent='操作失败 '+message.path+'：'+message.message;renderTree()}
+    if(active?.id===message.rootId){if(!view?.pending.size||!['remove','removeAllWorkers','retain','batchSync','batchDelete','mergeLatest'].includes(message.requestType)){status.className='';status.textContent='操作失败 '+message.path+'：'+message.message}renderTree()}
     if(['refresh','summary'].includes(message.requestType))pumpRefresh(message.rootId);
   }
 });vscode.postMessage({type:'ready'});

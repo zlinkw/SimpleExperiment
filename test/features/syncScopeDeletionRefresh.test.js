@@ -27,6 +27,39 @@ test('index status remains above the tree, persists per location and ignores sta
  const fresh=f.sent.filter(m=>m.type==='summary').at(-1);progress(fresh.id,'w1','complete','索引完成');progress(fresh.id,'w2','complete','索引完成');assert.match(text(),/2\/2 · 全部完成/);
 });
 
+test('post-delete starts the normal index round immediately and keeps real progress through partial publications',()=>{
+ const f=webview();f.send({type:'init',roots:[{id:'local',label:'Local',selected:[],summary:true,indexLocations:[{id:'local',label:'本机'},{id:'w1',label:'Worker 1'}]}]});
+ const before=f.sent.find(m=>m.type==='summary');
+ f.send({type:'status',rootId:'local',id:before.id,path:'.',statuses:{},refreshedAt:'before'});
+ vm.runInContext("state().busyAction={id:'delete',sequence:0};state().expanded.add('results')",f.ctx);
+ f.send({type:'batchDone',rootId:'local',id:'delete',affected:['results/gone'],completed:['results/gone'],errors:[]});
+ const summaries=f.sent.filter(m=>m.type==='summary');assert.equal(summaries.length,2,'index progress must start before directory listing responds');
+ const query=summaries.at(-1);assert.notEqual(query.roundId,before.roundId);
+ assert.equal(f.nodes.get('status').className,'busy');assert.match(f.nodes.get('status').textContent,/正在索引文件/);
+ assert.match(f.nodes.get('indexProgress').children.map(n=>n.textContent).join(' '),/0\/2.*本机.*等待索引.*Worker 1.*等待索引/);
+ f.send({type:'readProgress',rootId:'local',path:'.',id:query.id,stage:'local：正在索引 results · 已读取 81 个目录项',progress:{endpointId:'local',state:'reading',detail:'已读取 81 个目录项'}});
+ f.send({type:'status',rootId:'local',path:'.',id:query.id,complete:false,statuses:{'.':{state:'unknown',basis:'metadata',detail:'partial'}}});
+ assert.match(f.nodes.get('status').textContent,/81 个目录项/);assert.doesNotMatch(f.nodes.get('status').textContent,/已更新部分|重新读取文件列表/);
+ f.send({type:'readProgress',rootId:'local',path:'.',id:query.id,stage:'done',progress:{endpointId:'local',state:'complete',detail:'索引完成'}});
+ f.send({type:'readProgress',rootId:'local',path:'.',id:query.id,stage:'w1 failed',progress:{endpointId:'w1',state:'failed',detail:'连接失败'}});
+ f.send({type:'status',rootId:'local',path:'.',id:query.id,statuses:{'.':{state:'unknown',basis:'metadata',detail:'unavailable'}},refreshedAt:'after'});
+ assert.match(f.nodes.get('indexProgress').children.map(n=>n.textContent).join(' '),/1\/2.*索引完成.*连接失败/);
+ f.send({type:'readProgress',rootId:'local',path:'.',id:before.id,stage:'stale'});assert.doesNotMatch(f.nodes.get('status').textContent,/stale/);
+ f.flushTimers();assert.equal(f.sent.filter(m=>m.type==='summary').length,2);
+});
+
+test('partial delete errors remain visible alongside index progress and each mode starts just one round',()=>{
+ const f=webview();f.send({type:'init',roots:['local','workers'].map(id=>({id,label:id,selected:[],summary:true}))});
+ f.send({type:'batchDone',rootId:'local',affected:['results/gone'],completed:[],errors:['w2 删除失败']});
+ for(const id of ['local','workers'])assert.equal(f.sent.filter(m=>m.type==='summary'&&m.rootId===id).length,id==='local'?2:1);
+ const query=f.sent.findLast(m=>m.type==='summary'&&m.rootId==='local');
+ f.send({type:'readProgress',rootId:'local',path:'.',id:query.id,stage:'w1：已读取 123 项'});
+ assert.match(f.nodes.get('status').textContent,/w2 删除失败.*w1：已读取 123 项/);
+ const list=f.sent.findLast(m=>m.type==='list'&&m.rootId==='local');
+ f.send({...list,type:'children',entries:[]});
+ assert.equal(f.sent.filter(m=>m.type==='summary'&&m.rootId==='local').length,2);
+});
+
 test('completed index survives elapsed wall time; an explicit later browse revalidates the observation',()=>{
  const f=webview(),timers=[];let now=1000;
  f.ctx.setTimeout=(fn,ms)=>{timers.push({fn,ms});return timers.length;};
