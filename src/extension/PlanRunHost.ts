@@ -30,6 +30,25 @@ export class PlanRunHost {
     if (value.input.options) { delete value.input.options.workers; delete value.input.options.agentToken; delete value.input.options.env; }
     await atomicWriteText(this.file(id), JSON.stringify(value));
   }
+  /** Hold key normalization: empty CSV "" and undefined are equivalent, matching the declaration-key write path. */
+  static holdOutputKey(output: unknown, csv: unknown): string {
+    return String(output ?? "").replace(/\\/g, "/") + String.fromCharCode(0) + String(csv ?? "");
+  }
+
+  /** Apply retired marks for confirmed hold targets and report declared targets that no longer exist in the queue; never silently skips a mismatch. */
+  static normalizeHoldTargets(selected: Array<{ output_dir?: unknown; result_csv?: unknown }>, queue: any): { queue: any; missing: string[] } {
+    const wanted = new Set((selected || []).map(row => PlanRunHost.holdOutputKey(row.output_dir, row.result_csv)));
+    const matched = new Set<string>();
+    const next = { ...queue, plans: (queue?.plans || []).map((old: any) => ({ ...old, jobs: (old?.jobs || []).map((job: any) => {
+      const key = PlanRunHost.holdOutputKey(job.outputDir, job.collectionResultCsv);
+      if (!wanted.has(key)) return job;
+      matched.add(key);
+      return { ...job, outputRetiredAt: job.outputRetiredAt || new Date().toISOString(), artifacts: undefined,
+        mirroredWorkerIds: [], fragmentWorkerIds: [] };
+    }) })) };
+    return { queue: next, missing: [...wanted].filter(key => !matched.has(key)) };
+  }
+
   async replace(plan: any, body: any, validation: any) {
     const h = this.host, cleanup = h.planCleanupHost(), jobs = validation.jobs, context = h.captureProjectContext();
     const currentNodes = () => h.workerActionTargets().map((row: any) => [row.id, row.host, row.port, row.user, row.project_dir]);
@@ -115,11 +134,13 @@ export class PlanRunHost {
       },
       progress: (text: string) => body.reportPlanStageLocal?.(text),
       hold: async (selected: any[]) => {
-        await h.saveDistributedQueue(this.root, undefined, { artifactMutation: true, mutateLatest: (queue: any) => ({ ...queue,
-          plans: queue.plans.map((old: any) => ({ ...old, jobs: old.jobs.map((job: any) =>
-            selected.some(row => row.output_dir === job.outputDir && row.result_csv === job.collectionResultCsv)
-              ? { ...job, outputRetiredAt: job.outputRetiredAt || new Date().toISOString(), artifacts: undefined,
-                mirroredWorkerIds: [], fragmentWorkerIds: [] } : job) })) }) });
+        // 归一化匹配后核实每个已确认目标都在队列声明中；真实不匹配显式失败且不写队列，禁止静默漏 retired。
+        await h.saveDistributedQueue(this.root, undefined, { artifactMutation: true, mutateLatest: (queue: any) => {
+          const next = PlanRunHost.normalizeHoldTargets(selected, queue);
+          if (next.missing.length) throw Error("HOLD_TARGET_NOT_FOUND：已确认的产物路径未在当前队列声明中找到（" + next.missing.length
+            + " 项），队列未改动；请刷新后重新确认范围。");
+          return next.queue;
+        } });
       },
     }, body.runReplacement, body.planFile, jobs, [...completed], key);
     body.existingOutputChoice = result.choice;

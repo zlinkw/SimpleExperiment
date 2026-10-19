@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.393",
-  "buildId": "150ea25b5b5a49087c83a37e2be3141bfb9e8d97eddaaedd1141257d55ab8a7d",
+  "buildId": "79215415bdeea682854a16b43088e72e3bd1a613ead44bc282bc46aeb959f944",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -197,7 +197,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "e3e9f2dffc6c36ae4caa35d59d6bc01b07982d15f837b7e7de1a89c70bf6cf42"
+      "sha256": "13919e5c63edb9b1351fe0d16ee873e92176bf5be61fab5af4c3174bf65cccaf"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -217,7 +217,7 @@
     },
     {
       "path": "dist/extension/PlanRunHost.js",
-      "sha256": "77cd22a7cb89158f8c477d98542d9d61a48c11bf0ff498bc8e04332d70710d22"
+      "sha256": "e7316be35c5c27d642fa14d3a20b52926b3617175460b1e1e9f3e238bef31d8a"
     },
     {
       "path": "dist/extension/PlanStopClearBatchHost.js",
@@ -429,7 +429,7 @@
     },
     {
       "path": "dist/features/PanelPlanStatusSummary.js",
-      "sha256": "f28e8b9fc980ae80b8b69cb4dda5fca05d507cfe07d62d6ab8544bd62454ecf0"
+      "sha256": "97c9e9332678c3aa6851784f754915f55e4c977d6d1108d0d21dfb6ca28fefe4"
     },
     {
       "path": "dist/features/PanelProgressDom.js",
@@ -698,6 +698,10 @@
     {
       "path": "dist/results/NativeResultManifest.js",
       "sha256": "2f9b76c5932d241915b0306de7757e65018150a5c566648e82ae80d4d72e6957"
+    },
+    {
+      "path": "dist/results/plan-run-intent-selector.js",
+      "sha256": "d3467790db92f7310306230dfe13e3526be97d588b7faccd02d464094f10bb43"
     },
     {
       "path": "dist/results/PlanRunFreshness.js",

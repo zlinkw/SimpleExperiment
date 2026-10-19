@@ -139,6 +139,21 @@ function summarizeEntry(entry) {
     const latestRunStatus = latestRun && (latestRun.status || latestRun.state);
     const latestRunFailed = operationFailureLike(latestRunStatus);
     const allTasksCompleted = countRows.length > 0 && totalCount > 0 && displayedCounts.completedCount >= totalCount;
+    // 本次运行与沿用拆分（仅数据层，上方合并计数语义不变）：composeLogicalPlans 已为合并行标注 sourcePlanId，
+    // 只有最新提交实例的行计入“本次”；其它来源实例的完成行只作沿用，不得冒充本次新完成。
+    const latestSource = entry.distributedPlans.reduce((latest, row) => !latest || (dateValue(row.enqueuedAt) || 0) > (dateValue(latest.enqueuedAt) || 0) ? row : latest, null);
+    const currentRunId = firstText(latestSource?.id);
+    const carriedRows = currentRunId ? countRows.filter(row => {
+        const source = firstText(row.sourcePlanId);
+        return !!source && source !== currentRunId;
+    }) : [];
+    const currentRows = currentRunId ? countRows.filter(row => {
+        const source = firstText(row.sourcePlanId);
+        return !source || source === currentRunId;
+    }) : countRows;
+    const carriedSourceIds = currentRunId
+        ? [...new Set(carriedRows.map(row => firstText(row.sourcePlanId)).filter(Boolean))].sort().slice(0, 8)
+        : [];
     let status = "not-started";
     if (displayedCounts.failedCount || failedOperation || latestRunFailed)
         status = "failed";
@@ -166,6 +181,13 @@ function summarizeEntry(entry) {
         unavailableCount: boundedCount(displayedCounts.unavailableCount),
         activeCount: boundedCount(displayedCounts.activeCount),
         queuedCount: boundedCount(displayedCounts.queuedCount),
+        ...(currentRunId ? {
+            currentRunId: currentRunId.slice(0, 128),
+            currentRunTotalCount: boundedCount(currentRows.length),
+            currentRunCompletedCount: boundedCount(countTaskStatuses(currentRows).completedCount),
+            carriedForwardCompletedCount: boundedCount(countTaskStatuses(carriedRows).completedCount),
+            ...(carriedSourceIds.length ? { carriedForwardSourceRunIds: carriedSourceIds.map(id => id.slice(0, 128)) } : {}),
+        } : {}),
         ...(updatedAt ? { updatedAt: updatedAt.slice(0, 64) } : {}),
     };
 }

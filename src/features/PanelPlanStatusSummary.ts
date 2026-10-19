@@ -15,6 +15,12 @@ export interface PanelPlanStatusSummary {
   activeCount: number;
   queuedCount: number;
   updatedAt?: string;
+  /** 本次运行与历史沿用的拆分数据通道（按最新提交实例 runId 拆分）；既有合并计数字段语义不变，UI 呈现另行设计。 */
+  currentRunId?: string;
+  currentRunTotalCount?: number;
+  currentRunCompletedCount?: number;
+  carriedForwardCompletedCount?: number;
+  carriedForwardSourceRunIds?: string[];
 }
 
 export interface PanelPlanStatusSummaryInput {
@@ -177,6 +183,22 @@ function summarizeEntry(entry: PlanEntry): PanelPlanStatusSummary {
   const latestRunStatus = latestRun && (latestRun.status || latestRun.state);
   const latestRunFailed = operationFailureLike(latestRunStatus);
   const allTasksCompleted = countRows.length > 0 && totalCount > 0 && displayedCounts.completedCount >= totalCount;
+  // 本次运行与沿用拆分（仅数据层，上方合并计数语义不变）：composeLogicalPlans 已为合并行标注 sourcePlanId，
+  // 只有最新提交实例的行计入“本次”；其它来源实例的完成行只作沿用，不得冒充本次新完成。
+  const latestSource = entry.distributedPlans.reduce<Record<string, any> | null>((latest, row) =>
+    !latest || (dateValue(row.enqueuedAt) || 0) > (dateValue(latest.enqueuedAt) || 0) ? row : latest, null);
+  const currentRunId = firstText(latestSource?.id);
+  const carriedRows = currentRunId ? countRows.filter(row => {
+    const source = firstText(row.sourcePlanId);
+    return !!source && source !== currentRunId;
+  }) : [];
+  const currentRows = currentRunId ? countRows.filter(row => {
+    const source = firstText(row.sourcePlanId);
+    return !source || source === currentRunId;
+  }) : countRows;
+  const carriedSourceIds = currentRunId
+    ? [...new Set(carriedRows.map(row => firstText(row.sourcePlanId)).filter(Boolean))].sort().slice(0, 8)
+    : [];
 
   let status: PlanSelectorStatus = "not-started";
   if (displayedCounts.failedCount || failedOperation || latestRunFailed) status = "failed";
@@ -199,6 +221,13 @@ function summarizeEntry(entry: PlanEntry): PanelPlanStatusSummary {
     unavailableCount: boundedCount(displayedCounts.unavailableCount),
     activeCount: boundedCount(displayedCounts.activeCount),
     queuedCount: boundedCount(displayedCounts.queuedCount),
+    ...(currentRunId ? {
+      currentRunId: currentRunId.slice(0, 128),
+      currentRunTotalCount: boundedCount(currentRows.length),
+      currentRunCompletedCount: boundedCount(countTaskStatuses(currentRows).completedCount),
+      carriedForwardCompletedCount: boundedCount(countTaskStatuses(carriedRows).completedCount),
+      ...(carriedSourceIds.length ? { carriedForwardSourceRunIds: carriedSourceIds.map(id => id.slice(0, 128)) } : {}),
+    } : {}),
     ...(updatedAt ? { updatedAt: updatedAt.slice(0, 64) } : {}),
   };
 }

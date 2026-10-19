@@ -207,6 +207,7 @@ function changedSourceFixture(choice, options={}) {
   PlanCodeScopeHost:{resolvePlanExecutionSource:async(_h,p)=>{assert.equal(p.executionSource,undefined);assert.equal(p.revision,revision);return source;},
    verifyLocalPlanSource:async()=>events.push('source')},
   planValidationFromResult:r=>r.validation,makeOpId:()=> 'op',errorMessage:e=>e.message,
+ selectRerunWorkflowInstance:require('../../src/results/plan-run-intent-selector.ts').selectRerunWorkflowInstance,
   PlanRunHost:class{async replace(p,body,v){events.push('confirm-paths');assert.equal(p.codeFingerprint,'new-fingerprint');
    assert.deepEqual([...v.jobs.map(j=>j.index)],selected);if(options.cancelPaths)throw Error('REPLACEMENT_CANCELLED');
    body.assignedExperimentIndices=selected;body.existingOutputChoice='rerun_all';

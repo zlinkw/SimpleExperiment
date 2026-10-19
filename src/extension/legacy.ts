@@ -76,6 +76,7 @@ import * as WrapperResultBundle from "../results/WrapperResultBundle";
 import * as PlanVersionComparison from "../results/PlanVersionComparison";
 import { assertImmutableMetricFiles } from "../results/FourStateMetricBundle";
 import * as PlanRunFreshness from "../results/PlanRunFreshness";
+import { selectRerunWorkflowInstance } from "../results/plan-run-intent-selector";
 import * as PlanArtifactSyncStatus from "../features/PlanArtifactSyncStatus";
 import * as PlanOutputRetention from "../features/PlanOutputRetention";
 import { resolvePlanWorkerAffinity } from "../features/PlanWorkerAffinity";
@@ -10237,7 +10238,7 @@ this.assertPlanTopologyReady("Plan 调度");
         body.reportPlanStageLocal = text => this.reportPlanStage(message, text);
         await recoveryStore.save(body);
         if (body.submissionWorkflowId && (await this.loadDistributedQueue(submissionRoot)).plans.some(row => row.id === body.submissionWorkflowId)) {
-            this.finishPlanSubmissionProgress(message, "succeeded", "原提交已在队列中，继续主动查询原任务；没有重复提交。"); return;
+            this.finishPlanSubmissionProgress(message, "succeeded", "已恢复原提交，未启动新批次；继续主动查询原任务。"); return;
         }
         if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot)) return;
         const fingerprintStarted = Date.now();
@@ -12574,10 +12575,14 @@ this.assertPlanTopologyReady("Plan 调度");
             const assertCurrent = () => { if (!isCurrent()) throw new UiCommandCancelled("工作区或服务器配置已变化，未继续重跑。"); };
             const all = answer === "重跑全部 job";
             const selectedOld = all ? plan.jobs : [job];
-            const rerunWorkflowId = "distributed-plan-rerun-" + crypto.createHash("sha256").update(JSON.stringify([
+            const rerunScopeKey = crypto.createHash("sha256").update(JSON.stringify([
                 plan.id, selectedOld.map(old => [old.index, old.commandId || ""]), all, acceptedRevision, acceptedFingerprint])).digest("hex");
-            if ((await this.loadDistributedQueue(root)).plans.some(row => row.id === rerunWorkflowId))
-                return { status: "queued", source: "local", message: "该范围已创建重跑批次；请刷新查看原提交，未重复提交。" };
+            // 重跑意图的 workflow 实例选择：同意图（网络重试/崩溃恢复）稳定复用同一 id 不双派；同范围批次全部终结后
+            // 本次人类点击推进 -rN 新实例创建新批次；存在未终结批次时维持挡块，不绕精确停止围栏。
+            const rerunDecision = selectRerunWorkflowInstance(await this.loadDistributedQueue(root), rerunScopeKey);
+            if (rerunDecision.activeRunId)
+                return { status: "queued", source: "local", message: "该范围已有未终结的重跑批次；请刷新查看原提交，未重复提交。" };
+            const rerunWorkflowId = rerunDecision.workflowId;
             const assertOriginalCommands = async () => {
                 assertCurrent();
                 const latest = (await this.loadDistributedQueue(root)).plans.find(row => row.id === plan.id);
