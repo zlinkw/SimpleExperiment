@@ -1635,7 +1635,9 @@ test("stopping during a hung fingerprint cancels that submission and a new one c
   const hashReleases = new Map();
   const writes = [];
   const sandbox = {
-    root: "D:/project",
+    // 跨平台等价夹具：bindWorkflowWorkspace 以 path.isAbsolute 校验当前工作区，
+    // “D:/project”字面量仅在 Windows 下同形通过；resolve 在 Windows 得同一 "D:\project"，POSIX 得绝对路径，断言强度不变。
+    root: path.resolve("D:/project"),
     answers: ["继续中止并清除", "确认中止并清除"],
     distributedQueueTickPromise: new Promise(() => {}),
     distributedQueueWritePromise: Promise.resolve(),

@@ -15,7 +15,19 @@ function sourceBlock(startMarker, endMarker) {
   return source.slice(start, end);
 }
 
-const memoryFiles = new Map();
+// 跨平台等价夹具：原子写入器对路径做 path.resolve 规范化（Windows 上 join/resolve 同形，
+// POSIX 下 resolve 会前缀 cwd），故内存键统一按 resolve 规范化——同一物理路径=同一键。
+// 断言与覆盖范围保持原强度，仅消除 Windows 专属的键形态巧合。
+const memoryFilesMap = new Map();
+const memKey = (file) => path.resolve(String(file)).toLowerCase();
+const memoryFiles = {
+  clear: () => memoryFilesMap.clear(),
+  delete: (file) => { memoryFilesMap.delete(memKey(file)); },
+  get: (file) => memoryFilesMap.get(memKey(file)),
+  has: (file) => memoryFilesMap.has(memKey(file)),
+  set: (file, value) => { memoryFilesMap.set(memKey(file), value); },
+  get size() { return memoryFilesMap.size; },
+};
 const retryDelays = [];
 let renameCount = 0;
 const memoryStat = () => ({ dev: 1, ino: 1, nlink: 1, isFile: () => true, isSymbolicLink: () => false });
@@ -38,8 +50,18 @@ const memoryFs = {
     }
     return memoryStat();
   },
-  async open(file) {
-    if (!memoryFiles.has(file)) memoryFiles.set(file, "");
+  async open(file, flag) {
+    // 跨平台等价夹具：写入器以数字 flags（含 O_CREAT）打开暂存文件；POSIX 目录 fsync 分支
+    // 以字符串 "r" 打开父目录，内存夹具不得为此虚构文件条目（Windows 路径本就不执行该分支）。
+    const creates = typeof flag === "number" ? true : /[wa]/.test(String(flag ?? "w"));
+    if (!memoryFiles.has(file)) {
+      if (!creates) {
+        const error = new Error("missing");
+        error.code = "ENOENT";
+        throw error;
+      }
+      memoryFiles.set(file, "");
+    }
     return {
       async stat() { return memoryStat(); },
       async truncate() { memoryFiles.set(file, ""); },

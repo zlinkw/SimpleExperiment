@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.393",
-  "buildId": "79215415bdeea682854a16b43088e72e3bd1a613ead44bc282bc46aeb959f944",
+  "buildId": "02d6c1aed0c9e5bdf013258abeaa34504f49db751110ab5ebbc818ab23a55236",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -209,7 +209,7 @@
     },
     {
       "path": "dist/extension/PlanCleanupPanel.js",
-      "sha256": "4289ccec49898affa90e351913db5ecae18b5cde7323ff0c3a9ff8f1c9775ef8"
+      "sha256": "1a6485d987579660fb947105c54113c0b4335380996fd8f04783f7e71107c1bb"
     },
     {
       "path": "dist/extension/PlanCodeScopeHost.js",
@@ -429,7 +429,7 @@
     },
     {
       "path": "dist/features/PanelPlanStatusSummary.js",
-      "sha256": "97c9e9332678c3aa6851784f754915f55e4c977d6d1108d0d21dfb6ca28fefe4"
+      "sha256": "717d1094c8561a42ec3be212cc07e7cd01ff2db39dd3e99ddaed824816a8db36"
     },
     {
       "path": "dist/features/PanelProgressDom.js",
@@ -701,7 +701,7 @@
     },
     {
       "path": "dist/results/plan-run-intent-selector.js",
-      "sha256": "d3467790db92f7310306230dfe13e3526be97d588b7faccd02d464094f10bb43"
+      "sha256": "bfcc6c8468d449b597a60b74aa5301248d228f8f6441d14337057f2bb686e2c2"
     },
     {
       "path": "dist/results/PlanRunFreshness.js",
@@ -717,7 +717,7 @@
     },
     {
       "path": "dist/results/ResultLayout.js",
-      "sha256": "5bd3adf9078432b74f2d879157c09c9b47517de74627eab747f1f10b9c4cb090"
+      "sha256": "6fee3fc2e41689d68ba9aa3e29a56ef79a28f12c6afe48bc404aa8f3b68ef86a"
     },
     {
       "path": "dist/results/ResultOwnershipScope.js",

@@ -9,7 +9,20 @@ import sys
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
 
-vendor_source = pathlib.Path(__file__).resolve().parents[3] / 'simple-sftp' / 'agent-lifecycle.py'
+# 跨平台等价夹具：simple-sftp 是主仓的兄弟仓库；固定层级相对路径只在主 checkout 成立，
+# 独立 worktree lane 中层级更深。按祖先链发现含 agent-lifecycle.py 的兄弟 simple-sftp，
+# 主 checkout 解析结果与原 ../../../simple-sftp 完全一致，可用 SIMPLE_SFTP_REPO 显式覆盖。
+def _vendor_repo_root():
+    env = os.environ.get('SIMPLE_SFTP_REPO')
+    if env:
+        return pathlib.Path(env)
+    here = pathlib.Path(__file__).resolve()
+    for parent in here.parents[1:]:
+        candidate = parent / 'simple-sftp' / 'agent-lifecycle.py'
+        if candidate.is_file():
+            return candidate.parent
+    raise FileNotFoundError('sibling simple-sftp repository with agent-lifecycle.py not found')
+vendor_source = _vendor_repo_root() / 'agent-lifecycle.py'
 root = pathlib.Path(tempfile.mkdtemp(prefix='agent-service-'))
 (root/'tmux').mkdir()
 os.environ['TMUX_TMPDIR']=str(root/'tmux')

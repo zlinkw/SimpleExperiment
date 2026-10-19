@@ -46,14 +46,25 @@ test('unterminated family run keeps one stable blocking id across repeated resol
  assert.equal(selector.selectRerunWorkflowInstance({plans:[{id:base,jobs:[]}]},scope).activeRunId,base,'空 job 列表无法证明终结，维持挡块');
 });
 
-test('cleanup rows and foreign ids never join the rerun family',()=>{
- const decision=selector.selectRerunWorkflowInstance({plans:[
-  {id:'distributed-plan-'+scope,cleanup:true,jobs:[statusRow('queued')]},
-  {id:base+'-notes',jobs:[statusRow('completed')]},
-  {id:base+'-r1x',jobs:[statusRow('running')]},
-  {id:base+'-r01',jobs:[statusRow('completed')]},
- ]},scope);
- assert.equal(decision.workflowId,base);assert.equal(decision.activeRunId,'');assert.equal(decision.familyRunCount,0);
+test('real cleanup records join by job terminality while foreign ids never join',()=>{
+  // 真实队列 cleanup 为对象记录（PlanCleanupHost）：清理卡照常计入族，是否挡新批只看族内 job 终态。
+  const cleaning=selector.selectRerunWorkflowInstance({plans:[
+   {id:base,cleanup:{operationId:'op-1',state:'pending',completedTargets:[],pendingNodes:['node']},jobs:[statusRow('completed')]},
+  ]},scope);
+  assert.equal(cleaning.familyRunCount,1,'对象形态清理卡计入族');
+  assert.equal(cleaning.workflowId,base+'-r1','清理进行中不挡已终结批次的再次重跑');
+  assert.equal(cleaning.activeRunId,'');
+  const busy=selector.selectRerunWorkflowInstance({plans:[
+   {id:base,cleanup:{operationId:'op-2',state:'pending',completedTargets:[],pendingNodes:['node']},jobs:[statusRow('queued')]},
+  ]},scope);
+  assert.equal(busy.activeRunId,base,'族内 job 未终结仍维持挡块');
+  const foreign=selector.selectRerunWorkflowInstance({plans:[
+   {id:'distributed-plan-'+scope,cleanup:{operationId:'op-3',state:'deleted',completedTargets:['x'],pendingNodes:[]},jobs:[statusRow('queued')]},
+   {id:base+'-notes',jobs:[statusRow('completed')]},
+   {id:base+'-r1x',jobs:[statusRow('running')]},
+   {id:base+'-r01',jobs:[statusRow('completed')]},
+  ]},scope);
+  assert.equal(foreign.workflowId,base);assert.equal(foreign.activeRunId,'');assert.equal(foreign.familyRunCount,0);
 });
 
 function cohortFixtures(){
@@ -129,4 +140,39 @@ test('legacy rerun intent and resume wiring are pinned in the submission path',(
  assert.match(source,/已恢复原提交，未启动新批次；继续主动查询原任务。"\); return;/);
  assert.ok(!source.includes('该范围已创建重跑批次'),'永久重复挡块文案必须移除');
  assert.ok(!source.includes('原提交已在队列中'),'resume 不再把队列命中表述为旧文案');
+});
+
+// —— 独立验证反例固化（S1/S2）：跨组卡与无 projectId 旧卡不得污染本次拆分 ——
+function s1s2Fixtures(){
+ const job=(planId,index,status,over={})=>({index,case:'c'+index,seed:42,attempt:1,commandId:planId+'-cmd-'+index,
+  workerId:'w',outputDir:'work/job'+index,collectionResultCsv:'work/job'+index+'/m.csv',status,...over});
+ const fullCard=(id,at,over={})=>({id,projectId:'P',planFile:'plans/a.yaml',revision:'rv',codeFingerprint:'fp',
+  fullPlanJobCount:4,planJobCount:4,enqueuedAt:at,resultPathPolicy:'declared',
+  jobs:[0,1,2,3].map(i=>job(id,i,'completed',{updatedAt:at,finishedAt:at})),...over});
+ const partialCard=(id,at,over={})=>({id,projectId:'P',planFile:'plans/a.yaml',revision:'rv',codeFingerprint:'fp2',
+  fullPlanJobCount:4,planJobCount:2,enqueuedAt:at,resultPathPolicy:'declared',
+  jobs:[0,1].map(i=>job(id,i,'queued',{attempt:undefined})),...over});
+ return{fullCard,partialCard};
+}
+const s1s2Plan=[{file:'plans/a.yaml',revision:'rv',jobCount:4}];
+
+test('S1 same-millisecond cross-group cards deterministically select the newer card',()=>{
+ const {fullCard,partialCard}=s1s2Fixtures();
+ const s=summarize(s1s2Plan,[fullCard('run-old','2026-10-17T00:00:00.000Z',{projectId:'P1'}),
+  partialCard('run-new','2026-10-17T00:00:00.000Z',{projectId:'P2'})]);
+ // 平局取数组后者（最新提交卡），拆分不依赖数组旧先者。
+ assert.equal(s.currentRunId,'run-new');
+ assert.equal(s.currentRunTotalCount,2);assert.equal(s.currentRunCompletedCount,0);
+ assert.equal(s.carriedForwardCompletedCount,4);assert.deepEqual(s.carriedForwardSourceRunIds,['run-old']);
+});
+
+test('S2 legacy card without projectId never impersonates the fresh run completion',()=>{
+ const {fullCard,partialCard}=s1s2Fixtures();
+ const legacy={...fullCard('run-legacy','2026-10-10T00:00:00.000Z'),projectId:undefined};
+ const s=summarize(s1s2Plan,[legacy,partialCard('run-fresh','2026-10-18T00:00:00.000Z')]);
+ // 旧完整卡与新 partial 卡分属不同 compose 组且行无 sourcePlanId 标注：
+ // 本次字段必须由当前卡作业所有权推导（2 个 queued 可见、旧 4 完成仅作沿用），合并计数语义不变。
+ assert.equal(s.currentRunId,'run-fresh');
+ assert.equal(s.currentRunTotalCount,2);assert.equal(s.currentRunCompletedCount,0);
+ assert.equal(s.carriedForwardCompletedCount,4);assert.deepEqual(s.carriedForwardSourceRunIds,['run-legacy']);
 });

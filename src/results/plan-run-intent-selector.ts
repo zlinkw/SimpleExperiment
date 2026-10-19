@@ -29,7 +29,9 @@ export function selectRerunWorkflowInstance(queue: unknown, scopeKey: string): R
   let activeRunId = "";
   let familyRunCount = 0;
   for (const plan of plans) {
-    if (!plan || plan.cleanup === true) continue;
+    // 真实队列的 cleanup 是对象记录（清理主机），不存在 cleanup===true 形态；清理卡照常计入族，
+    // 是否挡新批只取决于族内 job 终态（清理进行中不阻断已终结批次的再次重跑）。
+    if (!plan) continue;
     const id = String(plan.id || "");
     const match = instancePattern.exec(id);
     if (!match) continue;

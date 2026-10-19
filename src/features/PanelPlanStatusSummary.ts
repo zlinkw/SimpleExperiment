@@ -157,12 +157,16 @@ function mergePlanMetadata(primary: Record<string, any>, fallback: Record<string
 
 function summarizeEntry(entry: PlanEntry): PanelPlanStatusSummary {
   const tasks = latestJobRows(entry.tasks, true);
-  const distributedJobs = latestJobRows(entry.distributedPlans.flatMap((plan) => array(plan.jobs).map((job) => ({
+  const distributedJobRows = entry.distributedPlans.flatMap((plan) => array(plan.jobs).map((job) => ({
     planFile: entry.file,
     planRevision: firstText(plan.planRevision, plan.plan_revision, plan.revision),
     ...record(job),
     unavailable: jobIsUnavailable(plan as QueuedPlan, job as QueuedJob),
-  }))), false);
+    // 作业归属所有权：compose 合并标注行用 sourcePlanId，未标注行归属其所在卡自身 id；
+    // “无标注→本次”的默认归属已移除，旧完整卡的完成行不得冒充新提交实例的本次完成。
+    runOwner: firstText(record(job).sourcePlanId) || firstText(plan.id),
+  })));
+  const distributedJobs = latestJobRows(distributedJobRows, false);
   const countRows = distributedJobs.length ? distributedJobs : tasks;
   const taskCounts = countTaskStatuses(tasks);
   const distributedCounts = countTaskStatuses(distributedJobs);
@@ -183,21 +187,15 @@ function summarizeEntry(entry: PlanEntry): PanelPlanStatusSummary {
   const latestRunStatus = latestRun && (latestRun.status || latestRun.state);
   const latestRunFailed = operationFailureLike(latestRunStatus);
   const allTasksCompleted = countRows.length > 0 && totalCount > 0 && displayedCounts.completedCount >= totalCount;
-  // 本次运行与沿用拆分（仅数据层，上方合并计数语义不变）：composeLogicalPlans 已为合并行标注 sourcePlanId，
-  // 只有最新提交实例的行计入“本次”；其它来源实例的完成行只作沿用，不得冒充本次新完成。
+  // 本次运行与沿用拆分（仅数据层，上方合并计数语义不变）：以作业所有权推导本次行集，
+  // 相同 enqueuedAt 平局确定取数组后者（最新提交卡），不依赖数组旧先者。
   const latestSource = entry.distributedPlans.reduce<Record<string, any> | null>((latest, row) =>
-    !latest || (dateValue(row.enqueuedAt) || 0) > (dateValue(latest.enqueuedAt) || 0) ? row : latest, null);
+    !latest || (dateValue(row.enqueuedAt) || 0) >= (dateValue(latest.enqueuedAt) || 0) ? row : latest, null);
   const currentRunId = firstText(latestSource?.id);
-  const carriedRows = currentRunId ? countRows.filter(row => {
-    const source = firstText(row.sourcePlanId);
-    return !!source && source !== currentRunId;
-  }) : [];
-  const currentRows = currentRunId ? countRows.filter(row => {
-    const source = firstText(row.sourcePlanId);
-    return !source || source === currentRunId;
-  }) : countRows;
+  const carriedRows = currentRunId ? latestJobRows(distributedJobRows.filter(row => row.runOwner !== currentRunId), false) : [];
+  const currentRows = currentRunId ? latestJobRows(distributedJobRows.filter(row => row.runOwner === currentRunId), false) : countRows;
   const carriedSourceIds = currentRunId
-    ? [...new Set(carriedRows.map(row => firstText(row.sourcePlanId)).filter(Boolean))].sort().slice(0, 8)
+    ? [...new Set(carriedRows.map(row => firstText(row.runOwner)).filter(Boolean))].sort().slice(0, 8)
     : [];
 
   let status: PlanSelectorStatus = "not-started";

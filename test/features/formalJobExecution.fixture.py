@@ -66,8 +66,11 @@ def read_queue(_):
             row["attempt"] = 0
     return restored
 
+# 跨平台等价夹具：simple_conda_wrapped_args 在 Windows 原样返回 argv，POSIX 才包装为登录 shell
+# 字符串；本夹具验证 Scheduler 消息契约而非 shell 包装，恒等 patch 与 Windows 生产行为逐字节一致。
 with patch.object(agent, "cluster_scheduler_path", lambda _: str(runtime / "cluster_scheduler.py")), \
      patch.object(agent, "subprocess_inactivity_run", scheduler_rpc), \
+     patch.object(agent, "simple_conda_wrapped_args", lambda args, env: args), \
      patch.object(agent, "simple_runtime_env", lambda value: value), \
      patch.object(agent, "simple_runtime_python", lambda _: sys.executable), \
      patch.object(agent, "read_durable_plan_queue", read_queue), \
