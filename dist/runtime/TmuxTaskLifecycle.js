@@ -151,15 +151,25 @@ def task_execution_inventory(root, queries=()):
             "running" if row["phase"] == "running" else "unknown")
         tasks.append({**public, "lifecycleProtocol": 2, "observation": observed, "executionState": execution,
                       "status": "queued" if execution in ("queued", "starting") else execution if execution in ("running", "failed") else "unknown"})
-    # The fast inventory may only CARRY an already-collected sample: this reads
-    # the shared cache under the lock and never samples nvidia-smi here. A missing
-    # sample stays missing; the payload keeps its own collected time and stamp.
+    # The fast inventory may only CARRY an already-collected sample: it tries the
+    # shared cache without ever waiting on a sampler that holds the lock during
+    # nvidia-smi. Missing or lock-busy stays honestly absent (never a partial
+    # frame, never synchronous sampling, never a re-timestamp) and the state is
+    # reported as-is so the Host cannot mistake absence for a fresh frame.
     gpu_sample = None
+    gpu_sample_state = "missing"
     if "WORKER_GPU_SAMPLE_CACHE" in globals() and "WORKER_GPU_SAMPLE_LOCK" in globals():
-        with WORKER_GPU_SAMPLE_LOCK:
-            cached_gpu = WORKER_GPU_SAMPLE_CACHE.get("sample")
-            gpu_sample = copy.deepcopy(cached_gpu[1]) if cached_gpu else None
-    return {"schemaVersion": 1, "queryComplete": True, "executionOnly": True, "generatedAt": now_iso(), "gpuSample": gpu_sample,
+        if WORKER_GPU_SAMPLE_LOCK.acquire(False):
+            try:
+                cached_gpu = WORKER_GPU_SAMPLE_CACHE.get("sample")
+                if cached_gpu:
+                    gpu_sample = copy.deepcopy(cached_gpu[1])
+                    gpu_sample_state = "ready"
+            finally:
+                WORKER_GPU_SAMPLE_LOCK.release()
+        else:
+            gpu_sample_state = "sampling"
+    return {"schemaVersion": 1, "queryComplete": True, "executionOnly": True, "generatedAt": now_iso(), "gpuSample": gpu_sample, "gpuSampleState": gpu_sample_state,
             # Agent protocol support is static; do not query Scheduler windows
             # for every progress refresh. Admission still checks live capacity.
             "capabilities": {"schemaVersion": 1, "durablePlanQueue": True, "declaredJobPaths": True,

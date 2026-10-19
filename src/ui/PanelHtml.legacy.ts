@@ -3287,7 +3287,7 @@ export function renderPanelHtml(): string {
       "stopAndClearPlan", "stopAndClearPlans", "reloadWindow", "webviewHeartbeatAck", "webviewVisibility",
       "quickSetup", "openSetupGuide", "openAdvancedCommandsSetting", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveAgentDefaults", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "reassignWorkerTask", "recallPlanToLocalQueue", "prepareAgents",
       "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure",  "startWorker", "start", "startAll", "startAgents", "startAllConnections",
-      "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot",
+      "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "gpuWindowSamples", "manualSchedulerSnapshot", "manualTracesSnapshot",
       "selectLogRunKey", "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "checkPluginUpdates", "installPluginUpdates", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
       "cleanupPlan",
       "publishGithub", "syncGithub", "overwriteGithub",  "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope", "resetRemotePathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "refreshLocalResults", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail", "applyPlanDatasetMapping", "autoMatchPlanDatasets",
@@ -4392,6 +4392,10 @@ export function renderPanelHtml(): string {
           }
           if (item.command === "fetchTmuxList" && item.status !== "running") tmuxListBusy = false;
           handleUiCommandStatus(item);
+          continue;
+        }
+        if (item.type === "gpuWindowSamples") {
+          applyGpuWindowSamples(item);
           continue;
         }
         if (item.type === "tmuxList") {
@@ -11396,6 +11400,70 @@ export function renderPanelHtml(): string {
       if(grid) grid.style.display="none";
       scheduleGpuHistoryDraw();
     }
+    var gpuWindowPending = new Map();
+    function gpuWindowFineWindowMs(maxPoints) {
+      const points = Number(maxPoints) > 0 ? Number(maxPoints) : 96;
+      return Math.min(24 * 3600000, points * 60000);
+    }
+    function requestGpuHistoryRemote(payload) {
+      vscode.postMessage(Object.assign({ command: "loadGpuHistory" }, payload));
+    }
+    function applyGpuWindowSamples(message) {
+      const workerId = String(message && message.workerId || "");
+      if (!workerId) return;
+      let pendingKey = "";
+      gpuWindowPending.forEach(function(entry, key) {
+        if (!pendingKey && entry && entry.workerId === workerId) pendingKey = key;
+      });
+      const pending = pendingKey ? gpuWindowPending.get(pendingKey) : null;
+      if (pending && pending.timer) { clearTimeout(pending.timer); pending.timer = 0; }
+      const samples = Array.isArray(message && message.samples) ? message.samples : [];
+      if (!samples.length) {
+        // No host-cached fine frames for this window: honestly fall back to the
+        // existing server history request; coarse buckets stay coarse.
+        if (pendingKey) { gpuWindowPending.delete(pendingKey); requestGpuHistoryRemote(pending.payload); }
+        return;
+      }
+      if (pendingKey) gpuWindowPending.delete(pendingKey);
+      const byGpu = new Map();
+      samples.forEach(function(sample) {
+        const collectedAt = Number(sample && sample.collectedAt);
+        if (!Number.isFinite(collectedAt)) return;
+        (Array.isArray(sample && sample.gpus) ? sample.gpus : []).forEach(function(row) {
+          const raw = row && typeof row === "object" ? row : {};
+          const gpuId = String(raw.index !== undefined ? raw.index : raw.gpu_index !== undefined ? raw.gpu_index : "");
+          if (!gpuId) return;
+          if (!byGpu.has(gpuId)) byGpu.set(gpuId, []);
+          const used = Number(raw.memoryUsedMb !== undefined ? raw.memoryUsedMb : raw.memory_used_mb);
+          const total = Number(raw.memoryTotalMb !== undefined ? raw.memoryTotalMb : raw.memory_total_mb);
+          byGpu.get(gpuId).push({ timestamp: new Date(collectedAt).toISOString(), bucketEpoch: collectedAt,
+            gpuUtilPercent: Number(raw.utilizationPercent !== undefined ? raw.utilizationPercent : raw.utilization),
+            memoryUtilPercent: Number.isFinite(used) && Number.isFinite(total) && total > 0 ? Math.round(used / total * 1000) / 10 : null,
+            memoryUsedMb: Number.isFinite(used) ? used : null, memoryTotalMb: Number.isFinite(total) ? total : null,
+            gpuId: gpuId, gapBefore: false, imputed: false, gpuCount: 0 });
+        });
+      });
+      let applied = 0;
+      byGpu.forEach(function(points, gpuId) {
+        points.sort(function(a, b) { return a.bucketEpoch - b.bucketEpoch; });
+        const key = gpuHistorySeriesKey(workerId, gpuId);
+        // Keep already-known coarser history that predates the fine run; never
+        // synthesize anything between collected frames.
+        const existing = gpuHistorySeriesCache.get(key);
+        const kept = existing && Array.isArray(existing.points)
+          ? existing.points.filter(function(row) { return Number(row && row.bucketEpoch) < points[0].bucketEpoch; }) : [];
+        gpuHistorySeriesCache.delete(key);
+        gpuHistorySeriesCache.set(key, { serverId: workerId, gpuId: gpuId, points: kept.concat(points) });
+        applied += points.length;
+      });
+      if (applied) {
+        const lastAt = samples[samples.length - 1] && Number(samples[samples.length - 1].collectedAt);
+        gpuHistoryMeta = Object.assign({}, gpuHistoryMeta, { liveFineFrames: applied,
+          liveUpdatedAt: Number.isFinite(lastAt) ? new Date(lastAt).toISOString() : gpuHistoryMeta.updatedAt || "" });
+        gpuHistorySeriesRevision += 1;
+        scheduleGpuHistoryDraw();
+      }
+    }
     function requestGpuHistory(query, force) {
       const payload = query && typeof query === "object" ? query : {};
       const key = gpuHistorySeriesKey(payload.serverId || "overview", payload.gpuId || "overview");
@@ -11405,7 +11473,21 @@ export function renderPanelHtml(): string {
       // The host coalesces identical reads while in flight.
       gpuHistoryRequestLastAt.set(key, now);
       while (gpuHistoryRequestLastAt.size > GPU_HISTORY_SERIES_CACHE_LIMIT) gpuHistoryRequestLastAt.delete(gpuHistoryRequestLastAt.keys().next().value);
-      vscode.postMessage(Object.assign({ command: "loadGpuHistory" }, payload));
+      const ringWorker = String(payload.serverId || "");
+      if (ringWorker) {
+        // Window switching first asks the host ring for fine frames it already
+        // holds; only an empty (or absent, on older hosts) answer sends a remote
+        // history request, so repeated fine reads stop at this machine.
+        const entry = { workerId: ringWorker, payload: Object.assign({}, payload), timer: 0 };
+        entry.timer = setTimeout(function() {
+          if (gpuWindowPending.get(key) === entry) { gpuWindowPending.delete(key); requestGpuHistoryRemote(entry.payload); }
+        }, 800);
+        gpuWindowPending.set(key, entry);
+        vscode.postMessage({ command: "gpuWindowSamples", workerId: ringWorker,
+          start: now - gpuWindowFineWindowMs(payload.maxPoints), end: now, maxPoints: Number(payload.maxPoints) || 96 });
+        return true;
+      }
+      requestGpuHistoryRemote(payload);
       return true;
     }
     function refreshGpuHistoryAfterSnapshot() {

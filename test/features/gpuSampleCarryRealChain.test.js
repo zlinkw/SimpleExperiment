@@ -21,6 +21,10 @@ const agent = fs.readFileSync(path.join(__dirname, '../../src/clusterAgentRuntim
 const chain = [
   'import copy, json, os, re, sys, threading, time',
   'COLLECT_CALLS = 0',
+  'MODE = sys.argv[1]',
+  'RESULTS = []',
+  'COLLECT_STARTED = threading.Event()',
+  'RELEASE = threading.Event()',
   'S = json.loads(os.environ["ZZ_SCENARIO"])',
   'SCHEMA_VERSION = 3',
   'WORKER_GPU_SAMPLE_LOCK = threading.Lock()',
@@ -42,6 +46,9 @@ const chain = [
   'def collect_local_gpu():',
   '    global COLLECT_CALLS',
   '    COLLECT_CALLS += 1',
+  '    if MODE == "slow":',
+  '        COLLECT_STARTED.set()',
+  '        RELEASE.wait(5)',
   '    return [{"index": "0", "memoryUsed": 1234, "utilization": 42}], ""',
   extractTopLevel(agent, 'api_worker_gpu'),
   extractTopLevel(lifecycle, 'task_execution_inventory'),
@@ -58,10 +65,22 @@ const chain = [
   '        "epoch": first["epoch"], "sameTime": first["generatedAt"] == second["generatedAt"],',
   '        "carriedSeq": again["gpuSample"]["seq"],',
   '        "carriedTime": again["gpuSample"]["generatedAt"] == now_iso(),',
-  '        "tasks": len(value["tasks"])}))',
+  '        "state": again["gpuSampleState"], "tasks": len(value["tasks"])}))',
+  'elif mode == "slow":',
+  '    sampler = threading.Thread(target=lambda: RESULTS.append(api_worker_gpu("/root")))',
+  '    sampler.start()',
+  '    started = COLLECT_STARTED.wait(5)',
+  '    while_collecting = task_execution_inventory("/root")',
+  '    finished_before_release = not RELEASE.is_set()',
+  '    RELEASE.set()',
+  '    sampler.join(5)',
+  '    ready = task_execution_inventory("/root")',
+  '    print(json.dumps({"started": bool(started), "sampleWhileCollecting": while_collecting["gpuSample"],',
+  '        "stateWhileCollecting": while_collecting["gpuSampleState"], "finishedBeforeRelease": finished_before_release,',
+  '        "collect": COLLECT_CALLS, "readyState": ready["gpuSampleState"], "readySeq": ready["gpuSample"]["seq"]}))',
   'else:',
   '    value = task_execution_inventory("/root")',
-  '    print(json.dumps({"collect": COLLECT_CALLS, "gpuSample": value["gpuSample"], "tasks": len(value["tasks"])}))',
+  '    print(json.dumps({"collect": COLLECT_CALLS, "gpuSample": value["gpuSample"], "state": value["gpuSampleState"], "tasks": len(value["tasks"])}))',
 ].join('\n');
 
 const dir = fs.mkdtempSync(path.join(fs.existsSync('/tmp/opencode') ? '/tmp/opencode' : os.tmpdir(), 'zz-gpuchain-'));
@@ -90,12 +109,25 @@ test('collected samples share the one-per-second cache and carry seq/epoch; the 
   assert.equal(out.sameTime, true, 'the cache copy keeps the Worker-collected generatedAt');
   assert.equal(out.carriedSeq, 1, 'mutating one inventory copy cannot corrupt the cache or later carries');
   assert.equal(out.carriedTime, true, 'the carried sample keeps the original collected time');
+  assert.equal(out.state, 'ready', 'a carried sample is honestly marked ready');
   assert.equal(out.tasks, 1, 'the execution inventory itself still works');
+});
+
+test('the fast inventory never waits on a blocked sampler: while nvidia-smi holds the lock it returns absent with a truthful state and finishes before the sampler does', () => {
+  const out = run('slow');
+  assert.equal(out.started, true, 'the sampler really entered nvidia-smi and holds the sample lock');
+  assert.equal(out.sampleWhileCollecting, null, 'the inventory never waits for or half-copies a sample being collected');
+  assert.equal(out.stateWhileCollecting, 'sampling', 'absence is honestly reported as sampling-in-progress, not as fresh data');
+  assert.equal(out.finishedBeforeRelease, true, 'the inventory completed while the sampler was still blocked (ordering proof, not a wall-clock guess)');
+  assert.equal(out.collect, 1, 'the inventory path triggered no extra nvidia-smi run');
+  assert.equal(out.readyState, 'ready', 'after the sampler stores the frame the next inventory carries it');
+  assert.equal(out.readySeq, 1, 'the stored sample keeps its collected seq stamp');
 });
 
 test('a fast inventory without any collected sample reports gpuSample=null without touching nvidia-smi', () => {
   const out = run('missing');
   assert.equal(out.gpuSample, null, 'a missing sample stays missing instead of sampling synchronously');
+  assert.equal(out.state, 'missing', 'absence is honestly marked missing');
   assert.equal(out.collect, 0, 'the fast inventory path never calls nvidia-smi');
   assert.equal(out.tasks, 1, 'the inventory result is otherwise complete');
 });

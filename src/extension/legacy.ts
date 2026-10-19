@@ -1764,8 +1764,9 @@ export class RealtimeTunnelPanelProvider {
                             : WorkerProgressQuery.executionProgressSnapshot({ ...live, workerId, progressRequestStartedAt }, cached, progressRequestStartedAt);
                         // Keep the Worker's already-collected GPU sample (carried on this
                         // very inventory response) in the bounded host ring for local
-                        // window viewing; the same seq is idempotent across layers.
-                        if (live.gpuSample) this.gpuSampleRing.push(workerId, live.gpuSample);
+                        // window viewing; the same seq is idempotent across layers and the
+                        // endpoint client that answered this request attributes the frame.
+                        if (live.gpuSample) this.gpuSampleRing.push(workerId, live.gpuSample, { token: client?.clients?.get(workerId) || client });
                         if (!sharedExecution) {
                             this.storeWorkerTaskSnapshot(cacheKey, WorkerProgressQuery.mergeProgressSnapshot(this.cachedWorkerTaskSnapshot(workerId, root, cacheKey), executionSnapshot));
                             this.postState();

@@ -98,9 +98,9 @@ test('the fallback poll skips the separate getGpu read while a carried sample is
   assert.equal(boot.reads.gpu, 1, 'bootstrap never skips the initial read');
 });
 
-test('the bounded ring rejects foreign sources, duplicate and out-of-order seq, restarts on epoch switch, isolates workers and clips windows locally without synthesis', () => {
+test('the bounded ring rejects foreign sources, duplicate and out-of-order seq, isolates workers and clips windows locally without synthesis', () => {
   const ring = new GpuSampleRing(4);
-  const sample = (seq, epoch = 'e1') => ({ schemaVersion: 1, source: 'worker_telemetry', generatedAt: iso(now + seq), seq, epoch, gpus: [{ index: '0', memoryUsed: seq }] });
+  const sample = (seq, epoch = 'e1', at = now + seq) => ({ schemaVersion: 1, source: 'worker_telemetry', generatedAt: iso(at), seq, epoch, gpus: [{ index: '0', memoryUsedMb: seq }] });
   assert.equal(ring.push('w1', { ...sample(1), source: 'hub' }), false, 'foreign source rejected');
   assert.equal(ring.push('w1', { ...sample(2), epoch: '', seq: undefined }), false, 'unstable stamps rejected');
   assert.equal(ring.push('w1', sample(1)), true);
@@ -113,12 +113,32 @@ test('the bounded ring rejects foreign sources, duplicate and out-of-order seq, 
   assert.equal(ring.push('w1', sample(3)), false, 'old-generation seq after the cap is still refused');
   const clipped = ring.slice('w1', { start: now + 6, end: now + 6, maxPoints: 10 });
   assert.deepEqual(clipped.map(s => s.seq), [6], 'window clipping keeps only stored collected frames');
-  const window = ring.slice('w1', { start: now + 6, end: now + 6 });
-  assert.equal(window.length, 1);
   const thinned = ring.slice('w1', { start: now + 3, end: now + 6, maxPoints: 2 });
   assert.ok(thinned.every(frame => [3, 4, 5, 6].includes(frame.seq)), 'thinning selects stored frames only, never interpolates between them');
   assert.equal(thinned[thinned.length - 1].seq, 6, 'the newest stored frame survives thinning');
-  assert.equal(ring.push('w1', sample(1, 'e2')), true, 'an Agent restart epoch starts a fresh run');
-  assert.equal(ring.size('w1'), 1, 'the previous generation is not spliced across the restart');
-  assert.equal(ring.slice('w2', { start: 0, end: Number.MAX_SAFE_INTEGER })[0].epoch, 'e1', 'the other Worker kept its own generation');
+  assert.equal(ring.slice('w2', { start: 0, end: Number.MAX_SAFE_INTEGER })[0].epoch, 'e1', 'the other Worker kept its own run');
+});
+
+test('a late old-epoch frame can never roll back the current run, while a genuine restart with newer real time is accepted even if its monotonic clock reset', () => {
+  const ring = new GpuSampleRing(900);
+  const sample = (seq, epoch, at) => ({ schemaVersion: 1, source: 'worker_telemetry', generatedAt: iso(at), seq, epoch, gpus: [{ index: '0', memoryUsedMb: seq }] });
+  // Old agent generation e1 delivered two frames.
+  assert.equal(ring.push('w1', sample(1, 'e1', now - 4000)), true);
+  assert.equal(ring.push('w1', sample(2, 'e1', now - 2000)), true);
+  // The agent restarts (monotonic clock may reset; real wall time is newer).
+  assert.equal(ring.push('w1', sample(1, 'e2', now)), true);
+  assert.equal(ring.size('w1'), 1, 'the restarted generation starts a fresh run');
+  // A response from the OLD request finally arrives after the restart.
+  assert.equal(ring.push('w1', sample(3, 'e1', now - 1000)), false, 'a late old-epoch frame cannot wipe the newer run');
+  assert.equal(ring.size('w1'), 1, 'the current history survived the late frame (no self-heal wait)');
+  assert.equal(ring.latest('w1').epoch, 'e2', 'the live generation stays current');
+  // The live generation continues normally.
+  assert.equal(ring.push('w1', sample(2, 'e2', now + 1000)), true);
+  assert.equal(ring.size('w1'), 2, 'the active restart generation keeps accepting its own frames');
+  // A replaced endpoint client (reconnect) on the SAME live agent continues by seq.
+  assert.equal(ring.push('w1', sample(3, 'e2', now + 2000), { token: { client: 'new' } }), true, 'reconnect attribution continues the live run by seq');
+  assert.equal(ring.push('w1', sample(3, 'e2', now + 3000), { token: { client: 'old-replay' } }), false, 'a replayed seq from any client stays refused');
+  // Machine reboot: monotonic restarted from zero, wall clock newer, epoch fresh.
+  assert.equal(ring.push('w1', sample(1, 'e3', now + 60000)), true, 'a rebooted agent is accepted by real time despite a reset monotonic clock');
+  assert.equal(ring.size('w1'), 1);
 });

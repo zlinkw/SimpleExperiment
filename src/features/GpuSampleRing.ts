@@ -32,18 +32,31 @@ export function gpuRingSampleFromCarried(workerId: string, carried: unknown): Gp
 }
 
 export class GpuSampleRing {
-    private readonly runs = new Map<string, { epoch: string; lastSeq: number; samples: GpuRingSample[] }>();
+    private readonly runs = new Map<string, { epoch: string; token: unknown; lastSeq: number; latestAt: number; samples: GpuRingSample[] }>();
     constructor(private readonly capacity = 900) { }
-    push(workerId: string, carried: unknown): boolean {
+    push(workerId: string, carried: unknown, origin: { token?: unknown } = {}): boolean {
         const sample = gpuRingSampleFromCarried(workerId, carried);
         if (!sample || !sample.workerId) return false;
         let run = this.runs.get(sample.workerId);
-        if (!run) { run = { epoch: sample.epoch, lastSeq: 0, samples: [] }; this.runs.set(sample.workerId, run); }
-        // An Agent restart is a new generation; never splice across epochs.
-        if (run.epoch !== sample.epoch) { run.epoch = sample.epoch; run.lastSeq = 0; run.samples = []; }
-        // Same-seq replays and out-of-order frames would fabricate history.
+        if (!run) { run = { epoch: sample.epoch, token: origin.token, lastSeq: 0, latestAt: 0, samples: [] }; this.runs.set(sample.workerId, run); }
+        if (run.epoch !== sample.epoch) {
+            // Another agent generation (or another client/root origin) delivered this frame.
+            // A different generation is promoted only by its own measured collected time
+            // against the newest stored frame, never by comparing epoch strings or the
+            // monotonic clock, which resets inside containers and after machine reboots.
+            // A late old-epoch frame stays rejected instead of wiping the current
+            // history, while a genuine restart (whose real wall time is newer) is
+            // accepted even when the monotonic clock restarted from zero.
+            if (sample.collectedAt < run.latestAt) return false;
+            run.epoch = sample.epoch; run.token = origin.token; run.lastSeq = 0; run.samples = [];
+        }
+        // Within one generation the Worker's own seq is the dedup and ordering authority;
+        // the origin token records request attribution so a replaced client's replayed
+        // frames cannot re-enter below the live seq, while a reconnect on the same live
+        // agent continues by seq.
         if (sample.seq <= run.lastSeq) return false;
         run.lastSeq = sample.seq;
+        if (sample.collectedAt > run.latestAt) run.latestAt = sample.collectedAt;
         run.samples.push(sample);
         if (run.samples.length > this.capacity) run.samples.splice(0, run.samples.length - this.capacity);
         return true;
