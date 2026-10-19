@@ -257,35 +257,32 @@ function semanticFallbackClient(f, mode) {
   return state;
 }
 
-test('an inventory failure round never names the solidified job: the fallback is one worker-wide read, not a job recheck', async () => {
+test('an inventory failure in an automatic protocol-2 round ends honestly without any worker-wide read', async () => {
   const f = fixtures();
   f.queue.plans[0].jobs = [f.solid]; f.queue.plans[1].jobs = []; // only the solidified identity remains on this Worker
   const client = semanticFallbackClient(f, 'inventoryFail');
-  const { provider, published } = providerHarness(f, client);
+  const { provider } = providerHarness(f, client);
   const snapshot = await provider.refreshWorkerTaskSnapshot('w', '/project', '/project\u0000w', { excludeVerifiedCompleted: true });
   assert.equal(client.executions, 1, 'the automatic round first attempts exactly one live inventory');
-  assert.equal(client.fullWorkerReads, 1, 'the failed inventory falls back to one pre-existing worker-wide snapshot read');
+  assert.equal(client.fullWorkerReads, 0, 'no legacy worker-wide task_query may substitute: the real agent answers it with manifest and dead-pane log reads for every row, including solidified completions');
   assert.equal(client.observationBatches.length, 0, 'no job-specific artifact lane runs at all');
   assert.equal(client.logBatches.length, 0, 'no job-specific log scan runs at all');
-  assert.equal(client.namedQueries.flat().includes('solid'), false, 'the fallback read never carries the solidified job as a query');
-  assert.equal(snapshot.tasks.some(task => task.commandId === 'solid'), true, 'its dead-window row stays published from the worker-wide read');
-  assert.equal(published.length >= 1, true, 'the round publishes instead of silently dropping the worker');
+  assert.ok(snapshot.error, 'the round reports an honest unknown instead of a wide-scan freshness');
+  assert.equal(f.solid.verifiedCompletion.exitCode, 0, 'the solid proof is untouched by the failed round');
 });
 
-test('with another live task on the Worker, an inventory failure fallback queries only live identities', async () => {
+test('an inventory failure does not let the automatic round wide-scan live identities as substitutes', async () => {
   const f = fixtures();
   const client = semanticFallbackClient(f, 'inventoryFail');
   const { provider } = providerHarness(f, client);
   const snapshot = await provider.refreshWorkerTaskSnapshot('w', '/project', '/project\u0000w', { excludeVerifiedCompleted: true });
-  assert.equal(client.fullWorkerReads >= 1, true, 'the fallback batch read runs for the live selectors');
-  assert.equal(client.observationBatches.length, 0, 'the fallback replaces per-job lanes for this round');
-  assert.equal(client.logBatches.length, 0);
-  assert.equal(client.namedQueries.flat().includes('solid'), false, 'even the fallback batch never names the solidified job');
-  for (const live of ['run', 'unk', 'fail', 'recall']) assert.equal(client.namedQueries.flat().includes(live), true, live + ' is queried');
-  assert.equal(snapshot.tasks.some(task => task.commandId === 'solid'), true, 'the solidified row is carried by the worker-wide read, not re-requested');
+  assert.equal(client.fullWorkerReads, 0, 'a non-empty selector list must not ride the selected_only=false read, which scans every row server-side');
+  assert.equal(client.observationBatches.length, 0, 'this round ends honestly; live observation retries on the next round');
+  assert.equal(client.namedQueries.flat().includes('solid'), false);
+  assert.ok(snapshot.error, 'the failure is reported, not hidden');
 });
 
-test('a valid but empty inventory publishes honestly: no fabricated rows and no reads naming the solidified job', async () => {
+test('a valid but empty automatic round ends on the execution frame without a wide read or fabricated rows', async () => {
   const f = fixtures();
   f.queue.plans[0].jobs = [f.solid]; f.queue.plans[1].jobs = []; // only the solidified identity remains
   const client = semanticFallbackClient(f, 'emptyTasks');
@@ -294,14 +291,12 @@ test('a valid but empty inventory publishes honestly: no fabricated rows and no 
   assert.equal(client.executions, 1);
   assert.equal(client.observationBatches.length, 0, 'no artifact lane names any job');
   assert.equal(client.logBatches.length, 0);
-  assert.equal(client.namedQueries.flat().length, 0, 'the fallback read carries no job selectors');
+  assert.equal(client.fullWorkerReads, 0, 'the empty-inventory round must not issue the legacy wide read');
   assert.equal(snapshot.tasks.length, 0, 'an honest empty inventory is not backfilled with finished jobs');
-  const fallbackReads = client.fullWorkerReads;
   assert.equal(f.solid.verifiedCompletion.exitCode, 0, 'the solid proof is untouched by the empty round');
   const second = await provider.refreshWorkerTaskSnapshot('w', '/project', '/project\u0000w', { excludeVerifiedCompleted: true });
   assert.equal(second.tasks.length, 0, 'a repeated round stays honest without re-querying the solidified identity');
-  assert.equal(client.namedQueries.flat().length, 0, 'the repeated pre-existing worker-wide read still selects no job; over an empty inventory task_query reads no job data');
-  assert.equal(client.fullWorkerReads, fallbackReads + 1);
+  assert.equal(client.fullWorkerReads, 0, 'still no worker-wide read in any round');
 });
 
 test('an empty inventory with live jobs on the same Worker lanes only the live identities', async () => {

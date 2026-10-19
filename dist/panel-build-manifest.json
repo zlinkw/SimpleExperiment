@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.393",
-  "buildId": "289846f85155f2e8baf66906e1f1d7f643f49cd1d840d5aa59935af06a73ec0a",
+  "buildId": "ba6f25bc4cb74d74f93731011ce3b5c95d6fba49e2368e4e714068b71ed362a5",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -197,7 +197,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "8596e4b4905f33cced6cbb3d4488fba1e78885048720925041cf7d6d58ac8f14"
+      "sha256": "627e7d325e986a796004d41795637d5a70244aeb3c357a885d4e879eb053e5b8"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -1077,7 +1077,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "701fe0cc74c759c0f02924602c8901b10489402112aaa5443d034b6ea678c1ed"
+      "sha256": "9dee5c6e5bf50d21fdddacdf49968682b66a977b04025aa0c61c5fea1495ff92"
     },
     {
       "path": "scripts/check-static.js",

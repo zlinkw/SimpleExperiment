@@ -1736,6 +1736,17 @@ class RealtimeTunnelPanelProvider {
                 this.postState();
                 return workerTaskSnapshotPayload(snapshot);
             }
+            if (options.excludeVerifiedCompleted && !options.declarations && (cached?.capabilities?.taskLifecycle === 2
+                || queue.plans?.some(plan => plan.jobs?.some(job => job.workerId === workerId && job.lifecycleProtocol === 2)))) {
+                // The Worker-wide legacy task_query answers with artifact-manifest and
+                // dead-pane log reads for EVERY inventory row, so an automatic round on
+                // the precise protocol must never fall back into it, even after a failed
+                // or empty execution inventory. End the round honestly on this round's
+                // execution evidence instead; the next round retries the inventory.
+                if (executionSnapshot)
+                    return workerTaskSnapshotPayload(executionSnapshot);
+                throw new Error("自动轮不回退全量快照：本轮执行库存不可用，保留上轮证据");
+            }
             const count = Math.max(queries.length, options.declarations?.length || 0);
             const batches = count ? Array.from({ length: Math.ceil(count / 500) }, (_, index) => queries.slice(index * 500, (index + 1) * 500)) : [[]];
             const values = [];
