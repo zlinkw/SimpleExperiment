@@ -1281,6 +1281,12 @@ OPERATION_JOURNAL_CACHE_LOCK = threading.Lock()
 RUNTIME_JSON_CACHE = {}
 WORKER_GPU_SAMPLE_LOCK = threading.Lock()
 WORKER_GPU_SAMPLE_CACHE = {}
+# Every collected sample carries a process-lifetime sequence and a boot-fixed
+# epoch (monotonic clock at import plus pid), so the host can drop duplicates
+# and detect an Agent restart without re-timestamping anything the Worker
+# already measured.
+WORKER_GPU_SAMPLE_EPOCH = "%d-%d" % (int(time.monotonic() * 1000), os.getpid())
+WORKER_GPU_SAMPLE_SEQ = 0
 RUNTIME_JSON_CACHE_LOCK = threading.Lock()
 RUNTIME_FILE_INDEX_CACHE = {}
 RUNTIME_FILE_INDEX_CACHE_LOCK = threading.Lock()
@@ -3360,9 +3366,12 @@ def api_worker_gpu(root):
         if cached and 0 <= time.monotonic() - cached[0] < 1.0:
             return copy.deepcopy(cached[1])
         gpus, err = collect_local_gpu()
+        global WORKER_GPU_SAMPLE_SEQ
+        WORKER_GPU_SAMPLE_SEQ += 1
         payload = {"schemaVersion": SCHEMA_VERSION, "generatedAt": now_iso(),
                    "source": "worker_telemetry", "gpu": gpus, "gpus": gpus,
-                   "status": "ok" if not err else "degraded", "error": err}
+                   "status": "ok" if not err else "degraded", "error": err,
+                   "seq": WORKER_GPU_SAMPLE_SEQ, "epoch": WORKER_GPU_SAMPLE_EPOCH}
         WORKER_GPU_SAMPLE_CACHE["sample"] = (time.monotonic(), payload)
         return copy.deepcopy(payload)
 
@@ -18676,7 +18685,15 @@ def task_execution_inventory(root, queries=()):
             "running" if row["phase"] == "running" else "unknown")
         tasks.append({**public, "lifecycleProtocol": 2, "observation": observed, "executionState": execution,
                       "status": "queued" if execution in ("queued", "starting") else execution if execution in ("running", "failed") else "unknown"})
-    return {"schemaVersion": 1, "queryComplete": True, "executionOnly": True, "generatedAt": now_iso(),
+    # The fast inventory may only CARRY an already-collected sample: this reads
+    # the shared cache under the lock and never samples nvidia-smi here. A missing
+    # sample stays missing; the payload keeps its own collected time and stamp.
+    gpu_sample = None
+    if "WORKER_GPU_SAMPLE_CACHE" in globals() and "WORKER_GPU_SAMPLE_LOCK" in globals():
+        with WORKER_GPU_SAMPLE_LOCK:
+            cached_gpu = WORKER_GPU_SAMPLE_CACHE.get("sample")
+            gpu_sample = copy.deepcopy(cached_gpu[1]) if cached_gpu else None
+    return {"schemaVersion": 1, "queryComplete": True, "executionOnly": True, "generatedAt": now_iso(), "gpuSample": gpu_sample,
             # Agent protocol support is static; do not query Scheduler windows
             # for every progress refresh. Admission still checks live capacity.
             "capabilities": {"schemaVersion": 1, "durablePlanQueue": True, "declaredJobPaths": True,

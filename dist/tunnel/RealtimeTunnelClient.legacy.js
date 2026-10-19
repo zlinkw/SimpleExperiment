@@ -350,6 +350,12 @@ class RealtimeTunnelClient {
         return this.coalescedRead("worker-tasks:" + selection, options, () => this.http.getWorkerTasks(options)).then(value => {
             if (generation !== this.connectionGeneration || this.disposed)
                 throw Object.assign(new Error("Worker connection changed during query"), { code: "CONNECTION_GENERATION_CHANGED" });
+            // An execution inventory may carry the Worker's already-collected GPU sample.
+            // Feeding the existing in-memory state keeps the display current without any
+            // separate automatic getGpu read; the sample keeps its own collected time.
+            const carried = value?.gpuSample;
+            if (options.executionOnly === true && carried && typeof carried === "object" && this.isWorkerTelemetryEndpoint() && !("gpuSampleError" in value))
+                this.acceptWorkerGpuSample(carried);
             return value;
         });
     }
@@ -539,7 +545,7 @@ class RealtimeTunnelClient {
             if (!this.isCurrentConnection(generation) || this.status !== "polling" || this.hidden)
                 return;
             this.pollTimer = undefined;
-            void this.refreshSnapshot()
+            void this.readSnapshot(false, true)
                 .catch((error) => { if (this.isCurrentConnection(generation))
                 this.connectionLost(message(error)); })
                 .finally(() => { if (this.isCurrentConnection(generation))
@@ -553,7 +559,7 @@ class RealtimeTunnelClient {
     async refreshSnapshot() {
         await this.readSnapshot(false);
     }
-    async readSnapshot(manual) {
+    async readSnapshot(manual, fromPoll = false) {
         if (this.requiresManualReconnect)
             throw new Error(this.lastError);
         if (this.snapshotInFlight)
@@ -569,11 +575,20 @@ class RealtimeTunnelClient {
                     // from current snapshots even when no GPU change is in the SSE replay.
                     // GPU telemetry has its own current read. Task/result observations
                     // belong to the Host's shared progress query, never this stream boot.
-                    const gpuResult = await this.http.getGpu();
-                    if (generation !== this.connectionGeneration || this.disposed)
-                        return { gpu: {} };
-                    this.acceptWorkerGpuSample(gpuResult);
-                    snapshot = { generatedAt: objectRecord(gpuResult)?.generatedAt, gpu: this.state.gpu };
+                    // When the shared execution inventory recently CARRIED a GPU sample
+                    // into memory, the fallback poll must not read getGpu a second time;
+                    // it still samples whenever nothing fresh has been carried.
+                    const carriedFresh = fromPoll === true && this.workerGpuUpdatedAt > 0
+                        && Date.now() - this.workerGpuUpdatedAt <= this.snapshotFallbackDelayMs() * 2;
+                    if (carriedFresh)
+                        snapshot = { generatedAt: new Date(this.workerGpuUpdatedAt).toISOString(), gpu: this.state.gpu };
+                    else {
+                        const gpuResult = await this.http.getGpu();
+                        if (generation !== this.connectionGeneration || this.disposed)
+                            return { gpu: {} };
+                        this.acceptWorkerGpuSample(gpuResult);
+                        snapshot = { generatedAt: objectRecord(gpuResult)?.generatedAt, gpu: this.state.gpu };
+                    }
                 }
                 else
                     snapshot = await this.http.getSnapshot({ manual, signal: abort.signal });

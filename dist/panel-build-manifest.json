@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.393",
-  "buildId": "ba6f25bc4cb74d74f93731011ce3b5c95d6fba49e2368e4e714068b71ed362a5",
+  "buildId": "7576e44e8d65238cb0a30d09e2da910c072c31d32cd8f2f1c9126e87dd576f25",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -197,7 +197,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "627e7d325e986a796004d41795637d5a70244aeb3c357a885d4e879eb053e5b8"
+      "sha256": "77f215678cd29cbd80379e896d0274493b8427ba0fc620bca0fbd0dc019ad192"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -370,6 +370,10 @@
     {
       "path": "dist/features/GpuQuotaScheduling.js",
       "sha256": "9b97c20f531d01d0e04b19d77f446aaf90e3868dd438664e24b0fd03493d8926"
+    },
+    {
+      "path": "dist/features/GpuSampleRing.js",
+      "sha256": "3530303448ec215930e61d4ad20c1ab0c8f0945d734aa3bba3788adc6c003297"
     },
     {
       "path": "dist/features/IncrementalLocalMetadata.js",
@@ -833,7 +837,7 @@
     },
     {
       "path": "dist/tunnel/RealtimeTunnelClient.legacy.js",
-      "sha256": "0765c2ab3f41a2af641efe8ea2a2655a2c65f5e831c3107e9507cb9400fe4b6b"
+      "sha256": "6c081211ec8bf9285ec3342d9ef699d7a5261b43c0159e661d95c790af7fce22"
     },
     {
       "path": "dist/tunnel/RequestBudget.js",
@@ -1077,7 +1081,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "9dee5c6e5bf50d21fdddacdf49968682b66a977b04025aa0c61c5fea1495ff92"
+      "sha256": "16bf75c1a146297777ab04ba55567156b1c004531d17922293ba29d68a050c15"
     },
     {
       "path": "scripts/check-static.js",

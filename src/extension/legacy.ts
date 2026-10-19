@@ -140,6 +140,7 @@ import { planStaticConfigReferences, planRuntimeConfigReferences, pythonCliParam
 import ProjectAdapterTemplates_1 = require("../templates/ProjectAdapterTemplates");
 import PptPlotBridge_1 = require("../PptPlotBridge");
 import GpuHistoryState_1 = require("../features/GpuHistoryState");
+import GpuSampleRing_1 = require("../features/GpuSampleRing");
 import { compactOperationsForWebview } from "../ui/OperationPayload";
 import TopologyMode_1 = require("../features/TopologyMode");
 import ApiWorkflow_1 = require("../features/ApiWorkflow");
@@ -613,7 +614,7 @@ const SAFE_WEBVIEW_COMMANDS = new Set([
     "stopAndClearPlans",
     "refreshLocalResults",
     "webviewReady", "webviewHeartbeatAck", "webviewStateRendered", "webviewSectionInterest", "webviewSectionTelemetry", "webviewLayoutEvidence", "webviewBootstrapPhase", "webviewBootstrapError", "webviewRuntimeIncident", "webviewRenderError", "webviewVisibility", "copyPanelDiagnostics", "reloadPanel", "reloadPanelLowEffects", "reloadWindow", "recallPlanToLocalQueue", "quickSetup", "configureSessions", "configureAgentSessions", "writeAgentCommands", "saveTopologyMode", "saveAgentDefaults", "saveSchedulerConfig", "saveWorkerConfig", "addWorkerConfig", "deleteWorkerConfig", "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure", "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll", "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll",
-    "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "reassignWorkerTask", "openSetupGuide", "openAdvancedCommandsSetting", "applyPlanDatasetMapping", "autoMatchPlanDatasets",
+    "resumeNetwork", "snapshot", "manualGpuSnapshot", "loadGpuHistory", "gpuWindowSamples", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "reassignWorkerTask", "openSetupGuide", "openAdvancedCommandsSetting", "applyPlanDatasetMapping", "autoMatchPlanDatasets",
     "script", "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "restoreArchivedPlan", "runAllPlans", "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "clearLegacyTasks", "saveUiLayout", "resetUiLayout",
     "selectPlan", "selectExperiment",
     "publishGithub", "syncGithub", "overwriteGithub", "uploadProjectToHub", "uploadProjectToWorkers", "distributeCodeToWorkers", "deployLatestAgent", "configureDownloadScope", "configureCodeSyncIncludes", "configureServerSyncScope", "resetRemotePathConfirmations", "resetPptPathConfirmations", "downloadDebugBundle", "downloadRemoteResult", "openResultArtifact", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "splitProjectResultTable", "openLocalResultTable", "editResultColumnMapping", "openAuditTail",
@@ -654,7 +655,7 @@ const UI_BUTTON_ACTION_COMMANDS = new Set([
     "startTunnelEndpoint", "startAgentEndpoint", "configureWorkers", "configurePorts", "repairPorts", "configure",
     "startHub", "startWorker", "start", "startAll", "startAgents", "startAllConnections", "prepareAgents", "test", "testAll",
     "showRegistry", "restart", "pauseStream", "resumeStream", "pauseAll", "resumeNetwork", "snapshot",
-    "manualGpuSnapshot", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "script",
+    "manualGpuSnapshot", "gpuWindowSamples", "manualSchedulerSnapshot", "manualTracesSnapshot", "selectLogRunKey", "script",
     "realCheck", "status", "offline", "openPlan", "savePlan", "archivePlan", "archivePlanCopy", "editResultColumnMapping", "runAllPlans",
     "generatePlanGuide", "bootstrapProject", "generateOutputAdapter", "saveProjectAdapterRules", "saveResultColumnMapping", "saveRemoteRootPolicy", "saveResultCsvDir", "chooseResultCsvDir", "savePptPlotConfig", "choosePptPath", "chooseNewPptPath", "plotResultsToPpt", "refreshPptAutomation", "startPptAutomation", "openPptAutomationGuide", "saveUiLayout", "resetUiLayout",
     "downloadDebugBundle", "downloadRemoteResult", "syncAllResultArtifacts", "rebuildProjectResultTables", "syncPendingPlanArtifacts", "splitProjectResultTable", "openLocalResultTable", "openAuditTail", "selectPlan", "selectExperiment",
@@ -1149,6 +1150,9 @@ export class RealtimeTunnelPanelProvider {
     private readonly realtimeHeartbeatPostMinMs = 60_000;
     private lastAvailabilityGpuSignature = "";
     private readonly gpuHistoryState = new GpuHistoryState_1.GpuHistoryStateCache();
+    // Item 85 minimal channel: bounded per-Worker ring of the Worker's own GPU
+    // samples carried by the shared execution inventory; windows clip locally.
+    readonly gpuSampleRing = new GpuSampleRing_1.GpuSampleRing();
     auditTail;
     debugBundlePath;
     actionErrors = [];
@@ -1758,6 +1762,10 @@ export class RealtimeTunnelPanelProvider {
                         && current()) {
                         executionSnapshot = sharedExecution ? { ...live, workerId, progressRequestStartedAt }
                             : WorkerProgressQuery.executionProgressSnapshot({ ...live, workerId, progressRequestStartedAt }, cached, progressRequestStartedAt);
+                        // Keep the Worker's already-collected GPU sample (carried on this
+                        // very inventory response) in the bounded host ring for local
+                        // window viewing; the same seq is idempotent across layers.
+                        if (live.gpuSample) this.gpuSampleRing.push(workerId, live.gpuSample);
                         if (!sharedExecution) {
                             this.storeWorkerTaskSnapshot(cacheKey, WorkerProgressQuery.mergeProgressSnapshot(this.cachedWorkerTaskSnapshot(workerId, root, cacheKey), executionSnapshot));
                             this.postState();
@@ -5303,6 +5311,21 @@ return this.testTunnel(true);
         if (failure && stringField(message, "clientActionId"))
             throw failure;
     }
+    /**
+     * Item 85: clip a GPU viewing window from the bounded host ring locally.
+     * Returned frames are the Worker's own collected samples inside the window;
+     * switching windows sends no remote history request and nothing between the
+     * collected points is interpolated into finer frames.
+     */
+    async gpuWindowSamplesFromUi(message: any): Promise<unknown[]> {
+        const workerId = message && typeof message === "object" ? String(message.workerId || "") : "";
+        if (!workerId) throw new Error("需要指定 Worker");
+        const start = Number(message?.start), end = Number(message?.end);
+        if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) throw new Error("GPU 窗口范围无效");
+        const samples = this.gpuSampleRing.slice(workerId, { start, end, maxPoints: message?.maxPoints });
+        void this.view?.webview.postMessage({ type: "gpuWindowSamples", workerId, start, end, samples });
+        return samples;
+    }
     async manualSchedulerSnapshot() {
         const generation = this.projectContextGeneration;
         const client = this.client;
@@ -5696,6 +5719,9 @@ return this.testTunnel(true);
                 break;
             case "loadGpuHistory":
                 await this.loadGpuHistoryFromUi(message);
+                break;
+            case "gpuWindowSamples":
+                await this.gpuWindowSamplesFromUi(message);
                 break;
             case "manualSchedulerSnapshot":
                 await this.manualSchedulerSnapshot();
