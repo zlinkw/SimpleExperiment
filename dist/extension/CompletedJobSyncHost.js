@@ -2,11 +2,17 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.CompletedJobSyncHost = void 0;
 const LatestJobArtifacts_1 = require("../features/LatestJobArtifacts");
-const PulledTaskControl_1 = require("../features/PulledTaskControl");
 const DistributedPlanQueue_1 = require("../features/DistributedPlanQueue");
 const SyncResolution_1 = require("../features/SyncResolution");
 const PlanArtifactSyncStatus_1 = require("../features/PlanArtifactSyncStatus");
-/** Per-job completion publication reuses the file tree's newest-version merge, never the whole PLAN gate. */
+/**
+ * Per-job completion publication reuses the file tree's newest-version merge, never the whole PLAN gate.
+ * Item 46 account split: this round's start permission checks only the local facts — exact queue
+ * identity, the confirmed completed status already carried by the queue row, and the sync-holds write
+ * safety — and never borrows a job-state query. Source freezing (the inventory manifest taken before
+ * the copy) and the destination byte SHA256 comparison belong to the sync body itself; during the
+ * copy only the local stop/identity/safety re-checks run.
+ */
 class CompletedJobSyncHost {
     h;
     root;
@@ -60,7 +66,6 @@ class CompletedJobSyncHost {
             if (!options.force && previous?.key === key && (previous.state === "excluded" || previous.state === "synced"
                 && (!previous.artifactDigest || previous.artifactDigest === (0, PlanArtifactSyncStatus_1.jobArtifactSyncDigest)(job)) || Date.parse(previous.retryAfter || "") > Date.now()))
                 continue;
-            let verificationError = "";
             const assertCurrent = async () => {
                 if (!this.current())
                     throw Error("同步已停止：项目、连接或清理操作已变化。");
@@ -73,15 +78,6 @@ class CompletedJobSyncHost {
                 if (Object.entries(holds).some(([file, hold]) => hold.status !== "resolved"
                     && Date.parse(hold.deletedAt || "") >= (Date.parse(plan.enqueuedAt) || 0) && scopes.some(scope => overlap(scope, file))))
                     throw Error("这些文件在本次运行后被用户删除或暂停同步，未自动补回。");
-                try {
-                    const { task, snapshot, state } = await (0, PulledTaskControl_1.queryTask)(h.client, plan, job, options.force ? 30000 : 8000);
-                    if (snapshot.queryComplete !== true || state.status !== "completed")
-                        throw Error(snapshot.error || task?.observation?.resultQueryError || job.workerId);
-                }
-                catch (error) {
-                    verificationError = "来源任务核实未完成，未确认本轮同步：" + String(error.message || error);
-                    throw Error(verificationError);
-                }
             };
             const patch = (fields) => h.patchDistributedJob(this.root, plan.id, job.index, job.attempt, { expectedCommandId: job.commandId, ...fields });
             if (!scopes.length) {
@@ -110,7 +106,7 @@ class CompletedJobSyncHost {
                 const detail = String(error.message || error), retryAfter = new Date(Date.now() + 30000).toISOString();
                 report.errors.push(plan.planFile + " job " + job.index + "：" + detail);
                 await patch({ latestArtifactSync: { key, state: "partial", scopes, error: detail, retryAfter, checkedAt: new Date().toISOString() },
-                    artifactError: verificationError || "最新产物同步未完成：" + detail, artifactRetryAfter: retryAfter });
+                    artifactError: "最新产物同步未完成：" + detail, artifactRetryAfter: retryAfter });
                 if (previous?.key !== key || previous.error !== detail)
                     h.recordActionError({ command: "completedJobLatestSync", message: plan.planFile + " job " + job.index + "：" + detail });
             }

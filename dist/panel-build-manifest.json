@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.393",
-  "buildId": "9ecbc20ebbadcdee19d0ea7428abef9b13118fc2c0ba7eb4c65660ecfee836cc",
+  "buildId": "c3cc86fab42316b6fb5c2c7fbbf2bc15665fe958b9eb028730ba4d7f742a4e5c",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -177,7 +177,7 @@
     },
     {
       "path": "dist/extension/CompletedJobSyncHost.js",
-      "sha256": "edf00a320447a74cd5e23b04ee338a5b48b42b229b094507595f90c037076acf"
+      "sha256": "8091751b7a73782aedf80c8fdb941c2a053ac78a13b80012a5b0ceeed9d23a2c"
     },
     {
       "path": "dist/extension/ExtensionContext.js",
