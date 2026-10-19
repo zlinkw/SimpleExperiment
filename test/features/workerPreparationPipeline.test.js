@@ -50,10 +50,13 @@ test('401 during activation rereads discovery once, before any RPC; persistent f
     fs: { readFile: async () => JSON.stringify({ baseUrl: 'http://127.0.0.1:3456', token: String(++reads) }) },
     fetch: async (_url, options) => { auth.push(options.headers.Authorization); return ++gets === 1 ? { status: 401, ok: false }
       : { ok: true, json: async () => ({ methods: ['files.cleanup.inspect'] }) }; } };
-  const capability = method('simpleSftpCapability', globals); await capability.call({}, 'files.cleanup.inspect');
+  // 31：能力读取移入共享单槽；401 重试语义（只重读发现头部文件一次、不重放 RPC）保持不变。
+  const capability = method('simpleSftpCapability', globals);
+  const mk = () => ({ simpleSftpCapLaunch: 0, simpleSftpCapShared: undefined, readSimpleSftpCapabilities: method('readSimpleSftpCapabilities', globals) });
+  await capability.call(mk(), 'files.cleanup.inspect');
   assert.deepEqual(auth, ['Bearer 1', 'Bearer 2']); assert.equal(reads, 2);
   globals.fetch = async () => ({ status: 401, ok: false }); reads = 0;
-  await assert.rejects(method('simpleSftpCapability', globals).call({}, 'files.cleanup.inspect'), /HTTP 401/); assert.equal(reads, 2);
+  await assert.rejects(method('simpleSftpCapability', globals).call(mk(), 'files.cleanup.inspect'), /HTTP 401/); assert.equal(reads, 2);
 });
 
 test('runtime reads overlap synchronization but readiness waits for both; workspace changes never release a target', async () => {

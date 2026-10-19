@@ -2485,12 +2485,8 @@ def formal_checkpoint_source(job: Job, identity: dict[str, Any], mode: str = "te
     if mode == "test" and (not configured or (Path.cwd() / configured).resolve() != (Path.cwd() / source["checkpoint_path"]).resolve()):
         raise ValueError("FORMAL_CHECKPOINT_DECLARATION_CHANGED")
     saved = load_yaml_file(Path(source["config_path"]))
-    provenance = saved.get("runtime", {}).get("execution_provenance") or {}
-    same_code = source["code_fingerprint"] == identity.get("codeFingerprint")
-    if not same_code:
-        same_code = (provenance.get("codeFingerprint") == source["code_fingerprint"]
-                     and source.get("source_code_sha256") == provenance.get("sourceCodeHash") == formal_source_fingerprint(Path.cwd()))
-    if formal_training_signature(saved) != formal_training_signature(job.config) or not same_code:
+    # 29：code_fingerprint 只是同步时快照记录，不再作为执行期源码不变门禁；运行中允许用户更新科研源码。
+    if formal_training_signature(saved) != formal_training_signature(job.config):
         raise ValueError("FORMAL_CHECKPOINT_CONFIG_OR_CODE_CHANGED")
     saved_contract = saved.get("runtime", {}).get("result_path_contract") or {}
     if saved_contract.get("plan_file") != source["plan_file"] or saved_contract.get("plan_revision") != source["plan_revision"]:

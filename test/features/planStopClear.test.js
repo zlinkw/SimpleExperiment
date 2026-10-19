@@ -417,6 +417,7 @@ function installStopClearHost(sandbox) {
   provider.retiredLocalOperationCalls = [];
   if (!provider.retireLocalOperationState) provider.retireLocalOperationState = async ids => provider.retiredLocalOperationCalls.push(...ids);
   if (!provider.distributedSubmissionEpochs) provider.distributedSubmissionEpochs = new Map();
+  if (typeof provider.beginSimpleSftpCapabilityLaunch !== "function") provider.beginSimpleSftpCapabilityLaunch = () => undefined;
   context.provider = provider;
   // These older fixtures exercise the preserved explicit remote stop/window path.
   // The default record-only terminal path has its own production-method regressions.

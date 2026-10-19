@@ -1328,7 +1328,8 @@ export function sameDistributedPlanFile(left: string, right: string): boolean {
   return samePlanFile(left, right);
 }
 
-export function matchingActiveDeferred(queue: DistributedQueue, identity: { id?: string; planFile: string; revision: string; codeFingerprint: string }) {
+export function matchingActiveDeferred(queue: DistributedQueue, identity: { id?: string; planFile: string; revision: string }) {
+  // 29：接续只看 PLAN 身份与 revision；代码指纹只是同步时快照，不再是冻结条件。
   const rows = queue.deferred || [];
   const id = String(identity.id || "");
   if (id) {
@@ -1336,14 +1337,12 @@ export function matchingActiveDeferred(queue: DistributedQueue, identity: { id?:
     if (!row) return null;
     const same = samePlanFile(row.planFile, identity.planFile)
       && row.revision === identity.revision
-      && row.codeFingerprint === identity.codeFingerprint
       && row.confirmedOutputChoice !== true
       && (row.status === "pending" || row.status === "blocked");
     return same ? row : null;
   }
   return rows.find((item) => samePlanFile(item.planFile, identity.planFile)
     && item.revision === identity.revision
-    && item.codeFingerprint === identity.codeFingerprint
     && item.confirmedOutputChoice !== true
     && (item.status === "pending" || item.status === "blocked"));
 }

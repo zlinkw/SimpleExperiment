@@ -402,6 +402,7 @@ test("validate and dry-run publish their own stages and a failed result stays fa
   const calls = [];
   const host = {
     localOperations: {}, distributedSubmissionEpochs: new Map(), stages: [], localPlanMetadata: { detectedProject: {} },
+    beginSimpleSftpCapabilityLaunch: () => undefined,
     actionBody: (item) => ({ planFile: item.planFile, options: {} }),
     refreshLocalPlanMetadataForAction: async () => {},
     stampPlanRevision: () => {},
@@ -441,6 +442,7 @@ test("a submitted validate stays queued with its operation id until the real ter
   class RemotePending extends Error { constructor(message) { super(message); this.remotePending = true; } }
   const host = {
     localOperations: {}, distributedSubmissionEpochs: new Map(), stages: [], localPlanMetadata: { detectedProject: {} },
+    beginSimpleSftpCapabilityLaunch: () => undefined,
     actionBody: (item) => ({ planFile: item.planFile, options: {} }),
     refreshLocalPlanMetadataForAction: async () => {},
     stampPlanRevision: () => {},

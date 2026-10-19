@@ -1349,6 +1349,7 @@ function sameDistributedPlanFile(left, right) {
     return samePlanFile(left, right);
 }
 function matchingActiveDeferred(queue, identity) {
+    // 29：接续只看 PLAN 身份与 revision；代码指纹只是同步时快照，不再是冻结条件。
     const rows = queue.deferred || [];
     const id = String(identity.id || "");
     if (id) {
@@ -1357,14 +1358,12 @@ function matchingActiveDeferred(queue, identity) {
             return null;
         const same = samePlanFile(row.planFile, identity.planFile)
             && row.revision === identity.revision
-            && row.codeFingerprint === identity.codeFingerprint
             && row.confirmedOutputChoice !== true
             && (row.status === "pending" || row.status === "blocked");
         return same ? row : null;
     }
     return rows.find((item) => samePlanFile(item.planFile, identity.planFile)
         && item.revision === identity.revision
-        && item.codeFingerprint === identity.codeFingerprint
         && item.confirmedOutputChoice !== true
         && (item.status === "pending" || item.status === "blocked"));
 }

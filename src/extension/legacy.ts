@@ -6395,6 +6395,7 @@ return this.testTunnel(true);
         this.distributedSubmissionEpochs.set(operationId, (this.distributedSubmissionEpochs.get(operationId) || 0) + 1);
         if (!this.distributedSubmissionAborts) this.distributedSubmissionAborts = new Map();
         this.distributedSubmissionAborts.set(operationId, new AbortController());
+        this.beginSimpleSftpCapabilityLaunch();
         const planFile = this.planSubmissionPlanFile(message, body);
         const now = new Date().toISOString();
         this.localOperations[operationId] = {
@@ -6533,6 +6534,7 @@ return this.testTunnel(true);
         return `${planFile} 已完成校验和历史产物确认（${choice}）。前序：${ahead}。`;
     }
     async distributedCodeVersionHold(body, signal?: AbortSignal) {
+        // 29：本方法只做“旧代码版本仍占用”的检测，不再阻断任务准入/启动；保留用于如实提示旧 runtime 与展示。
         const root = workspaceRoot();
         if (!root) return undefined;
         const queue = await this.loadDistributedQueue(root);
@@ -6548,6 +6550,12 @@ return this.testTunnel(true);
         if (candidates.some((worker) => DistributedPlanQueue.workerCodeVersionAvailable(queue, worker.id, fingerprint))) return undefined;
         const blocker = occupied.find((item) => item.codeFingerprint !== fingerprint) || occupied[0];
         return { root, queue, fingerprint, blocker };
+    }
+    legacySourceFreezeWorkerNames() {
+        // 29：旧端未具备源码变更执行语义时必须如实提示需要更新，不伪称已生效；只读探活能力，不阻断。
+        const workers = this.enabledWorkerConfigs?.() || [];
+        return workers.filter((worker: any) => !this.lastWorkerProbes?.[worker.id]?.capabilities?.sourceDecouple)
+            .map((worker: any) => String(worker.label || worker.id || "")).filter(Boolean);
     }
     planValidationCacheKey(body, workerId) {
         const root = workspaceRoot();
@@ -6846,6 +6854,7 @@ return this.testTunnel(true);
         const message = { command: "runPlan", planFile: body.planFile, clientActionId: id.slice("plan-submit-".length) };
         this.distributedSubmissionEpochs.set(id, (this.distributedSubmissionEpochs.get(id) || 0) + 1);
         this.distributedSubmissionAborts.set(id, new AbortController());
+        this.beginSimpleSftpCapabilityLaunch();
         this.localOperations[id] = { ...this.localOperations[id], operationId: id, type: "run-plan", localSubmissionProgress: true,
             planFile: body.planFile, status: "running", retryableSubmission: false, error: "", finishedAt: "", message: "正在重试失败步骤…" };
         this.resumedSubmissions.add(id); this.markLocalOperationsDirty(); this.postState();
@@ -10252,16 +10261,16 @@ this.assertPlanTopologyReady("Plan 调度");
         this.recordPlanSubmissionTiming?.(message, "localFingerprintMs", Date.now() - fingerprintStarted);
         if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot)) return;
         if (continueDeferredId) {
-            const existing = await this.activeDeferredForSubmission(root, body, submissionFingerprint, continueDeferredId);
+            const existing = await this.activeDeferredForSubmission(root, body, continueDeferredId);
             if (existing === null) {
-                throw new Error("这条旧排队记录与当前 Plan、版本或代码指纹不一致，未修改队列，也未校验或提交。请到实验准备的 Plan 列表手动选中该 Plan，再点“校验并提交运行”。");
+                throw new Error("这条旧排队记录与当前 Plan 或版本不一致，未修改队列，也未校验或提交。请到实验准备的 Plan 列表手动选中该 Plan，再点“校验并提交运行”。");
             }
         }
         if (versionHold) {
-            const detail = this.planSubmissionQueueDetail(body, versionHold.blocker, false);
-            this.reportPlanStage(message, "未提交：旧代码版本仍占用 Worker。");
-            this.finishPlanSubmissionProgress(message, "failed", detail);
-            throw new Error(detail);
+            // 29：旧代码版本不再冻结新提交的准入；执行以本轮同步快照为准，来源 hash 只作同步时记录。
+            // 尚未更新语义的旧 Worker 必须收到明确提示，不能伪称源码变更执行已在其上生效。
+            const legacyWorkers = this.legacySourceFreezeWorkerNames();
+            if (legacyWorkers.length) this.reportPlanStage(message, `提示：${legacyWorkers.join("、")} 的 Worker runtime 仍是旧源码冻结语义；源码更新后这些服务器仍会以旧源码不变校验拒绝 test/续跑任务，请先更新 Worker runtime。`);
         }
         try {
             const codeSyncStarted = Date.now();
@@ -10369,14 +10378,13 @@ this.assertPlanTopologyReady("Plan 调度");
         if (!this.submissionStillCurrent(message, submissionEpoch, submissionRoot)) return;
         this.finishPlanSubmissionProgress(message, "succeeded", "调度队列已保存；面板主动查询 Scheduler、任务窗口和最终产物。");
     }
-    async activeDeferredForSubmission(root, body, fingerprint, deferredPlanId) {
+    async activeDeferredForSubmission(root, body, deferredPlanId) {
         if (!root) return undefined;
         const queue = await this.loadDistributedQueue(root);
         const identity = {
             id: deferredPlanId,
             planFile: operationResultPlanFile(body),
             revision: String(body.planRevision || body.options?.planRevision || ""),
-            codeFingerprint: fingerprint,
         };
         return DistributedPlanQueue.matchingActiveDeferred(queue, identity);
     }
@@ -11324,7 +11332,7 @@ this.assertPlanTopologyReady("Plan 调度");
             // The Agent can validate a matching full manifest without copying code or resubmitting the Plan.
             const codeManifest = sharedCodeManifest || await this.buildDistributedJobCodeManifest(root);
             if (fingerprintFromManifest(codeManifest) !== plan.codeFingerprint)
-                throw new Error("本机代码已偏离 Plan 的代码指纹，持久队列提交已暂停；请恢复该版本或重新提交计划。");
+                throw new Error("本机代码已偏离 Plan 的代码指纹，持久队列提交已暂停；该 Worker 仍是旧代码 proof 语义，无法安全携带新快照，请先更新 Worker runtime，或恢复该版本或重新提交计划。");
             codeProofFields = durableCodeProofRequestFields(false, workerVersion, plan.codeFingerprint, codeManifest, workerId);
         }
         if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
@@ -18784,29 +18792,55 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         }, 15_000);
         this.planSyncSummaryRetries.set(syncKey, { timer, attempt });
     }
+    private simpleSftpCapLaunch = 0;
+    private simpleSftpCapShared: { launch: number; promise: Promise<{ endpoint: URL; headers: Record<string, string>; methods: unknown[]; instanceId: string; features: Record<string, unknown>; methodOptions: Record<string, unknown> }> } | undefined;
+    beginSimpleSftpCapabilityLaunch() {
+        // 31：新启动上下文必须重新取得一次能力；不跨启动、运行代际或 Scheduler 更换复用旧结果。
+        this.simpleSftpCapLaunch = (this.simpleSftpCapLaunch || 0) + 1;
+    }
+    invalidateSimpleSftpCapability() {
+        // Scheduler 监听器更换或 token 轮换后，下一次调用重新发现；只保留当前启动的单槽共享，不建无限缓存。
+        this.simpleSftpCapShared = undefined;
+    }
+    readSimpleSftpCapabilities() {
+        const launch = this.simpleSftpCapLaunch;
+        if (this.simpleSftpCapShared && this.simpleSftpCapShared.launch === launch) return this.simpleSftpCapShared.promise;
+        const shared = (async () => {
+            const discoveryFile = path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "SimpleSFTP", "api.json");
+            for (let attempt = 0; attempt < 2; attempt++) {
+                const discovery = JSON.parse(await fs.readFile(discoveryFile, "utf8"));
+                const endpoint = new URL(String(discovery.baseUrl || ""));
+                if (endpoint.protocol !== "http:" || !["127.0.0.1", "localhost", "::1"].includes(endpoint.hostname))
+                    throw new Error("SimpleSFTP 本地 API 地址不安全。");
+                const headers = { Authorization: `Bearer ${String(discovery.token || "")}` };
+                const capabilityResponse = await fetch(new URL("/api/v1/capabilities", endpoint), { headers, signal: AbortSignal.timeout(30_000) });
+                // Activation can replace a listener/token between discovery and this GET.
+                // Retry only discovery + this read; never replay a mutating RPC.
+                if (capabilityResponse.status === 401 && attempt === 0) continue;
+                if (!capabilityResponse.ok) throw new Error(`SimpleSFTP capability 查询失败：HTTP ${capabilityResponse.status}`);
+                const capabilities = await capabilityResponse.json();
+                return {
+                    endpoint,
+                    headers,
+                    methods: Array.isArray(capabilities.methods) ? capabilities.methods : [],
+                    instanceId: typeof capabilities.instanceId === "string" ? capabilities.instanceId : "",
+                    features: capabilities.features && typeof capabilities.features === "object" ? capabilities.features : {},
+                    methodOptions: capabilities.methodOptions || {},
+                };
+            }
+            throw new Error("SimpleSFTP capability 查询失败：认证已失效。");
+        })();
+        shared.catch(() => {
+            if (this.simpleSftpCapShared && this.simpleSftpCapShared.promise === shared) this.simpleSftpCapShared = undefined;
+        });
+        this.simpleSftpCapShared = { launch, promise: shared };
+        return shared;
+    }
     async simpleSftpCapability(method, timeoutMs = 0) {
-        const discoveryFile = path.join(process.env.APPDATA || path.join(os.homedir(), "AppData", "Roaming"), "SimpleSFTP", "api.json");
-        for (let attempt = 0; attempt < 2; attempt++) {
-        const discovery = JSON.parse(await fs.readFile(discoveryFile, "utf8"));
-        const endpoint = new URL(String(discovery.baseUrl || ""));
-        if (endpoint.protocol !== "http:" || !["127.0.0.1", "localhost", "::1"].includes(endpoint.hostname))
-            throw new Error("SimpleSFTP 本地 API 地址不安全。");
-        const headers = { Authorization: `Bearer ${String(discovery.token || "")}` };
-        const capabilityResponse = await fetch(new URL("/api/v1/capabilities", endpoint), { headers, signal: AbortSignal.timeout(30_000) });
-        // Activation can replace a listener/token between discovery and this GET.
-        // Retry only discovery + this read; never replay a mutating RPC.
-        if (capabilityResponse.status === 401 && attempt === 0) continue;
-        if (!capabilityResponse.ok) throw new Error(`SimpleSFTP capability 查询失败：HTTP ${capabilityResponse.status}`);
-        const capabilities = await capabilityResponse.json();
-        if (!Array.isArray(capabilities.methods) || !capabilities.methods.includes(method)) throw new Error(`SimpleSFTP 不支持 ${method}。`);
-        return {
-            endpoint,
-            headers,
-            instanceId: typeof capabilities.instanceId === "string" ? capabilities.instanceId : "",
-            features: capabilities.features && typeof capabilities.features === "object" ? capabilities.features : {},
-            methodOptions: capabilities.methodOptions || {},
-        };
-        }
+        // 31：同一次启动内所有 helper 共享一次实际能力读取，不再逐个重开发现头部文件。
+        const shared = await this.readSimpleSftpCapabilities();
+        if (!Array.isArray(shared.methods) || !shared.methods.includes(method)) throw new Error(`SimpleSFTP 不支持 ${method}。`);
+        return { endpoint: shared.endpoint, headers: shared.headers, instanceId: shared.instanceId, features: shared.features, methodOptions: shared.methodOptions };
     }
     async simpleSftpApiCall(method, params, timeoutMs = 0, onProgress?, cleanupObservation?: { source: any; relativePath: string }) {
         assertRetryRequestCurrent();
@@ -18847,8 +18881,13 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const changedPaths = mutationIndex ? [safeSyncPath(cleanupObservation!.relativePath)] : fileOperationIndexPaths(request);
         const invalidate = reason => mutationIndex ? mutationIndex.invalidate(reason, changedPaths) : this.invalidateProjectFileIndexes?.(reason, changedPaths);
         if (mutation) await invalidate("文件写入或清理开始：" + method);
-        try { return await load(); }
-        finally { if (mutation) {
+        try {
+            return await load();
+        } catch (error) {
+            // 运行代际改变（监听器更换/token 轮换）要能让下一次调用重新取得能力；不重放变更请求。
+            if (/HTTP 401|UNAUTHORIZED|status 401/.test(errorMessage(error))) this.invalidateSimpleSftpCapability();
+            throw error;
+        } finally { if (mutation) {
             await invalidate("文件写入或清理结束，需重新查询：" + method);
             await this.refreshProjectFileIndexesBeforeOperation?.(method, request, "after-operation");
         } }

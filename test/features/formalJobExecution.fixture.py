@@ -203,6 +203,18 @@ resume = scheduler.replace(third,train_command="train-fixture --resume " + sourc
 assert scheduler.formal_job_preflight(resume,third_id,"train")["checkpointVerified"]
 no_proof = copy.deepcopy(third_cfg); no_proof["runtime"].pop("checkpoint_source")
 fails(lambda: scheduler.formal_job_preflight(scheduler.replace(resume,config=no_proof),third_id,"train"),"FORMAL_CHECKPOINT_PROOF_REQUIRED")
+# 29：运行中修改科研源码并推进 fingerprint 后，test 与续跑启动不再被源码不变门禁拒绝；来源 hash 只是同步时快照。
+(root / "models").mkdir(exist_ok=True)
+(root / "models" / "train.py").write_text("# edited while the old training run is still live\n", encoding="utf-8")
+edited_identity = {**third_id, "codeFingerprint": "edited-fingerprint"}
+assert scheduler.formal_job_preflight(third, edited_identity, "test")["checkpointVerified"]
+assert scheduler.formal_job_preflight(resume, edited_identity, "train")["checkpointVerified"]
+# 声明输入文件本体变化仍如实拒绝（前后内容完整性保留，不随 29 放宽）。
+checkpoint_file = root / source["checkpoint_path"]
+original_checkpoint = checkpoint_file.read_bytes()
+checkpoint_file.write_text("tampered after sync\n", encoding="utf-8")
+fails(lambda: scheduler.formal_job_preflight(third, edited_identity, "test"), "FORMAL_CHECKPOINT_SOURCE_CHANGED")
+checkpoint_file.write_bytes(original_checkpoint)
 
 # Replay a declared test-only message against the real original PLAN and source evidence.
 test_plan["base_config"] = copy.deepcopy(third_cfg)

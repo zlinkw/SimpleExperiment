@@ -70,6 +70,8 @@ const production = new Function("DistributedPlanQueue", "fs", "path", "crypto", 
     finishPlanSubmissionProgress: ${method("finishPlanSubmissionProgress").replace("finishPlanSubmissionProgress", "function")},
     planSubmissionQueueDetail: ${method("planSubmissionQueueDetail").replace("planSubmissionQueueDetail", "function")},
     distributedCodeVersionHold: ${method("distributedCodeVersionHold").replace("async distributedCodeVersionHold", "async function")},
+    legacySourceFreezeWorkerNames: ${method("legacySourceFreezeWorkerNames").replace("legacySourceFreezeWorkerNames", "function")},
+    beginSimpleSftpCapabilityLaunch: ${method("beginSimpleSftpCapabilityLaunch").replace("beginSimpleSftpCapabilityLaunch", "function")},
     assertPlanSubmissionNotDuringResultSync: ${method("assertPlanSubmissionNotDuringResultSync").replace("assertPlanSubmissionNotDuringResultSync", "function")},
     deferDistributedPlan: ${method("deferDistributedPlan").replace("async deferDistributedPlan", "async function")},
     supersedeDeferredPlan: ${method("supersedeDeferredPlan").replace("async supersedeDeferredPlan", "async function")},
@@ -218,21 +220,16 @@ test("old fingerprint holds before sync and does not claim output confirmation",
   assert.doesNotMatch(host.localOperations["plan-submit-click-drf"].message, /继续提交/);
 });
 
-test("distributed submission holds an old fingerprint before sync and renders that queue row", async () => {
+test("29 source change no longer freezes submission and legacy workers get an honest update notice", async () => {
   const host = commandHost();
   mountOldPlan(host);
   host.beginPlanSubmissionProgress(message(), { planFile: drf, planRevision: "rev-drf" });
-  await assert.rejects(() => host.finishDistributedPlanSubmission("runPlan", message(), { planFile: drf }, host.actionBody(message())), /未提交/);
-  assert.deepEqual(host.calls, []);
+  await host.finishDistributedPlanSubmission("runPlan", message(), { planFile: drf }, host.actionBody(message()));
+  assert.deepEqual(host.calls, ["sync", "preflight", "confirm", "enqueue:[0]"]);
+  assert.equal(host.localOperations["plan-submit-click-drf"].status, "succeeded");
+  assert.match(host.stages.join("\n"), /更新 Worker runtime/);
   assert.equal((host.distributedQueueCache.deferred || []).length, 0);
-  assert.equal(host.localOperations["plan-submit-click-drf"].status, "failed");
-  assert.match(host.localOperations["plan-submit-click-drf"].message, /未提交/);
-  assert.match(host.localOperations["plan-submit-click-drf"].message, /刷新状态/);
-  assert.match(host.localOperations["plan-submit-click-drf"].message, /终止并清除该 Plan/);
-  assert.doesNotMatch(host.localOperations["plan-submit-click-drf"].message, /继续提交/);
-  const progress = renderExecution(webviewState(host));
-  assert.match(progress.executionPlanList, /drf/);
-  assert.match(progress.executionPlanList, /未提交|cancelled/);
+  assert.equal(host.actionErrors.length, 0);
   const hidden = renderExecution({ ...webviewState(host), deferredPlans: [{ id: "old-deferred", planFile: drf, status: "pending", reason: "等待旧代码版本", waitingForPlanFile: "old.yaml" }] });
   assert.doesNotMatch(hidden.executionPlanList, /old-deferred|data-deferred-plan-id/);
   assert.match(hidden.executionPlanList, /data-command="runPlan" data-plan-file="experiments\/plans\/comparison\/drf.yaml"[^>]*>继续提交/);
@@ -240,19 +237,26 @@ test("distributed submission holds an old fingerprint before sync and renders th
   const detailAt = hidden.executionPlanList.indexOf("详情与日志");
   assert.equal(hidden.executionPlanList.slice(0, detailAt).includes("等待旧代码版本"), false);
   assert.equal(hidden.executionPlanList.slice(detailAt).includes("等待旧代码版本"), true);
-  assert.equal(host.actionErrors.length, 0);
-  assert.match(host.localOperations["plan-submit-click-drf"].message, /手动选中本 Plan/);
 });
 
-test("old persisted deferred is left untouched when a new plan is blocked", async () => {
+test("29 updated runtimes receive no legacy freeze notice", async () => {
+  const host = commandHost();
+  mountOldPlan(host);
+  host.lastWorkerProbes.w1 = { status: "ok", agentVersion: "agent-2", capabilities: { sourceDecouple: 1 } };
+  await submit(host, message());
+  assert.deepEqual(host.calls, ["sync", "preflight", "confirm", "enqueue:[0]"]);
+  assert.equal(host.stages.some((text) => /更新 Worker runtime/.test(text)), false);
+});
+
+test("29 old persisted deferred stays untouched while a source-changed plan still submits", async () => {
   const host = commandHost();
   mountOldPlan(host);
   host.distributedQueueCache.deferred = [deferredRow({ status: "pending", confirmedOutputChoice: true })];
   const before = JSON.stringify(host.distributedQueueCache.deferred);
   host.beginPlanSubmissionProgress(message(), { planFile: drf, planRevision: "rev-drf" });
-  await assert.rejects(() => host.finishDistributedPlanSubmission("runPlan", message(), { planFile: drf }, host.actionBody(message())), /未提交/);
+  await host.finishDistributedPlanSubmission("runPlan", message(), { planFile: drf }, host.actionBody(message()));
   assert.equal(JSON.stringify(host.distributedQueueCache.deferred), before);
-  assert.deepEqual(host.calls, []);
+  assert.deepEqual(host.calls, ["sync", "preflight", "confirm", "enqueue:[0]"]);
 });
 
 test("mismatched deferred id still rejects without sync or queue mutation", async () => {
@@ -264,20 +268,31 @@ test("mismatched deferred id still rejects without sync or queue mutation", asyn
   assert.equal(JSON.stringify(host.distributedQueueCache), before);
 });
 
-test("version hold does not call validate or enqueue", async () => {
+test("29 deferred resume survives a changed code fingerprint but still requires PLAN identity", async () => {
   const host = commandHost();
-  mountOldPlan(host);
-  await assert.rejects(() => submit(host, message()), /未提交/);
-  assert.deepEqual(host.calls, []);
-  assert.equal(host.localOperations["plan-submit-click-drf"].status, "failed");
+  host.distributedQueueCache.deferred = [deferredRow({ codeFingerprint: "old-code" })];
+  const matched = await host.activeDeferredForSubmission(root, { planFile: drf, planRevision: "rev-drf" }, "deferred-drf");
+  assert.equal(matched?.id, "deferred-drf");
+  const offPlan = await host.activeDeferredForSubmission(root, { planFile: "experiments/plans/other.yaml", planRevision: "rev-drf" }, "deferred-drf");
+  assert.equal(offPlan, null);
+  const offRevision = await host.activeDeferredForSubmission(root, { planFile: drf, planRevision: "rev-other" }, "deferred-drf");
+  assert.equal(offRevision, null);
 });
 
-test("version hold reports failure in a modal through the UI command wrapper", async () => {
+test("29 old-version occupancy no longer skips validation or enqueue", async () => {
+  const host = commandHost();
+  mountOldPlan(host);
+  await submit(host, message());
+  assert.deepEqual(host.calls, ["sync", "preflight", "confirm", "enqueue:[0]"]);
+  assert.equal(host.localOperations["plan-submit-click-drf"].status, "succeeded");
+});
+
+test("29 source-changed submission completes through the UI command wrapper without a failure modal", async () => {
   const alerts = [];
   const start = extension.indexOf("    private async withUiCommandStatus(");
   const end = extension.indexOf("    uiCommandWatchdogMs(", start);
   assert.ok(start >= 0 && end > start);
-  const wrapper = new Function("isUiCommandCancelled", "isUiCommandRemotePending", "errorMessage", "actionErrorSuggestion", "localCommandReleasesAfterTrigger", "vscode", "hostOperationLeaseActionLabel", "compactSensitiveText", "OperationOutcome_1", `
+  const wrapper = new Function("isUiCommandCancelled", "isUiCommandRemotePending", "errorMessage", "actionErrorSuggestion", "localCommandReleasesAfterTrigger", "vscode", "hostOperationLeaseActionLabel", "compactSensitiveText", "OperationOutcome_1", "PLAN_SUBMISSION_COMMANDS", `
     return ${extension.slice(start, end).replace("private async withUiCommandStatus", "async function").replace(/: any/g, "")};
   `)(
     (error) => error && error.name === "UiCommandCancelled",
@@ -289,6 +304,7 @@ test("version hold reports failure in a modal through the UI command wrapper", a
     () => "运行计划",
     (text) => text,
     require("../../dist/core/OperationOutcome.js"),
+    new Set(["runPlan", "reproducePlan"]),
   );
   const host = commandHost();
   mountOldPlan(host);
@@ -303,18 +319,13 @@ test("version hold reports failure in a modal through the UI command wrapper", a
     host.beginPlanSubmissionProgress(item, { planFile: drf, planRevision: "rev-drf" });
     await host.finishDistributedPlanSubmission("runPlan", item, { planFile: drf }, host.actionBody(item));
   });
-  assert.deepEqual(host.calls, []);
+  assert.deepEqual(host.calls, ["sync", "preflight", "confirm", "enqueue:[0]"]);
   assert.equal((host.distributedQueueCache.deferred || []).length, 0);
-  assert.equal(host.localOperations["plan-submit-click-drf"].status, "failed");
-  assert.match(host.localOperations["plan-submit-click-drf"].message, /未提交/);
-  assert.match(host.localOperations["plan-submit-click-drf"].message, /校验并提交运行/);
-  assert.equal(statuses.at(-1).status, "failed");
-  assert.match(statuses.at(-1).message, /未提交/);
-  assert.equal(statuses.some((row) => row.status === "completed"), false);
-  assert.equal(host.actionErrors.length, 1);
-  assert.equal(alerts.length, 1);
-  assert.equal(alerts[0][1].modal, true);
-  assert.match(alerts[0][1].detail, /未提交/);
+  assert.equal(host.localOperations["plan-submit-click-drf"].status, "succeeded", host.localOperations["plan-submit-click-drf"].message);
+  assert.equal(statuses.at(-1).status, "completed");
+  assert.equal(statuses.some((row) => row.status === "failed"), false);
+  assert.equal(host.actionErrors.length, 0);
+  assert.equal(alerts.length, 0);
 });
 
 async function submit(host, item) {
@@ -340,21 +351,23 @@ test("activeDeferredForSubmission uses the real exported helper without a sandbo
   const host = provider();
   host.distributedQueueCache.deferred = [deferredRow()];
   const body = { planFile: drf, planRevision: "rev-drf", options: {} };
-  const none = await host.activeDeferredForSubmission(root, body, "new-code", "");
+  const none = await host.activeDeferredForSubmission(root, body, "");
   assert.equal(none.id, "deferred-drf");
-  const pending = await host.activeDeferredForSubmission(root, body, "new-code", "deferred-drf");
+  const pending = await host.activeDeferredForSubmission(root, body, "deferred-drf");
   assert.equal(pending.status, "pending");
   host.distributedQueueCache.deferred = [deferredRow({ status: "blocked" })];
-  const blocked = await host.activeDeferredForSubmission(root, body, "new-code", "deferred-drf");
+  const blocked = await host.activeDeferredForSubmission(root, body, "deferred-drf");
   assert.equal(blocked.status, "blocked");
-  assert.equal(await host.activeDeferredForSubmission(root, body, "new-code", "other-id"), null);
-  assert.equal(await host.activeDeferredForSubmission(root, { ...body, planRevision: "rev-other" }, "new-code", "deferred-drf"), null);
-  assert.equal(await host.activeDeferredForSubmission(root, body, "other-code", "deferred-drf"), null);
-  assert.equal(await host.activeDeferredForSubmission(root, { planFile: "experiments/plans/comparison/other.yaml", planRevision: "rev-drf" }, "new-code", "deferred-drf"), null);
+  assert.equal(await host.activeDeferredForSubmission(root, body, "other-id"), null);
+  assert.equal(await host.activeDeferredForSubmission(root, { ...body, planRevision: "rev-other" }, "deferred-drf"), null);
+  // 29：代码指纹不再是接续身份的一部分；同一 PLAN 身份下指纹行仍可接续。
+  host.distributedQueueCache.deferred = [deferredRow({ codeFingerprint: "older-code" })];
+  assert.equal((await host.activeDeferredForSubmission(root, body, "deferred-drf"))?.codeFingerprint, "older-code");
+  assert.equal(await host.activeDeferredForSubmission(root, { planFile: "experiments/plans/comparison/other.yaml", planRevision: "rev-drf" }, "deferred-drf"), null);
   host.distributedQueueCache.deferred = [deferredRow({ confirmedOutputChoice: true })];
-  assert.equal(await host.activeDeferredForSubmission(root, body, "new-code", "deferred-drf"), null);
+  assert.equal(await host.activeDeferredForSubmission(root, body, "deferred-drf"), null);
   host.distributedQueueCache.deferred = [];
-  assert.equal(await host.activeDeferredForSubmission(root, body, "new-code", ""), undefined);
+  assert.equal(await host.activeDeferredForSubmission(root, body, ""), undefined);
 });
 
 test("runPlan command reaches the real deferred lookup before preflight", async () => {

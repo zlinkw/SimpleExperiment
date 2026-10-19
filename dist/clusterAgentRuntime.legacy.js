@@ -6760,6 +6760,7 @@ def api_capabilities(root, token_required=False, mode="worker_telemetry"):
                 "workerAvailability": True,
                 "workerTasks": True,
                 "taskLifecycle": 2,
+                "sourceDecouple": 1,
                 "runtimeDiagnostics": 1,
                 "declaredJobPaths": formal_job_path_capable(root),
                 "formalJobIdentityEnv": 1 if formal_job_path_capable(root) else 0,
@@ -14349,7 +14350,7 @@ def api_worker_tasks(root, retired_commands=(), queries=None):
         _out["retiredTasks"] = retired_tasks
         _out["activeOperations"] = active_cleanup_operations(root)
         _out["generatedAt"] = now_iso()
-        _out["capabilities"] = {"controlStateRetirement": 1, "durablePlanQueue": True, "codeSyncProof": True, "idleGpuAdmission": True, "queuedJobRecall": True, "failedAttemptQuarantine": True, "declaredJobPaths": formal_job_path_capable(root), "schemaVersion": 1}
+        _out["capabilities"] = {"controlStateRetirement": 1, "durablePlanQueue": True, "codeSyncProof": True, "idleGpuAdmission": True, "queuedJobRecall": True, "failedAttemptQuarantine": True, "declaredJobPaths": formal_job_path_capable(root), "sourceDecouple": 1, "schemaVersion": 1}
         return _out
     tasks = []
     for row in read_durable_plan_queue(root).get("jobs", []):
@@ -14360,7 +14361,7 @@ def api_worker_tasks(root, retired_commands=(), queries=None):
             tasks.append(durable_plan_public_task(row))
     return {"schemaVersion": SCHEMA_VERSION, "tasks": tasks, "activeOperations": active_cleanup_operations(root),
             "retiredTasks": retired_tasks,
-            "capabilities": {"controlStateRetirement": 1, "durablePlanQueue": True, "codeSyncProof": True, "idleGpuAdmission": True, "queuedJobRecall": True, "failedAttemptQuarantine": True, "declaredJobPaths": formal_job_path_capable(root), "schemaVersion": 1}, "generatedAt": now_iso()}
+            "capabilities": {"controlStateRetirement": 1, "durablePlanQueue": True, "codeSyncProof": True, "idleGpuAdmission": True, "queuedJobRecall": True, "failedAttemptQuarantine": True, "declaredJobPaths": formal_job_path_capable(root), "sourceDecouple": 1, "schemaVersion": 1}, "generatedAt": now_iso()}
 
 def api_openapi(root, token_required=False, mode="worker_telemetry"):
     if mode == "worker_telemetry":

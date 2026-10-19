@@ -28,7 +28,7 @@ test('recovery persists exact confirmed targets but excludes server credentials 
  await assert.rejects(new PlanRunHost(host,root+'other').load(body.submissionOperationIdLocal),/ENOENT/);
 });
 test('actual resume entry retains the original operation and prevents double clicks before the first continuation ends',async()=>{
- const root=fs.mkdtempSync(path.join(os.tmpdir(),'se-resume-')),id='plan-submit-original',host={context:{globalStorageUri:{fsPath:root}},localOperations:{},resumedSubmissions:new Set(),distributedSubmissionEpochs:new Map(),distributedSubmissionAborts:new Map(),
+ const root=fs.mkdtempSync(path.join(os.tmpdir(),'se-resume-')),id='plan-submit-original',host={context:{globalStorageUri:{fsPath:root}},localOperations:{},resumedSubmissions:new Set(),distributedSubmissionEpochs:new Map(),distributedSubmissionAborts:new Map(),beginSimpleSftpCapabilityLaunch:()=>undefined,
  stampPlanRevision:b=>b.planRevision='same',localPlanForActionBody:()=>({}),markLocalOperationsDirty(){},postState(){},recordActionError(){}};
  const store=new PlanRunHost(host,root);await store.save({submissionOperationIdLocal:id,planFile:'plans/p.yaml',planRevision:'same',runRecovery:{},runReplacement:{phase:2}});
  const source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/legacy.ts'),'utf8'),ast=ts.createSourceFile('legacy.ts',source,ts.ScriptTarget.Latest,true);let m;function visit(n){if(ts.isMethodDeclaration(n)&&n.name.getText(ast)==='resumePlanSubmission')m=n;ts.forEachChild(n,visit);}visit(ast);

@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.393",
-  "buildId": "c1fc07cf6d4acf984e3f35f5c5c91ebcb90da511b4073b9115d23476e82b83b5",
+  "buildId": "f4a233c523d75efb5c9de9819af9ffc229c23342439b95ac5e7b01d477c23f69",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -197,7 +197,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "520873284fb6931d01f8ee511bbfcfed40acda80ffb34d1ac279fa82a1015f5b"
+      "sha256": "1100053074be18a73d57cd168087c17028ba0214cdcc0c2482df977bf96684c0"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -317,7 +317,7 @@
     },
     {
       "path": "dist/features/DistributedPlanQueue.js",
-      "sha256": "ee789ba2577341f55aa5901ea9955b6b3a3b93ff192f0fd5cc2796f5bddf9f79"
+      "sha256": "dc1acd6704f8796bc2bd36e01a39d96b93dd45287cd9e35f19b624591f970622"
     },
     {
       "path": "dist/features/DistributedProjectContract.js",

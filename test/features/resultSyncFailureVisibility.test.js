@@ -33,7 +33,7 @@ function fixture() {
     method("async runActionCommandCore(", "async runPlanPreflight("),
     method("\n    assertPlanSubmissionNotDuringResultSync(", "\n    async finishDistributedPlanSubmission("),
     method("async finishDistributedPlanSubmission(", "async activeDeferredForSubmission("),
-    method("async distributedCodeVersionHold(", "planValidationCacheKey("),
+    method("async distributedCodeVersionHold(", "legacySourceFreezeWorkerNames("),
   ].join(",")} };`, sandbox);
   const host = {
     ...sandbox.methods, localOperations: {}, manualResultSyncCounts: new Map(),
@@ -41,6 +41,7 @@ function fixture() {
     planSubmissionOperationId: () => "op", submissionStillCurrent: () => true,
     finishPlanSubmissionProgress(_message, status, detail) { progress.push({ status, detail }); },
     postState() {}, recordActionError() {}, queuePlanArtifactSyncStatusCheck() {},
+    legacySourceFreezeWorkerNames() { return []; },
   };
   return { host, alerts, warnings, statuses, terminal, progress, information };
 }
