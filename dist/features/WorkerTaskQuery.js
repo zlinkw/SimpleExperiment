@@ -4,12 +4,18 @@ exports.workerTaskQueries = workerTaskQueries;
 exports.assertLaunchObservations = assertLaunchObservations;
 const PulledTaskControl_1 = require("./PulledTaskControl");
 const LatestJobArtifacts_1 = require("./LatestJobArtifacts");
+const VerifiedCompletion_1 = require("./VerifiedCompletion");
 /** History remains display-only. Never invent identities for a current query. */
-function workerTaskQueries(queue, workerId) {
+function workerTaskQueries(queue, workerId, options = {}) {
     const queries = new Map();
     const latest = new Set((0, LatestJobArtifacts_1.newestJobOutputs)(queue).map(row => row.plan.id + "\0" + row.job.index));
     for (const plan of queue.plans || [])
         for (const job of plan.jobs || []) {
+            // A solidified exit-0 completion must not keep receiving automatic progress,
+            // log or artifact rechecks. Only fresh counter-evidence (manual exact checks
+            // or real corruption reports) may re-open observation of that exact identity.
+            if (options.excludeVerifiedCompleted && job.status === "completed" && (0, VerifiedCompletion_1.hasVerifiedCompletion)(plan, job))
+                continue;
             if (job.workerId !== workerId || !["dispatching", "queued", "running", "unknown"].includes(job.status)
                 && !(job.lifecycleProtocol === 2 && ["completed", "failed"].includes(job.status) && latest.has(plan.id + "\0" + job.index)))
                 continue;

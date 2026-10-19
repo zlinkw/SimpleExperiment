@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.393",
-  "buildId": "adabd9c199b664a2cb1a2f95e51c0c65e0825807ac9bbfa1a8f39f50b2f7a7a2",
+  "buildId": "226f6540c499084a455554dc04d402d790adc00693305d0a34524ece389b8bf2",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -197,7 +197,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "e86800b917b17c3ce3066fdff8ca17c3a7bfa756d1c33ba80806999b19d0f7d8"
+      "sha256": "0ff421f1aa552b81644b164febd7338e92f4c0e56957a052a88c99e8aa412860"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -325,7 +325,7 @@
     },
     {
       "path": "dist/features/DistributedSchedulingPolicy.js",
-      "sha256": "1f733e58c1e159f27ce0d582102ceebe7ad0e371077ea08311a5cfcb4f38c875"
+      "sha256": "148cb7e82e3594ebc505ed53bf3ad1eb82c373ca04c243cb5705941931781f3a"
     },
     {
       "path": "dist/features/DraftPlans.js",
@@ -665,11 +665,11 @@
     },
     {
       "path": "dist/features/WorkerProgressQuery.js",
-      "sha256": "b3796b88b38129bf915d5447df6e63a6d2b83b3d927cb451fe53522c1df1e74a"
+      "sha256": "7dc8d63113aca7d65a68c9ac6158604f3a08514c0411030eda2c164730174957"
     },
     {
       "path": "dist/features/WorkerTaskQuery.js",
-      "sha256": "1337e6c8d2ed8506a04eb2d634cf8dcb2b4f18ffa81f6876987ce97369c0ea4b"
+      "sha256": "b9123a83aa47c86c8ffbf63843e3974037dacaa5101d9fe1d91ae46eb4ee3957"
     },
     {
       "path": "dist/features/WorkflowWorkspaceBinding.js",
@@ -1077,7 +1077,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "3f3c8b1ffc1860a39928547ec8f402881c542d7bd47f45622d058c1f360b7cef"
+      "sha256": "701fe0cc74c759c0f02924602c8901b10489402112aaa5443d034b6ea678c1ed"
     },
     {
       "path": "scripts/check-static.js",

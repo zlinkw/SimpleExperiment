@@ -32,6 +32,7 @@ import * as FailedJobRecovery from "../features/FailedJobRecovery";
 import * as PulledTaskControl from "../features/PulledTaskControl";
 import * as WorkerTaskQuery from "../features/WorkerTaskQuery";
 import * as WorkerProgressQuery from "../features/WorkerProgressQuery";
+import { hasVerifiedCompletion } from "../features/VerifiedCompletion";
 import { PlanRunHost } from "./PlanRunHost";
 import { WorkerPreparation } from "../features/WorkerPreparation";
 import { CompletedJobSyncHost } from "./CompletedJobSyncHost";
@@ -1567,12 +1568,13 @@ export class RealtimeTunnelPanelProvider {
         const results = (report.results || []).filter(row => !selected || samePlanSelection(row.planFile, selected));
         return { source: "active_query", planFile: selected, results: results.slice(0, 200), summary: { ...report, results } };
 }
-    async readWorkerTaskSnapshot(workerId, options: { signal?: AbortSignal; fresh?: boolean; inventoryOnly?: boolean; executionOnly?: boolean; declarations?: any[] } = {}) {
+    async readWorkerTaskSnapshot(workerId, options: { signal?: AbortSignal; fresh?: boolean; inventoryOnly?: boolean; executionOnly?: boolean; declarations?: any[]; excludeVerifiedCompleted?: boolean } = {}) {
         const root = workspaceRoot();
         const cacheKey = `${root || ""}\u0000${workerId}`;
         if (options.signal?.aborted) throw options.signal.reason instanceof Error ? options.signal.reason : Object.assign(new Error("Worker task read cancelled."), { name: "AbortError" });
         const generation = this.client?.clients?.get(workerId)?.progressGeneration ?? 0;
-        const requestKey = cacheKey + (options.executionOnly ? ":execution" : options.inventoryOnly ? ":inventory" : ":tasks") + generation + cleanupDigest(options.declarations || []);
+        const requestKey = cacheKey + (options.executionOnly ? ":execution" : options.inventoryOnly ? ":inventory" : ":tasks")
+            + (options.excludeVerifiedCompleted ? ":confirmed" : "") + generation + cleanupDigest(options.declarations || []);
         let shared = this.workerTaskRequests.get(requestKey);
         if (shared && shared.client !== this.client) {
             shared.controller.abort();
@@ -1589,7 +1591,7 @@ export class RealtimeTunnelPanelProvider {
             const request = { controller, client: this.client, subscribers: 0, settled: false, promise: Promise.resolve(undefined) as Promise<unknown> };
             const timeout = setTimeout(() => controller.abort(Object.assign(new Error("Worker task snapshot timed out (15s)."), { code: "TASK_QUERY_TIMEOUT" })), 15000);
             timeout.unref?.();
-            request.promise = this.refreshWorkerTaskSnapshot(workerId, root, cacheKey, { signal: controller.signal, inventoryOnly: options.inventoryOnly, executionOnly: options.executionOnly, declarations: options.declarations }).finally(() => {
+            request.promise = this.refreshWorkerTaskSnapshot(workerId, root, cacheKey, { signal: controller.signal, inventoryOnly: options.inventoryOnly, executionOnly: options.executionOnly, declarations: options.declarations, excludeVerifiedCompleted: options.excludeVerifiedCompleted }).finally(() => {
                 request.settled = true;
                 clearTimeout(timeout);
                 if (this.workerTaskRequests.get(requestKey) === request) this.workerTaskRequests.delete(requestKey);
@@ -1706,16 +1708,23 @@ export class RealtimeTunnelPanelProvider {
                 configuredIds.map(id => this.cachedWorkerTaskSnapshot?.(id, root, `${root}\u0000${id}`)).filter(Boolean)) : configuredIds;
         if (!workerIds.length) return;
         this.progressRefreshRequests ||= new Map();
+        // Execution inventory keeps polling even when a full metadata round is
+        // blocked; the full read reuses this in-flight inventory request instead
+        // of issuing a second Worker RPC. Automatic rounds never re-observe
+        // solidified completions; a manual round keeps querying them so genuine
+        // counter-evidence can surface.
+        const excludeVerifiedCompleted = options.automatic === true;
         const executionRequests = workerIds.map(workerId => this.readWorkerTaskSnapshot(workerId, { fresh: true, executionOnly: true })
             .catch(() => undefined));
         const requests = workerIds.map(workerId => {
-            const key = root + "\u0000" + workerId + ":" + (this.client?.clients?.get(workerId)?.progressGeneration ?? 0);
+            const key = root + "\u0000" + workerId + ":" + (this.client?.clients?.get(workerId)?.progressGeneration ?? 0)
+                + (excludeVerifiedCompleted ? ":automatic" : "");
             const active = this.progressRefreshRequests.get(key);
             if (active && active.client === this.client) return active.promise;
             active?.controller.abort();
             const controller = new AbortController();
             const request = { controller, client: this.client, promise: undefined as Promise<any> | undefined };
-            request.promise = this.readWorkerTaskSnapshot(workerId, { fresh: true, signal: controller.signal })
+            request.promise = this.readWorkerTaskSnapshot(workerId, { fresh: true, signal: controller.signal, excludeVerifiedCompleted })
                 .then(() => { if (workspaceRoot() === root) this.postState(); })
                 .catch(() => {})
                 .finally(() => { if (this.progressRefreshRequests.get(key) === request) this.progressRefreshRequests.delete(key); });
@@ -1724,7 +1733,7 @@ export class RealtimeTunnelPanelProvider {
         });
         return Promise.allSettled([...executionRequests, ...requests]);
     }
-    async refreshWorkerTaskSnapshot(workerId, root, cacheKey, options: { signal?: AbortSignal; inventoryOnly?: boolean; executionOnly?: boolean; declarations?: any[] } = {}) {
+    async refreshWorkerTaskSnapshot(workerId, root, cacheKey, options: { signal?: AbortSignal; inventoryOnly?: boolean; executionOnly?: boolean; declarations?: any[]; excludeVerifiedCompleted?: boolean } = {}) {
         const progressRequestStartedAt = new Date().toISOString();
         const cached = options.inventoryOnly ? undefined : this.cachedWorkerTaskSnapshot(workerId, root, cacheKey);
         const client = this.client;
@@ -1734,7 +1743,8 @@ export class RealtimeTunnelPanelProvider {
         let executionSnapshot: any;
         try {
             const queue = await this.loadDistributedQueue(root);
-            const queries = options.inventoryOnly || options.executionOnly ? [] : WorkerTaskQuery.workerTaskQueries(queue, workerId);
+            const queries = options.inventoryOnly || options.executionOnly ? [] : WorkerTaskQuery.workerTaskQueries(queue, workerId,
+                { excludeVerifiedCompleted: options.excludeVerifiedCompleted });
             if (options.executionOnly || !options.inventoryOnly && (cached?.capabilities?.taskLifecycle === 2 || queue.plans?.some(plan =>
                 plan.jobs?.some(job => job.workerId === workerId && job.lifecycleProtocol === 2)))) {
                 try {
@@ -1765,8 +1775,15 @@ export class RealtimeTunnelPanelProvider {
                 return workerTaskSnapshotPayload(executionSnapshot);
             }
             if (executionSnapshot && !options.declarations && (queries.length || executionSnapshot.tasks?.length)) {
+                let excludeVerified: Set<string> | undefined;
+                if (options.excludeVerifiedCompleted) {
+                    excludeVerified = new Set<string>();
+                    for (const plan of queue.plans || []) for (const job of plan.jobs || [])
+                        if (job.status === "completed" && hasVerifiedCompletion(plan, job)) excludeVerified.add(plan.projectId + ":" + job.commandId);
+                    if (!excludeVerified.size) excludeVerified = undefined;
+                }
                 const snapshot = await WorkerProgressQuery.queryWorkerProgress(client, workerId, queries, executionSnapshot, {
-                    signal: options.signal, deferDiagnostics: true, onSnapshot: snapshot => {
+                    signal: options.signal, deferDiagnostics: true, excludeVerified, onSnapshot: snapshot => {
                         if (!current()) return;
                         this.storeWorkerTaskSnapshot(cacheKey, WorkerProgressQuery.mergeProgressSnapshot(this.cachedWorkerTaskSnapshot(workerId, root, cacheKey), snapshot));
                         this.postState();

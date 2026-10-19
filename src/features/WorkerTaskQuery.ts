@@ -1,11 +1,16 @@
 import { taskQuery } from "./PulledTaskControl";
 import { newestJobOutputs } from "./LatestJobArtifacts";
+import { hasVerifiedCompletion } from "./VerifiedCompletion";
 
 /** History remains display-only. Never invent identities for a current query. */
-export function workerTaskQueries(queue: any, workerId: string): any[] {
+export function workerTaskQueries(queue: any, workerId: string, options: { excludeVerifiedCompleted?: boolean } = {}): any[] {
   const queries = new Map<string, any>();
   const latest = new Set(newestJobOutputs(queue).map(row => row.plan.id + "\0" + row.job.index));
   for (const plan of queue.plans || []) for (const job of plan.jobs || []) {
+    // A solidified exit-0 completion must not keep receiving automatic progress,
+    // log or artifact rechecks. Only fresh counter-evidence (manual exact checks
+    // or real corruption reports) may re-open observation of that exact identity.
+    if (options.excludeVerifiedCompleted && job.status === "completed" && hasVerifiedCompletion(plan, job)) continue;
     if (job.workerId !== workerId || !["dispatching", "queued", "running", "unknown"].includes(job.status)
       && !(job.lifecycleProtocol === 2 && ["completed", "failed"].includes(job.status) && latest.has(plan.id + "\0" + job.index))) continue;
     if (![plan.projectId, job.workerId, job.commandId, job.outputDir].every(value => typeof value === "string" && value.trim())) continue;

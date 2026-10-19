@@ -22,11 +22,12 @@ export function completeProgressSnapshot(value: any, startedAt: string) {
 }
 /** Current-round observations only. One slow result cannot discard its siblings. */
 export async function queryWorkerProgress(client: any, workerId: string, queries: any[], execution: any,
-  options: { signal?: AbortSignal; onSnapshot?: (snapshot: any) => void; deferDiagnostics?: boolean } = {}) {
+  options: { signal?: AbortSignal; onSnapshot?: (snapshot: any) => void; deferDiagnostics?: boolean; excludeVerified?: Set<string> } = {}) {
   const key = (task: any) => task.projectId + ":" + task.commandId;
   const selected = new Map<string, any>();
   for (const task of [...queries, ...(execution.tasks || [])])
-    if (task.commandId && task.projectId && task.workerId === workerId && task.outputDir) selected.set(key(task), { ...selected.get(key(task)), ...task });
+    if (task.commandId && task.projectId && task.workerId === workerId && task.outputDir
+      && !options.excludeVerified?.has(key(task))) selected.set(key(task), { ...selected.get(key(task)), ...task });
   const rows = new Map<string, any>((execution.tasks || []).map((task: any) => [key(task), task]));
   for (const [id, query] of selected) if (!rows.has(id)) rows.set(id, { ...query, observation: {
     lifecycleProtocol: 2, commandId: query.commandId, projectId: query.projectId, workerId,

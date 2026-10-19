@@ -35,7 +35,8 @@ async function queryWorkerProgress(client, workerId, queries, execution, options
     const key = (task) => task.projectId + ":" + task.commandId;
     const selected = new Map();
     for (const task of [...queries, ...(execution.tasks || [])])
-        if (task.commandId && task.projectId && task.workerId === workerId && task.outputDir)
+        if (task.commandId && task.projectId && task.workerId === workerId && task.outputDir
+            && !options.excludeVerified?.has(key(task)))
             selected.set(key(task), { ...selected.get(key(task)), ...task });
     const rows = new Map((execution.tasks || []).map((task) => [key(task), task]));
     for (const [id, query] of selected)

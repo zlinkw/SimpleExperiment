@@ -1,6 +1,7 @@
 import { DistributedQueue, QueuedPlan, DurableWorkerSnapshot, durableCommandId,
   mergeDurableWorkerSnapshots, freshIdleGpuEvidence, hasUnresolvedPlanRecovery, workerCodeVersionAvailable, workerCanRunPlan } from "./DistributedPlanQueue";
 import { newestJobOutputs } from "./LatestJobArtifacts";
+import { hasVerifiedCompletion } from "./VerifiedCompletion";
 import { runtimeEvidence } from "./RuntimeDiagnostics";
 
 export type SchedulingMode = "local_idle" | "server_prequeue";
@@ -23,7 +24,10 @@ export function progressRefreshWorkerIds(queue: DistributedQueue, configuredIds:
     }
   }
   if (snapshots) for (const { plan, job } of newestJobOutputs(queue)) {
-    if (job.lifecycleProtocol !== 2 || job.status !== "completed" || !plan.projectId || !job.commandId || !job.workerId || !job.outputDir) continue;
+    // A solidified completion is already final evidence; it must not keep its
+    // Worker hot for log-scan or freshness rechecks on every automatic round.
+    if (job.lifecycleProtocol !== 2 || job.status !== "completed" || hasVerifiedCompletion(plan, job)
+      || !plan.projectId || !job.commandId || !job.workerId || !job.outputDir) continue;
     const snapshot = snapshots.find(row => row.workerId === job.workerId);
     const received = Date.parse(String(snapshot?.fetchedAt || ""));
     const task = snapshot?.tasks?.find((row: any) => row.projectId === plan.projectId && row.commandId === job.commandId);

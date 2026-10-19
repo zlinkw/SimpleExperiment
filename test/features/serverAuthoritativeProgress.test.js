@@ -9,6 +9,9 @@ require.extensions['.ts'] = (loaded, filename) => loaded._compile(ts.transpileMo
 }).outputText, filename);
 const queue = require('../../src/features/DistributedPlanQueue.ts');
 const policy = require('../../src/features/DistributedSchedulingPolicy.ts');
+const workerTaskQuery = require('../../src/features/WorkerTaskQuery.ts');
+const progressQuery = require('../../src/features/WorkerProgressQuery.ts');
+const { cleanupDigest } = require('../../src/features/PlanCleanup.ts');
 const { LatestSnapshotWriter } = require('../../src/core/LatestSnapshotWriter.ts');
 require.extensions['.ts'] = original;
 const now = Date.now();
@@ -156,12 +159,14 @@ test('automatic progress still probes uncertain ownership and recall, but not re
 });
 test('actual snapshot reader deduplicates fresh reads, publishes immediately and invalidates cached running on failure', async () => {
   const Provider=providerMethods(['readWorkerTaskSnapshot','refreshWorkerTaskSnapshot','storeWorkerTaskSnapshot','queueWorkerTaskSnapshotPersistence','workerTaskSnapshotWriters'],{
-    LatestSnapshotWriter,
+    LatestSnapshotWriter, WorkerTaskQuery:workerTaskQuery, WorkerProgressQuery:progressQuery, cleanupDigest,
+    errorMessage:error=>String(error?.message||error),
     workerTaskSnapshotPayload:row=>row,workerTaskLooksRunning:row=>row.status==='running',RequestBudget_1:{RequestBudgetDeniedError:class extends Error{}},
     noteWorkerTaskPlanStatus() {},
   });
   const provider=new Provider();provider.workerTaskRequests=new Map();provider.lastWorkerTaskSnapshots=new Map();
   provider.noteWorkerTaskPlanStatus=()=>{};
+  provider.loadDistributedQueue=async()=>({plans:[]});
   provider.workerTaskSnapshotDiskCache=new Map();provider.workerTaskPlanStatusSignatures=new Map();
   provider.cachedWorkerTaskSnapshot=(_worker,_root,key)=>provider.lastWorkerTaskSnapshots.get(key);
   let releaseDisk; const diskGate=new Promise(resolve=>{releaseDisk=resolve;});
@@ -178,7 +183,7 @@ test('actual snapshot reader deduplicates fresh reads, publishes immediately and
   assert.equal(count,1);assert.equal(posts,1);
   provider.client.getWorkerTasks=async()=>{throw new Error('offline');};
   const failed=await provider.readWorkerTaskSnapshot('w',{fresh:true});
-  assert.equal(failed.error,'Worker task snapshot unavailable');
+  assert.equal(failed.error,'Worker w · /api/worker/tasks/query：offline','the failed round records its real per-Worker query error');
   assert.equal(provider.lastWorkerTaskSnapshots.get('/project\u0000w').error,failed.error);assert.equal(posts,2);
 });
 

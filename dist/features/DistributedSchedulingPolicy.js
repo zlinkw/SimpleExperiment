@@ -10,6 +10,7 @@ exports.allocateServerPrequeue = allocateServerPrequeue;
 exports.serverAuthoritativeProgress = serverAuthoritativeProgress;
 const DistributedPlanQueue_1 = require("./DistributedPlanQueue");
 const LatestJobArtifacts_1 = require("./LatestJobArtifacts");
+const VerifiedCompletion_1 = require("./VerifiedCompletion");
 const RuntimeDiagnostics_1 = require("./RuntimeDiagnostics");
 // Local execution, artifact and log observations each retain their own age.
 // Log work has a separate budget and never extends these twenty seconds.
@@ -35,7 +36,10 @@ function progressRefreshWorkerIds(queue, configuredIds, snapshots) {
     }
     if (snapshots)
         for (const { plan, job } of (0, LatestJobArtifacts_1.newestJobOutputs)(queue)) {
-            if (job.lifecycleProtocol !== 2 || job.status !== "completed" || !plan.projectId || !job.commandId || !job.workerId || !job.outputDir)
+            // A solidified completion is already final evidence; it must not keep its
+            // Worker hot for log-scan or freshness rechecks on every automatic round.
+            if (job.lifecycleProtocol !== 2 || job.status !== "completed" || (0, VerifiedCompletion_1.hasVerifiedCompletion)(plan, job)
+                || !plan.projectId || !job.commandId || !job.workerId || !job.outputDir)
                 continue;
             const snapshot = snapshots.find(row => row.workerId === job.workerId);
             const received = Date.parse(String(snapshot?.fetchedAt || ""));
