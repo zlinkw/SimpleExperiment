@@ -11409,7 +11409,9 @@ function renderPanelHtml() {
       if(grid) grid.style.display="none";
       scheduleGpuHistoryDraw();
     }
+    var gpuWindowRequestSeq = 0;
     var gpuWindowPending = new Map();
+    var gpuWindowPendingByKey = new Map();
     function gpuWindowFineWindowMs(maxPoints) {
       const points = Number(maxPoints) > 0 ? Number(maxPoints) : 96;
       return Math.min(24 * 3600000, points * 60000);
@@ -11418,22 +11420,24 @@ function renderPanelHtml() {
       vscode.postMessage(Object.assign({ command: "loadGpuHistory" }, payload));
     }
     function applyGpuWindowSamples(message) {
-      const workerId = String(message && message.workerId || "");
-      if (!workerId) return;
-      let pendingKey = "";
-      gpuWindowPending.forEach(function(entry, key) {
-        if (!pendingKey && entry && entry.workerId === workerId) pendingKey = key;
-      });
-      const pending = pendingKey ? gpuWindowPending.get(pendingKey) : null;
-      if (pending && pending.timer) { clearTimeout(pending.timer); pending.timer = 0; }
+      // Consume only the exact request this answer belongs to: unknown, duplicate,
+      // late-after-timeout or post-reload answers are dropped instead of cancelling
+      // or answering another GPU window's still-valid request.
+      const requestId = Number(message && message.requestId);
+      const entry = Number.isSafeInteger(requestId) && requestId > 0 ? gpuWindowPending.get(requestId) : undefined;
+      if (!entry) return;
+      if (String(message.workerId || "") !== entry.workerId) return;
+      gpuWindowPending.delete(requestId);
+      if (gpuWindowPendingByKey.get(entry.key) === entry) gpuWindowPendingByKey.delete(entry.key);
+      if (entry.timer) { clearTimeout(entry.timer); entry.timer = 0; }
       const samples = Array.isArray(message && message.samples) ? message.samples : [];
       if (!samples.length) {
         // No host-cached fine frames for this window: honestly fall back to the
         // existing server history request; coarse buckets stay coarse.
-        if (pendingKey) { gpuWindowPending.delete(pendingKey); requestGpuHistoryRemote(pending.payload); }
+        requestGpuHistoryRemote(entry.payload);
         return;
       }
-      if (pendingKey) gpuWindowPending.delete(pendingKey);
+      const workerId = entry.workerId;
       const byGpu = new Map();
       samples.forEach(function(sample) {
         const collectedAt = Number(sample && sample.collectedAt);
@@ -11486,13 +11490,24 @@ function renderPanelHtml() {
       if (ringWorker) {
         // Window switching first asks the host ring for fine frames it already
         // holds; only an empty (or absent, on older hosts) answer sends a remote
-        // history request, so repeated fine reads stop at this machine.
-        const entry = { workerId: ringWorker, payload: Object.assign({}, payload), timer: 0 };
+        // history request, so repeated fine reads stop at this machine. Each ask
+        // carries a unique requestId answered by exactly one pending entry, and a
+        // new ask for the same window replaces (and cancels) the previous one.
+        const previous = gpuWindowPendingByKey.get(key);
+        if (previous) {
+          if (previous.timer) clearTimeout(previous.timer);
+          gpuWindowPending.delete(previous.id);
+        }
+        const entry = { id: ++gpuWindowRequestSeq, workerId: ringWorker, key: key, payload: Object.assign({}, payload), timer: 0 };
         entry.timer = setTimeout(function() {
-          if (gpuWindowPending.get(key) === entry) { gpuWindowPending.delete(key); requestGpuHistoryRemote(entry.payload); }
+          if (gpuWindowPendingByKey.get(key) === entry) {
+            gpuWindowPendingByKey.delete(key); gpuWindowPending.delete(entry.id);
+            requestGpuHistoryRemote(entry.payload);
+          }
         }, 800);
-        gpuWindowPending.set(key, entry);
-        vscode.postMessage({ command: "gpuWindowSamples", workerId: ringWorker,
+        gpuWindowPending.set(entry.id, entry);
+        gpuWindowPendingByKey.set(key, entry);
+        vscode.postMessage({ command: "gpuWindowSamples", requestId: entry.id, workerId: ringWorker,
           start: now - gpuWindowFineWindowMs(payload.maxPoints), end: now, maxPoints: Number(payload.maxPoints) || 96 });
         return true;
       }

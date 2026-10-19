@@ -15,25 +15,31 @@ const { cleanupDigest } = require('../../src/features/PlanCleanup.ts');
 const { GpuSampleRing } = require('../../src/features/GpuSampleRing.ts');
 const now = Date.now(), iso = n => new Date(n).toISOString();
 
-function harness(carriedSeq) {
+function harness(carriedSeq, opts = {}) {
   const job = (index, status, commandId, extra = {}) => ({
     index, case: commandId, seed: index, lifecycleProtocol: 2, status, workerId: 'w', commandId, outputDir: 'work/' + commandId, ...extra });
   const solid = job(0, 'completed', 'solid');
   const queue = { schemaVersion: 1, plans: [{ id: 'plan1', projectId: 'p', planFile: 'one.yaml', revision: 'r', codeFingerprint: 'f',
     enqueuedAt: iso(now - 50000), resultPathPolicy: 'declared', planJobCount: 1, jobs: [solid] }] };
   const reads = { execution: 0, gpuEndpoint: 0, other: 0 };
+  const gates = [];
+  let callIndex = 0;
   const client = {
     clients: new Map([['w', { progressGeneration: 0 }]]),
     getWorkerTasks: async (_id, options) => {
       if (options.executionOnly) {
         reads.execution++;
-        return {
+        const index = callIndex++;
+        const pick = list => Array.isArray(list) ? list[Math.min(index, list.length - 1)] : list;
+        const payload = {
           schemaVersion: 1, executionOnly: true, queryComplete: true, generatedAt: iso(now),
           capabilities: { taskLifecycle: 2, durablePlanQueue: true, schemaVersion: 1 }, cleanupExecutors: [], tasks: [],
-          ...(carriedSeq === undefined ? {} : {
-            gpuSample: { schemaVersion: 1, source: 'worker_telemetry', generatedAt: iso(now - 400), status: 'ok', error: '', seq: carriedSeq, epoch: 'boot-a', gpus: [{ index: '0', memoryUsed: 3210, utilization: 60 }] },
+          ...(pick(opts.seqs ?? (carriedSeq === undefined ? null : carriedSeq)) === null ? {} : {
+            gpuSample: { schemaVersion: 1, source: 'worker_telemetry', generatedAt: iso(now - 400), status: 'ok', error: '', seq: pick(opts.seqs ?? carriedSeq), epoch: pick(opts.epochs ?? 'boot-a'), gpus: [{ index: '0', memoryUsed: 3210, utilization: 60 }] },
           }),
         };
+        if (opts.gateFirst && callIndex === 1) return await new Promise(resolve => gates.push(() => resolve(payload)));
+        return payload;
       }
       reads.other++;
       return { schemaVersion: 1, queryComplete: true, tasks: [], capabilities: { taskLifecycle: 2 } };
@@ -61,7 +67,7 @@ function harness(carriedSeq) {
   provider.gpuSampleRing = new GpuSampleRing();
   provider.view = { webview: { postMessage: async message => { posts.push(message); return true; } } };
   provider.client = client;
-  return { provider, cache, client, reads, posts };
+  return { provider, cache, client, reads, posts, gates };
 }
 
 test('a successful automatic round stores the carried sample with the Worker seq and collected time; repeats stay idempotent', async () => {
@@ -85,6 +91,8 @@ test('the window accessor clips locally and posts the frames without touching an
   assert.equal(outside.length, 0, 'window switching clips locally with no remote history request');
   assert.equal(h.reads.other + h.reads.gpuEndpoint, 0, 'no GPU history or endpoint read happened for window switching');
   assert.equal(h.posts.at(-1).type, 'gpuWindowSamples', 'the clipped window is posted to the panel over the existing channel');
+  await h.provider.gpuWindowSamplesFromUi({ workerId: 'w', start: now - 1000, end: now, requestId: 41 });
+  assert.equal(h.posts.at(-1).requestId, 41, 'the answer carries the exact request identity for panel pairing');
   await assert.rejects(() => h.provider.gpuWindowSamplesFromUi({ workerId: 'w', start: 10, end: 5 }), /窗口范围无效/);
   await assert.rejects(() => h.provider.gpuWindowSamplesFromUi({ start: 0, end: 5 }), /需要指定 Worker/);
 });
@@ -95,4 +103,20 @@ test('an older agent without a carried sample keeps working and leaves the ring 
   assert.ok(snapshot, 'the round still completes');
   assert.equal(h.provider.gpuSampleRing.size('w'), 0, 'nothing is fabricated when the Worker carried no sample');
   assert.equal(h.reads.execution, 1);
+});
+
+test('a response whose request belongs to a replaced endpoint generation is rejected before entering the ring', async () => {
+  const h = harness(undefined, { seqs: [5, 9], epochs: ['boot-a', 'boot-b'], gateFirst: true });
+  const first = h.provider.refreshWorkerTaskSnapshot('w', '/project', '/project\u0000w', { excludeVerifiedCompleted: true });
+  // Let the first request capture its generation and reach the Worker.
+  await new Promise(resolve => setTimeout(resolve, 20));
+  // The endpoint switches root/reconnects while the first response is in flight.
+  h.client.clients.set('w', { progressGeneration: 1 });
+  await h.provider.refreshWorkerTaskSnapshot('w', '/project', '/project\u0000w', { excludeVerifiedCompleted: true });
+  assert.equal(h.provider.gpuSampleRing.latest('w')?.epoch, 'boot-b', 'the current generation stored its frame');
+  assert.equal(h.provider.gpuSampleRing.size('w'), 1);
+  h.gates[0](); // the stale-generation response finally arrives
+  await first;
+  assert.equal(h.provider.gpuSampleRing.size('w'), 1, 'the response of the replaced request never entered the ring');
+  assert.equal(h.provider.gpuSampleRing.latest('w').epoch, 'boot-b', 'and cannot roll back or splice into the current generation');
 });

@@ -28,38 +28,45 @@ class GpuSampleRing {
             return false;
         let run = this.runs.get(sample.workerId);
         if (!run) {
-            run = { epoch: sample.epoch, token: origin.token, lastSeq: 0, latestAt: 0, samples: [] };
+            run = { epoch: sample.epoch, source: origin.source, lastSeq: 0, retired: [], samples: [] };
             this.runs.set(sample.workerId, run);
         }
         if (run.epoch !== sample.epoch) {
-            // Another agent generation (or another client/root origin) delivered this frame.
-            // A different generation is promoted only by its own measured collected time
-            // against the newest stored frame, never by comparing epoch strings or the
-            // monotonic clock, which resets inside containers and after machine reboots.
-            // A late old-epoch frame stays rejected instead of wiping the current
-            // history, while a genuine restart (whose real wall time is newer) is
-            // accepted even when the monotonic clock restarted from zero.
-            if (sample.collectedAt < run.latestAt)
+            // Generations are accepted or refused by request attribution, never by
+            // comparing timestamps or ordering epoch strings: the monotonic clock and
+            // wall clock both move in real deployments. The Host verified the frame
+            // belongs to the still-current request/root/client BEFORE pushing here,
+            // so a different epoch reaching the ring is the current generation's own
+            // restart and is accepted even when the wall clock rolled backwards.
+            // Every epoch a run has left behind is retired for this Worker: a late
+            // frame of a retired epoch is refused no matter how high its seq or how
+            // late its collected time, so it can never clear the newer history.
+            if (run.retired.includes(sample.epoch))
                 return false;
+            run.retired.push(run.epoch);
+            if (run.retired.length > GpuSampleRing.retiredEpochLimit)
+                run.retired.splice(0, run.retired.length - GpuSampleRing.retiredEpochLimit);
             run.epoch = sample.epoch;
-            run.token = origin.token;
+            run.source = origin.source;
             run.lastSeq = 0;
             run.samples = [];
         }
-        // Within one generation the Worker's own seq is the dedup and ordering authority;
-        // the origin token records request attribution so a replaced client's replayed
-        // frames cannot re-enter below the live seq, while a reconnect on the same live
-        // agent continues by seq.
+        else if (origin.source !== undefined) {
+            // A reconnect on the same live Agent keeps one epoch; attribution follows
+            // the current request and the Worker's own seq continues the run.
+            run.source = origin.source;
+        }
+        // Within one generation the Worker's own seq is the dedup and ordering authority.
         if (sample.seq <= run.lastSeq)
             return false;
         run.lastSeq = sample.seq;
-        if (sample.collectedAt > run.latestAt)
-            run.latestAt = sample.collectedAt;
         run.samples.push(sample);
         if (run.samples.length > this.capacity)
             run.samples.splice(0, run.samples.length - this.capacity);
         return true;
     }
+    // Bounded: at most this many retired epochs are remembered per Worker.
+    static retiredEpochLimit = 8;
     // Local window clipping only: returned frames are stored Worker measurements
     // inside [start, end]; nothing between them is synthesized.
     slice(workerId, window = { start: 0, end: Number.MAX_SAFE_INTEGER }) {

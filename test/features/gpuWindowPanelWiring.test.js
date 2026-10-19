@@ -4,8 +4,10 @@
 // answer or an older host that never replies are exercised for real: the
 // function bodies are extracted from the actual PanelHtml.legacy.ts script text,
 // the rendered full script is parsed, and the routing/whitelist wiring is read
-// from the same source. Only the vscode transport and the chart scheduler are
-// recorded stubs.
+// from the same source. Request pairing is checked with a controllable timer:
+// each answer may only consume its own still-valid requestId, never another
+// window's pending request. Only the vscode transport and the chart scheduler
+// are recorded stubs.
 const test = require('node:test'), assert = require('node:assert/strict');
 const fs = require('node:fs'), ts = require('typescript'), vm = require('node:vm');
 require('../_helpers/registerTsRequire');
@@ -26,31 +28,61 @@ const code = ['"use strict";',
 const compiled = ts.transpileModule(code, { compilerOptions: { target: ts.ScriptTarget.ES2022 } }).outputText;
 
 function harness() {
-  const posted = [], drawn = [];
+  const posted = [], drawn = [], timers = new Map(), cleared = [];
+  let nextTimer = 1;
   const context = {
-    posted, drawn, Map, Number, Array, String, Math, Boolean, Object, Date, isFinite, Number,
+    posted, drawn, timers, cleared, Map, Number, Array, String, Math, Boolean, Object, Date,
     vscode: { postMessage: message => posted.push(message) },
-    gpuWindowPending: new Map(), gpuHistorySeriesCache: new Map(), gpuHistoryRequestLastAt: new Map(),
+    gpuWindowRequestSeq: 0, gpuWindowPending: new Map(), gpuWindowPendingByKey: new Map(),
+    gpuHistorySeriesCache: new Map(), gpuHistoryRequestLastAt: new Map(),
     gpuHistoryMeta: {}, gpuHistorySeriesRevision: 0,
     GPU_HISTORY_REQUEST_COOLDOWN_MS: 0, GPU_HISTORY_SERIES_CACHE_LIMIT: 8,
     scheduleGpuHistoryDraw: () => drawn.push(1),
-    setTimeout: (fn, ms) => setTimeout(fn, ms), clearTimeout: id => clearTimeout(id),
+    setTimeout: (fn, ms) => { const id = nextTimer++; timers.set(id, { fn, ms }); return id; },
+    clearTimeout: id => { cleared.push(id); timers.delete(id); },
   };
   vm.runInNewContext(compiled, context);
-  return { context, posted, drawn };
+  return {
+    context, posted, drawn, timers, cleared,
+    fireTimeouts() { for (const [id, timer] of [...timers]) { timers.delete(id); timer.fn(); } },
+  };
 }
 
 const t0 = Date.now();
 const fineSample = { seq: 9, epoch: 'e2', collectedAt: t0, source: 'worker_telemetry',
   gpus: [{ index: 0, memoryUsedMb: 3000, memoryTotalMb: 8192, utilizationPercent: 61 }, { index: 1, memoryUsedMb: 100, memoryTotalMb: 8192, utilizationPercent: 0 }] };
 
-test('a GPU window request first asks the host ring for fine frames instead of re-requesting remote history', () => {
+test('a GPU window request first asks the host ring for fine frames with a unique requestId instead of re-requesting remote history', () => {
   const h = harness();
   vm.runInNewContext('requestGpuHistory({ serverId: "srv1", gpuId: "0", maxPoints: 96 });', h.context);
   assert.deepEqual(h.posted.map(m => m.command), ['gpuWindowSamples'], 'the window switch sends only the host ring query first');
   const query = h.posted[0];
   assert.equal(query.workerId, 'srv1');
+  assert.equal(query.requestId, 1, 'the request carries its exact pairing identity');
   assert.ok(query.end - query.start === 96 * 60000, 'the requested window matches the chart window span');
+});
+
+test('answers are consumed only by their own request: out-of-order windows, wrong identity, duplicates and worker mismatch never touch another pending entry', () => {
+  const h = harness();
+  vm.runInNewContext('requestGpuHistory({ serverId: "srv1", gpuId: "0" }); requestGpuHistory({ serverId: "srv2", gpuId: "0" });', h.context);
+  assert.deepEqual(h.posted.map(m => [m.command, m.workerId, m.requestId]), [['gpuWindowSamples', 'srv1', 1], ['gpuWindowSamples', 'srv2', 2]]);
+  // The SECOND window answers first, and a mismatched/duplicate answer arrives too.
+  vm.runInNewContext('applyGpuWindowSamples({ requestId: 2, workerId: "srv2", samples: SAMPLES });', Object.assign(h.context, { SAMPLES: [fineSample] }));
+  vm.runInNewContext('applyGpuWindowSamples({ requestId: 2, workerId: "srv2", samples: SAMPLES });', h.context);
+  vm.runInNewContext('applyGpuWindowSamples({ requestId: 99, workerId: "srv1", samples: SAMPLES });', h.context);
+  vm.runInNewContext('applyGpuWindowSamples({ requestId: 1, workerId: "srv2", samples: SAMPLES });', h.context);
+  assert.deepEqual(h.posted.map(m => m.command), ['gpuWindowSamples', 'gpuWindowSamples'], 'no remote history fired and the first window stayed pending');
+  assert.equal(h.context.gpuHistorySeriesCache.get('srv2::0').points.length, 1, 'only the answered window received its fine frames');
+  assert.equal(h.context.gpuHistorySeriesCache.has('srv1::0'), false, 'the other window was not polluted by the mismatched answers');
+  // The still-valid first request times out and falls back with ITS payload.
+  h.fireTimeouts();
+  assert.deepEqual(h.posted.slice(2).map(m => [m.command, m.serverId]), [['loadGpuHistory', 'srv1']], 'the pending window falls back exactly once for its own payload');
+  // Its answer finally arrives late: the request already fell back, so it must not re-apply or double-fire.
+  const before = h.posted.length;
+  vm.runInNewContext('applyGpuWindowSamples({ requestId: 1, workerId: "srv1", samples: SAMPLES });', h.context);
+  assert.equal(h.posted.length, before, 'a late answer after the fallback changes nothing');
+  h.fireTimeouts();
+  assert.equal(h.posted.length, before, 'no second fallback fired');
 });
 
 test('carried fine frames update the existing chart series (keeping older coarse history intact) without any remote request', () => {
@@ -58,27 +90,42 @@ test('carried fine frames update the existing chart series (keeping older coarse
   vm.runInNewContext('requestGpuHistory({ serverId: "srv1", gpuId: "0", maxPoints: 96 });', h.context);
   const coarse = { serverId: 'srv1', gpuId: '0', points: [{ bucketEpoch: t0 - 7200000, gpuUtilPercent: 10, memoryUsedMb: 1, memoryTotalMb: 8192, imputed: false }] };
   h.context.gpuHistorySeriesCache.set('srv1::0', coarse);
-  vm.runInNewContext('applyGpuWindowSamples({ workerId: "srv1", samples: SAMPLES });', Object.assign(h.context, { SAMPLES: [fineSample] }));
+  vm.runInNewContext('applyGpuWindowSamples({ requestId: 1, workerId: "srv1", samples: SAMPLES });', Object.assign(h.context, { SAMPLES: [fineSample] }));
   assert.deepEqual(h.posted.map(m => m.command), ['gpuWindowSamples'], 'no duplicate remote history request happened for the fine window');
+  assert.equal(h.timers.size, 0, 'the answered request cancelled its own fallback timer');
   const series = h.context.gpuHistorySeriesCache.get('srv1::0');
   assert.equal(series.points.length, 2, 'the older coarse frame is kept and the fine frame added, nothing synthesized');
   assert.equal(series.points[1].bucketEpoch, t0, 'the fine frame keeps the Worker collected time');
   assert.equal(series.points[1].gpuUtilPercent, 61, 'the fine frame feeds the chart point shape');
   assert.equal(h.drawn.length, 1, 'the chart is redrawn from the merged cache');
   assert.equal(h.context.gpuHistorySeriesRevision, 1);
-  const second = h.context.gpuHistorySeriesCache.get('srv1::1');
-  assert.ok(second && second.points[0].bucketEpoch === t0, 'both carried GPUs are applied');
+  assert.ok(h.context.gpuHistorySeriesCache.get('srv1::1').points[0].bucketEpoch === t0, 'both carried GPUs are applied');
 });
 
-test('an empty ring answer and an older host that never answers both fall back to the existing remote history request', async () => {
+test('a new request for the same window replaces and cancels the previous timer, and its late answer is ignored', () => {
+  const h = harness();
+  vm.runInNewContext('requestGpuHistory({ serverId: "srv1", gpuId: "0" });', h.context);
+  vm.runInNewContext('requestGpuHistory({ serverId: "srv1", gpuId: "0" });', h.context);
+  assert.equal(h.cleared.length, 1, 'the replaced request had its fallback timer cancelled');
+  assert.deepEqual(h.posted.map(m => m.requestId), [1, 2]);
+  vm.runInNewContext('applyGpuWindowSamples({ requestId: 1, workerId: "srv1", samples: SAMPLES });', Object.assign(h.context, { SAMPLES: [fineSample] }));
+  assert.equal(h.context.gpuHistorySeriesCache.size, 0, 'the superseded answer applied nothing');
+  h.fireTimeouts();
+  assert.deepEqual(h.posted.slice(2).map(m => m.command), ['loadGpuHistory'], 'only the current request falls back, once');
+});
+
+test('an empty ring answer and an older host that never answers both fall back to the existing remote history request exactly once', () => {
   const empty = harness();
   vm.runInNewContext('requestGpuHistory({ serverId: "srv1", gpuId: "0", maxPoints: 96 });', empty.context);
-  vm.runInNewContext('applyGpuWindowSamples({ workerId: "srv1", samples: [] });', empty.context);
+  vm.runInNewContext('applyGpuWindowSamples({ requestId: 1, workerId: "srv1", samples: [] });', empty.context);
   assert.deepEqual(empty.posted.map(m => m.command), ['gpuWindowSamples', 'loadGpuHistory'], 'empty ring answer honestly falls back to remote history for the same window');
+  assert.equal(empty.timers.size, 0, 'the consumed request left no timer behind');
+  empty.fireTimeouts();
+  assert.equal(empty.posted.filter(m => m.command === 'loadGpuHistory').length, 1, 'the bounded single fallback stayed single');
   const oldHost = harness();
   vm.runInNewContext('requestGpuHistory({ serverId: "srv1", gpuId: "0", maxPoints: 96 });', oldHost.context);
   assert.deepEqual(oldHost.posted.map(m => m.command), ['gpuWindowSamples']);
-  await new Promise(resolve => setTimeout(resolve, 1000));
+  oldHost.fireTimeouts();
   assert.deepEqual(oldHost.posted.map(m => m.command), ['gpuWindowSamples', 'loadGpuHistory'], 'an old host without the ring handler still gets its history after the bounded wait');
   const overview = harness();
   vm.runInNewContext('requestGpuHistory({ maxPoints: 96 });', overview.context);

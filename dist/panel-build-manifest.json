@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.393",
-  "buildId": "07ec8c0e75f2600ed081d0ba80494aa6195659cf59a1461ba83d80f51706d0f0",
+  "buildId": "9ecbc20ebbadcdee19d0ea7428abef9b13118fc2c0ba7eb4c65660ecfee836cc",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -197,7 +197,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "afff827fa5d235b51e8e53f5103c444ac9ceb72e4d249b2d78c0ec5dec745f38"
+      "sha256": "600c3d64572f289511bb792e1e0e6b4983e144fdc8d7bf92a4e8304db5128df4"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -373,7 +373,7 @@
     },
     {
       "path": "dist/features/GpuSampleRing.js",
-      "sha256": "6502425a1eaff55fe10576699c91f9a7cf3cad11e99bacc06b58b3f497ec434e"
+      "sha256": "2b8ccd551aec1f900c453049d53e296e2579300d65d49d98f19acae5c6db85f1"
     },
     {
       "path": "dist/features/IncrementalLocalMetadata.js",
@@ -957,7 +957,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "81c7e919d296d8eb4ae3ca606630a18da7622d0ca537a8984eb5be0695a81b58"
+      "sha256": "deb8c7e4db340535bcf13d74eae666b553fa76a698d3779b19380d1e1dd38e94"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",

@@ -119,26 +119,32 @@ test('the bounded ring rejects foreign sources, duplicate and out-of-order seq, 
   assert.equal(ring.slice('w2', { start: 0, end: Number.MAX_SAFE_INTEGER })[0].epoch, 'e1', 'the other Worker kept its own run');
 });
 
-test('a late old-epoch frame can never roll back the current run, while a genuine restart with newer real time is accepted even if its monotonic clock reset', () => {
+test('generations are refused by attribution, not timestamps: after E1 to E2 a late E1 is rejected even with equal or later collected time and higher seq, while a genuine restart is accepted even with a rolled-back wall clock', () => {
   const ring = new GpuSampleRing(900);
   const sample = (seq, epoch, at) => ({ schemaVersion: 1, source: 'worker_telemetry', generatedAt: iso(at), seq, epoch, gpus: [{ index: '0', memoryUsedMb: seq }] });
-  // Old agent generation e1 delivered two frames.
-  assert.equal(ring.push('w1', sample(1, 'e1', now - 4000)), true);
-  assert.equal(ring.push('w1', sample(2, 'e1', now - 2000)), true);
-  // The agent restarts (monotonic clock may reset; real wall time is newer).
-  assert.equal(ring.push('w1', sample(1, 'e2', now)), true);
+  // Old agent generation e1 delivered frames.
+  assert.equal(ring.push('w1', sample(1, 'e1', now - 4000), { source: { root: 'rA' } }), true);
+  assert.equal(ring.push('w1', sample(2, 'e1', now - 2000), { source: { root: 'rA' } }), true);
+  // The Agent restarted: attribution (current request) promotes the new generation.
+  assert.equal(ring.push('w1', sample(1, 'e2', now), { source: { root: 'rA' } }), true);
   assert.equal(ring.size('w1'), 1, 'the restarted generation starts a fresh run');
-  // A response from the OLD request finally arrives after the restart.
-  assert.equal(ring.push('w1', sample(3, 'e1', now - 1000)), false, 'a late old-epoch frame cannot wipe the newer run');
-  assert.equal(ring.size('w1'), 1, 'the current history survived the late frame (no self-heal wait)');
+  // Late old-epoch frames arrive afterwards: equal millisecond, later timestamp and
+  // an even higher seq must all be refused by the retired generation, not healed away.
+  assert.equal(ring.push('w1', sample(3, 'e1', now), { source: { root: 'rA' } }), false, 'same-millisecond retired epoch refused');
+  assert.equal(ring.push('w1', sample(4, 'e1', now + 3600000), { source: { root: 'rA' } }), false, 'later-timestamp retired epoch refused');
+  assert.equal(ring.push('w1', sample(999, 'e1', now + 31536000000), { source: { root: 'rA' } }), false, 'higher-seq retired epoch refused');
+  assert.equal(ring.size('w1'), 1, 'the current history survived every late frame');
   assert.equal(ring.latest('w1').epoch, 'e2', 'the live generation stays current');
   // The live generation continues normally.
-  assert.equal(ring.push('w1', sample(2, 'e2', now + 1000)), true);
-  assert.equal(ring.size('w1'), 2, 'the active restart generation keeps accepting its own frames');
-  // A replaced endpoint client (reconnect) on the SAME live agent continues by seq.
-  assert.equal(ring.push('w1', sample(3, 'e2', now + 2000), { token: { client: 'new' } }), true, 'reconnect attribution continues the live run by seq');
-  assert.equal(ring.push('w1', sample(3, 'e2', now + 3000), { token: { client: 'old-replay' } }), false, 'a replayed seq from any client stays refused');
-  // Machine reboot: monotonic restarted from zero, wall clock newer, epoch fresh.
-  assert.equal(ring.push('w1', sample(1, 'e3', now + 60000)), true, 'a rebooted agent is accepted by real time despite a reset monotonic clock');
+  assert.equal(ring.push('w1', sample(2, 'e2', now + 1000), { source: { root: 'rA' } }), true);
+  assert.equal(ring.size('w1'), 2, 'the live generation keeps accepting its own frames');
+  // A reconnect (new client source) on the SAME live agent continues by seq.
+  assert.equal(ring.push('w1', sample(3, 'e2', now + 2000), { source: { root: 'rB', client: 'new' } }), true, 'reconnect attribution continues the live run by seq');
+  assert.equal(ring.push('w1', sample(3, 'e2', now + 3000), { source: { root: 'rB', client: 'new' } }), false, 'a replayed seq stays refused');
+  // A genuine restart whose wall clock rolled BACKWARDS is still accepted.
+  assert.equal(ring.push('w1', sample(1, 'e3', now - 31536000000), { source: { root: 'rB' } }), true, 'a restarted agent is accepted by attribution even with a rolled-back clock');
   assert.equal(ring.size('w1'), 1);
+  // Retired memory stays bounded but recent retirements keep refusing late frames.
+  for (let index = 4; index <= 12; index++) assert.equal(ring.push('w1', sample(1, 'e' + index, now + index * 1000), { source: { root: 'rB' } }), true);
+  assert.equal(ring.push('w1', sample(99, 'e11', now + 99000), { source: { root: 'rB' } }), false, 'the just-retired epoch is still refused');
 });

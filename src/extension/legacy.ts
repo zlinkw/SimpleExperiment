@@ -1764,9 +1764,11 @@ export class RealtimeTunnelPanelProvider {
                             : WorkerProgressQuery.executionProgressSnapshot({ ...live, workerId, progressRequestStartedAt }, cached, progressRequestStartedAt);
                         // Keep the Worker's already-collected GPU sample (carried on this
                         // very inventory response) in the bounded host ring for local
-                        // window viewing; the same seq is idempotent across layers and the
-                        // endpoint client that answered this request attributes the frame.
-                        if (live.gpuSample) this.gpuSampleRing.push(workerId, live.gpuSample, { token: client?.clients?.get(workerId) || client });
+                        // window viewing. Request attribution is enforced here: this line
+                        // runs only while current() still holds, so a response that
+                        // belonged to a replaced client/root/project request never
+                        // enters the ring, and the ring itself refuses retired epochs.
+                        if (live.gpuSample) this.gpuSampleRing.push(workerId, live.gpuSample, { source: client?.clients?.get(workerId) || client });
                         if (!sharedExecution) {
                             this.storeWorkerTaskSnapshot(cacheKey, WorkerProgressQuery.mergeProgressSnapshot(this.cachedWorkerTaskSnapshot(workerId, root, cacheKey), executionSnapshot));
                             this.postState();
@@ -5324,7 +5326,9 @@ return this.testTunnel(true);
         const start = Number(message?.start), end = Number(message?.end);
         if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) throw new Error("GPU 窗口范围无效");
         const samples = this.gpuSampleRing.slice(workerId, { start, end, maxPoints: message?.maxPoints });
-        void this.view?.webview.postMessage({ type: "gpuWindowSamples", workerId, start, end, samples });
+        // The requestId pairs this answer with one exact panel request; the panel
+        // consumes only the still-valid matching request and ignores the rest.
+        void this.view?.webview.postMessage({ type: "gpuWindowSamples", requestId: message?.requestId, workerId, start, end, samples });
         return samples;
     }
     async manualSchedulerSnapshot() {
