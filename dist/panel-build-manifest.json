@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.393",
-  "buildId": "226f6540c499084a455554dc04d402d790adc00693305d0a34524ece389b8bf2",
+  "buildId": "289846f85155f2e8baf66906e1f1d7f643f49cd1d840d5aa59935af06a73ec0a",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -197,7 +197,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "0ff421f1aa552b81644b164febd7338e92f4c0e56957a052a88c99e8aa412860"
+      "sha256": "8596e4b4905f33cced6cbb3d4488fba1e78885048720925041cf7d6d58ac8f14"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -669,7 +669,7 @@
     },
     {
       "path": "dist/features/WorkerTaskQuery.js",
-      "sha256": "b9123a83aa47c86c8ffbf63843e3974037dacaa5101d9fe1d91ae46eb4ee3957"
+      "sha256": "073cc9fc9c985b8842a02d518920aa3b3a6f610e5423fe7e863cb5c5cce09676"
     },
     {
       "path": "dist/features/WorkflowWorkspaceBinding.js",

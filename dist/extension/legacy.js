@@ -1717,7 +1717,7 @@ class RealtimeTunnelPanelProvider {
                     excludeVerified = new Set();
                     for (const plan of queue.plans || [])
                         for (const job of plan.jobs || [])
-                            if (job.status === "completed" && (0, VerifiedCompletion_1.hasVerifiedCompletion)(plan, job))
+                            if (job.status === "completed" && job.recallRequested !== true && (0, VerifiedCompletion_1.hasVerifiedCompletion)(plan, job))
                                 excludeVerified.add(plan.projectId + ":" + job.commandId);
                     if (!excludeVerified.size)
                         excludeVerified = undefined;

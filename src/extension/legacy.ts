@@ -1779,7 +1779,7 @@ export class RealtimeTunnelPanelProvider {
                 if (options.excludeVerifiedCompleted) {
                     excludeVerified = new Set<string>();
                     for (const plan of queue.plans || []) for (const job of plan.jobs || [])
-                        if (job.status === "completed" && hasVerifiedCompletion(plan, job)) excludeVerified.add(plan.projectId + ":" + job.commandId);
+                        if (job.status === "completed" && job.recallRequested !== true && hasVerifiedCompletion(plan, job)) excludeVerified.add(plan.projectId + ":" + job.commandId);
                     if (!excludeVerified.size) excludeVerified = undefined;
                 }
                 const snapshot = await WorkerProgressQuery.queryWorkerProgress(client, workerId, queries, executionSnapshot, {

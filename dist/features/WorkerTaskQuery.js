@@ -14,7 +14,7 @@ function workerTaskQueries(queue, workerId, options = {}) {
             // A solidified exit-0 completion must not keep receiving automatic progress,
             // log or artifact rechecks. Only fresh counter-evidence (manual exact checks
             // or real corruption reports) may re-open observation of that exact identity.
-            if (options.excludeVerifiedCompleted && job.status === "completed" && (0, VerifiedCompletion_1.hasVerifiedCompletion)(plan, job))
+            if (options.excludeVerifiedCompleted && job.status === "completed" && job.recallRequested !== true && (0, VerifiedCompletion_1.hasVerifiedCompletion)(plan, job))
                 continue;
             if (job.workerId !== workerId || !["dispatching", "queued", "running", "unknown"].includes(job.status)
                 && !(job.lifecycleProtocol === 2 && ["completed", "failed"].includes(job.status) && latest.has(plan.id + "\0" + job.index)))
