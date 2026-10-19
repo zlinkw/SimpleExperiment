@@ -65,14 +65,15 @@ function runReplacementHostFixture(change = () => {}) {
     refreshLocalPlanMetadataForAction:async()=>{},stampPlanRevision(){},localDistributedCodeFingerprint:async()=> 'code',
     assertPlanSubmissionWorkers:async()=>{events.push('workers');change('workers',host,nodes,body);},
     saveDistributedQueue:async()=>events.push('hold'),
-    askRunConfirmation:async p=>{events.push('ask'+p.phase);change('ask'+p.phase,host,nodes,body);return p.phase===1?'rerun_all':'delete_and_run';}};
+    askRunConfirmation:async p=>{events.push('ask'+p.phase);change('ask'+p.phase,host,nodes,body);return p.phase===1?'rerun_all':'isolate_and_run';}};
   const cleanup={service:{
-    preview:async request=>{const job=request.job.manifest.declarations[0];return {token:String(job.index),digest:'frozen'+job.index,blockers:[],
-      rows:[{node:{id:'w',kind:'remote',user:'u',host:'worker',port:22},absolutePath:'/safe/project/'+job.output_dir,type:'directory',disposition:'delete'}]};},
+    preview:async request=>{const job=request.job.manifest.declarations[0];return {token:String(job.index),digest:'frozen'+job.index,action:'isolate',scope:{},blockers:[],verifiedOnly:false,expiresAt:Date.now()+6e5,confirmations:0,
+      rows:[{node:{id:'w',kind:'remote',user:'u',host:'worker',port:22},absolutePath:'/safe/project/'+job.output_dir,type:'directory',disposition:'isolate'}]};},
     confirm:async p=>{confirmations.set(p.token,p.phase);events.push('confirm'+p.phase+p.token);},
-    preflightConfirmed:async id=>{assert.equal(confirmations.get(id),2);events.push('check'+id);},
+    preflightConfirmed:async id=>{assert.equal(confirmations.get(id),1);events.push('check'+id);},
+    assertIsolatedSourcesAbsent:async preview=>{events.push('verify'+preview.token);},
     status:async id=>operations.get(id)||{state:'ready'}},
-    execute:async id=>{assert.equal(confirmations.get(id),2);events.push('delete'+id);files.delete(jobs[Number(id)].output_dir);
+    execute:async id=>{assert.equal(confirmations.get(id),1);events.push('delete'+id);files.delete(jobs[Number(id)].output_dir);
       const result={state:'completed',pendingNodes:[]};operations.set(id,result);change('delete'+id,host,nodes,body);return result;}};
   host.planCleanupHost=()=>cleanup;
   return {host,nodes,body,events,files,run:()=>new PlanRunHost(host,root).replace({},body,{jobs})};
@@ -84,7 +85,7 @@ test('missing-only queries every enabled Worker instead of treating the partial 
  f.host.readWorkerTaskSnapshot=async(id,options)=>{reads.push(id);assert.equal(options.fresh,true);assert.equal(options.inventoryOnly,true);
   return {workerId:id,queryComplete:true,tasks:[],declaredResults:options.declarations.map(job=>({index:job.index,
    completed:id==='v'&&job.index===0,outputDir:job.output_dir,collectionResultCsv:job.result_csv,runId:'original'}))};};
- f.host.askRunConfirmation=async p=>{prompts.push(p);return p.phase===1?'rerun_missing':'delete_and_run';};
+ f.host.askRunConfirmation=async p=>{prompts.push(p);return p.phase===1?'rerun_missing':'isolate_and_run';};
  await f.run();assert.deepEqual(reads.sort(),['v','w']);assert.deepEqual(f.body.assignedExperimentIndices,[1]);
  assert.ok(f.files.has('work/a'));assert.ok(!f.files.has('work/b'));
  assert.ok(prompts.at(-1).groups[0].targets.every(row=>row.path.endsWith('/work/b')));

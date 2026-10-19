@@ -160,10 +160,11 @@ test('S1 same-millisecond cross-group cards deterministically select the newer c
  const {fullCard,partialCard}=s1s2Fixtures();
  const s=summarize(s1s2Plan,[fullCard('run-old','2026-10-17T00:00:00.000Z',{projectId:'P1'}),
   partialCard('run-new','2026-10-17T00:00:00.000Z',{projectId:'P2'})]);
- // 平局取数组后者（最新提交卡），拆分不依赖数组旧先者。
+ // 平局取数组后者（最新提交卡），拆分不依赖数组旧先者（append-only 队列新卡在末尾）。
+ // 沿用只计未被本次覆盖项：旧卡 0/1 行被本次重跑覆盖剔除，沿用仅剩 index2/3 共 2。
  assert.equal(s.currentRunId,'run-new');
  assert.equal(s.currentRunTotalCount,2);assert.equal(s.currentRunCompletedCount,0);
- assert.equal(s.carriedForwardCompletedCount,4);assert.deepEqual(s.carriedForwardSourceRunIds,['run-old']);
+ assert.equal(s.carriedForwardCompletedCount,2);assert.deepEqual(s.carriedForwardSourceRunIds,['run-old']);
 });
 
 test('S2 legacy card without projectId never impersonates the fresh run completion',()=>{
@@ -171,8 +172,34 @@ test('S2 legacy card without projectId never impersonates the fresh run completi
  const legacy={...fullCard('run-legacy','2026-10-10T00:00:00.000Z'),projectId:undefined};
  const s=summarize(s1s2Plan,[legacy,partialCard('run-fresh','2026-10-18T00:00:00.000Z')]);
  // 旧完整卡与新 partial 卡分属不同 compose 组且行无 sourcePlanId 标注：
- // 本次字段必须由当前卡作业所有权推导（2 个 queued 可见、旧 4 完成仅作沿用），合并计数语义不变。
+ // 本次字段必须由当前卡作业所有权推导（2 个 queued 可见），沿用只计未被覆盖的 index2/3。
  assert.equal(s.currentRunId,'run-fresh');
  assert.equal(s.currentRunTotalCount,2);assert.equal(s.currentRunCompletedCount,0);
- assert.equal(s.carriedForwardCompletedCount,4);assert.deepEqual(s.carriedForwardSourceRunIds,['run-legacy']);
+ assert.equal(s.carriedForwardCompletedCount,2);assert.deepEqual(s.carriedForwardSourceRunIds,['run-legacy']);
+});
+
+test('carried count excludes only tasks covered by this rerun (index-2-only rerun carries 3)',()=>{
+ const {fullCard}=s1s2Fixtures();
+ const legacy={...fullCard('run-legacy','2026-10-10T00:00:00.000Z'),projectId:undefined};
+ const single={id:'run-fresh',projectId:'P',planFile:'plans/a.yaml',revision:'rv',codeFingerprint:'fp2',
+  fullPlanJobCount:4,planJobCount:1,enqueuedAt:'2026-10-18T00:00:00.000Z',resultPathPolicy:'declared',
+  jobs:[{index:2,case:'c2',seed:42,commandId:'run-fresh-cmd-2',workerId:'w',
+   outputDir:'work/job2',collectionResultCsv:'work/job2/m.csv',status:'queued'}]};
+ const s=summarize(s1s2Plan,[legacy,single]);
+ // 4 job 计划仅重跑 index2：本次 0/1，沿用必须为未覆盖的 0/1/3 共 3，不得把被覆盖的 index2 再计一次。
+ assert.equal(s.currentRunId,'run-fresh');
+ assert.equal(s.currentRunTotalCount,1);assert.equal(s.currentRunCompletedCount,0);
+ assert.equal(s.carriedForwardCompletedCount,3);assert.deepEqual(s.carriedForwardSourceRunIds,['run-legacy']);
+ assert.ok(s.currentRunTotalCount+s.carriedForwardCompletedCount<=s.totalCount,'本次+沿用不得超过计划总数');
+});
+
+test('late stale attempt from a legacy card never contaminates the current split',()=>{
+ const {fullCard,partialCard}=s1s2Fixtures();
+ const late=fullCard('run-legacy','2026-10-10T00:00:00.000Z',{projectId:undefined});
+ late.jobs=late.jobs.map(job=>({...job,attempt:2,updatedAt:'2026-10-19T00:00:00.000Z',finishedAt:'2026-10-19T00:00:00.000Z'}));
+ const s=summarize(s1s2Plan,[late,partialCard('run-fresh','2026-10-18T00:00:00.000Z')]);
+ // 迟到的旧 attempt=2 完成不污染本次字段；沿用同样只计未被覆盖的 index2/3。
+ assert.equal(s.currentRunId,'run-fresh');
+ assert.equal(s.currentRunTotalCount,2);assert.equal(s.currentRunCompletedCount,0);
+ assert.equal(s.carriedForwardCompletedCount,2);
 });

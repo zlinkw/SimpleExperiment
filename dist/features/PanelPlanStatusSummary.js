@@ -145,10 +145,18 @@ function summarizeEntry(entry) {
     const allTasksCompleted = countRows.length > 0 && totalCount > 0 && displayedCounts.completedCount >= totalCount;
     // 本次运行与沿用拆分（仅数据层，上方合并计数语义不变）：以作业所有权推导本次行集，
     // 相同 enqueuedAt 平局确定取数组后者（最新提交卡），不依赖数组旧先者。
+    // 平局确定性依赖真实队列 append-only 顺序（新提交卡追加在数组末尾）；分布式队列为
+    // append-only 持久队列，反转数组不是真实形态，S1 固化用例钉住“同毫秒取后者”。
     const latestSource = entry.distributedPlans.reduce((latest, row) => !latest || (dateValue(row.enqueuedAt) || 0) >= (dateValue(latest.enqueuedAt) || 0) ? row : latest, null);
     const currentRunId = firstText(latestSource?.id);
-    const carriedRows = currentRunId ? latestJobRows(distributedJobRows.filter(row => row.runOwner !== currentRunId), false) : [];
     const currentRows = currentRunId ? latestJobRows(distributedJobRows.filter(row => row.runOwner === currentRunId), false) : countRows;
+    // 沿用只计未被本次重跑覆盖的项：剔除与本次行同 (index,case,seed) 逻辑任务的遗留行（本次优先）；
+    // 无法证明同逻辑任务（缺 index）的行保守保留；标准同组形态 compose 已合并，本剔除为恒等操作。
+    const coveredTaskKeys = new Set(currentRows.map(rerunTaskKey).filter(Boolean));
+    const carriedRows = currentRunId
+        ? latestJobRows(distributedJobRows.filter(row => row.runOwner !== currentRunId), false)
+            .filter(row => { const key = rerunTaskKey(row); return !key || !coveredTaskKeys.has(key); })
+        : [];
     const carriedSourceIds = currentRunId
         ? [...new Set(carriedRows.map(row => firstText(row.runOwner)).filter(Boolean))].sort().slice(0, 8)
         : [];
@@ -205,6 +213,13 @@ function expectedPlanJobs(plan) {
     const configuredJobs = number(plan.jobCount || plan.job_count);
     const expandedJobs = caseCount > 0 && seedCount > 0 ? caseCount * seedCount : 0;
     return boundedCount(Math.max(0, Math.trunc(expandedJobs || configuredJobs || 0)));
+}
+/** 逻辑任务键 (index,case,seed)：用于判定遗留沿用行是否已被本次重跑覆盖；缺 index 无法证明覆盖。 */
+function rerunTaskKey(row) {
+    const raw = firstDefined(row.experimentIndex, row.jobIndex, row.index);
+    if (raw === undefined || raw === null || String(raw).trim() === "" || !Number.isInteger(Number(raw)))
+        return "";
+    return `${Number(raw)}|${firstText(row.case)}|${firstText(row.seed)}`;
 }
 function latestJobRows(rows, normalizeSchedulerRow) {
     const latestByIndex = new Map();

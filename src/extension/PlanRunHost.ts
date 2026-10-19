@@ -112,16 +112,17 @@ export class PlanRunHost {
     }
     const key = runReplacementKey(body.planFile, body.planRevision, expectedFingerprint, jobs, currentNodes());
     const result = await replaceRunOutputs({
-      preview: (job: any) => cleanup.service.preview({ planFile: body.planFile, action: "delete", verifiedOnly: false, authorizationMode: "confirmed_paths",
+      preview: (job: any) => cleanup.service.preview({ planFile: body.planFile, action: "isolate", verifiedOnly: false, authorizationMode: "confirmed_paths",
         job: { workflowId: "manifest-" + cleanupDigest([body.planFile, job.output_dir]), commandId: "manifest-" + cleanupDigest(job), index: Number(job.index),
           purpose: "replace_outputs", manifest: { declarations: [job], replacement: true } } },
         (progress: any) => body.reportPlanStageLocal?.("任务 " + job.index + " · " + progress.message)),
       service: cleanup.service, execute: (id: string) => cleanup.execute(id),
+      verify: (preview: any) => cleanup.service.assertIsolatedSourcesAbsent(preview),
       ask: (payload: any) => h.askRunConfirmation(payload, body.submissionOperationIdLocal),
       save: () => this.save(body),
       assertCurrent,
       beforeDelete: async () => {
-        // Deletion still requires the complete batch check. Ordinary launch can
+        // Isolation still requires the complete batch check. Ordinary launch can
         // already use ready Workers while the remaining servers prepare.
         await body.awaitWorkerPreparationLocal?.();
         const current = { ...body }; await h.refreshLocalPlanMetadataForAction(current); h.stampPlanRevision(current);
@@ -129,7 +130,7 @@ export class PlanRunHost {
         const fingerprint = executionSource?.digest || await h.localDistributedCodeFingerprint(this.root);
         if (current.planRevision !== body.planRevision || fingerprint !== (executionSource ? expectedFingerprint : h.lastCodeSyncState?.fingerprint)
           || runReplacementKey(body.planFile, body.planRevision, fingerprint, jobs, currentNodes()) !== key)
-          throw Error("PLAN、代码或服务器配置已变化，请重新运行并确认路径；未删除。");
+          throw Error("PLAN、代码或服务器配置已变化，请重新运行并确认路径；未移动文件或提交任务。");
         await h.assertPlanSubmissionWorkers(body, { validation });
       },
       progress: (text: string) => body.reportPlanStageLocal?.(text),
@@ -144,7 +145,7 @@ export class PlanRunHost {
       },
     }, body.runReplacement, body.planFile, jobs, [...completed], key);
     body.existingOutputChoice = result.choice;
-    body.existingOutputCount = body.runReplacement.previews?.filter((row: any) => row.preview.rows.some((file: any) => file.disposition === "delete")).length || 0;
+    body.existingOutputCount = body.runReplacement.previews?.filter((row: any) => row.preview.rows.some((file: any) => file.disposition === "isolate")).length || 0;
     body.distributedSkipJobIndices = jobs.filter((job: any) => !result.selectedIndices.includes(Number(job.index))).map((job: any) => Number(job.index));
     body.assignedExperimentIndices = result.selectedIndices;
     body.outputReplacementOperationIds = body.runReplacement.completed || [];

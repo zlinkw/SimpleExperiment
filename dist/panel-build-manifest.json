@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.393",
-  "buildId": "02d6c1aed0c9e5bdf013258abeaa34504f49db751110ab5ebbc818ab23a55236",
+  "buildId": "245d72c580b2e4671eed2038b320a876da75a6d5d80350c8a791543e5c91c5cb",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -197,7 +197,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "13919e5c63edb9b1351fe0d16ee873e92176bf5be61fab5af4c3174bf65cccaf"
+      "sha256": "520873284fb6931d01f8ee511bbfcfed40acda80ffb34d1ac279fa82a1015f5b"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -205,11 +205,11 @@
     },
     {
       "path": "dist/extension/PlanCleanupHost.js",
-      "sha256": "0f0b01c17aea9c89acfbd07272504c544b2022023b3c663fa705b77451a4a326"
+      "sha256": "42f6652d0746244b80ebfd4d135f906f175a6b8c7807fb7da6f457520d03d47f"
     },
     {
       "path": "dist/extension/PlanCleanupPanel.js",
-      "sha256": "1a6485d987579660fb947105c54113c0b4335380996fd8f04783f7e71107c1bb"
+      "sha256": "91be6b8995a9dcc27dd0ddd999d7735ce90e44b207d8a3ef84bb7f58f1793e1d"
     },
     {
       "path": "dist/extension/PlanCodeScopeHost.js",
@@ -217,7 +217,7 @@
     },
     {
       "path": "dist/extension/PlanRunHost.js",
-      "sha256": "e7316be35c5c27d642fa14d3a20b52926b3617175460b1e1e9f3e238bef31d8a"
+      "sha256": "233c6486acb08582d4d9e41b1c8a7ae13ad4dfdacb49f07434b602fa00bfa08a"
     },
     {
       "path": "dist/extension/PlanStopClearBatchHost.js",
@@ -429,7 +429,7 @@
     },
     {
       "path": "dist/features/PanelPlanStatusSummary.js",
-      "sha256": "717d1094c8561a42ec3be212cc07e7cd01ff2db39dd3e99ddaed824816a8db36"
+      "sha256": "95cb21ae91de33c798cd7c7f03c9f82049a135a0206322adbfd5b8105efdc7b6"
     },
     {
       "path": "dist/features/PanelProgressDom.js",
@@ -489,7 +489,7 @@
     },
     {
       "path": "dist/features/PlanCleanup.js",
-      "sha256": "eda163c0276376a46e808a63d92fd2ead81ddf9224b43c772747ab77e10cea00"
+      "sha256": "b7dd4bfaa19c20bc20345ceac49d1061d1b4b965dbb7c83309199ab2dc0d7011"
     },
     {
       "path": "dist/features/PlanCleanupEvidence.js",
@@ -509,7 +509,7 @@
     },
     {
       "path": "dist/features/PlanRunReplacement.js",
-      "sha256": "c1baf81ee46b37d559f32e7eb58ee7c8849ab0fbd07b5aee81b8962b82327d12"
+      "sha256": "fba4ac1bbf7b1f560810579ab0100c3f5dc36194fdfa427371873570ff5fdcf1"
     },
     {
       "path": "dist/features/PlanSafeRetry.js",
@@ -953,7 +953,7 @@
     },
     {
       "path": "dist/ui/PanelHtml.legacy.js",
-      "sha256": "97587aded4ad09f83defd97d6317b03aa42edf9cc61222dd8927fe558fa46336"
+      "sha256": "ebcfc7375da0640dcf1bf52147a8485d71455a5bf2fb8b5af6a3dca618d0c744"
     },
     {
       "path": "dist/ui/PanelHtmlRenderer.js",

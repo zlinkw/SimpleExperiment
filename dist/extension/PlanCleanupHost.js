@@ -438,7 +438,7 @@ class PlanCleanupHost {
             if (operation.state === "completed")
                 return operation;
             this.host.assertArtifactSyncPathsIdle?.(this.root, operation.preview.rows
-                .filter(row => ["delete", "move"].includes(row.disposition)).map(row => row.relativePath));
+                .filter(row => ["delete", "move", "isolate"].includes(row.disposition)).map(row => row.relativePath));
             if (operation.preview.scope.observationMode === "managed_tmux")
                 return await this.service.execute(id);
             if (operation.preview.scope.job?.purpose === "replace_outputs") {

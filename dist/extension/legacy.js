@@ -13460,7 +13460,7 @@ class RealtimeTunnelPanelProvider {
     async retryChangedSourceJobs(plan, job, root, isCurrent, sourceChange) {
         const acceptedRevision = crypto.createHash("sha256").update(await fs.readFile(path.join(root, plan.planFile), "utf8"), "utf8").digest("hex");
         const acceptedFingerprint = await this.localDistributedCodeFingerprint(root);
-        const answer = await vscode.window.showWarningMessage(`重跑使用当前源码和配置\n${plan.planFile} / ${job.case} / seed ${job.seed}\n${sourceChange}\n\n请选择范围。仅重跑当前 job 会保留其他 job 的旧版本结果；重跑全部 job 使用当前 PLAN 的全部声明。所选旧任务必须已停止，已有产物仍需完整核实并两次确认删除。取消不会停止、同步或派发任务。`, { modal: true }, "仅重跑当前 job", "重跑全部 job");
+        const answer = await vscode.window.showWarningMessage(`重跑使用当前源码和配置\n${plan.planFile} / ${job.case} / seed ${job.seed}\n${sourceChange}\n\n请选择范围。仅重跑当前 job 会保留其他 job 的旧版本结果；重跑全部 job 使用当前 PLAN 的全部声明。所选旧任务必须已停止；已有产物核实后先移入 clean 隔离区，确认后新任务立即可用原路径，永久删除稍后单独两次确认。取消不会停止、同步或派发任务。`, { modal: true }, "仅重跑当前 job", "重跑全部 job");
         if (!["仅重跑当前 job", "重跑全部 job"].includes(answer) || !isCurrent())
             return { status: "cancelled", message: "已取消重跑，原任务与产物保留。" };
         const guardKey = `${root}\0${plan.id}\0source-rerun`;
@@ -13521,9 +13521,9 @@ class RealtimeTunnelPanelProvider {
             assertCurrent();
             const unsynced = this.workerCodeSyncTargets().filter(worker => this.lastCodeSyncState?.workerVersions?.[worker.id]?.fingerprint !== acceptedFingerprint);
             if (unsynced.length)
-                throw new Error("全部启用 Worker 尚未完成当前版本同步：" + unsynced.map(worker => worker.id).join("、") + "；未删除或派发。");
+                throw new Error("全部启用 Worker 尚未完成当前版本同步：" + unsynced.map(worker => worker.id).join("、") + "；未移动或派发。");
             if (await this.localDistributedCodeFingerprint(root) !== acceptedFingerprint || this.lastCodeSyncState?.fingerprint !== acceptedFingerprint)
-                throw new Error("源码或配置在确认期间已变化，请重新选择重跑范围；未删除或派发。");
+                throw new Error("源码或配置在确认期间已变化，请重新选择重跑范围；未移动或派发。");
             const preflight = await this.runPlanPreflight(body, "重跑任务");
             if (!preflight)
                 return { status: "cancelled", message: "校验或预演未通过，未重跑。" };

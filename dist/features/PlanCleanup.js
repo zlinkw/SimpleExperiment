@@ -244,6 +244,9 @@ class PlanCleanup {
         await this.queryRows(operation.preview.rows.filter(row => operation.targets[row.id]), async (row) => {
             if (operation.preview.action === "delete" && operation.targets[row.id]?.receipt?.verifiedBy === "path_absence")
                 return;
+            // 已核实的隔离事实由当时的主动查询回执冻结；后续注册隔离删除或查询波动不回滚完成状态。
+            if (operation.preview.action === "isolate" && operation.targets[row.id]?.state === "completed")
+                return;
             try {
                 const proof = await this.managedCheck(row);
                 if (proof.state === "completed") {
@@ -307,8 +310,21 @@ class PlanCleanup {
                 if (proof.state === "pending") {
                     operation.targets[row.id] = { state: "executing" };
                     await this.save(operation);
-                    // Do not wait for execute transport completion. The fixed capability makes retries idempotent.
-                    void this.ports.sftp("files.cleanup.execute", { token: row.backendToken, digest: row.backendDigest, index: row.backendIndex }).catch(() => undefined);
+                    if (operation.preview.action === "isolate") {
+                        // 隔离是快速重命名事务：错误（如必需输入重叠、目标冲突）必须直接回传，仅排除相关 job；服务器端注册映射保证重试不重复移动。
+                        try {
+                            await this.ports.sftp("files.cleanup.execute", { token: row.backendToken, digest: row.backendDigest, index: row.backendIndex });
+                        }
+                        catch (error) {
+                            operation.targets[row.id] = { state: "pending" };
+                            await this.save(operation);
+                            throw error;
+                        }
+                    }
+                    else {
+                        // Do not wait for execute transport completion. The fixed capability makes retries idempotent.
+                        void this.ports.sftp("files.cleanup.execute", { token: row.backendToken, digest: row.backendDigest, index: row.backendIndex }).catch(() => undefined);
+                    }
                 }
                 const started = Date.now();
                 while (true) {
@@ -494,9 +510,9 @@ class PlanCleanup {
         if (this.previews.size >= 512)
             cleanupError("CLEANUP_PREVIEW_CAPACITY_EXCEEDED");
         const action = params.action || "move";
-        if (!["move", "delete"].includes(action))
+        if (!["move", "delete", "isolate"].includes(action))
             cleanupError("INVALID_ACTION");
-        if (params.authorizationMode && action !== "delete")
+        if (params.authorizationMode && !["delete", "isolate"].includes(action))
             cleanupError("INVALID_ACTION");
         const history = params.continuationOf ? await this.history(params.continuationOf) : [];
         if (history[0]?.continuedBy || history[0]?.restoredBy || history.some(row => row.preview.action !== action))
@@ -635,6 +651,9 @@ class PlanCleanup {
                 const backend = read.value;
                 if (scope.job?.purpose === "replace_outputs" && !(Number(backend.safety?.batchPreviewCapacity) >= 4096))
                     cleanupError("SFTP_BATCH_PREVIEW_UPGRADE_REQUIRED", "需要 SimpleSFTP 0.2.79 的批次预览保留能力");
+                if (action === "isolate" && !(Number(backend.safety?.isolateFast) === 1 && Number(backend.safety?.requiredInputGuard) === 1
+                    && Number(backend.safety?.registeredIsolationDeletion) === 1 && Number(backend.safety?.subtreeSingleWriter) === 1))
+                    cleanupError("SFTP_ISOLATE_UPGRADE_REQUIRED", "当前 SimpleSFTP 不支持受控快速隔离或注册隔离删除；请更新配套插件后重新预览，未执行任何移动，不会回退旧删除链。");
                 rows.forEach((row, index) => {
                     const info = backend.targets[index];
                     Object.assign(row, { ...info, relativePath: row.relativePath, destination: row.destination,
@@ -686,6 +705,12 @@ class PlanCleanup {
             finally {
                 notify({ ...progress, completed: index + 1, message: node.id + "：节点预检已结束，异常会列入审核表" });
             }
+        }
+        // 能力缺口是全局升级问题，不能按 job 静默绕开，也不能回退旧删除；直接显式提示升级。
+        if (action === "isolate") {
+            const upgrade = result.blockers.find(row => row.code.startsWith("SFTP_"));
+            if (upgrade)
+                cleanupError(upgrade.code, upgrade.detail);
         }
         // Shared/unknown targets remain visible, with hashes when read-only inspection is possible.
         const protectedRows = result.rows.filter(row => row.disposition === "protected" && !row.scopeProtectedReason && !row.fingerprint && row.node.root && !row.node.error);
@@ -770,7 +795,7 @@ class PlanCleanup {
         if (preview.scope.authorizationMode === "confirmed_paths") {
             // The user authorizes these frozen paths, not a historical PLAN/task revision.
             // Actual node/root/type/content checks remain in SimpleSFTP on this same batch.
-            await this.queryRows(preview.rows.filter(row => row.disposition === "delete"), async (row) => {
+            await this.queryRows(preview.rows.filter(row => ["delete", "isolate"].includes(row.disposition)), async (row) => {
                 const proof = await this.managedCheck(row);
                 if (!["pending", "executing", "completed"].includes(proof.state))
                     cleanupError("CLEANUP_TARGET_CHANGED", row.absolutePath + "：文件已变化，请重新核对路径");
@@ -956,6 +981,79 @@ class PlanCleanup {
         preview.digest = (0, exports.cleanupDigest)(preview.rows);
         this.previews.set(preview.token, clone(preview));
         return preview;
+    }
+    /** 隔离完成后主动核实原输出路径已可新建（只读查询，不产生写入）；失败只排除相关 job。 */
+    async assertIsolatedSourcesAbsent(preview) {
+        for (const row of preview.rows.filter(row => row.disposition === "isolate")) {
+            let proof;
+            try {
+                proof = await this.inspectPresence(row);
+            }
+            catch (error) {
+                cleanupError("SOURCE_PATH_UNVERIFIED", row.absolutePath + "：隔离后无法主动核实原路径，未准入该 job：" + String(error.message || error));
+            }
+            if (proof?.target?.missing !== true)
+                cleanupError("SOURCE_PATH_UNAVAILABLE", row.absolutePath + "：隔离后原路径仍被占用，未准入该 job，未提交任务。");
+        }
+    }
+    /** 隔离目标的永久删除预览：只接受已完成隔离操作冻结的目的路径；对外仍是 delete/confirmed_paths 双确认受管流程。 */
+    async isolatedDeletePreview(id, verifiedOnly = false) {
+        const original = await this.status(id);
+        if (original.preview.action !== "isolate" || original.continuedBy || original.restoredBy)
+            cleanupError("NOT_ISOLATED_OPERATION");
+        if (this.busy.has(id))
+            cleanupError("OPERATION_BUSY");
+        const sources = original.preview.rows.filter(row => row.disposition === "isolate");
+        if (!sources.length)
+            cleanupError("NO_VERIFIED_TARGETS");
+        const token = (0, node_crypto_1.randomBytes)(24).toString("hex");
+        const preview = { token, digest: "", action: "delete", scope: clone(original.preview.scope), rows: [],
+            blockers: [], verifiedOnly, expiresAt: Date.now() + 30 * 60 * 1000, confirmations: 0 };
+        for (const source of sources) {
+            const row = { ...clone(source), id: (0, exports.cleanupDigest)([source.node.id, source.node.root, source.destination, source.type, id]),
+                relativePath: source.destination, destination: source.destination, disposition: "delete", archiveBatch: undefined,
+                backendToken: undefined, backendDigest: undefined, backendIndex: undefined, rootIdentity: undefined, fingerprint: undefined, contentFingerprint: undefined,
+                evidence: [...source.evidence, "隔离批次 " + (source.archiveBatch || "") + "，原路径 " + source.relativePath],
+                protectedReason: undefined, error: undefined,
+                absolutePath: source.node.kind === "local" ? path.join(source.node.root, source.destination) : path.posix.join(source.node.root, source.destination) };
+            if (original.targets[source.id]?.state !== "completed") {
+                row.disposition = "unverified";
+                row.error = "ISOLATE_NOT_SETTLED";
+                preview.blockers.push({ code: "ISOLATE_NOT_SETTLED", nodeId: source.node.id, detail: source.destination + "：隔离未完成确认，请先刷新实际状态" });
+                preview.rows.push(row);
+                continue;
+            }
+            try {
+                const backend = await this.ports.sftp("files.cleanup.preview", { node: source.node, action: "delete", observationMode: "managed_tmux",
+                    authorizationMode: "confirmed_paths", targets: [{ relativePath: source.destination, destination: source.destination, type: source.type }] });
+                if (Number(backend.safety?.registeredIsolationDeletion) !== 1)
+                    cleanupError("SFTP_ISOLATE_DELETE_UPGRADE_REQUIRED", "当前 SimpleSFTP 不支持注册隔离目标的受管永久删除；请更新配套插件后重试，未执行任何删除。");
+                const info = backend.targets[0];
+                if (info.missing)
+                    row.disposition = "absent";
+                else
+                    Object.assign(row, { fingerprint: info.fingerprint, size: info.size, backendToken: backend.token, backendDigest: backend.digest,
+                        backendIndex: 0, rootIdentity: backend.rootIdentity });
+            }
+            catch (error) {
+                const code = error.apiData?.code || error.code || "NODE_PREFLIGHT_FAILED";
+                if (verifiedOnly && ["NODE_UNREACHABLE", "OFFLINE_NODE"].includes(code)) {
+                    preview.blockers.push({ code, nodeId: source.node.id, detail: source.destination });
+                    continue;
+                }
+                if (code.startsWith("SFTP_"))
+                    cleanupError(code, String(error.message || code));
+                preview.blockers.push({ code, nodeId: source.node.id, detail: String(error.message || code) });
+                row.disposition = "unverified";
+                row.error = code;
+            }
+            preview.rows.push(row);
+        }
+        if (!preview.rows.some(row => row.disposition === "delete"))
+            cleanupError("NO_VERIFIED_TARGETS");
+        preview.digest = (0, exports.cleanupDigest)({ action: preview.action, scope: preview.scope, rows: preview.rows, verifiedOnly });
+        this.previews.set(token, clone(preview));
+        return clone(preview);
     }
 }
 exports.PlanCleanup = PlanCleanup;

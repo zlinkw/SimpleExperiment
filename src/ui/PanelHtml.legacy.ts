@@ -10191,6 +10191,12 @@ export function renderPanelHtml(): string {
           unavailableCount: Number(summary.unavailableCount || 0),
           activeCount: Number(summary.activeCount),
           queuedCount: Number(summary.queuedCount),
+          ...(typeof summary.currentRunId === "string" && summary.currentRunId ? {
+            currentRunId: String(summary.currentRunId).slice(0, 128),
+            currentRunTotalCount: Number.isInteger(summary.currentRunTotalCount) && summary.currentRunTotalCount >= 0 ? Number(summary.currentRunTotalCount) : 0,
+            currentRunCompletedCount: Number.isInteger(summary.currentRunCompletedCount) && summary.currentRunCompletedCount >= 0 ? Number(summary.currentRunCompletedCount) : 0,
+            carriedForwardCompletedCount: Number.isInteger(summary.carriedForwardCompletedCount) && summary.carriedForwardCompletedCount >= 0 ? Number(summary.carriedForwardCompletedCount) : 0,
+          } : {}),
           revision: summaryRevision,
         };
       }
@@ -10348,7 +10354,8 @@ export function renderPanelHtml(): string {
     }
     function planSelectorOptionLabel(file, summary, pinned) {
       const count = summary.totalCount > 0 ? " · " + summary.completedCount + "/" + summary.totalCount + " 已完成" : "";
-      return "● " + summary.statusLabel + count + (summary.unavailableCount ? " · 不可用 " + summary.unavailableCount : "") + " · " + file + (pinned ? "（当前；不符合筛选）" : "");
+      const current = summary.currentRunId && summary.currentRunTotalCount > 0 ? " · 本次 " + summary.currentRunCompletedCount + "/" + summary.currentRunTotalCount + (summary.carriedForwardCompletedCount ? " · 沿用 " + summary.carriedForwardCompletedCount : "") : "";
+      return "● " + summary.statusLabel + count + current + (summary.unavailableCount ? " · 不可用 " + summary.unavailableCount : "") + " · " + file + (pinned ? "（当前；不符合筛选）" : "");
     }
     function refreshPlanFileOptions(state) {
       var sel = el("planFileInput");
@@ -10387,7 +10394,7 @@ export function renderPanelHtml(): string {
       const statusHost = el("planSelectorStatus");
       if (statusHost) {
         statusHost.className = "planSelectorStatus is-" + currentStatus.status;
-        statusHost.innerHTML = "<span>" + esc(currentStatus.statusLabel) + "</span>" + (currentStatus.totalCount > 0 ? "<span>" + esc(currentStatus.completedCount + "/" + currentStatus.totalCount + " 已完成") + "</span>" : "<span>进度待确认</span>") + (currentStatus.unavailableCount ? "<span>不可用 " + esc(currentStatus.unavailableCount) + "</span>" : "") + (currentStatus.revision ? "<span>版本 " + esc(currentStatus.revision) + "</span>" : "");
+        statusHost.innerHTML = "<span>" + esc(currentStatus.statusLabel) + "</span>" + (currentStatus.totalCount > 0 ? "<span>" + esc(currentStatus.completedCount + "/" + currentStatus.totalCount + " 已完成") + "</span>" : "<span>进度待确认</span>") + (currentStatus.currentRunId && currentStatus.currentRunTotalCount > 0 ? "<span>" + esc("本次运行 " + currentStatus.currentRunCompletedCount + "/" + currentStatus.currentRunTotalCount + (currentStatus.carriedForwardCompletedCount ? " · 沿用旧完成 " + currentStatus.carriedForwardCompletedCount : "")) + "</span>" : "") + (currentStatus.unavailableCount ? "<span>不可用 " + esc(currentStatus.unavailableCount) + "</span>" : "") + (currentStatus.revision ? "<span>版本 " + esc(currentStatus.revision) + "</span>" : "");
       }
     }
     function renderPlanSection(state) {
