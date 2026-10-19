@@ -41,7 +41,7 @@ function fixture() {
     planSubmissionOperationId: () => "op", submissionStillCurrent: () => true,
     finishPlanSubmissionProgress(_message, status, detail) { progress.push({ status, detail }); },
     postState() {}, recordActionError() {}, queuePlanArtifactSyncStatusCheck() {},
-    legacySourceFreezeWorkerNames() { return []; },
+    beginSimpleSftpCapabilityLaunch() {}, legacySourceFreezeWorkerNames() { return []; },
   };
   return { host, alerts, warnings, statuses, terminal, progress, information };
 }

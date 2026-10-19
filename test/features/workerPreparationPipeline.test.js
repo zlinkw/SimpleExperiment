@@ -28,6 +28,7 @@ test('actual submission enqueues after first prepared server, while a slow serve
     confirmDistributedPlanExistingOutputs: async () => {}, assertExecutionCondaEnvReady() {}, workerActionTargets: () => [],
     enqueueDistributedPlan: async b => { b.submissionWorkflowId = 'run' + (++submissions); enqueued.resolve(); return { enqueued: true }; },
     tickDistributedQueue: async () => { tick++; }, reportPlanStage: (_m, text) => stages.push(text),
+    legacySourceFreezeWorkerNames: () => [],
     finishPlanSubmissionProgress: (_m, state) => assert.equal(state, 'succeeded'), recordActionError() {} };
   const work = method('finishDistributedPlanSubmission', globals).call(host, 'runPlan', {}, {}, body);
   await first.promise; await enqueued.promise;

@@ -33,7 +33,7 @@ function fixture(count=8){
    try{await bounded(firstWave);if(h.badPlan===body.planFile)throw Error('invalid PLAN '+body.planFile);return {validation:{jobs:[{index:0,case:body.planFile,seed:42,output_dir:h.overlap?'work/shared':'work/'+body.planFile.split('/')[1]}],existing:[],execution_mode:'train_test'}}}finally{calls.active--}},
   assertPlanSubmissionWorkers:async(body,value)=>{assert.equal(value.validation.jobs[0].case,body.planFile)},
   confirmDistributedPlanExistingOutputs:async(_,body)=>{calls.outputActive++;calls.outputMax=Math.max(calls.outputMax,calls.outputActive);calls.outputs.push(body.planFile);await turn();calls.outputActive--;if(h.beforeEnqueue)await h.beforeEnqueue(body)},
-  assertExecutionCondaEnvReady(){},reportPlanStage(){},recordPlanSubmissionTiming(){},recordPlanSubmissionTimingByOperation(){},
+  assertExecutionCondaEnvReady(){},reportPlanStage(){},legacySourceFreezeWorkerNames(){return [];},recordPlanSubmissionTiming(){},recordPlanSubmissionTimingByOperation(){},
   finishPlanSubmissionProgress:(message,status,detail)=>{h.localOperations[h.planSubmissionOperationId(message)]={status,message:detail}},
   tickDistributedQueue:async()=>{calls.ticks++;if(h.tickError)throw Error('dispatch query unavailable')},queue:Queue.emptyDistributedQueue()};
  const globals={WorkerPreparation:require('../../src/features/WorkerPreparation.ts').WorkerPreparation,

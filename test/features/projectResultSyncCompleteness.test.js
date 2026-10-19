@@ -221,7 +221,7 @@ for (const command of ["syncPendingPlanArtifacts", "rebuildProjectResultTables"]
     const { RealtimeTunnelPanelProvider } = require("../../dist/extension/legacy.js");
     const statuses = [];
     const host = Object.assign(Object.create(RealtimeTunnelPanelProvider.prototype), providerFor(workspace), {
-      postUiCommandStatus: (id, status, name, message, extra) => statuses.push({ id, status, name, message, ...extra }),
+      postUiCommandStatus: (id, status, name, message, extra) => statuses.push({ id, status, name, message, ...extra }), beginSimpleSftpCapabilityLaunch: () => undefined,
       finishPlanSubmissionProgress: () => {},
       recordActionError: error => { throw new Error("partial publication must not record a global failure: " + error.message); },
     });

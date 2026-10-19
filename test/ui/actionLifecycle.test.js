@@ -119,7 +119,7 @@ test("local toolbar commands wait for extension terminal status", async () => {
   vm.runInContext(extractConst(source, "LOCAL_COMMAND_RELEASES_AFTER_TRIGGER") + "\n" + extractFunction(source, "localCommandReleasesAfterTrigger"), context);
   const run = vm.runInContext(emitted, context);
   const statuses = [];
-  const host = { postUiCommandStatus: (_id, status) => statuses.push(status) };
+  const host = { postUiCommandStatus: (_id, status) => statuses.push(status), beginSimpleSftpCapabilityLaunch: () => undefined };
   let finish;
   const pending = run.call(host, "tmux-click", "fetchTmuxList", {}, () => new Promise((resolve) => { finish = resolve; }));
   await new Promise((resolve) => setImmediate(resolve));

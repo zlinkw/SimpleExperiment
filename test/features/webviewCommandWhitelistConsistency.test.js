@@ -63,7 +63,7 @@ test("training recovery click reaches the Host dispatcher with its exact target 
   }).handleMessage;
   const message = { command: 'retryDistributedJob', clientActionId: 'recovery-click', planId: 'run', jobIndex: 0 };
   let received, statusChannel;
-  const owner = { recordActionError: error => assert.fail(error.message), postState() {}, postUiCommandStatus() {},
+  const owner = { recordActionError: error => assert.fail(error.message), postState() {}, postUiCommandStatus() {}, beginSimpleSftpCapabilityLaunch() {},
     withUiCommandStatus: async (id, command, payload, work) => { statusChannel = id; return work(); },
     withSafeTransferRetry: async (_, __, work) => work(),
     handleMessageCore: async (payload, command) => { received = { ...payload, command }; },
@@ -94,7 +94,7 @@ test("training recovery reports real completion, cancellation and rejected evide
   const api = vm.runInNewContext(compiled + "\nsubject;", scope);
   const payload = { command: "retryDistributedJob", planId: "run", jobIndex: 0, clientActionId: "recovery-status" };
   const owner = { ...api, panelLifecycleState: "ready", extensionRuntimeVersionState: () => ({ reloadRequired: false }),
-    postUiCommandStatus: (id, status, command, message) => statuses.push({ id, status, command, message }),
+    postUiCommandStatus: (id, status, command, message) => statuses.push({ id, status, command, message }), beginSimpleSftpCapabilityLaunch: () => undefined,
     finishPlanSubmissionProgress() {}, recordActionError() {}, postState() {},
   };
   for (const status of ["completed", "cancelled", "failed"]) {

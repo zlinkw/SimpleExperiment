@@ -317,7 +317,7 @@ for (const command of ["syncPendingPlanArtifacts", "rebuildProjectResultTables"]
       simpleSftpApiCall: () => assert.fail("this existing registered-result fixture needs no transfer"),
       postState: () => {}, finishPlanSubmissionProgress: () => {},
       recordActionError: error => assert.fail(error.message),
-      postUiCommandStatus: (_id, status) => statuses.push({ status, tables: host.resultCatalogCache?.tables.length, loadStatus: host.resultCatalogStatus }),
+      postUiCommandStatus: (_id, status) => statuses.push({ status, tables: host.resultCatalogCache?.tables.length, loadStatus: host.resultCatalogStatus }), beginSimpleSftpCapabilityLaunch: () => undefined,
     });
     try {
       await host.withUiCommandStatus("local-result-button", command, {}, () => host.handleMessageCore({ command }, command));

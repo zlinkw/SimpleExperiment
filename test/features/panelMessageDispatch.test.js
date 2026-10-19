@@ -161,7 +161,7 @@ function createHost(overrides = {}) {
     handleMessageCore: api.handleMessageCore,
     withUiCommandStatus: api.withUiCommandStatus,
     uiCommandWatchdogMs: api.uiCommandWatchdogMs,
-    postUiCommandStatus: api.postUiCommandStatus,
+    postUiCommandStatus: api.postUiCommandStatus, beginSimpleSftpCapabilityLaunch: () => undefined,
     ...overrides,
   };
   return host;

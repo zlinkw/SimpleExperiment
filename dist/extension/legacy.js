@@ -6014,6 +6014,10 @@ class RealtimeTunnelPanelProvider {
     }
     async withUiCommandStatus(clientActionId, command, message, work) {
         this.postUiCommandStatus(clientActionId, "running", command, "正在执行...（按钮已转圈）");
+        // 31：每个独立 UI 操作建立新的能力上下文；监听器重启/换端口的源更换在下一独立操作必须重新发现。
+        // 提交与恢复入口自带上下文（beginPlanSubmissionProgress/resumePlanSubmission），此处跳过避免同一操作重复读取。
+        if (!PLAN_SUBMISSION_COMMANDS.has(command) && command !== "retryPlanSubmission")
+            this.beginSimpleSftpCapabilityLaunch();
         const isLocalTrigger = localCommandReleasesAfterTrigger(command);
         const guardedWork = work()
             .then(async (value) => {
@@ -10856,13 +10860,11 @@ class RealtimeTunnelPanelProvider {
                 throw new Error("这条旧排队记录与当前 Plan 或版本不一致，未修改队列，也未校验或提交。请到实验准备的 Plan 列表手动选中该 Plan，再点“校验并提交运行”。");
             }
         }
-        if (versionHold) {
-            // 29：旧代码版本不再冻结新提交的准入；执行以本轮同步快照为准，来源 hash 只作同步时记录。
-            // 尚未更新语义的旧 Worker 必须收到明确提示，不能伪称源码变更执行已在其上生效。
-            const legacyWorkers = this.legacySourceFreezeWorkerNames();
-            if (legacyWorkers.length)
-                this.reportPlanStage(message, `提示：${legacyWorkers.join("、")} 的 Worker runtime 仍是旧源码冻结语义；源码更新后这些服务器仍会以旧源码不变校验拒绝 test/续跑任务，请先更新 Worker runtime。`);
-        }
+        // 29：旧代码版本不再冻结新提交的准入；执行以本轮同步快照为准，来源 hash 只作同步时记录。
+        // 尚未更新语义的旧 Worker 必须收到明确提示，不能伪称源码变更执行已在其上生效；提示与本机队列是否占用无关。
+        const legacyWorkers = this.legacySourceFreezeWorkerNames();
+        if (legacyWorkers.length)
+            this.reportPlanStage(message, `提示：${legacyWorkers.join("、")} 的 Worker runtime 仍是旧源码冻结语义；源码更新后这些服务器仍会以旧源码不变校验拒绝 test/续跑任务，请先更新 Worker runtime。`);
         try {
             const codeSyncStarted = Date.now();
             const batch = body.submissionBatchLocal;
@@ -19993,6 +19995,16 @@ class RealtimeTunnelPanelProvider {
         // Scheduler 监听器更换或 token 轮换后，下一次调用重新发现；只保留当前启动的单槽共享，不建无限缓存。
         this.simpleSftpCapShared = undefined;
     }
+    invalidateSimpleSftpCapabilityAfterFailure(error, capLaunchAtStart) {
+        // 31：传输层失败（401 或连接失败）说明当前能力对应的端点可能已失效（监听器重启/换端口/token 轮换），
+        // 下一个独立调用必须重新读 api.json 与能力；本次调用绝不自动重放，尤其不重放任何变更 RPC。
+        // 旧启动上下文的迟到失败不得清掉并发新启动刚建立的新槽；新启动本身已强制重新发现。
+        if (!/HTTP 401|UNAUTHORIZED|status 401|ECONNREFUSED|ECONNRESET|ECONNABORTED|ETIMEDOUT|ENOTFOUND|EHOSTUNREACH|ENETUNREACH|socket hang up|fetch failed|UND_ERR_/i.test(errorMessage(error)))
+            return;
+        if (typeof capLaunchAtStart === "number" && this.simpleSftpCapLaunch !== capLaunchAtStart)
+            return;
+        this.invalidateSimpleSftpCapability();
+    }
     readSimpleSftpCapabilities() {
         const launch = this.simpleSftpCapLaunch;
         if (this.simpleSftpCapShared && this.simpleSftpCapShared.launch === launch)
@@ -20048,6 +20060,7 @@ class RealtimeTunnelPanelProvider {
         }
         const { fileIndexRound, fileIndexBinding, ...plainRequest } = params || {};
         const request = fileIndexRound !== undefined || fileIndexBinding !== undefined ? plainRequest : params || {};
+        const capLaunchAtStart = this.simpleSftpCapLaunch;
         const query = (0, ProjectFileIndex_1.sftpFileIndexQuery)(method, params || {});
         // The cleanup node carries the SSH alias; the full source also carries
         // its configured network identity. Keep the page/read/mutation owner stable.
@@ -20062,11 +20075,16 @@ class RealtimeTunnelPanelProvider {
                     return await index.read(query, load);
                 }
                 catch (error) {
-                    if (method !== "sync.projectInventory" || attempt >= 2 || !errorMessage(error).includes("FILE_INDEX_INVALIDATED_DURING_READ"))
+                    if (method !== "sync.projectInventory" || attempt >= 2 || !errorMessage(error).includes("FILE_INDEX_INVALIDATED_DURING_READ")) {
+                        // 31：索引读早退同样不能漏掉传输层失效；否则 SimpleSFTP 换端口的旧能力槽会一直被复用。
+                        this.invalidateSimpleSftpCapabilityAfterFailure(error, capLaunchAtStart);
                         throw error;
+                    }
                     (0, SafeRequestRetry_1.assertRetryRequestCurrent)();
-                    if (request.signal?.aborted || this.client !== client || workspaceRoot() !== root)
+                    if (request.signal?.aborted || this.client !== client || workspaceRoot() !== root) {
+                        this.invalidateSimpleSftpCapabilityAfterFailure(error, capLaunchAtStart);
                         throw error;
+                    }
                     // Only repeat this read against the new observation generation. Never replay a transfer.
                 }
             }
@@ -20087,9 +20105,8 @@ class RealtimeTunnelPanelProvider {
             return await load();
         }
         catch (error) {
-            // 运行代际改变（监听器更换/token 轮换）要能让下一次调用重新取得能力；不重放变更请求。
-            if (/HTTP 401|UNAUTHORIZED|status 401/.test(errorMessage(error)))
-                this.invalidateSimpleSftpCapability();
+            // 31：401、连接失败等传输层失效都清槽，让下一次独立调用重新发现；本调用不重放，尤其不重放变更 RPC。
+            this.invalidateSimpleSftpCapabilityAfterFailure(error, capLaunchAtStart);
             throw error;
         }
         finally {

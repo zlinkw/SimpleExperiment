@@ -132,7 +132,7 @@ test('actual analysis button returns a visible command message without opening a
  const handler=vm.runInNewContext(ts.transpileModule('async function run(message){'+clause.statements.map(n=>n.getText(ast)).join('\n')+'};run;',{compilerOptions:{target:ts.ScriptTarget.ES2022}}).outputText,
   {workspaceRoot:()=>'/fixture',analyzeRuntimeLog:async()=>({completionState:'verified',exitCode:0}),runtimeLogAnalysisMessage,
    vscode:{workspace:{openTextDocument(){documents++;}},window:{showTextDocument(){documents++;}}}});
- const statuses=[],h={postUiCommandStatus:(...args)=>statuses.push(args)};
+ const statuses=[],h={postUiCommandStatus:(...args)=>statuses.push(args),beginSimpleSftpCapabilityLaunch(){}};
  const dispatch=hostMethod('withUiCommandStatus',{localCommandReleasesAfterTrigger:()=>false,PLAN_SUBMISSION_COMMANDS:new Set(),OperationOutcome_1:{operationOutcomeFor:()=> 'completed'}});
  await dispatch.call(h,'action','analyzeRuntimeLog',{},()=>handler.call(h,{}));
  assert.equal(documents,0);assert.equal(statuses.at(-1)[1],'completed');assert.match(statuses.at(-1)[3],/完整日志未检出异常/);
@@ -174,7 +174,7 @@ test('a committed one-job rerun remains queued when the next scheduler tick fail
 test('the retry command acknowledges local requeue explicitly without claiming the job is running',async()=>{
  const statuses=[],run=hostMethod('withUiCommandStatus',{localCommandReleasesAfterTrigger:()=>false,PLAN_SUBMISSION_COMMANDS:new Set(),
   OperationOutcome_1:{operationOutcomeFor:()=>({})},isUiCommandRemotePending:()=>false,isUiCommandCancelled:()=>false});
- const h={postUiCommandStatus:(_id,status,_command,message)=>statuses.push({status,message})};
+ const h={postUiCommandStatus:(_id,status,_command,message)=>statuses.push({status,message}),beginSimpleSftpCapabilityLaunch(){}};
  await run.call(h,'click','retryDistributedJob',{},async()=>({status:'queued',source:'local',message:'此 job 已重新进入本机待派队列；实际执行状态由远端查询确认。'}));
  assert.equal(statuses.at(-1).status,'completed');assert.match(statuses.at(-1).message,/本机待派队列/);assert.doesNotMatch(statuses.at(-1).message,/运行中/);
 });

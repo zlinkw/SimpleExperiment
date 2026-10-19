@@ -184,7 +184,7 @@ test("real Host dispatch reports completion, cancellation and rejected ownership
       } } };
     Object.assign(f.host, vm.runInNewContext(code + "\nsubject;", scope), {
       extensionRuntimeVersionState: () => ({ reloadRequired: false }), panelLifecycleState: "ready",
-      postUiCommandStatus: (id, status, command, message) => statuses.push({ id, status, command, message }), finishPlanSubmissionProgress() {},
+      postUiCommandStatus: (id, status, command, message) => statuses.push({ id, status, command, message }), finishPlanSubmissionProgress() {}, beginSimpleSftpCapabilityLaunch() {},
     });
     if (scenario === "reject") f.receipt.workerId = "foreign";
     f.message.clientActionId = "unavailable-click-0";

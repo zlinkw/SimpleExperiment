@@ -37,7 +37,7 @@ test('Worker failure is checked before any existing-output replacement in the re
  waitForPlanSubmission:async(_,fn)=>fn(),recordPlanSubmissionTiming(){},recordPlanSubmissionTimingByOperation(){},
  ensureCodeReadyForRun:async(_c,_b,_p,ready)=>{calls.push('sync');ready('fixture');},stampWorkerPoolManualTarget(){},runPlanPreflight:async()=>({validation:{jobs:[{index:0,output_dir:'work/job'}]}}),workerActionTargets:()=>[],enabledWorkerConfigs:()=>[],localOperations:{},localDistributedCodeFingerprint:async()=>'code',planValidationCacheKey:()=>'',planSchedulerWorkerId:()=>'',
  assertPlanSubmissionWorkers:async()=>{calls.push('workers');throw Error('nwpu3 unavailable');},
- confirmDistributedPlanExistingOutputs:async()=>calls.push('delete'),enqueueDistributedPlan:async()=>calls.push('enqueue'),assertExecutionCondaEnvReady(){},reportPlanStage(){},finishPlanSubmissionProgress(){}};
+ confirmDistributedPlanExistingOutputs:async()=>calls.push('delete'),enqueueDistributedPlan:async()=>calls.push('enqueue'),assertExecutionCondaEnvReady(){},reportPlanStage(){},legacySourceFreezeWorkerNames(){return [];},finishPlanSubmissionProgress(){}};
  await assert.rejects(finish.call(host,'runPlan',{}, {},{planFile:'plans/p.yaml'}),/nwpu3 unavailable/);
  assert.deepEqual(calls,['sync','workers']);
 });
@@ -59,7 +59,7 @@ test('the real UI action passes its local submission context into the real distr
   waitForPlanSubmission:async(_,fn)=>fn(),recordPlanSubmissionTiming(){},recordPlanSubmissionTimingByOperation(){},
   ensureCodeReadyForRun:async(_c,_b,_p,ready)=>{calls.push('sync');ready('fixture');},stampWorkerPoolManualTarget(){},workerActionTargets:()=>[],runPlanPreflight:async()=>({validation:{jobs:[]}}),enabledWorkerConfigs:()=>[],
   localDistributedCodeFingerprint:async()=>'code',planValidationCacheKey:()=>'',planSchedulerWorkerId:()=>'',
-  assertPlanSubmissionWorkers:async()=>{calls.push('workers');throw Error('fixture Worker unavailable');},reportPlanStage(){},finishPlanSubmissionProgress(){},
+  assertPlanSubmissionWorkers:async()=>{calls.push('workers');throw Error('fixture Worker unavailable');},reportPlanStage(){},legacySourceFreezeWorkerNames(){return [];},finishPlanSubmissionProgress(){},
   confirmDistributedPlanExistingOutputs:async()=>calls.push('delete'),enqueueDistributedPlan:async()=>calls.push('enqueue')};
  host.finishDistributedPlanSubmission=method('finishDistributedPlanSubmission',{...globals});
  await assert.rejects(method('runActionCommandCore',{...globals}).call(host,'runPlan',{clientActionId:'original'}),/fixture Worker unavailable/);
