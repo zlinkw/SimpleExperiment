@@ -5,9 +5,11 @@ import { atomicWriteText } from "../state/StateStore";
 
 export type CleanupNode = { id: string; kind: "local" | "remote"; root: string; host?: string; port?: number; user?: string; error?: string };
 export type CleanupJobSelection = { workflowId: string; index: number; commandId: string; purpose?: "replace_outputs";
-  manifest?: { declarations: Array<{ index: number; case: string; seed: number; output_dir: string; result_csv: string }>; replacement: boolean } };
+  manifest?: { declarations: Array<{ index: number; case: string; seed: number; output_dir: string; result_csv: string;
+    checkpoint_source?: Record<string, string> | string }>; replacement: boolean } };
 export type CleanupCandidate = { nodeId: string; relativePath: string; type: "file" | "directory"; category: string;
   owners: string[]; evidence: string[]; protectedReason?: string; scopeProtectedReason?: string; dependencies: string[]; expectedSha256?: string;
+  requiredInputs?: string[];
   expectedOwner?: { workflowId: string; commandId: string; workerId: string; outputDir: string; attempt?: number; case: string; seed: number;
     resultPathPolicy?: "declared"; globalJobId?: string; planRevision?: string; codeFingerprint?: string; index?: number; collectionResultCsv?: string; expectedState?: string } };
 export type CleanupScope = { projectId: string; planKey: string; planFile: string; planHash: string; runIds: string[];
@@ -61,6 +63,45 @@ export function cleanupRelative(value: string): string {
   if (!value || value.length > 4096 || /[\\:\x00-\x1f*?\[\]{}]/.test(value) || value.startsWith("/")
     || value.split("/").some(part => !part || part === "." || part === "..")) cleanupError("UNSAFE_PATH");
   return value;
+}
+/**
+ * Isolate previews must carry the job's own declared checkpoint/config inputs as
+ * requiredInputs so the frozen B guard (≤200 items, each 1..4096, POSIX relative;
+ * backslash/colon/control and . or .. segments rejected) refuses parent-directory
+ * isolation that would move those inputs. Values come from the PLAN job's
+ * structured checkpoint_source *_path entries; root-prefixed values are anchored
+ * and stripped per node, relative values anchor to that node's root. Anything the
+ * chain cannot resolve safely (foreign root, drive leftover, .., forbidden chars,
+ * length/count overflow) returns an explicit error so the caller pauses that job —
+ * never a silent drop, research-path rewrite or input copy.
+ */
+export function isolateRequiredInputPaths(declaration: any, node: CleanupNode): { inputs?: string[]; error?: string } {
+  const source = declaration?.checkpoint_source ?? declaration?.checkpointSource;
+  if (source === undefined || source === null) return { inputs: [] };
+  const entries: Array<[string, unknown]> = typeof source === "string" ? [["checkpoint_source", source]]
+    : typeof source === "object" && !Array.isArray(source)
+      ? Object.entries(source).filter(([key]) => key.endsWith("_path"))
+      : [];
+  if (!entries.length) return typeof source === "object" && !Array.isArray(source) ? { inputs: [] } : { error: "checkpoint_source 不是结构化的路径映射" };
+  const root = String(node.root || "").replace(/\\/g, "/").replace(/\/+$/, "");
+  const fold = process.platform === "win32" || /^[a-z]:\//i.test(root);
+  const startsWith = (value: string, prefix: string) => fold ? value.toLowerCase().startsWith(prefix.toLowerCase()) : value.startsWith(prefix);
+  const inputs = new Set<string>();
+  for (const [key, value] of entries) {
+    if (typeof value !== "string" || !value.trim()) return { error: "checkpoint_source." + key + " 不是可用的非空路径" };
+    let rel = value.trim().replace(/\\/g, "/").replace(/\/{2,}/g, "/");
+    if (rel.startsWith("/") || /^[a-z]:\//i.test(rel)) {
+      if (!root || !startsWith(rel, root + "/")) return { error: "checkpoint_source." + key + " 为本机无法锚定到该服务器根的路径" };
+      rel = rel.slice(root.length + 1);
+    }
+    const parts = rel.split("/").filter(part => part !== ".");
+    if (!parts.length || parts.some(part => !part || part === "..")) return { error: "checkpoint_source." + key + " 含无法安全解析的路径段" };
+    rel = parts.join("/");
+    if (!rel || rel.length > 4096 || /[\x00-\x1f:*?\[\]{}]/.test(rel)) return { error: "checkpoint_source." + key + " 无法表示为服务器要求的相对路径合同" };
+    inputs.add(rel);
+  }
+  if (inputs.size > 200) return { error: "checkpoint_source 声明的输入数量超过服务器上限 200" };
+  return { inputs: [...inputs].sort() };
 }
 const under = (base: string, file: string) => file === base || file.startsWith(base + "/");
 
@@ -455,6 +496,19 @@ export class PlanCleanup {
       && parent.type === "directory" && parent.disposition === action && under(parent.relativePath, row.relativePath))) {
       row.disposition = "protected"; row.protectedReason = "由同批精确父目录处理（保留逐项证据）";
     }
+    // 隔离目标必须携带 job 自己声明的必需输入，服务器端 requiredInputs 守卫
+    // 才会阻止父目录隔离连同 checkpoint/配置；无法安全解析 → 明确暂停该 job，
+    // 不静默忽略、不改科研路径、不复制输入。
+    if (action === "isolate" && scope.job?.purpose === "replace_outputs") {
+      const declaration = (scope.job?.manifest?.declarations || [])[0];
+      const unresolved = new Map<string, string>();
+      for (const row of result.rows) if (row.disposition === action) {
+        const resolved = isolateRequiredInputPaths(declaration, row.node);
+        if (resolved.error) unresolved.set(row.node.id, resolved.error);
+        else if (resolved.inputs && resolved.inputs.length) row.requiredInputs = resolved.inputs;
+      }
+      for (const [nodeId, detail] of unresolved) result.blockers.push({ code: "ISOLATE_REQUIRED_INPUTS_UNRESOLVED", nodeId, detail });
+    }
     const physical = new Map<string, CleanupRow>();
     const backendReads = await Promise.allSettled(scope.nodes.map(async node => {
       const rows = result.rows.filter(row => row.node.id === node.id && row.disposition === action);
@@ -462,7 +516,7 @@ export class PlanCleanup {
       notify({ phase: "nodes", message: node.id + "：只读预检 " + rows.length + " 个精确目标…", total: scope.nodes.length });
       return this.ports.sftp("files.cleanup.preview", { node, action, observationMode: scope.observationMode, authorizationMode: scope.authorizationMode,
         targets: rows.map(row => ({ relativePath: row.relativePath, type: row.type, destination: row.destination,
-          expectedSha256: row.expectedSha256, expectedOwner: row.expectedOwner, archiveBatch: row.archiveBatch })) });
+          expectedSha256: row.expectedSha256, expectedOwner: row.expectedOwner, archiveBatch: row.archiveBatch, requiredInputs: row.requiredInputs })) });
     }));
     for (const [index, node] of scope.nodes.entries()) {
       const rows = result.rows.filter(row => row.node.id === node.id && row.disposition === action);
@@ -507,7 +561,7 @@ export class PlanCleanup {
         if (approved.length && rows.some(row => row.disposition === "protected")) {
           const exact = await this.ports.sftp("files.cleanup.preview", { node, action, observationMode: scope.observationMode, authorizationMode: scope.authorizationMode,
             targets: approved.map(row => ({ relativePath: row.relativePath, type: row.type, destination: row.destination,
-              expectedSha256: row.expectedSha256, expectedOwner: row.expectedOwner, archiveBatch: row.archiveBatch })) });
+              expectedSha256: row.expectedSha256, expectedOwner: row.expectedOwner, archiveBatch: row.archiveBatch, requiredInputs: row.requiredInputs })) });
           if (cleanupDigest(exact.rootIdentity) !== cleanupDigest(backend.rootIdentity)
             || exact.targets.length !== approved.length
             || approved.some((row, index) => exact.targets[index].fingerprint !== row.fingerprint)) cleanupError("PREVIEW_CHANGED");

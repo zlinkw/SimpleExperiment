@@ -4,6 +4,12 @@ require('../_helpers/registerTsRequire');
 const {replaceRunOutputs}=require('../../src/features/PlanRunReplacement.ts');
 const {PlanCleanup,cleanupDigest}=require('../../dist/features/PlanCleanup');
 const clone=value=>JSON.parse(JSON.stringify(value));
+// B 冻结合同逐字节复制（simple-sftp cleanup-file-api.js 的 requiredInputs 校验行）：
+// 任何 A 出站 preview 携带不合规 requiredInputs 都按真实后端一样 INVALID_REQUEST 拒绝。
+const requiredInputsBad=v=>v!==undefined&&(!Array.isArray(v)||v.length>200
+  ||v.some(name=>typeof name!=='string'||!name||name.length>4096
+    ||/[\\\x00-\x1f:*?[\]{}]/.test(name)||name.startsWith('/')
+    ||name.split('/').some(part=>part===''||part==='.'||part==='..')));
 
 function flowFixture(script){
   const events=[],isolated=new Set(),state={};
@@ -68,6 +74,11 @@ async function backendFixture(options={}){
     if(method==='files.cleanup.preview'){
       const targets=params.targets.map(row=>{
         if(params.action==='isolate'&&!/^job-[a-f0-9]{48}$/.test(String(row.archiveBatch||'')))throw Object.assign(Error('INVALID_ARCHIVE_BATCH'),{code:'INVALID_ARCHIVE_BATCH'});
+        if(requiredInputsBad(row.requiredInputs))throw Object.assign(Error('INVALID_REQUEST'),{code:'INVALID_REQUEST',apiData:{code:'INVALID_REQUEST',detail:'requiredInputs 合同违例'}});
+        // 等价提取自 B cleanup-files.py 的守卫：输入存在且等于目标或位于目标之下 → 拒绝，先于任何移动。
+        if(params.action==='isolate'&&Array.isArray(row.requiredInputs))for(const name of row.requiredInputs)
+          if(sources.has(name)&&(name===row.relativePath||name.startsWith(row.relativePath+'/')))
+            throw Object.assign(Error('隔离目标将连同必需输入 '+name),{code:'ISOLATE_REQUIRED_INPUT_OVERLAP',apiData:{code:'ISOLATE_REQUIRED_INPUT_OVERLAP',detail:'隔离目标将连同必需输入 '+name}});
         if(params.action==='isolate'&&row.relativePath==='work/locked')throw Object.assign(Error('overlap'),{code:'ISOLATE_REQUIRED_INPUT_OVERLAP',apiData:{code:'ISOLATE_REQUIRED_INPUT_OVERLAP',detail:'必需输入重叠'}});
         if(params.action==='delete'&&!/^clean_dir\/job-[a-f0-9]{48}\//.test(row.relativePath))
           throw Object.assign(Error('NOT_REGISTERED_ISOLATION：只允许删除已登记隔离目标'),{code:'NOT_REGISTERED_ISOLATION',apiData:{code:'NOT_REGISTERED_ISOLATION',detail:row.relativePath}});
@@ -97,7 +108,7 @@ async function backendFixture(options={}){
     collect:async(file,options)=>clone({...scope,job:options?.job,candidates:options?.job?[
       {nodeId:'local',relativePath:options.job.manifest.declarations[0].output_dir,type:'directory',category:'输出目录',owners:['o'],evidence:['精确注册'],dependencies:[]}]:[]}),
       sftp,updateIndexes:async()=>{},restoreGate:async()=>{}});
-  const job=index=>({workflowId:'run-A',commandId:'c'+index,index,purpose:'replace_outputs',manifest:{declarations:[{index,output_dir:'work/job'+index}]}});
+  const job=(index,extra={})=>({workflowId:'run-A',commandId:'c'+index,index,purpose:'replace_outputs',manifest:{declarations:[{index,output_dir:'work/job'+index,...extra}]}});
   return{root,scope,service,job,sources,registered,calls,records,get deletePhase(){return deletePhase;},noCapability:()=>{options.noCapability=true;},allowJob:rel=>sources.set(rel,'sha-x')};
 }
 const exactOf=preview=>preview.rows.filter(row=>row.disposition===preview.action).map(row=>row.node.id+':'+row.absolutePath);
@@ -149,4 +160,60 @@ test('isolated delete preview rejects targets of an isolation batch that never f
   assert.ok(preview.rows.length);
   const op=await f.service.confirm({token:preview.token,digest:preview.digest,phase:1,confirm:true,exactTargets:exactOf(preview)});
   await assert.rejects(f.service.isolatedDeletePreview(op.id),/NO_VERIFIED_TARGETS/);
+});
+test('the real isolate preview payload carries normalized requiredInputs from the PLAN checkpoint declaration',async()=>{
+  const f=await backendFixture();
+  const preview=await f.service.preview({planFile:f.scope.planFile,action:'isolate',authorizationMode:'confirmed_paths',
+    job:f.job(0,{checkpoint_source:{checkpoint_path:'work/shared/ckpt_model.pt',config_path:f.root+'/configs/job0.yaml',checkpoint_sha256:'a'.repeat(64)}})});
+  assert.equal(preview.blockers.length,0,'inputs outside the target must not block isolation');
+  assert.equal(preview.rows[0].disposition,'isolate');
+  const sent=f.calls.filter(row=>row.method==='files.cleanup.preview').map(row=>row.params.targets).flat();
+  assert.ok(sent.length,'preview reached the backend');
+  assert.ok(sent.every(row=>Array.isArray(row.requiredInputs)&&row.requiredInputs.length===2),'every isolate target carries requiredInputs');
+  assert.deepEqual(sent[0].requiredInputs,['configs/job0.yaml','work/shared/ckpt_model.pt']);
+});
+test('a checkpoint inside the isolated directory is refused by the guard on the field actually sent; the job pauses and the source stays byte-identical in place',async()=>{
+  const f=await backendFixture();
+  f.sources.set('work/job0/ckpt/model.pt','sha-checkpoint');
+  const preview=await f.service.preview({planFile:f.scope.planFile,action:'isolate',authorizationMode:'confirmed_paths',
+    job:f.job(0,{checkpoint_source:{checkpoint_path:'work/job0/ckpt/model.pt',config_path:'work/job0/configs/train.yaml'}})});
+  const overlap=preview.blockers.find(row=>row.code==='ISOLATE_REQUIRED_INPUT_OVERLAP');
+  assert.ok(overlap,'the guard rejection reaches the job as a blocker');
+  assert.match(overlap.detail,/model\.pt/);
+  const sent=f.calls.find(row=>row.method==='files.cleanup.preview').params.targets[0];
+  assert.deepEqual(sent.requiredInputs,['work/job0/ckpt/model.pt','work/job0/configs/train.yaml']);
+  assert.equal(f.sources.get('work/job0'),'sha-old0','source bytes and location unchanged');
+  assert.equal(f.sources.get('work/job0/ckpt/model.pt'),'sha-checkpoint');
+  assert.ok(![...f.sources.keys()].some(k=>k.startsWith('clean_dir/')),'nothing moved to the isolation batch');
+});
+test('on the real preview chain one overlapping job pauses alone while the clean job isolates, confirms once and starts',async()=>{
+  const f=await backendFixture();
+  f.sources.set('work/job0/ckpt/model.pt','sha-checkpoint');
+  const jobs=[{index:0,output_dir:'work/job0',checkpoint_source:{checkpoint_path:'work/job0/ckpt/model.pt'}},{index:1,output_dir:'work/job1'}];
+  const ports={assertCurrent(){},progress(){},save:async()=>{},ask:async p=>p.phase===1?'rerun_all':'isolate_and_run',
+    preview:job=>f.service.preview({planFile:f.scope.planFile,action:'isolate',authorizationMode:'confirmed_paths',
+      job:{workflowId:'run-A',commandId:'c'+job.index,index:job.index,purpose:'replace_outputs',manifest:{declarations:[job]}}}),
+    service:f.service,execute:id=>f.service.execute(id),verify:async preview=>{await f.service.assertIsolatedSourcesAbsent(preview);},
+    beforeDelete:async()=>{},hold:async()=>{}};
+  const state={};const outcome=await replaceRunOutputs(ports,state,'plans/p.yaml',jobs,[],'frozen');
+  assert.equal(state.blocked.length,1);assert.equal(state.blocked[0].index,0);assert.match(state.blocked[0].reason,/ISOLATE_REQUIRED_INPUT_OVERLAP/);
+  assert.deepEqual(outcome.selectedIndices,[1]);
+  assert.equal(f.sources.get('work/job0'),'sha-old0');assert.equal(f.sources.get('work/job0/ckpt/model.pt'),'sha-checkpoint');
+  assert.ok(!f.sources.has('work/job1'),'the admitted job moved');
+  assert.ok(state.previews[0].preview.rows.every(row=>row.disposition!=='isolate'),'the paused job keeps no isolation targets');
+});
+test('requiredInputs normalization anchors roots, folds separators and refuses anything unresolvable instead of guessing',()=>{
+  const helper=require('../../dist/features/PlanCleanup').isolateRequiredInputPaths;
+  const node={id:'w1',kind:'remote',root:'/srv/proj'};
+  assert.deepEqual(helper({},node),{inputs:[]});
+  assert.deepEqual(helper({checkpoint_source:{checkpoint_path:'work\\job0\\ckpt.pt'}},node),{inputs:['work/job0/ckpt.pt']});
+  assert.deepEqual(helper({checkpoint_source:{checkpoint_path:'/srv/proj/work/./ck.pt'}},node),{inputs:['work/ck.pt']});
+  assert.deepEqual(helper({checkpoint_source:{checkpoint_path:'d:\\proj\\work\\ck.pt'}},{id:'w2',kind:'local',root:'D:/proj'}),{inputs:['work/ck.pt']});
+  assert.match(helper({checkpoint_source:{checkpoint_path:'/other/proj/ck.pt'}},node).error,/锚定/);
+  assert.match(helper({checkpoint_source:{checkpoint_path:'work/../secret/ck.pt'}},node).error,/路径段/);
+  assert.match(helper({checkpoint_source:{checkpoint_path:''}},node).error,/非空/);
+  assert.match(helper({checkpoint_source:{checkpoint_path:'work/a:b'}},node).error,/合同/);
+  assert.match(helper({checkpoint_source:{checkpoint_path:'x'.repeat(4097)}},node).error,/合同/);
+  const many={};for(let i=0;i<201;i++)many['p'+i+'_path']='w/f'+i;
+  assert.match(helper({checkpoint_source:many},node).error,/200/);
 });

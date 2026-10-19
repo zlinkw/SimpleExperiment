@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.393",
-  "buildId": "245d72c580b2e4671eed2038b320a876da75a6d5d80350c8a791543e5c91c5cb",
+  "buildId": "c1fc07cf6d4acf984e3f35f5c5c91ebcb90da511b4073b9115d23476e82b83b5",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -489,7 +489,7 @@
     },
     {
       "path": "dist/features/PlanCleanup.js",
-      "sha256": "b7dd4bfaa19c20bc20345ceac49d1061d1b4b965dbb7c83309199ab2dc0d7011"
+      "sha256": "937c5ca15a572607ccba5a11baf6a422db4ef043f95b2be1f358a11ed632546d"
     },
     {
       "path": "dist/features/PlanCleanupEvidence.js",
