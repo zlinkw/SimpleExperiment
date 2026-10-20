@@ -904,6 +904,7 @@ test("exact operation cleanup hides only terminal records", () => {
     executionHistoryRowsCacheState: null, executionHistoryRowsCacheValue: [],
     operationRowsForInput: () => rows,
     operationIsActive: (value) => value === "running",
+    operationOutcomePendingHistory: (row) => String(row?.status || row?.state || "").trim().toLowerCase() === "outcome_pending" && row?.reconcileEvidenceActive !== true,
     executionHistoryRowVisible: () => true,
   };
   vm.createContext(sandbox);

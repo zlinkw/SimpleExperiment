@@ -87,6 +87,7 @@ test("operation card shows a clickable Plan name and keeps its full path", () =>
     firstPathLike: (...values) => values.find((value) => String(value || "").includes("/")) || "",
     operationIsActive: () => false, operationIsFailureLike: () => true,
     operationIsCancelled: () => false, operationIsCompleted: () => false,
+    operationOutcomePendingHistory: () => false,
     operationDisplayMessage: (row) => row.message, operationErrorLine: () => "",
     operationRunningEvidenceWarning: () => "", renderOperationDetailPills: () => "",
     renderRemoteResultInspectionActions: () => "", operationTypeLabel: String,

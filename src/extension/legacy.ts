@@ -17032,15 +17032,27 @@ this.assertActionAuthorityCurrent(options);this.assertPlanTopologyReady(options.
         if (!root) throw new Error("请先打开当前实验项目。");
         const operationIds = uniqueStrings([...stringArrayField(message, "operationIds"), stringField(message, "operationId")]);
         if (operationIds.length) {
-            const operations = this.buildPlanRuntimeEvidenceState().operations;
-            const rows = operationIds.map((id) => operations[id] || Object.values(operations).find((row: any) => String(row?.operationId || row?.id || "") === id));
-            if (rows.some((row: any) => !row || !operationHistoryHideableStatus(row.status || row.state)))
+            const lookUpRows = (source: Record<string, any>) => operationIds.map((id) => source[id]
+                || Object.values(source).find((row: any) => String(row?.operationId || row?.id || "") === id));
+            const clearableRow = (row: any) => Boolean(row)
+                && (operationHistoryHideableStatus(row.status || row.state)
+                    || RunOperations_1.isOutcomePendingHistoryRecord(row as any));
+            const rows = lookUpRows(this.buildPlanRuntimeEvidenceState().operations);
+            if (rows.some((row: any) => !clearableRow(row)))
                 throw new Error("所选操作已变化或仍在运行，请刷新状态后重新选择；运行中的操作不能清理。");
+            const unknownOutcome = rows.some((row: any) => !operationHistoryHideableStatus(row.status || row.state));
             const confirmed = await vscode.window.showWarningMessage(
-                `从本机面板隐藏 ${operationIds.length} 条已结束操作记录？当前运行的 Plan 和 job、远端审计、日志及产物均保留。`,
+                unknownOutcome
+                    ? `从本机面板隐藏 ${operationIds.length} 条记录？其中含“执行结果待确认”的旧记录：隐藏只表示本机面板不再显示，不代表远端已结束。当前运行的 Plan 和 job、远端审计、日志及产物均保留。`
+                    : `从本机面板隐藏 ${operationIds.length} 条已结束操作记录？当前运行的 Plan 和 job、远端审计、日志及产物均保留。`,
                 { modal: true }, "清理所选记录", "取消",
             );
             if (confirmed !== "清理所选记录" || root !== workspaceRoot()) return;
+            // 确认弹窗挂起期间同一身份可能已被远端回成 running/queued；写隐藏前重新取当前行复校，
+            // 绝不拿 await 前的旧快照授权，也不能因复校失败而碰任何远端、队列或产物。
+            const confirmedRows = lookUpRows(this.buildPlanRuntimeEvidenceState().operations);
+            if (confirmedRows.some((row: any) => !clearableRow(row)))
+                throw new Error("所选操作在确认期间已变为运行中或已变化，本机隐藏未写入；请刷新状态后重新选择。");
             const saved = this.context.workspaceState.get(keys.executionHistoryHiddenOperationIds, []);
             const hidden = uniqueStrings([...(Array.isArray(saved) ? saved : []), ...operationIds]);
             await this.context.workspaceState.update(keys.executionHistoryHiddenOperationIds, hidden);

@@ -6077,6 +6077,21 @@ export function renderPanelHtml(): string {
       return !operationIsFailureLike(value) && !operationIsCancelled(value) && (value.includes("complete") || value === "done" || value === "succeeded");
     }
 
+    // 与后端 RunOperations.isOutcomePendingHistoryRecord 同口径（面板内联脚本不能 import，所以是同列副本）：
+    // 只放开已证明无 Plan 调度窗口的短操作类型；未知/缺失 type fail closed；
+    // 活动状态优先拒绝，陈旧的 outcomePending 标记不能压过新的 running/queued 等状态。
+    const OUTCOME_PENDING_HISTORY_TYPES = Object.freeze(["validate-plan", "dry-run-plan", "rebuild-distributed-results"]);
+    const OUTCOME_PENDING_ACTIVE_TOKENS = Object.freeze(["accepted", "submitted", "queued", "pending", "running", "starting", "dispatching", "cancelling", "in_progress", "started", "progress", "schedul", "waiting"]);
+    function operationOutcomePendingHistory(row) {
+      if (!row || typeof row !== "object") return false;
+      const type = String(row.type || row.action || "").trim().toLowerCase();
+      if (!OUTCOME_PENDING_HISTORY_TYPES.some((item) => item === type)) return false;
+      const status = String(row.status || row.state || "").trim().toLowerCase();
+      if (status !== "outcome_pending" && OUTCOME_PENDING_ACTIVE_TOKENS.some((item) => status.includes(item))) return false;
+      if (row.reconcileEvidenceActive === true) return false;
+      return status === "outcome_pending" || row.outcomePending === true;
+    }
+
     function operationSucceeded(row) {
       const status = String((row || {}).status || (row || {}).state || "").toLowerCase();
       return operationIsCompleted(status);
@@ -6089,7 +6104,8 @@ export function renderPanelHtml(): string {
       const hidden = new Set(Array.isArray(data.executionHistoryHiddenOperationIds) ? data.executionHistoryHiddenOperationIds.map(String) : []);
       executionHistoryRowsCacheState = data;
       executionHistoryRowsCacheValue = rows.filter((row) => {
-        const active = operationIsActive(row.status) && row.reconcileEvidenceActive !== false;
+        // outcome_pending 短记录不是真在运行；不能让它绕过已勾选隐藏与已清除历史截止。
+        const active = operationIsActive(row.status) && row.reconcileEvidenceActive !== false && !operationOutcomePendingHistory(row);
         return (active || !hidden.has(String(row.operationId || row.id || "")))
           && executionHistoryRowVisible(data, row, row.planFile || row.plan, active);
       });
@@ -14852,7 +14868,7 @@ export function renderPanelHtml(): string {
         '<button class="mini danger" data-command="stopAndClearPlans" data-execution-plan-batch="all" ' + (allPlans.length ? '' : 'disabled') + ' title="完整批次只确认一次，最多 4 个 Plan 并行；保留训练产物">中止并清理所有 Plan</button>' +
         '<button class="mini history-clear" data-command="clearOperations" data-plan-file="' + escAttr(selectedExecutionPlanFile) + '" ' + (selectedExecutionPlanFile ? '' : 'disabled') + ' title="清除选中 Plan 的本机已结束运行历史；保留远端审计和产物">清除所选 Plan 历史</button>' +
         '<button class="mini history-clear" data-command="clearOperations" title="清除全部 Plan 在本机的已结束运行历史；保留远端审计、日志和产物">清除所有历史</button>' +
-        '<button id="clearSelectedOperationHistory" class="mini history-clear" data-command="clearOperations" data-operation-history-selected="true" ' + (selectedOperationHistoryIds.size ? '' : 'disabled') + ' title="仅从本机面板隐藏勾选的已结束操作；不影响正在运行的 Plan 或 job">清理选中记录' + (selectedOperationHistoryIds.size ? ' (' + selectedOperationHistoryIds.size + ')' : '') + '</button>' +
+        '<button id="clearSelectedOperationHistory" class="mini history-clear" data-command="clearOperations" data-operation-history-selected="true" ' + (selectedOperationHistoryIds.size ? '' : 'disabled') + ' title="仅从本机面板隐藏勾选的已结束或结果待确认记录；待确认记录只隐藏显示，不代表远端已结束；不影响正在运行的 Plan 或 job">清理选中记录' + (selectedOperationHistoryIds.size ? ' (' + selectedOperationHistoryIds.size + ')' : '') + '</button>' +
         '<button class="mini secondary" data-command="queueRemainingJobs" data-queue-all="true" title="仅在本次点击时，将全部 Plan 尚未派发的剩余 job 按逐卡 job 配额比例放入服务器队列">全部剩余 job 入服务器队列</button>' +
         '<button class="mini secondary" data-command="snapshot" title="重新拉取调度状态与操作记录">刷新状态</button>');
       const advancedActions = '<div class="executionControls"><button class="mini secondary" data-command="abortScheduler" data-operation-id="' + escAttr(abortOpId) + '" data-plan-file="' + escAttr(abortPlan) + '" data-confirm="true" ' + (abortEnabled ? '' : 'disabled') + ' title="强制中止当前 Plan 的调度器">备用清理</button></div>';
@@ -15390,13 +15406,18 @@ export function renderPanelHtml(): string {
 
      function renderOperationItem(row, historyActions) {
       const status = String(row.status || "-").toLowerCase();
-      const historySelectable = Boolean(historyActions) && !operationIsActive(status)
-        && (operationIsFailureLike(status) || operationIsCancelled(status) || operationIsCompleted(status));
+      const outcomePendingHistory = operationOutcomePendingHistory(row);
+      const historySelectable = Boolean(historyActions) && (outcomePendingHistory
+        || (!operationIsActive(status)
+          && (operationIsFailureLike(status) || operationIsCancelled(status) || operationIsCompleted(status))));
       const historyId = String(row.operationId || row.id || "");
       const retrySubmission = row.retryableSubmission && historyId ? '<div class="operationActions"><button class="mini" data-command="retryPlanSubmission" data-operation-id="' + escAttr(historyId) + '">重试失败步骤</button><button class="mini secondary" data-command="cancelPlanSubmission" data-operation-id="' + escAttr(historyId) + '">取消本次提交</button></div>' : '';
       const historyCheckbox = historySelectable && historyId ? '<input type="checkbox" data-operation-history-select="' + escAttr(historyId) + '" aria-label="选择操作 ' + escAttr(historyId) + '"' + (selectedOperationHistoryIds.has(historyId) ? ' checked' : '') + '>' : '';
-      const historyButton = historySelectable && historyId ? '<button class="mini history-clear" data-command="clearOperations" data-operation-id="' + escAttr(historyId) + '" title="仅从本机面板隐藏这条已结束操作；不影响当前 Plan、job 或远端文件">清理此条</button>' : '';
-      const historyMarker = historySelectable ? '<span class="pill" title="这是一次已结束的操作记录；当前运行的 job 在上方 Plan 进度中单独显示">历史操作</span>' : '';
+      const historyButtonTitle = outcomePendingHistory
+        ? "仅从本机面板隐藏这条结果待确认的旧记录；本机隐藏不代表远端已结束，不影响当前 Plan、job 或远端文件"
+        : "仅从本机面板隐藏这条已结束操作；不影响当前 Plan、job 或远端文件";
+      const historyButton = historySelectable && historyId ? '<button class="mini history-clear" data-command="clearOperations" data-operation-id="' + escAttr(historyId) + '" title="' + escAttr(historyButtonTitle) + '">清理此条</button>' : '';
+      const historyMarker = historySelectable ? '<span class="pill" title="' + escAttr(outcomePendingHistory ? "这是结果待确认的旧记录；本机隐藏不代表远端已结束，也不影响正在运行的 Plan 或 job" : "这是一次已结束的操作记录；当前运行的 job 在上方 Plan 进度中单独显示") + '">' + (outcomePendingHistory ? "待确认记录" : "历史操作") + "</span>" : '';
       const planFile = firstPathLike(row.planFile, row.selectedPlanId, row.plan, row.payload?.planFile, row.payload?.selectedPlanId);
       const planButton = planFile ? planPathButtonForMetric(planFile, 36) : "";
       const cls = operationIsActive(status) ? "is-running" : (operationIsFailureLike(status) ? "is-failed" : (operationIsCancelled(status) ? "is-cancelled" : (operationIsCompleted(status) ? "is-completed" : "")));
@@ -18920,6 +18941,7 @@ function projectSectionNextAction(status, label, section, anchor) {
           schedulerStarted: pick(row, ["schedulerStarted", "scheduler_started"], pick(payload, ["schedulerStarted", "scheduler_started"], false)) === true,
           schedulerFinished: pick(row, ["schedulerFinished", "scheduler_finished"], pick(payload, ["schedulerFinished", "scheduler_finished"], false)) === true,
           reconcileEvidenceActive: pick(row, ["reconcileEvidenceActive", "reconcile_evidence_active"], pick(payload, ["reconcileEvidenceActive", "reconcile_evidence_active"], undefined)),
+          outcomePending: pick(row, ["outcomePending", "outcome_pending"], pick(payload, ["outcomePending", "outcome_pending"], false)) === true,
           jobCount: pick(row, ["jobCount", "job_count"], pick(payload, ["jobCount", "job_count"], pick(validation, ["jobCount", "job_count"], "-"))),
           executionMode: pick(row, ["executionMode", "execution_mode"], pick(payload, ["executionMode", "execution_mode"], pick(validation, ["executionMode", "execution_mode"], "-"))),
           dispatchableCount: pick(row, ["dispatchableCount", "assignableNow"], pick(payload, ["dispatchableCount", "assignableNow"], pick(preview, ["dispatchableCount", "assignableNow"], "-"))),

@@ -19,6 +19,7 @@ function methods(answer, saved = {}) {
     stringArrayField: (message, key) => Array.isArray(message[key]) ? message[key] : [],
     uniqueStrings: (values) => [...new Set(values.filter(Boolean))],
     operationHistoryHideableStatus: (status) => ["completed", "failed", "interrupted"].includes(status),
+    RunOperations_1: require("../../dist/features/RunOperations.js"),
     normalizePlanSelectionKey: (value) => String(value).replaceAll("\\", "/"),
     operationResultPlanFile: (row) => row.planFile,
     errorMessage: (error) => String(error.message || error),
