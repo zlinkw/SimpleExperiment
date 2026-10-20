@@ -164,6 +164,8 @@ test("late local lock ACK is fenced before the captured Worker client can send",
     provider.localCodeManifestCacheFile = () => path.join(workspace, "manifest-cache.json");
     const host = Object.assign(Object.create(RealtimeTunnelPanelProvider.prototype), provider);
     host.distributedQueueGeneration = 7;
+    let manifestBuilds = 0;
+    host.buildDistributedJobCodeManifest = async () => { manifestBuilds += 1; throw new Error("code manifest must not be prepared before the fence"); };
     host.lastWorkerProbes = { 'worker-a': { capabilities: { endpoints: { declaredJobPaths: true, formalJobIdentityEnv: 1, taskShellEnvironment: 1, projectManagedValidation: 1, gpuQuotaScheduling: 1 } } } };
     host.withRemoteActionResource = async (_workerId, _resource, _request, callback) => {
       host.distributedQueueGeneration += 1;
@@ -175,6 +177,72 @@ test("late local lock ACK is fenced before the captured Worker client can send",
       { index: 0, case: "alpha", seed: 42, outputDir: "runs/a", collectionResultCsv: "tmp/result/a.csv" }, "worker-a", undefined, "command-a",
     ), /提交已取消或项目已切换/);
     assert.equal(sends, 0, "generation changed while awaiting the local resource lock must block the remote write");
+    assert.equal(manifestBuilds, 0, "a late lock ACK must fence before any code-manifest preparation runs");
+  } finally {
+    vscode.workspace.workspaceFolders = [];
+  }
+});
+
+test("a granted local lock ACK with unchanged context still sends the durable job with its proof fields", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "p6-ack-ok-"));
+  try {
+    vscode.workspace.workspaceFolders = [{ uri: { scheme: "file", path: workspace.replace(/\\/g, "/"),
+      fsPath: workspace, toString: () => "file://" + workspace.replace(/\\/g, "/") } }];
+    const sent = [];
+    const provider = providerFor(workspace, "");
+    provider.context.globalStorageUri.fsPath = workspace;
+    provider.client = { postWorkerAction: async (_workerId, _action, request) => { sent.push(request); return { status: "queued" }; } };
+    provider.workerActionTargets = () => [{ id: "worker-a", condaEnv: "env-a" }];
+    provider.localCodeManifestCacheFile = () => path.join(workspace, "manifest-cache.json");
+    const host = Object.assign(Object.create(RealtimeTunnelPanelProvider.prototype), provider);
+    host.distributedQueueGeneration = 7;
+    let manifestBuilds = 0;
+    host.buildDistributedJobCodeManifest = async () => { manifestBuilds += 1; throw new Error("a durable proof worker must not rebuild the local manifest"); };
+    const emptyManifestFingerprint = crypto.createHash("sha256").update("[]").digest("hex");
+    host.lastWorkerProbes = { 'worker-a': { capabilities: { endpoints: { declaredJobPaths: true, formalJobIdentityEnv: 1, taskShellEnvironment: 1, projectManagedValidation: 1, gpuQuotaScheduling: 1 }, actionEndpoints: { "register-code-sync-proof": true } } } };
+    host.lastCodeSyncState = { workerVersions: { 'worker-a': { codeSyncProofId: "proof-9", manifestDigest: emptyManifestFingerprint, fingerprint: emptyManifestFingerprint } } };
+    host.withRemoteActionResource = async (_workerId, _resource, _request, callback) => callback();
+    const receipt = await host.sendDistributedJob(
+      { id: "plan-a", projectId: "project-a", resultPathPolicy: "declared", executionMode: "train_test", planJobCount: 1, planFile, revision: "rev-1", codeFingerprint: emptyManifestFingerprint },
+      { index: 0, case: "alpha", seed: 42, outputDir: "runs/a", collectionResultCsv: "tmp/result/a.csv" }, "worker-a", undefined, "command-a",
+    );
+    assert.deepEqual(receipt, { status: "queued" });
+    assert.equal(sent.length, 1, "an undisrupted lock ACK must still deliver exactly one durable job");
+    assert.equal(manifestBuilds, 0, "the persistent proof path carries the proof id without touching the local tree");
+    assert.equal(sent[0].codeSyncProofId, "proof-9", "the deferred proof preparation must rejoin the request before transport");
+    assert.equal(sent[0].manifestDigest, emptyManifestFingerprint);
+    assert.equal(sent[0].projectId, "project-a");
+    assert.equal(sent[0].outputDir, "runs/a");
+    assert.equal(sent[0].planFile, planFile);
+    assert.equal(sent[0].resultPathPolicy, "declared");
+  } finally {
+    vscode.workspace.workspaceFolders = [];
+  }
+});
+
+test("a normal send without a resolvable local project root fails explicitly before manifest preparation", async () => {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "p6-no-root-"));
+  try {
+    vscode.workspace.workspaceFolders = [];
+    let sends = 0;
+    const provider = providerFor(workspace, "");
+    provider.context.globalStorageUri.fsPath = workspace;
+    provider.client = { postWorkerAction: async () => { sends += 1; return { status: "queued" }; } };
+    provider.workerActionTargets = () => [{ id: "worker-a", condaEnv: "env-a" }];
+    provider.localCodeManifestCacheFile = () => path.join(workspace, "manifest-cache.json");
+    const host = Object.assign(Object.create(RealtimeTunnelPanelProvider.prototype), provider);
+    host.distributedQueueGeneration = 7;
+    let manifestBuilds = 0;
+    host.buildDistributedJobCodeManifest = async () => { manifestBuilds += 1; throw new Error("manifest preparation must be blocked by the explicit root guard"); };
+    host.lastWorkerProbes = { 'worker-a': { capabilities: { endpoints: { declaredJobPaths: true, formalJobIdentityEnv: 1, taskShellEnvironment: 1, projectManagedValidation: 1, gpuQuotaScheduling: 1 } } } };
+    host.withRemoteActionResource = async (_workerId, _resource, _request, callback) => callback();
+    const emptyManifestFingerprint = crypto.createHash("sha256").update("[]").digest("hex");
+    await assert.rejects(() => host.sendDistributedJob(
+      { id: "plan-a", projectId: "project-a", resultPathPolicy: "declared", executionMode: "train_test", planJobCount: 1, planFile, revision: "rev-1", codeFingerprint: emptyManifestFingerprint },
+      { index: 0, case: "alpha", seed: 42, outputDir: "runs/a", collectionResultCsv: "tmp/result/a.csv" }, "worker-a", undefined, "command-a",
+    ), /缺少本机项目根目录/);
+    assert.equal(sends, 0, "a request without a resolvable project root must never reach the Worker transport");
+    assert.equal(manifestBuilds, 0, "the explicit root guard must reject before any local manifest I/O");
   } finally {
     vscode.workspace.workspaceFolders = [];
   }

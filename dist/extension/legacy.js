@@ -12172,30 +12172,41 @@ class RealtimeTunnelPanelProvider {
                 ? 0 : Number(rawMaxConcurrentGpus);
             const supportsCodeSyncProof = this.lastWorkerProbes?.[workerId]?.capabilities?.actionEndpoints?.["register-code-sync-proof"] === true;
             const workerVersion = this.lastCodeSyncState?.workerVersions?.[workerId] || {};
+            // Code-source preparation touches the local project tree, so it must never run
+            // while a cancellation or project switch is already in effect. Prepare lazily
+            // behind the freshest fence: inside the local resource lock ACK for the legacy
+            // transport, and after the pre-send fence for the protocol-2 direct post.
             let codeProofFields;
-            if (PlanCodeScopeHost.supportsPlanCodeScope(this, workerId)) {
-                const executionSource = await PlanCodeScopeHost.verifyWorkerPlanSource(this, workerId, plan);
-                codeProofFields = { executionSource };
-            }
-            else if (supportsCodeSyncProof && workerVersion.codeSyncProofId) {
-                // Agent verifies the persisted proof against its own code files before admission.
-                // An unchanged Worker can finish an older Plan after the local workspace advances.
-                codeProofFields = durableCodeProofRequestFields(true, workerVersion, plan.codeFingerprint, undefined, workerId);
-            }
-            else {
-                // Pre-migration Host caches may contain the fingerprint but no proof id.
-                // The Agent can validate a matching full manifest without copying code or resubmitting the Plan.
-                const codeManifest = sharedCodeManifest || await this.buildDistributedJobCodeManifest(root);
-                if (fingerprintFromManifest(codeManifest) !== plan.codeFingerprint)
-                    throw new Error("本机代码已偏离 Plan 的代码指纹，持久队列提交已暂停；该 Worker 仍是旧代码 proof 语义，无法安全携带新快照，请先更新 Worker runtime，或恢复该版本或重新提交计划。");
-                codeProofFields = durableCodeProofRequestFields(false, workerVersion, plan.codeFingerprint, codeManifest, workerId);
-            }
+            const prepareCodeProofFields = async () => {
+                if (codeProofFields)
+                    return codeProofFields;
+                if (PlanCodeScopeHost.supportsPlanCodeScope(this, workerId)) {
+                    const executionSource = await PlanCodeScopeHost.verifyWorkerPlanSource(this, workerId, plan);
+                    codeProofFields = { executionSource };
+                }
+                else if (supportsCodeSyncProof && workerVersion.codeSyncProofId) {
+                    // Agent verifies the persisted proof against its own code files before admission.
+                    // An unchanged Worker can finish an older Plan after the local workspace advances.
+                    codeProofFields = durableCodeProofRequestFields(true, workerVersion, plan.codeFingerprint, undefined, workerId);
+                }
+                else {
+                    // Pre-migration Host caches may contain the fingerprint but no proof id.
+                    // The Agent can validate a matching full manifest without copying code or resubmitting the Plan.
+                    if (!root)
+                        throw new Error("缺少本机项目根目录；无法核对代码来源，未向 Worker 发送任务。");
+                    const codeManifest = sharedCodeManifest || await this.buildDistributedJobCodeManifest(root);
+                    if (fingerprintFromManifest(codeManifest) !== plan.codeFingerprint)
+                        throw new Error("本机代码已偏离 Plan 的代码指纹，持久队列提交已暂停；该 Worker 仍是旧代码 proof 语义，无法安全携带新快照，请先更新 Worker runtime，或恢复该版本或重新提交计划。");
+                    codeProofFields = durableCodeProofRequestFields(false, workerVersion, plan.codeFingerprint, codeManifest, workerId);
+                }
+                return codeProofFields;
+            };
             if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
                 throw new Error("提交已取消或项目已切换，未向 Worker 发送任务。");
             const request = {
                 schemaVersion: 1, lifecycleProtocol: 2, commandId, opId: commandId, operationId: commandId, runKey: commandId,
                 durablePlanQueue: true, schedulingMode: DistributedSchedulingPolicy.schedulingMode(job.manualDispatch?.origin === "server_queue" ? "server_prequeue" : job.localQueueOnly === true || plan.localDispatchOverride === true ? "local_idle" : plan.schedulingMode),
-                requireIdleGpu: !job.manualDispatch && gpuId !== undefined, dispatchPolicy: job.manualDispatch ? "manual" : "automatic", ...codeProofFields, projectId: plan.projectId || DistributedPlanQueue.canonicalProjectId(root),
+                requireIdleGpu: !job.manualDispatch && gpuId !== undefined, dispatchPolicy: job.manualDispatch ? "manual" : "automatic", projectId: plan.projectId || DistributedPlanQueue.canonicalProjectId(root),
                 planJobCount: Number(plan.planJobCount || plan.jobs.length), fullPlanJobCount: Number(plan.fullPlanJobCount || plan.planJobCount || plan.jobs.length), enqueuedAt: plan.enqueuedAt,
                 planFile: plan.planFile, experimentIndex: job.index, ...(gpuId !== undefined ? { gpuId } : {}),
                 case: job.case, seed: job.seed, outputDir: job.outputDir, mode: executionMode, executionMode,
@@ -12213,13 +12224,15 @@ class RealtimeTunnelPanelProvider {
                     overwriteExisting: plan.overwriteExisting === true,
                     workerActionMinIntervalMs: this.schedulerSettings().workerActionMinIntervalMs },
             };
-            const transfer = () => this.withRemoteActionResource(workerId, "start-worker-task", request, () => {
+            const transfer = () => this.withRemoteActionResource(workerId, "start-worker-task", request, async () => {
                 if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
                     throw new Error("提交已取消或项目已切换，未向 Worker 发送任务。");
+                Object.assign(request, await prepareCodeProofFields());
                 transmissionStarted = true;
                 return client.postWorkerAction(workerId, "start-worker-task", request);
             });
             if (job.lifecycleProtocol === 2) {
+                Object.assign(request, await prepareCodeProofFields());
                 const snapshot = this.lastWorkerTaskSnapshots?.get(`${root}\u0000${workerId}`);
                 if (snapshot?.capabilities?.taskLifecycle !== 2)
                     throw new Error(`TASK_LIFECYCLE_PROTOCOL_REQUIRED：Worker ${workerId} 需要更新 Agent/Scheduler；未派发`);

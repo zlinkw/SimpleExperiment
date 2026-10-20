@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.393",
-  "buildId": "d223cd75063a290aabef4dd6fbf37d09989846d4aa2163b54bb83fe4ed06dd53",
+  "buildId": "b313fed196197e54976aa0464c3a530c859c6cff87fb1ffe4c4bccf378b0795a",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -197,7 +197,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "d9eccb0ec3df998bf60a21becf6a951f57902f165abf57dd0d738a4e8a2fcfa1"
+      "sha256": "ee205f2d4a4edcc3c91136ef970031d3c9834c65c7b3c202cd7bbfa9cff48248"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
