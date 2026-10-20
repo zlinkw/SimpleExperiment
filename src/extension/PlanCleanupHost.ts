@@ -29,11 +29,11 @@ export class PlanCleanupHost {
         try { result = await host.simpleSftpApiCall(method, params); }
         catch (error: any) {
           // 旧引擎以 UNKNOWN_ACTION / UPDATE_REQUIRED 拒绝确认快速链时：统一"需要更新"错误，零确认零执行。
-          if (method === "files.cleanup.preview" && params.authorizationMode === "confirmed_paths"
+          if (method === "files.cleanup.preview" && params.authorizationMode === "confirmed_paths" && params.action === "delete"
             && isFastDeleteUpgradeCode(error?.apiData?.code ?? error?.code)) fastDeleteUpgradeError();
           throw error;
         }
-        if (method === "files.cleanup.preview" && params.authorizationMode === "confirmed_paths") {
+        if (method === "files.cleanup.preview" && params.authorizationMode === "confirmed_paths" && params.action === "delete") {
           // v1.9：确认路径快速链以其应答的快标志块为唯一契约；旧通用链门禁（managedObservation、
           // Git 祖先预检、归档批次、正式 job 属主）属于已退役链路，快速路径不再套用。
           assertFastDeletePreviewSafety(result?.safety, Array.isArray(params.targets) ? params.targets.length : 0);

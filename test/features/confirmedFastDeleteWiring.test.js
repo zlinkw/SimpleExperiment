@@ -246,19 +246,26 @@ test('the Host wrapper accepts the fast answer without retired gates and maps re
   host.fixture.reply = { value: undefined };
   // Fast answer without any retired generic-chain gates must pass.
   host.fixture = { value: { token: 't', digest: 'd', safety: clone(FAST), targets: [{ absolutePath: '/project/a', type: 'file' }] } };
-  assert.equal((await host.service.ports.sftp('files.cleanup.preview', { authorizationMode: 'confirmed_paths', targets: [{ relativePath: 'a', type: 'file' }] })).safety.batchedFastDelete, 1);
+  assert.equal((await host.service.ports.sftp('files.cleanup.preview', { action: 'delete', authorizationMode: 'confirmed_paths', targets: [{ relativePath: 'a', type: 'file' }] })).safety.batchedFastDelete, 1);
   // Legacy answer without fast flags maps to the unified upgrade error.
   host.fixture = { value: { token: 't', digest: 'd', safety: { confirmedPathDeletion: 1 }, targets: [] } };
-  await assert.rejects(host.service.ports.sftp('files.cleanup.preview', { authorizationMode: 'confirmed_paths', targets: [{ relativePath: 'a', type: 'file' }] }),
+  await assert.rejects(host.service.ports.sftp('files.cleanup.preview', { action: 'delete', authorizationMode: 'confirmed_paths', targets: [{ relativePath: 'a', type: 'file' }] }),
     error => error.apiData.code === 'SFTP_FAST_DELETE_UPGRADE_REQUIRED');
   // Refusals with the upgrade codes map to the same unified error.
   host.fixture = { throw: err('UNKNOWN_ACTION') };
-  await assert.rejects(host.service.ports.sftp('files.cleanup.preview', { authorizationMode: 'confirmed_paths', targets: [{ relativePath: 'a', type: 'file' }] }),
+  await assert.rejects(host.service.ports.sftp('files.cleanup.preview', { action: 'delete', authorizationMode: 'confirmed_paths', targets: [{ relativePath: 'a', type: 'file' }] }),
     error => error.apiData.code === 'SFTP_FAST_DELETE_UPGRADE_REQUIRED');
   // Retired generic-chain gates remain for non-confirmed previews.
   host.fixture = { value: { safety: {} } };
   await assert.rejects(host.service.ports.sftp('files.cleanup.preview', { observationMode: 'managed_tmux' }),
     error => error.apiData.code === 'SFTP_MANAGED_OBSERVATION_REQUIRED');
+  // The fast-delete gate is delete-scoped: a confirmed ISOLATE answer without fast flags keeps the isolate chain.
+  host.fixture = { value: { safety: { managedObservation: 1, gitRepositoryAncestors: true, readOnlyReceiptCheck: true, isolateFast: 1 } } };
+  assert.equal((await host.service.ports.sftp('files.cleanup.preview', { action: 'isolate', authorizationMode: 'confirmed_paths', targets: [{ relativePath: 'a', type: 'directory' }] })).safety.isolateFast, 1);
+  // And its refusal codes stay isolate semantics instead of the unified fast-delete upgrade error.
+  host.fixture = { throw: err('UNKNOWN_ACTION') };
+  await assert.rejects(host.service.ports.sftp('files.cleanup.preview', { action: 'isolate', authorizationMode: 'confirmed_paths', targets: [] }),
+    error => error.apiData.code === 'UNKNOWN_ACTION');
 });
 
 test('the tree confirmation page shows the isolation mapping and both stages demand the exact sentence', async () => {

@@ -869,7 +869,7 @@ class PlanCleanup {
                         cleanupError("SFTP_ISOLATE_UPGRADE_REQUIRED", "当前 SimpleSFTP 不支持受控快速隔离或注册隔离删除；请更新配套插件后重新预览，未执行任何移动，不会回退旧删除链。");
                     // The confirmed fast chain is proven by its answer itself: missing fast flags or a refusal
                     // (UNKNOWN_ACTION / UPDATE_REQUIRED) is one unified upgrade requirement, never an empty success.
-                    if (scope.authorizationMode === "confirmed_paths")
+                    if (scope.authorizationMode === "confirmed_paths" && action === "delete")
                         (0, FastDeleteContract_1.assertFastDeletePreviewSafety)(backend.safety, chunkRows.length);
                     chunkRows.forEach((row, chunkOffset) => {
                         const info = backend.targets[chunkOffset];
@@ -907,7 +907,7 @@ class PlanCleanup {
                         const exact = await this.ports.sftp("files.cleanup.preview", { node, action, observationMode: scope.observationMode, authorizationMode: scope.authorizationMode,
                             targets: approved.map(row => ({ relativePath: row.relativePath, type: row.type, destination: row.destination,
                                 expectedSha256: row.expectedSha256, expectedOwner: row.expectedOwner, archiveBatch: row.archiveBatch, requiredInputs: row.requiredInputs })) });
-                        if (scope.authorizationMode === "confirmed_paths")
+                        if (scope.authorizationMode === "confirmed_paths" && action === "delete")
                             (0, FastDeleteContract_1.assertFastDeletePreviewSafety)(exact.safety, approved.length);
                         if ((0, exports.cleanupDigest)(exact.rootIdentity) !== (0, exports.cleanupDigest)(backend.rootIdentity)
                             || exact.targets.length !== approved.length

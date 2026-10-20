@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.393",
-  "buildId": "040b347afd940d9b9eae8f094df6a8ac9eab2e2346ed229764fb9d67cd0bd61e",
+  "buildId": "8c5a788494739a6c6a0ae569d85b0d17ee30e9a600ab61f7f4e0a50515a65f02",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -205,7 +205,7 @@
     },
     {
       "path": "dist/extension/PlanCleanupHost.js",
-      "sha256": "1516e4221d4904fc9cfd5acf9fc775a54a8d6cd60fa375646f125cf98fc5d700"
+      "sha256": "e0d0f2797337cd86514acef0f434aba6326c3f32d121d6fd036fce1a6dcb0dd3"
     },
     {
       "path": "dist/extension/PlanCleanupPanel.js",
@@ -497,7 +497,7 @@
     },
     {
       "path": "dist/features/PlanCleanup.js",
-      "sha256": "36c7114b9baf9e04cdc1c7f4b07cc01a0c84a169229e3c618ae379dd2e0b449c"
+      "sha256": "29ffb84f14838d95ab6c655fc879ee13febec348834683808ba461fc82462523"
     },
     {
       "path": "dist/features/PlanCleanupEvidence.js",

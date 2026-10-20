@@ -86,10 +86,12 @@ async function backendFixture(options={}){
         return{...row,absolutePath:params.node.root+'/'+row.relativePath,fingerprint,device:'1',inode:row.relativePath,size:10,inventory:[]};});
       const token=cleanupDigest([params.node.id,targets,calls.length]).slice(0,48);
       const record={token,digest:cleanupDigest(targets),rootIdentity:{path:params.node.root},targets,confirmations:0,action:params.action,node:params.node,completed:new Set(),started:new Set(),executorExit:null};
-      records.set(token,record);return clone({...record,safety:isolateFlags(),confirmations:0});}
+      // 与 B 9ca51e1d 一致：只有确认路径删除回包携带批量快删安全标志，隔离仍走隔离能力。
+      records.set(token,record);return clone({...record,safety:{...isolateFlags(),...(params.action==='delete'?{entryIdentityBind:1,batchedFastDelete:1,directoryTreeIsolateDelete:1,isolationRenameNoReplace:1,fastDeleteBatchLimit:5000}:{})},confirmations:0});}
     if(method==='files.cleanup.inspect')return{target:{type:params.target.type,absolutePath:params.node.root+'/'+params.target.relativePath,missing:!sources.has(params.target.relativePath)}};
     const row=records.get(params.token);assert.ok(row,'frozen backend record');
-    if(method==='files.cleanup.status')return clone({...row,confirmations:row.confirmations});
+    if(method==='files.cleanup.status'){const observations=row.targets.map((target,index)=>({state:row.completed.has(index)?'completed':row.started&&row.started.has(index)?'executing':'pending'}));
+      return clone({...row,confirmations:row.confirmations,observations,states:observations.map(row=>row.state),batchExecuting:false});}
     if(method==='files.cleanup.confirm'){if(row.action==='isolate'&&params.phase>1)throw Object.assign(Error('CONFIRM_PHASE_LIMIT'),{code:'CONFIRM_PHASE_LIMIT'});
       if(row.action==='delete')deletePhase=params.phase;row.confirmations=params.phase;return{ok:true};}
     if(method==='files.cleanup.check'){const target=row.targets[params.index];
@@ -101,7 +103,8 @@ async function backendFixture(options={}){
       row.started||=new Set();
       if(row.action==='isolate'){sources.delete(target.relativePath);sources.set(target.destination,target.fingerprint);
         registered.set(target.relativePath,target.destination);row.completed.add(params.index);}
-      else{row.started.add(params.index);sources.delete(target.relativePath);if(!(options.slowDelete>0))row.completed.add(params.index);}
+      else{// 与 B 快删链一致：一次 execute 事务性处理整批已确认目标，不按 index 逐条执行。
+        row.started||=new Set();for(const [index,target] of row.targets.entries()){if(row.completed.has(index))continue;sources.delete(target.relativePath);row.started.add(index);row.completed.add(index);}}
       return{ok:true};}
     throw new Error(method);};
   const service=new PlanCleanup({storageRoot:path.join(root,'state'),
