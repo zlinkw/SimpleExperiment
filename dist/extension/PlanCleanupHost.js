@@ -44,6 +44,7 @@ const PlanOutputReplacement_1 = require("../features/PlanOutputReplacement");
 const PlanArtifactSync_1 = require("../features/PlanArtifactSync");
 const StateStore_1 = require("../state/StateStore");
 const PlanCleanupPanel_1 = require("./PlanCleanupPanel");
+const FastDeleteContract_1 = require("../features/FastDeleteContract");
 const ManifestCleanup_1 = require("../features/ManifestCleanup");
 async function json(file, fallback) {
     const text = await fs.readFile(file, "utf8").catch((error) => { if (error.code === "ENOENT")
@@ -63,9 +64,23 @@ class PlanCleanupHost {
         this.service = new PlanCleanup_1.PlanCleanup({ storageRoot: path.join(storage, "plan-cleanup", (0, PlanCleanup_1.cleanupDigest)(root)),
             collect: (file, options) => this.collect(file, Boolean(options?.removedMetadata), options?.archivedFiles, options?.removedMetadata, options?.onProgress, options?.job, options?.nativeDeclarations, options?.authorizationMode),
             sftp: async (method, params) => {
-                const result = await host.simpleSftpApiCall(method, params);
-                if (method === "files.cleanup.preview" && params.authorizationMode === "confirmed_paths" && result.safety?.confirmedPathDeletion !== 1)
-                    (0, PlanCleanup_1.cleanupError)("SFTP_CONFIRMED_PATH_DELETE_REQUIRED", "请更新 SimpleSFTP 后重载窗口，以使用按确认路径删除。");
+                let result;
+                try {
+                    result = await host.simpleSftpApiCall(method, params);
+                }
+                catch (error) {
+                    // 旧引擎以 UNKNOWN_ACTION / UPDATE_REQUIRED 拒绝确认快速链时：统一"需要更新"错误，零确认零执行。
+                    if (method === "files.cleanup.preview" && params.authorizationMode === "confirmed_paths"
+                        && (0, FastDeleteContract_1.isFastDeleteUpgradeCode)(error?.apiData?.code ?? error?.code))
+                        (0, FastDeleteContract_1.fastDeleteUpgradeError)();
+                    throw error;
+                }
+                if (method === "files.cleanup.preview" && params.authorizationMode === "confirmed_paths") {
+                    // v1.9：确认路径快速链以其应答的快标志块为唯一契约；旧通用链门禁（managedObservation、
+                    // Git 祖先预检、归档批次、正式 job 属主）属于已退役链路，快速路径不再套用。
+                    (0, FastDeleteContract_1.assertFastDeletePreviewSafety)(result?.safety, Array.isArray(params.targets) ? params.targets.length : 0);
+                    return result;
+                }
                 if (method === "files.cleanup.preview" && params.observationMode === "managed_tmux" && result.safety?.managedObservation !== 1)
                     (0, PlanCleanup_1.cleanupError)("SFTP_MANAGED_OBSERVATION_REQUIRED", "请更新配套 SimpleSFTP；尚未执行清理。");
                 if (method === "files.cleanup.preview" && (result.safety?.gitRepositoryAncestors !== true || result.safety?.readOnlyReceiptCheck !== true))

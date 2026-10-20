@@ -183,7 +183,7 @@ test('real tree cleanup invalidates only its Worker and exact subtree, leaving a
   vscode:{workspace:{getConfiguration:()=>({get:()=> 'simple'})}},AgentTmuxPolicy_1:require('../../src/tunnel/AgentTmuxPolicy.ts'),
   callSftpWithProgress:async(method,params)=>{
    requests.push({method,params});if(method.endsWith('.inspect'))return {ok:true,executorsChecked:true,executors:[],target:{relativePath:params.target.relativePath,type:'directory',missing:starts===1}};
-   if(method.endsWith('.preview'))return {token:'fixed',digest:'approved',targets:[{absolutePath:'/project/work_dirs/job',type:'directory'}]};
+   if(method.endsWith('.preview'))return {token:'fixed',digest:'approved',safety:{confirmedPathDeletion:1,entryIdentityBind:1,batchedFastDelete:1,directoryTreeIsolateDelete:1,isolationRenameNoReplace:1,fastDeleteBatchLimit:5000},targets:[{absolutePath:'/project/work_dirs/job',type:'directory'}]};
    if(method.endsWith('.execute')){starts++;return {ok:true};}return {ok:true,state:'completed'};
   },
  });

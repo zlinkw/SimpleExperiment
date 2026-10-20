@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.393",
-  "buildId": "c3cc86fab42316b6fb5c2c7fbbf2bc15665fe958b9eb028730ba4d7f742a4e5c",
+  "buildId": "040b347afd940d9b9eae8f094df6a8ac9eab2e2346ed229764fb9d67cd0bd61e",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -197,7 +197,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "600c3d64572f289511bb792e1e0e6b4983e144fdc8d7bf92a4e8304db5128df4"
+      "sha256": "d9eccb0ec3df998bf60a21becf6a951f57902f165abf57dd0d738a4e8a2fcfa1"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -205,11 +205,11 @@
     },
     {
       "path": "dist/extension/PlanCleanupHost.js",
-      "sha256": "42f6652d0746244b80ebfd4d135f906f175a6b8c7807fb7da6f457520d03d47f"
+      "sha256": "1516e4221d4904fc9cfd5acf9fc775a54a8d6cd60fa375646f125cf98fc5d700"
     },
     {
       "path": "dist/extension/PlanCleanupPanel.js",
-      "sha256": "91be6b8995a9dcc27dd0ddd999d7735ce90e44b207d8a3ef84bb7f58f1793e1d"
+      "sha256": "f69dca44485025809cd2d603458af71b116775a3ea0cfd39716391efbcf45951"
     },
     {
       "path": "dist/extension/PlanCodeScopeHost.js",
@@ -346,6 +346,10 @@
     {
       "path": "dist/features/FailedJobRecovery.js",
       "sha256": "89c891eca29aff4f878bfde6046713bc0b868f7fb45fa15c1e2bdeb1e6abde6a"
+    },
+    {
+      "path": "dist/features/FastDeleteContract.js",
+      "sha256": "62d3f991a4ae68f5fe895c810698bf5178b48406f5bbcaf208da49cc2e31d23f"
     },
     {
       "path": "dist/features/GitBackup.js",
@@ -493,7 +497,7 @@
     },
     {
       "path": "dist/features/PlanCleanup.js",
-      "sha256": "937c5ca15a572607ccba5a11baf6a422db4ef043f95b2be1f358a11ed632546d"
+      "sha256": "36c7114b9baf9e04cdc1c7f4b07cc01a0c84a169229e3c618ae379dd2e0b449c"
     },
     {
       "path": "dist/features/PlanCleanupEvidence.js",
@@ -605,11 +609,11 @@
     },
     {
       "path": "dist/features/SyncScopeConfirmation.js",
-      "sha256": "e7727fe37681689b429d095f10917904ce4801b6633ba44a4c0eb7c4bcc15d63"
+      "sha256": "b4a0746cf6035ebeaafb95bdc2e79e12834f7ae342bbe0dbb5702d85a011a613"
     },
     {
       "path": "dist/features/SyncScopeDelete.js",
-      "sha256": "403063c03be54473b3c8fe72c99d775de46879048a705e6b747bfdcda1f86c74"
+      "sha256": "f3ff4649b5e32a037ae26d4c7afc4cd6e698a17f8b9e3e23395cf11991689667"
     },
     {
       "path": "dist/features/SyncScopeLocalIndex.js",

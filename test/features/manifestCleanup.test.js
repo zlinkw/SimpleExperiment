@@ -35,11 +35,13 @@ async function fixture({retiredWithoutCsv=false}={}){
           fingerprint:'fp-'+row.relativePath,contentFingerprint:'fp-'+row.relativePath.replace(/^clean_dir\/(?:job-[a-f0-9]{48}\/)?/,''),inode:row.relativePath.replace(/^clean_dir\/(?:job-[a-f0-9]{48}\/)?/,''),device:'1',inventory:[],size:1}));
         if(params.action==='restore'&&params.targets.some(row=>sources.has(row.destination)))throw Error('DESTINATION_EXISTS');
         const result={token:cleanupDigest([calls.length,targets]).slice(0,48),digest:cleanupDigest(targets),node:params.node,targets,
-          action:params.action,rootIdentity:{path:params.node.root},safety:{gitRepositoryAncestors:true,readOnlyReceiptCheck:true,managedObservation:1,confirmedPathDeletion:1,immutableArchiveBatch:true,batchPreviewCapacity:4096}};
+          action:params.action,rootIdentity:{path:params.node.root},safety:{gitRepositoryAncestors:true,readOnlyReceiptCheck:true,managedObservation:1,confirmedPathDeletion:1,immutableArchiveBatch:true,batchPreviewCapacity:4096,
+            entryIdentityBind:1,batchedFastDelete:1,directoryTreeIsolateDelete:1,isolationRenameNoReplace:1,fastDeleteBatchLimit:5000}};
         backends.set(result.token,result);return result;
       }
       const backend=backends.get(params.token);assert.ok(backend,method);
-      if(method==='files.cleanup.status')return backend;
+      if(method==='files.cleanup.status'){const observations=backend.targets.map(t=>t.missing?{state:'completed'}:sources.has(t.relativePath)?{state:'pending'}:{state:'completed',status:'gone'});
+        return {...backend,observations,states:observations.map(row=>row.state),batchExecuting:false};}
       if(method==='files.cleanup.confirm')return {ok:true};
       const target=backend.targets[params.index];
       if(method==='files.cleanup.check'){

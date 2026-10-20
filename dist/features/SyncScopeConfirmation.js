@@ -44,7 +44,7 @@ function htmlText(value) {
 function confirmSyncScopePaths(title, note, paths, finalLabel) {
     const panel = vscode.window.createWebviewPanel("simpleExperiment.syncScopeConfirmation", title, vscode.ViewColumn.Active, { enableScripts: true });
     const nonce = crypto.randomBytes(16).toString("base64");
-    const rows = paths.map(({ label, path }) => `<div class="path"><strong>${htmlText(label)}</strong><code>${htmlText(path)}</code></div>`).join("");
+    const rows = paths.map(({ label, path, isolation }) => `<div class="path"><strong>${htmlText(label)}</strong><code>${htmlText(path)}</code>${isolation ? `<code>${htmlText("隔离后实际删除：" + isolation)}</code>` : ""}</div>`).join("");
     panel.webview.html = `<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'nonce-${nonce}'; script-src 'nonce-${nonce}'">
 <style nonce="${nonce}">

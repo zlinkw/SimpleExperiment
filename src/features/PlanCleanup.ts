@@ -2,6 +2,7 @@ import { createHash, randomBytes } from "node:crypto";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { atomicWriteText } from "../state/StateStore";
+import { FAST_CONFIRMED_BATCH_CAP, assertFastDeletePreviewSafety, chunkFastDeleteTargets, fastDeleteVerifiedBy, isFastDeleteUpgradeCode } from "./FastDeleteContract";
 
 export type CleanupNode = { id: string; kind: "local" | "remote"; root: string; host?: string; port?: number; user?: string; error?: string };
 export type CleanupJobSelection = { workflowId: string; index: number; commandId: string; purpose?: "replace_outputs";
@@ -239,6 +240,36 @@ export class PlanCleanup {
   private async observeManaged(operation: CleanupOperation): Promise<CleanupOperation> {
     let running = false, unresolved = false;
     delete operation.error;
+    if (operation.preview.action === "delete" && operation.preview.scope.authorizationMode === "confirmed_paths") {
+      // v1.9 fast chain: one batched active query per frozen backend batch. Pending or unknown rows
+      // are reported honestly and never re-executed from an observation path.
+      const groups = new Map<string, CleanupRow[]>();
+      for (const row of operation.preview.rows.filter(row => operation.targets[row.id])) {
+        if (operation.targets[row.id]?.receipt?.verifiedBy === "path_absence") continue;
+        if (!row.backendToken) { unresolved = true; continue; }
+        const group = groups.get(row.backendToken) || [];
+        group.push(row); groups.set(row.backendToken, group);
+      }
+      for (const [backendToken, group] of groups) {
+        try {
+          const snapshot = await this.ports.sftp("files.cleanup.status", { token: backendToken });
+          if (snapshot?.statusQueryError) { unresolved = true; operation.error = "清理批量查询未完全成功，可重新查询：" + String(snapshot.statusQueryError); }
+          for (const row of group) {
+            if (operation.targets[row.id]?.state === "completed" && operation.targets[row.id]?.receipt?.source === "active_query") continue;
+            const observation = (snapshot?.observations || [])[row.backendIndex!] || {};
+            const state = observation.state || (snapshot?.states || [])[row.backendIndex!];
+            if (state === "completed") operation.targets[row.id] = { state: "completed", receipt: { source: "active_query", verifiedBy: observation.isolationStatus ? "isolation_tree_removed" : observation.status === "replaced" ? "same_name_new_data" : "path_absence", rootIdentity: snapshot?.rootIdentity } };
+            else if (state === "executing" || snapshot?.batchExecuting) { running = true; operation.targets[row.id] = { state: "executing" }; }
+            else { unresolved = true; operation.targets[row.id] = { state: "pending", receipt: operation.targets[row.id]?.receipt,
+              error: state === "pending" ? undefined : String(observation.code || observation.isolationStatus || "ISOLATION_OR_STATE_UNKNOWN") }; }
+          }
+        } catch (error: any) { unresolved = true;
+          group.forEach(row => { operation.targets[row.id] = { state: "pending", receipt: operation.targets[row.id]?.receipt, error: String(error.message || error) }; });
+          operation.error = "清理查询失败，可重新查询：" + String(error.message || error); }
+      }
+      if (unresolved && !operation.error)
+        operation.error = "部分目标回执未核实（隔离名残留或状态未知）；不会自动重发，可刷新实际状态后由你决定是否继续。";
+    } else
     await this.queryRows(operation.preview.rows.filter(row => operation.targets[row.id]), async row => {
       if (operation.preview.action === "delete" && operation.targets[row.id]?.receipt?.verifiedBy === "path_absence") return;
       // 已核实的隔离事实由当时的主动查询回执冻结；后续注册隔离删除或查询波动不回滚完成状态。
@@ -264,6 +295,63 @@ export class PlanCleanup {
     return operation;
   }
 
+  /** Apply one batched fast-verification snapshot onto frozen review rows. Never re-executes anything. */
+  private applyBatchObservations(operation: CleanupOperation, group: CleanupRow[], snapshot: any): void {
+    for (const row of group) {
+      if (operation.targets[row.id]?.state === "completed" && operation.targets[row.id]?.receipt?.source === "active_query") continue;
+      const observation = (snapshot?.observations || [])[row.backendIndex!] || {};
+      const state = observation.state || (snapshot?.states || [])[row.backendIndex!];
+      if (state === "completed") operation.targets[row.id] = { state: "completed", receipt: { source: "active_query", verifiedBy: fastDeleteVerifiedBy(observation), rootIdentity: snapshot?.rootIdentity } };
+      else if (state === "executing" || snapshot?.batchExecuting) operation.targets[row.id] = { state: "executing" };
+      else operation.targets[row.id] = { state: "pending", receipt: operation.targets[row.id]?.receipt,
+        error: state === "unknown" ? String(observation.code || observation.isolationStatus || "ISOLATION_OR_STATE_UNKNOWN") : undefined };
+    }
+  }
+
+  /**
+   * v1.9 confirmed-path batched fast deletion: one execute and one batched active query per frozen
+   * backend batch, serially. A lost execute response is resolved by the active query only — the
+   * plugin never replays execute on its own; pending/unknown stay honest partial results.
+   */
+  private async executeConfirmedFastBatches(operation: CleanupOperation): Promise<void> {
+    const groups = new Map<string, CleanupRow[]>();
+    for (const row of operation.preview.rows.filter(row => operation.targets[row.id] && row.backendToken)) {
+      const group = groups.get(row.backendToken!) || [];
+      group.push(row); groups.set(row.backendToken!, group);
+    }
+    let unresolvedNote = "";
+    for (const [backendToken, group] of groups) {
+      const pending = () => group.filter(row => operation.targets[row.id]?.state !== "completed");
+      if (this.cancelled.has(operation.id)) { operation.state = "paused"; await this.save(operation); return; }
+      let snapshot: any = await this.ports.sftp("files.cleanup.status", { token: backendToken });
+      this.applyBatchObservations(operation, group, snapshot);
+      await this.save(operation);
+      if (!pending().length) continue;
+      if (this.cancelled.has(operation.id)) { operation.state = "paused"; await this.save(operation); return; }
+      if (!snapshot?.batchExecuting) {
+        // 取消只在执行请求发出之前生效；服务器对已接收批次整批串行执行，本端不并发第二个请求。
+        group.filter(row => operation.targets[row.id]?.state !== "completed").forEach(row => { operation.targets[row.id] = { state: "executing" }; });
+        await this.save(operation);
+        const anchor = pending()[0];
+        let sendError = "";
+        try { await this.ports.sftp("files.cleanup.execute", { token: backendToken, digest: anchor.backendDigest, index: anchor.backendIndex }); }
+        catch (error: any) { sendError = String(error?.message || error); }
+      }
+      // 执行回执只是传输证据；一轮批量主动查询解析整批事实。batchExecuting 期间继续等待，不重发。
+      for (let poll = 0; poll < 240; poll++) {
+        const refreshed = await this.ports.sftp("files.cleanup.status", { token: backendToken }).catch(() => undefined);
+        if (refreshed) { snapshot = refreshed; this.applyBatchObservations(operation, group, snapshot); await this.save(operation); }
+        if (!pending().length || !snapshot?.batchExecuting) break;
+        await new Promise(resolve => setTimeout(resolve, 500));
+      }
+      const unresolved = pending();
+      if (unresolved.length)
+        unresolvedNote = "本批 " + unresolved.length + " 个目标回执未核实（隔离名残留、状态未知或服务器仍在处理）；不会自动重发，可刷新实际状态后由你决定是否继续。";
+    }
+    if (unresolvedNote) operation.error = unresolvedNote;
+  }
+
+
   private async executeManaged(operation: CleanupOperation): Promise<CleanupOperation> {
     if (this.busy.has(operation.id)) return this.observeManaged(operation);
     if (operation.preview.confirmations !== (operation.preview.action === "delete" ? 2 : 1)) cleanupError("CONFIRM_REQUIRED");
@@ -278,6 +366,11 @@ export class PlanCleanup {
         Number(metadata(a)) - Number(metadata(b)) || Number(a.type === "directory") - Number(b.type === "directory")
         || Number(a.category === "PLAN 文件") - Number(b.category === "PLAN 文件"));
       operation.state = "running"; await this.save(operation);
+      if (operation.preview.action === "delete" && operation.preview.scope.authorizationMode === "confirmed_paths") {
+        // v1.9：确认路径删除按冻结后端批次整批执行，一次执行 + 批量主动查询，绝不逐文件往返。
+        await this.executeConfirmedFastBatches(operation);
+        if ((operation.state as string) === "paused") return operation;
+      } else
       for (const row of rows) {
         if (this.cancelled.has(operation.id)) { operation.state = "paused"; await this.save(operation); return operation; }
         let proof = await this.managedCheck(row);
@@ -449,7 +542,9 @@ export class PlanCleanup {
       this.previews.delete(previous.token);
       if (prior) { prior.continuedBy = token; prior.state = "blocked"; prior.error = "处理方式已变化，原确认失效"; await this.save(prior); }
     } else if (params.authorizationMode === "confirmed_paths" && params.exactPaths?.length) {
-      if (params.exactPaths.length > 500 || !this.ports.currentNode) cleanupError("INVALID_EXACT_PATHS");
+      // The GET methodOptions maxTargets=500 describes the retired generic chain. The confirmed fast path
+      // publishes a 5000-target public cap per request; larger selections become finite batches downstream.
+      if (params.exactPaths.length > FAST_CONFIRMED_BATCH_CAP * 5 || !this.ports.currentNode) cleanupError("INVALID_EXACT_PATHS");
       for (const row of params.exactPaths) {
         if (!["file", "directory"].includes(row.type) || row.nodeId === "pluginState") cleanupError("INVALID_EXACT_PATHS");
         cleanupRelative(row.relativePath);
@@ -513,10 +608,18 @@ export class PlanCleanup {
     const backendReads = await Promise.allSettled(scope.nodes.map(async node => {
       const rows = result.rows.filter(row => row.node.id === node.id && row.disposition === action);
       if (node.error || !rows.length) return undefined;
-      notify({ phase: "nodes", message: node.id + "：只读预检 " + rows.length + " 个精确目标…", total: scope.nodes.length });
-      return this.ports.sftp("files.cleanup.preview", { node, action, observationMode: scope.observationMode, authorizationMode: scope.authorizationMode,
-        targets: rows.map(row => ({ relativePath: row.relativePath, type: row.type, destination: row.destination,
-          expectedSha256: row.expectedSha256, expectedOwner: row.expectedOwner, archiveBatch: row.archiveBatch, requiredInputs: row.requiredInputs })) });
+      // Confirmed fast deletion travels one public preview request per ≤5000-target batch, serially per node;
+      // the server chunks engine entry checks internally. Never one request per file.
+      const chunks = scope.authorizationMode === "confirmed_paths" ? chunkFastDeleteTargets(rows) : [rows];
+      notify({ phase: "nodes", message: node.id + "：只读预检 " + rows.length + " 个精确目标" + (chunks.length > 1 ? "（" + chunks.length + " 个有界批次）" : "") + "…", total: scope.nodes.length });
+      const reads: any[] = [];
+      for (const [index, chunk] of chunks.entries()) {
+        if (chunks.length > 1) notify({ phase: "nodes", message: node.id + "：分批只读预检 " + (index + 1) + "/" + chunks.length + "…", total: scope.nodes.length });
+        reads.push(await this.ports.sftp("files.cleanup.preview", { node, action, observationMode: scope.observationMode, authorizationMode: scope.authorizationMode,
+          targets: chunk.map(row => ({ relativePath: row.relativePath, type: row.type, destination: row.destination,
+            expectedSha256: row.expectedSha256, expectedOwner: row.expectedOwner, archiveBatch: row.archiveBatch, requiredInputs: row.requiredInputs })) }));
+      }
+      return { chunks, reads };
     }));
     for (const [index, node] of scope.nodes.entries()) {
       const rows = result.rows.filter(row => row.node.id === node.id && row.disposition === action);
@@ -528,47 +631,58 @@ export class PlanCleanup {
       try {
         const read = backendReads[index];
         if (read.status === "rejected") throw read.reason;
-        const backend = read.value!;
-        if (scope.job?.purpose === "replace_outputs" && !(Number(backend.safety?.batchPreviewCapacity) >= 4096))
-          cleanupError("SFTP_BATCH_PREVIEW_UPGRADE_REQUIRED", "需要 SimpleSFTP 0.2.79 的批次预览保留能力");
-        if (action === "isolate" && !(Number(backend.safety?.isolateFast) === 1 && Number(backend.safety?.requiredInputGuard) === 1
-          && Number(backend.safety?.registeredIsolationDeletion) === 1 && Number(backend.safety?.subtreeSingleWriter) === 1))
-          cleanupError("SFTP_ISOLATE_UPGRADE_REQUIRED", "当前 SimpleSFTP 不支持受控快速隔离或注册隔离删除；请更新配套插件后重新预览，未执行任何移动，不会回退旧删除链。");
-        rows.forEach((row, index) => {
-          const info = backend.targets[index];
-          Object.assign(row, { ...info, relativePath: row.relativePath, destination: row.destination,
-            backendToken: backend.token, backendDigest: backend.digest, backendIndex: index, rootIdentity: backend.rootIdentity });
-          if (info.handleWarnings?.length) {
-            const detail = row.absolutePath + "：" + info.handleWarnings.length + " 个同用户进程的 /proc 不可读；句柄扫描覆盖可见进程，未证明这些进程访问目标。当前作业/传输与资源锁仍独立检查。";
-            row.evidence.push(detail);
-            (scope.notices ||= []).push({ code: "PROC_VISIBILITY_LIMIT", nodeId: node.id, detail });
+        const { chunks, reads } = read.value!;
+        for (const [chunkIndex, chunkRows] of chunks.entries()) {
+          const backend = reads[chunkIndex];
+          if (scope.job?.purpose === "replace_outputs" && !(Number(backend.safety?.batchPreviewCapacity) >= 4096))
+            cleanupError("SFTP_BATCH_PREVIEW_UPGRADE_REQUIRED", "需要 SimpleSFTP 0.2.79 的批次预览保留能力");
+          if (action === "isolate" && !(Number(backend.safety?.isolateFast) === 1 && Number(backend.safety?.requiredInputGuard) === 1
+            && Number(backend.safety?.registeredIsolationDeletion) === 1 && Number(backend.safety?.subtreeSingleWriter) === 1))
+            cleanupError("SFTP_ISOLATE_UPGRADE_REQUIRED", "当前 SimpleSFTP 不支持受控快速隔离或注册隔离删除；请更新配套插件后重新预览，未执行任何移动，不会回退旧删除链。");
+          // The confirmed fast chain is proven by its answer itself: missing fast flags or a refusal
+          // (UNKNOWN_ACTION / UPDATE_REQUIRED) is one unified upgrade requirement, never an empty success.
+          if (scope.authorizationMode === "confirmed_paths") assertFastDeletePreviewSafety(backend.safety, chunkRows.length);
+          chunkRows.forEach((row, chunkOffset) => {
+            const info = backend.targets[chunkOffset];
+            Object.assign(row, { ...info, relativePath: row.relativePath, destination: row.destination,
+              backendToken: backend.token, backendDigest: backend.digest, backendIndex: chunkOffset, rootIdentity: backend.rootIdentity });
+            if (info.handleWarnings?.length) {
+              const detail = row.absolutePath + "：" + info.handleWarnings.length + " 个同用户进程的 /proc 不可读；句柄扫描覆盖可见进程，未证明这些进程访问目标。当前作业/传输与资源锁仍独立检查。";
+              row.evidence.push(detail);
+              (scope.notices ||= []).push({ code: "PROC_VISIBILITY_LIMIT", nodeId: node.id, detail });
+            }
+            if (info.missing) { row.disposition = "absent"; return; }
+            const key = cleanupDigest([backend.rootIdentity, info.device, info.inode]);
+            const previous = physical.get(key);
+            if (previous) { row.disposition = "protected"; row.protectedReason = "同一物理目标，已由 " + previous.node.id + " 处理"; }
+            else physical.set(key, row);
+            for (const ref of info.references || []) if (!under(row.relativePath, ref.path) && !result.rows.some(other => other.node.id === node.id && other.relativePath === ref.path)) {
+              result.rows.push({ nodeId: node.id, node, relativePath: ref.path, type: ref.type, category: ref.field === "code_backup_ref" || ref.field === "code_backup_path" ? "代码备份引用" : "配置/checkpoint 外部引用",
+                owners: [scope.planKey], evidence: ["manifest=" + ref.manifest + " SHA256=" + ref.manifestSha256], dependencies: ["外部共享引用尚未完整证明"],
+                protectedReason: "缺少该引用的独占所有权证明", disposition: "protected", id: cleanupDigest([node.id, ref.path]),
+                absolutePath: node.kind === "local" ? path.join(node.root, ref.path) : path.posix.join(node.root, ref.path), destination: "clean_dir/" + ref.path });
+            }
+          });
+          // A physical alias may share a backend batch with unique targets. Freeze
+          // a new capability containing only the paths the user can approve here.
+          const approved = chunkRows.filter(row => row.disposition === action);
+          if (approved.length && chunkRows.some(row => row.disposition === "protected")) {
+            const exact = await this.ports.sftp("files.cleanup.preview", { node, action, observationMode: scope.observationMode, authorizationMode: scope.authorizationMode,
+              targets: approved.map(row => ({ relativePath: row.relativePath, type: row.type, destination: row.destination,
+                expectedSha256: row.expectedSha256, expectedOwner: row.expectedOwner, archiveBatch: row.archiveBatch, requiredInputs: row.requiredInputs })) });
+            if (scope.authorizationMode === "confirmed_paths") assertFastDeletePreviewSafety(exact.safety, approved.length);
+            if (cleanupDigest(exact.rootIdentity) !== cleanupDigest(backend.rootIdentity)
+              || exact.targets.length !== approved.length
+              || approved.some((row, position) => exact.targets[position].fingerprint !== row.fingerprint)) cleanupError("PREVIEW_CHANGED");
+            approved.forEach((row, position) => Object.assign(row, { backendToken: exact.token, backendDigest: exact.digest, backendIndex: position }));
           }
-          if (info.missing) { row.disposition = "absent"; return; }
-          const key = cleanupDigest([backend.rootIdentity, info.device, info.inode]);
-          const previous = physical.get(key);
-          if (previous) { row.disposition = "protected"; row.protectedReason = "同一物理目标，已由 " + previous.node.id + " 处理"; }
-          else physical.set(key, row);
-          for (const ref of info.references || []) if (!under(row.relativePath, ref.path) && !result.rows.some(other => other.node.id === node.id && other.relativePath === ref.path)) {
-            result.rows.push({ nodeId: node.id, node, relativePath: ref.path, type: ref.type, category: ref.field === "code_backup_ref" || ref.field === "code_backup_path" ? "代码备份引用" : "配置/checkpoint 外部引用",
-              owners: [scope.planKey], evidence: ["manifest=" + ref.manifest + " SHA256=" + ref.manifestSha256], dependencies: ["外部共享引用尚未完整证明"],
-              protectedReason: "缺少该引用的独占所有权证明", disposition: "protected", id: cleanupDigest([node.id, ref.path]),
-              absolutePath: node.kind === "local" ? path.join(node.root, ref.path) : path.posix.join(node.root, ref.path), destination: "clean_dir/" + ref.path });
-          }
-        });
-        // A physical alias may share a backend batch with unique targets. Freeze
-        // a new capability containing only the paths the user can approve here.
-        const approved = rows.filter(row => row.disposition === action);
-        if (approved.length && rows.some(row => row.disposition === "protected")) {
-          const exact = await this.ports.sftp("files.cleanup.preview", { node, action, observationMode: scope.observationMode, authorizationMode: scope.authorizationMode,
-            targets: approved.map(row => ({ relativePath: row.relativePath, type: row.type, destination: row.destination,
-              expectedSha256: row.expectedSha256, expectedOwner: row.expectedOwner, archiveBatch: row.archiveBatch, requiredInputs: row.requiredInputs })) });
-          if (cleanupDigest(exact.rootIdentity) !== cleanupDigest(backend.rootIdentity)
-            || exact.targets.length !== approved.length
-            || approved.some((row, index) => exact.targets[index].fingerprint !== row.fingerprint)) cleanupError("PREVIEW_CHANGED");
-          approved.forEach((row, index) => Object.assign(row, { backendToken: exact.token, backendDigest: exact.digest, backendIndex: index }));
         }
       } catch (error: any) {
-        const code = error.apiData?.code || error.code || "NODE_PREFLIGHT_FAILED";
+        let code = error.apiData?.code || error.code || "NODE_PREFLIGHT_FAILED";
+        if (scope.authorizationMode === "confirmed_paths" && isFastDeleteUpgradeCode(code)) {
+          code = "SFTP_FAST_DELETE_UPGRADE_REQUIRED";
+          error = Object.assign(new Error("当前 SimpleSFTP 不支持确认路径的批量快速删除；请更新配套插件后重新预览，未执行任何删除，不会回退旧删除链。"), { apiData: { code } });
+        }
         result.blockers.push({ code, nodeId: node.id, detail: String(error.message || code) });
         rows.forEach(row => { row.disposition = "unverified"; row.error = code; });
       } finally {
@@ -576,7 +690,7 @@ export class PlanCleanup {
       }
     }
     // 能力缺口是全局升级问题，不能按 job 静默绕开，也不能回退旧删除；直接显式提示升级。
-    if (action === "isolate") {
+    if (action === "isolate" || (action === "delete" && scope.authorizationMode === "confirmed_paths")) {
       const upgrade = result.blockers.find(row => row.code.startsWith("SFTP_"));
       if (upgrade) cleanupError(upgrade.code, upgrade.detail);
     }
@@ -644,11 +758,24 @@ export class PlanCleanup {
     if (!operation?.executionRequestedAt) await this.ports.validateScope?.(preview.scope);
     if (preview.scope.authorizationMode === "confirmed_paths") {
       // The user authorizes these frozen paths, not a historical PLAN/task revision.
-      // Actual node/root/type/content checks remain in SimpleSFTP on this same batch.
-      await this.queryRows(preview.rows.filter(row => ["delete", "isolate"].includes(row.disposition)), async row => {
-        const proof = await this.managedCheck(row);
-        if (!["pending", "executing", "completed"].includes(proof.state)) cleanupError("CLEANUP_TARGET_CHANGED", row.absolutePath + "：文件已变化，请重新核对路径");
-      });
+      // One batched active query per frozen backend batch re-checks every entry identity;
+      // this never degrades into one remote call per file and never re-authorizes a new selection.
+      const groups = new Map<string, CleanupRow[]>();
+      for (const row of preview.rows.filter(row => ["delete", "isolate"].includes(row.disposition) && row.backendToken)) {
+        const group = groups.get(row.backendToken!) || [];
+        group.push(row); groups.set(row.backendToken!, group);
+      }
+      for (const [backendToken, group] of groups) {
+        let snapshot: any;
+        try { snapshot = await this.ports.sftp("files.cleanup.status", { token: backendToken }); }
+        catch (error: any) { cleanupError("CLEANUP_TARGET_CHANGED", "确认前批量核查未完成：" + String(error?.message || error)); }
+        for (const row of group) {
+          const observation = (snapshot?.observations || [])[row.backendIndex!] || {};
+          const state = observation.state || (snapshot?.states || [])[row.backendIndex!];
+          if (!["pending", "executing", "completed"].includes(state))
+            cleanupError("CLEANUP_TARGET_CHANGED", row.absolutePath + "：文件已变化，请重新核对路径");
+        }
+      }
       return;
     }
     const prior = preview.continuationOf ? await this.history(preview.continuationOf) : [];

@@ -3,6 +3,7 @@ const assert = require('node:assert/strict');
 require('../_helpers/registerTsRequire');
 const { deleteConfirmedScopeCopy } = require('../../src/features/SyncScopeDelete.ts');
 const node = { id: 'worker', kind: 'remote', host: 'fixture', user: 'user', port: 22, root: '/project' };
+const FAST = { confirmedPathDeletion: 1, entryIdentityBind: 1, batchedFastDelete: 1, directoryTreeIsolateDelete: 1, isolationRenameNoReplace: 1, fastDeleteBatchLimit: 5000 };
 
 test('fresh presence reads recover from index invalidation before and after one large deletion without replaying its executor',async()=>{
  const fs=require('node:fs/promises'),path=require('node:path'),os=require('node:os');
@@ -15,7 +16,7 @@ test('fresh presence reads recover from index invalidation before and after one 
    const n=++inspections;if(n===1||n===3)await index.invalidate('live job observation changed',['work_dirs/job']);
    return {ok:true,executorsChecked:true,executors:[],target:{relativePath:params.target.relativePath,type:'directory',missing:starts===1}};
   });
-  if(method.endsWith('.preview'))return {token:'same',digest:'approved',targets:[{absolutePath:'/project/work_dirs/job',type:'directory'}]};
+  if(method.endsWith('.preview'))return {token:'same',digest:'approved',safety:FAST,targets:[{absolutePath:'/project/work_dirs/job',type:'directory'}]};
   if(method.endsWith('.execute')){starts++;return {ok:true,state:'requested'};}
   if(method.endsWith('.check'))return {ok:true,state:++checks===3?'completed':'executing',progress:{removedEntries:checks*100000,removedBytes:checks*2**42}};
   return {ok:true};
@@ -33,7 +34,7 @@ test('index retries are bounded and inspect-only; connection failures and recrea
     if(!after||starts){if(kind!=='recreated'||inspections===2)throw Error(kind==='invalidated'||kind==='recreated'?'FILE_INDEX_INVALIDATED_DURING_READ':kind);}
     return {ok:true,executorsChecked:true,executors:[],target:{missing:false}};
    }
-   if(method.endsWith('.preview'))return {token:'same',digest:'approved',targets:[{absolutePath:'/project/work_dirs/job',type:'directory'}]};
+   if(method.endsWith('.preview'))return {token:'same',digest:'approved',safety:FAST,targets:[{absolutePath:'/project/work_dirs/job',type:'directory'}]};
    if(method.endsWith('.execute')){starts++;return {ok:true};}
    return {ok:true,state:'completed'};
   },node,'work_dirs/job',true,()=>{},{wait:async()=>{}}),/INVALIDATED|offline|CONNECTION_REPLACED|删除后.*核实/);
@@ -81,7 +82,7 @@ test('confirmed tree deletion uses managed cleanup and actively verifies lost ex
   const rpc = async (method, params) => {
     calls.push([method, params]);
     if (method === 'files.cleanup.inspect') return { ok: true, executorsChecked: true, executors: [], target:{missing:checks===2} };
-    if (method === 'files.cleanup.preview') return { token: 'token', digest: 'digest', targets: [{ absolutePath: '/project/work_dirs/job', type: 'directory' }] };
+    if (method === 'files.cleanup.preview') return { token: 'token', digest: 'digest', safety: FAST, targets: [{ absolutePath: '/project/work_dirs/job', type: 'directory' }] };
     if (method === 'files.cleanup.execute') throw Error('response lost');
     if (method === 'files.cleanup.check') return { ok: true, state: ++checks === 1 ? 'executing' : 'completed' };
     return { ok: true };
@@ -99,7 +100,7 @@ test('a response is never proof of deletion; unchanged or unknown filesystem fai
   for (const state of ['pending', 'changed', 'partial', 'unknown']) {
     await assert.rejects(deleteConfirmedScopeCopy(async (m) => {
       if (m.endsWith('.inspect')) return { ok: true, executorsChecked: true, executors: [] };
-      if (m.endsWith('.preview')) return { token: 't', digest: 'd', targets: [{ absolutePath: '/project/work_dirs/job', type: 'directory' }] };
+      if (m.endsWith('.preview')) return { token: 't', digest: 'd', safety: FAST, targets: [{ absolutePath: '/project/work_dirs/job', type: 'directory' }] };
       if (m.endsWith('.check')) return { ok: true, state, queryError: 'fixture query' };
       return { ok: true, state: 'completed' };
     }, node, 'work_dirs/job', true), /删除未核实|查询失败/);
@@ -115,7 +116,7 @@ test('a live cleanup window prevents a second executor; missing files require no
   assert.equal(starts, 0);
   await deleteConfirmedScopeCopy(async m => {
     if (m.endsWith('.inspect')) return { ok: true, executorsChecked: true, executors: [], target:{missing:++inspections>1} };
-    if (m.endsWith('.preview')) return { targets: [{ missing: true }] };
+    if (m.endsWith('.preview')) return { safety: FAST, targets: [{ missing: true }] };
     throw Error('unexpected mutation');
   }, node, 'work_dirs/job', true);
 });
@@ -125,7 +126,7 @@ test('real deletion progress extends an inactivity budget and busy admission ret
   const rpc=async(method,params)=>{
     requests.push([method,params]);
     if(method.endsWith('.inspect'))return {ok:true,executorsChecked:true,executors:[],target:{missing:checks===7}};
-    if(method.endsWith('.preview'))return {token:'same',digest:'approved',targets:[{absolutePath:'/project/work_dirs/job',type:'directory'}]};
+    if(method.endsWith('.preview'))return {token:'same',digest:'approved',safety:FAST,targets:[{absolutePath:'/project/work_dirs/job',type:'directory'}]};
     if(method.endsWith('.execute'))return {ok:true,state:++starts===1?'waiting':'requested'};
     if(method.endsWith('.check'))return {ok:true,state:++checks===1?'pending':checks<7?'executing':'completed',progress:{removedEntries:checks-1,removedBytes:(checks-1)*100,totalEntries:7,totalBytes:700}};
     return {ok:true};
@@ -139,7 +140,7 @@ test('a live slow executor does not time out or resend an uncertain deletion',as
   let now=0,starts=0,checks=0;
   await deleteConfirmedScopeCopy(async m=>{
     if(m.endsWith('.inspect'))return {ok:true,executorsChecked:true,executors:[],target:{missing:checks===7}};
-    if(m.endsWith('.preview'))return {token:'same',digest:'approved',targets:[{absolutePath:'/project/work_dirs/job',type:'directory'}]};
+    if(m.endsWith('.preview'))return {token:'same',digest:'approved',safety:FAST,targets:[{absolutePath:'/project/work_dirs/job',type:'directory'}]};
     if(m.endsWith('.execute')){starts++;throw Error('lost response');}
     if(m.endsWith('.check'))return {ok:true,state:++checks===7?'completed':'executing',progress:{removedEntries:0,removedBytes:0},observedAt:now};
     return {ok:true};
@@ -152,7 +153,7 @@ test('a completed executor is not retried when the post-operation index query fa
   let starts=0,inspects=0;
   const rpc=async m=>{
    if(m.endsWith('.inspect')){if(++inspects>1&&fail)throw Error('offline');return {ok:true,executorsChecked:true,executors:[],target:{missing:false}};}
-   if(m.endsWith('.preview'))return {token:'same',digest:'approved',targets:[{absolutePath:'/project/work_dirs/job',type:'directory'}]};
+   if(m.endsWith('.preview'))return {token:'same',digest:'approved',safety:FAST,targets:[{absolutePath:'/project/work_dirs/job',type:'directory'}]};
    if(m.endsWith('.execute'))starts++;
    if(m.endsWith('.check'))return {ok:true,state:'completed'};
    return {ok:true};
@@ -160,4 +161,30 @@ test('a completed executor is not retried when the post-operation index query fa
   await assert.rejects(deleteConfirmedScopeCopy(rpc,node,'work_dirs/job',true),/offline|删除后.*核实/);
   assert.equal(inspects,2);assert.equal(starts,1);
  }
+});
+
+test('an endpoint without the fast-chain flags fails closed with one unified upgrade error and zero mutation calls', async () => {
+  const calls = [];
+  const rpc = async (method) => {
+    calls.push(method);
+    if (method.endsWith('.inspect')) return { ok: true, executorsChecked: true, executors: [], target: { missing: false } };
+    if (method.endsWith('.preview')) return { token: 't', digest: 'd', safety: { confirmedPathDeletion: 1 }, targets: [{ absolutePath: '/project/work_dirs/job', type: 'directory' }] };
+    throw new Error('unexpected mutation: ' + method);
+  };
+  await assert.rejects(deleteConfirmedScopeCopy(rpc, node, 'work_dirs/job', true, () => {}, { wait: async () => {} }),
+    error => { assert.match(error.message, /批量快速删除链/); assert.equal(error.apiData?.code, 'SFTP_FAST_DELETE_UPGRADE_REQUIRED'); return true; });
+  assert.ok(!calls.some(m => /confirm|execute|check/.test(m)));
+});
+
+test('an engine refusing the fast action as UNKNOWN_ACTION maps to the same unified upgrade error', async () => {
+  const calls = [];
+  const rpc = async (method) => {
+    calls.push(method);
+    if (method.endsWith('.inspect')) return { ok: true, executorsChecked: true, executors: [], target: { missing: false } };
+    if (method.endsWith('.preview')) throw Object.assign(new Error('UNKNOWN_ACTION'), { apiData: { code: 'UNKNOWN_ACTION' } });
+    throw new Error('unexpected mutation: ' + method);
+  };
+  await assert.rejects(deleteConfirmedScopeCopy(rpc, node, 'work_dirs/job', true, () => {}, { wait: async () => {} }),
+    error => { assert.equal(error.apiData?.code, 'SFTP_FAST_DELETE_UPGRADE_REQUIRED'); return true; });
+  assert.ok(!calls.some(m => /confirm|execute|check/.test(m)));
 });

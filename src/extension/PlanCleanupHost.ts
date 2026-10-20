@@ -8,6 +8,7 @@ import { cleanupTaskEvidence, replacementEvidenceQueue, replacementJobGroups, re
 import { planSyncLedgerStoragePath, emptyPlanSyncLedger } from "../features/PlanArtifactSync";
 import { atomicWriteText } from "../state/StateStore";
 import { openPlanCleanupPanel } from "./PlanCleanupPanel";
+import { assertFastDeletePreviewSafety, fastDeleteUpgradeError, isFastDeleteUpgradeCode } from "../features/FastDeleteContract";
 import { discoverManifestCandidates, recordedDeclarations, type ManifestDeclaration } from "../features/ManifestCleanup";
 
 async function json(file: string, fallback: any): Promise<any> {
@@ -24,9 +25,20 @@ export class PlanCleanupHost {
     this.service = new PlanCleanup({ storageRoot: path.join(storage, "plan-cleanup", cleanupDigest(root)),
       collect: (file, options) => this.collect(file, Boolean(options?.removedMetadata), options?.archivedFiles, options?.removedMetadata, options?.onProgress, options?.job, options?.nativeDeclarations, options?.authorizationMode),
       sftp: async (method, params) => {
-        const result = await host.simpleSftpApiCall(method, params);
-        if (method === "files.cleanup.preview" && params.authorizationMode === "confirmed_paths" && result.safety?.confirmedPathDeletion !== 1)
-          cleanupError("SFTP_CONFIRMED_PATH_DELETE_REQUIRED", "请更新 SimpleSFTP 后重载窗口，以使用按确认路径删除。");
+        let result: any;
+        try { result = await host.simpleSftpApiCall(method, params); }
+        catch (error: any) {
+          // 旧引擎以 UNKNOWN_ACTION / UPDATE_REQUIRED 拒绝确认快速链时：统一"需要更新"错误，零确认零执行。
+          if (method === "files.cleanup.preview" && params.authorizationMode === "confirmed_paths"
+            && isFastDeleteUpgradeCode(error?.apiData?.code ?? error?.code)) fastDeleteUpgradeError();
+          throw error;
+        }
+        if (method === "files.cleanup.preview" && params.authorizationMode === "confirmed_paths") {
+          // v1.9：确认路径快速链以其应答的快标志块为唯一契约；旧通用链门禁（managedObservation、
+          // Git 祖先预检、归档批次、正式 job 属主）属于已退役链路，快速路径不再套用。
+          assertFastDeletePreviewSafety(result?.safety, Array.isArray(params.targets) ? params.targets.length : 0);
+          return result;
+        }
         if (method === "files.cleanup.preview" && params.observationMode === "managed_tmux" && result.safety?.managedObservation !== 1)
           cleanupError("SFTP_MANAGED_OBSERVATION_REQUIRED", "请更新配套 SimpleSFTP；尚未执行清理。");
         if (method === "files.cleanup.preview" && (result.safety?.gitRepositoryAncestors !== true || result.safety?.readOnlyReceiptCheck !== true))

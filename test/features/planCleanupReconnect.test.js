@@ -199,7 +199,7 @@ test('a real stalled cleanup query reports its node and path and the next read c
 
 test('read-only preflight overlaps different nodes, serializes each node and still rejects changed content',async()=>{
   const active=new Map(),calls=[];let simultaneous=0,maximum=0,changed=false;
-  const f=activeQueryFixture(async method=>{assert.equal(method,'files.cleanup.check');return {state:changed?'changed':'pending'};});
+  const f=activeQueryFixture(async method=>{assert.equal(method,'files.cleanup.status');return {observations:[{state:changed?'changed':'pending'}]};});
   const rows=f.rows.flatMap(row=>[row,{...row,id:row.id+'b',relativePath:row.relativePath+'b'}]);
   await f.service.queryRows(rows,async row=>{
     assert.equal(active.get(row.node.id)||0,0);active.set(row.node.id,1);calls.push(row.id);maximum=Math.max(maximum,++simultaneous);

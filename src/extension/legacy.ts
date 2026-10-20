@@ -23,7 +23,7 @@ import * as GpuQuotaScheduling from "../features/GpuQuotaScheduling";
 import { syncGpuQuotaPolicies } from "./GpuQuotaPolicyHost";
 import { closeGpuTmuxSession, closeTmuxSession, manageTmuxSession } from "./GpuTmuxClose";
 import { callSftpWithProgress } from "../core/SimpleSftpProgressWait";
-import { deleteConfirmedScopeCopy } from "../features/SyncScopeDelete";
+import { deleteConfirmedScopeCopy, previewConfirmedScopeDeletion, completeConfirmedScopeDeletion, type ConfirmedScopeBatch, type ConfirmedScopeOutcome } from "../features/SyncScopeDelete";
 import { SafeRequestRetry, RequestReplacedError, assertRetryRequestCurrent, retryRequestSignal } from "../core/SafeRequestRetry";
 import { preparePlanSafeRetry } from "../features/PlanSafeRetry";
 import { staticEntrypointProbe } from "../features/StaticEntrypointProbe";
@@ -8968,11 +8968,35 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             }
         } else throw new Error("批量操作类型无效。");
         const confirmationPaths = [];
+        const scopeBatches = new Map<string, ConfirmedScopeBatch[]>();
+        if (action === "delete") {
+            // v1.9：确认页展示前先做一次只读批量预检（按有界批次而非逐文件），
+            // 取回原路径→实际隔离路径的完整映射；能力缺失时在任何确认之前统一报需更新。
+            const remoteEntries = new Map<string, Array<{ relativePath: string; directory: boolean }>>();
+            for (const item of work) for (const endpointId of item.endpointIds) {
+                if (endpointId === "local") continue;
+                const list = remoteEntries.get(endpointId) || []; remoteEntries.set(endpointId, list);
+                if (!list.some((row) => row.relativePath === item.path)) list.push({ relativePath: item.path, directory: item.directory });
+            }
+            for (const [endpointId, list] of remoteEntries) {
+                const targetRow = targets.find((row) => row.id === endpointId);
+                if (!targetRow) throw new Error(`删除目标 ${endpointId} 未连接或未启用。`);
+                const server = this.sftpServerOptions(targetRow);
+                report(`${endpointId}：只读批量预检 ${list.length} 条路径`);
+                scopeBatches.set(endpointId, await previewConfirmedScopeDeletion(
+                    (method, params) => this.simpleSftpApiCall(method, params, 0),
+                    { id: endpointId, kind: "remote", host: server.host, user: server.user || server.username, port: server.port, root: server.remotePath },
+                    list, stage => report(`${endpointId}：${stage}`)));
+            }
+        }
         for (const item of work) {
             for (const endpointId of action === "delete" ? item.endpointIds : [item.endpointId]) {
                 const absolute = endpointId === "local" ? path.resolve(root, ...item.path.split("/"))
                     : path.posix.join(this.sftpServerOptions(targets.find((row) => row.id === endpointId)).remotePath, item.path);
-                confirmationPaths.push({ label: `${item.path} · ${action === "delete" ? "删除位置" : "来源"} ${endpointId}`, path: absolute });
+                const previewRow = action === "delete" && endpointId !== "local"
+                    ? scopeBatches.get(endpointId)?.flatMap((batch) => batch.rows).find((row) => row.relativePath === item.path) : undefined;
+                confirmationPaths.push({ label: `${item.path} · ${action === "delete" ? "删除位置" : "来源"} ${endpointId}`, path: previewRow?.absolutePath || absolute,
+                    ...(previewRow?.isolationAbsolutePath ? { isolation: previewRow.isolationAbsolutePath } : {}) });
             }
             if (action === "sync") {
                 for (const id of destinationIds) confirmationPaths.push({ label: `${item.path} · 目标 ${id}`, path: id === "local"
@@ -8982,9 +9006,9 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         if (!work.length) return { completed: absent, errors: [] };
         report(`等待核对 ${work.length} 条路径并两次确认`);
         if (!await confirmSyncScopePaths(action === "delete" ? "批量永久删除" : "批量同步到其他位置",
-            action === "delete" ? `删除所选位置实际存在的 ${work.length} 条路径。每个目标执行前再次验证父目录；删除后暂停自动补回。`
+            action === "delete" ? `删除所选位置实际存在的 ${work.length} 条路径。目录先以不覆盖改名方式唯一隔离，再整批删除；确认页逐条展示原路径与实际隔离路径的完整映射。同名新产物不会被删除；删除后暂停自动补回。我确认所列路径正确、文件未被占用，并同意永久删除。`
                 : `统一使用所选来源覆盖指定位置；未选择的位置本次保留原样。同一目标的文件打成一批 archive 传输。目标目录旧文件会清理。`,
-            confirmationPaths, action === "delete" ? "确认永久删除以上路径" : "确认同步以上路径")) return false;
+            confirmationPaths, action === "delete" ? "我确认所列路径正确、文件未被占用，并同意永久删除" : "确认同步以上路径")) return false;
             if (action === "sync") {
                 const transferred = await this.transferSyncScopeBatch(root, targets, work, destinationIds, report);
                 return { completed: transferred, errors: [] };
@@ -9001,14 +9025,33 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                     };
                 });
             }
-            const results = await runSyncScopeBatch(work, async (item) => {
+            const perPathErrors = new Map<string, string[]>();
+            const noteFailure = (relative: string, detail: string) => {
+                const list = perPathErrors.get(relative) || []; perPathErrors.set(relative, list);
+                if (!list.includes(detail)) list.push(detail);
+            };
+            // 本机副本沿用既有逐项本机删除（无 RPC）；远端副本按冻结预览批次整批删除。
+            for (const item of work.filter((row) => row.endpointIds.includes("local"))) {
                 const progress = (stage: string) => report(`${item.path}：${stage}`);
-                try { await this.removeSyncScopeCopies(root, targets, item.path, item.endpointIds, item.directory, progress); }
-                catch (error) { throw new Error(`${errorMessage(error)}；该路径自动同步仍暂停。`); }
-            }, (done, total) => report(`已处理 ${done}/${total}`), 1,
-                (error) => /PARENT_CD_FAILED|不安全|符号链接|超出项目根目录|机器状态路径|目标类型已变化|OPERATION_BUSY|清理窗口仍在处理|files[.]cleanup[.](inspect|preview|check)/.test(error));
-            return { completed: [...absent, ...results.filter((row) => !row.error).map((row) => row.item.path)],
-                errors: results.filter((row) => row.error).map((row) => `${row.item.path}：${row.error}`) };
+                try { await this.removeSyncScopeCopies(root, targets, item.path, ["local"], item.directory, progress); }
+                catch (error) { noteFailure(item.path, `本机：${errorMessage(error)}`); }
+            }
+            // v1.9：每个冻结批次一次执行 + 批量主动查询；回执丢失或隔离残留逐路径如实报告，绝不自动重发。
+            for (const [endpointId, batches] of scopeBatches) for (const batch of batches) {
+                let outcomes: ConfirmedScopeOutcome[] | undefined;
+                try { outcomes = await completeConfirmedScopeDeletion((method, params) => this.simpleSftpApiCall(method, params, 0), batch, stage => report(`${endpointId}：${stage}`)); }
+                catch (error) { batch.rows.forEach((row) => noteFailure(row.relativePath, `${endpointId}：${errorMessage(error)}`)); continue; }
+                for (const outcome of outcomes) if (outcome.state !== "completed") noteFailure(outcome.relativePath, `${endpointId}：${outcome.error || "回执未核实"}`);
+            }
+            report(`已处理 ${work.length}/${work.length}`);
+            const errors: string[] = [];
+            const completed = [...absent];
+            for (const item of work) {
+                const list = perPathErrors.get(item.path);
+                if (list?.length) errors.push(`${item.path}：${list.join("；")}；该路径自动同步仍暂停。`);
+                else completed.push(item.path);
+            }
+            return { completed, errors };
         } finally { operationIndex?.dispose(); this.syncScopeMutationInFlight = false; }
     }
     async readScopedProjectInventory(server, scopePaths) {
