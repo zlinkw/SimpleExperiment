@@ -135,7 +135,7 @@ test('independent nodes each get their own grouped request and the round never e
   const f=await residueFixture({hold:new Promise(resolve=>setTimeout(resolve,10))},
     [{node:node('w1'),total:600,dirs:0,completed:500},{node:node('w2'),total:600,dirs:0,completed:500}]);
   const result=await f.service.status(f.id);
-  assert.equal(f.engine.observeCount,2);assert.ok(f.engine.peak<=2);
+  assert.equal(f.engine.observeCount,2);assert.equal(f.engine.peak,2); // two rc=1 groups must run concurrently, never serialize to one
   assert.deepEqual(f.engine.calls.map(row=>row.params.readConcurrency),[1,1]);
   assert.equal(new Set(f.engine.calls.map(row=>row.params.observationId)).size,1); // one round identity shared across groups
   assert.equal(result.targets['w1-0'].state,'completed');assert.equal(result.targets['w2-0'].state,'completed');
@@ -168,6 +168,30 @@ test('executors decide honestly: live means executing, unverified is unknown, se
   const goneLive=await residueFixture({executingNodes:new Set(['worker-7'])},[{node:node('worker'),total:10,dirs:0,completed:5}]);
   const goneLiveResult=await goneLive.service.status(goneLive.id);
   assert.equal(goneLiveResult.targets['worker-7'].state,'executing');assert.equal(goneLiveResult.state,'running');
+  // P3 shape: a backend that narrows a gone row to state "completed" from filesystem facts must still not
+  // settle a running-operation row while its executor sweep went unanswered.
+  const uncheckedGone=await residueFixture({unverified:true},[{node:node('worker'),total:10,dirs:0,completed:5}]);
+  const uncheckedGoneResult=await uncheckedGone.service.status(uncheckedGone.id);
+  assert.equal(uncheckedGoneResult.targets['worker-7'].error,'CLEANUP_EXECUTOR_QUERY_UNVERIFIED');
+  assert.equal(uncheckedGoneResult.state,'partial');
+});
+
+test('a directory deletion confirmed through its isolation tree completes the operation',async()=>{
+  const f=await residueFixture({},[{node:node('worker'),total:6,dirs:6,completed:0}]);
+  const result=await f.service.status(f.id);
+  assert.equal(result.state,'completed'); // isolation_tree_removed is a real absence fact, not a stuck receipt
+  assert.equal(result.targets['worker-0'].receipt.verifiedBy,'isolation_tree_removed');
+});
+
+test('workers sharing one endpoint keep separate stable identities and never share tokens',async()=>{
+  const shared=id=>({id,kind:'remote',root:'/fixture/project',host:'shared.invalid',port:2222,user:'fixture'});
+  const f=await residueFixture({},[{node:shared('w1'),total:6,dirs:0,completed:0},{node:shared('w2'),total:6,dirs:0,completed:0}]);
+  await f.service.status(f.id);
+  assert.equal(f.engine.observeCount,2); // same host/root/port/user with different stable ids never merge into one group
+  const byId=new Map(f.engine.calls.map(row=>[row.params.node.id,row.params]));
+  assert.deepEqual([...byId.keys()].sort(),['w1','w2']);
+  assert.ok(byId.get('w1').targets.every(row=>row.key.startsWith('w1-')&&row.backendToken==='tok-w1'));
+  assert.ok(byId.get('w2').targets.every(row=>row.key.startsWith('w2-')&&row.backendToken==='tok-w2'));
 });
 
 test('links and unusable frozen receipts answer per row as unknown with their own codes',async()=>{
@@ -211,7 +235,7 @@ test('a changed server identity blocks that group without any batched request an
 });
 
 test('rounds never cache across calls, concurrent same-operation status shares one request, and a late old round cannot overwrite',async()=>{
-  const f=await residueFixture();
+  const f=await residueFixture({present:new Set(['worker-1005'])}); // one present row keeps the operation recoverable
   await f.service.status(f.id);await f.service.status(f.id);
   assert.equal(f.engine.observeCount,2); // fresh round re-reads the real filesystem
   assert.notEqual(f.engine.calls[0].params.observationId,f.engine.calls[1].params.observationId);

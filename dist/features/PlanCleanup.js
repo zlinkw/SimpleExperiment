@@ -423,8 +423,10 @@ class PlanCleanup {
                     operation.error ||= row.node.id + "：" + String(error.message || error);
                 }
             });
+        // Both active-query absence facts settle a row: the path is gone, or its bound isolation tree is gone.
         const absent = (row) => operation.targets[row.id]?.state === "completed"
-            && operation.targets[row.id]?.receipt?.verifiedBy === "path_absence";
+            && operation.targets[row.id]?.receipt?.source === "active_query"
+            && ["path_absence", "isolation_tree_removed"].includes(operation.targets[row.id]?.receipt?.verifiedBy);
         const checkedNodes = operation.preview.scope.nodes.filter(node => rows.some(row => row.node.id === node.id)
             && rows.filter(row => row.node.id === node.id).every(absent)).map(node => node.id);
         operation.pendingNodes = operation.pendingNodes.filter(id => !checkedNodes.includes(id));
