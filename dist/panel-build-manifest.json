@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "version": "0.5.393",
-  "buildId": "caaba08a89916903852edd01d9e40a1dd1e63852d15b8f691545e4291fc9582a",
+  "buildId": "d223cd75063a290aabef4dd6fbf37d09989846d4aa2163b54bb83fe4ed06dd53",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -425,7 +425,7 @@
     },
     {
       "path": "dist/features/ObservationRound.js",
-      "sha256": "ff288f372031e280cf865b7d1931100c94799df3f24faeb1548ef9b26f77449c"
+      "sha256": "21f9c9db90d94711eceade560d6a3dd28377a82a8b3f79855e7000a514cb47b6"
     },
     {
       "path": "dist/features/OperationRetirement.js",
@@ -501,7 +501,7 @@
     },
     {
       "path": "dist/features/PlanCleanup.js",
-      "sha256": "627144451bed9dd44deabc0dd42344fa2a6921b252556362248f721b1251ee39"
+      "sha256": "86c13f62d6da2c5d76764767c3f771405ca6a081d72819be0828f6a08b5ba8b4"
     },
     {
       "path": "dist/features/PlanCleanupEvidence.js",

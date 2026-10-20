@@ -206,11 +206,17 @@ test('links and unusable frozen receipts answer per row as unknown with their ow
   assert.equal(g.engine.observeCount,1);
 });
 
-test('a same-path entry with a new identity answers replaced and the frozen deletion completes',async()=>{
+test('a same-path entry with a new identity is recreation counter-evidence kept pending, never path absence',async()=>{
+  // Restores the pre-batching recovery baseline: the legacy per-row inspect path kept ANY non-missing
+  // target pending (never completing on an identity change), and v1.10 only reduces queries, it does not
+  // re-authorize a unified state rule. The accepted fastVerify same_name_new_data semantics of the
+  // official execute chain are untouched by this recovery-path rule.
   const f=await residueFixture({replaced:new Set(['worker-7'])},[{node:node('worker'),total:10,dirs:0,completed:5}]);
   const r=await f.service.status(f.id);
-  assert.equal(r.targets['worker-7'].state,'completed'); // new data is not the frozen entry
-  assert.equal(r.targets['worker-7'].receipt.verifiedBy,'path_absence');
+  assert.equal(r.targets['worker-7'].state,'pending'); // a same-name new identity stays for review
+  assert.equal(r.targets['worker-7'].error,'SOURCE_RECREATED_OR_CHANGED');
+  assert.equal(r.targets['worker-7'].receipt,undefined); // never recorded as path_absence
+  assert.equal(r.state,'partial');
 });
 
 test('targets without backend tokens observe by exact path in the same batch',async()=>{
@@ -276,4 +282,75 @@ test('continuePreview over a partial round shares one observation and the contin
   assert.equal(engine.observeCount,1); // one shared round covers status, the history status and the continuation
   assert.ok(engine.calls.every(row=>['files.cleanup.observeBatch','files.cleanup.preview'].includes(row.method)));
   assert.equal(next.rows.filter(row=>row.disposition==='delete').length,1); // only the still-present candidate continues
+});
+
+// C1 (round-20 review): ancestor and continuation previews share one row id (same node/root/path/type)
+// but hold DIFFERENT frozen backend tokens. Sharing a round must never answer one from the other's
+// observation: each operation actively queries its own frozen identity, and neither side's verdict —
+// completion NOR pendingNodes retirement — may borrow the other's evidence.
+test('C1: operations sharing a row id never borrow observations across backend tokens in one round',async()=>{
+  const root=await fs.mkdtemp(path.join(os.tmpdir(),'v110-c1-')),anc='a'.repeat(48),desc='b'.repeat(48),worker=node('worker');
+  const mkOp=(id,continuationOf,token,updatedAt)=>({id,state:'partial',executionRequestedAt:new Date().toISOString(),
+    preview:{token:id,digest:'frozen',action:'delete',confirmations:2,continuationOf,
+      scope:{projectId:'project',planFile:'plans/p.yaml',planKey:'p',planHash:'h',revision:'r',nodes:[worker],runIds:[],blockers:[],authorizationMode:'confirmed_paths',observationMode:'managed_tmux'},
+      rows:[{id:'row-shared',nodeId:'worker',node:worker,relativePath:'work_dirs/p/out.bin',absolutePath:worker.root+'/work_dirs/p/out.bin',
+        type:'file',category:'专用产物',owners:['p'],evidence:['exact registered target'],dependencies:[],disposition:'delete',destination:'',backendToken:token,backendIndex:0}],
+      blockers:[],expiresAt:Date.now()+600000},
+    targets:{'row-shared':{state:'pending'}},pendingNodes:['worker'],updatedAt});
+  await fs.writeFile(path.join(root,anc+'.json'),JSON.stringify(mkOp(anc,undefined,'tok-A',new Date(Date.now()-60000).toISOString())),'utf8');
+  await fs.writeFile(path.join(root,desc+'.json'),JSON.stringify(mkOp(desc,anc,'tok-B',new Date().toISOString())),'utf8');
+  const seen=[];
+  const ports={storageRoot:root,collect:async()=>{throw err('MUST_NOT_RECOLLECT');},restoreGate:async()=>{},updateIndexes:async()=>{},
+    sftp:async(method,params)=>{
+      if(method!=='files.cleanup.observeBatch')throw new Error('unexpected method '+method);
+      const token=params.targets[0].backendToken;seen.push(token);
+      const base={key:params.targets[0].key,relativePath:params.targets[0].relativePath,type:params.targets[0].type};
+      // Continuation's frozen identity was deleted; the same path now holds NEW data (replaced, present).
+      if(token==='tok-B')return{ok:true,observationId:params.observationId,capabilities:{batchCleanupObservation:1,maxTargets:5000},rootIdentity:{path:worker.root},
+        observations:[{...base,status:'replaced',target:{missing:false,type:'file',device:'99',inode:'999'},executors:[],executorsChecked:true,state:'completed'}]};
+      // Ancestor's frozen identity is still live on disk.
+      return{ok:true,observationId:params.observationId,capabilities:{batchCleanupObservation:1,maxTargets:5000},rootIdentity:{path:worker.root},
+        observations:[{...base,status:'present',target:{missing:false,type:'file',device:'7',inode:'500'},executors:[],executorsChecked:true,state:'pending'}]};
+    }};
+  const reports=await new PlanCleanup(ports).recheckNode('worker');
+  const ancAfter=JSON.parse(await fs.readFile(path.join(root,anc+'.json'),'utf8'));
+  const descAfter=JSON.parse(await fs.readFile(path.join(root,desc+'.json'),'utf8'));
+  assert.ok(seen.includes('tok-B'));assert.ok(seen.includes('tok-A'),'each operation must actively observe its own frozen token; seen='+seen.join(','));
+  // Ancestor: its own identity is live -> pending, never completed or retired from the continuation's answer.
+  assert.equal(ancAfter.targets['row-shared'].state,'pending');
+  assert.equal(ancAfter.targets['row-shared'].receipt,undefined);
+  assert.ok(ancAfter.pendingNodes.includes('worker'),'pendingNodes may retire only on this operation own absence evidence');
+  assert.notEqual(ancAfter.state,'completed');
+  // Continuation: replaced with target present is recreation counter-evidence, not a completed deletion.
+  assert.equal(descAfter.targets['row-shared'].state,'pending');
+  assert.equal(descAfter.targets['row-shared'].error,'SOURCE_RECREATED_OR_CHANGED');
+  assert.notEqual(descAfter.state,'completed');
+  assert.equal(reports.length,2); // both operations keep recoverable reports
+});
+
+// Shared-round evidence isolation boundary: every frozen fact (stable node, root freeze, backend
+// token/index, path/type, isolation mapping) distinguishes requests; identical facts still share.
+test('same-round sharing binds node, root, token, index and isolation identity without disabling sharing',async()=>{
+  const {createObservationRound,observeRound}=require('../../src/features/ObservationRound.ts');
+  let reads=0;
+  const round=createObservationRound({digest:v=>JSON.stringify(v),timeoutMs:5000,
+    sftp:async(method,params)=>{reads++;
+      return{ok:true,observationId:params.observationId,capabilities:{batchCleanupObservation:1},rootIdentity:{path:'/r'},
+        observations:params.targets.map(t=>({key:t.key,relativePath:t.relativePath,type:t.type,status:'gone',target:{missing:true},executors:[],executorsChecked:true}))};}});
+  const worker={id:'w',kind:'remote',root:'/r',host:'h.invalid',port:22,user:'u'};
+  const target=over=>[{key:'k1',relativePath:'out/a.bin',type:'file',backendToken:'T1',backendIndex:0,...over}];
+  await observeRound(round,worker,target());await observeRound(round,worker,target());
+  assert.equal(reads,1); // identical frozen facts share one read inside the round
+  await observeRound(round,worker,target({backendToken:'T2'}));assert.equal(reads,2); // token change is a fresh read
+  await observeRound(round,worker,target({backendToken:'T1',backendIndex:1}));assert.equal(reads,3); // token index change
+  await observeRound(round,worker,target({isolationRelativePath:'out/__iso_a_bin'}));assert.equal(reads,4); // isolation mapping change
+  await observeRound(round,{...worker,id:'other'},target());assert.equal(reads,5); // stable node id change
+  await observeRound(round,{...worker,host:'elsewhere.invalid'},target());assert.equal(reads,6); // endpoint change
+  await observeRound(round,worker,target(),{rootIdentity:{path:'/r'}});assert.equal(reads,7); // root freeze change
+  await observeRound(round,worker,[{key:'k1',relativePath:'out/b.bin',type:'file'}]);assert.equal(reads,8); // untagged same key, other path
+  // Superset sharing stays available and cheap: mixed request observes once, the exact-identity subset reuses its entry.
+  const mixed=await observeRound(round,worker,[...target(),{key:'k2',relativePath:'out/b.bin',type:'file'}]);
+  assert.equal(reads,9);
+  const subset=await observeRound(round,worker,target());
+  assert.equal(reads,9);assert.equal(subset.byKey.get('k1').status,'gone');assert.equal(mixed.byKey.get('k2').status,'gone');
 });

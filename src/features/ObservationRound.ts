@@ -17,17 +17,17 @@ export type ObservationEntry = { key: string; relativePath?: string; type?: stri
   state?: string; executors?: unknown[]; executorsChecked?: boolean;
   isolationStatus?: "present" | "gone" | "replaced" | "unknown"; isolationChecked?: boolean;
   error?: { code?: string; message?: string } };
-export type GroupOutcome = { identityKey: string; keys: string[]; byKey: Map<string, ObservationEntry>;
+export type GroupOutcome = { identityKey: string; sourceKey: string; keys: string[]; byKey: Map<string, ObservationEntry>;
   missingKeys: string[]; rootIdentity?: unknown; upgrade?: boolean; failure?: { code: string; message: string } };
 
 export type ObservationRound = { id: string; closed: boolean; inflight: number; queue: Array<() => void>;
-  plannedGroups: number; outcomes: GroupOutcome[];
+  plannedGroups: number; outcomes: GroupOutcome[]; entryOwners: Map<string, GroupOutcome>;
   sftp: (method: string, params: unknown) => Promise<unknown>; digest: (value: unknown) => string; timeoutMs: number };
 
 export function createObservationRound(config: { sftp: (method: string, params: unknown) => Promise<unknown>;
   digest: (value: unknown) => string; timeoutMs: number }): ObservationRound {
   return { id: "obs-" + randomBytes(12).toString("hex"), closed: false, inflight: 0, queue: [], plannedGroups: 0,
-    outcomes: [], sftp: config.sftp, digest: config.digest, timeoutMs: config.timeoutMs };
+    outcomes: [], entryOwners: new Map(), sftp: config.sftp, digest: config.digest, timeoutMs: config.timeoutMs };
 }
 
 /** Expanded entries: each target plus its paired isolation path travel in the same chunk. */
@@ -91,20 +91,36 @@ async function requestChunk(round: ObservationRound, node: Record<string, unknow
   } finally { if (timer) clearTimeout(timer); }
 }
 
-/** One grouped observation for (node identity, root, target set); supersets already observed this round are reused. */
+/** One observation group is bound to the FULL request identity: stable node, frozen root and every
+ * frozen target fact. C1 rule: two operations may share a row id, but a different backend token,
+ * index, path, device/inode or isolation mapping is different evidence and must be read separately. */
+function sourceIdentity(digest: (value: unknown) => string, node: Record<string, unknown>, rootIdentity?: unknown): string {
+  return digest({ kind: node.kind ?? null, id: node.id, host: node.host ?? null, user: node.user ?? null,
+    port: node.port ?? null, root: node.root ?? null, rootIdentity: rootIdentity === undefined ? null : rootIdentity });
+}
+function targetFacts(digest: (value: unknown) => string, target: ObserveTarget): string {
+  return digest({ key: target.key, relativePath: target.relativePath, type: target.type,
+    backendToken: target.backendToken ?? null, backendIndex: target.backendIndex ?? null,
+    device: target.device === undefined ? null : String(target.device), inode: target.inode === undefined ? null : String(target.inode),
+    isolationRelativePath: target.isolationRelativePath ?? null });
+}
+
+/** One grouped observation for one full request identity; identical facts share inside the round, and a
+ * subset may reuse a superset only when every target's full facts match exactly — never by key name alone. */
 export async function observeRound(round: ObservationRound, node: Record<string, unknown> & { root?: string },
   targets: ObserveTarget[], options: { rootIdentity?: unknown } = {}): Promise<GroupOutcome> {
-  const identityKey = round.digest({ id: node.id, host: node.host, user: node.user, port: node.port, root: node.root });
-  const keys = targets.map(t => t.key).sort();
-  const cacheKey = identityKey + ":" + round.digest(keys);
-  const cached = round.outcomes.find(o => o.identityKey === cacheKey);
+  const sourceKey = sourceIdentity(round.digest, node, options.rootIdentity);
+  const facts = targets.map(target => targetFacts(round.digest, target)).sort();
+  const identityKey = sourceKey + ":" + round.digest(facts);
+  const cached = round.outcomes.find(o => o.identityKey === identityKey);
   if (cached) return cached;
-  const superset = round.outcomes.find(o => o.identityKey.startsWith(identityKey)
-    && keys.every(key => o.keys.includes(key)));
-  if (superset) return { ...superset, keys,
-    byKey: new Map([...superset.byKey].filter(([key]) => keys.includes(key))),
-    missingKeys: superset.missingKeys.filter(key => keys.includes(key)) };
-  const outcome: GroupOutcome = { identityKey: cacheKey, keys, byKey: new Map(), missingKeys: [] };
+  const keys = targets.map(t => t.key).sort();
+  if (facts.length) {
+    const owners = facts.map(fact => round.entryOwners.get(sourceKey + ":" + fact));
+    const owner = owners[0];
+    if (owner && owners.every(owned => owned === owner)) return { ...owner, keys }; // entry views share one evidence map
+  }
+  const outcome: GroupOutcome = { identityKey, sourceKey, keys, byKey: new Map(), missingKeys: [] };
   if (round.closed) { outcome.failure = { code: "ROUND_CLOSED", message: "本轮观察已结束，旧轮不再采集。" }; return outcome; }
   round.plannedGroups = Math.max(round.plannedGroups, chunkObservationTargets(targets).length);
   let upgrade = false; const failures: Array<{ code: string; message: string }> = [];
@@ -119,5 +135,6 @@ export async function observeRound(round: ObservationRound, node: Record<string,
   outcome.upgrade = upgrade || undefined;
   outcome.failure = failures[0];
   round.outcomes.push(outcome);
+  for (const fact of facts) round.entryOwners.set(sourceKey + ":" + fact, outcome);
   return outcome;
 }

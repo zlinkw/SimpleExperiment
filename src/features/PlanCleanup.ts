@@ -199,6 +199,9 @@ export class PlanCleanup {
     if (entry.isolationStatus === "present") return "residue";
     if (requestedIsolation && entry.status === "present" && entry.isolationChecked !== true) return "unknown";
     if (entry.state === "executing" || (entry.executorsChecked === true && Boolean(entry.executors?.length))) return "executing";
+    // Recovery baseline (pre-batching): a same-path entry recreated under a new identity is still on
+    // disk. The narrowed token state must not collapse that into absence; only real absence settles a row.
+    if (entry.status === "replaced" && entry.target && entry.target.missing === false) return "present";
     if (entry.state === "completed") return "absent";
     if (entry.state === undefined && (entry.status === "gone" || entry.status === "replaced")) return "absent";
     if (entry.state === "pending") return "present";
@@ -294,7 +297,7 @@ export class PlanCleanup {
           if (exists) {
             if (operation.executionRequestedAt && entry.executorsChecked !== true) { markUnknown(row, "CLEANUP_EXECUTOR_QUERY_UNVERIFIED"); continue; }
             if (operation.targets[row.id]) operation.targets[row.id] = { state: "pending",
-              ...(operation.targets[row.id]?.receipt?.verifiedBy ? { error: "SOURCE_RECREATED_OR_CHANGED" } : {}) };
+              ...(operation.targets[row.id]?.receipt?.verifiedBy || entry.status === "replaced" ? { error: "SOURCE_RECREATED_OR_CHANGED" } : {}) };
             continue;
           }
           markUnknown(row, String(entry.isolationStatus === "unknown" ? "隔离结果未答复，按未知处理。" : "观察状态不明确，按未知处理。"), "ISOLATION_OR_STATE_UNKNOWN");
@@ -650,7 +653,10 @@ export class PlanCleanup {
   }
   /** One shared observation entry for a row; failures surface as errors instead of per-row fallback queries. */
   private async roundVerifyEntry(round: ObservationRound, row: CleanupRow): Promise<any> {
-    const outcome = await observeRound(round, row.node as unknown as Record<string, unknown> & { root?: string }, [this.observeTargetOf(row)]);
+    // Carry the row's frozen root identity so this probe shares exactly the same full request identity
+    // as the group observation; without it the same target could silently borrow another root's answer.
+    const outcome = await observeRound(round, row.node as unknown as Record<string, unknown> & { root?: string },
+      [this.observeTargetOf(row)], row.rootIdentity === undefined ? {} : { rootIdentity: row.rootIdentity });
     if (outcome.upgrade) cleanupError(BATCH_OBSERVATION_UPGRADE_CODE);
     if (outcome.failure) throw Object.assign(new Error(outcome.failure.message), { apiData: { code: outcome.failure.code } });
     const entry = outcome.byKey.get(row.id);
