@@ -12,9 +12,12 @@ async function fixture({action='delete',state='paused',missing=['worker'],failed
  await fs.writeFile(path.join(root,id+'.json'),JSON.stringify(operation),'utf8');
  const ports={storageRoot:root,collect:async()=>{throw Error('must not recollect or authorize deletion');},restoreGate:async()=>{},currentNode:async id=>({...nodes.find(node=>node.id===id),...(changed.includes(id)?{port:9999}:{})}),
   updateIndexes:async op=>indexed.push(JSON.parse(JSON.stringify(op))),sftp:async(method,params)=>{
-   calls.push({method,params});if(method==='files.cleanup.inspect'){
+   calls.push({method,params});if(method==='files.cleanup.observeBatch'){
     if(failed.includes(params.node.id))throw Error('SSH_QUERY_FAILED');
-    return {target:{missing:missing.includes(params.node.id),type:'directory'},...(!executorUnverified?{executorsChecked:true,executors:executing.includes(params.node.id)?[{windowId:'@42'}]:[]}:{})};
+    if(typeof params.observationId!=='string'||![1,2].includes(params.readConcurrency)||!Array.isArray(params.targets)||params.targets.length>5000)throw Error('INVALID_OBSERVATION_REQUEST');
+    const observations=params.targets.map(target=>({key:target.key,relativePath:target.relativePath,type:target.type,target:{missing:missing.includes(params.node.id),type:'directory'},
+     ...(executorUnverified?{}:{executorsChecked:true,executors:executing.includes(params.node.id)?[{windowId:'@42'}]:[]})}));
+    return {ok:true,observationId:params.observationId,capabilities:{batchCleanupObservation:1,maxTargets:5000},rootIdentity:{path:params.node.root},observations};
    }
    if(method==='files.cleanup.check')throw Error('EXPIRED_TOKEN');
    throw Error('must not mutate: '+method);
@@ -25,7 +28,8 @@ test('restart retires an already absent deletion without confirmations, old capa
  const f=await fixture({missing:['worker','other']});
  const result=await f.service.status(f.id);assert.equal(result.state,'completed');assert.deepEqual(result.pendingNodes,[]);assert.equal(result.error,undefined);
  assert.ok(Object.values(result.targets).every(row=>row.state==='completed'));assert.equal(f.indexed.length,1);
- assert.ok(f.calls.every(row=>row.method==='files.cleanup.inspect'&&row.params.allowMissing===true));
+ assert.ok(f.calls.every(row=>row.method==='files.cleanup.observeBatch'));assert.equal(f.calls.length,2);
+ assert.ok(f.calls.every(row=>row.params.readConcurrency===1&&row.params.targets.length===1&&row.params.targets[0].backendToken==='expired-'+row.params.node.id&&row.params.targets[0].backendIndex===0));
  const restarted=new PlanCleanup(f.ports);assert.deepEqual(await restarted.recheckNode('worker'),[]);assert.deepEqual(await restarted.recheckNode('other'),[]);
  const saved=await fs.readFile(path.join(f.root,f.id+'.json'),'utf8');assert.doesNotMatch(saved,/work_dirs\/job|expired-worker|relativePath|fingerprint/);
  assert.equal((await restarted.execute(f.id)).state,'completed');
@@ -44,11 +48,11 @@ test('failed existence checks and changed servers remain unverified and never be
 });
 test('files still present and expired approvals never cause automatic execution or success',async()=>{
  const f=await fixture({missing:[]});const result=await f.service.status(f.id);assert.notEqual(result.state,'completed');assert.equal(f.indexed.length,0);
- assert.ok(f.calls.every(row=>row.method==='files.cleanup.inspect'));assert.equal(result.preview.confirmations,1);
+ assert.ok(f.calls.every(row=>row.method==='files.cleanup.observeBatch'));assert.equal(result.preview.confirmations,1);
 });
 test('a lost deletion response can finish from actual absence even when the backend capability expired',async()=>{
  const f=await fixture({state:'running',missing:['worker','other']});assert.equal((await f.service.status(f.id)).state,'completed');assert.equal(f.indexed.length,1);
- assert.ok(f.calls.every(row=>row.method==='files.cleanup.inspect'));
+ assert.ok(f.calls.every(row=>row.method==='files.cleanup.observeBatch'));
 });
 test('an ordinary move keeps its receipt and destination verification rules',async()=>{
  const f=await fixture({action:'move',missing:['worker','other']});assert.equal((await f.service.status(f.id)).state,'paused');assert.equal(f.calls.length,0);assert.equal(f.indexed.length,0);
@@ -59,7 +63,7 @@ test('an actual cleanup window keeps execution active even after the target disa
  assert.deepEqual(await live.service.recheckNode('worker'),[]);
  const unknown=await fixture({state:'running',missing:['worker','other'],executorUnverified:true});
  assert.equal((await unknown.service.status(unknown.id)).state,'partial');assert.equal(unknown.indexed.length,0);
- assert.ok(unknown.calls.every(row=>row.method==='files.cleanup.inspect'));
+ assert.ok(unknown.calls.every(row=>row.method==='files.cleanup.observeBatch'));
 });
 async function hostFixture(root,extra={}){
  const vm=require('node:vm'),ts=require('typescript'),from=require('node:module').createRequire(path.resolve(__dirname,'../../src/extension/PlanCleanupHost.ts')),exports={};let notices=0;
@@ -79,7 +83,7 @@ test('connection does not inspect cleanup history; an explicit review retires co
 test('a failed startup query never announces that an old file still needs deletion',async()=>{
  const f=await fixture({failed:['worker'],missing:['worker','other']}),ui=await hostFixture(f.root);ui.host.service=f.service;
  await ui.host.observeConnections([{id:'worker',streamStatus:'polling'}]);assert.equal(ui.notices,0);assert.equal(f.calls.length,0);
- f.ports.sftp=async(method)=>{assert.equal(method,'files.cleanup.inspect');return {target:{missing:true,type:'directory'}};};
+ f.ports.sftp=async(method,params)=>{assert.equal(method,'files.cleanup.observeBatch');return {ok:true,observationId:params.observationId,capabilities:{batchCleanupObservation:1,maxTargets:5000},rootIdentity:{path:params.node.root},observations:params.targets.map(target=>({key:target.key,target:{missing:true,type:'directory'},executorsChecked:true,executors:[]}))};};
  await ui.host.observeConnections([{id:'worker',streamStatus:'disconnected'}]);
  await ui.host.observeConnections([{id:'worker',streamStatus:'polling'}]);assert.equal(ui.notices,0);assert.equal(f.calls.length,0);
  assert.equal((await f.service.status(f.id)).state,'completed');assert.deepEqual(await f.service.list(),[]);

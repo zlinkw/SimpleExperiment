@@ -3,6 +3,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { atomicWriteText } from "../state/StateStore";
 import { FAST_CONFIRMED_BATCH_CAP, assertFastDeletePreviewSafety, chunkFastDeleteTargets, fastDeleteVerifiedBy, isFastDeleteUpgradeCode } from "./FastDeleteContract";
+import { BATCH_OBSERVATION_UPGRADE_CODE, BATCH_OBSERVATION_UPGRADE_MESSAGE, createObservationRound, observeRound, type ObservationRound, type ObserveTarget } from "./ObservationRound";
 
 export type CleanupNode = { id: string; kind: "local" | "remote"; root: string; host?: string; port?: number; user?: string; error?: string };
 export type CleanupJobSelection = { workflowId: string; index: number; commandId: string; purpose?: "replace_outputs";
@@ -151,24 +152,46 @@ export class PlanCleanup {
     }
     await atomicWriteText(this.file(operation.id), JSON.stringify(record, null, 2));
   }
-  async status(id: string): Promise<CleanupOperation> {
+  async status(id: string, round?: ObservationRound): Promise<CleanupOperation> {
+    const ownRound = round === undefined;
+    const observationRound = round ?? this.newObservationRound();
     try {
-      const operation = JSON.parse(await fs.readFile(this.file(id), "utf8"));
+      const originalText = await fs.readFile(this.file(id), "utf8");
+      const operation = JSON.parse(originalText);
       const inspectDeletion = operation.preview.action === "delete" && operation.state !== "completed"
         && !operation.continuedBy && !operation.restoredBy && !this.busy.has(id);
       if (!inspectDeletion && (operation.preview.scope.observationMode !== "managed_tmux" || !operation.executionRequestedAt)) return operation;
       if (!this.observing.has(id)) this.observing.set(id, (async () => {
-        let observed = inspectDeletion ? await this.observeDeletion(operation) : operation;
+        let observed = inspectDeletion ? await this.observeDeletion(operation, observationRound) : operation;
         if (!inspectDeletion && observed.preview.scope.observationMode === "managed_tmux" && observed.executionRequestedAt)
           observed = await this.observeManaged(observed);
         if (observed.state === "completed" && !observed.indexed) {
           await this.ports.updateIndexes(observed, observed.preview.action === "restore"); observed.indexed = true;
         }
+        // A late old round must never overwrite what a newer round already persisted.
+        if (await fs.readFile(this.file(id), "utf8") !== originalText) return JSON.parse(await fs.readFile(this.file(id), "utf8"));
         await this.save(observed); return observed;
       })().finally(() => this.observing.delete(id)));
       return clone(await this.observing.get(id)!);
     }
     catch (error: any) { if (error.code === "ENOENT") cleanupError("OPERATION_NOT_FOUND"); throw error; }
+    finally { if (ownRound) observationRound.closed = true; }
+  }
+  private newObservationRound(): ObservationRound {
+    return createObservationRound({ sftp: (method, params) => this.ports.sftp(method, params), digest: cleanupDigest, timeoutMs: CLEANUP_QUERY_TIMEOUT_MS });
+  }
+  /** Build one contract observe target from a frozen row; tokens only travel with their own index. */
+  private observeTargetOf(row: CleanupRow): ObserveTarget {
+    const target: ObserveTarget = { key: row.id, relativePath: row.relativePath, type: row.type };
+    if (row.backendToken && Number.isInteger(row.backendIndex)) { target.backendToken = row.backendToken; target.backendIndex = row.backendIndex; }
+    if (row.device !== undefined) target.device = row.device;
+    if (row.inode !== undefined) target.inode = row.inode;
+    const isolationName = (row as { isolationName?: unknown }).isolationName;
+    if (row.type === "directory" && typeof isolationName === "string" && isolationName) {
+      const parent = path.posix.dirname(row.relativePath);
+      target.isolationRelativePath = (parent === "." ? "" : parent + "/") + isolationName;
+    }
+    return target;
   }
   private async query(row: CleanupRow, method: string, params: any, timeoutMs = CLEANUP_QUERY_TIMEOUT_MS): Promise<any> {
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -201,12 +224,62 @@ export class PlanCleanup {
     return proof;
   }
   /** A persisted deletion is an input to a fresh query, never proof that files still exist. */
-  private async observeDeletion(operation: CleanupOperation): Promise<CleanupOperation> {
+  private async observeDeletion(operation: CleanupOperation, round: ObservationRound): Promise<CleanupOperation> {
     const rows = operation.preview.rows.filter(row => row.nodeId !== "pluginState" && row.disposition !== "protected");
     let executing = false, queryFailed = false;
     delete operation.error;
     if (!rows.length) return operation;
-    await this.queryRows(rows, async row => {
+    if (operation.preview.scope.authorizationMode === "confirmed_paths") {
+      // v1.10: one batched read-only observation per (node identity, root, target set), shared in the round.
+      const groups = new Map<string, { node: CleanupNode; rows: CleanupRow[]; identityChanged?: boolean }>();
+      for (const row of rows) {
+        const key = this.nodeIdentity(row.node);
+        const group = groups.get(key) || { node: row.node, rows: [] as CleanupRow[] };
+        group.rows.push(row); groups.set(key, group);
+      }
+      if (this.ports.currentNode) for (const group of groups.values()) {
+        try { for (const row of group.rows)
+          if (this.nodeIdentity(await this.ports.currentNode(row.node.id)) !== this.nodeIdentity(row.node)) { group.identityChanged = true; break; } }
+        catch { group.identityChanged = true; }
+      }
+      const entries = [...groups.values()];
+      round.plannedGroups = Math.max(round.plannedGroups, entries.length);
+      const outcomes = await Promise.all(entries.map(async group => {
+        if (group.identityChanged) return undefined;
+        const targets = group.rows.map(row => this.observeTargetOf(row));
+        const rootIdentity = group.rows.map(row => row.rootIdentity).find(value => value !== undefined);
+        return observeRound(round, group.node as unknown as Record<string, unknown> & { root?: string }, targets,
+          rootIdentity === undefined ? {} : { rootIdentity });
+      }));
+      const markUnknown = (row: CleanupRow, message: string, code?: string) => {
+        queryFailed = true;
+        // A confirmed completion is only released by real counter-evidence, never by an unknown this round.
+        if (operation.targets[row.id]?.state === "completed" && operation.targets[row.id]?.receipt?.verifiedBy) return;
+        if (operation.targets[row.id]) operation.targets[row.id] = { state: "pending", error: code || message };
+        operation.error ||= row.node.id + "：" + message;
+      };
+      for (let index = 0; index < entries.length; index++) {
+        const group = entries[index]; const outcome = outcomes[index];
+        for (const row of group.rows) {
+          if (!outcome) { markUnknown(row, "SERVER_IDENTITY_CHANGED"); continue; }
+          if (outcome.upgrade) { markUnknown(row, BATCH_OBSERVATION_UPGRADE_MESSAGE, BATCH_OBSERVATION_UPGRADE_CODE); continue; }
+          if (outcome.failure) { markUnknown(row, String(outcome.failure.message), outcome.failure.code); continue; }
+          const entry = outcome.byKey.get(row.id);
+          if (!entry || outcome.missingKeys.includes(row.id)) { markUnknown(row, "批量观察缺少该行结果，按未知处理，不宣称不存在。", "OBSERVATION_MISSING"); continue; }
+          if (entry.error) { markUnknown(row, String(entry.error.message || entry.error.code || "观察失败"), String(entry.error.code || "OBSERVATION_ERROR")); continue; }
+          if (operation.executionRequestedAt && entry.executorsChecked !== true) { markUnknown(row, "CLEANUP_EXECUTOR_QUERY_UNVERIFIED"); continue; }
+          const live = Boolean(entry.executors?.length) || entry.state === "executing"; if (live) executing = true;
+          if (live) { if (operation.targets[row.id]) operation.targets[row.id] = { state: "executing" }; continue; }
+          if (entry.isolationStatus === "present") { markUnknown(row, "隔离名仍存在，按残留处理，未撤销已确认事实。", "ISOLATION_RESIDUE_PRESENT"); continue; }
+          if (entry.state === "unknown") { markUnknown(row, String(entry.isolationStatus || "ISOLATION_OR_STATE_UNKNOWN"), "ISOLATION_OR_STATE_UNKNOWN"); continue; }
+          if (entry.target?.missing === true) { operation.targets[row.id] = { state: "completed",
+            receipt: { source: "active_query", verifiedBy: entry.isolationStatus === "gone" ? "isolation_tree_removed" : "path_absence", rootIdentity: outcome.rootIdentity } }; continue; }
+          if (operation.targets[row.id]) operation.targets[row.id] = { state: "pending",
+            ...(operation.targets[row.id]?.receipt?.verifiedBy === "path_absence" ? { error: "SOURCE_RECREATED_OR_CHANGED" } : {}) };
+        }
+      }
+    }
+    else await this.queryRows(rows, async row => {
       try {
         const proof = await this.inspectPresence(row, CLEANUP_QUERY_TIMEOUT_MS, Boolean(operation.executionRequestedAt));
         if (operation.executionRequestedAt && (proof.executorsChecked !== true || !Array.isArray(proof.executors)))
@@ -420,20 +493,39 @@ export class PlanCleanup {
     }
     return rows.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
   }
-  async history(id: string): Promise<CleanupOperation[]> {
+  async history(id: string, round?: ObservationRound): Promise<CleanupOperation[]> {
     const rows: CleanupOperation[] = [], seen = new Set<string>();
     while (id) {
       if (seen.has(id) || rows.length >= 32) cleanupError("INVALID_CONTINUATION_CHAIN");
-      seen.add(id); const operation = await this.status(id); rows.push(operation);
+      seen.add(id); const operation = await this.status(id, round); rows.push(operation);
       id = operation.preview.continuationOf || "";
     }
     return rows;
   }
   private nodeIdentity(node: CleanupNode) { return cleanupDigest({ ...node, error: undefined }); }
-  private async completedHistory(history: CleanupOperation[]): Promise<CleanupRow[]> {
+  private async completedHistory(history: CleanupOperation[], round?: ObservationRound): Promise<CleanupRow[]> {
     const completed = new Map<string, CleanupRow>();
+    const observationRound = round ?? this.newObservationRound();
+    try {
     for (const operation of history) for (const row of operation.preview.rows) {
       const state = operation.targets[row.id]?.state;
+      const fastConfirmed = operation.preview.action === "delete" && operation.preview.scope.authorizationMode === "confirmed_paths"
+        && operation.preview.scope.observationMode === "managed_tmux" && state !== undefined;
+      if (fastConfirmed) {
+        // v1.10: completion evidence comes from this round's batched observation, never a per-row verify.
+        if (operation.targets[row.id]?.receipt?.source === "active_query" && state !== "completed") cleanupError("SOURCE_RECREATED_OR_CHANGED");
+        if (state === "completed" || state === "executing") {
+          const entry = await this.roundVerifyEntry(observationRound, row);
+          const live = Boolean(entry.executors?.length) || entry.state === "executing";
+          if (state === "completed") {
+            if (entry.target?.missing !== true || entry.isolationStatus === "present" || live) cleanupError("SOURCE_RECREATED_OR_CHANGED");
+            completed.set(row.id, { ...row, disposition: "completed" });
+          } else if (!live && entry.target?.missing === true) completed.set(row.id, { ...row, disposition: "completed" });
+          else if (live || entry.target?.missing === false) { /* still running or pending: not completed yet */ }
+          else cleanupError("DELETE_RECEIPT_UNCERTAIN");
+        }
+        continue;
+      }
       if (operation.preview.scope.observationMode === "managed_tmux" && operation.targets[row.id]?.receipt?.source === "active_query" && state !== "completed") {
         await this.ports.sftp("files.cleanup.verify", { token: row.backendToken, index: row.backendIndex });
         cleanupError("SOURCE_RECREATED_OR_CHANGED");
@@ -453,6 +545,7 @@ export class PlanCleanup {
       }
     }
     return [...completed.values()];
+    } finally { if (!round) observationRound.closed = true; }
   }
   private archivedMetadata(rows: CleanupRow[]) {
     return Object.fromEntries(rows.filter(row => row.node.kind === "local" && ["PLAN 文件", "专用配置"].includes(row.category)
@@ -466,17 +559,22 @@ export class PlanCleanup {
     return { planKey: scope.planKey, planHash: scope.planHash, planFile: scope.planFile, runIds: scope.runIds, hashes, references: scope.references || {} };
   }
   async continuePreview(id: string, params: { verifiedOnly?: boolean } = {}, onProgress?: CleanupProgressSink): Promise<CleanupPreview> {
-    const original = await this.status(id);
-    if (original.continuedBy || original.restoredBy || original.preview.action === "restore" || this.busy.has(id)) cleanupError("NOT_CONTINUABLE");
-    return this.preview({ planFile: original.preview.scope.planFile, action: original.preview.action,
-      verifiedOnly: params.verifiedOnly, continuationOf: id, job: original.preview.scope.job, authorizationMode: original.preview.scope.authorizationMode }, onProgress);
+    const round = this.newObservationRound();
+    try {
+      const original = await this.status(id, round);
+      if (original.continuedBy || original.restoredBy || original.preview.action === "restore" || this.busy.has(id)) cleanupError("NOT_CONTINUABLE");
+      return await this.preview({ planFile: original.preview.scope.planFile, action: original.preview.action,
+        verifiedOnly: params.verifiedOnly, continuationOf: id, job: original.preview.scope.job, authorizationMode: original.preview.scope.authorizationMode }, onProgress, round);
+    } finally { round.closed = true; }
   }
   /** Reconnection observes receipts and source presence only. It never settles or executes a mutation. */
   async recheckNode(nodeId: string): Promise<CleanupNodeCheck[]> {
     const reports: CleanupNodeCheck[] = [];
+    const round = this.newObservationRound();
+    try {
     for (const item of await this.list()) {
       if (item.state === "completed" && !item.pendingNodes.length) continue;
-      const operation = await this.status(item.id);
+      const operation = await this.status(item.id, round);
       if (operation.continuedBy || operation.restoredBy || operation.preview.action === "restore" || this.busy.has(item.id)) continue;
       const rows = operation.preview.rows.filter(row => row.node.id === nodeId
         && (operation.targets[row.id] && operation.targets[row.id].state !== "completed"
@@ -488,7 +586,11 @@ export class PlanCleanup {
         try {
           if (this.ports.currentNode && this.nodeIdentity(await this.ports.currentNode(nodeId)) !== this.nodeIdentity(row.node)) cleanupError("SERVER_IDENTITY_CHANGED");
           if (row.disposition === "protected") { report.targets.push({ id: row.id, absolutePath: row.absolutePath, state: "protected" }); continue; }
-          const proof = operation.preview.action === "delete" ? await this.inspectPresence(row, CLEANUP_QUERY_TIMEOUT_MS, Boolean(operation.executionRequestedAt)) : row.backendToken
+          const proof = operation.preview.action === "delete"
+            ? operation.preview.scope.authorizationMode === "confirmed_paths"
+              ? await this.roundDeleteObservation(round, row)
+              : await this.inspectPresence(row, CLEANUP_QUERY_TIMEOUT_MS, Boolean(operation.executionRequestedAt))
+            : row.backendToken
             ? await this.ports.sftp("files.cleanup.check", { token: row.backendToken, index: row.backendIndex })
             : await this.ports.sftp("files.cleanup.inspect", { node: row.node, target: { relativePath: row.relativePath, type: row.type }, allowMissing: true });
           const state = proof.executors?.length ? "executing" : proof.state || (proof.target.missing ? "absent" : "pending");
@@ -501,14 +603,32 @@ export class PlanCleanup {
       }
       if (operation.preview.action === "delete" && report.state !== "blocked" && report.targets.length && report.targets.every(row => ["absent", "completed", "executing"].includes(row.state))) continue;
       if (operation.retirementPendingNodes?.includes(nodeId) && report.state !== "blocked") report.state = "confirmation_required";
-      const fresh = await this.status(item.id);
+      const fresh = await this.status(item.id, round);
       if (this.busy.has(item.id) || fresh.continuedBy || fresh.restoredBy) continue;
       (fresh.nodeChecks ||= {})[nodeId] = report; await this.save(fresh); reports.push(report);
     }
     return reports;
+    } finally { round.closed = true; }
+  }
+  /** Direct confirmed-path recheck evidence comes from this round's batched observation, never a new per-row RPC. */
+  private async roundDeleteObservation(round: ObservationRound, row: CleanupRow): Promise<any> {
+    const entry = await this.roundVerifyEntry(round, row);
+    if (entry.isolationStatus === "present" || entry.state === "unknown") return { target: { missing: false }, state: "absent_unverified" };
+    return { executors: entry.executors ?? [], executorsChecked: entry.executorsChecked, target: entry.target ?? { missing: false },
+      state: entry.state === "executing" ? "executing" : undefined };
+  }
+  /** One shared observation entry for a row; failures surface as errors instead of per-row fallback queries. */
+  private async roundVerifyEntry(round: ObservationRound, row: CleanupRow): Promise<any> {
+    const outcome = await observeRound(round, row.node as unknown as Record<string, unknown> & { root?: string }, [this.observeTargetOf(row)]);
+    if (outcome.upgrade) cleanupError(BATCH_OBSERVATION_UPGRADE_CODE);
+    if (outcome.failure) throw Object.assign(new Error(outcome.failure.message), { apiData: { code: outcome.failure.code } });
+    const entry = outcome.byKey.get(row.id);
+    if (!entry || outcome.missingKeys.includes(row.id) || entry.error) cleanupError("DELETE_RECEIPT_UNCERTAIN");
+    if (entry.executorsChecked !== true && entry.executors === undefined) cleanupError("CLEANUP_EXECUTOR_QUERY_UNVERIFIED");
+    return entry;
   }
   async preview(params: { planFile: string; action?: "move" | "delete" | "isolate"; verifiedOnly?: boolean; continuationOf?: string; job?: CleanupJobSelection; authorizationMode?: "confirmed_paths";
-    reuseToken?: string; exactPaths?: Array<{ nodeId: string; relativePath: string; type: "file" | "directory" }> }, onProgress?: CleanupProgressSink): Promise<CleanupPreview> {
+    reuseToken?: string; exactPaths?: Array<{ nodeId: string; relativePath: string; type: "file" | "directory" }> }, onProgress?: CleanupProgressSink, round?: ObservationRound): Promise<CleanupPreview> {
     // UI observations cannot change the frozen preview or authorize execution.
     const notify: CleanupProgressSink = progress => { try { onProgress?.(progress); } catch {} };
     notify({ phase: "discovery", message: params.reuseToken ? "复用本页路径，核对所选处理方式…" : "读取 PLAN 声明及实际产物清单…" });
@@ -517,9 +637,9 @@ export class PlanCleanup {
     const action = params.action || "move";
     if (!["move", "delete", "isolate"].includes(action)) cleanupError("INVALID_ACTION");
     if (params.authorizationMode && !["delete", "isolate"].includes(action)) cleanupError("INVALID_ACTION");
-    const history = params.continuationOf ? await this.history(params.continuationOf) : [];
+    const history = params.continuationOf ? await this.history(params.continuationOf, round) : [];
     if (history[0]?.continuedBy || history[0]?.restoredBy || history.some(row => row.preview.action !== action)) cleanupError("NOT_CONTINUABLE");
-    const completed = await this.completedHistory(history);
+    const completed = await this.completedHistory(history, round);
     const token = randomBytes(24).toString("hex");
     let scope: CleanupScope;
     if (params.reuseToken) {
