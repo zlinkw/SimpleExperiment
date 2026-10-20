@@ -263,3 +263,125 @@ test("actual plan validation parser prefers the latest complete 0.5.179 wrapped 
     { validation: { jobs: rows } },
   ]) assert.deepEqual(planValidationFromResult(wrapper).jobs.map((job) => job.index), [0, 1, 2]);
 });
+
+// ─── R22 race regressions: a fence flip landing while code-source preparation is awaited ───
+// The lazy preparation runs inside the lock callback / protocol-2 branch after the pre-send
+// fence. The lease guarantees resource ownership only, so both transports must re-check the
+// fence synchronously after the awaited preparation and before transmissionStarted.
+const scopeHostModule = require(path.join(repo, "src/extension/PlanCodeScopeHost.ts"));
+const { resolveWorkspaceLocation } = require(path.join(repo, "src/core/WorkspacePathMapper.ts"));
+const scopeHostOriginal = {
+  supportsPlanCodeScope: scopeHostModule.supportsPlanCodeScope,
+  verifyWorkerPlanSource: scopeHostModule.verifyWorkerPlanSource,
+};
+const winFolder = (label) => ({ uri: { scheme: "file", path: "C:/" + label, fsPath: "C:\\" + label,
+  toString: () => "file:///C:/" + label } });
+const winRoot = (label) => resolveWorkspaceLocation({ scheme: "file", path: "C:/" + label,
+  fsPath: "C:\\" + label, external: "file:///C:/" + label }, {}).hostPath;
+
+function raceFixture(mode, flip) {
+  const workspace = fs.mkdtempSync(path.join(os.tmpdir(), "p6-race-"));
+  vscode.workspace.workspaceFolders = [{ uri: { scheme: "file", path: workspace.replace(/\\/g, "/"),
+    fsPath: workspace, toString: () => "file://" + workspace.replace(/\\/g, "/") } }];
+  const sent = [];
+  const provider = providerFor(workspace, "");
+  provider.context.globalStorageUri.fsPath = workspace;
+  provider.client = { postWorkerAction: async (_w, _a, request) => { sent.push(request); return { status: "queued" }; } };
+  provider.workerActionTargets = () => [{ id: "worker-a", condaEnv: "env-a" }];
+  provider.localCodeManifestCacheFile = () => path.join(workspace, "manifest-cache.json");
+  const host = Object.assign(Object.create(RealtimeTunnelPanelProvider.prototype), provider);
+  host.distributedQueueGeneration = 7;
+  host.lastWorkerProbes = { 'worker-a': { status: 'ok', capabilities: { endpoints: { declaredJobPaths: true, formalJobIdentityEnv: 1, taskShellEnvironment: 1, projectManagedValidation: 1, gpuQuotaScheduling: 1, planCodeScope: 1 } } } };
+  let manifestBuilds = 0;
+  host.buildDistributedJobCodeManifest = async () => { manifestBuilds += 1; throw new Error("source-branch preparation must not build a manifest"); };
+  scopeHostModule.supportsPlanCodeScope = () => true;
+  scopeHostModule.verifyWorkerPlanSource = async () => {
+    await new Promise(resolve => setImmediate(resolve));
+    flip(host);
+    await new Promise(resolve => setImmediate(resolve));
+    return { policy: "plan-dependency-verified", verifiedAt: "now" };
+  };
+  if (mode === "p2") {
+    host.lastWorkerTaskSnapshots = new Map([
+      [workspace + "\u0000worker-a", { capabilities: { taskLifecycle: 2 } }],
+      [String(undefined) + "\u0000worker-a", { capabilities: { taskLifecycle: 2 } }],
+    ]);
+  } else {
+    host.withRemoteActionResource = async (_w, _r, _req, callback) => callback();
+  }
+  const plan = { id: "plan-a", projectId: "project-a", resultPathPolicy: "declared", executionMode: "train_test", planJobCount: 1, planFile, revision: "rev-1", codeFingerprint: "fp-source-branch" };
+  const job = mode === "p2"
+    ? { index: 0, lifecycleProtocol: 2, case: "alpha", seed: 42, outputDir: "runs/a", collectionResultCsv: "tmp/result/a.csv" }
+    : { index: 0, case: "alpha", seed: 42, outputDir: "runs/a", collectionResultCsv: "tmp/result/a.csv" };
+  return { workspace, sent, host, plan, job, manifestBuilds: () => manifestBuilds };
+}
+
+async function assertFencedRace(label, f) {
+  const outcome = await f.host.sendDistributedJob(f.plan, f.job, "worker-a", undefined, "command-a")
+    .then(r => ({ ok: r && r.status }), e => ({ err: String(e && e.message) }));
+  await new Promise(resolve => setTimeout(resolve, 20));
+  assert.equal(f.sent.length, 0, label + ": a flip during awaited preparation must never post via the old captured client");
+  assert.ok(outcome.err && /提交已取消或项目已切换/.test(outcome.err), label + ": must fail with the cancellation fence error");
+}
+
+test("R0 control: an undisrupted source-branch send still joins the verified executionSource once", async () => {
+  const f = raceFixture("legacy", () => {});
+  try {
+    const receipt = await f.host.sendDistributedJob(f.plan, f.job, "worker-a", undefined, "command-a");
+    assert.deepEqual(receipt, { status: "queued" });
+    assert.equal(f.sent.length, 1);
+    assert.equal(f.sent[0].executionSource.policy, "plan-dependency-verified", "the normal path still joins proof fields before transport");
+    assert.equal(f.manifestBuilds(), 0);
+  } finally {
+    Object.assign(scopeHostModule, scopeHostOriginal);
+    vscode.workspace.workspaceFolders = [];
+  }
+});
+
+for (const [label, flip] of [
+  ["R1 legacy generation flip during preparation", host => { host.distributedQueueGeneration += 1; }],
+  ["R2 legacy captured-client replacement during preparation", host => { host.client = { postWorkerAction: async () => { throw new Error("OLD CLIENT STILL POSTED"); } }; }],
+  ["R3 legacy stop-epoch opening during preparation", host => { host.distributedPlanStopEpoch = 1; }],
+]) test(label + " must send nothing", async () => {
+  const f = raceFixture("legacy", flip);
+  try { await assertFencedRace(label, f); } finally {
+    Object.assign(scopeHostModule, scopeHostOriginal);
+    vscode.workspace.workspaceFolders = [];
+  }
+});
+
+test("R4 protocol-2 generation flip during preparation must send nothing", async () => {
+  const f = raceFixture("p2", host => { host.distributedQueueGeneration += 1; });
+  try { await assertFencedRace("R4", f); } finally {
+    Object.assign(scopeHostModule, scopeHostOriginal);
+    vscode.workspace.workspaceFolders = [];
+  }
+});
+
+test("R5 flip plus a preparation failure stays dispatchNotSent with zero sends for honest release", async () => {
+  const f = raceFixture("legacy", host => { host.distributedQueueGeneration += 1; });
+  scopeHostModule.verifyWorkerPlanSource = async () => {
+    await new Promise(resolve => setImmediate(resolve));
+    throw new Error("source verification failed after fence flip");
+  };
+  try {
+    await assert.rejects(() => f.host.sendDistributedJob(f.plan, f.job, "worker-a", undefined, "command-a"),
+      (error) => { assert.equal(error.dispatchNotSent, true, "an unsent failure must stay dispatchNotSent for honest release"); return true; });
+    assert.equal(f.sent.length, 0);
+  } finally {
+    Object.assign(scopeHostModule, scopeHostOriginal);
+    vscode.workspace.workspaceFolders = [];
+  }
+});
+
+for (const mode of ["legacy", "p2"]) test(`R6 workspace switch between two resolvable roots during ${mode} preparation must send nothing`, async () => {
+  const f = raceFixture(mode, () => { vscode.workspace.workspaceFolders = [winFolder("r22-switch-b")]; });
+  try {
+    if (mode === "p2") f.host.lastWorkerTaskSnapshots = new Map([[winRoot("r22-switch-a") + "\u0000worker-a", { capabilities: { taskLifecycle: 2 } }]]);
+    vscode.workspace.workspaceFolders = [winFolder("r22-switch-a")];
+    await assertFencedRace("R6-" + mode, f);
+  } finally {
+    Object.assign(scopeHostModule, scopeHostOriginal);
+    vscode.workspace.workspaceFolders = [];
+  }
+});

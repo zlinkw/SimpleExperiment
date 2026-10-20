@@ -11475,6 +11475,11 @@ this.assertPlanTopologyReady("Plan 调度");
             if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
                 throw new Error("提交已取消或项目已切换，未向 Worker 发送任务。");
             Object.assign(request, await prepareCodeProofFields());
+            // The lease callback only guarantees resource ownership, not context freshness: a
+            // cancellation or project switch that lands while preparation is awaited must still
+            // stop the transport. Re-check the fence synchronously right before posting.
+            if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
+                throw new Error("提交已取消或项目已切换，未向 Worker 发送任务。");
             transmissionStarted = true;
             return client.postWorkerAction(workerId, "start-worker-task", request);
         });
@@ -11483,6 +11488,10 @@ this.assertPlanTopologyReady("Plan 调度");
             const snapshot = this.lastWorkerTaskSnapshots?.get(`${root}\u0000${workerId}`);
             if (snapshot?.capabilities?.taskLifecycle !== 2)
                 throw new Error(`TASK_LIFECYCLE_PROTOCOL_REQUIRED：Worker ${workerId} 需要更新 Agent/Scheduler；未派发`);
+            // Same terminal guarantee for the direct protocol-2 transport: nothing is awaited
+            // between this final fence and the post below.
+            if (workspaceRoot() !== root || this.client !== client || this.distributedQueueGeneration !== generation || this.distributedPlanStopEpoch)
+                throw new Error("提交已取消或项目已切换，未向 Worker 发送任务。");
             transmissionStarted = true;
             void client.postWorkerAction(workerId, "start-worker-task", request)
                 .catch(error => this.recordActionError({ command: "distributedSubmissionTransport", message: errorMessage(error) }));
