@@ -3,7 +3,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import { atomicWriteText } from "../state/StateStore";
 import { FAST_CONFIRMED_BATCH_CAP, assertFastDeletePreviewSafety, chunkFastDeleteTargets, fastDeleteVerifiedBy, isFastDeleteUpgradeCode } from "./FastDeleteContract";
-import { BATCH_OBSERVATION_UPGRADE_CODE, BATCH_OBSERVATION_UPGRADE_MESSAGE, createObservationRound, observeRound, type ObservationRound, type ObserveTarget } from "./ObservationRound";
+import { BATCH_OBSERVATION_UPGRADE_CODE, BATCH_OBSERVATION_UPGRADE_MESSAGE, createObservationRound, observeRound, type ObservationEntry, type ObservationRound, type ObserveTarget } from "./ObservationRound";
 
 export type CleanupNode = { id: string; kind: "local" | "remote"; root: string; host?: string; port?: number; user?: string; error?: string };
 export type CleanupJobSelection = { workflowId: string; index: number; commandId: string; purpose?: "replace_outputs";
@@ -193,6 +193,18 @@ export class PlanCleanup {
     }
     return target;
   }
+  /** Map one real SimpleSFTP answer (status present/gone/replaced plus the narrowed token state, 42e48932) to a row verdict. */
+  private roundVerdict(entry: ObservationEntry, requestedIsolation: boolean): "absent" | "present" | "executing" | "residue" | "unknown" {
+    if (entry.error) return "unknown";
+    if (entry.isolationStatus === "present") return "residue";
+    if (requestedIsolation && entry.status === "present" && entry.isolationChecked !== true) return "unknown";
+    if (entry.state === "executing" || (entry.executorsChecked === true && Boolean(entry.executors?.length))) return "executing";
+    if (entry.state === "completed") return "absent";
+    if (entry.state === undefined && (entry.status === "gone" || entry.status === "replaced")) return "absent";
+    if (entry.state === "pending") return "present";
+    if (entry.state === undefined && entry.status === "present") return "present";
+    return "unknown";
+  }
   private async query(row: CleanupRow, method: string, params: any, timeoutMs = CLEANUP_QUERY_TIMEOUT_MS): Promise<any> {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const read = new AbortController();
@@ -267,15 +279,25 @@ export class PlanCleanup {
           const entry = outcome.byKey.get(row.id);
           if (!entry || outcome.missingKeys.includes(row.id)) { markUnknown(row, "批量观察缺少该行结果，按未知处理，不宣称不存在。", "OBSERVATION_MISSING"); continue; }
           if (entry.error) { markUnknown(row, String(entry.error.message || entry.error.code || "观察失败"), String(entry.error.code || "OBSERVATION_ERROR")); continue; }
-          if (operation.executionRequestedAt && entry.executorsChecked !== true) { markUnknown(row, "CLEANUP_EXECUTOR_QUERY_UNVERIFIED"); continue; }
-          const live = Boolean(entry.executors?.length) || entry.state === "executing"; if (live) executing = true;
-          if (live) { if (operation.targets[row.id]) operation.targets[row.id] = { state: "executing" }; continue; }
-          if (entry.isolationStatus === "present") { markUnknown(row, "隔离名仍存在，按残留处理，未撤销已确认事实。", "ISOLATION_RESIDUE_PRESENT"); continue; }
-          if (entry.state === "unknown") { markUnknown(row, String(entry.isolationStatus || "ISOLATION_OR_STATE_UNKNOWN"), "ISOLATION_OR_STATE_UNKNOWN"); continue; }
-          if (entry.target?.missing === true) { operation.targets[row.id] = { state: "completed",
-            receipt: { source: "active_query", verifiedBy: entry.isolationStatus === "gone" ? "isolation_tree_removed" : "path_absence", rootIdentity: outcome.rootIdentity } }; continue; }
-          if (operation.targets[row.id]) operation.targets[row.id] = { state: "pending",
-            ...(operation.targets[row.id]?.receipt?.verifiedBy === "path_absence" ? { error: "SOURCE_RECREATED_OR_CHANGED" } : {}) };
+          const verdict = this.roundVerdict(entry, this.observeTargetOf(row).isolationRelativePath !== undefined);
+          if (verdict === "executing") { executing = true;
+            if (operation.targets[row.id]) operation.targets[row.id] = { state: "executing" }; continue; }
+          if (verdict === "residue") { markUnknown(row, "隔离名仍存在，按残留处理，未撤销已确认事实。", "ISOLATION_RESIDUE_PRESENT"); continue; }
+          if (verdict === "absent") {
+            // A running operation must not confirm completion without executor evidence: absence alone cannot
+            // distinguish a finished deletion from a live cleanup window.
+            if (operation.executionRequestedAt && entry.executorsChecked !== true) { markUnknown(row, "CLEANUP_EXECUTOR_QUERY_UNVERIFIED"); continue; }
+            operation.targets[row.id] = { state: "completed",
+              receipt: { source: "active_query", verifiedBy: entry.isolationStatus === "gone" ? "isolation_tree_removed" : "path_absence", rootIdentity: outcome.rootIdentity } }; continue; }
+          // Counter-evidence: the frozen entry itself is still on disk (present), even when the backend state is unknown.
+          const exists = verdict === "present" || (verdict === "unknown" && entry.status === "present");
+          if (exists) {
+            if (operation.executionRequestedAt && entry.executorsChecked !== true) { markUnknown(row, "CLEANUP_EXECUTOR_QUERY_UNVERIFIED"); continue; }
+            if (operation.targets[row.id]) operation.targets[row.id] = { state: "pending",
+              ...(operation.targets[row.id]?.receipt?.verifiedBy ? { error: "SOURCE_RECREATED_OR_CHANGED" } : {}) };
+            continue;
+          }
+          markUnknown(row, String(entry.isolationStatus === "unknown" ? "隔离结果未答复，按未知处理。" : "观察状态不明确，按未知处理。"), "ISOLATION_OR_STATE_UNKNOWN");
         }
       }
     }
@@ -516,12 +538,13 @@ export class PlanCleanup {
         if (operation.targets[row.id]?.receipt?.source === "active_query" && state !== "completed") cleanupError("SOURCE_RECREATED_OR_CHANGED");
         if (state === "completed" || state === "executing") {
           const entry = await this.roundVerifyEntry(observationRound, row);
-          const live = Boolean(entry.executors?.length) || entry.state === "executing";
+          const verdict = this.roundVerdict(entry, this.observeTargetOf(row).isolationRelativePath !== undefined);
           if (state === "completed") {
-            if (entry.target?.missing !== true || entry.isolationStatus === "present" || live) cleanupError("SOURCE_RECREATED_OR_CHANGED");
-            completed.set(row.id, { ...row, disposition: "completed" });
-          } else if (!live && entry.target?.missing === true) completed.set(row.id, { ...row, disposition: "completed" });
-          else if (live || entry.target?.missing === false) { /* still running or pending: not completed yet */ }
+            if (verdict === "absent") completed.set(row.id, { ...row, disposition: "completed" });
+            else if (verdict === "present") cleanupError("SOURCE_RECREATED_OR_CHANGED");
+            else cleanupError("DELETE_RECEIPT_UNCERTAIN");
+          } else if (verdict === "absent") completed.set(row.id, { ...row, disposition: "completed" });
+          else if (verdict === "executing" || verdict === "present") { /* still running or pending: not completed yet */ }
           else cleanupError("DELETE_RECEIPT_UNCERTAIN");
         }
         continue;
@@ -588,7 +611,7 @@ export class PlanCleanup {
           if (row.disposition === "protected") { report.targets.push({ id: row.id, absolutePath: row.absolutePath, state: "protected" }); continue; }
           const proof = operation.preview.action === "delete"
             ? operation.preview.scope.authorizationMode === "confirmed_paths"
-              ? await this.roundDeleteObservation(round, row)
+              ? await this.roundDeleteObservation(round, row, Boolean(operation.executionRequestedAt))
               : await this.inspectPresence(row, CLEANUP_QUERY_TIMEOUT_MS, Boolean(operation.executionRequestedAt))
             : row.backendToken
             ? await this.ports.sftp("files.cleanup.check", { token: row.backendToken, index: row.backendIndex })
@@ -611,11 +634,17 @@ export class PlanCleanup {
     } finally { round.closed = true; }
   }
   /** Direct confirmed-path recheck evidence comes from this round's batched observation, never a new per-row RPC. */
-  private async roundDeleteObservation(round: ObservationRound, row: CleanupRow): Promise<any> {
+  private async roundDeleteObservation(round: ObservationRound, row: CleanupRow, executionRequested: boolean): Promise<any> {
     const entry = await this.roundVerifyEntry(round, row);
-    if (entry.isolationStatus === "present" || entry.state === "unknown") return { target: { missing: false }, state: "absent_unverified" };
-    return { executors: entry.executors ?? [], executorsChecked: entry.executorsChecked, target: entry.target ?? { missing: false },
-      state: entry.state === "executing" ? "executing" : undefined };
+    const verdict = this.roundVerdict(entry, this.observeTargetOf(row).isolationRelativePath !== undefined);
+    if (verdict === "residue" || verdict === "unknown") return { target: { missing: false }, state: "absent_unverified" };
+    if (verdict === "executing") return { executors: entry.executors?.length ? entry.executors : [{ windowId: "observed-executing" }],
+      executorsChecked: true, target: { missing: false }, state: "executing" };
+    if (verdict === "absent" && executionRequested && entry.executorsChecked !== true) cleanupError("CLEANUP_EXECUTOR_QUERY_UNVERIFIED");
+    if (verdict === "absent") return { executors: [], executorsChecked: true, target: { missing: true, type: row.type } };
+    // A present entry may not claim an idle executor without executor evidence.
+    if (executionRequested && entry.executorsChecked !== true) cleanupError("CLEANUP_EXECUTOR_QUERY_UNVERIFIED");
+    return { executors: entry.executors ?? [], executorsChecked: entry.executorsChecked === true, target: entry.target ?? { missing: false, type: row.type } };
   }
   /** One shared observation entry for a row; failures surface as errors instead of per-row fallback queries. */
   private async roundVerifyEntry(round: ObservationRound, row: CleanupRow): Promise<any> {
@@ -624,7 +653,6 @@ export class PlanCleanup {
     if (outcome.failure) throw Object.assign(new Error(outcome.failure.message), { apiData: { code: outcome.failure.code } });
     const entry = outcome.byKey.get(row.id);
     if (!entry || outcome.missingKeys.includes(row.id) || entry.error) cleanupError("DELETE_RECEIPT_UNCERTAIN");
-    if (entry.executorsChecked !== true && entry.executors === undefined) cleanupError("CLEANUP_EXECUTOR_QUERY_UNVERIFIED");
     return entry;
   }
   async preview(params: { planFile: string; action?: "move" | "delete" | "isolate"; verifiedOnly?: boolean; continuationOf?: string; job?: CleanupJobSelection; authorizationMode?: "confirmed_paths";

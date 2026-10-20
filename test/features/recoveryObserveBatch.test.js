@@ -5,9 +5,9 @@ const FAST={confirmedPathDeletion:1,entryIdentityBind:1,batchedFastDelete:1,dire
 const err=(code,message)=>Object.assign(new Error(message||code),{apiData:{code}});
 const node=(id,port)=>({id,kind:'remote',root:'/fixture/project',host:id+'.invalid',port:port??2222,user:'fixture'});
 
-/** Contract double for files.cleanup.observeBatch (recovery-observe-v110-contract.md v1); mutation and per-row RPCs always throw. */
-function makeEngine({present=new Set(),residue=new Set(),missingRow=new Set(),duplicate=false,extra=false,
-  mode=null,failNodes=new Set(),executingNodes=new Set(),unverified=false,hold=null}={}){
+/** Real-shape double for files.cleanup.observeBatch (SimpleSFTP 42e48932: status present/gone/replaced + narrowed token state); mutation and per-row RPCs always throw. */
+function makeEngine({present=new Set(),residue=new Set(),replaced=new Set(),missingRow=new Set(),duplicate=false,extra=false,link=new Set(),tokenMismatch=false,
+  mode=null,failNodes=new Set(),executingNodes=new Set(),unverified=false,hold=null,frozenStates=new Map()}={}){
   const calls=[];let counters=0,inflight=0,peak=0,tokenCounter=0;
   const rpc=async(method,params)=>{
     calls.push({method,params});
@@ -20,12 +20,22 @@ function makeEngine({present=new Set(),residue=new Set(),missingRow=new Set(),du
         if(mode==='updateRequired')throw err('UPDATE_REQUIRED');
         if(typeof params.observationId!=='string'||![1,2].includes(params.readConcurrency)||!Array.isArray(params.targets)||params.targets.length===0||params.targets.length>5000)throw err('INVALID_OBSERVATION_REQUEST');
         const observations=params.targets.filter(target=>!missingRow.has(target.key)).map(target=>{
-          const base={key:target.key,relativePath:target.relativePath,type:target.type};
-          if(residue.has(target.key))return {...base,target:{missing:true,type:target.type},state:'unknown',isolationStatus:'present',executorsChecked:true,executors:[]};
-          if(present.has(target.key)||present.has(target.relativePath))return {...base,target:{missing:false,type:target.type},state:'pending',executorsChecked:true,executors:executingNodes.has(target.key)?[{windowId:'@7'}]:[]};
-          return {...base,target:{missing:true,type:target.type},state:'completed',...(target.isolationRelativePath?{isolationStatus:'gone'}:{}),executorsChecked:true,executors:executingNodes.has(target.key)?[{windowId:'@7'}]:[]};
+          const tokenRow=target.backendToken!==undefined,base={key:target.key,relativePath:target.relativePath,type:target.type};
+          const noExec={executors:[],executorsChecked:!unverified};
+          // The engine refuses links per row with their own code and never claims executor absence for them.
+          if(link.has(target.key)||link.has(target.relativePath))return {...base,executors:[],executorsChecked:false,...(tokenRow?{state:'unknown'}:{}),error:{code:'LINK_OR_REPARSE_POINT',message:'LINK_OR_REPARSE_POINT'}};
+          if(tokenMismatch&&tokenRow)return {...base,executors:[],executorsChecked:false,state:'unknown',error:{code:'TOKEN_TARGET_MISMATCH',message:'TOKEN_TARGET_MISMATCH'}};
+          // Residue: the isolated name is still on disk, so the backend state narrows to unknown.
+          if(residue.has(target.key)||residue.has(target.relativePath))return {...base,status:'gone',target:{missing:true,type:target.type},isolationStatus:'present',isolationChecked:true,...noExec,...(tokenRow?{state:'unknown'}:{})};
+          if(replaced.has(target.key)||replaced.has(target.relativePath))return {...base,status:'replaced',target:{missing:false,type:target.type,device:'99',inode:'999'},executors:[],executorsChecked:true,...(tokenRow?{state:'completed'}:{})};
+          const live=executingNodes.has(target.key)||executingNodes.has(target.relativePath);
+          const here=live||present.has(target.key)||present.has(target.relativePath);
+          if(here)return {...base,status:'present',target:{missing:false,type:target.type},executors:live?[{windowId:'@7'}]:[],executorsChecked:live||!unverified,
+            ...(tokenRow?{state:live?'executing':frozenStates.get(target.key)==='completed'?'unknown':'pending'}:{})};
+          return {...base,status:'gone',target:{missing:true,type:target.type},...(target.isolationRelativePath?{isolationStatus:'gone',isolationChecked:true}:{}),
+            executors:live?[{windowId:'@7'}]:[],executorsChecked:!unverified,...(tokenRow?{state:'completed'}:{})};
         });
-        if(unverified)for(const row of observations)delete row.executorsChecked;
+        // Defense-in-depth double: a real backend deduplicates per row; A must still refuse raw duplicates.
         if(duplicate&&observations.length)observations.push(JSON.parse(JSON.stringify(observations[0])));
         if(extra)observations.push({key:'intruder-key',target:{missing:false}});
         const response={ok:true,observationId:params.observationId,capabilities:{batchCleanupObservation:1,maxTargets:5000},rootIdentity:{path:params.node.root},observations};
@@ -49,16 +59,18 @@ function makeEngine({present=new Set(),residue=new Set(),missingRow=new Set(),du
 
 async function residueFixture(engineOptions={},rowsSpec){
   const root=await fs.mkdtemp(path.join(os.tmpdir(),'v110-observe-')),id='b'.repeat(48);
-  const engine=makeEngine(engineOptions);
   const specs=rowsSpec||[{node:node('worker'),total:1200,dirs:4,completed:1000}];
+  const frozenStates=new Map();
   const rows=[];
   for(const spec of specs)for(let index=0;index<spec.total;index++){
     const key=spec.node.id+'-'+index,relativePath='work_dirs/p/'+(index<spec.dirs?'d'+index:'f'+index);
+    frozenStates.set(key,index<(spec.completed??0)?'completed':'pending'); // the backend keeps its own frozen receipt state
     rows.push({id:key,nodeId:spec.node.id,node:spec.node,relativePath,absolutePath:spec.node.root+'/'+relativePath,
       type:index<spec.dirs?'directory':'file',category:'专用产物',owners:['p'],evidence:['exact registered target'],dependencies:[],
       disposition:'delete',destination:'',backendToken:'tok-'+spec.node.id,backendIndex:index,
       ...(index<spec.dirs?{isolationName:'__iso_'+relativePath.replace(/[^\w]/g,'_')}:{})});
   }
+  const engine=makeEngine({...engineOptions,frozenStates});
   const operation={id,state:'partial',executionRequestedAt:new Date().toISOString(),
     preview:{token:id,digest:'frozen',action:'delete',confirmations:2,
       scope:{projectId:'project',planFile:'plans/p.yaml',planKey:'p',nodes:[...new Set(specs.map(spec=>spec.node))],runIds:[],blockers:[],authorizationMode:'confirmed_paths',observationMode:'managed_tmux'},
@@ -148,10 +160,33 @@ test('executors decide honestly: live means executing, unverified is unknown, se
   const live=await residueFixture({executingNodes:new Set(['worker-1002']),present:new Set(['worker-1002'])});
   const liveResult=await live.service.status(live.id);
   assert.equal(liveResult.targets['worker-1002'].state,'executing');assert.equal(liveResult.state,'running');
-  const unverified=await residueFixture({unverified:true});
+  const unverified=await residueFixture({unverified:true,present:new Set(['worker-1002'])});
   const unverifiedResult=await unverified.service.status(unverified.id);
-  assert.equal(unverifiedResult.targets['worker-0'].state,'completed'); // unknown rounds never revoke confirmations
-  assert.equal(unverifiedResult.targets['worker-1002'].error,'CLEANUP_EXECUTOR_QUERY_UNVERIFIED');
+  assert.equal(unverifiedResult.targets['worker-0'].state,'completed'); // absence needs no executor evidence
+  assert.equal(unverifiedResult.targets['worker-1002'].error,'CLEANUP_EXECUTOR_QUERY_UNVERIFIED'); // a present row is not idle without checked executors
+  // A live cleanup window outranks the backend's narrowed state, even on an already-absent path.
+  const goneLive=await residueFixture({executingNodes:new Set(['worker-7'])},[{node:node('worker'),total:10,dirs:0,completed:5}]);
+  const goneLiveResult=await goneLive.service.status(goneLive.id);
+  assert.equal(goneLiveResult.targets['worker-7'].state,'executing');assert.equal(goneLiveResult.state,'running');
+});
+
+test('links and unusable frozen receipts answer per row as unknown with their own codes',async()=>{
+  const f=await residueFixture({link:new Set(['worker-7'])},[{node:node('worker'),total:10,dirs:0,completed:5}]);
+  const r=await f.service.status(f.id);
+  assert.equal(r.targets['worker-7'].state,'pending');assert.equal(r.targets['worker-7'].error,'LINK_OR_REPARSE_POINT');
+  assert.equal(r.targets['worker-0'].state,'completed');
+  const g=await residueFixture({tokenMismatch:true},[{node:node('worker'),total:10,dirs:0,completed:5}]);
+  const s=await g.service.status(g.id);
+  assert.equal(s.targets['worker-7'].state,'pending');assert.equal(s.targets['worker-7'].error,'TOKEN_TARGET_MISMATCH');
+  assert.equal(s.targets['worker-0'].state,'completed'); // an unusable receipt never revokes a confirmed fact
+  assert.equal(g.engine.observeCount,1);
+});
+
+test('a same-path entry with a new identity answers replaced and the frozen deletion completes',async()=>{
+  const f=await residueFixture({replaced:new Set(['worker-7'])},[{node:node('worker'),total:10,dirs:0,completed:5}]);
+  const r=await f.service.status(f.id);
+  assert.equal(r.targets['worker-7'].state,'completed'); // new data is not the frozen entry
+  assert.equal(r.targets['worker-7'].receipt.verifiedBy,'path_absence');
 });
 
 test('targets without backend tokens observe by exact path in the same batch',async()=>{

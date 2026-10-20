@@ -12,6 +12,7 @@ export const BATCH_OBSERVATION_UPGRADE_MESSAGE = "当前 SimpleSFTP 不支持批
 export type ObserveTarget = { key: string; relativePath: string; type: "file" | "directory";
   backendToken?: string; backendIndex?: number; device?: string | number; inode?: string | number; isolationRelativePath?: string };
 export type ObservationEntry = { key: string; relativePath?: string; type?: string;
+  status?: "present" | "gone" | "replaced";
   target?: { relativePath?: string; type?: string; absolutePath?: string; missing?: boolean; device?: string | number; inode?: string | number } | null;
   state?: string; executors?: unknown[]; executorsChecked?: boolean;
   isolationStatus?: "present" | "gone" | "replaced" | "unknown"; isolationChecked?: boolean;

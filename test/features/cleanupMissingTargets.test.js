@@ -15,8 +15,10 @@ async function fixture({action='delete',state='paused',missing=['worker'],failed
    calls.push({method,params});if(method==='files.cleanup.observeBatch'){
     if(failed.includes(params.node.id))throw Error('SSH_QUERY_FAILED');
     if(typeof params.observationId!=='string'||![1,2].includes(params.readConcurrency)||!Array.isArray(params.targets)||params.targets.length>5000)throw Error('INVALID_OBSERVATION_REQUEST');
-    const observations=params.targets.map(target=>({key:target.key,relativePath:target.relativePath,type:target.type,target:{missing:missing.includes(params.node.id),type:'directory'},
-     ...(executorUnverified?{}:{executorsChecked:true,executors:executing.includes(params.node.id)?[{windowId:'@42'}]:[]})}));
+    const observations=params.targets.map(target=>{const gone=missing.includes(params.node.id);
+     return {key:target.key,relativePath:target.relativePath,type:target.type,status:gone?'gone':'present',target:{missing:gone,type:'directory'},
+      state:gone?'completed':(executing.includes(params.node.id)?'executing':'pending'),
+      ...(executorUnverified?{executorsChecked:false}:{executorsChecked:true}),executors:executing.includes(params.node.id)?[{windowId:'@42'}]:[]};});
     return {ok:true,observationId:params.observationId,capabilities:{batchCleanupObservation:1,maxTargets:5000},rootIdentity:{path:params.node.root},observations};
    }
    if(method==='files.cleanup.check')throw Error('EXPIRED_TOKEN');
@@ -83,7 +85,7 @@ test('connection does not inspect cleanup history; an explicit review retires co
 test('a failed startup query never announces that an old file still needs deletion',async()=>{
  const f=await fixture({failed:['worker'],missing:['worker','other']}),ui=await hostFixture(f.root);ui.host.service=f.service;
  await ui.host.observeConnections([{id:'worker',streamStatus:'polling'}]);assert.equal(ui.notices,0);assert.equal(f.calls.length,0);
- f.ports.sftp=async(method,params)=>{assert.equal(method,'files.cleanup.observeBatch');return {ok:true,observationId:params.observationId,capabilities:{batchCleanupObservation:1,maxTargets:5000},rootIdentity:{path:params.node.root},observations:params.targets.map(target=>({key:target.key,target:{missing:true,type:'directory'},executorsChecked:true,executors:[]}))};};
+ f.ports.sftp=async(method,params)=>{assert.equal(method,'files.cleanup.observeBatch');return {ok:true,observationId:params.observationId,capabilities:{batchCleanupObservation:1,maxTargets:5000},rootIdentity:{path:params.node.root},observations:params.targets.map(target=>({key:target.key,status:'gone',target:{missing:true,type:'directory'},state:'completed',executorsChecked:true,executors:[]}))};};
  await ui.host.observeConnections([{id:'worker',streamStatus:'disconnected'}]);
  await ui.host.observeConnections([{id:'worker',streamStatus:'polling'}]);assert.equal(ui.notices,0);assert.equal(f.calls.length,0);
  assert.equal((await f.service.status(f.id)).state,'completed');assert.deepEqual(await f.service.list(),[]);
