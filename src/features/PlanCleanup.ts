@@ -679,7 +679,8 @@ export class PlanCleanup {
         }
       } catch (error: any) {
         let code = error.apiData?.code || error.code || "NODE_PREFLIGHT_FAILED";
-        if (scope.authorizationMode === "confirmed_paths" && isFastDeleteUpgradeCode(code)) {
+        // 统一快删升级映射只属于确认删除链；隔离保留自身错误语义，不贴快删文案。
+        if (scope.authorizationMode === "confirmed_paths" && action === "delete" && isFastDeleteUpgradeCode(code)) {
           code = "SFTP_FAST_DELETE_UPGRADE_REQUIRED";
           error = Object.assign(new Error("当前 SimpleSFTP 不支持确认路径的批量快速删除；请更新配套插件后重新预览，未执行任何删除，不会回退旧删除链。"), { apiData: { code } });
         }

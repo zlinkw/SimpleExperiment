@@ -18,12 +18,13 @@ const node = { id: 'w1', kind: 'remote', root: '/project', host: 'h', user: 'u',
 const SENTENCE = '我确认所列路径正确、文件未被占用，并同意永久删除';
 
 /** Engine double mirroring the SimpleSFTP cb2de41c fast contract: batched preview/confirm/execute/status only. */
-function makeEngine({ present = new Set(), dirs = new Set(), residue = new Set(), legacy = false, unknownAction = false, wrongType = false, failExecuteOnce = false, onExecute = null } = {}) {
+function makeEngine({ present = new Set(), dirs = new Set(), residue = new Set(), legacy = false, unknownAction = false, updateRequired = false, wrongType = false, failExecuteOnce = false, onExecute = null } = {}) {
   const calls = [], rows = new Map(); let counter = 0;
   const rpc = async (method, params) => {
     calls.push({ method, params: clone(params) });
     if (method === 'files.cleanup.preview') {
       if (unknownAction) throw err('UNKNOWN_ACTION');
+      if (updateRequired) throw err('UPDATE_REQUIRED');
       if (params.authorizationMode !== 'confirmed_paths' || params.action !== 'delete') throw err('INVALID_ACTION');
       if (!Array.isArray(params.targets) || !params.targets.length || params.targets.length > 5000) throw err('INVALID_REQUEST');
       const root = String(params.node.root).replace(/\/$/, '');
@@ -174,13 +175,32 @@ test('the reviewed page freezes isolation mappings onto its confirmed rows', asy
   assert.ok(preview.rows.every(row => row.backendToken));
 });
 
-for (const mode of ['legacy', 'unknownAction']) test(`a ${mode} endpoint fails the confirmed review with one unified upgrade error and zero mutation calls`, async () => {
-  const f = await serviceFixture(mode === 'legacy' ? { legacy: true } : { unknownAction: true });
+for (const mode of ['legacy', 'unknownAction']) test(`a ${mode} endpoint fails the confirmed review with one unified upgrade error and zero mutation calls`, async () => {  const f = await serviceFixture(mode === 'legacy' ? { legacy: true } : { unknownAction: true });
   await assert.rejects(f.preview(), error => {
     assert.equal(error.apiData.code, 'SFTP_FAST_DELETE_UPGRADE_REQUIRED');
     assert.match(error.message, /不支持确认路径的批量快速删除/);
     return true;
   });
+  assert.deepEqual(f.engine.calls.map(call => call.method.replace('files.cleanup.', '')).filter(name => name !== 'preview'), []);
+});
+
+test('the unified upgrade mapping is delete-scoped at the public preview: isolate keeps its own error fail-closed', async () => {
+  // delete on an endpoint refusing UPDATE_REQUIRED: one unified upgrade error, zero mutations.
+  const d = await serviceFixture({ updateRequired: true });
+  await assert.rejects(d.preview(), error => {
+    assert.equal(error.apiData.code, 'SFTP_FAST_DELETE_UPGRADE_REQUIRED');
+    assert.match(error.message, /不支持确认路径的批量快速删除/);
+    return true;
+  });
+  assert.deepEqual(d.engine.calls.map(call => call.method.replace('files.cleanup.', '')).filter(name => name !== 'preview'), []);
+  // isolate on the same refusing endpoint: no fast-delete wording, its own error stays visible, nothing runs.
+  const f = await serviceFixture({ updateRequired: true });
+  const preview = await f.service.preview({ planFile: f.scope.planFile, action: 'isolate', authorizationMode: 'confirmed_paths' });
+  assert.ok(preview.rows.length);
+  assert.deepEqual([...new Set(preview.rows.map(row => row.disposition))], ['unverified']);
+  assert.deepEqual([...new Set(preview.rows.map(row => row.error))], ['UPDATE_REQUIRED']);
+  assert.ok(preview.blockers.some(row => row.code === 'UPDATE_REQUIRED'), 'the isolate refusal stays visible with its own code');
+  assert.ok(!preview.blockers.some(row => row.code === 'SFTP_FAST_DELETE_UPGRADE_REQUIRED' || String(row.detail).includes('快速删除')), 'no fast-delete wording leaks onto isolate rows');
   assert.deepEqual(f.engine.calls.map(call => call.method.replace('files.cleanup.', '')).filter(name => name !== 'preview'), []);
 });
 
