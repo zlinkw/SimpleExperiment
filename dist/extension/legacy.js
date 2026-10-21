@@ -5183,13 +5183,28 @@ class RealtimeTunnelPanelProvider {
         const rows = Object.entries(this.localOperations || {}).filter(([id, row]) => workerIds.has(row.workerId)
             && !planSubmitProgress.isLocal(row) && (!operationTerminal(row) || row.outcomePending === true
             || row.status === "stalled" && String(row.message || "").includes("未在 60s 内返回终态")));
-        const report = { checked: 0, errors: [] };
-        for (let offset = 0; offset < rows.length; offset += 4) {
-            await Promise.all(rows.slice(offset, offset + 4).map(async ([id, row]) => {
+        const report = { checked: 0, errors: [], expired: [] };
+        // 去重仅限身份与短操作分类都仍然成立的行；出现更鲜活动证据、换 Worker、改类型或变长任务时
+        // 先撤销旧标记再真实重查，绝不吞掉本轮新出现的远端活动或真实更新。
+        const revokedExpiry = new Set();
+        for (const [id, row] of rows) {
+            if (row?.remoteRecordExpired !== true || operationExpiryDedupeStillApplies(row))
+                continue;
+            this.localOperations[id] = { ...row, remoteRecordExpired: false };
+            revokedExpiry.add(id);
+            this.markLocalOperationsDirty();
+        }
+        const pending = rows.filter(([, row]) => !operationExpiryDedupeStillApplies(row));
+        for (let offset = 0; offset < pending.length; offset += 4) {
+            await Promise.all(pending.slice(offset, offset + 4).map(async ([id, row]) => {
                 const ok = await this.refreshOperationStatus(id, row.type || row.action, row.workerId, 0, client, true);
                 if (generation !== this.projectContextGeneration || client !== this.client)
                     return;
-                if (ok)
+                const after = this.localOperations[id];
+                if (after?.remoteRecordExpired === true && (row.remoteRecordExpired !== true || revokedExpiry.has(id)))
+                    // 首次得知时按事实报一次：既不算“已核实”，也没有伪造终态。
+                    report.expired.push(String(row.workerId || "本机") + " 原操作 " + id + " 本次按原 operationId 未找到记录，结果仍无法核实（未视为完成或失败）");
+                else if (ok)
                     report.checked++;
                 else
                     report.errors.push(`${row.workerId} 原操作 ${id} 尚未核实`);
@@ -5260,8 +5275,11 @@ class RealtimeTunnelPanelProvider {
             const tasks = good.reduce((sum, result) => sum + result.value.tasks, 0);
             this.lastSnapshotAt = new Date().toISOString();
             this.lastError = errors.length ? errors.join("；") : undefined;
-            const text = `已查询 ${good.length}/${targets.length} 台 Worker、${tasks} 个任务，核对 ${operations.checked} 项原操作${errors.length ? "；部分未知：" + errors.join("；") : "。"}`;
-            if (errors.length)
+            const expiredText = operations.expired.length
+                ? "；" + operations.expired.length + " 项原操作结果仍无法核实（Worker 本次按原 operationId 未找到该记录，未视为完成或失败）：" + operations.expired.join("；")
+                : "";
+            const text = `已查询 ${good.length}/${targets.length} 台 Worker、${tasks} 个任务，核对 ${operations.checked} 项原操作${expiredText}${errors.length ? "；部分未知：" + errors.join("；") : "。"}`;
+            if (errors.length || operations.expired.length)
                 void vscode.window.showWarningMessage(text);
             else
                 void vscode.window.showInformationMessage(text);
@@ -14975,9 +14993,42 @@ class RealtimeTunnelPanelProvider {
             return true;
         }
         try {
-            const result = workerId
-                ? await authorityClient.getWorkerOperation(workerId, opId)
-                : await authorityClient.getOperation(opId);
+            let result;
+            try {
+                result = workerId
+                    ? await authorityClient.getWorkerOperation(workerId, opId)
+                    : await authorityClient.getOperation(opId);
+            }
+            catch (lookupError) {
+                // 权威无记录的判定只包住这一次 getWorkerOperation/getOperation：
+                // 上下文已切换、或响应不是本次 operationId 的零事件契约，都原样抛给外层保持未知。
+                if (generation !== this.projectContextGeneration || authorityClient !== this.client)
+                    throw lookupError;
+                const record = this.localOperations[opId];
+                if (!operationNoRecordResponseFromError(lookupError, opId) || !RunOperations_1.isOutcomePendingHistoryRecord(record))
+                    throw lookupError;
+                const expiredType = String(action || (record && (record.type || record.action)) || "validate-plan");
+                this.localOperations[opId] = {
+                    ...(record || {}),
+                    operationId: opId,
+                    type: expiredType,
+                    outcomePending: false,
+                    remoteRecordExpired: true,
+                    // 只记录“哪一次查询、哪个 Worker、哪个类型”得到的这个结论，身份一变就得重查。
+                    remoteRecordExpiredOperationId: opId,
+                    remoteRecordExpiredWorkerId: String(workerId || ""),
+                    remoteRecordExpiredType: expiredType,
+                    message: "Worker " + String(workerId || "本机") + " 本次按原 operationId " + String(opId)
+                        + " 未找到该原操作记录，结果仍无法核实；未视为完成或失败，未停止或清理任何任务与产物。"
+                        + "如需再次核实，请按原 operationId 重新核对，不要用重新执行原操作代替核实结果。",
+                    updatedAt: new Date().toISOString(),
+                };
+                this.markLocalOperationsDirty();
+                this.clearOperationStatusProbe(opId);
+                this.clearOperationWatchdog(opId);
+                this.postState();
+                return false;
+            }
             if (generation !== this.projectContextGeneration || authorityClient !== this.client)
                 return false;
             const status = resultStatus(result) || (result && typeof result === "object" && result.terminal === true ? "completed" : undefined);
@@ -14989,6 +15040,8 @@ class RealtimeTunnelPanelProvider {
                 status: status || stringFromRecord(result || {}, ["status", "state"]) || "running",
                 error: result && typeof result === "object" ? result.error : undefined,
                 outcomePending: false,
+                // Worker 这一轮真的给出了记录，之前“远端已无此记录”的结论必须作废，显式核对才能恢复正常收口。
+                remoteRecordExpired: false,
                 updatedAt: new Date().toISOString(),
             };
             this.markLocalOperationsDirty();
@@ -15080,6 +15133,7 @@ class RealtimeTunnelPanelProvider {
             return true;
         }
         catch {
+            // 到这里只剩“没问到/问到了但后续步骤出错”等真正未知：一律保留原记录继续每轮提示。
             return false;
         }
     }
@@ -25743,6 +25797,67 @@ const RESULT_SUMMARY_AFFECTING_ACTIONS = new Set([
     "archive-worker-artifacts",
     "delete-worker-artifacts",
 ]);
+// “Worker 本轮确实没有这条 operation 记录”只能由本次 operation 查询自身的响应证明。真实契约：
+// Agent 端 api_operation → operation_summary_from_events(operation_id, []) 零事件形状，
+// HTTP 层 send_json(result, status=200 if result.get("eventCount") else 404)（clusterAgentRuntime 固定），
+// 传输层抛成 “Worker Agent HTTP 404: <原文 JSON>”。因此必须逐字段核验零事件契约，
+// 且 operationId/opId 与本次查询的 operationId 完全一致；普通 404、HTML、缺字段、错误 ID、
+// 非法或截断 JSON、非 operation 步骤的 404 一律 false（保持未知），宁可不收口也不能误收口。
+function operationNoRecordResponseFromError(error, operationId) {
+    const wanted = String(operationId || "").trim();
+    if (!wanted)
+        return false;
+    const marker = "Worker Agent HTTP 404: ";
+    // .message 优先：跨 realm（worker/vm）抛出的 Error 用 instanceof 判体会退化成 String(error)，
+    // 那会把传输层原文前缀成 “Error: …” 而漏判；这里仍要求原文完全一致，不放宽契约。
+    const text = error && typeof error.message === "string"
+        ? String(error.message)
+        : errorMessage(error);
+    // 只认传输层自己抛出的这一条原文；被别的层改写或拼接过的文案不作为权威依据。
+    if (!text.startsWith(marker))
+        return false;
+    let body;
+    try {
+        body = JSON.parse(text.slice(marker.length).trim());
+    }
+    catch {
+        return false;
+    }
+    if (!body || typeof body !== "object" || Array.isArray(body))
+        return false;
+    if (String(body.operationId || "").trim() !== wanted)
+        return false;
+    if (body.opId !== undefined && String(body.opId || "").trim() !== wanted)
+        return false;
+    if (body.eventCount !== 0 || !Array.isArray(body.events) || body.events.length !== 0)
+        return false;
+    if (String(body.status || "") !== "unknown" || body.terminal !== false)
+        return false;
+    if (body.stateRetired === true)
+        return false;
+    if (body.message !== undefined && String(body.message || "").trim() !== "")
+        return false;
+    if (!Number.isFinite(Number(body.schemaVersion)))
+        return false;
+    return true;
+}
+// 去重只允许对“身份与既有 fail-closed 短操作分类都仍然成立”的行生效：一旦出现更鲜活的
+// 活动证据、换 Worker、改类型或变成长任务，旧标记立即失效并真实重查，宁可多报一次未知。
+function operationExpiryDedupeStillApplies(record) {
+    if (!record || record.remoteRecordExpired !== true)
+        return false;
+    if (!RunOperations_1.isOutcomePendingHistoryRecord(record))
+        return false;
+    if (record.reconcileEvidenceActive === true)
+        return false;
+    if (String(record.operationId || record.opId || "") !== String(record.remoteRecordExpiredOperationId || ""))
+        return false;
+    if (String(record.workerId || "") !== String(record.remoteRecordExpiredWorkerId ?? ""))
+        return false;
+    if (String(record.type || record.action || "") !== String(record.remoteRecordExpiredType ?? ""))
+        return false;
+    return true;
+}
 function operationTerminal(value) {
     if (!value || typeof value !== "object")
         return false;
