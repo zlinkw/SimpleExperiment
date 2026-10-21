@@ -32332,6 +32332,10 @@ function actionErrorSuggestion(message) {
     const text = String(message || "");
     if (/PLAN_SOURCE_CHANGED|PLAN_SOURCE_BASELINE|PLAN_SOURCE_LINK/i.test(text))
         return "请核对提示的源码或配置变更；重跑入口会让你选择仅当前 job 或全部 job，使用当前源码重新校验。其他旧版本结果保留；删除已有产物仍需两次确认。";
+    if (/RUN_OUTPUTS_TRANSFER_BUSY/i.test(text))
+        return "该批次全部 job 都在核对路径之前被配套 SimpleSFTP 拒绝：它此刻仍有正在进行的传输或排队上传，所以本轮没有生成隔离清单，未移动文件，也未提交任务。等该传输结束后，重新点“校验并提交运行”即可；这一轮不需要终止任何 Plan。若长时间仍提示，请在 SimpleSFTP 传输面板核对该传输，不要据此清理 Plan 或删除产物。";
+    if (/ACTIVE_TRANSFER/i.test(text))
+        return "配套 SimpleSFTP 报告自己仍有传输或上传在进行，因此拒绝了本次请求。该拒绝只说明配套插件当下的传输状态，不代表本方操作零副作用：请按提示逐 job 核对是否已移动文件或已提交任务，再决定下一步；不要据此终止或清理其他 Plan，也不要删除产物。";
     if (/未提交|旧代码版本|代码版本|version hold|deferred|排队记录/i.test(text))
         return "本次没有提交，也不会自动接续。打开运行进度，点“刷新状态”和日志核实前序；确认前序已停后，才点前序 Plan 的“终止并清除该 Plan”。再到实验准备的 Plan 列表手动选中，点“校验并提交运行”。";
     if (/capability|endpoint|404|not found|缺少能力/i.test(text))

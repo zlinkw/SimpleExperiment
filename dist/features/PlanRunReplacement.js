@@ -8,6 +8,38 @@ const targets = (previews) => previews.flatMap(({ preview }) => preview.rows.fil
     path: row.absolutePath, type: row.type })));
 const emptyPreview = (index) => ({ token: "blocked-" + index, digest: "", action: "isolate",
     scope: undefined, rows: [], blockers: [], verifiedOnly: false, expiresAt: 0, confirmations: 0 });
+// 配套 SimpleSFTP 在自身仍有未完成传输/上传时，会在校验任何目标路径之前整体拒绝清理预览（ACTIVE_TRANSFER）。
+// 该拒绝是进程级、与 PLAN 无关且明确未动手，因此不能与真实路径冲突混成同一个失败结论。
+const TRANSFER_BUSY_CODE = "ACTIVE_TRANSFER";
+// 只有某个 job 的“每一条”阻断证据都精确等于该忙码，才能证明它是在核对任何路径之前就被拒绝。
+// 空码、未知码、protectedReason 等真实路径证据必须保留阻断身份参与判断，任何一条都不许被过滤掉。
+const busyOnlyEvidence = (evidence) => evidence.length > 0 && evidence.every(code => code === TRANSFER_BUSY_CODE);
+// 把配套插件拒绝瞬间的忙快照按“哪一类忙、多少条、安全 stage/相位、何时观测”写成事实明细；
+// 数字与条目只来自快照本身，绝不把未知或已终态的东西说成活跃。
+const busyDetail = (rows) => {
+    const parts = [];
+    for (const entry of rows)
+        for (const snap of entry.busy || []) {
+            const text = (value) => String(value ?? "").slice(0, 40);
+            const count = (value) => Number.isInteger(value) ? String(value) : "未知";
+            const transfers = (Array.isArray(snap.activeTransfers) ? snap.activeTransfers : []).slice(0, 4)
+                .map(row => (text(row.operation) || text(row.id) || "?") + "：" + (text(row.status) || "unknown")
+                + (text(row.phase) ? "/" + text(row.phase) : ""));
+            const uploads = (Array.isArray(snap.uploadOperations) ? snap.uploadOperations : []).slice(0, 4)
+                .map(row => text(row.stage) ? "stage=" + text(row.stage) : "id=" + (text(row.id) || "?"));
+            const queues = ((snap.uploadQueues && Array.isArray(snap.uploadQueues.keyHashes)) ? snap.uploadQueues.keyHashes : []).slice(0, 4)
+                .map((key) => text(key));
+            parts.push((text(snap.nodeId) || "worker") + " 非终态传输 " + count(snap.activeTransferCount) + (transfers.length ? "[" + transfers.join("、") + "]" : "")
+                + "，上传操作 " + count(snap.uploadOperationCount) + (uploads.length ? "[" + uploads.join("、") + "]" : "")
+                + "，保存时上传排队 " + count(snap.uploadQueueCount) + (queues.length ? "[键指纹 " + queues.join("、") + "]" : "")
+                + "（观测 " + (text(snap.observedAt) || "未知") + "，实例 " + (text(snap.instanceId) || "未知") + "）");
+            if (parts.length >= 6) {
+                parts.push("其余同类观测已省略");
+                break;
+            }
+        }
+    return parts.length ? "\n拒绝瞬间配套插件自报的忙明细：" + parts.join("；") : "";
+};
 /** One flow for normal runs and explicit retries: isolate old outputs first, admit each job independently. */
 async function replaceRunOutputs(ports, state, planFile, jobs, completedIndices, key) {
     ports.assertCurrent();
@@ -35,9 +67,14 @@ async function replaceRunOutputs(ports, state, planFile, jobs, completedIndices,
                     ports.progress("正在定位任务 " + job.index + " 的已有文件…");
                     const preview = await ports.preview(job);
                     if (preview.blockers.length || preview.rows.some(row => !["isolate", "absent"].includes(row.disposition))) {
+                        const anomalies = preview.rows.filter(row => !["isolate", "absent"].includes(row.disposition));
                         const reason = [...preview.blockers.map(row => (row.nodeId || "") + "：" + row.code + " " + row.detail),
-                            ...preview.rows.filter(row => !["isolate", "absent"].includes(row.disposition)).map(row => row.absolutePath + "：" + (row.error || row.protectedReason))].join("；");
-                        blocked.push({ index: Number(job.index), reason });
+                            ...anomalies.map(row => row.absolutePath + "：" + (row.error || row.protectedReason))].join("；");
+                        // 每条证据都留身份：缺码 blocker / 缺 error 的 protectedReason 行分别记为未分类，绝不因“看着像忙”而消失。
+                        const codes = [...preview.blockers.map(row => String(row.code || "").trim() || "UNCLASSIFIED_BLOCKER"),
+                            ...anomalies.map(row => String(row.error || "").trim() || "PROTECTED_OR_UNCLASSIFIED_PATH")];
+                        const busy = preview.blockers.filter(row => row.busy).map(row => Object.assign({ nodeId: row.nodeId }, row.busy));
+                        blocked.push({ index: Number(job.index), reason, codes, busyOnly: busyOnlyEvidence(codes), busy });
                         previews[position] = { index: Number(job.index), preview: emptyPreview(Number(job.index)) };
                         ports.progress("任务 " + job.index + " 暂不能安全隔离；本轮仅暂停该 job，不等待其他任务：" + reason);
                         continue;
@@ -57,7 +94,12 @@ async function replaceRunOutputs(ports, state, planFile, jobs, completedIndices,
                         fatal ||= error;
                         continue;
                     }
-                    blocked.push({ index: Number(job.index), reason: String(error?.apiData?.detail || error?.message || code || "preview_failed") });
+                    // 抛错分支也必须是同一份白名单再投影：远端封套里的 busy 是外部数据，未审字段（原路径/token/自定义嵌套）
+                    // 不得原样进 state.blocked 或持久化状态；缺 schemaVersion 或非自家投影一律当没有快照。
+                    const thrownEvidence = (0, PlanCleanup_1.busyEvidenceFromError)(error);
+                    const thrownBusy = thrownEvidence ? [Object.assign({ nodeId: String(job?.id || "") }, thrownEvidence)] : [];
+                    blocked.push({ index: Number(job.index), reason: String(error?.apiData?.detail || error?.message || code || "preview_failed"),
+                        codes: [code || "UNCLASSIFIED_PREVIEW_ERROR"], busyOnly: code === TRANSFER_BUSY_CODE, busy: thrownBusy });
                     previews[position] = { index: Number(job.index), preview: emptyPreview(Number(job.index)) };
                     ports.progress("任务 " + job.index + " 无法建立隔离预览；本轮仅暂停该 job：" + blocked[blocked.length - 1].reason);
                 }
@@ -69,8 +111,20 @@ async function replaceRunOutputs(ports, state, planFile, jobs, completedIndices,
         const exact = targets(previews).map(row => row.server + ":" + row.path);
         if (new Set(exact).size !== exact.length)
             (0, PlanCleanup_1.cleanupError)("OUTPUT_REPLACEMENT_OVERLAP");
-        if (jobs.length && blocked.length === jobs.length)
-            (0, PlanCleanup_1.cleanupError)("OUTPUT_ISOLATION_FAILED", blocked.map(row => "job " + row.index + "：" + row.reason).join("\n") + "\n没有任何 job 可准入；未移动文件，也未提交任务。");
+        if (jobs.length && blocked.length === jobs.length) {
+            // 抛错之前先把本轮阻断证据落到本轮状态里：否则整批被拒时具体原因只活在文案里，复核与重试都拿不到结构化证据。
+            state.blocked = blocked;
+            await ports.save();
+            const detail = blocked.map(row => "job " + row.index + "：" + row.reason).join("\n");
+            // 每个 job 的全部阻断证据都只是忙码时才升级为“传输忙、可稍后重试”；
+            // 只要还有一条真实路径证据（受保护/同物理目标/未知码/缺码），仍按真实隔离冲突处理，不得冒充纯忙。
+            if (blocked.every(row => row.busyOnly))
+                // 面板建议只拿到 message 文本（cleanupError 把 code 放在 apiData 里），因此把批次码原样带在文末，
+                // 让人工复核与面板建议都能区分“已证明整批未动手”与“只是嵌套的忙拒绝”。
+                (0, PlanCleanup_1.cleanupError)("RUN_OUTPUTS_TRANSFER_BUSY", detail + busyDetail(blocked)
+                    + "\n没有任何 job 可准入；配套 SimpleSFTP 仍有正在进行的传输或上传，未生成隔离清单，未移动文件，也未提交任务。（RUN_OUTPUTS_TRANSFER_BUSY）");
+            (0, PlanCleanup_1.cleanupError)("OUTPUT_ISOLATION_FAILED", detail + "\n没有任何 job 可准入；未移动文件，也未提交任务。");
+        }
         state.blocked = blocked;
         state.previews = previews;
         await ports.save();

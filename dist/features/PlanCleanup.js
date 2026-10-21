@@ -34,6 +34,7 @@ var __importStar = (this && this.__importStar) || (function () {
 })();
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.PlanCleanup = exports.cleanupJobKey = exports.cleanupDigest = void 0;
+exports.busyEvidenceFromError = busyEvidenceFromError;
 exports.cleanupError = cleanupError;
 exports.cleanupRelative = cleanupRelative;
 exports.isolateRequiredInputPaths = isolateRequiredInputPaths;
@@ -52,6 +53,36 @@ const cleanupDigest = (value) => (0, node_crypto_1.createHash)("sha256").update(
 exports.cleanupDigest = cleanupDigest;
 const cleanupJobKey = (job) => (0, exports.cleanupDigest)(job ? [job.workflowId, job.index, job.commandId, job.purpose || "failed_review"] : null);
 exports.cleanupJobKey = cleanupJobKey;
+/**
+ * 只接受配套 SimpleSFTP 那份 schemaVersion:1 忙快照的形状：未知字段一律丢弃、字符串截断、队列键只有一向哈希。
+ * 目的是把“是哪一类忙、各多少条”作为结构化证据带回审核链，而不是靠错误文案的字符串再解析一次。
+ */
+function busyEvidenceFromError(error) {
+    const source = error && error.apiData && error.apiData.busy;
+    if (!source || typeof source !== "object" || source.schemaVersion !== 1)
+        return undefined;
+    const row = (value, fields) => value && typeof value === "object"
+        ? Object.fromEntries(fields.filter(field => typeof value[field] === "string" && value[field]).map(field => [field, String(value[field]).slice(0, 40)])) : null;
+    const list = (value, fields) => Array.isArray(value) ? value.map(item => row(item, fields)).filter(Boolean).slice(0, 12) : [];
+    const count = (value) => Number.isInteger(value) && Number(value) >= 0 ? Number(value) : 0;
+    const queues = source.uploadQueues && typeof source.uploadQueues === "object" ? source.uploadQueues : {};
+    const hashes = Array.isArray(queues.keyHashes) ? queues.keyHashes.map(String).filter((key) => /^[0-9a-f]{6,64}$/.test(key)).slice(0, 12) : [];
+    const evidence = {
+        schemaVersion: 1,
+        observedAt: String(source.observedAt || "").slice(0, 40),
+        instanceId: String(source.instanceId || "").slice(0, 60),
+        busy: source.busy === true,
+        activeTransferCount: count(source.activeTransferCount),
+        activeTransfers: list(source.activeTransfers, ["id", "status", "operation", "phase"]),
+        uploadOperationCount: count(source.uploadOperationCount),
+        uploadOperations: list(source.uploadOperations, ["id", "stage"]),
+        uploadQueueCount: count(source.uploadQueueCount) || hashes.length,
+        uploadQueues: { count: count(source.uploadQueueCount) || hashes.length, keyHashes: hashes },
+    };
+    if (source.truncated === true)
+        evidence.truncated = true;
+    return evidence;
+}
 function cleanupError(code, detail = code) {
     const error = Object.assign(new Error(detail), { apiCode: code === "CONFIRM_REQUIRED" ? 2001 : 2010, apiData: { code, detail } });
     throw error;
@@ -1172,7 +1203,9 @@ class PlanCleanup {
                     code = "SFTP_FAST_DELETE_UPGRADE_REQUIRED";
                     error = Object.assign(new Error("当前 SimpleSFTP 不支持确认路径的批量快速删除；请更新配套插件后重新预览，未执行任何删除，不会回退旧删除链。"), { apiData: { code } });
                 }
-                result.blockers.push({ code, nodeId: node.id, detail: String(error.message || code) });
+                // 配套插件在拒绝瞬间给出的忙快照按结构保留（不是从字符串里再猜）：事后集合清空也不能改写当时看到什么。
+                const busy = busyEvidenceFromError(error);
+                result.blockers.push(busy ? { code, nodeId: node.id, detail: String(error.message || code), busy } : { code, nodeId: node.id, detail: String(error.message || code) });
                 rows.forEach(row => { row.disposition = "unverified"; row.error = code; });
             }
             finally {

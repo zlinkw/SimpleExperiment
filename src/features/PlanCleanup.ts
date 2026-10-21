@@ -20,7 +20,7 @@ export type CleanupScope = { projectId: string; planKey: string; planFile: strin
   observationMode?: "managed_tmux";
   nativeDeclarations?: Array<{ index: number; case: string; seed: number; output_dir: string; result_csv: string }>;
   revision: string; nodes: CleanupNode[]; candidates: CleanupCandidate[]; references?: Record<string, string[]>; job?: CleanupJobSelection;
-  blockers: Array<{ code: string; nodeId?: string; detail: string }>;
+  blockers: Array<{ code: string; nodeId?: string; detail: string; busy?: Record<string, unknown> }>;
   notices?: Array<{ code: string; nodeId?: string; detail: string }> };
 export type CleanupRemovedMetadata = { planKey: string; planHash: string; planFile: string; runIds: string[];
   hashes: Record<string, string>; references: Record<string, string[]> };
@@ -57,6 +57,35 @@ const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
 const CLEANUP_QUERY_TIMEOUT_MS = 65_000;
 export const cleanupDigest = (value: unknown) => createHash("sha256").update(JSON.stringify(value)).digest("hex");
 export const cleanupJobKey = (job?: CleanupJobSelection) => cleanupDigest(job ? [job.workflowId, job.index, job.commandId, job.purpose || "failed_review"] : null);
+/**
+ * 只接受配套 SimpleSFTP 那份 schemaVersion:1 忙快照的形状：未知字段一律丢弃、字符串截断、队列键只有一向哈希。
+ * 目的是把“是哪一类忙、各多少条”作为结构化证据带回审核链，而不是靠错误文案的字符串再解析一次。
+ */
+export function busyEvidenceFromError(error: any): Record<string, unknown> | undefined {
+  const source = error && error.apiData && error.apiData.busy;
+  if (!source || typeof source !== "object" || (source as any).schemaVersion !== 1) return undefined;
+  const row = (value: any, fields: string[]) => value && typeof value === "object"
+    ? Object.fromEntries(fields.filter(field => typeof value[field] === "string" && value[field]).map(field => [field, String(value[field]).slice(0, 40)])) : null;
+  const list = (value: any, fields: string[]) => Array.isArray(value) ? value.map(item => row(item, fields)).filter(Boolean).slice(0, 12) : [];
+  const count = (value: unknown) => Number.isInteger(value) && Number(value) >= 0 ? Number(value) : 0;
+  const queues = (source as any).uploadQueues && typeof (source as any).uploadQueues === "object" ? (source as any).uploadQueues as any : {};
+  const hashes = Array.isArray(queues.keyHashes) ? queues.keyHashes.map(String).filter((key: string) => /^[0-9a-f]{6,64}$/.test(key)).slice(0, 12) : [];
+  const evidence: Record<string, unknown> = {
+    schemaVersion: 1,
+    observedAt: String((source as any).observedAt || "").slice(0, 40),
+    instanceId: String((source as any).instanceId || "").slice(0, 60),
+    busy: (source as any).busy === true,
+    activeTransferCount: count((source as any).activeTransferCount),
+    activeTransfers: list((source as any).activeTransfers, ["id", "status", "operation", "phase"]),
+    uploadOperationCount: count((source as any).uploadOperationCount),
+    uploadOperations: list((source as any).uploadOperations, ["id", "stage"]),
+    uploadQueueCount: count((source as any).uploadQueueCount) || hashes.length,
+    uploadQueues: { count: count((source as any).uploadQueueCount) || hashes.length, keyHashes: hashes },
+  };
+  if ((source as any).truncated === true) evidence.truncated = true;
+  return evidence;
+}
+
 export function cleanupError(code: string, detail = code): never {
   const error = Object.assign(new Error(detail), { apiCode: code === "CONFIRM_REQUIRED" ? 2001 : 2010, apiData: { code, detail } });
   throw error;
@@ -846,7 +875,9 @@ export class PlanCleanup {
           code = "SFTP_FAST_DELETE_UPGRADE_REQUIRED";
           error = Object.assign(new Error("当前 SimpleSFTP 不支持确认路径的批量快速删除；请更新配套插件后重新预览，未执行任何删除，不会回退旧删除链。"), { apiData: { code } });
         }
-        result.blockers.push({ code, nodeId: node.id, detail: String(error.message || code) });
+        // 配套插件在拒绝瞬间给出的忙快照按结构保留（不是从字符串里再猜）：事后集合清空也不能改写当时看到什么。
+        const busy = busyEvidenceFromError(error);
+        result.blockers.push(busy ? { code, nodeId: node.id, detail: String(error.message || code), busy } : { code, nodeId: node.id, detail: String(error.message || code) });
         rows.forEach(row => { row.disposition = "unverified"; row.error = code; });
       } finally {
         notify({ ...progress, completed: index + 1, message: node.id + "：节点预检已结束，异常会列入审核表" });
