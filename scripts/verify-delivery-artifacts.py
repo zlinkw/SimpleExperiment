@@ -14,6 +14,12 @@ def digest(handle):
     return value.hexdigest()
 
 
+import os
+sys.dont_write_bytecode = True  # 保持本脚本只读、不生成字节码的既有声明
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import package_content_policy  # 单源 package-content-policy.json；zip 层失败回归见 test/features/packageContentPolicy.test.js
+
+
 def check(root):
     root = pathlib.Path(root).resolve(strict=True)
     package = json.loads((root / 'package.json').read_text(encoding='utf-8'))
@@ -41,6 +47,8 @@ def check(root):
             assert expected == actual, f'Artifact differs from source: {name}'
             if row.get('sha256'):
                 assert actual == row['sha256'], f'Build manifest mismatch: {name}'
+    violations = package_content_policy.check_listing(names)
+    assert not violations, 'VSIX content policy violations: ' + '; '.join(violations)
     print(f"{package['name']} {package['version']}: {len(rows)} hashes/identity verified, {artifact.stat().st_size} bytes")
 
 

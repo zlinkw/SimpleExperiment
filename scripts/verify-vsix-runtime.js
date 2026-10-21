@@ -69,6 +69,16 @@ if (!fs.existsSync(buildManifestPath)) {
   }
 }
 
+// 发行包内容策略（单源 scripts/package-content-policy.json，JS/Python 双端等价由矩阵测试锁定）：
+// 核实际 vsce 文件清单而非 .vscodeignore 文本；违规只输出路径与类别，不读文件内容。
+const contentPolicy = require("./package-content-policy");
+const policyViolations = contentPolicy.checkListing(packaged);
+if (policyViolations.length) {
+  process.stderr.write(`VSIX content policy violations (${policyViolations.length}):\n`);
+  for (const line of policyViolations) process.stderr.write(`- ${line}\n`);
+  process.exit(1);
+}
+
 if (missing.length) {
   process.stderr.write(`VSIX runtime closure missing ${missing.length} file(s):\n`);
   for (const item of missing) process.stderr.write(`- ${item.required} <- ${item.chain.join(" <- ")}\n`);

@@ -53,3 +53,12 @@ docs/manual-cleanup-candidates.md
 docs/ssh-transport.md
 docs/[m][o][b][a][X][t][e][r][m]-real-integration-checklist.md
 docs/[m][o][b][a][X][t][e][r][m]-tunnel-full-feature-acceptance.md
+
+# 发行包文档排除（2026-10-21 用户裁决：发行包只含运行闭包/必要资源/法律通知；docs/、tests/、备份与说明文档仅源码仓库保留）
+docs/**
+tests/**
+CHANGELOG.md
+**/*.patched
+# 注意：README.md 无法在此排除——vsce 4.0.0 collectFiles 恒加否定式 '!README.md'
+# （node_modules/@vscode/vsce/out/package.js:1343-1345，ReadmeProcessor 重命名为 extension/readme.md）。
+# extension/readme.md 属工具链强制的最小发布元数据例外，不得用空壳或改名规避。

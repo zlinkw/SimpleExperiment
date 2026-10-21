@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.399",
-  "buildId": "83434458f4e34281784fdb601253f969b4d2b10084e12fe88136d8630d53ef4e",
+  "version": "0.5.400",
+  "buildId": "51b88c7281aee9765c3f7bf93d2e687c01e04b2e0a422f2ef538d9ff3520fbcb",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -197,7 +197,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "9e75bf130fc825f0daa30c944856108f150500e2d57c2e75144a52b4f6043567"
+      "sha256": "4361328db06694f0c357bb7501293e004236170bd3e6f0291a9b22390ca1114b"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -592,6 +592,10 @@
       "sha256": "4c6f981a47d16bf512e8b963d90114b4a3aef95e3b27b2b11a58d2c1fc56f01b"
     },
     {
+      "path": "dist/features/SetupGuideSource.js",
+      "sha256": "566cd3d61a1df83ede15a0ae6d9faaee2238fe1ccc95f74661103cb55fff5561"
+    },
+    {
       "path": "dist/features/StaticEntrypointProbe.js",
       "sha256": "8aff7116e35d3bac8869a0b9684de1ba5612484328b30a267489ffa54b2b9c11"
     },
@@ -741,7 +745,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "234e8f40e5cdd9356e2cab3d40a34a72a0428bbac43334e8c2345d633890f1d0"
+      "sha256": "16386ecf55f9c443de29dd1b9d8298c79c64f3ee6926e83dec390912f43d1284"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1089,7 +1093,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "3a89e490447017a08f98952993b83c62a9d7873087f449af5a54272f26d44d5b"
+      "sha256": "2b1aa113e35d8da33e998e8af704866f117899581cbd588adcfeb08aa8901f3f"
     },
     {
       "path": "scripts/check-static.js",

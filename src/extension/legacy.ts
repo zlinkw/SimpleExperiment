@@ -27,6 +27,7 @@ import { deleteConfirmedScopeCopy, previewConfirmedScopeDeletion, completeConfir
 import { SafeRequestRetry, RequestReplacedError, assertRetryRequestCurrent, retryRequestSignal } from "../core/SafeRequestRetry";
 import { preparePlanSafeRetry } from "../features/PlanSafeRetry";
 import { staticEntrypointProbe } from "../features/StaticEntrypointProbe";
+import { resolveSetupGuideSource, extensionRepositoryUrl } from "../features/SetupGuideSource";
 import { replacePlanOutputs } from "../features/PlanOutputReplacement";
 import * as FailedJobRecovery from "../features/FailedJobRecovery";
 import * as PulledTaskControl from "../features/PulledTaskControl";
@@ -7139,15 +7140,7 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         return this.agentRuntimeDirs(worker?.agentProjectDir).workDir;
     }
     async openSetupGuide() {
-        const guide = path.join(this.context.extensionPath, "docs", "simple-experiment-setup.md");
-        const uri = vscode.Uri.file(guide);
-        try {
-            await vscode.commands.executeCommand("markdown.showPreview", uri);
-        }
-        catch {
-            const document = await vscode.workspace.openTextDocument(uri);
-            await vscode.window.showTextDocument(document, { preview: true, viewColumn: vscode.ViewColumn.Active });
-        }
+        await this.showSetupGuideDocument();
         const seen = new Set();
         for (let step = 0; step < SETUP_GUIDE_MAX_STEPS; step += 1) {
             const enabledWorkers = this.enabledWorkerConfigs();
@@ -16590,16 +16583,26 @@ this.assertActionAuthorityCurrent(options);this.assertPlanTopologyReady(options.
         }
     }
     async openPptAutomationGuide() {
-        const guide = path.join(this.context.extensionPath, "docs", "simple-experiment-setup.md");
-        const uri = vscode.Uri.file(guide);
-        try {
-            await vscode.commands.executeCommand("markdown.showPreview", uri);
-        }
-        catch {
-            const document = await vscode.workspace.openTextDocument(uri);
-            await vscode.window.showTextDocument(document, { preview: true, viewColumn: vscode.ViewColumn.Active });
-        }
+        await this.showSetupGuideDocument();
         void vscode.window.showInformationMessage("PPT automation 修复说明已打开。请按“结果绘图与 PPT 插件”检查安装、PowerPoint 进程和 schemaVersion=1。");
+    }
+    /** 发行包不含 docs/：本地存在指南时保持原预览/文本打开行为，否则打开仓库在线文档链接。 */
+    private async showSetupGuideDocument() {
+        const guide = resolveSetupGuideSource(this.context.extensionPath, extensionRepositoryUrl((this.context as unknown as { extension?: { packageJSON?: unknown } }).extension?.packageJSON));
+        if (guide.kind === "file") {
+            const uri = vscode.Uri.file(guide.path);
+            try {
+                await vscode.commands.executeCommand("markdown.showPreview", uri);
+            }
+            catch {
+                const document = await vscode.workspace.openTextDocument(uri);
+                await vscode.window.showTextDocument(document, { preview: true, viewColumn: vscode.ViewColumn.Active });
+            }
+            return;
+        }
+        const opened = await vscode.env.openExternal(vscode.Uri.parse(guide.url));
+        if (!opened)
+            void vscode.window.showWarningMessage(`无法打开配置指南链接，请手动访问：${guide.url}`);
     }
     async confirmPptPlotTarget(input) {
         const root = assertSingleProjectWorkspace("绘图到 PPT");
