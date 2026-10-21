@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.398",
-  "buildId": "e7724d91749daa14b1533a3219331a5297d501cd6eb2b80b14cd3f8649b28d22",
+  "version": "0.5.399",
+  "buildId": "83434458f4e34281784fdb601253f969b4d2b10084e12fe88136d8630d53ef4e",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -241,7 +241,7 @@
     },
     {
       "path": "dist/extension/SelectedPlanBatchHost.js",
-      "sha256": "5f6a8fd96a0c4e48498c02310be5e20439b380ed8c781e23d1682abfab9c237b"
+      "sha256": "7a12a94a57f2eac61208e23517a46decf7da0e3d61c8b22abaf7207bd61e6647"
     },
     {
       "path": "dist/extension/ServerQueueHost.js",
@@ -501,7 +501,7 @@
     },
     {
       "path": "dist/features/PlanCleanup.js",
-      "sha256": "e0844c1507aaa5c3b2598a83a74f9909390bc43d0ada382b6f8518302f6847f9"
+      "sha256": "360dd3c76ceaf52dc96df4e505f6452fd8e818bb0ff03e24ed2fe71e9e788487"
     },
     {
       "path": "dist/features/PlanCleanupEvidence.js",
@@ -521,7 +521,7 @@
     },
     {
       "path": "dist/features/PlanRunReplacement.js",
-      "sha256": "4ece0933a4a04d11d8f72a3b1c8c28890db6941618683215e426f1d43a78aeee"
+      "sha256": "2d7ce7054be5dc0c215172d34f6b1af06fbe609a837c703df4e38b96d8d1d34f"
     },
     {
       "path": "dist/features/PlanSafeRetry.js",
@@ -741,7 +741,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "ae8caeb210b62ae82aef2763f648a3cf8336713da46c1a44c2a7cd8df080357a"
+      "sha256": "234e8f40e5cdd9356e2cab3d40a34a72a0428bbac43334e8c2345d633890f1d0"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1089,7 +1089,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "adf9dddf2368d09bb3dd56ad6d8eae0517af7879188020b4bf531efb1fe8de7a"
+      "sha256": "3a89e490447017a08f98952993b83c62a9d7873087f449af5a54272f26d44d5b"
     },
     {
       "path": "scripts/check-static.js",

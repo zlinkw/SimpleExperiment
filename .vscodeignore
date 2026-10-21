@@ -29,6 +29,12 @@ review_report.md
 # 打包/测试日志与备份文件（不入包）
 *.log
 *.bak
+# 本机打包包装脚本与退出码便签：只用于捕获完整日志/真实退出码，不得随包发布
+.packaging-*
+*.exitcode
+# 临时提交说明草稿等本机便签：不得随包发布（旧包内无此文件，不得因便签存在而带入）
+msg.txt
+**/msg.txt
 dist/runtime/__pycache__/**
 dist/test/**
 dist/testing/**

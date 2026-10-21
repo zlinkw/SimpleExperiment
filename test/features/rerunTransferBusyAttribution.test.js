@@ -1,7 +1,7 @@
 const test = require("node:test"), assert = require("node:assert/strict");
 const fs = require("node:fs/promises"), fsSync = require("node:fs"), path = require("node:path"), os = require("node:os");
 require("../_helpers/registerTsRequire");
-const { PlanCleanup } = require("../../src/features/PlanCleanup.ts");
+const { busyEvidenceFromError, PlanCleanup } = require("../../src/features/PlanCleanup.ts");
 const { replaceRunOutputs } = require("../../src/features/PlanRunReplacement.ts");
 const { operationOutcomeFor } = require("../../src/core/OperationOutcome.ts");
 const { cleanupApiErrorMessage } = require("../../src/core/SimpleSftpProgressWait.ts");
@@ -116,7 +116,7 @@ const busyEverywhere = () => "ACTIVE_TRANSFER";
 // 只有 id/status/operation/phase/stage 与队列键的一向哈希，没有任何原始路径、主机或令牌。
 const busySnapshotAtRefusal = {
   schemaVersion: 1, observedAt: "2026-10-21T07:17:18.123Z", instanceId: "50924:2026-10-21T07:13:41.741Z", busy: true,
-  activeTransferCount: 0, activeTransfers: [],
+  activeTransferCount: 0, blockingTransferCount: 0, observerTransferCount: 0, activeTransfers: [],
   uploadOperationCount: 1, uploadOperations: [{ id: "op-1792350", stage: "acquiring-lease" }],
   uploadQueueCount: 1, uploadQueues: { count: 1, keyHashes: ["9f2c41ab7d03"] },
 };
@@ -355,8 +355,14 @@ test("配套插件在预览内就抛忙（PlanCleanup 聚合路径）：未审�
   for (const leak of LEAKED) assert.equal(serialized.includes(leak), false, "state.blocked 不得保留未审字段：" + leak);
   const first = retained[0];
   assert.equal(typeof first.nodeId, "string"); assert.ok(first.nodeId.length > 0, "nodeId 仍需标注是哪台 Worker");
-  assert.deepEqual(Object.keys(first).sort(), ["activeTransferCount", "activeTransfers", "busy", "instanceId", "nodeId", "observedAt",
+  // 该夹具复刻旧版配套封套（无 blocking/observer 计数）：白名单口径是「保守按全部在途传输计阻断 + 标记旧口径」，
+  // 缺字段整体不带，因此 observerTransferCount 不应出现，legacyBusyShape 必须出现。
+  assert.deepEqual(Object.keys(first).sort(), ["activeTransferCount", "activeTransfers", "blockingTransferCount", "busy", "instanceId", "legacyBusyShape", "nodeId", "observedAt",
     "schemaVersion", "uploadOperationCount", "uploadOperations", "uploadQueueCount", "uploadQueues"]);
+  assert.ok(!("observerTransferCount" in first), "旧封套缺字段不得凭空补 0");
+  assert.equal(first.legacyBusyShape, true, "旧口径必须留下事实标记");
+  // 该夹具的忙来自 5 条上传队列键而非在途传输行，因此保守口径下的阻断数等于传输行数（这里为 0），不是凭空补的 0。
+  assert.equal(first.blockingTransferCount, first.activeTransfers.length, "旧封套阻断数必须等于逐行非终态传输数");
   assert.equal(first.uploadQueueCount, 5);
   assert.deepEqual(first.uploadQueues.keyHashes, ["aaaaaaaaaaaa", "bbbbbbbbbbbb", "cccccccccccc", "dddddddddddd", "eeeeeeeeeeee"]);
   assert.deepEqual(f.events.filter(row => /^ask|^isolate|^hold|^workers/.test(row)), [], "忙时仍零确认零写");
@@ -385,8 +391,14 @@ test("预览整体抛错落到替换链的 catch 分支：外部 busy 也只能�
   const serialized = JSON.stringify(retained);
   for (const leak of LEAKED) assert.equal(serialized.includes(leak), false, "state.blocked 不得保留未审字段：" + leak);
   const first = retained[0];
-  assert.deepEqual(Object.keys(first).sort(), ["activeTransferCount", "activeTransfers", "busy", "instanceId", "nodeId", "observedAt",
+  // 该夹具复刻旧版配套封套（无 blocking/observer 计数）：白名单口径是「保守按全部在途传输计阻断 + 标记旧口径」，
+  // 缺字段整体不带，因此 observerTransferCount 不应出现，legacyBusyShape 必须出现。
+  assert.deepEqual(Object.keys(first).sort(), ["activeTransferCount", "activeTransfers", "blockingTransferCount", "busy", "instanceId", "legacyBusyShape", "nodeId", "observedAt",
     "schemaVersion", "uploadOperationCount", "uploadOperations", "uploadQueueCount", "uploadQueues"]);
+  assert.ok(!("observerTransferCount" in first), "旧封套缺字段不得凭空补 0");
+  assert.equal(first.legacyBusyShape, true, "旧口径必须留下事实标记");
+  // 该夹具的忙来自 5 条上传队列键而非在途传输行，因此保守口径下的阻断数等于传输行数（这里为 0），不是凭空补的 0。
+  assert.equal(first.blockingTransferCount, first.activeTransfers.length, "旧封套阻断数必须等于逐行非终态传输数");
   assert.equal(first.uploadQueueCount, 5);
   assert.deepEqual(f.events.filter(row => /^ask|^isolate|^hold|^workers/.test(row)), [], "忙时仍零确认零写");
 });
@@ -397,4 +409,109 @@ test("catch 分支的正常忙快照照原样保留（白名单不误删自家�
   const retained = (f.state.blocked || []).flatMap(row => row.busy || []);
   assert.equal(retained.length, (f.state.blocked || []).length, "自家快照必须每个被拒 job 都保留");
   assert.deepEqual(retained[0], Object.assign({ nodeId: retained[0].nodeId }, busySnapshotAtRefusal), "自家投影字段不得被白名单误删");
+});
+
+// rev21：2026-10-21 09:04 的真实拒绝里，挡门的是只读清单与只读清理预览；
+// 配套侧现在把“真正阻断的写入”和“只读观测”分开自报，A 必须原样分开报出，不能再让用户以为有上传占着文件。
+test("只读观测与真实写入分开报出：批次文案不再把只读巡检说成占着文件的上传", async () => {
+  const observers = {
+    schemaVersion: 1, observedAt: "2026-10-21T09:04:47.576Z", instanceId: "34684:2026-10-21T08:54:05.385Z", busy: true,
+    activeTransferCount: 3, blockingTransferCount: 1, observerTransferCount: 2,
+    activeTransfers: [
+      { id: "t1", operation: "upload.workspace", status: "running", phase: "transfer", readOnlyObserver: false },
+      { id: "t2", operation: "sync.projectInventory", status: "running", phase: "hashing", readOnlyObserver: true },
+      { id: "t3", operation: "files.cleanup.preview", status: "running", phase: "preparing", readOnlyObserver: true },
+    ],
+    uploadOperationCount: 0, uploadOperations: [], uploadQueueCount: 0, uploadQueues: { count: 0, keyHashes: [] },
+  };
+  const f = await fixture({ throwFor: () => sftpError("ACTIVE_TRANSFER", { busy: observers }) });
+  await assert.rejects(() => f.run(), error => {
+    const detail = String(error.apiData?.detail || error.message);
+    assert.match(detail, /其中真正阻断的传输 1/, "阻断数量必须如实报出");
+    assert.match(detail, /只读观测 2 条/, "只读观测必须与写入分开报出");
+    assert.match(detail, /sync[.]projectInventory：running\/hashing（只读，不阻断）/);
+    assert.match(detail, /files[.]cleanup[.]preview：running\/preparing（只读，不阻断）/);
+    assert.equal(/upload[.]workspace：running\/transfer（只读/.test(detail), false, "真实上传不得被标成只读");
+    return true;
+  });
+  const retained = (f.state.blocked || []).flatMap(row => row.busy || []);
+  assert.ok(retained.length >= 2);
+  assert.equal(retained[0].blockingTransferCount, 1, "白名单必须保留阻断计数");
+  assert.equal(retained[0].observerTransferCount, 2, "白名单必须保留只读观测计数");
+  assert.equal(retained[0].activeTransfers[1].readOnlyObserver, true, "逐行只读标记不得丢失");
+  assert.equal(retained[0].activeTransfers[0].readOnlyObserver, false);
+});
+// 旧版配套（B 0.2.103 及更早）的真实封套：有 busy/activeTransferCount/逐行传输，但没有 blocking/observer/self 计数。
+// 那时 B 的守卫把每条非终态传输都真的算成阻断，因此 A 只能保守回退，绝不能凭空报“真正阻断 0”。
+const legacyBusyEnvelope = () => ({
+  schemaVersion: 1, observedAt: "2026-10-21T08:59:01.000Z", instanceId: "41001:legacy-instance", busy: true,
+  activeTransferCount: 2,
+  activeTransfers: [
+    { id: "transfer-1-1-files.cleanup.execute", status: "running", operation: "files.cleanup.execute" },
+    { id: "transfer-1-2-upload.workspace", status: "running", operation: "upload.workspace" },
+  ],
+  uploadOperationCount: 0, uploadOperations: [], uploadQueueCount: 0, uploadQueues: { count: 0, keyHashes: [] },
+});
+
+test("旧版配套封套缺新计数：按全部在途传输保守计阻断，绝不虚报真正阻断 0", async () => {
+  const f = await fixture({ refuse: busyEverywhere, errorData: () => ({ busy: legacyBusyEnvelope() }) });
+  const error = await f.run().then(() => null, row => row);
+  const detail = String(error?.apiData?.detail || error?.message || "");
+  assert.equal(codeOf(error), "RUN_OUTPUTS_TRANSFER_BUSY");
+  assert.match(detail, /其中真正阻断的传输 2/, "缺字段时保守按全部在途传输计阻断");
+  assert.doesNotMatch(detail, /真正阻断的传输 0/, "绝不虚报“真正阻断 0”");
+  assert.doesNotMatch(detail, /只读观测 \d+ 条/, "旧版没有只读观测计数就不要显示条数");
+  assert.match(detail, /旧版配套未区分只读\/写入/, "必须说明这是旧版封套的保守口径");
+  const evidence = busyEvidenceFromError(sftpError("ACTIVE_TRANSFER", { busy: legacyBusyEnvelope() }));
+  assert.equal(evidence.blockingTransferCount, 2);
+  assert.ok(!("observerTransferCount" in evidence), "缺字段不得凭空补 0");
+  assert.ok(!("selfAttemptCount" in evidence), "缺字段不得凭空补 0");
+  assert.equal(evidence.legacyBusyShape, true, "必须留下旧口径事实，供文案说明");
+  assert.deepEqual(evidence.activeTransfers.map(row => row.readOnlyObserver), [false, false], "旧版逐行一律按非只读处理");
+});
+
+test("新版配套封套的实测计数原样保留：真正阻断 0 与只读观测分开呈现", async () => {
+  const snapshot = {
+    schemaVersion: 1, observedAt: "2026-10-21T09:04:48.000Z", instanceId: "50924:new-instance", busy: true,
+    activeTransferCount: 2, blockingTransferCount: 0, observerTransferCount: 2, selfAttemptCount: 0,
+    activeTransfers: [
+      { id: "transfer-2-1-files.cleanup.preview", status: "running", operation: "files.cleanup.preview", readOnlyObserver: true, selfAttempt: false },
+      { id: "transfer-2-2-files.cleanup.check", status: "running", operation: "files.cleanup.check", readOnlyObserver: true, selfAttempt: false },
+    ],
+    uploadOperationCount: 1, uploadOperations: [{ id: "op-1", stage: "acquiring-lease" }],
+    uploadQueueCount: 0, uploadQueues: { count: 0, keyHashes: [] },
+  };
+  const f = await fixture({ refuse: busyEverywhere, errorData: () => ({ busy: clone(snapshot) }) });
+  const error = await f.run().then(() => null, row => row);
+  const detail = String(error?.apiData?.detail || error?.message || "");
+  assert.match(detail, /其中真正阻断的传输 0/, "新版实测阻断 0 要如实呈现（忙来自上传操作，不是文件写入）");
+  assert.match(detail, /只读观测 2 条/, "只读观测单独计数");
+  assert.match(detail, /只读，不阻断/, "逐行也要标出只读不阻断");
+  assert.doesNotMatch(detail, /旧版配套未区分只读\/写入/, "新版封套不得套用旧口径说明");
+  const evidence = busyEvidenceFromError(sftpError("ACTIVE_TRANSFER", { busy: clone(snapshot) }));
+  assert.equal(evidence.blockingTransferCount, 0, "实测 0 不能被保守回退改写");
+  assert.equal(evidence.observerTransferCount, 2);
+  assert.equal(evidence.selfAttemptCount, 0);
+  assert.ok(!("legacyBusyShape" in evidence), "新版封套不是旧口径");
+});
+
+test("配套自报自身那一条时，A 单独呈现且不计入阻断", async () => {
+  const snapshot = {
+    schemaVersion: 1, observedAt: "2026-10-21T09:20:00.000Z", instanceId: "50924:self-instance", busy: true,
+    activeTransferCount: 2, blockingTransferCount: 1, observerTransferCount: 0, selfAttemptCount: 1,
+    activeTransfers: [
+      { id: "transfer-3-1-files.cleanup.execute", status: "running", operation: "files.cleanup.execute", readOnlyObserver: false, selfAttempt: true },
+      { id: "transfer-3-2-upload.workspace", status: "running", operation: "upload.workspace", readOnlyObserver: false, selfAttempt: false },
+    ],
+    uploadOperationCount: 0, uploadOperations: [], uploadQueueCount: 0, uploadQueues: { count: 0, keyHashes: [] },
+  };
+  const f = await fixture({ refuse: busyEverywhere, errorData: () => ({ busy: clone(snapshot) }) });
+  const error = await f.run().then(() => null, row => row);
+  const detail = String(error?.apiData?.detail || error?.message || "");
+  assert.match(detail, /其中真正阻断的传输 1/, "真正阻断的仍是那一条上传，不是自身");
+  assert.match(detail, /其中本请求自身 1 条（不计入阻断）/, "自身那一条要单独说明");
+  assert.match(detail, /（本请求自身）/, "逐行也要标出自身那一条");
+  const evidence = busyEvidenceFromError(sftpError("ACTIVE_TRANSFER", { busy: clone(snapshot) }));
+  assert.equal(evidence.selfAttemptCount, 1);
+  assert.deepEqual(evidence.activeTransfers.map(row => row.selfAttempt), [true, false], "selfAttempt 只认真布尔");
 });

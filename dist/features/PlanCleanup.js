@@ -61,10 +61,25 @@ function busyEvidenceFromError(error) {
     const source = error && error.apiData && error.apiData.busy;
     if (!source || typeof source !== "object" || source.schemaVersion !== 1)
         return undefined;
+    const flag = (value) => value === true;
     const row = (value, fields) => value && typeof value === "object"
         ? Object.fromEntries(fields.filter(field => typeof value[field] === "string" && value[field]).map(field => [field, String(value[field]).slice(0, 40)])) : null;
+    const transferList = (value) => Array.isArray(value) ? value.map(item => {
+        const base = row(item, ["id", "status", "operation", "phase"]);
+        // 只读观测标记只认真布尔：外部对象不能用字符串冒充，也不能带进其它字段。
+        if (!base)
+            return null;
+        return { ...base, readOnlyObserver: flag(item.readOnlyObserver), selfAttempt: flag(item.selfAttempt) };
+    }).filter(Boolean).slice(0, 12) : [];
     const list = (value, fields) => Array.isArray(value) ? value.map(item => row(item, fields)).filter(Boolean).slice(0, 12) : [];
     const count = (value) => Number.isInteger(value) && Number(value) >= 0 ? Number(value) : 0;
+    const rows = transferList(source.activeTransfers);
+    const reportedBlocking = Number.isInteger(source.blockingTransferCount) && Number(source.blockingTransferCount) >= 0;
+    // 旧版配套（0.2.103 及更早）的封套里没有 blocking/observer 之分：那时每条非终态传输都真的算阻断。
+    // 缺字段就按「全部在途传输都阻断」保守回退，绝不凭空报 0；同时留下 legacyBusyShape 事实，
+    // 让文案说明这是旧版封套的保守口径，而不是实测出来的只读/写入拆分。
+    const totalTransfers = Number.isInteger(source.activeTransferCount)
+        ? Math.max(Number(source.activeTransferCount), rows.length) : rows.length;
     const queues = source.uploadQueues && typeof source.uploadQueues === "object" ? source.uploadQueues : {};
     const hashes = Array.isArray(queues.keyHashes) ? queues.keyHashes.map(String).filter((key) => /^[0-9a-f]{6,64}$/.test(key)).slice(0, 12) : [];
     const evidence = {
@@ -73,7 +88,8 @@ function busyEvidenceFromError(error) {
         instanceId: String(source.instanceId || "").slice(0, 60),
         busy: source.busy === true,
         activeTransferCount: count(source.activeTransferCount),
-        activeTransfers: list(source.activeTransfers, ["id", "status", "operation", "phase"]),
+        blockingTransferCount: reportedBlocking ? Number(source.blockingTransferCount) : totalTransfers,
+        activeTransfers: rows,
         uploadOperationCount: count(source.uploadOperationCount),
         uploadOperations: list(source.uploadOperations, ["id", "stage"]),
         uploadQueueCount: count(source.uploadQueueCount) || hashes.length,
@@ -81,6 +97,14 @@ function busyEvidenceFromError(error) {
     };
     if (source.truncated === true)
         evidence.truncated = true;
+    // 新增计数字段缺失就整体不带：缺证据不等于 0 条，宁可让文案显示未报也不虚报。
+    for (const field of ["observerTransferCount", "selfAttemptCount"]) {
+        const value = source[field];
+        if (Number.isInteger(value) && Number(value) >= 0)
+            evidence[field] = value;
+    }
+    if (!reportedBlocking)
+        evidence.legacyBusyShape = true;
     return evidence;
 }
 function cleanupError(code, detail = code) {

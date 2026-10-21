@@ -97,6 +97,8 @@ async function runPlanBatch(host: any, params: any, allPlans: boolean) {
         if (["failed", "cancelled"].includes(row.status)) stopped = true;
       }
     };
+    // 有界并发派发保持原契约：并发只发生在各 PLAN 的准备/提交链上，跨 PLAN 校验与身份互不借用；
+    // 一旦某项失败就停止尚未启动的 PLAN，已在途的如实保留，不自动回滚也不重放。
     await Promise.all(Array.from({ length: Math.min(4, files.length) }, lane));
     rows.sort((a, b) => files.indexOf(a.planFile) - files.indexOf(b.planFile));
     const processed = rows.filter(row => ["succeeded", "queued", "submitted"].includes(row.status)).length;

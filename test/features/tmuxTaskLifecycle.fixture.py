@@ -62,15 +62,53 @@ metrics=pathlib.Path(root)/csv;metrics.parent.mkdir(parents=True,exist_ok=True);
 ''',encoding="utf-8")
 namespace={"__file__":str(program)}
 exec(bootstrap+code,namespace)
-def wait_for(check):
+# 失败诊断只增加可见性：5 秒截止、50ms 轮询、异常口径、返回值与全部原断言均保持不变。
+# 循环里本来就要发起的那一次观测（task_inventory 或 display-message）顺手记进 LAST_OBS，
+# 所以超时定位靠“循环内最后一次观测”，超时后最多只补一次 1 秒有界查询，
+# 不会扞大外层 python 10 秒与 node 单文件 20 秒上限。
+LAST_OBS={"stage":"","rows":None,"raw":None,"error":"","polls":0}
+def wait_for(check,stage="",refresh=None):
     deadline=time.monotonic()+5
+    LAST_OBS["stage"]=stage
+    LAST_OBS["polls"]=0
+    LAST_OBS["error"]=""
     while time.monotonic()<deadline:
         try:
+            if refresh is not None:
+                observed=refresh()
+                if isinstance(observed,list):LAST_OBS["rows"]=observed
+                else:LAST_OBS["raw"]=observed
             value=check()
+            LAST_OBS["polls"]+=1
             if value:return value
-        except (RuntimeError, ValueError, OSError):pass
+        except (RuntimeError, ValueError, OSError) as exc:LAST_OBS["error"]=type(exc).__name__+":"+str(exc)[:200]
         time.sleep(.05)
-    raise AssertionError("bounded native observation timed out")
+    try:report_timeout()
+    except Exception as exc:sys.stderr.write("[fixture-diagnostic] reporterFailed="+type(exc).__name__+":"+str(exc)[:200]+chr(10))
+    raise AssertionError("bounded native observation timed out"+(" @"+stage if stage else ""))
+def report_timeout():
+    # 诊断仅进 stderr；stdout 仍只输出末尾那一行结果 JSON。不打印环境、不打印原任务正文。
+    lines=["[fixture-diagnostic] stage="+str(LAST_OBS["stage"]),"polls="+str(LAST_OBS["polls"]),"lastQueryError="+str(LAST_OBS["error"] or "none")]
+    rows=LAST_OBS["rows"]
+    if isinstance(rows,list):
+        lines.append("[fixture-diagnostic] inventoryRows="+str(len(rows)))
+        for row in rows:
+            lines.append("[fixture-diagnostic] inventory commandId="+str(row.get("commandId"))+" phase="+str(row.get("phase"))
+                +" dead="+str(row.get("dead"))+" exitCode="+repr(row.get("exitCode"))+" windowId="+str(row.get("tmuxWindowId"))
+                +" paneId="+str(row.get("tmuxPane"))+" session="+str(row.get("tmuxSession")))
+    elif LAST_OBS["raw"] is not None:
+        lines.append("[fixture-diagnostic] lastRawObservation="+repr(LAST_OBS["raw"])[:200])
+    try:
+        # 只查本夹具私有 TMUX_TMPDIR 上的 server（task_tmux 继承其 socket 根），单次 1 秒超时；不碰真实用户窗口。
+        text=namespace["task_tmux"](["list-panes","-a","-F","#{window_id}|#{pane_id}|#{pane_dead}|#{pane_dead_status}|#{@se_phase}"],timeout=1)
+        lines.append("[fixture-diagnostic] privateServerListPanes="+text.replace(chr(10)," ; ")[:1500])
+    except Exception as exc:lines.append("[fixture-diagnostic] listPanesError="+type(exc).__name__+":"+str(exc)[:200])
+    try:
+        version=subprocess.run(["tmux","-V"],capture_output=True,timeout=1)
+        lines.append("[fixture-diagnostic] tmuxVersion="+version.stdout.decode("utf-8","replace").strip())
+    except Exception as exc:lines.append("[fixture-diagnostic] tmuxVersionError="+type(exc).__name__+":"+str(exc)[:120])
+    sys.stderr.write(chr(10).join(lines)+chr(10))
+    sys.stderr.flush()
 def job(index,case="slow"):
     return dict(commandId="command-"+str(index),projectId="project",workerId="worker",workflowId="workflow",
         planFile="experiments/plans/中文 plan.yaml",planRevision="a"*64,codeFingerprint="b"*64,globalJobId="workflow:"+str(index),
@@ -87,7 +125,8 @@ try:
     assert next(row for row in namespace["task_inventory"](root) if row["commandId"] == a["commandId"])["codeManifest"] == a["codeManifest"]
     assert next(row for row in namespace["task_inventory"](root) if row["commandId"] == a["commandId"])["distributedResults"] == a["distributedResults"]
     namespace["task_queue_rpc"](root,"worker","accept",b,ensure=True)
-    first=wait_for(lambda: len([r for r in namespace["task_inventory"](root) if r["phase"]=="running" and not r["dead"]])==2)
+    first=wait_for(lambda: len([r for r in (LAST_OBS["rows"] or []) if r["phase"]=="running" and not r["dead"]])==2,
+        "two-running-panes",lambda: namespace["task_inventory"](root))
     duplicate=namespace["task_queue_rpc"](root,"worker","accept",a,ensure=True)
     assert len([r for r in namespace["task_inventory"](root) if r["commandId"]==a["commandId"]])==1
     conflict={**job(8),"outputDir":a["outputDir"]}
@@ -97,12 +136,14 @@ try:
     except RuntimeError as exc:
         assert "TASK_OUTPUT_BUSY" in str(exc)
     namespace["task_queue_rpc"](root,"worker","accept",c,ensure=True)
-    wait_for(lambda: any(r["commandId"]==c["commandId"] and r["phase"]=="queued" for r in namespace["task_inventory"](root)))
+    wait_for(lambda: any(r["commandId"]==c["commandId"] and r["phase"]=="queued" for r in (LAST_OBS["rows"] or [])),
+        "queued-tab-visible",lambda: namespace["task_inventory"](root))
     control=namespace["task_queue_session"](root,"worker")+":queue"
     assert control.startswith("fixture-sch-"), control
     epoch=namespace["task_queue_endpoint"](root,"worker")["epoch"]
     namespace["task_tmux"](["send-keys","-t",control,"C-c"])
-    wait_for(lambda: namespace["task_tmux"](["display-message","-p","-t",control,"#{pane_dead}"])=="1")
+    wait_for(lambda: LAST_OBS["raw"]=="1","control-dead-after-interrupt",
+        lambda: namespace["task_tmux"](["display-message","-p","-t",control,"#{pane_dead}"]))
     # Existing queued/running tabs remain the queue across controller recovery.
     namespace["task_queue_rpc"](root,"worker","accept",a,ensure=True)
     assert namespace["task_queue_endpoint"](root,"worker")["epoch"]!=epoch
@@ -110,7 +151,8 @@ try:
     assert stopped["stoppedTasks"][0]["paneClosed"]
     # tmux can expose pane_dead before publishing pane_dead_status. Observe a
     # settled exit before asserting the result; do not race that native update.
-    wait_for(lambda: all(row["dead"] and row["exitCode"] is not None for row in namespace["task_inventory"](root)))
+    wait_for(lambda: all(row["dead"] and row["exitCode"] is not None for row in (LAST_OBS["rows"] or [])),
+        "settled-exit-before-query",lambda: namespace["task_inventory"](root))
     observed=namespace["task_query"](root,[a,b])
     assert all(row["status"]=="completed" for row in observed["tasks"]),observed
     # Some live tmux builds return an empty status for retained dead panes.
@@ -154,7 +196,8 @@ try:
     assert capture(row['tmuxWindowId'])[1]['ok'], 'window log must remain readable after rename'
     namespace["task_tmux"](["kill-window","-t",row["tmuxWindowId"]])
     namespace["task_tmux"](["send-keys","-t",control,"C-c"])
-    wait_for(lambda: namespace["task_tmux"](["display-message","-p","-t",control,"#{pane_dead}"])=="1")
+    wait_for(lambda: LAST_OBS["raw"]=="1","control-dead-after-manual-window-close",
+        lambda: namespace["task_tmux"](["display-message","-p","-t",control,"#{pane_dead}"]))
     try:
         namespace["task_queue_rpc"](root,"worker","accept",a if row["commandId"]==a["commandId"] else b,ensure=True)
         raise AssertionError("manually closed accepted task must never be replayed")
@@ -163,7 +206,8 @@ try:
     assert namespace["task_query"](root,[a,b])["tasks"][-1]["status"]=="completed"
     failure=job(3,"failure")
     namespace["task_queue_rpc"](root,"worker","accept",failure,ensure=True)
-    wait_for(lambda: any(r["commandId"]==failure["commandId"] and r["dead"] for r in namespace["task_inventory"](root)))
+    wait_for(lambda: any(r["commandId"]==failure["commandId"] and r["dead"] for r in (LAST_OBS["rows"] or [])),
+        "failed-task-dead",lambda: namespace["task_inventory"](root))
     failed=next(row for row in namespace["task_query"](root,[failure])["tasks"] if row["commandId"]==failure["commandId"])
     assert failed["status"]=="failed" and failed["exitCode"]==7,failed
     declarations=[dict(index=item["experimentIndex"],case=item["case"],seed=item["seed"],mode=item["mode"],output_dir=item["outputDir"],result_csv=item["collectionResultCsv"]) for item in (a,b,failure)]
@@ -181,7 +225,8 @@ try:
         raise AssertionError("injected metadata failure accepted")
     except RuntimeError as exc: assert "synthetic metadata" in str(exc)
     finally: namespace["task_option"] = option
-    rejected = wait_for(lambda: next((row for row in namespace["task_inventory"](root) if row["commandId"] == damaged["commandId"] and row["dead"]),None))
+    rejected = wait_for(lambda: next((row for row in (LAST_OBS["rows"] or []) if row["commandId"] == damaged["commandId"] and row["dead"]),None),
+        "damaged-task-dead",lambda: namespace["task_inventory"](root))
     assert rejected["phase"] == "rejected" and rejected["exitCode"] != 0
     assert not pathlib.Path(root,"started-command-4").exists()
     namespace["task_write_job"](rejected["tmuxPane"],prepared)
@@ -206,11 +251,12 @@ try:
         assert "CANCELLED" in str(exc), str(exc)
     rerun={**b,"commandId":"rerun-command-1"}
     namespace["task_queue_rpc"](root,"worker","accept",rerun,ensure=True)
-    wait_for(lambda:pathlib.Path(root,"started-rerun-command-1").exists())
+    wait_for(lambda:pathlib.Path(root,"started-rerun-command-1").exists(),"rerun-started-marker")
     # Retained dead panes may omit pane_dead_status on this tmux build (also
     # exercised above). Require real exit plus current-run completion evidence;
     # an explicit nonzero exit still fails the query below.
-    wait_for(lambda:any(row["commandId"]==rerun["commandId"] and row["dead"] and row["exitCode"] in (None, 0) for row in namespace["task_inventory"](root)))
+    wait_for(lambda:any(row["commandId"]==rerun["commandId"] and row["dead"] and row["exitCode"] in (None, 0) for row in (LAST_OBS["rows"] or [])),
+        "rerun-dead-with-exit",lambda: namespace["task_inventory"](root))
     rerun_observed=next(row for row in namespace["task_query"](root,[rerun])["tasks"] if row["commandId"]==rerun["commandId"])
     assert rerun_observed["status"]=="completed", rerun_observed
     print(json.dumps(dict(ok=True,realTmux=True,callbacks=0,stateFilesRead=0)))

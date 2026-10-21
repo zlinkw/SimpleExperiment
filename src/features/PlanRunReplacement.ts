@@ -37,12 +37,22 @@ const busyDetail = (rows: Array<{ busy?: Array<Record<string, unknown> & { nodeI
     const count = (value: unknown) => Number.isInteger(value) ? String(value) : "未知";
     const transfers = (Array.isArray(snap.activeTransfers) ? snap.activeTransfers : []).slice(0, 4)
       .map(row => (text((row as any).operation) || text((row as any).id) || "?") + "：" + (text((row as any).status) || "unknown")
-        + (text((row as any).phase) ? "/" + text((row as any).phase) : ""));
+        + (text((row as any).phase) ? "/" + text((row as any).phase) : "")
+        // 配套插件已证明只读的观测单独标出，用户不会把“巡检还在跑”误读成“有上传占着文件”。
+        + ((row as any).readOnlyObserver === true ? "（只读，不阻断）" : "")
+        + ((row as any).selfAttempt === true ? "（本请求自身）" : ""));
+    const blocking = Number.isInteger(snap.blockingTransferCount) ? "，其中真正阻断的传输 " + snap.blockingTransferCount : "";
+    // 旧版配套封套没有只读/写入拆分：A 按「全部在途传输都阻断」保守回退，必须同时说明口径，
+    // 不能把保守口径说成实测拆分；新字段缺失时整体不显示，绝不显示 0 条。
+    const legacy = snap.legacyBusyShape === true ? "（旧版配套未区分只读/写入，按全部在途传输计）" : "";
+    const observers = Number.isInteger(snap.observerTransferCount) ? "，只读观测 " + snap.observerTransferCount + " 条" : "";
+    const selfRows = Number.isInteger(snap.selfAttemptCount) && Number(snap.selfAttemptCount) > 0
+      ? "，其中本请求自身 " + snap.selfAttemptCount + " 条（不计入阻断）" : "";
     const uploads = (Array.isArray(snap.uploadOperations) ? snap.uploadOperations : []).slice(0, 4)
       .map(row => text((row as any).stage) ? "stage=" + text((row as any).stage) : "id=" + (text((row as any).id) || "?"));
     const queues = ((snap.uploadQueues as any && Array.isArray((snap.uploadQueues as any).keyHashes)) ? (snap.uploadQueues as any).keyHashes : []).slice(0, 4)
       .map((key: unknown) => text(key));
-    parts.push((text(snap.nodeId) || "worker") + " 非终态传输 " + count(snap.activeTransferCount) + (transfers.length ? "[" + transfers.join("、") + "]" : "")
+    parts.push((text(snap.nodeId) || "worker") + " 非终态传输 " + count(snap.activeTransferCount) + (transfers.length ? "[" + transfers.join("、") + "]" : "") + blocking + legacy + observers + selfRows
       + "，上传操作 " + count(snap.uploadOperationCount) + (uploads.length ? "[" + uploads.join("、") + "]" : "")
       + "，保存时上传排队 " + count(snap.uploadQueueCount) + (queues.length ? "[键指纹 " + queues.join("、") + "]" : "")
       + "（观测 " + (text(snap.observedAt) || "未知") + "，实例 " + (text(snap.instanceId) || "未知") + "）");
