@@ -35,6 +35,7 @@ var __importStar = (this && this.__importStar) || (function () {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ProjectFileIndex = void 0;
 exports.normalizeFileIndexResult = normalizeFileIndexResult;
+exports.localFileIndexIdentity = localFileIndexIdentity;
 exports.projectFileIndex = projectFileIndex;
 exports.sftpFileIndexQuery = sftpFileIndexQuery;
 exports.fileOperationIndexPaths = fileOperationIndexPaths;
@@ -479,6 +480,15 @@ function normalizeFileIndexResult(value, observedAt, observationId, query) {
     return { facts, state: partial ? "partial" : "complete", error };
 }
 const indexes = new Map();
+/**
+ * The one local observation identity. Every entry point observing the local project must join through
+ * this helper: the storage file only keys on endpointId+projectRoot, so any second literal identity
+ * with a different property set builds a second instance for the same file and steals `owners`,
+ * turning concurrent reads on the other instance into FILE_INDEX_CONNECTION_REPLACED.
+ */
+function localFileIndexIdentity(workspaceRoot) {
+    return { workspace: workspaceRoot, endpointId: "local", projectRoot: workspaceRoot, connection: "local:" + process.pid, endpointBinding: "local" };
+}
 function projectFileIndex(identity, storageRoot) {
     const key = hash([storageRoot, identity]);
     let index = indexes.get(key);

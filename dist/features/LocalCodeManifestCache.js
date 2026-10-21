@@ -199,7 +199,7 @@ async function hashLocalCodeFiles(root, files, cacheFile, onProgress, signal) {
             }
         }
         if (cacheFile && path.basename(path.dirname(cacheFile)) === "code-manifest-cache") {
-            const index = (0, ProjectFileIndex_1.projectFileIndex)({ workspace: root, endpointId: "local", projectRoot: root, connection: "local:" + process.pid }, path.dirname(path.dirname(cacheFile)));
+            const index = (0, ProjectFileIndex_1.projectFileIndex)((0, ProjectFileIndex_1.localFileIndexIdentity)(root), path.dirname(path.dirname(cacheFile)));
             await index.read({ method: "local.code-manifest", paths: files, signal }, async () => ({ files: Object.fromEntries(Object.entries(manifest).map(([name, row]) => [name, { ...row, modifiedAtMs: nextFiles[name]?.mtimeMs, changedAtMs: nextFiles[name]?.ctimeMs, device: nextFiles[name]?.dev, inode: nextFiles[name]?.ino }])) }));
         }
         return { manifest, stats };

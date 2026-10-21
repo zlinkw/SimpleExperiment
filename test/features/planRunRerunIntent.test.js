@@ -127,9 +127,47 @@ test('hold retirement normalizes empty CSV and fails explicitly on real mismatch
 
 test('hold wiring routes through the normalizer and aborts the queue write on missing targets',()=>{
  const source=fs.readFileSync(path.resolve(__dirname,'../../src/extension/PlanRunHost.ts'),'utf8');
- assert.match(source,/const next = PlanRunHost\.normalizeHoldTargets\(selected, queue\);/);
+ assert.match(source,/const next = PlanRunHost\.normalizeHoldTargets\(selected, queue, body\.planFile, canonicalProjectId\(this\.root\)\);/);
  assert.match(source,/if \(next\.missing\.length\) throw Error\("HOLD_TARGET_NOT_FOUND/);
  assert.ok(!/selected\.some\(row => row\.output_dir === job\.outputDir/.test(source),'旧的精确相等 hold 匹配必须移除');
+});
+
+// 真实故障（2026-10-21 15:26–15:35 批次）：上一批产物卡已被用户“终止并清除”（声明进入
+// clearedJobs，磁盘产物仍在）。本轮覆盖重跑：预览→双确认→隔离全部完成后，hold 队列围栏发现
+// 当前队列没有这些声明，整单以 HOLD_TARGET_NOT_FOUND 失败——用户产物已移走、任务却没提交。
+// 免围栏只认 removeConfirmedDistributedPlan 写下的正式清除证明：同项目（canonical 规范身份）、
+// 同 PLAN、resultPathPolicy "declared"、合法 clearedAt、无活跃回执、output+csv 精确一致。
+// 任何其他缺失（含未知/不完整/他项目/非正式记录）仍显式失败且不写队列。
+const {canonicalProjectId}=require('../../src/features/DistributedPlanQueue.ts');
+const HOLD_PROJECT=canonicalProjectId('D:/GitRepo/MultiModal/simple_cluster');
+test('hold skips retirement only for formal cleared records of the same project and plan',()=>{
+ const cleared=out=>({projectId:HOLD_PROJECT,workflowId:'run-old',planFile:'plans/a.yaml',planRevision:'rev',codeFingerprint:'fp',
+  experimentIndex:0,case:'case0',seed:42,resultPathPolicy:'declared',outputDir:out,collectionResultCsv:out+'/metrics.csv',
+  status:'completed',clearedAt:'2026-10-20T18:41:26.440Z'});
+ const queue={plans:[],clearedJobs:[cleared('work_dirs/a'),cleared('work_dirs/b')]};
+ queue.clearedJobs[1].collectionResultCsv='';
+ const beforeCleared=JSON.stringify(queue);
+ const hit=PlanRunHost.normalizeHoldTargets([{output_dir:'work_dirs/a',result_csv:'work_dirs/a/metrics.csv'},
+  {output_dir:'work_dirs/b',result_csv:''}],queue,'plans/a.yaml',HOLD_PROJECT);
+ assert.deepEqual(hit.missing,[],'同项目同 PLAN 的正式清除记录不再要求围栏；隔离后必须允许提交');
+ assert.deepEqual(hit.queue.plans,[],'跳过围栏不得伪造队列声明');
+ assert.equal(JSON.stringify(queue),beforeCleared,'归一化不改动调用方队列');
+ const want=[{output_dir:'work_dirs/a',result_csv:'work_dirs/a/metrics.csv'}];
+ const probe=(clearedJobs,over={})=>PlanRunHost.normalizeHoldTargets(want,
+  {plans:[],clearedJobs},over.planFile||'plans/a.yaml',over.projectId||HOLD_PROJECT).missing;
+ assert.equal(probe([{...cleared('work_dirs/a'),planFile:'plans/other.yaml'}],{planFile:'plans/a.yaml'}).length,1,'cleared 记录必须绑定同一 PLAN 文件');
+ assert.equal(probe([cleared('work_dirs/a')],{planFile:'other/a.yaml'}).length,1,'本次 PLAN 与记录 PLAN 不同同样不豁免');
+ assert.equal(probe([{...cleared('work_dirs/a'),activeReceiptObservedAt:'2026-10-21T00:00:00Z'}]).length,1,'已有活跃回执的清除记录不能免除围栏');
+ assert.equal(probe([{...cleared('work_dirs/a'),projectId:canonicalProjectId('D:/other/project')}]).length,1,'其他项目的同路径记录不得豁免');
+ assert.equal(probe([{...cleared('work_dirs/a'),projectId:''}]).length,1,'缺 projectId 的不完整记录必须 fail closed');
+ assert.equal(probe([{...cleared('work_dirs/a'),resultPathPolicy:undefined}]).length,1,'非 declared 的 attempt/历史清除记录不是正式声明清除证明');
+ assert.equal(probe([{...cleared('work_dirs/a'),clearedAt:undefined}]).length,1,'缺 clearedAt 的记录不能证明用户确认清除');
+ assert.equal(probe([{...cleared('work_dirs/a'),clearedAt:'not-a-date'}]).length,1,'非法 clearedAt 不能证明用户确认清除');
+ const mismatch=PlanRunHost.normalizeHoldTargets([{output_dir:'work_dirs/a',result_csv:'other.csv'}],queue,'plans/a.yaml',HOLD_PROJECT);
+ assert.equal(mismatch.missing.length,1,'同产物不同 CSV 仍是真实不匹配');
+ assert.equal(PlanRunHost.normalizeHoldTargets(want,queue,undefined,HOLD_PROJECT).missing.length,1,'不传 PLAN 文件时保持严格失败语义');
+ assert.equal(PlanRunHost.normalizeHoldTargets(want,queue,'plans/a.yaml',undefined).missing.length,1,'不传项目身份时保持严格失败语义');
+ assert.equal(PlanRunHost.normalizeHoldTargets(want,{plans:[],clearedJobs:[]},'plans/a.yaml',HOLD_PROJECT).missing.length,1,'真实缺失仍显式失败');
 });
 
 test('legacy rerun intent and resume wiring are pinned in the submission path',()=>{

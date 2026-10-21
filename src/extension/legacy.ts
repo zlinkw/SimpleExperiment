@@ -104,7 +104,7 @@ import { AutomaticScopeContent, ContentEndpoint } from "../features/AutomaticSco
 import { SyncScopeAgentIndexReader, scopeIndexUnsupported } from "../features/SyncScopeAgentIndex";
 import { collectLocalScopeMetadata } from "../features/SyncScopeStatus";
 import { SyncScopeLocalIndexReader } from "../features/SyncScopeLocalIndex";
-import { projectFileIndex, sftpFileIndexQuery, fileOperationIndexPaths, readLocalFileIndexPaths } from "../features/ProjectFileIndex";
+import { projectFileIndex, localFileIndexIdentity, sftpFileIndexQuery, fileOperationIndexPaths, readLocalFileIndexPaths } from "../features/ProjectFileIndex";
 import { confirmSyncScopePaths, reviewPlanVersionResults } from "../features/SyncScopeConfirmation";
 import { expandSyncScopeBatchSelection, runSyncScopeBatch, syncScopeIssueSignature } from "../features/SyncScopeBatch";
 import { batchSyncScopeInventoryPaths, planSyncScopeTransferGroups, scopeInventorySnapshot } from "../features/SyncScopeTransferBatch";
@@ -19155,11 +19155,14 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         if (!endpointId || !projectRoot) return undefined;
         const connection = source ? crypto.createHash("sha256").update(JSON.stringify({ session: this.fileIndexSession,
             host: String(source.networkHost || source.host || "").trim().toLowerCase(), port: Number(source.port || source.sshPort || 22),
-            user: String(source.user || source.username || "").trim() })).digest("hex") : "local:" + process.pid;
+            user: String(source.user || source.username || "").trim() })).digest("hex") : "";
         const endpointBinding = source ? crypto.createHash("sha256").update(JSON.stringify({
             host: String(source.networkHost || source.host || "").trim().toLowerCase(), port: Number(source.port || source.sshPort || 22),
-            user: String(source.user || source.username || "").trim() })).digest("hex") : "local";
-        const index = projectFileIndex({ workspace: root, endpointId, projectRoot, connection, endpointBinding }, storage);
+            user: String(source.user || source.username || "").trim() })).digest("hex") : "";
+        // The local identity must come from the shared helper; a second literal here would drift and
+        // steal `owners` from LocalCodeManifestCache's read on the same storage file.
+        const identity = source ? { workspace: root, endpointId, projectRoot, connection, endpointBinding } : localFileIndexIdentity(root);
+        const index = projectFileIndex(identity, storage);
         this.projectFileIndexes.add(index); return index;
     }
     async invalidateProjectFileIndexes(reason, paths?) {

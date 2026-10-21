@@ -1,20 +1,20 @@
 {
   "schemaVersion": 1,
-  "pluginVersion": "0.5.400",
-  "runtimeVersion": "0.5.400",
-  "unifiedVersion": "0.5.400",
+  "pluginVersion": "0.5.401",
+  "runtimeVersion": "0.5.401",
+  "unifiedVersion": "0.5.401",
   "components": {
     "hub_agent": {
-      "version": "0.5.400",
-      "sha256": "e1f1078d87a63add35e02814771ae4383f9501c9ebbd4ee1f7b3bce33b52dfc7",
+      "version": "0.5.401",
+      "sha256": "f63400607b89b531ba64c17fe70984bc695b6533bfc5d39ba13d9d22e09bee2d",
       "remotePath": "simple_cluster/runtime/cluster_agent.py",
-      "installedAt": "2026-10-21T14:48:57.452Z"
+      "installedAt": "2026-10-21T17:47:16.070Z"
     },
     "cluster_scheduler": {
-      "version": "0.5.400",
-      "sha256": "847399a2d7a9971287ab08f4d08b4e873da4fc4e644cb77d91aab1ff5a4c27c0",
+      "version": "0.5.401",
+      "sha256": "b7597b506c13ceb37e40234afd30b5c867c698fa7a158d649e6802b4887638d2",
       "remotePath": "simple_cluster/runtime/cluster_scheduler.py",
-      "installedAt": "2026-10-21T14:48:57.453Z"
+      "installedAt": "2026-10-21T17:47:16.070Z"
     }
   }
 }

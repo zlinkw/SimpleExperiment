@@ -20381,12 +20381,15 @@ class RealtimeTunnelPanelProvider {
             return undefined;
         const connection = source ? crypto.createHash("sha256").update(JSON.stringify({ session: this.fileIndexSession,
             host: String(source.networkHost || source.host || "").trim().toLowerCase(), port: Number(source.port || source.sshPort || 22),
-            user: String(source.user || source.username || "").trim() })).digest("hex") : "local:" + process.pid;
+            user: String(source.user || source.username || "").trim() })).digest("hex") : "";
         const endpointBinding = source ? crypto.createHash("sha256").update(JSON.stringify({
             host: String(source.networkHost || source.host || "").trim().toLowerCase(), port: Number(source.port || source.sshPort || 22),
             user: String(source.user || source.username || "").trim()
-        })).digest("hex") : "local";
-        const index = (0, ProjectFileIndex_1.projectFileIndex)({ workspace: root, endpointId, projectRoot, connection, endpointBinding }, storage);
+        })).digest("hex") : "";
+        // The local identity must come from the shared helper; a second literal here would drift and
+        // steal `owners` from LocalCodeManifestCache's read on the same storage file.
+        const identity = source ? { workspace: root, endpointId, projectRoot, connection, endpointBinding } : (0, ProjectFileIndex_1.localFileIndexIdentity)(root);
+        const index = (0, ProjectFileIndex_1.projectFileIndex)(identity, storage);
         this.projectFileIndexes.add(index);
         return index;
     }

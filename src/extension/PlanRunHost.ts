@@ -35,8 +35,16 @@ export class PlanRunHost {
     return String(output ?? "").replace(/\\/g, "/") + String.fromCharCode(0) + String(csv ?? "");
   }
 
-  /** Apply retired marks for confirmed hold targets and report declared targets that no longer exist in the queue; never silently skips a mismatch. */
-  static normalizeHoldTargets(selected: Array<{ output_dir?: unknown; result_csv?: unknown }>, queue: any): { queue: any; missing: string[] } {
+  /**
+   * Apply retired marks for confirmed hold targets and report declared targets that no longer exist in the queue;
+   * never silently skips a mismatch. The only exemption is a target whose own queue declaration the user already
+   * confirmed cleared: a formal cleared record (resultPathPolicy "declared" as written by removeConfirmedDistributedPlan,
+   * valid clearedAt, exact canonical project, same plan file) with no active receipt observed back from a Worker.
+   * Such a target has no queue fact left to fence — the user-confirmed isolation is the separation fact.
+   * Any unknown, incomplete, foreign-project, non-formal or reactivated record stays fail closed.
+   */
+  static normalizeHoldTargets(selected: Array<{ output_dir?: unknown; result_csv?: unknown }>, queue: any,
+    planFile?: string, projectId?: string): { queue: any; missing: string[] } {
     const wanted = new Set((selected || []).map(row => PlanRunHost.holdOutputKey(row.output_dir, row.result_csv)));
     const matched = new Set<string>();
     const next = { ...queue, plans: (queue?.plans || []).map((old: any) => ({ ...old, jobs: (old?.jobs || []).map((job: any) => {
@@ -46,7 +54,13 @@ export class PlanRunHost {
       return { ...job, outputRetiredAt: job.outputRetiredAt || new Date().toISOString(), artifacts: undefined,
         mirroredWorkerIds: [], fragmentWorkerIds: [] };
     }) })) };
-    return { queue: next, missing: [...wanted].filter(key => !matched.has(key)) };
+    const relative = (value: unknown) => String(value ?? "").replace(/\\/g, "/");
+    const cleared = planFile && projectId ? new Set((queue?.clearedJobs || []).filter((row: any) => row
+      && row.resultPathPolicy === "declared" && typeof row.projectId === "string" && row.projectId === projectId
+      && typeof row.clearedAt === "string" && Number.isFinite(Date.parse(row.clearedAt)) && !row.activeReceiptObservedAt
+      && relative(row.planFile) === relative(planFile))
+      .map((row: any) => PlanRunHost.holdOutputKey(row.outputDir, row.collectionResultCsv))) : new Set<string>();
+    return { queue: next, missing: [...wanted].filter(key => !matched.has(key) && !cleared.has(key)) };
   }
 
   async replace(plan: any, body: any, validation: any) {
@@ -137,7 +151,7 @@ export class PlanRunHost {
       hold: async (selected: any[]) => {
         // 归一化匹配后核实每个已确认目标都在队列声明中；真实不匹配显式失败且不写队列，禁止静默漏 retired。
         await h.saveDistributedQueue(this.root, undefined, { artifactMutation: true, mutateLatest: (queue: any) => {
-          const next = PlanRunHost.normalizeHoldTargets(selected, queue);
+          const next = PlanRunHost.normalizeHoldTargets(selected, queue, body.planFile, canonicalProjectId(this.root));
           if (next.missing.length) throw Error("HOLD_TARGET_NOT_FOUND：已确认的产物路径未在当前队列声明中找到（" + next.missing.length
             + " 项），队列未改动；请刷新后重新确认范围。");
           return next.queue;
