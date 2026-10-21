@@ -673,6 +673,9 @@ export class PlanCleanup {
     const action = params.action || "move";
     if (!["move", "delete", "isolate"].includes(action)) cleanupError("INVALID_ACTION");
     if (params.authorizationMode && !["delete", "isolate"].includes(action)) cleanupError("INVALID_ACTION");
+    // 配套引擎的确认路径链只授权永久删除（B cleanup-file-api.js:248：pathOnly && action !== "delete" → INVALID_ACTION）。
+    // 隔离与移动只保留本机确认路径语义，出站请求永不带 authorizationMode；永久删除的确认链不变。
+    const backendAuthorizationModeFor = (authorized?: "confirmed_paths") => action === "delete" ? authorized : undefined;
     const history = params.continuationOf ? await this.history(params.continuationOf, round) : [];
     if (history[0]?.continuedBy || history[0]?.restoredBy || history.some(row => row.preview.action !== action)) cleanupError("NOT_CONTINUABLE");
     const completed = await this.completedHistory(history, round);
@@ -766,12 +769,15 @@ export class PlanCleanup {
       if (node.error || !rows.length) return undefined;
       // Confirmed fast deletion travels one public preview request per ≤5000-target batch, serially per node;
       // the server chunks engine entry checks internally. Never one request per file.
-      const chunks = scope.authorizationMode === "confirmed_paths" ? chunkFastDeleteTargets(rows) : [rows];
+      // 隔离不得泄露确认路径授权；隔离按引擎非确认链的每请求 500 目标上限分批。
+      const backendAuthorizationMode = backendAuthorizationModeFor(scope.authorizationMode);
+      const chunks = backendAuthorizationMode === "confirmed_paths" ? chunkFastDeleteTargets(rows)
+        : action === "isolate" ? chunkFastDeleteTargets(rows, 500) : [rows];
       notify({ phase: "nodes", message: node.id + "：只读预检 " + rows.length + " 个精确目标" + (chunks.length > 1 ? "（" + chunks.length + " 个有界批次）" : "") + "…", total: scope.nodes.length });
       const reads: any[] = [];
       for (const [index, chunk] of chunks.entries()) {
         if (chunks.length > 1) notify({ phase: "nodes", message: node.id + "：分批只读预检 " + (index + 1) + "/" + chunks.length + "…", total: scope.nodes.length });
-        reads.push(await this.ports.sftp("files.cleanup.preview", { node, action, observationMode: scope.observationMode, authorizationMode: scope.authorizationMode,
+        reads.push(await this.ports.sftp("files.cleanup.preview", { node, action, observationMode: scope.observationMode, authorizationMode: backendAuthorizationMode,
           targets: chunk.map(row => ({ relativePath: row.relativePath, type: row.type, destination: row.destination,
             expectedSha256: row.expectedSha256, expectedOwner: row.expectedOwner, archiveBatch: row.archiveBatch, requiredInputs: row.requiredInputs })) }));
       }
@@ -823,7 +829,7 @@ export class PlanCleanup {
           // a new capability containing only the paths the user can approve here.
           const approved = chunkRows.filter(row => row.disposition === action);
           if (approved.length && chunkRows.some(row => row.disposition === "protected")) {
-            const exact = await this.ports.sftp("files.cleanup.preview", { node, action, observationMode: scope.observationMode, authorizationMode: scope.authorizationMode,
+            const exact = await this.ports.sftp("files.cleanup.preview", { node, action, observationMode: scope.observationMode, authorizationMode: backendAuthorizationModeFor(scope.authorizationMode),
               targets: approved.map(row => ({ relativePath: row.relativePath, type: row.type, destination: row.destination,
                 expectedSha256: row.expectedSha256, expectedOwner: row.expectedOwner, archiveBatch: row.archiveBatch, requiredInputs: row.requiredInputs })) });
             if (scope.authorizationMode === "confirmed_paths" && action === "delete") assertFastDeletePreviewSafety(exact.safety, approved.length);

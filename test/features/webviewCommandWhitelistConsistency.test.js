@@ -60,6 +60,7 @@ test("training recovery click reaches the Host dispatcher with its exact target 
   const dispatch = vm.runInNewContext(gate + '\n({' + handler + '})', {
     console: { log() {} }, stringField: (message, key) => String(message[key] || ''),
     commandNeedsUiStatus: () => true, hostOperationLeaseActionForUiCommand: () => '',
+    readOnlyHostLeaseUiCommand: () => false,
   }).handleMessage;
   const message = { command: 'retryDistributedJob', clientActionId: 'recovery-click', planId: 'run', jobIndex: 0 };
   let received, statusChannel;

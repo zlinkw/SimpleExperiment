@@ -1317,6 +1317,7 @@ test("handleMessage posts the real stop-clear outcome for failed, cancelled, and
     booleanField: () => false,
     debugModeBlockedUiCommand: () => false,
     hostOperationLeaseActionForUiCommand: () => "stopAndClearPlan",
+    readOnlyHostLeaseUiCommand: () => false,
     hostOperationLeaseActionLabel: () => "终止并清理",
     commandNeedsUiStatus: () => true,
     PLAN_SUBMISSION_COMMANDS: new Set(["runPlan", "reproducePlan"]),

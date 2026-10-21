@@ -4393,6 +4393,7 @@ const assessment=TopologyMode_1.assessProjectTopology(mode,{hubConfigured:false,
                 actionType,
                 actionLabel,
                 resources: options.resources,
+                readOnly: options.readOnly === true,
                 waitForConflict: options.waitForConflict === true,
                 signal: options.signal,
             }, operation);
@@ -5447,14 +5448,14 @@ return this.testTunnel(true);
         if (clientActionId && commandNeedsUiStatus(command)) {
             const leaseAction = hostOperationLeaseActionForUiCommand(command);
             const work = leaseAction
-                ? () => this.withHostOperationLease(leaseAction, hostOperationLeaseActionLabel(command), () => this.handleMessageCore(message, command), { planFile: message.planFile || message.path })
+                ? () => this.withHostOperationLease(leaseAction, hostOperationLeaseActionLabel(command), () => this.handleMessageCore(message, command), { planFile: message.planFile || message.path, readOnly: readOnlyHostLeaseUiCommand(command) })
                 : () => this.handleMessageCore(message, command);
             await this.withUiCommandStatus(clientActionId, command, message, () => this.withSafeTransferRetry(command, message, work));
             return;
         }
         const leaseAction = hostOperationLeaseActionForUiCommand(command);
         if (leaseAction) {
-            await this.withHostOperationLease(leaseAction, hostOperationLeaseActionLabel(command), () => this.handleMessageCore(message, command), { planFile: message.planFile || message.path });
+            await this.withHostOperationLease(leaseAction, hostOperationLeaseActionLabel(command), () => this.handleMessageCore(message, command), { planFile: message.planFile || message.path, readOnly: readOnlyHostLeaseUiCommand(command) });
             return;
         }
         await this.handleMessageCore(message, command);
@@ -8485,6 +8486,9 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
         const serverSelected = normalizeMirrorScopePaths(config.get<string[]>("serverSync.paths", ["."]));
         const targets = this.workerCodeSyncTargets();
         const scopeClient = this.client;
+        // 面板交给文件树的写回调是异步的，闭包里的 root/config/targets 都是打开那一刻的；
+        // 所以这里同时捕获项目上下文身份，写入口在取租约之前先核身份，避免用新项目的锁保护旧项目的写。
+        const scopeIdentity = { projectContext: this.captureProjectContext(), client: scopeClient, root };
         const scopeViewId = crypto.randomUUID();
         const automaticContent = { local: new AutomaticScopeContent(), workers: new AutomaticScopeContent() };
         const localScopeIndex = new SyncScopeLocalIndexReader(root, 30_000, this.projectFileObservationIndex());
@@ -8514,18 +8518,26 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 (id, signal, report) => scopeIndexReaders.get("local:" + id)!.inventory(round || "local-0", signal, report),
                 progress => localScopeIndex.read(scopeViewId + ":" + (round || "local-0"), signal, progress), automaticContent.local),
             dispose: () => { for (const reader of scopeIndexReaders.values()) reader.dispose(); },
-            remove: async (relative, endpointId, directory, report) => this.removeSyncScopePath(root, targets, relative, endpointId, directory, report),
-            removeAllWorkers: async (relative, directory, report) => this.removeSyncScopePathFromAllWorkers(root, targets, relative, directory, report),
-            retain: async (relative, endpointId, directory, report) => this.retainSyncScopeVersion(root, targets, relative, endpointId, directory, report),
-            batch: async (action, selected, excluded, report, knownEntries) => this.runSyncScopeTreeBatch(root, targets, true, action, selected, excluded, report, knownEntries),
-            save: async (paths, excluded = []) => {
+            remove: (relative, endpointId, directory, report) => this.withSyncScopeWriteLease(scopeIdentity, "同步范围：移除路径",
+                () => this.removeSyncScopePath(root, targets, relative, endpointId, directory, report)),
+            removeAllWorkers: (relative, directory, report) => this.withSyncScopeWriteLease(scopeIdentity, "同步范围：从全部 Worker 移除",
+                () => this.removeSyncScopePathFromAllWorkers(root, targets, relative, directory, report)),
+            retain: (relative, endpointId, directory, report) => this.withSyncScopeWriteLease(scopeIdentity, "同步范围：保留版本",
+                () => this.retainSyncScopeVersion(root, targets, relative, endpointId, directory, report)),
+            batch: (action, selected, excluded, report, knownEntries) => this.withSyncScopeWriteLease(scopeIdentity, "同步范围：批量" + (action === "delete" ? "删除" : "同步"),
+                () => this.runSyncScopeTreeBatch(root, targets, true, action, selected, excluded, report, knownEntries)),
+            save: (paths, excluded = []) => this.withSyncScopeWriteLease(scopeIdentity, "保存本机与 Worker 同步范围", async () => {
                 if (paths.includes(".")) throw new Error("本机项目根目录会包含产物和预训练权重，请选择具体文件或目录。");
+                // 同步范围在传输过程中会被后续阶段重新读取，因此本轮进行中保存会悄悄改变正在执行的文件集；
+                // 本窗口的传输忙态只能证明本窗口；其他窗口的真实持有者由外层写租约核实并按名拒绝，只读查看不受影响。
+                if (this.syncScopeMutationInFlight || this.planSyncInFlight || this.codeSyncInFlight)
+                    throw new Error("本窗口正在上传、同步或修改文件树。本轮会使用开始时已读取的范围；现在保存会改变它尚未完成的阶段，请等本轮结束后重试。");
                 const normalized = await expandSelectedLocalScope(root, paths, excluded);
                 if (normalized.length) await collectExplicitCodeFiles(root, normalized);
                 await config.update("codeSync.scopePaths", normalized, vscode.ConfigurationTarget.WorkspaceFolder);
                 localSelected.splice(0, localSelected.length, ...normalized);
                 void vscode.window.showInformationMessage(`本机与服务器同步范围已保存：${normalized.length} 条路径。`);
-            },
+            }),
         }, {
             id: "workers", label: "Worker ↔ Worker", detail: "默认勾选用于批量同步或删除；自动传输范围请点击“编辑同步范围”后保存，默认整个项目，机器状态除外。自动校验内容，未变化文件复用哈希。",
             selected: serverSelected,
@@ -8535,23 +8547,28 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
             refresh: async (relative, signal, report) => this.refreshSyncScopeStatus(root, targets, "server-server", ["."], relative, signal, report),
             summary: async (relative, signal, report, publish, round) => this.refreshSyncScopeMetadata(root, targets, false, relative, signal, report, publish,
                 (id, signal, report) => scopeIndexReaders.get("workers:" + id)!.inventory(round || "workers-0", signal, report), undefined, automaticContent.workers),
-            remove: async (relative, endpointId, directory, report) => {
+            remove: (relative, endpointId, directory, report) => this.withSyncScopeWriteLease(scopeIdentity, "Worker 同步范围：移除路径", async () => {
                 if (endpointId === "local") throw new Error("Worker ↔ Worker 模式不能操作本机文件。");
                 return this.removeSyncScopePath(root, targets, relative, endpointId, directory, report);
-            },
-            removeAllWorkers: async (relative, directory, report) => this.removeSyncScopePathFromAllWorkers(root, targets, relative, directory, report),
-            retain: async (relative, endpointId, directory, report) => {
+            }),
+            removeAllWorkers: (relative, directory, report) => this.withSyncScopeWriteLease(scopeIdentity, "同步范围：从全部 Worker 移除",
+                () => this.removeSyncScopePathFromAllWorkers(root, targets, relative, directory, report)),
+            retain: (relative, endpointId, directory, report) => this.withSyncScopeWriteLease(scopeIdentity, "Worker 同步范围：保留版本", async () => {
                 if (endpointId === "local") throw new Error("Worker ↔ Worker 模式不能使用本机文件作为来源。");
                 return this.retainSyncScopeVersion(root, targets, relative, endpointId, directory, report, false, targets.map((target) => target.id));
-            },
-            mergeLatest: async (relative, report) => this.mergeLatestWorkerVersions(root, targets, serverSelected, relative, report),
-            batch: async (action, selected, excluded, report, knownEntries) => this.runSyncScopeTreeBatch(root, targets, false, action, selected, excluded, report, knownEntries),
-            save: async (paths) => {
+            }),
+            mergeLatest: (relative, report) => this.withSyncScopeWriteLease(scopeIdentity, "Worker 同步范围：合并最新版",
+                () => this.mergeLatestWorkerVersions(root, targets, serverSelected, relative, report)),
+            batch: (action, selected, excluded, report, knownEntries) => this.withSyncScopeWriteLease(scopeIdentity, "Worker 同步范围：批量" + (action === "delete" ? "删除" : "同步"),
+                () => this.runSyncScopeTreeBatch(root, targets, false, action, selected, excluded, report, knownEntries)),
+            save: (paths) => this.withSyncScopeWriteLease(scopeIdentity, "保存 Worker 之间同步范围", async () => {
+                if (this.syncScopeMutationInFlight || this.planSyncInFlight || this.codeSyncInFlight)
+                    throw new Error("本窗口正在上传、同步或修改文件树。本轮会使用开始时已读取的范围；现在保存会改变它尚未完成的阶段，请等本轮结束后重试。");
                 const normalized = normalizeMirrorScopePaths(paths);
                 await config.update("serverSync.paths", normalized, vscode.ConfigurationTarget.WorkspaceFolder);
                 serverSelected.splice(0, serverSelected.length, ...normalized);
                 void vscode.window.showInformationMessage(`服务器之间同步范围已保存：${normalized.includes(".") ? "整个项目" : `${normalized.length} 条路径`}。`);
-            },
+            }),
         }]);
         const announceScope = (text) => { void scopePanel?.webview.postMessage({ type: "scopeLoading", message: text }); };
         announceScope(Array.isArray(savedScope) ? "已打开已保存的同步范围。展开目录后按需读取。" : "标签页已打开。尚未保存范围，正在后台枚举默认同步文件…");
@@ -8562,6 +8579,34 @@ throw new Error("HUB_REMOVED：Hub 功能已移除，请选择 Worker。");
                 void scopePanel?.webview.postMessage({ type: "scopeSelected", rootId: "local", paths: discovered, message: `默认同步文件已载入 ${discovered.length} 条。展开目录即可浏览，刷新后才计算哈希。` });
             }).catch((error) => announceScope(`默认同步文件枚举失败：${errorMessage(error)}`));
         }
+    }
+    /**
+     * 同步范围面板写入口的统一包装：在任何配置、磁盘或远端副作用之前取得宿主写租约，并覆盖整个异步区间。
+     * 只读查看（打开面板、展开列目录、刷新/校验、取消）不走这里，因此其他窗口长传输期间仍可打开查看。
+     * 同一窗口的嵌套调用由宿主租约管理器的同窗口重入引用计数复用，不会自冲突；确实存在其他持有者时
+     * 按租约记录里的真实插件/窗口/动作拒绝。本窗口自身的传输忙态仍由各调用处的忙态守卫兜底。
+     */
+    async withSyncScopeWriteLease(scopeIdentity, actionLabel, operation) {
+        // 写回调闭包里的 root/config/targets 属于打开面板那一刻的项目；一旦工作区、项目上下文或连接切换，
+        // 继续写入就会变成“拿当前项目的写租约去保护旧项目的配置/磁盘/远端副作用”，锁与写入对象根本不是同一个项目。
+        // 因此这里在进入租约之前先按现有 captureProjectContext/projectContextIsCurrent 机制核身份，不一致就直接拒绝，
+        // 既不写任何东西，也不登记任何租约记录；只读查看与取消不受影响。
+        if (!this.projectContextIsCurrent(scopeIdentity?.projectContext))
+            throw new Error("当前工作区或项目已切换，旧的同步范围窗口不再写入。请重新打开项目同步范围后重试。");
+        if (scopeIdentity.client !== this.client)
+            throw new Error("当前连接已切换，旧的同步范围窗口不再写入。请重新打开项目同步范围后重试。");
+        // 写入目标是打开时捕获的那个工作区文件夹，因此这里按同一个工作区文件夹核身份，
+        // 不把宿主/容器路径映射混进比较；映射改变也会因工作区文件夹不同而被拒绝。
+        const folders = Array.isArray(vscode.workspace.workspaceFolders) ? vscode.workspace.workspaceFolders : [];
+        if (folders.length !== 1 || folders[0]?.uri?.fsPath !== scopeIdentity.root)
+            throw new Error("同步范围窗口所属项目与当前工作区不一致，已拒绝写入。请重新打开项目同步范围后重试。");
+        // 租约资源按宿主写入身份（与 publishGithub 等宿主写者同源）登记，确保锁的是真正被写的那个项目。
+        const root = currentHostOperationLeaseContext().hostProjectPath;
+        // actionType 不能命中 withHostOperationLease 开头的传输类前缀免租名单（sync/upload/refresh 等），
+        // 否则会被当成传输编排直接跳过租约；因此固定用一个不匹配任何前缀的编辑类动作名。
+        // 租约资源一律按“当前且已核实为同一个项目”的宿主根登记，与 publishGithub 等项目级写者互斥。
+        return this.withHostOperationLease("editSyncScope", actionLabel, operation,
+            { resources: [{ server: "local", project: root, target: root }] });
     }
     async configureServerSyncScope() {
         await this.configureCodeSyncIncludes();
@@ -27051,6 +27096,18 @@ function hostOperationLeaseActionForUiCommand(command) {
     if (actionCommandMap[command])
         return "";
     return hostOperationUiCommands.has(command) ? command : "";
+}
+/**
+ * 只读查看入口：展示当前配置与状态，不写目标、不改传输文件集，因此不得占用宿主独占租约；
+ * 否则同窗口或其他窗口的上传/同步长操作会把一个纯查看入口弹“窗口被占用”拒绝。
+ * 写入类命令仍照旧取独占租约；面板内的真正写回调（保存/批量/删除/保留版）继续走各自的进行中守卫。
+ */
+const READ_ONLY_HOST_LEASE_UI_COMMANDS = new Set([
+    "configureCodeSyncIncludes",
+    "configureServerSyncScope",
+]);
+function readOnlyHostLeaseUiCommand(command) {
+    return READ_ONLY_HOST_LEASE_UI_COMMANDS.has(String(command || ""));
 }
 const HOST_OPERATION_LEASE_ACTION_LABELS = Object.freeze({
     refreshJobArtifacts: "刷新产物状态",

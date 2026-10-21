@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "version": "0.5.395",
-  "buildId": "efbcfdded4af22e67a1c49af24a492f219d17ad96882149123906ef3b0d99045",
+  "version": "0.5.396",
+  "buildId": "5bc44809093e259699ce6a3ff16daf95c58aa6fd222cd778f862d78adb94a639",
   "files": [
     {
       "path": "dist/api/LocalApiServer.js",
@@ -197,7 +197,7 @@
     },
     {
       "path": "dist/extension/legacy.js",
-      "sha256": "fcf070dbb9ae22bfad7edb26353391151c0d967e4d8ccba7107207cc821cba2b"
+      "sha256": "861e8a37d79506bb6e956acd49dd27d237d1b0499bcd73a12adb3e3be42858d2"
     },
     {
       "path": "dist/extension/ManualDispatchHost.js",
@@ -501,7 +501,7 @@
     },
     {
       "path": "dist/features/PlanCleanup.js",
-      "sha256": "86c13f62d6da2c5d76764767c3f771405ca6a081d72819be0828f6a08b5ba8b4"
+      "sha256": "cc311dfe593ab52f792d96407db2826793a44985dbd1201948c794f6bb228ca5"
     },
     {
       "path": "dist/features/PlanCleanupEvidence.js",
@@ -741,7 +741,7 @@
     },
     {
       "path": "dist/runtime/RuntimeManifest.js",
-      "sha256": "292726fbefafb97388ec91a20ebe40700e28cbdc97828c76c220d986db584c51"
+      "sha256": "68f001260814e464ad90a1634e4d537ae8a0797f8fa0792961943bb587e8224d"
     },
     {
       "path": "dist/security/RemotePathPolicy.js",
@@ -1089,7 +1089,7 @@
     },
     {
       "path": "package.json",
-      "sha256": "8a60e2203f871ed46e39d34c46cda25e7ae6d6707aae11e1b1bacaa58f0c2137"
+      "sha256": "f0835397b4e5367c6ef77dbe1dfeea9857ec98ff1d88221c0979c70e28bb469f"
     },
     {
       "path": "scripts/check-static.js",
