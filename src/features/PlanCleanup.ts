@@ -15,7 +15,13 @@ export type CleanupCandidate = { nodeId: string; relativePath: string; type: "fi
   requiredInputs?: string[];
   expectedOwner?: { workflowId: string; commandId: string; workerId: string; outputDir: string; attempt?: number; case: string; seed: number;
     resultPathPolicy?: "declared"; globalJobId?: string; planRevision?: string; codeFingerprint?: string; index?: number; collectionResultCsv?: string; expectedState?: string } };
-export type CleanupScope = { projectId: string; planKey: string; planFile: string; planHash: string; runIds: string[]; machineStatePrefixes?: string[];
+export type CleanupScope = { projectId: string; planKey: string; planFile: string; planHash: string; runIds: string[];
+  // Machine-state guard PER NODE (endpoint identity), never one unioned list:
+  // WorkerA mapping state under run/state must not protect (or expose) a
+  // same-spelled legitimate artifact on WorkerB or locally. `unknown` marks a
+  // node whose explicit config could not be canonicalized — its candidates are
+  // protected, not silently allowed.
+  machineStateByNode?: Record<string, { prefixes: string[]; unknown: boolean }>;
   authorizationMode?: "confirmed_paths";
   associationBlockers?: CleanupScope["blockers"];
   observationMode?: "managed_tmux";
@@ -167,7 +173,9 @@ export function classifyCleanupCandidates(scope: CleanupScope): CleanupCandidate
     // (ProjectRootMap), so a legitimate work_dirs/... tree or an unmapped
     // directory called "state" is never touched. Ancestors are protected too:
     // deleting a parent directory of the state root would destroy machine state.
-    if (isUnderMachineStatePrefixes(rel, scope.machineStatePrefixes || [], true)) row.scopeProtectedReason ||= "机器状态（运行时状态根，非科研产物，不可清理）";
+    const guard = scope.machineStateByNode?.[String(row.nodeId || "")];
+    if (guard?.unknown) row.scopeProtectedReason ||= "机器状态映射不可用（配置无效），暂不可清理";
+    else if (guard && isUnderMachineStatePrefixes(rel, guard.prefixes, true)) row.scopeProtectedReason ||= "机器状态（运行时状态根，非科研产物，不可清理）";
     // A PLAN review cannot expand into shared configuration or the PLAN itself.
     // This restriction is separate from ownership warnings on exact artifact paths.
     if (row.scopeProtectedReason) { row.protectedReason = row.scopeProtectedReason; return row; }

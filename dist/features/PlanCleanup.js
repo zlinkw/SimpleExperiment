@@ -174,7 +174,10 @@ function classifyCleanupCandidates(scope) {
         // (ProjectRootMap), so a legitimate work_dirs/... tree or an unmapped
         // directory called "state" is never touched. Ancestors are protected too:
         // deleting a parent directory of the state root would destroy machine state.
-        if ((0, ProjectRootMap_1.isUnderMachineStatePrefixes)(rel, scope.machineStatePrefixes || [], true))
+        const guard = scope.machineStateByNode?.[String(row.nodeId || "")];
+        if (guard?.unknown)
+            row.scopeProtectedReason ||= "机器状态映射不可用（配置无效），暂不可清理";
+        else if (guard && (0, ProjectRootMap_1.isUnderMachineStatePrefixes)(rel, guard.prefixes, true))
             row.scopeProtectedReason ||= "机器状态（运行时状态根，非科研产物，不可清理）";
         // A PLAN review cannot expand into shared configuration or the PLAN itself.
         // This restriction is separate from ownership warnings on exact artifact paths.

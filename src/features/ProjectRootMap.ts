@@ -23,6 +23,12 @@ export type ProjectRootMap = {
   stateRoot: string;
   codeRoot: string;
   artifactRoots: string[];
+  // "unknown" whenever an EXPLICITLY supplied root was invalid (relative,
+  // escaping past its root, or otherwise uncanonicalizable). Consumers that
+  // write to or delete from a mapped state location must fail closed on
+  // "unknown" instead of silently treating the endpoint as safe.
+  mapping: "resolved" | "unknown";
+  unknownFields: string[];
 };
 
 export type ProjectRootMapInput = {
@@ -35,10 +41,38 @@ export type ProjectRootMapInput = {
 
 const POSIX_SEPARATOR = /[\\/]+/;
 
-function normalizeRemotePath(value: string): string {
+/** Canonical absolute remote path per the contract's accepted shapes (POSIX
+ * absolute or a Windows drive root with either separator). Every segment is
+ * normalized — separators unified, repeats collapsed, "." dropped and ".."
+ * folded against the segment stack — and a mapping that would climb above the
+ * filesystem/drive root, or that is relative or empty, is REJECTED instead of
+ * being mapped to a surprising or empty prefix. Real physical-link checks stay
+ * in the existing validation layer; this function only fixes spelling, never
+ * resolves symlinks. */
+export function canonicalRemotePath(value: string): { ok: true; path: string } | { ok: false; reason: "empty" | "relative" | "escaping" } {
   const text = String(value || "").trim().replace(/\\/g, "/").replace(/\/{2,}/g, "/");
-  const lowered = /^[a-z]:\//i.test(text) ? text[0].toLowerCase() + text.slice(1) : text;
-  return lowered.replace(/\/+$/, "") || lowered;
+  if (!text) return { ok: false, reason: "empty" };
+  let rootPrefix = "";
+  let body = text;
+  if (text.startsWith("/")) rootPrefix = "/";
+  else if (/^[A-Za-z]:(\/|$)/.test(text)) { rootPrefix = text[0].toLowerCase() + ":/"; body = text.slice(2); }
+  else return { ok: false, reason: "relative" };
+  const stack: string[] = [];
+  for (const part of body.split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") {
+      if (!stack.length) return { ok: false, reason: "escaping" };
+      stack.pop();
+      continue;
+    }
+    stack.push(part);
+  }
+  return { ok: true, path: rootPrefix + stack.join("/") };
+}
+
+function normalizeRemotePath(value: string): string {
+  const canonical = canonicalRemotePath(value);
+  return canonical.ok ? canonical.path : "";
 }
 
 /** Stable project identity: an explicit id wins; otherwise the normalized root
@@ -54,22 +88,46 @@ export function projectIdentityKey(input: ProjectRootMapInput): string {
  * stateRoot defaults to <installDir>/state exactly like default_agent_state_dir
  * on the Agent, and artifact roots stay relative to the code root. */
 export function resolveProjectRootMap(input: ProjectRootMapInput): ProjectRootMap {
-  const codeRoot = normalizeRemotePath(String(input.projectDir || ""));
-  const programRoot = normalizeRemotePath(String(input.installDir || ""));
-  const stateRoot = normalizeRemotePath(String(input.stateDir || ""))
-    || (programRoot ? path.posix.join(programRoot, "state") : "");
-  const artifactRoots = [...new Set((input.artifactDirs || [])
-    .map(item => normalizeRemotePath(String(item || "")))
-    .filter(item => item.length > 0))];
-  return { identity: projectIdentityKey(input), programRoot, stateRoot, codeRoot, artifactRoots };
+  const unknownFields: string[] = [];
+  const read = (field: string, raw: string, required: boolean): string => {
+    const text = String(raw || "").trim();
+    if (!text) {
+      // An absent optional root stays neutral; a missing REQUIRED code root
+      // leaves the whole mapping unknown (nothing can be relative to it).
+      if (required) unknownFields.push(field);
+      return "";
+    }
+    const canonical = canonicalRemotePath(text);
+    if (!canonical.ok) { unknownFields.push(field); return ""; }
+    return canonical.path;
+  };
+  const codeRoot = read("codeRoot", String(input.projectDir || ""), true);
+  const programRoot = read("programRoot", String(input.installDir || ""), false);
+  const explicitState = String(input.stateDir || "").trim();
+  const stateRoot = explicitState
+    ? read("stateRoot", explicitState, false)
+    : (programRoot ? (programRoot === "/" ? "/state" : programRoot + "/state") : "");
+  const artifactRoots = [...new Set((input.artifactDirs || []).reduce<string[]>((acc, item) => {
+    const text = String(item || "").trim();
+    if (!text) return acc;
+    const canonical = canonicalRemotePath(text);
+    if (!canonical.ok) { unknownFields.push("artifactRoots"); return acc; }
+    acc.push(canonical.path);
+    return acc;
+  }, []))];
+  return { identity: projectIdentityKey(input), programRoot, stateRoot, codeRoot, artifactRoots,
+    mapping: unknownFields.length ? "unknown" : "resolved", unknownFields };
 }
 
 /** True when an absolute path lives under the mapped machine state root. */
 export function isMachineStateAbsolute(roots: ProjectRootMap, target: string): boolean {
   const stateRoot = roots.stateRoot;
   if (!stateRoot) return false;
-  const text = normalizeRemotePath(target);
-  return text === stateRoot || text.startsWith(stateRoot + "/");
+  const canonical = canonicalRemotePath(target);
+  if (!canonical.ok) return false; // invalid absolute targets are not "inside"; callers must not guess
+  const text = canonical.path;
+  if (!sameRootSpace(text, stateRoot)) return false;
+  return text === stateRoot || stateRoot === "/" || text.startsWith(stateRoot + "/");
 }
 
 function posixRelative(fromRoot: string, target: string): string | null {
@@ -77,17 +135,28 @@ function posixRelative(fromRoot: string, target: string): string | null {
   // the state root lives OUTSIDE the code root (then no relative enumeration can
   // ever reach it and no relative exclusion is needed), or "" when they are equal
   // (a pathological mapping that covers the whole project; callers must treat
-  // that as "everything under the code root is machine state").
-  const base = normalizeRemotePath(fromRoot).split("/").filter(Boolean);
-  const goal = normalizeRemotePath(target).split("/").filter(Boolean);
-  if (!goal.length) return null;
+  // that as "everything under the code root is machine state"). Both inputs are
+  // already canonical (folded, no "..", unified root spelling), so a plain
+  // segment-prefix comparison is exact, and a drive root never compares equal
+  // to a POSIX root.
+  const base = fromRoot.split("/").filter(Boolean);
+  const goal = target.split("/").filter(Boolean);
+  const baseIsRoot = !base.length; // code root IS the filesystem/drive root
+  if (!goal.length) return baseIsRoot ? "" : null; // state root at "/" under a deeper code root: outside
   let shared = 0;
   while (shared < base.length && shared < goal.length && base[shared] === goal[shared]) shared += 1;
-  if (!shared) return null;
-  const up = base.length - shared;
-  const rest = goal.slice(shared);
-  if (up > 0) return null; // outside the code root on a different branch
-  return rest.join("/");
+  if (!baseIsRoot) {
+    if (shared < base.length) return null; // state not beneath the code root (different branch or ancestor)
+    if (goal.length === base.length) return "";
+    return goal.slice(base.length).join("/");
+  }
+  return goal.join("/");
+}
+
+/** Same root-space test used for containment: drive-letter roots and POSIX
+ * roots are different spaces and never contain one another. */
+function sameRootSpace(left: string, right: string): boolean {
+  return /^[a-z]:\//i.test(left) === /^[a-z]:\//i.test(right);
 }
 
 /**
@@ -98,11 +167,22 @@ function posixRelative(fromRoot: string, target: string): string | null {
  * excluded exactly by its mapped prefix. An empty list means the state root is
  * outside the code root and relative enumeration cannot reach it.
  */
-export function machineStateRelativePrefixes(map: ProjectRootMap): string[] {
-  if (!map.stateRoot || !map.codeRoot) return [];
+/** Full guard view: the derived relative prefixes PLUS whether the mapping is
+ * unknown (an explicitly supplied root was invalid). Exclusion consumers may
+ * use `prefixes`; any consumer that WRITES to or DELETES at a state-adjacent
+ * location must consult `unknown` and fail closed instead of reading an empty
+ * prefix list as "nothing is machine state here". */
+export function machineStateGuard(map: ProjectRootMap): { prefixes: string[]; unknown: boolean } {
+  const unknown = map.mapping === "unknown";
+  if (!map.stateRoot || !map.codeRoot) return { prefixes: [], unknown };
+  if (!sameRootSpace(map.stateRoot, map.codeRoot)) return { prefixes: [], unknown };
   const rel = posixRelative(map.codeRoot, map.stateRoot);
-  if (rel === null) return [];
-  return [rel];
+  if (rel === null) return { prefixes: [], unknown };
+  return { prefixes: [rel], unknown };
+}
+
+export function machineStateRelativePrefixes(map: ProjectRootMap): string[] {
+  return machineStateGuard(map).prefixes;
 }
 
 /**

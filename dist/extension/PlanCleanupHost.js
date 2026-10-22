@@ -217,25 +217,29 @@ class PlanCleanupHost {
         const evidenceQueue = job?.purpose === "replace_outputs" ? (0, PlanOutputReplacement_1.replacementEvidenceQueue)(queue, snapshots, (0, DistributedPlanQueue_1.canonicalProjectId)(this.root)) : queue;
         const scope = await (0, PlanCleanupEvidence_1.collectPlanCleanupEvidence)({ root: this.root, planFile: file, queue: evidenceQueue, ledger, registry,
             resultDir: this.host.resultCsvDirectory || "experiments/results", nodes, snapshots: snapshots.map(PlanOutputReplacement_1.cleanupTaskEvidence), operations, allowMissing, archivedFiles, removedMetadata, job });
-        // Four-root cleanup guard from real Worker configuration: each remote node
-        // resolves through the same four-root map as the sync gates (workDir +
-        // installDir → machine state root); candidates under a mapped prefix AND its
-        // ancestors become scope-protected, so deleting an ancestor directory can
-        // never reach machine state. Unmapped nodes keep the previous evidence-based
-        // protection untouched; nothing is migrated or moved.
-        const machineStatePrefixes = new Set();
+        // Four-root cleanup guard bound to EACH node's identity (never a union:
+        // one Worker's nested state root must not protect or expose another node's
+        // same-spelled artifact). Each node resolves through the same four-root map
+        // as the sync gates (workDir + installDir → machine state root); candidates
+        // under that node's mapped prefix AND its ancestors become scope-protected,
+        // so deleting an ancestor directory can never reach machine state. A node
+        // whose explicit config cannot be canonicalized reports unknown and is
+        // protected fail-closed; a merely unmapped (neutral) node keeps the previous
+        // evidence-based protection untouched. Nothing is migrated or moved.
+        const machineStateByNode = {};
         for (const node of nodes) {
-            if (node.kind === "local")
-                continue;
             try {
                 const dirs = typeof this.host.agentRuntimeDirs === "function" ? this.host.agentRuntimeDirs(node.root, undefined) : null;
                 const map = (0, ProjectRootMap_1.resolveProjectRootMap)({ projectDir: node.root, installDir: String(dirs?.installDir || "") });
-                for (const prefix of (0, ProjectRootMap_1.machineStateRelativePrefixes)(map))
-                    machineStatePrefixes.add(prefix);
+                const guard = (0, ProjectRootMap_1.machineStateGuard)(map);
+                machineStateByNode[String(node.id)] = guard;
+                if (guard.unknown)
+                    scope.blockers.push({ code: "MACHINE_STATE_MAPPING_UNRESOLVED", nodeId: String(node.id),
+                        detail: "该节点的状态根配置无法规范化（相对/越界路径），本轮清理已整体禁用该节点；请修正配置后重试。" });
             }
             catch { /* an unmapped node keeps only the previous evidence-based protection */ }
         }
-        scope.machineStatePrefixes = [...machineStatePrefixes];
+        scope.machineStateByNode = machineStateByNode;
         if (job?.purpose === "replace_outputs") {
             const owner = evidenceQueue.plans.find((plan) => plan.id === job.workflowId)?.jobs.find((row) => row.commandId === job.commandId);
             const snapshot = snapshots.find(row => row.workerId === owner?.workerId);

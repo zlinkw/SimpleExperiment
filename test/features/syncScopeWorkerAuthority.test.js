@@ -12,6 +12,8 @@ function method(name,globals={}){let member;function visit(n){if(ts.isMethodDecl
  loadSyncHolds:async()=>({[file]:{endpointId:'w2',codeOwned:true,directory:false}}),isLocalCodeOwnedPath:()=>true,
  vscode:{workspace:{getConfiguration:()=>({get:(_key,fallback)=>fallback})},Uri:{file:x=>x}},workerFpsyncTaskLabel:()=>'',...globals});}
 function host(){const calls=[];return {calls,context:{globalStorageUri:{fsPath:'unused'}},
+ // Endpoint machine-state guards default to "no mapping configured" (neutral).
+ localMachineStateGuard:()=>({prefixes:[],unknown:false}),targetRootGuard:()=>null,machineStatePrefixesById:()=>[],machineStatePrefixesForTarget:()=>[],
  sftpServerOptions:row=>({...row,host:row.id+'.invalid',remotePath:'/project',user:'u',port:22}),
  simpleSftpCapability:async name=>calls.push({capability:name}),assertSshTransportIdentities:async()=>{},
  verifiedSftpProjectInventory:async()=>({files}),readScopedProjectInventory:async()=>files,loadSyncScopeBatchSourceFiles:async()=>files,

@@ -18,6 +18,8 @@ function fixture(){
  inventory.b['work_dirs/p/job0/model.pth']={sha256:'b'.repeat(64),size:3,modifiedAtMs:999};
  const config={get:(_k,fallback)=>fallback};let lost=false;
  const h={context:{globalStorageUri:{fsPath:root}},workerCodeSyncTargets:()=>targets,enabledWorkerConfigs:()=>targets,loadDistributedQueue:async()=>structuredClone(queue),
+  // Endpoint machine-state guards: fixture endpoints carry no state mapping.
+  localMachineStateGuard:()=>({prefixes:[],unknown:false}),targetRootGuard:()=>null,machineStatePrefixesById:()=>[],machineStatePrefixesForTarget:()=>[],
  client:{getWorkerTasks:async()=>{reads.sync++;throw Error('产物同步不得查询 job 状态');}},
  sftpServerOptions:row=>row,recordActionError:r=>errors.push(r),assertSshTransportIdentities:async()=>{},
  refreshSyncScopeStatus:async(_root,_targets,_mode,scopes)=>{reads.inventory++;return buildScopeStatuses({local:{},workers:Object.fromEntries(Object.entries(inventory).map(([id,files])=>[id,Object.fromEntries(Object.entries(files).filter(([file])=>scopes.some(scope=>file===scope||file.startsWith(scope+'/'))))]))},'server-server',scopes,new Set(),{entries:{}});},
